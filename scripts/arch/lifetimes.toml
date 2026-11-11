@@ -439,6 +439,15 @@ default = "scene"
 reason = "marker textures and icon tables, dropped by ResetForSceneChange"
 [type.fields]
 labelStyle = "process: GUIStyle built once by EnsureResources"
+drawnMarkerTapArmed = "scoped: armed by the DumpMapGeometry seam verb for one capture, disarmed in its finally and on timeout (ParsekTestCommandAddon.SetMapGeometryTapsArmed)"
+drawnMarkerTaps = "scoped: filled only while the marker tap is armed; SetDrawnMarkerTapArmed(false) clears it"
+
+[[type]]
+name = "Parsek.Patches.GhostOrbitArcPatch"
+reason = "the ghost orbit arc-clip Harmony patch"
+[type.fields]
+drawnArcTapArmed = "scoped: armed by the DumpMapGeometry seam verb for one capture, disarmed in its finally and on timeout (ParsekTestCommandAddon.SetMapGeometryTapsArmed)"
+drawnArcClips = "scoped: filled only while the arc tap is armed; SetDrawnArcTapArmed(false) clears it"
 
 # --- Statics the test assembly writes ------------------------------------------------
 # Each was named by the testWrittenUntagged finding and tagged after reading its

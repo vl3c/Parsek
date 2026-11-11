@@ -319,6 +319,11 @@ namespace Parsek.TestCommands
         // ----- PickUpFlag (the active EVA kerbal takes down the nearest real flag through
         // stock's own FlagSite.PickUp) -----
         void PickUpFlag(ParsedCommand cmd);
+        // ----- The map-geometry pair: DumpMapGeometry (the geometry the map drew in one
+        // frame, written as <label>.map.json) and MapCamera (the map camera framed by
+        // value) -----
+        void DumpMapGeometry(ParsedCommand cmd);
+        void MapCamera(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -352,6 +357,12 @@ namespace Parsek.TestCommands
         /// (Rewind-to-Launch) button: FLIGHT or the Space Center; else
         /// Defer(not-in-rewind-scene). InvokeRewindToLaunch only.</summary>
         RequiresRewindScene,
+
+        /// <summary>Requires a scene with a map: FLIGHT or the Tracking Station; else
+        /// Defer(not-in-map-scene). FLIGHT with the map view CLOSED passes this gate and is
+        /// refused by the executor (<c>map-view-closed</c>), because the dispatch state does
+        /// not carry the map flag. DumpMapGeometry and MapCamera only.</summary>
+        RequiresMapScene,
     }
 
     /// <summary>
@@ -451,6 +462,21 @@ namespace Parsek.TestCommands
         internal static bool IsRewindScene(TestCommandScene scene)
             => scene == TestCommandScene.Flight
                || scene == TestCommandScene.SpaceCenter;
+
+        /// <summary>
+        /// The wrong-scene DEFER token for a <see cref="VerbSceneRequirement.RequiresMapScene"/>
+        /// verb (DumpMapGeometry, MapCamera): the run is in a scene with no map (the main menu,
+        /// the Space Center, the editor). A bounded defer, the FLIGHT verbs' shape.
+        /// </summary>
+        internal const string NotInMapSceneReason = "not-in-map-scene";
+
+        /// <summary>
+        /// The scenes that draw the planetarium map: FLIGHT (whose map view the executor
+        /// additionally requires open) and the Tracking Station (always a map). The same two
+        /// scenes as <see cref="IsVesselScene"/>, named for what a map read needs.
+        /// </summary>
+        internal static bool IsMapScene(TestCommandScene scene)
+            => scene == TestCommandScene.Flight || scene == TestCommandScene.TrackingStation;
 
         /// <summary>
         /// FLIGHT verbs that answer <c>REJECTED not-in-flight</c> at once in a settled
@@ -728,6 +754,12 @@ namespace Parsek.TestCommands
                 // lets the preceding EvaExit's auto-switch settle. Default budget (stock's
                 // pick-up kills the flag vessel inside the call).
                 ["PickUpFlag"] = VerbSceneRequirement.RequiresFlight,
+                // The map-geometry pair: a map scene (FLIGHT or the Tracking Station); the
+                // executor refuses FLIGHT with the map closed (map-view-closed). Default
+                // budget: the dump waits one frame for its end-of-frame capture, and the
+                // camera settles within a second or two of its stock lerp.
+                ["DumpMapGeometry"] = VerbSceneRequirement.RequiresMapScene,
+                ["MapCamera"] = VerbSceneRequirement.RequiresMapScene,
             };
 
         /// <summary>
@@ -784,6 +816,8 @@ namespace Parsek.TestCommands
                 return DispatchResult.Defer(NotInVesselListSceneReason);
             if (req == VerbSceneRequirement.RequiresRewindScene && !IsRewindScene(state.Scene))
                 return DispatchResult.Defer(NotInRewindSceneReason);
+            if (req == VerbSceneRequirement.RequiresMapScene && !IsMapScene(state.Scene))
+                return DispatchResult.Defer(NotInMapSceneReason);
 
             // 4. Per-verb extra guards (mirroring how the LoadGame guards live here).
             switch (parsed.Verb)

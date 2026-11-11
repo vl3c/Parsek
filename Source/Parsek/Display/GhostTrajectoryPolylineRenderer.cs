@@ -3114,6 +3114,10 @@ namespace Parsek.Display
                 // threshold) so the seam bridge never vanishes on zoom-out. See DrawMapLine.
                 DrawMapLine(line);
                 entry.lastDrawnFrame = frame;
+                entry.legRecordingId = bridge.legRecordingId;
+                entry.legIndex = bridge.legIndex;
+                entry.atLegStart = bridge.atLegStart;
+                entry.bodyName = bodyName;
 
                 // Lazy: the chord-deviation + slice-span diagnostics (playtest-11 straightness report)
                 // compute only when the rate limit actually emits. Both scratches are consumed

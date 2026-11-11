@@ -819,5 +819,17 @@ namespace Parsek.MapRender
         // Isolated Unity-native read (Time.frameCount): only ever JIT-compiled in-game, since the unit
         // tests exercise DecideForGhost / ClassifyScope directly and never call RunFrame.
         private static int UnityFrame() => UnityEngine.Time.frameCount;
+
+        /// <summary>
+        /// Read-only: the Director's most recent <see cref="GhostRenderIntent"/> for
+        /// <paramref name="pid"/> (the map spine's per-frame decision, pruned to the pids the
+        /// scene still reports). False when the spine holds none for the pid. Read by the
+        /// automation-only map-geometry dump (<c>MapGeometryRecorder</c>) for a ghost's
+        /// treatment, sample UT and frame body; it changes nothing.
+        /// </summary>
+        internal static bool TryGetLastIntent(uint pid, out GhostRenderIntent intent)
+        {
+            return priorIntentByPid.TryGetValue(pid, out intent);
+        }
     }
 }

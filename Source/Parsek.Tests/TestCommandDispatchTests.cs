@@ -784,6 +784,57 @@ namespace Parsek.Tests
             }
         }
 
+        // ----- The map-geometry pair: RequiresMapScene (FLIGHT or the Tracking Station) -----
+
+        [Theory]
+        [InlineData("DumpMapGeometry", "Flight")]
+        [InlineData("DumpMapGeometry", "TrackingStation")]
+        [InlineData("MapCamera", "Flight")]
+        [InlineData("MapCamera", "TrackingStation")]
+        public void MapVerbs_ExecuteInAMapScene(string verb, string sceneName)
+        {
+            var scene = (TestCommandScene)System.Enum.Parse(typeof(TestCommandScene), sceneName);
+            var r = TestCommandDispatcher.DecideDispatch(Cmd(verb), At(scene));
+            Assert.Equal(DispatchDecision.Execute, r.Decision);
+        }
+
+        [Theory]
+        [InlineData("DumpMapGeometry", "MainMenu")]
+        [InlineData("DumpMapGeometry", "SpaceCenter")]
+        [InlineData("DumpMapGeometry", "Editor")]
+        [InlineData("MapCamera", "SpaceCenter")]
+        [InlineData("MapCamera", "Other")]
+        public void MapVerbs_DeferNotInMapScene_Elsewhere(string verb, string sceneName)
+        {
+            var scene = (TestCommandScene)System.Enum.Parse(typeof(TestCommandScene), sceneName);
+            var r = TestCommandDispatcher.DecideDispatch(Cmd(verb), At(scene));
+            Assert.Equal(DispatchDecision.Defer, r.Decision);
+            Assert.Equal(TestCommandDispatcher.NotInMapSceneReason, r.Reason);
+            Assert.Equal("not-in-map-scene", r.Reason);
+        }
+
+        [Fact]
+        public void IsMapScene_IsExactlyFlightAndTrackingStation()
+        {
+            foreach (TestCommandScene scene in System.Enum.GetValues(typeof(TestCommandScene)))
+            {
+                bool expected = scene == TestCommandScene.Flight
+                    || scene == TestCommandScene.TrackingStation;
+                Assert.Equal(expected, TestCommandDispatcher.IsMapScene(scene));
+            }
+        }
+
+        [Fact]
+        public void RequiresMapScene_IsExactlyTheMapGeometryPair()
+        {
+            var verbs = new System.Collections.Generic.List<string>();
+            foreach (var kv in TestCommandDispatcher.PreconditionTable)
+                if (kv.Value == VerbSceneRequirement.RequiresMapScene)
+                    verbs.Add(kv.Key);
+            verbs.Sort(System.StringComparer.Ordinal);
+            Assert.Equal(new[] { "DumpMapGeometry", "MapCamera" }, verbs.ToArray());
+        }
+
         [Fact]
         public void RequiresWarpScene_IsExactlyWarpToUT()
         {

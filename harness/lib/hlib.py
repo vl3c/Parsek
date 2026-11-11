@@ -892,6 +892,21 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     FlagSite.PickUp, so Parsek's FlagPickUpCapturePatch runs as for a player. OK `flag=
     #     flagPid= kerbal= dist= fires=` once the flag vessel is gone and the scene settled.
     "PickUpFlag",
+    # The map-geometry pair. ADDITIVE (60 -> 62 implemented, reserved unchanged at 4): the
+    # map / Tracking Station picture instrument (docs/dev/design-map-geometry-dump.md).
+    #   DumpMapGeometry label=<label>, FLIGHT with the map open or TRACKSTATION, TWO-PHASE,
+    #     default 60 s: writes `Screenshots/<label>.map.json` (schema parsek-map-geometry/1)
+    #     at the end of one rendered frame - the drawn vertices of every ghost orbit line,
+    #     polyline leg, forward arc and route leg, every body and the camera - which
+    #     ARTIFACT_SHOTS_SUFFIXES harvests beside the PNG of the same label. Read-only and
+    #     independent of mapRenderTracing. OK `label= path= scene= bytes= frame= ghosts=
+    #     lines= points= truncated=`.
+    #   MapCamera focus=<body> [pitch=<deg>] [heading=<deg>] [distance=<m>], same scenes,
+    #     TWO-PHASE, default 60 s: points the stock PlanetariumCamera at a body (pitch 90 =
+    #     straight down, 0 = edge-on) and answers once the camera settled, with the applied
+    #     values and whether stock clamped them. OK `focus= pitch= heading= distance=
+    #     pitchClamped= distanceClamped= frames=`.
+    "DumpMapGeometry", "MapCamera",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -1532,6 +1547,17 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     "LaunchSiteProbe": TAIL_ROLE_WORLD_MUTATING,
     # PickUpFlag removes a flag vessel and gives the kerbal the flag back (PlantFlag's mirror).
     "PickUpFlag": TAIL_ROLE_WORLD_MUTATING,
+    # DumpMapGeometry is `inert`, DumpGuiTree's row exactly: it reads the map's drawn
+    # geometry at the end of one frame and writes ONE json under the KSP root; it touches
+    # no vessel, no save, no career and no Parsek persisted state (the one switch it sets,
+    # the marker-position tap, is in-memory, observation-only and cleared when the capture
+    # ends). On an UNMET tail the picture is forensics worth still taking.
+    "DumpMapGeometry": TAIL_ROLE_INERT,
+    # MapCamera is WORLD-MUTATING for EnterMapView's reason: it writes nothing durable, but
+    # it retargets and moves the live map camera (stock state the player's view depends on),
+    # which `inert` ("reads state or stamps the log") does not cover. The fail-safe
+    # direction costs nothing: the UNMET tail skips both roles.
+    "MapCamera": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -1762,6 +1788,12 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # PickUpFlag is `outcome` for PlantFlag's reason, mirrored: "the flag is out of the ground
     # and back in the kerbal's hands", a kerbal's in-world state no verifier re-derives.
     "PickUpFlag": POST_MISSION_ROLE_OUTCOME,
+    # The map-geometry pair is `recording` for DumpGuiTree's reason: DumpMapGeometry's OK
+    # means "a map picture of N lines is on disk" and MapCamera's means "the map camera
+    # settled where it was pointed", statements about instrumentation, never a kerbal's
+    # in-world state.
+    "DumpMapGeometry": POST_MISSION_ROLE_RECORDING,
+    "MapCamera": POST_MISSION_ROLE_RECORDING,
 }
 
 
@@ -4956,6 +4988,108 @@ def validate_dump_gui_tree_step(index: int, step_args: Dict) -> List[str]:
     return errors
 
 
+# The map-geometry pair: mirrored from TestCommands/TestCommandDumpMapGeometry.cs and
+# TestCommandMapCamera.cs (MapGeometrySeamVerbSourceSyncTests). Contract:
+# docs/dev/design-map-geometry-dump.md.
+DUMPMAPGEOMETRY_VERB = "DumpMapGeometry"
+DUMPMAPGEOMETRY_SUFFIX = ".map.json"
+DUMPMAPGEOMETRY_REASONS: Tuple[str, ...] = (
+    "label-arg-missing", "label-arg-invalid", "map-view-closed", "not-in-map-scene",
+)
+DUMPMAPGEOMETRY_ERROR_REASONS: Tuple[str, ...] = (
+    "map-geometry-capture-failed", "map-geometry-timeout",
+)
+MAPCAMERA_VERB = "MapCamera"
+MAPCAMERA_FOCUS_KEY = "focus"
+MAPCAMERA_PITCH_KEY = "pitch"
+MAPCAMERA_HEADING_KEY = "heading"
+MAPCAMERA_DISTANCE_KEY = "distance"
+MAPCAMERA_KEYS: Tuple[str, ...] = (
+    MAPCAMERA_FOCUS_KEY, MAPCAMERA_PITCH_KEY, MAPCAMERA_HEADING_KEY, MAPCAMERA_DISTANCE_KEY,
+)
+MAPCAMERA_PITCH_RANGE: Tuple[float, float] = (-90.0, 90.0)
+MAPCAMERA_HEADING_RANGE: Tuple[float, float] = (-360.0, 360.0)
+MAPCAMERA_MAX_DISTANCE_METRES = 1e13
+MAPCAMERA_REASONS: Tuple[str, ...] = (
+    "mapcamera-focus-arg-missing", "mapcamera-unknown-body",
+    "mapcamera-pitch-invalid", "mapcamera-pitch-out-of-range",
+    "mapcamera-heading-invalid", "mapcamera-heading-out-of-range",
+    "mapcamera-distance-invalid", "mapcamera-distance-out-of-range",
+    "map-view-closed", "not-in-map-scene",
+)
+MAPCAMERA_ERROR_REASONS: Tuple[str, ...] = (
+    "mapcamera-no-camera", "mapcamera-focus-not-targetable", "mapcamera-focus-not-applied",
+    "mapcamera-scene-lost", "mapcamera-not-settled",
+)
+
+
+def validate_dump_map_geometry_step(index: int, step_args: Dict) -> List[str]:
+    """Pre-launch shape checks for one ``DumpMapGeometry`` step.
+
+    ``label=`` is REQUIRED and filename-safe, ``DumpGuiTree``'s rule verbatim (the C# side
+    delegates to ``CaptureScreenshot``'s predicate): a map picture and its geometry pair
+    under one label. The verb reads no other arg, so any other key would be sent and
+    silently ignored."""
+    errors = [e.replace("DumpGuiTree", DUMPMAPGEOMETRY_VERB)
+              for e in validate_dump_gui_tree_step(index, step_args)]
+    extra = sorted(str(k) for k in step_args if k != CAPTURE_LABEL_KEY)
+    if extra:
+        errors.append("driver.steps[%d].args: %s reads only %s, so %s would be silently "
+                      "ignored" % (index, DUMPMAPGEOMETRY_VERB, CAPTURE_LABEL_KEY,
+                                   ", ".join(extra)))
+    return errors
+
+
+def validate_map_camera_step(index: int, step_args: Dict) -> List[str]:
+    """Pre-launch shape checks for one ``MapCamera`` step, the C# parse order.
+
+    ``focus=`` is REQUIRED and non-blank (whether it names a body of this game is a live
+    question the seam answers ``mapcamera-unknown-body``). ``pitch=`` / ``heading=`` /
+    ``distance=`` are optional; when present each must be a finite invariant number in
+    its range: pitch [-90, 90] degrees (90 = straight down), heading [-360, 360] degrees,
+    distance (0, 1e13] metres. A value carrying a ``${step.field}`` handle is resolved at
+    run time, so its shape is not judged here. No other key is read."""
+    errors: List[str] = []
+    v = MAPCAMERA_VERB
+    focus = step_args.get(MAPCAMERA_FOCUS_KEY)
+    if focus is None or str(focus).strip() == "":
+        errors.append("driver.steps[%d].args.%s: %s REQUIRES it (a body name); the seam "
+                      "answers REJECTED mapcamera-focus-arg-missing"
+                      % (index, MAPCAMERA_FOCUS_KEY, v))
+    rows = (
+        (MAPCAMERA_PITCH_KEY, MAPCAMERA_PITCH_RANGE[0], MAPCAMERA_PITCH_RANGE[1], False,
+         "degrees", "mapcamera-pitch"),
+        (MAPCAMERA_HEADING_KEY, MAPCAMERA_HEADING_RANGE[0], MAPCAMERA_HEADING_RANGE[1], False,
+         "degrees", "mapcamera-heading"),
+        (MAPCAMERA_DISTANCE_KEY, 0.0, MAPCAMERA_MAX_DISTANCE_METRES, True,
+         "metres", "mapcamera-distance"),
+    )
+    for key, lo, hi, lo_exclusive, unit, prefix in rows:
+        if key not in step_args:
+            continue
+        raw = step_args.get(key)
+        if raw is not None and value_is_handle_templated(raw):
+            continue
+        # A TOML bool would reach the wire as True / False, which the C# parse refuses.
+        value = None if isinstance(raw, bool) or raw is None else _finite_float_or_none(
+            str(raw).strip())
+        if value is None:
+            errors.append("driver.steps[%d].args.%s: %r is not a finite invariant number; "
+                          "the seam answers REJECTED %s-invalid" % (index, key, raw, prefix))
+            continue
+        below = value <= lo if lo_exclusive else value < lo
+        if below or value > hi:
+            errors.append("driver.steps[%d].args.%s: %r is outside %s%g, %g] %s; the seam "
+                          "answers REJECTED %s-out-of-range"
+                          % (index, key, raw, "(" if lo_exclusive else "[", lo, hi, unit,
+                             prefix))
+    extra = sorted(str(k) for k in step_args if k not in MAPCAMERA_KEYS)
+    if extra:
+        errors.append("driver.steps[%d].args: %s reads only %s, so %s would be silently "
+                      "ignored" % (index, v, ", ".join(MAPCAMERA_KEYS), ", ".join(extra)))
+    return errors
+
+
 def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
     """Pre-launch shape checks for one ``UiAction`` step.
 
@@ -7943,6 +8077,10 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             # is checked by validate_new_game_step.
             if cmd == NEWGAME_VERB and arg_key in NEWGAME_ARG_KEYS:
                 continue
+            # MapCamera reads its own `focus=` (a body name; UiAction owns the table row
+            # for op=pointer's true/false); validate_map_camera_step checks it.
+            if cmd == MAPCAMERA_VERB and arg_key in MAPCAMERA_KEYS:
+                continue
             if cmd != owner_verb:
                 errors.append(
                     "driver.steps[%d].args.%s: only the %s verb reads it, but this "
@@ -7976,6 +8114,10 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             errors.extend(validate_ui_action_step(i, step_args))
         elif cmd == "DumpGuiTree":
             errors.extend(validate_dump_gui_tree_step(i, step_args))
+        elif cmd == DUMPMAPGEOMETRY_VERB:
+            errors.extend(validate_dump_map_geometry_step(i, step_args))
+        elif cmd == MAPCAMERA_VERB:
+            errors.extend(validate_map_camera_step(i, step_args))
         elif cmd == STOCKSCREEN_VERB:
             errors.extend(validate_stock_screen_step(i, step_args))
         elif cmd == EDITORROUTE_GO_VERB:
@@ -12597,6 +12739,22 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "pickupflag-not-eva": "driver-gate",
     "pickupflag-no-flag": "driver-gate",
     "pickupflag-not-near-flag": "driver-gate",
+    # The map-geometry pair (MapGeometrySeamVerbSourceSyncTests). MapCamera's arg
+    # spellings, ranges and a body the game does not have are the SPEC's fault; a map that
+    # is not open (FLIGHT) or a scene with no map is a live state the verb does not drive
+    # (an EnterMapView step first). DumpMapGeometry's label refusals are CaptureScreenshot's
+    # tokens and stay unmapped like theirs. The ERROR terminals (the capture failed, the
+    # camera did not settle) are post-act and ride driver-verdict-mismatch.
+    "mapcamera-focus-arg-missing": "driver-arg",
+    "mapcamera-unknown-body": "driver-arg",
+    "mapcamera-pitch-invalid": "driver-arg",
+    "mapcamera-pitch-out-of-range": "driver-arg",
+    "mapcamera-heading-invalid": "driver-arg",
+    "mapcamera-heading-out-of-range": "driver-arg",
+    "mapcamera-distance-invalid": "driver-arg",
+    "mapcamera-distance-out-of-range": "driver-arg",
+    "map-view-closed": "driver-gate",
+    "not-in-map-scene": "driver-gate",
     # NewGame: the six arg refusals are the spec's fault; the rest are a live state the new
     # game would not start from (the wrong scene, another save loaded, stock's main-menu
     # lock, Parsek state a lane must resolve first) (NewGameSourceSyncTests).
@@ -13318,7 +13476,12 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     "index-arg-invalid", "interval-arg-invalid", "isolated-arg-invalid",
     "kind-arg-invalid", "kind-arg-missing", "kscrecover-pid-arg-invalid",
     "kscrecover-pid-arg-missing", "label-arg-invalid", "label-arg-missing",
-    "loop-arg-invalid", "mock-arg-missing", "mode-arg-invalid", "mode-arg-missing",
+    "loop-arg-invalid",
+    "mapcamera-distance-invalid", "mapcamera-distance-out-of-range",
+    "mapcamera-focus-arg-missing", "mapcamera-heading-invalid",
+    "mapcamera-heading-out-of-range", "mapcamera-pitch-invalid",
+    "mapcamera-pitch-out-of-range",
+    "mock-arg-missing", "mode-arg-invalid", "mode-arg-missing",
     "op-arg-invalid", "op-arg-missing", "partaction-all-arg-invalid",
     "partaction-all-arg-unexpected", "partaction-button-arg-invalid",
     "partaction-button-arg-missing", "partaction-converter-arg-unexpected",
@@ -14823,8 +14986,11 @@ ARTIFACT_LOG_TAIL_BYTES = 56 * 1024 * 1024
 # control tree to `Screenshots/<label>.gui.json` precisely so a dump rides along
 # with the run's images (docs/dev/design-gui-tree-dump.md). A plain `.json` in
 # that directory is somebody else's file and is NOT collected - a distinction a
-# last-dot extension test cannot express.
-ARTIFACT_SHOTS_SUFFIXES: Tuple[str, ...] = (".png", ".jpg", ".jpeg", ".gui.json")
+# last-dot extension test cannot express. MapGeometryRecorder writes the map's drawn
+# geometry to `Screenshots/<label>.map.json` for the same reason
+# (docs/dev/design-map-geometry-dump.md); its size is bounded by the dump's own point
+# caps (on the order of 20 MB at the 262144-point cap), well under the byte cap below.
+ARTIFACT_SHOTS_SUFFIXES: Tuple[str, ...] = (".png", ".jpg", ".jpeg", ".gui.json", ".map.json")
 # P1b (GUI state gallery). RAISED FROM 64, which was the single highest-leverage
 # number in the design: a capture PAIR is TWO files (both `.png` and `.gui.json` are in
 # ARTIFACT_SHOTS_SUFFIXES above), so a 64-file cap harvested at most 32 STATES and

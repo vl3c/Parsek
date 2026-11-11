@@ -939,6 +939,19 @@ namespace Parsek.TestCommands
                 TryCompleteDumpGuiTree(now);
                 return;
             }
+            // The map-geometry pair, in the .DumpMapGeometry.cs / .MapCamera.cs partials:
+            // the dump waits for its end-of-frame capture to write the file; the camera
+            // waits until it sits at its distance from the new focus.
+            if (completionVerb == "DumpMapGeometry")
+            {
+                TryCompleteDumpMapGeometry(now);
+                return;
+            }
+            if (completionVerb == TestCommandMapCamera.Verb)
+            {
+                TryCompleteMapCamera(now);
+                return;
+            }
             // GUI census: the settle poll for the two-phase UiAction ops (the set is
         // TestCommandUiAction.OpIsTwoPhase, named there rather than counted here - an
         // earlier version of this comment carried a count that went stale twice)
@@ -1687,6 +1700,11 @@ namespace Parsek.TestCommands
         // TryCompleteTwoPhaseCore.
         void ITestCommandExecutor.DumpGuiTree(ParsedCommand cmd) => DumpGuiTreeImpl(cmd);
 
+        // The map-geometry pair: bodies and polls in the sibling .DumpMapGeometry.cs and
+        // .MapCamera.cs partials. Both TWO-PHASE, polled in TryCompleteTwoPhaseCore.
+        void ITestCommandExecutor.DumpMapGeometry(ParsedCommand cmd) => DumpMapGeometryImpl(cmd);
+        void ITestCommandExecutor.MapCamera(ParsedCommand cmd) => MapCameraImpl(cmd);
+
         // StockScreen: body and its settle poll in the sibling ParsekTestCommandAddon.StockScreen.cs.
         void ITestCommandExecutor.StockScreen(ParsedCommand cmd) => StockScreenImpl(cmd);
 
@@ -1828,6 +1846,8 @@ namespace Parsek.TestCommands
                 case "AlarmJump": exec.AlarmJump(cmd); break;
                 case "LaunchSiteProbe": exec.LaunchSiteProbe(cmd); break;
                 case "PickUpFlag": exec.PickUpFlag(cmd); break;
+                case "DumpMapGeometry": exec.DumpMapGeometry(cmd); break;
+                case "MapCamera": exec.MapCamera(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");

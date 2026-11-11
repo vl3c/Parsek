@@ -23,6 +23,13 @@ namespace Parsek.Display
             // non-rendering, so the line is rebuilt when this differs from the live mode (stock MakeLine-
             // on-flip). See RebuildMapLineIfModeChanged.
             public int lineMode;
+            // What the line was last drawn for, stamped with lastDrawnFrame (read only by the
+            // map-geometry dump's VisitCachedBridgeLines): the leg it joins, the side, and the
+            // body its scaled-space points are centred on.
+            public string legRecordingId;
+            public int legIndex;
+            public bool atLegStart;
+            public string bodyName;
         }
 
         // On-demand bridge conic samples (playtest 7): 61 inertial body-relative points along a

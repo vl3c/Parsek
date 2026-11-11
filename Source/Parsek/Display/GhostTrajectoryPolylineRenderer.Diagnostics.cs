@@ -9,6 +9,109 @@ namespace Parsek.Display
     internal static partial class GhostTrajectoryPolylineRenderer
     {
         /// <summary>
+        /// Read-only visitor over the ghost polyline LEG cache for the automation-only
+        /// map-geometry dump (<c>MapGeometryRecorder</c>): hands every cached leg that owns a
+        /// <c>VectorLine</c> to <paramref name="onLeg"/> as (recordingId, legIndex, leg). The leg
+        /// is a COPY of the cached struct; the visitor writes nothing back, so nothing drawn
+        /// changes. The caller decides what counts as drawn (<c>vectorLine.active</c>,
+        /// <c>lastDrawnFrame</c>).
+        /// </summary>
+        internal static void VisitCachedLegs(Action<string, int, LegPolyline> onLeg)
+        {
+            if (onLeg == null) return;
+            foreach (var kv in polylineCache)
+            {
+                LegPolyline[] legs = kv.Value.legs;
+                if (legs == null) continue;
+                for (int l = 0; l < legs.Length; l++)
+                {
+                    if (legs[l].vectorLine == null) continue;
+                    onLeg(kv.Key, l, legs[l]);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Read-only visitor over the FORWARD-ARC cache for the map-geometry dump: hands every
+        /// cached arc that owns a <c>VectorLine</c> to <paramref name="onArc"/> as (recordingId,
+        /// boundaryOverlapSecondary, arcIndex, arc). The recording id has the boundary-overlap
+        /// secondary namespace suffix removed (<see cref="ForwardArcDictKey"/>), and the flag says
+        /// which namespace the arc came from. Writes nothing back.
+        /// </summary>
+        internal static void VisitCachedForwardArcs(Action<string, bool, int, ForwardArc> onArc)
+        {
+            if (onArc == null) return;
+            foreach (var kv in forwardArcCache)
+            {
+                ForwardArc[] arcs = kv.Value.arcs;
+                if (arcs == null) continue;
+                bool secondary = IsForwardSecondaryDictKey(kv.Key, out string recordingId);
+                for (int a = 0; a < arcs.Length; a++)
+                {
+                    if (arcs[a].vectorLine == null) continue;
+                    onArc(recordingId, secondary, a, arcs[a]);
+                }
+            }
+        }
+
+        /// <summary>One seam-bridge line as the map-geometry dump reads it: the leg it joins
+        /// (recording id, leg index, side), the body its scaled-space points are centred on, the
+        /// line itself and the frame it last drew.</summary>
+        internal struct BridgeLineView
+        {
+            internal string LegRecordingId;
+            internal int LegIndex;
+            internal bool AtLegStart;
+            internal string BodyName;
+            internal VectorLine Line;
+            internal int LastDrawnFrame;
+        }
+
+        /// <summary>
+        /// Read-only visitor over the SEAM-BRIDGE line cache for the map-geometry dump: hands
+        /// every cached bridge that owns a <c>VectorLine</c> and has drawn at least once to
+        /// <paramref name="onBridge"/>, in ordinal key order (the cache key is
+        /// <c>legRecordingId|legIndex|s|e</c>). Writes nothing back. The caller decides what
+        /// counts as drawn (<c>Line.active</c>, <c>LastDrawnFrame</c>).
+        /// </summary>
+        internal static void VisitCachedBridgeLines(Action<BridgeLineView> onBridge)
+        {
+            if (onBridge == null || bridgeLineByRecording.Count == 0) return;
+            var keys = new List<string>(bridgeLineByRecording.Keys);
+            keys.Sort(StringComparer.Ordinal);
+            for (int i = 0; i < keys.Count; i++)
+            {
+                BridgeLineEntry e = bridgeLineByRecording[keys[i]];
+                if (e == null || e.line == null || e.legRecordingId == null) continue;
+                onBridge(new BridgeLineView
+                {
+                    LegRecordingId = e.legRecordingId,
+                    LegIndex = e.legIndex,
+                    AtLegStart = e.atLegStart,
+                    BodyName = e.bodyName,
+                    Line = e.line,
+                    LastDrawnFrame = e.lastDrawnFrame,
+                });
+            }
+        }
+
+        /// <summary>
+        /// Pure inverse of <see cref="ForwardArcDictKey"/>: true when <paramref name="dictKey"/>
+        /// is a boundary-overlap secondary key, with <paramref name="recordingId"/> the id it
+        /// was built from; otherwise false and the key itself.
+        /// </summary>
+        internal static bool IsForwardSecondaryDictKey(string dictKey, out string recordingId)
+        {
+            recordingId = dictKey;
+            if (string.IsNullOrEmpty(dictKey)
+                || dictKey.Length <= ForwardSecondaryCacheSuffix.Length
+                || !dictKey.EndsWith(ForwardSecondaryCacheSuffix, StringComparison.Ordinal))
+                return false;
+            recordingId = dictKey.Substring(0, dictKey.Length - ForwardSecondaryCacheSuffix.Length);
+            return true;
+        }
+
+        /// <summary>
         /// M-A7 co-draw probe: is ANY cached ghost leg for <paramref name="recordingId"/> STILL SHOWING
         /// a mesh right now - i.e. does it have a <c>VectorLine</c> whose <c>active</c> is true - over
         /// the route leg's own span [<paramref name="legStartUT"/>, <paramref name="legEndUT"/>]?

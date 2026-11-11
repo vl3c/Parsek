@@ -1253,6 +1253,22 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IsForwardSecondaryDictKey_InvertsForwardArcDictKey()
+        {
+            // The map-geometry dump's forward-arc visitor reports the recording id, not the
+            // namespaced cache key; the inverse must round-trip both namespaces.
+            Assert.True(GhostTrajectoryPolylineRenderer.IsForwardSecondaryDictKey(
+                GhostTrajectoryPolylineRenderer.ForwardArcDictKey("rec-abc", true), out string id));
+            Assert.Equal("rec-abc", id);
+            Assert.False(GhostTrajectoryPolylineRenderer.IsForwardSecondaryDictKey(
+                GhostTrajectoryPolylineRenderer.ForwardArcDictKey("rec-abc", false), out string id2));
+            Assert.Equal("rec-abc", id2);
+            Assert.False(GhostTrajectoryPolylineRenderer.IsForwardSecondaryDictKey(null, out _));
+            Assert.False(GhostTrajectoryPolylineRenderer.IsForwardSecondaryDictKey(
+                GhostTrajectoryPolylineRenderer.ForwardArcDictKey("", true), out _));
+        }
+
+        [Fact]
         public void ForwardArcDictKey_Secondary_IsDistinctFromPrimary()
         {
             string primary = GhostTrajectoryPolylineRenderer.ForwardArcDictKey("rec-abc", false);
