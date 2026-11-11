@@ -4148,7 +4148,56 @@ def _atlas_code_facts(facts):
             lines.append('<tr><td class="name">%s</td><td class="num">%s</td></tr>'
                          % (html.escape(label), "not measured" if count is None else count))
         lines.append("</table></div>")
+    lines.extend(_atlas_headless(facts.get("headless")))
     return "\n".join(lines)
+
+
+def _headless_summary(result):
+    """headless.summary of an ilanalysis report's `headless` result (None stays None)."""
+    if result is None:
+        return None
+    import headless  # noqa: PLC0415
+
+    return headless.summary(result)
+
+
+def _atlas_headless(result):
+    """The "Headless modules" part of the Code facts section."""
+    lines = ["<h3>Headless modules</h3>"]
+    head = _headless_summary(result)
+    if not head:
+        lines.append('<p class="layer">Not measured.</p>')
+        return lines
+    lines.append(
+        "<p>The modules declared rules, math and data (modules.toml <code>[headless.modules]</code>): %s."
+        " A leak is a headless method that names a live game type itself, or calls a method outside these"
+        " modules that can reach the game: %d leaks in %d methods, each pinned by test_ilheadless.py, so a new"
+        " one reds. %d seam calls (a slot declared in a headless module, filled by a live implementation"
+        " elsewhere) are counted, not gated.</p>"
+        % (html.escape(", ".join(head["modules"])), head["leaks"], head["leakingMethods"], head["seams"])
+    )
+    lines.append('<div class="wide"><table>')
+    lines.append('<tr><th>Module</th><th class="num">Methods</th><th class="num">Can reach<br>the game</th>'
+                 '<th class="num">Name the game<br>themselves</th><th class="num">Instructions<br>that can</th>'
+                 '<th class="num">Leaks</th></tr>')
+    for module, row in head["byModule"].items():
+        lines.append(
+            '<tr><td class="name">%s%s</td><td class="num">%d</td><td class="num">%s</td><td class="num">%s</td>'
+            '<td class="num">%s</td><td class="num">%s</td></tr>'
+            % (html.escape(module), " (headless)" if row["headless"] else "", row["methods"],
+               _facts_pct(row["reachMethods"] / (row["methods"] or 1)),
+               _facts_pct(row["directMethods"] / (row["methods"] or 1)),
+               _facts_pct(row["reachInstructions"] / (row["instructions"] or 1)),
+               "&ndash;" if row["leaks"] is None else row["leaks"])
+        )
+    lines.append("</table></div>")
+    lines.append('<div class="wide"><table>')
+    lines.append('<tr><th>Live thing leaked to most</th><th class="num">Leaks</th></tr>')
+    for thing, count in head["topThings"]:
+        lines.append('<tr><td><span class="id">%s</span></td><td class="num">%d</td></tr>'
+                     % (html.escape(thing), count))
+    lines.append("</table></div>")
+    return lines
 
 
 def _atlas_sizes(sizes):
@@ -5238,6 +5287,22 @@ def print_lifetime_section(lifetimes):
         print("  %-28s %s" % (label, "not measured" if count is None else count))
 
 
+def print_headless_section(summary):
+    """The HEADLESS MODULES section of --check (given --facts): scripts/arch/headless.py's counts."""
+    print("HEADLESS MODULES (modules.toml [headless.modules]; gated by test_ilheadless.py)")
+    print("  declared: %s; leaks %d in %d methods; seam calls %d"
+          % (", ".join(summary["modules"]), summary["leaks"], summary["leakingMethods"], summary["seams"]))
+    print("  %-14s %8s %8s %8s %8s %6s" % ("module", "methods", "reach", "direct", "instr", "leaks"))
+    for module, row in summary["byModule"].items():
+        print("  %-14s %8d %7.0f%% %7.0f%% %7.0f%% %6s" % (
+            module + (" *" if row["headless"] else ""), row["methods"],
+            100.0 * row["reachMethods"] / (row["methods"] or 1), 100.0 * row["directMethods"] / (row["methods"] or 1),
+            100.0 * row["reachInstructions"] / (row["instructions"] or 1),
+            "-" if row["leaks"] is None else row["leaks"]))
+    for thing, count in summary["topThings"]:
+        print("  leaked to %4d  %s" % (count, thing))
+
+
 def print_size_section(sizes):
     """Print the SIZE section: largest files, largest types, then the rules that fired."""
     print()
@@ -5354,7 +5419,7 @@ def print_layer_section(model, layer_table):
 
 
 def run_check(model, forbidden, allowed, prose=None, history=None, sizes=None, semantic=None,
-              layers=None, lifetimes=None):
+              layers=None, lifetimes=None, headless=None):
     """Print the report-only architecture check.
 
     Never raises on a malformed policy spec: a bad "From -> To" string is
@@ -5606,6 +5671,9 @@ def run_check(model, forbidden, allowed, prose=None, history=None, sizes=None, s
     if lifetimes is not None:
         print()
         print_lifetime_section(lifetimes)
+    if headless is not None:
+        print()
+        print_headless_section(headless)
     print_size_section(sizes)
     print()
     print("ARCH-CHECK report-only")
@@ -5822,6 +5890,7 @@ def main(argv=None):
                     semantic_result,
                     layer_table,
                     (facts_report or {}).get("lifetimes"),
+                    _headless_summary((facts_report or {}).get("headless")),
                 )
             except Exception as exc:
                 print("WARN arch-check: %s" % exc, file=sys.stderr)

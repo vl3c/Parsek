@@ -2738,6 +2738,31 @@ compare).
   allowlist calls `RecordingStore.SuppressLogging` a test switch, but
   `RecordingSidecarStore.TrySummarizeExistingTrajectorySidecar` also sets and restores it
   (tagged scoped). README -> "Static lifetimes".
+- 2026-11-11 (headless modules, B9): `modules.toml` `[headless.modules]` declares the modules
+  that should run with no game loaded, one reason each: Core, Trajectory, Missions, Timeline,
+  Reaim (left out: Rendering, Logistics, GameActions, MapRender, LogIO, Crew, Config, whose jobs
+  are live). `scripts/arch/headless.py` reads the game-coupling rule of "Code facts" (unchanged;
+  `game_reach` now also returns one path per live method) and prints, per module, the methods
+  and instructions that can reach the game, directly or only through a callee. A leak is a
+  (headless method, live thing) pair: a non-inert game type or member the method names, or a
+  live callee outside the headless modules; a live callee inside them adds nothing (the leak is
+  pinned once, at that callee). A slot declared in a headless module that a live implementation
+  elsewhere fills is a seam, counted and not gated, but only when the implementation is
+  injected: constructing that implementation (or a subclass inheriting its live fill), calling
+  its static members, reading its static fields, or calling live code that does one of these
+  (a factory on a third type, a locator calling it) is a leak (`call:` / `static:`); injection
+  through a slot-typed static assigned elsewhere stays a seam, the rule's known limit. Generated code the compiler gives no single owner (a
+  nested lambda, a field-initializer lambda shared by two constructors) is gated as the pseudo
+  method `Type::(generated)` of its source type. `test_ilheadless.py` (CI's compiled-IL step,
+  about 6 s; a per-pass memo of the name-pattern match makes the shared game reach about five
+  times faster) pins the 279 leaks (123 methods; 29 seams) in `scripts/arch/headless_pins.toml`
+  together with the module list, the `facts.toml` `[coupling]` lists and a `[measured]` block
+  the README's "Headless modules" table must print exactly (`ReadmeTests`, DLL-free), so a new
+  leak, a renamed leaking method, a widened inert list or a module added or dropped without a
+  re-pin reds (`headless.py <Debug dll> --write-pins`). Most leaked: `UnityEngine.Object` 46,
+  `CelestialBody` 44, `Orbit` 38. Found, not moved: 142 of Missions' 148 leaks sit in four live
+  types placed there by file name (`MissionControlStockUi` 81, `FlightGlobalsBodyInfo` 24,
+  `VesselNameLiveSync` 20, `VesselRenameWriter` 17). README -> "Headless modules".
 
 **Fix.**
 1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same

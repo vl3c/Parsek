@@ -631,6 +631,250 @@ Controllers 40, Recording -> Controllers 40, Recording -> Rewind 38), 54
 lateral module pairs. Moving a module to another layer is a re-pin in the
 same PR.
 
+## Headless modules
+
+Some modules exist to hold rules, math and data: code that should run with
+no game loaded, so a unit test can drive it. `modules.toml`
+`[headless.modules]` declares them, one reason each, and CI keeps their reach
+into the live game from growing.
+
+**The measure** is the game-coupling rule of "Code facts": a method can reach
+the game when it names a live game type or member (body or signature), or
+calls a method that can. Per production module, at the pin (Debug,
+`python3 scripts/arch/headless.py <dll>`): the share of methods that can
+reach the game, of those that do it directly (the method itself names a live
+type or member) and of those that do it only through a callee, then the same
+for instructions, and the leaks of the headless ones (`*`):
+
+| Module | Methods | Can reach | Direct | Only via a callee | Instructions | Can reach | Direct | Leaks |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Core * | 192 | 7% | 3% | 4% | 10,334 | 6% | 3% | 14 |
+| LogIO | 96 | 15% | 7% | 7% | 4,892 | 23% | 13% |  |
+| Trajectory * | 258 | 23% | 19% | 4% | 17,783 | 25% | 12% | 80 |
+| Missions * | 626 | 15% | 7% | 8% | 58,399 | 26% | 7% | 148 |
+| GameActions | 2,160 | 18% | 8% | 10% | 148,186 | 28% | 14% |  |
+| Timeline * | 92 | 12% | 0% | 12% | 6,653 | 29% | 0% | 5 |
+| MapRender | 737 | 15% | 7% | 8% | 28,833 | 32% | 18% |  |
+| Logistics | 953 | 18% | 10% | 8% | 87,222 | 33% | 15% |  |
+| Recording | 2,599 | 26% | 17% | 8% | 205,258 | 38% | 26% |  |
+| Rewind | 1,034 | 23% | 10% | 13% | 91,780 | 39% | 13% |  |
+| SwitchIntent | 62 | 26% | 3% | 23% | 6,456 | 39% | 1% |  |
+| Crew | 291 | 25% | 18% | 8% | 22,400 | 39% | 22% |  |
+| Rendering | 198 | 20% | 12% | 8% | 16,417 | 47% | 29% |  |
+| Reaim * | 198 | 13% | 6% | 8% | 15,796 | 47% | 20% | 32 |
+| UI | 1,961 | 34% | 24% | 11% | 110,520 | 56% | 45% |  |
+| Ghost | 2,122 | 37% | 26% | 11% | 172,577 | 57% | 46% |  |
+| Display | 221 | 32% | 27% | 5% | 20,416 | 61% | 57% |  |
+| Controllers | 2,595 | 40% | 28% | 12% | 211,671 | 64% | 51% |  |
+| Config | 89 | 26% | 7% | 19% | 2,893 | 66% | 7% |  |
+| Patches | 797 | 68% | 47% | 21% | 36,248 | 82% | 65% |  |
+
+At the pin: 279 leaks in 123 methods, 29 seam calls.
+The live things leaked to most: `UnityEngine.Object` 46, `CelestialBody` 44, `Orbit` 38, `Vessel` 18, `Contracts.Contract` 13, `KSP.UI.Screens.MissionControl` 10, `PatchedConicSolver` 6, `ProtoVessel` 6, `UnityEngine.UI.Button` 6, `VesselNaming` 5.
+
+**What is declared, and why.** The choice reads each module's description
+(`atlas.toml`) first and the share second: a module whose job is the live
+game is not headless however small its number, and a module whose job is
+rules is headless however long its leak list.
+
+- **Core**: the kernel vocabulary (branch points, launch identity, the pure
+  snapshot operations over ConfigNode, milestone and group stores); its few
+  live touches (save paths, a body or transform read, the Re-Fly marker
+  check) are its leaks.
+- **Trajectory**: pure math over orbits and samples and the trajectory data
+  vocabulary. Its live parts are by name: `PatchedConicSnapshot` (reads the
+  stock patched-conic solver) and `OrbitReseed`; the leak list names them.
+- **Missions**: the Missions tab model (composition trees, structure,
+  periodicity, per-vessel rows). 85% of its methods cannot reach the game; the
+  rest sit mostly in four types whose job is live and that were placed here by
+  file name: `MissionControlStockUi` (the stock Mission Control annotation),
+  `FlightGlobalsBodyInfo` (the live `IBodyInfo`), `VesselNameLiveSync` and
+  `VesselRenameWriter`. They hold 142 of its 148 leaks, and are the obvious
+  first moves.
+- **Timeline**: builds the timeline's entries from ledger and recording
+  events. None of its methods names a game type itself, but its display text
+  calls live helpers in other modules: the time format (`ParsekTimeFormat`
+  reads `GameSettings`), the facility and strategy name lookups, and the
+  unfinished-flight resolver. Those five calls are its leaks.
+- **Reaim**: re-aim planning (descent triggers, loiter compression, arrival
+  hold), rules over recorded data; its live reads of bodies and orbits are its
+  leaks.
+
+Left out, with the reason: **Rendering** (its share of methods is close to
+Reaim's, but its job is anchoring drawn trajectories to the live world:
+`AnchorPropagator` and `ProductionAnchorWorldFrameResolver` are live by
+design), **Logistics** (the route orchestrator and the live delivery-capacity
+probe drive live vessels), **GameActions** (`KspStatePatcher` and the resource
+modules patch KSP state), **MapRender** (the map probes and traces read the
+live scene), **LogIO** (file I/O; ParsekLog is not followed by the rule
+anyway), **Crew** (the roster), **Config** (reads the live game's settings).
+
+**A leak** is one (headless method, live thing) pair, the method keyed by
+`Type::Name`:
+
+- `game:<Type>`: the method names a live game type in its body or signature
+  (a member of a non-inert type counts as its type; a live member of an inert
+  type is `game:UnityEngine.Quaternion::Euler`);
+- `call:<Type>::<Name>`: the method calls a method outside the headless
+  modules that can reach the game, or a slot declared outside them that a
+  live implementation outside them fills, or a constructor or static method of
+  a type outside them that fills a headless slot with live code, or a method
+  outside them that hands such an implementation back (below);
+- `static:<Type>::<Field>`: the method reads a static field of such a type
+  (a singleton `Instance`).
+
+Generated code no single source method owns (a nested non-capturing lambda
+referenced only from inside the shared `<>c` cache, a field-initializer
+lambda the compiler copies into two constructors) stays on its type's
+pseudo-method `Type::(generated)` in the facts, and the gate treats that
+pseudo-method as one more method of the type: its leaks are keyed
+`Type::(generated) -> ...`. On today's tree the headless modules have seven
+such pseudo-methods, all `<>c` constructors that name nothing live.
+
+A callee INSIDE the headless modules adds no leak. If it can reach the game
+it has a leak of its own further down the headless chain, so one new
+`ParsekSettings.Current` read in a shared headless helper reds once, at the
+helper, not at its hundred callers. If it is a slot (an interface or virtual
+member) declared in a headless module and filled by a live implementation
+elsewhere, the call is a **seam**: the caller is handed the implementation (a
+parameter, an instance field), which is the shape the gate asks a leak to
+take. Seam calls are counted and listed (`--leaks`), not gated: `IBodyInfo`,
+declared in a headless module, is filled by `FlightGlobalsBodyInfo` and by an
+in-game test's double, so `MissionLoopUnitBuilder`'s body queries are seams,
+and `FlightGlobalsBodyInfo`'s own reads of `CelestialBody` are its leaks. A
+seam the headless method wires itself is not a seam: constructing the live
+implementation (`new KspClock()`), calling its static factory, or reading its
+static singleton (`KspClock.Instance`) is a leak at that construction or
+read, whatever slot the call then goes through. A type fills a slot when it
+or a base it does not override there does (the first filler up the base chain
+is the one a slot call runs). The wiring is walked over callers the way the
+game reach is: a method outside the headless modules that constructs such a
+type, calls its static members or reads its static fields hands the live
+implementation back, and so does one calling such a method, so a call to a
+factory on a third type (`Services.Clock => new KspClock()`) or to a locator
+calling that factory is a `call:` leak whose detail names the path and the
+live type. So once `FlightGlobalsBodyInfo` leaves Missions,
+`FlightGlobalsBodyInfo.Instance.Radius(...)` in a headless method still reds. Every live headless method must reach a leak or a seam
+through headless calls (`unexplained`, empty, held by a real-tree cell), so
+the leak rule cannot drift from the coupling rule unseen.
+
+`UnityEngine.Object` leads because `== null` on a Unity object calls into the
+engine.
+
+**The numbers in this section are the pin's.** `--write-pins` records the
+report in a `[measured]` block of `headless_pins.toml` (the table, the totals,
+the most-leaked things), and `test_ilheadless.ReadmeTests` (DLL-free) reds
+when the table rows or the two lines under it are not exactly what that block
+renders (`headless.readme_lines`), or when the block does not count its own
+pinned leaks. The block is not gated against a build: the shares of every
+module move with any change, so they are the measure at the last re-pin, and
+a re-pin that moves them must move this section too.
+
+**What reds**, in CI's compiled-IL step (`test_ilheadless.RealTreeHeadlessTests`,
+pins in `scripts/arch/headless_pins.toml`; its `WorkflowTests` cell reds if
+the step's pattern stops matching the file), each shown by a mutant of the
+real facts and by an inline-IL cell:
+
+- a headless method newly naming a live Unity or KSP type
+  (`test_a_headless_method_newly_naming_a_game_type_reds`);
+- a headless method newly calling a live method of a module that is not
+  headless (`test_a_headless_method_newly_calling_a_live_method_of_another_module_reds`);
+- generated code no method owns newly naming a live type
+  (`test_generated_code_no_method_owns_is_gated_on_its_type`; inline:
+  `test_a_nested_lambda_left_to_its_type_reds`,
+  `test_a_field_initializer_lambda_in_two_constructors_reds`);
+- a headless method constructing a live implementation of a headless slot
+  (`test_constructing_a_live_implementation_of_a_headless_slot_reds`; inline,
+  with the static factory and the static singleton:
+  `test_a_live_slot_implementation_hard_wired_reds_in_every_form`; a factory
+  on a third type, a locator calling it and a subclass inheriting a live fill:
+  `test_a_live_implementation_handed_back_by_other_live_code_reds`);
+- a rename of a leaking method, or of the live method it calls: the pins are a
+  set keyed by name, so the renamed leak is new and needs a re-pin, as a
+  renamed complexity-watch method does (`test_a_rename_of_a_leaking_method_reds`).
+
+The failure names the headless method, the live thing, how that thing
+reaches the game (`calls X, which reaches the game: X -> Y -> game:HighLogic`)
+and the choices: move the call behind an injected seam, add the type to
+`[coupling] inert_types` in `facts.toml` with a reason if it really works with
+no game loaded, or re-pin with the reason in the PR.
+
+The DLL-free suite reds on: a malformed declaration (no `[headless.modules]`,
+a name no rule declares, a tooling module, a missing reason, an unknown key;
+`DeclarationTests`); a module added to or removed from the declaration
+without a re-pin (the pins record the module list); any edit of the
+`[coupling]` lists of `facts.toml` (`game_assemblies`, `inert_types`,
+`live_members`, `not_followed`) without a re-pin, because the pins record them
+too (`test_a_widened_inert_list_reds_until_a_repin`); and this section's
+numbers drifting from the pins (`ReadmeTests`). Without the coupling record a
+widened inert list would pass the set gate, since leaks only vanish
+(`test_a_widened_inert_list_hides_leaks_from_the_ratchet_alone`), and the
+re-pin diff shows the entries that changed.
+
+**What cannot red**, each held by a cell: deleting a method, leaking or not
+(slack is reported until a re-pin; `test_deleting_a_leaking_method_passes_and_reports_slack`);
+adding a pure method, or a call to an inert type such as `Vector3` or
+`ConfigNode` (`test_adding_a_pure_method_or_an_inert_call_passes`); a new
+call from a headless method to a live headless method
+(`test_a_new_call_to_a_live_headless_method_adds_no_leak`); a new call through
+a headless seam, a parameter change of a leaking method (overloads merge by
+name), and a compiler choosing another shape for generated code: a `<>c`
+lambda cache, a closure class and a local function give the same leaks
+(`test_what_must_not_red`,
+`test_every_compiler_shape_of_generated_code_gives_the_same_leaks`); an
+implementation handed in as a parameter or held in an instance field
+(`test_an_injected_implementation_stays_a_seam`); unattributed generated code
+that names nothing live (`test_a_pseudo_method_names_no_leak_when_its_code_is_pure`);
+a call to live-module code that hands back no live implementation, or to a
+subclass overriding the live fill with pure code
+(`test_live_code_that_hands_back_no_live_implementation_stays_out`).
+A pinned leak that disappears passes; a re-pin drops it.
+
+Limits:
+
+- "Can reach", not "needs": a method is live when SOME path reaches the
+  game, however unlikely the branch, so a leak can sit behind a guard that
+  never fires without a game.
+- Interface and virtual calls reach every implementation in the assembly,
+  tooling included (an in-game test's double counts), except through a seam,
+  which is never a leak. A seam is an honest exit only when the implementation
+  is handed in: the gate shows a call moved behind a seam as gone even though
+  the live implementation still runs in the game. Injection through a static
+  assigned elsewhere (a static field or property of the slot type that some
+  other code sets, `Services.Clock = new KspClock()` at startup) is counted as
+  a seam: the wiring rule follows constructions and static reads of the live
+  type itself, not stores into a slot-typed static, and that is its known
+  limit. Generated code no method owns outside the headless modules does not
+  start a wiring path either.
+- The unattributed pseudo-method gives the leak to the type, not to the
+  method that wrote the lambda, and the coupling shares of "Code facts" do not
+  follow it (a source method that calls only into it reads as unable to reach
+  the game).
+- A delegate is followed only where it is created (an `ldftn` of a live
+  method is a call); invoking a delegate the method was handed reaches
+  nothing. ParsekLog is not followed (its test sink). Reflection and
+  string-keyed lookups are invisible.
+- Overloads merge by name: a second overload of a leaking method that leaks to
+  the same thing adds nothing.
+- The leak sets are not monotone in the declaration: a call into a module that
+  stops being headless becomes a leak of its caller (dropping Missions reds
+  Reaim's pins as well), so adding or removing a module is a re-pin of the
+  whole file.
+
+```bash
+python3 scripts/arch/headless.py Source/Parsek/bin/Debug/Parsek.dll                # table, leak count, pins check
+python3 scripts/arch/headless.py Source/Parsek/bin/Debug/Parsek.dll --leaks        # every leak and seam, with how it reaches the game
+python3 scripts/arch/headless.py Source/Parsek/bin/Debug/Parsek.dll --write-pins   # re-pin (Debug only; refused from a Release path)
+```
+
+`archview.py --check --facts <dll>` prints the table and the leak count as
+HEADLESS MODULES, the Atlas draws them under "Code facts", and the metrics row
+carries them as `facts.headless`. The gate adds about 6 s to CI's
+compiled-IL step (measured after the shared parse): the leaks come out of the
+game reach `ilanalysis.report` already computes, and each real-tree mutant
+reruns the reach, which a per-pass memo of the name-pattern match keeps near
+0.1 s (`direct_game_refs`' `memo`; the coupling answers are unchanged).
+
 ## Metrics history
 
 Every number above exists only for the commit it is run on. The history keeps
@@ -650,8 +894,9 @@ later. It gates nothing: no check reads it, and no row can fail a PR.
   the declared-layer numbers the layer ratchet reads), `facts` (the code facts:
   the three ratchet sets' sizes, the static-state totals, complexity at 20 /
   50 / 100, game coupling overall and per module, unreached methods and their
-  instructions, test reach per module, and `lifetimes`, the static-lifetime
-  counts of "Static lifetimes", an additive key) and `sizes` (`scripts/count-code.py`:
+  instructions, test reach per module, `lifetimes`, the static-lifetime
+  counts of "Static lifetimes", and `headless`, the leak counts of "Headless
+  modules", both additive keys) and `sizes` (`scripts/count-code.py`:
   lines per area and the test totals). Nothing is measured by new logic: the
   row is those tools' own output, built in one process so `Parsek.dll` is
   disassembled and parsed once. Without a DLL the `semantic` and `facts`

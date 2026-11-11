@@ -431,22 +431,38 @@ def _live_member(text, coupling):
     return not _matches(path, coupling["inert_types"]) or _matches(member, coupling["live_members"])
 
 
-def direct_game_refs(entry, coupling):
-    """The live game types and members a method's body or signature names."""
+def direct_game_refs(entry, coupling, memo=None):
+    """The live game types and members a method's body or signature names. `memo`, a dict
+    the caller keeps for one pass over one `coupling`, caches the answer per name (the
+    pattern match is the cost; the same names recur in thousands of methods)."""
+    if memo is None:
+        memo = {}
+
+    def live(kind, text):
+        key = (kind, text)
+        if key not in memo:
+            memo[key] = _live_type(text, coupling) if kind == "t" else _live_member(text, coupling)
+        return memo[key]
+
     found = set()
     for scope in ("body", "signature"):
-        found.update(t for t in entry["external"][scope] if _live_type(t, coupling))
-    found.update(m for m in entry.get("externalMembers", ()) if _live_member(m, coupling))
+        found.update(t for t in entry["external"][scope] if live("t", t))
+    found.update(m for m in entry.get("externalMembers", ()) if live("m", m))
     return found
 
 
-def game_reach(index, config):
-    """{method key: True} for every method that can reach the game, and the direct set."""
+def game_reach(index, config, via=None):
+    """(direct, reach): the methods that name a live game type or member themselves, and
+    every method that can reach the game. `via`, when given, is filled with
+    {method: the callee or implementation it was reached through} (a path for messages)."""
     coupling = config["coupling"]
     not_followed = tuple(coupling.get("not_followed", ()))
-    direct = {key for key, entry in index.methods.items() if direct_game_refs(entry, coupling)}
+    memo = {}
+    direct = {key for key, entry in index.methods.items() if direct_game_refs(entry, coupling, memo)}
     reach = set(direct)
-    pending = list(direct)
+    # Sorted, so `via` (the one path per method messages print) does not depend
+    # on set iteration order; the sets themselves do not depend on it.
+    pending = sorted(direct, reverse=True)
 
     def followed(callee):
         path = _key_type(callee)
@@ -461,15 +477,18 @@ def game_reach(index, config):
         for slot in index.slots.get(key, ()):
             if followed(slot):
                 callers |= index.callers.get(slot, set())
-        for caller in callers:
+        for caller in sorted(callers):
             if caller in index.methods and caller not in reach:
                 reach.add(caller)
                 pending.append(caller)
+                if via is not None:
+                    via[caller] = key
     return direct, reach
 
 
 def coupling_report(index, config):
-    direct, reach = game_reach(index, config)
+    via = {}
+    direct, reach = game_reach(index, config, via)
     rows = defaultdict(Counter)
     for key, entry in index.methods.items():
         if not index.production(entry["type"]):
@@ -492,6 +511,8 @@ def coupling_report(index, config):
         "byModule": dict(sorted(out.items(), key=lambda kv: -kv[1]["instructions"])),
         "share": sum(r["reachInstructions"] for r in rows.values()) / total,
         "reach": reach,
+        "direct": direct,
+        "via": via,
     }
 
 
@@ -761,8 +782,11 @@ def test_reach_report(index, called):
 # --- the whole report -------------------------------------------------------------
 
 
-def report(facts, tooling=(), config=None, tests_facts=None):
-    """Every analysis over one facts model, JSON-ready (sets become sorted lists)."""
+def report(facts, tooling=(), config=None, tests_facts=None, headless_modules=None):
+    """Every analysis over one facts model, JSON-ready (sets become sorted lists).
+
+    `headless_modules` (modules.toml [headless.modules]) adds `headless`, the
+    leak report of headless.py over the same game reach; None leaves it None."""
     config = config or load_config()
     index = Index(facts, tooling)
     test_calls = None
@@ -784,6 +808,7 @@ def report(facts, tooling=(), config=None, tests_facts=None):
         "uncalled": dict(dead, instructions=sizes,
                          modules={key: index.module(index.methods[key]["type"]) for key in dead["uncalled"]}),
         "testReach": None,
+        "headless": None,
         "gates": {
             "crossTypeStaticWrites": sorted(statics["crossTypeWrites"]),
             "complexity50": complexity_gate_names(cx),
@@ -791,6 +816,11 @@ def report(facts, tooling=(), config=None, tests_facts=None):
             "uncalledInAssembly": uncalled_gate_keys(dead, config),
         },
     }
+    if headless_modules is not None:
+        import headless  # noqa: PLC0415 (it imports this module)
+
+        out["headless"] = headless.analyse(index, config, headless_modules, coupling["direct"], coupling["reach"],
+                                           coupling["via"])
     if test_calls is not None:
         hooks = Counter()
         for key in dead["testOnly"]:
@@ -982,14 +1012,17 @@ def load_facts(path, modules=archview.DEFAULT_MODULES, source=None):
 
 
 def report_from_paths(facts_path, tests_path=None, modules=archview.DEFAULT_MODULES, source=None):
-    """The report, with `lifetimes` (lifetimes.summary) added: the declared static
+    """The report, with `headless` (the declared headless modules' leaks) and `lifetimes`
+    (lifetimes.summary) added: the declared static
     lifetimes over the same facts, testWrittenUntagged measured only when
     `tests_path` is the test assembly itself (a .dll)."""
     import lifetimes  # noqa: PLC0415 (it imports this module)
 
+    import headless  # noqa: PLC0415
+
     facts, tooling = load_facts(facts_path, modules, source)
     tests = load_facts(tests_path, None)[0] if tests_path else None
-    out = report(facts, tooling, load_config(), tests)
+    out = report(facts, tooling, load_config(), tests, headless.declared(headless.load_headless(modules)))
     tests_dll = tests_path if tests_path and str(tests_path).lower().endswith(".dll") else None
     out["lifetimes"] = lifetimes.summary(lifetimes.analyse_facts(facts, tooling, tests_dll))
     return out
