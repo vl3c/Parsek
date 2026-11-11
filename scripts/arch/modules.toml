@@ -518,6 +518,23 @@ features = ["Ghost", "Rewind", "Missions", "Logistics", "MapRender", "SwitchInte
 presentation = ["UI", "Timeline"]
 entry = ["Controllers", "Patches"]
 
+# --- headless modules ------------------------------------------------------
+# The production modules whose job is rules, math and data: code that should
+# run with no game loaded. CI pins each LEAK, a (headless method, live thing)
+# pair where the method names a live game type or member itself or calls a
+# method outside these modules that can reach the game (scripts/arch/headless.py,
+# pins in scripts/arch/headless_pins.toml; README, "Headless modules"). A new
+# leak reds naming the method and what it touches. Each entry says why the
+# module is headless; the README's table has the measure the choice read.
+# Adding or removing a module re-pins in the same PR.
+
+[headless.modules]
+Core = "the kernel vocabulary every module leans on: branch points, launch identity, the pure snapshot operations over ConfigNode, milestone and group stores; its few live touches (save paths, a body or transform read, the Re-Fly marker check) are its leaks"
+Trajectory = "pure math over orbits and samples and the trajectory data vocabulary; the live parts are the patched-conic snapshot and the orbit reseed, which the leak list names"
+Missions = "the Missions tab model: composition trees, structure, periodicity, per-vessel rows; the stock Mission Control annotation and the live vessel-name writers placed here are its leaks"
+Timeline = "builds the timeline's entries from ledger and recording events; no method names a game type itself, but its display text calls live formatters and name lookups in other modules (the time format, facility and strategy names), which the leak list names"
+Reaim = "re-aiming a recorded mission: descent triggers, loiter compression and arrival hold planning, rules over recorded data; its live reads of bodies and orbits are its leaks"
+
 # --- dependency policy -----------------------------------------------------
 # Both lists use the edge form "From -> To", meaning "code in From references
 # types declared in To".
