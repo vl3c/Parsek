@@ -217,20 +217,86 @@ def analyse(index, config, modules, direct=None, reach=None, via=None):
         direct_things[key] = things_of(methods[key])
 
     # A type outside the headless modules whose live code fills a slot declared in
-    # one: constructing it, or reaching it through its statics, hard-wires that live
-    # implementation into the caller, whatever slot the call then goes through.
+    # one, itself or through an ancestor whose fill it does not override (the first
+    # filler up the base chain is the one a call through the slot runs): constructing
+    # it, or reaching it through its statics, hard-wires that live implementation
+    # into the caller, whatever slot the call then goes through.
+    fills = defaultdict(dict)
+    for key, entry in methods.items():
+        for slot in sorted(index.slots.get(key, ())):
+            if is_headless(slot) and _followed(slot, not_followed):
+                fills[entry["type"]][slot] = key
     hardwired = defaultdict(set)
-    for key in reach:
-        if key in methods and not is_headless(key) and _followed(key, not_followed):
-            for slot in index.slots.get(key, ()):
-                if is_headless(slot) and _followed(slot, not_followed):
-                    hardwired[methods[key]["type"]].add(key)
+    for path in sorted(index.types):
+        if index.module(path) in headless or not _followed(path, not_followed):
+            continue
+        resolved = {}
+        for ancestor in index.ancestors(path):
+            for slot, impl in fills.get(ancestor, {}).items():
+                resolved.setdefault(slot, impl)
+        for impl in resolved.values():
+            if impl in reach and not is_headless(impl) and _followed(impl, not_followed):
+                hardwired[path].add(impl)
     static_uses = defaultdict(set)
     for field, entry in index.fields.items():
         owner = field.split("::", 1)[0]
         if owner in hardwired:
             for user in set(entry.get("readers", ())) | set(entry.get("addressTakenBy", ())):
                 static_uses[user].add(field)
+
+    def wires(entry, callee_key):
+        """The hard-wired type a call constructs or reaches through a static member, or None."""
+        target = methods.get(callee_key)
+        if target is None or target["type"] not in hardwired:
+            return None
+        if target["name"] != ".ctor" and "static" not in target["flags"]:
+            return None
+        if "static" not in entry["flags"] and target["type"] in index.ancestors(entry["type"]):
+            return None  # a base constructor call or an own static, not a hand-back
+        return target["type"]
+
+    # Hard-wiring callees, walked over callers the way game_reach walks the game:
+    # a non-headless method that constructs a hard-wired type, calls its static
+    # members or reads its static fields hands a live implementation back, and so
+    # does a non-headless method calling one (or a non-headless slot one fills). A
+    # headless slot stops the walk: a factory received through it is injected.
+    wired_via, wired_type = {}, {}
+    pending = []
+    for key in sorted(methods):
+        entry = methods[key]
+        if is_headless(key) or not _followed(key, not_followed):
+            continue
+        found = None
+        for callee in sorted(entry["calls"]):
+            found = wires(entry, callee)
+            if found:
+                break
+        if found is None:
+            for field in sorted(static_uses.get(key, ())):
+                owner = field.split("::", 1)[0]
+                if "static" in entry["flags"] or owner not in index.ancestors(entry["type"]):
+                    found = owner
+                    break
+        if found is not None:
+            wired_via[key], wired_type[key] = None, found
+            pending.append(key)
+    pending.reverse()
+    while pending:
+        key = pending.pop()
+        nexts = set(index.callers.get(key, ()))
+        nexts |= {s for s in index.slots.get(key, ()) if not is_headless(s)}
+        for other in sorted(nexts, reverse=True):
+            if (other in methods and other not in wired_via and not is_headless(other)
+                    and _followed(other, not_followed)):
+                wired_via[other], wired_type[other] = key, wired_type[key]
+                pending.append(other)
+
+    def wired_path(key):
+        hops = [method_name(key)]
+        while wired_via.get(key) is not None and len(hops) < PATH_HOPS:
+            key = wired_via[key]
+            hops.append(method_name(key))
+        return " -> ".join(hops)
 
     def hardwired_detail(path):
         impls = sorted(hardwired[path])
@@ -295,6 +361,12 @@ def analyse(index, config, modules, direct=None, reach=None, via=None):
                 details.setdefault(leak, "%s %s; %s" % (
                     "constructs" if target["name"] == ".ctor" else "calls the static", method_name(callee),
                     hardwired_detail(target["type"])))
+                leaking.add(key)
+            elif callee in wired_via:
+                leaks[module].add(leak)
+                details.setdefault(leak, "calls %s, which hands back a live %s (%s); %s" % (
+                    method_name(callee), wired_type[callee], wired_path(callee),
+                    hardwired_detail(wired_type[callee])))
                 leaking.add(key)
 
     # Every live headless method must reach a leaking method or a seam call

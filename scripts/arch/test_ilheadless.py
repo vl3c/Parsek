@@ -229,6 +229,37 @@ def clock_run(add_body, extra_pure=()):
     return run(facts_with(il, {"Parsek.KspClock": "Ctl"}))
 
 
+# A live implementation handed back by code outside the headless modules: a
+# factory on a third type, a locator calling that factory, and a subclass that
+# inherits its base's live fill. Every type here is in the live module "Ctl".
+LIVE_NOW = ["call       float64 ['Assembly-CSharp']Planetarium::GetUniversalTime()", "pop", "ret"]
+SERVICES = cls("Parsek.Services", "  .field private static class Parsek.IClock injected",
+               meth("get_Clock", ["newobj     instance void Parsek.KspClock::.ctor()", "ret"],
+                    ret="class Parsek.IClock"),
+               meth("get_Injected", ["ldsfld     class Parsek.IClock Parsek.Services::injected", "ret"],
+                    ret="class Parsek.IClock"),
+               meth("Inject", ["ldarg.0", "stsfld     class Parsek.IClock Parsek.Services::injected", "ret"],
+                    params="class Parsek.IClock clock"),
+               meth("Format", ["ldc.i4.0", "pop", "ret"]))
+LOCATOR = cls("Parsek.Locator", meth("Find", ["call       class Parsek.IClock Parsek.Services::get_Clock()", "ret"],
+                                     ret="class Parsek.IClock"))
+CLOCK_BASE = cls("Parsek.KspClockBase", ctor(),
+                 meth("Now", LIVE_NOW, flags="public hidebysig newslot virtual instance"), implements=["Parsek.IClock"])
+CLOCK_INHERITS = cls("Parsek.KspClock2", ctor("Parsek.KspClockBase"), extends="Parsek.KspClockBase")
+CLOCK_PURE_OVERRIDE = cls("Parsek.KspClock4", ctor("Parsek.KspClockBase"),
+                          meth("Now", ["ret"], flags="public hidebysig virtual instance"),
+                          extends="Parsek.KspClockBase")
+WIRING_TYPES = (SERVICES, LOCATOR, CLOCK_BASE, CLOCK_INHERITS, CLOCK_PURE_OVERRIDE)
+
+
+def wiring_run(add_body):
+    il = "\n".join([fixture_il("closure", pure_overrides={"Add": meth("Add", add_body)}), KSP_CLOCK]
+                    + list(WIRING_TYPES))
+    names = ["Parsek.KspClock", "Parsek.Services", "Parsek.Locator", "Parsek.KspClockBase", "Parsek.KspClock2",
+             "Parsek.KspClock4"]
+    return run(facts_with(il, {name: "Ctl" for name in names}))
+
+
 # --- the declaration, no DLL ---------------------------------------------------------------
 
 
@@ -440,6 +471,48 @@ class HiddenLiveCodeTests(unittest.TestCase):
                 result = clock_run(["ldc.i4.0", "pop", "ret"], extra_pure=fields + [method])
                 self.assertEqual(new_leaks(result), [])
                 self.assertIn("Parsek.Pure::Injected -> Parsek.IClock::Now", result["seams"]["Rules"])
+                self.assertEqual(self.problems(result), [])
+                self.assertEqual(result["unexplained"], [])
+
+    def test_a_live_implementation_handed_back_by_other_live_code_reds(self):
+        forms = {
+            "a factory on a third type": (
+                "call       class Parsek.IClock Parsek.Services::get_Clock()",
+                "Parsek.Pure::Add -> call:Parsek.Services::get_Clock", "Parsek.Services::get_Clock"),
+            "a locator calling that factory (two hops)": (
+                "call       class Parsek.IClock Parsek.Locator::Find()",
+                "Parsek.Pure::Add -> call:Parsek.Locator::Find",
+                "Parsek.Locator::Find -> Parsek.Services::get_Clock"),
+            "a subclass inheriting a live fill": (
+                "newobj     instance void Parsek.KspClock2::.ctor()",
+                "Parsek.Pure::Add -> call:Parsek.KspClock2::.ctor", "constructs Parsek.KspClock2::.ctor"),
+        }
+        for label, (call, leak, detail) in forms.items():
+            with self.subTest(form=label):
+                result = wiring_run([call, CLOCK_NOW, "ret"])
+                self.assertEqual(new_leaks(result), [leak])
+                self.assertIn(detail, result["details"][leak])
+                self.assertIn("with live code", result["details"][leak])
+                self.assertIn("Parsek.Pure::Add -> Parsek.IClock::Now", result["seams"]["Rules"])
+                problems = self.problems(result)
+                self.assertEqual(len(problems), 1, problems)
+                self.assertIn(leak, problems[0])
+
+    def test_live_code_that_hands_back_no_live_implementation_stays_out(self):
+        forms = {
+            "a live-module helper that constructs and reads nothing live": [
+                "call       void Parsek.Services::Format()", "ret"],
+            "a subclass overriding the live fill with pure code": [
+                "newobj     instance void Parsek.KspClock4::.ctor()", CLOCK_NOW, "ret"],
+            # Injection through a static the slot type declares, assigned elsewhere
+            # (Services.Inject): a seam, the rule's known limit.
+            "a slot-typed static assigned elsewhere": [
+                "call       class Parsek.IClock Parsek.Services::get_Injected()", CLOCK_NOW, "ret"],
+        }
+        for label, body in forms.items():
+            with self.subTest(form=label):
+                result = wiring_run(body)
+                self.assertEqual(new_leaks(result), [])
                 self.assertEqual(self.problems(result), [])
                 self.assertEqual(result["unexplained"], [])
 

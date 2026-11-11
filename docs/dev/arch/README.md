@@ -718,7 +718,8 @@ anyway), **Crew** (the roster), **Config** (reads the live game's settings).
 - `call:<Type>::<Name>`: the method calls a method outside the headless
   modules that can reach the game, or a slot declared outside them that a
   live implementation outside them fills, or a constructor or static method of
-  a type outside them that fills a headless slot with live code (below);
+  a type outside them that fills a headless slot with live code, or a method
+  outside them that hands such an implementation back (below);
 - `static:<Type>::<Field>`: the method reads a static field of such a type
   (a singleton `Instance`).
 
@@ -744,9 +745,16 @@ and `FlightGlobalsBodyInfo`'s own reads of `CelestialBody` are its leaks. A
 seam the headless method wires itself is not a seam: constructing the live
 implementation (`new KspClock()`), calling its static factory, or reading its
 static singleton (`KspClock.Instance`) is a leak at that construction or
-read, whatever slot the call then goes through. So once `FlightGlobalsBodyInfo`
-leaves Missions, `FlightGlobalsBodyInfo.Instance.Radius(...)` in a headless
-method still reds. Every live headless method must reach a leak or a seam
+read, whatever slot the call then goes through. A type fills a slot when it
+or a base it does not override there does (the first filler up the base chain
+is the one a slot call runs). The wiring is walked over callers the way the
+game reach is: a method outside the headless modules that constructs such a
+type, calls its static members or reads its static fields hands the live
+implementation back, and so does one calling such a method, so a call to a
+factory on a third type (`Services.Clock => new KspClock()`) or to a locator
+calling that factory is a `call:` leak whose detail names the path and the
+live type. So once `FlightGlobalsBodyInfo` leaves Missions,
+`FlightGlobalsBodyInfo.Instance.Radius(...)` in a headless method still reds. Every live headless method must reach a leak or a seam
 through headless calls (`unexplained`, empty, held by a real-tree cell), so
 the leak rule cannot drift from the coupling rule unseen.
 
@@ -778,7 +786,9 @@ real facts and by an inline-IL cell:
 - a headless method constructing a live implementation of a headless slot
   (`test_constructing_a_live_implementation_of_a_headless_slot_reds`; inline,
   with the static factory and the static singleton:
-  `test_a_live_slot_implementation_hard_wired_reds_in_every_form`);
+  `test_a_live_slot_implementation_hard_wired_reds_in_every_form`; a factory
+  on a third type, a locator calling it and a subclass inheriting a live fill:
+  `test_a_live_implementation_handed_back_by_other_live_code_reds`);
 - a rename of a leaking method, or of the live method it calls: the pins are a
   set keyed by name, so the renamed leak is new and needs a re-pin, as a
   renamed complexity-watch method does (`test_a_rename_of_a_leaking_method_reds`).
@@ -814,7 +824,10 @@ lambda cache, a closure class and a local function give the same leaks
 `test_every_compiler_shape_of_generated_code_gives_the_same_leaks`); an
 implementation handed in as a parameter or held in an instance field
 (`test_an_injected_implementation_stays_a_seam`); unattributed generated code
-that names nothing live (`test_a_pseudo_method_names_no_leak_when_its_code_is_pure`).
+that names nothing live (`test_a_pseudo_method_names_no_leak_when_its_code_is_pure`);
+a call to live-module code that hands back no live implementation, or to a
+subclass overriding the live fill with pure code
+(`test_live_code_that_hands_back_no_live_implementation_stays_out`).
 A pinned leak that disappears passes; a re-pin drops it.
 
 Limits:
@@ -826,11 +839,13 @@ Limits:
   tooling included (an in-game test's double counts), except through a seam,
   which is never a leak. A seam is an honest exit only when the implementation
   is handed in: the gate shows a call moved behind a seam as gone even though
-  the live implementation still runs in the game, and the wiring is checked
-  only where it is a construction, a static factory or a static field read of
-  the implementing type itself. A live implementation reached through a
-  factory in a third type, or one that inherits its live member from a base
-  class, still reads as a seam.
+  the live implementation still runs in the game. Injection through a static
+  assigned elsewhere (a static field or property of the slot type that some
+  other code sets, `Services.Clock = new KspClock()` at startup) is counted as
+  a seam: the wiring rule follows constructions and static reads of the live
+  type itself, not stores into a slot-typed static, and that is its known
+  limit. Generated code no method owns outside the headless modules does not
+  start a wiring path either.
 - The unattributed pseudo-method gives the leak to the type, not to the
   method that wrote the lambda, and the coupling shares of "Code facts" do not
   follow it (a source method that calls only into it reads as unable to reach
@@ -854,7 +869,7 @@ python3 scripts/arch/headless.py Source/Parsek/bin/Debug/Parsek.dll --write-pins
 
 `archview.py --check --facts <dll>` prints the table and the leak count as
 HEADLESS MODULES, the Atlas draws them under "Code facts", and the metrics row
-carries them as `facts.headless`. The gate adds about 5 s to CI's
+carries them as `facts.headless`. The gate adds about 6 s to CI's
 compiled-IL step (measured after the shared parse): the leaks come out of the
 game reach `ilanalysis.report` already computes, and each real-tree mutant
 reruns the reach, which a per-pass memo of the name-pattern match keeps near

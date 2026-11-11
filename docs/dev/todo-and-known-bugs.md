@@ -2607,11 +2607,13 @@ compare).
   live callee outside the headless modules; a live callee inside them adds nothing (the leak is
   pinned once, at that callee). A slot declared in a headless module that a live implementation
   elsewhere fills is a seam, counted and not gated, but only when the implementation is
-  injected: constructing that implementation, calling its static members or reading its static
-  fields is a leak (`call:` / `static:`). Generated code the compiler gives no single owner (a
+  injected: constructing that implementation (or a subclass inheriting its live fill), calling
+  its static members, reading its static fields, or calling live code that does one of these
+  (a factory on a third type, a locator calling it) is a leak (`call:` / `static:`); injection
+  through a slot-typed static assigned elsewhere stays a seam, the rule's known limit. Generated code the compiler gives no single owner (a
   nested lambda, a field-initializer lambda shared by two constructors) is gated as the pseudo
   method `Type::(generated)` of its source type. `test_ilheadless.py` (CI's compiled-IL step,
-  about 5 s; a per-pass memo of the name-pattern match makes the shared game reach about five
+  about 6 s; a per-pass memo of the name-pattern match makes the shared game reach about five
   times faster) pins the 279 leaks (123 methods; 29 seams) in `scripts/arch/headless_pins.toml`
   together with the module list, the `facts.toml` `[coupling]` lists and a `[measured]` block
   the README's "Headless modules" table must print exactly (`ReadmeTests`, DLL-free), so a new
