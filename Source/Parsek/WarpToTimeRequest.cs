@@ -9,6 +9,9 @@ namespace Parsek
     /// (like <see cref="RewindContext"/>). The <see cref="SessionId"/> stamp lets the
     /// consumer reject a request orphaned across a process restart (e.g. a quickload into
     /// the Space Center), mirroring <see cref="StockActionIntentMarker"/>'s staleness guard.
+    /// Within one process a request belongs to the game it was armed in: a failed rewind
+    /// launch drops the pending request, and a Cold load or the main-menu transition drops
+    /// both (<see cref="DropAll"/>).
     /// </summary>
     internal static class WarpToTimeRequest
     {
@@ -39,6 +42,48 @@ namespace Parsek
             HasPending = false;
             TargetUT = 0;
             SessionId = Guid.Empty;
+        }
+
+        /// <summary>
+        /// Clears the pending request because it will never be consumed for the game it was
+        /// armed in (its rewind did not launch). Logged at Info with the target and the reason;
+        /// returns whether a request was armed.
+        /// </summary>
+        internal static bool DropPending(string reason)
+        {
+            if (!HasPending) return false;
+            ParsekLog.Info(Tag,
+                string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "Pending warp dropped: targetUT={0:F1} reason={1}",
+                    TargetUT, reason ?? "unspecified"));
+            HasPending = false;
+            TargetUT = 0;
+            SessionId = Guid.Empty;
+            return true;
+        }
+
+        /// <summary>
+        /// Drops both requests because the game they were armed for is gone: a Cold load
+        /// (<c>ParsekScenario.ResetSaveScopedSessionState</c>) or the main-menu transition.
+        /// Neither runs between a request's arm and its consume on the Warp to time paths: a
+        /// plain rewind's load classifies PlainRewind and a flight to Space Center exit
+        /// classifies in-session (<see cref="LoadReconcilePolicy.ClassifyEarly"/>), and both
+        /// load the Space Center, never the main menu. Returns how many were dropped.
+        /// </summary>
+        internal static int DropAll(string reason)
+        {
+            int dropped = DropPending(reason) ? 1 : 0;
+            if (HasDeferredKscWarp)
+            {
+                ParsekLog.Info(Tag,
+                    $"Deferred flight warp dropped: Y{DeferYear} D{DeferDay} {DeferHour}:{DeferMinute:00} " +
+                    $"reason={reason ?? "unspecified"}");
+                HasDeferredKscWarp = false;
+                DeferYear = DeferDay = DeferHour = DeferMinute = 0;
+                deferSessionId = Guid.Empty;
+                dropped++;
+            }
+            return dropped;
         }
 
         /// <summary>

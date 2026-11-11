@@ -279,6 +279,9 @@ namespace Parsek
                 // An announced save-file load that never reached an OnLoad belongs to the game
                 // being unloaded; the next game's own load arms its own.
                 SaveFileLoadIntent.Clear("main-menu");
+                // A Warp to time request belongs to the game being unloaded; the warp paths
+                // load the Space Center, never the main menu, so none is mid-flight here.
+                WarpToTimeRequest.DropAll("main-menu");
                 ParsekLog.Info("Scenario",
                     "Main menu transition — reset initialLoadDone to prevent stale data leak");
             }

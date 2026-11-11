@@ -105,6 +105,13 @@ namespace Parsek
             RouteRunPrompt.ResetForSaveLoad("save-scoped-reset");
             storesReset += 3;
 
+            // A Warp to time request belongs to the game it was armed in. No Warp to time path
+            // crosses a Cold load between arm and consume (a plain rewind's load is PlainRewind,
+            // a flight exit is in-session), so a request still armed here is one whose rewind
+            // never launched, and the consumer would jump this save's clock to its target.
+            WarpToTimeRequest.DropAll("cold-load:" + (reason ?? "unspecified"));
+            storesReset++;
+
             coldLoadsThisProcess++;
             ParsekLog.Info("Scenario",
                 "Save-scoped session state reset: reason=" + (reason ?? "unspecified")

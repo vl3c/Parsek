@@ -26,6 +26,7 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
             RewindContext.ResetForTesting();
             ParsekScenario.ResetInstanceForTesting();
+            WarpToTimeRequest.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             ParsekLog.VerboseOverrideForTesting = true;
@@ -38,6 +39,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             ParsekScenario.ResetInstanceForTesting();
+            WarpToTimeRequest.ResetForTesting();
             RewindContext.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
@@ -387,7 +389,7 @@ namespace Parsek.Tests
         {
             var rec = new Recording { RecordingId = "orphan", VesselName = "Lost" };
 
-            RewindLauncher.InitiateRewind(rec);
+            Assert.False(RewindLauncher.InitiateRewind(rec));
 
             Assert.Contains(logLines, l => l.Contains("[ERROR][Rewind]")
                 && l.Contains("InitiateRewind: no rewind owner for 'Lost' (id=orphan)"));
@@ -400,13 +402,84 @@ namespace Parsek.Tests
             InstallScenario(MergeJournal.Phases.Begin, supersedeRows: 0);
             var rec = new Recording { RecordingId = "own", VesselName = "Owner", RewindSaveFileName = "parsek_rw_own" };
 
-            RewindLauncher.InitiateRewind(rec);
+            Assert.False(RewindLauncher.InitiateRewind(rec));
 
             Assert.Contains(logLines, l => l.Contains("[ERROR][Rewind]")
                 && l.Contains("Cannot rewind during an active re-fly merge")
                 && l.Contains("journalPhase=Begin"));
             Assert.Contains("Cannot rewind during an active re-fly merge", screenMessages);
             Assert.False(RewindContext.IsRewinding);
+        }
+
+        // ---------- Warp to time: a rewind that does not launch drops the pending warp ----------
+        // WARP-REQUEST-SURVIVES-A-FAILED-REWIND: Warp to time arms the forward jump before the
+        // rewind; a launch that refuses or fails stays in this scene, so the request must go,
+        // or the next Space Center load of the process jumps the clock to the old target.
+
+        private void AssertPendingWarpDroppedFor(string reason)
+        {
+            Assert.False(WarpToTimeRequest.HasPending);
+            Assert.Equal(0.0, WarpToTimeRequest.TargetUT);
+            Assert.Contains(logLines, l => l.Contains("[INFO][WarpTime]")
+                && l.Contains("Pending warp dropped: targetUT=86400.0 reason=" + reason));
+        }
+
+        [Fact]
+        public void WarpToTime_RewindWithNoOwner_DropsThePendingWarp()
+        {
+            var rec = new Recording { RecordingId = "orphan", VesselName = "Lost" };
+
+            bool launched = WarpToTimeController.ArmPendingWarpAndLaunch(
+                86400.0, () => RewindLauncher.InitiateRewind(rec), "rewind-not-launched");
+
+            Assert.False(launched);
+            AssertPendingWarpDroppedFor("rewind-not-launched");
+        }
+
+        [Fact]
+        public void WarpToTime_RewindRefusedByAnUnfinishedJournal_DropsThePendingWarp()
+        {
+            InstallScenario(MergeJournal.Phases.Begin, supersedeRows: 0);
+            var rec = new Recording { RecordingId = "own", VesselName = "Owner", RewindSaveFileName = "parsek_rw_own" };
+
+            bool launched = WarpToTimeController.ArmPendingWarpAndLaunch(
+                86400.0, () => RewindLauncher.InitiateRewind(rec), "rewind-not-launched");
+
+            Assert.False(launched);
+            AssertPendingWarpDroppedFor("rewind-not-launched");
+        }
+
+        // The load-failure path: no merge journal, so InitiateRewind arms the rewind and reaches
+        // ExecuteRewindSaveLoad, whose save copy fails headless (no KSP install, no rewind save);
+        // its catch resets the flags and InitiateRewind reports the failure.
+        [Fact]
+        public void WarpToTime_RewindWhoseLoadFails_ReturnsFalseAndDropsThePendingWarp()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "own", VesselName = "Owner", RewindSaveFileName = "parsek_rw_missing_" + Guid.NewGuid().ToString("N"),
+            };
+
+            bool launched = WarpToTimeController.ArmPendingWarpAndLaunch(
+                86400.0, () => RewindLauncher.InitiateRewind(rec), "rewind-not-launched");
+
+            Assert.False(launched);
+            Assert.False(RewindContext.IsRewinding);
+            Assert.Contains(logLines, l => l.Contains("[ERROR][Rewind]") && l.Contains("Rewind failed:"));
+            AssertPendingWarpDroppedFor("rewind-not-launched");
+        }
+
+        [Fact]
+        public void WarpToTime_CareerStartRefused_DropsThePendingWarp()
+        {
+            InstallScenario(MergeJournal.Phases.Complete, supersedeRows: 1);
+
+            bool launched = WarpToTimeController.ArmPendingWarpAndLaunch(
+                86400.0, () => RewindLauncher.InitiateRewindToCareerStart("parsek_start"),
+                "career-start-reset-not-launched");
+
+            Assert.False(launched);
+            AssertPendingWarpDroppedFor("career-start-reset-not-launched");
         }
 
         // ---------- TryDeleteFileQuietly ----------

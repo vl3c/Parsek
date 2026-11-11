@@ -42,12 +42,12 @@ namespace Parsek.TestCommands
     /// TWO CONTRACTS ARE LOAD-BEARING HERE.
     /// </para>
     /// <para>
-    /// (1) <c>InitiateRewind</c> RETURNS VOID and its failure paths only LOG (no owner, an
+    /// (1) <c>InitiateRewind</c>'s failure paths only LOG and return false (no owner, an
     /// active merge journal, a null <c>LoadGame</c>, a throwing copy / pre-process). The
-    /// applier therefore treats <c>RewindContext.IsRewinding</c> immediately after the
-    /// call as the synchronous success test: the whole pre-load half of
+    /// applier treats that result, and <c>RewindContext.IsRewinding</c> immediately after
+    /// the call, as the synchronous success test: the whole pre-load half of
     /// <c>ExecuteRewindSaveLoad</c> runs inside that call, and every failure path inside it
-    /// ends at <c>ResetRewindFlags</c>. Still false -> terminal ERROR <c>rewind-failed</c>,
+    /// ends at <c>ResetRewindFlags</c>. Either false -> terminal ERROR <c>rewind-failed</c>,
     /// never a PENDING that would then burn the whole budget waiting for a reload that was
     /// never requested.
     /// </para>
@@ -178,9 +178,9 @@ namespace Parsek.TestCommands
                 "- plain Rewind-to-Launch (NOT a Re-Fly)");
 
             // Synchronous pre-load half + the LoadScene request happen inside this call.
-            RewindLauncher.InitiateRewind(rootRec);
+            bool launched = RewindLauncher.InitiateRewind(rootRec);
 
-            if (!RewindContext.IsRewinding)
+            if (!launched || !RewindContext.IsRewinding)
             {
                 // Contract (1): every failure path inside InitiateRewind /
                 // ExecuteRewindSaveLoad ends at ResetRewindFlags and only logs, so a cleared

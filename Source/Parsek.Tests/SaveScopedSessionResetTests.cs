@@ -46,6 +46,9 @@ namespace Parsek.Tests
             typeof(TreeDiscardService),
             typeof(RewindCarry),
             typeof(RewindLauncher),
+            // WARP-REQUEST-SURVIVES-A-FAILED-REWIND: a Warp to time request belongs to the game
+            // it was armed in; no Warp to time path crosses a Cold load between arm and consume.
+            typeof(WarpToTimeRequest),
         };
 
         private readonly List<string> logLines = new List<string>();
@@ -84,6 +87,7 @@ namespace Parsek.Tests
             Parsek.Logistics.RouteRunPrompt.ResetForTesting();
             FacilityStatePatcher.ResetForTesting();
             RecordingGroupStore.ResetForTesting();
+            WarpToTimeRequest.ResetForTesting();
         }
 
         // ---- the allowlist ----
@@ -409,6 +413,27 @@ namespace Parsek.Tests
                 && l.Contains("rp-stale"));
         }
 
+        // catches: WARP-REQUEST-SURVIVES-A-FAILED-REWIND. A Warp to time request left armed by a
+        // rewind that never launched (or a deferred flight warp whose Space Center arrival never
+        // came) jumping the clock of the next save loaded in the same process.
+        [Fact]
+        public void WarpToTimeRequests_AreDroppedByTheColdReset_WithTheReason()
+        {
+            WarpToTimeRequest.Set(98765.0);
+            WarpToTimeRequest.SetDeferredKscWarp(3, 12, 6, 30);
+            logLines.Clear();
+
+            ParsekScenario.ResetSaveScopedSessionState("save-file");
+
+            Assert.False(WarpToTimeRequest.HasPending);
+            Assert.Equal(0.0, WarpToTimeRequest.TargetUT);
+            Assert.False(WarpToTimeRequest.HasDeferredKscWarp);
+            Assert.Contains(logLines, l => l.Contains("[INFO][WarpTime]")
+                && l.Contains("Pending warp dropped: targetUT=98765.0 reason=cold-load:save-file"));
+            Assert.Contains(logLines, l => l.Contains("[INFO][WarpTime]")
+                && l.Contains("Deferred flight warp dropped: Y3 D12 6:30 reason=cold-load:save-file"));
+        }
+
         // A reset with nothing stale logs no Warn for either.
         [Fact]
         public void ColdReset_WithNothingStale_LogsNoStaleWarn()
@@ -437,7 +462,7 @@ namespace Parsek.Tests
             ParsekScenario.ResetSaveScopedSessionState("main-menu");
 
             Assert.Contains(logLines, l => l.Contains("[Scenario]")
-                && l.Contains("Save-scoped session state reset: reason=main-menu pendingTreeDropped=false storesReset=13"));
+                && l.Contains("Save-scoped session state reset: reason=main-menu pendingTreeDropped=false storesReset=14"));
             Assert.Equal(1, ParsekScenario.ColdLoadsThisProcessForTesting);
         }
 

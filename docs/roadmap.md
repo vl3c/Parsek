@@ -498,6 +498,7 @@ Out of scope by doctrine (revisit on demand): non-docking connection producers b
 
 **Status: deferred (owner ruling 2026-10-24).** Implementation does not start before Parsek's public
 release, and comes later only if Parsek has users. See "Current focus" above.
+Owner note (2026-11-11): competitive play (Phase 15) is probably built first; see its note.
 
 Multiple players run one shared space program: one KSC, one timeline with per-player attribution, and in later versions one pooled economy. It is built mode by mode (owner ruling 2026-10-24): Sandbox first (no shared pool), then Science (one shared science pool), then Career (science, funds, reputation; contracts stay local-only). The Kerbal system feels populated with vessels flying and bases being built. Players never need to be online simultaneously; the timeline converges over time - correspondence chess, not real-time multiplayer.
 
@@ -527,6 +528,21 @@ Revised 2026-10-05 (owner rulings; full design in `docs/dev/gloops-recorder-desi
 ---
 
 ## Phase 15: Competitive Play & Space Race
+
+**Owner note (V, 2026-11-11): probably built before Phase 14.** "We should probably build
+competitive multiplayer first on this general design stroke." The stroke, as discussed that day:
+
+- Science and kerbals only; no career features (funds, reputation, contracts, strategies).
+- Vessels and ledgers stay fully separate per player, so there are no contested docks, shared
+  crew or held earnings to settle. Only two things are common: other players' ghosts and one
+  milestone timeline.
+- A "first" is never final. The timeline is dynamic: any player can go back and land earlier, or
+  fly more efficiently, to take a first again, so who is first is recomputed from the timeline
+  like every other derived value. A race is bounded by a real-time limit, not winner takes all;
+  "first to get there wins, no retakes" is a house rule a group can choose.
+
+This is a note of direction, not a design, and it does not change the deferral: no multiplayer
+work starts before the public release (see "Current focus").
 
 Player boundaries that enable competitive multiplayer. Each player has their own game actions timeline (separate science, funds, reputation, contracts, kerbals). Only things with visible effect on the common game world are shared — vessel recordings play as ghosts in everyone's game, but each player's economy is independent.
 
