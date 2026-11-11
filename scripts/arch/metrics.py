@@ -20,7 +20,8 @@ code facts:
 - text: archview.build_model over Source/Parsek (no DLL needed);
 - semantic: semantic.build over that model and the Parsek.dll parse;
 - facts: ilanalysis.report over ilfacts.build of the same parse, with test
-  reach when the test DLL is given;
+  reach when the test DLL is given, and lifetimes.py's summary over the same
+  facts;
 - sizes: scripts/count-code.py (its `collect`).
 
 An input that is not given (no --dll, no --tests-dll) leaves its half null;
@@ -76,6 +77,11 @@ renamed or removed key bumps the schema id). Shares are fractions rounded to
                               (the last two null without the test DLL)
     facts.testReach           null without the test DLL, else {byModule.<M>:
                               {methodShare, instructionShare, methods}, untestedComplex}
+    facts.lifetimes           the declared static lifetimes (scripts/arch/lifetimes.py
+                              summary): {population, tagged, untagged, byLifetime.<L>,
+                              coldClosureMethods, findings.<F>}; a finding is null when
+                              not measured (testWrittenUntagged needs the test DLL), and
+                              the whole key is null when the report carries none
     sizes.areas.<area>        {files, lines, code} per count-code.py area name
     sizes.filesOutsideAreas   tracked code-like files outside every area
     sizes.tests               count-code.py's test totals, its key names
@@ -271,6 +277,7 @@ def facts_section(report):
             "testOnly": len(dead["testOnly"]) if "testOnly" in dead else None,
         },
         "testReach": test_reach,
+        "lifetimes": report.get("lifetimes"),
     }
 
 
@@ -386,6 +393,9 @@ def measure(sha, date, dll=None, tests_dll=None, source=archview.DEFAULT_SOURCE,
                 raise FileNotFoundError("--tests-dll %s does not exist" % tests_dll)
             tests_facts = ilanalysis.load_facts(tests_dll, None)[0]
         report = ilanalysis.report(facts, tooling, ilanalysis.load_config(), tests_facts)
+        import lifetimes  # noqa: PLC0415
+
+        report["lifetimes"] = lifetimes.summary(lifetimes.analyse_facts(facts, tooling, tests_dll))
     import layers  # noqa: PLC0415
 
     return row_from_tools(sha, date, model, forbidden, semantic_result, report,

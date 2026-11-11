@@ -311,9 +311,262 @@ SWITCH_CONTINUATION_RE = re.compile(r"^IL_[0-9a-fA-F]+\s*[,)]")
 # An identifier-shaped string literal: what reflection by name (`GetMethod`,
 # `Invoke`, `StartCoroutine`, a Harmony method name) and `nameof` compile to.
 IDENTIFIER_LDSTR_RE = re.compile(r"\bldstr\s+\"([A-Za-z_][A-Za-z0-9_]*)\"\s*$")
-# How many instructions after an `ldsfld` a call on the loaded value is taken
-# to use it as the receiver (a heuristic: the stack is not simulated).
+# Receiver tracking. After an `ldsfld` of an in-assembly static the parse
+# follows that value down the evaluation stack (StaticReceiverTracker): an
+# outside call (or an element store) records the static only when the value,
+# or a value read out of it (`Dict[k]`, `Jagged[i]`, a field of it), is the
+# call's `this` / first argument (the array operand of the store). A value
+# stored to a local is followed through `ldloc` of that local. When the
+# value meets an opcode with no known stack delta, a branch or a store
+# somewhere other than a local, the parse falls back to the window answer: an
+# outside call within STATIC_RECEIVER_WINDOW instructions after the `ldsfld`
+# counts, whatever its receiver. So the tracker can only drop a call the
+# window would have counted when it saw the value consumed elsewhere.
 STATIC_RECEIVER_WINDOW = 8
+# How long a value is followed before it is dropped (no fallback: the window
+# is long past by then).
+STATIC_RECEIVER_HORIZON = 64
+STACK_CONTROL_RE = re.compile(
+    r"^(?:br|brtrue|brfalse|brnull|brinst|brzero|beq|bge|bgt|ble|blt|bne|leave)(?:\.un)?(?:\.s)?$"
+    r"|^(?:switch|ret|throw|rethrow|endfinally|endfault|endfilter|jmp|calli|localloc)$"
+)
+STACK_PREFIXES = frozenset("constrained. volatile. readonly. tail. unaligned. no. nop".split())
+STACK_PUSH_ONLY_RE = re.compile(
+    r"^(?:ldarg|ldarga|ldloc|ldloca|ldc|ldnull|ldstr|ldsfld|ldsflda|ldtoken|ldftn|sizeof|arglist)(?:\..*)?$"
+)
+STACK_UNARY_RE = re.compile(
+    r"^(?:ldfld|ldflda|ldlen|box|unbox|unbox\.any|castclass|isinst|newarr|ldind\..*|ldobj|neg|not|conv\..*"
+    r"|ckfinite|ldvirtftn|refanyval|mkrefany|refanytype)$"
+)
+STACK_BINARY_RE = re.compile(
+    r"^(?:add|sub|mul|div|rem|and|or|xor|shl|shr|ceq|cgt|clt)(?:\.ovf)?(?:\.un)?$|^ldelem(?:\..*)?$|^ldelema$"
+)
+STACK_STORE1_RE = re.compile(r"^(?:pop|stloc|starg|stsfld|initobj)(?:\..*)?$")
+STACK_STORE2_RE = re.compile(r"^(?:stfld|stind\..*|stobj|cpobj)$")
+STACK_STORE3_RE = re.compile(r"^(?:stelem(?:\..*)?|cpblk|initblk)$")
+LOCAL_INDEX_RE = re.compile(r"(\d+)\s*$")
+
+
+def stack_effect(opcode, call=None):
+    """(pops, pushes) of one instruction, "flow" for a branch or an opcode the
+    tracker does not follow, None when the delta is unknown. `call` is
+    (instance, arity, returns) for call / callvirt / newobj."""
+    if opcode in STACK_PREFIXES:
+        return 0, 0
+    if STACK_CONTROL_RE.match(opcode):
+        return "flow"
+    if opcode in ("call", "callvirt", "newobj"):
+        if call is None or call[1] is None:
+            return None
+        instance, arity, returns = call
+        if opcode == "newobj":
+            return arity, 1
+        return arity + (1 if instance else 0), 1 if returns else 0
+    if opcode == "dup":
+        return 1, 2
+    if STACK_PUSH_ONLY_RE.match(opcode):
+        return 0, 1
+    if STACK_UNARY_RE.match(opcode):
+        return 1, 1
+    if STACK_BINARY_RE.match(opcode):
+        return 2, 1
+    if STACK_STORE1_RE.match(opcode):
+        return 1, 0
+    if STACK_STORE2_RE.match(opcode):
+        return 2, 0
+    if STACK_STORE3_RE.match(opcode):
+        return 3, 0
+    return None
+
+
+def _parameter_names(params_text):
+    """The parameter names of a `.method` header's parameter list, in order."""
+    names = []
+    for part in _split_top_level(params_text or "", ","):
+        words = PARAM_ATTRIBUTE_RE.sub("", part).strip().split()
+        names.append(words[-1].strip("'") if len(words) >= 2 else None)
+    return names
+
+
+def local_index(opcode, operand):
+    """The local slot an `ldloc` / `stloc` / `ldloca` names (`stloc.2`, `stloc.s V_7`)."""
+    head, _dot, tail = opcode.partition(".")
+    if tail.isdigit():
+        return int(tail)
+    match = LOCAL_INDEX_RE.search(operand or "")
+    return int(match.group(1)) if match else None
+
+
+class StaticReceiverTracker:
+    """Follows the values of in-assembly statics, and of the method's own
+    parameters, down one method's evaluation stack; `note(...)` is called once
+    per instruction in order.
+
+    - `found` {(field key, member)}: an outside call (or `[]` element store)
+      whose receiver is the static's value or a value read out of it.
+    - `direct` {(field key, member)}: the subset whose receiver is the
+      static's own value (not an element, field or call result read out of
+      it, and not a window guess): the evidence a `Clear` empties the static.
+    - `param_calls` / `param_direct` {(parameter index, member)}: the same two
+      for a parameter, so ilfacts can tell which parameters a method mutates.
+    - `static_args` {(field key, ref position, parameter index, derived)} and
+      `param_args` {(parameter index, ref position, parameter index, derived)}:
+      the value passed to an in-assembly call (`ref position` indexes the
+      method's `refs`; `derived` when it was read out of the static), for
+      ilfacts to credit the callee's mutation to the static.
+
+    See STATIC_RECEIVER_WINDOW for the fallback."""
+
+    def __init__(self, param_names=(), instance=False):
+        self.found = set()
+        self.direct = set()
+        self.param_calls = set()
+        self.param_direct = set()
+        self.static_args = set()
+        self.param_args = set()
+        self.params = {name: index for index, name in enumerate(param_names) if name}
+        self.instance = instance
+        self.tracked = []   # [source, depth from the top, derived?, start op index]
+        self.window = []    # (start op index, field): values the tracker gave up on
+        self.aliases = {}   # local slot -> source whose value it holds
+
+    def _give_up(self, entry):
+        if entry[0][0] == "f":
+            self.window.append((entry[3], entry[0][1]))
+
+    def _record(self, source, member, derived):
+        if source[0] == "f":
+            self.found.add((source[1], member))
+            if not derived:
+                self.direct.add((source[1], member))
+        else:
+            self.param_calls.add((source[1], member))
+            if not derived:
+                self.param_direct.add((source[1], member))
+
+    def _window_hit(self, here, member):
+        while self.window and here - self.window[0][0] > STATIC_RECEIVER_WINDOW:
+            self.window.pop(0)
+        for start, field in self.window:
+            # An element store's array is loaded before its index and value;
+            # a static one or two instructions back is the stored value.
+            if member != "[]" or here - start >= 3:
+                self.found.add((field, member))
+
+    def _parameter(self, opcode, operand):
+        """The parameter index an `ldarg` loads (None for `this` or unknown)."""
+        head, _dot, tail = opcode.partition(".")
+        if tail.isdigit():
+            slot = int(tail)
+        elif tail in ("s", ""):
+            name = (operand or "").strip().strip("'")
+            if name.isdigit():
+                slot = int(name)
+            else:
+                return self.params.get(name)
+        else:
+            return None
+        if self.instance:
+            return slot - 1 if slot > 0 else None
+        return slot
+
+    def note(self, here, opcode, operand="", call=None, external_name=None, static_field=None, ref_position=None):
+        """One instruction at op index `here`. `call` as for stack_effect;
+        `external_name` the member name when this is a call into another
+        assembly; `static_field` the key when this is an `ldsfld` of an
+        in-assembly static; `ref_position` the index of this instruction's
+        member reference in the method's `refs`."""
+        if external_name is not None:
+            self._window_hit(here, external_name)
+        elif opcode.startswith("stelem"):
+            self._window_hit(here, "[]")
+        loads = None
+        if opcode.startswith(("ldloc", "stloc")) and self.aliases:
+            slot = local_index(opcode, operand)
+            if opcode.startswith("ldloca") and slot in self.aliases:
+                source = self.aliases[slot]
+                if source[0] == "f":
+                    self.window.append((here, source[1]))
+            elif opcode.startswith("ldloc") and slot in self.aliases:
+                loads = self.aliases[slot]
+            elif opcode.startswith("stloc"):
+                self.aliases.pop(slot, None)
+        elif static_field is not None:
+            loads = ("f", static_field)
+        elif opcode.startswith("ldarg") and not opcode.startswith("ldarga") and self.params:
+            index = self._parameter(opcode, operand)
+            if index is not None:
+                loads = ("a", index)
+        if not self.tracked and loads is None:
+            return
+        effect = stack_effect(opcode, call)
+        if effect is None or effect == "flow":
+            for entry in self.tracked:
+                self._give_up(entry)
+            self.tracked = []
+        else:
+            pops, pushes = effect
+            kept = []
+            for entry in self.tracked:
+                source, depth, derived, start = entry
+                if here - start > STATIC_RECEIVER_HORIZON:
+                    continue
+                if depth >= pops:
+                    entry[1] = depth - pops + pushes
+                    kept.append(entry)
+                    continue
+                kept.extend(self._consume(entry, opcode, operand, call, external_name, pops, pushes, ref_position))
+            self.tracked = kept
+        if loads is not None:
+            self.tracked.append([loads, 0, False, here])
+
+    def _consume(self, entry, opcode, operand, call, external_name, pops, pushes, ref_position):
+        """What becomes of a followed value this instruction pops. Returns the
+        entries that live on (a value read out of it, a duplicate)."""
+        source, depth, derived, start = entry
+        receiver = depth == pops - 1  # the deepest popped operand: `this`, an array, an object
+        if opcode == "dup":
+            return [[source, 1, derived, start], [source, 0, derived, start]]
+        if opcode in ("call", "callvirt", "newobj"):
+            instance = call[0] and opcode != "newobj"
+            operand_index = pops - 1 - depth  # 0 is the deepest popped operand
+            if receiver and opcode != "newobj" and (instance or external_name is not None):
+                if external_name is not None:
+                    self._record(source, external_name, derived)
+                if instance and pushes:
+                    return [[source, 0, True, start]]
+                return []
+            if external_name is None and ref_position is not None:
+                parameter = operand_index - (1 if instance else 0)
+                if source[0] == "f":
+                    self.static_args.add((source[1], ref_position, parameter, derived))
+                else:
+                    self.param_args.add((source[1], ref_position, parameter, derived))
+            return []
+        if opcode.startswith("stelem"):
+            if receiver:
+                self._record(source, "[]", derived)
+            return []
+        if opcode.startswith("ldelem") or opcode in ("ldfld", "ldflda", "ldlen"):
+            return [[source, 0, True, start]] if receiver else []
+        if opcode in ("box", "castclass", "isinst", "unbox.any"):
+            return [[source, 0, derived, start]]
+        if opcode.startswith("stloc"):
+            if not derived:
+                slot = local_index(opcode, operand)
+                if slot is None:
+                    self._give_up(entry)
+                else:
+                    self.aliases[slot] = source
+            return []
+        if opcode.startswith(("starg", "stsfld")) or (opcode in ("stfld", "stobj") or opcode.startswith("stind")) \
+                and depth == 0:
+            if not derived:
+                self._give_up(entry)
+            return []
+        return []
+
+
 # An external type reference: `[asm]Ns.Type/Nested`, the assembly name quoted
 # when it is not an identifier (`['Assembly-CSharp']Part`).
 EXTERNAL_TYPE_RE = re.compile(
@@ -557,10 +810,16 @@ def parse_il(text):
     "catches", "refs" [(opcode, assembly or None, exact declaring path, name,
     generic arity, params or None for a field, normalized return type)] and
     "external" {"body", "locals", "signature": {"assembly|type"}},
-    "strings" (identifier-shaped `ldstr` literals) and "staticCalls" {(static
+    "strings" (identifier-shaped `ldstr` literals), "staticCalls" {(static
     field key, member name)}: an outside-assembly call (or `[]` for an array
-    element store) within STATIC_RECEIVER_WINDOW instructions after an `ldsfld`
-    of an in-assembly static, so possibly on it.
+    element store) whose receiver is the value of an in-assembly static or a
+    value read out of it, followed down the stack (StaticReceiverTracker; where
+    it cannot follow, any such call within STATIC_RECEIVER_WINDOW instructions
+    after the `ldsfld`), "staticDirectCalls" (the subset whose receiver is
+    the static's own value, never a window guess), and "staticDefaults" {static
+    field key}: an `ldsflda` of an in-assembly static directly followed by
+    `initobj`, which is how C# assigns `default` or `null` to a value-type or
+    nullable static (no `stsfld` is emitted).
     The facts layer also gets "fields" [field record], "typeInfo" {path:
     {"header", "generics", "attributes", "events"}} and "assembly" (the
     assembly's own name).
@@ -585,7 +844,8 @@ def parse_il(text):
     custom_slot = None
     directive_slot = None
     lines = text.splitlines()
-    recent_statics = []  # (op index, field key) of the current method's recent ldsfld
+    receivers = [None]  # the current method's StaticReceiverTracker
+    last_address = [None]  # (op index, field key) of the current method's last in-assembly ldsflda
 
     def current_path():
         return class_stack[-1][1] if class_stack else None
@@ -656,6 +916,9 @@ def parse_il(text):
         path = current_path()
         owner = source_owner(path) if path else None
         use = None
+        call_info = None
+        external_name = None
+        static_field = None
         if method is not None:
             if CONDITIONAL_BRANCH_RE.match(opcode):
                 method["branches"] += 1
@@ -683,9 +946,18 @@ def parse_il(text):
                         if name in ("op_Implicit", "op_Explicit") else None,
                     ))
                     if opcode == "ldsfld" and assembly is None and exact.startswith(ROOT_NAMESPACE):
-                        recent_statics.append((len(method["ops"]), exact + "::" + name))
+                        static_field = exact + "::" + name
+                    elif opcode == "ldsflda" and assembly is None and exact.startswith(ROOT_NAMESPACE):
+                        last_address[0] = (len(method["ops"]), exact + "::" + name)
                     elif opcode in ("call", "callvirt") and assembly is not None:
-                        _note_static_receiver(name)
+                        external_name = name
+                    if opcode in ("call", "callvirt", "newobj"):
+                        words = re.sub(r"^\s*explicit\s+", "", ret.strip()).split()
+                        instance = bool(words) and words[0] == "instance"
+                        rest = [w for w in words if w not in ("instance", "explicit")]
+                        vararg = params is not None and "..." in params
+                        call_info = (instance, None if vararg else arity,
+                                     not (rest and rest[0] == "void"))
                 decl_owner = None
                 head = declaring.split("<", 1)[0]
                 generic_text = declaring[len(head) :]
@@ -704,19 +976,13 @@ def parse_il(text):
             for target in type_tokens(operand):
                 uses[owner].append(("type", target, "operand"))
         if method is not None:
-            if opcode.startswith("stelem"):
-                _note_static_receiver("[]")
+            if opcode == "initobj" and last_address[0] is not None \
+                    and last_address[0][0] == len(method["ops"]) - 1:
+                method["staticDefaults"].add(last_address[0][1])
+            ref_position = len(method["refs"]) - 1 if call_info is not None else None
+            receivers[0].note(len(method["ops"]), opcode, operand, call_info, external_name, static_field,
+                              ref_position)
             method["ops"].append((opcode, use))
-
-    def _note_static_receiver(member):
-        here = len(method["ops"])
-        while recent_statics and here - recent_statics[0][0] > STATIC_RECEIVER_WINDOW:
-            recent_statics.pop(0)
-        for index, field in recent_statics:
-            # An element store's array is loaded before its index and value;
-            # a static one or two instructions back is the stored value.
-            if member != "[]" or here - index >= 3:
-                method["staticCalls"].add((field, member))
 
     for raw in lines:
         line = strip_strings_and_comments(raw)
@@ -806,6 +1072,7 @@ def parse_il(text):
                     "refs": [],
                     "strings": set(),
                     "staticCalls": set(),
+                    "staticDefaults": set(),
                     "external": {
                         "body": set(),
                         "locals": set(),
@@ -813,7 +1080,15 @@ def parse_il(text):
                     },
                 }
                 custom_slot = ("method", method)
-                recent_statics.clear()
+                receivers[0] = StaticReceiverTracker(
+                    _parameter_names(params_text), "static" not in flags)
+                method["staticCalls"] = receivers[0].found
+                method["staticDirectCalls"] = receivers[0].direct
+                method["paramCalls"] = receivers[0].param_calls
+                method["paramDirectCalls"] = receivers[0].param_direct
+                method["staticArgs"] = receivers[0].static_args
+                method["paramArgs"] = receivers[0].param_args
+                last_address[0] = None
                 methods.append(method)
                 method_depth = depth
                 pending_method = None

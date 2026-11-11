@@ -4131,6 +4131,23 @@ def _atlas_code_facts(facts):
                row.get("writtenElsewhere", 0))
         )
     lines.append("</table></div>")
+
+    lines.append("<h3>Static lifetimes</h3>")
+    lifetimes = facts.get("lifetimes")
+    if not lifetimes:
+        lines.append('<p class="layer">Not measured.</p>')
+    else:
+        lines.append(
+            "<p>The declared lifetime of each mutable static (scripts/arch/lifetimes.toml): %d statics, %d tagged,"
+            " %d untagged (pinned). The findings are ratcheted by test_static_lifetimes.py.</p>"
+            % (lifetimes["population"], lifetimes["tagged"], lifetimes["untagged"])
+        )
+        lines.append('<div class="wide"><table>')
+        lines.append('<tr><th>Lifetime or finding</th><th class="num">Statics</th></tr>')
+        for label, count in lifetime_rows(lifetimes):
+            lines.append('<tr><td class="name">%s</td><td class="num">%s</td></tr>'
+                         % (html.escape(label), "not measured" if count is None else count))
+        lines.append("</table></div>")
     return "\n".join(lines)
 
 
@@ -5203,6 +5220,24 @@ def level_profile(model):
     return profile, overall
 
 
+def lifetime_rows(lifetimes):
+    """(label, count) rows of a lifetimes.summary result: one per declared lifetime, then
+    the untagged count and each finding (None: not measured)."""
+    rows = [(name, count) for name, count in lifetimes["byLifetime"].items()]
+    rows.append(("untagged", lifetimes["untagged"]))
+    rows.extend((name, count) for name, count in lifetimes["findings"].items())
+    return rows
+
+
+def print_lifetime_section(lifetimes):
+    """The STATIC LIFETIMES section of --check (given --facts): scripts/arch/lifetimes.py's counts."""
+    print("STATIC LIFETIMES (scripts/arch/lifetimes.toml; gated by test_static_lifetimes.py)")
+    print("  %d mutable statics, %d tagged, %d untagged; Cold load closure %d methods"
+          % (lifetimes["population"], lifetimes["tagged"], lifetimes["untagged"], lifetimes["coldClosureMethods"]))
+    for label, count in lifetime_rows(lifetimes):
+        print("  %-28s %s" % (label, "not measured" if count is None else count))
+
+
 def print_size_section(sizes):
     """Print the SIZE section: largest files, largest types, then the rules that fired."""
     print()
@@ -5319,7 +5354,7 @@ def print_layer_section(model, layer_table):
 
 
 def run_check(model, forbidden, allowed, prose=None, history=None, sizes=None, semantic=None,
-              layers=None):
+              layers=None, lifetimes=None):
     """Print the report-only architecture check.
 
     Never raises on a malformed policy spec: a bad "From -> To" string is
@@ -5568,6 +5603,9 @@ def run_check(model, forbidden, allowed, prose=None, history=None, sizes=None, s
 
         print()
         semantic_report.print_report(semantic)
+    if lifetimes is not None:
+        print()
+        print_lifetime_section(lifetimes)
     print_size_section(sizes)
     print()
     print("ARCH-CHECK report-only")
@@ -5646,6 +5684,15 @@ def main(argv=None):
     except Exception as exc:
         print("WARN archview: atlas prose not loaded: %s" % exc, file=sys.stderr)
 
+    facts_report = None
+    if args.facts:
+        try:
+            import ilanalysis  # noqa: PLC0415 (it imports this module)
+
+            facts_report = ilanalysis.report_from_paths(args.facts, args.test_facts, args.modules, args.source)
+        except Exception as exc:
+            print("WARN archview: code facts not measured: %s" % exc, file=sys.stderr)
+
     if model is not None:
         try:
             for rel_path in model["unclassified"]:
@@ -5704,16 +5751,6 @@ def main(argv=None):
             history_path = out_dir / "history.json"
             write_history_json(history_payload, history_path)
             print("Wrote %s" % history_path)
-
-            facts_report = None
-            if args.facts:
-                try:
-                    import ilanalysis  # noqa: PLC0415 (it imports this module)
-
-                    facts_report = ilanalysis.report_from_paths(
-                        args.facts, args.test_facts, args.modules, args.source)
-                except Exception as exc:
-                    print("WARN archview: code facts not measured: %s" % exc, file=sys.stderr)
 
             sizes_path = out_dir / "sizes.json"
             write_sizes_json(sizes_payload, sizes_path)
@@ -5784,6 +5821,7 @@ def main(argv=None):
                     sizes_payload,
                     semantic_result,
                     layer_table,
+                    (facts_report or {}).get("lifetimes"),
                 )
             except Exception as exc:
                 print("WARN arch-check: %s" % exc, file=sys.stderr)

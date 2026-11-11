@@ -198,6 +198,16 @@ class RowBuilderTests(unittest.TestCase):
             "byModule": {"Core": {"methodShare": 0.5, "instructionShare": 0.25, "methods": 40}},
             "untestedComplex": 1})
 
+    def test_facts_carry_the_lifetime_summary(self):
+        self.assertIsNone(full_row()["facts"]["lifetimes"])
+        report = fixture_report(True)
+        report["lifetimes"] = {"population": 3, "tagged": 2, "untagged": 1, "byLifetime": {"save": 2},
+                               "coldClosureMethods": 9, "findings": {"coldLoadMisses": 0,
+                                                                     "testWrittenUntagged": None}}
+        section = metrics.facts_section(report)
+        self.assertEqual(section["lifetimes"], report["lifetimes"])
+        json.loads(metrics.dumps(metrics.build_row(SHA, "2026-11-11T17:42:00Z", facts=section)))
+
     def test_facts_without_the_test_dll(self):
         row = full_row(with_tests=False)
         self.assertIsNone(row["facts"]["testReach"])
@@ -673,7 +683,15 @@ class RealTreeRowTests(unittest.TestCase):
         _rules, _tooling, forbidden, _allowed = metrics.archview.load_rules(metrics.archview.DEFAULT_MODULES)
         import layers  # noqa: PLC0415
 
-        report = ilanalysis.report(facts, tooling, ilanalysis.load_config())
+        import lifetimes  # noqa: PLC0415
+        import test_ilanalysis  # noqa: PLC0415
+        import test_static_lifetimes  # noqa: PLC0415
+
+        # The cached report and lifetime result the other real-tree cells hold; the
+        # row reads them, so a shallow copy keeps the cache untouched.
+        report = dict(test_ilanalysis.real_tree_report(il_path))
+        report["lifetimes"] = lifetimes.summary(test_static_lifetimes.real_tree_lifetimes(il_path))
+        cls.lifetime_pins = lifetimes.load_pins()
         cls.pins = layers.load_pins()
         row = metrics.row_from_tools(SHA, "2026-11-11T17:42:00Z", model, forbidden, result, report,
                                      metrics.load_count_code().collect(), layer_table=layers.load_layers())
@@ -702,6 +720,13 @@ class RealTreeRowTests(unittest.TestCase):
         self.assertLessEqual(sem_layers["backwardModulePairs"], len(self.pins["backward"]))
         self.assertLessEqual(sem_layers["backwardTypePairs"], sum(e["count"] for e in self.pins["backward"]))
         self.assertGreater(row["text"]["layers"]["lateralModulePairs"], 0)
+        # The lifetime counts are what lifetime_pins.toml ratchets: never above the pins.
+        lifetimes = row["facts"]["lifetimes"]
+        self.assertEqual(lifetimes["tagged"] + lifetimes["untagged"], lifetimes["population"])
+        self.assertLessEqual(lifetimes["untagged"], len(self.lifetime_pins["untagged"]["keys"]))
+        for name, count in lifetimes["findings"].items():
+            self.assertIsNotNone(count, name)
+            self.assertLessEqual(count, self.lifetime_pins[name]["bound"], name)
 
     def test_the_row_appends(self):
         text, appended = metrics_append.append_text("", self.row)

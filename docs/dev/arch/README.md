@@ -161,7 +161,9 @@ not failed.
   the property it backs (`<X>k__BackingField`), event backing, attributes;
   for a static field the methods that read it (`ldsfld`), write it
   (`stsfld`) and take its address (`ldsflda`, a by-ref write the store scan
-  alone misses).
+  alone misses), and `defaultedBy`, the address-takers that follow the
+  `ldsflda` with `initobj`: that pair is how C# compiles `x = default` or
+  `x = null` on a value-type or nullable static, a write with no `stsfld`.
 - **Methods** by `Type::Name(param types)` (``Name``N`` when generic), the
   parameters normalized so a declaration and a call site print the same text.
   Instruction count, decisions (conditional branches + distinct `switch`
@@ -177,7 +179,9 @@ not failed.
   `ldstr` literals (`strings`, what reflection by name and `nameof` leave).
   A type also carries its interfaces and `namedByOthers` (how many other
   types name it in IL); a static field carries `receiverCalls`, the outside
-  calls (or `[]` element stores) within 8 instructions after a read of it.
+  calls (or `[]` element stores) whose receiver is its value or a value read
+  out of it (see "Static state" for the rule), and `directReceiverCalls`, the
+  subset whose receiver is its own value.
   Generated code no single method owns credits its calls and static access
   to `Type::(generated)`, so no caller or writer is lost.
 - **Compiler-generated code** (lambdas in `<>c`, closures, local functions,
@@ -237,9 +241,7 @@ type whose source file maps to a non-tooling module.
 - **Static state**, per module and per outer type: reassignable statics
   (static auto-property backing fields included, other compiler-generated
   and literal fields out), static readonly collections whose contents a
-  method other than a static constructor changes (an outside call from
-  `[statics] mutating_members`, or an element store, within 8 instructions
-  after a read: a floor, the stack is not simulated), and statics written by
+  method other than a static constructor changes, and statics written by
   another production outer type (`stsfld`, or a call to its static
   auto-property setter; a type nested in the owner is the owner; tooling
   writers such as InGameTests do not count). An `ldsflda` (taking the
@@ -248,6 +250,27 @@ type whose source file maps to a non-tooling module.
   It is reported on its own ("address taken by another production type");
   a `ref` / `out` / `Interlocked` write through another type's static takes
   that path too, and the gate does not see it.
+
+  "Changes" is a call named in `[statics] mutating_members` (or an element
+  store, `[]`) whose receiver is the static. `ilgraph.StaticReceiverTracker`
+  follows the value an `ldsfld` pushes down the evaluation stack, through
+  `dup`, a cast, a local it is stored in, and values read out of it (an
+  element, a field, an instance call's result: `Table[i].Add(x)` and
+  `sb.Append(a).Append(b)` count), and records the call that consumes it as
+  `this` (or the element store that consumes it as the array). A read that
+  hands the value on is not a change: `foreach`, `Contains`, `Count`,
+  `Table[i]` or the static itself passed as an ordinary argument
+  (`ReceiverTests`). Passed to an in-assembly method that is resolved
+  directly, the callee's own calls on that parameter count, to a fixpoint
+  across such calls. Residual limits: where the tracker cannot follow (a
+  branch or `leave`, an opcode with no stack effect it knows, a `starg` /
+  `stfld` / `stsfld` / indirect store of the value, a `ref` local) it falls
+  back to the old rule, any such call within 8 instructions after the read,
+  so a call near the read can still count; a call through an interface or
+  virtual slot does not reach the implementation's body; a call on a value
+  read out of the static counts whether or not it shares state with it
+  (`Table.ToList().Add(x)` counts); a value stored in another field, a
+  closure or a collection is no longer followed.
 - **Complexity**: decisions + 1 with the method's lambdas, local functions and
   iterator bodies folded in, ranked, counted at 20 / 50 / 100.
 - **Game coupling** ("can reach the game"): a method names a type of
@@ -356,6 +379,153 @@ python3 scripts/arch/ilanalysis.py Source/Parsek/bin/Debug/Parsek.dll --write-pi
 Re-pin in the PR that lowers a count (the step log prints the slack), so the
 bound follows it down, and raise one only for a deliberate change the PR
 explains.
+
+## Static lifetimes (compiled IL)
+
+`scripts/arch/lifetimes.toml` (hand-edited) gives the mutable statics of
+production code a declared lifetime. The population is the one "Static state"
+above reports: every reassignable static and every static readonly collection
+outside a static constructor makes the receiver of a `[statics]
+mutating_members` call or an element store, by the rule and limits there
+(1,079 on 2026-11-11). The
+lifetimes, each with its meaning in the file:
+
+| Lifetime | Means |
+| --- | --- |
+| `process` | lives as long as KSP: caches keyed on a version, counters, subscriptions, installed rules |
+| `save` | the loaded save's own state, from one Cold load to the next; a Cold load clears it |
+| `load-transition` | armed or captured before a load, consumed by the next OnLoad or the scene it opens |
+| `scene` | torn down or reset on a scene change |
+| `scoped` | set and restored around one call (try/finally, a Dispose, a Harmony Finalizer) |
+| `test-hook` | a seam only tests set (a provider, an override, a fault injector, a logging switch) |
+
+A static gets its lifetime from a field entry under its type's `[[type]]`
+(`name = "lifetime: reason"`; an auto-property by its property name, as the
+reset allowlist does), else from a `[[pattern]]` its name matches (`*ForTesting`,
+`*ForTests`), else from its type's `default`. Every entry carries a reason.
+Tagging is honest, not complete: a static nobody has read the write sites of
+stays untagged, and the untagged set is pinned. `[cold_load.roots]` names the
+methods a Cold load runs (`ParsekScenario.OnAwake`, `OnLoad`,
+`ResetSaveScopedSessionState`, `ParsekSettings.OnLoad`), each with the reason
+stock calls it.
+
+What reds, in CI's compiled-IL step (`test_static_lifetimes.RealTreeLifetimeTests`,
+pins in `scripts/arch/lifetime_pins.toml`; its `WorkflowTests` cell reds if the
+step's pattern stops matching the file):
+
+- **A new untagged static.** `[untagged]` is a set: a static with no lifetime
+  that is not listed reds, naming it. A renamed untagged static is a new one.
+- **coldLoadMisses**: a `save` or `load-transition` static with no clear in
+  the transitive call closure of the roots (calls, plus every implementation
+  or override of a called slot) and no verified `[cold_load.cleared_by]`
+  entry. A clear is a write that can empty or replace the value: an
+  `stsfld`, a call to its auto-property setter, `ldsflda` + `initobj`, or a
+  call of a `[cold_load.clearing_members]` member (only `Clear`; each member
+  carries its reason) whose receiver is the static's own value
+  (`directReceiverCalls`: followed down the stack, or the static passed as
+  itself to a parameter the callee clears; never an element read out of it,
+  and never the window fallback). An append, an element store, a
+  `Remove(key)` or a read is no clear (`ColdClearTests`). A
+  `[cold_load.cleared_by]` entry names the closure method that clears a
+  static by a route the rule cannot read, with its reason; every entry is
+  checked: the method exists, is in the closure, and itself reads, writes or
+  takes the address of the static (a helper handed the static as an argument
+  does not qualify; name the caller that passes it). The check shows the
+  method touches the static on the Cold path, not that it empties it: the
+  reason is the claim a person reads.
+  `RecordingStore.committedRecordings` has one: the Cold branch's
+  `ClearCommittedInternal` empties it with a `RemoveAt` loop.
+- **testHookWrittenByProduction**: a `test-hook` static that another production
+  outer type writes (any write above).
+- **testWrittenUntagged**: an untagged static that Parsek.Tests.dll writes
+  directly (`stsfld`, or a call to a static setter: the statics that setter's
+  body stores). `scripts/arch/clrmeta.py` reads the test assembly's metadata
+  tables and method bodies in under a second, with no disassembly.
+- **resetGateDisagreement**: a static of a `SaveScopedSessionResetTests` type
+  that `ResetSaveScopedSessionState` resets (it is not in
+  `scripts/session-reset-allowlist.txt`) but is not tagged `save` or
+  `load-transition`.
+
+Each finding list is pinned with `facts_pins.toml`'s contract: the count may
+not rise, a red names the new keys and the re-pin command, and slack after a
+fall is reported until a re-pin. The DLL-free suite reds on a malformed
+declaration (an unknown lifetime or key, a type declared twice, a field tagged
+twice, a missing reason, a root that is no method key) and on a disagreement
+with the C# reset gate, whose type list (`InventoryTypes`) and allowlist are
+parsed with comments and strings stripped: every gated type is declared with a
+cleared default, every allowlisted field has a field entry, and a field entry
+in a gated type that a Cold load does not clear names an allowlisted field. The
+real-tree cells also red when the declaration names a type, field or root the
+assembly lacks.
+
+What cannot red, each held by a cell: tagging or deleting a pinned untagged
+static (`test_tagging_a_pinned_untagged_static_passes`,
+`test_deleting_a_pinned_untagged_static_passes`); renaming a static its type
+default tags (`test_renaming_a_static_tagged_by_its_type_default_passes`); a
+swap inside a finding's bound (`test_a_swap_inside_a_finding_bound_passes`); a
+`process`, `scene`, `scoped` or `test-hook` static no load clears
+(`test_no_load_clear_reds_only_a_save_or_load_transition_static`);
+a test hook written by its own type, by a method named as a test hook, or by
+tooling such as InGameTests
+(`test_a_test_hook_written_by_another_production_type`); a test that only reads
+a static or takes its address
+(`test_test_writes_reads_stsfld_and_static_setters_only`).
+
+Limits:
+
+- The closure is reachability. A clear anywhere the roots reach satisfies
+  `coldLoadMisses`, even one behind a branch the Cold load never takes or in a
+  method reached for another reason
+  (`test_a_write_off_any_branch_counts_the_same`). It proves a clear is
+  reachable, not that it runs on an ordinary Cold load. In particular a
+  `ResetForTesting` body, and everything the test-batch crash reconcile runs
+  (`OnLoad` -> `RunTestBatchCrashReconcile` -> ... ->
+  `RecordingStore.ResetForTestingInternal`), count as Cold clears when the
+  closure reaches them. Three statics pass only that way:
+  `DiscardReFlyLoadIntent.armedTarget` (inert while `armed` is false, which
+  the consume clears), `ParsekScenario.CrashReconcileInProgress` (the crash
+  reconcile's own flag) and `RecordingStore.committedRecordings`, whose
+  ordinary clear is its `cleared_by` entry.
+- A clear is a write that CAN empty or replace the value, not one that does:
+  an `stsfld` of any value counts, and a `Clear` on a static stays a clear
+  even if the value is refilled before the load returns.
+- A write the facts cannot see reads as no write: reflection, a `ref` / `out`
+  pass of the static's address (only `ldsflda` + `initobj` counts;
+  `test_an_address_read_is_no_clearing_write`), a write from another assembly.
+  Such a static reds `coldLoadMisses` until it is tagged otherwise or written
+  visibly.
+- The test-assembly reader skips member references whose parent is a generic
+  instantiation (a static of a generic Parsek type written from a test), and
+  `testWrittenUntagged` checks only untagged statics.
+- A lifetime tag is a claim with a reason, read by a person; only the four
+  findings above check one against the IL.
+
+Tag a static by adding a field entry (or a type default) with the reason its
+write sites support, then re-pin after a Debug build:
+
+```bash
+python3 scripts/arch/lifetimes.py Source/Parsek/bin/Debug/Parsek.dll              # report against the pins
+python3 scripts/arch/lifetimes.py Source/Parsek/bin/Debug/Parsek.dll --write-pins # re-pin (Debug only; refused from a Release path)
+```
+
+The test assembly comes from its Debug build path (`--tests` to override);
+pinning refuses while the declaration has a problem or a finding is
+unmeasured. `archview.py --check --facts <dll>` prints the counts as STATIC
+LIFETIMES, the Atlas draws them under "Code facts", and the metrics row
+carries them as `facts.lifetimes`.
+
+At the pin (2026-11-11, Debug): 1,079 statics, 569 tagged (process 89, save
+134, load-transition 55, scene 10, scoped 26, test-hook 255; by a field entry
+141, a pattern 204, a type default 224), 510 untagged; the Cold closure holds
+5,456 of 17,263 production methods; the test assembly writes 300 Parsek.dll
+statics directly. Findings: coldLoadMisses 9 (the `WarpToTimeRequest` pending
+and deferred-warp fields, tagged `load-transition` from their own doc comment,
+which no load clears: todo WARP-REQUEST-SURVIVES-A-FAILED-REWIND), the other
+three 0. A static named `*ForTesting` that production code of its own type
+writes as real state (a cached probe, an input-lock mirror, instrumentation
+counters) has a field entry tagged by what those writers do; the pattern
+would call it a test hook, and testHookWrittenByProduction only looks at other
+types.
 
 ## Declared layers
 
@@ -477,7 +647,8 @@ later. It gates nothing: no check reads it, and no row can fail a PR.
   the declared-layer numbers the layer ratchet reads), `facts` (the code facts:
   the three ratchet sets' sizes, the static-state totals, complexity at 20 /
   50 / 100, game coupling overall and per module, unreached methods and their
-  instructions, test reach per module) and `sizes` (`scripts/count-code.py`:
+  instructions, test reach per module, and `lifetimes`, the static-lifetime
+  counts of "Static lifetimes", an additive key) and `sizes` (`scripts/count-code.py`:
   lines per area and the test totals). Nothing is measured by new logic: the
   row is those tools' own output, built in one process so `Parsek.dll` is
   disassembled and parsed once. Without a DLL the `semantic` and `facts`

@@ -1,0 +1,664 @@
+# The declared lifetime of the mutable static state in Parsek.dll production
+# code: every reassignable static, and every static readonly collection whose
+# contents a method other than a static constructor changes (the population
+# ilanalysis.static_state reports). Read by scripts/arch/lifetimes.py and its
+# gates (test_static_lifetimes.py); docs/dev/arch/README.md, "Static lifetimes".
+#
+# Hand-edited. Tag only what evidence supports (the reset helper and its
+# allowlist, a store's own Cold loader, a cache's version key, a hook's name,
+# a scene object read in its source). Everything else stays untagged and is
+# pinned as the untagged set in lifetime_pins.toml: a NEW untagged static reds,
+# so a PR that adds a static gives it a lifetime here.
+#
+# How a static gets its lifetime, most specific first:
+#   1. a field entry under its type's [[type]] (`name = "lifetime: reason"`;
+#      an auto-property is named by its property, as the allowlist does);
+#   2. a [[pattern]] its name matches (the property name for a backing field);
+#   3. its declaring type's `default` (the type itself, not its nested types).
+# A type may appear once; a field once in its type's entry.
+
+[lifetimes]
+process = "lives as long as the KSP process: never reset by a load (caches keyed on a version or identity, counters, subscriptions, settings caches, constants)"
+save = "the loaded save's own state, from one Cold load to the next: a Cold load clears it (ParsekScenario.ResetSaveScopedSessionState or the store's own loader)"
+load-transition = "armed or captured before a load and consumed by the next OnLoad or the scene that load opens (an intent, a carry across LoadGame)"
+scene = "a scene object or per-scene state, torn down or reset on a scene change"
+scoped = "set and restored around one call (try/finally, a Dispose, a Harmony Finalizer); between calls it holds its resting value"
+test-hook = "a seam only tests set (a provider, an override, a fault injector, a logging switch)"
+
+# The methods a Cold load runs. Their transitive call closure (calls, plus
+# every implementation or override of a called virtual slot; lambda, closure
+# and iterator bodies fold into the method that creates them) is where a
+# `save` or `load-transition` static must be CLEARED: a write that can empty or
+# replace the value, never an append or a read. A clear is an `stsfld` (a
+# reassignment, whatever it stores), a call to its auto-property setter,
+# `ldsflda` + `initobj` (`x = default`), or a call of a clearing member below
+# whose receiver is the static's own value (followed down the stack, or a
+# parameter it is passed in as itself; never an element read out of it and
+# never a call merely near the read).
+[cold_load.roots]
+"Parsek.ParsekScenario::OnAwake()" = "stock creates a fresh scenario module for every game load (ScenarioRunner) and calls OnAwake before OnLoad"
+"Parsek.ParsekScenario::OnLoad(ConfigNode)" = "the load itself; its Cold branch runs ResetSaveScopedSessionState and every store loader"
+"Parsek.ParsekScenario::ResetSaveScopedSessionState(string)" = "the save-scoped reset; reached from OnLoad, named so the gate does not depend on that call staying direct"
+"Parsek.ParsekSettings::OnLoad(ConfigNode)" = "stock reads the save's difficulty parameters (this CustomParameterNode) on every game load"
+
+# The collection members that empty the value they are called on. Clear is
+# the one every BCL collection Parsek holds in a static exposes. Remove(key),
+# RemoveAt, RemoveAll(predicate) and the set operations empty nothing in
+# general; set_Length (StringBuilder) is not admitted because no save or
+# load-transition static is a StringBuilder. Admit a member only with a reason.
+[cold_load.clearing_members]
+Clear = "List / Dictionary / HashSet / Queue / Stack / StringBuilder: empties the collection"
+
+# A Cold clear the IL rule cannot see, one entry per static: the method in the
+# Cold closure that clears it, and how. The gate checks every entry, needed or
+# not: the method exists, is in the closure, and itself reads, writes or takes
+# the address of the static (when the clear is a helper handed the static as an
+# argument, name the caller that passes it). The reason is the claim; a person
+# reads it.
+[cold_load.cleared_by]
+"Parsek.RecordingStore::committedRecordings" = { method = "Parsek.RecordingStore::ClearCommittedInternal()", reason = "OnLoad's Cold branch calls it; it removes every recording top-down through RemoveCommittedAtWithNotifications until the list is empty, so each removal raises the committed-list seam (a RemoveAt loop, which the rule does not read as a clear; the only Clear the closure reaches is the test-batch crash reconcile's ResetForTestingInternal)" }
+
+[[pattern]]
+match = "*ForTesting"
+lifetime = "test-hook"
+reason = "named as a test seam; the testHookWrittenByProduction finding checks no other production type writes it"
+
+[[pattern]]
+match = "*ForTests"
+lifetime = "test-hook"
+reason = "named as a test seam"
+
+# --- The 21 types of SaveScopedSessionResetTests ---------------------------------
+# Every static of these types is reset by ParsekScenario.ResetSaveScopedSessionState
+# (the C# gate sets, resets and reads it back) or named with a reason in
+# scripts/session-reset-allowlist.txt; each allowlisted field is tagged here with
+# the lifetime its reason states. The default is `save`; three types whose fields
+# are carried across one LoadGame are `load-transition` (the helper clears them too).
+
+[[type]]
+name = "Parsek.RecordingStore"
+default = "save"
+reason = "reset by ResetSaveScopedSessionState (SaveScopedSessionResetTests)"
+[type.fields]
+ApplicationIsPlayingForTesting = "test-hook"
+SaveGameForTesting = "test-hook"
+CommittedRecordingInserted = "process: committed-list notification event; each scene's controllers subscribe and unsubscribe"
+CommittedRecordingRemoved = "process: committed-list notification event; each scene's controllers subscribe and unsubscribe"
+CommittedRecordingRemoving = "process: committed-list notification event; each scene's controllers subscribe and unsubscribe"
+RecordingPlaybackEnabledChanged = "process: UI notification event"
+committedRecordings = "save: cleared by the cold branch's ClearCommittedInternal, then filled from the save"
+committedTrees = "save: cleared by the cold branch (ClearCommittedInternal, LoadRecordingTrees), then filled from the save"
+ghostHiddenRuleInstalled = "process: write-once marker of the type initialiser"
+launchIdentityRulesInstalled = "process: write-once marker of the type initialiser"
+StateVersion = "process: monotonic change counter; caches compare it for change, so it never goes back"
+SuppressLogging = "scoped: the allowlist calls it a test logging switch, but RecordingSidecarStore.TrySummarizeExistingTrajectorySidecar also sets and restores it around one sidecar probe"
+
+[[type]]
+name = "Parsek.GameStateStore"
+default = "save"
+reason = "reset by ResetSaveScopedSessionState (SaveScopedSessionResetTests)"
+[type.fields]
+SuppressLogging = "test-hook: allowlisted as a test logging switch"
+
+[[type]]
+name = "Parsek.MilestoneStore"
+default = "save"
+reason = "reset by ResetSaveScopedSessionState (SaveScopedSessionResetTests)"
+
+[[type]]
+name = "Parsek.GameStateRecorder"
+default = "save"
+reason = "reset by ResetSaveScopedSessionState (SaveScopedSessionResetTests)"
+[type.fields]
+BypassEntryPurchaseAfterResearchProviderForTesting = "test-hook"
+FundsChangedUtProviderForTesting = "test-hook"
+HasActiveUncommittedTreeProviderForTesting = "test-hook"
+HasLiveRecorderProviderForTesting = "test-hook"
+LiveFlightVesselProviderForTesting = "test-hook"
+ScienceGainMultiplierProviderForTesting = "test-hook"
+TagResolverForTesting = "test-hook"
+recordRewardIntervalFields = "process: reflection cache per stock node type"
+recordIntervalsPaidByNode = "process: weak table keyed by live progress nodes; a load builds new nodes"
+IsReplayingActions = "scoped: SuppressionGuard flag, restored by its own Dispose"
+SuppressCrewEvents = "scoped: SuppressionGuard flag, restored by its own Dispose"
+SuppressResourceEvents = "scoped: SuppressionGuard flag, restored by its own Dispose"
+clockCauseDepth = "scoped: opened around one stock call by ContractEarlyFailPatch and ClockCauseScopePatches, closed by their Finalizer"
+GroundStationSubmissionReasonKey = "scoped: set around one stock SubmitScienceData call, cleared by its Finalizer"
+
+[[type]]
+name = "Parsek.LedgerOrchestrator"
+default = "save"
+reason = "reset by ResetSaveScopedSessionState (SaveScopedSessionResetTests)"
+[type.fields]
+clockAdvanceRecalcInProgress = "scoped: in-progress flag of one clock-advance recalculation (try/finally)"
+CurrencyPoolProbeForTesting = "test-hook"
+DeferOneFrameForTesting = "test-hook"
+emittedReconcileWarnKeys = "process: log rate limiter, once per play session"
+emittedScienceReconcileDumpKeys = "process: log rate limiter, once per play session"
+EmptyPendingScience = "process: constant empty list"
+ExpectedCurrencySingletonsForTesting = "test-hook"
+fundsTrackedOverrideForTesting = "test-hook"
+NowUtProviderForTesting = "test-hook"
+OneShotReconcileSkipLogIntervalSeconds = "process: constant"
+OnRecordingCommittedFaultInjector = "test-hook: fault injector"
+OnRecordingCommittedPostSciencePersistFaultInjector = "test-hook: fault injector"
+OnTimelineDataChanged = "process: timeline invalidation callback the UI subscribes"
+ProgressSeedProbeForTesting = "test-hook"
+repTrackedOverrideForTesting = "test-hook"
+scienceTrackedOverrideForTesting = "test-hook"
+LoadedFlightStateUTForTesting = "test-hook"
+UncommittedRecordingIdsForTesting = "test-hook"
+
+[[type]]
+name = "Parsek.KspStatePatcher"
+default = "save"
+reason = "reset by ResetSaveScopedSessionState (SaveScopedSessionResetTests)"
+[type.fields]
+ActiveClockCrossing = "scoped: set around one clock-advance patch (try/finally)"
+AllowNegativeCurrencyProviderForTesting = "test-hook"
+contractParameterStateField = "process: reflection cache of a stock field"
+contractParameterStateReflectionWarnEmitted = "process: once-per-process Warn latch"
+contractDateFinishedField = "process: reflection cache of a stock field"
+contractStateField = "process: reflection cache of a stock field"
+contractStateReflectionWarnEmitted = "process: once-per-process Warn latch"
+ContractReEvaluationDeferForTesting = "test-hook"
+IC = "process: constant culture"
+stockContractsLoadedHandler = "process: GameEvents subscription; the deferred patch state it reads is reset"
+DeferredContractPatchState = "save: readonly holder whose pending patch ResetForSaveLoad cancels"
+PartPurchaseLiveUtProviderForTesting = "test-hook"
+protoTechNodesReflectionWarnEmitted = "process: once-per-process Warn latch"
+ResourceScanLiveUtProviderForTesting = "test-hook"
+scienceSubjectsReflectionWarnEmitted = "process: once-per-process Warn latch"
+StockPoolAdjustmentSinkForTesting = "test-hook"
+stockReferenceActions = "scoped: set around one PatchAll pool pass (try/finally)"
+stockReferenceNowUT = "scoped: set around one PatchAll pool pass (try/finally)"
+SuppressUnityCallsForTesting = "test-hook"
+UpgradeUnlockLiveUtProviderForTesting = "test-hook"
+
+[[type]]
+name = "Parsek.ParsekScenario"
+default = "save"
+reason = "reset by ResetSaveScopedSessionState (SaveScopedSessionResetTests)"
+[type.fields]
+CrashReconcileInProgress = "load-transition: batch crash-reconcile marker that spans the cold load it triggers"
+cachedAutoMerge = "process: settings cache"
+coldLoadsThisProcess = "process: count of cold loads this process (names the boot load)"
+prelaunchEntryLedgerActionIds = "process: Revert-to-editor target rows; mirrors stock FlightDriver.PreLaunchState, which survives an F9"
+lastWrittenSaveStamp = "process: the stamp the last OnSave of the process wrote"
+CurrentTimelineUTProviderForTesting = "test-hook"
+initialLoadDone = "process: the cold-branch selector, false until the first cold branch"
+lastOnSaveScene = "process: scene of the last OnSave"
+lastSaveFolder = "process: folder-change detector owned by DetectSaveFolderChange"
+onLoadInProgress = "scoped: OnLoad's own in-progress flag"
+PersistentSavePathOverrideForTesting = "test-hook"
+s_instance = "scene: the live scenario instance"
+
+[[type]]
+name = "Parsek.InertRecordingTrees"
+default = "save"
+reason = "reset by ResetSaveScopedSessionState (SaveScopedSessionResetTests)"
+
+[[type]]
+name = "Parsek.RewindContext"
+default = "load-transition"
+reason = "set by BeginRewind before a rewind's LoadGame and read by the OnLoad it causes; ResetSaveScopedSessionState clears a stale one"
+
+[[type]]
+name = "Parsek.RewindInvokeContext"
+default = "load-transition"
+reason = "a Re-Fly invoke captured before its LoadGame and consumed by the post-load dispatch; ResetSaveScopedSessionState clears a stale one"
+
+[[type]]
+name = "Parsek.Logistics.RouteRunPrompt"
+default = "save"
+reason = "reset by ResetSaveScopedSessionState (SaveScopedSessionResetTests)"
+
+[[type]]
+name = "Parsek.FacilityStatePatcher"
+default = "save"
+reason = "reset by ResetSaveScopedSessionState (SaveScopedSessionResetTests)"
+[type.fields]
+IC = "process: constant culture"
+
+[[type]]
+name = "Parsek.RecordingGroupStore"
+default = "save"
+reason = "reset by ResetSaveScopedSessionState (SaveScopedSessionResetTests)"
+
+[[type]]
+name = "Parsek.RecordingSidecarStore"
+default = "save"
+reason = "reset by ResetSaveScopedSessionState (SaveScopedSessionResetTests)"
+[type.fields]
+launchIdentityHydrateRuleInstalled = "process: write-once marker of the type initialiser"
+SkipSidecarCurrencyCheckForTesting = "test-hook"
+WriteReadableSidecarMirrorsOverrideForTesting = "test-hook"
+
+[[type]]
+name = "Parsek.RecordingFileJanitor"
+default = "save"
+reason = "reset by ResetSaveScopedSessionState (SaveScopedSessionResetTests)"
+[type.fields]
+CleanOrphanFilesDirectoryOverrideForTesting = "test-hook"
+RecordingFileSuffixes = "process: constant table"
+
+[[type]]
+name = "Parsek.SceneEntryVesselScope"
+default = "save"
+reason = "reset by ResetSaveScopedSessionState (SaveScopedSessionResetTests)"
+
+[[type]]
+name = "Parsek.CommittedTreeRestoreAttempt"
+default = "save"
+reason = "reset by ResetSaveScopedSessionState (SaveScopedSessionResetTests)"
+
+[[type]]
+name = "Parsek.PendingTreeSlot"
+default = "save"
+reason = "reset by ResetSaveScopedSessionState (SaveScopedSessionResetTests)"
+
+[[type]]
+name = "Parsek.TreeDiscardService"
+default = "save"
+reason = "reset by ResetSaveScopedSessionState (SaveScopedSessionResetTests)"
+
+[[type]]
+name = "Parsek.RewindCarry"
+default = "load-transition"
+reason = "captured before a plain rewind's LoadGame and reinstalled after it; ResetSaveScopedSessionState drops a stale one"
+
+[[type]]
+name = "Parsek.RewindLauncher"
+default = "save"
+reason = "reset by ResetSaveScopedSessionState (SaveScopedSessionResetTests)"
+[type.fields]
+PostRewindPersistentWriteForTesting = "test-hook"
+RewindWritePersistentForTesting = "test-hook"
+
+# --- Stores the Cold branch loads directly (clear, then decode the save) -----------
+
+[[type]]
+name = "Parsek.VesselNameStore"
+default = "save"
+reason = "Load clears the state (ClearState) and decodes the VESSEL_NAMES node"
+[type.fields]
+FlightEpoch = "process: the flight epoch survives Load on purpose (ClearRevertUndoState(resetEpoch: false))"
+Version = "process: change counter that name caches key on"
+
+[[type]]
+name = "Parsek.MissionStore"
+default = "save"
+reason = "Load replaces the mission list from the save"
+[type.fields]
+SuppressLogging = "test-hook: set only by the in-game RealSaveMissionFinder and by unit tests"
+
+[[type]]
+name = "Parsek.Logistics.RouteStore"
+default = "save"
+reason = "LoadRoutesFrom clears and re-reads the routes, the candidate sets and StateFloorUT; ResetSaveScopedSessionState clears the escrow"
+
+[[type]]
+name = "Parsek.Logistics.RouteEventLog"
+default = "save"
+reason = "LoadFrom replaces the event list from the save"
+[type.fields]
+StateVersion = "process: change counter"
+
+[[type]]
+name = "Parsek.GroupHierarchyStore"
+default = "save"
+reason = "LoadGroupHierarchy / LoadHiddenGroups replace it from the save"
+
+[[type]]
+name = "Parsek.CrewReservationManager"
+default = "save"
+reason = "LoadCrewReplacements replaces the replacement and rescue maps from the save"
+
+[[type]]
+name = "Parsek.PlaybackScopeTracker"
+default = "save"
+reason = "ResetSaveScopedSessionState calls Reset; InstallFromSave reads the save's PLAYBACK_REPLAY_SCOPE"
+
+[[type]]
+name = "Parsek.StockShadowTakeBack"
+default = "save"
+reason = "LoadFrom (called by the ledger load) replaces it from the save"
+
+[[type]]
+name = "Parsek.LedgerHeldWindow"
+default = "save"
+reason = "InstallAfterLoad replaces it from the loaded save on every load kind"
+
+[[type]]
+name = "Parsek.RewindVesselHold"
+default = "save"
+reason = "Replace installs the save's held vessels on every load kind"
+
+[[type]]
+name = "Parsek.RemovedReplayFlags"
+default = "save"
+reason = "Replace installs the save's removed flags on a cold load"
+[type.fields]
+parsekRemovalDepth = "scoped: re-entrancy depth of BeginParsekRemoval, closed by its Dispose"
+
+[[type]]
+name = "Parsek.Ledger"
+default = "save"
+reason = "LoadFromNodeCore replaces the actions, the held nodes and the progress seed from the save"
+[type.fields]
+StateVersion = "process: monotonic change counter caches key on"
+
+[[type]]
+name = "Parsek.NoSaveSceneExit"
+reason = "only the dropped-flight capture is tagged; the confirm-exit and arm fields are frame-exact scene-exit state, left untagged"
+[type.fields]
+droppedRecordings = "load-transition: captured by the cold reset before the drop, reaped once the save's lists are loaded"
+droppedTreeId = "load-transition: captured by the cold reset before the drop, reaped once the save's lists are loaded"
+droppedTreeName = "load-transition: captured by the cold reset before the drop, reaped once the save's lists are loaded"
+
+# --- Load intents and carries consumed by the next OnLoad ----------------------------
+
+[[type]]
+name = "Parsek.SaveFileLoadIntent"
+default = "load-transition"
+reason = "armed by the save-file load click, consumed (or dropped) by the next OnLoad"
+
+[[type]]
+name = "Parsek.DiscardReFlyLoadIntent"
+default = "load-transition"
+reason = "armed by DiscardReFlyHandler after its LoadGame, consumed scene-checked by the next OnLoad"
+
+[[type]]
+name = "Parsek.InSessionStagedStateHandoff"
+default = "load-transition"
+reason = "captured by ParsekScenario.OnDestroy, consumed once by every OnLoad"
+
+[[type]]
+name = "Parsek.RevertDetector"
+default = "load-transition"
+reason = "set by the stock revert events, consumed by OnLoad (RevertDetector.Consume)"
+[type.fields]
+subscribed = "process: GameEvents subscription latch"
+
+[[type]]
+name = "Parsek.InFlightRecoveryRequest"
+reason = "only the armed request is tagged; the stock payout marks are not read here"
+[type.fields]
+armed = "load-transition: consumed by the scene-exit finalize; OnLoad clears a leftover"
+
+# --- Process caches keyed on a version or an identity ---------------------------------
+
+[[type]]
+name = "Parsek.EffectiveState"
+default = "process"
+reason = "ERS / ELS / suppression / retired caches keyed on RecordingStore.StateVersion, Ledger.StateVersion, the supersede and tombstone versions and the marker identity; a cold load bumps the static counters"
+
+[[type]]
+name = "Parsek.ClickReservationGate"
+default = "process"
+reason = "probe cache keyed on Ledger.StateVersion and a UT window"
+
+[[type]]
+name = "Parsek.CommittedFutureIndexCache"
+default = "process"
+reason = "index cache keyed on the ERS / ELS list identity, a generation and DisplayNames.Version"
+
+[[type]]
+name = "Parsek.LaunchSiteOnlyGhost"
+default = "process"
+reason = "hidden-id cache keyed on RecordingStore.StateVersion and the tree count"
+
+[[type]]
+name = "Parsek.RewindPointDiskUsage"
+default = "process"
+reason = "disk-usage snapshot with a 10 s time-to-live"
+
+[[type]]
+name = "Parsek.DockEventGraphCache"
+default = "process"
+reason = "graph cache keyed on a topology signature (StateVersion, SupersedeStateVersion, per-tree counts)"
+
+[[type]]
+name = "Parsek.DisplayNames"
+default = "process"
+reason = "name change counter and its change event"
+
+# --- Scene objects ---------------------------------------------------------------------
+
+[[type]]
+name = "Parsek.ParsekFlight"
+reason = "the flight controller's own instance statics"
+[type.fields]
+Instance = "scene: set in Start, cleared in OnDestroy"
+toolbarControl = "scene: created in Start, destroyed in OnDestroy"
+restoringActiveTree = "scene: cleared in OnDestroy"
+
+[[type]]
+name = "Parsek.MapMarkerRenderer"
+default = "scene"
+reason = "marker textures and icon tables, dropped by ResetForSceneChange"
+[type.fields]
+labelStyle = "process: GUIStyle built once by EnsureResources"
+
+# --- Statics the test assembly writes ------------------------------------------------
+# Each was named by the testWrittenUntagged finding and tagged after reading its
+# write sites (the writes listed in the reason are every production write).
+
+[[type]]
+name = "Parsek.ParsekLog"
+reason = "the logger's switches"
+[type.fields]
+SuppressLogging = "scoped: SuppressLoggingScope sets it and its Dispose restores it; tests also set it directly"
+
+[[type]]
+name = "Parsek.DockEventGraph"
+reason = "the graph builder's logging switch"
+[type.fields]
+SuppressLogging = "scoped: MissionStore sets and restores it around one graph build; DockEventGraphCache clears it"
+
+[[type]]
+name = "Parsek.MissionStructureBuilder"
+reason = "the builder's logging switch"
+[type.fields]
+SuppressLogging = "scoped: the Missions window and RouteOrchestrator.ResolveLoopUnit set and restore it around one build"
+
+[[type]]
+name = "Parsek.MissionCompositionBuilder"
+reason = "the builder's logging switch"
+[type.fields]
+SuppressLogging = "scoped: the Missions window and RouteOrchestrator.ResolveLoopUnit set and restore it around one build"
+
+[[type]]
+name = "Parsek.MissionPeriodicity"
+reason = "the builder's logging switch"
+[type.fields]
+SuppressLogging = "scoped: the Missions window, MissionStructureBuilder and RouteOrchestrator.ResolveLoopUnit set and restore it around one call"
+
+[[type]]
+name = "Parsek.MissionLoopUnitBuilder"
+reason = "the builder's logging switch"
+[type.fields]
+SuppressLogging = "scoped: the Missions window and RouteOrchestrator.ResolveLoopUnit set and restore it around one build"
+
+[[type]]
+name = "Parsek.MissionCrossTreeDock"
+reason = "the builder's logging switch"
+[type.fields]
+SuppressLogging = "scoped: DockEventGraph.Build, the Missions window and RouteOrchestrator.ResolveLoopUnit set and restore it around one call"
+
+[[type]]
+name = "Parsek.MissionChapters"
+reason = "the builder's logging switch"
+[type.fields]
+SuppressLogging = "scoped: MissionStore sets and restores it around one chapter walk"
+
+[[type]]
+name = "Parsek.LoopSeamMarkerBuilder"
+reason = "the builder's logging switch"
+[type.fields]
+SuppressLogging = "scoped: MissionLoopUnitBuilder.TryBuildMissionUnit sets and restores it around one build"
+
+[[type]]
+name = "Parsek.MissionEventDigest"
+reason = "the digest's logging switch"
+[type.fields]
+SuppressLogging = "test-hook: no production code writes it"
+
+[[type]]
+name = "Parsek.MissionStructureListBuilder"
+reason = "the builder's logging switch"
+[type.fields]
+SuppressLogging = "test-hook: no production code writes it"
+
+[[type]]
+name = "Parsek.FlagPickUp"
+reason = "the stock flag pick-up capture"
+[type.fields]
+PendingFlagPid = "scoped: FlagPickUpCapturePatch's Prefix arms it and its Finalizer clears it around one stock pick-up"
+PendingPickerPid = "scoped: FlagPickUpCapturePatch's Prefix arms it and its Finalizer clears it around one stock pick-up"
+
+[[type]]
+name = "Parsek.SceneExitInterceptor"
+reason = "the scene-exit intercept's one-shot permit"
+[type.fields]
+s_AllowNextLoadScene = "scoped: RunPostChoice arms it for the HighLogic.LoadScene call it makes, whose prefix consumes it"
+s_AllowNextLoadSceneDestination = "scoped: RunPostChoice arms it for the HighLogic.LoadScene call it makes, whose prefix consumes it"
+
+[[type]]
+name = "Parsek.GhostMapPresence"
+reason = "ghost map presence"
+[type.fields]
+CurrentUTNow = "test-hook: clock provider; only the type initialiser and ResetForTesting write it in production"
+gapGlideBodyFixedFallbackCount = "process: diagnostic counter, carries no save data"
+gapGlideInertialSeedCount = "process: diagnostic counter, carries no save data"
+seamComdMaxOffOrbitDegPostRefresh = "process: diagnostic gauge, carries no save data"
+seamComdRefreshCount = "process: diagnostic counter, carries no save data"
+seamComdSteadyCount = "process: diagnostic counter, carries no save data"
+lifecycleCreatedThisTick = "process: per-tick diagnostic counter, zeroed by EmitLifecycleSummary"
+lifecycleDestroyedThisTick = "process: per-tick diagnostic counter, zeroed by EmitLifecycleSummary"
+lifecycleUpdatedThisTick = "process: per-tick diagnostic counter, zeroed by EmitLifecycleSummary"
+
+[[type]]
+name = "Parsek.WatchModeController"
+reason = "watch-mode camera follow"
+[type.fields]
+CurrentUTNow = "test-hook: clock provider; only the type initialiser writes it in production"
+CurrentWarpRateNow = "test-hook: warp-rate provider; only the type initialiser writes it in production"
+RealtimeNow = "test-hook: real-time clock provider; only the type initialiser writes it in production"
+
+[[type]]
+name = "Parsek.MarkerValidator"
+reason = "Re-Fly marker validation"
+[type.fields]
+NowUtProvider = "test-hook: clock provider; only ResetTestOverrides writes it in production"
+
+[[type]]
+name = "Parsek.MergeJournalOrchestrator"
+reason = "the merge journal"
+[type.fields]
+FaultInjectionPoint = "test-hook: fault injector; only ResetTestOverrides writes it in production"
+
+[[type]]
+name = "Parsek.IncompleteBallisticSceneExitFinalizer"
+reason = "scene-exit tail finalization"
+[type.fields]
+TryFinalizeHook = "test-hook: override; only ResetForTesting writes it in production"
+flightGlobalsRuntimeAvailableForTesting = "process: despite the name, IsFlightGlobalsRuntimeAvailable and TryFinalizeRecording cache the FlightGlobals runtime probe in it for the process; tests reset it"
+
+[[type]]
+name = "Parsek.ParsekKSC"
+reason = "the KSC scene controller"
+[type.fields]
+PauseExplosionOneShotAudioAction = "test-hook: audio seam; only the type initialiser writes it in production"
+PauseGhostAudioAction = "test-hook: audio seam; only the type initialiser writes it in production"
+UnpauseExplosionOneShotAudioAction = "test-hook: audio seam; only the type initialiser writes it in production"
+UnpauseGhostAudioAction = "test-hook: audio seam; only the type initialiser writes it in production"
+
+[[type]]
+name = "Parsek.GhostRenderTrace"
+reason = "flight render tracing"
+[type.fields]
+ExpectedAttitudeSource = "scene: ParsekFlight.Start sets it and ParsekFlight.OnDestroy clears it"
+
+[[type]]
+name = "Parsek.Patches.PhysicsFramePatch"
+reason = "the physics-frame Harmony patch"
+[type.fields]
+ActiveRecorder = "scene: the flight's live recorder; FlightRecorder sets it on start and clears it on stop, finalize and background transition"
+
+[[type]]
+name = "Parsek.Recording"
+reason = "recording model"
+[type.fields]
+GhostHiddenRule = "process: dependency-inversion rule installed once by LaunchSiteOnlyGhost.EnsureGhostHiddenRuleInstalled"
+OnTerminalStamped = "process: observer installed once by KerbalsModule.EnsureTerminalStampObserverInstalled"
+
+[[type]]
+name = "Parsek.VesselLaunchIdentity"
+reason = "launch identity rules"
+[type.fields]
+GuidLinkRule = "process: dependency-inversion rule installed once by VesselNameStore.EnsureLaunchIdentityLinkRuleInstalled"
+SnapshotHydrateRule = "process: dependency-inversion rule installed once by RecordingSidecarStore.EnsureLaunchIdentityHydrateRuleInstalled"
+
+[[type]]
+name = "Parsek.WarpToTimeRequest"
+default = "load-transition"
+reason = "a Warp to time jump armed before a rewind reload or a flight exit and consumed once the Space Center settles (its own doc comment: like RewindContext); the process-session stamp only rejects a request from another process"
+
+[[type]]
+name = "Parsek.Rendering.TerrainCacheBuckets"
+reason = "the terrain height cache"
+[type.fields]
+cap = "test-hook: the field behind CapForTesting; production only restores the default"
+
+# Named *ForTesting, but production code of the type itself writes them as
+# real state; the field entries override the *ForTesting pattern, tagged by
+# what the production writers do.
+
+[[type]]
+name = "Parsek.UnfinishedFlightSealHandler"
+reason = "the unfinished-flight seal dialog"
+[type.fields]
+DialogLockActiveForTesting = "scoped: mirrors the seal dialog's input lock; LockInput sets it when the dialog opens and ClearLock clears it when the dialog closes"
+
+[[type]]
+name = "Parsek.ChainTipStaleVessel"
+reason = "chain-tip stale vessel replacement"
+[type.fields]
+ChainWalksForTesting = "process: instrumentation counter TryReplaceStaleLiveVessel increments; only tests reset and read it"
+
+[[type]]
+name = "Parsek.Display.GhostTrajectoryPolylineRenderer"
+reason = "map-view ghost trajectory polylines"
+[type.fields]
+BuildInvocationCountForTesting = "process: instrumentation counter BuildLegsForRecording increments; the cache Clear zeroes it, only tests read it"
+
+[[type]]
+name = "Parsek.Display.RouteMemberRunExpansion"
+reason = "route member run expansion"
+[type.fields]
+ViewBuildCountForTesting = "process: instrumentation counter ResolveRunClaims increments; only tests reset and read it"
+
+[[type]]
+name = "Parsek.Display.RouteTrajectoryLineRenderer"
+reason = "supply route trajectory lines"
+[type.fields]
+BuildInvocationCountForTesting = "process: instrumentation counter RefreshForRoute increments; the cache Clear zeroes it, only tests read it"
+
+[[type]]
+name = "Parsek.RecalculationEngine"
+reason = "ledger recalculation"
+[type.fields]
+SortActionsCallCountForTesting = "process: instrumentation counter SortActions increments; only tests reset and read it"
+
+[[type]]
+name = "Parsek.SupersedeCommit"
+reason = "the Re-Fly supersede merge"
+[type.fields]
+SealCreditWalkCountForTesting = "process: instrumentation counter ResolveReplayNotCounted increments; only test resets zero it"
+
+[[type]]
+name = "Parsek.TreeDiscardPurge"
+reason = "the discarded-tree purge"
+[type.fields]
+PurgeTreeCountForTesting = "process: instrumentation counter PurgeTree increments; only tests reset and read it"

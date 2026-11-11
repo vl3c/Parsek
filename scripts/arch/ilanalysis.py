@@ -982,9 +982,17 @@ def load_facts(path, modules=archview.DEFAULT_MODULES, source=None):
 
 
 def report_from_paths(facts_path, tests_path=None, modules=archview.DEFAULT_MODULES, source=None):
+    """The report, with `lifetimes` (lifetimes.summary) added: the declared static
+    lifetimes over the same facts, testWrittenUntagged measured only when
+    `tests_path` is the test assembly itself (a .dll)."""
+    import lifetimes  # noqa: PLC0415 (it imports this module)
+
     facts, tooling = load_facts(facts_path, modules, source)
     tests = load_facts(tests_path, None)[0] if tests_path else None
-    return report(facts, tooling, load_config(), tests)
+    out = report(facts, tooling, load_config(), tests)
+    tests_dll = tests_path if tests_path and str(tests_path).lower().endswith(".dll") else None
+    out["lifetimes"] = lifetimes.summary(lifetimes.analyse_facts(facts, tooling, tests_dll))
+    return out
 
 
 def main(argv=None):

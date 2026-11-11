@@ -43,6 +43,38 @@ Owed, in order:
 - Read `mapcamera ok` for `pitchClamped` / `distanceClamped` and widen or narrow a view whose
   frame stock clamped, then run `tools/flight_efficiency.py` on each first green flight.
 
+## WARP-REQUEST-SURVIVES-A-FAILED-REWIND: a Warp to time request stays armed after its rewind fails to launch, and the next Space Center load jumps forward [FILED 2026-11-11 from the static lifetimes gate (coldLoadMisses, the nine `WarpToTimeRequest` fields), by code reading. OPEN; not reproduced in play, low]
+
+The chain, read in the source (line numbers as of the static lifetimes branch):
+
+1. `WarpToTimeController.StartRewind` arms the request (`WarpToTimeRequest.Set`,
+   `WarpToTimeController.cs:345`) and then calls `RewindLauncher.InitiateRewind(ownerNow)`
+   (`:349`), which returns void (`RewindLauncher.cs:416`), so the caller cannot see a failure.
+2. `InitiateRewind` returns early when the rewind owner does not resolve
+   (`RewindLauncher.cs:421-428`) and when a re-fly merge journal is unfinished (`:443-451`;
+   `CanRewind`, `:239`, which `StartRewind` checks first, does not look at the journal). When
+   `ExecuteRewindSaveLoad` fails (LoadGame returned null, `:614`, or threw, `:683`) it returns
+   false and `InitiateRewind` only undoes the live-tree drop (`:469-470`). None of these paths
+   clears the request; `ResetRewindFlags` (`:403`) does not touch it. The career-start branch
+   does clear on a refused launch (`WarpToTimeController.cs:318-322`).
+3. Nothing else clears it: its only writers are `Set`, `Clear` and `ResetForTesting`, and `Clear`
+   is called only by `StartRewind`'s own abort paths and by the consumer. The lifetimes gate
+   shows no Cold load path clears it, and no main-menu transition does either.
+4. `WarpToTimeConsumer.HandleLevelWasLoaded` (`WarpToTimeConsumer.cs:60-108`) runs on every
+   `onLevelWasLoaded(SPACECENTER)`: with `HasPending` and the same process session it starts
+   `ConsumePendingWarp`, which calls `TimeJumpManager.ExecuteForwardJump(target)` when the clock
+   is behind the target (`:166-215`). `IsStale` (`WarpToTimeRequest.cs:48-51`) rejects only a
+   request from another process.
+
+So after a failed launch the next Space Center load of the same process jumps the clock forward
+to the old target: a return from the VAB / SPH in the same save, or another save loaded from the
+main menu. The deferred flight warp (`SetDeferredKscWarp`) has the same no-clear property at the
+Cold load and the main-menu transition.
+
+**Fix direction.** Clear the request on every failed launch (have `InitiateRewind` report
+failure, as `InitiateRewindToCareerStart` does), and clear both requests at the Cold reset and the
+main-menu transition.
+
 ## NEXT-TESTS-TO-BUILD-2026-11-11: the ranked list merging the moon matrix and the test gap audit, plus the new ideas of the 2026-11-11 review [FILED 2026-11-11 (owner asked to update the list), checked against main b5877e51f (1.1.0), reviewed the same day by a clean-context agent. OPEN; test program, no known defect]
 
 Merges the two lists the owner had: the moon flight-test matrix (MOON-FLIGHT-TEST-PROGRAM below,
@@ -2498,6 +2530,29 @@ compare).
   none; a spec naming no module reds too). `archview.py --check` and the Atlas show the
   declared view of the text scan beside the instability list, and the metrics row gains
   `text.layers` / `semantic.layers`.
+- 2026-11-11 (static lifetimes): `scripts/arch/lifetimes.toml` declares a lifetime for the
+  mutable statics (process, save, load-transition, scene, scoped, test-hook; a field entry, a
+  name pattern or a type default, each with a reason) and the Cold load roots
+  (`ParsekScenario.OnAwake` / `OnLoad` / `ResetSaveScopedSessionState`, `ParsekSettings.OnLoad`).
+  `scripts/arch/lifetimes.py` checks it; `test_static_lifetimes.py` (CI's compiled-IL step, about
+  3 s over the shared facts) pins the untagged set (510 of 1,079) and ratchets four findings in
+  `scripts/arch/lifetime_pins.toml`: a save / load-transition static the Cold closure never
+  clears (9; a clear is an `stsfld`, `initobj` or a `Clear` whose receiver is the static, not an
+  append or a read, or a verified `cleared_by` entry), a test hook another production type writes (0), an untagged static the test DLL
+  writes (0; `scripts/arch/clrmeta.py` reads the test DLL's metadata, no ikdasm), a static the
+  reset helper resets that is not tagged as cleared (0). The DLL-free suite checks the
+  declaration's shape and its agreement with `SaveScopedSessionResetTests` and its allowlist.
+  The facts gain `defaultedBy` (`ldsflda` + `initobj`, how C# writes `x = default`), and a
+  static readonly collection counts as mutated only when the mutating call's receiver is the
+  static (or a value read out of it), followed down the stack by `ilgraph.StaticReceiverTracker`
+  and into directly called helpers; a branch or an unknown opcode falls back to the old 8-op
+  window. Against the window alone, 6 read-only statics left the population and 3 scratch lists a
+  helper fills joined it (`directReceiverCalls` is the subset coldLoadMisses reads). Found while
+  tagging, not fixed (reports only): the nine misses are `WarpToTimeRequest`'s pending and
+  deferred warp, which no load clears (todo WARP-REQUEST-SURVIVES-A-FAILED-REWIND); the
+  allowlist calls `RecordingStore.SuppressLogging` a test switch, but
+  `RecordingSidecarStore.TrySummarizeExistingTrajectorySidecar` also sets and restores it
+  (tagged scoped). README -> "Static lifetimes".
 
 **Fix.**
 1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same
