@@ -16,7 +16,7 @@ Inputs, per shots directory (`results/<runId>_shots`, written by the harness):
 Output: ONE html file (no network, no external fonts or scripts) with a rail of
 captures on the left and, for the selected capture, to-scale SVG drawings
 generated from the numbers (whole system top-down, a top-down and an edge-on
-close-up per body that carries a line, and an orthographic "as the camera saw
+close-up per body that carries a line, and a perspective "as the camera saw
 it" view beside the screenshot), plus a measured table per ghost. Facts only:
 nothing on the page is a pass / fail verdict. A companion index JSON lists the
 lanes, captures and counts.
@@ -57,13 +57,23 @@ SCHEMA_ID = "parsek-map-geometry/1"
 INDEX_SCHEMA = "parsek-map-mirror-index/1"
 DUMP_SUFFIX = ".map.json"
 DEFAULT_BUDGET_BYTES = 16 * 1024 * 1024
-LINE_KINDS = ("orbit", "polyline", "tail")
+LINE_KINDS = ("orbit", "polyline", "tail", "bridge")
 # Kerbin calendar (stock KSP defaults): 6 h days, 426 day years.
 DAY_SECONDS = 6 * 3600
 YEAR_DAYS = 426
-# The page's camera view scales from `camera.distance` with this assumed vertical
-# field of view; the dump does not carry the camera's own.
+# The vertical field of view the camera view assumes for a dump without
+# `camera.fovDeg` (a writer older than that key).
 CAMERA_FOV_DEG = 60.0
+# What each `ghosts[].treatment` token means (design-map-geometry-dump.md);
+# shown as the token's hover text. An unknown token is shown as written.
+TREATMENTS = {
+    "StockConic": "a visible Director intent: the stock proto-vessel icon and orbit line",
+    "TracedPath": "a visible Director intent: Parsek's own polyline and marker",
+    "SuppressedMarker": "no visible intent; the icon-suppression floor drives the marker",
+    "None": "the Director's intent for this ghost is hidden this frame",
+    "NoIntent": "a proto ghost the Director holds no intent for",
+    "DriverOnly": "a pid-0 entry: Parsek lines or a marker drew, no proto vessel",
+}
 
 
 class DumpError(ValueError):
@@ -148,6 +158,52 @@ def basis_camera(up, right, pitch_deg, heading_deg):
     y = v_add(v_add(v_scale(r, math.sin(p) * math.sin(h)), v_scale(u, math.cos(p))),
               v_scale(f, math.sin(p) * math.cos(h)))
     return x, y, v_cross(x, y)
+
+
+def basis_from_camera(forward, up):
+    """The rendering camera's own screen axes from the dump's `camera.forward` /
+    `camera.up` (world unit vectors): screen x = up x forward (Unity's right for
+    a left-handed world), screen y = up made perpendicular to forward, view
+    direction = forward. Raises ValueError for a zero or parallel pair."""
+    d = v_norm(forward)
+    perp = v_sub(up, v_scale(d, v_dot(up, d)))
+    if v_len(perp) < 1e-6 * max(v_len(up), 1e-300):
+        raise ValueError("camera up is parallel to forward")
+    y = v_norm(perp)
+    return v_cross(y, d), y, d
+
+
+def angle_deg(a, b):
+    """The angle between two vectors in degrees (0 .. 180)."""
+    c = v_dot(v_norm(a), v_norm(b))
+    return math.degrees(math.acos(max(-1.0, min(1.0, c))))
+
+
+def camera_model_check(axes, camera):
+    """How far the page's pitch / heading camera model lands from the camera's
+    own recorded frame: {"forwardDeg", "upDeg"} (angles between the model's view
+    direction and `camera.forward`, and between its screen up and `camera.up`),
+    or None when the dump lacks either half. A fact for reading the dump, and the
+    check on `basis_camera`'s convention once a real dump carries both."""
+    if not camera or camera.get("forward") is None or camera.get("up") is None:
+        return None
+    if camera.get("pitchDeg") is None or camera.get("headingDeg") is None:
+        return None
+    x, y, d = basis_camera(axes["up"], axes["right"], camera["pitchDeg"],
+                           camera["headingDeg"])
+    return {"forwardDeg": angle_deg(d, camera["forward"]),
+            "upDeg": angle_deg(y, camera["up"])}
+
+
+def close_ring(points):
+    """A body's orbit ring is written OPEN (64 points over one period, the first
+    not repeated); the closed polyline adds the first point at the end. A ring
+    already closed (or too short to be one) is returned as it is."""
+    if not points or len(points) < 3:
+        return list(points or [])
+    if tuple(points[0]) == tuple(points[-1]):
+        return list(points)
+    return list(points) + [points[0]]
 
 
 def project(p, basis):
@@ -374,7 +430,10 @@ def validate_dump(obj):
             "parent": b.get("parent") if isinstance(b.get("parent"), str) else None,
             "radius": _num(b.get("radius"), w + ".radius"),
             "soi": _num(b.get("soi"), w + ".soi", required=False),
-            "pos": _vec(b.get("pos"), w + ".pos"),
+            # The root sits at the origin by definition; tolerate its pos left out.
+            "pos": (_vec(b.get("pos"), w + ".pos")
+                    if b.get("pos") is not None or isinstance(b.get("parent"), str)
+                    else (0.0, 0.0, 0.0)),
             "orbit": _points(b.get("orbit"), w + ".orbit", required=False),
         })
     by_name = {b["name"]: b for b in bodies}
@@ -441,9 +500,14 @@ def validate_dump(obj):
                 "referenceKind": _str(ln.get("referenceKind")),
             })
         ipos = icon.get("pos")
+        md = g.get("markerDecision") if isinstance(g.get("markerDecision"), dict) else None
+        if md is not None:
+            md = {k: bool(md.get(k)) for k in
+                  ("draw", "directorTracedPath", "polylineOwning", "iconSuppressed")}
         ghosts.append({
             "recordingId": _str(g.get("recordingId")),
-            "vesselName": _str(g.get("vesselName"), "(unnamed)"),
+            # A pid-0 entry may carry no vessel name; its recording id stands in.
+            "vesselName": _str(g.get("vesselName")) or _str(g.get("recordingId"), "(unnamed)"),
             "pid": g.get("pid") if isinstance(g.get("pid"), int) else None,
             "committedIndex": (g.get("committedIndex")
                                if isinstance(g.get("committedIndex"), int) else None),
@@ -452,8 +516,11 @@ def validate_dump(obj):
             "treatment": _str(g.get("treatment")),
             "body": body,
             "bodyKnown": (body in by_name) if body else False,
+            "treatmentText": TREATMENTS.get(_str(g.get("treatment")), ""),
             "icon": {"drawn": bool(icon.get("drawn")),
-                     "pos": _vec(ipos, w + ".icon.pos") if ipos is not None else None},
+                     "pos": _vec(ipos, w + ".icon.pos") if ipos is not None else None,
+                     "source": _str(icon.get("source"))},
+            "markerDecision": md,
             "lines": lines,
         })
         if ghosts[-1]["icon"]["pos"] is not None and body not in by_name:
@@ -484,7 +551,24 @@ def validate_dump(obj):
     camera = {"target": _str(cam.get("target")),
               "pitchDeg": _num(cam.get("pitchDeg"), "camera.pitchDeg", required=False),
               "headingDeg": _num(cam.get("headingDeg"), "camera.headingDeg", required=False),
-              "distance": _num(cam.get("distance"), "camera.distance", required=False)}
+              "distance": _num(cam.get("distance"), "camera.distance", required=False),
+              "forward": (_vec(cam.get("forward"), "camera.forward")
+                          if cam.get("forward") is not None else None),
+              "up": (_vec(cam.get("up"), "camera.up") if cam.get("up") is not None else None),
+              "fovDeg": _num(cam.get("fovDeg"), "camera.fovDeg", required=False)}
+    if camera["forward"] is not None or camera["up"] is not None:
+        try:
+            if camera["forward"] is None or camera["up"] is None:
+                raise ValueError("half")
+            basis_from_camera(camera["forward"], camera["up"])
+        except ValueError:
+            notes.append("camera.forward / camera.up are missing one half, zero or "
+                         "parallel; the camera view falls back to pitch and heading")
+            camera["forward"] = camera["up"] = None
+    if camera["fovDeg"] is not None and not 0.0 < camera["fovDeg"] < 180.0:
+        notes.append("camera.fovDeg %r is not a field of view; the camera view assumes "
+                     "%g deg" % (camera["fovDeg"], CAMERA_FOV_DEG))
+        camera["fovDeg"] = None
     axes_in = obj.get("axes") if isinstance(obj.get("axes"), dict) else None
     if axes_in is None:
         notes.append("no axes block; assumed up = +y, right = +x")
@@ -498,16 +582,31 @@ def validate_dump(obj):
             raise DumpError("axes.up and axes.right are zero or parallel")
 
     counts = obj.get("counts") if isinstance(obj.get("counts"), dict) else {}
+    # The writer's `lines` / `points` count ghost lines AND route legs; body rings
+    # and reference paths are context and are not counted.
     held = {"ghosts": len(ghosts),
-            "lines": sum(len(g["lines"]) for g in ghosts),
-            "points": sum(len(ln["points"]) for g in ghosts for ln in g["lines"])}
+            "lines": (sum(len(g["lines"]) for g in ghosts)
+                      + sum(len(r["legs"]) for r in routes)),
+            "points": (sum(len(ln["points"]) for g in ghosts for ln in g["lines"])
+                       + sum(len(leg["points"]) for r in routes for leg in r["legs"]))}
     for key in ("ghosts", "lines", "points"):
         if key in counts and counts.get(key) != held[key]:
             notes.append("counts.%s says %r, the file holds %d" % (key, counts.get(key),
                                                                   held[key]))
+    unknown = counts.get("unknownBodyItems")
+    unknown = unknown if isinstance(unknown, int) and not isinstance(unknown, bool) else None
+    if unknown:
+        notes.append("the writer skipped %d item%s relative to a body it could not name "
+                     "(counts.unknownBodyItems)" % (unknown, "" if unknown == 1 else "s"))
+    dropped = counts.get("dropped") if isinstance(counts.get("dropped"), dict) else None
+    if dropped is not None:
+        dropped = {k: dropped.get(k) for k in ("ghosts", "lines", "routes", "legs", "bodies")
+                   if isinstance(dropped.get(k), int) and not isinstance(dropped.get(k), bool)}
     if counts.get("truncated"):
-        notes.append("the writer TRUNCATED this dump (counts.truncated = true): some "
-                     "lines or points were not written")
+        notes.append("the writer TRUNCATED this dump (counts.truncated = true): "
+                     + (", ".join("%s %d" % (k, v) for k, v in dropped.items() if v)
+                        if dropped and any(dropped.values())
+                        else "some entries") + " not written")
     return {
         "label": _str(obj.get("label")),
         "scene": _str(obj.get("scene")),
@@ -520,8 +619,9 @@ def validate_dump(obj):
         "bodies": bodies,
         "ghosts": ghosts,
         "routeLines": routes,
-        "counts": {"declared": {k: counts.get(k) for k in
-                                ("ghosts", "lines", "points", "truncated")},
+        "counts": {"declared": dict({k: counts.get(k) for k in
+                                     ("ghosts", "lines", "points", "truncated")},
+                                    unknownBodyItems=unknown, dropped=dropped),
                    "held": held},
     }, notes
 
@@ -542,11 +642,22 @@ def load_dump(path):
 # --------------------------------------------------------------------------
 
 def line_order(lines):
-    """Indices in time order when every line has a time range, else dump order."""
+    """Indices with every timed line first, by start time, then end time, then
+    dump position, and the untimed ones after them in dump order. That is the
+    writer's own order (`MapGeometryDecisions.OrderLines`), so on writer output it
+    is the dump order; it is re-derived so a hand-made or older file reads the
+    same way."""
     idx = list(range(len(lines)))
-    if lines and all(ln.get("ut") for ln in lines):
-        idx.sort(key=lambda i: (lines[i]["ut"][0], i))
+    idx.sort(key=lambda i: ((0, lines[i]["ut"][0], lines[i]["ut"][1], i) if lines[i].get("ut")
+                            else (1, 0.0, 0.0, i)))
     return idx
+
+
+def is_drawn(line, bodies):
+    """An inactive line is listed, never drawn or measured: the writer sends it
+    with no points (the renderer's cache entry exists, nothing was drawn). A line
+    relative to a body the dump does not list cannot be placed either."""
+    return bool(line["active"] and line["points"] and line["body"] in bodies)
 
 
 def _m(v):
@@ -559,13 +670,15 @@ def measure_ghost(ghost, bodies):
     rows = []
     for i, ln in enumerate(lines):
         b = bodies.get(ln["body"])
+        drawn = is_drawn(ln, bodies)
         radius = b["radius"] if b else None
-        lo, hi = altitude_range(ln["points"], radius) if b else (None, None)
+        lo, hi = altitude_range(ln["points"], radius) if drawn else (None, None)
         pe, ap = conic_apsides(ln["conic"], radius) if b else (None, None)
-        dev = max_deviation(ln["points"], ln["reference"]) if ln["reference"] else None
+        dev = (max_deviation(ln["points"], ln["reference"])
+               if drawn and ln["reference"] else None)
         rows.append({
             "index": i, "kind": ln["kind"], "body": ln["body"], "active": ln["active"],
-            "points": len(ln["points"]),
+            "drawn": drawn, "points": len(ln["points"]),
             "ut": ln["ut"],
             "utText": ("%s .. %s (%s)" % (format_ut(ln["ut"][0]), format_ut(ln["ut"][1]),
                                          format_duration(ln["ut"][1] - ln["ut"][0]))
@@ -573,17 +686,15 @@ def measure_ghost(ghost, bodies):
             "lowest": _m(lo), "highest": _m(hi),
             "conicPe": _m(pe) if ln["conic"] else None,
             "conicAp": _m(ap) if ln["conic"] else None,
-            "reference": (_m(dev) if ln["reference"] else None),
+            "reference": (_m(dev) if drawn and ln["reference"] else None),
             "referenceKind": ln["referenceKind"],
             "referencePoints": len(ln["reference"]) if ln["reference"] else 0,
             "gapToNext": None,
         })
     order = line_order(lines)
-    for a, b in zip(order, order[1:]):
+    chain = [i for i in order if is_drawn(lines[i], bodies)]
+    for a, b in zip(chain, chain[1:]):
         la, lb = lines[a], lines[b]
-        if not (la["points"] and lb["points"] and la["body"] in bodies
-                and lb["body"] in bodies):
-            continue
         end = la["points"][-1]
         start = to_frame(bodies, lb["body"], lb["points"][0], la["body"])
         rows[a]["gapToNext"] = {"to": b, "m": v_len(v_sub(start, end)),
@@ -594,7 +705,7 @@ def measure_ghost(ghost, bodies):
     if ipos is not None and ghost["body"] in bodies:
         best = None
         for i, ln in enumerate(lines):
-            if ln["body"] not in bodies or not ln["points"]:
+            if not is_drawn(ln, bodies):
                 continue
             pts = [to_frame(bodies, ln["body"], p, ghost["body"]) for p in ln["points"]]
             d, _seg = point_polyline_distance(ipos, pts)
@@ -603,7 +714,7 @@ def measure_ghost(ghost, bodies):
         if best is not None:
             icon = {"m": best[0], "text": format_distance(best[0]), "line": best[1]}
     return {"lines": rows, "order": order,
-            "timeOrdered": bool(lines) and all(ln.get("ut") for ln in lines),
+            "timeOrdered": bool(chain) and all(lines[i].get("ut") for i in chain),
             "icon": icon}
 
 
@@ -636,7 +747,7 @@ def closeup_bodies(dump):
     want = set()
     for g in dump["ghosts"]:
         for ln in g["lines"]:
-            if ln["body"] in by:
+            if is_drawn(ln, by):
                 want.add(ln["body"])
         if g["icon"]["pos"] is not None and g["body"] in by:
             want.add(g["body"])
@@ -830,9 +941,13 @@ def _page_capture(cap, ghost_colour_of):
     base.update({
         "scene": d["scene"], "ut": d["ut"], "utText": format_ut(d["ut"]),
         "frame": d["frame"], "warpRate": d["warpRate"], "camera": d["camera"],
-        "axes": d["axes"], "root": d["root"], "bodies": d["bodies"],
+        "axes": d["axes"], "root": d["root"],
+        # The writer's body ring is OPEN (64 points, first not repeated).
+        "bodies": [dict(b, orbit=close_ring(b["orbit"]) if b["orbit"] else b["orbit"])
+                   for b in d["bodies"]],
         "ghosts": ghosts, "routeLines": routes, "counts": d["counts"],
         "closeups": closeup_bodies(d),
+        "cameraCheck": camera_model_check(d["axes"], d["camera"]),
     })
     return _r(base)
 
@@ -963,6 +1078,8 @@ body{margin:0;background:var(--page);color:var(--ink);
 #top h1{font-size:14px;margin:0}
 #top .meta{color:var(--dim);font-size:12px}
 #top .bad{color:var(--bad)}
+.facts .bad{color:var(--bad)}
+.tok{border-bottom:1px dotted var(--dim);cursor:help}
 #top .sp{flex:1}
 button{background:var(--panel);color:var(--ink);border:1px solid var(--edge);border-radius:4px;
   padding:2px 8px;font:12px system-ui,Arial,sans-serif;cursor:pointer}
@@ -1033,9 +1150,9 @@ svg .ln{fill:none;stroke-linecap:round;stroke-linejoin:round}
 svg .k-orbit{stroke-width:1.8}
 svg .k-polyline{stroke-width:2.4}
 svg .k-tail{stroke-width:2;stroke-dasharray:1 4}
+svg .k-bridge{stroke-width:3.2;stroke-dasharray:3 2}
 svg .k-leg{stroke-width:2.2;stroke-dasharray:9 3 2 3}
 svg .k-ref{stroke:var(--ref);stroke-width:1.6;stroke-dasharray:5 4}
-svg .inactive{opacity:.38}
 svg .occ{opacity:.22}
 svg .hit{fill:none;stroke:transparent;stroke-width:10;pointer-events:stroke}
 svg .hitp{fill:transparent;pointer-events:all}
@@ -1077,6 +1194,17 @@ function basisCam(A, pitch, hdg){
               mul(A.F, Math.sin(p)*Math.cos(h)));
   return {X:X, Y:Y, D:cross(X,Y)};
 }
+/* The camera's own frame from the dump: x = up x forward (Unity's right), y = up
+   made perpendicular to forward, D = forward. */
+function basisFrom(f, u){
+  var D = norm(f), Y = norm(sub(u, mul(D, dot(u, D))));
+  return {X:cross(Y, D), Y:Y, D:D};
+}
+/* Rodrigues: v turned by `deg` about the unit axis k. */
+function rot(v, k, deg){
+  var a = rad(deg), c = Math.cos(a), s = Math.sin(a);
+  return add(add(mul(v, c), mul(cross(k, v), s)), mul(k, dot(k, v)*(1-c)));
+}
 function sig(x){ var a=Math.abs(x); return a>=100 ? x.toFixed(0) : a>=10 ? x.toFixed(1) : x.toFixed(2); }
 function fmtD(m){
   if (m == null) return '-';
@@ -1114,13 +1242,15 @@ function content(c, frame, onlyUnder){
     if (!inc(b.name)) return;
     it.bodies.push({b:b, c:off(b.name)});
     if (b.orbit && b.parent && B[b.parent] && (!onlyUnder || b.name !== onlyUnder)) {
+      /* rings arrive closed: the page model closes the writer's open ring */
       var po = off(b.parent);
       it.rings.push({b:b, pts:b.orbit.map(function(p){ return add(po, p); })});
     }
   });
   c.ghosts.forEach(function(g, gi){
     g.lines.forEach(function(ln, li){
-      if (!inc(ln.body)) return;
+      /* An inactive line is listed in the table only (the writer sends it empty). */
+      if (!inc(ln.body) || !ln.active || !ln.points.length) return;
       var lo = off(ln.body);
       var pts = ln.points.map(function(p){ return add(lo, p); });
       it.lines.push({g:g, gi:gi, ln:ln, li:li, pts:pts});
@@ -1141,7 +1271,7 @@ function content(c, frame, onlyUnder){
 
 /* ---------------- tooltips ---------------- */
 function lineTip(c, g, ln, li){
-  var t = g.vesselName + '  -  line #' + li + ' ' + ln.kind + (ln.active ? ' (active)' : ' (inactive)') +
+  var t = g.vesselName + '  -  line #' + li + ' ' + ln.kind +
     '\nrelative to ' + ln.body + ', ' + ln.points.length + ' points';
   if (ln.ut) t += '\ntime ' + ln.ut[0].toFixed(0) + ' .. ' + ln.ut[1].toFixed(0) + ' s (' +
     ((ln.ut[1]-ln.ut[0])/3600).toFixed(2) + ' h)';
@@ -1165,24 +1295,41 @@ function View(spec){
 View.prototype.reset = function(){
   var sp = this.spec;
   this.az = sp.az || 0; this.pitch = sp.pitch; this.hdg = sp.hdg;
+  this.cf = sp.camF || null; this.cu = sp.camU || null; this.turned = false;
   this.tf = null;
 };
 View.prototype.basis = function(){
   var A = this.spec.A;
   if (this.spec.mode === 'top') return basisTop(A);
   if (this.spec.mode === 'edge') return basisEdge(A, this.az);
+  if (this.cf) return basisFrom(this.cf, this.cu);
   return basisCam(A, this.pitch, this.hdg);
 };
+/* Where a point lands on the view plane, in metres: [x, y, k], k the local
+   metres-per-metre scale (1 for the orthographic views). The camera view is a
+   perspective one, like the game's: the eye sits `distance` behind the pivot
+   along the view direction and x, y are measured on the plane through the
+   pivot. A point at or behind the eye returns null. */
+View.prototype.projector = function(){
+  var B = this.basis(), sp = this.spec;
+  if (!sp.persp) return {B:B, f:function(p){ return [dot(p,B.X), dot(p,B.Y), 1]; }, eye:null};
+  var d = sp.distance, ctr = sp.center || [0,0,0], eye = sub(ctr, mul(B.D, d)), near = d*1e-3;
+  return {B:B, eye:eye, f:function(p){
+    var v = sub(p, eye), z = dot(v, B.D);
+    if (!(z > near)) return null;
+    var k = d / z;
+    return [dot(v,B.X)*k, dot(v,B.Y)*k, k];
+  }};
+};
 View.prototype.fit = function(which){
-  var B = this.basis(), it = this.spec.it, w = this.w, h = this.h;
+  var PR = this.projector(), it = this.spec.it, w = this.w, h = this.h;
   var xs = [], ys = [];
-  function addP(p, r){ var x=dot(p,B.X), y=dot(p,B.Y); r=r||0;
-    xs.push(x-r, x+r); ys.push(y-r, y+r); }
+  function addP(p, r){ var q = PR.f(p); if (!q) return; r=(r||0)*q[2];
+    xs.push(q[0]-r, q[0]+r); ys.push(q[1]-r, q[1]+r); }
   if (which === 'camera') {
     var d = this.spec.distance || 1e6;
-    var half = d * Math.tan(rad(M.cameraFovDeg/2));
-    var ctr = this.spec.center || [0,0,0];
-    this.tf = {s: (h/2)/half, ox: dot(ctr,B.X), oy: dot(ctr,B.Y)};
+    var half = d * Math.tan(rad(this.spec.fov/2));
+    this.tf = {s: (h/2)/half, ox: 0, oy: 0};
     return;
   }
   if (which === 'body' && this.spec.frame) {
@@ -1201,7 +1348,7 @@ View.prototype.fit = function(which){
     it.legs.forEach(function(x){ x.pts.forEach(function(p){ addP(p); any=true; }); });
     /* The body is NOT part of this fit: a 5 km hop beside a 600 km planet has to
        fill the view, and the disc edge still shows where the ground is. */
-    if (!any) return this.fit(this.spec.frame ? 'body' : 'all');
+    if (!any || !xs.length) return this.fit(this.spec.frame ? 'body' : 'all');
   }
   if (!xs.length) { this.tf = {s:1e-6, ox:0, oy:0}; return; }
   var x0=Math.min.apply(null,xs), x1=Math.max.apply(null,xs);
@@ -1265,6 +1412,14 @@ View.prototype.start = function(){
     drag.x = e.clientX; drag.y = e.clientY;
     if (drag.rot) {
       if (sp.mode === 'edge') self.az = (self.az + dx*0.4) % 360;
+      else if (self.cf) {
+        /* turn the recorded camera about the pivot: yaw about the system's up,
+           then pitch about the camera's own screen x */
+        self.cf = rot(self.cf, sp.A.U, dx*0.4); self.cu = rot(self.cu, sp.A.U, dx*0.4);
+        var bx = basisFrom(self.cf, self.cu).X;
+        self.cf = rot(self.cf, bx, dy*0.4); self.cu = rot(self.cu, bx, dy*0.4);
+        self.turned = true;
+      }
       else { self.hdg = (self.hdg + dx*0.4) % 360;
              self.pitch = Math.max(-90, Math.min(90, self.pitch + dy*0.4)); }
     } else { self.tf.ox -= dx/self.tf.s; self.tf.oy += dy/self.tf.s; }
@@ -1284,17 +1439,23 @@ View.prototype.queue = function(){
   window.requestAnimationFrame(function(){ self.pending = false; self.draw(); });
 };
 View.prototype.draw = function(){
-  var sp = this.spec, c = sp.cap, it = sp.it, B = this.basis(), w = this.w, h = this.h;
-  var tf = this.tf, s = tf.s, BM = bodyMap(c);
+  var sp = this.spec, c = sp.cap, it = sp.it, PR = this.projector(), B = PR.B, w = this.w, h = this.h;
+  var tf = this.tf, s = tf.s, BM = bodyMap(c), eye = PR.eye;
   var out = [], tips = [];
-  function P(p){ return [w/2 + (dot(p,B.X)-tf.ox)*s, h/2 - (dot(p,B.Y)-tf.oy)*s]; }
+  /* screen pixel of a point, with its local scale as [2]; null behind the eye */
+  function P(p){ var q = PR.f(p); return q ? [w/2 + (q[0]-tf.ox)*s, h/2 - (q[1]-tf.oy)*s, q[2]] : null; }
   function tip(t){ tips.push(t); return tips.length-1; }
   var spheres = it.bodies.map(function(x){ return {c:x.c, r:x.b.radius}; });
+  /* Behind a body as seen along the view ray: the fixed view direction for the
+     orthographic views, the ray from the eye in the camera view. */
   function occ(p){
+    var u = eye ? norm(sub(p, eye)) : B.D;
     for (var i=0;i<spheres.length;i++){
-      var q = sub(p, spheres[i].c), dep = dot(q, B.D), r = spheres[i].r;
+      var q = sub(p, spheres[i].c), dep = dot(q, u), r = spheres[i].r;
       var perp2 = dot(q,q) - dep*dep;
-      if (perp2 < r*r && dep > -Math.sqrt(r*r - perp2) + 1e-6*r) return true;
+      if (perp2 >= r*r) continue;
+      var near = -Math.sqrt(r*r - perp2);
+      if (dep > near + 1e-6*r && (!eye || dot(sub(eye, spheres[i].c), u) < near)) return true;
     }
     return false;
   }
@@ -1327,7 +1488,9 @@ View.prototype.draw = function(){
     }
     var prevP = null, prevO = false, prevW = null;
     for (var i=0;i<pts.length;i++){
-      var W = pts[i], Q = P(W), O = occ(W);
+      var W = pts[i], Q = P(W);
+      if (!Q) { prevP = null; continue; }
+      var O = occ(W);
       if (prevP) {
         if (O === prevO) seg(O ? 'occ' : 'vis', prevP, Q);
         else {
@@ -1343,7 +1506,7 @@ View.prototype.draw = function(){
     }
     return {vis: acc.vis.join(''), occ: acc.occ.join('')};
   }
-  function onScreen(q, m){ return q[0] > -m && q[0] < w+m && q[1] > -m && q[1] < h+m; }
+  function onScreen(q, m){ return !!q && q[0] > -m && q[0] < w+m && q[1] > -m && q[1] < h+m; }
   var labels = [];
   /* rings and SOI first, bodies, then lines on top */
   it.rings.forEach(function(x){
@@ -1354,9 +1517,11 @@ View.prototype.draw = function(){
     out.push('<path class="hit" data-t="'+t+'" d="'+d.vis+d.occ+'"/>');
   });
   it.bodies.forEach(function(x){
-    var q = P(x.c), b = x.b, rp = b.radius*s;
-    if (b.soi && b.soi*s > 6 && b.soi*s < 60000 && onScreen(q, b.soi*s))
-      out.push('<circle class="soi" cx="'+f1(q[0])+'" cy="'+f1(q[1])+'" r="'+f1(b.soi*s)+'"/>');
+    var q = P(x.c), b = x.b;
+    if (!q) return;
+    var rp = b.radius*s*q[2], rs = (b.soi || 0)*s*q[2];
+    if (b.soi && rs > 6 && rs < 60000 && onScreen(q, rs))
+      out.push('<circle class="soi" cx="'+f1(q[0])+'" cy="'+f1(q[1])+'" r="'+f1(rs)+'"/>');
     if (!onScreen(q, rp + 20)) return;
     var tiny = rp < 2.5, r = tiny ? 2.5 : rp;
     if (r > 60000) return;
@@ -1389,8 +1554,8 @@ View.prototype.draw = function(){
   it.lines.forEach(function(x){
     if (S.hidden[x.gi]) return;
     var col = gcol(x.g.colour), d = paths(x.pts);
-    var kind = ['orbit','polyline','tail'].indexOf(x.ln.kind) >= 0 ? x.ln.kind : 'polyline';
-    var cls = 'ln k-' + kind + (x.ln.active ? '' : ' inactive');
+    var kind = ['orbit','polyline','tail','bridge'].indexOf(x.ln.kind) >= 0 ? x.ln.kind : 'polyline';
+    var cls = 'ln k-' + kind;
     var t = tip(lineTip(c, x.g, x.ln, x.li));
     if (d.vis) out.push('<path class="'+cls+'" style="stroke:'+col+'" d="'+d.vis+'"/>');
     if (d.occ) out.push('<path class="'+cls+' occ" style="stroke:'+col+'" d="'+d.occ+'"/>');
@@ -1439,14 +1604,21 @@ View.prototype.draw = function(){
   var len = niceLen(110/s), px = len*s;
   out.push('<path class="scale" d="M12 '+(h-14)+'v-5M12 '+(h-14)+'h'+f1(px)+'v-5"/>');
   out.push('<text x="'+f1(16+px)+'" y="'+(h-13)+'">'+esc(fmtD(len))+'</text>');
-  out.push('<text class="dim" x="'+(w-8)+'" y="15" text-anchor="end">1 px = '+esc(fmtD(1/s))+'</text>');
+  out.push('<text class="dim" x="'+(w-8)+'" y="15" text-anchor="end">1 px = '+esc(fmtD(1/s))+
+    (sp.persp ? ' at the pivot' : '')+'</text>');
   var hint = 'wheel zoom, drag pan, double-click reset' + (sp.mode === 'top' ? '' : ', shift-drag rotate');
   out.push('<text class="dim" x="'+(w-8)+'" y="'+(h-8)+'" text-anchor="end">'+hint+'</text>');
   this.tips = tips;
   this.sv.innerHTML = '<svg width="'+w+'" height="'+h+'" viewBox="0 0 '+w+' '+h+'">'+out.join('')+'</svg>';
   this.sv._view = this;
   if (sp.mode === 'edge') this.ro.textContent = ' azimuth ' + this.az.toFixed(0) + ' deg';
-  if (sp.mode === 'cam') this.ro.textContent = ' pitch ' + this.pitch.toFixed(1) + ' deg, heading ' + this.hdg.toFixed(1) + ' deg';
+  if (sp.mode === 'cam') {
+    /* how far below the system's horizontal plane the view looks */
+    var down = Math.asin(Math.max(-1, Math.min(1, -dot(B.D, sp.A.U)))) * 180/Math.PI;
+    this.ro.textContent = this.cf ? ' recorded frame' + (this.turned ? ' (turned)' : '') +
+      ', ' + down.toFixed(1) + ' deg down' :
+      ' pitch ' + this.pitch.toFixed(1) + ' deg, heading ' + this.hdg.toFixed(1) + ' deg';
+  }
 };
 
 /* ---------------- tooltip ---------------- */
@@ -1511,9 +1683,10 @@ function legend(c, host){
     sample('stroke:var(--ink);stroke-width:1.8') + ' orbit &nbsp; ' +
     sample('stroke:var(--ink);stroke-width:2.4') + ' polyline &nbsp; ' +
     sample('stroke:var(--ink);stroke-width:2;stroke-dasharray:1 4;stroke-linecap:round') + ' tail &nbsp; ' +
+    sample('stroke:var(--ink);stroke-width:3.2;stroke-dasharray:3 2') + ' bridge &nbsp; ' +
     sample('stroke:var(--route);stroke-width:2.2;stroke-dasharray:9 3 2 3') + ' route leg &nbsp; ' +
     sample('stroke:var(--ref);stroke-width:1.6;stroke-dasharray:5 4') + ' reference path &nbsp; ' +
-    sample('stroke:var(--ink);stroke-width:1.8;opacity:.38') + ' inactive / behind a body &nbsp; ' +
+    sample('stroke:var(--ink);stroke-width:1.8;opacity:.38') + ' behind a body &nbsp; ' +
     '<svg width="12" height="12"><circle cx="6" cy="6" r="3.6" style="fill:var(--ink)"/></svg> start ' +
     '<svg width="12" height="12"><circle cx="6" cy="6" r="3.4" style="fill:var(--panel);stroke:var(--ink);stroke-width:1.8"/></svg> end &nbsp; ' +
     '<svg width="14" height="14"><path d="M7 1L13 7L7 13L1 7Z" style="fill:var(--ink)"/></svg> icon ' +
@@ -1530,11 +1703,17 @@ function cameraSpec(c, A){
     if (g) { frame = g.body; center = g.icon.pos || (g.lines[0] && g.lines[0].body === g.body && g.lines[0].points[0]) || [0,0,0]; }
     else note = ' (target ' + (cam.target || 'none') + ' not found; centred on ' + c.root + ')';
   }
+  var own = !!(cam.forward && cam.up), fov = cam.fovDeg != null ? cam.fovDeg : M.cameraFovDeg;
+  var how = own ? 'the recorded camera frame (forward, up)' : 'pitch ' + (cam.pitchDeg != null ? cam.pitchDeg : 90) +
+    ' and heading ' + (cam.headingDeg != null ? cam.headingDeg : 0) + ' (no recorded camera frame)';
   return {cap:c, A:A, it:content(c, frame, null), frame:null, mode:'cam',
           pitch: cam.pitchDeg != null ? cam.pitchDeg : 90, hdg: cam.headingDeg != null ? cam.headingDeg : 0,
-          distance: cam.distance, center: center, fitDefault: 'camera',
+          camF: own ? cam.forward : null, camU: own ? cam.up : null,
+          persp: cam.distance != null, distance: cam.distance || 1e6, fov: fov,
+          center: center, fitDefault: 'camera',
           title: 'As the camera saw it' + note,
-          fits: [['camera', 'camera', 'The dump\'s own target, pitch, heading and distance (assumes a ' + M.cameraFovDeg + ' deg field of view).'],
+          fits: [['camera', 'camera', 'The dump\'s own view: ' + how + ', distance ' + fmtD(cam.distance) + ', ' +
+                   fov.toFixed(1) + ' deg vertical field of view' + (cam.fovDeg != null ? '' : ' (assumed; the dump has none)') + '.'],
                  ['lines', 'fit lines', 'Zoom to every drawn line and icon.']]};
 }
 
@@ -1542,18 +1721,25 @@ function measuredTables(c, host){
   c.ghosts.forEach(function(g){
     var m = g.measured;
     var hd = el('div', 'gh');
+    var md = g.markerDecision;
     hd.innerHTML = '<span class="sw" style="background:'+gcol(g.colour)+'"></span><b>' + esc(g.vesselName) + '</b> ' +
-      '<span class="facts">recording ' + esc(g.recordingId) + (g.pid != null ? ', pid ' + g.pid : '') +
-      (g.committedIndex != null ? ', committed #' + g.committedIndex : '') +
+      '<span class="facts">recording ' + esc(g.recordingId || '-') +
+      (g.pid != null ? (g.pid === 0 ? ', pid 0 (no ghost map vessel)' : ', pid ' + g.pid) : '') +
+      (g.committedIndex != null ? (g.committedIndex < 0 ? ', not in the committed list' : ', committed #' + g.committedIndex) : '') +
       (g.loopCycle != null ? ', loop cycle ' + g.loopCycle : '') +
       (g.sampleUT != null ? ', sample ut ' + g.sampleUT.toFixed(1) : '') +
-      (g.treatment ? ', treatment ' + esc(g.treatment) : '') + ', body now ' + esc(g.body || '-') +
-      ', icon ' + (g.icon.drawn ? 'drawn' : 'not drawn') + '</span>';
+      (g.treatment ? ', treatment <span class="tok" title="' + esc(g.treatmentText || 'not a token this page knows') + '">' +
+        esc(g.treatment) + '</span>' : '') + ', body now ' + esc(g.body || '-') +
+      ', icon ' + (g.icon.drawn ? 'drawn' : 'not drawn') + (g.icon.source ? ' (' + esc(g.icon.source) + ')' : '') +
+      (md ? ', marker decision: draw ' + (md.draw ? 'yes' : 'no') + ', director traced path ' + (md.directorTracedPath ? 'yes' : 'no') +
+        ', polyline owning ' + (md.polylineOwning ? 'yes' : 'no') + ', icon suppressed ' + (md.iconSuppressed ? 'yes' : 'no') : '') +
+      '</span>';
     host.appendChild(hd);
     var p = el('div', 'facts');
     p.innerHTML = 'Icon to the nearest drawn point of its own lines: <b>' + (m.icon ? esc(m.icon.text) +
       '</b> (line #' + m.icon.line + ')' : '-</b> (no icon position)') + '. Lines in ' +
-      (m.timeOrdered ? 'time order' : 'dump order (not every line has a time range)') + ' for the gap column.';
+      (m.timeOrdered ? 'time order' : 'dump order (not every drawn line has a time range)') +
+      '; the gap column joins drawn lines only (an inactive line is listed, not drawn or measured).';
     if (m.icon) p.title = m.icon.m.toFixed(3) + ' m';
     host.appendChild(p);
     var t = el('table', 'm');
@@ -1568,7 +1754,7 @@ function measuredTables(c, host){
       var conic = r.conicPe ? '<td class="n" title="'+r.conicPe.m.toFixed(3)+' m">'+esc(r.conicPe.text)+' / '+esc(r.conicAp && r.conicAp.m != null ? r.conicAp.text : 'open')+'</td>' : '<td class="n">-</td>';
       var ref = r.reference ? '<td class="n" title="'+r.reference.m.toFixed(3)+' m, '+r.referencePoints+' reference points">'+esc(r.reference.text)+' ('+esc(r.referenceKind || '?')+')</td>' : '<td class="n">-</td>';
       var tr = el('tr');
-      tr.innerHTML = '<td>'+i+'</td><td>'+esc(r.kind)+'</td><td>'+esc(r.body)+'</td><td>'+(r.active?'yes':'no')+
+      tr.innerHTML = '<td>'+i+'</td><td>'+esc(r.kind)+'</td><td>'+esc(r.body)+'</td><td>'+(r.active?'yes':'no (not drawn)')+
         '</td><td class="n">'+r.points+'</td><td>'+esc(r.utText)+'</td>'+num(r.lowest)+num(r.highest)+conic+gap+ref;
       t.appendChild(tr);
     });
@@ -1616,8 +1802,16 @@ function select(id){
     (c.frame != null ? c.frame : '-') + ' &nbsp; warp x' + (c.warpRate != null ? c.warpRate : '-') +
     ' &nbsp; camera ' + esc(cam.target || '-') + ' pitch ' + (cam.pitchDeg != null ? cam.pitchDeg.toFixed(1) : '-') +
     ' heading ' + (cam.headingDeg != null ? cam.headingDeg.toFixed(1) : '-') + ' distance ' + esc(fmtD(cam.distance)) +
-    ' &nbsp; ' + c.counts.held.ghosts + ' ghosts, ' + c.counts.held.lines + ' lines, ' + c.counts.held.points +
+    (cam.fovDeg != null ? ' fov ' + cam.fovDeg.toFixed(1) : '') +
+    ' &nbsp; ' + c.counts.held.ghosts + ' ghosts, ' + c.counts.held.lines + ' lines (route legs included), ' + c.counts.held.points +
     ' points, ' + c.routeLines.length + ' route lines';
+  var dc = c.counts.declared, dr = dc.dropped, drop = [];
+  if (dr) Object.keys(dr).forEach(function(k){ if (dr[k]) drop.push(k + ' ' + dr[k]); });
+  if (dc.unknownBodyItems) f.innerHTML += ' &nbsp; <span class="bad">' + dc.unknownBodyItems + ' unknown-body item' +
+    (dc.unknownBodyItems === 1 ? '' : 's') + ' skipped by the writer</span>';
+  if (drop.length) f.innerHTML += ' &nbsp; <span class="bad">dropped by the writer: ' + esc(drop.join(', ')) + '</span>';
+  if (c.cameraCheck) f.innerHTML += ' &nbsp; <span title="Angle between the view direction the page derives from pitch and heading and the recorded camera.forward, and the same for up. The camera view uses the recorded frame.">' +
+    'pitch/heading model vs recorded camera: forward ' + c.cameraCheck.forwardDeg.toFixed(1) + ' deg, up ' + c.cameraCheck.upDeg.toFixed(1) + ' deg apart</span>';
   main.appendChild(f);
   if (c.notes && c.notes.length) {
     var n = el('div', 'notes');

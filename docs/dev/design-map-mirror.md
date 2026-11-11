@@ -43,13 +43,28 @@ Reading rules:
   `ghosts[0].lines[2].points[17][1] is 'x', expected a finite number`). Nothing
   is drawn for it.
 * Every optional field may be absent (`parent` / `orbit` on the root, `soi`,
-  `sampleUT`, `loopCycle`, `icon.pos`, a line's `ut`, `conic`, `reference`,
-  `referenceKind`). Missing `camera` or `axes` blocks fall back to a top-down
-  camera and +y up / +x right, with a note.
+  `sampleUT`, `loopCycle`, a ghost's `vesselName` / `recordingId` / `body`,
+  `icon.pos`, `icon.source`, `markerDecision`, a line's `ut`, `conic`,
+  `reference`, `referenceKind`, the camera's `forward` / `up` / `fovDeg`).
+  Missing `camera` or `axes` blocks fall back to a top-down camera and +y up /
+  +x right, with a note. A ghost with no vessel name (a pid-0 entry) is named by
+  its recording id.
+* What the writer emits that the page relies on (the dump design owns it):
+  Unity world axes (left-handed); a body `orbit` ring of 64 points, OPEN (the
+  page model closes it); lines already in time order where `ut` is known
+  (`MapGeometryDecisions.OrderLines`: start, then end, then capture order;
+  untimed lines last); an INACTIVE line (`active = false`) with EMPTY `points`;
+  `pid` 0 for a ghost with no ghost map vessel and `committedIndex` -1 when the
+  recording is not in the committed list; `counts.lines` / `counts.points` over
+  ghost lines AND route legs (body rings and references are context).
 * Recoverable oddities become a NOTE on that capture, shown in amber above the
   drawings: a line or icon relative to a body that is not in `bodies` (not drawn
   or measured), an unknown line `kind` (drawn as a polyline), a `counts` value
-  that disagrees with what the file holds, and `counts.truncated = true`.
+  that disagrees with what the file holds, `counts.unknownBodyItems` above 0
+  (items the writer skipped for a body it could not name), `counts.truncated =
+  true` with the `counts.dropped` numbers, a camera `forward` / `up` pair that is
+  missing a half, zero or parallel (the camera view falls back to pitch and
+  heading), and a `fovDeg` outside (0, 180).
 
 ## 2. Running it
 
@@ -80,28 +95,36 @@ Kerbin calendar (6 h days, 426 day years) and ghost count. Up / Down arrows step
 through captures; `#cap=<runId>/<label>` deep-links one.
 
 The selected capture shows a fact line (lane, run, scene, game time and raw ut,
-frame, warp rate, camera target / pitch / heading / distance, counts), any notes,
-a legend whose checkboxes hide a ghost in every view, then the views and the
-measured tables.
+frame, warp rate, camera target / pitch / heading / distance / field of view,
+counts; in red when non-zero, the writer's unknown-body skips and dropped
+entries; and how far the page's pitch / heading model lands from the recorded
+camera frame, see section 6), any notes, a legend whose checkboxes hide a ghost
+in every view, then the views and the measured tables.
 
 ### Views
 
 Every view is an SVG computed in the browser from the embedded numbers, to
-scale, orthographic. Wheel zooms about the pointer, drag pans, double-click (or
+scale; the close-ups and the whole-system view are orthographic, the camera view
+is perspective. Wheel zooms about the pointer, drag pans, double-click (or
 `reset`) returns to the opening framing; the edge-on and camera views also
-rotate with shift-drag (azimuth, or heading and pitch). Each view prints a scale
-bar and `1 px = <distance>` so a sub-pixel feature still reads its true size.
+rotate with shift-drag (azimuth, or the camera about its pivot). Each view
+prints a scale bar and `1 px = <distance>` (the camera view: at the pivot) so a
+sub-pixel feature still reads its true size.
 
 1. **The camera view beside the screenshot.** Looks the way the dump's `camera`
-   block says the map camera looked: centred on `camera.target` (a body, or a
-   ghost's `vesselName`, at its icon), basis from `pitchDeg` / `headingDeg` with
-   KSP's PlanetariumCamera convention (yaw about up, then pitch about the
-   pivot's right; pitch 90 is straight down), half-height
-   `distance * tan(30 deg)` (an ASSUMED 60 deg vertical field of view; the dump
-   carries no FOV). The panel takes the screenshot's aspect ratio and sits next
-   to it. The real camera is perspective, so expect the framing to differ; the
-   shapes and their relative placement are what to compare. Shift-drag nudges
-   the angle if the convention reads wrong; the header shows the live angles.
+   block says the map camera looked, in perspective: the pivot is
+   `camera.target` (a body, or a ghost's `vesselName`, at its icon), the eye
+   sits `distance` behind it along the view direction, and the frame is the
+   recorded `camera.forward` / `camera.up` (screen x = up x forward, Unity's
+   right), with `fovDeg` as the vertical field of view, so `camera` framing puts
+   `distance * tan(fovDeg / 2)` from the pivot at the panel's top edge. A dump
+   without the recorded frame falls back to a basis from `pitchDeg` /
+   `headingDeg` (yaw about up, then pitch about the pivot's right; pitch 90 is
+   straight down) and, without `fovDeg`, an assumed 60 deg; the `camera` button's
+   hover says which. A point at or behind the eye is not drawn. The panel takes
+   the screenshot's aspect ratio and sits next to it. Shift-drag turns the
+   camera about the pivot; the header shows the frame in use and how far below
+   the system's horizontal plane it looks.
 2. **Close-ups**, one row per body that has a ghost line, icon or route leg
    relative to it, plus the parent of a moon that carries one (the root never
    gets one; it is the whole-system view). Left: straight down; right: edge-on
@@ -118,21 +141,26 @@ bar and `1 px = <distance>` so a sub-pixel feature still reads its true size.
 
 Axes: screen x is `axes.right` (made perpendicular to `axes.up`), screen y in the
 top-down view is `F = right x up` by the component formula, which is what Unity's
-`Vector3.Cross` computes; in Unity's left-handed world that is what a camera
-looking down `-up` with `right` to its right sees, so a prograde orbit draws
-counter-clockwise, as in game. If the dump turns out to use the other
-handedness, every top-down picture is a mirror image; that is a contract
-question, see section 6.
+`Vector3.Cross` computes; in Unity's left-handed world (the dump's axes) that is
+what a camera looking down `-up` with `right` to its right sees, so a prograde
+orbit draws counter-clockwise, as in game. The same formula gives the camera
+view's screen x from the recorded frame (`up x forward`), and a recorded camera
+looking straight down `-up` with `F` on top reproduces the top-down basis
+exactly (a unit test pins it).
 
 ### Drawing conventions
 
 * Each ghost has its own colour, the same in every capture of the page (keyed by
   `recordingId`). Route legs share one route colour.
-* Stroke by kind: orbit solid, polyline thicker solid, tail dotted, route leg
-  dash-dot. An inactive line (`active = false`) is faint. A stretch of any line
-  or ring that passes BEHIND a body (in the view's own direction, against every
-  body sphere) is fainter still, so the edge-on and camera views read like the
+* Stroke by kind: orbit solid, polyline thicker solid, tail dotted, bridge (the
+  short seam bridge Parsek draws between a traced leg and the following conic)
+  thick short dashes, route leg dash-dot. An inactive line (`active = false`) is
+  NOT drawn, even if it carries points: it is listed in the measured table only.
+  A stretch of any line or ring that passes BEHIND a body (along the view ray:
+  the fixed view direction, or in the camera view the ray from the eye, against
+  every body sphere) is faint, so the edge-on and camera views read like the
   game, where the planet hides it.
+* Body orbit rings are closed by the page (the writer sends 64 open points).
 * The optional reference path is dashed in magenta.
 * Every line and route leg has a filled dot at its first point and an open dot at
   its last: the seams.
@@ -143,26 +171,36 @@ question, see section 6.
 * Labels that would overlap a label already placed are dropped (bodies of the
   frame first, then its moons, then ghost icons); hover still names everything.
 * Hover any line, ring, dot, icon or body for: vessel, line index and kind,
-  active or not, body, point count, time range, altitude range, conic summary,
-  recording id; an endpoint's hover gives its altitude.
+  body, point count, time range, altitude range, conic summary, recording id; an
+  endpoint's hover gives its altitude. The treatment token in a ghost's header
+  has a hover with its meaning.
 
 ### Measured
 
-One block per ghost and per route, facts only.
+One block per ghost and per route, facts only. A ghost's header line carries its
+recording id, `pid` (0 reads "no ghost map vessel"), committed index (-1 reads
+"not in the committed list"), loop cycle, sample UT, treatment token, body,
+whether the icon was drawn and its `source` (`proto` or `marker`), and the
+`markerDecision` flags (draw, director traced path, polyline owning, icon
+suppressed) when the dump carries them.
 
 * **Icon to the nearest drawn point of its own lines**: the shortest distance
-  from `icon.pos` to any segment of any of the ghost's lines (all lines,
-  inactive included, converted to the ghost body's frame), and which line.
-* Per line: kind, body, active, point count, time range and duration, **lowest**
+  from `icon.pos` to any segment of any of the ghost's DRAWN lines (active,
+  with points, relative to a known body; converted to the ghost body's frame),
+  and which line.
+* Per line: kind, body, active (an inactive one reads "no (not drawn)" and gets
+  no altitude, reference or gap figures; its conic, if any, still prints),
+  point count, time range and duration, **lowest**
   and **highest altitude** (vertex distance from the line body's centre minus
   its radius), **conic Pe / Ap altitude** when a conic is given
   (`sma (1 - e) - R` / `sma (1 + e) - R`, `open` when e >= 1), **gap to next
   line**, and the reference column.
 * **Gap to next line**: the distance from this line's last point to the next
-  line's first point. "Next" is time order when every line of the ghost has a
-  `ut`, else dump order (the block says which). Lines relative to different
-  bodies are converted to a common frame through the body `pos` values and the
-  cell says `across bodies`.
+  DRAWN line's first point (an inactive line is skipped, a bridge is a link like
+  any other). "Next" is the writer's order: timed lines by start, then end, then
+  dump position, then the untimed ones; the block says whether every drawn line
+  had a time range. Lines relative to different bodies are converted to a common
+  frame through the body `pos` values and the cell says `across bodies`.
 * **Reference: max distance**: the largest distance from any drawn vertex to the
   reference polyline (one way: drawn to reference), with the reference kind.
 * Per route leg: body, recording, points, lowest / highest altitude, gap to the
@@ -184,9 +222,12 @@ the notes; unreadable captures carry their reason, and the top-level
 
 `harness/lib/test_map_mirror.py` (under `lib/` because CI discovers `lib/`):
 the projection and frame math, distance and altitude helpers and unit
-formatting; reading both sample dumps (`harness/lib/testdata/map_mirror_sample.map.json`,
-a Kerbin to Mun loop with hand-checkable features listed in the test module's
-docstring, and `map_mirror_minimal.map.json`, required fields only); a wrong
+formatting, the recorded camera frame and the open-ring close; reading both
+sample dumps (`harness/lib/testdata/map_mirror_sample.map.json`, a Kerbin to
+Mun loop in the writer's shape - open rings, an inactive stock orbit line, a
+bridge, a pid-0 entry, icon sources, marker decisions, counts over legs - with
+hand-checkable features listed in the test module's docstring, and
+`map_mirror_minimal.map.json`, the always-written fields only); a wrong
 schema and malformed values named by path; the measured values on the sample
 against hand calculations; and the page: self-contained, deterministic with a
 stamp, unreadable capture listed, no-PNG capture rendered, PNG inlined or
@@ -194,26 +235,37 @@ re-encoded to fit, budget refusal writing nothing, dump text unable to break out
 of the page, and the page script parsing under `node --check` when node is on
 PATH.
 
-`CSharpWriterSourceSyncTests` checks, WHEN `Source/Parsek/MapGeometryJson.cs`
-exists, that it declares `SchemaId = "parsek-map-geometry/1"` and still writes
-every key the tool reads; a third cell checks that
-`hlib.ARTIFACT_SHOTS_SUFFIXES` lists `.map.json` so the harvest copies dumps
-into the shots directory. Until those land the cells SKIP with a `PENDING`
-reason; they become strict once both halves are merged.
+`CSharpWriterSourceSyncTests` (strict; it reads outside `harness/` on purpose)
+checks that `Source/Parsek/MapGeometryJson.cs` declares `SchemaId =
+"parsek-map-geometry/1"` and still writes every key the tool reads, that its
+`dropped` block names the five kinds the header shows, that its `Kind*` line
+kinds equal `map_mirror.LINE_KINDS` and each has a stroke style, that every
+treatment token (the writer's four constants plus the Director's `Treatment`
+enum in `MapRender/RenderSegment.cs`) has a meaning on the page, that
+`MapGeometryRecorder.cs` still writes the icon sources `proto` and `marker`, and
+that `hlib.ARTIFACT_SHOTS_SUFFIXES` lists `.map.json` (equal to
+`hlib.DUMPMAPGEOMETRY_SUFFIX`) so the harvest copies dumps into the shots
+directory.
 
 ## 6. Limits and open questions
 
-* The camera view is orthographic with an assumed 60 deg field of view, and its
-  basis is derived from pitch and heading with a convention that has not yet
-  been checked against a real capture. If it reads wrong, the cheap contract fix
-  is for the dump to carry the camera's own forward and up vectors.
-* Handedness: the top-down orientation assumes the dump writes Unity world axes
-  (see section 3). Compare the first real capture's whole-system view with the
-  tracking station: planets should run counter-clockwise.
-* An orbit line is drawn exactly as its points are given; the page does not
-  close a ring the dump left open. Whether an orbit line's points repeat the
-  first point at the end decides whether its own first and last dots coincide,
-  and its gap to the next line is measured from the LAST point.
+* The camera view's pivot is the camera TARGET's centre (a body, or a ghost's
+  icon); the dump does not record the eye's position, so a camera whose pivot
+  sits off the target (stock SmoothDamp still settling) is drawn as if it did
+  not. The `MapCamera` seam verb waits for the settle before it answers.
+* The pitch / heading fallback's convention is unchecked against a real
+  capture. Every dump from the shipped writer carries the recorded frame, so the
+  fallback serves only older or hand-made files, and the header's "pitch/heading
+  model vs recorded camera" angles measure the convention on the first real
+  dump: near 0 means the fallback is right.
+* Handedness: the dump writes Unity world axes (left-handed), which is what the
+  top-down orientation assumes (section 3). On the first real capture the
+  whole-system view should agree with the tracking station: planets run
+  counter-clockwise.
+* A ghost line is drawn exactly as its points are given; only BODY rings are
+  closed by the page. Whether a stock orbit line's points repeat the first point
+  at the end decides whether its own first and last dots coincide, and its gap
+  to the next line is measured from the LAST point.
 * Body positions are the dump's single instant. A line relative to a moon is
   placed at the moon's position NOW, which is what the map draws, so a seam
   measured across bodies is the seam on screen at that instant.

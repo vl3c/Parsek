@@ -9,7 +9,10 @@
   "target": "Kerbin",
   "pitchDeg": 45.0,
   "headingDeg": 0.0,
-  "distance": 2500000.0
+  "distance": 2500000.0,
+  "forward": [0.0, -0.7071068, 0.7071068],
+  "up": [0.0, 0.7071068, 0.7071068],
+  "fovDeg": 60.0
  },
  "axes": {
   "up": [0.0, 1.0, 0.0],
@@ -36,7 +39,7 @@
    "vesselName": "Hopper",
    "pid": 77,
    "committedIndex": 0,
-   "treatment": "TracedPath",
+   "treatment": "NoIntent",
    "body": "Kerbin",
    "icon": {
     "drawn": false
@@ -60,6 +63,7 @@
   "ghosts": 1,
   "lines": 1,
   "points": 3,
-  "truncated": false
+  "truncated": false,
+  "unknownBodyItems": 0
  }
 }
