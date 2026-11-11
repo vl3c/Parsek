@@ -133,7 +133,9 @@ namespace Parsek.InGameTests
                     "Deferred split classified: source=decouple-only, result=WithinSegment, "
                     + "newVessels=0, hasController=False, recordedPid=0") == 1,
                 "the decouple-only classification line is logged once");
-            InGameAssert.IsTrue(CountContaining(lines, "Within-segment breakage") == 1,
+            // Tag-qualified: the per-part [Boundary] line also says "Within-segment breakage",
+            // once per decoupled part.
+            InGameAssert.IsTrue(CountContaining(lines, "[Coalescer] Within-segment breakage") == 1,
                 "the within-segment branch is taken once");
             InGameAssert.AreEqual(4, parked.SegmentEvents.Count,
                 "one PartDestroyed event per Decoupled event among the last five part events");
