@@ -44,6 +44,9 @@ renamed or removed key bumps the schema id). Shares are fractions rounded to
     text.unclassifiedFiles    files no modules.toml rule places (the CI gate wants 0)
     text.forbiddenEdges       {declared, violations}: modules.toml [forbidden] edges
     text.upwardEdges          production module edges against the stability gradient
+    text.layers               the declared layers (modules.toml [layers]) over the text
+                              type graph: {backwardModulePairs, backwardTypePairs,
+                              lateralModulePairs, lateralTypePairs}; null without a declaration
     text.productionTypes      types in the text type graph
     text.knots                sizes of every knot (largest first), the canary list
     text.knot                 the largest knot
@@ -60,6 +63,8 @@ renamed or removed key bumps the schema id). Shares are fractions rounded to
     semantic.edges            {text, raw, semantic, textOnly, ilOnly} type edge counts
     semantic.forwarders       {callSites, edgesRemoved, edgesAdded}
     semantic.residueMembership {both, textOnly, semanticOnly}
+    semantic.layers           the same four declared-layer numbers over the semantic graph
+                              (what layer_pins.toml ratchets); null without a declaration
     facts.ratchets            {crossTypeStaticWrites, complexity50, complexityWatch,
                               uncalledInAssembly}: the measured sets' sizes
     facts.statics             {reassignable, readonlyCollections, mutatedCollections,
@@ -112,7 +117,22 @@ def normalize_date(text):
     return moment.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def text_section(model, forbidden=()):
+def layer_numbers(type_graph, type_modules, layer_table):
+    """The declared-layer headline (layers.summary) of one type graph; None
+    without a `[layers]` declaration."""
+    if not layer_table:
+        return None
+    import layers  # noqa: PLC0415
+
+    return layers.summary(layers.classify(layers.module_type_pairs(type_graph, type_modules), layer_table))
+
+
+def _graph_and_modules(types):
+    return ({entry["name"]: entry["referencesTo"] for entry in types},
+            {entry["name"]: entry.get("module") for entry in types})
+
+
+def text_section(model, forbidden=(), layer_table=None):
     """The text scan's numbers from an archview.build_model result."""
     production = sorted(m["name"] for m in model["modules"] if not m["tooling"])
     by_module = {name: {"files": 0, "lines": 0} for name in production}
@@ -141,6 +161,7 @@ def text_section(model, forbidden=()):
         "unclassifiedFiles": len(model.get("unclassified") or []),
         "forbiddenEdges": {"declared": declared, "violations": violations},
         "upwardEdges": archview._measure_upward_edges(model),
+        "layers": layer_numbers(*_graph_and_modules(model.get("types") or []), layer_table),
         "productionTypes": len(model.get("types") or []),
         "knots": [knot["size"] for knot in knot_list],
         "knot": largest["size"] if largest else 0,
@@ -152,7 +173,7 @@ def text_section(model, forbidden=()):
     }
 
 
-def semantic_section(result):
+def semantic_section(result, layer_table=None):
     """The semantic report's headline from a semantic.build result."""
     import semantic  # noqa: PLC0415 (it imports archview and ilgraph)
 
@@ -195,6 +216,7 @@ def semantic_section(result):
             "textOnly": len(text_res - sem_res),
             "semanticOnly": len(sem_res - text_res),
         },
+        "layers": layer_numbers(result["semantic"], result.get("typeModules") or {}, layer_table),
     }
 
 
@@ -315,10 +337,11 @@ def load_count_code(path=COUNT_CODE):
 
 
 def row_from_tools(sha, date, model, forbidden, semantic_result=None, report=None, counts=None,
-                   tests_dll=False):
+                   tests_dll=False, layer_table=None):
     """The row from the tools' own results: an archview model and its [forbidden]
     specs, a semantic.build result, an ilanalysis.report result and a
-    count-code collect() payload (None leaves that half null).
+    count-code collect() payload (None leaves that half null). `layer_table` is
+    the `[layers]` table of modules.toml (None leaves both `layers` keys null).
 
     The CLI builds the inputs itself (`measure`); CI's compiled-IL step hands in
     the ones its other real-tree cells already built in the same process.
@@ -326,8 +349,8 @@ def row_from_tools(sha, date, model, forbidden, semantic_result=None, report=Non
     return build_row(
         sha,
         date,
-        text_section(model, forbidden),
-        semantic_section(semantic_result) if semantic_result is not None else None,
+        text_section(model, forbidden, layer_table),
+        semantic_section(semantic_result, layer_table) if semantic_result is not None else None,
         facts_section(report) if report is not None else None,
         sizes_section(counts) if counts is not None else None,
         tests_dll=tests_dll,
@@ -363,8 +386,11 @@ def measure(sha, date, dll=None, tests_dll=None, source=archview.DEFAULT_SOURCE,
                 raise FileNotFoundError("--tests-dll %s does not exist" % tests_dll)
             tests_facts = ilanalysis.load_facts(tests_dll, None)[0]
         report = ilanalysis.report(facts, tooling, ilanalysis.load_config(), tests_facts)
+    import layers  # noqa: PLC0415
+
     return row_from_tools(sha, date, model, forbidden, semantic_result, report,
-                          load_count_code().collect(), tests_dll=bool(tests_dll))
+                          load_count_code().collect(), tests_dll=bool(tests_dll),
+                          layer_table=layers.load_layers(modules))
 
 
 def main(argv=None):

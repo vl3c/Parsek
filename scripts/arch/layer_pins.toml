@@ -1,0 +1,817 @@
+# The declared-layer ratchet (scripts/arch/layers.py), read by
+# scripts/arch/test_semantic_layers.py in CI's compiled-IL step. Machine-written:
+#   python3 scripts/arch/layers.py Source/Parsek/bin/Debug/Parsek.dll --write-pins (after a Debug build of this tree; never from a Release build)
+# One entry per backward module pair (a module depending on one in a higher layer
+# of modules.toml [layers]), measured on the compiled-IL semantic graph as the number
+# of distinct (from type, to type) pairs. The gate reads `count` only: a pair may not
+# rise above it, and a backward module pair with no entry reds. `pairs` lists the type
+# pairs at the pin, used only to name what is new in a failure message, so a rename
+# reds nothing. A count may fall without a re-pin; the slack is not enforced until
+# someone re-pins, so re-pin in the PR that lowers a count, and raise one only for a
+# deliberate change the PR explains.
+# 52 backward module pairs, 440 type pairs.
+# Pinned from Parsek.dll 2026-11-11
+
+[[backward]]
+edge = "Rewind -> Controllers"
+layers = "features -> entry"
+count = 49
+pairs = [
+    "EffectiveState -> ParsekScenario",
+    "HighLogic_LoadScene_Patch -> ParsekFlight",
+    "HighLogic_LoadScene_Patch -> ParsekFlightMergeFlow",
+    "HighLogic_LoadScene_Patch -> ParsekScenario",
+    "LoadTimeSweep -> ParsekFlight",
+    "LoadTimeSweep -> ParsekScenario",
+    "MarkerValidator -> ParsekScenario",
+    "MergeDialog -> ParsekFlight",
+    "MergeDialog -> ParsekScenario",
+    "MergeDialog -> VesselSpawner",
+    "MergeJournalOrchestrator -> ParsekFlight",
+    "MergeJournalOrchestrator -> ParsekScenario",
+    "ReFlyAnchorSelection -> ParsekScenario",
+    "ReFlyAwardTagging -> ParsekScenario",
+    "ReFlyMergeDominance -> ParsekScenario",
+    "ReFlyRevertButtonGate -> ParsekScenario",
+    "ReFlyRevertDialog -> ParsekScenario",
+    "ReFlySwitchGate -> ParsekFlight",
+    "ReFlySwitchGate -> ParsekScenario",
+    "ReconciliationBundle -> ParsekScenario",
+    "RecordingTreeSplitter -> ParsekScenario",
+    "RevertInterceptor -> ParsekFlight",
+    "RevertInterceptor -> ParsekScenario",
+    "RewindCarry -> ParsekScenario",
+    "RewindInvoker -> ParsekFlight",
+    "RewindInvoker -> ParsekFlightPlaybackHost",
+    "RewindInvoker -> ParsekScenario",
+    "RewindInvoker -> SessionSuppressionState",
+    "RewindLauncher -> ClaimedVesselHoldGhost",
+    "RewindLauncher -> ParsekFlight",
+    "RewindLauncher -> ParsekScenario",
+    "RewindLauncher -> TerminalOrbitSpawnSafety",
+    "RewindPointAuthor -> ParsekScenario",
+    "RewindPointAuthorContext -> ParsekScenario",
+    "RewindPointDiskUsage -> ParsekScenario",
+    "RewindPointReaper -> ParsekScenario",
+    "RewindSpawnScope -> ForeignInventoryTransfer",
+    "RewindVesselHold -> ParsekFlight",
+    "SceneExitInterceptor -> InFlightRecoveryRequest",
+    "SceneExitInterceptor -> NoSaveSceneExit",
+    "SceneExitInterceptor -> ParsekFlight",
+    "SceneExitInterceptor -> ParsekFlightMergeFlow",
+    "SceneExitInterceptor -> ParsekFlightSwitchContinuation",
+    "SceneExitInterceptor -> ParsekScenario",
+    "SceneExitInterceptor -> SaveFileLoadIntent",
+    "SupersedeCommit -> ParsekScenario",
+    "UnfinishedFlightClassifier -> ParsekScenario",
+    "UnfinishedFlightSealHandler -> ParsekScenario",
+    "UnfinishedFlightStashHandler -> ParsekScenario",
+]
+
+[[backward]]
+edge = "Recording -> Logistics"
+layers = "model -> features"
+count = 45
+pairs = [
+    "BackgroundRecorder -> ResourceAmount",
+    "ChainTipRouteCargo -> RetiredRouteCargoRow",
+    "ChainTipRouteCargo -> RetiredRouteCargoSnapshotCapture",
+    "ChainTipRouteCargo -> RetiredRouteCargoStore",
+    "ChainTipRouteCargo -> RetiredRouteCargoTipTag",
+    "ChainTipRouteCargo -> RetiredRouteCargoWatermark",
+    "ChainTipRouteCargo -> Route",
+    "ChainTipRouteCargo -> RouteEndpoint",
+    "ChainTipRouteCargo -> RouteEvent",
+    "ChainTipRouteCargo -> RouteEventLog",
+    "ChainTipRouteCargo -> RouteEventRetire",
+    "ChainTipRouteCargo -> RouteStop",
+    "ChainTipRouteCargo -> RouteStore",
+    "FlightRecorder -> DockSeamHalfIdentity",
+    "FlightRecorder -> DockSeamPairAdmission",
+    "FlightRecorder -> DockSeamPairCandidate",
+    "FlightRecorder -> HarvestActivityTransition",
+    "FlightRecorder -> HarvestConverterRate",
+    "FlightRecorder -> ResourceAmount",
+    "FlightRecorder -> RouteHarvestCapture",
+    "FlightRecorder -> RouteHarvestWindow",
+    "FlightRecorder -> RouteOriginProof",
+    "FlightRecorder -> RouteProofCapture",
+    "FlightRecorder -> RouteProofMetadata",
+    "FlightRecorder -> RouteRunCargoManifest",
+    "FlightRecorder -> SeamNodeRecord",
+    "FlightRecorder -> SeamPartRecord",
+    "LiveVesselSnapshot -> ResourceAmount",
+    "Recording -> ResourceAmount",
+    "Recording -> RouteConnectionKind",
+    "Recording -> RouteConnectionWindow",
+    "Recording -> RouteHarvestWindow",
+    "Recording -> RouteOriginProof",
+    "Recording -> RouteProofMetadata",
+    "Recording -> RouteRunCargoManifest",
+    "RecordingManifestCodec -> ResourceAmount",
+    "RecordingOptimizer -> ResourceManifest",
+    "RecordingOptimizer -> ResourceTransferability",
+    "RecordingOptimizer -> RouteHarvestWindow",
+    "RecordingOptimizer -> RouteProofMetadata",
+    "RecordingOptimizer -> RouteRunCargoManifest",
+    "RecordingTreeRecordCodec -> RouteProofCodec",
+    "ReplayedCrossing -> RouteEventType",
+    "TreeDiscardService -> RouteDiscardObservability",
+    "TreeDiscardService -> RouteEventLog",
+]
+
+[[backward]]
+edge = "Ghost -> Controllers"
+layers = "features -> entry"
+count = 40
+pairs = [
+    "ClaimedVesselForGhosting -> IClaimedVesselRemovalTarget",
+    "GhostChainWalker -> ParsekScenario",
+    "GhostChainWalker -> SessionSuppressionState",
+    "GhostCommNetManager -> VesselSpawner",
+    "GhostMapPresence -> DebrisRelativePlaybackPolicy",
+    "GhostMapPresence -> IndexShift",
+    "GhostMapPresence -> ParentAnchoredDebrisCoverageDiagnostic",
+    "GhostMapPresence -> ParsekFlight",
+    "GhostMapPresence -> ParsekPlaybackPolicy",
+    "GhostMapPresence -> ParsekScenario",
+    "GhostMapPresence -> SessionSuppressionState",
+    "GhostMapPresence -> VesselSpawner",
+    "GhostPlaybackEngine -> DebrisRelativePlaybackPolicy",
+    "GhostPlaybackEngine -> IGhostPositioner",
+    "GhostPlaybackEngine -> IndexShift",
+    "GhostPlaybackEngine -> ParentAnchoredDebrisCoverageDiagnostic",
+    "GhostPlaybackEngine -> ParsekFlight",
+    "GhostPlaybackEngine -> RelativeSectionPlaybackTarget",
+    "GhostPlaybackEngine -> ZoneRenderingResult",
+    "GhostPlaybackLogic -> LiveClaimedVesselRemovalTarget",
+    "GhostVisualBuilder -> VesselSpawner",
+    "LaunchSiteOnlyGhost -> KscRetirementDecision",
+    "LaunchSiteOnlyGhost -> LaunchSiteCircle",
+    "LaunchSiteOnlyGhost -> LaunchSiteExclusionZones",
+    "LaunchSiteOnlyGhost -> LaunchSiteZoneHit",
+    "LaunchSiteOnlyGhost -> VesselSpawner",
+    "RecordedRelativeAnchorPoseResolver -> ParsekFlight",
+    "RecordedRelativeAnchorPoseResolver -> ParsekScenario",
+    "SpawnCollisionDetector -> CoexistingTreeSiblingSpawn",
+    "SpawnCollisionDetector -> LaunchSiteCircle",
+    "SpawnCollisionDetector -> LaunchSiteExclusionZones",
+    "SpawnCollisionDetector -> LaunchSiteZoneHit",
+    "SpawnCollisionDetector -> VesselSpawner",
+    "VesselGhoster -> ClaimedVesselRemoval",
+    "VesselGhoster -> IClaimedVesselRemovalTarget",
+    "VesselGhoster -> LiveClaimedVesselRemovalTarget",
+    "VesselGhoster -> TerminalOrbitDeferredSpawnState",
+    "VesselGhoster -> TerminalOrbitSpawnSafety",
+    "VesselGhoster -> TerminalOrbitSpawnSafetyDecision",
+    "VesselGhoster -> VesselSpawner",
+]
+
+[[backward]]
+edge = "Recording -> Controllers"
+layers = "model -> entry"
+count = 40
+pairs = [
+    "BackgroundRecorder -> ParsekFlight",
+    "BackgroundRecorder -> ParsekFlightPlaybackHost",
+    "BackgroundRecorder -> ParsekScenario",
+    "BackgroundRecorder -> PostPhysicsPoseCache",
+    "BackgroundRecorder -> VesselSpawner",
+    "ChainTipStaleVessel -> ClaimedVesselRemoval",
+    "ChainTipStaleVessel -> KscRetirementDecision",
+    "ChainTipStaleVessel -> LiveClaimedVesselRemovalTarget",
+    "ChainTipStaleVessel -> ParsekFlight",
+    "ChainTipStaleVessel -> TerminalOrbitSpawnSafety",
+    "ChainTipStaleVessel -> VesselSpawner",
+    "CommittedListOptimizer -> InFlightRecoveryRequest",
+    "CommittedListOptimizer -> ParsekScenario",
+    "CommittedTreeRestoreAttempt -> ParsekFlight",
+    "CommittedTreeRestoreAttempt -> ParsekScenario",
+    "FlightRecorder -> LaunchSiteExclusionZones",
+    "FlightRecorder -> LoadKind",
+    "FlightRecorder -> ParsekFlight",
+    "FlightRecorder -> ParsekFlightPlaybackHost",
+    "FlightRecorder -> ParsekScenario",
+    "FlightRecorder -> PhysicsSampleSource",
+    "FlightRecorder -> PostPhysicsPose",
+    "FlightRecorder -> PostPhysicsPoseCache",
+    "FlightRecorder -> QuickloadTrimScope",
+    "FlightRecorder -> QuicksaveTreeFacts",
+    "FlightRecorder -> TimeJumpPlacement",
+    "FlightRecorder -> VesselSpawner",
+    "IdentityLossClassifier -> ParsekFlight",
+    "ParsekFileCollector -> EarlyLoadKind",
+    "ParsekFileCollector -> ParsekFlight",
+    "ParsekFileCollector -> ParsekScenario",
+    "RecordingOptimizer -> ParsekScenario",
+    "RecordingSidecarStore -> ParsekFlight",
+    "RecordingStore -> InSessionStagedStateHandoff",
+    "RecordingStore -> ParsekFlight",
+    "RecordingTreeRecordCodec -> TerminalOrbitSpawnSafety",
+    "SegmentBoundaryLogic -> ParsekFlight",
+    "TreeCommitService -> ParsekScenario",
+    "TreeDiscardPurge -> ParsekScenario",
+    "TreeDiscardService -> ParsekScenario",
+]
+
+[[backward]]
+edge = "Recording -> Rewind"
+layers = "model -> features"
+count = 38
+pairs = [
+    "BackgroundRecorder -> ChildSlot",
+    "BackgroundRecorder -> ReFlyAnchorSelection",
+    "BackgroundRecorder -> ReFlySessionMarker",
+    "BackgroundRecorder -> RewindPointAuthor",
+    "BackgroundRecorder -> RewindPointAuthorContext",
+    "CommittedListOptimizer -> ReFlySessionMarker",
+    "CommittedListOptimizer -> SplitParentLinks",
+    "FlightRecorder -> ReFlyAnchorSelection",
+    "FlightRecorder -> ReFlySessionMarker",
+    "FlightRecorder -> ReFlySettleStabilityTracker",
+    "ParsekFileCollector -> InertRecordingTrees",
+    "ParsekFileCollector -> RewindContext",
+    "ParsekFileCollector -> RewindPoint",
+    "Recording -> MergeState",
+    "RecordingOptimizer -> EffectiveState",
+    "RecordingOptimizer -> MergeState",
+    "RecordingStore -> DiscardReFlyLoadIntent",
+    "RecordingStore -> EffectiveState",
+    "RecordingStore -> InertRecordingTrees",
+    "RecordingStore -> MergeState",
+    "RecordingStore -> RewindCarry",
+    "RecordingStore -> RewindContext",
+    "RecordingStore -> RewindLauncher",
+    "RecordingTreeRecordCodec -> MergeState",
+    "RelativeAnchorResolver -> ReFlySessionMarker",
+    "RelativeAnchorResolverContext -> ReFlySessionMarker",
+    "TreeCommitService -> ChildSlot",
+    "TreeCommitService -> EffectiveState",
+    "TreeCommitService -> ReFlySessionMarker",
+    "TreeCommitService -> RewindPoint",
+    "TreeCommitService -> SupersedeCommit",
+    "TreeCommitService -> UnfinishedFlightClassifier",
+    "TreeDiscardPurge -> ChildSlot",
+    "TreeDiscardPurge -> MergeJournal",
+    "TreeDiscardPurge -> ReFlyRevertButtonGate",
+    "TreeDiscardPurge -> ReFlySessionMarker",
+    "TreeDiscardPurge -> RewindPoint",
+    "TreeDiscardPurge -> SupersedeCommit",
+]
+
+[[backward]]
+edge = "UI -> Controllers"
+layers = "presentation -> entry"
+count = 26
+pairs = [
+    "DockEventGraphCache -> ParsekScenario",
+    "ISpawnControlWindow -> ParsekFlight",
+    "MissionsWindowUI -> ParsekFlight",
+    "MissionsWindowUI -> ParsekFlightSpawnHost",
+    "MissionsWindowUI -> TimeJumpManager",
+    "MissionsWindowUI -> WatchModeController",
+    "NearbySpawnCandidate -> MoveRefusal",
+    "ParsekUI -> ParsekFlight",
+    "ParsekWindowSet -> ParsekFlight",
+    "RecordingsTableUI -> ParsekFlight",
+    "RecordingsTableUI -> ParsekFlightSpawnHost",
+    "RecordingsTableUI -> ParsekScenario",
+    "RecordingsTableUI -> TimeJumpManager",
+    "RecordingsTableUI -> WatchModeController",
+    "SpawnControlPresentation -> MoveRefusal",
+    "SpawnControlUI -> ParsekFlight",
+    "SpawnControlUI -> ParsekFlightSpawnHost",
+    "StockUiFlightCrewDecoration -> ParsekScenario",
+    "TimelineWindowUI -> ParsekFlight",
+    "TimelineWindowUI -> RewindTarget",
+    "TimelineWindowUI -> WarpFieldKind",
+    "TimelineWindowUI -> WarpPlan",
+    "TimelineWindowUI -> WarpToTimeController",
+    "TimelineWindowUI -> WarpToTimeMath",
+    "TimelineWindowUI -> WarpToTimeRequest",
+    "TimelineWindowUI -> WatchModeController",
+]
+
+[[backward]]
+edge = "Recording -> Ghost"
+layers = "model -> features"
+count = 21
+pairs = [
+    "BackgroundRecorder -> GhostMapPresence",
+    "ChainTipRouteCargo -> ChainLink",
+    "ChainTipRouteCargo -> GhostChain",
+    "ChainTipRouteCargo -> GhostChainWalker",
+    "ChainTipRouteCargo -> GhostPlaybackLogic",
+    "ChainTipStaleVessel -> ChainClaimedVessel",
+    "ChainTipStaleVessel -> ChainLink",
+    "ChainTipStaleVessel -> GhostChain",
+    "ChainTipStaleVessel -> GhostChainWalker",
+    "ChainTipStaleVessel -> GhostMapPresence",
+    "ChainTipStaleVessel -> GhostPlaybackLogic",
+    "ChainTipStaleVessel -> PlaybackScopeTracker",
+    "DebrisRelativeRecorderPolicy -> DebrisRelativeCoveragePrimitives",
+    "FlightRecorder -> GhostFairingStructureStamp",
+    "FlightRecorder -> GhostMapPresence",
+    "RecordingEndpointResolver -> GhostExtender",
+    "RecordingOptimizer -> GhostPlaybackLogic",
+    "RecordingOptimizer -> GhostingTriggerClassifier",
+    "RecordingSidecarStore -> GhostPlaybackEngine",
+    "RecordingStore -> LaunchSiteOnlyGhost",
+    "RecordingVisualClassifier -> GhostPlaybackLogic",
+]
+
+[[backward]]
+edge = "GameActions -> Rewind"
+layers = "model -> features"
+count = 19
+pairs = [
+    "ClickReservationGate -> EffectiveState",
+    "CommittedFutureIndexCache -> EffectiveState",
+    "CommittedMilestoneClockCursor -> EffectiveState",
+    "CommittedMilestoneReach -> EffectiveState",
+    "CommittedMilestoneReach -> ReFlySessionMarker",
+    "FacilityStatePatcher -> EffectiveState",
+    "GameStateRecorder -> ReFlyAwardTagging",
+    "GameStateRecorder -> RewindContext",
+    "KspStatePatcher -> EconomySnapshot",
+    "KspStatePatcher -> EffectiveState",
+    "KspStatePatcher -> RewindReadbackGuard",
+    "Ledger -> RecordingTreeSplitter",
+    "LedgerOrchestrator -> EffectiveState",
+    "LedgerOrchestrator -> ReFlyProvisionalRetirement",
+    "LedgerOrchestrator -> ReFlySessionMarker",
+    "LedgerOrchestrator -> RewindContext",
+    "LedgerOrchestrator -> RewindPoint",
+    "RecoveryDispatchScope -> RewindContext",
+    "StrategyStatePatcher -> EffectiveState",
+]
+
+[[backward]]
+edge = "Missions -> UI"
+layers = "features -> presentation"
+count = 15
+pairs = [
+    "MissionControlStockAnnotation -> ReservationExplanation",
+    "MissionControlStockAnnotation -> ReservationText",
+    "MissionControlStockAnnotation -> StockUiDecoration",
+    "MissionControlStockAnnotation -> StockUiDecorationKind",
+    "MissionControlStockAnnotation -> StockUiDecorationQuery",
+    "MissionControlStockAnnotation -> StockUiItem",
+    "MissionControlStockAnnotation -> StockUiReserveButtons",
+    "MissionControlStockAnnotation -> StockUiText",
+    "MissionControlStockUi -> ReservationExplanation",
+    "MissionControlStockUi -> StockUiDecoration",
+    "MissionControlStockUi -> StockUiDecorationKind",
+    "MissionControlStockUi -> StockUiDecorationQuery",
+    "MissionControlStockUi -> StockUiGreyedButton",
+    "MissionControlStockUi -> StockUiReasonTooltip",
+    "MissionEventDigest -> ParsekTimeFormat",
+]
+
+[[backward]]
+edge = "GameActions -> Controllers"
+layers = "model -> entry"
+count = 14
+pairs = [
+    "CareerLedgerClockCursor -> ParsekKSC",
+    "CommittedMilestoneClockCursor -> ParsekScenario",
+    "CommittedMilestoneReach -> ParsekScenario",
+    "FacilityStatePatcher -> ParsekScenario",
+    "GameStateRecorder -> ParsekFlight",
+    "KspStatePatcher -> ParsekScenario",
+    "KspStatePatcher -> WarpToTimeConsumer",
+    "LedgerOrchestrator -> InFlightRecoveryRequest",
+    "LedgerOrchestrator -> ParsekFlight",
+    "LedgerOrchestrator -> ParsekScenario",
+    "LedgerOrchestrator -> WarpToTimeConsumer",
+    "LiveOnlyIncome -> LoadKind",
+    "RecoveryDispatchScope -> ParsekScenario",
+    "StockShadowTakeBack -> LoadKind",
+]
+
+[[backward]]
+edge = "GameActions -> UI"
+layers = "model -> presentation"
+count = 12
+pairs = [
+    "ClickReservationGate -> CommittedActionDialog",
+    "ClickReservationGate -> ReservationExplanation",
+    "ClickReservationGate -> ReservationText",
+    "ClickReservationGate -> StockUiDecoration",
+    "ClickReservationGate -> StockUiReservationPredicates",
+    "ContractSlotReservation -> ReservationExplanation",
+    "ContractSlotReservation -> ReservationText",
+    "ContractSlotReservation -> StockUiReservationPredicates",
+    "GameActionDisplay -> FacilityDisplayNames",
+    "StrategyReservationPredicates -> ReservationExplanation",
+    "StrategyReservationPredicates -> ReservationText",
+    "StrategyReservationPredicates -> StockUiText",
+]
+
+[[backward]]
+edge = "UI -> Patches"
+layers = "presentation -> entry"
+count = 12
+pairs = [
+    "CurrencyReservationOverlay -> ParsekGameModeGate",
+    "StockUiAstronautDecoration -> KerbalDismissalPatch",
+    "StockUiCrewDialogDecoration -> KerbalDismissalPatch",
+    "StockUiDecorationQuery -> StandInSeatCount",
+    "StockUiFacilityDecoration -> FacilityMenuUpgradeBlockPatch",
+    "StockUiFacilityDecoration -> FacilityRepairCapturePatchHelpers",
+    "StockUiLiveSnapshot -> KerbalHirePatch",
+    "StockUiOverlayController -> KerbalDismissalPatch",
+    "StockUiOverlayController -> ParsekGameModeGate",
+    "StockUiOverlayController -> StandInSeatCount",
+    "StockUiRnDDecoration -> TechResearchPatch",
+    "TimelineWindowUI -> StrategyReservationGate",
+]
+
+[[backward]]
+edge = "Core -> Recording"
+layers = "floor -> model"
+count = 10
+pairs = [
+    "GroupHierarchyStore -> Recording",
+    "GroupHierarchyStore -> RecordingFileJanitor",
+    "IPlaybackTrajectory -> FlagEvent",
+    "IPlaybackTrajectory -> LoopTimeUnit",
+    "IPlaybackTrajectory -> PartEvent",
+    "IPlaybackTrajectory -> SurfacePosition",
+    "MilestoneStore -> RecordingPaths",
+    "MilestoneStore -> SaveFormat",
+    "MilestoneStore -> SaveFormatClass",
+    "VesselLaunchIdentity -> Recording",
+]
+
+[[backward]]
+edge = "Logistics -> UI"
+layers = "features -> presentation"
+count = 7
+pairs = [
+    "LogisticsIntervalPresentation -> RouteWindowBasisPresentation",
+    "RouteCadence -> ParsekTimeFormat",
+    "RouteCreationFormatters -> ParsekTimeFormat",
+    "RouteCreationFormatters -> RouteCreationDialog",
+    "RouteSendOncePresentation -> LogisticsDormantPresentation",
+    "RouteSendOncePresentation -> LogisticsHoldPresentation",
+    "RouteStore -> StockFontText",
+]
+
+[[backward]]
+edge = "Rewind -> UI"
+layers = "features -> presentation"
+count = 7
+pairs = [
+    "LoadTimeSweep -> RecordingsTableUI",
+    "MergeDialog -> ParsekTimeFormat",
+    "MergeDialog -> RecordingsTableUI",
+    "RewindContext -> BudgetSummary",
+    "RewindLauncher -> BudgetSummary",
+    "RewindPointAuthor -> RecordingsTableUI",
+    "RewindPointReaper -> RecordingsTableUI",
+]
+
+[[backward]]
+edge = "Core -> Rewind"
+layers = "floor -> features"
+count = 6
+pairs = [
+    "GroupHierarchyStore -> EffectiveState",
+    "GroupHierarchyStore -> InertRecordingTrees",
+    "GroupHierarchyStore -> MarkerValidationResult",
+    "GroupHierarchyStore -> MarkerValidator",
+    "GroupHierarchyStore -> ReFlySessionMarker",
+    "GroupHierarchyStore -> TimelineInactiveReason",
+]
+
+[[backward]]
+edge = "GameActions -> Patches"
+layers = "model -> entry"
+count = 6
+pairs = [
+    "GameStateRecorder -> ContractOfferExpiredCapturePatch",
+    "GameStateRecorder -> ContractParameterRewardCapturePatch",
+    "GameStateRecorder -> ContractParameterRewardPaid",
+    "GameStateRecorder -> FreeTechUnlock",
+    "GameStateRecorder -> FreeTechUnlockCapturePatch",
+    "KspStatePatcher -> ResourceScanBodies",
+]
+
+[[backward]]
+edge = "Logistics -> Controllers"
+layers = "features -> entry"
+count = 6
+pairs = [
+    "LiveDeliveryWriters -> ParsekInventoryWrites",
+    "LiveInventoryPickupWriter -> ParsekInventoryWrites",
+    "RouteEndpointChainHold -> ParsekFlight",
+    "RouteLoadReconcile -> LoadKind",
+    "RouteRunPrompt -> ParsekFlight",
+    "RouteRunPrompt -> ParsekScenario",
+]
+
+[[backward]]
+edge = "Config -> UI"
+layers = "floor -> presentation"
+count = 4
+pairs = [
+    "ParsekSettings -> UiComplexityMode",
+    "ParsekSettings -> UiSurfaceVisibility",
+    "ParsekSettingsPersistence -> UiComplexityMode",
+    "ParsekSettingsPersistence -> UiSurfaceVisibility",
+]
+
+[[backward]]
+edge = "Core -> GameActions"
+layers = "floor -> model"
+count = 4
+pairs = [
+    "MilestoneStore -> GameStateEvent",
+    "MilestoneStore -> GameStateEventType",
+    "MilestoneStore -> GameStateStore",
+    "MilestoneStore -> Milestone",
+]
+
+[[backward]]
+edge = "GameActions -> Missions"
+layers = "model -> features"
+count = 4
+pairs = [
+    "ClickReservationGate -> ContractReserveInput",
+    "CommittedFutureIndexCache -> DisplayNames",
+    "CommittedFutureIndexCache -> Mission",
+    "CommittedFutureIndexCache -> MissionStore",
+]
+
+[[backward]]
+edge = "Missions -> Controllers"
+layers = "features -> entry"
+count = 4
+pairs = [
+    "VesselNameLiveSync -> ParsekFlight",
+    "VesselNameLiveSync -> ParsekScenario",
+    "VesselNameStore -> ParsekFlight",
+    "VesselNameStore -> ParsekScenario",
+]
+
+[[backward]]
+edge = "Recording -> Missions"
+layers = "model -> features"
+count = 4
+pairs = [
+    "CommittedListOptimizer -> VesselNameStore",
+    "RecordingStore -> MissionStore",
+    "RecordingStore -> VesselNameStore",
+    "TreeCommitService -> VesselNameStore",
+]
+
+[[backward]]
+edge = "Recording -> Rendering"
+layers = "model -> features"
+count = 4
+pairs = [
+    "OrbitSegmentCheckpointBridge -> RenderSessionState",
+    "OrbitSegmentCheckpointBridge -> SectionAnnotationStore",
+    "RecordingSidecarStore -> SectionAnnotationStore",
+    "RecordingSidecarStore -> SmoothingPipeline",
+]
+
+[[backward]]
+edge = "Crew -> Controllers"
+layers = "model -> entry"
+count = 3
+pairs = [
+    "CrewReservationManager -> ParsekScenario",
+    "KerbalsModule -> ParsekScenario",
+    "KerbalsModule -> VesselSpawner",
+]
+
+[[backward]]
+edge = "Rendering -> Controllers"
+layers = "features -> entry"
+count = 3
+pairs = [
+    "AnchorPropagator -> SessionSuppressionState",
+    "ProductionAnchorWorldFrameResolver -> ParsekFlight",
+    "ProductionAnchorWorldFrameResolver -> ParsekScenario",
+]
+
+[[backward]]
+edge = "Core -> Logistics"
+layers = "floor -> features"
+count = 2
+pairs = [
+    "VesselSnapshotOps -> InventoryPayloadItem",
+    "VesselSnapshotOps -> ResourceAmount",
+]
+
+[[backward]]
+edge = "Crew -> Ghost"
+layers = "model -> features"
+count = 2
+pairs = [
+    "CrewReservationManager -> GhostMapPresence",
+    "KerbalRosterFacade -> GhostMapPresence",
+]
+
+[[backward]]
+edge = "Crew -> Rewind"
+layers = "model -> features"
+count = 2
+pairs = [
+    "CrewReservationManager -> EffectiveState",
+    "CrewReservationManager -> ReFlySessionMarker",
+]
+
+[[backward]]
+edge = "Display -> Controllers"
+layers = "features -> entry"
+count = 2
+pairs = [
+    "Driver -> ParsekFlight",
+    "Driver -> ParsekTrackingStation",
+]
+
+[[backward]]
+edge = "GameActions -> Ghost"
+layers = "model -> features"
+count = 2
+pairs = [
+    "GameStateRecorder -> GhostMapPresence",
+    "RecoveryDispatchScope -> GhostMapPresence",
+]
+
+[[backward]]
+edge = "GameActions -> Logistics"
+layers = "model -> features"
+count = 2
+pairs = [
+    "Ledger -> RetiredRouteCargoStore",
+    "Ledger -> RouteEventLog",
+]
+
+[[backward]]
+edge = "MapRender -> Controllers"
+layers = "features -> entry"
+count = 2
+pairs = [
+    "MapRenderTrace -> TimeJumpManager",
+    "MapViewScene -> ParsekPlaybackPolicy",
+]
+
+[[backward]]
+edge = "Recording -> SwitchIntent"
+layers = "model -> features"
+count = 2
+pairs = [
+    "CommittedTreeRestoreAttempt -> SwitchSegmentAttempts",
+    "CommittedTreeRestoreAttempt -> SwitchSegmentSession",
+]
+
+[[backward]]
+edge = "Rewind -> Patches"
+layers = "features -> entry"
+count = 2
+pairs = [
+    "HighLogic_LoadScene_Patch -> ParsekGameModeGate",
+    "RevertInterceptor -> ParsekGameModeGate",
+]
+
+[[backward]]
+edge = "SwitchIntent -> Controllers"
+layers = "features -> entry"
+count = 2
+pairs = [
+    "SwitchSegmentAttempts -> ParsekFlight",
+    "SwitchSegmentAttempts -> ParsekScenario",
+]
+
+[[backward]]
+edge = "Trajectory -> Rendering"
+layers = "floor -> features"
+count = 2
+pairs = [
+    "CatmullRomFit -> OutlierFlags",
+    "CatmullRomFit -> SmoothingSpline",
+]
+
+[[backward]]
+edge = "Config -> Missions"
+layers = "floor -> features"
+count = 1
+pairs = [
+    "ParsekSettings -> TransitedBodyRotationMode",
+]
+
+[[backward]]
+edge = "Config -> Recording"
+layers = "floor -> model"
+count = 1
+pairs = [
+    "ParsekSettings -> LoopTimeUnit",
+]
+
+[[backward]]
+edge = "Core -> Controllers"
+layers = "floor -> entry"
+count = 1
+pairs = [
+    "GroupHierarchyStore -> ParsekScenario",
+]
+
+[[backward]]
+edge = "Core -> UI"
+layers = "floor -> presentation"
+count = 1
+pairs = [
+    "GroupHierarchyStore -> UnfinishedFlightsGroup",
+]
+
+[[backward]]
+edge = "Crew -> Missions"
+layers = "model -> features"
+count = 1
+pairs = [
+    "KerbalsModule -> VesselNameStore",
+]
+
+[[backward]]
+edge = "Crew -> UI"
+layers = "model -> presentation"
+count = 1
+pairs = [
+    "KerbalsModule -> StockUiReservationPredicates",
+]
+
+[[backward]]
+edge = "Display -> Patches"
+layers = "features -> entry"
+count = 1
+pairs = [
+    "Driver -> ParsekGameModeGate",
+]
+
+[[backward]]
+edge = "LogIO -> GameActions"
+layers = "floor -> model"
+count = 1
+pairs = [
+    "SuppressionGuard -> GameStateRecorder",
+]
+
+[[backward]]
+edge = "LogIO -> Recording"
+layers = "floor -> model"
+count = 1
+pairs = [
+    "PreParsekBackup -> RecordingPaths",
+]
+
+[[backward]]
+edge = "LogIO -> UI"
+layers = "floor -> presentation"
+count = 1
+pairs = [
+    "ParsekLog -> StockFontText",
+]
+
+[[backward]]
+edge = "Missions -> Patches"
+layers = "features -> entry"
+count = 1
+pairs = [
+    "MissionControlStockUi -> ContractConfiguratorCompat",
+]
+
+[[backward]]
+edge = "Recording -> MapRender"
+layers = "model -> features"
+count = 1
+pairs = [
+    "FlightRecorder -> MapRenderProbe",
+]
+
+[[backward]]
+edge = "Recording -> Patches"
+layers = "model -> entry"
+count = 1
+pairs = [
+    "FlightRecorder -> PhysicsFramePatch",
+]
+
+[[backward]]
+edge = "Recording -> UI"
+layers = "model -> presentation"
+count = 1
+pairs = [
+    "TreeDiscardPurge -> RecordingsTableUI",
+]
+
+[[backward]]
+edge = "Trajectory -> Patches"
+layers = "floor -> entry"
+count = 1
+pairs = [
+    "OrbitArcSampler -> ArcAnomalyMath",
+]

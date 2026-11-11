@@ -477,11 +477,47 @@ prefix = "^BranchPoint[.]cs$|^IPlaybackTrajectory[.]cs$|^VesselLaunchIdentity[.]
 [tooling]
 modules = ["InGameTests", "TestCommands", "Diagnostics", "Analyzer", "GuiTree", "Harness"]
 
+# --- declared layers -------------------------------------------------------
+# The intended dependency order, lowest first: a module may depend on modules in
+# its own layer (lateral: reported, not ratcheted) and in lower layers. An edge
+# into a HIGHER layer is backward, and CI ratchets each backward module pair by
+# its count of distinct (from type, to type) pairs on the compiled-IL graph
+# (scripts/arch/layers.py, pins in scripts/arch/layer_pins.toml). Every
+# production module must sit in exactly one layer and no tooling module in any,
+# or the arch suite reds (test_semantic_layers.py). The assignment follows the
+# module descriptions (atlas.toml, the README's map reading) and was chosen
+# among honest placements for the fewest backward type pairs on 2026-11-11:
+#   floor        the kernel vocabulary every module leans on: logging and file
+#                I/O, settings, the Core kernel files, the trajectory math and
+#                data vocabulary
+#   model        the persistent model: recordings and their store, the ledger,
+#                the kerbal and crew state the ledger books (KerbalsModule)
+#   features     what the mod does with the model: playback, rewind and re-fly,
+#                missions, routes, map rendering, re-aim, switch continuation
+#   presentation the windows and the timeline rows they show
+#   entry        what KSP calls: the scene controllers (the composition roots
+#                that build the windows) and the Harmony patches
+# Moving a module to another layer re-pins the ratchet (it reds otherwise when
+# it creates a backward pair); say why in the PR.
+
+[layers]
+order = ["floor", "model", "features", "presentation", "entry"]
+
+[layers.modules]
+floor = ["LogIO", "Config", "Core", "Trajectory"]
+model = ["Recording", "GameActions", "Crew"]
+features = ["Ghost", "Rewind", "Missions", "Logistics", "MapRender", "SwitchIntent", "Reaim", "Rendering", "Display"]
+presentation = ["UI", "Timeline"]
+entry = ["Controllers", "Patches"]
+
 # --- dependency policy -----------------------------------------------------
 # Both lists use the edge form "From -> To", meaning "code in From references
 # types declared in To".
 #
-# forbidden: edges that must never exist. Report-only today.
+# forbidden: edges that must never exist. The arch suite reds when one is
+#            crossed: the DLL-free suite on the text scan's module edges
+#            (test_archview), CI's compiled-IL step on the semantic graph
+#            (test_semantic_layers). A spec naming no module reds too.
 # allowed:   while this list is EMPTY the checker skips the allowlist section
 #            entirely. Once any edge is listed, every production edge not
 #            listed here is reported.

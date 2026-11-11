@@ -2364,7 +2364,8 @@ compare).
   couplings; not sound enough to fail a build.
 - The three declared boundaries in `modules.toml` `[forbidden]` are report-only, and the
   placement contract (no unplaced root file, every module has a summary) runs only when someone
-  runs the script. Nothing in CI or the xUnit suite executes it.
+  runs the script. Nothing in CI or the xUnit suite executes it. (Superseded: CI runs the arch
+  suite since 2026-11-01, and the two `[forbidden]` edges left gate since 2026-11-11, below.)
 - Namespaces do not match the module map: 370 of 749 files sit in the flat `namespace Parsek`,
   so no off-the-shelf tool (ArchUnitNET, NsDepCop, NDepend) can express the boundaries either.
 - 2026-11-01 (refactor branch): the scan now skips member names. A field, property, method or
@@ -2455,6 +2456,24 @@ compare).
   over the parse it already holds (`test_metrics.RealTreeRowTests`). A row can be missing when
   merges land back to back (a queued run is cancelled). Gates nothing (README "Metrics
   history"). Next: an Atlas section that draws the trends.
+- 2026-11-11 (declared layers): `modules.toml` `[layers]` declares the intended order, lowest
+  first: floor (LogIO, Config, Core, Trajectory), model (Recording, GameActions, Crew), features
+  (Ghost, Rewind, Missions, Logistics, MapRender, SwitchIntent, Reaim, Rendering, Display),
+  presentation (UI, Timeline), entry (Controllers, Patches). An edge into a higher layer is
+  backward, one inside a layer lateral (reported only); the direction no longer moves with
+  measured instability (`GameActions -> Crew` flipped that way). `scripts/arch/layers.py`
+  measures each module pair as distinct (from type, to type) pairs on the compiled-IL semantic
+  graph, and `test_semantic_layers.py` (CI's compiled-IL step, +0.7 s) ratchets every backward
+  pair against `scripts/arch/layer_pins.toml` (`layers.py <Debug dll> --write-pins`): a count
+  may not rise, an unpinned backward pair reds, the message names the new type pairs; slack
+  after a fall waits for a re-pin. At the pin: 52 backward module pairs, 440 type pairs (Rewind
+  -> Controllers 49, Recording -> Logistics 45, Ghost -> Controllers 40, Recording ->
+  Controllers 40, Recording -> Rewind 38), 54 lateral; a Release build reads the same 52 / 440.
+  A module without a layer reds the DLL-free suite. The `[forbidden]` edges now gate: the
+  DLL-free suite on the text module edges, the compiled-IL step on the semantic graph (both at
+  none; a spec naming no module reds too). `archview.py --check` and the Atlas show the
+  declared view of the text scan beside the instability list, and the metrics row gains
+  `text.layers` / `semantic.layers`.
 
 **Fix.**
 1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same
@@ -2466,7 +2485,8 @@ compare).
    cells include the new `test_every_production_file_is_placed` (placement contract), the
    atlas-summary cells and the knot canaries; `.claude/CLAUDE.md`'s CI paragraph names it.
 3. Then the mechanical namespace rename to match `modules.toml`, and arm the three forbidden
-   edges as failing tests.
+   edges as failing tests. **Forbidden half DONE 2026-11-11:** the two declared edges red the
+   arch suite (text scan) and the compiled-IL step (semantic graph); the rename stays open.
 
 ## REGISTRY-GROWTH-DECISIONS-2026-09-11: two registry values the 2026-09-10 wave measured but was not allowed to register, D4 `persistence-graze-suppression` and D9 `rewind-to-launch-repeat` [FILED 2026-09-11 off the wave-0910 decision memo (`docs/dev/research/wave-0910-open-decisions-2026-09-11.md` sections 1 and 2). An OPERATOR DECISION, not a defect. RULED YES and APPLIED 2026-09-15 (register B1 / B2); only D9's LIVE control stays owed]
 

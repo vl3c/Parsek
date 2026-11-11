@@ -44,9 +44,9 @@ def fixture_model():
         ],
         "unclassified": [],
         "types": [
-            {"name": "Alpha", "referencesTo": ["Beta"]},
-            {"name": "Beta", "referencesTo": ["Alpha"]},
-            {"name": "Gamma", "referencesTo": ["Alpha"]},
+            {"name": "Alpha", "module": "Core", "referencesTo": ["Beta"]},
+            {"name": "Beta", "module": "UI", "referencesTo": ["Alpha"]},
+            {"name": "Gamma", "module": "Core", "referencesTo": ["Alpha"]},
         ],
         "knots": [
             {"size": 2, "members": ["Alpha", "Beta"],
@@ -65,6 +65,7 @@ def fixture_semantic():
         "text": {"Alpha": ["Beta"], "Beta": ["Alpha"], "Gamma": ["Alpha"]},
         "raw": {"Alpha": ["Beta"], "Beta": ["Alpha", "Gamma"], "Gamma": []},
         "semantic": {"Alpha": ["Beta"], "Beta": ["Alpha"], "Gamma": []},
+        "typeModules": {"Alpha": "Core", "Beta": "UI", "Gamma": "Core"},
         "textMeasure": {"knot": 2, "greedy": 1, "replayed": 2, "residue": ["Alpha", "Beta"]},
         "semanticMeasure": {"knot": 2, "greedy": 1, "replayed": 1, "residue": []},
         "rawMeasure": {"knot": 3, "greedy": 2, "replayed": 3, "residue": ["Alpha", "Beta", "Gamma"]},
@@ -111,11 +112,15 @@ def fixture_counts():
     }
 
 
+# Core below UI: Alpha -> Beta runs backward, Beta -> Alpha down.
+FIXTURE_LAYERS = {"order": ["low", "high"], "modules": {"low": ["Core"], "high": ["UI"]}}
+
+
 def full_row(with_tests=True):
     return metrics.build_row(
         SHA, "2026-11-11T19:42:00+02:00",
-        metrics.text_section(fixture_model(), ["UI -> Core", "Core -> Missing", "not a spec"]),
-        metrics.semantic_section(fixture_semantic()),
+        metrics.text_section(fixture_model(), ["UI -> Core", "Core -> Missing", "not a spec"], FIXTURE_LAYERS),
+        metrics.semantic_section(fixture_semantic(), FIXTURE_LAYERS),
         metrics.facts_section(fixture_report(with_tests)),
         metrics.sizes_section(fixture_counts()),
         tests_dll=with_tests,
@@ -145,6 +150,18 @@ class RowBuilderTests(unittest.TestCase):
         self.assertEqual(text["firstCut"], {"sink": "Beta", "sizeBefore": 2, "sizeAfter": 1})
         self.assertEqual(text["productionTypes"], 3)
         self.assertEqual(text["unclassifiedFiles"], 0)
+        self.assertEqual(text["layers"], {"backwardModulePairs": 1, "backwardTypePairs": 1,
+                                          "lateralModulePairs": 0, "lateralTypePairs": 0})
+
+    def test_the_layer_keys_are_null_without_a_declaration(self):
+        self.assertIsNone(metrics.text_section(fixture_model())["layers"])
+        self.assertIsNone(metrics.semantic_section(fixture_semantic())["layers"])
+        model = fixture_model()
+        model["types"].append({"name": "Delta", "module": "UI", "referencesTo": ["Alpha", "Gamma", "Beta"]})
+        lateral = {"order": ["one"], "modules": {"one": ["Core", "UI"]}}
+        self.assertEqual(metrics.text_section(model, (), lateral)["layers"],
+                         {"backwardModulePairs": 0, "backwardTypePairs": 0,
+                          "lateralModulePairs": 2, "lateralTypePairs": 4})
 
     def test_text_section_without_a_knot(self):
         model = fixture_model()
@@ -163,6 +180,8 @@ class RowBuilderTests(unittest.TestCase):
         self.assertEqual(sem["edges"], {"text": 3, "raw": 3, "semantic": 2, "textOnly": 1, "ilOnly": 1})
         self.assertEqual(sem["forwarders"], {"callSites": 1, "edgesRemoved": 1, "edgesAdded": 0})
         self.assertEqual(sem["residueMembership"], {"both": 0, "textOnly": 2, "semanticOnly": 0})
+        self.assertEqual(sem["layers"], {"backwardModulePairs": 1, "backwardTypePairs": 1,
+                                         "lateralModulePairs": 0, "lateralTypePairs": 0})
 
     def test_facts_section(self):
         facts = full_row()["facts"]
@@ -652,9 +671,12 @@ class RealTreeRowTests(unittest.TestCase):
         model, result = test_semantic.real_tree_semantic(il_path)
         facts, tooling = test_ilfacts.real_tree_facts(il_path)
         _rules, _tooling, forbidden, _allowed = metrics.archview.load_rules(metrics.archview.DEFAULT_MODULES)
+        import layers  # noqa: PLC0415
+
         report = ilanalysis.report(facts, tooling, ilanalysis.load_config())
+        cls.pins = layers.load_pins()
         row = metrics.row_from_tools(SHA, "2026-11-11T17:42:00Z", model, forbidden, result, report,
-                                     metrics.load_count_code().collect())
+                                     metrics.load_count_code().collect(), layer_table=layers.load_layers())
         cls.line = metrics.dumps(row)
         cls.row = json.loads(cls.line)
 
@@ -675,6 +697,11 @@ class RealTreeRowTests(unittest.TestCase):
         self.assertGreater(row["text"]["productionLines"], 0)
         self.assertGreater(row["facts"]["ratchets"]["uncalledInAssembly"], 0)
         self.assertIn("Mod source (C#)", row["sizes"]["areas"])
+        # The semantic layer numbers are what layer_pins.toml ratchets: never above the pins.
+        sem_layers = row["semantic"]["layers"]
+        self.assertLessEqual(sem_layers["backwardModulePairs"], len(self.pins["backward"]))
+        self.assertLessEqual(sem_layers["backwardTypePairs"], sum(e["count"] for e in self.pins["backward"]))
+        self.assertGreater(row["text"]["layers"]["lateralModulePairs"], 0)
 
     def test_the_row_appends(self):
         text, appended = metrics_append.append_text("", self.row)

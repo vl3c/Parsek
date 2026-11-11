@@ -4211,8 +4211,57 @@ def _atlas_sizes(sizes):
     return "\n".join(lines)
 
 
-def render_atlas_html(model, prose, svg_text=None, forbidden=None, history=None, sizes=None, facts=None):
-    """Return the Parsek Atlas page: prose from `prose`, everything else generated."""
+def _atlas_backward_rows(model, layer_table):
+    """The declared-layer table under "Where the layering breaks": every backward
+    module pair of the text type graph with 3 or more type pairs, then a summary row."""
+    if not layer_table:
+        return '<tr><td colspan="4">No <code>[layers]</code> declaration in modules.toml.</td></tr>'
+    layers = _declared_layers()
+    placed = layers.layer_of(layer_table)
+    classified = layers.classify(layers.text_pairs(model), layer_table)
+    backward = classified["backward"]
+    lines = []
+    shown = 0
+    for key in sorted(backward, key=lambda k: (-len(backward[k]), k)):
+        if len(backward[key]) < 3:
+            continue
+        shown += 1
+        frm, to = key
+        lines.append(
+            '<tr><td class="name"><span class="up">%s &rarr; %s</span></td><td>%s &rarr; %s</td>'
+            '<td class="num">%d</td><td>%s</td></tr>'
+            % (html.escape(frm), html.escape(to), html.escape(placed[frm][1]), html.escape(placed[to][1]),
+               len(backward[key]), _type_chips(sorted({target for _source, target in backward[key]})[:3]))
+        )
+    head = layers.summary(classified)
+    lines.append(
+        '<tr><td colspan="4">%d backward module pairs (%d type pairs; %d with fewer than 3 not listed),'
+        " %d lateral pairs inside one layer (%d type pairs). Text scan; the CI ratchet counts the"
+        " same pairs on the compiled IL.</td></tr>"
+        % (head["backwardModulePairs"], head["backwardTypePairs"], len(backward) - shown,
+           head["lateralModulePairs"], head["lateralTypePairs"])
+    )
+    return "\n".join(lines)
+
+
+def _atlas_layer_list(layer_table):
+    order = (layer_table or {}).get("order") or []
+    if not order:
+        return ""
+    members = (layer_table or {}).get("modules") or {}
+    return " ".join(
+        "<strong>%s</strong> (%s)%s" % (html.escape(layer), html.escape(", ".join(members.get(layer, []))),
+                                         "," if index < len(order) - 1 else ".")
+        for index, layer in enumerate(order)
+    )
+
+
+def render_atlas_html(model, prose, svg_text=None, forbidden=None, history=None, sizes=None, facts=None,
+                      layers=None):
+    """Return the Parsek Atlas page: prose from `prose`, everything else generated.
+
+    `layers` is the `[layers]` table of modules.toml (None draws a notice where
+    the declared-layer table would be)."""
     page = prose.get("page", {})
     replacements = {
         "@@EYEBROW@@": _atlas_eyebrow(),
@@ -4232,6 +4281,9 @@ def render_atlas_html(model, prose, svg_text=None, forbidden=None, history=None,
         "@@KNOT_CALLOUT@@": page.get("knot_callout", ""),
         "@@LAYERING_NOTE@@": page.get("layering_note", ""),
         "@@UPWARD@@": _atlas_upward_rows(model, prose, forbidden),
+        "@@BACKWARD_NOTE@@": page.get("backward_note", ""),
+        "@@LAYER_LIST@@": _atlas_layer_list(layers),
+        "@@BACKWARD@@": _atlas_backward_rows(model, layers),
         "@@HISTORY_READING@@": page.get("history_reading", ""),
         "@@HISTORY_BODY@@": _atlas_history(history),
         "@@SIZE_NOTE@@": page.get("size_note", ""),
@@ -4364,8 +4416,13 @@ ul.findings li { margin: 8px 0; max-width: 88ch; }
 <h2>Where the layering breaks</h2>
 <p>@@LAYERING_NOTE@@</p>
 <div class="wide"><table>
-<tr><th>Upward edge</th><th class="num">Refs</th><th>Through</th><th>Reading</th></tr>
+<tr><th>Upward edge (instability)</th><th class="num">Refs</th><th>Through</th><th>Reading</th></tr>
 @@UPWARD@@
+</table></div>
+<p>@@BACKWARD_NOTE@@ Lowest first: @@LAYER_LIST@@</p>
+<div class="wide"><table>
+<tr><th>Backward edge (declared layers)</th><th>Layers</th><th class="num">Type pairs</th><th>Into</th></tr>
+@@BACKWARD@@
 </table></div>
 
 <h2>What changes together</h2>
@@ -5230,7 +5287,39 @@ def print_size_section(sizes):
             )
 
 
-def run_check(model, forbidden, allowed, prose=None, history=None, sizes=None, semantic=None):
+def _declared_layers():
+    """The declared-layer helpers (scripts/arch/layers.py, beside this file)."""
+    here = str(Path(__file__).resolve().parent)
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import layers  # noqa: PLC0415
+
+    return layers
+
+
+def print_layer_section(model, layer_table):
+    """The declared-layer view of the text scan: backward and lateral module pairs."""
+    if not layer_table:
+        print("Backward edges (declared layers): no [layers] declaration in modules.toml.")
+        return
+    layers = _declared_layers()
+    production = {m["name"] for m in model["modules"] if not m["tooling"]}
+    tooling = {m["name"] for m in model["modules"] if m["tooling"]}
+    weights = {(e["from"], e["to"]): e["weight"] for e in model["edges"]}
+    classified = layers.classify(layers.text_pairs(model), layer_table)
+    title = (
+        "Backward edges by DECLARED layer (modules.toml [layers]; text scan, measured in distinct"
+        " type pairs, weight = file references; CI ratchets the same view on the compiled IL,"
+        " scripts/arch/layers.py and layer_pins.toml):"
+    )
+    for line in layers.format_report(classified, layer_table, title, weights):
+        print(line)
+    for problem in layers.layer_problems(layer_table, production, tooling):
+        print("  LAYER %s" % problem)
+
+
+def run_check(model, forbidden, allowed, prose=None, history=None, sizes=None, semantic=None,
+              layers=None):
     """Print the report-only architecture check.
 
     Never raises on a malformed policy spec: a bad "From -> To" string is
@@ -5240,7 +5329,8 @@ def run_check(model, forbidden, allowed, prose=None, history=None, sizes=None, s
     that do not have them); the ATLAS and HISTORY sections report what no
     longer matches the model, and SIZE is the last section before the marker.
     `semantic` is the scripts/arch/semantic.py result for `--il` (None skips
-    the SEMANTIC section).
+    the SEMANTIC section). `layers` is the `[layers]` table of modules.toml
+    (None or empty prints that there is none).
     """
     print()
     hidden = sorted(m["name"] for m in model["modules"] if m["tooling"])
@@ -5258,11 +5348,17 @@ def run_check(model, forbidden, allowed, prose=None, history=None, sizes=None, s
 
     print()
     upward = [e for e in model["edges"] if e["upward"] and not_tooling(model, e)]
-    print("Upward edges (a more stable module depending on a less stable one):")
+    print(
+        "Upward edges by MEASURED instability (a more stable module depending on a less stable"
+        " one; report-only, and an edge flips when instabilities drift):"
+    )
     if not upward:
         print("  none.")
     for edge in sorted(upward, key=lambda e: (-e["weight"], e["from"], e["to"])):
         print("  %s -> %s: weight=%d" % (edge["from"], edge["to"], edge["weight"]))
+
+    print()
+    print_layer_section(model, layers)
 
     print()
     pairs = two_way_couplings(model)
@@ -5425,7 +5521,7 @@ def run_check(model, forbidden, allowed, prose=None, history=None, sizes=None, s
 
     lookup = {(e["from"], e["to"]): e for e in model["edges"]}
     print()
-    print("Forbidden edges (declared boundaries that must not exist):")
+    print("Forbidden edges (declared boundaries that must not exist; the arch suite reds on one):")
     violations = 0
     for spec in forbidden:
         try:
@@ -5532,6 +5628,7 @@ def main(argv=None):
     # nonzero exit, and --check always ends with the ARCH-CHECK line.
     forbidden = []
     allowed = []
+    layer_table = {}
     prose = {}
     history_payload = None
     sizes_payload = None
@@ -5539,6 +5636,7 @@ def main(argv=None):
     size_settings = {"runtimeCoupled": list(DEFAULT_RUNTIME_COUPLED)}
     try:
         rules, tooling, forbidden, allowed = load_rules(args.modules)
+        layer_table = _declared_layers().load_layers(args.modules)
         size_settings = load_size_settings(args.modules)
         model = build_model(args.source, rules, tooling)
     except Exception as exc:
@@ -5628,7 +5726,8 @@ def main(argv=None):
             _write_text(
                 atlas_path,
                 render_atlas_html(
-                    model, prose, svg_text, forbidden, history_payload, sizes_payload, facts_report
+                    model, prose, svg_text, forbidden, history_payload, sizes_payload, facts_report,
+                    layer_table,
                 ),
             )
             print("Wrote %s" % atlas_path)
@@ -5684,6 +5783,7 @@ def main(argv=None):
                     history_payload,
                     sizes_payload,
                     semantic_result,
+                    layer_table,
                 )
             except Exception as exc:
                 print("WARN arch-check: %s" % exc, file=sys.stderr)
