@@ -14,9 +14,14 @@ facts model keyed by member:
 - fields by `Type::name`: static, initonly, literal, compiler-generated, the
   property it backs (`<X>k__BackingField`), event backing, attributes, and
   for static fields the methods that read, write (`stsfld`) and take the
-  address of (`ldsflda`) them, plus `receiverCalls` (`method|member`: an
-  outside-assembly call, or `[]` for an element store, shortly after a read;
-  the evidence for "mutates its contents").
+  address of (`ldsflda`) them, the address-takers that assign `default`
+  through it (`defaultedBy`: `ldsflda` then `initobj`), plus `receiverCalls`
+  (`method|member`: an outside-assembly call, or `[]` for an element store,
+  whose receiver is the static's value or a value read out of it, or a
+  parameter the static is passed to a directly called in-assembly method in;
+  ilgraph's StaticReceiverTracker; the evidence for "mutates its contents")
+  and `directReceiverCalls` (the subset whose receiver is the static's own
+  value; the evidence a clearing call empties it).
 - methods by `Type::Name(param types)`, ``Name``N`` for a generic method, the
   parameter types normalized so a declaration and a call site print the same
   text (`Parsek.Foo::Short(string)`; a conversion operator also carries its
@@ -293,6 +298,56 @@ def _attribute_generated(methods, generated, refs_in, type_refs, by_source_name)
     return result
 
 
+def _passed_static_mutations(methods, resolved):
+    """({id(method body): {(field key, member)}}, the same for direct receivers):
+    a static the method passes to an in-assembly call whose parameter the callee
+    (or a callee it passes the parameter on to, to a fixpoint) is the receiver
+    of an outside call through. Direct only when every hop passed the value
+    itself, not one read out of it, and the last callee called on the
+    parameter's own value. Only a directly resolved callee counts: a call
+    through an interface or virtual slot does not reach the implementations'
+    bodies."""
+    reached = (defaultdict(lambda: defaultdict(set)), defaultdict(lambda: defaultdict(set)))  # any, direct
+    for i, method in enumerate(methods):
+        for parameter, member in method.get("paramCalls", ()):
+            reached[0][i][parameter].add(member)
+        for parameter, member in method.get("paramDirectCalls", ()):
+            reached[1][i][parameter].add(member)
+    changed = True
+    while changed:
+        changed = False
+        for i, method in enumerate(methods):
+            for parameter, position, callee_parameter, derived in method.get("paramArgs", ()):
+                target = resolved.get((i, position))
+                if target is None or target == i:
+                    continue
+                # Every direct call is in `any` too, so a derived value only adds to `any`.
+                gains = [(reached[0], reached[0].get(target, {}).get(callee_parameter))]
+                if not derived:
+                    gains.append((reached[1], reached[1].get(target, {}).get(callee_parameter)))
+                for into, members in gains:
+                    if members and not members <= into[i][parameter]:
+                        into[i][parameter] |= members
+                        changed = True
+    out_any, out_direct = {}, {}
+    for i, method in enumerate(methods):
+        found, direct = set(), set()
+        for field_key, position, callee_parameter, derived in method.get("staticArgs", ()):
+            target = resolved.get((i, position))
+            if target is None:
+                continue
+            for member in reached[0].get(target, {}).get(callee_parameter, ()):
+                found.add((field_key, member))
+            if not derived:
+                for member in reached[1].get(target, {}).get(callee_parameter, ()):
+                    direct.add((field_key, member))
+        if found:
+            out_any[id(method)] = found
+        if direct:
+            out_direct[id(method)] = direct
+    return out_any, out_direct
+
+
 def build(parsed, type_modules=None):
     """The facts model from one parse_il result (read, never changed).
 
@@ -353,6 +408,7 @@ def build(parsed, type_modules=None):
                 refs_in[target].add(i)
 
     attribution = _attribute_generated(methods, generated, refs_in, type_refs, by_source_name)
+    passed_mutations, passed_direct = _passed_static_mutations(methods, resolved)
 
     def module_of(path):
         if type_modules is None:
@@ -420,6 +476,7 @@ def build(parsed, type_modules=None):
 
     field_access = defaultdict(lambda: defaultdict(set))
     field_mutations = defaultdict(set)
+    field_direct = defaultdict(set)
 
     def note_statics(body, key, statics):
         for position, (opcode, assembly, path, name, _garity, params, _ret) in enumerate(body["refs"]):
@@ -429,9 +486,15 @@ def build(parsed, type_modules=None):
                     if statics is not None:
                         statics[STATIC_FIELD_OPCODES[opcode]].add(field_key)
                     field_access[field_key][STATIC_FIELD_OPCODES[opcode]].add(key)
-        for field_key, member in body.get("staticCalls", ()):
+        for field_key, member in set(body.get("staticCalls", ())) | passed_mutations.get(id(body), set()):
             if not is_generated_path(_type_of_key(field_key)):
                 field_mutations[field_key].add((key, member))
+        for field_key, member in set(body.get("staticDirectCalls", ())) | passed_direct.get(id(body), set()):
+            if not is_generated_path(_type_of_key(field_key)):
+                field_direct[field_key].add((key, member))
+        for field_key in body.get("staticDefaults", ()):
+            if not is_generated_path(_type_of_key(field_key)):
+                field_access[field_key]["staticDefaults"].add(key)
 
     # Generated code no single source method owns still calls, reads and
     # writes: credit it to its source type's `Type::(generated)` key, so no
@@ -544,9 +607,16 @@ def build(parsed, type_modules=None):
             entry["readers"] = sorted(access.get("staticReads", ()))
             entry["writers"] = sorted(access.get("staticWrites", ()))
             entry["addressTakenBy"] = sorted(access.get("staticAddress", ()))
-            # Outside-assembly calls (or `[]` element stores) on the value
-            # shortly after a read: a heuristic for "mutates its contents".
+            # The `ldsflda` + `initobj` pairs among them: `x = default` / `x = null`
+            # on a value-type or nullable static, a write with no `stsfld`.
+            entry["defaultedBy"] = sorted(access.get("staticDefaults", ()))
+            # Outside-assembly calls (or `[]` element stores) on the value or
+            # a value read out of it (ilgraph.StaticReceiverTracker, with its
+            # window fallback): the evidence for "mutates its contents".
             entry["receiverCalls"] = sorted("%s|%s" % pair for pair in field_mutations.get(key, ()))
+            # The subset whose receiver is the static's own value, followed
+            # down the stack: the evidence a clearing call empties it.
+            entry["directReceiverCalls"] = sorted("%s|%s" % pair for pair in field_direct.get(key, ()))
         out_fields[key] = entry
 
     counts.update({

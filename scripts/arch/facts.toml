@@ -50,14 +50,18 @@ not_followed = ["Parsek.ParsekLog"]
 
 [statics]
 # A call on a static readonly collection's value that changes its contents
-# (`[]` is an array element store). Read after an `ldsfld` within a few
-# instructions (ilgraph.STATIC_RECEIVER_WINDOW), so a floor, not an exact count.
+# (`[]` is an array element store; GetOrCreateValue adds a ConditionalWeakTable
+# entry). Counted where ilgraph.StaticReceiverTracker shows the static, or a
+# value read out of it, as the call's receiver; where it cannot follow the
+# stack (a branch, an unknown opcode) any such call within
+# STATIC_RECEIVER_WINDOW instructions after the read counts (parse_il's
+# staticCalls).
 mutating_members = [
     "Add", "AddRange", "AddFirst", "AddLast", "AddOrUpdate", "GetOrAdd", "TryAdd", "Insert", "InsertRange",
     "Remove", "RemoveAt", "RemoveAll", "RemoveRange", "RemoveWhere", "RemoveFirst", "RemoveLast", "TryRemove",
     "Clear", "set_Item", "Enqueue", "Dequeue", "TryDequeue", "Push", "Pop", "TryPop", "Sort", "Reverse",
     "UnionWith", "IntersectWith", "ExceptWith", "SymmetricExceptWith", "TrimExcess",
-    "Append", "AppendLine", "AppendFormat", "set_Length", "[]",
+    "Append", "AppendLine", "AppendFormat", "set_Length", "GetOrCreateValue", "[]",
 ]
 
 [uncalled]
