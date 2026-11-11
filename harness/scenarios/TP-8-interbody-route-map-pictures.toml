@@ -26,7 +26,10 @@ id = "TP-8-interbody-route-map-pictures"
 #
 # THE PICTURE PROTOCOL (design-map-mirror.md -> "How to get the pictures"). Every view is
 # three steps under ONE label: `MapCamera` (focus / pitch / heading / distance, so the
-# frame is the same on every run), `CaptureScreenshot label=L` (the PNG) and
+# frame is the same on every run, and `hold = "4.5"`: 4.5 real seconds after the camera
+# settles, so stock's orbit-line zoom fade, about 4 s at 1x, has finished before the
+# picture; game time runs on at 1x meanwhile, so each view of an instant is taken a few
+# seconds after the previous one), `CaptureScreenshot label=L` (the PNG) and
 # `DumpMapGeometry label=L` (the same frame as data, `Screenshots/L.map.json`). The harvest
 # copies both into `results/<runId>_shots/`, and `tools/map_mirror.py <shots-dir>` pairs
 # them by label into one page. Distances are metres from the focus body's centre, sized
@@ -54,13 +57,14 @@ id = "TP-8-interbody-route-map-pictures"
 #     lane replays a committed fixture.
 #   7 tight count windows - the model lane's window, copied; tightened after the first
 #     flight only if it reads otherwise.
-#   8 tier by measured cost / 9 flight_efficiency.py - owed after the first flight; the
-#     tier is `operator` because the lane is run on request for pictures.
+#   8 tier by measured cost / 9 flight_efficiency.py - the first flights (2026-11-11,
+#     before the hold) took 56 to 91 s wall per lane; flight_efficiency.py over them is
+#     still owed. The tier is `operator` because the lane is run on request for pictures.
 # =====================================================================================
 tier = "operator"
-description = "PICTURE LANE, AUTHORED 2026-11-11, NOT YET FLOWN. V26M's two inter-body supply routes (KSC->Duna Active, KSC->Mun Paused) on interbody-route-recorded, route lines on, the flight map open, at V26M's own clock: five views (whole system top-down and edge-on, the Kerbin, Mun and Duna ends) framed, photographed and dumped under one label each. No dispatch instant is derivable (B32 section 4), so the route's ends are covered in space rather than time. Expectations are only that every view was taken, both routes drew, and nothing was refused."
+description = "PICTURE LANE, AUTHORED 2026-11-11, FIRST FLOWN GREEN 2026-11-11 (run 2026-11-11_2148, before the MapCamera hold; the hold is not flown yet). V26M's two inter-body supply routes (KSC->Duna Active, KSC->Mun Paused) on interbody-route-recorded, route lines on, the flight map open, at V26M's own clock: five views (whole system top-down and edge-on, the Kerbin, Mun and Duna ends) framed, photographed and dumped under one label each. No dispatch instant is derivable (B32 section 4), so the route's ends are covered in space rather than time. Expectations are only that every view was taken, both routes drew, and nothing was refused."
 instanceProfile = "stock-minimal"
-tags = ["TP", "TP-8", "map-pictures", "map-geometry", "screenshots", "map-render", "pending-flight", "route", "logistics", "inter-body", "kerbin", "duna", "route-map-lines"]
+tags = ["TP", "TP-8", "map-pictures", "map-geometry", "screenshots", "map-render", "flown", "route", "logistics", "inter-body", "kerbin", "duna", "route-map-lines"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/interbody-route-recorded"
@@ -82,23 +86,23 @@ steps = [
   # INSTANT save-clock at UT 87625323: V26M's own 1x wait to 87,625,323 (the save clock is 87,625,311.3); no dispatch instant is derivable (B32 section 4), and the route overview line is drawn statically, so the views go to the route's ENDS instead of its times
   { cmd = "WarpToUT", args = { ut = "87625323", maxRate = "1" }, expect = "OK", budget = 120 },
   # view tp8-save-clock-sys-top: Sun pitch=90 heading=0 distance=50000000000 m
-  { cmd = "MapCamera", args = { focus = "Sun", pitch = "90", heading = "0", distance = "50000000000" }, expect = "OK" },
+  { cmd = "MapCamera", args = { focus = "Sun", pitch = "90", heading = "0", distance = "50000000000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp8-save-clock-sys-top" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp8-save-clock-sys-top" }, expect = "OK" },
   # view tp8-save-clock-sys-edge: Sun pitch=0 heading=0 distance=50000000000 m
-  { cmd = "MapCamera", args = { focus = "Sun", pitch = "0", heading = "0", distance = "50000000000" }, expect = "OK" },
+  { cmd = "MapCamera", args = { focus = "Sun", pitch = "0", heading = "0", distance = "50000000000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp8-save-clock-sys-edge" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp8-save-clock-sys-edge" }, expect = "OK" },
   # view tp8-save-clock-kerbin-top: Kerbin pitch=90 heading=0 distance=28000000 m
-  { cmd = "MapCamera", args = { focus = "Kerbin", pitch = "90", heading = "0", distance = "28000000" }, expect = "OK" },
+  { cmd = "MapCamera", args = { focus = "Kerbin", pitch = "90", heading = "0", distance = "28000000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp8-save-clock-kerbin-top" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp8-save-clock-kerbin-top" }, expect = "OK" },
   # view tp8-save-clock-mun-top: Mun pitch=90 heading=0 distance=5400000 m
-  { cmd = "MapCamera", args = { focus = "Mun", pitch = "90", heading = "0", distance = "5400000" }, expect = "OK" },
+  { cmd = "MapCamera", args = { focus = "Mun", pitch = "90", heading = "0", distance = "5400000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp8-save-clock-mun-top" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp8-save-clock-mun-top" }, expect = "OK" },
   # view tp8-save-clock-duna-top: Duna pitch=90 heading=0 distance=7000000 m
-  { cmd = "MapCamera", args = { focus = "Duna", pitch = "90", heading = "0", distance = "7000000" }, expect = "OK" },
+  { cmd = "MapCamera", args = { focus = "Duna", pitch = "90", heading = "0", distance = "7000000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp8-save-clock-duna-top" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp8-save-clock-duna-top" }, expect = "OK" },
   { cmd = "FlushAndQuit", expect = "OK" },
@@ -155,7 +159,8 @@ forbidden = [
 
 [runtime]
 # The model lane's budget; the views add a few seconds each (three short two-phase
-# verbs) and every TimeJump is an instantaneous clock set.
+# verbs, the camera's 4.5 s hold included) and every TimeJump is an instantaneous
+# clock set.
 budgetSeconds = 2400
 
 [retry]

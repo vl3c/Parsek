@@ -31,7 +31,10 @@ namespace Parsek.Tests
 
         private static bool Parse(string focus, string pitch, string heading, string distance,
             out MapCameraRequest req, out string reason)
-            => TestCommandMapCamera.TryParse(focus, pitch, heading, distance, Bodies, out req, out reason);
+            => TestCommandMapCamera.TryParse(focus, pitch, heading, distance, null, Bodies, out req, out reason);
+
+        private static bool ParseHold(string hold, out MapCameraRequest req, out string reason)
+            => TestCommandMapCamera.TryParse("Kerbin", null, null, null, hold, Bodies, out req, out reason);
 
         // ----- focus -----
 
@@ -68,6 +71,7 @@ namespace Parsek.Tests
             Assert.Null(req.PitchDeg);
             Assert.Null(req.HeadingDeg);
             Assert.Null(req.DistanceMetres);
+            Assert.Equal(0.0, req.HoldSeconds);
         }
 
         [Fact]
@@ -131,6 +135,42 @@ namespace Parsek.Tests
             Assert.Equal(expected, reason);
         }
 
+        [Theory]
+        [InlineData("0", true, 0.0, null)]
+        [InlineData("4.5", true, 4.5, null)]
+        [InlineData("10", true, 10.0, null)]
+        [InlineData(" 1e0 ", true, 1.0, null)]
+        [InlineData("10.0001", false, 0.0, "mapcamera-hold-out-of-range")]
+        [InlineData("-0.5", false, 0.0, "mapcamera-hold-out-of-range")]
+        [InlineData("4,5", false, 0.0, "mapcamera-hold-invalid")]
+        [InlineData("soon", false, 0.0, "mapcamera-hold-invalid")]
+        [InlineData("NaN", false, 0.0, "mapcamera-hold-invalid")]
+        [InlineData("", false, 0.0, "mapcamera-hold-invalid")]
+        public void Hold(string raw, bool ok, double seconds, string expected)
+        {
+            Assert.Equal(ok, ParseHold(raw, out var req, out string reason));
+            Assert.Equal(expected, reason);
+            if (ok) Assert.Equal(seconds, req.HoldSeconds);
+        }
+
+        [Fact]
+        public void Hold_IsInvariantUnderAnotherCulture()
+        {
+            var saved = System.Globalization.CultureInfo.CurrentCulture;
+            try
+            {
+                System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("de-DE");
+                Assert.True(ParseHold("4.5", out var req, out _));
+                Assert.Equal(4.5, req.HoldSeconds);
+                Assert.False(ParseHold("4,5", out _, out string reason));
+                Assert.Equal(TestCommandMapCamera.HoldInvalidReason, reason);
+            }
+            finally
+            {
+                System.Globalization.CultureInfo.CurrentCulture = saved;
+            }
+        }
+
         [Fact]
         public void TheFirstFailingArg_InFocusPitchHeadingDistanceOrder_Decides()
         {
@@ -142,6 +182,10 @@ namespace Parsek.Tests
             Assert.Equal(TestCommandMapCamera.HeadingOutOfRangeReason, r3);
             Assert.False(Parse("Kerbin", "10", "10", "-1", out _, out string r4));
             Assert.Equal(TestCommandMapCamera.DistanceOutOfRangeReason, r4);
+            Assert.False(TestCommandMapCamera.TryParse("Kerbin", "10", "10", "-1", "99", Bodies, out _, out string r5));
+            Assert.Equal(TestCommandMapCamera.DistanceOutOfRangeReason, r5);
+            Assert.False(TestCommandMapCamera.TryParse("Kerbin", "10", "10", "1", "99", Bodies, out _, out string r6));
+            Assert.Equal(TestCommandMapCamera.HoldOutOfRangeReason, r6);
         }
 
         [Fact]
@@ -200,6 +244,30 @@ namespace Parsek.Tests
             Assert.Equal(expected, TestCommandMapCamera.DecideSettle(sceneOk, frames, actual, held, still, expired).ToString());
         }
 
+        [Theory]
+        [InlineData(false, 99.0, 4.5, "SceneLost")]
+        [InlineData(true, 0.0, 4.5, "Holding")]
+        [InlineData(true, 4.49, 4.5, "Holding")]
+        [InlineData(true, 4.5, 4.5, "Done")]
+        [InlineData(true, 7.0, 4.5, "Done")]
+        [InlineData(true, double.NaN, 4.5, "Holding")]
+        [InlineData(false, double.NaN, 4.5, "SceneLost")]
+        public void DecideHold(bool sceneOk, double elapsed, double hold, string expected)
+        {
+            Assert.Equal(expected, TestCommandMapCamera.DecideHold(sceneOk, elapsed, hold).ToString());
+        }
+
+        [Fact]
+        public void SettleBudget_LeavesRoomForTheHold_WithinTheStepBudget()
+        {
+            Assert.Equal(60.0, TestCommandMapCamera.SettleBudgetSeconds(60.0, 0.0));
+            Assert.Equal(55.5, TestCommandMapCamera.SettleBudgetSeconds(60.0, 4.5));
+            Assert.Equal(50.0, TestCommandMapCamera.SettleBudgetSeconds(
+                DeferralBudget.BudgetSeconds(TestCommandMapCamera.Verb), TestCommandMapCamera.MaxHoldSeconds));
+            Assert.Equal(0.0, TestCommandMapCamera.SettleBudgetSeconds(5.0, 10.0));
+            Assert.Equal(60.0, TestCommandMapCamera.SettleBudgetSeconds(60.0, -3.0));
+        }
+
         [Fact]
         public void IsStill_IsATenthOfTheSettleTolerance()
         {
@@ -220,6 +288,7 @@ namespace Parsek.Tests
                 TestCommandMapCamera.PitchInvalidReason, TestCommandMapCamera.PitchOutOfRangeReason,
                 TestCommandMapCamera.HeadingInvalidReason, TestCommandMapCamera.HeadingOutOfRangeReason,
                 TestCommandMapCamera.DistanceInvalidReason, TestCommandMapCamera.DistanceOutOfRangeReason,
+                TestCommandMapCamera.HoldInvalidReason, TestCommandMapCamera.HoldOutOfRangeReason,
                 TestCommandMapCamera.MapViewClosedReason, TestCommandMapCamera.NotMapSceneReason,
                 TestCommandMapCamera.NoCameraReason, TestCommandMapCamera.FocusNotTargetableReason,
                 TestCommandMapCamera.FocusNotAppliedReason, TestCommandMapCamera.SceneLostReason,
@@ -238,6 +307,7 @@ namespace Parsek.Tests
                 TestCommandMapCamera.PitchInvalidReason, TestCommandMapCamera.PitchOutOfRangeReason,
                 TestCommandMapCamera.HeadingInvalidReason, TestCommandMapCamera.HeadingOutOfRangeReason,
                 TestCommandMapCamera.DistanceInvalidReason, TestCommandMapCamera.DistanceOutOfRangeReason,
+                TestCommandMapCamera.HoldInvalidReason, TestCommandMapCamera.HoldOutOfRangeReason,
                 TestCommandMapCamera.MapViewClosedReason, TestCommandMapCamera.NotMapSceneReason,
             }, TestCommandMapCamera.Reasons);
             Assert.Equal(new[]
@@ -251,7 +321,7 @@ namespace Parsek.Tests
         [Fact]
         public void BuildPayload_IsInvariant()
         {
-            var d = TestCommandMapCamera.BuildPayload("Kerbin", 88.5, -30.25, 1.5e7, true, false, 12)
+            var d = TestCommandMapCamera.BuildPayload("Kerbin", 88.5, -30.25, 1.5e7, true, false, 12, 4.5)
                 .ToDictionary(kv => kv.Key, kv => kv.Value);
             Assert.Equal("Kerbin", d["focus"]);
             Assert.Equal("88.5", d["pitch"]);
@@ -260,16 +330,28 @@ namespace Parsek.Tests
             Assert.Equal("true", d["pitchClamped"]);
             Assert.Equal("false", d["distanceClamped"]);
             Assert.Equal("12", d["frames"]);
+            Assert.Equal("4.5", d["hold"]);
         }
 
         [Fact]
         public void LogSettled_NamesTheHeldValues_TheClamps_AndTheStockLimits()
         {
-            TestCommandMapCamera.LogSettled("Mun", 88.5, 10, 2.5e6, true, false, -88.0, 88.5, 7);
+            TestCommandMapCamera.LogSettled("Mun", 88.5, 10, 2.5e6, true, false, -88.0, 88.5, 7, 4.5);
             Assert.Contains(logLines, l => l.Contains("[INFO]") && l.Contains("[TestCommands]")
                 && l.Contains("mapcamera ok focus=Mun") && l.Contains("pitch=88.5") && l.Contains("heading=10")
                 && l.Contains("distance=2500000") && l.Contains("pitchClamped=true")
-                && l.Contains("distanceClamped=false") && l.Contains("maxPitch=88.5") && l.Contains("frames=7"));
+                && l.Contains("distanceClamped=false") && l.Contains("maxPitch=88.5") && l.Contains("frames=7")
+                && l.Contains("hold=4.5"));
+        }
+
+        [Fact]
+        public void LogHolding_NamesTheFocusAndTheHold_AndIsNotARefusalLine()
+        {
+            TestCommandMapCamera.LogHolding("Mun", 4.5, 3);
+            Assert.Contains(logLines, l => l.Contains("[INFO]") && l.Contains("[TestCommands]")
+                && l.Contains("mapcamera settled, holding focus=Mun hold=4.5 frames=3"));
+            // The TP lanes forbid `mapcamera: ` and `mapcamera (not settled|scene lost)`.
+            Assert.DoesNotContain(logLines, l => l.Contains("mapcamera: ") || l.Contains("not settled"));
         }
     }
 }

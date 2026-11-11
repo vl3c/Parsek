@@ -20,6 +20,10 @@ namespace Parsek.TestCommands
         /// <summary>Requested camera-to-focus distance in metres, or null to keep the current
         /// distance.</summary>
         internal double? DistanceMetres;
+
+        /// <summary>Real seconds to hold the head AFTER the camera settled, before the OK
+        /// (0 = answer on the settle frame).</summary>
+        internal double HoldSeconds;
     }
 
     /// <summary>What one poll of an applied <c>MapCamera</c> concludes.</summary>
@@ -38,10 +42,23 @@ namespace Parsek.TestCommands
         TimedOut,
     }
 
+    /// <summary>What one poll of a settled <c>MapCamera</c>'s <c>hold=</c> concludes.</summary>
+    internal enum MapCameraHoldOutcome
+    {
+        /// <summary>The hold has not run its real seconds yet.</summary>
+        Holding,
+
+        /// <summary>The hold ran out: terminal OK.</summary>
+        Done,
+
+        /// <summary>The map closed or the scene left during the hold: terminal ERROR.</summary>
+        SceneLost,
+    }
+
     /// <summary>
     /// Pure parse / validate / decision half of the ADDITIVE, automation-only
     /// <c>MapCamera focus=&lt;body&gt; [pitch=&lt;deg&gt;] [heading=&lt;deg&gt;]
-    /// [distance=&lt;metres&gt;]</c> seam verb. The applier
+    /// [distance=&lt;metres&gt;] [hold=&lt;seconds&gt;]</c> seam verb. The applier
     /// (<c>ParsekTestCommandAddon.MapCamera.cs</c>) drives stock's <c>PlanetariumCamera</c>
     /// (<c>SetTarget(MapObject)</c>, <c>camPitch</c> / <c>camHdg</c> in radians,
     /// <c>SetDistance</c> in scaled-space units) and reads back what the camera actually
@@ -59,6 +76,17 @@ namespace Parsek.TestCommands
     /// photograph the transition. The head is held until the camera sits at its distance
     /// from the focus, and the reported values are the camera's own read-back.</para>
     ///
+    /// <para><b>WHY <c>hold=</c>.</b> Stock fades every orbit line in and out by camera zoom
+    /// (<c>OrbitRendererBase.SplineOpacityUpdate</c>: <c>lineOpacity</c> moves toward 1 or 0
+    /// by <c>0.25 * Time.deltaTime</c> a frame, a full fade about 4 s at 1x), so a line the
+    /// new framing shows is still fading in on the settle frame and one it hides is still
+    /// fading out. <c>hold=</c> keeps the head that many REAL seconds after the settle, so a
+    /// following <c>CaptureScreenshot</c> photographs the end state. It is wall-clock time:
+    /// <c>Time.deltaTime</c> is scaled time, so under physics warp the fade runs faster per
+    /// real second, at on-rails warp it runs at the 1x rate, and with the game paused
+    /// (<c>timeScale</c> 0) it does not run at all and no hold finishes it. Game time moves
+    /// during a hold at whatever rate the game runs.</para>
+    ///
     /// <para>Values are validated against generous FIXED ranges (refused when outside); the
     /// camera's own limits then clamp, and a clamp is reported (<c>pitchClamped</c>,
     /// <c>distanceClamped</c>), never refused - the limits are stock's, they differ by body
@@ -73,6 +101,7 @@ namespace Parsek.TestCommands
         internal const string PitchKey = "pitch";
         internal const string HeadingKey = "heading";
         internal const string DistanceKey = "distance";
+        internal const string HoldKey = "hold";
 
         /// <summary>REJECTED: no <c>focus=</c> arg. Required: a framing without its anchor is
         /// not reproducible.</summary>
@@ -87,6 +116,8 @@ namespace Parsek.TestCommands
         internal const string HeadingOutOfRangeReason = "mapcamera-heading-out-of-range";
         internal const string DistanceInvalidReason = "mapcamera-distance-invalid";
         internal const string DistanceOutOfRangeReason = "mapcamera-distance-out-of-range";
+        internal const string HoldInvalidReason = "mapcamera-hold-invalid";
+        internal const string HoldOutOfRangeReason = "mapcamera-hold-out-of-range";
 
         /// <summary>REJECTED: FLIGHT with the map closed (<c>DumpMapGeometry</c>'s token).</summary>
         internal const string MapViewClosedReason = TestCommandDumpMapGeometry.MapViewClosedReason;
@@ -122,6 +153,8 @@ namespace Parsek.TestCommands
             "mapcamera-heading-out-of-range",
             "mapcamera-distance-invalid",
             "mapcamera-distance-out-of-range",
+            "mapcamera-hold-invalid",
+            "mapcamera-hold-out-of-range",
             "map-view-closed",
             "not-in-map-scene",
         };
@@ -145,6 +178,12 @@ namespace Parsek.TestCommands
         /// <summary>Upper bound on a requested distance (metres, about 67 AU). Far past any
         /// stock camera limit; a larger value is a typo, not a framing.</summary>
         internal const double MaxDistanceMetres = 1e13;
+
+        /// <summary><c>hold=</c> range in real seconds, inclusive. 10 s is more than twice
+        /// stock's full 0-to-1 fade at 1x (4 s) and leaves the settle at least 50 s of the
+        /// verb's 60 s budget (<see cref="SettleBudgetSeconds"/>).</summary>
+        internal const double MinHoldSeconds = 0.0;
+        internal const double MaxHoldSeconds = 10.0;
 
         /// <summary>Relative tolerance of the settle test and of the clamp report.</summary>
         internal const double SettleRelativeTolerance = 1e-3;
@@ -180,13 +219,14 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>
-        /// Parses and validates the four args. Every arg but <c>focus</c> is optional (null
-        /// keeps the camera's current value). Returns false with the refusal reason; the
-        /// first failing arg in the order focus, pitch, heading, distance decides it.
+        /// Parses and validates the five args. Every arg but <c>focus</c> is optional (null
+        /// keeps the camera's current value; an absent <c>hold</c> is 0). Returns false with
+        /// the refusal reason; the first failing arg in the order focus, pitch, heading,
+        /// distance, hold decides it.
         /// </summary>
         internal static bool TryParse(
             string focusRaw, string pitchRaw, string headingRaw, string distanceRaw,
-            IEnumerable<string> knownBodies,
+            string holdRaw, IEnumerable<string> knownBodies,
             out MapCameraRequest request, out string rejectReason)
         {
             request = null;
@@ -211,6 +251,9 @@ namespace Parsek.TestCommands
             if (!TryParseOptional(distanceRaw, 0.0, MaxDistanceMetres, true,
                     DistanceInvalidReason, DistanceOutOfRangeReason, out double? distance, out rejectReason))
                 return false;
+            if (!TryParseOptional(holdRaw, MinHoldSeconds, MaxHoldSeconds, false,
+                    HoldInvalidReason, HoldOutOfRangeReason, out double? hold, out rejectReason))
+                return false;
 
             request = new MapCameraRequest
             {
@@ -218,6 +261,7 @@ namespace Parsek.TestCommands
                 PitchDeg = pitch,
                 HeadingDeg = heading,
                 DistanceMetres = distance,
+                HoldSeconds = hold ?? 0.0,
             };
             rejectReason = null;
             return true;
@@ -323,6 +367,36 @@ namespace Parsek.TestCommands
             return moved <= 0.1 * SettleRelativeTolerance * held;
         }
 
+        /// <summary>
+        /// The part of the verb's budget the SETTLE may use: the budget minus the hold, so a
+        /// settle plus its hold never runs past the budget the harness sizes the step by. Never
+        /// negative.
+        /// </summary>
+        internal static double SettleBudgetSeconds(double stepBudgetSeconds, double holdSeconds)
+        {
+            double hold = holdSeconds > 0.0 ? holdSeconds : 0.0;
+            double left = stepBudgetSeconds - hold;
+            return left > 0.0 ? left : 0.0;
+        }
+
+        /// <summary>
+        /// One poll of the post-settle hold. A lost scene is decided first; the hold is done
+        /// once <paramref name="elapsedRealSeconds"/> (wall clock since the settle) reaches
+        /// <paramref name="holdSeconds"/>. A non-finite elapsed time holds on (the wall clock
+        /// is the poll's own, so it cannot stay non-finite).
+        /// </summary>
+        internal static MapCameraHoldOutcome DecideHold(
+            bool sceneStillMap, double elapsedRealSeconds, double holdSeconds)
+        {
+            if (!sceneStillMap)
+                return MapCameraHoldOutcome.SceneLost;
+            if (double.IsNaN(elapsedRealSeconds) || double.IsInfinity(elapsedRealSeconds))
+                return MapCameraHoldOutcome.Holding;
+            return elapsedRealSeconds >= holdSeconds
+                ? MapCameraHoldOutcome.Done
+                : MapCameraHoldOutcome.Holding;
+        }
+
         internal static bool IsAtDistance(double actual, double held)
         {
             if (double.IsNaN(actual) || double.IsInfinity(actual)
@@ -340,7 +414,8 @@ namespace Parsek.TestCommands
         /// </summary>
         internal static void LogSettled(
             string focus, double pitchDeg, double headingDeg, double distanceMetres,
-            bool pitchClamped, bool distanceClamped, double minPitchDeg, double maxPitchDeg, int frames)
+            bool pitchClamped, bool distanceClamped, double minPitchDeg, double maxPitchDeg, int frames,
+            double holdSeconds)
         {
             CultureInfo ic = CultureInfo.InvariantCulture;
             ParsekLog.Info(LogTag, "mapcamera ok focus=" + (focus ?? string.Empty)
@@ -351,14 +426,25 @@ namespace Parsek.TestCommands
                 + " distanceClamped=" + (distanceClamped ? "true" : "false")
                 + " minPitch=" + minPitchDeg.ToString("R", ic)
                 + " maxPitch=" + maxPitchDeg.ToString("R", ic)
+                + " frames=" + frames.ToString(ic)
+                + " hold=" + holdSeconds.ToString("R", ic));
+        }
+
+        /// <summary>Logs a settled camera that now holds for <c>hold=</c> real seconds before
+        /// its OK.</summary>
+        internal static void LogHolding(string focus, double holdSeconds, int frames)
+        {
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            ParsekLog.Info(LogTag, "mapcamera settled, holding focus=" + (focus ?? string.Empty)
+                + " hold=" + holdSeconds.ToString("R", ic)
                 + " frames=" + frames.ToString(ic));
         }
 
-        /// <summary>The OK payload: the values the camera actually holds, and what was
-        /// clamped.</summary>
+        /// <summary>The OK payload: the values the camera actually holds, what was clamped,
+        /// and the real seconds it held after settling.</summary>
         internal static List<KeyValuePair<string, string>> BuildPayload(
             string focus, double pitchDeg, double headingDeg, double distanceMetres,
-            bool pitchClamped, bool distanceClamped, int frames)
+            bool pitchClamped, bool distanceClamped, int frames, double holdSeconds)
         {
             CultureInfo ic = CultureInfo.InvariantCulture;
             return new List<KeyValuePair<string, string>>
@@ -370,6 +456,7 @@ namespace Parsek.TestCommands
                 new KeyValuePair<string, string>("pitchClamped", pitchClamped ? "true" : "false"),
                 new KeyValuePair<string, string>("distanceClamped", distanceClamped ? "true" : "false"),
                 new KeyValuePair<string, string>("frames", frames.ToString(ic)),
+                new KeyValuePair<string, string>("hold", holdSeconds.ToString("R", ic)),
             };
         }
     }

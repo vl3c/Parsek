@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using HarmonyLib;
 using Parsek.Display;
 using Parsek.Logistics;
 using Parsek.MapRender;
@@ -47,6 +48,42 @@ namespace Parsek
         internal const string OutputSuffix = ".map.json";
 
         private const string Tag = "MapGeometry";
+
+        // Stock's protected OrbitRendererBase.lineOpacity (KSP 1.12.5: `family float32`), the
+        // zoom fade DrawOrbit gates its draw on. Resolved once; null when the field is absent
+        // or not a float, and every orbit line then reads opacity unknown (the older rule).
+        private static readonly AccessTools.FieldRef<OrbitRendererBase, float> LineOpacityRef =
+            ResolveLineOpacityRef();
+
+        private static AccessTools.FieldRef<OrbitRendererBase, float> ResolveLineOpacityRef()
+        {
+            try
+            {
+                System.Reflection.FieldInfo f = AccessTools.Field(typeof(OrbitRendererBase), "lineOpacity");
+                if (f == null || f.FieldType != typeof(float))
+                    return null;
+                return AccessTools.FieldRefAccess<OrbitRendererBase, float>("lineOpacity");
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        // The renderer's fade opacity, or null when it cannot be read.
+        private static double? ReadLineOpacity(OrbitRendererBase rb)
+        {
+            if (rb == null || LineOpacityRef == null)
+                return null;
+            try
+            {
+                return LineOpacityRef(rb);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
 
         /// <summary>The absolute path a dump with <paramref name="label"/> is written to: the
         /// KSP root's <c>Screenshots</c> folder, <c>CaptureScreenshot</c>'s directory.</summary>
@@ -353,11 +390,28 @@ namespace Parsek
                 if (rb != null && rb.OrbitLine != null)
                 {
                     VectorLine vl = rb.OrbitLine;
+                    // Drawn only when stock's DrawOrbit reached DrawSpline this frame: mesh
+                    // active and renderer enabled (Parsek's line Postfix may force the mesh
+                    // active), the mode LateUpdate passes not OFF, and the zoom fade above 0.
+                    // A faded line's points3 are a stale frame's, so it carries none.
+                    bool driverIdle = rb.driver != null
+                        && rb.driver.updateMode == OrbitDriver.UpdateMode.IDLE;
+                    string drawMode = MapGeometryDecisions.EffectiveOrbitDrawMode(
+                        rb.drawMode.ToString(), driverIdle);
+                    double? opacity = ReadLineOpacity(rb);
+                    MapGeometryDecisions.OrbitLineReport lineReport = MapGeometryDecisions.ClassifyOrbitLine(
+                        vl.active, rb.enabled, drawMode, opacity);
+                    if (lineReport == MapGeometryDecisions.OrbitLineReport.Faded)
+                        summary.OrbitLinesFaded++;
+                    else if (lineReport == MapGeometryDecisions.OrbitLineReport.DrawnOpacityUnknown)
+                        summary.OrbitOpacityUnknown++;
                     var line = new MapGeometryLine
                     {
                         Kind = MapGeometryDecisions.KindOrbit,
                         Body = orbitBody != null ? orbitBody.bodyName : null,
-                        Active = vl.active && rb.enabled,
+                        Active = MapGeometryDecisions.IsOrbitLineDrawn(lineReport),
+                        Opacity = opacity,
+                        DrawMode = drawMode,
                     };
                     if (line.Active)
                         FillDrawnPoints(line, vl, line.Body, bodiesByName, scale);

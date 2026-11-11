@@ -667,7 +667,10 @@ the updates below record how each verb arrived.
 > `MapCamera focus= [pitch=] [heading=] [distance=]` frames the stock map camera on a body so a
 > picture is reproducible. A new dispatcher scene class, `RequiresMapScene` (FLIGHT or
 > TRACKSTATION; defer token `not-in-map-scene`). Full contracts below (`#### DumpMapGeometry`,
-> `#### MapCamera`); no lane wired yet.
+> `#### MapCamera`). Wired the same day to the picture lanes TP-1..TP-8, which flew green
+> (85 views). Follow-up (not flown yet): `MapCamera hold=<seconds>` holds the head after the
+> settle so stock's orbit-line fade finishes before the picture, and an orbit line in the dump is
+> drawn only at stock fade opacity above 0 (additive `opacity` / `drawMode` keys).
 
 > Update (NewGame, 2026-10-25): one ADDITIVE verb, taking the table to **59 implemented / 4
 > reserved**, so stage CS-0 of the scripted campaign program can start from a genuine stock New
@@ -5447,18 +5450,26 @@ several frames. `SetTarget(MapObject)` acts only in FLIGHT or TRACKSTATION; the 
 overloads fall back to the ACTIVE VESSEL on an unknown name, so the applier targets
 `body.MapObject` directly and reads `cam.target` back.
 
-**Grammar.** `cmd=MapCamera focus=<body> [pitch=<deg>] [heading=<deg>] [distance=<metres>]`.
-`focus` is REQUIRED: a `FlightGlobals.Bodies` name, exact match first, else the single
-case-insensitive match. `pitch` in [-90, 90] (90 = looking straight down, 0 = edge-on),
-`heading` in [-360, 360], `distance` in (0, 1e13] metres from the body's centre; each optional
-(absent keeps the camera's current value), invariant-culture, finite. The first failing arg in
-the order focus, pitch, heading, distance decides the refusal.
+**Stock's orbit-line fade (KSP 1.12.5 IL).** `OrbitRendererBase.DrawOrbit` returns before
+`UpdateSpline` / `DrawSpline` while `lineOpacity` is 0, and `SplineOpacityUpdate` moves that
+opacity toward 1 or 0 by `0.25 * Time.deltaTime` a frame depending on the camera-distance to
+orbit-size ratio, so a full fade takes 4 s at 1x. A picture taken on the settle frame can catch a
+line the new framing shows still fading in (or one it hides still fading out). Details:
+`docs/dev/design-map-geometry-dump.md` -> "Stock's orbit-line fade".
+
+**Grammar.** `cmd=MapCamera focus=<body> [pitch=<deg>] [heading=<deg>] [distance=<metres>]
+[hold=<seconds>]`. `focus` is REQUIRED: a `FlightGlobals.Bodies` name, exact match first, else
+the single case-insensitive match. `pitch` in [-90, 90] (90 = looking straight down, 0 =
+edge-on), `heading` in [-360, 360], `distance` in (0, 1e13] metres from the body's centre, `hold`
+in [0, 10] real seconds (default 0); each optional (absent keeps the camera's current value),
+invariant-culture, finite. The first failing arg in the order focus, pitch, heading, distance,
+hold decides the refusal.
 
 **Behavior.** Dispatcher class `RequiresMapScene` (as `DumpMapGeometry`). REJECTED (nothing
 moved): `mapcamera-focus-arg-missing`, `mapcamera-unknown-body`, `mapcamera-pitch-invalid`,
 `mapcamera-pitch-out-of-range`, `mapcamera-heading-invalid`, `mapcamera-heading-out-of-range`,
-`mapcamera-distance-invalid`, `mapcamera-distance-out-of-range`, `map-view-closed`,
-`not-in-map-scene`. ERROR at apply: `mapcamera-no-camera` (no `PlanetariumCamera.fetch`),
+`mapcamera-distance-invalid`, `mapcamera-distance-out-of-range`, `mapcamera-hold-invalid`,
+`mapcamera-hold-out-of-range`, `map-view-closed`, `not-in-map-scene`. ERROR at apply: `mapcamera-no-camera` (no `PlanetariumCamera.fetch`),
 `mapcamera-focus-not-targetable` (no `MapObject`), `mapcamera-focus-not-applied` (stock did not
 take the target). The applier then sets `camPitch` / `camHdg` (radians) and `SetDistance(metres /
 ScaledSpace.ScaleFactor)`.
@@ -5467,11 +5478,19 @@ ScaledSpace.ScaleFactor)`.
 camera; `EnterMapView`'s reasoning), `recording` post-mission role. Each poll measures the
 camera-to-target scaled distance; settled once at least one LateUpdate ran and that distance is
 within 0.1 % of the distance stock holds, or it has stayed still for 3 frames (stock's clamp may
-hold it away from the request). OK `focus= pitch= heading= distance= pitchClamped=
-distanceClamped= frames=` with the values stock HOLDS after its clamps (degrees, metres) and
-whether each differs from the request; logged `mapcamera ok ...` with stock's `minPitch` /
-`maxPitch`. ERROR `mapcamera-scene-lost` (the map closed or the scene left) or
-`mapcamera-not-settled`. Pure half `TestCommandMapCamera`, applier
+hold it away from the request). With `hold` above 0 the settled camera then holds the head that
+many WALL-CLOCK seconds (logged `mapcamera settled, holding focus= hold= frames=`), checking only
+that the scene is still a map scene, and reads the camera back at the end. Wall clock, because
+the fade runs on `Time.deltaTime`, which is scaled time: at 1x the two agree, under physics warp
+the fade runs faster per real second, at on-rails warp `timeScale` stays 1, and paused
+(`timeScale` 0) the fade does not run at all, so no hold finishes it. Game time moves during the
+hold. The settle gets the 60 s budget MINUS the hold
+(`TestCommandMapCamera.SettleBudgetSeconds`), so settle plus hold never outruns the step budget
+the harness sizes the step by. OK `focus= pitch= heading= distance= pitchClamped=
+distanceClamped= frames= hold=` with the values stock HOLDS after its clamps (degrees, metres)
+and whether each differs from the request; logged `mapcamera ok ...` with stock's `minPitch` /
+`maxPitch` and the hold. ERROR `mapcamera-scene-lost` (the map closed or the scene left, while
+settling or holding) or `mapcamera-not-settled`. Pure half `TestCommandMapCamera`, applier
 `ParsekTestCommandAddon.MapCamera.cs`, mirrored by `MapGeometrySeamVerbSourceSyncTests`.
 
 ### Addon lifecycle

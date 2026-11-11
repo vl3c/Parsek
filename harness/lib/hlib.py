@@ -901,11 +901,12 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     #     ARTIFACT_SHOTS_SUFFIXES harvests beside the PNG of the same label. Read-only and
     #     independent of mapRenderTracing. OK `label= path= scene= bytes= frame= ghosts=
     #     lines= points= truncated=`.
-    #   MapCamera focus=<body> [pitch=<deg>] [heading=<deg>] [distance=<m>], same scenes,
-    #     TWO-PHASE, default 60 s: points the stock PlanetariumCamera at a body (pitch 90 =
-    #     straight down, 0 = edge-on) and answers once the camera settled, with the applied
-    #     values and whether stock clamped them. OK `focus= pitch= heading= distance=
-    #     pitchClamped= distanceClamped= frames=`.
+    #   MapCamera focus=<body> [pitch=<deg>] [heading=<deg>] [distance=<m>] [hold=<s>],
+    #     same scenes, TWO-PHASE, default 60 s: points the stock PlanetariumCamera at a body
+    #     (pitch 90 = straight down, 0 = edge-on) and answers once the camera settled plus
+    #     `hold` real seconds (0..10, default 0: stock's orbit-line fade takes about 4 s),
+    #     with the applied values and whether stock clamped them. OK `focus= pitch=
+    #     heading= distance= pitchClamped= distanceClamped= frames= hold=`.
     "DumpMapGeometry", "MapCamera",
 )
 
@@ -5004,17 +5005,23 @@ MAPCAMERA_FOCUS_KEY = "focus"
 MAPCAMERA_PITCH_KEY = "pitch"
 MAPCAMERA_HEADING_KEY = "heading"
 MAPCAMERA_DISTANCE_KEY = "distance"
+MAPCAMERA_HOLD_KEY = "hold"
 MAPCAMERA_KEYS: Tuple[str, ...] = (
     MAPCAMERA_FOCUS_KEY, MAPCAMERA_PITCH_KEY, MAPCAMERA_HEADING_KEY, MAPCAMERA_DISTANCE_KEY,
+    MAPCAMERA_HOLD_KEY,
 )
 MAPCAMERA_PITCH_RANGE: Tuple[float, float] = (-90.0, 90.0)
 MAPCAMERA_HEADING_RANGE: Tuple[float, float] = (-360.0, 360.0)
 MAPCAMERA_MAX_DISTANCE_METRES = 1e13
+# Real seconds held after the camera settles, so stock's orbit-line fade (about 4 s at
+# 1x) ends before a following CaptureScreenshot.
+MAPCAMERA_HOLD_RANGE: Tuple[float, float] = (0.0, 10.0)
 MAPCAMERA_REASONS: Tuple[str, ...] = (
     "mapcamera-focus-arg-missing", "mapcamera-unknown-body",
     "mapcamera-pitch-invalid", "mapcamera-pitch-out-of-range",
     "mapcamera-heading-invalid", "mapcamera-heading-out-of-range",
     "mapcamera-distance-invalid", "mapcamera-distance-out-of-range",
+    "mapcamera-hold-invalid", "mapcamera-hold-out-of-range",
     "map-view-closed", "not-in-map-scene",
 )
 MAPCAMERA_ERROR_REASONS: Tuple[str, ...] = (
@@ -5045,10 +5052,11 @@ def validate_map_camera_step(index: int, step_args: Dict) -> List[str]:
 
     ``focus=`` is REQUIRED and non-blank (whether it names a body of this game is a live
     question the seam answers ``mapcamera-unknown-body``). ``pitch=`` / ``heading=`` /
-    ``distance=`` are optional; when present each must be a finite invariant number in
-    its range: pitch [-90, 90] degrees (90 = straight down), heading [-360, 360] degrees,
-    distance (0, 1e13] metres. A value carrying a ``${step.field}`` handle is resolved at
-    run time, so its shape is not judged here. No other key is read."""
+    ``distance=`` / ``hold=`` are optional; when present each must be a finite invariant
+    number in its range: pitch [-90, 90] degrees (90 = straight down), heading [-360, 360]
+    degrees, distance (0, 1e13] metres, hold [0, 10] real seconds after the settle. A
+    value carrying a ``${step.field}`` handle is resolved at run time, so its shape is not
+    judged here. No other key is read."""
     errors: List[str] = []
     v = MAPCAMERA_VERB
     focus = step_args.get(MAPCAMERA_FOCUS_KEY)
@@ -5063,6 +5071,8 @@ def validate_map_camera_step(index: int, step_args: Dict) -> List[str]:
          "degrees", "mapcamera-heading"),
         (MAPCAMERA_DISTANCE_KEY, 0.0, MAPCAMERA_MAX_DISTANCE_METRES, True,
          "metres", "mapcamera-distance"),
+        (MAPCAMERA_HOLD_KEY, MAPCAMERA_HOLD_RANGE[0], MAPCAMERA_HOLD_RANGE[1], False,
+         "seconds", "mapcamera-hold"),
     )
     for key, lo, hi, lo_exclusive, unit, prefix in rows:
         if key not in step_args:
@@ -12753,6 +12763,8 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "mapcamera-heading-out-of-range": "driver-arg",
     "mapcamera-distance-invalid": "driver-arg",
     "mapcamera-distance-out-of-range": "driver-arg",
+    "mapcamera-hold-invalid": "driver-arg",
+    "mapcamera-hold-out-of-range": "driver-arg",
     "map-view-closed": "driver-gate",
     "not-in-map-scene": "driver-gate",
     # NewGame: the six arg refusals are the spec's fault; the rest are a live state the new
@@ -13479,7 +13491,8 @@ DETERMINISTIC_SEAM_ERROR_REASONS: Tuple[str, ...] = (
     "loop-arg-invalid",
     "mapcamera-distance-invalid", "mapcamera-distance-out-of-range",
     "mapcamera-focus-arg-missing", "mapcamera-heading-invalid",
-    "mapcamera-heading-out-of-range", "mapcamera-pitch-invalid",
+    "mapcamera-heading-out-of-range", "mapcamera-hold-invalid",
+    "mapcamera-hold-out-of-range", "mapcamera-pitch-invalid",
     "mapcamera-pitch-out-of-range",
     "mock-arg-missing", "mode-arg-invalid", "mode-arg-missing",
     "op-arg-invalid", "op-arg-missing", "partaction-all-arg-invalid",

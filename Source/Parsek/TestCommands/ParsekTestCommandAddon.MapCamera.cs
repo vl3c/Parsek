@@ -15,6 +15,10 @@ namespace Parsek.TestCommands
     /// <c>SetTarget(string)</c> / <c>SetTarget(int)</c>: those resolve through the camera's
     /// target list and, for a name that is not in it, fall back to the ACTIVE VESSEL
     /// (decompiled KSP 1.12.5), which in the Tracking Station is null.</para>
+    ///
+    /// <para>A <c>hold=</c> request keeps the head for that many WALL-CLOCK seconds after the
+    /// settle (the poll's own <c>now</c>), then reads the camera back and answers OK; the
+    /// settle itself gets the budget minus the hold, so the two never outrun it.</para>
     /// </summary>
     public partial class ParsekTestCommandAddon
     {
@@ -24,6 +28,8 @@ namespace Parsek.TestCommands
         private Vector3d mapCameraLastRel;
         private bool mapCameraHasLastRel;
         private int mapCameraStableFrames;
+        private bool mapCameraHolding;
+        private double mapCameraHoldStartedAt;
 
         private void MapCameraImpl(ParsedCommand cmd)
         {
@@ -39,12 +45,14 @@ namespace Parsek.TestCommands
                     ArgOrNull(cmd, TestCommandMapCamera.PitchKey),
                     ArgOrNull(cmd, TestCommandMapCamera.HeadingKey),
                     ArgOrNull(cmd, TestCommandMapCamera.DistanceKey),
+                    ArgOrNull(cmd, TestCommandMapCamera.HoldKey),
                     bodyNames, out MapCameraRequest request, out string reject))
             {
                 ParsekLog.Warn(Tag, $"mapcamera rejected reason={reject} focus={focusRaw ?? string.Empty} "
                     + $"pitch={ArgOrNull(cmd, TestCommandMapCamera.PitchKey) ?? "(none)"} "
                     + $"heading={ArgOrNull(cmd, TestCommandMapCamera.HeadingKey) ?? "(none)"} "
-                    + $"distance={ArgOrNull(cmd, TestCommandMapCamera.DistanceKey) ?? "(none)"}");
+                    + $"distance={ArgOrNull(cmd, TestCommandMapCamera.DistanceKey) ?? "(none)"} "
+                    + $"hold={ArgOrNull(cmd, TestCommandMapCamera.HoldKey) ?? "(none)"}");
                 SetExecResult("REJECTED", null, $"{reject} focus={focusRaw ?? string.Empty}");
                 return;
             }
@@ -98,11 +106,14 @@ namespace Parsek.TestCommands
             mapCameraApplyFrame = Time.frameCount;
             mapCameraHasLastRel = false;
             mapCameraStableFrames = 0;
+            mapCameraHolding = false;
+            mapCameraHoldStartedAt = 0.0;
             CultureInfo ic = CultureInfo.InvariantCulture;
             ParsekLog.Info(Tag, $"mapcamera applied focus={request.Focus} "
                 + $"pitch={(request.PitchDeg.HasValue ? request.PitchDeg.Value.ToString("R", ic) : "(keep)")} "
                 + $"heading={(request.HeadingDeg.HasValue ? request.HeadingDeg.Value.ToString("R", ic) : "(keep)")} "
                 + $"distance={(request.DistanceMetres.HasValue ? request.DistanceMetres.Value.ToString("R", ic) : "(keep)")} "
+                + $"hold={request.HoldSeconds.ToString("R", ic)} "
                 + $"frame={Time.frameCount}");
             SetExecResult(PendingVerdict, null, null);
         }
@@ -117,37 +128,67 @@ namespace Parsek.TestCommands
 
             double actual = double.NaN;
             double held = double.NaN;
-            if (sceneOk && cam.target != null)
-            {
-                Vector3d rel = (Vector3d)(cam.transform.position - cam.target.transform.position);
-                actual = rel.magnitude;
-                held = cam.Distance;
-                if (mapCameraHasLastRel
-                    && TestCommandMapCamera.IsStill((rel - mapCameraLastRel).magnitude, held))
-                    mapCameraStableFrames++;
-                else
-                    mapCameraStableFrames = 0;
-                mapCameraLastRel = rel;
-                mapCameraHasLastRel = true;
-            }
-            double budget = DeferralBudget.BudgetSeconds(TestCommandMapCamera.Verb);
-            bool expired = DeferralBudget.ShouldTimeout(completionStartedAt, now, budget);
             int frames = Time.frameCount - mapCameraApplyFrame;
-            MapCameraSettleOutcome outcome = TestCommandMapCamera.DecideSettle(
-                sceneOk, frames, actual, held, mapCameraStableFrames, expired);
-            if (outcome == MapCameraSettleOutcome.NotYet)
-                return;
+            double holdSeconds = mapCameraRequest != null ? mapCameraRequest.HoldSeconds : 0.0;
+            CultureInfo ic = CultureInfo.InvariantCulture;
+            MapCameraSettleOutcome outcome;
+            double budget = DeferralBudget.BudgetSeconds(TestCommandMapCamera.Verb);
+            if (mapCameraHolding)
+            {
+                // The camera already settled; only the real-time hold is left. Its end
+                // reads the camera back below, so the OK reports what the camera holds
+                // when the screenshot that follows is taken.
+                MapCameraHoldOutcome hold = TestCommandMapCamera.DecideHold(
+                    sceneOk, now - mapCameraHoldStartedAt, holdSeconds);
+                if (hold == MapCameraHoldOutcome.Holding)
+                    return;
+                outcome = hold == MapCameraHoldOutcome.SceneLost
+                    ? MapCameraSettleOutcome.SceneLost
+                    : MapCameraSettleOutcome.Settled;
+            }
+            else
+            {
+                if (sceneOk && cam.target != null)
+                {
+                    Vector3d rel = (Vector3d)(cam.transform.position - cam.target.transform.position);
+                    actual = rel.magnitude;
+                    held = cam.Distance;
+                    if (mapCameraHasLastRel
+                        && TestCommandMapCamera.IsStill((rel - mapCameraLastRel).magnitude, held))
+                        mapCameraStableFrames++;
+                    else
+                        mapCameraStableFrames = 0;
+                    mapCameraLastRel = rel;
+                    mapCameraHasLastRel = true;
+                }
+                bool expired = DeferralBudget.ShouldTimeout(completionStartedAt, now,
+                    TestCommandMapCamera.SettleBudgetSeconds(budget, holdSeconds));
+                outcome = TestCommandMapCamera.DecideSettle(
+                    sceneOk, frames, actual, held, mapCameraStableFrames, expired);
+                if (outcome == MapCameraSettleOutcome.NotYet)
+                    return;
+                if (outcome == MapCameraSettleOutcome.Settled && holdSeconds > 0.0)
+                {
+                    mapCameraHolding = true;
+                    mapCameraHoldStartedAt = now;
+                    TestCommandMapCamera.LogHolding(
+                        cam.target != null ? cam.target.GetName() : mapCameraRequest?.Focus,
+                        holdSeconds, frames);
+                    return;
+                }
+            }
 
             string id = completionId;
             long seq = completionSeq;
             string verb = completionVerb;
             MapCameraRequest request = mapCameraRequest;
             ClearTwoPhase();
+            mapCameraHolding = false;
 
-            CultureInfo ic = CultureInfo.InvariantCulture;
             if (outcome == MapCameraSettleOutcome.SceneLost)
             {
                 ParsekLog.Error(Tag, $"mapcamera scene lost focus={request?.Focus} frames={Int(frames)} "
+                    + $"hold={holdSeconds.ToString("R", ic)} "
                     + $"scene={HighLogic.LoadedScene} map={Bool(MapView.MapIsEnabled)}");
                 EmitExecutedTerminal(id, seq, verb, "ERROR", null,
                     TestCommandMapCamera.SceneLostReason, dequeueHead: true);
@@ -157,7 +198,7 @@ namespace Parsek.TestCommands
             {
                 ParsekLog.Error(Tag, $"mapcamera not settled focus={request?.Focus} frames={Int(frames)} "
                     + $"actualScaled={actual.ToString("R", ic)} heldScaled={held.ToString("R", ic)} "
-                    + $"budget={budget.ToString("F0", ic)}s");
+                    + $"budget={TestCommandMapCamera.SettleBudgetSeconds(budget, holdSeconds).ToString("F0", ic)}s");
                 EmitExecutedTerminal(id, seq, verb, "ERROR", null,
                     TestCommandMapCamera.NotSettledReason, dequeueHead: true);
                 return;
@@ -172,10 +213,11 @@ namespace Parsek.TestCommands
             TestCommandMapCamera.LogSettled(
                 focus, pitchDeg, headingDeg, distanceMetres, pitchClamped, distanceClamped,
                 TestCommandMapCamera.RadToDeg(cam.minPitch), TestCommandMapCamera.RadToDeg(cam.maxPitch),
-                frames);
+                frames, holdSeconds);
             EmitExecutedTerminal(id, seq, verb, "OK",
                 TestCommandMapCamera.BuildPayload(
-                    focus, pitchDeg, headingDeg, distanceMetres, pitchClamped, distanceClamped, frames),
+                    focus, pitchDeg, headingDeg, distanceMetres, pitchClamped, distanceClamped, frames,
+                    holdSeconds),
                 null, dequeueHead: true);
         }
     }

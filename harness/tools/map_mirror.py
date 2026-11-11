@@ -280,6 +280,70 @@ def altitude_range(points, radius):
     return min(alts), max(alts)
 
 
+# How far (relative) a drawn orbit line's radii may sit from its conic's apsides.
+CONIC_FIT_TOLERANCE = 0.02
+
+
+def conic_apsis_radii(conic):
+    """(periapsis radius, apoapsis radius or None for an open orbit), from the body
+    centre, or (None, None) without a usable conic."""
+    if not conic:
+        return None, None
+    sma, ecc = conic.get("sma"), conic.get("ecc")
+    if sma is None or ecc is None or ecc < 0.0:
+        return None, None
+    rp = sma * (1.0 - ecc)
+    if not rp > 0.0:
+        return None, None
+    return rp, (sma * (1.0 + ecc) if ecc < 1.0 else None)
+
+
+def conic_fit(points, conic, clipped, soi=None):
+    """Whether a drawn orbit line's vertices are what a draw of its own conic in
+    this frame would hold, judged by their distances from the body centre only
+    (cheap and frame-free). It catches a line drawn from a stale frame's vertices:
+    offset off the body, shaped like an older orbit, or an arc clipped in an earlier
+    frame while this frame says stock drew the whole conic. The rule, with a
+    relative tolerance of CONIC_FIT_TOLERANCE:
+
+      * drawn whole by stock (`clipped` false or absent): stock samples the whole
+        ellipse, and a hyperbola over a range symmetric about periapsis, so the
+        nearest vertex is within the tolerance of the periapsis radius, and for an
+        ellipse the farthest within the tolerance of the apoapsis radius;
+      * clipped to an arc by Parsek (`clipped` true): an arc need not reach either
+        apsis, so every vertex lies between the apsis radii widened by the
+        tolerance; an open orbit has no apoapsis, so its arc is bounded above by
+        the body's sphere of influence instead (when the dump names one).
+
+    Returns None when there is nothing to check, else a dict with `fits`, the
+    measured `minR` / `maxR`, the conic's `rp` / `ra` (None when open) and the
+    `rule` applied, in words."""
+    rp, ra = conic_apsis_radii(conic)
+    if rp is None or not points:
+        return None
+    radii = [v_len(p) for p in points]
+    lo, hi = min(radii), max(radii)
+    tol = CONIC_FIT_TOLERANCE
+    pct = "%g%%" % (100 * tol)
+    if clipped:
+        upper = ra if ra is not None else soi
+        fits = lo >= (1.0 - tol) * rp and (upper is None or hi <= (1.0 + tol) * upper)
+        if ra is not None:
+            rule = "clipped arc: every vertex between the apsis radii (+-%s)" % pct
+        elif soi is not None:
+            rule = ("clipped open arc: every vertex between periapsis and the sphere of "
+                    "influence (+-%s)" % pct)
+        else:
+            rule = "clipped open arc: no vertex nearer than periapsis (-%s)" % pct
+    elif ra is not None:
+        fits = abs(lo - rp) <= tol * rp and abs(hi - ra) <= tol * ra
+        rule = "whole ellipse: nearest and farthest vertex within %s of the apsis radii" % pct
+    else:
+        fits = abs(lo - rp) <= tol * rp
+        rule = "whole open orbit: nearest vertex within %s of the periapsis radius" % pct
+    return {"fits": bool(fits), "minR": lo, "maxR": hi, "rp": rp, "ra": ra, "rule": rule}
+
+
 def conic_apsides(conic, radius):
     """(periapsis altitude, apoapsis altitude or None for an open orbit)."""
     if not conic:
@@ -488,11 +552,21 @@ def validate_dump(obj):
             if kind not in LINE_KINDS:
                 notes.append("%s has kind %r, which the page does not know; drawn as "
                              "a polyline" % (lw, kind))
+            opacity = _num(ln.get("opacity"), lw + ".opacity", required=False)
+            if opacity is not None and not 0.0 <= opacity <= 1.0:
+                notes.append("%s.opacity is %r, outside 0..1; read as unknown" % (lw, opacity))
+                opacity = None
+            clipped = ln.get("clipped")
             lines.append({
                 "kind": kind,
                 "body": lbody,
                 "known": known(lbody, lw),
                 "active": bool(ln.get("active")),
+                # Stock's zoom fade (orbit lines; absent in older dumps): 0 means stock
+                # did not draw the line this frame, whatever the mesh flag said.
+                "opacity": opacity,
+                "drawMode": _str(ln.get("drawMode")) or None,
+                "clipped": clipped if isinstance(clipped, bool) else None,
                 "points": _points(ln.get("points"), lw + ".points"),
                 "ut": ut,
                 "conic": conic,
@@ -656,8 +730,17 @@ def line_order(lines):
 def is_drawn(line, bodies):
     """An inactive line is listed, never drawn or measured: the writer sends it
     with no points (the renderer's cache entry exists, nothing was drawn). A line
-    relative to a body the dump does not list cannot be placed either."""
+    at stock fade opacity 0 was not drawn either (an older writer may still mark
+    it active with a stale frame's points). A line relative to a body the dump
+    does not list cannot be placed."""
+    if line.get("opacity") is not None and line["opacity"] <= 0.0:
+        return False
     return bool(line["active"] and line["points"] and line["body"] in bodies)
+
+
+def is_faded(line):
+    """A line the dump names as at stock fade opacity 0: not drawn this frame."""
+    return line.get("opacity") is not None and line["opacity"] <= 0.0
 
 
 def _m(v):
@@ -676,9 +759,15 @@ def measure_ghost(ghost, bodies):
         pe, ap = conic_apsides(ln["conic"], radius) if b else (None, None)
         dev = (max_deviation(ln["points"], ln["reference"])
                if drawn and ln["reference"] else None)
+        fit = (conic_fit(ln["points"], ln["conic"], ln.get("clipped"),
+                         b["soi"] if b else None)
+               if drawn and ln["kind"] == "orbit" and ln["conic"] else None)
         rows.append({
             "index": i, "kind": ln["kind"], "body": ln["body"], "active": ln["active"],
             "drawn": drawn, "points": len(ln["points"]),
+            "opacity": ln.get("opacity"),
+            "faded": is_faded(ln),
+            "conicFit": fit,
             "ut": ln["ut"],
             "utText": ("%s .. %s (%s)" % (format_ut(ln["ut"][0]), format_ut(ln["ut"][1]),
                                          format_duration(ln["ut"][1] - ln["ut"][0]))
@@ -715,7 +804,9 @@ def measure_ghost(ghost, bodies):
             icon = {"m": best[0], "text": format_distance(best[0]), "line": best[1]}
     return {"lines": rows, "order": order,
             "timeOrdered": bool(chain) and all(lines[i].get("ut") for i in chain),
-            "icon": icon}
+            "icon": icon,
+            "offConic": sum(1 for r in rows if r["conicFit"] and not r["conicFit"]["fits"]),
+            "faded": sum(1 for r in rows if r["faded"])}
 
 
 def measure_route(route, bodies):
@@ -939,6 +1030,8 @@ def _page_capture(cap, ghost_colour_of):
         rr["measured"] = measure_route(r, bodies)
         routes.append(rr)
     base.update({
+        "offConic": sum(g["measured"]["offConic"] for g in ghosts),
+        "faded": sum(g["measured"]["faded"] for g in ghosts),
         "scene": d["scene"], "ut": d["ut"], "utText": format_ut(d["ut"]),
         "frame": d["frame"], "warpRate": d["warpRate"], "camera": d["camera"],
         "axes": d["axes"], "root": d["root"],
@@ -1025,6 +1118,8 @@ def build_index(model):
                 "screenshot": c["hasPng"],
                 "screenshotInlined": bool((c.get("photo") or {}).get("src")),
                 "closeups": c["closeups"],
+                "offConicLines": c["offConic"],
+                "fadedLines": c["faded"],
                 "notes": c["notes"],
             })
         lanes.append({"lane": lane["lane"], "captures": rows})
@@ -1096,6 +1191,7 @@ button:hover{border-color:var(--accent)}
 #rail .cap .l{font-weight:600;word-break:break-all}
 #rail .cap .s{font-size:11px;color:var(--dim)}
 #rail .cap.err .l{color:var(--bad)}
+#rail .cap.offc .s{color:var(--bad)}
 #main{flex:1;min-width:0;padding:10px 14px 60px}
 #main h2{font-size:15px;margin:2px 0 4px}
 #main h3{font-size:13px;margin:18px 0 6px;color:var(--dim);text-transform:uppercase;
@@ -1132,6 +1228,8 @@ table.m{border-collapse:collapse;font-size:12px;margin:4px 0 10px;background:var
 table.m th,table.m td{border:1px solid var(--edge);padding:3px 7px;text-align:left;vertical-align:top}
 table.m th{background:var(--rail);font-weight:600}
 table.m td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+table.m td.bad{color:var(--bad);font-weight:700;white-space:nowrap}
+table.m td.fit{white-space:nowrap}
 .sw{display:inline-block;width:11px;height:11px;border-radius:2px;vertical-align:-1px;margin-right:4px}
 .gh{margin:12px 0 2px;font-size:13px}
 #tip{position:fixed;z-index:30;pointer-events:none;background:var(--panel);color:var(--ink);
@@ -1249,8 +1347,10 @@ function content(c, frame, onlyUnder){
   });
   c.ghosts.forEach(function(g, gi){
     g.lines.forEach(function(ln, li){
-      /* An inactive line is listed in the table only (the writer sends it empty). */
+      /* An inactive line is listed in the table only (the writer sends it empty), and
+         so is a line at stock fade opacity 0 (stock did not draw it this frame). */
       if (!inc(ln.body) || !ln.active || !ln.points.length) return;
+      if (ln.opacity != null && ln.opacity <= 0) return;
       var lo = off(ln.body);
       var pts = ln.points.map(function(p){ return add(lo, p); });
       it.lines.push({g:g, gi:gi, ln:ln, li:li, pts:pts});
@@ -1279,6 +1379,11 @@ function lineTip(c, g, ln, li){
   if (row) t += '\naltitude ' + row.lowest.text + ' .. ' + row.highest.text;
   if (ln.conic) t += '\nconic: sma ' + fmtD(ln.conic.sma) + ', ecc ' + ln.conic.ecc +
     ', inc ' + ln.conic.incDeg + ' deg';
+  if (ln.opacity != null) t += '\nstock fade opacity ' + ln.opacity.toFixed(3) +
+    (ln.opacity < 1 ? ' (drawn faded)' : '');
+  if (row && row.conicFit) t += '\n' + (row.conicFit.fits ? 'fits its conic' : 'OFF ITS CONIC') +
+    ': vertices ' + fmtD(row.conicFit.minR) + ' .. ' + fmtD(row.conicFit.maxR) + ' from the centre, conic ' +
+    fmtD(row.conicFit.rp) + ' .. ' + (row.conicFit.ra != null ? fmtD(row.conicFit.ra) : 'open');
   t += '\nrecording ' + g.recordingId;
   return t;
 }
@@ -1557,8 +1662,11 @@ View.prototype.draw = function(){
     var kind = ['orbit','polyline','tail','bridge'].indexOf(x.ln.kind) >= 0 ? x.ln.kind : 'polyline';
     var cls = 'ln k-' + kind;
     var t = tip(lineTip(c, x.g, x.ln, x.li));
-    if (d.vis) out.push('<path class="'+cls+'" style="stroke:'+col+'" d="'+d.vis+'"/>');
-    if (d.occ) out.push('<path class="'+cls+' occ" style="stroke:'+col+'" d="'+d.occ+'"/>');
+    /* Stock's fade: a line caught part-way (0 < opacity < 1) is drawn faded, never
+       below a visible floor; the hover gives the exact value. */
+    var fade = (x.ln.opacity != null && x.ln.opacity < 1) ? ';stroke-opacity:' + Math.max(0.15, x.ln.opacity).toFixed(3) : '';
+    if (d.vis) out.push('<path class="'+cls+'" style="stroke:'+col+fade+'" d="'+d.vis+'"/>');
+    if (d.occ) out.push('<path class="'+cls+' occ" style="stroke:'+col+fade+'" d="'+d.occ+'"/>');
     out.push('<path class="hit" data-t="'+t+'" d="'+d.vis+d.occ+'"/>');
   });
   it.refs.forEach(function(x){
@@ -1653,7 +1761,10 @@ function buildRail(){
       d.appendChild(el('div', 'l', c.label));
       d.appendChild(el('div', 's', c.error ? 'unreadable: ' + c.error :
         (c.scene || '?') + '  ' + c.utText + '  ' + c.ghosts.length + ' ghost' + (c.ghosts.length === 1 ? '' : 's') +
-        (c.hasPng ? '' : '  (no screenshot)')));
+        (c.hasPng ? '' : '  (no screenshot)') +
+        (c.offConic ? '  ' + c.offConic + ' OFF ITS CONIC' : '') +
+        (c.faded ? '  ' + c.faded + ' faded' : '')));
+      if (c.offConic) d.classList.add('offc');
       d.title = c.error ? c.file + ': ' + c.error : c.file;
       d.onclick = function(){ select(id); };
       rail.appendChild(d);
@@ -1739,12 +1850,14 @@ function measuredTables(c, host){
     p.innerHTML = 'Icon to the nearest drawn point of its own lines: <b>' + (m.icon ? esc(m.icon.text) +
       '</b> (line #' + m.icon.line + ')' : '-</b> (no icon position)') + '. Lines in ' +
       (m.timeOrdered ? 'time order' : 'dump order (not every drawn line has a time range)') +
-      '; the gap column joins drawn lines only (an inactive line is listed, not drawn or measured).';
+      '; the gap column joins drawn lines only (an inactive line is listed, not drawn or measured). ' +
+      'Opacity is stock\'s orbit-line fade (0 = stock did not draw it this frame). Conic fit compares a drawn ' +
+      'orbit line\'s vertex distances from the body centre with its own conic\'s apsis radii (2%).';
     if (m.icon) p.title = m.icon.m.toFixed(3) + ' m';
     host.appendChild(p);
     var t = el('table', 'm');
-    var hdr = ['#','kind','body','active','points','time range','lowest alt','highest alt',
-               'conic Pe / Ap alt','gap to next line','reference: max distance'];
+    var hdr = ['#','kind','body','active','opacity','points','time range','lowest alt','highest alt',
+               'conic Pe / Ap alt','conic fit','gap to next line','reference: max distance'];
     t.innerHTML = '<tr>' + hdr.map(function(x){ return '<th>'+x+'</th>'; }).join('') + '</tr>';
     m.order.forEach(function(i){
       var r = m.lines[i];
@@ -1753,9 +1866,15 @@ function measuredTables(c, host){
         (r.gapToNext.crossBody ? ' (across bodies)' : '')+'</td>' : '<td class="n">-</td>';
       var conic = r.conicPe ? '<td class="n" title="'+r.conicPe.m.toFixed(3)+' m">'+esc(r.conicPe.text)+' / '+esc(r.conicAp && r.conicAp.m != null ? r.conicAp.text : 'open')+'</td>' : '<td class="n">-</td>';
       var ref = r.reference ? '<td class="n" title="'+r.reference.m.toFixed(3)+' m, '+r.referencePoints+' reference points">'+esc(r.reference.text)+' ('+esc(r.referenceKind || '?')+')</td>' : '<td class="n">-</td>';
+      var fit = r.conicFit ? '<td class="'+(r.conicFit.fits ? 'fit' : 'bad')+'" title="'+esc(r.conicFit.rule)+
+        ': vertices '+r.conicFit.minR.toFixed(0)+' .. '+r.conicFit.maxR.toFixed(0)+' m from the centre, conic '+
+        r.conicFit.rp.toFixed(0)+' .. '+(r.conicFit.ra != null ? r.conicFit.ra.toFixed(0) : 'open')+' m">'+
+        (r.conicFit.fits ? 'fits its conic' : 'OFF ITS CONIC')+'</td>' : '<td>-</td>';
+      var act = r.faded ? 'no, not drawn (stock fade)' : (r.active ? 'yes' : 'no (not drawn)');
+      var op = '<td class="n">' + (r.opacity != null ? r.opacity.toFixed(3) : '-') + '</td>';
       var tr = el('tr');
-      tr.innerHTML = '<td>'+i+'</td><td>'+esc(r.kind)+'</td><td>'+esc(r.body)+'</td><td>'+(r.active?'yes':'no (not drawn)')+
-        '</td><td class="n">'+r.points+'</td><td>'+esc(r.utText)+'</td>'+num(r.lowest)+num(r.highest)+conic+gap+ref;
+      tr.innerHTML = '<td>'+i+'</td><td>'+esc(r.kind)+'</td><td>'+esc(r.body)+'</td><td>'+act+
+        '</td>'+op+'<td class="n">'+r.points+'</td><td>'+esc(r.utText)+'</td>'+num(r.lowest)+num(r.highest)+conic+fit+gap+ref;
       t.appendChild(tr);
     });
     host.appendChild(t);

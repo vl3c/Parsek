@@ -391,6 +391,98 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Write_OrbitLineOpacityAndDrawMode_AreAdditiveKeys_AlsoOnAFadedLine()
+        {
+            var doc = new MapGeometryDocument { Label = "o" };
+            doc.Bodies.Add(new MapGeometryBody { Name = "Mun" });
+            var ghost = new MapGeometryGhost { RecordingId = "r", Body = "Mun" };
+            ghost.Lines.Add(new MapGeometryLine
+            {
+                Kind = MapGeometryDecisions.KindOrbit, Body = "Mun", Active = true, Points = Line(4),
+                Opacity = 0.5, DrawMode = "REDRAW_AND_RECALCULATE",
+            });
+            // Faded: not drawn, no points, but the opacity says why.
+            ghost.Lines.Add(new MapGeometryLine
+            {
+                Kind = MapGeometryDecisions.KindOrbit, Body = "Mun", Active = false,
+                Opacity = 0.0, DrawMode = "REDRAW_AND_RECALCULATE",
+            });
+            // Unreadable opacity: the key is omitted, never written as a guess.
+            ghost.Lines.Add(new MapGeometryLine
+            {
+                Kind = MapGeometryDecisions.KindOrbit, Body = "Mun", Active = true, Points = Line(2),
+                Opacity = null, DrawMode = "REDRAW_AND_RECALCULATE",
+            });
+            ghost.Lines.Add(new MapGeometryLine
+            {
+                Kind = MapGeometryDecisions.KindOrbit, Body = "Mun", Active = true, Points = Line(2),
+                Opacity = double.NaN,
+            });
+            doc.Ghosts.Add(ghost);
+
+            string json = MapGeometryJson.Write(doc, out _);
+            var root = (Dictionary<string, object>)MiniJson.ParseValue(json);
+            Assert.Equal("parsek-map-geometry/1", root["schema"]);
+            var lines = (List<object>)((Dictionary<string, object>)((List<object>)root["ghosts"])[0])["lines"];
+            var drawn = (Dictionary<string, object>)lines[0];
+            Assert.Equal(0.5, drawn["opacity"]);
+            Assert.Equal("REDRAW_AND_RECALCULATE", drawn["drawMode"]);
+            var faded = (Dictionary<string, object>)lines[1];
+            Assert.Equal(false, faded["active"]);
+            Assert.Equal(0.0, faded["opacity"]);
+            Assert.Empty((List<object>)faded["points"]);
+            Assert.False(((Dictionary<string, object>)lines[2]).ContainsKey("opacity"));
+            Assert.False(((Dictionary<string, object>)lines[3]).ContainsKey("opacity"));
+            Assert.False(((Dictionary<string, object>)lines[3]).ContainsKey("drawMode"));
+        }
+
+        // ----- stock's orbit-line fade (OrbitRendererBase.DrawOrbit, KSP 1.12.5 IL) -----
+
+        [Theory]
+        [InlineData(false, true, "REDRAW_AND_RECALCULATE", 1.0, "NotActive")]
+        [InlineData(true, false, "REDRAW_AND_RECALCULATE", 1.0, "NotActive")]
+        [InlineData(true, true, "OFF", 1.0, "ModeOff")]
+        [InlineData(true, true, "OFF", 0.0, "ModeOff")]
+        [InlineData(true, true, "REDRAW_AND_RECALCULATE", 0.0, "Faded")]
+        [InlineData(true, true, "REDRAW_AND_RECALCULATE", -0.0, "Faded")]
+        [InlineData(true, true, "REDRAW_AND_RECALCULATE", 0.004, "Drawn")]
+        [InlineData(true, true, "REDRAW_AND_RECALCULATE", 1.0, "Drawn")]
+        [InlineData(true, true, "REDRAW_ONLY", 0.5, "Drawn")]
+        [InlineData(false, true, "REDRAW_AND_RECALCULATE", 0.0, "NotActive")]
+        public void ClassifyOrbitLine_DrawnOnlyWhenActiveEnabledNotOffAndAboveZeroOpacity(
+            bool lineActive, bool enabled, string mode, double opacity, string expected)
+        {
+            MapGeometryDecisions.OrbitLineReport r =
+                MapGeometryDecisions.ClassifyOrbitLine(lineActive, enabled, mode, opacity);
+            Assert.Equal(expected, r.ToString());
+            Assert.Equal(expected == "Drawn", MapGeometryDecisions.IsOrbitLineDrawn(r));
+        }
+
+        [Fact]
+        public void ClassifyOrbitLine_UnknownOpacity_KeepsTheOldRule_AndSaysSo()
+        {
+            Assert.Equal(MapGeometryDecisions.OrbitLineReport.DrawnOpacityUnknown,
+                MapGeometryDecisions.ClassifyOrbitLine(true, true, "REDRAW_AND_RECALCULATE", null));
+            Assert.Equal(MapGeometryDecisions.OrbitLineReport.DrawnOpacityUnknown,
+                MapGeometryDecisions.ClassifyOrbitLine(true, true, null, double.NaN));
+            Assert.True(MapGeometryDecisions.IsOrbitLineDrawn(
+                MapGeometryDecisions.OrbitLineReport.DrawnOpacityUnknown));
+            // The old rule still refuses an inactive mesh with the opacity unknown.
+            Assert.Equal(MapGeometryDecisions.OrbitLineReport.NotActive,
+                MapGeometryDecisions.ClassifyOrbitLine(false, true, "REDRAW_AND_RECALCULATE", null));
+            Assert.False(MapGeometryDecisions.IsOrbitLineDrawn(MapGeometryDecisions.OrbitLineReport.Faded));
+            Assert.False(MapGeometryDecisions.IsOrbitLineDrawn(MapGeometryDecisions.OrbitLineReport.ModeOff));
+        }
+
+        [Fact]
+        public void EffectiveOrbitDrawMode_IsOffWhileTheDriverIsIdle()
+        {
+            Assert.Equal("OFF", MapGeometryDecisions.EffectiveOrbitDrawMode("REDRAW_AND_RECALCULATE", true));
+            Assert.Equal("REDRAW_ONLY", MapGeometryDecisions.EffectiveOrbitDrawMode("REDRAW_ONLY", false));
+            Assert.Equal(MapGeometryDecisions.DrawModeOff, OrbitRendererBase.DrawMode.OFF.ToString());
+        }
+
+        [Fact]
         public void Write_NeverEmitsNaNOrInfinity_TheFieldOrPointIsOmitted()
         {
             var doc = new MapGeometryDocument
@@ -747,12 +839,19 @@ namespace Parsek.Tests
                 Assert.Contains("scaledOffset=(1.5,-2.25,0)", line);
                 Assert.Contains("maxScaledCentreSkewM=0.125", line);
                 Assert.Contains("iconLineMeasured=2 maxIconToOrbitLineM=1234.6 pid=77", line);
+                Assert.Contains("orbitLinesFaded=0 orbitOpacityUnknown=0", line);
                 Assert.DoesNotContain("1234,6", line);
 
                 string empty = MapGeometryDecisions.FormatCaptureSummary(new MapGeometryDecisions.CaptureSummary());
                 Assert.Contains("scaledOffset=unknown", empty);
                 Assert.Contains("maxScaledCentreSkewM=unknown", empty);
                 Assert.Contains("maxIconToOrbitLineM=none", empty);
+
+                string faded = MapGeometryDecisions.FormatCaptureSummary(new MapGeometryDecisions.CaptureSummary
+                {
+                    OrbitLinesFaded = 3, OrbitOpacityUnknown = 1,
+                });
+                Assert.Contains("orbitLinesFaded=3 orbitOpacityUnknown=1", faded);
             }
             finally
             {

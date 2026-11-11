@@ -32,11 +32,14 @@ these deliberate, hand-checkable features (all metres):
                          point -> gap 0.
     line #4              circular Mun orbit polyline r 230 000 -> 30 000.
     line #5              the stock orbit line the traced path hides: inactive,
-                         no points, no time range; conic r 230 000 -> Pe = Ap =
-                         30 000. Listed, not drawn, not in the gap chain.
+                         no points, no time range, stock fade opacity 0; conic
+                         r 230 000 -> Pe = Ap = 30 000. Listed ("not drawn (stock
+                         fade)"), not drawn, not in the gap chain.
     icon                 r 230 250 along a vertex direction of line #4 -> 250.
   Minmus Tanker (StockConic, icon from the proto vessel):
-    line #0              orbit r 80 000 tilted 30 deg -> 20 000 both ways.
+    line #0              orbit r 80 000 tilted 30 deg -> 20 000 both ways; stock
+                         drew it whole (`clipped` false) at fade opacity 0.6, so
+                         it is drawn faded and fits its circular conic.
     line #1              seam bridge, two points on r 80 000: the ring's end
                          (0 deg) and 5 deg -> 20 000 both ways.
     line #0 -> #1        the bridge starts on the ring's end -> gap 0.
@@ -451,6 +454,88 @@ class SampleMeasurementTests(unittest.TestCase):
         self.assertIsNone(m["lines"][0]["lowest"]["m"])
         self.assertIsNone(m["lines"][0]["gapToNext"])
 
+    def test_opacity_and_the_faded_line(self):
+        rows = self.g1["lines"]
+        self.assertEqual(rows[5]["opacity"], 0.0)
+        self.assertTrue(rows[5]["faded"])
+        self.assertIsNone(rows[5]["conicFit"])
+        self.assertEqual(self.g1["faded"], 1)
+        self.assertEqual(self.dump["ghosts"][0]["lines"][5]["drawMode"], "REDRAW_AND_RECALCULATE")
+        tanker = self.g2["lines"][0]
+        self.assertEqual(tanker["opacity"], 0.6)
+        self.assertFalse(tanker["faded"])
+        self.assertTrue(tanker["drawn"])
+        self.assertIsNone(self.g1["lines"][0]["opacity"])
+        # A line an older writer marked active with points but that the dump names at
+        # opacity 0 is not drawn, measured or chained.
+        ghost = json.loads(json.dumps(self.dump["ghosts"][1]))
+        ghost["lines"][0]["opacity"] = 0.0
+        m = mm.measure_ghost(ghost, self.bodies)
+        self.assertFalse(m["lines"][0]["drawn"])
+        self.assertTrue(m["lines"][0]["faded"])
+        self.assertIsNone(m["lines"][0]["gapToNext"])
+        self.assertIsNone(m["lines"][0]["conicFit"])
+
+    def test_an_opacity_outside_zero_to_one_is_a_note(self):
+        obj = load_json(SAMPLE)
+        obj["ghosts"][1]["lines"][0]["opacity"] = 1.5
+        dump, notes = mm.validate_dump(obj)
+        self.assertIsNone(dump["ghosts"][1]["lines"][0]["opacity"])
+        self.assertTrue(any("opacity" in n and "outside 0..1" in n for n in notes), notes)
+
+    def test_the_drawn_circle_fits_its_conic(self):
+        fit = self.g2["lines"][0]["conicFit"]
+        self.assertTrue(fit["fits"])
+        close(self, fit["minR"], 80000.0)
+        close(self, fit["maxR"], 80000.0)
+        close(self, fit["rp"], 80000.0)
+        close(self, fit["ra"], 80000.0)
+        self.assertEqual(self.g2["offConic"], 0)
+        # Only orbit lines with a conic are checked.
+        self.assertIsNone(self.g2["lines"][1]["conicFit"])
+        self.assertIsNone(self.g1["lines"][1]["conicFit"])
+
+    def test_a_stale_offset_orbit_line_is_off_its_conic(self):
+        # The first-flight defect: the vertices of an older frame, the right shape but
+        # moved off the body centre.
+        ghost = json.loads(json.dumps(self.dump["ghosts"][1]))
+        ghost["lines"][0]["points"] = [[x + 50000.0, y, z] for x, y, z in ghost["lines"][0]["points"]]
+        m = mm.measure_ghost(ghost, self.bodies)
+        self.assertFalse(m["lines"][0]["conicFit"]["fits"])
+        self.assertEqual(m["offConic"], 1)
+
+    def test_conic_fit_rules(self):
+        ell = {"sma": 1000.0, "ecc": 0.5}       # rp 500, ra 1500
+        whole = [[500.0, 0, 0], [0, 1000.0, 0], [-1500.0, 0, 0]]
+        self.assertTrue(mm.conic_fit(whole, ell, False)["fits"])
+        self.assertTrue(mm.conic_fit(whole, ell, None)["fits"])
+        # A whole ellipse that misses periapsis by 3 % is off.
+        self.assertFalse(mm.conic_fit([[515.0, 0, 0], [-1500.0, 0, 0]], ell, False)["fits"])
+        # A clipped arc need not reach either apsis, but must stay between them.
+        arc = [[0, 700.0, 0], [0, 1200.0, 0]]
+        self.assertFalse(mm.conic_fit(arc, ell, False)["fits"])
+        self.assertTrue(mm.conic_fit(arc, ell, True)["fits"])
+        self.assertFalse(mm.conic_fit([[0, 1600.0, 0]], ell, True)["fits"])
+        self.assertFalse(mm.conic_fit([[0, 480.0, 0]], ell, True)["fits"])
+        # An open orbit stock drew whole passes through periapsis.
+        hyp = {"sma": -500.0, "ecc": 2.0}       # rp 500
+        self.assertTrue(mm.conic_fit([[0, 492.0, 0], [0, 1e9, 0]], hyp, False)["fits"])
+        self.assertFalse(mm.conic_fit([[0, 480.0, 0]], hyp, False)["fits"])
+        self.assertIsNone(mm.conic_fit([[0, 1.0, 0]], hyp, False)["ra"])
+        # The first-flight stale case: "drawn whole" but the vertices are an arc far
+        # out (an earlier frame's clip, or an older position) -> off.
+        self.assertFalse(mm.conic_fit([[0, 3.8e7, 0], [0, 3.9e7, 0]],
+                                      {"sma": -510000.0, "ecc": 1.666}, False)["fits"])
+        # A clipped open arc: not inside periapsis, not past the SOI when one is known.
+        self.assertTrue(mm.conic_fit([[0, 700.0, 0], [0, 5000.0, 0]], hyp, True, soi=6000.0)["fits"])
+        self.assertFalse(mm.conic_fit([[0, 700.0, 0], [0, 7000.0, 0]], hyp, True, soi=6000.0)["fits"])
+        self.assertTrue(mm.conic_fit([[0, 700.0, 0], [0, 7000.0, 0]], hyp, True)["fits"])
+        self.assertFalse(mm.conic_fit([[0, 480.0, 0]], hyp, True)["fits"])
+        # Nothing to check.
+        self.assertIsNone(mm.conic_fit([], ell, False))
+        self.assertIsNone(mm.conic_fit(whole, None, False))
+        self.assertIsNone(mm.conic_fit(whole, {"sma": 1000.0, "ecc": None}, False))
+
     def test_an_open_orbit_has_no_apoapsis(self):
         pe, ap = mm.conic_apsides({"sma": -575000.0, "ecc": 1.4}, 200000.0)
         close(self, pe, 30000.0)
@@ -554,6 +639,21 @@ class PageTests(unittest.TestCase):
         model = self.page_model(html)
         bad = [c for c in model["captures"] if c["error"]]
         self.assertEqual([c["label"] for c in bad], ["bad"])
+
+    def test_an_off_conic_line_is_counted_on_the_rail_and_in_the_index(self):
+        obj = load_json(SAMPLE)
+        ln = obj["ghosts"][1]["lines"][0]
+        ln["points"] = [[x * 1.2, y * 1.2, z * 1.2] for x, y, z in ln["points"]]
+        with open(os.path.join(self.run1, "map-mun-loop.map.json"), "w") as fh:
+            json.dump(obj, fh)
+        _, html, index = self.run_tool()
+        cap = [c for c in self.page_model(html)["captures"] if c["label"] == "map-mun-loop"][0]
+        self.assertEqual(cap["offConic"], 1)
+        self.assertEqual(cap["faded"], 1)
+        row = [r for r in index["lanes"][0]["captures"] if r["label"] == "map-mun-loop"][0]
+        self.assertEqual((row["offConicLines"], row["fadedLines"]), (1, 1))
+        self.assertIn("OFF ITS CONIC", mm.JS)
+        self.assertIn("not drawn (stock fade)", mm.JS)
 
     def test_a_capture_without_a_png_still_renders(self):
         _, html, _ = self.run_tool()
@@ -672,6 +772,9 @@ class CSharpWriterSourceSyncTests(unittest.TestCase):
         ("dropped", "the capture header and the TRUNCATED note"),
         ("forward", "the camera view's recorded frame"),
         ("fovDeg", "the camera view's zoom"),
+        ("clipped", "the conic fit's whole-ellipse vs clipped-arc rule"),
+        ("opacity", "the stock fade: which orbit lines were drawn, and how faded"),
+        ("drawMode", "validate_dump (the stock draw mode an orbit line was drawn in)"),
     ]
 
     def _read(self, path):

@@ -24,7 +24,10 @@ id = "TP-5-laythe-vall-map-pictures"
 #
 # THE PICTURE PROTOCOL (design-map-mirror.md -> "How to get the pictures"). Every view is
 # three steps under ONE label: `MapCamera` (focus / pitch / heading / distance, so the
-# frame is the same on every run), `CaptureScreenshot label=L` (the PNG) and
+# frame is the same on every run, and `hold = "4.5"`: 4.5 real seconds after the camera
+# settles, so stock's orbit-line zoom fade, about 4 s at 1x, has finished before the
+# picture; game time runs on at 1x meanwhile, so each view of an instant is taken a few
+# seconds after the previous one), `CaptureScreenshot label=L` (the PNG) and
 # `DumpMapGeometry label=L` (the same frame as data, `Screenshots/L.map.json`). The harvest
 # copies both into `results/<runId>_shots/`, and `tools/map_mirror.py <shots-dir>` pairs
 # them by label into one page. Distances are metres from the focus body's centre, sized
@@ -52,13 +55,14 @@ id = "TP-5-laythe-vall-map-pictures"
 #     lane replays a committed fixture.
 #   7 tight count windows - the model lane's window, copied; tightened after the first
 #     flight only if it reads otherwise.
-#   8 tier by measured cost / 9 flight_efficiency.py - owed after the first flight; the
-#     tier is `operator` because the lane is run on request for pictures.
+#   8 tier by measured cost / 9 flight_efficiency.py - the first flights (2026-11-11,
+#     before the hold) took 56 to 91 s wall per lane; flight_efficiency.py over them is
+#     still owed. The tier is `operator` because the lane is run on request for pictures.
 # =====================================================================================
 tier = "operator"
-description = "PICTURE LANE, AUTHORED 2026-11-11, NOT YET FLOWN. V17M's looped Laythe->Vall moon-to-moon mission on vall-transfer-recorded, with the flight map opened: at the cycle-1 Jool-frame transfer, cycle-1 Vall arrival, cycle-1 Vall park and cycle-2 arrival it frames the map camera, photographs each view and dumps the same frame's geometry under one label, 12 views in all. Expectations are only that every view was taken and none was refused."
+description = "PICTURE LANE, AUTHORED 2026-11-11, FIRST FLOWN GREEN 2026-11-11 (run 2026-11-11_2151, before the MapCamera hold; the hold is not flown yet). V17M's looped Laythe->Vall moon-to-moon mission on vall-transfer-recorded, with the flight map opened: at the cycle-1 Jool-frame transfer, cycle-1 Vall arrival, cycle-1 Vall park and cycle-2 arrival it frames the map camera, photographs each view and dumps the same frame's geometry under one label, 12 views in all. Expectations are only that every view was taken and none was refused."
 instanceProfile = "stock-minimal"
-tags = ["TP", "TP-5", "map-pictures", "map-geometry", "screenshots", "map-render", "loop-playback", "pending-flight", "vall", "laythe", "jool", "moon-to-moon"]
+tags = ["TP", "TP-5", "map-pictures", "map-geometry", "screenshots", "map-render", "loop-playback", "flown", "vall", "laythe", "jool", "moon-to-moon"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/vall-transfer-recorded"
@@ -82,45 +86,45 @@ steps = [
   { cmd = "TimeJump", args = { ut = "28962989" }, expect = "OK", budget = 300 },
   { cmd = "WarpToUT", args = { ut = "28962994", maxRate = "1" }, expect = "OK", budget = 120 },
   # view tp5-c1-transfer-sys-top: Sun pitch=90 heading=0 distance=160000000000 m
-  { cmd = "MapCamera", args = { focus = "Sun", pitch = "90", heading = "0", distance = "160000000000" }, expect = "OK" },
+  { cmd = "MapCamera", args = { focus = "Sun", pitch = "90", heading = "0", distance = "160000000000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp5-c1-transfer-sys-top" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp5-c1-transfer-sys-top" }, expect = "OK" },
   # view tp5-c1-transfer-jool-top: Jool pitch=90 heading=0 distance=95000000 m
-  { cmd = "MapCamera", args = { focus = "Jool", pitch = "90", heading = "0", distance = "95000000" }, expect = "OK" },
+  { cmd = "MapCamera", args = { focus = "Jool", pitch = "90", heading = "0", distance = "95000000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp5-c1-transfer-jool-top" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp5-c1-transfer-jool-top" }, expect = "OK" },
   # view tp5-c1-transfer-jool-edge: Jool pitch=0 heading=0 distance=95000000 m
-  { cmd = "MapCamera", args = { focus = "Jool", pitch = "0", heading = "0", distance = "95000000" }, expect = "OK" },
+  { cmd = "MapCamera", args = { focus = "Jool", pitch = "0", heading = "0", distance = "95000000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp5-c1-transfer-jool-edge" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp5-c1-transfer-jool-edge" }, expect = "OK" },
   # INSTANT c1-arrival at UT 28998568: V17M's measured cycle-1 arrival jump (+140 s past the Vall SOI entry)
   { cmd = "TimeJump", args = { ut = "28998568" }, expect = "OK", budget = 300 },
   { cmd = "WarpToUT", args = { ut = "28998573", maxRate = "1" }, expect = "OK", budget = 120 },
   # view tp5-c1-arrival-jool-top: Jool pitch=90 heading=0 distance=95000000 m
-  { cmd = "MapCamera", args = { focus = "Jool", pitch = "90", heading = "0", distance = "95000000" }, expect = "OK" },
+  { cmd = "MapCamera", args = { focus = "Jool", pitch = "90", heading = "0", distance = "95000000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp5-c1-arrival-jool-top" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp5-c1-arrival-jool-top" }, expect = "OK" },
   # view tp5-c1-arrival-vall-top: Vall pitch=90 heading=0 distance=5300000 m
-  { cmd = "MapCamera", args = { focus = "Vall", pitch = "90", heading = "0", distance = "5300000" }, expect = "OK" },
+  { cmd = "MapCamera", args = { focus = "Vall", pitch = "90", heading = "0", distance = "5300000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp5-c1-arrival-vall-top" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp5-c1-arrival-vall-top" }, expect = "OK" },
   # view tp5-c1-arrival-vall-edge: Vall pitch=0 heading=0 distance=5300000 m
-  { cmd = "MapCamera", args = { focus = "Vall", pitch = "0", heading = "0", distance = "5300000" }, expect = "OK" },
+  { cmd = "MapCamera", args = { focus = "Vall", pitch = "0", heading = "0", distance = "5300000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp5-c1-arrival-vall-edge" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp5-c1-arrival-vall-edge" }, expect = "OK" },
   # INSTANT c1-park at UT 29002565: V17M's measured cycle-1 Vall park jump (offset 79,576.0)
   { cmd = "TimeJump", args = { ut = "29002565" }, expect = "OK", budget = 300 },
   { cmd = "WarpToUT", args = { ut = "29002570", maxRate = "1" }, expect = "OK", budget = 120 },
   # view tp5-c1-park-vall-top: Vall pitch=90 heading=0 distance=5300000 m
-  { cmd = "MapCamera", args = { focus = "Vall", pitch = "90", heading = "0", distance = "5300000" }, expect = "OK" },
+  { cmd = "MapCamera", args = { focus = "Vall", pitch = "90", heading = "0", distance = "5300000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp5-c1-park-vall-top" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp5-c1-park-vall-top" }, expect = "OK" },
   # view tp5-c1-park-vall-edge: Vall pitch=0 heading=0 distance=5300000 m
-  { cmd = "MapCamera", args = { focus = "Vall", pitch = "0", heading = "0", distance = "5300000" }, expect = "OK" },
+  { cmd = "MapCamera", args = { focus = "Vall", pitch = "0", heading = "0", distance = "5300000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp5-c1-park-vall-edge" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp5-c1-park-vall-edge" }, expect = "OK" },
   # view tp5-c1-park-jool-edge: Jool pitch=0 heading=0 distance=95000000 m
-  { cmd = "MapCamera", args = { focus = "Jool", pitch = "0", heading = "0", distance = "95000000" }, expect = "OK" },
+  { cmd = "MapCamera", args = { focus = "Jool", pitch = "0", heading = "0", distance = "95000000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp5-c1-park-jool-edge" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp5-c1-park-jool-edge" }, expect = "OK" },
   # the next cycle: StartLoopPlayback warps to its departure, as the model lane does
@@ -129,15 +133,15 @@ steps = [
   { cmd = "TimeJump", args = { ut = "29104530" }, expect = "OK", budget = 300 },
   { cmd = "WarpToUT", args = { ut = "29104535", maxRate = "1" }, expect = "OK", budget = 120 },
   # view tp5-c2-arrival-jool-top: Jool pitch=90 heading=0 distance=95000000 m
-  { cmd = "MapCamera", args = { focus = "Jool", pitch = "90", heading = "0", distance = "95000000" }, expect = "OK" },
+  { cmd = "MapCamera", args = { focus = "Jool", pitch = "90", heading = "0", distance = "95000000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp5-c2-arrival-jool-top" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp5-c2-arrival-jool-top" }, expect = "OK" },
   # view tp5-c2-arrival-vall-top: Vall pitch=90 heading=0 distance=5300000 m
-  { cmd = "MapCamera", args = { focus = "Vall", pitch = "90", heading = "0", distance = "5300000" }, expect = "OK" },
+  { cmd = "MapCamera", args = { focus = "Vall", pitch = "90", heading = "0", distance = "5300000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp5-c2-arrival-vall-top" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp5-c2-arrival-vall-top" }, expect = "OK" },
   # view tp5-c2-arrival-vall-edge: Vall pitch=0 heading=0 distance=5300000 m
-  { cmd = "MapCamera", args = { focus = "Vall", pitch = "0", heading = "0", distance = "5300000" }, expect = "OK" },
+  { cmd = "MapCamera", args = { focus = "Vall", pitch = "0", heading = "0", distance = "5300000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp5-c2-arrival-vall-edge" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp5-c2-arrival-vall-edge" }, expect = "OK" },
   { cmd = "FlushAndQuit", expect = "OK" },
@@ -203,7 +207,8 @@ forbidden = [
 
 [runtime]
 # The model lane's budget; the views add a few seconds each (three short two-phase
-# verbs) and every TimeJump is an instantaneous clock set.
+# verbs, the camera's 4.5 s hold included) and every TimeJump is an instantaneous
+# clock set.
 budgetSeconds = 2400
 
 [retry]
