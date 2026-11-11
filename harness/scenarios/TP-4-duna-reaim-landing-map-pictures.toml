@@ -42,13 +42,18 @@ id = "TP-4-duna-reaim-landing-map-pictures"
 # [5,360,095,095.6, 5,360,144,182.0], a month after the landing clip ended (todo
 # REAIM-PARKING-ICON-AFTER-LANDING). `c1-after` photographs Duna close up just after the
 # landing (run 2026-11-11_2316: nothing of the lander left, as it should be) and `c1-late`
-# photographs it inside that later window.
+# photographs it inside that later window. Run 2026-11-11_2332 photographed nothing at Duna
+# there: once the landing has PLAYED, the descent member has taken the chain's map presence
+# and the transfer member's proto ghost is not created again. Run _2238 saw it because its
+# jump stepped over the whole descent window (`DESCENT SKIPPED`), so `c1-late` is the
+# regression picture for the played case.
 #
 # STOCK'S FADE DECIDES THE DISTANCES. Stock fades a vessel's orbit line AND its icon (the
 # icon's colour alpha is the line opacity) once the camera is 25 SMA from its target, so
 # the inbound hyperbola (SMA -188 km) is on screen only inside 4.7e6 m of Duna and the
 # parking orbit (SMA 496 km) inside 1.24e7 m. Run 2026-11-11_2316 framed the arrival at
-# 5e6 and 1.05e8 and photographed neither line nor icon; the arrival views now sit at 3e6.
+# 5e6 and 1.05e8 and photographed neither line nor icon; the arrival views now sit at 3e6,
+# where run 2026-11-11_2332 photographed both.
 #
 # INSTANTS AND VIEWS (label tp4-<instant>-<view>; one cycle, as V25M flies one; every
 # jump is forward):
@@ -68,6 +73,7 @@ id = "TP-4-duna-reaim-landing-map-pictures"
 #                              duna-low-top (Duna, 1.5e6)
 #   c1-late     5,360,120,000  inside [5,360,095,095.6, 5,360,144,182.0], where run
 #                              2026-11-11_2238 traced the parking conic drawn again
+#                              (run 2026-11-11_2332, landing played: nothing at Duna)
 #                              duna-low-top (Duna, 1.5e6)
 #
 # THE PICTURE PROTOCOL (design-map-mirror.md -> "How to get the pictures"). Every view is
@@ -108,7 +114,7 @@ id = "TP-4-duna-reaim-landing-map-pictures"
 #     still owed. The tier is `operator` because the lane is run on request for pictures.
 # =====================================================================================
 tier = "operator"
-description = "PICTURE LANE, AUTHORED 2026-11-11, FIRST FLOWN GREEN 2026-11-11 (run 2026-11-11_2154; again with the MapCamera hold, run 2026-11-11_2238; with the re-pinned Duna instants, run 2026-11-11_2316). V25M's re-aimed Kerbin->Duna loop (heliocentric parking departure) on duna-park-recorded, with the flight map opened (V25M never opens it): at the heliocentric transfer, the inbound Duna hyperbola, the Duna atmospheric descent, just before touchdown, just after the landing and a month later it frames the map camera, photographs each view and dumps the same frame's geometry under one label, 14 views in all. The Duna instants were re-pinned on 2026-11-11 off the descent window run 2026-11-11_2238 printed (the first two flights photographed the recorded loop-clock slots, where a re-aimed landing does not play) and run 2026-11-11_2316 photographed the lander in all six descent and landing views; the closer arrival views (3e6, inside stock's fade distance) and the late-slot view are not flown yet. Expectations are only that every view was taken and none was refused."
+description = "PICTURE LANE, AUTHORED 2026-11-11, FIRST FLOWN GREEN 2026-11-11 (run 2026-11-11_2154; again with the MapCamera hold, run 2026-11-11_2238; with the re-pinned Duna instants, runs 2026-11-11_2316 and 2026-11-11_2332). V25M's re-aimed Kerbin->Duna loop (heliocentric parking departure) on duna-park-recorded, with the flight map opened (V25M never opens it): at the heliocentric transfer, the inbound Duna hyperbola, the Duna atmospheric descent, just before touchdown, just after the landing and a month later it frames the map camera, photographs each view and dumps the same frame's geometry under one label, 14 views in all. The Duna instants were re-pinned on 2026-11-11 off the descent window run 2026-11-11_2238 printed (the first two flights photographed the recorded loop-clock slots, where a re-aimed landing does not play) and run 2026-11-11_2316 photographed the lander in all six descent and landing views; run 2026-11-11_2332 photographed the inbound hyperbola and the ship's icon in the closer arrival views (3e6, inside stock's fade distance) and nothing at Duna in the late-slot view. Expectations are only that every view was taken and none was refused."
 instanceProfile = "stock-minimal"
 tags = ["TP", "TP-4", "map-pictures", "map-geometry", "screenshots", "map-render", "loop-playback", "flown", "duna", "reaim", "landing", "cross-parent"]
 

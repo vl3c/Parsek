@@ -356,7 +356,8 @@ raised the fade; the rest are still open. Read on the next run:
   it), so an icon fades out with its orbit line. The map mirror page applies that rule itself
   (`map_mirror.proto_icon_faded`: a proto icon whose orbit line reads opacity 0 is "not drawn
   (stock fade)"); the dump still writes the proxy, and folding the opacity into `icon.drawn` is
-  owed (todo MAP-PICTURE-LANES-FIRST-FLIGHT).
+  owed (todo MAP-PICTURE-LANES-FIRST-FLIGHT). Run `2026-11-11_2332` framed the same arrival at
+  3e6 m, inside the fade distance: line opacity 1, and the screenshot shows the icon on it.
 - The marker positions in FLIGHT come from the same world position the marker funnel projects;
   whether they agree with the PNG's marker to the pixel is unmeasured.
 - The arc-clip tap. `clipped` and the orbit `ut` window rely on `GhostOrbitArcPatch`'s Prefix
