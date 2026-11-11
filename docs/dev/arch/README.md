@@ -354,6 +354,64 @@ Re-pin in the PR that lowers a count (the step log prints the slack), so the
 bound follows it down, and raise one only for a deliberate change the PR
 explains.
 
+## Metrics history
+
+Every number above exists only for the commit it is run on. The history keeps
+one machine-readable row per commit on `main`, so trends can be drawn later.
+It gates nothing: no check reads it, and no row can fail a PR.
+
+- **Where.** Branch `metrics` (an orphan branch: no source, only `README.md`
+  and the history), file `metrics.jsonl`: one JSON object per line, in the
+  order the rows arrived, at most one row per commit sha.
+- **What a row holds** (schema `parsek-metrics/1`; `scripts/arch/metrics.py`'s
+  docstring lists every key): `commit` (sha, committer date in UTC),
+  `measured` (which halves were measured), `text` (the text scan: production
+  files and lines per module, module count, forbidden-edge violations, upward
+  edges, knot sizes, greedy and replayed residue, first cut), `semantic` (the
+  semantic report's headline: knot and residues for the text, raw IL and
+  semantic graphs, edge counts, forwarder rewrites), `facts` (the code facts:
+  the three ratchet sets' sizes, the static-state totals, complexity at 20 /
+  50 / 100, game coupling overall and per module, unreached methods and their
+  instructions, test reach per module) and `sizes` (`scripts/count-code.py`:
+  lines per area and the test totals). Nothing is measured by new logic: the
+  row is those tools' own output, built in one process so `Parsek.dll` is
+  disassembled and parsed once. Without a DLL the `semantic` and `facts`
+  halves are null; without the test DLL `facts.testReach` is.
+- **How it gets there.** CI's `tests` job builds a row after the compiled-IL
+  step and uploads it as the `metrics-row` artifact (14 days). On a pull
+  request the row is informational (named for the PR head sha, measured on
+  the merge ref) and skips the test DLL. On a push to `main` the row also
+  measures test reach, and the `metrics` job (the workflow's only job with
+  write access, main pushes only) appends it with
+  `scripts/arch/metrics_append.py publish`: a worktree of the checkout on the
+  branch (created as an orphan when missing), append, commit as
+  `github-actions[bot]` (`metrics: <short sha>`), push, and on a rejected push
+  re-fetch, re-append and retry. A sha already in the file changes nothing.
+- **Reading it.**
+
+```bash
+git fetch origin metrics
+git show origin/metrics:metrics.jsonl | python3 -c "
+import json, sys
+for line in sys.stdin:
+    r = json.loads(line)
+    print(r['commit']['date'], r['commit']['sha'][:9], r['text']['knot'],
+          (r['semantic'] or {}).get('ratchetResidue'), (r['facts'] or {}).get('ratchets'))"
+```
+
+Build a row locally (after a Debug build; about 100 s, 70 s more with the
+test DLL):
+
+```bash
+python3 scripts/arch/metrics.py --sha "$(git rev-parse HEAD)" --date "$(git show -s --format=%cI HEAD)" \
+    --dll Source/Parsek/bin/Debug/Parsek.dll [--tests-dll Source/Parsek.Tests/bin/Debug/net472/Parsek.Tests.dll]
+```
+
+A key may be added without a schema change; renaming or removing one bumps
+the schema id, and `metrics_append.py` refuses a schema it does not know.
+Rows from a Release build or another compiler are not comparable (see "Member
+facts"); CI measures the Debug build.
+
 ## Regenerating
 
 Nothing under `docs/dev/arch/` except this README is tracked. Run the script

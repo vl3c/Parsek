@@ -184,3 +184,65 @@ jobs:
         env:
           PARSEK_ARCH_IL: ${{ github.workspace }}/Source/Parsek/bin/Debug/Parsek.dll
         run: python3 -m unittest discover -s scripts/arch -p 'test_[si]*.py' -q
+
+      # One metrics history row for this commit (scripts/arch/metrics.py,
+      # README "Metrics history"): the text scan, the semantic graph, the code
+      # facts and the size counts, built in one process over the DLL the
+      # build step made (one ikdasm and one parse of Parsek.dll, about 100 s).
+      # The row gates nothing, but a tool that cannot measure fails the step.
+      # On a push to main it also measures test reach over Parsek.Tests.dll
+      # (about 70 s more) and the metrics job below appends it to the
+      # metrics branch; a pull request's row is named for the PR head sha
+      # (measured on the merge ref the job checked out) and only uploaded.
+      - name: Metrics history row
+        env:
+          ROW_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          WITH_TESTS_DLL: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/metrics-row"
+          set -- --sha "$ROW_SHA" --date "$(git show -s --format=%cI "$ROW_SHA")" \
+            --dll Source/Parsek/bin/Debug/Parsek.dll --out "$RUNNER_TEMP/metrics-row/row.json"
+          if [ "$WITH_TESTS_DLL" = "true" ]; then
+            set -- "$@" --tests-dll Source/Parsek.Tests/bin/Debug/net472/Parsek.Tests.dll
+          fi
+          python3 scripts/arch/metrics.py "$@"
+
+      - name: Upload metrics row
+        uses: actions/upload-artifact@v4
+        with:
+          name: metrics-row
+          path: ${{ runner.temp }}/metrics-row/row.json
+          if-no-files-found: error
+          retention-days: 14
+
+  # Appends main's row to metrics.jsonl on the `metrics` branch
+  # (scripts/arch/metrics_append.py; it creates the branch as an orphan when
+  # it is missing, and a push rejected by a concurrent append is retried on
+  # the new tip). The only job with write access, and it runs only for a
+  # push to main, after `tests` passed, on code already merged: no pull
+  # request reaches it, and nothing here can fail a PR.
+  metrics:
+    needs: tests
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    concurrency:
+      group: metrics-history
+      cancel-in-progress: false
+    steps:
+      # The default persist-credentials keeps the job token in this checkout's
+      # git config; the metrics worktree below shares it for the push.
+      - uses: actions/checkout@v4
+
+      - name: Download metrics row
+        uses: actions/download-artifact@v4
+        with:
+          name: metrics-row
+          path: ${{ runner.temp }}/metrics-row
+
+      - name: Append the row to the metrics branch
+        run: |
+          python3 scripts/arch/metrics_append.py publish --row "$RUNNER_TEMP/metrics-row/row.json" \
+            --repo . --remote origin --branch metrics --workdir "$RUNNER_TEMP/metrics-branch"

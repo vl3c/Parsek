@@ -174,24 +174,32 @@ def git_head():
         return "unknown"
 
 
+def collect():
+    """Every count main prints, as the --json payload plus the row labels.
+
+    scripts/arch/metrics.py reads this too (the metrics history row), so the
+    two never count differently.
+    """
+    files = tracked_files()
+    return {"head": git_head(), "areas": count_areas(files),
+            "filesOutsideAreas": count_outside_areas(files),
+            "tests": count_tests(files)}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--json", action="store_true",
                         help="print the counts as JSON instead of tables")
     args = parser.parse_args(argv)
 
-    files = tracked_files()
-    areas = count_areas(files)
-    tests = count_tests(files)
-    outside = count_outside_areas(files)
-    head = git_head()
+    payload = collect()
+    head, areas = payload["head"], payload["areas"]
+    tests, outside = payload["tests"], payload["filesOutsideAreas"]
 
     if args.json:
         for row in areas:
             del row["label"]
-        json.dump({"head": head, "areas": areas,
-                   "filesOutsideAreas": outside, "tests": tests},
-                  sys.stdout, indent=2)
+        json.dump(payload, sys.stdout, indent=2)
         sys.stdout.write("\n")
         return 0
 
