@@ -20,28 +20,64 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## MAP-PICTURE-LANES-FIRST-FLIGHT: the eight map picture lanes TP-1..TP-8 have never flown [FILED 2026-11-11 with the lanes, branch `claude/project-thread-zfo2hk`. OPEN; harness, lanes only, no known defect]
+## MAP-PICTURE-LANES-FIRST-FLIGHT: the eight map picture lanes TP-1..TP-8 flew green; their dumps wrote orbit lines stock had faded out [FILED 2026-11-11 with the lanes, branch `claude/project-thread-zfo2hk`; FIRST FLOWN GREEN 2026-11-11; dump fix and `MapCamera hold` on the same branch, NOT YET FLOWN. OPEN; re-fly owed]
 
 The first lanes wired to the `DumpMapGeometry` / `MapCamera` seam verbs: operator-tier picture
 lanes that copy a model lane's fixture, loop setup and measured jumps (TP-1 V6M, TP-2 V6T, TP-3
 V7M, TP-4 V25M, TP-5 V17M, TP-6 V23M, TP-7 V18T, TP-8 V26M) and take 85 views
 (`MapCamera` -> `CaptureScreenshot` -> `DumpMapGeometry`, one label per view) for the map mirror
-page (`docs/dev/design-map-mirror.md` -> "How to get the pictures"). Validated pre-launch only.
+page (`docs/dev/design-map-mirror.md` -> "How to get the pictures").
+
+**First flight, 2026-11-11, flown head c158d338a: all eight PASS.** Runs `2026-11-11_2146` TP-1,
+`_2148` TP-8, `_2149` TP-2, `_2150` TP-3, `_2151` TP-5, `_2153` TP-6, `_2154` TP-4, `_2155` TP-7
+(wall 56 to 91 s). 85 views, every `mapcamera ok` with `pitchClamped=false distanceClamped=false`;
+TP-2 and TP-7 loaded the Tracking Station three times in one process without a refusal.
+
+**Defect found on the page: ghost orbit lines dumped `active:true` with stale points.** Read from
+the KSP 1.12.5 IL (`docs/dev/design-map-geometry-dump.md` -> "Stock's orbit-line fade"): a
+vessel orbit line fades by camera distance in `OrbitRendererBase.SplineOpacityUpdate` (toward 1
+inside a camera-distance / SMA window, toward 0 outside it, `0.25 * Time.deltaTime` per frame,
+so 4 s per full fade); at `lineOpacity == 0` `DrawOrbit` returns before `UpdateSpline`, so the
+points freeze where they were last drawn, and Parsek's `GhostOrbitLinePatch` keeps the line
+object active. The dump took that as drawn. On the first-flight dumps the page's conic check
+flags 24 lines in 21 captures as off their own conic (TP-1 and TP-3 Kerbin / Minmus arrival
+views, most of TP-4 from the Duna transfer to the landing, TP-5 Jool arrival in both cycles,
+`tp8-save-clock-duna-top`), every one `clipped:false`; `tp1-c1-arrival-kerbin-top` draws a
+hyperbola's points at 3.79e7 m whose periapsis is 3.4e5 m, and `tp1-c2-arrival-kerbin-top` has
+points on the right conic but the shape of an earlier clipped arc.
+
+Fix (this branch): the dump reads `lineOpacity` (fail soft) and the effective draw mode and
+writes an orbit line drawn only when `active && enabled && drawMode != OFF && opacity > 0`
+(`MapGeometryDecisions.ClassifyOrbitLine`; an unreadable opacity keeps the old rule and is
+counted); a faded line is `active:false` with no points, every orbit line carries the additive
+`opacity` / `drawMode` keys, and `dumpmapgeometry captured:` counts `orbitLinesFaded=` /
+`orbitOpacityUnknown=`. The page draws a part-faded line lighter, lists a faded one as "not drawn
+(stock fade)" and flags a drawn line off its conic in red on the lane rail. Not handled, by
+design: a line in REDRAW_ONLY / REDRAW_AND_FOLLOW draws its stored points without recomputing them
+(Parsek sets REDRAW_AND_RECALCULATE on every ghost renderer; the dump names the mode), and a
+debris line without mouse-over or a map-filtered line does not update its opacity. `MapCamera`
+gains `hold=<seconds>` (0..10, real time; settle budget = step budget minus hold), and every TP
+view holds 4.5 s so a fade started by the new frame finishes before the screenshot.
 
 Owed, in order:
-- Fly each once (`python harness/run.py --tag TP`) and build the page over the eight `_shots`
-  dirs. Neither verb has run in a live game, so a red here may be the verbs, not the lane.
-- Check the instants that are DERIVED rather than copied, from the dumps: TP-4's descent and
+- Re-fly TP-1..TP-8 with the hold (`python harness/run.py --tag TP`, after provisioning this
+  branch's DLL) and rebuild the page. Expect `orbitLinesFaded=` above zero on the close views and
+  the conic check to flag nothing; a line still off its conic after a 4.5 s hold is a new reading.
+  The hold runs in real time while game time runs at 1x: with three views of about 5 s each a
+  lane's last view sits up to about 15 s of game time past its instant. TP-4's landing instant is
+  about 20 s before touchdown, so its last landing view may show the ghost at or past touchdown;
+  re-pin that instant earlier if it does.
+- Check the instants that are DERIVED rather than copied, from the pictures: TP-4's descent and
   landing (`5,360,227,434` / `_534`, mapped through V25M's measured 7,993.44 s Duna loiter cut and
   3,918.25 s arrival hold), the park instants of TP-1 / TP-2 (`301,792`) and TP-3 (`1,354,571`)
   (the model lanes' "park" jumps sit on the inbound hyperbola), TP-6's transfer / approach /
   descent and TP-7's `60,149`. Re-pin off the run's `missionconfig applied:` and
   `startloopplayback initiated:` lines if a view shows the ghost somewhere else.
-- TP-2 and TP-7 boot the Tracking Station three times in one process (each instant saved under
-  its own name in FLIGHT, then `LoadGame scene=trackstation`); no other lane does a TS -> TS
-  load. If that refuses, fall back to one TS boot per lane.
-- Read `mapcamera ok` for `pitchClamped` / `distanceClamped` and widen or narrow a view whose
-  frame stock clamped, then run `tools/flight_efficiency.py` on each first green flight.
+- Open reading, not yet explained: `tp1-c1-arrival-mun-top` shows a 46.8 km gap between the end of
+  the drawn Mun arrival orbit line and the start of the next polyline leg, with no bridge drawn.
+  Re-read it on the re-fly before calling it a defect: if the orbit line there was a stale faded
+  one, the gap goes with it.
+- Run `tools/flight_efficiency.py` on each green flight.
 
 ## WARP-REQUEST-SURVIVES-A-FAILED-REWIND: a Warp to time request stays armed after its rewind fails to launch, and the next Space Center load jumps forward [FILED 2026-11-11 from the static lifetimes gate (coldLoadMisses, the nine `WarpToTimeRequest` fields), by code reading. OPEN; not reproduced in play, low]
 
@@ -81,8 +117,8 @@ Merges the two lists the owner had: the moon flight-test matrix (MOON-FLIGHT-TES
 project file `missions/moon-flight-test-matrix-2026-11-07.md`) and the 2026-10-31 test gap audit
 (TEST-GAP-AUDIT-2026-10-31-RESIDUE below, project file `roadmap/test-gap-audit-2026-10-31.md`).
 No committed spec was still waiting for its first flight when this list was written (the map
-picture lanes TP-1..TP-8, committed later the same day, are the exception: see
-MAP-PICTURE-LANES-FIRST-FLIGHT): every lane added since the 2026-11-06 full run is live-proven, and the refactor batch (254 lanes, 2026-11-10 / 11, per the PR #2561
+picture lanes TP-1..TP-8, committed later the same day, flew green on their first flight that
+evening: see MAP-PICTURE-LANES-FIRST-FLIGHT): every lane added since the 2026-11-06 full run is live-proven, and the refactor batch (254 lanes, 2026-11-10 / 11, per the PR #2561
 body) re-flew the re-aim regression slice and the six moon-to-moon lanes on the new 1.1.0 clock
 (run ids in MOON-FLIGHT-TEST-PROGRAM and the six `autotest-status.md` rows). Not repeated here:
 fixes awaiting a re-flight of an existing lane (BDOCK-2), and the other programs in

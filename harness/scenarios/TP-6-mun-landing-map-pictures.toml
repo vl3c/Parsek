@@ -28,7 +28,10 @@ id = "TP-6-mun-landing-map-pictures"
 #
 # THE PICTURE PROTOCOL (design-map-mirror.md -> "How to get the pictures"). Every view is
 # three steps under ONE label: `MapCamera` (focus / pitch / heading / distance, so the
-# frame is the same on every run), `CaptureScreenshot label=L` (the PNG) and
+# frame is the same on every run, and `hold = "4.5"`: 4.5 real seconds after the camera
+# settles, so stock's orbit-line zoom fade, about 4 s at 1x, has finished before the
+# picture; game time runs on at 1x meanwhile, so each view of an instant is taken a few
+# seconds after the previous one), `CaptureScreenshot label=L` (the PNG) and
 # `DumpMapGeometry label=L` (the same frame as data, `Screenshots/L.map.json`). The harvest
 # copies both into `results/<runId>_shots/`, and `tools/map_mirror.py <shots-dir>` pairs
 # them by label into one page. Distances are metres from the focus body's centre, sized
@@ -56,13 +59,14 @@ id = "TP-6-mun-landing-map-pictures"
 #     lane replays a committed fixture.
 #   7 tight count windows - the model lane's window, copied; tightened after the first
 #     flight only if it reads otherwise.
-#   8 tier by measured cost / 9 flight_efficiency.py - owed after the first flight; the
-#     tier is `operator` because the lane is run on request for pictures.
+#   8 tier by measured cost / 9 flight_efficiency.py - the first flights (2026-11-11,
+#     before the hold) took 56 to 91 s wall per lane; flight_efficiency.py over them is
+#     still owed. The tier is `operator` because the lane is run on request for pictures.
 # =====================================================================================
 tier = "operator"
-description = "PICTURE LANE, AUTHORED 2026-11-11, NOT YET FLOWN. V23M's looped Kerbin->Mun landing on mun-landing-recorded, with the flight map opened: at the cycle-1 transfer, the inbound Mun hyperbola, the powered descent, 60 s before touchdown and the cycle-2 60 s mark it frames the map camera, photographs each view and dumps the same frame's geometry under one label, 14 views in all. Expectations are only that every view was taken and none was refused."
+description = "PICTURE LANE, AUTHORED 2026-11-11, FIRST FLOWN GREEN 2026-11-11 (run 2026-11-11_2153, before the MapCamera hold; the hold is not flown yet). V23M's looped Kerbin->Mun landing on mun-landing-recorded, with the flight map opened: at the cycle-1 transfer, the inbound Mun hyperbola, the powered descent, 60 s before touchdown and the cycle-2 60 s mark it frames the map camera, photographs each view and dumps the same frame's geometry under one label, 14 views in all. Expectations are only that every view was taken and none was refused."
 instanceProfile = "stock-minimal"
-tags = ["TP", "TP-6", "map-pictures", "map-geometry", "screenshots", "map-render", "loop-playback", "pending-flight", "mun", "moon", "landing", "airless", "phase-lock"]
+tags = ["TP", "TP-6", "map-pictures", "map-geometry", "screenshots", "map-render", "loop-playback", "flown", "mun", "moon", "landing", "airless", "phase-lock"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/mun-landing-recorded"
@@ -86,60 +90,60 @@ steps = [
   { cmd = "TimeJump", args = { ut = "1258901" }, expect = "OK", budget = 300 },
   { cmd = "WarpToUT", args = { ut = "1258906", maxRate = "1" }, expect = "OK", budget = 120 },
   # view tp6-c1-transfer-kerbin-top: Kerbin pitch=90 heading=0 distance=28000000 m
-  { cmd = "MapCamera", args = { focus = "Kerbin", pitch = "90", heading = "0", distance = "28000000" }, expect = "OK" },
+  { cmd = "MapCamera", args = { focus = "Kerbin", pitch = "90", heading = "0", distance = "28000000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp6-c1-transfer-kerbin-top" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp6-c1-transfer-kerbin-top" }, expect = "OK" },
   # view tp6-c1-transfer-kerbin-edge: Kerbin pitch=0 heading=0 distance=28000000 m
-  { cmd = "MapCamera", args = { focus = "Kerbin", pitch = "0", heading = "0", distance = "28000000" }, expect = "OK" },
+  { cmd = "MapCamera", args = { focus = "Kerbin", pitch = "0", heading = "0", distance = "28000000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp6-c1-transfer-kerbin-edge" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp6-c1-transfer-kerbin-edge" }, expect = "OK" },
   # view tp6-c1-transfer-mun-top: Mun pitch=90 heading=0 distance=5400000 m
-  { cmd = "MapCamera", args = { focus = "Mun", pitch = "90", heading = "0", distance = "5400000" }, expect = "OK" },
+  { cmd = "MapCamera", args = { focus = "Mun", pitch = "90", heading = "0", distance = "5400000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp6-c1-transfer-mun-top" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp6-c1-transfer-mun-top" }, expect = "OK" },
   # INSTANT c1-approach at UT 1268401: cycle-1 inbound Mun hyperbola, L1 + 18,500 s (recorded 18,534.5, inside the 16,463.7..20,966.5 Mun segment)
   { cmd = "TimeJump", args = { ut = "1268401" }, expect = "OK", budget = 300 },
   { cmd = "WarpToUT", args = { ut = "1268406", maxRate = "1" }, expect = "OK", budget = 120 },
   # view tp6-c1-approach-kerbin-top: Kerbin pitch=90 heading=0 distance=28000000 m
-  { cmd = "MapCamera", args = { focus = "Kerbin", pitch = "90", heading = "0", distance = "28000000" }, expect = "OK" },
+  { cmd = "MapCamera", args = { focus = "Kerbin", pitch = "90", heading = "0", distance = "28000000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp6-c1-approach-kerbin-top" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp6-c1-approach-kerbin-top" }, expect = "OK" },
   # view tp6-c1-approach-mun-top: Mun pitch=90 heading=0 distance=5400000 m
-  { cmd = "MapCamera", args = { focus = "Mun", pitch = "90", heading = "0", distance = "5400000" }, expect = "OK" },
+  { cmd = "MapCamera", args = { focus = "Mun", pitch = "90", heading = "0", distance = "5400000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp6-c1-approach-mun-top" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp6-c1-approach-mun-top" }, expect = "OK" },
   # view tp6-c1-approach-mun-edge: Mun pitch=0 heading=0 distance=5400000 m
-  { cmd = "MapCamera", args = { focus = "Mun", pitch = "0", heading = "0", distance = "5400000" }, expect = "OK" },
+  { cmd = "MapCamera", args = { focus = "Mun", pitch = "0", heading = "0", distance = "5400000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp6-c1-approach-mun-edge" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp6-c1-approach-mun-edge" }, expect = "OK" },
   # INSTANT c1-descent at UT 1271901: cycle-1 descent, L1 + 22,000 s (recorded 22,034.5, after the deorbit burn 21,774.2..21,778.2 and before the 23,143 touchdown)
   { cmd = "TimeJump", args = { ut = "1271901" }, expect = "OK", budget = 300 },
   { cmd = "WarpToUT", args = { ut = "1271906", maxRate = "1" }, expect = "OK", budget = 120 },
   # view tp6-c1-descent-mun-low-top: Mun pitch=90 heading=0 distance=750000 m
-  { cmd = "MapCamera", args = { focus = "Mun", pitch = "90", heading = "0", distance = "750000" }, expect = "OK" },
+  { cmd = "MapCamera", args = { focus = "Mun", pitch = "90", heading = "0", distance = "750000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp6-c1-descent-mun-low-top" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp6-c1-descent-mun-low-top" }, expect = "OK" },
   # view tp6-c1-descent-mun-low-edge: Mun pitch=0 heading=0 distance=750000 m
-  { cmd = "MapCamera", args = { focus = "Mun", pitch = "0", heading = "0", distance = "750000" }, expect = "OK" },
+  { cmd = "MapCamera", args = { focus = "Mun", pitch = "0", heading = "0", distance = "750000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp6-c1-descent-mun-low-edge" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp6-c1-descent-mun-low-edge" }, expect = "OK" },
   # view tp6-c1-descent-mun-top: Mun pitch=90 heading=0 distance=5400000 m
-  { cmd = "MapCamera", args = { focus = "Mun", pitch = "90", heading = "0", distance = "5400000" }, expect = "OK" },
+  { cmd = "MapCamera", args = { focus = "Mun", pitch = "90", heading = "0", distance = "5400000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp6-c1-descent-mun-top" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp6-c1-descent-mun-top" }, expect = "OK" },
   # INSTANT c1-landing at UT 1272933: V23M's measured cycle-1 jump, 60 s before the measured touchdown
   { cmd = "TimeJump", args = { ut = "1272933" }, expect = "OK", budget = 300 },
   { cmd = "WarpToUT", args = { ut = "1272938", maxRate = "1" }, expect = "OK", budget = 120 },
   # view tp6-c1-landing-mun-low-top: Mun pitch=90 heading=0 distance=750000 m
-  { cmd = "MapCamera", args = { focus = "Mun", pitch = "90", heading = "0", distance = "750000" }, expect = "OK" },
+  { cmd = "MapCamera", args = { focus = "Mun", pitch = "90", heading = "0", distance = "750000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp6-c1-landing-mun-low-top" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp6-c1-landing-mun-low-top" }, expect = "OK" },
   # view tp6-c1-landing-mun-low-edge: Mun pitch=0 heading=0 distance=750000 m
-  { cmd = "MapCamera", args = { focus = "Mun", pitch = "0", heading = "0", distance = "750000" }, expect = "OK" },
+  { cmd = "MapCamera", args = { focus = "Mun", pitch = "0", heading = "0", distance = "750000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp6-c1-landing-mun-low-edge" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp6-c1-landing-mun-low-edge" }, expect = "OK" },
   # view tp6-c1-landing-mun-low-oblique: Mun pitch=30 heading=0 distance=600000 m
-  { cmd = "MapCamera", args = { focus = "Mun", pitch = "30", heading = "0", distance = "600000" }, expect = "OK" },
+  { cmd = "MapCamera", args = { focus = "Mun", pitch = "30", heading = "0", distance = "600000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp6-c1-landing-mun-low-oblique" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp6-c1-landing-mun-low-oblique" }, expect = "OK" },
   # the next cycle: StartLoopPlayback warps to its departure, as the model lane does
@@ -148,11 +152,11 @@ steps = [
   { cmd = "TimeJump", args = { ut = "1553075" }, expect = "OK", budget = 300 },
   { cmd = "WarpToUT", args = { ut = "1553080", maxRate = "1" }, expect = "OK", budget = 120 },
   # view tp6-c2-landing-mun-low-top: Mun pitch=90 heading=0 distance=750000 m
-  { cmd = "MapCamera", args = { focus = "Mun", pitch = "90", heading = "0", distance = "750000" }, expect = "OK" },
+  { cmd = "MapCamera", args = { focus = "Mun", pitch = "90", heading = "0", distance = "750000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp6-c2-landing-mun-low-top" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp6-c2-landing-mun-low-top" }, expect = "OK" },
   # view tp6-c2-landing-mun-low-edge: Mun pitch=0 heading=0 distance=750000 m
-  { cmd = "MapCamera", args = { focus = "Mun", pitch = "0", heading = "0", distance = "750000" }, expect = "OK" },
+  { cmd = "MapCamera", args = { focus = "Mun", pitch = "0", heading = "0", distance = "750000", hold = "4.5" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "tp6-c2-landing-mun-low-edge" }, expect = "OK" },
   { cmd = "DumpMapGeometry", args = { label = "tp6-c2-landing-mun-low-edge" }, expect = "OK" },
   { cmd = "FlushAndQuit", expect = "OK" },
@@ -221,7 +225,8 @@ forbidden = [
 
 [runtime]
 # The model lane's budget; the views add a few seconds each (three short two-phase
-# verbs) and every TimeJump is an instantaneous clock set.
+# verbs, the camera's 4.5 s hold included) and every TimeJump is an instantaneous
+# clock set.
 budgetSeconds = 2400
 
 [retry]
