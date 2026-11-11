@@ -73,13 +73,17 @@ _REAL_REPORT = {}
 
 
 def real_tree_report(il_path):
-    """ilanalysis.report over the real tree's facts, built once per process: the
-    ratchet cells here and test_metrics' row read the same result (read-only)."""
+    """ilanalysis.report over the real tree's facts, with the declared headless
+    modules, built once per process: the ratchet cells here, test_ilheadless'
+    and test_metrics' row read the same result (read-only)."""
     key = str(Path(il_path).resolve())
     if key not in _REAL_REPORT:
+        import headless  # noqa: PLC0415
+
         facts, tooling = test_ilfacts.real_tree_facts(il_path)
         _REAL_REPORT.clear()
-        _REAL_REPORT[key] = ilanalysis.report(facts, tooling, CONFIG)
+        _REAL_REPORT[key] = ilanalysis.report(facts, tooling, CONFIG, None,
+                                              headless.declared(headless.load_headless()))
     return _REAL_REPORT[key]
 
 

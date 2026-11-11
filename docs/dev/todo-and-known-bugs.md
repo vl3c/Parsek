@@ -2597,6 +2597,25 @@ compare).
   allowlist calls `RecordingStore.SuppressLogging` a test switch, but
   `RecordingSidecarStore.TrySummarizeExistingTrajectorySidecar` also sets and restores it
   (tagged scoped). README -> "Static lifetimes".
+- 2026-11-11 (headless modules, B9): `modules.toml` `[headless.modules]` declares the modules
+  that should run with no game loaded, one reason each: Core, Trajectory, Missions, Timeline,
+  Reaim (left out: Rendering, Logistics, GameActions, MapRender, LogIO, Crew, Config, whose jobs
+  are live). `scripts/arch/headless.py` reads the game-coupling rule of "Code facts" (unchanged;
+  `game_reach` now also returns one path per live method) and prints, per module, the methods
+  and instructions that can reach the game, directly or only through a callee. A leak is a
+  (headless method, live thing) pair: a non-inert game type or member the method names, or a
+  live callee outside the headless modules; a live callee inside them adds nothing (the leak is
+  pinned once, at that callee), and a slot declared in a headless module that a live
+  implementation elsewhere fills is a seam, counted and not gated. `test_ilheadless.py` (CI's
+  compiled-IL step, +3.5 s; a per-pass memo of the name-pattern match makes the shared game
+  reach about five times faster) pins the 279 leaks (123 methods; 29 seams) in
+  `scripts/arch/headless_pins.toml` together with the module list and the `facts.toml`
+  `[coupling]` lists, so a new leak, a renamed leaking method, a widened inert list or a module
+  added or dropped without a re-pin reds (`headless.py <Debug dll> --write-pins`). Most leaked:
+  `UnityEngine.Object` 46, `CelestialBody` 44, `Orbit` 38. Found, not moved: most of Missions'
+  153 leaks sit in four live types placed there by file name (`MissionControlStockUi`,
+  `FlightGlobalsBodyInfo`, `VesselNameLiveSync`, `VesselRenameWriter`). README -> "Headless
+  modules".
 
 **Fix.**
 1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same

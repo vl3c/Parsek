@@ -20,8 +20,8 @@ code facts:
 - text: archview.build_model over Source/Parsek (no DLL needed);
 - semantic: semantic.build over that model and the Parsek.dll parse;
 - facts: ilanalysis.report over ilfacts.build of the same parse, with test
-  reach when the test DLL is given, and lifetimes.py's summary over the same
-  facts;
+  reach when the test DLL is given, the headless modules' leaks (headless.py)
+  over the same game reach, and lifetimes.py's summary over the same facts;
 - sizes: scripts/count-code.py (its `collect`).
 
 An input that is not given (no --dll, no --tests-dll) leaves its half null;
@@ -82,6 +82,11 @@ renamed or removed key bumps the schema id). Shares are fractions rounded to
                               coldClosureMethods, findings.<F>}; a finding is null when
                               not measured (testWrittenUntagged needs the test DLL), and
                               the whole key is null when the report carries none
+    facts.headless            the declared headless modules (scripts/arch/headless.py):
+                              {modules, leaks, leakingMethods, seams, byModule.<M>:
+                              {headless, methods, reachMethods, directMethods, leaks}};
+                              leaks is null for a module not declared headless, and the
+                              whole key is null when the report carries none
     sizes.areas.<area>        {files, lines, code} per count-code.py area name
     sizes.filesOutsideAreas   tracked code-like files outside every area
     sizes.tests               count-code.py's test totals, its key names
@@ -278,6 +283,26 @@ def facts_section(report):
         },
         "testReach": test_reach,
         "lifetimes": report.get("lifetimes"),
+        "headless": headless_section(report.get("headless")),
+    }
+
+
+def headless_section(result):
+    """The headless modules' numbers from an ilanalysis report's `headless` result (None stays None)."""
+    if result is None:
+        return None
+    import headless  # noqa: PLC0415
+
+    head = headless.summary(result)
+    return {
+        "modules": head["modules"],
+        "leaks": head["leaks"],
+        "leakingMethods": head["leakingMethods"],
+        "seams": head["seams"],
+        "byModule": {
+            module: {key: row[key] for key in ("headless", "methods", "reachMethods", "directMethods", "leaks")}
+            for module, row in head["byModule"].items()
+        },
     }
 
 
@@ -392,7 +417,10 @@ def measure(sha, date, dll=None, tests_dll=None, source=archview.DEFAULT_SOURCE,
             if not tests_dll.is_file():
                 raise FileNotFoundError("--tests-dll %s does not exist" % tests_dll)
             tests_facts = ilanalysis.load_facts(tests_dll, None)[0]
-        report = ilanalysis.report(facts, tooling, ilanalysis.load_config(), tests_facts)
+        import headless  # noqa: PLC0415
+
+        report = ilanalysis.report(facts, tooling, ilanalysis.load_config(), tests_facts,
+                                   headless.declared(headless.load_headless(modules)))
         import lifetimes  # noqa: PLC0415
 
         report["lifetimes"] = lifetimes.summary(lifetimes.analyse_facts(facts, tooling, tests_dll))

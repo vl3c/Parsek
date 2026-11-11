@@ -208,6 +208,21 @@ class RowBuilderTests(unittest.TestCase):
         self.assertEqual(section["lifetimes"], report["lifetimes"])
         json.loads(metrics.dumps(metrics.build_row(SHA, "2026-11-11T17:42:00Z", facts=section)))
 
+    def test_facts_carry_the_headless_counts(self):
+        self.assertIsNone(full_row()["facts"]["headless"])
+        import test_ilheadless  # noqa: PLC0415
+
+        report = fixture_report(True)
+        report["headless"] = test_ilheadless.run()
+        section = metrics.facts_section(report)["headless"]
+        self.assertEqual((section["modules"], section["leaks"], section["leakingMethods"], section["seams"]),
+                         (["Rules"], 6, 6, 1))
+        self.assertEqual(section["byModule"]["Rules"],
+                         {"headless": True, "methods": 14, "reachMethods": 8, "directMethods": 4, "leaks": 6})
+        self.assertIsNone(section["byModule"]["Ctl"]["leaks"])
+        json.loads(metrics.dumps(metrics.build_row(SHA, "2026-11-11T17:42:00Z",
+                                                   facts=metrics.facts_section(report))))
+
     def test_facts_without_the_test_dll(self):
         row = full_row(with_tests=False)
         self.assertIsNone(row["facts"]["testReach"])
@@ -727,6 +742,15 @@ class RealTreeRowTests(unittest.TestCase):
         for name, count in lifetimes["findings"].items():
             self.assertIsNotNone(count, name)
             self.assertLessEqual(count, self.lifetime_pins[name]["bound"], name)
+
+    def test_the_headless_counts_are_what_the_pins_hold(self):
+        import headless  # noqa: PLC0415
+
+        section = self.row["facts"]["headless"]
+        pins = headless.load_pins()
+        self.assertEqual(section["modules"], sorted(entry["name"] for entry in pins["module"]))
+        self.assertLessEqual(section["leaks"], sum(len(entry["leaks"]) for entry in pins["module"]))
+        self.assertTrue(all(section["byModule"][m]["headless"] for m in section["modules"]))
 
     def test_the_row_appends(self):
         text, appended = metrics_append.append_text("", self.row)
