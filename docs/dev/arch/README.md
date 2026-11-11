@@ -1,8 +1,9 @@
 # Parsek architecture viewer
 
 A small, dependency-free tool that shows the Parsek codebase as a handful of
-modules and the references between them, and reports (but never fails on)
-project-declared dependency boundaries. It is modelled on Robert C. Martin's
+modules and the references between them. The `--check` report never fails;
+the `scripts/arch` test suite gates the project-declared boundaries (the
+forbidden edges and the declared layers, see "Declared layers"). It is modelled on Robert C. Martin's
 `arch-view` and `dependency-checker`, adapted from Clojure namespaces to C#
 folders and file-name groups.
 
@@ -14,6 +15,7 @@ Everything lives in `scripts/arch/`:
 | `atlas.toml` | The atlas prose: the lede, the section notes, the module summaries, the glossary, the upward-edge readings, the reading order, the main findings and the ranked opportunities (see "Editing the atlas prose"). |
 | `archview.py` | Extracts the module graph and the type ladder, builds the co-change history, writes `edges.json`, `types.json`, `history.json` and the views, and prints the `--check` report. |
 | `test_archview.py` | Unit tests plus a smoke test over the real `Source/Parsek` tree. |
+| `layers.py`, `layer_pins.toml`, `test_semantic_layers.py` | The declared layers: the backward / lateral split, the per-pair ratchet and its machine-written pins, the forbidden-edge gates (see "Declared layers"). |
 
 The generated views are written to `docs/dev/arch/` and are gitignored (they
 go stale on every commit that touches `Source/`; regenerate before reading):
@@ -65,7 +67,8 @@ window are heuristics, not compiler facts (see "Reading the ladder").
 
 The checker is **report-only**: it always exits 0. What gates is the
 `scripts/arch` test suite CI runs (placement contract, knot canaries, the
-residue ratchet below). A text scan cannot see conditional compilation or
+residue ratchet below, every module in a declared layer, the backward-pair
+ratchet and the forbidden edges in "Declared layers"). A text scan cannot see conditional compilation or
 references built through reflection, and it cannot tell a call through a
 forwarder from a dependency on the forwarder's type; the semantic graph below
 reads the compiler's output instead.
@@ -354,6 +357,107 @@ Re-pin in the PR that lowers a count (the step log prints the slack), so the
 bound follows it down, and raise one only for a deliberate change the PR
 explains.
 
+## Declared layers
+
+The Atlas's "upward" edges read the measured instability: an edge is upward
+when a more stable module references a less stable one. That direction is a
+number that moves. When two instabilities drift past each other an edge flips
+with no code change near it (GameActions -> Crew did during the refactor
+waves), so nothing can be ratcheted on it. The declared layers say the
+intended direction instead, and change only when someone edits them.
+
+`modules.toml` `[layers]` lists the layers lowest first (`order`) and puts
+every production module in exactly one of them (`[layers.modules]`); tooling
+modules have none. A module may depend on modules in its own layer and in
+lower layers.
+
+| Layer | Modules | What it is |
+| --- | --- | --- |
+| floor | LogIO, Config, Core, Trajectory | the vocabulary every module leans on: logging and file I/O, settings, the Core kernel files, the trajectory math and data |
+| model | Recording, GameActions, Crew | the persistent model: recordings and their store, the ledger, the kerbal state the ledger books (`KerbalsModule`) |
+| features | Ghost, Rewind, Missions, Logistics, MapRender, SwitchIntent, Reaim, Rendering, Display | what the mod does with the model |
+| presentation | UI, Timeline | the windows and the timeline rows they show |
+| entry | Controllers, Patches | what KSP calls: the scene controllers (the composition roots that build the windows) and the Harmony patches |
+
+The assignment follows the module descriptions (`atlas.toml`, the map reading
+above) and, among honest placements, the one with the fewest backward type
+pairs on the semantic graph of 2026-11-11. Three were close calls: Crew sits
+in the model because `KerbalsModule` is a ledger resource module (in features
+it would add 18 backward type pairs); Logistics sits in features although its
+instability is the lowest outside the floor (in the model it would save 3 type
+pairs but add 3 module pairs, and a supply route is a feature); UI sits below
+the controllers because the controllers build the windows, so a window
+reaching back into a controller (26 type pairs) is the edge to undo. Core
+stays in the floor although `GroupHierarchyStore` and `MilestoneStore` reach
+up into Recording, Rewind, GameActions and Controllers: those are the edges
+the declaration exists to show.
+
+- **Backward**: an edge from a module to one in a higher layer. **Lateral**:
+  an edge between two modules of one layer, reported and never ratcheted.
+- **The measure** of a module pair is the number of DISTINCT (from type, to
+  type) pairs between them on the compiled-IL semantic graph (the
+  forwarder-resolved graph of "The semantic graph"), so a new call site
+  between two types already paired, a comment, or a type moved between files
+  of one module moves nothing.
+- **The ratchet**: `test_semantic_layers.RealTreeLayerTests`, in CI's
+  compiled-IL step (`test_[ims]*.py`; its `WorkflowTests` cell reds if the
+  pattern stops matching), reads `scripts/arch/layer_pins.toml`, one entry
+  per backward module pair with its `count` and, for the failure message
+  only, its type `pairs`. A backward module pair may not count more type
+  pairs than its pin, and a backward module pair with no pin reds; the
+  message names the new type pairs (those not in the pin's list) and the
+  re-pin command. The gate reads counts only, so renaming a type reds
+  nothing, and deleting a type can only lower a count. Two changes that add
+  no dependency can still move a pair, and both are a re-pin the PR explains:
+  a body change that makes a method a forwarder, or stops it being one,
+  re-credits its callers to the other end of the forward (deleting the one
+  log line beside a forwarded call moves the callers' pair to the target's
+  module, see "The semantic graph"), and moving a type to another MODULE,
+  even one in the same layer, carries its pairs to that module's pins. A
+  dependency reached only through a type name the semantic graph cannot key
+  (a name declared in two modules, or one under four characters) is
+  invisible to this ratchet and to the IL forbidden gate, as it is to the
+  residue ratchet. As with `facts_pins.toml`, a
+  swap inside a count passes and slack after a fall is not enforced until a
+  re-pin: re-pin in the PR that lowers a count, and raise one only for a
+  deliberate dependency the PR explains.
+- **Every module in a layer**: `test_semantic_layers.CommittedDeclarationTests`
+  (and `test_archview`'s real-tree cell over the scanned modules) reds the
+  DLL-free suite on a production module without a layer, a module in two
+  layers, a tooling module with a layer, or a pin for a pair the declaration
+  no longer calls backward.
+- **Forbidden edges**: `[forbidden]` now gates. The DLL-free suite reds when
+  the text scan's module edges cross one
+  (`test_archview.test_no_forbidden_edge_is_crossed_on_the_text_scan`), and
+  the compiled-IL step when the semantic graph does; a spec that is malformed
+  or names no module reds too, so a typo or a renamed module cannot switch the
+  gate off. Both are at none.
+- **Compiler differences**: the edges come from the IL operands, locals and
+  signatures of the Debug build CI makes. A Release build of the pinned tree
+  reads the same 52 backward module pairs and 440 type pairs (only 3 lateral
+  type pairs fewer, typed locals the optimizer drops); a compiler that emits
+  one more typed local could add a pair, which the Debug-only pin rule and a
+  re-pin in that PR absorb, the same exposure the residue ratchet has.
+
+The text view: `archview.py --check` prints "Backward edges by DECLARED layer"
+over the text type graph (with the module edge's file-reference weight)
+right after the instability-based "Upward edges by MEASURED instability", and
+the Atlas's "Where the layering breaks" draws both tables, labelled. The text
+graph counts some pairs the compiler never emits and misses others (see
+"What the scan is, and is not"), so its numbers differ from the pins; the
+ratchet reads the IL.
+
+```bash
+python3 scripts/arch/layers.py Source/Parsek/bin/Debug/Parsek.dll               # report against the pins (always exits 0; the suite is the gate)
+python3 scripts/arch/layers.py Source/Parsek/bin/Debug/Parsek.dll --write-pins  # re-pin (Debug build only)
+```
+
+At the pin (2026-11-11): 52 backward module pairs, 440 type pairs (the
+heaviest Rewind -> Controllers 49, Recording -> Logistics 45, Ghost ->
+Controllers 40, Recording -> Controllers 40, Recording -> Rewind 38), 54
+lateral module pairs. Moving a module to another layer is a re-pin in the
+same PR.
+
 ## Metrics history
 
 Every number above exists only for the commit it is run on. The history keeps
@@ -367,9 +471,10 @@ later. It gates nothing: no check reads it, and no row can fail a PR.
   docstring lists every key): `commit` (sha, committer date in UTC),
   `measured` (which halves were measured), `text` (the text scan: production
   files and lines per module, module count, forbidden-edge violations, upward
-  edges, knot sizes, greedy and replayed residue, first cut), `semantic` (the
-  semantic report's headline: knot and residues for the text, raw IL and
-  semantic graphs, edge counts, forwarder rewrites), `facts` (the code facts:
+  edges, the declared-layer numbers, knot sizes, greedy and replayed residue,
+  first cut), `semantic` (the semantic report's headline: knot and residues
+  for the text, raw IL and semantic graphs, edge counts, forwarder rewrites,
+  the declared-layer numbers the layer ratchet reads), `facts` (the code facts:
   the three ratchet sets' sizes, the static-state totals, complexity at 20 /
   50 / 100, game coupling overall and per module, unreached methods and their
   instructions, test reach per module) and `sizes` (`scripts/count-code.py`:
@@ -470,7 +575,9 @@ where the map would be). When a source file matches no rule in
 `--check` prints, in order: the per-module metrics table (name, files, fan-out,
 fan-in, instability, sorted by fan-in + fan-out) followed by a line naming the
 tooling modules hidden from it, the type names excluded as ambiguous, every
-upward edge (a more stable module depending on a less stable one), every
+upward edge by measured instability (a more stable module depending on a less
+stable one), the declared layers with every backward and lateral module pair
+of the text type graph (see "Declared layers"), every
 two-way coupling between production modules with both weights, the 25 types
 with the highest file-based fan-in, the count per type role with three example
 names, the per-module level profile (type count per level, plus the module's
@@ -482,7 +589,8 @@ edges, missing reading-order types), the HISTORY co-change section (the window
 and commit counts, the top 15 hotspots, the top 10 module pairs by Jaccard,
 the top 15 cross-module file pairs, and one line per forbidden edge with how
 many commits touched both of its sides), every `[forbidden]` edge that exists
-with its weight, referenced types and referencing files, and last the SIZE
+with its weight, referenced types and referencing files (the suite reds on
+any), and last the SIZE
 section (see "Size view"). When `[allowed]` is non-empty it also lists every
 production edge not in that list, between the forbidden edges and SIZE; while
 `[allowed]` is empty that section is skipped. The last line is always
@@ -790,7 +898,8 @@ dependencies, the largest knot's size and share, and, when git history is
 available, the highest module co-change ratio and the share of commits that
 touch the most-churned type), the "Main findings" list, the map inline, the
 module directory grouped by layer, the top hub vocabulary, the largest knot
-with its cut table, the weighted upward edges, co-change, the largest files
+with its cut table, the weighted upward edges and the backward edges of the
+declared layers, co-change, the largest files
 and types, "Code facts" (the compiled-IL analyses above, drawn when
 `--facts` is given), "Opportunities, ranked", and a reading order. Everything numeric,
 tabular and visual is rendered from the live model by `render_atlas_html`; the
@@ -1076,7 +1185,11 @@ The other sections:
 - `[tooling] modules = [...]`: modules hidden from the production views and
   the metrics table. `explore.html` can still reveal them.
 - `[forbidden] edges = ["A -> B", ...]`: declared boundaries that must not
-  exist. The checker reports each one it finds.
+  exist. The checker reports each one it finds, and the arch suite reds on it
+  (see "Declared layers").
+- `[layers]`: `order` (lowest first) and `[layers.modules]`, one list of
+  modules per layer. A new production module gets a layer in the same commit,
+  or the suite reds (see "Declared layers").
 - `[allowed] edges = [...]`: while empty, the allowlist section is skipped.
   Once any edge is listed, every production edge not listed is reported,
   which turns the checker into a strict allowlist without changing its

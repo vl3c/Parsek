@@ -2786,6 +2786,37 @@ class CheckerOutputTests(unittest.TestCase):
         self.assertNotIn("not in [allowed]", text)
         self.assertEqual(self._last_line(text), "ARCH-CHECK report-only")
 
+    def test_declared_layer_section_beside_the_upward_list(self):
+        model = dict(
+            _small_model(),
+            types=[
+                {"name": "TypeA", "module": "A", "referencesTo": ["TypeB"], "fanIn": 1, "role": "service",
+                 "level": 0},
+                {"name": "TypeB", "module": "B", "referencesTo": ["TypeA"], "fanIn": 1, "role": "service",
+                 "level": 0},
+            ],
+            typeLevels={"max": 0, "histogram": {0: 2}},
+            knots=[],
+        )
+        table = {"order": ["low", "high"], "modules": {"low": ["A"], "high": ["B"]}}
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            archview.run_check(model, [], [], layers=table)
+        text = captured.getvalue()
+        self.assertIn("Upward edges by MEASURED instability", text)
+        self.assertIn("Backward edges by DECLARED layer", text)
+        self.assertIn("A -> B (low -> high): type pairs=1 weight=3; TypeA -> TypeB", text)
+        self.assertLess(text.index("MEASURED instability"), text.index("DECLARED layer"))
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            archview.run_check(model, [], [], layers={"order": ["low"], "modules": {"low": ["A"]}})
+        self.assertIn("LAYER B has no layer", captured.getvalue())
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            archview.run_check(model, [], [])
+        self.assertIn("no [layers] declaration", captured.getvalue())
+        self.assertEqual(self._last_line(captured.getvalue()), "ARCH-CHECK report-only")
+
     def test_allowlist_section_only_when_nonempty(self):
         captured = io.StringIO()
         with contextlib.redirect_stdout(captured):
@@ -3409,6 +3440,35 @@ class RealTreeSmokeTests(unittest.TestCase):
         # A literal number in an undated prose string must match the model
         # (archview.PROSE_NUMBER_CLAIMS); a dated one is history.
         self.assertEqual(findings["staleNumbers"], [])
+
+    def test_no_forbidden_edge_is_crossed_on_the_text_scan(self):
+        # The DLL-free half of the forbidden-edge gate (the compiled-IL half is
+        # test_semantic_layers.RealTreeLayerTests): any text reference from the
+        # first module to the second reds, with the referenced types named.
+        import layers  # noqa: PLC0415
+
+        _rules, _tooling, forbidden, _allowed = archview.load_rules(archview.DEFAULT_MODULES)
+        production, tooling = layers.declared_modules()
+        self.assertEqual(
+            layers.forbidden_problems(forbidden, layers.text_module_edges(self.model), production | tooling), []
+        )
+
+    def test_every_modelled_module_has_a_declared_layer(self):
+        import layers  # noqa: PLC0415
+
+        production = {m["name"] for m in self.model["modules"] if not m["tooling"]}
+        tooling = {m["name"] for m in self.model["modules"] if m["tooling"]}
+        self.assertEqual(layers.layer_problems(layers.load_layers(), production, tooling), [])
+
+    def test_atlas_draws_the_declared_layers(self):
+        import layers  # noqa: PLC0415
+
+        prose = archview.load_prose(archview.DEFAULT_ATLAS)
+        text = archview.render_atlas_html(self.model, prose, None, [], layers=layers.load_layers())
+        self.assertIn("Backward edge (declared layers)", text)
+        self.assertIn("<strong>floor</strong> (", text)
+        self.assertIn("backward module pairs (", text)
+        self.assertNotIn("@@", text)
 
     def test_rendered_atlas_contains_the_live_facts(self):
         prose = archview.load_prose(archview.DEFAULT_ATLAS)
