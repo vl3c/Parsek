@@ -407,7 +407,17 @@ the declaration exists to show.
   pairs than its pin, and a backward module pair with no pin reds; the
   message names the new type pairs (those not in the pin's list) and the
   re-pin command. The gate reads counts only, so renaming a type reds
-  nothing. Deleting code can only lower a count. As with `facts_pins.toml`, a
+  nothing, and deleting a type can only lower a count. Two changes that add
+  no dependency can still move a pair, and both are a re-pin the PR explains:
+  a body change that makes a method a forwarder, or stops it being one,
+  re-credits its callers to the other end of the forward (deleting the one
+  log line beside a forwarded call moves the callers' pair to the target's
+  module, see "The semantic graph"), and moving a type to another MODULE,
+  even one in the same layer, carries its pairs to that module's pins. A
+  dependency reached only through a type name the semantic graph cannot key
+  (a name declared in two modules, or one under four characters) is
+  invisible to this ratchet and to the IL forbidden gate, as it is to the
+  residue ratchet. As with `facts_pins.toml`, a
   swap inside a count passes and slack after a fall is not enforced until a
   re-pin: re-pin in the PR that lowers a count, and raise one only for a
   deliberate dependency the PR explains.
@@ -438,7 +448,7 @@ graph counts some pairs the compiler never emits and misses others (see
 ratchet reads the IL.
 
 ```bash
-python3 scripts/arch/layers.py Source/Parsek/bin/Debug/Parsek.dll               # report, check the pins
+python3 scripts/arch/layers.py Source/Parsek/bin/Debug/Parsek.dll               # report against the pins (always exits 0; the suite is the gate)
 python3 scripts/arch/layers.py Source/Parsek/bin/Debug/Parsek.dll --write-pins  # re-pin (Debug build only)
 ```
 

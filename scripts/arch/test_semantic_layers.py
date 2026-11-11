@@ -304,7 +304,8 @@ class WorkflowTests(unittest.TestCase):
         steps = test_semantic.workflow_steps(test_semantic.WORKFLOW.read_text(encoding="utf-8"))
         runs = [run for _name, _keys, env, run in steps if IL_ENV in env and "scripts/arch" in run]
         patterns = [m.group(1) for run in runs for m in [re.search(r"-p\s+['\"]?([^'\"\s]+)", run)] if m]
-        self.assertTrue(any(fnmatch.fnmatch("test_semantic_layers.py", p) for p in patterns), patterns)
+        # This file's own name, so a rename out of the pattern reds here.
+        self.assertTrue(any(fnmatch.fnmatch(Path(__file__).name, p) for p in patterns), patterns)
 
 
 @unittest.skipUnless(os.environ.get(IL_ENV), "%s is not set (CI sets it after the build)" % IL_ENV)
