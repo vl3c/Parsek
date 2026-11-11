@@ -157,6 +157,78 @@ def with_method(facts, key, entry):
     return out
 
 
+def facts_with(il, extra_modules=None):
+    """fixture_facts over `il` with more types placed in modules."""
+    parsed = ilgraph.parse_il(il)
+    modules = dict(MODULES, **(extra_modules or {}))
+    table = {path: {modules[path]} for path in parsed["typeInfo"] if path in modules}
+    return ilfacts.build(parsed, table)
+
+
+def new_leaks(result):
+    return sorted(set(result["leaks"]["Rules"]) - set(EXPECTED_LEAKS))
+
+
+# Generated code ilfacts cannot give to one source method stays on the
+# `Type::(generated)` pseudo-method; two ordinary C# shapes produce it.
+NESTED_LAMBDA = [
+    # `Outer` holds `xs.Where(a => a.Parts.Any(p => p.vessel == FlightGlobals.ActiveVessel))`:
+    # the inner lambda is referenced only from inside `<>c`, which `Other` shares.
+    cls("'<>c'", "  .field public static initonly class Parsek.Pure/'<>c' '<>9'",
+        meth(".cctor", ["newobj     instance void Parsek.Pure/'<>c'::.ctor()",
+                        "stsfld     class Parsek.Pure/'<>c' Parsek.Pure/'<>c'::'<>9'", "ret"],
+             flags="private hidebysig specialname rtspecialname static"),
+        ctor(),
+        meth("'<Outer>b__1_0'", ["ldsfld     class Parsek.Pure/'<>c' Parsek.Pure/'<>c'::'<>9'",
+                                 "ldftn      instance void Parsek.Pure/'<>c'::'<Outer>b__1_1'()",
+                                 "newobj     instance void [mscorlib]System.Action::.ctor(object, native int)",
+                                 "pop", "ret"], flags="assembly hidebysig instance"),
+        meth("'<Outer>b__1_1'", [FETCH, "pop", "ret"], flags="assembly hidebysig instance"),
+        meth("'<Other>b__2_0'", ["ret"], flags="assembly hidebysig instance"),
+        flags=GENERATED, attrs=GENERATED_ATTR),
+    meth("Outer", ["ldsfld     class Parsek.Pure/'<>c' Parsek.Pure/'<>c'::'<>9'",
+                   "ldftn      instance void Parsek.Pure/'<>c'::'<Outer>b__1_0'()",
+                   "newobj     instance void [mscorlib]System.Action::.ctor(object, native int)", "pop", "ret"]),
+    meth("Other", ["ldsfld     class Parsek.Pure/'<>c' Parsek.Pure/'<>c'::'<>9'",
+                   "ldftn      instance void Parsek.Pure/'<>c'::'<Other>b__2_0'()",
+                   "newobj     instance void [mscorlib]System.Action::.ctor(object, native int)", "pop", "ret"]),
+]
+
+
+def field_initializer_type(constructors=2):
+    """Parsek.Init (headless) with `Action f = () => FlightGlobals...;`, a field
+    initializer the compiler emits into every constructor."""
+    cache = cls("'<>c'", "  .field public static initonly class Parsek.Init/'<>c' '<>9'",
+                meth(".cctor", ["newobj     instance void Parsek.Init/'<>c'::.ctor()",
+                                "stsfld     class Parsek.Init/'<>c' Parsek.Init/'<>c'::'<>9'", "ret"],
+                     flags="private hidebysig specialname rtspecialname static"),
+                ctor(), meth("'<.ctor>b__1_0'", [FETCH, "pop", "ret"], flags="assembly hidebysig instance"),
+                flags=GENERATED, attrs=GENERATED_ATTR)
+    body = ["ldarg.0", "ldsfld     class Parsek.Init/'<>c' Parsek.Init/'<>c'::'<>9'",
+            "ldftn      instance void Parsek.Init/'<>c'::'<.ctor>b__1_0'()",
+            "newobj     instance void [mscorlib]System.Action::.ctor(object, native int)",
+            "stfld      class [mscorlib]System.Action Parsek.Init::f",
+            "ldarg.0", "call       instance void [mscorlib]System.Object::.ctor()", "ret"]
+    flags = "public hidebysig specialname rtspecialname instance"
+    ctors = [meth(".ctor", body, flags=flags), meth(".ctor", body, flags=flags, params="int32 x")][:constructors]
+    return cls("Parsek.Init", cache, "  .field private class [mscorlib]System.Action f", *ctors)
+
+
+# A live implementation of the headless slot IClock, outside the headless modules,
+# that a headless method can reach without an injected instance.
+KSP_CLOCK = cls("Parsek.KspClock", "  .field public static initonly class Parsek.KspClock Instance", ctor(),
+                meth("Create", ["newobj     instance void Parsek.KspClock::.ctor()", "ret"],
+                     ret="class Parsek.KspClock"),
+                meth("Now", ["call       float64 ['Assembly-CSharp']Planetarium::GetUniversalTime()", "pop", "ret"],
+                     flags=INSTANCE), implements=["Parsek.IClock"])
+CLOCK_NOW = "callvirt   instance void Parsek.IClock::Now()"
+
+
+def clock_run(add_body, extra_pure=()):
+    il = fixture_il("closure", extra_pure=extra_pure, pure_overrides={"Add": meth("Add", add_body)}) + "\n" + KSP_CLOCK
+    return run(facts_with(il, {"Parsek.KspClock": "Ctl"}))
+
+
 # --- the declaration, no DLL ---------------------------------------------------------------
 
 
@@ -299,6 +371,79 @@ class LeakRuleTests(unittest.TestCase):
                          (5, 3, 3))
 
 
+class HiddenLiveCodeTests(unittest.TestCase):
+    """Live code a headless method reaches without naming it: generated code no
+    single method owns, and a live implementation of a headless slot hard-wired
+    by construction or through a static. Each reds; an injected one stays a seam."""
+
+    def problems(self, result):
+        return headless.ratchet_problems(result["leaks"], pins_for(run()), result["details"])
+
+    def test_a_nested_lambda_left_to_its_type_reds(self):
+        result = run(fixture_facts(fixture_il("closure", extra_pure=NESTED_LAMBDA)))
+        self.assertEqual(new_leaks(result), ["Parsek.Pure::(generated) -> game:FlightGlobals"])
+        self.assertEqual(result["unexplained"], [])
+        problems = self.problems(result)
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("Parsek.Pure::(generated) -> game:FlightGlobals (names FlightGlobals)", problems[0])
+
+    def test_a_field_initializer_lambda_in_two_constructors_reds(self):
+        il = fixture_il("closure") + "\n" + field_initializer_type(2)
+        result = run(facts_with(il, {"Parsek.Init": "Rules"}))
+        self.assertEqual(new_leaks(result), ["Parsek.Init::(generated) -> game:FlightGlobals"])
+        self.assertEqual(len(self.problems(result)), 1)
+        # With one constructor the initializer has one owner, and the leak is its.
+        il = fixture_il("closure") + "\n" + field_initializer_type(1)
+        self.assertEqual(new_leaks(run(facts_with(il, {"Parsek.Init": "Rules"}))),
+                         ["Parsek.Init::.ctor -> game:FlightGlobals"])
+
+    def test_a_pseudo_method_names_no_leak_when_its_code_is_pure(self):
+        il = fixture_il("closure", extra_pure=[part.replace(FETCH, "ldnull") for part in NESTED_LAMBDA])
+        result = run(fixture_facts(il))
+        self.assertEqual(new_leaks(result), [])
+        self.assertEqual(self.problems(result), [])
+
+    def test_a_live_slot_implementation_hard_wired_reds_in_every_form(self):
+        forms = {
+            "constructed, then called through the slot": (
+                ["newobj     instance void Parsek.KspClock::.ctor()", CLOCK_NOW, "ret"],
+                "Parsek.Pure::Add -> call:Parsek.KspClock::.ctor", "constructs Parsek.KspClock::.ctor"),
+            "read from its static singleton": (
+                ["ldsfld     class Parsek.KspClock Parsek.KspClock::Instance", CLOCK_NOW, "ret"],
+                "Parsek.Pure::Add -> static:Parsek.KspClock::Instance", "reads the static Parsek.KspClock::Instance"),
+            "made by its static factory": (
+                ["call       class Parsek.KspClock Parsek.KspClock::Create()", CLOCK_NOW, "ret"],
+                "Parsek.Pure::Add -> call:Parsek.KspClock::Create", "calls the static Parsek.KspClock::Create"),
+        }
+        for label, (body, leak, detail) in forms.items():
+            with self.subTest(form=label):
+                result = clock_run(body)
+                self.assertEqual(new_leaks(result), [leak])
+                self.assertIn(detail, result["details"][leak])
+                self.assertIn("fills the headless slot Parsek.IClock::Now with live code", result["details"][leak])
+                problems = self.problems(result)
+                self.assertEqual(len(problems), 1, problems)
+                self.assertIn(leak, problems[0])
+        # The pins accept the third leak kind.
+        pins = pins_for(clock_run(forms["read from its static singleton"][0]))
+        self.assertEqual(headless.pins_problems(pins, HEADLESS, CONFIG), [])
+
+    def test_an_injected_implementation_stays_a_seam(self):
+        cases = {
+            "a parameter": (meth("Injected", ["ldarg.0", CLOCK_NOW, "ret"], params="class Parsek.IClock clock"), []),
+            "an instance field": (meth("Injected", ["ldarg.0", "ldfld      class Parsek.IClock Parsek.Pure::clock",
+                                                    CLOCK_NOW, "ret"], flags="public hidebysig instance"),
+                                  ["  .field private class Parsek.IClock clock"]),
+        }
+        for label, (method, fields) in cases.items():
+            with self.subTest(injected=label):
+                result = clock_run(["ldc.i4.0", "pop", "ret"], extra_pure=fields + [method])
+                self.assertEqual(new_leaks(result), [])
+                self.assertIn("Parsek.Pure::Injected -> Parsek.IClock::Now", result["seams"]["Rules"])
+                self.assertEqual(self.problems(result), [])
+                self.assertEqual(result["unexplained"], [])
+
+
 class RatchetTests(unittest.TestCase):
     def facts(self):
         return fixture_facts()
@@ -437,6 +582,53 @@ class WorkflowTests(unittest.TestCase):
         patterns = [m.group(1) for run in runs for m in [re.search(r"-p\s+['\"]?([^'\"\s]+)", run)] if m]
         # This file's own name, so a rename out of the pattern reds here.
         self.assertTrue(any(fnmatch.fnmatch(Path(__file__).name, p) for p in patterns), patterns)
+
+
+README = Path(__file__).resolve().parents[2] / "docs" / "dev" / "arch" / "README.md"
+
+
+class ReadmeTests(unittest.TestCase):
+    """The README's "Headless modules" table and its two totals lines are what
+    the committed pins' [measured] block renders, so the documented numbers
+    cannot drift from the tool. Needs no DLL: the block is written at re-pin."""
+
+    def setUp(self):
+        self.text = README.read_text(encoding="utf-8")
+        self.pins = headless.load_pins()
+
+    def test_the_committed_readme_matches_the_pins(self):
+        self.assertEqual(headless.readme_problems(self.text, self.pins), [])
+
+    def test_the_measured_block_counts_the_pinned_leaks(self):
+        measured = self.pins["measured"]
+        self.assertEqual(measured["leaks"], sum(len(entry.get("leaks", [])) for entry in self.pins["module"]))
+        self.assertEqual(measured["leaking_methods"], len({leak.split(" -> ")[0]
+                                                           for entry in self.pins["module"]
+                                                           for leak in entry.get("leaks", [])}))
+
+    def test_a_changed_table_number_reds(self):
+        row = next(line for line in headless.readme_lines(self.pins["measured"]) if line.startswith("| Missions"))
+        cells = row.split(" | ")
+        cells[-1] = str(int(cells[-1].rstrip(" |")) + 1) + " |"
+        problems = headless.readme_problems(self.text.replace(row, " | ".join(cells)), self.pins)
+        self.assertTrue(any("table rows" in p for p in problems), problems)
+
+    def test_a_changed_total_line_reds(self):
+        line = headless.readme_lines(self.pins["measured"])[-2]
+        problems = headless.readme_problems(self.text.replace(line, line.replace("leaks in", "leaks across")),
+                                            self.pins)
+        self.assertTrue(any("lacks the pinned line" in p for p in problems), problems)
+
+    def test_a_measured_block_that_disagrees_with_its_modules_reds(self):
+        pins = copy.deepcopy(self.pins)
+        pins["module"][0]["leaks"] = pins["module"][0]["leaks"][1:]
+        problems = headless.readme_problems(self.text, pins)
+        self.assertTrue(any("does not count its own" in p for p in problems), problems)
+
+    def test_pins_without_a_measured_block_red(self):
+        pins = {key: value for key, value in self.pins.items() if key != "measured"}
+        self.assertEqual(len(headless.readme_problems(self.text, pins)), 1)
+        self.assertEqual(len(headless.readme_problems("no section here", self.pins)), 1)
 
 
 # --- the real tree -----------------------------------------------------------------------------
@@ -600,6 +792,32 @@ class RealTreeHeadlessTests(unittest.TestCase):
         self.assertEqual(self.problems(result), [])
         self.assertEqual(result["leakCount"], self.result["leakCount"])
         self.assertEqual(result["unexplained"], [])
+
+    def test_generated_code_no_method_owns_is_gated_on_its_type(self):
+        pseudo = headless.pseudo_methods(self.index, set(self.modules))
+        self.assertTrue(pseudo, "no headless type has unattributed generated code; pick another mutant")
+        key = min(pseudo)
+        path = pseudo[key]["type"]
+        facts = dict(self.facts)
+        facts["types"] = dict(self.facts["types"])
+        entry = copy.deepcopy(self.facts["types"][path])
+        entry["unattributed"]["external"]["body"].append("Assembly-CSharp|FlightGlobals")
+        facts["types"][path] = entry
+        problems = self.problems(self.rerun(facts))
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("%s -> game:FlightGlobals" % key, problems[0])
+
+    def test_constructing_a_live_implementation_of_a_headless_slot_reds(self):
+        filled = sorted(k for k in self.reach if self.index.module(self.index.methods[k]["type"]) not in self.modules
+                        and any(self.index.module(self.index.methods[s]["type"]) in self.modules
+                                for s in self.index.slots.get(k, ()) if s in self.index.methods))
+        self.assertTrue(filled, "no live implementation of a headless slot outside them; pick another mutant")
+        path = self.index.methods[filled[0]]["type"]
+        constructor = min(k for k in self.index.by_type[path] if self.index.methods[k]["name"] == ".ctor")
+        key = self.pure_headless()
+        problems = self.problems(self.rerun(self.edited(key, calls=[constructor])))
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("%s -> call:%s::.ctor (constructs" % (headless.method_name(key), path), problems[0])
 
 
 if __name__ == "__main__":

@@ -115,9 +115,16 @@ def declaration_problems(table, production, tooling=()):
 # --- the leaks ---------------------------------------------------------------------------
 
 
+UNATTRIBUTED = "(generated)"  # ilfacts.UNATTRIBUTED, kept here so the module imports nothing
+
+
 def method_name(key):
-    """`Type::Name` of a method key: overloads and parameter changes merge."""
+    """`Type::Name` of a method key: overloads and parameter changes merge. The
+    pseudo-method `Type::(generated)` (generated code no single method owns) is
+    its own name."""
     path, _sep, rest = key.partition("::")
+    if rest == UNATTRIBUTED:
+        return key
     return path + "::" + rest.split("(", 1)[0].split("``", 1)[0]
 
 
@@ -154,6 +161,27 @@ def live_path(key, direct_refs, via, limit=PATH_HOPS):
     return " -> ".join(hops)
 
 
+def pseudo_methods(index, headless):
+    """{`Type::(generated)`: entry} for each source type of a headless module whose
+    generated code no single method owns (ilfacts' `unattributed` bucket): the
+    entry carries that code's calls and external refs, so it is gated like a
+    method of its source type."""
+    out = {}
+    for path, entry in index.types.items():
+        bucket = entry.get("unattributed") or {}
+        if not bucket.get("methods") or index.module(path) not in headless or not index.production(path):
+            continue
+        external = bucket.get("external", {})
+        out[path + "::" + UNATTRIBUTED] = {
+            "type": path,
+            "calls": list(bucket.get("calls", ())),
+            "external": {"body": list(external.get("body", ())), "locals": list(external.get("locals", ())),
+                         "signature": []},
+            "externalMembers": list(bucket.get("externalMembers", ())),
+        }
+    return out
+
+
 def analyse(index, config, modules, direct=None, reach=None, via=None):
     """The headless report over one ilanalysis Index.
 
@@ -177,29 +205,67 @@ def analyse(index, config, modules, direct=None, reach=None, via=None):
 
     memo, things = {}, {}
     direct_things = {}
-    for key in direct:
-        refs = ilanalysis.direct_game_refs(methods[key], coupling, memo)
+
+    def things_of(entry):
+        refs = ilanalysis.direct_game_refs(entry, coupling, memo)
         for ref in refs:
             if ref not in things:
                 things[ref] = game_thing(ref, coupling)
-        direct_things[key] = {things[ref] for ref in refs}
+        return {things[ref] for ref in refs}
+
+    for key in direct:
+        direct_things[key] = things_of(methods[key])
+
+    # A type outside the headless modules whose live code fills a slot declared in
+    # one: constructing it, or reaching it through its statics, hard-wires that live
+    # implementation into the caller, whatever slot the call then goes through.
+    hardwired = defaultdict(set)
+    for key in reach:
+        if key in methods and not is_headless(key) and _followed(key, not_followed):
+            for slot in index.slots.get(key, ()):
+                if is_headless(slot) and _followed(slot, not_followed):
+                    hardwired[methods[key]["type"]].add(key)
+    static_uses = defaultdict(set)
+    for field, entry in index.fields.items():
+        owner = field.split("::", 1)[0]
+        if owner in hardwired:
+            for user in set(entry.get("readers", ())) | set(entry.get("addressTakenBy", ())):
+                static_uses[user].add(field)
+
+    def hardwired_detail(path):
+        impls = sorted(hardwired[path])
+        slots = sorted({method_name(s) for i in impls for s in index.slots.get(i, ()) if is_headless(s)})
+        return "%s fills the headless slot %s with live code: %s" % (
+            path, ", ".join(slots[:3]), live_path(impls[0], direct_things, via))
+
+    pseudo = pseudo_methods(index, headless)
+    entries = [(key, entry) for key, entry in methods.items() if is_headless(key)] + sorted(pseudo.items())
 
     leaks = defaultdict(set)
     seams = defaultdict(set)
     details = {}
     leaking = set()
     seamed = set()
-    for key, entry in methods.items():
-        if not is_headless(key):
-            continue
+    module_of = {}
+    for key, entry in entries:
         module = index.module(entry["type"])
+        module_of[key] = module
         name = method_name(key)
-        for thing in sorted(direct_things.get(key, ())):
+        own = things_of(entry) if key in pseudo else direct_things.get(key, ())
+        for thing in sorted(own):
             leak = "%s -> %s" % (name, thing)
             leaks[module].add(leak)
             details.setdefault(leak, "names %s" % thing[len("game:"):])
             leaking.add(key)
-        for callee in entry["calls"]:
+        for field in sorted(static_uses.get(key, ())):
+            owner = field.split("::", 1)[0]
+            if index.module(owner) in headless:
+                continue
+            leak = "%s -> static:%s" % (name, field)
+            leaks[module].add(leak)
+            details.setdefault(leak, "reads the static %s; %s" % (field, hardwired_detail(owner)))
+            leaking.add(key)
+        for callee in sorted(entry["calls"]):
             if callee not in methods or not _followed(callee, not_followed):
                 continue
             impls = sorted(i for i in index.implementers.get(callee, ())
@@ -212,6 +278,7 @@ def analyse(index, config, modules, direct=None, reach=None, via=None):
                     seamed.add(key)
                 continue
             leak = "%s -> call:%s" % (name, method_name(callee))
+            target = methods[callee]
             if callee in reach:
                 leaks[module].add(leak)
                 details.setdefault(leak, "calls %s, which reaches the game: %s"
@@ -222,6 +289,12 @@ def analyse(index, config, modules, direct=None, reach=None, via=None):
                 details.setdefault(leak, "calls the slot %s, which live %s fills: %s"
                                    % (method_name(callee), ", ".join(method_name(i) for i in impls[:3]),
                                       live_path(impls[0], direct_things, via)))
+                leaking.add(key)
+            elif target["type"] in hardwired and (target["name"] == ".ctor" or "static" in target["flags"]):
+                leaks[module].add(leak)
+                details.setdefault(leak, "%s %s; %s" % (
+                    "constructs" if target["name"] == ".ctor" else "calls the static", method_name(callee),
+                    hardwired_detail(target["type"])))
                 leaking.add(key)
 
     # Every live headless method must reach a leaking method or a seam call
@@ -263,13 +336,13 @@ def analyse(index, config, modules, direct=None, reach=None, via=None):
             "methods", "reachMethods", "directMethods", "instructions", "reachInstructions", "directInstructions")}
         out["headless"] = module in headless
         out["leaks"] = len(leaks.get(module, ())) if module in headless else None
-        out["leakingMethods"] = (len({method_name(k) for k in leaking if index.module(methods[k]["type"]) == module})
+        out["leakingMethods"] = (len({method_name(k) for k in leaking if module_of[k] == module})
                                  if module in headless else None)
         by_module[module] = out
     return {
         "modules": sorted(headless),
         "leaks": {module: sorted(leaks.get(module, ())) for module in sorted(headless)},
-        "details": details,
+        "details": dict(sorted(details.items())),
         "byModule": dict(sorted(by_module.items(), key=lambda kv: (kv[1]["reachInstructions"]
                                                                     / (kv[1]["instructions"] or 1), kv[0]))),
         "seams": {module: sorted(seams.get(module, ())) for module in sorted(headless)},
@@ -328,6 +401,7 @@ def render_pins(result, config, source="", date=""):
     ]
     if source or date:
         lines.append("# Pinned from %s %s" % (source, date))
+    lines.extend(_measured_lines(result))
     lines.append("")
     lines.append("[coupling]")
     for key, values in coupling_lists(config).items():
@@ -342,6 +416,86 @@ def render_pins(result, config, source="", date=""):
         lines.extend("    %s," % json.dumps(leak) for leak in result["leaks"][module])
         lines.append("]")
     return "\n".join(lines) + "\n"
+
+
+MEASURED_ROW_KEYS = ("methods", "reachMethods", "directMethods", "instructions", "reachInstructions",
+                     "directInstructions")
+
+
+def _measured_lines(result):
+    """The [measured] block: the report's numbers at the pin. Nothing gates it
+    against a build (the shares of every module move with any change); the
+    README's "Headless modules" section must print exactly these numbers
+    (readme_lines), so a re-pin that moves them moves the README too."""
+    head = summary(result)
+    lines = ["", "# The measure at this pin, which the README section prints (not gated against a build).",
+             "[measured]",
+             "leaks = %d" % head["leaks"],
+             "leaking_methods = %d" % head["leakingMethods"],
+             "seams = %d" % head["seams"],
+             "top_things = ["]
+    lines.extend("    { thing = %s, count = %d }," % (json.dumps(thing), count) for thing, count in head["topThings"])
+    lines.append("]")
+    lines.append("modules = [")
+    for module, row in result["byModule"].items():
+        cells = ["name = %s" % json.dumps(module), "headless = %s" % ("true" if row["headless"] else "false")]
+        cells.extend("%s = %d" % (key, row[key]) for key in MEASURED_ROW_KEYS)
+        if row["headless"]:
+            cells.append("leaks = %d" % row["leaks"])
+        lines.append("    { %s }," % ", ".join(cells))
+    lines.append("]")
+    return lines
+
+
+def _readme_pct(part, whole):
+    return "%.0f%%" % (100.0 * part / (whole or 1))
+
+
+def readme_lines(measured):
+    """The lines the README's "Headless modules" section prints, from a pins
+    file's [measured] block: one table row per module and the two prose lines
+    carrying the totals and the most-leaked things."""
+    lines = []
+    for row in measured["modules"]:
+        lines.append("| %s | %s | %s | %s | %s | %s | %s | %s | %s |" % (
+            row["name"] + (" *" if row["headless"] else ""), format(row["methods"], ","),
+            _readme_pct(row["reachMethods"], row["methods"]), _readme_pct(row["directMethods"], row["methods"]),
+            _readme_pct(row["reachMethods"] - row["directMethods"], row["methods"]),
+            format(row["instructions"], ","), _readme_pct(row["reachInstructions"], row["instructions"]),
+            _readme_pct(row["directInstructions"], row["instructions"]), row.get("leaks", "")))
+    lines.append("At the pin: %d leaks in %d methods, %d seam calls." % (
+        measured["leaks"], measured["leaking_methods"], measured["seams"]))
+    lines.append("The live things leaked to most: %s." % ", ".join(
+        "`%s` %d" % (entry["thing"][len("game:"):] if entry["thing"].startswith("game:") else entry["thing"],
+                     entry["count"]) for entry in measured["top_things"]))
+    return lines
+
+
+def readme_problems(readme_text, pins):
+    """The README's "Headless modules" lines that do not match the pins' [measured] block."""
+    measured = pins.get("measured")
+    if not measured:
+        return ["headless_pins.toml has no [measured] block: re-pin (%s)" % REPIN_COMMAND]
+    problems = []
+    start = readme_text.find("\n## Headless modules\n")
+    end = readme_text.find("\n## ", start + 1)
+    section = readme_text[start:end if end > 0 else None] if start >= 0 else ""
+    if not section:
+        return ["docs/dev/arch/README.md has no \"## Headless modules\" section"]
+    present = set(section.splitlines())
+    for line in readme_lines(measured):
+        if line not in present:
+            problems.append("README \"Headless modules\" lacks the pinned line %r" % line)
+    table_rows = [line for line in section.splitlines() if line.startswith("| ") and not line.startswith("| Module")
+                  and not line.startswith("| ---") and line.count("|") == 10]
+    expected_rows = [line for line in readme_lines(measured) if line.startswith("| ")]
+    if table_rows != expected_rows:
+        problems.append("README \"Headless modules\" table rows are not exactly the pinned ones, in order")
+    pinned_counts = {entry["name"]: len(entry.get("leaks", [])) for entry in pins.get("module", [])}
+    measured_counts = {row["name"]: row["leaks"] for row in measured["modules"] if row["headless"]}
+    if pinned_counts != measured_counts or measured["leaks"] != sum(pinned_counts.values()):
+        problems.append("headless_pins.toml [measured] does not count its own [[module]] leaks: re-pin")
+    return problems
 
 
 def pinned(pins):
@@ -374,9 +528,9 @@ def pins_problems(pins, modules, config):
         if len(leaks) != len(set(leaks)):
             problems.append("headless_pins.toml module %s lists a leak twice" % entry.get("name"))
         for leak in leaks:
-            if not re.match(r"^[^ ]+::[^ ]+ -> (game|call):\S+$", leak):
-                problems.append("headless_pins.toml module %s: %r is not `Type::Name -> game:X` or"
-                                " `-> call:Type::Name`" % (entry.get("name"), leak))
+            if not re.match(r"^[^ ]+::[^ ]+ -> (game|call|static):\S+$", leak):
+                problems.append("headless_pins.toml module %s: %r is not `Type::Name -> game:X`,"
+                                " `-> call:Type::Name` or `-> static:Type::Field`" % (entry.get("name"), leak))
     return problems
 
 

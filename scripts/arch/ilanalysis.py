@@ -460,7 +460,9 @@ def game_reach(index, config, via=None):
     memo = {}
     direct = {key for key, entry in index.methods.items() if direct_game_refs(entry, coupling, memo)}
     reach = set(direct)
-    pending = list(direct)
+    # Sorted, so `via` (the one path per method messages print) does not depend
+    # on set iteration order; the sets themselves do not depend on it.
+    pending = sorted(direct, reverse=True)
 
     def followed(callee):
         path = _key_type(callee)
@@ -475,7 +477,7 @@ def game_reach(index, config, via=None):
         for slot in index.slots.get(key, ()):
             if followed(slot):
                 callers |= index.callers.get(slot, set())
-        for caller in callers:
+        for caller in sorted(callers):
             if caller in index.methods and caller not in reach:
                 reach.add(caller)
                 pending.append(caller)

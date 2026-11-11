@@ -35,7 +35,10 @@ facts model keyed by member:
   literals (`strings`: reflection by name and `nameof`), and calls into
   another assembly's root-namespace types (`Parsek|Parsek.Foo::Bar(int32)`
   from the test DLL). Code generated but owned by no single method credits its
-  calls and static access to `Type::(generated)`.
+  calls and static access to `Type::(generated)`, and its type `unattributed`
+  bucket records that code's external types (`external`: body and locals) and
+  members (`externalMembers`), so a reader of game coupling can treat the
+  bucket as one more method of its source type.
 
 Compiler-generated code (lambda bodies in `<>c`, closure classes, local
 functions, iterator and async state machines) is folded into the source
@@ -432,7 +435,8 @@ def build(parsed, type_modules=None):
             "interfaces": _interfaces(header),
             "module": module_of(path),
             "namedByOthers": 0,
-            "unattributed": {"methods": 0, "instructions": 0, "decisions": 0, "calls": []},
+            "unattributed": {"methods": 0, "instructions": 0, "decisions": 0, "calls": [],
+                             "external": {"body": [], "locals": []}, "externalMembers": []},
         }
     for owner, owner_uses in parsed.get("uses", {}).items():
         named = set()
@@ -516,6 +520,15 @@ def build(parsed, type_modules=None):
                 if target_key is not None and target_key != pseudo:
                     targets.add(target_key)
         bucket["calls"] = sorted(targets)
+        for scope in ("body", "locals"):
+            bucket["external"][scope] = sorted(set(bucket["external"][scope]) | methods[g]["external"][scope])
+        outside = set(bucket["externalMembers"])
+        for opcode, assembly, path, name, _garity, params, _ret in methods[g]["refs"]:
+            if assembly is None or ilgraph.BCL_ASSEMBLY_RE.match(assembly):
+                continue
+            if not (params is not None and opcode in CALL_OPCODES and is_root_path(outermost(path))):
+                outside.add("%s|%s::%s" % (assembly, path, name))
+        bucket["externalMembers"] = sorted(outside)
         note_statics(methods[g], pseudo, None)
 
     for i in source:
