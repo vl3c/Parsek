@@ -1,7 +1,9 @@
 # Design: map geometry dump (`DumpMapGeometry`, `MapCamera`)
 
-Status: BUILT 2026-11-11 on `claude/project-thread-zfo2hk`, xUnit- and hlib-covered, NOT yet run
-in a live game and wired to no lane. The seam-verb contracts (grammar, phases, refusals, roles)
+Status: BUILT 2026-11-11 on `claude/project-thread-zfo2hk`, xUnit- and hlib-covered, FIRST RUN LIVE
+2026-11-11 by the picture lanes TP-1..TP-8 (85 views, all green). That run found orbit lines dumped
+`active: true` with a stale frame's vertices; the fix (stock's fade opacity, "Stock's orbit-line
+fade" below) and `MapCamera hold=` have NOT flown yet. The seam-verb contracts (grammar, phases, refusals, roles)
 are in `design-autotest-command-seam.md` under `#### DumpMapGeometry` and `#### MapCamera`; this
 document owns the JSON file and how each field is read.
 
@@ -18,9 +20,10 @@ Two automation-only seam verbs close that:
 - `DumpMapGeometry label=<label>` writes what the map DREW in one frame to
   `<KSP root>/Screenshots/<label>.map.json`, beside the `CaptureScreenshot` PNG of the same label.
   An offline tool (another worktree; not part of this change) turns it into pictures.
-- `MapCamera focus=<body> [pitch=<deg>] [heading=<deg>] [distance=<metres>]` frames the stock map
-  camera so a picture is taken from a standard angle (pitch 90 = straight down on the body, 0 =
-  edge-on).
+- `MapCamera focus=<body> [pitch=<deg>] [heading=<deg>] [distance=<metres>] [hold=<seconds>]`
+  frames the stock map camera so a picture is taken from a standard angle (pitch 90 = straight
+  down on the body, 0 = edge-on), optionally holding a few real seconds after it settles so stock's
+  orbit-line fade has finished before the picture.
 
 Both are inert unless the command seam is armed (`PARSEK_TEST_COMMANDS=1`), add no player-facing
 UI, and neither needs `mapRenderTracing`.
@@ -53,8 +56,8 @@ file is written, ERROR on a failed capture, ERROR `map-geometry-timeout` after t
 
 ## The contract
 
-FIXED (an offline consumer codes against it). Reproduced verbatim from the brief, then the
-additive keys, then every field's source.
+FIXED (an offline consumer codes against it). Reproduced verbatim from the brief (plus one line,
+marked, naming the additive orbit-line keys), then the additive keys, then every field's source.
 
 ```
 {
@@ -81,6 +84,7 @@ additive keys, then every field's source.
                            "points": [[x,y,z], ...],             // WHAT IS DRAWN, relative to this line's body centre
                            "ut": [t0, t1],                        // recording-time range the drawn piece covers, omit if unknown
                            "conic": {"sma":..,"ecc":..,"incDeg":..,"lanDeg":..,"argPeDeg":..,"meanAnomalyAtEpoch":..,"epoch":..},   // orbit lines only
+                           "clipped": .., "opacity": .., "drawMode": "..",   // ADDITIVE, orbit lines only (see "Additive keys")
                            "reference": [[x,y,z], ...], "referenceKind": "recorded" | "intended"   // optional: the reference path the existing parity capture already has for this piece, same frame as points
                           } ... ] } ... ],
   "routeLines": [ {"routeId": "...", "routeName": "...", "legs": [ {"body": "...", "recordingId": "...", "points": [[x,y,z], ...]} ] } ],
@@ -103,6 +107,15 @@ additive keys, then every field's source.
   arc; `false` when stock drew its own line (the window spans a full period or more, or the conic
   is degenerate / exactly parabolic), so `points` are stock's whole conic while `ut` is still the
   window. Absent on an inactive orbit line and on every other kind.
+- `lines[].opacity` (orbit lines, drawn or not): stock's fade `OrbitRendererBase.lineOpacity`
+  (0..1) in the capture frame, read through a Harmony `FieldRefAccess` on the protected field.
+  Written on a not-drawn line too, so `active: false` with `opacity: 0` says WHY: stock faded the
+  line out at this zoom. Absent when the field could not be read (the line is then decided by the
+  older rule, and the capture's log line counts it in `orbitOpacityUnknown`).
+- `lines[].drawMode` (orbit lines): the mode stock's `OrbitRendererBase.LateUpdate` hands
+  `DrawOrbit` this frame, by its stock name: `OFF` while the orbit driver's `updateMode` is
+  `IDLE`, else the renderer's `drawMode` (`OFF`, `REDRAW_ONLY`, `REDRAW_AND_FOLLOW`,
+  `REDRAW_AND_RECALCULATE`; Parsek sets `REDRAW_AND_RECALCULATE` on every ghost renderer).
 - `counts.unknownBodyItems`: items skipped because the body they name is not in `bodies` (see
   "Every named body is listed"). Always written; not a cap, so it does not set `truncated`.
 - `counts.dropped`: `{"ghosts", "lines", "routes", "legs", "bodies"}`, the totals each hard cap
@@ -161,7 +174,7 @@ additive keys, then every field's source.
 | `ghosts[].icon` (proto) | `drawn` = the proto vessel's `orbitRenderer` is enabled and its `drawIcons` is not `NONE`; `pos` = `vessel.GetWorldPos3D() - body.position` (reported even when not drawn: where the icon sits). |
 | `ghosts[].icon.pos` (both) | Resolved LAST: the capture keeps every icon's world position and subtracts the ghost body's centre only after the body fallbacks above have run, so a pid-0 entry (whose body comes from its lines or the SOI rule) keeps its marker position. |
 | `ghosts[].icon` (marker) | A Parsek IMGUI marker drawn in the capture frame (the tap records the world position each marker funnel already computes, after the behind-camera check) replaces the proto reading on the entry whose key it carries (`recordingId#cycle` first, then the bare id for a non-loop or the recording's primary pid); `drawn` true, `source` `marker`, `pos` = marker world position minus the ghost body's centre. The flight `preview` marker is skipped. |
-| `lines[]` kind `orbit` | The proto vessel's stock `orbitRenderer.OrbitLine`. `active` = the Vectrosity line is active AND the renderer is enabled; `points` filled only when active; `conic` from `vessel.orbitDriver.orbit` (KSP-native: degrees for inc / LAN / argPe, `meanAnomalyAtEpoch` radians, `epoch` UT). `ut` = the LIVE-frame window of the arc drawn, minus `GetGhostOrbitEpochShift` (recording time): the window `GhostOrbitArcPatch` clipped the line to in the captured frame (its tap), else, when stock drew the line, the same `GhostMapPresence.TryGetVisibleOrbitBoundsForGhostVessel` call the clip makes (`MapGeometryDecisions.TrySelectOrbitLineWindow`). The clip evaluates that window at `liveUT - shift` (legacy drive) or at the live UT on an orbit whose epoch carries the shift (Director drive); both mean recording time `liveUT - shift`. The clip's vertices are written into `points3[drawStart..drawEnd]`, so `points` are the clipped arc; `clipped` says whether the clip applied. No `reference`. |
+| `lines[]` kind `orbit` | The proto vessel's stock `orbitRenderer.OrbitLine`. `active` = stock DREW the line this frame (`MapGeometryDecisions.ClassifyOrbitLine`): the Vectrosity line is active AND the renderer is enabled AND `drawMode` is not `OFF` AND `opacity` > 0 (with `opacity` unreadable, the first three only); `points` filled only when active; `opacity` / `drawMode` always; `conic` from `vessel.orbitDriver.orbit` (KSP-native: degrees for inc / LAN / argPe, `meanAnomalyAtEpoch` radians, `epoch` UT). `ut` = the LIVE-frame window of the arc drawn, minus `GetGhostOrbitEpochShift` (recording time): the window `GhostOrbitArcPatch` clipped the line to in the captured frame (its tap), else, when stock drew the line, the same `GhostMapPresence.TryGetVisibleOrbitBoundsForGhostVessel` call the clip makes (`MapGeometryDecisions.TrySelectOrbitLineWindow`). The clip evaluates that window at `liveUT - shift` (legacy drive) or at the live UT on an orbit whose epoch carries the shift (Director drive); both mean recording time `liveUT - shift`. The clip's vertices are written into `points3[drawStart..drawEnd]`, so `points` are the clipped arc; `clipped` says whether the clip applied. No `reference`. |
 | `lines[]` kind `polyline` | Each cached Parsek trajectory leg (`GhostTrajectoryPolylineRenderer.VisitCachedLegs`) reported when its mesh is active or it drew this frame or the previous one (`MapGeometryDecisions.ClassifyCachedLine`). `active` = the mesh is active; `points` are filled ONLY for an active line. `ut` = the leg's recorded span. `reference` = the leg's parity capture `parityRecordedRel` (`referenceKind` `recorded`), only when the leg is not anchored and its parity capture is from THIS frame's draw. |
 | `lines[]` kind `tail` | Each cached forward arc (the chain drawn AHEAD of the ghost icon, `VisitCachedForwardArcs`), same reporting and points rule. When a seam bridge draws, the arc's `drawStart` / `drawEnd` are already pulled in by the bridge's length, so `points` are the piece left. `reference` = the arc's intended body-relative offsets (`referenceKind` `intended`). |
 | `lines[]` kind `bridge` | Each cached seam bridge (`VisitCachedBridgeLines`, ordinal key order), the filler from a body-fixed leg's drawn end to the adjacent inertial conic; attached to the LEG's recording's entry. Same reporting and points rule. `body` = the body its scaled points are centred on (the joined conic's body). No `ut` (it blends two pieces and covers no recorded span of its own), no `reference`. |
@@ -179,7 +192,10 @@ key; a non-finite point is dropped from its list. Specifically:
 - `ut` on an orbit line exists only when the arc clip drew a window this frame or
   `TryGetVisibleOrbitBoundsForGhostVessel` returns one; on a polyline / tail line it is always the
   cached span; a bridge never has one.
-- An INACTIVE line keeps its entry with `active: false` and EMPTY `points` (every kind).
+- An INACTIVE line keeps its entry with `active: false` and EMPTY `points` (every kind). An orbit
+  line stock faded out (`opacity` 0) or drew in mode `OFF` is inactive in this sense, whatever the
+  Vectrosity mesh flag says.
+- `opacity` on an orbit line is absent only when stock's field could not be read.
 - An icon `pos` is absent when the ghost ends with no body (no intent, orbit, active line, and no
   SOI the icon lies in).
 - `vesselName`, `recordingId` or `body` may be absent for an entry whose render-layer lookup has
@@ -206,14 +222,18 @@ Grammar, refusals and phases are specified in `design-autotest-command-seam.md`;
   `map-view-closed`, `not-in-map-scene`; ERROR `map-geometry-capture-failed reason=<token>`
   (`scene-changed`, `map-view-closed`, `threw-<ExceptionType>`), `map-geometry-timeout`. OK
   payload `label path scene bytes frame ghosts lines points truncated`.
-- `MapCamera focus=<body> [pitch=<deg>] [heading=<deg>] [distance=<metres>]`: pitch [-90, 90],
-  heading [-360, 360], distance (0, 1e13]; REJECTED `mapcamera-focus-arg-missing`,
-  `mapcamera-unknown-body`, `mapcamera-pitch-invalid`, `mapcamera-pitch-out-of-range`,
-  `mapcamera-heading-invalid`, `mapcamera-heading-out-of-range`, `mapcamera-distance-invalid`,
-  `mapcamera-distance-out-of-range`, `map-view-closed`, `not-in-map-scene`; ERROR
-  `mapcamera-no-camera`, `mapcamera-focus-not-targetable`, `mapcamera-focus-not-applied`,
-  `mapcamera-scene-lost`, `mapcamera-not-settled`. OK payload `focus pitch heading distance
-  pitchClamped distanceClamped frames`, the values stock HOLDS after its own clamps.
+- `MapCamera focus=<body> [pitch=<deg>] [heading=<deg>] [distance=<metres>] [hold=<seconds>]`:
+  pitch [-90, 90], heading [-360, 360], distance (0, 1e13], hold [0, 10] real seconds (default
+  0); REJECTED `mapcamera-focus-arg-missing`, `mapcamera-unknown-body`,
+  `mapcamera-pitch-invalid`, `mapcamera-pitch-out-of-range`, `mapcamera-heading-invalid`,
+  `mapcamera-heading-out-of-range`, `mapcamera-distance-invalid`,
+  `mapcamera-distance-out-of-range`, `mapcamera-hold-invalid`, `mapcamera-hold-out-of-range`,
+  `map-view-closed`, `not-in-map-scene`; ERROR `mapcamera-no-camera`,
+  `mapcamera-focus-not-targetable`, `mapcamera-focus-not-applied`, `mapcamera-scene-lost`,
+  `mapcamera-not-settled`. OK payload `focus pitch heading distance pitchClamped distanceClamped
+  frames hold`, the values stock HOLDS after its own clamps, read back at the END of the hold.
+  The hold is wall-clock time after the settle (see "Stock's orbit-line fade"); the settle gets
+  the 60 s budget minus the hold, so settle plus hold never outruns the step budget.
 
 Harness roles: `DumpMapGeometry` is `inert` on the tail axis (and C# `NonMutatingVerbs`);
 `MapCamera` is `world-mutating` (it moves the live map camera, `EnterMapView`'s reasoning); both
@@ -227,8 +247,9 @@ are `recording` on the post-mission axis. hlib mirrors the vocabularies
 Each capture logs ONE Info line, `[MapGeometry] capture frame=.. scene=.. bodies=.. ghosts=..
 protoGhosts=.. legs=.. legRefs=.. arcs=.. bridges=.. markersDrawn=.. markerBodiesBySoi=.. routes=..
 routeLegs=.. scaledOffset=(x,y,z) maxScaledCentreSkewM=.. iconLineMeasured=..
-maxIconToOrbitLineM=<m> pid=<pid>` (`MapGeometryDecisions.FormatCaptureSummary`, invariant
-culture). It is the frame-offset check under warp:
+maxIconToOrbitLineM=<m> pid=<pid> orbitLinesFaded=.. orbitOpacityUnknown=..`
+(`MapGeometryDecisions.FormatCaptureSummary`, invariant culture). It is the frame-offset check
+under warp:
 
 - `scaledOffset` is ScaledSpace's floating offset at the capture (scaled units; its private
   `totalOffset`, read as `-LocalToScaledSpace(0)`).
@@ -241,29 +262,98 @@ culture). It is the frame-offset check under warp:
   drawn line's segments, with the worst ghost's pid; `none` when nothing was measured. A ghost icon
   sitting far off its own drawn orbit shows here without opening the file. An icon the drive
   clamps or wraps (past its window, the loiter circle) can legitimately read off the clipped arc,
-  so read that pid's entry in the file before calling a large value a defect.
+  so read that pid's entry in the file before calling a large value a defect. A faded orbit line
+  is not drawn, so it is not measured.
+- `orbitLinesFaded` counts the proto orbit lines that were otherwise active (mesh active, renderer
+  enabled, mode not `OFF`) at fade opacity 0, so dumped `active: false` with no points;
+  `orbitOpacityUnknown` counts the lines decided by the older rule because the opacity field could
+  not be read (0 on a stock install; non-zero means the field moved and the dump can again report
+  a stale line as drawn).
 
-## Not yet proven (live-game questions)
+## Stock's orbit-line fade (read from the KSP 1.12.5 IL)
 
-The verbs have only run under xUnit (pure halves) and the harness unit suite. On the first live
-run, read these:
+The first live flights (TP-1..TP-8, 2026-11-11) dumped about a fifth of the ghosts' orbit lines
+`active: true` with vertices that were not on the conic (a Mun hyperbola 38 Mm from the Mun, a
+Duna orbit whose vertices were the old heliocentric transfer arc, a Kerbin orbit of the right shape
+offset 50 Mm to 5e10 m). The IL of `Assembly-CSharp.dll` says why (`ikdasm`; offsets from that
+listing, the obfuscator's dead `switch` blocks left out):
+
+- `OrbitRendererBase.LateUpdate` calls `DrawOrbit(driver.updateMode == IDLE ? OFF : drawMode)`,
+  then `DrawNodes()`.
+- `OrbitRenderer.DrawOrbit(mode)` (the vessel subclass) returns early when the map is not
+  enabled, there is no camera target or the line is missing; otherwise it sets
+  `OrbitLine.active = GetActive(mode, isDebris, filtered)` (`mode != OFF && lineOpacity > 0 &&
+  ...`, using the opacity BEFORE this frame's update) and calls the base `DrawOrbit` unless the
+  vessel is debris without mouse-over or the map filter hides it.
+- `OrbitRendererBase.DrawOrbit(mode)` (IL_001e..IL_0048): `SplineOpacityUpdate()`, then
+  `if (lineOpacity == 0) return` and `if (mode == OFF) return`, BEFORE `SetColor(GetOrbitColour())`
+  and the draw. Then by mode: `REDRAW_ONLY` and `REDRAW_AND_FOLLOW` call `DrawSpline()` only
+  (IL_00a4 / IL_00ab); `REDRAW_AND_RECALCULATE` sets the line's `rectTransform.position` to zero
+  and calls `UpdateSpline()` then `DrawSpline()` (IL_007c..IL_009e).
+- `SplineOpacityUpdate` pins `lineOpacity` to 1 for the active vessel and a focused renderer.
+  Otherwise it computes `CamVsSmaRatio = MapCamera.Distance / (|sma| * ScaledSpace.InverseScaleFactor)`
+  (a landed vessel uses the body radius; an orbit `IsRenderableOrbit` rejects for the camera
+  target's body reads 0) and moves `lineOpacity` toward 1 by `0.25 * Time.deltaTime` while the
+  ratio is strictly inside (`lowerCamVsSmaRatio`, `upperCamVsSmaRatio`), else toward 0 by the same
+  step (IL_0130..IL_01ed). A full fade takes 4 s of scaled time.
+- `UpdateSpline` is the only writer of `points3` (the orbit's sampled positions through
+  `ScaledSpace.LocalToScaledSpace`); `DrawSpline` uploads whatever `points3` holds (`Draw3D`). Its
+  only other callers are `OrbitRendererBase.Start` (once) and `DrawSpline` itself, when
+  `MapView.Draw3DLines` flips.
+
+So at a zoom where stock fades a ghost's orbit out, nothing recomputes `points3`: it keeps the
+last drawn frame's vertices, in that frame's scaled-space origin and for that frame's orbit, while
+Parsek's `GhostOrbitLinePatch` LateUpdate Postfix (which runs after the base `DrawOrbit`) can still
+set `line.active = true`. The mesh then keeps the last uploaded colour, whose alpha was the
+near-zero opacity of the last faded draw, so nothing visible is drawn. The dump therefore decides
+an orbit line drawn only when the mesh is active, the renderer enabled, the mode not `OFF` and the
+opacity above 0, and it writes `opacity` so a reader sees the fade.
+
+Two cases the rule cannot see, by construction:
+
+- **A mode that redraws without recalculating.** `REDRAW_ONLY` / `REDRAW_AND_FOLLOW` at opacity
+  above 0 draw `points3` as they are, so the line on screen IS stale. The dump writes those
+  vertices (they are what was drawn) and names the mode in `drawMode`. Parsek sets
+  `REDRAW_AND_RECALCULATE` on every ghost renderer (`GhostMapPresence`), so a ghost line in another
+  mode is itself a finding.
+- **A renderer stock skips before the base draw** (debris without mouse-over, a map filter): its
+  opacity is not updated that frame, so it reads the last value. Ghost proto vessels take their
+  recording's vessel type, so a debris ghost's orbit line is the one case to read with care.
+
+Because the fade runs on `Time.deltaTime` (SCALED time), a picture taken right after a camera move
+can catch a line mid-fade. `MapCamera hold=` waits WALL-CLOCK seconds after the settle: at 1x that
+is the fade's own clock; under physics warp the fade runs `timeScale` times faster per real second
+(the hold is then more than enough); at on-rails warp `timeScale` stays 1; with the game paused
+(`timeScale` 0) the fade does not run at all and no hold finishes it. Game time moves during the
+hold at whatever rate the game runs, so a view taken after a hold is that many seconds later than
+the instant the lane jumped to.
+
+## Live-game questions
+
+The first live flights (TP-1..TP-8, 2026-11-11, before the fade fix) answered two of these and
+raised the fade; the rest are still open. Read on the next run:
 
 - The scaled-space inversion. The vertex mapping assumes the polyline / orbit meshes are drawn in
   scaled space with no rotation and that `body.scaledBody.transform.position` in the end-of-frame
   read is the same one the vertices were built against. A line that lands offset or scaled wrong in
   the picture means one of those does not hold.
-- `MapCamera`'s settle. It answers once the camera-to-target distance is within 0.1 % of what
-  stock holds, or the camera stayed still for 3 frames; a camera that keeps creeping (pivot
-  SmoothDamp) could read `mapcamera-not-settled`, and the pitch / distance clamps stock applies in
-  LateUpdate are only reported, never fought.
+- `MapCamera`'s settle. ANSWERED on the first flights: all 85 settled, none clamped
+  (`pitchClamped=false distanceClamped=false` throughout). It answers once the camera-to-target
+  distance is within 0.1 % of what stock holds, or the camera stayed still for 3 frames; the
+  pitch / distance clamps stock applies in LateUpdate are only reported, never fought.
+- `MapCamera hold=` and the opacity read: not flown yet. On the next run, `orbitLinesFaded` and
+  each orbit line's `opacity` say whether 4.5 s is enough (a line at 0 < opacity < 1 after the
+  hold means it is not), and `orbitOpacityUnknown` must read 0.
 - The proto icon's `drawn` reading (`orbitRenderer.enabled` plus `drawIcons`), which is a proxy for
   stock's icon draw, not a read of it.
 - The marker positions in FLIGHT come from the same world position the marker funnel projects;
   whether they agree with the PNG's marker to the pixel is unmeasured.
 - The arc-clip tap. `clipped` and the orbit `ut` window rely on `GhostOrbitArcPatch`'s Prefix
   running in the captured frame. Stock `OrbitRendererBase.DrawOrbit` calls `UpdateSpline` on every
-  draw (read from the KSP 1.12.5 IL), so a drawn ghost line is re-clipped each frame; an orbit line
-  that reads `clipped: false` while the picture shows a partial arc would mean that does not hold.
+  DRAW in mode `REDRAW_AND_RECALCULATE` (the ghosts' mode) and on no frame at fade opacity 0
+  (KSP 1.12.5 IL, "Stock's orbit-line fade"), so a drawn ghost line is re-clipped each frame. On
+  the first flights every stale line read `clipped: false` with a partial arc: the clip had not
+  run that frame because stock had faded the line out, which is the case the opacity now names.
 - The seam bridges. The bridge visitor reads the leg / side / body the bridge's own draw recorded;
   a bridge that lands detached from its leg's end in the picture would mean the bridge cache and
   the leg cache were read from different frames.

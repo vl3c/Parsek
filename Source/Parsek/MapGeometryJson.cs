@@ -95,6 +95,18 @@ namespace Parsek
         /// stock drew its own line (a full period or more, no window, a degenerate conic).
         /// Null (omitted) for an inactive line and for every other kind.</summary>
         internal bool? Clipped;
+
+        /// <summary>Additive key <c>opacity</c>, orbit lines only: stock's
+        /// <c>OrbitRendererBase.lineOpacity</c> in the capture frame (0..1), written on a
+        /// drawn line AND on a line the fade hides, so a reader sees why it is not drawn.
+        /// Null (omitted) when the field could not be read and for every other kind.</summary>
+        internal double? Opacity;
+
+        /// <summary>Additive key <c>drawMode</c>, orbit lines only: the mode stock's
+        /// <c>LateUpdate</c> hands <c>DrawOrbit</c> this frame (<c>OFF</c> while the orbit
+        /// driver is <c>IDLE</c>, else the renderer's <c>drawMode</c>), by its stock name.
+        /// Null (omitted) for every other kind.</summary>
+        internal string DrawMode;
     }
 
     /// <summary>One <c>ghosts[]</c> entry.</summary>
@@ -221,6 +233,56 @@ namespace Parsek
             if (active) return CachedLineReport.Drawn;
             return lastDrawnFrame >= frame - 1 ? CachedLineReport.Inactive : CachedLineReport.Skip;
         }
+
+        /// <summary>Stock's name for <c>OrbitRendererBase.DrawMode.OFF</c>.</summary>
+        internal const string DrawModeOff = "OFF";
+
+        /// <summary>How the dump reports one proto ghost's stock orbit line.</summary>
+        internal enum OrbitLineReport
+        {
+            /// <summary>The mesh is inactive or the renderer disabled: not drawn.</summary>
+            NotActive,
+            /// <summary>The draw mode this frame is OFF: stock returns before drawing.</summary>
+            ModeOff,
+            /// <summary>Stock's fade opacity is 0: <c>DrawOrbit</c> returns before
+            /// <c>UpdateSpline</c> / <c>DrawSpline</c>, so the vertices are a stale frame's
+            /// and nothing is drawn, whatever <c>line.active</c> says.</summary>
+            Faded,
+            /// <summary>Drawn at opacity &gt; 0.</summary>
+            Drawn,
+            /// <summary>The opacity could not be read: reported drawn by the older rule
+            /// (mesh active and renderer enabled, mode not OFF).</summary>
+            DrawnOpacityUnknown,
+        }
+
+        /// <summary>
+        /// Whether stock drew a proto ghost's orbit line this frame
+        /// (<c>OrbitRendererBase.DrawOrbit</c>, KSP 1.12.5 IL): it returns without
+        /// <c>UpdateSpline</c> / <c>DrawSpline</c> when <c>lineOpacity == 0</c> or the mode is
+        /// OFF. Parsek's line Postfix may still set <c>line.active</c> true, so an active mesh
+        /// alone is not proof of a draw. A non-finite opacity counts as unknown.
+        /// </summary>
+        internal static OrbitLineReport ClassifyOrbitLine(
+            bool lineActive, bool rendererEnabled, string drawMode, double? lineOpacity)
+        {
+            if (!lineActive || !rendererEnabled)
+                return OrbitLineReport.NotActive;
+            if (string.Equals(drawMode, DrawModeOff, StringComparison.Ordinal))
+                return OrbitLineReport.ModeOff;
+            if (!lineOpacity.HasValue || !MapGeometryJson.IsFinite(lineOpacity.Value))
+                return OrbitLineReport.DrawnOpacityUnknown;
+            return lineOpacity.Value > 0.0 ? OrbitLineReport.Drawn : OrbitLineReport.Faded;
+        }
+
+        /// <summary>True for the two reports that carry the drawn vertices.</summary>
+        internal static bool IsOrbitLineDrawn(OrbitLineReport report)
+            => report == OrbitLineReport.Drawn || report == OrbitLineReport.DrawnOpacityUnknown;
+
+        /// <summary>The mode stock's <c>OrbitRendererBase.LateUpdate</c> passes to
+        /// <c>DrawOrbit</c>: <see cref="DrawModeOff"/> while the orbit driver's
+        /// <c>updateMode</c> is <c>IDLE</c>, else the renderer's own mode name.</summary>
+        internal static string EffectiveOrbitDrawMode(string rendererDrawMode, bool driverIdle)
+            => driverIdle ? DrawModeOff : rendererDrawMode;
 
         /// <summary>
         /// The live-frame window an orbit line's <c>ut</c> is derived from, mirroring what
@@ -357,6 +419,13 @@ namespace Parsek
             /// <summary>Max over those ghosts of the icon-to-orbit-line distance, metres.</summary>
             internal double? MaxIconToLineM;
             internal uint MaxIconToLinePid;
+            /// <summary>Proto orbit lines that were otherwise active (mesh active, renderer
+            /// enabled, draw mode not OFF) but at stock's fade opacity 0, so stock did not draw
+            /// them this frame.</summary>
+            internal int OrbitLinesFaded;
+            /// <summary>Proto orbit lines whose opacity could not be read (the old rule
+            /// decided them).</summary>
+            internal int OrbitOpacityUnknown;
         }
 
         /// <summary>The capture's one Info line, invariant culture. A frame-offset error under
@@ -378,10 +447,12 @@ namespace Parsek
                 "capture frame={0} scene={1} bodies={2} ghosts={3} protoGhosts={4} legs={5} " +
                 "legRefs={6} arcs={7} bridges={8} markersDrawn={9} markerBodiesBySoi={10} " +
                 "routes={11} routeLegs={12} scaledOffset={13} maxScaledCentreSkewM={14} " +
-                "iconLineMeasured={15} maxIconToOrbitLineM={16}",
+                "iconLineMeasured={15} maxIconToOrbitLineM={16} orbitLinesFaded={17} " +
+                "orbitOpacityUnknown={18}",
                 s.Frame, s.Scene ?? "?", s.Bodies, s.Ghosts, s.ProtoGhosts, s.Legs,
                 s.LegRefs, s.Arcs, s.Bridges, s.MarkersDrawn, s.MarkerBodiesBySoi,
-                s.Routes, s.RouteLegs, offset, skew, s.IconLineMeasured, icon);
+                s.Routes, s.RouteLegs, offset, skew, s.IconLineMeasured, icon,
+                s.OrbitLinesFaded, s.OrbitOpacityUnknown);
         }
 
         internal const string ReferenceRecorded = "recorded";
@@ -960,6 +1031,8 @@ namespace Parsek
                     Sep(sb, ref lf);
                     sb.Append("\"clipped\": ").Append(line.Clipped.Value ? "true" : "false");
                 }
+                FieldFirst(sb, ref lf, "opacity", line.Opacity);
+                FieldFirst(sb, ref lf, "drawMode", line.DrawMode);
                 if (line.Conic != null)
                 {
                     Sep(sb, ref lf);
