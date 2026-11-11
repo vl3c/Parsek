@@ -324,9 +324,14 @@ def reason_counts(classified):
     return counts
 
 
-def build(model, il_text, source_root):
-    """Everything the report and the tests need, as one dict."""
-    parsed = ilgraph.parse_il(il_text)
+def build(model, il_text, source_root, parsed=None):
+    """Everything the report and the tests need, as one dict.
+
+    `parsed` is an existing parse_il result of the same IL (then `il_text`
+    may be None); it is read, never changed.
+    """
+    if parsed is None:
+        parsed = ilgraph.parse_il(il_text)
     names = {entry["name"] for entry in model["types"]}
     type_modules = {entry["name"]: entry["module"] for entry in model["types"]}
     text = text_graph(model)

@@ -134,6 +134,83 @@ deleting the text edge `ReFlyInvokeHold -> Hold` (only the qualifier of
 `ReFlyInvokeHold.Entry`): the text residue fell 272 -> 263 (knot 459 -> 450)
 and the semantic residue stayed 250, which never counted that edge.
 
+## Member facts (compiled IL)
+
+`scripts/arch/ilfacts.py` turns the same parse (`ilgraph.parse_il` records
+the member facts in the pass that builds the type uses; there is one IL
+parser) into a facts model keyed by member, for reports and for gates a later
+PR may add. It gates nothing today.
+
+- **Types** by full IL path: namespace plus nesting
+  (`Parsek.Logistics.RouteEndpointTransfer/VesselIdentity` is not
+  `Parsek.VesselIdentity`). Kind, header flags, base type, custom attributes,
+  and the module: `modules.toml` assigns the type's source file, found by
+  namespace and nesting in a scan of the source tree; a nested type takes its
+  enclosing type's. `module: null` when the scan cannot say (the summary
+  prints how many).
+- **Fields** by `Type::name`: static, initonly, literal, compiler-generated,
+  the property it backs (`<X>k__BackingField`), event backing, attributes;
+  for a static field the methods that read it (`ldsfld`), write it
+  (`stsfld`) and take its address (`ldsflda`, a by-ref write the store scan
+  alone misses).
+- **Methods** by `Type::Name(param types)` (``Name``N`` when generic), the
+  parameters normalized so a declaration and a call site print the same text.
+  Instruction count, decisions (conditional branches + distinct `switch`
+  targets + catch and filter handlers; complexity is decisions + 1), the
+  in-assembly members called (`call` / `callvirt` / `newobj` / `ldftn` /
+  `ldvirtftn`), static reads / writes / address-takes, the external types
+  named by the body, the locals and the signature (`assembly|type`, the BCL
+  left out), custom attributes (the roots an uncalled-code report needs:
+  `HarmonyPrefix`, `InGameTestAttribute`; the type's own, such as
+  `HarmonyPatch` and `KSPAddon`, are on its type entry), and calls into
+  another assembly's `Parsek` types (from the test DLL, for test reach).
+- **Compiler-generated code** (lambdas in `<>c`, closures, local functions,
+  iterator and async state machines) is folded into the source method that
+  creates it, found through IL references (the `newobj`, `ldftn` or call
+  that reaches it, and through a generated type's constructor everything in
+  that type), never by the mangled name. A method's `instructions` and
+  `decisions` are its own body; `generated` holds what was folded in, and its
+  calls, statics and external types include it. Generated names never appear
+  as keys: their ordinals (`<Run>d__594`) shift when a method is added above
+  them and differ between Debug and Release. The constructors of a `<>c`
+  lambda cache shared by several methods belong to none of them and are
+  counted on the type under `unattributed`.
+
+Run it:
+
+```bash
+python3 scripts/arch/ilfacts.py Source/Parsek/bin/Debug/Parsek.dll              # summary
+python3 scripts/arch/ilfacts.py Source/Parsek/bin/Debug/Parsek.dll --json facts.json --summary
+python3 scripts/arch/ilfacts.py Source/Parsek.Tests/bin/Debug/net472/Parsek.Tests.dll --modules none
+```
+
+The input is an assembly (disassembled with `ikdasm`) or a ready `.il` dump;
+`--modules none` skips the module map for an assembly whose source is not
+under `Source/Parsek`. The summary counts production types (a module, not a
+`[tooling]` one): reassignable statics, static readonly collections,
+reassignable statics written by another production outer type (by `stsfld`,
+plus `ldsflda`, plus a static auto-property setter), methods by complexity
+(own body, with generated code folded in, and every IL method on its own),
+and the instructions in generated code. On b5877e51f (2026-11-11, Debug): 865
+reassignable statics (55 of them static auto-property backing fields), 307
+readonly collections, 51 / 55 / 59 cross-type writers, complexity >= 20 / 50 /
+100 600 / 30 / 5 own body, 615 / 32 / 5 folded, 604 / 31 / 5 per IL method;
+24,381 of 1,274,131 production instructions in generated code (1.9%).
+
+Debug against Release (b5877e51f, both through this tool): the same type,
+field and method keys; static read / write / address sets and method
+attributes identical; calls differ in 1 of 22,046 methods, decisions in 69
+(0.3%), the folded decisions in 4; instructions are 22% fewer in Release;
+locals' external types differ in 530 methods (typed locals the optimizer
+drops); static auto-property backing fields lose their
+`DebuggerBrowsableAttribute`. The summary's static-state lines are equal and
+its complexity lines 5 lower at >= 20. Measure on the Debug DLL CI builds,
+never pin a number from a Release build, and gate nothing on instruction
+counts. CI's compiled-IL step runs `test_ilfacts.py`'s real-tree
+cells with `test_semantic.py` (structure only: every source type keyed and
+mapped to a module, unique keys, every call resolved, no generated key,
+entry-point attributes read) over the one parse `ilgraph.load_parsed` caches.
+
 ## Regenerating
 
 Nothing under `docs/dev/arch/` except this README is tracked. Run the script

@@ -139,8 +139,11 @@ jobs:
       # forwarder counts as a call to the forwarded type. Its real-tree cells
       # skip only when PARSEK_ARCH_IL is unset, so here they always run; the
       # report (residue next to the text scan's, every disagreement
-      # classified) goes to the step log. About a minute.
+      # classified) goes to the step log. The pattern also picks up
+      # test_ilfacts.py (the per-member facts layer, report-only), which reads
+      # the same parse through ilgraph.load_parsed, so the DLL is disassembled
+      # and parsed once for both. About a minute and a half.
       - name: Architecture semantic graph (compiled IL)
         env:
           PARSEK_ARCH_IL: ${{ github.workspace }}/Source/Parsek/bin/Debug/Parsek.dll
-        run: python3 -m unittest discover -s scripts/arch -p 'test_semantic.py' -q
+        run: python3 -m unittest discover -s scripts/arch -p 'test_[si]*.py' -q
