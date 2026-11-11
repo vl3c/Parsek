@@ -630,23 +630,6 @@ steps = [
   # self-correcting by the cycle-2 -180 epoch. Deterministic across both runs.
   # Same family as MAPRENDER-ICON-OFF-ORBIT-CREATION-FRAME-AFTER-JUMP.
   { cmd = "TimeJump", args = { ut = "29002565" }, expect = "OK", budget = 300 },
-  # ============================================================================
-  # THE CENSUS-PACING DWELL BLOCK - 40 x RecordingState, V16M's verbatim and now
-  # PROVEN machinery: its reading run emitted the census MEASURING line at BOTH
-  # arrivals, 11.502 wall-seconds apart, against the 5.0 s VerboseRateLimited
-  # window that swallowed V15M's cycle-2 emission on all three of its runs.
-  # Sized against run.py's 0.25 s POLL_INTERVAL_SECONDS floor (>= 10.0 wall s)
-  # rather than V5's measured 0.54 s/tick (~21.6 s). Costs ~22 GAME seconds of 1x
-  # at the cycle-1 park epoch against a predicted ~1,296 s of recorded tail.
-  # ============================================================================
-  # 1x FLIGHT time to UT 29002577: 12 s after the jump, census pacing, two 5 s rate-limit windows of wall time (40 inert steps before 2026-10-07: since PR #2017 one costs a
-  # frame, not the 0.25 s poll; todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS).
-  { cmd = "WarpToUT", args = { ut = "29002577", maxRate = "1" }, expect = "OK", budget = 120 },
-  # 2026-11-11 ORDER: the Watch step now follows the park dwell instead of preceding it.
-  # On the phase-locked clock the step answers OK (one ghost, inside watch range), and
-  # entering watch mode before the dwell left the shadow drive of the Vall tail unread
-  # (run 2026-11-11_0642: zero `segIdx=11 treatment=TracedPath` lines). Dwell first keeps
-  # the census and the Vall-tail render read, then the player watches.
   # STEP 3: "Watch", auto-select over all committed recordings. PINNED REJECTED,
   # re-pointed 2026-08-28. The margin is restated against the REAL gate rather than
   # the retired ~120 km bracket: header section 5's chord arithmetic gives
@@ -666,6 +649,18 @@ steps = [
   # pre-registered risk landed; the pin follows the measurement. Cycle 2 read the same way
   # (run 2026-11-11_0626), see its step.
   { cmd = "EnterWatchMode",                                                  expect = "OK" },
+  # ============================================================================
+  # THE CENSUS-PACING DWELL BLOCK - 40 x RecordingState, V16M's verbatim and now
+  # PROVEN machinery: its reading run emitted the census MEASURING line at BOTH
+  # arrivals, 11.502 wall-seconds apart, against the 5.0 s VerboseRateLimited
+  # window that swallowed V15M's cycle-2 emission on all three of its runs.
+  # Sized against run.py's 0.25 s POLL_INTERVAL_SECONDS floor (>= 10.0 wall s)
+  # rather than V5's measured 0.54 s/tick (~21.6 s). Costs ~22 GAME seconds of 1x
+  # at the cycle-1 park epoch against a predicted ~1,296 s of recorded tail.
+  # ============================================================================
+  # 1x FLIGHT time to UT 29002577: 12 s after the jump, census pacing, two 5 s rate-limit windows of wall time (40 inert steps before 2026-10-07: since PR #2017 one costs a
+  # frame, not the 0.25 s poll; todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS).
+  { cmd = "WarpToUT", args = { ut = "29002577", maxRate = "1" }, expect = "OK", budget = 120 },
   # STEP 4: "Warp to..." AGAIN - the desync hunt's second half. Under H1 this
   # 2026-11-10: under the phase-lock road this resolves the next scheduled window
   # L1 = L0 + P_Vall = 29,028,950.775 (predicted). H3-era text follows.
