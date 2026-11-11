@@ -357,6 +357,9 @@ class GitRoundTripTests(unittest.TestCase):
         # A second job (fresh worktree, branch present) appends.
         self.assertEqual(self.publish(self.source, "w2", SHA2), "pushed")
         self.assertEqual(metrics_append.read_shas(self.remote_file("metrics.jsonl")), [SHA, SHA2])
+        # No worktree holds a local branch named like the remote one: a newer
+        # git refuses to check out a branch a second worktree already has.
+        self.assertEqual(git_out(["for-each-ref", "refs/heads/metrics"], self.source), "")
         # A re-run for a sha already there pushes nothing.
         self.assertEqual(self.publish(self.source, "w3", SHA2), "present")
         self.assertEqual(len(self.remote_log()), 2)

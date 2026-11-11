@@ -32,6 +32,7 @@ import json
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 
 KNOWN_SCHEMAS = ("parsek-metrics/1",)
@@ -155,8 +156,14 @@ def tracking_ref(remote, branch):
 
 def checkout_branch(repo, remote, branch, workdir):
     """Point the worktree at `workdir` to the remote tip of `branch`, or to a
-    fresh orphan branch holding README.md when the remote has none. Returns
-    True when the branch already existed on the remote."""
+    fresh orphan history holding README.md when the remote has none. Returns
+    True when the branch already existed on the remote.
+
+    The worktree never checks out a local branch named `branch`: git refuses
+    a branch another worktree of the repository already holds, so the tip is
+    checked out detached and publish() pushes HEAD to the remote branch. The
+    orphan case needs a branch name to be born on, so it gets a throwaway one.
+    """
     workdir = Path(workdir)
     exists = remote_has_branch(repo, remote, branch)
     if exists:
@@ -166,12 +173,11 @@ def checkout_branch(repo, remote, branch, workdir):
         git(["worktree", "add", "--quiet", "--detach", str(workdir),
              tracking_ref(remote, branch) if exists else "HEAD"], repo)
     if exists:
-        git(["checkout", "--quiet", "--force", "-B", branch, tracking_ref(remote, branch)], workdir)
+        git(["checkout", "--quiet", "--force", "--detach", tracking_ref(remote, branch)], workdir)
         git(["clean", "-fdxq"], workdir)
         return True
     git(["checkout", "--quiet", "--force", "--detach"], workdir)
-    git(["branch", "-D", branch], workdir, check=False)
-    git(["checkout", "--quiet", "--orphan", branch], workdir)
+    git(["checkout", "--quiet", "--orphan", "%s-new-%s" % (branch, uuid.uuid4().hex[:12])], workdir)
     git(["rm", "-rfq", "--ignore-unmatch", "."], workdir)
     git(["clean", "-fdxq"], workdir)
     (workdir / "README.md").write_text(README, encoding="utf-8", newline="\n")
