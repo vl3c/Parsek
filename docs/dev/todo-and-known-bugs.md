@@ -2320,7 +2320,7 @@ compare).
   by type + name): field flags and static read / write / address-take sets, per-method
   instructions, decisions, calls, external types and attributes, generated code folded into its
   source method by IL reference. `ilgraph.parse_il` records the facts in its one pass; the
-  semantic report is byte-identical. Report-only, no gate. On b5877e51f: 865 reassignable
+  semantic report is byte-identical. No gate on the code; its real-tree cells check only that the extractor models the whole assembly. On b5877e51f: 865 reassignable
   statics, 307 readonly collections, 51 cross-type writers (55 with `ldsflda`), complexity >= 20
   / 50 / 100 604 / 31 / 5 per IL method; the review's 601 left out `Parsek.VesselIdentity`,
   which the text model drops (its short name is declared twice) and the facts map to Missions.

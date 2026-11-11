@@ -139,7 +139,13 @@ and the semantic residue stayed 250, which never counted that edge.
 `scripts/arch/ilfacts.py` turns the same parse (`ilgraph.parse_il` records
 the member facts in the pass that builds the type uses; there is one IL
 parser) into a facts model keyed by member, for reports and for gates a later
-PR may add. It gates nothing today.
+PR may add. It gates no property of the code today. Its real-tree cells (`RealTreeFactsTests`,
+run by the compiled-IL CI step) check the extractor itself: every source type is a
+facts type, member keys are unique, every in-assembly call resolves to a key, and
+all compiler-generated code folds into a source method. A red there means the
+extractor cannot model something in the assembly, and the fix belongs in the
+tool. A type the source scan cannot place keeps `module: null` and is reported,
+not failed.
 
 - **Types** by full IL path: namespace plus nesting
   (`Parsek.Logistics.RouteEndpointTransfer/VesselIdentity` is not
