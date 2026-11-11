@@ -804,7 +804,21 @@ required  = [
   "startloopplayback initiated:",
   "FastForwardToEventUT: jumping to UT=",
   "fail-closed-to-faithful surface=ProtoOrbitLine .*producer=nested-soi provenance=faithful-fallback action=render-recorded-verbatim root=Jool .*bodies=Laythe/Jool/Vall",
-  "shadow .*coverage=InSegment segIdx=11 treatment=TracedPath visible=True .*body=Vall",
+  # 2026-11-11 RE-PINNED (runs 2026-11-11_0642 and _0650, both PARSEK-FAIL on the old
+  # `segIdx=11 treatment=TracedPath` form with every step met). The old form was only ever
+  # satisfied by the self-overlapping H3 clock: its 20 instances spread over the span, and the
+  # 252 matches in the old-clock green run 2026-11-06_0039 sit at driveUT 28,896,277-28,896,609,
+  # the recording's SEGMENT-LESS Vall tail (last ORBIT_SEGMENT ends 28,896,012.5). Under the
+  # moon-rooted phase-lock (#2554) the loop no longer overlaps: one ghost, and when its replay
+  # enters a segment-less tail the flight map removes its proto
+  # (`GhostMapPresence.ResolveFlightMapNoSegmentArm` -> `left-orbit-segments`, the documented
+  # loop-member rule), so no ghost reaches the tail lens at the park epoch. Moving the watch
+  # after the park dwell changed nothing (_0650), so it is not the watch. The Vall-frame render
+  # truth now lands on the Vall approach segment: 10x `coverage=InSegment segIdx=10
+  # treatment=StockConic visible=True ... body=Vall` at driveUT 28,892,607.7-28,892,615.8 in
+  # both runs (the +140 s arrival dwell). Same meaning, the V21M form; `body=Vall` stays the
+  # negative-control discriminator.
+  "shadow .*coverage=InSegment segIdx=10 treatment=StockConic visible=True .*body=Vall",
   "faithful-parity summary sampled=\\d+ overTolerance=\\d+",
   "seam-endpoint summary evaluated=\\d+ outsideSoi=\\d+",
 ]
