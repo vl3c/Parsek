@@ -4,10 +4,13 @@ The declaration cells need no DLL: the committed lifetimes.toml is well-formed
 and agrees with the C# reset gate (SaveScopedSessionResetTests' type list and
 scripts/session-reset-allowlist.txt, comments stripped). The rule cells build
 small ikdasm-shaped assemblies inline (test_ilanalysis' helpers) and show each
-finding red and not red. The real-tree cells need PARSEK_ARCH_IL like
-test_semantic's and the Debug Parsek.Tests.dll beside it; CI's compiled-IL
-step runs them. They hold the pins and mutate the real result to show each
-gate reds on the change it exists for and stays green on the ones it must not.
+finding red and not red, and which reads and calls put a static readonly
+collection in the population at all (ilgraph.StaticReceiverTracker). The
+real-tree cells need PARSEK_ARCH_IL like test_semantic's, and read the Debug
+Parsek.Tests.dll from its build path in this tree (lifetimes.DEFAULT_TESTS_DLL);
+a missing test assembly errors them, it never skips. CI's compiled-IL step
+runs them. They hold the pins and mutate the real result to show each gate
+reds on the change it exists for and stays green on the ones it must not.
 """
 
 import contextlib
@@ -33,13 +36,16 @@ from test_ilanalysis import cls, facts_of, meth  # noqa: E402
 IL_ENV = test_semantic.IL_ENV
 CONFIG = ilanalysis.load_config()
 LIST = "class [mscorlib]System.Collections.Generic.List`1<string>"
+NESTED = "class [mscorlib]System.Collections.Generic.List`1<class [mscorlib]System.Collections.Generic.List`1<string>>"
+SB = "class [mscorlib]System.Text.StringBuilder"
 ALL_LIFETIMES = ("process", "save", "load-transition", "scene", "scoped", "test-hook")
 
 
 def declaration(**overrides):
     decl = {
         "lifetimes": {name: "meaning of %s" % name for name in ALL_LIFETIMES},
-        "cold_load": {"roots": {"Parsek.Scenario::OnLoad()": "the load"}},
+        "cold_load": {"roots": {"Parsek.Scenario::OnLoad()": "the load"},
+                      "clearing_members": {"Clear": "empties the collection"}},
         "pattern": [{"match": "*ForTesting", "lifetime": "test-hook", "reason": "named as a seam"}],
         "type": [
             {"name": "Parsek.Store", "default": "save", "reason": "the store",
@@ -177,8 +183,22 @@ class DeclarationShapeTests(unittest.TestCase):
         self.assertTrue(any("unknown key 'defualt'" in p for p in self.problems(type=types)))
 
     def test_a_root_that_is_no_method_key_reds(self):
-        problems = self.problems(cold_load={"roots": {"Parsek.Scenario.OnLoad": "r"}})
+        problems = self.problems(cold_load={"roots": {"Parsek.Scenario.OnLoad": "r"},
+                                            "clearing_members": {"Clear": "r"}})
         self.assertTrue(any("is not a method key" in p for p in problems), problems)
+
+    def test_the_cold_load_table_shape(self):
+        roots = {"Parsek.Scenario::OnLoad()": "r"}
+        problems = self.problems(cold_load={"roots": roots})
+        self.assertTrue(any("clearing_members] must name" in p for p in problems), problems)
+        problems = self.problems(cold_load={"roots": roots, "clearing_members": {"Clear": " "}})
+        self.assertTrue(any("Clear has no reason" in p for p in problems), problems)
+        problems = self.problems(cold_load={"roots": roots, "clearing_members": {"Clear": "r"}, "clears": {}})
+        self.assertTrue(any("unknown key 'clears'" in p for p in problems), problems)
+        bad = {"Parsek.Store.Items": {"method": "Parsek.Store::Reset", "reason": "", "via": "x"}}
+        problems = self.problems(cold_load={"roots": roots, "clearing_members": {"Clear": "r"}, "cleared_by": bad})
+        for text in ("is not a field key", "is not a method key", "has no reason", "unknown key 'via'"):
+            self.assertTrue(any(text in p for p in problems), (text, problems))
 
 
 class ResetGateParseTests(unittest.TestCase):
@@ -299,6 +319,17 @@ class FindingTests(unittest.TestCase):
         result = run_fixture(fixture_il(boxed_default=False))
         self.assertEqual(result["findings"]["coldLoadMisses"], ["Parsek.Store::Boxed", "Parsek.Store::Missed"])
 
+    def test_no_load_clear_reds_only_a_save_or_load_transition_static(self):
+        # Missed is written only off the load path: a miss when it must be cleared,
+        # nothing for a static whose lifetime a load need not clear.
+        for lifetime in ALL_LIFETIMES:
+            with self.subTest(lifetime=lifetime):
+                types = [{"name": "Parsek.Store", "default": "save", "reason": "r",
+                          "fields": {"Version": "process: r", "Missed": "%s: r" % lifetime}},
+                         declaration()["type"][1]]
+                misses = run_fixture(decl=declaration(type=types))["findings"]["coldLoadMisses"]
+                self.assertEqual("Parsek.Store::Missed" in misses, lifetime in lifetimes.COLD_CLEARED, misses)
+
     def test_a_write_off_any_branch_counts_the_same(self):
         self.assertEqual(run_fixture(fixture_il(branch_write=False))["findings"]["coldLoadMisses"],
                          run_fixture()["findings"]["coldLoadMisses"])
@@ -333,6 +364,179 @@ class FindingTests(unittest.TestCase):
         self.assertTrue(any("tags field Renamed" in p for p in problems), problems)
         self.assertTrue(any("Parsek.Scenario::Missing() is no method" in p for p in problems), problems)
         self.assertEqual(run_fixture()["problems"], [])
+
+
+def store_il(load_body, field_type=LIST, helper=None):
+    """Store::Items, cleared by Store::Reset (off the load path), and the
+    load path Scenario::OnLoad -> Store::Load(load_body). `helper` adds a
+    method Store::Wipe(field_type p) with that body."""
+    members = [
+        meth("Reset", ["ldsfld     %s Parsek.Store::Items" % field_type,
+                       "callvirt   instance void %s::Clear()" % field_type, "ret"]),
+        meth("Load", load_body),
+    ]
+    if helper is not None:
+        members.append(meth("Wipe", helper, params="%s p" % field_type))
+    store = cls("Parsek.Store", "  .field public static initonly %s Items" % field_type, *members)
+    scenario = cls("Parsek.Scenario", meth("OnLoad", ["call       void Parsek.Store::Load()", "ret"]),
+                   meth("Other", ["call       void Parsek.Store::Reset()", "ret"]))
+    return store + scenario
+
+
+def store_misses(load_body, cleared_by=None, **kw):
+    cold = {"roots": {"Parsek.Scenario::OnLoad()": "r"}, "clearing_members": {"Clear": "r"}}
+    if cleared_by is not None:
+        cold["cleared_by"] = cleared_by
+    decl = declaration(cold_load=cold, type=[{"name": "Parsek.Store", "default": "save", "reason": "r"}])
+    result = run_fixture(il=store_il(load_body, **kw), decl=decl)
+    return result["findings"]["coldLoadMisses"], result["problems"]
+
+
+class ColdClearTests(unittest.TestCase):
+    """coldLoadMisses counts only a write that can empty or replace the value."""
+
+    ITEMS = "ldsfld     %s Parsek.Store::Items" % LIST
+
+    def test_a_clear_on_the_load_path_passes(self):
+        self.assertEqual(store_misses([self.ITEMS, "callvirt   instance void %s::Clear()" % LIST, "ret"]),
+                         ([], []))
+
+    def test_an_append_only_load_reds(self):
+        misses, _problems = store_misses([self.ITEMS, "ldstr      \"x\"",
+                                          "callvirt   instance void %s::Add(!0)" % LIST, "ret"])
+        self.assertEqual(misses, ["Parsek.Store::Items"])
+
+    def test_a_read_into_a_local_list_reds(self):
+        misses, _problems = store_misses([
+            "newobj     instance void %s::.ctor()" % LIST, self.ITEMS, "ldc.i4.0",
+            "callvirt   instance !0 %s::get_Item(int32)" % LIST, "callvirt   instance void %s::Add(!0)" % LIST,
+            "ret"])
+        self.assertEqual(misses, ["Parsek.Store::Items"])
+
+    def test_a_remove_of_one_key_is_no_clear(self):
+        misses, _problems = store_misses([self.ITEMS, "ldstr      \"x\"",
+                                          "callvirt   instance bool %s::Remove(!0)" % LIST, "pop", "ret"])
+        self.assertEqual(misses, ["Parsek.Store::Items"])
+
+    def test_clearing_an_element_read_out_of_it_is_no_clear(self):
+        misses, _problems = store_misses([
+            "ldsfld     %s Parsek.Store::Items" % NESTED, "ldc.i4.0",
+            "callvirt   instance !0 %s::get_Item(int32)" % NESTED,
+            "callvirt   instance void %s::Clear()" % LIST, "ret"], field_type=NESTED)
+        self.assertEqual(misses, ["Parsek.Store::Items"])
+
+    def test_a_clear_through_a_helper_parameter_counts(self):
+        wipe = ["ldarg.0", "callvirt   instance void %s::Clear()" % LIST, "ret"]
+        load = [self.ITEMS, "call       void Parsek.Store::Wipe(%s)" % LIST, "ret"]
+        self.assertEqual(store_misses(load, helper=wipe), ([], []))
+        append = ["ldarg.0", "ldstr      \"x\"", "callvirt   instance void %s::Add(!0)" % LIST, "ret"]
+        self.assertEqual(store_misses(load, helper=append)[0], ["Parsek.Store::Items"])
+
+    def test_cleared_by_is_verified(self):
+        append = [self.ITEMS, "ldstr      \"x\"", "callvirt   instance void %s::Add(!0)" % LIST, "ret"]
+        entry = {"method": "Parsek.Store::Load()", "reason": "r"}
+        self.assertEqual(store_misses(append, {"Parsek.Store::Items": entry}), ([], []))
+        # Not in the Cold closure.
+        entry = {"method": "Parsek.Store::Reset()", "reason": "r"}
+        misses, problems = store_misses(append, {"Parsek.Store::Items": entry})
+        self.assertEqual(misses, ["Parsek.Store::Items"])
+        self.assertTrue(any("is not in the Cold closure" in p for p in problems), problems)
+        # No such method.
+        entry = {"method": "Parsek.Store::Gone()", "reason": "r"}
+        self.assertTrue(any("is no method" in p for p in store_misses(append, {"Parsek.Store::Items": entry})[1]))
+        # In the closure, but never touches the static nor is called by a reader of it.
+        entry = {"method": "Parsek.Scenario::OnLoad()", "reason": "r"}
+        problems = store_misses(append, {"Parsek.Store::Items": entry})[1]
+        self.assertTrue(any("neither touches the static" in p for p in problems), problems)
+        # A static that is not tagged save / load-transition.
+        problems = store_misses(append, {"Parsek.Store::Items": {"method": "Parsek.Store::Load()", "reason": "r"},
+                                         "Parsek.Other::Nope": {"method": "Parsek.Store::Load()", "reason": "r"}})[1]
+        self.assertTrue(any("Parsek.Other::Nope is not a tagged" in p for p in problems), problems)
+
+
+def population_of(*bodies, extra_fields=""):
+    """The static_state population of Parsek.Names (Items: a List, Table: a
+    string[], Sb: a StringBuilder, all static initonly) with one method per
+    body, plus Fill(List p) that adds to its parameter."""
+    fields = "\n".join([
+        "  .field public static initonly %s Items" % LIST,
+        "  .field public static initonly string[] Table",
+        "  .field public static initonly %s Sb" % SB,
+    ]) + extra_fields
+    methods = [meth("M%d" % i, list(body)) for i, body in enumerate(bodies)]
+    methods.append(meth("Fill", ["ldarg.0", "ldstr      \"x\"", "callvirt   instance void %s::Add(!0)" % LIST, "ret"],
+                        params="%s p" % LIST))
+    facts = facts_of(cls("Parsek.Names", fields, *methods))
+    index = ilanalysis.Index(facts, ("Tools",))
+    rows = ilanalysis.static_state(index, CONFIG)["fields"]
+    return sorted(k for k, row in rows.items() if row["reassignable"] or row["mutated"])
+
+
+class ReceiverTests(unittest.TestCase):
+    """A static readonly collection is in the population only when a call that
+    changes it has the static (or a value read out of it) as its receiver."""
+
+    ITEMS = "ldsfld     %s Parsek.Names::Items" % LIST
+    TABLE = "ldsfld     string[] Parsek.Names::Table"
+    SB_LOAD = "ldsfld     %s Parsek.Names::Sb" % SB
+
+    def test_reads_keep_a_static_out(self):
+        bodies = {
+            # The reviewer's probe: an element passed to Append on a fresh builder.
+            "element passed as an argument": [
+                "newobj     instance void %s::.ctor()" % SB, self.TABLE, "ldc.i4.0", "ldelem.ref",
+                "callvirt   instance %s %s::Append(string)" % (SB, SB), "pop", "ret"],
+            "foreach": [
+                self.ITEMS,
+                "callvirt   instance valuetype [mscorlib]System.Collections.Generic.List`1/Enumerator<!0> "
+                "%s::GetEnumerator()" % LIST,
+                "stloc.0", "br.s       IL_0007", "ldloca.s   V_0",
+                "call       instance !0 [mscorlib]System.Collections.Generic.List`1/Enumerator<string>::get_Current()",
+                "pop", "ldloca.s   V_0",
+                "call       instance bool [mscorlib]System.Collections.Generic.List`1/Enumerator<string>::MoveNext()",
+                "brtrue.s   IL_0004", "ret"],
+            "Contains, then Add on another list": [
+                "newobj     instance void %s::.ctor()" % LIST, "stloc.0", self.ITEMS, "ldstr      \"x\"",
+                "callvirt   instance bool %s::Contains(!0)" % LIST, "pop", "ldloc.0", "ldstr      \"x\"",
+                "callvirt   instance void %s::Add(!0)" % LIST, "ret"],
+            "passed as a non-this argument": [
+                "newobj     instance void %s::.ctor()" % LIST, self.ITEMS,
+                "callvirt   instance void %s::AddRange(class [mscorlib]System.Collections.Generic."
+                "IEnumerable`1<!0>)" % LIST, "ret"],
+            "Count, then an element store into a local array": [
+                "ldc.i4.1", "newarr     [mscorlib]System.String", "stloc.0", self.ITEMS,
+                "callvirt   instance int32 %s::get_Count()" % LIST, "pop", "ldloc.0", "ldc.i4.0",
+                "ldstr      \"x\"", "stelem.ref", "ret"],
+        }
+        for name, body in bodies.items():
+            with self.subTest(name):
+                self.assertEqual(population_of(body), [])
+
+    def test_a_change_through_the_static_puts_it_in(self):
+        bodies = {
+            "Items.Add(x)": ([self.ITEMS, "ldstr      \"x\"", "callvirt   instance void %s::Add(!0)" % LIST, "ret"],
+                             "Parsek.Names::Items"),
+            "Table[i] = x": ([self.TABLE, "ldc.i4.0", "ldstr      \"x\"", "stelem.ref", "ret"],
+                             "Parsek.Names::Table"),
+            "sb.Append(x)": ([self.SB_LOAD, "ldstr      \"x\"",
+                              "callvirt   instance %s %s::Append(string)" % (SB, SB), "pop", "ret"],
+                             "Parsek.Names::Sb"),
+            "through a local alias": ([self.ITEMS, "stloc.0", "ldloc.0", "ldstr      \"x\"",
+                                       "callvirt   instance void %s::Add(!0)" % LIST, "ret"], "Parsek.Names::Items"),
+            "passed to a helper that adds": ([self.ITEMS, "call       void Parsek.Names::Fill(%s)" % LIST, "ret"],
+                                             "Parsek.Names::Items"),
+            # The tracker gives up on an opcode it has no stack effect for (and on
+            # control flow); a mutating call within the window then still counts.
+            "an unknown opcode in the window": ([self.ITEMS, "break", "ldstr      \"x\"",
+                                                 "callvirt   instance void %s::Add(!0)" % LIST, "ret"],
+                                                "Parsek.Names::Items"),
+            "a branch in the window": ([self.ITEMS, "ldarg.0", "brfalse.s  IL_0004", "ldstr      \"x\"",
+                                        "callvirt   instance void %s::Add(!0)" % LIST, "ret"],
+                                       "Parsek.Names::Items"),
+        }
+        for name, (body, key) in bodies.items():
+            with self.subTest(name):
+                self.assertEqual(population_of(body), [key])
 
 
 class RatchetTests(unittest.TestCase):
@@ -430,6 +634,16 @@ class ViewTests(unittest.TestCase):
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_a_missing_test_assembly_errors_the_real_tree_cells(self):
+        saved = lifetimes.DEFAULT_TESTS_DLL
+        lifetimes.DEFAULT_TESTS_DLL = Path(saved).with_name("Missing.Tests.dll")
+        try:
+            with self.assertRaises(AssertionError) as caught:
+                real_tree_context("never-read.dll")
+        finally:
+            lifetimes.DEFAULT_TESTS_DLL = saved
+        self.assertIn("Missing.Tests.dll does not exist", str(caught.exception))
+
     def test_the_compiled_il_step_runs_these_cells(self):
         steps = test_semantic.workflow_steps(test_semantic.WORKFLOW.read_text(encoding="utf-8"))
         runs = [run for _name, _keys, env, run in steps if IL_ENV in env and "scripts/arch" in run]
@@ -447,11 +661,11 @@ def real_tree_context(il_path):
     """The facts, index, static rows, test-assembly writes and lifetime result for the
     real tree, built once per process over the facts test_ilfacts already holds."""
     key = str(Path(il_path).resolve())
+    tests_dll = lifetimes.DEFAULT_TESTS_DLL
+    if not tests_dll.is_file():
+        raise AssertionError("%s does not exist (build Parsek.Tests first: scripts/cloud-test.sh"
+                             " or dotnet build)" % tests_dll)
     if key not in _REAL:
-        tests_dll = lifetimes.DEFAULT_TESTS_DLL
-        if not tests_dll.is_file():
-            raise AssertionError("%s does not exist (build Parsek.Tests first: scripts/cloud-test.sh"
-                                 " or dotnet build)" % tests_dll)
         facts, tooling = test_ilfacts.real_tree_facts(il_path)
         index = ilanalysis.Index(facts, tooling)
         statics = ilanalysis.static_state(index, CONFIG)
@@ -514,13 +728,17 @@ class RealTreeLifetimeTests(unittest.TestCase):
                 facts["fields"][key] = entry
         return facts
 
-    def without_cold_writes(self, key):
-        """The field entry with every write inside the Cold load closure removed."""
+    def without_cold_clears(self, key):
+        """The field entry with only its Cold clears removed: the closure's `stsfld`
+        and `initobj` writes and its clearing calls. Appends, element stores and
+        reads stay."""
+        clearing = set(self.ctx["decl"]["cold_load"]["clearing_members"])
         entry = dict(self.ctx["facts"]["fields"][key])
-        for name in ("writers", "defaultedBy", "readers", "addressTakenBy"):
+        for name in ("writers", "defaultedBy"):
             entry[name] = [m for m in entry.get(name, ()) if m not in self.closure]
-        entry["receiverCalls"] = [c for c in entry.get("receiverCalls", ())
-                                  if c.rpartition("|")[0] not in self.closure]
+        for name in ("receiverCalls", "directReceiverCalls"):
+            entry[name] = [c for c in entry.get(name, ()) if c.rpartition("|")[0] not in self.closure
+                           or c.rpartition("|")[2] not in clearing]
         return entry
 
     def problems(self, result, names=None):
@@ -585,15 +803,40 @@ class RealTreeLifetimeTests(unittest.TestCase):
         self.assertIn("lifetimes.toml", problems[0])
 
     def test_a_save_static_losing_its_clearing_write_reds(self):
-        for key in ("Parsek.RecordingStore::committedRecordings",    # cleared by a List.Clear call
-                    "Parsek.RewindInvokeContext::CapturedBundle"):   # cleared by ldsflda + initobj
+        mutating = set(CONFIG["statics"]["mutating_members"])
+        for key in ("Parsek.RecordingStore::committedTrees",          # cleared by a List.Clear call
+                    "Parsek.RewindInvokeContext::CapturedBundle"):    # cleared by ldsflda + initobj
             with self.subTest(key=key):
                 self.assertIn(self.result["tagged"][key][0], lifetimes.COLD_CLEARED)
                 self.assertNotIn(key, self.result["findings"]["coldLoadMisses"])
-                result = self.rerun(facts=self.facts_with({key: self.without_cold_writes(key)}))
+                entry = self.without_cold_clears(key)
+                if key.endswith("committedTrees"):
+                    # The load path still appends to it: only the Clear went.
+                    kept = {c.rpartition("|")[2] for c in entry["receiverCalls"]
+                            if c.rpartition("|")[0] in self.closure}
+                    self.assertIn("Add", kept & mutating)
+                result = self.rerun(facts=self.facts_with({key: entry}))
                 problems = self.problems(result, {"coldLoadMisses"})
                 self.assertEqual(len(problems), 1, problems)
                 self.assertIn(key, problems[0])
+
+    def test_a_cleared_by_entry_holds_a_static_the_rule_cannot_see_cleared(self):
+        key = "Parsek.RecordingStore::committedRecordings"
+        entry = self.ctx["decl"]["cold_load"]["cleared_by"][key]
+        self.assertIn(entry["method"], self.closure)
+        stripped = self.facts_with({key: self.without_cold_clears(key)})
+        self.assertNotIn(key, self.rerun(facts=stripped)["findings"]["coldLoadMisses"])
+        decl = copy.deepcopy(self.ctx["decl"])
+        del decl["cold_load"]["cleared_by"][key]
+        result = self.rerun(facts=stripped, decl=decl)
+        self.assertIn(key, result["findings"]["coldLoadMisses"])
+        # An entry naming a method off the Cold path is refused, not believed.
+        decl = copy.deepcopy(self.ctx["decl"])
+        off_path = sorted(m for m in self.ctx["facts"]["fields"][key]["readers"] if m not in self.closure)[0]
+        decl["cold_load"]["cleared_by"][key]["method"] = off_path
+        result = self.rerun(facts=stripped, decl=decl)
+        self.assertIn(key, result["findings"]["coldLoadMisses"])
+        self.assertTrue(any("not in the Cold closure" in p for p in result["problems"]), result["problems"])
 
     def test_a_test_hook_written_by_another_production_type_reds(self):
         key = "Parsek.MarkerValidator::NowUtProvider"
@@ -667,7 +910,7 @@ class RealTreeLifetimeTests(unittest.TestCase):
         broken = "Parsek.RewindInvokeContext::CapturedBundle"
         healed = dict(self.ctx["facts"]["fields"][fixed])
         healed["writers"] = list(healed.get("writers", ())) + ["Parsek.ParsekScenario::OnLoad(ConfigNode)"]
-        result = self.rerun(facts=self.facts_with({fixed: healed, broken: self.without_cold_writes(broken)}))
+        result = self.rerun(facts=self.facts_with({fixed: healed, broken: self.without_cold_clears(broken)}))
         self.assertIn(broken, result["findings"]["coldLoadMisses"])
         self.assertNotIn(fixed, result["findings"]["coldLoadMisses"])
         self.assertEqual(self.problems(result), [])

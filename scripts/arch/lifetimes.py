@@ -10,11 +10,13 @@ has shown the lifetime of stays untagged, and the untagged set is pinned in
 
 Four findings turn the tags into checks, each read from the compiled IL:
 
-- coldLoadMisses: a `save` or `load-transition` static with no write inside
+- coldLoadMisses: a `save` or `load-transition` static with no CLEAR inside
   the transitive call closure of the Cold load roots the declaration names (a
-  write is an `stsfld`, a call to its auto-property setter, `ldsflda` then
-  `initobj`, or a mutating call on the collection it holds): the static form
-  of "state survived a load it should not have".
+  clear is an `stsfld`, a call to its auto-property setter, `ldsflda` then
+  `initobj`, or a `[cold_load.clearing_members]` call whose receiver is the
+  static's own value; an append, an element store or a read is not), and no
+  verified `[cold_load.cleared_by]` entry: the static form of "state survived
+  a load it should not have".
 - testHookWrittenByProduction: a `test-hook` static written by another
   production type (tooling and methods named as test hooks do not count).
 - testWrittenUntagged: a static Parsek.Tests.dll writes directly (`stsfld`, or
@@ -66,7 +68,7 @@ TEST_HOOK = "test-hook"
 REQUIRED_LIFETIMES = COLD_CLEARED + (TEST_HOOK,)
 FINDINGS = ("coldLoadMisses", "testHookWrittenByProduction", "testWrittenUntagged", "resetGateDisagreement")
 FINDING_LABELS = {
-    "coldLoadMisses": "save / load-transition statics no Cold load path writes",
+    "coldLoadMisses": "save / load-transition statics no Cold load path clears",
     "testHookWrittenByProduction": "test-hook statics another production type writes",
     "testWrittenUntagged": "untagged statics the test assembly writes directly",
     "resetGateDisagreement": "statics ResetSaveScopedSessionState resets that are not tagged save or load-transition",
@@ -74,6 +76,9 @@ FINDING_LABELS = {
 TOP_KEYS = frozenset({"lifetimes", "cold_load", "pattern", "type"})
 PATTERN_KEYS = frozenset({"match", "lifetime", "reason"})
 TYPE_KEYS = frozenset({"name", "default", "reason", "fields"})
+COLD_LOAD_KEYS = frozenset({"roots", "clearing_members", "cleared_by"})
+CLEARED_BY_KEYS = frozenset({"method", "reason"})
+FIELD_KEY_RE = re.compile(r"^[\w.`/<>]+::[\w.`<>$]+$")
 METHOD_KEY_RE = re.compile(r"^[\w.`/<>]+::[\w.`<>]+\(.*\)$")
 NAMED = 12
 
@@ -120,7 +125,30 @@ def declaration_problems(decl):
         if value not in known:
             problems.append("%s: unknown lifetime %r (known: %s)" % (where, value, ", ".join(sorted(known))))
 
-    roots = (decl.get("cold_load") or {}).get("roots")
+    cold = decl.get("cold_load") or {}
+    for key in sorted(set(cold) - COLD_LOAD_KEYS):
+        problems.append("[cold_load] has an unknown key %r (known: %s)" % (key, ", ".join(sorted(COLD_LOAD_KEYS))))
+    clearing = cold.get("clearing_members")
+    if not isinstance(clearing, dict) or not clearing:
+        problems.append("[cold_load.clearing_members] must name at least one member with its reason")
+    else:
+        for member, reason in clearing.items():
+            if not isinstance(reason, str) or not reason.strip():
+                problems.append("[cold_load.clearing_members] %s has no reason" % member)
+    for field, entry in (cold.get("cleared_by") or {}).items():
+        where = "[cold_load.cleared_by] %s" % field
+        if not FIELD_KEY_RE.match(field):
+            problems.append("%s is not a field key `Type::name`" % where)
+        if not isinstance(entry, dict):
+            problems.append("%s must be a table with method and reason" % where)
+            continue
+        for key in sorted(set(entry) - CLEARED_BY_KEYS):
+            problems.append("%s has an unknown key %r" % (where, key))
+        if not METHOD_KEY_RE.match(str(entry.get("method", ""))):
+            problems.append("%s: method %r is not a method key `Type::Name(params)`" % (where, entry.get("method")))
+        if not str(entry.get("reason", "")).strip():
+            problems.append("%s has no reason" % where)
+    roots = cold.get("roots")
     if not isinstance(roots, dict) or not roots:
         problems.append("[cold_load.roots] must name at least one method key with its reason")
     else:
@@ -349,6 +377,43 @@ def static_setters(index):
     return out
 
 
+def clears_of(index, key, clearing, setters):
+    """Every method that can empty or replace a static's value: `stsfld`, its
+    auto-property setter's callers, `ldsflda` + `initobj`, and a clearing call
+    whose receiver is the static's own value (`directReceiverCalls`)."""
+    field = index.fields[key]
+    path = key.split("::", 1)[0]
+    out = set(field.get("writers", ())) | set(field.get("defaultedBy", ()))
+    if field.get("backingFor"):
+        setter = setters.get((path, field["backingFor"]))
+        if setter is not None:
+            out |= index.callers.get(setter, set())
+    for call in field.get("directReceiverCalls", ()):
+        method, _sep, member = call.rpartition("|")
+        if member in clearing:
+            out.add(method)
+    return out
+
+
+def cleared_by_problems(index, key, entry, closure):
+    """Why a `[cold_load.cleared_by]` entry does not show a Cold clear (empty when it does)."""
+    method = entry.get("method")
+    field = index.fields.get(key)
+    if field is None:
+        return ["[cold_load.cleared_by] %s names no static field in the assembly" % key]
+    if method not in index.methods:
+        return ["[cold_load.cleared_by] %s: %s is no method in the assembly" % (key, method)]
+    if method not in closure:
+        return ["[cold_load.cleared_by] %s: %s is not in the Cold closure" % (key, method)]
+    touching = set(field.get("readers", ())) | set(field.get("writers", ())) | set(field.get("addressTakenBy", ()))
+    if method in touching:
+        return []
+    if any(caller in touching for caller in index.callers.get(method, ())):
+        return []
+    return ["[cold_load.cleared_by] %s: %s neither touches the static nor is called by a method that reads it"
+            % (key, method)]
+
+
 def writes_of(index, key, mutating, setters):
     """Every method that can change a static's value: `stsfld`, its auto-property
     setter's callers, `ldsflda` + `initobj`, and mutating calls on the collection."""
@@ -414,21 +479,33 @@ def analyse(index, statics, config, decl, gate=None, tests_written=None):
     roots = list((decl.get("cold_load") or {}).get("roots", {}))
     closure = cold_closure(index, roots)
     mutating = set(config["statics"]["mutating_members"])
+    cold = decl.get("cold_load") or {}
+    clearing = set(cold.get("clearing_members") or {})
+    cleared_by = cold.get("cleared_by") or {}
     setters = static_setters(index)
     suffixes = config["uncalled"]["test_hook_suffixes"]
     details = {}
 
     misses = []
+    problems = []
     for key, (lifetime, _source, _reason) in tags.items():
         if lifetime not in COLD_CLEARED:
             continue
-        writers = writes_of(index, key, mutating, setters)
-        if not writers & closure:
-            misses.append(key)
-            named = sorted(writers)
-            details[key] = "%s; written only by %s" % (lifetime, ", ".join(named[:3]) + (" ..." if len(named) > 3
-                                                                                          else "")) \
-                if named else "%s; never written" % lifetime
+        clears = clears_of(index, key, clearing, setters)
+        declared_ok = False
+        if key in cleared_by:
+            found = cleared_by_problems(index, key, cleared_by[key], closure)
+            problems.extend(found)
+            declared_ok = not found
+        if clears & closure or declared_ok:
+            continue
+        misses.append(key)
+        named = sorted(clears)
+        details[key] = "%s; cleared only by %s" % (lifetime, ", ".join(named[:3]) + (" ..." if len(named) > 3
+                                                                                      else "")) \
+            if named else "%s; never cleared (appends and reads do not clear)" % lifetime
+    for key in sorted(set(cleared_by) - {k for k, v in tags.items() if v[0] in COLD_CLEARED}):
+        problems.append("[cold_load.cleared_by] %s is not a tagged save or load-transition static" % key)
 
     hooks = []
     for key, (lifetime, _source, _reason) in tags.items():
@@ -489,7 +566,7 @@ def analyse(index, statics, config, decl, gate=None, tests_written=None):
         "coldClosure": len(closure),
         "findings": findings,
         "details": details,
-        "problems": assembly_problems(decl, index.facts),
+        "problems": assembly_problems(decl, index.facts) + problems,
         "gates": dict({"untagged": list(untagged)}, **{name: keys for name, keys in findings.items()}),
     }
 
