@@ -24,7 +24,7 @@ numbers become the 1.0 baseline, every later build loads every 1.0+ save, and th
 repair code is gone (older test saves load best effort). Policy:
 [`docs/dev/design-save-format-policy.md`](dev/design-save-format-policy.md).
 
-Parsek is at **v1.0.1**, on the 0.10.7 save format baseline. Its dependencies are Harmony,
+Parsek is at **v1.1.0**, on the 0.10.7 save format baseline. Its dependencies are Harmony,
 ClickThroughBlocker and ToolbarControl; Module Manager is no longer listed, since Parsek ships no
 Module Manager patches.
 
