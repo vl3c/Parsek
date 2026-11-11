@@ -603,7 +603,7 @@ SnapshotHydrateRule = "process: dependency-inversion rule installed once by Reco
 [[type]]
 name = "Parsek.WarpToTimeRequest"
 default = "load-transition"
-reason = "a Warp to time jump armed before a rewind reload or a flight exit and consumed once the Space Center settles (its own doc comment: like RewindContext); the process-session stamp only rejects a request from another process"
+reason = "a Warp to time jump armed before a rewind reload or a flight exit and consumed once the Space Center settles (its own doc comment: like RewindContext); a rewind that does not launch drops the pending jump, and the Cold reset (ResetSaveScopedSessionState, a SaveScopedSessionResetTests type) and the main-menu transition drop both"
 
 [[type]]
 name = "Parsek.Rendering.TerrainCacheBuckets"

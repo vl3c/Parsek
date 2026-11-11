@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## WARP-REQUEST-SURVIVES-A-FAILED-REWIND: a Warp to time request stays armed after its rewind fails to launch, and the next Space Center load jumps forward [FILED 2026-11-11 from the static lifetimes gate (coldLoadMisses, the nine `WarpToTimeRequest` fields), by code reading. OPEN; not reproduced in play, low]
+## ~~WARP-REQUEST-SURVIVES-A-FAILED-REWIND: a Warp to time request stays armed after its rewind fails to launch, and the next Space Center load jumps forward~~ [FILED 2026-11-11 from the static lifetimes gate (coldLoadMisses, the nine `WarpToTimeRequest` fields), by code reading. FIXED 2026-11-11, branch `warp-request-clear`; xUnit (headless, the real `InitiateRewind` failure paths included) + the static lifetimes gate (coldLoadMisses 9 -> 0); not flown (no committed lane drives Warp to time through a rewind); low]
 
 The chain, read in the source (line numbers as of the static lifetimes branch):
 
@@ -48,9 +48,52 @@ to the old target: a return from the VAB / SPH in the same save, or another save
 main menu. The deferred flight warp (`SetDeferredKscWarp`) has the same no-clear property at the
 Cold load and the main-menu transition.
 
-**Fix direction.** Clear the request on every failed launch (have `InitiateRewind` report
-failure, as `InitiateRewindToCareerStart` does), and clear both requests at the Cold reset and the
-main-menu transition.
+**Fix.**
+1. A rewind that does not launch drops the pending jump. `RewindLauncher.InitiateRewind` returns
+   whether the Space Center load was requested (false on no owner, an unfinished merge journal,
+   a null or throwing `LoadGame`), as `InitiateRewindToCareerStart` does. `StartRewind` arms
+   the request through `WarpToTimeController.ArmPendingWarpAndLaunch` for both rewind kinds: arm,
+   launch, and on false (or a throw) `WarpToTimeRequest.DropPending(reason)`, which logs
+   `[WarpTime] Pending warp dropped: targetUT=<ut> reason=<rewind|career-start-reset>-not-launched`.
+   The Recordings table ignores the result; the InvokeRewindToLaunch seam reads it beside
+   `RewindContext.IsRewinding`.
+2. A Cold load and the main-menu transition drop both requests (`WarpToTimeRequest.DropAll`,
+   `reason=cold-load:<coldReason>` / `main-menu`, one Info line per dropped request), in
+   `ParsekScenario.ResetSaveScopedSessionState` and the MAINMENU branch of `OnMainMenuTransition`.
+   Neither site is on a path a legitimate request crosses: the request is armed in the Space
+   Center right before a plain rewind (Rewind-to-Launch or the career-start reset), whose load
+   classifies PlainRewind (`ClassifyEarly` checks `RewindContext.IsRewinding`, set before the
+   `LoadGame`, ahead of the save-file rule; `GamePersistence.LoadGame` never arms
+   `SaveFileLoadIntent`), and the deferred flight warp crosses a FLIGHT -> SPACECENTER scene exit
+   (`HighLogic.LoadScene`, InSession); its backward case then arms the pending jump for the
+   rewind's own PlainRewind load. All of them load the Space Center, never the main menu. The
+   one Cold rewind load is the one `ClassifyEarly` documents (a rewind whose load finds
+   `initialLoadDone` false after an earlier cold load threw), where the reset already discards
+   the rewind context as stale; dropping the warp there is consistent.
+3. The consumer re-reads the request after its first yield
+   (`WarpToTimeConsumer.RequestDroppedWhileSettling`). `onLevelWasLoaded` fires before the
+   scene's Start methods, so the scenario's OnLoad (and its Cold reset) runs between the
+   handler's check and the coroutine's resume; without the re-read a dropped deferred warp would
+   run `ExecuteAtKsc(0, 0, 0, 0)`.
+4. `WarpToTimeRequest` joined `SaveScopedSessionResetTests`' type list (no allowlisted field: the
+   reset clears all nine statics; the Guid fields mutate through the struct path), so the C#
+   reset gate and the IL lifetimes gate both hold the clear. `lifetimes.toml` keeps its
+   `load-transition` default; `lifetime_pins.toml` re-pinned coldLoadMisses 9 -> 0, and
+   `test_a_swap_inside_a_finding_bound_passes` now builds its own one-key bound (it read the
+   first pinned miss, which no longer exists).
+
+**Validation.** `WarpToTimeRequestTests` (drop / keep, the launch wrapper launched / refused /
+throwing, the consumer re-read and its wiring after the first yield, the plain-rewind and
+flight-exit loads classified non-Cold, `DropAll` called only by the two sites, `StartRewind`
+arming only through the wrapper); `RewindLauncherUnitTests` (the real `InitiateRewind` no-owner,
+journal and load-failure paths return false and drop the pending warp through the wrapper; the
+career-start refusal too); `SaveScopedSessionResetTests` (the Cold reset drops both with the
+reason; the generic gate covers the new type). Not covered headless: the coroutines themselves
+and the in-game ordering of `onLevelWasLoaded` before OnLoad (taken from the decompile note in
+`FlightCameraReloadPin`); the main-menu clear is pinned by source, not driven. No committed
+harness lane drives Warp to time through a rewind or the deferred flight warp (LT-2 runs only
+the read-only `WarpToTime` ResolvePlan cell); the InvokeRewindToLaunch lanes (H58, RB-4, RF-15,
+FLG-1 and the rest) exercise the touched `InitiateRewind` return.
 
 ## NEXT-TESTS-TO-BUILD-2026-11-11: the ranked list merging the moon matrix and the test gap audit, plus the new ideas of the 2026-11-11 review [FILED 2026-11-11 (owner asked to update the list), checked against main b5877e51f (1.1.0), reviewed the same day by a clean-context agent. OPEN; test program, no known defect]
 
@@ -2525,7 +2568,8 @@ compare).
   window. Against the window alone, 6 read-only statics left the population and 3 scratch lists a
   helper fills joined it (`directReceiverCalls` is the subset coldLoadMisses reads). Found while
   tagging, not fixed (reports only): the nine misses are `WarpToTimeRequest`'s pending and
-  deferred warp, which no load clears (todo WARP-REQUEST-SURVIVES-A-FAILED-REWIND); the
+  deferred warp, which no load clears (todo WARP-REQUEST-SURVIVES-A-FAILED-REWIND, fixed the same
+  day: the pin is now 0); the
   allowlist calls `RecordingStore.SuppressLogging` a test switch, but
   `RecordingSidecarStore.TrySummarizeExistingTrajectorySidecar` also sets and restores it
   (tagged scoped). README -> "Static lifetimes".

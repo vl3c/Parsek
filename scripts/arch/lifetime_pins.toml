@@ -524,17 +524,8 @@ keys = [
 ]
 
 [coldLoadMisses]
-bound = 9
+bound = 0
 keys = [
-    "Parsek.WarpToTimeRequest::<DeferDay>k__BackingField",
-    "Parsek.WarpToTimeRequest::<DeferHour>k__BackingField",
-    "Parsek.WarpToTimeRequest::<DeferMinute>k__BackingField",
-    "Parsek.WarpToTimeRequest::<DeferYear>k__BackingField",
-    "Parsek.WarpToTimeRequest::<HasDeferredKscWarp>k__BackingField",
-    "Parsek.WarpToTimeRequest::<HasPending>k__BackingField",
-    "Parsek.WarpToTimeRequest::<SessionId>k__BackingField",
-    "Parsek.WarpToTimeRequest::<TargetUT>k__BackingField",
-    "Parsek.WarpToTimeRequest::deferSessionId",
 ]
 
 [testHookWrittenByProduction]

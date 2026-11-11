@@ -63,7 +63,8 @@ namespace Parsek
                 return;
 
             // S9 game-mode gate: no career-start snapshot and no Parsek warp in a mission /
-            // scenario game (a pending request is left armed for the game that owns it).
+            // scenario game (a pending request is not consumed here; the main-menu transition
+            // that led to this game already dropped any request of the previous one).
             if (ParsekGameModeGate.CheckInert("WarpToTimeConsumer.LevelWasLoaded"))
                 return;
 
@@ -113,6 +114,9 @@ namespace Parsek
             // Let the Space Center scene + singletons settle before re-resolving the warp.
             yield return null;
 
+            if (RequestDroppedWhileSettling(WarpToTimeRequest.HasDeferredKscWarp, "Deferred flight warp"))
+                yield break;
+
             int year = WarpToTimeRequest.DeferYear;
             int day = WarpToTimeRequest.DeferDay;
             int hour = WarpToTimeRequest.DeferHour;
@@ -122,6 +126,22 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 $"Consuming deferred flight warp at Space Center: Y{year} D{day} {hour}:{minute:00}");
             WarpToTimeController.ExecuteAtKsc(year, day, hour, minute);
+        }
+
+        /// <summary>
+        /// onLevelWasLoaded fires before the scene's Start methods, so the scenario's OnLoad
+        /// runs between the handler's check and the coroutine's first resume. A Cold load (a
+        /// save loaded from the menu, F9) drops both requests there
+        /// (<see cref="WarpToTimeRequest.DropAll"/>), so the coroutine re-reads the request
+        /// after its first yield and stops when it is gone.
+        /// </summary>
+        internal static bool RequestDroppedWhileSettling(bool stillArmed, string what)
+        {
+            if (stillArmed)
+                return false;
+            ParsekLog.Info(Tag,
+                what + " not run: the request was dropped while the Space Center loaded");
+            return true;
         }
 
         private IEnumerator MaybeCaptureCareerStart()
@@ -167,6 +187,9 @@ namespace Parsek
         {
             // Let new-scene singletons (Planetarium, resource singletons) spin up.
             yield return null;
+
+            if (RequestDroppedWhileSettling(WarpToTimeRequest.HasPending, "Pending warp"))
+                yield break;
 
             double target = WarpToTimeRequest.TargetUT;
             ParsekLog.Verbose(Tag,

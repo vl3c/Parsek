@@ -300,7 +300,8 @@ namespace Parsek
         /// <summary>
         /// Arms the pending forward warp and initiates the rewind (career-start snapshot or a
         /// launch save), re-validating preconditions first. Clears the pending warp if the
-        /// rewind cannot run, so a later Space Center load cannot fire a stale jump.
+        /// rewind cannot run or does not launch, so a later Space Center load cannot fire a
+        /// stale jump.
         /// </summary>
         private static void StartRewind(RewindTarget target, double targetUT)
         {
@@ -312,14 +313,12 @@ namespace Parsek
                     ParsekLog.ScreenMessage("Game-start snapshot not available", 3f);
                     return;
                 }
-                WarpToTimeRequest.Set(targetUT);
                 ParsekLog.Info(Tag, string.Format(IC,
                     "Initiating career-start reset (pending forward warp targetUT={0:F1})", targetUT));
-                if (!RewindLauncher.InitiateRewindToCareerStart(CareerStartSnapshot.SaveFileName))
-                {
-                    ParsekLog.Warn(Tag, "Career-start reset refused — clearing pending warp");
-                    WarpToTimeRequest.Clear();
-                }
+                if (!ArmPendingWarpAndLaunch(targetUT,
+                        () => RewindLauncher.InitiateRewindToCareerStart(CareerStartSnapshot.SaveFileName),
+                        "career-start-reset-not-launched"))
+                    ParsekLog.Warn(Tag, "Career-start reset refused - pending warp dropped");
                 return;
             }
 
@@ -342,11 +341,36 @@ namespace Parsek
                 return;
             }
 
-            WarpToTimeRequest.Set(targetUT);
             ParsekLog.Info(Tag, string.Format(IC,
                 "Initiating rewind to \"{0}\" id={1} StartUT={2:F1} (pending forward warp targetUT={3:F1})",
                 ownerNow.VesselName, ownerNow.RecordingId, ownerNow.StartUT, targetUT));
-            RewindLauncher.InitiateRewind(ownerNow);
+            ArmPendingWarpAndLaunch(targetUT,
+                () => RewindLauncher.InitiateRewind(ownerNow),
+                "rewind-not-launched");
+        }
+
+        /// <summary>
+        /// Arms the pending forward warp, then runs <paramref name="launch"/> (a rewind entry
+        /// point that returns whether its Space Center load was requested). The request must be
+        /// armed before the launch, whose load runs the consumer; a launch that returns false
+        /// stays in this scene, so the request is dropped, or the next Space Center load of this
+        /// process would jump to the old target (a launch that throws is dropped the same way).
+        /// Returns the launch result.
+        /// </summary>
+        internal static bool ArmPendingWarpAndLaunch(double targetUT, Func<bool> launch, string notLaunchedReason)
+        {
+            WarpToTimeRequest.Set(targetUT);
+            bool launched = false;
+            try
+            {
+                launched = launch != null && launch();
+            }
+            finally
+            {
+                if (!launched)
+                    WarpToTimeRequest.DropPending(notLaunchedReason);
+            }
+            return launched;
         }
 
         private static double SafeCurrentUT()

@@ -918,14 +918,23 @@ class RealTreeLifetimeTests(unittest.TestCase):
         self.assertEqual(self.problems(result), [])
 
     def test_a_swap_inside_a_finding_bound_passes(self):
-        fixed = self.pins["coldLoadMisses"]["keys"][0]
+        # The pins carry one more miss than the tree (a static the tree clears, pinned as a
+        # miss): one static fixed since the pin while another loses its clear. Built here, so
+        # the cell holds whatever the real coldLoadMisses pin is, zero included.
+        fixed = "Parsek.RecordingStore::committedTrees"
         broken = "Parsek.RewindInvokeContext::CapturedBundle"
-        healed = dict(self.ctx["facts"]["fields"][fixed])
-        healed["writers"] = list(healed.get("writers", ())) + ["Parsek.ParsekScenario::OnLoad(ConfigNode)"]
-        result = self.rerun(facts=self.facts_with({fixed: healed, broken: self.without_cold_clears(broken)}))
+        self.assertNotIn(fixed, self.result["findings"]["coldLoadMisses"])
+        pins = copy.deepcopy(self.pins)
+        pins["coldLoadMisses"]["keys"] = sorted(set(pins["coldLoadMisses"]["keys"]) | {fixed})
+        pins["coldLoadMisses"]["bound"] = len(self.result["findings"]["coldLoadMisses"]) + 1
+        result = self.rerun(facts=self.facts_with({broken: self.without_cold_clears(broken)}))
         self.assertIn(broken, result["findings"]["coldLoadMisses"])
         self.assertNotIn(fixed, result["findings"]["coldLoadMisses"])
-        self.assertEqual(self.problems(result), [])
+        self.assertEqual(lifetimes.ratchet_problems(result["gates"], pins, result["details"]), [])
+        # The same change against a bound one lower is a rise and reds.
+        pins["coldLoadMisses"]["bound"] -= 1
+        self.assertEqual(len(lifetimes.ratchet_problems(
+            result["gates"], pins, result["details"], {"coldLoadMisses"})), 1)
 
 
 if __name__ == "__main__":

@@ -21,6 +21,13 @@ All notable changes to Parsek are documented here.
   The trip replays exactly as recorded; only the wait between loops changes.
   (MOON-TO-MOON-LOOP-NOT-RETIMED)
 
+### Fixed
+
+- **A Warp to time whose rewind did not start no longer jumps the clock later.** The next return
+  to the Space Center, or another save loaded in the same session, used to jump forward to the
+  date you had picked. Loading a save or quitting to the main menu now also cancels a Warp to
+  time still waiting to finish. (WARP-REQUEST-SURVIVES-A-FAILED-REWIND)
+
 ## 1.0.1
 
 ### Changed

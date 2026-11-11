@@ -412,8 +412,11 @@ namespace Parsek
         /// Initiates a rewind to the given recording's launch point.
         /// Sets rewind flags, copies the save file to the root saves dir (KSP's LoadGame
         /// doesn't support subdirectory paths), loads it, then deletes the temp copy.
+        /// Returns true when the Space Center load was requested; false when it refused (no
+        /// rewind owner, an unfinished re-fly merge journal) or the load failed, and the
+        /// player stays in the current scene.
         /// </summary>
-        internal static void InitiateRewind(Recording rec)
+        internal static bool InitiateRewind(Recording rec)
         {
             // Resolve the rewind save owner — may be the tree root for branch recordings.
             // All save-related fields (filename, resources, UT) come from the owner,
@@ -424,7 +427,7 @@ namespace Parsek
                 if (!RecordingStore.SuppressLogging)
                     ParsekLog.Error("Rewind",
                         $"InitiateRewind: no rewind owner for '{rec.VesselName}' (id={rec.RecordingId})");
-                return;
+                return false;
             }
 
             bool isTreeBranch = owner != rec;
@@ -447,7 +450,7 @@ namespace Parsek
                         $"Cannot rewind during an active re-fly merge — finish the merge first " +
                         $"(journalPhase={scenarioForJournalCheck.ActiveMergeJournal.Phase})");
                 ParsekLog.ScreenMessage("Cannot rewind during an active re-fly merge", 3f);
-                return;
+                return false;
             }
 
             // A plain rewind taken while a Re-Fly session is live ends that session here, before
@@ -468,6 +471,7 @@ namespace Parsek
                 messageLabel: "Rewind");
             if (!loaded)
                 UndoLiveTreeDropAfterFailedRewind(droppedLiveTreeId, droppedTreeRestored, "Rewind");
+            return loaded;
         }
 
         /// <summary>
