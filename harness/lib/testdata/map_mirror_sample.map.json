@@ -650,6 +650,8 @@
      "body": "Mun",
      "active": false,
      "points": [],
+     "opacity": 0.0,
+     "drawMode": "REDRAW_AND_RECALCULATE",
      "conic": {
       "sma": 230000.0,
       "ecc": 0.0,
@@ -686,6 +688,9 @@
      "kind": "orbit",
      "body": "Minmus",
      "active": true,
+     "clipped": false,
+     "opacity": 0.6,
+     "drawMode": "REDRAW_AND_RECALCULATE",
      "points": [
       [80000.0, 0.0, 0.0],
       [79695.576, -3486.23, 6038.327],

@@ -10944,15 +10944,16 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # THE MAP PICTURE LANES (2026-11-11). Operator-tier by MECHANISM: each replays a
         # committed fixture to take MapCamera + CaptureScreenshot + DumpMapGeometry views
         # for a human and the map mirror page, run on request. Their model lanes keep every
-        # behavioural claim; what is open is the first flight, not a human review call.
-        "TP-1-mun-loop-map-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; what is open is the first flight, not a human review call",
-        "TP-2-mun-loop-ts-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; what is open is the first flight, not a human review call",
-        "TP-3-minmus-loop-map-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; what is open is the first flight, not a human review call",
-        "TP-4-duna-reaim-landing-map-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; what is open is the first flight, not a human review call",
-        "TP-5-laythe-vall-map-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; what is open is the first flight, not a human review call",
-        "TP-6-mun-landing-map-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; what is open is the first flight, not a human review call",
-        "TP-7-depot-route-ts-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; what is open is the first flight, not a human review call",
-        "TP-8-interbody-route-map-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; what is open is the first flight, not a human review call",
+        # behavioural claim. All eight flew green on their first flight (2026-11-11); what
+        # is open is a re-fly with the MapCamera hold, not a human review call.
+        "TP-1-mun-loop-map-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; FLOWN GREEN on its first flight 2026-11-11, and what is open is a re-fly with the MapCamera hold, not a human review call",
+        "TP-2-mun-loop-ts-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; FLOWN GREEN on its first flight 2026-11-11, and what is open is a re-fly with the MapCamera hold, not a human review call",
+        "TP-3-minmus-loop-map-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; FLOWN GREEN on its first flight 2026-11-11, and what is open is a re-fly with the MapCamera hold, not a human review call",
+        "TP-4-duna-reaim-landing-map-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; FLOWN GREEN on its first flight 2026-11-11, and what is open is a re-fly with the MapCamera hold, not a human review call",
+        "TP-5-laythe-vall-map-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; FLOWN GREEN on its first flight 2026-11-11, and what is open is a re-fly with the MapCamera hold, not a human review call",
+        "TP-6-mun-landing-map-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; FLOWN GREEN on its first flight 2026-11-11, and what is open is a re-fly with the MapCamera hold, not a human review call",
+        "TP-7-depot-route-ts-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; FLOWN GREEN on its first flight 2026-11-11, and what is open is a re-fly with the MapCamera hold, not a human review call",
+        "TP-8-interbody-route-map-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; FLOWN GREEN on its first flight 2026-11-11, and what is open is a re-fly with the MapCamera hold, not a human review call",
         "V28M-tylo-player-loop.toml": "tier=operator by the calibration discipline (jump table derived off the harvested fixture bytes, first run is a calibration reading), NOT debt; coverage wave 11 (2026-09-26), G9: the one-cycle V16M replay shape on `tylo-orbit-recorded`; what is open is the flight, not a human review call",
         "V29M-bop-player-loop.toml": "tier=operator by the calibration discipline (jump table derived off the harvested fixture bytes, first run is a calibration reading), NOT debt; coverage wave 11 (2026-09-26), G9: the one-cycle V16M replay shape on `bop-orbit-recorded`; what is open is the flight, not a human review call",
         "V30M-pol-player-loop.toml": "tier=operator by the calibration discipline (jump table derived off the harvested fixture bytes, first run is a calibration reading), NOT debt; coverage wave 11 (2026-09-26), G9: the one-cycle V16M replay shape on `pol-orbit-recorded`; what is open is the flight, not a human review call",
@@ -18651,13 +18652,16 @@ class MapGeometrySeamVerbSourceSyncTests(unittest.TestCase):
         for const, key in (("FocusKey", hlib.MAPCAMERA_FOCUS_KEY),
                            ("PitchKey", hlib.MAPCAMERA_PITCH_KEY),
                            ("HeadingKey", hlib.MAPCAMERA_HEADING_KEY),
-                           ("DistanceKey", hlib.MAPCAMERA_DISTANCE_KEY)):
+                           ("DistanceKey", hlib.MAPCAMERA_DISTANCE_KEY),
+                           ("HoldKey", hlib.MAPCAMERA_HOLD_KEY)):
             self.assertIn('internal const string %s = "%s";' % (const, key), text)
         for const, value in (("MinPitchDeg", hlib.MAPCAMERA_PITCH_RANGE[0]),
                              ("MaxPitchDeg", hlib.MAPCAMERA_PITCH_RANGE[1]),
                              ("MinHeadingDeg", hlib.MAPCAMERA_HEADING_RANGE[0]),
                              ("MaxHeadingDeg", hlib.MAPCAMERA_HEADING_RANGE[1]),
-                             ("MaxDistanceMetres", hlib.MAPCAMERA_MAX_DISTANCE_METRES)):
+                             ("MaxDistanceMetres", hlib.MAPCAMERA_MAX_DISTANCE_METRES),
+                             ("MinHoldSeconds", hlib.MAPCAMERA_HOLD_RANGE[0]),
+                             ("MaxHoldSeconds", hlib.MAPCAMERA_HOLD_RANGE[1])):
             m = re.search(r"internal const double %s = ([-0-9.e]+);" % const, text)
             self.assertIsNotNone(m, const)
             self.assertEqual(value, float(m.group(1)), const)
@@ -18721,6 +18725,9 @@ class MapGeometrySeamVerbSourceSyncTests(unittest.TestCase):
         self.assertEqual([], v(0, {"focus": "Mun", "pitch": "90", "heading": "-360",
                                    "distance": "1e13"}))
         self.assertEqual([], v(0, {"focus": "Mun", "pitch": "${p.pitch}"}))
+        self.assertEqual([], v(0, {"focus": "Mun", "hold": "4.5"}))
+        self.assertEqual([], v(0, {"focus": "Mun", "hold": "0"}))
+        self.assertEqual([], v(0, {"focus": "Mun", "hold": "10"}))
         cases = (
             ({}, "mapcamera-focus-arg-missing"),
             ({"focus": "  "}, "mapcamera-focus-arg-missing"),
@@ -18732,6 +18739,10 @@ class MapGeometrySeamVerbSourceSyncTests(unittest.TestCase):
             ({"focus": "Kerbin", "distance": "1.1e13"}, "mapcamera-distance-out-of-range"),
             ({"focus": "Kerbin", "distance": "inf"}, "mapcamera-distance-invalid"),
             ({"focus": "Kerbin", "distance": True}, "mapcamera-distance-invalid"),
+            ({"focus": "Kerbin", "hold": "10.5"}, "mapcamera-hold-out-of-range"),
+            ({"focus": "Kerbin", "hold": "-1"}, "mapcamera-hold-out-of-range"),
+            ({"focus": "Kerbin", "hold": "4,5"}, "mapcamera-hold-invalid"),
+            ({"focus": "Kerbin", "hold": "soon"}, "mapcamera-hold-invalid"),
             ({"focus": "Kerbin", "zoom": "1"}, "silently ignored"),
         )
         for args, needle in cases:
