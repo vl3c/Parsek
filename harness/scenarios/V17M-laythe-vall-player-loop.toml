@@ -646,8 +646,8 @@ steps = [
   # on the phase-locked clock the cycle-1 ghost replays the observer's own park one Vall
   # period later, about 24 deg and ~196 km away, inside the 300 km watch-entry cutoff, and
   # the step answered `enterwatchmode initiated: index=0 ... auto=true`. The header's
-  # pre-registered risk landed; the pin follows the measurement. Cycle 2 (~383 km) stays
-  # REJECTED until a run reads it.
+  # pre-registered risk landed; the pin follows the measurement. Cycle 2 read the same way
+  # (run 2026-11-11_0626), see its step.
   { cmd = "EnterWatchMode",                                                  expect = "OK" },
   # ============================================================================
   # THE CENSUS-PACING DWELL BLOCK - 40 x RecordingState, V16M's verbatim and now
@@ -684,7 +684,11 @@ steps = [
   # STEP 5: "Watch" again, same pinned verdict, same caveat: on V16M's precedent the
   # refusal is expected at the SELECTOR level (`no-watchable-ghost`), not on the
   # chord. A DIFFERENT verdict between the two would itself be the reading.
-  { cmd = "EnterWatchMode",                                                  expect = "REJECTED" },
+  # 2026-11-11 MEASURED, SUPERSEDES THE PIN ABOVE (run 2026-11-11_0626, both attempts):
+  # the cycle-2 step also answered `enterwatchmode initiated: index=0 ... auto=true`, so
+  # the ~383 km estimate did not hold and the re-spaced loop puts the ghost inside the
+  # 300 km watch-entry cutoff at both cycles. The pin follows the measurement.
+  { cmd = "EnterWatchMode",                                                  expect = "OK" },
   # M-A7 RENDER-COMPOSITION CAPTURE (Phase 3C, Wave A, 2026-08-26). PLACEMENT IS THE
   # ARGUMENT and it is pinned by `test_every_declarer_exports_immediately_before_teardown`:
   # the recorder accumulates from Awake, so the only thing placement decides is how much of
