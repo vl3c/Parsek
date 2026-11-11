@@ -1,0 +1,101 @@
+# Settings for scripts/arch/ilanalysis.py, the analyses over the compiled-IL
+# facts (ilfacts.py): what counts as the live game, what roots a method nobody
+# calls, what mutates a static collection. docs/dev/arch/README.md, "Code facts".
+# Patterns are fnmatch globs. Type paths are IL paths (`Vessel/Situations` for a
+# nested type); an external type or member is matched without its assembly.
+
+[coupling]
+# A method "can reach the game" when its body or signature names a type of one
+# of these assemblies that is not inert, or a live member of an inert type, or
+# when it calls such a method (interface and virtual calls reach every
+# implementation and override in the assembly).
+game_assemblies = [
+    "Assembly-CSharp", "Assembly-CSharp-firstpass", "UnityEngine", "UnityEngine.*",
+    "KSPAssets", "ToolbarControl", "ClickThroughBlocker",
+]
+# Value types, pure statics, enums and attributes that work with no game
+# loaded. ConfigNode is managed code over strings.
+inert_types = [
+    "ConfigNode", "ConfigNode/*",
+    "Vector2d", "Vector3d", "Vector4d", "QuaternionD", "Matrix3x3", "UtilMath",
+    "UnityEngine.Vector2", "UnityEngine.Vector3", "UnityEngine.Vector4", "UnityEngine.Quaternion",
+    "UnityEngine.Mathf", "UnityEngine.Color", "UnityEngine.Color32", "UnityEngine.Rect", "UnityEngine.Bounds",
+    "GameScenes", "VesselType", "Vessel/Situations", "Vessel/State", "Game/Modes", "SaveMode",
+    "ControlTypes", "TransactionReasons", "ResourceFlowMode", "EditorFacility", "SpaceCenterFacility",
+    "ScenarioCreationOptions", "ScreenMessageStyle", "ConstructionEventType", "TimeWarp/Modes",
+    "ProtoCrewMember/RosterStatus", "ProtoCrewMember/KerbalType", "RDTech/State", "RDTech/OperationResult",
+    "Contracts.Contract/State", "Contracts.ParameterState", "ModuleParachute/deploymentStates",
+    "ModuleDeployablePart/DeployState", "UnityEngine.KeyCode", "UnityEngine.EventType", "UnityEngine.TextAnchor",
+    "UnityEngine.FontStyle", "UnityEngine.LogType", "UnityEngine.HideFlags", "UnityEngine.Space",
+    "KSPAddon", "KSPAddon/Startup", "KSPScenario", "KSPField", "KSPEvent", "KSPAction", "KSPAssembly",
+    "KSPAssemblyDependency", "UnityEngine.SerializeField", "UnityEngine.HideInInspector",
+]
+# Members of an inert type that call into the engine (`extern` in Unity
+# 2019.4): naming one of these still reaches the game.
+live_members = [
+    "UnityEngine.Quaternion::Euler", "UnityEngine.Quaternion::Internal_*", "UnityEngine.Quaternion::AngleAxis",
+    "UnityEngine.Quaternion::LookRotation", "UnityEngine.Quaternion::Inverse", "UnityEngine.Quaternion::Slerp*",
+    "UnityEngine.Quaternion::Lerp*", "UnityEngine.Quaternion::FromToRotation", "UnityEngine.Quaternion::RotateTowards",
+    "UnityEngine.Quaternion::ToAngleAxis", "UnityEngine.Quaternion::get_eulerAngles",
+    "UnityEngine.Quaternion::set_eulerAngles", "UnityEngine.Quaternion::SetFromToRotation",
+    "UnityEngine.Quaternion::SetLookRotation",
+    "UnityEngine.Vector3::Slerp*", "UnityEngine.Vector3::RotateTowards", "UnityEngine.Vector3::OrthoNormalize",
+    "UnityEngine.Mathf::*PowerOfTwo", "UnityEngine.Mathf::PerlinNoise", "UnityEngine.Mathf::GammaToLinearSpace",
+    "UnityEngine.Mathf::LinearToGammaSpace", "UnityEngine.Mathf::CorrelatedColorTemperatureToRGB",
+    "UnityEngine.Mathf::FloatToHalf", "UnityEngine.Mathf::HalfToFloat",
+]
+# Calls into these types are not followed: logging writes through a test sink
+# when no game is loaded.
+not_followed = ["Parsek.ParsekLog"]
+
+[statics]
+# A call on a static readonly collection's value that changes its contents
+# (`[]` is an array element store). Read after an `ldsfld` within a few
+# instructions (ilgraph.STATIC_RECEIVER_WINDOW), so a floor, not an exact count.
+mutating_members = [
+    "Add", "AddRange", "AddFirst", "AddLast", "AddOrUpdate", "GetOrAdd", "TryAdd", "Insert", "InsertRange",
+    "Remove", "RemoveAt", "RemoveAll", "RemoveRange", "RemoveWhere", "RemoveFirst", "RemoveLast", "TryRemove",
+    "Clear", "set_Item", "Enqueue", "Dequeue", "TryDequeue", "Push", "Pop", "TryPop", "Sort", "Reverse",
+    "UnionWith", "IntersectWith", "ExceptWith", "SymmetricExceptWith", "TrimExcess",
+    "Append", "AppendLine", "AppendFormat", "set_Length", "[]",
+]
+
+[uncalled]
+# Attributes that say nothing about who calls a method; any other attribute
+# on a method roots it (Harmony, InGameTest, KSPEvent, KSPAction ...).
+ignored_attributes = [
+    "*System.Runtime.CompilerServices.CompilerGeneratedAttribute",
+    "*System.Runtime.CompilerServices.ExtensionAttribute",
+    "*System.Runtime.CompilerServices.IteratorStateMachineAttribute",
+    "*System.Runtime.CompilerServices.AsyncStateMachineAttribute",
+    "*System.Runtime.CompilerServices.MethodImplAttribute",
+    "*System.Runtime.CompilerServices.IsReadOnlyAttribute",
+    "*System.Runtime.CompilerServices.NullableContextAttribute",
+    "*System.Runtime.CompilerServices.NullableAttribute",
+    "*System.Runtime.CompilerServices.TupleElementNamesAttribute",
+    "*System.Diagnostics.DebuggerHiddenAttribute",
+    "*System.Diagnostics.DebuggerStepThroughAttribute",
+    "*System.Diagnostics.DebuggerNonUserCodeAttribute",
+    "*System.Diagnostics.DebuggerBrowsableAttribute",
+    "*System.ObsoleteAttribute",
+]
+# Type attributes whose types the game or Harmony instantiates.
+patch_type_attributes = ["0Harmony|HarmonyLib.HarmonyPatch"]
+# A type that declares a static method of one of these names and is named by
+# another type (`typeof` handed to Harmony) is a patch type too.
+patch_hooks = ["Prefix", "Postfix", "Transpiler", "Finalizer"]
+# Methods Harmony finds by name on a patch type.
+patch_methods = ["Prefix", "Postfix", "Transpiler", "Finalizer", "Prepare", "TargetMethod", "TargetMethods", "Cleanup"]
+# Methods Unity calls by name on a type derived from an engine base type.
+unity_messages = [
+    "Awake", "Start", "Update", "FixedUpdate", "LateUpdate", "OnGUI", "OnEnable", "OnDisable", "OnDestroy",
+    "OnApplicationQuit", "OnApplicationFocus", "OnApplicationPause", "OnValidate", "Reset",
+    "OnPreCull", "OnPreRender", "OnPostRender", "OnRenderObject", "OnWillRenderObject", "OnBecameVisible",
+    "OnBecameInvisible", "OnRenderImage", "OnTriggerEnter", "OnTriggerExit", "OnTriggerStay",
+    "OnCollisionEnter", "OnCollisionExit", "OnCollisionStay", "OnMouseDown", "OnMouseUp", "OnMouseEnter",
+    "OnMouseExit", "OnMouseOver", "OnTransformParentChanged", "OnRectTransformDimensionsChange",
+]
+# Members the runtime or the BCL call on any object.
+object_members = ["ToString", "Equals", "GetHashCode", "Finalize"]
+# Name suffixes of test hooks (the "called only from tests" split).
+test_hook_suffixes = ["ResetForTesting", "ForTesting", "ForTests"]

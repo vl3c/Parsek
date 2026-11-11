@@ -2426,6 +2426,24 @@ compare).
   / 50 / 100 604 / 31 / 5 per IL method; the review's 601 left out `Parsek.VesselIdentity`,
   which the text model drops (its short name is declared twice) and the facts map to Missions.
   Next: the Atlas page and the first gates read this model (README "Member facts").
+- 2026-11-11 (A1 / A3 / B7 / B9 groundwork, code facts): `scripts/arch/ilanalysis.py` derives five
+  analyses from the facts model (static state, complexity with generated code folded in, game
+  coupling through calls and virtual dispatch, uncalled code as reachability from 15 root rules,
+  direct test reach); every list it reads (inert game types, root attributes and names, mutating
+  members) is in `scripts/arch/facts.toml`. `archview.py --facts / --test-facts` draws them as the
+  atlas's "Code facts" section ("not measured" without). Three DLL-backed ratchets in CI's
+  compiled-IL step, pinned in `scripts/arch/facts_pins.toml` (`ilanalysis.py <Debug dll>
+  --write-pins`): statics written by another production type <= 55 (an `ldsflda` is a read, not a
+  write; address-taking is reported on its own, so a `ref` / `out` write through another type's
+  static is not gated); no unpinned method at complexity >= 50, with every method at >= 45 pinned
+  (54) so a compiler drift of a decision or two cannot red; methods the roots do not reach in
+  Parsek.dll, test hooks by name left out, <= 654 (a fixpoint that reads only live methods, so
+  deleting dead code can never raise it). The counted bounds may not rise; a swap inside a bound
+  passes and slack after a fall is not enforced until a re-pin. On 4629fbfcf: 46% of production
+  instructions can reach the game (Patches 83%, Core 6%), 943 methods unreached (234 no unit
+  test calls either, 709 a test calls, 257 hooks by name), 84 methods with 30+ decisions no unit
+  test calls. The uncalled ratchet reads Parsek.dll alone (the test DLL would add about a minute
+  to CI), so a production method only a test calls counts against it.
 
 **Fix.**
 1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same

@@ -3994,6 +3994,146 @@ def _atlas_history(history):
     return "\n".join(lines)
 
 
+def _facts_name(key):
+    """`Parsek.Logistics.Engine::Run(int32)` -> `Logistics.Engine::Run`."""
+    name = key.split("(", 1)[0]
+    return name[len("Parsek."):] if name.startswith("Parsek.") else name
+
+
+def _facts_pct(value):
+    return "%.0f%%" % (100.0 * value)
+
+
+def _atlas_code_facts(facts):
+    """The "Code facts" tables from an ilanalysis.py report, or a notice when none was given."""
+    if not facts:
+        return (
+            '<p class="layer">Not measured: this page was generated without the compiled assembly. Run'
+            " <code>archview.py --facts Source/Parsek/bin/Debug/Parsek.dll --test-facts"
+            " Source/Parsek.Tests/bin/Debug/net472/Parsek.Tests.dll</code> after a Debug build.</p>"
+        )
+    statics = facts["statics"]["byModule"]
+    coupling = facts["coupling"]["byModule"]
+    reach = (facts.get("testReach") or {}).get("byModule")
+    lines = [
+        "<h3>Per module</h3>",
+        '<div class="wide"><table>',
+        '<tr><th>Module</th><th class="num">Code<br>k instr</th><th class="num">Can reach<br>the game</th>'
+        '<th class="num">Called by<br>unit tests</th><th class="num">Reassignable<br>statics</th>'
+        '<th class="num">Mutated<br>collections</th><th class="num">Written by<br>another type</th></tr>',
+    ]
+    for module, row in coupling.items():
+        own = statics.get(module, {})
+        tested = "&ndash;"
+        if reach and module in reach:
+            tested = _facts_pct(reach[module]["instructionShare"])
+        lines.append(
+            '<tr><td class="name">%s</td><td class="num">%s</td><td class="num">%s</td><td class="num">%s</td>'
+            '<td class="num">%d</td><td class="num">%d</td><td class="num">%d</td></tr>'
+            % (html.escape(module), _thousands(round(row["instructions"] / 1000.0)), _facts_pct(row["share"]), tested,
+               own.get("reassignable", 0), own.get("mutatedCollections", 0), own.get("writtenElsewhere", 0))
+        )
+    totals = facts["statics"]["totals"]
+    lines.append(
+        '<tr><td class="name">All production</td><td class="num">%s</td><td class="num">%s</td>'
+        '<td class="num">%s</td><td class="num">%d</td><td class="num">%d</td><td class="num">%d</td></tr>'
+        % (_thousands(round(sum(r["instructions"] for r in coupling.values()) / 1000.0)),
+           _facts_pct(facts["coupling"]["share"]),
+           _facts_pct(sum(r["reachedInstructions"] for r in reach.values())
+                      / (sum(r["instructions"] for r in reach.values()) or 1)) if reach else "&ndash;",
+           totals.get("reassignable", 0), totals.get("mutatedCollections", 0), totals.get("writtenElsewhere", 0))
+    )
+    lines.append("</table></div>")
+
+    at = facts["complexity"]["atLeast"]
+    lines.append("<h3>Most complex methods</h3>")
+    lines.append(
+        "<p>Complexity is decisions + 1 (conditional branches, distinct switch targets, catch handlers),"
+        " with the method's lambdas, local functions and iterator bodies folded in: %d methods at 20 or more,"
+        " %d at 50 or more, %d at 100 or more.</p>" % (at.get(20, at.get("20", 0)), at.get(50, at.get("50", 0)),
+                                                       at.get(100, at.get("100", 0)))
+    )
+    lines.append('<div class="wide"><table>')
+    lines.append('<tr><th>Method</th><th>Module</th><th class="num">Complexity</th><th class="num">Own body</th>'
+                 '<th class="num">Instructions</th></tr>')
+    for row in facts["complexity"]["methods"][:12]:
+        lines.append(
+            '<tr><td><span class="id">%s</span></td><td>%s</td><td class="num">%d</td><td class="num">%d</td>'
+            '<td class="num">%s</td></tr>'
+            % (html.escape(_facts_name(row["key"])), html.escape(row["module"] or ""), row["complexity"],
+               row["ownComplexity"], _thousands(row["instructions"]))
+        )
+    lines.append("</table></div>")
+
+    dead = facts["uncalled"]
+    sizes = dead["instructions"]
+    lines.append("<h3>Uncalled code</h3>")
+    listed = dead.get("noCaller", dead["uncalled"])
+    if "noCaller" in dead:
+        split = dead.get("testOnlyBySuffix", {})
+        hooks = sum(n for suffix, n in split.items() if suffix != "other")
+        lines.append(
+            "<p>Production methods the roots do not reach and no unit test calls: %d (%s instructions)."
+            " Not reached from the roots but called from the test assembly: %d more, %d of them named as"
+            " test hooks and %d not.</p>"
+            % (len(dead["noCaller"]), _thousands(sum(sizes[k] for k in dead["noCaller"])), len(dead["testOnly"]),
+               hooks, split.get("other", 0))
+        )
+    else:
+        lines.append(
+            "<p>Production methods the roots do not reach: %d (%s instructions). Without the test"
+            " assembly the page cannot tell which of them a test calls.</p>"
+            % (len(dead["uncalled"]), _thousands(sum(sizes.values())))
+        )
+    lines.append('<div class="wide"><table>')
+    lines.append('<tr><th>Root rule</th><th class="num">Live methods it alone keeps (no live caller)</th></tr>')
+    for rule, keys in dead["rootedBy"].items():
+        if keys:
+            lines.append('<tr><td>%s</td><td class="num">%d</td></tr>' % (html.escape(rule), len(keys)))
+    lines.append("</table></div>")
+    lines.append('<div class="wide"><table>')
+    lines.append('<tr><th>Largest not reached</th><th>Module</th><th class="num">Instructions</th></tr>')
+    for key in sorted(listed, key=lambda k: (-sizes[k], k))[:15]:
+        lines.append(
+            '<tr><td><span class="id">%s</span></td><td>%s</td><td class="num">%s</td></tr>'
+            % (html.escape(_facts_name(key)), html.escape(dead["modules"].get(key) or ""), _thousands(sizes[key]))
+        )
+    lines.append("</table></div>")
+
+    lines.append("<h3>Test reach</h3>")
+    if not reach:
+        lines.append('<p class="layer">Not measured: no test assembly was given (<code>--test-facts</code>).</p>')
+    else:
+        untested = facts["testReach"]["untestedComplex"]
+        lines.append(
+            "<p>Methods with 30 or more decisions that no unit test calls directly: %d. The largest:</p>"
+            % len(untested)
+        )
+        lines.append('<div class="wide"><table>')
+        lines.append('<tr><th>Method</th><th>Module</th><th class="num">Decisions</th></tr>')
+        for row in untested[:12]:
+            lines.append(
+                '<tr><td><span class="id">%s</span></td><td>%s</td><td class="num">%d</td></tr>'
+                % (html.escape(_facts_name(row["key"])), html.escape(row["module"] or ""), row["decisions"])
+            )
+        lines.append("</table></div>")
+
+    lines.append("<h3>Static state by owner</h3>")
+    lines.append('<div class="wide"><table>')
+    lines.append('<tr><th>Type</th><th class="num">Reassignable</th><th class="num">Mutated collections</th>'
+                 '<th class="num">Written by another type</th></tr>')
+    owners = sorted(facts["statics"]["byType"].items(),
+                    key=lambda kv: (-(kv[1].get("reassignable", 0) + kv[1].get("mutatedCollections", 0)), kv[0]))
+    for path, row in owners[:10]:
+        lines.append(
+            '<tr><td class="name">%s</td><td class="num">%d</td><td class="num">%d</td><td class="num">%d</td></tr>'
+            % (html.escape(_facts_name(path)), row.get("reassignable", 0), row.get("mutatedCollections", 0),
+               row.get("writtenElsewhere", 0))
+        )
+    lines.append("</table></div>")
+    return "\n".join(lines)
+
+
 def _atlas_sizes(sizes):
     """Return the atlas size tables, or a one-line notice when there is no size data."""
     if not sizes or not sizes.get("types"):
@@ -4071,7 +4211,7 @@ def _atlas_sizes(sizes):
     return "\n".join(lines)
 
 
-def render_atlas_html(model, prose, svg_text=None, forbidden=None, history=None, sizes=None):
+def render_atlas_html(model, prose, svg_text=None, forbidden=None, history=None, sizes=None, facts=None):
     """Return the Parsek Atlas page: prose from `prose`, everything else generated."""
     page = prose.get("page", {})
     replacements = {
@@ -4096,6 +4236,8 @@ def render_atlas_html(model, prose, svg_text=None, forbidden=None, history=None,
         "@@HISTORY_BODY@@": _atlas_history(history),
         "@@SIZE_NOTE@@": page.get("size_note", ""),
         "@@SIZE_BODY@@": _atlas_sizes(sizes),
+        "@@FACTS_NOTE@@": page.get("facts_note", ""),
+        "@@FACTS_BODY@@": _atlas_code_facts(facts),
         "@@OPPORTUNITIES@@": _atlas_opportunities(prose),
         "@@READING_NOTE@@": page.get("reading_note", ""),
         "@@READING@@": _atlas_reading_order(prose),
@@ -4234,6 +4376,10 @@ ul.findings li { margin: 8px 0; max-width: 88ch; }
 <p>@@SIZE_NOTE@@</p>
 @@SIZE_BODY@@
 
+<h2>Code facts</h2>
+<p>@@FACTS_NOTE@@</p>
+@@FACTS_BODY@@
+
 @@OPPORTUNITIES@@
 <h2>Reading order</h2>
 <p>@@READING_NOTE@@</p>
@@ -4249,6 +4395,7 @@ ul.findings li { margin: 8px 0; max-width: 88ch; }
   <dt>ladder.html</dt><dd>Every type placed by module and abstraction level, with the knot split into sub-rows and its cut sinks marked.</dd>
   <dt>modules.svg</dt><dd>The static map shown above.</dd>
   <dt>core-placement.md</dt><dd>The evidence table behind where each former root file went.</dd>
+  <dt>ilanalysis.py</dt><dd>The code facts above as text or JSON, from the compiled assembly; it also re-pins the three ratchets CI holds on them.</dd>
   <dt>sizes.json</dt><dd>The size view: the largest files and types, their long methods, mutable statics and pure static pools, with the rules that fired.</dd>
   <dt>archview.py --check</dt><dd>The text report: metrics, upward edges, couplings, hubs, roles, level profile, knots, forbidden edges, sizes.</dd>
 </dl>
@@ -5364,6 +5511,17 @@ def main(argv=None):
         " SEMANTIC section (compiled-IL type graph, forwarders read as calls) to --check",
     )
     parser.add_argument(
+        "--facts",
+        default=None,
+        help="Parsek.dll, an ikdasm .il dump or an ilfacts.py --json file: draw the atlas's Code facts"
+        " section (without it the section says not measured)",
+    )
+    parser.add_argument(
+        "--test-facts",
+        default=None,
+        help="Parsek.Tests.dll (or its .il / facts .json): add test reach to the Code facts section",
+    )
+    parser.add_argument(
         "--place",
         action="store_true",
         help="print placement evidence for the last rule's module and write core-placement.md under --out",
@@ -5449,6 +5607,16 @@ def main(argv=None):
             write_history_json(history_payload, history_path)
             print("Wrote %s" % history_path)
 
+            facts_report = None
+            if args.facts:
+                try:
+                    import ilanalysis  # noqa: PLC0415 (it imports this module)
+
+                    facts_report = ilanalysis.report_from_paths(
+                        args.facts, args.test_facts, args.modules, args.source)
+                except Exception as exc:
+                    print("WARN archview: code facts not measured: %s" % exc, file=sys.stderr)
+
             sizes_path = out_dir / "sizes.json"
             write_sizes_json(sizes_payload, sizes_path)
             print("Wrote %s" % sizes_path)
@@ -5460,7 +5628,7 @@ def main(argv=None):
             _write_text(
                 atlas_path,
                 render_atlas_html(
-                    model, prose, svg_text, forbidden, history_payload, sizes_payload
+                    model, prose, svg_text, forbidden, history_payload, sizes_payload, facts_report
                 ),
             )
             print("Wrote %s" % atlas_path)

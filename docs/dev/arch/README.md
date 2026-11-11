@@ -138,8 +138,8 @@ and the semantic residue stayed 250, which never counted that edge.
 
 `scripts/arch/ilfacts.py` turns the same parse (`ilgraph.parse_il` records
 the member facts in the pass that builds the type uses; there is one IL
-parser) into a facts model keyed by member, for reports and for gates a later
-PR may add. It gates no property of the code today. Its real-tree cells (`RealTreeFactsTests`,
+parser) into a facts model keyed by member, the input of "Code facts" below.
+The facts layer itself gates no property of the code. Its real-tree cells (`RealTreeFactsTests`,
 run by the compiled-IL CI step) check the extractor itself: every source type is a
 facts type, member keys are unique, every in-assembly call resolves to a key, and
 all compiler-generated code folds into a source method. A red there means the
@@ -169,7 +169,14 @@ not failed.
   left out), custom attributes (the roots an uncalled-code report needs:
   `HarmonyPrefix`, `InGameTestAttribute`; the type's own, such as
   `HarmonyPatch` and `KSPAddon`, are on its type entry), and calls into
-  another assembly's `Parsek` types (from the test DLL, for test reach).
+  another assembly's `Parsek` types (from the test DLL, for test reach), the
+  outside members it names (`externalMembers`), and its identifier-shaped
+  `ldstr` literals (`strings`, what reflection by name and `nameof` leave).
+  A type also carries its interfaces and `namedByOthers` (how many other
+  types name it in IL); a static field carries `receiverCalls`, the outside
+  calls (or `[]` element stores) within 8 instructions after a read of it.
+  Generated code no single method owns credits its calls and static access
+  to `Type::(generated)`, so no caller or writer is lost.
 - **Compiler-generated code** (lambdas in `<>c`, closures, local functions,
   iterator and async state machines) is folded into the source method that
   creates it, found through IL references (the `newobj`, `ldftn` or call
@@ -217,6 +224,136 @@ cells with `test_semantic.py` (structure only: every source type keyed and
 mapped to a module, unique keys, every call resolved, no generated key,
 entry-point attributes read) over the one parse `ilgraph.load_parsed` caches.
 
+## Code facts (compiled IL)
+
+`scripts/arch/ilanalysis.py` derives five reports from the facts model, pure
+functions with unit cells (`test_ilanalysis.py`); every list a rule reads
+lives in `scripts/arch/facts.toml`, beside `modules.toml`. Production means a
+type whose source file maps to a non-tooling module.
+
+- **Static state**, per module and per outer type: reassignable statics
+  (static auto-property backing fields included, other compiler-generated
+  and literal fields out), static readonly collections whose contents a
+  method other than a static constructor changes (an outside call from
+  `[statics] mutating_members`, or an element store, within 8 instructions
+  after a read: a floor, the stack is not simulated), and statics written by
+  another production outer type (`stsfld`, or a call to its static
+  auto-property setter; a type nested in the owner is the owner; tooling
+  writers such as InGameTests do not count). An `ldsflda` (taking the
+  static's address) is not a write: C# emits it to read a member of a
+  value-type static or call a method on it (`Ledger.StateVersion.ToString(ic)`).
+  It is reported on its own ("address taken by another production type");
+  a `ref` / `out` / `Interlocked` write through another type's static takes
+  that path too, and the gate does not see it.
+- **Complexity**: decisions + 1 with the method's lambdas, local functions and
+  iterator bodies folded in, ranked, counted at 20 / 50 / 100.
+- **Game coupling** ("can reach the game"): a method names a type of
+  `[coupling] game_assemblies` that is not in `inert_types` (vector,
+  quaternion and colour structs, Mathf, ConfigNode, game enums, attributes),
+  or a member in `live_members` (the `extern` members of those inert types,
+  such as `Quaternion.Euler`), in its body or signature (locals are left out:
+  Release drops them), or it calls a method that does. A call to an interface
+  or virtual member reaches every implementation and override in the
+  assembly; calls into `not_followed` types (`ParsekLog`, which writes
+  through a test sink) are not followed. Per module, the share of
+  instructions in such methods. It means can reach on some path, not needs.
+- **Uncalled code**: production methods the roots do not reach in
+  Parsek.dll. Live is a fixpoint. It starts from every non-production
+  method (tooling such as InGameTests is live, so its calls count), the
+  generated code no single method owns, and the production methods a root
+  rule keeps on its own: static constructor; member of a delegate type; any
+  method attribute not in `ignored_attributes` (Harmony, InGameTest, KSPEvent
+  ...); a Harmony patch method by name on a `[HarmonyPatch]` type, or on a
+  type another type names (`typeof` handed to Harmony) that declares a static
+  `Prefix` / `Postfix` / `Transpiler` / `Finalizer`; a Unity message by name
+  on a type whose base chain leaves the assembly for a non-BCL type;
+  `ToString` / `Equals` / `GetHashCode` / `Finalize` and operators; an
+  override of an outside method; an implementation of an outside interface
+  (implicit or explicit); a constructor of a type that is named by another
+  type, has an engine base, is an attribute or carries a type attribute;
+  compiler-generated. It grows by the calls of live methods and by the rules
+  that read use, each a step of the same fixpoint: an override or
+  implementation of a slot that is called (or root-kept); an abstract or
+  interface member with a live implementation (this keeps the declaration,
+  not its other implementations); the sibling accessor of a live accessor;
+  the constructor of a type with a live member; a method whose name (or
+  property name) is an identifier string literal in a live method. Every
+  step reads only live methods, so deleting a dead method never makes another
+  one dead, and a chain called only from dead code is dead as a whole
+  (`DeletingDeadCodeTests` holds this on fixtures and, under
+  `PARSEK_ARCH_IL`, on 50+ methods of the real tree). Each rule is reported
+  with the live methods it alone keeps (no live caller), tried in the order
+  above. When unsure a rule roots. With the test facts the dead set splits
+  into what no unit test calls either and what a test calls (test hooks by
+  name, `test_hook_suffixes`, against the rest). A type that a dead method
+  alone names still counts as named (the facts count type naming per type,
+  not per method).
+- **Test reach**: per module, the share of production methods and of their
+  instructions a test method calls directly (a call on an interface or
+  virtual member credits its implementations), and the methods with 30 or
+  more decisions (folded) no test calls. Not coverage. It needs the test DLL's
+  facts, which CI does not parse (about a minute: 19 s `ikdasm`, 31 s parse).
+
+```bash
+python3 scripts/arch/ilanalysis.py Source/Parsek/bin/Debug/Parsek.dll
+python3 scripts/arch/ilanalysis.py Source/Parsek/bin/Debug/Parsek.dll \
+    --tests Source/Parsek.Tests/bin/Debug/net472/Parsek.Tests.dll --json report.json
+```
+
+An input is an assembly, an `.il` dump or an `ilfacts.py --json` file. On
+4629fbfcf (2026-11-11, Debug, main's code): 865 reassignable statics, 217 of
+307 readonly collections mutated, 55 statics written by another production
+type and 6 whose address another production type takes; complexity 615 / 32
+/ 5; 46% of production instructions can reach the game (highest Patches 83%,
+Config 66%, Controllers 64%; lowest Core 6%, Trajectory 25%, Missions 26%);
+943 methods the roots do not reach (22,756 instructions): 234 that no unit
+test calls either (7,611 instructions), 709 a test calls (257 hooks by name);
+84 methods with 30+ decisions no unit test calls. The rules alone kept 1,263
+live methods (Harmony 310, `.cctor` 279, dispatch 272, strings 112, delegates
+88 ...).
+
+### The ratchets
+
+CI's compiled-IL step runs `test_ilanalysis.RealTreeRatchetTests` over the
+built Debug DLL (the step's `test_[si]*.py` pattern; `WorkflowTests` reds if
+it stops matching). The pins are `scripts/arch/facts_pins.toml`, the one place
+the bounds live. The ratchets bind static write sets, call sets and
+per-method decisions, never instruction counts or shares. A Debug and a
+Release build of one compiler agree on those; two compilers do not quite
+(CI's SDK and this container's 8.0.134 built identical source to 614 and 615
+methods at complexity 20 or more), which the complexity watch band absorbs.
+
+- `crossTypeStaticWrites`: the statics written by another production type
+  may not outnumber `bound` (55). A red names the new keys and their writers.
+- `complexityWatch` (the complexity gate): every method (by `Type::Name`, so
+  overloads and a parameter change do not move it) at complexity 45 or more
+  is pinned (54), the gate 50 minus a watch band of 5
+  (`COMPLEXITY_WATCH_BAND`). A method that is not pinned reds when it
+  reaches 50, so a compiler that counts a pinned method a decision or two
+  higher cannot red the check, while a method growing from below 45 to 50
+  still does. A pinned method may grow past 50 without a red. Leaving the
+  band needs no re-pin; a rename or a move into another type does.
+- `uncalledInAssembly`: the methods the roots do not reach in Parsek.dll,
+  test hooks by name left out, may not outnumber `bound` (654). It reads
+  Parsek.dll alone, so a production method only a test calls counts too:
+  that is code the game never runs (B7). Deleting dead code cannot raise it.
+
+What the two counted gates guarantee is that the count does not rise. A
+swap inside a bound passes (one key leaves, another enters), and once a
+count falls the slack is not enforced until someone re-pins: a later PR may
+add entries up to the old bound without a red.
+
+A red prints what moved, by how much, which members, and the re-pin
+command. Re-pin after a Debug build of the tree, never from a Release build:
+
+```bash
+python3 scripts/arch/ilanalysis.py Source/Parsek/bin/Debug/Parsek.dll --write-pins
+```
+
+Re-pin in the PR that lowers a count (the step log prints the slack), so the
+bound follows it down, and raise one only for a deliberate change the PR
+explains.
+
 ## Regenerating
 
 Nothing under `docs/dev/arch/` except this README is tracked. Run the script
@@ -243,6 +380,11 @@ Options:
 - `--min-edge N` (default 8): edges lighter than N references are hidden from
   the dot view; the explorer slider starts at N but can go down to 1.
 - `--modules FILE` (default `scripts/arch/modules.toml`)
+- `--facts PATH` (default off): Parsek.dll, an `.il` dump or an
+  `ilfacts.py --json` file; draws the atlas's "Code facts" section, which
+  otherwise says "not measured" (the text scan needs no DLL).
+- `--test-facts PATH`: the test assembly (or its dump or facts JSON), for
+  test reach and the test-only split in that section.
 - `--place` (default off): print the placement evidence for the files in the
   module the last rule names (the Core kernel list now; the old catch-all in
   the historical report) and write `core-placement.md`, the before-phase
@@ -579,7 +721,8 @@ available, the highest module co-change ratio and the share of commits that
 touch the most-churned type), the "Main findings" list, the map inline, the
 module directory grouped by layer, the top hub vocabulary, the largest knot
 with its cut table, the weighted upward edges, co-change, the largest files
-and types, "Opportunities, ranked", and a reading order. Everything numeric,
+and types, "Code facts" (the compiled-IL analyses above, drawn when
+`--facts` is given), "Opportunities, ranked", and a reading order. Everything numeric,
 tabular and visual is rendered from the live model by `render_atlas_html`; the
 narrative prose, the findings and the opportunities come from
 `scripts/arch/atlas.toml`, while the structural strings (headings, tile
