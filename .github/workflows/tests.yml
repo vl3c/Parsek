@@ -226,12 +226,15 @@ jobs:
   # request reaches it, and nothing here can fail a PR. A missing row (the
   # row step failed) fails this job at the download. GitHub keeps at most one
   # pending run per concurrency group, so when merges land back to back a
-  # queued run can be cancelled and that commit gets no row.
+  # queued run can be cancelled and that commit gets no row. The job is
+  # continue-on-error: its failure shows on the job itself and leaves the
+  # run's conclusion, and so the README badge, to `tests`.
   metrics:
     needs: tests
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    continue-on-error: true
     permissions:
       contents: write
     concurrency:

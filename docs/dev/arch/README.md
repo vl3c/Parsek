@@ -388,7 +388,9 @@ later. It gates nothing: no check reads it, and no row can fail a PR.
   `github-actions[bot]` (`metrics: <short sha>`), push, and on a rejected push
   re-fetch, re-append and retry. A sha already in the file changes nothing.
   When the row step failed there is no artifact and the `metrics` job fails
-  at its download, which is where a broken tool shows.
+  at its download, which is where a broken tool shows. The job is
+  `continue-on-error` too: its failure is a red job in the run's job list,
+  and the run's conclusion (and the README badge) stays that of `tests`.
 - **Pull requests** keep no row. Their compiled-IL step only proves that a
   row can still be built: `test_metrics.RealTreeRowTests` assembles one (no
   test reach) from the model, semantic result and facts the step's other

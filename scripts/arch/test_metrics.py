@@ -523,8 +523,8 @@ def metrics_wiring_problems(text):
         problems.append("metrics: no concurrency group that keeps a running append")
     if "timeout-minutes" not in keys:
         problems.append("metrics: no timeout")
-    if "continue-on-error" in keys:
-        problems.append("metrics: continue-on-error")
+    if keys.get("continue-on-error", "false").lower() != "true":
+        problems.append("metrics: is not continue-on-error, so a failed append reds the run and the README badge")
     if "name: %s" % ROW_ARTIFACT not in block or "actions/download-artifact@" not in block:
         problems.append("metrics: does not download the %s artifact" % ROW_ARTIFACT)
     if "scripts/arch/metrics_append.py publish" not in block:
@@ -557,6 +557,8 @@ def yaml_problems(text):
         problems.append("metrics job permissions %r" % metrics_job.get("permissions"))
     if (metrics_job.get("concurrency") or {}).get("cancel-in-progress") is not False:
         problems.append("metrics job concurrency %r" % metrics_job.get("concurrency"))
+    if metrics_job.get("continue-on-error") is not True:
+        problems.append("metrics job continue-on-error %r" % metrics_job.get("continue-on-error"))
     steps = jobs["tests"]["steps"]
     rows = [s for s in steps if "scripts/arch/metrics.py" in str(s.get("run", ""))]
     uploads = [s for s in steps if str(s.get("uses", "")).startswith("actions/upload-artifact@")
@@ -594,6 +596,8 @@ class WorkflowTests(unittest.TestCase):
             "no upload": good.replace("name: " + ROW_ARTIFACT, "name: something-else"),
             "cancel a running append": good.replace("      cancel-in-progress: false", "      cancel-in-progress: true"),
             "no needs": good.replace("    needs: tests\n", ""),
+            "a failed append reds the run": good.replace("    timeout-minutes: 10\n    continue-on-error: true\n",
+                                                         "    timeout-minutes: 10\n"),
             "no row step": good.replace("scripts/arch/metrics.py", "scripts/arch/other.py"),
             "row on pull requests": good.replace(
                 "        id: metrics_row\n        if: " + MAIN_PUSH + "\n", "        id: metrics_row\n"),
