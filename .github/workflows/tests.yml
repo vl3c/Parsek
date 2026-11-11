@@ -115,6 +115,27 @@ jobs:
             echo "mono already present: $(mono --version | head -1)"
             exit 0
           fi
+          # The runner's mirror list starts at azure.archive.ubuntu.com, then
+          # archive.ubuntu.com and security.ubuntu.com. When a host does not
+          # resolve, apt waits 20 s per file on it and reaches the next mirror
+          # only after its retries, which outlasts the job. So drop the hosts
+          # that do not resolve before the first apt call, and when no Ubuntu
+          # host resolves use an independent full mirror; apt still verifies
+          # every package against the image's own keyring.
+          MIRRORS=/etc/apt/apt-mirrors.txt
+          if [ -f "$MIRRORS" ]; then
+            for host in azure.archive.ubuntu.com archive.ubuntu.com security.ubuntu.com; do
+              if ! timeout 10 getent hosts "$host" >/dev/null 2>&1; then
+                echo "$host does not resolve; dropping it from the apt mirror list"
+                sudo sed -i "\\|//$host/|d" "$MIRRORS"
+              fi
+            done
+            if ! grep -q '[^[:space:]]' "$MIRRORS"; then
+              echo "no Ubuntu mirror resolves; using mirrors.edge.kernel.org"
+              echo 'https://mirrors.edge.kernel.org/ubuntu/' | sudo tee "$MIRRORS" >/dev/null
+            fi
+            cat "$MIRRORS"
+          fi
           for i in 1 2 3; do
             sudo timeout 120 apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=15 && break
             echo "apt-get update attempt $i stalled or failed; retrying"
@@ -123,18 +144,15 @@ jobs:
           install_mono() {
             sudo timeout "$1" apt-get install -y -o Acquire::Retries="$2" -o Acquire::http::Timeout=15 mono-devel
           }
-          # A healthy install takes well under a minute. The runner's default
-          # mirror (azure.archive.ubuntu.com) can stall 20 s on every package,
-          # and apt reaches the next mirror in /etc/apt/apt-mirrors.txt only
-          # after all its retries on the first, which outlasts the job. So the
-          # first attempt is short, and a failure drops that mirror before the
-          # retries.
+          # A healthy install takes well under a minute. A mirror that resolves
+          # can still stall, so the first attempt is short, and a failure drops
+          # the default mirror before the retries.
           if ! install_mono 90 0; then
             echo "apt-get install stalled or failed on the default mirror; dropping it from the mirror list"
-            if [ -f /etc/apt/apt-mirrors.txt ]; then
-              sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
-              grep -q '[^[:space:]]' /etc/apt/apt-mirrors.txt || echo 'http://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
-              cat /etc/apt/apt-mirrors.txt
+            if [ -f "$MIRRORS" ]; then
+              sudo sed -i '/azure\.archive\.ubuntu\.com/d' "$MIRRORS"
+              grep -q '[^[:space:]]' "$MIRRORS" || echo 'https://mirrors.edge.kernel.org/ubuntu/' | sudo tee "$MIRRORS" >/dev/null
+              cat "$MIRRORS"
             fi
             sudo timeout 120 apt-get update -o Acquire::Retries=1 -o Acquire::http::Timeout=15 || echo "apt-get update on the remaining mirrors failed; trying the install anyway"
             for i in 1 2; do
