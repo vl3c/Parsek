@@ -1260,7 +1260,9 @@ class SpecValidationRejectTests(unittest.TestCase):
         # save's name (the scripted campaign program's CS-0 host).
         # 60 / 4 after PickUpFlag, an ADDITION by one: the active EVA kerbal takes down the
         # nearest real flag through stock's own FlagSite.PickUp (FLG-1).
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 60)
+        # 62 / 4 after the map-geometry pair (DumpMapGeometry / MapCamera), an ADDITION by
+        # two: the map / Tracking Station picture instrument and its camera framing.
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 62)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 4)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -18596,6 +18598,154 @@ class PickUpFlagSourceSyncTests(unittest.TestCase):
         self.assertEqual(1, len(errs), errs)
         self.assertIn("driver.steps[4]", errs[0])
         self.assertIn("silently ignored", errs[0])
+
+
+class MapGeometrySeamVerbSourceSyncTests(unittest.TestCase):
+    """The map-geometry pair (`DumpMapGeometry` + `MapCamera`,
+    docs/dev/design-map-geometry-dump.md). Reads OUTSIDE harness/: the verbs, arg keys,
+    ranges and the REJECTED / ERROR reasons (IN ORDER) of the comment-stripped
+    TestCommands/TestCommandDumpMapGeometry.cs and TestCommandMapCamera.cs, so the
+    pre-launch validators, the refusal subkinds and a spec's pinned reasons cannot drift
+    from the seam."""
+
+    def _source(self, *parts):
+        path = os.path.join(PARSEK_SOURCE_DIR, *parts)
+        self.assertTrue(os.path.isfile(path),
+                        "the C# map-geometry tables moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            return chr(10).join(strip_cs_line_comment(l) for l in fh.read().splitlines())
+
+    def test_dump_map_geometry_mirrors_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandDumpMapGeometry.cs")
+        self.assertIn('internal const string DumpSuffix = "%s";' % hlib.DUMPMAPGEOMETRY_SUFFIX,
+                      text)
+        self.assertEqual(list(hlib.DUMPMAPGEOMETRY_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "Reasons"))
+        self.assertEqual(list(hlib.DUMPMAPGEOMETRY_ERROR_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "ErrorReasons"))
+        for reason in hlib.DUMPMAPGEOMETRY_ERROR_REASONS:
+            self.assertNotIn(reason, hlib._SEAM_REFUSAL_SUBKINDS, reason)
+            self.assertNotIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS, reason)
+        # The label tokens are CaptureScreenshot's: deterministic, unmapped like theirs.
+        for reason in ("label-arg-missing", "label-arg-invalid"):
+            self.assertIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+        for reason in ("map-view-closed", "not-in-map-scene"):
+            self.assertEqual("driver-gate", hlib._SEAM_REFUSAL_SUBKINDS.get(reason), reason)
+            self.assertNotIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS)
+
+    def test_map_camera_mirrors_the_c_sharp(self):
+        text = self._source("TestCommands", "TestCommandMapCamera.cs")
+        self.assertIn('internal const string Verb = "%s";' % hlib.MAPCAMERA_VERB, text)
+        for const, key in (("FocusKey", hlib.MAPCAMERA_FOCUS_KEY),
+                           ("PitchKey", hlib.MAPCAMERA_PITCH_KEY),
+                           ("HeadingKey", hlib.MAPCAMERA_HEADING_KEY),
+                           ("DistanceKey", hlib.MAPCAMERA_DISTANCE_KEY)):
+            self.assertIn('internal const string %s = "%s";' % (const, key), text)
+        for const, value in (("MinPitchDeg", hlib.MAPCAMERA_PITCH_RANGE[0]),
+                             ("MaxPitchDeg", hlib.MAPCAMERA_PITCH_RANGE[1]),
+                             ("MinHeadingDeg", hlib.MAPCAMERA_HEADING_RANGE[0]),
+                             ("MaxHeadingDeg", hlib.MAPCAMERA_HEADING_RANGE[1]),
+                             ("MaxDistanceMetres", hlib.MAPCAMERA_MAX_DISTANCE_METRES)):
+            m = re.search(r"internal const double %s = ([-0-9.e]+);" % const, text)
+            self.assertIsNotNone(m, const)
+            self.assertEqual(value, float(m.group(1)), const)
+        self.assertEqual(list(hlib.MAPCAMERA_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "Reasons"))
+        self.assertEqual(list(hlib.MAPCAMERA_ERROR_REASONS),
+                         StockScreenSourceSyncTests._cs_string_array(text, "ErrorReasons"))
+        for reason in hlib.MAPCAMERA_REASONS:
+            self.assertIn(hlib._SEAM_REFUSAL_SUBKINDS.get(reason), ("driver-arg", "driver-gate"),
+                          reason)
+        # Spec-text arg refusals are deterministic; the body lookup and the scene gates
+        # read the live game and are not.
+        for reason in hlib.MAPCAMERA_REASONS:
+            spec_text = reason.endswith(("-arg-missing", "-invalid", "-out-of-range"))
+            self.assertEqual(spec_text, reason in hlib.DETERMINISTIC_SEAM_ERROR_REASONS, reason)
+        for reason in hlib.MAPCAMERA_ERROR_REASONS:
+            self.assertNotIn(reason, hlib._SEAM_REFUSAL_SUBKINDS, reason)
+            self.assertNotIn(reason, hlib.DETERMINISTIC_SEAM_ERROR_REASONS, reason)
+
+    def test_the_dispatcher_gates_both_on_a_map_scene(self):
+        text = self._source("TestCommands", "TestCommandDispatcher.cs")
+        self.assertIn('internal const string NotInMapSceneReason = "not-in-map-scene";', text)
+        for verb in (hlib.DUMPMAPGEOMETRY_VERB, hlib.MAPCAMERA_VERB):
+            self.assertIn('["%s"] = VerbSceneRequirement.RequiresMapScene,' % verb, text)
+
+    def test_both_are_registered_on_every_axis(self):
+        for verb in (hlib.DUMPMAPGEOMETRY_VERB, hlib.MAPCAMERA_VERB):
+            with self.subTest(verb=verb):
+                self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+                self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+                self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
+                self.assertEqual(60.0, hlib.dispatch_deferral_budget(verb))
+                self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING,
+                                 hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+                self.assertFalse(hlib.post_mission_step_gates(verb))
+        # The dump writes one json and persists nothing (DumpGuiTree's row); the camera
+        # verb moves the live map camera (EnterMapView's row).
+        self.assertEqual(hlib.TAIL_ROLE_INERT,
+                         hlib.SEAM_VERB_TAIL_ROLE[hlib.DUMPMAPGEOMETRY_VERB])
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING,
+                         hlib.SEAM_VERB_TAIL_ROLE[hlib.MAPCAMERA_VERB])
+        self.assertIn(hlib.DUMPMAPGEOMETRY_SUFFIX, hlib.ARTIFACT_SHOTS_SUFFIXES)
+
+    def test_the_dump_step_validator(self):
+        v = hlib.validate_dump_map_geometry_step
+        self.assertEqual([], v(0, {"label": "ts-kerbin"}))
+        errs = v(2, {})
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("DumpMapGeometry REQUIRES it", errs[0])
+        self.assertIn("label-arg-missing", errs[0])
+        errs = v(2, {"label": "a b"})
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("label-arg-invalid", errs[0])
+        errs = v(3, {"label": "x", "superSize": "2"})
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("silently ignored", errs[0])
+
+    def test_the_camera_step_validator(self):
+        v = hlib.validate_map_camera_step
+        self.assertEqual([], v(0, {"focus": "Kerbin"}))
+        self.assertEqual([], v(0, {"focus": "Mun", "pitch": "90", "heading": "-360",
+                                   "distance": "1e13"}))
+        self.assertEqual([], v(0, {"focus": "Mun", "pitch": "${p.pitch}"}))
+        cases = (
+            ({}, "mapcamera-focus-arg-missing"),
+            ({"focus": "  "}, "mapcamera-focus-arg-missing"),
+            ({"focus": "Kerbin", "pitch": "90.5"}, "mapcamera-pitch-out-of-range"),
+            ({"focus": "Kerbin", "pitch": "abc"}, "mapcamera-pitch-invalid"),
+            ({"focus": "Kerbin", "pitch": "nan"}, "mapcamera-pitch-invalid"),
+            ({"focus": "Kerbin", "heading": "361"}, "mapcamera-heading-out-of-range"),
+            ({"focus": "Kerbin", "distance": "0"}, "mapcamera-distance-out-of-range"),
+            ({"focus": "Kerbin", "distance": "1.1e13"}, "mapcamera-distance-out-of-range"),
+            ({"focus": "Kerbin", "distance": "inf"}, "mapcamera-distance-invalid"),
+            ({"focus": "Kerbin", "distance": True}, "mapcamera-distance-invalid"),
+            ({"focus": "Kerbin", "zoom": "1"}, "silently ignored"),
+        )
+        for args, needle in cases:
+            with self.subTest(args=args):
+                errs = v(1, args)
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn(needle, errs[0])
+
+    def test_validate_spec_lets_map_camera_read_focus(self):
+        """`focus=` is UiAction's closed-value row (op=pointer, true/false); MapCamera
+        reads its own `focus=` (a body name), so the flat table must not claim it."""
+        spec = load_spec("L1-research-node-science.toml")
+        steps = spec["driver"]["steps"]
+        steps.insert(1, {"cmd": "MapCamera", "expect": "OK",
+                         "args": {"focus": "Kerbin", "pitch": "80"}})
+        steps.insert(2, {"cmd": "DumpMapGeometry", "expect": "OK",
+                         "args": {"label": "fl-kerbin"}})
+        self.assertEqual((), tuple(hlib.validate_spec(spec, load_registry()).errors))
+        steps[1]["args"]["pitch"] = "95"
+        errors = hlib.validate_spec(spec, load_registry()).errors
+        self.assertEqual(1, len(errors), errors)
+        self.assertIn("mapcamera-pitch-out-of-range", errors[0])
+        # A UiAction step still owns the row.
+        steps[1] = {"cmd": "MissionMark", "args": {"label": "x", "focus": "true"}}
+        errors = hlib.validate_spec(spec, load_registry()).errors
+        self.assertTrue(any("only the UiAction verb reads it" in e for e in errors), errors)
 
 
 class NewGameSourceSyncTests(unittest.TestCase):

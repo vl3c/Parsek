@@ -3425,10 +3425,12 @@ class RealTreeSmokeTests(unittest.TestCase):
         # PR12 L's TreeCommitService with its two partial files three more),
         # file-placement PR 8's LiveVesselSnapshot one more, and PR 10's eight
         # VesselSpawner.<Area>.cs partial files eight more; PR 8's follow-up
-        # FlightRecorder.LiveSnapshot.cs matches a family prefix and adds none);
+        # FlightRecorder.LiveSnapshot.cs matches a family prefix and adds none;
+        # the map-geometry dump's MapGeometryJson.cs and MapGeometryRecorder.cs,
+        # placed in TestCommands by an explicit rule, two more);
         # 8 after, the kernel list as it stands today (9 until
         # file-placement PR 9 placed VesselSpawner.cs in Controllers).
-        self.assertIn("| Core | 213 | 8 |", fresh)
+        self.assertIn("| Core | 215 | 8 |", fresh)
 
     def test_atlas_prose_matches_the_tree(self):
         prose = archview.load_prose(archview.DEFAULT_ATLAS)

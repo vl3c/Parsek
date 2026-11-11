@@ -658,6 +658,17 @@ the updates below record how each verb arrived.
 > `FlagPickUpCapturePatch` records the `FlagPickedUp` event as for a player. Full contract below
 > (`#### PickUpFlag`); lane `FLG-1-pickup-rewind`.
 
+> Update (DumpMapGeometry / MapCamera, 2026-11-11): two ADDITIVE verbs, taking the table to **62
+> implemented / 4 reserved**, the map and Tracking Station picture instrument
+> (`docs/dev/design-map-geometry-dump.md`). `DumpMapGeometry label=` writes
+> `Screenshots/<label>.map.json`, the geometry the map DREW in one frame (every ghost orbit line,
+> polyline leg, forward arc and route leg as body-relative world-space vertices, every body and
+> the camera), the structural twin of a `CaptureScreenshot` PNG under the same label.
+> `MapCamera focus= [pitch=] [heading=] [distance=]` frames the stock map camera on a body so a
+> picture is reproducible. A new dispatcher scene class, `RequiresMapScene` (FLIGHT or
+> TRACKSTATION; defer token `not-in-map-scene`). Full contracts below (`#### DumpMapGeometry`,
+> `#### MapCamera`); no lane wired yet.
+
 > Update (NewGame, 2026-10-25): one ADDITIVE verb, taking the table to **59 implemented / 4
 > reserved**, so stage CS-0 of the scripted campaign program can start from a genuine stock New
 > Game. `NewGame mode=SCIENCE_SANDBOX|CAREER|SANDBOX preset=Easy|Normal|Moderate|Hard save=` quits
@@ -5388,6 +5399,78 @@ scene settled: `pickupflag complete kerbal='..' flag='..' flagPid= fires=`, payl
 kerbal dist fires`. ERROR `pickupflag-threw`, `pickupflag-flag-lost` (the flag went before any
 press) or `pickupflag-timeout`. Pure half `TestCommandPickUpFlag`, applier
 `ParsekTestCommandAddon.PickUpFlag.cs`, mirrored by `PickUpFlagSourceSyncTests`.
+
+#### DumpMapGeometry (additive; the map's drawn geometry, one frame, to a json)
+
+**Why.** A map or Tracking Station screenshot shows WHERE a ghost line went wrong but not WHICH
+line it is, which body frame it was drawn in or which vertices stock received; the
+`mapRenderTracing` tiers log decisions, not the drawn picture. This verb writes the picture as
+data. Full contract (schema `parsek-map-geometry/1`, every field's source, caps, decimation, axes):
+`docs/dev/design-map-geometry-dump.md`.
+
+**Grammar.** `cmd=DumpMapGeometry label=<label>`. `label` is REQUIRED and filename-safe,
+`CaptureScreenshot`'s rule by delegation (`label-arg-missing`, `label-arg-invalid`), so a PNG and
+its geometry pair under one label. No other arg (the pre-launch validator rejects any other key).
+
+**Behavior.** Dispatcher class `RequiresMapScene`: FLIGHT or TRACKSTATION executes, every other
+scene DEFERS `not-in-map-scene`. REJECTED (nothing armed): the two label tokens,
+`map-view-closed` (FLIGHT with the map closed: an `EnterMapView` step first) and
+`not-in-map-scene` (the applier's belt for a scene that changed under the dispatch). On admission
+the applier arms the marker-position tap (`MapMarkerRenderer.SetDrawnMarkerTapArmed`,
+observation-only, cleared when the capture ends) and starts a coroutine that waits for a LATER
+frame and then `WaitForEndOfFrame`, so stock's orbit lines (LateUpdate), Parsek's polylines
+(OnPreCull) and the markers (OnGUI) of that one frame are all drawn before it reads them. The
+capture writes `<KSP root>/Screenshots/<label>.map.json` through `FileIOUtils.SafeWriteBytes`.
+
+**Phases.** TWO-PHASE, default 60 s budget, `inert` tail role (and `NonMutatingVerbs`, so
+FlushAndQuit does not save again after it), `recording` post-mission role. OK
+`label= path=Screenshots/<label>.map.json scene=FLIGHT|TRACKSTATION bytes= frame= ghosts= lines=
+points= truncated=`, logged `dumpmapgeometry ok ...` (plus a WARN `dumpmapgeometry truncated ...`
+naming every dropped total when a cap fired). ERROR `map-geometry-capture-failed reason=<token>`
+(`scene-changed`, `map-view-closed` or `threw-<ExceptionType>`) or `map-geometry-timeout`. Pure
+half `TestCommandDumpMapGeometry`, applier `ParsekTestCommandAddon.DumpMapGeometry.cs`, recorder
+`MapGeometryRecorder` + pure writer `MapGeometryJson`; mirrored by
+`MapGeometrySeamVerbSourceSyncTests`, harvested by `ARTIFACT_SHOTS_SUFFIXES` (`.map.json`).
+
+#### MapCamera (additive; frame the stock map camera on a body)
+
+**Why.** A map picture is only comparable across runs when the camera is in the same place; the
+player's last framing (or stock's default) is not.
+
+**Stock ground truth (decompiled `PlanetariumCamera`, KSP 1.12.5).** `camPitch` / `camHdg` are
+radians. `SetDistance(float)` takes SCALED-space units and clamps to `[minDistance, maxDistance]`;
+`LateUpdate` clamps the pitch to `[minPitch, maxPitch]`, keeps the camera at least two radii from
+the target body (`minRadiusDistance`), and lerps the distance and SmoothDamps the pivot over
+several frames. `SetTarget(MapObject)` acts only in FLIGHT or TRACKSTATION; the string / index
+overloads fall back to the ACTIVE VESSEL on an unknown name, so the applier targets
+`body.MapObject` directly and reads `cam.target` back.
+
+**Grammar.** `cmd=MapCamera focus=<body> [pitch=<deg>] [heading=<deg>] [distance=<metres>]`.
+`focus` is REQUIRED: a `FlightGlobals.Bodies` name, exact match first, else the single
+case-insensitive match. `pitch` in [-90, 90] (90 = looking straight down, 0 = edge-on),
+`heading` in [-360, 360], `distance` in (0, 1e13] metres from the body's centre; each optional
+(absent keeps the camera's current value), invariant-culture, finite. The first failing arg in
+the order focus, pitch, heading, distance decides the refusal.
+
+**Behavior.** Dispatcher class `RequiresMapScene` (as `DumpMapGeometry`). REJECTED (nothing
+moved): `mapcamera-focus-arg-missing`, `mapcamera-unknown-body`, `mapcamera-pitch-invalid`,
+`mapcamera-pitch-out-of-range`, `mapcamera-heading-invalid`, `mapcamera-heading-out-of-range`,
+`mapcamera-distance-invalid`, `mapcamera-distance-out-of-range`, `map-view-closed`,
+`not-in-map-scene`. ERROR at apply: `mapcamera-no-camera` (no `PlanetariumCamera.fetch`),
+`mapcamera-focus-not-targetable` (no `MapObject`), `mapcamera-focus-not-applied` (stock did not
+take the target). The applier then sets `camPitch` / `camHdg` (radians) and `SetDistance(metres /
+ScaledSpace.ScaleFactor)`.
+
+**Phases.** TWO-PHASE, default 60 s budget, `world-mutating` tail role (it moves the live map
+camera; `EnterMapView`'s reasoning), `recording` post-mission role. Each poll measures the
+camera-to-target scaled distance; settled once at least one LateUpdate ran and that distance is
+within 0.1 % of the distance stock holds, or it has stayed still for 3 frames (stock's clamp may
+hold it away from the request). OK `focus= pitch= heading= distance= pitchClamped=
+distanceClamped= frames=` with the values stock HOLDS after its clamps (degrees, metres) and
+whether each differs from the request; logged `mapcamera ok ...` with stock's `minPitch` /
+`maxPitch`. ERROR `mapcamera-scene-lost` (the map closed or the scene left) or
+`mapcamera-not-settled`. Pure half `TestCommandMapCamera`, applier
+`ParsekTestCommandAddon.MapCamera.cs`, mirrored by `MapGeometrySeamVerbSourceSyncTests`.
 
 ### Addon lifecycle
 

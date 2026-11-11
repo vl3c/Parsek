@@ -1027,6 +1027,10 @@ namespace Parsek
             // Behind camera
             if (screenPos.z < 0) return;
 
+            // Map-geometry dump tap (automation-only, off by default): the map-view draw only.
+            if (MapMarkerRenderer.IsDrawnMarkerTapArmed && MapView.MapIsEnabled)
+                MapMarkerRenderer.NoteDrawnMarker(markerKey, worldPos);
+
             MapMarkerRenderer.DrawMarkerAtScreen(
                 new Vector2(screenPos.x, screenPos.y), markerKey, label, color, vtype);
         }

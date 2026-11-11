@@ -86,6 +86,9 @@ namespace Parsek.Tests
         [InlineData("RecordingState", false)]
         [InlineData("ExportRenderManifest", false)]
         [InlineData("FlushAndQuit", false)]
+        // DumpMapGeometry writes one json and nothing else; MapCamera moves the live map camera.
+        [InlineData("DumpMapGeometry", false)]
+        [InlineData("MapCamera", true)]
         public void IsStateMutatingVerb_ClassifiesTheSeamVerbs(string verb, bool expected)
         {
             Assert.Equal(expected, TestCommandVerbs.IsStateMutatingVerb(verb));
