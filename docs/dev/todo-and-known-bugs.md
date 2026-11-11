@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~WARP-REQUEST-SURVIVES-A-FAILED-REWIND: a Warp to time request stays armed after its rewind fails to launch, and the next Space Center load jumps forward~~ [FILED 2026-11-11 from the static lifetimes gate (coldLoadMisses, the nine `WarpToTimeRequest` fields), by code reading. FIXED 2026-11-11, branch `warp-request-clear`; xUnit (headless, the real `InitiateRewind` failure paths included) + the static lifetimes gate (coldLoadMisses 9 -> 0); not flown (no committed lane drives Warp to time through a rewind); low]
+## ~~WARP-REQUEST-SURVIVES-A-FAILED-REWIND: a Warp to time request stays armed after its rewind fails to launch, and the next Space Center load jumps forward~~ [FILED 2026-11-11 from the static lifetimes gate (coldLoadMisses, the nine `WarpToTimeRequest` fields), by code reading. FIXED 2026-11-11, branch `claude/project-thread-lkzj01`; xUnit (headless, the real `InitiateRewind` failure paths included) + the static lifetimes gate (coldLoadMisses 9 -> 0); not flown (no committed lane drives Warp to time through a rewind); low]
 
 The chain, read in the source (line numbers as of the static lifetimes branch):
 

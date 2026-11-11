@@ -523,8 +523,9 @@ and deferred-warp fields, tagged `load-transition` from their own doc comment,
 which no load clears: todo WARP-REQUEST-SURVIVES-A-FAILED-REWIND), the other
 three 0. Re-pinned the same day after that fix (the Cold reset now drops both
 requests, and `WarpToTimeRequest` joined the C# reset gate): coldLoadMisses 0,
-the closure 5,473 of 17,267 production methods, the other counts unchanged. A static named `*ForTesting` that production code of its own type
-writes as real state (a cached probe, an input-lock mirror, instrumentation
+the closure 5,473 of 17,267 production methods, the other counts unchanged.
+A static named `*ForTesting` that production code of its own type writes as
+real state (a cached probe, an input-lock mirror, instrumentation
 counters) has a field entry tagged by what those writers do; the pattern
 would call it a test hook, and testHookWrittenByProduction only looks at other
 types.
