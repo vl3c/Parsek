@@ -319,6 +319,45 @@ type whose source file maps to a non-tooling module.
   virtual member credits its implementations), and the methods with 30 or
   more decisions (folded) no test calls. Not coverage. It needs the test DLL's
   facts, which CI does not parse (about a minute: 19 s `ikdasm`, 31 s parse).
+  Per production method it also counts the distinct methods of the test
+  assembly that call it directly (`testCallers`; a test method calling it
+  twice is one, and a call on a slot counts for the slot and each
+  implementation and override, as above), and which production types have at
+  least one method a test calls directly.
+
+  **Where a test is worth most** ranks the production methods with a decision
+  (folded) by one score, report only (test reach moves with every test, so
+  nothing gates it):
+
+  `score = decisions x 2 (when no test method calls the method directly, else
+  x 1) x (1 + min(commits, 20) / 20)`
+
+  where `commits` is the commits of the method's type's busiest source file in
+  the Atlas history window (18 months, the history's sweep rule: a commit
+  touching more than 40 source files is left out). Each factor is monotone:
+  more decisions or more commits never lower the score, a direct test caller
+  never raises it. The IL does not say which file of a partial type a method
+  sits in, so a type spanning several files takes the max of its files'
+  counts (not the sum: one commit editing two parts is one change); a nested
+  type takes its own declaring file, and a type the source scan does not
+  declare its nearest declared enclosing type's (`ilfacts.files_for`, the
+  scan that places types in modules; a real-tree cell holds that every
+  production type finds a file). The cap of 20 is the 90th percentile of
+  per-file commits in the window at 2026-11-11, so the churn factor separates
+  the busiest tenth of the files from the rest and no further. The table
+  prints every input as a column (method, module, decisions, direct test
+  callers, file commits, whether a test reaches the type, the type's line
+  coverage from the snapshot below, blank without one), so a ranking the
+  owner disagrees with can be read off it. Churn follows files, not code: a
+  method moved into a file a recent split created (`ParsekFlightSplitBrancher.cs`
+  has 3 commits in the window, `ParsekFlight.cs` 1,305) starts from that
+  file's short history. The Atlas shows the top 25,
+  `ilanalysis.py --tests` the top 10 (`--no-history` leaves the commits
+  column blank, read as 0). At 12b559f64 (2026-11-11, Debug): 12,349
+  candidates over 6,205 commits since 2025-05-01; the top three are
+  `Logistics.RouteAnalysisEngine::AnalyzeWindows` (141 decisions, no direct
+  test caller, 29 commits), `EngineFxBuilder::TryBuildEngineFX` (140, none,
+  37) and `ParsekScenario::OnLoad` (107, none, 558).
 
 ```bash
 python3 scripts/arch/ilanalysis.py Source/Parsek/bin/Debug/Parsek.dll
@@ -337,6 +376,50 @@ test calls either (7,611 instructions), 709 a test calls (257 hooks by name);
 84 methods with 30+ decisions no unit test calls. The rules alone kept 1,263
 live methods (Harmony 310, `.cctor` 279, dispatch 272, strings 112, delegates
 88 ...).
+
+### Coverage snapshot
+
+Test reach says which methods a test calls; it cannot say which lines ran.
+Real line coverage comes from a unit-test run with coverlet, which only the
+owner's Windows machine makes (the cloud and CI run the suite under mono with
+no coverlet), so a run is folded into a small committed file,
+`scripts/arch/coverage_snapshot.json` (schema `parsek-coverage/1`), that the
+Atlas and the metrics row read. Refresh it after a Debug build:
+
+```bash
+pwsh -File scripts/test-coverage.ps1        # Windows: writes TestResults/Coverage/coverage.cobertura.xml
+python scripts/arch/coverage.py TestResults/Coverage/coverage.cobertura.xml \
+    --write-snapshot --commit <sha the run measured> --date <YYYY-MM-DD>
+git add scripts/arch/coverage_snapshot.json  # and commit it
+```
+
+`scripts/arch/coverage.py` (stdlib only, runs on Windows) streams the
+Cobertura file (`iterparse`, each class cleared once counted; coverlet's file
+for this assembly is about 80 MB), reads only the `Parsek` package, and
+counts lines itself (`hits` > 0) rather than trusting the rounded per-class
+rates. It folds compiler-generated classes (`<>c`, `<>c__DisplayClassN_M`,
+the iterator and async state machines `<Name>d__N`, with a `/`, `+` or `.`
+separator) into their source type, as `ilfacts` folds generated code, sums
+the class elements of a partial type (one per file), and counts a line once
+per type (by file and number). It is tolerant: unknown elements and
+attributes are ignored, an unreadable line is skipped, and missing branch
+data makes the type's branches unknown (null), not 0. Its summary prints the
+class elements' sums as written beside the file's root totals and the
+difference, never a failure. The snapshot holds the commit and date given on
+the command line, the configuration, and per type lines and branches valid /
+covered, with sorted keys and one type per line so a refresh diffs cleanly.
+Every cell runs on a hand-written fixture in coverlet's shape
+(`scripts/arch/fixtures/coverage_sample.cobertura.xml`, `test_coverage.py`).
+
+With a snapshot, "Code facts" shows a per-module table (lines covered /
+valid, line and branch share, production types only) headed "measured at
+<commit>, <date>", always older than the page, fills the risk table's type
+coverage column, and counts staleness in one line: types with code in the
+analysed DLL that the snapshot does not list (new since, or code coverlet does
+not instrument) and snapshot types the DLL lacks (renamed or deleted since).
+Staleness never reds. Without a snapshot everything says "not measured".
+`archview.py` and `ilanalysis.py` read the default path, `--coverage PATH`
+overrides it; `metrics.py` reads the default path.
 
 ### The ratchets
 
@@ -894,9 +977,12 @@ later. It gates nothing: no check reads it, and no row can fail a PR.
   the declared-layer numbers the layer ratchet reads), `facts` (the code facts:
   the three ratchet sets' sizes, the static-state totals, complexity at 20 /
   50 / 100, game coupling overall and per module, unreached methods and their
-  instructions, test reach per module, `lifetimes`, the static-lifetime
-  counts of "Static lifetimes", and `headless`, the leak counts of "Headless
-  modules", both additive keys) and `sizes` (`scripts/count-code.py`:
+  instructions, test reach per module (with `types`, the production types
+  and those a test reaches directly), `lifetimes`, the static-lifetime
+  counts of "Static lifetimes", `headless`, the leak counts of "Headless
+  modules", and `coverage`, the committed coverage snapshot's commit, date,
+  line share and line share per module (null without a snapshot; the
+  snapshot's commit and date, not the row's), all additive keys) and `sizes` (`scripts/count-code.py`:
   lines per area and the test totals). Nothing is measured by new logic: the
   row is those tools' own output, built in one process so `Parsek.dll` is
   disassembled and parsed once. Without a DLL the `semantic` and `facts`

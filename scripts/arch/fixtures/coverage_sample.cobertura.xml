@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A hand-written Cobertura file in the shape coverlet.msbuild 6.0.4 writes
+     (class elements per source file, nested names with a slash and escaped angle
+     brackets, filename relative to the source root), read by test_coverage.py.
+     Every class is there to hold one rule of coverage.py's reader; the expected
+     totals per type are in that test file. The root totals count the readable
+     line elements of the Parsek package as written, before folding. -->
+<coverage line-rate="0.6666" branch-rate="0.5" version="1.9" timestamp="1794439549" lines-covered="12" lines-valid="18" branches-covered="3" branches-valid="6">
+  <sources>
+    <source>C:\Parsek\Source\Parsek\</source>
+  </sources>
+  <packages>
+    <package name="Parsek" line-rate="0.6" branch-rate="0.5" complexity="12">
+      <classes>
+        <!-- A source type with its own <lines> list (which repeats the method lines). -->
+        <class name="Parsek.Alpha" filename="Alpha.cs" line-rate="0.6667" branch-rate="0.5" complexity="3">
+          <methods>
+            <method name="Run" signature="(System.Int32)" line-rate="0.6667" branch-rate="0.5" complexity="3">
+              <lines>
+                <line number="10" hits="4" branch="False" />
+                <line number="11" hits="4" branch="True" condition-coverage="50% (1/2)">
+                  <conditions>
+                    <condition number="7" type="jump" coverage="50%" />
+                  </conditions>
+                </line>
+                <line number="12" hits="0" branch="False" />
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="10" hits="4" branch="False" />
+            <line number="11" hits="4" branch="True" condition-coverage="50% (1/2)" />
+            <line number="12" hits="0" branch="False" />
+          </lines>
+        </class>
+        <!-- A lambda cache (Cecil's / separator): folds into Alpha. -->
+        <class name="Parsek.Alpha/&lt;&gt;c" filename="Alpha.cs" line-rate="0.5" branch-rate="1" complexity="1">
+          <methods />
+          <lines>
+            <line number="20" hits="1" branch="False" />
+            <line number="21" hits="0" branch="False" />
+          </lines>
+        </class>
+        <!-- An iterator state machine with method lines only: folds into Alpha. -->
+        <class name="Parsek.Alpha/&lt;Walk&gt;d__3" filename="Alpha.cs" line-rate="1" branch-rate="1" complexity="2">
+          <methods>
+            <method name="MoveNext" signature="()" line-rate="1" branch-rate="1" complexity="2">
+              <lines>
+                <line number="30" hits="2" branch="True" condition-coverage="100% (2/2)" />
+              </lines>
+            </method>
+          </methods>
+        </class>
+        <!-- A closure printed with the reflection + separator; it lists line 10 again. -->
+        <class name="Parsek.Alpha+&lt;&gt;c__DisplayClass2_0" filename="Alpha.cs" line-rate="1" branch-rate="1" complexity="1">
+          <lines>
+            <line number="10" hits="9" branch="False" />
+            <line number="40" hits="1" branch="False" />
+          </lines>
+        </class>
+        <!-- A partial type in two files: two class elements, one source type. -->
+        <class name="Parsek.Beta" filename="Beta.cs" line-rate="1" branch-rate="1" complexity="1">
+          <lines>
+            <line number="5" hits="1" branch="False" />
+          </lines>
+        </class>
+        <class name="Parsek.Beta" filename="Beta.Part.cs" line-rate="0" branch-rate="0" complexity="2">
+          <lines>
+            <line number="5" hits="0" branch="True" condition-coverage="0% (0/2)" />
+            <line number="6" hits="0" branch="False" />
+          </lines>
+        </class>
+        <!-- A nested source type stays its own type; its async state machine (dotted separator) folds into it. -->
+        <class name="Parsek.Beta/Inner" filename="Beta.cs" line-rate="1" branch-rate="1" complexity="1">
+          <lines>
+            <line number="50" hits="3" branch="False" />
+          </lines>
+        </class>
+        <class name="Parsek.Beta/Inner.&lt;LoadAsync&gt;d__1" filename="Beta.cs" line-rate="0" branch-rate="1" complexity="1">
+          <lines>
+            <line number="55" hits="0" branch="False" />
+          </lines>
+        </class>
+        <!-- No branch attribute anywhere: the branches are unknown, not 0. Unknown
+             attributes and elements are ignored, an unreadable line is skipped. -->
+        <class name="Parsek.Gamma" filename="Gamma.cs" line-rate="0.5" complexity="1" future-attribute="x">
+          <extension kind="unknown" />
+          <lines>
+            <line number="1" hits="1" />
+            <line number="2" hits="0" />
+            <line number="3" hits="lots" />
+            <line hits="5" />
+          </lines>
+        </class>
+        <!-- A branch line with no readable condition-coverage: branches unknown. -->
+        <class name="Parsek.Delta`1" filename="Delta.cs" line-rate="1" branch-rate="0" complexity="2">
+          <lines>
+            <line number="7" hits="1" branch="True" />
+            <line number="8" hits="1" branch="False" />
+          </lines>
+        </class>
+        <!-- No source owner: dropped. -->
+        <class name="&lt;PrivateImplementationDetails&gt;" filename="" line-rate="1" branch-rate="1" complexity="1">
+          <lines>
+            <line number="1" hits="1" branch="False" />
+          </lines>
+        </class>
+      </classes>
+    </package>
+    <!-- The test assembly: never read. -->
+    <package name="Parsek.Tests" line-rate="1" branch-rate="1" complexity="1">
+      <classes>
+        <class name="Parsek.Tests.AlphaTests" filename="AlphaTests.cs" line-rate="1" branch-rate="1" complexity="1">
+          <lines>
+            <line number="3" hits="1" branch="False" />
+          </lines>
+        </class>
+      </classes>
+    </package>
+  </packages>
+</coverage>

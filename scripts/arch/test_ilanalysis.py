@@ -500,6 +500,112 @@ class TestReachTests(unittest.TestCase):
         self.assertEqual([r["key"] for r in reach["untestedComplex"]], ["Parsek.Hard::Tangle(bool)"])
         self.assertEqual(reach["unmatchedTestCalls"], [])
 
+    def test_direct_test_callers_are_counted_per_test_method(self):
+        abstract = "public hidebysig newslot abstract virtual instance"
+        il = (cls("Parsek.IJob", meth("Do", (), flags=abstract), flags="public abstract auto ansi interface")
+              + cls("Parsek.Job", meth("Do", flags="public hidebysig newslot virtual final instance"),
+                    implements=["Parsek.IJob"])
+              + cls("Parsek.Other", meth("Do", flags="public hidebysig newslot virtual final instance"),
+                    implements=["Parsek.IJob"])
+              + cls("Parsek.Calc", meth("Add"), meth("Unused"))
+              + cls("Parsek.Idle", meth("Never")))
+        job = "callvirt   instance void [Parsek]Parsek.IJob::Do()"
+        add = "call       void [Parsek]Parsek.Calc::Add()"
+        tests_il = cls("Parsek.Tests.T",
+                       # Calls Add twice: one test method, one caller.
+                       meth("One", [add, add, "ret"]),
+                       meth("Two", [add, "ldnull", job, "ret"]),
+                       # A call on the concrete type credits only that implementation.
+                       meth("Three", ["ldnull", "callvirt   instance void [Parsek]Parsek.Job::Do()", "ret"]))
+        reach = analyse(il, tests_il)["testReach"]
+        self.assertEqual(reach["testCallers"], {
+            "Parsek.Calc::Add()": 2,
+            # The interface call credits the slot and both implementations.
+            "Parsek.IJob::Do()": 1, "Parsek.Other::Do()": 1, "Parsek.Job::Do()": 2,
+        })
+        self.assertEqual(reach["types"], {"production": 5, "reached": 4})
+        # The yes / no reach is what it was: the count's keys.
+        self.assertEqual(reach["byModule"]["Core"]["reachedMethods"], 4)
+
+    def test_the_score_is_monotone_in_each_input(self):
+        score = ilanalysis.risk_score
+        self.assertEqual(score(10, 0, 0), 20)
+        self.assertEqual(score(10, 1, 0), 10)
+        self.assertEqual(score(10, 5, 0), score(10, 1, 0))
+        self.assertEqual(score(10, 1, 10), 15)
+        self.assertEqual(score(10, 0, 20), 40)
+        # Capped: more commits than the cap add nothing more.
+        self.assertEqual(score(10, 0, 500), score(10, 0, ilanalysis.RISK_CHURN_CAP))
+        self.assertEqual(score(10, 0, None), score(10, 0, 0))
+        for decisions in range(0, 40, 7):
+            for commits in range(0, 30, 3):
+                with self.subTest(decisions=decisions, commits=commits):
+                    self.assertLessEqual(score(decisions, 1, commits), score(decisions, 0, commits))
+                    self.assertLessEqual(score(decisions, 0, commits), score(decisions + 1, 0, commits))
+                    self.assertLessEqual(score(decisions, 0, commits), score(decisions, 0, commits + 1))
+
+    def test_the_risk_table_ranks_by_score_and_shows_its_inputs(self):
+        def method(key, decisions):
+            return {"key": key, "module": "Core", "complexity": decisions + 1, "ownComplexity": decisions + 1,
+                    "instructions": 10}
+
+        result = {
+            "complexity": {"methods": [method("P.Big::Tested()", 40), method("P.Mid::Untested()", 25),
+                                       method("P.Hot::Churned()", 18), method("P.Big::Sibling()", 12),
+                                       method("P.Flat::Leaf()", 0)]},
+            "testReach": {"testCallers": {"P.Big::Tested()": 3}},
+            "coverage": {"byType": {"P.Big": 0.75}},
+        }
+        churn = {"since": "2025-05-01", "commits": 300, "typeCommits": {"P.Hot": 40, "P.Big": 2, "P.Mid": 0}}
+        risk = ilanalysis.risk_table(result, churn)
+        # Mid 25 x 2 x 1 = 50; Hot 18 x 2 x 2 = 72; Big::Tested 40 x 1 x 1.1 = 44;
+        # Big::Sibling 12 x 2 x 1.1 = 26.4; a method with no decision is no candidate.
+        self.assertEqual([r["key"] for r in risk["rows"]],
+                         ["P.Hot::Churned()", "P.Mid::Untested()", "P.Big::Tested()", "P.Big::Sibling()"])
+        self.assertEqual([r["score"] for r in risk["rows"]], [72.0, 50.0, 44.0, 26.4])
+        self.assertEqual(risk["candidates"], 4)
+        sibling = risk["rows"][3]
+        self.assertEqual((sibling["testCallers"], sibling["typeReached"], sibling["fileCommits"],
+                          sibling["typeLineShare"]), (0, True, 2, 0.75))
+        self.assertEqual((risk["rows"][0]["typeReached"], risk["rows"][0]["typeLineShare"]), (False, None))
+        self.assertIn("since 2025-05-01", ilanalysis.risk_explanation(risk))
+        # Without history the commits column is blank and the ranking falls back to the rest.
+        bare = ilanalysis.risk_table(result, None, top=2)
+        self.assertEqual([r["key"] for r in bare["rows"]], ["P.Mid::Untested()", "P.Big::Tested()"])
+        self.assertIsNone(bare["rows"][0]["fileCommits"])
+        self.assertIn("no history", ilanalysis.risk_explanation(bare))
+        self.assertIsNone(ilanalysis.risk_table({"testReach": None, "complexity": result["complexity"]}))
+
+    def test_the_report_carries_the_risk_table_and_the_cli_prints_its_top(self):
+        branches = ["ldarg.0", "brtrue.s   IL_0000"] * 3
+        il = cls("Parsek.Hard", meth("Tangle", branches + ["ret"], params="bool a"), meth("Easy"))
+        tests_il = cls("Parsek.Tests.T", meth("Fact", ["call       void [Parsek]Parsek.Hard::Easy()", "ret"]))
+        result = analyse(il, tests_il)
+        rows = result["testReach"]["risk"]["rows"]
+        self.assertEqual([(r["key"], r["decisions"], r["testCallers"]) for r in rows],
+                         [("Parsek.Hard::Tangle(bool)", 3, 0)])
+        text = ilanalysis.format_report(result)
+        self.assertIn("where a test is worth most", text)
+        self.assertIn("Parsek.Hard::Tangle", text)
+        self.assertIn("Where a test is worth most", archview._atlas_code_facts(result))
+
+    def test_type_churn_is_the_busiest_file_of_the_type(self):
+        table = {"Parsek.Flight": ["ParsekFlight.cs", "ParsekFlight.Merge.cs"],
+                 "Parsek.Flight/Inner": ["ParsekFlight.Merge.cs"],
+                 "Parsek.Box": ["Box.cs"]}
+        commits = [{"files": ["ParsekFlight.cs", "ParsekFlight.Merge.cs"]}, {"files": ["ParsekFlight.cs"]},
+                   {"files": ["ParsekFlight.cs"]}, {"files": ["ParsekFlight.Merge.cs", "Box.cs"]}]
+        counts = ilanalysis.file_commit_counts(commits)
+        self.assertEqual(counts, {"ParsekFlight.cs": 3, "ParsekFlight.Merge.cs": 2, "Box.cs": 1})
+        churn = ilanalysis.type_commits(
+            ["Parsek.Flight", "Parsek.Flight/Inner", "Parsek.Flight/Inner/Deeper", "Parsek.Box`1", "Parsek.Lost"],
+            table, counts)
+        # The max over the partial files (3), not the sum (5) nor the union (4);
+        # a nested type undeclared in source takes its nearest declared enclosing
+        # type's files; a generic arity is matched without it; no file, no entry.
+        self.assertEqual(churn, {"Parsek.Flight": 3, "Parsek.Flight/Inner": 2, "Parsek.Flight/Inner/Deeper": 2,
+                                 "Parsek.Box`1": 1})
+
 
 class RatchetTests(unittest.TestCase):
     PINS = {
@@ -647,6 +753,16 @@ class RealTreeRatchetTests(unittest.TestCase):
         for key in sample:
             with self.subTest(key=key):
                 self.assertLessEqual(dead_count(without(facts, key), tooling), before)
+
+    def test_every_production_type_has_source_files_for_its_churn(self):
+        # The risk table's commits column maps a type to its files through the
+        # same scan that places it in a module (cached, so this re-reads nothing).
+        facts, tooling = self.facts
+        index = ilanalysis.Index(facts, tooling)
+        table = ilfacts.source_type_files(test_semantic.REAL_SOURCE)
+        missing = sorted(path for path in facts["types"] if index.production(path)
+                         and not ilfacts.files_for(path, table))
+        self.assertEqual(missing, [])
 
     def test_the_roots_keep_what_the_runtime_calls(self):
         listed = set(self.result["uncalled"]["uncalled"])
