@@ -433,6 +433,21 @@ def _vec(v, where):
     return tuple(_num(c, "%s[%d]" % (where, i)) for i, c in enumerate(v))
 
 
+def proto_icon_faded(drawn, source, lines):
+    """True when a drawn proto icon is invisible because stock faded its orbit line.
+
+    Stock's icon colour takes its alpha from the orbit renderer's `lineOpacity`, the
+    same value the dump writes as the orbit line's `opacity`. A ghost has one proto
+    orbit line; with no orbit line or no opacity key (an older dump) the dump's own
+    `drawn` reading stands.
+    """
+    if not drawn or source != "proto":
+        return False
+    opacities = [ln["opacity"] for ln in lines
+                 if ln["kind"] == "orbit" and ln["opacity"] is not None]
+    return bool(opacities) and all(o == 0.0 for o in opacities)
+
+
 def _points(v, where, required=True):
     if v is None and not required:
         return None
@@ -574,6 +589,12 @@ def validate_dump(obj):
                 "referenceKind": _str(ln.get("referenceKind")),
             })
         ipos = icon.get("pos")
+        icon_drawn = bool(icon.get("drawn"))
+        # Stock tints the proto icon with its orbit line's fade opacity
+        # (OrbitRendererBase.objectNode_OnUpdateIcon: colour alpha = lineOpacity), so an
+        # icon whose orbit line stock faded to 0 is not on screen, whatever the dump's
+        # renderer-enabled reading says. A marker icon is Parsek's own and does not fade.
+        icon_faded = proto_icon_faded(icon_drawn, _str(icon.get("source")), lines)
         md = g.get("markerDecision") if isinstance(g.get("markerDecision"), dict) else None
         if md is not None:
             md = {k: bool(md.get(k)) for k in
@@ -591,7 +612,8 @@ def validate_dump(obj):
             "body": body,
             "bodyKnown": (body in by_name) if body else False,
             "treatmentText": TREATMENTS.get(_str(g.get("treatment")), ""),
-            "icon": {"drawn": bool(icon.get("drawn")),
+            "icon": {"drawn": icon_drawn and not icon_faded,
+                     "faded": icon_faded,
                      "pos": _vec(ipos, w + ".icon.pos") if ipos is not None else None,
                      "source": _str(icon.get("source"))},
             "markerDecision": md,
@@ -1689,7 +1711,7 @@ View.prototype.draw = function(){
     if (!onScreen(q, 10)) return;
     var col = gcol(x.g.colour), k = 6.5;
     var m = x.g.measured.icon;
-    var t = tip(x.g.vesselName + ' icon ' + (x.g.icon.drawn ? '(drawn)' : '(NOT drawn this frame)') +
+    var t = tip(x.g.vesselName + ' icon ' + (x.g.icon.drawn ? '(drawn)' : (x.g.icon.faded ? '(not on screen: stock faded it out with its orbit line)' : '(NOT drawn this frame)')) +
       '\nrelative to ' + x.g.body + (m ? '\nnearest drawn point of its own lines: ' + m.text + ' (line #' + m.line + ')' : ''));
     var dpath = 'M'+f1(q[0])+' '+f1(q[1]-k)+'L'+f1(q[0]+k)+' '+f1(q[1])+'L'+f1(q[0])+' '+f1(q[1]+k)+'L'+f1(q[0]-k)+' '+f1(q[1])+'Z';
     out.push('<path class="hitp" data-t="'+t+'" d="'+dpath+'" style="' + (x.g.icon.drawn ?
@@ -1841,7 +1863,7 @@ function measuredTables(c, host){
       (g.sampleUT != null ? ', sample ut ' + g.sampleUT.toFixed(1) : '') +
       (g.treatment ? ', treatment <span class="tok" title="' + esc(g.treatmentText || 'not a token this page knows') + '">' +
         esc(g.treatment) + '</span>' : '') + ', body now ' + esc(g.body || '-') +
-      ', icon ' + (g.icon.drawn ? 'drawn' : 'not drawn') + (g.icon.source ? ' (' + esc(g.icon.source) + ')' : '') +
+      ', icon ' + (g.icon.drawn ? 'drawn' : (g.icon.faded ? 'not drawn (stock fade)' : 'not drawn')) + (g.icon.source ? ' (' + esc(g.icon.source) + ')' : '') +
       (md ? ', marker decision: draw ' + (md.draw ? 'yes' : 'no') + ', director traced path ' + (md.directorTracedPath ? 'yes' : 'no') +
         ', polyline owning ' + (md.polylineOwning ? 'yes' : 'no') + ', icon suppressed ' + (md.iconSuppressed ? 'yes' : 'no') : '') +
       '</span>';

@@ -55,12 +55,12 @@ id = "TP-5-laythe-vall-map-pictures"
 #     lane replays a committed fixture.
 #   7 tight count windows - the model lane's window, copied; tightened after the first
 #     flight only if it reads otherwise.
-#   8 tier by measured cost / 9 flight_efficiency.py - the first flights (2026-11-11,
-#     before the hold) took 56 to 91 s wall per lane; flight_efficiency.py over them is
+#   8 tier by measured cost / 9 flight_efficiency.py - the first flights (2026-11-11)
+#     took 56 to 91 s wall per lane and 88 to 150 s with the hold; flight_efficiency.py over them is
 #     still owed. The tier is `operator` because the lane is run on request for pictures.
 # =====================================================================================
 tier = "operator"
-description = "PICTURE LANE, AUTHORED 2026-11-11, FIRST FLOWN GREEN 2026-11-11 (run 2026-11-11_2151, before the MapCamera hold; the hold is not flown yet). V17M's looped Laythe->Vall moon-to-moon mission on vall-transfer-recorded, with the flight map opened: at the cycle-1 Jool-frame transfer, cycle-1 Vall arrival, cycle-1 Vall park and cycle-2 arrival it frames the map camera, photographs each view and dumps the same frame's geometry under one label, 12 views in all. Expectations are only that every view was taken and none was refused."
+description = "PICTURE LANE, AUTHORED 2026-11-11, FIRST FLOWN GREEN 2026-11-11 (run 2026-11-11_2151; again with the MapCamera hold, run 2026-11-11_2246). V17M's looped Laythe->Vall moon-to-moon mission on vall-transfer-recorded, with the flight map opened: at the cycle-1 Jool-frame transfer, cycle-1 Vall arrival, cycle-1 Vall park and cycle-2 arrival it frames the map camera, photographs each view and dumps the same frame's geometry under one label, 12 views in all. Expectations are only that every view was taken and none was refused."
 instanceProfile = "stock-minimal"
 tags = ["TP", "TP-5", "map-pictures", "map-geometry", "screenshots", "map-render", "loop-playback", "flown", "vall", "laythe", "jool", "moon-to-moon"]
 

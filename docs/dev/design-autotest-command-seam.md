@@ -668,7 +668,7 @@ the updates below record how each verb arrived.
 > picture is reproducible. A new dispatcher scene class, `RequiresMapScene` (FLIGHT or
 > TRACKSTATION; defer token `not-in-map-scene`). Full contracts below (`#### DumpMapGeometry`,
 > `#### MapCamera`). Wired the same day to the picture lanes TP-1..TP-8, which flew green
-> (85 views). Follow-up (not flown yet): `MapCamera hold=<seconds>` holds the head after the
+> (85 views). Follow-up (flown green the same day, runs `2026-11-11_2236` .. `_2250`): `MapCamera hold=<seconds>` holds the head after the
 > settle so stock's orbit-line fade finishes before the picture, and an orbit line in the dump is
 > drawn only at stock fade opacity above 0 (additive `opacity` / `drawMode` keys).
 

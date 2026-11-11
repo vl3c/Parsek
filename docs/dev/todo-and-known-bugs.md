@@ -20,7 +20,61 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## MAP-PICTURE-LANES-FIRST-FLIGHT: the eight map picture lanes TP-1..TP-8 flew green; their dumps wrote orbit lines stock had faded out [FILED 2026-11-11 with the lanes, branch `claude/project-thread-zfo2hk`; FIRST FLOWN GREEN 2026-11-11; dump fix and `MapCamera hold` on the same branch, NOT YET FLOWN. OPEN; re-fly owed]
+## REAIM-PARKING-ICON-AFTER-LANDING: after a time jump over a looped re-aimed landing, the ship shows in the parking orbit a month later [FILED 2026-11-11 from the TP-4 pictures, runs `2026-11-11_2238` and `_2316`; NARROWED 2026-11-11 by run `_2332`: after a landing that PLAYED the map is clean. OPEN; low; the flight-scene ghost is unmeasured]
+
+**What the player would see.** Loop a Kerbin -> Duna landing and watch it land: the ghost
+arrives, parks, deorbits and lands, and the map at Duna stays empty from then on, as it should
+(photographed right after the landing and a month later). The leftover needs a time jump that
+skips the whole landing (a Parsek jump across the 5.7 hour descent window): the lander is then
+never shown, and about a month of game time later the ship's icon and orbit line sit in the low
+Duna parking orbit for about 13.6 hours. Stock fades a vessel's line and icon with camera
+distance, so it shows only with the map camera within about 12 Mm of Duna.
+
+**Evidence.** Fixture `duna-park-recorded`, tree `ced78481...`, re-aim engaged with
+`captureShift=-2860032.857s`. The descent window is `[5357413107.29558,5357433620.6203632]`.
+- Run `_2238` jumped from the transfer straight to live UT 5,360,144,085 and printed `DESCENT
+  SKIPPED cycle=0 ... cause=frame-stepped-over-window`. There the log reads `transfer/loiter
+  member=11 cycle=0 unitDescentPhase=Done baseDecision=Render ... -> kept (loiter/normal icon)`,
+  the map trace reads `Orbit line decision: pid=3322786469 reason=director-stockconic-visible
+  lineActive=True drawIcons=OBJ ... bounds=[5360095095.6,5360144182.0]` for recording
+  `aa48920e...`, and the three dumps list a `Kerbal X` proto ghost on a Duna conic (sma
+  495,883 m, ecc 0.042) with its icon 516 km from Duna's centre. Those views sat 1.05e8 m out,
+  where stock had faded line and icon, so the screenshots show nothing; the bounds are the
+  49,086 s parking conic at the RECORDED loop-clock slot.
+- Runs `_2316` and `_2332` played the landing (no `DESCENT SKIPPED`). At 5,357,413,167 the
+  descent member took the chain's map presence and the transfer member's proto ghost went
+  (`destroy: rec=aa48920e... ghostPid=3667796649 ... reason=chain-segment-replaced`,
+  `RemovePreviousChainMapVessel`); nothing creates it again. `tp4-c1-after-duna-low-top`
+  (6,380 s after the window closed) and `tp4-c1-late-duna-low-top` (5,360,120,010, inside the
+  recorded slot, Duna from 1.5e6 m) each list one ghost, the probe left at Kerbin, and the
+  screenshots show Duna with the fixture's two landed vessels and nothing in orbit
+  (`lifecycle-summary ... vesselsTracked=1`).
+
+**Cause, as read.** The transfer member's decision is the same in both runs (`Done ... kept
+(loiter/normal icon)`: `ShouldHideNonDescentMemberForDescentHandoff`,
+`GhostPlaybackLogic.SpanClock.cs`, hides it only while the phase is `Descent`). What keeps the
+map clean after a played landing is the chain dedup, not that rule. When the jump steps over
+the window no descent member ever takes the chain, the transfer ghost lives on, and its parking
+conic is drawn at the recorded slot.
+
+**Not measured: the flight scene.** The engine shares the helper, and in `Done` it keeps the
+transfer member rendering and wraps its head round the parking conic (`engine transfer/loiter
+member=11 ... unitDescentPhase=Done ... -> kept (loiter/normal ghost)`, `loiter-circle
+member=11 head wrapped to 2567681252.08 ... (parking conic circling ...)` at live UT
+5,360,120,005, run `_2332`). In this lane the active vessel sits at Kerbin and the ghost is
+`hidden-by-zone` 33 Gm away, so whether a player flying near Duna sees the ship's 3D ghost
+circle the parking orbit after its lander is down has no picture and no log. A lane with the
+active vessel in low Duna orbit would settle it.
+
+**Next (owner's call; nothing is started).** If it is worth fixing, hide the destination
+transfer member (`LoopUnit.TransferMemberIndex`) from `Done` to the end of the cycle on both
+surfaces; member 7 of that unit is the probe left at Kerbin and must stay drawn, so the rule
+cannot be "every non-descent member". The skipped case needs its own answer first: there the
+parking icon at the recorded slot is the only arrival the player sees.
+
+---
+
+## MAP-PICTURE-LANES-FIRST-FLIGHT: the eight map picture lanes TP-1..TP-8 flew green twice; TP-4 photographed the wrong Duna instants and is re-pinned [FILED 2026-11-11 with the lanes; FIRST FLOWN GREEN 2026-11-11; dump fix and `MapCamera hold` RE-FLOWN GREEN 2026-11-11 (PR #2570); TP-4 Duna instants re-pinned and FLOWN GREEN (`2026-11-11_2316`), and again with closer arrival views and a late-slot view (`2026-11-11_2332`). OPEN for the dump's icon fade and the efficiency check; no flight owed]
 
 The first lanes wired to the `DumpMapGeometry` / `MapCamera` seam verbs: operator-tier picture
 lanes that copy a model lane's fixture, loop setup and measured jumps (TP-1 V6M, TP-2 V6T, TP-3
@@ -59,24 +113,75 @@ debris line without mouse-over or a map-filtered line does not update its opacit
 gains `hold=<seconds>` (0..10, real time; settle budget = step budget minus hold), and every TP
 view holds 4.5 s so a fade started by the new frame finishes before the screenshot.
 
-Owed, in order:
-- Re-fly TP-1..TP-8 with the hold (`python harness/run.py --tag TP`, after provisioning this
-  branch's DLL) and rebuild the page. Expect `orbitLinesFaded=` above zero on the close views and
-  the conic check to flag nothing; a line still off its conic after a 4.5 s hold is a new reading.
-  The hold runs in real time while game time runs at 1x: with three views of about 5 s each a
-  lane's last view sits up to about 15 s of game time past its instant. TP-4's landing instant is
-  about 20 s before touchdown, so its last landing view may show the ghost at or past touchdown;
-  re-pin that instant earlier if it does.
-- Check the instants that are DERIVED rather than copied, from the pictures: TP-4's descent and
-  landing (`5,360,227,434` / `_534`, mapped through V25M's measured 7,993.44 s Duna loiter cut and
-  3,918.25 s arrival hold), the park instants of TP-1 / TP-2 (`301,792`) and TP-3 (`1,354,571`)
-  (the model lanes' "park" jumps sit on the inbound hyperbola), TP-6's transfer / approach /
-  descent and TP-7's `60,149`. Re-pin off the run's `missionconfig applied:` and
-  `startloopplayback initiated:` lines if a view shows the ghost somewhere else.
-- Open reading, not yet explained: `tp1-c1-arrival-mun-top` shows a 46.8 km gap between the end of
-  the drawn Mun arrival orbit line and the start of the next polyline leg, with no bridge drawn.
-  Re-read it on the re-fly before calling it a defect: if the orbit line there was a stale faded
-  one, the gap goes with it.
+**Re-fly with the fix, 2026-11-11, flown head 3fdcfc1b6: all eight PASS on the first attempt.**
+Runs `2026-11-11_2236` TP-1, `_2238` TP-4, `_2240` TP-3, `_2243` TP-8, `_2244` TP-2, `_2246` TP-5,
+`_2248` TP-6, `_2250` TP-7 (wall 88 to 150 s). All 85 `mapcamera ok` lines carry `hold=4.5`, none
+clamped; 39 orbit lines read faded, `orbitOpacityUnknown=0` on every capture; the page's conic
+check flags no drawn line. Outputs: branch `carrier/tp-pictures-2026-11-11-run2`.
+
+Read from those pictures:
+- EXPLAINED, by design: the 46.6 km gap at `tp1-c1-arrival-mun-top` between the end of the Mun
+  arrival orbit line and the start of the descent polyline. The polyline leg is drawn fixed to
+  the rotating body and the conic is inertial, so before the ghost reaches the seam the two sit
+  apart by the body's rotation over the time still to go, and they meet at the seam instant. The
+  leg's first point moved 202 m in the 9.46 s between the two flights' captures (the Mun's
+  rotation at that radius), and TP-6's three Mun instants read 8.700, -0.352 and -3.025 degrees
+  about the spin axis at UT 1,268,422 / 1,271,916 / 1,272,948: the Mun's rate to three digits,
+  through zero at the seam. The same shape reads at Vall (`tp5-c1-arrival-vall-edge`, 11.4 deg).
+- The other derived instants show the ghost where their names say: TP-1 / TP-2 park at 140 km
+  over the Mun, TP-3 park at 38 km over Minmus, TP-6 approach at 1,335 km, descent at 134 km and
+  landing at 8 km, TP-7's `60,149` near the dock.
+- WRONG, re-pinned: TP-4's arrival, descent and landing instants. Both flights jumped to the
+  RECORDED loop-clock slots (5,360,144,085 / 5,360,227,434 / 5,360,227,534) and the six descent
+  and landing views hold no lander (`legs=0 markersDrawn=0`, only the Kerbin-side probe; the two
+  icons on Duna in the screenshots are the fixture's own landed vessels). A re-aimed landing does
+  not play there: the transfer is shorter than recorded (`captureShift=-2860032.857s`), the ghost
+  reaches Duna early and `Reaim/DescentTrigger.cs` plays the descent from its own window, which
+  run `_2238` printed: `DESCENT SKIPPED cycle=0: reached Done at liveUT=5360144085 with NO frame
+  inside the descent window [5357413107.29558,5357433620.6203632] ...
+  cause=frame-stepped-over-window`. TP-4 now jumps to 5,357,320,632 (600 s before the re-aimed
+  capture), 5,357,413,167 and 5,357,413,297 (60 s and 190 s into the window) and adds
+  `tp4-c1-after-duna-low-top` at 5,357,440,000 (13 views). The model lane V25M is untouched (its
+  5,360,144,085 jump is a measured reading of that slot, whatever plays there).
+- Stock fades a vessel orbit line out once the camera is more than 25 SMA away, so the SOI-scale
+  arrival views (TP-3 Minmus at 5e6, TP-4 Duna at 1.05e8, TP-5) show the icon with no line. That
+  is what a player sees at that zoom; a view meant to show the line frames closer.
+
+**TP-4 with the re-pinned instants, 2026-11-11, head 53b05c928: `2026-11-11_2316` PASS** (13
+views, wall 140 s, outputs on `carrier/tp-pictures-2026-11-11-run3`). No `DESCENT SKIPPED` line;
+`descent trigger member=12` reads `Descent` from 5,357,413,167 to 5,357,413,316. The six descent
+and landing views each hold the lander (`legs=1 markersDrawn=1`, treatment `DriverOnly`, 33.6 km
+down to 7.1 km above Duna), and the screenshots show its marker on a line that ends at the
+fixture's own landed vessel, the recorded site. `tp4-c1-after-duna-low-top`, 6,380 s after the
+window closed, holds nothing of the lander. Two readings from that flight:
+- The three arrival views show neither the inbound hyperbola nor the ghost's icon, and the dump
+  called the icon drawn. Stock fades the icon with its orbit line
+  (`OrbitRendererBase.objectNode_OnUpdateIcon`: colour alpha = `lineOpacity`), and this
+  hyperbola (SMA -188 km) is past the 25 SMA fade distance at 5e6 m. The page now reads a proto
+  icon whose orbit line is at opacity 0 as "not drawn (stock fade)"
+  (`map_mirror.proto_icon_faded`); the arrival views move to 3e6 m (top, edge, oblique).
+- The parking-orbit icon is not there right after the landing; run `_2238`'s trace puts it at
+  the recorded loop-clock slot a month later. A 14th view, `tp4-c1-late-duna-low-top` at
+  5,360,120,000, photographs that slot (REAIM-PARKING-ICON-AFTER-LANDING).
+
+**TP-4 with the closer arrival views and the late-slot view, 2026-11-11, head 63701aa8f:
+`2026-11-11_2332` PASS** (14 views, wall 150 s, attempt 1, outputs on
+`carrier/tp-pictures-2026-11-11-run4`; the instance was provisioned for it, automation DLL
+sha256 `93174ffd...`). No `DESCENT SKIPPED` line and no `[Parsek][ERROR]` line.
+- The three arrival views at 3e6 m hold the inbound hyperbola (`sma=-188091`, 180 points,
+  opacity 1, 0.996, 0.996) and the ship's proto icon 7.3, 1.1 and 8.5 m off it; the screenshots
+  show both. The 25 SMA reading stands.
+- The six descent and landing views read as on run `_2316` (`legs=1 markersDrawn=1`).
+- `tp4-c1-late-duna-low-top` holds nothing at Duna, so the parking-orbit icon of run `_2238`
+  belongs to that run's jump over the descent window, not to the loop
+  (REAIM-PARKING-ICON-AFTER-LANDING, narrowed).
+- The page was rebuilt with this head's tool from runs `_2236`, `_2240`, `_2243`, `_2244`,
+  `_2246`, `_2248`, `_2250` and `_2332`: 87 captures over 8 lanes, none unreadable, 11.3 MB.
+
+Owed:
+- Fold stock's icon fade into the dump: `icon.drawn` for a proto icon should also require the
+  orbit line's `opacity > 0` (and write the opacity on the icon), so the file agrees with the
+  page without the page's correction. C#, `MapGeometryRecorder`; no re-fly needed for the page.
 - Run `tools/flight_efficiency.py` on each green flight.
 
 ## ~~WARP-REQUEST-SURVIVES-A-FAILED-REWIND: a Warp to time request stays armed after its rewind fails to launch, and the next Space Center load jumps forward~~ [FILED 2026-11-11 from the static lifetimes gate (coldLoadMisses, the nine `WarpToTimeRequest` fields), by code reading. FIXED 2026-11-11, branch `claude/project-thread-lkzj01`; xUnit (headless, the real `InitiateRewind` failure paths included) + the static lifetimes gate (coldLoadMisses 9 -> 0); not flown (no committed lane drives Warp to time through a rewind); low]
