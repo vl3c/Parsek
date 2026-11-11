@@ -98,7 +98,7 @@ and measured jump instants, and at each instant takes a few VIEWS:
 | TP-1 | Mun loop (V6M) | flight map | c1 transfer, arrival, park; c2 arrival | 12 |
 | TP-2 | Mun loop (V6T) | Tracking Station | c1 transfer, arrival, park | 9 |
 | TP-3 | Minmus loop, inclined (V7M) | flight map | c1 transfer, arrival, park; c2 arrival | 12 |
-| TP-4 | Kerbin to Duna re-aim with landing (V25M) | flight map | transfer, arrival, descent, just before touchdown | 12 |
+| TP-4 | Kerbin to Duna re-aim with landing (V25M) | flight map | transfer, inbound hyperbola, descent, just before touchdown, after the landing | 13 |
 | TP-5 | Laythe to Vall (V17M) | flight map | c1 transfer, arrival, park; c2 arrival | 12 |
 | TP-6 | Mun landing loop (V23M) | flight map | transfer, approach, descent, 60 s before touchdown; c2 the same | 14 |
 | TP-7 | Kerbin depot route, route lines on (V18T) | Tracking Station | c1 near dock; c2 mid-leg, near dock | 9 |

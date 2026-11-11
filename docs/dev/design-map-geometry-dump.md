@@ -3,7 +3,9 @@
 Status: BUILT 2026-11-11 on `claude/project-thread-zfo2hk`, xUnit- and hlib-covered, FIRST RUN LIVE
 2026-11-11 by the picture lanes TP-1..TP-8 (85 views, all green). That run found orbit lines dumped
 `active: true` with a stale frame's vertices; the fix (stock's fade opacity, "Stock's orbit-line
-fade" below) and `MapCamera hold=` have NOT flown yet. The seam-verb contracts (grammar, phases, refusals, roles)
+fade" below) and `MapCamera hold=` FLEW GREEN the same day (the eight lanes again, runs
+`2026-11-11_2236` .. `_2250`: no drawn line off its conic, 39 lines faded, none with an unreadable
+opacity). The seam-verb contracts (grammar, phases, refusals, roles)
 are in `design-autotest-command-seam.md` under `#### DumpMapGeometry` and `#### MapCamera`; this
 document owns the JSON file and how each field is read.
 
@@ -341,9 +343,11 @@ raised the fade; the rest are still open. Read on the next run:
   (`pitchClamped=false distanceClamped=false` throughout). It answers once the camera-to-target
   distance is within 0.1 % of what stock holds, or the camera stayed still for 3 frames; the
   pitch / distance clamps stock applies in LateUpdate are only reported, never fought.
-- `MapCamera hold=` and the opacity read: not flown yet. On the next run, `orbitLinesFaded` and
-  each orbit line's `opacity` say whether 4.5 s is enough (a line at 0 < opacity < 1 after the
-  hold means it is not), and `orbitOpacityUnknown` must read 0.
+- `MapCamera hold=` and the opacity read. ANSWERED on the re-fly (runs `2026-11-11_2236` ..
+  `_2250`): all 85 `mapcamera ok` lines carry `hold=4.5`, `orbitOpacityUnknown=0` on every
+  capture, 39 orbit lines faded, and the page's conic check flags no drawn line. A drawn line may
+  still sit just under 1 (`tp1-c1-arrival-mun-top`: 0.996, a fade-in not quite finished), which
+  draws; a line at 0 < opacity < 1 well below that after the hold would mean 4.5 s is not enough.
 - The proto icon's `drawn` reading (`orbitRenderer.enabled` plus `drawIcons`), which is a proxy for
   stock's icon draw, not a read of it.
 - The marker positions in FLIGHT come from the same world position the marker funnel projects;

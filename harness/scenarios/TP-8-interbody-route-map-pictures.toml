@@ -57,12 +57,12 @@ id = "TP-8-interbody-route-map-pictures"
 #     lane replays a committed fixture.
 #   7 tight count windows - the model lane's window, copied; tightened after the first
 #     flight only if it reads otherwise.
-#   8 tier by measured cost / 9 flight_efficiency.py - the first flights (2026-11-11,
-#     before the hold) took 56 to 91 s wall per lane; flight_efficiency.py over them is
+#   8 tier by measured cost / 9 flight_efficiency.py - the first flights (2026-11-11)
+#     took 56 to 91 s wall per lane and 88 to 150 s with the hold; flight_efficiency.py over them is
 #     still owed. The tier is `operator` because the lane is run on request for pictures.
 # =====================================================================================
 tier = "operator"
-description = "PICTURE LANE, AUTHORED 2026-11-11, FIRST FLOWN GREEN 2026-11-11 (run 2026-11-11_2148, before the MapCamera hold; the hold is not flown yet). V26M's two inter-body supply routes (KSC->Duna Active, KSC->Mun Paused) on interbody-route-recorded, route lines on, the flight map open, at V26M's own clock: five views (whole system top-down and edge-on, the Kerbin, Mun and Duna ends) framed, photographed and dumped under one label each. No dispatch instant is derivable (B32 section 4), so the route's ends are covered in space rather than time. Expectations are only that every view was taken, both routes drew, and nothing was refused."
+description = "PICTURE LANE, AUTHORED 2026-11-11, FIRST FLOWN GREEN 2026-11-11 (run 2026-11-11_2148; again with the MapCamera hold, run 2026-11-11_2243). V26M's two inter-body supply routes (KSC->Duna Active, KSC->Mun Paused) on interbody-route-recorded, route lines on, the flight map open, at V26M's own clock: five views (whole system top-down and edge-on, the Kerbin, Mun and Duna ends) framed, photographed and dumped under one label each. No dispatch instant is derivable (B32 section 4), so the route's ends are covered in space rather than time. Expectations are only that every view was taken, both routes drew, and nothing was refused."
 instanceProfile = "stock-minimal"
 tags = ["TP", "TP-8", "map-pictures", "map-geometry", "screenshots", "map-render", "flown", "route", "logistics", "inter-body", "kerbin", "duna", "route-map-lines"]
 

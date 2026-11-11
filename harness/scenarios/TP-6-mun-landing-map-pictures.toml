@@ -59,12 +59,12 @@ id = "TP-6-mun-landing-map-pictures"
 #     lane replays a committed fixture.
 #   7 tight count windows - the model lane's window, copied; tightened after the first
 #     flight only if it reads otherwise.
-#   8 tier by measured cost / 9 flight_efficiency.py - the first flights (2026-11-11,
-#     before the hold) took 56 to 91 s wall per lane; flight_efficiency.py over them is
+#   8 tier by measured cost / 9 flight_efficiency.py - the first flights (2026-11-11)
+#     took 56 to 91 s wall per lane and 88 to 150 s with the hold; flight_efficiency.py over them is
 #     still owed. The tier is `operator` because the lane is run on request for pictures.
 # =====================================================================================
 tier = "operator"
-description = "PICTURE LANE, AUTHORED 2026-11-11, FIRST FLOWN GREEN 2026-11-11 (run 2026-11-11_2153, before the MapCamera hold; the hold is not flown yet). V23M's looped Kerbin->Mun landing on mun-landing-recorded, with the flight map opened: at the cycle-1 transfer, the inbound Mun hyperbola, the powered descent, 60 s before touchdown and the cycle-2 60 s mark it frames the map camera, photographs each view and dumps the same frame's geometry under one label, 14 views in all. Expectations are only that every view was taken and none was refused."
+description = "PICTURE LANE, AUTHORED 2026-11-11, FIRST FLOWN GREEN 2026-11-11 (run 2026-11-11_2153; again with the MapCamera hold, run 2026-11-11_2248). V23M's looped Kerbin->Mun landing on mun-landing-recorded, with the flight map opened: at the cycle-1 transfer, the inbound Mun hyperbola, the powered descent, 60 s before touchdown and the cycle-2 60 s mark it frames the map camera, photographs each view and dumps the same frame's geometry under one label, 14 views in all. Expectations are only that every view was taken and none was refused."
 instanceProfile = "stock-minimal"
 tags = ["TP", "TP-6", "map-pictures", "map-geometry", "screenshots", "map-render", "loop-playback", "flown", "mun", "moon", "landing", "airless", "phase-lock"]
 

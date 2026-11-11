@@ -60,12 +60,12 @@ id = "TP-2-mun-loop-ts-pictures"
 #     lane replays a committed fixture.
 #   7 tight count windows - the model lane's window, copied; tightened after the first
 #     flight only if it reads otherwise.
-#   8 tier by measured cost / 9 flight_efficiency.py - the first flights (2026-11-11,
-#     before the hold) took 56 to 91 s wall per lane; flight_efficiency.py over them is
+#   8 tier by measured cost / 9 flight_efficiency.py - the first flights (2026-11-11)
+#     took 56 to 91 s wall per lane and 88 to 150 s with the hold; flight_efficiency.py over them is
 #     still owed. The tier is `operator` because the lane is run on request for pictures.
 # =====================================================================================
 tier = "operator"
-description = "PICTURE LANE, AUTHORED 2026-11-11, FIRST FLOWN GREEN 2026-11-11 (run 2026-11-11_2149, before the MapCamera hold; the hold is not flown yet). V6T's looped Kerbin->Mun mission on mun-orbit-recorded, seen in the Tracking Station at three cycle-1 instants (transfer, Mun arrival, Mun park): each instant is jumped and saved in FLIGHT under its own name, then booted into the Tracking Station, where the map camera is framed (MapCamera) and each view is photographed (CaptureScreenshot) and dumped (DumpMapGeometry) under one label, 9 views in all. Expectations are only that every view was taken and none was refused."
+description = "PICTURE LANE, AUTHORED 2026-11-11, FIRST FLOWN GREEN 2026-11-11 (run 2026-11-11_2149; again with the MapCamera hold, run 2026-11-11_2244). V6T's looped Kerbin->Mun mission on mun-orbit-recorded, seen in the Tracking Station at three cycle-1 instants (transfer, Mun arrival, Mun park): each instant is jumped and saved in FLIGHT under its own name, then booted into the Tracking Station, where the map camera is framed (MapCamera) and each view is photographed (CaptureScreenshot) and dumped (DumpMapGeometry) under one label, 9 views in all. Expectations are only that every view was taken and none was refused."
 instanceProfile = "stock-minimal"
 tags = ["TP", "TP-2", "map-pictures", "map-geometry", "screenshots", "map-render", "loop-playback", "flown", "mun", "moon", "phase-lock", "tracking-station"]
 
