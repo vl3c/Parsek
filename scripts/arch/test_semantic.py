@@ -557,7 +557,9 @@ class RealTreeSemanticTests(unittest.TestCase):
             raise AssertionError("%s=%s does not exist (build Parsek first)" % (IL_ENV, il_path))
         rules, tooling, _forbidden, _allowed = archview.load_rules(archview.DEFAULT_MODULES)
         cls.model = archview.build_model(REAL_SOURCE, rules, tooling, measure_sizes=False)
-        cls.result = semantic.build(cls.model, ilgraph.load_il(il_path), REAL_SOURCE)
+        # load_parsed is shared with test_ilfacts' real-tree cells, so the CI
+        # step that runs both disassembles and parses the DLL once.
+        cls.result = semantic.build(cls.model, None, REAL_SOURCE, parsed=ilgraph.load_parsed(il_path))
         report = io.StringIO()
         with contextlib.redirect_stdout(report):
             semantic.print_report(cls.result)

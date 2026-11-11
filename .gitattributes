@@ -29,3 +29,8 @@
 # rather than after someone's gate reds.
 harness/fixtures/**    -text
 Source/Parsek.Tests/Fixtures/**  -text
+
+# The architecture tooling's IL fixture is cut byte-for-byte from an ikdasm dump,
+# whose long string literals break across lines with a raw CRLF. A CRLF or LF
+# conversion would make it no longer the format the parser must read.
+scripts/arch/fixtures/**  -text
