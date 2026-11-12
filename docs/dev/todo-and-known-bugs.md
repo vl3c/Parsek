@@ -2844,6 +2844,23 @@ compare).
   candidate was reachable through reflection, strings, Harmony, in-game tests or the command seam.
   The 490 methods only tests call (14,357 instructions) are untouched. `uncalledInAssembly` 654 ->
   498; headless leaks 279 -> 278.
+- 2026-11-12 (B6, split `RouteAnalysisEngine.AnalyzeWindows`): the method (610 lines, complexity
+  142, the highest in the mod) is now an orchestrator (complexity 21) over 14 private static steps
+  in the same file, one per gate in refusal-precedence order (`BuildWindowManifests`,
+  `DropEmptyGrappleWindows`, `CheckEndpointProof`, `ResolveMidTreeDockedOrigin`,
+  `RejectLegacyUnmatchedGrappleGain`, `RejectUndockedStartOrigin`, `CheckWindowDirections`,
+  `RejectUntrackedCargoGain`, `CheckFlowClosure`, `CheckHarvestRefinedUndockedStart` with
+  `FindUnharvestedDeliveryReason`, `ResolveHarvestCaps`, `BuildEligibleResult`, `BuildStops`);
+  highest step 26, longest 117 lines; no behaviour change, no new state, nothing widened. Tests
+  first: 31 characterization cells (`RouteAnalysisEngineTests.AnalyzeWindows.cs`) through
+  `AnalyzeTree` / `AnalyzeRecording`. Mutants on the old body: 65, of which the existing route
+  tests killed 38 and the full set kills 60; the 5 survivors are equivalent (the two load-manifest
+  builders already return null for empty, so three null-normalisations are redundant; a
+  harvest-origin run never has a mid-tree origin; a legacy gain result carries no harvest
+  manifest). 18 mutants on the split: 17 killed, the survivor the same redundant normalisation.
+  il_compare: only the `AnalyzeWindows` body differs, plus the 14 new private methods; the 140
+  string literals and every outside call target of the old body are the same multiset across the
+  new ones. Complexity >= 20 / 50 / 100: 613 / 32 / 5 -> 614 / 31 / 4; `complexityWatch` 54 -> 53.
 - 2026-11-11 (metrics history): `scripts/arch/metrics.py` builds one JSON row per commit
   (schema `parsek-metrics/1`) from the existing tools' output: the text scan, the semantic
   headline, the code facts (with test reach when given the test DLL) and `count-code.py`'s

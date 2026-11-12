@@ -366,7 +366,9 @@ type whose source file maps to a non-tooling module.
   first real snapshot (12a312a09, type shares only) `TryBuildEngineFX` leads
   (its type 16% covered, 490.2), then `GhostTrajectoryPolylineRenderer/Driver`'s
   `LateUpdate` (268.0) and `OnMapCameraPreCull` (224.0) (type 0%), and
-  `AnalyzeWindows` (type 93%) leaves the top 10.
+  `AnalyzeWindows` (type 93%) leaves the top 10. B6 (2026-11-12) split
+  `AnalyzeWindows` into an orchestrator (complexity 21) and 14 private steps
+  (the highest, `BuildEligibleResult`, 26), so it left the complexity watch.
 
 ```bash
 python3 scripts/arch/ilanalysis.py Source/Parsek/bin/Debug/Parsek.dll
@@ -388,7 +390,8 @@ live methods (Harmony 310, `.cctor` 279, dispatch 272, strings 112, delegates
 do not reach (17,484 instructions): 78 that no unit test calls either (2,339
 instructions: 32 test hooks by name, 8 that source gates pin (the `ParsekUI`
 hover check and `LogisticsWindowUI.DetailLine(GUIContent)`), 38 reached only
-through a method a test calls), 709 a test calls.
+through a method a test calls), 709 a test calls. After B6 split
+`RouteAnalysisEngine::AnalyzeWindows` (2026-11-12): complexity 614 / 31 / 4.
 
 ### Coverage snapshot
 
@@ -482,7 +485,7 @@ methods at complexity 20 or more), which the complexity watch band absorbs.
   may not outnumber `bound` (55). A red names the new keys and their writers.
 - `complexityWatch` (the complexity gate): every method (by `Type::Name`, so
   overloads and a parameter change do not move it) at complexity 45 or more
-  is pinned (54), the gate 50 minus a watch band of 5
+  is pinned (53), the gate 50 minus a watch band of 5
   (`COMPLEXITY_WATCH_BAND`). A method that is not pinned reds when it
   reaches 50, so a compiler that counts a pinned method a decision or two
   higher cannot red the check, while a method growing from below 45 to 50

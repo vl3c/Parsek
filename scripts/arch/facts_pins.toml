@@ -594,7 +594,6 @@ keys = [
     "Parsek.KerbalsModule::ApplyToRoster",
     "Parsek.KerbalsModule::CollectDockClaims",
     "Parsek.KerbalsModule::ProcessAction",
-    "Parsek.Logistics.RouteAnalysisEngine::AnalyzeWindows",
     "Parsek.Logistics.RouteBuilder::BuildRoute",
     "Parsek.Logistics.RouteCodec::SerializeInto",
     "Parsek.Logistics.RouteOrchestrator::ProcessMultiStopCrossings",
