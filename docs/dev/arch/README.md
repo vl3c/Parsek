@@ -16,6 +16,7 @@ Everything lives in `scripts/arch/`:
 | `archview.py` | Extracts the module graph and the type ladder, builds the co-change history, writes `edges.json`, `types.json`, `history.json` and the views, and prints the `--check` report. |
 | `test_archview.py` | Unit tests plus a smoke test over the real `Source/Parsek` tree. |
 | `layers.py`, `layer_pins.toml`, `test_semantic_layers.py` | The declared layers: the backward / lateral split, the per-pair ratchet and its machine-written pins, the forbidden-edge gates (see "Declared layers"). |
+| `logtags.py`, `log_tags.json`, `test_iltags.py` | The ParsekLog subsystem tags read from the compiled IL, with the modules that write each one; the committed map the harness lane health reads (see "Log tags"). |
 
 The generated views are written to `docs/dev/arch/` and are gitignored (they
 go stale on every commit that touches `Source/`; regenerate before reading):
@@ -998,6 +999,44 @@ compiled-IL step (measured after the shared parse): the leaks come out of the
 game reach `ilanalysis.report` already computes, and each real-tree mutant
 reruns the reach, which a per-pass memo of the name-pattern match keeps near
 0.1 s (`direct_game_refs`' `memo`; the coupling answers are unchanged).
+
+## Log tags (compiled IL)
+
+Every Parsek log line is `[Parsek][LEVEL][Tag] message`. The harness counts
+lines per tag in each flight's KSP.log (`harness/lib/runindex.py`, the lane
+health); `scripts/arch/logtags.py` says which modules write each tag, so a count
+by tag becomes a count by module and "which lanes exercise module X" has an
+answer.
+
+It walks every method of the ikdasm dump and follows the evaluation stack to
+each call of a `ParsekLog` emitter (`Info`, `Verbose`, `Warn`, `Error`, the
+rate-limited and on-change variants, and `Write`, whose tag is its second
+argument). The tag argument resolves when it is a literal (a `const` compiles to
+one), a local that only ever held one literal, a `static readonly` string whose
+type constructor stores exactly one literal, or a parameter of a forwarding
+helper (`FileIOUtils.SafeWriteConfigNode(..., tag)`, the `PartStateSeeder`
+seeders), whose own callers then count as sites of the literal they pass, to a
+fixed point. Two values that meet at a branch target merge to unknown; a call
+result or a field is never guessed. The unresolved sites are listed by method
+under `nonLiteral`. A site belongs to the module `modules.toml` gives the calling
+type's source file.
+
+```bash
+python3 scripts/arch/logtags.py Source/Parsek/bin/Debug/Parsek.dll           # summary: tags, sites, top tags
+python3 scripts/arch/logtags.py Source/Parsek/bin/Debug/Parsek.dll --write   # refresh scripts/arch/log_tags.json
+```
+
+`log_tags.json` (schema `parsek-log-tags/1`) holds per tag its site count, the
+modules with their site counts and the levels (`mixed` for a helper that writes
+two), plus the non-literal sites and the forwarding helpers; sorted, no paths,
+so it changes only when the logging code does. The harness reads the FILE and
+never imports this module. Staleness is report-only on both sides: the harness
+counts a tag the map lacks as unmapped, and `test_iltags.py`'s real-tree cell
+(run by the compiled-IL CI step, `-p 'test_[ims]*.py'`) prints the tags new or
+gone against the build and fails only when the extractor stops modelling the
+assembly. Refresh the file after a change that adds or moves log tags. At the
+first write: 284 tags, 9293 sites with a literal tag, 13 non-literal sites, 46
+forwarding helpers.
 
 ## Metrics history
 

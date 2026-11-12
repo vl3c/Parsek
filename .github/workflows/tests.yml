@@ -182,7 +182,9 @@ jobs:
       # semantic result and facts the other cells already hold: a pull
       # request's proof that the row can still be built), which read the
       # same parse through ilgraph.load_parsed, so the DLL is disassembled and
-      # parsed once for all. About two and a half minutes.
+      # parsed once for all. About two and a half minutes. test_iltags.py (the
+      # log-tag map the harness lane health reads, scripts/arch/logtags.py)
+      # disassembles the DLL once more for its own stack walk, about 40 s.
       - name: Architecture semantic graph (compiled IL)
         env:
           PARSEK_ARCH_IL: ${{ github.workspace }}/Source/Parsek/bin/Debug/Parsek.dll
