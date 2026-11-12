@@ -431,4 +431,4 @@ When modifying any code in this area, do not violate:
 | `Source/Parsek/FlightRecorder.cs` | `AppendStructuralEventSnapshot`, `StopRecordingForChainBoundary`, recorder lifecycle |
 | `Source/Parsek/VesselSpawner.cs` | `TryBackupSnapshot` |
 | `Source/Parsek/VesselSnapshotOps.cs` | `ExtractResourceManifest`, `ExtractInventoryPayloadItems`, `CollectPartPersistentIds` |
-| `Source/Parsek/Logistics/RouteAnalysisEngine.cs` | `AnalyzeTree`, `AnalyzeWindow`, `CollectSourcePathRecordingIds`, the eligibility gates |
+| `Source/Parsek/Logistics/RouteAnalysisEngine.cs` | `AnalyzeTree`, `AnalyzeWindows` (the gate orchestrator; one private step per gate), `CollectSourcePathRecordingIds`, the eligibility gates |
