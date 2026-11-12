@@ -47,6 +47,11 @@ id = "TP-4-duna-reaim-landing-map-pictures"
 # and the transfer member's proto ghost is not created again. Run _2238 saw it because its
 # jump stepped over the whole descent window (`DESCENT SKIPPED`), so `c1-late` is the
 # regression picture for the played case.
+# FIXED 2026-11-12 (PR #2579): the transfer member now stays hidden from the end of the
+# landing to the next cycle. Run 2026-11-12_0701 (PASS, 14 views, wall 149 s) kept
+# `c1-after` and `c1-late` empty at Duna (only the Kerbal X Probe at Kerbin in the dumps)
+# and printed `member=11 ... unitDescentPhase=Done ... -> HIDDEN (landed; ...)`. The
+# skipped case has its own lane, TP-9-duna-reaim-skipped-landing-map-pictures.
 #
 # STOCK'S FADE DECIDES THE DISTANCES. Stock fades a vessel's orbit line AND its icon (the
 # icon's colour alpha is the line opacity) once the camera is 25 SMA from its target, so

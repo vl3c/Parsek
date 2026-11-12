@@ -67,9 +67,23 @@ id = "TP-9-duna-reaim-skipped-landing-map-pictures"
 #   low-top` should show Duna with the fixture's two landed vessels and nothing in orbit,
 #   and its `.map.json` should list no ghost at Duna.
 #
-# NEVER FLOWN. Authored 2026-11-12 in a session that cannot fly. Every pin above is
-# derived from committed flights' quoted log lines plus the source, not from a flight of
-# this spec; the first flight decides whether the required lines read as written.
+# FIRST FLOWN GREEN 2026-11-12: run 2026-11-12_0700, PASS attempt 1, wall 65 s (flown
+# head 748e20428, PR #2579). Every pin was derived before that flight from committed
+# flights' quoted log lines plus the source, and each read as written:
+#   - `DESCENT SKIPPED cycle=0: reached Done at liveUT=5360120000 with NO frame inside the
+#     descent window [5357413107.29558,5357433620.6203632] ... prevFrameUT=
+#     5355451931.8601112 frameStep=4668068s cause=frame-stepped-over-window`.
+#   - `engine transfer/loiter member=11 cycle=0 unitDescentPhase=Done baseDecision=Render
+#     liveUT=5360120000 loopUT=2570430990.486022 -> HIDDEN (landed; journey over until the
+#     next cycle)` and the resolver's twin.
+#   - 12 `unitDescentPhase=Done` lines in all: 6 for member 11 (hidden) and 6 for member 7,
+#     the Kerbal X Probe left at Kerbin (kept). No `loiter-circle` line and no line with
+#     `bounds=[5360095095.6,5360144182.0]`.
+#   - The dump lists one ghost, the Kerbal X Probe (index 7, body Kerbin), and nothing at
+#     Duna; the picture shows Duna with the fixture's two landed vessels and nothing in
+#     orbit.
+# Not measured here: the active vessel sits at Kerbin, so the 3D flight ghost near Duna
+# after the landing is covered by the unit tests only.
 #
 # FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
 #   1 reuse a flight - NOT APPLIED: no committed lane on this fixture jumps over the
@@ -85,12 +99,12 @@ id = "TP-9-duna-reaim-skipped-landing-map-pictures"
 #     lane replays a committed fixture.
 #   7 tight count windows - the model lane's window, copied; tightened after the first
 #     flight only if it reads otherwise.
-#   8 tier by measured cost / 9 flight_efficiency.py - owed after the first flight. TP-4
-#     takes 150 s wall for 14 views, so this lane should cost about a minute. The tier is
-#     `operator` because the lane is run on request.
+#   8 tier by measured cost / 9 flight_efficiency.py - the first flight (2026-11-12_0700)
+#     took 65 s wall; flight_efficiency.py over it is still owed. The tier is `operator`
+#     because the lane is run on request.
 # =====================================================================================
 tier = "operator"
-description = "PICTURE LANE WITH THREE LOG PINS, AUTHORED 2026-11-12, NEVER FLOWN. The skipped-landing twin of TP-4's late-slot view on duna-park-recorded: the re-aimed Kerbin->Duna loop with the flight map open, one TimeJump from mid transfer (5355451927) over the whole Duna descent window to 5360120000, inside the recorded loop-clock slot of the Duna parking orbit, then one MapCamera + CaptureScreenshot + DumpMapGeometry view of Duna from 1.5e6 m. Requires DESCENT SKIPPED for cycle 0 (the precondition) and the resolver's and the engine's `transfer/loiter member=11 ... unitDescentPhase=Done ... -> HIDDEN (landed; journey over until the next cycle)` lines; forbids the old `kept (loiter/normal icon)` / `kept (loiter/normal ghost)` endings for that member in Done, a parking-conic head wrap for it, and an orbit line shown on the recorded slot's parking conic (todo REAIM-PARKING-ICON-AFTER-LANDING)."
+description = "PICTURE LANE WITH THREE LOG PINS, AUTHORED 2026-11-12, FIRST FLOWN GREEN 2026-11-12 (run 2026-11-12_0700, PASS attempt 1, wall 65 s: the descent was skipped, both surfaces printed the landed hide for member 11, and the dump and the picture hold nothing at Duna). The skipped-landing twin of TP-4's late-slot view on duna-park-recorded: the re-aimed Kerbin->Duna loop with the flight map open, one TimeJump from mid transfer (5355451927) over the whole Duna descent window to 5360120000, inside the recorded loop-clock slot of the Duna parking orbit, then one MapCamera + CaptureScreenshot + DumpMapGeometry view of Duna from 1.5e6 m. Requires DESCENT SKIPPED for cycle 0 (the precondition) and the resolver's and the engine's `transfer/loiter member=11 ... unitDescentPhase=Done ... -> HIDDEN (landed; journey over until the next cycle)` lines; forbids the old `kept (loiter/normal icon)` / `kept (loiter/normal ghost)` endings for that member in Done, a parking-conic head wrap for it, and an orbit line shown on the recorded slot's parking conic (todo REAIM-PARKING-ICON-AFTER-LANDING)."
 instanceProfile = "stock-minimal"
 tags = ["TP", "TP-9", "map-pictures", "map-geometry", "screenshots", "map-render", "loop-playback", "duna", "reaim", "landing", "descent-trigger", "cross-parent"]
 

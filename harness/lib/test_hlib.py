@@ -10956,9 +10956,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "TP-7-depot-route-ts-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; FLOWN GREEN on its first flight 2026-11-11 and again with the MapCamera hold the same day",
         "TP-8-interbody-route-map-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; FLOWN GREEN on its first flight 2026-11-11 and again with the MapCamera hold the same day",
         # TP-9 (2026-11-12) is the skipped-landing twin of TP-4's late-slot view. It also
-        # carries three log pins for REAIM-PARKING-ICON-AFTER-LANDING, so its first flight is a
-        # check of that fix as well as a picture.
-        "TP-9-duna-reaim-skipped-landing-map-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for a map screenshot and geometry dump, with three log pins for REAIM-PARKING-ICON-AFTER-LANDING), NOT debt; what is open is the first flight, not a human review call",
+        # carries three log pins for REAIM-PARKING-ICON-AFTER-LANDING, so its flight is a
+        # check of that fix as well as a picture. Flown green on its first flight the same day.
+        "TP-9-duna-reaim-skipped-landing-map-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for a map screenshot and geometry dump, with three log pins for REAIM-PARKING-ICON-AFTER-LANDING), NOT debt; FLOWN GREEN on its first flight 2026-11-12 (run 2026-11-12_0700)",
         "V28M-tylo-player-loop.toml": "tier=operator by the calibration discipline (jump table derived off the harvested fixture bytes, first run is a calibration reading), NOT debt; coverage wave 11 (2026-09-26), G9: the one-cycle V16M replay shape on `tylo-orbit-recorded`; what is open is the flight, not a human review call",
         "V29M-bop-player-loop.toml": "tier=operator by the calibration discipline (jump table derived off the harvested fixture bytes, first run is a calibration reading), NOT debt; coverage wave 11 (2026-09-26), G9: the one-cycle V16M replay shape on `bop-orbit-recorded`; what is open is the flight, not a human review call",
         "V30M-pol-player-loop.toml": "tier=operator by the calibration discipline (jump table derived off the harvested fixture bytes, first run is a calibration reading), NOT debt; coverage wave 11 (2026-09-26), G9: the one-cycle V16M replay shape on `pol-orbit-recorded`; what is open is the flight, not a human review call",

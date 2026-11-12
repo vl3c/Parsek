@@ -54,7 +54,7 @@ once per anchor per session, not once per rebuild.
 
 ---
 
-## REAIM-PARKING-ICON-AFTER-LANDING: after a time jump over a looped re-aimed landing, the ship shows in the parking orbit a month later [FILED 2026-11-11 from the TP-4 pictures, runs `2026-11-11_2238` and `_2316`; NARROWED 2026-11-11 by run `_2332`: after a landing that PLAYED the map is clean. FIXED IN CODE 2026-11-12, branch `claude/project-thread-zfo2hk`: the destination transfer member stays hidden from the end of the landing to the next cycle, on the map and in flight; xUnit. NOT FLOWN: the check flight of the new lane `TP-9-duna-reaim-skipped-landing-map-pictures` and a V25M re-flight are owed; low]
+## ~~REAIM-PARKING-ICON-AFTER-LANDING: after a time jump over a looped re-aimed landing, the ship shows in the parking orbit a month later~~ [FILED 2026-11-11 from the TP-4 pictures, runs `2026-11-11_2238` and `_2316`; NARROWED 2026-11-11 by run `_2332`: after a landing that PLAYED the map is clean. FIXED AND FLOWN 2026-11-12 (PR #2579): the destination transfer member stays hidden from the end of the landing to the next cycle, on the map and in flight; xUnit, and four check lanes green on the first attempt (`2026-11-12_0700` TP-9, `_0701` TP-4, `_0704` V25M, `_0705` AT-1). Not measured: the 3D flight ghost near Duna after the landing (unit tests only) and a watched transfer ghost; low]
 
 **What the player saw.** Loop a Kerbin -> Duna landing and watch it land: the ghost
 arrives, parks, deorbits and lands, and the map at Duna stays empty from then on, as it should
@@ -129,22 +129,46 @@ and `FlightMapPassPhaseTests` (the two lifecycle answers named above). The in-ga
 `DescentHandoffVisibility` now asserts the hide in its `Done` section; no committed lane runs
 it on a unit with a descent trigger (H54's fixture has none, so the cell skips there).
 
-**Owed.**
-- The check flight: `TP-9-duna-reaim-skipped-landing-map-pictures` (operator tier, never
-  flown). It jumps from mid transfer over the whole descent window to 5,360,120,000, requires
-  `DESCENT SKIPPED` for cycle 0 and the resolver's and the engine's `HIDDEN (landed` lines for
-  member 11, forbids the old `kept` endings and an orbit line on the recorded slot's parking
-  conic, and takes one picture of Duna from 1.5e6 m.
-- A V25M re-flight. Its third window jumps to 5,360,143,765 / ...885 / 5,360,144,085, which
-  is `Done` inside the recorded slot after a jump over the descent window, so the transfer
-  member it observed there is now hidden. Its armed windows and log contracts should still
-  hold by reading (the first two windows supply the dwells), but the census its header quotes
-  and the header's "W3 - THE DUNA ARRIVAL" text describe the old leftover and need re-reading
-  off a flight. TP-4's header and status row describe the same leftover as a finding; they are
-  history and stay as written until that lane next flies.
-- Not measured: a watched transfer member. The watch camera's owner is kept alive hidden
-  through `Done` the same way it is through `Descent` today; whether the camera should move to
-  the landed vessel's site instead has no test and no picture.
+**Flown 2026-11-12, flown head 748e20428** (automation DLL sha256 `0447f7da...`, provisioned
+from worktree `Parsek-reaim-landed`; outputs on branch `carrier/reaim-landed-2026-11-12`,
+commit ec9adc0e6, dir `carrier/reaim-landed/`). Four lanes, each PASS on attempt 1:
+- **The skipped landing: `2026-11-12_0700_TP-9-duna-reaim-skipped-landing-map-pictures`**
+  (wall 65 s). The jump stepped over the window: `DESCENT SKIPPED cycle=0: reached Done at
+  liveUT=5360120000 with NO frame inside the descent window
+  [5357413107.29558,5357433620.6203632] ... prevFrameUT=5355451931.8601112 frameStep=4668068s
+  cause=frame-stepped-over-window`. Both surfaces hid the ship: `engine transfer/loiter
+  member=11 cycle=0 unitDescentPhase=Done baseDecision=Render liveUT=5360120000
+  loopUT=2570430990.486022 -> HIDDEN (landed; journey over until the next cycle)` and the
+  resolver's twin. The log holds 12 `unitDescentPhase=Done` lines, 6 for member 11 (hidden)
+  and 6 for member 7, the Kerbal X Probe at Kerbin (kept); no `loiter-circle` line and no line
+  with `bounds=[5360095095.6,5360144182.0]`. The map dump lists one ghost, the Kerbal X Probe
+  (index 7, body Kerbin), and nothing at Duna; the picture shows Duna with the fixture's two
+  landed vessels and nothing in orbit.
+- **The played landing: `2026-11-12_0701_TP-4-duna-reaim-landing-map-pictures`** (wall 149 s,
+  14 views). `DESCENT RENDERED cycle=0 member=12`. The `c1-after` and `c1-late` dumps list
+  only the Kerbal X Probe at Kerbin and nothing at Duna, as before the fix. The resolver and
+  the engine print `member=11 ... unitDescentPhase=Done ... -> HIDDEN (landed; ...)` at
+  liveUT=5357440000 (8 such lines in the log, none kept for member 11, no `loiter-circle` line). The
+  log has no destroy line with a `landed hide` reason: member 11's ghost was not active when
+  the unit reached `Done` in this map-view flight.
+- **`2026-11-12_0704_V25M-duna-park-player-loop`** (wall 47 s). Its third window is `Done`
+  inside the recorded slot after a jump over the descent window, so the transfer member it used
+  to observe there is now hidden. The armed block still passes: `status=PASS gating=True ...
+  dwells=2 cycles=0 unevaluable=68 findings={'FAIL': 0, 'WARN': 0, 'INFO': 1} mismatches=0`,
+  seam kinds rigid 8 and flexible-soi 2; the expectations row reads PASS with no mismatch. The
+  census in the spec header was re-read off this run.
+- **`2026-11-12_0705_AT-1-duna-atmospheric-descent`** (wall 47 s). It never reaches `Done`
+  (4 Loiter and 3 Descent phase lines), so the fix does not touch it.
+
+**Not measured.**
+- The 3D flight ghost near Duna after the landing. No flight has photographed it and no flown
+  log holds its teardown: in all four lanes the active vessel sits at Kerbin, and in TP-4 the
+  transfer member's ghost was not active at `Done`. That the engine hides and destroys the
+  ghost there is proven by the unit tests only. A lane with the active vessel in low Duna orbit
+  would settle it.
+- A watched transfer member. The watch camera's owner is kept alive hidden through `Done` the
+  same way it is through `Descent`; whether the camera should move to the landed vessel's site
+  instead has no test and no picture.
 
 ---
 
@@ -236,7 +260,8 @@ window closed, holds nothing of the lander. Two readings from that flight:
   (`map_mirror.proto_icon_faded`); the arrival views move to 3e6 m (top, edge, oblique).
 - The parking-orbit icon is not there right after the landing; run `_2238`'s trace puts it at
   the recorded loop-clock slot a month later. A 14th view, `tp4-c1-late-duna-low-top` at
-  5,360,120,000, photographs that slot (REAIM-PARKING-ICON-AFTER-LANDING).
+  5,360,120,000, photographs that slot (REAIM-PARKING-ICON-AFTER-LANDING, fixed 2026-11-12 in
+  PR #2579).
 
 **TP-4 with the closer arrival views and the late-slot view, 2026-11-11, head 63701aa8f:
 `2026-11-11_2332` PASS** (14 views, wall 150 s, attempt 1, outputs on
@@ -248,7 +273,8 @@ sha256 `93174ffd...`). No `DESCENT SKIPPED` line and no `[Parsek][ERROR]` line.
 - The six descent and landing views read as on run `_2316` (`legs=1 markersDrawn=1`).
 - `tp4-c1-late-duna-low-top` holds nothing at Duna, so the parking-orbit icon of run `_2238`
   belongs to that run's jump over the descent window, not to the loop
-  (REAIM-PARKING-ICON-AFTER-LANDING, narrowed).
+  (REAIM-PARKING-ICON-AFTER-LANDING, narrowed; fixed 2026-11-12 in PR #2579, and run
+  `2026-11-12_0701` of this lane shows the same empty view).
 - The page was rebuilt with this head's tool from runs `_2236`, `_2240`, `_2243`, `_2244`,
   `_2246`, `_2248`, `_2250` and `_2332`: 87 captures over 8 lanes, none unreadable, 11.3 MB.
 
