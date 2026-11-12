@@ -34,7 +34,8 @@ rows ordered by ``started`` then ``runId``). Every key and where it comes from
   HEAD then says nothing).
 - ``dll``: manifest ``parsekDllSha256``, first ``DLL_HEX`` hex digits (the
   deployed DLL).
-- ``worktree``: the manifest ``worktree`` path's last folder name only.
+- ``worktree``: the manifest ``worktree`` path's last folder name only; null
+  when that folder is a run folder or a log snapshot (``worktree_name``).
 - ``origin``: manifest ``origin`` (``run`` or ``backfill``).
 - ``health``: the compact KSP.log figures below, or null when the archive holds
   no readable ``KSP.log.gz``.
@@ -414,6 +415,19 @@ def folder_name(path: Optional[str]) -> Optional[str]:
     return parts[-1] if parts else None
 
 
+_STAMP_PREFIX_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{4}")
+
+
+def worktree_name(path: Optional[str], run_id: str) -> Optional[str]:
+    """The manifest worktree's folder name, or None when that folder is not a
+    worktree: a back-fill from a run folder or a log snapshot records that
+    folder itself (named like the run id, or ``<YYYY-MM-DD_HHMM>[_label]``)."""
+    name = folder_name(path)
+    if name is None or name in (run_id, run_stem(run_id)) or _STAMP_PREFIX_RE.match(name):
+        return None
+    return name
+
+
 def _int_or_none(value) -> Optional[int]:
     if isinstance(value, bool):
         return None
@@ -520,7 +534,7 @@ def build_row(run_id: str, result: Optional[Dict], manifest: Optional[Dict],
     for key, value, regex in (
             ("tier", result.get("tier"), _TOKEN_RE),
             ("profile", result.get("instanceProfile"), _TOKEN_RE),
-            ("worktree", folder_name(m.get("worktree")), _FOLDER_RE),
+            ("worktree", worktree_name(m.get("worktree"), run_id), _FOLDER_RE),
             ("origin", m.get("origin"), _TOKEN_RE),
             ("subkind", result.get("subkind"), _TOKEN_RE),
             ("harnessLog", m.get("harnessLog"), _TOKEN_RE),
@@ -1203,10 +1217,26 @@ def merge_lane_health(local: Optional[Dict], other: Optional[Dict]) -> Optional[
     return doc
 
 
-def lanes_for(doc: Dict, module: Optional[str] = None, subsystem: Optional[str] = None) -> List[Dict[str, Any]]:
+# A lane must log at least this many lines of a module or tag for lanes-for to
+# list it: one boot or scene load writes a few one-shot lines of most modules
+# (an init line, a settings or load summary), so without a floor every lane
+# matches. A lane under the floor that logged a warning or an error of it is
+# still listed. Not yet calibrated on the real archive.
+LANES_FOR_MIN_LINES = 5
+
+
+def lanes_for(doc: Dict, module: Optional[str] = None, subsystem: Optional[str] = None,
+              min_lines: int = 0) -> List[Dict[str, Any]]:
     """Lanes whose latest PASS logged ``module`` (primary attribution, plus
     lanes reaching it only through a shared tag, marked) or ``subsystem``,
-    most lines first."""
+    most lines first. Lanes under ``min_lines`` with no warning or error are
+    left out; ``lanes_for_below`` counts them."""
+    return lanes_for_below(doc, module, subsystem, min_lines)[0]
+
+
+def lanes_for_below(doc: Dict, module: Optional[str] = None, subsystem: Optional[str] = None,
+                    min_lines: int = 0) -> Tuple[List[Dict[str, Any]], int]:
+    """(``lanes_for``'s list, how many matching lanes were under the floor)."""
     out = []
     for lane, entry in (doc.get("lanes") or {}).items():
         if subsystem is not None:
@@ -1226,8 +1256,9 @@ def lanes_for(doc: Dict, module: Optional[str] = None, subsystem: Optional[str] 
         if shared:
             out.append({"lane": lane, "lines": shared, "warn": None, "error": None,
                         "runId": entry.get("runId"), "sharedTagOnly": True})
-    out.sort(key=lambda x: (bool(x.get("sharedTagOnly")), -x["lines"], x["lane"]))
-    return out
+    kept = [x for x in out if x["lines"] >= min_lines or (x.get("warn") or 0) or (x.get("error") or 0)]
+    kept.sort(key=lambda x: (bool(x.get("sharedTagOnly")), -x["lines"], x["lane"]))
+    return kept, len(out) - len(kept)
 
 
 def lane_top_modules(doc: Dict, lane: str) -> List[Tuple[str, List[int]]]:

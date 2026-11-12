@@ -2891,10 +2891,15 @@ compare).
   rebuild is byte-identical. `health-regressions` flags 41 lanes: RW-5 / RW-6 / RW-7 are
   REFLY-ANCHOR-EPSILON-1300KM, TP-4's doubled log is its re-pinned spec (a fourth `WarpToUT`
   step, map tracing on), QL-2c's step predates 2026-11-01, the other 28 are 1 to 4 warnings
-  over their median. Open follow-ups in the tool: `lanes-for --module` lists every lane that
-  logs one boot line of the module (it needs a minimum line count); a back-filled row with no
-  manifest stores its run id as `worktree` (it should store none); the index is not published
-  (the branch is the owner's call).
+  over their median. Follow-ups in the tool, all closed 2026-11-12: ~~`lanes-for --module`
+  lists every lane that logs one boot line of the module~~ DONE (`--min-lines`, default 5, a
+  lane with a warning or error of it still listed; not yet calibrated on the real archive);
+  ~~a back-filled row with no manifest stores its run id as `worktree`~~ DONE (a worktree
+  folder named like a run id or a log snapshot is stored as none; such rows link only to each
+  other); ~~the index is not published~~ DECIDED (owner ruling: the `metrics` branch, in its
+  own `flights/` folder apart from CI's `metrics.jsonl`; subjects start `flights: `; a root
+  layout this tool wrote is moved into the folder on the next publish). Not yet published from
+  the PC.
 
 **Fix.**
 1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same

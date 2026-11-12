@@ -46,6 +46,9 @@ the `metrics` job of `.github/workflows/tests.yml` (`scripts/arch/metrics_append
 Each row is built by `scripts/arch/metrics.py`; its docstring and
 `docs/dev/arch/README.md` ("Metrics history") document the keys. The rows gate nothing.
 
+The `flights/` folder is the harness run index (flight results), published by
+`harness/tools/run_index.py publish`; its own README describes it, and this job never touches it.
+
 Do not edit by hand; the job only appends.
 """
 

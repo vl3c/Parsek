@@ -16,15 +16,16 @@ the archive can read it.
     python harness/tools/run_index.py trend LANE [--last N] [--index FILE]
     python harness/tools/run_index.py health-regressions [--index FILE]
     python harness/tools/run_index.py health-build [--index FILE] [--archive DIR] [--out FILE]
-    python harness/tools/run_index.py lanes-for (--module M | --subsystem S) [--health FILE]
-    python harness/tools/run_index.py publish --index FILE [--health FILE] --repo DIR --remote R --branch B
-    python harness/tools/run_index.py fetch --repo DIR --remote R --branch B --out FILE [--health-out FILE]
+    python harness/tools/run_index.py lanes-for (--module M | --subsystem S) [--min-lines 5] [--health FILE]
+    python harness/tools/run_index.py publish --index FILE [--health FILE] --repo DIR --remote R --branch metrics [--dir flights]
+    python harness/tools/run_index.py fetch --repo DIR --remote R --branch metrics [--dir flights] --out FILE [--health-out FILE]
 
 Defaults: ``--archive`` is ``<umbrella>/automation/results-archive`` (the
 umbrella is this worktree's parent), ``--index`` / ``--out`` is
 ``<archive>/index.jsonl``, ``--health`` is ``<archive>/lane-health.json``.
-``publish`` / ``fetch`` take ``--branch`` with no default: which branch may hold
-the index is the owner's decision.
+``publish`` / ``fetch`` take ``--branch`` with no default; the owner's ruling of
+2026-11-12 names ``metrics``, with the flight files in its ``flights/`` folder
+(``--dir``), apart from the unit-test metrics CI appends at the branch root.
 
 Nothing here changes a run's verdict. run.py calls ``append_runs`` after it
 archives a scenario's attempts and logs one line whatever happens.
@@ -36,6 +37,7 @@ import argparse
 import gzip
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -58,7 +60,8 @@ KSP_LOG_GZ = "KSP.log.gz"
 MANIFEST_NAME = "manifest.json"
 BRANCH_README = """# Parsek harness run index
 
-This branch holds the harness run index, written by `harness/tools/run_index.py publish`
+This folder holds the harness run index (the flight results; the unit-test metrics are
+`metrics.jsonl` at the branch root), written by `harness/tools/run_index.py publish`
 from the machine-wide results archive (`<umbrella>/automation/results-archive/`):
 
 - `index.jsonl`: one JSON line per archived run attempt (schema `parsek-run-index/1`).
@@ -66,17 +69,43 @@ from the machine-wide results archive (`<umbrella>/automation/results-archive/`)
   and per module (schema `parsek-lane-health/1`).
 
 `harness/lib/runindex.py` documents every key. Read it with
-`python harness/tools/run_index.py fetch --repo . --remote origin --branch <this branch> --out index.jsonl`
+`python harness/tools/run_index.py fetch --repo . --remote origin --branch metrics --out index.jsonl`
 and then `run_index.py lane <LANE> --index index.jsonl`. Publishing merges by run id
-(and by lane), so two machines may both publish. Publishing writes only this file,
-`index.jsonl` and `lane-health.json`; every other file on the branch is kept. Do not
-edit these three by hand.
+(and by lane), so two machines may both publish. Each publish is one commit whose
+subject starts with `flights: `, so `git log -- flights/` is the flight history alone.
+Publishing writes only the three files of this folder; every other file on the branch
+is kept. Do not edit these three by hand.
 """
-# The tool's own files on the branch: it writes these and nothing else. Its
-# readme has its own name so a README.md the branch already holds is never
-# touched.
-BRANCH_README_NAME = "RUN-INDEX.md"
-OWN_FILES = (BRANCH_README_NAME, runindex.INDEX_FILE_NAME, runindex.LANE_HEALTH_FILE_NAME)
+# Where the flight files live on the data branch (owner ruling 2026-11-12: the
+# `metrics` branch, kept apart from the unit-test metrics at its root). An empty
+# folder is the branch root, the first layout, still read by `fetch`.
+DEFAULT_BRANCH_DIR = "flights"
+COMMIT_SUBJECT_PREFIX = "flights: "
+# The root-layout files: the readme had its own name there so the branch's own
+# README.md was never touched.
+ROOT_README_NAME = "RUN-INDEX.md"
+LEGACY_ROOT_FILES = (ROOT_README_NAME, runindex.INDEX_FILE_NAME, runindex.LANE_HEALTH_FILE_NAME)
+_DIR_PART_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
+def branch_dir(value: Optional[str]) -> str:
+    """The ``--dir`` value normalized (``flights/`` -> ``flights``; "" the root).
+    Raises on a part that is not a plain folder name (no ``..``, no absolute path)."""
+    parts = [p for p in re.split(r"[\\/]+", value or "") if p]
+    for part in parts:
+        if not _DIR_PART_RE.match(part):
+            raise RuntimeError("--dir %r: %r is not a plain folder name" % (value, part))
+    return "/".join(parts)
+
+
+def own_files(directory: str) -> Tuple[str, str, str]:
+    """(readme, index, lane health) paths on the branch for ``directory``."""
+    if not directory:
+        return LEGACY_ROOT_FILES
+    return tuple("%s/%s" % (directory, name)
+                 for name in ("README.md", runindex.INDEX_FILE_NAME, runindex.LANE_HEALTH_FILE_NAME))
+
+
 COMMIT_NAME = "Parsek run index"
 COMMIT_EMAIL = "run-index@localhost"
 
@@ -352,26 +381,72 @@ def read_blob(repo: str, commit: Optional[str], name: str) -> Optional[bytes]:
     return proc.stdout if proc.returncode == 0 else None
 
 
-def _commit_files(repo: str, parent: Optional[str], files: Dict[str, bytes], message: str) -> str:
-    """One commit on ``parent`` whose tree is the parent's tree with only
-    ``files`` (the tool's own, ``OWN_FILES``) added or replaced. Every other
-    entry of the branch (a README.md, another tool's data, a folder) is carried
-    over byte for byte: the tree is rebuilt from ``ls-tree`` of the parent."""
-    stray = sorted(set(files) - set(OWN_FILES))
-    if stray:
-        raise RuntimeError("run index: refusing to write files it does not own: %s" % ", ".join(stray))
+def _build_tree(repo: str, tree: Optional[str], changes: Dict[str, Optional[bytes]]) -> Optional[str]:
+    """``tree`` (None: empty) with ``changes`` applied: a path -> bytes writes a
+    100644 blob, a path -> None removes it; a path may be nested
+    (``flights/index.jsonl``). Every other entry, at the root and in each
+    folder, is carried over byte for byte with its mode (``ls-tree`` records
+    fed back to ``mktree``). None when the result is empty."""
     entries: Dict[bytes, bytes] = {}
-    if parent:
-        listing = _git(repo, ["ls-tree", "-z", parent]).stdout
+    if tree:
+        listing = _git(repo, ["ls-tree", "-z", tree]).stdout
         for record in listing.split(b"\0"):
             if record:
                 entries[record.split(b"\t", 1)[1]] = record
-    for name in sorted(files):
-        sha = _git(repo, ["hash-object", "-w", "--stdin"], data=files[name]).stdout.decode().strip()
-        entries[name.encode("utf-8")] = ("100644 blob %s\t%s" % (sha, name)).encode("utf-8")
+    nested: Dict[str, Dict[str, Optional[bytes]]] = {}
+    for path, data in changes.items():
+        head, _sep, rest = path.partition("/")
+        if rest:
+            nested.setdefault(head, {})[rest] = data
+            continue
+        key = head.encode("utf-8")
+        if data is None:
+            entries.pop(key, None)
+            continue
+        old = entries.get(key)
+        if old is not None and not old.startswith(b"100644 blob ") and not old.startswith(b"100755 blob "):
+            raise RuntimeError("run index: %s on the branch is not a file; refusing to replace it" % path)
+        sha = _git(repo, ["hash-object", "-w", "--stdin"], data=data).stdout.decode().strip()
+        entries[key] = ("100644 blob %s\t%s" % (sha, head)).encode("utf-8")
+    for head, sub in nested.items():
+        key = head.encode("utf-8")
+        old = entries.get(key)
+        sub_tree = None
+        if old is not None:
+            meta = old.split(b"\t", 1)[0].split(b" ")
+            if meta[1] != b"tree":
+                raise RuntimeError("run index: %s on the branch is not a folder; refusing to replace it" % head)
+            sub_tree = meta[2].decode()
+        new = _build_tree(repo, sub_tree, sub)
+        if new is None:
+            entries.pop(key, None)
+        else:
+            entries[key] = ("040000 tree %s\t%s" % (new, head)).encode("utf-8")
+    if not entries:
+        return None
     data = b"".join(entries[k] + b"\0" for k in sorted(entries))
     # --missing: a submodule entry carried over names a commit this repo lacks.
-    tree = _git(repo, ["mktree", "-z", "--missing"], data=data).stdout.decode().strip()
+    return _git(repo, ["mktree", "-z", "--missing"], data=data).stdout.decode().strip()
+
+
+def _commit_files(repo: str, parent: Optional[str], files: Dict[str, Optional[bytes]], message: str,
+                  directory: str = DEFAULT_BRANCH_DIR) -> str:
+    """One commit on ``parent`` whose tree is the parent's tree with only the
+    tool's own entries changed: the three files of ``directory`` written, and
+    (only when ``directory`` is not the root) the three root-layout files
+    removed. Every other entry of the branch (the root README.md, CI's
+    metrics.jsonl, another file in the folder) is carried over byte for byte.
+    Any other path is refused."""
+    allowed_writes = set(own_files(directory))
+    allowed_removals = set(LEGACY_ROOT_FILES) if directory else set()
+    stray = sorted(p for p, d in files.items()
+                   if p not in (allowed_writes if d is not None else allowed_removals))
+    if stray:
+        raise RuntimeError("run index: refusing to write files it does not own: %s" % ", ".join(stray))
+    tree = _build_tree(repo, _git(repo, ["rev-parse", "%s^{tree}" % parent]).stdout.decode().strip()
+                       if parent else None, files)
+    if tree is None:
+        raise RuntimeError("run index: refusing to commit an empty tree")
     args = ["commit-tree", tree, "-m", message]
     if parent:
         args[2:2] = ["-p", parent]
@@ -380,50 +455,96 @@ def _commit_files(repo: str, parent: Optional[str], files: Dict[str, bytes], mes
     return _git(repo, args, env=env).stdout.decode().strip()
 
 
+def _parse_health(blob: Optional[bytes]) -> Optional[Dict]:
+    if blob is None:
+        return None
+    try:
+        doc = json.loads(blob.decode("utf-8"))
+    except ValueError:
+        return None
+    return doc if isinstance(doc, dict) else None
+
+
+def _is_run_index_text(blob: Optional[bytes]) -> bool:
+    """True when every line is a run index line (rows or newer-schema lines)."""
+    if blob is None:
+        return False
+    parsed = runindex.parse_index(blob.decode("utf-8", "replace"))
+    return not parsed.dropped and bool(parsed.rows or parsed.newer)
+
+
+def legacy_root_files(repo: str, tip: Optional[str]) -> Dict[str, bytes]:
+    """The root-layout files this tool wrote that the tip still holds: each
+    checked to be the tool's own (the readme's heading, the index's lines, the
+    lane-health schema), so a same-named file of anyone else is never taken."""
+    found: Dict[str, bytes] = {}
+    readme = read_blob(repo, tip, ROOT_README_NAME)
+    if readme is not None and readme.startswith(b"# Parsek harness run index"):
+        found[ROOT_README_NAME] = readme
+    index = read_blob(repo, tip, runindex.INDEX_FILE_NAME)
+    if _is_run_index_text(index):
+        found[runindex.INDEX_FILE_NAME] = index
+    health = _parse_health(read_blob(repo, tip, runindex.LANE_HEALTH_FILE_NAME))
+    if health is not None and str(health.get("schema", "")).startswith("parsek-lane-health/"):
+        found[runindex.LANE_HEALTH_FILE_NAME] = read_blob(repo, tip, runindex.LANE_HEALTH_FILE_NAME)
+    return found
+
+
 def _merged_files(local_rows: List[Dict], local_health: Optional[Dict], remote: Optional[str], repo: str,
-                  local_newer: Sequence["runindex.NewerLine"] = ()) -> Tuple[Dict[str, bytes], int, int]:
-    remote_index = runindex.ParsedIndex([], [], [])
-    text = read_blob(repo, remote, runindex.INDEX_FILE_NAME)
-    if text is not None:
-        remote_index = runindex.parse_index(text.decode("utf-8", "replace"))
-    remote_rows = remote_index.rows
+                  local_newer: Sequence["runindex.NewerLine"] = (), directory: str = DEFAULT_BRANCH_DIR
+                  ) -> Tuple[Dict[str, Optional[bytes]], int, int]:
+    """The tool's changes for one publish: its three files in ``directory``,
+    the branch's copies (and, outside the root, the root-layout ones it finds)
+    merged in, and the root-layout files removed."""
+    readme_path, index_path, health_path = own_files(directory)
+    legacy = legacy_root_files(repo, remote) if directory else {}
+    remote_rows: List[Dict] = []
+    remote_newer: List["runindex.NewerLine"] = []
+    for blob in (read_blob(repo, remote, index_path), legacy.get(runindex.INDEX_FILE_NAME)):
+        if blob is not None:
+            parsed = runindex.parse_index(blob.decode("utf-8", "replace"))
+            remote_rows = list(runindex.merge_rows(remote_rows, parsed.rows))
+            remote_newer = runindex.merge_newer(remote_newer, parsed.newer)
     merged = runindex.merge_rows(local_rows, remote_rows)
-    newer = runindex.merge_newer(local_newer, remote_index.newer)
-    files = {BRANCH_README_NAME: BRANCH_README.encode("utf-8"),
-             runindex.INDEX_FILE_NAME: runindex.serialize_index(merged, newer).encode("utf-8")}
-    remote_health = None
-    blob = read_blob(repo, remote, runindex.LANE_HEALTH_FILE_NAME)
-    if blob is not None:
-        try:
-            remote_health = json.loads(blob.decode("utf-8"))
-        except ValueError:
-            remote_health = None
-    health = runindex.merge_lane_health(local_health, remote_health)
+    newer = runindex.merge_newer(local_newer, remote_newer)
+    files: Dict[str, Optional[bytes]] = {
+        readme_path: BRANCH_README.encode("utf-8"),
+        index_path: runindex.serialize_index(merged, newer).encode("utf-8")}
+    health = runindex.merge_lane_health(local_health, _parse_health(read_blob(repo, remote, health_path)))
+    if runindex.LANE_HEALTH_FILE_NAME in legacy:
+        health = runindex.merge_lane_health(health, _parse_health(legacy[runindex.LANE_HEALTH_FILE_NAME]))
     if health is not None:
-        files[runindex.LANE_HEALTH_FILE_NAME] = runindex.serialize_lane_health(health).encode("utf-8")
+        files[health_path] = runindex.serialize_lane_health(health).encode("utf-8")
+    for name in legacy:
+        files[name] = None
     return files, len(merged), len(remote_rows)
 
 
 def publish(repo: str, remote: str, branch: str, rows: List[Dict], health: Optional[Dict],
             attempts: int = 4, delay: float = 2.0,
             before_push: Optional[Callable[[int], None]] = None, log=print,
-            newer: Sequence["runindex.NewerLine"] = ()) -> str:
+            newer: Sequence["runindex.NewerLine"] = (), directory: str = DEFAULT_BRANCH_DIR) -> str:
     """Merge the local index (and lane health) with the branch's copy and push
     one commit on top of the remote tip. Returns "pushed", "created" or
     "unchanged". A rejected push is retried after a re-fetch and re-merge.
-    Only ``OWN_FILES`` are written; every other file on the branch is kept."""
+    Only the tool's own files are written (``_commit_files``); every other
+    file on the branch is kept."""
     if not branch:
         raise RuntimeError("--branch is required")
+    directory = branch_dir(directory)
+    where = "%s/" % directory if directory else "the branch root"
     for attempt in range(1, attempts + 1):
         tip = remote_tip(repo, remote, branch)
-        files, merged_count, remote_count = _merged_files(rows, health, tip, repo, newer)
+        files, merged_count, remote_count = _merged_files(rows, health, tip, repo, newer, directory)
         if tip is not None and all(read_blob(repo, tip, n) == b for n, b in files.items()):
             log("run index: %s on %s already holds these %d rows; nothing to push"
-                % (runindex.INDEX_FILE_NAME, branch, merged_count))
+                % (where, branch, merged_count))
             return "unchanged"
-        message = "run index: %d runs (%d from this machine, %d on the branch before)" % (
-            merged_count, len(rows), remote_count)
-        commit = _commit_files(repo, tip, files, message)
+        moved = sorted(n for n, b in files.items() if b is None)
+        message = "%s%d runs (%d from this machine, %d on the branch before)%s" % (
+            COMMIT_SUBJECT_PREFIX, merged_count, len(rows), remote_count,
+            "; moved %s from the branch root" % ", ".join(moved) if moved else "")
+        commit = _commit_files(repo, tip, files, message, directory)
         if before_push is not None:
             before_push(attempt)
         push = _git(repo, ["push", "--quiet", remote, "%s:refs/heads/%s" % (commit, branch)], check=False)
@@ -437,11 +558,20 @@ def publish(repo: str, remote: str, branch: str, rows: List[Dict], health: Optio
     raise RuntimeError("run index: could not push to %s after %d attempts" % (branch, attempts))
 
 
-def fetch(repo: str, remote: str, branch: str) -> Tuple[Optional[bytes], Optional[bytes], Optional[str]]:
+def fetch(repo: str, remote: str, branch: str, directory: str = DEFAULT_BRANCH_DIR
+          ) -> Tuple[Optional[bytes], Optional[bytes], Optional[str]]:
+    """(index, lane health, tip) off the branch: the files of ``directory``,
+    or the root-layout files when the folder holds no index."""
+    directory = branch_dir(directory)
     tip = remote_tip(repo, remote, branch)
     if tip is None:
         return None, None, None
-    return read_blob(repo, tip, runindex.INDEX_FILE_NAME), read_blob(repo, tip, runindex.LANE_HEALTH_FILE_NAME), tip
+    _readme, index_path, health_path = own_files(directory)
+    index = read_blob(repo, tip, index_path)
+    if index is None and directory:
+        index_path, health_path = runindex.INDEX_FILE_NAME, runindex.LANE_HEALTH_FILE_NAME
+        index = read_blob(repo, tip, index_path)
+    return index, read_blob(repo, tip, health_path), tip
 
 
 # ---------------------------------------------------------------------------
@@ -679,12 +809,13 @@ def cmd_lanes_for(args) -> int:
     if not isinstance(data, dict):
         print("run_index: lane health %s: %s" % (_health_path(args), err), file=sys.stderr)
         return 1
-    found = runindex.lanes_for(data, args.module, args.subsystem)
+    found, below = runindex.lanes_for_below(data, args.module, args.subsystem, args.min_lines)
     if args.json:
         _print_json(found)
         return 0
     what = ("module %s" % args.module) if args.module else ("subsystem %s" % args.subsystem)
-    print("%d lane(s) log %s (latest PASS of each):" % (len(found), what))
+    print("%d lane(s) log %s (latest PASS of each); %d more logged it under %d line(s) "
+          "with no warning or error (--min-lines)" % (len(found), what, below, args.min_lines))
     for f in found:
         tail = " (only through a tag shared with another module)" if f.get("sharedTagOnly") else \
             " warn=%s error=%s" % (f["warn"], f["error"])
@@ -703,7 +834,7 @@ def cmd_publish(args) -> int:
             return 1
     try:
         publish(os.path.abspath(args.repo), args.remote, args.branch, runindex.normalize(rows), health,
-                args.attempts, args.delay, newer=parsed.newer)
+                args.attempts, args.delay, newer=parsed.newer, directory=args.dir)
     except RuntimeError as exc:
         print("run_index: %s" % exc, file=sys.stderr)
         return 1
@@ -712,7 +843,7 @@ def cmd_publish(args) -> int:
 
 def cmd_fetch(args) -> int:
     try:
-        index, health, tip = fetch(os.path.abspath(args.repo), args.remote, args.branch)
+        index, health, tip = fetch(os.path.abspath(args.repo), args.remote, args.branch, args.dir)
     except RuntimeError as exc:
         print("run_index: %s" % exc, file=sys.stderr)
         return 1
@@ -740,6 +871,11 @@ def build_parser() -> argparse.ArgumentParser:
     def archive_arg(p):
         p.add_argument("--archive", default=None,
                        help="results archive (default <umbrella>/automation/results-archive)")
+
+    def dir_arg(p):
+        p.add_argument("--dir", default=DEFAULT_BRANCH_DIR,
+                       help="folder of the branch for the flight files (default %s; '' is the branch root, "
+                            "the first layout)" % DEFAULT_BRANCH_DIR)
 
     def index_arg(p):
         archive_arg(p)
@@ -804,6 +940,11 @@ def build_parser() -> argparse.ArgumentParser:
     group = p.add_mutually_exclusive_group(required=True)
     group.add_argument("--module")
     group.add_argument("--subsystem")
+    p.add_argument("--min-lines", type=int, default=runindex.LANES_FOR_MIN_LINES,
+                   help="leave out a lane that logged fewer lines than this of the module or tag and no "
+                        "warning or error of it (default %d: one boot or scene load writes a few one-shot "
+                        "lines of most modules, so without a floor every lane matches; 0 lists all)"
+                        % runindex.LANES_FOR_MIN_LINES)
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_lanes_for)
 
@@ -812,7 +953,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--health", default=None, help="lane-health file to publish beside it")
     p.add_argument("--repo", required=True, help="any checkout or worktree of the repository")
     p.add_argument("--remote", required=True)
-    p.add_argument("--branch", required=True, help="the data branch (no default: the owner names it)")
+    p.add_argument("--branch", required=True,
+                   help="the data branch (no default; the owner's ruling of 2026-11-12 names metrics)")
+    dir_arg(p)
     p.add_argument("--attempts", type=int, default=4)
     p.add_argument("--delay", type=float, default=2.0)
     p.set_defaults(func=cmd_publish)
@@ -820,7 +963,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("fetch", help="read the index (and lane health) off a git branch")
     p.add_argument("--repo", required=True)
     p.add_argument("--remote", required=True)
-    p.add_argument("--branch", required=True)
+    p.add_argument("--branch", required=True, help="the data branch (metrics, per the owner's ruling)")
+    dir_arg(p)
     p.add_argument("--out", required=True)
     p.add_argument("--health-out", default=None)
     p.set_defaults(func=cmd_fetch)
