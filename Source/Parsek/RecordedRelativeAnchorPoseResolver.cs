@@ -151,7 +151,7 @@ namespace Parsek
                 pendingTree: PendingTreeSlot.HasPendingTree ? PendingTreeSlot.PendingTree : null,
                 absoluteWorldPositionResolver: ResolveAbsoluteWorldPosition,
                 bodyWorldRotationResolver: ResolveBodyWorldRotation,
-                orbitalCheckpointPoseResolver: TryResolveOrbitalAnchorPose,
+                orbitalCheckpointPoseResolver: ParsekFlight.TryResolveOrbitalCheckpointAnchorPose,
                 // Logistics route live-anchor bind (Step 1): map-presence / KSC
                 // playback binds the anchor pose to the live launch-matched vessel
                 // when its craft is loaded, so a looped delivery ghost tracks the
@@ -317,61 +317,9 @@ namespace Parsek
             }
         }
 
-        private static bool TryResolveOrbitalAnchorPose(
-            Recording recording,
-            TrackSection section,
-            int sectionIndex,
-            double ut,
-            out AnchorPose pose)
-        {
-            pose = default;
-            if (section.checkpoints == null || section.checkpoints.Count == 0)
-                return false;
-
-            for (int i = 0; i < section.checkpoints.Count; i++)
-            {
-                OrbitSegment segment = section.checkpoints[i];
-                if (ut < segment.startUT || ut > segment.endUT)
-                    continue;
-
-                CelestialBody body = ResolveBody(segment.bodyName);
-                if (body == null)
-                    return false;
-
-                Orbit orbit = new Orbit(
-                    segment.inclination,
-                    segment.eccentricity,
-                    segment.semiMajorAxis,
-                    segment.longitudeOfAscendingNode,
-                    segment.argumentOfPeriapsis,
-                    segment.meanAnomalyAtEpoch,
-                    segment.epoch,
-                    body);
-                Vector3d worldPos = orbit.getPositionAtUT(ut);
-                Vector3d velocity = orbit.getOrbitalVelocityAtUT(ut);
-                var rotation = ParsekFlight.ComputeOrbitalRotation(
-                    segment,
-                    orbit,
-                    ut,
-                    velocity,
-                    worldPos,
-                    body.position,
-                    Quaternion.identity,
-                    sectionIndex,
-                    TrajectoryMath.HasOrbitalFrameRotation(segment),
-                    TrajectoryMath.IsSpinning(segment));
-
-                pose = new AnchorPose(
-                    worldPos,
-                    rotation.ghostRot,
-                    sectionIndex,
-                    recording?.RecordingId);
-                return true;
-            }
-
-            return false;
-        }
-
+        // Same lookup as ParsekFlight.FindBodyForAnchorResolver, kept here because the nested
+        // pose source reads it: a call from that type to ParsekFlight would add a backward
+        // Ghost -> Controllers type pair to the architecture graph.
         private static CelestialBody ResolveBody(string bodyName)
         {
             if (string.IsNullOrEmpty(bodyName))

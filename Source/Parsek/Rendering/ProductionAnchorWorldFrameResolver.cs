@@ -474,6 +474,8 @@ namespace Parsek.Rendering
                 : Quaternion.identity;
         }
 
+        // The shared pose with this resolver's own body lookup (ResolveBody above), which
+        // catches every exception rather than only a failed FlightGlobals initializer.
         private static bool TryResolveOrbitalAnchorPose(
             Recording recording,
             TrackSection section,
@@ -482,51 +484,18 @@ namespace Parsek.Rendering
             out AnchorPose pose)
         {
             pose = default;
-            if (section.checkpoints == null || section.checkpoints.Count == 0)
+            int index = TrajectoryMath.FindFirstOrbitSegmentIndexClosed(section.checkpoints, ut);
+            if (index < 0)
                 return false;
 
-            for (int i = 0; i < section.checkpoints.Count; i++)
-            {
-                OrbitSegment segment = section.checkpoints[i];
-                if (ut < segment.startUT || ut > segment.endUT)
-                    continue;
-
-                CelestialBody body = ResolveBody(segment.bodyName);
-                if (body == null)
-                    return false;
-
-                Orbit orbit = new Orbit(
-                    segment.inclination,
-                    segment.eccentricity,
-                    segment.semiMajorAxis,
-                    segment.longitudeOfAscendingNode,
-                    segment.argumentOfPeriapsis,
-                    segment.meanAnomalyAtEpoch,
-                    segment.epoch,
-                    body);
-                Vector3d worldPos = orbit.getPositionAtUT(ut);
-                Vector3d velocity = orbit.getOrbitalVelocityAtUT(ut);
-                var rotation = ParsekFlight.ComputeOrbitalRotation(
-                    segment,
-                    orbit,
-                    ut,
-                    velocity,
-                    worldPos,
-                    body.position,
-                    Quaternion.identity,
-                    sectionIndex,
-                    TrajectoryMath.HasOrbitalFrameRotation(segment),
-                    TrajectoryMath.IsSpinning(segment));
-
-                pose = new AnchorPose(
-                    worldPos,
-                    rotation.ghostRot,
-                    sectionIndex,
-                    recording?.RecordingId);
-                return true;
-            }
-
-            return false;
+            OrbitSegment segment = section.checkpoints[index];
+            return ParsekFlight.TryComputeOrbitalCheckpointAnchorPose(
+                recording,
+                segment,
+                ResolveBody(segment.bodyName),
+                sectionIndex,
+                ut,
+                out pose);
         }
 
         private static Vessel TryFindVesselByPid(uint pid)

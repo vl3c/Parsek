@@ -2440,7 +2440,7 @@ namespace Parsek
 
         internal static Vector3d ResolveAnchorResolverPointWorldPosition(TrajectoryPoint point)
         {
-            CelestialBody body = FindBodyForAnchorResolver(point.bodyName);
+            CelestialBody body = ParsekFlight.FindBodyForAnchorResolver(point.bodyName);
             if (body == null)
                 return new Vector3d(double.NaN, double.NaN, double.NaN);
 
@@ -2449,80 +2449,10 @@ namespace Parsek
 
         internal static Quaternion ResolveAnchorResolverBodyWorldRotation(TrajectoryPoint point)
         {
-            CelestialBody body = FindBodyForAnchorResolver(point.bodyName);
+            CelestialBody body = ParsekFlight.FindBodyForAnchorResolver(point.bodyName);
             return body != null && body.bodyTransform != null
                 ? body.bodyTransform.rotation
                 : Quaternion.identity;
-        }
-
-        internal static bool TryResolveFlightOrbitalAnchorPose(
-            Recording recording,
-            TrackSection section,
-            int sectionIndex,
-            double ut,
-            out AnchorPose pose)
-        {
-            pose = default;
-            if (section.checkpoints == null || section.checkpoints.Count == 0)
-                return false;
-
-            for (int i = 0; i < section.checkpoints.Count; i++)
-            {
-                OrbitSegment segment = section.checkpoints[i];
-                if (ut < segment.startUT || ut > segment.endUT)
-                    continue;
-
-                CelestialBody body = FindBodyForAnchorResolver(segment.bodyName);
-                if (body == null)
-                    return false;
-
-                Orbit orbit = new Orbit(
-                    segment.inclination,
-                    segment.eccentricity,
-                    segment.semiMajorAxis,
-                    segment.longitudeOfAscendingNode,
-                    segment.argumentOfPeriapsis,
-                    segment.meanAnomalyAtEpoch,
-                    segment.epoch,
-                    body);
-                Vector3d worldPos = orbit.getPositionAtUT(ut);
-                Vector3d velocity = orbit.getOrbitalVelocityAtUT(ut);
-                var rotation = ParsekFlight.ComputeOrbitalRotation(
-                    segment,
-                    orbit,
-                    ut,
-                    velocity,
-                    worldPos,
-                    body.position,
-                    Quaternion.identity,
-                    sectionIndex,
-                    TrajectoryMath.HasOrbitalFrameRotation(segment),
-                    TrajectoryMath.IsSpinning(segment));
-
-                pose = new AnchorPose(
-                    worldPos,
-                    rotation.ghostRot,
-                    sectionIndex,
-                    recording?.RecordingId);
-                return true;
-            }
-
-            return false;
-        }
-
-        private static CelestialBody FindBodyForAnchorResolver(string bodyName)
-        {
-            if (string.IsNullOrEmpty(bodyName))
-                return null;
-
-            try
-            {
-                return FlightGlobals.Bodies?.Find(b => b != null && b.name == bodyName);
-            }
-            catch (TypeInitializationException)
-            {
-                return null;
-            }
         }
 
         // IsActiveTreeRecording stays in ParsekFlight (reads RecordingStore.CommittedTrees)

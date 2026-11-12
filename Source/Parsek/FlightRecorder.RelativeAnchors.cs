@@ -958,12 +958,12 @@ namespace Parsek
                 pendingTree: PendingTreeSlot.HasPendingTree ? PendingTreeSlot.PendingTree : null,
                 absoluteWorldPositionResolver: ResolveRecordedPointWorldPosition,
                 bodyWorldRotationResolver: ResolveRecordedPointBodyWorldRotation,
-                orbitalCheckpointPoseResolver: TryResolveOrbitalAnchorPoseForRecorder);
+                orbitalCheckpointPoseResolver: ParsekFlight.TryResolveOrbitalCheckpointAnchorPose);
         }
 
         private static Vector3d ResolveRecordedPointWorldPosition(TrajectoryPoint point)
         {
-            CelestialBody body = FindBodyByNameForRecorder(point.bodyName);
+            CelestialBody body = ParsekFlight.FindBodyForAnchorResolver(point.bodyName);
             if (body == null)
                 return new Vector3d(double.NaN, double.NaN, double.NaN);
             return body.GetWorldSurfacePosition(point.latitude, point.longitude, point.altitude);
@@ -971,81 +971,10 @@ namespace Parsek
 
         private static Quaternion ResolveRecordedPointBodyWorldRotation(TrajectoryPoint point)
         {
-            CelestialBody body = FindBodyByNameForRecorder(point.bodyName);
+            CelestialBody body = ParsekFlight.FindBodyForAnchorResolver(point.bodyName);
             return body != null && body.bodyTransform != null
                 ? body.bodyTransform.rotation
                 : Quaternion.identity;
-        }
-
-        private static bool TryResolveOrbitalAnchorPoseForRecorder(
-            Recording recording,
-            TrackSection section,
-            int sectionIndex,
-            double ut,
-            out AnchorPose pose)
-        {
-            pose = default;
-            if (section.checkpoints == null || section.checkpoints.Count == 0)
-                return false;
-
-            for (int i = 0; i < section.checkpoints.Count; i++)
-            {
-                OrbitSegment segment = section.checkpoints[i];
-                if (ut < segment.startUT || ut > segment.endUT)
-                    continue;
-
-                CelestialBody body = FindBodyByNameForRecorder(segment.bodyName);
-                if (body == null)
-                    return false;
-
-                Orbit orbit = new Orbit(
-                    segment.inclination,
-                    segment.eccentricity,
-                    segment.semiMajorAxis,
-                    segment.longitudeOfAscendingNode,
-                    segment.argumentOfPeriapsis,
-                    segment.meanAnomalyAtEpoch,
-                    segment.epoch,
-                    body);
-                Vector3d worldPos = orbit.getPositionAtUT(ut);
-                Vector3d velocity = orbit.getOrbitalVelocityAtUT(ut);
-                bool hasOfr = TrajectoryMath.HasOrbitalFrameRotation(segment);
-                bool spinning = TrajectoryMath.IsSpinning(segment);
-                var rotation = ParsekFlight.ComputeOrbitalRotation(
-                    segment,
-                    orbit,
-                    ut,
-                    velocity,
-                    worldPos,
-                    body.position,
-                    Quaternion.identity,
-                    sectionIndex,
-                    hasOfr,
-                    spinning);
-
-                pose = new AnchorPose(
-                    worldPos,
-                    rotation.ghostRot,
-                    sectionIndex,
-                    recording?.RecordingId);
-                return true;
-            }
-
-            return false;
-        }
-
-        private static CelestialBody FindBodyByNameForRecorder(string bodyName)
-        {
-            if (string.IsNullOrEmpty(bodyName))
-                return null;
-            try
-            {
-                return FlightGlobals.Bodies?.Find(b => b != null && b.name == bodyName);
-            }
-            catch (TypeInitializationException)
-            {
-                return null;
-            }
         }
 
         private string ResolveActiveRecordingIdForFrameCanonicalization()

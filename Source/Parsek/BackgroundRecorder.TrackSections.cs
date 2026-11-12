@@ -213,7 +213,7 @@ namespace Parsek
         {
             pose = default;
             reason = null;
-            CelestialBody body = FindBackgroundBody(point.bodyName);
+            CelestialBody body = ParsekFlight.FindBodyForAnchorResolver(point.bodyName);
             if (body == null || body.bodyTransform == null)
             {
                 reason = "queued-parent-anchor-body-unresolved";

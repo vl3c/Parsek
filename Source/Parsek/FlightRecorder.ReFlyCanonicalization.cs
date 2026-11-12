@@ -61,7 +61,7 @@ namespace Parsek
             out Vector3d worldPos)
         {
             worldPos = Vector3d.zero;
-            CelestialBody body = FindBodyByNameForRecorder(point.bodyName);
+            CelestialBody body = ParsekFlight.FindBodyForAnchorResolver(point.bodyName);
             if (body == null)
                 body = fallbackVessel?.mainBody;
             if (body == null)
@@ -102,7 +102,7 @@ namespace Parsek
             worldRotation = fallbackVessel?.transform != null
                 ? fallbackVessel.transform.rotation
                 : Quaternion.identity;
-            CelestialBody body = FindBodyByNameForRecorder(point.bodyName);
+            CelestialBody body = ParsekFlight.FindBodyForAnchorResolver(point.bodyName);
             if (body == null)
                 body = fallbackVessel?.mainBody;
             if (body?.bodyTransform == null)
