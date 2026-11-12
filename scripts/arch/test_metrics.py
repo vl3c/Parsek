@@ -198,6 +198,19 @@ class RowBuilderTests(unittest.TestCase):
             "byModule": {"Core": {"methodShare": 0.5, "instructionShare": 0.25, "methods": 40}},
             "untestedComplex": 1})
 
+    def test_facts_carry_the_type_reach_and_coverage_when_measured(self):
+        # Both additive: absent from a report without them, so the row above is unchanged.
+        self.assertIsNone(full_row()["facts"]["coverage"])
+        report = fixture_report(True)
+        report["testReach"]["types"] = {"production": 12, "reached": 5}
+        report["coverage"] = {"commit": "abcdef1", "date": "2026-11-01", "lineShare": 2 / 3.0,
+                              "byModule": {"Core": {"lineShare": 0.123456}, "UI": {"lineShare": None}}}
+        section = metrics.facts_section(report)
+        self.assertEqual(section["testReach"]["types"], {"production": 12, "reached": 5})
+        self.assertEqual(section["coverage"], {"commit": "abcdef1", "date": "2026-11-01", "lineShare": 0.6667,
+                                               "byModule": {"Core": 0.1235, "UI": None}})
+        json.loads(metrics.dumps(metrics.build_row(SHA, "2026-11-11T17:42:00Z", facts=section)))
+
     def test_facts_carry_the_lifetime_summary(self):
         self.assertIsNone(full_row()["facts"]["lifetimes"])
         report = fixture_report(True)

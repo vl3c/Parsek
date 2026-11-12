@@ -4117,6 +4117,8 @@ def _atlas_code_facts(facts):
                 % (html.escape(_facts_name(row["key"])), html.escape(row["module"] or ""), row["decisions"])
             )
         lines.append("</table></div>")
+        lines.extend(_atlas_risk(facts["testReach"].get("risk")))
+    lines.extend(_atlas_coverage(facts.get("coverage")))
 
     lines.append("<h3>Static state by owner</h3>")
     lines.append('<div class="wide"><table>')
@@ -4150,6 +4152,79 @@ def _atlas_code_facts(facts):
         lines.append("</table></div>")
     lines.extend(_atlas_headless(facts.get("headless")))
     return "\n".join(lines)
+
+
+def _atlas_share(value):
+    return "&ndash;" if value is None else _facts_pct(value)
+
+
+def _atlas_risk(risk):
+    """The "where a test is worth most" table of the Test reach part (report only)."""
+    lines = ["<h3>Where a test is worth most</h3>"]
+    if not risk:
+        lines.append('<p class="layer">Not measured: the test assembly gave no per-method caller counts.</p>')
+        return lines
+    import ilanalysis  # noqa: PLC0415 (it imports this module)
+
+    lines.append(
+        "<p>The %d production methods with the highest score of the %d with a decision. Score: %s."
+        " It gates nothing; the inputs are the columns, so a ranking you disagree with can be read off them."
+        " Line coverage is the method's line share in the coverage snapshot (its lambdas, local functions"
+        " and state machine folded in, overloads summed), else its type's, marked <i>type</i>; blank"
+        " without a snapshot.</p>" % (len(risk["rows"]), risk["candidates"],
+                                      html.escape(ilanalysis.risk_explanation(risk)))
+    )
+    lines.append('<div class="wide"><table>')
+    lines.append('<tr><th>Method</th><th>Module</th><th class="num">Decisions</th>'
+                 '<th class="num">Direct test<br>callers</th><th class="num">File<br>commits</th>'
+                 '<th>Type reached<br>by a test</th><th class="num">Line coverage<br>(method, else type)</th>'
+                 '<th class="num">Score</th></tr>')
+    for row in risk["rows"]:
+        lines.append(
+            '<tr><td><span class="id">%s</span></td><td>%s</td><td class="num">%d</td><td class="num">%d</td>'
+            '<td class="num">%s</td><td>%s</td><td class="num">%s</td><td class="num">%.1f</td></tr>'
+            % (html.escape(_facts_name(row["key"])), html.escape(row["module"] or ""), row["decisions"],
+               row["testCallers"], "&ndash;" if row["fileCommits"] is None else row["fileCommits"],
+               "yes" if row["typeReached"] else "no", "" if row["lineShare"] is None
+               else _facts_pct(row["lineShare"]) + (" <i>type</i>" if row["lineShareOf"] == "type" else ""),
+               row["score"])
+        )
+    lines.append("</table></div>")
+    return lines
+
+
+def _atlas_coverage(cover):
+    """The coverage part of Code facts: the committed snapshot of a Windows coverlet run."""
+    lines = ["<h3>Line coverage</h3>"]
+    if not cover:
+        lines.append(
+            '<p class="layer">Not measured: no coverage snapshot (scripts/arch/coverage_snapshot.json). Run'
+            " <code>pwsh -File scripts/test-coverage.ps1</code> on Windows, then <code>python"
+            " scripts/arch/coverage.py TestResults/Coverage/coverage..cobertura.xml --write-snapshot --commit"
+            " &lt;sha&gt; --date &lt;date&gt;</code> and commit the snapshot.</p>"
+        )
+        return lines
+    import ilanalysis  # noqa: PLC0415 (it imports this module)
+
+    lines.append(
+        "<p>Measured at %s, %s (%s build, a unit-test run with coverlet on Windows; always older than this"
+        " page): %s of %s production lines ran under a unit test; %s. %s.</p>"
+        % (html.escape(cover["commit"]), html.escape(cover["date"]), html.escape(cover.get("configuration") or "?"),
+           _atlas_share(cover["lineShare"]), _thousands(cover["linesValid"]),
+           html.escape(ilanalysis.method_coverage_text(cover)), html.escape(ilanalysis.coverage_stale_line(cover)))
+    )
+    lines.append('<div class="wide"><table>')
+    lines.append('<tr><th>Module</th><th class="num">Lines<br>covered</th><th class="num">Lines<br>valid</th>'
+                 '<th class="num">Line<br>share</th><th class="num">Branch<br>share</th></tr>')
+    for module, row in sorted(cover["byModule"].items(), key=lambda kv: (-kv[1]["linesValid"], kv[0])):
+        lines.append(
+            '<tr><td class="name">%s</td><td class="num">%s</td><td class="num">%s</td><td class="num">%s</td>'
+            '<td class="num">%s</td></tr>'
+            % (html.escape(module), _thousands(row["linesCovered"]), _thousands(row["linesValid"]),
+               _atlas_share(row["lineShare"]), _atlas_share(row["branchShare"]))
+        )
+    lines.append("</table></div>")
+    return lines
 
 
 def _headless_summary(result):
@@ -5724,6 +5799,12 @@ def main(argv=None):
         help="Parsek.Tests.dll (or its .il / facts .json): add test reach to the Code facts section",
     )
     parser.add_argument(
+        "--coverage",
+        default=None,
+        help="a coverage snapshot (scripts/arch/coverage.py --write-snapshot); default"
+        " scripts/arch/coverage_snapshot.json, read with --facts, and not measured when it is missing",
+    )
+    parser.add_argument(
         "--place",
         action="store_true",
         help="print placement evidence for the last rule's module and write core-placement.md under --out",
@@ -5757,7 +5838,8 @@ def main(argv=None):
         try:
             import ilanalysis  # noqa: PLC0415 (it imports this module)
 
-            facts_report = ilanalysis.report_from_paths(args.facts, args.test_facts, args.modules, args.source)
+            facts_report = ilanalysis.report_from_paths(args.facts, args.test_facts, args.modules, args.source,
+                                                        args.coverage)
         except Exception as exc:
             print("WARN archview: code facts not measured: %s" % exc, file=sys.stderr)
 

@@ -21,7 +21,8 @@ code facts:
 - semantic: semantic.build over that model and the Parsek.dll parse;
 - facts: ilanalysis.report over ilfacts.build of the same parse, with test
   reach when the test DLL is given, the headless modules' leaks (headless.py)
-  over the same game reach, and lifetimes.py's summary over the same facts;
+  over the same game reach, lifetimes.py's summary over the same facts, and
+  the committed coverage snapshot (coverage.py) when there is one;
 - sizes: scripts/count-code.py (its `collect`).
 
 An input that is not given (no --dll, no --tests-dll) leaves its half null;
@@ -76,7 +77,13 @@ renamed or removed key bumps the schema id). Shares are fractions rounded to
     facts.uncalled            {methods, instructions, noTestCaller, testOnly}
                               (the last two null without the test DLL)
     facts.testReach           null without the test DLL, else {byModule.<M>:
-                              {methodShare, instructionShare, methods}, untestedComplex}
+                              {methodShare, instructionShare, methods}, untestedComplex,
+                              types: {production, reached}}: `types` (additive) counts the
+                              production types and those with a method a test calls directly
+    facts.coverage            the committed coverage snapshot (scripts/arch/coverage.py, a
+                              Windows coverlet run) read against this DLL: null without a
+                              snapshot, else {commit, date, lineShare, byModule.<M>: lineShare}
+                              over production types; commit and date are the run's, not the row's
     facts.lifetimes           the declared static lifetimes (scripts/arch/lifetimes.py
                               summary): {population, tagged, untagged, byLifetime.<L>,
                               coldClosureMethods, findings.<F>}; a finding is null when
@@ -269,6 +276,8 @@ def facts_section(report):
             },
             "untestedComplex": len(reach["untestedComplex"]),
         }
+        if reach.get("types") is not None:
+            test_reach["types"] = dict(reach["types"])
     return {
         "ratchets": {name: len(gates[name]) for name in (
             "crossTypeStaticWrites", "complexity50", "complexityWatch", "uncalledInAssembly")},
@@ -284,6 +293,23 @@ def facts_section(report):
         "testReach": test_reach,
         "lifetimes": report.get("lifetimes"),
         "headless": headless_section(report.get("headless")),
+        "coverage": coverage_section(report.get("coverage")),
+    }
+
+
+def coverage_section(result):
+    """The coverage snapshot's numbers from an ilanalysis report's `coverage` (None stays None)."""
+    if result is None:
+        return None
+
+    def share(value):
+        return None if value is None else _share(value)
+
+    return {
+        "commit": result["commit"],
+        "date": result["date"],
+        "lineShare": share(result["lineShare"]),
+        "byModule": {module: share(row["lineShare"]) for module, row in result["byModule"].items()},
     }
 
 
@@ -420,7 +446,8 @@ def measure(sha, date, dll=None, tests_dll=None, source=archview.DEFAULT_SOURCE,
         import headless  # noqa: PLC0415
 
         report = ilanalysis.report(facts, tooling, ilanalysis.load_config(), tests_facts,
-                                   headless.declared(headless.load_headless(modules)))
+                                   headless.declared(headless.load_headless(modules)),
+                                   ilanalysis.coverage_module().load_snapshot())
         import lifetimes  # noqa: PLC0415
 
         report["lifetimes"] = lifetimes.summary(lifetimes.analyse_facts(facts, tooling, tests_dll))

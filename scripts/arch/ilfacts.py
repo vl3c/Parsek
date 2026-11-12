@@ -227,18 +227,72 @@ def declared_type_paths(stripped):
     return paths
 
 
+_DECLARED_CACHE = {}
+
+
+def declared_by_file(source_root):
+    """[(source-relative path, type paths it declares)] for every scanned .cs file.
+
+    One scan serves the module table and the file table; it is kept per
+    process, keyed by the root and every file's size and modification time,
+    so a changed tree is scanned again."""
+    source_root = Path(source_root)
+    rels = archview.iter_source_files(source_root)
+    stamps = []
+    for rel in rels:
+        stat = (source_root / rel).stat()
+        stamps.append((rel.as_posix(), stat.st_size, stat.st_mtime_ns))
+    key = (str(source_root.resolve()), tuple(stamps))
+    if key not in _DECLARED_CACHE:
+        rows = []
+        for rel in rels:
+            text = (source_root / rel).read_text(encoding="utf-8-sig", errors="replace")
+            rows.append((rel.as_posix(), declared_type_paths(archview.strip_comments_and_strings(text))))
+        _DECLARED_CACHE.clear()
+        _DECLARED_CACHE[key] = rows
+    return _DECLARED_CACHE[key]
+
+
 def source_type_modules(source_root, rules):
     """{type path: set of modules} for every type the source tree declares."""
-    source_root = Path(source_root)
     table = defaultdict(set)
-    for rel in archview.iter_source_files(source_root):
-        module = archview.assign_module(rel.as_posix(), rules)
+    for rel, paths in declared_by_file(source_root):
+        module = archview.assign_module(rel, rules)
         if module is None:
             continue
-        text = (source_root / rel).read_text(encoding="utf-8-sig", errors="replace")
-        for path in declared_type_paths(archview.strip_comments_and_strings(text)):
+        for path in paths:
             table[path].add(module)
     return dict(table)
+
+
+GENERIC_ARITY_RE = re.compile(r"`\d+")
+
+
+def source_type_files(source_root):
+    """{type path: sorted source-relative files declaring it} (a partial type has several).
+
+    The same scan as `source_type_modules`, so a type the facts place in a
+    module is found here too; the paths are posix, relative to `source_root`
+    (the form archview.parse_history gives a changed file)."""
+    table = defaultdict(set)
+    for rel, paths in declared_by_file(source_root):
+        for path in paths:
+            table[path].add(rel)
+    return {path: sorted(files) for path, files in table.items()}
+
+
+def files_for(path, table):
+    """The source files of an IL type path: its own entry, else its nearest
+    declared enclosing type's; a generic arity (``Foo`1``) is matched without
+    it. () when nothing matches."""
+    parts = path.split("/")
+    for size in range(len(parts), 0, -1):
+        head = "/".join(parts[:size])
+        for candidate in (head, GENERIC_ARITY_RE.sub("", head)):
+            files = table.get(candidate)
+            if files:
+                return tuple(files)
+    return ()
 
 
 def module_for(path, table):

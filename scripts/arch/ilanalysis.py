@@ -20,7 +20,16 @@ the test-only split, the test assembly's facts):
   the test facts are given, with each root rule's weight (how many live
   methods it alone kept: no live caller);
 - test reach: per module, the share of production methods (and instructions)
-  a unit test calls directly, and the complex methods none does.
+  a unit test calls directly, and the complex methods none does; per method
+  how many test methods call it directly, and the "where a test is worth
+  most" ranking (`risk_table`: decisions, weighted up when no test calls the
+  method directly and by its type's busiest file's commits in the history
+  window, and down by its line coverage from the snapshot: the method's own
+  share when the snapshot keeps the method, else its type's).
+
+With a coverage snapshot (coverage.py, a Windows coverlet run committed as
+scripts/arch/coverage_snapshot.json) the report adds `coverage`: lines covered
+per production module, type and (complex) method, and how stale the snapshot is.
 
 facts.toml (beside modules.toml) holds every list the rules read: the inert
 game types, the root attributes and names, the mutating members.
@@ -33,6 +42,7 @@ pinned in facts_pins.toml from a Debug build:
 
     python3 scripts/arch/ilanalysis.py Source/Parsek/bin/Debug/Parsek.dll                 # report
     python3 scripts/arch/ilanalysis.py Parsek.dll --tests Parsek.Tests.dll --json r.json   # with test reach
+                                                       # (reads git history; --no-history skips it)
     python3 scripts/arch/ilanalysis.py Source/Parsek/bin/Debug/Parsek.dll --write-pins    # re-pin
 
 An input is an assembly, an ikdasm `.il` dump or a facts `.json` from
@@ -736,31 +746,49 @@ def uncalled_gate_keys(report, config):
 # --- e. test reach ---------------------------------------------------------------
 
 
-def test_called(index, tests_facts):
-    """Production keys a test method calls directly (calls on a slot reach its implementations)."""
+def test_callers(index, tests_facts):
+    """({key: test methods calling it directly}, unmatched) over every key of the assembly.
+
+    A test method's call on a slot (an interface or virtual member) credits the
+    slot and each of its implementations and overrides (`Index.implementers`),
+    once per test method however often it calls."""
     prefix = (index.facts.get("assembly") or ilgraph.ROOT_NAMESPACE) + "|"
-    called = set()
+    callers = defaultdict(set)
     unmatched = set()
-    for entry in tests_facts["methods"].values():
+    for test_key, entry in tests_facts["methods"].items():
         for call in entry.get("crossAssemblyCalls", ()):
             if not call.startswith(prefix):
                 continue
             key = call[len(prefix):]
             if key in index.methods:
-                called.add(key)
+                callers[key].add(test_key)
+                for implementation in index.implementers.get(key, ()):
+                    callers[implementation].add(test_key)
             else:
                 unmatched.add(key)
-    for key in list(called):
-        called |= index.implementers.get(key, set())
-    return called, unmatched
+    return dict(callers), unmatched
 
 
-def test_reach_report(index, called):
+def test_called(index, tests_facts):
+    """Production keys a test method calls directly (calls on a slot reach its implementations)."""
+    callers, unmatched = test_callers(index, tests_facts)
+    return set(callers), unmatched
+
+
+def test_reach_report(index, called, callers=None):
+    """Per module, the share a test calls directly; the complex methods none does.
+
+    With `callers` (test_callers' map) it also counts, per production method a
+    test calls, how many distinct test methods do (`testCallers`), and the
+    production types at least one of whose methods a test calls (`types`)."""
     rows = defaultdict(Counter)
     untested = []
+    counts = {}
+    all_types = set()
     for key, entry in index.methods.items():
         if not index.production(entry["type"]):
             continue
+        all_types.add(entry["type"])
         row = rows[index.module(entry["type"])]
         n = size(entry)
         row["methods"] += 1
@@ -768,6 +796,8 @@ def test_reach_report(index, called):
         if key in called:
             row["reachedMethods"] += 1
             row["reachedInstructions"] += n
+            if callers is not None:
+                counts[key] = len(callers.get(key, ()))
         elif complexity(entry) - 1 >= UNTESTED_DECISIONS:
             untested.append({"key": key, "module": index.module(entry["type"]),
                              "decisions": complexity(entry) - 1, "instructions": n})
@@ -776,23 +806,238 @@ def test_reach_report(index, called):
     for module, row in rows.items():
         out[module] = dict(row, methodShare=row["reachedMethods"] / (row["methods"] or 1),
                            instructionShare=row["reachedInstructions"] / (row["instructions"] or 1))
-    return {"byModule": out, "untestedComplex": untested}
+    result = {"byModule": out, "untestedComplex": untested}
+    if callers is not None:
+        result["testCallers"] = counts
+        result["types"] = {"production": len(all_types),
+                           "reached": len({_key_type(key) for key in counts})}
+    return result
+
+
+# --- where a test is worth most ------------------------------------------------------
+
+# The risk score of a method: its decisions (generated code folded in), times
+# RISK_UNTESTED_WEIGHT when no test method calls it directly, times 1 plus the
+# commits of its type's busiest source file in the history window over
+# RISK_CHURN_CAP (capped at 1, so a file changed RISK_CHURN_CAP times or more
+# doubles it), times 1 - RISK_COVERAGE_WEIGHT x its line share (the method's
+# from the snapshot, else its type's; 1 when not measured, so a fully covered
+# method keeps a fifth of its score: coverage counts lines run, not checked).
+# Every factor is monotone: more decisions or more commits never lower the
+# score, a direct test caller or more covered lines never raise it.
+RISK_TOP = 25
+RISK_UNTESTED_WEIGHT = 2
+RISK_CHURN_CAP = 20
+RISK_COVERAGE_WEIGHT = 0.8
+
+
+def risk_score(decisions, test_callers, commits, line_share=None):
+    """decisions x (2 untested | 1) x (1 + min(commits, 20) / 20) x (1 - 0.8 x line share);
+    unknown commits count as 0, an unmeasured line share as no factor."""
+    untested = RISK_UNTESTED_WEIGHT if not test_callers else 1
+    churn = 1.0 + min(commits or 0, RISK_CHURN_CAP) / float(RISK_CHURN_CAP)
+    covered = 1.0 if line_share is None else 1.0 - RISK_COVERAGE_WEIGHT * min(max(line_share, 0.0), 1.0)
+    return decisions * untested * churn * covered
+
+
+def file_commit_counts(commits):
+    """{source-relative file: commits touching it} from archview.parse_history's commits."""
+    counts = Counter()
+    for commit in commits:
+        counts.update(set(commit["files"]))
+    return dict(counts)
+
+
+def type_commits(type_paths, type_files, file_commits):
+    """{type path: commits of its busiest source file}; a type no file declares is left out.
+
+    A partial type's methods sit in one of its files, which the IL does not
+    say, so the type takes its busiest file's count (the max, not the sum: one
+    commit editing two parts is one change)."""
+    out = {}
+    for path in type_paths:
+        files = ilfacts.files_for(path, type_files)
+        if files:
+            out[path] = max(file_commits.get(rel, 0) for rel in files)
+    return out
+
+
+def risk_table(result, churn=None, top=RISK_TOP):
+    """The ranked "where a test is worth most" rows from a report with test reach.
+
+    `churn` is {since, commits, typeCommits} (history_churn), None when the
+    history was not read: the commits column is then blank and counts as 0.
+    The line share comes from the report's `coverage` (None without a
+    snapshot): the method's own (`Type::Name`, overloads summed) when the
+    snapshot keeps it, else its type's, `lineShareOf` saying which ("method",
+    "type", None). Rows: key, module, type, decisions, testCallers,
+    typeReached, fileCommits, lineShare, lineShareOf, score; sorted by score,
+    then decisions, then key."""
+    reach = result.get("testReach")
+    if not reach or "testCallers" not in reach:
+        return None
+    callers = reach["testCallers"]
+    reached_types = {_key_type(key) for key in callers}
+    commits_of = (churn or {}).get("typeCommits")
+    cover = (result.get("coverage") or {}).get("byType")
+    by_method = (result.get("coverage") or {}).get("byMethod") or {}
+    rows = []
+    for row in result["complexity"]["methods"]:
+        decisions = row["complexity"] - 1
+        if decisions <= 0:
+            continue
+        key = row["key"]
+        path = _key_type(key)
+        n_callers = callers.get(key, 0)
+        commits = commits_of.get(path) if commits_of is not None else None
+        share, share_of = None, None
+        method_key = path + "::" + _key_name(key)
+        if method_key in by_method:
+            share, share_of = by_method[method_key], "method"
+        elif cover is not None and cover.get(path) is not None:
+            share, share_of = cover[path], "type"
+        rows.append({
+            "key": key,
+            "module": row["module"],
+            "type": path,
+            "decisions": decisions,
+            "testCallers": n_callers,
+            "typeReached": path in reached_types,
+            "fileCommits": commits,
+            "lineShare": share,
+            "lineShareOf": share_of,
+            "score": round(risk_score(decisions, n_callers, commits, share), 2),
+        })
+    rows.sort(key=lambda r: (-r["score"], -r["decisions"], r["key"]))
+    return {
+        "rows": rows[:top],
+        "candidates": len(rows),
+        "since": (churn or {}).get("since"),
+        "historyCommits": (churn or {}).get("commits"),
+        "coverage": cover is not None,
+        "methodCoverage": bool(by_method),
+    }
+
+
+# --- coverage (a committed snapshot of a Windows coverlet run) ------------------------
+
+
+# A constructor the compiler writes for a class that declares none
+# (`ldarg.0; call base::.ctor(); nop; ret` in Debug) has no source line, so
+# coverlet instruments nothing in it; a type whose only code it is never
+# appears in a snapshot.
+IMPLICIT_CTOR_MAX_INSTRUCTIONS = 4
+
+
+def _implicit_constructor(key, entry):
+    return (key.endswith("::.ctor()") and "static" not in entry.get("flags", ())
+            and entry["instructions"] <= IMPLICIT_CTOR_MAX_INSTRUCTIONS)
+
+
+def coverage_report(index, snapshot):
+    """The snapshot (coverage.py) read against this assembly: per production
+    module the lines covered / valid, the line share per production type and
+    per kept method (`byMethod`, `Type::Name`; empty for a snapshot written
+    before methods were kept), and how stale the snapshot is. None without a
+    snapshot. A snapshot key's generic arities are dropped (`Box`1` is `Box`),
+    as the facts drop them.
+
+    Staleness counts types with instrumented code (a method with a body other
+    than an implicit constructor) in this assembly the snapshot does not list,
+    types whose only code is an implicit constructor (`noInstrumentedCode`:
+    coverlet lists none of them, so they are not staleness), and snapshot
+    types this assembly lacks; it is reported, never failed."""
+    if snapshot is None:
+        return None
+    types = defaultdict(lambda: {"valid": 0, "covered": 0, "branches": {"valid": 0, "covered": 0}})
+    for raw_path, row in snapshot["types"].items():
+        held = types[ilgraph.canonical_path(raw_path)]
+        held["valid"] += row["lines"]["valid"]
+        held["covered"] += row["lines"]["covered"]
+        if row.get("branches") is None or held["branches"] is None:
+            held["branches"] = None
+        else:
+            held["branches"]["valid"] += row["branches"]["valid"]
+            held["branches"]["covered"] += row["branches"]["covered"]
+    with_code = set()
+    instrumented = set()
+    for key, entry in index.methods.items():
+        if entry["instructions"] > 0 and entry["type"] in index.types:
+            with_code.add(entry["type"])
+            if not _implicit_constructor(key, entry):
+                instrumented.add(entry["type"])
+    by_module = defaultdict(Counter)
+    branch_unknown = defaultdict(int)
+    by_type = {}
+    for path, row in types.items():
+        if path not in index.types or not index.production(path):
+            continue
+        by_type[path] = row["covered"] / row["valid"] if row["valid"] else None
+        counter = by_module[index.module(path)]
+        counter["linesValid"] += row["valid"]
+        counter["linesCovered"] += row["covered"]
+        if row["branches"] is None:
+            branch_unknown[index.module(path)] += 1
+        else:
+            counter["branchesValid"] += row["branches"]["valid"]
+            counter["branchesCovered"] += row["branches"]["covered"]
+    by_method = {}
+    for raw_key, (covered, valid) in (snapshot.get("methods") or {}).items():
+        path, _sep, name = raw_key.partition("::")
+        path = ilgraph.canonical_path(path)
+        if valid and path in index.types and index.production(path):
+            by_method[path + "::" + name] = covered / valid
+    modules = {}
+    for module in sorted(by_module):
+        c = by_module[module]
+        modules[module] = {
+            "linesValid": c["linesValid"], "linesCovered": c["linesCovered"],
+            "lineShare": c["linesCovered"] / c["linesValid"] if c["linesValid"] else None,
+            "branchesValid": c["branchesValid"], "branchesCovered": c["branchesCovered"],
+            "branchShare": c["branchesCovered"] / c["branchesValid"] if c["branchesValid"] else None,
+            "branchesUnknownTypes": branch_unknown[module],
+        }
+    valid = sum(m["linesValid"] for m in modules.values())
+    covered = sum(m["linesCovered"] for m in modules.values())
+    not_in_snapshot = sorted(instrumented - set(types))
+    no_instrumented_code = sorted(with_code - instrumented - set(types))
+    not_in_assembly = sorted(set(types) - set(index.types))
+    return {
+        "commit": snapshot["commit"],
+        "date": snapshot["date"],
+        "configuration": snapshot.get("configuration"),
+        "linesValid": valid,
+        "linesCovered": covered,
+        "lineShare": covered / valid if valid else None,
+        "byModule": modules,
+        "byType": by_type,
+        "byMethod": by_method,
+        "methodComplexityMin": snapshot.get("methodComplexityMin"),
+        "stale": {"notInSnapshot": len(not_in_snapshot), "notInAssembly": len(not_in_assembly),
+                  "noInstrumentedCode": len(no_instrumented_code),
+                  "notInSnapshotExamples": not_in_snapshot[:5], "notInAssemblyExamples": not_in_assembly[:5]},
+    }
 
 
 # --- the whole report -------------------------------------------------------------
 
 
-def report(facts, tooling=(), config=None, tests_facts=None, headless_modules=None):
+def report(facts, tooling=(), config=None, tests_facts=None, headless_modules=None, coverage=None, churn=None):
     """Every analysis over one facts model, JSON-ready (sets become sorted lists).
 
     `headless_modules` (modules.toml [headless.modules]) adds `headless`, the
-    leak report of headless.py over the same game reach; None leaves it None."""
+    leak report of headless.py over the same game reach; None leaves it None.
+    `coverage` (a coverage.py snapshot) adds `coverage`; None leaves it None.
+    `churn` (history_churn) feeds the risk table's commits column, which test
+    reach carries as `testReach.risk`."""
     config = config or load_config()
     index = Index(facts, tooling)
     test_calls = None
+    callers = None
     unmatched = []
     if tests_facts is not None:
-        test_calls, unmatched_set = test_called(index, tests_facts)
+        callers, unmatched_set = test_callers(index, tests_facts)
+        test_calls = set(callers)
         unmatched = sorted(unmatched_set)
     statics = static_state(index, config)
     cx = complexity_report(index)
@@ -809,6 +1054,7 @@ def report(facts, tooling=(), config=None, tests_facts=None, headless_modules=No
                          modules={key: index.module(index.methods[key]["type"]) for key in dead["uncalled"]}),
         "testReach": None,
         "headless": None,
+        "coverage": coverage_report(index, coverage),
         "gates": {
             "crossTypeStaticWrites": sorted(statics["crossTypeWrites"]),
             "complexity50": complexity_gate_names(cx),
@@ -826,7 +1072,8 @@ def report(facts, tooling=(), config=None, tests_facts=None, headless_modules=No
         for key in dead["testOnly"]:
             hooks[is_test_hook(key, suffixes) or "other"] += 1
         out["uncalled"]["testOnlyBySuffix"] = dict(hooks)
-        out["testReach"] = dict(test_reach_report(index, test_calls), unmatchedTestCalls=unmatched)
+        out["testReach"] = dict(test_reach_report(index, test_calls, callers), unmatchedTestCalls=unmatched)
+        out["testReach"]["risk"] = risk_table(out, churn)
     return out
 
 
@@ -940,6 +1187,73 @@ def _pct(value):
     return "%.0f%%" % (100.0 * value)
 
 
+def _share_text(value):
+    return "-" if value is None else _pct(value)
+
+
+def risk_explanation(risk):
+    """One sentence: the score and its window."""
+    window = ("file commits since %s (%d commits, sweeps left out)" % (risk["since"], risk["historyCommits"])
+              if risk.get("since") else "no history read, so commits count as 0")
+    if not risk.get("coverage"):
+        cover = "not measured (no snapshot), so no factor"
+    elif risk.get("methodCoverage"):
+        cover = "the method's line share from the snapshot, else its type's"
+    else:
+        cover = "its type's line share (the snapshot keeps no methods)"
+    return ("decisions x %d when no test method calls the method directly x (1 + min(commits, %d) / %d)"
+            " x (1 - %.1f x line share), commits of its type's busiest source file; %s; line share %s"
+            % (RISK_UNTESTED_WEIGHT, RISK_CHURN_CAP, RISK_CHURN_CAP, RISK_COVERAGE_WEIGHT, window, cover))
+
+
+def line_share_text(row):
+    """A risk row's line share: `45%` for the method's own, `45% type` for its type's, `-` when not measured."""
+    if row.get("lineShare") is None:
+        return "-"
+    return _pct(row["lineShare"]) + (" type" if row.get("lineShareOf") == "type" else "")
+
+
+def format_risk(risk, top=10):
+    if not risk:
+        return []
+    lines = ["  where a test is worth most (top %d of %d methods with a decision; score = %s):"
+             % (min(top, len(risk["rows"])), risk["candidates"], risk_explanation(risk)),
+             "    %7s %5s %7s %7s %7s %9s  %s" % ("score", "dec", "callers", "commits", "type", "lines", "method")]
+    for row in risk["rows"][:top]:
+        lines.append("    %7.1f %5d %7d %7s %7s %9s  %s" % (
+            row["score"], row["decisions"], row["testCallers"],
+            "-" if row["fileCommits"] is None else row["fileCommits"],
+            "reached" if row["typeReached"] else "no", line_share_text(row),
+            row["key"].split("(", 1)[0]))
+    return lines
+
+
+def coverage_stale_line(cover):
+    stale = cover["stale"]
+    return ("Types with instrumented code in this assembly the snapshot does not list: %d (new since it);"
+            " snapshot types this assembly lacks: %d (renamed or deleted since); types whose only code is an"
+            " implicit constructor, which coverlet never lists: %d"
+            % (stale["notInSnapshot"], stale["notInAssembly"], stale.get("noInstrumentedCode", 0)))
+
+
+def method_coverage_text(cover):
+    if not cover.get("byMethod"):
+        return "no methods kept (a snapshot from before methods were; regenerate it for method coverage)"
+    return "%d methods with complexity >= %s kept" % (len(cover["byMethod"]), cover.get("methodComplexityMin"))
+
+
+def format_coverage(cover):
+    lines = ["  line coverage (measured at %s, %s, %s): %s of %d production lines; %s"
+             % (cover["commit"], cover["date"], cover.get("configuration") or "?", _share_text(cover["lineShare"]),
+                cover["linesValid"], method_coverage_text(cover))]
+    for module, row in sorted(cover["byModule"].items(), key=lambda kv: -kv[1]["linesValid"]):
+        lines.append("    %-14s %6d / %6d  %5s  (branches %s)" % (
+            module, row["linesCovered"], row["linesValid"], _share_text(row["lineShare"]),
+            _share_text(row["branchShare"])))
+    lines.append("    " + coverage_stale_line(cover))
+    return lines
+
+
 def format_report(result, top=15):
     lines = ["CODE FACTS (%s)" % result["assembly"]]
     totals = result["statics"]["totals"]
@@ -977,6 +1291,12 @@ def format_report(result, top=15):
         lines.append("  methods with >= %d decisions no unit test calls: %d" % (
             UNTESTED_DECISIONS, len(reach["untestedComplex"])))
         lines.append("  test calls into the assembly that match no key: %d" % len(reach["unmatchedTestCalls"]))
+        lines.extend(format_risk(reach.get("risk"), top=10))
+    cover = result.get("coverage")
+    if cover:
+        lines.extend(format_coverage(cover))
+    else:
+        lines.append("  coverage: not measured (no snapshot; scripts/arch/coverage.py --write-snapshot)")
     gates = result["gates"]
     lines.append("  ratchet sets: %d cross-type static writes, %d methods at complexity >= %d (%d in the watch band"
                  " from %d), %d unreached" % (
@@ -1011,18 +1331,53 @@ def load_facts(path, modules=archview.DEFAULT_MODULES, source=None):
     return ilfacts.build(ilgraph.load_parsed(path), table), tooling
 
 
-def report_from_paths(facts_path, tests_path=None, modules=archview.DEFAULT_MODULES, source=None):
+def coverage_module():
+    """scripts/arch/coverage.py. Its name is also the name of the coverage.py
+    package on PyPI; a process that imported that one first gets a clear error
+    here instead of a wrong module."""
+    import coverage  # noqa: PLC0415
+
+    if getattr(coverage, "SCHEMA", None) != "parsek-coverage/1":
+        raise ImportError("`coverage` resolved to %s, not scripts/arch/coverage.py"
+                          % getattr(coverage, "__file__", "?"))
+    return coverage
+
+
+def history_churn(facts, source=None, repo_root=None, since=None):
+    """{since, commits, typeCommits} for the risk table: the Atlas history's
+    window and sweep rule (archview.git_log_lines / parse_history), each file's
+    commits, and each type's busiest file through a scan of the source tree.
+    None when git gives nothing (no repository, no git)."""
+    since = since or archview.default_since()
+    text = archview.git_log_lines(repo_root or archview.REPO_ROOT, since)
+    if not text:
+        return None
+    commits = archview.parse_history(text)["commits"]
+    table = ilfacts.source_type_files(source or (archview.REPO_ROOT / archview.DEFAULT_SOURCE))
+    return {"since": since, "commits": len(commits),
+            "typeCommits": type_commits(facts["types"], table, file_commit_counts(commits))}
+
+
+def report_from_paths(facts_path, tests_path=None, modules=archview.DEFAULT_MODULES, source=None,
+                      coverage_path=None, history=True):
     """The report, with `headless` (the declared headless modules' leaks) and `lifetimes`
     (lifetimes.summary) added: the declared static
     lifetimes over the same facts, testWrittenUntagged measured only when
-    `tests_path` is the test assembly itself (a .dll)."""
+    `tests_path` is the test assembly itself (a .dll). The coverage snapshot is
+    read from `coverage_path` (default scripts/arch/coverage_snapshot.json; a
+    missing file is "not measured"), and with the test facts the risk table
+    reads the git history unless `history` is False."""
     import lifetimes  # noqa: PLC0415 (it imports this module)
 
     import headless  # noqa: PLC0415
 
+    coverage_snapshot = coverage_module()
     facts, tooling = load_facts(facts_path, modules, source)
     tests = load_facts(tests_path, None)[0] if tests_path else None
-    out = report(facts, tooling, load_config(), tests, headless.declared(headless.load_headless(modules)))
+    snapshot = coverage_snapshot.load_snapshot(coverage_path or coverage_snapshot.DEFAULT_SNAPSHOT)
+    churn = history_churn(facts, source) if (tests is not None and history) else None
+    out = report(facts, tooling, load_config(), tests, headless.declared(headless.load_headless(modules)),
+                 snapshot, churn)
     tests_dll = tests_path if tests_path and str(tests_path).lower().endswith(".dll") else None
     out["lifetimes"] = lifetimes.summary(lifetimes.analyse_facts(facts, tooling, tests_dll))
     return out
@@ -1037,10 +1392,14 @@ def main(argv=None):
     parser.add_argument("--pins", default=str(DEFAULT_PINS))
     parser.add_argument("--modules", default=str(archview.DEFAULT_MODULES))
     parser.add_argument("--source", default=str(archview.REPO_ROOT / archview.DEFAULT_SOURCE))
+    parser.add_argument("--coverage", help="a coverage snapshot (default scripts/arch/coverage_snapshot.json)")
+    parser.add_argument("--no-history", action="store_true",
+                        help="do not read git history for the risk table's commits column")
     args = parser.parse_args(argv)
     if args.write_pins and re.search(r"[\\/]Release[\\/]", str(args.input)):
         parser.error("pin from the Debug build CI measures, not a Release build")
-    result = report_from_paths(args.input, args.tests, args.modules, args.source)
+    result = report_from_paths(args.input, args.tests, args.modules, args.source, args.coverage,
+                               not args.no_history)
     print(format_report(result))
     if args.json:
         Path(args.json).write_text(json.dumps(result, indent=1, sort_keys=True, default=sorted) + "\n",

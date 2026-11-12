@@ -319,6 +319,53 @@ type whose source file maps to a non-tooling module.
   virtual member credits its implementations), and the methods with 30 or
   more decisions (folded) no test calls. Not coverage. It needs the test DLL's
   facts, which CI does not parse (about a minute: 19 s `ikdasm`, 31 s parse).
+  Per production method it also counts the distinct methods of the test
+  assembly that call it directly (`testCallers`; a test method calling it
+  twice is one, and a call on a slot counts for the slot and each
+  implementation and override, as above), and which production types have at
+  least one method a test calls directly.
+
+  **Where a test is worth most** ranks the production methods with a decision
+  (folded) by one score, report only (test reach moves with every test, so
+  nothing gates it):
+
+  `score = decisions x 2 (when no test method calls the method directly, else
+  x 1) x (1 + min(commits, 20) / 20) x (1 - 0.8 x line share)`
+
+  where `commits` is the commits of the method's type's busiest source file in
+  the Atlas history window (18 months, the history's sweep rule: a commit
+  touching more than 40 source files is left out), and `line share` is the
+  method's line coverage from the snapshot below when the snapshot keeps the
+  method, else its type's, and the factor is 1 when there is no snapshot.
+  Each factor is monotone: more decisions or more commits never lower the
+  score, a direct test caller or more covered lines never raise it. A fully
+  covered method keeps a fifth of its score, because coverage counts lines
+  that ran, not lines a test checked. The IL does not say which file of a partial type a method
+  sits in, so a type spanning several files takes the max of its files'
+  counts (not the sum: one commit editing two parts is one change); a nested
+  type takes its own declaring file, and a type the source scan does not
+  declare its nearest declared enclosing type's (`ilfacts.files_for`, the
+  scan that places types in modules; a real-tree cell holds that every
+  production type finds a file). The cap of 20 is the 90th percentile of
+  per-file commits in the window at 2026-11-11, so the churn factor separates
+  the busiest tenth of the files from the rest and no further. The table
+  prints every input as a column (method, module, decisions, direct test
+  callers, file commits, whether a test reaches the type, the line coverage:
+  the method's, else the type's marked `type`, blank without a snapshot), so a
+  ranking the owner disagrees with can be read off it. Churn follows files, not code: a
+  method moved into a file a recent split created (`ParsekFlightSplitBrancher.cs`
+  has 3 commits in the window, `ParsekFlight.cs` 1,305) starts from that
+  file's short history. The Atlas shows the top 25,
+  `ilanalysis.py --tests` the top 10 (`--no-history` leaves the commits
+  column blank, read as 0). At 12b559f64 (2026-11-11, Debug): 12,349
+  candidates over 6,205 commits since 2025-05-01; the top three are
+  `Logistics.RouteAnalysisEngine::AnalyzeWindows` (141 decisions, no direct
+  test caller, 29 commits), `EngineFxBuilder::TryBuildEngineFX` (140, none,
+  37) and `ParsekScenario::OnLoad` (107, none, 558) with no snapshot; with the
+  first real snapshot (12a312a09, type shares only) `TryBuildEngineFX` leads
+  (its type 16% covered, 490.2), then `GhostTrajectoryPolylineRenderer/Driver`'s
+  `LateUpdate` (268.0) and `OnMapCameraPreCull` (224.0) (type 0%), and
+  `AnalyzeWindows` (type 93%) leaves the top 10.
 
 ```bash
 python3 scripts/arch/ilanalysis.py Source/Parsek/bin/Debug/Parsek.dll
@@ -337,6 +384,83 @@ test calls either (7,611 instructions), 709 a test calls (257 hooks by name);
 84 methods with 30+ decisions no unit test calls. The rules alone kept 1,263
 live methods (Harmony 310, `.cctor` 279, dispatch 272, strings 112, delegates
 88 ...).
+
+### Coverage snapshot
+
+Test reach says which methods a test calls; it cannot say which lines ran.
+Real line coverage comes from a unit-test run with coverlet, which only the
+owner's Windows machine makes (the cloud and CI run the suite under mono with
+no coverlet), so a run is folded into a small committed file,
+`scripts/arch/coverage_snapshot.json` (schema `parsek-coverage/1`), that the
+Atlas and the metrics row read. Refresh it after a Debug build:
+
+```bash
+pwsh -File scripts/test-coverage.ps1        # Windows: writes TestResults/Coverage/coverage..cobertura.xml
+python scripts/arch/coverage.py TestResults/Coverage/coverage..cobertura.xml \
+    --write-snapshot --commit <sha the run measured> --date <YYYY-MM-DD>
+git add scripts/arch/coverage_snapshot.json  # and commit it
+```
+
+`scripts/arch/coverage.py` (stdlib only, runs on Windows) streams the
+Cobertura file (`iterparse`, each class cleared once counted; coverlet's file
+for this assembly is about 80 MB), reads only the `Parsek` package, and
+counts lines itself (`hits` > 0) rather than trusting the rounded per-class
+rates. It folds compiler-generated classes (`<>c`, `<>c__DisplayClassN_M`,
+the iterator and async state machines `<Name>d__N`, with a `/`, `+` or `.`
+separator) into their source type, as `ilfacts` folds generated code, drops a
+generic arity from every segment (coverlet writes ``Parsek.GreyLedger`1``,
+the facts key it `Parsek.GreyLedger`), sums the class elements of a partial
+type (one per file), and counts a line once per type (by file and number).
+The file name has two dots because `test-coverage.ps1` passes coverlet the
+output prefix `<dir>/coverage.` and coverlet appends `.cobertura.xml`.
+
+It also keeps lines per source method, keyed `Type::Method` by NAME from each
+method's own lines. Generated code folds by name, where `ilfacts` follows
+call references: a state machine's `MoveNext` (`Type/<Run>d__N`, an async
+lambda's `<<Run>b__0>d`) is `Run`, a lambda `<Run>b__N_M` (in `<>c` or a
+`<>c__DisplayClassN_M`) is `Run`, a local function `<Run>g__Local|N_M` is
+`Run`, and anything else generated (a closure class's constructor, the `<>c`
+static constructor, a state machine's other members) counts for the type
+only. Overloads share a name and are summed: `Type::Run` is every `Run`, the
+one limit of a name key. Coverlet's per-method `complexity` is summed the same
+way and only methods at 10 or more are kept; when the snapshot would exceed
+500 KB the threshold rises one complexity value at a time until it fits, and
+the write line says so (`--method-complexity-min`, `--max-kb`). Checked on a
+synthetic coverlet-shaped file built from every method of the Debug DLL at
+12b559f64 (26,725, generated ones under their IL names): the name fold agrees
+with `ilfacts`' reference attribution on every generated method both attribute
+(1,791; the other 2,635 generated methods are the constructors and plumbing
+that stay type-only), and 2,687 of the 2,693 production methods at folded
+complexity 10 or more join their snapshot row (all 615 at 20 or more); the
+six misses are iterators whose enumerator plumbing `ilfacts` folds in and the
+name fold leaves to the type, which lifts them over the threshold on one side
+only. They fall back to the type's share. It is tolerant: unknown elements and
+attributes are ignored, an unreadable line is skipped, and missing branch
+data makes the type's branches unknown (null), not 0. Its summary prints the
+class elements' sums as written beside the file's root totals and the
+difference, never a failure. The snapshot holds the commit and date given on
+the command line, the configuration, per type lines and branches valid /
+covered, and per kept method `[covered, valid]` lines with the threshold
+(`methodComplexityMin`), with sorted keys and one method or type per line so a
+refresh diffs cleanly. The method block is additive: a snapshot written
+before it still reads, with no method shares (the table then uses the type's
+and the coverage line says to regenerate).
+Every cell runs on a hand-written fixture in coverlet's shape
+(`scripts/arch/fixtures/coverage_sample.cobertura.xml`, `test_coverage.py`).
+
+With a snapshot, "Code facts" shows a per-module table (lines covered /
+valid, line and branch share, production types only) headed "measured at
+<commit>, <date>", always older than the page, fills the risk table's line
+coverage column and its score factor, and counts staleness in one line: types
+with instrumented code in the analysed DLL that the snapshot does not list
+(new since), snapshot types the DLL lacks (renamed or deleted since), and
+apart from both, types whose only code is the constructor the compiler writes
+for a class that declares none (a 4-instruction `.ctor()` with no source line,
+which coverlet never lists: 126 of the 128 unlisted types against the first
+real snapshot, the other two being the generic types the arity fold now
+joins). Staleness never reds. Without a snapshot everything says "not measured".
+`archview.py` and `ilanalysis.py` read the default path, `--coverage PATH`
+overrides it; `metrics.py` reads the default path.
 
 ### The ratchets
 
@@ -894,9 +1018,12 @@ later. It gates nothing: no check reads it, and no row can fail a PR.
   the declared-layer numbers the layer ratchet reads), `facts` (the code facts:
   the three ratchet sets' sizes, the static-state totals, complexity at 20 /
   50 / 100, game coupling overall and per module, unreached methods and their
-  instructions, test reach per module, `lifetimes`, the static-lifetime
-  counts of "Static lifetimes", and `headless`, the leak counts of "Headless
-  modules", both additive keys) and `sizes` (`scripts/count-code.py`:
+  instructions, test reach per module (with `types`, the production types
+  and those a test reaches directly), `lifetimes`, the static-lifetime
+  counts of "Static lifetimes", `headless`, the leak counts of "Headless
+  modules", and `coverage`, the committed coverage snapshot's commit, date,
+  line share and line share per module (null without a snapshot; the
+  snapshot's commit and date, not the row's), all additive keys) and `sizes` (`scripts/count-code.py`:
   lines per area and the test totals). Nothing is measured by new logic: the
   row is those tools' own output, built in one process so `Parsek.dll` is
   disassembled and parsed once. Without a DLL the `semantic` and `facts`
