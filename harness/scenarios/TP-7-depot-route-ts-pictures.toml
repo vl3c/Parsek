@@ -5,7 +5,10 @@ id = "TP-7-depot-route-ts-pictures"
 #
 # 2026-11-12: the supply route overview line is retired (todo ROUTE-LINE-DETACHED-SEGMENTS;
 # this lane's `tp7-c2-neardock-kerbin-low-top` view is the evidence the ruling cites). The
-# pictures now show the route ship's own ghost lines only. Re-flight pending.
+# pictures now show the route ship's own ghost lines only. RE-FLOWN GREEN 2026-11-12 on the new
+# DLL (run `2026-11-12_2108`, PASS attempt 1, 119 s): every one of the 9 dumps holds one ghost
+# (the route ship, stock conic around Kerbin) with one orbit line, the icon on it, and no
+# `routeLines` block.
 #
 # V18T-depot-route-ts-arrival's subject (a same-body Kerbin depot route whose ghost
 # launches and docks), observed in the Tracking Station at three

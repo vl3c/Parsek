@@ -23669,16 +23669,15 @@ S17_FLOWN_BATCH_LINE_2026_07_26 = (
 S17_FLOWN_BATCH_LINE = (
     "[Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=23 passed=22 failed=0"
     " skipped=1 category=MapRender scene=FLIGHT")
-# INTERIM 2026-11-12: the two RouteLineDraw cells were deleted with the supply route
-# overview line (todo ROUTE-LINE-DETACHED-SEGMENTS), so the source derives total=21
-# and the spec reads passed= / skipped= as digits until its next green flight. The
-# line below is the EXPECTED one (20 / 1: both deleted cells executed and passed on
-# the flown runs above, and the one skip is the batch-disabled canary), a shape and
-# not a measurement until that flight restores the literal pin.
-S17_EXPECTED_BATCH_LINE_INTERIM = (
+# RE-MEASURED 2026-11-12: the two RouteLineDraw cells were deleted with the supply route
+# overview line (todo ROUTE-LINE-DETACHED-SEGMENTS), so the source derives total=21.
+# Run `2026-11-12_2116_S1.7-maprender-parity` (PASS attempt 1, 76 s) read the line
+# below token for token, so the pin is literal again. The one-flight interim
+# prediction (20 passed / 1 skipped) held: the one skip is the batch-disabled canary.
+S17_FLOWN_BATCH_LINE_2026_11_12 = (
     "[Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=21 passed=20 failed=0"
     " skipped=1 category=MapRender scene=FLIGHT")
-S17_MEASURED_BATCH_LINE = S17_EXPECTED_BATCH_LINE_INTERIM
+S17_MEASURED_BATCH_LINE = S17_FLOWN_BATCH_LINE_2026_11_12
 # The runner's accounting for the single skip.
 S17_MEASURED_BATCH_SKIP_LINE = (
     "[Parsek][INFO][TestRunner] Batch execution skipped 1 single-run-only test(s)")
@@ -23748,6 +23747,9 @@ class MapRenderParityScenarioTests(unittest.TestCase):
                  "the pre-2026-11-12 tally, i.e. the RouteLineDraw pair back"),
                 ("BATCH_COMPLETE v1 total=21 passed=0 failed=0 skipped=21 "
                  "category=MapRender scene=FLIGHT", "an all-skip batch at this total"),
+                ("BATCH_COMPLETE v1 total=21 passed=19 failed=0 skipped=2 "
+                 "category=MapRender scene=FLIGHT",
+                 "a test that flipped to Skip at this total"),
                 ("BATCH_COMPLETE v1 total=23 passed=22 failed=1 skipped=0 "
                  "category=MapRender scene=FLIGHT", "a failing test"),
                 ("BATCH_COMPLETE v1 total=22 passed=21 failed=0 skipped=1 "

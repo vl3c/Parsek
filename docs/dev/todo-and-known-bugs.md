@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~ROUTE-LINE-DETACHED-SEGMENTS~~: the supply route overview line drew route segments far from the ship's icon; the line is retired [FILED 2026-11-12 from the TP-7 pictures; RULED 2026-11-12 by the owner; REMOVED 2026-11-12 headless on branch `claude/project-thread-zfo2hk`; open only for the flights below]
+## ~~ROUTE-LINE-DETACHED-SEGMENTS~~: the supply route overview line drew route segments far from the ship's icon; the line is retired [FILED 2026-11-12 from the TP-7 pictures; RULED 2026-11-12 by the owner; REMOVED 2026-11-12 on branch `claude/project-thread-zfo2hk` (PR #2586); FLOWN GREEN 2026-11-12, seven lanes on the first attempt]
 
 **What the player saw.** Lane TP-7, view `tp7-c2-neardock-kerbin-low-top` (Tracking Station,
 Kerbin depot route): the route's ship ghost "Kerbal X" sat on a stock conic at about 293 km
@@ -64,7 +64,7 @@ static overview line is retired outright, with no dead code left:
 - Lanes RESHAPED (route-line step, tokens, forbids and windows removed, the rest kept): `H59`,
   `V18T` (render-composition stays armed on `unevaluable` and the rigid seam), `V26T`
   (render-composition bare again), `V27M`, `TP-7`, `TP-8`. `S1.7-maprender-parity` pins
-  `total=21` and reads the pass / skip split as digits until it flies.
+  `total=21`, and since its flight the literal `passed=20 skipped=1`.
 - `TP-8-interbody-route-map-pictures` stays as the picture lane of the inter-body route's SHIPS.
   Both of its green flights (`2026-11-11_2148`, `_2243`) dumped two route ship ghosts in every
   view: "Duna Supply 1" (treatment StockConic, body Sun, icon drawn, 3 lines: the supply ship on
@@ -73,23 +73,81 @@ static overview line is retired outright, with no dead code left:
   `Route scope:` required tokens and the three route-line / scope forbids left. No new pin was
   added.
 
-**Flights pending** (nothing was flown; this session cannot fly): `TP-7` first, as the picture
-proof that no route segment is drawn away from the ship, and `TP-8` for the same picture of the
-inter-body route's ships; then `H59`, `V18T`, `V26T`, `V27M` on the new DLL; then `S1.7`, whose next green flight restores the literal tally (expected
-`passed=20 skipped=1`). `docs/pdf/` was not regenerated for the two design docs this touches
-(`docs/parsek-logistics-supply-routes-design.md`, `docs/roadmap.md`).
+**Flown 2026-11-12** (head 7a33d766 from worktree `Parsek-route-line`, automation DLL sha256
+`a93843b800ef8b6362cee522ee26f164152281d1b04f132ca92f868eff961842`; `RouteTrajectoryLineRenderer`,
+`showRouteLines` and `Route line draw` count 0 in it in both encodings, `Polyline frame` is
+present). Seven lanes, each PASS on attempt 1: `2026-11-12_2108` TP-7 (119 s), `_2110` TP-8
+(88 s), `_2112` H59 (85 s), `_2113` V18T (49 s), `_2114` V26T (51 s), `_2115` V27M (66 s),
+`_2116` S1.7 (76 s; `BATCH_COMPLETE v1 total=21 passed=20 failed=0 skipped=1`, now the literal
+pin). Outputs: branch `carrier/route-line-2026-11-12` (commit 0cc14bb2b), dir
+`carrier/route-line/`, picture page `map-mirror.html` (14 captures).
+- **TP-7, the view the ruling cites.** No dump carries a `routeLines` block. Each of the nine
+  dumps holds one ghost, the route ship "Kerbal X" (stock conic around Kerbin, icon drawn), with
+  one orbit line; the icon sits on it (0.7 to 13 km from the nearest of the line's 181 sampled
+  points). The 14 detached legs of run `2026-11-11_2250` are gone from the pictures.
+- **TP-8.** No `routeLines` block. Each of the five dumps holds the same two route ship ghosts as
+  before the change: "Duna Supply 1 Probe" at Kerbin (one orbit line) and "Duna Supply 1" on its
+  transfer around the Sun (orbit line, icon on it) with two short forward legs of the looped
+  ghost pass. Those two legs are drawn far from the ship; that is the looped ghost renderer, not
+  the route line, and it is filed below as LOOP-SUN-LEG-DRAWN-OFF-PATH.
+- **V26T's render-composition reading** (bare block): status REPORT, 0 findings, 0 mismatches,
+  `unevaluable=5` (`cut-dwell-containment-needs-recorded-clock`, `no-cycle-rollover-events`,
+  `no-dwells-attributable-to-unit`, `plan-primitive-body-unidentified`,
+  `warp-hold-traversal-evidence-absent`, one each), `lineBranches=2 chainBuilds=2 openDwells=2`,
+  seam kinds `rigid=15 flexible-soi=2`.
+
+Not done: `docs/pdf/` was not regenerated for the two design docs this touches
+(`docs/parsek-logistics-supply-routes-design.md`, `docs/roadmap.md`); the stale-key load of a
+save that still holds `showRouteLines` was not exercised live; the suite was not run in the
+Windows Release configuration.
 
 **Gate lost with the windows.** `V26T`'s `[expectations.renderComposition]` block is bare again
 because its only armed windows read the retired line, and `V26M` is deleted. An armed block also
 gates on every FAIL-level rule finding (RC-SEAM, RC-OWN, RC-COVER, RC-DESCENT, the kept RC-ROUTE
 dock-clip check), so those findings on the inter-body route host now read REPORT and cannot red
 a lane; `V18T` (same-body, Tracking Station) is the only armed route lane left. Re-arm `V26T` on
-`unevaluable`, as `V18T` is, from the reading of its next green flight.
+`unevaluable`, as `V18T` is, off the reading above (run `2026-11-12_2114`, `unevaluable=5`),
+with an armed re-flight.
 
 **Not rebuilt.** No lane PINS the inter-body route ship on the map (TP-8 photographs it and
 asserts only that every view was taken): `interbody-route-recorded` has no derivable dispatch
 instant (the Duna route's anchor is not computable from the committed bytes: `loopAnchorUT = -1`
 and per-tick re-aim windows), so a behavioural map lane of that ship needs one first.
+
+## LOOP-SUN-LEG-DRAWN-OFF-PATH: a looped interplanetary ghost's short legs recorded around the Sun are drawn far from the ship and off its path [FILED 2026-11-12 from the TP-8 dumps, runs `2026-11-11_2243` and `2026-11-12_2110`; OPEN; cause not established; low on screen]
+
+**Measured.** `interbody-route-recorded`, the Duna supply ship "Duna Supply 1" (recording
+`36c7688b8e5141f7809e2d4dbe9dc094`, treatment StockConic, body Sun), flight map at the save
+clock (live UT 87,625,328, loop head UT 67,972,252). The ghost polyline pass reports
+`fwdLegs=2` and the dump holds two `polyline` lines with body Sun: recorded UT
+68,378,174.9 to 68,378,180.1 (20 points, 39 km long) and 68,378,239.0 to 68,378,311.3 (26
+points, 521 km long), both about 406,000 s AHEAD of the head, so the forward pass is right to
+pick them. Where they are drawn is not on the ship's path:
+- 12.4 million km from the ship's icon (which sits on its own orbit line, within the line's
+  sampling);
+- 3.06 million km from the nearest point of the drawn transfer orbit line;
+- at the right distance from the Sun (19.88 million km against 19.78 computed from the drawn
+  conic for that instant) and the wrong angle: about 37 degrees BEHIND the icon along the
+  orbit, where the instant is about 9 degrees ahead of it.
+Both flights dumped the same two lines at the same place, so it is not from the supply route
+overview line or its removal.
+
+**On screen.** At the whole-system zoom the two legs are far below one pixel (the longer is
+521 km on a map 40 million km wide), so no TP-8 picture shows them. A player would see a
+short stray line only by zooming in on that empty spot.
+
+**Not established.** The cause. Right distance with wrong angle fits a leg stored against the
+Sun's own rotating frame and placed with the Sun's rotation at the live clock, or a leg left
+in the recorded frame while the transfer conic is re-aimed; neither was checked in the code,
+and the leg anchoring to the bracketing conic (`TryAnchorLegToConicSeam`) left no line in the
+carried log slice. Also not checked: where the ship's ICON goes while the loop head is inside
+those 77 s, and whether a looped mission outside a supply route does the same (the pass is the
+same, so it should).
+
+**Next.** Read why the forward legs of a Sun-bodied section are not anchored to the drawn
+conic; a lane needs an instant with the head just before those legs, which
+`interbody-route-recorded` cannot give (no derivable dispatch instant, see above), so a looped
+Duna mission host with an off-rails stretch in solar orbit is the likely subject.
 
 ## ROUTE-CREATION-TREE-IDS-UNREAD: `Route.CreationTreeRecordingIds` is saved and loaded but nothing reads it [FILED 2026-11-12 with ROUTE-LINE-DETACHED-SEGMENTS; OPEN]
 
