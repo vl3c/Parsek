@@ -3,9 +3,9 @@
      (class elements per source file, nested names with a slash and escaped angle
      brackets, filename relative to the source root), read by test_coverage.py.
      Every class is there to hold one rule of coverage.py's reader; the expected
-     totals per type are in that test file. The root totals count the readable
-     line elements of the Parsek package as written, before folding. -->
-<coverage line-rate="0.6666" branch-rate="0.5" version="1.9" timestamp="1794439549" lines-covered="12" lines-valid="18" branches-covered="3" branches-valid="6">
+     totals per type and per method are in that test file. The root totals count
+     the readable line elements of the Parsek package as written, before folding. -->
+<coverage line-rate="0.6666" branch-rate="0.5" version="1.9" timestamp="1794439549" lines-covered="14" lines-valid="21" branches-covered="3" branches-valid="6">
   <sources>
     <source>C:\Parsek\Source\Parsek\</source>
   </sources>
@@ -26,22 +26,41 @@
                 <line number="12" hits="0" branch="False" />
               </lines>
             </method>
+            <!-- A local function of Run, emitted on the type itself: counts for Run. -->
+            <method name="&lt;Run&gt;g__Clamp|3_0" signature="(System.Int32)" line-rate="1" branch-rate="1" complexity="4">
+              <lines>
+                <line number="13" hits="1" branch="False" />
+              </lines>
+            </method>
           </methods>
           <lines>
             <line number="10" hits="4" branch="False" />
             <line number="11" hits="4" branch="True" condition-coverage="50% (1/2)" />
             <line number="12" hits="0" branch="False" />
+            <line number="13" hits="1" branch="False" />
           </lines>
         </class>
-        <!-- A lambda cache (Cecil's / separator): folds into Alpha. -->
-        <class name="Parsek.Alpha/&lt;&gt;c" filename="Alpha.cs" line-rate="0.5" branch-rate="1" complexity="1">
-          <methods />
+        <!-- A lambda cache (Cecil's / separator): folds into Alpha; its lambda counts
+             for Run, its static constructor for the type only. -->
+        <class name="Parsek.Alpha/&lt;&gt;c" filename="Alpha.cs" line-rate="0.5" branch-rate="1" complexity="3">
+          <methods>
+            <method name="&lt;Run&gt;b__3_0" signature="(System.Int32)" line-rate="1" branch-rate="1" complexity="2">
+              <lines>
+                <line number="20" hits="1" branch="False" />
+              </lines>
+            </method>
+            <method name=".cctor" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="21" hits="0" branch="False" />
+              </lines>
+            </method>
+          </methods>
           <lines>
             <line number="20" hits="1" branch="False" />
             <line number="21" hits="0" branch="False" />
           </lines>
         </class>
-        <!-- An iterator state machine with method lines only: folds into Alpha. -->
+        <!-- An iterator state machine with method lines only: folds into Alpha, its MoveNext into Walk. -->
         <class name="Parsek.Alpha/&lt;Walk&gt;d__3" filename="Alpha.cs" line-rate="1" branch-rate="1" complexity="2">
           <methods>
             <method name="MoveNext" signature="()" line-rate="1" branch-rate="1" complexity="2">
@@ -51,20 +70,45 @@
             </method>
           </methods>
         </class>
-        <!-- A closure printed with the reflection + separator; it lists line 10 again. -->
+        <!-- A closure printed with the reflection + separator; it lists line 10 again,
+             and its lambda counts for Run. -->
         <class name="Parsek.Alpha+&lt;&gt;c__DisplayClass2_0" filename="Alpha.cs" line-rate="1" branch-rate="1" complexity="1">
+          <methods>
+            <method name="&lt;Run&gt;b__0" signature="()" line-rate="1" branch-rate="1" complexity="1">
+              <lines>
+                <line number="10" hits="9" branch="False" />
+                <line number="40" hits="1" branch="False" />
+              </lines>
+            </method>
+          </methods>
           <lines>
             <line number="10" hits="9" branch="False" />
             <line number="40" hits="1" branch="False" />
           </lines>
         </class>
-        <!-- A partial type in two files: two class elements, one source type. -->
-        <class name="Parsek.Beta" filename="Beta.cs" line-rate="1" branch-rate="1" complexity="1">
+        <!-- A partial type in two files: two class elements, one source type; the two
+             Load overloads, one per file, are one method. -->
+        <class name="Parsek.Beta" filename="Beta.cs" line-rate="1" branch-rate="1" complexity="6">
+          <methods>
+            <method name="Load" signature="()" line-rate="1" branch-rate="1" complexity="6">
+              <lines>
+                <line number="5" hits="1" branch="False" />
+              </lines>
+            </method>
+          </methods>
           <lines>
             <line number="5" hits="1" branch="False" />
           </lines>
         </class>
-        <class name="Parsek.Beta" filename="Beta.Part.cs" line-rate="0" branch-rate="0" complexity="2">
+        <class name="Parsek.Beta" filename="Beta.Part.cs" line-rate="0" branch-rate="0" complexity="5">
+          <methods>
+            <method name="Load" signature="(System.String)" line-rate="0" branch-rate="0" complexity="5">
+              <lines>
+                <line number="5" hits="0" branch="True" condition-coverage="0% (0/2)" />
+                <line number="6" hits="0" branch="False" />
+              </lines>
+            </method>
+          </methods>
           <lines>
             <line number="5" hits="0" branch="True" condition-coverage="0% (0/2)" />
             <line number="6" hits="0" branch="False" />
@@ -77,6 +121,13 @@
           </lines>
         </class>
         <class name="Parsek.Beta/Inner.&lt;LoadAsync&gt;d__1" filename="Beta.cs" line-rate="0" branch-rate="1" complexity="1">
+          <methods>
+            <method name="MoveNext" signature="()" line-rate="0" branch-rate="1" complexity="1">
+              <lines>
+                <line number="55" hits="0" branch="False" />
+              </lines>
+            </method>
+          </methods>
           <lines>
             <line number="55" hits="0" branch="False" />
           </lines>
@@ -92,11 +143,38 @@
             <line hits="5" />
           </lines>
         </class>
-        <!-- A branch line with no readable condition-coverage: branches unknown. -->
+        <!-- A branch line with no readable condition-coverage: branches unknown. The
+             generic arity is dropped: the type is Parsek.Delta. -->
         <class name="Parsek.Delta`1" filename="Delta.cs" line-rate="1" branch-rate="0" complexity="2">
           <lines>
             <line number="7" hits="1" branch="True" />
             <line number="8" hits="1" branch="False" />
+          </lines>
+        </class>
+        <!-- A generic type whose lambda sits in a nested closure class: both fold to
+             Parsek.Cache, and the lambda to Parsek.Cache::Get. -->
+        <class name="Parsek.Cache`1" filename="Cache.cs" line-rate="0" branch-rate="1" complexity="9">
+          <methods>
+            <method name="Get" signature="(!0)" line-rate="0" branch-rate="1" complexity="9">
+              <lines>
+                <line number="60" hits="0" branch="False" />
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="60" hits="0" branch="False" />
+          </lines>
+        </class>
+        <class name="Parsek.Cache`1/&lt;&gt;c__DisplayClass1_0" filename="Cache.cs" line-rate="1" branch-rate="1" complexity="3">
+          <methods>
+            <method name="&lt;Get&gt;b__0" signature="()" line-rate="1" branch-rate="1" complexity="3">
+              <lines>
+                <line number="61" hits="2" branch="False" />
+              </lines>
+            </method>
+          </methods>
+          <lines>
+            <line number="61" hits="2" branch="False" />
           </lines>
         </class>
         <!-- No source owner: dropped. -->

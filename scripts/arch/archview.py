@@ -4169,13 +4169,15 @@ def _atlas_risk(risk):
     lines.append(
         "<p>The %d production methods with the highest score of the %d with a decision. Score: %s."
         " It gates nothing; the inputs are the columns, so a ranking you disagree with can be read off them."
-        " Type coverage is the line share of the method's type in the coverage snapshot (blank without"
-        " one).</p>" % (len(risk["rows"]), risk["candidates"], html.escape(ilanalysis.risk_explanation(risk)))
+        " Line coverage is the method's line share in the coverage snapshot (its lambdas, local functions"
+        " and state machine folded in, overloads summed), else its type's, marked <i>type</i>; blank"
+        " without a snapshot.</p>" % (len(risk["rows"]), risk["candidates"],
+                                      html.escape(ilanalysis.risk_explanation(risk)))
     )
     lines.append('<div class="wide"><table>')
     lines.append('<tr><th>Method</th><th>Module</th><th class="num">Decisions</th>'
                  '<th class="num">Direct test<br>callers</th><th class="num">File<br>commits</th>'
-                 '<th>Type reached<br>by a test</th><th class="num">Type<br>coverage</th>'
+                 '<th>Type reached<br>by a test</th><th class="num">Line coverage<br>(method, else type)</th>'
                  '<th class="num">Score</th></tr>')
     for row in risk["rows"]:
         lines.append(
@@ -4183,8 +4185,9 @@ def _atlas_risk(risk):
             '<td class="num">%s</td><td>%s</td><td class="num">%s</td><td class="num">%.1f</td></tr>'
             % (html.escape(_facts_name(row["key"])), html.escape(row["module"] or ""), row["decisions"],
                row["testCallers"], "&ndash;" if row["fileCommits"] is None else row["fileCommits"],
-               "yes" if row["typeReached"] else "no", "" if row["typeLineShare"] is None
-               else _facts_pct(row["typeLineShare"]), row["score"])
+               "yes" if row["typeReached"] else "no", "" if row["lineShare"] is None
+               else _facts_pct(row["lineShare"]) + (" <i>type</i>" if row["lineShareOf"] == "type" else ""),
+               row["score"])
         )
     lines.append("</table></div>")
     return lines
@@ -4197,7 +4200,7 @@ def _atlas_coverage(cover):
         lines.append(
             '<p class="layer">Not measured: no coverage snapshot (scripts/arch/coverage_snapshot.json). Run'
             " <code>pwsh -File scripts/test-coverage.ps1</code> on Windows, then <code>python"
-            " scripts/arch/coverage.py TestResults/Coverage/coverage.cobertura.xml --write-snapshot --commit"
+            " scripts/arch/coverage.py TestResults/Coverage/coverage..cobertura.xml --write-snapshot --commit"
             " &lt;sha&gt; --date &lt;date&gt;</code> and commit the snapshot.</p>"
         )
         return lines
@@ -4205,10 +4208,10 @@ def _atlas_coverage(cover):
 
     lines.append(
         "<p>Measured at %s, %s (%s build, a unit-test run with coverlet on Windows; always older than this"
-        " page): %s of %s production lines ran under a unit test. %s.</p>"
+        " page): %s of %s production lines ran under a unit test; %s. %s.</p>"
         % (html.escape(cover["commit"]), html.escape(cover["date"]), html.escape(cover.get("configuration") or "?"),
            _atlas_share(cover["lineShare"]), _thousands(cover["linesValid"]),
-           html.escape(ilanalysis.coverage_stale_line(cover)))
+           html.escape(ilanalysis.method_coverage_text(cover)), html.escape(ilanalysis.coverage_stale_line(cover)))
     )
     lines.append('<div class="wide"><table>')
     lines.append('<tr><th>Module</th><th class="num">Lines<br>covered</th><th class="num">Lines<br>valid</th>'

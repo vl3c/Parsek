@@ -537,28 +537,42 @@ class TestReachTests(unittest.TestCase):
         # Capped: more commits than the cap add nothing more.
         self.assertEqual(score(10, 0, 500), score(10, 0, ilanalysis.RISK_CHURN_CAP))
         self.assertEqual(score(10, 0, None), score(10, 0, 0))
+        # Coverage: not measured is no factor; fully covered keeps a fifth.
+        self.assertEqual(score(10, 0, 0, None), score(10, 0, 0, 0.0))
+        self.assertAlmostEqual(score(10, 0, 0, 1.0), 4.0)
+        self.assertAlmostEqual(score(10, 0, 0, 0.5), 12.0)
         for decisions in range(0, 40, 7):
             for commits in range(0, 30, 3):
-                with self.subTest(decisions=decisions, commits=commits):
-                    self.assertLessEqual(score(decisions, 1, commits), score(decisions, 0, commits))
-                    self.assertLessEqual(score(decisions, 0, commits), score(decisions + 1, 0, commits))
-                    self.assertLessEqual(score(decisions, 0, commits), score(decisions, 0, commits + 1))
+                for share in (None, 0.0, 0.3, 0.9):
+                    with self.subTest(decisions=decisions, commits=commits, share=share):
+                        self.assertLessEqual(score(decisions, 1, commits, share), score(decisions, 0, commits, share))
+                        self.assertLessEqual(score(decisions, 0, commits, share),
+                                             score(decisions + 1, 0, commits, share))
+                        self.assertLessEqual(score(decisions, 0, commits, share),
+                                             score(decisions, 0, commits + 1, share))
+                        self.assertLessEqual(score(decisions, 0, commits, (share or 0) + 0.1),
+                                             score(decisions, 0, commits, share))
 
-    def test_the_risk_table_ranks_by_score_and_shows_its_inputs(self):
+    @staticmethod
+    def risk_input(coverage=None):
         def method(key, decisions):
             return {"key": key, "module": "Core", "complexity": decisions + 1, "ownComplexity": decisions + 1,
                     "instructions": 10}
 
-        result = {
+        return {
             "complexity": {"methods": [method("P.Big::Tested()", 40), method("P.Mid::Untested()", 25),
                                        method("P.Hot::Churned()", 18), method("P.Big::Sibling()", 12),
                                        method("P.Flat::Leaf()", 0)]},
             "testReach": {"testCallers": {"P.Big::Tested()": 3}},
-            "coverage": {"byType": {"P.Big": 0.75}},
+            "coverage": coverage,
         }
-        churn = {"since": "2025-05-01", "commits": 300, "typeCommits": {"P.Hot": 40, "P.Big": 2, "P.Mid": 0}}
-        risk = ilanalysis.risk_table(result, churn)
-        # Mid 25 x 2 x 1 = 50; Hot 18 x 2 x 2 = 72; Big::Tested 40 x 1 x 1.1 = 44;
+
+    CHURN = {"since": "2025-05-01", "commits": 300, "typeCommits": {"P.Hot": 40, "P.Big": 2, "P.Mid": 0}}
+
+    def test_the_risk_table_ranks_by_score_and_shows_its_inputs(self):
+        result = self.risk_input()
+        risk = ilanalysis.risk_table(result, self.CHURN)
+        # Not measured: Mid 25 x 2 x 1 = 50; Hot 18 x 2 x 2 = 72; Big::Tested 40 x 1 x 1.1 = 44;
         # Big::Sibling 12 x 2 x 1.1 = 26.4; a method with no decision is no candidate.
         self.assertEqual([r["key"] for r in risk["rows"]],
                          ["P.Hot::Churned()", "P.Mid::Untested()", "P.Big::Tested()", "P.Big::Sibling()"])
@@ -566,15 +580,42 @@ class TestReachTests(unittest.TestCase):
         self.assertEqual(risk["candidates"], 4)
         sibling = risk["rows"][3]
         self.assertEqual((sibling["testCallers"], sibling["typeReached"], sibling["fileCommits"],
-                          sibling["typeLineShare"]), (0, True, 2, 0.75))
-        self.assertEqual((risk["rows"][0]["typeReached"], risk["rows"][0]["typeLineShare"]), (False, None))
+                          sibling["lineShare"], sibling["lineShareOf"]), (0, True, 2, None, None))
+        self.assertEqual(risk["rows"][0]["typeReached"], False)
         self.assertIn("since 2025-05-01", ilanalysis.risk_explanation(risk))
+        self.assertIn("not measured", ilanalysis.risk_explanation(risk))
         # Without history the commits column is blank and the ranking falls back to the rest.
         bare = ilanalysis.risk_table(result, None, top=2)
         self.assertEqual([r["key"] for r in bare["rows"]], ["P.Mid::Untested()", "P.Big::Tested()"])
         self.assertIsNone(bare["rows"][0]["fileCommits"])
         self.assertIn("no history", ilanalysis.risk_explanation(bare))
         self.assertIsNone(ilanalysis.risk_table({"testReach": None, "complexity": result["complexity"]}))
+
+    def test_coverage_lowers_the_score_with_the_method_share_before_the_type_share(self):
+        # Type coverage only: Big's two methods take 1 - 0.8 x 0.75 = 0.4,
+        # Tested 44 -> 17.6, Sibling 26.4 -> 10.56; the rest are not measured.
+        typed = ilanalysis.risk_table(self.risk_input({"byType": {"P.Big": 0.75}, "byMethod": {}}), self.CHURN)
+        self.assertEqual([(r["key"], r["score"]) for r in typed["rows"]],
+                         [("P.Hot::Churned()", 72.0), ("P.Mid::Untested()", 50.0), ("P.Big::Tested()", 17.6),
+                          ("P.Big::Sibling()", 10.56)])
+        self.assertEqual([(r["lineShare"], r["lineShareOf"]) for r in typed["rows"]],
+                         [(None, None), (None, None), (0.75, "type"), (0.75, "type")])
+        self.assertIn("its type's line share", ilanalysis.risk_explanation(typed))
+        # Method shares win over the type's: Sibling ran no line (26.4 again), Mid
+        # ran every line (50 x 0.2 = 10), and the order turns over.
+        methods = ilanalysis.risk_table(self.risk_input({"byType": {"P.Big": 0.75},
+                                                         "byMethod": {"P.Big::Sibling": 0.0, "P.Mid::Untested": 1.0}}),
+                                        self.CHURN)
+        self.assertEqual([(r["key"], r["score"]) for r in methods["rows"]],
+                         [("P.Hot::Churned()", 72.0), ("P.Big::Sibling()", 26.4), ("P.Big::Tested()", 17.6),
+                          ("P.Mid::Untested()", 10.0)])
+        self.assertEqual([(r["lineShare"], r["lineShareOf"]) for r in methods["rows"]],
+                         [(None, None), (0.0, "method"), (0.75, "type"), (1.0, "method")])
+        self.assertEqual([ilanalysis.line_share_text(r) for r in methods["rows"]], ["-", "0%", "75% type", "100%"])
+        self.assertIn("1 - 0.8 x line share", ilanalysis.risk_explanation(methods))
+        self.assertIn("the method's line share", ilanalysis.risk_explanation(methods))
+        self.assertIn("75% type", "\n".join(ilanalysis.format_risk(methods)))
+        self.assertIn("75% <i>type</i>", "\n".join(archview._atlas_risk(methods)))
 
     def test_the_report_carries_the_risk_table_and_the_cli_prints_its_top(self):
         branches = ["ldarg.0", "brtrue.s   IL_0000"] * 3

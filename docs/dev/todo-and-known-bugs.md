@@ -2663,19 +2663,27 @@ compare).
   and which production types a test reaches. A report-only ranking (`ilanalysis.risk_table`;
   top 25 in the Atlas's "Code facts" -> "Test reach", top 10 in `ilanalysis.py --tests`) scores
   each method with a decision as decisions x 2 when no test calls it directly x (1 + min(commits,
-  20) / 20), commits being the busiest source file of its type in the 18-month history window
-  (the max over a partial type's files; a real-tree cell holds that every production type finds
-  a file). Every input is a column. At 12b559f64: `RouteAnalysisEngine::AnalyzeWindows` (141
-  decisions, untested, 29 commits), `EngineFxBuilder::TryBuildEngineFX` (140, untested, 37),
-  `ParsekScenario::OnLoad` (107, untested, 558). Real line coverage: `scripts/arch/coverage.py`
-  streams the Cobertura file `scripts/test-coverage.ps1` writes on Windows (coverlet, about 80
-  MB), folds generated classes into their source type and writes the committed snapshot
+  20) / 20) x (1 - 0.8 x line share), commits being the busiest source file of its type in the
+  18-month history window (the max over a partial type's files; a real-tree cell holds that every
+  production type finds a file) and the line share the method's from the coverage snapshot, else
+  its type's, no factor without one. Every input is a column. At 12b559f64 with no snapshot:
+  `RouteAnalysisEngine::AnalyzeWindows` (141 decisions, untested, 29 commits),
+  `EngineFxBuilder::TryBuildEngineFX` (140, untested, 37), `ParsekScenario::OnLoad` (107,
+  untested, 558); with the first real snapshot's type shares `TryBuildEngineFX` leads and
+  `AnalyzeWindows` (type 93% covered) leaves the top 10. Real line coverage:
+  `scripts/arch/coverage.py` streams the Cobertura file `scripts/test-coverage.ps1` writes on
+  Windows (`coverage..cobertura.xml`, about 80 MB), folds generated classes into their source type
+  (generic arities dropped, as the facts key types), keeps lines per source method by name
+  (lambdas, local functions and state machines folded in, overloads summed; summed coverlet
+  complexity >= 10, raised until the file fits 500 KB) and writes the committed snapshot
   `scripts/arch/coverage_snapshot.json` (schema `parsek-coverage/1`: commit, date, configuration,
-  lines and branches per type; missing branch data is null, not 0). With one, the Atlas shows
-  coverage per module "measured at <commit>, <date>", fills the ranking's type coverage column and
-  counts staleness in one line (never a red), and the metrics row gains `facts.coverage` (plus
-  `facts.testReach.types`, both additive). No snapshot is committed yet: everything says "not
-  measured" until the first Windows run (README -> "Coverage snapshot").
+  lines and branches per type, optional `methods`; missing branch data is null, not 0). With one,
+  the Atlas shows coverage per module "measured at <commit>, <date>", fills the ranking's line
+  coverage column and counts staleness in one line (never a red; types whose only code is an
+  implicit constructor coverlet never lists are counted apart), and the metrics row gains
+  `facts.coverage` (plus `facts.testReach.types`, both additive). No snapshot is committed yet:
+  everything says "not measured" until the Windows run is regenerated with this reader (README ->
+  "Coverage snapshot").
 
 **Fix.**
 1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same

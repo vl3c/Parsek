@@ -24,11 +24,12 @@ the test-only split, the test assembly's facts):
   how many test methods call it directly, and the "where a test is worth
   most" ranking (`risk_table`: decisions, weighted up when no test calls the
   method directly and by its type's busiest file's commits in the history
-  window, with the type's line coverage from the snapshot as a column).
+  window, and down by its line coverage from the snapshot: the method's own
+  share when the snapshot keeps the method, else its type's).
 
 With a coverage snapshot (coverage.py, a Windows coverlet run committed as
 scripts/arch/coverage_snapshot.json) the report adds `coverage`: lines covered
-per production module and type, and how stale the snapshot is.
+per production module, type and (complex) method, and how stale the snapshot is.
 
 facts.toml (beside modules.toml) holds every list the rules read: the inert
 game types, the root attributes and names, the mutating members.
@@ -819,18 +820,24 @@ def test_reach_report(index, called, callers=None):
 # RISK_UNTESTED_WEIGHT when no test method calls it directly, times 1 plus the
 # commits of its type's busiest source file in the history window over
 # RISK_CHURN_CAP (capped at 1, so a file changed RISK_CHURN_CAP times or more
-# doubles it). Every factor is monotone: more decisions or more commits never
-# lower the score, a direct test caller never raises it.
+# doubles it), times 1 - RISK_COVERAGE_WEIGHT x its line share (the method's
+# from the snapshot, else its type's; 1 when not measured, so a fully covered
+# method keeps a fifth of its score: coverage counts lines run, not checked).
+# Every factor is monotone: more decisions or more commits never lower the
+# score, a direct test caller or more covered lines never raise it.
 RISK_TOP = 25
 RISK_UNTESTED_WEIGHT = 2
 RISK_CHURN_CAP = 20
+RISK_COVERAGE_WEIGHT = 0.8
 
 
-def risk_score(decisions, test_callers, commits):
-    """decisions x (2 untested | 1) x (1 + min(commits, 20) / 20); unknown commits count as 0."""
+def risk_score(decisions, test_callers, commits, line_share=None):
+    """decisions x (2 untested | 1) x (1 + min(commits, 20) / 20) x (1 - 0.8 x line share);
+    unknown commits count as 0, an unmeasured line share as no factor."""
     untested = RISK_UNTESTED_WEIGHT if not test_callers else 1
     churn = 1.0 + min(commits or 0, RISK_CHURN_CAP) / float(RISK_CHURN_CAP)
-    return decisions * untested * churn
+    covered = 1.0 if line_share is None else 1.0 - RISK_COVERAGE_WEIGHT * min(max(line_share, 0.0), 1.0)
+    return decisions * untested * churn * covered
 
 
 def file_commit_counts(commits):
@@ -860,9 +867,12 @@ def risk_table(result, churn=None, top=RISK_TOP):
 
     `churn` is {since, commits, typeCommits} (history_churn), None when the
     history was not read: the commits column is then blank and counts as 0.
-    The type coverage comes from the report's `coverage` (None without a
-    snapshot). Rows: key, module, type, decisions, testCallers, typeReached,
-    fileCommits, typeLineShare, score; sorted by score, then decisions, then key."""
+    The line share comes from the report's `coverage` (None without a
+    snapshot): the method's own (`Type::Name`, overloads summed) when the
+    snapshot keeps it, else its type's, `lineShareOf` saying which ("method",
+    "type", None). Rows: key, module, type, decisions, testCallers,
+    typeReached, fileCommits, lineShare, lineShareOf, score; sorted by score,
+    then decisions, then key."""
     reach = result.get("testReach")
     if not reach or "testCallers" not in reach:
         return None
@@ -870,6 +880,7 @@ def risk_table(result, churn=None, top=RISK_TOP):
     reached_types = {_key_type(key) for key in callers}
     commits_of = (churn or {}).get("typeCommits")
     cover = (result.get("coverage") or {}).get("byType")
+    by_method = (result.get("coverage") or {}).get("byMethod") or {}
     rows = []
     for row in result["complexity"]["methods"]:
         decisions = row["complexity"] - 1
@@ -879,6 +890,12 @@ def risk_table(result, churn=None, top=RISK_TOP):
         path = _key_type(key)
         n_callers = callers.get(key, 0)
         commits = commits_of.get(path) if commits_of is not None else None
+        share, share_of = None, None
+        method_key = path + "::" + _key_name(key)
+        if method_key in by_method:
+            share, share_of = by_method[method_key], "method"
+        elif cover is not None and cover.get(path) is not None:
+            share, share_of = cover[path], "type"
         rows.append({
             "key": key,
             "module": row["module"],
@@ -887,8 +904,9 @@ def risk_table(result, churn=None, top=RISK_TOP):
             "testCallers": n_callers,
             "typeReached": path in reached_types,
             "fileCommits": commits,
-            "typeLineShare": cover.get(path) if cover is not None else None,
-            "score": round(risk_score(decisions, n_callers, commits), 2),
+            "lineShare": share,
+            "lineShareOf": share_of,
+            "score": round(risk_score(decisions, n_callers, commits, share), 2),
         })
     rows.sort(key=lambda r: (-r["score"], -r["decisions"], r["key"]))
     return {
@@ -897,41 +915,78 @@ def risk_table(result, churn=None, top=RISK_TOP):
         "since": (churn or {}).get("since"),
         "historyCommits": (churn or {}).get("commits"),
         "coverage": cover is not None,
+        "methodCoverage": bool(by_method),
     }
 
 
 # --- coverage (a committed snapshot of a Windows coverlet run) ------------------------
 
 
+# A constructor the compiler writes for a class that declares none
+# (`ldarg.0; call base::.ctor(); nop; ret` in Debug) has no source line, so
+# coverlet instruments nothing in it; a type whose only code it is never
+# appears in a snapshot.
+IMPLICIT_CTOR_MAX_INSTRUCTIONS = 4
+
+
+def _implicit_constructor(key, entry):
+    return (key.endswith("::.ctor()") and "static" not in entry.get("flags", ())
+            and entry["instructions"] <= IMPLICIT_CTOR_MAX_INSTRUCTIONS)
+
+
 def coverage_report(index, snapshot):
     """The snapshot (coverage.py) read against this assembly: per production
-    module the lines covered / valid, the line share per production type, and
-    how stale the snapshot is. None without a snapshot.
+    module the lines covered / valid, the line share per production type and
+    per kept method (`byMethod`, `Type::Name`; empty for a snapshot written
+    before methods were kept), and how stale the snapshot is. None without a
+    snapshot. A snapshot key's generic arities are dropped (`Box`1` is `Box`),
+    as the facts drop them.
 
-    Staleness counts types with code (a method with a body) in this assembly
-    the snapshot does not list, and snapshot types this assembly lacks; it
-    is reported, never failed."""
+    Staleness counts types with instrumented code (a method with a body other
+    than an implicit constructor) in this assembly the snapshot does not list,
+    types whose only code is an implicit constructor (`noInstrumentedCode`:
+    coverlet lists none of them, so they are not staleness), and snapshot
+    types this assembly lacks; it is reported, never failed."""
     if snapshot is None:
         return None
-    types = snapshot["types"]
-    with_code = {entry["type"] for entry in index.methods.values()
-                 if entry["instructions"] > 0 and entry["type"] in index.types}
+    types = defaultdict(lambda: {"valid": 0, "covered": 0, "branches": {"valid": 0, "covered": 0}})
+    for raw_path, row in snapshot["types"].items():
+        held = types[ilgraph.canonical_path(raw_path)]
+        held["valid"] += row["lines"]["valid"]
+        held["covered"] += row["lines"]["covered"]
+        if row.get("branches") is None or held["branches"] is None:
+            held["branches"] = None
+        else:
+            held["branches"]["valid"] += row["branches"]["valid"]
+            held["branches"]["covered"] += row["branches"]["covered"]
+    with_code = set()
+    instrumented = set()
+    for key, entry in index.methods.items():
+        if entry["instructions"] > 0 and entry["type"] in index.types:
+            with_code.add(entry["type"])
+            if not _implicit_constructor(key, entry):
+                instrumented.add(entry["type"])
     by_module = defaultdict(Counter)
     branch_unknown = defaultdict(int)
     by_type = {}
     for path, row in types.items():
         if path not in index.types or not index.production(path):
             continue
-        lines = row["lines"]
-        by_type[path] = lines["covered"] / lines["valid"] if lines["valid"] else None
+        by_type[path] = row["covered"] / row["valid"] if row["valid"] else None
         counter = by_module[index.module(path)]
-        counter["linesValid"] += lines["valid"]
-        counter["linesCovered"] += lines["covered"]
-        if row.get("branches") is None:
+        counter["linesValid"] += row["valid"]
+        counter["linesCovered"] += row["covered"]
+        if row["branches"] is None:
             branch_unknown[index.module(path)] += 1
         else:
             counter["branchesValid"] += row["branches"]["valid"]
             counter["branchesCovered"] += row["branches"]["covered"]
+    by_method = {}
+    for raw_key, (covered, valid) in (snapshot.get("methods") or {}).items():
+        path, _sep, name = raw_key.partition("::")
+        path = ilgraph.canonical_path(path)
+        if valid and path in index.types and index.production(path):
+            by_method[path + "::" + name] = covered / valid
     modules = {}
     for module in sorted(by_module):
         c = by_module[module]
@@ -944,7 +999,8 @@ def coverage_report(index, snapshot):
         }
     valid = sum(m["linesValid"] for m in modules.values())
     covered = sum(m["linesCovered"] for m in modules.values())
-    not_in_snapshot = sorted(with_code - set(types))
+    not_in_snapshot = sorted(instrumented - set(types))
+    no_instrumented_code = sorted(with_code - instrumented - set(types))
     not_in_assembly = sorted(set(types) - set(index.types))
     return {
         "commit": snapshot["commit"],
@@ -955,7 +1011,10 @@ def coverage_report(index, snapshot):
         "lineShare": covered / valid if valid else None,
         "byModule": modules,
         "byType": by_type,
+        "byMethod": by_method,
+        "methodComplexityMin": snapshot.get("methodComplexityMin"),
         "stale": {"notInSnapshot": len(not_in_snapshot), "notInAssembly": len(not_in_assembly),
+                  "noInstrumentedCode": len(no_instrumented_code),
                   "notInSnapshotExamples": not_in_snapshot[:5], "notInAssemblyExamples": not_in_assembly[:5]},
     }
 
@@ -1136,9 +1195,22 @@ def risk_explanation(risk):
     """One sentence: the score and its window."""
     window = ("file commits since %s (%d commits, sweeps left out)" % (risk["since"], risk["historyCommits"])
               if risk.get("since") else "no history read, so commits count as 0")
-    return ("decisions x %d when no test method calls the method directly x (1 + min(commits, %d) / %d),"
-            " commits of its type's busiest source file; %s" % (RISK_UNTESTED_WEIGHT, RISK_CHURN_CAP,
-                                                              RISK_CHURN_CAP, window))
+    if not risk.get("coverage"):
+        cover = "not measured (no snapshot), so no factor"
+    elif risk.get("methodCoverage"):
+        cover = "the method's line share from the snapshot, else its type's"
+    else:
+        cover = "its type's line share (the snapshot keeps no methods)"
+    return ("decisions x %d when no test method calls the method directly x (1 + min(commits, %d) / %d)"
+            " x (1 - %.1f x line share), commits of its type's busiest source file; %s; line share %s"
+            % (RISK_UNTESTED_WEIGHT, RISK_CHURN_CAP, RISK_CHURN_CAP, RISK_COVERAGE_WEIGHT, window, cover))
+
+
+def line_share_text(row):
+    """A risk row's line share: `45%` for the method's own, `45% type` for its type's, `-` when not measured."""
+    if row.get("lineShare") is None:
+        return "-"
+    return _pct(row["lineShare"]) + (" type" if row.get("lineShareOf") == "type" else "")
 
 
 def format_risk(risk, top=10):
@@ -1146,27 +1218,34 @@ def format_risk(risk, top=10):
         return []
     lines = ["  where a test is worth most (top %d of %d methods with a decision; score = %s):"
              % (min(top, len(risk["rows"])), risk["candidates"], risk_explanation(risk)),
-             "    %7s %5s %7s %7s %7s %6s  %s" % ("score", "dec", "callers", "commits", "type", "cover", "method")]
+             "    %7s %5s %7s %7s %7s %9s  %s" % ("score", "dec", "callers", "commits", "type", "lines", "method")]
     for row in risk["rows"][:top]:
-        lines.append("    %7.1f %5d %7d %7s %7s %6s  %s" % (
+        lines.append("    %7.1f %5d %7d %7s %7s %9s  %s" % (
             row["score"], row["decisions"], row["testCallers"],
             "-" if row["fileCommits"] is None else row["fileCommits"],
-            "reached" if row["typeReached"] else "no", _share_text(row["typeLineShare"]),
+            "reached" if row["typeReached"] else "no", line_share_text(row),
             row["key"].split("(", 1)[0]))
     return lines
 
 
 def coverage_stale_line(cover):
     stale = cover["stale"]
-    return ("Types with code in this assembly the snapshot does not list: %d (new since it, or code coverlet"
-            " does not instrument); snapshot types this assembly lacks: %d (renamed or deleted since)"
-            % (stale["notInSnapshot"], stale["notInAssembly"]))
+    return ("Types with instrumented code in this assembly the snapshot does not list: %d (new since it);"
+            " snapshot types this assembly lacks: %d (renamed or deleted since); types whose only code is an"
+            " implicit constructor, which coverlet never lists: %d"
+            % (stale["notInSnapshot"], stale["notInAssembly"], stale.get("noInstrumentedCode", 0)))
+
+
+def method_coverage_text(cover):
+    if not cover.get("byMethod"):
+        return "no methods kept (a snapshot from before methods were; regenerate it for method coverage)"
+    return "%d methods with complexity >= %s kept" % (len(cover["byMethod"]), cover.get("methodComplexityMin"))
 
 
 def format_coverage(cover):
-    lines = ["  line coverage (measured at %s, %s, %s): %s of %d production lines"
+    lines = ["  line coverage (measured at %s, %s, %s): %s of %d production lines; %s"
              % (cover["commit"], cover["date"], cover.get("configuration") or "?", _share_text(cover["lineShare"]),
-                cover["linesValid"])]
+                cover["linesValid"], method_coverage_text(cover))]
     for module, row in sorted(cover["byModule"].items(), key=lambda kv: -kv[1]["linesValid"]):
         lines.append("    %-14s %6d / %6d  %5s  (branches %s)" % (
             module, row["linesCovered"], row["linesValid"], _share_text(row["lineShare"]),
