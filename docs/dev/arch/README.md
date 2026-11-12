@@ -1529,6 +1529,18 @@ commit read:
   (`Ghost/X.cs` from `X.cs`) leaves the per-file counts, hotspots and module
   tables exactly as they were. The rename commit itself counts as a change of
   the file when it edited it (`R099` and below).
+- A late commit is followed too. The log is in date order, not topological,
+  so a branch forked before a rename can edit the old name with a LATER
+  date than the rename: the walk meets that commit first and resolves it to
+  the old name, which no longer exists. Such a commit (its name not alive at
+  the commit read, not ended by a deletion) takes the name the old path
+  resolved to at the rename, which already carries every newer rename and
+  deletion, so a file a deletion ended stays ended. The hop is taken only
+  when the name left exactly once in the window (one rename away, no
+  deletion); a name renamed twice, or renamed and deleted, cannot say which
+  file the late commit meant and stays unresolved (dropped). Hops repeat
+  while the name is still not alive and stop on a name already visited. Every
+  branch open across the module move is this case.
 - `R100` is a pure move and NOT a change: it is not counted for the file, and
   a commit made only of pure moves is not counted at all ("pure-move commits
   not counted"). It also never makes a sweep.
@@ -1558,8 +1570,9 @@ the same map, so a renamed file's growth follows it.
 (`ParsekFlight.MergeFlow.cs` next to `ParsekFlight.cs`) is a new file: its
 history starts at its first commit, and everything before the split stays
 with the base. The split is counted, not followed ("Splits not followed": the
-partial files, the base files, and the commits the bases took before their
-first split). Copy detection was measured on 2026-11-12 and rejected: `-C`
+partial files, the base files, and the distinct commits that touched a base
+before its first split; the per-base rows count a commit once per base it
+touched, so their sum is larger). Copy detection was measured on 2026-11-12 and rejected: `-C`
 and `-C -C` both find the same 10 copies in the window and no more renames
 (25 either way), all of them a Phase B lift or a large extraction scoring
 55-79% (`ParsekFlight.Spawning.cs` to `ParsekFlightSpawnHost.cs`, `ParsekUI.cs`
@@ -1670,10 +1683,13 @@ zeros. CI checks out with `fetch-depth: 0`.
 ### Known limits
 
 - `--no-merges --date-order` walks a side branch's commits in committer-date
-  order, not topologically: a rename on one branch and an edit of the old
-  name on a parallel branch that lands later in date order would not be
-  followed. The 2026-11-12 read found no such pair. A file deleted only by
-  a merge commit and never re-created is caught by the alive filter.
+  order, not topologically. An edit of the old name on a parallel branch
+  that lands later in date order than the rename is followed by the late
+  rule above when the name left once; when it was renamed twice, or renamed
+  and deleted, the commit is dropped. The 2026-11-12 read has no late pair,
+  so the rule moved nothing there; the module move makes one of every branch
+  open across it. A file deleted only by a merge commit and never re-created
+  is caught by the alive filter.
 - The walk sees no ancestry, so a deletion that happened only inside a merge
   commit (never a `D` row under `--no-merges`) is invisible to it: if the
   path is later created again as a different file, the dead file's older
@@ -1685,9 +1701,18 @@ zeros. CI checks out with `fetch-depth: 0`.
   `KerbalsModule.cs` and three in `GameActions/`). The 6 paths deleted and
   created again in the window all show their `D`, so they keep the
   protection.
-- Parallel adds also count the file's creation once per branch in the
-  growth column, because the merge that joined them is not read:
-  `GameActions/GameAction.cs` reads +4741 against 2309 lines today.
+- The growth numstat sums non-merge commits, so whatever the merges that
+  joined parallel branches did is not read: a file both branches created
+  counts its creation twice (`GameActions/GameAction.cs` sums +4741 against
+  2309 lines today), and so does the same edit made on both branches, while
+  a conflict resolution's own lines are missing. Net lines added in a window
+  cannot exceed the file, so the size view caps a file's growth at its
+  current line count, marks the row with `*`, and says how many rows were
+  capped: 82 of the production files on 2026-11-12, the median by 24 lines,
+  `GameAction.cs` by 2432, `Logistics/RouteOrchestrator.cs` by 918,
+  `RelativeAnchorResolver.cs` by 726, `ParsekFlight.cs` by 688. Below the
+  cap the column still carries the same error; read it as a trend, not a
+  count.
 - A first-parent merge that is not a PR merge ("merge") carries everything
   the other side brought in, so its paths are broad; there was one in 18
   months.
@@ -1790,8 +1815,11 @@ Per type, with partials merged (every part of `ParsekFlight` is one row):
   one extra `git log --numstat -M` call over `Source/Parsek`, summed over the
   type's files. A renamed file's rows follow it to its current name (the
   change history's rename map); binary rows and sweep commits (more than 40
-  source files, the same rule the co-change history uses) are ignored. With
-  git missing the column reads `n/a` and nothing else changes.
+  source files, the same rule the co-change history uses) are ignored, and a
+  commit of deleted code only is not counted, so the commit count equals the
+  history's. A file's growth is capped at its line count (`*`, see "Known
+  limits" under "Change history"). With git missing the column reads `n/a`
+  and nothing else changes.
 
 ### The heuristics' blind spots
 

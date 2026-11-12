@@ -940,7 +940,7 @@ class AtlasRenderTests(unittest.TestCase):
             "since": "2025-05-01", "commits": 10, "skippedSweeps": 1, "largestSweep": 44,
             "moves": 2, "dropped": 3, "renames": 4,
             "renamedFiles": {"files": 1, "commits": 6, "top": []},
-            "splits": {"files": 3, "bases": 1, "baseCommits": 7, "top": []},
+            "splits": {"files": 3, "bases": 1, "baseCommits": 9, "commits": 7, "top": []},
             "hotspots": [{"name": "AlphaThing", "module": "Alpha", "file": "Alpha/A.cs",
                           "fileCommits": 9, "fanIn": 5, "hotspot": 45,
                           "byWindow": {"30d": {"fileCommits": 2, "hotspot": 10},
@@ -966,7 +966,8 @@ class AtlasRenderTests(unittest.TestCase):
                       " 2026-10-13, 90 days since 2026-08-14, 18 months since 2025-05-01.", body)
         self.assertIn("4 rename events; 6 commits credited to 1 current files", body)
         self.assertIn("2 pure-move commits not counted; 3 commits dropped", body)
-        self.assertIn("Splits not followed: 3 partial files born beside 1 base files; the 7", body)
+        self.assertIn("Splits not followed: 3 partial files born beside 1 base files; the 7 commits"
+                      " that touched a base before its first split", body)
         self.assertIn("<h3>Busiest files</h3>", body)
         self.assertIn("<h3>Where fixes land, per module</h3>", body)
         self.assertIn("<h3>Top files by fix units, 90 days</h3>", body)
@@ -1794,6 +1795,54 @@ class HistoryRenameTests(unittest.TestCase):
         self.assertEqual(parsed["dropped"], 0)
         self.assertEqual(parsed["renamedFiles"], {})
 
+    @staticmethod
+    def _finals(entries, alive):
+        resolved = archview.resolve_renames(entries, lambda path: path in alive)
+        return [[final for _path, final, _move in touched] for touched in resolved]
+
+    def test_a_late_commit_on_the_old_name_follows_the_rename(self):
+        # Newest first: `late` edits A on a branch that forked before A -> B
+        # (and B -> C) but carries a later date.
+        entries = [[("M", None, ["A"])], [("R", 90, ["B", "C"])], [("R", 100, ["A", "B"])]]
+        self.assertEqual(self._finals(entries, {"C"}), [["C"], ["C"], ["C"]])
+        # Without `is_alive` the walk is the plain newest-first rule.
+        self.assertEqual([[f for _p, f, _m in t] for t in archview.resolve_renames(entries)],
+                         [["A"], ["C"], ["C"]])
+        # A name alive at the commit read is never moved, late rename or not.
+        self.assertEqual(self._finals(entries, {"A", "C"})[0], ["A"])
+
+    def test_a_late_hop_never_resurrects_a_deleted_file(self):
+        # A -> B, then B deleted, then a new B: the late A commit's file is the
+        # deleted one, not the new B.
+        entries = [[("A", None, ["B"])], [("M", None, ["A"])], [("D", None, ["B"])],
+                   [("R", 95, ["A", "B"])]]
+        self.assertEqual(self._finals(entries, {"B"})[1], [None])
+
+    def test_a_name_that_left_twice_stays_unresolved(self):
+        # A -> B, A created again, A -> C: a late A commit could be either file.
+        entries = [[("M", None, ["A"])], [("R", 90, ["A", "C"])], [("A", None, ["A"])],
+                   [("R", 90, ["A", "B"])]]
+        self.assertEqual(self._finals(entries, {"B", "C"})[0], ["A"])
+        # Renamed and deleted: the same.
+        entries = [[("M", None, ["A"])], [("D", None, ["A"])], [("A", None, ["A"])],
+                   [("R", 90, ["A", "B"])]]
+        self.assertEqual(self._finals(entries, {"B"})[0], ["A"])
+
+    def test_a_rename_cycle_terminates(self):
+        entries = [[("M", None, ["A"])], [("R", 90, ["B", "A"])], [("R", 90, ["A", "B"])]]
+        self.assertEqual(self._finals(entries, set())[0], ["A"])
+
+    def test_the_late_rule_reaches_parse_history_and_growth(self):
+        text = _log(("late", "2026-09-03", ["M\tA.cs"]), ("mv", "2026-09-02", ["R100\tA.cs\tOne/A.cs"]),
+                    ("c1", "2026-09-01", ["M\tA.cs"]))
+        parsed = archview.parse_history(text, alive={"One/A.cs"})
+        self.assertEqual(self._files(parsed), {"late": ["One/A.cs"], "c1": ["One/A.cs"]})
+        self.assertEqual((parsed["dropped"], parsed["moves"]), (0, 1))
+        numstat = ("COMMIT\tlate\n2\t0\tSource/Parsek/A.cs\n"
+                   "COMMIT\tmv\n0\t0\tSource/Parsek/{A.cs => One/A.cs}\n"
+                   "COMMIT\tc1\n5\t1\tSource/Parsek/A.cs\n")
+        self.assertEqual(archview.parse_growth(numstat, parsed["resolution"])["files"], {"One/A.cs": 6})
+
     def test_the_new_side_of_a_rename_does_not_end_the_path(self):
         # B.cs on one branch, A.cs renamed to B.cs on another (no delete of the
         # first B.cs in the log): the older B.cs commits stay with B.cs.
@@ -1873,10 +1922,22 @@ class HistoryRenameTests(unittest.TestCase):
         # split (c3) are counted once, and the partials inherit nothing.
         self.assertEqual(
             parsed["splits"],
-            {"files": 3, "bases": 1, "baseCommits": 2,
+            {"files": 3, "bases": 1, "baseCommits": 2, "commits": 2,
              "rows": [{"base": "Flight.cs", "files": 3, "firstSplit": "2026-09-03",
                        "baseCommits": 2}]},
         )
+
+    def test_the_split_total_counts_each_commit_once(self):
+        # c1 and c2 touched both bases before their splits: the per-base rows
+        # keep 2 each, the distinct total is 2, the per-base sum 4.
+        parsed = archview.parse_history(_log(
+            ("c3", "2026-09-03", ["A\tFlight.Merge.cs", "M\tFlight.cs", "A\tStore.Io.cs", "M\tStore.cs"]),
+            ("c2", "2026-09-02", ["M\tFlight.cs", "M\tStore.cs"]),
+            ("c1", "2026-09-01", ["M\tFlight.cs", "M\tStore.cs"]),
+        ))
+        splits = parsed["splits"]
+        self.assertEqual((splits["bases"], splits["commits"], splits["baseCommits"]), (2, 2, 4))
+        self.assertEqual([row["baseCommits"] for row in splits["rows"]], [2, 2])
 
     def test_name_status_lines(self):
         self.assertEqual(archview._change_line("R087\tSource/Parsek/a.cs\tSource/Parsek/b.cs"),
@@ -1928,9 +1989,9 @@ class HistoryModuleMoveTests(unittest.TestCase):
         return ("move", "2026-09-10",
                 ["R100\t%s\t%s/%s" % (rel, module, rel) for rel, module in sorted(self.FILES.items())])
 
-    def _tables(self, text, moved):
-        starts = archview.window_starts("2026-09-10")
-        parsed = archview.parse_history(text, since=starts["18m"])
+    def _tables(self, text, moved, alive=None):
+        starts = archview.window_starts("2026-09-12")
+        parsed = archview.parse_history(text, alive, since=starts["18m"])
         tables = archview.history_metrics(parsed["commits"], self._model(moved), [], starts)
         return parsed, tables
 
@@ -1957,6 +2018,27 @@ class HistoryModuleMoveTests(unittest.TestCase):
         self.assertEqual(files, {"Alpha.cs": 8, "AlphaHelper.cs": 1, "Beta.cs": 3, "Gamma.cs": 7})
         self.assertTrue(before["filePairs"])
 
+    def _alive(self, moved):
+        return {"%s/%s" % (module, rel) if moved else rel for rel, module in self.FILES.items()}
+
+    def test_a_branch_open_across_the_move_keeps_its_commits(self):
+        # A branch forked before the move edits Alpha.cs and Beta.cs a day after
+        # the move commit, so the date-ordered log lists those commits NEWER than
+        # the move, under the old names. They are the moved files' commits: every
+        # table equals the run without the move.
+        late = [("late2", "2026-09-12", ["M\tAlpha.cs"]),
+                ("late1", "2026-09-11", ["M\tAlpha.cs", "M\tBeta.cs"])]
+        before_parsed, before = self._tables(_log(*(late + self.HISTORY)), False, self._alive(False))
+        after_parsed, after = self._tables(_log(*(late + [self._move_commit()] + self.HISTORY)), True,
+                                           self._alive(True))
+        self.assertEqual((after_parsed["dropped"], len(after_parsed["commits"])),
+                         (0, len(before_parsed["commits"])))
+        for key in ("files", "hotspots", "modules", "modulePairs", "filePairs", "windows"):
+            self.assertEqual(self._unmove(after[key]), before[key], key)
+        files = {row["file"]: row["commits"] for row in after["files"]}
+        self.assertEqual(files["One/Alpha.cs"], 10)
+        self.assertEqual(files["Two/Beta.cs"], 4)
+
     def test_the_growth_column_follows_the_move_too(self):
         numstat = (
             "COMMIT\tmove\n"
@@ -1977,6 +2059,16 @@ class HistoryModuleMoveTests(unittest.TestCase):
 
 
 class GrowthRenameTests(unittest.TestCase):
+    def test_quoted_git_paths_are_decoded(self):
+        # git C-quotes a path with a special or non-ASCII byte: octal escapes
+        # are UTF-8 bytes, and tab, newline, quote and backslash are escaped.
+        self.assertEqual(archview._unquote_git_path('"Source/Parsek/Sub Dir/\\303\\251t\\303\\251.cs"'),
+                         "Source/Parsek/Sub Dir/\u00e9t\u00e9.cs")
+        self.assertEqual(archview._unquote_git_path('"a\\tb\\nc\\"d\\\\e.cs"'), 'a\tb\nc"d\\e.cs')
+        self.assertEqual(archview._unquote_git_path("Plain.cs"), "Plain.cs")
+        self.assertEqual(archview._change_line('M\t"Source/Parsek/\\303\\251.cs"'),
+                         ("M", None, ["Source/Parsek/\u00e9.cs"]))
+
     def test_numstat_rename_paths(self):
         self.assertEqual(archview._numstat_paths("Source/Parsek/{A.cs => B.cs}"),
                          ("Source/Parsek/A.cs", "Source/Parsek/B.cs"))
@@ -2005,6 +2097,34 @@ class GrowthRenameTests(unittest.TestCase):
         # deleted code; the pure move adds nothing and is not a commit; a
         # commit the history did not read is outside the window.
         self.assertEqual(growth, {"files": {"UI/B.cs": 13}, "commits": 2, "skipped": 0})
+
+    def test_growth_does_not_count_a_commit_of_deleted_code_only(self):
+        history = archview.parse_history(_log(
+            ("c3", "2026-09-03", ["D\tGone.cs"]),
+            ("c2", "2026-09-02", ["M\tGone.cs"]),
+            ("c1", "2026-09-01", ["M\tGone.cs", "M\tKept.cs"]),
+        ))
+        numstat = ("COMMIT\tc3\n0\t9\tSource/Parsek/Gone.cs\n"
+                   "COMMIT\tc2\n4\t0\tSource/Parsek/Gone.cs\n"
+                   "COMMIT\tc1\n5\t0\tSource/Parsek/Gone.cs\n2\t0\tSource/Parsek/Kept.cs\n")
+        growth = archview.parse_growth(numstat, history["resolution"])
+        # The history keeps c1 only; the growth agrees.
+        self.assertEqual(len(history["commits"]), growth["commits"])
+        self.assertEqual(growth, {"files": {"Kept.cs": 2}, "commits": 1, "skipped": 0})
+
+    def test_size_report_caps_growth_at_the_file(self):
+        model = {"sizes": {"files": [
+            {"file": "A.cs", "module": "M", "lines": 100, "declaredTypes": 1, "topLevelTypes": 1, "types": ["A"]},
+            {"file": "B.cs", "module": "M", "lines": 50, "declaredTypes": 1, "topLevelTypes": 1, "types": ["B"]},
+        ], "types": []}, "types": []}
+        report = archview.size_report(model, {"since": "2025-05-01"},
+                                      {"files": {"A.cs": 240, "B.cs": -7}, "commits": 3, "skipped": 0})
+        rows = {row["file"]: (row["netLinesAdded"], row["netLinesCapped"]) for row in report["files"]}
+        self.assertEqual(rows, {"A.cs": (100, True), "B.cs": (-7, False)})
+        self.assertEqual(report["growth"]["capped"], 1)
+        self.assertEqual(archview.format_growth(report["files"][0], "n/a"), "+100*")
+        self.assertEqual(archview.format_growth(report["files"][1], "n/a"), "-7")
+        self.assertIn("1 file capped at its line count", archview.growth_cap_note(1))
 
     def test_growth_follows_the_same_identity_rule(self):
         # Parallel adds of P.cs are one file; Q.cs deleted and created again
@@ -2168,6 +2288,36 @@ class ChangeKindTests(unittest.TestCase):
         self.assertEqual([row["file"] for row in out["fixFiles"]["90d"]], ["Beta.cs"])
         self.assertEqual([row["primary"] for row in out["units"]],
                          ["fix", "fix", "docs", "unlabelled", "fix"])
+
+    def test_a_unit_counts_once_per_module_however_many_of_its_files_it_touched(self):
+        model = HistoryModuleMoveTests()._model(False)
+        units = archview.parse_units(
+            "UNIT\tu1\tp c\t2026-09-01\tMerge pull request #1 from x/y\n    Fix two\nENDBODY\n\n"
+            "M\tSource/Parsek/Beta.cs\nM\tSource/Parsek/Gamma.cs\nM\tSource/Parsek/Alpha.cs\n"
+        )
+        out = archview.change_kinds(units, {"u1": Counter({"fix": 1})},
+                                    archview.window_starts("2026-09-10"), model, [])
+        modules = {row["name"]: row["byWindow"]["30d"] for row in out["modules"]}
+        self.assertEqual(modules["Two"], {"units": 1, "fix": 1, "kinds": {"fix": 1}})
+        self.assertEqual(modules["One"], {"units": 1, "fix": 1, "kinds": {"fix": 1}})
+
+
+class HistoryWindowDateTests(unittest.TestCase):
+    def test_the_windows_cut_on_the_committer_date(self):
+        # Authored long ago, committed inside the 30 days (a rebase or a cherry
+        # pick), and the reverse: the committer date decides both.
+        text = (
+            "COMMIT\tnew\t2025-01-01\t2026-09-05\nM\tSource/Parsek/Alpha.cs\n\n"
+            "COMMIT\told\t2026-09-04\t2026-05-01\nM\tSource/Parsek/Beta.cs\n"
+        )
+        starts = archview.window_starts("2026-09-10")
+        parsed = archview.parse_history(text, since=starts["18m"])
+        out = archview.history_metrics(parsed["commits"], HistoryModuleMoveTests()._model(False), [], starts)
+        self.assertEqual({key: out["windows"][key]["commits"] for key in archview.HISTORY_WINDOWS},
+                         {"30d": 1, "90d": 1, "18m": 2})
+        files = {row["file"]: row["byWindow"] for row in out["files"]}
+        self.assertEqual(files["Alpha.cs"]["30d"]["commits"], 1)
+        self.assertEqual(files["Beta.cs"]["90d"]["commits"], 0)
 
 
 @unittest.skipUnless((REPO_ROOT / ".git").exists(), "no git checkout")

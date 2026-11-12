@@ -3986,8 +3986,8 @@ def history_window_summary(history):
     if isinstance(splits, dict):
         parts.append(
             "Splits not followed: %d partial files born beside %d base files; the %d commits"
-            " those bases took before their first split stay with the base."
-            % (splits.get("files", 0), splits.get("bases", 0), splits.get("baseCommits", 0))
+            " that touched a base before its first split stay with the base."
+            % (splits.get("files", 0), splits.get("bases", 0), splits.get("commits", 0))
         )
     return parts
 
@@ -4454,6 +4454,20 @@ def _atlas_headless(result):
     return lines
 
 
+def format_growth(row, missing):
+    """A file row's growth cell: signed, `*` when capped at the file's lines."""
+    net = row.get("netLinesAdded")
+    if net is None:
+        return missing
+    return ("%+d" % net) + ("*" if row.get("netLinesCapped") else "")
+
+
+def growth_cap_note(capped):
+    return ("* %d file%s capped at %s line count: the non-merge commits sum past the file,"
+            " because the merges that joined parallel branches are not read." % (
+                capped, "" if capped == 1 else "s", "its" if capped == 1 else "their"))
+
+
 def _atlas_sizes(sizes):
     """Return the atlas size tables, or a one-line notice when there is no size data."""
     if not sizes or not sizes.get("types"):
@@ -4465,7 +4479,6 @@ def _atlas_sizes(sizes):
         '<th class="num">Types</th><th class="num">Growth</th></tr>',
     ]
     for row in sizes["files"][:10]:
-        net = row.get("netLinesAdded")
         lines.append(
             '<tr><td><span class="id">%s</span></td><td>%s</td><td class="num">%s</td>'
             '<td class="num">%d</td><td class="num">%s</td></tr>'
@@ -4474,12 +4487,16 @@ def _atlas_sizes(sizes):
                 html.escape(row["module"]),
                 _thousands(row["lines"]),
                 row["declaredTypes"],
-                ("%+d" % net) if net is not None else "&ndash;",
+                format_growth(row, "&ndash;"),
             )
         )
+    capped = (sizes.get("growth") or {}).get("capped")
+    lines.append("</table></div>")
+    if capped:
+        lines.append('<p class="layer">%s</p>' % html.escape(growth_cap_note(capped)))
     lines.extend(
         [
-            "</table></div>",
+
             "<h3>Largest types, partials merged</h3>",
             '<div class="wide"><table>',
             '<tr><th>Type</th><th>Module</th><th class="num">Lines</th>'
@@ -4929,10 +4946,32 @@ def git_numstat_lines(repo_root, since=None, rev="HEAD"):
     return _git_text(repo_root, growth_git_args(since, rev), "git log --numstat") or ""
 
 
+_GIT_PATH_ESCAPES = {"a": 7, "b": 8, "t": 9, "n": 10, "v": 11, "f": 12, "r": 13, '"': 34, "\\": 92}
+
+
 def _unquote_git_path(text):
-    if len(text) >= 2 and text.startswith('"') and text.endswith('"'):
-        text = text[1:-1].replace('\\"', '"').replace("\\\\", "\\")
-    return text
+    """A path as git wrote it, C-quoted when it holds a special or non-ASCII
+    byte (`"Sub Dir/\\303\\251t\\303\\251.cs"`): the octal escapes are UTF-8 bytes."""
+    if len(text) < 2 or not (text.startswith('"') and text.endswith('"')):
+        return text
+    body = text[1:-1]
+    out = bytearray()
+    index = 0
+    while index < len(body):
+        char = body[index]
+        if char == "\\" and index + 1 < len(body):
+            octal = re.match(r"[0-7]{1,3}", body[index + 1:index + 4])
+            if octal:
+                out.append(int(octal.group(0), 8) & 0xFF)
+                index += 1 + len(octal.group(0))
+                continue
+            if body[index + 1] in _GIT_PATH_ESCAPES:
+                out.append(_GIT_PATH_ESCAPES[body[index + 1]])
+                index += 2
+                continue
+        out.extend(char.encode("utf-8"))
+        index += 1
+    return out.decode("utf-8", errors="replace")
 
 
 def _numstat_paths(path):
@@ -4966,7 +5005,8 @@ def parse_growth(text, resolution=None):
     {sha: {path git wrote: current rel path or None}}: with it, only those
     commits count, a row is credited to the file's current name (a rename row
     included: its counts are the content edit), a pure move (a 0 / 0 rename
-    row) is no change, and a row of deleted code is dropped. Without it a
+    row) is no change, a row of deleted code is dropped, and a commit made
+    only of deleted code is not counted (the history drops it too). Without it a
     rename row is ignored and every other row counts at the name it carries.
     An empty string (git missing or the window empty) returns empty tables.
     """
@@ -5024,6 +5064,9 @@ def parse_growth(text, resolution=None):
         if len({rel_path for rel_path, _final, _net, _changed in rows}) > HISTORY_SWEEP_LIMIT:
             skipped += 1
             continue
+        if all(final is None for _rel_path, final, _net, _changed in rows):
+            # Deleted code only: the history drops the same commit.
+            continue
         kept += 1
         for _rel_path, final, net, _changed in rows:
             if final is not None:
@@ -5066,7 +5109,7 @@ def _change_line(line, bare_is_modify=True):
     return code[0], int(code[1:]) if code[1:] else None, paths
 
 
-def resolve_renames(entries):
+def resolve_renames(entries, is_alive=None):
     """Follow renames through a newest-first list of commits (pure).
 
     `entries[i]` is one commit's changes as _change_line returns them, the
@@ -5088,10 +5131,26 @@ def resolve_renames(entries):
     file's. The cost is a path deleted only inside a merge commit (which the
     log does not show) and later created again: its older commits are
     credited to the new file.
+
+    Late renames. The log is in date order, not topological, so a commit on a
+    branch that forked before a rename can carry a LATER date than the rename
+    and edit the old name: the walk meets it before the rename, and its final
+    name is the old one. With `is_alive` (a predicate over the names git
+    wrote, True for a file at the commit read) such a final name that is not
+    alive follows the rename the walk met later: the name it resolved to at
+    that rename, which already carries every newer rename and deletion, so a
+    file a visible deletion ended stays ended (None). The hop is taken only
+    when the name left exactly once in the window (one rename away, no
+    deletion): a name renamed twice, or renamed and deleted, cannot say which
+    file a late commit meant, so it stays unresolved. Hops repeat while the
+    name is still not alive, and stop on a name already visited.
     """
     alias = {}
     out = []
-    for changes in entries:
+    late = {}
+    late_at = {}
+    leaves = Counter()
+    for index, changes in enumerate(entries):
         touched = []
         for letter, score, paths in changes:
             if letter == "D":
@@ -5103,11 +5162,30 @@ def resolve_renames(entries):
         for letter, _score, paths in changes:
             if letter == "D":
                 updates[paths[0]] = None
+                leaves[paths[0]] += 1
         for letter, _score, paths in changes:
             if letter == "R":
                 updates[paths[0]] = alias.get(paths[1], paths[1])
+                leaves[paths[0]] += 1
+                late[paths[0]] = updates[paths[0]]
+                late_at[paths[0]] = index
         alias.update(updates)
         out.append(touched)
+    if is_alive is None or not late:
+        return out
+    for index, touched in enumerate(out):
+        for slot, (path, final, move) in enumerate(touched):
+            if final is None or is_alive(final):
+                continue
+            name = final
+            seen = set()
+            while (name is not None and not is_alive(name) and name not in seen
+                   and leaves[name] == 1 and name in late
+                   and (seen or late_at[name] > index)):
+                seen.add(name)
+                name = late[name]
+            if name != final and (name is None or is_alive(name)):
+                touched[slot] = (path, name, move)
     return out
 
 
@@ -5152,7 +5230,9 @@ def parse_history(text, alive=None, since=None):
     `splits` (files born as a partial beside the base they were split from,
     _split_base: a split is not followed, so the partials do not inherit their
     base's earlier commits; per base, `baseCommits` counts the commits before
-    its first split in the window, once however many partials it gave) and
+    its first split in the window, once however many partials it gave;
+    `commits` is the distinct commits behind those rows, and the top-level
+    `baseCommits` their per-base sum, which counts a commit once per base) and
     `resolution` ({sha: {path git wrote: current rel path or None}}
     for parse_growth).
     """
@@ -5176,7 +5256,13 @@ def parse_history(text, alive=None, since=None):
         if change is not None:
             current["changes"].append(change)
 
-    resolved = resolve_renames([commit["changes"] for commit in commits])
+    if alive is None:
+        is_alive = None
+    else:
+        def is_alive(path):
+            rel_path = _history_path(path)
+            return rel_path is None or rel_path in alive
+    resolved = resolve_renames([commit["changes"] for commit in commits], is_alive)
     kept = []
     kept_index = []
     skipped = 0
@@ -5254,12 +5340,15 @@ def parse_history(text, alive=None, since=None):
         if base_final not in first_split or index > first_split[base_final][0]:
             first_split[base_final] = (index, date)
     split_rows = []
+    split_commits = set()
     for base_final, (index, date) in first_split.items():
-        before = sum(
-            1
+        shas = [
+            commit["sha"]
             for commit, at in zip(kept, kept_index)
             if at > index and base_final in commit["files"]
-        )
+        ]
+        split_commits.update(shas)
+        before = len(shas)
         split_rows.append({"base": base_final, "files": len(set(born_from[base_final])),
                            "firstSplit": date, "baseCommits": before})
     split_rows.sort(key=lambda row: (-row["baseCommits"], row["base"]))
@@ -5275,6 +5364,7 @@ def parse_history(text, alive=None, since=None):
             "files": sum(row["files"] for row in split_rows),
             "bases": len(split_rows),
             "baseCommits": sum(row["baseCommits"] for row in split_rows),
+            "commits": len(split_commits),
             "rows": split_rows,
         },
         "resolution": resolution,
@@ -6061,6 +6151,7 @@ def history_payload(commit_history, model, rules):
             "files": parsed["splits"]["files"],
             "bases": parsed["splits"]["bases"],
             "baseCommits": parsed["splits"]["baseCommits"],
+            "commits": parsed["splits"]["commits"],
             "top": parsed["splits"]["rows"][:10],
         },
     }
@@ -6293,6 +6384,13 @@ def size_report(model, history=None, growth=None, settings=None):
     history.json payload (churn ranks and hotspots), `growth` what parse_growth
     returned, and `settings` the [size] table. Missing history or growth simply
     leaves those columns null.
+
+    A file's growth is capped at its line count today: net lines added in a
+    window cannot exceed the file, and only the sum over non-merge commits
+    does, because the merges that joined parallel branches are not read (a
+    file both branches created, the same edit made on both, a conflict
+    resolution that dropped lines). A capped file row carries
+    `netLinesCapped`, and `growth.capped` counts them.
     """
     sizes = model.get("sizes", {})
     settings = settings or {"runtimeCoupled": list(DEFAULT_RUNTIME_COUPLED)}
@@ -6311,6 +6409,14 @@ def size_report(model, history=None, growth=None, settings=None):
         partners[row["b"]].append((row["a"], row["count"]))
     type_meta = {entry["name"]: entry for entry in model.get("types", [])}
 
+    file_growth = dict(growth["files"])
+    capped = set()
+    for row in sizes.get("files", []):
+        net = file_growth.get(row["file"])
+        if net is not None and net > row["lines"]:
+            file_growth[row["file"]] = row["lines"]
+            capped.add(row["file"])
+
     files = []
     for row in sizes.get("files", []):
         churn_row = churn.get(row["file"], {})
@@ -6322,7 +6428,8 @@ def size_report(model, history=None, growth=None, settings=None):
                 "declaredTypes": row["declaredTypes"],
                 "topLevelTypes": row["topLevelTypes"],
                 "types": row["types"],
-                "netLinesAdded": growth["files"].get(row["file"]),
+                "netLinesAdded": file_growth.get(row["file"]),
+                "netLinesCapped": row["file"] in capped,
                 "commits": churn_row.get("commits"),
                 "churnRank": churn_row.get("churnRank"),
             }
@@ -6346,7 +6453,7 @@ def size_report(model, history=None, growth=None, settings=None):
         entry["churnRank"] = churn_row.get("churnRank")
         if growth["files"]:
             entry["netLinesAdded"] = sum(
-                growth["files"].get(part["file"], 0) for part in entry["files"]
+                file_growth.get(part["file"], 0) for part in entry["files"]
             )
         else:
             entry["netLinesAdded"] = None
@@ -6385,6 +6492,7 @@ def size_report(model, history=None, growth=None, settings=None):
             "commits": growth.get("commits", 0),
             "skippedSweeps": growth.get("skipped", 0),
             "available": bool(growth.get("files")),
+            "capped": len(capped),
         },
         "files": files,
         "types": types,
@@ -6551,11 +6659,12 @@ def print_size_section(sizes):
             "  growth column: net lines added since %s over %d commits (%d sweeps skipped)."
             % (growth.get("since"), growth.get("commits", 0), growth.get("skippedSweeps", 0))
         )
+        if growth.get("capped"):
+            print("  %s" % growth_cap_note(growth["capped"]))
     else:
         print("  growth column: no git history (git unavailable or the window is empty).")
     print("  Top %d files by lines:" % SIZE_TOP_FILES)
     for row in sizes["files"][:SIZE_TOP_FILES]:
-        net = row.get("netLinesAdded")
         print(
             "    %7s  %-52s %-13s types=%-3d growth=%s"
             % (
@@ -6563,7 +6672,7 @@ def print_size_section(sizes):
                 row["file"],
                 row["module"],
                 row["declaredTypes"],
-                ("%+d" % net) if net is not None else "n/a",
+                format_growth(row, "n/a"),
             )
         )
     print(
