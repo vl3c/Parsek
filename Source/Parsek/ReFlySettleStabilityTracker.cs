@@ -115,12 +115,6 @@ namespace Parsek
             lastFloatingOriginShiftFrame = frame;
         }
 
-        internal static bool IsHoldActiveForRecording(string recordingId, int frame)
-        {
-            string reason;
-            return TryGetHoldReasonForRecording(recordingId, frame, out reason);
-        }
-
         internal static bool TryGetHoldReasonForRecording(string recordingId, int frame, out string reason)
         {
             reason = null;

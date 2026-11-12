@@ -1349,23 +1349,6 @@ namespace Parsek
 
         /// <summary>
         /// Reflection probe half: hands the module to the pure
-        /// <see cref="TryClassifyWheelRoboticPositionFromFieldValues{TFields}"/> core, which owns
-        /// the per-module-name field plan and deadband.
-        /// </summary>
-        internal static bool TryGetWheelRoboticPositionValue(
-            PartModule module,
-            string moduleName,
-            out float positionValue,
-            out float deadband,
-            out string sourceField)
-        {
-            return TryClassifyWheelRoboticPositionFromFieldValues(
-                new PartModuleFieldValues(module), moduleName,
-                out positionValue, out deadband, out sourceField);
-        }
-
-        /// <summary>
-        /// Reflection probe half: hands the module to the pure
         /// <see cref="TryClassifyRoboticPositionFromFieldValues{TFields}"/> core, which owns the
         /// wheel dispatch, the per-module-name field plan and the deadband.
         /// </summary>

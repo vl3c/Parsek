@@ -498,7 +498,7 @@ namespace Parsek
         {
             /// <summary>Available — place normally.</summary>
             Place,
-            /// <summary>Missing — alive but orphaned from a removed vessel; rescue to Available, then place (mirrors ReserveCrewIn / RescueReservedMissingCrewInSnapshot).</summary>
+            /// <summary>Missing — alive but orphaned from a removed vessel; rescue to Available, then place (mirrors RescueReservedMissingCrewInSnapshot).</summary>
             PlaceAfterMissingRescue,
             /// <summary>Name not in the roster — cannot place.</summary>
             SkipNotInRoster,
@@ -511,8 +511,8 @@ namespace Parsek
         /// <summary>
         /// Pure decision shared by the in-flight swap (Pass 1) and the orphan
         /// placement pass: classify a stand-in's roster state into a placement
-        /// verdict. Keeps the Missing-rescue convention (the three runtime
-        /// paths — ReserveCrewIn, PlaceOrphanedReplacements,
+        /// verdict. Keeps the Missing-rescue convention (the two runtime
+        /// paths — PlaceOrphanedReplacements,
         /// RescueReservedMissingCrewInSnapshot — agree that Missing is rescued
         /// to Available before placement) while blocking the duplication case:
         /// an Assigned stand-in is already aboard a live vessel and must never

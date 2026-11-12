@@ -677,113 +677,6 @@ namespace Parsek
             LogSkippedNonReFlyCameraPreCull("terrain-clamp", skippedNonReFlyPreCull);
         }
 
-        public void StartPlayback()
-        {
-            if (host.recording.Count < 2)
-            {
-                host.Log("Not enough recording points for playback!");
-                return;
-            }
-
-            host.ExitAllWarpForPlaybackStart("Preview");
-
-            // Build preview ghost from CaptureAtStop snapshot (same as timeline ghosts)
-            // so that part events play back identically.
-            previewRecording = null;
-            previewGhostState = null;
-            GameObject ghost = null;
-            bool builtFromSnapshot = false;
-
-            var capture = host.recorder?.CaptureAtStop;
-            if (capture != null)
-            {
-                previewRecording = capture;
-                var buildResult = GhostVisualBuilder.BuildTimelineGhostFromSnapshot(
-                    previewRecording, "Parsek_Ghost_Preview");
-                if (buildResult != null)
-                    ghost = buildResult.root;
-                builtFromSnapshot = ghost != null;
-
-                if (builtFromSnapshot)
-                {
-                    previewGhostState = new GhostPlaybackState
-                    {
-                        ghost = ghost,
-                        playbackIndex = 0,
-                        partEventIndex = 0,
-                        partTree = GhostVisualBuilder.BuildPartSubtreeMap(
-                            GhostVisualBuilder.GetGhostSnapshot(previewRecording)),
-                        logicalPartIds = GhostVisualBuilder.BuildSnapshotPartIdSet(
-                            GhostVisualBuilder.GetGhostSnapshot(previewRecording))
-                    };
-
-                    previewGhostState.materials = new List<Material>();
-
-                    GhostPlaybackLogic.PopulateGhostInfoDictionaries(previewGhostState, buildResult);
-
-                    GhostPlaybackLogic.InitializeInventoryPlacementVisibility(previewRecording, previewGhostState);
-                    GhostPlaybackLogic.RefreshCompoundPartVisibility(previewGhostState);
-
-                    // Same reentry-potential gate as the timeline engine path (#406):
-                    // skip the mesh-combine / ParticleSystem build for trajectories that
-                    // cannot possibly produce reentry visuals.
-                    if (TrajectoryMath.HasReentryPotential(previewRecording))
-                    {
-                        previewGhostState.reentryFxInfo = GhostVisualBuilder.TryBuildReentryFx(
-                            ghost, previewGhostState.heatInfos, -1, previewRecording.VesselName);
-                    }
-                    else
-                    {
-                        previewGhostState.reentryFxInfo = null;
-                        ParsekLog.Verbose("ReentryFx",
-                            $"Skipped reentry FX build for preview ghost \"{previewRecording.VesselName}\" " +
-                            $"— trajectory peak speed below {TrajectoryMath.ReentryPotentialSpeedFloor:F0} m/s and no orbit segments");
-                    }
-
-                    // Initialize flag event index for preview playback
-                    GhostPlaybackLogic.InitializeFlagVisibility(previewRecording, previewGhostState);
-
-                    host.Log("Manual preview ghost: built from recording-start snapshot (with part events)");
-                }
-            }
-
-            // P2 review (PR #706): make the preview Recording visible to the
-            // tail-lift resolver so manual preview gets the same descent lift
-            // as live watch. CaptureAtStop is never committed to RecordingStore.
-            if (builtFromSnapshot && previewRecording != null
-                && !string.IsNullOrEmpty(previewRecording.RecordingId))
-            {
-                ParsekFlight.RegisterPreviewRecordingForTailLift(previewRecording);
-            }
-
-            if (!builtFromSnapshot)
-            {
-                Color previewColor = Color.green;
-                ghost = GhostVisualBuilder.CreateGhostSphere("Parsek_Ghost_Preview", previewColor);
-                var m = ghost.GetComponent<Renderer>()?.material;
-                previewGhostMaterials = m != null ? new List<Material> { m } : new List<Material>();
-                previewGhostState = null;
-                previewRecording = null;
-                host.Log("Manual preview ghost: using sphere fallback");
-            }
-            else
-            {
-                previewGhostMaterials = previewGhostState.materials;
-            }
-
-            host.ghostObject = ghost;
-
-            // Replay from current time (ghost starts at recording start position)
-            host.playbackStartUT = Planetarium.GetUniversalTime();
-            host.recordingStartUT = host.recording[0].ut;
-            host.lastPlaybackIndex = 0;
-
-            host.isPlaying = true;
-
-            host.Log($"Manual playback started. Duration: {host.recording[host.recording.Count - 1].ut - host.recording[0].ut:F1}s");
-            host.ScreenMessage("Preview Playback STARTED", 2f);
-        }
-
         public void StopPlayback()
         {
             if (host.isPlaying)
@@ -844,8 +737,6 @@ namespace Parsek
             host.Positioner.ClearOrbitPlaybackCaches();
             host.loggedOrbitSegments.Clear();
             host.loggedOrbitRotationSegments.Clear();
-            host.reFlyDenseAbsolutePlaybackFrameCache.Clear();
-            host.loggedReFlyDenseAbsolutePlaybackFrameSelections.Clear();
         }
 
         internal void UpdatePlayback()
@@ -2634,8 +2525,6 @@ namespace Parsek
             }
         }
 
-        private bool ShouldLoopPlayback(Recording rec) => GhostPlaybackEngine.ShouldLoopPlayback(rec);
-
         // IsActiveTreeRecording stays in ParsekFlight (reads RecordingStore.CommittedTrees)
         internal bool IsActiveTreeRecording(Recording rec)
         {
@@ -2760,11 +2649,6 @@ namespace Parsek
                     return committed[i];
             }
             return null;
-        }
-
-        internal void DestroyTimelineGhost(int index)
-        {
-            host.engine.DestroyGhost(index);
         }
 
         public void DestroyAllTimelineGhosts()
@@ -3062,18 +2946,6 @@ namespace Parsek
                 ParsekLog.Warn(ClaimedVesselHoldGhost.Tag,
                     $"Re-Fly invoke hold reload: reading rp={rewindPointId} threw {ex.GetType().Name}: {ex.Message}");
                 return null;
-            }
-        }
-
-        /// <summary>In-game test seam: number of held-back vessels drawn from their despawn snapshot.</summary>
-        internal int ClaimedVesselHoldGhostCountForInGameTest
-        {
-            get
-            {
-                int n = 0;
-                foreach (var kvp in claimedVesselHoldGhosts)
-                    if (kvp.Value.ghost != null) n++;
-                return n;
             }
         }
 
@@ -3383,9 +3255,6 @@ namespace Parsek
             new Dictionary<uint, ParsekFlight.BlockedChainTipGhostState>();
 
         private readonly List<uint> blockedChainTipGhostReleaseScratch = new List<uint>();
-
-        /// <summary>In-game test seam: number of blocked chain tip ghosts being drawn.</summary>
-        internal int BlockedChainTipGhostCountForInGameTest => blockedChainTipGhosts.Count;
 
         /// <summary>
         /// In-game test seam: positions <paramref name="ghost"/> through the production

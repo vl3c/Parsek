@@ -199,11 +199,6 @@ namespace Parsek
 
         internal IEnumerable<KerbalCareerLogEntry> Entries { get { return entries; } }
 
-        internal bool Contains(KerbalCareerLogEntry entry)
-        {
-            return entries.Contains(entry);
-        }
-
         /// <summary>Unions <paramref name="incoming"/> in. Returns how many were new.</summary>
         internal int UnionWith(IEnumerable<KerbalCareerLogEntry> incoming)
         {

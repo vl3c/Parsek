@@ -423,19 +423,5 @@ namespace Parsek
 
             return false;
         }
-
-        public static bool VesselExistsByPid(uint pid)
-        {
-            if (FlightGlobals.Vessels == null) return false;
-            for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
-            {
-                if (FlightGlobals.Vessels[i].persistentId == pid)
-                {
-                    if (GhostMapPresence.IsGhostMapVessel(pid)) return false;
-                    return true;
-                }
-            }
-            return false;
-        }
     }
 }

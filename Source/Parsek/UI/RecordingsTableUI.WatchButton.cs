@@ -55,20 +55,6 @@ namespace Parsek
             Dictionary<string, bool> lastCanWatchByRecId,
             Dictionary<string, bool> lastCanWatchByGroup,
             Dictionary<string, string> lastResolvedWatchTargetByGroup,
-            IReadOnlyList<Recording> committed)
-        {
-            PruneStaleWatchEntries(
-                lastCanWatchByRecId,
-                lastCanWatchByGroup,
-                lastResolvedWatchTargetByGroup,
-                null,
-                committed);
-        }
-
-        internal static void PruneStaleWatchEntries(
-            Dictionary<string, bool> lastCanWatchByRecId,
-            Dictionary<string, bool> lastCanWatchByGroup,
-            Dictionary<string, string> lastResolvedWatchTargetByGroup,
             Dictionary<string, string> groupWatchCursorByGroupName,
             IReadOnlyList<Recording> committed)
         {

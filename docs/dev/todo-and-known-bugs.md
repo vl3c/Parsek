@@ -2759,6 +2759,18 @@ compare).
   test calls either, 709 a test calls, 257 hooks by name), 84 methods with 30+ decisions no unit
   test calls. The uncalled ratchet reads Parsek.dll alone (the test DLL would add about a minute
   to CI), so a production method only a test calls counts against it.
+- 2026-11-12 (B7, delete code nothing calls): of the 164 production methods (5,351 IL
+  instructions) that neither a root nor any unit test reached, directly or through production
+  calls, 156 are deleted, with the never-invoked `IGhostPositioner.ClearOrbitCache` and
+  `IFlightGlobalsProvider.FindVesselByPid` slots, their fakes, `IGhostRenderTreatment` and two
+  dead stores: 164 Parsek.dll methods and 5,319 instructions, about 2,300 source lines. Kept
+  because a source gate pins their text (8 methods): `ParsekUI.IsMouseOverOpenAuxiliaryWindows`
+  with the three `IsMouseOverOpenWindow` slots and bodies (`ParsekUIWindowSetCharacterizationTests`;
+  the last caller was the Tracking Station panel) and `LogisticsWindowUI.DetailLine(GUIContent)`
+  (`TableRowInsetAlignmentTests`; the last caller was the run-cost line). No root-rule gap: no
+  candidate was reachable through reflection, strings, Harmony, in-game tests or the command seam.
+  The 490 methods only tests call (14,357 instructions) are untouched. `uncalledInAssembly` 654 ->
+  498; headless leaks 279 -> 278.
 - 2026-11-11 (metrics history): `scripts/arch/metrics.py` builds one JSON row per commit
   (schema `parsek-metrics/1`) from the existing tools' output: the text scan, the semantic
   headline, the code facts (with test reach when given the test DLL) and `count-code.py`'s
@@ -2919,10 +2931,15 @@ compare).
   rebuild is byte-identical. `health-regressions` flags 41 lanes: RW-5 / RW-6 / RW-7 are
   REFLY-ANCHOR-EPSILON-1300KM, TP-4's doubled log is its re-pinned spec (a fourth `WarpToUT`
   step, map tracing on), QL-2c's step predates 2026-11-01, the other 28 are 1 to 4 warnings
-  over their median. Open follow-ups in the tool: `lanes-for --module` lists every lane that
-  logs one boot line of the module (it needs a minimum line count); a back-filled row with no
-  manifest stores its run id as `worktree` (it should store none); the index is not published
-  (the branch is the owner's call).
+  over their median. Follow-ups in the tool, all closed 2026-11-12: ~~`lanes-for --module`
+  lists every lane that logs one boot line of the module~~ DONE (`--min-lines`, default 5, a
+  lane with a warning or error of it still listed; not yet calibrated on the real archive);
+  ~~a back-filled row with no manifest stores its run id as `worktree`~~ DONE (a worktree
+  folder named like a run id or a log snapshot is stored as none; such rows link only to each
+  other); ~~the index is not published~~ DECIDED (owner ruling: the `metrics` branch, in its
+  own `flights/` folder apart from CI's `metrics.jsonl`; subjects start `flights: `; a root
+  layout this tool wrote is moved into the folder on the next publish). Not yet published from
+  the PC.
 
 **Fix.**
 1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same

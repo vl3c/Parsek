@@ -230,9 +230,8 @@ namespace Parsek
                     {
                         removed.Add(e);
                         m.Events.RemoveAt(j);
-                        // #431: mirror RemoveCommittedEvent's single-event path — if the purged
-                        // slot sat at or before the replay boundary, the next surviving event
-                        // shifts into this slot and would be wrongly treated as already-replayed
+                        // #431: if the purged slot sat at or before the replay boundary,
+                        // the next surviving event shifts into this slot and would be wrongly treated as already-replayed
                         // by any consumer that iterates from LastReplayedEventIndex + 1.
                         // Clamp at -1 so an empty pre-boundary
                         // doesn't underflow.
@@ -741,38 +740,6 @@ namespace Parsek
                 }
             }
             return count;
-        }
-
-        /// <summary>
-        /// Removes a specific event from its milestone. Adjusts LastReplayedEventIndex
-        /// if the removed event was at or before it. Also removes from GameStateStore.
-        /// </summary>
-        internal static bool RemoveCommittedEvent(GameStateEvent target)
-        {
-            for (int i = 0; i < milestones.Count; i++)
-            {
-                var m = milestones[i];
-                if (!m.Committed) continue;
-                for (int j = 0; j < m.Events.Count; j++)
-                {
-                    var e = m.Events[j];
-                    if (GameStateStore.EventIdentityMatches(e, target))
-                    {
-                        m.Events.RemoveAt(j);
-                        if (j <= m.LastReplayedEventIndex)
-                            m.LastReplayedEventIndex--;
-                        ParsekLog.Info("MilestoneStore",
-                            $"Removed event from milestone {ShortId(m.MilestoneId)}: {target.eventType} key='{target.key}' ut={target.ut:F1}");
-
-                        // Also remove from the event store
-                        GameStateStore.RemoveEvent(target);
-                        return true;
-                    }
-                }
-            }
-            ParsekLog.Verbose("MilestoneStore",
-                $"RemoveCommittedEvent: no match for {target.eventType} key='{target.key}' ut={target.ut:F1}");
-            return false;
         }
     }
 }

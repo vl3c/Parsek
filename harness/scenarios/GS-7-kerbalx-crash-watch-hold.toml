@@ -96,7 +96,7 @@ id = "GS-7-kerbalx-crash-watch-hold"
 #     recorded Kerbal X, the strip reserves them, and the ledger keeps them dead
 #     (`Reservation: 'Bill Kerman' endUT=INDEFINITE (Dead)` on every recalculation,
 #     round 4). GS-4 / GS-8 survive the same roster because their crew LIVE:
-#     `CrewReservationManager.ReserveCrewIn` hires a stand-in for every reserved
+#     the `KerbalsModule` roster pass hires a stand-in for every reserved
 #     kerbal ("so the available pool stays constant") and their Flea flies on one; it
 #     skips Dead crew, so this lane's pool is empty for good. Hence: the throwaway is
 #     the Kerbal X (RC-L01 `probeStackLarge`, `minimumCrew = 0`; launched crewless in

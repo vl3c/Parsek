@@ -206,11 +206,6 @@ namespace Parsek
             CleanupCommittedBackups(committed, suppressLogging);
         }
 
-        internal static void CleanupStagedArtifacts(List<StagedChange> changes)
-        {
-            CleanupArtifacts(changes, committed: null, suppressLogging: null);
-        }
-
         internal static void CleanupStagedArtifacts(List<StagedChange> changes, Func<bool> suppressLogging)
         {
             CleanupArtifacts(changes, committed: null, suppressLogging: suppressLogging);

@@ -67,9 +67,6 @@ namespace Parsek.MapRender
             TrailingSeam = trailingSeam;
         }
 
-        /// <summary>The phase's duration in the assembled-chain clock.</summary>
-        internal double DurationSeconds => EndUt - StartUt;
-
         /// <summary>
         /// design §6: how the phase is drawn — was <c>ChainAssembler</c>'s orbit-vs-polyline if/else,
         /// now polymorphic per phase. Returns the existing live <see cref="Treatment"/>

@@ -32,9 +32,6 @@ namespace Parsek
             StrategyEffect,
         }
 
-        internal static int PayoutDepth => payoutDepth;
-        internal static int FundsEffectDepth => fundsEffectDepth;
-
         internal static void EnterPayout() { payoutDepth++; }
         internal static void ExitPayout() { if (payoutDepth > 0) payoutDepth--; }
         internal static void EnterFundsEffect() { fundsEffectDepth++; }

@@ -1625,47 +1625,6 @@ namespace Parsek.Logistics
             return false;
         }
 
-        // Inventory pickup PRESENCE detector - "does this window carry ANY
-        // inventory move FROM the endpoint OR onto the transport?" As of M3
-        // Phase 5 it is DEAD in the eligibility flow: AnalyzeWindows no longer
-        // calls it (the former inventory-reject path was REPLACED by
-        // classification via BuildInventoryLoadManifest +
-        // HasUnwitnessedInventoryGain). It is retained as a directly-tested
-        // presence detector mirroring HasResourcePickup. The actual fail-closed
-        // protection for an unwitnessed transport inventory gain is
-        // HasUnwitnessedInventoryGain, the window-local closure.
-        internal static bool HasInventoryPickup(RouteConnectionWindow window, out string reason)
-        {
-            reason = null;
-
-            Dictionary<string, InventoryPayloadItem> identities =
-                BuildInventoryMap(window.DockEndpointInventory);
-            AddInventoryKeys(identities, window.UndockEndpointInventory);
-            AddInventoryKeys(identities, window.DockTransportInventory);
-            AddInventoryKeys(identities, window.UndockTransportInventory);
-
-            foreach (string identity in identities.Keys)
-            {
-                int endpointLoss =
-                    GetInventoryQuantity(window.DockEndpointInventory, identity) -
-                    GetInventoryQuantity(window.UndockEndpointInventory, identity);
-                int transportGain =
-                    GetInventoryQuantity(window.UndockTransportInventory, identity) -
-                    GetInventoryQuantity(window.DockTransportInventory, identity);
-
-                if (endpointLoss > 0 || transportGain > 0)
-                {
-                    reason =
-                        $"pickup inventory={identity} " +
-                        $"endpointLoss={endpointLoss.ToString(CultureInfo.InvariantCulture)} " +
-                        $"transportGain={transportGain.ToString(CultureInfo.InvariantCulture)}";
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
         internal static Dictionary<string, double> BuildResourceDeliveryManifest(
             RouteConnectionWindow window,
             string recordingId,

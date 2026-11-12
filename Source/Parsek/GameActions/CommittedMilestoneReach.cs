@@ -767,8 +767,6 @@ namespace Parsek
                 ?? ((ut, why) => CommittedMilestoneReach.Apply(EffectiveState.ComputeELS(), ut, why));
         }
 
-        internal double LastUT => lastUT;
-
         /// <summary>
         /// Advances the cursor to <paramref name="currentUT"/>. Returns true when the clock
         /// passed a committed once-ever milestone row or world-record threshold row and the

@@ -599,24 +599,6 @@ namespace Parsek
                 rec, out rp, out slotListIndex, out reason);
         }
 
-        /// <summary>
-        /// Cheap, non-logging front gate for row rendering. The full
-        /// <see cref="EffectiveState.IsUnfinishedFlight"/> predicate emits
-        /// diagnostic Verbose lines for every rejection, so normal table rows
-        /// use this shape check before asking the full RP-backed predicate.
-        /// The terminal-crash check walks the chain to the tip via
-        /// <see cref="EffectiveState.ResolveChainTerminalRecording"/>, matching
-        /// the full predicate: merge-time SplitAtSection leaves the chain HEAD
-        /// (the only segment with a parentBranchPointId) with terminal=null,
-        /// while the TIP carries the actual Destroyed outcome. Without this
-        /// walk, the cheap-path rejected chain-head rows and the UI fell
-        /// through to the legacy rewind-to-launch button.
-        /// </summary>
-        internal static bool IsUnfinishedFlightCandidateShape(Recording rec)
-        {
-            return UnfinishedFlightClassifier.IsUnfinishedFlightCandidateShape(rec);
-        }
-
         internal static bool IsVisibleUnfinishedFlight(Recording rec, out string reason)
         {
             return UnfinishedFlightClassifier.IsVisibleUnfinishedFlight(rec, out reason);

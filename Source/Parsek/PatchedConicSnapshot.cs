@@ -84,13 +84,6 @@ namespace Parsek
 
         internal static PatchedConicSnapshotResult SnapshotPatchedConicChain(
             Vessel vessel,
-            int captureLimit = PatchedConicSolverCaptureLimit)
-        {
-            return SnapshotPatchedConicChain(vessel, Planetarium.GetUniversalTime(), captureLimit);
-        }
-
-        internal static PatchedConicSnapshotResult SnapshotPatchedConicChain(
-            Vessel vessel,
             double snapshotUT,
             int captureLimit = PatchedConicSolverCaptureLimit)
         {

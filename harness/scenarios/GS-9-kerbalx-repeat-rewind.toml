@@ -50,7 +50,7 @@ id = "GS-9-kerbalx-repeat-rewind"
 #
 # THE WATCHER IS THE JUMPING FLEA BOTH CYCLES (supervisor ruling), GS-4's craft. Its
 # Mk1 pod needs a kerbal; GS-4's Flea flies on the stand-in
-# `CrewReservationManager.ReserveCrewIn` hires for the LIVING reserved Kerbal X crew.
+# the `KerbalsModule` roster pass hires for the LIVING reserved Kerbal X crew.
 # Whether that stand-in is re-provided after the SECOND rewind is unmeasured, and it
 # is one of the outcomes pre-registered below rather than a reason to change craft.
 #

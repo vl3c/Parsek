@@ -184,25 +184,8 @@ namespace Parsek
         /// Scans <paramref name="actions"/> for an unadopted (recording-less) rollout
         /// action that the candidate (<paramref name="ut"/>, <paramref name="cost"/>,
         /// <paramref name="context"/>) is logically the same as. Internal for direct
-        /// testability + reuse from the load-time repair pass.
-        /// </summary>
-        internal static bool TryFindDuplicateRolloutAction(
-            double ut,
-            double cost,
-            RolloutAdoptionContext context,
-            System.Collections.Generic.IReadOnlyList<GameAction> actions,
-            out GameAction match)
-        {
-            GameAction ignoredNearMiss;
-            RolloutDuplicateVerdict ignoredVerdict;
-            RolloutDuplicateVerdict ignoredMatchVerdict;
-            return TryFindDuplicateRolloutAction(
-                ut, cost, context, actions, out match, out ignoredMatchVerdict,
-                out ignoredNearMiss, out ignoredVerdict);
-        }
-
-        /// <summary>
-        /// As above, also reporting the verdict that matched and the newest in-window,
+        /// testability + reuse from the load-time repair pass. Also reports the verdict that
+        /// matched and the newest in-window,
         /// same-cost row that only differing known launch guids kept apart
         /// (<see cref="RolloutDuplicateVerdict.GuidDiffers"/>), so the caller can log why
         /// a same-craft relaunch was written as its own rollout.

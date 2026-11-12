@@ -330,15 +330,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Snapshot of the recordings live-bound during the most recent bind frame
-        /// (diagnostics / tests). Allocates; not for the per-frame path.
-        /// </summary>
-        internal static IReadOnlyCollection<string> SnapshotLiveBoundAnchors()
-        {
-            return new List<string>(liveBoundAnchorRecIds);
-        }
-
-        /// <summary>
         /// Clears the live-bind ledger and the injectable frame source. Call from
         /// test setup/teardown ([Collection("Sequential")]) to avoid cross-test
         /// bleed of stamped anchor ids.
@@ -1960,65 +1951,6 @@ namespace Parsek
                     out TrajectoryPoint before,
                     out TrajectoryPoint after,
                     out float t))
-            {
-                return false;
-            }
-
-            dx = before.latitude + (after.latitude - before.latitude) * t;
-            dy = before.longitude + (after.longitude - before.longitude) * t;
-            dz = before.altitude + (after.altitude - before.altitude) * t;
-            relativeRotation = TrajectoryMath.PureSlerp(before.rotation, after.rotation, t);
-            return true;
-        }
-
-        private static bool TryInterpolateRelativeFrameWithBracket(
-            List<TrajectoryPoint> frames,
-            double sectionStartUT,
-            double sectionEndUT,
-            double ut,
-            out double dx,
-            out double dy,
-            out double dz,
-            out Quaternion relativeRotation,
-            out TrajectoryPoint before,
-            out TrajectoryPoint after,
-            out float t)
-        {
-            dx = dy = dz = 0.0;
-            relativeRotation = Quaternion.identity;
-            before = default;
-            after = default;
-            t = 0f;
-            if (frames == null || frames.Count == 0)
-                return false;
-            if (double.IsNaN(ut) || double.IsInfinity(ut))
-                return false;
-            if (frames.Count == 1)
-            {
-                if (!SingleFrameCoversUT(frames[0], sectionStartUT, sectionEndUT, ut))
-                    return false;
-
-                TrajectoryPoint point = frames[0];
-                dx = point.latitude;
-                dy = point.longitude;
-                dz = point.altitude;
-                relativeRotation = TrajectoryMath.SanitizeQuaternion(point.rotation);
-                before = point;
-                after = point;
-                return true;
-            }
-
-            if (!PointListCoversUT(frames, ut))
-                return false;
-
-            int cachedIndex = 0;
-            if (!TrajectoryMath.InterpolatePoints(
-                    frames,
-                    ref cachedIndex,
-                    ut,
-                    out before,
-                    out after,
-                    out t))
             {
                 return false;
             }

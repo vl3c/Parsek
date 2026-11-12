@@ -9095,7 +9095,7 @@ class R1Params:
     # `TerminalStateValue` is null. MEASURED, and it is the constraint that shapes
     # this whole profile: `TerminalState.Landed` is stamped ONLY at finalization
     # (`ParsekFlight.FinalizeTreeRecordings`, reached from scene exit /
-    # CommitTreeFlight / CommitTreeRevert / ShowPostDestructionTreeMergeDialog),
+    # CommitTreeFlight / ShowPostDestructionTreeMergeDialog),
     # never on the frame the wheels touch, while `TerminalState.Destroyed` IS
     # stamped with the scene still FLIGHT, by
     # `ParsekFlight.TerminalEvents.ApplyTerminalDestruction` from the
@@ -26013,7 +26013,7 @@ def evaluate_m3_assertions(frames, params: M3Params, phases_reached=(),
 # 2026-09-08_1627 / _a2: throwaway launched, rewind complete, then the Flea hung on
 # the identical `NoControlSources` line): the `parsek_rw_*` quicksave carries the
 # crew aboard the recorded craft, the strip reserves them and the ledger keeps them
-# dead, and `CrewReservationManager.ReserveCrewIn` hires the stand-in GS-4's Flea
+# dead, and the `KerbalsModule` roster pass hires the stand-in GS-4's Flea
 # flies on only for LIVING reserved crew. A spec that turns this profile on must
 # therefore also name a probe-cored `watcherCraftName`.
 # There is no save-and-reload leg: nothing between the arrival's in-memory commit

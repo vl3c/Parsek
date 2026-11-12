@@ -472,21 +472,6 @@ namespace Parsek
             IReadOnlyList<GameStateEvent> events,
             double ut,
             bool skipConsumed,
-            out GameStateEvent matched,
-            out string dedupKey)
-        {
-            return LedgerRecoveryFundsPairing.TryFindRecoveryFundsEvent(
-                events,
-                ut,
-                skipConsumed,
-                out matched,
-                out dedupKey);
-        }
-
-        private static bool TryFindRecoveryFundsEvent(
-            IReadOnlyList<GameStateEvent> events,
-            double ut,
-            bool skipConsumed,
             RecoveredVesselIdentity preferredIdentity,
             out GameStateEvent matched,
             out string dedupKey)
@@ -517,20 +502,6 @@ namespace Parsek
             LedgerRecoveryFundsPairing.OnRecoveryFundsEventRecorded(
                 evt,
                 TryAddVesselRecoveryFundsAction);
-        }
-
-        /// <summary>
-        /// Picks the best pending recovery-funds request for a FundsChanged(VesselRecovery)
-        /// event using the two-tier policy documented on <see cref="OnRecoveryFundsEventRecorded"/>.
-        /// Internal static for direct testability.
-        /// </summary>
-        /// <remarks>
-        /// <para>Ties after vessel-name matching at identical UT distance fall back to the
-        /// first match (list order) but emit a WARN so the ambiguity is visible.</para>
-        /// </remarks>
-        internal static int FindBestPairingIndex(double eventUt, string eventVesselName)
-        {
-            return LedgerRecoveryFundsPairing.FindBestPairingIndex(eventUt, eventVesselName);
         }
 
         /// <summary>

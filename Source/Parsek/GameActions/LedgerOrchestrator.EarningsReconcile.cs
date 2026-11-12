@@ -995,17 +995,6 @@ namespace Parsek
             KscActionReconciler.ReconcileKscAction(events, ledgerActions, action, ut);
         }
 
-        /// <summary>Compatibility facade for <see cref="KscActionReconciler.ResourceChannelTag"/>.</summary>
-        internal static string ResourceChannelTag(GameStateEventType t)
-        {
-            return KscActionReconciler.ResourceChannelTag(t);
-        }
-
-        internal static PostWalkActionReconciler.PostWalkExpectation ClassifyPostWalk(GameAction action)
-        {
-            return PostWalkActionReconciler.ClassifyPostWalk(action);
-        }
-
         internal static void ReconcilePostWalk(
             IReadOnlyList<GameStateEvent> events,
             IReadOnlyList<GameAction> actions,
@@ -1092,18 +1081,6 @@ namespace Parsek
 
             string eventRecordingId = evt.recordingId ?? "";
             return string.Equals(eventRecordingId, recordingId, StringComparison.Ordinal);
-        }
-        private static bool DoesScienceEventMatchActionScope(
-            GameStateEvent evt,
-            GameAction action,
-            out bool matchedViaUntaggedWindow)
-        {
-            return DoesScienceEventMatchActionScope(
-                evt,
-                action,
-                action != null ? action.StartUT : 0.0,
-                action != null ? action.EndUT : 0.0,
-                out matchedViaUntaggedWindow);
         }
 
         internal static bool DoesScienceEventMatchActionScope(

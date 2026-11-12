@@ -111,7 +111,6 @@ namespace Parsek
 
         internal static IReadOnlyList<VesselNameDecision> Decisions => decisions;
         internal static long NextSeq => nextSeq;
-        internal static bool HasDecisions => decisions.Count > 0;
 
         /// <summary>Decisions currently held.</summary>
         internal static int DecisionCount => decisions.Count;

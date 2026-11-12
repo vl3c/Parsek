@@ -25,8 +25,6 @@ namespace Parsek
         public readonly bool IsSameReplayPoint;
         public readonly bool IsSameVesselLineage;
 
-        public Vector3d WorldPosition => WorldPos;
-
         public RecordingAnchorCandidate(
             string recordingId,
             Vector3d worldPos,

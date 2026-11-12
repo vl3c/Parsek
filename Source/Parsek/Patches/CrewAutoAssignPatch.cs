@@ -222,7 +222,7 @@ namespace Parsek.Patches
                         {
                             ProtoCrewMember standIn = roster[standInName];
 
-                            // Missing-rescue convention (mirrors ReserveCrewIn /
+                            // Missing-rescue convention (mirrors
                             // PlaceOrphanedReplacements /
                             // RescueReservedMissingCrewInSnapshot): a Missing
                             // stand-in is alive but orphaned from a removed

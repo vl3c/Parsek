@@ -299,12 +299,6 @@ namespace Parsek
                 cache.Clear();
             }
 
-            internal static void Invalidate(RewindPoint rp)
-            {
-                if (rp == null || string.IsNullOrEmpty(rp.RewindPointId)) return;
-                cache.Remove(rp.RewindPointId);
-            }
-
             internal static bool IsValid(RewindPoint rp)
             {
                 if (rp == null || string.IsNullOrEmpty(rp.RewindPointId)) return false;

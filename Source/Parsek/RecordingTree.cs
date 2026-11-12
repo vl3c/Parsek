@@ -628,11 +628,6 @@ namespace Parsek
             return rec.VesselPersistentId == activeRec.VesselPersistentId;
         }
 
-        internal bool HasNextChainSegment(Recording rec)
-        {
-            return HasNextChainSegment(rec, Recordings);
-        }
-
         internal static bool HasNextChainSegment(Recording rec, Dictionary<string, Recording> recordings)
         {
             if (rec == null || string.IsNullOrEmpty(rec.ChainId) || recordings == null)

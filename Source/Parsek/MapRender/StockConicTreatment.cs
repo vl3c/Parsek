@@ -1,5 +1,3 @@
-using System.Globalization;
-
 namespace Parsek.MapRender
 {
     /// <summary>
@@ -24,7 +22,7 @@ namespace Parsek.MapRender
     /// stock object is a single shared per-pid object the old patch still co-owns while shadow runs, so
     /// a second writer would fight it.</para>
     /// </summary>
-    internal sealed class StockConicTreatment : IGhostRenderTreatment
+    internal sealed class StockConicTreatment
     {
         public Treatment Kind => Treatment.StockConic;
 
@@ -99,33 +97,6 @@ namespace Parsek.MapRender
                 seg.epoch + epochShift,
                 body);
             orbit.UpdateFromUT(liveDriveUT);
-        }
-
-        public void Apply(GhostRenderIntent intent, IGhostMapScene scene, uint pid)
-        {
-            if (scene == null || !ShouldApply(intent))
-                return;
-            if (!scene.TryGetGhostOrbit(pid, out Orbit orbit) || orbit == null)
-                return;
-            CelestialBody body = scene.ResolveBody(intent.FrameBodyName);
-            if (body == null)
-                return;
-
-            SeedAndDrive(orbit, intent.Payload.Conic, body, intent.DriveUT);
-
-            ParsekLog.VerboseRateLimited("MapRender", "stockconic-drive-" + pid.ToString(CultureInfo.InvariantCulture),
-                string.Format(CultureInfo.InvariantCulture,
-                    "StockConic drive pid={0} driveUT={1:F3} body={2} sma={3:F0} ecc={4:F4}",
-                    pid, intent.DriveUT, intent.FrameBodyName ?? "?",
-                    intent.Payload.Conic.semiMajorAxis, intent.Payload.Conic.eccentricity),
-                2.0);
-        }
-
-        // The managed surface's visibility (line.active / icon) is owned by the stock patch contract
-        // (the Director's hidden intent + the cutover gate decide show/hide). Standing down here is a
-        // no-op: this treatment never force-hides a co-owned stock object out from under that contract.
-        public void StandDown(IGhostMapScene scene, uint pid)
-        {
         }
     }
 }

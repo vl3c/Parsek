@@ -1965,9 +1965,9 @@ python tools/run_index.py lane-table [--with-specs]   # Markdown, one row per la
 python tools/run_index.py trend <LANE> [--last 10]    # verdict, wall, warnings, errors, log volume per run
 python tools/run_index.py health-regressions          # report-only, see below
 python tools/run_index.py health-build                # lane-health.json from an existing index
-python tools/run_index.py lanes-for (--module M | --subsystem TAG)
-python tools/run_index.py publish --index F [--health F] --repo DIR --remote R --branch B
-python tools/run_index.py fetch --repo DIR --remote R --branch B --out F [--health-out F]
+python tools/run_index.py lanes-for (--module M | --subsystem TAG) [--min-lines 5]
+python tools/run_index.py publish --index F [--health F] --repo DIR --remote R --branch metrics [--dir flights]
+python tools/run_index.py fetch --repo DIR --remote R --branch metrics [--dir flights] --out F [--health-out F]
 ```
 
 Windows (30 / 90 days) end at the newest start time in the index, not at the
@@ -1976,20 +1976,52 @@ the scenario runs whose final attempt passed after a failed one, over all
 scenario runs. `health-regressions` names a lane whose latest PASS has more
 warnings or errors than the median of its previous five PASS runs (it needs
 three), or at least 1.3 times their median wall time, log bytes or Parsek lines;
-it gates nothing.
+it gates nothing. `lanes-for` lists a lane only when its latest PASS logged at
+least `--min-lines` (default 5) lines of the module or tag, or any warning or
+error of it: one boot or scene load writes a few one-shot lines of most modules,
+so without a floor every lane matches (all 578 for Logistics on the real
+archive). It prints how many lanes fell under the floor; `--min-lines 0` lists
+them all. The default is a guess, not yet calibrated on the real archive.
+
+Where it is published (owner ruling 2026-11-12): the `metrics` branch, the one
+CI's `metrics` job appends `metrics.jsonl` to, with the flight results kept apart
+from the unit-test results so each history is easy to check. The flight files
+live in the branch's `flights/` folder (`flights/index.jsonl`,
+`flights/lane-health.json`, `flights/README.md`); every flight publish is one
+commit whose subject starts with `flights: `, so `git log -- flights/` (or a
+grep on the subject) is the flight history alone and `git log -- metrics.jsonl`
+the CI one. `--branch` still has no default; pass `--branch metrics`. `--dir`
+moves the folder (`--dir ""` is the branch root, the first layout: `index.jsonl`,
+`lane-health.json`, `RUN-INDEX.md`).
 
 `publish` and `fetch` move the index through a git branch with plumbing only (no
 checkout, no local branch): fetch the branch tip into `FETCH_HEAD`, union the
 remote rows with the local ones by run id (the LOCAL row wins; lane health by
 lane, the newer source run wins), write the blobs with `hash-object`, `mktree`,
 `commit-tree` on top of the tip (an orphan commit when the branch is new), and
-push `<sha>:refs/heads/<branch>`. The new tree is the tip's tree with only the
-tool's own three entries replaced (`index.jsonl`, `lane-health.json` and its
-readme `RUN-INDEX.md`; `run_index.OWN_FILES`): every other file on the branch,
-a `README.md` included, is carried over byte for byte, and the tool refuses to
-write any other name. A rejected push is re-fetched, re-merged and retried (4
-attempts); an unchanged index pushes nothing.
-`--branch` has no default: which branch may hold the index is the owner's call.
+push `<sha>:refs/heads/<branch>`. The tree rule: start from the tip's tree, and
+in each folder on the way down (`ls-tree` of that folder, fed back to `mktree`
+record for record) replace only the tool's own three entries of its folder;
+every other entry of the root and of the folder, its mode included, is carried
+over byte for byte, and any other path is refused. A root-layout index, lane
+health and `RUN-INDEX.md` this tool wrote (checked by content: the readme's
+heading, run-index lines only, the lane-health schema) are unioned into the
+folder's copies and removed in the same commit; a same-named root file of anyone
+else is left alone. A rejected push is re-fetched, re-merged and retried (4
+attempts); an unchanged index pushes nothing. `fetch` reads the folder, and the
+root-layout files when the folder holds no index.
+
+The two writers coexist: CI's `scripts/arch/metrics_append.py` checks the tip
+out whole and commits only `metrics.jsonl` (its `git clean` removes untracked
+files only), so it never drops `flights/`; the flight publish never writes
+outside its folder. `test_ci_metrics_append_and_the_flight_publish_share_one_branch` (in
+`test_runindex.GitPublishTests`) drives both
+against one temp bare repo in alternation, each racing the other once.
+
+A back-filled row whose manifest names a run folder or a log snapshot as its
+worktree (named like the run id or `<YYYY-MM-DD_HHMM>[_label]`) stores no
+worktree. Such rows link to each other (`link_attempts` keys on the missing
+worktree too) and never to a row that has one.
 
 Health facts are only what the mod logs. NOT logged, so not measured: frame
 time on frames under the 8 ms playback / 4 ms recording budget (no frame-time

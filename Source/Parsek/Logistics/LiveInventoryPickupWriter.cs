@@ -62,17 +62,13 @@ namespace Parsek.Logistics
         // craft docked to the depot neither counts toward its stock nor loses its stored
         // parts to a pickup (ROUTE-DELIVERY-INTO-DOCKED-VISITOR).
         private readonly EndpointPartScope partScope;
-        private int removedCount;
 
         internal LiveInventoryPickupWriter(Vessel vessel, bool isLoaded, EndpointPartScope partScope = null)
         {
             this.vessel = vessel;
             this.isLoaded = isLoaded;
             this.partScope = EndpointPartScope.ForBranch(partScope, isLoaded, nameof(LiveInventoryPickupWriter));
-            this.removedCount = 0;
         }
-
-        internal int RemovedCount => removedCount;
 
         /// <summary>
         /// Count of stored parts on the source endpoint whose canonical
@@ -323,8 +319,6 @@ namespace Parsek.Logistics
                 removed = false;
             }
 
-            if (removed)
-                removedCount++;
             return removed;
         }
 

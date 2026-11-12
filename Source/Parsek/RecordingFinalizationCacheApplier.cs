@@ -53,14 +53,6 @@ namespace Parsek
         internal static bool TryApply(
             Recording recording,
             RecordingFinalizationCache cache,
-            out RecordingFinalizationCacheApplyResult result)
-        {
-            return TryApply(recording, cache, default(RecordingFinalizationCacheApplyOptions), out result);
-        }
-
-        internal static bool TryApply(
-            Recording recording,
-            RecordingFinalizationCache cache,
             RecordingFinalizationCacheApplyOptions options,
             out RecordingFinalizationCacheApplyResult result)
         {

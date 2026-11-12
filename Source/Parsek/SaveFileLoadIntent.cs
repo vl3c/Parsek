@@ -31,8 +31,6 @@ namespace Parsek
 
         internal static bool IsArmed => armed;
 
-        internal static double ArmedNodeUT => armedNodeUT;
-
         internal static void Arm(double nodeUT, string scene, double realtime, int frame)
         {
             if (armed)

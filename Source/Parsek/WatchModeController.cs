@@ -145,7 +145,6 @@ namespace Parsek
         internal int WatchedRecordingIndex => watchedRecordingIndex;
         internal int WatchProtectionRecordingIndex => ResolveWatchProtectionRecordingIndex();
         internal long WatchedLoopCycleIndex => watchedOverlapCycleIndex;
-        internal WatchCameraMode CurrentCameraMode => currentCameraMode;
         internal void ExitWatchModePreservingLineage(bool skipCameraRestore = false) =>
             ExitWatchMode(skipCameraRestore, preserveLineageProtection: true);
 

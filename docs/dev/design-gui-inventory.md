@@ -879,7 +879,7 @@ complete / fail / cancel, Strategies = activate / deactivate, Facilities = upgra
 destruction / repair, Milestones = milestone credits, Tech = a `ScienceSpending` that names a
 node. The strategy currency-exchange science legs share the `ScienceSpending` display bucket
 and are in no category. Recording, legacy and other ledger rows (earnings, hires, builds,
-recoveries, seeds) are in none either. `ScrollToCareerSubject(category, subjectId)` opens the
+recoveries, seeds) are in none either. `ScrollToCareerSubject(category, subjectId, gameMode)` opens the
 window on the category's view and scrolls to the subject's first visible row (for a contract,
 its accept row), the career twin of `ScrollToRecording`; it has no production caller today.
 

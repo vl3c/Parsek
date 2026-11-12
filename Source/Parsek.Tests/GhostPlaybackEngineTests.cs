@@ -292,10 +292,6 @@ namespace Parsek.Tests
                 ZoneCalls++;
                 return new ZoneRenderingResult();
             }
-
-            public void ClearOrbitCache()
-            {
-            }
         }
         // ===================================================================
         // ShouldLoopPlayback — static, pure predicate

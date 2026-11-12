@@ -618,14 +618,10 @@ namespace Parsek
         /// scrolls to the first visible row of that subject - for a contract, its accept
         /// row, with the outcome row beneath it. The time range still applies: a subject
         /// outside it logs as not found, the same as a stale recording id.
-        /// <para>A category the current game mode does not show (Contracts in Science
-        /// mode, anything in Sandbox) keeps the current view and logs why.</para>
+        /// <para>A category <paramref name="gameMode"/> does not show (Contracts in Science
+        /// mode, anything in Sandbox) keeps the current view and logs why. The game mode is
+        /// supplied so a headless test never reads <c>HighLogic</c>.</para>
         /// </summary>
-        internal void ScrollToCareerSubject(TimelineCareerCategory category, string subjectId)
-            => ScrollToCareerSubject(category, subjectId, GetCurrentGameMode());
-
-        /// <summary>The same, with the game mode supplied (the headless-test entry point,
-        /// which must not read <c>HighLogic</c>).</summary>
         internal void ScrollToCareerSubject(TimelineCareerCategory category, string subjectId,
             Game.Modes? gameMode)
         {

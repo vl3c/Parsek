@@ -1186,7 +1186,7 @@ remains is, in order:
     cannot reach any route that would stamp one on ITS OWN provisional. `CommitTreeFlight`
     answers `no-active-tree` on a re-fly's pending tree (RF-12 measured it),
     `ShowPostDestructionTreeMergeDialog` fires only on a destruction (which stamps
-    `Destroyed`), and `CommitTreeRevert` and scene exit both END the session the cell needs
+    `Destroyed`), and a revert and scene exit both END the session the cell needs
     live. `TryCommitReFlySupersede` has exactly one production caller,
     `MergeDialog.MergeCommit`.
     SO THE CELL IS NOT STRUCTURALLY UNREACHABLE AFTER ALL, and that is a lane rather than

@@ -384,7 +384,11 @@ Config 66%, Controllers 64%; lowest Core 6%, Trajectory 25%, Missions 26%);
 test calls either (7,611 instructions), 709 a test calls (257 hooks by name);
 84 methods with 30+ decisions no unit test calls. The rules alone kept 1,263
 live methods (Harmony 310, `.cctor` 279, dispatch 272, strings 112, delegates
-88 ...).
+88 ...). After B7 deleted the uncalled code (2026-11-12): 787 methods the roots
+do not reach (17,484 instructions): 78 that no unit test calls either (2,339
+instructions: 32 test hooks by name, 8 that source gates pin (the `ParsekUI`
+hover check and `LogisticsWindowUI.DetailLine(GUIContent)`), 38 reached only
+through a method a test calls), 709 a test calls.
 
 ### Coverage snapshot
 
@@ -485,7 +489,7 @@ methods at complexity 20 or more), which the complexity watch band absorbs.
   still does. A pinned method may grow past 50 without a red. Leaving the
   band needs no re-pin; a rename or a move into another type does.
 - `uncalledInAssembly`: the methods the roots do not reach in Parsek.dll,
-  test hooks by name left out, may not outnumber `bound` (654). It reads
+  test hooks by name left out, may not outnumber `bound` (498). It reads
   Parsek.dll alone, so a production method only a test calls counts too:
   that is code the game never runs (B7). Deleting dead code cannot raise it.
 
@@ -773,28 +777,28 @@ for instructions, and the leaks of the headless ones (`*`):
 
 | Module | Methods | Can reach | Direct | Only via a callee | Instructions | Can reach | Direct | Leaks |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Core * | 192 | 7% | 3% | 4% | 10,334 | 6% | 3% | 14 |
-| LogIO | 96 | 15% | 7% | 7% | 4,892 | 23% | 13% |  |
-| Trajectory * | 258 | 23% | 19% | 4% | 17,783 | 25% | 12% | 80 |
-| Missions * | 626 | 15% | 7% | 8% | 58,399 | 26% | 7% | 148 |
-| GameActions | 2,160 | 18% | 8% | 10% | 148,186 | 28% | 14% |  |
+| Core * | 191 | 7% | 3% | 4% | 10,202 | 7% | 3% | 14 |
+| LogIO | 95 | 15% | 7% | 7% | 4,890 | 23% | 13% |  |
+| Trajectory * | 255 | 23% | 19% | 4% | 17,747 | 25% | 12% | 79 |
+| Missions * | 624 | 15% | 7% | 8% | 58,391 | 26% | 7% | 148 |
+| GameActions | 2,137 | 18% | 8% | 10% | 147,933 | 28% | 14% |  |
 | Timeline * | 92 | 12% | 0% | 12% | 6,653 | 29% | 0% | 5 |
-| MapRender | 737 | 15% | 7% | 8% | 28,833 | 32% | 18% |  |
-| Logistics | 953 | 18% | 10% | 8% | 87,222 | 33% | 15% |  |
-| Recording | 2,599 | 26% | 17% | 8% | 205,258 | 38% | 26% |  |
-| Rewind | 1,034 | 23% | 10% | 13% | 91,780 | 39% | 13% |  |
+| MapRender | 723 | 15% | 7% | 8% | 28,526 | 32% | 18% |  |
+| Logistics | 948 | 18% | 10% | 8% | 87,060 | 33% | 15% |  |
+| Recording | 2,569 | 26% | 17% | 8% | 204,163 | 38% | 26% |  |
+| Crew | 286 | 25% | 17% | 8% | 22,147 | 39% | 21% |  |
+| Rewind | 1,025 | 23% | 10% | 13% | 91,620 | 39% | 13% |  |
 | SwitchIntent | 62 | 26% | 3% | 23% | 6,456 | 39% | 1% |  |
-| Crew | 291 | 25% | 18% | 8% | 22,400 | 39% | 22% |  |
 | Rendering | 198 | 20% | 12% | 8% | 16,417 | 47% | 29% |  |
-| Reaim * | 198 | 13% | 6% | 8% | 15,796 | 47% | 20% | 32 |
-| UI | 1,961 | 34% | 24% | 11% | 110,520 | 56% | 45% |  |
-| Ghost | 2,122 | 37% | 26% | 11% | 172,577 | 57% | 46% |  |
+| Reaim * | 197 | 13% | 6% | 8% | 15,736 | 47% | 20% | 32 |
+| UI | 1,946 | 34% | 24% | 10% | 110,334 | 56% | 45% |  |
+| Ghost | 2,114 | 37% | 26% | 11% | 172,460 | 57% | 46% |  |
 | Display | 221 | 32% | 27% | 5% | 20,416 | 61% | 57% |  |
-| Controllers | 2,595 | 40% | 28% | 12% | 211,671 | 64% | 51% |  |
+| Controllers | 2,554 | 40% | 28% | 12% | 209,133 | 64% | 51% |  |
 | Config | 89 | 26% | 7% | 19% | 2,893 | 66% | 7% |  |
-| Patches | 797 | 68% | 47% | 21% | 36,248 | 82% | 65% |  |
+| Patches | 796 | 68% | 47% | 21% | 36,191 | 83% | 65% |  |
 
-At the pin: 279 leaks in 123 methods, 29 seam calls.
+At the pin: 278 leaks in 123 methods, 29 seam calls.
 The live things leaked to most: `UnityEngine.Object` 46, `CelestialBody` 44, `Orbit` 38, `Vessel` 18, `Contracts.Contract` 13, `KSP.UI.Screens.MissionControl` 10, `PatchedConicSolver` 6, `ProtoVessel` 6, `UnityEngine.UI.Button` 6, `VesselNaming` 5.
 
 **What is declared, and why.** The choice reads each module's description
@@ -1046,7 +1050,11 @@ later. It gates nothing: no check reads it, and no row can fail a PR.
 
 - **Where.** Branch `metrics` (an orphan branch: no source, only `README.md`
   and the history), file `metrics.jsonl`: one JSON object per line, in the
-  order the rows arrived, at most one row per commit sha.
+  order the rows arrived, at most one row per commit sha. The same branch's
+  `flights/` folder holds the harness run index (flight results, published by
+  `harness/tools/run_index.py publish`, commit subjects `flights: `); the
+  metrics job commits only `metrics.jsonl` and never touches it
+  (harness/README.md, "The run index and lane health").
 - **What a row holds** (schema `parsek-metrics/1`; `scripts/arch/metrics.py`'s
   docstring lists every key): `commit` (sha, committer date in UTC),
   `measured` (which halves were measured), `text` (the text scan: production

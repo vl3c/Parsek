@@ -90,10 +90,6 @@ namespace Parsek.Logistics
             this.partScope = EndpointPartScope.ForBranch(partScope, isLoaded, nameof(LiveDeliveryCapacityProbe));
         }
 
-        /// <summary>The part scope this probe reads through (null = every part), so the
-        /// orchestrator can hand the writers the same one.</summary>
-        internal EndpointPartScope PartScope => partScope;
-
         public double ProbeResourceFreeCapacity(string resourceName)
         {
             if (string.IsNullOrEmpty(resourceName) || vessel == null) return 0.0;

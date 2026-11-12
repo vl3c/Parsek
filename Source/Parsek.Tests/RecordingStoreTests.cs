@@ -793,7 +793,7 @@ namespace Parsek.Tests
         public void ShouldProcessCrew_Missing_ReturnsTrue()
         {
             // Missing crew are processed: they may be alive but orphaned from
-            // a removed vessel (e.g. --clean-start). ReserveCrewIn rescues them.
+            // a removed vessel (e.g. --clean-start). The rescue paths rescue them.
             Assert.True(CrewReservationManager.ShouldProcessCrewForReservation(
                 ProtoCrewMember.RosterStatus.Missing));
         }

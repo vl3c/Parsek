@@ -825,7 +825,7 @@ namespace Parsek
             // tails (and unsplit / unmerged segments) until the next cold load.
             string activeTipId = RunInFlightCommitOptimizationPass(activeRec, activeRecId);
 
-            // Recalculate crew reservations (replaces ReserveCrewForLeaves)
+            // Recalculate crew reservations
             LedgerOrchestrator.NotifyLedgerTreeCommitted(host.activeTree);
 
             // Spawn all non-active leaf vessels
@@ -916,45 +916,6 @@ namespace Parsek
                 $"activeRec={activeRecId ?? "<none>"} activeTip={activeTipId ?? "<none>"} " +
                 $"spawnStampMoved={stampMoved} passThrew={passThrew} stampMoveThrew={stampMoveThrew}");
             return activeTipId;
-        }
-
-        private void ReserveCrewForLeaves(List<Recording> spawnableLeaves)
-        {
-            var roster = HighLogic.CurrentGame?.CrewRoster;
-            if (roster != null)
-            {
-                using (SuppressionGuard.Crew())
-                {
-                    foreach (var leaf in spawnableLeaves)
-                    {
-                        if (leaf.VesselSpawned) continue;
-                        if (leaf.VesselSnapshot == null) continue;
-                        CrewReservationManager.ReserveCrewIn(leaf.VesselSnapshot, false, roster);
-                    }
-                }
-            }
-        }
-
-        /// <summary>
-        /// Finalizes the active tree for a revert (Flight -> Flight).
-        /// Preserves vessel snapshots so the merge dialog can offer spawning.
-        /// </summary>
-        void CommitTreeRevert(double commitUT)
-        {
-            if (host.activeTree == null) return;
-
-            ParsekLog.Info("Flight", $"CommitTreeRevert: finalizing tree at UT={commitUT:F1}");
-            RecorderStateLog.RecState("CommitTreeRevert:entry", host.CaptureRecorderState());
-
-            // Finalize all recordings (active + background)
-            FinalizeTreeRecordings(host.activeTree, commitUT, isSceneExit: false);
-
-            // Stash as pending tree -- snapshots preserved for merge dialog
-            PendingTreeSlot.StashPendingTree(host.activeTree);
-
-            ParsekLog.Info("Flight",
-                $"CommitTreeRevert: stashed pending tree '{host.activeTree.TreeName}' with snapshots preserved");
-            RecorderStateLog.RecState("CommitTreeRevert:post", host.CaptureRecorderState());
         }
 
         /// <summary>

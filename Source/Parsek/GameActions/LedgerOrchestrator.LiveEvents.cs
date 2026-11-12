@@ -1563,11 +1563,6 @@ namespace Parsek
         /// prelaunch recording B that happens to start nearby in the same 30-minute window.
         /// </para>
         /// </summary>
-        internal static GameAction TryAdoptRolloutAction(string recordingId, double startUT)
-        {
-            return TryAdoptRolloutAction(recordingId, startUT, FindRecordingById(recordingId));
-        }
-
         internal static GameAction TryAdoptRolloutAction(string recordingId, double startUT, Recording rec)
         {
             return LedgerRolloutAdoption.TryAdoptRolloutAction(recordingId, startUT, rec, Ledger.Actions);

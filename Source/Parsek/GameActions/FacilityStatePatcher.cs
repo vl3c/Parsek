@@ -617,12 +617,6 @@ namespace Parsek
         }
 
         internal static Dictionary<string, FacilitiesModule.FacilityState> BuildFacilityPatchTargets(
-            IReadOnlyDictionary<string, FacilitiesModule.FacilityState> currentFacilities)
-        {
-            return BuildFacilityPatchTargets(currentFacilities, lastPatchedFacilityIds);
-        }
-
-        internal static Dictionary<string, FacilitiesModule.FacilityState> BuildFacilityPatchTargets(
             IReadOnlyDictionary<string, FacilitiesModule.FacilityState> currentFacilities,
             IEnumerable<string> previouslyPatchedFacilityIds)
         {
