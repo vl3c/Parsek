@@ -18,7 +18,7 @@ namespace Parsek.Tests
     /// exit: unloaded anchor, unresolved span clock, out of window (destroy, watched keep-alive), inter-cycle
     /// tail, before activation, warp hide, the cycle-change rebuild, the self-overlap branch (zero duration,
     /// first-run handover, warp hide, watched-instance pin), the descent trigger, the descent handoff hide,
-    /// the loiter wrap and the launch-hold boundary secondary. The frame's spawn budget is spent before the first call, so a
+    /// the transfer member's hide after the landing, the loiter wrap and the launch-hold boundary secondary. The frame's spawn budget is spent before the first call, so a
     /// render path defers its ghost build instead of reaching Unity; the self-overlap and boundary-secondary
     /// builds take no budget, so those calls end on mono's refusal of the first Unity native call, which
     /// the transcript records.
@@ -478,10 +478,12 @@ namespace Parsek.Tests
             double loopUT = liveUT - DescentPa;
             var decision = GhostPlaybackLogic.UnitMemberRenderDecision.Render;
             bool hidden = false;
+            bool landed = false;
             ParsekLog.ResetRateLimitsForTesting();
             GhostPlaybackEngine.ApplyDescentHandoffHide(
-                5, unit, Ctx(liveUT, 1f), 0, loopUT, ref decision, ref hidden);
+                5, unit, Ctx(liveUT, 1f), 0, loopUT, ref decision, ref hidden, ref landed);
             Assert.True(hidden);
+            Assert.False(landed);
             Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.HiddenOutsideWindow, decision);
             Assert.Contains("[Parsek][VERBOSE][ReaimDescent] engine transfer/loiter member=5 cycle=0"
                 + " unitDescentPhase=Descent baseDecision=Render liveUT=" + liveUT.ToString("R", ic)
@@ -497,10 +499,12 @@ namespace Parsek.Tests
             loopUT = liveUT - DescentPa;
             decision = GhostPlaybackLogic.UnitMemberRenderDecision.Render;
             hidden = false;
+            landed = false;
             ParsekLog.ResetRateLimitsForTesting();
             GhostPlaybackEngine.ApplyDescentHandoffHide(
-                5, unit, Ctx(liveUT, 1f), 0, loopUT, ref decision, ref hidden);
+                5, unit, Ctx(liveUT, 1f), 0, loopUT, ref decision, ref hidden, ref landed);
             Assert.False(hidden);
+            Assert.False(landed);
             Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.Render, decision);
             Assert.Contains("[Parsek][VERBOSE][ReaimDescent] engine transfer/loiter member=5 cycle=0"
                 + " unitDescentPhase=Loiter baseDecision=Render liveUT=" + liveUT.ToString("R", ic)
@@ -508,6 +512,104 @@ namespace Parsek.Tests
                 transcript.ConvertAll(l => l.Substring("LOG ".Length)));
             Assert.Contains("ReaimDescent|engine-transfer-handoff." + DescentPa.ToString("R", ic) + ".0.5.Loiter.False",
                 RateLimitKeys());
+        }
+
+        [Fact]
+        public void DescentHandoffHide_KeepsTheTransferMemberHiddenAfterTheLanding_AndPinsItsLogLine()
+        {
+            GhostPlaybackLogic.LoopUnit unit = DescentTriggerTests.BuildDescentUnit(engage: true).UnitsByOwner[0];
+            var ic = CultureInfo.InvariantCulture;
+            double trigger = DescentTrigger.ComputeRotationAlignedTriggerUT(
+                DescentEntryUT, DescentDeorbit, DescentDunaTrot);
+
+            // Landed (the clip is 2000 s long): the rendering transfer member is forced hidden, and both
+            // flags are set so the teardown names the landing.
+            double liveUT = trigger + 2050;
+            double loopUT = liveUT - DescentPa;
+            var decision = GhostPlaybackLogic.UnitMemberRenderDecision.Render;
+            bool hidden = false;
+            bool landed = false;
+            ParsekLog.ResetRateLimitsForTesting();
+            GhostPlaybackEngine.ApplyDescentHandoffHide(
+                5, unit, Ctx(liveUT, 1f), 0, loopUT, ref decision, ref hidden, ref landed);
+            Assert.True(hidden);
+            Assert.True(landed);
+            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.HiddenOutsideWindow, decision);
+            Assert.Contains("[Parsek][VERBOSE][ReaimDescent] engine transfer/loiter member=5 cycle=0"
+                + " unitDescentPhase=Done baseDecision=Render liveUT=" + liveUT.ToString("R", ic)
+                + " loopUT=" + loopUT.ToString("R", ic)
+                + " -> HIDDEN (landed; journey over until the next cycle)",
+                transcript.ConvertAll(l => l.Substring("LOG ".Length)));
+            Assert.Contains("ReaimDescent|engine-transfer-handoff." + DescentPa.ToString("R", ic) + ".0.5.Done.True",
+                RateLimitKeys());
+
+            // A non-descent member that is not the transfer member (the ride-along, member 7) keeps
+            // rendering after the landing, and its line says so.
+            transcript.Clear();
+            decision = GhostPlaybackLogic.UnitMemberRenderDecision.Render;
+            hidden = false;
+            landed = false;
+            ParsekLog.ResetRateLimitsForTesting();
+            GhostPlaybackEngine.ApplyDescentHandoffHide(
+                7, unit, Ctx(liveUT, 1f), 0, loopUT, ref decision, ref hidden, ref landed);
+            Assert.False(hidden);
+            Assert.False(landed);
+            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.Render, decision);
+            Assert.Contains("[Parsek][VERBOSE][ReaimDescent] engine transfer/loiter member=7 cycle=0"
+                + " unitDescentPhase=Done baseDecision=Render liveUT=" + liveUT.ToString("R", ic)
+                + " loopUT=" + loopUT.ToString("R", ic) + " -> kept (loiter/normal ghost)",
+                transcript.ConvertAll(l => l.Substring("LOG ".Length)));
+            Assert.Contains("ReaimDescent|engine-transfer-handoff." + DescentPa.ToString("R", ic) + ".0.7.Done.False",
+                RateLimitKeys());
+        }
+
+        [UnityEntryFact]
+        public void UnitMember_DescentTrigger_AfterLanding_TransferHiddenRideAlongRenders_NextCycleRendersAgain()
+        {
+            var engine = NewEngine(DescentTriggerTests.BuildDescentUnit(engage: true));
+            var trajs = DescentTrajs();
+            double trigger = DescentTrigger.ComputeRotationAlignedTriggerUT(
+                DescentEntryUT, DescentDeorbit, DescentDunaTrot);
+            double done = trigger + 2050;
+
+            // Landed, with a live transfer ghost (the skipped-descent step: it was circling the parking
+            // conic the frame before): the ghost is destroyed and the loiter wrap never runs.
+            Member(engine, 5, trajs[5], Ctx(done, 1f), trajs, false,
+                new GhostPlaybackState { loopCycleIndex = 0 }, true, "transfer-landed-hide");
+            Assert.Contains(transcript, l => l.Contains(
+                "engine transfer/loiter member=5 cycle=0 unitDescentPhase=Done")
+                && l.Contains("-> HIDDEN (landed; journey over until the next cycle)"));
+            Assert.Contains(transcript, l => l.Contains("member #5 hidden:")
+                && l.Contains(" landed (journey over until the next cycle; window ["));
+            Assert.Contains(transcript, l => l.Contains("destroyed (landed hide (journey over until the next cycle))"));
+            Assert.Contains(transcript, l => l == "EVT Destroyed #5");
+            Assert.DoesNotContain(transcript, l => l.Contains("loiter-circle member=5"));
+            Assert.Empty(engine.ghostStates);
+
+            // Same instant, no ghost: still hidden, nothing built, nothing wrapped.
+            transcript.Clear();
+            Member(engine, 5, trajs[5], Ctx(done, 1f), trajs, false, null, false, "transfer-landed-no-ghost");
+            Assert.Contains(transcript, l => l.Contains("-> HIDDEN (landed; journey over until the next cycle)"));
+            Assert.DoesNotContain(transcript, l => l.Contains("loiter-circle member=5"));
+            Assert.DoesNotContain(transcript, l => l.StartsWith("EVT SpawnPending"));
+            Assert.Empty(engine.ghostStates);
+
+            // The ride-along is not hidden by the landing: it reaches the render path.
+            transcript.Clear();
+            Member(engine, 7, trajs[7], Ctx(done, 1f), trajs, false, null, false, "ride-along-after-landing");
+            Assert.Contains(transcript, l => l.Contains(
+                "engine transfer/loiter member=7 cycle=0 unitDescentPhase=Done")
+                && l.Contains("-> kept (loiter/normal ghost)"));
+            Assert.DoesNotContain(transcript, l => l.Contains("member #7 hidden:"));
+
+            // Next cycle, before the deorbit point (Inert): the transfer member renders again.
+            transcript.Clear();
+            Member(engine, 5, trajs[5], Ctx(DescentPa + 60_000_000.0 + 27_050_000.0, 1f), trajs, false,
+                null, false, "transfer-next-cycle-inert");
+            Assert.Contains(transcript, l => l.Contains(
+                "engine transfer/loiter member=5 cycle=1 unitDescentPhase=Inert")
+                && l.Contains("-> kept (loiter/normal ghost)"));
+            Assert.DoesNotContain(transcript, l => l.Contains("member #5 hidden:"));
         }
 
         [Fact]
@@ -541,7 +643,7 @@ namespace Parsek.Tests
             engine.HideUnitMemberOutsideWindow(
                 0, Traj("h0", 1000, 1050), Flags("h0", 1050), Ctx(1450, 1f), SpanUnit(), "unit-0",
                 GhostPlaybackLogic.UnitMemberRenderDecision.HiddenInterCycleTail, 1100, 1000, 1050,
-                hiddenForDescentHandoff: false, boundarySecondaryLive: false, 0, 0,
+                hiddenForDescentHandoff: false, hiddenAfterLanding: false, boundarySecondaryLive: false, 0, 0,
                 suppressGhosts: false, suppressVisualFx: true, state: null, ghostActive: false);
 
             Assert.Contains(transcript, l => l.Contains(
@@ -560,7 +662,7 @@ namespace Parsek.Tests
             engine.HideUnitMemberOutsideWindow(
                 1, Traj("h1", 1050, 1100), Flags("h1", 1100), Ctx(1320, 1f), SpanUnit(), "unit-0",
                 GhostPlaybackLogic.UnitMemberRenderDecision.HiddenOutsideWindow, 1060, 1050, 1100,
-                hiddenForDescentHandoff: true, boundarySecondaryLive: false, 0, 0,
+                hiddenForDescentHandoff: true, hiddenAfterLanding: false, boundarySecondaryLive: false, 0, 0,
                 suppressGhosts: false, suppressVisualFx: true, state: state, ghostActive: true);
 
             Assert.Contains(transcript, l => l.Contains(
@@ -568,6 +670,36 @@ namespace Parsek.Tests
             Assert.Contains(transcript, l => l.Contains("destroyed (descent handoff hide (unit descent playing))"));
             Assert.Contains("Engine|unit-0-handoff-hide-1", RateLimitKeys());
             Assert.Empty(engine.ghostStates);
+        }
+
+        [UnityEntryFact]
+        public void HideOutsideWindow_AfterLanding_NamesTheLandingAndDestroysTheGhost()
+        {
+            var engine = NewEngine(Set(SpanUnit()));
+            var state = new GhostPlaybackState { loopCycleIndex = 1 };
+            engine.ghostStates[1] = state;
+            engine.HideUnitMemberOutsideWindow(
+                1, Traj("h1", 1050, 1100), Flags("h1", 1100), Ctx(1320, 1f), SpanUnit(), "unit-0",
+                GhostPlaybackLogic.UnitMemberRenderDecision.HiddenOutsideWindow, 1060, 1050, 1100,
+                hiddenForDescentHandoff: true, hiddenAfterLanding: true, boundarySecondaryLive: false, 0, 0,
+                suppressGhosts: false, suppressVisualFx: true, state: state, ghostActive: true);
+
+            Assert.Contains(transcript, l => l.Contains(
+                "member #1 hidden: loopUT=1060.00 landed (journey over until the next cycle; window [1050.00,1100.00])"));
+            Assert.Contains(transcript, l => l.Contains("destroyed (landed hide (journey over until the next cycle))"));
+            Assert.Contains("Engine|unit-0-landed-hide-1", RateLimitKeys());
+            Assert.DoesNotContain("Engine|unit-0-handoff-hide-1", RateLimitKeys());
+            Assert.Empty(engine.ghostStates);
+        }
+
+        [Fact]
+        public void DescribeUnitMemberHide_PicksLandedThenHandoffThenOutsideWindow()
+        {
+            Assert.Equal("out", GhostPlaybackEngine.DescribeUnitMemberHide(false, false, "landed", "handoff", "out"));
+            // The landed flag is only meaningful together with the handoff flag.
+            Assert.Equal("out", GhostPlaybackEngine.DescribeUnitMemberHide(false, true, "landed", "handoff", "out"));
+            Assert.Equal("handoff", GhostPlaybackEngine.DescribeUnitMemberHide(true, false, "landed", "handoff", "out"));
+            Assert.Equal("landed", GhostPlaybackEngine.DescribeUnitMemberHide(true, true, "landed", "handoff", "out"));
         }
 
         [UnityEntryFact]

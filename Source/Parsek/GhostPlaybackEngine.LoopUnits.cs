@@ -318,26 +318,30 @@ namespace Parsek
                     i, unit, ctx, unitCycle, memberStartUT, memberEndUT, ref spanLoopUT, ref decision);
             }
 
-            // DESCENT HANDOFF hide (the engine side of the ResolveTrackingStationSampleUT transfer-member
+            // DESCENT HANDOFF hide (the engine side of the ResolveTrackingStationSampleUT non-descent-member
             // hide, via the SAME pure decision - ShouldHideNonDescentMemberForDescentHandoff - so flight and
-            // map/TS can never disagree): once the unit-wide descent phase is Descent, the re-anchored
-            // descent member's ghost is playing the approach clip, so a CURRENTLY-RENDERING non-descent
-            // member (the transfer/loiter member circling the shifted parking conic) must HIDE its flight
-            // 3D ghost - otherwise two vessels coexist at the handoff (the parking ghost + the descent
-            // ghost), the engine twin of the TS double-icon bug (2026-06-20 13:34 log). Gated identically
-            // to the TS site: HasDescentTrigger + decision==Render only, byte-identical everywhere else;
-            // Inert / Loiter / Done phases keep rendering (the loiter ghost is correct until the trigger
-            // fires). Checked BEFORE the loiter-gap clamp, matching the resolver's order (the handoff hide
+            // map/TS can never disagree). A CURRENTLY-RENDERING non-descent member hides its flight 3D ghost:
+            //  - while the unit-wide descent phase is Descent (any non-descent member): the re-anchored descent
+            //    member's ghost is playing the approach clip, and two vessels must not coexist at the handoff;
+            //  - while it is Done, for the DESTINATION transfer member only: the ship has landed, and its raw
+            //    span clock is still inside its window, so the loiter-gap clamp below would otherwise wrap the
+            //    ghost back onto the parking conic and keep it circling after the landing. A ride-along that is
+            //    not the transfer member keeps rendering in Done.
+            // Gated identically to the TS site: HasDescentTrigger + decision==Render only, byte-identical
+            // everywhere else; Inert / Loiter keep rendering (the loiter ghost is the only one until the
+            // trigger fires). Checked BEFORE the loiter-gap clamp, matching the resolver's order (the hide
             // wins over the loiter wrap). The forced HiddenOutsideWindow routes through the existing (3)
             // teardown, exactly like a descent member's own hide (watched-owner and boundary-secondary
             // handling included).
             bool hiddenForDescentHandoff = false;
+            bool hiddenAfterLanding = false;
             if (!descentMember
                 && decision == GhostPlaybackLogic.UnitMemberRenderDecision.Render
                 && unit.HasDescentTrigger)
             {
                 ApplyDescentHandoffHide(
-                    i, unit, ctx, unitCycle, spanLoopUT, ref decision, ref hiddenForDescentHandoff);
+                    i, unit, ctx, unitCycle, spanLoopUT, ref decision, ref hiddenForDescentHandoff,
+                    ref hiddenAfterLanding);
             }
 
             // Transfer-member loiter-gap clamp (the rogue-descent fix; the engine side of the
@@ -351,9 +355,11 @@ namespace Parsek
             // stays positioned and the map marker rides source=mesh on the parking conic instead of falling back to
             // the descending trajectory head. No-op (byte-identical) for descent members / ride-alongs / non-re-aim
             // units (IsDescentTransferMemberInLoiterGap false) and gated on decision==Render (a hidden member's
-            // span clock is unused downstream). (Step 2: ClampTransferMemberHeadToLoiterGap WRAPS the head into the
-            // last recorded parking period [P - LoiterPeriodSeconds, P) so the ghost CIRCLES the closed parking
-            // conic through the wait instead of freezing at the deorbit point - continuous at engage and wrap-around.)
+            // span clock is unused downstream; the hide above already took the transfer member off Render in
+            // Descent and Done, so the wrap never circles the parking conic after the landing). (Step 2:
+            // ClampTransferMemberHeadToLoiterGap WRAPS the head into the last recorded parking period
+            // [P - LoiterPeriodSeconds, P) so the ghost CIRCLES the closed parking conic through the wait
+            // instead of freezing at the deorbit point - continuous at engage and wrap-around.)
             if (!descentMember
                 && decision == GhostPlaybackLogic.UnitMemberRenderDecision.Render)
             {
@@ -393,7 +399,8 @@ namespace Parsek
             {
                 HideUnitMemberOutsideWindow(
                     i, traj, f, ctx, unit, unitKey, decision, spanLoopUT, memberStartUT, memberEndUT,
-                    hiddenForDescentHandoff, boundarySecondaryLive, boundarySecondaryLoopUT, boundarySecondaryCycle,
+                    hiddenForDescentHandoff, hiddenAfterLanding,
+                    boundarySecondaryLive, boundarySecondaryLoopUT, boundarySecondaryCycle,
                     suppressGhosts, suppressVisualFx, state, ghostActive);
                 return;
             }
@@ -716,13 +723,16 @@ namespace Parsek
 
         /// <summary>
         /// The descent handoff hide of <see cref="UpdateUnitMemberPlayback"/>: a rendering non-descent member of
-        /// a unit with a descent trigger is hidden (decision forced to HiddenOutsideWindow) once the unit-wide
-        /// descent phase is Descent. Called only under that gate, so the closure its deferred log message
-        /// captures is allocated only there, never on the per-member hot path.
+        /// a unit with a descent trigger is hidden (decision forced to HiddenOutsideWindow) while the unit-wide
+        /// descent phase is Descent, and the destination transfer member also while it is Done (the ship has
+        /// landed; <paramref name="hiddenAfterLanding"/> is set with <paramref name="hiddenForDescentHandoff"/>
+        /// then, so the teardown names the right reason). Called only under that gate, so the closure its
+        /// deferred log message captures is allocated only there, never on the per-member hot path.
         /// </summary>
         internal static void ApplyDescentHandoffHide(
             int i, in GhostPlaybackLogic.LoopUnit unit, FrameContext ctx, long unitCycle, double spanLoopUT,
-            ref GhostPlaybackLogic.UnitMemberRenderDecision decision, ref bool hiddenForDescentHandoff)
+            ref GhostPlaybackLogic.UnitMemberRenderDecision decision, ref bool hiddenForDescentHandoff,
+            ref bool hiddenAfterLanding)
         {
             bool hideForDescentHandoff = GhostPlaybackLogic.ShouldHideNonDescentMemberForDescentHandoff(
                 unit, i, ctx.currentUT, unitCycle,
@@ -746,13 +756,14 @@ namespace Parsek
                     + " unitDescentPhase=" + unitDescentPhase
                     + " baseDecision=Render liveUT=" + handoffLiveUT.ToString("R", hdic)
                     + " loopUT=" + handoffLoopUT.ToString("R", hdic)
-                    + " -> " + (hideForDescentHandoff
-                        ? "HIDDEN (descent playing; hand off to descent member, no double ghost)"
-                        : "kept (loiter/normal ghost)"),
+                    + " -> " + GhostPlaybackLogic.DescribeDescentHandoffOutcome(
+                        hideForDescentHandoff, unitDescentPhase, "ghost"),
                 5.0);
             if (hideForDescentHandoff)
             {
                 hiddenForDescentHandoff = true;
+                hiddenAfterLanding =
+                    unitDescentPhase == Parsek.Reaim.DescentTrigger.DescentHeadPhase.Done;
                 decision = GhostPlaybackLogic.UnitMemberRenderDecision.HiddenOutsideWindow;
             }
         }
@@ -789,7 +800,8 @@ namespace Parsek
 
         /// <summary>
         /// Step 3 of <see cref="UpdateUnitMemberPlayback"/>: the member is not rendering this frame (outside
-        /// its window, in the inter-cycle wait, or hidden for the descent handoff). Logs why, then drives a live
+        /// its window, in the inter-cycle wait, or hidden for the descent handoff or after the landing). Logs why,
+        /// then drives a live
         /// boundary-overlap secondary, keeps a watched ghost alive hidden, or destroys the ghost. The caller
         /// returns after it.
         /// </summary>
@@ -797,7 +809,7 @@ namespace Parsek
             int i, IPlaybackTrajectory traj, TrajectoryPlaybackFlags f, FrameContext ctx,
             in GhostPlaybackLogic.LoopUnit unit, string unitKey,
             GhostPlaybackLogic.UnitMemberRenderDecision decision, double spanLoopUT,
-            double memberStartUT, double memberEndUT, bool hiddenForDescentHandoff,
+            double memberStartUT, double memberEndUT, bool hiddenForDescentHandoff, bool hiddenAfterLanding,
             bool boundarySecondaryLive, double boundarySecondaryLoopUT, long boundarySecondaryCycle,
             bool suppressGhosts, bool suppressVisualFx, GhostPlaybackState state, bool ghostActive)
         {
@@ -813,20 +825,24 @@ namespace Parsek
             }
             else
             {
-                // The descent-handoff hide reaches here with an IN-window loopUT (the member was
-                // Render before the forced hide), so name the real reason instead of the misleading
-                // "outside its window". Distinct key too, so a genuine out-of-window hide of the same
-                // member is never deduped away behind a handoff line (or vice versa).
+                // The descent-handoff hide and the after-landing hide reach here with an IN-window loopUT
+                // (the member was Render before the forced hide), so name the real reason instead of the
+                // misleading "outside its window". Distinct keys too, so a genuine out-of-window hide of
+                // the same member is never deduped away behind a handoff or landed line (or vice versa).
                 ParsekLog.VerboseRateLimited(
                     "Engine",
-                    unitKey + (hiddenForDescentHandoff ? "-handoff-hide-" : "-hide-")
+                    unitKey + DescribeUnitMemberHide(
+                            hiddenForDescentHandoff, hiddenAfterLanding,
+                            "-landed-hide-", "-handoff-hide-", "-hide-")
                         + i.ToString(CultureInfo.InvariantCulture),
                     "Chain-loop unit owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
                         + " member #" + i.ToString(CultureInfo.InvariantCulture)
                         + " hidden: loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture)
-                        + (hiddenForDescentHandoff
-                            ? " descent handoff (unit descent playing; window ["
-                            : " outside its window [")
+                        + DescribeUnitMemberHide(
+                            hiddenForDescentHandoff, hiddenAfterLanding,
+                            " landed (journey over until the next cycle; window [",
+                            " descent handoff (unit descent playing; window [",
+                            " outside its window [")
                         + memberStartUT.ToString("F2", CultureInfo.InvariantCulture)
                         + "," + memberEndUT.ToString("F2", CultureInfo.InvariantCulture) + "]"
                         + (hiddenForDescentHandoff ? ")" : ""),
@@ -883,12 +899,28 @@ namespace Parsek
             }
             if (ghostActive)
             {
-                DestroyGhost(i, traj, f, reason: hiddenForDescentHandoff
-                    ? "descent handoff hide (unit descent playing)"
-                    : "chain-loop unit member outside its window");
+                DestroyGhost(i, traj, f, reason: DescribeUnitMemberHide(
+                    hiddenForDescentHandoff, hiddenAfterLanding,
+                    "landed hide (journey over until the next cycle)",
+                    "descent handoff hide (unit descent playing)",
+                    "chain-loop unit member outside its window"));
                 DestroyAllOverlapGhosts(i);
             }
             CountFrameSkip(GhostPlaybackSkipReason.MissionLoopUnitInactive);
+        }
+
+        /// <summary>
+        /// Picks the wording for why <see cref="HideUnitMemberOutsideWindow"/> hid a member: after the landing
+        /// (the transfer member in the Done phase), for the playing descent, or outside its own window. The
+        /// after-landing hide is a kind of descent-handoff hide, so it is tested first. Pure.
+        /// </summary>
+        internal static string DescribeUnitMemberHide(
+            bool hiddenForDescentHandoff, bool hiddenAfterLanding,
+            string landed, string descentHandoff, string outsideWindow)
+        {
+            if (!hiddenForDescentHandoff)
+                return outsideWindow;
+            return hiddenAfterLanding ? landed : descentHandoff;
         }
 
         /// <summary>
