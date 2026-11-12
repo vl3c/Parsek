@@ -5167,14 +5167,14 @@ def _index_archived_runs(archive_root: str, run_ids: Sequence[str], logger) -> N
     Verdict-neutral: any failure is one Warn line and the run goes on; the
     index can always be rebuilt from the archive (``run_index.py rebuild``)."""
     try:
-        counts, skipped, path = _load_run_index_module().append_runs(archive_root, list(run_ids))
+        module = _load_run_index_module()
+        counts, skipped, path = module.append_runs(archive_root, list(run_ids))
     except Exception as exc:  # noqa: BLE001 - never let the index touch a verdict
         logger.warn("Archive", "run index append FAILED for %s (%s: %s); verdict unaffected"
                     % (", ".join(run_ids), type(exc).__name__, exc))
         return
-    logger.info("Archive", "run index %s: added=%d replaced=%d unchanged=%d skipped=%d%s"
-                % (path, counts.get("added", 0), counts.get("replaced", 0),
-                   counts.get("unchanged", 0), counts.get("skipped", 0),
+    logger.info("Archive", "run index %s: %s%s"
+                % (path, module.format_append_counts(counts),
                    "" if not skipped else " (%s)" % "; ".join("%s: %s" % s for s in skipped)))
 
 

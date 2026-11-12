@@ -20,11 +20,13 @@ rows ordered by ``started`` then ``runId``). Every key and where it comes from
   id's minute stamp (``...:00Z``) and a ``gaps`` entry.
 - ``wall``: result ``wallSeconds`` (this attempt).
 - ``attempt``: result ``attempt`` (else the run id's ``_a<N>``, else 1).
-- ``final`` / ``byRetry``: derived over the whole index, never read: the
-  attempt with the highest number among the rows sharing a run id stem (the
-  run id without ``_a<N>``) is ``final``; ``byRetry`` (present only when true)
-  marks a final row whose attempt is above 1 (the scenario's verdict was
-  reached by a retry).
+- ``final`` / ``byRetry`` / ``retryOf``: derived over the whole index, never
+  read from a run. ``retryOf`` (present only when found) is the run id of the
+  attempt this one retried, inferred by ``link_attempts`` (the archive holds no
+  link: each attempt's run id carries its own start minute). A row no other
+  row retried is ``final`` (the attempt that decided its scenario run);
+  ``byRetry`` (present only when true) marks a final row whose attempt is above
+  1 (the verdict was reached by a retry).
 - ``verdict``: result ``verdict`` (the failure class: ``PARSEK-FAIL``,
   ``INVALID``, ``KILLED``...).
 - ``commit``: manifest ``gitHead``, first ``COMMIT_HEX`` hex digits (the
@@ -100,6 +102,7 @@ Everything here is pure: rows in, rows out; text in, data out.
 
 from __future__ import annotations
 
+import bisect
 import json
 import re
 from collections import Counter, defaultdict
@@ -120,6 +123,7 @@ REGRESSION_PRIOR_PASSES = 5
 REGRESSION_MIN_PRIOR = 3
 REGRESSION_GROWTH = 1.3
 # Hash prefixes a row keeps: enough to name a commit / a DLL build, not more.
+DERIVED_KEYS = ("final", "byRetry", "retryOf")
 COMMIT_HEX = 12
 DLL_HEX = 16
 
@@ -419,7 +423,8 @@ def build_row(run_id: str, result: Optional[Dict], manifest: Optional[Dict],
     gap_list = list(gaps)
     rid = result.get("runId")
     if rid and rid != run_id:
-        gap_list.append("result runId %s differs from the folder" % rid)
+        # Not the value: a row holds no text it cannot vouch for.
+        gap_list.append("result runId differs from the folder")
     lane = result.get("scenarioId") or lane_from_run_id(run_id)
     if not lane:
         return None, "no scenario id"
@@ -478,50 +483,156 @@ def sort_key(row: Dict) -> Tuple[str, str]:
     return (row.get("started") or "", row.get("runId") or "")
 
 
+def _link_key(row: Dict) -> Tuple[Any, Any, Any]:
+    return (row.get("lane"), row.get("worktree"), row.get("origin"))
+
+
+def link_attempts(rows: Iterable[Dict]) -> Dict[str, str]:
+    """{runId of attempt N: runId of the attempt N-1 it retried}, inferred.
+
+    Nothing in the archive links a retry to the attempt it retried: run.py
+    stamps each attempt's run id from its own start minute (only a ``_run<N>``
+    ordinal is carried), so ``..._1000_X`` is retried by ``..._1014_X_a2``, and
+    pipelined, attempt 2 flies one whole lane later. The rule: attempt N (N > 1)
+    joins the LATEST row started before it with the same lane, worktree and
+    origin, attempt N-1 and verdict INVALID (the only verdict run.py retries),
+    that no later-started attempt N has already claimed. Attempts N are matched
+    newest first, so two runs of one lane whose attempts interleave still pair
+    up in order. An attempt with no such row stands alone (its attempt 1 was
+    never archived, or was archived under another worktree)."""
+    by_key: Dict[Tuple[Any, Any, Any], List[Dict]] = defaultdict(list)
+    for row in rows:
+        by_key[_link_key(row)].append(row)
+    links: Dict[str, str] = {}
+    for group in by_key.values():
+        group.sort(key=sort_key)
+        claimed = set()
+        top = max(int(r.get("attempt") or 1) for r in group)
+        for n in range(2, top + 1):
+            for row in reversed([r for r in group if int(r.get("attempt") or 1) == n]):
+                key = sort_key(row)
+                for prior in reversed(group):
+                    if sort_key(prior) >= key or prior["runId"] in claimed:
+                        continue
+                    if int(prior.get("attempt") or 1) == n - 1 and prior.get("verdict") == hlib.VERDICT_INVALID:
+                        claimed.add(prior["runId"])
+                        links[row["runId"]] = prior["runId"]
+                        break
+    return links
+
+
 def normalize(rows: Iterable[Dict]) -> List[Dict]:
-    """One row per run id (the last given wins), ``final`` / ``byRetry``
-    derived over the set, ordered by start time then run id."""
+    """One row per run id (the last given wins); ``retryOf`` / ``final`` /
+    ``byRetry`` derived over the set (``link_attempts``); ordered by start
+    time then run id."""
     by_id: Dict[str, Dict] = {}
     for row in rows:
         by_id[row["runId"]] = dict(row)
-    top: Dict[str, int] = {}
-    for row in by_id.values():
-        stem = run_stem(row["runId"])
-        top[stem] = max(top.get(stem, 0), int(row.get("attempt") or 1))
-    for row in by_id.values():
-        attempt = int(row.get("attempt") or 1)
-        final = attempt >= top[run_stem(row["runId"])]
+    links = link_attempts(by_id.values())
+    retried = set(links.values())
+    for rid, row in by_id.items():
+        if rid in links:
+            row["retryOf"] = links[rid]
+        else:
+            row.pop("retryOf", None)
+        final = rid not in retried
         row["final"] = final
-        if final and attempt > 1:
+        if final and int(row.get("attempt") or 1) > 1:
             row["byRetry"] = True
         else:
             row.pop("byRetry", None)
     return sorted(by_id.values(), key=sort_key)
 
 
-def serialize_index(rows: Iterable[Dict]) -> str:
+class NewerLine:
+    """An index line of a NEWER run-index schema: kept byte for byte where it
+    stood (after the row whose ``sort_key`` is ``after``; None: the top), never
+    read by a query. A newer tool wrote it; this one cannot judge it."""
+
+    __slots__ = ("after", "line")
+
+    def __init__(self, after: Optional[Tuple[str, str]], line: str):
+        self.after = tuple(after) if after is not None else None
+        self.line = line
+
+    def __eq__(self, other) -> bool:
+        return isinstance(other, NewerLine) and (self.after, self.line) == (other.after, other.line)
+
+    def __repr__(self) -> str:
+        return "NewerLine(%r, %r)" % (self.after, self.line)
+
+
+class ParsedIndex:
+    """``parse_index``'s answer: ``rows`` (this schema), ``newer`` (lines of a
+    newer schema, kept), ``dropped`` (one reason per line read as neither:
+    truncated, not JSON, no run id, an older or foreign schema; a rewrite drops
+    them and ``rebuild`` repairs them from the archive)."""
+
+    __slots__ = ("rows", "newer", "dropped")
+
+    def __init__(self, rows: List[Dict], newer: List[NewerLine], dropped: List[str]):
+        self.rows = rows
+        self.newer = newer
+        self.dropped = dropped
+
+
+_SCHEMA_RE = re.compile(r"^parsek-run-index/(\d+)$")
+_SCHEMA_VERSION = int(_SCHEMA_RE.match(SCHEMA).group(1))
+
+
+def serialize_index(rows: Iterable[Dict], newer: Sequence[NewerLine] = ()) -> str:
+    """The index text: rows normalized, each kept newer-schema line after the
+    last row that sorts at or before its anchor (so it stays where it was)."""
     rows = normalize(rows)
-    return "".join(row_line(r) + "\n" for r in rows)
+    keys = [sort_key(r) for r in rows]
+    after_row: Dict[int, List[str]] = defaultdict(list)
+    for n in newer:
+        pos = 0 if n.after is None else bisect.bisect_right(keys, n.after)
+        after_row[pos].append(n.line)
+    out = list(after_row.get(0, ()))
+    for i, r in enumerate(rows, 1):
+        out.append(row_line(r))
+        out.extend(after_row.get(i, ()))
+    return "".join(line + "\n" for line in out)
 
 
-def parse_index(text: str) -> Tuple[List[Dict], List[str]]:
-    """(rows, problems). A line that is not a JSON object of this schema with a
-    run id is skipped and named, never fatal."""
+def parse_index(text: str) -> ParsedIndex:
+    """Rows of this schema, kept newer-schema lines and dropped-line reasons.
+    Nothing here is fatal."""
     rows: List[Dict] = []
-    problems: List[str] = []
+    newer: List[NewerLine] = []
+    dropped: List[str] = []
+    last: Optional[Tuple[str, str]] = None
     for number, line in enumerate((text or "").splitlines(), 1):
         if not line.strip():
             continue
         try:
             row = json.loads(line)
         except ValueError as exc:
-            problems.append("line %d is not JSON (%s)" % (number, exc))
+            dropped.append("line %d is not JSON (%s)" % (number, type(exc).__name__))
             continue
-        if not isinstance(row, dict) or row.get("schema") != SCHEMA or not row.get("runId"):
-            problems.append("line %d is not a %s row" % (number, SCHEMA))
+        schema = row.get("schema") if isinstance(row, dict) else None
+        m = _SCHEMA_RE.match(schema) if isinstance(schema, str) else None
+        if m and int(m.group(1)) > _SCHEMA_VERSION:
+            newer.append(NewerLine(last, line))
+            continue
+        if schema != SCHEMA or not row.get("runId"):
+            dropped.append("line %d is not a %s row" % (number, SCHEMA))
             continue
         rows.append(row)
-    return rows, problems
+        last = sort_key(row)
+    return ParsedIndex(rows, newer, dropped)
+
+
+def merge_newer(local: Sequence[NewerLine], other: Sequence[NewerLine]) -> List[NewerLine]:
+    """Both sides' kept newer-schema lines, each line once (the local copy wins)."""
+    seen = set()
+    out: List[NewerLine] = []
+    for n in list(local) + list(other):
+        if n.line not in seen:
+            seen.add(n.line)
+            out.append(n)
+    return out
 
 
 def merge_rows(local: Iterable[Dict], other: Iterable[Dict]) -> List[Dict]:
@@ -554,8 +665,8 @@ def upsert(rows: Iterable[Dict], new_rows: Iterable[Dict]) -> Tuple[List[Dict], 
 
 
 def _content(row: Dict) -> str:
-    """A row without the two keys ``normalize`` derives over the whole index."""
-    return row_line({k: v for k, v in row.items() if k not in ("final", "byRetry")})
+    """A row without the keys ``normalize`` derives over the whole index."""
+    return row_line({k: v for k, v in row.items() if k not in DERIVED_KEYS})
 
 
 # ---------------------------------------------------------------------------
@@ -617,16 +728,39 @@ def _brief(row: Optional[Dict]) -> Optional[Dict]:
             "wall": row.get("wall")}
 
 
-def _counts(rows: Sequence[Dict]) -> Dict[str, Any]:
-    verdicts = Counter(r.get("verdict") for r in rows)
+def scenario_runs_of(rows: Sequence[Dict]) -> List[List[Dict]]:
+    """The rows grouped into scenario runs along their ``retryOf`` links, each
+    group in attempt order. A link whose earlier attempt is not among ``rows``
+    (a time window cut it off) leaves the later attempt a run of its own."""
+    present = {r["runId"]: r for r in rows}
+    root: Dict[str, str] = {}
+
+    def find(rid: str) -> str:
+        seen = []
+        while rid not in root:
+            seen.append(rid)
+            prev = present[rid].get("retryOf")
+            if prev not in present or prev in seen:
+                root[rid] = rid
+                break
+            rid = prev
+        for s_ in seen:
+            root[s_] = root[rid]
+        return root[rid]
+
     groups: Dict[str, List[Dict]] = defaultdict(list)
     for r in rows:
-        groups[run_stem(r["runId"])].append(r)
+        groups[find(r["runId"])].append(r)
+    return [sorted(g, key=lambda r: (int(r.get("attempt") or 1), sort_key(r))) for g in groups.values()]
+
+
+def _counts(rows: Sequence[Dict]) -> Dict[str, Any]:
+    verdicts = Counter(r.get("verdict") for r in rows)
+    groups = scenario_runs_of(rows)
     scenario_runs = 0
     flaked = 0
     final_pass = 0
-    for attempts in groups.values():
-        attempts.sort(key=lambda r: int(r.get("attempt") or 1))
+    for attempts in groups:
         scenario_runs += 1
         last = attempts[-1]
         if last.get("verdict") == PASS:

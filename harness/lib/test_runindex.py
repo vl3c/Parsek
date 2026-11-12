@@ -71,6 +71,22 @@ def _row(run_id, verdict="PASS", attempt=1, started="2026-10-11T09:00:00Z", wall
     return row
 
 
+def _rid(stamp, lane, attempt=1, claimed=(), min_ordinal=1):
+    """A run id built the way run.py builds it: every attempt from its OWN
+    start minute (run.py ``_run_id_stamp`` is "now" per attempt)."""
+    return hlib.resolve_run_id(stamp, lane, set(claimed), attempt=attempt, min_ordinal=min_ordinal).run_id
+
+
+def _iso(stamp):
+    """``2026-10-11_0914`` -> ``2026-10-11T09:14:00Z``."""
+    return "%sT%s:%s:00Z" % (stamp[:10], stamp[11:13], stamp[13:15])
+
+
+def _attempt(stamp, lane, verdict, attempt=1, wall=100, **kw):
+    """One archived attempt's row, its run id and start from ``stamp``."""
+    return _row(_rid(stamp, lane, attempt), verdict, attempt, _iso(stamp), wall, lane, **kw)
+
+
 def _health(warn=0, error=0, parsek=100, nbytes=10000):
     return {"bytes": nbytes, "lines": parsek * 2, "parsek": parsek, "unity": 0, "top": [],
             "verbose": parsek - warn - error, "info": 0, "warn": warn, "error": error}
@@ -311,16 +327,17 @@ class RowTests(unittest.TestCase):
 
 class IndexTextTests(unittest.TestCase):
     def setUp(self):
-        self.a1 = _row("2026-10-11_0900_X", "INVALID", 1, "2026-10-11T09:00:00Z", lane="X")
-        self.a2 = _row("2026-10-11_0900_X_a2", "PASS", 2, "2026-10-11T09:05:00Z", lane="X")
-        self.b = _row("2026-10-10_0800_Y", "PASS", 1, "2026-10-10T08:00:00Z", lane="Y")
+        self.a1 = _attempt("2026-10-11_0900", "X", "INVALID", subkind="boot")
+        self.a2 = _attempt("2026-10-11_0914", "X", "PASS", 2)
+        self.b = _attempt("2026-10-10_0800", "Y", "PASS")
 
     def test_normalize_orders_and_derives_final_and_by_retry(self):
         rows = runindex.normalize([self.a2, self.a1, self.b])
-        self.assertEqual(["2026-10-10_0800_Y", "2026-10-11_0900_X", "2026-10-11_0900_X_a2"],
+        self.assertEqual(["2026-10-10_0800_Y", "2026-10-11_0900_X", "2026-10-11_0914_X_a2"],
                          [r["runId"] for r in rows])
         self.assertEqual([True, False, True], [r["final"] for r in rows])
         self.assertEqual([False, False, True], [r.get("byRetry", False) for r in rows])
+        self.assertEqual([None, None, "2026-10-11_0900_X"], [r.get("retryOf") for r in rows])
         # The first attempt alone is final until its retry arrives.
         alone = runindex.normalize([self.a1])
         self.assertTrue(alone[0]["final"])
@@ -329,7 +346,7 @@ class IndexTextTests(unittest.TestCase):
         rows, c1 = runindex.upsert([], [self.a1])
         self.assertEqual({"added": 1, "replaced": 0, "unchanged": 0}, c1)
         text = runindex.serialize_index(rows)
-        rows2, c2 = runindex.upsert(runindex.parse_index(text)[0], [self.a1])
+        rows2, c2 = runindex.upsert(runindex.parse_index(text).rows, [self.a1])
         self.assertEqual({"added": 0, "replaced": 0, "unchanged": 1}, c2)
         self.assertEqual(text, runindex.serialize_index(rows2))
         # The retry arriving later flips the first attempt's final, yet re-adding
@@ -355,10 +372,49 @@ class IndexTextTests(unittest.TestCase):
 
     def test_parse_tolerates_junk_lines_and_names_them(self):
         text = runindex.serialize_index([self.b]) + "not json\n\n" + json.dumps({"schema": "other"}) + "\n"
-        rows, problems = runindex.parse_index(text)
-        self.assertEqual(1, len(rows))
-        self.assertEqual(2, len(problems))
-        self.assertIn("line 2 is not JSON", problems[0])
+        parsed = runindex.parse_index(text)
+        self.assertEqual(1, len(parsed.rows))
+        self.assertEqual(2, len(parsed.dropped))
+        self.assertEqual([], parsed.newer)
+        self.assertIn("line 2 is not JSON", parsed.dropped[0])
+
+    NEWER = '{"runId":"2026-10-10_0830_Z","schema":"parsek-run-index/2","shape":"new"}'
+    NEWER_HEAD = '{"schema":"parsek-run-index/7"}'
+
+    def test_a_newer_schema_line_is_kept_in_place_byte_for_byte(self):
+        rows = runindex.normalize([self.b, self.a1])
+        text = (self.NEWER_HEAD + "\n" + runindex.row_line(rows[0]) + "\n" + self.NEWER + "\n"
+                + runindex.row_line(rows[1]) + "\n")
+        parsed = runindex.parse_index(text)
+        self.assertEqual(([self.b["runId"], self.a1["runId"]], 2, []),
+                         ([r["runId"] for r in parsed.rows], len(parsed.newer), parsed.dropped))
+        self.assertEqual(text, runindex.serialize_index(parsed.rows, parsed.newer))
+        # An upsert that adds a row keeps both lines where they stood.
+        merged, counts = runindex.upsert(parsed.rows, [self.a2])
+        self.assertEqual(1, counts["added"])
+        out = runindex.serialize_index(merged, parsed.newer).splitlines()
+        self.assertEqual(self.NEWER_HEAD, out[0])
+        self.assertEqual(self.NEWER, out[2])
+        self.assertEqual([self.b["runId"], self.a1["runId"], self.a2["runId"]],
+                         [json.loads(l)["runId"] for l in out if l not in (self.NEWER, self.NEWER_HEAD)])
+        # Not read by a query.
+        self.assertEqual(["X", "Y"], runindex.lanes_of(parsed.rows))
+        self.assertEqual(2, runindex.summary(parsed.rows)["attempts"])
+
+    def test_truncated_older_and_foreign_lines_are_dropped_and_counted(self):
+        line = runindex.row_line(runindex.normalize([self.b])[0])
+        text = "\n".join([line, line[:40], '{"schema":"parsek-run-index/0","runId":"x"}',
+                          '{"schema":"parsek-run-index/2x","runId":"y"}',
+                          '{"schema":"parsek-run-index/1"}']) + "\n"
+        parsed = runindex.parse_index(text)
+        self.assertEqual((1, 0, 4), (len(parsed.rows), len(parsed.newer), len(parsed.dropped)))
+        self.assertEqual(line + "\n", runindex.serialize_index(parsed.rows, parsed.newer))
+
+    def test_merge_newer_keeps_each_line_once_local_first(self):
+        a = runindex.NewerLine(("2026-10-10T08:00:00Z", "r"), self.NEWER)
+        b = runindex.NewerLine(None, self.NEWER)
+        c = runindex.NewerLine(None, self.NEWER_HEAD)
+        self.assertEqual([a, c], runindex.merge_newer([a], [b, c]))
 
     def test_serialization_is_deterministic_and_sorted(self):
         one = runindex.serialize_index([self.a2, self.b, self.a1])
@@ -375,12 +431,12 @@ class IndexTextTests(unittest.TestCase):
 class QueryTests(unittest.TestCase):
     def setUp(self):
         rows = [
-            _row("2026-08-01_0900_L", "PASS", 1, "2026-08-01T09:00:00Z", 100, "L"),
-            _row("2026-10-01_0900_L", "INVALID", 1, "2026-10-01T09:00:00Z", 50, "L", subkind="boot"),
-            _row("2026-10-01_0900_L_a2", "PASS", 2, "2026-10-01T09:10:00Z", 120, "L"),
-            _row("2026-10-20_0900_L", "PARSEK-FAIL", 1, "2026-10-20T09:00:00Z", 300, "L", subkind="ledger"),
-            _row("2026-10-20_0900_L_a2", "PARSEK-FAIL", 2, "2026-10-20T09:10:00Z", 310, "L", subkind="ledger"),
-            _row("2026-10-21_0900_M", "INVALID", 1, "2026-10-21T09:00:00Z", 10, "M", tier="nightly"),
+            _attempt("2026-08-01_0900", "L", "PASS", wall=100),
+            _attempt("2026-10-01_0900", "L", "INVALID", wall=50, subkind="boot"),
+            _attempt("2026-10-01_0910", "L", "PASS", 2, wall=120),
+            _attempt("2026-10-20_0900", "L", "INVALID", wall=300, subkind="tooling"),
+            _attempt("2026-10-20_0912", "L", "PARSEK-FAIL", 2, wall=310, subkind="ledger"),
+            _attempt("2026-10-21_0900", "M", "INVALID", wall=10, tier="nightly"),
         ]
         self.rows = runindex.normalize(rows)
 
@@ -396,10 +452,10 @@ class QueryTests(unittest.TestCase):
     def test_lane_report_windows_flake_and_last_pass(self):
         rep = runindex.lane_report(self.rows, "L")
         self.assertEqual("2026-10-21T09:00:00Z", rep["now"])
-        self.assertEqual("2026-10-20_0900_L_a2", rep["lastRun"]["runId"])
-        self.assertEqual("2026-10-01_0900_L_a2", rep["lastPass"]["runId"])
+        self.assertEqual("2026-10-20_0912_L_a2", rep["lastRun"]["runId"])
+        self.assertEqual("2026-10-01_0910_L_a2", rep["lastPass"]["runId"])
         all_ = rep["windows"]["all"]
-        self.assertEqual((5, 2, 2, 1), (all_["attempts"], all_["passes"], all_["fails"], all_["invalids"]))
+        self.assertEqual((5, 2, 1, 2), (all_["attempts"], all_["passes"], all_["fails"], all_["invalids"]))
         self.assertEqual((3, 2, 1), (all_["scenarioRuns"], all_["finalPasses"], all_["flaked"]))
         self.assertEqual(0.333, all_["flakeRate"])
         self.assertEqual(4, rep["windows"]["30d"]["attempts"])
@@ -417,7 +473,7 @@ class QueryTests(unittest.TestCase):
         self.assertEqual(["L"], [x["lane"] for x in s["flakiest"]])
         self.assertEqual("L", s["slowest"][0]["lane"])
         self.assertEqual(["N"], s["specsWithNoRun"])
-        self.assertEqual({"daily": {"INVALID": 1, "PARSEK-FAIL": 2, "PASS": 2}, "nightly": {"INVALID": 1}},
+        self.assertEqual({"daily": {"INVALID": 2, "PARSEK-FAIL": 1, "PASS": 2}, "nightly": {"INVALID": 1}},
                          s["byTier"])
 
     def test_lane_table(self):
@@ -429,7 +485,117 @@ class QueryTests(unittest.TestCase):
 
     def test_trend_is_the_last_n_oldest_first(self):
         t = runindex.trend(self.rows, "L", 2)
-        self.assertEqual(["2026-10-20_0900_L", "2026-10-20_0900_L_a2"], [x["runId"] for x in t])
+        self.assertEqual(["2026-10-20_0900_L", "2026-10-20_0912_L_a2"], [x["runId"] for x in t])
+
+
+class AttemptLinkTests(unittest.TestCase):
+    """B1: a retry's run id carries its OWN start minute, so attempts link by
+    ``link_attempts``' inference, never by run id stem. Every id here is built
+    with ``hlib.resolve_run_id`` from a distinct per-attempt stamp."""
+
+    def _by_id(self, rows):
+        return {r["runId"]: r for r in runindex.normalize(rows)}
+
+    def _pin(self, rows, retry_of, final):
+        got = self._by_id(rows)
+        self.assertEqual(retry_of, {k: v["retryOf"] for k, v in got.items() if "retryOf" in v})
+        self.assertEqual(final, {k: v["final"] for k, v in got.items()})
+        self.assertEqual({k for k, v in got.items() if v["final"] and v["attempt"] > 1},
+                         {k for k, v in got.items() if v.get("byRetry")})
+        return got
+
+    def test_a_pipelined_retry_flies_after_another_lanes_rows(self):
+        rows = [
+            _attempt("2026-11-01_1000", "X-1", "INVALID", subkind="boot"),
+            _attempt("2026-11-01_1007", "Y-1", "PASS"),
+            _attempt("2026-11-01_1020", "Z-1", "INVALID", subkind="tooling"),
+            _attempt("2026-11-01_1031", "X-1", "PASS", 2),
+            _attempt("2026-11-01_1045", "Z-1", "INVALID", 2, subkind="tooling"),
+            _attempt("2026-11-01_1052", "Y-1", "PASS"),
+        ]
+        self.assertNotEqual(runindex.run_stem(rows[3]["runId"]), rows[0]["runId"])
+        self._pin(rows,
+                  {"2026-11-01_1031_X-1_a2": "2026-11-01_1000_X-1",
+                   "2026-11-01_1045_Z-1_a2": "2026-11-01_1020_Z-1"},
+                  {"2026-11-01_1000_X-1": False, "2026-11-01_1007_Y-1": True,
+                   "2026-11-01_1020_Z-1": False, "2026-11-01_1031_X-1_a2": True,
+                   "2026-11-01_1045_Z-1_a2": True, "2026-11-01_1052_Y-1": True})
+        norm = runindex.normalize(rows)
+        x = runindex.lane_report(norm, "X-1")["windows"]["all"]
+        self.assertEqual((2, 1, 1, 1, 1.0), (x["attempts"], x["scenarioRuns"], x["finalPasses"],
+                                             x["flaked"], x["flakeRate"]))
+        z = runindex.lane_report(norm, "Z-1")["windows"]["all"]
+        self.assertEqual((1, 0, 0, 0.0), (z["scenarioRuns"], z["finalPasses"], z["flaked"], z["flakeRate"]))
+        table = runindex.lane_table(norm)
+        self.assertIn("| X-1 | daily | PASS | 2026-11-01, aaaaaaaaa | 1 | 100% | 100 |", table)
+        self.assertIn("| Z-1 | daily | INVALID(tooling) | never | 1 | 0% | 100 |", table)
+        self.assertEqual(["X-1"], [f["lane"] for f in runindex.summary(norm)["flakiest"]])
+
+    def test_two_back_to_back_runs_of_one_lane_each_retried(self):
+        rows = [
+            _attempt("2026-11-02_0900", "L-1", "INVALID", subkind="boot"),
+            _attempt("2026-11-02_0914", "L-1", "PASS", 2),
+            _attempt("2026-11-02_1000", "L-1", "INVALID", subkind="boot"),
+            _attempt("2026-11-02_1013", "L-1", "INVALID", 2, subkind="boot"),
+        ]
+        self._pin(rows,
+                  {"2026-11-02_0914_L-1_a2": "2026-11-02_0900_L-1",
+                   "2026-11-02_1013_L-1_a2": "2026-11-02_1000_L-1"},
+                  {"2026-11-02_0900_L-1": False, "2026-11-02_0914_L-1_a2": True,
+                   "2026-11-02_1000_L-1": False, "2026-11-02_1013_L-1_a2": True})
+        norm = runindex.normalize(rows)
+        c = runindex.lane_report(norm, "L-1")["windows"]["all"]
+        self.assertEqual((4, 2, 1, 1, 0.5), (c["attempts"], c["scenarioRuns"], c["finalPasses"],
+                                             c["flaked"], c["flakeRate"]))
+        self.assertIn("| L-1 | daily | INVALID(boot) | 2026-11-02, aaaaaaaaa | 2 | 50% | 100 |",
+                      runindex.lane_table(norm))
+        self.assertEqual([{"lane": "L-1", "runId": "2026-11-02_1013_L-1_a2", "verdict": "INVALID",
+                           "subkind": "boot"}], runindex.summary(norm)["lastNotPass"])
+
+    def test_one_lane_twice_in_a_pipelined_selection_pairs_newest_first(self):
+        first = _rid("2026-11-03_1000", "R-1")
+        second = _rid("2026-11-03_1000", "R-1", claimed={first})
+        self.assertEqual("2026-11-03_1000_R-1_run2", second)
+        rows = [
+            _row(first, "INVALID", 1, "2026-11-03T10:00:10Z", lane="R-1", subkind="boot"),
+            _row(second, "INVALID", 1, "2026-11-03T10:00:50Z", lane="R-1", subkind="boot"),
+            _row(_rid("2026-11-03_1020", "R-1", 2), "PASS", 2, "2026-11-03T10:20:00Z", lane="R-1"),
+            _row(_rid("2026-11-03_1030", "R-1", 2, min_ordinal=2), "PASS", 2, "2026-11-03T10:30:00Z",
+                 lane="R-1"),
+        ]
+        self._pin(rows,
+                  {"2026-11-03_1020_R-1_a2": first, "2026-11-03_1030_R-1_run2_a2": second},
+                  {first: False, second: False, "2026-11-03_1020_R-1_a2": True,
+                   "2026-11-03_1030_R-1_run2_a2": True})
+
+    def test_only_an_invalid_attempt_of_the_same_worktree_and_origin_is_retried(self):
+        rows = [
+            _attempt("2026-11-04_0900", "P-1", "INVALID", subkind="boot"),
+            _attempt("2026-11-04_0930", "P-1", "PASS"),
+            _attempt("2026-11-04_0940", "P-1", "PASS", 2),
+        ]
+        other = _attempt("2026-11-04_0950", "P-1", "PASS", 2)
+        other["worktree"] = "Parsek-other"
+        backfill = _attempt("2026-11-04_0955", "P-1", "PASS", 2)
+        backfill["origin"] = "backfill"
+        got = self._pin(rows + [other, backfill],
+                        {"2026-11-04_0940_P-1_a2": "2026-11-04_0900_P-1"},
+                        {"2026-11-04_0900_P-1": False, "2026-11-04_0930_P-1": True,
+                         "2026-11-04_0940_P-1_a2": True, "2026-11-04_0950_P-1_a2": True,
+                         "2026-11-04_0955_P-1_a2": True})
+        # An attempt 2 with no attempt 1 to join stands alone (a run of its own).
+        self.assertTrue(got["2026-11-04_0950_P-1_a2"]["byRetry"])
+        # A window that cuts the first attempt off counts the retry as its own run.
+        cut = [r for r in runindex.normalize(rows) if r["started"] >= "2026-11-04T09:30"]
+        self.assertEqual(2, runindex._counts(cut)["scenarioRuns"])
+
+    def test_derived_keys_are_not_content(self):
+        a1 = _attempt("2026-11-05_0900", "Q-1", "INVALID", subkind="boot")
+        a2 = _attempt("2026-11-05_0911", "Q-1", "PASS", 2)
+        rows, _ = runindex.upsert([], [a1, a2])
+        again, counts = runindex.upsert(rows, [dict(a1), dict(a2)])
+        self.assertEqual(2, counts["unchanged"])
+        self.assertEqual(runindex.serialize_index(rows), runindex.serialize_index(again))
 
 
 class HealthRegressionTests(unittest.TestCase):
@@ -571,8 +737,8 @@ class ToolTests(unittest.TestCase):
                _pline("VERBOSE", "Diagnostics", "OnSave: 7ms (1 dirty of 4)")]
         _write_run(self.archive, "2026-10-11_0900_L", _result("2026-10-11_0900_L", "INVALID", lane="L"),
                    log_lines=log)
-        _write_run(self.archive, "2026-10-11_0900_L_a2",
-                   _result("2026-10-11_0900_L_a2", "PASS", 2, "2026-10-11T09:05:00Z", lane="L"), log_lines=log)
+        _write_run(self.archive, "2026-10-11_0914_L_a2",
+                   _result("2026-10-11_0914_L_a2", "PASS", 2, "2026-10-11T09:14:00Z", lane="L"), log_lines=log)
         _write_run(self.archive, "2026-10-12_0900_M",
                    _result("2026-10-12_0900_M", started="2026-10-12T09:00:00Z", lane="M"), manifest=False)
         _write_run(self.archive, "2026-10-12_1000_N", None)
@@ -594,15 +760,16 @@ class ToolTests(unittest.TestCase):
         rc, out = self._main("rebuild", "--archive", self.archive, "--health-out",
                              os.path.join(self.tmp, "lh.json"))
         self.assertEqual(0, rc, out)
-        rows, problems = run_index.load_index(self.index)
-        self.assertEqual([], problems)
-        self.assertEqual(["2026-10-11_0900_L", "2026-10-11_0900_L_a2", "2026-10-12_0900_M",
+        parsed = run_index.load_index(self.index)
+        rows = parsed.rows
+        self.assertEqual(([], []), (parsed.dropped, parsed.newer))
+        self.assertEqual(["2026-10-11_0900_L", "2026-10-11_0914_L_a2", "2026-10-12_0900_M",
                           "2026-10-12_1100_O"], [r["runId"] for r in rows])
         self.assertIn("2026-10-12_1000_N", out)
         self.assertIn("result json missing", out)
         self.assertIn(".2026-10-12_1200_P.archive-tmp", out)
         by_id = {r["runId"]: r for r in rows}
-        self.assertEqual([1, 7, 7], by_id["2026-10-11_0900_L_a2"]["health"]["save"])
+        self.assertEqual([1, 7, 7], by_id["2026-10-11_0914_L_a2"]["health"]["save"])
         self.assertEqual(["no KSP.log.gz", "no manifest"], by_id["2026-10-12_0900_M"]["gaps"])
         self.assertTrue(any(g.startswith("KSP.log.gz unreadable") for g in by_id["2026-10-12_1100_O"]["gaps"]))
         with open(os.path.join(self.tmp, "lh.json")) as fh:
@@ -627,18 +794,90 @@ class ToolTests(unittest.TestCase):
         with open(path, "rb") as fh:
             self.assertEqual(first, fh.read())
         self.assertEqual(mtime, os.stat(path).st_mtime_ns)
-        counts, skipped, _ = run_index.append_runs(self.archive, ["2026-10-11_0900_L_a2", "2026-10-12_1000_N"])
+        counts, skipped, _ = run_index.append_runs(self.archive, ["2026-10-11_0914_L_a2", "2026-10-12_1000_N"])
         self.assertEqual(1, counts["added"])
         self.assertEqual([("2026-10-12_1000_N", "result json missing")], skipped)
-        rows, _ = run_index.load_index(path)
+        rows = run_index.load_index(path).rows
         self.assertEqual([False, True], [r["final"] for r in rows])
+        self.assertEqual("2026-10-11_0900_L", rows[1]["retryOf"])
+
+    def test_append_keeps_newer_schema_lines_and_drops_unreadable_ones(self):
+        newer = '{"runId":"2026-10-11_0800_Q","schema":"parsek-run-index/2"}'
+        with open(self.index, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(newer + "\n" + '{"schema":"parsek-run-index/1","runId":"2026-10-11_08' + "\n")
+        counts, _skipped, path = run_index.append_runs(self.archive, ["2026-10-11_0900_L"])
+        self.assertEqual((1, 1, 1), (counts["added"], counts["keptNewer"], counts["dropped"]))
+        line = run_index.format_append_counts(counts)
+        self.assertIn("keptNewerSchema=1", line)
+        self.assertIn("droppedUnreadable=1", line)
+        with open(path, encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+        self.assertEqual(newer, lines[0])
+        self.assertEqual(["2026-10-11_0900_L"], [json.loads(l)["runId"] for l in lines[1:]])
+        # The truncated line is gone; a second append drops nothing and keeps the newer line.
+        counts, _s, _p = run_index.append_runs(self.archive, ["2026-10-11_0900_L"])
+        self.assertEqual((0, 1, 0, 1), (counts["added"], counts["unchanged"], counts["dropped"], counts["keptNewer"]))
+        self.assertNotIn("dropped", run_index.format_append_counts(counts))
+        # A truncated tail with nothing new to add is still dropped (the count is true).
+        with open(path, "a", encoding="utf-8", newline="\n") as fh:
+            fh.write('{"schema":"parsek-run-index/1","ru\n')
+        counts, _s, _p = run_index.append_runs(self.archive, ["2026-10-11_0900_L"])
+        self.assertEqual((0, 1), (counts["added"], counts["dropped"]))
+        with open(path, encoding="utf-8") as fh:
+            self.assertEqual(2, len(fh.read().splitlines()))
+        # A rebuild keeps it too.
+        self.assertEqual(0, self._main("rebuild", "--archive", self.archive)[0])
+        with open(path, encoding="utf-8") as fh:
+            self.assertEqual(newer, fh.read().splitlines()[0])
+
+    def test_no_row_skip_reason_or_health_value_carries_a_path(self):
+        """B3: an unreadable manifest / result / log costs a gap or a skip
+        naming the exception TYPE only (an OSError's text holds the path)."""
+        rid_m, rid_r = "2026-10-13_0900_U", "2026-10-13_0910_V"
+        _write_run(self.archive, rid_m, _result(rid_m, started="2026-10-13T09:00:00Z", lane="U"),
+                   manifest=False, log_lines=[_pline("INFO", "Flight", "x")])
+        os.makedirs(os.path.join(self.archive, rid_m, "manifest.json"))
+        _write_run(self.archive, rid_r, None)
+        os.makedirs(os.path.join(self.archive, rid_r, rid_r + ".json"))
+        rid_l = "2026-10-13_0920_W"
+        _write_run(self.archive, rid_l, _result(rid_l, started="2026-10-13T09:20:00Z", lane="W"),
+                   raw_gz=gzip.compress(b"[Parsek][INFO][Flight] a\n")[:-12])
+        lh = os.path.join(self.tmp, "lh.json")
+        rc, out = self._main("rebuild", "--archive", self.archive, "--health-out", lh)
+        self.assertEqual(0, rc, out)
+        rows = {r["runId"]: r for r in run_index.load_index(self.index).rows}
+        # IsADirectoryError on POSIX, PermissionError on Windows.
+        (gap,) = [g for g in rows[rid_m]["gaps"] if g.startswith("manifest")]
+        self.assertRegex(gap, r"^manifest unreadable \((IsADirectoryError|PermissionError)\)$")
+        self.assertIn("KSP.log.gz unreadable (EOFError)", rows[rid_l]["gaps"])
+        _row_, reason, _b = run_index.read_run(self.archive, rid_r)
+        self.assertRegex(reason, r"^result json unreadable \((IsADirectoryError|PermissionError)\)$")
+        with open(lh, encoding="utf-8") as fh:
+            health = json.load(fh)
+
+        def strings(value, key=None):
+            if isinstance(value, dict):
+                for k, v in value.items():
+                    yield k
+                    yield from strings(v, k)
+            elif isinstance(value, list):
+                for v in value:
+                    yield from strings(v, key)
+            elif isinstance(value, str) and key != "schema":
+                yield value
+
+        texts = list(strings(list(rows.values()))) + list(strings(health)) + [reason]
+        for text in texts:
+            self.assertNotIn("/", text)
+            self.assertNotIn("\\", text)
+            self.assertNotIn(self.tmp, text)
 
     def test_append_cli_and_queries_run(self):
         self.assertEqual(0, self._main("append", "--archive", self.archive, "--run", "2026-10-11_0900_L",
-                                       "--run", "2026-10-11_0900_L_a2")[0])
+                                       "--run", "2026-10-11_0914_L_a2")[0])
         rc, out = self._main("lane", "L", "--index", self.index)
         self.assertEqual(0, rc)
-        self.assertIn("2026-10-11_0900_L_a2", out)
+        self.assertIn("2026-10-11_0914_L_a2", out)
         for argv in (("summary", "--index", self.index), ("lane-table", "--index", self.index),
                      ("trend", "L", "--index", self.index), ("health-regressions", "--index", self.index)):
             rc, out = self._main(*argv)
@@ -691,16 +930,17 @@ class GitPublishTests(unittest.TestCase):
 
     def _remote_rows(self, repo):
         text, _health, tip = run_index.fetch(repo, "origin", self.BRANCH)
-        return runindex.parse_index(text.decode())[0], tip
+        return runindex.parse_index(text.decode()).rows, tip
 
-    def test_first_publish_creates_an_orphan_with_a_readme(self):
+    def test_first_publish_creates_an_orphan_with_its_own_readme(self):
         rows = [_row("2026-10-11_0900_L", lane="L")]
         self.assertEqual("created", self._publish(self.a, rows))
         tip = run_index.remote_tip(self.a, "origin", self.BRANCH)
         parents = subprocess.run(["git", "-C", self.a, "rev-list", "--parents", "-n1", tip],
                                  capture_output=True, check=True).stdout.decode().split()
         self.assertEqual([tip], parents)
-        self.assertIn(b"# Parsek harness run index", run_index.read_blob(self.a, tip, "README.md"))
+        self.assertIn(b"# Parsek harness run index", run_index.read_blob(self.a, tip, "RUN-INDEX.md"))
+        self.assertIsNone(run_index.read_blob(self.a, tip, "README.md"))
         got, _ = self._remote_rows(self.b)
         self.assertEqual(["2026-10-11_0900_L"], [r["runId"] for r in got])
         # No local branch was made (a push may move the remote-tracking ref).
@@ -756,6 +996,74 @@ class GitPublishTests(unittest.TestCase):
         _text, health, _tip = run_index.fetch(self.a, "origin", self.BRANCH)
         self.assertEqual(["L", "M"], sorted(json.loads(health.decode())["lanes"]))
 
+    def _seed_branch(self):
+        """The branch already holds files the tool does not own."""
+        seed = os.path.join(self.tmp, "seed")
+        subprocess.run(["git", "init", "--quiet", seed], check=True)
+        self.foreign = {"README.md": b"# Someone else's readme\r\nkeep me\n",
+                        "metrics.jsonl": b'{"m":1}\n{"m":2}\n',
+                        "data/deep/notes.txt": b"nested\n"}
+        for name, data in self.foreign.items():
+            path = os.path.join(seed, *name.split("/"))
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as fh:
+                fh.write(data)
+        ident = ["-c", "user.name=t", "-c", "user.email=t@localhost", "-c", "core.autocrlf=false"]
+        subprocess.run(["git", "-C", seed] + ident + ["add", "-A"], check=True)
+        subprocess.run(["git", "-C", seed] + ident + ["commit", "--quiet", "-m", "seed"], check=True)
+        subprocess.run(["git", "-C", seed, "push", "--quiet", self.bare, "HEAD:refs/heads/%s" % self.BRANCH],
+                       check=True, capture_output=True)
+
+    def _assert_foreign_intact(self, repo):
+        tip = run_index.remote_tip(repo, "origin", self.BRANCH)
+        for name, data in self.foreign.items():
+            self.assertEqual(data, run_index.read_blob(repo, tip, name), name)
+        listing = subprocess.run(["git", "-C", repo, "ls-tree", "-r", "--name-only", tip],
+                                 capture_output=True, check=True).stdout.decode().split()
+        self.assertEqual(sorted(set(self.foreign) | set(run_index.OWN_FILES) - {"lane-health.json"}),
+                         sorted(listing))
+        return tip
+
+    def test_publish_never_touches_a_file_it_does_not_own(self):
+        self._seed_branch()
+        self.assertEqual("pushed", self._publish(self.a, [_row("2026-10-10_0900_K", lane="K")]))
+        self._assert_foreign_intact(self.a)
+        self.assertEqual("pushed", self._publish(self.b, [_row("2026-10-11_0900_L", lane="L")]))
+        self._assert_foreign_intact(self.a)
+        raced = []
+
+        def race(attempt):
+            if attempt == 1:
+                raced.append(self._publish(self.b, [_row("2026-10-12_0900_M", lane="M")]))
+
+        self.assertEqual("pushed", self._publish(self.a, [_row("2026-10-13_0900_N", lane="N")],
+                                                 before_push=race))
+        self.assertEqual(["pushed"], raced)
+        self.assertTrue(any("rejected" in l for l in self.logs), self.logs)
+        tip = self._assert_foreign_intact(self.b)
+        got, _ = self._remote_rows(self.b)
+        self.assertEqual(["2026-10-10_0900_K", "2026-10-11_0900_L", "2026-10-12_0900_M", "2026-10-13_0900_N"],
+                         [r["runId"] for r in got])
+        count = subprocess.run(["git", "-C", self.a, "rev-list", "--count", tip],
+                               capture_output=True, check=True).stdout.decode().strip()
+        self.assertEqual("5", count)
+
+    def test_commit_files_refuses_a_file_it_does_not_own(self):
+        with self.assertRaises(RuntimeError):
+            run_index._commit_files(self.a, None, {"README.md": b"x"}, "m")
+
+    def test_newer_schema_lines_survive_a_publish_from_either_side(self):
+        newer_remote = '{"schema":"parsek-run-index/2","from":"remote"}'
+        newer_local = '{"schema":"parsek-run-index/2","from":"local"}'
+        k = runindex.normalize([_row("2026-10-10_0900_K", lane="K")])
+        self._publish(self.a, k, newer=[runindex.NewerLine(runindex.sort_key(k[0]), newer_remote)])
+        self._publish(self.b, [_row("2026-10-11_0900_L", lane="L")], newer=[runindex.NewerLine(None, newer_local)])
+        text, _h, _tip = run_index.fetch(self.a, "origin", self.BRANCH)
+        lines = text.decode().splitlines()
+        self.assertEqual(newer_local, lines[0])
+        self.assertEqual(newer_remote, lines[2])
+        self.assertEqual(2, len(runindex.parse_index(text.decode()).rows))
+
     def test_fetch_of_an_absent_branch_is_none(self):
         self.assertEqual((None, None, None), run_index.fetch(self.a, "origin", self.BRANCH))
 
@@ -806,8 +1114,9 @@ class FakeRunIndexSmokeTests(unittest.TestCase):
     def test_a_fake_run_is_appended_with_health(self):
         result = self._fly()
         self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
-        rows, problems = run_index.load_index(self.index)
-        self.assertEqual([], problems)
+        parsed = run_index.load_index(self.index)
+        rows = parsed.rows
+        self.assertEqual([], parsed.dropped)
         self.assertEqual([result["runId"]], [r["runId"] for r in rows])
         row = rows[0]
         self.assertEqual("PASS", row["verdict"])
@@ -818,6 +1127,34 @@ class FakeRunIndexSmokeTests(unittest.TestCase):
         self.assertLess(len(runindex.row_line(row)), 600)
         self.assertIn("[Info][Archive] run index", self._log())
         self.assertIn("added=1", self._log())
+
+    def test_a_real_retry_links_although_each_attempt_has_its_own_stamp(self):
+        """B1 end to end: run.py stamps every attempt from "now", so the retry's
+        run id has another minute than attempt 1; the index still pairs them."""
+        launches = []
+
+        class Crash1(FakeRuntime):
+            def launch(self, exe, args, env, cwd):
+                self.mode = "bootcrash" if not launches else "pass"
+                launches.append(self.mode)
+                return super().launch(exe, args, env, cwd)
+
+        with mock.patch.object(run, "_run_id_stamp",
+                               lambda: "2026-10-11_0914" if launches else "2026-10-11_0900"):
+            spec = _make_spec(self.template, 30, 600)
+            with contextlib.redirect_stdout(io.StringIO()):
+                result = run._run_scenario_with_retry(spec, self.instance, self.tmp, Crash1("pass"),
+                                                      self.logger)
+        self.assertEqual(["bootcrash", "pass"], launches)
+        self.assertEqual(("PASS", "flakedThenPassed"), (result["verdict"], result["note"]))
+        rows = run_index.load_index(self.index).rows
+        self.assertEqual(["2026-10-11_0900_SMOKE-fake", "2026-10-11_0914_SMOKE-fake_a2"],
+                         [r["runId"] for r in rows])
+        self.assertEqual(rows[0]["runId"], rows[1]["retryOf"])
+        self.assertEqual([False, True], [r["final"] for r in rows])
+        self.assertTrue(rows[1]["byRetry"])
+        c = runindex.lane_report(rows, "SMOKE-fake")["windows"]["all"]
+        self.assertEqual((1, 1, 1), (c["scenarioRuns"], c["finalPasses"], c["flaked"]))
 
     def test_an_index_failure_keeps_the_verdict(self):
         with mock.patch.object(run_index, "append_runs", side_effect=OSError("disk full")):

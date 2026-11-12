@@ -68,8 +68,15 @@ from the machine-wide results archive (`<umbrella>/automation/results-archive/`)
 `harness/lib/runindex.py` documents every key. Read it with
 `python harness/tools/run_index.py fetch --repo . --remote origin --branch <this branch> --out index.jsonl`
 and then `run_index.py lane <LANE> --index index.jsonl`. Publishing merges by run id
-(and by lane), so two machines may both publish. Do not edit by hand.
+(and by lane), so two machines may both publish. Publishing writes only this file,
+`index.jsonl` and `lane-health.json`; every other file on the branch is kept. Do not
+edit these three by hand.
 """
+# The tool's own files on the branch: it writes these and nothing else. Its
+# readme has its own name so a README.md the branch already holds is never
+# touched.
+BRANCH_README_NAME = "RUN-INDEX.md"
+OWN_FILES = (BRANCH_README_NAME, runindex.INDEX_FILE_NAME, runindex.LANE_HEALTH_FILE_NAME)
 COMMIT_NAME = "Parsek run index"
 COMMIT_EMAIL = "run-index@localhost"
 
@@ -85,7 +92,9 @@ def _read_json(path: str) -> Tuple[Optional[object], Optional[str]]:
     except FileNotFoundError:
         return None, "missing"
     except (OSError, ValueError) as exc:
-        return None, "%s: %s" % (type(exc).__name__, exc)
+        # The type only: an OSError's text holds the full path, and a row or a
+        # skip reason must not carry a machine path.
+        return None, type(exc).__name__
 
 
 def scan_ksp_log(path: str) -> Tuple[Optional[runindex.LogScan], Optional[str]]:
@@ -100,7 +109,7 @@ def scan_ksp_log(path: str) -> Tuple[Optional[runindex.LogScan], Optional[str]]:
             for line in fh:
                 scan.feed(line)
     except (OSError, EOFError, zlib.error) as exc:
-        return None, "%s: %s" % (type(exc).__name__, exc)
+        return None, type(exc).__name__
     return scan, None
 
 
@@ -112,14 +121,14 @@ def read_run(archive_root: str, run_id: str, want_breakdown: bool = False
         return None, "no archive folder", None
     result, err = _read_json(os.path.join(run_dir, run_id + ".json"))
     if result is None:
-        return None, "result json %s" % err, None
+        return None, ("result json missing" if err == "missing" else "result json unreadable (%s)" % err), None
     manifest, merr = _read_json(os.path.join(run_dir, MANIFEST_NAME))
     gaps = []
     if manifest is None and merr != "missing":
         gaps.append("manifest unreadable (%s)" % merr)
     scan, serr = scan_ksp_log(os.path.join(run_dir, KSP_LOG_GZ))
     if scan is None:
-        gaps.append("no KSP.log.gz" if serr == "missing" else "KSP.log.gz unreadable (%s)" % serr.split(":")[0])
+        gaps.append("no KSP.log.gz" if serr == "missing" else "KSP.log.gz unreadable (%s)" % serr)
     row, reason = runindex.build_row(run_id, result, manifest if isinstance(manifest, dict) else None,
                                      scan.compact() if scan is not None else None, gaps)
     breakdown = scan.breakdown() if (scan is not None and want_breakdown) else None
@@ -205,12 +214,12 @@ def write_atomic(path: str, text: str) -> None:
     os.replace(tmp, path)
 
 
-def load_index(path: str) -> Tuple[List[Dict], List[str]]:
+def load_index(path: str) -> "runindex.ParsedIndex":
     try:
-        with open(path, "r", encoding="utf-8") as fh:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
             text = fh.read()
     except FileNotFoundError:
-        return [], []
+        return runindex.ParsedIndex([], [], [])
     return runindex.parse_index(text)
 
 
@@ -252,16 +261,32 @@ def load_spec_tiers(scenarios_dir: str) -> Optional[Dict[str, Optional[str]]]:
 def append_runs(archive_root: str, run_ids: Sequence[str], index_path: Optional[str] = None
                 ) -> Tuple[Dict[str, int], List[Tuple[str, str]], str]:
     """Index ``run_ids`` into ``index_path`` (default ``<archive>/index.jsonl``).
-    Idempotent by run id. Returns (counts, skipped, index path). Raises on I/O
-    failure; run.py turns that into one Warn line."""
+    Idempotent by run id. Returns (counts, skipped, index path); the counts
+    also hold ``keptNewer`` (lines of a newer schema, kept in place, not read)
+    and ``dropped`` (truncated or unreadable lines, dropped by this write;
+    ``rebuild`` restores their runs from the archive). Raises on I/O failure;
+    run.py turns that into one Warn line."""
     index_path = index_path or os.path.join(archive_root, runindex.INDEX_FILE_NAME)
-    rows, _problems = load_index(index_path)
+    parsed = load_index(index_path)
     new_rows, skipped, _b = index_archive(archive_root, list(run_ids))
-    merged, counts = runindex.upsert(rows, new_rows)
-    if counts["added"] or counts["replaced"] or not os.path.exists(index_path):
-        write_atomic(index_path, runindex.serialize_index(merged))
+    merged, counts = runindex.upsert(parsed.rows, new_rows)
+    if counts["added"] or counts["replaced"] or parsed.dropped or not os.path.exists(index_path):
+        write_atomic(index_path, runindex.serialize_index(merged, parsed.newer))
     counts["skipped"] = len(skipped)
+    counts["keptNewer"] = len(parsed.newer)
+    counts["dropped"] = len(parsed.dropped)
     return counts, skipped, index_path
+
+
+def format_append_counts(counts: Dict[str, int]) -> str:
+    """``append_runs``' counts as one line (the CLI's and run.py's)."""
+    text = "added=%d replaced=%d unchanged=%d skipped=%d" % (
+        counts.get("added", 0), counts.get("replaced", 0), counts.get("unchanged", 0), counts.get("skipped", 0))
+    if counts.get("keptNewer"):
+        text += " keptNewerSchema=%d (lines a newer tool wrote, kept in place, not read)" % counts["keptNewer"]
+    if counts.get("dropped"):
+        text += " droppedUnreadable=%d (truncated or unparseable lines; rebuild restores their runs)" % counts["dropped"]
+    return text
 
 
 def build_health(archive_root: str, rows: Sequence[Dict], tag_map: Optional[Dict],
@@ -328,11 +353,25 @@ def read_blob(repo: str, commit: Optional[str], name: str) -> Optional[bytes]:
 
 
 def _commit_files(repo: str, parent: Optional[str], files: Dict[str, bytes], message: str) -> str:
-    entries = []
+    """One commit on ``parent`` whose tree is the parent's tree with only
+    ``files`` (the tool's own, ``OWN_FILES``) added or replaced. Every other
+    entry of the branch (a README.md, another tool's data, a folder) is carried
+    over byte for byte: the tree is rebuilt from ``ls-tree`` of the parent."""
+    stray = sorted(set(files) - set(OWN_FILES))
+    if stray:
+        raise RuntimeError("run index: refusing to write files it does not own: %s" % ", ".join(stray))
+    entries: Dict[bytes, bytes] = {}
+    if parent:
+        listing = _git(repo, ["ls-tree", "-z", parent]).stdout
+        for record in listing.split(b"\0"):
+            if record:
+                entries[record.split(b"\t", 1)[1]] = record
     for name in sorted(files):
         sha = _git(repo, ["hash-object", "-w", "--stdin"], data=files[name]).stdout.decode().strip()
-        entries.append("100644 blob %s\t%s\n" % (sha, name))
-    tree = _git(repo, ["mktree"], data="".join(entries).encode()).stdout.decode().strip()
+        entries[name.encode("utf-8")] = ("100644 blob %s\t%s" % (sha, name)).encode("utf-8")
+    data = b"".join(entries[k] + b"\0" for k in sorted(entries))
+    # --missing: a submodule entry carried over names a commit this repo lacks.
+    tree = _git(repo, ["mktree", "-z", "--missing"], data=data).stdout.decode().strip()
     args = ["commit-tree", tree, "-m", message]
     if parent:
         args[2:2] = ["-p", parent]
@@ -341,15 +380,17 @@ def _commit_files(repo: str, parent: Optional[str], files: Dict[str, bytes], mes
     return _git(repo, args, env=env).stdout.decode().strip()
 
 
-def _merged_files(local_rows: List[Dict], local_health: Optional[Dict], remote: Optional[str], repo: str
-                  ) -> Tuple[Dict[str, bytes], int, int]:
-    remote_rows: List[Dict] = []
+def _merged_files(local_rows: List[Dict], local_health: Optional[Dict], remote: Optional[str], repo: str,
+                  local_newer: Sequence["runindex.NewerLine"] = ()) -> Tuple[Dict[str, bytes], int, int]:
+    remote_index = runindex.ParsedIndex([], [], [])
     text = read_blob(repo, remote, runindex.INDEX_FILE_NAME)
     if text is not None:
-        remote_rows, _problems = runindex.parse_index(text.decode("utf-8", "replace"))
+        remote_index = runindex.parse_index(text.decode("utf-8", "replace"))
+    remote_rows = remote_index.rows
     merged = runindex.merge_rows(local_rows, remote_rows)
-    files = {"README.md": BRANCH_README.encode("utf-8"),
-             runindex.INDEX_FILE_NAME: runindex.serialize_index(merged).encode("utf-8")}
+    newer = runindex.merge_newer(local_newer, remote_index.newer)
+    files = {BRANCH_README_NAME: BRANCH_README.encode("utf-8"),
+             runindex.INDEX_FILE_NAME: runindex.serialize_index(merged, newer).encode("utf-8")}
     remote_health = None
     blob = read_blob(repo, remote, runindex.LANE_HEALTH_FILE_NAME)
     if blob is not None:
@@ -365,15 +406,17 @@ def _merged_files(local_rows: List[Dict], local_health: Optional[Dict], remote: 
 
 def publish(repo: str, remote: str, branch: str, rows: List[Dict], health: Optional[Dict],
             attempts: int = 4, delay: float = 2.0,
-            before_push: Optional[Callable[[int], None]] = None, log=print) -> str:
+            before_push: Optional[Callable[[int], None]] = None, log=print,
+            newer: Sequence["runindex.NewerLine"] = ()) -> str:
     """Merge the local index (and lane health) with the branch's copy and push
     one commit on top of the remote tip. Returns "pushed", "created" or
-    "unchanged". A rejected push is retried after a re-fetch and re-merge."""
+    "unchanged". A rejected push is retried after a re-fetch and re-merge.
+    Only ``OWN_FILES`` are written; every other file on the branch is kept."""
     if not branch:
         raise RuntimeError("--branch is required")
     for attempt in range(1, attempts + 1):
         tip = remote_tip(repo, remote, branch)
-        files, merged_count, remote_count = _merged_files(rows, health, tip, repo)
+        files, merged_count, remote_count = _merged_files(rows, health, tip, repo, newer)
         if tip is not None and all(read_blob(repo, tip, n) == b for n, b in files.items()):
             log("run index: %s on %s already holds these %d rows; nothing to push"
                 % (runindex.INDEX_FILE_NAME, branch, merged_count))
@@ -507,13 +550,20 @@ def _health_path(args, attr: str = "health") -> str:
     return os.path.abspath(value) if value else os.path.join(_archive(args), runindex.LANE_HEALTH_FILE_NAME)
 
 
-def _need_rows(path: str) -> List[Dict]:
-    rows, problems = load_index(path)
-    for p in problems:
+def _need_index(path: str) -> "runindex.ParsedIndex":
+    parsed = load_index(path)
+    for p in parsed.dropped:
         print("run_index: %s: %s (skipped)" % (path, p), file=sys.stderr)
-    if not rows:
+    if parsed.newer:
+        print("run_index: %s: %d line(s) of a newer index schema kept, not read"
+              % (path, len(parsed.newer)), file=sys.stderr)
+    if not parsed.rows:
         raise SystemExit("run_index: no rows in %s" % path)
-    return rows
+    return parsed
+
+
+def _need_rows(path: str) -> List[Dict]:
+    return _need_index(path).rows
 
 
 def cmd_rebuild(args) -> int:
@@ -532,11 +582,13 @@ def cmd_rebuild(args) -> int:
             print("  %d / %d (%.0fs)" % (i, n, time.time() - started), flush=True)
 
     rows, skipped, breakdowns = index_archive(archive, run_ids, args.jobs, want, progress)
-    text = runindex.serialize_index(rows)
     out = os.path.abspath(args.out) if args.out else os.path.join(archive, runindex.INDEX_FILE_NAME)
+    # A newer tool's lines in the index being replaced survive the rebuild.
+    kept = load_index(out).newer
+    text = runindex.serialize_index(rows, kept)
     write_atomic(out, text)
-    print("run index: %d run folder(s), %d indexed, %d skipped -> %s (%s) in %.0fs"
-          % (len(run_ids), len(rows), len(skipped), out, _sizes(rows, text), time.time() - started))
+    print("run index: %d run folder(s), %d indexed, %d skipped, %d newer-schema line(s) kept -> %s (%s) in %.0fs"
+          % (len(run_ids), len(rows), len(skipped), len(kept), out, _sizes(rows, text), time.time() - started))
     _report_skipped(skipped, ignored)
     _report_gaps(rows)
     if args.health_out:
@@ -554,8 +606,7 @@ def cmd_rebuild(args) -> int:
 def cmd_append(args) -> int:
     archive = _archive(args)
     counts, skipped, path = append_runs(archive, args.run, _index_path(args))
-    print("run index: added=%d replaced=%d unchanged=%d skipped=%d -> %s" % (
-        counts["added"], counts["replaced"], counts["unchanged"], counts["skipped"], path))
+    print("run index: %s -> %s" % (format_append_counts(counts), path))
     _report_skipped(skipped)
     return 1 if skipped else 0
 
@@ -642,7 +693,8 @@ def cmd_lanes_for(args) -> int:
 
 
 def cmd_publish(args) -> int:
-    rows = _need_rows(os.path.abspath(args.index))
+    parsed = _need_index(os.path.abspath(args.index))
+    rows = parsed.rows
     health = None
     if args.health:
         health, err = _read_json(os.path.abspath(args.health))
@@ -651,7 +703,7 @@ def cmd_publish(args) -> int:
             return 1
     try:
         publish(os.path.abspath(args.repo), args.remote, args.branch, runindex.normalize(rows), health,
-                args.attempts, args.delay)
+                args.attempts, args.delay, newer=parsed.newer)
     except RuntimeError as exc:
         print("run_index: %s" % exc, file=sys.stderr)
         return 1
@@ -671,8 +723,9 @@ def cmd_fetch(args) -> int:
         print("run_index: %s:%s holds no %s" % (args.branch, tip[:12], runindex.INDEX_FILE_NAME), file=sys.stderr)
         return 1
     write_atomic(os.path.abspath(args.out), index.decode("utf-8"))
-    rows, _p = runindex.parse_index(index.decode("utf-8"))
-    print("run index: %d rows from %s at %s -> %s" % (len(rows), args.branch, tip[:12], args.out))
+    parsed = runindex.parse_index(index.decode("utf-8", "replace"))
+    print("run index: %d rows (%d newer-schema line(s) kept) from %s at %s -> %s"
+          % (len(parsed.rows), len(parsed.newer), args.branch, tip[:12], args.out))
     if args.health_out and health is not None:
         write_atomic(os.path.abspath(args.health_out), health.decode("utf-8"))
         print("lane health -> %s" % args.health_out)

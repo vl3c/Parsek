@@ -2821,7 +2821,11 @@ compare).
   commit and DLL, 30/90-day counts, flake rate, wall p50/p90), a summary, a lane table, a trend
   and a report-only `health-regressions`; and moves the index through a git branch with plumbing
   only (`publish` / `fetch`, `--branch` required, union by run id with the local row winning,
-  retry on a rejected push). Health per run is read from `KSP.log.gz` in one streaming pass;
+  retry on a rejected push, only its own three files written, every other file on the branch
+  kept). A retry is linked to its attempt 1 by inference (`retryOf`; the archive holds no link
+  and each attempt's run id carries its own start minute): same lane, worktree and origin, the
+  latest earlier INVALID attempt N-1 not yet claimed. Newer-schema index lines are kept in
+  place, unreadable ones dropped and counted. Health per run is read from `KSP.log.gz` in one streaming pass;
   `lane-health.json` holds each lane's latest PASS per subsystem tag and per module, through the
   new IL-derived tag map `scripts/arch/log_tags.json` (`scripts/arch/logtags.py`, 284 tags, 9294
   literal-tag sites, 13 non-literal, 46 forwarding helpers; `test_iltags.py` runs in the

@@ -1887,9 +1887,10 @@ it into data any session can read:
 
 - `<archive>/index.jsonl`: one JSON line per archived run attempt, schema
   `parsek-run-index/1`, sorted keys, ordered by start time then run id. A row
-  carries the lane, tier, profile, start, wall and mission wall, attempt and
-  whether it is the scenario's final attempt (`final`, `byRetry`, derived over
-  the whole index), the verdict / subkind / note, the commit and DLL hash
+  carries the lane, tier, profile, start, wall and mission wall, attempt, the
+  attempt it retried (`retryOf`) and whether it decided its scenario run
+  (`final`, `byRetry`; all three derived over the whole index, see "Linking a
+  retry" below), the verdict / subkind / note, the commit and DLL hash
   prefixes, the worktree FOLDER NAME (never a path), and `health`: compact
   KSP.log figures (bytes, lines, Parsek lines per level, raw Unity exception
   lines by hlib's rule, the top 3 subsystem tags, and the performance facts the
@@ -1912,7 +1913,27 @@ it archives them (`run._index_archived_runs`). It is verdict-neutral: a failure
 is one `[Warn][Archive] run index append FAILED ...; verdict unaffected` line,
 and `PARSEK_HARNESS_NO_ARCHIVE=1` skips it with the archive. Appending is
 idempotent by run id. A back-fill (`tools/archive_results.py`) does not append:
-run `rebuild` after one.
+run `rebuild` after one. A line of a NEWER index schema (a newer tool wrote it)
+is kept byte for byte where it stood, through append, rebuild and publish, and
+never read by a query; a truncated or unparseable line is dropped by the next
+write (`rebuild` restores its run from the archive). The Info line counts both:
+`keptNewerSchema=N` and `droppedUnreadable=N`, each shown only when above 0.
+
+Linking a retry. Nothing archived links a retry to the attempt it retried:
+run.py stamps every attempt's run id from its own start minute (only a `_run<N>`
+ordinal is carried), so attempt 1 `2026-11-01_1000_X` is retried by
+`2026-11-01_1014_X_a2`, and pipelined, attempt 2 flies a whole lane later with
+other lanes' rows in between. `runindex.link_attempts` infers the link: attempt
+N (N > 1) joins the LATEST row started before it with the same lane, worktree
+folder and origin, attempt N-1 and verdict INVALID (run.py retries only an
+INVALID), that no later-started attempt N has already claimed (attempts N are
+matched newest first, so one lane listed twice in a pipelined selection still
+pairs in order). Limits: an attempt whose predecessor was never archived, or was
+archived from another worktree or by a back-fill, stands alone as a run of its
+own (final, `byRetry`); two worktrees of one folder name on two machines merged
+by `publish` share a key; and a 30 / 90-day window that cuts attempt 1 off
+counts the retry as its own run. Counts, the flake rate and the pass rate group
+attempts along `retryOf`.
 
 ```
 python tools/run_index.py rebuild [--health-out <archive>/lane-health.json] [--jobs 4] [--progress 200]
@@ -1942,9 +1963,13 @@ it gates nothing.
 checkout, no local branch): fetch the branch tip into `FETCH_HEAD`, union the
 remote rows with the local ones by run id (the LOCAL row wins; lane health by
 lane, the newer source run wins), write the blobs with `hash-object`, `mktree`,
-`commit-tree` on top of the tip (an orphan commit with a README when the branch
-is new), and push `<sha>:refs/heads/<branch>`. A rejected push is re-fetched,
-re-merged and retried (4 attempts); an unchanged index pushes nothing.
+`commit-tree` on top of the tip (an orphan commit when the branch is new), and
+push `<sha>:refs/heads/<branch>`. The new tree is the tip's tree with only the
+tool's own three entries replaced (`index.jsonl`, `lane-health.json` and its
+readme `RUN-INDEX.md`; `run_index.OWN_FILES`): every other file on the branch,
+a `README.md` included, is carried over byte for byte, and the tool refuses to
+write any other name. A rejected push is re-fetched, re-merged and retried (4
+attempts); an unchanged index pushes nothing.
 `--branch` has no default: which branch may hold the index is the owner's call.
 
 Health facts are only what the mod logs. NOT logged, so not measured: frame
