@@ -1,0 +1,65 @@
+[Harness][Info][Select] select expr='--id S1.7-maprender-parity' -> 1 scenarios: ['S1.7-maprender-parity']
+[Harness][Info][Lock] run-lock acquired (acquired-free) path=C:\Users\vlad3\Documents\Code\Parsek\automation\.ksp-machine.lock pid=24744 selection=--id S1.7-maprender-parity
+[Harness][Info][Build] tests prebuild: dotnet build C:\Users\vlad3\Documents\Code\Parsek\Parsek-route-line\Source\Parsek.Tests\Parsek.Tests.csproj (once per selection; the verifiers then run -NoBuild)
+[Harness][Info][Build] tests prebuild ok wall=0.9s; verifiers run -NoBuild
+[Harness][Info][Pipeline] post-quit verification pipelined: lane N verifies on a private copy while lane N+1 stages and boots; a retry flies after the lane in flight (opt out: PARSEK_HARNESS_SERIAL_VERIFY=1 or --serial-verify)
+[Harness][Info][Pipeline] removing 0 stale post-quit copy dir(s) left by an earlier invocation: C:\Users\vlad3\Documents\Code\Parsek\Parsek-route-line\harness\results\.verify-private
+[Harness][Info][Lane] lane flight begin scenario=S1.7-maprender-parity attempt=1
+[Harness][Info][Admit] admit instance=stock-minimal manifest=present result=OK
+[Harness][Info][Preflight] zombie-check instance=stock-minimal result=CLEAR
+[Harness][Verbose][Stage] shared-ship overlay: no rows for save=gloops-airshow (Ships/VAB carries 1 committed craft)
+[Harness][Info][Settings] settings-sidecar baseline written phase=stage tracers=off readableMirrors=on
+[Harness][Info][Stage] stage save=gloops-airshow template=fixtures/saves/gloops-airshow inject=all-synthetic craft=0 results-rotated=False manifest-rotated=True
+[Harness][Info][Launch] launch exe=C:\Users\vlad3\Documents\Code\Parsek\automation\stock-minimal\KSP_x64.exe pid=10784 env=[TEST_COMMANDS=1 AUTORUN=unset EXIT=0 ISOLATED=0 RENDER_MANIFEST=0] batchIsolated=False budget=720s
+[Harness][Info][Drive] drive step=0 id=0001 cmd=LoadGame expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=10/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=20/660
+[Harness][Info][Boot-Wait] boot at main menu elapsed=27.4s kspLogBytes=1332593; watching until the seam's first receipt (rule no-seam-receipt)
+[Harness][Info][Boot-Wait] boot ready via=seam-receipt elapsed=27.9s kspLogBytes=1337465; boot-stall watchdog off for this attempt
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=30/660
+[Harness][Info][Drive] drive resp id=0001 verdict=OK met=True
+[Harness][Info][Drive] captured id=0001 label=- fields=ut,scene,save
+[Harness][Info][Drive] drive step=1 id=0002 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0002 verdict=OK met=True
+[Harness][Info][Drive] captured id=0002 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=2 id=0003 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0003 verdict=OK met=True
+[Harness][Info][Drive] captured id=0003 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=3 id=0004 cmd=RunTests expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0004 elapsed=10/660
+[Harness][Info][Drive] drive resp id=0004 verdict=OK met=True
+[Harness][Info][Drive] captured id=0004 label=- fields=ut,passed,failed,skipped,results
+[Harness][Info][Drive] drive step=4 id=0005 cmd=FlushAndQuit expect=OK
+[Harness][Info][Drive] drive resp id=0005 verdict=OK met=True
+[Harness][Info][Drive] captured id=0005 label=- fields=ut,saved
+[Harness][Info][Pipeline] post-quit copy run=2026-11-12_2116_S1.7-maprender-parity files=1399 bytes=10979469 wall=0.66s -> C:\Users\vlad3\Documents\Code\Parsek\Parsek-route-line\harness\results\.verify-private\2026-11-12_2116_S1.7-maprender-parity
+[Harness][Info][Settings] settings-sidecar baseline written phase=teardown tracers=off readableMirrors=on (cleared leaked: mapRenderTracing)
+[Harness][Info][Lane] lane flight end runId=2026-11-12_2116_S1.7-maprender-parity scenario=S1.7-maprender-parity attempt=1
+[Harness][Info][Verify] verify driverValidity status=PASS allMet=True subkind=-
+[Harness][Info][Verify] verify batchComplete status=PASS found=True failed=0 multi=False perCategory=1 runs=1/1
+[Harness][Info][Verify] verify analyzer status=PASS red=0 subkind= topRule=None
+[Harness][Info][Verify] verify timing analyzer=12.4s logValidate=10.0s mode=concurrent
+[Harness][Info][Verify] verify logValidate status=PASS recRulesSuppressed=True killedRunMode=False
+[Harness][Info][Verify] verify anomalySweep status=PASS hits=[] counts={}
+[Harness][Info][Verify] verify unityExceptions status=REPORT gating=False total=2 counts={'NullReferenceException': 2, 'MissingReferenceException': 0, 'IndexOutOfRangeException': 0, 'ArgumentException: GUILayout': 0} parsekFrames=0 parsekThrowSite=0 parsekCaller=0 afterQuit=2 afterQuitFrameless=2
+[Harness][Warn][Verify] unityExceptions saw 2 raw Unity exception line(s) (REPORT-ONLY, not gating; arm with [expectations.unityExceptions] maxTotal = N): {'NullReferenceException': 2, 'MissingReferenceException': 0, 'IndexOutOfRangeException': 0, 'ArgumentException: GUILayout': 0}
+[Harness][Info][Verify] verify expectations status=PASS mismatches=0
+[Harness][Info][Verify] verify saveParse status=REPORT gating=False blocks=- armed=- scenarioFound=True supersedeRows=0 tombstones=0 rewindPoints=0 pointsTotal=2477 pointsLargest=26 pointsSmallest=0 pointsUnparsed=0 routes=0 routeStatuses={} routeCodecRejects=0 mismatches=0
+[Harness][Info][Verify] verify renderCompose status=REPORT gating=False blocks=- armed=- parsed=None dwells=- cycles=- unevaluable=- findings={'FAIL': 0, 'WARN': 0, 'INFO': 0} mismatches=0 declared=-
+[Harness][Info][Verify] verify ghostLifecycle status=REPORT gating=False blocks=- armed=- spawned=0 spawnLines=0 destroyLines=0 unbalanced=0 malformed=0 reasons={} mismatches=0 declared=-
+[Harness][Info][Classify] verdict=PASS scenario=S1.7-maprender-parity attempt=1 reason=driver valid, every verifier PASS/SKIPPED
+[Harness][Info][Result] result written C:\Users\vlad3\Documents\Code\Parsek\Parsek-route-line\harness\results\2026-11-12_2116_S1.7-maprender-parity.json
+[Harness][Info][Snapshot] produced-save snapshot run=2026-11-12_2116_S1.7-maprender-parity result=copied bytes=3195054 files=1396 reason=every-verdict-default verdict=PASS path=C:\Users\vlad3\Documents\Code\Parsek\Parsek-route-line\harness\results\2026-11-12_2116_S1.7-maprender-parity_save
+[Harness][Verbose][Artifacts] screenshots skipped: 800 prior-run, 0 over-cap, 0 copy-failed
+[Harness][Info][Artifacts] artifacts collected run=2026-11-12_2116_S1.7-maprender-parity kspLog=True truncated=False screenshots=0 renderManifest=False -> C:\Users\vlad3\Documents\Code\Parsek\Parsek-route-line\harness\results\2026-11-12_2116_S1.7-maprender-parity_shots
+[Harness][Info][Result] result written C:\Users\vlad3\Documents\Code\Parsek\Parsek-route-line\harness\results\2026-11-12_2116_S1.7-maprender-parity.json
+[Harness][Info][Sheet] contact sheet written C:\Users\vlad3\Documents\Code\Parsek\Parsek-route-line\harness\results\2026-11-12_2116_S1.7-maprender-parity_contact.html (+ index.html)
+[Harness][Info][Result] result written C:\Users\vlad3\Documents\Code\Parsek\Parsek-route-line\harness\results\2026-11-12_2116_S1.7-maprender-parity.json
+[Harness][Info][Sheet] contact sheet written C:\Users\vlad3\Documents\Code\Parsek\Parsek-route-line\harness\results\2026-11-12_2116_S1.7-maprender-parity_contact.html (+ index.html)
+[Harness][Info][Cost] scenario cost attempts=1 wallTotal=76s terminal=PASS
+[Harness][Info][Archive] results archived run=2026-11-12_2116_S1.7-maprender-parity files=3 bytes=583879 missing=3 -> C:\Users\vlad3\Documents\Code\Parsek\automation\results-archive\2026-11-12_2116_S1.7-maprender-parity
+[Harness][Info][Archive] run index C:\Users\vlad3\Documents\Code\Parsek\automation\results-archive\index.jsonl: added=1 replaced=0 unchanged=0 skipped=0
+[Harness][Warn][Duration] duration regression scenario=GUI-24-census-timeline-filters last=123s p50=73s p95=123s n=6 lastVsP50=1.69x
+[Harness][Info][Duration] duration record scenarios=365 measured-this-run=7 (PASS results only) -> C:\Users\vlad3\Documents\Code\Parsek\Parsek-route-line\harness\coverage\duration.json
+[Harness][Info][Coverage] coverage: values=250 covered=249 uncovered=1 expectedFail=0 xpass=0
+[Harness][Info][Lock] run-lock released path=C:\Users\vlad3\Documents\Code\Parsek\automation\.ksp-machine.lock

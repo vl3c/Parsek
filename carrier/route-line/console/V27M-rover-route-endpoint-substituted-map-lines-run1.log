@@ -1,0 +1,120 @@
+[Harness][Info][Select] select expr='--id V27M-rover-route-endpoint-substituted-map-lines' -> 1 scenarios: ['V27M-rover-route-endpoint-substituted-map-lines']
+[Harness][Info][Lock] run-lock acquired (acquired-free) path=C:\Users\vlad3\Documents\Code\Parsek\automation\.ksp-machine.lock pid=23180 selection=--id V27M-rover-route-endpoint-substituted-map-lines
+[Harness][Info][Build] tests prebuild: dotnet build C:\Users\vlad3\Documents\Code\Parsek\Parsek-route-line\Source\Parsek.Tests\Parsek.Tests.csproj (once per selection; the verifiers then run -NoBuild)
+[Harness][Info][Build] tests prebuild ok wall=0.9s; verifiers run -NoBuild
+[Harness][Info][Pipeline] post-quit verification pipelined: lane N verifies on a private copy while lane N+1 stages and boots; a retry flies after the lane in flight (opt out: PARSEK_HARNESS_SERIAL_VERIFY=1 or --serial-verify)
+[Harness][Info][Pipeline] removing 0 stale post-quit copy dir(s) left by an earlier invocation: C:\Users\vlad3\Documents\Code\Parsek\Parsek-route-line\harness\results\.verify-private
+[Harness][Warn][Select] spec warning id=V27M-rover-route-endpoint-substituted-map-lines: expectations.renderComposition: declared with no assertion key - the block reports the measured facets and gates nothing
+[Harness][Info][Lane] lane flight begin scenario=V27M-rover-route-endpoint-substituted-map-lines attempt=1
+[Harness][Info][Admit] admit instance=stock-minimal manifest=present result=OK
+[Harness][Info][Preflight] zombie-check instance=stock-minimal result=CLEAR
+[Harness][Verbose][Stage] shared-ship overlay: 1 craft into rover-route-recorded/Ships/VAB [CS Flea Probe.craft]
+[Harness][Info][Stage] liveState patched pid=2123618197 name=rover fuel 0 removed=1
+[Harness][Info][Stage] liveState patched pid=2875537755 name=A resources=[-] inventory=clear (2 container(s))
+[Harness][Info][Settings] settings-sidecar baseline written phase=stage tracers=off readableMirrors=on
+[Harness][Info][Stage] stage save=rover-route-recorded template=fixtures/saves/rover-route-recorded inject=none craft=0 results-rotated=False manifest-rotated=True
+[Harness][Info][Launch] launch exe=C:\Users\vlad3\Documents\Code\Parsek\automation\stock-minimal\KSP_x64.exe pid=27056 env=[TEST_COMMANDS=1 AUTORUN=unset EXIT=0 ISOLATED=0 RENDER_MANIFEST=1] batchIsolated=False budget=3000s
+[Harness][Info][Drive] drive step=0 id=0001 cmd=LoadGame expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=10/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=20/660
+[Harness][Info][Boot-Wait] boot at main menu elapsed=27.6s kspLogBytes=1337972; watching until the seam's first receipt (rule no-seam-receipt)
+[Harness][Info][Boot-Wait] boot ready via=seam-receipt elapsed=27.6s kspLogBytes=1337972; boot-stall watchdog off for this attempt
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=30/660
+[Harness][Info][Drive] drive resp id=0001 verdict=OK met=True
+[Harness][Info][Drive] captured id=0001 label=- fields=ut,scene,save
+[Harness][Info][Drive] drive step=1 id=0002 cmd=StopRecording expect=OK
+[Harness][Info][Drive] drive resp id=0002 verdict=OK met=True
+[Harness][Info][Drive] captured id=0002 label=- fields=ut,stopped,idle
+[Harness][Info][Drive] drive step=2 id=0003 cmd=DiscardTree expect=OK
+[Harness][Info][Drive] drive resp id=0003 verdict=OK met=True
+[Harness][Info][Drive] captured id=0003 label=- fields=ut,nothing
+[Harness][Info][Drive] drive step=3 id=0004 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0004 verdict=OK met=True
+[Harness][Info][Drive] captured id=0004 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=4 id=0005 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0005 verdict=OK met=True
+[Harness][Info][Drive] captured id=0005 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=5 id=0006 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0006 verdict=OK met=True
+[Harness][Info][Drive] captured id=0006 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=6 id=0007 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0007 verdict=OK met=True
+[Harness][Info][Drive] captured id=0007 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=7 id=0008 cmd=SealSlot expect=OK
+[Harness][Info][Drive] drive resp id=0008 verdict=OK met=True
+[Harness][Info][Drive] captured id=0008 label=- fields=ut,tree,mode,total,sealed,failed,remaining,alreadySealed,fullySealed
+[Harness][Info][Drive] drive step=8 id=0009 cmd=RouteCommand expect=OK
+[Harness][Info][Drive] drive resp id=0009 verdict=OK met=True
+[Harness][Info][Drive] captured id=0009 label=- fields=ut,action,created,route,name,tree,status,intervalSeconds,transitSeconds,cadence,stops,manualLoopsCleared
+[Harness][Info][Drive] drive step=9 id=0010 cmd=RouteCommand expect=OK
+[Harness][Info][Drive] drive resp id=0010 verdict=OK met=True
+[Harness][Info][Drive] captured id=0010 label=- fields=ut,action,route,name,match,applied,statusBefore,status
+[Harness][Info][Drive] drive step=10 id=0011 cmd=TimeJump expect=OK
+[Harness][Info][Drive] drive resp id=0011 verdict=OK met=True
+[Harness][Info][Drive] captured id=0011 label=- fields=ut,target,delta
+[Harness][Info][Drive] drive step=11 id=0012 cmd=RecordingState expect=OK
+[Harness][Info][Drive] drive resp id=0012 verdict=OK met=True
+[Harness][Info][Drive] captured id=0012 label=- fields=ut,recording,tree,points,scene
+[Harness][Info][Drive] drive step=12 id=0013 cmd=RecordingState expect=OK
+[Harness][Info][Drive] drive resp id=0013 verdict=OK met=True
+[Harness][Info][Drive] captured id=0013 label=- fields=ut,recording,tree,points,scene
+[Harness][Info][Drive] drive step=13 id=0014 cmd=EnterMapView expect=OK
+[Harness][Info][Drive] drive resp id=0014 verdict=OK met=True
+[Harness][Info][Drive] captured id=0014 label=- fields=ut,mapOpen,alreadyOpen
+[Harness][Info][Drive] drive step=14 id=0015 cmd=WarpToUT expect=OK
+[Harness][Info][Drive] drive resp id=0015 verdict=OK met=True
+[Harness][Info][Drive] captured id=0015 label=- fields=ut,target,delta,maxRate
+[Harness][Info][Drive] drive step=15 id=0016 cmd=ExitMapView expect=OK
+[Harness][Info][Drive] drive resp id=0016 verdict=OK met=True
+[Harness][Info][Drive] captured id=0016 label=- fields=ut,mapOpen,alreadyClosed
+[Harness][Info][Drive] drive step=16 id=0017 cmd=SaveGame expect=OK
+[Harness][Info][Drive] drive resp id=0017 verdict=OK met=True
+[Harness][Info][Drive] captured id=0017 label=- fields=ut,saved
+[Harness][Info][Drive] drive step=17 id=0018 cmd=StopRecording expect=OK
+[Harness][Info][Drive] drive resp id=0018 verdict=OK met=True
+[Harness][Info][Drive] captured id=0018 label=- fields=ut,stopped,idle
+[Harness][Info][Drive] drive step=18 id=0019 cmd=DiscardTree expect=OK
+[Harness][Info][Drive] drive resp id=0019 verdict=OK met=True
+[Harness][Info][Drive] captured id=0019 label=- fields=ut,nothing
+[Harness][Info][Drive] drive step=19 id=0020 cmd=LoadGame expect=OK
+[Harness][Info][Drive] drive resp id=0020 verdict=OK met=True
+[Harness][Info][Drive] captured id=0020 label=- fields=ut,scene,save
+[Harness][Info][Drive] drive step=20 id=0021 cmd=WarpToUT expect=OK
+[Harness][Info][Drive] drive resp id=0021 verdict=OK met=True
+[Harness][Info][Drive] captured id=0021 label=- fields=ut,target,delta,maxRate
+[Harness][Info][Drive] drive step=21 id=0022 cmd=ExportRenderManifest expect=OK
+[Harness][Info][Drive] drive resp id=0022 verdict=OK met=True
+[Harness][Info][Drive] captured id=0022 label=- fields=ut,path,manifest,planUnits,dwells,transitions,clockEvents
+[Harness][Info][Drive] drive step=22 id=0023 cmd=FlushAndQuit expect=OK
+[Harness][Info][Drive] drive resp id=0023 verdict=OK met=True
+[Harness][Info][Drive] captured id=0023 label=- fields=ut,saved
+[Harness][Info][Pipeline] post-quit copy run=2026-11-12_2115_V27M-rover-route-endpoint-substituted-map-lines files=39 bytes=4657870 wall=0.04s -> C:\Users\vlad3\Documents\Code\Parsek\Parsek-route-line\harness\results\.verify-private\2026-11-12_2115_V27M-rover-route-endpoint-substituted-map-lines
+[Harness][Info][Settings] settings-sidecar baseline written phase=teardown tracers=off readableMirrors=on (cleared leaked: ghostRenderTracing,mapRenderTracing)
+[Harness][Info][Lane] lane flight end runId=2026-11-12_2115_V27M-rover-route-endpoint-substituted-map-lines scenario=V27M-rover-route-endpoint-substituted-map-lines attempt=1
+[Harness][Info][Verify] verify driverValidity status=PASS allMet=True subkind=-
+[Harness][Info][Verify] verify batchComplete status=SKIPPED found=False failed=None multi=False perCategory=0 runs=0/1
+[Harness][Info][Verify] verify analyzer status=PASS red=0 subkind= topRule=None
+[Harness][Info][Verify] verify timing analyzer=10.4s logValidate=10.1s mode=concurrent
+[Harness][Info][Verify] verify logValidate status=PASS recRulesSuppressed=True killedRunMode=False
+[Harness][Info][Verify] verify anomalySweep status=PASS hits=[] counts={}
+[Harness][Info][Verify] verify unityExceptions status=REPORT gating=False total=0 counts={'NullReferenceException': 0, 'MissingReferenceException': 0, 'IndexOutOfRangeException': 0, 'ArgumentException: GUILayout': 0} parsekFrames=0 parsekThrowSite=0 parsekCaller=0 afterQuit=0 afterQuitFrameless=0
+[Harness][Info][Verify] verify expectations status=PASS mismatches=0
+[Harness][Info][Verify] verify saveParse status=PASS gating=True blocks=['routes'] armed=['routes'] scenarioFound=True supersedeRows=0 tombstones=0 rewindPoints=0 pointsTotal=426 pointsLargest=116 pointsSmallest=32 pointsUnparsed=0 routes=1 routeStatuses={'Active': 1} routeCodecRejects=0 mismatches=0
+[Harness][Info][Verify] verify renderCompose status=REPORT gating=False blocks=['renderComposition'] armed=- parsed=True dwells=0 cycles=0 unevaluable=3 findings={'FAIL': 0, 'WARN': 0, 'INFO': 0} mismatches=0 declared={}
+[Harness][Info][Verify] verify ghostLifecycle status=REPORT gating=False blocks=- armed=- spawned=1 spawnLines=1 destroyLines=1 unbalanced=0 malformed=0 reasons={'engine teardown': 1} mismatches=0 declared=-
+[Harness][Info][Classify] verdict=PASS scenario=V27M-rover-route-endpoint-substituted-map-lines attempt=1 reason=driver valid, every verifier PASS/SKIPPED
+[Harness][Info][Result] result written C:\Users\vlad3\Documents\Code\Parsek\Parsek-route-line\harness\results\2026-11-12_2115_V27M-rover-route-endpoint-substituted-map-lines.json
+[Harness][Info][Snapshot] produced-save snapshot run=2026-11-12_2115_V27M-rover-route-endpoint-substituted-map-lines result=copied bytes=1325514 files=36 reason=every-verdict-default verdict=PASS path=C:\Users\vlad3\Documents\Code\Parsek\Parsek-route-line\harness\results\2026-11-12_2115_V27M-rover-route-endpoint-substituted-map-lines_save
+[Harness][Verbose][Artifacts] screenshots skipped: 800 prior-run, 0 over-cap, 0 copy-failed
+[Harness][Info][Artifacts] artifacts collected run=2026-11-12_2115_V27M-rover-route-endpoint-substituted-map-lines kspLog=True truncated=False screenshots=0 renderManifest=True -> C:\Users\vlad3\Documents\Code\Parsek\Parsek-route-line\harness\results\2026-11-12_2115_V27M-rover-route-endpoint-substituted-map-lines_shots
+[Harness][Info][Result] result written C:\Users\vlad3\Documents\Code\Parsek\Parsek-route-line\harness\results\2026-11-12_2115_V27M-rover-route-endpoint-substituted-map-lines.json
+[Harness][Info][Sheet] contact sheet written C:\Users\vlad3\Documents\Code\Parsek\Parsek-route-line\harness\results\2026-11-12_2115_V27M-rover-route-endpoint-substituted-map-lines_contact.html (+ index.html)
+[Harness][Info][Result] result written C:\Users\vlad3\Documents\Code\Parsek\Parsek-route-line\harness\results\2026-11-12_2115_V27M-rover-route-endpoint-substituted-map-lines.json
+[Harness][Info][Sheet] contact sheet written C:\Users\vlad3\Documents\Code\Parsek\Parsek-route-line\harness\results\2026-11-12_2115_V27M-rover-route-endpoint-substituted-map-lines_contact.html (+ index.html)
+[Harness][Info][Cost] scenario cost attempts=1 wallTotal=66s terminal=PASS
+[Harness][Info][Archive] results archived run=2026-11-12_2115_V27M-rover-route-endpoint-substituted-map-lines files=3 bytes=229569 missing=3 -> C:\Users\vlad3\Documents\Code\Parsek\automation\results-archive\2026-11-12_2115_V27M-rover-route-endpoint-substituted-map-lines
+[Harness][Info][Archive] run index C:\Users\vlad3\Documents\Code\Parsek\automation\results-archive\index.jsonl: added=1 replaced=0 unchanged=0 skipped=0
+[Harness][Warn][Duration] duration regression scenario=GUI-24-census-timeline-filters last=123s p50=73s p95=123s n=6 lastVsP50=1.69x
+[Harness][Info][Duration] duration record scenarios=365 measured-this-run=6 (PASS results only) -> C:\Users\vlad3\Documents\Code\Parsek\Parsek-route-line\harness\coverage\duration.json
+[Harness][Info][Coverage] coverage: values=250 covered=249 uncovered=1 expectedFail=0 xpass=0
+[Harness][Info][Lock] run-lock released path=C:\Users\vlad3\Documents\Code\Parsek\automation\.ksp-machine.lock
