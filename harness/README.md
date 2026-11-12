@@ -1879,6 +1879,82 @@ a run id replaces it whole), and is verdict-neutral: a failure is one
   linear in runs. A KSP.log at the 64 MB artifact cap gzips to a few MB. Nothing
   prunes the archive; it is meant to be permanent.
 
+### The run index and lane health (`tools/run_index.py`)
+
+The archive lives on the one machine that flew the runs. `tools/run_index.py`
+(a thin shell over the pure `lib/runindex.py`, which documents every key) turns
+it into data any session can read:
+
+- `<archive>/index.jsonl`: one JSON line per archived run attempt, schema
+  `parsek-run-index/1`, sorted keys, ordered by start time then run id. A row
+  carries the lane, tier, profile, start, wall and mission wall, attempt and
+  whether it is the scenario's final attempt (`final`, `byRetry`, derived over
+  the whole index), the verdict / subkind / note, the commit and DLL hash
+  prefixes, the worktree FOLDER NAME (never a path), and `health`: compact
+  KSP.log figures (bytes, lines, Parsek lines per level, raw Unity exception
+  lines by hlib's rule, the top 3 subsystem tags, and the performance facts the
+  mod logs today: OnLoad / OnSave ms, playback and recording frame-budget
+  exceedances, scene-load recording and ghost counts, recording growth at stop).
+  No wall clock and no absolute path enters a row, so a rebuild of the same
+  archive is byte-identical. About 460 bytes for a fake-KSP smoke run and about
+  730 for a run that logs every fact (measured over synthetic 2.2 MB logs);
+  5000 such runs are about 3.7 MB.
+- `<archive>/lane-health.json` (`parsek-lane-health/1`): per lane, from its
+  latest PASS, Parsek lines / warnings / errors per subsystem tag and per module.
+  Tags map to modules through the committed `scripts/arch/log_tags.json`
+  (generated from the compiled IL by `scripts/arch/logtags.py`; the harness reads
+  the file and never imports scripts/arch). A tag the map lacks is counted under
+  `unmapped`, never an error. Its size is bounded by lanes, not runs: at most
+  about 7 KB per lane when a lane logs every tag.
+
+`run.py` appends each scenario's archived attempts to `index.jsonl` right after
+it archives them (`run._index_archived_runs`). It is verdict-neutral: a failure
+is one `[Warn][Archive] run index append FAILED ...; verdict unaffected` line,
+and `PARSEK_HARNESS_NO_ARCHIVE=1` skips it with the archive. Appending is
+idempotent by run id. A back-fill (`tools/archive_results.py`) does not append:
+run `rebuild` after one.
+
+```
+python tools/run_index.py rebuild [--health-out <archive>/lane-health.json] [--jobs 4] [--progress 200]
+python tools/run_index.py append --run <runId> [--run ...]
+python tools/run_index.py lane <LANE>                 # last run, last PASS (date, commit, DLL), 30/90-day and
+                                                      # all-time counts, flake rate, wall p50 / p90
+python tools/run_index.py summary [--top 20]          # per verdict and tier, never passed, last run not PASS,
+                                                      # flakiest, slowest, specs with no run
+python tools/run_index.py lane-table [--with-specs]   # Markdown, one row per lane
+python tools/run_index.py trend <LANE> [--last 10]    # verdict, wall, warnings, errors, log volume per run
+python tools/run_index.py health-regressions          # report-only, see below
+python tools/run_index.py health-build                # lane-health.json from an existing index
+python tools/run_index.py lanes-for (--module M | --subsystem TAG)
+python tools/run_index.py publish --index F [--health F] --repo DIR --remote R --branch B
+python tools/run_index.py fetch --repo DIR --remote R --branch B --out F [--health-out F]
+```
+
+Windows (30 / 90 days) end at the newest start time in the index, not at the
+wall clock, so the same index always answers the same way. The flake rate is
+the scenario runs whose final attempt passed after a failed one, over all
+scenario runs. `health-regressions` names a lane whose latest PASS has more
+warnings or errors than the median of its previous five PASS runs (it needs
+three), or at least 1.3 times their median wall time, log bytes or Parsek lines;
+it gates nothing.
+
+`publish` and `fetch` move the index through a git branch with plumbing only (no
+checkout, no local branch): fetch the branch tip into `FETCH_HEAD`, union the
+remote rows with the local ones by run id (the LOCAL row wins; lane health by
+lane, the newer source run wins), write the blobs with `hash-object`, `mktree`,
+`commit-tree` on top of the tip (an orphan commit with a README when the branch
+is new), and push `<sha>:refs/heads/<branch>`. A rejected push is re-fetched,
+re-merged and retried (4 attempts); an unchanged index pushes nothing.
+`--branch` has no default: which branch may hold the index is the owner's call.
+
+Health facts are only what the mod logs. NOT logged, so not measured: frame
+time on frames under the 8 ms playback / 4 ms recording budget (no frame-time
+percentiles against ghost count) and per-frame allocations or GC counts.
+`runindex.NOT_LOGGED` names the one log line each would need. Each fact parser
+is pinned to its C# literal and writer call by
+`test_runindex.HealthFactSourceSyncTests`, so a reworded line reds there instead
+of silently reading zero.
+
 ### What accumulates, and what may be pruned
 
 Permanent by design, and NOT to be pruned by any automation: `results/*.json`,

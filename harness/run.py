@@ -5112,19 +5112,70 @@ def _archive_attempt_results(results: Sequence[Dict], umbrella_root: Optional[st
     if not umbrella_root:
         return
     root = results_archive_root(umbrella_root)
+    archived: List[str] = []
     for result in results:
         run_id = (result or {}).get("runId")
         if not run_id:
             continue
         if dll_sha_by_run is not None:
-            archive_run_results(run_id, RESULTS_DIR, root,
-                                getattr(logger, "log_path", None), logger,
-                                instance_dir=None,
-                                parsek_dll_sha256=dll_sha_by_run.get(run_id))
+            done = archive_run_results(run_id, RESULTS_DIR, root,
+                                       getattr(logger, "log_path", None), logger,
+                                       instance_dir=None,
+                                       parsek_dll_sha256=dll_sha_by_run.get(run_id))
         else:
-            archive_run_results(run_id, RESULTS_DIR, root,
-                                getattr(logger, "log_path", None), logger,
-                                instance_dir=instance_dir)
+            done = archive_run_results(run_id, RESULTS_DIR, root,
+                                       getattr(logger, "log_path", None), logger,
+                                       instance_dir=instance_dir)
+        if done:
+            archived.append(run_id)
+    if archived:
+        _index_archived_runs(root, archived, logger)
+
+
+_run_index_module = None
+
+
+def _load_run_index_module():
+    """Load harness/tools/run_index.py by FILE PATH (the contact-sheet rule: no
+    sys.path insert of tools/). An already-imported ``run_index`` is reused, so
+    a test's patch and run.py see the same module object."""
+    global _run_index_module
+    if _run_index_module is not None:
+        return _run_index_module
+    existing = sys.modules.get("run_index")
+    if existing is not None:
+        _run_index_module = existing
+        return existing
+    import importlib.util
+    path = os.path.join(TOOLS_DIR, "run_index.py")
+    spec = importlib.util.spec_from_file_location("run_index", path)
+    if spec is None or spec.loader is None:
+        raise ImportError("cannot load run_index from %s" % path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["run_index"] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop("run_index", None)
+        raise
+    _run_index_module = module
+    return module
+
+
+def _index_archived_runs(archive_root: str, run_ids: Sequence[str], logger) -> None:
+    """Append just-archived attempts to ``<archive>/index.jsonl`` (A7).
+    Verdict-neutral: any failure is one Warn line and the run goes on; the
+    index can always be rebuilt from the archive (``run_index.py rebuild``)."""
+    try:
+        counts, skipped, path = _load_run_index_module().append_runs(archive_root, list(run_ids))
+    except Exception as exc:  # noqa: BLE001 - never let the index touch a verdict
+        logger.warn("Archive", "run index append FAILED for %s (%s: %s); verdict unaffected"
+                    % (", ".join(run_ids), type(exc).__name__, exc))
+        return
+    logger.info("Archive", "run index %s: added=%d replaced=%d unchanged=%d skipped=%d%s"
+                % (path, counts.get("added", 0), counts.get("replaced", 0),
+                   counts.get("unchanged", 0), counts.get("skipped", 0),
+                   "" if not skipped else " (%s)" % "; ".join("%s: %s" % s for s in skipped)))
 
 
 def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict,
