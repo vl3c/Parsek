@@ -155,7 +155,7 @@ id = "S1.9-part-showcase-render"
 #       * `Part pid=<n>: applied color changer cabin light state=<True|False>`
 #         - NOT PINNED, and reading run 2 (`2026-08-28_2010`) is why: the line is
 #         rate-limited Verbose AND conditional on Pattern-A cabin-light material
-#         discovery on the GHOST (`ApplyColorChangerLightState` returns silently
+#         discovery on the GHOST (`WriteColorChangerLightState` returns silently
 #         when `colorChangerInfos` holds no `isCabinLight` entry for the pid,
 #         GhostPlaybackLogic.cs:6995-7003). Run 2 spawned all 25 colour-changer
 #         rows and emitted ZERO cabin-light lines - the discovery resolved no

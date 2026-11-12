@@ -46,7 +46,7 @@ they are what this design addresses:
    + the autonomous `GhostTrajectoryPolylineRenderer.Driver` + IMGUI markers) still paints the
    pixels. The two are joined only by per-pid side-channel dicts (`seedByPid`, `tracedPathByPid`,
    `drewNonOrbitalLegRecordings`, `ghostsWithSuppressedIcon`) read with a ±2-frame freshness
-   tolerance (`SeedFreshnessFrames = 2`). The treatments' `Apply`/`StandDown` are nearly inert. This
+   tolerance (`SeedFreshnessFrames = 2`). The treatments' `Apply`/`StandDown` were nearly inert (B7 deleted them). This
    is the single biggest source of map-render bugs and the hardest thing to debug. (Of these four,
    `seedByPid` is the one structural *survivor* of the cutover — KSP owns the stock icon-drive site, so
    the MANAGED `StockConic` treatment must keep a per-frame seed hand-off, §4/§8; the other three are

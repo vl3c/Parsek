@@ -37,7 +37,7 @@ id = "RF-12W-rewind-batch-after-warp-crash"
 #   WHAT IS TRUE is about the ROUTE: a live re-fly cannot reach anything that stamps a
 #   Landed-kind terminal on ITS OWN provisional. `CommitTreeFlight` answers
 #   `no-active-tree` on a re-fly's pending tree, `ShowPostDestructionTreeMergeDialog`
-#   fires only on a destruction, and `CommitTreeRevert` / scene exit both END the session.
+#   fires only on a destruction, and a revert / scene exit both END the session.
 #   So a DESTRUCTION is the conclusion a warp can drive - and a re-fly that DOCKS or is
 #   BOARDED is the one route to the Landed-kind cell that nobody has flown yet.
 #

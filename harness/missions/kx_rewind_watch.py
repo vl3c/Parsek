@@ -166,7 +166,7 @@ completed, then the Flea hung on the identical ``NoControlSources`` line): the
 ``parsek_rw_*`` quicksave carries the crew aboard the recorded craft, the strip
 reserves them, and the ledger keeps them dead (``Reservation: '<name>'
 endUT=INDEFINITE (Dead)``). GS-4 / GS-8's post-rewind Flea flies because their
-crew LIVE - ``CrewReservationManager.ReserveCrewIn`` hires a stand-in for every
+crew LIVE - the ``KerbalsModule`` roster pass hires a stand-in for every
 reserved kerbal and skips Dead ones - so a spec that turns the profile on must
 also name a probe-cored ``watcherCraftName`` (GS-7 uses the
 ``GS1 Auto-Chute Booster``, whose Octo2 launches it empty).
