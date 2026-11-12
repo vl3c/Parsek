@@ -1957,6 +1957,7 @@ withheld`). A KSP.log tag that is not a token is counted as `(not-a-tag)`.
 ```
 python tools/run_index.py rebuild [--health-out <archive>/lane-health.json] [--jobs 4] [--progress 200]
 python tools/run_index.py append --run <runId> [--run ...]
+python tools/run_index.py import-snapshots --from <umbrella>/logs [--dry-run] [--list] [--append]   # see below
 python tools/run_index.py lane <LANE>                 # last run, last PASS (date, commit, DLL), 30/90-day and
                                                       # all-time counts, flake rate, wall p50 / p90
 python tools/run_index.py summary [--top 20]          # per verdict and tier, never passed, last run not PASS,
@@ -2030,6 +2031,74 @@ percentiles against ghost count) and per-frame allocations or GC counts.
 is pinned to its C# literal and writer call by
 `test_runindex.HealthFactSourceSyncTests`, so a reworded line reds there instead
 of silently reading zero.
+
+#### Snapshot rows: past runs known only from a collect-logs folder
+
+Before the archive existed, run.py ran `scripts/collect-logs.py` for every
+non-PASS run, and those folders (`<umbrella>/logs/<local YYYY-MM-DD_HHMM>_<scenarioId>/`)
+outlived the result JSONs of deleted worktrees. `import-snapshots` copies each
+harness one into the archive so it survives the deletion of `logs/`:
+
+```
+python tools/run_index.py import-snapshots --from <umbrella>/logs --dry-run [--list]
+python tools/run_index.py import-snapshots --from <umbrella>/logs [--append]
+```
+
+It writes `<archive>/<runId>/` holding `KSP.log.gz` and `snapshot.json`
+(schema `parsek-run-snapshot/1`: lane, runUtc, started, commit prefix, dirty,
+profile, dll, the source folder NAME, the tool) and no `<runId>.json`, through a
+hidden `.<runId>.snapshot-tmp` folder and one rename. It never replaces an
+existing folder or file, and a second run imports nothing (`already-imported`).
+Each folder is imported or skipped with a counted reason; nothing is guessed:
+
+- `not-a-snapshot-folder` (no `<date>_<HHMM>_<label>` name), `label-not-a-token`
+  (the label is the lane, kept as written, renamed and deleted lanes included),
+  `no-ksp-log`;
+- `dev-snapshot` (log-validation.txt's `Log path:` is the dev
+  `...\Kerbal Space Program\KSP.log`), `no-instance-log-path` (not
+  `...\automation\<profile>\KSP.log`), `not-armed` (the log lacks
+  `[TestCommands] armed (PARSEK_TEST_COMMANDS=1)`, which only a harness launch
+  writes);
+- `no-run-utc` / `several-sessions` (not exactly one
+  `[Parsek][INFO][Init] SessionStart runUtc=<epoch>`, the boot time; the
+  folder-name time is local and never read);
+- `duplicate` (an earlier folder of this batch has the same lane and runUtc),
+  `already-imported`, `already-archived` (the archive holds a run.py run of the
+  lane whose id minute is the boot minute or the one before: run.py stamps the
+  run id before KSP boots); `unreadable (<ErrorType>)`.
+
+The run id is the boot minute in UTC plus the label (`_run<N>` when taken). The
+commit is the `Commit:` hash of git-state.txt (prefix only) and `dirty` says
+whether its status section listed anything. The DLL hash is read defensively:
+a line that is not a Parsek log line, names `Parsek <version>` and carries
+exactly one 64-hex run (the KSPCommunityFixes mod table); anything else records
+none. The dry run prints the counts by outcome and reason, how many imports
+carry a commit / dirty / DLL / profile, and the archived verdicts of the runs an
+`already-archived` folder matched: a PASS there would mean the harness did
+collect logs for a passing run, and the `NOT-PASS` verdict below would be wrong.
+
+On the PC: back-fill any surviving results dirs first (`tools/archive_results.py`;
+a back-fill skips an existing folder, so a snapshot imported first at the same
+minute would keep the run's real result out), then the dry run, read its counts,
+then the import, then `rebuild --health-out ...`, then `publish`.
+
+What a snapshot row says: `origin` `snapshot`, verdict `NOT-PASS` (only that it
+was not a PASS), attempt 1, `final` false, the start (runUtc), lane, profile,
+commit, `dirty` (only when true), DLL, and the log's `health`. What it cannot
+say: the verdict, subkind, note, attempt, tier, wall or worktree. The schema
+stays `parsek-run-index/1`: the row adds new VALUES of existing keys and one
+optional key, so an older reader still parses it. Snapshot rows appear in
+`trend` (with their origin) and the lane's history (`lane` prints the last one,
+`lane-table` a Snapshots column, a lane known only from snapshots reads
+`(snapshots only)`), and are counted on their own (`snapshots` in every window
+and in `summary`). They never enter a pass rate, flake rate, run or attempt
+count, last run, last PASS, last-not-PASS, wall percentile, lane health or
+`health-regressions`, and never link as or to a retry (the link key carries the
+origin). A lane known only from snapshots is not a spec with no run. The other
+archive readers skip the folder: `flight_efficiency.discover_archive` (no
+run-id-named JSON), `mutation_check` (no plain KSP.log, no stamped result JSON),
+`archive_results` (leaves an existing folder alone) and the rebuild's PASS
+pre-pass (result JSONs only); `SnapshotImportToolTests` pins each.
 
 ### What accumulates, and what may be pruned
 

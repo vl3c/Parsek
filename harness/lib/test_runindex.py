@@ -13,6 +13,7 @@ Runnable with the stdlib runner only::
     python -m unittest discover -s harness/lib
 """
 
+import calendar
 import contextlib
 import gzip
 import io
@@ -23,6 +24,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -491,9 +493,9 @@ class QueryTests(unittest.TestCase):
     def test_lane_table(self):
         table = runindex.lane_table(self.rows, {"L": "daily", "N": "daily"}).splitlines()
         self.assertTrue(table[0].startswith("| Lane | Tier |"))
-        self.assertEqual("| L | daily | PARSEK-FAIL(ledger) | 2026-10-01, aaaaaaaaa | 3 | 67% | 120 |", table[2])
-        self.assertIn("| M | nightly | INVALID | never | 1 | 0% | 10 |", table)
-        self.assertIn("| N | daily | (no run) | | 0 | | |", table)
+        self.assertEqual("| L | daily | PARSEK-FAIL(ledger) | 2026-10-01, aaaaaaaaa | 3 | 67% | 120 | 0 |", table[2])
+        self.assertIn("| M | nightly | INVALID | never | 1 | 0% | 10 | 0 |", table)
+        self.assertIn("| N | daily | (no run) | | 0 | | | 0 |", table)
 
     def test_trend_is_the_last_n_oldest_first(self):
         t = runindex.trend(self.rows, "L", 2)
@@ -1566,6 +1568,542 @@ class FakeRunIndexSmokeTests(unittest.TestCase):
 
     def test_run_py_and_the_tests_share_one_module_object(self):
         self.assertIs(run_index, run._load_run_index_module())
+
+
+# ---------------------------------------------------------------------------
+# snapshot imports (collect-logs folders of past non-PASS runs)
+# ---------------------------------------------------------------------------
+
+SNAP_UTC = 1791709380  # 2026-10-11T09:03:00Z
+SNAP_STAMP = "2026-10-11_0903"
+SNAP_LANE = "B11-mun-orbit"
+SNAP_DLL = "f8f465a6" * 8
+HARNESS_LOG_PATH = r"C:\Users\someone\Dev\automation\stock-minimal\KSP.log"
+DEV_LOG_PATH = r"C:\Users\someone\Dev\Kerbal Space Program\KSP.log"
+GIT_DIRTY = ("Branch: some-branch\nCommit: 0123456789abcdef Fix a thing (#12)\n\n--- status ---\n"
+             " M harness/run.py\n\n--- diff --stat ---\n harness/run.py | 2 +-\n")
+GIT_CLEAN = "Branch: main\nCommit: fedcba9876543 Merge\n\n--- status ---\n\n\n--- diff --stat ---\n\n"
+
+
+def _epoch(stamp):
+    """``2026-10-11_0903`` (UTC) -> epoch seconds."""
+    return int(calendar.timegm(time.strptime(stamp, "%Y-%m-%d_%H%M")))
+
+
+def _snap_log(run_utc=SNAP_UTC, armed=True, extra=(), dll=True):
+    lines = [b"[LOG 09:03:00.100] Log Initiated\n",
+             _pline("INFO", "Init", "SessionStart runUtc=%d" % run_utc) if run_utc is not None else b""]
+    if dll:
+        lines.append(("[LOG 09:03:01.000] [KSPCommunityFixes] Parsek 0.10.5.0 Parsek.dll %s\n"
+                      % SNAP_DLL).encode("ascii"))
+    if armed:
+        lines.append(_pline("INFO", "TestCommands", "armed (PARSEK_TEST_COMMANDS=1)"))
+    lines += [_pline("WARN", "Ghost", "w"), _pline("INFO", "Flight", "hello")]
+    lines += list(extra)
+    return b"".join(lines)
+
+
+def _snap_folder(logs, name, log=None, log_path=HARNESS_LOG_PATH, git=GIT_DIRTY):
+    d = os.path.join(logs, name)
+    os.makedirs(d)
+    if log is not False:
+        with open(os.path.join(d, "KSP.log"), "wb") as fh:
+            fh.write(_snap_log() if log is None else log)
+    if log_path is not None:
+        with open(os.path.join(d, "log-validation.txt"), "w", encoding="utf-8") as fh:
+            fh.write("KSP.log validation: FAILED\nLog path: %s\n\nsome output\n" % log_path)
+    if git is not None:
+        with open(os.path.join(d, "git-state.txt"), "w", encoding="utf-8") as fh:
+            fh.write(git)
+    return d
+
+
+def _facts(data):
+    f = runindex.SnapshotLogFacts()
+    for line in io.BytesIO(data):
+        f.feed(line)
+    return f
+
+
+def _decide(folder="2026-10-11_1203_" + SNAP_LANE, log=None, validation=None, git=GIT_DIRTY,
+            state=None, seen=None):
+    return runindex.decide_snapshot(
+        folder, True, "Log path: %s\n" % (validation or HARNESS_LOG_PATH), git,
+        _facts(_snap_log() if log is None else log), state or runindex.ArchiveState(),
+        set() if seen is None else seen)
+
+
+def _snap_row(stamp, lane, run_utc, health=None, **marker):
+    m = {"schema": runindex.SNAPSHOT_SCHEMA, "lane": lane, "runUtc": run_utc,
+         "commit": "0123456789ab", "profile": "stock-minimal"}
+    m.update(marker)
+    row, reason = runindex.build_snapshot_row("%s_%s" % (stamp, lane), m, health)
+    assert reason is None, reason
+    return row
+
+
+class SnapshotDecisionTests(unittest.TestCase):
+    def test_a_harness_folder_imports_with_a_utc_run_id_and_a_path_free_marker(self):
+        # The folder name's 12:03 is LOCAL time; the run id and start come from runUtc.
+        d = _decide()
+        self.assertEqual(("import", "imported"), (d.outcome, d.reason))
+        self.assertEqual("%s_%s" % (SNAP_STAMP, SNAP_LANE), d.run_id)
+        m = d.marker
+        self.assertEqual({"schema": runindex.SNAPSHOT_SCHEMA, "runId": d.run_id, "lane": SNAP_LANE,
+                          "runUtc": SNAP_UTC, "started": "2026-10-11T09:03:00Z", "commit": "0123456789ab",
+                          "dirty": True, "profile": "stock-minimal", "dll": SNAP_DLL,
+                          "source": "2026-10-11_1203_" + SNAP_LANE,
+                          "tool": "harness/tools/run_index.py import-snapshots"}, m)
+        text = runindex.serialize_marker(m)
+        for bad in ("\\", "Users", "someone", "Dev"):
+            self.assertNotIn(bad, text)
+
+    def test_a_dev_snapshot_is_skipped(self):
+        d = _decide(validation=DEV_LOG_PATH)
+        self.assertEqual(("skip", "dev-snapshot"), (d.outcome, d.reason))
+
+    def test_classify_log_path(self):
+        c = runindex.classify_log_path
+        self.assertEqual(("harness", "stock-minimal"), c("Log path: %s" % HARNESS_LOG_PATH))
+        self.assertEqual(("harness", "kitchen-sink"), c("x\nLog path: /home/u/automation/kitchen-sink/KSP.log\n"))
+        self.assertEqual(("dev", None), c("Log path: %s" % DEV_LOG_PATH))
+        self.assertEqual(("unknown", None), c("Log path: D:\\elsewhere\\KSP.log"))
+        self.assertEqual(("unknown", None), c("Log path: C:\\automation\\bad name\\KSP.log"))
+        self.assertEqual(("unknown", None), c(None))
+
+    def test_no_instance_path_or_no_arm_line_is_skipped(self):
+        d = _decide(validation=r"D:\somewhere\KSP.log")
+        self.assertEqual("no-instance-log-path", d.reason)
+        d = _decide(log=_snap_log(armed=False))
+        self.assertEqual("not-armed", d.reason)
+
+    def test_no_run_utc_or_two_sessions_is_skipped(self):
+        self.assertEqual("no-run-utc", _decide(log=_snap_log(run_utc=None)).reason)
+        two = _snap_log(extra=[_pline("INFO", "Init", "SessionStart runUtc=%d" % (SNAP_UTC + 600))])
+        self.assertEqual("several-sessions", _decide(log=two).reason)
+        # The same line twice (one session) is one session.
+        same = _snap_log(extra=[_pline("INFO", "Init", "SessionStart runUtc=%d" % SNAP_UTC)])
+        self.assertEqual("imported", _decide(log=same).reason)
+
+    def test_a_label_that_is_not_a_token_is_skipped(self):
+        for folder in ("2026-10-11_1203_bad label", "2026-10-11_1203_x/y", "2026-10-11_1203_-dash"):
+            self.assertEqual(("skip", "label-not-a-token"), (_decide(folder).outcome, _decide(folder).reason))
+        self.assertEqual("not-a-snapshot-folder", _decide("notes").reason)
+
+    def test_already_archived_at_the_same_minute_or_the_minute_before(self):
+        for archived in ("%s_%s" % (SNAP_STAMP, SNAP_LANE), "2026-10-11_0902_%s" % SNAP_LANE,
+                         "2026-10-11_0902_%s_run2" % SNAP_LANE, "2026-10-11_0903_%s_a2" % SNAP_LANE):
+            state = runindex.ArchiveState()
+            state.add_run(archived)
+            d = _decide(state=state)
+            self.assertEqual(("skip", "already-archived", archived), (d.outcome, d.reason, d.run_id), archived)
+        for other in ("2026-10-11_0901_%s" % SNAP_LANE, "2026-10-11_0904_%s" % SNAP_LANE,
+                      "%s_OTHER-1" % SNAP_STAMP):
+            state = runindex.ArchiveState()
+            state.add_run(other)
+            self.assertEqual("imported", _decide(state=state).reason, other)
+
+    def test_a_taken_run_id_gets_an_ordinal(self):
+        state = runindex.ArchiveState()
+        state.add_snapshot("%s_%s" % (SNAP_STAMP, SNAP_LANE), SNAP_LANE, SNAP_UTC - 30)
+        d = _decide(log=_snap_log(run_utc=SNAP_UTC + 20), state=state)
+        self.assertEqual("%s_%s_run2" % (SNAP_STAMP, SNAP_LANE), d.run_id)
+
+    def test_a_duplicate_pair_imports_once(self):
+        state, seen = runindex.ArchiveState(), set()
+        first = _decide("2026-10-11_1203_" + SNAP_LANE, state=state, seen=seen)
+        second = _decide("2026-10-11_1204_" + SNAP_LANE, state=state, seen=seen)
+        self.assertEqual(("imported", "duplicate"), (first.reason, second.reason))
+        # Another lane at the same boot second is not a duplicate.
+        third = _decide("2026-10-11_1204_OTHER-1", state=state, seen=seen)
+        self.assertEqual("imported", third.reason)
+
+    def test_an_imported_snapshot_is_not_imported_again(self):
+        state = runindex.ArchiveState()
+        state.add_snapshot("%s_%s" % (SNAP_STAMP, SNAP_LANE), SNAP_LANE, SNAP_UTC)
+        d = _decide(state=state)
+        self.assertEqual(("skip", "already-imported", "%s_%s" % (SNAP_STAMP, SNAP_LANE)),
+                         (d.outcome, d.reason, d.run_id))
+
+    def test_git_state(self):
+        self.assertEqual(("0123456789ab", True), runindex.parse_git_state(GIT_DIRTY))
+        self.assertEqual(("fedcba9876543"[:12], False), runindex.parse_git_state(GIT_CLEAN))
+        self.assertEqual((None, None), runindex.parse_git_state("(git not found)"))
+        self.assertEqual((None, None), runindex.parse_git_state(None))
+
+    def test_the_dll_is_taken_only_from_an_unambiguous_line(self):
+        self.assertEqual([SNAP_DLL], _facts(_snap_log()).dlls)
+        self.assertEqual([], _facts(_snap_log(dll=False)).dlls)
+        noisy = [_pline("INFO", "Init", "Parsek 0.10.5.0 hash %s" % ("a" * 64)),
+                 ("Parsek 0.10.5.0 %s %s\n" % ("b" * 64, "c" * 64)).encode("ascii"),
+                 ("ParsekX 0.10.5.0 %s\n" % ("d" * 64)).encode("ascii")]
+        f = _facts(b"".join(noisy))
+        self.assertEqual([], f.dlls)
+        two = _snap_log(extra=[("Parsek 0.10.6.0 %s\n" % ("e" * 64)).encode("ascii")])
+        self.assertEqual(2, len(_facts(two).dlls))
+        self.assertIsNone(_decide(log=two).marker["dll"])
+
+    def test_a_non_utf8_log_reads(self):
+        log = _snap_log(extra=[b"[LOG 09:04:00.000] \xff\xfe\x80 garbage \xc3\x28\n"])
+        self.assertEqual("imported", _decide(log=log).reason)
+
+
+class SnapshotRowTests(unittest.TestCase):
+    def test_the_row_shape(self):
+        row = _snap_row(SNAP_STAMP, SNAP_LANE, SNAP_UTC, _health(), dirty=True, dll=SNAP_DLL,
+                        source="2026-10-11_1203_" + SNAP_LANE)
+        self.assertEqual({"schema": runindex.SCHEMA, "runId": "%s_%s" % (SNAP_STAMP, SNAP_LANE),
+                          "lane": SNAP_LANE, "tier": None, "profile": "stock-minimal",
+                          "started": "2026-10-11T09:03:00Z", "wall": None, "attempt": 1,
+                          "verdict": runindex.SNAPSHOT_VERDICT, "commit": "0123456789ab",
+                          "dll": SNAP_DLL[:16], "worktree": None, "origin": runindex.SNAPSHOT_ORIGIN,
+                          "health": _health(), "final": False, "dirty": True}, row)
+        self.assertNotIn(row["verdict"], (hlib.VERDICT_PASS, hlib.VERDICT_INVALID, hlib.VERDICT_PARSEK_FAIL,
+                                          hlib.VERDICT_KILLED, hlib.VERDICT_XPASS))
+        parsed = runindex.parse_index(runindex.serialize_index([row]))
+        self.assertEqual(([], []), (parsed.dropped, parsed.newer))
+        self.assertEqual(1, len(parsed.rows))
+
+    def test_bad_markers_are_refused_and_bad_strings_withheld(self):
+        good = {"schema": runindex.SNAPSHOT_SCHEMA, "lane": "L", "runUtc": SNAP_UTC}
+        self.assertIsNone(runindex.build_snapshot_row("2026-10-11_0903_L", dict(good, schema="x"), None)[0])
+        self.assertIsNone(runindex.build_snapshot_row("2026-10-11_0903_L", dict(good, lane="a b"), None)[0])
+        self.assertIsNone(runindex.build_snapshot_row("2026-10-11_0903_L", dict(good, runUtc="1"), None)[0])
+        self.assertIsNone(runindex.build_snapshot_row("../x", good, None)[0])
+        row, _r = runindex.build_snapshot_row("2026-10-11_0903_L", dict(
+            good, profile=r"C:\Users\x", commit="not hex"), None)
+        self.assertEqual((None, None), (row["profile"], row["commit"]))
+        self.assertEqual(["commit withheld", "profile withheld"], row["gaps"])
+        self.assertNotIn("dirty", row)
+
+
+class SnapshotQueryTests(unittest.TestCase):
+    """Snapshot rows show in lane history and trend and are counted apart;
+    no count, rate, link, last-not-PASS, wall percentile or regression reads them."""
+
+    def setUp(self):
+        self.harness = [
+            _attempt("2026-10-20_0900", "L", "INVALID", subkind="boot-crash", wall=50),
+            _attempt("2026-10-20_0912", "L", "PASS", 2, wall=100, health=_health()),
+            _attempt("2026-10-21_0900", "L", "PASS", wall=110, health=_health()),
+            _attempt("2026-10-22_0900", "L", "PASS", wall=120, health=_health()),
+            _attempt("2026-10-23_0900", "L", "PASS", wall=100, health=_health()),
+            _attempt("2026-10-24_0900", "L", "PASS", wall=100, health=_health()),
+            _attempt("2026-10-20_1000", "M", "PASS", wall=10),
+        ]
+        big = _health(warn=900, error=900, parsek=99999, nbytes=10 ** 9)
+        self.snaps = [
+            _snap_row("2026-09-01_0900", "L", _epoch("2026-09-01_0900"), big),
+            _snap_row("2026-10-25_0900", "L", _epoch("2026-10-25_0900"), big),  # newer than every harness row
+            _snap_row("2026-10-26_0900", "M", _epoch("2026-10-26_0900"), big),
+            _snap_row("2026-09-02_0900", "OLD-1", _epoch("2026-09-02_0900"), big),  # a deleted lane
+        ]
+        self.rows = runindex.normalize(self.harness + self.snaps)
+        self.base = runindex.normalize(self.harness)
+
+    def test_snapshot_rows_are_never_final_and_never_linked(self):
+        by_id = {r["runId"]: r for r in self.rows}
+        for s in self.snaps:
+            self.assertFalse(by_id[s["runId"]]["final"])
+            self.assertNotIn("retryOf", by_id[s["runId"]])
+            self.assertNotIn("byRetry", by_id[s["runId"]])
+        self.assertEqual({"2026-10-20_0912_L_a2": "2026-10-20_0900_L"}, runindex.link_attempts(self.rows))
+        # Even a snapshot row that looked like a retryable attempt 1 claims no retry.
+        retry = _attempt("2026-10-24_0905", "L", "PASS", 2)
+        fake = dict(self.snaps[1], verdict=hlib.VERDICT_INVALID, subkind="boot-crash",
+                    started="2026-10-24T08:50:00Z", runId="2026-10-24_0850_L", worktree=retry["worktree"])
+        self.assertEqual({}, runindex.link_attempts([fake, retry]))
+        self.assertTrue(runindex.retryable(fake))
+
+    def test_lane_report_counts_snapshots_apart(self):
+        rep = runindex.lane_report(self.rows, "L", "2026-10-26T09:00:00Z")
+        base = runindex.lane_report(self.base, "L", "2026-10-26T09:00:00Z")
+        for name in ("30d", "90d", "all"):
+            got = dict(rep["windows"][name])
+            want = dict(base["windows"][name])
+            self.assertEqual(want.pop("snapshots"), 0)
+            self.assertEqual({"30d": 1, "90d": 2, "all": 2}[name], got.pop("snapshots"))
+            self.assertEqual(want, got, name)
+        for key in ("lastRun", "lastPass", "wallP50", "wallP90", "lastWalls", "tier"):
+            self.assertEqual(base[key], rep[key], key)
+        self.assertEqual("2026-10-25_0900_L", rep["lastSnapshot"]["runId"])
+        self.assertIsNone(base["lastSnapshot"])
+        only = runindex.lane_report(self.rows, "OLD-1")
+        self.assertIsNone(only["lastRun"])
+        self.assertEqual("2026-09-02_0900_OLD-1", only["lastSnapshot"]["runId"])
+
+    def test_summary_counts_snapshots_apart(self):
+        tiers = {"L": "daily", "M": "daily", "N": "daily"}
+        s = runindex.summary(self.rows, tiers)
+        base = runindex.summary(self.base, tiers)
+        self.assertEqual({"rows": 4, "lanes": 3, "lanesOnlyInSnapshots": ["OLD-1"]}, s.pop("snapshots"))
+        self.assertEqual({"rows": 0, "lanes": 0, "lanesOnlyInSnapshots": []}, base.pop("snapshots"))
+        self.assertEqual(["OLD-1"], s.pop("lanesWithNoSpec"))
+        self.assertEqual([], base.pop("lanesWithNoSpec"))
+        self.assertEqual(base, s)
+        self.assertEqual([], s["lastNotPass"])
+        self.assertEqual(["N"], s["specsWithNoRun"])
+
+    def test_health_regressions_and_latest_pass_ignore_snapshots(self):
+        self.assertEqual(runindex.health_regressions(self.base), runindex.health_regressions(self.rows))
+        self.assertEqual(runindex.latest_pass_rows(self.base), runindex.latest_pass_rows(self.rows))
+        # Even a snapshot row that claimed PASS would not be read as the latest PASS.
+        fake = dict(self.snaps[1], verdict=hlib.VERDICT_PASS)
+        self.assertEqual([], runindex.health_regressions(self.harness + [fake]))
+        self.assertEqual("2026-10-24_0900_L", runindex.latest_pass_rows(self.harness + [fake])["L"]["runId"])
+
+    def test_lane_table_and_trend_show_snapshots(self):
+        table = runindex.lane_table(self.rows).splitlines()
+        self.assertTrue(table[0].endswith("| Snapshots |"))
+        self.assertIn("| L | daily | PASS | 2026-10-24, aaaaaaaaa | 5 | 100% | 100 | 2 |", table)
+        self.assertIn("| OLD-1 |  | (snapshots only) | | 0 | | | 1 |", table)
+        base = runindex.lane_table(self.base).splitlines()
+        self.assertIn("| L | daily | PASS | 2026-10-24, aaaaaaaaa | 5 | 100% | 100 | 0 |", base)
+        t = runindex.trend(self.rows, "L", 3)
+        self.assertEqual(["2026-10-23_0900_L", "2026-10-24_0900_L", "2026-10-25_0900_L"],
+                         [p["runId"] for p in t])
+        self.assertEqual(["run", "run", "snapshot"], [p["origin"] for p in t])
+
+
+class SnapshotSourceSyncTests(unittest.TestCase):
+    """The import keys on two C# log lines and on collect-logs.py's layout."""
+
+    def _source(self, rel):
+        with open(os.path.join(REPO_ROOT, rel), "r", encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_session_start_is_the_init_line_parsekharmony_writes(self):
+        text = self._source("Source/Parsek/ParsekHarmony.cs")
+        self.assertIn('"SessionStart runUtc=" + runUtcSeconds.ToString(CultureInfo.InvariantCulture)', text)
+        self.assertRegex(text, r'ParsekLog\.Info\("Init",\s*FormatSessionStartMessage\(DateTimeOffset\.UtcNow\.ToUnixTimeSeconds\(\)\)\)')
+        f = _facts(_pline("INFO", "Init", "SessionStart runUtc=%d" % SNAP_UTC))
+        self.assertEqual([SNAP_UTC], f.run_utcs)
+
+    def test_the_arm_line_is_the_one_the_seam_addon_writes(self):
+        text = self._source("Source/Parsek/TestCommands/ParsekTestCommandAddon.cs")
+        self.assertIn('private const string Tag = "TestCommands";', text)
+        self.assertIn('ParsekLog.Info(Tag, "armed (PARSEK_TEST_COMMANDS=1)")', text)
+        self.assertTrue(_facts(_pline("INFO", "TestCommands", "armed (PARSEK_TEST_COMMANDS=1)")).armed)
+
+    def test_collect_logs_writes_the_layout_the_import_reads(self):
+        text = self._source("scripts/collect-logs.py")
+        self.assertIn('datetime.now().strftime("%Y-%m-%d_%H%M")', text)
+        self.assertIn('folder = f"{timestamp}_{args.label}"', text)
+        self.assertIn('f"Log path: {ksp_log_path}"', text)
+        self.assertIn('lines.append(f"Commit: {commit.stdout.strip()}")', text)
+        self.assertIn('["git", "log", "--oneline", "-1"]', text)
+        self.assertIn('lines.append("--- status ---")', text)
+        self.assertIn('["git", "status", "--short"]', text)
+        for name in (run_index.LOG_VALIDATION_NAME, run_index.GIT_STATE_NAME):
+            self.assertIn('"%s"' % name, text)
+        # The harness labels a snapshot with the scenario id.
+        self.assertIn('label, "--save", save_name, "--ksp-dir", instance_dir]', self._source("harness/run.py"))
+
+
+def _outcome_counts(out):
+    """{(outcome, reason): n} from import-snapshots' count lines."""
+    found = re.findall(r"^  (import|skip)\s+(\S.*?)\s+(\d+)$", out, re.M)
+    return {(o, r): int(n) for o, r, n in found}
+
+
+class _Logger:
+    def __init__(self):
+        self.lines = []
+
+    def info(self, tag, msg):
+        self.lines.append(msg)
+
+    warn = info
+
+
+class SnapshotImportToolTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-runindex-snap-")
+        self.logs = os.path.join(self.tmp, "logs")
+        self.archive = os.path.join(self.tmp, "results-archive")
+        os.makedirs(self.logs)
+        os.makedirs(self.archive)
+        self.lane_rid = "%s_%s" % (SNAP_STAMP, SNAP_LANE)
+        # harness, imported
+        _snap_folder(self.logs, "2026-10-11_1203_" + SNAP_LANE)
+        # its duplicate (collected twice)
+        _snap_folder(self.logs, "2026-10-11_1204_" + SNAP_LANE)
+        # dev snapshot
+        _snap_folder(self.logs, "2026-10-11_1300_my-check", log_path=DEV_LOG_PATH)
+        # no runUtc
+        _snap_folder(self.logs, "2026-10-11_1301_X-1", log=_snap_log(run_utc=None))
+        # non-token label
+        _snap_folder(self.logs, "2026-10-11_1302_bad label")
+        # non-UTF-8 log, clean tree, other lane
+        _snap_folder(self.logs, "2026-10-12_0800_Y-1", git=GIT_CLEAN, log=_snap_log(
+            run_utc=SNAP_UTC + 86400, extra=[b"\xff\xfe\x80 \xc3\x28 broken\n"]))
+        # archived by run.py at the minute before the boot
+        _write_run(self.archive, "2026-10-12_0902_Z-1", _result("2026-10-12_0902_Z-1", "INVALID", lane="Z-1",
+                                                                  started="2026-10-12T09:02:00Z"))
+        _snap_folder(self.logs, "2026-10-12_1203_Z-1", log=_snap_log(run_utc=SNAP_UTC + 86400))
+        # no KSP.log; a stray file
+        _snap_folder(self.logs, "2026-10-12_1204_W-1", log=False)
+        with open(os.path.join(self.logs, "README.txt"), "w") as fh:
+            fh.write("x")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _main(self, *argv):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = run_index.main(list(argv))
+        return rc, out.getvalue()
+
+    def _tree(self):
+        out = {}
+        for root, _dirs, files in os.walk(self.archive):
+            for f in files:
+                p = os.path.join(root, f)
+                with open(p, "rb") as fh:
+                    out[os.path.relpath(p, self.archive)] = (fh.read(), os.stat(p).st_mtime_ns)
+        return out
+
+    def _import(self, *extra):
+        return self._main("import-snapshots", "--from", self.logs, "--archive", self.archive, *extra)
+
+    def test_dry_run_counts_by_outcome_and_reason_and_writes_nothing(self):
+        before = self._tree()
+        rc, out = self._import("--dry-run", "--list")
+        self.assertEqual(0, rc, out)
+        self.assertEqual(before, self._tree())
+        self.assertEqual({("import", "imported"): 2, ("skip", "already-archived"): 1,
+                          ("skip", "dev-snapshot"): 1, ("skip", "duplicate"): 1,
+                          ("skip", "label-not-a-token"): 1, ("skip", "no-ksp-log"): 1,
+                          ("skip", "no-run-utc"): 1}, _outcome_counts(out))
+        self.assertIn("8 folder(s)", out)
+        self.assertIn("imports: commit 2, dirty 1, dll 2, profile 2", out)
+        self.assertIn("matched (a PASS means the harness did collect logs for a passing run): INVALID 1", out)
+        self.assertIn("2026-10-12_1203_Z-1 -> skip already-archived 2026-10-12_0902_Z-1", out)
+
+    def test_import_writes_the_log_and_marker_only_and_is_idempotent(self):
+        rc, out = self._import()
+        self.assertEqual(0, rc, out)
+        d = os.path.join(self.archive, self.lane_rid)
+        self.assertEqual(["KSP.log.gz", "snapshot.json"], sorted(os.listdir(d)))
+        with gzip.open(os.path.join(d, "KSP.log.gz"), "rb") as fh:
+            self.assertEqual(_snap_log(), fh.read())
+        with open(os.path.join(d, "snapshot.json")) as fh:
+            marker = json.load(fh)
+        self.assertEqual("2026-10-11_1203_" + SNAP_LANE, marker["source"])
+        y = "2026-10-12_0903_Y-1"
+        self.assertTrue(os.path.isfile(os.path.join(self.archive, y, "snapshot.json")))
+        self.assertEqual(sorted([self.lane_rid, y, "2026-10-12_0902_Z-1"]),
+                         sorted(n for n in os.listdir(self.archive)))
+        first = self._tree()
+        rc, out = self._import()
+        self.assertEqual(0, rc, out)
+        # Both copies of the doubled snapshot and the other import.
+        self.assertEqual(3, _outcome_counts(out)[("skip", "already-imported")])
+        self.assertIn("0 imported", out)
+        self.assertEqual(first, self._tree())
+        for name, (data, _m) in first.items():
+            if name.endswith("snapshot.json"):
+                self.assertNotIn(self.tmp.encode(), data)
+                self.assertNotIn(b"someone", data)
+
+    def test_an_existing_folder_is_never_overwritten(self):
+        os.makedirs(os.path.join(self.archive, self.lane_rid))
+        with open(os.path.join(self.archive, self.lane_rid, "keep.txt"), "w") as fh:
+            fh.write("mine")
+        rc, out = self._import("--list")
+        self.assertIn("2026-10-11_1203_%s -> skip already-archived %s" % (SNAP_LANE, self.lane_rid), out)
+        self.assertEqual(["keep.txt"], os.listdir(os.path.join(self.archive, self.lane_rid)))
+        with self.assertRaises(FileExistsError):
+            run_index.write_snapshot_folder(self.archive, self.lane_rid,
+                                            os.path.join(self.logs, "2026-10-11_1203_" + SNAP_LANE, "KSP.log"),
+                                            {"schema": runindex.SNAPSHOT_SCHEMA})
+        self.assertEqual(["keep.txt"], os.listdir(os.path.join(self.archive, self.lane_rid)))
+
+    def test_rebuild_equals_import_then_append(self):
+        rc, out = self._import("--append")
+        self.assertEqual(0, rc, out)
+        self.assertIn("run index: added=2", out)
+        appended = run_index.load_index(os.path.join(self.archive, "index.jsonl")).rows
+        rebuilt_path = os.path.join(self.tmp, "rebuilt.jsonl")
+        rc, out = self._main("rebuild", "--archive", self.archive, "--out", rebuilt_path)
+        self.assertEqual(0, rc, out)
+        rebuilt = run_index.load_index(rebuilt_path).rows
+        snaps = [r for r in rebuilt if r.get("origin") == "snapshot"]
+        self.assertEqual(sorted([self.lane_rid, "2026-10-12_0903_Y-1"]), sorted(r["runId"] for r in snaps))
+        self.assertEqual(runindex.normalize([r for r in rebuilt if r.get("origin") == "snapshot"]),
+                         runindex.normalize(appended))
+        row = {r["runId"]: r for r in snaps}[self.lane_rid]
+        self.assertEqual(("NOT-PASS", 1, False, None), (row["verdict"], row["attempt"], row["final"], row["wall"]))
+        self.assertEqual((1, 4), (row["health"]["warn"], row["health"]["parsek"]))
+        y = {r["runId"]: r for r in snaps}["2026-10-12_0903_Y-1"]
+        self.assertNotIn("dirty", y)
+        self.assertTrue(y["health"]["bytes"] > 0)
+        with open(rebuilt_path) as fh:
+            text = fh.read()
+        self.assertNotIn(self.tmp, text)
+        self.assertNotIn("someone", text)
+        rc, out = self._main("lane", "2026-10-11_1203_x", "--index", rebuilt_path)
+        self.assertEqual(1, rc)
+        rc, out = self._main("lane", SNAP_LANE, "--index", rebuilt_path)
+        self.assertEqual(0, rc, out)
+        self.assertIn("last snapshot (not a PASS", out)
+
+    def test_every_other_archive_reader_tolerates_a_snapshot_folder(self):
+        self._import()
+        snap_dir = os.path.join(self.archive, self.lane_rid)
+        import flight_efficiency
+        import mutation_check
+        import archive_results
+        # flight_efficiency: snapshot.json's stem is no run id, so no candidate.
+        self.assertEqual(["2026-10-12_0902_Z-1"], [c["runId"] for c in flight_efficiency.discover_archive(self.archive)])
+        # mutation_check: no plain KSP.log and no stamped result JSON, so no ref.
+        self.assertEqual([], [r for r in mutation_check.discover([self.archive, snap_dir])
+                              if r.run_id == self.lane_rid])
+        # run_index's PASS pre-pass reads result JSONs only.
+        self.assertEqual(["2026-10-12_0902_Z-1"],
+                         [r["runId"] for r in run_index._cheap_rows(self.archive, os.listdir(self.archive))])
+        # archive_results back-fill leaves an existing run folder alone.
+        results = os.path.join(self.tmp, "results")
+        os.makedirs(results)
+        with open(os.path.join(results, self.lane_rid + ".json"), "w") as fh:
+            json.dump(_result(self.lane_rid, "INVALID", lane=SNAP_LANE), fh)
+        before = self._tree()
+        counts = archive_results.backfill(results, self.archive, _Logger())
+        self.assertEqual(1, counts["existing"])
+        self.assertEqual(before, self._tree())
+
+    def test_an_unreadable_folder_costs_only_itself(self):
+        real = run_index.snapshot_facts
+
+        def boom(path):
+            if "1203_" + SNAP_LANE in path:
+                raise PermissionError("no")
+            return real(path)
+
+        with mock.patch.object(run_index, "snapshot_facts", side_effect=boom):
+            rc, out = self._import()
+        self.assertEqual(0, rc, out)
+        self.assertEqual(1, _outcome_counts(out)[("skip", "unreadable (PermissionError)")])
+        # Its duplicate is then the first copy seen, and imports.
+        self.assertTrue(os.path.isdir(os.path.join(self.archive, self.lane_rid)))
+
+    def test_a_failed_write_lets_the_second_copy_import(self):
+        real = run_index.write_snapshot_folder
+        calls = []
+
+        def flaky(archive, rid, log_path, marker):
+            calls.append(marker["source"])
+            if len(calls) == 1:
+                raise OSError("disk full")
+            return real(archive, rid, log_path, marker)
+
+        with mock.patch.object(run_index, "write_snapshot_folder", side_effect=flaky):
+            rc, out = self._import("--list")
+        self.assertEqual(0, rc, out)
+        self.assertEqual(1, _outcome_counts(out)[("skip", "unreadable (OSError)")])
+        self.assertIn("2026-10-11_1204_%s -> import imported %s" % (SNAP_LANE, self.lane_rid), out)
+        self.assertTrue(os.path.isfile(os.path.join(self.archive, self.lane_rid, "snapshot.json")))
 
 
 if __name__ == "__main__":
