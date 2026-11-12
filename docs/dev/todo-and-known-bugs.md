@@ -162,6 +162,17 @@ commit ec9adc0e6, dir `carrier/reaim-landed/`). Four lanes, each PASS on attempt
 - **`2026-11-12_0705_AT-1-duna-atmospheric-descent`** (wall 47 s). It never reaches `Done`
   (4 Loiter and 3 Descent phase lines), so the fix does not touch it.
 
+**Correction (clean review, 2026-11-12).** The bounds quoted above from run `_2238`,
+`[5360095095.6,5360144182.0]`, are not a fixed "recorded slot": they are the parking conic
+with its head wrapped onto the last parking period at the frame that printed them, so they
+move with the instant. Before the fix the ship showed in the parking orbit for the whole of
+`Done` after a skipped landing (about a month, until its recording ran out), not only inside
+one window; the wording "recorded loop-clock slot" in this entry, the TP-4 and TP-9 headers and
+the status rows should be read that way. TP-9's third forbidden pin was a literal on those
+bounds and could not fire at its own instant; it now keys on the transfer recording's proto
+orbit line switching on after the jump, read against the first flight's log (0 matches) and
+run `_2238`'s (42).
+
 **Not measured.**
 - The 3D flight ghost near Duna after the landing. No flight has photographed it and no flown
   log holds its teardown: in all four lanes the active vessel sits at Kerbin, and in TP-4 the

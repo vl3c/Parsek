@@ -8,8 +8,9 @@ id = "TP-9-duna-reaim-skipped-landing-map-pictures"
 # (`Reaim/DescentTrigger.cs`) inside the live window
 # [5,357,413,107.29558, 5,357,433,620.6203632]. A time jump that steps over that whole
 # window never shows the lander. Before the fix the ship's transfer member then drew its
-# parking conic, icon and 3D ghost again at the RECORDED loop-clock slot of the parking
-# orbit, [5,360,095,095.6, 5,360,144,182.0], about a month later (TP-4 run
+# parking conic, icon and 3D ghost again for the rest of the cycle's Done phase, until its
+# recording ran out about a month later; the head was wrapped onto the last parking
+# period, which at run _2238's frame read [5,360,095,095.6, 5,360,144,182.0] (TP-4 run
 # 2026-11-11_2238: `Orbit line decision: ... reason=director-stockconic-visible
 # lineActive=True ... bounds=[5360095095.6,5360144182.0]`, a `Kerbal X` proto ghost on a
 # Duna conic in the dumps). The rule now is that once the landing's clip has ended (unit
@@ -60,9 +61,13 @@ id = "TP-9-duna-reaim-skipped-landing-map-pictures"
 #             `kept (loiter/normal ghost)`), any `loiter-circle member=11 head wrapped`
 #             (the lane is never in the Loiter phase: Inert before the jump, Done after,
 #             and a hidden member is never clamped onto the parking conic), and the
-#             leftover's own trace line, an orbit line shown on the parking conic of the
-#             recorded slot (`reason=director-stockconic-visible lineActive=True` with
-#             `bounds=[5360095095.6,5360144182.0]`).
+#             leftover's own trace line, the transfer recording's proto orbit line
+#             switched on after the jump (`phase=LineVisibilityChange ... recId=aa48920e...
+#             currentUT=5360... lineActive=True`). This pin replaced a bounds literal
+#             after the first flight (review, 2026-11-12): the bounds quoted from run
+#             _2238 are the wrapped parking period at THAT frame, so a pin on them could
+#             not fire at this lane's instant. The new pin was read against the first
+#             flight's collected log (0 matches) and against run _2238's (42 matching lines).
 #   The picture and its dump are for a human and the mirror page: `tp9-skipped-late-duna-
 #   low-top` should show Duna with the fixture's two landed vessels and nothing in orbit,
 #   and its `.map.json` should list no ghost at Duna.
@@ -180,10 +185,14 @@ forbidden = [
   "capturescreenshot (not written|threw|dir create failed|pre-delete threw)",
   "map-geometry-(timeout|capture-failed)",
   # The defect's own lines: the transfer member kept (and circling the parking conic)
-  # after the landing, and its orbit line shown on the recorded slot's parking conic.
+  # after the landing, and its proto orbit line switched on after the jump. The third pin
+  # keys on the recording id and a current UT past the jump, never on the conic's bounds:
+  # those are the wrapped parking period at the frame that printed them, so they move
+  # with the instant (run 2026-11-11_2238 read [5360095095.6,5360144182.0] at
+  # 5,360,144,085; this lane's instant would read about [5360071115,5360120202]).
   "transfer/loiter member=11 cycle=[0-9]+ unitDescentPhase=Done .* -> kept \\(loiter/normal (icon|ghost)\\)",
   "loiter-circle member=11 head wrapped",
-  "Orbit line decision: pid=[0-9]+ reason=director-stockconic-visible lineActive=True .*bounds=\\[5360095095\\.6,5360144182\\.0\\]",
+  "phase=LineVisibilityChange surface=ProtoOrbitLine pid=[0-9]+ recId=aa48920e43fb4bf483940e0d8191a1ce frame=[0-9]+ currentUT=5360[0-9.]+ .*lineActive=True",
 ]
 
 [runtime]
