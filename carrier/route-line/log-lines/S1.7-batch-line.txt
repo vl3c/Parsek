@@ -1,0 +1,2 @@
+[LOG 23:17:42.312] [Parsek][INFO][TestRunner] Batch execution skipped 1 single-run-only test(s)
+[LOG 23:17:52.696] [Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=21 passed=20 failed=0 skipped=1 category=MapRender scene=FLIGHT
