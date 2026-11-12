@@ -161,12 +161,6 @@ namespace Parsek
             return result;
         }
 
-        /// <summary>Pure: a copy of <paramref name="band"/> (null stays null).</summary>
-        internal static List<RecordThresholdCredit> Copy(IList<RecordThresholdCredit> band)
-        {
-            return band == null ? null : new List<RecordThresholdCredit>(band);
-        }
-
         /// <summary>Pure: "3,4" for logs; "-" for none.</summary>
         internal static string DescribeIndices(IList<int> indices)
         {

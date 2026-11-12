@@ -1035,16 +1035,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Returns true if we're currently in the Flight scene. KSC spending actions
-        /// should only be written directly to the ledger outside of flight (to avoid
-        /// double-adding when the recording is committed).
-        /// </summary>
-        private static bool IsFlightScene()
-        {
-            return HighLogic.LoadedScene == GameScenes.FLIGHT;
-        }
-
-        /// <summary>
         /// Returns true when a captured lifecycle event has no recording owner and
         /// should be written straight to the ledger. A live recorder with an empty
         /// tag is tag drift, not proof that the event is ownerless; true
@@ -1876,20 +1866,6 @@ namespace Parsek
                 $"band={newBandText} seedUT={seed.ut.ToString("F1", ic)} " +
                 $"ledgerRow={(ledgerRowUpdated ? "updated" : "none")} (no new action, no recalc)");
             return true;
-        }
-
-        /// <summary>
-        /// Reflection helper: extracts the "body" CelestialBody field from body-specific
-        /// ProgressNode subclasses (CelestialBodyLanding, CelestialBodyOrbit,
-        /// CelestialBodyFlyby, etc.; see <see cref="FindProgressNodeBodyField"/>). Returns
-        /// null for top-level nodes that have no body. Internal static for testability.
-        /// </summary>
-        internal static CelestialBody ExtractNodeBody(ProgressNode node)
-        {
-            if (node == null) return null;
-            var bodyField = FindProgressNodeBodyField(node.GetType());
-            if (bodyField == null) return null;
-            return bodyField.GetValue(node) as CelestialBody;
         }
 
         /// <summary>

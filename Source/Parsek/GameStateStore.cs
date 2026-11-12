@@ -1515,12 +1515,6 @@ namespace Parsek
             return restored;
         }
 
-        internal static bool SaveBaseline(GameStateBaseline baseline)
-        {
-            if (baseline == null) return false;
-            return WriteBaselineNode(baseline, BuildBaselineNode(baseline));
-        }
-
         /// <summary>Builds the <c>PARSEK_BASELINE</c> node of one baseline (file and save node).</summary>
         internal static ConfigNode BuildBaselineNode(GameStateBaseline baseline)
         {
@@ -1577,7 +1571,7 @@ namespace Parsek
                 return true;
             }
 
-            // Baseline names are per-UT, so crash residue from SaveBaseline never gets
+            // Baseline names are per-UT, so crash residue from a baseline write never gets
             // overwritten by a later write and would accumulate without this sweep.
             FileIOUtils.SweepStaleSafeWriteTemps(dir, BaselineFileSearchPattern, "GameStateStore");
 

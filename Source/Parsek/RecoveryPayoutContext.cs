@@ -305,11 +305,6 @@ namespace Parsek
             return true;
         }
 
-        internal static bool TryFindForFundsEvent(double ut, out RecoveryPayoutContext context)
-        {
-            return TryFindForFundsEvent(ut, double.NaN, out context);
-        }
-
         internal static bool TryFindForFundsEvent(
             double ut,
             double fundsDelta,
@@ -392,11 +387,6 @@ namespace Parsek
             return context.HasFundsEarned
                 ? context.FundsEarned.ToString("R", CultureInfo.InvariantCulture)
                 : "(unknown)";
-        }
-
-        internal static bool TryBuildFundsEventDetail(double ut, out string detail)
-        {
-            return TryBuildFundsEventDetail(ut, double.NaN, out detail);
         }
 
         internal static bool TryBuildFundsEventDetail(

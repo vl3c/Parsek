@@ -25,8 +25,6 @@ namespace Parsek
             /// (<see cref="RecoveryDispatchScope"/>), else 0. Such a request is dropped when
             /// that dispatch closes unpaid (<see cref="DropUnpairedDispatchDebrisRequests"/>).</summary>
             public uint DispatchPersistentId;
-
-            public string VesselName => Identity.DisplayName;
         }
 
         private static readonly HashSet<string> consumedRecoveryEventKeys = new HashSet<string>();
@@ -208,13 +206,6 @@ namespace Parsek
             }
         }
 
-        internal static int FindBestPairingIndex(double eventUt, string eventVesselName)
-        {
-            return FindBestPairingIndex(
-                eventUt,
-                RecoveryPayoutContextStore.ExtractIdentityFromFundsEventDetail(eventVesselName));
-        }
-
         internal static int FindBestPairingIndex(
             double eventUt,
             RecoveredVesselIdentity eventIdentity)
@@ -336,18 +327,6 @@ namespace Parsek
                 $"Entries: [{sb}]");
 
             pendingRecoveryFunds.Clear();
-        }
-
-        private static bool RecoveryEventMatchesIdentity(
-            GameStateEvent e,
-            RecoveredVesselIdentity identity)
-        {
-            if (!identity.HasName)
-                return false;
-
-            RecoveredVesselIdentity eventIdentity =
-                RecoveryPayoutContextStore.ExtractIdentityFromFundsEventDetail(e.detail);
-            return eventIdentity.HasName && identity.Matches(eventIdentity);
         }
 
         private static bool RecoveryEventSatisfiesIdentityMode(

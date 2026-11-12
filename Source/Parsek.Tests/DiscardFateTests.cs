@@ -715,7 +715,7 @@ namespace Parsek.Tests
         {
             // Arrange: tag resolver returns a recording id even though the scene reads
             // SPACECENTER. Emulates the teardown window where Emit legitimately tags
-            // an event but IsFlightScene() is already false.
+            // an event but the loaded scene is no longer FLIGHT.
             GameStateRecorder.TagResolverForTesting = () => "rec-teardown";
             HighLogic.LoadedScene = GameScenes.SPACECENTER;
 
