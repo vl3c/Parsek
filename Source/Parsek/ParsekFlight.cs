@@ -301,10 +301,6 @@ namespace Parsek
         // so existing ParsekFlight code accesses engine-owned collections transparently.
         internal Dictionary<int, GhostPlaybackState> ghostStates => engine.ghostStates;
 
-        // Cached TimelineGhosts dictionary — rebuilt once per frame on first access (T20)
-        private Dictionary<int, GameObject> cachedTimelineGhosts = new Dictionary<int, GameObject>();
-        private int cachedTimelineGhostsFrame = -1;
-
         // Real Spawn Control: proximity-based nearby craft detection
         internal readonly List<NearbySpawnCandidate> nearbySpawnCandidates = new List<NearbySpawnCandidate>();
         internal const double NearbySpawnRadius = 250.0;
@@ -1125,10 +1121,6 @@ namespace Parsek
         internal readonly Dictionary<string, string> reFlyAnchorHoldReasonsThisFrame =
             new Dictionary<string, string>(StringComparer.Ordinal);
         internal readonly List<string> reFlyAnchorHoldReleaseScratch = new List<string>();
-        internal readonly Dictionary<string, ReFlyDenseAbsolutePlaybackFrameCacheEntry> reFlyDenseAbsolutePlaybackFrameCache =
-            new Dictionary<string, ReFlyDenseAbsolutePlaybackFrameCacheEntry>(StringComparer.Ordinal);
-        internal readonly HashSet<string> loggedReFlyDenseAbsolutePlaybackFrameSelections =
-            new HashSet<string>(StringComparer.Ordinal);
         internal int reFlySettlePoseLogActiveFrame = -1;
         // Scene-scoped; cleared alongside TerrainCacheBuckets.Clear() in OnSceneChangeRequested.
         internal static readonly Dictionary<string, TerrainCorrector.TailLiftPlan> s_tailLiftPlanCache =
@@ -1138,8 +1130,8 @@ namespace Parsek
         // P2 review (PR #706): the manual-preview Recording (recorder.CaptureAtStop)
         // is never added to RecordingStore.CommittedRecordings, so the tail-lift
         // resolver would log recording-missing every frame and skip the lift.
-        // ParsekFlight registers/clears the preview source in StartPlayback /
-        // StopPlayback so ResolveTailLiftPlan can find it.
+        // RegisterPreviewRecordingForTailLift registers the preview source and
+        // StopPlayback clears it, so ResolveTailLiftPlan can find it.
         internal static Recording s_previewRecordingForTailLift;
 
         void OnEnable()
@@ -1606,8 +1598,6 @@ namespace Parsek
             loggedRecordedRelativeStart.Clear();
             loggedRelativeBodyFixedPrimaryStart?.Clear();
             loggedAnchorNotFound.Clear();
-            reFlyDenseAbsolutePlaybackFrameCache.Clear();
-            loggedReFlyDenseAbsolutePlaybackFrameSelections.Clear();
             unknownFrameTagWarned.Clear();
             PlaybackHost.ClearGhostSkipReasonLogState();
             ui?.Cleanup();
@@ -2468,9 +2458,6 @@ namespace Parsek
             bool hasAtmosphere, double atmosphereDepth, double altitude) =>
             WatchModeController.ShouldUseSurfaceRelativeWatchHeading(
                 hasAtmosphere, atmosphereDepth, altitude);
-        internal static (Vector3 forward, Vector3 horizonVelocity, HorizonForwardSource source)
-            ComputeWatchHorizonForward(Vector3 up, Vector3 headingVelocity, Vector3 lastForward) =>
-            WatchModeController.ComputeWatchHorizonForward(up, headingVelocity, lastForward);
         internal static (Vector3 forward, Vector3 horizonVelocity, Vector3 headingVelocity,
             string headingFrame, HorizonForwardSource source)
             ComputeWatchHorizonBasis(
@@ -2485,12 +2472,6 @@ namespace Parsek
                 playbackVelocity, rotatingFrameVelocity, lastForward);
         internal static Vector3 ComputeHorizonForward(Vector3 up, Vector3 velocity, Vector3 lastForward) =>
             WatchModeController.ComputeHorizonForward(up, velocity, lastForward);
-        internal static (Quaternion rotation, Vector3 forward) ComputeHorizonRotation(
-            Vector3 up, Vector3 velocity, Vector3 lastForward) =>
-            WatchModeController.ComputeHorizonRotation(up, velocity, lastForward);
-        internal static (float pitch, float hdg) CompensateCameraAngles(
-            Quaternion oldTargetRot, Quaternion newTargetRot, float pitch, float hdg) =>
-            WatchModeController.CompensateCameraAngles(oldTargetRot, newTargetRot, pitch, hdg);
 
         // Literal floor returned by the immediate-clearance resolver when it
         // cannot compute a distance-aware value. Matches the legacy pre-#262
@@ -2573,23 +2554,6 @@ namespace Parsek
         public bool IsRecording => recorder?.IsRecording ?? false;
         public bool IsPlaying => isPlaying;
         public GameObject PreviewGhost => ghostObject;
-        public Dictionary<int, GameObject> TimelineGhosts
-        {
-            get
-            {
-                int currentFrame = Time.frameCount;
-                if (cachedTimelineGhostsFrame != currentFrame)
-                {
-                    cachedTimelineGhosts.Clear();
-                    foreach (var kv in ghostStates)
-                        cachedTimelineGhosts[kv.Key] = kv.Value.ghost;
-                    cachedTimelineGhostsFrame = currentFrame;
-                    ParsekLog.VerboseRateLimited("Flight", "timeline-ghosts-cache",
-                        $"TimelineGhosts: rebuilt cache, {cachedTimelineGhosts.Count} ghosts (frame {currentFrame})");
-                }
-                return cachedTimelineGhosts;
-            }
-        }
         public bool HasActiveTree => activeTree != null;
 
         // M-C2 EVA seam-verb read-only accessors (design-autotest-eva-missions.md, Data Model
@@ -2640,23 +2604,6 @@ namespace Parsek
                     : null,
                 context,
                 focus);
-        }
-
-        internal static bool ExitWatchModeBeforeTimelineGhostCleanup(
-            bool isWatchingGhost,
-            Action exitWatchMode,
-            Action detachStockCameraTarget,
-            string context,
-            string watchFocusForLogs = null)
-        {
-            return ExitWatchModeBeforeTimelineGhostCleanup(
-                isWatchingGhost,
-                exitWatchMode != null
-                    ? new Action<bool>(_ => exitWatchMode())
-                    : null,
-                detachStockCameraTarget,
-                context,
-                watchFocusForLogs);
         }
 
         internal static bool ExitWatchModeBeforeTimelineGhostCleanup(
@@ -3003,13 +2950,6 @@ namespace Parsek
         // TryResolveOverlapRetarget moved to WatchModeController
 
         internal bool IsAnyWarpActive() => GhostPlaybackEngine.IsAnyWarpActiveFromGlobals();
-
-        internal void ExitAllWarpForPlaybackStart(string context)
-        {
-            if (!IsAnyWarpActive()) return;
-            TimeWarp.SetRate(0, true);
-            Log($"Warp reset for playback start ({context})");
-        }
 
         IEnumerator DeferredActivateVessel(uint pid)
         {

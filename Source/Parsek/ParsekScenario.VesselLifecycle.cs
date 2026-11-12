@@ -569,12 +569,6 @@ namespace Parsek
         /// Returns true when a pending-tree recording still owns the named vessel and
         /// will later contribute ledger actions on commit.
         /// </summary>
-        internal static bool HasPendingLedgerRecordingForVessel(string vesselName)
-        {
-            return HasPendingLedgerRecordingForVessel(
-                RecoveredVesselIdentity.FromRawName(vesselName));
-        }
-
         internal static bool HasPendingLedgerRecordingForVessel(
             RecoveredVesselIdentity identity,
             uint vesselPid = 0)

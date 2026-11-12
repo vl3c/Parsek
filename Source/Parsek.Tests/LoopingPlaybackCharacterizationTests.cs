@@ -104,7 +104,6 @@ namespace Parsek.Tests
                     + " protected=" + protectedIndex.ToString(CultureInfo.InvariantCulture));
                 return Zone;
             }
-            public void ClearOrbitCache() => sink.Add("POS ClearOrbitCache");
         }
 
         private static string F(double v) => v.ToString("R", CultureInfo.InvariantCulture);

@@ -242,7 +242,6 @@ namespace Parsek
         private float candidateSince = -1f;
         private bool settled;
 
-        internal bool Settled => settled;
         internal int DroppedAttempts { get; private set; }
 
         /// <summary>Returns true once the queue is empty (the coroutine can stop).</summary>

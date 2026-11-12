@@ -94,7 +94,6 @@ namespace Parsek.Tests
                 sink.Add("POS ApplyZoneRendering #" + index);
                 return default(ZoneRenderingResult);
             }
-            public void ClearOrbitCache() => sink.Add("POS ClearOrbitCache");
         }
 
         private GhostPlaybackEngine NewEngine()

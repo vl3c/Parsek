@@ -391,16 +391,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Builds a set of all crew member names currently on loaded vessels.
-        /// Pure decision helper: extracted for testability.
-        /// </summary>
-        internal static HashSet<string> BuildExistingCrewSet()
-        {
-            return new HashSet<string>(BuildExistingCrewHolders().Keys);
-        }
-
-        /// <summary>
-        /// Same walk as <see cref="BuildExistingCrewSet"/> but keeps WHICH live vessel holds
+        /// Walks the loaded vessels for their crew names and keeps WHICH live vessel holds
         /// each kerbal (<c>"name" (pid=N)</c>), so the crew-dedup Warn can name the holder
         /// instead of saying only that the kerbal is "on a vessel in the scene". With the
         /// fleet preserved across a rewind, that holder is the whole diagnosis: it is the
@@ -456,10 +447,9 @@ namespace Parsek
         /// Both shapes are rescued; only reserved rescues feed the pid-scoped
         /// marker pipeline (no stand-in lifecycle exists for unreserved).</para>
         ///
-        /// <para>Mirrors the rescue branches in
-        /// <see cref="CrewReservationManager.ReserveCrewIn"/> and
+        /// <para>Mirrors the rescue branch in
         /// <see cref="CrewReservationManager.PlaceOrphanedReplacements"/> so
-        /// the three runtime paths agree on Missing-rescue semantics.</para>
+        /// the two runtime paths agree on Missing-rescue semantics.</para>
         ///
         /// <para>Guard: skip strictly Dead crew (Dead is permanent —
         /// <see cref="RemoveDeadCrewFromSnapshot"/> will strip them).</para>

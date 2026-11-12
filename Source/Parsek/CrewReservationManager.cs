@@ -59,77 +59,6 @@ namespace Parsek
             }
         }
 
-        internal static void ReserveCrewIn(ConfigNode snapshot, bool alreadySpawned, KerbalRoster roster)
-        {
-            if (snapshot == null || alreadySpawned)
-                return;
-
-            foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
-            {
-                foreach (string name in partNode.GetValues("crew"))
-                {
-                    bool found = false;
-                    foreach (ProtoCrewMember pcm in roster.Crew)
-                    {
-                        if (pcm.name != name) continue;
-                        found = true;
-
-                        // Skip dead crew — they're truly gone
-                        if (pcm.rosterStatus == ProtoCrewMember.RosterStatus.Dead)
-                            break;
-
-                        // Rescue Missing crew — they're alive but orphaned from a
-                        // removed vessel (e.g. --clean-start or manual save edits).
-                        // The recording will respawn them, so restore them first.
-                        // Stock's crew death marks the kerbal Dead and enters Missing only
-                        // when MissingCrewsRespawn is on (decompiled Part death path); that
-                        // respawn window is the recorded death's own hold (KerbalsModule,
-                        // owner ruling S8), and the dead kerbal's OWN recording never spawns
-                        // a vessel. A DIFFERENT recording that names him (a later flight, or
-                        // a re-fly that kills him later) can still spawn inside his Missing
-                        // window, and this rescue and VesselSpawner's
-                        // RescueReservedMissingCrewInSnapshot then seat him before stock's
-                        // respawn. The usual Missing here is stock's roster validation of an
-                        // orphaned kerbal (StartRespawnPeriod(2000)), which kills him at the
-                        // timer when respawn is off - the rescue prevents exactly that for a
-                        // kerbal the recording keeps alive.
-                        if (pcm.rosterStatus == ProtoCrewMember.RosterStatus.Missing)
-                        {
-                            pcm.rosterStatus = ProtoCrewMember.RosterStatus.Available;
-                            CrewLog($"Rescued Missing crew '{name}' → Available for reservation");
-                        }
-
-                        // Hire a replacement kerbal so the available pool stays constant.
-                        // This also handles crew who are already Assigned (e.g. on the pad
-                        // vessel after a revert) — they still need a replacement so the
-                        // swap can move them off the active vessel.
-                        if (!crewReplacements.ContainsKey(name))
-                        {
-                            try
-                            {
-                                ProtoCrewMember replacement = roster.GetNewKerbal(ProtoCrewMember.KerbalType.Crew);
-                                if (replacement != null)
-                                {
-                                    KerbalRoster.SetExperienceTrait(replacement, pcm.experienceTrait.TypeName);
-                                    crewReplacements[name] = replacement.name;
-                                    CrewLog($"Hired replacement '{replacement.name}' " +
-                                        $"(trait: {pcm.experienceTrait.TypeName}) for reserved '{name}'");
-                                }
-                            }
-                            catch (System.Exception ex)
-                            {
-                                CrewLog($"Failed to hire replacement for '{name}': {ex.Message}");
-                            }
-                        }
-
-                        break;
-                    }
-                    if (!found)
-                        CrewWarn($" Crew '{name}' not found in roster during reservation");
-                }
-            }
-        }
-
         /// <summary>
         /// Remove all Available replacement kerbals and clear the mapping.
         /// Called when wiping all recordings.
@@ -522,7 +451,7 @@ namespace Parsek
                 }
 
                 // Resolve replacement in the roster — must exist, not Dead, and
-                // not Missing (mirrors ReserveCrewIn's Missing-rescue pattern).
+                // not Missing (the shared Missing-rescue convention).
                 ProtoCrewMember replacement = null;
                 foreach (ProtoCrewMember pcm in roster.Crew)
                 {
@@ -549,7 +478,7 @@ namespace Parsek
                 }
                 if (placementCheck == StandInPlacementCheck.PlaceAfterMissingRescue)
                 {
-                    // Mirrors ReserveCrewIn (CrewReservationManager.cs:84-88): a
+                    // The shared Missing-rescue convention: a
                     // Missing reserved kerbal is alive but orphaned from a removed
                     // vessel. Rescue them by setting back to Available before
                     // placing them.
@@ -757,11 +686,6 @@ namespace Parsek
             int occupied = part.protoModuleCrew != null ? part.protoModuleCrew.Count : 0;
             int free = part.CrewCapacity - occupied;
             return free > 0 ? free : 0;
-        }
-
-        private static bool PartHasFreeSeat(Part part)
-        {
-            return PartFreeSeats(part) > 0;
         }
 
         #endregion
@@ -1023,11 +947,6 @@ namespace Parsek
         private static void CrewLog(string message)
         {
             ParsekLog.Info("CrewReservation", message ?? "(empty)");
-        }
-
-        private static void CrewWarn(string message)
-        {
-            ParsekLog.Warn("CrewReservation", message ?? "(empty)");
         }
 
         #endregion

@@ -122,15 +122,6 @@ namespace Parsek
                 mode);
         }
 
-        internal static bool BodyFixedPrimaryFramesCoverUT(
-            TrackSection section,
-            double playbackUT)
-        {
-            return DebrisRelativeCoveragePrimitives.BodyFixedPrimaryFramesCoverUT(
-                section.bodyFixedFrames,
-                playbackUT);
-        }
-
         private static ParentAnchoredDebrisCoverageDiagnostic BuildAuthoredCoverageDiagnostic(
             IPlaybackTrajectory traj,
             double playbackUT)

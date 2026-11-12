@@ -458,25 +458,6 @@ namespace Parsek
             return true;
         }
 
-        internal sealed class ReFlyDenseAbsolutePlaybackFrameCacheEntry
-        {
-            internal readonly List<TrajectoryPoint> Frames;
-            internal readonly int DenseFrameCount;
-            internal readonly string BuildReason;
-
-            internal ReFlyDenseAbsolutePlaybackFrameCacheEntry(
-                List<TrajectoryPoint> frames,
-                int denseFrameCount,
-                string buildReason)
-            {
-                Frames = frames;
-                DenseFrameCount = denseFrameCount;
-                BuildReason = buildReason;
-            }
-
-            internal bool Eligible => Frames != null && Frames.Count >= 2;
-        }
-
         internal static bool ShouldUseDenseReFlyAbsolutePlaybackFrames(
             List<TrackSection> trackSections,
             int sectionIdx,
@@ -911,21 +892,6 @@ namespace Parsek
             double nextDistance = Vector3d.Distance(currentOffset, nextOffset);
             return prevDistance >= RecordedRelativeOffsetSpikeMinDeviationMeters
                 && nextDistance >= RecordedRelativeOffsetSpikeMinDeviationMeters;
-        }
-
-        private static bool TryBuildRelativeAnchorResolverContext(
-            string recordingId,
-            out RelativeAnchorResolverContext context)
-        {
-            context = default;
-            if (!ParsekFlightGhostPositioner.TryFindRelativeAnchorFocusTree(recordingId, out RecordingTree focusTree))
-                return false;
-
-            context = BuildFlightRelativeAnchorResolverContext(
-                focusTree,
-                recordingId,
-                ParsekScenario.Instance?.ActiveReFlySessionMarker);
-            return true;
         }
     }
 }

@@ -252,7 +252,7 @@ namespace Parsek
             /// Walk loaded vessels (excluding the lightweight ghost-map ProtoVessels
             /// owned by <see cref="GhostMapPresence"/>) and return true if
             /// <paramref name="kerbalName"/> is on any of them. Mirrors the
-            /// "existing crew" set built by <see cref="VesselSpawner.BuildExistingCrewSet"/>
+            /// "existing crew" set built by <see cref="VesselSpawner.BuildExistingCrewHolders"/>
             /// but checks a single name without materializing the full set.
             ///
             /// <para>

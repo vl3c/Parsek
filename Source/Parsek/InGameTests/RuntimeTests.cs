@@ -6866,8 +6866,6 @@ namespace Parsek.InGameTests
             {
                 return new ZoneRenderingResult();
             }
-
-            public void ClearOrbitCache() { }
         }
 
         [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
@@ -7229,8 +7227,6 @@ namespace Parsek.InGameTests
             {
                 return new ZoneRenderingResult();
             }
-
-            public void ClearOrbitCache() { }
         }
 
         [InGameTest(Category = "GhostPlayback", Scene = GameScenes.FLIGHT,
@@ -23114,10 +23110,6 @@ namespace Parsek.InGameTests
             {
                 return new ZoneRenderingResult();
             }
-
-            public void ClearOrbitCache()
-            {
-            }
         }
 
         #endregion
@@ -24216,10 +24208,6 @@ namespace Parsek.InGameTests
                 return new ZoneRenderingResult();
             }
 
-            public void ClearOrbitCache()
-            {
-            }
-
             private static bool TryPositionFromFrames(
                 List<TrajectoryPoint> frames,
                 double ut,
@@ -24347,8 +24335,6 @@ namespace Parsek.InGameTests
             {
                 return new ZoneRenderingResult();
             }
-
-            public void ClearOrbitCache() { }
         }
 
         // ===================================================================

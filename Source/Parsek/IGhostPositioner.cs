@@ -94,7 +94,5 @@ namespace Parsek
 
         ZoneRenderingResult ApplyZoneRendering(int index, GhostPlaybackState state,
             IPlaybackTrajectory traj, double distance, double playbackUT, int protectedIndex);
-
-        void ClearOrbitCache();
     }
 }
