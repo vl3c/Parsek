@@ -24,7 +24,7 @@ go stale on every commit that touches `Source/`; regenerate before reading):
 | --- | --- |
 | `edges.json` | The module data: file counts and metrics, and every module edge with weight, `cyclic` and `upward` flags, referencing files and referenced type names. |
 | `types.json` | The type data: name, module, primary file, every file the type is declared in, kind, modifiers, bases, enclosing, role, level, knot, sublevel, fan-in, fan-out, references to and references from; plus a top-level `levels` summary with the max level and the count per level. |
-| `history.json` | The co-change history (see "Change history"): the window, per-file churn ranks, type hotspots, module commit counts, module-pair Jaccard, and the cross-module file pairs that keep changing together. |
+| `history.json` | The co-change history (see "Change history"): the anchor and the 30-day, 90-day and 18-month windows, the rename accounting, per-file churn ranks, type hotspots, module commit counts, module-pair Jaccard, the cross-module file pairs that keep changing together, and the change kinds of the merged PRs. |
 | `sizes.json` | The size view (see "Size view"): the largest files and types with their long methods, coroutines, static state (reassignable and readonly collections) and pure static pools, the growth column, and the rules that fired per type with a tier. |
 | `modules.dot`, `modules.svg` | Graphviz layered dependency graph of the production modules. |
 | `matrix.html` | Dependency structure matrix. |
@@ -333,7 +333,7 @@ type whose source file maps to a non-tooling module.
   x 1) x (1 + min(commits, 20) / 20) x (1 - 0.8 x line share)`
 
   where `commits` is the commits of the method's type's busiest source file in
-  the Atlas history window (18 months, the history's sweep rule: a commit
+  the Atlas history window (18 months, renames followed, the history's sweep rule: a commit
   touching more than 40 source files is left out), and `line share` is the
   method's line coverage from the snapshot below when the snapshot keeps the
   method, else its type's, and the factor is 1 when there is no snapshot.
@@ -1023,8 +1023,12 @@ later. It gates nothing: no check reads it, and no row can fail a PR.
   counts of "Static lifetimes", `headless`, the leak counts of "Headless
   modules", and `coverage`, the committed coverage snapshot's commit, date,
   line share and line share per module (null without a snapshot; the
-  snapshot's commit and date, not the row's), all additive keys) and `sizes` (`scripts/count-code.py`:
-  lines per area and the test totals). Nothing is measured by new logic: the
+  snapshot's commit and date, not the row's), all additive keys), `sizes` (`scripts/count-code.py`:
+  lines per area and the test totals) and `history` (additive: the "Change
+  history" anchor, rename accounting, and per window its start, commits,
+  units, fix units and units by kind, plus fix units per module for 90 days
+  and 18 months; null when the history was not measured, the kinds null when
+  only they were not). Nothing is measured by new logic: the
   row is those tools' own output, built in one process so `Parsek.dll` is
   disassembled and parsed once. Without a DLL the `semantic` and `facts`
   halves are null; without the test DLL `facts.testReach` is.
@@ -1507,18 +1511,76 @@ fails the check (the real-tree tests gate on some of it).
 ## Change history
 
 The module map says which files reference each other; `git log` says which
-files actually change together. `history.json` is built from a single
-`git log --no-merges --since=<18 months ago> --name-only -- Source/Parsek`
-call: only `.cs` files count, and a commit touching more than 40 source files
-is treated as a sweep (a rename or a bulk edit) and skipped, because it would
-dominate every co-change number. The payload records the window, the kept
-commit count, how many sweeps were skipped and the largest one, then five
-arrays:
+files actually change together, how often, and what kind of change it was.
+`history.json` is built from three windows over one history read, plus a
+change-kind pass over the merged pull requests.
 
-- **files**: commits and last-touched date per production file, with a churn
-  rank;
-- **hotspots**: `file commits * fan-in` for every production type, top 30,
-  which finds types that are both widely referenced and frequently edited.
+### The commit read and renames
+
+One `git log --no-merges --date-order -M -l0 --name-status -- Source/Parsek`
+call reads every commit since the long window's start (a two-day margin goes
+to git, because `--since` keeps the wall-clock time of day, and the exact cut
+is then made on the committer date). Only `.cs` files count. The walk runs
+newest first and keeps one map, old path to the path the file has at the
+commit read:
+
+- `R<score> old new` sends every OLDER commit of `old` to wherever `new` ends
+  up, so a file renamed twice resolves to its final name, and a module move
+  (`Ghost/X.cs` from `X.cs`) leaves the per-file counts, hotspots and module
+  tables exactly as they were. The rename commit itself counts as a change of
+  the file when it edited it (`R099` and below).
+- `R100` is a pure move and NOT a change: it is not counted for the file, and
+  a commit made only of pure moves is not counted at all ("pure-move commits
+  not counted"). It also never makes a sweep.
+- `A`, `D`, and the new side of an `R` or `C` end the identity for older
+  commits: a path deleted and created again later does not inherit the dead
+  file's history, and neither does a path reused by a rename.
+- The final path must exist at the commit read (`git ls-tree -r HEAD --
+  Source/Parsek`). A commit whose every changed file is deleted code is
+  dropped and counted ("commits dropped"); a commit that also touched a live
+  file keeps only the live ones. This also catches a file deleted on a
+  merged side branch, which `--no-merges` never shows as a `D`.
+- A commit changing more than 40 source files (`HISTORY_SWEEP_LIMIT`) is a
+  sweep (a rename wave or a bulk edit) and is skipped, because it would
+  dominate every co-change number; the count and the largest one are
+  recorded. Pure moves are not changes, so a wave of `R100` moves is never a
+  sweep.
+
+`git log --numstat` for the growth column reads the same way (`-M -l0`, both
+`old => new` and `dir/{a => b}/f.cs` path forms parsed) and resolves through
+the same map, so a renamed file's growth follows it.
+
+**Splits are not renames.** A partial file born beside its base
+(`ParsekFlight.MergeFlow.cs` next to `ParsekFlight.cs`) is a new file: its
+history starts at its first commit, and everything before the split stays
+with the base. The split is counted, not followed ("Splits not followed": the
+partial files, the base files, and the commits the bases took before their
+first split). Copy detection was measured on 2026-11-12 and rejected: `-C`
+and `-C -C` both find the same 10 copies in the window and no more renames
+(25 either way), all of them a Phase B lift or a large extraction scoring
+55-79% (`ParsekFlight.Spawning.cs` to `ParsekFlightSpawnHost.cs`, `ParsekUI.cs`
+to `UI/RecordingsTableUI.cs`); crediting the source's history to the copy
+would count each commit twice, `-C -C` costs about 24 s of git time, and a
+copy is a split by another name.
+
+### The windows
+
+Three windows, all anchored to the committer date of the commit read, never
+to the wall clock, so a rebuild of an old commit reads the same numbers:
+**30 days** and **90 days** (from the anchor minus 30 / 90 days) and **18
+months** (from the first day of the month 18 months before the anchor, the
+window the co-change pairs, the module table and item 7's ranking read). The
+page and `--check` both print the anchor and the three starts. The windows
+are nested; each window's commit count is every kept commit in it.
+
+The payload records the anchor, the windows, the kept commit count, the
+sweeps, the rename accounting, and these arrays:
+
+- **files**: commits per production file in each window, last-touched date,
+  and a churn rank (18 months);
+- **hotspots**: `file commits * fan-in` for every production type, top 30
+  (18 months), with the 30- and 90-day products beside it, which finds types
+  that are both widely referenced and frequently edited.
   For a partial class, `file commits` is the **union** of the commits that
   touched any file the type is declared in: a commit that edited two parts of
   the same type counts once, where summing the per-file counts would count it
@@ -1528,22 +1590,111 @@ arrays:
   hotspot reading came to say almost nothing about them. A file that declares
   several types lends its commits to each of them, so two types in one file
   carry the same commit count;
-- **modules**: commits touching each module;
+- **modules**: commits touching each module, per window;
 - **modulePairs**: for every production pair, the commits touching both, the
-  union, and their Jaccard ratio;
+  union, and their Jaccard ratio (18 months);
 - **filePairs**: the top 40 cross-module file pairs with at least 5 shared
-  commits - files the map calls separate that keep changing together.
+  commits - files the map calls separate that keep changing together;
+- **windows**: per window, its start, commit count and the top 15 files and
+  hotspots.
 
-Tooling modules are excluded everywhere. If git is missing or the window is
-empty, the commit count is zero and the tables carry no counts; the checker
-and the atlas say so instead of failing. A co-change number is evidence, not a
-verdict: two files can share commits because one change touches both sides of
-a real boundary, and that is what the list is for.
+Tooling modules are excluded everywhere. A co-change number is evidence, not
+a verdict: two files can share commits because one change touches both sides
+of a real boundary, and that is what the list is for.
 
-`--check` prints the HISTORY section after ATLAS. The atlas has a "What
-changes together" section between "Where the layering breaks" and "Largest
-files and types" with the top 10 module pairs, top 10 cross-module file pairs
-and top 10 hotspots.
+### Change kinds
+
+A commit count says how often a file changed, not why. The change-kind pass
+reads the first-parent chain of the commit read
+(`git log --first-parent --diff-merges=first-parent -M --name-status`): each
+first-parent commit is one **unit**, a PR merge (`Merge pull request #N`, the
+PR title the body's first line, the PR's file set its first-parent diff), a
+direct commit, or any other merge ("merge", a branch synced with main). Its
+kind comes from the CHANGELOG lines the unit added, else from its paths.
+
+**CHANGELOG lines.** A second call reads every unit's `CHANGELOG.md` patch
+(`-U0 --no-renames`) from the first commit and rebuilds the file oldest
+first; each added line is placed in the post-image, so its `###` section is
+the one it was really added under, even inside a hunk that shows no heading.
+The rebuild must equal `git cat-file -p HEAD:CHANGELOG.md` byte for byte;
+when it does not (a history rewrite, an unreadable patch) the kinds read
+"not measured", never a guess. Sections, matched on the lower-cased heading,
+first match wins:
+
+| Heading | Kind |
+|---|---|
+| `Highlights` | ignored (it repeats entries listed elsewhere) |
+| contains `fix` (`Fixed`, `Bug Fixes`, `Fixes`) | fix |
+| `Added`, `Features`, `New Features` | feature |
+| `Changed`, `Enhancements`, `Improvements`, `Breaking Changes`, `UI`, `Settings`, `Defaults`, or contains `improvements` | change |
+| `Dev`, `Internals`, `Tests`, `Test coverage`, `Documentation`, `Developer tools`, `Code quality`, `Code refactor`, `Architecture`, `Maintenance`, `Log hygiene`, `Log cleanup` | dev |
+| anything else (the early topic headings) | other |
+
+A bullet whose bold lead says it is dev work (`- **Dev: ...**`,
+`**Automated testing:**`, `**Harness:**`, `**Tests:**`, `**Tooling:**`,
+`**Internal:**`, `**Housekeeping:**` and their variants) is dev whatever
+section holds it. A unit that added lines under several kinds carries all of
+them; its **primary** kind is the first in fix > feature > change > dev >
+other.
+
+**Paths, when the unit added no CHANGELOG line.** Every path the unit touched
+falls in one class: docs (`*.md`, `docs/`, `LICENSE`), tests
+(`Source/Parsek.Tests/`, `Source/Parsek/InGameTests/`), harness (`harness/`),
+code (the rest of `Source/Parsek/`, `GameData/`), tooling (everything else).
+Production code with no CHANGELOG line is **unlabelled** (counted honestly,
+never guessed). Otherwise docs are set aside (docs move with every change);
+one remaining class names the kind (tests, harness, tooling), none leaves
+docs, two or more is mixed, and a unit with no path is empty.
+
+A **fix unit** is one whose kinds include fix, whatever its primary kind.
+Units are attributed to the current names of the Source/Parsek files they
+changed (renames followed over the first-parent chain, pure moves not
+counted, more than 40 source files a sweep counted by kind but attributed
+nowhere). The Atlas history section and `--check` show the units per window
+by kind, "where fixes land" (fix units, units and commits per module, 90 days
+and 18 months) and the top files by fix units. All of it is report only:
+nothing pins a kind count, because a wording change in one CHANGELOG entry
+moves it.
+
+### Not measured
+
+A shallow clone (`git rev-parse --is-shallow-repository`), a missing git, or
+a failed read gives "not measured" with the reason, in `history.json`, the
+Atlas, `--check` and the metrics row (`history: null`), never a table of
+zeros. CI checks out with `fetch-depth: 0`.
+
+### Known limits
+
+- `--no-merges --date-order` walks a side branch's commits in committer-date
+  order, not topologically: a rename on one branch and an edit of the old
+  name on a parallel branch that lands later in date order would not be
+  followed. The 2026-11-12 read found no such pair. A file deleted only by
+  a merge commit (never a `D` row under `--no-merges`) is caught by the
+  alive filter, not by the walk.
+- The walk sees no ancestry, so a path two parallel branches each created
+  reads like a re-created path: the newer add ends the identity and the
+  other branch's older commits on it are dropped. The 2026-11-12 read has 7
+  such paths (`TrackSection.cs`, `SegmentEvent.cs`, `KerbalEndState.cs`,
+  `KerbalsModule.cs` and three in `GameActions/`), 10 commits in all. Telling
+  the two apart needs the merge topology; a path deleted and created again
+  (the other 6 files that read fewer commits than before renames were
+  followed) is the case the rule is for.
+- A first-parent merge that is not a PR merge ("merge") carries everything
+  the other side brought in, so its paths are broad; there was one in 18
+  months.
+- On a pull request's CI the commit read is the merge ref, which is itself a
+  unit with the PR's whole diff.
+- The CHANGELOG is the only kind source: a fix PR whose entry was filed under
+  Changed counts as change, and a production PR without an entry is
+  unlabelled.
+
+`--check` prints the HISTORY section after ATLAS: the anchor and windows, the
+rename accounting, the 30- and 90-day top files and hotspots, the 18-month
+hotspots, pairs and forbidden-edge co-changes, then the change kinds. The
+atlas has a "What changes together" section between "Where the layering
+breaks" and "Largest files and types": the busiest files and the hotspots
+with three window columns, the module pairs and cross-module file pairs, the
+change kinds table, "where fixes land" per module and the top fix files.
 
 ## Size view
 
@@ -1627,8 +1778,9 @@ Per type, with partials merged (every part of `ParsekFlight` is one row):
   anything it cannot delimit confidently is skipped and counted here; `--check`
   prints the total (1 across the current tree).
 - **growth**: net lines added (`added - deleted`) in the history window, from
-  one extra `git log --numstat` call over `Source/Parsek`, summed over the
-  type's files. Binary rows, rename rows and sweep commits (more than 40
+  one extra `git log --numstat -M` call over `Source/Parsek`, summed over the
+  type's files. A renamed file's rows follow it to its current name (the
+  change history's rename map); binary rows and sweep commits (more than 40
   source files, the same rule the co-change history uses) are ignored. With
   git missing the column reads `n/a` and nothing else changes.
 

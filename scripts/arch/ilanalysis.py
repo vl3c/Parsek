@@ -1345,16 +1345,16 @@ def coverage_module():
 
 def history_churn(facts, source=None, repo_root=None, since=None):
     """{since, commits, typeCommits} for the risk table: the Atlas history's
-    window and sweep rule (archview.git_log_lines / parse_history), each file's
-    commits, and each type's busiest file through a scan of the source tree.
-    None when git gives nothing (no repository, no git)."""
-    since = since or archview.default_since()
-    text = archview.git_log_lines(repo_root or archview.REPO_ROOT, since)
-    if not text:
+    window, sweep and rename rules (archview.read_commit_history, every file
+    under its current name), each file's commits, and each type's busiest file
+    through a scan of the source tree. None when the history is not measured
+    (no repository, no git, a shallow clone)."""
+    history = archview.read_commit_history(repo_root or archview.REPO_ROOT, since=since)
+    if not history.get("measured"):
         return None
-    commits = archview.parse_history(text)["commits"]
+    commits = history["parsed"]["commits"]
     table = ilfacts.source_type_files(source or (archview.REPO_ROOT / archview.DEFAULT_SOURCE))
-    return {"since": since, "commits": len(commits),
+    return {"since": history["since"], "commits": len(commits),
             "typeCommits": type_commits(facts["types"], table, file_commit_counts(commits))}
 
 

@@ -23,7 +23,10 @@ code facts:
   reach when the test DLL is given, the headless modules' leaks (headless.py)
   over the same game reach, lifetimes.py's summary over the same facts, and
   the committed coverage snapshot (coverage.py) when there is one;
-- sizes: scripts/count-code.py (its `collect`).
+- sizes: scripts/count-code.py (its `collect`);
+- history: archview.read_history at the row's commit (the first-parent chain
+  and the windows anchored to that commit's own committer date, so a commit
+  always gives the same numbers; no numstat read).
 
 An input that is not given (no --dll, no --tests-dll) leaves its half null;
 an input that is given but cannot be measured raises, because a tool that
@@ -38,6 +41,7 @@ renamed or removed key bumps the schema id). Shares are fractions rounded to
     measured.text / .sizes    always true in a row the CLI writes
     measured.il               Parsek.dll was measured (semantic and facts set)
     measured.testsDll         Parsek.Tests.dll was measured (facts.testReach set)
+    measured.history          the change history was measured (history set; additive)
     text.modules              production modules (tooling ones excluded)
     text.toolingModules       tooling modules
     text.productionFiles      production .cs files placed by modules.toml
@@ -97,6 +101,13 @@ renamed or removed key bumps the schema id). Shares are fractions rounded to
     sizes.areas.<area>        {files, lines, code} per count-code.py area name
     sizes.filesOutsideAreas   tracked code-like files outside every area
     sizes.tests               count-code.py's test totals, its key names
+    history                   the change history at the commit (archview.read_history,
+                              README "Change history"; additive): null when not measured
+                              (no git, a shallow clone), else {anchor, renames, moves,
+                              dropped, skippedSweeps, windows.<30d|90d|18m>: {since,
+                              commits, units, fixUnits, kinds.<kind>}, fixUnitsByModule.
+                              <90d|18m>.<M>}; units, fixUnits and kinds are null when the
+                              change kinds were not measured
 
 Pure functions build each half from the tool outputs; `main` is the I/O shell.
 """
@@ -344,7 +355,42 @@ def sizes_section(counts):
     }
 
 
-def build_row(sha, date, text=None, semantic=None, facts=None, sizes=None, tests_dll=False):
+def history_section(history):
+    """The change history's numbers from archview.read_history's payload (None
+    or not measured gives None)."""
+    if not history or not history.get("measured"):
+        return None
+    kinds = history.get("changeKinds") or {}
+    measured_kinds = bool(kinds.get("measured"))
+    windows = {}
+    for key in archview.HISTORY_WINDOWS:
+        window = (history.get("windows") or {}).get(key) or {}
+        units = (kinds.get("windows") or {}).get(key) if measured_kinds else None
+        windows[key] = {
+            "since": window.get("since"),
+            "commits": window.get("commits"),
+            "units": units["units"] if units else None,
+            "fixUnits": units["fixUnits"] if units else None,
+            "kinds": dict(units["kinds"]) if units else None,
+        }
+    by_module = None
+    if measured_kinds:
+        by_module = {
+            key: {row["name"]: row["byWindow"][key]["fix"] for row in kinds.get("modules", [])}
+            for key in ("90d", "18m")
+        }
+    return {
+        "anchor": history.get("anchor"),
+        "renames": history.get("renames"),
+        "moves": history.get("moves"),
+        "dropped": history.get("dropped"),
+        "skippedSweeps": history.get("skippedSweeps"),
+        "windows": windows,
+        "fixUnitsByModule": by_module,
+    }
+
+
+def build_row(sha, date, text=None, semantic=None, facts=None, sizes=None, tests_dll=False, history=None):
     """The row from its already-built halves; a None half stays null.
 
     `tests_dll` says whether `facts` was measured with the test DLL.
@@ -360,11 +406,13 @@ def build_row(sha, date, text=None, semantic=None, facts=None, sizes=None, tests
             "sizes": sizes is not None,
             "il": semantic is not None and facts is not None,
             "testsDll": bool(tests_dll and facts is not None),
+            "history": history is not None,
         },
         "text": text,
         "semantic": semantic,
         "facts": facts,
         "sizes": sizes,
+        "history": history,
     }
 
 
@@ -395,11 +443,12 @@ def load_count_code(path=COUNT_CODE):
 
 
 def row_from_tools(sha, date, model, forbidden, semantic_result=None, report=None, counts=None,
-                   tests_dll=False, layer_table=None):
+                   tests_dll=False, layer_table=None, history=None):
     """The row from the tools' own results: an archview model and its [forbidden]
-    specs, a semantic.build result, an ilanalysis.report result and a
-    count-code collect() payload (None leaves that half null). `layer_table` is
-    the `[layers]` table of modules.toml (None leaves both `layers` keys null).
+    specs, a semantic.build result, an ilanalysis.report result, a
+    count-code collect() payload and an archview.read_history payload (None
+    leaves that half null). `layer_table` is the `[layers]` table of
+    modules.toml (None leaves both `layers` keys null).
 
     The CLI builds the inputs itself (`measure`); CI's compiled-IL step hands in
     the ones its other real-tree cells already built in the same process.
@@ -412,6 +461,7 @@ def row_from_tools(sha, date, model, forbidden, semantic_result=None, report=Non
         facts_section(report) if report is not None else None,
         sizes_section(counts) if counts is not None else None,
         tests_dll=tests_dll,
+        history=history_section(history),
     )
 
 
@@ -453,9 +503,10 @@ def measure(sha, date, dll=None, tests_dll=None, source=archview.DEFAULT_SOURCE,
         report["lifetimes"] = lifetimes.summary(lifetimes.analyse_facts(facts, tooling, tests_dll))
     import layers  # noqa: PLC0415
 
+    history, _growth = archview.read_history(archview.REPO_ROOT, model, rules, rev=sha, growth=False)
     return row_from_tools(sha, date, model, forbidden, semantic_result, report,
                           load_count_code().collect(), tests_dll=bool(tests_dll),
-                          layer_table=layers.load_layers(modules))
+                          layer_table=layers.load_layers(modules), history=history)
 
 
 def main(argv=None):

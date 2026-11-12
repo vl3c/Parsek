@@ -112,6 +112,32 @@ def fixture_counts():
     }
 
 
+def fixture_history():
+    """An archview.read_history payload, cut to the keys the row reads."""
+    def window(units, fix, kinds):
+        return {"units": units, "fixUnits": fix, "kinds": kinds}
+
+    def by_window(fix90, fix18):
+        return {"30d": {"fix": 0}, "90d": {"fix": fix90}, "18m": {"fix": fix18}}
+
+    return {
+        "measured": True,
+        "anchor": "2026-11-11",
+        "renames": 4, "moves": 2, "dropped": 3, "skippedSweeps": 1,
+        "windows": {"30d": {"since": "2026-10-12", "commits": 5},
+                    "90d": {"since": "2026-08-13", "commits": 12},
+                    "18m": {"since": "2025-05-01", "commits": 40}},
+        "changeKinds": {
+            "measured": True,
+            "windows": {"30d": window(3, 1, {"fix": 1, "docs": 2}),
+                        "90d": window(7, 2, {"fix": 2, "feature": 5}),
+                        "18m": window(20, 7, {"fix": 7, "feature": 13})},
+            "modules": [{"name": "Core", "byWindow": by_window(2, 6)},
+                        {"name": "UI", "byWindow": by_window(0, 1)}],
+        },
+    }
+
+
 # Core below UI: Alpha -> Beta runs backward, Beta -> Alpha down.
 FIXTURE_LAYERS = {"order": ["low", "high"], "modules": {"low": ["Core"], "high": ["UI"]}}
 
@@ -130,10 +156,13 @@ def full_row(with_tests=True):
 class RowBuilderTests(unittest.TestCase):
     def test_top_level_keys_and_identity(self):
         row = full_row()
-        self.assertEqual(sorted(row), ["commit", "facts", "measured", "schema", "semantic", "sizes", "text"])
+        self.assertEqual(sorted(row),
+                         ["commit", "facts", "history", "measured", "schema", "semantic", "sizes", "text"])
         self.assertEqual(row["schema"], "parsek-metrics/1")
         self.assertEqual(row["commit"], {"sha": SHA, "date": "2026-11-11T17:42:00Z"})
-        self.assertEqual(row["measured"], {"text": True, "sizes": True, "il": True, "testsDll": True})
+        self.assertEqual(row["measured"], {"text": True, "sizes": True, "il": True, "testsDll": True,
+                                           "history": False})
+        self.assertIsNone(row["history"])
 
     def test_text_section(self):
         text = full_row()["text"]
@@ -255,7 +284,8 @@ class RowBuilderTests(unittest.TestCase):
                                 None, None, metrics.sizes_section(fixture_counts()), tests_dll=True)
         self.assertIsNone(row["semantic"])
         self.assertIsNone(row["facts"])
-        self.assertEqual(row["measured"], {"text": True, "sizes": True, "il": False, "testsDll": False})
+        self.assertEqual(row["measured"], {"text": True, "sizes": True, "il": False, "testsDll": False,
+                                           "history": False})
         json.loads(metrics.dumps(row))
 
     def test_output_is_deterministic(self):
@@ -281,6 +311,30 @@ class RowBuilderTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 metrics.build_row(bad, "2026-11-11T17:42:00Z")
         self.assertEqual(metrics.build_row(SHA.upper(), "2026-11-11T17:42:00Z")["commit"]["sha"], SHA)
+
+    def test_the_history_section(self):
+        section = metrics.history_section(fixture_history())
+        self.assertEqual(section["anchor"], "2026-11-11")
+        self.assertEqual((section["renames"], section["moves"], section["dropped"], section["skippedSweeps"]),
+                         (4, 2, 3, 1))
+        self.assertEqual(sorted(section["windows"]), ["18m", "30d", "90d"])
+        self.assertEqual(section["windows"]["30d"], {"since": "2026-10-12", "commits": 5, "units": 3,
+                                                     "fixUnits": 1, "kinds": {"fix": 1, "docs": 2}})
+        self.assertEqual(section["windows"]["18m"]["commits"], 40)
+        self.assertEqual(section["fixUnitsByModule"], {"90d": {"Core": 2, "UI": 0}, "18m": {"Core": 6, "UI": 1}})
+        row = metrics.build_row(SHA, "2026-11-11T17:42:00Z", history=section)
+        self.assertTrue(row["measured"]["history"])
+        self.assertEqual(json.loads(metrics.dumps(row))["history"], section)
+
+    def test_the_history_section_says_what_was_not_measured(self):
+        self.assertIsNone(metrics.history_section(None))
+        self.assertIsNone(metrics.history_section({"measured": False, "reason": "shallow clone"}))
+        history = fixture_history()
+        history["changeKinds"] = {"measured": False, "reason": "CHANGELOG rebuild did not match HEAD"}
+        section = metrics.history_section(history)
+        self.assertEqual(section["windows"]["90d"], {"since": "2026-08-13", "commits": 12, "units": None,
+                                                     "fixUnits": None, "kinds": None})
+        self.assertIsNone(section["fixUnitsByModule"])
 
     def test_the_size_counts_come_from_count_code(self):
         module = metrics.load_count_code()
@@ -728,7 +782,8 @@ class RealTreeRowTests(unittest.TestCase):
 
     def test_every_half_is_measured(self):
         row = self.row
-        self.assertEqual(row["measured"], {"text": True, "sizes": True, "il": True, "testsDll": False})
+        self.assertEqual(row["measured"], {"text": True, "sizes": True, "il": True, "testsDll": False,
+                                           "history": False})
         for half in ("text", "semantic", "facts", "sizes"):
             self.assertIsInstance(row[half], dict, half)
 

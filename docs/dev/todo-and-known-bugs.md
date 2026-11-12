@@ -2789,6 +2789,23 @@ compare).
   `facts.coverage` (plus `facts.testReach.types`, both additive). No snapshot is committed yet:
   everything says "not measured" until the Windows run is regenerated with this reader (README ->
   "Coverage snapshot").
+- 2026-11-12 (history follows renames, A6): the change history reads one `git log -M
+  --name-status` and follows renames newest first to each file's current name (renamed twice
+  resolves to the last name; `R100` is a pure move, not a change; an add or delete ends a path's
+  identity, so a re-created path does not inherit the dead file's commits; commits on deleted code
+  only are dropped and counted). Growth's numstat follows the same map. Splits are counted, not
+  followed, and copy detection was measured and rejected (`-C` / `-C -C`: the same 10 copies, all
+  Phase B lifts, no extra renames). At bb61f3fcd: 6206 -> 6146 commits (60 dropped), 25 renames,
+  94 commits credited to 21 files (`ParsekFlight.cs` +26, `CommittedListOptimizer.cs` +15), the
+  18-month top 10 files and hotspots unchanged apart from `ParsekFlight` (1305 -> 1331), item 7's
+  top 25 unchanged. Windows of 30 days, 90 days and 18 months, anchored to the commit's committer
+  date, sit side by side in the Atlas and `--check`. A change-kind pass classifies each
+  first-parent unit (PR merge or direct commit) by the CHANGELOG sections it added lines under
+  (rebuilt from the patches and checked against the file, else not measured), else by its paths
+  (production code with no entry is "unlabelled": 384 of 2570 units in 18 months), and reports
+  where fixes land per module (report only). The metrics row gains an additive `history` key.
+  Known limit: a path two parallel branches each created loses the older branch's commits (7
+  paths, 10 commits). README -> "Change history".
 
 **Fix.**
 1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same
