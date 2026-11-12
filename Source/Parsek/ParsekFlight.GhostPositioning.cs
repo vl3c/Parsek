@@ -318,6 +318,110 @@ namespace Parsek
             return (ghostRot, boundaryWorldRot);
         }
 
+        /// <summary>
+        /// The orbital-checkpoint anchor pose (<see cref="TryResolveOrbitalAnchorPose"/>) the
+        /// relative-anchor hosts hand <see cref="RelativeAnchorResolverContext"/>: the stock
+        /// <c>Orbit</c> position and orbital-frame rotation of the first checkpoint segment
+        /// whose closed range covers <paramref name="ut"/>. False when no segment covers it or
+        /// that segment's body does not resolve (a later covering segment is not tried).
+        /// <c>Orbit.getPositionAtUT</c> places the conic through the CURRENT
+        /// <c>Planetarium.Zup</c> and body position, so the pose is the anchor's world pose at
+        /// <paramref name="ut"/> only when <paramref name="ut"/> is the current game time.
+        /// </summary>
+        internal static bool TryResolveOrbitalCheckpointAnchorPose(
+            Recording recording,
+            TrackSection section,
+            int sectionIndex,
+            double ut,
+            out AnchorPose pose)
+        {
+            pose = default;
+            int index = TrajectoryMath.FindFirstOrbitSegmentIndexClosed(section.checkpoints, ut);
+            if (index < 0)
+                return false;
+
+            OrbitSegment segment = section.checkpoints[index];
+            return TryComputeOrbitalCheckpointAnchorPose(
+                recording,
+                segment,
+                FindBodyForAnchorResolver(segment.bodyName),
+                sectionIndex,
+                ut,
+                out pose);
+        }
+
+        /// <summary>
+        /// The pose half of <see cref="TryResolveOrbitalCheckpointAnchorPose"/> for an already
+        /// picked <paramref name="segment"/> and its resolved <paramref name="body"/> (false
+        /// for a null body), for a host that resolves the body through its own lookup.
+        /// </summary>
+        internal static bool TryComputeOrbitalCheckpointAnchorPose(
+            Recording recording,
+            OrbitSegment segment,
+            CelestialBody body,
+            int sectionIndex,
+            double ut,
+            out AnchorPose pose)
+        {
+            pose = default;
+            if (body == null)
+                return false;
+
+            Orbit orbit = new Orbit(
+                segment.inclination,
+                segment.eccentricity,
+                segment.semiMajorAxis,
+                segment.longitudeOfAscendingNode,
+                segment.argumentOfPeriapsis,
+                segment.meanAnomalyAtEpoch,
+                segment.epoch,
+                body);
+            Vector3d worldPos = orbit.getPositionAtUT(ut);
+            Vector3d velocity = orbit.getOrbitalVelocityAtUT(ut);
+            var rotation = ComputeOrbitalRotation(
+                segment,
+                orbit,
+                ut,
+                velocity,
+                worldPos,
+                body.position,
+                Quaternion.identity,
+                sectionIndex,
+                TrajectoryMath.HasOrbitalFrameRotation(segment),
+                TrajectoryMath.IsSpinning(segment));
+
+            pose = new AnchorPose(
+                worldPos,
+                rotation.ghostRot,
+                sectionIndex,
+                recording?.RecordingId);
+            return true;
+        }
+
+        /// <summary>
+        /// The body lookup the relative-anchor hosts share: the first live
+        /// <c>FlightGlobals.Bodies</c> entry named <paramref name="bodyName"/>
+        /// (<c>CelestialBody.name</c> returns <c>bodyName</c>), or null for an empty name or
+        /// when <c>FlightGlobals</c> cannot initialize (headless). Any other exception
+        /// propagates. Kept out of line so the <c>FlightGlobals</c> read stays in its own
+        /// frame on every JIT.
+        /// </summary>
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        internal static CelestialBody FindBodyForAnchorResolver(string bodyName)
+        {
+            if (string.IsNullOrEmpty(bodyName))
+                return null;
+
+            try
+            {
+                return FlightGlobals.Bodies?.Find(b => b != null && b.name == bodyName);
+            }
+            catch (TypeInitializationException)
+            {
+                return null;
+            }
+        }
+
         internal static bool TryResolvePlaybackDistanceReferencePosition(
             Vector3d? cameraAnchorWorldPosition,
             Vector3d? cameraWorldPosition,

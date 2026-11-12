@@ -563,7 +563,7 @@ namespace Parsek
                 pendingTree: PendingTreeSlot.HasPendingTree ? PendingTreeSlot.PendingTree : null,
                 absoluteWorldPositionResolver: ParsekFlightPlaybackHost.ResolveAnchorResolverPointWorldPosition,
                 bodyWorldRotationResolver: ParsekFlightPlaybackHost.ResolveAnchorResolverBodyWorldRotation,
-                orbitalCheckpointPoseResolver: ParsekFlightPlaybackHost.TryResolveFlightOrbitalAnchorPose,
+                orbitalCheckpointPoseResolver: TryResolveOrbitalCheckpointAnchorPose,
                 tryResolveLiveAnchorTransform: TryGetLiveAnchorTransformDelegate(),
                 tryResolveLiveLaunchMatchedAnchorPose: TryResolveLiveLaunchMatchedAnchorPoseForResolver);
         }

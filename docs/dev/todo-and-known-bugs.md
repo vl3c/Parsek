@@ -75,8 +75,16 @@ propagator against a live body and assert `0 < |eps| < 5 m`. RW-5 / RW-6 / RW-7 
 **Left open.** (1) Live proof: an RW-5 / 6 / 7 flight with zero `exceeds bubble radius` lines and a
 `DAG walk summary` whose `boundaryInstantMaxEpsilonM=` reads metres, equal at both rebuilds.
 (2) Residuals of the same defect class, still on the resolver path: SoiTransition (cross-body, needs
-the other body's ephemeris; zero candidates on the fixture) and RelativeBoundary's orbital-anchor
-branch (`TryResolveOrbitalAnchorPose`, anchor on rails at the boundary). (3) A Bubble boundary whose
+the other body's ephemeris; zero candidates on the fixture; its Kepler side is
+`TrajectoryMath.EvaluateOrbitSegmentAtUT` through `TryResolveCheckpointSideWorldPos`) and
+RelativeBoundary's orbital-anchor branch (anchor on rails at the boundary). The second is the
+shared orbital-checkpoint anchor pose (`ParsekFlight.TryResolveOrbitalCheckpointAnchorPose` /
+`TryComputeOrbitalCheckpointAnchorPose`, 2026-11-12 one implementation for all five relative-anchor
+hosts): it places stock `Orbit.getPositionAtUT(ut)` through the CURRENT Zup and body position.
+The two recorders ask at the current UT, and flight / map / KSC playback ask at the playback UT,
+the same convention playback uses for every orbital-checkpoint ghost; it is mixed-frame only where
+the render-anchor rebuild compares its answer, at a past boundary UT, with body-fixed data.
+(3) A Bubble boundary whose
 physics neighbour is a Relative section is deferred (`relative-section-deferred`), as before.
 (4) The warning fires once per rebuild rather than once per anchor per session.
 

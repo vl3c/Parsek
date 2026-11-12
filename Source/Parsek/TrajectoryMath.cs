@@ -146,6 +146,30 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The index of the first segment whose CLOSED range <c>[startUT, endUT]</c> covers
+        /// <paramref name="ut"/>, or -1 when none does or the list is null. Unlike
+        /// <see cref="FindOrbitSegmentIndex"/> every segment is closed at both ends, and a
+        /// non-finite <paramref name="ut"/> is not rejected: a NaN fails both comparisons and
+        /// so reads as covered by the first segment. This is the orbital-checkpoint anchor
+        /// pose's segment pick (<see cref="ParsekFlight.TryResolveOrbitalCheckpointAnchorPose"/>).
+        /// </summary>
+        internal static int FindFirstOrbitSegmentIndexClosed(List<OrbitSegment> segments, double ut)
+        {
+            if (segments == null || segments.Count == 0)
+                return -1;
+
+            for (int i = 0; i < segments.Count; i++)
+            {
+                OrbitSegment segment = segments[i];
+                if (ut < segment.startUT || ut > segment.endUT)
+                    continue;
+                return i;
+            }
+
+            return -1;
+        }
+
+        /// <summary>
         /// The index <c>segments.IndexOf(segments[foundIndex])</c> returns, for a
         /// <paramref name="foundIndex"/> from <see cref="FindOrbitSegmentIndex"/> at
         /// <paramref name="ut"/>, without its per-element boxing on the common path
