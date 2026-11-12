@@ -242,7 +242,7 @@ Vessel respawn uses `ProtoVessel` injection into `flightState.protoVessels`. Rec
 When a kerbal is reserved for a deferred vessel spawn ("Merge to Timeline"), they're marked as `Assigned` and become unavailable in the VAB/SPH. To prevent the player from running out of crew, the system automatically hires a replacement kerbal with the same trait (Pilot/Engineer/Scientist).
 
 **Lifecycle:**
-1. **Reserve** - `ReserveCrewIn()` sets kerbal to Assigned, hires replacement via `roster.GetNewKerbal()`, stores mapping in `crewReplacements[originalName] = replacementName`
+1. **Reserve** - `KerbalsModule.ApplyToRoster` sets kerbal to Assigned, hires replacement via `roster.GetNewKerbal()`, stores mapping through `CrewReservationManager.SetReplacement` in `crewReplacements[originalName] = replacementName`
 2. **Unreserve** - `UnreserveCrewInSnapshot()` sets kerbal back to Available, calls `CleanUpReplacement()`:
    - If replacement is still Available (unused) → removed from roster
    - If replacement is Assigned (player put them on a mission) → kept as a "real" kerbal
