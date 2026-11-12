@@ -109,6 +109,7 @@ from __future__ import annotations
 import bisect
 import json
 import re
+from datetime import datetime, timezone
 from collections import Counter, defaultdict
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -128,6 +129,11 @@ REGRESSION_MIN_PRIOR = 3
 REGRESSION_GROWTH = 1.3
 # Hash prefixes a row keeps: enough to name a commit / a DLL build, not more.
 DERIVED_KEYS = ("final", "byRetry", "retryOf")
+# A run known only from a collect-logs snapshot (see "Snapshot imports" below).
+SNAPSHOT_ORIGIN = "snapshot"
+SNAPSHOT_VERDICT = "NOT-PASS"
+SNAPSHOT_SCHEMA = "parsek-run-snapshot/1"
+SNAPSHOT_FILE_NAME = "snapshot.json"
 # How long after attempt N-1 ENDED its retry may start and still link to it.
 # Pipelined, the retry flies after the lane that was in flight when attempt
 # N-1's verdict arrived, so the gap is one whole lane (its budget plus staging,
@@ -586,6 +592,259 @@ def build_row(run_id: str, result: Optional[Dict], manifest: Optional[Dict],
     return row, None
 
 
+# ---------------------------------------------------------------------------
+# Snapshot imports. Before the results archive existed, the harness ran
+# ``scripts/collect-logs.py`` for every non-PASS run; the snapshot folders it
+# wrote (``<logs>/<local YYYY-MM-DD_HHMM>_<scenarioId>/``) outlived the result
+# JSONs of deleted worktrees. ``run_index.py import-snapshots`` copies each
+# harness snapshot's KSP.log into the archive beside a ``snapshot.json``
+# marker, so the run becomes a row (origin ``snapshot``, verdict NOT-PASS)
+# that survives a rebuild and the deletion of the snapshot folder.
+#
+# What a snapshot can say: the lane (the folder label, as it was then), the
+# KSP boot time (``SessionStart runUtc=``), the commit and whether the tree was
+# dirty (git-state.txt), the instance profile (log-validation.txt's log path),
+# the deployed DLL's hash when the KSPCommunityFixes mod table logged one, and
+# the log's health. What it cannot: the verdict (only that it was not a PASS:
+# the harness collected logs for non-PASS runs only), the subkind, the attempt,
+# the tier and the harness wall.
+# ---------------------------------------------------------------------------
+
+# ParsekHarmony.FormatSessionStartMessage, on the Init tag (pinned by
+# test_runindex.SnapshotSourceSyncTests).
+SESSION_START_RE = re.compile(rb"\[Parsek\]\[INFO\]\[Init\] SessionStart runUtc=(\d{1,12})\s*$")
+# ParsekTestCommandAddon's arm line: only a harness-launched KSP writes it.
+TEST_COMMANDS_ARMED = b"[TestCommands] armed (PARSEK_TEST_COMMANDS=1)"
+# The KSPCommunityFixes mod table names each mod with its version and a hash.
+# The exact line shape was not available off the PC, so this is defensive: a
+# line that is not a Parsek log line, names ``Parsek`` and a dotted version,
+# and carries exactly one 64-hex run (a sha256, the shape the archive
+# manifest's parsekDllSha256 has). Anything else records no DLL.
+_DLL_LINE_RE = re.compile(rb"(?:^|[^\w\[])Parsek v?\d+(?:\.\d+){1,3}\b")
+_HEX64_RE = re.compile(rb"(?<![0-9A-Fa-f])[0-9A-Fa-f]{64}(?![0-9A-Fa-f])")
+SNAPSHOT_FOLDER_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})_(\d{4})_(.+)$")
+_COMMIT_LINE_RE = re.compile(r"^Commit: ([0-9a-fA-F]{7,40})(?:\s|$)")
+
+
+class SnapshotLogFacts:
+    """One streaming pass over a snapshot's KSP.log (bytes, any encoding)."""
+
+    def __init__(self) -> None:
+        self.run_utcs: List[int] = []
+        self.armed = False
+        self.dlls: List[str] = []
+
+    def feed(self, line: bytes) -> None:
+        if b"SessionStart runUtc=" in line:
+            m = SESSION_START_RE.search(line)
+            if m is not None:
+                value = int(m.group(1))
+                if value not in self.run_utcs:
+                    self.run_utcs.append(value)
+            return
+        if TEST_COMMANDS_ARMED in line:
+            self.armed = True
+            return
+        if b"Parsek" in line and PARSEK_TOKEN not in line and _DLL_LINE_RE.search(line):
+            hexes = _HEX64_RE.findall(line)
+            if len(hexes) == 1:
+                value = hexes[0].decode("ascii").lower()
+                if value not in self.dlls:
+                    self.dlls.append(value)
+
+
+def classify_log_path(validation_text: Optional[str]) -> Tuple[str, Optional[str]]:
+    """(kind, profile) from log-validation.txt's ``Log path:`` line: ``harness``
+    with the instance folder name when the log was ``.../automation/<profile>/
+    KSP.log``, ``dev`` for ``.../Kerbal Space Program/KSP.log``, else
+    ``unknown``."""
+    for line in (validation_text or "").splitlines():
+        if not line.startswith("Log path: "):
+            continue
+        parts = [p for p in re.split(r"[\\/]+", line[len("Log path: "):].strip()) if p]
+        if len(parts) >= 3 and parts[-1] == "KSP.log" and parts[-3].lower() == "automation":
+            profile = parts[-2]
+            return ("harness", profile) if _TOKEN_RE.match(profile) else ("unknown", None)
+        if len(parts) >= 2 and parts[-1] == "KSP.log" and parts[-2] == "Kerbal Space Program":
+            return "dev", None
+        return "unknown", None
+    return "unknown", None
+
+
+def parse_git_state(text: Optional[str]) -> Tuple[Optional[str], Optional[bool]]:
+    """(commit hash prefix, dirty) from collect-logs' git-state.txt; dirty is
+    None when the status section is absent."""
+    commit = None
+    dirty = None
+    in_status = False
+    for line in (text or "").splitlines():
+        m = _COMMIT_LINE_RE.match(line)
+        if m and commit is None:
+            commit = m.group(1).lower()[:COMMIT_HEX]
+            continue
+        if line.startswith("--- "):
+            in_status = line.strip() == "--- status ---"
+            if in_status:
+                dirty = False
+            continue
+        if in_status and line.strip():
+            dirty = True
+    return commit, dirty
+
+
+def utc_stamp(epoch_seconds: int) -> str:
+    """``YYYY-MM-DD_HHMM`` (UTC) of an epoch second: the run id stamp shape."""
+    return datetime.fromtimestamp(epoch_seconds, timezone.utc).strftime(hlib.RUN_ID_TIMESTAMP_FORMAT)
+
+
+def utc_iso(epoch_seconds: int) -> str:
+    return datetime.fromtimestamp(epoch_seconds, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+class ArchiveState:
+    """What the archive already knows, for the import decisions: the (lane,
+    stamp) of every run that is NOT a snapshot import, and every snapshot
+    import's (lane, runUtc) by run id."""
+
+    def __init__(self) -> None:
+        self.run_minutes: Dict[Tuple[str, str], str] = {}
+        self.snapshots: Dict[str, Tuple[Any, Any]] = {}
+        self.taken: set = set()
+
+    def add_run(self, run_id: str) -> None:
+        self.taken.add(run_id)
+        lane = lane_from_run_id(run_id)
+        if lane:
+            self.run_minutes.setdefault((lane, run_id[:15]), run_id)
+
+    def add_snapshot(self, run_id: str, lane, run_utc) -> None:
+        self.taken.add(run_id)
+        self.snapshots[run_id] = (lane, run_utc)
+
+
+class SnapshotDecision:
+    __slots__ = ("outcome", "reason", "run_id", "marker")
+
+    def __init__(self, outcome: str, reason: str, run_id: Optional[str] = None,
+                 marker: Optional[Dict] = None):
+        self.outcome = outcome
+        self.reason = reason
+        self.run_id = run_id
+        self.marker = marker
+
+
+def decide_snapshot(folder: str, has_log: bool, validation_text: Optional[str],
+                    git_text: Optional[str], facts: Optional[SnapshotLogFacts],
+                    state: ArchiveState, seen: set) -> SnapshotDecision:
+    """Import or skip one collect-logs folder (pure). Every doubt skips with a
+    reason; nothing is guessed. ``seen`` holds the (lane, runUtc) of this
+    batch's earlier imports and is updated on an import, as is ``state``."""
+    m = SNAPSHOT_FOLDER_RE.match(folder)
+    if m is None:
+        return SnapshotDecision("skip", "not-a-snapshot-folder")
+    lane = m.group(3)
+    if not _TOKEN_RE.match(lane):
+        return SnapshotDecision("skip", "label-not-a-token")
+    if not has_log or facts is None:
+        return SnapshotDecision("skip", "no-ksp-log")
+    kind, profile = classify_log_path(validation_text)
+    if kind == "dev":
+        return SnapshotDecision("skip", "dev-snapshot")
+    if kind != "harness":
+        return SnapshotDecision("skip", "no-instance-log-path")
+    if not facts.armed:
+        return SnapshotDecision("skip", "not-armed")
+    if not facts.run_utcs:
+        return SnapshotDecision("skip", "no-run-utc")
+    if len(facts.run_utcs) > 1:
+        return SnapshotDecision("skip", "several-sessions")
+    run_utc = facts.run_utcs[0]
+    if (lane, run_utc) in seen:
+        return SnapshotDecision("skip", "duplicate")
+    stamp = utc_stamp(run_utc)
+    minute_before = utc_stamp(run_utc - 60)
+    for rid, known in state.snapshots.items():
+        if known == (lane, run_utc):
+            return SnapshotDecision("skip", "already-imported", rid)
+    # The harness stamps a run id when the attempt starts, before KSP boots, so
+    # the run's id minute is the boot minute or the one before.
+    for key in ((lane, stamp), (lane, minute_before)):
+        if key in state.run_minutes:
+            return SnapshotDecision("skip", "already-archived", state.run_minutes[key])
+    ordinal = 1
+    while True:
+        run_id = hlib.format_run_id(stamp, lane, 1, ordinal)
+        if run_id not in state.taken:
+            break
+        ordinal += 1
+    commit, dirty = parse_git_state(git_text)
+    marker = {
+        "schema": SNAPSHOT_SCHEMA,
+        "runId": run_id,
+        "lane": lane,
+        "runUtc": run_utc,
+        "started": utc_iso(run_utc),
+        "commit": commit,
+        "dirty": dirty,
+        "profile": profile,
+        "dll": facts.dlls[0] if len(facts.dlls) == 1 else None,
+        "source": folder,
+        "tool": "harness/tools/run_index.py import-snapshots",
+    }
+    seen.add((lane, run_utc))
+    state.add_snapshot(run_id, lane, run_utc)
+    return SnapshotDecision("import", "imported", run_id, marker)
+
+
+def serialize_marker(marker: Dict) -> str:
+    return json.dumps(marker, sort_keys=True, indent=1, ensure_ascii=True) + "\n"
+
+
+def build_snapshot_row(run_id: str, marker, health: Optional[Dict],
+                       gaps: Sequence[str] = ()) -> Tuple[Optional[Dict], Optional[str]]:
+    """(row, None) or (None, skip reason) for an imported snapshot folder.
+    Every string is a token or left out, as in ``build_row``."""
+    if not isinstance(marker, dict) or marker.get("schema") != SNAPSHOT_SCHEMA:
+        return None, "snapshot.json is not a %s marker" % SNAPSHOT_SCHEMA
+    if not _TOKEN_RE.match(run_id or ""):
+        return None, "run folder name is not a run id"
+    lane, withheld = _token(marker.get("lane"))
+    if lane is None:
+        return None, "snapshot has no lane token"
+    run_utc = marker.get("runUtc")
+    if not isinstance(run_utc, int) or isinstance(run_utc, bool) or run_utc <= 0:
+        return None, "snapshot has no runUtc"
+    gap_list = list(gaps)
+    fields: Dict[str, Any] = {}
+    for key, regex in (("profile", _TOKEN_RE), ("commit", _HEX_RE), ("dll", _HEX_RE)):
+        kept, withheld = _token(marker.get(key), regex)
+        fields[key] = kept
+        if withheld:
+            gap_list.append("%s withheld" % key)
+    row: Dict[str, Any] = {
+        "schema": SCHEMA,
+        "runId": run_id,
+        "lane": lane,
+        "tier": None,
+        "profile": fields["profile"],
+        "started": utc_iso(run_utc),
+        "wall": None,
+        "attempt": 1,
+        "verdict": SNAPSHOT_VERDICT,
+        "commit": _short_hex(fields["commit"], COMMIT_HEX),
+        "dll": _short_hex(fields["dll"], DLL_HEX),
+        "worktree": None,
+        "origin": SNAPSHOT_ORIGIN,
+        "health": health,
+        "final": False,
+    }
+    if marker.get("dirty") is True:
+        row["dirty"] = True
+    if gap_list:
+        row["gaps"] = sorted(set(gap_list))
+    return row, None
+
+
 def row_line(row: Dict) -> str:
     return json.dumps(row, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 
@@ -633,6 +892,8 @@ def link_attempts(rows: Iterable[Dict]) -> Dict[str, str]:
     never archived, came from another worktree, or is too old)."""
     by_key: Dict[Tuple[Any, Any, Any], List[Dict]] = defaultdict(list)
     for row in rows:
+        # The key carries ``origin``, so a snapshot row (origin ``snapshot``)
+        # never retries a harness attempt and is never retried by one.
         by_key[_link_key(row)].append(row)
     links: Dict[str, str] = {}
     for group in by_key.values():
@@ -673,7 +934,8 @@ def normalize(rows: Iterable[Dict]) -> List[Dict]:
             row["retryOf"] = links[rid]
         else:
             row.pop("retryOf", None)
-        final = rid not in retried
+        # A snapshot row claims nothing: it is not a decided scenario run.
+        final = rid not in retried and not is_snapshot(row)
         row["final"] = final
         if final and int(row.get("attempt") or 1) > 1:
             row["byRetry"] = True
@@ -864,6 +1126,16 @@ def index_now(rows: Sequence[Dict]) -> Optional[str]:
     return max(stamps) if stamps else None
 
 
+def is_snapshot(row: Dict) -> bool:
+    """A row imported from a collect-logs snapshot (``origin`` ``snapshot``)."""
+    return row.get("origin") == SNAPSHOT_ORIGIN
+
+
+def harness_rows(rows: Iterable[Dict]) -> List[Dict]:
+    """The rows every count, rate and percentile reads: snapshot rows left out."""
+    return [r for r in rows if not is_snapshot(r)]
+
+
 def lane_rows(rows: Iterable[Dict], lane: str) -> List[Dict]:
     return sorted((r for r in rows if r.get("lane") == lane), key=sort_key)
 
@@ -903,6 +1175,9 @@ def scenario_runs_of(rows: Sequence[Dict]) -> List[List[Dict]]:
 
 
 def _counts(rows: Sequence[Dict]) -> Dict[str, Any]:
+    """Counts over the harness rows of ``rows``; snapshot rows only as ``snapshots``."""
+    snapshots = sum(1 for r in rows if is_snapshot(r))
+    rows = harness_rows(rows)
     verdicts = Counter(r.get("verdict") for r in rows)
     groups = scenario_runs_of(rows)
     scenario_runs = 0
@@ -925,6 +1200,7 @@ def _counts(rows: Sequence[Dict]) -> Dict[str, Any]:
         "finalPasses": final_pass,
         "flaked": flaked,
         "flakeRate": round(flaked / scenario_runs, 3) if scenario_runs else None,
+        "snapshots": snapshots,
     }
 
 
@@ -941,19 +1217,23 @@ def _window(rows: Sequence[Dict], now: Optional[str], days: int) -> List[Dict]:
 
 
 def lane_report(rows: Sequence[Dict], lane: str, now: Optional[str] = None) -> Dict[str, Any]:
-    """Everything ``run_index.py lane`` prints, as data."""
+    """Everything ``run_index.py lane`` prints, as data. Snapshot rows count
+    only in each window's ``snapshots`` and in ``lastSnapshot``."""
     now = now or index_now(rows)
-    mine = lane_rows(rows, lane)
+    every = lane_rows(rows, lane)
+    mine = harness_rows(every)
+    snaps = [r for r in every if is_snapshot(r)]
     passes = [r for r in mine if r.get("verdict") == PASS]
     walls = [r.get("wall") for r in mine if r.get("wall") is not None]
-    windows = {"%dd" % d: _counts(_window(mine, now, d)) for d in WINDOWS_DAYS}
-    windows["all"] = _counts(mine)
+    windows = {"%dd" % d: _counts(_window(every, now, d)) for d in WINDOWS_DAYS}
+    windows["all"] = _counts(every)
     return {
         "lane": lane,
         "tier": mine[-1].get("tier") if mine else None,
         "now": now,
         "lastRun": _brief(mine[-1] if mine else None),
         "lastPass": _brief(passes[-1] if passes else None),
+        "lastSnapshot": _brief(snaps[-1] if snaps else None),
         "windows": windows,
         "wallP50": percentile(walls, 50),
         "wallP90": percentile(walls, 90),
@@ -968,7 +1248,13 @@ def lanes_of(rows: Iterable[Dict]) -> List[str]:
 def summary(rows: Sequence[Dict], spec_tiers: Optional[Dict[str, Optional[str]]] = None,
             top: int = 20) -> Dict[str, Any]:
     """Totals per verdict and tier, lanes never passed, lanes whose last final
-    run is not a PASS, the flakiest and slowest lanes, specs with no run."""
+    run is not a PASS, the flakiest and slowest lanes, specs with no run.
+    Snapshot rows are counted on their own (``snapshots``) and read nowhere
+    else, except that a lane known only from snapshots is not a spec with no
+    run."""
+    every_lane = set(lanes_of(rows))
+    snaps = [r for r in rows if is_snapshot(r)]
+    rows = harness_rows(rows)
     by_lane: Dict[str, List[Dict]] = defaultdict(list)
     for r in rows:
         by_lane[r.get("lane")].append(r)
@@ -1009,10 +1295,12 @@ def summary(rows: Sequence[Dict], spec_tiers: Optional[Dict[str, Optional[str]]]
         "lastNotPass": last_not_pass,
         "flakiest": flaky[:top],
         "slowest": slow[:top],
+        "snapshots": {"rows": len(snaps), "lanes": len({r.get("lane") for r in snaps}),
+                      "lanesOnlyInSnapshots": sorted({r.get("lane") for r in snaps} - set(by_lane))},
     }
     if spec_tiers is not None:
-        out["specsWithNoRun"] = sorted(l for l in spec_tiers if l not in by_lane)
-        out["lanesWithNoSpec"] = sorted(l for l in by_lane if l not in spec_tiers)
+        out["specsWithNoRun"] = sorted(l for l in spec_tiers if l not in every_lane)
+        out["lanesWithNoSpec"] = sorted(l for l in every_lane if l not in spec_tiers)
     return out
 
 
@@ -1023,17 +1311,21 @@ def _md(text: Any) -> str:
 def lane_table(rows: Sequence[Dict], spec_tiers: Optional[Dict[str, Optional[str]]] = None) -> str:
     """A Markdown table, one row per lane in the index (plus specs with no run
     when ``spec_tiers`` is given). Runs and pass rate count scenario runs (the
-    final attempt decides); p50 wall is over every attempt."""
+    final attempt decides); p50 wall is over every attempt; snapshot rows only
+    fill their own column."""
     lanes = set(lanes_of(rows))
     if spec_tiers is not None:
         lanes |= set(spec_tiers)
-    lines = ["| Lane | Tier | Last verdict | Last pass (date, commit) | Runs | Pass rate | p50 wall s |",
-             "|---|---|---|---|---|---|---|"]
+    lines = ["| Lane | Tier | Last verdict | Last pass (date, commit) | Runs | Pass rate | p50 wall s | Snapshots |",
+             "|---|---|---|---|---|---|---|---|"]
     for lane in sorted(lanes):
-        mine = lane_rows(rows, lane)
+        every = lane_rows(rows, lane)
+        mine = harness_rows(every)
+        snaps = len(every) - len(mine)
         tier = (mine[-1].get("tier") if mine else None) or (spec_tiers or {}).get(lane) or ""
         if not mine:
-            lines.append("| %s | %s | (no run) | | 0 | | |" % (_md(lane), _md(tier)))
+            lines.append("| %s | %s | %s | | 0 | | | %d |" % (
+                _md(lane), _md(tier), "(snapshots only)" if snaps else "(no run)", snaps))
             continue
         finals = [r for r in mine if r.get("final")] or mine
         last = finals[-1]
@@ -1046,22 +1338,23 @@ def lane_table(rows: Sequence[Dict], spec_tiers: Optional[Dict[str, Optional[str
         verdict = last.get("verdict") or "?"
         if last.get("subkind"):
             verdict += "(%s)" % last["subkind"]
-        lines.append("| %s | %s | %s | %s | %d | %s | %s |" % (
+        lines.append("| %s | %s | %s | %s | %d | %s | %s | %d |" % (
             _md(lane), _md(tier), _md(verdict), _md(lp_text), c["scenarioRuns"], rate,
-            "" if p50 is None else p50))
+            "" if p50 is None else p50, snaps))
     return "\n".join(lines) + "\n"
 
 
 def trend(rows: Sequence[Dict], lane: str, n: int = 10) -> List[Dict[str, Any]]:
-    """The lane's last ``n`` attempts: verdict, wall, warnings, errors, Parsek
-    lines, log bytes and the commit, oldest first."""
+    """The lane's last ``n`` attempts, snapshot rows included (the lane's
+    history; ``origin`` tells them apart): verdict, wall, warnings, errors,
+    Parsek lines, log bytes and the commit, oldest first."""
     out = []
     for r in lane_rows(rows, lane)[-n:]:
         h = r.get("health") or {}
         out.append({"runId": r.get("runId"), "started": r.get("started"), "verdict": r.get("verdict"),
                     "wall": r.get("wall"), "warn": h.get("warn"), "error": h.get("error"),
                     "parsek": h.get("parsek"), "bytes": h.get("bytes"), "unity": h.get("unity"),
-                    "commit": r.get("commit")})
+                    "commit": r.get("commit"), "origin": r.get("origin")})
     return out
 
 
@@ -1073,6 +1366,7 @@ def health_regressions(rows: Sequence[Dict], prior: int = REGRESSION_PRIOR_PASSE
     wall time or log volume (log bytes or Parsek lines). Needs ``min_prior``
     earlier PASS runs with health. Report-only."""
     out = []
+    rows = harness_rows(rows)
     for lane in lanes_of(rows):
         passes = [r for r in lane_rows(rows, lane) if r.get("verdict") == PASS and r.get("health")]
         if len(passes) < min_prior + 1:
@@ -1125,7 +1419,7 @@ def tag_modules(tag_map: Optional[Dict]) -> Dict[str, Tuple[str, Tuple[str, ...]
 def latest_pass_rows(rows: Iterable[Dict]) -> Dict[str, Dict]:
     """{lane: its latest PASS row}."""
     out: Dict[str, Dict] = {}
-    for r in sorted(rows, key=sort_key):
+    for r in sorted(harness_rows(rows), key=sort_key):
         if r.get("verdict") == PASS:
             out[r["lane"]] = r
     return out
