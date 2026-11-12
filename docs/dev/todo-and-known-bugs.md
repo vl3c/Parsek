@@ -2789,6 +2789,30 @@ compare).
   `facts.coverage` (plus `facts.testReach.types`, both additive). No snapshot is committed yet:
   everything says "not measured" until the Windows run is regenerated with this reader (README ->
   "Coverage snapshot").
+- 2026-11-12 (history follows renames, A6): the change history reads one `git log -M
+  --name-status` and follows renames newest first to each file's current name (renamed twice
+  resolves to the last name; `R100` is a pure move, not a change; only a deletion (a `D`, or a
+  rename's old side) ends a path's identity, so a re-created path does not inherit the dead file's
+  commits while a file two parallel branches each created keeps both branches' commits; a commit
+  on a branch open across a rename, dated after it, follows the rename when the name left once;
+  commits on deleted code only are dropped and counted). Growth's numstat follows the same map,
+  counts the history's commits, and is capped at each file's line count (82 files, `*`: merges are
+  not read). Splits are counted, not followed (3680 distinct commits stay with 31 bases), and copy
+  detection was measured and rejected (`-C` / `-C -C`: the same 10 copies, all
+  Phase B lifts, no extra renames). At bb61f3fcd: 6206 -> 6151 commits (55 dropped), 25 renames,
+  103 commits credited to 24 files through an earlier name (`ParsekFlight.cs` +26,
+  `CommittedListOptimizer.cs` +15), 29 files read another count (23 more, 6 fewer: the paths
+  deleted and created again), the 18-month top 10 files and hotspots unchanged apart from
+  `ParsekFlight` (1305 -> 1331), item 7's top 25 unchanged. Windows of 30 days, 90 days and 18 months, anchored to the commit's committer
+  date, sit side by side in the Atlas and `--check`. A change-kind pass classifies each
+  first-parent unit (PR merge or direct commit) by the CHANGELOG sections it added lines under
+  (rebuilt from the patches and checked against the file, else not measured), else by its paths
+  (production code with no entry is "unlabelled": 384 of 2570 units in 18 months), and reports
+  where fixes land per module (report only). The metrics row gains an additive `history` key.
+  Known limits: a deletion made only inside a merge commit is invisible, so a path re-created
+  after one inherits the dead file's commits; a late commit on a name renamed twice is dropped;
+  growth below the cap still double-counts work done on two branches. README -> "Change
+  history".
 
 **Fix.**
 1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same

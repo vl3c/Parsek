@@ -3942,16 +3942,159 @@ def _atlas_reading_order(prose):
     return "\n".join(lines)
 
 
+def _window_value(row, key, field):
+    """row["byWindow"][key][field], or None when the row has no windows."""
+    return ((row.get("byWindow") or {}).get(key) or {}).get(field)
+
+
+def _num_cell(value):
+    return '<td class="num">%s</td>' % ("&ndash;" if value is None else _thousands(value))
+
+
+def history_window_summary(history):
+    """The anchor, the windows and the rename accounting as plain sentences (pure)."""
+    starts = history.get("starts") or {}
+    parts = []
+    if history.get("anchor"):
+        parts.append(
+            "Anchored to %s, the committer date of %s: %s."
+            % (
+                history["anchor"],
+                (history.get("head") or "the commit read")[:9],
+                ", ".join(
+                    "%s since %s" % (HISTORY_WINDOW_LABELS[key], starts[key])
+                    for key in HISTORY_WINDOWS
+                    if key in starts
+                ),
+            )
+        )
+    parts.append(
+        "%d commits since %s (%d sweeps skipped, largest %d files)."
+        % (history.get("commits", 0), history.get("since"), history.get("skippedSweeps", 0),
+           history.get("largestSweep", 0))
+    )
+    renamed = history.get("renamedFiles")
+    if isinstance(renamed, dict):
+        parts.append(
+            "Renames followed: %d rename events; %d commits credited to %d current files through"
+            " an earlier name; %d pure-move commits not counted; %d commits dropped because every"
+            " file they changed is deleted code."
+            % (history.get("renames", 0), renamed.get("commits", 0), renamed.get("files", 0),
+               history.get("moves", 0), history.get("dropped", 0))
+        )
+    splits = history.get("splits")
+    if isinstance(splits, dict):
+        parts.append(
+            "Splits not followed: %d partial files born beside %d base files; the %d commits"
+            " that touched a base before its first split stay with the base."
+            % (splits.get("files", 0), splits.get("bases", 0), splits.get("commits", 0))
+        )
+    return parts
+
+
+def _atlas_change_kinds(history):
+    """The change-kind tables (kinds per window, where fixes land, top fix files)."""
+    kinds = history.get("changeKinds")
+    if not isinstance(kinds, dict):
+        return []
+    if not kinds.get("measured"):
+        return [
+            "<h3>Change kinds</h3>",
+            '<p class="layer">Not measured: %s.</p>'
+            % html.escape(kinds.get("reason") or "no first-parent history"),
+        ]
+    windows = kinds.get("windows", {})
+    head = "".join('<th class="num">%s</th>' % HISTORY_WINDOW_LABELS[key] for key in HISTORY_WINDOWS)
+    lines = [
+        "<h3>Change kinds (merged PRs and direct commits on the first-parent chain)</h3>",
+        '<div class="wide"><table>',
+        "<tr><th>Kind</th>%s</tr>" % head,
+    ]
+    for kind in CHANGE_KIND_ORDER:
+        counts = [windows.get(key, {}).get("kinds", {}).get(kind, 0) for key in HISTORY_WINDOWS]
+        if not any(counts):
+            continue
+        lines.append(
+            '<tr><td class="name">%s</td>%s</tr>'
+            % (html.escape(kind), "".join(_num_cell(count) for count in counts))
+        )
+    lines.append(
+        '<tr><td class="name">units (PR / direct / other merge)</td>%s</tr>'
+        % "".join(
+            '<td class="num">%s / %s / %s</td>'
+            % (windows.get(key, {}).get("pr", 0), windows.get(key, {}).get("direct", 0),
+               windows.get(key, {}).get("merge", 0))
+            for key in HISTORY_WINDOWS
+        )
+    )
+    lines.append(
+        '<tr><td class="name">fix units (any fix line)</td>%s</tr>'
+        % "".join(_num_cell(windows.get(key, {}).get("fixUnits", 0)) for key in HISTORY_WINDOWS)
+    )
+    lines.append("</table></div>")
+
+    module_commits = {row["name"]: row for row in history.get("modules", [])}
+    lines.extend(
+        [
+            "<h3>Where fixes land, per module</h3>",
+            '<div class="wide"><table>',
+            '<tr><th>Module</th><th class="num">Commits 90d</th><th class="num">Units 90d</th>'
+            '<th class="num">Fix units 90d</th><th class="num">Commits 18m</th>'
+            '<th class="num">Units 18m</th><th class="num">Fix units 18m</th></tr>',
+        ]
+    )
+    for row in kinds.get("modules", []):
+        commits = module_commits.get(row["name"], {})
+        by = row.get("byWindow", {})
+        lines.append(
+            '<tr><td class="name">%s</td>%s%s%s%s%s%s</tr>'
+            % (
+                html.escape(row["name"]),
+                _num_cell(_window_value(commits, "90d", "commits")),
+                _num_cell(by.get("90d", {}).get("units", 0)),
+                _num_cell(by.get("90d", {}).get("fix", 0)),
+                _num_cell(commits.get("commits")),
+                _num_cell(by.get("18m", {}).get("units", 0)),
+                _num_cell(by.get("18m", {}).get("fix", 0)),
+            )
+        )
+    lines.append("</table></div>")
+    for key in ("90d", "18m"):
+        rows = (kinds.get("fixFiles") or {}).get(key, [])[:10]
+        lines.extend(
+            [
+                "<h3>Top files by fix units, %s</h3>" % HISTORY_WINDOW_LABELS[key],
+                '<div class="wide"><table>',
+                '<tr><th>File</th><th>Module</th><th class="num">Fix units</th>'
+                '<th class="num">Units</th><th class="num">Commits</th></tr>',
+            ]
+        )
+        for row in rows:
+            lines.append(
+                '<tr><td><span class="id">%s</span></td><td>%s</td>%s%s%s</tr>'
+                % (html.escape(row["file"]), html.escape(row["module"]), _num_cell(row["fix"]),
+                   _num_cell(row["units"]), _num_cell(row.get("commits")))
+            )
+        lines.append("</table></div>")
+    return lines
+
+
 def _atlas_history(history):
     """Return the atlas co-change tables, or a one-line notice when empty."""
     if not history or not history.get("commits"):
+        if history and history.get("measured") is False:
+            return '<p class="layer">Not measured: %s.</p>' % html.escape(
+                history.get("reason") or "no git history"
+            )
         return '<p class="layer">No co-change history in the window.</p>'
-    lines = [
+    windowed = bool(history.get("starts"))
+    lines = ['<p class="layer">%s</p>' % html.escape(" ".join(history_window_summary(history)))]
+    lines.extend([
         "<h3>Module pairs that change together</h3>",
         '<div class="wide"><table>',
         '<tr><th>Modules</th><th class="num">Both</th><th class="num">Either</th>'
         '<th class="num">Jaccard</th></tr>',
-    ]
+    ])
     for row in history.get("modulePairs", [])[:10]:
         lines.append(
             '<tr><td class="name">%s &harr; %s</td><td class="num">%d</td>'
@@ -3974,23 +4117,59 @@ def _atlas_history(history):
             % (html.escape(row["a"]), html.escape(row["b"]), html.escape(row["moduleA"]),
                html.escape(row["moduleB"]), row["count"])
         )
+    window_heads = (
+        '<th class="num">30d</th><th class="num">90d</th>' if windowed else ""
+    )
     lines.extend(
         [
             "</table></div>",
             "<h3>Hotspots (file commits times fan-in)</h3>",
             '<div class="wide"><table>',
-            '<tr><th>Type</th><th>Module</th><th class="num">File commits</th>'
-            '<th class="num">Fan-in</th><th class="num">Hotspot</th></tr>',
+            '<tr><th>Type</th><th>Module</th>%s<th class="num">File commits</th>'
+            '<th class="num">Fan-in</th><th class="num">Hotspot</th></tr>' % window_heads,
         ]
     )
     for row in history.get("hotspots", [])[:10]:
+        windows = (
+            _num_cell(_window_value(row, "30d", "fileCommits"))
+            + _num_cell(_window_value(row, "90d", "fileCommits"))
+            if windowed
+            else ""
+        )
         lines.append(
-            '<tr><td class="name">%s</td><td>%s</td><td class="num">%d</td>'
+            '<tr><td class="name">%s</td><td>%s</td>%s<td class="num">%d</td>'
             '<td class="num">%d</td><td class="num">%d</td></tr>'
-            % (html.escape(row["name"]), html.escape(row["module"]), row["fileCommits"],
+            % (html.escape(row["name"]), html.escape(row["module"]), windows, row["fileCommits"],
                row["fanIn"], row["hotspot"])
         )
     lines.append("</table></div>")
+    if windowed:
+        has_fix = bool((history.get("changeKinds") or {}).get("measured"))
+        fix_heads = '<th class="num">Fix units 90d</th><th class="num">Fix units 18m</th>' if has_fix else ""
+        lines.extend(
+            [
+                "<h3>Busiest files</h3>",
+                '<div class="wide"><table>',
+                '<tr><th>File</th><th>Module</th><th class="num">30d</th><th class="num">90d</th>'
+                '<th class="num">18m</th>%s</tr>' % fix_heads,
+            ]
+        )
+        for row in history.get("files", [])[:15]:
+            if not row.get("commits"):
+                break
+            fixes = (
+                _num_cell(_window_value(row, "90d", "fix")) + _num_cell(_window_value(row, "18m", "fix"))
+                if has_fix
+                else ""
+            )
+            lines.append(
+                '<tr><td><span class="id">%s</span></td><td>%s</td>%s%s%s%s</tr>'
+                % (html.escape(row["file"]), html.escape(row["module"]),
+                   _num_cell(_window_value(row, "30d", "commits")),
+                   _num_cell(_window_value(row, "90d", "commits")), _num_cell(row["commits"]), fixes)
+            )
+        lines.append("</table></div>")
+    lines.extend(_atlas_change_kinds(history))
     return "\n".join(lines)
 
 
@@ -4275,6 +4454,20 @@ def _atlas_headless(result):
     return lines
 
 
+def format_growth(row, missing):
+    """A file row's growth cell: signed, `*` when capped at the file's lines."""
+    net = row.get("netLinesAdded")
+    if net is None:
+        return missing
+    return ("%+d" % net) + ("*" if row.get("netLinesCapped") else "")
+
+
+def growth_cap_note(capped):
+    return ("* %d file%s capped at %s line count: the non-merge commits sum past the file,"
+            " because the merges that joined parallel branches are not read." % (
+                capped, "" if capped == 1 else "s", "its" if capped == 1 else "their"))
+
+
 def _atlas_sizes(sizes):
     """Return the atlas size tables, or a one-line notice when there is no size data."""
     if not sizes or not sizes.get("types"):
@@ -4286,7 +4479,6 @@ def _atlas_sizes(sizes):
         '<th class="num">Types</th><th class="num">Growth</th></tr>',
     ]
     for row in sizes["files"][:10]:
-        net = row.get("netLinesAdded")
         lines.append(
             '<tr><td><span class="id">%s</span></td><td>%s</td><td class="num">%s</td>'
             '<td class="num">%d</td><td class="num">%s</td></tr>'
@@ -4295,12 +4487,16 @@ def _atlas_sizes(sizes):
                 html.escape(row["module"]),
                 _thousands(row["lines"]),
                 row["declaredTypes"],
-                ("%+d" % net) if net is not None else "&ndash;",
+                format_growth(row, "&ndash;"),
             )
         )
+    capped = (sizes.get("growth") or {}).get("capped")
+    lines.append("</table></div>")
+    if capped:
+        lines.append('<p class="layer">%s</p>' % html.escape(growth_cap_note(capped)))
     lines.extend(
         [
-            "</table></div>",
+
             "<h3>Largest types, partials merged</h3>",
             '<div class="wide"><table>',
             '<tr><th>Type</th><th>Module</th><th class="num">Lines</th>'
@@ -4609,104 +4805,210 @@ ul.findings li { margin: 8px 0; max-width: 88ch; }
 # ---------------------------------------------------------------------------
 
 
-def default_since():
-    """Return the ISO date 18 months before today."""
-    today = datetime.date.today()
-    month = today.month - 18
-    year = today.year
+HISTORY_MONTHS = 18
+# The short windows, in days before the anchor (a commit dated on or after the
+# anchor minus N days is inside); the long window starts on the first of the
+# month HISTORY_MONTHS before it. The anchor is the committer date of the
+# commit the history is read at, never the wall clock, so one commit always
+# gives the same tables.
+HISTORY_SHORT_WINDOWS = (("30d", 30), ("90d", 90))
+HISTORY_WINDOWS = ("30d", "90d", "18m")
+HISTORY_WINDOW_LABELS = {"30d": "30 days", "90d": "90 days", "18m": "18 months"}
+# git's --since keeps the wall-clock time of day, so the read starts this many
+# days early and parse_history filters on the commit date itself.
+HISTORY_SINCE_MARGIN_DAYS = 2
+HISTORY_SOURCE_PREFIX = "Source/Parsek/"
+
+
+def _as_date(value):
+    if value is None:
+        return datetime.date.today()
+    if isinstance(value, datetime.date):
+        return value
+    return datetime.date.fromisoformat(str(value)[:10])
+
+
+def default_since(anchor=None):
+    """Return the ISO date HISTORY_MONTHS months before `anchor`, on the first.
+
+    `anchor` is a date or an ISO date string (the HEAD commit's committer date
+    when the history is read); None falls back to today.
+    """
+    anchor = _as_date(anchor)
+    month = anchor.month - HISTORY_MONTHS
+    year = anchor.year
     while month <= 0:
         month += 12
         year -= 1
-    return today.replace(year=year, month=month, day=1).isoformat()
+    return datetime.date(year, month, 1).isoformat()
 
 
-def history_git_args(since):
-    """Return the single git log invocation the history is built from."""
+def window_starts(anchor):
+    """{window: first ISO date inside it} for the three history windows (pure)."""
+    anchor = _as_date(anchor)
+    starts = {
+        key: (anchor - datetime.timedelta(days=days)).isoformat()
+        for key, days in HISTORY_SHORT_WINDOWS
+    }
+    starts["18m"] = default_since(anchor)
+    return starts
+
+
+def _windows_of(date, starts):
+    """The windows a commit dated `date` falls in (all of them hold the newest)."""
+    if not starts or not date:
+        return ()
+    return tuple(key for key in HISTORY_WINDOWS if key in starts and date >= starts[key])
+
+
+def _git_since(since):
+    return (_as_date(since) - datetime.timedelta(days=HISTORY_SINCE_MARGIN_DAYS)).isoformat()
+
+
+def history_git_args(since, rev="HEAD"):
+    """Return the single git log invocation the per-commit history is built from.
+
+    Every non-merge commit reachable from `rev`, oldest last in date order (no
+    parent before a child), with renames (`-M`, no rename limit) in the
+    name-status form, the author and the committer date.
+    """
     return [
         "git",
         "log",
         "--no-merges",
-        "--since=%s" % since,
+        "--date-order",
+        "-M",
+        "-l0",
+        "--since=%s" % _git_since(since),
         "--date=short",
-        "--pretty=format:COMMIT%x09%H%x09%ad",
-        "--name-only",
+        "--pretty=format:COMMIT%x09%H%x09%ad%x09%cd",
+        "--name-status",
+        rev,
         "--",
         "Source/Parsek",
     ]
 
 
-def git_log_lines(repo_root, since=None):
-    """Return raw `git log --name-only` text for Source/Parsek, or "" on failure."""
-    if since is None:
-        since = default_since()
+def _git_text(repo_root, args, what):
+    """stdout of one git call, or None (with a warning) when it cannot run or fails."""
     try:
         completed = subprocess.run(
-            history_git_args(since),
+            args,
             cwd=str(repo_root),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
         )
     except Exception as exc:
-        print("WARN archview: git log unavailable: %s" % exc, file=sys.stderr)
-        return ""
+        print("WARN archview: %s unavailable: %s" % (what, exc), file=sys.stderr)
+        return None
     if completed.returncode != 0:
         print(
-            "WARN archview: git log failed (exit %d): %s"
-            % (completed.returncode, completed.stderr.strip()),
+            "WARN archview: %s failed (exit %d): %s"
+            % (what, completed.returncode, completed.stderr.strip()),
             file=sys.stderr,
         )
-        return ""
+        return None
     return completed.stdout
 
 
-def growth_git_args(since):
+def git_log_lines(repo_root, since=None, rev="HEAD"):
+    """Return raw `git log --name-status` text for Source/Parsek, or "" on failure."""
+    if since is None:
+        since = default_since()
+    return _git_text(repo_root, history_git_args(since, rev), "git log") or ""
+
+
+def growth_git_args(since, rev="HEAD"):
     """Return the single git log invocation the per-file growth is built from."""
     return [
         "git",
         "log",
         "--no-merges",
-        "--since=%s" % since,
+        "--date-order",
+        "-M",
+        "-l0",
+        "--since=%s" % _git_since(since),
         "--numstat",
         "--pretty=format:COMMIT%x09%H",
+        rev,
         "--",
         "Source/Parsek",
     ]
 
 
-def git_numstat_lines(repo_root, since=None):
+def git_numstat_lines(repo_root, since=None, rev="HEAD"):
     """Return raw `git log --numstat` text for Source/Parsek, or "" on failure."""
     if since is None:
         since = default_since()
-    try:
-        completed = subprocess.run(
-            growth_git_args(since),
-            cwd=str(repo_root),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except Exception as exc:
-        print("WARN archview: git log --numstat unavailable: %s" % exc, file=sys.stderr)
-        return ""
-    if completed.returncode != 0:
-        print(
-            "WARN archview: git log --numstat failed (exit %d): %s"
-            % (completed.returncode, completed.stderr.strip()),
-            file=sys.stderr,
-        )
-        return ""
-    return completed.stdout
+    return _git_text(repo_root, growth_git_args(since, rev), "git log --numstat") or ""
 
 
-def parse_growth(text):
+_GIT_PATH_ESCAPES = {"a": 7, "b": 8, "t": 9, "n": 10, "v": 11, "f": 12, "r": 13, '"': 34, "\\": 92}
+
+
+def _unquote_git_path(text):
+    """A path as git wrote it, C-quoted when it holds a special or non-ASCII
+    byte (`"Sub Dir/\\303\\251t\\303\\251.cs"`): the octal escapes are UTF-8 bytes."""
+    if len(text) < 2 or not (text.startswith('"') and text.endswith('"')):
+        return text
+    body = text[1:-1]
+    out = bytearray()
+    index = 0
+    while index < len(body):
+        char = body[index]
+        if char == "\\" and index + 1 < len(body):
+            octal = re.match(r"[0-7]{1,3}", body[index + 1:index + 4])
+            if octal:
+                out.append(int(octal.group(0), 8) & 0xFF)
+                index += 1 + len(octal.group(0))
+                continue
+            if body[index + 1] in _GIT_PATH_ESCAPES:
+                out.append(_GIT_PATH_ESCAPES[body[index + 1]])
+                index += 2
+                continue
+        out.extend(char.encode("utf-8"))
+        index += 1
+    return out.decode("utf-8", errors="replace")
+
+
+def _numstat_paths(path):
+    """(old, new) raw paths of a numstat path field; old == new unless it is a rename.
+
+    A rename prints `old => new`, or with the common part folded out
+    `dir/{a => b}/f.cs` (either side of the braces may be empty).
+    """
+    path = _unquote_git_path(path)
+    if " => " not in path:
+        return path, path
+    if "{" in path and "}" in path:
+        head, rest = path.split("{", 1)
+        middle, tail = rest.split("}", 1)
+        if " => " in middle:
+            left, right = middle.split(" => ", 1)
+            old = (head + left + tail).replace("//", "/")
+            new = (head + right + tail).replace("//", "/")
+            return old, new
+    left, right = path.split(" => ", 1)
+    return left, right
+
+
+def parse_growth(text, resolution=None):
     """Parse `git log --numstat` text into net added lines per file (pure).
 
     Returns {"files": {rel path: added - deleted}, "commits": kept, "skipped":
-    sweeps}. Binary rows (`-` counts) are ignored and a commit touching more
+    sweeps}. Binary rows (`-` counts) are ignored and a commit changing more
     than HISTORY_SWEEP_LIMIT source files is skipped, the same sweep rule the
-    co-change history uses, so a bulk rename does not read as growth. An empty
-    string (git missing or the window empty) returns empty tables.
+    co-change history uses. `resolution` is parse_history's
+    {sha: {path git wrote: current rel path or None}}: with it, only those
+    commits count, a row is credited to the file's current name (a rename row
+    included: its counts are the content edit), a pure move (a 0 / 0 rename
+    row) is no change, a row of deleted code is dropped, and a commit made
+    only of deleted code is not counted (the history drops it too). Without it a
+    rename row is ignored and every other row counts at the name it carries.
+    An empty string (git missing or the window empty) returns empty tables.
     """
     commits = []
     current = None
@@ -4715,7 +5017,8 @@ def parse_growth(text):
         if not line.strip():
             continue
         if line.startswith("COMMIT\t"):
-            current = []
+            parts = line.split("\t")
+            current = {"sha": parts[1] if len(parts) > 1 else "", "rows": []}
             commits.append(current)
             continue
         if current is None:
@@ -4723,59 +5026,215 @@ def parse_growth(text):
         parts = line.split("\t")
         if len(parts) < 3:
             continue
-        added, deleted, path = parts[0], parts[1], parts[2]
+        added, deleted, path = parts[0], parts[1], "\t".join(parts[2:])
         if added == "-" or deleted == "-":
             continue
-        if "=>" in path:
-            # A rename row (`a => b`, `dir/{a => b}/f.cs`) names no single file;
-            # its counts are the move, not growth.
-            continue
-        rel_path = _history_path(path)
-        if rel_path is None:
-            continue
         try:
-            current.append((rel_path, int(added) - int(deleted)))
+            net = int(added) - int(deleted)
+            changed = int(added) + int(deleted) > 0
         except ValueError:
             continue
+        old, new = _numstat_paths(path)
+        renamed = old != new
+        if resolution is None:
+            if renamed:
+                # A rename row (`a => b`, `dir/{a => b}/f.cs`) names no single
+                # file without the rename map; its counts are the move.
+                continue
+            rel_path = _history_path(new)
+            if rel_path is None:
+                continue
+            current["rows"].append((rel_path, rel_path, net, True))
+            continue
+        res = resolution.get(current["sha"])
+        if res is None:
+            continue
+        rel_path = _history_path(new)
+        if rel_path is None:
+            continue
+        final = res.get(new, rel_path) if new in res else rel_path
+        current["rows"].append((rel_path, final, net, changed or not renamed))
     totals = defaultdict(int)
     kept = 0
     skipped = 0
-    for rows in commits:
+    for commit in commits:
+        rows = [row for row in commit["rows"] if row[3]]
         if not rows:
             continue
-        if len({rel_path for rel_path, _net in rows} ) > HISTORY_SWEEP_LIMIT:
+        if len({rel_path for rel_path, _final, _net, _changed in rows}) > HISTORY_SWEEP_LIMIT:
             skipped += 1
             continue
+        if all(final is None for _rel_path, final, _net, _changed in rows):
+            # Deleted code only: the history drops the same commit.
+            continue
         kept += 1
-        for rel_path, net in rows:
-            totals[rel_path] += net
+        for _rel_path, final, net, _changed in rows:
+            if final is not None:
+                totals[final] += net
     return {"files": dict(totals), "commits": kept, "skipped": skipped}
 
 
 def _history_path(line):
     """Return the build_model-style rel path for a git log file line, or None."""
-    if line.startswith('"') and line.endswith('"'):
-        line = line[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+    line = _unquote_git_path(line)
     line = line.replace("\\", "/")
     if not line.endswith(".cs"):
         return None
-    prefix = "Source/Parsek/"
-    if not line.startswith(prefix):
+    if not line.startswith(HISTORY_SOURCE_PREFIX):
         return None
-    rel_path = line[len(prefix) :]
+    rel_path = line[len(HISTORY_SOURCE_PREFIX) :]
     if any(part in SKIP_DIR_NAMES for part in rel_path.split("/")[:-1]):
         return None
     return rel_path
 
 
-def parse_history(text):
-    """Parse `git log --name-only` text into commits (pure).
+def _change_line(line, bare_is_modify=True):
+    """(letter, score, paths) for one `--name-status` line, or None.
 
-    Returns {"commits": [{"sha", "date", "files"}], "skipped": N,
-    "largest": M}. Only .cs files under Source/Parsek/ count, bin/obj/
-    Properties directories are skipped the way build_model skips them, and a
-    commit touching more than HISTORY_SWEEP_LIMIT source files is a sweep: it
-    is skipped, and `largest` is the biggest skipped sweep.
+    `R087\\told\\tnew` gives ("R", 87, [old, new]); `M\\tpath` gives ("M",
+    None, [path]). A bare path (the `--name-only` form) reads as a modification
+    when `bare_is_modify`.
+    """
+    if "\t" not in line:
+        if bare_is_modify and line:
+            return ("M", None, [_unquote_git_path(line)])
+        return None
+    parts = line.split("\t")
+    code = parts[0]
+    if not code or code[0] not in "ACDMRTUX" or (code[1:] and not code[1:].isdigit()):
+        return None
+    paths = [_unquote_git_path(part) for part in parts[1:] if part]
+    if not paths or (code[0] in "RC" and len(paths) != 2):
+        return None
+    return code[0], int(code[1:]) if code[1:] else None, paths
+
+
+def resolve_renames(entries, is_alive=None):
+    """Follow renames through a newest-first list of commits (pure).
+
+    `entries[i]` is one commit's changes as _change_line returns them, the
+    newest commit first. Returns, per commit, [(path, final, move)]: `path` the
+    name the commit wrote (the post-image name; the deleted name for a D),
+    `final` the name that file carries after the newest commit, and `move` True
+    for a pure rename (R100: the content is unchanged).
+
+    The walk keeps one map, old name -> final name, built newest first, so a
+    commit is resolved by the renames NEWER than itself only. A file renamed
+    twice resolves to its last name. Only a deletion (a `D`, or the old side
+    of a rename) ends that path's identity for everything older: an older
+    commit on that path touched a different file, which is gone (`final`
+    None) or lives on under its own later name. That is what keeps a path
+    re-created as a new file from swallowing the history of the file that
+    carried the name before. An add alone (or the new side of a rename or
+    copy) ends nothing: two parallel branches that each created the same file
+    show two adds with no delete between, and both branches' commits are that
+    file's. The cost is a path deleted only inside a merge commit (which the
+    log does not show) and later created again: its older commits are
+    credited to the new file.
+
+    Late renames. The log is in date order, not topological, so a commit on a
+    branch that forked before a rename can carry a LATER date than the rename
+    and edit the old name: the walk meets it before the rename, and its final
+    name is the old one. With `is_alive` (a predicate over the names git
+    wrote, True for a file at the commit read) such a final name that is not
+    alive follows the rename the walk met later: the name it resolved to at
+    that rename, which already carries every newer rename and deletion, so a
+    file a visible deletion ended stays ended (None). The hop is taken only
+    when the name left exactly once in the window (one rename away, no
+    deletion): a name renamed twice, or renamed and deleted, cannot say which
+    file a late commit meant, so it stays unresolved. Hops repeat while the
+    name is still not alive, and stop on a name already visited.
+    """
+    alias = {}
+    out = []
+    late = {}
+    late_at = {}
+    leaves = Counter()
+    for index, changes in enumerate(entries):
+        touched = []
+        for letter, score, paths in changes:
+            if letter == "D":
+                touched.append((paths[0], None, False))
+                continue
+            path = paths[-1]
+            touched.append((path, alias.get(path, path), letter == "R" and score == 100))
+        updates = {}
+        for letter, _score, paths in changes:
+            if letter == "D":
+                updates[paths[0]] = None
+                leaves[paths[0]] += 1
+        for letter, _score, paths in changes:
+            if letter == "R":
+                updates[paths[0]] = alias.get(paths[1], paths[1])
+                leaves[paths[0]] += 1
+                late[paths[0]] = updates[paths[0]]
+                late_at[paths[0]] = index
+        alias.update(updates)
+        out.append(touched)
+    if is_alive is None or not late:
+        return out
+    for index, touched in enumerate(out):
+        for slot, (path, final, move) in enumerate(touched):
+            if final is None or is_alive(final):
+                continue
+            name = final
+            seen = set()
+            while (name is not None and not is_alive(name) and name not in seen
+                   and leaves[name] == 1 and name in late
+                   and (seen or late_at[name] > index)):
+                seen.add(name)
+                name = late[name]
+            if name != final and (name is None or is_alive(name)):
+                touched[slot] = (path, name, move)
+    return out
+
+
+def _split_base(rel_path, modified):
+    """The partial-class base a newly added `Base.Area.cs` was split from, or None.
+
+    The base is the longest dotted prefix of the new file's stem whose own file,
+    in the same directory, the same commit modified (split_parsekflight.py and
+    its siblings move code from `ParsekFlight.cs` into `ParsekFlight.Area.cs`).
+    """
+    directory, _sep, name = rel_path.rpartition("/")
+    stem = name[: -len(".cs")]
+    parts = stem.split(".")
+    for cut in range(len(parts) - 1, 0, -1):
+        base = ".".join(parts[:cut]) + ".cs"
+        base_path = directory + "/" + base if directory else base
+        if base_path in modified:
+            return base_path
+    return None
+
+
+def parse_history(text, alive=None, since=None):
+    """Parse `git log --name-status` text into commits (pure).
+
+    `text` is history_git_args' output, newest commit first. Only .cs files
+    under Source/Parsek/ count, bin/obj/Properties directories are skipped the
+    way build_model skips them, and every file is credited under its CURRENT
+    name (resolve_renames). `alive` is the set of rel paths that exist at the
+    commit read (None: every name the walk did not see deleted counts as
+    alive); `since` drops commits whose committer date is earlier.
+
+    Per commit: a pure move (R100) is not a change. A commit that changed
+    nothing but moves is counted in `moves`. A commit changing more than
+    HISTORY_SWEEP_LIMIT source files is a sweep: it is skipped, and `largest`
+    is the biggest skipped sweep (deleted files count toward the size, moves
+    do not). A commit whose every changed file is deleted code is counted in
+    `dropped`. The rest are `commits`: [{"sha", "date", "cdate", "files"}],
+    `files` the current names, `date` the author and `cdate` the committer date.
+
+    Also returns `renames` (rename events in the window), `renamedFiles`
+    ({current file: commits credited to it through an earlier name}),
+    `splits` (files born as a partial beside the base they were split from,
+    _split_base: a split is not followed, so the partials do not inherit their
+    base's earlier commits; per base, `baseCommits` counts the commits before
+    its first split in the window, once however many partials it gave;
+    `commits` is the distinct commits behind those rows, and the top-level
+    `baseCommits` their per-base sum, which counts a commit once per base) and
+    `resolution` ({sha: {path git wrote: current rel path or None}}
+    for parse_growth).
     """
     commits = []
     current = None
@@ -4787,30 +5246,148 @@ def parse_history(text):
             parts = line.split("\t")
             current = None
             if len(parts) >= 3:
-                current = {"sha": parts[1], "date": parts[2], "files": []}
+                cdate = parts[3] if len(parts) >= 4 and parts[3] else parts[2]
+                current = {"sha": parts[1], "date": parts[2], "cdate": cdate, "changes": []}
                 commits.append(current)
             continue
         if current is None:
             continue
-        rel_path = _history_path(line)
-        if rel_path is not None:
-            current["files"].append(rel_path)
+        change = _change_line(line)
+        if change is not None:
+            current["changes"].append(change)
+
+    if alive is None:
+        is_alive = None
+    else:
+        def is_alive(path):
+            rel_path = _history_path(path)
+            return rel_path is None or rel_path in alive
+    resolved = resolve_renames([commit["changes"] for commit in commits], is_alive)
     kept = []
+    kept_index = []
     skipped = 0
     largest = 0
-    for commit in commits:
-        files = sorted(set(commit["files"]))
-        if not files:
+    moves = 0
+    dropped = 0
+    renames = 0
+    gains = Counter()
+    resolution = {}
+    births = []
+    for index, (commit, touched) in enumerate(zip(commits, resolved)):
+        if since and commit["cdate"] < since:
             continue
-        if len(files) > HISTORY_SWEEP_LIMIT:
+        changed = set()
+        credited = set()
+        through_old_name = set()
+        moved = False
+        res = {}
+        for path, final, move in touched:
+            rel_path = _history_path(path)
+            if rel_path is None:
+                continue
+            final_rel = _history_path(final) if final is not None else None
+            if final_rel is not None and alive is not None and final_rel not in alive:
+                final_rel = None
+            res[path] = final_rel
+            if move:
+                moved = True
+                continue
+            changed.add(rel_path)
+            if final_rel is not None:
+                credited.add(final_rel)
+                if final_rel != rel_path:
+                    through_old_name.add(final_rel)
+        for letter, _score, paths in commit["changes"]:
+            if letter == "R" and any(_history_path(path) for path in paths):
+                renames += 1
+        resolution[commit["sha"]] = res
+        if not changed:
+            if moved:
+                moves += 1
+            continue
+        if len(changed) > HISTORY_SWEEP_LIMIT:
             skipped += 1
-            largest = max(largest, len(files))
+            largest = max(largest, len(changed))
             continue
-        kept.append({"sha": commit["sha"], "date": commit["date"], "files": files})
-    return {"commits": kept, "skipped": skipped, "largest": largest}
+        if not credited:
+            dropped += 1
+            continue
+        kept.append(
+            {"sha": commit["sha"], "date": commit["date"], "cdate": commit["cdate"],
+             "files": sorted(credited)}
+        )
+        kept_index.append(index)
+        gains.update(through_old_name)
+        modified = {
+            _history_path(paths[0]) for letter, _score, paths in commit["changes"] if letter == "M"
+        }
+        for letter, _score, paths in commit["changes"]:
+            rel_path = _history_path(paths[-1]) if letter == "A" else None
+            base = _split_base(rel_path, modified) if rel_path else None
+            if base is None:
+                continue
+            born = res.get(paths[-1])
+            base_final = res.get(HISTORY_SOURCE_PREFIX + base)
+            if born is not None and base_final is not None:
+                births.append((index, born, base_final, commit["cdate"]))
+
+    # Per base, the commits before its FIRST split in the window: each base is
+    # counted once, however many partials it gave birth to.
+    first_split = {}
+    born_from = defaultdict(list)
+    for index, born, base_final, date in births:
+        born_from[base_final].append(born)
+        if base_final not in first_split or index > first_split[base_final][0]:
+            first_split[base_final] = (index, date)
+    split_rows = []
+    split_commits = set()
+    for base_final, (index, date) in first_split.items():
+        shas = [
+            commit["sha"]
+            for commit, at in zip(kept, kept_index)
+            if at > index and base_final in commit["files"]
+        ]
+        split_commits.update(shas)
+        before = len(shas)
+        split_rows.append({"base": base_final, "files": len(set(born_from[base_final])),
+                           "firstSplit": date, "baseCommits": before})
+    split_rows.sort(key=lambda row: (-row["baseCommits"], row["base"]))
+    return {
+        "commits": kept,
+        "skipped": skipped,
+        "largest": largest,
+        "moves": moves,
+        "dropped": dropped,
+        "renames": renames,
+        "renamedFiles": dict(gains),
+        "splits": {
+            "files": sum(row["files"] for row in split_rows),
+            "bases": len(split_rows),
+            "baseCommits": sum(row["baseCommits"] for row in split_rows),
+            "commits": len(split_commits),
+            "rows": split_rows,
+        },
+        "resolution": resolution,
+    }
 
 
-def history_metrics(commits, model, rules):
+def _history_module_map(model, rules, extra_paths=()):
+    """{rel path: production module} from the model, then the rules for unknown paths."""
+    tooling = {module["name"] for module in model["modules"] if module["tooling"]}
+    module_of_file = {}
+    for rel_path, module in model.get("fileModules", {}).items():
+        if module not in tooling:
+            module_of_file[rel_path] = module
+    for rel_path in extra_paths:
+        if rel_path in module_of_file:
+            continue
+        module = assign_module(rel_path, rules)
+        if module is not None and module not in tooling:
+            module_of_file[rel_path] = module
+    return module_of_file
+
+
+def history_metrics(commits, model, rules, starts=None):
     """Return the co-change tables for the scanned commits (pure).
 
     `commits` is parse_history's list, `model` supplies the file-to-module map,
@@ -4821,27 +5398,32 @@ def history_metrics(commits, model, rules):
     touching any file the type is declared in), modules (commits touching it)
     and modulePairs (every unordered production pair with both/either/jaccard),
     and filePairs (top 40 cross-module pairs with count >= 5).
+
+    With `starts` (window_starts), every files / modules / hotspots row also
+    carries `byWindow` {window: {"commits"} or {"fileCommits", "hotspot"}},
+    counted by committer date, and `windows` holds each window's commit count
+    and its own top 15 files and hotspots. The long window is `commits` itself
+    (parse_history already cut it), so its numbers equal the flat keys.
     """
-    tooling = {module["name"] for module in model["modules"] if module["tooling"]}
-    module_of_file = {}
-    for rel_path, module in model.get("fileModules", {}).items():
-        if module not in tooling:
-            module_of_file[rel_path] = module
-    for commit in commits:
-        for rel_path in commit["files"]:
-            if rel_path in module_of_file:
-                continue
-            module = assign_module(rel_path, rules)
-            if module is not None and module not in tooling:
-                module_of_file[rel_path] = module
+    module_of_file = _history_module_map(
+        model, rules, (rel_path for commit in commits for rel_path in commit["files"])
+    )
+
+    def windows_of(commit):
+        return _windows_of(commit.get("cdate") or commit.get("date"), starts)
 
     file_commits = defaultdict(int)
     last_touched = {}
+    window_file_commits = {key: Counter() for key in HISTORY_WINDOWS}
+    window_commits = Counter()
     for commit in commits:
-        for rel_path in set(commit["files"]):
-            if rel_path not in module_of_file:
-                continue
+        windows = windows_of(commit)
+        window_commits.update(windows)
+        touched = {rel_path for rel_path in commit["files"] if rel_path in module_of_file}
+        for rel_path in touched:
             file_commits[rel_path] += 1
+            for key in windows:
+                window_file_commits[key][rel_path] += 1
             date = commit["date"]
             if rel_path not in last_touched or date > last_touched[rel_path]:
                 last_touched[rel_path] = date
@@ -4849,7 +5431,9 @@ def history_metrics(commits, model, rules):
     module_commits = defaultdict(set)
     file_commit_index = defaultdict(set)
     file_pair_counts = Counter()
+    commit_windows = []
     for index, commit in enumerate(commits):
+        commit_windows.append(windows_of(commit))
         files = sorted({rel_path for rel_path in commit["files"] if rel_path in module_of_file})
         for rel_path in files:
             file_commit_index[rel_path].add(index)
@@ -4861,21 +5445,27 @@ def history_metrics(commits, model, rules):
                 if module_of_file[a] != module_of_file[b]:
                     file_pair_counts[(a, b)] += 1
 
+    def in_window(indexes, key):
+        return sum(1 for index in indexes if key in commit_windows[index])
+
     files = []
     for rel_path in sorted(module_of_file):
-        files.append(
-            {
-                "file": rel_path,
-                "module": module_of_file[rel_path],
-                "commits": file_commits.get(rel_path, 0),
-                "lastTouched": last_touched.get(rel_path),
+        row = {
+            "file": rel_path,
+            "module": module_of_file[rel_path],
+            "commits": file_commits.get(rel_path, 0),
+            "lastTouched": last_touched.get(rel_path),
+        }
+        if starts:
+            row["byWindow"] = {
+                key: {"commits": window_file_commits[key].get(rel_path, 0)} for key in HISTORY_WINDOWS
             }
-        )
+        files.append(row)
     files.sort(key=lambda row: (-row["commits"], row["file"]))
     for rank, row in enumerate(files, 1):
         row["churnRank"] = rank
 
-    hotspots = []
+    all_hotspots = []
     for entry in model.get("types", []):
         # A partial type counts the UNION of the commits that touched any of
         # its files: summing per-file counts would count a commit twice when it
@@ -4891,22 +5481,33 @@ def history_metrics(commits, model, rules):
         for rel_path in type_files:
             touching |= file_commit_index.get(rel_path, set())
         commits_for_type = len(touching)
-        hotspots.append(
-            {
-                "name": entry["name"],
-                "module": entry["module"],
-                "file": entry["file"],
-                "files": type_files,
-                "fileCommits": commits_for_type,
-                "fanIn": entry["fanIn"],
-                "hotspot": commits_for_type * entry["fanIn"],
-            }
-        )
-    hotspots.sort(key=lambda row: (-row["hotspot"], row["name"]))
-    hotspots = hotspots[:30]
+        row = {
+            "name": entry["name"],
+            "module": entry["module"],
+            "file": entry["file"],
+            "files": type_files,
+            "fileCommits": commits_for_type,
+            "fanIn": entry["fanIn"],
+            "hotspot": commits_for_type * entry["fanIn"],
+        }
+        if starts:
+            row["byWindow"] = {}
+            for key in HISTORY_WINDOWS:
+                count = in_window(touching, key)
+                row["byWindow"][key] = {"fileCommits": count, "hotspot": count * entry["fanIn"]}
+        all_hotspots.append(row)
+    all_hotspots.sort(key=lambda row: (-row["hotspot"], row["name"]))
+    hotspots = all_hotspots[:30]
 
     module_names = sorted(module_commits)
-    modules = [{"name": name, "commits": len(module_commits[name])} for name in module_names]
+    modules = []
+    for name in module_names:
+        row = {"name": name, "commits": len(module_commits[name])}
+        if starts:
+            row["byWindow"] = {
+                key: {"commits": in_window(module_commits[name], key)} for key in HISTORY_WINDOWS
+            }
+        modules.append(row)
     module_pairs = []
     for i in range(len(module_names)):
         for j in range(i + 1, len(module_names)):
@@ -4940,13 +5541,660 @@ def history_metrics(commits, model, rules):
     file_pairs.sort(key=lambda row: (-row["count"], row["a"], row["b"]))
     file_pairs = file_pairs[:40]
 
-    return {
+    out = {
         "files": files,
         "hotspots": hotspots,
         "modules": modules,
         "modulePairs": module_pairs,
         "filePairs": file_pairs,
     }
+    if starts:
+        windows = {}
+        for key in HISTORY_WINDOWS:
+            top_files = sorted(
+                (
+                    {"file": rel_path, "module": module_of_file[rel_path], "commits": count}
+                    for rel_path, count in window_file_commits[key].items()
+                ),
+                key=lambda row: (-row["commits"], row["file"]),
+            )[:15]
+            top_hot = sorted(
+                (
+                    {"name": row["name"], "module": row["module"], "fanIn": row["fanIn"],
+                     "fileCommits": row["byWindow"][key]["fileCommits"],
+                     "hotspot": row["byWindow"][key]["hotspot"]}
+                    for row in all_hotspots
+                    if row["byWindow"][key]["fileCommits"]
+                ),
+                key=lambda row: (-row["hotspot"], row["name"]),
+            )[:15]
+            windows[key] = {
+                "since": starts.get(key),
+                "commits": window_commits.get(key, 0),
+                "files": top_files,
+                "hotspots": top_hot,
+            }
+        out["windows"] = windows
+    return out
+
+
+# ---------------------------------------------------------------------------
+# change kinds: what each merged PR was, from its own diff
+# ---------------------------------------------------------------------------
+
+# One unit is one commit on the first-parent chain of the commit read: a merge
+# ("Merge pull request #N ...", the PR title the first line of its body) with
+# its first-parent diff as the PR's file set, or a non-merge commit ("direct").
+# A first-parent merge that is not a PR merge (a branch synced with main) is a
+# "merge" unit: its first-parent diff is everything the other side brought in.
+PR_MERGE_RE = re.compile(r"^Merge (?:pull request|PR) #(\d+)\b")
+SQUASH_PR_RE = re.compile(r"\(#(\d+)\)\s*$")
+
+# CHANGELOG section heading -> kind, first match wins (the heading lower-cased,
+# without the `### `). Highlights repeat entries listed elsewhere and give no
+# kind; a heading no row matches (the early topic headings) is "other".
+CHANGELOG_SECTION_KINDS = (
+    ("ignored", re.compile(r"^highlights\b")),
+    ("fix", re.compile(r"\bfix")),
+    ("feature", re.compile(r"^(added|features|new features)\b")),
+    (
+        "change",
+        re.compile(r"^(changed|enhancements|improvements|breaking changes|ui|settings|defaults)\b"
+                   r"|\bimprovements\b"),
+    ),
+    (
+        "dev",
+        re.compile(
+            r"^(dev|internals|tests?|test coverage|documentation|developer tools|code quality"
+            r"|code refactor|architecture|maintenance|log hygiene|log cleanup)\b"
+        ),
+    ),
+)
+# A bullet whose bold lead says it is dev work is dev whatever section holds
+# it (`- **Dev: ...**` and `- **Automated testing: ...**` sit under Added,
+# Changed and Fixed too).
+CHANGELOG_DEV_LEAD_RE = re.compile(
+    r"^-\s+\*\*(?:dev|dev tooling|developer tooling|tooling|tests?|test coverage|test tooling"
+    r"|test housekeeping|automated testing|harness|internal|housekeeping):",
+    re.IGNORECASE,
+)
+# The primary kind of a unit that added CHANGELOG lines under several kinds.
+CHANGELOG_KIND_PRECEDENCE = ("fix", "feature", "change", "dev", "other")
+# The kind of a unit with no CHANGELOG line, from the paths it touched (docs
+# are ignored beside anything else, since docs move with every change).
+PATH_KIND_ORDER = ("unlabelled", "tests", "harness", "tooling", "docs", "mixed", "empty")
+CHANGE_KIND_ORDER = CHANGELOG_KIND_PRECEDENCE + PATH_KIND_ORDER
+HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+
+
+def unit_git_args(since, rev="HEAD"):
+    """The first-parent units since `since`: subject, body, parents, committer
+    date and the first-parent diff of every path, renames followed."""
+    return [
+        "git",
+        "log",
+        "--first-parent",
+        "--diff-merges=first-parent",
+        "-M",
+        "-l0",
+        "--since=%s" % _git_since(since),
+        "--date=short",
+        "--name-status",
+        "--format=UNIT%x09%H%x09%P%x09%cd%x09%s%n%w(0,4,4)%b%w(0,0,0)%nENDBODY",
+        rev,
+    ]
+
+
+def changelog_git_args(rev="HEAD"):
+    """Every first-parent unit's CHANGELOG.md patch, with no context lines, from
+    the first commit (the file is rebuilt from nothing, so no window cut)."""
+    return [
+        "git",
+        "log",
+        "--first-parent",
+        "--diff-merges=first-parent",
+        "-p",
+        "-U0",
+        "--no-renames",
+        "--no-color",
+        "--no-ext-diff",
+        "--format=UNIT%x09%H",
+        rev,
+        "--",
+        "CHANGELOG.md",
+    ]
+
+
+def parse_units(text):
+    """Parse unit_git_args' output into units, newest first (pure).
+
+    Each unit: {"sha", "parents", "date", "subject", "title", "type", "pr",
+    "changes"}: `type` "pr" (a PR merge), "merge" (any other merge) or
+    "direct"; `title` the PR title for a PR merge (the body's first line), the
+    subject otherwise; `pr` the PR number when the subject names one.
+    """
+    units = []
+    current = None
+    in_body = False
+    for raw_line in text.split("\n"):
+        line = raw_line.rstrip("\r")
+        if line.startswith("UNIT\t"):
+            parts = line.split("\t")
+            current = None
+            in_body = False
+            if len(parts) >= 5:
+                current = {
+                    "sha": parts[1],
+                    "parents": parts[2].split(),
+                    "date": parts[3],
+                    "subject": "\t".join(parts[4:]),
+                    "body": [],
+                    "changes": [],
+                }
+                units.append(current)
+                in_body = True
+            continue
+        if current is None:
+            continue
+        if in_body:
+            if line == "ENDBODY":
+                in_body = False
+            else:
+                current["body"].append(line.strip())
+            continue
+        change = _change_line(line.strip(), bare_is_modify=False) if line.strip() else None
+        if change is not None:
+            current["changes"].append(change)
+    for unit in units:
+        body = [line for line in unit.pop("body") if line]
+        merge = PR_MERGE_RE.match(unit["subject"])
+        squash = SQUASH_PR_RE.search(unit["subject"])
+        if len(unit["parents"]) > 1:
+            unit["type"] = "pr" if merge else "merge"
+            unit["title"] = body[0] if (merge and body) else unit["subject"]
+            unit["pr"] = int(merge.group(1)) if merge else None
+        else:
+            unit["type"] = "direct"
+            unit["title"] = unit["subject"]
+            unit["pr"] = int(squash.group(1)) if squash else None
+    return units
+
+
+def parse_changelog_patch(text):
+    """Parse changelog_git_args' output into [{"sha", "hunks"}], newest first (pure).
+
+    A hunk is [old start, old count, new start, new count, added lines]; the
+    added lines are read by the hunk's own count, so a diff header can never
+    be taken for content.
+    """
+    units = []
+    current = None
+    hunk = None
+    left = 0
+    for raw_line in text.split("\n"):
+        line = raw_line[:-1] if raw_line.endswith("\r") else raw_line
+        if hunk is not None and left > 0:
+            if line.startswith("+"):
+                hunk[4].append(line[1:])
+                left -= 1
+                continue
+            if line.startswith("-") or line.startswith("\\"):
+                continue
+        if line.startswith("UNIT\t"):
+            current = {"sha": line.split("\t")[1].strip(), "hunks": []}
+            units.append(current)
+            hunk = None
+            continue
+        match = HUNK_RE.match(line)
+        if match and current is not None:
+            old_count = int(match.group(2)) if match.group(2) is not None else 1
+            new_count = int(match.group(4)) if match.group(4) is not None else 1
+            hunk = [int(match.group(1)), old_count, int(match.group(3)), new_count, []]
+            current["hunks"].append(hunk)
+            left = new_count
+    return units
+
+
+def changelog_section_kind(heading):
+    """The kind of a `### ` heading (None for no heading; "ignored" for Highlights)."""
+    if heading is None:
+        return None
+    name = heading.lstrip("#").strip().lower()
+    for kind, pattern in CHANGELOG_SECTION_KINDS:
+        if pattern.search(name):
+            return kind
+    return "other"
+
+
+def _heading_level(line):
+    if not line.startswith("#"):
+        return 0
+    level = len(line) - len(line.lstrip("#"))
+    return level if line[level : level + 1] == " " else 0
+
+
+def _changelog_context(lines, index):
+    """(section heading, bullet) in force just above post-image line `index`."""
+    heading = None
+    bullet = None
+    bullet_done = False
+    for j in range(index - 1, -1, -1):
+        line = lines[j]
+        level = _heading_level(line)
+        if level:
+            if level <= 3:
+                heading = line if level == 3 else None
+                break
+            bullet_done = True
+            continue
+        if not bullet_done:
+            if line.startswith("- "):
+                bullet = line
+                bullet_done = True
+            elif line.strip() and not line.startswith(" "):
+                bullet_done = True
+    return heading, bullet
+
+
+def changelog_unit_kinds(patch_units, head_lines=None):
+    """({sha: Counter(kind -> added lines)}, reason) by rebuilding CHANGELOG.md (pure).
+
+    `patch_units` is parse_changelog_patch's list (newest first, back to the
+    file's creation). The file is rebuilt oldest first by applying each unit's
+    hunks, so every added line is read in its own post-image: its kind is its
+    `### ` section's (changelog_section_kind; a `#### ` sub-heading does not
+    change it), or "dev" when the bullet it belongs to leads with `Dev:`.
+    Blank lines and headings give no kind. `head_lines` (the file at the commit
+    read, split on newlines) checks the rebuild; any mismatch returns ({},
+    reason), so a kind is never read off a wrong post-image.
+    """
+    lines = []
+    out = {}
+    for unit in reversed(patch_units):
+        new = []
+        pos = 0
+        added = []
+        for old_start, old_count, new_start, new_count, plus in unit["hunks"]:
+            start = old_start if old_count == 0 else old_start - 1
+            if start < pos or start + old_count > len(lines) or len(plus) != new_count:
+                return {}, "CHANGELOG.md patch does not apply at %s" % unit["sha"][:9]
+            new.extend(lines[pos:start])
+            if new_count and len(new) != new_start - 1:
+                return {}, "CHANGELOG.md hunk lands off its line at %s" % unit["sha"][:9]
+            added.append((len(new), new_count))
+            new.extend(plus)
+            pos = start + old_count
+        new.extend(lines[pos:])
+        lines = new
+        kinds = Counter()
+        for first, count in added:
+            if not count:
+                continue
+            heading, bullet = _changelog_context(lines, first)
+            for index in range(first, first + count):
+                line = lines[index]
+                level = _heading_level(line)
+                if level:
+                    if level <= 3:
+                        heading = line if level == 3 else None
+                    bullet = None
+                    continue
+                if line.startswith("- "):
+                    bullet = line
+                elif line.strip() and not line.startswith(" "):
+                    bullet = None
+                if not line.strip():
+                    continue
+                if bullet is not None and CHANGELOG_DEV_LEAD_RE.match(bullet):
+                    kinds["dev"] += 1
+                    continue
+                kind = changelog_section_kind(heading)
+                if kind is not None and kind != "ignored":
+                    kinds[kind] += 1
+        if kinds:
+            out[unit["sha"]] = kinds
+    if head_lines is not None and lines != head_lines:
+        return {}, "rebuilt CHANGELOG.md differs from the file at the commit read"
+    return out, ""
+
+
+def path_category(path):
+    """docs, tests, harness, code, or tooling for one repository path (pure)."""
+    path = path.replace("\\", "/")
+    if path.endswith(".md") or path.startswith("docs/") or path.startswith("LICENSE"):
+        return "docs"
+    if path.startswith("Source/Parsek.Tests/") or path.startswith("Source/Parsek/InGameTests/"):
+        return "tests"
+    if path.startswith("harness/"):
+        return "harness"
+    if path.startswith("Source/Parsek/") or path.startswith("GameData/"):
+        return "code"
+    return "tooling"
+
+
+def classify_unit(paths, changelog_kinds=None):
+    """(primary kind, sorted kinds) for one unit (pure).
+
+    With CHANGELOG lines the kinds are their sections' (no "ignored"), the
+    primary the first in CHANGELOG_KIND_PRECEDENCE. Without, the kind comes
+    from the paths: production code -> "unlabelled"; else docs are set aside
+    and one remaining category names the kind ("tests", "harness", "tooling"),
+    none leaves "docs", two or more "mixed"; no path at all is "empty".
+    """
+    kinds = [kind for kind in CHANGELOG_KIND_PRECEDENCE if (changelog_kinds or {}).get(kind)]
+    if kinds:
+        return kinds[0], kinds
+    categories = {path_category(path) for path in paths}
+    if not categories:
+        return "empty", ["empty"]
+    if "code" in categories:
+        return "unlabelled", ["unlabelled"]
+    rest = categories - {"docs"}
+    if not rest:
+        return "docs", ["docs"]
+    if len(rest) == 1:
+        kind = next(iter(rest))
+        return kind, [kind]
+    return "mixed", ["mixed"]
+
+
+def change_kinds(units, cl_kinds, starts, model, rules, alive=None, history_files=None):
+    """Units by kind per window, per module and per file (pure).
+
+    `units` is parse_units' list (newest first), `cl_kinds` changelog_unit_kinds'
+    map, `starts` window_starts. A unit's Source/Parsek files are its
+    first-parent diff resolved to their current names (resolve_renames over the
+    unit chain, which is linear, so no branch can reorder a rename); a pure
+    move is no change and a unit changing more than HISTORY_SWEEP_LIMIT source
+    files is counted by kind but not attributed to any module or file
+    (`sweeps`). A "fix unit" is one whose kinds include fix (it added a line
+    under a fix section), whatever its primary kind.
+
+    Returns {"measured", "windows": {w: {"since", "units", "pr", "direct",
+    "merge", "kinds", "fixUnits", "sweeps"}}, "modules": [{"name", "byWindow":
+    {w: {"units", "fix", "kinds"}}}], "fileStats": {rel: {w: {"units", "fix",
+    "kinds"}}}, "fixFiles": {"90d" / "18m": top 15}, "units": [one row per unit
+    in the long window: sha, date, type, pr, title, primary, kinds]}.
+    """
+    resolved = resolve_renames([unit["changes"] for unit in units])
+    windows = {
+        key: {"since": starts.get(key), "units": 0, "pr": 0, "direct": 0, "merge": 0,
+              "kinds": Counter(), "fixUnits": 0, "sweeps": 0}
+        for key in HISTORY_WINDOWS
+    }
+    rows = []
+    attributions = []
+    for unit, touched in zip(units, resolved):
+        in_windows = _windows_of(unit["date"], starts)
+        if not in_windows:
+            continue
+        paths = set()
+        for _letter, _score, unit_paths in unit["changes"]:
+            paths.update(unit_paths)
+        primary, kinds = classify_unit(sorted(paths), cl_kinds.get(unit["sha"]))
+        changed = set()
+        credited = set()
+        for path, final, move in touched:
+            rel_path = _history_path(path)
+            if rel_path is None or move:
+                continue
+            changed.add(rel_path)
+            final_rel = _history_path(final) if final is not None else None
+            if final_rel is not None and (alive is None or final_rel in alive):
+                credited.add(final_rel)
+        sweep = len(changed) > HISTORY_SWEEP_LIMIT
+        fix = "fix" in kinds
+        for key in in_windows:
+            window = windows[key]
+            window["units"] += 1
+            window[unit["type"]] += 1
+            window["kinds"][primary] += 1
+            window["fixUnits"] += 1 if fix else 0
+            window["sweeps"] += 1 if sweep else 0
+        if not sweep:
+            attributions.append((in_windows, primary, fix, credited))
+        rows.append({
+            "sha": unit["sha"], "date": unit["date"], "type": unit["type"], "pr": unit["pr"],
+            "title": unit["title"], "primary": primary, "kinds": kinds,
+            "files": len(credited), "sweep": sweep,
+        })
+
+    module_of_file = _history_module_map(
+        model, rules, (rel for _w, _p, _f, credited in attributions for rel in credited)
+    )
+    module_stats = defaultdict(lambda: {key: {"units": 0, "fix": 0, "kinds": Counter()}
+                                        for key in HISTORY_WINDOWS})
+    file_stats = defaultdict(lambda: {key: {"units": 0, "fix": 0, "kinds": Counter()}
+                                      for key in HISTORY_WINDOWS})
+    for in_windows, primary, fix, credited in attributions:
+        files = {rel for rel in credited if rel in module_of_file}
+        modules = {module_of_file[rel] for rel in files}
+        for key in in_windows:
+            for target in [module_stats[name][key] for name in modules] + [
+                file_stats[rel][key] for rel in files
+            ]:
+                target["units"] += 1
+                target["fix"] += 1 if fix else 0
+                target["kinds"][primary] += 1
+
+    def plain(stats):
+        return {
+            key: {"units": value["units"], "fix": value["fix"], "kinds": _ordered_kinds(value["kinds"])}
+            for key, value in stats.items()
+        }
+
+    modules = [{"name": name, "byWindow": plain(module_stats[name])} for name in module_stats]
+    modules.sort(key=lambda row: (-row["byWindow"]["18m"]["fix"], -row["byWindow"]["18m"]["units"],
+                                  row["name"]))
+    commits_of = {}
+    for row in history_files or []:
+        commits_of[row["file"]] = {
+            key: (row.get("byWindow") or {}).get(key, {}).get("commits", 0) for key in HISTORY_WINDOWS
+        }
+    fix_files = {}
+    for key in ("90d", "18m"):
+        ranked = sorted(
+            (rel for rel in file_stats if file_stats[rel][key]["fix"]),
+            key=lambda rel: (-file_stats[rel][key]["fix"], -file_stats[rel][key]["units"], rel),
+        )[:15]
+        fix_files[key] = [
+            {"file": rel, "module": module_of_file[rel], "fix": file_stats[rel][key]["fix"],
+             "units": file_stats[rel][key]["units"],
+             "commits": commits_of.get(rel, {}).get(key),
+             "kinds": _ordered_kinds(file_stats[rel][key]["kinds"])}
+            for rel in ranked
+        ]
+    for window in windows.values():
+        window["kinds"] = _ordered_kinds(window["kinds"])
+    return {
+        "measured": True,
+        "windows": windows,
+        "modules": modules,
+        "fileStats": {rel: plain(stats) for rel, stats in file_stats.items()},
+        "fixFiles": fix_files,
+        "units": [row for row in rows],
+    }
+
+
+def _ordered_kinds(counter):
+    """{kind: count} in CHANGE_KIND_ORDER, zero kinds left out."""
+    return {kind: counter[kind] for kind in CHANGE_KIND_ORDER if counter.get(kind)}
+
+
+# ---------------------------------------------------------------------------
+# history I/O: the git calls, in thin wrappers
+# ---------------------------------------------------------------------------
+
+
+def git_head(repo_root, rev="HEAD"):
+    """(sha, committer date) of `rev`, or (None, None)."""
+    text = _git_text(repo_root, ["git", "log", "-1", "--date=short", "--format=%H%x09%cd", rev],
+                     "git log -1")
+    if not text or "\t" not in text:
+        return None, None
+    sha, date = text.strip().split("\t", 1)
+    return sha, date
+
+
+def git_is_shallow(repo_root):
+    """True / False, or None when git cannot answer."""
+    text = _git_text(repo_root, ["git", "rev-parse", "--is-shallow-repository"], "git rev-parse")
+    if text is None:
+        return None
+    return text.strip() == "true"
+
+
+def git_alive_paths(repo_root, rev="HEAD"):
+    """The Source/Parsek rel paths present at `rev` (the history's current names), or None."""
+    text = _git_text(repo_root, ["git", "ls-tree", "-r", "--name-only", rev, "--", "Source/Parsek"],
+                     "git ls-tree")
+    if text is None:
+        return None
+    alive = set()
+    for line in text.split("\n"):
+        rel_path = _history_path(line.strip()) if line.strip() else None
+        if rel_path is not None:
+            alive.add(rel_path)
+    return alive
+
+
+def read_commit_history(repo_root, rev="HEAD", since=None):
+    """The per-commit history at `rev`, or why it was not measured.
+
+    Returns {"measured", "reason", "head", "anchor", "starts", "since",
+    "parsed", "alive"}: `anchor` the committer date of `rev`, `starts` its
+    window_starts (`since` overrides the long window's start), `parsed`
+    parse_history over one git log read. A shallow clone, a missing git or a
+    failed read is not measured, never a table of zeros.
+    """
+    shallow = git_is_shallow(repo_root)
+    if shallow is None:
+        return {"measured": False, "reason": "git unavailable"}
+    if shallow:
+        return {"measured": False, "reason": "shallow clone (the history is cut short)"}
+    head, anchor = git_head(repo_root, rev)
+    if head is None:
+        return {"measured": False, "reason": "no commit at %s" % rev}
+    starts = window_starts(anchor)
+    if since:
+        starts["18m"] = since
+    text = _git_text(repo_root, history_git_args(starts["18m"], rev), "git log")
+    if text is None:
+        return {"measured": False, "reason": "git log failed"}
+    alive = git_alive_paths(repo_root, rev)
+    return {
+        "measured": True,
+        "reason": "",
+        "head": head,
+        "anchor": anchor,
+        "starts": starts,
+        "since": starts["18m"],
+        "parsed": parse_history(text, alive, starts["18m"]),
+        "alive": alive,
+    }
+
+
+def read_change_kinds(repo_root, starts, model, rules, alive=None, history_files=None, rev="HEAD"):
+    """change_kinds over three git calls (the unit chain, the CHANGELOG patches,
+    the CHANGELOG at `rev`), or {"measured": False, "reason"}."""
+    units_text = _git_text(repo_root, unit_git_args(starts["18m"], rev), "git log --first-parent")
+    if units_text is None:
+        return {"measured": False, "reason": "git log --first-parent failed"}
+    patch_text = _git_text(repo_root, changelog_git_args(rev), "git log -p CHANGELOG.md")
+    if patch_text is None:
+        return {"measured": False, "reason": "git log -p CHANGELOG.md failed"}
+    head_text = _git_text(repo_root, ["git", "cat-file", "-p", "%s:CHANGELOG.md" % rev],
+                          "git cat-file CHANGELOG.md")
+    if head_text is None:
+        return {"measured": False, "reason": "no CHANGELOG.md at %s" % rev}
+    head_lines = head_text.split("\n")
+    if head_lines and head_lines[-1] == "":
+        head_lines.pop()
+    cl_kinds, reason = changelog_unit_kinds(parse_changelog_patch(patch_text), head_lines)
+    if reason:
+        return {"measured": False, "reason": reason}
+    return change_kinds(parse_units(units_text), cl_kinds, starts, model, rules, alive, history_files)
+
+
+def history_payload(commit_history, model, rules):
+    """history.json's payload from read_commit_history's result (pure).
+
+    Not measured gives {"measured": False, "reason", "commits": 0}, which every
+    reader shows as "not measured".
+    """
+    if not commit_history.get("measured"):
+        return {"measured": False, "reason": commit_history.get("reason", ""), "commits": 0,
+                "since": None}
+    parsed = commit_history["parsed"]
+    gains = parsed["renamedFiles"]
+    payload = {
+        "measured": True,
+        "head": commit_history.get("head"),
+        "anchor": commit_history.get("anchor"),
+        "starts": commit_history.get("starts"),
+        "since": commit_history["since"],
+        "commits": len(parsed["commits"]),
+        "skippedSweeps": parsed["skipped"],
+        "largestSweep": parsed["largest"],
+        "moves": parsed["moves"],
+        "dropped": parsed["dropped"],
+        "renames": parsed["renames"],
+        "renamedFiles": {
+            "files": len(gains),
+            "commits": sum(gains.values()),
+            "top": [
+                {"file": rel_path, "commits": count}
+                for rel_path, count in sorted(gains.items(), key=lambda item: (-item[1], item[0]))[:10]
+            ],
+        },
+        "splits": {
+            "files": parsed["splits"]["files"],
+            "bases": parsed["splits"]["bases"],
+            "baseCommits": parsed["splits"]["baseCommits"],
+            "commits": parsed["splits"]["commits"],
+            "top": parsed["splits"]["rows"][:10],
+        },
+    }
+    payload.update(history_metrics(parsed["commits"], model, rules, commit_history.get("starts")))
+    return payload
+
+
+def attach_change_kinds(history, kinds):
+    """Fold change_kinds' result into the history payload (pure): `changeKinds`
+    without the per-file map, and each files row's `byWindow` gains units and
+    fix units."""
+    if not kinds.get("measured"):
+        history["changeKinds"] = {"measured": False, "reason": kinds.get("reason", "")}
+        return history
+    stats = kinds.get("fileStats", {})
+    for row in history.get("files", []):
+        file_stats = stats.get(row["file"], {})
+        for key, window in (row.get("byWindow") or {}).items():
+            window["units"] = file_stats.get(key, {}).get("units", 0)
+            window["fix"] = file_stats.get(key, {}).get("fix", 0)
+    history["changeKinds"] = {key: value for key, value in kinds.items() if key != "fileStats"}
+    return history
+
+
+def read_history(repo_root, model, rules, rev="HEAD", growth=True):
+    """(history payload, growth) for the commit `rev`: the per-commit read, the
+    numstat read (skipped, growth None, when `growth` is False: it is the slow
+    one) and the change kinds, every git call in a thin wrapper."""
+    commit_history = read_commit_history(repo_root, rev)
+    history = history_payload(commit_history, model, rules)
+    if not history.get("measured"):
+        history["changeKinds"] = {"measured": False, "reason": history.get("reason", "")}
+        return history, None
+    if growth:
+        growth = parse_growth(
+            git_numstat_lines(repo_root, history["since"], rev), commit_history["parsed"]["resolution"]
+        )
+    else:
+        growth = None
+    kinds = read_change_kinds(repo_root, history["starts"], model, rules, commit_history.get("alive"),
+                              history.get("files"), rev)
+    attach_change_kinds(history, kinds)
+    return history, growth
 
 
 def write_history_json(payload, out_path):
@@ -5136,6 +6384,13 @@ def size_report(model, history=None, growth=None, settings=None):
     history.json payload (churn ranks and hotspots), `growth` what parse_growth
     returned, and `settings` the [size] table. Missing history or growth simply
     leaves those columns null.
+
+    A file's growth is capped at its line count today: net lines added in a
+    window cannot exceed the file, and only the sum over non-merge commits
+    does, because the merges that joined parallel branches are not read (a
+    file both branches created, the same edit made on both, a conflict
+    resolution that dropped lines). A capped file row carries
+    `netLinesCapped`, and `growth.capped` counts them.
     """
     sizes = model.get("sizes", {})
     settings = settings or {"runtimeCoupled": list(DEFAULT_RUNTIME_COUPLED)}
@@ -5154,6 +6409,14 @@ def size_report(model, history=None, growth=None, settings=None):
         partners[row["b"]].append((row["a"], row["count"]))
     type_meta = {entry["name"]: entry for entry in model.get("types", [])}
 
+    file_growth = dict(growth["files"])
+    capped = set()
+    for row in sizes.get("files", []):
+        net = file_growth.get(row["file"])
+        if net is not None and net > row["lines"]:
+            file_growth[row["file"]] = row["lines"]
+            capped.add(row["file"])
+
     files = []
     for row in sizes.get("files", []):
         churn_row = churn.get(row["file"], {})
@@ -5165,7 +6428,8 @@ def size_report(model, history=None, growth=None, settings=None):
                 "declaredTypes": row["declaredTypes"],
                 "topLevelTypes": row["topLevelTypes"],
                 "types": row["types"],
-                "netLinesAdded": growth["files"].get(row["file"]),
+                "netLinesAdded": file_growth.get(row["file"]),
+                "netLinesCapped": row["file"] in capped,
                 "commits": churn_row.get("commits"),
                 "churnRank": churn_row.get("churnRank"),
             }
@@ -5189,7 +6453,7 @@ def size_report(model, history=None, growth=None, settings=None):
         entry["churnRank"] = churn_row.get("churnRank")
         if growth["files"]:
             entry["netLinesAdded"] = sum(
-                growth["files"].get(part["file"], 0) for part in entry["files"]
+                file_growth.get(part["file"], 0) for part in entry["files"]
             )
         else:
             entry["netLinesAdded"] = None
@@ -5228,6 +6492,7 @@ def size_report(model, history=None, growth=None, settings=None):
             "commits": growth.get("commits", 0),
             "skippedSweeps": growth.get("skipped", 0),
             "available": bool(growth.get("files")),
+            "capped": len(capped),
         },
         "files": files,
         "types": types,
@@ -5394,11 +6659,12 @@ def print_size_section(sizes):
             "  growth column: net lines added since %s over %d commits (%d sweeps skipped)."
             % (growth.get("since"), growth.get("commits", 0), growth.get("skippedSweeps", 0))
         )
+        if growth.get("capped"):
+            print("  %s" % growth_cap_note(growth["capped"]))
     else:
         print("  growth column: no git history (git unavailable or the window is empty).")
     print("  Top %d files by lines:" % SIZE_TOP_FILES)
     for row in sizes["files"][:SIZE_TOP_FILES]:
-        net = row.get("netLinesAdded")
         print(
             "    %7s  %-52s %-13s types=%-3d growth=%s"
             % (
@@ -5406,7 +6672,7 @@ def print_size_section(sizes):
                 row["file"],
                 row["module"],
                 row["declaredTypes"],
-                ("%+d" % net) if net is not None else "n/a",
+                format_growth(row, "n/a"),
             )
         )
     print(
@@ -5491,6 +6757,53 @@ def print_layer_section(model, layer_table):
         print(line)
     for problem in layers.layer_problems(layer_table, production, tooling):
         print("  LAYER %s" % problem)
+
+
+def print_change_kinds(history):
+    """The CHANGE KINDS lines of --check: units by kind per window, where fixes land."""
+    kinds = history.get("changeKinds")
+    if not isinstance(kinds, dict):
+        return
+    print("  Change kinds (first-parent units: PR merges and direct commits):")
+    if not kinds.get("measured"):
+        print("    not measured: %s." % (kinds.get("reason") or "no first-parent history"))
+        return
+    windows = kinds["windows"]
+    print(
+        "    units 30d / 90d / 18m: %s"
+        % " / ".join(
+            "%d (pr %d, direct %d, merge %d)"
+            % (windows[key]["units"], windows[key]["pr"], windows[key]["direct"], windows[key]["merge"])
+            for key in HISTORY_WINDOWS
+        )
+    )
+    for kind in CHANGE_KIND_ORDER:
+        counts = [windows[key]["kinds"].get(kind, 0) for key in HISTORY_WINDOWS]
+        if any(counts):
+            print("    %-11s %s" % (kind, " / ".join("%d" % count for count in counts)))
+    print(
+        "    fix units (any fix line) %s; sweeps left out of the module and file tables %s"
+        % (" / ".join("%d" % windows[key]["fixUnits"] for key in HISTORY_WINDOWS),
+           " / ".join("%d" % windows[key]["sweeps"] for key in HISTORY_WINDOWS))
+    )
+    module_commits = {row["name"]: row for row in history.get("modules", [])}
+    print("  Where fixes land (module: fix units / units / commits, 90 days | 18 months):")
+    for row in kinds.get("modules", []):
+        commits = module_commits.get(row["name"], {})
+        by = row["byWindow"]
+        print(
+            "    %-12s %4d / %4d / %4s | %4d / %4d / %4s"
+            % (row["name"], by["90d"]["fix"], by["90d"]["units"],
+               _window_value(commits, "90d", "commits"), by["18m"]["fix"], by["18m"]["units"],
+               commits.get("commits"))
+        )
+    for key in ("90d", "18m"):
+        rows = (kinds.get("fixFiles") or {}).get(key, [])
+        print(
+            "  Top files by fix units, %s: %s"
+            % (HISTORY_WINDOW_LABELS[key],
+               ", ".join("%s %d" % (row["file"], row["fix"]) for row in rows[:10]) or "none")
+        )
 
 
 def run_check(model, forbidden, allowed, prose=None, history=None, sizes=None, semantic=None,
@@ -5646,18 +6959,30 @@ def run_check(model, forbidden, allowed, prose=None, history=None, sizes=None, s
     print()
     print("HISTORY (co-change over Source/Parsek):")
     if not history or not history.get("commits"):
-        print("  no co-change history (git log unavailable or the window is empty).")
+        if history and history.get("measured") is False:
+            print("  not measured: %s." % (history.get("reason") or "no git history"))
+        else:
+            print("  no co-change history (git log unavailable or the window is empty).")
     else:
-        print(
-            "  window: since %s, %d commits (%d sweeps skipped, largest %d files)"
-            % (
-                history["since"],
-                history["commits"],
-                history["skippedSweeps"],
-                history["largestSweep"],
+        for sentence in history_window_summary(history):
+            print("  " + sentence)
+        for key in ("30d", "90d"):
+            window = (history.get("windows") or {}).get(key)
+            if not window:
+                continue
+            print(
+                "  Top files, %s (%d commits): %s"
+                % (HISTORY_WINDOW_LABELS[key], window["commits"],
+                   ", ".join("%s %d" % (row["file"], row["commits"]) for row in window["files"][:8])
+                   or "none")
             )
-        )
-        print("  Top hotspots (type, module, file commits, fan-in, hotspot):")
+            print(
+                "  Top hotspots, %s (file commits x fan-in): %s"
+                % (HISTORY_WINDOW_LABELS[key],
+                   ", ".join("%s %d" % (row["name"], row["hotspot"]) for row in window["hotspots"][:8])
+                   or "none")
+            )
+        print("  Top hotspots, 18 months (type, module, file commits, fan-in, hotspot):")
         if not history.get("hotspots"):
             print("    none.")
         for row in history["hotspots"][:15]:
@@ -5693,6 +7018,7 @@ def run_check(model, forbidden, allowed, prose=None, history=None, sizes=None, s
             except ValueError:
                 continue
             print("    %s -> %s: %d" % (frm, to, pair_lookup.get(tuple(sorted((frm, to))), 0)))
+        print_change_kinds(history)
 
     lookup = {(e["from"], e["to"]): e for e in model["edges"]}
     print()
@@ -5857,16 +7183,7 @@ def main(argv=None):
             out_dir = Path(args.out)
             out_dir.mkdir(parents=True, exist_ok=True)
 
-            since = default_since()
-            parsed = parse_history(git_log_lines(REPO_ROOT, since))
-            history_payload = {
-                "since": since,
-                "commits": len(parsed["commits"]),
-                "skippedSweeps": parsed["skipped"],
-                "largestSweep": parsed["largest"],
-            }
-            history_payload.update(history_metrics(parsed["commits"], model, rules))
-            growth = parse_growth(git_numstat_lines(REPO_ROOT, since))
+            history_payload, growth = read_history(REPO_ROOT, model, rules)
             sizes_payload = size_report(model, history_payload, growth, size_settings)
 
             json_path = out_dir / "edges.json"
