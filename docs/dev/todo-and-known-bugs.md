@@ -2907,9 +2907,10 @@ compare).
   skipping with a counted reason (dev snapshot, not armed, no or several `SessionStart`, duplicate,
   already archived at the boot minute or the one before, non-token label). `rebuild` / `append`
   index it as an `origin` `snapshot`, verdict `NOT-PASS` row, shown in lane history and `trend`,
-  counted apart and never in a rate, count, link or regression. Not yet run on the PC: the
-  KSPCommunityFixes DLL line shape, the boot-minute match and "harness collected non-PASS only"
-  are checked by the dry run (its matched-verdict line). harness/README.md -> "Snapshot rows".
+  counted apart and never in a rate, count, link or regression. The PC dry run read the DLL of
+  none of 793 imports (the mod table pads the name column; the parse now takes any whitespace
+  after `Parsek`), and the 92 snapshots that matched an archived run were PARSEK-FAIL 70,
+  INVALID 21, XPASS 1, PASS 0. harness/README.md -> "Snapshot rows".
 
 **Fix.**
 1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same

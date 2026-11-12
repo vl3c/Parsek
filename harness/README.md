@@ -2070,12 +2070,16 @@ Each folder is imported or skipped with a counted reason; nothing is guessed:
 The run id is the boot minute in UTC plus the label (`_run<N>` when taken). The
 commit is the `Commit:` hash of git-state.txt (prefix only) and `dirty` says
 whether its status section listed anything. The DLL hash is read defensively:
-a line that is not a Parsek log line, names `Parsek <version>` and carries
+a line that is not a Parsek log line, names `Parsek`, then whitespace (the table
+pads the name column) and a version, and carries
 exactly one 64-hex run (the KSPCommunityFixes mod table); anything else records
 none. The dry run prints the counts by outcome and reason, how many imports
 carry a commit / dirty / DLL / profile, and the archived verdicts of the runs an
 `already-archived` folder matched: a PASS there would mean the harness did
 collect logs for a passing run, and the `NOT-PASS` verdict below would be wrong.
+On the real PC the snapshots that matched an already archived run were
+PARSEK-FAIL 70, INVALID 21, XPASS 1 and PASS 0, so `NOT-PASS` means "not a plain
+PASS" and includes XPASS.
 
 On the PC: back-fill any surviving results dirs first (`tools/archive_results.py`;
 a back-fill skips an existing folder, so a snapshot imported first at the same

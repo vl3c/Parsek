@@ -1743,6 +1743,20 @@ class SnapshotDecisionTests(unittest.TestCase):
         self.assertEqual(2, len(_facts(two).dlls))
         self.assertIsNone(_decide(log=two).marker["dll"])
 
+    def test_the_dll_is_taken_from_the_padded_mod_table_line(self):
+        # The KSPCommunityFixes table pads the name column (as seen on the PC).
+        line = ("  Parsek" + " " * 38 + "0.10.5.0   0.10.5.0   GameData/Parsek/Plugins   "
+                + SNAP_DLL + "\n").encode("ascii")
+        self.assertEqual([SNAP_DLL], _facts(line).dlls)
+        tab = ("[LOG 09:03:01.000]   Parsek\t\t0.10.5.0 %s\n" % SNAP_DLL).encode("ascii")
+        self.assertEqual([SNAP_DLL], _facts(tab).dlls)
+        other = ("  ParsekTools" + " " * 33 + "0.10.5.0 " + SNAP_DLL + "\n").encode("ascii")
+        self.assertEqual([], _facts(other).dlls)
+        no_hash = ("  Parsek" + " " * 38 + "0.10.5.0   0.10.5.0\n").encode("ascii")
+        self.assertEqual([], _facts(no_hash).dlls)
+        log = _snap_log(dll=False, extra=[line])
+        self.assertEqual(SNAP_DLL, _decide(log=log).marker["dll"])
+
     def test_a_non_utf8_log_reads(self):
         log = _snap_log(extra=[b"[LOG 09:04:00.000] \xff\xfe\x80 garbage \xc3\x28\n"])
         self.assertEqual("imported", _decide(log=log).reason)
