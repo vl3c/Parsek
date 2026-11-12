@@ -75,8 +75,7 @@ namespace Parsek.Tests.MapRender
             foreach (string kind in new[]
             {
                 "DWELL", "TRANSITION", "SEAM_TANGENT", "SEAM_ENDPOINT", "CLOCK_EVENT", "LINE_BRANCH",
-                "OWNERSHIP_CHANGE", "RATIFIED_SKIP", "CLOCK_DEFER", "ANOMALY_ECHO", "ROUTE_LINE_BUILD",
-                "ROUTE_LEG_DEFER", "ROUTE_CODRAW_VIOLATION", "TRUNCATED",
+                "OWNERSHIP_CHANGE", "RATIFIED_SKIP", "CLOCK_DEFER", "ANOMALY_ECHO", "TRUNCATED",
             })
             {
                 Assert.True(obs.GetNodes(kind).Length > 0,
@@ -266,7 +265,6 @@ namespace Parsek.Tests.MapRender
                 RecordedDockUT = 6800.0,
                 RecordedOriginUndockUT = -1.0,
                 DispatchWindowPeriod = 0.0,
-                Scope = "SameBody",
                 ExcludedIntervalKeys = "keyA;keyB",
             };
             m.AppendPlanUnit(unit);
@@ -467,24 +465,6 @@ namespace Parsek.Tests.MapRender
                 "100000", "rec-launch", "rigid-seam-tangent-discontinuity", 1010.0);
             m.AppendAnomalyEchoRecord(
                 "route-0001", "rec-descent", "polyline-orbit-overlap", 7300.0);
-
-            // ---- OBSERVED: route overview line ----
-            m.AppendRouteLineBuild(new RenderCompositionManifest.RouteLineBuildRecord
-            {
-                RouteId = "route-0001",
-                Signature = 8123456789L,
-                DockClipUT = 6800.0,
-                DispatchWindowPeriod = 0.0,
-                Scope = "SameBody",
-                ResolvableMembers = 3,
-                Groups = 3,
-                TotalLegs = 11,
-                TransferLegsDropped = 0,
-                UT = 1500.0,
-            });
-            m.NoteRouteLegDeferred("route-0001", "rec-launch");
-            m.NoteRouteLegDeferred("route-0001", "rec-launch");
-            m.AppendRouteCoDrawViolation("route-0001", "rec-descent", 7300.0, 4242);
 
             // ---- OBSERVED: an explicit truncation marker ----
             m.NoteTruncationForTesting("DWELL", 100001u, "dwell");

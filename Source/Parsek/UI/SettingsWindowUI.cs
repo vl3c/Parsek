@@ -468,7 +468,6 @@ namespace Parsek
                 s.mapRenderTracing = false;
                 s.ledgerTracing = false;
                 s.writeReadableSidecarMirrors = defaults.WriteReadableSidecarMirrors;
-                s.showRouteLines = defaults.ShowRouteLines;
                 s.SamplingDensityLevel = defaults.SamplingDensityLevel;
                 s.autoLoopIntervalSeconds = defaults.AutoLoopIntervalSeconds;
                 s.AutoLoopDisplayUnit = defaults.AutoLoopDisplayUnit;
@@ -481,7 +480,6 @@ namespace Parsek
                 ParsekSettingsPersistence.RecordSamplingDensity(s.samplingDensity);
                 ParsekSettingsPersistence.RecordGhostAudioVolume(s.ghostAudioVolume);
                 ParsekSettingsPersistence.RecordReadableSidecarMirrors(s.writeReadableSidecarMirrors);
-                ParsekSettingsPersistence.RecordShowRouteLines(s.showRouteLines);
                 ParsekSettingsPersistence.RecordGhostRenderTracing(s.ghostRenderTracing);
                 ParsekSettingsPersistence.RecordMapRenderTracing(s.mapRenderTracing);
                 ParsekSettingsPersistence.RecordLedgerTracing(s.ledgerTracing);
@@ -638,16 +636,6 @@ namespace Parsek
                     $"Ghost audio volume set to {newAudioVol:F2}", 1.0);
             }
             FlushGhostAudioVolumeIfPending(GUIUtility.hotControl);
-
-            bool showRouteLines = GUILayout.Toggle(s.showRouteLines,
-                new GUIContent(" Show supply route paths on map",
-                    "Draw supply routes' recorded paths on the map and Tracking Station."));
-            if (showRouteLines != s.showRouteLines)
-            {
-                s.showRouteLines = showRouteLines;
-                ParsekSettingsPersistence.RecordShowRouteLines(showRouteLines);
-                ParsekLog.Info("UI", $"Setting changed: showRouteLines={showRouteLines}");
-            }
         }
 
         /// <summary>

@@ -412,7 +412,7 @@ namespace Parsek.TestCommands
             "PickUpFlag",
             // The map-geometry pair. ADDITIVE (60 -> 62 implemented, reserved unchanged at 4).
             // DumpMapGeometry writes the geometry the map drew in one frame (bodies, ghost
-            // icons and lines, route lines) as <label>.map.json beside the screenshots;
+            // icons and lines) as <label>.map.json beside the screenshots;
             // MapCamera frames the map camera by value (focus body, pitch, heading,
             // distance) so a picture and its dump are reproducible. Contracts on
             // TestCommandDumpMapGeometry / TestCommandMapCamera and

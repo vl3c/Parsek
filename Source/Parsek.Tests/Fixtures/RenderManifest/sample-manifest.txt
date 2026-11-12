@@ -110,7 +110,6 @@ RENDER_MANIFEST
 				recordedDockUT = 6800
 				recordedOriginUndockUT = -1
 				dispatchWindowPeriod = 0
-				scope = SameBody
 				excludedIntervalKeys = keyA;keyB
 			}
 		}
@@ -465,32 +464,6 @@ RENDER_MANIFEST
 			firstUT = 0.5
 			lastUT = 0.75
 			count = 2
-		}
-		ROUTE_LINE_BUILD
-		{
-			routeId = route-0001
-			signature = 8123456789
-			dockClipUT = 6800
-			dispatchWindowPeriod = 0
-			scope = SameBody
-			resolvableMembers = 3
-			groups = 3
-			totalLegs = 11
-			transferLegsDropped = 0
-			ut = 1500
-		}
-		ROUTE_LEG_DEFER
-		{
-			routeId = route-0001
-			recId = rec-launch
-			count = 2
-		}
-		ROUTE_CODRAW_VIOLATION
-		{
-			routeId = route-0001
-			recId = rec-descent
-			ut = 7300
-			frame = 4242
 		}
 		TRUNCATED
 		{

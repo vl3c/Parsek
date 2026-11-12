@@ -10,7 +10,7 @@ self-contained file that fits its budget.
 
 The sample dumps under `testdata/` were built by hand in the shape the C#
 writer (`Source/Parsek/MapGeometryJson.cs`) emits - open 64-point body rings,
-`counts` over ghost lines AND route legs, `unknownBodyItems`, `icon.source`,
+`counts` over the ghost lines, `unknownBodyItems`, `icon.source`,
 `markerDecision`, an inactive line with empty points, a pid-0 entry - with
 these deliberate, hand-checkable features (all metres):
 
@@ -51,9 +51,6 @@ these deliberate, hand-checkable features (all metres):
     icon                 on tail vertex 4 -> 0, line #2.
   pid-0 entry            no vessel name, committedIndex -1, DriverOnly, one
                          polyline; icon on its vertex 2 -> 0.
-  route leg              starts r 700 000 (-> lowest 100 000), ends 2 000 000
-                         short of Minmus' centre (|Minmus| = 47 000 000) ->
-                         highest 44 400 000.
   camera                 pitch 30, heading 40, and the forward / up the page's
                          pitch / heading model gives for them -> 0 deg apart.
 
@@ -245,8 +242,7 @@ class DumpReadingTests(unittest.TestCase):
     def test_the_sample_reads_clean(self):
         dump, notes = mm.load_dump(SAMPLE)
         self.assertEqual(notes, [])
-        # 10 ghost lines + 1 route leg; 347 ghost points + 51 leg points.
-        self.assertEqual(dump["counts"]["held"], {"ghosts": 3, "lines": 11, "points": 398})
+        self.assertEqual(dump["counts"]["held"], {"ghosts": 3, "lines": 10, "points": 347})
         self.assertEqual([ln["kind"] for ln in dump["ghosts"][1]["lines"]],
                          ["orbit", "bridge", "tail"])
         self.assertEqual(mm.closeup_bodies(dump), ["Kerbin", "Mun", "Minmus"])
@@ -336,20 +332,28 @@ class DumpReadingTests(unittest.TestCase):
         obj = load_json(MINIMAL)
         obj["counts"]["unknownBodyItems"] = 2
         obj["counts"]["truncated"] = True
-        obj["counts"]["dropped"] = {"ghosts": 0, "lines": 3, "routes": 0, "legs": 1,
-                                    "bodies": 0}
+        obj["counts"]["dropped"] = {"ghosts": 0, "lines": 3, "bodies": 1}
         dump, notes = mm.validate_dump(obj)
         text = "\n".join(notes)
         self.assertIn("skipped 2 items", text)
-        self.assertIn("lines 3, legs 1 not written", text)
+        self.assertIn("lines 3, bodies 1 not written", text)
         self.assertEqual(dump["counts"]["declared"]["dropped"]["lines"], 3)
         self.assertEqual(dump["counts"]["declared"]["unknownBodyItems"], 2)
 
-    def test_route_legs_count_toward_lines_and_points(self):
+    def test_a_count_that_disagrees_with_the_file_is_a_note(self):
         obj = load_json(SAMPLE)
-        obj["counts"]["lines"] -= 1     # a reader that forgot the leg
+        obj["counts"]["lines"] += 1
         _, notes = mm.validate_dump(obj)
-        self.assertEqual(notes, ["counts.lines says 10, the file holds 11"])
+        self.assertEqual(notes, ["counts.lines says 11, the file holds 10"])
+
+    def test_a_route_lines_block_is_named_and_not_read(self):
+        # A dump written before the writer dropped the key still loads.
+        obj = load_json(MINIMAL)
+        obj["routeLines"] = [{"routeId": "r", "legs": [{"body": "Kerbin", "points": [[1, 2, 3]]}]}]
+        dump, notes = mm.validate_dump(obj)
+        self.assertNotIn("routeLines", dump)
+        self.assertEqual(len(notes), 1)
+        self.assertIn("routeLines block", notes[0])
 
     def test_the_camera_frame_is_read_and_a_broken_one_falls_back(self):
         dump, _ = mm.load_dump(SAMPLE)
@@ -567,11 +571,6 @@ class SampleMeasurementTests(unittest.TestCase):
         close(self, pe, 30000.0)
         self.assertIsNone(ap)
 
-    def test_route_leg(self):
-        m = mm.measure_route(self.dump["routeLines"][0], self.bodies)
-        close(self, m["legs"][0]["lowest"]["m"], 100000.0)
-        close(self, m["legs"][0]["highest"]["m"], 44400000.0, tol=2.0)
-
     def test_line_order_is_timed_lines_first_then_the_rest_in_dump_order(self):
         # The writer's own order: ut-known lines sorted, then the others as captured.
         lines = [{"ut": [5.0, 6.0]}, {"ut": None}, {"ut": [1.0, 2.0]}, {"ut": None},
@@ -656,8 +655,7 @@ class PageTests(unittest.TestCase):
         self.assertEqual(index["captureCount"], 3)
         self.assertEqual([l["lane"] for l in index["lanes"]], ["MAP-1-mun-loop", "MAP-2-ts-minimal"])
         row = index["lanes"][0]["captures"][0]
-        self.assertEqual((row["ghosts"], row["lines"], row["points"]), (3, 11, 398))
-        self.assertEqual((row["routeLines"], row["routeLegs"]), (1, 1))
+        self.assertEqual((row["ghosts"], row["lines"], row["points"]), (3, 10, 347))
         self.assertFalse(row["screenshot"])
         self.assertEqual(index["unreadableCount"], 1)
         self.assertEqual(index["unreadable"][0]["file"], "bad.map.json")
@@ -790,9 +788,8 @@ class CSharpWriterSourceSyncTests(unittest.TestCase):
         ("incDeg", "the line hover"), ("lanDeg", "validate_dump"),
         ("argPeDeg", "validate_dump"), ("meanAnomalyAtEpoch", "validate_dump"),
         ("epoch", "validate_dump"), ("reference", "the dashed reference path"),
-        ("referenceKind", "the reference column"), ("routeLines", "route legs"),
-        ("routeId", "the route table"), ("routeName", "the route table"),
-        ("legs", "route legs"), ("counts", "the count cross-check"),
+        ("referenceKind", "the reference column"),
+        ("counts", "the count cross-check"),
         ("truncated", "the TRUNCATED note"),
         ("unknownBodyItems", "the capture header and notes"),
         ("dropped", "the capture header and the TRUNCATED note"),
@@ -827,7 +824,7 @@ class CSharpWriterSourceSyncTests(unittest.TestCase):
         m = re.search(r'\\"dropped\\": \{(.*?)\}', src, re.S)
         self.assertIsNotNone(m, "the dropped block is not where this gate looks")
         block = src[m.start():m.start() + 800]
-        for kind in ("ghosts", "lines", "routes", "legs", "bodies"):
+        for kind in ("ghosts", "lines", "bodies"):
             self.assertIn('\\"%s\\"' % kind, block, "dropped.%s is not written" % kind)
 
     def test_the_line_kinds_are_the_writer_kinds(self):

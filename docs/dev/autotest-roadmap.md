@@ -14,6 +14,23 @@ this file. It does NOT describe "The loop-render coverage program" (added
 2026-08-20), which cites FLOWN run ids as evidence for its taxonomy and its gap
 ranking; `autotest-status.md` still owns every verdict those runs produced.
 
+> **AMENDED 2026-11-12: THE SUPPLY ROUTE OVERVIEW LINE IS RETIRED** (owner ruling, todo
+> ROUTE-LINE-DETACHED-SEGMENTS). A route's ship draws through the ghost polyline pass
+> like any looped mission ghost, so `RouteTrajectoryLineRenderer`, the route scope
+> classifier, the `showRouteLines` setting, the manifest's route-line records and the
+> `routeLineBuilds` / `routeCoDrawViolations` windows no longer exist. Every passage
+> below that plans, measures or arms that surface (the route-overview render surface of
+> the loop-render program, gaps G1 / G3b / G10 and their D10 cells, the V26 pair's
+> controls) is the record of work done against it, not forward order. Lanes
+> `B32-interbody-route-scope` and `V26M-interbody-route-map-lines` are deleted; `H59`,
+> `V18T`, `V26T`, `V27M`, `TP-7` and `TP-8` (the picture lane of the inter-body route's
+> ships) keep their other readings and owe a re-flight. D10 keeps `route-map-lines`
+> (V18T) and `route-map-lines-surface` (H59), re-scoped to the route SHIP's own line,
+> and loses `route-map-lines-inter-body` and `route-transfer-leg-drop`. Not yet
+> rebuilt, when wanted: a map lane that PINS the inter-body route ship (TP-8 only
+> photographs it), which needs a derivable dispatch instant on
+> `interbody-route-recorded` first.
+
 
 > **RECONCILED 2026-07-27 after #1358 merged.** This document was written against
 > `main` at 38 scenarios / 8 driven categories and flagged, in the tracking table
@@ -2827,9 +2844,10 @@ pair. The dimensions that actually change code paths:
 4. **Endpoint type** - orbit, moving vessel/dock, or surface. Every committed
    loop lane ends at an ORBIT; supply routes end at docks and surface bases.
 5. **Render surface** - which drawing surface carries the truth, because a
-   class can render correctly on one and wrongly on another. Three: the ghost
+   class can render correctly on one and wrongly on another. Two since
+   2026-11-12 (the third was retired, see the amendment at the top): the ghost
    proto icon plus proto orbit line; the ghost trajectory polyline / Director
-   TracedPath shadow; and the ROUTE OVERVIEW LINE
+   TracedPath shadow; and, until then, the ROUTE OVERVIEW LINE
    (`Display/RouteTrajectoryLineRenderer.cs`, the M6 map-view route lines -
    default-on `showRouteLines`, drawn on the flight map AND the Tracking
    Station, skipping any recording the polyline Driver already published

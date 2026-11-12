@@ -11,6 +11,12 @@ deliberate gap in the overview line - has never dropped a leg on a driven run.
 On a SameBody subject (V18T's `depot-route-recorded`) both clauses are satisfied
 BY SCOPE and confirm nothing.
 
+2026-11-12: the route overview line, its scope classifier and its leg filter are
+retired (todo ROUTE-LINE-DETACHED-SEGMENTS), so the paragraph above and the scope
+wording below record why the save was harvested, not what reads it now. The
+fixture stays the committed inter-body route host (V26T, IR-5, the GUI census
+lanes), and the gates below still pin the endpoint pair that makes it one.
+
 No forge and no seam can produce this subject. Route candidacy is seal-gated with
 no seam path: `RouteCommand action=create` walks
 `TestCommandRouteCommand.ClassifyCreateRefusal` and `RouteAnalysisEngine` answers
@@ -673,7 +679,7 @@ def verify_routes(lines: List[str]) -> List[str]:
         got = _value(lines, origin, "bodyName")
         if got != INTERBODY_ROUTE_ORIGIN_BODY:
             problems.append("inter-body ROUTE ORIGIN bodyName=%r, expected %r "
-                            "(this is the scope rule's origin input)"
+                            "(the origin of the inter-body pair)"
                             % (got, INTERBODY_ROUTE_ORIGIN_BODY))
 
     stop = _child_span(lines, span, "STOP")
@@ -689,7 +695,7 @@ def verify_routes(lines: List[str]) -> List[str]:
                 problems.append(
                     "inter-body ROUTE STOP ENDPOINT bodyName=%r, expected %r - "
                     "origin != destination is the WHOLE reason this fixture "
-                    "exists (ClassifyRouteScope reads exactly this pair)"
+                    "exists"
                     % (got, INTERBODY_ROUTE_DESTINATION_BODY))
         kind = _value(lines, stop, "connectionKind")
         if kind != "DockingPort":

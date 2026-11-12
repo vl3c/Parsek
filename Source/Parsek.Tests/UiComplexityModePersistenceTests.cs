@@ -185,7 +185,7 @@ namespace Parsek.Tests
         [Fact]
         public void AnyOtherStoredSettingsKeyAloneResolvesAdvanced()
         {
-            ParsekSettingsPersistence.SetStoredShowRouteLinesForTesting(true);
+            ParsekSettingsPersistence.SetStoredReadableSidecarMirrorsForTesting(true);
             ParsekSettingsPersistence.SetStoredUiComplexityModeForTesting(null);
             Assert.True(ParsekSettingsPersistence.HasAnyStoredValue());
 

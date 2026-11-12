@@ -126,13 +126,6 @@ The spec block
 - ``unevaluable`` (window) - bound on the DEFINED-unevaluable total. This is the
   key that stops a run passing because nothing was measurable; an armed lane
   normally declares ``{ max = 0 }`` or a small ceiling with a written rationale.
-- ``routeLineBuilds`` (window) - bound on the number of ROUTE_LINE_BUILD records,
-  i.e. on ``RouteTrajectoryLineRenderer.DrawAll`` having actually built a route
-  line. The anti-vacuity floor for a ROUTE lane: without it a lane whose route
-  silently stopped drawing stands RC-ROUTE down to unevaluable and greens.
-- ``routeCoDrawViolations`` (window) - bound on the route/ghost-polyline
-  co-draw arbitration violations. Normally ``{ max = 0 }``: DrawAll must skip a
-  member the ghost polyline already owns.
 - ``ownershipChanges`` (window) - bound on the TracedPath ownership
   publish/retract records. The floor that says the publish surface RAN AT ALL,
   which is otherwise stated only by the ABSENCE of the defined-unevaluable
@@ -232,8 +225,8 @@ RULE_CITED_CONTRACTS: Dict[str, str] = {
                    "invariant ratified 2026-07-07)"),
     RULE_CYCLE: ("design-mission-periodicity zero-drift rules; "
                  "GhostPlaybackLogic.ComputeBoundaryOverlapAdvanceSeconds"),
-    RULE_ROUTE: ("RouteTrajectoryLineRenderer.LegWithinDockClip / "
-                 "FilterLegsToEndpointBodies; design-logistics section 0"),
+    RULE_ROUTE: ("RouteBackingMission.ComputeExcludedIntervalKeys (the dock-derived "
+                 "member trim); design-logistics section 0"),
     RULE_OWN: ("GhostRenderIntent single-treatment rule; "
                "GhostMapPresence.ResolveMarkerDrawDecision"),
     RULE_WARP: ("design-autotest-render-composition RC-WARP anti-vacuity clause"),
@@ -351,9 +344,6 @@ CHAIN_PROVENANCES: Tuple[str, ...] = ("spine", "assembler-fallback")
 # production PhaseChain seams are always null, PhaseFactory.cs:236-240).
 SEAM_SOURCES: Tuple[str, ...] = ("assembler",)
 
-# Display/RouteTrajectoryLineRenderer.cs:110-121 `enum RouteLineScope`.
-ROUTE_SCOPES: Tuple[str, ...] = ("SameBody", "InterBody", "MalformedMixedBodies")
-
 # SPEC OBSERVED.CLOCK_EVENT.kind, plus the two schema v1.1 OBSERVATION-derived hold
 # kinds (`.scout/schema-v1.1-decisions.md` decision 2,
 # RenderCompositionManifest.ClockHoldEngage / ClockHoldRelease). The pair is a
@@ -397,8 +387,7 @@ WARP_BUCKETS_ABOVE_1X: Tuple[str, ...] = ("warpPhys", "warp100", "warp1000", "wa
 OBSERVED_SECTIONS: Tuple[str, ...] = (
     "DWELL", "OPEN_DWELL", "TRANSITION", "SEAM_TANGENT", "SEAM_ENDPOINT",
     "CLOCK_EVENT", "LINE_BRANCH", "OWNERSHIP_CHANGE", "RATIFIED_SKIP",
-    "CLOCK_DEFER", "ROUTE_LINE_BUILD", "ROUTE_LEG_DEFER",
-    "ROUTE_CODRAW_VIOLATION", "ANOMALY_ECHO", "TRUNCATED",
+    "CLOCK_DEFER", "ANOMALY_ECHO", "TRUNCATED",
 )
 
 # ---------------------------------------------------------------------------
@@ -788,7 +777,6 @@ class RouteSpec:
     recorded_dock_ut: float = NAN
     recorded_origin_undock_ut: float = NAN
     dispatch_window_period: float = NAN
-    scope: str = ""
     excluded_interval_keys: Tuple[str, ...] = ()
 
 
@@ -1027,35 +1015,6 @@ class ClockDefer:
 
 
 @dataclass(frozen=True)
-class RouteLineBuild:
-    route_id: str = ""
-    signature: str = ""
-    dock_clip_ut: float = NAN
-    dispatch_window_period: float = NAN
-    scope: str = ""
-    resolvable_members: Optional[int] = None
-    groups: Optional[int] = None
-    total_legs: Optional[int] = None
-    transfer_legs_dropped: Optional[int] = None
-    ut: float = NAN
-
-
-@dataclass(frozen=True)
-class RouteLegDefer:
-    route_id: str = ""
-    rec_id: str = ""
-    count: Optional[int] = None
-
-
-@dataclass(frozen=True)
-class RouteCoDrawViolation:
-    route_id: str = ""
-    rec_id: str = ""
-    ut: float = NAN
-    frame: Optional[int] = None
-
-
-@dataclass(frozen=True)
 class AnomalyEcho:
     """One STANDALONE ``OBSERVED.ANOMALY_ECHO`` record: a single tracer raise.
 
@@ -1107,9 +1066,6 @@ class ManifestSnapshot:
     ownership_changes: Tuple[OwnershipChange, ...] = ()
     ratified_skips: Tuple[RatifiedSkip, ...] = ()
     clock_defers: Tuple[ClockDefer, ...] = ()
-    route_line_builds: Tuple[RouteLineBuild, ...] = ()
-    route_leg_defers: Tuple[RouteLegDefer, ...] = ()
-    route_codraw_violations: Tuple[RouteCoDrawViolation, ...] = ()
     anomaly_echoes: Tuple[AnomalyEcho, ...] = ()
     truncated: Tuple[TruncatedRecord, ...] = ()
     unknown_observed_sections: Tuple[str, ...] = ()
@@ -1193,7 +1149,6 @@ def _parse_unit(node: saveparse.SfsNode) -> PlanUnit:
             recorded_dock_ut=_num(route_node, "recordedDockUT"),
             recorded_origin_undock_ut=_num(route_node, "recordedOriginUndockUT"),
             dispatch_window_period=_num(route_node, "dispatchWindowPeriod"),
-            scope=_text(route_node, "scope"),
             excluded_interval_keys=_split_list(
                 _text(route_node, "excludedIntervalKeys"), ";"))
     descent_raw = _split_list(_text(node, "descentMemberIndices"), ",")
@@ -1342,9 +1297,6 @@ def parse_render_manifest(text: Optional[str]) -> ManifestSnapshot:
     ownership: List[OwnershipChange] = []
     skips: List[RatifiedSkip] = []
     defers: List[ClockDefer] = []
-    route_builds: List[RouteLineBuild] = []
-    route_defers: List[RouteLegDefer] = []
-    codraws: List[RouteCoDrawViolation] = []
     echoes: List[AnomalyEcho] = []
     truncs: List[TruncatedRecord] = []
     unknown_sections: List[str] = []
@@ -1428,26 +1380,6 @@ def parse_render_manifest(text: Optional[str]) -> ManifestSnapshot:
                 defers.append(ClockDefer(
                     first_ut=_num(child, "firstUT"), last_ut=_num(child, "lastUT"),
                     count=_int(child, "count")))
-            elif name == "ROUTE_LINE_BUILD":
-                route_builds.append(RouteLineBuild(
-                    route_id=_text(child, "routeId"),
-                    signature=_text(child, "signature"),
-                    dock_clip_ut=_num(child, "dockClipUT"),
-                    dispatch_window_period=_num(child, "dispatchWindowPeriod"),
-                    scope=_text(child, "scope"),
-                    resolvable_members=_int(child, "resolvableMembers"),
-                    groups=_int(child, "groups"),
-                    total_legs=_int(child, "totalLegs"),
-                    transfer_legs_dropped=_int(child, "transferLegsDropped"),
-                    ut=_num(child, "ut")))
-            elif name == "ROUTE_LEG_DEFER":
-                route_defers.append(RouteLegDefer(
-                    route_id=_text(child, "routeId"), rec_id=_text(child, "recId"),
-                    count=_int(child, "count")))
-            elif name == "ROUTE_CODRAW_VIOLATION":
-                codraws.append(RouteCoDrawViolation(
-                    route_id=_text(child, "routeId"), rec_id=_text(child, "recId"),
-                    ut=_num(child, "ut"), frame=_int(child, "frame")))
             elif name == "ANOMALY_ECHO":
                 # STANDALONE (parent = OBSERVED). The DWELL-nested aggregate of
                 # the same node NAME is read inside _parse_dwell and never
@@ -1482,8 +1414,7 @@ def parse_render_manifest(text: Optional[str]) -> ManifestSnapshot:
         seam_endpoints=tuple(endpoints), clock_events=tuple(clock_events),
         line_branches=tuple(line_branches), ownership_changes=tuple(ownership),
         ratified_skips=tuple(skips), clock_defers=tuple(defers),
-        route_line_builds=tuple(route_builds), route_leg_defers=tuple(route_defers),
-        route_codraw_violations=tuple(codraws), anomaly_echoes=tuple(echoes),
+        anomaly_echoes=tuple(echoes),
         truncated=tuple(truncs),
         unknown_observed_sections=tuple(dict.fromkeys(unknown_sections)))
 
@@ -1922,7 +1853,6 @@ UNEVAL_DESCENT_PRIMITIVES_ABSENT = "descent-primitives-absent"
 UNEVAL_DESCENT_HEAD_ABSENT = "descent-head-absent-from-schema"
 UNEVAL_POSITIONS_ABSENT = "truth-positions-absent"
 UNEVAL_PRIMITIVE_BODY_UNKNOWN = "plan-primitive-body-unidentified"
-UNEVAL_ROUTE_LEG_DETAIL_ABSENT = "route-per-leg-detail-absent"
 UNEVAL_WARP_HOLD_ABSENT = "warp-hold-traversal-evidence-absent"
 UNEVAL_MARKER_DECISION_ABSENT = "marker-decision-absent"
 # THE PUBLISH SURFACE NEVER RAN IN THIS PROCESS, so the draw->publish direction
@@ -1983,7 +1913,7 @@ UNEVALUABLE_REASONS: Tuple[str, ...] = (
     UNEVAL_CUT_PERIOD_ABSENT, UNEVAL_CUT_CONTAINMENT,
     UNEVAL_DESCENT_PRIMITIVES_ABSENT, UNEVAL_DESCENT_HEAD_ABSENT,
     UNEVAL_POSITIONS_ABSENT, UNEVAL_PRIMITIVE_BODY_UNKNOWN,
-    UNEVAL_ROUTE_LEG_DETAIL_ABSENT, UNEVAL_WARP_HOLD_ABSENT,
+    UNEVAL_WARP_HOLD_ABSENT,
     UNEVAL_MARKER_DECISION_ABSENT, UNEVAL_OWN_PUBLISH_SURFACE_SILENT,
     UNEVAL_COVER_RATIFIED_SKIP_HULL, UNEVAL_COVER_RESOLUTION_ABSENT,
     UNEVAL_COVER_SKIPS_TRUNCATED,
@@ -3475,12 +3405,12 @@ def _rule_cycle(ctx: _Ctx) -> None:
 
 
 def leg_within_dock_clip(leg_start_ut: float, dock_clip_ut: float) -> bool:
-    """``RouteTrajectoryLineRenderer.LegWithinDockClip`` (Display/
-    RouteTrajectoryLineRenderer.cs:178-182), transcribed EXACTLY.
+    """Whether a route member starting at ``leg_start_ut`` lies inside the
+    route's rendered [launch .. dock] extent.
 
-    A zero or absent clip means NO clip. The predicate tests the leg's START
-    only - the end UT is deliberately not consulted, and a Python re-derivation
-    that "fixed" that would stop measuring the product."""
+    A zero or absent clip means NO clip. The predicate tests the member's START
+    only - the end UT is deliberately not consulted: the dock-derived excluded
+    interval keys trim whole members, never part of one."""
     if not _finite(dock_clip_ut) or dock_clip_ut <= 0.0:
         return True
     if not _finite(leg_start_ut):
@@ -3490,58 +3420,12 @@ def leg_within_dock_clip(leg_start_ut: float, dock_clip_ut: float) -> bool:
 
 def _rule_route(ctx: _Ctx) -> None:
     snap = ctx.snap
-    for b in snap.route_line_builds:
-        label = "ROUTE_LINE_BUILD[%s]" % (b.route_id or "?")
-        # SITE-SPECIFIC `continue`, kept explicit: an unrecognised scope means
-        # the per-scope clauses below would be adjudicating against a rule set
-        # that does not apply, so the record is reported and then skipped.
-        if ctx.unknown_token(label + ".scope", "route scope", b.scope, ROUTE_SCOPES):
-            continue
-        dropped = b.transfer_legs_dropped
-        total = b.total_legs
-        if b.scope == "MalformedMixedBodies":
-            if total is not None and total > 0:
-                ctx.add(RULE_ROUTE, LEVEL_FAIL, label,
-                        "malformed-mixed-bodies scope built %d legs; a malformed "
-                        "route draws NOTHING" % total)
-        elif b.scope == "SameBody":
-            if dropped:
-                ctx.add(RULE_ROUTE, LEVEL_FAIL, label,
-                        "same-body scope dropped %d transfer leg(s); the endpoint "
-                        "filter runs only for InterBody, so same-body keeps every "
-                        "non-orbital leg" % dropped)
-        elif b.scope == "InterBody":
-            if dropped is None or total is None:
-                ctx.uneval(UNEVAL_ROUTE_LEG_DETAIL_ABSENT)
-            elif dropped > total:
-                ctx.add(RULE_ROUTE, LEVEL_FAIL, label,
-                        "inter-body scope dropped %d of %d legs - more legs "
-                        "dropped than built" % (dropped, total))
-            elif dropped == 0 and total > 0:
-                # The ROUND-TRIP stand-down (origin == destination) legitimately
-                # keeps every leg; without per-leg bodies the two cases are not
-                # separable, so this is a reading, not a red.
-                ctx.uneval(UNEVAL_ROUTE_LEG_DETAIL_ABSENT)
-        if b.groups is not None and b.groups < 0:
-            ctx.add(RULE_ROUTE, LEVEL_FAIL, label,
-                    "negative group count %d" % b.groups)
-
-    for v in snap.route_codraw_violations:
-        ctx.add(RULE_ROUTE, LEVEL_FAIL,
-                "ROUTE_CODRAW_VIOLATION[%s recId=%s]" % (v.route_id, v.rec_id),
-                "route line and ghost polyline painted the same recording at "
-                "ut=%r frame=%s; DrawAll skips a member the polyline renderer "
-                "owns (the IsRenderingNonOrbitalLeg arbitration)"
-                % (v.ut, v.frame))
-
     drawn_recs = {d.rec_id for d in snap.dwells
                   if d.rec_id and d.visible is not False}
     for unit in snap.units:
         route = unit.route
         if route is None:
             continue
-        ctx.unknown_token("%s.ROUTE.scope" % _unit_label(unit),
-                          "route scope", route.scope, ROUTE_SCOPES)
         clip = route.recorded_dock_ut
         if not _finite(clip) or clip <= 0.0:
             continue
@@ -3553,8 +3437,8 @@ def _rule_route(ctx: _Ctx) -> None:
                         "%s member[%s recId=%s]"
                         % (_unit_label(unit), m.index, m.rec_id),
                         "member starts at %r, at or after the dock clip %r, yet a "
-                        "dwell rendered it; LegWithinDockClip keeps a leg only "
-                        "while legStartUT < dockClipUT" % (m.start_ut, clip))
+                        "dwell rendered it; the dock clip keeps a member only "
+                        "while its start UT < dockClipUT" % (m.start_ut, clip))
 
 
 # --- RC-OWN -----------------------------------------------------------------
@@ -3928,11 +3812,11 @@ RENDER_COMPOSITION_BLOCK = "renderComposition"
 # `_check_windows_against_facets`.
 RENDER_COMPOSITION_WINDOW_KEYS: Tuple[str, ...] = (
     "dwells", "cycles", "unevaluable",
-    # Added 2026-08-26 (todo RENDERCOMPOSE-OWNERSHIPCHANGES-IS-NOT-WINDOWABLE):
-    # three recorded numeric facets promoted to first-class assertions so a lane
-    # can state that its route / ownership publish surface RAN, instead of
-    # leaning on the absence of an unevaluable reason from the census.
-    "routeLineBuilds", "routeCoDrawViolations", "ownershipChanges")
+    # A recorded numeric facet promoted to a first-class assertion so a lane can
+    # state that its ownership publish surface RAN, instead of leaning on the
+    # absence of an unevaluable reason from the census (todo
+    # RENDERCOMPOSE-OWNERSHIPCHANGES-IS-NOT-WINDOWABLE).
+    "ownershipChanges")
 RENDER_COMPOSITION_LIST_KEYS: Tuple[str, ...] = ("warpBuckets", "requireSeamKinds")
 RENDER_COMPOSITION_ASSERTION_KEYS: Tuple[str, ...] = (
     RENDER_COMPOSITION_WINDOW_KEYS + RENDER_COMPOSITION_LIST_KEYS)
@@ -4194,12 +4078,11 @@ def observed_composition_facets(
     residuals = metrics.get("cycleLengthResidualsSeconds") or []
     return {
         RENDER_COMPOSITION_BLOCK: {
-            # The window-key facets, named exactly as their spec keys. Three
-            # more of them sit further down among the structural counts
-            # (`ownershipChanges`, `routeLineBuilds`, `routeCoDrawViolations`) -
-            # they are listed with the surface they count rather than moved up
-            # here, because being windowable did not change what they measure.
-            # ALL SIX are written unconditionally: a window key that could be
+            # The window-key facets, named exactly as their spec keys. One more
+            # sits further down among the structural counts (`ownershipChanges`):
+            # it is listed with the surface it counts rather than moved up here,
+            # because being windowable did not change what it measures.
+            # ALL FOUR are written unconditionally: a window key that could be
             # absent would be a window answered by a default (see
             # `_check_windows_against_facets`), and a unit cell pins the set.
             "dwells": len(snapshot.dwells),
@@ -4225,9 +4108,6 @@ def observed_composition_facets(
             "ownershipChanges": len(snapshot.ownership_changes),
             "ratifiedSkips": len(snapshot.ratified_skips),
             "clockDefers": len(snapshot.clock_defers),
-            "routeLineBuilds": len(snapshot.route_line_builds),
-            "routeLegDefers": len(snapshot.route_leg_defers),
-            "routeCoDrawViolations": len(snapshot.route_codraw_violations),
             # STANDALONE ANOMALY_ECHO census, per raise reason. Reported, never
             # gated: the tracer's own promote/report calibration (hlib's
             # ANOMALY_TOKENS vs ANOMALY_REASONS_RAISED_UNGATED) already decides

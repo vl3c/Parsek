@@ -1015,25 +1015,6 @@ namespace Parsek.MapRender
                 if (!match)
                     continue;
 
-                // Member bodies are the cross-check the scope classifier applies ONLY when the
-                // endpoints did not already answer InterBody; skip the walk when they did (mirrors
-                // RouteTrajectoryLineRenderer.ResolveScope, the single owner of the expression).
-                List<string> bodies = null;
-                if (!Parsek.Display.RouteTrajectoryLineRenderer.IsInterBodyByEndpoints(route))
-                {
-                    bodies = new List<string>(members.Length);
-                    for (int m = 0; m < members.Length; m++)
-                    {
-                        int idx = members[m];
-                        if (idx < 0 || idx >= committed.Count || committed[idx] == null)
-                            continue;
-                        Recording r = committed[idx];
-                        string body = !string.IsNullOrEmpty(r.StartBodyName) ? r.StartBodyName : r.SegmentBodyName;
-                        if (!string.IsNullOrEmpty(body))
-                            bodies.Add(body);
-                    }
-                }
-
                 return new RenderCompositionManifest.PlanRouteRecord
                 {
                     RouteId = route.Id,
@@ -1041,8 +1022,6 @@ namespace Parsek.MapRender
                     RecordedDockUT = route.RecordedDockUT,
                     RecordedOriginUndockUT = route.RecordedOriginUndockUT,
                     DispatchWindowPeriod = route.DispatchWindowPeriod,
-                    Scope = Parsek.Display.RouteTrajectoryLineRenderer.ClassifyRouteScope(
-                        route, bodies).ToString(),
                     ExcludedIntervalKeys = JoinSorted(route.ExcludedIntervalKeys),
                 };
             }
@@ -1457,45 +1436,6 @@ namespace Parsek.MapRender
         }
 
         // =====================================================================================
-        //  H13-H15: route overview line
-        // =====================================================================================
-
-        internal static void NoteRouteLineBuild(
-            string routeId, long signature, double dockClipUT, double dispatchWindowPeriod,
-            int scope, int resolvableMembers, int groups, int totalLegs, int transferLegsDropped)
-        {
-            if (!IsEnabled)
-                return;
-            manifest.AppendRouteLineBuild(new RenderCompositionManifest.RouteLineBuildRecord
-            {
-                RouteId = routeId,
-                Signature = signature,
-                DockClipUT = dockClipUT,
-                DispatchWindowPeriod = dispatchWindowPeriod,
-                Scope = ((Parsek.Display.RouteTrajectoryLineRenderer.RouteLineScope)scope).ToString(),
-                ResolvableMembers = resolvableMembers,
-                Groups = groups,
-                TotalLegs = totalLegs,
-                TransferLegsDropped = transferLegsDropped,
-                UT = CurrentUT(),
-            });
-        }
-
-        internal static void NoteRouteLegDeferred(string routeId, string memberRecId)
-        {
-            if (!IsEnabled)
-                return;
-            manifest.NoteRouteLegDeferred(routeId, memberRecId);
-        }
-
-        internal static void NoteRouteCoDrawViolation(string routeId, string memberRecId, int frame)
-        {
-            if (!IsEnabled)
-                return;
-            manifest.AppendRouteCoDrawViolation(routeId, memberRecId, CurrentUT(), frame);
-        }
-
-        // =====================================================================================
         //  H18: probe truth positions
         // =====================================================================================
 
@@ -1641,11 +1581,10 @@ namespace Parsek.MapRender
             ParsekLog.Info(Tag, string.Format(CultureInfo.InvariantCulture,
                 "manifest exported reason={0} path={1} planUnits={2} chains={3} dwells={4} "
                 + "transitions={5} clockEvents={6} lineBranches={7} ownership={8} seamTangents={9} "
-                + "seamEndpoints={10} routeBuilds={11} coDraw={12} truncated={13}",
+                + "seamEndpoints={10} truncated={11}",
                 header.ExportReason, target, planUnits, manifest.ChainBuildCount, dwells, transitions,
                 clockEvents, manifest.LineBranchCount, manifest.OwnershipChangeCount,
-                manifest.SeamTangentCount, manifest.SeamEndpointCount, manifest.RouteLineBuildCount,
-                manifest.RouteCoDrawViolationCount, manifest.TruncationCount));
+                manifest.SeamTangentCount, manifest.SeamEndpointCount, manifest.TruncationCount));
             return true;
         }
 

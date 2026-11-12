@@ -33,7 +33,7 @@ namespace Parsek.TestCommands
     /// <para><b>WHY IT EXISTS.</b> A map-view screenshot shows that a ghost line looks wrong,
     /// never where its vertices are. This verb writes the geometry the map actually drew
     /// in one frame - every ghost's proto icon and orbit line, every Parsek polyline and
-    /// forward arc, the route overview lines and the body ring context - as JSON in the
+    /// forward arc and the body ring context - as JSON in the
     /// same <c>Screenshots</c> folder <c>CaptureScreenshot</c> writes to, under the same
     /// label grammar, so an offline page can plot it beside the picture.</para>
     ///
@@ -204,8 +204,6 @@ namespace Parsek.TestCommands
                 ParsekLog.Warn(LogTag, "dumpmapgeometry truncated label=" + (label ?? string.Empty)
                     + " droppedGhosts=" + c.DroppedGhosts.ToString(ic)
                     + " droppedLines=" + c.DroppedLines.ToString(ic)
-                    + " droppedRoutes=" + c.DroppedRoutes.ToString(ic)
-                    + " droppedLegs=" + c.DroppedLegs.ToString(ic)
                     + " droppedBodies=" + c.DroppedBodies.ToString(ic));
             }
         }

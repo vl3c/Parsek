@@ -186,12 +186,12 @@ namespace Parsek.Tests
         {
             var counts = new MapGeometryCounts
             {
-                Ghosts = 512, Truncated = true, DroppedGhosts = 4, DroppedLines = 6, DroppedLegs = 1,
+                Ghosts = 512, Truncated = true, DroppedGhosts = 4, DroppedLines = 6,
             };
             TestCommandDumpMapGeometry.LogWritten("big", "FLIGHT", 1, 1, counts, "0.0");
             Assert.Contains(logLines, l => l.Contains("[WARN]") && l.Contains("[TestCommands]")
                 && l.Contains("dumpmapgeometry truncated label=big") && l.Contains("droppedGhosts=4")
-                && l.Contains("droppedLines=6") && l.Contains("droppedRoutes=0") && l.Contains("droppedLegs=1")
+                && l.Contains("droppedLines=6")
                 && l.Contains("droppedBodies=0"));
         }
     }

@@ -64,11 +64,20 @@ tier = "daily"
 #
 #   BATCH_COMPLETE v1 total=23 passed=22 failed=0 skipped=1 category=MapRender scene=FLIGHT
 #
-# so the literal pin is restored: the interim prediction (22/1) was exactly right,
+# so the literal pin was restored: the interim prediction (22/1) was exactly right,
 # the new cell EXECUTED rather than standing down, and `skipped=1` is still the
 # single AllowBatchExecution = false canary and nothing else. The cell's own
 # measurement line from that run, kept because a tally cannot say the render
 # decision was reached:
+#
+#   RE-PINNED 2026-11-12: the two RouteLineDraw cells were deleted with the supply
+#   route overview line (todo ROUTE-LINE-DETACHED-SEGMENTS), so the source derives
+#   total=21 = 0 scene-skipped + 1 batch-skipped + 20 executable. Run
+#   `2026-11-12_2116_S1.7-maprender-parity` (PASS attempt 1, 76 s, every verifier PASS
+#   or REPORT) read
+#   `BATCH_COMPLETE v1 total=21 passed=20 failed=0 skipped=1 category=MapRender scene=FLIGHT`
+#   after `Batch execution skipped 1 single-run-only test(s)`, so the pin is literal
+#   again and the one skip is still the batch-disabled canary.
 #
 #   PredictedTailMapRender: body=Kerbin radius=600000 atm=70000 sma=840500
 #     ecc=0.296847 tail=[3811.9,5022.0] entry=4853.3 legs=2 arcs=1 hole=0.0s
@@ -283,7 +292,7 @@ count = { min = 274, max = 274 }
 # All are ParsekLog.Info, so they survive with verbose off.
 required = [
   "BATCH_COMPLETE v1 .* failed=0\\b",
-  "BATCH_COMPLETE v1 total=23 passed=22 failed=0 skipped=1 category=MapRender scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=21 passed=20 failed=0 skipped=1 category=MapRender scene=FLIGHT",
   "\\[Parsek\\]\\[INFO\\]\\[TestRunner\\] MultiBodyConcurrent Kerbin: pid=\\d+ body=Kerbin sampled=True skip=\\(none\\) hasMeas=True maxDev=[0-9.]+m tol=[0-9.]+m over=False",
   "\\[Parsek\\]\\[INFO\\]\\[TestRunner\\] MultiBodyConcurrent Mun: pid=\\d+ body=Mun sampled=True skip=\\(none\\) hasMeas=True maxDev=[0-9.]+m tol=[0-9.]+m over=False",
   "\\[Parsek\\]\\[INFO\\]\\[TestRunner\\] ReaimedLoop_SynthOracle: pid=\\d+ recordedLAN=\\d+ reaimedLAN=\\d+ \\| synthDev=\\d+m synthTol=\\d+m \\(ZERO\\) \\| faithfulDev=\\d+m faithfulTol=\\d+m \\(FLAGGED\\)",
@@ -311,8 +320,7 @@ forbidden = [
 
 [runtime]
 # Budget arithmetic (M-A5 S8): 720 >= 300 (LoadGame) + 300 (RunTests) + boot and
-# settle headroom. Two MapRender tests are IEnumerator (the RouteLineDraw pair) and
-# the one long-running coroutine in the category (the high-warp canary, 6 s of held
+# settle headroom. The one long-running coroutine in the category (the high-warp canary, 6 s of held
 # warp plus step-downs) is AllowBatchExecution = false and never executes in a
 # batch, so the 300 s RunTests budget is slack, well under the 540 s deferred cap.
 budgetSeconds = 720
