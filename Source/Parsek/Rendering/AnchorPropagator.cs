@@ -695,10 +695,10 @@ namespace Parsek.Rendering
         /// Source dispatch ↔ resolver:
         /// <list type="bullet">
         ///   <item>RelativeBoundary  → <see cref="IAnchorWorldFrameResolver.TryResolveRelativeBoundaryWorldPos"/></item>
-        ///   <item>OrbitalCheckpoint, BubbleEntry, BubbleExit -> no resolver:
+        ///   <item>OrbitalCheckpoint, SoiTransition, BubbleEntry, BubbleExit -> no resolver:
         ///         <see cref="TryResolveBoundaryInstantEpsilon"/> compares both sides in the
-        ///         body-fixed frame of the boundary UT.</item>
-        ///   <item>SoiTransition    → <see cref="IAnchorWorldFrameResolver.TryResolveSoiBoundaryWorldPos"/></item>
+        ///         body-fixed frame of the boundary UT (for SoiTransition, of the Absolute
+        ///         side's body).</item>
         ///   <item>Loop             → <see cref="IAnchorWorldFrameResolver.TryResolveLoopAnchorWorldPos"/></item>
         ///   <item>SurfaceContinuous
         ///         -> none (returns false, epsilon stays 0; terrain correction is recordedGroundClearance).</item>
@@ -729,6 +729,7 @@ namespace Parsek.Rendering
             }
 
             if (cand.Source == AnchorSource.OrbitalCheckpoint
+                || cand.Source == AnchorSource.SoiTransition
                 || cand.Source == AnchorSource.BubbleEntry
                 || cand.Source == AnchorSource.BubbleExit)
             {
@@ -737,6 +738,7 @@ namespace Parsek.Rendering
                         out epsilon, out double bodyFixedMagnitudeM, out string missReason))
                 {
                     if (cand.Source == AnchorSource.OrbitalCheckpoint) resolvedOrb++;
+                    else if (cand.Source == AnchorSource.SoiTransition) resolvedSoi++;
                     else resolvedBubble++;
                     if (bodyFixedMagnitudeM > maxBoundaryInstantEpsilonM)
                         maxBoundaryInstantEpsilonM = bodyFixedMagnitudeM;
@@ -776,10 +778,6 @@ namespace Parsek.Rendering
                     ok = resolver.TryResolveRelativeBoundaryWorldPos(rec, sectionIndex, cand.Side, cand.UT, out worldRef);
                     if (ok) resolvedRel++;
                     break;
-                case AnchorSource.SoiTransition:
-                    ok = resolver.TryResolveSoiBoundaryWorldPos(rec, sectionIndex, cand.Side, cand.UT, out worldRef);
-                    if (ok) resolvedSoi++;
-                    break;
                 case AnchorSource.Loop:
                     ok = resolver.TryResolveLoopAnchorWorldPos(rec, sectionIndex, cand.Side, cand.UT, out worldRef);
                     if (ok) resolvedLoop++;
@@ -816,8 +814,8 @@ namespace Parsek.Rendering
         /// <see cref="SectionAnnotationStore.TryGetSmoothingSpline"/> →
         /// <see cref="TrajectoryMath.CatmullRomFit.Evaluate"/> →
         /// <see cref="TrajectoryMath.FrameTransform.DispatchSplineWorldByFrameTag"/>.
-        /// Used by the resolver-backed sources (RelativeBoundary,
-        /// SoiTransition, Loop), whose candidates all sit on a section that
+        /// Used by the resolver-backed sources (RelativeBoundary, Loop),
+        /// whose candidates all sit on a section that
         /// carries a spline. Returns null when the section has no spline or
         /// the body can't be resolved; the caller logs the skip and falls
         /// back to epsilon = 0 (reserves the priority slot).
@@ -880,13 +878,19 @@ namespace Parsek.Rendering
         internal const string BoundaryMissNoSpline = "no-spline";
 
         /// <summary>
-        /// Seed epsilon of an OrbitalCheckpoint (section 7.5) or BubbleEntry / BubbleExit
-        /// (section 7.7) boundary, with both sides read at the boundary's own UT in the
-        /// body-fixed frame of that instant (<see cref="TrajectoryMath.BoundaryFrame"/>):
+        /// Seed epsilon of an OrbitalCheckpoint (section 7.5), SoiTransition (section 7.6) or
+        /// BubbleEntry / BubbleExit (section 7.7) boundary, with both sides read at the
+        /// boundary's own UT in the body-fixed frame of that instant
+        /// (<see cref="TrajectoryMath.BoundaryFrame"/>):
         /// <list type="bullet">
         ///   <item>OrbitalCheckpoint (candidate on the Absolute section): reference = the
         ///   neighbouring checkpoint section's Kepler position, smoothed = this section's
         ///   spline.</item>
+        ///   <item>SoiTransition (candidate on the Absolute section, the checkpoint conic around
+        ///   the other body): as OrbitalCheckpoint, with the conic carried into the Absolute
+        ///   side's body by the two bodies' own conics at the boundary UT, so the comparison
+        ///   lives in the body-fixed frame of the body the spline is placed with, on both
+        ///   sides of the crossing and in both directions.</item>
         ///   <item>BubbleExit / BubbleEntry (candidate on the checkpoint section): reference =
         ///   the neighbouring physics section's last / first Absolute sample, smoothed = this
         ///   section's Kepler position.</item>
@@ -918,7 +922,8 @@ namespace Parsek.Rendering
             }
 
             double ut = cand.UT;
-            bool isOrbitalCheckpoint = cand.Source == AnchorSource.OrbitalCheckpoint;
+            bool isSoi = cand.Source == AnchorSource.SoiTransition;
+            bool isOrbitalCheckpoint = cand.Source == AnchorSource.OrbitalCheckpoint || isSoi;
             bool isBubble = cand.Source == AnchorSource.BubbleEntry || cand.Source == AnchorSource.BubbleExit;
             if (!isOrbitalCheckpoint && !isBubble)
             {
@@ -940,9 +945,11 @@ namespace Parsek.Rendering
                 missReason = "no-checkpoint-section";
                 return false;
             }
-            if (!TrajectoryMath.BoundaryFrame.TryOrbitSegmentBodyFixedAtUT(
+            string keplerBody = null;
+            double kLat = double.NaN, kLon = double.NaN, kAlt = double.NaN;
+            if (!isSoi && !TrajectoryMath.BoundaryFrame.TryOrbitSegmentBodyFixedAtUT(
                     checkpointSection.checkpoints, ut, ResolveBodyRotation,
-                    out string keplerBody, out double kLat, out double kLon, out double kAlt))
+                    out keplerBody, out kLat, out kLon, out kAlt))
             {
                 missReason = "kepler-unresolved";
                 return false;
@@ -975,6 +982,19 @@ namespace Parsek.Rendering
                 }
                 sLat = p.x;
                 sAlt = p.z;
+                if (isSoi)
+                {
+                    // The conic around the other body, carried into the spline's body.
+                    if (!TrajectoryMath.BoundaryFrame.TryOrbitSegmentInBodyFixedOfAtUT(
+                            checkpointSection.checkpoints, ut, sampleBody,
+                            ResolveBodyRotation, ResolveBodyOrbitLink,
+                            out _, out kLat, out kLon, out kAlt))
+                    {
+                        missReason = "soi-kepler-unresolved";
+                        return false;
+                    }
+                    keplerBody = sampleBody;
+                }
             }
             else
             {
@@ -1099,7 +1119,7 @@ namespace Parsek.Rendering
         }
 
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-        private static TrajectoryMath.BoundaryFrame.BodyRotation ReadBodyRotationCore(CelestialBody body)
+        internal static TrajectoryMath.BoundaryFrame.BodyRotation ReadBodyRotationCore(CelestialBody body)
         {
             return new TrajectoryMath.BoundaryFrame.BodyRotation
             {
@@ -1110,6 +1130,45 @@ namespace Parsek.Rendering
                 InitialRotationDeg = body.initialRotation,
                 Rotates = body.rotates,
                 FixedRotationAngleDeg = body.rotationAngle,
+            };
+        }
+
+        /// <summary>
+        /// The body's own conic around its parent (<see cref="TrajectoryMath.BoundaryFrame.BodyOrbitLink"/>),
+        /// read from its <c>orbitDriver.orbit</c> fields; a body with no driver, orbit or parent
+        /// is a root. Null when the body does not resolve.
+        /// </summary>
+        private static TrajectoryMath.BoundaryFrame.BodyOrbitLink? ResolveBodyOrbitLink(string bodyName)
+        {
+            CelestialBody body = ResolveBody(bodyName);
+            if (object.ReferenceEquals(body, null)) return null;
+            return ReadBodyOrbitLinkCore(body);
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static TrajectoryMath.BoundaryFrame.BodyOrbitLink ReadBodyOrbitLinkCore(CelestialBody body)
+        {
+            // Reference comparisons only: Unity's overloaded null test would call into the engine.
+            OrbitDriver driver = body.orbitDriver;
+            Orbit orbit = object.ReferenceEquals(driver, null) ? null : driver.orbit;
+            CelestialBody parent = object.ReferenceEquals(orbit, null) ? null : orbit.referenceBody;
+            if (object.ReferenceEquals(parent, null) || object.ReferenceEquals(parent, body))
+                return new TrajectoryMath.BoundaryFrame.BodyOrbitLink();
+            return new TrajectoryMath.BoundaryFrame.BodyOrbitLink
+            {
+                ParentName = parent.bodyName,
+                ParentGravParameter = parent.gravParameter,
+                Elements = new OrbitSegment
+                {
+                    bodyName = parent.bodyName,
+                    inclination = orbit.inclination,
+                    eccentricity = orbit.eccentricity,
+                    semiMajorAxis = orbit.semiMajorAxis,
+                    longitudeOfAscendingNode = orbit.LAN,
+                    argumentOfPeriapsis = orbit.argumentOfPeriapsis,
+                    meanAnomalyAtEpoch = orbit.meanAnomalyAtEpoch,
+                    epoch = orbit.epoch,
+                },
             };
         }
 

@@ -14,7 +14,9 @@ namespace Parsek.Tests
     /// playback resolver, the render-anchor world-frame resolver, flight timeline playback,
     /// the background recorder and the active recorder. Each delegate is read from the
     /// context its host builds (never by the delegate's own name), so the cells survive a
-    /// change of which method a host passes.
+    /// change of which method a host passes. Four hosts pass the shared pose; the
+    /// render-anchor resolver passes its boundary-instant pose (todo
+    /// REFLY-ANCHOR-EPSILON-1300KM), which picks the segment and misses the same way.
     /// <para>
     /// Headless, <c>FlightGlobals.Bodies</c> throws <see cref="TypeInitializationException"/>
     /// on first read, so every body lookup misses and no cell reaches stock <c>Orbit</c>:
@@ -252,9 +254,9 @@ namespace Parsek.Tests
                     RecordingStore.AddCommittedTreeForTesting(tree);
                     object[] args = { rec, null };
                     MethodInfo m = typeof(ProductionAnchorWorldFrameResolver).GetMethod(
-                        "TryBuildRelativeAnchorResolverContext", BindingFlags.Static | BindingFlags.NonPublic);
+                        "TryBuildRelativeAnchorResolverContext", BindingFlags.Instance | BindingFlags.NonPublic);
                     Assert.NotNull(m);
-                    Assert.True((bool)m.Invoke(null, args));
+                    Assert.True((bool)m.Invoke(new ProductionAnchorWorldFrameResolver(), args));
                     return (RelativeAnchorResolverContext)args[1];
                 }
                 case FlightPlayback:

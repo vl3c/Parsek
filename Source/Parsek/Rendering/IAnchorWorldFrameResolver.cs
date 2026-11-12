@@ -50,16 +50,6 @@ namespace Parsek.Rendering
             double boundaryUT, out Vector3d worldPos);
 
         /// <summary>
-        /// section 7.6 SOI transition world-frame reference: the Kepler position of the
-        /// neighbouring checkpoint section at the boundary UT. The checkpoint stores Keplerian elements in the post-SOI body's
-        /// frame; the resolver constructs the <see cref="Orbit"/> against
-        /// that body and propagates to the boundary UT.
-        /// </summary>
-        bool TryResolveSoiBoundaryWorldPos(
-            Recording rec, int sectionIndex, AnchorSide side,
-            double boundaryUT, out Vector3d worldPos);
-
-        /// <summary>
         /// §7.10 Loop world-frame reference. Returns the loop anchor
         /// vessel's current world position (production: live
         /// <see cref="Vessel.GetWorldPos3D"/>; tests: fixed pose). Phase 6

@@ -23,6 +23,28 @@ namespace Parsek.Rendering
     /// </summary>
     internal sealed class ProductionAnchorWorldFrameResolver : IAnchorWorldFrameResolver
     {
+        // The live world this resolver reads: the body lookup, the placement of a body-fixed
+        // sample (the body's rotation at the rebuild) and the body's world rotation. Tests hand
+        // in a modelled world through the internal constructor.
+        private readonly Func<string, CelestialBody> bodyLookup;
+        private readonly Func<TrajectoryPoint, Vector3d> absoluteWorldPosition;
+        private readonly Func<TrajectoryPoint, Quaternion> bodyWorldRotation;
+
+        public ProductionAnchorWorldFrameResolver()
+            : this(ResolveBody, null, null)
+        {
+        }
+
+        internal ProductionAnchorWorldFrameResolver(
+            Func<string, CelestialBody> bodyLookup,
+            Func<TrajectoryPoint, Vector3d> absoluteWorldPosition,
+            Func<TrajectoryPoint, Quaternion> bodyWorldRotation)
+        {
+            this.bodyLookup = bodyLookup ?? ResolveBody;
+            this.absoluteWorldPosition = absoluteWorldPosition ?? ResolveAbsoluteWorldPositionFrom(this.bodyLookup);
+            this.bodyWorldRotation = bodyWorldRotation ?? ResolveBodyWorldRotationFrom(this.bodyLookup);
+        }
+
         public bool TryResolveRelativeBoundaryWorldPos(
             Recording rec, int sectionIndex, AnchorSide side,
             double boundaryUT, out Vector3d worldPos)
@@ -122,7 +144,7 @@ namespace Parsek.Rendering
                     relSection,
                     boundaryUT,
                     side,
-                    ResolveAbsoluteWorldPosition,
+                    absoluteWorldPosition,
                     out worldPos))
             {
                 ParsekLog.VerboseRateLimited("Pipeline-Anchor",
@@ -191,14 +213,6 @@ namespace Parsek.Rendering
                 out failure);
         }
 
-        public bool TryResolveSoiBoundaryWorldPos(
-            Recording rec, int sectionIndex, AnchorSide side,
-            double boundaryUT, out Vector3d worldPos)
-        {
-            // Kepler propagation of the post-SOI checkpoint at the boundary UT.
-            return TryResolveCheckpointSideWorldPos(rec, sectionIndex, side, boundaryUT, out worldPos);
-        }
-
         public bool TryResolveLoopAnchorWorldPos(
             Recording rec, int sectionIndex, AnchorSide side,
             double sampleUT, out Vector3d worldPos)
@@ -227,34 +241,6 @@ namespace Parsek.Rendering
         }
 
         // --- helpers -----------------------------------------------------
-
-        private static bool TryResolveCheckpointSideWorldPos(
-            Recording rec, int sectionIndex, AnchorSide side,
-            double boundaryUT, out Vector3d worldPos)
-        {
-            worldPos = default;
-            if (rec == null || rec.TrackSections == null) return false;
-            if (sectionIndex < 0 || sectionIndex >= rec.TrackSections.Count) return false;
-
-            // sectionIndex points at the ABSOLUTE side. The adjacent
-            // OrbitalCheckpoint section is the previous index (side=Start)
-            // or next index (side=End).
-            int ckIdx = (side == AnchorSide.Start) ? sectionIndex - 1 : sectionIndex + 1;
-            if (ckIdx < 0 || ckIdx >= rec.TrackSections.Count) return false;
-
-            TrackSection ckSection = rec.TrackSections[ckIdx];
-            if (ckSection.referenceFrame != ReferenceFrame.OrbitalCheckpoint) return false;
-
-            // Pick the OrbitSegment that brackets the boundary UT and
-            // evaluate Kepler at it. The shared helper handles the
-            // partial-first / partial-last checkpoint endpoint fallback
-            // (see TrajectoryMath.EvaluateOrbitSegmentAtUT).
-            Vector3d? maybePos = TrajectoryMath.EvaluateOrbitSegmentAtUT(
-                ckSection.checkpoints, boundaryUT, ResolveBody);
-            if (!maybePos.HasValue) return false;
-            worldPos = maybePos.Value;
-            return IsFinite(worldPos);
-        }
 
         internal static bool TryResolveRelativeBoundaryShadowWorldPos(
             Recording rec,
@@ -398,7 +384,7 @@ namespace Parsek.Rendering
             }
         }
 
-        private static bool TryBuildRelativeAnchorResolverContext(
+        private bool TryBuildRelativeAnchorResolverContext(
             Recording rec,
             out RelativeAnchorResolverContext context)
         {
@@ -415,9 +401,9 @@ namespace Parsek.Rendering
                 focusTreeId: focusTree?.Id,
                 activeReFlyMarker: ParsekScenario.Instance?.ActiveReFlySessionMarker,
                 pendingTree: PendingTreeSlot.HasPendingTree ? PendingTreeSlot.PendingTree : null,
-                absoluteWorldPositionResolver: ResolveAbsoluteWorldPosition,
-                bodyWorldRotationResolver: ResolveBodyWorldRotation,
-                orbitalCheckpointPoseResolver: TryResolveOrbitalAnchorPose,
+                absoluteWorldPositionResolver: absoluteWorldPosition,
+                bodyWorldRotationResolver: bodyWorldRotation,
+                orbitalCheckpointPoseResolver: TryResolveOrbitalAnchorPoseAtBoundaryInstant,
                 tryResolveLiveAnchorTransform: ParsekFlight.TryGetLiveAnchorTransformDelegate());
             return true;
         }
@@ -458,25 +444,45 @@ namespace Parsek.Rendering
             return false;
         }
 
-        private static Vector3d ResolveAbsoluteWorldPosition(TrajectoryPoint point)
+        private static Func<TrajectoryPoint, Vector3d> ResolveAbsoluteWorldPositionFrom(
+            Func<string, CelestialBody> bodies)
         {
-            CelestialBody body = ResolveBody(point.bodyName);
-            if (body == null)
-                return new Vector3d(double.NaN, double.NaN, double.NaN);
-            return body.GetWorldSurfacePosition(point.latitude, point.longitude, point.altitude);
+            return point =>
+            {
+                CelestialBody body = bodies(point.bodyName);
+                if (body == null)
+                    return new Vector3d(double.NaN, double.NaN, double.NaN);
+                return body.GetWorldSurfacePosition(point.latitude, point.longitude, point.altitude);
+            };
         }
 
-        private static Quaternion ResolveBodyWorldRotation(TrajectoryPoint point)
+        private static Func<TrajectoryPoint, Quaternion> ResolveBodyWorldRotationFrom(
+            Func<string, CelestialBody> bodies)
         {
-            CelestialBody body = ResolveBody(point.bodyName);
-            return body != null && body.bodyTransform != null
-                ? body.bodyTransform.rotation
-                : Quaternion.identity;
+            return point =>
+            {
+                CelestialBody body = bodies(point.bodyName);
+                return body != null && body.bodyTransform != null
+                    ? body.bodyTransform.rotation
+                    : Quaternion.identity;
+            };
         }
 
-        // The shared pose with this resolver's own body lookup (ResolveBody above), which
-        // catches every exception rather than only a failed FlightGlobals initializer.
-        private static bool TryResolveOrbitalAnchorPose(
+        /// <summary>
+        /// The orbital-checkpoint anchor pose this resolver hands its relative-anchor context: the
+        /// anchor's pose at the boundary UT <paramref name="ut"/>, placed in the same world as
+        /// every other point this resolver and the propagator place (a body-fixed point put down
+        /// with the body's rotation at the rebuild, <see cref="absoluteWorldPosition"/>).
+        /// The recorders' and playback's shared pose
+        /// (<see cref="ParsekFlight.TryComputeOrbitalCheckpointAnchorPose"/>) places the conic
+        /// through the CURRENT <c>Planetarium.Zup</c> and body position, which is the anchor's pose
+        /// only when <paramref name="ut"/> is the current game time; a boundary UT is in the past,
+        /// so that pose against a body-fixed point placed now carried the body's rotation since
+        /// the boundary into the epsilon (todo REFLY-ANCHOR-EPSILON-1300KM). Same segment pick as
+        /// the shared pose; false when no segment covers <paramref name="ut"/> or its body does not
+        /// resolve.
+        /// </summary>
+        private bool TryResolveOrbitalAnchorPoseAtBoundaryInstant(
             Recording recording,
             TrackSection section,
             int sectionIndex,
@@ -489,13 +495,149 @@ namespace Parsek.Rendering
                 return false;
 
             OrbitSegment segment = section.checkpoints[index];
-            return ParsekFlight.TryComputeOrbitalCheckpointAnchorPose(
+            CelestialBody body = bodyLookup(segment.bodyName);
+            if (object.ReferenceEquals(body, null))
+                return false;
+            return TryComputeBoundaryInstantOrbitalAnchorPose(
                 recording,
                 segment,
-                ResolveBody(segment.bodyName),
+                AnchorPropagator.ReadBodyRotationCore(body),
+                absoluteWorldPosition,
                 sectionIndex,
                 ut,
                 out pose);
+        }
+
+        /// <summary>
+        /// The pose of <paramref name="segment"/>'s conic at <paramref name="ut"/>, in the world
+        /// <paramref name="place"/> puts a body-fixed point down in. The conic's state at
+        /// <paramref name="ut"/> comes from <see cref="TrajectoryMath.BoundaryFrame"/> as body-fixed
+        /// points of <paramref name="ut"/> (no <c>Planetarium.Zup</c>) and is placed; the velocity
+        /// goes through the same placement as the difference of two placed points, so position,
+        /// velocity and radial all ride one rigid map. The rotation is then the shared pose's own
+        /// (<see cref="ParsekFlight.ComputeOrbitalRotation"/>, with the spin-forward branch
+        /// transcribed because it reads a stock <c>Orbit</c>), from the mapped state. When
+        /// <paramref name="ut"/> is the current game time and <paramref name="place"/> is the live
+        /// surface placement this is the shared pose. Unity calls only for the rotation.
+        /// </summary>
+        internal static bool TryComputeBoundaryInstantOrbitalAnchorPose(
+            Recording recording,
+            OrbitSegment segment,
+            TrajectoryMath.BoundaryFrame.BodyRotation body,
+            Func<TrajectoryPoint, Vector3d> place,
+            int sectionIndex,
+            double ut,
+            out AnchorPose pose)
+        {
+            pose = default;
+            if (place == null)
+                return false;
+            if (!TryPlaceOrbitSegmentState(segment, body, ut, ut, place, out Vector3d worldPos, out Vector3d worldVel))
+                return false;
+            if (!TryPlaceBodyFixed(place, segment.bodyName, 0.0, 0.0, -body.Radius, out Vector3d bodyCentre))
+                return false;
+
+            Quaternion rotation;
+            if (TrajectoryMath.IsSpinning(segment))
+            {
+                // ComputeOrbitalRotation's spin-forward branch, with the start-UT state carried
+                // by the same map as the boundary state. The boundary attitude is that
+                // function's orbital-frame branch at the start state (the spin branch's own
+                // look rotation times the recorded attitude; it differs only below 0.03 m/s).
+                if (!TryPlaceOrbitSegmentState(segment, body, segment.startUT, ut, place,
+                        out Vector3d posAtStart, out Vector3d velAtStart))
+                    return false;
+                Quaternion boundaryWorldRot = ParsekFlight.ComputeOrbitalRotation(
+                    segment,
+                    null,
+                    segment.startUT,
+                    TrajectoryMath.SwizzleZupBodyRelativeToWorld(velAtStart),
+                    posAtStart,
+                    bodyCentre,
+                    Quaternion.identity,
+                    sectionIndex,
+                    hasOfr: true,
+                    spinning: false).ghostRot;
+                double dt = ut - segment.startUT;
+                Vector3 worldAxis = boundaryWorldRot * segment.angularVelocity;
+                float angle = (float)((double)segment.angularVelocity.magnitude * dt * Mathf.Rad2Deg);
+                rotation = Quaternion.AngleAxis(angle, worldAxis) * boundaryWorldRot;
+            }
+            else
+            {
+                // ComputeOrbitalRotation takes the Zup velocity by contract and lifts it to world.
+                rotation = ParsekFlight.ComputeOrbitalRotation(
+                    segment,
+                    null,
+                    ut,
+                    TrajectoryMath.SwizzleZupBodyRelativeToWorld(worldVel),
+                    worldPos,
+                    bodyCentre,
+                    Quaternion.identity,
+                    sectionIndex,
+                    TrajectoryMath.HasOrbitalFrameRotation(segment),
+                    spinning: false).ghostRot;
+            }
+
+            pose = new AnchorPose(worldPos, rotation, sectionIndex, recording?.RecordingId);
+            return IsFinite(worldPos);
+        }
+
+        /// <summary>
+        /// The conic's state at <paramref name="stateUT"/>, seen in the body-fixed frame of
+        /// <paramref name="lowerUT"/>, placed: the position directly, the velocity as the placed
+        /// difference of the position and the ahead point
+        /// (<see cref="TrajectoryMath.BoundaryFrame.TryOrbitSegmentStateBodyFixed"/>).
+        /// </summary>
+        private static bool TryPlaceOrbitSegmentState(
+            OrbitSegment segment,
+            TrajectoryMath.BoundaryFrame.BodyRotation body,
+            double stateUT,
+            double lowerUT,
+            Func<TrajectoryPoint, Vector3d> place,
+            out Vector3d worldPos,
+            out Vector3d worldVel)
+        {
+            worldPos = default;
+            worldVel = Vector3d.zero;
+            if (!TrajectoryMath.BoundaryFrame.TryOrbitSegmentStateBodyFixed(
+                    segment, body, stateUT, lowerUT, out TrajectoryMath.BoundaryFrame.BodyFixedState state))
+                return false;
+            if (!TryPlaceBodyFixed(place, segment.bodyName, state.Lat, state.Lon, state.Alt, out worldPos))
+                return false;
+            if (state.Speed <= 0.0)
+                return true;
+            if (!TryPlaceBodyFixed(place, segment.bodyName, state.AheadLat, state.AheadLon, state.AheadAlt,
+                    out Vector3d ahead))
+                return false;
+            worldVel = (ahead - worldPos) * (state.Speed / state.Step);
+            return IsFinite(worldVel);
+        }
+
+        private static bool TryPlaceBodyFixed(
+            Func<TrajectoryPoint, Vector3d> place,
+            string bodyName,
+            double lat,
+            double lon,
+            double alt,
+            out Vector3d worldPos)
+        {
+            try
+            {
+                worldPos = place(new TrajectoryPoint
+                {
+                    bodyName = bodyName,
+                    latitude = lat,
+                    longitude = lon,
+                    altitude = alt,
+                });
+            }
+            catch
+            {
+                worldPos = default;
+                return false;
+            }
+            return IsFinite(worldPos);
         }
 
         private static Vessel TryFindVesselByPid(uint pid)

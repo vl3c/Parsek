@@ -166,123 +166,52 @@ namespace Parsek.Tests
             Assert.Null(result);
         }
 
-        // EvaluateOrbitSegmentAtUT — Phase 6 §7.5 / §7.7 shared helper.
-        // The Kepler eval itself throws under headless xUnit
-        // (Orbit.getPositionAtUT relies on KSP's body-orbit machinery),
-        // so these tests focus on the guard paths AND the
-        // partial-first / partial-last endpoint fallback semantics
-        // (verified by capturing the bodyName the bodyResolver was
-        // called with — the resolver intentionally returns null so
-        // the helper short-circuits BEFORE reaching `Orbit`'s ctor,
-        // letting xUnit observe the segment-selection decision
-        // without the Kepler eval throwing).
+        // TryPickOrbitSegmentForBoundaryUT: the boundary-instant segment pick
+        // (section 7.5 / 7.6 / 7.7). A boundary UT a hair outside the partial
+        // first / last checkpoint falls back to that endpoint segment.
 
         [Fact]
-        public void EvaluateOrbitSegmentAtUT_NullCheckpoints_ReturnsNull()
+        public void TryPickOrbitSegmentForBoundaryUT_NullOrEmpty_ReturnsFalse()
         {
-            Vector3d? result = TrajectoryMath.EvaluateOrbitSegmentAtUT(
-                checkpoints: null, ut: 150, bodyResolver: _ => null);
-            Assert.Null(result);
+            Assert.False(TrajectoryMath.TryPickOrbitSegmentForBoundaryUT(null, 150, out _));
+            Assert.False(TrajectoryMath.TryPickOrbitSegmentForBoundaryUT(
+                new List<OrbitSegment>(), 150, out _));
         }
 
         [Fact]
-        public void EvaluateOrbitSegmentAtUT_EmptyCheckpoints_ReturnsNull()
+        public void TryPickOrbitSegmentForBoundaryUT_PartialLastCheckpoint_FallsBackToLastSegment()
         {
-            Vector3d? result = TrajectoryMath.EvaluateOrbitSegmentAtUT(
-                checkpoints: new List<OrbitSegment>(),
-                ut: 150,
-                bodyResolver: _ => null);
-            Assert.Null(result);
-        }
-
-        [Fact]
-        public void EvaluateOrbitSegmentAtUT_NullBodyResolver_ReturnsNull()
-        {
-            var checkpoints = new List<OrbitSegment> { MakeSegment(100, 200) };
-            Vector3d? result = TrajectoryMath.EvaluateOrbitSegmentAtUT(
-                checkpoints, ut: 150, bodyResolver: null);
-            Assert.Null(result);
-        }
-
-        [Fact]
-        public void EvaluateOrbitSegmentAtUT_BodyResolverReturnsNull_ReturnsNull()
-        {
-            var checkpoints = new List<OrbitSegment> { MakeSegment(100, 200) };
-            Vector3d? result = TrajectoryMath.EvaluateOrbitSegmentAtUT(
-                checkpoints, ut: 150, bodyResolver: _ => null);
-            // Helper found the segment but couldn't resolve a real body
-            // (xUnit can't instantiate one); fail-closed return.
-            Assert.Null(result);
-        }
-
-        [Fact]
-        public void EvaluateOrbitSegmentAtUT_PartialLastCheckpoint_FallsBackToLastSegmentByBodyName()
-        {
-            // P2-1 regression pin: §7.7 BubbleEntry candidate UT equals the
-            // Checkpoint section's endUT; if the last sampled checkpoint's
-            // endUT is a hair below that, FindOrbitSegment misses and the
-            // helper must fall back to the LAST segment (where the candidate
-            // logically lives), not return null.
             var checkpoints = new List<OrbitSegment>
             {
                 MakeSegment(100, 200, "Kerbin"),
                 MakeSegment(200, 300, "Mun"),
             };
-            string capturedBodyName = null;
-            Vector3d? result = TrajectoryMath.EvaluateOrbitSegmentAtUT(
-                checkpoints,
-                ut: 350,  // past the last segment's endUT
-                bodyResolver: name => { capturedBodyName = name; return null; });
-
-            // Body resolver returns null → helper short-circuits, but the
-            // segment-selection decision is observable: the resolver was
-            // called with the LAST segment's body name (the fallback target).
-            Assert.Equal("Mun", capturedBodyName);
-            Assert.Null(result);
+            Assert.True(TrajectoryMath.TryPickOrbitSegmentForBoundaryUT(checkpoints, 350, out OrbitSegment seg));
+            Assert.Equal("Mun", seg.bodyName);
         }
 
         [Fact]
-        public void EvaluateOrbitSegmentAtUT_UTBeforeFirstCheckpoint_FallsBackToFirstSegmentByBodyName()
+        public void TryPickOrbitSegmentForBoundaryUT_UTBeforeFirstCheckpoint_FallsBackToFirstSegment()
         {
-            // Symmetric to the partial-last case: §7.5 / §7.7 BubbleExit
-            // candidate UT equals the Checkpoint section's startUT; if the
-            // first sampled checkpoint's startUT is a hair above that,
-            // FindOrbitSegment misses and the helper must fall back to the
-            // FIRST segment.
             var checkpoints = new List<OrbitSegment>
             {
                 MakeSegment(100, 200, "Kerbin"),
                 MakeSegment(200, 300, "Mun"),
             };
-            string capturedBodyName = null;
-            Vector3d? result = TrajectoryMath.EvaluateOrbitSegmentAtUT(
-                checkpoints,
-                ut: 50,  // before the first segment's startUT
-                bodyResolver: name => { capturedBodyName = name; return null; });
-
-            Assert.Equal("Kerbin", capturedBodyName);
-            Assert.Null(result);
+            Assert.True(TrajectoryMath.TryPickOrbitSegmentForBoundaryUT(checkpoints, 50, out OrbitSegment seg));
+            Assert.Equal("Kerbin", seg.bodyName);
         }
 
         [Fact]
-        public void EvaluateOrbitSegmentAtUT_UTInsideRange_PicksContainingSegmentByBodyName()
+        public void TryPickOrbitSegmentForBoundaryUT_UTInsideRange_PicksContainingSegment()
         {
-            // Sanity: when FindOrbitSegment hits, the helper should NOT
-            // engage the endpoint fallback. Pick the second segment by
-            // putting its body name into the captured slot.
             var checkpoints = new List<OrbitSegment>
             {
                 MakeSegment(100, 200, "Kerbin"),
                 MakeSegment(200, 300, "Mun"),
             };
-            string capturedBodyName = null;
-            Vector3d? result = TrajectoryMath.EvaluateOrbitSegmentAtUT(
-                checkpoints,
-                ut: 250,  // inside the second segment
-                bodyResolver: name => { capturedBodyName = name; return null; });
-
-            Assert.Equal("Mun", capturedBodyName);
-            Assert.Null(result);
+            Assert.True(TrajectoryMath.TryPickOrbitSegmentForBoundaryUT(checkpoints, 250, out OrbitSegment seg));
+            Assert.Equal("Mun", seg.bodyName);
         }
 
         [Fact]

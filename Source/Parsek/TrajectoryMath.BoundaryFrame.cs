@@ -126,6 +126,152 @@ namespace Parsek
             }
 
             /// <summary>
+            /// A conic's state as two body-fixed points: the position, and the point
+            /// <see cref="Step"/> metres further along the velocity, both lat / lon / alt;
+            /// <see cref="Speed"/> is the velocity's magnitude. A rigid placement maps the pair to
+            /// a world position and, as the placed difference over <see cref="Step"/> times
+            /// <see cref="Speed"/>, the world velocity.
+            /// </summary>
+            internal struct BodyFixedState
+            {
+                public double Lat, Lon, Alt;
+                public double AheadLat, AheadLon, AheadAlt;
+                public double Speed, Step;
+            }
+
+            /// <summary>
+            /// <paramref name="seg"/>'s conic at <paramref name="stateUT"/> (stored element frame,
+            /// <paramref name="body"/>'s gravitational parameter), lowered to the body-fixed frame
+            /// of <paramref name="lowerUT"/> (<see cref="TryStoredFrameToBodyFixed"/>). The two UTs
+            /// differ only where a state at one instant has to be seen in the frame of another
+            /// (a spin propagated from the segment's start). The ahead point is one orbital radius
+            /// along the velocity; with zero speed it is the position. False on a non-propagatable
+            /// segment, unusable constants or a non-finite result.
+            /// </summary>
+            internal static bool TryOrbitSegmentStateBodyFixed(
+                OrbitSegment seg, in BodyRotation body, double stateUT, double lowerUT,
+                out BodyFixedState state)
+            {
+                state = default;
+                if (!IsUsable(body) || !IsFinite(stateUT)) return false;
+                if (!TwoBodyOrbit.TryCreateFromSegmentStoredFrame(seg, body.GravParameter, out TwoBodyOrbit orbit))
+                    return false;
+                orbit.GetStateAtUT(stateUT, out Vector3d position, out Vector3d velocity);
+                if (!TryStoredFrameToBodyFixed(position, body, lowerUT, out state.Lat, out state.Lon, out state.Alt))
+                    return false;
+                double speed = Math.Sqrt(velocity.x * velocity.x + velocity.y * velocity.y + velocity.z * velocity.z);
+                if (!IsFinite(speed)) return false;
+                double radius = Math.Sqrt(position.x * position.x + position.y * position.y + position.z * position.z);
+                state.Speed = speed;
+                state.Step = Math.Max(1.0, radius);
+                if (speed <= 0.0)
+                {
+                    state.AheadLat = state.Lat;
+                    state.AheadLon = state.Lon;
+                    state.AheadAlt = state.Alt;
+                    return true;
+                }
+                Vector3d ahead = position + velocity * (state.Step / speed);
+                return TryStoredFrameToBodyFixed(ahead, body, lowerUT,
+                    out state.AheadLat, out state.AheadLon, out state.AheadAlt);
+            }
+
+            /// <summary>
+            /// A body's own conic around its parent, for carrying a position across an SOI
+            /// boundary: stock's <c>Orbit</c> elements of the body (same conventions as a
+            /// recorded <see cref="OrbitSegment"/>: degrees, LAN from <c>Planetarium.right</c>,
+            /// mean anomaly in radians) and the parent's name and gravitational parameter. A
+            /// root body (the Sun) has a null <see cref="ParentName"/>.
+            /// </summary>
+            internal struct BodyOrbitLink
+            {
+                public string ParentName;
+                public double ParentGravParameter;
+                public OrbitSegment Elements;
+            }
+
+            // A deeper chain than any stock or modded system; stops a malformed parent loop.
+            private const int MaxBodyChainDepth = 16;
+
+            /// <summary>
+            /// The stored-frame position of <paramref name="bodyName"/> relative to its root body
+            /// at <paramref name="ut"/>: the sum of each body's own conic around its parent up
+            /// the parent chain. Every recorded and stock conic shares the stored element frame's
+            /// axes, so these positions add. False when a body in the chain does not resolve, its
+            /// conic does not propagate, or the chain is deeper than any real system.
+            /// </summary>
+            internal static bool TryStoredFramePositionFromRoot(
+                string bodyName, double ut, Func<string, BodyOrbitLink?> links,
+                out Vector3d position, out string rootName)
+            {
+                position = Vector3d.zero;
+                rootName = null;
+                if (links == null || string.IsNullOrEmpty(bodyName) || !IsFinite(ut)) return false;
+                string current = bodyName;
+                for (int depth = 0; depth < MaxBodyChainDepth; depth++)
+                {
+                    BodyOrbitLink? maybe = links(current);
+                    if (!maybe.HasValue) return false;
+                    BodyOrbitLink link = maybe.Value;
+                    if (string.IsNullOrEmpty(link.ParentName))
+                    {
+                        rootName = current;
+                        return true;
+                    }
+                    if (!TwoBodyOrbit.TryCreateFromSegmentStoredFrame(link.Elements, link.ParentGravParameter, out TwoBodyOrbit orbit))
+                        return false;
+                    Vector3d rel = orbit.GetPositionAtUT(ut);
+                    if (!IsFinite(rel.x) || !IsFinite(rel.y) || !IsFinite(rel.z)) return false;
+                    position += rel;
+                    current = link.ParentName;
+                }
+                return false;
+            }
+
+            /// <summary>
+            /// The Kepler position of <paramref name="checkpoints"/> at <paramref name="ut"/> in
+            /// the body-fixed frame of <paramref name="frameBodyName"/> at <paramref name="ut"/>,
+            /// which may be another body than the segment's (an SOI boundary: the conic is around
+            /// the body on one side, the physics samples around the body on the other). The conic's
+            /// body-relative position is moved to <paramref name="frameBodyName"/> by the two
+            /// bodies' own conics at the same <paramref name="ut"/>
+            /// (<see cref="TryStoredFramePositionFromRoot"/>), then lowered with that body's
+            /// rotation at <paramref name="ut"/>. Same body: identical to
+            /// <see cref="TryOrbitSegmentBodyFixedAtUT"/>. False on any miss, or when the two
+            /// bodies have no common root.
+            /// </summary>
+            internal static bool TryOrbitSegmentInBodyFixedOfAtUT(
+                List<OrbitSegment> checkpoints, double ut, string frameBodyName,
+                Func<string, BodyRotation?> bodies, Func<string, BodyOrbitLink?> links,
+                out string segmentBodyName, out double latDeg, out double lonDeg, out double altM)
+            {
+                segmentBodyName = null;
+                latDeg = lonDeg = altM = double.NaN;
+                if (bodies == null || string.IsNullOrEmpty(frameBodyName)) return false;
+                if (!TryPickOrbitSegmentForBoundaryUT(checkpoints, ut, out OrbitSegment seg))
+                    return false;
+                BodyRotation? maybeSegBody = bodies(seg.bodyName);
+                BodyRotation? maybeFrameBody = bodies(frameBodyName);
+                if (!maybeSegBody.HasValue || !IsUsable(maybeSegBody.Value)) return false;
+                if (!maybeFrameBody.HasValue || !IsUsable(maybeFrameBody.Value)) return false;
+                if (!TwoBodyOrbit.TryCreateFromSegmentStoredFrame(seg, maybeSegBody.Value.GravParameter, out TwoBodyOrbit orbit))
+                    return false;
+                Vector3d rel = orbit.GetPositionAtUT(ut);
+                if (!string.Equals(seg.bodyName, frameBodyName, StringComparison.Ordinal))
+                {
+                    if (!TryStoredFramePositionFromRoot(seg.bodyName, ut, links, out Vector3d segBodyPos, out string segRoot)
+                        || !TryStoredFramePositionFromRoot(frameBodyName, ut, links, out Vector3d frameBodyPos, out string frameRoot)
+                        || !string.Equals(segRoot, frameRoot, StringComparison.Ordinal))
+                        return false;
+                    rel = rel + segBodyPos - frameBodyPos;
+                }
+                if (!TryStoredFrameToBodyFixed(rel, maybeFrameBody.Value, ut, out latDeg, out lonDeg, out altM))
+                    return false;
+                segmentBodyName = seg.bodyName;
+                return true;
+            }
+
+            /// <summary>
             /// The body-fixed longitude of a smoothing-spline sample evaluated at
             /// <paramref name="ut"/>: tag 0 is already body-fixed; tag 1 stores
             /// <c>lon + 360 * ut / rotationPeriod</c> (<see cref="FrameTransform.LiftToInertial"/>,

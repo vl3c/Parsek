@@ -66,12 +66,11 @@ namespace Parsek.Tests.Rendering
         private sealed class StubResolver : IAnchorWorldFrameResolver
         {
             public Vector3d? RelWorldPos;
-            public Vector3d? SoiWorldPos;
             public Vector3d? LoopWorldPos;
-            public int RelCalls, SoiCalls, LoopCalls;
-            public string LastRelRecordingId, LastSoiRecordingId, LastLoopRecordingId;
-            public AnchorSide LastRelSide, LastSoiSide, LastLoopSide;
-            public double LastRelUT, LastSoiUT, LastLoopUT;
+            public int RelCalls, LoopCalls;
+            public string LastRelRecordingId, LastLoopRecordingId;
+            public AnchorSide LastRelSide, LastLoopSide;
+            public double LastRelUT, LastLoopUT;
 
             public bool TryResolveRelativeBoundaryWorldPos(
                 Recording rec, int sectionIndex, AnchorSide side, double boundaryUT, out Vector3d worldPos)
@@ -81,16 +80,6 @@ namespace Parsek.Tests.Rendering
                 LastRelSide = side;
                 LastRelUT = boundaryUT;
                 if (RelWorldPos.HasValue) { worldPos = RelWorldPos.Value; return true; }
-                worldPos = default; return false;
-            }
-            public bool TryResolveSoiBoundaryWorldPos(
-                Recording rec, int sectionIndex, AnchorSide side, double boundaryUT, out Vector3d worldPos)
-            {
-                SoiCalls++;
-                LastSoiRecordingId = rec?.RecordingId;
-                LastSoiSide = side;
-                LastSoiUT = boundaryUT;
-                if (SoiWorldPos.HasValue) { worldPos = SoiWorldPos.Value; return true; }
                 worldPos = default; return false;
             }
             public bool TryResolveLoopAnchorWorldPos(
@@ -206,10 +195,12 @@ namespace Parsek.Tests.Rendering
                     && l.Contains("RelativeBoundary"));
         }
 
-        // --- section 7.5 OrbitalCheckpoint / section 7.7 BubbleEntry, BubbleExit ------
+        // --- section 7.5 OrbitalCheckpoint / 7.6 SoiTransition / 7.7 BubbleEntry, BubbleExit ---
 
         [Theory]
         [InlineData((int)AnchorSource.OrbitalCheckpoint, (int)AnchorSide.Start)]
+        [InlineData((int)AnchorSource.SoiTransition, (int)AnchorSide.End)]
+        [InlineData((int)AnchorSource.SoiTransition, (int)AnchorSide.Start)]
         [InlineData((int)AnchorSource.BubbleExit, (int)AnchorSide.Start)]
         [InlineData((int)AnchorSource.BubbleEntry, (int)AnchorSide.End)]
         public void BoundaryInstantSources_NeverConsultTheResolver(int sourceValue, int sideValue)
@@ -226,7 +217,6 @@ namespace Parsek.Tests.Rendering
             var stub = new StubResolver
             {
                 RelWorldPos = new Vector3d(1, 1, 1),
-                SoiWorldPos = new Vector3d(1, 1, 1),
                 LoopWorldPos = new Vector3d(1, 1, 1),
             };
             AnchorPropagator.ResolverOverrideForTesting = stub;
@@ -240,7 +230,6 @@ namespace Parsek.Tests.Rendering
                 new[] { rec }, new RecordingTree[0], surfaceLookup: null);
 
             Assert.Equal(0, stub.RelCalls);
-            Assert.Equal(0, stub.SoiCalls);
             Assert.Equal(0, stub.LoopCalls);
             Assert.True(RenderSessionState.TryLookup(rec.RecordingId, 0, side, out AnchorCorrection ac));
             Assert.Equal(source, ac.Source);
@@ -248,31 +237,6 @@ namespace Parsek.Tests.Rendering
             Assert.Contains(logLines,
                 l => l.Contains("[VERBOSE][Pipeline-Anchor]") && l.Contains("resolver-miss")
                     && l.Contains("source=" + source) && l.Contains("reason=neighbour-out-of-range"));
-        }
-
-        // --- §7.6 SoiTransition --------------------------------------------
-
-        [Fact]
-        public void SoiTransition_ResolverHit_WritesEpsilonIntoSessionMap()
-        {
-            var rec = MakeRec("rec-soi", ReferenceFrame.Absolute, 0, 100);
-            var stub = new StubResolver { SoiWorldPos = new Vector3d(7, 8, 9) };
-            AnchorPropagator.ResolverOverrideForTesting = stub;
-            SeedSmoothed(rec, 75.0, new Vector3d(2, 3, 4));
-            SectionAnnotationStore.PutAnchorCandidates(rec.RecordingId, 0, new[]
-            {
-                new AnchorCandidate(75.0, AnchorSource.SoiTransition, AnchorSide.End),
-            });
-
-            AnchorPropagator.Run(new ReFlySessionMarker { SessionId = "soi-sess" },
-                new[] { rec }, new RecordingTree[0], surfaceLookup: null);
-
-            Assert.Equal(1, stub.SoiCalls);
-            Assert.True(RenderSessionState.TryLookup(rec.RecordingId, 0, AnchorSide.End, out AnchorCorrection ac));
-            Assert.Equal(AnchorSource.SoiTransition, ac.Source);
-            Assert.Equal(5.0, ac.Epsilon.x, 6);
-            Assert.Equal(5.0, ac.Epsilon.y, 6);
-            Assert.Equal(5.0, ac.Epsilon.z, 6);
         }
 
         // --- §7.10 Loop ----------------------------------------------------
@@ -322,7 +286,6 @@ namespace Parsek.Tests.Rendering
                 new[] { rec }, new RecordingTree[0], surfaceLookup: null);
 
             Assert.Equal(0, stub.RelCalls);
-            Assert.Equal(0, stub.SoiCalls);
             Assert.Equal(0, stub.LoopCalls);
             Assert.True(RenderSessionState.TryLookup(rec.RecordingId, 0, AnchorSide.Start, out AnchorCorrection ac));
             Assert.Equal(0.0, ac.Epsilon.magnitude, 6);
