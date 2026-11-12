@@ -1891,9 +1891,43 @@ namespace Parsek
                 if (!AreSegmentElementsPropagatable(segment, gravParameter))
                     return false;
 
-                double zupAngle = GetStockElementFrameZupAngleRadians();
+                orbit = BuildFromSegmentElements(
+                    segment, gravParameter, GetStockElementFrameZupAngleRadians());
+                return true;
+            }
+
+            /// <summary>
+            /// Builds the orbit in the segment's STORED element frame: the LAN stays measured
+            /// from <c>Planetarium.right</c> and no <c>Planetarium.Zup</c> angle is read, so
+            /// the states it returns are NOT stock's state frame and must never be handed to
+            /// <c>CreateSegment</c> or to stock world placement. Its one use is time-stable
+            /// geometry: in this frame (z = the body's polar axis) a point's longitude is
+            /// <c>body-fixed longitude + rotationAngle(ut)</c>, with stock's
+            /// <c>rotationAngle = initialRotation + 360 * ut / rotationPeriod</c>, so a Kepler
+            /// position converts to the body-fixed frame of ITS OWN instant with no live
+            /// state (<see cref="TrajectoryMath.BoundaryFrame"/>). Pure: the result depends on
+            /// the segment and <paramref name="gravParameter"/> only.
+            /// </summary>
+            internal static bool TryCreateFromSegmentStoredFrame(
+                OrbitSegment segment,
+                double gravParameter,
+                out TwoBodyOrbit orbit)
+            {
+                orbit = default(TwoBodyOrbit);
+                if (!AreSegmentElementsPropagatable(segment, gravParameter))
+                    return false;
+
+                orbit = BuildFromSegmentElements(segment, gravParameter, 0.0);
+                return true;
+            }
+
+            private static TwoBodyOrbit BuildFromSegmentElements(
+                OrbitSegment segment,
+                double gravParameter,
+                double zupAngle)
+            {
                 bool isElliptic = segment.eccentricity < 1.0;
-                orbit = new TwoBodyOrbit
+                return new TwoBodyOrbit
                 {
                     BodyRadius = 0.0,
                     GravitationalParameter = gravParameter,
@@ -1915,7 +1949,6 @@ namespace Parsek
                         : double.PositiveInfinity,
                     IsElliptic = isElliptic
                 };
-                return true;
             }
 
             /// <summary>

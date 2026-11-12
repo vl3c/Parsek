@@ -676,6 +676,10 @@ forbidden = [
   "MISSIONMARK label=rw6-merged ut=[\\s\\S]*Recording started: vessel=",
   "Game state: ContractCompleted ",
   "Game state: ContractFailed ",
+  # ---- the Re-Fly's anchor corrections stay inside the physics bubble (todo
+  # REFLY-ANCHOR-EPSILON-1300KM: a boundary epsilon carried the planet's rotation since the
+  # boundary, 64 km to 22,820 km on every Re-Fly rebuild) ----
+  "\\[Pipeline-Anchor\\] Anchor \\S+ exceeds bubble radius",
 ]
 
 # REPORT-ONLY until the reading run: the point survives (the stand's slot stays open), the

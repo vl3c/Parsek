@@ -20,37 +20,65 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## REFLY-ANCHOR-EPSILON-1300KM: every Re-Fly render anchor in RW-5 / RW-6 / RW-7 carries an offset of about 1,300 km [FILED 2026-11-12 from the first real run index (`run_index.py health-regressions`), runs `2026-11-11_0218_RW-5`, `2026-11-10_2237_RW-6`, `2026-11-11_0140_RW-7`, by reading the archived logs. OPEN; not yet placed (what the player sees is unmeasured)]
+## ~~REFLY-ANCHOR-EPSILON-1300KM~~: Re-Fly render anchors in RW-5 / RW-6 / RW-7 carried offsets of 64 km to 22,820 km [FILED 2026-11-12 from the first real run index (`run_index.py health-regressions`), runs `2026-11-11_0218_RW-5`, `2026-11-10_2237_RW-6`, `2026-11-11_0140_RW-7`. CAUSE FOUND 2026-11-12 (a frame defect in the seed epsilon, reproduced headless and confirmed from the PC logs). FIXED 2026-11-12 headless; open only for the live proof below]
 
 **Symptom.** The three lanes pass, and their WARN count rose from 19 / 31 / 55 (runs of
 2026-11-06) to 357 / 533 / 558. Every extra line is one message on the tag `Pipeline-Anchor`:
 `Anchor <epsilon> exceeds bubble radius: recordingId=... sectionIndex=... side=... anchorSource=...
-epsilonMagnitudeM=1307870.2391902634 bubbleRadiusM=2500`. Each run holds 168 distinct anchors
-(RW-6: side Start / BubbleExit 174 lines, End / BubbleEntry 170, End / OrbitalCheckpoint 87,
-Start / OrbitalCheckpoint 57, Start / DockOrMerge 15), each warned once per session rebuild (2
-rebuilds in RW-5, 3 in RW-6 and RW-7), and every one reads between 1,308 and 1,311 km. Every
-other tag is flat between the two runs.
+epsilonMagnitudeM=... bubbleRadiusM=2500`, 336 / 504 / 504 lines over 2 / 3 / 3 session rebuilds
+(UT about 185,800.5 and 185,786.9), one per seeded anchor per rebuild (sources BubbleExit,
+BubbleEntry, OrbitalCheckpoint and the DockOrMerge anchors that inherit them). The PC logs show
+the magnitudes SPREAD from 64 km to 22,820 km, and the same anchor reads differently at each
+rebuild (the earlier "1,308 to 1,311 km" reading was one anchor, the CS Orbiter LKO exit
+`e312c6a9...` section 6/7, at 1,307.87 km). The warning was new visibility (commit 334b6cfd2,
+2026-11-07, calls it from `PutAnchorWithPriority`), not new behaviour: the values were wrong and
+applied.
 
-**What is known.** The warning is not new behaviour, it is new visibility:
-`RenderSessionState.WarnIfEpsilonExceedsBubbleRadius` ran only on the LiveSeparation path until
-commit 334b6cfd2 (2026-11-07) also called it from `PutAnchorWithPriority`, for every anchor
-that lands. The runs of 2026-11-06 hold zero such lines at any level, so the LiveSeparation
-anchor itself was inside the bubble. No real anchor offset can exceed the 2.5 km physics
-bubble, and one value on 168 anchors of four sources reads as one wrong offset carried to all
-of them (a frame mismatch at the seed, or the propagation), not as 168 independent errors.
-The lane specs did not change in that window.
+**Cause.** `AnchorPropagator.TryResolveSeedEpsilon` computed `epsilon = worldRef - smoothed` with
+one side a Kepler position at the boundary UT placed through the CURRENT `Planetarium.Zup` and the
+other a body-fixed point placed through the body's CURRENT rotation, both read at the session
+rebuild rather than at the boundary UT `t_b`. Every seed carried the body's rotation since its
+boundary: a chord `2 r cos(lat) |sin(pi (now - t_b) / T_rot)|`, each seed with its own phase. The
+recorded data are sound: on `cs-career-mun4` the stored-frame Kepler point and the physics sample
+agree within 5 m at `t_b` on all 115 Kerbin and Mun bubble boundaries.
 
-**Not known.** Whether a ghost is drawn 1,300 km off during a Re-Fly session (no RW lane
-asserts a rendered position; the value is kept, never zeroed, by design of the HR-9 check),
-which recording and section seed the value, and whether lanes outside RW-5 / RW-6 / RW-7 carry
-it at a lower count (the report flags a lane only against its own previous five passes).
+**What the player saw.** During a Re-Fly session only, in FLIGHT: the positioner adds the anchor
+epsilon as a world translation through `allowRenderAnchorCorrectionInterval` (PointInterp, spline
+and checkpoint paths, and the LateUpdate re-apply in `ParsekFlightPlaybackHost`). The correction
+covers the whole TrackSection that owns the anchor: a Start-only or End-only anchor is a constant
+offset over the section, an anchor on both ends is lerped between them
+(`RenderSessionState.LookupForSegmentInterval` -> `AnchorCorrectionInterval.EvaluateAt`). So a
+committed ghost playing such a section (an orbital coast, or the launch / re-entry leg next to
+one) was drawn tens to thousands of km from its true place while in view or watched. Map
+proto-vessel orbits never read the epsilon. The RW lanes assert no rendered position.
 
-**Next.** Read one run's `Pipeline-Anchor` lines in order to find the first anchor that
-carries the value and its source; reproduce headless with that recording through
-`RenderSessionState.RebuildFromMarker` and `AnchorPropagator.Run`. This sits in the code the
-plan's B6 item splits (`AnchorPropagator.Run`) and next to the five orbital-checkpoint anchor
-resolvers, so the reproduction is the first test of both. Secondary: the warning should fire
-once per anchor per session, not once per rebuild.
+**Fix (2026-11-12).** BubbleExit, BubbleEntry and OrbitalCheckpoint seeds no longer go through the
+world-frame resolver. `AnchorPropagator.TryResolveBoundaryInstantEpsilon` takes both sides of the
+boundary from recorded data at `t_b` and in one frame: the Kepler side is read in the STORED
+element frame (`TwoBodyOrbit.TryCreateFromSegmentStoredFrame`, no Zup) and turned into body-fixed
+lat / lon / alt by `TrajectoryMath.BoundaryFrame` (body-fixed lon = inertial lon -
+`rotationAngle(t_b)`, `rotationAngle = initialRotation + 360 t / T_rot`, from decompiled
+`CBUpdate`); the other side is the recorded physics sample (Bubble) or the spline at `t_b`
+(OrbitalCheckpoint; tag 1 lowered by `lon - 360 t_b / T_rot`). Both body-fixed points are then
+placed through the same surface lookup at the rebuild, so `|epsilon|` is independent of when the
+rebuild runs; the stored vector is a world-frame translation oriented by the body's rotation at the
+rebuild (the orientation playback uses to lower a body-fixed sample), and its later drift as the
+body turns is at most `2 |epsilon|`, i.e. metres. The DAG summary line gains
+`boundaryInstantMaxEpsilonM=`. Measured on the fixture: the LKO exit 1,307.87 km -> 0.02 m, worst
+seed 4.97 m, zero over the bubble radius, magnitudes equal across rebuild clocks to 1e-7 m. Tests:
+`AnchorEpsilonRebuildClockTests` (the flipped characterization), `AnchorBoundaryInstantEpsilonTests`,
+`AnchorWorldFrameResolverTests.BoundaryInstantSources_NeverConsultTheResolver`; the H11 / LT-1
+in-game cells `Pipeline_Anchor_OrbitalCheckpoint` / `BubbleExit` / `BubbleEntry` now run the real
+propagator against a live body and assert `0 < |eps| < 5 m`. RW-5 / RW-6 / RW-7 forbid the
+`exceeds bubble radius` line.
+
+**Left open.** (1) Live proof: an RW-5 / 6 / 7 flight with zero `exceeds bubble radius` lines and a
+`DAG walk summary` whose `boundaryInstantMaxEpsilonM=` reads metres, equal at both rebuilds.
+(2) Residuals of the same defect class, still on the resolver path: SoiTransition (cross-body, needs
+the other body's ephemeris; zero candidates on the fixture) and RelativeBoundary's orbital-anchor
+branch (`TryResolveOrbitalAnchorPose`, anchor on rails at the boundary). (3) A Bubble boundary whose
+physics neighbour is a Relative section is deferred (`relative-section-deferred`), as before.
+(4) The warning fires once per rebuild rather than once per anchor per session.
 
 ---
 

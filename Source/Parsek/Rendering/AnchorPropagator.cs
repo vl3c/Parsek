@@ -225,6 +225,7 @@ namespace Parsek.Rendering
             int resolvedRel = 0, resolvedOrb = 0, resolvedSoi = 0,
                 resolvedLoop = 0, resolvedBubble = 0,
                 deferredNoResolver = 0, deferredNoSpline = 0;
+            double maxBoundaryInstantEpsilonM = 0.0;
             IAnchorWorldFrameResolver activeResolver = ResolverOverrideForTesting ?? resolver;
             if (recordings != null)
             {
@@ -261,6 +262,7 @@ namespace Parsek.Rendering
                                 ref resolvedRel, ref resolvedOrb, ref resolvedSoi,
                                 ref resolvedLoop, ref resolvedBubble,
                                 ref deferredNoResolver, ref deferredNoSpline,
+                                ref maxBoundaryInstantEpsilonM,
                                 out epsilon);
 
                             var ac = new AnchorCorrection(
@@ -663,14 +665,16 @@ namespace Parsek.Rendering
                 "resolvedRel={5} resolvedOrb={6} resolvedSoi={7} resolvedLoop={8} " +
                 "resolvedBubble={9} " +
                 "deferredNoResolver={10} deferredNoSpline={11} " +
-                "suppressedSkipped={12} cycleSkipped={13} durationMs={14}",
+                "suppressedSkipped={12} cycleSkipped={13} durationMs={14} " +
+                "boundaryInstantMaxEpsilonM={15}",
                 sessionId, edgesVisited, edgesPropagated,
                 seedCandidatesEmitted, candidatesDeferred,
                 resolvedRel, resolvedOrb, resolvedSoi, resolvedLoop,
                 resolvedBubble,
                 deferredNoResolver, deferredNoSpline,
                 suppressedSkipped, cycleSkipped,
-                sw.Elapsed.TotalMilliseconds.ToString("F2", CultureInfo.InvariantCulture)));
+                sw.Elapsed.TotalMilliseconds.ToString("F2", CultureInfo.InvariantCulture),
+                maxBoundaryInstantEpsilonM.ToString("F3", CultureInfo.InvariantCulture)));
         }
 
         /// <summary>
@@ -691,10 +695,11 @@ namespace Parsek.Rendering
         /// Source dispatch ↔ resolver:
         /// <list type="bullet">
         ///   <item>RelativeBoundary  → <see cref="IAnchorWorldFrameResolver.TryResolveRelativeBoundaryWorldPos"/></item>
-        ///   <item>OrbitalCheckpoint → <see cref="IAnchorWorldFrameResolver.TryResolveOrbitalCheckpointWorldPos"/></item>
+        ///   <item>OrbitalCheckpoint, BubbleEntry, BubbleExit -> no resolver:
+        ///         <see cref="TryResolveBoundaryInstantEpsilon"/> compares both sides in the
+        ///         body-fixed frame of the boundary UT.</item>
         ///   <item>SoiTransition    → <see cref="IAnchorWorldFrameResolver.TryResolveSoiBoundaryWorldPos"/></item>
         ///   <item>Loop             → <see cref="IAnchorWorldFrameResolver.TryResolveLoopAnchorWorldPos"/></item>
-        ///   <item>BubbleEntry / BubbleExit → <see cref="IAnchorWorldFrameResolver.TryResolveBubbleEntryExitWorldPos"/></item>
         ///   <item>SurfaceContinuous
         ///         -> none (returns false, epsilon stays 0; terrain correction is recordedGroundClearance).</item>
         /// </list>
@@ -709,6 +714,7 @@ namespace Parsek.Rendering
             ref int resolvedRel, ref int resolvedOrb, ref int resolvedSoi,
             ref int resolvedLoop, ref int resolvedBubble,
             ref int deferredNoResolver, ref int deferredNoSpline,
+            ref double maxBoundaryInstantEpsilonM,
             out Vector3d epsilon)
         {
             epsilon = Vector3d.zero;
@@ -719,6 +725,37 @@ namespace Parsek.Rendering
             // resolver method.
             if (cand.Source == AnchorSource.SurfaceContinuous)
             {
+                return false;
+            }
+
+            if (cand.Source == AnchorSource.OrbitalCheckpoint
+                || cand.Source == AnchorSource.BubbleEntry
+                || cand.Source == AnchorSource.BubbleExit)
+            {
+                if (TryResolveBoundaryInstantEpsilon(
+                        rec, sectionIndex, cand, surfaceLookup,
+                        out epsilon, out double bodyFixedMagnitudeM, out string missReason))
+                {
+                    if (cand.Source == AnchorSource.OrbitalCheckpoint) resolvedOrb++;
+                    else resolvedBubble++;
+                    if (bodyFixedMagnitudeM > maxBoundaryInstantEpsilonM)
+                        maxBoundaryInstantEpsilonM = bodyFixedMagnitudeM;
+                    return true;
+                }
+                epsilon = Vector3d.zero;
+                if (missReason == BoundaryMissNoSpline)
+                {
+                    deferredNoSpline++;
+                    ParsekLog.Verbose("Pipeline-Anchor", string.Format(CultureInfo.InvariantCulture,
+                        "skip-no-spline recordingId={0} sectionIndex={1} side={2} source={3}",
+                        rec.RecordingId, sectionIndex, cand.Side, cand.Source));
+                }
+                else
+                {
+                    ParsekLog.Verbose("Pipeline-Anchor", string.Format(CultureInfo.InvariantCulture,
+                        "resolver-miss recordingId={0} sectionIndex={1} side={2} source={3} reason={4}",
+                        rec.RecordingId, sectionIndex, cand.Side, cand.Source, missReason));
+                }
                 return false;
             }
 
@@ -739,10 +776,6 @@ namespace Parsek.Rendering
                     ok = resolver.TryResolveRelativeBoundaryWorldPos(rec, sectionIndex, cand.Side, cand.UT, out worldRef);
                     if (ok) resolvedRel++;
                     break;
-                case AnchorSource.OrbitalCheckpoint:
-                    ok = resolver.TryResolveOrbitalCheckpointWorldPos(rec, sectionIndex, cand.Side, cand.UT, out worldRef);
-                    if (ok) resolvedOrb++;
-                    break;
                 case AnchorSource.SoiTransition:
                     ok = resolver.TryResolveSoiBoundaryWorldPos(rec, sectionIndex, cand.Side, cand.UT, out worldRef);
                     if (ok) resolvedSoi++;
@@ -750,18 +783,6 @@ namespace Parsek.Rendering
                 case AnchorSource.Loop:
                     ok = resolver.TryResolveLoopAnchorWorldPos(rec, sectionIndex, cand.Side, cand.UT, out worldRef);
                     if (ok) resolvedLoop++;
-                    break;
-                case AnchorSource.BubbleEntry:
-                case AnchorSource.BubbleExit:
-                    // §7.7 priority rank 6 means a real OrbitalCheckpoint
-                    // (rank 3) ε always wins on hypothetical collision; in
-                    // practice the candidate emits on the Checkpoint
-                    // segment's own index (Side=Start for BubbleExit,
-                    // Side=End for BubbleEntry) while §7.5 candidates emit
-                    // on the ABSOLUTE neighbour's index, so real collision
-                    // is impossible.
-                    ok = resolver.TryResolveBubbleEntryExitWorldPos(rec, sectionIndex, cand.Side, cand.UT, out worldRef);
-                    if (ok) resolvedBubble++;
                     break;
             }
             if (!ok)
@@ -795,16 +816,11 @@ namespace Parsek.Rendering
         /// <see cref="SectionAnnotationStore.TryGetSmoothingSpline"/> →
         /// <see cref="TrajectoryMath.CatmullRomFit.Evaluate"/> →
         /// <see cref="TrajectoryMath.FrameTransform.DispatchSplineWorldByFrameTag"/>.
-        /// For OrbitalCheckpoint sections (which never carry a smoothing
-        /// spline) the helper instead evaluates the analytical Kepler
-        /// position via <see cref="TrajectoryMath.FindOrbitSegment"/> +
-        /// <see cref="Orbit.getPositionAtUT"/>; without this dispatch the
-        /// §7.7 BubbleEntry/Exit candidates (which land on the Checkpoint
-        /// segment's index) would always fall through to "no spline" and
-        /// the propagator would never compute a real correction.
-        /// Returns null when the section has no spline / no checkpoint or
-        /// the body can't be resolved — caller logs the skip and falls
-        /// back to ε = 0 (reserves the priority slot).
+        /// Used by the resolver-backed sources (RelativeBoundary,
+        /// SoiTransition, Loop), whose candidates all sit on a section that
+        /// carries a spline. Returns null when the section has no spline or
+        /// the body can't be resolved; the caller logs the skip and falls
+        /// back to epsilon = 0 (reserves the priority slot).
         /// </summary>
         private static Vector3d? TryEvaluateSmoothedWorldPos(
             Recording rec, int sectionIndex, double ut,
@@ -815,23 +831,6 @@ namespace Parsek.Rendering
 
             if (rec == null || rec.TrackSections == null) return null;
             if (sectionIndex < 0 || sectionIndex >= rec.TrackSections.Count) return null;
-
-            TrackSection section = rec.TrackSections[sectionIndex];
-
-            // OrbitalCheckpoint sections have no spline by construction —
-            // resolve via the analytical Kepler propagation instead. This
-            // is the path §7.7 BubbleEntry/Exit candidates take (they land
-            // on the Checkpoint segment's own index, where the Kepler
-            // segment is the "smoothed" reference). The shared helper
-            // covers the partial-last-checkpoint endpoint-fallback case
-            // that previously left ε = 0 when the candidate UT equalled
-            // the section's endUT but the last sampled checkpoint's
-            // endUT was a hair below — see TrajectoryMath.EvaluateOrbitSegmentAtUT.
-            if (section.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
-            {
-                return TrajectoryMath.EvaluateOrbitSegmentAtUT(
-                    section.checkpoints, ut, ResolveBody);
-            }
 
             if (!SectionAnnotationStore.TryGetSmoothingSpline(rec.RecordingId, sectionIndex, out SmoothingSpline spline)
                 || !spline.IsValid)
@@ -874,6 +873,250 @@ namespace Parsek.Rendering
             if (double.IsNaN(worldPos.x) || double.IsNaN(worldPos.y) || double.IsNaN(worldPos.z))
                 return null;
             return worldPos;
+        }
+
+        /// <summary>Miss reason of <see cref="TryResolveBoundaryInstantEpsilon"/> that counts
+        /// as <c>deferredNoSpline</c> (the Absolute side has no smoothing spline).</summary>
+        internal const string BoundaryMissNoSpline = "no-spline";
+
+        /// <summary>
+        /// Seed epsilon of an OrbitalCheckpoint (section 7.5) or BubbleEntry / BubbleExit
+        /// (section 7.7) boundary, with both sides read at the boundary's own UT in the
+        /// body-fixed frame of that instant (<see cref="TrajectoryMath.BoundaryFrame"/>):
+        /// <list type="bullet">
+        ///   <item>OrbitalCheckpoint (candidate on the Absolute section): reference = the
+        ///   neighbouring checkpoint section's Kepler position, smoothed = this section's
+        ///   spline.</item>
+        ///   <item>BubbleExit / BubbleEntry (candidate on the checkpoint section): reference =
+        ///   the neighbouring physics section's last / first Absolute sample, smoothed = this
+        ///   section's Kepler position.</item>
+        /// </list>
+        /// The difference is fixed in the body's frame, so the result does not depend on when
+        /// the session is rebuilt. It is handed back as a world vector by placing both
+        /// body-fixed points with the same surface lookup (<paramref name="surfaceLookup"/>, else
+        /// <c>body.GetWorldSurfacePosition</c>), which orients it by the body's rotation at the
+        /// rebuild, the same orientation the playback path lowers a body-fixed sample with.
+        /// Resolving either side through live state instead (Kepler with the current
+        /// <c>Planetarium.Zup</c>, a surface point with the current body rotation) carried the
+        /// body's rotation since the boundary into the difference: todo
+        /// REFLY-ANCHOR-EPSILON-1300KM. <paramref name="bodyFixedMagnitudeM"/> is the
+        /// magnitude measured in the body-fixed frame.
+        /// </summary>
+        internal static bool TryResolveBoundaryInstantEpsilon(
+            Recording rec, int sectionIndex, AnchorCandidate cand,
+            Func<string, double, double, double, Vector3d> surfaceLookup,
+            out Vector3d epsilon, out double bodyFixedMagnitudeM, out string missReason)
+        {
+            epsilon = Vector3d.zero;
+            bodyFixedMagnitudeM = 0.0;
+            missReason = null;
+            if (rec == null || rec.TrackSections == null
+                || sectionIndex < 0 || sectionIndex >= rec.TrackSections.Count)
+            {
+                missReason = "section-out-of-range";
+                return false;
+            }
+
+            double ut = cand.UT;
+            bool isOrbitalCheckpoint = cand.Source == AnchorSource.OrbitalCheckpoint;
+            bool isBubble = cand.Source == AnchorSource.BubbleEntry || cand.Source == AnchorSource.BubbleExit;
+            if (!isOrbitalCheckpoint && !isBubble)
+            {
+                missReason = "source-not-boundary-instant";
+                return false;
+            }
+
+            int neighbourIdx = cand.Side == AnchorSide.Start ? sectionIndex - 1 : sectionIndex + 1;
+            if (neighbourIdx < 0 || neighbourIdx >= rec.TrackSections.Count)
+            {
+                missReason = "neighbour-out-of-range";
+                return false;
+            }
+
+            int checkpointIdx = isOrbitalCheckpoint ? neighbourIdx : sectionIndex;
+            TrackSection checkpointSection = rec.TrackSections[checkpointIdx];
+            if (checkpointSection.referenceFrame != ReferenceFrame.OrbitalCheckpoint)
+            {
+                missReason = "no-checkpoint-section";
+                return false;
+            }
+            if (!TrajectoryMath.BoundaryFrame.TryOrbitSegmentBodyFixedAtUT(
+                    checkpointSection.checkpoints, ut, ResolveBodyRotation,
+                    out string keplerBody, out double kLat, out double kLon, out double kAlt))
+            {
+                missReason = "kepler-unresolved";
+                return false;
+            }
+
+            string sampleBody;
+            double sLat, sLon, sAlt;
+            if (isOrbitalCheckpoint)
+            {
+                TrackSection absSection = rec.TrackSections[sectionIndex];
+                if (!SectionAnnotationStore.TryGetSmoothingSpline(rec.RecordingId, sectionIndex, out SmoothingSpline spline)
+                    || !spline.IsValid)
+                {
+                    missReason = BoundaryMissNoSpline;
+                    return false;
+                }
+                sampleBody = ResolveSectionBodyName(absSection);
+                TrajectoryMath.BoundaryFrame.BodyRotation? splineBody = ResolveBodyRotation(sampleBody);
+                if (!splineBody.HasValue)
+                {
+                    missReason = "body-unresolved";
+                    return false;
+                }
+                Vector3d p = TrajectoryMath.CatmullRomFit.Evaluate(spline, ut);
+                if (!TrajectoryMath.BoundaryFrame.TrySplineLongitudeToBodyFixed(
+                        spline.FrameTag, p.y, splineBody.Value.RotationPeriod, ut, out sLon))
+                {
+                    missReason = "spline-frame-tag-unknown";
+                    return false;
+                }
+                sLat = p.x;
+                sAlt = p.z;
+            }
+            else
+            {
+                TrackSection phys = rec.TrackSections[neighbourIdx];
+                if (phys.source != TrackSectionSource.Active && phys.source != TrackSectionSource.Background)
+                {
+                    missReason = "neighbour-not-physics";
+                    return false;
+                }
+                if (phys.referenceFrame == ReferenceFrame.Relative)
+                {
+                    // A RELATIVE physics section next to a checkpoint (docked to its anchor
+                    // while a checkpoint splices in) stores anchor-local metres, not
+                    // lat / lon / alt; documented residual.
+                    missReason = "relative-section-deferred";
+                    return false;
+                }
+                if (phys.referenceFrame != ReferenceFrame.Absolute)
+                {
+                    missReason = "neighbour-frame-unsupported";
+                    return false;
+                }
+                if (phys.frames == null || phys.frames.Count == 0)
+                {
+                    missReason = "frames-empty";
+                    return false;
+                }
+                TrajectoryPoint pt = cand.Side == AnchorSide.Start
+                    ? phys.frames[phys.frames.Count - 1]
+                    : phys.frames[0];
+                sampleBody = pt.bodyName;
+                sLat = pt.latitude;
+                sLon = pt.longitude;
+                sAlt = pt.altitude;
+            }
+
+            if (!string.Equals(sampleBody, keplerBody, StringComparison.Ordinal))
+            {
+                missReason = "body-mismatch";
+                return false;
+            }
+            TrajectoryMath.BoundaryFrame.BodyRotation? body = ResolveBodyRotation(keplerBody);
+            if (!body.HasValue)
+            {
+                missReason = "body-unresolved";
+                return false;
+            }
+
+            // Reference minus smoothed: OrbitalCheckpoint refers to the Kepler side,
+            // Bubble to the physics sample.
+            double refLat = isOrbitalCheckpoint ? kLat : sLat;
+            double refLon = isOrbitalCheckpoint ? kLon : sLon;
+            double refAlt = isOrbitalCheckpoint ? kAlt : sAlt;
+            double smLat = isOrbitalCheckpoint ? sLat : kLat;
+            double smLon = isOrbitalCheckpoint ? sLon : kLon;
+            double smAlt = isOrbitalCheckpoint ? sAlt : kAlt;
+
+            double radius = body.Value.Radius;
+            bodyFixedMagnitudeM = (TrajectoryMath.BoundaryFrame.BodyFixedCartesian(refLat, refLon, refAlt, radius)
+                - TrajectoryMath.BoundaryFrame.BodyFixedCartesian(smLat, smLon, smAlt, radius)).magnitude;
+
+            if (!TryPlaceBodyFixed(surfaceLookup, keplerBody, refLat, refLon, refAlt, out Vector3d refWorld)
+                || !TryPlaceBodyFixed(surfaceLookup, keplerBody, smLat, smLon, smAlt, out Vector3d smWorld))
+            {
+                missReason = "surface-lookup-failed";
+                return false;
+            }
+            epsilon = refWorld - smWorld;
+            if (!IsFiniteVector(epsilon))
+            {
+                epsilon = Vector3d.zero;
+                missReason = "epsilon-nonfinite";
+                return false;
+            }
+            return true;
+        }
+
+        private static bool TryPlaceBodyFixed(
+            Func<string, double, double, double, Vector3d> surfaceLookup,
+            string bodyName, double latDeg, double lonDeg, double altM, out Vector3d world)
+        {
+            world = Vector3d.zero;
+            try
+            {
+                if (surfaceLookup != null)
+                {
+                    world = surfaceLookup(bodyName, latDeg, lonDeg, altM);
+                }
+                else
+                {
+                    CelestialBody body = ResolveBody(bodyName);
+                    if (object.ReferenceEquals(body, null)) return false;
+                    world = GetWorldSurfacePositionCore(body, latDeg, lonDeg, altM);
+                }
+            }
+            catch
+            {
+                return false;
+            }
+            return IsFiniteVector(world);
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static Vector3d GetWorldSurfacePositionCore(CelestialBody body, double latDeg, double lonDeg, double altM)
+        {
+            return body.GetWorldSurfacePosition(latDeg, lonDeg, altM);
+        }
+
+        /// <summary>
+        /// The <see cref="TrajectoryMath.BoundaryFrame.BodyRotation"/> constants of a body,
+        /// read from its <see cref="CelestialBody"/> fields (the body resolves through
+        /// <see cref="BodyResolverForTesting"/> first). Null when the body is unknown or its
+        /// constants are unusable.
+        /// </summary>
+        private static TrajectoryMath.BoundaryFrame.BodyRotation? ResolveBodyRotation(string bodyName)
+        {
+            CelestialBody body = ResolveBody(bodyName);
+            if (object.ReferenceEquals(body, null)) return null;
+            TrajectoryMath.BoundaryFrame.BodyRotation rotation = ReadBodyRotationCore(body);
+            if (!TrajectoryMath.BoundaryFrame.IsUsable(rotation)) return null;
+            return rotation;
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static TrajectoryMath.BoundaryFrame.BodyRotation ReadBodyRotationCore(CelestialBody body)
+        {
+            return new TrajectoryMath.BoundaryFrame.BodyRotation
+            {
+                BodyName = body.bodyName,
+                Radius = body.Radius,
+                GravParameter = body.gravParameter,
+                RotationPeriod = body.rotationPeriod,
+                InitialRotationDeg = body.initialRotation,
+                Rotates = body.rotates,
+                FixedRotationAngleDeg = body.rotationAngle,
+            };
+        }
+
+        private static bool IsFiniteVector(Vector3d v)
+        {
+            return !(double.IsNaN(v.x) || double.IsNaN(v.y) || double.IsNaN(v.z)
+                || double.IsInfinity(v.x) || double.IsInfinity(v.y) || double.IsInfinity(v.z));
         }
 
         private static string ResolveSectionBodyName(in TrackSection s)

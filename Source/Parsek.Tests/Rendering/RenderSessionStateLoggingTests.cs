@@ -500,17 +500,11 @@ namespace Parsek.Tests.Rendering
             public bool TryResolveRelativeBoundaryWorldPos(
                 Recording rec, int sectionIndex, AnchorSide side, double boundaryUT, out Vector3d worldPos)
             { worldPos = default; return false; }
-            public bool TryResolveOrbitalCheckpointWorldPos(
-                Recording rec, int sectionIndex, AnchorSide side, double boundaryUT, out Vector3d worldPos)
-            { worldPos = default; return false; }
             public bool TryResolveSoiBoundaryWorldPos(
                 Recording rec, int sectionIndex, AnchorSide side, double boundaryUT, out Vector3d worldPos)
             { worldPos = default; return false; }
             public bool TryResolveLoopAnchorWorldPos(
                 Recording rec, int sectionIndex, AnchorSide side, double sampleUT, out Vector3d worldPos)
-            { worldPos = default; return false; }
-            public bool TryResolveBubbleEntryExitWorldPos(
-                Recording rec, int sectionIndex, AnchorSide side, double boundaryUT, out Vector3d worldPos)
             { worldPos = default; return false; }
         }
     }
