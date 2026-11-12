@@ -384,10 +384,11 @@ Config 66%, Controllers 64%; lowest Core 6%, Trajectory 25%, Missions 26%);
 test calls either (7,611 instructions), 709 a test calls (257 hooks by name);
 84 methods with 30+ decisions no unit test calls. The rules alone kept 1,263
 live methods (Harmony 310, `.cctor` 279, dispatch 272, strings 112, delegates
-88 ...). After B7 deleted the uncalled code (2026-11-12): 786 methods the roots
-do not reach (17,459 instructions): 77 that no unit test calls either (2,314
-instructions: 32 test hooks by name, 7 the `ParsekUI` hover check a source
-gate pins, 38 reached only through a method a test calls), 709 a test calls.
+88 ...). After B7 deleted the uncalled code (2026-11-12): 787 methods the roots
+do not reach (17,484 instructions): 78 that no unit test calls either (2,339
+instructions: 32 test hooks by name, 8 that source gates pin (the `ParsekUI`
+hover check and `LogisticsWindowUI.DetailLine(GUIContent)`), 38 reached only
+through a method a test calls), 709 a test calls.
 
 ### Coverage snapshot
 
@@ -488,7 +489,7 @@ methods at complexity 20 or more), which the complexity watch band absorbs.
   still does. A pinned method may grow past 50 without a red. Leaving the
   band needs no re-pin; a rename or a move into another type does.
 - `uncalledInAssembly`: the methods the roots do not reach in Parsek.dll,
-  test hooks by name left out, may not outnumber `bound` (497). It reads
+  test hooks by name left out, may not outnumber `bound` (498). It reads
   Parsek.dll alone, so a production method only a test calls counts too:
   that is code the game never runs (B7). Deleting dead code cannot raise it.
 
@@ -790,7 +791,7 @@ for instructions, and the leaks of the headless ones (`*`):
 | SwitchIntent | 62 | 26% | 3% | 23% | 6,456 | 39% | 1% |  |
 | Rendering | 198 | 20% | 12% | 8% | 16,417 | 47% | 29% |  |
 | Reaim * | 197 | 13% | 6% | 8% | 15,736 | 47% | 20% | 32 |
-| UI | 1,945 | 34% | 24% | 10% | 110,309 | 56% | 45% |  |
+| UI | 1,946 | 34% | 24% | 10% | 110,334 | 56% | 45% |  |
 | Ghost | 2,114 | 37% | 26% | 11% | 172,460 | 57% | 46% |  |
 | Display | 221 | 32% | 27% | 5% | 20,416 | 61% | 57% |  |
 | Controllers | 2,554 | 40% | 28% | 12% | 209,133 | 64% | 51% |  |

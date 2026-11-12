@@ -762,5 +762,17 @@ namespace Parsek
             DrawDetailSlotCell();
             GUILayout.EndHorizontal();
         }
+
+        // Detail line carrying a hover tooltip (GUIContent). Same indented full-width
+        // layout as the string overloads; used by the run-cost line so the net =
+        // launch - recovered explanation + D1 caveat surface on hover.
+        private void DetailLine(GUIContent content)
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(24f);
+            GUILayout.Label(content, detailStyle, GUILayout.ExpandWidth(true));
+            DrawDetailSlotCell();
+            GUILayout.EndHorizontal();
+        }
     }
 }

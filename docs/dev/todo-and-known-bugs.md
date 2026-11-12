@@ -2721,15 +2721,16 @@ compare).
   to CI), so a production method only a test calls counts against it.
 - 2026-11-12 (B7, delete code nothing calls): of the 164 production methods (5,351 IL
   instructions) that neither a root nor any unit test reached, directly or through production
-  calls, 157 are deleted, with the never-invoked `IGhostPositioner.ClearOrbitCache` and
+  calls, 156 are deleted, with the never-invoked `IGhostPositioner.ClearOrbitCache` and
   `IFlightGlobalsProvider.FindVesselByPid` slots, their fakes, `IGhostRenderTreatment` and two
-  dead stores: 165 Parsek.dll methods and 5,344 instructions, about 2,300 source lines. Kept with
-  a reason: `ParsekUI.IsMouseOverOpenAuxiliaryWindows` and the three `IsMouseOverOpenWindow`
-  slots and bodies (7 methods; `ParsekUIWindowSetCharacterizationTests` pins the body's text;
-  its last caller was the Tracking Station panel). No root-rule gap: every candidate vetted
-  against reflection, strings, Harmony, in-game tests and source gates was really uncalled. The
-  490 methods only tests call (14,357 instructions) are untouched. `uncalledInAssembly` 654 ->
-  497; headless leaks 279 -> 278.
+  dead stores: 164 Parsek.dll methods and 5,319 instructions, about 2,300 source lines. Kept
+  because a source gate pins their text (8 methods): `ParsekUI.IsMouseOverOpenAuxiliaryWindows`
+  with the three `IsMouseOverOpenWindow` slots and bodies (`ParsekUIWindowSetCharacterizationTests`;
+  the last caller was the Tracking Station panel) and `LogisticsWindowUI.DetailLine(GUIContent)`
+  (`TableRowInsetAlignmentTests`; the last caller was the run-cost line). No root-rule gap: no
+  candidate was reachable through reflection, strings, Harmony, in-game tests or the command seam.
+  The 490 methods only tests call (14,357 instructions) are untouched. `uncalledInAssembly` 654 ->
+  498; headless leaks 279 -> 278.
 - 2026-11-11 (metrics history): `scripts/arch/metrics.py` builds one JSON row per commit
   (schema `parsek-metrics/1`) from the existing tools' output: the text scan, the semantic
   headline, the code facts (with test reach when given the test DLL) and `count-code.py`'s

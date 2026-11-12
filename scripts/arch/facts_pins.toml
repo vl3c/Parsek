@@ -72,7 +72,7 @@ keys = [
 ]
 
 [uncalledInAssembly]
-bound = 497
+bound = 498
 keys = [
     "Parsek.AnchorDetector::FindNearestAnchor(uint32,Vector3d,System.Collections.Generic.List`1<System.ValueTuple`2<uint32,Vector3d>>,System.Collections.Generic.HashSet`1<uint32>)",
     "Parsek.AnchorDetector::IsInDockingApproach(float64)",
@@ -275,6 +275,7 @@ keys = [
     "Parsek.Logistics.RouteStore::IsCandidatePrompted(string)",
     "Parsek.LogisticsCountdownPresentation::ResolveDetailCountdown(Parsek.Logistics.RouteStatus,System.Nullable`1<float64>,bool,float64,float64)",
     "Parsek.LogisticsRejectPresentation::DescribeNearMiss(Parsek.Logistics.RouteAnalysisStatus,bool,int32)",
+    "Parsek.LogisticsWindowUI::DetailLine(UnityEngine.GUIContent)",
     "Parsek.MapRender.AbsoluteSample::get_Frame()",
     "Parsek.MapRender.AbsoluteSample::get_Kind()",
     "Parsek.MapRender.AnchorFrameResolver::TryResolveBody(string,System.Func`2<string,bool>)",

@@ -43,7 +43,7 @@ modules = [
     { name = "SwitchIntent", headless = false, methods = 62, reachMethods = 16, directMethods = 2, instructions = 6456, reachInstructions = 2518, directInstructions = 81 },
     { name = "Rendering", headless = false, methods = 198, reachMethods = 40, directMethods = 24, instructions = 16417, reachInstructions = 7676, directInstructions = 4829 },
     { name = "Reaim", headless = true, methods = 197, reachMethods = 26, directMethods = 11, instructions = 15736, reachInstructions = 7403, directInstructions = 3208, leaks = 32 },
-    { name = "UI", headless = false, methods = 1945, reachMethods = 669, directMethods = 466, instructions = 110309, reachInstructions = 62258, directInstructions = 49372 },
+    { name = "UI", headless = false, methods = 1946, reachMethods = 670, directMethods = 467, instructions = 110334, reachInstructions = 62283, directInstructions = 49397 },
     { name = "Ghost", headless = false, methods = 2114, reachMethods = 778, directMethods = 551, instructions = 172460, reachInstructions = 98617, directInstructions = 80046 },
     { name = "Display", headless = false, methods = 221, reachMethods = 70, directMethods = 59, instructions = 20416, reachInstructions = 12506, directInstructions = 11721 },
     { name = "Controllers", headless = false, methods = 2554, reachMethods = 1019, directMethods = 710, instructions = 209133, reachInstructions = 134319, directInstructions = 106114 },
