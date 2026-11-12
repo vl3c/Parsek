@@ -89,16 +89,16 @@
    "levels": {
     "INFO": 11,
     "VERBOSE": 21,
-    "WARN": 15
+    "WARN": 14
    },
    "modules": {
-    "Controllers": 11,
+    "Controllers": 10,
     "Ghost": 2,
     "Recording": 32,
     "Rendering": 1,
     "Rewind": 1
    },
-   "sites": 47
+   "sites": 46
   },
   "AutoHireReservation": {
    "levels": {
@@ -138,15 +138,15 @@
   "BgRecorder": {
    "helperSites": 5,
    "levels": {
-    "INFO": 61,
+    "INFO": 60,
     "VERBOSE": 112,
     "WARN": 19,
     "mixed": 3
    },
    "modules": {
-    "Recording": 195
+    "Recording": 194
    },
-   "sites": 195
+   "sites": 194
   },
   "Boundary": {
    "levels": {
@@ -562,12 +562,12 @@
    "levels": {
     "INFO": 6,
     "VERBOSE": 12,
-    "WARN": 6
+    "WARN": 5
    },
    "modules": {
-    "Crew": 24
+    "Crew": 23
    },
-   "sites": 24
+   "sites": 23
   },
   "CrewReservations": {
    "levels": {
@@ -865,16 +865,16 @@
    "helperSites": 1,
    "levels": {
     "ERROR": 3,
-    "INFO": 210,
-    "VERBOSE": 191,
+    "INFO": 208,
+    "VERBOSE": 190,
     "WARN": 119
    },
    "modules": {
-    "Controllers": 498,
+    "Controllers": 495,
     "Ghost": 9,
     "Logistics": 16
    },
-   "sites": 523
+   "sites": 520
   },
   "ForwardRenderWindow": {
    "levels": {
@@ -1585,16 +1585,16 @@
   },
   "MapRender": {
    "levels": {
-    "VERBOSE": 14,
+    "VERBOSE": 12,
     "WARN": 4
    },
    "modules": {
     "Controllers": 2,
     "Ghost": 1,
-    "MapRender": 14,
+    "MapRender": 12,
     "Patches": 1
    },
-   "sites": 18
+   "sites": 16
   },
   "MapRenderCanary": {
    "levels": {
@@ -1664,15 +1664,15 @@
   "MilestoneStore": {
    "helperSites": 2,
    "levels": {
-    "INFO": 10,
-    "VERBOSE": 19,
+    "INFO": 9,
+    "VERBOSE": 18,
     "WARN": 8,
     "mixed": 2
    },
    "modules": {
-    "Core": 39
+    "Core": 37
    },
-   "sites": 39
+   "sites": 37
   },
   "Milestones": {
    "levels": {
@@ -1930,14 +1930,14 @@
   },
   "Playback": {
    "levels": {
-    "INFO": 3,
+    "INFO": 2,
     "VERBOSE": 15,
     "WARN": 4
    },
    "modules": {
-    "Controllers": 22
+    "Controllers": 21
    },
-   "sites": 22
+   "sites": 21
   },
   "PlaybackScope": {
    "levels": {
@@ -2194,7 +2194,7 @@
    "levels": {
     "ERROR": 3,
     "INFO": 59,
-    "VERBOSE": 168,
+    "VERBOSE": 166,
     "WARN": 27,
     "mixed": 4
    },
@@ -2202,9 +2202,9 @@
     "Controllers": 2,
     "Logistics": 17,
     "Patches": 3,
-    "Recording": 239
+    "Recording": 237
    },
-   "sites": 261
+   "sites": 259
   },
   "Recording": {
    "levels": {
@@ -2298,15 +2298,14 @@
   "ReentryFx": {
    "levels": {
     "INFO": 1,
-    "VERBOSE": 10,
+    "VERBOSE": 9,
     "WARN": 1
    },
    "modules": {
-    "Controllers": 1,
     "Ghost": 10,
     "InGameTests": 1
    },
-   "sites": 12
+   "sites": 11
   },
   "RelativeAnchorResolver": {
    "levels": {
@@ -3212,7 +3211,7 @@
  "totals": {
   "forwarders": 46,
   "nonLiteralSites": 13,
-  "sites": 9294,
+  "sites": 9280,
   "tags": 284
  }
 }

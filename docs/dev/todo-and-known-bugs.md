@@ -2719,6 +2719,17 @@ compare).
   test calls either, 709 a test calls, 257 hooks by name), 84 methods with 30+ decisions no unit
   test calls. The uncalled ratchet reads Parsek.dll alone (the test DLL would add about a minute
   to CI), so a production method only a test calls counts against it.
+- 2026-11-12 (B7, delete code nothing calls): of the 164 production methods (5,351 IL
+  instructions) that neither a root nor any unit test reached, directly or through production
+  calls, 157 are deleted, with the never-invoked `IGhostPositioner.ClearOrbitCache` and
+  `IFlightGlobalsProvider.FindVesselByPid` slots, their fakes, `IGhostRenderTreatment` and two
+  dead stores: 165 Parsek.dll methods and 5,344 instructions, about 2,300 source lines. Kept with
+  a reason: `ParsekUI.IsMouseOverOpenAuxiliaryWindows` and the three `IsMouseOverOpenWindow`
+  slots and bodies (7 methods; `ParsekUIWindowSetCharacterizationTests` pins the body's text;
+  its last caller was the Tracking Station panel). No root-rule gap: every candidate vetted
+  against reflection, strings, Harmony, in-game tests and source gates was really uncalled. The
+  490 methods only tests call (14,357 instructions) are untouched. `uncalledInAssembly` 654 ->
+  497; headless leaks 279 -> 278.
 - 2026-11-11 (metrics history): `scripts/arch/metrics.py` builds one JSON row per commit
   (schema `parsek-metrics/1`) from the existing tools' output: the text scan, the semantic
   headline, the code facts (with test reach when given the test DLL) and `count-code.py`'s
