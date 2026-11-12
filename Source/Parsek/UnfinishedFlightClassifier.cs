@@ -290,17 +290,6 @@ namespace Parsek
             return back.Count > 0 ? back[back.Count - 1] : rec;
         }
 
-        internal static bool TerminalOutcomeQualifies(
-            Recording chainTip,
-            ChildSlot slot,
-            RewindPoint rp)
-        {
-            string reason;
-            return TerminalOutcomeQualifiesInternal(
-                null, chainTip?.RecordingId ?? "<no-id>", chainTip, slot, rp, out reason, null,
-                focusSlotOverride: null);
-        }
-
         private static bool TerminalOutcomeQualifiesInternal(
             Recording rec,
             string recId,

@@ -59,7 +59,7 @@ namespace Parsek
         // ---- Recalc lifecycle (owned sequence + Tier-B steady-state guard) ----
 
         // Monotonic recalc-burst sequence. Every line emitted during one recalc
-        // shares this value (carried in BuildPrefix), so a grep slices the log to a
+        // shares this value (carried as recalcSeq=N), so a grep slices the log to a
         // single reconstruction. Owned here (LedgerTrace mints it; nothing else
         // touches it), unlike the render tracer which keys on the Unity frame.
         private static long recalcSeq;
@@ -364,19 +364,6 @@ namespace Parsek
         internal static string Bool(bool value)
         {
             return value ? "true" : "false";
-        }
-
-        /// <summary>
-        /// PURE prefix builder for ad-hoc lines that want the owned
-        /// <see cref="recalcSeq"/> in front (so every line of one burst is
-        /// grep-sliceable by a single sequence). The tier emitters build their own
-        /// full lines via the Format* helpers; this is exposed for testing the
-        /// sequence-stamping contract.
-        /// </summary>
-        internal static string BuildPrefix(string phase, long recalcSeq)
-        {
-            return "phase=" + Token(phase)
-                + " recalcSeq=" + recalcSeq.ToString(CultureInfo.InvariantCulture);
         }
     }
 }

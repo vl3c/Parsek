@@ -41,7 +41,7 @@ id = "RF-12L-rewind-batch-after-landing"
 #   re-fly cannot reach any route that would stamp a Landed-kind terminal on ITS OWN
 #   provisional. `CommitTreeFlight` answers `no-active-tree` on a re-fly's pending tree
 #   (RF-12 measured it), `ShowPostDestructionTreeMergeDialog` fires only on a destruction
-#   and stamps `Destroyed`, and `CommitTreeRevert` and scene exit both END the session the
+#   and stamps `Destroyed`, and a revert and scene exit both END the session the
 #   cell needs live. `TryCommitReFlySupersede` has exactly one production caller,
 #   `MergeDialog.MergeCommit`.
 #

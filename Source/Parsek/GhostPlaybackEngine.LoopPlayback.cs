@@ -1592,12 +1592,6 @@ namespace Parsek
             return true;
         }
 
-        /// <summary>Whether any time warp is active (using FrameContext values, no KSP globals).</summary>
-        internal static bool IsAnyWarpActive(FrameContext ctx)
-        {
-            return GhostPlaybackLogic.IsAnyWarpActive(ctx.warpRateIndex, ctx.warpRate);
-        }
-
         private bool IsWatchedGhostState(int recordingIndex, GhostPlaybackState state, FrameContext ctx)
         {
             if (state == null)

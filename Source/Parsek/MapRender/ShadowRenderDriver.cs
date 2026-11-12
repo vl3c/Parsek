@@ -434,8 +434,8 @@ namespace Parsek.MapRender
                     // BodyAnchor (FrameBodyName); resolve it through the PURE AnchorFrameResolver decision
                     // against the scene's live body-existence probe and, when it fails closed (missing /
                     // unknown body), emit the once-per-event anchor-resolve-fail anomaly. This is the
-                    // fail-closed (hide) outcome the downstream draw already takes (StockConicTreatment.Apply
-                    // returns on a null body) - here we make it OBSERVABLE rather than a silent drop. Pure
+                    // fail-closed (hide) outcome the downstream draw already takes (the stock-conic draw is
+                    // skipped on a null body) - here we make it OBSERVABLE rather than a silent drop. Pure
                     // decision + tracing-gated emit (free in normal play); the render result is unchanged.
                     if (MapRenderTrace.IsEnabled && intent.Visible
                         && !string.IsNullOrEmpty(intent.FrameBodyName))

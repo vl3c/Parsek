@@ -402,8 +402,6 @@ namespace Parsek
             return result;
         }
 
-        internal static void ClearConverterLoopSampleCache() => converterLoopSampleCache.Clear();
-
         /// <summary>
         /// S7: samples a LOOPING animation clip at <see cref="ConverterLoopPhaseCount"/> evenly
         /// spaced normalized times, keeping every transform the clip actually moves.

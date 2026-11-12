@@ -215,9 +215,6 @@ namespace Parsek
             this.naturalWidth = naturalWidth;
         }
 
-        /// <summary>The width the window's content is laid out for.</summary>
-        internal float NaturalWidth => naturalWidth;
-
         /// <summary>Whether this frame draws the horizontal-scroll wrapper.</summary>
         internal bool Active => active;
 

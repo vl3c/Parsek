@@ -24,7 +24,6 @@ namespace Parsek
 
         /// <summary>
         /// Converts a GhostBuildResult into the per-PID dictionaries on GhostPlaybackState.
-        /// Shared between SpawnTimelineGhost and StartPlayback to eliminate code duplication.
         /// </summary>
         internal static void PopulateGhostInfoDictionaries(
             GhostPlaybackState state, GhostBuildResult result,

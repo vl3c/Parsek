@@ -630,12 +630,6 @@ namespace Parsek
         }
 
         /// <summary>Pids removed by Decoupled (subtree) / Destroyed (part) events at or before <paramref name="ut"/>.</summary>
-        internal static HashSet<uint> ComputeRemovedPids(
-            GhostCommNetVesselSpec spec, IList<PartEvent> sortedEvents, double ut)
-        {
-            return ComputeRemovedPids(spec, sortedEvents, ut, BuildChildIndex(spec.Parts));
-        }
-
         private static HashSet<uint> ComputeRemovedPids(
             GhostCommNetVesselSpec spec, IList<PartEvent> sortedEvents, double ut, List<int>[] children)
         {

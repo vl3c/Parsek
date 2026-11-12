@@ -71,16 +71,6 @@ namespace Parsek
             return true;
         }
 
-        internal static bool TryGetFxModelFallbackRotation(string modelName, out Quaternion result)
-        {
-            result = Quaternion.identity;
-            if (!TryGetFxModelFallbackEuler(modelName, out Vector3 fallbackEuler))
-                return false;
-
-            result = Quaternion.Euler(fallbackEuler);
-            return true;
-        }
-
         internal static void FilterEffectGroups(
             ConfigNode[] allGroups,
             string[] allGroupNames,

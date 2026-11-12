@@ -90,41 +90,14 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Returns true if <paramref name="phase"/> represents a checkpoint
-        /// after the Begin durable save — every phase except
-        /// <see cref="Phases.Begin"/>. Under the W2/W5 reclassification all
-        /// post-Begin phases (Split, Supersede, Tombstone, Finalize,
-        /// Durable1Done, RpReap, MarkerCleared, Durable2Done, Complete) drive
-        /// forward via idempotent re-run instead of rolling back; the Split
-        /// phase carries its own DurableSave barrier so a crash anywhere from
-        /// Split onward leaves the split-and-after mutations recoverable on
-        /// disk.
-        /// </summary>
-        public static bool IsPostDurablePhase(string phase)
-        {
-            return phase == Phases.TreeMerge
-                || phase == Phases.Split
-                || phase == Phases.Supersede
-                || phase == Phases.Tombstone
-                || phase == Phases.Finalize
-                || phase == Phases.Durable1Done
-                || phase == Phases.RpReap
-                || phase == Phases.MarkerCleared
-                || phase == Phases.Durable2Done
-                || phase == Phases.Complete;
-        }
-
-        /// <summary>
         /// Returns true if <paramref name="phase"/> is one of the recognized
         /// post-Begin phase strings. Used by
         /// <c>MergeJournalOrchestrator.RunFinisher</c>'s dispatcher to
         /// distinguish a known phase (resume from it) from an unknown one
-        /// (re-run the whole idempotent tail from TreeMerge). Effectively a documentation alias for
-        /// <see cref="IsPostDurablePhase"/> in the new classification (because
-        /// post-Begin-durable == post-durable), but the distinct name conveys
-        /// dispatch-site intent better: dispatch asks "is this a phase we
-        /// know how to drive forward?", which is a separate question from
-        /// "is this post-durable?".
+        /// (re-run the whole idempotent tail from TreeMerge). Every phase except
+        /// <see cref="Phases.Begin"/> is a checkpoint after the Begin durable save
+        /// and drives forward via idempotent re-run instead of rolling back; the
+        /// Split phase carries its own DurableSave barrier.
         /// </summary>
         public static bool IsKnownPostBeginPhase(string phase)
         {

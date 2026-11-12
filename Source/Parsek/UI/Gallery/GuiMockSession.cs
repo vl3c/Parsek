@@ -108,9 +108,6 @@ namespace Parsek.UI.Gallery
         /// <summary>The frame the mock was installed in.</summary>
         internal static int AppliedFrame { get { return appliedFrame; } }
 
-        /// <summary>The install timestamp, InvariantCulture, for the log and the dump.</summary>
-        internal static string AppliedUtc { get { return appliedUtc; } }
-
         /// <summary>
         /// THE suppression predicate. False in every player build, because only the armed
         /// seam can create a session.

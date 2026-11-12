@@ -34,8 +34,8 @@ namespace Parsek
         ///   <item>Requested set with a per-resource shortfall: "delivered 40 of 150
         ///   LiquidFuel (110 did not fit)".</item>
         /// </list>
-        /// The full stock resource key is rendered (no abbreviation), matching the
-        /// window's existing FormatManifest. F1 + InvariantCulture throughout.
+        /// The full stock resource key is rendered (no abbreviation), matching
+        /// <see cref="FormatWouldDeliver"/>. F1 + InvariantCulture throughout.
         /// </summary>
         internal static string FormatRealizedDelivery(
             IReadOnlyDictionary<string, double> requested,

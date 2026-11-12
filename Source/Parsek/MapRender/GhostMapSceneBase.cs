@@ -86,15 +86,6 @@ namespace Parsek.MapRender
             return FlightGlobals.GetBodyByName(bodyName);
         }
 
-        public bool TryGetGhostOrbit(uint pid, out Orbit orbit)
-        {
-            orbit = null;
-            if (!FlightGlobals.FindVessel(pid, out Vessel v) || v == null || v.orbitDriver == null)
-                return false;
-            orbit = v.orbitDriver.orbit;
-            return orbit != null;
-        }
-
         public CelestialBody ResolveBody(string bodyName) => ResolveBodyByNameSafe(bodyName);
 
         // Presence-drive differs per scene: FLIGHT runs the pending-queue model

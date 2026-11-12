@@ -76,7 +76,6 @@ namespace Parsek
         // Sparse table of range minima over prefix.
         private readonly double[][] minTable;
 
-        internal int RowCount => count;
         internal int CostRowCount { get; private set; }
 
         private ReservedFloorPlan(StockPool pool, IList<ReservedFloorRow> rows)

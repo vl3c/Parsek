@@ -188,29 +188,6 @@ namespace Parsek
             return false;
         }
 
-        internal static string GetHash(Recording rec, SidecarKind kind)
-        {
-            if (rec == null) return null;
-            switch (kind)
-            {
-                case SidecarKind.Prec: return rec.PrecHash;
-                case SidecarKind.Vessel: return rec.VesselSnapshotHash;
-                case SidecarKind.Ghost: return rec.GhostSnapshotHash;
-                default: return null;
-            }
-        }
-
-        internal static void SetHash(Recording rec, SidecarKind kind, string hash)
-        {
-            if (rec == null) return;
-            switch (kind)
-            {
-                case SidecarKind.Prec: rec.PrecHash = hash; break;
-                case SidecarKind.Vessel: rec.VesselSnapshotHash = hash; break;
-                case SidecarKind.Ghost: rec.GhostSnapshotHash = hash; break;
-            }
-        }
-
         /// <summary>
         /// Copies the three content hashes. Every site that copies <c>SidecarEpoch</c>
         /// between recordings copies these with it.

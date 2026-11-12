@@ -144,23 +144,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Returns true if any recording in the list overlaps the filter range.
-        /// Overload for direct Recording enumeration (used by group descendant checks).
-        /// </summary>
-        internal static bool DoesAnyRecordingOverlapRange(IEnumerable<Recording> recordings,
-            double? filterMinUT, double? filterMaxUT)
-        {
-            if (!filterMinUT.HasValue && !filterMaxUT.HasValue) return true;
-
-            foreach (var rec in recordings)
-            {
-                if (DoesRecordingOverlapRange(rec.StartUT, rec.EndUT, filterMinUT, filterMaxUT))
-                    return true;
-            }
-            return false;
-        }
-
-        /// <summary>
         /// Computes the slider bounds from the committed recording set.
         /// Returns (minBound, maxBound). If no recordings exist, returns (0, 0).
         /// </summary>

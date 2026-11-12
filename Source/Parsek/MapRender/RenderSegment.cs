@@ -132,8 +132,6 @@ namespace Parsek.MapRender
             TrailingSeam = trailingSeam;
         }
 
-        internal double DurationSeconds => EndUT - StartUT;
-
         public override string ToString()
             => string.Format(
                 CultureInfo.InvariantCulture,

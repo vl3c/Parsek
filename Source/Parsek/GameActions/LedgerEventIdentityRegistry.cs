@@ -349,13 +349,6 @@ namespace Parsek
             return new LedgerEventIdentityEntry(type, variant, key, rule, true, enforcedBy, null, null);
         }
 
-        private static LedgerEventIdentityEntry Planned(
-            GameActionType type, string variant, string key, LedgerIdentityRule rule,
-            string plannedStep, string today)
-        {
-            return new LedgerEventIdentityEntry(type, variant, key, rule, false, null, plannedStep, today);
-        }
-
         private static LedgerEventIdentityEntry NoEffect(GameActionType type, string key)
         {
             return Enforced(type, null, key, LedgerIdentityRule.NoEconomicEffect, "no module moves a pool for it");

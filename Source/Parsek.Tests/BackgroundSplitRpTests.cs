@@ -70,7 +70,6 @@ namespace Parsek.Tests
                 this.snapshots = snapshots ?? new Dictionary<uint, VesselSnapshot>();
                 this.activeVesselPid = activeVesselPid;
             }
-            public Vessel FindVesselByPid(uint pid) => null;
             public bool TryGetVesselSnapshot(uint pid, out VesselSnapshot snapshot)
                 => snapshots.TryGetValue(pid, out snapshot);
             public uint? GetActiveVesselPid() => activeVesselPid;

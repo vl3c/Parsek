@@ -196,17 +196,6 @@ namespace Parsek.Patches
                 : double.PositiveInfinity;
         }
 
-        /// <summary>The display name of the flight on timeline that holds
-        /// <paramref name="kerbalName"/>, or null (not held, or the flight has no name).</summary>
-        internal static string HoldingFlightName(KerbalsModule kerbals, string kerbalName)
-        {
-            if (kerbals == null || string.IsNullOrEmpty(kerbalName)) return null;
-            if (kerbals.GetReservationKind(kerbalName) != KerbalReservationKind.ReservedActive) return null;
-            double release = ReleaseUT(kerbals, kerbalName);
-            bool openEnded = double.IsPositiveInfinity(release) || double.IsNaN(release);
-            return CommittedFutureIndexCache.Current?.ResolveHoldAssignment(kerbalName, openEnded)?.RecordingName;
-        }
-
         /// <summary>
         /// The reservation explanation (<see cref="ReservationExplanation.KerbalOnFlight"/>
         /// or <see cref="ReservationExplanation.KerbalLost"/>) for a kerbal a committed

@@ -109,9 +109,8 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Recording carrying a single ExoBallistic OrbitalCheckpoint TrackSection (what
-        /// `StartCheckpointTrackSection` emits when a loaded BG vessel transitions back
-        /// to on-rails) plus many OrbitSegments. There is only one section, so even with
+        /// Recording carrying a single ExoBallistic OrbitalCheckpoint TrackSection (an
+        /// orbit-only bridge for an on-rails background vessel) plus many OrbitSegments. There is only one section, so even with
         /// thousands of orbits the optimizer has no boundary to split on.
         /// </summary>
         [Fact]

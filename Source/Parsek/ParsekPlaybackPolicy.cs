@@ -1668,15 +1668,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Look up atmosphere depth for a body by name. Returns 0 for airless bodies or if
-        /// FlightGlobals is unavailable (test environment).
-        /// </summary>
-        internal static double GetAtmosphereDepth(string bodyName)
-        {
-            return GhostMapPresence.GetAtmosphereDepth(bodyName);
-        }
-
-        /// <summary>
         /// Pure: is the recording in a RELATIVE reference frame at the given UT?
         /// RELATIVE frames store dx/dy/dz offsets, not lat/lon/alt — state-vector
         /// orbit construction would produce nonsense.

@@ -580,17 +580,6 @@ namespace Parsek
             return added;
         }
 
-        /// <summary><see cref="CollectKscRetirementClosures(IReadOnlyList{GameAction}, IReadOnlyDictionary{string, double}, Dictionary{string, List{RecoveryClosure}}, IReadOnlyDictionary{string, string}, out int)"/> without tree scoping or the counter.</summary>
-        internal static int CollectKscRetirementClosures(
-            IReadOnlyList<GameAction> actions,
-            IReadOnlyDictionary<string, double> retiredEndUTByRecordingId,
-            Dictionary<string, List<RecoveryClosure>> into)
-        {
-            int ignoredWins;
-            return CollectKscRetirementClosures(actions, retiredEndUTByRecordingId, into, null,
-                out ignoredWins);
-        }
-
         /// <summary>
         /// True when <paramref name="recorded"/> (kerbal -> recorded
         /// <see cref="GameActionType.KerbalRecovered"/> closures) holds a recovery of

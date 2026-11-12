@@ -1232,18 +1232,6 @@ namespace Parsek
             return true;
         }
 
-        /// <summary>Get the camera pivot transform for a ghost (for watch mode targeting).</summary>
-        internal bool TryGetGhostPivot(int index, out Transform pivot)
-        {
-            pivot = null;
-            if (ghostStates.TryGetValue(index, out var state) && state?.cameraPivot != null)
-            {
-                pivot = state.cameraPivot;
-                return true;
-            }
-            return false;
-        }
-
         /// <summary>Whether the ghost is within visual rendering range (not in Beyond zone).</summary>
         internal bool IsGhostWithinVisualRange(int index)
         {

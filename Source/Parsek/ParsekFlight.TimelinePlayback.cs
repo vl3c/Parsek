@@ -663,16 +663,5 @@ namespace Parsek
         // removed. The ledger (GameActions/RecalculationEngine) is the single source
         // of truth for funds/science/reputation; per-recording lump-sum replay and
         // tree-level snapshot reconciliation are no longer used.
-
-        internal RecordingTree FindCommittedTree(string treeId)
-        {
-            var trees = RecordingStore.CommittedTrees;
-            for (int i = 0; i < trees.Count; i++)
-            {
-                if (trees[i].Id == treeId) return trees[i];
-            }
-            Log($"FindCommittedTree: treeId='{treeId}' not found (checked {trees.Count} committed trees)");
-            return null;
-        }
     }
 }

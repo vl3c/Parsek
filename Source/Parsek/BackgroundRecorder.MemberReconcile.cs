@@ -344,19 +344,6 @@ namespace Parsek
                 || PackedWithoutOnRailsState > 0
                 || PackedButLoadedState > 0
                 || LoadedButOnRailsState > 0;
-
-            internal string BuildStateKey()
-            {
-                return string.Format(CultureInfo.InvariantCulture,
-                    "map={0}|missingRec={1}|missingState={2}|loadedNoState={3}|packedNoRails={4}|packedLoadedState={5}|loadedRailsState={6}",
-                    BackgroundMapCount,
-                    MissingRecording,
-                    MissingTrackingState,
-                    LoadedWithoutLoadedState,
-                    PackedWithoutOnRailsState,
-                    PackedButLoadedState,
-                    LoadedButOnRailsState);
-            }
         }
 
         internal static string FormatBackgroundStateDriftSummary(
