@@ -2985,6 +2985,16 @@ compare).
   own `flights/` folder apart from CI's `metrics.jsonl`; subjects start `flights: `; a root
   layout this tool wrote is moved into the folder on the next publish). Not yet published from
   the PC.
+- 2026-11-12 (run index, snapshot rows): `run_index.py import-snapshots --from <umbrella>/logs
+  [--dry-run]` copies each harness collect-logs folder of a past non-PASS run (812 on the PC,
+  2026-07-19 to 2026-10-09, result JSONs gone) into the archive as `KSP.log.gz` + `snapshot.json`
+  (lane, boot `runUtc`, commit prefix, dirty, profile, DLL, folder name), additive and idempotent,
+  skipping with a counted reason (dev snapshot, not armed, no or several `SessionStart`, duplicate,
+  already archived at the boot minute or the one before, non-token label). `rebuild` / `append`
+  index it as an `origin` `snapshot`, verdict `NOT-PASS` row, shown in lane history and `trend`,
+  counted apart and never in a rate, count, link or regression. Not yet run on the PC: the
+  KSPCommunityFixes DLL line shape, the boot-minute match and "harness collected non-PASS only"
+  are checked by the dry run (its matched-verdict line). harness/README.md -> "Snapshot rows".
 
 **Fix.**
 1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same

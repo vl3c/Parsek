@@ -10,6 +10,7 @@ the archive can read it.
 
     python harness/tools/run_index.py rebuild [--archive DIR] [--out FILE] [--health-out FILE] [--jobs N]
     python harness/tools/run_index.py append --run RUNID [--archive DIR] [--index FILE]
+    python harness/tools/run_index.py import-snapshots --from LOGS_DIR [--archive DIR] [--dry-run] [--list] [--append]
     python harness/tools/run_index.py lane LANE [--index FILE] [--now ISO] [--json]
     python harness/tools/run_index.py summary [--index FILE] [--json]
     python harness/tools/run_index.py lane-table [--index FILE]
@@ -38,6 +39,7 @@ import gzip
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -142,13 +144,33 @@ def scan_ksp_log(path: str) -> Tuple[Optional[runindex.LogScan], Optional[str]]:
     return scan, None
 
 
+def read_snapshot_run(run_dir: str, run_id: str, want_breakdown: bool = False
+                      ) -> Tuple[Optional[Dict], Optional[str], Optional[Dict]]:
+    """(row, skip reason, per-tag breakdown) for a folder ``import-snapshots``
+    wrote: its ``snapshot.json`` marker and ``KSP.log.gz``."""
+    marker, err = _read_json(os.path.join(run_dir, runindex.SNAPSHOT_FILE_NAME))
+    if marker is None:
+        return None, "snapshot json unreadable (%s)" % err, None
+    gaps = []
+    scan, serr = scan_ksp_log(os.path.join(run_dir, KSP_LOG_GZ))
+    if scan is None:
+        gaps.append("no KSP.log.gz" if serr == "missing" else "KSP.log.gz unreadable (%s)" % serr)
+    row, reason = runindex.build_snapshot_row(run_id, marker, scan.compact() if scan is not None else None, gaps)
+    breakdown = scan.breakdown() if (scan is not None and want_breakdown) else None
+    return row, reason, breakdown
+
+
 def read_run(archive_root: str, run_id: str, want_breakdown: bool = False
              ) -> Tuple[Optional[Dict], Optional[str], Optional[Dict]]:
-    """(row, skip reason, per-tag breakdown) for one archived run folder."""
+    """(row, skip reason, per-tag breakdown) for one archived run folder: a
+    run.py folder (``<runId>.json``) or an imported snapshot (``snapshot.json``
+    and no result JSON)."""
     run_dir = os.path.join(archive_root, run_id)
     if not os.path.isdir(run_dir):
         return None, "no archive folder", None
     result, err = _read_json(os.path.join(run_dir, run_id + ".json"))
+    if result is None and err == "missing" and os.path.isfile(os.path.join(run_dir, runindex.SNAPSHOT_FILE_NAME)):
+        return read_snapshot_run(run_dir, run_id, want_breakdown)
     if result is None:
         return None, ("result json missing" if err == "missing" else "result json unreadable (%s)" % err), None
     manifest, merr = _read_json(os.path.join(run_dir, MANIFEST_NAME))
@@ -228,6 +250,133 @@ def index_archive(archive_root: str, run_ids: Sequence[str], workers: int = 1,
         if breakdown is not None:
             breakdowns[rid] = breakdown
     return rows, skipped, breakdowns
+
+
+# ---------------------------------------------------------------------------
+# import-snapshots: collect-logs snapshot folders into the archive
+# ---------------------------------------------------------------------------
+
+SNAPSHOT_TMP_SUFFIX = ".snapshot-tmp"
+LOG_VALIDATION_NAME = "log-validation.txt"
+GIT_STATE_NAME = "git-state.txt"
+SNAPSHOT_LOG_NAME = "KSP.log"
+
+
+def _read_text(path: str) -> Optional[str]:
+    """The file's text (undecodable bytes replaced), or None when absent."""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            return fh.read()
+    except FileNotFoundError:
+        return None
+
+
+def archive_state(archive_root: str) -> "runindex.ArchiveState":
+    """What the archive holds, for ``decide_snapshot``. A folder with no result
+    JSON and no readable snapshot marker counts as a run (it may be a run whose
+    JSON was lost), so its minute blocks an import rather than invite a twin."""
+    state = runindex.ArchiveState()
+    run_ids, _ignored = list_run_ids(archive_root)
+    for rid in run_ids:
+        run_dir = os.path.join(archive_root, rid)
+        marker_path = os.path.join(run_dir, runindex.SNAPSHOT_FILE_NAME)
+        if os.path.isfile(os.path.join(run_dir, rid + ".json")) or not os.path.isfile(marker_path):
+            state.add_run(rid)
+            continue
+        marker, _err = _read_json(marker_path)
+        if isinstance(marker, dict) and marker.get("schema") == runindex.SNAPSHOT_SCHEMA:
+            state.add_snapshot(rid, marker.get("lane"), marker.get("runUtc"))
+        else:
+            state.add_run(rid)
+    return state
+
+
+def snapshot_facts(log_path: str) -> "runindex.SnapshotLogFacts":
+    facts = runindex.SnapshotLogFacts()
+    with open(log_path, "rb") as fh:
+        for line in fh:
+            facts.feed(line)
+    return facts
+
+
+def write_snapshot_folder(archive_root: str, run_id: str, log_path: str, marker: Dict) -> None:
+    """Write ``<archive>/<run_id>/`` (KSP.log.gz + snapshot.json) through a
+    hidden temp folder and one rename. Never replaces an existing folder."""
+    final = os.path.join(archive_root, run_id)
+    if os.path.lexists(final):
+        raise FileExistsError("archive folder exists")
+    tmp = os.path.join(archive_root, "." + run_id + SNAPSHOT_TMP_SUFFIX)
+    if os.path.isdir(tmp):  # an interrupted import of this very run: ours to redo
+        shutil.rmtree(tmp)
+    os.makedirs(tmp)
+    with open(log_path, "rb") as src, gzip.open(os.path.join(tmp, KSP_LOG_GZ), "wb") as dst:
+        shutil.copyfileobj(src, dst, 1 << 20)
+    with open(os.path.join(tmp, runindex.SNAPSHOT_FILE_NAME), "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(runindex.serialize_marker(marker))
+    if os.path.lexists(final):
+        shutil.rmtree(tmp)
+        raise FileExistsError("archive folder exists")
+    os.rename(tmp, final)
+
+
+def import_snapshots(logs_dir: str, archive_root: str, dry_run: bool = False
+                     ) -> Tuple[Dict[Tuple[str, str], int], List[Tuple[str, str, str, Optional[str]]], Dict[str, int]]:
+    """Import every harness snapshot folder of ``logs_dir`` into the archive.
+    Returns ({(outcome, reason): count}, [(folder, outcome, reason, runId)],
+    facts counted over the imports plus ``matchedVerdicts``: the archived
+    verdicts of the runs an ``already-archived`` snapshot matched).
+    ``dry_run`` writes nothing and decides exactly as a real run would (later
+    folders see earlier imports). A write that fails is undone in the
+    decision state too, so a second copy of the same run can still import."""
+    state = archive_state(archive_root)
+    seen: set = set()
+    counts: Dict[Tuple[str, str], int] = {}
+    decisions: List[Tuple[str, str, str, Optional[str]]] = []
+    facts_count = {"withCommit": 0, "dirty": 0, "withDll": 0, "withProfile": 0}
+    # The archived verdicts of the runs a snapshot matched: the check that the
+    # harness collected logs for non-PASS runs only (a PASS here says otherwise).
+    matched: Dict[str, int] = {}
+    for name in sorted(os.listdir(logs_dir)):
+        folder = os.path.join(logs_dir, name)
+        if not os.path.isdir(folder):
+            continue
+        try:
+            log_path = os.path.join(folder, SNAPSHOT_LOG_NAME)
+            has_log = os.path.isfile(log_path)
+            validation = _read_text(os.path.join(folder, LOG_VALIDATION_NAME))
+            git_text = _read_text(os.path.join(folder, GIT_STATE_NAME))
+            m = runindex.SNAPSHOT_FOLDER_RE.match(name)
+            # Read the (large) log only when the cheap facts leave it in play.
+            worth = has_log and m is not None and runindex._TOKEN_RE.match(m.group(3)) \
+                and runindex.classify_log_path(validation)[0] == "harness"
+            facts = snapshot_facts(log_path) if worth else runindex.SnapshotLogFacts()
+            d = runindex.decide_snapshot(name, has_log, validation, git_text, facts, state, seen)
+            if d.outcome == "import" and not dry_run:
+                try:
+                    write_snapshot_folder(archive_root, d.run_id, log_path, d.marker)
+                except OSError:
+                    seen.discard((d.marker["lane"], d.marker["runUtc"]))
+                    state.snapshots.pop(d.run_id, None)
+                    state.taken.discard(d.run_id)
+                    raise
+        except OSError as exc:
+            d = runindex.SnapshotDecision("skip", "unreadable (%s)" % type(exc).__name__)
+        key = (d.outcome, d.reason)
+        counts[key] = counts.get(key, 0) + 1
+        decisions.append((name, d.outcome, d.reason, d.run_id))
+        if d.reason == "already-archived" and d.run_id:
+            result, _err = _read_json(os.path.join(archive_root, d.run_id, d.run_id + ".json"))
+            verdict = result.get("verdict") if isinstance(result, dict) else None
+            key = verdict if isinstance(verdict, str) and runindex._TOKEN_RE.match(verdict) else "?"
+            matched[key] = matched.get(key, 0) + 1
+        if d.outcome == "import":
+            mk = d.marker
+            facts_count["withCommit"] += 1 if mk.get("commit") else 0
+            facts_count["dirty"] += 1 if mk.get("dirty") else 0
+            facts_count["withDll"] += 1 if mk.get("dll") else 0
+            facts_count["withProfile"] += 1 if mk.get("profile") else 0
+    facts_count["matchedVerdicts"] = dict(sorted(matched.items()))
+    return counts, decisions, facts_count
 
 
 # ---------------------------------------------------------------------------
@@ -600,6 +749,9 @@ def print_lane(rep: Dict) -> None:
     print("lane %s (tier %s; windows end %s)" % (rep["lane"], rep.get("tier"), rep.get("now")))
     print("  last run:  %s" % _fmt_brief(rep.get("lastRun")))
     print("  last PASS: %s" % _fmt_brief(rep.get("lastPass")))
+    if rep.get("lastSnapshot"):
+        print("  last snapshot (not a PASS, verdict unknown; counted apart): %s  snapshots=%d"
+              % (_fmt_brief(rep["lastSnapshot"]), rep["windows"]["all"].get("snapshots", 0)))
     for name in ("30d", "90d", "all"):
         c = rep["windows"][name]
         rate = "-" if c["flakeRate"] is None else "%.0f%%" % (100 * c["flakeRate"])
@@ -627,6 +779,12 @@ def print_summary(s: Dict) -> None:
     print("  slowest by p50 wall (%d shown):" % len(s["slowest"]))
     for x in s["slowest"]:
         print("    %s p50=%ss p90=%ss over %d" % (x["lane"], x["wallP50"], x["wallP90"], x["attempts"]))
+    snaps = s.get("snapshots") or {}
+    if snaps.get("rows"):
+        print("  snapshot rows (not PASS, verdict unknown; in no count above): %d over %d lane(s), "
+              "%d lane(s) known only from snapshots: %s" % (
+                  snaps["rows"], snaps["lanes"], len(snaps["lanesOnlyInSnapshots"]),
+                  " ".join(snaps["lanesOnlyInSnapshots"]) or "-"))
     if "specsWithNoRun" in s:
         print("  specs with no run (%d): %s" % (len(s["specsWithNoRun"]), " ".join(s["specsWithNoRun"]) or "-"))
         print("  lanes in the index with no spec (%d): %s" % (len(s["lanesWithNoSpec"]),
@@ -741,10 +899,40 @@ def cmd_append(args) -> int:
     return 1 if skipped else 0
 
 
+def cmd_import_snapshots(args) -> int:
+    logs_dir = os.path.abspath(args.from_dir)
+    if not os.path.isdir(logs_dir):
+        print("run_index: logs folder %s does not exist" % logs_dir, file=sys.stderr)
+        return 1
+    archive = _archive(args)
+    if not args.dry_run:
+        os.makedirs(archive, exist_ok=True)
+    counts, decisions, facts = import_snapshots(logs_dir, archive, args.dry_run)
+    imported = [rid for _n, outcome, _r, rid in decisions if outcome == "import"]
+    print("import-snapshots%s: %d folder(s) in %s, %d imported%s into %s" % (
+        " (dry run)" if args.dry_run else "", len(decisions), logs_dir, len(imported),
+        " (would be)" if args.dry_run else "", archive))
+    for (outcome, reason), n in sorted(counts.items()):
+        print("  %-6s %-24s %d" % (outcome, reason, n))
+    print("  imports: commit %d, dirty %d, dll %d, profile %d" % (
+        facts["withCommit"], facts["dirty"], facts["withDll"], facts["withProfile"]))
+    if facts["matchedVerdicts"]:
+        print("  verdicts of the archived runs a snapshot matched (a PASS means the harness did collect "
+              "logs for a passing run): %s" % ", ".join("%s %d" % kv for kv in facts["matchedVerdicts"].items()))
+    if args.list:
+        for name, outcome, reason, rid in decisions:
+            print("    %s -> %s %s%s" % (name, outcome, reason, (" " + rid) if rid else ""))
+    if imported and args.append and not args.dry_run:
+        acounts, skipped, path = append_runs(archive, imported, _index_path(args))
+        print("run index: %s -> %s" % (format_append_counts(acounts), path))
+        _report_skipped(skipped)
+    return 0
+
+
 def cmd_lane(args) -> int:
     rows = _need_rows(_index_path(args))
     rep = runindex.lane_report(rows, args.lane, args.now)
-    if not rep["lastRun"]:
+    if not rep["lastRun"] and not rep["lastSnapshot"]:
         print("run_index: lane %s has no run in the index" % args.lane, file=sys.stderr)
         return 1
     _print_json(rep) if args.json else print_lane(rep)
@@ -774,7 +962,8 @@ def cmd_trend(args) -> int:
                                                    "logBytes", "commit"))
     for p in points:
         print("%-20s %-12s %6s %6s %6s %8s %10s %s" % (p["started"], p["verdict"], p["wall"], p["warn"],
-                                                       p["error"], p["parsek"], p["bytes"], _short(p["commit"], 9)))
+                                                       p["error"], p["parsek"], p["bytes"], _short(p["commit"], 9))
+              + (" (snapshot)" if p.get("origin") == runindex.SNAPSHOT_ORIGIN else ""))
     return 0
 
 
@@ -894,6 +1083,16 @@ def build_parser() -> argparse.ArgumentParser:
     index_arg(p)
     p.add_argument("--run", action="append", required=True, help="run id (repeatable)")
     p.set_defaults(func=cmd_append)
+
+    p = sub.add_parser("import-snapshots",
+                       help="import the harness collect-logs snapshot folders of a logs folder into the archive")
+    index_arg(p)
+    p.add_argument("--from", dest="from_dir", required=True,
+                   help="the folder holding the snapshot folders (<umbrella>/logs)")
+    p.add_argument("--dry-run", action="store_true", help="decide and count, write nothing")
+    p.add_argument("--list", action="store_true", help="print each folder's decision")
+    p.add_argument("--append", action="store_true", help="also append the imported runs to the index")
+    p.set_defaults(func=cmd_import_snapshots)
 
     p = sub.add_parser("lane", help="last run, last PASS, counts, flake rate and wall time of one lane")
     index_arg(p)
