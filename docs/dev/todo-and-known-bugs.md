@@ -79,6 +79,13 @@ inter-body route's ships; then `H59`, `V18T`, `V26T`, `V27M` on the new DLL; the
 `passed=20 skipped=1`). `docs/pdf/` was not regenerated for the two design docs this touches
 (`docs/parsek-logistics-supply-routes-design.md`, `docs/roadmap.md`).
 
+**Gate lost with the windows.** `V26T`'s `[expectations.renderComposition]` block is bare again
+because its only armed windows read the retired line, and `V26M` is deleted. An armed block also
+gates on every FAIL-level rule finding (RC-SEAM, RC-OWN, RC-COVER, RC-DESCENT, the kept RC-ROUTE
+dock-clip check), so those findings on the inter-body route host now read REPORT and cannot red
+a lane; `V18T` (same-body, Tracking Station) is the only armed route lane left. Re-arm `V26T` on
+`unevaluable`, as `V18T` is, from the reading of its next green flight.
+
 **Not rebuilt.** No lane PINS the inter-body route ship on the map (TP-8 photographs it and
 asserts only that every view was taken): `interbody-route-recorded` has no derivable dispatch
 instant (the Duna route's anchor is not computable from the committed bytes: `loopAnchorUT = -1`
