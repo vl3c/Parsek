@@ -483,20 +483,6 @@ namespace Parsek
             return dedupedBoundaryCopies + overlapCopies;
         }
 
-        internal static bool ContainsRelativeTrackSections(List<TrackSection> tracks)
-        {
-            if (tracks == null)
-                return false;
-
-            for (int i = 0; i < tracks.Count; i++)
-            {
-                if (tracks[i].referenceFrame == ReferenceFrame.Relative)
-                    return true;
-            }
-
-            return false;
-        }
-
         /// <summary>
         /// A section that carries NO authored surface at all: no <c>frames</c>, no
         /// <c>bodyFixedFrames</c>, no <c>checkpoints</c>.

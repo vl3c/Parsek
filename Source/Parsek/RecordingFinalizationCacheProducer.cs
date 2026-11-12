@@ -87,26 +87,6 @@ namespace Parsek
             FinalizationCacheOwner owner,
             string reason,
             bool hasMeaningfulThrust,
-            out RecordingFinalizationCache cache)
-        {
-            return TryBuildFromLiveVessel(
-                recording,
-                vessel,
-                refreshUT,
-                owner,
-                reason,
-                hasMeaningfulThrust,
-                null,
-                out cache);
-        }
-
-        internal static bool TryBuildFromLiveVessel(
-            Recording recording,
-            Vessel vessel,
-            double refreshUT,
-            FinalizationCacheOwner owner,
-            string reason,
-            bool hasMeaningfulThrust,
             RecordingTree recordingTree,
             out RecordingFinalizationCache cache)
         {
@@ -1098,13 +1078,6 @@ namespace Parsek
                     reason ?? "(none)"),
                 5.0);
             return false;
-        }
-
-        private static uint ResolveVesselPid(Recording recording, Vessel vessel)
-        {
-            if (recording != null && recording.VesselPersistentId != 0)
-                return recording.VesselPersistentId;
-            return vessel != null ? vessel.persistentId : 0;
         }
 
         private static uint ResolveVesselPid(Recording recording, IRecordingFinalizationVesselView vessel)

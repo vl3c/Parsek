@@ -45,7 +45,6 @@ namespace Parsek
         internal BranchPointType? ForeignJoinBranchPointType;
 
         private List<string> vesselRecordingIds;
-        private List<string> ownEvaBranchPointIds;
         private HashSet<string> hoppedBoardBranchPointIds;
         private HashSet<string> ownKerbalRecordingIds;
         private List<string> ownKerbalProductRecordingIds;
@@ -57,17 +56,10 @@ namespace Parsek
         internal IReadOnlyList<string> VesselRecordingIds =>
             (IReadOnlyList<string>)vesselRecordingIds ?? Array.Empty<string>();
 
-        internal IReadOnlyList<string> OwnEvaBranchPointIds =>
-            (IReadOnlyList<string>)ownEvaBranchPointIds ?? Array.Empty<string>();
-
         /// <summary>Recordings of the vessel's own EVA crew: each kerbal's recording,
         /// chain siblings and switch-continuation segments.</summary>
         internal IReadOnlyCollection<string> OwnKerbalRecordingIds =>
             (IReadOnlyCollection<string>)ownKerbalRecordingIds ?? Array.Empty<string>();
-
-        /// <summary>Ground parts the own EVA crew placed (detail only).</summary>
-        internal IReadOnlyList<string> OwnKerbalProductRecordingIds =>
-            (IReadOnlyList<string>)ownKerbalProductRecordingIds ?? Array.Empty<string>();
 
         internal List<KerbalEnd> KerbalEnds => kerbalEnds;
 
@@ -76,13 +68,6 @@ namespace Parsek
             if (string.IsNullOrEmpty(id)) return;
             if (vesselRecordingIds == null) vesselRecordingIds = new List<string>();
             if (!vesselRecordingIds.Contains(id)) vesselRecordingIds.Add(id);
-        }
-
-        internal void AddOwnEvaBranchPointId(string id)
-        {
-            if (string.IsNullOrEmpty(id)) return;
-            if (ownEvaBranchPointIds == null) ownEvaBranchPointIds = new List<string>();
-            ownEvaBranchPointIds.Add(id);
         }
 
         internal void AddHoppedBoardBranchPointId(string id)

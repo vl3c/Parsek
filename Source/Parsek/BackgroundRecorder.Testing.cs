@@ -11,7 +11,6 @@ namespace Parsek
         // Expose internal state for testing
         internal int OnRailsStateCount => onRailsStates.Count;
         internal int LoadedStateCount => loadedStates.Count;
-        internal int FinalizationCacheCount => finalizationCaches.Count;
 
         internal bool HasOnRailsState(uint pid) => onRailsStates.ContainsKey(pid);
         internal bool HasLoadedState(uint pid) => loadedStates.ContainsKey(pid);

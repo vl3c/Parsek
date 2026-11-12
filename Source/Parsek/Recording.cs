@@ -1250,11 +1250,6 @@ namespace Parsek
             cachedPreReFlyAnchorRecording = null;
         }
 
-        internal void ClearPreReFlySessionSnapshots()
-        {
-            ClearPreReFlyAnchorTrajectory();
-        }
-
         /// <summary>
         /// Returns a cached synthetic <see cref="Recording"/> populated with the
         /// captured snapshot's trajectory data (Points / OrbitSegments /

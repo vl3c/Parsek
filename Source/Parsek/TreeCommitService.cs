@@ -500,53 +500,6 @@ namespace Parsek
             return null;
         }
 
-        private static bool HasRewindPointSlotForRecording(
-            Recording rec,
-            string rewindPointId,
-            out string rejectReason)
-        {
-            rejectReason = null;
-
-            if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
-            {
-                rejectReason = "recording-id-missing";
-                return false;
-            }
-
-            if (string.IsNullOrEmpty(rewindPointId))
-            {
-                rejectReason = "rewind-point-id-missing";
-                return false;
-            }
-
-            var scenario = ParsekScenario.Instance;
-            if (object.ReferenceEquals(null, scenario) || scenario.RewindPoints == null)
-            {
-                rejectReason = "scenario-rewind-points-unavailable";
-                return false;
-            }
-
-            IReadOnlyList<RecordingSupersedeRelation> supersedes = scenario.RecordingSupersedes
-                ?? (IReadOnlyList<RecordingSupersedeRelation>)Array.Empty<RecordingSupersedeRelation>();
-            for (int i = 0; i < scenario.RewindPoints.Count; i++)
-            {
-                var rp = scenario.RewindPoints[i];
-                if (rp == null) continue;
-                if (!string.Equals(rp.RewindPointId, rewindPointId, StringComparison.Ordinal))
-                    continue;
-
-                int slotListIndex = EffectiveState.ResolveRewindPointSlotIndexForRecording(rp, rec, supersedes);
-                if (slotListIndex >= 0)
-                    return true;
-
-                rejectReason = "rewind-point-slot-not-found";
-                return false;
-            }
-
-            rejectReason = "rewind-point-not-found";
-            return false;
-        }
-
         /// <summary>
         /// Rewind Points captured during ordinary staging are born
         /// SessionProvisional with no CreatingSessionId. They must survive the

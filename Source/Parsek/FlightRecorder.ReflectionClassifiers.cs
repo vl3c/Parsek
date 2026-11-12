@@ -980,7 +980,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure interpretation half of <see cref="TryGetWheelRoboticPositionValue"/>.
+        /// Wheel core of <see cref="TryClassifyRoboticPositionFromFieldValues{TFields}"/>.
         /// Order: the module's preferred scalar plan, then the suspension position vector
         /// (suspension modules only), then the steering angle (motor-steering modules only, which
         /// also tightens the deadband to the steering one).

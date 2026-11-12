@@ -575,15 +575,11 @@ namespace Parsek
     /// </summary>
     internal interface IFlightGlobalsProvider
     {
-        /// <summary>Returns the vessel whose <c>persistentId</c> equals <paramref name="pid"/>, or null.</summary>
-        Vessel FindVesselByPid(uint pid);
-
         /// <summary>
         /// Returns an identity <see cref="VesselSnapshot"/> for the vessel whose
         /// <c>persistentId</c> equals <paramref name="pid"/>. False when no such
-        /// vessel is known. Prefer this over <see cref="FindVesselByPid"/> for the
-        /// RewindPointAuthor capture path: it lets tests drive the body without
-        /// constructing a live <c>Vessel</c>.
+        /// vessel is known. It lets tests drive the RewindPointAuthor capture path
+        /// without constructing a live <c>Vessel</c>.
         /// </summary>
         bool TryGetVesselSnapshot(uint pid, out VesselSnapshot snapshot);
 
@@ -604,9 +600,6 @@ namespace Parsek
         public static readonly IFlightGlobalsProvider Default = new FlightGlobalsProvider();
 
         private FlightGlobalsProvider() { }
-
-        public Vessel FindVesselByPid(uint pid)
-            => FlightRecorder.FindVesselByPid(pid);
 
         public bool TryGetVesselSnapshot(uint pid, out VesselSnapshot snapshot)
         {

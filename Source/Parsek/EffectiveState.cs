@@ -498,12 +498,6 @@ namespace Parsek
             return -1;
         }
 
-        private static bool IsInSupersedeForwardTrail(
-            string originRecordingId,
-            string targetRecordingId,
-            IReadOnlyList<RecordingSupersedeRelation> supersedes)
-            => IsInSupersedeForwardTrail(originRecordingId, targetRecordingId, supersedes, recById: null);
-
         /// <summary>
         /// Pass 5 review M2: dict-aware overload, mirrors
         /// <see cref="EffectiveTipRecordingId(string, IReadOnlyList{RecordingSupersedeRelation}, IReadOnlyDictionary{string, Recording})"/>.
@@ -1147,19 +1141,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Classifies a recording's terminal state as a crash / destroyed
-        /// outcome (design §3.1 <c>TerminalKind in {BGCrash, Crashed}</c>).
-        /// Delegates to <see cref="TerminalKindClassifier.Classify"/> so both
-        /// the Unfinished-Flight predicate here and the re-fly merge rule in
-        /// <see cref="SupersedeCommit.CommitSupersedeForTesting"/> share the same
-        /// classifier (design §6.6 step 2).
-        /// </summary>
-        public static bool IsTerminalCrashed(Recording rec)
-        {
-            return TerminalKindClassifier.Classify(rec) == TerminalKind.Crashed;
-        }
-
-        /// <summary>
         /// True iff <paramref name="rec"/> is part of a chain whose head
         /// (the segment carrying the <c>ParentBranchPointId</c> link to a
         /// RewindPoint) qualifies as an Unfinished Flight. Used by the
@@ -1503,7 +1484,6 @@ namespace Parsek
                 if (kind == "eva")
                 {
                     walk.EvaHops++;
-                    walk.AddOwnEvaBranchPointId(bp.Id);
                     AddOwnEvaKerbals(tree, bp, current, walk, collectDetail);
                 }
                 else if (kind == "board")

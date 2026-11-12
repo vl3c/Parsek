@@ -398,18 +398,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Re-enables recording after a false-alarm split detection (e.g., joint break that
-        /// only produced debris, undock of a non-trackable vessel). Restores the recorder to
-        /// the active state it was in before StopRecordingForChainBoundary() was called.
-        /// The internal Recording/OrbitSegments/PartEvents lists are still intact since
-        /// StopRecordingForChainBoundary only copies them into CaptureAtStop but does not clear them.
-        /// </summary>
-        public void ResumeAfterFalseAlarm()
-        {
-            ResumeAfterFalseAlarm(keepRecordedVessel: false);
-        }
-
-        /// <summary>
         /// <paramref name="keepRecordedVessel"/> resumes on the vessel this recorder was
         /// recording (<see cref="RecordingVesselId"/>) instead of the active vessel. A split
         /// can move focus to the vessel that came off (stock switches focus when the control

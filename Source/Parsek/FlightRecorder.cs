@@ -98,7 +98,6 @@ namespace Parsek
         private double currentAnchorDistanceMeters = double.NaN;
         private HashSet<uint> treeVesselPids;
         private readonly HashSet<uint> highFidelityProximityVesselPids = new HashSet<uint>();
-        private readonly List<(uint pid, Vector3d position)> vesselInfoBuffer = new List<(uint, Vector3d)>();
         private readonly List<RecordingAnchorCandidate> recordingAnchorCandidateBuffer =
             new List<RecordingAnchorCandidate>();
         private readonly HashSet<string> recordedAnchorResolverVisited =
@@ -302,23 +301,6 @@ namespace Parsek
             RewindSaveFileName = fileName;
             ParsekLog.Info("Recorder",
                 $"RewindSaveFileName set for restore: '{prev ?? "<null>"}' → '{fileName ?? "<null>"}' ({reason})");
-        }
-
-        /// <summary>
-        /// #294: Overwrites start location fields from saved standalone restore data.
-        /// StartRecording captures the quickload-time location (wrong — e.g. "in orbit"),
-        /// but we want the original launch location from the F5 save.
-        /// </summary>
-        internal void SetStartLocationForRestore(
-            string bodyName, string biome, string situation, string launchSite)
-        {
-            StartBodyName = bodyName;
-            StartBiome = biome;
-            StartSituation = situation;
-            LaunchSiteName = launchSite;
-            ParsekLog.Verbose("Recorder",
-                $"Start location restored: body={bodyName ?? "(null)"}, biome={biome ?? "(null)"}, " +
-                $"situation={situation ?? "(null)"}, launchSite={launchSite ?? "(null)"}");
         }
 
         internal void ArmRestoreEnvironmentResync(SegmentEnvironment target, string reason)
@@ -588,8 +570,6 @@ namespace Parsek
         /// <see cref="ShouldCaptureLaunchSite"/> still knows the start is a launch.
         /// </summary>
         internal bool StartedFromPrelaunchTransition { get; set; }
-        public ConfigNode LastGoodVesselSnapshot => lastGoodVesselSnapshot;
-        public ConfigNode InitialGhostVisualSnapshot => initialGhostVisualSnapshot;
         internal RecordingFinalizationCache FinalizationCache { get; private set; }
 
         // Adaptive sampling thresholds (read from settings, fallback to Medium defaults)
@@ -849,19 +829,6 @@ namespace Parsek
                 && focus.reFlyPostLoadSettleActive
                 && string.Equals(focus.reFlyPostLoadSettleRecordingId, recordingId,
                     StringComparison.Ordinal);
-        }
-
-        internal static bool IsReFlyPostLoadSettleOrStabilityHoldActiveForRecording(string recordingId)
-        {
-            return IsReFlyPostLoadSettleOrStabilityHoldActiveForRecording(recordingId, GetFrameCount());
-        }
-
-        internal static bool IsReFlyPostLoadSettleOrStabilityHoldActiveForRecording(
-            string recordingId,
-            int frame)
-        {
-            return IsReFlyPostLoadSettleActiveForRecording(recordingId)
-                || ReFlySettleStabilityTracker.IsHoldActiveForRecording(recordingId, frame);
         }
 
         internal TrackSection CurrentTrackSectionForTesting => currentTrackSection;
@@ -2220,27 +2187,9 @@ namespace Parsek
             catch (TypeInitializationException) { return null; }
         }
 
-        /// <summary>
-        /// Used by <see cref="RestoreTrackSectionAfterFalseAlarm"/> to decide
-        /// whether the scene is ready enough to validate the resumed
-        /// Relative-mode anchor. Returns null when the scene's vessel list is
-        /// unqueryable (xUnit, pre-FlightReady), in which case the resume
-        /// path skips the safety check and trusts the saved anchor metadata.
-        /// </summary>
-        private static List<Vessel> TryGetFlightGlobalsVesselsForResumeValidation()
-        {
-            if (resumeValidationVesselsOverrideForTesting != null)
-                return resumeValidationVesselsOverrideForTesting();
-            return TryGetFlightGlobalsVessels();
-        }
-
-        // Test-only seam: lets xUnit drive the resume-anchor downgrade branch
-        // of RestoreTrackSectionAfterFalseAlarm without a live KSP scene. In
-        // production this stays null and the helper falls back to
-        // TryGetFlightGlobalsVessels(), which returns null in xUnit and so
-        // skips the safety check entirely. Returning a non-null (possibly
-        // empty) list from the override forces the validation path to run
-        // and treat the resume anchor as unloaded → downgrade to Absolute.
+        // Test-only seam. No production path reads it: the resume anchor of
+        // RestoreTrackSectionAfterFalseAlarm resolves by anchor recording id,
+        // not by scanning the scene's vessel list. Tests still set and reset it.
         internal static System.Func<List<Vessel>> resumeValidationVesselsOverrideForTesting;
 
         internal static void SetResumeValidationVesselsOverrideForTesting(

@@ -1243,31 +1243,6 @@ namespace Parsek
                 $"Seed point committed: reason={reason} UT={point.ut:F2}");
         }
 
-        private int ResolveActiveRecordingFormatVersion()
-        {
-            if (ActiveTree != null
-                && ActiveTree.Recordings != null
-                && !string.IsNullOrEmpty(ActiveTree.ActiveRecordingId)
-                && ActiveTree.Recordings.TryGetValue(ActiveTree.ActiveRecordingId, out Recording activeRec)
-                && activeRec != null)
-            {
-                return activeRec.RecordingFormatVersion;
-            }
-
-            // A fresh sample that can't locate its owning Recording falls back to the
-            // current format version, so new data always uses the newest RELATIVE-frame
-            // contract. Warn — in practice we should always have an ActiveRecordingId
-            // by the time sampling runs, so hitting this path points at a stale tree
-            // state or a missing recording row.
-            ParsekLog.VerboseRateLimited("Recorder", "format-version-fallback",
-                $"ResolveActiveRecordingFormatVersion fallback to v" +
-                $"{RecordingStore.CurrentRecordingFormatVersion}: " +
-                $"activeTree={(ActiveTree != null)} " +
-                $"activeRecordingId={ActiveTree?.ActiveRecordingId ?? "null"}",
-                5.0);
-            return RecordingStore.CurrentRecordingFormatVersion;
-        }
-
         /// <summary>
         /// Returns the last trajectory frame of the current TrackSection, or null if empty/inactive.
         /// Used to capture a boundary point before closing a section (#283).

@@ -2999,14 +2999,6 @@ namespace Parsek
             return normalized;
         }
 
-        private static void StampTerminalOrbitFromSegment(Recording recording, OrbitSegment segment)
-        {
-            if (recording == null || string.IsNullOrEmpty(segment.bodyName))
-                return;
-
-            StampTerminalOrbit(recording, RecordingFinalizationTerminalOrbit.FromSegment(segment));
-        }
-
         private static void StampTerminalOrbit(
             Recording recording,
             RecordingFinalizationTerminalOrbit terminalOrbit)

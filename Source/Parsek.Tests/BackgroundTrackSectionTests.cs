@@ -414,15 +414,8 @@ namespace Parsek.Tests
         public void GoOnRails_ClassifiesAsExoBallistic()
         {
             // We cannot call OnBackgroundVesselGoOnRails directly (needs Vessel),
-            // so test the static properties of StartCheckpointTrackSection via
-            // InjectLoadedStateWithEnvironmentForTesting + manual close + verify.
-            //
-            // The key assertion: after on-rails transition, the last section before
-            // removal should be of type Checkpoint (tested indirectly via ClassifyBackgroundEnvironment
-            // and the StartCheckpointTrackSection method).
-
-            // Instead, test the method's effect through the public pure static classification:
-            // When vessel is in orbit (above atmo, no thrust), we get ExoBallistic
+            // so test the classification it relies on through the pure static
+            // ClassifyBackgroundEnvironment: in orbit (above atmo, no thrust) is ExoBallistic.
             var result = BackgroundRecorder.ClassifyBackgroundEnvironment(
                 hasAtmosphere: true, altitude: 80000, atmosphereDepth: 70000,
                 situation: 32, // ORBITING

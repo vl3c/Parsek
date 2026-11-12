@@ -42,49 +42,6 @@ namespace Parsek
             return pids;
         }
 
-        /// <summary>
-        /// Collects (pid, worldPosition) for all loaded vessels in the physics scene.
-        /// Reuses vesselInfoBuffer to avoid per-frame allocation.
-        /// Filters out vessel types that are not valid anchor candidates for RELATIVE mode:
-        /// debris, EVA kerbals, space objects, and flags.
-        /// </summary>
-        private List<(uint pid, Vector3d position)> BuildVesselInfoList()
-        {
-            vesselInfoBuffer.Clear();
-            if (FlightGlobals.Vessels == null) return vesselInfoBuffer;
-            for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
-            {
-                var vessel = FlightGlobals.Vessels[i];
-                if (vessel == null || !vessel.loaded) continue;
-                if (GhostMapPresence.IsGhostMapVessel(vessel.persistentId)) continue;
-
-                // Filter out non-docking-target vessel types: debris from staging,
-                // EVA kerbals, space objects, and flags are not valid anchor candidates.
-                if (vessel.vesselType == VesselType.Debris ||
-                    vessel.vesselType == VesselType.EVA ||
-                    vessel.vesselType == VesselType.SpaceObject ||
-                    vessel.vesselType == VesselType.Flag)
-                {
-                    continue;
-                }
-
-                // Exclude landed/splashed/prelaunch vessels as anchors.
-                // These won't be loaded during ghost playback when the ghost is far from
-                // the surface location (KSP only loads vessels within physics range).
-                // RELATIVE mode is for orbital rendezvous/docking with in-flight vessels.
-                if (vessel.situation == Vessel.Situations.LANDED ||
-                    vessel.situation == Vessel.Situations.SPLASHED ||
-                    vessel.situation == Vessel.Situations.PRELAUNCH)
-                {
-                    continue;
-                }
-
-                vesselInfoBuffer.Add((vessel.persistentId, (Vector3d)vessel.transform.position));
-            }
-            // Per-frame logging removed (was 0.4% of all log output)
-            return vesselInfoBuffer;
-        }
-
         private IReadOnlyList<RecordingAnchorCandidate> BuildRecordingAnchorCandidateList(
             Vessel focusedVessel,
             double ut,

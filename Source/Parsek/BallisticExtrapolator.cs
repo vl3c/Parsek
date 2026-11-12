@@ -1361,11 +1361,6 @@ namespace Parsek
             return samples;
         }
 
-        private static double GetAltitudeAtUT(TwoBodyOrbit orbit, double ut)
-        {
-            return Magnitude(orbit.GetPositionAtUT(ut)) - orbit.BodyRadius;
-        }
-
         private static double GetSurfaceDeltaAtUT(
             TwoBodyOrbit orbit,
             ExtrapolationBody body,
@@ -1662,11 +1657,6 @@ namespace Parsek
         private static double AcosClamped(double value)
         {
             return Math.Acos(Clamp(value, -1.0, 1.0));
-        }
-
-        private static double Atanh(double value)
-        {
-            return 0.5 * Math.Log((1.0 + value) / (1.0 - value));
         }
 
         private static double Asinh(double value)
@@ -2293,7 +2283,7 @@ namespace Parsek
             /// as a declined propagation. Do NOT read that as "every caller checks" -
             /// the in-extrapolator <c>GetStateAtUT</c> sites (the horizon state written
             /// into <c>terminalPosition</c>/<c>terminalVelocity</c>, <c>SampleOrbitWindow</c>,
-            /// <c>GetAltitudeAtUT</c>, <c>GetSurfaceDeltaAtUT</c>) consume the state
+            /// <c>GetSurfaceDeltaAtUT</c>) consume the state
             /// unchecked, and a NaN there reads false out of every comparison rather
             /// than announcing itself. Those sites are safe today only because they
             /// reach this solver through <see cref="AreSegmentElementsPropagatable"/>-

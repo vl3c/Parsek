@@ -652,19 +652,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Opens an OrbitalCheckpoint TrackSection for a background vessel transitioning to on-rails.
-        /// Sets source = Checkpoint.
-        /// </summary>
-        private void StartCheckpointTrackSection(BackgroundVesselState state, double ut)
-        {
-            state.currentTrackSection = OrbitSegmentCheckpointBridge.BuildOpenCheckpointSection(ut);
-            state.trackSectionActive = true;
-            ParsekLog.Info("BgRecorder",
-                $"TrackSection started: env=ExoBallistic ref=OrbitalCheckpoint source=Checkpoint " +
-                $"pid={state.vesselPid} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
-        }
-
-        /// <summary>
         /// Returns the last trajectory frame of a background vessel's current TrackSection,
         /// or null if empty/inactive. Used to capture a boundary point before closing (#283).
         /// </summary>
