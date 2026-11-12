@@ -1,0 +1,3218 @@
+{
+ "forwarders": [
+  "Parsek.FileIOUtils::CopyDirectory -> Verbose+Warn(arg 3)",
+  "Parsek.FileIOUtils::DeleteSaveSidecarLoadMeta -> Verbose+Warn(arg 2)",
+  "Parsek.FileIOUtils::ReplaceDestination -> Verbose+Warn(arg 2)",
+  "Parsek.FileIOUtils::ReplaceOrDiscardTemp -> Verbose+Warn(arg 2)",
+  "Parsek.FileIOUtils::SafeMove -> Verbose+Warn(arg 2)",
+  "Parsek.FileIOUtils::SafeWriteBytes -> Verbose+Warn(arg 2)",
+  "Parsek.FileIOUtils::SafeWriteConfigNode -> Verbose+Warn(arg 2)",
+  "Parsek.FileIOUtils::SweepOneStaleTemp -> Info+Warn(arg 2)",
+  "Parsek.FileIOUtils::SweepStaleSafeWriteTemp -> Info+Warn(arg 1)",
+  "Parsek.FileIOUtils::SweepStaleSafeWriteTemps -> Info+Warn(arg 2)",
+  "Parsek.FileIOUtils::TryDeleteScratch -> Warn(arg 1)",
+  "Parsek.FlightRecorder::AppendDepartedConverterStops -> Info(arg 5)",
+  "Parsek.FlightRecorder::AppendDepartedConverterStopsCore -> Info(arg 4)",
+  "Parsek.FlightRecorder::EmitTerminalEngineAndRcsEvents -> Info+Verbose(arg 5)",
+  "Parsek.GhostMapPresence::StampParkingConicLineHoldForLoiterGap -> VerboseRateLimited(arg 6)",
+  "Parsek.GhostPlaybackLogic::LogChainLoopFirstRunSpawn -> InfoRateLimited(arg 0)",
+  "Parsek.LedgerOrchestrator::FinalizeScopedPendingScienceCommit -> Verbose(arg 0)",
+  "Parsek.Logistics.RouteLoadReconcile::InstallFloorAfterLoad -> Info(arg 2)",
+  "Parsek.Logistics.RouteLoadReconcile::RestoreCycleCountersFromSave -> Verbose(arg 2)",
+  "Parsek.Logistics.RouteLoadReconcile::RestoreLoopPositionAtRewindExit -> Info+Verbose(arg 3)",
+  "Parsek.Logistics.RouteLoadReconcile::RestoreLoopPositionFromSave -> Verbose(arg 6)",
+  "Parsek.Logistics.RouteRewindClassifier::ReconcileStoreAtRewind -> Info(arg 4)",
+  "Parsek.PartStateSeeder::EmitConverterSeedEvents -> Verbose(arg 3)",
+  "Parsek.PartStateSeeder::EmitDiffEvents -> Info+Verbose(arg 4)",
+  "Parsek.PartStateSeeder::EmitEngineSeedEvents -> Info+Verbose(arg 3)",
+  "Parsek.PartStateSeeder::EmitEngineShutdownSentinel -> Verbose(arg 5)",
+  "Parsek.PartStateSeeder::EmitHeatSeedEvents -> Verbose(arg 3)",
+  "Parsek.PartStateSeeder::EmitRcsSeedEvents -> Verbose(arg 3)",
+  "Parsek.PartStateSeeder::SeedAnimateGeneric -> Verbose(arg 3)",
+  "Parsek.PartStateSeeder::SeedAnimateHeat -> Verbose(arg 2)",
+  "Parsek.PartStateSeeder::SeedAnimationGroupsAndSurfaces -> Verbose(arg 2)",
+  "Parsek.PartStateSeeder::SeedCargoBays -> Verbose(arg 3)",
+  "Parsek.PartStateSeeder::SeedConverters -> Verbose(arg 2)",
+  "Parsek.PartStateSeeder::SeedDeployables -> Verbose(arg 2)",
+  "Parsek.PartStateSeeder::SeedEngines -> Verbose(arg 2)",
+  "Parsek.PartStateSeeder::SeedEvaState -> Verbose(arg 2)",
+  "Parsek.PartStateSeeder::SeedFairings -> Verbose(arg 2)",
+  "Parsek.PartStateSeeder::SeedGear -> Verbose(arg 2)",
+  "Parsek.PartStateSeeder::SeedJettisons -> Verbose(arg 2)",
+  "Parsek.PartStateSeeder::SeedLadders -> Verbose(arg 2)",
+  "Parsek.PartStateSeeder::SeedLights -> Verbose(arg 3)",
+  "Parsek.PartStateSeeder::SeedParachutes -> Verbose(arg 2)",
+  "Parsek.PartStateSeeder::SeedPartStates -> Verbose(arg 5)",
+  "Parsek.PartStateSeeder::SeedRcs -> Verbose(arg 2)",
+  "Parsek.PartStateSeeder::SeedWheelDamage -> Verbose(arg 2)",
+  "Parsek.Rendering.SmoothingPipeline::RegisterDedupKeyOnce -> Info(arg 5)"
+ ],
+ "generator": "scripts/arch/logtags.py",
+ "nonLiteral": {
+  "byKind": {
+   "other": 13
+  },
+  "byMethod": {
+   "Parsek.FlightRecorder::LogReFlyOrbitSegmentVelocityNonFinite": 1,
+   "Parsek.PartStateSeeder::<EmitSeedEvents>g__EmitDeployableFromUlongSet|2": 1,
+   "Parsek.PartStateSeeder::<EmitSeedEvents>g__EmitFromUintSet|1": 1,
+   "Parsek.PartStateSeeder::EmitSeedEvents": 6,
+   "Parsek.Patches.VesselCycleReFlySwitchPatch::RunCycle": 1,
+   "Parsek.VesselSpawner::CleanupFailedSpawnedProtoVessel": 2,
+   "Parsek.VesselSpawner::TryAdoptExistingSourceVesselForSpawn": 1
+  }
+ },
+ "schema": "parsek-log-tags/1",
+ "tags": {
+  "AlarmJump": {
+   "levels": {
+    "INFO": 5,
+    "WARN": 3
+   },
+   "modules": {
+    "Patches": 8
+   },
+   "sites": 8
+  },
+  "Analyzer": {
+   "levels": {
+    "INFO": 3,
+    "VERBOSE": 4,
+    "WARN": 6
+   },
+   "modules": {
+    "Analyzer": 13
+   },
+   "sites": 13
+  },
+  "Anchor": {
+   "levels": {
+    "INFO": 11,
+    "VERBOSE": 21,
+    "WARN": 15
+   },
+   "modules": {
+    "Controllers": 11,
+    "Ghost": 2,
+    "Recording": 32,
+    "Rendering": 1,
+    "Rewind": 1
+   },
+   "sites": 47
+  },
+  "AutoHireReservation": {
+   "levels": {
+    "INFO": 2
+   },
+   "modules": {
+    "InGameTests": 2
+   },
+   "sites": 2
+  },
+  "Backup": {
+   "helperSites": 1,
+   "levels": {
+    "ERROR": 3,
+    "INFO": 13,
+    "VERBOSE": 4,
+    "WARN": 12,
+    "mixed": 1
+   },
+   "modules": {
+    "InGameTests": 5,
+    "LogIO": 28
+   },
+   "sites": 33
+  },
+  "Baseline": {
+   "levels": {
+    "INFO": 1,
+    "VERBOSE": 2,
+    "WARN": 7
+   },
+   "modules": {
+    "GameActions": 10
+   },
+   "sites": 10
+  },
+  "BgRecorder": {
+   "helperSites": 5,
+   "levels": {
+    "INFO": 61,
+    "VERBOSE": 112,
+    "WARN": 19,
+    "mixed": 3
+   },
+   "modules": {
+    "Recording": 195
+   },
+   "sites": 195
+  },
+  "Boundary": {
+   "levels": {
+    "INFO": 7,
+    "VERBOSE": 3,
+    "WARN": 1
+   },
+   "modules": {
+    "Recording": 11
+   },
+   "sites": 11
+  },
+  "CameraFollow": {
+   "levels": {
+    "INFO": 50,
+    "VERBOSE": 33,
+    "WARN": 17
+   },
+   "modules": {
+    "Controllers": 92,
+    "Ghost": 7,
+    "Patches": 1
+   },
+   "sites": 100
+  },
+  "CareerSettings": {
+   "levels": {
+    "INFO": 5,
+    "VERBOSE": 3,
+    "WARN": 6
+   },
+   "modules": {
+    "Controllers": 1,
+    "GameActions": 9,
+    "Patches": 4
+   },
+   "sites": 14
+  },
+  "CareerStart": {
+   "helperSites": 1,
+   "levels": {
+    "ERROR": 3,
+    "INFO": 1,
+    "mixed": 1
+   },
+   "modules": {
+    "Harness": 5
+   },
+   "sites": 5
+  },
+  "ChainHandoff": {
+   "levels": {
+    "WARN": 1
+   },
+   "modules": {
+    "Ghost": 1
+   },
+   "sites": 1
+  },
+  "ChainTip": {
+   "levels": {
+    "ERROR": 1,
+    "INFO": 4,
+    "VERBOSE": 1,
+    "WARN": 4
+   },
+   "modules": {
+    "Recording": 10
+   },
+   "sites": 10
+  },
+  "ChainTipCargo": {
+   "levels": {
+    "INFO": 2,
+    "VERBOSE": 9,
+    "WARN": 4
+   },
+   "modules": {
+    "Logistics": 2,
+    "Recording": 13
+   },
+   "sites": 15
+  },
+  "ChainTipGhost": {
+   "levels": {
+    "INFO": 2,
+    "VERBOSE": 2,
+    "WARN": 1
+   },
+   "modules": {
+    "Controllers": 5
+   },
+   "sites": 5
+  },
+  "ChainWalker": {
+   "levels": {
+    "VERBOSE": 33,
+    "WARN": 3
+   },
+   "modules": {
+    "Ghost": 36
+   },
+   "sites": 36
+  },
+  "Checkpoint": {
+   "levels": {
+    "INFO": 1,
+    "VERBOSE": 3
+   },
+   "modules": {
+    "Controllers": 4
+   },
+   "sites": 4
+  },
+  "ClaimRemoval": {
+   "levels": {
+    "ERROR": 1,
+    "INFO": 1,
+    "VERBOSE": 1,
+    "WARN": 1
+   },
+   "modules": {
+    "Controllers": 4
+   },
+   "sites": 4
+  },
+  "ClaimedHoldGhost": {
+   "levels": {
+    "INFO": 4,
+    "VERBOSE": 2,
+    "WARN": 5
+   },
+   "modules": {
+    "Controllers": 11
+   },
+   "sites": 11
+  },
+  "ClaimedVessel": {
+   "levels": {
+    "INFO": 1,
+    "WARN": 7
+   },
+   "modules": {
+    "Patches": 8
+   },
+   "sites": 8
+  },
+  "ClickReserve": {
+   "levels": {
+    "INFO": 1,
+    "VERBOSE": 3,
+    "WARN": 2
+   },
+   "modules": {
+    "GameActions": 6
+   },
+   "sites": 6
+  },
+  "ClockCauseScope": {
+   "levels": {
+    "WARN": 3
+   },
+   "modules": {
+    "Patches": 3
+   },
+   "sites": 3
+  },
+  "Coalescer": {
+   "levels": {
+    "INFO": 22,
+    "VERBOSE": 13,
+    "WARN": 3
+   },
+   "modules": {
+    "Controllers": 30,
+    "Rewind": 8
+   },
+   "sites": 38
+  },
+  "Codec": {
+   "levels": {
+    "WARN": 5
+   },
+   "modules": {
+    "Recording": 5
+   },
+   "sites": 5
+  },
+  "CommittedAction": {
+   "levels": {
+    "INFO": 1
+   },
+   "modules": {
+    "UI": 1
+   },
+   "sites": 1
+  },
+  "CommittedFutureIndex": {
+   "levels": {
+    "VERBOSE": 4,
+    "WARN": 1
+   },
+   "modules": {
+    "GameActions": 5
+   },
+   "sites": 5
+  },
+  "CommittedMilestones": {
+   "levels": {
+    "INFO": 1,
+    "VERBOSE": 6,
+    "WARN": 1
+   },
+   "modules": {
+    "GameActions": 8
+   },
+   "sites": 8
+  },
+  "ContractAcceptPatch": {
+   "levels": {
+    "INFO": 3,
+    "VERBOSE": 4,
+    "WARN": 3
+   },
+   "modules": {
+    "Patches": 10
+   },
+   "sites": 10
+  },
+  "ContractCancelPatch": {
+   "levels": {
+    "INFO": 3,
+    "VERBOSE": 5,
+    "WARN": 2
+   },
+   "modules": {
+    "Patches": 10
+   },
+   "sites": 10
+  },
+  "ContractDeclinePatch": {
+   "levels": {
+    "INFO": 2,
+    "VERBOSE": 3,
+    "WARN": 1
+   },
+   "modules": {
+    "Patches": 6
+   },
+   "sites": 6
+  },
+  "ContractEarlyFailPatch": {
+   "levels": {
+    "INFO": 2,
+    "VERBOSE": 2,
+    "WARN": 1
+   },
+   "modules": {
+    "Patches": 5
+   },
+   "sites": 5
+  },
+  "ContractOfferExpiredCapture": {
+   "levels": {
+    "VERBOSE": 1,
+    "WARN": 2
+   },
+   "modules": {
+    "Patches": 3
+   },
+   "sites": 3
+  },
+  "ContractParameterRewardCapture": {
+   "levels": {
+    "INFO": 1,
+    "VERBOSE": 1,
+    "WARN": 4
+   },
+   "modules": {
+    "Patches": 6
+   },
+   "sites": 6
+  },
+  "ContractSlotReservation": {
+   "levels": {
+    "VERBOSE": 5,
+    "WARN": 1
+   },
+   "modules": {
+    "GameActions": 6
+   },
+   "sites": 6
+  },
+  "ContractTwin": {
+   "levels": {
+    "INFO": 4,
+    "VERBOSE": 3,
+    "WARN": 4
+   },
+   "modules": {
+    "GameActions": 7,
+    "Patches": 4
+   },
+   "sites": 11
+  },
+  "Contracts": {
+   "levels": {
+    "INFO": 17,
+    "VERBOSE": 5,
+    "WARN": 2
+   },
+   "modules": {
+    "GameActions": 24
+   },
+   "sites": 24
+  },
+  "ConversionCause": {
+   "levels": {
+    "VERBOSE": 1,
+    "WARN": 4
+   },
+   "modules": {
+    "GameActions": 2,
+    "Patches": 3
+   },
+   "sites": 5
+  },
+  "ConversionLeg": {
+   "levels": {
+    "VERBOSE": 4
+   },
+   "modules": {
+    "GameActions": 4
+   },
+   "sites": 4
+  },
+  "ConverterJumpLab": {
+   "levels": {
+    "INFO": 6,
+    "VERBOSE": 1,
+    "WARN": 2
+   },
+   "modules": {
+    "InGameTests": 9
+   },
+   "sites": 9
+  },
+  "Crew": {
+   "levels": {
+    "INFO": 1
+   },
+   "modules": {
+    "Crew": 1
+   },
+   "sites": 1
+  },
+  "CrewAutoAssign": {
+   "levels": {
+    "INFO": 2,
+    "VERBOSE": 3,
+    "WARN": 2
+   },
+   "modules": {
+    "Patches": 7
+   },
+   "sites": 7
+  },
+  "CrewCount": {
+   "levels": {
+    "VERBOSE": 1,
+    "WARN": 2
+   },
+   "modules": {
+    "Patches": 3
+   },
+   "sites": 3
+  },
+  "CrewDialog": {
+   "levels": {
+    "INFO": 2,
+    "WARN": 7
+   },
+   "modules": {
+    "Patches": 6,
+    "UI": 3
+   },
+   "sites": 9
+  },
+  "CrewInventory": {
+   "levels": {
+    "INFO": 3,
+    "VERBOSE": 4,
+    "WARN": 6
+   },
+   "modules": {
+    "Crew": 13
+   },
+   "sites": 13
+  },
+  "CrewMove": {
+   "levels": {
+    "INFO": 2,
+    "VERBOSE": 1,
+    "WARN": 4
+   },
+   "modules": {
+    "Patches": 4,
+    "UI": 3
+   },
+   "sites": 7
+  },
+  "CrewReservation": {
+   "levels": {
+    "INFO": 6,
+    "VERBOSE": 12,
+    "WARN": 6
+   },
+   "modules": {
+    "Crew": 24
+   },
+   "sites": 24
+  },
+  "CrewReservations": {
+   "levels": {
+    "INFO": 2,
+    "VERBOSE": 2
+   },
+   "modules": {
+    "Crew": 2,
+    "Recording": 2
+   },
+   "sites": 4
+  },
+  "CrewRespawn": {
+   "levels": {
+    "INFO": 1,
+    "VERBOSE": 1,
+    "WARN": 1
+   },
+   "modules": {
+    "Patches": 3
+   },
+   "sites": 3
+  },
+  "CurrencyOverlay": {
+   "levels": {
+    "INFO": 2,
+    "VERBOSE": 4
+   },
+   "modules": {
+    "UI": 6
+   },
+   "sites": 6
+  },
+  "DescentHandoffTest": {
+   "levels": {
+    "INFO": 1,
+    "VERBOSE": 2
+   },
+   "modules": {
+    "InGameTests": 3
+   },
+   "sites": 3
+  },
+  "Diagnostics": {
+   "levels": {
+    "INFO": 1,
+    "VERBOSE": 8,
+    "WARN": 8
+   },
+   "modules": {
+    "Controllers": 2,
+    "Diagnostics": 10,
+    "Recording": 5
+   },
+   "sites": 17
+  },
+  "Disassembly": {
+   "levels": {
+    "WARN": 1
+   },
+   "modules": {
+    "Ghost": 1
+   },
+   "sites": 1
+  },
+  "DiscardEconomyInGame": {
+   "levels": {
+    "INFO": 2,
+    "WARN": 1
+   },
+   "modules": {
+    "InGameTests": 3
+   },
+   "sites": 3
+  },
+  "DiscardReap": {
+   "levels": {
+    "INFO": 2,
+    "WARN": 3
+   },
+   "modules": {
+    "Recording": 5
+   },
+   "sites": 5
+  },
+  "DockGraph": {
+   "levels": {
+    "VERBOSE": 3
+   },
+   "modules": {
+    "Missions": 3
+   },
+   "sites": 3
+  },
+  "DockUndockIntent": {
+   "levels": {
+    "VERBOSE": 3
+   },
+   "modules": {
+    "Patches": 1,
+    "Recording": 2
+   },
+   "sites": 3
+  },
+  "ELS": {
+   "levels": {
+    "VERBOSE": 1
+   },
+   "modules": {
+    "Rewind": 1
+   },
+   "sites": 1
+  },
+  "ERS": {
+   "levels": {
+    "VERBOSE": 2
+   },
+   "modules": {
+    "Rewind": 2
+   },
+   "sites": 2
+  },
+  "EndpointDecision": {
+   "levels": {
+    "VERBOSE": 2
+   },
+   "modules": {
+    "Recording": 2
+   },
+   "sites": 2
+  },
+  "Engine": {
+   "levels": {
+    "INFO": 9,
+    "VERBOSE": 72,
+    "WARN": 4
+   },
+   "modules": {
+    "Controllers": 1,
+    "Ghost": 84
+   },
+   "sites": 85
+  },
+  "EngineFx": {
+   "levels": {
+    "VERBOSE": 12
+   },
+   "modules": {
+    "Ghost": 12
+   },
+   "sites": 12
+  },
+  "Environment": {
+   "levels": {
+    "INFO": 3,
+    "VERBOSE": 1
+   },
+   "modules": {
+    "Recording": 4
+   },
+   "sites": 4
+  },
+  "ExplosionFx": {
+   "levels": {
+    "INFO": 1,
+    "VERBOSE": 10,
+    "WARN": 2
+   },
+   "modules": {
+    "Controllers": 3,
+    "Ghost": 10
+   },
+   "sites": 13
+  },
+  "Extrapolator": {
+   "levels": {
+    "ERROR": 4,
+    "INFO": 12,
+    "VERBOSE": 28,
+    "WARN": 23
+   },
+   "modules": {
+    "Recording": 47,
+    "Trajectory": 20
+   },
+   "sites": 67
+  },
+  "FLIGHT": {
+   "helperSites": 1,
+   "levels": {
+    "VERBOSE": 1
+   },
+   "modules": {
+    "Ghost": 1
+   },
+   "sites": 1
+  },
+  "Facilities": {
+   "levels": {
+    "INFO": 4,
+    "VERBOSE": 1
+   },
+   "modules": {
+    "GameActions": 5
+   },
+   "sites": 5
+  },
+  "FacilityRebuildPatch": {
+   "levels": {
+    "INFO": 1,
+    "VERBOSE": 2,
+    "WARN": 1
+   },
+   "modules": {
+    "Patches": 4
+   },
+   "sites": 4
+  },
+  "FacilityRepairPatch": {
+   "levels": {
+    "INFO": 1,
+    "VERBOSE": 2,
+    "WARN": 1
+   },
+   "modules": {
+    "Patches": 4
+   },
+   "sites": 4
+  },
+  "FacilityUpgradePatch": {
+   "levels": {
+    "INFO": 2,
+    "VERBOSE": 3
+   },
+   "modules": {
+    "Patches": 5
+   },
+   "sites": 5
+  },
+  "FairingGhostVisual": {
+   "levels": {
+    "INFO": 33
+   },
+   "modules": {
+    "InGameTests": 33
+   },
+   "sites": 33
+  },
+  "FastForward": {
+   "levels": {
+    "INFO": 3,
+    "WARN": 1
+   },
+   "modules": {
+    "UI": 4
+   },
+   "sites": 4
+  },
+  "FileCollector": {
+   "levels": {
+    "INFO": 4,
+    "VERBOSE": 19,
+    "WARN": 11
+   },
+   "modules": {
+    "Recording": 34
+   },
+   "sites": 34
+  },
+  "FinalizerCache": {
+   "levels": {
+    "INFO": 3,
+    "VERBOSE": 8,
+    "WARN": 4
+   },
+   "modules": {
+    "Recording": 15
+   },
+   "sites": 15
+  },
+  "FlagReplay": {
+   "levels": {
+    "INFO": 3,
+    "VERBOSE": 10,
+    "WARN": 5
+   },
+   "modules": {
+    "Controllers": 3,
+    "Ghost": 14,
+    "Patches": 1
+   },
+   "sites": 18
+  },
+  "Flight": {
+   "helperSites": 1,
+   "levels": {
+    "ERROR": 3,
+    "INFO": 210,
+    "VERBOSE": 191,
+    "WARN": 119
+   },
+   "modules": {
+    "Controllers": 498,
+    "Ghost": 9,
+    "Logistics": 16
+   },
+   "sites": 523
+  },
+  "ForwardRenderWindow": {
+   "levels": {
+    "VERBOSE": 6
+   },
+   "modules": {
+    "Display": 6
+   },
+   "sites": 6
+  },
+  "FreeTechUnlockCapture": {
+   "levels": {
+    "VERBOSE": 3,
+    "WARN": 2
+   },
+   "modules": {
+    "Patches": 5
+   },
+   "sites": 5
+  },
+  "FreeTechUnlockInGame": {
+   "levels": {
+    "INFO": 1,
+    "VERBOSE": 1
+   },
+   "modules": {
+    "InGameTests": 2
+   },
+   "sites": 2
+  },
+  "Funds": {
+   "levels": {
+    "INFO": 3,
+    "VERBOSE": 24,
+    "WARN": 1
+   },
+   "modules": {
+    "GameActions": 28
+   },
+   "sites": 28
+  },
+  "FxEmissionProbe": {
+   "levels": {
+    "VERBOSE": 2
+   },
+   "modules": {
+    "Ghost": 2
+   },
+   "sites": 2
+  },
+  "FxFingerprint": {
+   "levels": {
+    "VERBOSE": 1
+   },
+   "modules": {
+    "Ghost": 1
+   },
+   "sites": 1
+  },
+  "GameAction": {
+   "levels": {
+    "WARN": 5
+   },
+   "modules": {
+    "GameActions": 5
+   },
+   "sites": 5
+  },
+  "GameModeGate": {
+   "levels": {
+    "INFO": 2
+   },
+   "modules": {
+    "Patches": 2
+   },
+   "sites": 2
+  },
+  "GameStateEvent": {
+   "levels": {
+    "WARN": 5
+   },
+   "modules": {
+    "GameActions": 5
+   },
+   "sites": 5
+  },
+  "GameStateEventConverter": {
+   "levels": {
+    "INFO": 3,
+    "VERBOSE": 13,
+    "WARN": 10
+   },
+   "modules": {
+    "GameActions": 26
+   },
+   "sites": 26
+  },
+  "GameStateRecorder": {
+   "levels": {
+    "INFO": 44,
+    "VERBOSE": 85,
+    "WARN": 27
+   },
+   "modules": {
+    "GameActions": 149,
+    "Patches": 5,
+    "Rewind": 2
+   },
+   "sites": 156
+  },
+  "GameStateStore": {
+   "helperSites": 3,
+   "levels": {
+    "INFO": 18,
+    "VERBOSE": 28,
+    "WARN": 15,
+    "mixed": 3
+   },
+   "modules": {
+    "GameActions": 64
+   },
+   "sites": 64
+  },
+  "Ghost": {
+   "levels": {
+    "VERBOSE": 1
+   },
+   "modules": {
+    "Ghost": 1
+   },
+   "sites": 1
+  },
+  "GhostAppearance": {
+   "levels": {
+    "VERBOSE": 1
+   },
+   "modules": {
+    "Ghost": 1
+   },
+   "sites": 1
+  },
+  "GhostAudio": {
+   "levels": {
+    "VERBOSE": 16,
+    "WARN": 6
+   },
+   "modules": {
+    "Controllers": 4,
+    "Ghost": 18
+   },
+   "sites": 22
+  },
+  "GhostCommNet": {
+   "levels": {
+    "INFO": 12,
+    "VERBOSE": 10,
+    "WARN": 7
+   },
+   "modules": {
+    "Controllers": 2,
+    "Ghost": 27
+   },
+   "sites": 29
+  },
+  "GhostExtend": {
+   "levels": {
+    "VERBOSE": 11,
+    "WARN": 2
+   },
+   "modules": {
+    "Ghost": 13
+   },
+   "sites": 13
+  },
+  "GhostFx": {
+   "levels": {
+    "VERBOSE": 1
+   },
+   "modules": {
+    "Ghost": 1
+   },
+   "sites": 1
+  },
+  "GhostMap": {
+   "helperSites": 1,
+   "levels": {
+    "ERROR": 9,
+    "INFO": 60,
+    "VERBOSE": 153,
+    "WARN": 39
+   },
+   "modules": {
+    "Controllers": 11,
+    "Display": 41,
+    "Ghost": 157,
+    "Patches": 52
+   },
+   "sites": 261
+  },
+  "GhostOrbitArc": {
+   "levels": {
+    "VERBOSE": 2
+   },
+   "modules": {
+    "Patches": 2
+   },
+   "sites": 2
+  },
+  "GhostOrbitIcon": {
+   "levels": {
+    "VERBOSE": 6
+   },
+   "modules": {
+    "Patches": 6
+   },
+   "sites": 6
+  },
+  "GhostOrbitLine": {
+   "levels": {
+    "VERBOSE": 2
+   },
+   "modules": {
+    "Patches": 2
+   },
+   "sites": 2
+  },
+  "GhostPartEvents": {
+   "levels": {
+    "VERBOSE": 3
+   },
+   "modules": {
+    "Ghost": 3
+   },
+   "sites": 3
+  },
+  "GhostRenderTrace": {
+   "levels": {
+    "INFO": 1,
+    "VERBOSE": 3
+   },
+   "modules": {
+    "Controllers": 1,
+    "Ghost": 3
+   },
+   "sites": 4
+  },
+  "GhostVisual": {
+   "levels": {
+    "ERROR": 1,
+    "INFO": 4,
+    "VERBOSE": 106,
+    "WARN": 14
+   },
+   "modules": {
+    "Ghost": 125
+   },
+   "sites": 125
+  },
+  "Ghoster": {
+   "levels": {
+    "ERROR": 6,
+    "INFO": 15,
+    "VERBOSE": 25,
+    "WARN": 13
+   },
+   "modules": {
+    "Controllers": 9,
+    "Ghost": 50
+   },
+   "sites": 59
+  },
+  "GroupHierarchy": {
+   "levels": {
+    "INFO": 11,
+    "VERBOSE": 2,
+    "WARN": 4
+   },
+   "modules": {
+    "Core": 16,
+    "Rewind": 1
+   },
+   "sites": 17
+  },
+  "GuiMock": {
+   "levels": {
+    "ERROR": 15,
+    "INFO": 6,
+    "VERBOSE": 1,
+    "WARN": 13
+   },
+   "modules": {
+    "TestCommands": 31,
+    "UI": 4
+   },
+   "sites": 35
+  },
+  "GuiTree": {
+   "levels": {
+    "ERROR": 4,
+    "INFO": 5,
+    "VERBOSE": 1,
+    "WARN": 8
+   },
+   "modules": {
+    "GuiTree": 13,
+    "Patches": 5
+   },
+   "sites": 18
+  },
+  "Harmony": {
+   "levels": {
+    "ERROR": 1,
+    "INFO": 1,
+    "VERBOSE": 1,
+    "WARN": 1
+   },
+   "modules": {
+    "Controllers": 4
+   },
+   "sites": 4
+  },
+  "HarvestCapScanLedger": {
+   "levels": {
+    "INFO": 3,
+    "WARN": 1
+   },
+   "modules": {
+    "InGameTests": 4
+   },
+   "sites": 4
+  },
+  "InGameTest": {
+   "levels": {
+    "INFO": 14,
+    "VERBOSE": 1
+   },
+   "modules": {
+    "InGameTests": 15
+   },
+   "sites": 15
+  },
+  "IncompleteBallistic": {
+   "levels": {
+    "INFO": 3
+   },
+   "modules": {
+    "InGameTests": 3
+   },
+   "sites": 3
+  },
+  "InertTrees": {
+   "levels": {
+    "INFO": 3,
+    "VERBOSE": 3,
+    "WARN": 2
+   },
+   "modules": {
+    "Rewind": 8
+   },
+   "sites": 8
+  },
+  "Init": {
+   "levels": {
+    "INFO": 3,
+    "VERBOSE": 2,
+    "WARN": 3
+   },
+   "modules": {
+    "Controllers": 7,
+    "LogIO": 1
+   },
+   "sites": 8
+  },
+  "Input": {
+   "levels": {
+    "VERBOSE": 1
+   },
+   "modules": {
+    "Controllers": 1
+   },
+   "sites": 1
+  },
+  "KSC": {
+   "levels": {
+    "INFO": 4,
+    "VERBOSE": 4
+   },
+   "modules": {
+    "Controllers": 8
+   },
+   "sites": 8
+  },
+  "KSCGhost": {
+   "levels": {
+    "INFO": 3,
+    "VERBOSE": 46,
+    "WARN": 2
+   },
+   "modules": {
+    "Controllers": 51
+   },
+   "sites": 51
+  },
+  "KSCSpawn": {
+   "helperSites": 1,
+   "levels": {
+    "ERROR": 1,
+    "INFO": 6,
+    "VERBOSE": 5,
+    "WARN": 6
+   },
+   "modules": {
+    "Controllers": 18
+   },
+   "sites": 18
+  },
+  "KerbalDismissal": {
+   "levels": {
+    "INFO": 2,
+    "VERBOSE": 3,
+    "WARN": 3
+   },
+   "modules": {
+    "Patches": 8
+   },
+   "sites": 8
+  },
+  "KerbalHirePatch": {
+   "levels": {
+    "INFO": 3,
+    "VERBOSE": 3,
+    "WARN": 4
+   },
+   "modules": {
+    "Patches": 10
+   },
+   "sites": 10
+  },
+  "KerbalLoad": {
+   "levels": {
+    "INFO": 2
+   },
+   "modules": {
+    "Crew": 2
+   },
+   "sites": 2
+  },
+  "Kerbals": {
+   "levels": {
+    "VERBOSE": 1
+   },
+   "modules": {
+    "Crew": 1
+   },
+   "sites": 1
+  },
+  "KerbalsModule": {
+   "levels": {
+    "INFO": 27,
+    "VERBOSE": 61,
+    "WARN": 6
+   },
+   "modules": {
+    "Crew": 94
+   },
+   "sites": 94
+  },
+  "KscActionResearchInGame": {
+   "levels": {
+    "INFO": 1
+   },
+   "modules": {
+    "InGameTests": 1
+   },
+   "sites": 1
+  },
+  "KspStatePatcher": {
+   "levels": {
+    "INFO": 34,
+    "VERBOSE": 52,
+    "WARN": 48
+   },
+   "modules": {
+    "GameActions": 134
+   },
+   "sites": 134
+  },
+  "LaunchIdentity": {
+   "levels": {
+    "VERBOSE": 1
+   },
+   "modules": {
+    "Core": 1
+   },
+   "sites": 1
+  },
+  "LaunchReserve": {
+   "levels": {
+    "INFO": 4,
+    "WARN": 6
+   },
+   "modules": {
+    "Patches": 10
+   },
+   "sites": 10
+  },
+  "LaunchSiteGhost": {
+   "levels": {
+    "INFO": 2
+   },
+   "modules": {
+    "Ghost": 2
+   },
+   "sites": 2
+  },
+  "LaunchSiteZones": {
+   "levels": {
+    "INFO": 1,
+    "VERBOSE": 1
+   },
+   "modules": {
+    "Controllers": 2
+   },
+   "sites": 2
+  },
+  "Ledger": {
+   "helperSites": 2,
+   "levels": {
+    "INFO": 15,
+    "VERBOSE": 27,
+    "WARN": 23,
+    "mixed": 2
+   },
+   "modules": {
+    "GameActions": 67
+   },
+   "sites": 67
+  },
+  "LedgerGroundTruth": {
+   "levels": {
+    "INFO": 16,
+    "VERBOSE": 82,
+    "WARN": 2
+   },
+   "modules": {
+    "Harness": 69,
+    "InGameTests": 31
+   },
+   "sites": 100
+  },
+  "LedgerHeldWindow": {
+   "levels": {
+    "INFO": 4,
+    "VERBOSE": 3
+   },
+   "modules": {
+    "Controllers": 1,
+    "GameActions": 6
+   },
+   "sites": 7
+  },
+  "LedgerIdentity": {
+   "levels": {
+    "WARN": 1
+   },
+   "modules": {
+    "GameActions": 1
+   },
+   "sites": 1
+  },
+  "LedgerOrchestrator": {
+   "levels": {
+    "ERROR": 2,
+    "INFO": 59,
+    "VERBOSE": 119,
+    "WARN": 27
+   },
+   "modules": {
+    "Controllers": 3,
+    "GameActions": 204
+   },
+   "sites": 207
+  },
+  "LedgerSwap": {
+   "levels": {
+    "INFO": 14,
+    "VERBOSE": 11,
+    "WARN": 4
+   },
+   "modules": {
+    "Controllers": 2,
+    "Recording": 3,
+    "Rewind": 24
+   },
+   "sites": 29
+  },
+  "LedgerTrace": {
+   "levels": {
+    "INFO": 1,
+    "VERBOSE": 1,
+    "WARN": 1
+   },
+   "modules": {
+    "GameActions": 3
+   },
+   "sites": 3
+  },
+  "LiveOnlyIncome": {
+   "levels": {
+    "INFO": 2,
+    "VERBOSE": 4,
+    "WARN": 1
+   },
+   "modules": {
+    "GameActions": 7
+   },
+   "sites": 7
+  },
+  "LoadPolicy": {
+   "helperSites": 3,
+   "levels": {
+    "ERROR": 1,
+    "INFO": 11,
+    "VERBOSE": 9,
+    "WARN": 5
+   },
+   "modules": {
+    "Controllers": 13,
+    "Logistics": 7,
+    "Rewind": 6
+   },
+   "sites": 26
+  },
+  "LoadSweep": {
+   "levels": {
+    "INFO": 6,
+    "VERBOSE": 5
+   },
+   "modules": {
+    "Rewind": 11
+   },
+   "sites": 11
+  },
+  "Logistics": {
+   "levels": {
+    "INFO": 2,
+    "VERBOSE": 6,
+    "WARN": 2
+   },
+   "modules": {
+    "Logistics": 10
+   },
+   "sites": 10
+  },
+  "Loop": {
+   "levels": {
+    "INFO": 4,
+    "VERBOSE": 16,
+    "WARN": 4
+   },
+   "modules": {
+    "Controllers": 6,
+    "Ghost": 17,
+    "Recording": 1
+   },
+   "sites": 24
+  },
+  "LoopAnchor": {
+   "levels": {
+    "VERBOSE": 2
+   },
+   "modules": {
+    "Ghost": 1,
+    "Recording": 1
+   },
+   "sites": 2
+  },
+  "MapGeometry": {
+   "helperSites": 1,
+   "levels": {
+    "INFO": 1,
+    "mixed": 1
+   },
+   "modules": {
+    "TestCommands": 2
+   },
+   "sites": 2
+  },
+  "MapMarker": {
+   "levels": {
+    "INFO": 4,
+    "VERBOSE": 5,
+    "WARN": 1
+   },
+   "modules": {
+    "Controllers": 10
+   },
+   "sites": 10
+  },
+  "MapPresence": {
+   "levels": {
+    "VERBOSE": 1
+   },
+   "modules": {
+    "Ghost": 1
+   },
+   "sites": 1
+  },
+  "MapRender": {
+   "levels": {
+    "VERBOSE": 14,
+    "WARN": 4
+   },
+   "modules": {
+    "Controllers": 2,
+    "Ghost": 1,
+    "MapRender": 14,
+    "Patches": 1
+   },
+   "sites": 18
+  },
+  "MapRenderCanary": {
+   "levels": {
+    "INFO": 3,
+    "WARN": 3
+   },
+   "modules": {
+    "InGameTests": 6
+   },
+   "sites": 6
+  },
+  "MapRenderTrace": {
+   "levels": {
+    "INFO": 1,
+    "VERBOSE": 7
+   },
+   "modules": {
+    "MapRender": 8
+   },
+   "sites": 8
+  },
+  "MapTraj": {
+   "levels": {
+    "VERBOSE": 1
+   },
+   "modules": {
+    "Ghost": 1
+   },
+   "sites": 1
+  },
+  "MergeDialog": {
+   "levels": {
+    "ERROR": 4,
+    "INFO": 33,
+    "VERBOSE": 23,
+    "WARN": 32
+   },
+   "modules": {
+    "Rewind": 92
+   },
+   "sites": 92
+  },
+  "MergeJournal": {
+   "levels": {
+    "INFO": 11,
+    "VERBOSE": 9,
+    "WARN": 15
+   },
+   "modules": {
+    "Controllers": 2,
+    "Recording": 1,
+    "Rewind": 32
+   },
+   "sites": 35
+  },
+  "Merger": {
+   "levels": {
+    "INFO": 5,
+    "VERBOSE": 12,
+    "WARN": 4
+   },
+   "modules": {
+    "Recording": 21
+   },
+   "sites": 21
+  },
+  "MilestoneStore": {
+   "helperSites": 2,
+   "levels": {
+    "INFO": 10,
+    "VERBOSE": 19,
+    "WARN": 8,
+    "mixed": 2
+   },
+   "modules": {
+    "Core": 39
+   },
+   "sites": 39
+  },
+  "Milestones": {
+   "levels": {
+    "INFO": 1,
+    "VERBOSE": 10
+   },
+   "modules": {
+    "GameActions": 11
+   },
+   "sites": 11
+  },
+  "Mission": {
+   "levels": {
+    "INFO": 30,
+    "VERBOSE": 42,
+    "WARN": 12
+   },
+   "modules": {
+    "Controllers": 3,
+    "Ghost": 1,
+    "Missions": 49,
+    "UI": 31
+   },
+   "sites": 84
+  },
+  "MissionLoopFirstRun": {
+   "levels": {
+    "INFO": 1
+   },
+   "modules": {
+    "Missions": 1
+   },
+   "sites": 1
+  },
+  "MissionPeriodicity": {
+   "levels": {
+    "INFO": 3,
+    "VERBOSE": 11,
+    "WARN": 3
+   },
+   "modules": {
+    "Ghost": 1,
+    "Missions": 15,
+    "UI": 1
+   },
+   "sites": 17
+  },
+  "Optimizer": {
+   "levels": {
+    "INFO": 8,
+    "VERBOSE": 43,
+    "WARN": 10
+   },
+   "modules": {
+    "Recording": 61
+   },
+   "sites": 61
+  },
+  "OrbitReseed": {
+   "levels": {
+    "VERBOSE": 7
+   },
+   "modules": {
+    "Trajectory": 7
+   },
+   "sites": 7
+  },
+  "PartPuffFx": {
+   "levels": {
+    "WARN": 1
+   },
+   "modules": {
+    "Ghost": 1
+   },
+   "sites": 1
+  },
+  "PartPurchasePatch": {
+   "levels": {
+    "INFO": 6,
+    "VERBOSE": 5
+   },
+   "modules": {
+    "UI": 11
+   },
+   "sites": 11
+  },
+  "PatchedSnapshot": {
+   "levels": {
+    "ERROR": 2,
+    "INFO": 2,
+    "VERBOSE": 5,
+    "WARN": 4
+   },
+   "modules": {
+    "Recording": 2,
+    "Trajectory": 11
+   },
+   "sites": 13
+  },
+  "Paths": {
+   "levels": {
+    "ERROR": 4,
+    "INFO": 1,
+    "VERBOSE": 2,
+    "WARN": 2
+   },
+   "modules": {
+    "Recording": 9
+   },
+   "sites": 9
+  },
+  "PauseMenuGate": {
+   "levels": {
+    "VERBOSE": 1
+   },
+   "modules": {
+    "Controllers": 1
+   },
+   "sites": 1
+  },
+  "PhysicsPatch": {
+   "levels": {
+    "INFO": 4,
+    "VERBOSE": 2
+   },
+   "modules": {
+    "Patches": 6
+   },
+   "sites": 6
+  },
+  "Pipeline-Anchor": {
+   "levels": {
+    "INFO": 5,
+    "VERBOSE": 21,
+    "WARN": 8
+   },
+   "modules": {
+    "InGameTests": 4,
+    "Rendering": 30
+   },
+   "sites": 34
+  },
+  "Pipeline-AnchorPropagate": {
+   "levels": {
+    "INFO": 3,
+    "VERBOSE": 5,
+    "WARN": 4
+   },
+   "modules": {
+    "InGameTests": 1,
+    "Rendering": 11
+   },
+   "sites": 12
+  },
+  "Pipeline-Format": {
+   "levels": {
+    "INFO": 1
+   },
+   "modules": {
+    "Rendering": 1
+   },
+   "sites": 1
+  },
+  "Pipeline-Frame": {
+   "helperSites": 1,
+   "levels": {
+    "INFO": 2,
+    "VERBOSE": 2,
+    "WARN": 4
+   },
+   "modules": {
+    "InGameTests": 1,
+    "Rendering": 4,
+    "Trajectory": 3
+   },
+   "sites": 8
+  },
+  "Pipeline-Lerp": {
+   "levels": {
+    "VERBOSE": 2,
+    "WARN": 2
+   },
+   "modules": {
+    "Rendering": 4
+   },
+   "sites": 4
+  },
+  "Pipeline-Outlier": {
+   "helperSites": 1,
+   "levels": {
+    "INFO": 3,
+    "VERBOSE": 3,
+    "WARN": 1
+   },
+   "modules": {
+    "InGameTests": 1,
+    "Rendering": 6
+   },
+   "sites": 7
+  },
+  "Pipeline-Session": {
+   "levels": {
+    "INFO": 6,
+    "WARN": 3
+   },
+   "modules": {
+    "Controllers": 1,
+    "Rendering": 7,
+    "Rewind": 1
+   },
+   "sites": 9
+  },
+  "Pipeline-Sidecar": {
+   "helperSites": 1,
+   "levels": {
+    "INFO": 4,
+    "VERBOSE": 2,
+    "WARN": 3,
+    "mixed": 1
+   },
+   "modules": {
+    "Recording": 1,
+    "Rendering": 9
+   },
+   "sites": 10
+  },
+  "Pipeline-Smoothing": {
+   "levels": {
+    "INFO": 7,
+    "VERBOSE": 20,
+    "WARN": 2
+   },
+   "modules": {
+    "Controllers": 1,
+    "InGameTests": 4,
+    "Recording": 11,
+    "Rendering": 12,
+    "Trajectory": 1
+   },
+   "sites": 29
+  },
+  "Pipeline-Terrain": {
+   "levels": {
+    "INFO": 1,
+    "VERBOSE": 10,
+    "WARN": 1
+   },
+   "modules": {
+    "Controllers": 4,
+    "InGameTests": 1,
+    "Recording": 2,
+    "Rendering": 5
+   },
+   "sites": 12
+  },
+  "Playback": {
+   "levels": {
+    "INFO": 3,
+    "VERBOSE": 15,
+    "WARN": 4
+   },
+   "modules": {
+    "Controllers": 22
+   },
+   "sites": 22
+  },
+  "PlaybackScope": {
+   "levels": {
+    "INFO": 4,
+    "VERBOSE": 1
+   },
+   "modules": {
+    "Controllers": 1,
+    "Ghost": 4
+   },
+   "sites": 5
+  },
+  "PlaybackTrace": {
+   "levels": {
+    "INFO": 1
+   },
+   "modules": {
+    "Ghost": 1
+   },
+   "sites": 1
+  },
+  "Policy": {
+   "helperSites": 1,
+   "levels": {
+    "INFO": 38,
+    "VERBOSE": 28,
+    "WARN": 7
+   },
+   "modules": {
+    "Controllers": 57,
+    "Ghost": 16
+   },
+   "sites": 73
+  },
+  "PostFlightDialog": {
+   "levels": {
+    "INFO": 5,
+    "VERBOSE": 2
+   },
+   "modules": {
+    "Patches": 7
+   },
+   "sites": 7
+  },
+  "ProgressRewardPatch": {
+   "levels": {
+    "VERBOSE": 2,
+    "WARN": 2
+   },
+   "modules": {
+    "Patches": 4
+   },
+   "sites": 4
+  },
+  "Quicksave": {
+   "levels": {
+    "INFO": 2,
+    "VERBOSE": 6,
+    "WARN": 4
+   },
+   "modules": {
+    "Recording": 12
+   },
+   "sites": 12
+  },
+  "ReFlySession": {
+   "levels": {
+    "ERROR": 3,
+    "INFO": 40,
+    "VERBOSE": 24,
+    "WARN": 20
+   },
+   "modules": {
+    "Controllers": 10,
+    "Crew": 1,
+    "Patches": 1,
+    "Recording": 1,
+    "Rewind": 74
+   },
+   "sites": 87
+  },
+  "ReFlySettle": {
+   "levels": {
+    "INFO": 3,
+    "VERBOSE": 3,
+    "WARN": 1
+   },
+   "modules": {
+    "Controllers": 3,
+    "Patches": 1,
+    "Rewind": 3
+   },
+   "sites": 7
+  },
+  "ReFlyWorldPreservation": {
+   "levels": {
+    "INFO": 5,
+    "VERBOSE": 1
+   },
+   "modules": {
+    "InGameTests": 6
+   },
+   "sites": 6
+  },
+  "ReStockCompat": {
+   "levels": {
+    "INFO": 3,
+    "WARN": 4
+   },
+   "modules": {
+    "Ghost": 6,
+    "InGameTests": 1
+   },
+   "sites": 7
+  },
+  "Reaim": {
+   "levels": {
+    "INFO": 13,
+    "VERBOSE": 16,
+    "WARN": 3
+   },
+   "modules": {
+    "Controllers": 2,
+    "Ghost": 7,
+    "InGameTests": 3,
+    "Missions": 13,
+    "Reaim": 7
+   },
+   "sites": 32
+  },
+  "ReaimArrival": {
+   "levels": {
+    "VERBOSE": 4
+   },
+   "modules": {
+    "Reaim": 4
+   },
+   "sites": 4
+  },
+  "ReaimCanary": {
+   "levels": {
+    "INFO": 1
+   },
+   "modules": {
+    "InGameTests": 1
+   },
+   "sites": 1
+  },
+  "ReaimDescent": {
+   "levels": {
+    "INFO": 4,
+    "VERBOSE": 7,
+    "WARN": 4
+   },
+   "modules": {
+    "Ghost": 6,
+    "Missions": 5,
+    "Reaim": 4
+   },
+   "sites": 15
+  },
+  "ReaimDiag": {
+   "levels": {
+    "VERBOSE": 4
+   },
+   "modules": {
+    "Missions": 4
+   },
+   "sites": 4
+  },
+  "ReaimE2E": {
+   "levels": {
+    "INFO": 15,
+    "VERBOSE": 1,
+    "WARN": 2
+   },
+   "modules": {
+    "InGameTests": 18
+   },
+   "sites": 18
+  },
+  "ReaimPlayback": {
+   "levels": {
+    "VERBOSE": 4,
+    "WARN": 5
+   },
+   "modules": {
+    "Reaim": 9
+   },
+   "sites": 9
+  },
+  "ReaimSeam": {
+   "levels": {
+    "VERBOSE": 7
+   },
+   "modules": {
+    "Controllers": 2,
+    "Ghost": 2,
+    "Reaim": 3
+   },
+   "sites": 7
+  },
+  "RealSaveMissionFinder": {
+   "levels": {
+    "INFO": 1
+   },
+   "modules": {
+    "InGameTests": 1
+   },
+   "sites": 1
+  },
+  "RealSaveMissionTest": {
+   "levels": {
+    "INFO": 4
+   },
+   "modules": {
+    "InGameTests": 4
+   },
+   "sites": 4
+  },
+  "RecState": {
+   "levels": {
+    "INFO": 2
+   },
+   "modules": {
+    "Recording": 2
+   },
+   "sites": 2
+  },
+  "RecalcEngine": {
+   "levels": {
+    "INFO": 1,
+    "VERBOSE": 16,
+    "WARN": 4
+   },
+   "modules": {
+    "GameActions": 21
+   },
+   "sites": 21
+  },
+  "ReconciliationBundle": {
+   "helperSites": 2,
+   "levels": {
+    "INFO": 6,
+    "mixed": 1
+   },
+   "modules": {
+    "Rewind": 7
+   },
+   "sites": 7
+  },
+  "Recorder": {
+   "helperSites": 7,
+   "levels": {
+    "ERROR": 3,
+    "INFO": 59,
+    "VERBOSE": 168,
+    "WARN": 27,
+    "mixed": 4
+   },
+   "modules": {
+    "Controllers": 2,
+    "Logistics": 17,
+    "Patches": 3,
+    "Recording": 239
+   },
+   "sites": 261
+  },
+  "Recording": {
+   "levels": {
+    "INFO": 2,
+    "VERBOSE": 1,
+    "WARN": 3
+   },
+   "modules": {
+    "Recording": 5,
+    "Rewind": 1
+   },
+   "sites": 6
+  },
+  "RecordingInvariants": {
+   "levels": {
+    "INFO": 3,
+    "WARN": 3
+   },
+   "modules": {
+    "InGameTests": 6
+   },
+   "sites": 6
+  },
+  "RecordingStore": {
+   "helperSites": 3,
+   "levels": {
+    "ERROR": 7,
+    "INFO": 50,
+    "VERBOSE": 76,
+    "WARN": 79,
+    "mixed": 3
+   },
+   "modules": {
+    "Logistics": 3,
+    "Recording": 210,
+    "Rewind": 2
+   },
+   "sites": 215
+  },
+  "RecordingTree": {
+   "levels": {
+    "INFO": 2,
+    "VERBOSE": 11,
+    "WARN": 6
+   },
+   "modules": {
+    "Recording": 19
+   },
+   "sites": 19
+  },
+  "Recovery": {
+   "levels": {
+    "INFO": 9,
+    "VERBOSE": 2
+   },
+   "modules": {
+    "Controllers": 11
+   },
+   "sites": 11
+  },
+  "RecoveryBundleTest": {
+   "levels": {
+    "INFO": 2
+   },
+   "modules": {
+    "InGameTests": 2
+   },
+   "sites": 2
+  },
+  "RecoveryPayoutContext": {
+   "levels": {
+    "VERBOSE": 1
+   },
+   "modules": {
+    "GameActions": 1
+   },
+   "sites": 1
+  },
+  "RecoveryScope": {
+   "levels": {
+    "INFO": 1,
+    "VERBOSE": 4,
+    "WARN": 2
+   },
+   "modules": {
+    "GameActions": 5,
+    "Patches": 2
+   },
+   "sites": 7
+  },
+  "ReentryFx": {
+   "levels": {
+    "INFO": 1,
+    "VERBOSE": 10,
+    "WARN": 1
+   },
+   "modules": {
+    "Controllers": 1,
+    "Ghost": 10,
+    "InGameTests": 1
+   },
+   "sites": 12
+  },
+  "RelativeAnchorResolver": {
+   "levels": {
+    "VERBOSE": 5,
+    "WARN": 1
+   },
+   "modules": {
+    "Recording": 6
+   },
+   "sites": 6
+  },
+  "RenderManifest": {
+   "helperSites": 1,
+   "levels": {
+    "INFO": 5,
+    "VERBOSE": 2,
+    "WARN": 2,
+    "mixed": 1
+   },
+   "modules": {
+    "MapRender": 10
+   },
+   "sites": 10
+  },
+  "Reputation": {
+   "levels": {
+    "INFO": 1,
+    "VERBOSE": 17
+   },
+   "modules": {
+    "GameActions": 18
+   },
+   "sites": 18
+  },
+  "ResourceScanCapture": {
+   "levels": {
+    "VERBOSE": 6,
+    "WARN": 6
+   },
+   "modules": {
+    "Patches": 12
+   },
+   "sites": 12
+  },
+  "RevertDetector": {
+   "levels": {
+    "INFO": 6,
+    "WARN": 2
+   },
+   "modules": {
+    "Rewind": 8
+   },
+   "sites": 8
+  },
+  "RevertInterceptor": {
+   "levels": {
+    "ERROR": 1,
+    "INFO": 1,
+    "VERBOSE": 1,
+    "WARN": 2
+   },
+   "modules": {
+    "Rewind": 5
+   },
+   "sites": 5
+  },
+  "Rewind": {
+   "helperSites": 3,
+   "levels": {
+    "ERROR": 26,
+    "INFO": 101,
+    "VERBOSE": 64,
+    "WARN": 71,
+    "mixed": 1
+   },
+   "modules": {
+    "Controllers": 41,
+    "Ghost": 2,
+    "InGameTests": 3,
+    "Logistics": 7,
+    "Recording": 23,
+    "Rewind": 185,
+    "UI": 2
+   },
+   "sites": 263
+  },
+  "RewindContext": {
+   "levels": {
+    "INFO": 4,
+    "VERBOSE": 6,
+    "WARN": 1
+   },
+   "modules": {
+    "Rewind": 11
+   },
+   "sites": 11
+  },
+  "RewindHold": {
+   "levels": {
+    "INFO": 4,
+    "VERBOSE": 1,
+    "WARN": 2
+   },
+   "modules": {
+    "Controllers": 5,
+    "Rewind": 2
+   },
+   "sites": 7
+  },
+  "RewindReadback": {
+   "levels": {
+    "INFO": 1,
+    "VERBOSE": 3,
+    "WARN": 1
+   },
+   "modules": {
+    "GameActions": 4,
+    "Rewind": 1
+   },
+   "sites": 5
+  },
+  "RewindSave": {
+   "helperSites": 2,
+   "levels": {
+    "ERROR": 11,
+    "INFO": 8,
+    "VERBOSE": 2,
+    "WARN": 15,
+    "mixed": 2
+   },
+   "modules": {
+    "Rewind": 38
+   },
+   "sites": 38
+  },
+  "RewindTest": {
+   "levels": {
+    "ERROR": 2,
+    "INFO": 52,
+    "WARN": 1
+   },
+   "modules": {
+    "InGameTests": 55
+   },
+   "sites": 55
+  },
+  "RewindUI": {
+   "levels": {
+    "ERROR": 5,
+    "INFO": 3,
+    "VERBOSE": 5,
+    "WARN": 6
+   },
+   "modules": {
+    "Rewind": 15,
+    "UI": 4
+   },
+   "sites": 19
+  },
+  "Route": {
+   "helperSites": 1,
+   "levels": {
+    "ERROR": 2,
+    "INFO": 115,
+    "VERBOSE": 153,
+    "WARN": 67
+   },
+   "modules": {
+    "Controllers": 4,
+    "InGameTests": 1,
+    "Logistics": 332
+   },
+   "sites": 337
+  },
+  "RouteEventLog": {
+   "levels": {
+    "INFO": 3,
+    "VERBOSE": 7,
+    "WARN": 5
+   },
+   "modules": {
+    "Logistics": 15
+   },
+   "sites": 15
+  },
+  "RouteGhost": {
+   "levels": {
+    "VERBOSE": 1
+   },
+   "modules": {
+    "Logistics": 1
+   },
+   "sites": 1
+  },
+  "RouteGuard": {
+   "levels": {
+    "INFO": 7,
+    "VERBOSE": 4
+   },
+   "modules": {
+    "Controllers": 1,
+    "Logistics": 5,
+    "UI": 5
+   },
+   "sites": 11
+  },
+  "RouteLine": {
+   "levels": {
+    "VERBOSE": 9
+   },
+   "modules": {
+    "Display": 9
+   },
+   "sites": 9
+  },
+  "SafeWrite": {
+   "levels": {
+    "INFO": 2,
+    "WARN": 1
+   },
+   "modules": {
+    "LogIO": 3
+   },
+   "sites": 3
+  },
+  "SaveFormat": {
+   "levels": {
+    "INFO": 4,
+    "VERBOSE": 2,
+    "WARN": 2
+   },
+   "modules": {
+    "Recording": 8
+   },
+   "sites": 8
+  },
+  "Scenario": {
+   "levels": {
+    "ERROR": 5,
+    "INFO": 95,
+    "VERBOSE": 56,
+    "WARN": 56
+   },
+   "modules": {
+    "Controllers": 212
+   },
+   "sites": 212
+  },
+  "SceneExit": {
+   "levels": {
+    "ERROR": 2,
+    "INFO": 26,
+    "VERBOSE": 3,
+    "WARN": 11
+   },
+   "modules": {
+    "Controllers": 8,
+    "Rewind": 34
+   },
+   "sites": 42
+  },
+  "ScienceLabCapture": {
+   "levels": {
+    "VERBOSE": 1,
+    "WARN": 3
+   },
+   "modules": {
+    "Patches": 4
+   },
+   "sites": 4
+  },
+  "ScienceModule": {
+   "levels": {
+    "INFO": 7,
+    "VERBOSE": 29,
+    "WARN": 1
+   },
+   "modules": {
+    "GameActions": 37
+   },
+   "sites": 37
+  },
+  "SciencePatch": {
+   "levels": {
+    "VERBOSE": 1
+   },
+   "modules": {
+    "Patches": 1
+   },
+   "sites": 1
+  },
+  "SeamMarker": {
+   "levels": {
+    "VERBOSE": 5,
+    "WARN": 1
+   },
+   "modules": {
+    "Controllers": 3,
+    "Ghost": 3
+   },
+   "sites": 6
+  },
+  "Settings": {
+   "levels": {
+    "INFO": 1,
+    "VERBOSE": 1,
+    "WARN": 1
+   },
+   "modules": {
+    "Config": 2,
+    "Controllers": 1
+   },
+   "sites": 3
+  },
+  "SettingsStore": {
+   "helperSites": 2,
+   "levels": {
+    "INFO": 10,
+    "VERBOSE": 14,
+    "WARN": 7,
+    "mixed": 2
+   },
+   "modules": {
+    "Config": 33
+   },
+   "sites": 33
+  },
+  "Snapshot": {
+   "levels": {
+    "VERBOSE": 1,
+    "WARN": 1
+   },
+   "modules": {
+    "Ghost": 2
+   },
+   "sites": 2
+  },
+  "SnapshotSidecarTest": {
+   "levels": {
+    "INFO": 2,
+    "WARN": 2
+   },
+   "modules": {
+    "InGameTests": 4
+   },
+   "sites": 4
+  },
+  "SoiCrossPlay": {
+   "levels": {
+    "INFO": 3
+   },
+   "modules": {
+    "InGameTests": 3
+   },
+   "sites": 3
+  },
+  "SpawnCollision": {
+   "levels": {
+    "INFO": 8,
+    "VERBOSE": 23,
+    "WARN": 7
+   },
+   "modules": {
+    "Controllers": 1,
+    "Ghost": 37
+   },
+   "sites": 38
+  },
+  "SpawnWarning": {
+   "levels": {
+    "VERBOSE": 3
+   },
+   "modules": {
+    "Ghost": 3
+   },
+   "sites": 3
+  },
+  "Spawner": {
+   "levels": {
+    "ERROR": 14,
+    "INFO": 47,
+    "VERBOSE": 73,
+    "WARN": 40
+   },
+   "modules": {
+    "Controllers": 130,
+    "Core": 18,
+    "Ghost": 2,
+    "Recording": 24
+   },
+   "sites": 174
+  },
+  "SplitParentLinks": {
+   "levels": {
+    "INFO": 3,
+    "VERBOSE": 6
+   },
+   "modules": {
+    "Rewind": 9
+   },
+   "sites": 9
+  },
+  "Splitter": {
+   "levels": {
+    "INFO": 6,
+    "VERBOSE": 9,
+    "WARN": 10
+   },
+   "modules": {
+    "Rewind": 25
+   },
+   "sites": 25
+  },
+  "StockPoolReference": {
+   "levels": {
+    "INFO": 8,
+    "VERBOSE": 3,
+    "WARN": 3
+   },
+   "modules": {
+    "Controllers": 1,
+    "GameActions": 13
+   },
+   "sites": 14
+  },
+  "StockUiOverlay": {
+   "levels": {
+    "INFO": 12,
+    "VERBOSE": 74,
+    "WARN": 77
+   },
+   "modules": {
+    "Missions": 23,
+    "Patches": 57,
+    "TestCommands": 4,
+    "UI": 79
+   },
+   "sites": 163
+  },
+  "StockWarpLimits": {
+   "levels": {
+    "INFO": 1,
+    "VERBOSE": 3,
+    "WARN": 2
+   },
+   "modules": {
+    "Recording": 6
+   },
+   "sites": 6
+  },
+  "StorageTest": {
+   "levels": {
+    "INFO": 3
+   },
+   "modules": {
+    "InGameTests": 3
+   },
+   "sites": 3
+  },
+  "Strategies": {
+   "levels": {
+    "INFO": 2,
+    "VERBOSE": 3,
+    "WARN": 2
+   },
+   "modules": {
+    "GameActions": 7
+   },
+   "sites": 7
+  },
+  "StrategyConversion": {
+   "levels": {
+    "VERBOSE": 1
+   },
+   "modules": {
+    "GameActions": 1
+   },
+   "sites": 1
+  },
+  "StrategyLifecyclePatch": {
+   "levels": {
+    "VERBOSE": 6,
+    "WARN": 2
+   },
+   "modules": {
+    "Patches": 8
+   },
+   "sites": 8
+  },
+  "StrategyReservation": {
+   "levels": {
+    "INFO": 7,
+    "VERBOSE": 12,
+    "WARN": 23
+   },
+   "modules": {
+    "Patches": 39,
+    "UI": 3
+   },
+   "sites": 42
+  },
+  "Supersede": {
+   "levels": {
+    "ERROR": 2,
+    "INFO": 18,
+    "VERBOSE": 18,
+    "WARN": 22
+   },
+   "modules": {
+    "Controllers": 2,
+    "Recording": 2,
+    "Rewind": 56
+   },
+   "sites": 60
+  },
+  "SwitchIntent": {
+   "levels": {
+    "INFO": 8,
+    "VERBOSE": 2
+   },
+   "modules": {
+    "Controllers": 10
+   },
+   "sites": 10
+  },
+  "SwitchIntentPatch": {
+   "levels": {
+    "ERROR": 7,
+    "INFO": 22,
+    "VERBOSE": 9,
+    "WARN": 25
+   },
+   "modules": {
+    "Ghost": 3,
+    "Patches": 51,
+    "Rewind": 9
+   },
+   "sites": 63
+  },
+  "SwitchSegment": {
+   "levels": {
+    "INFO": 22,
+    "VERBOSE": 24,
+    "WARN": 21
+   },
+   "modules": {
+    "Controllers": 39,
+    "Rewind": 8,
+    "SwitchIntent": 20
+   },
+   "sites": 67
+  },
+  "SwitchSegmentResolver": {
+   "levels": {
+    "INFO": 2,
+    "VERBOSE": 1,
+    "WARN": 2
+   },
+   "modules": {
+    "SwitchIntent": 5
+   },
+   "sites": 5
+  },
+  "TS": {
+   "helperSites": 1,
+   "levels": {
+    "VERBOSE": 1
+   },
+   "modules": {
+    "Ghost": 1
+   },
+   "sites": 1
+  },
+  "TakeBack": {
+   "levels": {
+    "INFO": 2,
+    "VERBOSE": 2,
+    "WARN": 6
+   },
+   "modules": {
+    "GameActions": 10
+   },
+   "sites": 10
+  },
+  "TechResearchPatch": {
+   "levels": {
+    "INFO": 2,
+    "VERBOSE": 3
+   },
+   "modules": {
+    "Patches": 5
+   },
+   "sites": 5
+  },
+  "TerrainCorrect": {
+   "levels": {
+    "INFO": 1,
+    "VERBOSE": 11,
+    "WARN": 4
+   },
+   "modules": {
+    "Controllers": 11,
+    "Ghost": 5
+   },
+   "sites": 16
+  },
+  "Test": {
+   "helperSites": 4,
+   "levels": {
+    "ERROR": 1,
+    "INFO": 1,
+    "VERBOSE": 8,
+    "WARN": 2
+   },
+   "modules": {
+    "InGameTests": 12
+   },
+   "sites": 12
+  },
+  "TestBatch": {
+   "helperSites": 1,
+   "levels": {
+    "INFO": 8,
+    "VERBOSE": 1,
+    "WARN": 13,
+    "mixed": 1
+   },
+   "modules": {
+    "Controllers": 23
+   },
+   "sites": 23
+  },
+  "TestCommands": {
+   "levels": {
+    "ERROR": 145,
+    "INFO": 350,
+    "VERBOSE": 35,
+    "WARN": 353
+   },
+   "modules": {
+    "TestCommands": 883
+   },
+   "sites": 883
+  },
+  "TestHelper": {
+   "helperSites": 1,
+   "levels": {
+    "INFO": 10,
+    "VERBOSE": 7,
+    "WARN": 16,
+    "mixed": 1
+   },
+   "modules": {
+    "InGameTests": 34
+   },
+   "sites": 34
+  },
+  "TestRunner": {
+   "helperSites": 2,
+   "levels": {
+    "ERROR": 12,
+    "INFO": 414,
+    "VERBOSE": 233,
+    "WARN": 185,
+    "mixed": 2
+   },
+   "modules": {
+    "InGameTests": 845,
+    "TestCommands": 1
+   },
+   "sites": 846
+  },
+  "TestSub": {
+   "levels": {
+    "ERROR": 2,
+    "INFO": 1,
+    "VERBOSE": 1,
+    "WARN": 1
+   },
+   "modules": {
+    "InGameTests": 5
+   },
+   "sites": 5
+  },
+  "TimeJump": {
+   "levels": {
+    "ERROR": 3,
+    "INFO": 26,
+    "VERBOSE": 25,
+    "WARN": 16
+   },
+   "modules": {
+    "Controllers": 70
+   },
+   "sites": 70
+  },
+  "Timeline": {
+   "levels": {
+    "VERBOSE": 29,
+    "WARN": 2
+   },
+   "modules": {
+    "Timeline": 19,
+    "UI": 12
+   },
+   "sites": 31
+  },
+  "TimelineProjection": {
+   "levels": {
+    "INFO": 1
+   },
+   "modules": {
+    "InGameTests": 1
+   },
+   "sites": 1
+  },
+  "Toolbar": {
+   "levels": {
+    "ERROR": 1,
+    "INFO": 1,
+    "WARN": 1
+   },
+   "modules": {
+    "UI": 3
+   },
+   "sites": 3
+  },
+  "Trace-Sep": {
+   "levels": {
+    "INFO": 9
+   },
+   "modules": {
+    "Recording": 9
+   },
+   "sites": 9
+  },
+  "TrackingStation": {
+   "levels": {
+    "INFO": 14,
+    "VERBOSE": 18,
+    "WARN": 12
+   },
+   "modules": {
+    "Controllers": 44
+   },
+   "sites": 44
+  },
+  "TrajectoryMath": {
+   "levels": {
+    "VERBOSE": 12
+   },
+   "modules": {
+    "Recording": 2,
+    "Trajectory": 10
+   },
+   "sites": 12
+  },
+  "TreeDestruction": {
+   "levels": {
+    "VERBOSE": 1
+   },
+   "modules": {
+    "Recording": 1
+   },
+   "sites": 1
+  },
+  "UI": {
+   "levels": {
+    "INFO": 114,
+    "VERBOSE": 163,
+    "WARN": 20
+   },
+   "modules": {
+    "Config": 1,
+    "Controllers": 1,
+    "Missions": 1,
+    "UI": 294
+   },
+   "sites": 297
+  },
+  "UIScale": {
+   "levels": {
+    "INFO": 1,
+    "VERBOSE": 5
+   },
+   "modules": {
+    "UI": 6
+   },
+   "sites": 6
+  },
+  "UnfinishedFlights": {
+   "levels": {
+    "ERROR": 7,
+    "INFO": 9,
+    "VERBOSE": 21,
+    "WARN": 9
+   },
+   "modules": {
+    "Recording": 7,
+    "Rewind": 29,
+    "UI": 10
+   },
+   "sites": 46
+  },
+  "UnfinishedFlightsTest": {
+   "levels": {
+    "INFO": 3
+   },
+   "modules": {
+    "InGameTests": 3
+   },
+   "sites": 3
+  },
+  "VesselNames": {
+   "levels": {
+    "INFO": 19,
+    "VERBOSE": 27,
+    "WARN": 32
+   },
+   "modules": {
+    "Ghost": 2,
+    "Missions": 74,
+    "Patches": 2
+   },
+   "sites": 78
+  },
+  "Visual": {
+   "levels": {
+    "VERBOSE": 3
+   },
+   "modules": {
+    "Ghost": 3
+   },
+   "sites": 3
+  },
+  "WarpFacilities": {
+   "levels": {
+    "INFO": 2,
+    "VERBOSE": 1
+   },
+   "modules": {
+    "Controllers": 3
+   },
+   "sites": 3
+  },
+  "WarpTime": {
+   "levels": {
+    "ERROR": 3,
+    "INFO": 19,
+    "VERBOSE": 10,
+    "WARN": 5
+   },
+   "modules": {
+    "Controllers": 33,
+    "UI": 4
+   },
+   "sites": 37
+  },
+  "Watch": {
+   "levels": {
+    "INFO": 1,
+    "VERBOSE": 3
+   },
+   "modules": {
+    "Controllers": 2,
+    "Ghost": 2
+   },
+   "sites": 4
+  },
+  "WatchTest": {
+   "levels": {
+    "INFO": 3
+   },
+   "modules": {
+    "InGameTests": 3
+   },
+   "sites": 3
+  },
+  "WaterfallCompat": {
+   "levels": {
+    "INFO": 3,
+    "VERBOSE": 4,
+    "WARN": 4
+   },
+   "modules": {
+    "Ghost": 10,
+    "InGameTests": 1
+   },
+   "sites": 11
+  },
+  "Zone": {
+   "levels": {
+    "INFO": 1,
+    "VERBOSE": 12
+   },
+   "modules": {
+    "Controllers": 7,
+    "Ghost": 6
+   },
+   "sites": 13
+  }
+ },
+ "totals": {
+  "forwarders": 46,
+  "nonLiteralSites": 13,
+  "sites": 9294,
+  "tags": 284
+ }
+}

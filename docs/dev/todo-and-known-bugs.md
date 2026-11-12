@@ -2813,6 +2813,30 @@ compare).
   after one inherits the dead file's commits; a late commit on a name renamed twice is dropped;
   growth below the cap still double-counts work done on two branches. README -> "Change
   history".
+- 2026-11-12 (run index and lane health, A7 + A8): `harness/tools/run_index.py` (pure
+  `harness/lib/runindex.py`) indexes the results archive, one JSON line per run attempt in
+  `<archive>/index.jsonl` (`parsek-run-index/1`, deterministic, no paths, about 460 to 730 bytes a
+  row), appended by `run.py` right after it archives a scenario (verdict-neutral, one Warn on
+  failure, off with `PARSEK_HARNESS_NO_ARCHIVE`); answers per lane (last run and last PASS with
+  commit and DLL, 30/90-day counts, flake rate, wall p50/p90), a summary, a lane table, a trend
+  and a report-only `health-regressions`; and moves the index through a git branch with plumbing
+  only (`publish` / `fetch`, `--branch` required, union by run id with the local row winning,
+  retry on a rejected push, only its own three files written, every other file on the branch
+  kept). A retry is linked to its attempt 1 by inference (`retryOf`; the archive holds no link
+  and each attempt's run id carries its own start minute): same lane, worktree and origin, the
+  latest earlier attempt N-1 run.py would retry (INVALID, retryable subkind) that ended at
+  most 4 h before and is not yet claimed. A row keeps a note only in a known producer shape
+  (a post-quit note loses its exception text) and withholds any other non-token string.
+  Newer-schema index lines are kept in place, unreadable ones dropped and counted. Health per
+  run is read from `KSP.log.gz` in one streaming pass;
+  `lane-health.json` holds each lane's latest PASS per subsystem tag and per module, through the
+  new IL-derived tag map `scripts/arch/log_tags.json` (`scripts/arch/logtags.py`, 284 tags, 9294
+  literal-tag sites, 13 non-literal, 46 forwarding helpers; `test_iltags.py` runs in the
+  compiled-IL step; staleness is report-only). Not logged by the mod, so not measured: frame time
+  under the 8 ms / 4 ms budgets (no frame-time percentiles against ghost count) and per-frame
+  allocations or GC counts; `runindex.NOT_LOGGED` names the one line each would need (a C# change
+  for a later item). harness/README.md -> "The run index and lane health", arch README -> "Log
+  tags".
 
 **Fix.**
 1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same
