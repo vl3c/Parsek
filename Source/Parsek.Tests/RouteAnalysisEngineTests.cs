@@ -8,7 +8,7 @@ using Xunit;
 namespace Parsek.Tests
 {
     [Collection("Sequential")]
-    public class RouteAnalysisEngineTests : IDisposable
+    public partial class RouteAnalysisEngineTests : IDisposable
     {
         /// <summary>
         /// A start-docked origin proof in the ONE state that is an origin: an undock bound a
