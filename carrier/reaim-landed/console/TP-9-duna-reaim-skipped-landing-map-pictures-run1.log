@@ -1,0 +1,101 @@
+[Harness][Info][Select] select expr='--id TP-9-duna-reaim-skipped-landing-map-pictures' -> 1 scenarios: ['TP-9-duna-reaim-skipped-landing-map-pictures']
+[Harness][Info][Lock] run-lock acquired (acquired-free) path=C:\Users\vlad3\Documents\Code\Parsek\automation\.ksp-machine.lock pid=10324 selection=--id TP-9-duna-reaim-skipped-landing-map-pictures
+[Harness][Info][Build] tests prebuild: dotnet build C:\Users\vlad3\Documents\Code\Parsek\Parsek-reaim-landed\Source\Parsek.Tests\Parsek.Tests.csproj (once per selection; the verifiers then run -NoBuild)
+[Harness][Info][Build] tests prebuild ok wall=6.9s; verifiers run -NoBuild
+[Harness][Info][Pipeline] post-quit verification pipelined: lane N verifies on a private copy while lane N+1 stages and boots; a retry flies after the lane in flight (opt out: PARSEK_HARNESS_SERIAL_VERIFY=1 or --serial-verify)
+[Harness][Info][Lane] lane flight begin scenario=TP-9-duna-reaim-skipped-landing-map-pictures attempt=1
+[Harness][Info][Admit] admit instance=stock-minimal manifest=present result=OK
+[Harness][Info][Preflight] zombie-check instance=stock-minimal result=CLEAR
+[Harness][Verbose][Stage] shared-ship overlay: no rows for save=duna-park-recorded (Ships/VAB carries 0 committed craft)
+[Harness][Info][Settings] settings-sidecar baseline written phase=stage tracers=off readableMirrors=on
+[Harness][Info][Stage] stage save=duna-park-recorded template=fixtures/saves/duna-park-recorded inject=none craft=0 results-rotated=False manifest-rotated=False
+[Harness][Info][Launch] launch exe=C:\Users\vlad3\Documents\Code\Parsek\automation\stock-minimal\KSP_x64.exe pid=3232 env=[TEST_COMMANDS=1 AUTORUN=unset EXIT=0 ISOLATED=0 RENDER_MANIFEST=0] batchIsolated=False budget=2400s
+[Harness][Info][Drive] drive step=0 id=0001 cmd=LoadGame expect=OK
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=10/660
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=20/660
+[Harness][Info][Boot-Wait] boot at main menu elapsed=27.9s kspLogBytes=1492257; watching until the seam's first receipt (rule no-seam-receipt)
+[Harness][Info][Boot-Wait] boot ready via=seam-receipt elapsed=27.9s kspLogBytes=1492257; boot-stall watchdog off for this attempt
+[Harness][Verbose][Drive] poll: pendingId=0001 elapsed=30/660
+[Harness][Info][Drive] drive resp id=0001 verdict=OK met=True
+[Harness][Info][Drive] captured id=0001 label=- fields=ut,scene,save
+[Harness][Info][Drive] drive step=1 id=0002 cmd=StopRecording expect=OK
+[Harness][Info][Drive] drive resp id=0002 verdict=OK met=True
+[Harness][Info][Drive] captured id=0002 label=- fields=ut,stopped,idle
+[Harness][Info][Drive] drive step=2 id=0003 cmd=DiscardTree expect=OK
+[Harness][Info][Drive] drive resp id=0003 verdict=OK met=True
+[Harness][Info][Drive] captured id=0003 label=- fields=ut,nothing
+[Harness][Info][Drive] drive step=3 id=0004 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0004 verdict=OK met=True
+[Harness][Info][Drive] captured id=0004 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=4 id=0005 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0005 verdict=OK met=True
+[Harness][Info][Drive] captured id=0005 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=5 id=0006 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0006 verdict=OK met=True
+[Harness][Info][Drive] captured id=0006 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=6 id=0007 cmd=SetSetting expect=OK
+[Harness][Info][Drive] drive resp id=0007 verdict=OK met=True
+[Harness][Info][Drive] captured id=0007 label=- fields=ut,name,value
+[Harness][Info][Drive] drive step=7 id=0008 cmd=EnterMapView expect=OK
+[Harness][Info][Drive] drive resp id=0008 verdict=OK met=True
+[Harness][Info][Drive] captured id=0008 label=- fields=ut,mapOpen,alreadyOpen
+[Harness][Info][Drive] drive step=8 id=0009 cmd=MissionConfig expect=OK
+[Harness][Info][Drive] drive resp id=0009 verdict=OK met=True
+[Harness][Info][Drive] captured id=0009 label=- fields=ut,mission,tree,loop,intervalSeconds,anchorUt,unitBuilt,phaseAnchorUt,spanStartUt,cadenceSeconds,spanSeconds,compressedSpanSeconds,loiterCutCount,loiterCuts,unit,overlapCadenceSeconds,autoLoopIntervalSeconds
+[Harness][Info][Drive] drive step=9 id=0010 cmd=StartLoopPlayback expect=OK
+[Harness][Info][Drive] drive resp id=0010 verdict=OK met=True
+[Harness][Info][Drive] captured id=0010 label=- fields=ut,relaunchUt,reachedUt,mission,tree
+[Harness][Info][Drive] drive step=10 id=0011 cmd=TimeJump expect=OK
+[Harness][Info][Drive] drive resp id=0011 verdict=OK met=True
+[Harness][Info][Drive] captured id=0011 label=- fields=ut,target,delta
+[Harness][Info][Drive] drive step=11 id=0012 cmd=WarpToUT expect=OK
+[Harness][Info][Drive] drive resp id=0012 verdict=OK met=True
+[Harness][Info][Drive] captured id=0012 label=- fields=ut,target,delta,maxRate
+[Harness][Info][Drive] drive step=12 id=0013 cmd=TimeJump expect=OK
+[Harness][Info][Drive] drive resp id=0013 verdict=OK met=True
+[Harness][Info][Drive] captured id=0013 label=- fields=ut,target,delta
+[Harness][Info][Drive] drive step=13 id=0014 cmd=WarpToUT expect=OK
+[Harness][Info][Drive] drive resp id=0014 verdict=OK met=True
+[Harness][Info][Drive] captured id=0014 label=- fields=ut,target,delta,maxRate
+[Harness][Info][Drive] drive step=14 id=0015 cmd=MapCamera expect=OK
+[Harness][Info][Drive] drive resp id=0015 verdict=OK met=True
+[Harness][Info][Drive] captured id=0015 label=- fields=ut,focus,pitch,heading,distance,pitchClamped,distanceClamped,frames,hold
+[Harness][Info][Drive] drive step=15 id=0016 cmd=CaptureScreenshot expect=OK
+[Harness][Info][Drive] drive resp id=0016 verdict=OK met=True
+[Harness][Info][Drive] captured id=0016 label=- fields=ut,label,path,bytes,superSize,overwrote
+[Harness][Info][Drive] drive step=16 id=0017 cmd=DumpMapGeometry expect=OK
+[Harness][Info][Drive] drive resp id=0017 verdict=OK met=True
+[Harness][Info][Drive] captured id=0017 label=- fields=ut,label,path,scene,bytes,frame,ghosts,lines,points,truncated
+[Harness][Info][Drive] drive step=17 id=0018 cmd=FlushAndQuit expect=OK
+[Harness][Info][Drive] drive resp id=0018 verdict=OK met=True
+[Harness][Info][Drive] captured id=0018 label=- fields=ut,saved
+[Harness][Info][Pipeline] post-quit copy run=2026-11-12_0700_TP-9-duna-reaim-skipped-landing-map-pictures files=86 bytes=5351732 wall=0.06s -> C:\Users\vlad3\Documents\Code\Parsek\Parsek-reaim-landed\harness\results\.verify-private\2026-11-12_0700_TP-9-duna-reaim-skipped-landing-map-pictures
+[Harness][Info][Settings] settings-sidecar baseline written phase=teardown tracers=off readableMirrors=on (cleared leaked: ghostRenderTracing,mapRenderTracing)
+[Harness][Info][Lane] lane flight end runId=2026-11-12_0700_TP-9-duna-reaim-skipped-landing-map-pictures scenario=TP-9-duna-reaim-skipped-landing-map-pictures attempt=1
+[Harness][Info][Verify] verify driverValidity status=PASS allMet=True subkind=-
+[Harness][Info][Verify] verify batchComplete status=SKIPPED found=False failed=None multi=False perCategory=0 runs=0/1
+[Harness][Info][Verify] verify analyzer status=PASS red=0 subkind= topRule=None
+[Harness][Info][Verify] verify timing analyzer=11.7s logValidate=11.2s mode=concurrent
+[Harness][Info][Verify] verify logValidate status=PASS recRulesSuppressed=True killedRunMode=False
+[Harness][Info][Verify] verify anomalySweep status=PASS hits=[] counts={}
+[Harness][Info][Verify] verify unityExceptions status=REPORT gating=False total=0 counts={'NullReferenceException': 0, 'MissingReferenceException': 0, 'IndexOutOfRangeException': 0, 'ArgumentException: GUILayout': 0} parsekFrames=0 parsekThrowSite=0 parsekCaller=0 afterQuit=0 afterQuitFrameless=0
+[Harness][Info][Verify] verify expectations status=PASS mismatches=0
+[Harness][Info][Verify] verify saveParse status=REPORT gating=False blocks=- armed=- scenarioFound=True supersedeRows=0 tombstones=0 rewindPoints=0 pointsTotal=2706 pointsLargest=856 pointsSmallest=26 pointsUnparsed=0 routes=0 routeStatuses={} routeCodecRejects=0 mismatches=0
+[Harness][Info][Verify] verify renderCompose status=REPORT gating=False blocks=- armed=- parsed=None dwells=- cycles=- unevaluable=- findings={'FAIL': 0, 'WARN': 0, 'INFO': 0} mismatches=0 declared=-
+[Harness][Info][Verify] verify ghostLifecycle status=REPORT gating=False blocks=- armed=- spawned=0 spawnLines=0 destroyLines=0 unbalanced=0 malformed=0 reasons={} mismatches=0 declared=-
+[Harness][Info][Classify] verdict=PASS scenario=TP-9-duna-reaim-skipped-landing-map-pictures attempt=1 reason=driver valid, every verifier PASS/SKIPPED
+[Harness][Info][Result] result written C:\Users\vlad3\Documents\Code\Parsek\Parsek-reaim-landed\harness\results\2026-11-12_0700_TP-9-duna-reaim-skipped-landing-map-pictures.json
+[Harness][Info][Snapshot] produced-save snapshot run=2026-11-12_0700_TP-9-duna-reaim-skipped-landing-map-pictures result=copied bytes=2539218 files=82 reason=every-verdict-default verdict=PASS path=C:\Users\vlad3\Documents\Code\Parsek\Parsek-reaim-landed\harness\results\2026-11-12_0700_TP-9-duna-reaim-skipped-landing-map-pictures_save
+[Harness][Verbose][Artifacts] screenshots skipped: 798 prior-run, 0 over-cap, 0 copy-failed
+[Harness][Info][Artifacts] artifacts collected run=2026-11-12_0700_TP-9-duna-reaim-skipped-landing-map-pictures kspLog=True truncated=False screenshots=2 renderManifest=False -> C:\Users\vlad3\Documents\Code\Parsek\Parsek-reaim-landed\harness\results\2026-11-12_0700_TP-9-duna-reaim-skipped-landing-map-pictures_shots
+[Harness][Info][Result] result written C:\Users\vlad3\Documents\Code\Parsek\Parsek-reaim-landed\harness\results\2026-11-12_0700_TP-9-duna-reaim-skipped-landing-map-pictures.json
+[Harness][Info][Sheet] contact sheet written C:\Users\vlad3\Documents\Code\Parsek\Parsek-reaim-landed\harness\results\2026-11-12_0700_TP-9-duna-reaim-skipped-landing-map-pictures_contact.html (+ index.html)
+[Harness][Info][Result] result written C:\Users\vlad3\Documents\Code\Parsek\Parsek-reaim-landed\harness\results\2026-11-12_0700_TP-9-duna-reaim-skipped-landing-map-pictures.json
+[Harness][Info][Sheet] contact sheet written C:\Users\vlad3\Documents\Code\Parsek\Parsek-reaim-landed\harness\results\2026-11-12_0700_TP-9-duna-reaim-skipped-landing-map-pictures_contact.html (+ index.html)
+[Harness][Info][Cost] scenario cost attempts=1 wallTotal=65s terminal=PASS
+[Harness][Info][Archive] results archived run=2026-11-12_0700_TP-9-duna-reaim-skipped-landing-map-pictures files=3 bytes=202462 missing=3 -> C:\Users\vlad3\Documents\Code\Parsek\automation\results-archive\2026-11-12_0700_TP-9-duna-reaim-skipped-landing-map-pictures
+[Harness][Info][Archive] run index C:\Users\vlad3\Documents\Code\Parsek\automation\results-archive\index.jsonl: added=1 replaced=0 unchanged=0 skipped=0
+[Harness][Warn][Duration] duration regression scenario=GUI-24-census-timeline-filters last=123s p50=73s p95=123s n=6 lastVsP50=1.69x
+[Harness][Info][Duration] duration record scenarios=364 measured-this-run=1 (PASS results only) -> C:\Users\vlad3\Documents\Code\Parsek\Parsek-reaim-landed\harness\coverage\duration.json
+[Harness][Info][Coverage] coverage: values=252 covered=251 uncovered=1 expectedFail=0 xpass=0
+[Harness][Info][Lock] run-lock released path=C:\Users\vlad3\Documents\Code\Parsek\automation\.ksp-machine.lock

@@ -1,0 +1,121 @@
+[Provision][Info][Preflight] umbrella-root=C:\Users\vlad3\Documents\Code\Parsek
+[Provision][Info][Preflight] dev-install=C:\Users\vlad3\Documents\Code\Parsek\Kerbal Space Program
+[Provision][Info][Preflight] instance-dir=C:\Users\vlad3\Documents\Code\Parsek\automation/stock-minimal
+[Provision][Info][Preflight] mode=live repair=False
+[Provision][Info][Preflight] lock decision=acquired-free path=C:\Users\vlad3\Documents\Code\Parsek\automation\.ksp-machine.lock
+[Provision][Info][Preflight] profile loaded name=stock-minimal devSourcedMods=8
+[Provision][Info][Preflight] SF9 idempotency prior-manifest=present incomplete-marker=False prior-complete=True
+[Provision][Info][Source] krpc source-resolution action=clone reason=absent dir=C:\Users\vlad3\Documents\Code\Parsek\Parsek-reaim-landed\harness\provision\.cache\krpc-src (repo=https://github.com/krpc/krpc commit=11f1f1366fa4301049f6eac6640604127a9d763b)
+[Provision][Info][Source] krpc clone https://github.com/krpc/krpc -> C:\Users\vlad3\Documents\Code\Parsek\Parsek-reaim-landed\harness\provision\.cache\krpc-src
+[Provision][Info][Pin] krpc tag=v0.5.4 -> 11f1f1366fa4301049f6eac6640604127a9d763b MATCH
+[Provision][Info][Source] krpc_mechjeb source-resolution action=clone reason=absent dir=C:\Users\vlad3\Documents\Code\Parsek\Parsek-reaim-landed\harness\provision\.cache\krpc_mechjeb-src (repo=https://github.com/darchambault/KRPC.MechJeb commit=1a0575f49af55d4567c5b2c0dab60bc1d4559b00)
+[Provision][Info][Source] krpc_mechjeb clone https://github.com/darchambault/KRPC.MechJeb -> C:\Users\vlad3\Documents\Code\Parsek\Parsek-reaim-landed\harness\provision\.cache\krpc_mechjeb-src
+[Provision][Info][Pin] krpc_mechjeb tag=v0.8.1 -> 1a0575f49af55d4567c5b2c0dab60bc1d4559b00 MATCH
+[Provision][Info][Pin] GT-2: kRPC v0.5.4 TestingTools lacks autoLoadFlags, Quit, SetLanded; boot via M-A2 LoadGame, quit via FlushAndQuit, land via SetOrbit (bootChannel=parsek-seam-LoadGame)
+[Provision][Info][Download] krpc release zip cache-hit C:\Users\vlad3\Documents\Code\Parsek\automation\.artifact-cache\b09dddf5f3b921b65ea666e6710183af0f8ba33d8238b8c9c89548f6999a983e (no download)
+[Provision][Info][Download] krpc release zip bytes=703528 sha256 expected=b09dddf5f3b921b65ea666e6710183af0f8ba33d8238b8c9c89548f6999a983e actual=b09dddf5f3b921b65ea666e6710183af0f8ba33d8238b8c9c89548f6999a983e OK
+[Provision][Info][Download] GT-5 zip contains KRPC.Core.dll OK
+[Provision][Info][Download] GT-5 zip contains KRPC.SpaceCenter.dll OK
+[Provision][Info][Download] GT-5 zip contains Google.Protobuf.dll OK
+[Provision][Info][Download] GT-5 zip must-not-contain TestingTools.dll OK
+[Provision][Info][Download] krpc_mechjeb release zip cache-hit C:\Users\vlad3\Documents\Code\Parsek\automation\.artifact-cache\3b4d6689452d5c2d1b2a3d68711aa65e5458a2a14bba46341b54dc768c63a7be (no download)
+[Provision][Info][Download] krpc_mechjeb release zip bytes=168603 sha256 expected=3b4d6689452d5c2d1b2a3d68711aa65e5458a2a14bba46341b54dc768c63a7be actual=3b4d6689452d5c2d1b2a3d68711aa65e5458a2a14bba46341b54dc768c63a7be OK
+[Provision][Info][Download] mechjeb2 build cache-hit C:\Users\vlad3\Documents\Code\Parsek\automation\.artifact-cache\3bd39e02c41a8e405eb980764aa14635af1ed50521119fe85c8a054d8cffc926 (no download)
+[Provision][Info][Download] mechjeb2 build bytes=2788155 sha256 expected=3bd39e02c41a8e405eb980764aa14635af1ed50521119fe85c8a054d8cffc926 actual=3bd39e02c41a8e405eb980764aa14635af1ed50521119fe85c8a054d8cffc926 OK
+[Provision][Info][Build-TT] shim sources=OrbitTools.cs,TestingTools.cs dropped=AutoLoadGame.cs,AutoSwitchVessel.cs autoloader-excluded=True build-ref=11f1f1366fa4301049f6eac6640604127a9d763b src=C:\Users\vlad3\Documents\Code\Parsek\Parsek-reaim-landed\harness\provision\.cache\krpc-src
+[Provision][Info][Build-TT] SF9 rebuild TestingTools (no skip): commit_stable=True krpc_pin_stable=True buildid_stable=True hash-reason=absent-on-disk
+[Provision][Info][Build-TT] exported OrbitTools.cs,TestingTools.cs from C:\Users\vlad3\Documents\Code\Parsek\Parsek-reaim-landed\harness\provision\.cache\krpc-src@11f1f1366fa4301049f6eac6640604127a9d763b
+[Provision][Info][Build-TT] build: dotnet build C:\Users\vlad3\Documents\Code\Parsek\Parsek-reaim-landed\harness\provision\.cache\testingtools-build\src\TestingTools.shim.csproj -c Release -o C:\Users\vlad3\Documents\Code\Parsek\Parsek-reaim-landed\harness\provision\.cache\testingtools-build\out --nologo -v minimal
+[Provision][Info][Build-TT] AutoLoadGame-absent OK (autoloadGame=0 testingToolsType=True)
+[Provision][Info][Build-TT] capability RPCs present=6/6
+[Provision][Info][Build-TT] build OK dll-sha256=fb99710c2ad342dbce2ef5d5dd5866de10a21e362503c69c38b6e3157a1fa13d cached=C:\Users\vlad3\Documents\Code\Parsek\Parsek-reaim-landed\harness\provision\.cache\TestingTools.dll
+[Provision][Info][Pair] krpc_mechjeb fork=darchambault tag=v0.8.1 pairedKrpcTag=v0.5.4 vs krpc v0.5.4 OK
+[Provision][Info][Clone] junction-targets=2 dev-sourced-copies=8
+[Provision][Info][Clone] junction GameData/Squad -> C:\Users\vlad3\Documents\Code\Parsek\Kerbal Space Program\GameData\Squad (junction-stock)
+[Provision][Info][Clone] junction GameData/SquadExpansion -> C:\Users\vlad3\Documents\Code\Parsek\Kerbal Space Program\GameData\SquadExpansion (junction-stock)
+[Provision][Info][Clone] EC-16 resolved-path alias re-check OK (dev=c:\users\vlad3\documents\code\parsek\kerbal space program)
+[Provision][Info][Clone] wrote .provision-incomplete (cleared on VERIFY success)
+[Provision][Info][Clone] SF9 skip mutable-surface copy + junctions (hash-match; prior complete instance)
+[Provision][Info][Clone] SF9 skipped 8/8 dev-sourced mod copies (hash-match)
+[Provision][Info][Settings] settingsBaseSha256=c1b5d4ec7e0bf10f0c869d835110a4fdfc831fb1eb39b7974762144fd617df0c
+[Provision][Info][Settings] delta PHYSICS_FRAME_DT_LIMIT=0.03 (replace)
+[Provision][Info][Settings] delta FRAMERATE_LIMIT=60 (replace)
+[Provision][Info][Settings] delta QUALITY_PRESET=0 (replace)
+[Provision][Info][Settings] delta TEXTURE_QUALITY=3 (replace)
+[Provision][Info][Settings] delta SHADOWS_QUALITY=0 (replace)
+[Provision][Info][Settings] delta AERO_FX_QUALITY=0 (replace)
+[Provision][Info][Settings] delta TERRAIN_SHADER_QUALITY=0 (replace)
+[Provision][Info][Settings] delta UI_SCALE=1.0 (replace)
+[Provision][Info][Settings] delta FULLSCREEN=False (replace)
+[Provision][Info][Settings] delta SCREEN_RESOLUTION_WIDTH=1280 (replace)
+[Provision][Info][Settings] delta SCREEN_RESOLUTION_HEIGHT=720 (replace)
+[Provision][Info][Settings] delta SIMULATE_IN_BACKGROUND=True (replace)
+[Provision][Info][Settings] delta AUTOSTRUT_SYMMETRY=False (replace)
+[Provision][Info][Settings] delta CONIC_PATCH_DRAW_MODE=3 (replace)
+[Provision][Info][Settings] delta CHECK_FOR_UPDATES=False (replace)
+[Provision][Info][Settings] delta MASTER_VOLUME=0 (replace)
+[Provision][Info][Settings] delta SHIP_VOLUME=1 (replace)
+[Provision][Info][Settings] delta AMBIENCE_VOLUME=0 (replace)
+[Provision][Info][Settings] delta MUSIC_VOLUME=0 (replace)
+[Provision][Info][Settings] delta UI_VOLUME=0 (replace)
+[Provision][Info][Settings] delta VOICE_VOLUME=0 (replace)
+[Provision][Info][Settings] delta MAX_VESSELS_BUDGET=250 (replace)
+[Provision][Info][Settings] delta DECLUTTER_KSC=True (replace)
+[Provision][Info][Settings] settingsFinalSha256=daa426c4914e82e8a704495c701147d2ba32843ebb79a5c169ab0e88f1ba7e05
+[Provision][Info][Deploy] parsek dll source=C:\Users\vlad3\Documents\Code\Parsek\Parsek-reaim-landed\Source\Parsek\bin\Debug\Parsek.dll (worktree-build)
+[Provision][Info][Deploy] stage-sha256=0447f7daaecda9283c3f1665ac907124fb0c0bd814ffb6df755f74d5d087f450 (skip-reason=hash-drift)
+[Provision][Info][Deploy] installed-sha256=0447f7daaecda9283c3f1665ac907124fb0c0bd814ffb6df755f74d5d087f450 hashMatch OK
+[Provision][Info][Deploy] UTF-16 grep string=ParsekFlight count=52 OK
+[Provision][Info][Deploy] UTF-16 grep string=GhostPlaybackEngine count=21 OK
+[Provision][Info][Deploy] SF9 skipped 3 aux copies (hash-match)
+[Provision][Warn][Deploy] optional Parsek aux payload Textures/parsek_24.png absent from all sources; skipped
+[Provision][Warn][Deploy] optional Parsek aux payload Textures/parsek_38.png absent from all sources; skipped
+[Provision][Info][Install] stack component krpc -> GameData/kRPC (hash into manifest)
+[Provision][Info][Install] stack component testingtools -> GameData/kRPC (hash into manifest)
+[Provision][Info][Install] stack component mechjeb2 -> GameData/MechJeb2 (hash into manifest)
+[Provision][Info][Install] stack component krpc_mechjeb -> GameData/kRPC (hash into manifest)
+[Provision][Info][Install] kRPC settings stamped golden-template (full key set + Item-wrapped default server; prior file replaced) sha256=85f2bb64cc9630a09007bcb1844a3442ec0c0627485c675727da765386f01fd6
+[Provision][Info][Install] SF9 skip kRPC extraction (hash-match, pin stable)
+[Provision][Info][Install] TestingTools.dll installed sha256=fb99710c2ad342dbce2ef5d5dd5866de10a21e362503c69c38b6e3157a1fa13d
+[Provision][Info][Install] SF9 skip KRPC.MechJeb extraction (hash-match, pin stable)
+[Provision][Info][Install] SF9 skip MechJeb2 extraction (hash-match, pin stable)
+[Provision][Info][MM-Cache] delete ModuleManager.ConfigCache (regenerate on first boot, EC-2)
+[Provision][Info][MM-Cache] delete ModuleManager.ConfigSHA (regenerate on first boot, EC-2)
+[Provision][Info][MM-Cache] delete ModuleManager.Physics (regenerate on first boot, EC-2)
+[Provision][Info][MM-Cache] delete ModuleManager.TechTree (regenerate on first boot, EC-2)
+[Provision][Info][Manifest] wrote C:\Users\vlad3\Documents\Code\Parsek\automation/stock-minimal\GameData\Parsek\provision-manifest.json
+[Provision][Info][Verify] junctions resolve OK (2)
+[Provision][Info][Verify] parsek dll on-disk sha256 == manifest
+[Provision][Info][Verify] parsek UTF-16 grep string=ParsekFlight count=52 expected=52 OK
+[Provision][Info][Verify] parsek UTF-16 grep string=GhostPlaybackEngine count=21 expected=21 OK
+[Provision][Info][Verify] parsek aux Parsek.version on-disk sha256 == manifest
+[Provision][Info][Verify] parsek aux Textures/parsek_32.png on-disk sha256 == manifest
+[Provision][Info][Verify] parsek aux Textures/parsek_64.png on-disk sha256 == manifest
+[Provision][Info][Verify] krpc Google.Protobuf.dll on-disk sha256 == manifest
+[Provision][Info][Verify] krpc KRPC.Core.dll on-disk sha256 == manifest
+[Provision][Info][Verify] krpc KRPC.IO.Ports.dll on-disk sha256 == manifest
+[Provision][Info][Verify] krpc KRPC.SpaceCenter.dll on-disk sha256 == manifest
+[Provision][Info][Verify] krpc KRPC.dll on-disk sha256 == manifest
+[Provision][Info][Verify] testingtools TestingTools.dll on-disk sha256 == manifest
+[Provision][Info][Verify] krpc_mechjeb KRPC.MechJeb.dll on-disk sha256 == manifest
+[Provision][Info][Verify] mechjeb2 MechJeb2.dll on-disk sha256 == manifest
+[Provision][Info][Verify] mechjeb2 MechJebLib.dll on-disk sha256 == manifest
+[Provision][Info][Verify] mechjeb2 MechJebLibBindings.dll on-disk sha256 == manifest
+[Provision][Info][Verify] mechjeb2 alglib.dll on-disk sha256 == manifest
+[Provision][Info][Verify] settingsFinalSha256 re-hash OK
+[Provision][Info][Verify] krpcSettingsSha256 re-hash OK
+[Provision][Info][Verify] buildId64Sha256 re-hash OK
+[Provision][Info][Verify] dev-sourced mod 000_Harmony content-hash == manifest
+[Provision][Info][Verify] dev-sourced mod ModuleManager.4.2.3.dll content-hash == manifest
+[Provision][Info][Verify] dev-sourced mod 000_ClickThroughBlocker content-hash == manifest
+[Provision][Info][Verify] dev-sourced mod 001_ToolbarControl content-hash == manifest
+[Provision][Info][Verify] dev-sourced mod KSPCommunityFixes content-hash == manifest
+[Provision][Info][Verify] dev-sourced mod CommunityDeltaVMaps content-hash == manifest
+[Provision][Info][Verify] dev-sourced mod CommunityTechTree content-hash == manifest
+[Provision][Info][Verify] dev-sourced mod ProbesBeforeCrew content-hash == manifest
+[Provision][Info][Verify] inventory GameData/kRPC OK (53 recorded files, owners=krpc,krpc_mechjeb,testingtools)
+[Provision][Info][Verify] inventory GameData/MechJeb2 OK (64 recorded files, owners=mechjeb2)
+[Provision][Info][Verify] cleared .provision-incomplete
+[Provision][Info][Verify] instance=stock-minimal result=OK drift=0
+[Provision][Info][Summary] run-lock released path=C:\Users\vlad3\Documents\Code\Parsek\automation\.ksp-machine.lock
+[Provision][Info][Summary] instance=stock-minimal provisioned exit=0
