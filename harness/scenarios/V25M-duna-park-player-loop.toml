@@ -404,7 +404,9 @@ id = "V25M-duna-park-player-loop"
 #            unevaluable 384..410 -> 68 (seam-endpoint-skipped 306..322 -> 46,
 #            reaimed-seam-instant-absent 69..96 -> 15); seamKinds and the four structural
 #            unevaluable entries are equal. The treatments and coverages of this run are
-#            not recorded here. NOT SEPARATED: how much of the fall is the hidden W3 member
+#            not recorded here. The run's log holds the hide in W3 (`engine transfer/loiter
+#            member=11 cycle=0 unitDescentPhase=Done ... liveUT=5360143765 ... -> HIDDEN
+#            (landed; journey over until the next cycle)`). NOT SEPARATED: how much of the fall is the hidden W3 member
 #            and how much is drift since 2026-09-25 (no run of the pre-fix head was flown
 #            the same day). The three armed windows hold with nothing moved: dwells 2 is
 #            inside {1, 32}, 68 is under the 1400 ceiling, both seam kinds are present.

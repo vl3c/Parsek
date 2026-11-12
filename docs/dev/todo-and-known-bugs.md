@@ -156,7 +156,9 @@ commit ec9adc0e6, dir `carrier/reaim-landed/`). Four lanes, each PASS on attempt
   to observe there is now hidden. The armed block still passes: `status=PASS gating=True ...
   dwells=2 cycles=0 unevaluable=68 findings={'FAIL': 0, 'WARN': 0, 'INFO': 1} mismatches=0`,
   seam kinds rigid 8 and flexible-soi 2; the expectations row reads PASS with no mismatch. The
-  census in the spec header was re-read off this run.
+  census in the spec header was re-read off this run. Its log holds the hide itself: `engine
+  transfer/loiter member=11 cycle=0 unitDescentPhase=Done ... liveUT=5360143765 ... -> HIDDEN
+  (landed; journey over until the next cycle)`, and no kept line for member 11 in `Done`.
 - **`2026-11-12_0705_AT-1-duna-atmospheric-descent`** (wall 47 s). It never reaches `Done`
   (4 Loiter and 3 Descent phase lines), so the fix does not touch it.
 
@@ -169,6 +171,12 @@ commit ec9adc0e6, dir `carrier/reaim-landed/`). Four lanes, each PASS on attempt
 - A watched transfer member. The watch camera's owner is kept alive hidden through `Done` the
   same way it is through `Descent`; whether the camera should move to the landed vessel's site
   instead has no test and no picture.
+
+**Follow-up (test only, not started).** V25M's third window was written to watch the Duna
+arrival and sits at the RECORDED loop-clock slot, which since the re-aim is a month after the
+landing: it now looks at an empty Duna (dwells 3 -> 2). Move its three jumps to the live
+arrival and parking window TP-4 uses (5,357,320,632 onward) to give the lane its Duna subject
+back; that needs a reading flight before its armed windows are trusted again.
 
 ---
 

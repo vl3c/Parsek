@@ -106,7 +106,7 @@ id = "TP-9-duna-reaim-skipped-landing-map-pictures"
 tier = "operator"
 description = "PICTURE LANE WITH THREE LOG PINS, AUTHORED 2026-11-12, FIRST FLOWN GREEN 2026-11-12 (run 2026-11-12_0700, PASS attempt 1, wall 65 s: the descent was skipped, both surfaces printed the landed hide for member 11, and the dump and the picture hold nothing at Duna). The skipped-landing twin of TP-4's late-slot view on duna-park-recorded: the re-aimed Kerbin->Duna loop with the flight map open, one TimeJump from mid transfer (5355451927) over the whole Duna descent window to 5360120000, inside the recorded loop-clock slot of the Duna parking orbit, then one MapCamera + CaptureScreenshot + DumpMapGeometry view of Duna from 1.5e6 m. Requires DESCENT SKIPPED for cycle 0 (the precondition) and the resolver's and the engine's `transfer/loiter member=11 ... unitDescentPhase=Done ... -> HIDDEN (landed; journey over until the next cycle)` lines; forbids the old `kept (loiter/normal icon)` / `kept (loiter/normal ghost)` endings for that member in Done, a parking-conic head wrap for it, and an orbit line shown on the recorded slot's parking conic (todo REAIM-PARKING-ICON-AFTER-LANDING)."
 instanceProfile = "stock-minimal"
-tags = ["TP", "TP-9", "map-pictures", "map-geometry", "screenshots", "map-render", "loop-playback", "duna", "reaim", "landing", "descent-trigger", "cross-parent"]
+tags = ["TP", "TP-9", "map-pictures", "map-geometry", "screenshots", "map-render", "loop-playback", "flown", "duna", "reaim", "landing", "descent-trigger", "cross-parent"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/duna-park-recorded"
