@@ -1035,7 +1035,7 @@ counts a tag the map lacks as unmapped, and `test_iltags.py`'s real-tree cell
 (run by the compiled-IL CI step, `-p 'test_[ims]*.py'`) prints the tags new or
 gone against the build and fails only when the extractor stops modelling the
 assembly. Refresh the file after a change that adds or moves log tags. At the
-first write: 284 tags, 9293 sites with a literal tag, 13 non-literal sites, 46
+first write: 284 tags, 9294 sites with a literal tag, 13 non-literal sites, 46
 forwarding helpers.
 
 ## Metrics history

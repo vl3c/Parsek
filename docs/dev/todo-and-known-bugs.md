@@ -2823,7 +2823,7 @@ compare).
   only (`publish` / `fetch`, `--branch` required, union by run id with the local row winning,
   retry on a rejected push). Health per run is read from `KSP.log.gz` in one streaming pass;
   `lane-health.json` holds each lane's latest PASS per subsystem tag and per module, through the
-  new IL-derived tag map `scripts/arch/log_tags.json` (`scripts/arch/logtags.py`, 284 tags, 9293
+  new IL-derived tag map `scripts/arch/log_tags.json` (`scripts/arch/logtags.py`, 284 tags, 9294
   literal-tag sites, 13 non-literal, 46 forwarding helpers; `test_iltags.py` runs in the
   compiled-IL step; staleness is report-only). Not logged by the mod, so not measured: frame time
   under the 8 ms / 4 ms budgets (no frame-time percentiles against ghost count) and per-frame

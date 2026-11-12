@@ -2942,14 +2942,14 @@
   "TestCommands": {
    "levels": {
     "ERROR": 145,
-    "INFO": 349,
+    "INFO": 350,
     "VERBOSE": 35,
     "WARN": 353
    },
    "modules": {
-    "TestCommands": 882
+    "TestCommands": 883
    },
-   "sites": 882
+   "sites": 883
   },
   "TestHelper": {
    "helperSites": 1,
@@ -3212,7 +3212,7 @@
  "totals": {
   "forwarders": 46,
   "nonLiteralSites": 13,
-  "sites": 9293,
+  "sites": 9294,
   "tags": 284
  }
 }
