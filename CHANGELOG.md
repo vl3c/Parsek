@@ -30,6 +30,10 @@ All notable changes to Parsek are documented here.
   to the Space Center, or another save loaded in the same session, used to jump forward to the
   date you had picked. Loading a save or quitting to the main menu now also cancels a Warp to
   time still waiting to finish. (WARP-REQUEST-SURVIVES-A-FAILED-REWIND)
+- **A looped ship that landed on another planet no longer shows in orbit there afterwards.**
+  After a looped trip to another planet ends in a landing, the ship's ghost, map icon and orbit
+  line stay gone until the next loop. They used to come back in the parking orbit about a month
+  later when a time jump had skipped the landing. (REAIM-PARKING-ICON-AFTER-LANDING)
 
 ## 1.0.1
 

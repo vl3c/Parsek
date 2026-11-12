@@ -54,9 +54,9 @@ once per anchor per session, not once per rebuild.
 
 ---
 
-## REAIM-PARKING-ICON-AFTER-LANDING: after a time jump over a looped re-aimed landing, the ship shows in the parking orbit a month later [FILED 2026-11-11 from the TP-4 pictures, runs `2026-11-11_2238` and `_2316`; NARROWED 2026-11-11 by run `_2332`: after a landing that PLAYED the map is clean. OPEN; low; the flight-scene ghost is unmeasured]
+## REAIM-PARKING-ICON-AFTER-LANDING: after a time jump over a looped re-aimed landing, the ship shows in the parking orbit a month later [FILED 2026-11-11 from the TP-4 pictures, runs `2026-11-11_2238` and `_2316`; NARROWED 2026-11-11 by run `_2332`: after a landing that PLAYED the map is clean. FIXED IN CODE 2026-11-12, branch `claude/project-thread-zfo2hk`: the destination transfer member stays hidden from the end of the landing to the next cycle, on the map and in flight; xUnit. NOT FLOWN: the check flight of the new lane `TP-9-duna-reaim-skipped-landing-map-pictures` and a V25M re-flight are owed; low]
 
-**What the player would see.** Loop a Kerbin -> Duna landing and watch it land: the ghost
+**What the player saw.** Loop a Kerbin -> Duna landing and watch it land: the ghost
 arrives, parks, deorbits and lands, and the map at Duna stays empty from then on, as it should
 (photographed right after the landing and a month later). The leftover needs a time jump that
 skips the whole landing (a Parsek jump across the 5.7 hour descent window): the lander is then
@@ -84,27 +84,67 @@ distance, so it shows only with the map camera within about 12 Mm of Duna.
   screenshots show Duna with the fixture's two landed vessels and nothing in orbit
   (`lifecycle-summary ... vesselsTracked=1`).
 
-**Cause, as read.** The transfer member's decision is the same in both runs (`Done ... kept
-(loiter/normal icon)`: `ShouldHideNonDescentMemberForDescentHandoff`,
-`GhostPlaybackLogic.SpanClock.cs`, hides it only while the phase is `Descent`). What keeps the
-map clean after a played landing is the chain dedup, not that rule. When the jump steps over
-the window no descent member ever takes the chain, the transfer ghost lives on, and its parking
-conic is drawn at the recorded slot.
+**Cause.** One rule decides whether a member of a looped re-aimed unit is hidden for the
+descent, `GhostPlaybackLogic.ShouldHideNonDescentMemberForDescentHandoff`
+(`GhostPlaybackLogic.SpanClock.cs`), read by the map / Tracking Station resolver
+(`ResolveTrackingStationSampleUT`) and by the flight engine
+(`GhostPlaybackEngine.ApplyDescentHandoffHide`). It hid a non-descent member only while the unit
+phase was `Descent`. In `Done` (the landing's clip has ended; the phase lasts until the cycle
+index changes) the transfer member's raw span clock is still inside its window, so both
+surfaces kept it and the loiter-gap clamp wrapped its head back onto the parking conic. After a
+played landing the chain dedup had already removed its map presence, so only the 3D ghost was
+left circling; after a skipped landing nothing had removed anything, and the conic, the icon
+and the ghost all showed at the recorded slot.
 
-**Not measured: the flight scene.** The engine shares the helper, and in `Done` it keeps the
-transfer member rendering and wraps its head round the parking conic (`engine transfer/loiter
-member=11 ... unitDescentPhase=Done ... -> kept (loiter/normal ghost)`, `loiter-circle
-member=11 head wrapped to 2567681252.08 ... (parking conic circling ...)` at live UT
-5,360,120,005, run `_2332`). In this lane the active vessel sits at Kerbin and the ghost is
-`hidden-by-zone` 33 Gm away, so whether a player flying near Duna sees the ship's 3D ghost
-circle the parking orbit after its lander is down has no picture and no log. A lane with the
-active vessel in low Duna orbit would settle it.
+**Fix.** The rule also answers true when the phase is `Done` and the member is the unit's
+`TransferMemberIndex`. Nothing else moved: both call sites keep their gate (the unit has a
+descent trigger and the member's own decision is Render) and their place before the loiter-gap
+clamp, so a hidden member is never clamped. Inert and Loiter are unchanged, the next cycle
+starts Inert and shows the member again, a ride-along that is not the transfer member (member
+7 of this fixture, the probe left at Kerbin) keeps rendering in `Done`, and a unit with no
+descent trigger never reaches the rule. This is also the answer for the skipped case: the
+landing is over whether or not it was drawn, so the ship is not shown in orbit after it.
+- The resolver's and the engine's rate-limited lines keep their two wordings and gain a third
+  for this case, `-> HIDDEN (landed; journey over until the next cycle)`
+  (`DescribeDescentHandoffOutcome`); the engine's hide line and destroy reason read `landed`
+  instead of `descent handoff` (`DescribeUnitMemberHide`).
+- No map consumer needed a change, by reading: every one reads the resolver's hidden answer
+  before it reaches a loiter-gap or line-hold call. Flight map: the pending-create pass skips
+  (`GhostMapPresence.FlightMapLifecycle.cs`), the reseed and state-vector passes tear the proto
+  down, and the teardown's requeue is skipped again on the next pass. Tracking Station: the
+  create and startup passes skip and the refresh returns `mission-loop-out-of-window`
+  (`GhostMapPresence.TrackingStationLifecycle.cs`). The chain sampler returns an outside
+  sample, the two marker sites skip, and the polyline's primary does not render. The orbit-line
+  patch's loiter icon drive and the parking-conic line hold act on a live proto only; the hold
+  expires at the live trigger UT and its stamp goes with the proto.
 
-**Next (owner's call; nothing is started).** If it is worth fixing, hide the destination
-transfer member (`LoopUnit.TransferMemberIndex`) from `Done` to the end of the cycle on both
-surfaces; member 7 of that unit is the probe left at Kerbin and must stay drawn, so the rule
-cannot be "every non-descent member". The skipped case needs its own answer first: there the
-parking icon at the recorded slot is the only arrival the player sees.
+**Tests (xUnit, headless).** `DescentTriggerTests` (the rule in `Done` for the transfer
+member, the ride-along and the owner; the resolver across the whole of `Done`, at the next
+cycle's Inert, on a skipped descent, and on a unit with no trigger; the two existing handoff
+facts now expect the transfer member hidden in `Done`), `DescentHandoffResolverLogTests` (the
+three wordings and their rate keys), `UnitMemberPlaybackCharacterizationTests` (the engine
+call, its log line, the hide and destroy wording, and a drive through the whole member update:
+transfer hidden, ride-along rendered, next cycle rendered), `TrackingStationRefreshPhaseTests`
+and `FlightMapPassPhaseTests` (the two lifecycle answers named above). The in-game cell
+`DescentHandoffVisibility` now asserts the hide in its `Done` section; no committed lane runs
+it on a unit with a descent trigger (H54's fixture has none, so the cell skips there).
+
+**Owed.**
+- The check flight: `TP-9-duna-reaim-skipped-landing-map-pictures` (operator tier, never
+  flown). It jumps from mid transfer over the whole descent window to 5,360,120,000, requires
+  `DESCENT SKIPPED` for cycle 0 and the resolver's and the engine's `HIDDEN (landed` lines for
+  member 11, forbids the old `kept` endings and an orbit line on the recorded slot's parking
+  conic, and takes one picture of Duna from 1.5e6 m.
+- A V25M re-flight. Its third window jumps to 5,360,143,765 / ...885 / 5,360,144,085, which
+  is `Done` inside the recorded slot after a jump over the descent window, so the transfer
+  member it observed there is now hidden. Its armed windows and log contracts should still
+  hold by reading (the first two windows supply the dwells), but the census its header quotes
+  and the header's "W3 - THE DUNA ARRIVAL" text describe the old leftover and need re-reading
+  off a flight. TP-4's header and status row describe the same leftover as a finding; they are
+  history and stay as written until that lane next flies.
+- Not measured: a watched transfer member. The watch camera's owner is kept alive hidden
+  through `Done` the same way it is through `Descent` today; whether the camera should move to
+  the landed vessel's site instead has no test and no picture.
 
 ---
 

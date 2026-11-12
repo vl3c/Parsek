@@ -1,0 +1,184 @@
+schema = 1
+id = "TP-9-duna-reaim-skipped-landing-map-pictures"
+# =====================================================================================
+# TP-9: ONE PICTURE OF DUNA A MONTH AFTER A RE-AIMED LANDING THE CLOCK JUMPED OVER.
+#
+# WHAT IT IS FOR (todo REAIM-PARKING-ICON-AFTER-LANDING). The looped re-aimed Kerbin ->
+# Duna mission of `duna-park-recorded` ends in a landing, played by the descent trigger
+# (`Reaim/DescentTrigger.cs`) inside the live window
+# [5,357,413,107.29558, 5,357,433,620.6203632]. A time jump that steps over that whole
+# window never shows the lander. Before the fix the ship's transfer member then drew its
+# parking conic, icon and 3D ghost again at the RECORDED loop-clock slot of the parking
+# orbit, [5,360,095,095.6, 5,360,144,182.0], about a month later (TP-4 run
+# 2026-11-11_2238: `Orbit line decision: ... reason=director-stockconic-visible
+# lineActive=True ... bounds=[5360095095.6,5360144182.0]`, a `Kerbal X` proto ghost on a
+# Duna conic in the dumps). The rule now is that once the landing's clip has ended (unit
+# phase `Done`) the destination transfer member stays hidden until the next cycle, played
+# landing or skipped. TP-4 photographs the PLAYED case (`c1-late`); this lane is the
+# SKIPPED case, which TP-4 cannot reach in the same process because its cycle 0 plays the
+# landing.
+#
+# MODEL CHOICE. TP-4-duna-reaim-landing-map-pictures, copied: the same fixture, the same
+# preamble (LoadGame -> stop / discard the auto recording -> tracing and verbose logging
+# on -> EnterMapView -> MissionConfig loop -> StartLoopPlayback), the same first jump and
+# its `c1-late` camera. TP-4's header holds the derivation of every UT quoted here.
+#
+# THE FLIGHT. Two jumps, both forward:
+#   1. `TimeJump 5355451927` + a 5 s 1x settle: TP-4's `c1-transfer` instant, mid
+#      heliocentric transfer, 1.96e6 s BEFORE the descent window opens (unit phase Inert).
+#      No picture is taken; the settle is there so the loop has drawn a frame before the
+#      window and the descent trace has a previous frame to measure the step from.
+#   2. `TimeJump 5360120000` + a 5 s 1x settle: ONE step over the capture, the loiter and
+#      the whole descent window, into the recorded parking slot (TP-4's `c1-late`
+#      instant). This is the path run 2026-11-11_2238 took to 5,360,144,085, where the
+#      product printed `DESCENT SKIPPED cycle=0 ... cause=frame-stepped-over-window`.
+#   Then one view, TP-4's `c1-late` camera: Duna from straight above at 1.5e6 m, inside
+#   the 1.24e7 m at which stock still draws a 496 km parking orbit's line and icon.
+#
+# WHAT IS PINNED, AND WHAT EACH PIN RESTS ON. Unlike the other picture lanes this one
+# carries three behavioural log pins, because the picture alone cannot red.
+#   required  `DESCENT SKIPPED cycle=0: reached Done at liveUT=5360120` and
+#             `cause=frame-stepped-over-window`: the lane's own precondition. If the
+#             landing played instead, the lane is not testing the skipped case. Both
+#             strings are read off run 2026-11-11_2238 (same first jump, a later target).
+#   required  the map / Tracking Station resolver's line for the transfer member in Done,
+#             `transfer/loiter member=11 cycle=0 unitDescentPhase=Done ... -> HIDDEN
+#             (landed; journey over until the next cycle)`. Member 11 is the transfer
+#             member's index in this unit's committed member list (recording
+#             aa48920e...), read off the same run, where the line ended `kept
+#             (loiter/normal icon)`; AT-1 pins member 12 of the same unit the same way. A
+#             re-recorded fixture moves the index and reds this pin by design. The line is
+#             `VerboseRateLimited`, so it needs the preamble's `verboseLogging = true`; its
+#             rate key carries the member, the phase and the hide flag, so the first Done
+#             line prints at once.
+#   required  the flight engine's twin, `engine transfer/loiter member=11 cycle=0
+#             unitDescentPhase=Done ... -> HIDDEN (landed; ...`. TP-4 run 2026-11-11_2332
+#             printed this line at 5,360,120,005 with the old ending `kept (loiter/normal
+#             ghost)`, so the engine does evaluate the member here even though the active
+#             vessel sits at Kerbin and the ghost is out of visual range.
+#   forbidden the two old endings for member 11 in Done (`kept (loiter/normal icon)`,
+#             `kept (loiter/normal ghost)`), any `loiter-circle member=11 head wrapped`
+#             (the lane is never in the Loiter phase: Inert before the jump, Done after,
+#             and a hidden member is never clamped onto the parking conic), and the
+#             leftover's own trace line, an orbit line shown on the parking conic of the
+#             recorded slot (`reason=director-stockconic-visible lineActive=True` with
+#             `bounds=[5360095095.6,5360144182.0]`).
+#   The picture and its dump are for a human and the mirror page: `tp9-skipped-late-duna-
+#   low-top` should show Duna with the fixture's two landed vessels and nothing in orbit,
+#   and its `.map.json` should list no ghost at Duna.
+#
+# NEVER FLOWN. Authored 2026-11-12 in a session that cannot fly. Every pin above is
+# derived from committed flights' quoted log lines plus the source, not from a flight of
+# this spec; the first flight decides whether the required lines read as written.
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
+#   1 reuse a flight - NOT APPLIED: no committed lane on this fixture jumps over the
+#     descent window and then observes the map (TP-4 and AT-1 play the landing; V25M
+#     jumps over it but never opens the map and its armed census would read this lane's
+#     camera moves). A process plays or skips cycle 0's landing, never both, so the
+#     skipped case cannot ride on TP-4.
+#   2 no idle waits - applied: the two waits are explicit-UT `WarpToUT maxRate=1` of 5 s;
+#     the clock moves by `TimeJump`, which costs no wall time.
+#   3 minimal dwells - applied: one 5 s 1x settle per jump (a frame before the window,
+#     then the hidden state drawn before the camera moves) and TP-4's 4.5 s camera hold.
+#   4 burns at 1x / 5 b5 coasts / 6 fail fast - not applicable: no mission is flown, the
+#     lane replays a committed fixture.
+#   7 tight count windows - the model lane's window, copied; tightened after the first
+#     flight only if it reads otherwise.
+#   8 tier by measured cost / 9 flight_efficiency.py - owed after the first flight. TP-4
+#     takes 150 s wall for 14 views, so this lane should cost about a minute. The tier is
+#     `operator` because the lane is run on request.
+# =====================================================================================
+tier = "operator"
+description = "PICTURE LANE WITH THREE LOG PINS, AUTHORED 2026-11-12, NEVER FLOWN. The skipped-landing twin of TP-4's late-slot view on duna-park-recorded: the re-aimed Kerbin->Duna loop with the flight map open, one TimeJump from mid transfer (5355451927) over the whole Duna descent window to 5360120000, inside the recorded loop-clock slot of the Duna parking orbit, then one MapCamera + CaptureScreenshot + DumpMapGeometry view of Duna from 1.5e6 m. Requires DESCENT SKIPPED for cycle 0 (the precondition) and the resolver's and the engine's `transfer/loiter member=11 ... unitDescentPhase=Done ... -> HIDDEN (landed; journey over until the next cycle)` lines; forbids the old `kept (loiter/normal icon)` / `kept (loiter/normal ghost)` endings for that member in Done, a parking-conic head wrap for it, and an orbit line shown on the recorded slot's parking conic (todo REAIM-PARKING-ICON-AFTER-LANDING)."
+instanceProfile = "stock-minimal"
+tags = ["TP", "TP-9", "map-pictures", "map-geometry", "screenshots", "map-render", "loop-playback", "duna", "reaim", "landing", "descent-trigger", "cross-parent"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/duna-park-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame", args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording", expect = "OK" },
+  { cmd = "DiscardTree", expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "EnterMapView", expect = "OK", budget = 60 },
+  { cmd = "MissionConfig", args = { tree = "ced7848157674b8ea19311377c0f6fbc", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "ced7848157674b8ea19311377c0f6fbc" }, expect = "OK", budget = 300 },
+  # INSTANT pre-window at UT 5355451927: TP-4's c1-transfer instant, mid heliocentric transfer, before the descent window [5,357,413,107.30, 5,357,433,620.62] opens. No picture; the 5 s settle gives the loop a drawn frame before the window.
+  { cmd = "TimeJump", args = { ut = "5355451927" }, expect = "OK", budget = 300 },
+  { cmd = "WarpToUT", args = { ut = "5355451932", maxRate = "1" }, expect = "OK", budget = 120 },
+  # INSTANT skipped-late at UT 5360120000: ONE jump over the capture, the loiter and the whole descent window into [5,360,095,095.6, 5,360,144,182.0], the recorded loop-clock slot of the Duna parking orbit (todo REAIM-PARKING-ICON-AFTER-LANDING)
+  { cmd = "TimeJump", args = { ut = "5360120000" }, expect = "OK", budget = 300 },
+  { cmd = "WarpToUT", args = { ut = "5360120005", maxRate = "1" }, expect = "OK", budget = 120 },
+  # view tp9-skipped-late-duna-low-top: Duna pitch=90 heading=0 distance=1500000 m (TP-4's c1-late camera)
+  { cmd = "MapCamera", args = { focus = "Duna", pitch = "90", heading = "0", distance = "1500000", hold = "4.5" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp9-skipped-late-duna-low-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp9-skipped-late-duna-low-top" }, expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+# The scene cell is what the lane flies; the body cell is the body its view frames.
+# Nothing is armed, so no behavioural cell is claimed.
+[dimensionsCovered]
+D14 = ["duna", "scene-map", "scene-flight", "sandbox"]
+
+[expectations]
+# Copied from TP-4 (which copies V25M-duna-park-player-loop), unchanged: the same two
+# jump shapes on the same fixture.
+allowedAnomalies = ["icon-teleport", "icon-off-orbit", "line-blink"]
+
+[expectations.recordings]
+count = { min = 12, max = 22 }
+
+[expectations.logContracts]
+required  = [
+  "entermapview ok mapOpen=true",
+  "missionconfig applied:",
+  "startloopplayback initiated:",
+  # The precondition: the jump stepped over the whole descent window of cycle 0.
+  "DESCENT SKIPPED cycle=0: reached Done at liveUT=5360120",
+  "DESCENT SKIPPED cycle=0: .*cause=frame-stepped-over-window",
+  # The fix, map side: the resolver hides the transfer member once the landing is over.
+  "\\[ReaimDescent\\] transfer/loiter member=11 cycle=0 unitDescentPhase=Done baseDecision=Render .* -> HIDDEN \\(landed; journey over until the next cycle\\)",
+  # The fix, flight side: the engine reaches the same answer for the 3D ghost.
+  "\\[ReaimDescent\\] engine transfer/loiter member=11 cycle=0 unitDescentPhase=Done baseDecision=Render .* -> HIDDEN \\(landed; journey over until the next cycle\\)",
+  "mapcamera ok focus=Duna pitch=",
+  "capturescreenshot ok label=tp9-skipped-late-duna-low-top bytes=",
+  "dumpmapgeometry ok label=tp9-skipped-late-duna-low-top scene=FLIGHT ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "timejump refused reason=backward-jump",
+  "dumpmapgeometry rejected reason=",
+  "dumpmapgeometry (failed|timed out|capture threw)",
+  "mapcamera rejected reason=",
+  "mapcamera (not settled|scene lost)",
+  "mapcamera: ",
+  "capturescreenshot rejected reason=",
+  "capturescreenshot (not written|threw|dir create failed|pre-delete threw)",
+  "map-geometry-(timeout|capture-failed)",
+  # The defect's own lines: the transfer member kept (and circling the parking conic)
+  # after the landing, and its orbit line shown on the recorded slot's parking conic.
+  "transfer/loiter member=11 cycle=[0-9]+ unitDescentPhase=Done .* -> kept \\(loiter/normal (icon|ghost)\\)",
+  "loiter-circle member=11 head wrapped",
+  "Orbit line decision: pid=[0-9]+ reason=director-stockconic-visible lineActive=True .*bounds=\\[5360095095\\.6,5360144182\\.0\\]",
+]
+
+[runtime]
+# TP-4's budget, copied; the lane is two instantaneous clock sets, two 5 s settles and
+# one held view.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

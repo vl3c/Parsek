@@ -43,7 +43,7 @@ namespace Parsek.InGameTests
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
         [InGameTest(Category = "Missions", Scene = GameScenes.FLIGHT,
-            Description = "MERGE GATE (flight descent handoff): on the real re-aim landing mission in the loaded save (s15 'Duna One'), while the shared descent phase is Descent the transfer/loiter member's render decision flips to HIDDEN via the shared ShouldHideNonDescentMemberForDescentHandoff and exactly ONE unit member (a descent member) renders - no double ghost at the handoff; pre-descent the transfer member renders and the descent member is hidden; post-descent (Done) the hide releases. Skips cleanly when the save has no descent-trigger re-aim mission.")]
+            Description = "MERGE GATE (flight descent handoff): on the real re-aim landing mission in the loaded save (s15 'Duna One'), while the shared descent phase is Descent the transfer/loiter member's render decision flips to HIDDEN via the shared ShouldHideNonDescentMemberForDescentHandoff and exactly ONE unit member (a descent member) renders - no double ghost at the handoff; pre-descent the transfer member renders and the descent member is hidden; post-descent (Done) the transfer member stays hidden (the ship has landed). Skips cleanly when the save has no descent-trigger re-aim mission.")]
         public void DescentHandoff_OneGhostAtHandoff_TransferHiddenWhileDescentPlays()
         {
             if (!IsMissionStoreReady())
@@ -239,15 +239,17 @@ namespace Parsek.InGameTests
                 $"exactly ONE unit member (a descent member) must render at the handoff - got {visibleCount.ToString(IC)} "
                 + $"visible (last visible idx={visibleIdx.ToString(IC)} isDescent={visibleIsDescent}): {detail}");
 
-            // ---- (C) POST-DESCENT (Done): the clip is over - the hide releases (the transfer member
-            // returns to its own span-clock contract) and the descent member hides until the next loop.
+            // ---- (C) POST-DESCENT (Done): the ship has landed - the destination transfer member stays
+            // hidden until the cycle ends (nothing circles the parking orbit after the landing) and the
+            // descent member hides until the next loop.
             DecideMember(unit, doneUT, tWinStart, tWinEnd, out _, out long doneCycle);
             bool hideDone = GhostPlaybackLogic.ShouldHideNonDescentMemberForDescentHandoff(
                 unit, transferIdx, doneUT, doneCycle, out DescentTrigger.DescentHeadPhase phaseDone);
             InGameAssert.AreEqual(DescentTrigger.DescentHeadPhase.Done, phaseDone,
                 $"post-descent probe must land in the Done phase (got {phaseDone}; doneUT={doneUT.ToString("F0", IC)})");
-            InGameAssert.IsFalse(hideDone,
-                "post-descent (Done) the handoff hide must release (the hide is Descent-only by design)");
+            InGameAssert.IsTrue(hideDone,
+                "post-descent (Done) the destination transfer member must stay hidden until the next cycle "
+                + "(the ship has landed; no ghost or icon is left in the parking orbit)");
             var dDone = GhostPlaybackLogic.ResolveDescentMemberEngineRender(
                 unit, probeDescentIdx, doneUT, doneCycle, dWinStart, dWinEnd);
             InGameAssert.IsFalse(dDone.Render,
@@ -260,7 +262,7 @@ namespace Parsek.InGameTests
                 + $"probes(pre/in/done)={preUT.ToString("F0", IC)}/{inUT.ToString("F0", IC)}/{doneUT.ToString("F0", IC)} "
                 + $"pre: transfer=Render hide=false descent={dPre.Phase} | in: transfer=Render->HIDDEN(handoff) "
                 + $"descent=Render head={dIn.Head.ToString("F0", IC)} visible={visibleCount.ToString(IC)} | "
-                + $"done: hide released, descent={dDone.Phase}");
+                + $"done: transfer hidden (landed), descent={dDone.Phase}");
         }
 
         // The engine trims the raw recording bounds through the unit's interval trims

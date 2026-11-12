@@ -819,10 +819,22 @@ namespace Parsek.Tests
             Assert.True(hDescentTransfer, "transfer member hidden once the descent plays (hand off, no double icon)");
             Assert.False(hDescentDescent, "the descent member is the single visible icon during the descent");
 
-            // With the trigger OFF the transfer member is byte-identical (renders in both phases — no handoff).
+            // LANDED (Done): the transfer member stays hidden until the cycle ends - the ship is on the ground,
+            // so nothing circles the parking orbit. The descent member is hidden too (its clip is over).
+            double tDone = TriggerUT(0) + (DescentEnd - Deorbit) + 50.0;
+            double uDoneTransfer = Resolve(5, 27_000_000.0, Deorbit, tDone, units, out bool hDoneTransfer);
+            Resolve(49, W1Start, W1End, tDone, units, out bool hDoneDescent);
+            Assert.True(hDoneTransfer, "transfer member hidden after the landing (no ship left in the parking orbit)");
+            Assert.Equal(tDone, uDoneTransfer); // a hidden member returns the live UT, never a wrapped parking head
+            Assert.True(hDoneDescent, "descent member hidden after its clip ends");
+
+            // With the trigger OFF the transfer member is byte-identical (renders in every phase - no handoff).
             var off = BuildDescentUnit(engage: false);
             Resolve(5, 27_000_000.0, Deorbit, tDescent, off, out bool hOff);
             Assert.False(hOff, "trigger OFF: no descent phase, so the transfer member is never hidden by the handoff");
+            double uOffDone = Resolve(5, 27_000_000.0, Deorbit, tDone, off, out bool hOffDone);
+            Assert.False(hOffDone, "trigger OFF: nothing lands, so the member keeps its own span-clock contract");
+            Assert.Equal(tDone - Pa, uOffDone, 6); // the raw loop clock (cycle 0, span start 0)
         }
 
         [Fact]
@@ -831,8 +843,9 @@ namespace Parsek.Tests
             // The FLIGHT-engine twin of Resolver_TransferMember_HiddenDuringDescent_CleanHandoffNoDoubleIcon:
             // GhostPlaybackEngine.UpdateUnitMemberPlayback consumes the SAME pure decision
             // (ShouldHideNonDescentMemberForDescentHandoff) the TS resolver uses, so the flight 3D ghost of a
-            // NON-descent member hides exactly while the unit-wide descent phase is Descent — one vessel at
-            // the handoff, no double ghost. All fixture times fall in cycle 0 (Cad = 6e7 dwarfs every UT here).
+            // NON-descent member hides while the unit-wide descent phase is Descent (one vessel at the handoff,
+            // no double ghost), and the destination transfer member stays hidden once it is Done (the ship has
+            // landed). All fixture times fall in cycle 0 (Cad = 6e7 dwarfs every UT here).
             var units = BuildDescentUnit(engage: true);
             Assert.True(units.TryGetUnitForMember(5, out GhostPlaybackLogic.LoopUnit unit));
 
@@ -851,9 +864,9 @@ namespace Parsek.Tests
                 unit, 5, TriggerUT(0) + 400.0, 0, out DescentTrigger.DescentHeadPhase phDescent));
             Assert.Equal(DescentTrigger.DescentHeadPhase.Descent, phDescent);
 
-            // DONE (clip over, duration = DescentEnd - Deorbit = 2000s): kept again (the C2 continuation
-            // retire is a separate, map-side mechanism; the handoff hide is Descent-only by design).
-            Assert.False(GhostPlaybackLogic.ShouldHideNonDescentMemberForDescentHandoff(
+            // DONE (clip over, duration = DescentEnd - Deorbit = 2000s): the transfer member stays HIDDEN - the
+            // ship has landed, and its journey is over until the next cycle.
+            Assert.True(GhostPlaybackLogic.ShouldHideNonDescentMemberForDescentHandoff(
                 unit, 5, TriggerUT(0) + 2_100.0, 0, out DescentTrigger.DescentHeadPhase phDone));
             Assert.Equal(DescentTrigger.DescentHeadPhase.Done, phDone);
 
@@ -867,6 +880,177 @@ namespace Parsek.Tests
             Assert.False(GhostPlaybackLogic.ShouldHideNonDescentMemberForDescentHandoff(
                 offUnit, 5, TriggerUT(0) + 400.0, 0, out DescentTrigger.DescentHeadPhase phOff));
             Assert.Equal(DescentTrigger.DescentHeadPhase.Inert, phOff);
+        }
+
+        // --- After the landing (Done): the destination transfer member stays hidden until the cycle ends ---
+        //
+        // The transfer member's raw loop clock stays inside its window, past the parking-conic end, for about
+        // |captureShift| after the landing (the recorded parking slot). The loiter-gap clamp would wrap that
+        // head back onto the parking conic, so the one shared decision hides the member for the whole of Done.
+
+        private const double TransferWinStart = 27_000_000.0;
+        private const double RideAlongWinStart = RECORDED_PARKING_END - 5_000_000.0;
+        private const double RideAlongWinEnd = RECORDED_PARKING_END + 5_000_000.0;
+
+        // Done instants of cycle 0 at which the transfer member's base decision is still Render: just after
+        // the clip, mid-way, and at the end of the member's window (the recorded slot, ~|captureShift| later).
+        private static double[] DoneInstantsInTransferWindow() => new[]
+        {
+            TriggerUT(0) + (DescentEnd - Deorbit) + 1.0,
+            TriggerUT(0) + (DescentEnd - Deorbit) + 1_000_000.0,
+            Pa + Deorbit - 1_000.0,
+        };
+
+        [Fact]
+        public void HandoffHide_Done_TransferMemberHidden()
+        {
+            var unit = DescentUnitFor(BuildDescentUnit(engage: true));
+            foreach (double t in DoneInstantsInTransferWindow())
+            {
+                Assert.True(GhostPlaybackLogic.ShouldHideNonDescentMemberForDescentHandoff(
+                    unit, 5, t, 0, out DescentTrigger.DescentHeadPhase phase),
+                    "the destination transfer member is hidden for the whole of Done (t=" + t.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + ")");
+                Assert.Equal(DescentTrigger.DescentHeadPhase.Done, phase);
+            }
+        }
+
+        [Fact]
+        public void HandoffHide_Done_RideAlongAndOwner_Kept()
+        {
+            // Member 7 is a non-descent member that is NOT the transfer member (a probe left in orbit at the
+            // launch body); member 0 is the owner. Neither arrived at the destination, so the after-landing
+            // hide must not touch them - only the Descent hide (every non-descent member) applies to them.
+            var unit = DescentUnitFor(BuildDescentUnit(engage: true));
+            foreach (double t in DoneInstantsInTransferWindow())
+            {
+                Assert.False(GhostPlaybackLogic.ShouldHideNonDescentMemberForDescentHandoff(
+                    unit, 7, t, 0, out DescentTrigger.DescentHeadPhase phaseRideAlong));
+                Assert.Equal(DescentTrigger.DescentHeadPhase.Done, phaseRideAlong);
+                Assert.False(GhostPlaybackLogic.ShouldHideNonDescentMemberForDescentHandoff(
+                    unit, 0, t, 0, out DescentTrigger.DescentHeadPhase phaseOwner));
+                Assert.Equal(DescentTrigger.DescentHeadPhase.Done, phaseOwner);
+            }
+            // The Descent hide still covers every non-descent member (existing behaviour).
+            Assert.True(GhostPlaybackLogic.ShouldHideNonDescentMemberForDescentHandoff(
+                unit, 7, TriggerUT(0) + 400.0, 0, out _));
+            // A descent member never takes this hide, in Done either (its own head owns it).
+            Assert.False(GhostPlaybackLogic.ShouldHideNonDescentMemberForDescentHandoff(
+                unit, 49, TriggerUT(0) + (DescentEnd - Deorbit) + 50.0, 0, out _));
+        }
+
+        [Fact]
+        public void Resolver_TransferMember_HiddenAfterLanding_ForTheWholeOfDone()
+        {
+            var on = BuildDescentUnit(engage: true);
+            var off = BuildDescentUnit(engage: false);
+            foreach (double t in DoneInstantsInTransferWindow())
+            {
+                // Precondition: without the trigger the member is in its window on the raw loop clock, past
+                // the parking-conic end - exactly where the loiter-gap clamp would wrap it onto the conic.
+                double uOff = Resolve(5, TransferWinStart, Deorbit, t, off, out bool hOff);
+                Assert.False(hOff);
+                Assert.Equal(t - Pa, uOff, 6);
+                Assert.True(uOff > ParkingConicEnd, "the probe instant must sit in the loiter gap");
+
+                double uOn = Resolve(5, TransferWinStart, Deorbit, t, on, out bool hOn);
+                Assert.True(hOn, "transfer member hidden after the landing");
+                Assert.Equal(t, uOn); // hidden returns the live UT, not a head wrapped into [P - Tpark, P)
+            }
+        }
+
+        [Fact]
+        public void Resolver_RideAlong_KeepsRenderingAfterLanding_ByteIdenticalToTriggerOff()
+        {
+            var on = BuildDescentUnit(engage: true);
+            var off = BuildDescentUnit(engage: false);
+            foreach (double t in DoneInstantsInTransferWindow())
+            {
+                double uOn = Resolve(7, RideAlongWinStart, RideAlongWinEnd, t, on, out bool hOn);
+                double uOff = Resolve(7, RideAlongWinStart, RideAlongWinEnd, t, off, out bool hOff);
+                Assert.False(hOn, "a non-descent member that is not the transfer member keeps rendering in Done");
+                Assert.False(hOff);
+                Assert.Equal(uOff, uOn);
+                Assert.Equal(t - Pa, uOn, 6);
+            }
+        }
+
+        [Fact]
+        public void Resolver_TransferMember_NextCycleInert_RendersAgain()
+        {
+            var units = BuildDescentUnit(engage: true);
+            // Cycle 1, before the icon reaches the deorbit point (entry is at loop UT Deorbit + CapShift =
+            // 27,140,000), inside the member's window and before the parking-conic end: plain loop clock.
+            double t = Pa + Cad + 27_050_000.0;
+            Assert.Equal(DescentTrigger.DescentHeadPhase.Inert, MemberHead(t, 1, out _));
+            double u = Resolve(5, TransferWinStart, Deorbit, t, units, out bool hidden);
+            Assert.False(hidden, "the next cycle shows the transfer member again");
+            Assert.Equal(27_050_000.0, u, 6);
+
+            // And the last Done instant of cycle 0 was hidden, so the release is the cycle wrap itself.
+            Resolve(5, TransferWinStart, Deorbit, Pa + Deorbit - 1_000.0, units, out bool hiddenEndOfCycle0);
+            Assert.True(hiddenEndOfCycle0);
+        }
+
+        [Fact]
+        public void Resolver_SkippedDescent_LoiterStraightToDone_TransferHidden_DescentSetHidden()
+        {
+            // Mirror case: a time jump steps over the whole descent window, so the unit goes Loiter -> Done
+            // with no Descent frame between. The decision reads only this frame's phase, so the transfer
+            // member ends hidden exactly as after a landing that played, and the descent set stays hidden.
+            var units = BuildDescentUnit(engage: true);
+            double tLoiter = EntryUT(0) + 100.0;
+            double tDone = TriggerUT(0) + (DescentEnd - Deorbit) + 3_600.0;
+            Assert.Equal(DescentTrigger.DescentHeadPhase.Loiter, MemberHead(tLoiter, 0, out _));
+            Assert.Equal(DescentTrigger.DescentHeadPhase.Done, MemberHead(tDone, 0, out _));
+
+            Resolve(5, TransferWinStart, Deorbit, tLoiter, units, out bool hLoiter);
+            Assert.False(hLoiter, "before the jump the transfer member carries the loiter icon");
+            Resolve(5, TransferWinStart, Deorbit, tDone, units, out bool hDone);
+            Assert.True(hDone, "after the jump over the descent window the transfer member is hidden");
+
+            Resolve(49, W1Start, W1End, tDone, units, out bool h49);
+            Resolve(50, W1End, W2End, tDone, units, out bool h50);
+            Resolve(51, W2End, W3End, tDone, units, out bool h51);
+            Assert.True(h49 && h50 && h51, "the descent set stays hidden in Done");
+
+            Resolve(7, RideAlongWinStart, RideAlongWinEnd, tDone, units, out bool hRideAlong);
+            Assert.False(hRideAlong, "the ride-along is untouched by the jump");
+        }
+
+        [Fact]
+        public void HandoffHide_UnitWithoutDescentTrigger_NeverHides_AnyPhaseInstant()
+        {
+            var off = DescentUnitFor(BuildDescentUnit(engage: false));
+            foreach (double t in new[]
+                     {
+                         EntryUT(0) - 100.0, EntryUT(0) + 100.0, TriggerUT(0) + 400.0,
+                         TriggerUT(0) + (DescentEnd - Deorbit) + 50.0, Pa + Deorbit - 1_000.0,
+                     })
+            {
+                foreach (int member in new[] { 0, 5, 7, 49 })
+                {
+                    Assert.False(GhostPlaybackLogic.ShouldHideNonDescentMemberForDescentHandoff(
+                        off, member, t, 0, out DescentTrigger.DescentHeadPhase phase));
+                    Assert.Equal(DescentTrigger.DescentHeadPhase.Inert, phase);
+                }
+            }
+        }
+
+        [Fact]
+        public void DescribeDescentHandoffOutcome_ThreeWordings()
+        {
+            Assert.Equal("kept (loiter/normal icon)", GhostPlaybackLogic.DescribeDescentHandoffOutcome(
+                false, DescentTrigger.DescentHeadPhase.Loiter, "icon"));
+            Assert.Equal("kept (loiter/normal ghost)", GhostPlaybackLogic.DescribeDescentHandoffOutcome(
+                false, DescentTrigger.DescentHeadPhase.Done, "ghost"));
+            Assert.Equal("HIDDEN (descent playing; hand off to descent member, no double icon)",
+                GhostPlaybackLogic.DescribeDescentHandoffOutcome(true, DescentTrigger.DescentHeadPhase.Descent, "icon"));
+            Assert.Equal("HIDDEN (descent playing; hand off to descent member, no double ghost)",
+                GhostPlaybackLogic.DescribeDescentHandoffOutcome(true, DescentTrigger.DescentHeadPhase.Descent, "ghost"));
+            Assert.Equal("HIDDEN (landed; journey over until the next cycle)",
+                GhostPlaybackLogic.DescribeDescentHandoffOutcome(true, DescentTrigger.DescentHeadPhase.Done, "icon"));
+            Assert.Equal("HIDDEN (landed; journey over until the next cycle)",
+                GhostPlaybackLogic.DescribeDescentHandoffOutcome(true, DescentTrigger.DescentHeadPhase.Done, "ghost"));
         }
 
         // NOTE: the engine-constructing LoopUnitSet coherence twin of this class's handoff tests lives in
@@ -2173,6 +2357,111 @@ namespace Parsek.Tests
             Assert.Same(set, engine.CurrentLoopUnits);
             Assert.True(engine.CurrentLoopUnits.TryGetUnitForMember(5, out GhostPlaybackLogic.LoopUnit engineUnit));
             Assert.True(engineUnit.HasDescentTrigger, "the engine's unit carries the descent trigger");
+        }
+    }
+
+    // The map / tracking-station resolver's "transfer/loiter member ... ->" line, captured from the shared
+    // static ParsekLog (hence Sequential). The engine twin of the line is pinned in
+    // UnitMemberPlaybackCharacterizationTests.
+    [Collection("Sequential")]
+    public class DescentHandoffResolverLogTests : IDisposable
+    {
+        private const double Pa = 1_000_000.0;
+        private const double Deorbit = 30_000_000.0;
+        private const double DescentEnd = 30_002_000.0;
+        private const double CapShift = -2_860_000.0;
+        private const double DunaTrot = 65517.859375;
+        private const double TransferWinStart = 27_000_000.0;
+        private const double RideAlongWinStart = 24_960_000.0;
+        private const double RideAlongWinEnd = 34_960_000.0;
+
+        private static readonly System.Globalization.CultureInfo IC = System.Globalization.CultureInfo.InvariantCulture;
+        private readonly List<string> logLines = new List<string>();
+
+        public DescentHandoffResolverLogTests()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekLog.VerboseOverrideForTesting = true;
+        }
+
+        public void Dispose()
+        {
+            ParsekLog.ResetTestOverrides();
+        }
+
+        private static double EntryUT() => Pa + Deorbit + CapShift;
+        private static double TriggerUT()
+            => DescentTrigger.ComputeRotationAlignedTriggerUT(EntryUT(), Deorbit, DunaTrot);
+
+        private string HandoffLine(int member, double liveUT, string phase, string outcome)
+            => "[Parsek][VERBOSE][ReaimDescent] transfer/loiter member=" + member.ToString(IC) + " cycle=0"
+                + " unitDescentPhase=" + phase + " baseDecision=Render liveUT=" + liveUT.ToString("R", IC)
+                + " loopUT=" + (liveUT - Pa).ToString("R", IC) + " -> " + outcome;
+
+        [Fact]
+        public void Resolver_Done_TransferMember_LogsTheLandedHide()
+        {
+            var units = DescentTriggerTests.BuildDescentUnit(engage: true);
+            double tDone = TriggerUT() + (DescentEnd - Deorbit) + 50.0;
+
+            GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                5, TransferWinStart, Deorbit, tDone, units, out bool hidden);
+
+            Assert.True(hidden);
+            Assert.Contains(HandoffLine(5, tDone, "Done", "HIDDEN (landed; journey over until the next cycle)"), logLines);
+            Assert.DoesNotContain(logLines, l => l.Contains("member=5") && l.Contains("kept (loiter/normal icon)"));
+        }
+
+        [Fact]
+        public void Resolver_Done_RideAlong_LogsKept()
+        {
+            var units = DescentTriggerTests.BuildDescentUnit(engage: true);
+            double tDone = TriggerUT() + (DescentEnd - Deorbit) + 50.0;
+
+            GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                7, RideAlongWinStart, RideAlongWinEnd, tDone, units, out bool hidden);
+
+            Assert.False(hidden);
+            Assert.Contains(HandoffLine(7, tDone, "Done", "kept (loiter/normal icon)"), logLines);
+        }
+
+        [Fact]
+        public void Resolver_DescentAndLoiter_KeepTheirExistingWording()
+        {
+            var units = DescentTriggerTests.BuildDescentUnit(engage: true);
+            double tDescent = TriggerUT() + 400.0;
+            double tLoiter = EntryUT() + 100.0;
+
+            GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                5, TransferWinStart, Deorbit, tDescent, units, out bool hiddenDescent);
+            GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                5, TransferWinStart, Deorbit, tLoiter, units, out bool hiddenLoiter);
+
+            Assert.True(hiddenDescent);
+            Assert.False(hiddenLoiter);
+            Assert.Contains(HandoffLine(5, tDescent, "Descent",
+                "HIDDEN (descent playing; hand off to descent member, no double icon)"), logLines);
+            Assert.Contains(HandoffLine(5, tLoiter, "Loiter", "kept (loiter/normal icon)"), logLines);
+        }
+
+        [Fact]
+        public void Resolver_Done_LandedHide_IsNotDedupedBehindTheLoiterLine()
+        {
+            // The rate-limit key carries the phase and the hide flag, so the Done line prints at once even
+            // right after a Loiter line for the same member (the skipped-descent step, Loiter -> Done).
+            var units = DescentTriggerTests.BuildDescentUnit(engage: true);
+            double tLoiter = EntryUT() + 100.0;
+            double tDone = TriggerUT() + (DescentEnd - Deorbit) + 3_600.0;
+
+            GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                5, TransferWinStart, Deorbit, tLoiter, units, out _);
+            GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                5, TransferWinStart, Deorbit, tDone, units, out bool hiddenDone);
+
+            Assert.True(hiddenDone);
+            Assert.Contains(HandoffLine(5, tLoiter, "Loiter", "kept (loiter/normal icon)"), logLines);
+            Assert.Contains(HandoffLine(5, tDone, "Done", "HIDDEN (landed; journey over until the next cycle)"), logLines);
         }
     }
 }

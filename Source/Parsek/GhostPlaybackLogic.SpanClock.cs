@@ -2453,17 +2453,20 @@ namespace Parsek
                 return liveUT;
             }
 
-            // NON-DESCENT (transfer / loiter / launch) member of a descent-trigger unit. Once the shared descent is
-            // PLAYING (unit descent phase == Descent), the vessel has LEFT the parking, so this member's
-            // loiter/parking icon must HAND OFF to the descent member. Without this the transfer member keeps drawing
-            // its parking proto-icon on the raw loop clock WHILE the descent member draws the descent clip — two icons
-            // at once — and because the transfer member's is the prominent native proto-icon, the user tracks IT and
-            // reports "the icon stayed on the loiter" even though the descent did render (confirmed: 2026-06-20 13:34
-            // log — rec=44 `Marker DRAWN headUT=2567696156` on the parking while member=45 `phase=Descent`). Hide any
-            // CURRENTLY-RENDERING non-descent member for the descent window so the descent icon is the only one; in
-            // Inert / Loiter / Done it is left untouched (the loiter icon is correct until the trigger fires, and the
-            // descent member is the one hidden then). Scoped to descent-trigger units (HasDescentTrigger) and to the
-            // member that would otherwise render, so it is byte-identical everywhere else.
+            // NON-DESCENT (transfer / loiter / launch / ride-along) member of a descent-trigger unit that would
+            // render this frame. Two hides, both from the one shared decision:
+            //  - Descent: the re-anchored descent member is playing the clip, so every non-descent member hides.
+            //    The transfer member's parking proto-icon is the prominent one; left drawn beside the descent
+            //    icon it reads as "the icon stayed on the loiter" (two icons at the handoff).
+            //  - Done: the ship has landed, so the DESTINATION transfer member (TransferMemberIndex) stays hidden
+            //    until the cycle ends. Its raw loop clock is still inside its window (the recorded parking slot
+            //    lies ~|captureShift| later), so without the hide the loiter-gap clamp below would wrap its head
+            //    back onto the parking conic and draw the ship in the parking orbit after the landing. Every
+            //    other non-descent member (the owner, a ride-along left in orbit at the launch body) keeps
+            //    rendering in Done.
+            // Inert / Loiter are untouched (the loiter icon is the only one until the trigger fires). Scoped to
+            // descent-trigger units (HasDescentTrigger) and to a member that would otherwise render, so it is
+            // byte-identical everywhere else.
             if (unit.HasDescentTrigger && decision == UnitMemberRenderDecision.Render)
             {
                 // Shared with the FLIGHT engine (UpdateUnitMemberPlayback) so the map/TS icon handoff and
@@ -2481,7 +2484,7 @@ namespace Parsek
                     $"transfer-handoff.{unit.PhaseAnchorUT.ToString("R", hdic)}.{unit.SpanStartUT.ToString("R", hdic)}.{i.ToString(hdic)}.{transferUnitPhase}.{hideForDescentHandoff}",
                     $"transfer/loiter member={i.ToString(hdic)} cycle={unitCycle.ToString(hdic)} " +
                     $"unitDescentPhase={transferUnitPhase} baseDecision=Render liveUT={liveUT.ToString("R", hdic)} " +
-                    $"loopUT={loopUT.ToString("R", hdic)} -> {(hideForDescentHandoff ? "HIDDEN (descent playing; hand off to descent member, no double icon)" : "kept (loiter/normal icon)")}");
+                    $"loopUT={loopUT.ToString("R", hdic)} -> {DescribeDescentHandoffOutcome(hideForDescentHandoff, transferUnitPhase, "icon")}");
                 if (hideForDescentHandoff)
                 {
                     renderHidden = true;
@@ -2521,7 +2524,8 @@ namespace Parsek
                 // Loiter-gap HEAD clamp (the rogue-descent fix): once the recorded loop clock sweeps PAST the
                 // parking-conic end, the raw loopUT return below would put this shared marker / line / polyline
                 // head in the recorded deorbit -> descent region - but the LIVE descent has NOT triggered (the unit
-                // phase is Inert / Loiter, the trigger is ~|captureShift| later), so the ghost renders a descending
+                // phase is Inert / Loiter here: Descent and Done returned hidden above for this member, so the
+                // clamp never draws the parking conic after the landing), so the ghost renders a descending
                 // icon at the wrong time (the user's "rogue descending trajectory, only icon, no line"). Hold the
                 // head at the parking-conic end so every surface using this resolver stays on the parking conic
                 // through the loiter, matching the map-presence segment-lookup clamp + the orbit-line hold. Gated on
@@ -2622,15 +2626,28 @@ namespace Parsek
         /// descent-trigger unit - the ONE decision shared by the map/TS resolver
         /// (<see cref="ResolveTrackingStationSampleUT"/>) and the FLIGHT engine
         /// (<c>GhostPlaybackEngine.UpdateUnitMemberPlayback</c>), so the two scenes can never disagree on
-        /// when the transfer/loiter member hands off to the descent. While the unit-wide descent phase
-        /// (<see cref="Parsek.Reaim.DescentTrigger.ComputeDescentMemberHead"/>) is <c>Descent</c> the
-        /// re-anchored descent member is playing the approach clip, so a currently-rendering non-descent
-        /// member must HIDE - otherwise two vessels coexist at the handoff (the parking icon/ghost + the
-        /// descent one, the 2026-06-20 13:34 double-icon bug). In Inert / Loiter / Done the member is left
-        /// untouched (the loiter icon/ghost is correct until the trigger fires). Returns false for descent
-        /// members and non-descent-trigger units (byte-identical everywhere else); callers gate on their
-        /// own decision==Render so a hidden member is never re-hidden. Pure: no Unity, no logging (each
-        /// call site owns its rate-limited "transfer/loiter member ... -> HIDDEN/kept" trace).
+        /// when a non-descent member is hidden. Keyed on the unit-wide descent phase
+        /// (<see cref="Parsek.Reaim.DescentTrigger.ComputeDescentMemberHead"/>):
+        /// <list type="bullet">
+        /// <item><c>Descent</c>: the re-anchored descent member is playing the approach clip, so EVERY
+        ///   currently-rendering non-descent member hides - otherwise two vessels coexist at the handoff (the
+        ///   parking icon/ghost + the descent one).</item>
+        /// <item><c>Done</c>: the ship has landed and its journey is over until the next cycle, so the
+        ///   DESTINATION transfer member (<see cref="LoopUnit.TransferMemberIndex"/>) stays hidden. Its raw
+        ///   loop clock is still inside its recorded window and past the parking-conic end, so left visible
+        ///   the loiter-gap clamp (<see cref="IsDescentTransferMemberInLoiterGap(LoopUnit,int,double)"/>)
+        ///   would wrap it back onto the parking conic and draw the ship in the parking orbit after the
+        ///   landing. Gated on the exact index: a non-descent member that is NOT the transfer member (the
+        ///   owner, a ride-along left in orbit at the launch body) never arrived and keeps rendering.</item>
+        /// <item><c>Inert</c> / <c>Loiter</c>: never hidden (the loiter icon/ghost is the only one until the
+        ///   trigger fires). The next cycle starts Inert, so the transfer member renders again there.</item>
+        /// </list>
+        /// A Loiter -&gt; Done step with no Descent frame between (a time jump over the whole descent window)
+        /// lands on the same Done answer, since the decision reads only this frame's phase. Returns false for
+        /// descent members and non-descent-trigger units (byte-identical everywhere else); callers gate on
+        /// their own decision==Render so a hidden member is never re-hidden. Pure: no Unity, no logging (each
+        /// call site owns its rate-limited "transfer/loiter member ... -> HIDDEN/kept" trace, worded by
+        /// <see cref="DescribeDescentHandoffOutcome"/>).
         /// </summary>
         internal static bool ShouldHideNonDescentMemberForDescentHandoff(
             LoopUnit unit, int i, double liveUT, long unitCycle,
@@ -2644,7 +2661,27 @@ namespace Parsek
                 unit.RecordedDeorbitUT, unit.DescentEndUT, unit.DestinationBodyRotationPeriodSeconds,
                 unit.LoiterPeriodSeconds, unit.CaptureShiftSeconds, unit.LoiterCuts, out _,
                 ResolveDescentSiteAlignOffsetSeconds(unit, unitCycle));
-            return unitDescentPhase == Parsek.Reaim.DescentTrigger.DescentHeadPhase.Descent;
+            if (unitDescentPhase == Parsek.Reaim.DescentTrigger.DescentHeadPhase.Descent)
+                return true;
+            return unitDescentPhase == Parsek.Reaim.DescentTrigger.DescentHeadPhase.Done
+                && i == unit.TransferMemberIndex;
+        }
+
+        /// <summary>
+        /// The outcome wording of the "transfer/loiter member ... -&gt;" trace both
+        /// <see cref="ShouldHideNonDescentMemberForDescentHandoff"/> call sites log, so the map/TS line and the
+        /// engine line cannot drift: kept, hidden for the playing descent, or hidden after the landing (a
+        /// hide in the <c>Done</c> phase). <paramref name="surfaceNoun"/> is what the call site draws
+        /// ("icon" for the map/TS resolver, "ghost" for the flight engine). Pure.
+        /// </summary>
+        internal static string DescribeDescentHandoffOutcome(
+            bool hidden, Parsek.Reaim.DescentTrigger.DescentHeadPhase unitDescentPhase, string surfaceNoun)
+        {
+            if (!hidden)
+                return "kept (loiter/normal " + surfaceNoun + ")";
+            if (unitDescentPhase == Parsek.Reaim.DescentTrigger.DescentHeadPhase.Done)
+                return "HIDDEN (landed; journey over until the next cycle)";
+            return "HIDDEN (descent playing; hand off to descent member, no double " + surfaceNoun + ")";
         }
 
         /// <summary>
@@ -2828,9 +2865,11 @@ namespace Parsek
         /// input. Resolves the unit cycle
         /// through the SAME <see cref="DecideUnitMemberRender"/> path the resolver / engine / I1 use (one source
         /// of truth - the live-frame phase, NOT a raw recorded-domain UT inequality), then classifies via the
-        /// pure <see cref="Parsek.Reaim.DescentTrigger.ComputeDescentMemberHead"/>. Mirrors the handoff at
-        /// <see cref="ResolveTrackingStationSampleUT"/> (which hides the transfer marker in Descent) but ALSO
-        /// covers Done, where the handoff does not fire and the spurious tail appears. Pure; no Unity
+        /// pure <see cref="Parsek.Reaim.DescentTrigger.ComputeDescentMemberHead"/>. Agrees with the per-frame
+        /// hide at <see cref="ResolveTrackingStationSampleUT"/>
+        /// (<see cref="ShouldHideNonDescentMemberForDescentHandoff"/> hides the transfer member in Descent and
+        /// Done), but does not depend on the member's base render decision, so a create path that reaches the
+        /// source resolver with the member outside its raw window still retires it. Pure; no Unity
         /// (xUnit-testable).</para>
         /// </summary>
         internal static bool IsTransferMemberDescentContinuation(
@@ -2932,12 +2971,14 @@ namespace Parsek
         /// loiter) - NaN
         /// <see cref="LoopUnit.ParkingConicEndUT"/>, and <paramref name="loopUT"/> &lt;=
         /// <see cref="LoopUnit.ParkingConicEndUT"/> (the icon is still riding the conic - the conic renders
-        /// through the unchanged segment lookup, no clamp). Crucially it is also FALSE once the descent trigger
-        /// fires: the descent member then owns the visual and the transfer member retires via
-        /// <see cref="IsTransferMemberDescentContinuation"/> (the live-clock Descent/Done gate), so there is no
-        /// lingering clamp past the trigger - this predicate is a pure recorded-domain <c>loopUT &gt;
-        /// parkingConicEnd</c> test that the caller only consults BEFORE the transfer member is retired. Pure; no
-        /// Unity (xUnit-testable). Default-off at every non-opted-in call site.</para>
+        /// through the unchanged segment lookup, no clamp). This predicate is a pure recorded-domain
+        /// <c>loopUT &gt; parkingConicEnd</c> test and stays TRUE through Descent and Done (until the member's
+        /// recorded window ends), so a caller must consult it only while the transfer member still renders:
+        /// the per-frame resolver and the engine return hidden first
+        /// (<see cref="ShouldHideNonDescentMemberForDescentHandoff"/>, Descent and Done), the map-presence
+        /// reseed sites tear the ghost down on that hidden answer before they reach the clamp, and the create
+        /// paths retire it via <see cref="IsTransferMemberDescentContinuation"/>. Pure; no Unity
+        /// (xUnit-testable). Default-off at every non-opted-in call site.</para>
         /// </summary>
         internal static bool IsDescentTransferMemberInLoiterGap(LoopUnit unit, int i, double loopUT)
         {

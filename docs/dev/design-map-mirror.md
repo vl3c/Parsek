@@ -89,7 +89,7 @@ where `--out` says. Do not commit generated pages.
 
 ### How to get the pictures
 
-The picture lanes TP-1..TP-8 (`harness/scenarios/TP-*.toml`, tier `operator`)
+The picture lanes TP-1..TP-9 (`harness/scenarios/TP-*.toml`, tier `operator`)
 exist to feed this page. Each copies a model lane's committed fixture, loop setup
 and measured jump instants, and at each instant takes a few VIEWS:
 
@@ -103,6 +103,11 @@ and measured jump instants, and at each instant takes a few VIEWS:
 | TP-6 | Mun landing loop (V23M) | flight map | transfer, approach, descent, 60 s before touchdown; c2 the same | 14 |
 | TP-7 | Kerbin depot route, route lines on (V18T) | Tracking Station | c1 near dock; c2 mid-leg, near dock | 9 |
 | TP-8 | Inter-body routes (V26M) | flight map | the save clock (whole system and each route end) | 5 |
+| TP-9 | Kerbin to Duna re-aim, landing jumped over (TP-4) | flight map | a month later, after one jump over the whole landing | 1 |
+
+TP-9 is the one picture lane that also pins log lines (todo
+REAIM-PARKING-ICON-AFTER-LANDING: the ship must stay hidden after a landing the
+clock jumped over); the others assert only that every view was taken.
 
 A view is three seam steps under one label: `MapCamera focus=<body> pitch=
 heading= distance=` (the same frame on every run), `CaptureScreenshot label=L`
@@ -121,7 +126,7 @@ To get the pictures (flights run only when the operator asks):
 
 ```
 cd harness
-python run.py --id TP-1-mun-loop-map-pictures        # or --tag TP for all eight
+python run.py --id TP-1-mun-loop-map-pictures        # or --tag TP for all nine
 python tools/map_mirror.py --shots "results/*_TP-*_shots" \
     --out ../../logs/map-mirror/<date>/map-mirror.html
 ```

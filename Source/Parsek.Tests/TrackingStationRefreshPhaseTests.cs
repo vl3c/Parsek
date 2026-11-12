@@ -141,6 +141,62 @@ namespace Parsek.Tests
             Assert.Equal(500.0, effUT);
         }
 
+        // The re-aim landing fixture of DescentTriggerTests: member 5 is the destination transfer member,
+        // member 7 a ride-along left at the launch body. The Done instant (2,050 s after the trigger, past
+        // the 2,000 s clip) is inside both members' windows on the raw loop clock.
+        private static List<Recording> DescentUnitCommitted()
+        {
+            var committed = new List<Recording>();
+            for (int k = 0; k < 8; k++)
+                committed.Add(TrackingStationRefreshCharacterizationTests.SegmentRecording(
+                    "d" + k.ToString(Ic)));
+            return committed;
+        }
+
+        private static double DescentUnitDoneUT()
+            => Parsek.Reaim.DescentTrigger.ComputeRotationAlignedTriggerUT(
+                1_000_000.0 + 30_000_000.0 - 2_860_000.0, 30_000_000.0, 65517.859375) + 2_050.0;
+
+        [Fact]
+        public void Teardown_TransferMemberAfterLanding_ReturnsOutOfWindow_BeforeTheLoiterGapClamp()
+        {
+            // The refresh tears the transfer member's ghost down on the hidden answer, so it never reaches
+            // ResolveTrackingStationSegmentLookupUT (the loiter-gap clamp + the parking-conic line hold).
+            var committed = DescentUnitCommitted();
+            double doneUT = DescentUnitDoneUT();
+            string reason = GhostMapPresence.ResolveTrackingStationRefreshTeardownReason(
+                5, committed, doneUT, DescentTriggerTests.BuildDescentUnit(engage: true),
+                out Recording rec, out double effUT);
+            Assert.Equal("mission-loop-out-of-window", reason);
+            Assert.Same(committed[5], rec);
+            Assert.Equal(doneUT, effUT); // hidden: the live UT, not a head wrapped onto the parking conic
+        }
+
+        [Fact]
+        public void Teardown_RideAlongAfterLanding_NullWithTheLoopSampleUT()
+        {
+            var committed = DescentUnitCommitted();
+            double doneUT = DescentUnitDoneUT();
+            string reason = GhostMapPresence.ResolveTrackingStationRefreshTeardownReason(
+                7, committed, doneUT, DescentTriggerTests.BuildDescentUnit(engage: true),
+                out Recording rec, out double effUT);
+            Assert.Null(reason);
+            Assert.Same(committed[7], rec);
+            Assert.Equal(doneUT - 1_000_000.0, effUT, 6);
+        }
+
+        [Fact]
+        public void Teardown_TransferMember_UnitWithoutDescentTrigger_NullAtTheSameInstant()
+        {
+            var committed = DescentUnitCommitted();
+            double doneUT = DescentUnitDoneUT();
+            string reason = GhostMapPresence.ResolveTrackingStationRefreshTeardownReason(
+                5, committed, doneUT, DescentTriggerTests.BuildDescentUnit(engage: false),
+                out _, out double effUT);
+            Assert.Null(reason);
+            Assert.Equal(doneUT - 1_000_000.0, effUT, 6);
+        }
+
         [Fact]
         public void Teardown_PlainRecording_NullWithTheLiveUT()
         {

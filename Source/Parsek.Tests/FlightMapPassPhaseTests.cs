@@ -255,6 +255,35 @@ namespace Parsek.Tests
             Assert.Equal(0, GhostMapPresence.flightStateVectorCachedIndices[0]);
         }
 
+        // ------------------------------------------------ ResolveMapPresenceSampleUT (re-aim landing, Done)
+
+        [Fact]
+        public void SampleUT_TransferMemberAfterLanding_Hidden_SoCreateSkipsAndReseedTearsDown()
+        {
+            // The pending-create pass skips, the reseed and state-vector passes tear down, and the
+            // initial create defers on this one hidden answer, so none of them reaches the loiter-gap
+            // clamp for the transfer member (5) once the ship has landed. The ride-along (7) is untouched.
+            var units = DescentTriggerTests.BuildDescentUnit(engage: true);
+            double doneUT = Parsek.Reaim.DescentTrigger.ComputeRotationAlignedTriggerUT(
+                1_000_000.0 + 30_000_000.0 - 2_860_000.0, 30_000_000.0, 65517.859375) + 2_050.0;
+
+            double effUT = GhostMapPresence.ResolveMapPresenceSampleUT(
+                5, 27_000_000.0, 30_000_000.0, doneUT, units, out bool hidden, out double shift);
+            Assert.True(hidden);
+            Assert.Equal(doneUT, effUT);
+            Assert.Equal(0.0, shift);
+            Assert.True(ParsekPlaybackPolicy.ShouldDeferLoopShiftedMapPresence(shift, hidden));
+            // The clamp predicate itself is still true at the raw loop clock: only the hidden answer,
+            // read first by every pass, keeps the parking conic from being drawn.
+            Assert.True(GhostPlaybackLogic.IsDescentTransferMemberInLoiterGap(units, 5, doneUT - 1_000_000.0));
+
+            double rideAlongEffUT = GhostMapPresence.ResolveMapPresenceSampleUT(
+                7, 24_960_000.0, 34_960_000.0, doneUT, units, out bool rideAlongHidden, out double rideAlongShift);
+            Assert.False(rideAlongHidden);
+            Assert.Equal(doneUT - 1_000_000.0, rideAlongEffUT, 6);
+            Assert.Equal(1_000_000.0, rideAlongShift, 6);
+        }
+
         // ------------------------------------------------ TearDownFlightMapGhostOutOfLoopWindow
 
         [UnityEntryFact]
