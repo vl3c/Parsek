@@ -14,8 +14,9 @@ tier = "nightly"
 # RelativeBoundary (RunRelativeBoundaryLiveFixture) and SOI (RunSoiLiveFixture), since
 # todo REFLY-ANCHOR-EPSILON-1300KM, run the production seed epsilon (body constants,
 # spline fit, surface placement; for RelativeBoundary the production
-# ProductionAnchorWorldFrameResolver with an on-rails anchor; for SOI the body's moon,
-# or its parent, through stock's own body conics) against stock's own placement of a
+# ProductionAnchorWorldFrameResolver with an on-rails anchor; for SOI the body's first
+# moon, or its parent, plus every moon of the body and of the home body, through stock's
+# own body conics, asserting an inclined moon ran on stock) against stock's own placement of a
 # conic whose boundary is a quarter rotation in the past, and assert 0 < |eps| < 5 m.
 # ONE (Loop) routes through RunPhase6PerSourceFixture, which installs
 # AnchorPropagator.ResolverOverrideForTesting (a stub returning a CONSTANT offset)
@@ -82,7 +83,10 @@ steps = [
 #                                    synchronous run only) but never played back, so
 #                                    no `relative-anchored-nonloop` cell.
 #   Pipeline_Anchor_SOI              `RunSoiLiveFixture`: same, an Absolute section on
-#                                    the main body and a checkpoint conic on its moon.
+#                                    the main body and a checkpoint conic on its moon,
+#                                    then per moon (main and home body) an Absolute
+#                                    section on the moon and a parent conic beside it;
+#                                    on stock it asserts Minmus-like elements ran.
 #   Pipeline_Anchor_OrbitalCheckpoint `RunBoundaryInstantLiveFixture`: an Absolute and
 #                                    an OrbitalCheckpoint section are RESOLVED (the
 #                                    seed epsilon) but never played back, so it earns
@@ -118,7 +122,7 @@ count = { min = 0, max = 0 }
 #  - skipped=0 is DERIVED: all 7 carry Scene = GameScenes.FLIGHT and the batch runs
 #    at FLIGHT; none sets AllowBatchExecution = false; none of the 7 bodies, nor any
 #    helper they call, contains an InGameAssert.Skip (the SOI cell ASSERTS a main body
-#    with a moon or a parent; Kerbin has both).
+#    with a moon or a parent, and on stock an inclined moon; Kerbin has both, and Minmus).
 #  - 2026-11-12 (todo REFLY-ANCHOR-EPSILON-1300KM residuals): the RelativeBoundary and
 #    SOI cells became live fixtures. The count and names are unchanged, so the pin
 #    holds; they are unflown in this shape while PC flights are paused.

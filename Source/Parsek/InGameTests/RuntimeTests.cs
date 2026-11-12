@@ -26848,11 +26848,16 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
-        /// Live SoiTransition check (todo REFLY-ANCHOR-EPSILON-1300KM): physics samples around
-        /// the active body ending at a boundary a quarter rotation ago, then a checkpoint conic
-        /// around the active body's first moon (or, for a moonless body, its parent). The
-        /// samples are that conic as stock places it, carried into the active body by stock's
-        /// own body conics at each sample's UT.
+        /// Live SoiTransition check (todo REFLY-ANCHOR-EPSILON-1300KM): physics samples ending at
+        /// a boundary a quarter of the spline body's rotation ago, then a checkpoint conic around
+        /// the body on the other side. The samples are that conic as stock places it, carried
+        /// into the spline body by stock's own body conics at each sample's UT. Cases: the active
+        /// body's first moon's conic seen from the active body (for a moonless body: the parent's
+        /// conic seen from it), and, for every moon of the active body (of its parent when it has
+        /// none) and of the home body, a parent conic beside the moon seen from the moon, so every moon's own conic is
+        /// read as a chain link. On a stock system at least one of those moons (Minmus) has a
+        /// non-zero inclination with distinct LAN and argument of periapsis, the case where a
+        /// misread element moves the carried position.
         /// </summary>
         private IEnumerator RunSoiLiveFixture(string testName)
         {
@@ -26863,53 +26868,140 @@ namespace Parsek.InGameTests
             InGameAssert.IsTrue(body != null && body.rotates && body.rotationPeriod > 0.0,
                 $"{testName}: needs a rotating main body");
             bool hasMoon = body.orbitingBodies != null && body.orbitingBodies.Count > 0;
-            CelestialBody other = hasMoon ? body.orbitingBodies[0] : body.referenceBody;
-            InGameAssert.IsTrue(other != null && other != body && (hasMoon || body.orbit != null),
+            CelestialBody parent = object.ReferenceEquals(body.referenceBody, body) ? null : body.referenceBody;
+            InGameAssert.IsTrue(hasMoon || (parent != null && body.orbit != null),
                 $"{testName}: needs a main body with a moon or a parent");
 
+            // (spline body, conic body); the conic body is a moon of the spline body or its parent.
+            var cases = new List<KeyValuePair<CelestialBody, CelestialBody>>();
+            if (hasMoon)
+                cases.Add(new KeyValuePair<CelestialBody, CelestialBody>(body, body.orbitingBodies[0]));
+            else
+                cases.Add(new KeyValuePair<CelestialBody, CelestialBody>(body, parent));
+            var parents = new List<CelestialBody>();
+            foreach (CelestialBody p in new[] { hasMoon ? body : parent, FlightGlobals.GetHomeBody() })
+                if (p != null && p.orbitingBodies != null && p.orbitingBodies.Count > 0 && !parents.Contains(p))
+                    parents.Add(p);
+            foreach (CelestialBody p in parents)
+                foreach (CelestialBody m in p.orbitingBodies)
+                    if (m != null && m.orbit != null && m.rotates && m.rotationPeriod > 0.0
+                        && !(m == body && p == parent))
+                        cases.Add(new KeyValuePair<CelestialBody, CelestialBody>(m, p));
+
+            int inclinedMoons = 0;
+            var inclinedNames = new List<string>();
             try
             {
-                double now = Planetarium.GetUniversalTime();
-                double tb = now - 0.25 * body.rotationPeriod;
-                double sma = other.Radius + System.Math.Max(other.atmosphereDepth, 10000.0) + 60000.0;
-                var seg = new OrbitSegment
+                foreach (var c in cases)
                 {
-                    bodyName = other.bodyName,
-                    inclination = 12.0, eccentricity = 0.05, semiMajorAxis = sma,
-                    longitudeOfAscendingNode = 70.0, argumentOfPeriapsis = 25.0,
-                    meanAnomalyAtEpoch = 1.1, epoch = tb - 20.0,
-                    startUT = tb, endUT = tb + 600.0,
-                };
-                var stock = new Orbit(seg.inclination, seg.eccentricity, seg.semiMajorAxis,
-                    seg.longitudeOfAscendingNode, seg.argumentOfPeriapsis,
-                    seg.meanAnomalyAtEpoch, seg.epoch, other);
-                System.Func<double, Vector3d> worldAt;
-                if (hasMoon)
-                    worldAt = t => other.orbit.getPositionAtUT(t) + (stock.getPositionAtUT(t) - other.position);
-                else
-                    worldAt = t => body.position + (stock.getPositionAtUT(t) - other.position)
-                        - (body.orbit.getPositionAtUT(t) - other.position);
-
-                var rec = new Recording { RecordingId = testName + "-rec", VesselName = testName };
-                rec.TrackSections.Add(LiveAbsoluteSection(LiveBoundarySamples(body, now, tb - 20.0, worldAt)));
-                rec.TrackSections.Add(LiveCheckpointSection(seg));
-
-                Parsek.Rendering.SmoothingPipeline.FitAndStorePerSection(rec);
-                Parsek.Rendering.AnchorPropagator.Run(
-                    new ReFlySessionMarker { SessionId = testName + "-sess" },
-                    new List<Recording> { rec },
-                    new List<RecordingTree>(),
-                    surfaceLookup: null);
-
-                AssertLiveBoundaryEpsilon(testName, rec, 0, Parsek.Rendering.AnchorSide.End,
-                    Parsek.Rendering.AnchorSource.SoiTransition,
-                    "body=" + body.bodyName + " conicBody=" + other.bodyName, tb, now);
+                    CelestialBody moon = c.Value.referenceBody == c.Key ? c.Value : c.Key;
+                    if (RunSoiLiveCase(testName, c.Key, c.Value) && IsInclinedOrbit(moon.orbit)
+                        && !inclinedNames.Contains(moon.bodyName))
+                    {
+                        inclinedMoons++;
+                        inclinedNames.Add(moon.bodyName);
+                    }
+                }
             }
             finally
             {
                 ResetAnchorPipelineForLiveFixture();
             }
+
+            bool stockSystem = FlightGlobals.Bodies != null && FlightGlobals.Bodies.Count == 17
+                && FlightGlobals.GetHomeBody() != null && FlightGlobals.GetHomeBody().bodyName == "Kerbin";
+            ParsekLog.Info("Pipeline-Anchor", string.Format(CultureInfo.InvariantCulture,
+                "{0}: cases={1} inclinedMoons={2} [{3}] stockSystem={4}",
+                testName, cases.Count, inclinedMoons, string.Join(",", inclinedNames.ToArray()), stockSystem));
+            if (stockSystem)
+                InGameAssert.IsTrue(inclinedMoons > 0,
+                    $"{testName}: a stock system has a moon with inclination, LAN and argument of periapsis set (Minmus); none was exercised");
             yield break;
+        }
+
+        // Inclination, LAN and argument of periapsis all away from zero and LAN apart from argPe.
+        private static bool IsInclinedOrbit(Orbit o)
+        {
+            return o != null
+                && System.Math.Abs(o.inclination) > 1.0
+                && System.Math.Abs(o.LAN) > 1.0
+                && System.Math.Abs(o.argumentOfPeriapsis) > 1.0
+                && System.Math.Abs(o.LAN - o.argumentOfPeriapsis) > 1.0;
+        }
+
+        /// <summary>
+        /// One live SOI case: Absolute samples around <paramref name="splineBody"/> ending at the
+        /// boundary, then a checkpoint conic around <paramref name="conicBody"/>. A conic around a
+        /// moon is a low orbit; a conic around the parent is the moon's own orbit shrunk so the
+        /// path passes about 1,000 km above the moon at the boundary (a path tens of thousands of
+        /// km from the spline body adds metres of spline fit residue).
+        /// One synchronous pass, so every stock read uses the same Zup and rotation.
+        /// </summary>
+        private static bool RunSoiLiveCase(string testName, CelestialBody splineBody, CelestialBody conicBody)
+        {
+            ResetAnchorPipelineForLiveFixture();
+            bool conicAroundMoon = conicBody.referenceBody == splineBody;
+            double now = Planetarium.GetUniversalTime();
+            double tb = now - 0.25 * splineBody.rotationPeriod;
+            OrbitSegment seg;
+            if (conicAroundMoon)
+            {
+                seg = new OrbitSegment
+                {
+                    bodyName = conicBody.bodyName,
+                    inclination = 12.0, eccentricity = 0.05,
+                    semiMajorAxis = conicBody.Radius + System.Math.Max(conicBody.atmosphereDepth, 10000.0) + 60000.0,
+                    longitudeOfAscendingNode = 70.0, argumentOfPeriapsis = 25.0,
+                    meanAnomalyAtEpoch = 1.1, epoch = tb - 20.0,
+                };
+            }
+            else
+            {
+                Orbit mo = splineBody.orbit;
+                double a = mo.semiMajorAxis;
+                double n = System.Math.Sqrt(conicBody.gravParameter / (a * a * a));
+                double gap = System.Math.Min(
+                    splineBody.Radius + System.Math.Max(splineBody.atmosphereDepth, 10000.0) + 1000000.0, 0.3 * a);
+                seg = new OrbitSegment
+                {
+                    bodyName = conicBody.bodyName,
+                    inclination = mo.inclination, eccentricity = mo.eccentricity,
+                    semiMajorAxis = a - gap,
+                    longitudeOfAscendingNode = mo.LAN, argumentOfPeriapsis = mo.argumentOfPeriapsis,
+                    meanAnomalyAtEpoch = mo.meanAnomalyAtEpoch + n * (tb - mo.epoch), epoch = tb,
+                };
+            }
+            seg.startUT = tb;
+            seg.endUT = tb + 600.0;
+            var stock = new Orbit(seg.inclination, seg.eccentricity, seg.semiMajorAxis,
+                seg.longitudeOfAscendingNode, seg.argumentOfPeriapsis,
+                seg.meanAnomalyAtEpoch, seg.epoch, conicBody);
+            System.Func<double, Vector3d> worldAt;
+            if (conicAroundMoon)
+                worldAt = t => conicBody.orbit.getPositionAtUT(t) + (stock.getPositionAtUT(t) - conicBody.position);
+            else
+                worldAt = t => splineBody.position + (stock.getPositionAtUT(t) - conicBody.position)
+                    - (splineBody.orbit.getPositionAtUT(t) - conicBody.position);
+
+            var rec = new Recording
+            {
+                RecordingId = testName + "-" + splineBody.bodyName + "-" + conicBody.bodyName,
+                VesselName = testName,
+            };
+            rec.TrackSections.Add(LiveAbsoluteSection(LiveBoundarySamples(splineBody, now, tb - 20.0, worldAt)));
+            rec.TrackSections.Add(LiveCheckpointSection(seg));
+
+            Parsek.Rendering.SmoothingPipeline.FitAndStorePerSection(rec);
+            Parsek.Rendering.AnchorPropagator.Run(
+                new ReFlySessionMarker { SessionId = rec.RecordingId + "-sess" },
+                new List<Recording> { rec },
+                new List<RecordingTree>(),
+                surfaceLookup: null);
+
+            AssertLiveBoundaryEpsilon(testName, rec, 0, Parsek.Rendering.AnchorSide.End,
+                Parsek.Rendering.AnchorSource.SoiTransition,
+                "body=" + splineBody.bodyName + " conicBody=" + conicBody.bodyName, tb, now);
+            return true;
         }
 
         /// <summary>

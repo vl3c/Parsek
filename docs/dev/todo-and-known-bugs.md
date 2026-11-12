@@ -96,7 +96,11 @@ After the fix every case reads 2.86 to 3.01 m at all three clocks, the body-fixe
 5 cm. Tests: `AnchorEpsilonResidualTests` (Harmony routes Unity's native `LookRotation` /
 `AngleAxis` to the managed transcriptions so the stock pose runs headless). In-game: H11 / LT-1
 `Pipeline_Anchor_RelativeBoundary` and `Pipeline_Anchor_SOI` are live fixtures asserting
-`0 < |eps| < 5 m` (the SOI cell uses the main body's first moon, else its parent).
+`0 < |eps| < 5 m` (the SOI cell: the main body's first moon, else its parent, then a parent conic
+beside every moon of the main and home body, asserting on stock that an inclined moon ran (Minmus:
+6 / 78 / 38 deg), where a misread LAN / argPe link would read 165 to 3,365 km). Headless, the Mun
+carries Minmus's angles and a moonlet orbits it, so a dropped chain link and a swapped LAN / argPe
+both red `SoiTransition_EpsilonIsTheDesignedMetresAtEveryRebuildClock`.
 
 **Left open.** (1) Live proof: an RW-5 / 6 / 7 flight with zero `exceeds bubble radius` lines and a
 `DAG walk summary` whose `boundaryInstantMaxEpsilonM=` reads metres, equal at both rebuilds.

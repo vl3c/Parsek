@@ -33,8 +33,8 @@ namespace Parsek.Tests.Rendering
     /// designed 3 m (the Absolute samples sit 3 m below the true path) at every rebuild clock.
     ///
     /// <para>
-    /// Headless world: stock Kerbin and Mun constants, the Mun on its stock conic around a fixed
-    /// Kerbin, and <c>Planetarium.Zup</c> the identity, so stock's world position of a conic is
+    /// Headless world: stock Kerbin and Mun constants, the Mun on an inclined conic around a fixed
+    /// Kerbin and a moonlet on its own conic around the Mun, and <c>Planetarium.Zup</c> the identity, so stock's world position of a conic is
     /// <c>body.position + rel.xzy</c> and <c>GetWorldSurfacePosition</c> at the rebuild instant is
     /// <see cref="Place"/>. The production resolver gets "alive" bodies (non-zero Unity pointer, so
     /// the shared pose's Unity null test passes and stock <c>Orbit</c> runs headless) and the
@@ -60,20 +60,42 @@ namespace Parsek.Tests.Rendering
         {
             { "Kerbin", new BodyModel { Radius = 600000.0, Mu = 3.5316e12, RotationPeriod = 21549.425, InitialRotationDeg = 90.0 } },
             { "Mun", new BodyModel { Radius = 200000.0, Mu = 6.5138398e10, RotationPeriod = 138984.38, InitialRotationDeg = 230.0 } },
+            { "Moonlet", new BodyModel { Radius = 20000.0, Mu = 1.2e9, RotationPeriod = 40400.0, InitialRotationDeg = 15.0 } },
         };
 
-        // Kerbin's world position (fixed), and the Mun's stock conic around it.
+        // Kerbin's world position (fixed), the Mun's conic around it and a moonlet's around the
+        // Mun: a two-link chain to the root. Both conics are inclined with distinct LAN and
+        // argument of periapsis (the Mun's angles are Minmus's), so a swapped or dropped element
+        // and a chain walk that keeps only one link each move the carried position.
         private static readonly Vector3d KerbinWorld = new Vector3d(1500.0, -2500.0, 4000.0);
         private static readonly OrbitSegment MunAroundKerbin = new OrbitSegment
         {
             bodyName = "Kerbin",
             semiMajorAxis = 12000000.0,
-            eccentricity = 0.0,
-            inclination = 0.0,
-            longitudeOfAscendingNode = 0.0,
-            argumentOfPeriapsis = 0.0,
+            eccentricity = 0.02,
+            inclination = 6.0,
+            longitudeOfAscendingNode = 78.0,
+            argumentOfPeriapsis = 38.0,
             meanAnomalyAtEpoch = 1.7,
             epoch = 0.0,
+        };
+        private static readonly OrbitSegment MoonletAroundMun = new OrbitSegment
+        {
+            bodyName = "Mun",
+            semiMajorAxis = 600000.0,
+            eccentricity = 0.05,
+            inclination = 15.0,
+            longitudeOfAscendingNode = 120.0,
+            argumentOfPeriapsis = 70.0,
+            meanAnomalyAtEpoch = 0.4,
+            epoch = 0.0,
+        };
+
+        // Each non-root body's own conic around its parent.
+        private static readonly Dictionary<string, OrbitSegment> OwnConic = new Dictionary<string, OrbitSegment>(StringComparer.Ordinal)
+        {
+            { "Mun", MunAroundKerbin },
+            { "Moonlet", MoonletAroundMun },
         };
 
         private const double BoundaryUT = 50000.0;
@@ -119,21 +141,25 @@ namespace Parsek.Tests.Rendering
                 alive.gravParameter = kv.Value.Mu;
                 resolverBodies[kv.Key] = Configure(alive, kv.Value);
             }
-            // The Mun's own conic, which the SOI comparison reads through orbitDriver.orbit.
+            // Each moon's own conic, which the SOI comparison reads through orbitDriver.orbit.
             foreach (var set in new[] { propagatorBodies, resolverBodies })
             {
-                CelestialBody mun = set["Mun"];
-                mun.orbitDriver = (OrbitDriver)System.Runtime.Serialization.FormatterServices.GetUninitializedObject(typeof(OrbitDriver));
-                Orbit o = (Orbit)System.Runtime.Serialization.FormatterServices.GetUninitializedObject(typeof(Orbit));
-                o.inclination = MunAroundKerbin.inclination;
-                o.eccentricity = MunAroundKerbin.eccentricity;
-                o.semiMajorAxis = MunAroundKerbin.semiMajorAxis;
-                o.LAN = MunAroundKerbin.longitudeOfAscendingNode;
-                o.argumentOfPeriapsis = MunAroundKerbin.argumentOfPeriapsis;
-                o.meanAnomalyAtEpoch = MunAroundKerbin.meanAnomalyAtEpoch;
-                o.epoch = MunAroundKerbin.epoch;
-                o.referenceBody = set["Kerbin"];
-                mun.orbitDriver.orbit = o;
+                foreach (var own in OwnConic)
+                {
+                    CelestialBody moon = set[own.Key];
+                    OrbitSegment c = own.Value;
+                    moon.orbitDriver = (OrbitDriver)System.Runtime.Serialization.FormatterServices.GetUninitializedObject(typeof(OrbitDriver));
+                    Orbit o = (Orbit)System.Runtime.Serialization.FormatterServices.GetUninitializedObject(typeof(Orbit));
+                    o.inclination = c.inclination;
+                    o.eccentricity = c.eccentricity;
+                    o.semiMajorAxis = c.semiMajorAxis;
+                    o.LAN = c.longitudeOfAscendingNode;
+                    o.argumentOfPeriapsis = c.argumentOfPeriapsis;
+                    o.meanAnomalyAtEpoch = c.meanAnomalyAtEpoch;
+                    o.epoch = c.epoch;
+                    o.referenceBody = set[c.bodyName];
+                    moon.orbitDriver.orbit = o;
+                }
             }
 
             harmony = new Harmony(HarmonyId);
@@ -213,10 +239,16 @@ namespace Parsek.Tests.Rendering
             return orbit.GetPositionAtUT(ut);
         }
 
-        /// <summary>The body's position relative to Kerbin in the stored element frame.</summary>
+        /// <summary>The body's position relative to Kerbin in the stored element frame, summed up its parent chain.</summary>
         private static Vector3d StoredBodyPosition(string body, double ut)
         {
-            return body == "Mun" ? StoredKepler(MunAroundKerbin, ut) : Vector3d.zero;
+            Vector3d p = Vector3d.zero;
+            while (OwnConic.TryGetValue(body, out OrbitSegment c))
+            {
+                p += StoredKepler(c, ut);
+                body = c.bodyName;
+            }
+            return p;
         }
 
         private static Vector3d BodyWorld(string body, double nowUT) => KerbinWorld + Swizzle(StoredBodyPosition(body, nowUT));
@@ -551,20 +583,33 @@ namespace Parsek.Tests.Rendering
             epoch = 0.0,
         };
 
+        private static readonly OrbitSegment ConicAroundMoonlet = new OrbitSegment
+        {
+            bodyName = "Moonlet",
+            semiMajorAxis = 80000.0,
+            eccentricity = 0.1,
+            inclination = 30.0,
+            longitudeOfAscendingNode = 40.0,
+            argumentOfPeriapsis = 10.0,
+            meanAnomalyAtEpoch = 2.1,
+            epoch = 0.0,
+        };
+
+        // 1,800 km from the Mun at the boundary, where a crossing into its SOI happens.
         private static readonly OrbitSegment ConicAroundKerbin = new OrbitSegment
         {
             bodyName = "Kerbin",
-            semiMajorAxis = 11000000.0,
-            eccentricity = 0.2,
-            inclination = 3.0,
-            longitudeOfAscendingNode = 10.0,
-            argumentOfPeriapsis = 0.0,
-            meanAnomalyAtEpoch = 1.5,
+            semiMajorAxis = 11600000.0,
+            eccentricity = 0.05,
+            inclination = 8.0,
+            longitudeOfAscendingNode = 70.0,
+            argumentOfPeriapsis = 45.0,
+            meanAnomalyAtEpoch = 1.797,
             epoch = 0.0,
         };
 
         /// <summary>
-        /// One recording crossing between Kerbin and the Mun at the boundary: the checkpoint conic
+        /// One recording crossing between two bodies at the boundary: the checkpoint conic
         /// around <paramref name="checkpointBody"/>, the Absolute samples the same path seen from
         /// <paramref name="absoluteBody"/> (3 m below it). End = Absolute then checkpoint; Start =
         /// checkpoint then Absolute.
@@ -572,7 +617,8 @@ namespace Parsek.Tests.Rendering
         private Recording BuildSoiCrossing(string absoluteBody, string checkpointBody, AnchorSide side,
             out RecordingTree tree, out int absIndex)
         {
-            OrbitSegment conic = checkpointBody == "Mun" ? ConicAroundMun : ConicAroundKerbin;
+            OrbitSegment conic = checkpointBody == "Mun" ? ConicAroundMun
+                : checkpointBody == "Moonlet" ? ConicAroundMoonlet : ConicAroundKerbin;
             Func<double, Vector3d> pathSeenFromAbsolute = t =>
                 StoredKepler(conic, t) + StoredBodyPosition(checkpointBody, t) - StoredBodyPosition(absoluteBody, t);
             tree = new RecordingTree { Id = "tree-soi" };
@@ -604,6 +650,11 @@ namespace Parsek.Tests.Rendering
         [InlineData("Mun", "Kerbin", true)]
         [InlineData("Kerbin", "Mun", false)]
         [InlineData("Mun", "Kerbin", false)]
+        // Two links to the root: the moonlet's conic with a Mun spline, and the reverse.
+        [InlineData("Mun", "Moonlet", true)]
+        [InlineData("Moonlet", "Mun", true)]
+        [InlineData("Mun", "Moonlet", false)]
+        [InlineData("Moonlet", "Mun", false)]
         public void SoiTransition_EpsilonIsTheDesignedMetresAtEveryRebuildClock(string absoluteBody, string checkpointBody, bool absoluteThenCheckpoint)
         {
             AnchorSide side = absoluteThenCheckpoint ? AnchorSide.End : AnchorSide.Start;
