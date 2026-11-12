@@ -1050,7 +1050,11 @@ later. It gates nothing: no check reads it, and no row can fail a PR.
 
 - **Where.** Branch `metrics` (an orphan branch: no source, only `README.md`
   and the history), file `metrics.jsonl`: one JSON object per line, in the
-  order the rows arrived, at most one row per commit sha.
+  order the rows arrived, at most one row per commit sha. The same branch's
+  `flights/` folder holds the harness run index (flight results, published by
+  `harness/tools/run_index.py publish`, commit subjects `flights: `); the
+  metrics job commits only `metrics.jsonl` and never touches it
+  (harness/README.md, "The run index and lane health").
 - **What a row holds** (schema `parsek-metrics/1`; `scripts/arch/metrics.py`'s
   docstring lists every key): `commit` (sha, committer date in UTC),
   `measured` (which halves were measured), `text` (the text scan: production

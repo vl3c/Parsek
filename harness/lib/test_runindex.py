@@ -314,6 +314,18 @@ class RowTests(unittest.TestCase):
         self.assertEqual("result json has no verdict",
                          runindex.build_row(self.RID, {"scenarioId": LANE}, None, None)[1])
 
+    def test_a_worktree_that_is_a_run_folder_or_snapshot_is_none(self):
+        rid = "2026-10-11_0900_" + LANE + "_a2"
+        for path, want in ((r"D:\\Dev\\Parsek-item9", "Parsek-item9"),
+                           ("/a/automation/results-archive/" + rid, None),
+                           ("/a/logs/" + rid[:-3], None),
+                           (r"C:\\x\\logs\\2026-10-11_0912_collect", None),
+                           (None, None)):
+            m = dict(_manifest(), origin="backfill", worktree=path)
+            row, _r = runindex.build_row(rid, _result(rid, attempt=2), m, None)
+            self.assertEqual(want, row["worktree"], path)
+            self.assertNotIn("worktree withheld", row.get("gaps", []))
+
     def test_run_id_helpers(self):
         rid = "2026-10-11_0900_" + LANE + "_run2_a3"
         self.assertEqual(3, runindex.attempt_of(rid))
@@ -651,6 +663,24 @@ class AttemptLinkTests(unittest.TestCase):
             self.assertEqual(rebuilt, runindex.serialize_index(index))
         self.assertEqual(2, len(runindex.link_attempts(rows)))
 
+    def test_backfilled_rows_with_no_worktree_link_only_to_each_other(self):
+        def backfilled(stamp, verdict, attempt=1, worktree=None, **kw):
+            row = _attempt(stamp, "W-1", verdict, attempt, **kw)
+            row["origin"] = "backfill"
+            row["worktree"] = worktree
+            return row
+
+        a1 = backfilled("2026-11-09_0900", "INVALID", subkind="boot-crash")
+        a2 = backfilled("2026-11-09_0912", "PASS", 2)
+        self._pin([a1, a2], {a2["runId"]: a1["runId"]}, {a1["runId"]: False, a2["runId"]: True})
+        # A worktree-less retry never joins a row that has a worktree, and back.
+        with_wt = backfilled("2026-11-09_1000", "INVALID", worktree="Parsek", subkind="boot-crash")
+        orphan = backfilled("2026-11-09_1012", "PASS", 2)
+        with_wt2 = backfilled("2026-11-09_1100", "INVALID", subkind="boot-crash")
+        orphan2 = backfilled("2026-11-09_1112", "PASS", 2, worktree="Parsek")
+        self.assertEqual({}, runindex.link_attempts([with_wt, orphan]))
+        self.assertEqual({}, runindex.link_attempts([with_wt2, orphan2]))
+
     def test_derived_keys_are_not_content(self):
         a1 = _attempt("2026-11-05_0900", "Q-1", "INVALID", subkind="boot-crash")
         a2 = _attempt("2026-11-05_0911", "Q-1", "PASS", 2)
@@ -844,6 +874,22 @@ class LaneHealthTests(unittest.TestCase):
         self.assertEqual(4, runindex.lanes_for(doc, subsystem="Ghost")[0]["lines"])
         self.assertEqual([], runindex.lanes_for(doc, module="Nope"))
         self.assertEqual("Controllers", runindex.lane_top_modules(doc, "L")[0][0])
+
+    def test_lanes_for_floor_keeps_warnings_and_counts_the_rest(self):
+        mods = runindex.tag_modules(TAG_MAP)
+        tag = sorted(mods)[0]
+        module = mods[tag][0]
+        entries = {}
+        for lane, counts in (("boot-only", [2, 0, 0]), ("at-floor", [5, 0, 0]), ("busy", [40, 0, 0]),
+                             ("warned", [1, 1, 0])):
+            row = _row("2026-10-11_0900_" + lane, lane=lane)
+            entries[lane] = runindex.lane_health_entry(row, {tag: counts}, mods)
+        doc = runindex.build_lane_health(entries, TAG_MAP)
+        found, below = runindex.lanes_for_below(doc, module=module, min_lines=runindex.LANES_FOR_MIN_LINES)
+        self.assertEqual((["busy", "at-floor", "warned"], 1), ([f["lane"] for f in found], below))
+        found, below = runindex.lanes_for_below(doc, subsystem=tag, min_lines=0)
+        self.assertEqual((["busy", "at-floor", "boot-only", "warned"], 0), ([f["lane"] for f in found], below))
+        self.assertEqual(5, runindex.LANES_FOR_MIN_LINES)
 
     def test_merge_keeps_the_newer_lane_entry_and_local_on_a_tie(self):
         mods = runindex.tag_modules(TAG_MAP)
@@ -1125,6 +1171,16 @@ class GitPublishTests(unittest.TestCase):
         return run_index.publish(repo, "origin", self.BRANCH, rows, health, delay=0,
                                  log=self.logs.append, **kw)
 
+    def _ls(self, repo, tip, recursive=True, path=None):
+        args = ["git", "-C", repo, "ls-tree", "--name-only"] + (["-r"] if recursive else []) + [tip]
+        if path:
+            args.append(path)
+        return subprocess.run(args, capture_output=True, check=True).stdout.decode().split()
+
+    def _subject(self, repo, rev):
+        return subprocess.run(["git", "-C", repo, "log", "-1", "--format=%s", rev],
+                              capture_output=True, check=True).stdout.decode().strip()
+
     def _remote_rows(self, repo):
         text, _health, tip = run_index.fetch(repo, "origin", self.BRANCH)
         return runindex.parse_index(text.decode()).rows, tip
@@ -1136,8 +1192,9 @@ class GitPublishTests(unittest.TestCase):
         parents = subprocess.run(["git", "-C", self.a, "rev-list", "--parents", "-n1", tip],
                                  capture_output=True, check=True).stdout.decode().split()
         self.assertEqual([tip], parents)
-        self.assertIn(b"# Parsek harness run index", run_index.read_blob(self.a, tip, "RUN-INDEX.md"))
-        self.assertIsNone(run_index.read_blob(self.a, tip, "README.md"))
+        self.assertIn(b"# Parsek harness run index", run_index.read_blob(self.a, tip, "flights/README.md"))
+        self.assertEqual(["flights"], self._ls(self.a, tip, recursive=False))
+        self.assertEqual("flights: 1 runs (1 from this machine, 0 on the branch before)", self._subject(self.a, tip))
         got, _ = self._remote_rows(self.b)
         self.assertEqual(["2026-10-11_0900_L"], [r["runId"] for r in got])
         # No local branch was made (a push may move the remote-tracking ref).
@@ -1199,7 +1256,9 @@ class GitPublishTests(unittest.TestCase):
         subprocess.run(["git", "init", "--quiet", seed], check=True)
         self.foreign = {"README.md": b"# Someone else's readme\r\nkeep me\n",
                         "metrics.jsonl": b'{"m":1}\n{"m":2}\n',
-                        "data/deep/notes.txt": b"nested\n"}
+                        "data/deep/notes.txt": b"nested\n",
+                        "flights/notes.txt": b"someone's note in the folder\n",
+                        "tools/run.sh": b"#!/bin/sh\necho hi\n"}
         for name, data in self.foreign.items():
             path = os.path.join(seed, *name.split("/"))
             os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -1207,6 +1266,7 @@ class GitPublishTests(unittest.TestCase):
                 fh.write(data)
         ident = ["-c", "user.name=t", "-c", "user.email=t@localhost", "-c", "core.autocrlf=false"]
         subprocess.run(["git", "-C", seed] + ident + ["add", "-A"], check=True)
+        subprocess.run(["git", "-C", seed, "update-index", "--chmod=+x", "tools/run.sh"], check=True)
         subprocess.run(["git", "-C", seed] + ident + ["commit", "--quiet", "-m", "seed"], check=True)
         subprocess.run(["git", "-C", seed, "push", "--quiet", self.bare, "HEAD:refs/heads/%s" % self.BRANCH],
                        check=True, capture_output=True)
@@ -1215,10 +1275,11 @@ class GitPublishTests(unittest.TestCase):
         tip = run_index.remote_tip(repo, "origin", self.BRANCH)
         for name, data in self.foreign.items():
             self.assertEqual(data, run_index.read_blob(repo, tip, name), name)
-        listing = subprocess.run(["git", "-C", repo, "ls-tree", "-r", "--name-only", tip],
-                                 capture_output=True, check=True).stdout.decode().split()
-        self.assertEqual(sorted(set(self.foreign) | set(run_index.OWN_FILES) - {"lane-health.json"}),
-                         sorted(listing))
+        self.assertEqual(sorted(set(self.foreign) | {"flights/README.md", "flights/index.jsonl"}),
+                         sorted(self._ls(repo, tip)))
+        mode = subprocess.run(["git", "-C", repo, "ls-tree", tip, "tools/run.sh"],
+                              capture_output=True, check=True).stdout.decode().split()[0]
+        self.assertEqual("100755", mode)
         return tip
 
     def test_publish_never_touches_a_file_it_does_not_own(self):
@@ -1246,8 +1307,71 @@ class GitPublishTests(unittest.TestCase):
         self.assertEqual("5", count)
 
     def test_commit_files_refuses_a_file_it_does_not_own(self):
-        with self.assertRaises(RuntimeError):
-            run_index._commit_files(self.a, None, {"README.md": b"x"}, "m")
+        for files, directory in (({"README.md": b"x"}, "flights"), ({"flights/notes.txt": b"x"}, "flights"),
+                                 ({"README.md": None}, "flights"), ({"metrics.jsonl": None}, "flights"),
+                                 ({"index.jsonl": None}, ""), ({"flights/index.jsonl": b"x"}, "")):
+            with self.assertRaises(RuntimeError, msg=(files, directory)):
+                run_index._commit_files(self.a, None, files, "m", directory)
+        for bad in ("..", "a/../b", "/abs", "c:"):
+            with self.assertRaises(RuntimeError, msg=bad):
+                run_index.branch_dir(bad if bad != "/abs" else "/abs/..")
+        self.assertEqual("flights", run_index.branch_dir("flights/"))
+        self.assertEqual("a/b", run_index.branch_dir("a\\b"))
+        self.assertEqual("", run_index.branch_dir(""))
+
+    def test_the_root_layout_still_publishes_and_fetch_falls_back_to_it(self):
+        self.assertEqual("created", self._publish(self.a, [_row("2026-10-10_0900_K", lane="K")], directory=""))
+        tip = run_index.remote_tip(self.a, "origin", self.BRANCH)
+        self.assertEqual(["RUN-INDEX.md", "index.jsonl"], self._ls(self.a, tip))
+        self.assertTrue(self._subject(self.a, tip).startswith("flights: "))
+        for directory in ("", "flights"):
+            text, _h, _t = run_index.fetch(self.b, "origin", self.BRANCH, directory)
+            self.assertEqual(["2026-10-10_0900_K"], [r["runId"] for r in runindex.parse_index(text.decode()).rows])
+
+    def test_a_publish_moves_the_root_layout_into_the_folder(self):
+        self._seed_branch()
+        mods = runindex.tag_modules(TAG_MAP)
+        k = _row("2026-10-10_0900_K", lane="K")
+        doc_k = runindex.build_lane_health({"K": runindex.lane_health_entry(k, {"Flight": [3, 0, 0]}, mods)}, TAG_MAP)
+        self._publish(self.a, [k], doc_k, directory="")
+        tip = run_index.remote_tip(self.a, "origin", self.BRANCH)
+        self.assertTrue({"RUN-INDEX.md", "index.jsonl", "lane-health.json"} <= set(self._ls(self.a, tip)))
+        self.assertEqual("pushed", self._publish(self.b, [_row("2026-10-11_0900_L", lane="L")]))
+        tip = run_index.remote_tip(self.b, "origin", self.BRANCH)
+        listing = self._ls(self.b, tip)
+        for gone in ("RUN-INDEX.md", "index.jsonl", "lane-health.json"):
+            self.assertNotIn(gone, listing)
+        self.assertEqual(sorted(set(self.foreign) | {"flights/README.md", "flights/index.jsonl",
+                                                     "flights/lane-health.json"}), sorted(listing))
+        for name, data in self.foreign.items():
+            self.assertEqual(data, run_index.read_blob(self.b, tip, name), name)
+        got, _ = self._remote_rows(self.a)
+        self.assertEqual(["2026-10-10_0900_K", "2026-10-11_0900_L"], [r["runId"] for r in got])
+        health = json.loads(run_index.read_blob(self.b, tip, "flights/lane-health.json").decode())
+        self.assertEqual(["K"], sorted(health["lanes"]))
+        self.assertIn("moved RUN-INDEX.md, index.jsonl, lane-health.json from the branch root",
+                      self._subject(self.b, tip))
+        # The next publish has nothing to move.
+        self.assertEqual("unchanged", self._publish(self.a, [k]))
+
+    def test_a_same_named_root_file_of_someone_else_is_never_taken(self):
+        seed = os.path.join(self.tmp, "seed")
+        subprocess.run(["git", "init", "--quiet", seed], check=True)
+        foreign = {"index.jsonl": b'{"x":1}\n', "lane-health.json": b'{"schema":"other"}\n',
+                   "RUN-INDEX.md": b"# Not ours\n"}
+        for name, data in foreign.items():
+            with open(os.path.join(seed, name), "wb") as fh:
+                fh.write(data)
+        ident = ["-c", "user.name=t", "-c", "user.email=t@localhost"]
+        subprocess.run(["git", "-C", seed] + ident + ["add", "-A"], check=True)
+        subprocess.run(["git", "-C", seed] + ident + ["commit", "--quiet", "-m", "seed"], check=True)
+        subprocess.run(["git", "-C", seed, "push", "--quiet", self.bare, "HEAD:refs/heads/%s" % self.BRANCH],
+                       check=True, capture_output=True)
+        self.assertEqual("pushed", self._publish(self.a, [_row("2026-10-11_0900_L", lane="L")]))
+        tip = run_index.remote_tip(self.a, "origin", self.BRANCH)
+        for name, data in foreign.items():
+            self.assertEqual(data, run_index.read_blob(self.a, tip, name), name)
+        self.assertEqual(1, len(self._remote_rows(self.a)[0]))
 
     def test_newer_schema_lines_survive_a_publish_from_either_side(self):
         newer_remote = '{"schema":"parsek-run-index/2","from":"remote"}'
@@ -1263,6 +1387,70 @@ class GitPublishTests(unittest.TestCase):
 
     def test_fetch_of_an_absent_branch_is_none(self):
         self.assertEqual((None, None, None), run_index.fetch(self.a, "origin", self.BRANCH))
+
+    def test_ci_metrics_append_and_the_flight_publish_share_one_branch(self):
+        """Both writers of the metrics branch in alternation, each racing the
+        other once: CI's metrics_append.py (checks the tip out, commits only
+        metrics.jsonl) never drops flights/, and the flight publish never
+        touches metrics.jsonl or the root README.md."""
+        sys.path.insert(0, os.path.join(REPO_ROOT, "scripts", "arch"))
+        try:
+            import metrics_append
+        finally:
+            sys.path.remove(os.path.join(REPO_ROOT, "scripts", "arch"))
+        ci = os.path.join(self.tmp, "ci")
+        ident = ["-c", "user.name=t", "-c", "user.email=t@localhost"]
+        subprocess.run(["git", "init", "--quiet", ci], check=True)
+        subprocess.run(["git", "-C", ci, "remote", "add", "origin", self.bare], check=True)
+        with open(os.path.join(ci, "code.txt"), "w") as fh:
+            fh.write("code\n")
+        subprocess.run(["git", "-C", ci] + ident + ["add", "code.txt"], check=True)
+        subprocess.run(["git", "-C", ci] + ident + ["commit", "--quiet", "-m", "code"], check=True)
+        works = iter(range(100))
+
+        def metrics(sha, **kw):
+            row = {"schema": "parsek-metrics/1", "commit": {"sha": sha * 40, "date": "2026-11-12T00:00:00Z"}}
+            return metrics_append.publish(ci, "origin", self.BRANCH,
+                                          os.path.join(self.tmp, "w%d" % next(works)), row,
+                                          delay=0, log=self.logs.append, **kw)
+
+        self.assertEqual("pushed", metrics("1"))
+        self.assertEqual("pushed", self._publish(self.a, [_row("2026-10-10_0900_K", lane="K")]))
+
+        def flight_race(attempt):
+            if attempt == 1:
+                self._publish(self.b, [_row("2026-10-11_0900_L", lane="L")])
+
+        self.assertEqual("pushed", metrics("2", before_push=flight_race))
+
+        def ci_race(attempt):
+            if attempt == 1:
+                metrics("3")
+
+        self.assertEqual("pushed", self._publish(self.a, [_row("2026-10-12_0900_M", lane="M")],
+                                                 before_push=ci_race))
+        rejected = [l for l in self.logs if "rejected" in l]
+        self.assertTrue(any(l.startswith("metrics:") for l in rejected), self.logs)
+        self.assertTrue(any(l.startswith("run index:") for l in rejected), self.logs)
+        tip = run_index.remote_tip(self.a, "origin", self.BRANCH)
+        self.assertEqual(metrics_append.README.encode("utf-8"), run_index.read_blob(self.a, tip, "README.md"))
+        history = run_index.read_blob(self.a, tip, "metrics.jsonl").decode()
+        self.assertEqual(["1" * 40, "2" * 40, "3" * 40], metrics_append.read_shas(history))
+        self.assertEqual(["2026-10-10_0900_K", "2026-10-11_0900_L", "2026-10-12_0900_M"],
+                         [r["runId"] for r in self._remote_rows(self.b)[0]])
+        self.assertEqual(["README.md", "flights/README.md", "flights/index.jsonl", "metrics.jsonl"],
+                         self._ls(self.a, tip))
+
+        def subjects(path):
+            return subprocess.run(["git", "-C", self.a, "log", "--format=%s", tip, "--", path],
+                                  capture_output=True, check=True).stdout.decode().splitlines()
+
+        flights = subjects("flights/")
+        self.assertEqual(3, len(flights))
+        self.assertTrue(all(s.startswith("flights: ") for s in flights), flights)
+        ci_rows = subjects("metrics.jsonl")
+        self.assertEqual(3, len(ci_rows))
+        self.assertTrue(all(s.startswith("metrics: ") for s in ci_rows), ci_rows)
 
 
 # ---------------------------------------------------------------------------
