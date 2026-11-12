@@ -615,12 +615,14 @@ def build_row(run_id: str, result: Optional[Dict], manifest: Optional[Dict],
 SESSION_START_RE = re.compile(rb"\[Parsek\]\[INFO\]\[Init\] SessionStart runUtc=(\d{1,12})\s*$")
 # ParsekTestCommandAddon's arm line: only a harness-launched KSP writes it.
 TEST_COMMANDS_ARMED = b"[TestCommands] armed (PARSEK_TEST_COMMANDS=1)"
-# The KSPCommunityFixes mod table names each mod with its version and a hash.
-# The exact line shape was not available off the PC, so this is defensive: a
-# line that is not a Parsek log line, names ``Parsek`` and a dotted version,
-# and carries exactly one 64-hex run (a sha256, the shape the archive
-# manifest's parsekDllSha256 has). Anything else records no DLL.
-_DLL_LINE_RE = re.compile(rb"(?:^|[^\w\[])Parsek v?\d+(?:\.\d+){1,3}\b")
+# The KSPCommunityFixes mod table names each mod with its version and a hash,
+# its name column padded with spaces (``  Parsek`` then about 38 spaces, then
+# ``0.10.5.0``, more columns and the sha256 last). Defensive: a line that is
+# not a Parsek log line, names ``Parsek`` (whitespace right after it, so no
+# other mod whose name starts with Parsek) and a dotted version, and carries
+# exactly one 64-hex run (a sha256, the shape the archive manifest's
+# parsekDllSha256 has). Anything else records no DLL.
+_DLL_LINE_RE = re.compile(rb"(?:^|[^\w\[])Parsek\s+v?\d+(?:\.\d+){1,3}\b")
 _HEX64_RE = re.compile(rb"(?<![0-9A-Fa-f])[0-9A-Fa-f]{64}(?![0-9A-Fa-f])")
 SNAPSHOT_FOLDER_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})_(\d{4})_(.+)$")
 _COMMIT_LINE_RE = re.compile(r"^Commit: ([0-9a-fA-F]{7,40})(?:\s|$)")
