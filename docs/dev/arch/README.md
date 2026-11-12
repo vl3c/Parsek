@@ -1532,9 +1532,13 @@ commit read:
 - `R100` is a pure move and NOT a change: it is not counted for the file, and
   a commit made only of pure moves is not counted at all ("pure-move commits
   not counted"). It also never makes a sweep.
-- `A`, `D`, and the new side of an `R` or `C` end the identity for older
-  commits: a path deleted and created again later does not inherit the dead
-  file's history, and neither does a path reused by a rename.
+- Only a deletion ends a path's identity for older commits: a `D`, or the
+  old side of an `R` (whose older commits go with the renamed file). A path
+  deleted and created again later does not inherit the dead file's history,
+  and neither does a path reused after a rename. An add alone (`A`, the new
+  side of an `R` or `C`) ends nothing: two parallel branches that each
+  created the same file show two adds and no delete, and every commit of
+  both is that file's.
 - The final path must exist at the commit read (`git ls-tree -r HEAD --
   Source/Parsek`). A commit whose every changed file is deleted code is
   dropped and counted ("commits dropped"); a commit that also touched a live
@@ -1669,16 +1673,21 @@ zeros. CI checks out with `fetch-depth: 0`.
   order, not topologically: a rename on one branch and an edit of the old
   name on a parallel branch that lands later in date order would not be
   followed. The 2026-11-12 read found no such pair. A file deleted only by
-  a merge commit (never a `D` row under `--no-merges`) is caught by the
-  alive filter, not by the walk.
-- The walk sees no ancestry, so a path two parallel branches each created
-  reads like a re-created path: the newer add ends the identity and the
-  other branch's older commits on it are dropped. The 2026-11-12 read has 7
-  such paths (`TrackSection.cs`, `SegmentEvent.cs`, `KerbalEndState.cs`,
-  `KerbalsModule.cs` and three in `GameActions/`), 10 commits in all. Telling
-  the two apart needs the merge topology; a path deleted and created again
-  (the other 6 files that read fewer commits than before renames were
-  followed) is the case the rule is for.
+  a merge commit and never re-created is caught by the alive filter.
+- The walk sees no ancestry, so a deletion that happened only inside a merge
+  commit (never a `D` row under `--no-merges`) is invisible to it: if the
+  path is later created again as a different file, the dead file's older
+  commits are credited to the new one. The rule takes that error (same path,
+  usually the same role) over the opposite one: ending the identity at every
+  add dropped the older branch's commits of a file two parallel branches
+  each created, which on 2026-11-12 cost 7 live files 10 commits
+  (`TrackSection.cs`, `SegmentEvent.cs`, `KerbalEndState.cs`,
+  `KerbalsModule.cs` and three in `GameActions/`). The 6 paths deleted and
+  created again in the window all show their `D`, so they keep the
+  protection.
+- Parallel adds also count the file's creation once per branch in the
+  growth column, because the merge that joined them is not read:
+  `GameActions/GameAction.cs` reads +4741 against 2309 lines today.
 - A first-parent merge that is not a PR merge ("merge") carries everything
   the other side brought in, so its paths are broad; there was one in 18
   months.

@@ -1743,11 +1743,8 @@ class HistoryRenameTests(unittest.TestCase):
 
     def test_a_recreated_path_does_not_swallow_the_old_files_history(self):
         # Newest first: P.cs is a NEW file (c3) after the old P.cs was renamed
-        # to Q.cs (c2). The walk runs newest first and a path's creation ends
-        # its identity for everything older, so c1 (the old P.cs) belongs to
-        # Q.cs and only c4 belongs to the new P.cs. An oldest-first walk would
-        # have to know at c1 that a later P.cs is another file; newest first,
-        # c3's add is seen before c1 and says so.
+        # to Q.cs (c2). The rename's old side is the visible end of the old
+        # P.cs, so c1 belongs to Q.cs and only c3 and c4 to the new P.cs.
         parsed = archview.parse_history(_log(
             ("c4", "2026-09-04", ["M\tP.cs"]),
             ("c3", "2026-09-03", ["A\tP.cs"]),
@@ -1768,16 +1765,45 @@ class HistoryRenameTests(unittest.TestCase):
         # c2 deleted the old file and c1 edited it: deleted code, counted apart.
         self.assertEqual(parsed["dropped"], 2)
 
-    def test_an_add_ends_the_older_identity_even_when_no_delete_is_seen(self):
-        # A merge deleted the first P.cs (the log reads no merges), and c2 added
-        # a new one: before an add the path did not exist, so c1 touched the
-        # other, deleted file.
+    def test_an_add_after_a_visible_delete_drops_the_older_commits(self):
+        # Edits between the delete and the re-creation belong to the new file;
+        # everything at or before the delete is the dead one's.
         parsed = archview.parse_history(_log(
-            ("c2", "2026-09-02", ["A\tP.cs"]),
-            ("c1", "2026-09-01", ["M\tP.cs"]),
+            ("c5", "2026-09-05", ["M\tP.cs"]),
+            ("c4", "2026-09-04", ["A\tP.cs", "M\tOther.cs"]),
+            ("c3", "2026-09-03", ["M\tOther.cs"]),
+            ("c2", "2026-09-02", ["D\tP.cs"]),
+            ("c1", "2026-09-01", ["M\tP.cs", "M\tOther.cs"]),
         ))
-        self.assertEqual(self._files(parsed), {"c2": ["P.cs"]})
+        self.assertEqual(self._files(parsed), {"c5": ["P.cs"], "c4": ["Other.cs", "P.cs"],
+                                               "c3": ["Other.cs"], "c1": ["Other.cs"]})
         self.assertEqual(parsed["dropped"], 1)
+
+    def test_parallel_adds_of_one_path_are_one_file(self):
+        # Two branches each created P.cs and a merge joined them: the log shows
+        # two adds and no delete. An add alone ends nothing, so every commit is
+        # the file's, and nothing is dropped.
+        parsed = archview.parse_history(_log(
+            ("c5", "2026-09-05", ["M\tP.cs"]),
+            ("c4", "2026-09-04", ["A\tP.cs"]),
+            ("c3", "2026-09-03", ["M\tP.cs"]),
+            ("c2", "2026-09-02", ["M\tP.cs"]),
+            ("c1", "2026-09-01", ["A\tP.cs"]),
+        ))
+        self.assertEqual(self._files(parsed), {sha: ["P.cs"] for sha in ("c1", "c2", "c3", "c4", "c5")})
+        self.assertEqual(parsed["dropped"], 0)
+        self.assertEqual(parsed["renamedFiles"], {})
+
+    def test_the_new_side_of_a_rename_does_not_end_the_path(self):
+        # B.cs on one branch, A.cs renamed to B.cs on another (no delete of the
+        # first B.cs in the log): the older B.cs commits stay with B.cs.
+        parsed = archview.parse_history(_log(
+            ("c3", "2026-09-03", ["R090\tA.cs\tB.cs"]),
+            ("c2", "2026-09-02", ["M\tB.cs"]),
+            ("c1", "2026-09-01", ["M\tA.cs"]),
+        ))
+        self.assertEqual(self._files(parsed), {"c3": ["B.cs"], "c2": ["B.cs"], "c1": ["B.cs"]})
+        self.assertEqual(parsed["dropped"], 0)
 
     def test_deleted_code_is_dropped_and_counted(self):
         parsed = archview.parse_history(_log(
@@ -1979,6 +2005,24 @@ class GrowthRenameTests(unittest.TestCase):
         # deleted code; the pure move adds nothing and is not a commit; a
         # commit the history did not read is outside the window.
         self.assertEqual(growth, {"files": {"UI/B.cs": 13}, "commits": 2, "skipped": 0})
+
+    def test_growth_follows_the_same_identity_rule(self):
+        # Parallel adds of P.cs are one file; Q.cs deleted and created again
+        # loses the dead file's lines.
+        history = archview.parse_history(_log(
+            ("c4", "2026-09-04", ["A\tP.cs", "A\tQ.cs"]),
+            ("c3", "2026-09-03", ["D\tQ.cs"]),
+            ("c2", "2026-09-02", ["M\tP.cs", "M\tQ.cs"]),
+            ("c1", "2026-09-01", ["A\tP.cs"]),
+        ))
+        numstat = (
+            "COMMIT\tc4\n5\t0\tSource/Parsek/P.cs\n7\t0\tSource/Parsek/Q.cs\n"
+            "COMMIT\tc3\n0\t20\tSource/Parsek/Q.cs\n"
+            "COMMIT\tc2\n3\t1\tSource/Parsek/P.cs\n2\t0\tSource/Parsek/Q.cs\n"
+            "COMMIT\tc1\n10\t0\tSource/Parsek/P.cs\n"
+        )
+        growth = archview.parse_growth(numstat, history["resolution"])
+        self.assertEqual(growth["files"], {"P.cs": 17, "Q.cs": 7})
 
 
 def _changelog_patch(*units):

@@ -5077,12 +5077,17 @@ def resolve_renames(entries):
 
     The walk keeps one map, old name -> final name, built newest first, so a
     commit is resolved by the renames NEWER than itself only. A file renamed
-    twice resolves to its last name. A deletion, or the creation of a path
-    (an add, the new side of a rename or copy), ends that path's identity for
-    everything older: an older commit on that path touched a different file,
-    which is gone, so its final name is None. That is what keeps a path
+    twice resolves to its last name. Only a deletion (a `D`, or the old side
+    of a rename) ends that path's identity for everything older: an older
+    commit on that path touched a different file, which is gone (`final`
+    None) or lives on under its own later name. That is what keeps a path
     re-created as a new file from swallowing the history of the file that
-    carried the name before (`final` None, or that file's own later name).
+    carried the name before. An add alone (or the new side of a rename or
+    copy) ends nothing: two parallel branches that each created the same file
+    show two adds with no delete between, and both branches' commits are that
+    file's. The cost is a path deleted only inside a merge commit (which the
+    log does not show) and later created again: its older commits are
+    credited to the new file.
     """
     alias = {}
     out = []
@@ -5096,9 +5101,7 @@ def resolve_renames(entries):
             touched.append((path, alias.get(path, path), letter == "R" and score == 100))
         updates = {}
         for letter, _score, paths in changes:
-            if letter in "ACR":
-                updates[paths[-1]] = None
-            elif letter == "D":
+            if letter == "D":
                 updates[paths[0]] = None
         for letter, _score, paths in changes:
             if letter == "R":
