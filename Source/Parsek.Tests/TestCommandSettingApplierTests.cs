@@ -6,7 +6,7 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// P5.1 route-dispatch coverage for <see cref="TestCommandSettingApplier.ApplySetting"/>.
-    /// The security-critical property the SetSetting design column adds is that the 8
+    /// The security-critical property the SetSetting design column adds is that the 7
     /// sidecar-authoritative settings ALSO route through the matching
     /// <c>ParsekSettingsPersistence.Record*</c> member, while the 5 GameParameters-only
     /// settings do NOT. A tracked setting written only to the live field would be
@@ -17,7 +17,7 @@ namespace Parsek.Tests
     /// </summary>
     public class TestCommandSettingApplierTests
     {
-        // The 5 GameParameters-only names (Record* must NOT fire) and the 8 tracked names
+        // The 5 GameParameters-only names (Record* must NOT fire) and the 7 tracked names
         // (Record* MUST fire with the exact member name), verified against the design
         // whitelist table. Kept exhaustive by Expected_CoversEveryWhitelistedName below, so a
         // newly whitelisted setting reds here instead of silently skipping route coverage.
@@ -37,7 +37,6 @@ namespace Parsek.Tests
             ["mapRenderTracing"] = "RecordMapRenderTracing",
             ["ledgerTracing"] = "RecordLedgerTracing",
             ["writeReadableSidecarMirrors"] = "RecordReadableSidecarMirrors",
-            ["showRouteLines"] = "RecordShowRouteLines",
         };
 
         private static string ValidValueFor(SettingValueType type)

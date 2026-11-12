@@ -200,7 +200,6 @@ RENDER_MANIFEST
 				recordedDockUT = 800.0
 				recordedOriginUndockUT = 520.0
 				dispatchWindowPeriod = 0.0
-				scope = SameBody
 				excludedIntervalKeys = k1;k2
 			}
 		}
@@ -715,25 +714,6 @@ RENDER_MANIFEST
 			ut = 16000.0
 			event = disappear
 		}
-		ROUTE_LINE_BUILD
-		{
-			routeId = route-1
-			signature = 771122
-			dockClipUT = 800.0
-			dispatchWindowPeriod = 0.0
-			scope = SameBody
-			resolvableMembers = 2
-			groups = 2
-			totalLegs = 4
-			transferLegsDropped = 0
-			ut = 20000.0
-		}
-		ROUTE_LEG_DEFER
-		{
-			routeId = route-1
-			recId = recB1
-			count = 3
-		}
 	}
 }
 """
@@ -781,18 +761,8 @@ OVERLONG_INTERIOR_GAP_DWELL = """\
 			maxUtStep = 5.0
 			markerDecision = True
 		}
-		ROUTE_LEG_DEFER
-"""
-
-CODRAW_VIOLATION_RECORD = """\
-		ROUTE_CODRAW_VIOLATION
-		{
-			routeId = route-1
-			recId = recB1
-			ut = 21500.0
-			frame = 4242
-		}
-		ROUTE_LEG_DEFER
+	}
+}
 """
 
 TRUNCATED_DWELL_RECORD = """\
@@ -803,7 +773,8 @@ TRUNCATED_DWELL_RECORD = """\
 			kind = dwell
 			droppedCount = 17
 		}
-		ROUTE_LEG_DEFER
+	}
+}
 """
 
 UNKNOWN_OBSERVED_RECORD = """\
@@ -812,7 +783,8 @@ UNKNOWN_OBSERVED_RECORD = """\
 			pid = 5001
 			ut = 11000.0
 		}
-		ROUTE_LEG_DEFER
+	}
+}
 """
 
 # The s15 deviation-#5 calibration shape B: a recording whose ONLY dwell is
@@ -846,7 +818,8 @@ S15_LEAD_IN_OPEN_DWELL = """\
 			maxUtStep = 8.0
 			markerDecision = True
 		}
-		ROUTE_LEG_DEFER
+	}
+}
 """
 
 
@@ -861,18 +834,18 @@ COVER_GAP = ("openUT = 10000.0\n\t\t\tcloseUT = 12000.0",
 
 
 def ratified_skip(pid, first_ut, last_ut, reason="no-conic", count=3):
-    """One OBSERVED.RATIFIED_SKIP hull, ready to insert at the ROUTE_LEG_DEFER
+    """One OBSERVED.RATIFIED_SKIP hull, ready to insert at the end-of-OBSERVED
     anchor. Note the shape the rule has to live with: a bracket plus a COUNT,
     never the intervals themselves."""
     return ("\t\tRATIFIED_SKIP\n\t\t{\n\t\t\tpid = %s\n\t\t\treason = %s\n"
             "\t\t\tfirstUT = %s\n\t\t\tlastUT = %s\n\t\t\tcount = %s\n\t\t}\n%s"
-            % (pid, reason, first_ut, last_ut, count, ANCHOR_ROUTE_LEG_DEFER))
+            % (pid, reason, first_ut, last_ut, count, ANCHOR_OBSERVED_END))
 
 
 def truncated_record(section, pid=0, kind="family-cap", dropped=5):
     return ("\t\tTRUNCATED\n\t\t{\n\t\t\tsection = %s\n\t\t\tpid = %s\n"
             "\t\t\tkind = %s\n\t\t\tdroppedCount = %s\n\t\t}\n%s"
-            % (section, pid, kind, dropped, ANCHOR_ROUTE_LEG_DEFER))
+            % (section, pid, kind, dropped, ANCHOR_OBSERVED_END))
 
 
 def rules_for(text, block=None):
@@ -1200,8 +1173,8 @@ class ClockMathTests(unittest.TestCase):
         self.assertIsNone(rc.is_whole_multiple(300.0, float("nan")))
 
     def test_leg_within_dock_clip_tests_the_start_only(self):
-        # RouteTrajectoryLineRenderer.cs:178-182 - the END UT is deliberately not
-        # consulted, and a "tidied" re-derivation would stop measuring the product.
+        # The END UT is deliberately not consulted: the dock-derived excluded
+        # interval keys trim whole members.
         self.assertTrue(rc.leg_within_dock_clip(700.0, 800.0))
         self.assertFalse(rc.leg_within_dock_clip(800.0, 800.0))
         self.assertFalse(rc.leg_within_dock_clip(900.0, 800.0))
@@ -1239,8 +1212,6 @@ class ParseTests(unittest.TestCase):
         self.assertEqual(11, len(s.clock_events))
         self.assertEqual(1, len(s.line_branches))
         self.assertEqual(4, len(s.ownership_changes))
-        self.assertEqual(1, len(s.route_line_builds))
-        self.assertEqual(1, len(s.route_leg_defers))
         self.assertEqual((), s.unknown_observed_sections)
 
     def test_plan_unit_fields_round_trip(self):
@@ -1385,9 +1356,6 @@ class CSharpWriterFixtureTests(unittest.TestCase):
         self.assertEqual(2, len(s.ownership_changes))
         self.assertEqual(1, len(s.ratified_skips))
         self.assertEqual(1, len(s.clock_defers))
-        self.assertEqual(1, len(s.route_line_builds))
-        self.assertEqual(1, len(s.route_leg_defers))
-        self.assertEqual(1, len(s.route_codraw_violations))
         self.assertEqual(1, len(s.truncated))
         self.assertEqual((), s.unknown_observed_sections)
         # STANDALONE ANOMALY_ECHO (parent = OBSERVED), two records - and the
@@ -1426,7 +1394,7 @@ class CSharpWriterFixtureTests(unittest.TestCase):
 
     def test_the_shipped_token_vocabularies_are_all_recognised(self):
         # Casing is MIXED BY SOURCE: spine chain phases carry lowercase
-        # PhaseKind tokens while treatment / coverage / scope / descent detailS
+        # PhaseKind tokens while treatment / coverage / descent detailS
         # are PascalCase enum .ToString(). Nothing here may reach RC-UNKNOWN.
         s = self._snapshot()
         findings, _u, _m = rc.evaluate_rules(s, None)
@@ -1438,7 +1406,6 @@ class CSharpWriterFixtureTests(unittest.TestCase):
         self.assertEqual("TracedPath", s.dwells[0].treatment)
         self.assertEqual("InSegment", s.dwells[0].coverage)
         self.assertEqual("Inside", s.line_branches[1].coverage)
-        self.assertEqual("SameBody", s.route_line_builds[0].scope)
 
     def test_the_shipped_sample_reaches_the_rules_and_reports_its_defects(self):
         s = self._snapshot()
@@ -1446,7 +1413,6 @@ class CSharpWriterFixtureTests(unittest.TestCase):
         rules = {f.rule_id for f in fails(findings)}
         # The sample's illustrative numbers exercise these paths on purpose.
         self.assertIn(rc.RULE_SEAM, rules)
-        self.assertIn(rc.RULE_ROUTE, rules)      # its ROUTE_CODRAW_VIOLATION row
         self.assertIn(rc.RULE_DESCENT, rules)    # residual 0.0004 deg
         # Its TRUNCATED DWELL row makes coverage DEFINED-UNEVALUABLE, not unknown.
         self.assertIn("truncated-section-dwell", unevaluable)
@@ -1501,7 +1467,7 @@ class CSharpWriterFixtureTests(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 # Insertion anchors, each unique in POSITIVE_MANIFEST.
-ANCHOR_ROUTE_LEG_DEFER = "\t\tROUTE_LEG_DEFER\n"
+ANCHOR_OBSERVED_END = "\t}\n}\n"
 ANCHOR_LAST_OWNERSHIP = (
     "\t\t\trecId = recA0\n\t\t\tut = 16000.0\n\t\t\tevent = disappear")
 
@@ -1569,7 +1535,7 @@ class RuleViolationTests(unittest.TestCase):
 
     def test_rc_hold_reds_on_an_interior_gap_that_outlives_a_cycle(self):
         _s, (findings, _u, _m) = rules_for(variant(
-            (ANCHOR_ROUTE_LEG_DEFER, OVERLONG_INTERIOR_GAP_DWELL)))
+            (ANCHOR_OBSERVED_END, OVERLONG_INTERIOR_GAP_DWELL)))
         hold = fails(findings, rc.RULE_HOLD)
         self.assertEqual(1, len(hold))
         self.assertIn("held-forever", hold[0].message)
@@ -1706,20 +1672,6 @@ class RuleViolationTests(unittest.TestCase):
         self.assertEqual(1, len(route))
         self.assertIn("dock clip", route[0].message)
 
-    def test_rc_route_reds_on_a_co_draw_violation_record(self):
-        _s, (findings, _u, _m) = rules_for(
-            variant((ANCHOR_ROUTE_LEG_DEFER, CODRAW_VIOLATION_RECORD)))
-        route = fails(findings, rc.RULE_ROUTE)
-        self.assertEqual(1, len(route))
-        self.assertIn("painted the same recording", route[0].message)
-
-    def test_rc_route_reds_when_same_body_scope_dropped_legs(self):
-        _s, (findings, _u, _m) = rules_for(
-            variant(("transferLegsDropped = 0", "transferLegsDropped = 2")))
-        route = fails(findings, rc.RULE_ROUTE)
-        self.assertEqual(1, len(route))
-        self.assertIn("same-body scope dropped", route[0].message)
-
     def test_rc_const_reds_on_a_drifted_constant(self):
         text = fill(POSITIVE_MANIFEST, overrides={
             "SeamEndpointOracle.DefaultRatioTolerance": 1.05})
@@ -1772,14 +1724,14 @@ class RuleViolationTests(unittest.TestCase):
 
     def test_rc_unknown_reds_on_an_unmodelled_observed_record(self):
         _s, (findings, _u, _m) = rules_for(
-            variant((ANCHOR_ROUTE_LEG_DEFER, UNKNOWN_OBSERVED_RECORD)))
+            variant((ANCHOR_OBSERVED_END, UNKNOWN_OBSERVED_RECORD)))
         unknown = fails(findings, rc.RULE_UNKNOWN)
         self.assertEqual(1, len(unknown))
         self.assertIn("MYSTERY_RECORD", unknown[0].target)
 
     def test_a_truncated_section_is_unevaluable_never_unknown(self):
         _s, (findings, unevaluable, _m) = rules_for(
-            variant((ANCHOR_ROUTE_LEG_DEFER, TRUNCATED_DWELL_RECORD)))
+            variant((ANCHOR_OBSERVED_END, TRUNCATED_DWELL_RECORD)))
         self.assertEqual([], fails(findings, rc.RULE_UNKNOWN))
         self.assertEqual([], fails(findings, rc.RULE_COVER))
         self.assertEqual(17, unevaluable["truncated-section-dwell"])
@@ -1791,7 +1743,7 @@ class RuleViolationTests(unittest.TestCase):
         # counted - but a reader must be able to tell a section that still spans
         # the session at a coarser rate from one that stopped partway through.
         _s, (findings, unevaluable, metrics) = rules_for(
-            variant((ANCHOR_ROUTE_LEG_DEFER,
+            variant((ANCHOR_OBSERVED_END,
                      truncated_record("SEAM_ENDPOINT", pid=5001,
                                       kind="seam-endpoint-decimated", dropped=2100))))
         self.assertEqual([], fails(findings, rc.RULE_UNKNOWN))
@@ -1812,7 +1764,7 @@ class RuleViolationTests(unittest.TestCase):
         # keeps the truncated reason and raises no decimation row. Without this
         # the cell above would pass on a rule that simply renamed every drop.
         _s, (findings, unevaluable, metrics) = rules_for(
-            variant((ANCHOR_ROUTE_LEG_DEFER,
+            variant((ANCHOR_OBSERVED_END,
                      truncated_record("SEAM_ENDPOINT", pid=5001,
                                       kind="seam-endpoint", dropped=2100))))
         self.assertEqual(2100, unevaluable["truncated-section-seam_endpoint"])
@@ -1822,7 +1774,7 @@ class RuleViolationTests(unittest.TestCase):
                               and f.target.startswith("decimation.")])
 
     def test_the_decimated_section_reaches_the_reported_facets(self):
-        snap = build(variant((ANCHOR_ROUTE_LEG_DEFER,
+        snap = build(variant((ANCHOR_OBSERVED_END,
                               truncated_record("SEAM_ENDPOINT", pid=5001,
                                                kind="seam-endpoint-decimated",
                                                dropped=2100))))
@@ -1922,7 +1874,7 @@ class RuleViolationTests(unittest.TestCase):
              + "\n\t\t\trecId = recS15\n\t\t\tut = 23200.0\n\t\t\tevent = appear"
              + "\n\t\t}\n\t\tOWNERSHIP_CHANGE\n\t\t{"
              + "\n\t\t\trecId = recS15\n\t\t\tut = 23202.0\n\t\t\tevent = disappear"),
-            (ANCHOR_ROUTE_LEG_DEFER, S15_LEAD_IN_OPEN_DWELL))
+            (ANCHOR_OBSERVED_END, S15_LEAD_IN_OPEN_DWELL))
         _s, (findings, _u, metrics) = rules_for(text)
         self.assertEqual([], fails(findings, rc.RULE_OWN))
         warns = [f for f in findings
@@ -2014,7 +1966,7 @@ class RuleViolationTests(unittest.TestCase):
         proving the publish surface ran."""
         text = POSITIVE_MANIFEST
         start = text.index("\t\tOWNERSHIP_CHANGE")
-        end = text.index("\t\tROUTE_LINE_BUILD")
+        end = text.index(ANCHOR_OBSERVED_END)
         if not 0 < start < end:
             raise AssertionError("ownership run not located in POSITIVE_MANIFEST")
         stripped = text[:start] + text[end:]
@@ -2046,12 +1998,12 @@ class RuleViolationTests(unittest.TestCase):
         # names the proto-less population (exemption (a)), so the OTHER direction
         # stays silent and the cell isolates this clause.
         text = self._without_any_ownership().replace(
-            "\t\tROUTE_LINE_BUILD",
+            ANCHOR_OBSERVED_END,
             "\t\tOWNERSHIP_CHANGE\n\t\t{\n\t\t\trecId = recProtoless"
             "\n\t\t\tut = 30000.0\n\t\t\tevent = appear\n\t\t}"
             "\n\t\tOWNERSHIP_CHANGE\n\t\t{\n\t\t\trecId = recProtoless"
-            "\n\t\t\tut = 32000.0\n\t\t\tevent = disappear\n\t\t}"
-            "\n\t\tROUTE_LINE_BUILD", 1)
+            "\n\t\t\tut = 32000.0\n\t\t\tevent = disappear\n\t\t}\n"
+            + ANCHOR_OBSERVED_END, 1)
         _s, (findings, unevaluable, _m) = rules_for(text)
         own = fails(findings, rc.RULE_OWN)
         self.assertEqual(2, len(own), [f.as_text() for f in findings])
@@ -2352,24 +2304,21 @@ class SpecSurfaceTests(unittest.TestCase):
 
     def test_the_assertion_key_vocabulary_is_pinned(self):
         self.assertEqual(("gating", "dwells", "cycles", "unevaluable",
-                          "routeLineBuilds", "routeCoDrawViolations",
                           "ownershipChanges",
                           "warpBuckets", "requireSeamKinds"),
                          rc.RENDER_COMPOSITION_BLOCK_KEYS)
         self.assertEqual(("dwells", "cycles", "unevaluable",
-                          "routeLineBuilds", "routeCoDrawViolations",
                           "ownershipChanges"),
                          rc.RENDER_COMPOSITION_WINDOW_KEYS)
         self.assertEqual(("warpBuckets", "requireSeamKinds"),
                          rc.RENDER_COMPOSITION_LIST_KEYS)
 
-    def test_the_three_promoted_keys_take_the_same_grammar_and_notches(self):
-        """The 2026-08-26 extension (todo
-        RENDERCOMPOSE-OWNERSHIPCHANGES-IS-NOT-WINDOWABLE) added three RECORDED
-        facets as window keys. They are not a second grammar: every notch the
-        original three carry applies to them unchanged."""
-        for key in ("routeLineBuilds", "routeCoDrawViolations",
-                    "ownershipChanges"):
+    def test_the_promoted_key_takes_the_same_grammar_and_notches(self):
+        """`ownershipChanges` (todo
+        RENDERCOMPOSE-OWNERSHIPCHANGES-IS-NOT-WINDOWABLE) is a RECORDED facet
+        promoted to a window key. It is not a second grammar: every notch the
+        original three carry applies to it unchanged."""
+        for key in ("ownershipChanges",):
             self.assertEqual([], rc.validate_render_composition_expectations(
                 {"gating": True, key: {"min": 1}}), key)
             # bare int = exact pin, and a negative one is refused
@@ -2395,12 +2344,14 @@ class SpecSurfaceTests(unittest.TestCase):
                 {key: {"min": 0}}), key)
 
     def test_a_key_outside_the_extended_set_is_still_rejected(self):
-        """The extension accepts EXACTLY the three new spellings. Neighbours of
-        them - facet names that were NOT promoted, and near-misses of the ones
-        that were - stay pre-launch errors."""
-        for key in ("routeLegDefers", "lineBranches", "planUnits",
+        """The extension accepts EXACTLY the promoted spelling. Neighbours of
+        it - facet names that were NOT promoted, a near-miss of the one that
+        was, and the window keys of the retired route overview line - stay
+        pre-launch errors."""
+        for key in ("lineBranches", "planUnits",
                     "chainBuilds", "transitions", "seamEndpoints",
-                    "routeLineBuild", "ownershipChange", "routeCoDraw"):
+                    "ownershipChange",
+                    "routeLineBuilds", "routeCoDrawViolations"):
             errs = rc.validate_render_composition_expectations({key: {"min": 1}})
             self.assertTrue(any("unknown key(s)" in e for e in errs), key)
 
@@ -2518,15 +2469,13 @@ class EvaluateTests(unittest.TestCase):
         self.assertEqual(rc.STATUS_FAIL, res.status)
         self.assertEqual(("renderComposition.dwells 8 < min 99",), res.mismatches)
 
-    # -- the three promoted window keys (2026-08-26) -------------------------
+    # -- the promoted window key ---------------------------------------------
     #
-    # The positive fixture measures routeLineBuilds 1, routeCoDrawViolations 0,
-    # ownershipChanges 4. Each key gets a min violation, a max violation and an
-    # in-window pass off THOSE numbers, so the cells test the gate rather than a
-    # fixture that could never satisfy it.
+    # The positive fixture measures ownershipChanges 4. The key gets a min
+    # violation, a max violation and an in-window pass off THAT number, so the
+    # cells test the gate rather than a fixture that could never satisfy it.
 
-    PROMOTED = {"routeLineBuilds": 1, "routeCoDrawViolations": 0,
-                "ownershipChanges": 4}
+    PROMOTED = {"ownershipChanges": 4}
 
     def test_each_promoted_key_reds_below_its_floor(self):
         for key, measured in self.PROMOTED.items():
@@ -2566,21 +2515,6 @@ class EvaluateTests(unittest.TestCase):
             self.assertEqual(rc.STATUS_PASS, rc.evaluate_render_composition(
                 exp, build(POSITIVE_MANIFEST)).status, key)
 
-    def test_routeCoDrawViolations_max_zero_is_the_arbitration_clause(self):
-        """The clause a route lane actually arms: DrawAll must skip a member the
-        ghost polyline owns. It PASSES on the clean fixture and reds on one that
-        records a violation, so the zero is measured rather than defaulted."""
-        exp = {"renderComposition": {"gating": True,
-                                     "routeCoDrawViolations": {"max": 0}}}
-        self.assertEqual(rc.STATUS_PASS, rc.evaluate_render_composition(
-            exp, build(POSITIVE_MANIFEST)).status)
-        res = rc.evaluate_render_composition(
-            exp, build(variant((ANCHOR_ROUTE_LEG_DEFER,
-                                CODRAW_VIOLATION_RECORD))))
-        self.assertEqual(rc.STATUS_FAIL, res.status)
-        self.assertIn("renderComposition.routeCoDrawViolations 1 > max 0",
-                      res.mismatches)
-
     def test_an_absent_facet_under_a_declared_window_is_a_named_mismatch(self):
         """ABSENT + WINDOWED = MISMATCH, the decision recorded on
         `_check_windows_against_facets`. It is unreachable through the parser
@@ -2589,12 +2523,12 @@ class EvaluateTests(unittest.TestCase):
         `{max = 0}` clause over a surface that never ran."""
         mismatches = []
         rc._check_windows_against_facets(
-            {"gating": True, "routeLineBuilds": {"min": 1},
-             "routeCoDrawViolations": {"max": 0}},
+            {"gating": True, "cycles": {"min": 1},
+             "ownershipChanges": {"max": 0}},
             {"dwells": 3},                      # neither key measured
             mismatches)
         self.assertEqual(2, len(mismatches))
-        for key in ("routeLineBuilds", "routeCoDrawViolations"):
+        for key in ("cycles", "ownershipChanges"):
             self.assertTrue(
                 any(m.startswith("renderComposition.%s: declared but NOT "
                                  "MEASURED" % key) for m in mismatches),
@@ -2748,13 +2682,7 @@ ARMED_RED_RECIPES = {
     "dwells": ({"max": 0}, {"min": 1, "max": 32}, POSITIVE_MANIFEST),
     "cycles": ({"min": 99}, {"min": 1}, POSITIVE_MANIFEST),
     "unevaluable": ({"max": 0}, {"max": 10}, POSITIVE_MANIFEST),
-    # The three promoted 2026-08-26 - measured 1 / 0 / 4 on the positive
-    # fixture. `routeCoDrawViolations` is the one whose RED half is a FLOOR
-    # rather than a ceiling: the fixture measures zero (that IS the healthy
-    # arbitration reading), so the contradiction of a measurement is `{min = 1}`
-    # while the clause a lane actually arms is the satisfied `{max = 0}`.
-    "routeLineBuilds": ({"min": 5}, {"min": 1}, POSITIVE_MANIFEST),
-    "routeCoDrawViolations": ({"min": 1}, {"max": 0}, POSITIVE_MANIFEST),
+    # The promoted key - measured 4 on the positive fixture.
     "ownershipChanges": ({"max": 0}, {"min": 1, "max": 16}, POSITIVE_MANIFEST),
     "warpBuckets": (["warpHigh"], ["warp1x", "warp100"], POSITIVE_MANIFEST),
     "requireSeamKinds": (["flexible-soi"], ["rigid"],
@@ -3490,7 +3418,7 @@ class TruncationTokenTests(unittest.TestCase):
 
     def _cover_and_uneval(self, extra_record):
         _s, (findings, unevaluable, _m) = rules_for(
-            variant(COVER_GAP, (ANCHOR_ROUTE_LEG_DEFER, extra_record)))
+            variant(COVER_GAP, (ANCHOR_OBSERVED_END, extra_record)))
         return findings, unevaluable
 
     def test_the_plain_per_pid_token_still_stands_down_rc_cover(self):
@@ -3514,13 +3442,13 @@ class TruncationTokenTests(unittest.TestCase):
             with self.subTest(section=section):
                 self.assertTrue(rc._Ctx(
                     rc.parse_render_manifest(fill(variant(
-                        (ANCHOR_ROUTE_LEG_DEFER,
+                        (ANCHOR_OBSERVED_END,
                          truncated_record("ALL:global"))))),
                     None).section_truncated(section))
 
     def test_the_dedupe_exhausted_row_truncates_clock_event_and_only_it(self):
         snap = rc.parse_render_manifest(fill(variant(
-            (ANCHOR_ROUTE_LEG_DEFER,
+            (ANCHOR_OBSERVED_END,
              truncated_record("CLOCK_EVENT:dedupe-exhausted",
                               kind="dedupe-exhausted")))))
         ctx = rc._Ctx(snap, None)
@@ -3543,7 +3471,7 @@ class TruncationTokenTests(unittest.TestCase):
         findings, _u = self._cover_and_uneval(overflow)
         self.assertEqual([], fails(findings, rc.RULE_COVER))
         ctx = rc._Ctx(rc.parse_render_manifest(fill(variant(
-            (ANCHOR_ROUTE_LEG_DEFER, overflow)))), None)
+            (ANCHOR_OBSERVED_END, overflow)))), None)
         for section in rc.OBSERVED_SECTIONS:
             with self.subTest(section=section):
                 self.assertTrue(ctx.section_truncated(section))
@@ -3651,13 +3579,13 @@ class RatifiedSkipHullTests(unittest.TestCase):
         extra = "".join(records) if records else ""
         pairs = [COVER_GAP]
         if extra:
-            pairs.append((ANCHOR_ROUTE_LEG_DEFER, extra + ANCHOR_ROUTE_LEG_DEFER))
+            pairs.append((ANCHOR_OBSERVED_END, extra + ANCHOR_OBSERVED_END))
         _s, (findings, unevaluable, _m) = rules_for(variant(*pairs))
         return findings, unevaluable
 
     def _skip(self, first_ut, last_ut):
         return ratified_skip(5001, first_ut, last_ut)[
-            :-len(ANCHOR_ROUTE_LEG_DEFER)]
+            :-len(ANCHOR_OBSERVED_END)]
 
     def test_a_hull_over_the_gap_is_unevaluable_not_covered_and_not_red(self):
         findings, unevaluable = self._run(self._skip(11200.0, 11800.0))
@@ -3699,7 +3627,7 @@ class RatifiedSkipHullTests(unittest.TestCase):
         # of them would have explained is indistinguishable from a real gap.
         findings, unevaluable = self._run(
             truncated_record("RATIFIED_SKIP:global")[
-                :-len(ANCHOR_ROUTE_LEG_DEFER)])
+                :-len(ANCHOR_OBSERVED_END)])
         self.assertEqual([], fails(findings, rc.RULE_COVER))
         self.assertEqual(1, unevaluable[rc.UNEVAL_COVER_SKIPS_TRUNCATED])
 
@@ -3934,8 +3862,6 @@ class UnknownTokenHelperTests(unittest.TestCase):
             "ownership event": (("event = appear\n\t\t}\n\t\tOWNERSHIP_CHANGE",
                                  "event = materialise\n\t\t}\n\t\tOWNERSHIP_CHANGE"),
                                 "ownership event"),
-            "route scope": (("scope = SameBody", "scope = Whatever"),
-                            "route scope"),
             "descent phase token": (("detailS = Descent\n\t\t\tdetailD = 1700.0\n"
                                      "\t\t}\n\t\tCLOCK_EVENT\n\t\t{\n"
                                      "\t\t\tkind = hold-engage",

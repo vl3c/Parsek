@@ -10954,7 +10954,6 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "TP-5-laythe-vall-map-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; FLOWN GREEN on its first flight 2026-11-11 and again with the MapCamera hold the same day",
         "TP-6-mun-landing-map-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; FLOWN GREEN on its first flight 2026-11-11 and again with the MapCamera hold the same day",
         "TP-7-depot-route-ts-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; FLOWN GREEN on its first flight 2026-11-11 and again with the MapCamera hold the same day",
-        "TP-8-interbody-route-map-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; FLOWN GREEN on its first flight 2026-11-11 and again with the MapCamera hold the same day",
         # TP-9 (2026-11-12) is the skipped-landing twin of TP-4's late-slot view. It also
         # carries three log pins for REAIM-PARKING-ICON-AFTER-LANDING, so its flight is a
         # check of that fix as well as a picture. Flown green on its first flight the same day.
@@ -11727,8 +11726,6 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # what the run reads. Neither is `pending-operator` because neither owes
         # outstanding HUMAN work - what they owe is a flight, and the derivation each
         # header carries is what makes that flight readable rather than a fishing trip.
-        "B32-interbody-route-scope.toml":    "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). THE FIRST LANE ANYWHERE THAT HAS READ `ClassifyRouteScope = InterBody`, over the `interbody-route-recorded` harvest. It stays untagged because what it owed was an ordinary reading, not a human call, and that reading is in: the product change that made the verdict reachable (todo ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE) landed in the same PR, the tokens are derived from the classifier source rather than predicted, and the two FORBIDS carry the pre-fix reading as a control the lane brings with it. Nothing was armed at that point, so the flights confirmed without a promotion decision attached; the `[expectations.routes]` arming pass was TAKEN 2026-09-11 (wave package A2) off the reading `2026-09-10_2149`, all twelve windows as declared. Its discipline completed 2026-09-11: armed re-flight `2026-09-11_0159` PASS attempt 1, and two negative controls, each red PARSEK-FAIL(save-structure) on exactly its one leaf: `2026-09-11_0206` (connectionKinds) and `2026-09-11_0209` (a destinationBodies group window).",
-        "V26M-interbody-route-map-lines.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). The RENDER-COMPOSITION half of G10 - the manifest census of an inter-body route line. It read `transferLegsDropped=0`, which is OUTCOME B of the two its header pre-registered: the filter RUNS but found no third-body leg, so G10's `never dropped a leg on a driven run` gap REMAINS OPEN. `[expectations.renderComposition]` stayed DECLARED BARE at that point and the arming pass was left as the human call. THAT CALL WAS TAKEN 2026-09-07 (package P16, after reading run 3 `2026-09-06_2113` PASS attempt 1 matched run 1 facet for facet): the block is ARMED on `routeLineBuilds = {min = 2}` + `routeCoDrawViolations = {max = 0}` and nothing else - no `unevaluable` ceiling, because 1065 here against V26T's 6 on the SAME fixture says that census scales with the observed population rather than with the composition. The same run ALSO closed G10's leg-drop gap: `transferDropped=2` on three consecutive runs, now pinned as a literal. The ARMED renderComposition block flew again on `2026-09-10_2151` (wave package A2; gating PASS, routeLineBuilds 2, routeCoDrawViolations 0, no mismatch); its negative control is still OWED. `[expectations.routes]` was ARMED 2026-09-11 off that same run (twelve leaves as declared); its armed re-flight `2026-09-11_0201` PASS attempt 1 (routes and renderComposition gating PASS, no mismatch), and its group windows' controls are B32's `2026-09-11_0206` / `_0209`.",
         # R14's better-time-warp residue, 2026-09-10 (wave package A2). The first
         # operator-tier spec on the modded-compat instance.
         # THE TWO GUI-CENSUS LANES. Operator-tier by MECHANISM, the FORGE class rather
@@ -12967,8 +12964,9 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        "RVR-5-rover-relay-eligibility.toml",
                        "H58-route-rewind-to-launch.toml",
                        "H59-surface-route-map-lines.toml",
-                       "B32-interbody-route-scope.toml",
-                       "V26M-interbody-route-map-lines.toml",
+                       # B32 and V26M left 2026-11-12, deleted with the supply route
+                       # overview line (todo ROUTE-LINE-DETACHED-SEGMENTS); V26T keeps
+                       # its armed `routes` block.
                        "V26T-interbody-route-ts-arrival.toml",
                        # THE 2026-09-27 ARMING PASS (operator decision: arm the report-only
                        # blocks whose latest reading matches). Each spec below was armed off
@@ -13604,40 +13602,19 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         # composition fact. Control reverted in the same change on the re-grepped real key
         # (byte-identical to HEAD after the revert, checked rather than assumed).
         # Not shared with any sibling: each armed lane inverts a window of its own.
+        # 2026-11-12: `routeLineBuilds` and `routeCoDrawViolations` LEFT THIS BLOCK with
+        # the supply route overview line (todo ROUTE-LINE-DETACHED-SEGMENTS; neither
+        # record kind nor window key exists any more). The block stays armed on the two
+        # windows that never read the line, `unevaluable {max 10}` and
+        # `requireSeamKinds ["rigid"]`, and the rigid seam requirement is its
+        # anti-vacuity floor. Everything above about the two route windows is history.
         "V18T-depot-route-ts-arrival.toml",
-        # THE V26 INTER-BODY PAIR, ARMED 2026-09-07 (package P16, the G10 leg drop)
-        # off THREE report-only readings of the same five-lane set, the third of
-        # which (`2026-09-06_2113` V26M / `2026-09-06_2115` V26T, both PASS attempt
-        # 1) matched the first facet for facet on every key either block windows.
-        # BOTH ARM EXACTLY TWO WINDOWS AND NO MORE:
-        #   `routeLineBuilds = {min = 2}` - the anti-vacuity floor and the one
-        #     arithmetic the bare blocks refused to assert in advance (V18T's
-        #     measured 1 was a ONE-route subject; this fixture commits two, and both
-        #     lanes read 2 on runs 1 and 3).
-        #   `routeCoDrawViolations = {max = 0}` - the arbitration's own instrument,
-        #     and the counter this package moved: run 1 read 1024 (the cap) on V26M
-        #     over one finding, run 2 read 403, run 3 reads 0 on both lanes.
-        # WHAT IS DELIBERATELY NOT ARMED, and it is the same key on both so the pair
-        # stays symmetric: `unevaluable`. V26M reads 1065 (750 of them the
-        # seam-endpoint DECIMATION) against V26T's 6 on the SAME fixture, because
-        # the census scales with the observed population - a FLIGHT scene with 20
-        # vessels and a 40-tick map dwell against a TS boot. A ceiling on either
-        # would gate session length rather than composition, which is the V17M
-        # mistake in another costume. `dwells` / `cycles` are 0 by construction (no
-        # loop armed, no route has run a cycle), `ownershipChanges` is 0 correctly
-        # (no TracedPath ownership on this subject) and `requireSeamKinds` stays out
-        # because the seam census tracks which recordings the ghost pass walked,
-        # which run 3 measured to be EPOCH-DEPENDENT here (V26M
-        # `ghostLifecycle spawned=0` - no ghost was alive in its map window at all,
-        # where runs 1 and 2 each had one; filed as
-        # V26M-GHOST-SPAWN-IN-MAP-WINDOW-IS-EPOCH-DEPENDENT).
-        # The ARMED RE-FLIGHT of both flew 2026-09-10 (wave package A2: V26M
-        # `2026-09-10_2151`, V26T `2026-09-10_2153`, gating PASS, no mismatch)
-        # and again 2026-09-11 (`_0201` / `_0203`, the same).
-        # OWED, and named so it is not mistaken for discharged: their negative
-        # control; the discipline is not complete until it flies.
-        "V26M-interbody-route-map-lines.toml",
-        "V26T-interbody-route-ts-arrival.toml",
+        # THE V26 INTER-BODY PAIR (V26M / V26T) LEFT 2026-11-12. Both armed exactly
+        # `routeLineBuilds = {min = 2}` and `routeCoDrawViolations = {max = 0}` (armed
+        # 2026-09-07, re-flown 2026-09-10 / 2026-09-11), and both windows read the supply
+        # route overview line, retired that day (todo ROUTE-LINE-DETACHED-SEGMENTS). V26M
+        # is deleted; V26T's block is bare (report-only) again, no other window having
+        # been earned on it.
         # V7W: ARMED 2026-09-26 (coverage wave 5, D14 `warp-phys`) off its own
         # report-only reading `2026-09-25_2154` (renderCompose REPORT, zero FAIL
         # findings; the run's one mismatch was an over-precise log token of the
@@ -13996,53 +13973,25 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
                                     # (`depot-route-recorded`, `duna-park-recorded`), so
                                     # each owes a FIRST FLIGHT before it owes a window.
                                     #
-                                    # [T] THE SUITE'S FIRST ROUTE LANE, and the only
-                                    #     subject that can put a non-zero number in
-                                    #     `routeLineBuilds` or produce a per-unit `ROUTE`
-                                    #     node at all - so `rendercompose._rule_route` has
-                                    #     never executed against live data. It arms NO
-                                    #     mission loop: the committed ROUTE drives,
-                                    #     through SelectGhostDrivingBackingMissions ->
+                                    # [T] THE SUITE'S FIRST ROUTE LANE: the one committed
+                                    #     subject that produces a per-unit `ROUTE` node in
+                                    #     the manifest. It arms NO mission loop: the
+                                    #     committed ROUTE drives, through
+                                    #     SelectGhostDrivingBackingMissions ->
                                     #     RouteBackingMission.BuildMission -> the TS host
-                                    #     union. It flies the TS half FIRST on a measured
-                                    #     fact - RouteTrajectoryLineRenderer.DrawAll's
-                                    #     only call site carries no MapView gate, so the
-                                    #     tracking station draws route lines without
-                                    #     EnterMapView while its own FLIGHT prelude draws
-                                    #     none. D10 `route-map-lines` stays UNDECLARED
-                                    #     until a gating token earns it (H35).
+                                    #     union, and the route's ship draws like any looped
+                                    #     mission ghost (the separate overview line it also
+                                    #     read left 2026-11-12, todo
+                                    #     ROUTE-LINE-DETACHED-SEGMENTS).
                                     "V18T-depot-route-ts-arrival.toml",
-                                    # -- 2026-09-02, G10: THE INTER-BODY ROUTE PAIR over
-                                    #    the new `interbody-route-recorded` harvest.
-                                    #    DECLARED BARE, NEVER FLOWN. They are the first
-                                    #    subjects whose route can classify
-                                    #    `scope = InterBody` at all - `ClassifyRouteScope`
-                                    #    used to read `Route.DispatchWindowPeriod`, which
-                                    #    RouteBuilder hard-coded to 0.0, so every real
-                                    #    Kerbin -> Duna route classified
-                                    #    MalformedMixedBodies and drew nothing (todo
-                                    #    ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE, fixed the
-                                    #    same day). What is newly measurable is the per-
-                                    #    unit ROUTE node's `scope` and, above all,
-                                    #    `transferLegsDropped`: on V18T's SameBody subject
-                                    #    the endpoint-leg filter does not run at all, so
-                                    #    the ratified transfer-leg DROP has never been
-                                    #    evaluated against non-vacuous data. NO window is
-                                    #    written on either, and V26M's header names BOTH
-                                    #    outcomes it is prepared to read (a drop, or an
-                                    #    honest zero because the transfer member may be
-                                    #    entirely orbital) precisely so the reading run
-                                    #    measures rather than confirms.
-                                    # [M] FLIGHT, the map-open/close PAIR the G10 entry
-                                    #     says V26M owes; export taken with the map still
-                                    #     open and ONE scene only, because
-                                    #     RENDER-MANIFEST-VERB-EXPORT-IN-A-SECOND-SCENE-
-                                    #     CLOBBERS-THE-FIRST-SCENE-ACCUMULATION makes a
-                                    #     two-scene lane read zeroes (H59 measured it).
-                                    "V26M-interbody-route-map-lines.toml",
-                                    # [T] the TRACKSTATION half, V18T's grammar on the new
-                                    #     subject; separate lane rather than a second
-                                    #     dwell for the same per-scene reason.
+                                    # -- 2026-09-02, G10: THE INTER-BODY ROUTE subject over
+                                    #    the `interbody-route-recorded` harvest (endpoints
+                                    #    on two bodies). Declared bare, no window.
+                                    # [T] the TRACKSTATION lane, V18T's grammar on that
+                                    #     subject. Its FLIGHT twin V26M was deleted
+                                    #     2026-11-12 with the supply route overview line
+                                    #     (todo ROUTE-LINE-DETACHED-SEGMENTS), whose scope
+                                    #     and leg readings were the pair's whole subject.
                                     "V26T-interbody-route-ts-arrival.toml",
                                     # [M] THE SECOND RE-AIM DEPARTURE CLASS. Every prior
                                     #     re-aim subject (V2 / V8 / V10 / V24W) is a
@@ -14290,10 +14239,9 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         THE FLOOR SET IS DERIVED FROM `RENDER_COMPOSITION_WINDOW_KEYS` RATHER THAN
         LISTED (2026-09-07, package P16). It was the literal pair ("dwells",
         "cycles") from before the 2026-08-26 schema extension, which left the three
-        keys that extension added uncredited: V18T armed `routeLineBuilds = {min = 1}`
-        - a floor by every word of the property above - and passed this cell only
-        through its `requireSeamKinds`, and the V26 pair arms `routeLineBuilds =
-        {min = 2}` with no seam-kind list at all. Deriving keeps the property exact
+        keys that extension added uncredited (two of them, the route-line windows,
+        were retired 2026-11-12 with the supply route overview line; V18T and the V26
+        pair armed a floor on one). Deriving keeps the property exact
         (a `min` on a count the recorder writes 0 for on an empty manifest DOES red
         there) and makes a future window key inherit it without an edit here."""
         floor_keys = tuple(k for k in rendercompose.RENDER_COMPOSITION_WINDOW_KEYS
@@ -23477,14 +23425,14 @@ class SettingsSidecarBaselineTests(unittest.TestCase):
         # GameParameters keep governing them (a stored value would override every
         # save on the instance, which is the bug being fixed).
         values = hlib.parse_settings_sidecar(hlib.render_settings_sidecar_baseline())
-        for key in ("showRouteLines", "verboseLogging", "samplingDensity",
-                    "ghostAudioVolume"):
+        for key in ("verboseLogging", "samplingDensity", "ghostAudioVolume"):
             self.assertNotIn(key, values, key)
-        # The three keys RETIRED by that simplification are no longer read by the
-        # mod at all; a baseline that started writing one would be pure noise that
-        # masks a future authoring mistake, so pin their absence separately.
+        # The keys the mod no longer reads at all (three retired by that
+        # simplification, `showRouteLines` with the supply route overview line); a
+        # baseline that started writing one would be pure noise that masks a future
+        # authoring mistake, so pin their absence separately.
         for key in ("autoBackupExistingSaves", "showCommittedFutureOverlays",
-                    "blockCommittedActions"):
+                    "blockCommittedActions", "showRouteLines"):
             self.assertNotIn(key, values, key)
 
     def test_leaked_tracer_is_detected_in_the_real_leaked_shape(self):
@@ -23720,7 +23668,16 @@ S17_FLOWN_BATCH_LINE_2026_07_26 = (
 S17_FLOWN_BATCH_LINE = (
     "[Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=23 passed=22 failed=0"
     " skipped=1 category=MapRender scene=FLIGHT")
-S17_MEASURED_BATCH_LINE = S17_FLOWN_BATCH_LINE
+# INTERIM 2026-11-12: the two RouteLineDraw cells were deleted with the supply route
+# overview line (todo ROUTE-LINE-DETACHED-SEGMENTS), so the source derives total=21
+# and the spec reads passed= / skipped= as digits until its next green flight. The
+# line below is the EXPECTED one (20 / 1: both deleted cells executed and passed on
+# the flown runs above, and the one skip is the batch-disabled canary), a shape and
+# not a measurement until that flight restores the literal pin.
+S17_EXPECTED_BATCH_LINE_INTERIM = (
+    "[Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=21 passed=20 failed=0"
+    " skipped=1 category=MapRender scene=FLIGHT")
+S17_MEASURED_BATCH_LINE = S17_EXPECTED_BATCH_LINE_INTERIM
 # The runner's accounting for the single skip.
 S17_MEASURED_BATCH_SKIP_LINE = (
     "[Parsek][INFO][TestRunner] Batch execution skipped 1 single-run-only test(s)")
@@ -23785,6 +23742,11 @@ class MapRenderParityScenarioTests(unittest.TestCase):
                  "the pre-2026-09-08 tally, i.e. a MapRender test removed"),
                 ("BATCH_COMPLETE v1 total=24 passed=23 failed=0 skipped=1 "
                  "category=MapRender scene=FLIGHT", "a newly added MapRender test"),
+                ("BATCH_COMPLETE v1 total=23 passed=22 failed=0 skipped=1 "
+                 "category=MapRender scene=FLIGHT",
+                 "the pre-2026-11-12 tally, i.e. the RouteLineDraw pair back"),
+                ("BATCH_COMPLETE v1 total=21 passed=0 failed=0 skipped=21 "
+                 "category=MapRender scene=FLIGHT", "an all-skip batch at this total"),
                 ("BATCH_COMPLETE v1 total=23 passed=22 failed=1 skipped=0 "
                  "category=MapRender scene=FLIGHT", "a failing test"),
                 ("BATCH_COMPLETE v1 total=22 passed=21 failed=0 skipped=1 "

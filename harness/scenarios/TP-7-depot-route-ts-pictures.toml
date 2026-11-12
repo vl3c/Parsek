@@ -1,10 +1,14 @@
 schema = 1
 id = "TP-7-depot-route-ts-pictures"
 # =====================================================================================
-# TP-7: PICTURES OF THE KERBIN DEPOT SUPPLY ROUTE IN THE TRACKING STATION, ROUTE LINES ON.
+# TP-7: PICTURES OF THE KERBIN DEPOT SUPPLY ROUTE'S SHIP IN THE TRACKING STATION.
+#
+# 2026-11-12: the supply route overview line is retired (todo ROUTE-LINE-DETACHED-SEGMENTS;
+# this lane's `tp7-c2-neardock-kerbin-low-top` view is the evidence the ruling cites). The
+# pictures now show the route ship's own ghost lines only. Re-flight pending.
 #
 # V18T-depot-route-ts-arrival's subject (a same-body Kerbin depot route whose ghost
-# launches and docks, `showRouteLines = true`), observed in the Tracking Station at three
+# launches and docks), observed in the Tracking Station at three
 # instants instead of one. Same step shape as TP-2 for the same reason: every TimeJump is
 # FLIGHT-only and this fixture's Tracking Station also carries `tsComplete = False`, so each
 # instant is jumped and saved in FLIGHT under its own name and then booted into TS.
@@ -25,8 +29,7 @@ id = "TP-7-depot-route-ts-pictures"
 #   c2-neardock 60,149   the same three
 # No whole-system view: the route never leaves Kerbin's SOI.
 #
-# FIRST-FLIGHT RISK: three TS boots in one process (TP-2's risk), and the route line
-# state is re-derived on each boot.
+# FIRST-FLIGHT RISK: three TS boots in one process (TP-2's risk).
 #
 # THE PICTURE PROTOCOL (design-map-mirror.md -> "How to get the pictures"). Every view is
 # three steps under ONE label: `MapCamera` (focus / pitch / heading / distance, so the
@@ -66,9 +69,9 @@ id = "TP-7-depot-route-ts-pictures"
 #     still owed. The tier is `operator` because the lane is run on request for pictures.
 # =====================================================================================
 tier = "operator"
-description = "PICTURE LANE, AUTHORED 2026-11-11, FIRST FLOWN GREEN 2026-11-11 (run 2026-11-11_2155; again with the MapCamera hold, run 2026-11-11_2250). V18T's Kerbin depot supply route on depot-route-recorded with route lines on, seen in the Tracking Station at three instants (cycle 0 near the dock, cycle 1 mid-leg, cycle 1 near the dock): each instant is jumped and saved in FLIGHT under its own name, then booted into the Tracking Station, where three low-Kerbin views are framed, photographed and dumped under one label each, 9 views in all. Expectations are only that every view was taken, the route line drew, and nothing was refused."
+description = "PICTURE LANE, AUTHORED 2026-11-11, FIRST FLOWN GREEN 2026-11-11 (run 2026-11-11_2155; again with the MapCamera hold, run 2026-11-11_2250). V18T's Kerbin depot supply route on depot-route-recorded, seen in the Tracking Station at three instants (cycle 0 near the dock, cycle 1 mid-leg, cycle 1 near the dock): each instant is jumped and saved in FLIGHT under its own name, then booted into the Tracking Station, where three low-Kerbin views are framed, photographed and dumped under one label each, 9 views in all. Expectations are only that every view was taken and nothing was refused. 2026-11-12: the supply route overview line is retired (todo ROUTE-LINE-DETACHED-SEGMENTS), so the `showRouteLines` step and the `Route line draw` token are gone and the pictures show the route ship's own ghost lines; re-flight pending."
 instanceProfile = "stock-minimal"
-tags = ["TP", "TP-7", "map-pictures", "map-geometry", "screenshots", "map-render", "flown", "route", "logistics", "depot", "kerbin", "tracking-station", "route-map-lines"]
+tags = ["TP", "TP-7", "map-pictures", "map-geometry", "screenshots", "map-render", "flown", "route", "logistics", "depot", "kerbin", "tracking-station"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/depot-route-recorded"
@@ -85,7 +88,6 @@ steps = [
   { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "mapRenderTracing", value = "true" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
-  { cmd = "SetSetting", args = { name = "showRouteLines", value = "true" }, expect = "OK" },
   # FLIGHT half of c1-neardock at UT 38600: V18T's measured first jump: route cycle 0, loopUT 17,050.6, ~428 s before the recorded dock at loopUT 17,478.25
   { cmd = "TimeJump", args = { ut = "38600" }, expect = "OK", budget = 300 },
   { cmd = "RecordingState", expect = "OK" },
@@ -169,7 +171,6 @@ count = { min = 20, max = 30 }
 [expectations.logContracts]
 required  = [
   "loadgame complete scene=TRACKSTATION save=.* game-loaded=true expected=TrackingStation",
-  "Route line draw: enabled=True routesDrawn=[1-9]",
   "mapcamera ok focus=Kerbin pitch=",
   "capturescreenshot ok label=tp7-c1-neardock-kerbin-low-top bytes=",
   "dumpmapgeometry ok label=tp7-c1-neardock-kerbin-low-top scene=TRACKSTATION ",

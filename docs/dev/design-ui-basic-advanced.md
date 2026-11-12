@@ -402,7 +402,7 @@ ResolveMode(int? storedValue, bool installHasParsekFootprint) : UiComplexityMode
 - `uiComplexityMode: int` - stored as int to match the existing `samplingDensity` / `autoLoopTimeUnit` convention rather than introducing an enum-typed persisted field. The RAW field default is `Advanced` (fail-open): the default is nearly irrelevant because `ApplyTo` always resolves the effective value (stored key, else first-run resolution), and if any path reads the field before a restore, showing everything is the safe wrong answer. No `CustomParameterUI` attribute: the stock difficulty screen would be a second writer bypassing the setter seam.
 - A clamping typed accessor following the `SamplingDensity` precedent (`ParsekSettings.cs:108-114`): an out-of-range stored int resolves to **Advanced** (fail-open: showing everything is the safe wrong answer; hiding windows is not).
 
-**`ParsekSettingsPersistence`** (`Source/Parsek/ParsekSettingsPersistence.cs`), following the full `showRouteLines`-analog wiring, adjusted for int (showRouteLines is bool via `TryLoadBool` `:159-171`; the int path is `ParseStoredInt` `:173-180`):
+**`ParsekSettingsPersistence`** (`Source/Parsek/ParsekSettingsPersistence.cs`), following the full bool-setting-analog wiring (the stored `ghostRenderTracing` family), adjusted for int (those are bool via `TryLoadBool`; the int path is `ParseStoredInt` `:173-180`):
 - `UiComplexityModeKey` const (`:45` area) and `RecordUiComplexityMode(int)`.
 - The `LoadIfNeeded` parse call, the stored-value restore branch in `ApplyTo` (`:246-253` shape), the `Save()` AddValue branch (`:382-383` shape), and BOTH diagnostic lines (load-side `:142` shape, save-side `:406` shape).
 - `ResetForTesting` (`:426`) and the `GetStored...` / `SetStored...ForTesting` seams (`:447`, `:494`) that every other persisted setting carries; section 13.1's tests need them.
@@ -423,7 +423,7 @@ ResolveMode(int? storedValue, bool installHasParsekFootprint) : UiComplexityMode
 
 ### 6.3 Serialization
 
-The mode is a global (not per-save) preference, persisted through the existing `ParsekSettingsPersistence` store alongside `showRouteLines`. No recording schema change, no ledger change, no `.sfs` change beyond the existing settings node. `RecordingStore.CurrentRecordingSchemaGeneration` is untouched.
+The mode is a global (not per-save) preference, persisted through the existing `ParsekSettingsPersistence` store alongside the other install-wide settings. No recording schema change, no ledger change, no `.sfs` change beyond the existing settings node. `RecordingStore.CurrentRecordingSchemaGeneration` is untouched.
 
 There are TWO test runner windows, not one with two entry points (review correction): the Settings-launched `ParsekTestRunner` (`UI/TestRunnerUI.cs`, opened by the Diagnostics section's `In-Game Test Runner` button -> `ParsekUI.ToggleTestRunner`) and the DDOL global `ParsekTestRunnerGlobal` (`InGameTests/TestRunnerShortcut.cs`, Ctrl+Shift+T), with separate locks. Basic gates only the former's launcher and force-closes an open instance on mode change (section 7.2); the global window and its shortcut are never gated in either mode. The shortcut is a developer entry point that must remain available for the automated-testing harness (`PARSEK_AUTORUN_TESTS`), which never opens the Settings window.
 
@@ -628,7 +628,7 @@ New category `UiComplexityMode`:
 - **`BasicModeReleasesInputLocks`** - open every gated window in Advanced, switch to Basic THROUGH THE SETTER SEAM (section 6.2; writing the field directly bypasses the close handler and tests nothing), let the deferred apply run, assert no Parsek input lock remains held. This is the edge-case-2 regression guard and the most valuable test in the set.
 - **`ModeRoundTripPreservesWindowState`** - set state in a gated window, round-trip Basic and back via the seam, assert state survived.
 - **`AdvancedRenderParityAfterRoundTrip`** - assert the Advanced main-window control count is unchanged after a Basic round trip.
-- Settings flip/restore follows the existing try/finally pattern (`RouteLineDrawInGameTest.cs:62-126` precedent), with the seam call replacing the raw field write for the mode itself.
+- Settings flip/restore follows the existing try/finally pattern (the pattern the retired `RouteLineDrawInGameTest` used), with the seam call replacing the raw field write for the mode itself.
 
 Existing in-game tests that drive gated windows must force Advanced for their duration (edge case 8). The review audit found none that currently do (edge case 8); the phase-7 audit re-confirms this rather than assuming it.
 
@@ -672,7 +672,7 @@ The Timeline's filter area is two or three rows of up to six buttons (views, the
 | Concept | Code |
 |---------|------|
 | Mode enum + surfaces + predicate + `ResolveMode` | `Source/Parsek/UI/UiComplexityMode.cs` |
-| Persisted value | `ParsekSettings.uiComplexityMode` + clamping accessor, `ParsekSettingsPersistence` (full showRouteLines-analog wiring, section 6.2) |
+| Persisted value | `ParsekSettings.uiComplexityMode` + clamping accessor, `ParsekSettingsPersistence` (full bool-setting-analog wiring, section 6.2) |
 | Setter seam (all mode writes) | `ParsekUI.SetUiComplexityMode` (section 6.2) |
 | Frame-latched deferred apply | controller `Update()` (`ParsekFlight` / `ParsekKSC`), section 7.2 |
 | Toggle UI | `UI/SettingsWindowUI.cs` (`Interface` section, drawn first) |

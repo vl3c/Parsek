@@ -20,7 +20,7 @@ managed conic line, IMGUI markers) arbitrated per frame. The composition is
 DELIBERATELY not seamless: the design docs ratify roughly 40 distinct gaps,
 holds, kinks and trims, each with a written contract (whole-period cuts only,
 hold durations realigned per loop, the ~62 degree FlexibleSoi kink tolerated,
-the inter-body route line's transfer leg deliberately dropped, and so on).
+and so on).
 
 Today the only way to know a composed render is right is to watch it, and at
 20+ concurrent supply routes that is not a validation strategy. The existing
@@ -30,7 +30,7 @@ discontinuity detector, every in-game parity assertion samples one frame, no
 automated lane asserts composition or continuity ACROSS TIME at warp (V1
 dwells a rails-warp stair under the armed anomaly gate, but that gate sees
 flicker, not composition, and the warp step-up canary is batch-excluded), the
-route overview line surface has zero scenario declarers, and the one lens that catches "the arc dead-ends one
+route overview line surface (retired 2026-11-12) had zero scenario declarers, and the one lens that catches "the arc dead-ends one
 SOI radius short while the icon arrives" is report-only with known-broken
 calibration. A ghost drawn smoothly along a wrong-but-continuous arc, a leg
 that never draws, a hold that lasts three cycles, a cut that is not a whole
@@ -54,7 +54,7 @@ included, seams that meet (or gap only where ratified), icons riding their own
 lines, loops closing consistently, no orphaned arcs, no lines diving into
 planets, at any warp rate. The operator must never again have to visually
 confirm that. Additionally, several RATIFIED behaviors are player-visible
-(the FlexibleSoi kink, the route line's transfer gap, frozen-ghost holds);
+(the FlexibleSoi kink, frozen-ghost holds);
 this module MEASURES them per run even though they pass, so promoting any of
 them from "tolerated" to "fixed" becomes a data-driven product decision with a
 validatable test bed already in place (the deferred cross-SOI synthesis fix,
@@ -70,8 +70,8 @@ this bed).
   optimal is the solver's own test surface). The verifier DOES independently
   recompute the clock math (holds, cuts, trigger congruence) - see "Oracle
   independence" below - but it does not re-derive transfer orbits.
-- NOT flight-scene mesh playback (map + TS + KSC render surfaces and the route
-  overview line only; the flight mesh has its own instruments).
+- NOT flight-scene mesh playback (map + TS + KSC render surfaces only; the
+  flight mesh has its own instruments).
 - NOT per-frame logging. The manifest is event-driven and bounded (the Visual
   & Recording Design Principle applies to diagnostics too).
 - No gameplay effect ever. Unlike `MapRenderWarpControl` (a temporary,
@@ -123,7 +123,7 @@ and no check today):
    flagged "a real bug if got wrong" with no named test.
 6. Nothing asserts continuity ACROSS TIME (all parity is one-frame), no
    automated lane asserts composition at warp, and the route overview line
-   (registry cell D10) has zero declarers.
+   (registry cell D10; the line was retired 2026-11-12) had zero declarers.
 
 Carve-outs, so this module's pitch stays honest: gaps 1, 2 and 5 each have a
 cheap independent closure (a Tier-C hold-duration bound, a whole-period-cut
@@ -157,8 +157,8 @@ matrix, and the RC-QUAL trend record.
   citing their authorities, never as a prose copy.
 - **Manifest**: the per-run structured export: header (schema version,
   tolerance constants by name, scene, save, run id), plan section, chain
-  section, observed section (dwells, transitions, clock events, marker and
-  route-line records), each section per pid / per unit / per cycle.
+  section, observed section (dwells, transitions, clock events and marker
+  records), each section per pid / per unit / per cycle.
 - **Finding**: one verifier observation with a rule id and a verdict level
   (FAIL / WARN / INFO), the M-A1 model. The catch-all rule is: an observed
   transition or dark window no catalog item explains is a FAIL.
@@ -201,8 +201,7 @@ Capture points (all are existing seams; no new render-path branching):
    the re-timed instant RC-SEAM cannot evaluate re-aimed crossings), and for
    route-backed
    units the `Route` identity, `BackingMissionTreeId`, `RecordedDockUT`,
-   `RecordedOriginUndockUT`, excluded interval keys, and
-   `ClassifyRouteScope` result. Also the PRIMITIVE inputs the clock math was
+   `RecordedOriginUndockUT` and the excluded interval keys. Also the PRIMITIVE inputs the clock math was
    derived from (body rotation periods, parking period, recorded boundary
    UTs) so Layer 3 can recompute independently.
 2. **Chain**: at `ShadowRenderDriver.GetOrBuildChain`, on each build
@@ -229,16 +228,11 @@ Capture points (all are existing seams; no new render-path branching):
    transitions (`Inert`/`Loiter`/`Descent`/`Done` with `triggerUT`),
    boundary-overlap secondary activation, and the route loop-clock crossing
    of `RecordedDockUT`.
-5. **Route overview line**: per `RouteTrajectoryLineRenderer` rebuild
-   (signature-gated, so rare): member legs kept/clipped/dropped counts, scope,
-   endpoint bodies, dock-clip boundary, per-frame-aggregate skip counts
-   (`IsRenderingNonOrbitalLeg` deferrals), and an explicit co-draw
-   VIOLATION record appended on any frame where one member's leg is drawn
-   by both the overview line and the ghost polyline - recorded on the event
-   only, so the per-frame cost lands on the defect, and RC-ROUTE's
-   no-double-draw clause becomes checkable as "zero violation records"
-   (aggregate skip counts alone cannot prove the absence of a co-draw
-   frame).
+5. **Route overview line**: RETIRED 2026-11-12 with the line itself (todo
+   ROUTE-LINE-DETACHED-SEGMENTS). The recorder no longer writes
+   `ROUTE_LINE_BUILD`, `ROUTE_LEG_DEFER` or `ROUTE_CODRAW_VIOLATION` records,
+   and the per-unit PLAN `ROUTE` node no longer carries `scope`. A route's
+   ship is accounted like every other ghost, through capture points 2 to 4.
 6. **Aggregates inside a dwell**: frame count, warp-rate histogram (bucketed:
    1x, physics warp, <=100x rails, <=1000x, >1000x), min/max sampled head UT,
    anomaly echoes raised during the dwell (reason + count, from the tracer's
@@ -440,16 +434,13 @@ secondary appears only when the plan's raw delta exceeds the capped advance,
 and hands off to the next primary without a gap. CitedContract: periodicity
 zero-drift rules, `ComputeBoundaryOverlapAdvanceSeconds`.
 
-**RC-ROUTE (FAIL)** - scoped per surface: overview-line legs are clipped at
-`RecordedDockUT` (`LegWithinDockClip`; a zero/absent clip means no clip) and
-ghost dwells stay inside the trimmed member windows the dock-derived
-excluded interval keys produce; the overview line's kept/dropped leg
-accounting matches the scope classification (same-body draws all
-non-orbital legs; inter-body drops exactly the non-endpoint-body legs; on a
-round trip the endpoint FILTER stands down and EVERY leg is kept -
-stand-down means keep-all, not draw-nothing; malformed draws nothing); and
-zero co-draw violation records (capture point 5). CitedContract: logistics
-section 0, `RouteTrajectoryLineRenderer`.
+**RC-ROUTE (FAIL)** - ghost dwells of a route-backed unit stay inside the
+trimmed member windows the dock-derived excluded interval keys produce
+(`RecordedDockUT`, `LegWithinDockClip`; a zero/absent clip means no clip).
+The rule's overview-line clauses (kept / dropped leg accounting against the
+scope classification, zero co-draw violation records) went with the line on
+2026-11-12. CitedContract: logistics section 0,
+`RouteBackingMission.ComputeExcludedIntervalKeys`.
 
 **RC-OWN (FAIL)** - exactly one treatment per pid per dwell; ownership
 conservation both directions (a published ownership implies a draw record
@@ -465,7 +456,7 @@ seam and one hold were traversed at above-1x warp. A composition PASS from a
 
 **RC-QUAL (INFO, always-on measurement)** - the ratified-but-visible
 metrics, reported per run for trend tracking, never gating: FlexibleSoi kink
-angle and endpoint ratio per seam, hold durations, route transfer-gap span,
+angle and endpoint ratio per seam, hold durations,
 InteriorGap hold durations, launch-hold residual seam angle. These are the
 inputs to future promote-to-fixed product decisions.
 
@@ -486,7 +477,8 @@ observed clock event no rule above claimed.
   (V8/V13 class, exercising re-aim + descent trigger + holds), and a
   faithful return leg (V19 class). Route lanes ride G1: when
   `B27-station-route` / V18M/V18T land, the same manifest + row covers the
-  route front door and the D10 overview-line surface; this module does not
+  route front door (the D10 overview-line surface it also covered was retired
+  2026-11-12); this module does not
   duplicate G1's lane reservations, it consumes them.
 - **The warp-schedule subject, added 2026-08-25**: a
   **free-play-validated Kerbin -> Duna re-aim loop** over
@@ -715,7 +707,15 @@ Two further facts a reader of this design needs about what shipped:
   `CLOCK_EVENT` (today only the `descent-phase` head UT), `ownerIndex` and the
   recorded-clock stamps `openLoopUT` / `closeLoopUT` on `DWELL`, and the
   observation-derived `hold-engage` / `hold-release` clock-event kinds. No
-  version bump, because absence was already a defined state.
+  version bump, because absence was already a defined state. The 2026-11-12
+  retirement of the supply route overview line REMOVED three record kinds
+  (`ROUTE_LINE_BUILD`, `ROUTE_LEG_DEFER`, `ROUTE_CODRAW_VIOLATION`), the PLAN
+  `ROUTE` node's `scope` key and the two window keys `routeLineBuilds` /
+  `routeCoDrawViolations`, also without a bump, on the same rule: a current
+  manifest simply never carries them. The reverse direction is not
+  supported: a manifest written before the retirement that carries one of
+  those nodes reads RC-UNKNOWN under the current verifier, and a spec that
+  still declares one of the two window keys is refused pre-launch.
 - **`renderComposition` never entered `RESERVED_EXPECTATION_BLOCKS`.** Its
   evaluator ships in the same change as the block (the M-B2 `world` and R9
   `rewind` sole-owner rule), so there is no window in which a spec can declare a

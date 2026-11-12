@@ -42,9 +42,9 @@ namespace Parsek
         private const string ReadableSidecarMirrorsKey = "writeReadableSidecarMirrors";
         // showCommittedFutureOverlays / blockCommittedActions / autoBackupExistingSaves
         // keys were retired in the 2026-08-27 settings simplification (the behaviors are
-        // permanently on); stale keys in an existing settings.cfg are simply not read
-        // and drop out on the next Save().
-        private const string ShowRouteLinesKey = "showRouteLines";
+        // permanently on) and showRouteLines with the supply route overview line; stale
+        // keys in an existing settings.cfg are simply not read and drop out on the next
+        // Save().
         private const string GhostRenderTracingKey = "ghostRenderTracing";
         private const string MapRenderTracingKey = "mapRenderTracing";
         private const string LedgerTracingKey = "ledgerTracing";
@@ -63,7 +63,6 @@ namespace Parsek
         // Null = no stored value (use defaults / whatever GameParameters loaded).
         // Non-null = user-set override, applied over GameParameters on load.
         private static bool? storedReadableSidecarMirrors;
-        private static bool? storedShowRouteLines;
         private static bool? storedGhostRenderTracing;
         private static bool? storedMapRenderTracing;
         private static bool? storedLedgerTracing;
@@ -142,7 +141,6 @@ namespace Parsek
                 }
 
                 TryLoadBool(root, path, ReadableSidecarMirrorsKey, ref storedReadableSidecarMirrors);
-                TryLoadBool(root, path, ShowRouteLinesKey, ref storedShowRouteLines);
                 TryLoadBool(root, path, GhostRenderTracingKey, ref storedGhostRenderTracing);
                 TryLoadBool(root, path, MapRenderTracingKey, ref storedMapRenderTracing);
                 TryLoadBool(root, path, LedgerTracingKey, ref storedLedgerTracing);
@@ -160,7 +158,6 @@ namespace Parsek
                 ParsekLog.Info(Tag,
                     $"Loaded settings from '{path}': writeReadableSidecarMirrors=" +
                     (storedReadableSidecarMirrors.HasValue ? storedReadableSidecarMirrors.Value.ToString() : "<default>") +
-                    $" showRouteLines={(storedShowRouteLines.HasValue ? storedShowRouteLines.Value.ToString() : "<default>")}" +
                     $" ghostRenderTracing={(storedGhostRenderTracing.HasValue ? storedGhostRenderTracing.Value.ToString() : "<default>")}" +
                     $" mapRenderTracing={(storedMapRenderTracing.HasValue ? storedMapRenderTracing.Value.ToString() : "<default>")}" +
                     $" ledgerTracing={(storedLedgerTracing.HasValue ? storedLedgerTracing.Value.ToString() : "<default>")}" +
@@ -303,15 +300,6 @@ namespace Parsek
                 settings.writeReadableSidecarMirrors = storedReadableSidecarMirrors.Value;
                 ParsekLog.Info(Tag,
                     $"Restored writeReadableSidecarMirrors {prev} -> {storedReadableSidecarMirrors.Value} from persistent store");
-            }
-
-            if (storedShowRouteLines.HasValue
-                && storedShowRouteLines.Value != settings.showRouteLines)
-            {
-                bool prev = settings.showRouteLines;
-                settings.showRouteLines = storedShowRouteLines.Value;
-                ParsekLog.Info(Tag,
-                    $"Restored showRouteLines {prev} -> {storedShowRouteLines.Value} from persistent store");
             }
 
             if (storedGhostRenderTracing.HasValue
@@ -488,7 +476,6 @@ namespace Parsek
         internal static bool HasAnyStoredValue()
         {
             return storedReadableSidecarMirrors.HasValue
-                || storedShowRouteLines.HasValue
                 || storedGhostRenderTracing.HasValue
                 || storedMapRenderTracing.HasValue
                 || storedLedgerTracing.HasValue
@@ -513,20 +500,13 @@ namespace Parsek
             Save();
         }
 
-        internal static void RecordShowRouteLines(bool value)
-        {
-            LoadIfNeeded();
-            storedShowRouteLines = value;
-            Save();
-        }
-
         /// <summary>
         /// Records the UI complexity mode (0=Basic, 1=Advanced) and writes it to disk
-        /// immediately, mirroring <see cref="RecordShowRouteLines"/>. Two callers only:
+        /// immediately, mirroring <see cref="RecordReadableSidecarMirrors"/>. Two callers only:
         /// the single setter seam <c>ParsekUI.SetUiComplexityMode</c> (user toggle), and
         /// the persist-on-resolve step of <see cref="ApplyUiComplexityMode"/>.
         ///
-        /// <para>Unlike <see cref="RecordShowRouteLines"/> this guards the xUnit /
+        /// <para>Unlike <see cref="RecordReadableSidecarMirrors"/> this guards the xUnit /
         /// non-Unity context where <see cref="KSPUtil.ApplicationRootPath"/> throws
         /// (the <see cref="RecordWarpDate"/> shape), because the first-run resolution
         /// calls it from inside <see cref="ApplyTo"/>, which unit tests drive directly.
@@ -643,8 +623,6 @@ namespace Parsek
                 var root = new ConfigNode(RootNodeName);
                 if (storedReadableSidecarMirrors.HasValue)
                     root.AddValue(ReadableSidecarMirrorsKey, storedReadableSidecarMirrors.Value.ToString());
-                if (storedShowRouteLines.HasValue)
-                    root.AddValue(ShowRouteLinesKey, storedShowRouteLines.Value.ToString());
                 if (storedGhostRenderTracing.HasValue)
                     root.AddValue(GhostRenderTracingKey, storedGhostRenderTracing.Value.ToString());
                 if (storedMapRenderTracing.HasValue)
@@ -671,7 +649,6 @@ namespace Parsek
                 ParsekLog.Verbose(Tag,
                     $"Saved settings to '{path}': writeReadableSidecarMirrors=" +
                     (storedReadableSidecarMirrors.HasValue ? storedReadableSidecarMirrors.Value.ToString() : "<null>") +
-                    $" showRouteLines={(storedShowRouteLines.HasValue ? storedShowRouteLines.Value.ToString() : "<null>")}" +
                     $" ghostRenderTracing={(storedGhostRenderTracing.HasValue ? storedGhostRenderTracing.Value.ToString() : "<null>")}" +
                     $" mapRenderTracing={(storedMapRenderTracing.HasValue ? storedMapRenderTracing.Value.ToString() : "<null>")}" +
                     $" ledgerTracing={(storedLedgerTracing.HasValue ? storedLedgerTracing.Value.ToString() : "<null>")}" +
@@ -692,7 +669,6 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             storedReadableSidecarMirrors = null;
-            storedShowRouteLines = null;
             storedGhostRenderTracing = null;
             storedMapRenderTracing = null;
             storedLedgerTracing = null;
@@ -712,8 +688,6 @@ namespace Parsek
         /// Test-only: returns the current stored readable-mirror value (null if unset).
         /// </summary>
         internal static bool? GetStoredReadableSidecarMirrors() => storedReadableSidecarMirrors;
-
-        internal static bool? GetStoredShowRouteLines() => storedShowRouteLines;
 
         internal static bool? GetStoredGhostRenderTracing() => storedGhostRenderTracing;
 
@@ -790,12 +764,6 @@ namespace Parsek
         internal static void SetStoredReadableSidecarMirrorsForTesting(bool? value)
         {
             storedReadableSidecarMirrors = value;
-            loaded = true;
-        }
-
-        internal static void SetStoredShowRouteLinesForTesting(bool? value)
-        {
-            storedShowRouteLines = value;
             loaded = true;
         }
 

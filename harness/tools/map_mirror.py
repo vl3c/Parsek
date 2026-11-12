@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build ONE self-contained interactive HTML page out of map-geometry dumps, so
 the map / tracking-station trajectory rendering of looped missions and supply
-routes can be judged by eye against numbers instead of against a memory of the
+route ships can be judged by eye against numbers instead of against a memory of the
 game.
 
 Inputs, per shots directory (`results/<runId>_shots`, written by the harness):
@@ -622,23 +622,9 @@ def validate_dump(obj):
         if ghosts[-1]["icon"]["pos"] is not None and body not in by_name:
             notes.append("%s.icon is relative to %r, which is not in bodies; it is not "
                          "drawn or measured" % (w, body))
-    routes = []
-    for ri, r in enumerate(_list(obj, "routeLines", "dump") or []):
-        w = "routeLines[%d]" % ri
-        _obj(r, w)
-        legs = []
-        for li, leg in enumerate(_list(r, "legs", w) or []):
-            lw = "%s.legs[%d]" % (w, li)
-            _obj(leg, lw)
-            lbody = leg.get("body")
-            if not isinstance(lbody, str) or not lbody:
-                raise DumpError("%s.body is %r, expected a body name" % (lw, lbody))
-            legs.append({"body": lbody, "known": known(lbody, lw),
-                         "recordingId": _str(leg.get("recordingId")),
-                         "points": _points(leg.get("points"), lw + ".points")})
-        routes.append({"routeId": _str(r.get("routeId")),
-                       "routeName": _str(r.get("routeName"), _str(r.get("routeId"))),
-                       "legs": legs})
+    if obj.get("routeLines"):
+        notes.append("the dump carries a routeLines block, which the writer stopped "
+                     "emitting; it is not drawn, measured or counted")
 
     cam = obj.get("camera") if isinstance(obj.get("camera"), dict) else None
     if cam is None:
@@ -678,13 +664,11 @@ def validate_dump(obj):
             raise DumpError("axes.up and axes.right are zero or parallel")
 
     counts = obj.get("counts") if isinstance(obj.get("counts"), dict) else {}
-    # The writer's `lines` / `points` count ghost lines AND route legs; body rings
-    # and reference paths are context and are not counted.
+    # The writer's `lines` / `points` count the ghost lines; body rings and
+    # reference paths are context and are not counted.
     held = {"ghosts": len(ghosts),
-            "lines": (sum(len(g["lines"]) for g in ghosts)
-                      + sum(len(r["legs"]) for r in routes)),
-            "points": (sum(len(ln["points"]) for g in ghosts for ln in g["lines"])
-                       + sum(len(leg["points"]) for r in routes for leg in r["legs"]))}
+            "lines": sum(len(g["lines"]) for g in ghosts),
+            "points": sum(len(ln["points"]) for g in ghosts for ln in g["lines"])}
     for key in ("ghosts", "lines", "points"):
         if key in counts and counts.get(key) != held[key]:
             notes.append("counts.%s says %r, the file holds %d" % (key, counts.get(key),
@@ -696,7 +680,7 @@ def validate_dump(obj):
                      "(counts.unknownBodyItems)" % (unknown, "" if unknown == 1 else "s"))
     dropped = counts.get("dropped") if isinstance(counts.get("dropped"), dict) else None
     if dropped is not None:
-        dropped = {k: dropped.get(k) for k in ("ghosts", "lines", "routes", "legs", "bodies")
+        dropped = {k: dropped.get(k) for k in ("ghosts", "lines", "bodies")
                    if isinstance(dropped.get(k), int) and not isinstance(dropped.get(k), bool)}
     if counts.get("truncated"):
         notes.append("the writer TRUNCATED this dump (counts.truncated = true): "
@@ -714,7 +698,6 @@ def validate_dump(obj):
         "root": root,
         "bodies": bodies,
         "ghosts": ghosts,
-        "routeLines": routes,
         "counts": {"declared": dict({k: counts.get(k) for k in
                                      ("ghosts", "lines", "points", "truncated")},
                                     unknownBodyItems=unknown, dropped=dropped),
@@ -831,30 +814,9 @@ def measure_ghost(ghost, bodies):
             "faded": sum(1 for r in rows if r["faded"])}
 
 
-def measure_route(route, bodies):
-    rows = []
-    legs = route["legs"]
-    for i, leg in enumerate(legs):
-        b = bodies.get(leg["body"])
-        lo, hi = altitude_range(leg["points"], b["radius"]) if b else (None, None)
-        rows.append({"index": i, "body": leg["body"], "recordingId": leg["recordingId"],
-                     "points": len(leg["points"]), "lowest": _m(lo), "highest": _m(hi),
-                     "gapToNext": None})
-    for i in range(len(legs) - 1):
-        la, lb = legs[i], legs[i + 1]
-        if not (la["points"] and lb["points"] and la["body"] in bodies
-                and lb["body"] in bodies):
-            continue
-        start = to_frame(bodies, lb["body"], lb["points"][0], la["body"])
-        d = v_len(v_sub(start, la["points"][-1]))
-        rows[i]["gapToNext"] = {"to": i + 1, "m": d, "text": format_distance(d),
-                                "crossBody": la["body"] != lb["body"]}
-    return {"legs": rows}
-
-
 def closeup_bodies(dump):
-    """The bodies that get a close-up: every body a drawn line, icon or route leg
-    is relative to, plus the parent of a moon that carries a line. Ordered as the
+    """The bodies that get a close-up: every body a drawn line or icon is
+    relative to, plus the parent of a moon that carries a line. Ordered as the
     dump lists bodies, so a planet comes before its moons."""
     by = {b["name"]: b for b in dump["bodies"]}
     want = set()
@@ -864,10 +826,6 @@ def closeup_bodies(dump):
                 want.add(ln["body"])
         if g["icon"]["pos"] is not None and g["body"] in by:
             want.add(g["body"])
-    for r in dump["routeLines"]:
-        for leg in r["legs"]:
-            if leg["body"] in by:
-                want.add(leg["body"])
     for name in list(want):
         parent = by[name]["parent"]
         if parent is not None and parent != dump["root"] and parent in by:
@@ -1046,11 +1004,6 @@ def _page_capture(cap, ghost_colour_of):
         gg["colour"] = ghost_colour_of(g)
         gg["measured"] = measure_ghost(g, bodies)
         ghosts.append(gg)
-    routes = []
-    for r in d["routeLines"]:
-        rr = dict(r)
-        rr["measured"] = measure_route(r, bodies)
-        routes.append(rr)
     base.update({
         "offConic": sum(g["measured"]["offConic"] for g in ghosts),
         "faded": sum(g["measured"]["faded"] for g in ghosts),
@@ -1060,7 +1013,7 @@ def _page_capture(cap, ghost_colour_of):
         # The writer's body ring is OPEN (64 points, first not repeated).
         "bodies": [dict(b, orbit=close_ring(b["orbit"]) if b["orbit"] else b["orbit"])
                    for b in d["bodies"]],
-        "ghosts": ghosts, "routeLines": routes, "counts": d["counts"],
+        "ghosts": ghosts, "counts": d["counts"],
         "closeups": closeup_bodies(d),
         "cameraCheck": camera_model_check(d["axes"], d["camera"]),
     })
@@ -1134,8 +1087,6 @@ def build_index(model):
                 "id": cid, "label": c["label"], "runId": c["runId"], "scene": c["scene"],
                 "ut": c["ut"], "ghosts": held["ghosts"], "lines": held["lines"],
                 "points": held["points"],
-                "routeLines": len(c["routeLines"]),
-                "routeLegs": sum(len(r["legs"]) for r in c["routeLines"]),
                 "truncated": bool(c["counts"]["declared"].get("truncated")),
                 "screenshot": c["hasPng"],
                 "screenshotInlined": bool((c.get("photo") or {}).get("src")),
@@ -1165,7 +1116,7 @@ CSS = r"""
   --page:#f6f7f9; --panel:#ffffff; --rail:#eef0f3; --ink:#1d2329; --dim:#5d6873;
   --edge:#cfd5dc; --sel:#d7e5f7; --accent:#1f62b8; --warn:#9a5b00; --bad:#b3261e;
   --space:#fbfcfd; --body:#b9c2cc; --bodyedge:#6f7c88; --sun:#f2b632;
-  --ring:#9aa6b2; --soi:#8a96a3; --ref:#c0008f; --route:#5b3fa6;
+  --ring:#9aa6b2; --soi:#8a96a3; --ref:#c0008f;
   --g0:#1f62b8; --g1:#c2580a; --g2:#14804a; --g3:#8a3fbf; --g4:#0b7f8c;
   --g5:#9a7400; --g6:#a63c3c; --g7:#4a5866;
 }
@@ -1174,7 +1125,7 @@ CSS = r"""
     --page:#111418; --panel:#181c21; --rail:#14181c; --ink:#e3e7ec; --dim:#98a3ae;
     --edge:#2c333b; --sel:#22364f; --accent:#7fb2ff; --warn:#e3a54a; --bad:#ff8a80;
     --space:#0b0e12; --body:#4b5561; --bodyedge:#9aa6b2; --sun:#f5c451;
-    --ring:#5f6b77; --soi:#6f7b88; --ref:#ff5fd2; --route:#b39dff;
+    --ring:#5f6b77; --soi:#6f7b88; --ref:#ff5fd2;
     --g0:#6aa8ff; --g1:#ff9b54; --g2:#4fd08a; --g3:#c48bff; --g4:#3fd0dd;
     --g5:#e6c34d; --g6:#ff7a7a; --g7:#aab6c2;
   }
@@ -1183,7 +1134,7 @@ CSS = r"""
   --page:#111418; --panel:#181c21; --rail:#14181c; --ink:#e3e7ec; --dim:#98a3ae;
   --edge:#2c333b; --sel:#22364f; --accent:#7fb2ff; --warn:#e3a54a; --bad:#ff8a80;
   --space:#0b0e12; --body:#4b5561; --bodyedge:#9aa6b2; --sun:#f5c451;
-  --ring:#5f6b77; --soi:#6f7b88; --ref:#ff5fd2; --route:#b39dff;
+  --ring:#5f6b77; --soi:#6f7b88; --ref:#ff5fd2;
   --g0:#6aa8ff; --g1:#ff9b54; --g2:#4fd08a; --g3:#c48bff; --g4:#3fd0dd;
   --g5:#e6c34d; --g6:#ff7a7a; --g7:#aab6c2;
 }
@@ -1271,7 +1222,6 @@ svg .k-orbit{stroke-width:1.8}
 svg .k-polyline{stroke-width:2.4}
 svg .k-tail{stroke-width:2;stroke-dasharray:1 4}
 svg .k-bridge{stroke-width:3.2;stroke-dasharray:3 2}
-svg .k-leg{stroke-width:2.2;stroke-dasharray:9 3 2 3}
 svg .k-ref{stroke:var(--ref);stroke-width:1.6;stroke-dasharray:5 4}
 svg .occ{opacity:.22}
 svg .hit{fill:none;stroke:transparent;stroke-width:10;pointer-events:stroke}
@@ -1357,7 +1307,7 @@ function content(c, frame, onlyUnder){
   var B = bodyMap(c), o = B[frame].pos;
   function off(name){ return sub(B[name].pos, o); }
   function inc(name){ return B[name] && (!onlyUnder || isDesc(B, name, onlyUnder)); }
-  var it = {bodies:[], rings:[], lines:[], refs:[], icons:[], legs:[]};
+  var it = {bodies:[], rings:[], lines:[], refs:[], icons:[]};
   c.bodies.forEach(function(b){
     if (!inc(b.name)) return;
     it.bodies.push({b:b, c:off(b.name)});
@@ -1380,13 +1330,6 @@ function content(c, frame, onlyUnder){
         pts:ln.reference.map(function(p){ return add(lo, p); })});
     });
     if (g.icon.pos && inc(g.body)) it.icons.push({g:g, gi:gi, p:add(off(g.body), g.icon.pos)});
-  });
-  c.routeLines.forEach(function(r, ri){
-    r.legs.forEach(function(leg, li){
-      if (!inc(leg.body)) return;
-      var lo = off(leg.body);
-      it.legs.push({r:r, ri:ri, leg:leg, li:li, pts:leg.points.map(function(p){ return add(lo,p); })});
-    });
   });
   return it;
 }
@@ -1472,7 +1415,6 @@ View.prototype.fit = function(which){
     var any = false;
     it.lines.forEach(function(x){ if (S.hidden[x.gi]) return; x.pts.forEach(function(p){ addP(p); any=true; }); });
     it.icons.forEach(function(x){ if (!S.hidden[x.gi]) { addP(x.p); any=true; } });
-    it.legs.forEach(function(x){ x.pts.forEach(function(p){ addP(p); any=true; }); });
     /* The body is NOT part of this fit: a 5 km hop beside a 600 km planet has to
        fill the view, and the disc edge still shows where the ground is. */
     if (!any || !xs.length) return this.fit(this.spec.frame ? 'body' : 'all');
@@ -1669,15 +1611,6 @@ View.prototype.draw = function(){
     var tz = tip(pointTip(c, BM, body, raw[raw.length-1], 'end of ' + head));
     if (onScreen(z, 10)) out.push('<circle class="hitp" data-t="'+tz+'" cx="'+f1(z[0])+'" cy="'+f1(z[1])+'" r="3.4" style="fill:var(--space);stroke:'+col+';stroke-width:1.8"/>');
   }
-  it.legs.forEach(function(x){
-    var col = 'var(--route)', d = paths(x.pts);
-    var t = tip('route ' + x.r.routeName + '  -  leg #' + x.li + '\nrelative to ' + x.leg.body +
-      ', ' + x.leg.points.length + ' points\nrecording ' + x.leg.recordingId);
-    if (d.vis) out.push('<path class="ln k-leg" style="stroke:'+col+'" d="'+d.vis+'"/>');
-    if (d.occ) out.push('<path class="ln k-leg occ" style="stroke:'+col+'" d="'+d.occ+'"/>');
-    out.push('<path class="hit" data-t="'+t+'" d="'+d.vis+d.occ+'"/>');
-    endpoints(x.pts, x.leg.points, col, 'route ' + x.r.routeName + ' leg #' + x.li, x.leg.body);
-  });
   it.lines.forEach(function(x){
     if (S.hidden[x.gi]) return;
     var col = gcol(x.g.colour), d = paths(x.pts);
@@ -1817,7 +1750,6 @@ function legend(c, host){
     sample('stroke:var(--ink);stroke-width:2.4') + ' polyline &nbsp; ' +
     sample('stroke:var(--ink);stroke-width:2;stroke-dasharray:1 4;stroke-linecap:round') + ' tail &nbsp; ' +
     sample('stroke:var(--ink);stroke-width:3.2;stroke-dasharray:3 2') + ' bridge &nbsp; ' +
-    sample('stroke:var(--route);stroke-width:2.2;stroke-dasharray:9 3 2 3') + ' route leg &nbsp; ' +
     sample('stroke:var(--ref);stroke-width:1.6;stroke-dasharray:5 4') + ' reference path &nbsp; ' +
     sample('stroke:var(--ink);stroke-width:1.8;opacity:.38') + ' behind a body &nbsp; ' +
     '<svg width="12" height="12"><circle cx="6" cy="6" r="3.6" style="fill:var(--ink)"/></svg> start ' +
@@ -1901,22 +1833,6 @@ function measuredTables(c, host){
     });
     host.appendChild(t);
   });
-  c.routeLines.forEach(function(r){
-    var hd = el('div', 'gh');
-    hd.innerHTML = '<span class="sw" style="background:var(--route)"></span><b>route ' + esc(r.routeName) +
-      '</b> <span class="facts">' + esc(r.routeId) + ', ' + r.legs.length + ' leg' + (r.legs.length === 1 ? '' : 's') + '</span>';
-    host.appendChild(hd);
-    var t = el('table', 'm');
-    t.innerHTML = '<tr><th>leg</th><th>body</th><th>recording</th><th>points</th><th>lowest alt</th><th>highest alt</th><th>gap to next leg</th></tr>';
-    r.measured.legs.forEach(function(x){
-      var tr = el('tr');
-      tr.innerHTML = '<td>'+x.index+'</td><td>'+esc(x.body)+'</td><td>'+esc(x.recordingId)+'</td><td class="n">'+x.points+
-        '</td><td class="n">'+esc(x.lowest.text)+'</td><td class="n">'+esc(x.highest.text)+'</td><td class="n">'+
-        (x.gapToNext ? esc(x.gapToNext.text)+' to #'+x.gapToNext.to : '-')+'</td>';
-      t.appendChild(tr);
-    });
-    host.appendChild(t);
-  });
 }
 
 function select(id){
@@ -1944,8 +1860,7 @@ function select(id){
     ' &nbsp; camera ' + esc(cam.target || '-') + ' pitch ' + (cam.pitchDeg != null ? cam.pitchDeg.toFixed(1) : '-') +
     ' heading ' + (cam.headingDeg != null ? cam.headingDeg.toFixed(1) : '-') + ' distance ' + esc(fmtD(cam.distance)) +
     (cam.fovDeg != null ? ' fov ' + cam.fovDeg.toFixed(1) : '') +
-    ' &nbsp; ' + c.counts.held.ghosts + ' ghosts, ' + c.counts.held.lines + ' lines (route legs included), ' + c.counts.held.points +
-    ' points, ' + c.routeLines.length + ' route lines';
+    ' &nbsp; ' + c.counts.held.ghosts + ' ghosts, ' + c.counts.held.lines + ' lines, ' + c.counts.held.points + ' points';
   var dc = c.counts.declared, dr = dc.dropped, drop = [];
   if (dr) Object.keys(dr).forEach(function(k){ if (dr[k]) drop.push(k + ' ' + dr[k]); });
   if (dc.unknownBodyItems) f.innerHTML += ' &nbsp; <span class="bad">' + dc.unknownBodyItems + ' unknown-body item' +

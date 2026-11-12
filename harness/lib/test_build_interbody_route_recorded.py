@@ -7,8 +7,9 @@ It does NOT pin the four things that make THIS save the G10 subject rather than
 one more route fixture:
 
   * the inter-body ENDPOINT PAIR itself (ORIGIN bodyName Kerbin against the STOP
-    ENDPOINT bodyName Duna). `RouteTrajectoryLineRenderer.ClassifyRouteScope`
-    reads exactly that pair; if a re-harvest landed a same-body route the
+    ENDPOINT bodyName Duna). That pair is what makes the route inter-body (the
+    retired route scope classifier read exactly it); if a re-harvest landed a
+    same-body route the
     `routes.destinationBodies` census would still read `{Duna: 1, Mun: 1}` from
     the OTHER route and nothing would notice.
   * the SEAL STATE (zero `mergeState` lines = every recording Immutable), which
@@ -129,9 +130,11 @@ class InterbodyRouteSpecFixtureSyncTests(unittest.TestCase):
     declaration, which is how a guard passes GREEN on the wrong evidence.
     """
 
-    EXPECTED_AT_LEAST = ("B32-interbody-route-scope.toml",
-                         "V26M-interbody-route-map-lines.toml",
-                         "V26T-interbody-route-ts-arrival.toml")
+    # B32 and V26M, the two flight-map lanes over this fixture, were deleted 2026-11-12
+    # with the supply route overview line they read (todo ROUTE-LINE-DETACHED-SEGMENTS).
+    EXPECTED_AT_LEAST = ("V26T-interbody-route-ts-arrival.toml",
+                         "IR-5-mun-route-dispatch-delivery.toml",
+                         "GUI-3-census-logistics-routes.toml")
     SAVE_TEMPLATE = "fixtures/saves/interbody-route-recorded"
 
     @classmethod
@@ -190,114 +193,6 @@ class InterbodyRouteSpecFixtureSyncTests(unittest.TestCase):
             for pattern in forbidden:
                 self.assertNotIn("skippedByStatus", pattern, name)
 
-    # CONSUMERS THAT DO NOT DRAW A ROUTE LINE, and therefore cannot assert on one.
-    # Both route-token cells below were written when every consumer of this fixture
-    # was a route-RENDER lane, and their claim is only true of that shape: the two
-    # tokens they hold each lane to - `Route scope: ... scope=InterBody
-    # basis=Endpoints` and `Route line draw: ... malformed=` - are emitted by
-    # `RouteTrajectoryLineRenderer`, which builds and draws only in the MAP and
-    # TRACKING STATION render paths. A lane that stages this save for its Logistics
-    # WINDOW and never opens the map cannot emit either one, so requiring the first
-    # would be an unsatisfiable pin that costs a whole KSP boot to discover, and
-    # forbidding the second would be a gate over a producer that never runs.
-    #
-    # THE EXEMPTION IS MECHANICAL, not a note: `test_an_exempt_consumer_really_draws
-    # _no_route_line` below re-derives it from each exempt spec's own steps, so an
-    # exemption that later grew an `EnterMapView` or a tracking-station boot reds
-    # here rather than quietly dropping the gate the other consumers carry.
-    NON_ROUTE_RENDER_CONSUMERS = {
-        # The GUI census's populated-Logistics host (wave 2, 2026-09-11). It stages
-        # this save because it is the only committed one with TWO routes in
-        # DIFFERENT states plus a dismissed-candidate list, which is what turns the
-        # Logistics WINDOW from a header into a layout - and it photographs that
-        # window at the Space Center. It drives no map view, so no route line is
-        # ever built.
-        "GUI-3-census-logistics-routes.toml":
-            "KSC-only capture lane: photographs the Logistics window, never opens "
-            "the map, so RouteTrajectoryLineRenderer never runs",
-        "GUI-25-census-missions-state-sort-edit.toml":
-            "KSC-only capture lane (wave 6): photographs the Missions and Logistics "
-            "windows' driveable state, never opens the map, so "
-            "RouteTrajectoryLineRenderer never runs",
-        # IR-5 (2026-10-16) sends the Mun route one cycle in FLIGHT and reads the
-        # delivery writer's lines; it never opens the map.
-        "IR-5-mun-route-dispatch-delivery.toml":
-            "FLIGHT delivery lane: send-once and a 1x wait in the flight view, never "
-            "opens the map, so RouteTrajectoryLineRenderer never runs",
-        # QL-10 (2026-10-20) renames a recording and a group in the Missions window
-        # at the Space Center around a quickload; it never opens the map.
-        "QL-10-quickload-restores-names-and-groups.toml":
-            "KSC-only Missions-window rename lane around a quickload, never opens "
-            "the map, so RouteTrajectoryLineRenderer never runs",
-    }
-
-    # The two verbs that reach a scene where `RouteTrajectoryLineRenderer` draws.
-    _ROUTE_RENDER_VERBS = ("EnterMapView",)
-
-    def _route_render_reachable(self, spec):
-        """True when a spec's own driver steps could reach a route-line draw."""
-        for step in (spec.get("driver") or {}).get("steps") or []:
-            if step.get("cmd") in self._ROUTE_RENDER_VERBS:
-                return True
-            if ((step.get("args") or {}).get("scene")) == "trackstation":
-                return True
-        return False
-
-    def _route_render_consumers(self):
-        return {name: spec for name, spec in self.consumers.items()
-                if name not in self.NON_ROUTE_RENDER_CONSUMERS}
-
-    def test_an_exempt_consumer_really_draws_no_route_line(self):
-        """The exemption above is re-derived, never trusted.
-
-        An entry that later grew an `EnterMapView` step or a tracking-station boot
-        WOULD emit the tokens and must carry the same gates as every other
-        consumer, so it reds here instead of silently keeping its pass."""
-        for name in sorted(self.NON_ROUTE_RENDER_CONSUMERS):
-            with self.subTest(spec=name):
-                self.assertIn(name, self.consumers,
-                              "%s is exempted but does not stage this fixture; "
-                              "drop the row" % name)
-                self.assertFalse(
-                    self._route_render_reachable(self.specs[name]),
-                    "%s is exempted from the route-line gates but its steps can "
-                    "reach a route-line draw (an EnterMapView or a trackstation "
-                    "boot). Either drop the exemption and carry the gates, or "
-                    "drop the step" % name)
-
-    def test_every_consumer_spec_carries_the_pre_fix_negative_control(self):
-        """The reading the subject produced BEFORE the scope fix stays forbidden.
-
-        `malformed=[1-9]` in the draw summary and `scope=MalformedMixedBodies` at
-        the classification site are what this save emitted on every drawn frame
-        under the retired period-as-scope-flag contract. Carrying them as forbids
-        means a regression reds on the lane itself rather than needing a separate
-        control run.
-
-        Scoped to the consumers that can DRAW a route line; see
-        `NON_ROUTE_RENDER_CONSUMERS`.
-        """
-        for name, spec in sorted(self._route_render_consumers().items()):
-            _, forbidden = self._log_contracts(spec)
-            self.assertIn("Route line draw: .* malformed=[1-9]", forbidden, name)
-            self.assertIn("scope=MalformedMixedBodies", forbidden, name)
-
-    def test_every_consumer_spec_requires_the_interbody_scope_reading(self):
-        """The token the whole package exists to make emittable.
-
-        A consumer that does not require `scope=InterBody basis=Endpoints` is a
-        lane over this subject that never states what makes it the subject.
-
-        Scoped to the consumers that can DRAW a route line; see
-        `NON_ROUTE_RENDER_CONSUMERS`.
-        """
-        for name, spec in sorted(self._route_render_consumers().items()):
-            required, _ = self._log_contracts(spec)
-            self.assertTrue(
-                any("scope=InterBody basis=Endpoints" in p for p in required),
-                "%s stages the inter-body fixture but requires no InterBody "
-                "scope reading" % name)
-
     # Arming over THIS fixture, per lane and per block, with the readings that
     # earned it. REWRITTEN 2026-09-07 from the bare "nothing is armed" fence it
     # was while the three lanes had never flown, into the shape the sibling
@@ -306,34 +201,15 @@ class InterbodyRouteSpecFixtureSyncTests(unittest.TestCase):
     # allowlist keeps the question open forever and makes a FOURTH arming
     # record its own subject before it can go green.
     ARMED_OVER_THIS_FIXTURE = {
-        # V26M / V26T, `renderComposition`, ARMED 2026-09-07 (package P16) off
-        # three report-only readings of the same five-lane set - runs 1 and 2 of
-        # 2026-09-06 and run 3 (`2026-09-06_2113` / `2026-09-06_2115`, both PASS
-        # attempt 1), the third matching the first facet for facet on every key
-        # either block windows. Exactly two windows each:
-        # `routeLineBuilds = {min = 2}` (two committed routes, two builds, three
-        # readings) and `routeCoDrawViolations = {max = 0}` (1024 -> 403 -> 0
-        # across the three runs). `unevaluable` is deliberately NOT armed on
-        # either - 1065 on V26M against 6 on V26T over the SAME fixture, because
-        # that census scales with the observed population rather than with the
-        # composition. Full reasoning in each spec's block and in
-        # `test_hlib.RENDERCOMPOSE_ARMED_SPECS`. The armed re-flight of both flew
-        # 2026-09-10 (wave package A2: `2026-09-10_2151` / `_2153`, gating PASS)
-        # and again 2026-09-11 (`_0201` / `_0203`); owed from here is one negative
-        # control.
-        ("V26M-interbody-route-map-lines.toml", "renderComposition"),
-        ("V26T-interbody-route-ts-arrival.toml", "renderComposition"),
-        # B32 / V26M / V26T, `routes`, ARMED 2026-09-11 (wave package A2), each
-        # off its own report-only reading on the wave DLL a0abbed1 -
-        # `2026-09-10_2149` / `_2151` / `_2153`, all PASS attempt 1 - which read
-        # the same twelve leaves, every one as declared (two routes, one Active
-        # and one Paused, DockingPort 2, origins Kerbin 2, destinations Duna 1 +
-        # Mun 1). Armed re-flights 2026-09-11 (`_0159` / `_0201` / `_0203`), all
-        # PASS attempt 1 with gating PASS and no mismatch; B32's two group-window
-        # negative controls red on exactly their leaf (`_0206`, `_0209`). Nothing is
-        # owed on `routes` over this fixture.
-        ("B32-interbody-route-scope.toml", "routes"),
-        ("V26M-interbody-route-map-lines.toml", "routes"),
+        # V26T, `routes`, ARMED 2026-09-11 (wave package A2) off its own report-only
+        # reading on the wave DLL a0abbed1, `2026-09-10_2153`, PASS attempt 1: twelve
+        # leaves, every one as declared (two routes, one Active and one Paused,
+        # DockingPort 2, origins Kerbin 2, destinations Duna 1 + Mun 1). Armed
+        # re-flight 2026-09-11 `_0203`, PASS attempt 1 with gating PASS and no
+        # mismatch. Nothing is owed on `routes` over this fixture.
+        # LEFT 2026-11-12 with the supply route overview line: the `renderComposition`
+        # arming of V26M / V26T (both windows read the line; V26T's block is bare
+        # again) and the `routes` arming of the deleted B32 / V26M.
         ("V26T-interbody-route-ts-arrival.toml", "routes"),
     }
 

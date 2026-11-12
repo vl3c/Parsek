@@ -492,7 +492,7 @@ methods at complexity 20 or more), which the complexity watch band absorbs.
   still does. A pinned method may grow past 50 without a red. Leaving the
   band needs no re-pin; a rename or a move into another type does.
 - `uncalledInAssembly`: the methods the roots do not reach in Parsek.dll,
-  test hooks by name left out, may not outnumber `bound` (498). It reads
+  test hooks by name left out, may not outnumber `bound` (491). It reads
   Parsek.dll alone, so a production method only a test calls counts too:
   that is code the game never runs (B7). Deleting dead code cannot raise it.
 

@@ -20,6 +20,62 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~ROUTE-LINE-DETACHED-SEGMENTS~~: the supply route overview line drew route segments far from the ship's icon; the line is retired [FILED 2026-11-12 from the TP-7 pictures; RULED 2026-11-12 by the owner; REMOVED 2026-11-12 headless on branch `claude/project-thread-zfo2hk`; open only for the flights below]
+
+**What the player saw.** Lane TP-7, view `tp7-c2-neardock-kerbin-low-top` (Tracking Station,
+Kerbin depot route): the route's ship ghost "Kerbal X" sat on a stock conic at about 293 km
+while the supply route overview line painted 14 route legs at once (the ascent from 0 to 70 km,
+then 12 short burn arcs at 213 to 224 km), 22 to 1640 km away from the icon.
+
+**Ruling (owner, 2026-11-12), verbatim:** "check how we render the segments for looped missions -
+it should work like that for routes also.. we usually draw the segments which have the icon or in
+front of it, to show where it will go; i don't think we ever draw segments detached from the
+vessel icons.."
+
+**Fix.** A route's ship already draws through `GhostTrajectoryPolylineRenderer` like any looped
+mission ghost (the head-gated leg that holds the icon, then the forward pass), so the separate
+static overview line is retired outright, with no dead code left:
+
+- C#: `Display/RouteTrajectoryLineRenderer.cs` and `Display/RouteMemberRunExpansion.cs` deleted
+  (the member-run expansion had no other caller); the plumbing in
+  `GhostTrajectoryPolylineRenderer` that existed only to arbitrate the overview line against the
+  ghost's own draw (the owned-leg span publish, the painted-mesh membership and its maintenance,
+  the two span predicates, the route pre-cull slot, the co-draw probe); the route scope
+  classifier with its `Route scope:` line; the `showRouteLines` setting (field, sidecar key,
+  Settings toggle, `SetSetting` whitelist entry); the M-A7 manifest's `ROUTE_LINE_BUILD` /
+  `ROUTE_LEG_DEFER` / `ROUTE_CODRAW_VIOLATION` records and the PLAN `ROUTE` node's `scope` key
+  (`schemaVersion` stays 1); the map-geometry dump's `routeLines` block and the `routes` / `legs`
+  drop counters (schema id stays `parsek-map-geometry/1`); the two `RouteLineDraw` in-game cells
+  and four xUnit classes that tested only the line.
+- Untouched: the ghost polyline's own drawing, `drewNonOrbitalLegRecordings` (still the sole
+  ownership source) and `GhostMapPresence.NotePaintedRecordingLine`.
+- Kept on the wire, now with no runtime reader: `Route.CreationTreeRecordingIds`
+  (`CREATION_TREE_RECORDINGS`), read and written by `RouteCodec` and present in the format golden
+  and the committed route fixtures. Dropping it is a save-format decision, not part of this fix.
+  `Route.DispatchWindowPeriod` stays as before (informational, reported into the manifest).
+- Harness: `rendercompose.py` loses the two window keys `routeLineBuilds` /
+  `routeCoDrawViolations`, the three record parsers and the overview-line half of RC-ROUTE (the
+  member-vs-dock-clip dwell check stays); `tools/map_mirror.py` no longer reads or draws route
+  legs (an old dump that carries `routeLines` loads with a note).
+- Lanes DELETED, their whole subject being the line: `B32-interbody-route-scope`,
+  `V26M-interbody-route-map-lines`, `TP-8-interbody-route-map-pictures` (568 -> 565 scenarios).
+  Registry D10 loses `route-map-lines-inter-body` and `route-transfer-leg-drop`.
+- Lanes RESHAPED (route-line step, tokens, forbids and windows removed, the rest kept): `H59`,
+  `V18T` (render-composition stays armed on `unevaluable` and the rigid seam), `V26T`
+  (render-composition bare again), `V27M`, `TP-7`. `S1.7-maprender-parity` pins `total=21` and
+  reads the pass / skip split as digits until it flies.
+
+**Flights pending** (nothing was flown; this session cannot fly): `TP-7` first, as the picture
+proof that no route segment is drawn away from the ship; then `H59`, `V18T`, `V26T`, `V27M` on
+the new DLL; then `S1.7`, whose next green flight restores the literal tally (expected
+`passed=20 skipped=1`). `docs/pdf/` was not regenerated for the two design docs this touches
+(`docs/parsek-logistics-supply-routes-design.md`, `docs/roadmap.md`).
+
+**Not rebuilt.** No lane now shows the INTER-BODY route ship on the map: `interbody-route-recorded`
+has no derivable dispatch instant (the Duna route's anchor is not computable from the committed
+bytes: `loopAnchorUT = -1` and per-tick re-aim windows), so a picture or map lane of that ship
+needs one first.
+
 ## ~~REFLY-ANCHOR-EPSILON-1300KM~~: Re-Fly render anchors in RW-5 / RW-6 / RW-7 carried offsets of 64 km to 22,820 km [FILED 2026-11-12 from the first real run index (`run_index.py health-regressions`), runs `2026-11-11_0218_RW-5`, `2026-11-10_2237_RW-6`, `2026-11-11_0140_RW-7`. CAUSE FOUND 2026-11-12 (a frame defect in the seed epsilon, reproduced headless and confirmed from the PC logs). FIXED 2026-11-12 headless; open only for the live proof below]
 
 **Symptom.** The three lanes pass, and their WARN count rose from 19 / 31 / 55 (runs of
@@ -231,7 +287,9 @@ back; that needs a reading flight before its armed windows are trusted again.
 
 The first lanes wired to the `DumpMapGeometry` / `MapCamera` seam verbs: operator-tier picture
 lanes that copy a model lane's fixture, loop setup and measured jumps (TP-1 V6M, TP-2 V6T, TP-3
-V7M, TP-4 V25M, TP-5 V17M, TP-6 V23M, TP-7 V18T, TP-8 V26M) and take 85 views
+V7M, TP-4 V25M, TP-5 V17M, TP-6 V23M, TP-7 V18T, TP-8 V26M; TP-8 and its model lane were deleted
+2026-11-12 with the supply route overview line, ROUTE-LINE-DETACHED-SEGMENTS, which also took
+TP-7's route-line step and token) and take 85 views
 (`MapCamera` -> `CaptureScreenshot` -> `DumpMapGeometry`, one label per view) for the map mirror
 page (`docs/dev/design-map-mirror.md` -> "How to get the pictures").
 
@@ -3141,7 +3199,7 @@ Needs: a forged or derived in-flight save sized to that bound. Not worth one on 
 as work to schedule. Recorded in the inventory's `AutoRecord` row and its B5 residue
 table.
 
-## V26M-GHOST-SPAWN-IN-MAP-WINDOW-IS-EPOCH-DEPENDENT: the V26M lane's map-open dwell sometimes holds a painting ghost and sometimes holds none, so its paint-arm reading is not reproducible from the step list [RAISED 2026-09-07 on branch `g10-leg-drop` from reading run 3. LANE/HARNESS item, NOT a product defect. OPEN, low priority]
+## ~~V26M-GHOST-SPAWN-IN-MAP-WINDOW-IS-EPOCH-DEPENDENT: the V26M lane's map-open dwell sometimes holds a painting ghost and sometimes holds none, so its paint-arm reading is not reproducible from the step list~~ [RAISED 2026-09-07 on branch `g10-leg-drop` from reading run 3. LANE/HARNESS item, NOT a product defect. MOOT 2026-11-12: the V26M lane and the paint arm it read were deleted with the supply route overview line (ROUTE-LINE-DETACHED-SEGMENTS). What stays true and is carried there: this fixture has no derivable instant at which a route ghost is known to be on the map]
 
 `V26M-interbody-route-map-lines` opens the flight map over `interbody-route-recorded` and
 dwells 40 ticks. On reading runs 1 and 2 (2026-09-06) a ghost of recording `36c7688b` was

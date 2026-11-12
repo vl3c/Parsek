@@ -9088,10 +9088,8 @@ def admit_instance(
 # Instance settings-sidecar baseline (the tracer-leak fix). Pure.
 #
 # THE LEAK. `SetSetting` does NOT only mutate the live per-save GameParameters:
-# eight of the thirteen whitelisted settings (Parsek's SettingWhitelist
-# PersistenceRoute.GameParametersPlusSidecar; five until verboseLogging,
-# samplingDensity and ghostAudioVolume became install-wide on 2026-09-26) are ALSO
-# written to the
+# seven of the twelve whitelisted settings (Parsek's SettingWhitelist
+# PersistenceRoute.GameParametersPlusSidecar) are ALSO written to the
 # INSTANCE-WIDE `GameData/Parsek/PluginData/settings.cfg`, and Parsek's
 # ParsekScenario.OnLoad applies that sidecar OVER whatever the loaded save
 # carries. So one scenario's `SetSetting mapRenderTracing=true` silently pins the
@@ -9126,8 +9124,8 @@ def admit_instance(
 # True) and keeps the ten that carry none on the old ON default.
 #
 # Every other sidecar-tracked setting stays unset, so the fixture's own values
-# continue to govern it: showRouteLines, verboseLogging, samplingDensity and
-# ghostAudioVolume (the retired autoBackupExistingSaves /
+# continue to govern it: verboseLogging, samplingDensity and ghostAudioVolume
+# (the retired autoBackupExistingSaves /
 # showCommittedFutureOverlays / blockCommittedActions keys are no longer read by
 # the mod at all).
 # ---------------------------------------------------------------------------

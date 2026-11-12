@@ -145,7 +145,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `Logistics` | 47 | 8 | 2 | 1 | 38 | 46 | H34 (SPACECENTER slice), H35 (FLIGHT ordinary slice), H38 (FLIGHT ISOLATED on a built pad rig, flown 2026-08-28, executes 39), H39 + H40 (the same ISOLATED slice on RECORDED hosts, both flown 2026-08-28, executing 34 and 35), RVR-1 (the same ISOLATED slice on the TARGET-BRANCH recorded host `rover-route-recorded`, authored 2026-08-30, NEVER FLOWN - predicted to convert the two dock-window cells H39/H40 both measured as unpayable by existing bytes, at the cost of the initiator cell they pin), H73 (the same ISOLATED slice on the CAREER pad rig `logi-cargo-career`, so the redelivery cell's funds-flat assertion runs with a live Funding singleton; flown 2026-10-21, executes 39, H38's split, `funds unchanged net=0`), H76 + H78 (H40's and H39's ISOLATED slices on CAREER copies of their recorded hosts, `depot-route-recorded-career` and `bdock-recorded-career`; flown 2026-10-21, executing 35 and 34, their sources' splits and rosters, `funds unchanged net=0`) and H77 (H34's SPACECENTER slice on `gloops-airshow-career`; flown 2026-10-21, executes 2, H34's split). Union across the nine FLOWN slices: 42 of 47 (H76 / H77 / H78 add no cell: each passed exactly its source's set) | B |
 | `LogisticsGrapple` | 4 | 3 | 0 | 0 | 1 | 2 | H41 (ISOLATED, flown 2026-08-28, executes 3 of 4; the 4th wants a harvested Grapple window) | A |
 | `MapPresence` | 4 | 4 | 2 | 2 | 0 | 1 | H28 (`AntennaSpecsProduceRelayPower` deleted 2026-09-26 with the dead `Recording.AntennaSpecs` field it walked; the ghost CommNet relay moved to `GhostCommNet`) | A |
-| `MapRender` | 23 | 22 | 0 | 0 | 1 | 14 | S1.7 | B |
+| `MapRender` | 21 | 20 | 0 | 0 | 1 | 12 | S1.7 | B |
 | `MapView` | 4 | 3 | 3 | 4 | 0 | 2 | H47 (flown 2026-08-28, executes 4 of 4) | A |
 | `MergeDialog` | 2 | 0 | 0 | 0 | 2 | 2 | H63-merge-dialog-isolated (ISOLATED, LIVE-PROVEN 2026-09-06, run `2026-09-06_2012`: PASS attempt 1, 58 s wall, every verifier PASS or SKIPPED, `BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=MergeDialog scene=FLIGHT` pinned whole. EXECUTED 2 of 2. The merge popup's own two branches driven in place over a FABRICATED pending tree - Discard clears it, Merge commits it through the real `Merge to Timeline` path - which is a different seam from H21's, where a real stock scene exit spawns the same popup. Boots `gloops-airshow`: neither cell stages or spawns, so the requirement is `loaded-vessel`. Neither REFLECTION guard fired, so the merge-dialog helpers and `ParsekScenario.Instance` both resolve at run time on KSP 1.12.5) | A |
 | `MiningHarvest` | 2 | 0 | 0 | 0 | 2 | 2 | MINE-5a-rover-live-drill-harvest-cap (ISOLATED, authored 2026-11-06, LIVE-PROVEN 2026-11-07 `2026-11-07_0022`; pinned whole 2 / 0 / 0). The D5 catch-up cell's own body (`HarvestCapture_CatchUpOnLoad`, which skips on every `Logistics` host) and the live plausibility-cap measurement, on `miner-rover-landed` with its four drills deployed by the lane. Its own category so `Logistics`' pinned total=47 does not move | A |
@@ -235,8 +235,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **141 categories / 699 declarations**. Buckets **A 103 categories
-(393 declarations)**, **B 36 categories (301 declarations)**, **C 2 categories (5
+Totals, re-derived: **141 categories / 697 declarations**. Buckets **A 103 categories
+(393 declarations)**, **B 36 categories (299 declarations)**, **C 2 categories (5
 declarations)** - the C rows are `GuiMock`, opened 2026-09-22 by P1 of the GUI state
 gallery, which ships no lane by design (P2 owns the two gallery lanes), and
 `MoonArrivalHold`, opened 2026-11-07 by the lone-moon arrival hold, which waits for the

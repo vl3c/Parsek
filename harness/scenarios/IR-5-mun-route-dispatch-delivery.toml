@@ -71,7 +71,7 @@ D14 = ["sandbox", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# The fixture's 45, as B32 and V26T window them.
+# The fixture's 45, as V26T windows them.
 count = { min = 43, max = 60 }
 
 [expectations.logContracts]

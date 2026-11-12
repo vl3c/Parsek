@@ -214,7 +214,7 @@ id = "V27M-rover-route-endpoint-substituted-map-lines"
 # one, which is what makes it a control regardless of which build printed the shape).
 tier = "operator"
 instanceProfile = "stock-minimal"
-description = "AUTHORED 2026-09-07; READING RUN `2026-09-07_1858` (66 s) read every candidate token and classified PARSEK-FAIL only on a harness-side `[Stage]` line that never reaches KSP.log (authoring defect, dropped); ARMED the same day off that run with `[expectations.routes]` GATING: armed re-flight `2026-09-07_1902` PASS attempt 1 with zero mismatches, negative control `2026-09-07_1903` (`Route line build ... legs=1` seeded to `legs=7`, reverted) `PARSEK-FAIL(expectation)` on exactly that one token - a create-time token, so a second control `2026-09-07_1924` inverted the post-rebind draw token (`ownedLegs=1` seeded to `9`, reverted) and red on exactly that one; the pre-PR review found the build line fires at route creation and is never rebuilt by a same-body rebind (signature excludes the stop pid), which the header now records; D10 `route-endpoint-rebind-render` declared in the same commit (H35 CLAIM-IS-NOT-GATE). G3b at a render surface: `rover-route-recorded` with the route's recorded destination vessel (pid 2123618197) REMOVED from FLIGHTSTATE and `A` (pid 2875537755) standing 2 m away, so the dispatch at `TimeJump ut=1600` walks `RouteEndpointResolver` past the pid step to the 500 m surface-proximity fallback and REBINDS the STOP onto `A` (RVR-18's measured chain), and only THEN is the flight map opened and the route overview line, the ghost polyline and the KSC surface resolution read. The class question is whether any render surface consults the rebound endpoint; the code reading says none does (the resolver's six callers are all dispatch / delivery / Logistics-window) and this lane is where that becomes a measured class answer or a finding. Nothing armed on the reading run; candidate armed tokens listed in the header."
+description = "2026-11-12: THE SUPPLY ROUTE OVERVIEW LINE IS RETIRED (todo ROUTE-LINE-DETACHED-SEGMENTS; a route's ship draws through the ghost polyline pass like any looped mission ghost). This lane keeps the endpoint rebind, the delivery to the rebound endpoint, the route ship's ghost polyline on the flight map (`Polyline frame: ... drawn=1`) and the KSC surface playback; the `showRouteLines` step and the `Route scope` / `Route line` tokens and forbids are removed. Every route-line reading further down is history; re-flight on the new DLL pending. AUTHORED 2026-09-07; READING RUN `2026-09-07_1858` (66 s) read every candidate token and classified PARSEK-FAIL only on a harness-side `[Stage]` line that never reaches KSP.log (authoring defect, dropped); ARMED the same day off that run with `[expectations.routes]` GATING: armed re-flight `2026-09-07_1902` PASS attempt 1 with zero mismatches, negative control `2026-09-07_1903` (`Route line build ... legs=1` seeded to `legs=7`, reverted) `PARSEK-FAIL(expectation)` on exactly that one token - a create-time token, so a second control `2026-09-07_1924` inverted the post-rebind draw token (`ownedLegs=1` seeded to `9`, reverted) and red on exactly that one; the pre-PR review found the build line fires at route creation and is never rebuilt by a same-body rebind (signature excludes the stop pid), which the header now records; D10 `route-endpoint-rebind-render` declared in the same commit (H35 CLAIM-IS-NOT-GATE). G3b at a render surface: `rover-route-recorded` with the route's recorded destination vessel (pid 2123618197) REMOVED from FLIGHTSTATE and `A` (pid 2875537755) standing 2 m away, so the dispatch at `TimeJump ut=1600` walks `RouteEndpointResolver` past the pid step to the 500 m surface-proximity fallback and REBINDS the STOP onto `A` (RVR-18's measured chain), and only THEN is the flight map opened and the route overview line, the ghost polyline and the KSC surface resolution read. The class question is whether any render surface consults the rebound endpoint; the code reading says none does (the resolver's six callers are all dispatch / delivery / Logistics-window) and this lane is where that becomes a measured class answer or a finding. Nothing armed on the reading run; candidate armed tokens listed in the header."
 tags = ["V27M", "route", "route-map-lines", "surface-endpoint", "endpoint-resolve",
         "surface-proximity", "endpoint-transfer", "live-state", "landed", "map-view",
         "recorded-fixture", "G3b"]
@@ -244,14 +244,12 @@ steps = [
   { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
-  { cmd = "SetSetting", args = { name = "showRouteLines",     value = "true" }, expect = "OK" },
   { cmd = "SealSlot",     args = { tree = "73e50f1e3aa24c299919016cd9e92269" }, expect = "OK", budget = 120 },
   { cmd = "RouteCommand", args = { action = "create", tree = "73e50f1e3aa24c299919016cd9e92269", name = "V27M Substituted Endpoint" }, expect = "OK", budget = 120 },
   { cmd = "RouteCommand", args = { action = "activate", route = "V27M Substituted Endpoint" }, expect = "OK", budget = 120 },
   # The dispatch, the proximity walk and the rebind all happen inside this jump (RVR-2 /
   # H59 / RVR-18 all measured the dispatch at ut=1600 on these bytes). The map is opened
-  # only after it, so every draw / polyline / KSC line post-dates the transfer (the ONE
-  # `Route line build` of the run fires at creation and is never rebuilt - see the header).
+  # only after it, so every polyline / KSC line post-dates the transfer.
   { cmd = "TimeJump",     args = { ut = "1600" },                             expect = "OK", budget = 300 },
   { cmd = "RecordingState",                                                    expect = "OK" },
   { cmd = "RecordingState",                                                    expect = "OK" },
@@ -300,6 +298,9 @@ allowedAnomalies = []
 count = { min = 5, max = 5 }
 
 [expectations.logContracts]
+# 2026-11-12: the supply route overview line was retired (todo ROUTE-LINE-DETACHED-SEGMENTS).
+# Nothing emits `Route line ...` or `Route scope:` any more, so the tokens the text above
+# discusses are gone from the lists below; that text is the record of what they read.
 required  = [
   "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
   "sealslot complete mode=tree tree=73e50f1e3aa24c299919016cd9e92269 total=4 sealed=0 remaining=0 alreadySealed=True",
@@ -316,10 +317,6 @@ required  = [
   "\\[Mission\\] Mission loop units rebuilt \\(signature changed\\): committed=5 routeMissions=1",
   # ---- the flight map, opened only after the rebind ----
   "entermapview ok mapOpen=true already=false",
-  "Route scope: route=[0-9a-f]{8} origin=Kerbin destination=Kerbin scope=SameBody basis=Endpoints",
-  "Route line members: route=[0-9a-f]{8} heads=2 segments=2 groups=1 legs=1",
-  "Route line build: route=[0-9a-f]{8} members=2 groups=1 legs=1 transferDropped=0",
-  "Route line draw: enabled=True routesDrawn=0 legsDrawn=0 skippedOwned=1 malformed=0 other=0 deact=0 cache=1 frame=[0-9]+ ownedLegs=1 paintedLegs=0",
   "Polyline frame: scene=FLIGHT drawn=1 warp=1x suppressed=0 hidden=0",
   "exitmapview ok mapOpen=false already=false",
   # ---- the KSC host, from the post-rebind save ----
@@ -336,8 +333,6 @@ forbidden = [
   "Endpoint proximity step: resolved=0",
   "reason=no-candidate-after-transport-exclusion",
   "BLOCKED kind=EndpointLost",
-  "Route line draw: .* malformed=[1-9]",
-  "Route line draw: .* other=[1-9]",
   "KSC point skipped: recording=.* body=",
   "KSC segment skipped: beforeBody=",
 ]

@@ -290,7 +290,7 @@ Click the "Settings" button in the main Parsek window to open the Settings panel
 
 Which values stick where:
 
-- **Install-wide** (stored in `GameData/Parsek/PluginData/settings.cfg`): the interface mode, ghost audio, supply-route paths, recorder sample density, verbose logging, the three tracing toggles and the readable `.txt` copies. Once you change one it keeps your value across every save, F9 quickload, rewind and KSP restart. Until you first change it, each save uses its own stored value (a new save starts from the defaults below).
+- **Install-wide** (stored in `GameData/Parsek/PluginData/settings.cfg`): the interface mode, ghost audio, recorder sample density, verbose logging, the three tracing toggles and the readable `.txt` copies. Once you change one it keeps your value across every save, F9 quickload, rewind and KSP restart. Until you first change it, each save uses its own stored value (a new save starts from the defaults below).
 - **Per save**: the auto-launch period. It lives in the save, so a quickload or rewind restores the value that save had, and a new save starts at 30s.
 
 The sections appear in this order. Basic mode shows Interface and Ghosts; Advanced adds Looping, Recorder Sample Density and Diagnostics.
@@ -306,7 +306,6 @@ Ghosts:
 | Setting | Default | Description |
 |---------|---------|-------------|
 | Ghost audio | 70% | Volume multiplier for ghost engines, RCS, decouplers, and explosions. Set to 0% to mute |
-| Show supply route paths on map | On | Draw each supply route's recorded path as a line on the flight map and in the Tracking Station |
 
 There is no "Show ghosts in Tracking Station" setting, and never has been. Ghosts always get their Tracking Station presence.
 

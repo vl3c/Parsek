@@ -1918,7 +1918,6 @@ namespace Parsek.TestCommands
                 case "mapRenderTracing": s.mapRenderTracing = r.BoolValue; break;
                 case "ledgerTracing": s.ledgerTracing = r.BoolValue; break;
                 case "writeReadableSidecarMirrors": s.writeReadableSidecarMirrors = r.BoolValue; break;
-                case "showRouteLines": s.showRouteLines = r.BoolValue; break;
             }
         }
 
@@ -1933,7 +1932,6 @@ namespace Parsek.TestCommands
                 case "RecordMapRenderTracing": ParsekSettingsPersistence.RecordMapRenderTracing(r.BoolValue); break;
                 case "RecordLedgerTracing": ParsekSettingsPersistence.RecordLedgerTracing(r.BoolValue); break;
                 case "RecordReadableSidecarMirrors": ParsekSettingsPersistence.RecordReadableSidecarMirrors(r.BoolValue); break;
-                case "RecordShowRouteLines": ParsekSettingsPersistence.RecordShowRouteLines(r.BoolValue); break;
                 case "RecordVerboseLogging": ParsekSettingsPersistence.RecordVerboseLogging(r.BoolValue); break;
                 case "RecordSamplingDensity": ParsekSettingsPersistence.RecordSamplingDensity(r.IntValue); break;
                 case "RecordGhostAudioVolume": ParsekSettingsPersistence.RecordGhostAudioVolume(r.FloatValue); break;
@@ -3446,7 +3444,6 @@ namespace Parsek.TestCommands
                 case "mapRenderTracing": return Bool(s.mapRenderTracing);
                 case "ledgerTracing": return Bool(s.ledgerTracing);
                 case "writeReadableSidecarMirrors": return Bool(s.writeReadableSidecarMirrors);
-                case "showRouteLines": return Bool(s.showRouteLines);
                 default: return "?";
             }
         }

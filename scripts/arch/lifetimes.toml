@@ -643,18 +643,6 @@ reason = "map-view ghost trajectory polylines"
 BuildInvocationCountForTesting = "process: instrumentation counter BuildLegsForRecording increments; the cache Clear zeroes it, only tests read it"
 
 [[type]]
-name = "Parsek.Display.RouteMemberRunExpansion"
-reason = "route member run expansion"
-[type.fields]
-ViewBuildCountForTesting = "process: instrumentation counter ResolveRunClaims increments; only tests reset and read it"
-
-[[type]]
-name = "Parsek.Display.RouteTrajectoryLineRenderer"
-reason = "supply route trajectory lines"
-[type.fields]
-BuildInvocationCountForTesting = "process: instrumentation counter RefreshForRoute increments; the cache Clear zeroes it, only tests read it"
-
-[[type]]
 name = "Parsek.RecalculationEngine"
 reason = "ledger recalculation"
 [type.fields]

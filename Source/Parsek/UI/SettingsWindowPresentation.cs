@@ -29,7 +29,6 @@ namespace Parsek
         {
             internal bool VerboseLogging;
             internal bool WriteReadableSidecarMirrors;
-            internal bool ShowRouteLines;
             internal SamplingDensity SamplingDensityLevel;
             internal float AutoLoopIntervalSeconds;
             internal LoopTimeUnit AutoLoopDisplayUnit;
@@ -76,7 +75,6 @@ namespace Parsek
                 // OFF for players: the .txt copies are a debugging aid that costs disk.
                 // Matches the ParsekSettings field initializer.
                 WriteReadableSidecarMirrors = false,
-                ShowRouteLines = true,
                 SamplingDensityLevel = SamplingDensity.Medium,
                 AutoLoopIntervalSeconds = (float)LoopTiming.DefaultLoopIntervalSeconds,
                 AutoLoopDisplayUnit = LoopTimeUnit.Sec,

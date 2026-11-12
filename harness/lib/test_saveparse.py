@@ -3120,13 +3120,8 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # collected save carried none, and this is a RECORDED subject that
         # launches nothing), and the two `.craft.txt` snapshot mirrors.
         # THE INTER-BODY SUPPLY-ROUTE HOST, and the only save in the corpus
-        # whose route runs between two bodies. Roadmap gap G10 (B32 / V26M /
-        # V26T) needs it because every route mechanism that is route-SPECIFIC in
-        # the render engages only on that shape: `ClassifyRouteScope = InterBody`
-        # had never been read live, and `FilterLegsToEndpointBodies` - the
-        # ratified transfer-leg DROP - had never dropped a leg on a driven run.
-        # On the SameBody host (`depot-route-recorded`, V18T) both clauses are
-        # satisfied BY SCOPE and confirm nothing.
+        # whose route runs between two bodies (roadmap gap G10): V26T, IR-5 and
+        # GUI-3 stage it. The same-body host is `depot-route-recorded` (V18T).
         #
         # PROVENANCE. The operator's own hand-played SANDBOX campaign
         # `Kerbal Space Program/saves/orbital supply route`, harvested READ-ONLY
@@ -5721,8 +5716,8 @@ class RouteFacetFixtureAgreementTests(unittest.TestCase):
     def test_the_interbody_fixture_is_the_corpus_only_cross_body_route(self):
         """THE claim the fixture exists to make, stated as a sweep.
 
-        `ClassifyRouteScope` answers InterBody when the origin body differs from
-        a stop body, so a fixture is an inter-body subject exactly when its
+        A route is inter-body when the origin body differs from a stop body, so
+        a fixture is an inter-body subject exactly when its
         `originBodies` and `destinationBodies` censuses do not name the same
         single body. Before this harvest NO committed fixture was one, which is
         why the G10 lanes could not be authored even after the product fix.
