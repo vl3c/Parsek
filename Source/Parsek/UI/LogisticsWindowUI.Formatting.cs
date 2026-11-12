@@ -75,12 +75,6 @@ namespace Parsek
             }
         }
 
-        private static string FormatEndpointShort(RouteEndpoint? ep)
-        {
-            if (!ep.HasValue) return "-";
-            return FormatEndpointShort(ep.Value);
-        }
-
         /// <summary>
         /// A place name without coordinates for the candidate Destination cell:
         /// "Kerbin (surface)" / "Mun (orbit)"; the coordinates ride the hover
@@ -151,18 +145,6 @@ namespace Parsek
                     : FormatEndpointPlace(stop.Endpoint);
             }
             return names;
-        }
-
-        // L3: the manifest formatting moved to the pure
-        // LogisticsDeliveryPresentation.FormatWouldDeliver so the Candidates section
-        // "Would deliver" cell and the route / candidate detail lines share one
-        // unit-tested formatter. This thin window-side forwarder keeps the existing
-        // callers (route delivery, candidate detail) on the same text.
-        private static string FormatManifest(
-            Dictionary<string, double> resources,
-            List<InventoryPayloadItem> inventory)
-        {
-            return LogisticsDeliveryPresentation.FormatWouldDeliver(resources, inventory);
         }
     }
 }

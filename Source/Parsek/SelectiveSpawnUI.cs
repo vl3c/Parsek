@@ -77,11 +77,6 @@ namespace Parsek
             set => ParsekTimeFormat.KerbinTimeOverrideForTesting = value;
         }
 
-        internal static bool UseKerbinTime => ParsekTimeFormat.UseKerbinTime;
-
-        internal static void GetDayAndYearConstants(out int daySec, out int yearDays)
-            => ParsekTimeFormat.GetDayAndYearConstants(out daySec, out yearDays);
-
         /// <summary>
         /// Pure: determine whether a ghost qualifies as a spawn candidate.
         /// True when endUT is in the future, spawn is needed, not suppressed,

@@ -151,15 +151,5 @@ namespace Parsek.Reaim
                 return double.NaN;
             return afterUT + dt;
         }
-
-        internal static string Describe(double aOrigin, double aTarget, double pOrigin, double pTarget, double muParent)
-        {
-            var ic = CultureInfo.InvariantCulture;
-            double syn = SynodicPeriodSeconds(pOrigin, pTarget);
-            double phase = HohmannPhaseAngleTargetDegrees(aOrigin, aTarget);
-            double tof = HohmannTransferTimeSeconds(aOrigin, aTarget, muParent);
-            return $"synodic={syn.ToString("R", ic)}s phaseTarget={phase.ToString("R", ic)}deg " +
-                   $"hohmannTof={tof.ToString("R", ic)}s";
-        }
     }
 }

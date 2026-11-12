@@ -138,14 +138,6 @@ namespace Parsek
             }
         }
 
-        /// <summary>Whether Parsek has greyed this button (the census and the in-game cells
-        /// read it next to <c>interactable</c>).</summary>
-        internal static bool IsGreyedByParsek(UIStateButton button)
-        {
-            ButtonLookState state;
-            return button != null && states.TryGetValue(button, out state) && state.Greyed;
-        }
-
         internal static void ResetForTesting()
         {
             states = new ConditionalWeakTable<UIStateButton, ButtonLookState>();

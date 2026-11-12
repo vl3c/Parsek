@@ -551,12 +551,6 @@ namespace Parsek
             }
         }
 
-        /// <summary>
-        /// Whether this window currently holds its KSP input lock (diagnostic read for the
-        /// design-7.2 close handler; see ParsekUI.BuildGatedWindowCloseSet).
-        /// </summary>
-        internal bool HasInputLock => kerbalsWindowHasInputLock;
-
         public void ReleaseInputLock()
         {
             if (!kerbalsWindowHasInputLock) return;

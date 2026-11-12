@@ -98,7 +98,6 @@ namespace Parsek
         internal readonly TimeRangeFilterState TimeRangeFilter = new TimeRangeFilterState();
 
         internal ParsekFlight Flight => flight;
-        internal UIMode Mode => mode;
         internal bool InFlightMode => InFlight;
         // The window set this ParsekUI was built with. The typed windows are reached
         // through ParsekWindowSet.Of(ui).

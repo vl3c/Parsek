@@ -49,8 +49,6 @@ namespace Parsek
 
         internal int Count => records.Count;
 
-        internal bool Holds(TKey key) => records.ContainsKey(key);
-
         internal bool TryGet(TKey key, out GreyRecord record) => records.TryGetValue(key, out record);
 
         /// <summary>The colour to write to grey <paramref name="key"/>, or null to leave it.</summary>
@@ -185,17 +183,6 @@ namespace Parsek
 
         private static readonly Dictionary<int, ButtonEntry> entries = new Dictionary<int, ButtonEntry>();
         private static readonly HashSet<int> stockVisualLogged = new HashSet<int>();
-
-        /// <summary>The number of buttons Parsek currently holds greyed (tests, logs).</summary>
-        internal static int GreyedButtonCount
-        {
-            get
-            {
-                int n = 0;
-                foreach (var e in entries.Values) if (e.Ledger.Count > 0) n++;
-                return n;
-            }
-        }
 
         private static StockButtonTransition MapTransition(Selectable.Transition t)
         {

@@ -901,47 +901,17 @@ namespace Parsek.Logistics
         /// for windows with <c>anchorStartUT &lt;= StartUT &lt;= dockUT</c>,
         /// plus the D5 bridged boundary deltas between consecutive in-span
         /// legs. Also surfaces the earliest in-span window (D7 endpoint).
-        /// </summary>
-        internal static Dictionary<string, double> ComputeHarvestedTotals(
-            List<LineageLeg> lineage,
-            int anchorIdx,
-            int arrivalIdx,
-            double anchorStartUT,
-            double dockUT,
-            out RouteHarvestWindow firstWindow)
-        {
-            return ComputeHarvestedTotals(lineage, anchorIdx, arrivalIdx, anchorStartUT, dockUT,
-                out firstWindow, out _);
-        }
-
-        /// <summary>
-        /// <see cref="ComputeHarvestedTotals(List{LineageLeg}, int, int, double, double, out RouteHarvestWindow)"/>
-        /// plus the PLAUSIBLE totals over the same windows and bridges
-        /// (HARVEST-ROUTE-PLAUSIBILITY-CAP): each window is limited to its
-        /// converters' rate x its own duration
+        /// <para><paramref name="plausible"/>: the PLAUSIBLE totals over the same
+        /// windows and bridges (HARVEST-ROUTE-PLAUSIBILITY-CAP): each window is
+        /// limited to its converters' rate x its own duration
         /// (<see cref="RouteHarvestCapture.ComputeWindowPlausibleHarvest"/>), and
         /// each bridged boundary delta to the boundary window's rate x the UT gap
         /// between the two legs (a catch-up burst across a zero-length seam
-        /// limits to 0). A window or boundary without rate data stays uncapped.
-        /// </summary>
-        internal static Dictionary<string, double> ComputeHarvestedTotals(
-            List<LineageLeg> lineage,
-            int anchorIdx,
-            int arrivalIdx,
-            double anchorStartUT,
-            double dockUT,
-            out RouteHarvestWindow firstWindow,
-            out Dictionary<string, double> plausible)
-        {
-            return ComputeHarvestedTotals(lineage, anchorIdx, arrivalIdx, anchorStartUT, dockUT,
-                out firstWindow, out plausible, out _);
-        }
-
-        /// <summary>
-        /// The totals above plus the windows' summed edge slack
+        /// limits to 0). A window or boundary without rate data stays uncapped.</para>
+        /// <para><paramref name="edgeSlack"/>: the windows' summed edge slack
         /// (HARVEST-WINDOW-EDGE-FRAME, <see cref="RouteHarvestCapture.ComputeWindowEdgeSlack"/>)
         /// over the same in-span windows. Bridges add none: a bridge credits the
-        /// whole boundary delta already.
+        /// whole boundary delta already.</para>
         /// </summary>
         internal static Dictionary<string, double> ComputeHarvestedTotals(
             List<LineageLeg> lineage,

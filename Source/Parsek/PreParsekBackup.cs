@@ -91,9 +91,6 @@ namespace Parsek
         /// <summary>True when any save is held (one null check, for the per-frame gate).</summary>
         internal static bool IsAnyHoldArmed => heldSaveFolder != null;
 
-        /// <summary>The held save folder, or null.</summary>
-        internal static string HeldSaveFolder => heldSaveFolder;
-
         /// <summary>True when <paramref name="saveFolder"/> is the held save.</summary>
         internal static bool IsHoldActiveFor(string saveFolder)
         {
