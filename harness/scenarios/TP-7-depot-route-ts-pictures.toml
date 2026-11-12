@@ -71,7 +71,7 @@ id = "TP-7-depot-route-ts-pictures"
 tier = "operator"
 description = "PICTURE LANE, AUTHORED 2026-11-11, FIRST FLOWN GREEN 2026-11-11 (run 2026-11-11_2155; again with the MapCamera hold, run 2026-11-11_2250). V18T's Kerbin depot supply route on depot-route-recorded, seen in the Tracking Station at three instants (cycle 0 near the dock, cycle 1 mid-leg, cycle 1 near the dock): each instant is jumped and saved in FLIGHT under its own name, then booted into the Tracking Station, where three low-Kerbin views are framed, photographed and dumped under one label each, 9 views in all. Expectations are only that every view was taken and nothing was refused. 2026-11-12: the supply route overview line is retired (todo ROUTE-LINE-DETACHED-SEGMENTS), so the `showRouteLines` step and the `Route line draw` token are gone and the pictures show the route ship's own ghost lines; re-flight pending."
 instanceProfile = "stock-minimal"
-tags = ["TP", "TP-7", "map-pictures", "map-geometry", "screenshots", "map-render", "flown", "route", "logistics", "depot", "kerbin", "tracking-station"]
+tags = ["TP", "TP-7", "map-pictures", "map-geometry", "screenshots", "map-render", "flown", "route", "logistics", "depot", "kerbin", "tracking-station", "route-map-lines"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/depot-route-recorded"

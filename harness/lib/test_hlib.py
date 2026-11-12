@@ -10954,6 +10954,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "TP-5-laythe-vall-map-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; FLOWN GREEN on its first flight 2026-11-11 and again with the MapCamera hold the same day",
         "TP-6-mun-landing-map-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; FLOWN GREEN on its first flight 2026-11-11 and again with the MapCamera hold the same day",
         "TP-7-depot-route-ts-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; FLOWN GREEN on its first flight 2026-11-11 and again with the MapCamera hold the same day",
+        "TP-8-interbody-route-map-pictures.toml": "tier=operator by MECHANISM (a picture lane run on request for map screenshots and geometry dumps), NOT debt; FLOWN GREEN on its first flight 2026-11-11 and again with the MapCamera hold the same day; its showRouteLines step and Route line / Route scope tokens left 2026-11-12 with the supply route overview line, re-flight on the new DLL pending",
         # TP-9 (2026-11-12) is the skipped-landing twin of TP-4's late-slot view. It also
         # carries three log pins for REAIM-PARKING-ICON-AFTER-LANDING, so its flight is a
         # check of that fix as well as a picture. Flown green on its first flight the same day.

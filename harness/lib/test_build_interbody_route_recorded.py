@@ -130,9 +130,11 @@ class InterbodyRouteSpecFixtureSyncTests(unittest.TestCase):
     declaration, which is how a guard passes GREEN on the wrong evidence.
     """
 
-    # B32 and V26M, the two flight-map lanes over this fixture, were deleted 2026-11-12
-    # with the supply route overview line they read (todo ROUTE-LINE-DETACHED-SEGMENTS).
+    # B32 and V26M were deleted 2026-11-12 with the supply route overview line they read
+    # (todo ROUTE-LINE-DETACHED-SEGMENTS). TP-8 photographs the route's ships on the
+    # flight map and pins no route token.
     EXPECTED_AT_LEAST = ("V26T-interbody-route-ts-arrival.toml",
+                         "TP-8-interbody-route-map-pictures.toml",
                          "IR-5-mun-route-dispatch-delivery.toml",
                          "GUI-3-census-logistics-routes.toml")
     SAVE_TEMPLATE = "fixtures/saves/interbody-route-recorded"
@@ -220,9 +222,9 @@ class InterbodyRouteSpecFixtureSyncTests(unittest.TestCase):
         `test_hlib.RENDERCOMPOSE_ARMED_SPECS` (render-composition) hold the
         program-wide rosters; this cell states the same thing LOCALLY, so an
         edit that arms a block over this fixture reds beside the fixture it arms
-        over. `routes` is armed on all three lanes since 2026-09-11, each off its
-        own wave reading, and `rewind` / `recordings` are not gating blocks on
-        this subject at all.
+        over. `routes` is armed on V26T since 2026-09-11 off its own wave
+        reading, and `rewind` / `recordings` are not gating blocks on this
+        subject at all.
         """
         armed = set()
         for name, spec in sorted(self.consumers.items()):

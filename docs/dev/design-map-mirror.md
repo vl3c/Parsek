@@ -91,8 +91,8 @@ where `--out` says. Do not commit generated pages.
 
 ### How to get the pictures
 
-The picture lanes TP-1..TP-7 and TP-9 (`harness/scenarios/TP-*.toml`, tier
-`operator`) exist to feed this page. Each copies a model lane's committed fixture, loop setup
+The picture lanes TP-1..TP-9 (`harness/scenarios/TP-*.toml`, tier `operator`)
+exist to feed this page. Each copies a model lane's committed fixture, loop setup
 and measured jump instants, and at each instant takes a few VIEWS:
 
 | Lane | Subject (model lane) | Scene | Instants | Views |
@@ -104,12 +104,12 @@ and measured jump instants, and at each instant takes a few VIEWS:
 | TP-5 | Laythe to Vall (V17M) | flight map | c1 transfer, arrival, park; c2 arrival | 12 |
 | TP-6 | Mun landing loop (V23M) | flight map | transfer, approach, descent, 60 s before touchdown; c2 the same | 14 |
 | TP-7 | Kerbin depot route's ship (V18T) | Tracking Station | c1 near dock; c2 mid-leg, near dock | 9 |
+| TP-8 | Inter-body route's ships: the Duna supply ship on its transfer and its probe at Kerbin | flight map | the save clock (whole system and each route end) | 5 |
 | TP-9 | Kerbin to Duna re-aim, landing jumped over (TP-4) | flight map | a month later, after one jump over the whole landing | 1 |
 
 TP-9 is the one picture lane that also pins log lines (todo
 REAIM-PARKING-ICON-AFTER-LANDING: the ship must stay hidden after a landing the
-clock jumped over); the others assert only that every view was taken. There is
-no TP-8: its only subject was the supply route overview line, which is gone.
+clock jumped over); the others assert only that every view was taken.
 
 A view is three seam steps under one label: `MapCamera focus=<body> pitch=
 heading= distance=` (the same frame on every run), `CaptureScreenshot label=L`

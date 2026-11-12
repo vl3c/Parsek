@@ -22,13 +22,14 @@ ranking; `autotest-status.md` still owns every verdict those runs produced.
 > below that plans, measures or arms that surface (the route-overview render surface of
 > the loop-render program, gaps G1 / G3b / G10 and their D10 cells, the V26 pair's
 > controls) is the record of work done against it, not forward order. Lanes
-> `B32-interbody-route-scope`, `V26M-interbody-route-map-lines` and
-> `TP-8-interbody-route-map-pictures` are deleted; `H59`, `V18T`, `V26T`, `V27M` and
-> `TP-7` keep their other readings and owe a re-flight. D10 keeps `route-map-lines`
+> `B32-interbody-route-scope` and `V26M-interbody-route-map-lines` are deleted; `H59`,
+> `V18T`, `V26T`, `V27M`, `TP-7` and `TP-8` (the picture lane of the inter-body route's
+> ships) keep their other readings and owe a re-flight. D10 keeps `route-map-lines`
 > (V18T) and `route-map-lines-surface` (H59), re-scoped to the route SHIP's own line,
 > and loses `route-map-lines-inter-body` and `route-transfer-leg-drop`. Not yet
-> rebuilt, when wanted: a picture or map lane of the inter-body route ship, which needs
-> a derivable dispatch instant on `interbody-route-recorded` first.
+> rebuilt, when wanted: a map lane that PINS the inter-body route ship (TP-8 only
+> photographs it), which needs a derivable dispatch instant on
+> `interbody-route-recorded` first.
 
 
 > **RECONCILED 2026-07-27 after #1358 merged.** This document was written against

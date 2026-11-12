@@ -51,30 +51,54 @@ static overview line is retired outright, with no dead code left:
   ownership source) and `GhostMapPresence.NotePaintedRecordingLine`.
 - Kept on the wire, now with no runtime reader: `Route.CreationTreeRecordingIds`
   (`CREATION_TREE_RECORDINGS`), read and written by `RouteCodec` and present in the format golden
-  and the committed route fixtures. Dropping it is a save-format decision, not part of this fix.
+  and the committed route fixtures. Dropping it is not part of this fix; todo
+  ROUTE-CREATION-TREE-IDS-UNREAD.
   `Route.DispatchWindowPeriod` stays as before (informational, reported into the manifest).
 - Harness: `rendercompose.py` loses the two window keys `routeLineBuilds` /
   `routeCoDrawViolations`, the three record parsers and the overview-line half of RC-ROUTE (the
   member-vs-dock-clip dwell check stays); `tools/map_mirror.py` no longer reads or draws route
   legs (an old dump that carries `routeLines` loads with a note).
-- Lanes DELETED, their whole subject being the line: `B32-interbody-route-scope`,
-  `V26M-interbody-route-map-lines`, `TP-8-interbody-route-map-pictures` (568 -> 565 scenarios).
-  Registry D10 loses `route-map-lines-inter-body` and `route-transfer-leg-drop`.
+- Lanes DELETED, their whole subject being the line or its scope: `B32-interbody-route-scope`,
+  `V26M-interbody-route-map-lines` (568 -> 566 scenarios). Registry D10 loses
+  `route-map-lines-inter-body` and `route-transfer-leg-drop`.
 - Lanes RESHAPED (route-line step, tokens, forbids and windows removed, the rest kept): `H59`,
   `V18T` (render-composition stays armed on `unevaluable` and the rigid seam), `V26T`
-  (render-composition bare again), `V27M`, `TP-7`. `S1.7-maprender-parity` pins `total=21` and
-  reads the pass / skip split as digits until it flies.
+  (render-composition bare again), `V27M`, `TP-7`, `TP-8`. `S1.7-maprender-parity` pins
+  `total=21` and reads the pass / skip split as digits until it flies.
+- `TP-8-interbody-route-map-pictures` stays as the picture lane of the inter-body route's SHIPS.
+  Both of its green flights (`2026-11-11_2148`, `_2243`) dumped two route ship ghosts in every
+  view: "Duna Supply 1" (treatment StockConic, body Sun, icon drawn, 3 lines: the supply ship on
+  its transfer) and "Duna Supply 1 Probe" (StockConic, body Kerbin, icon drawn, 1 line). Views,
+  labels and clock are unchanged; only the `showRouteLines` step, the `Route line draw` and two
+  `Route scope:` required tokens and the three route-line / scope forbids left. No new pin was
+  added.
 
 **Flights pending** (nothing was flown; this session cannot fly): `TP-7` first, as the picture
-proof that no route segment is drawn away from the ship; then `H59`, `V18T`, `V26T`, `V27M` on
-the new DLL; then `S1.7`, whose next green flight restores the literal tally (expected
+proof that no route segment is drawn away from the ship, and `TP-8` for the same picture of the
+inter-body route's ships; then `H59`, `V18T`, `V26T`, `V27M` on the new DLL; then `S1.7`, whose next green flight restores the literal tally (expected
 `passed=20 skipped=1`). `docs/pdf/` was not regenerated for the two design docs this touches
 (`docs/parsek-logistics-supply-routes-design.md`, `docs/roadmap.md`).
 
-**Not rebuilt.** No lane now shows the INTER-BODY route ship on the map: `interbody-route-recorded`
-has no derivable dispatch instant (the Duna route's anchor is not computable from the committed
-bytes: `loopAnchorUT = -1` and per-tick re-aim windows), so a picture or map lane of that ship
-needs one first.
+**Not rebuilt.** No lane PINS the inter-body route ship on the map (TP-8 photographs it and
+asserts only that every view was taken): `interbody-route-recorded` has no derivable dispatch
+instant (the Duna route's anchor is not computable from the committed bytes: `loopAnchorUT = -1`
+and per-tick re-aim windows), so a behavioural map lane of that ship needs one first.
+
+## ROUTE-CREATION-TREE-IDS-UNREAD: `Route.CreationTreeRecordingIds` is saved and loaded but nothing reads it [FILED 2026-11-12 with ROUTE-LINE-DETACHED-SEGMENTS; OPEN]
+
+**Fact.** `Route.CreationTreeRecordingIds` (persisted as `CREATION_TREE_RECORDINGS` by
+`RouteCodec`) had one runtime reader, the supply route overview line. That line is retired, so
+the field is written at route creation, saved and loaded, and read by nothing at runtime. It is
+also present in the format golden and the committed route fixtures.
+
+**Allowed fix.** Remove the field and stop writing and reading the key. The save-format policy's
+retired-key precedent covers it (`docs/dev/design-save-format-policy.md`: deleting a retired
+feature's keys is not a shape change when their absence already means the feature-off default):
+old saves load with the key ignored and drop it on the next save, committed fixtures and the
+frozen golden keep the inert lines, and no format number moves.
+
+**Why it is not done yet.** The retirement was kept to the map line; the field and its save /
+load are untouched there.
 
 ## ~~REFLY-ANCHOR-EPSILON-1300KM~~: Re-Fly render anchors in RW-5 / RW-6 / RW-7 carried offsets of 64 km to 22,820 km [FILED 2026-11-12 from the first real run index (`run_index.py health-regressions`), runs `2026-11-11_0218_RW-5`, `2026-11-10_2237_RW-6`, `2026-11-11_0140_RW-7`. CAUSE FOUND 2026-11-12 (a frame defect in the seed epsilon, reproduced headless and confirmed from the PC logs). FIXED 2026-11-12 headless; open only for the live proof below]
 
@@ -287,9 +311,9 @@ back; that needs a reading flight before its armed windows are trusted again.
 
 The first lanes wired to the `DumpMapGeometry` / `MapCamera` seam verbs: operator-tier picture
 lanes that copy a model lane's fixture, loop setup and measured jumps (TP-1 V6M, TP-2 V6T, TP-3
-V7M, TP-4 V25M, TP-5 V17M, TP-6 V23M, TP-7 V18T, TP-8 V26M; TP-8 and its model lane were deleted
-2026-11-12 with the supply route overview line, ROUTE-LINE-DETACHED-SEGMENTS, which also took
-TP-7's route-line step and token) and take 85 views
+V7M, TP-4 V25M, TP-5 V17M, TP-6 V23M, TP-7 V18T, TP-8 V26M; V26M was deleted 2026-11-12 with
+the supply route overview line, ROUTE-LINE-DETACHED-SEGMENTS, which also took the route-line
+step and tokens of TP-7 and TP-8) and take 85 views
 (`MapCamera` -> `CaptureScreenshot` -> `DumpMapGeometry`, one label per view) for the map mirror
 page (`docs/dev/design-map-mirror.md` -> "How to get the pictures").
 

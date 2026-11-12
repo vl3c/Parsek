@@ -1,0 +1,164 @@
+schema = 1
+id = "TP-8-interbody-route-map-pictures"
+# =====================================================================================
+# TP-8: PICTURES OF THE INTER-BODY SUPPLY ROUTE'S SHIPS ON THE FLIGHT MAP.
+#
+# The host `interbody-route-recorded` carries two committed inter-body routes (KSC -> Duna,
+# Active; KSC -> Mun, Paused). With the flight map open at the save clock the Duna route's
+# ships are on the map as ghosts: both green flights (2026-11-11_2148 and _2243) dumped
+# "Duna Supply 1" (stock conic around the Sun, icon drawn: the supply ship on its transfer)
+# and "Duna Supply 1 Probe" (stock conic around Kerbin, icon drawn) in every view. The lane
+# photographs those ships. A route's ship draws like any looped mission ghost; the separate
+# supply route overview line this lane also showed is retired (2026-11-12, todo
+# ROUTE-LINE-DETACHED-SEGMENTS), and its setting step and log tokens left with it.
+# RE-FLIGHT ON THE NEW DLL PENDING: the two flights above ran with the line on.
+#
+# ONE INSTANT, AND WHY. The Duna route's anchor is not computable from the committed bytes
+# (loopAnchorUT -1, per-tick re-aim windows, transit 8,527,534 s), so any "mid-leg" or
+# "near-endpoint" UT derived here would be a guess. The lane keeps the save clock (a 1x
+# wait to 87,625,323) and covers the route in SPACE instead: whole-system views that hold
+# both ends of the Duna route, and one close view on each endpoint body.
+#
+# VIEWS (label tp8-save-clock-<view>):
+#   sys-top / sys-edge (Sun, 5e10)      Kerbin and Duna in one frame, the supply ship between
+#   kerbin-top (Kerbin, 2.8e7)          the Kerbin end, the probe
+#   mun-top (Mun, 5.4e6)                the Mun end
+#   duna-top (Duna, 7e6)                the Duna end
+#
+# THE PICTURE PROTOCOL (design-map-mirror.md -> "How to get the pictures"). Every view is
+# three steps under ONE label: `MapCamera` (focus / pitch / heading / distance, so the
+# frame is the same on every run, and `hold = "4.5"`: 4.5 real seconds after the camera
+# settles, so stock's orbit-line zoom fade, about 4 s at 1x, has finished before the
+# picture; game time runs on at 1x meanwhile, so each view of an instant is taken a few
+# seconds after the previous one), `CaptureScreenshot label=L` (the PNG) and
+# `DumpMapGeometry label=L` (the same frame as data, `Screenshots/L.map.json`). The harvest
+# copies both into `results/<runId>_shots/`, and `tools/map_mirror.py <shots-dir>` pairs
+# them by label into one page. Distances are metres from the focus body's centre, sized
+# off the body radius, SOI or the orbit the view must hold (about 2.2x the radius that
+# has to fit). Stock clamps pitch near +-86 deg and keeps the camera two radii out;
+# `mapcamera ok` reports any clamp, it is not a refusal.
+#
+# LIGHT EXPECTATIONS BY DESIGN. Each label's `capturescreenshot ok` and
+# `dumpmapgeometry ok` line is required, every refusal / error line of the three verbs
+# is forbidden, the host's anomaly allowance and recording-count window are the ones
+# V26T carries, and nothing else is asserted: no render-composition block, no gating
+# block, no routing tokens. The lane exists to produce pictures for a human and the
+# mirror page; V26T and IR-5 own the behavioural claims about this host.
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
+#   1 reuse a flight - NOT APPLIED: the request was a separate picture lane per subject
+#     with the model lane left byte-unchanged, and a model lane that also took pictures
+#     would change the frames its armed census reads (MapCamera moves the live camera).
+#   2 no idle waits - applied: every wait is an explicit-UT `WarpToUT maxRate=1` of 5 s
+#     (flight) or the model lane's own two `RecordingState` pacing ticks (TS); the
+#     clock moves by `TimeJump`, which costs no wall time.
+#   3 minimal dwells - applied: one 5 s 1x settle per instant, so the newly placed ghost
+#     and its lines have drawn before the first camera move.
+#   4 burns at 1x / 5 b5 coasts / 6 fail fast - not applicable: no mission is flown, the
+#     lane replays a committed fixture.
+#   7 tight count windows - the model lane's window, copied; tightened after the first
+#     flight only if it reads otherwise.
+#   8 tier by measured cost / 9 flight_efficiency.py - the first flights (2026-11-11)
+#     took 56 to 91 s wall per lane and 88 to 150 s with the hold; flight_efficiency.py over them is
+#     still owed. The tier is `operator` because the lane is run on request for pictures.
+# =====================================================================================
+tier = "operator"
+description = "PICTURE LANE, AUTHORED 2026-11-11, FIRST FLOWN GREEN 2026-11-11 (run 2026-11-11_2148; again with the MapCamera hold, run 2026-11-11_2243). 2026-11-12: THE SUPPLY ROUTE OVERVIEW LINE IS RETIRED (todo ROUTE-LINE-DETACHED-SEGMENTS), so the lane photographs the inter-body route's SHIPS and its showRouteLines step and Route line / Route scope tokens are gone; re-flight on the new DLL pending. The two inter-body supply routes (KSC->Duna Active, KSC->Mun Paused) on interbody-route-recorded, the flight map open, at the save clock: five views (whole system top-down and edge-on, the Kerbin, Mun and Duna ends) framed, photographed and dumped under one label each. Both flights dumped the Duna supply ship on its transfer (a ghost on a conic around the Sun) and its probe at Kerbin in every view. No dispatch instant is derivable from the committed bytes, so the route's ends are covered in space rather than time. Expectations are only that every view was taken and nothing was refused."
+instanceProfile = "stock-minimal"
+tags = ["TP", "TP-8", "map-pictures", "map-geometry", "screenshots", "map-render", "flown", "route", "logistics", "inter-body", "kerbin", "duna", "route-map-lines"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/interbody-route-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame", args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording", expect = "OK" },
+  { cmd = "DiscardTree", expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "EnterMapView", expect = "OK", budget = 60 },
+  # INSTANT save-clock at UT 87625323: a 1x wait to 87,625,323 (the save clock is 87,625,311.3); no dispatch instant is derivable from the committed bytes, so the views go to the route's ENDS instead of its times
+  { cmd = "WarpToUT", args = { ut = "87625323", maxRate = "1" }, expect = "OK", budget = 120 },
+  # view tp8-save-clock-sys-top: Sun pitch=90 heading=0 distance=50000000000 m
+  { cmd = "MapCamera", args = { focus = "Sun", pitch = "90", heading = "0", distance = "50000000000", hold = "4.5" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp8-save-clock-sys-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp8-save-clock-sys-top" }, expect = "OK" },
+  # view tp8-save-clock-sys-edge: Sun pitch=0 heading=0 distance=50000000000 m
+  { cmd = "MapCamera", args = { focus = "Sun", pitch = "0", heading = "0", distance = "50000000000", hold = "4.5" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp8-save-clock-sys-edge" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp8-save-clock-sys-edge" }, expect = "OK" },
+  # view tp8-save-clock-kerbin-top: Kerbin pitch=90 heading=0 distance=28000000 m
+  { cmd = "MapCamera", args = { focus = "Kerbin", pitch = "90", heading = "0", distance = "28000000", hold = "4.5" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp8-save-clock-kerbin-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp8-save-clock-kerbin-top" }, expect = "OK" },
+  # view tp8-save-clock-mun-top: Mun pitch=90 heading=0 distance=5400000 m
+  { cmd = "MapCamera", args = { focus = "Mun", pitch = "90", heading = "0", distance = "5400000", hold = "4.5" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp8-save-clock-mun-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp8-save-clock-mun-top" }, expect = "OK" },
+  # view tp8-save-clock-duna-top: Duna pitch=90 heading=0 distance=7000000 m
+  { cmd = "MapCamera", args = { focus = "Duna", pitch = "90", heading = "0", distance = "7000000", hold = "4.5" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "tp8-save-clock-duna-top" }, expect = "OK" },
+  { cmd = "DumpMapGeometry", args = { label = "tp8-save-clock-duna-top" }, expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+# The scene cell is what the lane flies; the body cells are the bodies its views frame.
+# Nothing is armed, so no behavioural cell is claimed.
+[dimensionsCovered]
+D14 = ["kerbin", "duna", "mun", "scene-map", "scene-flight", "sandbox"]
+
+[expectations]
+# The host's ERROR surface is clean on both flights.
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 43, max = 60 }
+
+[expectations.logContracts]
+required  = [
+  "entermapview ok mapOpen=true",
+  "mapcamera ok focus=Sun pitch=",
+  "mapcamera ok focus=Kerbin pitch=",
+  "mapcamera ok focus=Mun pitch=",
+  "mapcamera ok focus=Duna pitch=",
+  "capturescreenshot ok label=tp8-save-clock-sys-top bytes=",
+  "dumpmapgeometry ok label=tp8-save-clock-sys-top scene=FLIGHT ",
+  "capturescreenshot ok label=tp8-save-clock-sys-edge bytes=",
+  "dumpmapgeometry ok label=tp8-save-clock-sys-edge scene=FLIGHT ",
+  "capturescreenshot ok label=tp8-save-clock-kerbin-top bytes=",
+  "dumpmapgeometry ok label=tp8-save-clock-kerbin-top scene=FLIGHT ",
+  "capturescreenshot ok label=tp8-save-clock-mun-top bytes=",
+  "dumpmapgeometry ok label=tp8-save-clock-mun-top scene=FLIGHT ",
+  "capturescreenshot ok label=tp8-save-clock-duna-top bytes=",
+  "dumpmapgeometry ok label=tp8-save-clock-duna-top scene=FLIGHT ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "timejump refused reason=backward-jump",
+  "dumpmapgeometry rejected reason=",
+  "dumpmapgeometry (failed|timed out|capture threw)",
+  "mapcamera rejected reason=",
+  "mapcamera (not settled|scene lost)",
+  "mapcamera: ",
+  "capturescreenshot rejected reason=",
+  "capturescreenshot (not written|threw|dir create failed|pre-delete threw)",
+  "map-geometry-(timeout|capture-failed)",
+]
+
+[runtime]
+# The model lane's budget; the views add a few seconds each (three short two-phase
+# verbs, the camera's 4.5 s hold included) and every TimeJump is an instantaneous
+# clock set.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
