@@ -20,6 +20,40 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## REFLY-ANCHOR-EPSILON-1300KM: every Re-Fly render anchor in RW-5 / RW-6 / RW-7 carries an offset of about 1,300 km [FILED 2026-11-12 from the first real run index (`run_index.py health-regressions`), runs `2026-11-11_0218_RW-5`, `2026-11-10_2237_RW-6`, `2026-11-11_0140_RW-7`, by reading the archived logs. OPEN; not yet placed (what the player sees is unmeasured)]
+
+**Symptom.** The three lanes pass, and their WARN count rose from 19 / 31 / 55 (runs of
+2026-11-06) to 357 / 533 / 558. Every extra line is one message on the tag `Pipeline-Anchor`:
+`Anchor <epsilon> exceeds bubble radius: recordingId=... sectionIndex=... side=... anchorSource=...
+epsilonMagnitudeM=1307870.2391902634 bubbleRadiusM=2500`. Each run holds 168 distinct anchors
+(RW-6: side Start / BubbleExit 174 lines, End / BubbleEntry 170, End / OrbitalCheckpoint 87,
+Start / OrbitalCheckpoint 57, Start / DockOrMerge 15), each warned once per session rebuild (2
+rebuilds in RW-5, 3 in RW-6 and RW-7), and every one reads between 1,308 and 1,311 km. Every
+other tag is flat between the two runs.
+
+**What is known.** The warning is not new behaviour, it is new visibility:
+`RenderSessionState.WarnIfEpsilonExceedsBubbleRadius` ran only on the LiveSeparation path until
+commit 334b6cfd2 (2026-11-07) also called it from `PutAnchorWithPriority`, for every anchor
+that lands. The runs of 2026-11-06 hold zero such lines at any level, so the LiveSeparation
+anchor itself was inside the bubble. No real anchor offset can exceed the 2.5 km physics
+bubble, and one value on 168 anchors of four sources reads as one wrong offset carried to all
+of them (a frame mismatch at the seed, or the propagation), not as 168 independent errors.
+The lane specs did not change in that window.
+
+**Not known.** Whether a ghost is drawn 1,300 km off during a Re-Fly session (no RW lane
+asserts a rendered position; the value is kept, never zeroed, by design of the HR-9 check),
+which recording and section seed the value, and whether lanes outside RW-5 / RW-6 / RW-7 carry
+it at a lower count (the report flags a lane only against its own previous five passes).
+
+**Next.** Read one run's `Pipeline-Anchor` lines in order to find the first anchor that
+carries the value and its source; reproduce headless with that recording through
+`RenderSessionState.RebuildFromMarker` and `AnchorPropagator.Run`. This sits in the code the
+plan's B6 item splits (`AnchorPropagator.Run`) and next to the five orbital-checkpoint anchor
+resolvers, so the reproduction is the first test of both. Secondary: the warning should fire
+once per anchor per session, not once per rebuild.
+
+---
+
 ## REAIM-PARKING-ICON-AFTER-LANDING: after a time jump over a looped re-aimed landing, the ship shows in the parking orbit a month later [FILED 2026-11-11 from the TP-4 pictures, runs `2026-11-11_2238` and `_2316`; NARROWED 2026-11-11 by run `_2332`: after a landing that PLAYED the map is clean. OPEN; low; the flight-scene ghost is unmeasured]
 
 **What the player would see.** Loop a Kerbin -> Duna landing and watch it land: the ghost
@@ -2837,6 +2871,18 @@ compare).
   allocations or GC counts; `runindex.NOT_LOGGED` names the one line each would need (a C# change
   for a later item). harness/README.md -> "The run index and lane health", arch README -> "Log
   tags".
+- 2026-11-12 (run index, first run on the real archive, main e43cdb063): 3544 run folders
+  (1.4 GB) indexed in 18.8 s with `--jobs 8`; 3544 rows over 581 lanes (PASS 3060, INVALID 244,
+  PARSEK-FAIL 238, XPASS 1, KILLED 1), `index.jsonl` 2.3 MB (648 bytes a row),
+  `lane-health.json` 1.5 MB over 578 lanes, one unmapped tag; 150 rows have no `KSP.log.gz`
+  (health null), 198 no commit; 112 retry links, none dangling; no row holds a path; a second
+  rebuild is byte-identical. `health-regressions` flags 41 lanes: RW-5 / RW-6 / RW-7 are
+  REFLY-ANCHOR-EPSILON-1300KM, TP-4's doubled log is its re-pinned spec (a fourth `WarpToUT`
+  step, map tracing on), QL-2c's step predates 2026-11-01, the other 28 are 1 to 4 warnings
+  over their median. Open follow-ups in the tool: `lanes-for --module` lists every lane that
+  logs one boot line of the module (it needs a minimum line count); a back-filled row with no
+  manifest stores its run id as `worktree` (it should store none); the index is not published
+  (the branch is the owner's call).
 
 **Fix.**
 1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same
