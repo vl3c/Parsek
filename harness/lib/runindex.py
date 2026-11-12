@@ -41,11 +41,14 @@ rows ordered by ``started`` then ``runId``). Every key and where it comes from
 
 Present only when they hold something: ``missionWall`` (result
 ``missionWallSeconds``; absent on a seam-only run), ``subkind`` (result
-``subkind``: what failed), ``note`` (result ``note``: ``flakedThenPassed`` on a
-retried PASS), ``harnessLog`` (manifest ``harnessLog``: ``slice`` or ``full``),
+``subkind``: what failed), ``note`` (result ``note``, only in a shape
+``NOTE_RULES`` knows, e.g. ``flakedThenPassed`` on a retried PASS or
+``post-quit work raised <Type>``), ``harnessLog`` (manifest ``harnessLog``:
+``slice`` or ``full``),
 ``parsekFrames`` (result ``verifiers.unityExceptions.parsekFrames``: Unity
 exceptions with a Parsek frame, when above 0), ``gaps`` (what could not be
-read).
+read, and ``<key> withheld`` for a copied string that is not a token or a
+known note: a row holds no text it cannot vouch for, so never a path).
 
 ``health`` (from ``KSP.log.gz``, one streaming pass, ``LogScan``):
 ``bytes`` (uncompressed), ``lines`` (all lines), ``parsek`` (Parsek lines),
@@ -124,6 +127,14 @@ REGRESSION_MIN_PRIOR = 3
 REGRESSION_GROWTH = 1.3
 # Hash prefixes a row keeps: enough to name a commit / a DLL build, not more.
 DERIVED_KEYS = ("final", "byRetry", "retryOf")
+# How long after attempt N-1 ENDED its retry may start and still link to it.
+# Pipelined, the retry flies after the lane that was in flight when attempt
+# N-1's verdict arrived, so the gap is one whole lane (its budget plus staging,
+# boot, verifiers and collect-logs) plus the retry's own staging and boot.
+# Pinned above the worst committed spec budget plus that overhead by
+# test_runindex.RetryLinkBoundCoversWorstLaneTests, so a budget rise reds there.
+RETRY_LINK_MAX_GAP_SECONDS = 4 * 3600
+RETRY_LINK_LANE_OVERHEAD_SECONDS = 900
 COMMIT_HEX = 12
 DLL_HEX = 16
 
@@ -151,6 +162,7 @@ PARSEK_TOKEN = b"[Parsek]["
 PARSEK_LINE_RE = re.compile(rb"\[Parsek\]\[(VERBOSE|INFO|WARN|ERROR)\]\[([^\]\r\n]*)\] ?(.*?)\r?\n?$")
 SUPPRESSED_RE = re.compile(r" \| suppressed=(\d+)$")
 FACT_TAG = "Diagnostics"
+OTHER_TAG = "(not-a-tag)"
 
 
 class HealthFact:
@@ -272,6 +284,10 @@ class LogScan:
             return
         level = m.group(1).decode("ascii")
         tag = m.group(2).decode("utf-8", "replace")
+        if not _TOKEN_RE.match(tag):
+            # Not a ParsekLog tag (every one is a token; the tag map proves it):
+            # counted under one fixed name, never copied into a row.
+            tag = OTHER_TAG
         self.levels[level] += 1
         row = self.subsystems.get(tag)
         if row is None:
@@ -410,6 +426,63 @@ def _short_hex(value, n: int) -> Optional[str]:
     return value[:n] if isinstance(value, str) and value else None
 
 
+# ---------------------------------------------------------------------------
+# What a row may hold. A row is published, so it holds no text it cannot vouch
+# for: every string it copies from a result or a manifest must be a TOKEN (no
+# space, no path separator, no colon), a known note, or it is withheld with a
+# fixed gap. Safe by construction, not by scrubbing.
+# ---------------------------------------------------------------------------
+
+_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+()-]{0,79}$")
+# A worktree folder name may hold a space; it is already the last folder only.
+_FOLDER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._+()-]{0,79}$")
+_ISO_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+_HEX_RE = re.compile(r"^[0-9a-fA-F]+$")
+
+# Every result ``note`` run.py / hlib write, and what a row keeps of it. A note
+# matching none is withheld (gap ``note withheld``). Pinned to run.py's literals
+# by ``test_runindex.NoteProducerSourceSyncTests``.
+NOTE_FLAKED = "flakedThenPassed"
+NOTE_TESTS_BUILD = "Parsek.Tests build failed at selection start (see the Build log line)"
+NOTE_LOCK_HELD = "machine lock held by a live sibling run or provision"
+NOTE_RULES: Tuple[Tuple["re.Pattern", str], ...] = (
+    # hlib.resolve_terminal, written by run.py _ScenarioRetryState.finish.
+    (re.compile(r"^%s$" % NOTE_FLAKED), r"\g<0>"),
+    # run.py run_selection: the selection-start Parsek.Tests build refusal.
+    (re.compile(r"^%s$" % re.escape(NOTE_TESTS_BUILD)), r"\g<0>"),
+    # run.py: the machine-lock refusal and the lock lost mid-selection.
+    (re.compile(r"^%s$" % re.escape(NOTE_LOCK_HELD)), r"\g<0>"),
+    (re.compile(r"^machine lock lost mid-selection after \d+ scenario\(s\)$"), r"\g<0>"),
+    # run.py _post_quit_failure: "post-quit work raised <Type>: <text>"; the
+    # text (an OSError's holds the full path) is dropped, the type kept.
+    (re.compile(r"^post-quit work raised ([A-Za-z_][A-Za-z0-9_]{0,79})(?::.*)?$", re.S),
+     r"post-quit work raised \1"),
+    # run.py admission refusal: "...is not the build <profile> carries; provision it: <hint>".
+    (re.compile(r"^this instance's Parsek\.dll is not the build ([A-Za-z0-9._-]{1,40}) carries(?:;.*)?$", re.S),
+     r"this instance's Parsek.dll is not the build \1 carries"),
+)
+
+
+def safe_note(note) -> Tuple[Optional[str], bool]:
+    """(the note a row may hold, withheld). An empty note is (None, False)."""
+    if not isinstance(note, str) or not note:
+        return None, bool(note)
+    for regex, keep in NOTE_RULES:
+        m = regex.match(note)
+        if m is not None:
+            return m.expand(keep), False
+    return None, True
+
+
+def _token(value, regex=_TOKEN_RE) -> Tuple[Optional[str], bool]:
+    """(value, withheld): a string kept only when ``regex`` matches it."""
+    if value is None or value == "":
+        return None, False
+    if isinstance(value, str) and regex.match(value):
+        return value, False
+    return None, True
+
+
 def build_row(run_id: str, result: Optional[Dict], manifest: Optional[Dict],
               health: Optional[Dict], gaps: Sequence[str] = ()) -> Tuple[Optional[Dict], Optional[str]]:
     """(row, None) or (None, skip reason). ``result`` is the parsed result JSON,
@@ -420,36 +493,60 @@ def build_row(run_id: str, result: Optional[Dict], manifest: Optional[Dict],
     verdict = result.get("verdict")
     if not isinstance(verdict, str) or not verdict:
         return None, "result json has no verdict"
+    if not _TOKEN_RE.match(verdict):
+        return None, "result json verdict is not a verdict token"
+    if not _TOKEN_RE.match(run_id or ""):
+        return None, "run folder name is not a run id"
     gap_list = list(gaps)
     rid = result.get("runId")
     if rid and rid != run_id:
         # Not the value: a row holds no text it cannot vouch for.
         gap_list.append("result runId differs from the folder")
-    lane = result.get("scenarioId") or lane_from_run_id(run_id)
+    lane, withheld = _token(result.get("scenarioId"))
+    if withheld:
+        gap_list.append("scenarioId withheld")
+    lane = lane or lane_from_run_id(run_id)
     if not lane:
         return None, "no scenario id"
     started = result.get("startedUtc")
-    if not isinstance(started, str) or not started:
+    if not isinstance(started, str) or not _ISO_RE.match(started):
+        gap_list.append("no startedUtc" if not started else "startedUtc withheld")
         started = started_from_run_id(run_id)
-        gap_list.append("no startedUtc")
     attempt = _int_or_none(result.get("attempt")) or attempt_of(run_id)
     m = manifest if isinstance(manifest, dict) else {}
     if not isinstance(manifest, dict):
         gap_list.append("no manifest")
+    fields: Dict[str, Any] = {}
+    for key, value, regex in (
+            ("tier", result.get("tier"), _TOKEN_RE),
+            ("profile", result.get("instanceProfile"), _TOKEN_RE),
+            ("worktree", folder_name(m.get("worktree")), _FOLDER_RE),
+            ("origin", m.get("origin"), _TOKEN_RE),
+            ("subkind", result.get("subkind"), _TOKEN_RE),
+            ("harnessLog", m.get("harnessLog"), _TOKEN_RE),
+            ("commit", m.get("gitHead"), _HEX_RE),
+            ("dll", m.get("parsekDllSha256"), _HEX_RE)):
+        kept, withheld = _token(value, regex)
+        fields[key] = kept
+        if withheld:
+            gap_list.append("%s withheld" % key)
+    note, withheld = safe_note(result.get("note"))
+    if withheld:
+        gap_list.append("note withheld")
     row: Dict[str, Any] = {
         "schema": SCHEMA,
         "runId": run_id,
         "lane": lane,
-        "tier": result.get("tier"),
-        "profile": result.get("instanceProfile"),
+        "tier": fields["tier"],
+        "profile": fields["profile"],
         "started": started,
         "wall": _int_or_none(result.get("wallSeconds")),
         "attempt": attempt,
         "verdict": verdict,
-        "commit": _short_hex(m.get("gitHead"), COMMIT_HEX),
-        "dll": _short_hex(m.get("parsekDllSha256"), DLL_HEX),
-        "worktree": folder_name(m.get("worktree")),
-        "origin": m.get("origin"),
+        "commit": _short_hex(fields["commit"], COMMIT_HEX),
+        "dll": _short_hex(fields["dll"], DLL_HEX),
+        "worktree": fields["worktree"],
+        "origin": fields["origin"],
         "health": health,
         "final": True,
     }
@@ -458,9 +555,9 @@ def build_row(run_id: str, result: Optional[Dict], manifest: Optional[Dict],
     # Optional keys ride only when they hold something (row size).
     optional = {
         "missionWall": _int_or_none(result.get("missionWallSeconds")),
-        "subkind": result.get("subkind") or None,
-        "note": result.get("note") or None,
-        "harnessLog": m.get("harnessLog") or None,
+        "subkind": fields["subkind"],
+        "note": note,
+        "harnessLog": fields["harnessLog"],
     }
     for key, value in optional.items():
         if value is not None:
@@ -487,6 +584,22 @@ def _link_key(row: Dict) -> Tuple[Any, Any, Any]:
     return (row.get("lane"), row.get("worktree"), row.get("origin"))
 
 
+def retryable(row: Dict) -> bool:
+    """True when run.py would retry this attempt: INVALID with a subkind in
+    ``hlib.RETRYABLE_INVALID_SUBKINDS`` (``hlib.should_retry``). A row with no
+    subkind does not qualify."""
+    return row.get("verdict") == hlib.VERDICT_INVALID \
+        and row.get("subkind") in hlib.RETRYABLE_INVALID_SUBKINDS
+
+
+def _ended_seconds(row: Dict) -> Optional[int]:
+    start = _epoch_seconds(row.get("started"))
+    if start is None:
+        return None
+    wall = row.get("wall")
+    return start + (wall if isinstance(wall, int) and not isinstance(wall, bool) and wall > 0 else 0)
+
+
 def link_attempts(rows: Iterable[Dict]) -> Dict[str, str]:
     """{runId of attempt N: runId of the attempt N-1 it retried}, inferred.
 
@@ -494,12 +607,16 @@ def link_attempts(rows: Iterable[Dict]) -> Dict[str, str]:
     stamps each attempt's run id from its own start minute (only a ``_run<N>``
     ordinal is carried), so ``..._1000_X`` is retried by ``..._1014_X_a2``, and
     pipelined, attempt 2 flies one whole lane later. The rule: attempt N (N > 1)
-    joins the LATEST row started before it with the same lane, worktree and
-    origin, attempt N-1 and verdict INVALID (the only verdict run.py retries),
+    joins the LATEST row that started before it with
+      - the same lane, worktree and origin,
+      - attempt N-1,
+      - a verdict run.py retries (``retryable``: INVALID with a retryable subkind),
+      - an end (``started`` + ``wall``; ``started`` when wall is missing) at most
+        ``RETRY_LINK_MAX_GAP_SECONDS`` before attempt N started,
     that no later-started attempt N has already claimed. Attempts N are matched
     newest first, so two runs of one lane whose attempts interleave still pair
     up in order. An attempt with no such row stands alone (its attempt 1 was
-    never archived, or was archived under another worktree)."""
+    never archived, came from another worktree, or is too old)."""
     by_key: Dict[Tuple[Any, Any, Any], List[Dict]] = defaultdict(list)
     for row in rows:
         by_key[_link_key(row)].append(row)
@@ -511,13 +628,20 @@ def link_attempts(rows: Iterable[Dict]) -> Dict[str, str]:
         for n in range(2, top + 1):
             for row in reversed([r for r in group if int(r.get("attempt") or 1) == n]):
                 key = sort_key(row)
+                begun = _epoch_seconds(row.get("started"))
+                if begun is None:
+                    continue
                 for prior in reversed(group):
                     if sort_key(prior) >= key or prior["runId"] in claimed:
                         continue
-                    if int(prior.get("attempt") or 1) == n - 1 and prior.get("verdict") == hlib.VERDICT_INVALID:
-                        claimed.add(prior["runId"])
-                        links[row["runId"]] = prior["runId"]
-                        break
+                    if int(prior.get("attempt") or 1) != n - 1 or not retryable(prior):
+                        continue
+                    ended = _ended_seconds(prior)
+                    if ended is None or begun - ended > RETRY_LINK_MAX_GAP_SECONDS:
+                        continue
+                    claimed.add(prior["runId"])
+                    links[row["runId"]] = prior["runId"]
+                    break
     return links
 
 
@@ -672,6 +796,16 @@ def _content(row: Dict) -> str:
 # ---------------------------------------------------------------------------
 # Queries
 # ---------------------------------------------------------------------------
+
+def _epoch_seconds(iso: Optional[str]) -> Optional[int]:
+    """Seconds since 1970 of a ``YYYY-MM-DDTHH:MM:SSZ`` stamp, or None."""
+    if not isinstance(iso, str) or not _ISO_RE.match(iso):
+        return None
+    day = _epoch_day(iso[:10])
+    if day is None:
+        return None
+    return int(day) * 86400 + int(iso[11:13]) * 3600 + int(iso[14:16]) * 60 + int(iso[17:19])
+
 
 def _epoch_day(iso: Optional[str]) -> Optional[float]:
     """Days since 1970 of a ``YYYY-MM-DDTHH:MM:SSZ`` stamp (pure; no tz database)."""

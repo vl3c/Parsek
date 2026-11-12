@@ -2824,8 +2824,11 @@ compare).
   retry on a rejected push, only its own three files written, every other file on the branch
   kept). A retry is linked to its attempt 1 by inference (`retryOf`; the archive holds no link
   and each attempt's run id carries its own start minute): same lane, worktree and origin, the
-  latest earlier INVALID attempt N-1 not yet claimed. Newer-schema index lines are kept in
-  place, unreadable ones dropped and counted. Health per run is read from `KSP.log.gz` in one streaming pass;
+  latest earlier attempt N-1 run.py would retry (INVALID, retryable subkind) that ended at
+  most 4 h before and is not yet claimed. A row keeps a note only in a known producer shape
+  (a post-quit note loses its exception text) and withholds any other non-token string.
+  Newer-schema index lines are kept in place, unreadable ones dropped and counted. Health per
+  run is read from `KSP.log.gz` in one streaming pass;
   `lane-health.json` holds each lane's latest PASS per subsystem tag and per module, through the
   new IL-derived tag map `scripts/arch/log_tags.json` (`scripts/arch/logtags.py`, 284 tags, 9294
   literal-tag sites, 13 non-literal, 46 forwarding helpers; `test_iltags.py` runs in the

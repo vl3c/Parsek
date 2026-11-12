@@ -1924,16 +1924,35 @@ run.py stamps every attempt's run id from its own start minute (only a `_run<N>`
 ordinal is carried), so attempt 1 `2026-11-01_1000_X` is retried by
 `2026-11-01_1014_X_a2`, and pipelined, attempt 2 flies a whole lane later with
 other lanes' rows in between. `runindex.link_attempts` infers the link: attempt
-N (N > 1) joins the LATEST row started before it with the same lane, worktree
-folder and origin, attempt N-1 and verdict INVALID (run.py retries only an
-INVALID), that no later-started attempt N has already claimed (attempts N are
-matched newest first, so one lane listed twice in a pipelined selection still
-pairs in order). Limits: an attempt whose predecessor was never archived, or was
-archived from another worktree or by a back-fill, stands alone as a run of its
-own (final, `byRetry`); two worktrees of one folder name on two machines merged
-by `publish` share a key; and a 30 / 90-day window that cuts attempt 1 off
-counts the retry as its own run. Counts, the flake rate and the pass rate group
-attempts along `retryOf`.
+N (N > 1) joins the LATEST row that started before it and has the same lane,
+worktree folder and origin; attempt N-1; a verdict run.py retries (INVALID with
+a subkind in `hlib.RETRYABLE_INVALID_SUBKINDS`; a row with no subkind does not
+qualify); and an end (`started` + `wall`, or `started` when `wall` is missing)
+at most `RETRY_LINK_MAX_GAP_SECONDS` (4 h) before attempt N started; and that no
+later-started attempt N has already claimed. Attempts N are matched newest
+first, so one lane listed twice in a pipelined selection still pairs in order.
+The 4 h bound covers one whole lane plus a boot:
+`RetryLinkBoundCoversWorstLaneTests` (in `test_runindex`) reds when the worst
+committed spec budget plus twice 900 s of overhead outgrows it. Limits: an attempt whose attempt 1 was
+never archived, was archived from another worktree or by a back-fill, or ended
+more than 4 h earlier stands alone as a run of its own (final, `byRetry`, no
+`retryOf`); if the run that should have been retried was not archived but an
+older retryable INVALID of the lane ended within 4 h, the attempt joins that one;
+two worktrees of one folder name on two machines merged by `publish` share a
+key; and a 30 / 90-day window that cuts attempt 1 off counts the retry as its
+own run. Counts, the flake rate and the pass rate group attempts along
+`retryOf`.
+
+What a row may hold. A row is published, so every string it copies from a
+result or manifest is a token (letters, digits, `._+()-`; no space, separator
+or colon) or it is withheld with a fixed gap (`subkind withheld`, `tier
+withheld`, ...; the lane then comes from the run id). A `note` is kept only in
+the shape run.py or hlib writes it (`runindex.NOTE_RULES`, pinned to the source
+by `NoteProducerSourceSyncTests`): `flakedThenPassed`, the Parsek.Tests build
+and machine-lock refusals, `post-quit work raised <ExceptionType>` (the
+exception text, which can hold a full path, is dropped) and the admission
+DLL-drift note without its command hint; any other note is withheld (`note
+withheld`). A KSP.log tag that is not a token is counted as `(not-a-tag)`.
 
 ```
 python tools/run_index.py rebuild [--health-out <archive>/lane-health.json] [--jobs 4] [--progress 200]

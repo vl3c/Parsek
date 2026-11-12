@@ -280,11 +280,11 @@ class RowTests(unittest.TestCase):
         self.assertEqual(LANE, row["lane"])
         self.assertEqual("a" * runindex.COMMIT_HEX, row["commit"])
         self.assertEqual("b" * runindex.DLL_HEX, row["dll"])
-        full, _ = runindex.build_row(self.RID, _result(self.RID, "INVALID", subkind="boot", note="n", frames=0),
+        full, _ = runindex.build_row(self.RID, _result(self.RID, "INVALID", subkind="boot", note="post-quit work raised OSError: x", frames=0),
                                      dict(_manifest(), harnessLog=None), None)
         full_result = _result(self.RID)
         full_result["missionWallSeconds"] = 42
-        self.assertEqual(("boot", "n"), (full["subkind"], full["note"]))
+        self.assertEqual(("boot", "post-quit work raised OSError"), (full["subkind"], full["note"]))
         self.assertNotIn("parsekFrames", full)
         self.assertNotIn("harnessLog", full)
         self.assertNotIn("missionWall", full)
@@ -327,7 +327,7 @@ class RowTests(unittest.TestCase):
 
 class IndexTextTests(unittest.TestCase):
     def setUp(self):
-        self.a1 = _attempt("2026-10-11_0900", "X", "INVALID", subkind="boot")
+        self.a1 = _attempt("2026-10-11_0900", "X", "INVALID", subkind="boot-crash")
         self.a2 = _attempt("2026-10-11_0914", "X", "PASS", 2)
         self.b = _attempt("2026-10-10_0800", "Y", "PASS")
 
@@ -432,7 +432,7 @@ class QueryTests(unittest.TestCase):
     def setUp(self):
         rows = [
             _attempt("2026-08-01_0900", "L", "PASS", wall=100),
-            _attempt("2026-10-01_0900", "L", "INVALID", wall=50, subkind="boot"),
+            _attempt("2026-10-01_0900", "L", "INVALID", wall=50, subkind="boot-crash"),
             _attempt("2026-10-01_0910", "L", "PASS", 2, wall=120),
             _attempt("2026-10-20_0900", "L", "INVALID", wall=300, subkind="tooling"),
             _attempt("2026-10-20_0912", "L", "PARSEK-FAIL", 2, wall=310, subkind="ledger"),
@@ -506,7 +506,7 @@ class AttemptLinkTests(unittest.TestCase):
 
     def test_a_pipelined_retry_flies_after_another_lanes_rows(self):
         rows = [
-            _attempt("2026-11-01_1000", "X-1", "INVALID", subkind="boot"),
+            _attempt("2026-11-01_1000", "X-1", "INVALID", subkind="boot-crash"),
             _attempt("2026-11-01_1007", "Y-1", "PASS"),
             _attempt("2026-11-01_1020", "Z-1", "INVALID", subkind="tooling"),
             _attempt("2026-11-01_1031", "X-1", "PASS", 2),
@@ -533,10 +533,10 @@ class AttemptLinkTests(unittest.TestCase):
 
     def test_two_back_to_back_runs_of_one_lane_each_retried(self):
         rows = [
-            _attempt("2026-11-02_0900", "L-1", "INVALID", subkind="boot"),
+            _attempt("2026-11-02_0900", "L-1", "INVALID", subkind="boot-crash"),
             _attempt("2026-11-02_0914", "L-1", "PASS", 2),
-            _attempt("2026-11-02_1000", "L-1", "INVALID", subkind="boot"),
-            _attempt("2026-11-02_1013", "L-1", "INVALID", 2, subkind="boot"),
+            _attempt("2026-11-02_1000", "L-1", "INVALID", subkind="boot-crash"),
+            _attempt("2026-11-02_1013", "L-1", "INVALID", 2, subkind="boot-crash"),
         ]
         self._pin(rows,
                   {"2026-11-02_0914_L-1_a2": "2026-11-02_0900_L-1",
@@ -547,18 +547,18 @@ class AttemptLinkTests(unittest.TestCase):
         c = runindex.lane_report(norm, "L-1")["windows"]["all"]
         self.assertEqual((4, 2, 1, 1, 0.5), (c["attempts"], c["scenarioRuns"], c["finalPasses"],
                                              c["flaked"], c["flakeRate"]))
-        self.assertIn("| L-1 | daily | INVALID(boot) | 2026-11-02, aaaaaaaaa | 2 | 50% | 100 |",
+        self.assertIn("| L-1 | daily | INVALID(boot-crash) | 2026-11-02, aaaaaaaaa | 2 | 50% | 100 |",
                       runindex.lane_table(norm))
         self.assertEqual([{"lane": "L-1", "runId": "2026-11-02_1013_L-1_a2", "verdict": "INVALID",
-                           "subkind": "boot"}], runindex.summary(norm)["lastNotPass"])
+                           "subkind": "boot-crash"}], runindex.summary(norm)["lastNotPass"])
 
     def test_one_lane_twice_in_a_pipelined_selection_pairs_newest_first(self):
         first = _rid("2026-11-03_1000", "R-1")
         second = _rid("2026-11-03_1000", "R-1", claimed={first})
         self.assertEqual("2026-11-03_1000_R-1_run2", second)
         rows = [
-            _row(first, "INVALID", 1, "2026-11-03T10:00:10Z", lane="R-1", subkind="boot"),
-            _row(second, "INVALID", 1, "2026-11-03T10:00:50Z", lane="R-1", subkind="boot"),
+            _row(first, "INVALID", 1, "2026-11-03T10:00:10Z", lane="R-1", subkind="boot-crash"),
+            _row(second, "INVALID", 1, "2026-11-03T10:00:50Z", lane="R-1", subkind="boot-crash"),
             _row(_rid("2026-11-03_1020", "R-1", 2), "PASS", 2, "2026-11-03T10:20:00Z", lane="R-1"),
             _row(_rid("2026-11-03_1030", "R-1", 2, min_ordinal=2), "PASS", 2, "2026-11-03T10:30:00Z",
                  lane="R-1"),
@@ -570,7 +570,7 @@ class AttemptLinkTests(unittest.TestCase):
 
     def test_only_an_invalid_attempt_of_the_same_worktree_and_origin_is_retried(self):
         rows = [
-            _attempt("2026-11-04_0900", "P-1", "INVALID", subkind="boot"),
+            _attempt("2026-11-04_0900", "P-1", "INVALID", subkind="boot-crash"),
             _attempt("2026-11-04_0930", "P-1", "PASS"),
             _attempt("2026-11-04_0940", "P-1", "PASS", 2),
         ]
@@ -589,13 +589,171 @@ class AttemptLinkTests(unittest.TestCase):
         cut = [r for r in runindex.normalize(rows) if r["started"] >= "2026-11-04T09:30"]
         self.assertEqual(2, runindex._counts(cut)["scenarioRuns"])
 
+    def test_an_orphan_retry_never_joins_an_old_terminal_run(self):
+        """The reviewer's reproduction: an attempt 2 whose attempt 1 is missing
+        must not join a months-old INVALID attempt 1 of the lane."""
+        old = _attempt("2026-09-01_1000", "X", "INVALID", subkind="admission")
+        orphan = _attempt("2026-11-01_1014", "X", "PASS", 2)
+        self.assertEqual("2026-11-01_1014_X_a2", orphan["runId"])
+        for prior in (old, dict(old, subkind="boot-crash")):  # terminal; retryable but too old
+            got = self._pin([prior, orphan], {},
+                            {"2026-09-01_1000_X": True, "2026-11-01_1014_X_a2": True})
+            c = runindex._counts(list(got.values()))
+            self.assertEqual((2, 0, 0.0), (c["scenarioRuns"], c["flaked"], c["flakeRate"]))
+
+    def test_the_time_bound_at_its_boundary(self):
+        bound = runindex.RETRY_LINK_MAX_GAP_SECONDS
+        a1 = _attempt("2026-11-06_0100", "T-1", "INVALID", wall=600, subkind="boot-crash")
+        end = runindex._epoch_seconds(a1["started"]) + 600
+
+        def retry_at(seconds_after_end, prior=a1):
+            t = end + seconds_after_end
+            day = "2026-11-06" if t < runindex._epoch_seconds("2026-11-07T00:00:00Z") else "2026-11-07"
+            base = runindex._epoch_seconds(day + "T00:00:00Z")
+            hh, rem = divmod(t - base, 3600)
+            mm, ss = divmod(rem, 60)
+            rid = _rid("%s_%02d%02d" % (day, hh, mm), "T-1", 2)
+            a2 = _row(rid, "PASS", 2, "%sT%02d:%02d:%02dZ" % (day, hh, mm, ss), lane="T-1")
+            return runindex.link_attempts([prior, a2])
+
+        self.assertEqual(1, len(retry_at(bound)))
+        self.assertEqual({}, retry_at(bound + 1))
+        # No wall: the bound runs from the start.
+        no_wall = dict(a1, wall=None)
+        self.assertEqual(1, len(retry_at(bound - 600, no_wall)))
+        self.assertEqual({}, retry_at(bound - 599, no_wall))
+
+    def test_a_terminal_attempt_1_between_is_skipped(self):
+        first = _rid("2026-11-07_1000", "S-1")
+        second = _rid("2026-11-07_1000", "S-1", claimed={first})
+        rows = [
+            _row(first, "INVALID", 1, "2026-11-07T10:00:10Z", lane="S-1", subkind="boot-crash"),
+            _row(second, "INVALID", 1, "2026-11-07T10:00:50Z", lane="S-1", subkind="fixture-stale"),
+            _attempt("2026-11-07_1020", "S-1", "PASS", 2),
+        ]
+        self._pin(rows, {"2026-11-07_1020_S-1_a2": first},
+                  {first: False, second: True, "2026-11-07_1020_S-1_a2": True})
+
+    def test_append_in_any_order_equals_a_rebuild(self):
+        rows = [
+            _attempt("2026-11-08_0900", "A-1", "INVALID", subkind="boot-crash"),
+            _attempt("2026-11-08_0905", "B-1", "INVALID", subkind="fixture-stale"),
+            _attempt("2026-11-08_0912", "A-1", "PASS", 2),
+            _attempt("2026-11-08_0930", "A-1", "INVALID", subkind="tooling"),
+            _attempt("2026-11-08_0941", "A-1", "INVALID", 2, subkind="tooling"),
+            _attempt("2026-12-30_0900", "A-1", "PASS", 2),
+        ]
+        rebuilt = runindex.serialize_index(rows)
+        for order in (rows, list(reversed(rows)), rows[3:] + rows[:3]):
+            index = []
+            for row in order:
+                index, _c = runindex.upsert(runindex.parse_index(runindex.serialize_index(index)).rows, [row])
+            self.assertEqual(rebuilt, runindex.serialize_index(index))
+        self.assertEqual(2, len(runindex.link_attempts(rows)))
+
     def test_derived_keys_are_not_content(self):
-        a1 = _attempt("2026-11-05_0900", "Q-1", "INVALID", subkind="boot")
+        a1 = _attempt("2026-11-05_0900", "Q-1", "INVALID", subkind="boot-crash")
         a2 = _attempt("2026-11-05_0911", "Q-1", "PASS", 2)
         rows, _ = runindex.upsert([], [a1, a2])
         again, counts = runindex.upsert(rows, [dict(a1), dict(a2)])
         self.assertEqual(2, counts["unchanged"])
         self.assertEqual(runindex.serialize_index(rows), runindex.serialize_index(again))
+
+
+class RetryLinkBoundCoversWorstLaneTests(unittest.TestCase):
+    """The link bound must cover the gap a pipelined retry really has: the
+    whole lane in flight when attempt 1's verdict arrived (its budget plus
+    staging, boot, verifiers) plus the retry's own staging and boot. A spec
+    whose budget outgrows it would leave its retries unlinked, so this reds
+    here, the way LeaseCoversWorstCaseScenarioTests pins the lock lease."""
+
+    def test_the_bound_exceeds_the_worst_committed_spec(self):
+        specs = run.load_all_specs()
+        self.assertTrue(specs, "no committed specs loaded; the invariant is vacuous")
+        worst_id, worst = max(((s.get("id"), float((s.get("runtime", {}) or {}).get("budgetSeconds", 600)))
+                               for s in specs), key=lambda x: x[1])
+        needed = worst + 2 * runindex.RETRY_LINK_LANE_OVERHEAD_SECONDS
+        self.assertGreater(runindex.RETRY_LINK_MAX_GAP_SECONDS, needed,
+                           "retry link bound %ds must exceed %s's %.0fs budget + 2 x %ds overhead"
+                           % (runindex.RETRY_LINK_MAX_GAP_SECONDS, worst_id, worst,
+                              runindex.RETRY_LINK_LANE_OVERHEAD_SECONDS))
+
+
+class NoteTests(unittest.TestCase):
+    """A row keeps a result note only when it is one run.py / hlib write, in
+    its fixed shape; anything else is withheld."""
+
+    def test_each_producer_shape(self):
+        cases = {
+            "flakedThenPassed": "flakedThenPassed",
+            runindex.NOTE_TESTS_BUILD: runindex.NOTE_TESTS_BUILD,
+            runindex.NOTE_LOCK_HELD: runindex.NOTE_LOCK_HELD,
+            "machine lock lost mid-selection after 3 scenario(s)": "machine lock lost mid-selection after 3 scenario(s)",
+            "post-quit work raised OSError: [Errno 13] Permission denied: 'C:\\Users\\x\\r.json'":
+                "post-quit work raised OSError",
+            "post-quit work raised RuntimeError: line1\n/home/x": "post-quit work raised RuntimeError",
+            "post-quit work raised KeyError": "post-quit work raised KeyError",
+            ("this instance's Parsek.dll is not the build stock-minimal carries; provision it: "
+             + hlib.provision_command_hint("other")): "this instance's Parsek.dll is not the build stock-minimal carries",
+        }
+        for note, kept in cases.items():
+            self.assertEqual((kept, False), runindex.safe_note(note), note)
+        for note in ("free text", "flakedThenPassed /x", "post-quit work raised a/b: x",
+                     "machine lock lost mid-selection after x scenario(s)"):
+            self.assertEqual((None, True), runindex.safe_note(note), note)
+        self.assertEqual((None, False), runindex.safe_note(""))
+
+
+class NoteProducerSourceSyncTests(unittest.TestCase):
+    """Every result note producer in run.py and hlib, walked from the AST, is
+    one NOTE_RULES keeps: a new producer, or a reworded one, reds here instead
+    of every such row reading ``note withheld``."""
+
+    @staticmethod
+    def _tree(path):
+        import ast
+        with open(path, encoding="utf-8") as fh:
+            return ast.parse(fh.read())
+
+    def test_run_py_note_producers(self):
+        import ast
+        tree = self._tree(os.path.join(HARNESS_ROOT, "run.py"))
+        kw, keys, stores = [], [], []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                kw.extend(k.value for k in node.keywords if k.arg == "note")
+            elif isinstance(node, ast.Dict):
+                keys.extend(v for k, v in zip(node.keys, node.values)
+                            if isinstance(k, ast.Constant) and k.value == "note")
+            elif isinstance(node, ast.Assign):
+                for t in node.targets:
+                    if isinstance(t, ast.Subscript) and isinstance(t.slice, ast.Constant) \
+                            and t.slice.value == "note":
+                        stores.append(node.value)
+        src = [ast.unparse(v) for v in kw + keys + stores]
+        # _post_quit_failure / admission (keywords), the result dict's verdict.note,
+        # the selection refusal's note and the invalid-spec "" (dict keys), and
+        # finish's flakedThenPassed (the one store).
+        self.assertEqual(["what", "note", "verdict.note", "note", "''", "'flakedThenPassed'"], src)
+        with open(os.path.join(HARNESS_ROOT, "run.py"), encoding="utf-8") as fh:
+            text = fh.read()
+        for literal in ('"post-quit work raised %s: %s" % (type(exc).__name__, exc)',
+                        '"this instance\'s Parsek.dll is not the build %s carries; "',
+                        'note = "%s"' % runindex.NOTE_TESTS_BUILD,
+                        'holder_note = "%s"' % runindex.NOTE_LOCK_HELD,
+                        'note = "machine lock lost mid-selection after %d scenario(s)" % ran_count'):
+            self.assertIn(literal, text)
+        self.assertEqual(2, text.count('note = "machine lock lost mid-selection after %d scenario(s)" % ran_count'))
+
+    def test_hlib_verdict_notes(self):
+        import ast
+        notes = []
+        for node in ast.walk(self._tree(os.path.join(HERE, "hlib.py"))):
+            if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "Verdict":
+                if len(node.args) >= 6:
+                    notes.append(ast.unparse(node.args[5]))
+                notes.extend(ast.unparse(k.value) for k in node.keywords if k.arg == "note")
+        self.assertEqual(sorted(["base.note", "base.note", "'flakedThenPassed'"]), sorted(notes))
 
 
 class HealthRegressionTests(unittest.TestCase):
@@ -735,7 +893,7 @@ class ToolTests(unittest.TestCase):
         self.index = os.path.join(self.archive, "index.jsonl")
         log = [_pline("INFO", "Flight", "hello"), _pline("WARN", "Ghost", "w"),
                _pline("VERBOSE", "Diagnostics", "OnSave: 7ms (1 dirty of 4)")]
-        _write_run(self.archive, "2026-10-11_0900_L", _result("2026-10-11_0900_L", "INVALID", lane="L"),
+        _write_run(self.archive, "2026-10-11_0900_L", _result("2026-10-11_0900_L", "INVALID", lane="L", subkind="tooling"),
                    log_lines=log)
         _write_run(self.archive, "2026-10-11_0914_L_a2",
                    _result("2026-10-11_0914_L_a2", "PASS", 2, "2026-10-11T09:14:00Z", lane="L"), log_lines=log)
@@ -842,10 +1000,49 @@ class ToolTests(unittest.TestCase):
         rid_l = "2026-10-13_0920_W"
         _write_run(self.archive, rid_l, _result(rid_l, started="2026-10-13T09:20:00Z", lane="W"),
                    raw_gz=gzip.compress(b"[Parsek][INFO][Flight] a\n")[:-12])
+        # run.py's real post-quit note (_post_quit_failure), over a Windows and a
+        # POSIX path, and a result / manifest whose free text holds paths.
+        post_quit = {}
+        for rid, path in (("2026-10-13_0930_PQW", r"C:\Users\someone\Dev\Parsek\harness\results\x.json"),
+                          ("2026-10-13_0940_PQP", "/home/someone/Parsek/harness/results/x.json")):
+            exc = FileNotFoundError(2, "No such file or directory", path)
+            note = "post-quit work raised %s: %s" % (type(exc).__name__, exc)
+            self.assertIn("someone", note)
+            post_quit[rid] = note
+            res = _result(rid, "INVALID", started="2026-10-13T%s:%s:00Z" % (rid[11:13], rid[13:15]),
+                          lane=rid[16:], subkind="post-quit-error", note=note)
+            _write_run(self.archive, rid, res)
+        rid_f = "2026-10-13_0950_F"
+        res = _result(rid_f, "PASS", started="2026-10-13T09:50:00Z", lane="/home/someone/F",
+                      subkind=r"C:\Users\someone", note="free text in /home/someone/x")
+        res["tier"] = "daily /tmp"
+        res["instanceProfile"] = "D:\\KSP"
+        res["startedUtc"] = "2026-10-13 /x"
+        _write_run(self.archive, rid_f, res,
+                   log_lines=[_pline("INFO", "Flight", "x"), _pline("WARN", "/home/someone/tag", "y")])
+        with open(os.path.join(self.archive, rid_f, "manifest.json"), "w", encoding="utf-8") as fh:
+            json.dump({"schema": 1, "origin": "run /x", "worktree": "/home/someone/",
+                       "gitHead": "C:\\Users\\x", "parsekDllSha256": "b" * 64, "harnessLog": "/x"}, fh)
         lh = os.path.join(self.tmp, "lh.json")
         rc, out = self._main("rebuild", "--archive", self.archive, "--health-out", lh)
         self.assertEqual(0, rc, out)
         rows = {r["runId"]: r for r in run_index.load_index(self.index).rows}
+        for rid in post_quit:
+            self.assertEqual("post-quit work raised FileNotFoundError", rows[rid]["note"])
+            self.assertEqual("post-quit-error", rows[rid]["subkind"])
+        f = rows[rid_f]
+        self.assertEqual("F", f["lane"])
+        self.assertEqual("someone", f["worktree"])
+        for key in ("note", "subkind", "harnessLog"):
+            self.assertNotIn(key, f)
+        for key in ("tier", "profile", "origin", "commit"):
+            self.assertIsNone(f[key], key)
+        self.assertEqual("2026-10-13T09:50:00Z", f["started"])
+        self.assertEqual({"commit withheld", "harnessLog withheld", "note withheld", "origin withheld",
+                          "profile withheld", "scenarioId withheld", "startedUtc withheld",
+                          "subkind withheld", "tier withheld"}, set(f["gaps"]))
+        with open(lh, encoding="utf-8") as fh:
+            self.assertEqual({"Flight": 1, runindex.OTHER_TAG: [1, 1, 0]}, json.load(fh)["lanes"]["F"]["subsystems"])
         # IsADirectoryError on POSIX, PermissionError on Windows.
         (gap,) = [g for g in rows[rid_m]["gaps"] if g.startswith("manifest")]
         self.assertRegex(gap, r"^manifest unreadable \((IsADirectoryError|PermissionError)\)$")
