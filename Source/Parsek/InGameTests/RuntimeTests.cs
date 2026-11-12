@@ -26260,18 +26260,17 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
-        /// Phase 6 §7.5. OrbitalCheckpoint candidate on the ABSOLUTE side
-        /// of a Kepler boundary. ε comes from the resolver's analytical
-        /// orbit propagation.
+        /// Phase 6 section 7.5. OrbitalCheckpoint candidate on the ABSOLUTE side of a Kepler
+        /// boundary a quarter of a body rotation in the past, against live KSP: the
+        /// physics samples are stock's own placement of the conic, so the epsilon must be
+        /// metres (todo REFLY-ANCHOR-EPSILON-1300KM read about 1.4 r cos(lat) here).
         /// </summary>
         [InGameTest(Category = "Pipeline-Anchor", Scene = GameScenes.FLIGHT,
-            Description = "Phase 6 §7.5 OrbitalCheckpoint candidate produces non-zero ε via the resolver")]
+            Description = "Phase 6 section 7.5 OrbitalCheckpoint eps a quarter rotation after the boundary is metres against live KSP")]
         public IEnumerator Pipeline_Anchor_OrbitalCheckpoint()
         {
-            yield return RunPhase6PerSourceFixture(
-                testName: "Pipeline_Anchor_OrbitalCheckpoint",
-                source: Parsek.Rendering.AnchorSource.OrbitalCheckpoint,
-                side: Parsek.Rendering.AnchorSide.Start);
+            yield return RunBoundaryInstantLiveFixture(
+                "Pipeline_Anchor_OrbitalCheckpoint", Parsek.Rendering.AnchorSource.OrbitalCheckpoint);
         }
 
         /// <summary>
@@ -26305,35 +26304,29 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
-        /// v0.9.1 §7.7. BubbleExit candidate — emitted at every
-        /// Active|Background → Checkpoint source-class transition. Lands
-        /// on the Checkpoint segment's Side=Start; the resolver reads the
-        /// LAST physics-active sample as the high-fidelity reference.
+        /// v0.9.1 section 7.7. BubbleExit candidate (Active|Background -> Checkpoint, on the
+        /// Checkpoint segment's Side=Start, reference = the LAST physics sample), a quarter
+        /// of a body rotation after the boundary, against live KSP: metres.
         /// </summary>
         [InGameTest(Category = "Pipeline-Anchor-BubbleEntry", Scene = GameScenes.FLIGHT,
-            Description = "v0.9.1 §7.7 BubbleExit candidate produces non-zero ε via the resolver")]
+            Description = "v0.9.1 section 7.7 BubbleExit eps a quarter rotation after the boundary is metres against live KSP")]
         public IEnumerator Pipeline_Anchor_BubbleExit()
         {
-            yield return RunPhase6PerSourceFixture(
-                testName: "Pipeline_Anchor_BubbleExit",
-                source: Parsek.Rendering.AnchorSource.BubbleExit,
-                side: Parsek.Rendering.AnchorSide.Start);
+            yield return RunBoundaryInstantLiveFixture(
+                "Pipeline_Anchor_BubbleExit", Parsek.Rendering.AnchorSource.BubbleExit);
         }
 
         /// <summary>
-        /// v0.9.1 §7.7. BubbleEntry candidate — emitted at every
-        /// Checkpoint → Active|Background source-class transition. Lands
-        /// on the Checkpoint segment's Side=End; the resolver reads the
-        /// FIRST physics-active sample as the high-fidelity reference.
+        /// v0.9.1 section 7.7. BubbleEntry candidate (Checkpoint -> Active|Background, on the
+        /// Checkpoint segment's Side=End, reference = the FIRST physics sample), a quarter
+        /// of a body rotation after the boundary, against live KSP: metres.
         /// </summary>
         [InGameTest(Category = "Pipeline-Anchor-BubbleEntry", Scene = GameScenes.FLIGHT,
-            Description = "v0.9.1 §7.7 BubbleEntry candidate produces non-zero ε via the resolver")]
+            Description = "v0.9.1 section 7.7 BubbleEntry eps a quarter rotation after the boundary is metres against live KSP")]
         public IEnumerator Pipeline_Anchor_BubbleEntry()
         {
-            yield return RunPhase6PerSourceFixture(
-                testName: "Pipeline_Anchor_BubbleEntry",
-                source: Parsek.Rendering.AnchorSource.BubbleEntry,
-                side: Parsek.Rendering.AnchorSide.End);
+            yield return RunBoundaryInstantLiveFixture(
+                "Pipeline_Anchor_BubbleEntry", Parsek.Rendering.AnchorSource.BubbleEntry);
         }
 
         /// <summary>
@@ -26551,6 +26544,127 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
+        /// Live check of the boundary-instant seed epsilon (todo REFLY-ANCHOR-EPSILON-1300KM).
+        /// A conic around the active body has its boundary a quarter of a rotation before
+        /// now; the physics samples on the other side are STOCK's placement of that conic
+        /// (<c>Orbit.getPositionAtUT</c> with today's Zup, read back with the body's
+        /// <c>GetLatitude</c> / <c>GetLongitude</c> / <c>GetAltitude</c>), each longitude
+        /// moved back by the rotation since its own UT. The propagator (production body
+        /// constants, splines, surface placement) must then find the two sides metres apart.
+        /// The old world-at-rebuild comparison read about 1.4 r cos(lat) on this shape.
+        /// </summary>
+        private IEnumerator RunBoundaryInstantLiveFixture(string testName, Parsek.Rendering.AnchorSource source)
+        {
+            const double tol = 5.0;
+            Parsek.Rendering.RenderSessionState.ResetForTesting();
+            Parsek.Rendering.SmoothingPipeline.ResetForTesting();
+            Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
+            Parsek.Rendering.AnchorPropagator.ResetForTesting();
+
+            CelestialBody body = FlightGlobals.ActiveVessel != null
+                ? FlightGlobals.ActiveVessel.mainBody
+                : FlightGlobals.GetHomeBody();
+            InGameAssert.IsTrue(body != null && body.rotates && body.rotationPeriod > 0.0,
+                $"{testName}: needs a rotating main body");
+
+            try
+            {
+                // One synchronous pass: every stock read below uses the same Zup and rotation.
+                double now = Planetarium.GetUniversalTime();
+                double tb = now - 0.25 * body.rotationPeriod;
+                double sma = body.Radius + System.Math.Max(body.atmosphereDepth, 10000.0) + 80000.0;
+                bool checkpointFirst = source == Parsek.Rendering.AnchorSource.BubbleEntry;
+                var seg = new OrbitSegment
+                {
+                    bodyName = body.bodyName,
+                    inclination = 28.0, eccentricity = 0.01, semiMajorAxis = sma,
+                    longitudeOfAscendingNode = 40.0, argumentOfPeriapsis = 15.0,
+                    meanAnomalyAtEpoch = 0.3, epoch = tb - 20.0,
+                    startUT = checkpointFirst ? tb - 600.0 : tb,
+                    endUT = checkpointFirst ? tb : tb + 600.0,
+                };
+                var stock = new Orbit(seg.inclination, seg.eccentricity, seg.semiMajorAxis,
+                    seg.longitudeOfAscendingNode, seg.argumentOfPeriapsis,
+                    seg.meanAnomalyAtEpoch, seg.epoch, body);
+
+                var frames = new List<TrajectoryPoint>();
+                double from = checkpointFirst ? tb : tb - 20.0;
+                for (int i = 0; i <= 40; i++)
+                {
+                    double t = from + 0.5 * i;
+                    Vector3d w = stock.getPositionAtUT(t);
+                    frames.Add(new TrajectoryPoint
+                    {
+                        ut = t,
+                        latitude = body.GetLatitude(w),
+                        longitude = body.GetLongitude(w) + 360.0 * (now - t) / body.rotationPeriod,
+                        altitude = body.GetAltitude(w),
+                        bodyName = body.bodyName,
+                        rotation = Quaternion.identity,
+                        velocity = Vector3.zero,
+                    });
+                }
+                var physics = new TrackSection
+                {
+                    referenceFrame = ReferenceFrame.Absolute,
+                    environment = SegmentEnvironment.ExoBallistic,
+                    source = TrackSectionSource.Active,
+                    startUT = frames[0].ut, endUT = frames[frames.Count - 1].ut,
+                    frames = frames,
+                    checkpoints = new List<OrbitSegment>(),
+                };
+                var checkpoint = new TrackSection
+                {
+                    referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                    environment = SegmentEnvironment.ExoBallistic,
+                    source = TrackSectionSource.Checkpoint,
+                    startUT = seg.startUT, endUT = seg.endUT,
+                    frames = new List<TrajectoryPoint>(),
+                    checkpoints = new List<OrbitSegment> { seg },
+                };
+                var rec = new Recording { RecordingId = testName + "-rec", VesselName = testName };
+                if (checkpointFirst) { rec.TrackSections.Add(checkpoint); rec.TrackSections.Add(physics); }
+                else { rec.TrackSections.Add(physics); rec.TrackSections.Add(checkpoint); }
+
+                int sectionIndex;
+                Parsek.Rendering.AnchorSide side;
+                if (source == Parsek.Rendering.AnchorSource.OrbitalCheckpoint)
+                { sectionIndex = 0; side = Parsek.Rendering.AnchorSide.End; }
+                else if (source == Parsek.Rendering.AnchorSource.BubbleExit)
+                { sectionIndex = 1; side = Parsek.Rendering.AnchorSide.Start; }
+                else
+                { sectionIndex = 0; side = Parsek.Rendering.AnchorSide.End; }
+
+                // Fits the splines and emits this recording's candidates.
+                Parsek.Rendering.SmoothingPipeline.FitAndStorePerSection(rec);
+                Parsek.Rendering.AnchorPropagator.Run(
+                    new ReFlySessionMarker { SessionId = testName + "-sess" },
+                    new List<Recording> { rec },
+                    new List<RecordingTree>(),
+                    surfaceLookup: null);
+
+                bool hit = Parsek.Rendering.RenderSessionState.TryLookup(
+                    rec.RecordingId, sectionIndex, side, out Parsek.Rendering.AnchorCorrection ac);
+                InGameAssert.IsTrue(hit, $"{testName}: anchor slot must be present");
+                InGameAssert.AreEqual(source, ac.Source, $"{testName}: source must round-trip");
+                double eps = ac.Epsilon.magnitude;
+                ParsekLog.Info("Pipeline-Anchor", string.Format(CultureInfo.InvariantCulture,
+                    "{0}: body={1} boundaryUT={2:F1} now={3:F1} |eps|={4:F3}m tol={5:F1}m",
+                    testName, body.bodyName, tb, now, eps, tol));
+                InGameAssert.IsTrue(eps > 0.0, $"{testName}: eps must be resolved, not a reserved zero slot");
+                InGameAssert.IsTrue(eps < tol, $"{testName}: eps {eps:F3}m exceeds {tol}m a quarter rotation after the boundary");
+            }
+            finally
+            {
+                Parsek.Rendering.RenderSessionState.ResetForTesting();
+                Parsek.Rendering.SmoothingPipeline.ResetForTesting();
+                Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
+                Parsek.Rendering.AnchorPropagator.ResetForTesting();
+            }
+            yield break;
+        }
+
+        /// <summary>
         /// In-game stub resolver — returns a fixed world position from
         /// every TryResolve* method. Production callers use
         /// <see cref="Parsek.Rendering.ProductionAnchorWorldFrameResolver"/>;
@@ -26566,10 +26680,6 @@ namespace Parsek.InGameTests
                 Recording rec, int sectionIndex, Parsek.Rendering.AnchorSide side,
                 double boundaryUT, out Vector3d worldPos)
             { worldPos = this.worldPos; return true; }
-            public bool TryResolveOrbitalCheckpointWorldPos(
-                Recording rec, int sectionIndex, Parsek.Rendering.AnchorSide side,
-                double boundaryUT, out Vector3d worldPos)
-            { worldPos = this.worldPos; return true; }
             public bool TryResolveSoiBoundaryWorldPos(
                 Recording rec, int sectionIndex, Parsek.Rendering.AnchorSide side,
                 double boundaryUT, out Vector3d worldPos)
@@ -26577,10 +26687,6 @@ namespace Parsek.InGameTests
             public bool TryResolveLoopAnchorWorldPos(
                 Recording rec, int sectionIndex, Parsek.Rendering.AnchorSide side,
                 double sampleUT, out Vector3d worldPos)
-            { worldPos = this.worldPos; return true; }
-            public bool TryResolveBubbleEntryExitWorldPos(
-                Recording rec, int sectionIndex, Parsek.Rendering.AnchorSide side,
-                double boundaryUT, out Vector3d worldPos)
             { worldPos = this.worldPos; return true; }
         }
 

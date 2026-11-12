@@ -1,5 +1,7 @@
 # §7.7 BubbleEntry/Exit Anchor — Implementation Plan
 
+> **Superseded in part (2026-11-12).** The BubbleEntry / BubbleExit epsilon no longer goes through `IAnchorWorldFrameResolver`: the resolver read both sides through live state at the session rebuild (current Zup, current body rotation), which added the body's rotation since the boundary (todo REFLY-ANCHOR-EPSILON-1300KM, offsets of 64 km to 22,820 km). `AnchorPropagator.TryResolveBoundaryInstantEpsilon` now compares both sides at the boundary UT in that instant's body-fixed frame; the contract is in `docs/parsek-ghost-trajectory-rendering-design.md` section 7.5.
+
 ## 0. Pre-flight verification
 
 Before touching code, verify these load-bearing facts in the worktree (all done during planning, listed here for the Implement agent to re-confirm if anything below looks off):

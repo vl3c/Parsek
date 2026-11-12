@@ -274,6 +274,8 @@ The boundary value of the RELATIVE segment, computed via the resolver, is the re
 
 **Reference position:** Kepler propagation from the checkpoint at the boundary UT. Analytically clean.
 
+**One instant, one frame.** The epsilon compares the Kepler point with the ABSOLUTE segment's smoothed position, both at the boundary UT `t_b` and both in the body-fixed frame of `t_b`, before either is placed in the world. The Kepler side is propagated in the STORED element frame (`TwoBodyOrbit.TryCreateFromSegmentStoredFrame`, LAN from `Planetarium.right`, no Zup) and lowered to body-fixed latitude / longitude / altitude by `TrajectoryMath.BoundaryFrame` (body-fixed longitude = inertial longitude - `rotationAngle(t_b)`, `rotationAngle = initialRotation + 360 t / rotationPeriod`, stock `CelestialBody.CBUpdate`); the spline side is lowered from its frame tag at `t_b`. Both points are then placed through the same surface lookup, so the magnitude does not depend on when the anchor map is rebuilt, and the stored vector is a world translation oriented by the body's rotation at the rebuild (its later drift is at most twice its magnitude, metres). Placing either side through live state (`Orbit.getPositionAtUT` with the current Zup, `GetWorldSurfacePosition` with the current rotation) mixes two instants and adds the body's rotation since `t_b`; that was todo REFLY-ANCHOR-EPSILON-1300KM (offsets of 64 km to 22,820 km). Implemented by `AnchorPropagator.TryResolveBoundaryInstantEpsilon`, which the world-frame resolver no longer serves for this source.
+
 **Applies to:** The adjacent ABSOLUTE segment, at the boundary.
 
 ### 7.6 SOI Transition Anchor
@@ -289,6 +291,8 @@ The boundary value of the RELATIVE segment, computed via the resolver, is the re
 **Trigger:** A vessel that was previously outside the recording session's physics bubble enters it (becomes physics-active and starts producing high-fidelity samples) or exits it (becomes propagation-only).
 
 **Reference position:** At entry, the first physics-active sample is high-fidelity for that vessel because subsequent samples will also be common-mode-correlated with the active focus. At exit, the last physics-active sample is the reference.
+
+The epsilon compares that recorded sample with the checkpoint's Kepler point at the sample's own UT, both in the body-fixed frame of that instant, exactly as Section 7.5 describes (`AnchorPropagator.TryResolveBoundaryInstantEpsilon`). A physics neighbour in a RELATIVE section is deferred.
 
 **Applies to:** The propagation-only segment adjacent to the entry or exit.
 

@@ -290,6 +290,33 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The segment <see cref="EvaluateOrbitSegmentAtUT"/> evaluates at
+        /// <paramref name="ut"/>: the one <see cref="FindOrbitSegment"/> picks, else the first
+        /// or last segment when <paramref name="ut"/> lies before or past the sampled range
+        /// (a boundary UT a hair outside the partial first / last checkpoint). False for a
+        /// null or empty list or a segment without usable elements. Pure.
+        /// </summary>
+        internal static bool TryPickOrbitSegmentForBoundaryUT(
+            List<OrbitSegment> checkpoints, double ut, out OrbitSegment seg)
+        {
+            seg = default(OrbitSegment);
+            if (checkpoints == null || checkpoints.Count == 0) return false;
+
+            OrbitSegment? maybeSeg = FindOrbitSegment(checkpoints, ut);
+            if (!maybeSeg.HasValue)
+            {
+                // FindOrbitSegment returns null only when ut < checkpoints[0].startUT OR
+                // ut > checkpoints[Count-1].endUT, so the boundary check picks the endpoint.
+                if (ut <= checkpoints[0].startUT)
+                    maybeSeg = checkpoints[0];
+                else
+                    maybeSeg = checkpoints[checkpoints.Count - 1];
+            }
+            seg = maybeSeg.Value;
+            return HasUsableOrbitSegmentElements(seg);
+        }
+
+        /// <summary>
         /// Phase 6 §7.5 / §7.7 shared helper. Evaluates a body-relative
         /// world position from an OrbitSegment list at the supplied UT.
         /// When <paramref name="ut"/> falls within a segment, propagates
@@ -325,24 +352,8 @@ namespace Parsek
             double ut,
             Func<string, CelestialBody> bodyResolver)
         {
-            if (checkpoints == null || checkpoints.Count == 0) return null;
             if (bodyResolver == null) return null;
-
-            OrbitSegment? maybeSeg = FindOrbitSegment(checkpoints, ut);
-            if (!maybeSeg.HasValue)
-            {
-                // Endpoint fallback: pick the segment on the side of the
-                // checkpoint range that the UT lies past. FindOrbitSegment
-                // returns null only when ut < checkpoints[0].startUT OR
-                // ut > checkpoints[Count-1].endUT, so the boundary check
-                // disambiguates which endpoint to use.
-                if (ut <= checkpoints[0].startUT)
-                    maybeSeg = checkpoints[0];
-                else
-                    maybeSeg = checkpoints[checkpoints.Count - 1];
-            }
-            OrbitSegment seg = maybeSeg.Value;
-            if (!HasUsableOrbitSegmentElements(seg))
+            if (!TryPickOrbitSegmentForBoundaryUT(checkpoints, ut, out OrbitSegment seg))
                 return null;
 
             CelestialBody body = bodyResolver(seg.bodyName);
