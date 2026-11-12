@@ -908,15 +908,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The classify-free colour-changer half of the DRIVER path (see
-        /// <see cref="SetLightState"/>). Same writer the event path uses.
-        /// </summary>
-        internal static void ApplyColorChangerLightState(GhostPlaybackState state, uint partPersistentId, bool on)
-        {
-            WriteColorChangerLightState(state, partPersistentId, on);
-        }
-
-        /// <summary>
         /// P8 step 1 outcome-reporting variant, reached only from a recorded light
         /// EVENT. Classifies (the four distinct ghost-build facts are documented on
         /// <see cref="ClassifyColorChangerLightApply"/>) and then hands the write to

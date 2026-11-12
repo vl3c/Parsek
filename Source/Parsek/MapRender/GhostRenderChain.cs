@@ -74,14 +74,6 @@ namespace Parsek.MapRender
             return contains ? found : -1; // -1 = a gap after segs[found]
         }
 
-        internal bool TryGetSegment(double ut, out RenderSegment segment, out int index)
-        {
-            index = LocateSegmentIndex(ut);
-            if (index >= 0) { segment = Segments[index]; return true; }
-            segment = default(RenderSegment);
-            return false;
-        }
-
         /// <summary>
         /// Classify a UT (already mapped into the assembled-chain clock by the sampler) into the
         /// three-valued <see cref="Coverage"/>. Outside the window → OutsideWindow; inside the window

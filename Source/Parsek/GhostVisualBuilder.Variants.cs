@@ -170,16 +170,6 @@ namespace Parsek
             Part prefab,
             ConfigNode partNode,
             out string selectedVariantName,
-            out Dictionary<string, bool> gameObjectStates)
-        {
-            return TryGetSelectedVariantGameObjectStates(prefab, partNode,
-                out selectedVariantName, out gameObjectStates, out _);
-        }
-
-        private static bool TryGetSelectedVariantGameObjectStates(
-            Part prefab,
-            ConfigNode partNode,
-            out string selectedVariantName,
             out Dictionary<string, bool> gameObjectStates,
             out string variantResolutionPath)
         {

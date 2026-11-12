@@ -28,7 +28,7 @@ namespace Parsek.MapRender
     /// Driver-direct - the 8e S3b sole-ownership-source decision), so <c>IsPolylineOwningGhostPhase</c>
     /// stays correct and the proto orbit line is hidden + the marker rides the drawn line.</para>
     /// </summary>
-    internal sealed class TracedPathTreatment : IGhostRenderTreatment
+    internal sealed class TracedPathTreatment
     {
         public Treatment Kind => Treatment.TracedPath;
 
@@ -78,29 +78,6 @@ namespace Parsek.MapRender
                     drawn, drawFrame),
                 2.0);
             return drawn;
-        }
-
-        public void Apply(GhostRenderIntent intent, IGhostMapScene scene, uint pid)
-        {
-            if (!ShouldApply(intent))
-                return;
-
-            // The actual owned draw is routed through TryDrawOwnedLeg from the Driver's LateUpdate (the
-            // single draw host - see the class summary). This Apply records the treatment's intent for
-            // the per-pid §13 trace; it does not double-draw (the Driver, not Apply, calls TryDrawLeg).
-            ParsekLog.VerboseRateLimited("MapRender", "tracedpath-drive-" + pid.ToString(CultureInfo.InvariantCulture),
-                string.Format(CultureInfo.InvariantCulture,
-                    "TracedPath drive pid={0} driveUT={1:F3} body={2}",
-                    pid, intent.DriveUT, intent.FrameBodyName ?? "?"),
-                2.0);
-        }
-
-        // The autonomous Driver owns hide/show via its per-frame deactivation sweep (a leg not drawn
-        // this frame is deactivated). The treatment shares that mechanism (it draws via the same cached
-        // leg + VectorLine), so a director-owned leg that stops being active is hidden by the same sweep;
-        // there is nothing separate for the treatment to tear down here.
-        public void StandDown(IGhostMapScene scene, uint pid)
-        {
         }
     }
 }

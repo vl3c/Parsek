@@ -1483,8 +1483,7 @@ namespace Parsek
         /// <see cref="EmitWindowSnapshot"/> / <see cref="EmitAnomaly"/>) do their
         /// own gating, so this predicate is currently exercised only by tests; it
         /// lands in production with the decision-layer / reconciliation second
-        /// cut. Same for the <c>FormatVector3</c> / <c>FormatQuaternion</c> /
-        /// <c>ShortId</c> / <c>Bool</c> formatters below.</para>
+        /// cut. Same for the <c>FormatVector3</c> / <c>Bool</c> formatters below.</para>
         /// </summary>
         internal static GateDecision EvaluateGate(
             double currentUT,
@@ -2111,15 +2110,6 @@ namespace Parsek
                 + value.z.ToString("F2", CultureInfo.InvariantCulture) + ")";
         }
 
-        internal static string FormatQuaternion(Quaternion value)
-        {
-            return "("
-                + value.x.ToString("F4", CultureInfo.InvariantCulture) + ","
-                + value.y.ToString("F4", CultureInfo.InvariantCulture) + ","
-                + value.z.ToString("F4", CultureInfo.InvariantCulture) + ","
-                + value.w.ToString("F4", CultureInfo.InvariantCulture) + ")";
-        }
-
         internal static string FormatDouble(double value, string format)
         {
             if (double.IsNaN(value))
@@ -2129,13 +2119,6 @@ namespace Parsek
             if (double.IsNegativeInfinity(value))
                 return "-Infinity";
             return value.ToString(format, CultureInfo.InvariantCulture);
-        }
-
-        internal static string ShortId(string value)
-        {
-            if (string.IsNullOrEmpty(value))
-                return "<none>";
-            return value.Length > 8 ? value.Substring(0, 8) : value;
         }
 
         internal static string Token(string value)

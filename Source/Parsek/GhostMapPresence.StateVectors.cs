@@ -1135,26 +1135,7 @@ namespace Parsek
         /// Honours the originating TrackSection's <see cref="ReferenceFrame"/>: Absolute
         /// uses surface lat/lon/alt; Relative resolves through TrackSection.anchorRecordingId
         /// via the recorded-anchor resolver, then applies the anchor-local offset.
-        /// </summary>
-        internal static Vessel CreateGhostVesselFromStateVectors(
-            int recordingIndex, IPlaybackTrajectory traj,
-            TrajectoryPoint point,
-            double ut,
-            bool allowOrbitalCheckpointStateVector = false,
-            string stateVectorCreateReason = null)
-        {
-            return CreateGhostVesselFromStateVectors(
-                recordingIndex,
-                traj,
-                point,
-                ut,
-                out _,
-                allowOrbitalCheckpointStateVector,
-                stateVectorCreateReason);
-        }
-
-        /// <summary>
-        /// Overload that exposes <paramref name="retryLater"/> = true when a
+        /// Sets <paramref name="retryLater"/> = true when a
         /// transient state-vector deferral or active-Re-Fly suppression path fires.
         /// Callers that maintain a "pending map vessel" queue (cf.
         /// <c>ParsekPlaybackPolicy.CheckPendingMapVessels</c>) keep the pending
