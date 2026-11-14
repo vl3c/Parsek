@@ -63,13 +63,13 @@ Citations read `plan :line`, using the short names above. "go" means the owner's
 
 | Named in a `Depends on` line | Resolved to |
 |---|---|
-| "every spike report" (S13, r0 :840) | S0 to S12 |
+| "every spike report" (S13, r0 :840) | S0 to S12 except S8a, S8b |
 | "P2a-02 to P2a-07" (P2b-02, playback :564) | P2a-02, P2a-03, P2a-04, P2a-05, P2a-06, P2a-07 |
 | "P6-05 (or its fallback)" (R3W-04, r3w :431) | P6-05; the fallback (r3w :67-70) is soft |
 | "owner's yes (question 2)" (R3E-23, r3e :928) | owner gate r3e Q2, not a task |
 | "R3 question 2" (R5-05, r5 :379) | owner gate r3w Q2, not a task |
 | "questions 10.1 and 10.2" (R5-12, r5 :577) | owner gates r5 Q1, Q2, not tasks |
-| "parallel flights" (T-34, T :700) | the parallel runner, on main (pull request #2592); no task in these plans (E, item 11) |
+| "parallel flights" (T-34, formerly named in T :700) | the parallel runner, on main (pull request #2592); no task in these plans (E, item 11) |
 
 ### Stricter readings taken
 

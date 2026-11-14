@@ -531,7 +531,7 @@ The port as specified:
 
 The P2b series lands as one window: no other PR that touches the files in section 5's hot list
 merges between P2b-02 and P2b-10, no P6 PR merges in that window either (it shares no file, but
-the proof must fly one known change set), and the full flight proof (section 6.4) runs once
+the proof must fly one known change set), and the flight proof (section 6.4) runs once
 after P2b-10.
 
 **P2b-01 il_compare folds a renamed reference field**
@@ -1011,7 +1011,7 @@ the release run's picture lanes).
    Settled (OV-46): R3W-09 passes one shared `GhostSpawnFrameBudget` to both engines and resets
    it once per frame.
 10. 15.11 says P2b "lands alone". The plan cuts it into nine code PRs plus a tooling PR, landed as
-    one uninterrupted window with one full flight proof at the end. Settled (supervisor, P6
+    one uninterrupted window with one flight proof at the end. Settled (supervisor, P6
     order): P6 is built in parallel with the prerefactors and merged when green, but not inside
     this window.
 11. `il_compare` cannot fold a renamed field or a new parameter (P2b-01 adds the alias; P2b-07
