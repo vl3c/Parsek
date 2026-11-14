@@ -1718,8 +1718,8 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | V20K-jool-kerbin-ksc-arrival | operator | kerbin-return-recorded | seam | Kerbin, Jool, Sun | reload, save, warp, time-jump, scene-change | - | SPEC CHANGED 2026-10-07, RE-FLOWN PASS 20... |
 | V20M-jool-kerbin-player-loop | nightly | kerbin-return-recorded | seam | Kerbin, Jool, Sun | warp, time-jump | - | SPEC CHANGED 2026-10-07, RE-FLOWN PASS 20... |
 | V20T-jool-kerbin-ts-arrival | nightly | kerbin-return-recorded | seam | Kerbin, Jool, Sun | reload, save, warp, time-jump, scene-change | - | SPEC CHANGED 2026-10-07, RE-FLOWN PASS 20... |
-| V21M-mun-minmus-player-loop | operator | mun-minmus-recorded | seam | Kerbin, Mun, Minmus | warp, time-jump | - | RE-FLOWN GREEN 2026-11-11 ON THE 1.1.0 MO... |
-| V21T-mun-minmus-ts-arrival | operator | mun-minmus-recorded | seam | Kerbin, Mun, Minmus | reload, save, warp, time-jump, scene-change | - | RE-FLOWN GREEN 2026-11-11 ON THE 1.1.0 MO... |
+| V21M-mun-minmus-player-loop | operator | mun-minmus-recorded | seam | Kerbin, Mun, Minmus | warp, time-jump | - | RE-FLOWN GREEN 2026-11-11 ON THE 1.0.2 MO... |
+| V21T-mun-minmus-ts-arrival | operator | mun-minmus-recorded | seam | Kerbin, Mun, Minmus | reload, save, warp, time-jump, scene-change | - | RE-FLOWN GREEN 2026-11-11 ON THE 1.0.2 MO... |
 | V22K-kerbin-splashdown-ksc-arrival | operator | kerbin-splashdown-recorded | seam | Kerbin | reload, save, warp, time-jump, scene-change | - | SPEC CHANGED 2026-10-07, RE-FLOWN PASS 20... |
 | V22M-kerbin-splashdown-player-loop | operator | kerbin-splashdown-recorded | seam | Kerbin | warp, time-jump | - | LIVE-PROVEN 2026-07-20 |
 | V22T-kerbin-splashdown-ts-arrival | operator | kerbin-splashdown-recorded | seam | Kerbin | reload, save, warp, time-jump, scene-change | - | SPEC CHANGED 2026-10-07, RE-FLOWN PASS 20... |

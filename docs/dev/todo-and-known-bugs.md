@@ -990,7 +990,7 @@ the same strip to the embedded `GAME_STATE/LEDGER` (`strip_embedded_ledger`, 2 s
 rows out, the 6 zero-award rows kept) and `verify_sfs` refuses a leftover; the fixture is
 rebuilt (`--check` OK for all six). Test: `test_route_career.test_the_embedded_ledger_gets_the_same_strip`.
 
-## NEXT-TESTS-TO-BUILD-2026-11-11: the ranked list merging the moon matrix and the test gap audit, plus the new ideas of the 2026-11-11 review [FILED 2026-11-11 (owner asked to update the list), checked against main b5877e51f (1.1.0), reviewed the same day by a clean-context agent. OPEN; test program, no known defect]
+## NEXT-TESTS-TO-BUILD-2026-11-11: the ranked list merging the moon matrix and the test gap audit, plus the new ideas of the 2026-11-11 review [FILED 2026-11-11 (owner asked to update the list), checked against main b5877e51f (1.0.2), reviewed the same day by a clean-context agent. OPEN; test program, no known defect]
 
 Merges the two lists the owner had: the moon flight-test matrix (MOON-FLIGHT-TEST-PROGRAM below,
 project file `missions/moon-flight-test-matrix-2026-11-07.md`) and the 2026-10-31 test gap audit
@@ -998,7 +998,7 @@ project file `missions/moon-flight-test-matrix-2026-11-07.md`) and the 2026-10-3
 No committed spec was still waiting for its first flight when this list was written (the map
 picture lanes TP-1..TP-8, committed later the same day, flew green on their first flight that
 evening: see MAP-PICTURE-LANES-FIRST-FLIGHT): every lane added since the 2026-11-06 full run is live-proven, and the refactor batch (254 lanes, 2026-11-10 / 11, per the PR #2561
-body) re-flew the re-aim regression slice and the six moon-to-moon lanes on the new 1.1.0 clock
+body) re-flew the re-aim regression slice and the six moon-to-moon lanes on the new 1.0.2 clock
 (run ids in MOON-FLIGHT-TEST-PROGRAM and the six `autotest-status.md` rows). Not repeated here:
 fixes awaiting a re-flight of an existing lane (BDOCK-2), and the other programs in
 `docs/dev/autotest-roadmap.md` (IR-8 and IC-1 .. IC-4 route interaction lanes, Tier 4 / 5 perf,
@@ -1042,7 +1042,7 @@ in parallel in the cloud):
    The most expensive flight.
 2. [ ] (AUTHORED 2026-11-14, awaiting the PC batch: forges `B43`-`B46`, loop lanes `V43M`-`V46M`;
    the offline solver reads Tylo -> Bop as `joint-best-fit` at 7 x P_Bop, so B45 is no longer
-   expected to decline.) Moon-to-moon pairs on the new 1.1.0 loop spacing: B43 Vall -> Tylo, B44 Laythe -> Tylo,
+   expected to decline.) Moon-to-moon pairs on the new 1.0.2 loop spacing: B43 Vall -> Tylo, B44 Laythe -> Tylo,
    B46 Minmus -> Mun (about 200 Kerbin days between loops), B45 Tylo -> Bop (expected honest
    decline), each a forge plus a loop lane. Only Laythe -> Vall, Mun -> Minmus and Laythe -> Jool
    have flown on the new rule.
@@ -1355,7 +1355,7 @@ Closed since the audit (each with its own entry or PR): A1 RECORDINGS-TAB-LOOP-N
 Re-Fly / multi-cycle warp lanes IR-3 and IR-6 plus `RouteTimelineFuzzerTests` (#2345, part of C1),
 and REV-1 / SWS-1 / CN-4 / CN-5 for Revert to VAB, save switching and CommNet ghosts across a rewind
 and a load (#2348, #2352, #2354). Still open, each found by grep on main 2622fd5 and re-checked on
-main b5877e51f (1.1.0) on 2026-11-11, when every item below was still open; the ranked list that
+main b5877e51f (1.0.2) on 2026-11-11, when every item below was still open; the ranked list that
 merges this residue with the moon program is NEXT-TESTS-TO-BUILD-2026-11-11 at the top of this file:
 
 - [ ] C4: `BackgroundRecorder.OnBackgroundVesselGoOffRails` is named by no xUnit file, and
@@ -6731,7 +6731,7 @@ Do NOT re-implement intercept / window math from scratch. The 2026-05-28 prior-a
 
 - Owner: "we will need flight tests for all combinations of moons", building on the existing recordings. Plan doc: project file `missions/moon-flight-test-matrix-2026-11-07.md`. Already live: park -> one moon for Mun, Minmus, Ike, Gilly, Laythe, Tylo, Bop, Pol (V6M/V7M/V14M/V15M/V16M/V28M/V29M/V30M), moon -> moon Laythe -> Vall (V17M) and Mun -> Minmus (V21M). Missing: interplanetary trip carrying on to a moon (the lone-moon hold), Jool-park -> Vall, a Jool multi-moon tour (M-MIS-6), and more moon-to-moon pairs.
 - **Group A GREEN (2026-11-07, branch `claude/project-thread-ni23y9`):** forges B36 Duna->Ike (`2026-11-07_2214`), B37 Eve->Gilly (`_2220`), B38 Jool->Laythe (`_2230`) appended each moon hop to the committed Kerbin->planet tree and were harvested as `duna-ike-recorded`, `eve-gilly-recorded`, `jool-laythe-recorded`; loop lanes V31M / V31T / V32M / V32T / V33M all PASS attempt 1 (see LOOP-LONE-MOON-ARRIVAL-NOT-ALIGNED). Harness fix on the way: `harvest_bdock_station.py --keep-parsek` now keeps the `_versions` sidecar bodies the save names (a committed tree beside its resumed in-flight copy names an older root `.prec`; pruning it made the cold load drop the committed tree). Still open: Mun, Minmus, Vall, Tylo, Bop and Pol as continuation forges, a multi-moon Jool tree, and a Laythe Tracking Station lane (no V33T draft).
-- **Re-checked 2026-11-11 on main b5877e51f (1.1.0):** Group A is done (above). The moon-to-moon spacing (MOON-TO-MOON-LOOP-NOT-RETIMED, #2554) shipped in 1.1.0 and its six lanes V17M / V17T / V19M / V19T / V21M / V21T flew green on the new clock in the refactor batch (V17T `2026-11-11_0124`, V19T `_0125`, V19M `_0126`, V21T `_0151`, V21M `_0152` at e5b47f331, V17M `_0710` at fa3de158d after the #2559 / #2560 re-pins; rows in `autotest-status.md`), which also re-flew the matrix's re-aim regression slice (V3R, V8 .. V13A, V20M, V24W, V25M, GUI-18, M1). No B39 .. B46 or V34M+ spec exists. Still to build, in this order (ranked with the rest in NEXT-TESTS-TO-BUILD-2026-11-11): (1) Group B, new moon-to-moon pairs now that the code exists: B43 Vall -> Tylo, B44 Laythe -> Tylo, B46 Minmus -> Mun, B45 Tylo -> Bop (expected decline), each with a loop lane reading the moon-rooted phase lock; (2) Group C, the Jool multi-moon tour (M-MIS-6, never flown); (3) B39 .. B42 Jool -> Vall / Tylo / Bop / Pol continuations with V34M .. V37M, and V33T; then the Mun / Minmus continuations and the optional Ike / Gilly landings.
+- **Re-checked 2026-11-11 on main b5877e51f (1.0.2):** Group A is done (above). The moon-to-moon spacing (MOON-TO-MOON-LOOP-NOT-RETIMED, #2554) shipped in 1.0.2 and its six lanes V17M / V17T / V19M / V19T / V21M / V21T flew green on the new clock in the refactor batch (V17T `2026-11-11_0124`, V19T `_0125`, V19M `_0126`, V21T `_0151`, V21M `_0152` at e5b47f331, V17M `_0710` at fa3de158d after the #2559 / #2560 re-pins; rows in `autotest-status.md`), which also re-flew the matrix's re-aim regression slice (V3R, V8 .. V13A, V20M, V24W, V25M, GUI-18, M1). No B39 .. B46 or V34M+ spec exists. Still to build, in this order (ranked with the rest in NEXT-TESTS-TO-BUILD-2026-11-11): (1) Group B, new moon-to-moon pairs now that the code exists: B43 Vall -> Tylo, B44 Laythe -> Tylo, B46 Minmus -> Mun, B45 Tylo -> Bop (expected decline), each with a loop lane reading the moon-rooted phase lock; (2) Group C, the Jool multi-moon tour (M-MIS-6, never flown); (3) B39 .. B42 Jool -> Vall / Tylo / Bop / Pol continuations with V34M .. V37M, and V33T; then the Mun / Minmus continuations and the optional Ike / Gilly landings.
 
 ### ~~HARVEST-COMMITS-THE-LAUNCH-PATH~~ - a harvested fixture carried the operator's install path [~~FIXED 2026-11-14~~, found 2026-11-14]
 

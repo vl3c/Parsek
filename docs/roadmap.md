@@ -27,7 +27,7 @@ numbers become the 1.0 baseline, every later build loads every 1.0+ save, and th
 repair code is gone (older test saves load best effort). Policy:
 [`docs/dev/design-save-format-policy.md`](dev/design-save-format-policy.md).
 
-Parsek is at **v1.1.0**, on the 0.10.7 save format baseline. Its dependencies are Harmony,
+Parsek is at **v1.0.2**, on the 0.10.7 save format baseline. Its dependencies are Harmony,
 ClickThroughBlocker and ToolbarControl; Module Manager is no longer listed, since Parsek ships no
 Module Manager patches.
 
@@ -530,7 +530,7 @@ Revised 2026-10-05 (owner rulings; full design in `docs/dev/gloops-recorder-desi
 
 **Status: DESIGN v2 (2026-11-14), not implemented.** Binding design:
 `docs/dev/design-competitive-multiplayer.md`. No implementation starts before the owner says so
-(see "Current focus").
+(see "Current focus"). Planned to ship as version 1.1.0.
 
 Up to four players race each other, each in their own save and at their own pace, exchanging
 their public state through a shared folder. Nobody needs to be online at the same time.
