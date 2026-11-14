@@ -731,8 +731,28 @@ in the live tree's `BackgroundMap` (`IsLiveTreeBackgroundMember`); the switch th
 ordinary background-member continuation. `SimulateStockSwitchClick`'s seam evaluator reads the
 same two helpers. A skipped Case C logs one Verbose `pre-switch Case C skipped: target is a
 background member of the live tree`. Tests: `PreSwitchCaseCLiveTreeMemberTests` (6 facts).
-Live proof owed: FAR-4's re-flight (`targetIsSeparateCommittedVessel=false
-dialogDecision=NoPriorSession`, `route=bg-member-continuation`).
+Live proof: FAR-4's second flight `2026-11-14_1638` (head 37a6c6101) read
+`targetIsSeparateCommittedVessel=false dialogDecision=NoPriorSession` and
+`route=bg-member-continuation`; the lane itself red only on two first-reading counts (re-pinned,
+re-flight owed).
+
+## ~~FAR1-CAREER-FIXTURE-EMBEDDED-LEDGER~~: the `duna-ike-recorded-career` host kept its SANDBOX ledger, so FAR-1's rewind patched funds up 9120 [FILED 2026-11-14 from FAR-1's second flight, run `2026-11-14_1642` PARSEK-FAIL(expectation). FIXED 2026-11-14, branch `pc-lanes-fix-2`; harness fixture builder, not a Parsek defect; FAR-1 re-flight owed]
+
+`build_route_career.py` strips the SANDBOX seeds and the milestone award rows from the
+`ledger.pgld` sidecar. Its sixth source, `duna-ike-recorded`, also embeds a `GAME_STATE` node
+in the ParsekScenario node, and a load reads that copy (`Ledger.LoadFromNodeCore`,
+`GAME_STATE/LEDGER`), so FAR-1 booted with the 12 award rows and the SANDBOX
+`ScienceInitial` (science 0) still live. Readings: the boot filed adopted-gap pool adjustments
+(funds -160680, science +95) and logged no `Seeded initial science: amount=100,`; after the
+Rewind-to-Launch the walk topped up two older rows, `Milestone 'Orbit' topped up` at
+UT 4742953.2 (6240) and 9160199.4 (2880), and `PatchFunds: 500000.0 -> 509120.0`. Those rows are
+the Sun and Duna orbits captured with the bare id `Orbit` before #2301 (the same pre-1.0 shape as
+CS-FIXTURES-CARRY-BARE-ORBIT-MILESTONE), so they collide with Kerbin's `Orbit` and the rewind's
+timeline break lets the top-up (owner ruling 2026-11-04) pay the differences. A 1.0+ save
+qualifies every body milestone, so no player save collides this way. Fix: the builder applies
+the same strip to the embedded `GAME_STATE/LEDGER` (`strip_embedded_ledger`, 2 seeds and 12 award
+rows out, the 6 zero-award rows kept) and `verify_sfs` refuses a leftover; the fixture is
+rebuilt (`--check` OK for all six). Test: `test_route_career.test_the_embedded_ledger_gets_the_same_strip`.
 
 ## NEXT-TESTS-TO-BUILD-2026-11-11: the ranked list merging the moon matrix and the test gap audit, plus the new ideas of the 2026-11-11 review [FILED 2026-11-11 (owner asked to update the list), checked against main b5877e51f (1.1.0), reviewed the same day by a clean-context agent. OPEN; test program, no known defect]
 
@@ -758,8 +778,10 @@ Far-body timeline lanes (2026-11-14, from the catalog's first reading): FAR-1 ..
 (first PC batch 2026-11-14: FAR-2 `2026-11-14_1524`, FAR-3 `_1529` and V33T `_1534` green on the
 first flight; FAR-4 found PRESWITCH-CASE-C-LIVE-TREE-MEMBER, fixed; FAR-1 (the Tracking Station's
 intro_TS warp lock, now a 1x wait), FAR-5 (a Kerbin leaf in the bodies list) and FAR-6 (an F9 is a
-cold save-file load since Phase 3, and a missing leading mark) re-pinned; FAR-1/4/5/6 re-flights
-owed) (rewind-to-launch with a committed Ike flight in career, a relaunch rewind
+cold save-file load since Phase 3, and a missing leading mark) re-pinned; re-flown on main
+37a6c6101: FAR-5 `_1639` and FAR-6 `_1641` green, FAR-4 `_1638` proved the switch fix and was
+re-pinned on two counts, FAR-1 `_1642` found FAR1-CAREER-FIXTURE-EMBEDDED-LEDGER (host rebuilt);
+FAR-1 and FAR-4 re-flights owed) (rewind-to-launch with a committed Ike flight in career, a relaunch rewind
 keeping Duna vessels, a revert with Ike committed, an EVA switch at Gilly, physics warp at Laythe,
 a looped Ike watch across a quickload), read by position through the new in-game category
 `LeafVesselPlacement`. Re-Fly at a far body is still uncovered: no far-body fixture has a rewind

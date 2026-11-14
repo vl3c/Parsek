@@ -45,7 +45,7 @@ tier = "operator"
 description = "Far-body physics warp: on jool-laythe-recorded the Duna Rocket in Laythe orbit is recorded through ~120 s of 4x physics warp and committed; the vessel must still fly the orbit its committed leaf recorded (elements and phase at the clock), with no spawn pid on two vessels (LeafVesselPlacement in FLIGHT)."
 instanceProfile = "stock-minimal"
 tags = ["FAR-5", "far-body", "laythe", "jool", "sandbox", "physics-warp", "leaf-placement",
-        "ingame-batch", "timeline-ops", "recorded-fixture", "pending-flight", "reading-run"]
+        "ingame-batch", "timeline-ops", "recorded-fixture", "flown", "reading-run"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/jool-laythe-recorded"
@@ -93,7 +93,7 @@ required = [
   "warptout complete reachedUT=\\S+ ut=28817060 .*maxRate=4 ladder=phys",
   "Total committed: (?:8|9) recordings, 2 trees",
   "MISSIONMARK label=far5-committed ut=[\\s\\S]*?LeafPlacement summary: scene=FLIGHT compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 absent=0 duplicate=0 unsupported=0 bodies=\\[(?:[A-Za-z]+,)*Laythe(?:,[A-Za-z]+)*\\]",
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=LeafVesselPlacement scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
