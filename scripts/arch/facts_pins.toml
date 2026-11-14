@@ -9,10 +9,10 @@
 # watch band of 5, so a compiler that counts a method a decision or two higher
 # cannot red); a method not listed here reds when it reaches 50. A listed method
 # may grow without a red, and a rename or a move into another type needs a re-pin.
-# Pinned from Parsek.dll 2026-11-12
+# Pinned from Parsek.dll 2026-11-14
 
 [crossTypeStaticWrites]
-bound = 55
+bound = 41
 keys = [
     "Parsek.DockEventGraph::SuppressLogging",
     "Parsek.FlagPickUp::PendingFlagPid",
@@ -48,23 +48,9 @@ keys = [
     "Parsek.RecordingStore::RewindUTAdjustmentPending",
     "Parsek.RecordingStore::RewindUTAdjustmentTargetUT",
     "Parsek.RecordingStore::SuppressLogging",
-    "Parsek.RewindInvokeContext::CapturedBundle",
-    "Parsek.RewindInvokeContext::HasCapturedBundle",
-    "Parsek.RewindInvokeContext::Pending",
-    "Parsek.RewindInvokeContext::ReadbackPreRewind",
-    "Parsek.RewindInvokeContext::RewindPoint",
-    "Parsek.RewindInvokeContext::RewindPointId",
-    "Parsek.RewindInvokeContext::Selected",
-    "Parsek.RewindInvokeContext::SelectedOriginChildRecordingId",
-    "Parsek.RewindInvokeContext::SelectedSlotIndex",
-    "Parsek.RewindInvokeContext::SessionId",
-    "Parsek.RewindInvokeContext::TempQuicksavePath",
     "Parsek.RewindLauncher::<PendingCleanupNames>k__BackingField",
     "Parsek.RewindLauncher::<PendingCleanupPids>k__BackingField",
     "Parsek.RewindLauncher::<PendingRevertPreExistingPids>k__BackingField",
-    "Parsek.SceneEntryVesselScope::SceneEntryActiveVesselGuid",
-    "Parsek.SceneEntryVesselScope::SceneEntryActiveVesselPid",
-    "Parsek.SceneEntryVesselScope::SceneEntryFreshRolloutVesselPid",
     "Parsek.SceneExitInterceptor::s_AllowNextLoadScene",
     "Parsek.SceneExitInterceptor::s_AllowNextLoadSceneDestination",
     "Parsek.VesselLaunchIdentity::GuidLinkRule",
