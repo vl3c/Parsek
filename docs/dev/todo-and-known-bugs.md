@@ -20,6 +20,36 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## FAR-SWITCH-CASE-B-UNFLOWN: no lane flew a far vessel switch while recording, so the commit before stock's reload was never checked in game [FILED 2026-11-14 from a lane gap audit (the vessel-switch stash family). LANE AUTHORED 2026-11-14, branch `item20-switch-pending-merge-lane`: `S0.14-far-switch-merges-before-reload`, operator, NEVER FLOWN; closes when its first flight is green; test gap, no known defect]
+
+Shape: the player records a vessel, then switches to a vessel OUTSIDE the physics bubble (map
+Switch-To, or the stock alarm's Jump in FLIGHT). Stock's `setActiveVessel` fires
+`onVesselSwitchingToUnloaded`, saves `persistent` and reloads FLIGHT through
+`FlightDriver.StartAndFocusVessel`; it never fires `onVesselSwitching`, so the #266 pre-transition
+stash (`StashActiveTreeForVesselSwitch`) cannot see it. Parsek decides first: pre-switch Case B
+(no session, a live recording, `target.loaded == false`) in
+`MapFocusObjectOnSelectPatch.PrepareOwnedVesselSwitch`, then `TryAutoResolvePreSwitch` ->
+`MergeActiveTreeAndSwitchTo` (`CommitTreeFlight`) or `DiscardActiveRecordingAndSwitchTo`, then
+`ArmIntentAndSwitchTo`.
+
+Gap, by grep on 2026-11-14 over every `harness/scenarios/*.toml` and
+`docs/dev/flight-profiles.md`: zero hits for `B-unloaded`,
+`pre-switch-dialog-merge-chosen-no-session`, `pre-switch-dialog-discard-chosen-no-session` and
+`StashActiveTreeForVesselSwitch`. `SimulateStockSwitchClick` refuses an unloaded target
+(`target-unloaded`), and AJ-1 drives `AlarmJump` only inside a Re-Fly session, where the switch
+is refused before Case B. The xUnit cells (`MergeFlowDecisionTests`, the
+`DecidePreSwitchAutoResolution` truth table) fake the host.
+
+Lane: S0.14 on `eva2-lko-crewed` records Kerbal X in orbit and presses `AlarmJump
+pid=2325190904` (an unloaded landed debris). It requires the Merge auto-resolve with
+`case=B-unloaded`, the commit of a one-recording tree before `Scene change requested: FLIGHT`,
+an OnLoad with no pending or Limbo tree, the MapSwitchTo intent cleared stale, no recording after
+the reload and one committed tree in the save; every Limbo / #266 stash and restore line and the
+dialog are forbidden. Pre-registered outcomes P1-P6 are in the spec header. Not covered: the
+Discard half of Case B (a no-op or idle-on-pad prior recording) and the #266 stash itself, which
+needs an in-scene switch followed within 60 frames by a FLIGHT -> FLIGHT reload that no seam verb
+drives.
+
 ## ~~WINDOWS-TEST-HOST-ONLY-REDS-2026-11-14: 16 xUnit tests red on the owner's Windows PC and green on CI~~ [FILED 2026-11-14 from a Windows run of main 37a6c6101 (Debug and Release, OS culture ro-RO). FIXED 2026-11-14, branch `claude/project-thread-lkzj01`; xUnit on mono, the Windows re-run owed; tests only, no player-visible change]
 
 Two defects, one gap.
