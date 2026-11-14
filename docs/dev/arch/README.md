@@ -482,11 +482,15 @@ Release build of one compiler agree on those; two compilers do not quite
 methods at complexity 20 or more), which the complexity watch band absorbs.
 
 - `crossTypeStaticWrites`: the statics written by another production type
-  may not outnumber `bound` (41). A red names the new keys and their writers.
-  The check reads `stsfld` only: a write through a static property setter
-  is a call, so a field moved into a `ColdResetState` holder behind a
-  property leaves the set (the holders took it from 55 to 41: the 11
-  `RewindInvokeContext` fields and 3 `SceneEntryVesselScope` pids).
+  may not outnumber `bound` (55). A red names the new keys and their writers.
+  A write is an `stsfld`, a call to a static auto-property setter, or a call
+  to a static property setter of a type that keeps its save-scoped fields in
+  a nested `ColdResetState` holder when that setter reads the holder static;
+  such a write is keyed by the property (`Type::Property`, the name the field
+  had before it moved into the holder) and attributed to the holder, not to
+  one holder field. A call to a holder type's static METHOD that assigns
+  holder fields (`RewindInvokeContext.Clear()`) is not counted: a method
+  call is not a write.
 - `complexityWatch` (the complexity gate): every method (by `Type::Name`, so
   overloads and a parameter change do not move it) at complexity 45 or more
   is pinned (53), the gate 50 minus a watch band of 5
