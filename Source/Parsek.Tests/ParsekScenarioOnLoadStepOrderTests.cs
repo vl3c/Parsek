@@ -27,12 +27,22 @@ namespace Parsek.Tests
     /// coroutine started, every seam hit, and the final phase and status of the load's timing
     /// line.</para>
     ///
-    /// <para><b>Named seams the test replaces</b> (they cannot run headless; each hit is a
-    /// <c>seam</c> row): <c>UnityEngine.Time.realtimeSinceStartup</c> /
-    /// <c>UnityEngine.Time.frameCount</c> read inline in OnLoad (fixed values);
-    /// <c>MonoBehaviour.StartCoroutine</c> (recorded, not started); and the methods in
-    /// <see cref="SkippedSeams"/>, which reach Unity natives (<c>Object.FindObjectsOfType</c>)
-    /// and are skipped. Everything else runs for real over an empty save node.</para>
+    /// <para><b>Named seams the test replaces</b> (they cannot run headless): OnLoad's two
+    /// Unity clock reads, <c>ParsekScenario.ReadUnityRealtimeSinceStartupCore</c> /
+    /// <c>ReadUnityFrameCountCore</c>, swapped at the call site for fixed values;
+    /// <c>MonoBehaviour.StartCoroutine</c>, swapped at the call site in the <c>OnLoad*</c>
+    /// methods and in <see cref="CoroutineSeamHosts"/> for a recorder that writes a
+    /// <c>coroutine</c> row and starts nothing; and the methods in <see cref="SkippedSeams"/>,
+    /// which reach Unity natives (<c>Object.FindObjectsOfType</c>) and are skipped with a
+    /// <c>seam</c> row. Everything else runs for real over an empty save node.</para>
+    ///
+    /// <para><b>Why call-site swaps.</b> Harmony compiles the original of every method it
+    /// patches, and the Windows .NET test host cannot compile a method that calls a Unity
+    /// internalcall directly (<c>SecurityException</c>: ECall methods must be packaged into a
+    /// system module; mono only fails when the call runs). So no patched method may call one
+    /// directly, and no Unity method is patched at all (<c>StartCoroutine</c> itself calls
+    /// two). <see cref="NoPatchedMethod_CallsAUnityInternalcallDirectly"/> holds that on every
+    /// host.</para>
     ///
     /// <para><b>The scenarios.</b> Cold is a boot load into the Space Center. Every other kind
     /// first runs a cold load and destroys that scenario (stock's teardown, which captures the
@@ -52,6 +62,13 @@ namespace Parsek.Tests
         {
             "Parsek.GameStateFacilityRecorder::SeedFacilityCacheFromCurrentState",
             "Parsek.GameStateFacilityRecorder::PollFacilityState",
+        };
+
+        /// <summary>Methods outside <c>OnLoad*</c> the loads run that start a coroutine
+        /// (transpiled for the coroutine swap only: no step rows).</summary>
+        internal static readonly string[] CoroutineSeamHosts =
+        {
+            "HandleRewindOnLoad",
         };
 
         /// <summary>Every phase name OnLoad assigns (its <c>ctx.Phase</c> literals).</summary>
@@ -259,9 +276,11 @@ namespace Parsek.Tests
             harmony.Patch(
                 AccessTools.Method(typeof(PreParsekBackup), nameof(PreParsekBackup.MaybeBackupOnFirstColdContact)),
                 prefix: new HarmonyMethod(typeof(StepRecorder), nameof(StepRecorder.BackupFailsPrefix)));
+            // The notice call is swapped where the hold posts it: QueueNoticeForSettledScene
+            // starts a Unity coroutine, so it is not patched (see the class summary).
             harmony.Patch(
-                AccessTools.Method(typeof(ParsekHarmony), nameof(ParsekHarmony.QueueNoticeForSettledScene)),
-                prefix: new HarmonyMethod(typeof(StepRecorder), nameof(StepRecorder.SkipSeamPrefix)));
+                AccessTools.Method(typeof(ParsekScenario), "EnterBackupHold"),
+                transpiler: new HarmonyMethod(typeof(StepRecorder), nameof(StepRecorder.TranspileNoticeSeam)));
             try
             {
                 Scenario cold = Scenarios().First(s => s.Kind == "Cold");
@@ -280,6 +299,33 @@ namespace Parsek.Tests
             {
                 PreParsekBackup.ResetHoldForTesting();
             }
+        }
+
+        [Fact]
+        public void NoPatchedMethod_CallsAUnityInternalcallDirectly()
+        {
+            // The scan is not vacuous: the clock helpers the flow calls do read Unity directly.
+            Assert.NotNull(StepRecorder.ReadRealtimeHelper);
+            Assert.NotNull(StepRecorder.ReadFrameCountHelper);
+            Assert.Equal(new[] { "UnityEngine.Time::get_frameCount" },
+                DirectInternalcallCallees(StepRecorder.ReadFrameCountHelper));
+            Assert.Equal(new[] { "UnityEngine.Time::get_realtimeSinceStartup" },
+                DirectInternalcallCallees(StepRecorder.ReadRealtimeHelper));
+
+            var offenders = new List<string>();
+            int scanned = 0;
+            foreach (MethodBase method in MethodsTheFactsPatch())
+            {
+                Assert.NotNull(method);
+                scanned++;
+                foreach (string callee in DirectInternalcallCallees(method))
+                    offenders.Add(method.DeclaringType.Name + "." + method.Name + " -> " + callee);
+            }
+            Assert.True(scanned > 20, "scanned only " + scanned + " patched methods");
+            Assert.True(offenders.Count == 0,
+                "a patched method calls a Unity internalcall directly, so Harmony cannot compile it on "
+                + "the Windows .NET host; move the call into a [MethodImpl(NoInlining)] helper: "
+                + string.Join("; ", offenders));
         }
 
         // ---- the scenarios ----
@@ -446,36 +492,72 @@ namespace Parsek.Tests
 
         // ---- the seams ----
 
+        private const BindingFlags Declared = BindingFlags.Instance | BindingFlags.Static
+            | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly;
+
+        /// <summary>The <c>OnLoad*</c> methods every fact transpiles.</summary>
+        private static IEnumerable<MethodInfo> OnLoadFlowMethods()
+        {
+            return typeof(ParsekScenario).GetMethods(Declared)
+                .Where(m => m.Name.StartsWith("OnLoad", StringComparison.Ordinal)
+                            && !m.IsGenericMethodDefinition && !m.IsAbstract);
+        }
+
+        private static MethodInfo ResolveSkippedSeam(string seam)
+        {
+            int sep = seam.IndexOf("::", StringComparison.Ordinal);
+            Type type = typeof(ParsekScenario).Assembly.GetType(seam.Substring(0, sep), throwOnError: true);
+            MethodInfo[] targets = type.GetMethods(Declared)
+                .Where(m => m.Name == seam.Substring(sep + 2))
+                .ToArray();
+            Assert.True(targets.Length == 1, "seam " + seam + " resolves to " + targets.Length + " methods");
+            return targets[0];
+        }
+
+        /// <summary>Every method any fact of this class patches (Harmony compiles each one's
+        /// original). A fact that patches a new method adds it here.</summary>
+        private static IEnumerable<MethodBase> MethodsTheFactsPatch()
+        {
+            foreach (MethodInfo method in OnLoadFlowMethods()) yield return method;
+            foreach (string host in CoroutineSeamHosts)
+                yield return AccessTools.Method(typeof(ParsekScenario), host);
+            foreach (string seam in SkippedSeams) yield return ResolveSkippedSeam(seam);
+            yield return AccessTools.Method(typeof(ParsekScenario), "EnterBackupHold");
+            yield return AccessTools.Method(typeof(PreParsekBackup), nameof(PreParsekBackup.MaybeBackupOnFirstColdContact));
+            yield return AccessTools.Method(typeof(ParsekFileCollector), nameof(ParsekFileCollector.RunAtLoad));
+            yield return AccessTools.Method(typeof(VesselNameStore), nameof(VesselNameStore.ApplyAll));
+            yield return AccessTools.Method(typeof(VesselNameStore), nameof(VesselNameStore.RunSpawnLinkBackfill));
+        }
+
+        /// <summary>The non-system internalcall methods <paramref name="method"/>'s IL calls
+        /// directly (read from the IL; nothing is compiled).</summary>
+        internal static List<string> DirectInternalcallCallees(MethodBase method)
+        {
+            var found = new List<string>();
+            foreach (KeyValuePair<OpCode, object> instruction in PatchProcessor.ReadMethodBody(method))
+            {
+                if (!(instruction.Value is MethodBase callee)) continue;
+                if ((callee.GetMethodImplementationFlags() & MethodImplAttributes.InternalCall) == 0) continue;
+                // mscorlib is the one system module: its internalcalls (Math.Abs) compile anywhere.
+                if (callee.Module.Assembly == typeof(object).Assembly) continue;
+                found.Add(callee.DeclaringType?.FullName + "::" + callee.Name);
+            }
+            return found;
+        }
+
         private void InstallSeams()
         {
             var transpiler = new HarmonyMethod(typeof(StepRecorder), nameof(StepRecorder.Transpile));
-            foreach (MethodInfo method in typeof(ParsekScenario).GetMethods(
-                         BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public
-                         | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
-            {
-                if (!method.Name.StartsWith("OnLoad", StringComparison.Ordinal)) continue;
-                if (method.IsGenericMethodDefinition || method.IsAbstract) continue;
+            foreach (MethodInfo method in OnLoadFlowMethods())
                 harmony.Patch(method, transpiler: transpiler);
-            }
 
-            MethodInfo startCoroutine = typeof(UnityEngine.MonoBehaviour).GetMethod(
-                "StartCoroutine", new[] { typeof(IEnumerator) });
-            harmony.Patch(startCoroutine,
-                prefix: new HarmonyMethod(typeof(StepRecorder), nameof(StepRecorder.StartCoroutinePrefix)));
+            var coroutineOnly = new HarmonyMethod(typeof(StepRecorder), nameof(StepRecorder.TranspileSeamsOnly));
+            foreach (string host in CoroutineSeamHosts)
+                harmony.Patch(AccessTools.Method(typeof(ParsekScenario), host), transpiler: coroutineOnly);
 
             foreach (string seam in SkippedSeams)
-            {
-                int sep = seam.IndexOf("::", StringComparison.Ordinal);
-                Type type = typeof(ParsekScenario).Assembly.GetType(seam.Substring(0, sep), throwOnError: true);
-                MethodInfo[] targets = type.GetMethods(
-                        BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public
-                        | BindingFlags.NonPublic | BindingFlags.DeclaredOnly)
-                    .Where(m => m.Name == seam.Substring(sep + 2))
-                    .ToArray();
-                Assert.True(targets.Length == 1, "seam " + seam + " resolves to " + targets.Length + " methods");
-                harmony.Patch(targets[0],
+                harmony.Patch(ResolveSkippedSeam(seam),
                     prefix: new HarmonyMethod(typeof(StepRecorder), nameof(StepRecorder.SkipSeamPrefix)));
-            }
         }
 
         /// <summary>The recorder the transpiled OnLoad methods call. Static: Harmony calls it.</summary>
@@ -498,15 +580,23 @@ namespace Parsek.Tests
                 Steps?.Add("call " + name);
             }
 
-            public static bool StartCoroutinePrefix(IEnumerator routine, ref UnityEngine.Coroutine __result)
+            /// <summary>Stands in for <c>MonoBehaviour.StartCoroutine(IEnumerator)</c> at a
+            /// swapped call site (same stack shape: the receiver, then the routine).</summary>
+            public static UnityEngine.Coroutine StartCoroutineSeam(UnityEngine.MonoBehaviour self, IEnumerator routine)
             {
                 string name = routine == null ? "<null>" : routine.GetType().Name;
                 int open = name.IndexOf('<');
                 int close = name.IndexOf('>');
                 if (open >= 0 && close > open) name = name.Substring(open + 1, close - open - 1);
                 Steps?.Add("coroutine " + name);
-                __result = null;
-                return false;
+                return null;
+            }
+
+            /// <summary>Stands in for <c>ParsekHarmony.QueueNoticeForSettledScene</c> in
+            /// <c>EnterBackupHold</c>.</summary>
+            public static void QueueNoticeSeam(string notice)
+            {
+                Steps?.Add("seam ParsekHarmony.QueueNoticeForSettledScene");
             }
 
             internal static void RunAtLoadArgsPrefix(EarlyLoadKind kind, bool coldBranch)
@@ -554,27 +644,73 @@ namespace Parsek.Tests
                 return true;
             }
 
+            internal static readonly MethodInfo ReadRealtimeHelper =
+                typeof(ParsekScenario).GetMethod("ReadUnityRealtimeSinceStartupCore", BindingFlags.Static | BindingFlags.NonPublic);
+            internal static readonly MethodInfo ReadFrameCountHelper =
+                typeof(ParsekScenario).GetMethod("ReadUnityFrameCountCore", BindingFlags.Static | BindingFlags.NonPublic);
+            internal static readonly MethodInfo StartCoroutineEnumerator =
+                typeof(UnityEngine.MonoBehaviour).GetMethod("StartCoroutine", new[] { typeof(IEnumerator) });
+
+            /// <summary>Swaps a call to a Unity clock helper or to <c>StartCoroutine</c> for
+            /// its stand-in; false when <paramref name="instruction"/> is no such call.</summary>
+            private static bool TrySwapUnitySeam(CodeInstruction instruction)
+            {
+                bool isCall = instruction.opcode == OpCodes.Call || instruction.opcode == OpCodes.Callvirt;
+                if (!isCall || !(instruction.operand is MethodInfo callee)) return false;
+                if (Equals(callee, ReadRealtimeHelper))
+                {
+                    instruction.operand = AccessTools.Method(typeof(StepRecorder), nameof(FixedRealtimeSinceStartup));
+                    return true;
+                }
+                if (Equals(callee, ReadFrameCountHelper))
+                {
+                    instruction.operand = AccessTools.Method(typeof(StepRecorder), nameof(FixedFrameCount));
+                    return true;
+                }
+                if (callee.DeclaringType == typeof(UnityEngine.MonoBehaviour) && callee.Name == "StartCoroutine")
+                {
+                    if (!Equals(callee, StartCoroutineEnumerator))
+                        throw new InvalidOperationException("no stand-in for " + callee);
+                    instruction.opcode = OpCodes.Call;
+                    instruction.operand = AccessTools.Method(typeof(StepRecorder), nameof(StartCoroutineSeam));
+                    return true;
+                }
+                return false;
+            }
+
+            public static IEnumerable<CodeInstruction> TranspileSeamsOnly(IEnumerable<CodeInstruction> instructions)
+            {
+                foreach (CodeInstruction instruction in instructions)
+                {
+                    TrySwapUnitySeam(instruction);
+                    yield return instruction;
+                }
+            }
+
+            public static IEnumerable<CodeInstruction> TranspileNoticeSeam(IEnumerable<CodeInstruction> instructions)
+            {
+                MethodInfo notice = AccessTools.Method(typeof(ParsekHarmony), nameof(ParsekHarmony.QueueNoticeForSettledScene));
+                foreach (CodeInstruction instruction in instructions)
+                {
+                    if ((instruction.opcode == OpCodes.Call || instruction.opcode == OpCodes.Callvirt)
+                        && Equals(instruction.operand, notice))
+                        instruction.operand = AccessTools.Method(typeof(StepRecorder), nameof(QueueNoticeSeam));
+                    yield return instruction;
+                }
+            }
+
             public static IEnumerable<CodeInstruction> Transpile(IEnumerable<CodeInstruction> instructions)
             {
-                MethodInfo realtime = AccessTools.PropertyGetter(typeof(UnityEngine.Time), "realtimeSinceStartup");
-                MethodInfo frameCount = AccessTools.PropertyGetter(typeof(UnityEngine.Time), "frameCount");
                 MethodInfo recordLiteral = AccessTools.Method(typeof(StepRecorder), nameof(RecordLiteral));
                 MethodInfo recordCall = AccessTools.Method(typeof(StepRecorder), nameof(RecordCall));
                 foreach (CodeInstruction instruction in instructions)
                 {
+                    if (TrySwapUnitySeam(instruction))
+                    {
+                        yield return instruction;
+                        continue;
+                    }
                     bool isCall = instruction.opcode == OpCodes.Call || instruction.opcode == OpCodes.Callvirt;
-                    if (isCall && Equals(instruction.operand, realtime))
-                    {
-                        instruction.operand = AccessTools.Method(typeof(StepRecorder), nameof(FixedRealtimeSinceStartup));
-                        yield return instruction;
-                        continue;
-                    }
-                    if (isCall && Equals(instruction.operand, frameCount))
-                    {
-                        instruction.operand = AccessTools.Method(typeof(StepRecorder), nameof(FixedFrameCount));
-                        yield return instruction;
-                        continue;
-                    }
                     if (isCall && instruction.operand is MethodBase callee && IsStep(callee))
                     {
                         var record = new CodeInstruction(OpCodes.Ldstr, callee.DeclaringType.Name + "." + callee.Name);

@@ -3022,10 +3022,11 @@ for every load kind (Cold, PlainRewind, ReFlyStart, DiscardReFly, StockRevert,
 QuickloadFlight, InSessionOther) over an empty save and pins, per kind, the steps it
 executes: every phase, every call it makes into Parsek code, every coroutine and seam hit,
 the classification and the final status (`Fixtures/SourceCharacterization/ParsekScenario.OnLoad.steps.txt`).
-Harmony replaces what cannot run headless: the inline `UnityEngine.Time` reads, `StartCoroutine`
-(recorded, not started) and the two facility-cache readers that call `FindObjectsOfType`.
-Data-dependent phases (merge journal, sweep recalculation, a pending tree) do not run over an
-empty save; the token characterization still pins their order.
+Harmony replaces what cannot run headless, at the call site in the transpiled methods: OnLoad's
+two Unity clock reads (fixed values) and `MonoBehaviour.StartCoroutine` (recorded, not started;
+also in `HandleRewindOnLoad`), and it skips the two facility-cache readers that call
+`FindObjectsOfType`. Data-dependent phases (merge journal, sweep recalculation, a pending
+tree) do not run over an empty save; the token characterization still pins their order.
 
 **Fix.** OnLoad is now the skeleton: the inert gate, an `OnLoadContext` (save node,
 committed list, early kind, cold reason, classification facts, refined kind, phase, status,
@@ -3047,8 +3048,27 @@ in-session tail collecting in Cold mode) and two mutants killed only by source t
 that does not stop, a wrong vessel-name reason) now die in two headless cells that pin the
 branch arguments of the tail and the backup-hold stop.
 
-Re-pins: `scripts/arch/facts_pins.toml` swaps `OnLoad` for `OnLoadFlowInSession` (complexity
-68) in the complexity watch list; `harness/lib/test_ledgeraudit.py` reads the two classification
+**Windows .NET host.** The first cut patched OnLoad's flow methods while they read
+`UnityEngine.Time` inline, and patched `MonoBehaviour.StartCoroutine` itself. Harmony compiles
+the original of every method it patches, and the Windows .NET test host cannot compile a method
+that calls a Unity internalcall directly (`SecurityException`: ECall methods must be packaged
+into a system module; mono fails only when the call runs), so all six cells failed there while
+mono CI stayed green. The pre-refactor OnLoad read the same clocks inline; no test on main ran
+or patched it. The clock reads now go through two `[MethodImpl(NoInlining)]` helpers on
+`ParsekScenario` (`ReadUnityRealtimeSinceStartupCore`, `ReadUnityFrameCountCore`; same values,
+read at the same points), `GameStateFacilityRecorder`'s `FindObjectsOfType<DestructibleBuilding>`
+moved into a NoInlining helper (its generic wrapper is small enough for the Release JIT to
+inline into a patched seam), and the test swaps `StartCoroutine` and the backup-hold notice at
+the call site instead of patching Unity or `ParsekHarmony.QueueNoticeForSettledScene`. A new
+cell, `NoPatchedMethod_CallsAUnityInternalcallDirectly`, reads the IL of every method the facts
+patch and reds on any direct non-mscorlib internalcall, on every host. Not provable off Windows:
+whether the Release JIT inlines the 56-byte `StartCoroutine` into a patched flow method (it
+calls two internalcalls; if a Windows Release run fails on it, route the flow's coroutine starts
+through a NoInlining helper).
+
+Re-pins: the OnLoad token golden gains the three helper-call tokens;
+`scripts/arch/facts_pins.toml` swaps `OnLoad` for `OnLoadFlowInSession` (complexity 68) in the
+complexity watch list; `harness/lib/test_ledgeraudit.py` reads the two classification
 guards without their indentation.
 
 **Lanes that cover it in a real game (not flown):** QWS-1, PPB-3, VN-5, QL-3, QL-5d, REV-1.

@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using Parsek.Logistics;
 using UnityEngine;
 
@@ -1092,6 +1093,17 @@ namespace Parsek
             }
         }
 
+        // The OnLoad flow reads Unity's clocks only through these. A method that calls a Unity
+        // internalcall directly cannot be JIT-compiled by the Windows .NET test host
+        // (SecurityException), and Harmony compiles a method it patches, so the flow methods the
+        // headless step-order tests patch must keep no such call site. NoInlining stops the
+        // Release JIT from folding the read back into the caller.
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static float ReadUnityRealtimeSinceStartupCore() => UnityEngine.Time.realtimeSinceStartup;
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static int ReadUnityFrameCountCore() => UnityEngine.Time.frameCount;
+
         /// <summary>
         /// OnLoad's prologue, run by every load that is not inert: settings, the load classification,
         /// the save-scoped reset of a Cold load, the staging loads and carries, the in-session handoff
@@ -1182,7 +1194,7 @@ namespace Parsek
             // save-file event inside a revert too, and the revert wins.
             bool classifyRevertPending = RevertDetector.PendingKind != RevertKind.None;
             bool classifySaveFileLoad = SaveFileLoadIntent.TryConsume(
-                UnityEngine.Time.realtimeSinceStartup, UnityEngine.Time.frameCount,
+                ReadUnityRealtimeSinceStartupCore(), ReadUnityFrameCountCore(),
                 "ParsekScenario.OnLoad", out double saveFileIntentNodeUT, out int saveFileIntentAgeFrames);
             string classifyHandoff = InSessionStagedStateHandoff.DescribeForClassification();
             EarlyLoadKind earlyLoadKind = LoadReconcilePolicy.ClassifyEarly(
@@ -1428,7 +1440,7 @@ namespace Parsek
             // mis-identified as a tracking-station vessel switch and
             // routed into FinalizeLimboForRevert (post-PR #163 playtest
             // bug; see CHANGELOG for full narrative).
-            int currentFrame = UnityEngine.Time.frameCount;
+            int currentFrame = ReadUnityFrameCountCore();
             bool vesselSwitchFlagFresh = IsVesselSwitchFlagFresh(
                 vesselSwitchPending, vesselSwitchPendingFrame,
                 currentFrame, VesselSwitchPendingMaxAgeFrames);

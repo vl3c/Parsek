@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 
 namespace Parsek
 {
@@ -16,6 +17,14 @@ namespace Parsek
         {
             this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
         }
+
+        // The Unity scene query stays out of the two callers: its generic wrapper is small
+        // enough for the Release JIT to inline, which would put a Unity internalcall into a
+        // method the headless OnLoad step-order tests patch (Harmony compiles the method it
+        // patches, and the Windows .NET test host cannot compile an internalcall site).
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static DestructibleBuilding[] FindDestructibleBuildingsCore()
+            => UnityEngine.Object.FindObjectsOfType<DestructibleBuilding>();
 
         internal void SeedFacilityCacheFromCurrentState()
         {
@@ -35,7 +44,7 @@ namespace Parsek
             }
 
             // Building intact states
-            var destructibles = UnityEngine.Object.FindObjectsOfType<DestructibleBuilding>();
+            var destructibles = FindDestructibleBuildingsCore();
             if (destructibles != null)
             {
                 foreach (var db in destructibles)
@@ -410,7 +419,7 @@ namespace Parsek
 
             // Check building intact states. The event handlers below keep lastBuildingIntact
             // current, so a transition they already recorded is not reported twice here.
-            var destructibles = UnityEngine.Object.FindObjectsOfType<DestructibleBuilding>();
+            var destructibles = FindDestructibleBuildingsCore();
             if (destructibles != null)
             {
                 foreach (var db in destructibles)

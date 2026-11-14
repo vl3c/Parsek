@@ -82,6 +82,8 @@ C:discardReFlyIntentTarget.ToString
 A:classifyRevertPending
 A:classifySaveFileLoad
 C:SaveFileLoadIntent.TryConsume
+C:ReadUnityRealtimeSinceStartupCore
+C:ReadUnityFrameCountCore
 S:"ParsekScenario.OnLoad"
 A:classifyHandoff
 C:InSessionStagedStateHandoff.DescribeForClassification
@@ -206,6 +208,7 @@ A:savedTreeRecCount
 C:CountSavedCommittedRecordingNodes
 A:isFlightToFlight
 A:currentFrame
+C:ReadUnityFrameCountCore
 A:vesselSwitchFlagFresh
 C:IsVesselSwitchFlagFresh
 A:isVesselSwitch
