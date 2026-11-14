@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## PARALLEL-HARNESS-RUNS: fly harness lanes on 2-3 KSP copies at once while the owner keeps using the PC [FILED 2026-11-14 (owner request). C# PART BUILT 2026-11-14 (branch `par-w1`, xUnit only, not flown); harness side (slots, locks, provisioning copies, the parallel runner) in progress on sibling branches; PC validation owed]
+## PARALLEL-HARNESS-RUNS: fly harness lanes on 2-3 KSP copies at once while the owner keeps using the PC [FILED 2026-11-14 (owner request). BUILT 2026-11-14: C# part (xUnit only) and harness part (slots, locks, provisioning copies, the parallel runner; unit suites only); nothing flown yet, PC validation owed]
 
 **Plan.** `harness/parallel-runs-plan-2026-11-14.md` in the project files (sections 1-6 and the
 v2 overrides): slots `automation/<profile>-<k>`, a per-slot lock under the machine lock, stamped
@@ -44,9 +44,47 @@ and `harness/tools/parallel_runner.py`.
   `design-autotest-command-seam.md`, "Addon lifecycle"). The harness minimises the window
   whenever the line does not say `desktop=moved`.
 
-**Still owed.** The PC validation of the plan (daily tier with `--slots 2`, switched to 3), which
-is the first live proof of the focus patch, the virtual-desktop move under Unity's mono (the
-vtable call is the untested risk) and the foreground hand-back.
+**Harness part (done, unit-tested, not flown).**
+- Slots: `harness/lib/slots.py` (copy 1 = `automation/<profile>`, copy k = `automation/<profile>-<k>`;
+  per-profile kRPC port blocks 50000 / 50020 / 50040, `+2*(k-1)`), run.py's decisions in
+  `harness/lib/slotrun.py`.
+- `run.py --slot <s>` (child of the runner): no machine lock, the runner token
+  (`PARSEK_HARNESS_RUNNER_TOKEN` / `_PID`) re-checked at every attempt boundary, its slot lock,
+  serial verify, no prune sweeps / run-index append / coverage refresh, stop request read-only;
+  `--tests-prebuilt`, `--report-json` (`parsek-run-report/1`), `--window`, `--desktop-id`, and the
+  maintenance flags `--sweep-results` / `--refresh-coverage`. New flake-exempt INVALID subkinds
+  `port-busy`, `runner-token`, `slot-locked`, `slot-profile-mismatch`.
+- Every run.py (serial too): holds the slot lock of each instance it flies, stamps the slot's kRPC
+  ports before every launch (copy 1 of stock-tree / modded-compat moves to 50020 / 50040 on its next
+  run or provision) and refuses `port-busy` on a listening port, writes `Player.log` into the instance
+  (`-logFile`, plus `-screen-*` from settings.cfg), and as machine-lock holder snapshots / restores the
+  shared Unity screen prefs (`HKCU\Software\Squad\Kerbal Space Program`; crash marker restored on the
+  next start). Slot children are spaced 15 s apart at launch and count only their own instance's KSP.
+- Provisioning: `provision.py --copy K` (manifest keys `slot` / `copy` / `krpcRpcPort` /
+  `krpcStreamPort`, VERIFY expects the slot stamp, 8 GiB free-space margin for K >= 2),
+  `--copy K --remove` (junctions unlinked first), `EC-10` while any slot lock is live.
+- `harness/tools/parallel_runner.py` (pure `harness/lib/parallel.py`): `run` / `resume` / `set-slots`
+  / `stop` / `status`, longest p50 first, 45 s settle gap, 6 GB RAM / 5.5 GB VRAM memory guard,
+  exclusive lanes skipped unless `--include-exclusive`, run.py's exit rule.
+- Docs: `harness/README.md` ("The machine lock", "Install slots", "Parallel runs"),
+  `design-autotest-harness-core.md` ("Install slots and parallel runs"),
+  `design-autotest-stack-setup.md` ("Provisioning slot copies"), `autotest-status.md`.
+
+**Measured basis (owner's PC, 2026-11-14).** Per copy about 1 CPU core, ~4 GB RAM working set,
+~9.4 GB commit, ~5 GB VRAM; 1, 2 and 3 copies all at full speed; RAM then VRAM are the limits, so 2
+copies while the owner uses the PC and 3 when away. Unity's Screenmanager prefs are one registry key
+shared by every KSP on the PC.
+
+**Still owed (PC validation, one machine turn).**
+1. Provision `stock-minimal-2` and `stock-minimal-3` from the branch build
+   (`provision.py --profile stock-minimal --copy 2`, then `--copy 3`).
+2. Fly the daily tier with `parallel_runner.py run --name <n> --tier daily --slots 2`, switch to 3
+   mid-run with `set-slots`, and compare the verdicts with the last serial daily run.
+3. Check each copy's `window placement desktop=... foreground=...` line (the first live proof of the
+   focus patch, of the virtual-desktop move under Unity's mono, where the vtable call is the untested
+   risk, and of the foreground hand-back).
+4. Check that every copy wrote its own `<instance>/Player.log`.
+5. Check that the owner's Unity screen prefs (registry key above) are restored after the run.
 
 ## ~~ROUTE-LINE-DETACHED-SEGMENTS~~: the supply route overview line drew route segments far from the ship's icon; the line is retired [FILED 2026-11-12 from the TP-7 pictures; RULED 2026-11-12 by the owner; REMOVED 2026-11-12 on branch `claude/project-thread-zfo2hk` (PR #2586); FLOWN GREEN 2026-11-12, seven lanes on the first attempt]
 
