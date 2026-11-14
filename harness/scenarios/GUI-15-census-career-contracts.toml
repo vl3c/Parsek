@@ -33,10 +33,11 @@ tier = "operator"
 # echo strip of `cc-timeline-contracts-hover-advanced.png` reads the whole hover, although
 # the pointer step's own read-back said `tooltip=-` (the park step read it a moment later,
 # `tooltipFrame=5947`). On the second (`_2126`) it did not paint, and the pointer answer
-# says `via=find-product` rather than `via=active` - the known intermittent
-# GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT - so the pointer pin regexes both
-# `via=` spellings. The COUNTS do not depend on it: the tree dump records every control's
-# GUIContent tooltip, so `cc-timeline-contracts-advanced.gui.json` carries the whole hover
+# named the fallback window lookup rather than `via=active` (the game did not have focus
+# then; the fallback now answers `via=own-process`, the window found by this process's pid)
+# - the known intermittent GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT - so the
+# pointer pin regexes any `via=` spelling. The COUNTS do not depend on it: the tree dump
+# records every control's GUIContent tooltip, so `cc-timeline-contracts-advanced.gui.json` carries the whole hover
 # text on the `Contracts` node whether or not the strip painted, and the log line below
 # pins the same string.
 #

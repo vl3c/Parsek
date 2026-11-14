@@ -30,6 +30,10 @@ All notable changes to Parsek are documented here.
 
 ### Fixed
 
+- **Switching back to a ship your kerbal just stepped out of keeps your recording going.** When
+  the ship was also the end of an earlier recorded flight, the map's Switch To quietly merged the
+  recording you were making and loaded that earlier flight instead. The switch now just continues
+  the current recording. (PRESWITCH-CASE-C-LIVE-TREE-MEMBER)
 - **Supply routes no longer break after a save is loaded.** Parsek's clean-up of saved recordings
   could merge, split or trim the recordings a route was built from, and the route then stopped
   with "source changed", often right after you created it. Those recordings are now left as they
@@ -51,8 +55,9 @@ All notable changes to Parsek are documented here.
   far from the ship's icon. The looped trip now shows only its own transfer path.
   (LOOP-SUN-LEG-DRAWN-OFF-PATH)
 - **Resuming an old flight no longer adds a stray piece to its launch recording.** Flying a
-  spawned vessel on from a finished mission now records onto the latest part of its flight, not
-  back onto the launch. (COMMITTED-RESTORE-APPENDS-TO-ROOT)
+  spawned vessel on from a finished mission, or loading a save with it in flight, now records onto
+  the latest part of its flight, not back onto the launch or into a new recording.
+  (COMMITTED-RESTORE-APPENDS-TO-ROOT)
 
 ## 1.0.1
 

@@ -448,6 +448,10 @@ manifest, log, and lock never become phantom config nodes or get parsed by KSP.
   "provisionScriptCommit": "<git HEAD of the worktree that ran provision.py>",
   "kspVersion": "1.12.5",
   "instanceDir": "automation/stock-minimal",
+  "slot": "stock-minimal",
+  "copy": 1,
+  "krpcRpcPort": 50000,
+  "krpcStreamPort": 50001,
   "components": {
     "krpc":        { "kind": "release-zip", "tag": "v0.5.4", "commit": "11f1f13...", "sha256": "...", "installedDlls": {"KRPC.dll": "sha256...", "KRPC.Core.dll": "sha256...", "KRPC.SpaceCenter.dll": "sha256..."} },
     "testingtools":{ "kind": "built-shim", "krpcRef": "v0.5.4", "dllSha256": "...", "sourceFiles": ["OrbitTools.cs","TestingTools.cs"], "capabilities": ["LoadSave","RemoveOtherVessels","SetCircularOrbit","SetOrbit","ClearRotation","ApplyRotation"], "bootChannel": "parsek-seam-LoadGame", "autoLoaderAbsent": true, "missing": ["autoLoadFlags","Quit","SetLanded"] },
@@ -677,6 +681,58 @@ Idempotency: re-running with the same pins recomputes hashes, finds every
 component already at its pinned hash, logs `skip (up-to-date)` per component, and
 converges without rewriting bytes. Only drift or a pin change triggers work.
 
+### Provisioning slot copies (`--copy K`, `--copy K --remove`; 2026-11-14)
+
+Parallel harness runs (todo PARALLEL-HARNESS-RUNS; `harness/README.md`,
+"Install slots") fly lanes on several install copies of one profile. A copy is
+a SLOT; the contract (names, ports, lock paths) is `harness/lib/slots.py`.
+
+- **Layout.** `--copy 1` (the default) is the profile's own `instanceDir`,
+  exactly as before slots existed. `--copy K` for K >= 2 provisions
+  `automation/<profile>-<K>` through the same phases (CLONE with the same
+  junctions, the same pinned stack, the same DEPLOY of this worktree's
+  `Parsek.dll`), so every copy of a profile admits on the same projection.
+  The slot name is the instance dir's basename. Measured on the owner's PC: a
+  copy is about 4.4 GB on disk (Squad and SquadExpansion are junctions), and
+  each running copy takes about one CPU core, 4 GB of RAM working set (9.4 GB
+  commit) and 5 GB of VRAM, so 2 copies fit beside the owner's own work and 3
+  when the owner is away.
+- **kRPC ports.** The SETTINGS phase stamps the golden kRPC settings with the
+  slot's ports: profile base (stock-minimal 50000, stock-tree 50020,
+  modded-compat 50040) + `2*(K-1)` for RPC and the next port for the stream.
+  Copy 1 of stock-minimal keeps 50000/50001. run.py stamps the same bytes
+  before every launch, so copy 1 of stock-tree and modded-compat moves to
+  50020 / 50040 on its next provision or its next run, with no re-provision
+  required.
+- **Manifest keys.** `slot` (the slot name), `copy` (K), `krpcRpcPort`,
+  `krpcStreamPort`; `instanceDir` is the copy's own relative dir. None is an
+  admission key.
+- **VERIFY rule.** The kRPC settings re-hash expects the SLOT's stamp
+  (`provlib.krpc_settings_verify_reason`): `ok`, `not-recorded` (no kRPC in the
+  stack) and `absent-on-disk` pass; `manifest-mismatch` (the file changed after
+  the stamp) and `not-slot-stamp` (file and manifest agree but carry another
+  slot's ports, e.g. a manifest written before slots existed) are drift.
+  `--repair` re-stamps; a plain provision re-stamps on every pass.
+- **EC-10 for slots.** After taking the machine lock, PREFLIGHT reads every
+  `automation/.ksp-slot-*.lock` and aborts `EC-10` while any is LIVE (holder
+  pid alive and lease not expired): a parallel runner that lost its machine
+  lock may still have a KSP flying in some copy. Dry-run decides the same and
+  writes nothing.
+- **Free-space margin.** Copy 1 must leave 512 MiB free after the clone (as
+  before); a copy K >= 2 must leave 8 GiB (`provlib.free_space_margin_bytes`),
+  because an extra copy is optional capacity and must not eat the owner's
+  working space on the same volume.
+- **Removal safety (`--copy K --remove`).** Deletes copy K >= 2 only. It
+  refuses copy 1 (`EC-PRE`), a dir that aliases the dev install or is itself a
+  link (`EC-16`), takes the machine lock like a provision (`EC-10` when held),
+  refuses while that slot's own lock is live (`EC-10`) or while a KSP runs from
+  the dir (`EC-1`, path-scoped: exe paths via `QueryFullProcessImageNameW`, an
+  unreadable path counts as running). It then UNLINKS every junction / link in
+  the tree first (the link itself, never its target) and only then deletes the
+  tree, so the delete can never follow a junction into the dev install. It logs
+  to stdout only, since the instance's `provision-log.txt` is being deleted.
+  `--remove` with `--repair` is refused.
+
 ## Edge Cases
 
 Each: trigger -> expected behavior -> v1 or deferred.
@@ -735,7 +791,10 @@ Each: trigger -> expected behavior -> v1 or deferred.
   target the same instance concurrently. Expected: a lockfile
   (`<instanceDir>/GameData/Parsek/.provision.lock` with pid + timestamp) is acquired at
   PREFLIGHT; a second run sees the lock and ABORTS. Stale locks (dead pid) are
-  reclaimed. v1.
+  reclaimed. v1. AMENDED: the per-instance `.provision.lock` was replaced on
+  2026-08-02 by the machine lock `<umbrella>/automation/.ksp-machine.lock`,
+  shared with `run.py` and the parallel runner, and since 2026-11-14 EC-10 also
+  fires while any live slot lock exists (see "Provisioning slot copies").
 - **EC-11 Sibling-worktree bin/Debug race clobbers the staged DLL.** Trigger: a
   concurrent `cd Source/Parsek && dotnet build` in another worktree overwrites
   `bin/Debug/Parsek.dll` between source-select and stage-copy. Expected: DEPLOY
@@ -799,7 +858,11 @@ follow-up):
 - **R8 -- `_ksp_running_against` coarseness.** The EC-1 check matches ANY
   `KSP_x64.exe` process, not one bound to the target instance. Refine to the
   instance's own exe path (or a per-instance mutex/lockfile heartbeat) so an
-  unrelated dev-install KSP does not block provisioning a different instance.
+  unrelated dev-install KSP does not block provisioning a different instance. PARTLY
+  DONE 2026-11-14: `--copy K --remove` and the run.py slot children use the
+  path-scoped check (`slots.exe_belongs_to_instance`); the provisioning EC-1
+  check and the serial run.py zombie preflight stay coarse on purpose (see
+  `harness/README.md`, "The machine lock").
 - **R12 -- pre-EC-1 instance-local writes.** PREFLIGHT writes the `.provision.lock`
   before the KSP-running check. The lockfile is now removed on completion (owned
   locks only), but the ordering means one instance-local write precedes the EC-1

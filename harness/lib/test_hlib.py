@@ -4952,12 +4952,12 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # physics warp in Laythe orbit, each then the LeafVesselPlacement category's one cell,
     # `total=1` literal with the split regexed). Not H-series ids;
     # CommittedBatchTallySourceSyncTests gates their `total=`. Each leaves on its first flight.
+    # FAR-2-duna-relaunch-rewind-keeps-landed LEFT on run 2026-11-14_1524 (passed=1 failed=0 skipped=0, pinned whole).
+    # FAR-3-ike-revert-to-launch LEFT on run 2026-11-14_1529 (passed=1 failed=0 skipped=0, pinned whole).
+    # FAR-5-laythe-physics-warp-record LEFT on run 2026-11-14_1639 (passed=1 failed=0 skipped=0, pinned whole).
     INTERIM_PIN_IDS: set = {
         "FGV-1-fairing-ghost-visual",
         "FAR-1-ike-rewind-to-launch-career",
-        "FAR-2-duna-relaunch-rewind-keeps-landed",
-        "FAR-3-ike-revert-to-launch",
-        "FAR-5-laythe-physics-warp-record",
     }
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
@@ -8419,7 +8419,7 @@ class ReferenceDllAdmissionTests(unittest.TestCase):
 
     def test_no_entry_for_the_reference_a_match_or_an_unknown_hash(self):
         self.assertEqual("stock-minimal", hlib.REFERENCE_DLL_PROFILE)
-        for args, kw in ((("stock-minimal", "aa", "bb"), {}),
+        for args, kw in ((("stock-minimal", "aa", "bb"), {"same_instance": True}),
                          (("modded-compat", "AA11", "aa11"), {}),
                          (("modded-compat", None, "bb"), {}),
                          (("modded-compat", "aa", None), {}),
@@ -8443,6 +8443,17 @@ class ReferenceDllAdmissionTests(unittest.TestCase):
     def test_the_hint_names_the_profile(self):
         self.assertEqual("cd harness && python provision/provision.py --profile modded-compat",
                          hlib.provision_command_hint("modded-compat"))
+        self.assertEqual("cd harness && python provision/provision.py --profile stock-minimal "
+                         "--copy 2", hlib.provision_command_hint("stock-minimal", 2))
+        self.assertEqual(hlib.provision_command_hint("stock-tree"),
+                         hlib.provision_command_hint("stock-tree", 1))
+
+    def test_a_copy_of_the_reference_profile_is_compared_by_dir(self):
+        # automation/stock-minimal-2 carries profile stock-minimal but is not the
+        # reference DIR: a different DLL there is drift like on any other install.
+        d = hlib.decide_reference_dll_drift("stock-minimal", "aa", "bb")
+        self.assertIsNotNone(d)
+        self.assertEqual(("bb", "aa"), (d.expected, d.actual))
 
 
 class BootStallWatchdogTests(unittest.TestCase):
@@ -8617,6 +8628,32 @@ class ClassifyVerdictMatrixTests(unittest.TestCase):
         d, v = _clean_pass_facts()
         d["instance_busy"] = True
         self.assertEqual(self._classify(d, v).subkind, "instance-busy")
+
+    def test_parallel_run_refusals_are_terminal_invalids(self):
+        for key, value, subkind in (("runner_token_ok", False, hlib.RUNNER_TOKEN_SUBKIND),
+                                    ("slot_lock_ok", False, hlib.SLOT_LOCKED_SUBKIND),
+                                    ("slot_profile_ok", False,
+                                     hlib.SLOT_PROFILE_MISMATCH_SUBKIND),
+                                    ("port_busy", True, hlib.PORT_BUSY_SUBKIND)):
+            with self.subTest(subkind=subkind):
+                d, v = _clean_pass_facts()
+                d[key] = value
+                v["killed"] = True  # a pre-boot refusal outranks every later fact
+                r = self._classify(d, v)
+                self.assertEqual(("INVALID", subkind), (r.verdict, r.subkind))
+                self.assertFalse(hlib.should_retry(r, 1, "once"))
+        # Absent keys default to the pre-slot verdicts.
+        d, v = _clean_pass_facts()
+        self.assertEqual("PASS", self._classify(d, v).verdict)
+
+    def test_parallel_run_subkinds_are_flake_exempt(self):
+        self.assertEqual(("port-busy", "runner-token", "slot-locked", "slot-profile-mismatch"),
+                         hlib.PARALLEL_RUN_INVALID_SUBKINDS)
+        for subkind in hlib.PARALLEL_RUN_INVALID_SUBKINDS:
+            with self.subTest(subkind=subkind):
+                self.assertIn(subkind, hlib.FLAKE_EXEMPT_INVALID_SUBKINDS)
+                self.assertTrue(hlib.flake_entry_is_exempt(
+                    {"outcome": "INVALID", "subkind": subkind}))
 
     def test_killed_short_circuits(self):
         d, v = _clean_pass_facts()
@@ -10811,11 +10848,11 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "SLM-1-standalone-loop-map-position.toml": "tier=operator by the calibration discipline, NOT debt: a Recordings-tab loop on `pad-runway-pair` (stock-minimal, the `standalone-loop-map` preset: a 1500 s orbital run looping every 4000 s) whose map ghost is read by position against the recorded orbit in FLIGHT map view 300 s into its second run. LIVE-PROVEN 2026-11-01 (`2026-11-01_0034`, 105 s) after a first flight red on a fixture defect; owed: the ordinary promotion call",
         "SLM-1T-standalone-loop-ts-position.toml": "tier=operator by the calibration discipline, NOT debt: the same `standalone-loop-map` preset on `pad-runway-pair` (stock-minimal), saved 400 s into its third run and reloaded into the Tracking Station, where its map ghost is read by position against the recorded orbit. LIVE-PROVEN 2026-11-01 (`2026-11-01_0037`, 105 s) after a first flight red on a fixture defect; owed: the ordinary promotion call",
         "FAR-1-ike-rewind-to-launch-career.toml": "tier=operator by the calibration discipline, NOT debt: a Rewind-to-Launch whose launch is a recorded segment of the DD1 probe's Ike orbit on `duna-ike-recorded-career` (stock-minimal), its ghost read at Ike in the Tracking Station, the leaf spawn at the Space Center read by position (LeafVesselPlacement) and the ledger by the rewind-aware oracle. AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), NEVER FLOWN; owed: the reading run (tag `pending-flight`), then the ordinary promotion call",
-        "FAR-2-duna-relaunch-rewind-keeps-landed.toml": "tier=operator by the calibration discipline, NOT debt: RR-1's relaunch and Rewind-to-Launch on `duna-park-recorded` (stock-minimal), where two same-name 'Kerbal X' ships are landed on Duna; the owner strip must keep both and every spawned leaf must sit at its terminal place (LeafVesselPlacement). AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), NEVER FLOWN; owed: the reading run (tag `pending-flight`), then the ordinary promotion call",
-        "FAR-3-ike-revert-to-launch.toml": "tier=operator by the calibration discipline, NOT debt: IR-2's stock Revert to Launch on `duna-ike-recorded` (stock-minimal) after a rails warp on the pad, with the committed DD1 leaf read at its Ike orbit and phase after the revert (LeafVesselPlacement in FLIGHT). AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), NEVER FLOWN; owed: the reading run (tag `pending-flight`), then the ordinary promotion call",
+        "FAR-2-duna-relaunch-rewind-keeps-landed.toml": "tier=operator by the calibration discipline, NOT debt: RR-1's relaunch and Rewind-to-Launch on `duna-park-recorded` (stock-minimal), where two same-name 'Kerbal X' ships are landed on Duna; the owner strip must keep both and every spawned leaf must sit at its terminal place (LeafVesselPlacement). AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_1524`, first flight); owed: the ordinary promotion call",
+        "FAR-3-ike-revert-to-launch.toml": "tier=operator by the calibration discipline, NOT debt: IR-2's stock Revert to Launch on `duna-ike-recorded` (stock-minimal) after a rails warp on the pad, with the committed DD1 leaf read at its Ike orbit and phase after the revert (LeafVesselPlacement in FLIGHT). AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_1529`, first flight); owed: the ordinary promotion call",
         "FAR-4-gilly-eva-switch-bg-member.toml": "tier=operator by the calibration discipline, NOT debt: CI-1's EVA and map Switch-To in Gilly orbit on `eve-gilly-recorded` (stock-minimal), where the switch target is both the live tree's background member and a committed tree's spawned leaf. AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), NEVER FLOWN; owed: the reading run (tag `pending-flight`), then the ordinary promotion call",
-        "FAR-5-laythe-physics-warp-record.toml": "tier=operator by the calibration discipline, NOT debt: a recording made through ~120 s of 4x physics warp in Laythe orbit on `jool-laythe-recorded` (stock-minimal), committed, with the vessel read against its committed leaf's orbit (LeafVesselPlacement in FLIGHT). AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), NEVER FLOWN; owed: the reading run (tag `pending-flight`), then the ordinary promotion call",
-        "FAR-6-ike-loop-watch-quickload.toml": "tier=operator by the calibration discipline, NOT debt: a looped arc of the DD1 probe's Ike orbit on `duna-ike-recorded` (stock-minimal) watched, then F5 / F9 under watch with the loop's ghost re-entered after the QuickloadFlight load. AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), NEVER FLOWN; owed: the reading run (tag `pending-flight`), then the ordinary promotion call",
+        "FAR-5-laythe-physics-warp-record.toml": "tier=operator by the calibration discipline, NOT debt: a recording made through ~120 s of 4x physics warp in Laythe orbit on `jool-laythe-recorded` (stock-minimal), committed, with the vessel read against its committed leaf's orbit (LeafVesselPlacement in FLIGHT). AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_1639`, second flight after a spec re-pin); owed: the ordinary promotion call",
+        "FAR-6-ike-loop-watch-quickload.toml": "tier=operator by the calibration discipline, NOT debt: a looped arc of the DD1 probe's Ike orbit on `duna-ike-recorded` (stock-minimal) watched, then F5 / F9 under watch with the loop's ghost re-entered after the Cold save-file load. AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_1641`, second flight after a spec re-pin); owed: the ordinary promotion call",
         "FGV-1-fairing-ghost-visual.toml": "tier=operator by PURPOSE, NOT debt: a visual-confirmation lane whose product is a set of PNGs for the owner's eyes (four stock procedural fairings, an engine plate and an engine shroud beside their Parsek ghosts in LKO on `eva2-lko-crewed`, intact / jettisoned / separated) and whose gates are that the cells passed, every image was written and the ghost shows the same truss, shroud and mount meshes as the real part. Flown green 2026-11-07 (one-cell shape twice; two-cell shape `2026-11-07_2342`)",
         "SLM-2-standalone-loop-map-pause.toml": "tier=operator by the calibration discipline, NOT debt: the same `standalone-loop-map` preset on `pad-runway-pair` (stock-minimal), read in FLIGHT map view in the pause after its second run, where no map ghost may exist. LIVE-PROVEN 2026-11-01 (`2026-11-01_0036`, 104 s) after a first flight red on a fixture defect; owed: the ordinary promotion call",
         "RW-20-strategy-and-deadline-after-rewind.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a Jumping Flea on the pad, a strategy activated at the Space Center and a real contract deadline passed by warp, a Rewind-to-Launch before both, the same strategy refused, and the committed fail applied once when the deadline passes again. LIVE-PROVEN 2026-10-31 (`2026-10-31_0425_RW-20-strategy-and-deadline-after-rewind`); owed: the ordinary promotion call",
@@ -10973,7 +11010,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "B42-jool-pol-continuation.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; Jool moon round (2026-11-14): B38's machine from `jool-orbit-recorded` with B35's Pol params, to harvest `jool-pol-recorded` for V37M; what is open is the flight, not a human review call",
         "B47-jool-moon-tour.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; Jool moon round (2026-11-14): the new mtour composer (three B5 legs, Jool -> Laythe -> Vall -> Tylo in one tree) from `jool-orbit-recorded`, to harvest `jool-tour-recorded` for V38M; what is open is the flight, not a human review call",
         "B48-jool-laythe-bop-continuation.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; Jool moon round (2026-11-14): B26's parent-relay machine from `jool-laythe-recorded` re-pointed at Bop, to harvest `jool-laythe-bop-recorded` for V39M's amber decline; what is open is the flight, not a human review call",
-        "V33T-jool-laythe-continuation-ts-arrival.toml": "tier=operator by the calibration discipline (its one jump derived off the harvested fixture bytes and the V-lane clock formula, first run is a calibration reading), NOT debt; Jool moon round (2026-11-14): the Tracking Station half V33M never had, the ghost icon on Laythe after a jump past the replayed Laythe SOI entry; what is open is the flight, not a human review call",
+        "V33T-jool-laythe-continuation-ts-arrival.toml": "tier=operator by the calibration discipline (its one jump derived off the harvested fixture bytes and the V-lane clock formula, first run is a calibration reading), NOT debt; Jool moon round (2026-11-14): the Tracking Station half V33M never had, the ghost icon on Laythe after a jump past the replayed Laythe SOI entry; LIVE-PROVEN 2026-11-14 (`2026-11-14_1534`, first flight); owed: the ordinary promotion call",
         # THE MAP PICTURE LANES (2026-11-11). Operator-tier by MECHANISM: each replays a
         # committed fixture to take MapCamera + CaptureScreenshot + DumpMapGeometry views
         # for a human and the map mirror page, run on request. Their model lanes keep every
@@ -13959,9 +13996,9 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
                                     # [M] arm-only floor case, Dres fixture.
                                     "V9-dres-player-loop.toml",
                                     # [M] 2026-11-14, the far-body timeline program.
-                                    # DECLARED BARE, NEVER FLOWN: a looped Ike-orbit
-                                    # arc watched across an F5 / F9; the manifest is
-                                    # report-only until its reading run.
+                                    # DECLARED BARE: a looped Ike-orbit arc watched
+                                    # across an F5 / F9; flown green 2026-11-14_1641,
+                                    # the manifest still report-only.
                                     "FAR-6-ike-loop-watch-quickload.toml",
                                     # [M] the Dres re-aimed arrival; synthesizer runs.
                                     "V10-dres-loop-arrival.toml",

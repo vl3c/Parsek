@@ -305,15 +305,23 @@ namespace Parsek.Patches
                     RecordingTree matchedTree;
                     bool matched = ParsekFlight.TryFindCommittedTreeMatchingVessel(
                         vessel.persistentId, liveGuid, out matchedTree);
-                    string activeTreeId = ParsekFlight.Instance?.ActiveTreeForDisplay?.Id;
-                    if (matched
-                        && matchedTree != null
-                        && !string.Equals(matchedTree.Id, activeTreeId, StringComparison.Ordinal))
+                    RecordingTree liveTree = ParsekFlight.Instance?.ActiveTreeForDisplay;
+                    string activeTreeId = liveTree?.Id;
+                    bool targetInLiveTree = IsLiveTreeBackgroundMember(liveTree, vessel.persistentId);
+                    if (IsSeparateCommittedTarget(
+                        matched, matchedTree?.Id, activeTreeId, targetInLiveTree))
                     {
                         targetIsSeparateCommittedVessel = true;
                         ParsekLog.Verbose("SwitchIntentPatch",
                             $"pre-switch Case C: loaded target is separate committed vessel " +
                             $"targetPid={vessel.persistentId} matchedTreeId={matchedTree.Id ?? "<null>"} " +
+                            $"activeTreeId={activeTreeId ?? "<null>"}");
+                    }
+                    else if (matched && targetInLiveTree)
+                    {
+                        ParsekLog.Verbose("SwitchIntentPatch",
+                            $"pre-switch Case C skipped: target is a background member of the live tree " +
+                            $"targetPid={vessel.persistentId} matchedTreeId={matchedTree?.Id ?? "<null>"} " +
                             $"activeTreeId={activeTreeId ?? "<null>"}");
                     }
                 }
@@ -541,6 +549,32 @@ namespace Parsek.Patches
                 return false;
             return string.Equals(reason, "restoring-active-tree", StringComparison.Ordinal)
                 || reason.StartsWith("exception:", StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Case C's input: the loaded target matches a committed tree other than the live
+        /// one AND the live tree is not already recording it. A vessel the live tree records
+        /// in the background (the craft a kerbal just left on EVA, when the live tree was
+        /// started on a vessel an earlier committed flight also recorded) is a member of the
+        /// live recording, so switching to it is a background-member continuation, not a
+        /// switch to a separate committed vessel.
+        /// </summary>
+        internal static bool IsSeparateCommittedTarget(
+            bool matched, string matchedTreeId, string activeTreeId, bool targetIsLiveTreeBackgroundMember)
+        {
+            if (!matched || matchedTreeId == null)
+                return false;
+            if (string.Equals(matchedTreeId, activeTreeId, StringComparison.Ordinal))
+                return false;
+            return !targetIsLiveTreeBackgroundMember;
+        }
+
+        /// <summary>True when the live tree records <paramref name="pid"/> as a background member.</summary>
+        internal static bool IsLiveTreeBackgroundMember(RecordingTree liveTree, uint pid)
+        {
+            if (liveTree == null || pid == 0u || liveTree.BackgroundMap == null)
+                return false;
+            return liveTree.BackgroundMap.ContainsKey(pid);
         }
 
         /// <summary>

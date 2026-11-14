@@ -399,11 +399,12 @@ namespace Parsek.TestCommands
                 string liveGuid = target.id != Guid.Empty ? target.id.ToString("N") : null;
                 bool matched = ParsekFlight.TryFindCommittedTreeMatchingVessel(
                     target.persistentId, liveGuid, out RecordingTree matchedTree);
-                string activeTreeId = flight != null && flight.ActiveTreeForDisplay != null
-                    ? flight.ActiveTreeForDisplay.Id
-                    : null;
-                if (matched && matchedTree != null
-                    && !string.Equals(matchedTree.Id, activeTreeId, StringComparison.Ordinal))
+                RecordingTree liveTree = flight != null ? flight.ActiveTreeForDisplay : null;
+                string activeTreeId = liveTree != null ? liveTree.Id : null;
+                bool targetInLiveTree = MapFocusObjectOnSelectPatch.IsLiveTreeBackgroundMember(
+                    liveTree, target.persistentId);
+                if (MapFocusObjectOnSelectPatch.IsSeparateCommittedTarget(
+                    matched, matchedTree?.Id, activeTreeId, targetInLiveTree))
                 {
                     ParsekLog.Verbose(Tag,
                         $"switchclick Case C: loaded target is separate committed vessel " +

@@ -53,9 +53,18 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Callable, Dict, Optional, Tuple
+import sys
+from typing import Callable, Dict, List, Optional, Tuple
 
 import provlib
+
+# harness/lib holds the shared slots contract (pure). Appended, never inserted,
+# so nothing there can shadow a module of this directory.
+_LIB_DIR = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, "lib"))
+if _LIB_DIR not in sys.path:
+    sys.path.append(_LIB_DIR)
+
+import slots  # noqa: E402
 
 # Bounded retry. Each pass costs at most one liveness probe; three is enough to
 # absorb a lost reclaim without becoming a spin.
@@ -77,7 +86,7 @@ def lock_path_for(umbrella_root: str) -> str:
     umbrella -- the documented sibling-worktree layout. Two invocations given
     different ``--umbrella-root`` values, or run from a checkout nested
     somewhere with a different parent, resolve DIFFERENT lockfiles while still
-    contending for the same machine-global kRPC ports and GPU. Keeping the key
+    contending for the same machine-global GPU, desktop and Unity registry prefs. Keeping the key
     umbrella-relative is what lets the test suites and `--umbrella-root` runs
     isolate themselves; a truly machine-global path (e.g. under PROGRAMDATA)
     would serialize the unit suites against real runs. Documented in
@@ -331,3 +340,25 @@ def release(
     if log_fn:
         log_fn("Info", "run-lock released path=%s" % path)
     return True
+
+
+def read_slot_locks(umbrella_root: str) -> List[provlib.SlotLockState]:
+    """Every slot lock file under ``<umbrella>/automation`` (names parsed by
+    ``slots.slot_from_lock_name``; quarantine and heartbeat temp files never
+    match), read raw. A file that vanished between the listing and the read is
+    skipped. Liveness is decided by ``provlib.live_slot_locks``."""
+    auto = os.path.join(umbrella_root, slots.AUTOMATION_DIR)
+    try:
+        names = sorted(os.listdir(auto))
+    except OSError:
+        return []
+    states: List[provlib.SlotLockState] = []
+    for name in names:
+        slot = slots.slot_from_lock_name(name)
+        if slot is None:
+            continue
+        raw = read_lock_bytes(os.path.join(auto, name))
+        if raw is None:
+            continue
+        states.append(provlib.SlotLockState(slot, parse_lock(raw), raw == b""))
+    return states

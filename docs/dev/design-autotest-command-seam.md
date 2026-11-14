@@ -2531,9 +2531,11 @@ instead of assuming: two-phase, and `ERROR pointer-not-applied` when the settled
 
 HOW THE WINDOW IS FOUND, in order, with the answer reported as `via=`: `GetActiveWindow()`
 (the calling thread's active window - Unity's main thread owns the game window, so this is
-it whenever the game has focus, and `IntPtr.Zero` when it does not); then
-`FindWindow(null, Application.productName)` and `FindWindow(null, "Kerbal Space Program")`
-by title; then, as a last resort, an ASSUMED client origin of (0,0), which is exactly right
+it whenever the game has focus, and `IntPtr.Zero` when it does not); then this process's
+own top-level window by pid (`OwnProcessWindowFinder`: `EnumWindows` +
+`GetWindowThreadProcessId` == own pid, unowned, `UnityWndClass` visible first; `via=own-process`;
+a title lookup would name another KSP's window when several run, parallel harness slots or the
+operator's own game); then, as a last resort, an ASSUMED client origin of (0,0), which is exactly right
 for exclusive fullscreen and is safe to guess ONLY because the read-back catches it when it
 is not. `GetForegroundWindow()` is deliberately absent from the chain: it answers with
 whatever window is foreground, including another process's, and nothing could check that
@@ -5508,6 +5510,41 @@ its input lock.
 (exact match, fail-closed), the addon logs one Verbose line and disables itself (no
 polling, no file access). Only the literal `1` arms it.
 
+Two more automation-only behaviours ride on the same arm (both inert unless
+`PARSEK_TEST_COMMANDS=1`):
+
+- Focus-lock suppression (`TestCommands/AutomationFocusLockSuppressionPatch.cs`). A Harmony
+  prefix on the private `OnApplicationFocus(bool focus)` of `FlightDriver`, `EditorDriver`,
+  `SpaceCenterMain`, `KSP.UI.Screens.UISpaceCenter` and `MainMenu` skips the stock body when
+  `focus == false`, so an unfocused automation KSP never takes the `ControlTypes.All` locks
+  `flightDriver_ApplicationFocus`, `EditorDriver_AppFocus`, `ksc_ApplicationFocus` and
+  `applicationFocus` (which made the seam refuse `WarpToUT` with `warp-locked`, stalled the
+  editor launch and paused the KSC Planetarium). `focus == true` runs stock, which removes
+  the lock as before. Its `Prepare()` reads the env itself (the two Instantly addons wake in
+  no fixed order), so a player build applies zero targets. No lock can predate the patch:
+  it is applied in the LOADING scene, before any of the five owners exists. Log: one
+  `Info` `focus lock suppression armed targets=5` at patch time (a `Warn` naming the count when
+  fewer resolve) and, per suppression, a rate-limited (30 s per lock id) `Info`
+  `focus lock suppressed scene=<scene> owner=<type> lockId=<id> ...`.
+- Boot window placement (`TestCommands/AutomationWindowPlacement.cs`, pure;
+  `AutomationWindowPlacementNative.cs`, the OS calls; `ParsekTestCommandAddon.WindowPlacement.cs`,
+  the coroutine Awake starts). Env, read once: `PARSEK_AUTOMATION_DESKTOP_ID` (a virtual
+  desktop GUID) and `PARSEK_AUTOMATION_RETURN_FOREGROUND` (a decimal HWND). The run finds
+  this process's window by pid (waiting up to 10 s for it to be shown), moves it with the
+  documented `IVirtualDesktopManager.MoveWindowToDesktop` (a raw vtable call, no
+  `[ComImport]`; retried every 0.25 s within the same 10 s, because the desktop manager can
+  refuse a window it has not registered yet), then, if this window is foreground (waiting up
+  to 2 s for the launch focus grab) and the return window still exists, calls
+  `SetForegroundWindow(returnHwnd)`. It ends with exactly one `Info` line, also on failure:
+
+  ```
+  [Parsek][INFO][TestCommands] window placement desktop=<moved|failed hr=0xXXXXXXXX|skipped|no-window> foreground=<returned|not-foreground|failed|skipped> hwnd=0x<hex> moveAttempts=<n> elapsedSec=<s.ss>[ desktopEnv=invalid][ returnEnv=invalid][ fgReason=<return-window-gone|set-foreground-refused|not-windows|exception>][ error=<ExceptionType>]
+  ```
+
+  With neither env var set it logs `desktop=skipped foreground=skipped` at once and touches
+  no window. Report-only: the harness minimises the window itself whenever the line does not
+  say `desktop=moved`.
+
 On first armed frame: acquire/inspect the lock (`DecideLockOwnership`), replay the journal
 into the in-memory phase map, reconcile any `CLAIMED`/`EXECUTED` leftovers (crash
 recovery, above), and seed the in-memory processed-id set + command-file byte offset.
@@ -5915,6 +5952,9 @@ values use InvariantCulture.
 Env gate and lifecycle:
 - Awake gate decision: `Info` "armed" (with `PARSEK_TEST_COMMANDS=1`) or `Verbose`
   "inert: PARSEK_TEST_COMMANDS=<value-or-unset>".
+- Boot window placement: exactly one `Info` "window placement desktop=... foreground=..."
+  (grammar under "Addon lifecycle"); focus-lock suppression: rate-limited `Info` "focus lock
+  suppressed scene=<scene> owner=<type> lockId=<id>".
 - Lock: `Info` "lock acquired session=<id> pid=<n>", or `Warn` "standing down: foreign
   live lock session=<other> pid=<n> (alive) t=<t>", or `Warn` "reclaimed crashed lock
   session=<other> pid=<n> (dead) t=<t>". `t` is logged for context; pid liveness is the

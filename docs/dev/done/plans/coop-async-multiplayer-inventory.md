@@ -1,5 +1,10 @@
 # Cooperative Async Multiplayer - Codebase Inventory
 
+> **DEPRECATED (owner ruling 2026-11-14).** Cooperative multiplayer is not planned; this plan
+> is archived for reference only. Its design is `docs/dev/done/design-coop-async-multiplayer.md`
+> (also archived); the current multiplayer design is
+> `docs/dev/design-competitive-multiplayer.md`. Paths below are as they were when written.
+
 *Baseline snapshot and verified-mechanics map for implementing `docs/dev/design-coop-async-multiplayer.md`.*
 
 **Baseline test count:** TBD at kickoff (Phase 0 step 0.2 in `coop-async-multiplayer-tasks.md`)

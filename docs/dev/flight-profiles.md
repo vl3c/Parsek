@@ -19,8 +19,8 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | profile modded-compat | 4 |
 | autopilot (mission) lanes | 139 |
 | seam-only lanes | 454 |
-| LIVE-PROVEN date in status row | 449 |
-| no LIVE-PROVEN date | 144 |
+| LIVE-PROVEN date in status row | 454 |
+| no LIVE-PROVEN date | 139 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -52,7 +52,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | CX | 6 | - | 6 | - | - | - | 6 |
 | EVA | 16 | 1 | 15 | - | - | 1 | 15 |
 | EX | 2 | - | 2 | - | - | - | 2 |
-| FAR | 6 | - | - | 6 | - | - | - |
+| FAR | 6 | - | - | 6 | - | - | 4 |
 | FGV | 1 | - | - | 1 | - | - | 1 |
 | FLG | 1 | - | 1 | - | - | - | 1 |
 | FORGE | 8 | - | - | 8 | - | 8 | 3 |
@@ -114,7 +114,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | TOUR | 1 | - | 1 | - | - | - | 1 |
 | TP | 9 | - | - | 9 | - | - | 9 |
 | UIS | 1 | - | 1 | - | - | - | 1 |
-| V | 67 | - | 7 | 50 | - | 6 | 23 |
+| V | 67 | - | 7 | 50 | - | 6 | 24 |
 | VB | 1 | - | 1 | - | - | - | 1 |
 | VN | 13 | - | 13 | - | - | 5 | 13 |
 | W | 1 | - | - | 1 | - | - | - |
@@ -299,17 +299,17 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 
 | body | lanes | autopilot | live-proven | families |
 |---|---|---|---|---|
-| Kerbin | 355 | 108 | 275 | RF 28, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +63 |
+| Kerbin | 355 | 108 | 276 | RF 28, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +63 |
 | Mun | 54 | 12 | 42 | RW 22, V 8, B 5, CS 5, TP 4, MC 2, EVA 1, GUI 1, H 1 +5 |
 | Minmus | 13 | 5 | 7 | V 6, B 5, AP 1, TP 1 |
 | Moho | 3 | 1 | 2 | V 2, B 1 |
 | Eve | 12 | 4 | 5 | V 7, B 4, FAR 1 |
 | Gilly | 7 | 2 | 4 | V 4, B 2, FAR 1 |
-| Duna | 29 | 10 | 15 | V 13, B 4, FAR 4, TP 3, AT 1, CN 1, FORGE 1, GUI 1, H 1 |
-| Ike | 9 | 2 | 6 | V 4, FAR 3, B 2 |
+| Duna | 29 | 10 | 18 | V 13, B 4, FAR 4, TP 3, AT 1, CN 1, FORGE 1, GUI 1, H 1 |
+| Ike | 9 | 2 | 8 | V 4, FAR 3, B 2 |
 | Dres | 8 | 6 | 2 | B 5, V 2, FORGE 1 |
-| Jool | 45 | 18 | 19 | V 25, B 18, FAR 1, TP 1 |
-| Laythe | 27 | 14 | 15 | B 14, V 11, FAR 1, TP 1 |
+| Jool | 45 | 18 | 21 | V 25, B 18, FAR 1, TP 1 |
+| Laythe | 27 | 14 | 17 | B 14, V 11, FAR 1, TP 1 |
 | Vall | 11 | 5 | 4 | B 5, V 5, TP 1 |
 | Tylo | 12 | 6 | 2 | B 6, V 6 |
 | Bop | 8 | 4 | 2 | B 4, V 4 |
@@ -984,11 +984,11 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
 | FAR-1-ike-rewind-to-launch-career | operator | duna-ike-recorded-career | seam | Duna, Ike | rewind-to-launch, reload, save, warp +1 | LeafVesselPlacement | AUTHORED 2026-11-14, NEVER FLOWN |
-| FAR-2-duna-relaunch-rewind-keeps-landed | operator | duna-park-recorded | seam | Duna | rewind-to-launch, reload, save, scene-change | LeafVesselPlacement | AUTHORED 2026-11-14, NEVER FLOWN |
-| FAR-3-ike-revert-to-launch | operator | duna-ike-recorded | seam | Duna, Ike | revert, save, warp, scene-change | LeafVesselPlacement | AUTHORED 2026-11-14, NEVER FLOWN |
+| FAR-2-duna-relaunch-rewind-keeps-landed | operator | duna-park-recorded | seam | Duna | rewind-to-launch, reload, save, scene-change | LeafVesselPlacement | LIVE-PROVEN 2026-11-14 |
+| FAR-3-ike-revert-to-launch | operator | duna-ike-recorded | seam | Duna, Ike | revert, save, warp, scene-change | LeafVesselPlacement | LIVE-PROVEN 2026-11-14 |
 | FAR-4-gilly-eva-switch-bg-member | operator | eve-gilly-recorded | seam | Eve, Gilly | vessel-switch | - | AUTHORED 2026-11-14, NEVER FLOWN |
-| FAR-5-laythe-physics-warp-record | operator | jool-laythe-recorded | seam | Jool, Laythe | warp, physics-warp | LeafVesselPlacement | AUTHORED 2026-11-14, NEVER FLOWN |
-| FAR-6-ike-loop-watch-quickload | operator | duna-ike-recorded | seam | Duna, Ike | reload, save, warp | - | AUTHORED 2026-11-14, NEVER FLOWN |
+| FAR-5-laythe-physics-warp-record | operator | jool-laythe-recorded | seam | Jool, Laythe | warp, physics-warp | LeafVesselPlacement | LIVE-PROVEN 2026-11-14 |
+| FAR-6-ike-loop-watch-quickload | operator | duna-ike-recorded | seam | Duna, Ike | reload, save, warp | - | LIVE-PROVEN 2026-11-14 |
 
 ### FGV (1)
 
@@ -1735,7 +1735,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | V32M-eve-gilly-continuation-player-loop | operator | eve-gilly-recorded | seam | Kerbin, Eve, Gilly | reload, scene-change | MoonArrivalHold | LIVE-PROVEN 2026-11-07 |
 | V32T-eve-gilly-continuation-ts-arrival | operator | eve-gilly-recorded | seam | Kerbin, Eve, Gilly | reload, save, time-jump, scene-change | MoonArrivalHold | LIVE-PROVEN 2026-11-07 |
 | V33M-jool-laythe-continuation-player-loop | operator | jool-laythe-recorded | seam | Kerbin, Jool, Laythe | reload, scene-change | MoonArrivalHold | LIVE-PROVEN 2026-11-07 |
-| V33T-jool-laythe-continuation-ts-arrival | operator | jool-laythe-recorded | seam | Kerbin, Jool, Laythe | reload, save, time-jump, scene-change | MoonArrivalHold | NEVER FLOWN, authored 2026-11-14 |
+| V33T-jool-laythe-continuation-ts-arrival | operator | jool-laythe-recorded | seam | Kerbin, Jool, Laythe | reload, save, time-jump, scene-change | MoonArrivalHold | LIVE-PROVEN 2026-11-14 |
 | V34M-jool-vall-continuation-player-loop | pending-fixture | jool-vall-recorded | seam | Kerbin, Jool, Vall | reload, scene-change | MoonArrivalHold | NEVER FLOWN, WAITING ON jool-vall-recorde... |
 | V35M-jool-tylo-continuation-player-loop | pending-fixture | jool-tylo-recorded | seam | Kerbin, Jool, Tylo | reload, scene-change | MoonArrivalHold | NEVER FLOWN, WAITING ON jool-tylo-recorde... |
 | V36M-jool-bop-continuation-player-loop | pending-fixture | jool-bop-recorded | seam | Kerbin, Jool, Bop | reload, scene-change | MoonArrivalHold | NEVER FLOWN, WAITING ON jool-bop-recorded... |
