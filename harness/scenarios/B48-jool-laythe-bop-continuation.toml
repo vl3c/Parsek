@@ -1,0 +1,191 @@
+schema = 1
+id = "B48-jool-laythe-bop-continuation"
+# =====================================================================================
+# B48: the Kerbin -> Jool -> Laythe -> Bop forge, the multi-moon hold's DECLINE
+# subject. AUTHORED 2026-11-14, NEVER FLOWN.
+#
+# WHAT IT IS FOR. Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 1's Bop variant. The
+# multi-moon configuration hold must DECLINE, with an amber naming the shape, when a
+# participant breaks the joint recurrence (design-mission-multimoon-alignment.md D4;
+# P_Bop / P_Laythe = 10.277, incommensurate). This lane makes the two-moon tree the
+# decline reads: B26's parent relay (Laythe -> Jool -> moon, live-proven) re-pointed
+# at BOP and flown from `jool-laythe-recorded` (B38's --keep-parsek harvest, the
+# Kerbin -> Jool -> Laythe tree `6ec68e87b782476f970a71df8c8b4685`). No
+# StopRecording / DiscardTree, so the restore resumes that tree (`already=true`) and
+# the Bop hop is appended to it. V39M replays it.
+#
+# FLY IT AFTER B38's RE-HARVEST (COMMITTED-RESTORE-APPENDS-TO-ROOT, fixed
+# 2026-11-14): the committed `jool-laythe-recorded` carries a stray Laythe tail on
+# its root `ddcc6d00`; the fixed restore resumes on the chain tip, but a fresh
+# fixture keeps the tour's own reading clean.
+#
+# THE FIXTURE (measured off its bytes): the Duna Rocket parked ORBITING Laythe,
+# SMA 571,060.8 m, ECC 0.0278 (55,194 x 86,927 m), INC 16.37 deg, LiquidFuel
+# 534.3 / 2,400, the same ~2,484 m/s B26's fixture carried. Inside B26's entry gate.
+#
+# THE PARAMETERS: B26's set with Bop's numbers.
+#   targetBodyName Bop; the Bop floors / park band are B34's (targetPeriapsisFloor
+#     45,000, parkMinPeriapsis 25,000, parkMaxApoapsis 1,100,000; Bop terrain
+#     21.8 km), and maxCorrectionDvMps 200 (B34's: Bop is inclined 15 deg).
+#   transferMinApoapsisMeters 90,000,000: Bop's periapsis is 98.3 Mm radius (92.3 Mm
+#     altitude), so the stage-2 Jool-frame apoapsis must reach at least that.
+#   correctionTriggerTimeToSoiSeconds [110000, 8000]: the Laythe-orbit -> Bop
+#     half-transfer is 128,000-167,000 s (Bop at periapsis / apoapsis).
+#   transferBurnTimeoutSeconds / coastTimeoutSeconds 1,500,000 (B34's): the
+#     synodic wait against Bop's 544,507 s period from a 26-79 Mm Jool orbit.
+#   escapeSoiSpeedMps stays 450: the lowest SOI speed a Laythe park can deliver is
+#     ~370 m/s, and a faster unaimed escape costs more in total.
+#
+# DELTA-V IS THE RISK, and the first flight measures it. Escape 587 (B26 measured
+# 586.7) + stage 2, unaimed, around 1,000 (the transfer wants 811-989 m/s relative
+# to Laythe's orbit, against a 450 m/s escape in an arbitrary direction) + capture
+# 400-750 (v_inf 506-856 with the 15 deg plane) + corrections 100-200 = about
+# 2,100-2,550 m/s against ~2,484. If it runs dry it fails as a capture flake, never
+# a Parsek verdict.
+#
+# HARVEST after a green flight, from the run's own snapshot, never `--force`:
+#   python tools/harvest_bdock_station.py --save-dir results/<runId>_save
+#       --target-name jool-laythe-bop-recorded --expect-situation ORBITING --keep-parsek
+# then commit the fixture and drop V39M from PENDING_FIXTURE_LANES
+# (harness/lib/test_hlib.py), re-pinning its count window from the harvest.
+# =====================================================================================
+tier = "operator"
+description = "AUTHORED 2026-11-14, NEVER FLOWN. The Kerbin->Jool->Laythe->Bop forge, the multi-moon hold's decline subject: B26's live-proven parent relay re-pointed at Bop, flown from `jool-laythe-recorded` (B38's harvest) with no StopRecording/DiscardTree, so the Bop hop is appended to the Kerbin->Jool->Laythe tree 6ec68e87. Produces `jool-laythe-bop-recorded` for V39M, where Laythe + Bop (incommensurate) must decline with an amber."
+instanceProfile = "stock-minimal"
+tags = ["B48", "bop", "laythe", "jool", "moon", "jool-moon", "moon-to-moon", "cross-parent", "orbit", "mechjeb", "cross-soi", "capture", "commit-in-foreign-soi", "orbit-start", "interplanetary-path", "tree-continuation", "multi-moon-hold", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/jool-laythe-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "b26_laythe_vall"
+
+# `steps` MUST stay above the [driver.missionParams] header. B38's preamble.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },   expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "StartRecording",                                                    expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 7000 },
+  { cmd = "FlushAndQuit",                                                      expect = "OK" },
+]
+
+[driver.missionParams]
+startInOrbit                      = true
+startInOrbitMinPeriapsisMeters    = 52000
+startInOrbitMaxApoapsisMeters     = 300000
+startInOrbitMaxEccentricity       = 0.10
+startInOrbitSituations            = ["ORBITING"]
+startInOrbitDebounceFrames        = 3
+startInOrbitSettleSeconds         = 120
+homeBodyName                      = "Laythe"
+targetBodyName                    = "Bop"
+interplanetaryTransfer            = true
+parentRelayTransfer               = true
+escapeSoiSpeedMps                 = 450
+escapeMaxDeltaVMps                = 700
+escapeNodeMinLeadSeconds          = 300
+escapeTimeoutSeconds              = 2400
+returnBodyName                    = "Jool"
+viaBodyNames                      = ["Jool"]
+transferMinApoapsisMeters         = 90000000
+ejectionEccFloor                  = 0
+courseCorrectPeriapsisMeters      = 250000
+correctionTriggerTimeToSoiSeconds = [110000, 8000]
+correctionTriggerAltsMeters       = []
+planTimeoutSeconds                = 300
+planRetrySeconds                  = 10
+planWarpFactor                    = 2
+transferBurnTimeoutSeconds        = 1500000
+coastTimeoutSeconds               = 1500000
+flybyTimeoutSeconds               = 60000
+coastWarpFactor                   = 5
+soiLeadSeconds                    = 3000
+approachWindowSeconds             = 10000
+approachMaxWarpFactor             = 3
+soiNativeLeadSeconds              = 400
+triggerNativeLeadSeconds          = 30
+flybyWarpFactor                   = 2
+flybyMaxWarpFactor                = 3
+nodeArrivalMarginSeconds          = 15
+flipPhysicsWarpFactor             = 1
+targetPeriapsisFloorMeters        = 45000
+captureEnabled                    = true
+capturePlanTimeoutSeconds         = 300
+captureBurnTimeoutSeconds         = 60000
+parkMinPeriapsisMeters            = 25000
+parkMaxApoapsisMeters             = 1100000
+parkMaxEccentricity               = 0.25
+parkMaxAngularVelocityRadPerSec   = 0.05
+parkSituations                    = ["ORBITING"]
+parkDwellSeconds                  = 60
+parkDebounceFrames                = 3
+parkTimeoutSeconds                = 600
+commitTimeoutSeconds              = 300
+burnStagnantSeconds               = 120
+burnNoStartSeconds                = 600
+correctionThrottle                = 0.25
+correctionCutDvMps                = 2.0
+correctionSettleSeconds           = 10
+maxAttitudeErrorDeg               = 30
+frozenTelemetrySamples            = 10
+maxCorrectionDvMps                = 200
+
+[dimensionsCovered]
+D1  = ["commit-in-foreign-soi"]
+D14 = ["jool", "laythe", "bop", "warp-rails", "scene-flight", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# DERIVED, not measured: the fixture ships 7 recordings; B26's relay recording kept
+# both body-change seams cohesive (1 recording), so 7-10. Re-pin from the reading.
+count = { min = 7, max = 10 }
+
+[expectations.logContracts]
+required  = [
+  "Recording started",
+  "Recording stopped",
+  "TryRestoreCommittedTreeForSpawnedActiveVessel: restored tree 'Duna Rocket'",
+  "startrecording recordingId=\\w+ already=true",
+  "SOI change boundary suppressed in tree mode: Laythe to Jool \\(tree=6ec68e87b782476f970a71df8c8b4685,",
+  "SOI change boundary suppressed in tree mode: Jool to Bop \\(tree=6ec68e87b782476f970a71df8c8b4685,",
+  "CommitTreeFlight: starting tree commit at UT=",
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Bop",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "startrecording recordingId=\\w+ already=false",
+  "discardtree discarded=true",
+  "SOI change boundary suppressed in tree mode: \\w+ to Vall",
+  "SOI change boundary suppressed in tree mode: Vall to \\w+",
+  "SOI change boundary suppressed in tree mode: \\w+ to Tylo",
+  "SOI change boundary suppressed in tree mode: Tylo to \\w+",
+  "SOI change boundary suppressed in tree mode: \\w+ to Pol",
+  "SOI change boundary suppressed in tree mode: Pol to \\w+",
+  "SOI change boundary suppressed in tree mode: Jool to Laythe",
+]
+
+[expectations.rewind]
+# REPORT-ONLY until a reading.
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+committedTrees = { min = 1, max = 1 }
+
+[runtime]
+# 300 LoadGame + 7,000 mission (B26 measured 1,408 s wall; Bop's longer coast and
+# synodic wait, x3 for the first flight) + tail.
+budgetSeconds = 7600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

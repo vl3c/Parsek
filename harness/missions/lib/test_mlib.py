@@ -11940,11 +11940,14 @@ class ApproachLatchNativeWarpTests(unittest.TestCase):
             if mp.get("soiNativeLeadSeconds"):
                 armed.append(name)
         # B21 / B22 / B26 by measurement; B20, B28 and B30 by the owner ruling of
-        # 2026-10-14 ("tests pass and we still catch bugs").
+        # 2026-10-14 ("tests pass and we still catch bugs"). B48 carries B26's
+        # relay params verbatim apart from its target (never flown). B47's legs
+        # carry it too, one level down (`legs`), which this top-level read skips.
         self.assertEqual(["B20-moho-orbit.toml", "B21-eeloo-orbit.toml",
                           "B22-jool-orbit.toml", "B26-laythe-vall-transfer.toml",
                           "B28-laythe-jool-return.toml",
-                          "B30-mun-minmus-transfer.toml"], armed)
+                          "B30-mun-minmus-transfer.toml",
+                          "B48-jool-laythe-bop-continuation.toml"], armed)
 
     # spec -> (soiNativeLeadSeconds, its mlib floor, the TARGET-approach lead
     # while an arrival extra round is left) under the 2026-10-14 ruling. B28
