@@ -234,17 +234,17 @@ namespace Parsek.Tests
         [Fact]
         public void TryGetPersistedScienceActionWindow_NullOrNaN_False()
         {
-            Assert.False(LedgerOrchestrator.TryGetPersistedScienceActionWindow(
+            Assert.False(PostWalkActionReconciler.TryGetPersistedScienceActionWindow(
                 null, out _, out _, out _));
             // EndUT defaults to NaN.
-            Assert.False(LedgerOrchestrator.TryGetPersistedScienceActionWindow(
+            Assert.False(PostWalkActionReconciler.TryGetPersistedScienceActionWindow(
                 new GameAction { StartUT = 10f }, out _, out _, out _));
         }
 
         [Fact]
         public void TryGetPersistedScienceActionWindow_OpenSpan_ReturnedAsIs()
         {
-            bool ok = LedgerOrchestrator.TryGetPersistedScienceActionWindow(
+            bool ok = PostWalkActionReconciler.TryGetPersistedScienceActionWindow(
                 new GameAction { StartUT = 10f, EndUT = 20f, UT = 30.0 },
                 out double start, out double end, out bool collapsed);
             Assert.True(ok);
@@ -256,7 +256,7 @@ namespace Parsek.Tests
         [Fact]
         public void TryGetPersistedScienceActionWindow_CollapsedSpan_WidensToActionUT()
         {
-            bool ok = LedgerOrchestrator.TryGetPersistedScienceActionWindow(
+            bool ok = PostWalkActionReconciler.TryGetPersistedScienceActionWindow(
                 new GameAction { StartUT = 100f, EndUT = 100f, UT = 200.0 },
                 out double start, out double end, out bool collapsed);
             Assert.True(ok);
@@ -269,7 +269,7 @@ namespace Parsek.Tests
         [Fact]
         public void TryGetPersistedScienceActionWindow_CollapsedSpanAfterActionUT_StartsAtActionUT()
         {
-            bool ok = LedgerOrchestrator.TryGetPersistedScienceActionWindow(
+            bool ok = PostWalkActionReconciler.TryGetPersistedScienceActionWindow(
                 new GameAction { StartUT = 100f, EndUT = 100f, UT = 50.0 },
                 out double start, out double end, out bool collapsed);
             Assert.True(ok);
@@ -281,10 +281,10 @@ namespace Parsek.Tests
         [Fact]
         public void TryGetPersistedScienceActionWindow_ZeroOrInvertedSpan_False()
         {
-            Assert.False(LedgerOrchestrator.TryGetPersistedScienceActionWindow(
+            Assert.False(PostWalkActionReconciler.TryGetPersistedScienceActionWindow(
                 new GameAction { StartUT = 0f, EndUT = 0f, UT = 50.0 }, out _, out _, out bool c1));
             Assert.False(c1);
-            Assert.False(LedgerOrchestrator.TryGetPersistedScienceActionWindow(
+            Assert.False(PostWalkActionReconciler.TryGetPersistedScienceActionWindow(
                 new GameAction { StartUT = 20f, EndUT = 10f, UT = 50.0 }, out _, out _, out _));
         }
 
@@ -294,10 +294,10 @@ namespace Parsek.Tests
         public void DoesScienceEventMatchActionScope_UntaggedAction_MatchesAnything()
         {
             var evt = new GameStateEvent { ut = 999.0, recordingId = "rec_other" };
-            Assert.True(LedgerOrchestrator.DoesScienceEventMatchActionScope(
+            Assert.True(PostWalkActionReconciler.DoesScienceEventMatchActionScope(
                 evt, new GameAction(), 0.0, 1.0, out bool viaWindow));
             Assert.False(viaWindow);
-            Assert.True(LedgerOrchestrator.DoesScienceEventMatchActionScope(
+            Assert.True(PostWalkActionReconciler.DoesScienceEventMatchActionScope(
                 evt, null, 0.0, 1.0, out _));
         }
 
@@ -306,12 +306,12 @@ namespace Parsek.Tests
         {
             var action = new GameAction { RecordingId = "rec_a" };
 
-            Assert.True(LedgerOrchestrator.DoesScienceEventMatchActionScope(
+            Assert.True(PostWalkActionReconciler.DoesScienceEventMatchActionScope(
                 new GameStateEvent { ut = 5.0, recordingId = "rec_a" }, action, 10.0, 20.0,
                 out bool sameTagWindow));
             Assert.False(sameTagWindow);
 
-            Assert.False(LedgerOrchestrator.DoesScienceEventMatchActionScope(
+            Assert.False(PostWalkActionReconciler.DoesScienceEventMatchActionScope(
                 new GameStateEvent { ut = 15.0, recordingId = "rec_b" }, action, 10.0, 20.0,
                 out bool otherTagWindow));
             Assert.False(otherTagWindow);
@@ -321,16 +321,16 @@ namespace Parsek.Tests
         public void DoesScienceEventMatchActionScope_UntaggedEvent_MatchesInsideWindowInclusive()
         {
             var action = new GameAction { RecordingId = "rec_a" };
-            Assert.True(LedgerOrchestrator.DoesScienceEventMatchActionScope(
+            Assert.True(PostWalkActionReconciler.DoesScienceEventMatchActionScope(
                 new GameStateEvent { ut = 10.0 }, action, 10.0, 20.0, out bool atStart));
             Assert.True(atStart);
-            Assert.True(LedgerOrchestrator.DoesScienceEventMatchActionScope(
+            Assert.True(PostWalkActionReconciler.DoesScienceEventMatchActionScope(
                 new GameStateEvent { ut = 20.0, recordingId = "" }, action, 10.0, 20.0, out bool atEnd));
             Assert.True(atEnd);
-            Assert.False(LedgerOrchestrator.DoesScienceEventMatchActionScope(
+            Assert.False(PostWalkActionReconciler.DoesScienceEventMatchActionScope(
                 new GameStateEvent { ut = 9.99 }, action, 10.0, 20.0, out bool before));
             Assert.False(before);
-            Assert.False(LedgerOrchestrator.DoesScienceEventMatchActionScope(
+            Assert.False(PostWalkActionReconciler.DoesScienceEventMatchActionScope(
                 new GameStateEvent { ut = 20.01 }, action, 10.0, 20.0, out _));
         }
 
@@ -349,10 +349,10 @@ namespace Parsek.Tests
             };
             Assert.Equal(
                 "ut=123.5 key='crewReport@KerbinSrfLanded' delta=2.5 tag='rec_a' [match, untagged-window]",
-                LedgerOrchestrator.FormatScienceEventForReconcileDump(evt, true, true));
+                PostWalkActionReconciler.FormatScienceEventForReconcileDump(evt, true, true));
             Assert.Equal(
                 "ut=0.0 key='' delta=0.0 tag='' [skip]",
-                LedgerOrchestrator.FormatScienceEventForReconcileDump(new GameStateEvent(), false, false));
+                PostWalkActionReconciler.FormatScienceEventForReconcileDump(new GameStateEvent(), false, false));
         }
 
         // ---------- HasKerbalDeathRepPenaltyRowForRecording ---------------------

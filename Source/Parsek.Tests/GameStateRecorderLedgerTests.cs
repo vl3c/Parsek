@@ -42,7 +42,7 @@ namespace Parsek.Tests
             LedgerOrchestrator.ResetForTesting();
             // The recovery-funds deferred queue runs only in a career with a funds pool
             // (Funding.Instance is absent headless); the no-pool skip has its own cells.
-            LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(
+            PostWalkActionReconciler.SetResourceTrackingAvailabilityForTesting(
                 fundsTracked: true, scienceTracked: null, reputationTracked: null);
             RecordingStore.ResetForTesting();
             // PickRecoveryRecordingId now reads the live Re-Fly marker off the scenario,

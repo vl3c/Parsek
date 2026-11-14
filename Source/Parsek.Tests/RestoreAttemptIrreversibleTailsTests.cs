@@ -38,7 +38,7 @@ namespace Parsek.Tests
             RecordingStore.ClearCommittedTreeRestoreAttempt("test-setup");
             GameStateRecorder.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
-            LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(true, true, true);
+            PostWalkActionReconciler.SetResourceTrackingAvailabilityForTesting(true, true, true);
             KspStatePatcher.SuppressUnityCallsForTesting = true;
             originalScene = HighLogic.LoadedScene;
         }

@@ -36,19 +36,6 @@ namespace Parsek
         private static bool fundsSeedDone;
         private static bool scienceSeedDone;
         private static bool repSeedDone;
-        [ThreadStatic]
-        private static bool? fundsTrackedOverrideForTesting;
-        [ThreadStatic]
-        private static bool? scienceTrackedOverrideForTesting;
-        [ThreadStatic]
-        private static bool? repTrackedOverrideForTesting;
-        // Effectively "once per play session" for the rate-limited skip diagnostics.
-        private static readonly double OneShotReconcileSkipLogIntervalSeconds =
-            TimeSpan.FromDays(365).TotalSeconds;
-        private static readonly HashSet<string> emittedReconcileWarnKeys =
-            new HashSet<string>(StringComparer.Ordinal);
-        private static readonly HashSet<string> emittedScienceReconcileDumpKeys =
-            new HashSet<string>(StringComparer.Ordinal);
 
         /// <summary>
         /// Monotonically increasing sequence counter for KSC events added individually
@@ -412,12 +399,8 @@ namespace Parsek
             fundsSeedDone = false;
             scienceSeedDone = false;
             repSeedDone = false;
-            fundsTrackedOverrideForTesting = null;
-            scienceTrackedOverrideForTesting = null;
-            repTrackedOverrideForTesting = null;
+            PostWalkActionReconciler.ResetForTesting();
             kscSequenceCounter = 0;
-            emittedReconcileWarnKeys.Clear();
-            emittedScienceReconcileDumpKeys.Clear();
             LedgerRecoveryFundsPairing.ResetForTesting();
             scienceModule = null;
             milestonesModule = null;

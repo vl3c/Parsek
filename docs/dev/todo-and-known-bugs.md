@@ -3632,7 +3632,11 @@ compare).
   the residue and none joins: ratchet 140 -> 126 (greedy 126, replayed 126), 24 back-edges,
   bound re-pinned to 126. `IsStrategyConversionRow` moved verbatim to `ConversionLegBinding`
   (its one outside caller; the orchestrator now calls it there): ratchet 125, 23 back-edges.
-  Measured per step in the note's "as built" table.
+  The reconcile helpers the post-walk reconciler called, with their log-once sets and tracker
+  overrides, moved verbatim to `PostWalkActionReconciler` (log tag unchanged; lifetime tags and
+  the reset allowlist moved with the fields): ratchet 124, 22 back-edges, bound 124. Whole cut:
+  ratchet 140 -> 124, knot unchanged (394, same members), 20 types left the residue and none
+  joined. Measured per step in the note's "as built" table.
 - 2026-11-14 (B6 second half, split `AnchorPropagator.Run`): the DAG walk (about 490 lines,
   complexity 104) is now an orchestrator (complexity 8) over 13 private static steps in the same
   file, in walk order: `IndexRecordingsById`, `EmitSeedAnchors` with `EmitSeedCandidate`,

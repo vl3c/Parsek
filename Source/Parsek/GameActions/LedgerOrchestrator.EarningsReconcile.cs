@@ -8,21 +8,6 @@ namespace Parsek
     internal static partial class LedgerOrchestrator
     {
         /// <summary>
-        /// Test-only override for resource tracker availability checks used by the
-        /// earnings reconciliation diagnostics. Null falls back to the live KSP
-        /// singleton availability.
-        /// </summary>
-        internal static void SetResourceTrackingAvailabilityForTesting(
-            bool? fundsTracked,
-            bool? scienceTracked,
-            bool? reputationTracked)
-        {
-            fundsTrackedOverrideForTesting = fundsTracked;
-            scienceTrackedOverrideForTesting = scienceTracked;
-            repTrackedOverrideForTesting = reputationTracked;
-        }
-
-        /// <summary>
         /// Pure reconciliation: sums dropped FundsChanged/ReputationChanged/ScienceChanged
         /// deltas against effective emitted FundsEarning/FundsSpending/ReputationEarning/
         /// ReputationPenalty/ScienceEarning/ScienceSpending actions in the same UT window
@@ -61,13 +46,13 @@ namespace Parsek
             double startUT, double endUT,
             string recordingId = null)
         {
-            GetResourceTrackingAvailability(
+            PostWalkActionReconciler.GetResourceTrackingAvailability(
                 out bool fundsTracked,
                 out bool scienceTracked,
                 out bool repTracked);
             if (!fundsTracked && !scienceTracked && !repTracked)
             {
-                LogReconcileSkippedOnce("earnings-window", "Earnings reconcile",
+                PostWalkActionReconciler.LogReconcileSkippedOnce("earnings-window", "Earnings reconcile",
                     fundsTracked, scienceTracked, repTracked);
                 return;
             }
@@ -217,7 +202,7 @@ namespace Parsek
             {
                 ParsekLog.Verbose(Tag,
                     $"ReconcileEarningsWindow: skipped {storeDeltas.ScopeSkipped} event(s) tagged to other recordings " +
-                    $"(scope='{recordingId}', window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}])");
+                    $"(scope='{recordingId}', window=[{PostWalkActionReconciler.FormatFixed1(startUT)},{PostWalkActionReconciler.FormatFixed1(endUT)}])");
             }
         }
 
@@ -337,7 +322,7 @@ namespace Parsek
                 $"ReconcileEarningsWindow: excluded {storeDeltas.KerbalDeathPairedSkipped.ToString(CultureInfo.InvariantCulture)} " +
                 $"paired VesselLoss event(s) and {emittedDeltas.KerbalDeathPairedSkipped.ToString(CultureInfo.InvariantCulture)} " +
                 $"KerbalDeath penalty row(s) from the rep comparison (self-paired by construction) " +
-                $"(scope='{recordingId ?? "(none)"}', window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}])");
+                $"(scope='{recordingId ?? "(none)"}', window=[{PostWalkActionReconciler.FormatFixed1(startUT)},{PostWalkActionReconciler.FormatFixed1(endUT)}])");
         }
 
         private static EarningsWindowEmittedDeltas ComputeEarningsWindowEmittedDeltas(
@@ -731,7 +716,7 @@ namespace Parsek
                 $"inside-seed reputation row(s) at stock's curve and folded " +
                 $"{emittedDeltas.StrategyConversionRowsFolded.ToString(CultureInfo.InvariantCulture)} " +
                 $"ledger strategy conversion row(s) into the emitted side " +
-                $"(scope='{recordingId ?? "(none)"}', window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}])");
+                $"(scope='{recordingId ?? "(none)"}', window=[{PostWalkActionReconciler.FormatFixed1(startUT)},{PostWalkActionReconciler.FormatFixed1(endUT)}])");
         }
 
         private static void LogEarningsWindowActionSummary(
@@ -749,7 +734,7 @@ namespace Parsek
                 ParsekLog.Verbose(Tag,
                     $"ReconcileEarningsWindow: summed {emittedDeltas.ContractAcceptCount} ContractAccept, " +
                     $"{emittedDeltas.FacilityUpgradeCount} FacilityUpgrade, {emittedDeltas.FacilityRepairCount} FacilityRepair " +
-                    $"into emittedFundsDelta window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}]");
+                    $"into emittedFundsDelta window=[{PostWalkActionReconciler.FormatFixed1(startUT)},{PostWalkActionReconciler.FormatFixed1(endUT)}]");
             }
         }
 
@@ -771,23 +756,23 @@ namespace Parsek
             if (fundsTracked && Math.Abs(storeDeltas.DroppedFundsDelta - emittedDeltas.EmittedFundsDelta) > fundsTol)
             {
                 ParsekLog.Warn(Tag,
-                    $"Earnings reconciliation (funds): store delta={FormatFixed1(storeDeltas.DroppedFundsDelta)} vs " +
-                    $"ledger emitted delta={FormatFixed1(emittedDeltas.EmittedFundsDelta)} — missing earning channel? " +
-                    $"window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}]");
+                    $"Earnings reconciliation (funds): store delta={PostWalkActionReconciler.FormatFixed1(storeDeltas.DroppedFundsDelta)} vs " +
+                    $"ledger emitted delta={PostWalkActionReconciler.FormatFixed1(emittedDeltas.EmittedFundsDelta)} — missing earning channel? " +
+                    $"window=[{PostWalkActionReconciler.FormatFixed1(startUT)},{PostWalkActionReconciler.FormatFixed1(endUT)}]");
             }
             if (repTracked && Math.Abs(storeDeltas.DroppedRepDelta - emittedDeltas.EmittedRepDelta) > repTol)
             {
                 ParsekLog.Warn(Tag,
-                    $"Earnings reconciliation (rep): store delta={FormatFixed1(storeDeltas.DroppedRepDelta)} vs " +
-                    $"ledger emitted delta={FormatFixed1(emittedDeltas.EmittedRepDelta)} — missing earning channel? " +
-                    $"window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}]");
+                    $"Earnings reconciliation (rep): store delta={PostWalkActionReconciler.FormatFixed1(storeDeltas.DroppedRepDelta)} vs " +
+                    $"ledger emitted delta={PostWalkActionReconciler.FormatFixed1(emittedDeltas.EmittedRepDelta)} — missing earning channel? " +
+                    $"window=[{PostWalkActionReconciler.FormatFixed1(startUT)},{PostWalkActionReconciler.FormatFixed1(endUT)}]");
             }
             if (scienceTracked && Math.Abs(storeDeltas.DroppedSciDelta - emittedDeltas.EmittedSciDelta) > sciTol)
             {
                 string message =
-                    $"Earnings reconciliation (sci): store delta={FormatFixed1(storeDeltas.DroppedSciDelta)} vs " +
-                    $"ledger emitted delta={FormatFixed1(emittedDeltas.EmittedSciDelta)} — missing earning channel? " +
-                    $"window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}]";
+                    $"Earnings reconciliation (sci): store delta={PostWalkActionReconciler.FormatFixed1(storeDeltas.DroppedSciDelta)} vs " +
+                    $"ledger emitted delta={PostWalkActionReconciler.FormatFixed1(emittedDeltas.EmittedSciDelta)} — missing earning channel? " +
+                    $"window=[{PostWalkActionReconciler.FormatFixed1(startUT)},{PostWalkActionReconciler.FormatFixed1(endUT)}]";
                 string warnKey = string.Format(
                     CultureInfo.InvariantCulture,
                     "commit:sci:{0}:{1:F3}:{2:F3}:{3:F3}:{4:F3}",
@@ -796,7 +781,7 @@ namespace Parsek
                     endUT,
                     storeDeltas.DroppedSciDelta,
                     emittedDeltas.EmittedSciDelta);
-                if (LogReconcileWarnOnce(warnKey, message))
+                if (PostWalkActionReconciler.LogReconcileWarnOnce(warnKey, message))
                 {
                     LogScienceCommitReconcileDumpOnce(
                         warnKey,
@@ -859,7 +844,7 @@ namespace Parsek
                 ParsekLog.Verbose(Tag,
                     $"ReconcileEarningsWindow: extended science delta with {extendedCount} " +
                     $"including {widenedUntaggedCount} untagged pre-recording event(s) " +
-                    $"window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}] scope='{recordingId ?? "(none)"}'");
+                    $"window=[{PostWalkActionReconciler.FormatFixed1(startUT)},{PostWalkActionReconciler.FormatFixed1(endUT)}] scope='{recordingId ?? "(none)"}'");
             }
 
             return matchedSciDelta;
@@ -883,7 +868,7 @@ namespace Parsek
                 var action = effectiveScienceActions[i];
                 if (action == null)
                     continue;
-                if (!TryGetPersistedScienceActionWindow(
+                if (!PostWalkActionReconciler.TryGetPersistedScienceActionWindow(
                         action,
                         out double actionStartUt,
                         out double actionEndUt,
@@ -896,12 +881,12 @@ namespace Parsek
                     continue;
                 if (!string.Equals(
                         evt.key ?? "",
-                        GetScienceChangedReasonKey(action),
+                        PostWalkActionReconciler.GetScienceChangedReasonKey(action),
                         StringComparison.Ordinal))
                 {
                     continue;
                 }
-                if (!DoesScienceEventMatchActionScope(
+                if (!PostWalkActionReconciler.DoesScienceEventMatchActionScope(
                         evt,
                         action,
                         actionStartUt,
@@ -910,17 +895,6 @@ namespace Parsek
                     continue;
 
                 matchedViaUntaggedWindow = viaUntaggedWindow;
-                return true;
-            }
-
-            return false;
-        }
-
-        internal static bool LogReconcileWarnOnce(string warnKey, string message)
-        {
-            if (string.IsNullOrEmpty(warnKey) || emittedReconcileWarnKeys.Add(warnKey))
-            {
-                ParsekLog.Warn(Tag, message);
                 return true;
             }
 
@@ -937,7 +911,7 @@ namespace Parsek
         {
             if (events == null || events.Count == 0)
                 return;
-            if (!emittedScienceReconcileDumpKeys.Add("commit-dump:" + (dumpKey ?? "")))
+            if (!PostWalkActionReconciler.TryRegisterCommitDumpKey(dumpKey))
                 return;
 
             double dumpStartUt = startUT - 5.0;
@@ -959,14 +933,14 @@ namespace Parsek
                     recordingId,
                     out bool viaUntaggedWindow);
 
-                lines.Add(FormatScienceEventForReconcileDump(evt, matched, viaUntaggedWindow));
+                lines.Add(PostWalkActionReconciler.FormatScienceEventForReconcileDump(evt, matched, viaUntaggedWindow));
             }
 
             string detail = lines.Count == 0
                 ? "(no ScienceChanged events in dump window)"
                 : string.Join(" | ", lines.ToArray());
             ParsekLog.Error(Tag,
-                $"Science reconcile dump (commit): window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}] " +
+                $"Science reconcile dump (commit): window=[{PostWalkActionReconciler.FormatFixed1(startUT)},{PostWalkActionReconciler.FormatFixed1(endUT)}] " +
                 $"scope='{recordingId ?? "(none)"}' events={detail}");
         }
 
@@ -1003,76 +977,6 @@ namespace Parsek
             PostWalkActionReconciler.ReconcilePostWalk(events, actions, utCutoff);
         }
 
-        internal static bool TryGetPersistedScienceActionWindow(
-            GameAction action,
-            out double startUt,
-            out double endUt,
-            out bool collapsedPersistedSpan)
-        {
-            startUt = 0.0;
-            endUt = 0.0;
-            collapsedPersistedSpan = false;
-
-            if (action == null)
-                return false;
-            if (float.IsNaN(action.StartUT) || float.IsNaN(action.EndUT))
-                return false;
-
-            if (action.EndUT > action.StartUT)
-            {
-                startUt = action.StartUT;
-                endUt = action.EndUT;
-                return true;
-            }
-
-            if (action.EndUT == action.StartUT && action.EndUT > 0f)
-            {
-                collapsedPersistedSpan = true;
-                startUt = GetCollapsedScienceWindowStart(action.StartUT, action.UT);
-                endUt = action.UT;
-                if (endUt < startUt)
-                    endUt = startUt;
-                return true;
-            }
-
-            return false;
-        }
-
-        private static double GetCollapsedScienceWindowStart(float collapsedStartUt, double actionUt)
-        {
-            double halfWidth = GetScienceReconcileCollapsedHalfWidth(collapsedStartUt);
-            double startUt = collapsedStartUt - halfWidth;
-            if (double.IsNaN(startUt) || double.IsInfinity(startUt))
-                startUt = collapsedStartUt;
-            if (actionUt < startUt)
-                startUt = actionUt;
-            return startUt;
-        }
-
-        private static double GetScienceReconcileCollapsedHalfWidth(float value)
-        {
-            if (float.IsNaN(value) || float.IsInfinity(value))
-                return 0.0;
-
-            int bits = BitConverter.ToInt32(BitConverter.GetBytes(value), 0);
-            float previous = BitConverter.ToSingle(BitConverter.GetBytes(bits - 1), 0);
-            float next = BitConverter.ToSingle(BitConverter.GetBytes(bits + 1), 0);
-            double lower = float.IsNaN(previous) || float.IsInfinity(previous)
-                ? 0.0
-                : Math.Abs((double)value - previous);
-            double upper = float.IsNaN(next) || float.IsInfinity(next)
-                ? 0.0
-                : Math.Abs(next - (double)value);
-
-            double width = 0.0;
-            if (lower > 0.0 && upper > 0.0)
-                width = Math.Min(lower, upper);
-            else
-                width = Math.Max(lower, upper);
-
-            return width * 0.5;
-        }
-
         // Mirrored in GameStateEventConverter.EventMatchesRecordingScope; keep the two in sync.
         private static bool EventMatchesRecordingScope(GameStateEvent evt, string recordingId)
         {
@@ -1081,102 +985,6 @@ namespace Parsek
 
             string eventRecordingId = evt.recordingId ?? "";
             return string.Equals(eventRecordingId, recordingId, StringComparison.Ordinal);
-        }
-
-        internal static bool DoesScienceEventMatchActionScope(
-            GameStateEvent evt,
-            GameAction action,
-            double actionStartUt,
-            double actionEndUt,
-            out bool matchedViaUntaggedWindow)
-        {
-            matchedViaUntaggedWindow = false;
-
-            string actionRecordingId = action?.RecordingId ?? "";
-            if (string.IsNullOrEmpty(actionRecordingId))
-                return true;
-
-            string eventRecordingId = evt.recordingId ?? "";
-            if (string.Equals(eventRecordingId, actionRecordingId, StringComparison.Ordinal))
-                return true;
-
-            if (!string.IsNullOrEmpty(eventRecordingId))
-                return false;
-
-            if (evt.ut < actionStartUt || evt.ut > actionEndUt)
-                return false;
-
-            matchedViaUntaggedWindow = true;
-            return true;
-        }
-
-        internal static string GetScienceChangedReasonKey(GameAction action)
-        {
-            if (action != null && action.Method == ScienceMethod.Recovered)
-                return VesselRecoveryReasonKey;
-
-            return "ScienceTransmission";
-        }
-
-        internal static string FormatScienceEventForReconcileDump(
-            GameStateEvent evt,
-            bool matchedScope,
-            bool matchedViaUntaggedWindow)
-        {
-            string tag = evt.recordingId ?? "";
-            string matchLabel = matchedScope ? "match" : "skip";
-            string untaggedLabel = matchedViaUntaggedWindow ? ", untagged-window" : "";
-            return string.Format(
-                CultureInfo.InvariantCulture,
-                "ut={0:F1} key='{1}' delta={2:F1} tag='{3}' [{4}{5}]",
-                evt.ut,
-                evt.key ?? "",
-                evt.valueAfter - evt.valueBefore,
-                tag,
-                matchLabel,
-                untaggedLabel);
-        }
-        internal static void GetResourceTrackingAvailability(
-            out bool fundsTracked,
-            out bool scienceTracked,
-            out bool repTracked)
-        {
-            fundsTracked = fundsTrackedOverrideForTesting ?? Funding.Instance != null;
-            scienceTracked = scienceTrackedOverrideForTesting
-                ?? ResearchAndDevelopment.Instance != null;
-            repTracked = repTrackedOverrideForTesting ?? global::Reputation.Instance != null;
-        }
-
-        internal static void LogReconcileSkippedOnce(
-            string scopeKey,
-            string scopeLabel,
-            bool fundsTracked,
-            bool scienceTracked,
-            bool repTracked)
-        {
-            ParsekLog.VerboseRateLimited(
-                Tag,
-                $"reconcile-skip:{scopeKey}:{fundsTracked}:{scienceTracked}:{repTracked}",
-                $"{scopeLabel} skipped: sandbox / tracker unavailable " +
-                $"(funds={fundsTracked.ToString().ToLowerInvariant()} " +
-                $"sci={scienceTracked.ToString().ToLowerInvariant()} " +
-                $"rep={repTracked.ToString().ToLowerInvariant()})",
-                OneShotReconcileSkipLogIntervalSeconds);
-        }
-
-        internal static bool TryRegisterPostWalkDumpKey(string dumpKey)
-        {
-            return emittedScienceReconcileDumpKeys.Add("postwalk-dump:" + (dumpKey ?? ""));
-        }
-
-        internal static string FormatFixed1(double value)
-        {
-            return value.ToString("F1", CultureInfo.InvariantCulture);
-        }
-
-        internal static string FormatFixed3(double value)
-        {
-            return value.ToString("F3", CultureInfo.InvariantCulture);
         }
     }
 }

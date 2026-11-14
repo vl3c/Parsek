@@ -38,14 +38,14 @@ namespace Parsek.Tests
             GameStateRecorder.ResetForTesting();
             CurrencyScenarioReadiness.ResetForTesting();
             LedgerOrchestrator.ExpectedCurrencySingletonsForTesting = () => CurrencySingletons.All;
-            LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(true, true, true);
+            PostWalkActionReconciler.SetResourceTrackingAvailabilityForTesting(true, true, true);
             LedgerOrchestrator.NowUtProviderForTesting = () => CaptureUT;
         }
 
         public void Dispose()
         {
             ParsekScenario.SetOnLoadInProgressForTesting(false);
-            LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(null, null, null);
+            PostWalkActionReconciler.SetResourceTrackingAvailabilityForTesting(null, null, null);
             CurrencyScenarioReadiness.ResetForTesting();
             GameStateRecorder.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();

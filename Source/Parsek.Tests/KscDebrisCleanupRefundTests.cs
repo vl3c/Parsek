@@ -32,7 +32,7 @@ namespace Parsek.Tests
             GameStateStore.SuppressLogging = true;
             GameStateStore.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
-            LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(
+            PostWalkActionReconciler.SetResourceTrackingAvailabilityForTesting(
                 fundsTracked: true, scienceTracked: null, reputationTracked: null);
             RecordingStore.ResetForTesting();
             RecoveryDispatchScope.ResetForTesting();

@@ -33,7 +33,7 @@ namespace Parsek.Tests
             GameStateStore.ResetForTesting();
             RecordingStore.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
-            LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(true, true, true);
+            PostWalkActionReconciler.SetResourceTrackingAvailabilityForTesting(true, true, true);
             KspStatePatcher.SuppressUnityCallsForTesting = true;
             GameStateRecorder.PendingMilestoneEventById.Clear();
             GameStateRecorder.IsReplayingActions = false;

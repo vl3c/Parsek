@@ -304,7 +304,7 @@ body = "The Ghost &rarr; GameActions VIOLATION main reported on 2026-11-07 is go
 
 [[findings.items]]
 title = "The checker runs in CI, checks its prose, and gates on the compiled IL."
-body = "CI's compiled-IL step ratchets the semantic residue (bound 125, 125 on 2026-11-14), the backward layer pairs, the static lifetimes, the headless-module leaks and the three code-facts sets (<em>Code facts</em>), and <code>--check</code> reports any undated literal number in this prose that disagrees with the page; CI runs the xUnit suite on mono only, so a Harmony patch over a Unity internalcall or a culture-formatted log line reds only on a Windows run (#2601, 2026-11-14)."
+body = "CI's compiled-IL step ratchets the semantic residue (bound 124, 124 on 2026-11-14), the backward layer pairs, the static lifetimes, the headless-module leaks and the three code-facts sets (<em>Code facts</em>), and <code>--check</code> reports any undated literal number in this prose that disagrees with the page; CI runs the xUnit suite on mono only, so a Harmony patch over a Unity internalcall or a culture-formatted log line reds only on a Windows run (#2601, 2026-11-14)."
 
 [[findings.items]]
 title = "The modules are real."
@@ -384,7 +384,7 @@ rank = 8
 item = "LedgerOrchestrator back-edges: the six-edge cut"
 evidence = "On 2026-11-14, 30 residue types called back into the orchestrator; with the moved code's own edges counted, cutting six of them (moves and delegate parameters only) measured the semantic ratchet 140 to 124, and any three of the four load-bearing edges alone gain nothing (<code>docs/dev/research/ledger-orchestrator-back-edges-2026-11-14.md</code>)."
 size = "one PR"
-status = "Proposed 2026-11-14, not approved. Verifiable headless with the module-set digest as the witness; the other 24 edges buy 3 more and need installed hooks proven in flight, so the note recommends leaving them."
+status = "Built 2026-11-14 as one PR, one commit per edge: semantic ratchet 140 to 124 (bound 124), back-edges 30 to 22, knot members unchanged. The remaining edges buy 3 more and need installed hooks proven in flight, so the note recommends leaving them."
 types = ["LedgerOrchestrator", "Ledger", "RecordingTreeSplitter", "CommittedTreeRestoreAttempt", "SwitchSegmentAttempts", "PostWalkActionReconciler"]
 
 [[opportunities]]
