@@ -1922,11 +1922,15 @@ cd harness && python tools/parallel_runner.py resume --name nightly-1
   120 s). A lane needs a free slot of its `instanceProfile`; at most
   `control.json` `slots` lanes run at once (re-read before every start, so
   `set-slots` takes effect at the next start and never stops a running lane).
-  After a start the next waits 45 s, so the memory guard reads the machine
-  after the previous copy booted. Memory guard: beyond the first running lane,
-  nothing starts while free RAM is under 6 GB or free VRAM under 5.5 GB
+  After a start the next waits 15 s (the dispatch gap, equal to the launch
+  spacing every child enforces anyway). Memory guard: beyond the first running
+  lane, nothing starts while free RAM is under 6 GB or free VRAM under 5.5 GB
   (`GlobalMemoryStatusEx`, `nvidia-smi`; a reading that is not available is not
-  a refusal); each deferral is logged and shown by `status`.
+  a refusal), after 4.5 GB RAM and 5 GB VRAM are taken off the reading for
+  every copy started less than 75 s ago (a booting copy has not taken its
+  memory yet). Every wait (dispatch gap, memory, slots, exclusive, slot busy,
+  drain, stop) is logged once per change in `runner.log` and `events.jsonl`;
+  `status` shows the last memory deferral.
 - **Preconditions.** The runner refuses a lane profile with no provisioned slot
   and slots that deploy different `Parsek.dll` builds (sha256, naming the odd
   slot): both exit 2. It takes the machine lock for the whole run (payload

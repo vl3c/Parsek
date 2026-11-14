@@ -1239,13 +1239,24 @@ in `harness/results/parallel/<run>/` (`plan.json`, `control.json`,
   profile while fewer than `control.json` `slots` lanes run; the count is
   re-read before every start, so `set-slots` takes effect at the next start
   and never kills a running lane.
-- **Settle gap.** After a start, no other lane starts for 45 s
-  (`parallel.DISPATCH_SETTLE_SECONDS`) while one runs: a copy that has just
-  launched has not taken its memory yet.
+- **Dispatch gap.** After a start, no other lane starts for 15 s
+  (`parallel.DISPATCH_GAP_SECONDS`, equal to `slots.DEFAULT_LAUNCH_SPACING_SECONDS`)
+  while one runs, so the runner does not queue a child that would only wait on
+  the machine-wide launch stamp. The gap is not a memory measure: a 45 s gap
+  capped a 2026-11-14 daily run (lanes of 46-90 s) at one start per ~46 s, and
+  the third slot never got a lane.
 - **Memory guard.** Beyond the first running lane, nothing starts while free
   RAM is under 6 GB or free VRAM under 5.5 GB (`GlobalMemoryStatusEx`,
   `nvidia-smi`); a reading that is not available is not a refusal, and at
-  least one lane always runs. Each deferral is logged.
+  least one lane always runs. A copy started less than
+  `parallel.BOOT_WINDOW_SECONDS` (75 s; boot measured 37 s alone, 42-45 s
+  beside others, then the footprint ramps) ago has not taken its memory yet,
+  so the guard takes `BOOT_RESERVE_RAM_GB` (4.5) and `BOOT_RESERVE_VRAM_GB`
+  (5.0) off the reading per such copy before it compares, and the reason names
+  the booting count. The runner re-reads memory after every start.
+- **Waits are visible.** Every wait kind (dispatch gap, memory, slots,
+  exclusive, slot busy, drain, stop) is logged once per change in `runner.log`
+  and as a `wait` event in `events.jsonl`.
 - **Exclusive lanes.** A lane that moves the OS cursor or takes the
   foreground (`[runtime] exclusive = true`, as LT-1 and GUI-7 declare; or a
   recognised step: `UiAction op=pointer`, any `focus=true`, `StockScreen

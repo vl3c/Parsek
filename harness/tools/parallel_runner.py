@@ -507,7 +507,8 @@ class Context:
     run_py: Optional[str] = None
     poll_seconds: float = POLL_SECONDS
     heartbeat_seconds: float = HEARTBEAT_SECONDS
-    settle_seconds: float = parallel.DISPATCH_SETTLE_SECONDS
+    dispatch_gap_seconds: float = parallel.DISPATCH_GAP_SECONDS
+    boot_window_seconds: float = parallel.BOOT_WINDOW_SECONDS
     bridge: Any = None
     unity_prefs: Any = None
     memory_fn: Callable[[], parallel.MemoryReading] = memory_reading
@@ -907,7 +908,8 @@ def _dispatch(ctx: Context, folder: RunFolder, plan: Dict, lanes: List[parallel.
         running_view = [parallel.Running(c.lane.lane_id, c.slot, c.lane.exclusive, c.started)
                         for c in running.values()]
         decision = parallel.decide_next(pending, running_view, by_profile, slots_value, halt,
-                                        memory, time.time(), last_start, ctx.settle_seconds)
+                                        memory, time.time(), last_start,
+                                        ctx.dispatch_gap_seconds, ctx.boot_window_seconds)
         if decision.action == parallel.ACTION_DONE:
             break
         if decision.action == parallel.ACTION_START:
@@ -921,17 +923,19 @@ def _dispatch(ctx: Context, folder: RunFolder, plan: Dict, lanes: List[parallel.
             running[seq] = child
             last_start = child.started
             last_wait = None
+            # The next guard read must postdate this start.
+            mem_cache = (0.0, None)
             folder.event("dispatch", seq=seq, lane=lane.lane_id, slot=decision.slot,
                          window=window, pid=child.proc.pid, reason=decision.reason)
             continue
         key = (decision.wait_kind or "", decision.reason
                if decision.wait_kind in (parallel.WAIT_MEMORY, parallel.WAIT_STOP) else "")
         if key != last_wait:
+            # Every wait kind is logged once per change, so a cap on throughput
+            # (the dispatch gap, the memory guard) shows in runner.log and events.
             last_wait = key
-            if decision.wait_kind in (parallel.WAIT_MEMORY, parallel.WAIT_SLOTS,
-                                      parallel.WAIT_EXCLUSIVE, parallel.WAIT_SLOT_BUSY):
-                log.info("Wait", "%s: %s" % (decision.wait_kind, decision.reason))
-                folder.event("wait", waitKind=decision.wait_kind, reason=decision.reason)
+            log.info("Wait", "%s: %s" % (decision.wait_kind, decision.reason))
+            folder.event("wait", waitKind=decision.wait_kind, reason=decision.reason)
         time.sleep(ctx.poll_seconds)
     folder.write_summary(lane_lines, plan_ids, not_flown)
     return result

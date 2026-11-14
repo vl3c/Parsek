@@ -32,6 +32,7 @@ import hlib  # noqa: E402
 import machinelock  # noqa: E402
 import parallel  # noqa: E402
 import parallel_runner as pr  # noqa: E402
+import slots as slotslib  # noqa: E402
 import tier_runner  # noqa: E402
 
 P = parallel
@@ -224,12 +225,60 @@ class DispatchTests(unittest.TestCase):
         d = self.decide([lane("t2", profile="stock-tree")], running, slots=3)
         self.assertEqual(d.wait_kind, "slot-busy")
 
-    def test_settle_gap_after_a_start(self):
+    def test_dispatch_gap_after_a_start_is_the_launch_spacing(self):
+        self.assertEqual(P.DISPATCH_GAP_SECONDS, slotslib.DEFAULT_LAUNCH_SPACING_SECONDS)
         running = [self.run_("a", "stock-minimal")]
         d = self.decide([lane("b")], running, now=1010.0, last=1000.0)
-        self.assertEqual(d.wait_kind, "settle")
-        self.assertEqual(self.decide([lane("b")], running, now=1100.0, last=1000.0).action,
+        self.assertEqual(d.wait_kind, "dispatch-gap")
+        self.assertIn("dispatch gap", d.reason)
+        self.assertEqual(self.decide([lane("b")], running, now=1016.0, last=1000.0).action,
                          "start")
+
+    def test_lanes_shorter_than_a_minute_fill_every_slot(self):
+        # PC run 2026-11-14: daily lanes took 46-90 s, so a 45 s settle after every
+        # start capped dispatch at one start per ~46 s and slot 3 never got a lane.
+        # 40 s after the second start, with plenty of memory, the third starts.
+        running = [P.Running("a", "stock-minimal", False, 900.0),
+                   P.Running("b", "stock-minimal-2", False, 960.0)]
+        d = self.decide([lane("c")], running, slots=3, now=1000.0, last=960.0,
+                        mem=P.MemoryReading(20.0, 12.0))
+        self.assertEqual((d.action, d.slot), ("start", "stock-minimal-3"))
+
+    def test_booting_copies_are_reserved_for(self):
+        self.assertEqual(P.booting_count([P.Running("a", "s", False, 990.0),
+                                          P.Running("b", "s2", False, 900.0)], 1000.0), 1)
+        # A third copy shortly after the second (still booting): ~12 GB free RAM and
+        # ~11 GB free VRAM leave 7.5 / 6.0 GB after the reserve, so it starts.
+        running = [P.Running("a", "stock-minimal", False, 800.0),
+                   P.Running("b", "stock-minimal-2", False, 980.0)]
+        d = self.decide([lane("c")], running, slots=3, now=1000.0, last=980.0,
+                        mem=P.MemoryReading(12.0, 11.0))
+        self.assertEqual(d.action, "start", d.reason)
+        # ~8 GB free RAM with one copy booting reads 3.5 GB after the reserve: held.
+        d = self.decide([lane("c")], running, slots=3, now=1000.0, last=980.0,
+                        mem=P.MemoryReading(8.0, 11.0))
+        self.assertEqual(d.wait_kind, "memory")
+        self.assertIn("1 booting", d.reason)
+        self.assertIn("free RAM 8.0 GB", d.reason)
+        # The same reading once the copy is past its boot window passes the floor.
+        d = self.decide([lane("c")], running, slots=3, now=980.0 + P.BOOT_WINDOW_SECONDS,
+                        last=980.0, mem=P.MemoryReading(8.0, 11.0))
+        self.assertEqual(d.action, "start", d.reason)
+        # Two copies booting take two reserves off the VRAM reading.
+        both = [P.Running("a", "stock-minimal", False, 975.0),
+                P.Running("b", "stock-minimal-2", False, 980.0)]
+        d = self.decide([lane("c")], both, slots=3, now=1000.0, last=980.0,
+                        mem=P.MemoryReading(20.0, 12.0))
+        self.assertEqual(d.wait_kind, "memory")
+        self.assertIn("2 booting", d.reason)
+        self.assertIn("VRAM", d.reason)
+
+    def test_memory_deferral_rules(self):
+        self.assertIsNone(P.memory_deferral(P.MemoryReading(1.0, 1.0), 0, booting=3))
+        self.assertIsNone(P.memory_deferral(None, 2, booting=2))
+        self.assertIsNone(P.memory_deferral(P.MemoryReading(None, None), 2, booting=2))
+        self.assertIsNone(P.memory_deferral(P.MemoryReading(10.5, 10.5), 1, booting=1))
+        self.assertIn("RAM", P.memory_deferral(P.MemoryReading(10.4, 10.5), 1, booting=1))
 
     def test_memory_guard_holds_extra_lanes_only(self):
         low = P.MemoryReading(4.0, None)
@@ -525,16 +574,16 @@ class ShellSmokeTests(unittest.TestCase):
         with open(os.path.join(d, "GameData", "Parsek", "Plugins", "Parsek.dll"), "wb") as fh:
             fh.write(dll)
 
-    def ctx(self, stdin=""):
+    def ctx(self, stdin="", gap=0.0):
         return pr.Context(harness_root=self.harness, umbrella_root=self.umbrella,
                           run_py=FAKE_CHILD, poll_seconds=0.05, heartbeat_seconds=0.2,
-                          settle_seconds=0.0, bridge=self.bridge, unity_prefs=self.prefs,
+                          dispatch_gap_seconds=gap, bridge=self.bridge, unity_prefs=self.prefs,
                           memory_fn=lambda: P.MemoryReading(32.0, 12.0),
                           desktops_fn=lambda: ([self.D1, self.D2], self.D1),
                           stdin_text=lambda: stdin, console=self.console.append)
 
-    def main(self, *argv, stdin=""):
-        return pr.main(list(argv), ctx=self.ctx(stdin))
+    def main(self, *argv, stdin="", gap=0.0):
+        return pr.main(list(argv), ctx=self.ctx(stdin, gap))
 
     def run_dir(self, name):
         return os.path.join(self.harness, "results", "parallel", name)
@@ -553,7 +602,7 @@ class ShellSmokeTests(unittest.TestCase):
 
     def test_happy_path_two_slots(self):
         code = self.main("run", "--name", "r1", "--ids", "C,A", "--ids-file", "-",
-                         "--slots", "2", stdin="# lanes\nB\n")
+                         "--slots", "2", stdin="# lanes\nB\n", gap=0.2)
         self.assertEqual(code, 0, "\n".join(self.console))
         lines = self.summary("r1")
         self.assertEqual(len(lines), 4)
@@ -567,6 +616,11 @@ class ShellSmokeTests(unittest.TestCase):
                          ["A", "B", "C"])
         self.assertEqual([e["kind"] for e in events][0], "start")
         self.assertEqual(events[-1]["kind"], "end")
+        # The dispatch gap is a wait like any other: one event and one log line.
+        gaps = [e for e in events if e["kind"] == "wait" and e["waitKind"] == "dispatch-gap"]
+        self.assertTrue(gaps, events)
+        with open(os.path.join(self.run_dir("r1"), "runner.log")) as fh:
+            self.assertIn("dispatch-gap: the last start was", fh.read())
         for r in recs:
             argv = r["argv"]
             for flag in ("--tests-prebuilt", "--no-coverage", "--keep-stop-request"):

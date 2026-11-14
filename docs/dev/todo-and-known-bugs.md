@@ -64,8 +64,18 @@ and `harness/tools/parallel_runner.py`.
   `krpcStreamPort`, VERIFY expects the slot stamp, 8 GiB free-space margin for K >= 2),
   `--copy K --remove` (junctions unlinked first), `EC-10` while any slot lock is live.
 - `harness/tools/parallel_runner.py` (pure `harness/lib/parallel.py`): `run` / `resume` / `set-slots`
-  / `stop` / `status`, longest p50 first, 45 s settle gap, 6 GB RAM / 5.5 GB VRAM memory guard,
-  exclusive lanes skipped unless `--include-exclusive`, run.py's exit rule.
+  / `stop` / `status`, longest p50 first, 15 s dispatch gap, 6 GB RAM / 5.5 GB VRAM memory guard
+  that reserves 4.5 GB RAM / 5 GB VRAM per copy started under 75 s ago, exclusive lanes skipped
+  unless `--include-exclusive`, run.py's exit rule.
+- Throughput fix (2026-11-14, after the first PC daily run, 28 lanes, 2 slots then `set-slots 3`
+  at minute 10): the runner held every start 45 s after the previous one, and daily lanes take
+  46-90 s, so the run took 21m46s against 25 min serial (1.2x) and slot 3 never got a lane; the
+  wait was not logged. Fix: the gap is now the 15 s launch spacing
+  (`parallel.DISPATCH_GAP_SECONDS`), the memory guard subtracts a projected footprint for every
+  copy still booting (`BOOT_WINDOW_SECONDS` 75, `BOOT_RESERVE_RAM_GB` 4.5,
+  `BOOT_RESERVE_VRAM_GB` 5.0), and every wait kind is logged once per change. Sanity against the
+  PC: a third copy right after the second with ~12 GB RAM / ~11 GB VRAM free starts; ~8 GB RAM
+  free with one copy booting holds (`DispatchTests` pins both).
 - Docs: `harness/README.md` ("The machine lock", "Install slots", "Parallel runs"),
   `design-autotest-harness-core.md` ("Install slots and parallel runs"),
   `design-autotest-stack-setup.md` ("Provisioning slot copies"), `autotest-status.md`.
