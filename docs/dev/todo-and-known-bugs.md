@@ -2847,6 +2847,27 @@ hunk buckets of later commits, which now land on the service files. The gap to t
 state is the measured forwarders above and the reset fan-out (the plan's optional `ResetRequested`
 event would remove the latter).
 
+## ARCH-ONLOAD-CONTEXT-AND-BRANCHES: ParsekScenario.OnLoad is one 1,377-line method with about 108 branches [FILED 2026-11-14 from the refactor plan item 14 (B2; review `analysis-review-2026-11-11/review-architecture.md`, section B2). OPEN; structural debt, no behavior defect]
+
+**What is true.**
+- OnLoad holds the prologue, three branches (plain rewind, in-session, cold) and two copies
+  of the same tail, threading about twenty locals through 67 named phases (`loadPhase`).
+- Its order was proven only by source text (`ParsekScenarioOnLoadCharacterizationTests`,
+  `LoadReconcileWiringGateTests`) and by flights: no headless test ran it.
+
+**Step 1 (done, test-only).** `ParsekScenarioOnLoadStepOrderTests` runs the real OnLoad
+headless for every load kind (Cold, PlainRewind, ReFlyStart, DiscardReFly, StockRevert,
+QuickloadFlight, InSessionOther) over an empty save and pins, per kind, the steps it
+executes: every phase, every call it makes into Parsek code, every coroutine and seam hit,
+the classification and the final status (`Fixtures/SourceCharacterization/ParsekScenario.OnLoad.steps.txt`).
+Harmony replaces what cannot run headless: the inline `UnityEngine.Time` reads, `StartCoroutine`
+(recorded, not started) and the two facility-cache readers that call `FindObjectsOfType`.
+Data-dependent phases (merge journal, sweep recalculation, a pending tree, the backup hold)
+do not run over an empty save; the token characterization still pins their order.
+
+**Fix.** A load context object for the shared values, one method per branch, the shared
+tail, and a phase trace; the step table must pass unchanged.
+
 ## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY DONE 2026-09-14: the Missions -> Logistics crossing closed in #1685 (merged); the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 merged as #1686 (`VesselSnapshotOps`), plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
 **What is true.**
