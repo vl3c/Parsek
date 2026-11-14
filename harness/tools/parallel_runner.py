@@ -796,6 +796,22 @@ def _finish_child(child: Child, folder: RunFolder, lane_lines: List[str],
     return outcome, False
 
 
+def _clear_stale_stop_request(ctx: Context, log: RunnerLog) -> None:
+    """A stop request present once this runner holds the machine lock belongs to
+    a run that already ended (tier_runner's and run.py's rule, on a new run and
+    on a resume alike): drop it with one line, so it cannot stop this run before
+    a lane flies. Cleared only under the lock, so a live runner's request is
+    never taken."""
+    path = ctx.stop_request_path
+    if not os.path.exists(path):
+        return
+    try:
+        os.remove(path)
+        log.info("Stop", "removed a stale stop request left by an earlier run: %s" % path)
+    except OSError as exc:
+        log.warn("Stop", "could not remove a stale stop request %s: %s" % (path, exc))
+
+
 def _consume_stop_request(ctx: Context) -> bool:
     path = ctx.stop_request_path
     if not os.path.exists(path):
@@ -1064,6 +1080,7 @@ def execute(ctx: Context, folder: RunFolder, plan: Dict, include_exclusive: bool
                        "machine lock held, nothing started (%s)" % reason)
     log.info("Lock", "machine lock acquired (%s) kind=%s pid=%d"
              % (reason, parallel.RUNNER_LOCK_KIND, os.getpid()))
+    _clear_stale_stop_request(ctx, log)
     folder.event("start", pid=os.getpid(), lanes=len(remaining))
     job = WindowsJob(log)
     prefs_taken = False

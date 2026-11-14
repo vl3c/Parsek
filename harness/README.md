@@ -1561,9 +1561,10 @@ serial run it stays COARSE: any live `KSP_x64.exe` refuses `INVALID(instance-bus
 so a dev-instance KSP being open also refuses a harness run - a deliberate
 false-positive, since a serial run is meant to be the only KSP on the GPU. In a
 slot child it is PATH-SCOPED: only a KSP whose exe lives in that child's own
-instance dir counts (`slotrun.blocking_ksp_pid`, exe paths read with
-`QueryFullProcessImageNameW`; an unreadable path counts as busy, never as
-somebody else's), because the sibling copies are expected to be running. Do not
+instance dir counts (`slotrun.blocking_ksp_pid`; KSP pids are taken by name
+from a process snapshot and their exe paths read with
+`QueryFullProcessImageNameW`; a KSP whose path cannot be read stays listed and
+counts as busy, never as somebody else's), because the sibling copies are expected to be running. Do not
 narrow the serial probe without re-reading this section (the deferred residual
 R8 "`_ksp_running_against` coarseness" in `docs/dev/design-autotest-stack-setup.md`
 - NOT the unrelated R8 in `autotest-roadmap.md`): it is a second, independent
@@ -1699,7 +1700,8 @@ touch the key. A prefs failure is one Warn and never costs a run. By hand:
 
 **Window placement.** `--window desktop` hands KSP `PARSEK_AUTOMATION_DESKTOP_ID`
 (the target virtual desktop) and, when the foreground window at launch is not a
-KSP, `PARSEK_AUTOMATION_RETURN_FOREGROUND` (its hwnd); Parsek's armed seam addon
+harness KSP (one under `<umbrella>/automation/`; the owner's own KSP elsewhere
+gets its foreground back), `PARSEK_AUTOMATION_RETURN_FOREGROUND` (its hwnd); Parsek's armed seam addon
 moves its own window there and hands the foreground back, logging one
 `[TestCommands] window placement desktop=<moved|failed hr=..|skipped|no-window>
 foreground=<...>` Info line (`docs/dev/design-autotest-command-seam.md`, "Addon
@@ -1956,7 +1958,11 @@ cd harness && python tools/parallel_runner.py resume --name nightly-1
   nothing new starts, and the run reads STOPPED (exit 3) unless something is
   already red. `resume` flies every planned lane without a settled line in the
   run's `summary.txt` (tier_runner's rule: only an attempt-1 INVALID, or a lane
-  whose child left no report, flies again) and clears the stop flag.
+  whose child left no report, flies again) and clears the stop flag. A
+  `results/stop-request` already present once the runner holds the machine
+  lock (on `run` and on `resume`, tier_runner's rule) belongs to a run that
+  ended: it is removed with one `removed a stale stop request` line, so it
+  cannot stop the new run before a lane flies.
 - **Run folder** `results/parallel/<run>/`: `plan.json` (lanes with profile,
   p50 and its source, exclusive reason; window mode; git HEAD), `control.json`
   (`slots`, `stop`), `events.jsonl` (start, dispatch, wait, finish, stop, end),

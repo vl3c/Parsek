@@ -1181,8 +1181,9 @@ is not a slot name (a test's `--instance-dir`) keeps 50000/50001.
 predecessor stay COARSE in a serial run (any `KSP_x64.exe` refuses
 `instance-busy`) and are PATH-SCOPED in a slot child: only a KSP whose exe
 directory equals the child's instance dir counts (`slotrun.blocking_ksp_pid`,
-exe paths from `QueryFullProcessImageNameW`; an unreadable path counts as
-busy). Reference-DLL admission is keyed on the instance DIR (only the
+KSP pids taken by name from a process snapshot, exe paths from
+`QueryFullProcessImageNameW`; a KSP whose path cannot be read stays listed and
+counts as busy). Reference-DLL admission is keyed on the instance DIR (only the
 reference dir itself is skipped), so copies admit against copy 1 of
 stock-minimal exactly like the other profiles.
 
@@ -1197,7 +1198,9 @@ the machine, read from `automation/.ksp-launch-stamp` under an O_EXCL mini-lock
 spacing never stalls a run). Retries pass through the same site. The window
 step (`--window desktop|minimize|normal`, `--desktop-id`) sets
 `PARSEK_AUTOMATION_DESKTOP_ID` and, when the foreground window at launch is not
-a KSP, `PARSEK_AUTOMATION_RETURN_FOREGROUND`; after boot it reads Parsek's
+a harness KSP (an exe under `<umbrella>/automation/`, compared by real path;
+the owner's own KSP elsewhere counts as any other window),
+`PARSEK_AUTOMATION_RETURN_FOREGROUND`; after boot it reads Parsek's
 `window placement desktop=...` line and minimises the child's own windows
 without activating them unless the line says `desktop=moved`
 (`slotrun.decide_window_action`; the C# side is
@@ -1251,7 +1254,9 @@ in `harness/results/parallel/<run>/` (`plan.json`, `control.json`,
   such lanes last, alone, with `--window normal`.
 - **Stop / resume.** `stop` (or `results/stop-request`) lets running lanes
   finish and starts nothing new; `resume` re-flies every planned lane without
-  a settled line (tier_runner's settled predicate).
+  a settled line (tier_runner's settled predicate). A stop request already
+  present when `run` or `resume` takes the machine lock is stale and removed
+  with one line (tier_runner's and run.py's rule).
 - **Exit codes.** run.py's selection rule: 0 when every planned lane ended PASS
   or EXPECTED-FAIL; 1 on any PARSEK-FAIL, INVALID, KILLED, XPASS, a lane whose
   child left no report, lanes left unflown without a stop, or a failed tests

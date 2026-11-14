@@ -617,16 +617,51 @@ class ShellSmokeTests(unittest.TestCase):
         self.assertEqual(x[0]["argv"][x[0]["argv"].index("--window") + 1], "normal")
         self.assertEqual(x[0]["concurrent"], 1)
 
-    def test_stop_request_file_stops_before_any_lane(self):
-        with open(os.path.join(self.harness, "results", "stop-request"), "w") as fh:
-            fh.write("stop\n")
-        code = self.main("run", "--name", "r4", "--ids", "A,B")
+    def test_stop_request_mid_run_drops_pending_lanes(self):
+        os.environ["FAKE_CHILD_STOP_AFTER"] = "A"
+        os.environ["FAKE_CHILD_STOP_REQUEST"] = os.path.join(self.harness, "results",
+                                                             "stop-request")
+        code = self.main("run", "--name", "r4", "--ids", "A,B", "--slots", "1")
         self.assertEqual(code, 3)
-        self.assertEqual(self.child_records(), [])
+        self.assertEqual([r["lane"] for r in self.child_records()], ["A"])
+        self.assertFalse(os.path.exists(os.environ["FAKE_CHILD_STOP_REQUEST"]))
         with open(os.path.join(self.run_dir("r4"), "control.json")) as fh:
             self.assertTrue(json.load(fh)["stop"])
+        os.environ.pop("FAKE_CHILD_STOP_AFTER")
         self.assertEqual(self.main("resume", "--name", "r4"), 0)
-        self.assertEqual(len(self.child_records()), 2)
+        self.assertEqual(sorted(r["lane"] for r in self.child_records()), ["A", "B"])
+
+    def test_stale_stop_request_is_cleared_at_run_and_resume_start(self):
+        path = os.path.join(self.harness, "results", "stop-request")
+        with open(path, "w") as fh:
+            fh.write("stop\n")
+        code = self.main("run", "--name", "r7", "--ids", "A,B", "--slots", "1")
+        self.assertEqual(code, 0, "\n".join(self.console))
+        self.assertFalse(os.path.exists(path))
+        self.assertEqual(sorted(r["lane"] for r in self.child_records()), ["A", "B"])
+        self.assertTrue(any("removed a stale stop request" in l for l in self.console),
+                        self.console)
+        # A resume clears one too (tier_runner's --resume rule).
+        os.environ["FAKE_CHILD_VERDICTS"] = json.dumps({"B": "-"})
+        self.assertEqual(self.main("run", "--name", "r8", "--ids", "A,B", "--slots", "1"), 1)
+        with open(path, "w") as fh:
+            fh.write("stop\n")
+        os.environ["FAKE_CHILD_VERDICTS"] = "{}"
+        self.console.clear()
+        self.assertEqual(self.main("resume", "--name", "r8"), 0, "\n".join(self.console))
+        self.assertFalse(os.path.exists(path))
+        self.assertTrue(any("removed a stale stop request" in l for l in self.console))
+
+    def test_stop_request_of_a_live_lock_holder_is_left_alone(self):
+        path = os.path.join(self.harness, "results", "stop-request")
+        with open(path, "w") as fh:
+            fh.write("stop\n")
+        lock = machinelock.lock_path_for(self.umbrella)
+        os.makedirs(os.path.dirname(lock), exist_ok=True)
+        with open(lock, "w") as fh:
+            json.dump({"pid": os.getppid(), "timestamp": time.time(), "selection": "--tier x"}, fh)
+        self.assertEqual(self.main("run", "--name", "r9", "--ids", "A"), 3)
+        self.assertTrue(os.path.exists(path))
 
     def test_child_that_honoured_a_stop_leaves_its_lane_pending(self):
         os.environ["FAKE_CHILD_VERDICTS"] = json.dumps({"A": "STOP"})

@@ -179,6 +179,26 @@ def blocking_ksp_pid(procs: Iterable[Tuple[int, Optional[str]]], instance_dir: s
     return None
 
 
+def ksp_processes_from_listing(listing: Iterable[Tuple[int, Optional[str]]],
+                               image_path_fn: Callable[[int], Optional[str]]
+                               ) -> List[Tuple[int, Optional[str]]]:
+    """Every KSP in a process ``listing`` of (pid, exe name) as (pid, exe path or
+    None). KSP is picked by NAME, so a process whose image path cannot be read
+    (``image_path_fn`` returns None or raises) is kept with path None: an
+    unreadable path counts as busy (``blocking_ksp_pid``,
+    ``slots.exe_belongs_to_instance``), never as absent."""
+    out: List[Tuple[int, Optional[str]]] = []
+    for pid, name in listing:
+        if not pid or not is_ksp_image(name):
+            continue
+        try:
+            path = image_path_fn(int(pid))
+        except Exception:  # noqa: BLE001 - a probe failure is an unknown path
+            path = None
+        out.append((int(pid), path or None))
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Launch command line.
 # ---------------------------------------------------------------------------
@@ -245,13 +265,43 @@ def decide_window_action(mode: str, placement: Optional[Dict[str, str]]) -> Tupl
     return WINDOW_ACTION_NONE, "unknown window mode %r" % (mode,)
 
 
-def should_return_foreground(mode: str, foreground_exe: Optional[str]) -> bool:
+def _path_key(path: str) -> str:
+    """A comparison key for a path: real, absolute, normalized and lower-cased
+    (Windows paths compare case-insensitively). A posix host reads a Windows
+    path's backslashes as separators so the pure tests can name ``C:\\...``."""
+    if os.sep == "/":
+        path = path.replace("\\", "/")
+    return os.path.normcase(os.path.realpath(os.path.abspath(path))).lower()
+
+
+def is_harness_ksp_exe(exe_path: Optional[str], umbrella_root: str) -> bool:
+    """True when ``exe_path`` is a KSP_x64.exe that lives anywhere under
+    ``<umbrella>/automation/`` (a harness install). Compared per ancestor by
+    real-path equality, never a string prefix: ``automation-old`` is not under
+    ``automation``. An unreadable path or an empty umbrella returns False."""
+    if not exe_path or not umbrella_root or not is_ksp_image(exe_path):
+        return False
+    target = _path_key(os.path.join(umbrella_root, slots.AUTOMATION_DIR))
+    current = os.path.dirname(_path_key(exe_path))
+    while True:
+        if current == target:
+            return True
+        parent = os.path.dirname(current)
+        if parent == current:
+            return False
+        current = parent
+
+
+def should_return_foreground(mode: str, foreground_exe: Optional[str],
+                             umbrella_root: str) -> bool:
     """Hand the foreground back after launch only when the child is not meant to
     be the visible window (``normal`` lanes may need focus: pointer / focus
-    lanes run that way) and the foreground window is not itself a KSP."""
+    lanes run that way) and the foreground window is not a harness KSP (one
+    under ``<umbrella>/automation/``). The owner's own KSP elsewhere on the PC
+    gets its foreground back like any other window."""
     if mode == WINDOW_NORMAL:
         return False
-    return not is_ksp_image(foreground_exe)
+    return not is_harness_ksp_exe(foreground_exe, umbrella_root)
 
 
 # ---------------------------------------------------------------------------

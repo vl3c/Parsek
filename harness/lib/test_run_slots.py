@@ -469,6 +469,28 @@ class LaunchSiteHelperTests(unittest.TestCase):
         self.assertIsNone(rt.ksp_running(mine))
         self.assertEqual(7, rt.ksp_running(other))
 
+    def test_windows_ksp_lister_keeps_a_ksp_whose_path_is_unreadable(self):
+        mine = os.path.join(self.box, "automation", SLOT)
+        other = os.path.join(self.box, "automation", "stock-minimal")
+        listing = [(4, "System"), (10, "KSP_x64.exe"), (11, "ksp_x64.EXE"),
+                   (12, "explorer.exe"), (13, "KSP_x64.exe")]
+        paths = {10: os.path.join(other, "KSP_x64.exe")}
+
+        def image_path(pid):
+            if pid == 13:
+                raise OSError("access denied")
+            return paths.get(pid)
+        procs = run._windows_ksp_processes(lister=lambda: listing, image_path_fn=image_path)
+        self.assertEqual([(10, paths[10]), (11, None), (13, None)], procs)
+
+        class Rt(run.Runtime):
+            def list_ksp_processes(self):
+                return procs
+        rt = Rt()
+        rt.scope_ksp_to_instance = True
+        # The unreadable KSP blocks the slot child: busy, never somebody else's.
+        self.assertEqual(11, rt.ksp_running(mine))
+
     def test_port_accepts_reads_a_real_listener(self):
         srv = socket.socket()
         srv.bind(("127.0.0.1", 0))

@@ -145,12 +145,65 @@ class WindowTests(unittest.TestCase):
                 self.assertEqual(want, action)
                 self.assertTrue(reason)
 
-    def test_return_foreground_only_off_normal_and_never_to_a_ksp(self):
-        self.assertFalse(slotrun.should_return_foreground(slotrun.WINDOW_NORMAL, r"C:\e.exe"))
-        self.assertTrue(slotrun.should_return_foreground(slotrun.WINDOW_DESKTOP, r"C:\e.exe"))
-        self.assertTrue(slotrun.should_return_foreground(slotrun.WINDOW_MINIMIZE, None))
-        self.assertFalse(slotrun.should_return_foreground(slotrun.WINDOW_DESKTOP,
-                                                          r"C:\a\KSP_x64.exe"))
+    def test_ksp_processes_from_listing_keeps_unreadable_paths(self):
+        listing = [(0, "KSP_x64.exe"), (5, "svchost.exe"), (6, "KSP_x64.exe"),
+                   (7, "KSP_x64.exe"), (8, "KSP_x64.exe")]
+
+        def image_path(pid):
+            if pid == 7:
+                raise PermissionError("denied")
+            return {6: r"C:\a\KSP_x64.exe", 8: ""}.get(pid)
+        self.assertEqual([(6, r"C:\a\KSP_x64.exe"), (7, None), (8, None)],
+                         slotrun.ksp_processes_from_listing(listing, image_path))
+        self.assertEqual([], slotrun.ksp_processes_from_listing([], image_path))
+
+    def test_return_foreground_only_off_normal_and_never_to_a_harness_ksp(self):
+        umb = r"C:\umb"
+        self.assertFalse(slotrun.should_return_foreground(slotrun.WINDOW_NORMAL, r"C:\e.exe", umb))
+        self.assertTrue(slotrun.should_return_foreground(slotrun.WINDOW_DESKTOP, r"C:\e.exe", umb))
+        self.assertTrue(slotrun.should_return_foreground(slotrun.WINDOW_MINIMIZE, None, umb))
+        # A harness install under <umbrella>/automation/ keeps the foreground.
+        self.assertFalse(slotrun.should_return_foreground(
+            slotrun.WINDOW_DESKTOP, r"C:\umb\automation\stock-minimal-2\KSP_x64.exe", umb))
+        # Case-insensitive, as Windows paths are.
+        self.assertFalse(slotrun.should_return_foreground(
+            slotrun.WINDOW_MINIMIZE, r"c:\UMB\Automation\stock-minimal\ksp_x64.EXE", umb))
+        # The owner's own KSP (Steam) gets its foreground back.
+        self.assertTrue(slotrun.should_return_foreground(
+            slotrun.WINDOW_DESKTOP,
+            r"C:\Steam\steamapps\common\Kerbal Space Program\KSP_x64.exe", umb))
+        # So does the umbrella's dev instance, and a sibling dir that merely shares
+        # the "automation" string prefix.
+        self.assertTrue(slotrun.should_return_foreground(
+            slotrun.WINDOW_DESKTOP, r"C:\umb\Kerbal Space Program\KSP_x64.exe", umb))
+        self.assertTrue(slotrun.should_return_foreground(
+            slotrun.WINDOW_DESKTOP, r"C:\umb\automation-old\stock-minimal\KSP_x64.exe", umb))
+        # A non-KSP exe under automation/ is not a harness KSP.
+        self.assertTrue(slotrun.should_return_foreground(
+            slotrun.WINDOW_DESKTOP, r"C:\umb\automation\tool.exe", umb))
+
+    def test_harness_ksp_compares_real_paths(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            umb = os.path.join(tmp, "umb")
+            inst = os.path.join(umb, "automation", "stock-minimal-2")
+            os.makedirs(inst)
+            exe = os.path.join(inst, "KSP_x64.exe")
+            self.assertTrue(slotrun.is_harness_ksp_exe(exe, umb))
+            self.assertFalse(slotrun.should_return_foreground(slotrun.WINDOW_DESKTOP, exe, umb))
+            # A dotted spelling resolves to the same install.
+            dotted = os.path.join(umb, "x", "..", "automation", "stock-minimal-2", "KSP_x64.exe")
+            self.assertTrue(slotrun.is_harness_ksp_exe(dotted, umb))
+            self.assertFalse(slotrun.is_harness_ksp_exe(None, umb))
+            self.assertFalse(slotrun.is_harness_ksp_exe(exe, ""))
+            if hasattr(os, "symlink"):
+                link = os.path.join(tmp, "elsewhere")
+                try:
+                    os.symlink(inst, link)
+                except OSError:
+                    return
+                # Reached through a link outside the umbrella, still a harness install.
+                self.assertTrue(slotrun.is_harness_ksp_exe(os.path.join(link, "KSP_x64.exe"), umb))
 
 
 class ReportTests(unittest.TestCase):

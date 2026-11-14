@@ -38,7 +38,7 @@ import time
 import tomllib
 from collections import deque
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Sequence, Set, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LIB_DIR = os.path.join(HERE, "lib")
@@ -397,9 +397,10 @@ class Runtime:
         return slotrun.blocking_ksp_pid(procs, instance_dir, bool(self.scope_ksp_to_instance))
 
     def list_ksp_processes(self) -> List[Tuple[int, Optional[str]]]:
-        """Every live KSP_x64.exe as (pid, exe path or None). Windows: pids and
-        image paths through ctypes (EnumProcesses + QueryFullProcessImageNameW);
-        when that probe fails, tasklist pids with unknown paths."""
+        """Every live KSP_x64.exe as (pid, exe path or None). Windows: pids by
+        name from a Toolhelp32 snapshot, image paths best-effort through
+        QueryFullProcessImageNameW (an unreadable one stays as None, read as
+        busy); when the snapshot fails, tasklist pids with unknown paths."""
         if os.name == "nt":
             try:
                 return _windows_ksp_processes()
@@ -677,6 +678,7 @@ class Runtime:
 
 _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 _SW_SHOWMINNOACTIVE = 7
+_TH32CS_SNAPPROCESS = 0x00000002
 
 
 def _windows_image_path(pid: int) -> Optional[str]:
@@ -702,31 +704,53 @@ def _windows_image_path(pid: int) -> Optional[str]:
         kernel32.CloseHandle(handle)
 
 
-def _windows_ksp_processes() -> List[Tuple[int, Optional[str]]]:
-    """Every KSP_x64.exe as (pid, exe path). EnumProcesses lists every pid; a
-    process whose image path cannot be read is skipped (it cannot be told
-    apart from a system process), which is why the tasklist fallback stays."""
+def _windows_process_names() -> List[Tuple[int, str]]:
+    """Every live process as (pid, exe file name) from a Toolhelp32 snapshot.
+    The snapshot names every process without opening it, so a KSP whose image
+    path cannot be read (OpenProcess denied) is still listed."""
     import ctypes
     from ctypes import wintypes
-    psapi = ctypes.WinDLL("psapi", use_last_error=True)
-    count = 4096
-    while True:
-        arr = (wintypes.DWORD * count)()
-        needed = wintypes.DWORD()
-        if not psapi.EnumProcesses(ctypes.byref(arr), ctypes.sizeof(arr), ctypes.byref(needed)):
-            raise OSError("EnumProcesses failed")
-        n = needed.value // ctypes.sizeof(wintypes.DWORD)
-        if n < count:
-            break
-        count *= 2
-    procs: List[Tuple[int, Optional[str]]] = []
-    for pid in arr[:n]:
-        if not pid:
-            continue
-        path = _windows_image_path(int(pid))
-        if path and slotrun.is_ksp_image(path):
-            procs.append((int(pid), path))
-    return procs
+
+    class PROCESSENTRY32W(ctypes.Structure):
+        _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD),
+                    ("th32ProcessID", wintypes.DWORD), ("th32DefaultHeapID", ctypes.c_size_t),
+                    ("th32ModuleID", wintypes.DWORD), ("cntThreads", wintypes.DWORD),
+                    ("th32ParentProcessID", wintypes.DWORD), ("pcPriClassBase", ctypes.c_long),
+                    ("dwFlags", wintypes.DWORD), ("szExeFile", ctypes.c_wchar * 260)]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    kernel32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+    kernel32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    snap = kernel32.CreateToolhelp32Snapshot(_TH32CS_SNAPPROCESS, 0)
+    if not snap or snap == ctypes.c_void_p(-1).value:
+        raise OSError("CreateToolhelp32Snapshot failed")
+    try:
+        entry = PROCESSENTRY32W()
+        entry.dwSize = ctypes.sizeof(PROCESSENTRY32W)
+        out: List[Tuple[int, str]] = []
+        ok = kernel32.Process32FirstW(snap, ctypes.byref(entry))
+        if not ok:
+            raise OSError("Process32FirstW failed")
+        while ok:
+            out.append((int(entry.th32ProcessID), entry.szExeFile))
+            ok = kernel32.Process32NextW(snap, ctypes.byref(entry))
+        return out
+    finally:
+        kernel32.CloseHandle(snap)
+
+
+def _windows_ksp_processes(lister: Optional[Callable[[], List[Tuple[int, str]]]] = None,
+                           image_path_fn: Optional[Callable[[int], Optional[str]]] = None
+                           ) -> List[Tuple[int, Optional[str]]]:
+    """Every KSP_x64.exe as (pid, exe path or None). The pids come by NAME from a
+    process snapshot first; the full image paths are filled in best-effort, and
+    a KSP whose path cannot be read stays listed with None, which every caller
+    reads as busy (slotrun.ksp_processes_from_listing)."""
+    return slotrun.ksp_processes_from_listing((lister or _windows_process_names)(),
+                                              image_path_fn or _windows_image_path)
 
 
 def _windows_foreground_window() -> Optional[Tuple[int, Optional[str]]]:
@@ -4907,7 +4931,8 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
             fg = None
             if _CTX.window_mode != slotrun.WINDOW_NORMAL:
                 fg = runtime.foreground_window()
-            if fg is not None and slotrun.should_return_foreground(_CTX.window_mode, fg[1]):
+            if fg is not None and slotrun.should_return_foreground(
+                    _CTX.window_mode, fg[1], umbrella_root):
                 env[slotrun.RETURN_FOREGROUND_ENV] = str(fg[0])
             return runtime.launch(exe, launch_args, env, instance_dir)
 

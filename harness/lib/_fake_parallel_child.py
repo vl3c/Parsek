@@ -5,6 +5,9 @@ machine lock, records what it saw under ``$FAKE_CHILD_STATE`` and writes the
 ``--report-json`` file run.py writes. ``$FAKE_CHILD_VERDICTS`` maps a lane to its
 verdict (default PASS); ``-`` writes no report and exits 3; ``STOP`` prints
 run.py's stop-honoured line and reports the lane NOT-RUN.
+``$FAKE_CHILD_STOP_AFTER`` names a lane that, once it finished, drops the
+runner's stop-request file (``$FAKE_CHILD_STOP_REQUEST``), as an operator's
+``--stop`` mid-run would.
 """
 
 import argparse
@@ -48,6 +51,9 @@ def main() -> int:
               "runnerPid": int(os.environ.get("PARSEK_HARNESS_RUNNER_PID", "0"))}
     with open(os.path.join(state, "argv-%s-%d.json" % (lane, os.getpid())), "w") as fh:
         json.dump(record, fh)
+    if os.environ.get("FAKE_CHILD_STOP_AFTER") == lane:
+        with open(os.environ["FAKE_CHILD_STOP_REQUEST"], "w", encoding="utf-8") as fh:
+            fh.write("stop\n")
     verdict = json.loads(os.environ.get("FAKE_CHILD_VERDICTS") or "{}").get(lane, "PASS")
     if verdict == "-":
         return 3
