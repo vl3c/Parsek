@@ -39,8 +39,9 @@ for _p in (_LIB_DIR, _HARNESS_DIR):
 import hlib  # noqa: E402
 import run  # noqa: E402
 
-# A plain log from a worktree, or an already-gzipped one from an archive.
-_HARNESS_LOG_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{6}_harness\.log(\.gz)?$")
+# A plain log from a worktree, or an already-gzipped one from an archive; a
+# run.py --slot child names its slot before the suffix (slotrun.harness_log_name).
+_HARNESS_LOG_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{6}(?:_[A-Za-z0-9-]+)?_harness\.log(\.gz)?$")
 
 
 class _PrintLogger:

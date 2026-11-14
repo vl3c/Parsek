@@ -47,6 +47,96 @@ Two defects, one gap.
    invariant on CI) and refuses a native call only when it executes, so both kinds of failure show
    only on a Windows run (a PC `dotnet test` or `release.py`, which runs Debug and Release).
 
+## PARALLEL-HARNESS-RUNS: fly harness lanes on 2-3 KSP copies at once while the owner keeps using the PC [FILED 2026-11-14 (owner request). BUILT 2026-11-14: C# part (xUnit only) and harness part (slots, locks, provisioning copies, the parallel runner; unit suites only); LIVE-PROVEN 2026-11-14 on the owner's PC: daily tier 28/28 PASS on 2 and 3 slots]
+
+**Plan.** `harness/parallel-runs-plan-2026-11-14.md` in the project files (sections 1-6 and the
+v2 overrides): slots `automation/<profile>-<k>`, a per-slot lock under the machine lock, stamped
+kRPC ports, path-scoped process checks, per-copy `-logFile`, Unity prefs snapshot / restore,
+and `harness/tools/parallel_runner.py`.
+
+**C# part (done, automation only, inert unless `PARSEK_TEST_COMMANDS=1`).**
+- Focus-lock suppression: `TestCommands/AutomationFocusLockSuppressionPatch.cs` prefixes the
+  private `OnApplicationFocus(bool)` of `FlightDriver`, `EditorDriver`, `SpaceCenterMain`,
+  `UISpaceCenter` and `MainMenu` and skips stock on focus loss, so an unfocused copy no longer
+  takes the `ControlTypes.All` lock that made `WarpToUT` answer `warp-locked`, stalled the editor
+  launch and paused the KSC Planetarium. `Prepare()` reads the env, so a player build applies
+  zero targets. Log: rate-limited `focus lock suppressed scene=... lockId=...`.
+- Window lookup by process: `TestCommands/OwnProcessWindowFinder.cs` (`EnumWindows` + own pid,
+  `UnityWndClass` preferred) replaces the title lookups in `UiAction op=pointer`
+  (`via=own-process`) and `DisabledHoverEchoImguiTest` (`window=own-process`).
+- Boot window placement: `PARSEK_AUTOMATION_DESKTOP_ID` / `PARSEK_AUTOMATION_RETURN_FOREGROUND`;
+  the seam moves its own window with `IVirtualDesktopManager.MoveWindowToDesktop` and hands the
+  foreground back, ending with one Info line `window placement desktop=<moved|failed hr=..|
+  skipped|no-window> foreground=<returned|not-foreground|failed|skipped> ...` (grammar in
+  `design-autotest-command-seam.md`, "Addon lifecycle"). The harness minimises the window
+  whenever the line does not say `desktop=moved`.
+
+**Harness part (done, unit-tested, not flown).**
+- Slots: `harness/lib/slots.py` (copy 1 = `automation/<profile>`, copy k = `automation/<profile>-<k>`;
+  per-profile kRPC port blocks 50000 / 50020 / 50040, `+2*(k-1)`), run.py's decisions in
+  `harness/lib/slotrun.py`.
+- `run.py --slot <s>` (child of the runner): no machine lock, the runner token
+  (`PARSEK_HARNESS_RUNNER_TOKEN` / `_PID`) re-checked at every attempt boundary, its slot lock,
+  serial verify, no prune sweeps / run-index append / coverage refresh, stop request read-only;
+  `--tests-prebuilt`, `--report-json` (`parsek-run-report/1`), `--window`, `--desktop-id`, and the
+  maintenance flags `--sweep-results` / `--refresh-coverage`. New flake-exempt INVALID subkinds
+  `port-busy`, `runner-token`, `slot-locked`, `slot-profile-mismatch`.
+- Every run.py (serial too): holds the slot lock of each instance it flies, stamps the slot's kRPC
+  ports before every launch (copy 1 of stock-tree / modded-compat moves to 50020 / 50040 on its next
+  run or provision) and refuses `port-busy` on a listening port, writes `Player.log` into the instance
+  (`-logFile`, plus `-screen-*` from settings.cfg), and as machine-lock holder snapshots / restores the
+  shared Unity screen prefs (`HKCU\Software\Squad\Kerbal Space Program`; crash marker restored on the
+  next start). Slot children are spaced 15 s apart at launch and count only their own instance's KSP.
+- Provisioning: `provision.py --copy K` (manifest keys `slot` / `copy` / `krpcRpcPort` /
+  `krpcStreamPort`, VERIFY expects the slot stamp, 8 GiB free-space margin for K >= 2),
+  `--copy K --remove` (junctions unlinked first), `EC-10` while any slot lock is live.
+- `harness/tools/parallel_runner.py` (pure `harness/lib/parallel.py`): `run` / `resume` / `set-slots`
+  / `stop` / `status`, longest p50 first, 15 s dispatch gap, a memory guard that keeps 1.5 GB RAM
+  / 1.5 GB VRAM free after the new copy loads (footprint 4.5 GB RAM / 2 GB VRAM, a booting copy's
+  remaining footprint ramped down over 60 s), exclusive lanes skipped unless
+  `--include-exclusive`, run.py's exit rule.
+- Throughput fix (2026-11-14, after the first PC daily run, 28 lanes, 2 slots then `set-slots 3`
+  at minute 10): the runner held every start 45 s after the previous one, and daily lanes take
+  46-90 s, so the run took 21m46s against 25 min serial (1.2x) and slot 3 never got a lane; the
+  wait was not logged. Fix: the gap is now the 15 s launch spacing
+  (`parallel.DISPATCH_GAP_SECONDS`), the memory guard accounts for copies still booting, and
+  every wait kind is logged once per change.
+- Memory guard recalibrated (2026-11-14, after daily-par-3: 28 lanes, 3 slots). The run took
+  15m24s against 21m46s for the first parallel daily run, but on 2 effective slots: the third
+  slot never ran. 66 memory holds, 56 of them "2 running, 2 booting", typically
+  `free RAM 10.4 GB - 2 booting x 4.5 GB = 1.4 GB < 6.0 GB; free VRAM 13.7 - 2 x 5.0 = 3.7 < 5.5`.
+  Measured: free
+  RAM 14.8 GB with no KSP, 6.07 GB at its lowest with two copies flying, one copy peaks at
+  4.25 GB RAM and about 1 GB VRAM in the 1280x720 window (peak 3.7 GB VRAM used with 2 copies on
+  a 1.8 GB baseline; the ~5 GB figure was fullscreen), an earlier trial ran 3 copies at full
+  speed with 1.7 GB RAM free. Findings: daily lanes last 48-60 s, so the 75 s window marked a copy
+  as booting for its whole life, and the reading already holds part of a booting copy's memory,
+  so a full reserve on top counted it twice, against floors (6 / 5.5 GB) sized as if the new copy
+  were not yet subtracted. Fix: projected = reading - remaining footprint of each booting copy
+  (`footprint * max(0, 1 - elapsed / 60 s)`) - one full footprint for the new copy, held under
+  1.5 GB (`COPY_FOOTPRINT_RAM_GB` 4.5, `COPY_FOOTPRINT_VRAM_GB` 2.0, `MIN_FREE_RAM_GB` /
+  `MIN_FREE_VRAM_GB` 1.5, `BOOT_WINDOW_SECONDS` 60). The daily-par-3 hold (copies 50 s and 20 s
+  in) now starts (RAM 10.4 - 3.75 - 4.5 = 2.15 GB); two booted copies at 6.07 GB free start a
+  third; 5.5 GB RAM or 3.0 GB VRAM free hold (`DispatchTests` `test_pc_*`).
+- Docs: `harness/README.md` ("The machine lock", "Install slots", "Parallel runs"),
+  `design-autotest-harness-core.md` ("Install slots and parallel runs"),
+  `design-autotest-stack-setup.md` ("Provisioning slot copies"), `autotest-status.md`.
+
+**Measured basis (owner's PC, 2026-11-14).** Per copy about 1 CPU core, ~4.3 GB RAM at peak,
+~9.4 GB commit, ~1 GB VRAM in a 1280x720 window; 1, 2 and 3 copies all at full speed; RAM is the
+limit, so 2 copies while the owner uses the PC and 3 when away. Unity's Screenmanager prefs are
+one registry key shared by every KSP on the PC.
+
+**PC validation (done 2026-11-14, owner's PC, daily tier, 28 lanes, every lane PASS first attempt).**
+- 2 slots then `set-slots 3` (360e486): 21m46s; slot 3 never ran (45 s settle, fixed in 47562f0).
+- 3 slots (47562f0): 15m24s; slot 3 still idle (memory guard too strict, recalibrated in 2b118be).
+- 3 slots (2b118be): 12m35s, lanes 10 / 9 / 9 per copy, peak 3 at once, min free RAM 3.65 GB, peak
+  VRAM 9.0 / 16.3 GB, PC responsive. Serial p50 sum for comparison: about 25 min.
+- Every lane logged `window placement desktop=moved` (foreground `returned` or `not-foreground`
+  when the copy never took it), each copy wrote its own `Player.log`, ports 50000 / 50002 / 50004,
+  and the Unity screen prefs matched the pre-run values afterwards.
+- Reports: `logs/console/2026-11-14/parallel-daily-check*.txt` on the owner's PC.
+
 ## ARCH-COLD-RESET-HOLDERS: save-scoped statics are reset field by field, so a new field can be forgotten [FILED 2026-11-14 for refactor plan item 15 ("B1", as corrected by the 2026-11-11 architecture review), branch `item15-cold-reset-holders`. IN PROGRESS; refactor, no product change]
 
 The mod keeps the loaded save's state in statics spread over many stores, and a Cold load
@@ -758,8 +848,28 @@ in the live tree's `BackgroundMap` (`IsLiveTreeBackgroundMember`); the switch th
 ordinary background-member continuation. `SimulateStockSwitchClick`'s seam evaluator reads the
 same two helpers. A skipped Case C logs one Verbose `pre-switch Case C skipped: target is a
 background member of the live tree`. Tests: `PreSwitchCaseCLiveTreeMemberTests` (6 facts).
-Live proof owed: FAR-4's re-flight (`targetIsSeparateCommittedVessel=false
-dialogDecision=NoPriorSession`, `route=bg-member-continuation`).
+Live proof: FAR-4's second flight `2026-11-14_1638` (head 37a6c6101) read
+`targetIsSeparateCommittedVessel=false dialogDecision=NoPriorSession` and
+`route=bg-member-continuation`; the lane itself red only on two first-reading counts (re-pinned,
+re-flight owed).
+
+## ~~FAR1-CAREER-FIXTURE-EMBEDDED-LEDGER~~: the `duna-ike-recorded-career` host kept its SANDBOX ledger, so FAR-1's rewind patched funds up 9120 [FILED 2026-11-14 from FAR-1's second flight, run `2026-11-14_1642` PARSEK-FAIL(expectation). FIXED 2026-11-14, branch `pc-lanes-fix-2`; harness fixture builder, not a Parsek defect; FAR-1 re-flight owed]
+
+`build_route_career.py` strips the SANDBOX seeds and the milestone award rows from the
+`ledger.pgld` sidecar. Its sixth source, `duna-ike-recorded`, also embeds a `GAME_STATE` node
+in the ParsekScenario node, and a load reads that copy (`Ledger.LoadFromNodeCore`,
+`GAME_STATE/LEDGER`), so FAR-1 booted with the 12 award rows and the SANDBOX
+`ScienceInitial` (science 0) still live. Readings: the boot filed adopted-gap pool adjustments
+(funds -160680, science +95) and logged no `Seeded initial science: amount=100,`; after the
+Rewind-to-Launch the walk topped up two older rows, `Milestone 'Orbit' topped up` at
+UT 4742953.2 (6240) and 9160199.4 (2880), and `PatchFunds: 500000.0 -> 509120.0`. Those rows are
+the Sun and Duna orbits captured with the bare id `Orbit` before #2301 (the same pre-1.0 shape as
+CS-FIXTURES-CARRY-BARE-ORBIT-MILESTONE), so they collide with Kerbin's `Orbit` and the rewind's
+timeline break lets the top-up (owner ruling 2026-11-04) pay the differences. A 1.0+ save
+qualifies every body milestone, so no player save collides this way. Fix: the builder applies
+the same strip to the embedded `GAME_STATE/LEDGER` (`strip_embedded_ledger`, 2 seeds and 12 award
+rows out, the 6 zero-award rows kept) and `verify_sfs` refuses a leftover; the fixture is
+rebuilt (`--check` OK for all six). Test: `test_route_career.test_the_embedded_ledger_gets_the_same_strip`.
 
 ## NEXT-TESTS-TO-BUILD-2026-11-11: the ranked list merging the moon matrix and the test gap audit, plus the new ideas of the 2026-11-11 review [FILED 2026-11-11 (owner asked to update the list), checked against main b5877e51f (1.1.0), reviewed the same day by a clean-context agent. OPEN; test program, no known defect]
 
@@ -785,8 +895,10 @@ Far-body timeline lanes (2026-11-14, from the catalog's first reading): FAR-1 ..
 (first PC batch 2026-11-14: FAR-2 `2026-11-14_1524`, FAR-3 `_1529` and V33T `_1534` green on the
 first flight; FAR-4 found PRESWITCH-CASE-C-LIVE-TREE-MEMBER, fixed; FAR-1 (the Tracking Station's
 intro_TS warp lock, now a 1x wait), FAR-5 (a Kerbin leaf in the bodies list) and FAR-6 (an F9 is a
-cold save-file load since Phase 3, and a missing leading mark) re-pinned; FAR-1/4/5/6 re-flights
-owed) (rewind-to-launch with a committed Ike flight in career, a relaunch rewind
+cold save-file load since Phase 3, and a missing leading mark) re-pinned; re-flown on main
+37a6c6101: FAR-5 `_1639` and FAR-6 `_1641` green, FAR-4 `_1638` proved the switch fix and was
+re-pinned on two counts, FAR-1 `_1642` found FAR1-CAREER-FIXTURE-EMBEDDED-LEDGER (host rebuilt);
+FAR-1 and FAR-4 re-flights owed) (rewind-to-launch with a committed Ike flight in career, a relaunch rewind
 keeping Duna vessels, a revert with Ike committed, an EVA switch at Gilly, physics warp at Laythe,
 a looped Ike watch across a quickload), read by position through the new in-game category
 `LeafVesselPlacement`. Re-Fly at a far body is still uncovered: no far-body fixture has a rewind
@@ -6501,6 +6613,13 @@ Do NOT re-implement intercept / window math from scratch. The 2026-05-28 prior-a
 - **Group A GREEN (2026-11-07, branch `claude/project-thread-ni23y9`):** forges B36 Duna->Ike (`2026-11-07_2214`), B37 Eve->Gilly (`_2220`), B38 Jool->Laythe (`_2230`) appended each moon hop to the committed Kerbin->planet tree and were harvested as `duna-ike-recorded`, `eve-gilly-recorded`, `jool-laythe-recorded`; loop lanes V31M / V31T / V32M / V32T / V33M all PASS attempt 1 (see LOOP-LONE-MOON-ARRIVAL-NOT-ALIGNED). Harness fix on the way: `harvest_bdock_station.py --keep-parsek` now keeps the `_versions` sidecar bodies the save names (a committed tree beside its resumed in-flight copy names an older root `.prec`; pruning it made the cold load drop the committed tree). Still open: Mun, Minmus, Vall, Tylo, Bop and Pol as continuation forges, a multi-moon Jool tree, and a Laythe Tracking Station lane (no V33T draft).
 - **Re-checked 2026-11-11 on main b5877e51f (1.1.0):** Group A is done (above). The moon-to-moon spacing (MOON-TO-MOON-LOOP-NOT-RETIMED, #2554) shipped in 1.1.0 and its six lanes V17M / V17T / V19M / V19T / V21M / V21T flew green on the new clock in the refactor batch (V17T `2026-11-11_0124`, V19T `_0125`, V19M `_0126`, V21T `_0151`, V21M `_0152` at e5b47f331, V17M `_0710` at fa3de158d after the #2559 / #2560 re-pins; rows in `autotest-status.md`), which also re-flew the matrix's re-aim regression slice (V3R, V8 .. V13A, V20M, V24W, V25M, GUI-18, M1). No B39 .. B46 or V34M+ spec exists. Still to build, in this order (ranked with the rest in NEXT-TESTS-TO-BUILD-2026-11-11): (1) Group B, new moon-to-moon pairs now that the code exists: B43 Vall -> Tylo, B44 Laythe -> Tylo, B46 Minmus -> Mun, B45 Tylo -> Bop (expected decline), each with a loop lane reading the moon-rooted phase lock; (2) Group C, the Jool multi-moon tour (M-MIS-6, never flown); (3) B39 .. B42 Jool -> Vall / Tylo / Bop / Pol continuations with V34M .. V37M, and V33T; then the Mun / Minmus continuations and the optional Ike / Gilly landings.
 
+### ~~LOAD-SPLIT-SPAWN-STAMP-ON-HEAD~~ - loading a save with a ship in flight starts a fresh recording instead of resuming [~~FIXED 2026-11-14~~, found 2026-11-14]
+
+- Seen in all four Jool moon forges B39-B42 (runs `2026-11-14_1648` .. `_1715`, DLL at `37a6c6101`), each PARSEK-FAIL(expectation) on `startrecording ... already=false` and a missing `SOI change boundary suppressed in tree mode: Jool to <Moon> (tree=6ec68e87...`. Loading `jool-orbit-recorded` into FLIGHT logged no committed-tree restore at all and the seam's StartRecording built a fresh single-node tree for the live Duna Rocket (pid 807470910). B38 on 2026-11-10 resumed the same fixture.
+- Cause: the load-time optimizer split gives the tail the recording's end (terminal state, vessel snapshot) but left the spawn stamp (`VesselSpawned`, `SpawnedVesselPersistentId`) on the head. `ParsekScenario.OnLoadPhaseAutoUnreserveCrewPastEndUT` then read the tail as a vessel that never spawned: it nulled the tail's snapshot, unreserved its crew and set `VesselSpawned` with no pid. `TryFindCommittedTreeForSpawnedVessel` matches a stamped recording only by its spawn pid and an unstamped one only when `VesselSpawned` is false, so the tail matched neither way, silently. Before #2588 the head stayed the active recording and matched by its stamp, which hid the defect (and appended to the head instead).
+- Fix: `RecordingOptimizer.MoveChainSpawnStampsToTip`, run by `CommittedListOptimizer.RunOptimizationPass` after the split pass, moves the stamp of the one earlier non-terminal piece of the same launch onto a terminal, unstamped chain tip (skips a chain with a superseded piece or more than one stamped piece; Info line `Chain spawn stamp moved to the tip`). It runs on every load, so saves split earlier heal too. `RecordingOptimizer.MergeInto` carries the absorbed piece's stamp the same way. This is the load-time twin of the in-flight commit's `InFlightCommitOptimization.CarrySpawnStampToTip` (same move, including `LastAppliedResourceIndex`), which now runs after the pass as a backstop and normally finds nothing to move (`spawnStampMoved=False`). Tests `LoadSplitSpawnStampRestoreTests` (the real `jool-orbit-recorded` save through the optimization pass, the crew pass, the restore match and the prepare; mutation-checked: dropping the call reds it).
+- Proof owed: re-fly B39-B42 with this build.
+
 ### COMMITTED-RESTORE-APPENDS-TO-ROOT - a resumed committed tree records onto its root recording [~~FIXED 2026-11-14~~, found 2026-11-07; fixture re-harvest open]
 
 - Seen in the B36 forge (`duna-ike-recorded`, run `2026-11-07_2214`): `TryRestoreCommittedTreeForSpawnedActiveVessel` resumes B17's committed tree with `activeRecordingId` = the ROOT (pad head) id, not the tip of the vessel's chain. The Duna->Ike hop logs `activeRec=311d98e3...` (the root), and after the in-flight commit at UT 9,181,507.7 a ~1 s Ike section is appended to the root past its `explicitEndUT` (4,653,681.9), with a 4.5 Ms gap. The commit-time optimizer re-split the hop itself onto chain index 2, so the visible structure is right; the stray tail on the root is what remains. Same root-resume shape as B23 flight 1. B37 (`eve-gilly-recorded`) shows the same tail on its root `75a6ab25`, at Gilly (UT 15,879,278.5). B38 (`jool-laythe-recorded`) shows it on root `ddcc6d00`, at Laythe (UT 28,816,905.0): every lane of this forge shape reproduces it.
@@ -6508,6 +6627,7 @@ Do NOT re-implement intercept / window math from scratch. The 2026-05-28 prior-a
 - Fix direction: resume on the chain tip of the active vessel's leg (the `EffectiveTipRecordingId` walk), not the stored `activeRecordingId`; then drop the E4 pin and re-harvest the fixture.
 - Cause (2026-11-14): the commit-time optimizer split (`CommittedListOptimizer.RunOptimizationSplitPass`) keeps the original id on the HEAD and gives the tail a new id, but left `RecordingTree.ActiveRecordingId` on the head (the merge path already moves it to the survivor). The restore then preferred the active id in `IsCommittedSpawnedRecordingRestorable` before asking whether a later chain segment exists, so it resumed on the head.
 - Fix: (1) the split moves a tree's active recording to the split tail (`CommittedListOptimizer.MoveActiveRecordingToSplitTail`, Info line `active recording moved from the head ... to the split tail ...`); (2) for saves written before that, `IsCommittedSpawnedRecordingRestorable` checks for a next chain segment before the active-id shortcut, and `PrepareCommittedTreeRestoreForSpawnedVessel` resumes on the tip as the ACTIVE recording when the stored active id is an earlier piece of the same chain (`IsEarlierSegmentOfSameChain`, Info line `resuming on the chain tip`). Tests `CommittedRestoreChainTipTests`.
+- Follow-up regression, fixed 2026-11-14 as LOAD-SPLIT-SPAWN-STAMP-ON-HEAD (entry below): with the active id on the tail, a load-time split that leaves the spawn stamp on the head made the restore match nothing.
 - Still open: the three committed fixtures (`duna-ike-recorded` root `311d98e3`, `eve-gilly-recorded` root `75a6ab25`, `jool-laythe-recorded` root `ddcc6d00`) keep the stray tail until the B36 / B37 / B38 forges are re-flown and harvested with this build; `OptimizerTransferCohesionTests.E4` keeps its pin until then (NEXT-TESTS item 4).
 
 ### M-MIS-10 - Scenario verification sweep: believed-supported archetypes, never explicitly verified [not sequenced - run incrementally alongside any milestone]

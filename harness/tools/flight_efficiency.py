@@ -59,7 +59,8 @@ _SUFFIXES = (
     (".json", "result"),
 )
 # Plain in a worktree's results/; gzipped (this run's block only) in the archive.
-_HARNESS_LOG_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})_\d{6}_harness\.log(\.gz)?$")
+# A run.py --slot child names its slot before the suffix (slotrun.harness_log_name).
+_HARNESS_LOG_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})_\d{6}(?:_[A-Za-z0-9-]+)?_harness\.log(\.gz)?$")
 # The machine-wide archive run.py writes (hlib.RESULTS_ARCHIVE_RELPATH under the
 # umbrella, i.e. the parent of this worktree).
 _ARCHIVE_KSP_LOG_GZ = "KSP.log.gz"

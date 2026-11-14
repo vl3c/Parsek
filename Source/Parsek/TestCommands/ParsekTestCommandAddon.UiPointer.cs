@@ -35,8 +35,9 @@ namespace Parsek.TestCommands
     /// HOW THE WINDOW IS FOUND, in order, with the answer reported as <c>via=</c>:
     /// <c>GetActiveWindow()</c> (the calling thread's active window - Unity's main thread
     /// owns the game window, so this is it whenever the game has focus, and
-    /// <c>IntPtr.Zero</c> when it does not); then <c>FindWindow(null, productName)</c> and
-    /// <c>FindWindow(null, "Kerbal Space Program")</c> by title; then, as a last resort, an
+    /// <c>IntPtr.Zero</c> when it does not); then this process's own top-level window by
+    /// pid (<see cref="OwnProcessWindowFinder"/>, <c>via=own-process</c>; a title lookup
+    /// would name another KSP's window when several run); then, as a last resort, an
     /// assumed client origin of (0,0), which is exactly right for exclusive fullscreen and
     /// is safe to guess ONLY because the read-back catches it when it is not - a wrong
     /// origin lands the cursor off the control and answers
@@ -77,9 +78,6 @@ namespace Parsek.TestCommands
 
         [DllImport("user32.dll")]
         private static extern IntPtr GetActiveWindow();
-
-        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-        private static extern IntPtr FindWindow(string className, string windowName);
 
         [DllImport("user32.dll")]
         private static extern bool ClientToScreen(IntPtr hWnd, ref Win32Point point);
@@ -152,11 +150,6 @@ namespace Parsek.TestCommands
         private static extern uint SendInput(uint numberOfInputs, Win32Input[] inputs,
                                              int sizeOfInputStructure);
 
-        /// <summary>The stock game window title, used as the second lookup. Not a guess:
-        /// KSP 1.12.5 titles its player window with the product name, and this literal is
-        /// the fallback for a host whose <c>Application.productName</c> has been changed by
-        /// a launcher.</summary>
-        private const string KspWindowTitle = "Kerbal Space Program";
 
         // ----- execute -----
 
@@ -435,17 +428,8 @@ namespace Parsek.TestCommands
                 if (hwnd != IntPtr.Zero) source = "active";
                 if (hwnd == IntPtr.Zero)
                 {
-                    string product = Application.productName;
-                    if (!string.IsNullOrEmpty(product))
-                    {
-                        hwnd = FindWindow(null, product);
-                        if (hwnd != IntPtr.Zero) source = "find-product";
-                    }
-                }
-                if (hwnd == IntPtr.Zero)
-                {
-                    hwnd = FindWindow(null, KspWindowTitle);
-                    if (hwnd != IntPtr.Zero) source = "find-title";
+                    hwnd = OwnProcessWindowFinder.FindOwnWindow(out _);
+                    if (hwnd != IntPtr.Zero) source = "own-process";
                 }
             }
             catch (Exception ex)
@@ -461,8 +445,8 @@ namespace Parsek.TestCommands
             {
                 ParsekLog.Warn(Tag, "uiaction pointer could not find the game window "
                     + "(GetActiveWindow returned 0 - the game does not have focus - and "
-                    + "neither title matched); falling back to an assumed client origin of "
-                    + "0,0");
+                    + "no top-level window of this process was found); falling back to an "
+                    + "assumed client origin of 0,0");
                 return true;
             }
 
