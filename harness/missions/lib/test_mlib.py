@@ -11940,11 +11940,25 @@ class ApproachLatchNativeWarpTests(unittest.TestCase):
             if mp.get("soiNativeLeadSeconds"):
                 armed.append(name)
         # B21 / B22 / B26 by measurement; B20, B28 and B30 by the owner ruling of
-        # 2026-10-14 ("tests pass and we still catch bugs").
+        # 2026-10-14 ("tests pass and we still catch bugs"). The moon-pair forges
+        # (2026-11-14) copy their relay source's coast leads verbatim: B43 / B44 /
+        # B45 B26's (400 s plus the 30 s trigger lead), B46 B30's (400 s). A relay
+        # lane crosses the home SOI exit before the target approach, so unlike the
+        # DROPPED start-at-parent lanes below the lead has a crossing to save on.
         self.assertEqual(["B20-moho-orbit.toml", "B21-eeloo-orbit.toml",
                           "B22-jool-orbit.toml", "B26-laythe-vall-transfer.toml",
                           "B28-laythe-jool-return.toml",
-                          "B30-mun-minmus-transfer.toml"], armed)
+                          "B30-mun-minmus-transfer.toml",
+                          "B43-vall-tylo-transfer.toml", "B44-laythe-tylo-transfer.toml",
+                          "B45-tylo-bop-transfer.toml",
+                          "B46-minmus-mun-transfer.toml"], armed)
+        for spec in ("B43-vall-tylo-transfer.toml", "B44-laythe-tylo-transfer.toml",
+                     "B45-tylo-bop-transfer.toml"):
+            mp = _scenario_mission_params(spec)
+            src = _scenario_mission_params("B26-laythe-vall-transfer.toml")
+            for key in ("soiNativeLeadSeconds", "triggerNativeLeadSeconds",
+                        "soiLeadSeconds", "coastWarpFactor", "approachMaxWarpFactor"):
+                self.assertEqual(src[key], mp[key], (spec, key))
 
     # spec -> (soiNativeLeadSeconds, its mlib floor, the TARGET-approach lead
     # while an arrival extra round is left) under the 2026-10-14 ruling. B28
@@ -11953,6 +11967,8 @@ class ApproachLatchNativeWarpTests(unittest.TestCase):
         "B20-moho-orbit.toml": (600.0, 520.0, 3480.0),
         "B28-laythe-jool-return.toml": (400.0, 320.0, 400.0),
         "B30-mun-minmus-transfer.toml": (400.0, 320.0, 3000.0),
+        # B30 reversed (2026-11-14): the same machine and the same coast leads.
+        "B46-minmus-mun-transfer.toml": (400.0, 320.0, 3000.0),
     }
 
     # Lanes the ruling named but the arrival-window rule leaves nothing to save

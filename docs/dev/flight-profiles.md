@@ -8,18 +8,19 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 
 | what | lanes |
 |---|---|
-| lanes | 566 |
+| lanes | 574 |
 | tier daily | 28 |
 | tier nightly | 284 |
-| tier operator | 249 |
+| tier operator | 253 |
 | tier longhaul | 5 |
-| profile stock-minimal | 522 |
+| tier (other) | 4 |
+| profile stock-minimal | 530 |
 | profile stock-tree | 40 |
 | profile modded-compat | 4 |
-| autopilot (mission) lanes | 129 |
-| seam-only lanes | 437 |
+| autopilot (mission) lanes | 133 |
+| seam-only lanes | 441 |
 | LIVE-PROVEN date in status row | 449 |
-| no LIVE-PROVEN date | 117 |
+| no LIVE-PROVEN date | 125 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -37,7 +38,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | AJ | 1 | - | - | 1 | - | - | 1 |
 | AP | 1 | - | 1 | - | - | - | 1 |
 | AT | 1 | - | 1 | - | - | - | 1 |
-| B | 31 | 1 | 12 | 13 | 5 | 30 | 21 |
+| B | 35 | 1 | 12 | 17 | 5 | 34 | 21 |
 | BAY | 1 | - | - | 1 | - | 1 | 1 |
 | BDOCK | 2 | - | 1 | 1 | - | 2 | 2 |
 | CA | 1 | - | 1 | - | - | 1 | 1 |
@@ -112,7 +113,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | TOUR | 1 | - | 1 | - | - | - | 1 |
 | TP | 9 | - | - | 9 | - | - | 9 |
 | UIS | 1 | - | 1 | - | - | - | 1 |
-| V | 56 | - | 7 | 49 | - | 6 | 23 |
+| V | 60 | - | 7 | 49 | - | 6 | 23 |
 | VB | 1 | - | 1 | - | - | - | 1 |
 | VN | 13 | - | 13 | - | - | 5 | 13 |
 | W | 1 | - | - | 1 | - | - | - |
@@ -122,7 +123,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 
 ## Lanes per host save
 
-The host is the leaf of `fixture.saveTemplate`. 120 hosts serve 566 lanes.
+The host is the leaf of `fixture.saveTemplate`. 127 hosts serve 574 lanes.
 
 | host save | lanes | families |
 |---|---|---|
@@ -173,6 +174,7 @@ The host is the leaf of `fixture.saveTemplate`. 120 hosts serve 566 lanes.
 | jool-orbit-recorded | 3 | V 2, B 1 |
 | kerbin-return-recorded | 3 | V 3 |
 | lab-pad-seeded | 3 | LAB 3 |
+| laythe-park-nerv | 3 | B 3 |
 | stock-screen-census | 3 | KB 2, GUI 1 |
 | vall-transfer-recorded | 3 | V 2, TP 1 |
 | b17-duna-pad | 2 | B 1, V 1 |
@@ -198,7 +200,6 @@ The host is the leaf of `fixture.saveTemplate`. 120 hosts serve 566 lanes.
 | jool-return-recorded | 2 | V 2 |
 | lab-pad-career | 2 | LAB 1, RW 1 |
 | laythe-orbit-recorded | 2 | V 2 |
-| laythe-park-nerv | 2 | B 2 |
 | moho-orbit-recorded | 2 | V 2 |
 | mun-minmus-recorded | 2 | V 2 |
 | refly-split-crewed-recorded | 2 | RF 2 |
@@ -229,11 +230,14 @@ The host is the leaf of `fixture.saveTemplate`. 120 hosts serve 566 lanes.
 | lab-lko-relay | 1 | LAB 1 |
 | lab-lko-seeded | 1 | LAB 1 |
 | lab-lko-tender-rcs | 1 | LAB 1 |
+| laythe-tylo-recorded | 1 | V 1 |
 | logi-cargo-career | 1 | H 1 |
 | miner-rover-depot | 1 | MINE 1 |
 | miner-rover-full | 1 | MINE 1 |
 | miner-rover-relay | 1 | MINE 1 |
 | miner-rover-starved | 1 | MINE 1 |
+| minmus-mun-recorded | 1 | V 1 |
+| minmus-park-kerbalx | 1 | B 1 |
 | pol-orbit-recorded | 1 | V 1 |
 | preparsek-brandnew-career | 1 | PPB 1 |
 | preparsek-hold-career | 1 | PPB 1 |
@@ -245,7 +249,11 @@ The host is the leaf of `fixture.saveTemplate`. 120 hosts serve 566 lanes.
 | stock-screen-census-repair | 1 | KB 1 |
 | strategy-career | 1 | L 1 |
 | tourist-splashdown-career | 1 | TOUR 1 |
+| tylo-bop-recorded | 1 | V 1 |
 | tylo-orbit-recorded | 1 | V 1 |
+| tylo-park-nerv | 1 | B 1 |
+| vall-park-nerv | 1 | B 1 |
+| vall-tylo-recorded | 1 | V 1 |
 
 Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 
@@ -283,20 +291,20 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 
 | body | lanes | autopilot | live-proven | families |
 |---|---|---|---|---|
-| Kerbin | 343 | 104 | 275 | RF 28, RW 25, B 20, QL 20, GUI 19, LAB 18, V 18, L 17 +63 |
-| Mun | 52 | 11 | 42 | RW 22, V 7, CS 5, B 4, TP 4, MC 2, EVA 1, GUI 1, H 1 +5 |
-| Minmus | 11 | 4 | 7 | V 5, B 4, AP 1, TP 1 |
+| Kerbin | 348 | 108 | 275 | RF 28, RW 25, B 24, QL 20, GUI 19, V 19, LAB 18, L 17 +63 |
+| Mun | 54 | 12 | 42 | RW 22, V 8, B 5, CS 5, TP 4, MC 2, EVA 1, GUI 1, H 1 +5 |
+| Minmus | 13 | 5 | 7 | V 6, B 5, AP 1, TP 1 |
 | Moho | 3 | 1 | 2 | V 2, B 1 |
 | Eve | 11 | 4 | 5 | V 7, B 4 |
 | Gilly | 6 | 2 | 4 | V 4, B 2 |
 | Duna | 25 | 10 | 15 | V 13, B 4, TP 3, AT 1, CN 1, FORGE 1, GUI 1, H 1 |
 | Ike | 6 | 2 | 6 | V 4, B 2 |
 | Dres | 8 | 6 | 2 | B 5, V 2, FORGE 1 |
-| Jool | 25 | 9 | 19 | V 15, B 9, TP 1 |
-| Laythe | 15 | 7 | 15 | B 7, V 7, TP 1 |
-| Vall | 4 | 1 | 4 | V 2, B 1, TP 1 |
-| Tylo | 2 | 1 | 2 | B 1, V 1 |
-| Bop | 2 | 1 | 2 | B 1, V 1 |
+| Jool | 31 | 12 | 19 | V 18, B 12, TP 1 |
+| Laythe | 17 | 8 | 15 | B 8, V 8, TP 1 |
+| Vall | 6 | 2 | 4 | V 3, B 2, TP 1 |
+| Tylo | 8 | 4 | 2 | B 4, V 4 |
+| Bop | 4 | 2 | 2 | B 2, V 2 |
 | Pol | 2 | 1 | 2 | B 1, V 1 |
 | Eeloo | 3 | 1 | - | V 2, B 1 |
 | Sun | 10 | - | 6 | TP 6, V 4 |
@@ -319,7 +327,7 @@ Derived from seam verbs: rewind-to-launch `InvokeRewindToLaunch`; re-fly `Invoke
 | scene-change | 155 | RW 25, V 23, QL 14, RF 13, CS 11, LAB 8, CI 4, CX 4, IR 4, S 4 +34 |
 | vessel-switch | 15 | S 3, CI 2, EVA 2, MINE 2, AJ 1, GC 1, GS 1, KB 1, RF 1, SEAT 1 |
 | new-game | 3 | CS 2, SWS 1 |
-| (none) | 202 | H 70, B 26, GUI 22, L 16, V 9, GS 7, S 7, EVA 4, LT 4, MC 4, RVR 4 +17 |
+| (none) | 210 | H 70, B 30, GUI 22, L 16, V 13, GS 7, S 7, EVA 4, LT 4, MC 4 +18 |
 
 ## Body x timeline operation
 
@@ -327,20 +335,20 @@ Lanes per body (rows) per timeline operation (columns). `-` is zero: a body neve
 
 | body | lanes | rewind-to-launch | re-fly | revert | reload | save | warp | physics-warp | time-jump | scene-change | vessel-switch | new-game |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Kerbin | 343 | 78 | 45 | 14 | 112 | 173 | 162 | 13 | 44 | 125 | 12 | - |
-| Mun | 52 | 24 | 5 | 5 | 10 | 36 | 34 | - | 10 | 34 | - | 1 |
-| Minmus | 11 | - | - | - | 2 | 2 | 5 | 1 | 7 | 2 | - | - |
+| Kerbin | 348 | 78 | 45 | 14 | 112 | 173 | 162 | 13 | 44 | 125 | 12 | - |
+| Mun | 54 | 24 | 5 | 5 | 10 | 36 | 34 | - | 10 | 34 | - | 1 |
+| Minmus | 13 | - | - | - | 2 | 2 | 5 | 1 | 7 | 2 | - | - |
 | Moho | 3 | - | - | - | - | 1 | - | - | 1 | - | - | - |
 | Eve | 11 | - | - | - | 4 | 3 | - | - | 6 | 4 | - | - |
 | Gilly | 6 | - | - | - | 3 | 2 | - | - | 3 | 3 | - | - |
 | Duna | 25 | - | - | - | 5 | 5 | 4 | - | 10 | 5 | - | - |
 | Ike | 6 | - | - | - | 3 | 2 | - | - | 3 | 3 | - | - |
 | Dres | 8 | - | - | - | - | 6 | 1 | - | 1 | - | - | - |
-| Jool | 25 | - | - | - | 6 | 6 | 12 | - | 14 | 6 | - | - |
-| Laythe | 15 | - | - | - | 4 | 3 | 6 | - | 7 | 4 | - | - |
-| Vall | 4 | - | - | - | 1 | 1 | 3 | - | 3 | 1 | - | - |
-| Tylo | 2 | - | - | - | - | - | 1 | - | 1 | - | - | - |
-| Bop | 2 | - | - | - | - | - | 1 | - | 1 | - | - | - |
+| Jool | 31 | - | - | - | 6 | 6 | 12 | - | 14 | 6 | - | - |
+| Laythe | 17 | - | - | - | 4 | 3 | 6 | - | 7 | 4 | - | - |
+| Vall | 6 | - | - | - | 1 | 1 | 3 | - | 3 | 1 | - | - |
+| Tylo | 8 | - | - | - | - | - | 1 | - | 1 | - | - | - |
+| Bop | 4 | - | - | - | - | - | 1 | - | 1 | - | - | - |
 | Pol | 2 | - | - | - | - | - | 1 | - | 1 | - | - | - |
 | Eeloo | 3 | - | - | - | - | 1 | - | - | 1 | - | - | - |
 | Sun | 10 | - | - | - | 3 | 3 | 8 | - | 9 | 3 | - | - |
@@ -356,7 +364,7 @@ Lanes per family (rows) per timeline operation (columns).
 | AJ | 1 | - | 1 | - | - | - | - | - | 1 | - | 1 | - |
 | AP | 1 | - | - | - | - | - | 1 | - | 1 | - | - | - |
 | AT | 1 | - | - | - | - | - | - | - | 1 | - | - | - |
-| B | 31 | - | - | - | - | 5 | - | - | - | - | - | - |
+| B | 35 | - | - | - | - | 5 | - | - | - | - | - | - |
 | BAY | 1 | 1 | - | - | - | - | 1 | - | - | - | - | - |
 | BDOCK | 2 | - | - | - | - | - | - | - | - | - | - | - |
 | CA | 1 | - | - | - | - | - | 1 | 1 | - | - | - | - |
@@ -431,7 +439,7 @@ Lanes per family (rows) per timeline operation (columns).
 | TOUR | 1 | 1 | - | - | - | 1 | 1 | - | - | - | - | - |
 | TP | 9 | - | - | - | 2 | 2 | 7 | - | 8 | 2 | - | - |
 | UIS | 1 | - | - | - | - | - | - | - | - | - | - | - |
-| V | 56 | - | - | - | 23 | 20 | 21 | 1 | 43 | 23 | - | - |
+| V | 60 | - | - | - | 23 | 20 | 21 | 1 | 43 | 23 | - | - |
 | VB | 1 | - | - | - | - | 1 | 1 | - | - | - | - | - |
 | VN | 13 | 2 | 2 | 3 | 5 | 7 | 8 | - | - | 2 | - | - |
 | W | 1 | - | - | - | - | - | - | - | 1 | - | - | - |
@@ -441,7 +449,7 @@ Lanes per family (rows) per timeline operation (columns).
 
 ## Lanes per mission machine
 
-129 autopilot lanes fly 52 mission machines.
+133 autopilot lanes fly 52 mission machines.
 
 | mission | lanes | lane ids |
 |---|---|---|
@@ -452,6 +460,7 @@ Lanes per family (rows) per timeline operation (columns).
 | forge_station | 6 | FORGE-b17-duna-pad, FORGE-b18-dres-pad, FORGE-bdock-station, FORGE-eva3-pad +2 |
 | b25_laythe_orbit | 5 | B25-laythe-orbit, B33-tylo-orbit, B34-bop-orbit, B35-pol-orbit +1 |
 | gs2_orbital_probe_deploy | 5 | GS-2-orbital-probe-deploy, GS-3-switch-nudge-deployed +3 |
+| b29_jool_kerbin | 4 | B29-jool-kerbin-return, B43-vall-tylo-transfer, B44-laythe-tylo-transfer +1 |
 | b2_lko_ascent | 4 | B18-dres-lko-ascent, PWR-1-physwarp-ascent-low, PWR-2-physwarp-ascent-medium +1 |
 | m3_loop_arrival_dwell | 4 | V2-loop-arrival-dwell, V24W-duna-one-warp-stair, V3F-flight-arrival-faithful +1 |
 | b1_pad_hop_career | 3 | QL-2-quickload-career-recovery-not-paid +2 |
@@ -461,6 +470,7 @@ Lanes per family (rows) per timeline operation (columns).
 | b17_duna_direct | 2 | B17-duna-direct-orbit, V3C-flight-arrival-companion |
 | b23_ike_orbit | 2 | B23-ike-orbit, B36-duna-ike-continuation |
 | b24_gilly_orbit | 2 | B24-gilly-orbit, B37-eve-gilly-continuation |
+| b30_mun_minmus | 2 | B30-mun-minmus-transfer, B46-minmus-mun-transfer |
 | cl1_pod_impact | 2 | CL-2-pod-impact-ledger, KD-1-career-death-rewind |
 | cl3_refly_crew_tombstone | 2 | CL-4-refly-crew-standin, QL-3-quickload-before-refly-merge |
 | d5_redock | 2 | LAB-13b-lab-dock-undock, SD-1-same-tree-redock |
@@ -482,8 +492,6 @@ Lanes per family (rows) per timeline operation (columns).
 | b22_jool_orbit | 1 | B22-jool-orbit |
 | b26_laythe_vall | 1 | B26-laythe-vall-transfer |
 | b28_laythe_jool | 1 | B28-laythe-jool-return |
-| b29_jool_kerbin | 1 | B29-jool-kerbin-return |
-| b30_mun_minmus | 1 | B30-mun-minmus-transfer |
 | b4_reentry | 1 | B4-reentry-splashdown |
 | b4_reentry_career | 1 | CS-4-career-orbit-return |
 | b5_mun_flyby | 1 | B5-mun-flyby |
@@ -502,27 +510,27 @@ Lanes per family (rows) per timeline operation (columns).
 
 | verb | lanes | families |
 |---|---|---|
-| FlushAndQuit | 566 | H 75, V 56, B 31, RF 31, GUI 28, RW 25, L 22, QL 21, RVR 19 +77 |
-| LoadGame | 566 | H 75, V 56, B 31, RF 31, GUI 28, RW 25, L 22, QL 21, RVR 19 +77 |
-| SetSetting | 558 | H 75, V 56, B 31, RF 30, GUI 28, RW 25, L 22, QL 21, RVR 19 +77 |
-| StopRecording | 301 | V 54, RF 24, RW 24, RVR 19, LAB 17, EVA 16, H 15, MINE 14, VN 12 +42 |
+| FlushAndQuit | 574 | H 75, V 60, B 35, RF 31, GUI 28, RW 25, L 22, QL 21, RVR 19 +77 |
+| LoadGame | 574 | H 75, V 60, B 35, RF 31, GUI 28, RW 25, L 22, QL 21, RVR 19 +77 |
+| SetSetting | 566 | H 75, V 60, B 35, RF 30, GUI 28, RW 25, L 22, QL 21, RVR 19 +77 |
+| StopRecording | 309 | V 58, RF 24, RW 24, RVR 19, LAB 17, EVA 16, H 15, B 14, MINE 14 +42 |
 | SaveGame | 233 | RW 25, QL 20, V 20, RVR 15, LAB 14, RF 14, CS 13, MINE 12, EVA 11 +40 |
 | RecordingState | 214 | RF 26, V 20, LAB 14, QL 14, MINE 12, CS 11, EVA 11, L 11, VN 11 +36 |
-| DiscardTree | 204 | V 54, RVR 19, LAB 17, H 15, MINE 14, EVA 11, B 10, TP 9, GUI 7 +28 |
+| DiscardTree | 212 | V 58, RVR 19, LAB 17, H 15, B 14, MINE 14, EVA 11, TP 9, GUI 7 +28 |
 | WarpToUT | 200 | RW 25, V 21, LAB 18, MINE 14, EVA 11, QL 11, CI 8, VN 8, TP 7 +40 |
 | RunTests | 186 | H 70, RW 25, CS 10, L 8, CN 6, LT 5, S 5, V 5, RF 4, STR 4, M 3 +28 |
-| StartRecording | 146 | RW 23, EVA 14, LAB 14, B 13, MINE 12, VN 8, QL 5, S 5, CX 4, L 4 +30 |
+| StartRecording | 150 | RW 23, B 17, EVA 14, LAB 14, MINE 12, VN 8, QL 5, S 5, CX 4, L 4 +30 |
 | MissionMark | 144 | RW 25, LAB 17, EVA 13, MINE 12, CS 10, IR 6, L 6, QL 6, RF 5, CI 4 +27 |
 | CommitTree | 143 | RW 24, EVA 14, MINE 11, QL 9, VN 9, CS 8, L 8, LAB 8, B 7, CX 3 +30 |
 | ListHandles | 135 | RF 22, QL 14, EVA 12, MINE 12, CI 11, LAB 9, VN 9, IR 6, RW 5 +25 |
 | TimeJump | 120 | V 43, RVR 14, RF 9, TP 8, S 6, GUI 5, H 5, QL 5, IR 4, MINE 4 +15 |
 | InvokeRewindToLaunch | 85 | RW 24, EVA 10, MINE 10, L 4, H 2, HC 2, IR 2, LF 2, QL 2, RB 2 +21 |
 | ExitToSpaceCenter | 76 | RW 16, QL 10, RF 10, LAB 7, S 4, GS 3, IR 3, CI 2, EVA 2, LF 2 +13 |
+| MissionConfig | 71 | V 52, TP 7, GUI 3, LF 2, AP 1, AT 1, EVA 1, MC 1, MS 1, SE 1, W 1 |
 | GoToEditor | 70 | RW 25, CS 11, CI 4, IR 3, LAB 3, STR 3, L 2, CN 1, CTW 1, CX 1 +16 |
 | LaunchFromEditor | 68 | RW 25, CS 11, CI 4, IR 3, LAB 3, STR 3, L 2, CN 1, CTW 1, CX 1 +14 |
-| MissionConfig | 67 | V 48, TP 7, GUI 3, LF 2, AP 1, AT 1, EVA 1, MC 1, MS 1, SE 1, W 1 |
+| StartLoopPlayback | 66 | V 51, TP 7, LF 2, AP 1, AT 1, EVA 1, MC 1, SE 1, W 1 |
 | UiAction | 63 | GUI 28, VN 9, RW 7, KB 4, L 3, RSC 3, LF 2, EVA 1, KD 1, MS 1, QL 1 +3 |
-| StartLoopPlayback | 62 | V 47, TP 7, LF 2, AP 1, AT 1, EVA 1, MC 1, SE 1, W 1 |
 | PartAction | 57 | LAB 17, MINE 14, RW 9, VN 5, CX 3, RF 3, IR 1, L 1, RC 1, S 1 +2 |
 | KscAction | 56 | RW 18, L 10, CS 7, KB 4, QL 3, STR 3, GUI 2, RF 2, CTW 1, KD 1 +5 |
 | InvokeRewind | 55 | RF 23, RB 5, RW 5, S 5, QL 4, CI 3, LAB 2, VN 2, AJ 1, IR 1, L 1 +3 |
@@ -712,9 +720,9 @@ Categories named by `RunTests` steps (`(all)`: a step with no category). 186 lan
 
 | block | lanes present |
 |---|---|
-| logContracts | 565 |
-| recordings | 552 |
-| rewind | 119 |
+| logContracts | 573 |
+| recordings | 560 |
+| rewind | 127 |
 | renderComposition | 34 |
 | unityExceptions | 28 |
 | routes | 27 |
@@ -786,7 +794,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 |---|---|---|---|---|---|---|---|
 | AT-1-duna-atmospheric-descent | nightly | duna-park-recorded | seam | Duna | time-jump | - | LIVE-PROVEN 2026-09-26 |
 
-### B (31)
+### B (35)
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
@@ -818,6 +826,10 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | B37-eve-gilly-continuation | operator | eve-orbit-recorded | b24_gilly_orbit | Eve, Gilly | - | - | LIVE-PROVEN 2026-11-07 |
 | B38-jool-laythe-continuation | operator | jool-orbit-recorded | b25_laythe_orbit | Jool, Laythe | - | - | LIVE-PROVEN 2026-11-07 |
 | B4-reentry-splashdown | nightly | b2-lko-craft | b4_reentry | Kerbin | - | - | 2026-09-25 (coverage wave 1b): D7 chute-c... |
+| B43-vall-tylo-transfer | operator | vall-park-nerv | b29_jool_kerbin | Kerbin, Jool, Vall, Tylo | - | - | NEVER FLOWN |
+| B44-laythe-tylo-transfer | operator | laythe-park-nerv | b29_jool_kerbin | Kerbin, Jool, Laythe, Tylo | - | - | NEVER FLOWN |
+| B45-tylo-bop-transfer | operator | tylo-park-nerv | b29_jool_kerbin | Kerbin, Jool, Tylo, Bop | - | - | NEVER FLOWN |
+| B46-minmus-mun-transfer | operator | minmus-park-kerbalx | b30_mun_minmus | Kerbin, Mun, Minmus | - | - | NEVER FLOWN |
 | B5-mun-flyby | nightly | b2-lko-craft | b5_mun_flyby | Kerbin, Mun | - | - | Cross-SOI cohesive coast recording (Kerbi... |
 | B6-minmus-flyby | nightly | b2-lko-craft | b6_minmus_flyby | Kerbin, Minmus | - | - | LIVE-PROVEN 2026-10-01 |
 | B7-duna-flyby | nightly | b2-lko-craft | b7_duna_flyby | Kerbin, Duna | - | - | Multi-SOI interplanetary recording (Kerbi... |
@@ -1649,7 +1661,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 |---|---|---|---|---|---|---|---|
 | UIS-1-ui-scale | nightly | gloops-airshow | seam | - | - | UiScale | LIVE-PROVEN 2026-11-04 |
 
-### V (56)
+### V (60)
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
@@ -1699,6 +1711,10 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | V3F-flight-arrival-faithful | operator | duna-direct-recorded | m3_loop_arrival_dwell | Duna | - | - | LIVE-PROVEN 2026-08-07 |
 | V3R-flight-arrival-reaim | operator | duna-direct-recorded | m3_loop_arrival_dwell | Duna | - | - | LIVE-PROVEN 2026-08-07 |
 | V4-player-loop-workflow | operator | duna-direct-recorded | seam | Duna | time-jump | - | FLOWN 2026-08-08, run 2026-08-08_1135, PA... |
+| V43M-vall-tylo-player-loop | pending-fixture | vall-tylo-recorded | seam | Jool, Vall, Tylo | - | - | NEVER FLOWN, waits on B43's harvest |
+| V44M-laythe-tylo-player-loop | pending-fixture | laythe-tylo-recorded | seam | Jool, Laythe, Tylo | - | - | NEVER FLOWN, waits on B44's harvest |
+| V45M-tylo-bop-player-loop | pending-fixture | tylo-bop-recorded | seam | Jool, Tylo, Bop | - | - | NEVER FLOWN, waits on B45's harvest |
+| V46M-minmus-mun-player-loop | pending-fixture | minmus-mun-recorded | seam | Kerbin, Mun, Minmus | - | - | NEVER FLOWN, waits on B46's harvest |
 | V5-ts-loop-arrival | operator | duna-direct-recorded | seam | Duna | reload, save, time-jump, scene-change | - | CRITERION (b) RENDER-TOKEN CONTROL FLOWN... |
 | V6M-mun-player-loop | operator | mun-orbit-recorded | seam | Mun | time-jump | - | CRITERION (b) RENDER-TOKEN CONTROL FLOWN... |
 | V6T-mun-ts-arrival | operator | mun-orbit-recorded | seam | Mun | reload, save, time-jump, scene-change | - | CRITERION (b) RENDER-TOKEN CONTROL FLOWN... |

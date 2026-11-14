@@ -739,9 +739,16 @@ class FullRunPlanOverCommittedSpecsTests(unittest.TestCase):
         self.assertEqual(len(planned) + len(skipped), len(specs))
         self.assertEqual(len(set(planned)), len(planned))
         self.assertEqual(sorted(planned + skipped), sorted(s["id"] for s in specs))
+        tiers = {s["id"]: s.get("tier") for s in specs}
         for sid, reason in plan.skipped:
             with self.subTest(skipped=sid):
-                self.assertIn("operator-local fixture", reason)
+                # A pending-fixture lane is skipped by its tier (its fixture is a
+                # forge's harvest that does not exist yet); every other skip is an
+                # operator-local fixture.
+                if tiers[sid] == "pending-fixture":
+                    self.assertIn("tier pending-fixture", reason)
+                else:
+                    self.assertIn("operator-local fixture", reason)
 
 
 class FullRunResumeTests(unittest.TestCase):

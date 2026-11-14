@@ -1,0 +1,115 @@
+schema = 1
+id = "V43M-vall-tylo-player-loop"
+# =====================================================================================
+# V43M: the Vall -> Tylo moon-to-moon loop. AUTHORED 2026-11-14, NEVER FLOWN.
+# Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 2 / MOON-FLIGHT-TEST-PROGRAM Group B.
+#
+# WHAT IT READS. The subject is a Vall-rooted tree that never leaves
+# Jool's SOI, so rule 4a (`MissionPeriodicity.ResolveMoonRootedFrameParent`,
+# #2554) takes its phase constraints in the moon-rooted frame: Orbital(Tylo) and
+# Orbital(Vall), both same-parent, support Supported. The lane loops the tree
+# and reads three lines: the Verbose `ExtractConstraints: moon-rooted frame` line,
+# the Verbose ExtractConstraints summary, and the phase-lock decision.
+#
+# THE PREDICTION (the real `MissionPeriodicity.Solve` driven offline 2026-11-14 over a
+# modelled Vall -> Tylo tree with stock periods: P_Vall 105,962.09 s, P_Tylo 211,926.36 s):
+#   ExtractConstraints  launchBody=Vall support=Supported constraints=2
+#                       [Orbital(Tylo) same-parent; Orbital(Vall) same-parent]
+#   Solve               dominant=Tylo (the longer period), method=dominant-intercept
+#                       (m=1: Vall is at 2:1 with Tylo in the Laplace chain, so the
+#                       dropped residual at m=1 is ~2 s), P = P_Tylo, withinTol=yes
+#   schedule            211,924 s intervals, worst residual ~20 s
+# P depends only on the two periods, never on the recorded span or offsets, so it is
+# pinned to the Tylo period's leading digits; the method is pinned exactly.
+# FORBIDDEN `UnsupportedCrossParent` is the pre-#2554 answer for this shape.
+#
+# NOT FLYABLE YET: tier "pending-fixture", tag "awaiting-fixture". The fixture `vall-tylo-recorded`
+# is the harvest of the forge `B43-vall-tylo-transfer`, which has not flown. Until it exists this
+# spec stays out of every cadence and the full run (tier_runner FULL_RUN_EXCLUDED_TIERS),
+# `test_hlib.SharedShipsManifestTests.PENDING_FIXTURE_LANES` exempts it from the
+# saveTemplate sweep, and that map's self-retiring cell reds the day the fixture lands.
+# The MissionConfig / StartLoopPlayback tree id is a ZERO PLACEHOLDER.
+#
+# TO MAKE IT FLYABLE, in ONE commit after the forge's harvest: replace the two
+# placeholder tree ids with the harvested tree id (the RECORDING_TREE `id` in
+# `vall-tylo-recorded/persistent.sfs`), set tier = "operator" and swap the tag
+# "awaiting-fixture" for "pending-flight", add "sandbox" back to D14 (the game-mode
+# claim needs a fixture to witness it), delete the PENDING_FIXTURE_LANES entry,
+# register `vall-tylo-recorded` in test_saveparse.RECORDED_FIXTURES, and re-derive the count and
+# structure windows from the harvested bytes (the forge's own count window is
+# {1,4}; B26 and B30 each harvested ONE recording).
+#
+# THE LANE IS DELIBERATELY SHORT. It loads the subject, turns its loop on and starts
+# loop playback, which is where `MissionLoopUnitBuilder` extracts the phase
+# constraints and solves the period; it then quits. No jump table: the cycle seam
+# UTs depend on the harvested span and the solver's first window, both unknown until
+# the forge flies. A later lane (V17M / V21M shape) can add the jumps off the real
+# bytes. Verbose logging is on because both ExtractConstraints lines are Verbose.
+# =====================================================================================
+tier = "pending-fixture"
+description = "AUTHORED 2026-11-14, NEVER FLOWN, NOT FLYABLE UNTIL `B43-vall-tylo-transfer` IS HARVESTED (fixture `vall-tylo-recorded` absent; zero placeholder tree id). Loops the Vall-rooted Vall -> Tylo tree and reads the moon-rooted phase lock: rule 4a's Orbital(Tylo) + Orbital(Vall) constraint set, Supported, and the solver's decision."
+instanceProfile = "stock-minimal"
+tags = ["V43M", "player-loop", "loop-playback", "moon-to-moon", "moon-rooted-phase-lock",
+        "vall", "tylo", "jool", "awaiting-fixture"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/vall-tylo-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig",     args = { tree = "00000000000000000000000000000000", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "00000000000000000000000000000000" }, expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["vall", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 4 }
+
+[expectations.logContracts]
+required  = [
+  "missionconfig applied:",
+  "SetLoopEnabled: loop ON",
+  "startloopplayback initiated:",
+  "ExtractConstraints: moon-rooted frame launchMoon=Vall planet=Jool launchMoonPeriod=",
+  "ExtractConstraints: tree=\\w+ members=[0-9]+ launchBody=Vall ut0=[^ \\r\\n]+ support=Supported constraints=2 \\[Orbital\\(Tylo\\) same-parent P=[^;\\r\\n]+; Orbital\\(Vall\\) same-parent P=",
+  "PhaseLock APPLIED: mission='[^'\\r\\n]*' tree=\\w+ anchor [^ \\r\\n]+ P=2119[0-9]{2}(\\.[0-9]+)? method=dominant-intercept cadence [^ \\r\\n]+ fixedCadenceResidual=[^ \\r\\n]+ fixedCadenceWithinTol=yes",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "UnsupportedCrossParent",
+  "PhaseLock SKIPPED: mission=",
+]
+
+[expectations.rewind]
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+committedTrees = { min = 1, max = 1 }
+trees          = { min = 1, max = 2 }
+
+[runtime]
+# Boot + LoadGame + one StartLoopPlayback (a multi-day forward clock set) + quit;
+# V31M's comparable seam lane measured 49 s.
+budgetSeconds = 1200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
