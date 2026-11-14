@@ -337,7 +337,7 @@ rank = 2
 item = "ParsekScenario: partial files by load phase, then name the OnLoad phases"
 evidence = "On 2026-11-10 <code>OnLoad</code> was the longest production method (1,377 lines); the type keeps 31 reassignable statics and sits on the top co-change pair (<em>Largest files and types</em>, <em>What changes together</em>)."
 size = "2 to 4 PRs"
-status = "Done for OnLoad 2026-11-14 (#2598, todo ARCH-ONLOAD-CONTEXT-AND-BRANCHES): a skeleton over a load context, one flow method per branch plus the shared tail parts, the step order pinned headless for all seven load kinds; not flown yet. Earlier: partial files (W2a), phase extraction (W2b), the static map (W2c). Left: the in-session flow is the type's longest method, and the statics."
+status = "Done for OnLoad 2026-11-14 (#2598, todo ARCH-ONLOAD-CONTEXT-AND-BRANCHES): a skeleton over a load context, one flow method per branch plus the shared tail parts, the step order pinned headless for all seven load kinds; the daily tier flew green on main with it on 2026-11-14 (28 of 28 lanes). Earlier: partial files (W2a), phase extraction (W2b), the static map (W2c). Left: the in-session flow is the type's longest method, and the statics."
 types = ["ParsekScenario", "OnLoadContext"]
 
 [[opportunities]]
@@ -408,7 +408,7 @@ rank = 11
 item = "ParsekFlight seams: recorder hookup, playback hosting, spawning, merge flow"
 evidence = "On 2026-11-07 <code>ParsekFlight.cs</code> was 2,567 lines (30,387 on main then); the type was under half its old size."
 size = "large"
-status = "Done (PF0 to PF10, IL-proven moves); flown in the refactor's overnight batches (2026-11-10, 174 of 175 lanes green) and on main since 1.1.0 (#2561). 2026-11-14 (#2595): the merge flow reaches its host only through <span class=\"id\">IMergeFlowHost</span>, driven by a fake host in its tests; not flown yet."
+status = "Done (PF0 to PF10, IL-proven moves); flown in the refactor's overnight batches (2026-11-10, 174 of 175 lanes green) and on main since 1.1.0 (#2561). 2026-11-14 (#2595): the merge flow reaches its host only through <span class=\"id\">IMergeFlowHost</span>, driven by a fake host in its tests; the daily tier flew green on main with it on 2026-11-14 (28 of 28 lanes)."
 types = ["ParsekFlight", "IMergeFlowHost"]
 
 [[opportunities]]
