@@ -604,7 +604,7 @@ keys = [
     "Parsek.ParsekKSC::SpawnAtKscEnd",
     "Parsek.ParsekPlaybackPolicy::FlushDeferredSpawns",
     "Parsek.ParsekPlaybackPolicy::HandlePlaybackCompleted",
-    "Parsek.ParsekScenario::OnLoad",
+    "Parsek.ParsekScenario::OnLoadFlowInSession",
     "Parsek.ParsekTrackingStation::DrawAtmosphericMarkers",
     "Parsek.RecordThresholdBook::Credit",
     "Parsek.RecordingOptimizer::BuildTransientStateSeeds",
