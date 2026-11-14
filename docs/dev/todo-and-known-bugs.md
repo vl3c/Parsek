@@ -52,6 +52,7 @@ construction.
 
 - `WarpToTimeRequest`: both requests (9 fields); `DropAll` logs what it drops, then swaps.
 - `RouteRunPrompt`: the pending prompt (2 fields); `ResetForSaveLoad` logs the cleared prompt, then swaps.
+- `SceneEntryVesselScope`: the scene-entry and rewind-replay-target pids (5 fields, now properties); `ResetForLoad` swaps.
 
 ## COLD-RESET-LEFTOVERS: four save / load-transition statics a Cold load leaves set [FILED 2026-11-14 from the ARCH-COLD-RESET-HOLDERS cold-loader cells, by a headless test. OPEN; none reproduced in play, low; pinned in `SaveScopedSessionResetTests.ColdLoaderKnownGaps`, not fixed]
 
