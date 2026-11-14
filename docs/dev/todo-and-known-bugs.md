@@ -900,7 +900,7 @@ created. Proving it needs a live origin resolve (FlightGlobals), so an in-game t
 Also check here: whether a sidecar flush of a source recording (see ROUTE-SOURCE-OPTIMIZER-REWRITE)
 can move a route to SourceChanged.
 
-## ~~PRESWITCH-CASE-C-LIVE-TREE-MEMBER~~: switching back to the ship a kerbal just left ended the recording when that ship ended an earlier committed flight [FILED 2026-11-14 from lane FAR-4's first flight, runs `2026-11-14_1525` and `_1526_a2` (INVALID driver-gate, the seam refused `dialog-required case=C-loaded-separate-committed`). FIXED 2026-11-14, branch `pc-lanes-fix`; xUnit, FAR-4 re-flight owed; medium]
+## ~~PRESWITCH-CASE-C-LIVE-TREE-MEMBER~~: switching back to the ship a kerbal just left ended the recording when that ship ended an earlier committed flight [FILED 2026-11-14 from lane FAR-4's first flight, runs `2026-11-14_1525` and `_1526_a2` (INVALID driver-gate, the seam refused `dialog-required case=C-loaded-separate-committed`). FIXED 2026-11-14, branch `pc-lanes-fix`; xUnit; FAR-4 green `2026-11-14_2324`; medium]
 
 Shape: a recording is started on a vessel that an earlier committed flight also recorded (the
 committed tree's spawned leaf), a kerbal goes on EVA (the vessel becomes a background member of
@@ -921,7 +921,7 @@ Live proof: FAR-4's second flight `2026-11-14_1638` (head 37a6c6101) read
 `route=bg-member-continuation`; the lane itself red only on two first-reading counts (re-pinned,
 re-flight owed).
 
-## ~~FAR1-CAREER-FIXTURE-EMBEDDED-LEDGER~~: the `duna-ike-recorded-career` host kept its SANDBOX ledger, so FAR-1's rewind patched funds up 9120 [FILED 2026-11-14 from FAR-1's second flight, run `2026-11-14_1642` PARSEK-FAIL(expectation). FIXED 2026-11-14, branch `pc-lanes-fix-2`; harness fixture builder, not a Parsek defect; FAR-1 re-flight owed]
+## ~~FAR1-CAREER-FIXTURE-EMBEDDED-LEDGER~~: the `duna-ike-recorded-career` host kept its SANDBOX ledger, so FAR-1's rewind patched funds up 9120 [FILED 2026-11-14 from FAR-1's second flight, run `2026-11-14_1642` PARSEK-FAIL(expectation). FIXED 2026-11-14, branch `pc-lanes-fix-2`; harness fixture builder, not a Parsek defect; FAR-1 green `2026-11-14_2321`]
 
 `build_route_career.py` strips the SANDBOX seeds and the milestone award rows from the
 `ledger.pgld` sidecar. Its sixth source, `duna-ike-recorded`, also embeds a `GAME_STATE` node
@@ -966,7 +966,7 @@ intro_TS warp lock, now a 1x wait), FAR-5 (a Kerbin leaf in the bodies list) and
 cold save-file load since Phase 3, and a missing leading mark) re-pinned; re-flown on main
 37a6c6101: FAR-5 `_1639` and FAR-6 `_1641` green, FAR-4 `_1638` proved the switch fix and was
 re-pinned on two counts, FAR-1 `_1642` found FAR1-CAREER-FIXTURE-EMBEDDED-LEDGER (host rebuilt);
-FAR-1 and FAR-4 re-flights owed) (rewind-to-launch with a committed Ike flight in career, a relaunch rewind
+FAR-1 `_2321` and FAR-4 `_2324` green on 2d8c25442) (rewind-to-launch with a committed Ike flight in career, a relaunch rewind
 keeping Duna vessels, a revert with Ike committed, an EVA switch at Gilly, physics warp at Laythe,
 a looped Ike watch across a quickload), read by position through the new in-game category
 `LeafVesselPlacement`. Re-Fly at a far body is still uncovered: no far-body fixture has a rewind
@@ -998,7 +998,8 @@ in parallel in the cloud):
 3. [ ] Aircraft: no lane flies a plane (BAY-1's never moves). A runway takeoff, a circuit and a
    landing, then its ghost replays at the Space Center.
 4. [ ] (AUTHORED 2026-11-14 as `B39`-`B42` / `V34M`-`V37M` and `V33T`. FLOWN 2026-11-14: V33T green;
-   B39-B42 green on 8d4e8b01c and their four fixtures harvested; V34M-V36M green; V37M still to fly.)
+   B39-B42 green on 8d4e8b01c and their four fixtures harvested; V34M-V36M green; V37M green
+   `2026-11-14_2320` on 2d8c25442.)
    Jool park -> one moon continuations: B39 Vall, B40 Tylo, B41 Bop, B42 Pol with loop lanes
    V34M .. V37M (Vall has no park lane at all), plus the missing Laythe Tracking Station lane
    (V33T). Later: Mun / Minmus continuations and the optional Ike / Gilly landing continuations.
