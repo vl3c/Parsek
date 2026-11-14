@@ -2814,6 +2814,26 @@ New lanes join `MultiCategoryBatchWiringGroupTests.GROUP` (`id -> (scene,
 `docs/dev/design-autotest-harness-core.md` -> "AMENDMENT 2026-09-07 - Multi-category
 batch contract".
 
+## Terrain survey for the space-race sites (`tools/kerbin_equator_scan.py`)
+
+A read-only measuring tool for design spike S1 of
+`docs/dev/design-competitive-multiplayer.md` (section 7.3): it samples stock Kerbin's
+terrain height and biome along the KSC's latitude through kRPC and ranks the dry, flat
+spots near a half turn and the two quarter turns from the KSC. It flies nothing and
+writes nothing into a save; it needs a KSP with the kRPC server up sitting in any
+loaded scene (the provisioned automation instance at the Space Center is enough).
+It is not a lane: no spec, no verdict, no machine lock of its own, so run it only
+while you hold the machine (no `run.py` or `provision.py` in flight).
+
+```
+missions/.venv/Scripts/python tools/kerbin_equator_scan.py            # about 90,000 samples
+missions/.venv/Scripts/python tools/kerbin_equator_scan.py --selftest # no game, no kRPC
+```
+
+Output goes to `<umbrella>/logs/terrain/<YYYY-MM-DD>/` (`coarse.csv`, `biomes.csv`,
+`ksc_fine.csv`, `fine_<target>_<n>.csv`, `summary.json`, `summary.txt`), never into
+the repo tree.
+
 ## Running the tests
 
 ```

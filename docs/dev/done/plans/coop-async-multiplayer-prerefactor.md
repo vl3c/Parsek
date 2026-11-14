@@ -1,5 +1,10 @@
 # Cooperative Async Multiplayer - Pre-Implementation Refactors
 
+> **DEPRECATED (owner ruling 2026-11-14).** Cooperative multiplayer is not planned; this plan
+> is archived for reference only. Its design is `docs/dev/done/design-coop-async-multiplayer.md`
+> (also archived); the current multiplayer design is
+> `docs/dev/design-competitive-multiplayer.md`. Paths below are as they were when written.
+
 *Refactors to land BEFORE the multiplayer tasks that need them, so the feature fits the existing seams with fewer guards, no duplicated orchestrations, and smaller blast radius. Derived from four code investigations on 2026-09-02 (store registration + fence; ledger orchestration; spawn ownership + consume route; ERS composition + test infrastructure).*
 
 **Status:** PLANNED. Companion to `coop-async-multiplayer-tasks.md` (task ids below refer to it) and the design doc `docs/dev/design-coop-async-multiplayer.md`.
