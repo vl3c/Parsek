@@ -8,6 +8,48 @@ using UnityEngine;
 
 namespace Parsek
 {
+    /// <summary>
+    /// What <see cref="ParsekFlightMergeFlow"/> reads and drives on its host, so its merge and
+    /// commit decisions run against a fake in unit tests. <see cref="ParsekFlight"/> implements it
+    /// explicitly, each member forwarding to the host member of the same name (the two spawn
+    /// members to its SpawnHost, and the last three to the live KSP call the service used to make
+    /// itself). The state properties are
+    /// named after the host fields they expose, so the service bodies read as they did on the host.
+    /// The recorder objects themselves stay concrete: a test hands in a real
+    /// <see cref="FlightRecorder"/> / <see cref="BackgroundRecorder"/> or leaves them null.
+    /// </summary>
+    internal interface IMergeFlowHost
+    {
+        // The recorder session: the live tree and its two recorders.
+        RecordingTree activeTree { get; set; }
+        FlightRecorder recorder { get; set; }
+        BackgroundRecorder backgroundRecorder { get; set; }
+
+        // Recorder-session operations that stay on the host (partials by measured decision).
+        RecorderStateSnapshot CaptureRecorderState();
+        void FlushRecorderToTreeRecording(FlightRecorder rec, RecordingTree tree);
+        void FlushRecorderIntoActiveTreeForSerialization();
+        RecordingFinalizationCache ResolveFinalizationCacheForRecording(RecordingTree tree, Recording recording);
+        bool CanPreTransitionForVesselSwitch();
+        void StashActiveTreeForVesselSwitch(double commitUT);
+        void StashActiveTreeAsPendingLimbo(double commitUT);
+        void ClearSceneChangeTransientState();
+
+        // Host state and services.
+        int lastPlaybackIndex { get; set; }
+        void ScreenMessage(string message, float duration);
+        void Log(string message);
+        void SpawnTreeLeaves(RecordingTree tree, string activeRecordingId);
+        void EvaluateAndApplyGhostChains();
+
+        // Live KSP reads the decisions need: Planetarium.GetUniversalTime(),
+        // ParsekScenario.IsVesselSwitchPendingFresh() (UnityEngine.Time.frameCount) and the
+        // active vessel's persistentId (FlightGlobals.ActiveVessel, 0 when none).
+        double CurrentUniversalTime();
+        bool IsVesselSwitchPendingFresh();
+        uint ActiveVesselPersistentIdOrZero();
+    }
+
     // The flight-scene merge flow: the scene-exit finalize (commit, stash or discard of the active
     // tree), the in-flight, revert and scene-exit tree commits, the auto-discard of idle or no-op
     // trees, idle-on-pad, crew reservation for the committed leaves and the final segment phase and
@@ -15,12 +57,13 @@ namespace Parsek
     // order of the scene-exit calls), the MergeDialog subscription (its handler forwards here), the
     // ShowPostDestructionTreeMergeDialog coroutine, the commit and terminal-inference statics other
     // files name with their test seams, and forwarders for the entry points other types call; it
-    // reaches this service through MergeFlow.
+    // reaches this service through MergeFlow. The service reaches its host only through
+    // IMergeFlowHost.
     internal sealed class ParsekFlightMergeFlow
     {
-        private readonly ParsekFlight host;
+        private readonly IMergeFlowHost host;
 
-        internal ParsekFlightMergeFlow(ParsekFlight host)
+        internal ParsekFlightMergeFlow(IMergeFlowHost host)
         {
             this.host = host;
         }
@@ -29,7 +72,7 @@ namespace Parsek
         {
             FinalizeTreeOnSceneChangeCore(
                 scene,
-                Planetarium.GetUniversalTime(),
+                host.CurrentUniversalTime(),
                 logRecorderState: true);
         }
 
@@ -59,7 +102,7 @@ namespace Parsek
             host.ClearSceneChangeTransientState();
             FinalizeTreeOnSceneChangeCore(
                 scene,
-                Planetarium.GetUniversalTime(),
+                host.CurrentUniversalTime(),
                 logRecorderState: true);
         }
 
@@ -520,7 +563,7 @@ namespace Parsek
                 // to the legacy Limbo stash. OnLoad's revert detection dispatch will
                 // then either restore-and-resume (quickload) or finalize-and-commit
                 // (revert). See docs/dev/plans/quickload-resume-recording.md (Bug C).
-                bool isVesselSwitch = ParsekScenario.IsVesselSwitchPendingFresh();
+                bool isVesselSwitch = host.IsVesselSwitchPendingFresh();
                 if (isVesselSwitch && host.CanPreTransitionForVesselSwitch())
                 {
                     host.StashActiveTreeForVesselSwitch(commitUT);
@@ -748,7 +791,7 @@ namespace Parsek
         internal void OnTreeCommittedFromMergeDialog(RecordingTree tree)
         {
             ParsekLog.Info("GhostMap", "Tree committed from merge dialog - re-evaluating ghost chains");
-            host.SpawnHost.EvaluateAndApplyGhostChains();
+            host.EvaluateAndApplyGhostChains();
         }
 
         /// <summary>
@@ -775,7 +818,7 @@ namespace Parsek
                 return;
             }
 
-            double commitUT = Planetarium.GetUniversalTime();
+            double commitUT = host.CurrentUniversalTime();
             ParsekLog.Info("Flight", $"CommitTreeFlight: starting tree commit at UT={commitUT:F1}");
 
             // Finalize all recordings (active + background)
@@ -801,7 +844,7 @@ namespace Parsek
             {
                 activeRec.VesselSpawned = true;
                 activeRec.SpawnedVesselPersistentId = host.recorder != null ? host.recorder.RecordingVesselId :
-                    (FlightGlobals.ActiveVessel != null ? FlightGlobals.ActiveVessel.persistentId : 0u);
+                    host.ActiveVesselPersistentIdOrZero();
                 activeRec.LastAppliedResourceIndex = activeRec.Points.Count - 1;
             }
 
@@ -829,7 +872,7 @@ namespace Parsek
             LedgerOrchestrator.NotifyLedgerTreeCommitted(host.activeTree);
 
             // Spawn all non-active leaf vessels
-            host.SpawnHost.SpawnTreeLeaves(host.activeTree, activeTipId);
+            host.SpawnTreeLeaves(host.activeTree, activeTipId);
 
             // Crew swap on active vessel
             int swapped = CrewReservationManager.SwapReservedCrewInFlight();

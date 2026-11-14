@@ -2710,6 +2710,50 @@ host), the ParsekFlight cut still lands on 454, replayed residue 283 throughout 
 stays on the type is the plan's composition root: every coroutine, every subscription, the
 recorder session, tree restore and teardown, and the statics other files name.
 
+**Follow-up, plan item 17 (B5, 2026-11-14): MergeFlow takes an interface, not its host.** Of the
+eight services only `ParsekFlightMergeFlow` is worth it (the review's B5: about 31% game-bound;
+the knot does not move). Measured on main: 119 `host.` references to 15 members (activeTree 62,
+recorder 24, backgroundRecorder 15, CaptureRecorderState 5, StashActiveTreeAsPendingLimbo 2,
+SpawnHost 2, ClearSceneChangeTransientState 2, and eight once). A headless probe on an
+uninitialized ParsekFlight showed what blocked the decision paths: `CaptureRecorderState` and the
+service's own `Planetarium.GetUniversalTime()` (NullReferenceException), the FLIGHT branch's
+`ParsekScenario.IsVesselSwitchPendingFresh()` (`Time.frameCount`, MissingMethodException on mono)
+and `FlightGlobals.ActiveVessel` in the in-flight commit. `IMergeFlowHost` (in
+`ParsekFlightMergeFlow.cs`) covers all 15 members plus those three live reads
+(`CurrentUniversalTime`, `IsVesselSwitchPendingFresh`, `ActiveVesselPersistentIdOrZero`); the two
+`SpawnHost` calls became `SpawnTreeLeaves` / `EvaluateAndApplyGhostChains`. ParsekFlight implements
+it explicitly in `.MergeFlow.cs`, each member a one-line forward. The state properties keep the
+host field names, so the service bodies are textually unchanged apart from those five call sites.
+The recorder objects stay concrete: `FlightRecorder.ForceStop` on a live recording and
+`BackgroundRecorder.Shutdown()` / `CheckpointAllVessels` still read the game themselves.
+IL (`il_compare.py --il` over dumps with a scratch interface fold: property get / set -> ldfld /
+stfld plus the Debug nop after a setter call, interface call -> host call, the two live-read hops
+-> the static call, `get_SpawnHost` dropped): 0 moved-body differences except the
+`ActiveVessel` ternary in `CommitTreeFlight` (one interface call for the two-read expression the
+forward keeps); the rest is the interface, ParsekFlight's header and its 4 explicit properties
+(23 methods), the service constructor and the `MergeFlow` accessor's `newobj`. Knot 434 -> 435 (the interface names
+knot types; the ParsekFlight cut still lands on 403), replayed residue unchanged, no layer pin
+moved.
+Tests: `MergeFlowDecisionTests` (37 cells) drive the service through `FakeMergeFlowHost` (records
+every host call, stashes like the host): the scene-exit path choice (restore guard, consumed
+suppression with and without the recorder-state lines, FLIGHT pre-transition vs Limbo with and
+without the unsafe line, save-file load and quit-without-saving Limbo, a revert keeping the
+commit, auto-merge off stash with snapshots kept, auto-merge commit releasing non-spawnable
+snapshots, a rewind load committing with auto-merge off), the live and callback entries' UT and
+transient reset, the teardown and the recovery-request clear; FinalizeTreeRecordings' backgrounded
+stop, flush and destroyed flag; CommitTreeFlight's no-tree guard, stamp source, optimization
+skip / run, leaf spawn and session clear; the auto-discard message, transient reset and recorder
+stop; idle-on-pad's restore guard and flush; the live recording lookup; the merge-dialog ghost
+chain call. Still unreachable headless, because the concrete recorders read the game
+themselves: a foreground `FlightRecorder.ForceStop` (FinalizeRecordingState) and
+`BackgroundRecorder.Shutdown()` / `CheckpointAllVessels` (Planetarium), so the scene-exit
+checkpoint line and the background shutdown are untested; `StashActiveTreeAsPendingLimbo` /
+`StashActiveTreeForVesselSwitch` bodies stay on the host and are faked. Mutants: 26 on the
+decisions (guards flipped, commit / stash paths swapped, teardown and clear steps deleted); the
+existing merge-flow classes killed 5, the full set kills 26 (the one the new cells miss, leaves
+spawned with the pre-pass id, is equivalent without an optimizer split and is killed by
+`InFlightCommitOptimizationTests`' source order gate).
+
 ## ~~ARCH-RECORDINGSTORE-GOD-OBJECT: RecordingStore is a list plus eight services in one type~~ [FILED 2026-09-14 off the architecture program (item 4). POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun. DONE 2026-11-07 on the refactor branch `claude/project-thread-bkwmrr` (services plan PRs 1-14, each IL-proven a pure move; xUnit and harness suites, not flown: the covering lanes are named per PR)]
 
 **What is true.**
