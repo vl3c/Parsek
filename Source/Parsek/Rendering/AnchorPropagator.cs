@@ -243,6 +243,62 @@ namespace Parsek.Rendering
             public int DeferredNoResolver;
             public int DeferredNoSpline;
             public double MaxBoundaryInstantEpsilonM;
+            public readonly Dictionary<string, BoundaryInstantBodyTally> BoundaryInstantByBody =
+                new Dictionary<string, BoundaryInstantBodyTally>(StringComparer.Ordinal);
+        }
+
+        /// <summary>
+        /// The boundary-instant seeds one walk resolved against one body: how many, and the
+        /// largest body-fixed residual among them. Printed by the walk's per-body line.
+        /// </summary>
+        internal sealed class BoundaryInstantBodyTally
+        {
+            public int Resolved;
+            public double MaxEpsilonM;
+        }
+
+        /// <summary>
+        /// Adds one resolved boundary-instant seed to its body's tally. A null or empty body
+        /// name tallies under "&lt;unknown&gt;" so a resolution is never dropped from the line.
+        /// </summary>
+        internal static void TallyBoundaryInstantBody(
+            Dictionary<string, BoundaryInstantBodyTally> byBody, string bodyName, double magnitudeM)
+        {
+            if (byBody == null) return;
+            string key = string.IsNullOrEmpty(bodyName) ? "<unknown>" : bodyName;
+            if (!byBody.TryGetValue(key, out BoundaryInstantBodyTally tally))
+            {
+                tally = new BoundaryInstantBodyTally();
+                byBody[key] = tally;
+            }
+            tally.Resolved++;
+            if (magnitudeM > tally.MaxEpsilonM)
+                tally.MaxEpsilonM = magnitudeM;
+        }
+
+        /// <summary>
+        /// The per-body value of the walk's boundary-instant line:
+        /// "Kerbin:resolved=2,maxEpsilonM=1.250;Mun:resolved=1,maxEpsilonM=0.400", bodies in
+        /// ordinal order, residuals F3 invariant. Empty for a null or empty tally.
+        /// </summary>
+        internal static string FormatBoundaryInstantBodies(
+            IDictionary<string, BoundaryInstantBodyTally> byBody)
+        {
+            if (byBody == null || byBody.Count == 0) return string.Empty;
+            var keys = new List<string>(byBody.Keys);
+            keys.Sort(StringComparer.Ordinal);
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < keys.Count; i++)
+            {
+                BoundaryInstantBodyTally t = byBody[keys[i]];
+                if (i > 0) sb.Append(';');
+                sb.Append(keys[i]);
+                sb.Append(":resolved=");
+                sb.Append(t.Resolved.ToString(CultureInfo.InvariantCulture));
+                sb.Append(",maxEpsilonM=");
+                sb.Append(t.MaxEpsilonM.ToString("F3", CultureInfo.InvariantCulture));
+            }
+            return sb.ToString();
         }
 
         /// <summary>
@@ -323,6 +379,7 @@ namespace Parsek.Rendering
                 ref counters.ResolvedLoop, ref counters.ResolvedBubble,
                 ref counters.DeferredNoResolver, ref counters.DeferredNoSpline,
                 ref counters.MaxBoundaryInstantEpsilonM,
+                counters.BoundaryInstantByBody,
                 out epsilon);
 
             var ac = new AnchorCorrection(
@@ -829,6 +886,16 @@ namespace Parsek.Rendering
                 counters.SuppressedSkipped, counters.CycleSkipped,
                 sw.Elapsed.TotalMilliseconds.ToString("F2", CultureInfo.InvariantCulture),
                 counters.MaxBoundaryInstantEpsilonM.ToString("F3", CultureInfo.InvariantCulture)));
+
+            // The per-body split of the boundary-instant residual: which bodies' frames the
+            // seeds were compared in, so a walk over a recording that crosses an SOI shows the
+            // residual on each side. Printed only when a boundary-instant seed resolved.
+            if (counters.BoundaryInstantByBody.Count > 0)
+            {
+                ParsekLog.Info("Pipeline-AnchorPropagate",
+                    "DAG walk boundary-instant bodies: sessionId=" + sessionId
+                    + " bodies=" + FormatBoundaryInstantBodies(counters.BoundaryInstantByBody));
+            }
         }
 
         /// <summary>
@@ -869,6 +936,7 @@ namespace Parsek.Rendering
             ref int resolvedLoop, ref int resolvedBubble,
             ref int deferredNoResolver, ref int deferredNoSpline,
             ref double maxBoundaryInstantEpsilonM,
+            Dictionary<string, BoundaryInstantBodyTally> boundaryInstantByBody,
             out Vector3d epsilon)
         {
             epsilon = Vector3d.zero;
@@ -889,13 +957,15 @@ namespace Parsek.Rendering
             {
                 if (TryResolveBoundaryInstantEpsilon(
                         rec, sectionIndex, cand, surfaceLookup,
-                        out epsilon, out double bodyFixedMagnitudeM, out string missReason))
+                        out epsilon, out double bodyFixedMagnitudeM, out string boundaryBody,
+                        out string missReason))
                 {
                     if (cand.Source == AnchorSource.OrbitalCheckpoint) resolvedOrb++;
                     else if (cand.Source == AnchorSource.SoiTransition) resolvedSoi++;
                     else resolvedBubble++;
                     if (bodyFixedMagnitudeM > maxBoundaryInstantEpsilonM)
                         maxBoundaryInstantEpsilonM = bodyFixedMagnitudeM;
+                    TallyBoundaryInstantBody(boundaryInstantByBody, boundaryBody, bodyFixedMagnitudeM);
                     return true;
                 }
                 epsilon = Vector3d.zero;
@@ -1058,15 +1128,19 @@ namespace Parsek.Rendering
         /// <c>Planetarium.Zup</c>, a surface point with the current body rotation) carried the
         /// body's rotation since the boundary into the difference: todo
         /// REFLY-ANCHOR-EPSILON-1300KM. <paramref name="bodyFixedMagnitudeM"/> is the
-        /// magnitude measured in the body-fixed frame.
+        /// magnitude measured in the body-fixed frame, and <paramref name="bodyName"/> names
+        /// the body whose frame it was measured in (null on a miss; for SoiTransition the
+        /// Absolute side's body, the one the conic was carried into).
         /// </summary>
         internal static bool TryResolveBoundaryInstantEpsilon(
             Recording rec, int sectionIndex, AnchorCandidate cand,
             Func<string, double, double, double, Vector3d> surfaceLookup,
-            out Vector3d epsilon, out double bodyFixedMagnitudeM, out string missReason)
+            out Vector3d epsilon, out double bodyFixedMagnitudeM, out string bodyName,
+            out string missReason)
         {
             epsilon = Vector3d.zero;
             bodyFixedMagnitudeM = 0.0;
+            bodyName = null;
             missReason = null;
             if (rec == null || rec.TrackSections == null
                 || sectionIndex < 0 || sectionIndex >= rec.TrackSections.Count)
@@ -1223,6 +1297,7 @@ namespace Parsek.Rendering
                 missReason = "epsilon-nonfinite";
                 return false;
             }
+            bodyName = keplerBody;
             return true;
         }
 
