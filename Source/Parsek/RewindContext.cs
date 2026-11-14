@@ -9,7 +9,31 @@ namespace Parsek
     /// </summary>
     internal static class RewindContext
     {
-        internal static bool IsRewinding { get; private set; }
+        // The load-transition state: every property below. The Cold reset and the test reset
+        // replace the whole object (ResetForTesting), so a field added here is cleared with the rest.
+        private sealed class ColdResetState
+        {
+            internal bool IsRewinding;
+            internal bool RewindResourceAdjustmentInProgress;
+            internal double RewindUT;
+            internal double RewindAdjustedUT;
+            internal BudgetSummary RewindReserved;
+            internal double RewindBaselineFunds;
+            internal double RewindBaselineScience;
+            internal float RewindBaselineRep;
+            internal HashSet<uint> RewindQuicksaveVesselPids;
+            internal HashSet<string> RewindHistoricalSpawnKeepRecordingIds;
+            internal IReadOnlyList<Logistics.Route> RewindSaveRoutes;
+            internal double RewindSaveClockUT = double.NaN;
+            internal double RewindSaveOwnClockUT = double.NaN;
+            internal double RewindSaveLedgerHeldThroughUT = double.NaN;
+            internal IReadOnlyList<Logistics.RouteEvent> RewindSaveEvents;
+            internal bool RewindGameWrittenToPersistent;
+        }
+
+        private static ColdResetState state = new ColdResetState();
+
+        internal static bool IsRewinding { get => state.IsRewinding; private set => state.IsRewinding = value; }
 
         /// <summary>
         /// True while the deferred plain-Rewind-to-Launch resource adjustment coroutine
@@ -25,26 +49,26 @@ namespace Parsek
         /// (race-free fail-safe for host-destroyed-mid-wait). NOT cleared by
         /// <see cref="EndRewind"/>, which runs before the coroutine resumes.
         /// </summary>
-        internal static bool RewindResourceAdjustmentInProgress { get; private set; }
-        internal static double RewindUT { get; private set; }
-        internal static double RewindAdjustedUT { get; private set; }
-        internal static BudgetSummary RewindReserved { get; private set; }
+        internal static bool RewindResourceAdjustmentInProgress { get => state.RewindResourceAdjustmentInProgress; private set => state.RewindResourceAdjustmentInProgress = value; }
+        internal static double RewindUT { get => state.RewindUT; private set => state.RewindUT = value; }
+        internal static double RewindAdjustedUT { get => state.RewindAdjustedUT; private set => state.RewindAdjustedUT = value; }
+        internal static BudgetSummary RewindReserved { get => state.RewindReserved; private set => state.RewindReserved = value; }
 
         /// <summary>
         /// Baseline resource values from the rewind-target recording's PreLaunch snapshot.
         /// Used by the deferred coroutine to compute absolute-target resource corrections
         /// (idempotent regardless of what Funding.OnLoad restores from the save).
         /// </summary>
-        internal static double RewindBaselineFunds { get; private set; }
-        internal static double RewindBaselineScience { get; private set; }
-        internal static float RewindBaselineRep { get; private set; }
+        internal static double RewindBaselineFunds { get => state.RewindBaselineFunds; private set => state.RewindBaselineFunds = value; }
+        internal static double RewindBaselineScience { get => state.RewindBaselineScience; private set => state.RewindBaselineScience = value; }
+        internal static float RewindBaselineRep { get => state.RewindBaselineRep; private set => state.RewindBaselineRep = value; }
 
         /// <summary>
         /// PIDs of vessels that existed in the rewind quicksave.
         /// Used by StripFuturePrelaunchVessels to whitelist known-good PRELAUNCH vessels
         /// (e.g. the player's pad vessel) and strip only unknown ones from the future.
         /// </summary>
-        internal static HashSet<uint> RewindQuicksaveVesselPids { get; private set; }
+        internal static HashSet<uint> RewindQuicksaveVesselPids { get => state.RewindQuicksaveVesselPids; private set => state.RewindQuicksaveVesselPids = value; }
 
         /// <summary>
         /// Ids of committed recordings whose spawned vessel the plain rewind's pre-load strip
@@ -53,7 +77,7 @@ namespace Parsek
         /// vessel stays linked to its recording. Null when the rewind kept nothing or did not
         /// pre-process a save.
         /// </summary>
-        internal static HashSet<string> RewindHistoricalSpawnKeepRecordingIds { get; private set; }
+        internal static HashSet<string> RewindHistoricalSpawnKeepRecordingIds { get => state.RewindHistoricalSpawnKeepRecordingIds; private set => state.RewindHistoricalSpawnKeepRecordingIds = value; }
 
         /// <summary>
         /// The committed routes the rewind save's own <c>ParsekScenario</c> node carries, read
@@ -61,7 +85,7 @@ namespace Parsek
         /// not the rewind save). <c>HandleRewindOnLoad</c> gives each kept route its loop position
         /// back from it. Null when no rewind save was parsed or it held no Parsek scenario.
         /// </summary>
-        internal static IReadOnlyList<Logistics.Route> RewindSaveRoutes { get; private set; }
+        internal static IReadOnlyList<Logistics.Route> RewindSaveRoutes { get => state.RewindSaveRoutes; private set => state.RewindSaveRoutes = value; }
 
         /// <summary>
         /// The rewind save's own UT, the moment <see cref="RewindSaveRoutes"/> describes: the UT the
@@ -69,7 +93,7 @@ namespace Parsek
         /// <see cref="RewindAdjustedUT"/> (equal to it when the load winds nothing back). The
         /// go-back route reconcile keys its cutoff to it. NaN when unset.
         /// </summary>
-        internal static double RewindSaveClockUT { get; private set; } = double.NaN;
+        internal static double RewindSaveClockUT { get => state.RewindSaveClockUT; private set => state.RewindSaveClockUT = value; }
 
         /// <summary>
         /// The rewind save's own clock before any route state floor it carries raises it
@@ -77,7 +101,7 @@ namespace Parsek
         /// <see cref="RewindSaveClockUT"/> only for a rewind save written inside an earlier
         /// go-back's lead-time window. NaN when unset.
         /// </summary>
-        internal static double RewindSaveOwnClockUT { get; private set; } = double.NaN;
+        internal static double RewindSaveOwnClockUT { get => state.RewindSaveOwnClockUT; private set => state.RewindSaveOwnClockUT = value; }
 
         /// <summary>
         /// The ledger held-through UT the rewind save itself carries
@@ -86,13 +110,13 @@ namespace Parsek
         /// when it carries none or no save was parsed. <c>HandleRewindOnLoad</c> sets the new
         /// floor from it (<see cref="LedgerHeldWindow.ResolveAtRewind"/>).
         /// </summary>
-        internal static double RewindSaveLedgerHeldThroughUT { get; private set; } = double.NaN;
+        internal static double RewindSaveLedgerHeldThroughUT { get => state.RewindSaveLedgerHeldThroughUT; private set => state.RewindSaveLedgerHeldThroughUT = value; }
 
         /// <summary>
         /// The route events the rewind save's own <c>ROUTE_EVENT_LOG</c> holds, read with
         /// <see cref="RewindSaveRoutes"/>. Null when not read.
         /// </summary>
-        internal static IReadOnlyList<Logistics.RouteEvent> RewindSaveEvents { get; private set; }
+        internal static IReadOnlyList<Logistics.RouteEvent> RewindSaveEvents { get => state.RewindSaveEvents; private set => state.RewindSaveEvents = value; }
 
         /// <summary>
         /// True once the rewind wrote its own game (the pre-processed rewind save, carrying the
@@ -100,7 +124,7 @@ namespace Parsek
         /// save of the scene being left must not overwrite it before that reload
         /// (<c>SceneExitInterceptor.SafeWritePersistent</c> skips while it is set).
         /// </summary>
-        internal static bool RewindGameWrittenToPersistent { get; private set; }
+        internal static bool RewindGameWrittenToPersistent { get => state.RewindGameWrittenToPersistent; private set => state.RewindGameWrittenToPersistent = value; }
 
         /// <summary>Marks the rewind game as written to persistent.sfs (see <see cref="RewindGameWrittenToPersistent"/>).</summary>
         internal static void MarkRewindGameWrittenToPersistent()
@@ -290,22 +314,7 @@ namespace Parsek
         /// </summary>
         internal static void ResetForTesting()
         {
-            IsRewinding = false;
-            RewindResourceAdjustmentInProgress = false;
-            RewindUT = 0;
-            RewindAdjustedUT = 0;
-            RewindReserved = default(BudgetSummary);
-            RewindBaselineFunds = 0;
-            RewindBaselineScience = 0;
-            RewindBaselineRep = 0;
-            RewindQuicksaveVesselPids = null;
-            RewindHistoricalSpawnKeepRecordingIds = null;
-            RewindSaveRoutes = null;
-            RewindSaveClockUT = double.NaN;
-            RewindSaveOwnClockUT = double.NaN;
-            RewindSaveLedgerHeldThroughUT = double.NaN;
-            RewindSaveEvents = null;
-            RewindGameWrittenToPersistent = false;
+            state = new ColdResetState();
         }
     }
 }
