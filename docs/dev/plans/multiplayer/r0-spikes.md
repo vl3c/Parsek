@@ -50,7 +50,7 @@ section 12 asks to "prove the runtime's signing classes work inside KSP" with no
 
 ## 2. Starts after
 
-- Version 1.1.0 is released and the owner says go (brief; design 14).
+- Version 1.0.2 is released and the owner says go (brief; design 14).
 - Nothing from another slice. No prerefactor (P1 to P12) or addition (A1 to A7) is needed
   first: every spike runs on `main` as it stands at the go commit plus throwaway code.
 - Inside R0: S0 first (spike branch and instances). S4a (probe) before S1b scoring, S4b,

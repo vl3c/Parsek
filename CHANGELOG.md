@@ -4,7 +4,7 @@ All notable changes to Parsek are documented here.
 
 ---
 
-## 1.1.0
+## 1.0.2
 
 ### Changed
 
@@ -29,7 +29,8 @@ All notable changes to Parsek are documented here.
   gaps between line pieces and the line altitudes measured (`harness/tools/map_mirror.py`).
 - **Dev: the mod's source files sit in one folder per module.** Every source file now lives in
   `Source/Parsek/<Module>/`, the folder named after the part of the code it belongs to, so the
-  folder tells you the module. Nothing in the game changes. (ARCH-MODULE-FOLDERS)
+  folder tells you the module. The game plays the same; a few of Parsek's start-up log lines now
+  print in a different order. (ARCH-MODULE-FOLDERS)
 
 ### Fixed
 

@@ -43,7 +43,7 @@ about saves, sites or ghosts beyond the above.
 
 ## 2. Starts after
 
-- Version 1.1.0 is released and the owner says go (brief; design section 14).
+- Version 1.0.2 is released and the owner says go (brief; design section 14).
 - No other plan of the multiplayer program. Every task here builds on `main`. One spike:
   P1-03 waits for spike S4a.
 - The launch pad fixes are on main (owner answer to question 10.1, Q-04, 2026-11-14: fix
