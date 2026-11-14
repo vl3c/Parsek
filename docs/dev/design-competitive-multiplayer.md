@@ -72,7 +72,11 @@ These are binding. Quotes are the owner's words.
   their location so they see their own buildings" (7.3).
 - "for later (but important to mention now), we might want to support adding AI or recorded
   flights that could play as another player, so we should think if this changes anything at
-  the start" (15.10).
+  the start"; "i was thinking along the lines of how we have the auto flight tests, those
+  could be the basis for a kind of AI player, with scripted or prerecorded missions ... just
+  something that could allow a single player to get a feel for what multiplayer is like ...
+  in game a player would see the timeline of a player and use that to challenge themselves to
+  compete" (15.10).
 - "we will implement on the structure of the 1.1.x build", after the design is settled;
   "important: lets really think about the ideal structure and architecture from the start, so
   we don't have a lot to refactor later" (section 15).
@@ -1281,9 +1285,10 @@ running game.
     creator free it for a newcomer, who would then get a site with old ghosts on it?
 13. **How far the first build goes against cheating.** The simple version of 7.15 (proposed),
     or also signed standings and the flight check before a first public release?
-14. **Recorded and AI opponents** (later). Do they compete for firsts and the win, or only set
-    the pace? Does a recorded opponent take one of the four seats (proposed: yes, it needs a
-    site and a look), and may a race be one human against recorded opponents only?
+14. **Recorded and AI opponents** (later). In a solo race the opponents hold firsts and can
+    win (that is the challenge). In a race between people, does an added recorded opponent
+    compete for firsts and the win, or only set the pace? A recorded opponent takes one of
+    the four seats (it needs a site and a look).
 
 ---
 
@@ -1301,6 +1306,7 @@ No phase starts before the owner says so. Each phase is independently testable.
 | R4 | Milestone tables, the board, the Space Race window, holder-change messages | "Have a race" |
 | R5 | Looks: own roster, ghost kerbals, colors on labels, icons and orbit lines; the replacement suit sets | |
 | R6 | End date and final board, disclosure, the no-retakes house rule, missing-parts and newer-version notes, poll tuning | |
+| R8 | Recorded opponents and the solo race (15.10): the `Opponents` folder, the third setup choice, a harness campaign that produces opponents | After R4; needs no change to R1 to R6 beyond the `kind` field and seat reservation they already carry |
 | R7 | Hardening of 7.15, as far as the owner wants it: signed standings, the flight check (claim, teleport, sky, launch), the sealed-race house rule | Optional; the formats reserve room from R3 |
 
 Task-level plans are written per phase at dispatch time, per
@@ -1525,8 +1531,24 @@ Choices made now so later ideas need no restructuring:
     codec can be used outside the game for that reason (it has no game types).
   - *Fair play still applies.* A recorded or AI player is marked as such on the board, and
     whether it can hold firsts and win, or only sets the pace, is a race setting.
-  What is deliberately NOT designed now: how an AI decides what to fly, re-timing a recorded
-  program to keep pace with the humans, or moving a recorded program to another site.
+  - *The solo race* (owner note 2026-11-14) is the first use: one person against one to
+    three recorded opponents, to get a feel for a race without friends. It needs no shared
+    folder at all: the opponents ship with the mod (or as downloads) as finished player
+    folders under `GameData/Parsek/Opponents/<name>/`, and a solo race reads them through the
+    same `IRaceFolder` port a shared folder is read through. The setup dialog gains a third
+    choice next to Create and Join, "Race a recorded opponent", with the opponent's name,
+    look, site and difficulty.
+  - *Where recorded opponents come from:* the automated flight harness. Its mission library
+    already flies real missions hands-free (pad hops, orbits, Mun and Minmus landings and
+    returns, flybys and orbits of the other planets) and each one leaves ordinary Parsek
+    recordings. An opponent is produced by a harness campaign that plays a race save from
+    one site and flies a chosen list of missions at chosen game dates; the player folder that
+    save exports is the opponent. Difficulty is the schedule: an easy opponent lands on the
+    Mun on day 120, a hard one on day 25. Because each is really flown, every flight is
+    watchable and passes the same checks a human's would. Generating them is later work.
+  What is deliberately NOT designed now: how a live AI would decide what to fly, re-timing
+  a recorded program to keep pace with the humans, or moving a recorded program to another
+  site (an opponent recorded from site 1 always sits at site 1).
 - **Verification is a pipeline of checks** over (claim, rival flight) returning marks. The
   first build registers one check (the flight exists and covers the date); the flight checks
   of 7.15 are more entries in the same list. A signature field is reserved in the standing.
