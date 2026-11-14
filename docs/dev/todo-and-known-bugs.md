@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## FAR-SWITCH-CASE-B-UNFLOWN: no lane flew a far vessel switch while recording, so the commit before stock's reload was never checked in game [FILED 2026-11-14 from a lane gap audit (the vessel-switch stash family). LANES AUTHORED 2026-11-14, branch `item20-switch-pending-merge-lane`: `S0.14-far-switch-merges-before-reload` (first flight INVALID on its host, re-hosted on `jool-park-nerv`) and the reading lane `S0.15-two-switch-stash-reading`, both operator; closes when S0.14 flies green and S0.15's reading is pinned; test gap, no known defect]
+## FAR-SWITCH-CASE-B-UNFLOWN: no lane flew a far vessel switch while recording, so the commit before stock's reload was never checked in game [FILED 2026-11-14 from a lane gap audit (the vessel-switch stash family). LANE AUTHORED 2026-11-14, branch `item20-switch-pending-merge-lane`: `S0.14-far-switch-merges-before-reload`, operator (flight 1 INVALID on its host, re-hosted on `jool-park-nerv`; flight 2 red on a spec error, fixed); the two-switch reading lane S0.15 flew once and was WITHDRAWN (no committed host). Closes when S0.14 flies green; the #266 stash stays unreached by any flown lane until a host is harvested; test gap, no known defect]
 
 Shape: the player records a vessel, then switches to a vessel OUTSIDE the physics bubble (map
 Switch-To, or the stock alarm's Jump in FLIGHT). Stock's `setActiveVessel` fires
@@ -85,22 +85,63 @@ recording reads idle-on-pad, so Case B would Discard there). So S0.14 moved to `
 (nothing committed; the asteroid aside, its only other vessels are two owned debris ORBITING
 Kerbin, which the rule never touches), and the two-switch lane went to `miner-rover-depot`.
 
-The two-switch sequence above is now the reading lane `S0.15-two-switch-stash-reading` on
-`miner-rover-depot`: the rover records, `SimulateStockSwitchClick vessel="Ore Depot"` (loaded,
-both commandable, so the declutter cannot touch them) arms a session and the vessel-switch flag,
-and `AlarmJump pid=2109271953` (the Observer Probe, orbiting) follows with no step between. The
-seam can issue it inside 60 frames by the code: the addon pumps the command file every frame and
-defers only during LOADING, a scene transition or its settle, which an in-scene switch does not
-set (`ParsekTestCommandAddon.Update`, `TestCommandDispatcher.DecideDispatch`), and the harness
-polls 0.025 s after a write. Its four pre-registered families decide this entry's open
-question: (A) `StashActiveTreeForVesselSwitch: pre-transitioning tree` (the stash IS reachable;
-then read the far-side restore), (B) `StashActiveTreeAsPendingLimbo: stashing tree` (stale flag
-or guards), (C) `pre-switch-dialog committed-prior-segment` (Case A merged, so the stash is
-unreachable from stock play and the closed todo VESSEL-SWITCH-266-UNREACHABLE-FOR-FAR-SWITCH,
-`docs/dev/done/todo-and-known-bugs-v11.md`, which says this path still takes it, is wrong
-for the switch path),
-(D) no switch (`resolution=StockWillRefuse` or a seam refusal). The spec requires one witness and
-forbids every pair; the first flight's log decides which family is pinned.
+S0.14 second flight, 2026-11-14 on the PC (head ace27412f, wall 70 s, every seam step OK),
+PARSEK-FAIL(log) on one spec error: the Case B merge before the reload worked
+(`pre-switch auto-resolve: resolution=Merge case=B-unloaded ... targetPid=4267147709`,
+`CommitTreeFlight: starting tree commit at UT=27787327.9`, then `Scene change requested: FLIGHT
+at UT=27787327.88`). The miss was `cleared: ... reason=stale-intent`: the MapSwitchTo intent
+`ArmIntentAndSwitchTo` arms has a 2 s wall-clock TTL, OnLoad ran 0.7 s after the arm and kept it
+(`intent kept-armed on OnLoad`), and the spec's last RecordingState and FlushAndQuit ran before
+the far scene's onFlightReady, whose `DispatchConsumeIntentIfArmed` is the other clear site. The
+spec now waits with `ListHandles kind=chains` (the seam defers it `ghost-chains-pending` until
+`ParsekFlight.FlightReadyObserved`, set in the same OnFlightReady call that runs the consume) and
+pins the clear to `stale-intent` (OnLoad) or `stale-intent-ttl` (the consume) exactly. From the
+code, a far scene that reached OnFlightReady within 2 s of the click would have the consume
+Authorized and start a standalone segment on the target (no live tree, no committed match); the
+lane forbids that `[SwitchSegment] created`, since a far switch is meant to start nothing.
+
+The two-switch sequence above flew once as the reading lane S0.15 on `miner-rover-depot` (PC,
+head ace27412f, wall 78 s), was PARSEK-FAIL(log) on its own premise and is WITHDRAWN from the
+branch. The flight: `Vessel switch detected: 'Mining Rover RC' -> 'Ore Depot' (frame=10327)` at
+00:06:46.467; the click's consume refused (`SwitchIntent refused:
+reason=on-surface-defer-to-trigger`, the intent cleared with the same reason) and armed no
+session, only `Post-switch auto-record armed: vessel='Ore Depot'`; the jump (`alarmjump start`
+at 46.528, about 61 ms after the switch, so the 60-frame window was not the issue) then took
+Case B, not A: `pre-switch auto-resolve: resolution=Discard case=B-unloaded ... idleOnPad=True
+reason=not-committed-restore-clone priorSessionId=<no-session> targetPid=2109271953` and
+`AutoDiscardActiveTreeCore: discarding live tree reason='pre-switch-dialog discard
+(no-session)'`. No stash line of either kind, no `committed-prior-segment`, no `case=A-session`.
+
+What a host needs, read from the code:
+  1. The first switch target LOADED and NOT on the surface. The consume
+     (`StockActionIntentConsumeDecision.Evaluate`) declines a PRELAUNCH, LANDED or SPLASHED
+     target with `on-surface-defer-to-trigger` and arms no `SwitchSegmentSession`, so the
+     jump is Case B, never Case A.
+  2. The recorded vessel and that target NOT committed spawned vessels. On a plain load,
+     OnFlightReady's `TryRestoreCommittedTreeForSpawnedActiveVessel` makes a committed match
+     of the active vessel the live tree as a committed clone, and a loaded target matching
+     another committed tree opens Case C at the click (the live tree is decided before the
+     switch, the target then restores through the clone path). Either way the session
+     segment's disposition is `CommittedRestoreClone`, whose no-op discard tears the clone
+     down WHOLE (`SwitchSegmentAttempts`), so no live tree crosses the reload; only a
+     `BgMemberOrMixed` discard keeps the tree live (S0.13's shape: the segment joins a live,
+     uncommitted tree).
+  3. A far target that is unloaded, Owned and survives the load (not a non-commandable vessel
+     LANDED at KSC or a stock launch site).
+Committed fixtures against that: `eva2-lko-crewed` has 1 and 2 (Kerbal X and the Kerbal X Probe
+orbiting about 3 m apart, nothing committed) and fails 3. `miner-rover-depot` fails 1 (both
+landed). `bdock-recorded` and `depot-route-recorded` have an orbiting loaded neighbour and a
+far target but fail 2: their active vessel and neighbour are the `spawnedPid`s of committed
+recordings (bdock: Kerbal X 3620499050 and Kerbal X 1223410921; depot-route: Depot 3620499050
+and Transporter 788309716), so Case C and the committed clone pre-empt the question and the
+spec could not read it cleanly. The closest is `eva2-lko-crewed`: harvesting it with one owned
+vessel added out of the bubble (any orbit, or anything commandable) would host the lane as
+designed (record Kerbal X, click the probe, jump at once). Nothing was harvested. So the #266
+stash (`StashActiveTreeForVesselSwitch`) stays unreached by any flown lane, and the open
+question stays open: whether the switch path still takes it, as the closed todo
+VESSEL-SWITCH-266-UNREACHABLE-FOR-FAR-SWITCH (`docs/dev/done/todo-and-known-bugs-v11.md`)
+says, or a Case A merge on a too-young segment (`insufficient-data`) always decides the tree
+first.
 
 ## ~~LAUNCH-SITE-WOUND-LONGITUDE~~: a flight parked on the pad or runway spawned there when its stored longitude was wound past the date line [FILED 2026-11-14 by the multiplayer implementation plan (`docs/dev/plans/multiplayer/r0b-prep-small.md`, P1-02, question 10.1; owner answer "Fix both"), by code reading and the committed fixtures. FIXED 2026-11-14, branch `claude/project-thread-xgsu2i` (PR #2605); xUnit; FLOWN GREEN 2026-11-14 on the PR DLL: EX-1 (`2026-11-14_2025`, pad retirement), PADG-1 (`_2030`), LF-1 (`_2027`), LF-2 (`_2028`), MC-4 (`_2020`), all first attempt; no committed lane stores a wound longitude, so the wrap itself is proven by xUnit only; low]
 
