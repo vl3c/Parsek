@@ -2592,6 +2592,31 @@ host), the ParsekFlight cut still lands on 454, replayed residue 283 throughout 
 stays on the type is the plan's composition root: every coroutine, every subscription, the
 recorder session, tree restore and teardown, and the statics other files name.
 
+**Follow-up, plan item 17 (B5, 2026-11-14): MergeFlow takes an interface, not its host.** Of the
+eight services only `ParsekFlightMergeFlow` is worth it (the review's B5: about 31% game-bound;
+the knot does not move). Measured on main: 119 `host.` references to 15 members (activeTree 62,
+recorder 24, backgroundRecorder 15, CaptureRecorderState 5, StashActiveTreeAsPendingLimbo 2,
+SpawnHost 2, ClearSceneChangeTransientState 2, and eight once). A headless probe on an
+uninitialized ParsekFlight showed what blocked the decision paths: `CaptureRecorderState` and the
+service's own `Planetarium.GetUniversalTime()` (NullReferenceException), the FLIGHT branch's
+`ParsekScenario.IsVesselSwitchPendingFresh()` (`Time.frameCount`, MissingMethodException on mono)
+and `FlightGlobals.ActiveVessel` in the in-flight commit. `IMergeFlowHost` (in
+`ParsekFlightMergeFlow.cs`) covers all 15 members plus those three live reads
+(`CurrentUniversalTime`, `IsVesselSwitchPendingFresh`, `ActiveVesselPersistentIdOrZero`); the two
+`SpawnHost` calls became `SpawnTreeLeaves` / `EvaluateAndApplyGhostChains`. ParsekFlight implements
+it explicitly in `.MergeFlow.cs`, each member a one-line forward. The state properties keep the
+host field names, so the service bodies are textually unchanged apart from those five call sites.
+The recorder objects stay concrete: `FlightRecorder.ForceStop` on a live recording and
+`BackgroundRecorder.Shutdown()` / `CheckpointAllVessels` still read the game themselves.
+IL (`il_compare.py --il` over dumps with a scratch interface fold: property get / set -> ldfld /
+stfld plus the Debug nop after a setter call, interface call -> host call, the two live-read hops
+-> the static call, `get_SpawnHost` dropped): 0 moved-body differences except the
+`ActiveVessel` ternary in `CommitTreeFlight` (one interface call for the two-read expression the
+forward keeps); the rest is the interface, ParsekFlight's header and its 4 explicit properties
+(23 methods), the service constructor and the `MergeFlow` accessor's `newobj`. Knot 434 -> 435 (the interface names
+knot types; the ParsekFlight cut still lands on 403), replayed residue unchanged, no layer pin
+moved.
+
 ## ~~ARCH-RECORDINGSTORE-GOD-OBJECT: RecordingStore is a list plus eight services in one type~~ [FILED 2026-09-14 off the architecture program (item 4). POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun. DONE 2026-11-07 on the refactor branch `claude/project-thread-bkwmrr` (services plan PRs 1-14, each IL-proven a pure move; xUnit and harness suites, not flown: the covering lanes are named per PR)]
 
 **What is true.**
