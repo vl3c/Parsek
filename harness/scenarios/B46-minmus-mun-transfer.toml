@@ -1,0 +1,180 @@
+schema = 1
+id = "B46-minmus-mun-transfer"
+# =====================================================================================
+# B46: Minmus -> Mun, a moon-to-moon forge. AUTHORED 2026-11-14, NEVER FLOWN.
+# Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 2 / MOON-FLIGHT-TEST-PROGRAM Group B.
+#
+# WHAT IT IS FOR. B30 (Mun -> Minmus) reversed: the INWARD hop of the one pair that
+# has flown on the moon-rooted clock (V21M, `joint-best-fit` P = 4 x P_Minmus =
+# 4,309,242 s, flown green 2026-11-11). Rule 4a takes the same two constraints
+# whichever moon launches, so V46M should read the same P and method from the other
+# end: ~200 Kerbin days between loops. Its harvest `minmus-mun-recorded` is V46M's
+# subject.
+#
+# THE MACHINE: B30's, unchanged module (`b30_mun_minmus`, the live-proven Kerbin-
+# parent relay), with the home and target swapped. Needed one
+# `mlib.STOCK_BODY_GRAVITY` row (Minmus, the escape home body).
+#
+# THE FIXTURE: `minmus-park-kerbalx`, `minmus-orbit-recorded` (B12's harvest) with
+# every ParsekScenario child stripped. The Kerbal X upper stage parks at 38,435 x
+# 38,492 m (SMA 98,464 m, ECC 0.0003, INC 7.30 deg) with LF 650.58 / Ox 795.16:
+# ~2,110 m/s at the Poodle's 350 s over B30's pessimistic 8.5 t dry mass.
+#
+# THE ESCAPE IS SIZED AGAINST LEAVING KERBIN, not against reaching Minmus's SOI.
+# Minmus orbits at 47 Mm, 55.8% of Kerbin's 84.16 Mm SOI, at 274 m/s. The node is
+# not aimed, so the delivered Kerbin-frame speed is 274 +/- vsoi. Prograde-aligned,
+# 304 m/s (vsoi 30) puts the Kerbin apoapsis at 75.1 Mm, inside the SOI; 314 m/s
+# (vsoi 40) puts it at 89.7 Mm, OUTSIDE. Hence vsoi 30, against the 99.3 m/s
+# Hohmann excess: stage 2 pays the rest, and an inward Hohmann is cheap. The SOI
+# floor is 7.3-10.2 m/s across the entry gate, so 30 clears it 3x. Node ~54 m/s at
+# the fixture park. The escape is BOUND (apoapsis just past the 2.25 Mm SOI), so the
+# coast out takes ~1 day of game time on rails.
+#
+# DELTA-V: escape ~54 + stage 2 ~100-160 (Hohmann 99.3 plus Minmus's 6 deg plane)
+# + Mun capture 176-228 m/s circular at 250 km for v_inf 142-285 + corrections
+# <= 4 x 75: nominal ~450, worst ~750 against ~2,110.
+#
+# TIMING: Hohmann transfer 267,853 s (B30's leg, reversed), Mun-Minmus synodic
+# 159,571 s, Mun SOI entry to periapsis 5,800-7,600 s. B30's correction triggers.
+#
+# INWARD TRANSFER: the stage-2 evidence (Kerbin-altitude apoapsis >= 40 Mm) is
+# WEAK-BUT-STRUCTURAL, the B29 precedent: a retrograde transfer burn lowers the
+# periapsis, not the apoapsis, so the floor only proves the craft is still on a
+# Minmus-height orbit. `transferNodeWaitWarp` stays off for the first flight (owner
+# ruling 2026-11-06: opt in after a check flight), although B30 flies it on.
+#
+# HARVEST after a green flight, from the run's own snapshot, never `--force`:
+#   python tools/harvest_bdock_station.py --save-dir results/<runId>_save
+#       --target-name minmus-mun-recorded --expect-situation ORBITING --keep-parsek
+# then register it in test_saveparse.RECORDED_FIXTURES, put its tree id into V46M
+# and drop V46M from test_hlib PENDING_FIXTURE_LANES (both in the same commit).
+# =====================================================================================
+tier = "operator"
+description = "AUTHORED 2026-11-14, NEVER FLOWN. Moon-to-moon forge Minmus -> Mun, B30 reversed: the b30_mun_minmus relay from the Parsek-stripped `minmus-park-kerbalx` (B12's harvest), an escape deliberately sized at 30 m/s so the unaimed departure cannot leave Kerbin's SOI, an inward Hohmann, a circular Mun capture and the tree committed there. A fresh Minmus-rooted tree that never leaves Kerbin's SOI, so rule 4a should lock the loop at 4 x P_Minmus as V21M does. Produces `minmus-mun-recorded` for V46M."
+instanceProfile = "stock-minimal"
+tags = ["B46", "minmus", "mun", "kerbin", "moon-to-moon", "parent-relay", "inward-transfer",
+        "kerbin-moon", "orbit", "mechjeb", "cross-soi", "capture", "commit-in-foreign-soi",
+        "orbit-start", "crewed", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/minmus-park-kerbalx"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "b30_mun_minmus"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },   expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                     expect = "OK" },
+  { cmd = "DiscardTree",                                                       expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "StartRecording",                                                    expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 7200 },
+  { cmd = "FlushAndQuit",                                                      expect = "OK" },
+]
+
+[driver.missionParams]
+startInOrbit                    = true
+startInOrbitMinPeriapsisMeters  = 20000
+startInOrbitMaxApoapsisMeters   = 100000
+startInOrbitMaxEccentricity     = 0.05
+startInOrbitSituations          = ["ORBITING"]
+startInOrbitDebounceFrames      = 3
+startInOrbitSettleSeconds       = 120
+
+homeBodyName               = "Minmus"
+targetBodyName             = "Mun"
+interplanetaryTransfer     = true
+parentRelayTransfer        = true
+escapeSoiSpeedMps          = 30
+escapeMaxDeltaVMps         = 100
+escapeNodeMinLeadSeconds   = 300
+# ESCAPE plans only (the burn is TRANSFER-BURN's): one Minmus park period is ~4,620 s.
+escapeTimeoutSeconds       = 8000
+returnBodyName             = "Kerbin"
+viaBodyNames               = ["Kerbin"]
+ejectionEccFloor           = 0
+transferMinApoapsisMeters  = 40000000
+courseCorrectPeriapsisMeters = 250000
+correctionTriggerTimeToSoiSeconds = [240000, 30000]
+correctionTriggerAltsMeters       = []
+planTimeoutSeconds         = 300
+planRetrySeconds           = 10
+planWarpFactor             = 2
+transferBurnTimeoutSeconds = 1000000
+coastTimeoutSeconds        = 3000000
+flybyTimeoutSeconds        = 100000
+coastWarpFactor            = 5
+soiLeadSeconds             = 3000
+approachWindowSeconds      = 20000
+approachMaxWarpFactor      = 3
+soiNativeLeadSeconds       = 400
+flybyWarpFactor            = 2
+flybyMaxWarpFactor         = 3
+nodeArrivalMarginSeconds   = 15
+flipPhysicsWarpFactor      = 1
+targetPeriapsisFloorMeters = 20000
+captureEnabled             = true
+capturePlanTimeoutSeconds  = 300
+captureBurnTimeoutSeconds  = 100000
+parkMinPeriapsisMeters     = 15000
+parkMaxApoapsisMeters      = 1000000
+parkMaxEccentricity        = 0.25
+parkMaxAngularVelocityRadPerSec = 0.05
+parkSituations             = ["ORBITING"]
+parkDwellSeconds           = 60
+parkDebounceFrames         = 3
+parkTimeoutSeconds         = 600
+commitTimeoutSeconds       = 300
+burnStagnantSeconds        = 120
+burnNoStartSeconds         = 600
+correctionThrottle         = 0.25
+correctionCutDvMps         = 2.0
+correctionSettleSeconds    = 10
+maxAttitudeErrorDeg        = 30
+frozenTelemetrySamples     = 10
+maxCorrectionDvMps         = 75
+
+[dimensionsCovered]
+D1  = ["commit-in-foreign-soi"]
+D14 = ["minmus", "mun", "kerbin", "warp-rails", "scene-flight", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 4 }
+
+[expectations.logContracts]
+required  = [
+  "Recording started",
+  "Recording stopped",
+  "SOI change boundary suppressed in tree mode: Minmus to Kerbin",
+  "SOI change boundary suppressed in tree mode: Kerbin to Mun",
+  "CommitTreeFlight: starting tree commit at UT=",
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Mun",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "SOI change boundary suppressed in tree mode: \\w+ to Sun",
+  "SOI change boundary suppressed in tree mode: Sun to \\w+",
+]
+
+[expectations.rewind]
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+committedTrees = { min = 1, max = 1 }
+
+[runtime]
+budgetSeconds = 7900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -1,0 +1,115 @@
+schema = 1
+id = "V46M-minmus-mun-player-loop"
+# =====================================================================================
+# V46M: the Minmus -> Mun moon-to-moon loop. AUTHORED 2026-11-14, NEVER FLOWN.
+# Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 2 / MOON-FLIGHT-TEST-PROGRAM Group B.
+#
+# WHAT IT READS. The subject is a Minmus-rooted tree that never leaves
+# Kerbin's SOI, so rule 4a (`MissionPeriodicity.ResolveMoonRootedFrameParent`,
+# #2554) takes its phase constraints in the moon-rooted frame: Orbital(Mun) and
+# Orbital(Minmus), both same-parent, support Supported. The lane loops the tree
+# and reads three lines: the Verbose `ExtractConstraints: moon-rooted frame` line,
+# the Verbose ExtractConstraints summary, and the phase-lock decision.
+#
+# THE PREDICTION, and it is the best-grounded of the four: V21M (Mun -> Minmus, the
+# same two constraints launched from the other moon) FLEW GREEN on this clock
+# 2026-11-11 (`2026-11-11_0152`). Rule 4a takes Orbital(target) + Orbital(launch
+# moon) whichever end launches, and Solve's period depends only on the two periods:
+#   ExtractConstraints  launchBody=Minmus support=Supported constraints=2
+#                       [Orbital(Mun) same-parent; Orbital(Minmus) same-parent]
+#   Solve               dominant=Minmus (the longer period), method=joint-best-fit,
+#                       P = 4 x P_Minmus = 4,309,242.08 s (~200 Kerbin days), Mun
+#                       residual ~726 s inside tolerance
+# The zero-drift schedule's windows depend on the recorded offsets, which differ
+# from V21M's, so nothing about the schedule is pinned.
+#
+# NOT FLYABLE YET: tier "pending-fixture", tag "awaiting-fixture". The fixture `minmus-mun-recorded`
+# is the harvest of the forge `B46-minmus-mun-transfer`, which has not flown. Until it exists this
+# spec stays out of every cadence and the full run (tier_runner FULL_RUN_EXCLUDED_TIERS),
+# `test_hlib.SharedShipsManifestTests.PENDING_FIXTURE_LANES` exempts it from the
+# saveTemplate sweep, and that map's self-retiring cell reds the day the fixture lands.
+# The MissionConfig / StartLoopPlayback tree id is a ZERO PLACEHOLDER.
+#
+# TO MAKE IT FLYABLE, in ONE commit after the forge's harvest: replace the two
+# placeholder tree ids with the harvested tree id (the RECORDING_TREE `id` in
+# `minmus-mun-recorded/persistent.sfs`), set tier = "operator" and swap the tag
+# "awaiting-fixture" for "pending-flight", add "sandbox" back to D14 (the game-mode
+# claim needs a fixture to witness it), delete the PENDING_FIXTURE_LANES entry,
+# register `minmus-mun-recorded` in test_saveparse.RECORDED_FIXTURES, and re-derive the count and
+# structure windows from the harvested bytes (the forge's own count window is
+# {1,4}; B26 and B30 each harvested ONE recording).
+#
+# THE LANE IS DELIBERATELY SHORT. It loads the subject, turns its loop on and starts
+# loop playback, which is where `MissionLoopUnitBuilder` extracts the phase
+# constraints and solves the period; it then quits. No jump table: the cycle seam
+# UTs depend on the harvested span and the solver's first window, both unknown until
+# the forge flies. A later lane (V17M / V21M shape) can add the jumps off the real
+# bytes. Verbose logging is on because both ExtractConstraints lines are Verbose.
+# =====================================================================================
+tier = "pending-fixture"
+description = "AUTHORED 2026-11-14, NEVER FLOWN, NOT FLYABLE UNTIL `B46-minmus-mun-transfer` IS HARVESTED (fixture `minmus-mun-recorded` absent; zero placeholder tree id). Loops the Minmus-rooted Minmus -> Mun tree and reads the moon-rooted phase lock: rule 4a's Orbital(Mun) + Orbital(Minmus) constraint set, Supported, and the solver's decision."
+instanceProfile = "stock-minimal"
+tags = ["V46M", "player-loop", "loop-playback", "moon-to-moon", "moon-rooted-phase-lock",
+        "minmus", "mun", "kerbin", "awaiting-fixture"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/minmus-mun-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig",     args = { tree = "00000000000000000000000000000000", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "00000000000000000000000000000000" }, expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["minmus", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 4 }
+
+[expectations.logContracts]
+required  = [
+  "missionconfig applied:",
+  "SetLoopEnabled: loop ON",
+  "startloopplayback initiated:",
+  "ExtractConstraints: moon-rooted frame launchMoon=Minmus planet=Kerbin launchMoonPeriod=",
+  "ExtractConstraints: tree=\\w+ members=[0-9]+ launchBody=Minmus ut0=[^ \\r\\n]+ support=Supported constraints=2 \\[Orbital\\(Mun\\) same-parent P=[^;\\r\\n]+; Orbital\\(Minmus\\) same-parent P=",
+  "PhaseLock APPLIED: mission='[^'\\r\\n]*' tree=\\w+ anchor [^ \\r\\n]+ P=43092[0-9]{2}(\\.[0-9]+)? method=joint-best-fit ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "UnsupportedCrossParent",
+  "PhaseLock SKIPPED: mission=",
+]
+
+[expectations.rewind]
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+committedTrees = { min = 1, max = 1 }
+trees          = { min = 1, max = 2 }
+
+[runtime]
+# Boot + LoadGame + one StartLoopPlayback (a multi-day forward clock set) + quit;
+# V31M's comparable seam lane measured 49 s.
+budgetSeconds = 1200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

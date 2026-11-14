@@ -1486,12 +1486,13 @@ class ParentRelayLoadTimeTests(unittest.TestCase):
         # (mu 2.82528e14), `Source/Parsek.Tests/MissionPeriodicityTests.cs:1648`
         # (SOI 2.4559852e9), and test_b29's own JOOL_RADIUS fixture bracket for
         # R 6,000,000.
-        # VALL and TYLO JOINED THE TABLE for `B47-jool-moon-tour`: leg 3 escapes
-        # from Vall (an escape row) and legs 2 / 3 close elliptical captures at
-        # Vall and Tylo (target rows). Citations on the rows themselves:
-        # `MissionPeriodicityTests.cs:426` / `MultiMoonAlignmentTests.cs:79-80`
-        # for the SOI radii, B26's and B33's headers for mu and R.
-        self.assertEqual(["Jool", "Kerbin", "Laythe", "Mun", "Tylo", "Vall"],
+        # VALL, TYLO, BOP AND MINMUS JOINED for the moon-to-moon pair forges B43-B46 (Vall and Tylo also serve the Jool tour B47)
+        # (2026-11-14): Vall, Tylo and Minmus as relay HOME bodies, Tylo and Bop as
+        # capture TARGETS. Each row's citation is in mlib's comment, and
+        # test_moon_pair_transfers.GravityRowTests pins the values against the
+        # committed moon tables.
+        self.assertEqual(["Bop", "Jool", "Kerbin", "Laythe", "Minmus", "Mun", "Tylo",
+                          "Vall"],
                          sorted(mlib.STOCK_BODY_GRAVITY))
         mu_j, r_j, soi_j = mlib.STOCK_BODY_GRAVITY["Jool"]
         self.assertEqual(2.82528e14, mu_j)

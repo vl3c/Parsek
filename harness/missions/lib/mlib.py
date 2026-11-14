@@ -2808,20 +2808,28 @@ STOCK_BODY_GRAVITY: Dict[str, Tuple[float, float, float]] = {
     #     `harness/missions/b22_jool_orbit.py`'s header.
     "Jool": (2.82528e14, 6_000_000.0, 2.4559852e9),
     #
-    # VALL and TYLO, added for `B47-jool-moon-tour` (the Jool multi-moon tour,
-    # M-MIS-6's subject). Its leg 3 is a parent relay whose HOME body is Vall
-    # (`escape_node_plan` reads Vall's row), and legs 2 and 3 close their arrivals
-    # into ELLIPSES (`capture_node_plan` reads the target's row). In-repo sources:
-    #   Vall  mu 2.074815e11 - the stock gravParameter (0.235 g * R^2), quoted
-    #           rounded as 2.074e11 in `B26-laythe-vall-transfer.toml`'s delta-v
-    #           section; R 300,000 and SOI 2,406,401.4 - the same section, and
-    #           `Source/Parsek.Tests/MissionPeriodicityTests.cs:426` (`f.Soi["Vall"]`).
-    #   Tylo  mu 2.82489e12, R 600,000 - `B33-tylo-orbit.toml`'s header and
-    #           `harness/missions/lib/test_jool_moon_orbits.py` (MOONS); SOI
-    #           10,856,518.4 - the same table (`MultiMoonAlignmentTests.cs` quotes
-    #           10,856,518.0).
+    # VALL, TYLO, BOP and MINMUS, added for the moon-to-moon pair forges B43 (Vall ->
+    # Tylo), B44 (Laythe -> Tylo), B45 (Tylo -> Bop) and B46 (Minmus -> Mun). Vall,
+    # Tylo and Minmus are relay HOME bodies (`escape_node_plan` reads the row, so the
+    # SOI radius is load-bearing); Tylo and Bop are ELLIPTICAL-capture targets
+    # (`capture_node_plan` reads mu and R). In-repo sources:
+    #   Vall    mu 2.074815e11 (stock gravParameter, quoted rounded as 2.074e11 in
+    #             `B26-laythe-vall-transfer.toml`'s delta-v section), R 300,000 (the
+    #             same section), SOI 2,406,401.4 - `MissionPeriodicityTests.cs`
+    #             (`f.Soi["Vall"]`).
+    #   Tylo    mu 2.82489e12, R 600,000, SOI 10,856,518.4 - `B33-tylo-orbit.toml`'s
+    #             header and `harness/missions/lib/test_jool_moon_orbits.py` (MOONS).
+    #   Bop     mu 2.4868349e9, R 65,000, SOI 1,221,060.9 - `B34-bop-orbit.toml`'s
+    #             header and the same MOONS table.
+    #   Minmus  mu 1.7658e9 (`scripts/reaim_sim.py`, `B12-minmus-orbit.toml`), R 60,000
+    #             (`B12-minmus-orbit.toml`), SOI 2,247,428.4 (`V7M-minmus-player-loop.toml`);
+    #             all three as `harness/missions/lib/test_b30_mun_minmus.py` imports them.
+    # The Vall and Tylo values are the ones the Jool tour branch (`B47`) carries, so a
+    # merge of the two keeps one copy of each row.
     "Vall": (2.074815e11, 300_000.0, 2_406_401.4),
     "Tylo": (2.82489e12, 600_000.0, 10_856_518.4),
+    "Bop": (2.4868349e9, 65_000.0, 1_221_060.9),
+    "Minmus": (1.7658e9, 60_000.0, 2_247_428.4),
 }
 STOCK_HELIO_ELEMENTS: Dict[str, Tuple[float, float, float, float]] = {
     "Kerbin": (13_599_840_256.0, 0.0, 3.14, 0.0),
