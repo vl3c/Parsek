@@ -20,6 +20,43 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~LAUNCH-SITE-WOUND-LONGITUDE~~: a flight parked on the pad or runway spawned there when its stored longitude was wound past the date line [FILED 2026-11-14 by the multiplayer implementation plan (`docs/dev/plans/multiplayer/r0b-prep-small.md`, P1-02, question 10.1; owner answer "Fix both"), by code reading and the committed fixtures. FIXED 2026-11-14, branch `claude/project-thread-xgsu2i` (PR #2605); xUnit; FLOWN GREEN 2026-11-14 on the PR DLL: EX-1 (`2026-11-14_2025`, pad retirement), PADG-1 (`_2030`), LF-1 (`_2027`), LF-2 (`_2028`), MC-4 (`_2020`), all first attempt; no committed lane stores a wound longitude, so the wrap itself is proven by xUnit only; low]
+
+Recorded longitudes are not always in [-180, 180]: 2,686 of 118,819 `lon =` values in the committed
+fixtures are outside it, and two `.prec.txt` points over the KSC read -434.4 / -434.5. The
+launch-site circles (`SpawnCollisionDetector.ClassifyKscExclusionZone` /
+`IsWithinKscExclusionZone`, `LaunchSiteExclusionZones.Classify`) used the flat-earth
+`SurfaceDistance`, which does not wrap, so such a point was 360 degrees from the pad: the
+end-of-flight retirement missed it (the vessel spawned on the pad) and `LaunchSiteOnlyGhost` did
+not see it as launch-site ground.
+
+Fix: the three launch-site callers use `SpawnCollisionDetector.LaunchSiteSurfaceDistance`, the
+same formula with the longitude difference wrapped into (-180, 180]
+(`WrapLongitudeDeltaDegrees`); a difference already in range is used unchanged, so every
+decision on an unwound longitude is bit-identical. `SurfaceDistance` and its other callers
+(not launch-site rules) are unchanged. Tests: `LaunchSiteWrapAndCacheTests` (the wrap table, a
+bit-equality grid, wound pad / runway / Desert / Woomerang hits, a wound pad recording retiring
+and a wound one 2 km off still spawning).
+
+## ~~LAUNCH-SITE-PARTIAL-READ-CACHED~~: a first read of the Making History launch sites made before they were built kept fallback positions for the process [FILED 2026-11-14 by the multiplayer implementation plan (`r0b-prep-small.md`, P1-04, question 10.1; owner answer "Fix both"), by code reading. FIXED 2026-11-14, branch `claude/project-thread-xgsu2i` (PR #2605); xUnit; FLOWN GREEN 2026-11-14 with the four lanes above and MC-4 (`2026-11-14_2020`, Desert pad): every run logged `Launch-site retirement circles resolved: runtime=8 fallback=0` once and no partial read, so the partial path is proven by xUnit only; low]
+
+`LaunchSiteExclusionZones.GetAltSiteCircles` cached its merged list for the process whenever the
+runtime read returned at least one circle. The runtime read keeps the KSC `LaunchPad` / `Runway`
+too, so a read made while a Making History site's spawn transform was not built yet still
+cached, with that site's fallback coordinates merged in, until KSP restarted.
+
+Fix: a pure `ShouldCacheRuntimeRead(runtimeCount, fallbackMerged)` caches only a read with at
+least one runtime circle and no fallback row merged in. A partial read is still used for that
+call and logs `Launch-site retirement circles partial read: ... missing=<sites>; not cached`
+(Info, rate-limited per missing set); the next call reads again. Without Making History the
+fallback table is empty, so a KSC-only read still caches at once. A test seam
+`RuntimeAltSiteReaderForTesting` replaces the runtime read. Cost while partial: one walk of
+`PSystemSetup.LaunchSites` per call; the callers are spawn decisions, the ledger walk (once per
+surface-terminal home-world recording per recalculation) and the `LaunchSiteOnlyGhost` cache,
+which recomputes only when `RecordingStore.StateVersion` moves, so nothing reads it per frame. A
+read stays partial only while a site is not set up yet (normally the load window), or forever if
+a mod broke a site's setup, in which case the fallback circle keeps being used as before.
+
 ## ~~WINDOWS-TEST-HOST-ONLY-REDS-2026-11-14: 16 xUnit tests red on the owner's Windows PC and green on CI~~ [FILED 2026-11-14 from a Windows run of main 37a6c6101 (Debug and Release, OS culture ro-RO). FIXED 2026-11-14, branch `claude/project-thread-lkzj01`; xUnit on mono, the Windows re-run owed; tests only, no player-visible change]
 
 Two defects, one gap.
@@ -929,7 +966,8 @@ in parallel in the cloud):
    have flown on the new rule.
 3. [ ] Aircraft: no lane flies a plane (BAY-1's never moves). A runway takeoff, a circuit and a
    landing, then its ghost replays at the Space Center.
-4. [ ] (AUTHORED 2026-11-14 as `B39`-`B42` / `V34M`-`V37M` and `V33T`, awaiting the PC batch.)
+4. [ ] (AUTHORED 2026-11-14 as `B39`-`B42` / `V34M`-`V37M` and `V33T`. FLOWN 2026-11-14: V33T green;
+   B39-B42 green on 8d4e8b01c and their four fixtures harvested; V34M-V36M green; V37M still to fly.)
    Jool park -> one moon continuations: B39 Vall, B40 Tylo, B41 Bop, B42 Pol with loop lanes
    V34M .. V37M (Vall has no park lane at all), plus the missing Laythe Tracking Station lane
    (V33T). Later: Mun / Minmus continuations and the optional Ike / Gilly landing continuations.
@@ -6648,12 +6686,17 @@ Do NOT re-implement intercept / window math from scratch. The 2026-05-28 prior-a
 - **Group A GREEN (2026-11-07, branch `claude/project-thread-ni23y9`):** forges B36 Duna->Ike (`2026-11-07_2214`), B37 Eve->Gilly (`_2220`), B38 Jool->Laythe (`_2230`) appended each moon hop to the committed Kerbin->planet tree and were harvested as `duna-ike-recorded`, `eve-gilly-recorded`, `jool-laythe-recorded`; loop lanes V31M / V31T / V32M / V32T / V33M all PASS attempt 1 (see LOOP-LONE-MOON-ARRIVAL-NOT-ALIGNED). Harness fix on the way: `harvest_bdock_station.py --keep-parsek` now keeps the `_versions` sidecar bodies the save names (a committed tree beside its resumed in-flight copy names an older root `.prec`; pruning it made the cold load drop the committed tree). Still open: Mun, Minmus, Vall, Tylo, Bop and Pol as continuation forges, a multi-moon Jool tree, and a Laythe Tracking Station lane (no V33T draft).
 - **Re-checked 2026-11-11 on main b5877e51f (1.1.0):** Group A is done (above). The moon-to-moon spacing (MOON-TO-MOON-LOOP-NOT-RETIMED, #2554) shipped in 1.1.0 and its six lanes V17M / V17T / V19M / V19T / V21M / V21T flew green on the new clock in the refactor batch (V17T `2026-11-11_0124`, V19T `_0125`, V19M `_0126`, V21T `_0151`, V21M `_0152` at e5b47f331, V17M `_0710` at fa3de158d after the #2559 / #2560 re-pins; rows in `autotest-status.md`), which also re-flew the matrix's re-aim regression slice (V3R, V8 .. V13A, V20M, V24W, V25M, GUI-18, M1). No B39 .. B46 or V34M+ spec exists. Still to build, in this order (ranked with the rest in NEXT-TESTS-TO-BUILD-2026-11-11): (1) Group B, new moon-to-moon pairs now that the code exists: B43 Vall -> Tylo, B44 Laythe -> Tylo, B46 Minmus -> Mun, B45 Tylo -> Bop (expected decline), each with a loop lane reading the moon-rooted phase lock; (2) Group C, the Jool multi-moon tour (M-MIS-6, never flown); (3) B39 .. B42 Jool -> Vall / Tylo / Bop / Pol continuations with V34M .. V37M, and V33T; then the Mun / Minmus continuations and the optional Ike / Gilly landings.
 
+### ~~HARVEST-COMMITS-THE-LAUNCH-PATH~~ - a harvested fixture carried the operator's install path [~~FIXED 2026-11-14~~, found 2026-11-14]
+
+- Since the parallel-run launch (#2592) KSP starts with `-logFile <instance>/Player.log`, and KSP writes its launch command line into every save's `envInfo` line, so the four Jool moon fixtures harvested from B39-B42 carried the operator's home folder in `persistent.sfs` (the repository is public). Found by the PR #2604 review.
+- Fix: `harvest_bdock_station.scrub_env_launch_args` resets the `envInfo` Args to the bare `KSP_x64.exe  - ` form the older fixtures carry, in `persistent.sfs` and every RewindPoint quicksave it writes (KSP rewrites the line on every save; nothing reads it). The four fixtures are scrubbed. Tests in `test_harvest.py`: the scrub, the harvest path, and a corpus cell that reds on any committed `.sfs` whose `envInfo` carries launch arguments (mutation-checked).
+
 ### ~~LOAD-SPLIT-SPAWN-STAMP-ON-HEAD~~ - loading a save with a ship in flight starts a fresh recording instead of resuming [~~FIXED 2026-11-14~~, found 2026-11-14]
 
 - Seen in all four Jool moon forges B39-B42 (runs `2026-11-14_1648` .. `_1715`, DLL at `37a6c6101`), each PARSEK-FAIL(expectation) on `startrecording ... already=false` and a missing `SOI change boundary suppressed in tree mode: Jool to <Moon> (tree=6ec68e87...`. Loading `jool-orbit-recorded` into FLIGHT logged no committed-tree restore at all and the seam's StartRecording built a fresh single-node tree for the live Duna Rocket (pid 807470910). B38 on 2026-11-10 resumed the same fixture.
 - Cause: the load-time optimizer split gives the tail the recording's end (terminal state, vessel snapshot) but left the spawn stamp (`VesselSpawned`, `SpawnedVesselPersistentId`) on the head. `ParsekScenario.OnLoadPhaseAutoUnreserveCrewPastEndUT` then read the tail as a vessel that never spawned: it nulled the tail's snapshot, unreserved its crew and set `VesselSpawned` with no pid. `TryFindCommittedTreeForSpawnedVessel` matches a stamped recording only by its spawn pid and an unstamped one only when `VesselSpawned` is false, so the tail matched neither way, silently. Before #2588 the head stayed the active recording and matched by its stamp, which hid the defect (and appended to the head instead).
 - Fix: `RecordingOptimizer.MoveChainSpawnStampsToTip`, run by `CommittedListOptimizer.RunOptimizationPass` after the split pass, moves the stamp of the one earlier non-terminal piece of the same launch onto a terminal, unstamped chain tip (skips a chain with a superseded piece or more than one stamped piece; Info line `Chain spawn stamp moved to the tip`). It runs on every load, so saves split earlier heal too. `RecordingOptimizer.MergeInto` carries the absorbed piece's stamp the same way. This is the load-time twin of the in-flight commit's `InFlightCommitOptimization.CarrySpawnStampToTip` (same move, including `LastAppliedResourceIndex`), which now runs after the pass as a backstop and normally finds nothing to move (`spawnStampMoved=False`). Tests `LoadSplitSpawnStampRestoreTests` (the real `jool-orbit-recorded` save through the optimization pass, the crew pass, the restore match and the prepare; mutation-checked: dropping the call reds it).
-- Proof owed: re-fly B39-B42 with this build.
+- Proven 2026-11-14: B39-B42 flew green on 8d4e8b01c (runs `2026-11-14_1857`, `_1907`, `_1917`, `_1926`, PASS attempt 1, `already=true` into tree 6ec68e87); their fixtures are harvested.
 
 ### COMMITTED-RESTORE-APPENDS-TO-ROOT - a resumed committed tree records onto its root recording [~~FIXED 2026-11-14~~, found 2026-11-07; fixture re-harvest open]
 

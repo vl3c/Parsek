@@ -11,16 +11,16 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | lanes | 593 |
 | tier daily | 28 |
 | tier nightly | 284 |
-| tier operator | 266 |
+| tier operator | 270 |
 | tier longhaul | 5 |
-| tier (other) | 10 |
+| tier (other) | 6 |
 | profile stock-minimal | 549 |
 | profile stock-tree | 40 |
 | profile modded-compat | 4 |
 | autopilot (mission) lanes | 139 |
 | seam-only lanes | 454 |
-| LIVE-PROVEN date in status row | 454 |
-| no LIVE-PROVEN date | 139 |
+| LIVE-PROVEN date in status row | 461 |
+| no LIVE-PROVEN date | 132 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -38,7 +38,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | AJ | 1 | - | - | 1 | - | - | 1 |
 | AP | 1 | - | 1 | - | - | - | 1 |
 | AT | 1 | - | 1 | - | - | - | 1 |
-| B | 41 | 1 | 12 | 23 | 5 | 40 | 21 |
+| B | 41 | 1 | 12 | 23 | 5 | 40 | 25 |
 | BAY | 1 | - | - | 1 | - | 1 | 1 |
 | BDOCK | 2 | - | 1 | 1 | - | 2 | 2 |
 | CA | 1 | - | 1 | - | - | 1 | 1 |
@@ -114,7 +114,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | TOUR | 1 | - | 1 | - | - | - | 1 |
 | TP | 9 | - | - | 9 | - | - | 9 |
 | UIS | 1 | - | 1 | - | - | - | 1 |
-| V | 67 | - | 7 | 50 | - | 6 | 24 |
+| V | 67 | - | 7 | 54 | - | 6 | 27 |
 | VB | 1 | - | 1 | - | - | - | 1 |
 | VN | 13 | - | 13 | - | - | 5 | 13 |
 | W | 1 | - | - | 1 | - | - | - |
@@ -299,7 +299,7 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 
 | body | lanes | autopilot | live-proven | families |
 |---|---|---|---|---|
-| Kerbin | 355 | 108 | 276 | RF 28, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +63 |
+| Kerbin | 355 | 108 | 279 | RF 28, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +63 |
 | Mun | 54 | 12 | 42 | RW 22, V 8, B 5, CS 5, TP 4, MC 2, EVA 1, GUI 1, H 1 +5 |
 | Minmus | 13 | 5 | 7 | V 6, B 5, AP 1, TP 1 |
 | Moho | 3 | 1 | 2 | V 2, B 1 |
@@ -308,12 +308,12 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 | Duna | 29 | 10 | 18 | V 13, B 4, FAR 4, TP 3, AT 1, CN 1, FORGE 1, GUI 1, H 1 |
 | Ike | 9 | 2 | 8 | V 4, FAR 3, B 2 |
 | Dres | 8 | 6 | 2 | B 5, V 2, FORGE 1 |
-| Jool | 45 | 18 | 21 | V 25, B 18, FAR 1, TP 1 |
-| Laythe | 27 | 14 | 17 | B 14, V 11, FAR 1, TP 1 |
-| Vall | 11 | 5 | 4 | B 5, V 5, TP 1 |
-| Tylo | 12 | 6 | 2 | B 6, V 6 |
-| Bop | 8 | 4 | 2 | B 4, V 4 |
-| Pol | 4 | 2 | 2 | B 2, V 2 |
+| Jool | 45 | 18 | 28 | V 25, B 18, FAR 1, TP 1 |
+| Laythe | 27 | 14 | 21 | B 14, V 11, FAR 1, TP 1 |
+| Vall | 11 | 5 | 6 | B 5, V 5, TP 1 |
+| Tylo | 12 | 6 | 4 | B 6, V 6 |
+| Bop | 8 | 4 | 4 | B 4, V 4 |
+| Pol | 4 | 2 | 3 | B 2, V 2 |
 | Eeloo | 3 | 1 | - | V 2, B 1 |
 | Sun | 10 | - | 6 | TP 6, V 4 |
 | (none derived) | 156 | 6 | 131 | H 62, RVR 19, S 9, CS 8, GUI 7, IR 6, VN 6, L 5, CN 4 +21 |
@@ -836,11 +836,11 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | B36-duna-ike-continuation | operator | duna-direct-recorded | b23_ike_orbit | Duna, Ike | - | - | LIVE-PROVEN 2026-11-07 |
 | B37-eve-gilly-continuation | operator | eve-orbit-recorded | b24_gilly_orbit | Eve, Gilly | - | - | LIVE-PROVEN 2026-11-07 |
 | B38-jool-laythe-continuation | operator | jool-orbit-recorded | b25_laythe_orbit | Jool, Laythe | - | - | LIVE-PROVEN 2026-11-07 |
-| B39-jool-vall-continuation | operator | jool-orbit-recorded | b25_laythe_orbit | Jool, Laythe, Vall | - | - | NEVER FLOWN, authored 2026-11-14 |
+| B39-jool-vall-continuation | operator | jool-orbit-recorded | b25_laythe_orbit | Jool, Laythe, Vall | - | - | LIVE-PROVEN 2026-11-14 |
 | B4-reentry-splashdown | nightly | b2-lko-craft | b4_reentry | Kerbin | - | - | 2026-09-25 (coverage wave 1b): D7 chute-c... |
-| B40-jool-tylo-continuation | operator | jool-orbit-recorded | b25_laythe_orbit | Jool, Laythe, Tylo | - | - | NEVER FLOWN, authored 2026-11-14 |
-| B41-jool-bop-continuation | operator | jool-orbit-recorded | b25_laythe_orbit | Jool, Laythe, Bop | - | - | NEVER FLOWN, authored 2026-11-14 |
-| B42-jool-pol-continuation | operator | jool-orbit-recorded | b25_laythe_orbit | Jool, Laythe, Pol | - | - | NEVER FLOWN, authored 2026-11-14 |
+| B40-jool-tylo-continuation | operator | jool-orbit-recorded | b25_laythe_orbit | Jool, Laythe, Tylo | - | - | LIVE-PROVEN 2026-11-14 |
+| B41-jool-bop-continuation | operator | jool-orbit-recorded | b25_laythe_orbit | Jool, Laythe, Bop | - | - | LIVE-PROVEN 2026-11-14 |
+| B42-jool-pol-continuation | operator | jool-orbit-recorded | b25_laythe_orbit | Jool, Laythe, Pol | - | - | LIVE-PROVEN 2026-11-14 |
 | B43-vall-tylo-transfer | operator | vall-park-nerv | b29_jool_kerbin | Kerbin, Jool, Vall, Tylo | - | - | NEVER FLOWN |
 | B44-laythe-tylo-transfer | operator | laythe-park-nerv | b29_jool_kerbin | Kerbin, Jool, Laythe, Tylo | - | - | NEVER FLOWN |
 | B45-tylo-bop-transfer | operator | tylo-park-nerv | b29_jool_kerbin | Kerbin, Jool, Tylo, Bop | - | - | NEVER FLOWN |
@@ -1736,10 +1736,10 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | V32T-eve-gilly-continuation-ts-arrival | operator | eve-gilly-recorded | seam | Kerbin, Eve, Gilly | reload, save, time-jump, scene-change | MoonArrivalHold | LIVE-PROVEN 2026-11-07 |
 | V33M-jool-laythe-continuation-player-loop | operator | jool-laythe-recorded | seam | Kerbin, Jool, Laythe | reload, scene-change | MoonArrivalHold | LIVE-PROVEN 2026-11-07 |
 | V33T-jool-laythe-continuation-ts-arrival | operator | jool-laythe-recorded | seam | Kerbin, Jool, Laythe | reload, save, time-jump, scene-change | MoonArrivalHold | LIVE-PROVEN 2026-11-14 |
-| V34M-jool-vall-continuation-player-loop | pending-fixture | jool-vall-recorded | seam | Kerbin, Jool, Vall | reload, scene-change | MoonArrivalHold | NEVER FLOWN, WAITING ON jool-vall-recorde... |
-| V35M-jool-tylo-continuation-player-loop | pending-fixture | jool-tylo-recorded | seam | Kerbin, Jool, Tylo | reload, scene-change | MoonArrivalHold | NEVER FLOWN, WAITING ON jool-tylo-recorde... |
-| V36M-jool-bop-continuation-player-loop | pending-fixture | jool-bop-recorded | seam | Kerbin, Jool, Bop | reload, scene-change | MoonArrivalHold | NEVER FLOWN, WAITING ON jool-bop-recorded... |
-| V37M-jool-pol-continuation-player-loop | pending-fixture | jool-pol-recorded | seam | Kerbin, Jool, Pol | reload, scene-change | MoonArrivalHold | NEVER FLOWN, WAITING ON jool-pol-recorded... |
+| V34M-jool-vall-continuation-player-loop | operator | jool-vall-recorded | seam | Kerbin, Jool, Vall | reload, scene-change | MoonArrivalHold | LIVE-PROVEN 2026-11-14 |
+| V35M-jool-tylo-continuation-player-loop | operator | jool-tylo-recorded | seam | Kerbin, Jool, Tylo | reload, scene-change | MoonArrivalHold | LIVE-PROVEN 2026-11-14 |
+| V36M-jool-bop-continuation-player-loop | operator | jool-bop-recorded | seam | Kerbin, Jool, Bop | reload, scene-change | MoonArrivalHold | LIVE-PROVEN 2026-11-14 |
+| V37M-jool-pol-continuation-player-loop | operator | jool-pol-recorded | seam | Kerbin, Jool, Pol | reload, scene-change | MoonArrivalHold | NEVER FLOWN; fixture jool-pol-recorded ha... |
 | V38M-jool-moon-tour-player-loop | pending-fixture | jool-tour-recorded | seam | Kerbin, Jool, Laythe, Vall +1 | reload, scene-change | MoonArrivalHold | NEVER FLOWN, WAITING ON jool-tour-recorde... |
 | V39M-jool-laythe-bop-player-loop | pending-fixture | jool-laythe-bop-recorded | seam | Kerbin, Jool, Laythe, Bop | reload, scene-change | MoonArrivalHold | NEVER FLOWN, WAITING ON jool-laythe-bop-r... |
 | V3C-flight-arrival-companion | nightly | b17-duna-pad +inj looped-interp... | b17_duna_direct | Duna | time-jump | - | LIVE-PROVEN 2026-09-07 |
