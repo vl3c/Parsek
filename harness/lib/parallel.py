@@ -494,8 +494,13 @@ def memory_wait_log_key(reading: Optional[MemoryReading], labels: Sequence[str],
     ram = vram = None
     if reading is not None:
         ram, vram = reading.free_ram_gb, reading.free_vram_gb
+
+    def shown(gb: Optional[float]) -> str:
+        # Rounded as the reason prints it: readings a few MB apart are one wait.
+        return "none" if gb is None else "%.1f" % gb
+
     return "%s|ram=%s|vram=%s|running=%d|booting=%d" % (
-        ",".join(labels), ram, vram, running_count, booting)
+        ",".join(labels), shown(ram), shown(vram), running_count, booting)
 
 
 def parse_nvidia_smi_free_gb(text: str) -> Optional[float]:

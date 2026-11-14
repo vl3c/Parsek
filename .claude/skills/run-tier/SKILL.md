@@ -14,7 +14,8 @@ busy machine.
 
 ## 1. Coordination preflight
 
-The machine runs ONE automation KSP at a time.
+The machine has ONE harness owner at a time: a serial run, a provision, or
+the parallel runner (which flies 2-3 copies under that one lock, step 3c).
 
 - Read `<umbrella>/automation/.ksp-machine.lock` (umbrella = parent of the
   worktree). A live holder means a sibling run or a provision owns the box.
@@ -117,8 +118,9 @@ about 13 min on 3; serial it takes about 25 min.
    - Run it in the background, logging the console to
      `<umbrella>/logs/console/<date>/<run>.log`.
    - `--dry-run` prints the plan and flies nothing.
-   - Every window goes to the second virtual desktop. If the PC has only one
-     desktop, the runner minimizes the windows and prints a hint.
+   - Every window goes to the last virtual desktop that is not the current one
+     (desktop 2 on the owner's PC). With only one desktop, the runner
+     minimizes the windows and prints a hint.
    - Lanes that move the cursor or need focus (LT-1, GUI-7, pointer or hover
      steps) are skipped unless you pass `--include-exclusive`; then they fly
      last, alone.
