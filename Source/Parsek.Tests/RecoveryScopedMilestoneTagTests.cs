@@ -71,7 +71,6 @@ namespace Parsek.Tests
             ParsekScenario.ClearRestoredQuicksaveTreeFactsForTesting();
             SessionSuppressionState.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
-            RecalculationEngine.ClearModules();
             FlightRecorder.QuickloadResumeUTProviderForTesting = null;
         }
 

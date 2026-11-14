@@ -735,6 +735,14 @@ A1 Recordings-tab loops on the map (SLM lanes), Revert to VAB / save switch / Co
 rewind and a load (REV-1, SWS-1, CN-4, CN-5), routes under a Re-Fly and real warp (IR-3, IR-6),
 route conservation (RCN-1), the Re-Fly value fuzzer and the save round-trip gate.
 
+Far-body timeline lanes (2026-11-14, from the catalog's first reading): FAR-1 .. FAR-6 authored,
+awaiting the PC batch (rewind-to-launch with a committed Ike flight in career, a relaunch rewind
+keeping Duna vessels, a revert with Ike committed, an EVA switch at Gilly, physics warp at Laythe,
+a looped Ike watch across a quickload), read by position through the new in-game category
+`LeafVesselPlacement`. Re-Fly at a far body is still uncovered: no far-body fixture has a rewind
+point (every far vessel has one command part), so it needs a new forge that separates two
+controllable vessels at a far body.
+
 Gap finding aid (2026-11-14): `docs/dev/flight-profiles.md` is the GENERATED catalog of every lane
 (host save, bodies, seam verbs, timeline operations, mission, in-game categories, status) with
 body x operation and family x operation matrices and the never-used verbs, dimension values and
@@ -746,17 +754,21 @@ the Mun, vessel switching and physics warp are thin and Kerbin-only, and seven i
 Still to build, most valuable to a player first (items 8 and 10 need no PC flight time and can run
 in parallel in the cloud):
 
-1. [ ] The Jool multi-moon tour (Group C, M-MIS-6): built, never seen in game. One forge
+1. [ ] (AUTHORED 2026-11-14, awaiting the PC batch: forge `B47-jool-moon-tour`, loop lane `V38M`,
+   Bop decline `B48` / `V39M`.) The Jool multi-moon tour (Group C, M-MIS-6): built, never seen in game. One forge
    (Laythe, Vall, Tylo in one tree from `jool-orbit-recorded`) and a loop lane reading
    `ARRIVAL HOLD dest=Jool kind=config moons=3`; a Bop variant must decline with the amber.
    The most expensive flight.
-2. [ ] Moon-to-moon pairs on the new 1.1.0 loop spacing: B43 Vall -> Tylo, B44 Laythe -> Tylo,
+2. [ ] (AUTHORED 2026-11-14, awaiting the PC batch: forges `B43`-`B46`, loop lanes `V43M`-`V46M`;
+   the offline solver reads Tylo -> Bop as `joint-best-fit` at 7 x P_Bop, so B45 is no longer
+   expected to decline.) Moon-to-moon pairs on the new 1.1.0 loop spacing: B43 Vall -> Tylo, B44 Laythe -> Tylo,
    B46 Minmus -> Mun (about 200 Kerbin days between loops), B45 Tylo -> Bop (expected honest
    decline), each a forge plus a loop lane. Only Laythe -> Vall, Mun -> Minmus and Laythe -> Jool
    have flown on the new rule.
 3. [ ] Aircraft: no lane flies a plane (BAY-1's never moves). A runway takeoff, a circuit and a
    landing, then its ghost replays at the Space Center.
-4. [ ] Jool park -> one moon continuations: B39 Vall, B40 Tylo, B41 Bop, B42 Pol with loop lanes
+4. [ ] (AUTHORED 2026-11-14 as `B39`-`B42` / `V34M`-`V37M` and `V33T`, awaiting the PC batch.)
+   Jool park -> one moon continuations: B39 Vall, B40 Tylo, B41 Bop, B42 Pol with loop lanes
    V34M .. V37M (Vall has no park lane at all), plus the missing Laythe Tracking Station lane
    (V33T). Later: Mun / Minmus continuations and the optional Ike / Gilly landing continuations.
    The three Group A fixtures carry the stray root tail of COMMITTED-RESTORE-APPENDS-TO-ROOT
@@ -3188,6 +3200,41 @@ compare).
   il_compare: only the `AnalyzeWindows` body differs, plus the 14 new private methods; the 140
   string literals and every outside call target of the old body are the same multiset across the
   new ones. Complexity >= 20 / 50 / 100: 613 / 32 / 5 -> 614 / 31 / 4; `complexityWatch` 54 -> 53.
+- 2026-11-14 (B4, the recalculation module set): pins first, in
+  `LedgerStateFuzzerTests.ModuleSet.cs`: production `Initialize` registers the eight modules in
+  tier order (the eight `Registered ...` lines, `ClearModules: removed=0`, idempotent), the
+  production set walks like the fuzzer's mirrored registration (40 ledgers x 4 cutoffs, balances
+  and every derived field), and a SHA-256 digest over the fuzz corpus (120 ledgers) through all
+  four engine entry points (visible walk, clone balance walk, the module probe, the click probe),
+  numbers rounded to 3 decimals. The digest must not move unless a ledger result does.
+  Then the change: `RecalculationEngine` keeps no module state (its four registry statics are
+  gone; only the test counter `SortActionsCallCountForTesting` stays). Every entry point
+  (`Recalculate`, `ProbeModuleAtCutoff`, `ProbeClickReservationAtCutoff`,
+  `WalkBalancesOnClones`) takes a `RecalculationModuleSet` (`GameActions/
+  RecalculationModuleSet.cs`: the four tiers, `Register` with the old log lines, `Clear`, and
+  the `ModuleTier` enum, moved off the engine so the set stays a leaf of the text graph: with
+  the enum left on the engine the text knot read 434 -> 435).
+  Production builds one in `LedgerOrchestrator.Initialize` (`moduleSet`, read as
+  `LedgerOrchestrator.Modules` by the click probe, the Re-Fly seal credit and merge
+  dominance); a reset replaces the set and logs `ClearModules: removed=N` as before. Tests
+  that registered modules build their own set; a `ClearModules` beside an orchestrator reset
+  is dropped. The digest did not move, and three mutants red the pins (two registrations
+  swapped in `Initialize`; tiers swapped in the visible walk; strategy registration dropped);
+  a fourth, the clone balance walk without the strategy module, survives (the strategy
+  transform is an identity for rewards, and no balance or flag the clone walk returns moves
+  on the corpus without it).
+  No `[Collection("Sequential")]` was relaxed: the modules still read shared statics
+  (`StockPoolReference`, `RecordingStore`, `LedgerOrchestrator.Kerbals`) and every walk bumps
+  the shared sort counter. `lifetime_pins.toml` untagged 499 -> 495. The semantic measure is
+  unchanged (knot 391, greedy 140, replayed 144); `ClickReservationGate` reading the set is
+  one new residue edge into the orchestrator (29 -> 30).
+  Part 2, design only: `docs/dev/research/ledger-orchestrator-back-edges-2026-11-14.md` groups
+  the orchestrator's 30 residue back-edges by need (query, notification, recalculation
+  trigger, state to own) and re-measures the residue per inversion with the moved code's
+  edges included. Recommendation: cut six edges in one PR (`Ledger`, `RecordingTreeSplitter`,
+  `CommittedTreeRestoreAttempt`, `SwitchSegmentAttempts`, `ConversionLegBinding`,
+  `PostWalkActionReconciler`; moves and delegate parameters only, headless), ratchet
+  140 -> 124; the other 24 edges buy 3 more and need installed hooks proven in flight.
 - 2026-11-14 (B6 second half, split `AnchorPropagator.Run`): the DAG walk (about 490 lines,
   complexity 104) is now an orchestrator (complexity 8) over 13 private static steps in the same
   file, in walk order: `IndexRecordingsById`, `EmitSeedAnchors` with `EmitSeedCandidate`,

@@ -4945,8 +4945,19 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # regexed). Not an H-series id; CommittedBatchTallySourceSyncTests gates its `total=`.
     # Flown green twice with one cell on 2026-11-07; a second cell (engine skirts) and the
     # kept-truss checks were added after, so it leaves on the first flight of that shape.
+    # FAR-1-ike-rewind-to-launch-career, FAR-2-duna-relaunch-rewind-keeps-landed,
+    # FAR-3-ike-revert-to-launch and FAR-5-laythe-physics-warp-record ENTERED on 2026-11-14
+    # (the far-body timeline program: a Rewind-to-Launch at Ike in a career, RR-1's relaunch
+    # rewind on duna-park-recorded, a stock revert with a committed Ike leaf, a recording under
+    # physics warp in Laythe orbit, each then the LeafVesselPlacement category's one cell,
+    # `total=1` literal with the split regexed). Not H-series ids;
+    # CommittedBatchTallySourceSyncTests gates their `total=`. Each leaves on its first flight.
     INTERIM_PIN_IDS: set = {
         "FGV-1-fairing-ghost-visual",
+        "FAR-1-ike-rewind-to-launch-career",
+        "FAR-2-duna-relaunch-rewind-keeps-landed",
+        "FAR-3-ike-revert-to-launch",
+        "FAR-5-laythe-physics-warp-record",
     }
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
@@ -10799,6 +10810,12 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "RW-25-refly-recover-pressed.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a Re-Fly of a committed CS Flea Probe lands on KSC grass, stock's Recover is pressed into the Re-Fly merge modal (Recover mergeDialog=refly), the merge lands at the Space Center where stock recovers the pod and its payout is booked once, and after a Rewind-to-Launch the recovery crosses once. LIVE-PROVEN 2026-10-31 (`2026-10-31_1811`, 348 s); owed: the ordinary promotion call",
         "SLM-1-standalone-loop-map-position.toml": "tier=operator by the calibration discipline, NOT debt: a Recordings-tab loop on `pad-runway-pair` (stock-minimal, the `standalone-loop-map` preset: a 1500 s orbital run looping every 4000 s) whose map ghost is read by position against the recorded orbit in FLIGHT map view 300 s into its second run. LIVE-PROVEN 2026-11-01 (`2026-11-01_0034`, 105 s) after a first flight red on a fixture defect; owed: the ordinary promotion call",
         "SLM-1T-standalone-loop-ts-position.toml": "tier=operator by the calibration discipline, NOT debt: the same `standalone-loop-map` preset on `pad-runway-pair` (stock-minimal), saved 400 s into its third run and reloaded into the Tracking Station, where its map ghost is read by position against the recorded orbit. LIVE-PROVEN 2026-11-01 (`2026-11-01_0037`, 105 s) after a first flight red on a fixture defect; owed: the ordinary promotion call",
+        "FAR-1-ike-rewind-to-launch-career.toml": "tier=operator by the calibration discipline, NOT debt: a Rewind-to-Launch whose launch is a recorded segment of the DD1 probe's Ike orbit on `duna-ike-recorded-career` (stock-minimal), its ghost read at Ike in the Tracking Station, the leaf spawn at the Space Center read by position (LeafVesselPlacement) and the ledger by the rewind-aware oracle. AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), NEVER FLOWN; owed: the reading run (tag `pending-flight`), then the ordinary promotion call",
+        "FAR-2-duna-relaunch-rewind-keeps-landed.toml": "tier=operator by the calibration discipline, NOT debt: RR-1's relaunch and Rewind-to-Launch on `duna-park-recorded` (stock-minimal), where two same-name 'Kerbal X' ships are landed on Duna; the owner strip must keep both and every spawned leaf must sit at its terminal place (LeafVesselPlacement). AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), NEVER FLOWN; owed: the reading run (tag `pending-flight`), then the ordinary promotion call",
+        "FAR-3-ike-revert-to-launch.toml": "tier=operator by the calibration discipline, NOT debt: IR-2's stock Revert to Launch on `duna-ike-recorded` (stock-minimal) after a rails warp on the pad, with the committed DD1 leaf read at its Ike orbit and phase after the revert (LeafVesselPlacement in FLIGHT). AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), NEVER FLOWN; owed: the reading run (tag `pending-flight`), then the ordinary promotion call",
+        "FAR-4-gilly-eva-switch-bg-member.toml": "tier=operator by the calibration discipline, NOT debt: CI-1's EVA and map Switch-To in Gilly orbit on `eve-gilly-recorded` (stock-minimal), where the switch target is both the live tree's background member and a committed tree's spawned leaf. AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), NEVER FLOWN; owed: the reading run (tag `pending-flight`), then the ordinary promotion call",
+        "FAR-5-laythe-physics-warp-record.toml": "tier=operator by the calibration discipline, NOT debt: a recording made through ~120 s of 4x physics warp in Laythe orbit on `jool-laythe-recorded` (stock-minimal), committed, with the vessel read against its committed leaf's orbit (LeafVesselPlacement in FLIGHT). AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), NEVER FLOWN; owed: the reading run (tag `pending-flight`), then the ordinary promotion call",
+        "FAR-6-ike-loop-watch-quickload.toml": "tier=operator by the calibration discipline, NOT debt: a looped arc of the DD1 probe's Ike orbit on `duna-ike-recorded` (stock-minimal) watched, then F5 / F9 under watch with the loop's ghost re-entered after the QuickloadFlight load. AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), NEVER FLOWN; owed: the reading run (tag `pending-flight`), then the ordinary promotion call",
         "FGV-1-fairing-ghost-visual.toml": "tier=operator by PURPOSE, NOT debt: a visual-confirmation lane whose product is a set of PNGs for the owner's eyes (four stock procedural fairings, an engine plate and an engine shroud beside their Parsek ghosts in LKO on `eva2-lko-crewed`, intact / jettisoned / separated) and whose gates are that the cells passed, every image was written and the ghost shows the same truss, shroud and mount meshes as the real part. Flown green 2026-11-07 (one-cell shape twice; two-cell shape `2026-11-07_2342`)",
         "SLM-2-standalone-loop-map-pause.toml": "tier=operator by the calibration discipline, NOT debt: the same `standalone-loop-map` preset on `pad-runway-pair` (stock-minimal), read in FLIGHT map view in the pause after its second run, where no map ghost may exist. LIVE-PROVEN 2026-11-01 (`2026-11-01_0036`, 104 s) after a first flight red on a fixture defect; owed: the ordinary promotion call",
         "RW-20-strategy-and-deadline-after-rewind.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a Jumping Flea on the pad, a strategy activated at the Space Center and a real contract deadline passed by warp, a Rewind-to-Launch before both, the same strategy refused, and the committed fail applied once when the deadline passes again. LIVE-PROVEN 2026-10-31 (`2026-10-31_0425_RW-20-strategy-and-deadline-after-rewind`); owed: the ordinary promotion call",
@@ -10939,8 +10956,24 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "V31M-duna-ike-continuation-player-loop.toml": "tier=operator by the calibration discipline (its jump table comes from its own reading run, first run is a calibration reading), NOT debt; moon flight-test program Group A (2026-11-07, PR #2468): the player loop on B36's harvested `duna-ike-recorded` (one tree crossing Duna's SOI and Ike's), reading the lone-moon arrival hold and driving the MoonArrivalHold cell at the Space Center; what is open is the flight, not a human review call",
         "V32M-eve-gilly-continuation-player-loop.toml": "tier=operator by the calibration discipline (its jump table comes from its own reading run, first run is a calibration reading), NOT debt; moon flight-test program Group A (2026-11-07, PR #2468): the player loop on B37's harvested `eve-gilly-recorded` (one tree crossing Eve's SOI and Gilly's), reading the lone-moon arrival hold on the eccentric Gilly and driving the MoonArrivalHold cell at the Space Center; what is open is the flight, not a human review call",
         "V33M-jool-laythe-continuation-player-loop.toml": "tier=operator by the calibration discipline (its jump table comes from its own reading run, first run is a calibration reading), NOT debt; moon flight-test program Group A (2026-11-07, PR #2468): the player loop on B38's harvested `jool-laythe-recorded` (one tree crossing Jool's SOI and Laythe's, one Jool moon only), reading the lone-moon arrival hold and driving the MoonArrivalHold cell at the Space Center; what is open is the flight, not a human review call",
+        "B43-vall-tylo-transfer.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; moon flight-test program Group B (2026-11-14, todo NEXT-TESTS-TO-BUILD-2026-11-11 item 2): B26's parent relay from the stripped `vall-park-nerv` with B29's elliptical capture at Tylo, a fresh Vall-rooted tree, to harvest `vall-tylo-recorded` for its pending-fixture loop lane V43M; what is open is the flight, not a human review call",
+        "B44-laythe-tylo-transfer.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; moon flight-test program Group B (2026-11-14, todo NEXT-TESTS-TO-BUILD-2026-11-11 item 2): B26's parent relay from `laythe-park-nerv` with B29's elliptical capture at Tylo, a fresh Laythe-rooted tree, to harvest `laythe-tylo-recorded` for its pending-fixture loop lane V44M; what is open is the flight, not a human review call",
+        "B45-tylo-bop-transfer.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; moon flight-test program Group B (2026-11-14, todo NEXT-TESTS-TO-BUILD-2026-11-11 item 2): B26's parent relay from the stripped `tylo-park-nerv` to Bop with B34's capture values, a fresh Tylo-rooted tree, to harvest `tylo-bop-recorded` for its pending-fixture loop lane V45M; what is open is the flight, not a human review call",
+        "B46-minmus-mun-transfer.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; moon flight-test program Group B (2026-11-14, todo NEXT-TESTS-TO-BUILD-2026-11-11 item 2): B30 reversed from the stripped `minmus-park-kerbalx`, a fresh Minmus-rooted tree, to harvest `minmus-mun-recorded` for its pending-fixture loop lane V46M; what is open is the flight, not a human review call",
         "V31T-duna-ike-continuation-ts-arrival.toml": "tier=operator by the calibration discipline (its one jump derived off V31M's reading and the harvested fixture bytes, first run is a calibration reading), NOT debt; moon flight-test program Group A (2026-11-07, PR #2468): the Tracking Station half on `duna-ike-recorded`, the ghost icon on Ike after a jump past the replayed Ike SOI entry; what is open is the flight, not a human review call",
         "V32T-eve-gilly-continuation-ts-arrival.toml": "tier=operator by the calibration discipline (its one jump derived off V32M's reading and the harvested fixture bytes, first run is a calibration reading), NOT debt; moon flight-test program Group A (2026-11-07, PR #2468): the Tracking Station half on `eve-gilly-recorded`, the ghost icon on Gilly after a jump past the replayed Gilly SOI entry; what is open is the flight, not a human review call",
+        # The Jool moon round (2026-11-14, todo NEXT-TESTS-TO-BUILD-2026-11-11 items 1 and 4):
+        # B38's continuation machine re-pointed at the other four Jool moons, the B47
+        # Laythe -> Vall -> Tylo tour, the B48 Laythe -> Bop decline subject, their loop
+        # lanes (ahead of their fixtures, see PENDING_FIXTURE_LANES) and V33M's missing
+        # Tracking Station half. All NEVER FLOWN; same calibration discipline.
+        "B39-jool-vall-continuation.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; Jool moon round (2026-11-14): B38's machine from the unstripped `jool-orbit-recorded` re-pointed at Vall, to harvest `jool-vall-recorded` for V34M; what is open is the flight, not a human review call",
+        "B40-jool-tylo-continuation.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; Jool moon round (2026-11-14): B38's machine from `jool-orbit-recorded` with B33's Tylo params, to harvest `jool-tylo-recorded` for V35M; what is open is the flight, not a human review call",
+        "B41-jool-bop-continuation.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; Jool moon round (2026-11-14): B38's machine from `jool-orbit-recorded` with B34's Bop params, to harvest `jool-bop-recorded` for V36M; what is open is the flight, not a human review call",
+        "B42-jool-pol-continuation.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; Jool moon round (2026-11-14): B38's machine from `jool-orbit-recorded` with B35's Pol params, to harvest `jool-pol-recorded` for V37M; what is open is the flight, not a human review call",
+        "B47-jool-moon-tour.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; Jool moon round (2026-11-14): the new mtour composer (three B5 legs, Jool -> Laythe -> Vall -> Tylo in one tree) from `jool-orbit-recorded`, to harvest `jool-tour-recorded` for V38M; what is open is the flight, not a human review call",
+        "B48-jool-laythe-bop-continuation.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; Jool moon round (2026-11-14): B26's parent-relay machine from `jool-laythe-recorded` re-pointed at Bop, to harvest `jool-laythe-bop-recorded` for V39M's amber decline; what is open is the flight, not a human review call",
+        "V33T-jool-laythe-continuation-ts-arrival.toml": "tier=operator by the calibration discipline (its one jump derived off the harvested fixture bytes and the V-lane clock formula, first run is a calibration reading), NOT debt; Jool moon round (2026-11-14): the Tracking Station half V33M never had, the ghost icon on Laythe after a jump past the replayed Laythe SOI entry; what is open is the flight, not a human review call",
         # THE MAP PICTURE LANES (2026-11-11). Operator-tier by MECHANISM: each replays a
         # committed fixture to take MapCamera + CaptureScreenshot + DumpMapGeometry views
         # for a human and the map mirror page, run on request. Their model lanes keep every
@@ -13900,6 +13933,18 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
                                     "V32T-eve-gilly-continuation-ts-arrival.toml",
                                     # [M] the same on B38's jool-laythe-recorded.
                                     "V33M-jool-laythe-continuation-player-loop.toml",
+                                    # [T] its Tracking Station half (2026-11-14,
+                                    # bare, reading-pending).
+                                    "V33T-jool-laythe-continuation-ts-arrival.toml",
+                                    # [M] the Jool moon round (2026-11-14): bare,
+                                    # reading-pending, each AHEAD of its fixture
+                                    # (PENDING_FIXTURE_LANES).
+                                    "V34M-jool-vall-continuation-player-loop.toml",
+                                    "V35M-jool-tylo-continuation-player-loop.toml",
+                                    "V36M-jool-bop-continuation-player-loop.toml",
+                                    "V37M-jool-pol-continuation-player-loop.toml",
+                                    "V38M-jool-moon-tour-player-loop.toml",
+                                    "V39M-jool-laythe-bop-player-loop.toml",
                                     "V8-eve-player-loop.toml",
                                     "V24W-duna-one-warp-stair.toml",
                                     "V6M-mun-player-loop.toml",
@@ -13913,6 +13958,11 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
                                     "V7W-minmus-physics-warp.toml",
                                     # [M] arm-only floor case, Dres fixture.
                                     "V9-dres-player-loop.toml",
+                                    # [M] 2026-11-14, the far-body timeline program.
+                                    # DECLARED BARE, NEVER FLOWN: a looped Ike-orbit
+                                    # arc watched across an F5 / F9; the manifest is
+                                    # report-only until its reading run.
+                                    "FAR-6-ike-loop-watch-quickload.toml",
                                     # [M] the Dres re-aimed arrival; synthesizer runs.
                                     "V10-dres-loop-arrival.toml",
                                     # [M] arm-only floor case, Moho fixture.
@@ -25358,7 +25408,26 @@ class SharedShipsManifestTests(unittest.TestCase):
     # bytes (tree id, span envelope, both seam offsets, the segment-less tail),
     # so the two entries were deleted in the same commit - the discipline this
     # cell enforces, and it DID fire red first, for the second time.
+    #
+    # RE-ARMED 2026-11-14 by the Jool moon round (todo NEXT-TESTS-TO-BUILD-2026-11-11
+    # items 1 and 4): six loop lanes committed ahead of the forges B39-B42 / B47 / B48
+    # that produce their fixtures. Each entry is deleted in the commit that harvests
+    # its fixture and re-pins the lane off the real bytes.
     PENDING_FIXTURE_LANES = {
+        "V34M-jool-vall-continuation-player-loop.toml": "jool-vall-recorded",
+        "V35M-jool-tylo-continuation-player-loop.toml": "jool-tylo-recorded",
+        "V36M-jool-bop-continuation-player-loop.toml": "jool-bop-recorded",
+        "V37M-jool-pol-continuation-player-loop.toml": "jool-pol-recorded",
+        "V38M-jool-moon-tour-player-loop.toml": "jool-tour-recorded",
+        "V39M-jool-laythe-bop-player-loop.toml": "jool-laythe-bop-recorded",
+    # And by the moon-to-moon pairs (todo NEXT-TESTS-TO-BUILD-2026-11-11
+    # item 2): the forges B43-B46 are authored, not flown, and these four loop lanes
+    # name the fixtures their harvests will become. Each is tier "pending-fixture" with
+    # a zero placeholder tree id; its header lists the one-commit hand-over.
+        "V43M-vall-tylo-player-loop.toml":   "vall-tylo-recorded",
+        "V44M-laythe-tylo-player-loop.toml": "laythe-tylo-recorded",
+        "V45M-tylo-bop-player-loop.toml":    "tylo-bop-recorded",
+        "V46M-minmus-mun-player-loop.toml":  "minmus-mun-recorded",
     }
 
     def test_the_pending_fixture_exemption_retires_itself(self):

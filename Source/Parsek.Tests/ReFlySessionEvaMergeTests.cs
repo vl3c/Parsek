@@ -50,7 +50,6 @@ namespace Parsek.Tests
             ParsekScenario.ResetInstanceForTesting();
             SessionSuppressionState.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
-            RecalculationEngine.ClearModules();
             RouteStore.ResetForTesting();
             SupersedeCommit.ResetWorldActionSafetyCacheForTesting();
             MergeJournalOrchestrator.ResetTestOverrides();
@@ -75,7 +74,6 @@ namespace Parsek.Tests
             ParsekScenario.ResetInstanceForTesting();
             SessionSuppressionState.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
-            RecalculationEngine.ClearModules();
             RouteStore.ResetForTesting();
             SupersedeCommit.ResetWorldActionSafetyCacheForTesting();
             KspStatePatcher.ResetForTesting();

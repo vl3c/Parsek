@@ -18,11 +18,12 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class RecordThresholdCountTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private readonly List<string> logLines = new List<string>();
 
         public RecordThresholdCountTests()
         {
-            RecalculationEngine.ClearModules();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
@@ -40,7 +41,6 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
-            RecalculationEngine.ClearModules();
             GameStateRecorder.PendingMilestoneEventById.Clear();
             LedgerOrchestrator.ResetForTesting();
             KspStatePatcher.ResetForTesting();
@@ -412,8 +412,8 @@ namespace Parsek.Tests
             Assert.Equal(2, actions.Count);
 
             var module = new MilestonesModule();
-            RecalculationEngine.RegisterModule(module, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.Recalculate(actions);
+            modules.Register(module, RecalculationModuleSet.ModuleTier.FirstTier);
+            RecalculationEngine.Recalculate(modules, actions);
             int effective = module.GetEffectiveMilestoneCount("RecordsAltitude");
             Assert.Equal(bands, effective);
 
@@ -449,8 +449,8 @@ namespace Parsek.Tests
                 RecordRow("RecordsAltitude", 212.2, "recUpper", 0)
             };
             var module = new MilestonesModule();
-            RecalculationEngine.RegisterModule(module, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.Recalculate(actions);
+            modules.Register(module, RecalculationModuleSet.ModuleTier.FirstTier);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.Equal(5, module.GetEffectiveMilestoneCount("RecordsAltitude"));
         }

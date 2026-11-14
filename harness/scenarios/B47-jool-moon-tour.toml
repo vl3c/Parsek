@@ -1,0 +1,325 @@
+schema = 1
+id = "B47-jool-moon-tour"
+# =====================================================================================
+# B47: the Jool multi-moon tour forge. AUTHORED 2026-11-14, NEVER FLOWN.
+#
+# WHAT IT IS FOR. Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 1 (Group C, M-MIS-6). The
+# multi-moon configuration hold (`ArrivalHoldPlanner.ComputeMultiMoonConfigHold`,
+# docs/dev/design-mission-multimoon-alignment.md) is built and unit-tested but has
+# never had a subject: it engages only on a tree that enters TWO OR MORE moon SOIs of
+# one planet. This lane makes that tree: from the UNSTRIPPED `jool-orbit-recorded`
+# (B22's harvest, B38's start) it parks at LAYTHE, then VALL, then TYLO, and commits
+# once, at Tylo. With no StopRecording / DiscardTree the committed-spawned restore
+# resumes B22's tree (`already=true`), so all three hops are appended to the
+# Kerbin -> Jool tree `6ec68e87b782476f970a71df8c8b4685`. V38M replays it.
+#
+# ID. B43-B46 are named for todo item 2 (the moon-to-moon pairs), so the tour takes
+# B47 and its Bop variant B48.
+#
+# THE MACHINE: `b47_jool_moon_tour` (mlib `mtour_decide`), a composition of three
+# b5_decide legs, each a full B5 param table below. The composer drops the
+# mid-mission CommitTree on legs 1 and 2's park exit and hands the next leg a fresh
+# B5 machine that enters through the ORBIT-START door. `mtour_params_from_dict`
+# refuses a spec whose park band does not nest inside the next leg's entry gate.
+#   leg 1  Jool -> Laythe   B38's params (B25's, live-proven on B25 and B38) with
+#                           the park band TIGHTENED to leg 2's entry gate
+#                           (parkMaxApoapsisMeters 900,000 -> 300,000,
+#                           parkMaxEccentricity 0.25 -> 0.10). B25 parked at
+#                           87,931 x 56,240 m, ecc 0.028, well inside.
+#   leg 2  Laythe -> Vall   B26's params (live-proven flight 3) plus an ELLIPTICAL
+#                           Vall capture (captureEllipticalApoapsisMeters
+#                           1,000,000, B29's key) to save delta-v for leg 3; the
+#                           park ceiling opens to 1,600,000 m / ecc 0.65 to admit
+#                           it (delivered ecc at the 250 km request 0.405).
+#   leg 3  Vall -> Tylo     the same parent relay one moon further out. Entry gate
+#                           = leg 2's park band. Escape at 250 m/s SOI speed (the
+#                           Vall -> Tylo Hohmann needs 276 m/s in Jool's frame);
+#                           stage-2 evidence: the Jool-frame apoapsis reaches
+#                           61 Mm (Tylo's orbit is at 62.5 Mm altitude). Elliptical
+#                           Tylo capture to 6,000 km (ecc 0.714 at the 500 km
+#                           request); corrections time-triggered inside the ~78,000 s
+#                           half-transfer.
+#
+# DELTA-V (missions/lib/test_b47_jool_moon_tour.py re-derives it). The craft starts
+# with 3,967 m/s. Leg 1 is B38's hop; B26's fixture measured ~2,484 m/s left after
+# it. Leg 2 nominal: escape 587 + stage 2 ~415 (B26 flight 3) + corrections ~75 +
+# elliptical capture ~175 = ~1,250. Leg 3 nominal: escape ~75 (from the Vall
+# ellipse's periapsis) + stage 2 up to 2 x 250 + corrections up to 2 x 100 +
+# capture ~180 = ~650 worst-of-band. Nominal margin about 580 m/s; a worst case on
+# every band (B26's 900 m/s stage-2 ceiling plus full corrections on both legs)
+# goes negative, which the first flight measures.
+#
+# WHAT IS NOT KNOWN UNTIL IT FLIES: whether the leg-1 Laythe park lands under the
+# 300 km ceiling (B25's did), whether the relay escape from an ELLIPTICAL moon park
+# behaves as from B26's near-circular one, whether MechJeb's moon-path
+# OperationTransfer plans Vall -> Tylo from the delivered Jool orbit, an early
+# Laythe / Vall re-encounter on the stage-2 coasts (poisoned below as a Bop / Pol
+# SOI entry is), and the total delta-v.
+#
+# HARVEST after a green flight, from the run's own snapshot, never `--force`:
+#   python tools/harvest_bdock_station.py --save-dir results/<runId>_save
+#       --target-name jool-tour-recorded --expect-situation ORBITING --keep-parsek
+# then commit the fixture and drop V38M from PENDING_FIXTURE_LANES
+# (harness/lib/test_hlib.py), re-pinning its count window from the harvest.
+# =====================================================================================
+tier = "operator"
+description = "AUTHORED 2026-11-14, NEVER FLOWN. The Jool multi-moon tour forge (M-MIS-6): from the UNSTRIPPED `jool-orbit-recorded`, one composed machine (b47_jool_moon_tour) parks at Laythe (B25's leg), Vall (B26's parent relay with an elliptical capture) and Tylo (the relay again), dropping the mid-mission commit on the first two parks and committing once at Tylo. No StopRecording/DiscardTree, so all three hops join the Kerbin->Jool tree 6ec68e87. Produces `jool-tour-recorded`, the multi-moon configuration hold's first subject, for V38M."
+instanceProfile = "stock-minimal"
+tags = ["B47", "laythe", "vall", "tylo", "jool", "moon", "jool-moon", "moon-tour", "moon-to-moon", "orbit", "mechjeb", "cross-soi", "capture", "commit-in-foreign-soi", "orbit-start", "tree-continuation", "multi-moon-hold", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/jool-orbit-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "b47_jool_moon_tour"
+
+# `steps` MUST stay above the [driver.missionParams] header. B38's preamble.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },   expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "StartRecording",                                                    expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 9000 },
+  { cmd = "FlushAndQuit",                                                      expect = "OK" },
+]
+
+# One table per leg, in flight order (b47_jool_moon_tour.schema.toml).
+[[driver.missionParams.legs]]
+startInOrbit                    = true
+startInOrbitMinPeriapsisMeters  = 250000000
+startInOrbitMaxApoapsisMeters   = 800000000
+startInOrbitMaxEccentricity     = 0.05
+startInOrbitSituations          = ["ORBITING"]
+startInOrbitDebounceFrames      = 3
+startInOrbitSettleSeconds       = 120
+homeBodyName                    = "Jool"
+targetBodyName                  = "Laythe"
+interplanetaryTransfer          = false
+returnBodyName                  = "Jool"
+transferMinApoapsisMeters       = 0
+ejectionEccFloor                = 0.55
+courseCorrectPeriapsisMeters    = 250000
+correctionTriggerAltsMeters     = [0]
+planTimeoutSeconds              = 300
+planRetrySeconds                = 10
+planWarpFactor                  = 2
+transferBurnTimeoutSeconds      = 300000
+coastTimeoutSeconds             = 4000000
+flybyTimeoutSeconds             = 60000
+coastWarpFactor                 = 5
+soiLeadSeconds                  = 3000
+approachWindowSeconds           = 10000
+approachMaxWarpFactor           = 3
+flybyWarpFactor                 = 2
+flybyMaxWarpFactor              = 3
+nodeArrivalMarginSeconds        = 15
+flipPhysicsWarpFactor           = 1
+targetPeriapsisFloorMeters      = 60000
+captureEnabled                  = true
+capturePlanTimeoutSeconds       = 300
+captureBurnTimeoutSeconds       = 60000
+parkMinPeriapsisMeters          = 52000
+parkMaxApoapsisMeters           = 300000
+parkMaxEccentricity             = 0.10
+parkMaxAngularVelocityRadPerSec = 0.05
+parkSituations                  = ["ORBITING"]
+parkDwellSeconds                = 60
+parkDebounceFrames              = 3
+parkTimeoutSeconds              = 600
+commitTimeoutSeconds            = 300
+burnStagnantSeconds             = 120
+burnNoStartSeconds              = 600
+correctionThrottle              = 0.25
+correctionCutDvMps              = 2.0
+correctionSettleSeconds         = 10
+maxAttitudeErrorDeg             = 30
+frozenTelemetrySamples          = 10
+maxCorrectionDvMps              = 200
+
+[[driver.missionParams.legs]]
+startInOrbit                      = true
+startInOrbitMinPeriapsisMeters    = 52000
+startInOrbitMaxApoapsisMeters     = 300000
+startInOrbitMaxEccentricity       = 0.10
+startInOrbitSituations            = ["ORBITING"]
+startInOrbitDebounceFrames        = 3
+startInOrbitSettleSeconds         = 120
+homeBodyName                      = "Laythe"
+targetBodyName                    = "Vall"
+interplanetaryTransfer            = true
+parentRelayTransfer               = true
+escapeSoiSpeedMps                 = 450
+escapeMaxDeltaVMps                = 700
+escapeNodeMinLeadSeconds          = 300
+escapeTimeoutSeconds              = 2400
+returnBodyName                    = "Jool"
+viaBodyNames                      = ["Jool"]
+transferMinApoapsisMeters         = 36000000
+ejectionEccFloor                  = 0
+courseCorrectPeriapsisMeters      = 250000
+correctionTriggerTimeToSoiSeconds = [35000, 8000]
+correctionTriggerAltsMeters       = []
+planTimeoutSeconds                = 300
+planRetrySeconds                  = 10
+planWarpFactor                    = 2
+transferBurnTimeoutSeconds        = 600000
+coastTimeoutSeconds               = 600000
+flybyTimeoutSeconds               = 60000
+coastWarpFactor                   = 5
+soiLeadSeconds                    = 3000
+approachWindowSeconds             = 10000
+approachMaxWarpFactor             = 3
+soiNativeLeadSeconds              = 400
+triggerNativeLeadSeconds          = 30
+flybyWarpFactor                   = 2
+flybyMaxWarpFactor                = 3
+nodeArrivalMarginSeconds          = 15
+flipPhysicsWarpFactor             = 1
+targetPeriapsisFloorMeters        = 30000
+captureEnabled                    = true
+captureEllipticalApoapsisMeters   = 1000000
+capturePlanTimeoutSeconds         = 300
+captureBurnTimeoutSeconds         = 60000
+parkMinPeriapsisMeters            = 20000
+parkMaxApoapsisMeters             = 1600000
+parkMaxEccentricity               = 0.65
+parkMaxAngularVelocityRadPerSec   = 0.05
+parkSituations                    = ["ORBITING"]
+parkDwellSeconds                  = 60
+parkDebounceFrames                = 3
+parkTimeoutSeconds                = 600
+commitTimeoutSeconds              = 300
+burnStagnantSeconds               = 120
+burnNoStartSeconds                = 600
+correctionThrottle                = 0.25
+correctionCutDvMps                = 2.0
+correctionSettleSeconds           = 10
+maxAttitudeErrorDeg               = 30
+frozenTelemetrySamples            = 10
+maxCorrectionDvMps                = 100
+
+[[driver.missionParams.legs]]
+startInOrbit                      = true
+startInOrbitMinPeriapsisMeters    = 20000
+startInOrbitMaxApoapsisMeters     = 1600000
+startInOrbitMaxEccentricity       = 0.65
+startInOrbitSituations            = ["ORBITING"]
+startInOrbitDebounceFrames        = 3
+startInOrbitSettleSeconds         = 120
+homeBodyName                      = "Vall"
+targetBodyName                    = "Tylo"
+interplanetaryTransfer            = true
+parentRelayTransfer               = true
+escapeSoiSpeedMps                 = 250
+escapeMaxDeltaVMps                = 400
+escapeNodeMinLeadSeconds          = 300
+escapeTimeoutSeconds              = 20000
+returnBodyName                    = "Jool"
+viaBodyNames                      = ["Jool"]
+transferMinApoapsisMeters         = 61000000
+ejectionEccFloor                  = 0
+courseCorrectPeriapsisMeters      = 500000
+correctionTriggerTimeToSoiSeconds = [70000, 8000]
+correctionTriggerAltsMeters       = []
+planTimeoutSeconds                = 300
+planRetrySeconds                  = 10
+planWarpFactor                    = 2
+transferBurnTimeoutSeconds        = 600000
+coastTimeoutSeconds               = 1000000
+flybyTimeoutSeconds               = 60000
+coastWarpFactor                   = 5
+soiLeadSeconds                    = 3000
+approachWindowSeconds             = 10000
+approachMaxWarpFactor             = 3
+soiNativeLeadSeconds              = 400
+triggerNativeLeadSeconds          = 30
+flybyWarpFactor                   = 2
+flybyMaxWarpFactor                = 3
+nodeArrivalMarginSeconds          = 15
+flipPhysicsWarpFactor             = 1
+targetPeriapsisFloorMeters        = 40000
+captureEnabled                    = true
+captureEllipticalApoapsisMeters   = 6000000
+capturePlanTimeoutSeconds         = 300
+captureBurnTimeoutSeconds         = 60000
+parkMinPeriapsisMeters            = 15000
+parkMaxApoapsisMeters             = 9000000
+parkMaxEccentricity               = 0.9
+parkMaxAngularVelocityRadPerSec   = 0.05
+parkSituations                    = ["ORBITING"]
+parkDwellSeconds                  = 60
+parkDebounceFrames                = 3
+parkTimeoutSeconds                = 600
+commitTimeoutSeconds              = 300
+burnStagnantSeconds               = 120
+burnNoStartSeconds                = 600
+correctionThrottle                = 0.25
+correctionCutDvMps                = 2.0
+correctionSettleSeconds           = 10
+maxAttitudeErrorDeg               = 30
+frozenTelemetrySamples            = 10
+maxCorrectionDvMps                = 100
+
+[dimensionsCovered]
+D1  = ["commit-in-foreign-soi"]
+D14 = ["jool", "laythe", "vall", "tylo", "warp-rails", "scene-flight", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# DERIVED, not measured: B38 read 7 (the pad head, Kerbin->Jool, the hop); B26's one
+# relay recording kept both body-change seams cohesive, so the tour adds 0-5 more.
+# Re-pin from the first reading.
+count = { min = 5, max = 12 }
+
+[expectations.logContracts]
+# Tree identity, as B38, and each of the five crossings recorded INTO tree 6ec68e87.
+# Bop and Pol are poisons (no leg goes near them).
+required  = [
+  "Recording started",
+  "Recording stopped",
+  "TryRestoreCommittedTreeForSpawnedActiveVessel: restored tree 'Duna Rocket'",
+  "startrecording recordingId=\\w+ already=true",
+  "SOI change boundary suppressed in tree mode: Jool to Laythe \\(tree=6ec68e87b782476f970a71df8c8b4685,",
+  "SOI change boundary suppressed in tree mode: Laythe to Jool \\(tree=6ec68e87b782476f970a71df8c8b4685,",
+  "SOI change boundary suppressed in tree mode: Jool to Vall \\(tree=6ec68e87b782476f970a71df8c8b4685,",
+  "SOI change boundary suppressed in tree mode: Vall to Jool \\(tree=6ec68e87b782476f970a71df8c8b4685,",
+  "SOI change boundary suppressed in tree mode: Jool to Tylo \\(tree=6ec68e87b782476f970a71df8c8b4685,",
+  "CommitTreeFlight: starting tree commit at UT=",
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Tylo",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "startrecording recordingId=\\w+ already=false",
+  "discardtree discarded=true",
+  "SOI change boundary suppressed in tree mode: \\w+ to Bop",
+  "SOI change boundary suppressed in tree mode: Bop to \\w+",
+  "SOI change boundary suppressed in tree mode: \\w+ to Pol",
+  "SOI change boundary suppressed in tree mode: Pol to \\w+",
+  "SOI change boundary suppressed in tree mode: Tylo to \\w+",
+]
+
+[expectations.rewind]
+# REPORT-ONLY until a reading (B38 and B26 read 0 / 0 / 0).
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+# REPORT-ONLY. One committed tree is the save-side proof the tour joined B22's tree.
+committedTrees = { min = 1, max = 1 }
+
+[runtime]
+# 300 LoadGame + 9,000 mission (B38 632 s + B26 1,408 s measured walls, leg 3 sized
+# like B26, x2 for the first flight) + tail.
+budgetSeconds = 9600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

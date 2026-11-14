@@ -7,6 +7,8 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class GameStateEventConverterTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private readonly List<string> logLines = new List<string>();
 
         public GameStateEventConverterTests()
@@ -937,15 +939,15 @@ namespace Parsek.Tests
             Assert.Equal("A", a.RecordingId);
 
             var science = new ScienceModule();
-            RecalculationEngine.ClearModules();
+            modules.Clear();
             try
             {
-                RecalculationEngine.RegisterModule(science, RecalculationEngine.ModuleTier.FirstTier);
-                RecalculationEngine.Recalculate(new List<GameAction> { a, b });
+                modules.Register(science, RecalculationModuleSet.ModuleTier.FirstTier);
+                RecalculationEngine.Recalculate(modules, new List<GameAction> { a, b });
             }
             finally
             {
-                RecalculationEngine.ClearModules();
+                modules.Clear();
             }
 
             Assert.Equal(10f, b.EffectiveScience);
@@ -964,15 +966,15 @@ namespace Parsek.Tests
                     }
                 }, "B", 380.0, 420.0));
             var science2 = new ScienceModule();
-            RecalculationEngine.ClearModules();
+            modules.Clear();
             try
             {
-                RecalculationEngine.RegisterModule(science2, RecalculationEngine.ModuleTier.FirstTier);
-                RecalculationEngine.Recalculate(new List<GameAction> { b2, a });
+                modules.Register(science2, RecalculationModuleSet.ModuleTier.FirstTier);
+                RecalculationEngine.Recalculate(modules, new List<GameAction> { b2, a });
             }
             finally
             {
-                RecalculationEngine.ClearModules();
+                modules.Clear();
             }
 
             Assert.Equal(10f, a.EffectiveScience);

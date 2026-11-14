@@ -366,7 +366,7 @@ class ParamsTests(unittest.TestCase):
     def test_refusals(self):
         bad = ({"captureEnabled": False}, {"landingEnabled": True},
                {"interplanetaryTransfer": True}, {"targetBodyName": "Kerbin"},
-               {"targetBodyName": "Vall"},
+               {"targetBodyName": "Pol"},   # a body with no STOCK_BODY_GRAVITY row
                {"departPeriapsisMeters": 60000}, {"departMaxDvMps": 0},
                {"sciHighExperiments": []}, {"sciLowExperiments": ["evaReport"]},
                {"sciLowMaxApoapsisMeters": 75000}, {"sciLowApoapsisMeters": 25000},

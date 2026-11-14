@@ -14,6 +14,8 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class RewindTopUpMilestoneTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private readonly List<string> logLines = new List<string>();
         private readonly MilestonesModule milestones = new MilestonesModule();
         private readonly FundsModule funds = new FundsModule();
@@ -27,16 +29,14 @@ namespace Parsek.Tests
             ParsekLog.VerboseOverrideForTesting = true;
             KspStatePatcher.AllowNegativeCurrencyProviderForTesting = () => false;
             Ledger.ResetForTesting();
-            RecalculationEngine.ClearModules();
-            RecalculationEngine.RegisterModule(milestones, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(science, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(rep, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(milestones, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(science, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(funds, RecalculationModuleSet.ModuleTier.SecondTier);
+            modules.Register(rep, RecalculationModuleSet.ModuleTier.SecondTier);
         }
 
         public void Dispose()
         {
-            RecalculationEngine.ClearModules();
             KspStatePatcher.AllowNegativeCurrencyProviderForTesting = null;
             Ledger.ResetForTesting();
             ParsekLog.ResetTestOverrides();
@@ -73,7 +73,7 @@ namespace Parsek.Tests
         {
             var actions = Seeds();
             actions.AddRange(rows);
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             return funds.GetRunningBalance() - 100000.0;
         }
 

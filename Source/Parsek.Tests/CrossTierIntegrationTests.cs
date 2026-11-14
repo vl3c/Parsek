@@ -6,15 +6,15 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class CrossTierIntegrationTests : System.IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         public CrossTierIntegrationTests()
         {
             ParsekLog.SuppressLogging = true;
-            RecalculationEngine.ClearModules();
         }
 
         public void Dispose()
         {
-            RecalculationEngine.ClearModules();
             ParsekLog.SuppressLogging = false;
         }
 
@@ -23,8 +23,8 @@ namespace Parsek.Tests
         {
             var milestones = new MilestonesModule();
             var funds = new FundsModule();
-            RecalculationEngine.RegisterModule(milestones, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(milestones, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(funds, RecalculationModuleSet.ModuleTier.SecondTier);
 
             var actions = new List<GameAction>
             {
@@ -32,7 +32,7 @@ namespace Parsek.Tests
                 new GameAction { UT = 100, Type = GameActionType.MilestoneAchievement, MilestoneId = "FirstOrbit", MilestoneFundsAwarded = 5000, MilestoneRepAwarded = 10 }
             };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.Equal(30000.0, funds.GetRunningBalance(), 1);
             Assert.True(milestones.IsMilestoneCredited("FirstOrbit"));
@@ -43,8 +43,8 @@ namespace Parsek.Tests
         {
             var milestones = new MilestonesModule();
             var funds = new FundsModule();
-            RecalculationEngine.RegisterModule(milestones, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(milestones, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(funds, RecalculationModuleSet.ModuleTier.SecondTier);
 
             var actions = new List<GameAction>
             {
@@ -53,7 +53,7 @@ namespace Parsek.Tests
                 new GameAction { UT = 200, Type = GameActionType.MilestoneAchievement, MilestoneId = "FirstOrbit", MilestoneFundsAwarded = 5000 }
             };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             // Only first milestone credited
             Assert.Equal(30000.0, funds.GetRunningBalance(), 1);
@@ -64,8 +64,8 @@ namespace Parsek.Tests
         {
             var milestones = new MilestonesModule();
             var funds = new FundsModule();
-            RecalculationEngine.RegisterModule(milestones, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(milestones, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(funds, RecalculationModuleSet.ModuleTier.SecondTier);
 
             var actions = new List<GameAction>
             {
@@ -74,11 +74,11 @@ namespace Parsek.Tests
                 new GameAction { UT = 200, Type = GameActionType.FundsSpending, FundsSpent = 10000 }
             };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             double balance1 = funds.GetRunningBalance();
             bool effective1 = actions[1].Effective;
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             double balance2 = funds.GetRunningBalance();
             bool effective2 = actions[1].Effective;
 
@@ -94,8 +94,8 @@ namespace Parsek.Tests
             // a spending that WAS affordable becomes unaffordable when milestone is a duplicate.
             var milestones = new MilestonesModule();
             var funds = new FundsModule();
-            RecalculationEngine.RegisterModule(milestones, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(milestones, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(funds, RecalculationModuleSet.ModuleTier.SecondTier);
 
             // Start with 10000, milestone gives 20000, spending costs 25000.
             // With milestone: balance = 10000 + 20000 - 25000 = 5000 (affordable)
@@ -108,7 +108,7 @@ namespace Parsek.Tests
                 new GameAction { UT = 200, Type = GameActionType.FundsSpending, FundsSpent = 25000 }
             };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.True(actions[1].Effective, "First milestone should be effective");
             Assert.True(actions[2].Affordable, "Spending should be affordable with milestone funds");
@@ -122,7 +122,7 @@ namespace Parsek.Tests
                 MilestoneId = "FirstOrbit", RecordingId = "rec0", MilestoneFundsAwarded = 20000
             });
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             // The UT=50 milestone is now effective (it's first chronologically),
             // the UT=100 milestone is the duplicate.
@@ -155,11 +155,11 @@ namespace Parsek.Tests
             var funds = new FundsModule();
             var reputation = new ReputationModule();
 
-            RecalculationEngine.RegisterModule(contracts, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(science, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(strategies, RecalculationEngine.ModuleTier.Strategy);
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(reputation, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(contracts, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(science, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(strategies, RecalculationModuleSet.ModuleTier.Strategy);
+            modules.Register(funds, RecalculationModuleSet.ModuleTier.SecondTier);
+            modules.Register(reputation, RecalculationModuleSet.ModuleTier.SecondTier);
 
             var actions = new List<GameAction>
             {
@@ -174,7 +174,7 @@ namespace Parsek.Tests
                     FundsReward = 10000, ScienceReward = 0, RepReward = 5 }
             };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             var complete = actions.Find(a => a.Type == GameActionType.ContractComplete);
             Assert.True(complete.Effective);
@@ -204,11 +204,11 @@ namespace Parsek.Tests
             var funds = new FundsModule();
             var reputation = new ReputationModule();
 
-            RecalculationEngine.RegisterModule(contracts, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(science, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(strategies, RecalculationEngine.ModuleTier.Strategy);
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(reputation, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(contracts, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(science, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(strategies, RecalculationModuleSet.ModuleTier.Strategy);
+            modules.Register(funds, RecalculationModuleSet.ModuleTier.SecondTier);
+            modules.Register(reputation, RecalculationModuleSet.ModuleTier.SecondTier);
 
             var actions = new List<GameAction>
             {
@@ -221,7 +221,7 @@ namespace Parsek.Tests
                     FundsReward = 5000, ScienceReward = 100, RepReward = 10 }
             };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             var complete = actions.Find(a => a.Type == GameActionType.ContractComplete);
             Assert.True(complete.Effective);

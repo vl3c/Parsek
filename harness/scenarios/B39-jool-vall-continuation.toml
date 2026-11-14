@@ -1,0 +1,183 @@
+schema = 1
+id = "B39-jool-vall-continuation"
+# =====================================================================================
+# B39: the Kerbin -> Jool -> Vall forge. AUTHORED 2026-11-14, NEVER FLOWN.
+#
+# WHAT IT IS FOR. Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 4: the Jool park -> one
+# moon continuations. B38's shape exactly (read its header): the b25_laythe_orbit
+# machine flown from the UNSTRIPPED `jool-orbit-recorded` (B22's harvest) with no
+# StopRecording / DiscardTree, so the committed-spawned restore resumes B22's tree
+# and the seam StartRecording answers `already=true`. The Vall hop is appended to
+# the Kerbin -> Jool tree `6ec68e87b782476f970a71df8c8b4685`, giving one tree that
+# crosses Jool's SOI and Vall's: the lone-moon arrival hold's subject, replayed by
+# V34M.
+#
+# THE PARAMETERS: Vall's own sizing (no Vall park lane exists; derivation below).
+# `jool-orbit-recorded` is byte-identical to `jool-park-nerv` outside the
+# ParsekScenario node (B38's diff), so the park the machine starts from is the one
+# those params were sized for: SMA 590,325,784.59 m, ECC 7.94e-06 around Jool, 3,967
+# m/s available. missions/lib/test_jool_moon_orbits.py sizes them.
+#
+# THE VALL SIZING (no Vall park lane exists, so these numbers are new; checked by
+# missions/lib/test_jool_moon_orbits.py, the same cells B33-B35 pass). B25's Laythe
+# set with two keys moved, both for Vall's floor: Vall a = 43,152,000 m (circular,
+# i 0), R 300 km, SOI 2,406,401.4 m, highest terrain ~8.0 km.
+#   transfer ecc from the 590.33 Mm park = 0.864, so the 0.55 ejection floor sits
+#     between the park (ecc <= 0.05) and the whole transfer band.
+#   courseCorrectPeriapsisMeters 250,000 (B26's Vall request, which delivered
+#     168,783 m, k 0.675): 3x long = 750 km is still inside the SOI and 0.29x short
+#     = 72.5 km clears the floor.
+#   targetPeriapsisFloorMeters 30,000 and parkMinPeriapsisMeters 20,000 (B26's Vall
+#     pair), both above the ~8 km terrain; parkMaxApoapsisMeters 900,000 >= 3x the
+#     request.
+#   transferBurnTimeoutSeconds 300,000 > 2 synodic waits (park vs Vall 108,100 s);
+#     coastTimeoutSeconds 4,000,000 > 2 half-transfers (1,053,600 s).
+#   dv: ejection 436 + capture at the 30 km floor with a 1,100 m/s worst v_inf 778
+#     + 4 x 200 corrections = 2,014 m/s against 3,967 available (75% = 2,975).
+#
+# Fast-lane checklist: B38's preamble, B25's measured machine, no b5 lead (the only
+# crossing is the target approach). Items 7-9 wait on the first flight.
+#
+# HARVEST after a green flight, from the run's own snapshot, never `--force`:
+#   python tools/harvest_bdock_station.py --save-dir results/<runId>_save
+#       --target-name jool-vall-recorded --expect-situation ORBITING --keep-parsek
+# then commit the fixture and drop V34M from PENDING_FIXTURE_LANES
+# (harness/lib/test_hlib.py), re-pinning its count window from the harvest.
+# =====================================================================================
+tier = "operator"
+description = "AUTHORED 2026-11-14, NEVER FLOWN. The Kerbin->Jool->Vall forge for the lone-moon arrival hold, B38's shape: the b25_laythe_orbit machine re-pointed at Vall, flown from the UNSTRIPPED `jool-orbit-recorded` with no StopRecording/DiscardTree, so the committed-spawned restore resumes B22's tree and the seam StartRecording answers `already=true`. The Vall hop is appended to the Kerbin->Jool tree 6ec68e87. Produces the `jool-vall-recorded` fixture for the V34M loop lane."
+instanceProfile = "stock-minimal"
+tags = ["B39", "vall", "jool", "moon", "jool-moon", "orbit", "mechjeb", "cross-soi", "capture", "commit-in-foreign-soi", "orbit-start", "inward-transfer", "tree-continuation", "lone-moon-hold", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/jool-orbit-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "b25_laythe_orbit"
+
+# `steps` MUST stay above the [driver.missionParams] header. No kill pair: see the
+# header. StartRecording is kept as the seam's own evidence (`already=true`).
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },   expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "StartRecording",                                                    expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 5400 },
+  { cmd = "FlushAndQuit",                                                      expect = "OK" },
+]
+
+[driver.missionParams]
+startInOrbit                    = true
+startInOrbitMinPeriapsisMeters  = 250000000
+startInOrbitMaxApoapsisMeters   = 800000000
+startInOrbitMaxEccentricity     = 0.05
+startInOrbitSituations          = ["ORBITING"]
+startInOrbitDebounceFrames      = 3
+startInOrbitSettleSeconds       = 120
+homeBodyName               = "Jool"
+targetBodyName             = "Vall"
+interplanetaryTransfer     = false
+returnBodyName             = "Jool"
+transferMinApoapsisMeters  = 0
+ejectionEccFloor           = 0.55
+courseCorrectPeriapsisMeters = 250000
+correctionTriggerAltsMeters = [0]
+planTimeoutSeconds         = 300
+planRetrySeconds           = 10
+planWarpFactor             = 2
+transferBurnTimeoutSeconds = 300000
+coastTimeoutSeconds        = 4000000
+flybyTimeoutSeconds        = 60000
+coastWarpFactor            = 5
+soiLeadSeconds             = 3000
+approachWindowSeconds      = 10000
+approachMaxWarpFactor      = 3
+flybyWarpFactor            = 2
+flybyMaxWarpFactor         = 3
+nodeArrivalMarginSeconds   = 15
+flipPhysicsWarpFactor      = 1
+targetPeriapsisFloorMeters = 30000
+captureEnabled             = true
+capturePlanTimeoutSeconds  = 300
+captureBurnTimeoutSeconds  = 60000
+parkMinPeriapsisMeters     = 20000
+parkMaxApoapsisMeters      = 900000
+parkMaxEccentricity        = 0.25
+parkMaxAngularVelocityRadPerSec = 0.05
+parkSituations             = ["ORBITING"]
+parkDwellSeconds           = 60
+parkDebounceFrames         = 3
+parkTimeoutSeconds         = 600
+commitTimeoutSeconds       = 300
+burnStagnantSeconds        = 120
+burnNoStartSeconds         = 600
+correctionThrottle         = 0.25
+correctionCutDvMps         = 2.0
+correctionSettleSeconds    = 10
+maxAttitudeErrorDeg        = 30
+frozenTelemetrySamples     = 10
+maxCorrectionDvMps         = 200
+
+# B38's claims, gated by the same tokens below.
+[dimensionsCovered]
+D1  = ["commit-in-foreign-soi"]
+D14 = ["jool", "vall", "warp-rails", "scene-flight", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# DERIVED from B38, not measured: B38 read 7 recordings in the one tree (the pad
+# head, Kerbin->Jool and the hop after the commit-time re-split). Re-pin from the
+# first reading.
+count = { min = 5, max = 9 }
+
+[expectations.logContracts]
+# Tree identity, as B38: the restore took B22's tree back, the seam found the
+# recorder already live, and the Vall crossing was recorded INTO tree 6ec68e87.
+# Every other Jool moon is a poison (the inward transfer crosses their shells).
+required  = [
+  "Recording started",
+  "Recording stopped",
+  "TryRestoreCommittedTreeForSpawnedActiveVessel: restored tree 'Duna Rocket'",
+  "startrecording recordingId=\\w+ already=true",
+  "SOI change boundary suppressed in tree mode: Jool to Vall \\(tree=6ec68e87b782476f970a71df8c8b4685,",
+  "CommitTreeFlight: starting tree commit at UT=",
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Vall",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "startrecording recordingId=\\w+ already=false",
+  "discardtree discarded=true",
+  "SOI change boundary suppressed in tree mode: \\w+ to Laythe",
+  "SOI change boundary suppressed in tree mode: Laythe to \\w+",
+  "SOI change boundary suppressed in tree mode: \\w+ to Tylo",
+  "SOI change boundary suppressed in tree mode: Tylo to \\w+",
+  "SOI change boundary suppressed in tree mode: \\w+ to Bop",
+  "SOI change boundary suppressed in tree mode: Bop to \\w+",
+  "SOI change boundary suppressed in tree mode: \\w+ to Pol",
+  "SOI change boundary suppressed in tree mode: Pol to \\w+",
+]
+
+[expectations.rewind]
+# REPORT-ONLY until a reading (B38 read 0 / 0 / 0).
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+# REPORT-ONLY. One committed tree is the save-side proof the hop joined B22's tree.
+committedTrees = { min = 1, max = 1 }
+
+[runtime]
+# B38's arithmetic: 300 LoadGame + 5,400 mission + tail.
+budgetSeconds = 6000
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

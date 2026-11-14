@@ -56,11 +56,11 @@ namespace Parsek.Tests
             LaunchReservation.ResetForTesting();
             KerbalHirePatch.HireCostProviderForTesting = null;
             KspStatePatcher.AllowNegativeCurrencyProviderForTesting = () => false;
-            RecalculationEngine.ClearModules();
-            RecalculationEngine.RegisterModule(science, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(contracts, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(reputation, RecalculationEngine.ModuleTier.SecondTier);
+            LedgerOrchestrator.Modules.Clear();
+            LedgerOrchestrator.Modules.Register(science, RecalculationModuleSet.ModuleTier.FirstTier);
+            LedgerOrchestrator.Modules.Register(contracts, RecalculationModuleSet.ModuleTier.FirstTier);
+            LedgerOrchestrator.Modules.Register(funds, RecalculationModuleSet.ModuleTier.SecondTier);
+            LedgerOrchestrator.Modules.Register(reputation, RecalculationModuleSet.ModuleTier.SecondTier);
             CommittedFutureIndexCache.NowUtProviderForTesting = () => Now;
             ClickReservationGate.LivePoolProviderForTesting = pool =>
                 pool == StockPool.Funds ? liveFunds : pool == StockPool.Science ? liveScience : liveRep;
@@ -78,7 +78,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             CommittedActionDialog.TestHookForTesting = null;
-            RecalculationEngine.ClearModules();
+            LedgerOrchestrator.Modules.Clear();
             KspStatePatcher.AllowNegativeCurrencyProviderForTesting = null;
             KerbalHirePatch.HireCostProviderForTesting = null;
             ClickReservationGate.ResetForTesting();

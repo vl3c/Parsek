@@ -40,7 +40,7 @@ namespace Parsek.Tests
             GameStateStore.SuppressLogging = true;
             GameStateStore.ResetForTesting();
             CrewReservationManager.ResetReplacementsForTesting();
-            RecalculationEngine.ClearModules();
+            LedgerOrchestrator.Modules.Clear();
             LedgerOrchestrator.SetKerbalsForTesting(new KerbalsModule());
             // The seam reaches the crew-end-state invalidation through
             // Recording.OnTerminalStamped. Production installs it from the Harmony startup
@@ -52,7 +52,7 @@ namespace Parsek.Tests
         public void Dispose()
         {
             LedgerOrchestrator.SetKerbalsForTesting(new KerbalsModule());
-            RecalculationEngine.ClearModules();
+            LedgerOrchestrator.Modules.Clear();
             CrewReservationManager.ResetReplacementsForTesting();
             GameStateStore.ResetForTesting();
             RecordingStore.ResetForTesting();

@@ -834,6 +834,31 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # decouples B30 from V6M/V6T, whose jump UTs are calibrated off
         # `mun-orbit-recorded`'s exact bytes.
         "mun-park-kerbalx": True,
+        # THE SIXTH TO EIGHTH PARSEK-STRIPPED DERIVED FIXTURES, the hosts of the
+        # moon-to-moon pair forges (todo NEXT-TESTS-TO-BUILD-2026-11-11 item 2), cut
+        # with the same "drop every ParsekScenario child, keep the node, retitle"
+        # recipe (re-run 2026-11-14 against `mun-orbit-recorded`, it reproduces
+        # `mun-park-kerbalx` byte for byte). `persistent.loadmeta` and `AddOns/` are
+        # copied unchanged; no `Parsek/` directory.
+        #   `vall-park-nerv`      from `vall-transfer-recorded` (B26's product, V17's
+        #                         subject): RECORDING_TREE, KERBAL_SLOTS,
+        #                         CREW_REPLACEMENTS, MILESTONE_STATE x3. Host of B43.
+        #   `tylo-park-nerv`      from `tylo-orbit-recorded` (B33's product, V28's
+        #                         subject): the same four types, MILESTONE_STATE x2.
+        #                         Host of B45.
+        #   `minmus-park-kerbalx` from `minmus-orbit-recorded` (B12's product, V7's
+        #                         subject): the four plus GROUP_HIERARCHY,
+        #                         MILESTONE_STATE x2. Host of B46.
+        # WHY THE STRIP IS LOAD-BEARING: each forge starts its recording through the
+        # seam on a vessel the source save holds a COMMITTED TREE for, and a seam
+        # StartRecording cannot open a standalone tree on a committed tree's own
+        # launch (measured, B23 flight 1). A fresh tree is also what makes the forge's
+        # product MOON-ROOTED, the shape the loop lanes V43M-V46M read (rule 4a,
+        # `MissionPeriodicity.ResolveMoonRootedFrameParent`): the source trees all
+        # start at Kerbin.
+        "vall-park-nerv": True,
+        "tylo-park-nerv": True,
+        "minmus-park-kerbalx": True,
         "eva2-lko-crewed": True,
         "eva3-pad-3crew": True,
         # `eva3-pad-3crew` plus a crewless rover clone parked 153 m off the pad, the
@@ -4074,6 +4099,9 @@ class CommittedFixtureSweepTests(unittest.TestCase):
     RECORDED_FIXTURES["depot-route-recorded-career"] = RECORDED_FIXTURES["depot-route-recorded"]
     RECORDED_FIXTURES["bdock-recorded-career"] = RECORDED_FIXTURES["bdock-recorded"]
     RECORDED_FIXTURES["rover-route-recorded-career"] = RECORDED_FIXTURES["rover-route-recorded"]
+    # The far-body timeline lanes' career host (FAR-1, FAR-3): the same builder over
+    # duna-ike-recorded, so it pins its source's payload the same way.
+    RECORDED_FIXTURES["duna-ike-recorded-career"] = RECORDED_FIXTURES["duna-ike-recorded"]
     # TOUR-1's host, built by harness/tools/build_tourist_splashdown_career.py: the same
     # career conversion plus a seated tourist, her Active contract and its accept row;
     # the ParsekScenario node and every recording sidecar stay byte-identical (gated by

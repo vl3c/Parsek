@@ -26,6 +26,8 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class ReFlyDiscardPoolReferenceTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private readonly List<string> logLines = new List<string>();
         private readonly List<GameAction> ledger = new List<GameAction>();
         private readonly FundsModule funds = new FundsModule();
@@ -53,16 +55,14 @@ namespace Parsek.Tests
             KspStatePatcher.AllowNegativeCurrencyProviderForTesting = () => false;
             StockPoolReference.ResetForTesting();
             Ledger.ResetForTesting();
-            RecalculationEngine.ClearModules();
-            RecalculationEngine.RegisterModule(science, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(contracts, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(reputation, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(science, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(contracts, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(funds, RecalculationModuleSet.ModuleTier.SecondTier);
+            modules.Register(reputation, RecalculationModuleSet.ModuleTier.SecondTier);
         }
 
         public void Dispose()
         {
-            RecalculationEngine.ClearModules();
             KspStatePatcher.AllowNegativeCurrencyProviderForTesting = null;
             StockPoolReference.ResetForTesting();
             Ledger.ResetForTesting();
@@ -89,7 +89,7 @@ namespace Parsek.Tests
 
         private double PatchFunds(double now, double live, bool authoritative = false)
         {
-            RecalculationEngine.Recalculate(ledger.ToList(), now);
+            RecalculationEngine.Recalculate(modules, ledger.ToList(), now);
             var state = StockPoolReference.Funds;
             List<StockPoolRow> rows = StockPoolReference.BuildRows(StockPool.Funds, ledger, funds.GetRowEffects());
             double min = funds.GetProjectionMinBalance();
@@ -106,7 +106,7 @@ namespace Parsek.Tests
 
         private double PatchScience(double now, double live, bool authoritative = false)
         {
-            RecalculationEngine.Recalculate(ledger.ToList(), now);
+            RecalculationEngine.Recalculate(modules, ledger.ToList(), now);
             var state = StockPoolReference.Science;
             List<StockPoolRow> rows = StockPoolReference.BuildRows(StockPool.Science, ledger, science.GetRowEffects());
             double min = science.GetProjectionMinBalance();
