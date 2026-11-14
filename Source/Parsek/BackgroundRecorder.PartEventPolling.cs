@@ -497,7 +497,8 @@ namespace Parsek
                         state.loggedCargoBayClosedPositionIssues.Add(p.persistentId))
                     {
                         ParsekLog.Verbose("BgRecorder", $"CargoBay: unsupported closedPosition for '{p.partInfo?.name}' " +
-                            $"pid={p.persistentId} closedPosition={cargo.closedPosition:F3} animTime={animModule.animTime:F3}");
+                            $"pid={p.persistentId} closedPosition={cargo.closedPosition.ToString("F3", CultureInfo.InvariantCulture)} " +
+                            $"animTime={animModule.animTime.ToString("F3", CultureInfo.InvariantCulture)}");
                     }
                     continue;
                 }

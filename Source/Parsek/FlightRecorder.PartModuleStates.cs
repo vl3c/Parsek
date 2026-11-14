@@ -1179,7 +1179,7 @@ namespace Parsek
 
             ParsekLog.Verbose("Recorder",
                 $"[Recording][AnimateHeat] Part '{partName}' pid={partPersistentId}: " +
-                $"heat level {current} -> {target} (normalizedHeat={normalizedHeat:F3})");
+                $"heat level {current} -> {target} (normalizedHeat={normalizedHeat.ToString("F3", CultureInfo.InvariantCulture)})");
 
             return new PartEvent
             {
@@ -1577,7 +1577,8 @@ namespace Parsek
                         loggedCargoBayClosedPositionIssues.Add(p.persistentId))
                     {
                         ParsekLog.Verbose("Recorder", $"CargoBay: unsupported closedPosition for '{p.partInfo?.name}' " +
-                            $"pid={p.persistentId} closedPosition={cargo.closedPosition:F3} animTime={animModule.animTime:F3}");
+                            $"pid={p.persistentId} closedPosition={cargo.closedPosition.ToString("F3", CultureInfo.InvariantCulture)} " +
+                            $"animTime={animModule.animTime.ToString("F3", CultureInfo.InvariantCulture)}");
                     }
                     continue; // mid-transition or non-standard closedPosition
                 }
@@ -1932,7 +1933,7 @@ namespace Parsek
                         PartEvents.Add(evt.Value);
                         ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
                             $"pid={evt.Value.partPersistentId} midx={evt.Value.moduleIndex} " +
-                            $"heat={normalizedHeat:F2} src={sourceField ?? "<unknown>"}");
+                            $"heat={normalizedHeat.ToString("F2", CultureInfo.InvariantCulture)} src={sourceField ?? "<unknown>"}");
                     }
                 }
             }
