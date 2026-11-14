@@ -147,8 +147,24 @@ class FakeRuntime(run.Runtime):
         # Keep real time advancing (so budgets elapse) but spin fast.
         time.sleep(min(seconds, 0.05))
 
+    # Slot-mode launch spacing would really wait between two fake launches.
+    launch_spacing_seconds = 0.0
+    # kRPC ports a test marks as already listening (the port-busy refusal).
+    busy_ports = ()
+
     def ksp_running(self, instance_dir):
         return None  # no zombie in the fake environment
+
+    def port_accepts(self, host, port):
+        return port in self.busy_ports
+
+    def unity_prefs_begin(self, umbrella_root, logger):
+        self.prefs_calls = getattr(self, "prefs_calls", []) + ["begin"]
+        return "fake"
+
+    def unity_prefs_end(self, umbrella_root, logger):
+        self.prefs_calls = getattr(self, "prefs_calls", []) + ["end"]
+        return "fake"
 
     def resolve_exe(self, instance_dir):
         return sys.executable
@@ -157,6 +173,7 @@ class FakeRuntime(run.Runtime):
         import subprocess
         self.launch_count += 1
         self.last_launch_env = dict(env)
+        self.last_launch_args = list(args)
         if self.render_manifest_text is not None:
             with open(os.path.join(cwd, run.RENDER_MANIFEST_FILENAME),
                       "w", encoding="utf-8") as fh:
@@ -270,7 +287,8 @@ class FakeRuntime(run.Runtime):
         self.last_log_validate = {"killed": killed, "no_recording": no_recording}
         return run.ToolResult(0, False)
 
-    def run_collect_logs(self, label, save_name, instance_dir, timeout):
+    def run_collect_logs(self, label, save_name, instance_dir, timeout, player_log=None):
+        self.last_collect_player_log = player_log
         return run.ToolResult(0, False, stdout="../logs/2026-07-12_0000_%s\n" % label)
 
 
@@ -4922,13 +4940,16 @@ class MachineLockScopeTests(unittest.TestCase):
     def test_selection_loop_heartbeats_each_scenario_boundary(self):
         self.assertIn("heartbeat_run_lock", _calls(run._run_selection))
 
+    # run() parses the arguments and owns the logger and the --report-json write;
+    # the serial invocation body it calls holds the lock.
     def test_run_acquires_once_and_releases_it(self):
-        called = _calls(run.run)
+        self.assertIn("_run_invocation", _calls(run.run))
+        called = _calls(run._run_invocation)
         self.assertIn("acquire_run_lock", called)
         self.assertIn("release_run_lock", called)
 
     def test_release_is_in_a_finally_so_a_failing_selection_frees_the_machine(self):
-        tree = ast.parse(textwrap.dedent(inspect.getsource(run.run)))
+        tree = ast.parse(textwrap.dedent(inspect.getsource(run._run_invocation)))
         released_in_finally = any(
             "release_run_lock" in {
                 n.func.id for n in ast.walk(handler)
@@ -7092,11 +7113,11 @@ class ReferenceDllAdmissionSmokeTests(unittest.TestCase):
         with open(path, "wb") as fh:
             fh.write(payload)
 
-    def _attempt(self, profile="modded-compat"):
+    def _attempt(self, profile="modded-compat", instance_dir=None):
         spec = _make_spec(self.template, 30, 600)
         spec["instanceProfile"] = profile
         rt = FakeRuntime("pass")
-        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+        result = run.run_attempt(spec, instance_dir or self.instance, self.tmp, rt, attempt=1,
                                  prior_boot_crashed=False, logger=self.logger)
         with open(self.logger.log_path, "r", encoding="utf-8") as fh:
             return result, rt, fh.read()
@@ -7134,12 +7155,25 @@ class ReferenceDllAdmissionSmokeTests(unittest.TestCase):
         self.assertIn("admit parsek-dll vs stock-minimal: skipped (no reference instance DLL", log)
 
     def test_the_reference_instance_is_never_compared_with_itself(self):
-        self._deploy(self.instance, b"one build")
-        self._deploy(self.reference, b"another build")
-        result, rt, log = self._attempt(profile="stock-minimal")
+        _write_manifest(self.reference, "stock-minimal")
+        self._deploy(self.reference, b"one build")
+        result, rt, log = self._attempt(profile="stock-minimal", instance_dir=self.reference)
         self.assertEqual(1, rt.launch_count)
         self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("subkind"))
-        self.assertNotIn("admit parsek-dll vs", log)
+        self.assertIn("admit parsek-dll vs stock-minimal: skipped (same instance)", log)
+
+    def test_a_slot_copy_of_the_reference_profile_is_compared_with_copy_one(self):
+        # Keyed on the instance DIR: automation/stock-minimal-2 is a different
+        # install than automation/stock-minimal, so its DLL must match it.
+        copy2 = os.path.join(self.tmp, "automation", "stock-minimal-2")
+        _write_manifest(copy2, "stock-minimal")
+        self._deploy(copy2, b"stale build")
+        self._deploy(self.reference, b"today's build")
+        result, rt, log = self._attempt(profile="stock-minimal", instance_dir=copy2)
+        self.assertEqual(0, rt.launch_count, "a stale slot copy must never boot")
+        self.assertEqual((hlib.VERDICT_INVALID, "drift"),
+                         (result["verdict"], result["subkind"]))
+        self.assertIn("provision/provision.py --profile stock-minimal --copy 2", result["note"])
 
 
 # ---------------------------------------------------------------------------
@@ -7219,7 +7253,7 @@ class _SelectionRuntime(FakeRuntime):
     def tests_assembly_present(self):
         return True
 
-    def player_log_path(self):
+    def player_log_path(self, instance_dir=None):
         return self.player_log
 
     def launch(self, exe, args, env, cwd):

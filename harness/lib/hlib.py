@@ -9028,24 +9028,32 @@ class AdmissionDecision:
 # provision targets (CLAUDE.md, tier_runner's PROVISION_HINT), so its DEPLOYED
 # Parsek.dll stands for the current build: any other instance whose deployed DLL
 # hash differs from it is refused pre-boot as drift. Skipped when either DLL is
-# absent (no reference to compare with) and for the reference instance itself.
+# absent (no reference to compare with) and for the reference instance DIR itself
+# (``automation/stock-minimal``); every other install, the stock-minimal copies
+# ``automation/stock-minimal-<k>`` included, is compared with it.
 REFERENCE_DLL_PROFILE = "stock-minimal"
 REFERENCE_DLL_DIFF_FIELD = "deployedParsekDll.sha256.vsReference"
 
 
-def provision_command_hint(profile: str) -> str:
-    """The operator command that re-provisions ``profile`` (a HUMAN call)."""
-    return "cd harness && python provision/provision.py --profile %s" % profile
+def provision_command_hint(profile: str, copy: int = 1) -> str:
+    """The operator command that re-provisions ``profile`` (a HUMAN call); copy
+    k >= 2 of a profile is the install slot ``<profile>-<k>``."""
+    hint = "cd harness && python provision/provision.py --profile %s" % profile
+    if isinstance(copy, int) and copy >= 2:
+        hint += " --copy %d" % copy
+    return hint
 
 
 def decide_reference_dll_drift(profile: Optional[str], instance_dll_sha: Optional[str],
                                reference_dll_sha: Optional[str],
                                same_instance: bool = False) -> Optional["provlib.ManifestDiff"]:
     """The admission diff entry for a secondary instance whose deployed Parsek.dll
-    differs from the reference instance's, or None (reference profile, the same
-    instance directory, either hash unknown, or a match). ``expected`` is the
-    reference hash, ``actual`` this instance's."""
-    if profile == REFERENCE_DLL_PROFILE or same_instance:
+    differs from the reference instance's, or None (the reference instance DIR
+    itself, either hash unknown, or a match). ``expected`` is the reference
+    hash, ``actual`` this instance's. Keyed on the instance DIR, not the
+    profile: copy 2 of stock-minimal (``automation/stock-minimal-2``) is a
+    secondary instance like any other, and is compared with copy 1."""
+    if same_instance:
         return None
     if not instance_dll_sha or not reference_dll_sha:
         return None
@@ -13210,6 +13218,25 @@ def validate_expected_fail_block(exp_fail: object, expectations: Optional[Dict])
     return errors
 
 
+# Parallel-run INVALID subkinds (install slots, harness/lib/slots.py). Every one is a
+# pre-boot refusal about the MACHINE, never about the scenario, so all four are
+# flake-exempt (FLAKE_EXEMPT_INVALID_SUBKINDS) and none is retried.
+#   port-busy              a kRPC port of the instance already accepts a connection
+#                          (another KSP or tool listens there; a mission would drive it).
+#   runner-token           a `run.py --slot` child whose parallel runner no longer holds
+#                          the machine lock (token mismatch, runner pid gone).
+#   slot-locked            the instance's slot lock is held by another live process.
+#   slot-profile-mismatch  a `--slot` child was handed a lane of another profile.
+PORT_BUSY_SUBKIND = "port-busy"
+RUNNER_TOKEN_SUBKIND = "runner-token"
+SLOT_LOCKED_SUBKIND = "slot-locked"
+SLOT_PROFILE_MISMATCH_SUBKIND = "slot-profile-mismatch"
+PARALLEL_RUN_INVALID_SUBKINDS: Tuple[str, ...] = (
+    PORT_BUSY_SUBKIND, RUNNER_TOKEN_SUBKIND, SLOT_LOCKED_SUBKIND,
+    SLOT_PROFILE_MISMATCH_SUBKIND,
+)
+
+
 def classify_expected_fail(base: Verdict, bug_id: str, signature_matched: bool) -> Verdict:
     """Overlay the expected-fail semantics on a computed verdict (design N8/N11).
 
@@ -13237,6 +13264,7 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
 
     Precedence (first match wins), then the expected-fail overlay:
       spec-invalid / admission / instance-locked / instance-busy -> INVALID (no retry)
+      runner-token / slot-locked / slot-profile-mismatch / port-busy -> INVALID (no retry)
       watchdog KILL -> KILLED (no retry; torn save skipped)
       boot-crash -> INVALID (retry once; repeated -> boot-crash-repeated, terminal)
       boot-hang (boot-stall watchdog kill before MAINMENU) -> INVALID (retry once)
@@ -13265,6 +13293,17 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
         base = V(VERDICT_INVALID, "instance-locked", "run lock held by a live sibling")
     elif driver.get("instance_busy", False):
         base = V(VERDICT_INVALID, "instance-busy", "a live KSP is bound to the instance")
+    elif not driver.get("runner_token_ok", True):
+        base = V(VERDICT_INVALID, RUNNER_TOKEN_SUBKIND,
+                 "the parallel runner no longer holds the machine lock")
+    elif not driver.get("slot_lock_ok", True):
+        base = V(VERDICT_INVALID, SLOT_LOCKED_SUBKIND, "slot lock held by a live process")
+    elif not driver.get("slot_profile_ok", True):
+        base = V(VERDICT_INVALID, SLOT_PROFILE_MISMATCH_SUBKIND,
+                 "the lane's instance profile is not the slot's")
+    elif driver.get("port_busy", False):
+        base = V(VERDICT_INVALID, PORT_BUSY_SUBKIND,
+                 "a kRPC port of the instance already accepts connections")
     elif verifiers.get("killed", False):
         base = V(VERDICT_KILLED, "budget", "watchdog killed the process tree")
     elif driver.get("boot_crashed", False):
@@ -14525,7 +14564,8 @@ FLAKE_EXEMPT_INVALID_SUBKINDS: Tuple[str, ...] = (
     # The selection-start Parsek.Tests build failed: a property of the worktree, and
     # every selected scenario receives the same row before any KSP boot.
     TESTS_BUILD_INVALID_SUBKIND,
-)
+    # Parallel-run refusals (see PARALLEL_RUN_INVALID_SUBKINDS): machine state.
+) + PARALLEL_RUN_INVALID_SUBKINDS
 
 
 def flake_entry_is_exempt(attempt: Dict) -> bool:
