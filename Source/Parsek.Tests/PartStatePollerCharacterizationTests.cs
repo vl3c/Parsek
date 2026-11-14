@@ -412,6 +412,76 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Jettison_NameCacheKeysAndRefresh()
+        {
+            // Two jettison modules on one part: the first names only separators (parsed to an
+            // empty list, so no transform probe), the second a real name whose probe throws
+            // headless after the cache is written. Pins the per-module cache key (module index
+            // among the part's jettison modules) and the re-parse when the raw name changes.
+            RunFamily("jettison-cache", "CheckJettisonState",
+                () =>
+                {
+                    var jA = Module<ModuleJettison>();
+                    jA.jettisonName = " , ";
+                    var jB = Module<ModuleJettison>();
+                    jB.jettisonName = "shroudB";
+                    return MakeVessel(LiveVesselPid, MakePart(311, "jettisonTwoNamed", jA, jB));
+                },
+                new[]
+                {
+                    Step("initial", null),
+                    Step("B-renamed", v => Mod<ModuleJettison>(v, 0, 1).jettisonName = "shroudC"),
+                    Step("B-same", null),
+                },
+                "jettisonedShrouds", "jettisonNameRawCache", "parsedJettisonNamesCache");
+        }
+
+        [Fact]
+        public void Deployable_ReversedMidTransition()
+        {
+            // An extended panel told to retract and then extended again before it closes:
+            // the transitional states write nothing, so the only events are the two endpoints.
+            RunFamily("deployable-reversal", "CheckDeployableState",
+                () =>
+                {
+                    var d = Module<ModuleDeployableSolarPanel>();
+                    d.animationName = "panelAnim";
+                    d.deployState = ModuleDeployablePart.DeployState.EXTENDED;
+                    return MakeVessel(LiveVesselPid, MakePart(431, "panelReversed", d));
+                },
+                new[]
+                {
+                    Step("initial-extended", null),
+                    Step("retracting", v => Mod<ModuleDeployableSolarPanel>(v, 0).deployState = ModuleDeployablePart.DeployState.RETRACTING),
+                    Step("extending", v => Mod<ModuleDeployableSolarPanel>(v, 0).deployState = ModuleDeployablePart.DeployState.EXTENDING),
+                    Step("extended", v => Mod<ModuleDeployableSolarPanel>(v, 0).deployState = ModuleDeployablePart.DeployState.EXTENDED),
+                    Step("retracted", v => Mod<ModuleDeployableSolarPanel>(v, 0).deployState = ModuleDeployablePart.DeployState.RETRACTED),
+                },
+                "extendedDeployables");
+        }
+
+        [Fact]
+        public void Deployable_BrokenPoselessIsNotCountedPoseless()
+        {
+            // A broken deployable leaves the poll at the broken edge, before the pose-animation
+            // gate, so a broken pose-less panel never counts toward the pose-less summary line.
+            RunFamily("deployable-broken-poseless", "CheckDeployableState",
+                () =>
+                {
+                    var d = Module<ModuleDeployableSolarPanel>();
+                    d.animationName = "";
+                    d.deployState = ModuleDeployablePart.DeployState.BROKEN;
+                    return MakeVessel(LiveVesselPid, MakePart(421, "panelPoselessBroken", d));
+                },
+                new[]
+                {
+                    Step("initial-broken", null),
+                    Step("broken-again", null),
+                },
+                "brokenDeployables", "extendedDeployables");
+        }
+
+        [Fact]
         public void Deployable()
         {
             RunFamily("deployable", "CheckDeployableState",
@@ -693,6 +763,18 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void AnimationGroup_MissKeyCarriesTheModuleIndex()
+        {
+            // A classification miss on a part's SECOND module: the once-per-module log key is
+            // (pid, module index), so a later module on the same part is keyed apart.
+            RunFamily("animation-group-miss-key", "CheckAnimationGroupState",
+                () => MakeVessel(LiveVesselPid,
+                    MakePart(951, "groupMissSecond", null, FieldStub("ModuleAnimationGroup", withFields: false))),
+                new[] { Step("initial", null), Step("again", null) },
+                "deployedAnimationGroups", "loggedAnimationGroupClassificationMisses");
+        }
+
+        [Fact]
         public void AeroSurface()
         {
             RunFamily("aero-surface", "CheckAeroSurfaceState",
@@ -745,6 +827,16 @@ namespace Parsek.Tests
                     Step("A-gap-stays-hot", v => ((ModuleAnimateHeat)v.parts[0].Modules[1]).inputState = 0.77f),
                     Step("A-cold", v => ((ModuleAnimateHeat)v.parts[0].Modules[1]).inputState = 0.1f),
                 },
+                "animateHeatLevels", "loggedAnimateHeatClassificationMisses");
+        }
+
+        [Fact]
+        public void AnimateHeat_MissKeyCarriesTheModuleIndex()
+        {
+            RunFamily("animate-heat-miss-key", "CheckAnimateHeatState",
+                () => MakeVessel(LiveVesselPid,
+                    MakePart(1051, "heatMissSecond", null, FieldStub("ModuleAnimateHeat", withFields: false))),
+                new[] { Step("initial", null), Step("again", null) },
                 "animateHeatLevels", "loggedAnimateHeatClassificationMisses");
         }
 

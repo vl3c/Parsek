@@ -1,0 +1,31 @@
+# CheckJettisonState
+## FG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial ut=1010: threw NullReferenceException
+  jettisonedShrouds=[]
+  jettisonNameRawCache=[79616: , ,79617:shroudB]
+  parsedJettisonNamesCache=[79616:{},79617:{shroudB}]
+step B-renamed ut=1020: threw NullReferenceException
+  jettisonedShrouds=[]
+  jettisonNameRawCache=[79616: , ,79617:shroudC]
+  parsedJettisonNamesCache=[79616:{},79617:{shroudC}]
+step B-same ut=1030: threw NullReferenceException
+  jettisonedShrouds=[]
+  jettisonNameRawCache=[79616: , ,79617:shroudC]
+  parsedJettisonNamesCache=[79616:{},79617:{shroudC}]
+## BG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial ut=1010: threw NullReferenceException
+  jettisonedShrouds=[]
+  jettisonNameRawCache=[79616: , ,79617:shroudB]
+  parsedJettisonNamesCache=[79616:{},79617:{shroudB}]
+step B-renamed ut=1020: threw NullReferenceException
+  jettisonedShrouds=[]
+  jettisonNameRawCache=[79616: , ,79617:shroudC]
+  parsedJettisonNamesCache=[79616:{},79617:{shroudC}]
+step B-same ut=1030: threw NullReferenceException
+  jettisonedShrouds=[]
+  jettisonNameRawCache=[79616: , ,79617:shroudC]
+  parsedJettisonNamesCache=[79616:{},79617:{shroudC}]

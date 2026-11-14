@@ -1,0 +1,21 @@
+# CheckAnimateHeatState
+## FG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial ut=1010: ok
+  log [Parsek][VERBOSE][Recorder] AnimateHeat: unable to classify 'heatMissSecond' pid=1051 midx=1; fields=[<none>]
+  animateHeatLevels=[]
+  loggedAnimateHeatClassificationMisses=[269057]
+step again ut=1020: ok
+  animateHeatLevels=[]
+  loggedAnimateHeatClassificationMisses=[269057]
+## BG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial ut=1010: ok
+  log [Parsek][VERBOSE][BgRecorder] AnimateHeat: unable to classify 'heatMissSecond' pid=1051 midx=1
+  animateHeatLevels=[]
+  loggedAnimateHeatClassificationMisses=[269057]
+step again ut=1020: ok
+  animateHeatLevels=[]
+  loggedAnimateHeatClassificationMisses=[269057]

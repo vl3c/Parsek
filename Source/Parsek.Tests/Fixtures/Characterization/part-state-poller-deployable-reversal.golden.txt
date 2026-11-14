@@ -1,0 +1,35 @@
+# CheckDeployableState
+## FG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial-extended ut=1010: ok
+  ev DeployableExtended pid=431 name=panelReversed ut=1010 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: DeployableExtended 'panelReversed' pid=431
+  extendedDeployables=[431]
+step retracting ut=1020: ok
+  extendedDeployables=[431]
+step extending ut=1030: ok
+  extendedDeployables=[431]
+step extended ut=1040: ok
+  extendedDeployables=[431]
+step retracted ut=1050: ok
+  ev DeployableRetracted pid=431 name=panelReversed ut=1050 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: DeployableRetracted 'panelReversed' pid=431
+  extendedDeployables=[]
+## BG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial-extended ut=1010: ok
+  ev DeployableExtended pid=431 name=panelReversed ut=1010 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: DeployableExtended 'panelReversed' pid=431 (bg vessel 7)
+  extendedDeployables=[431]
+step retracting ut=1020: ok
+  extendedDeployables=[431]
+step extending ut=1030: ok
+  extendedDeployables=[431]
+step extended ut=1040: ok
+  extendedDeployables=[431]
+step retracted ut=1050: ok
+  ev DeployableRetracted pid=431 name=panelReversed ut=1050 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: DeployableRetracted 'panelReversed' pid=431 (bg vessel 7)
+  extendedDeployables=[]

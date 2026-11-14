@@ -1,0 +1,23 @@
+# CheckDeployableState
+## FG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial-broken ut=1010: ok
+  ev DeployableBroken pid=421 name=panelPoselessBroken ut=1010 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: DeployableBroken 'panelPoselessBroken' pid=421 (deployable-broken edge, deployState=BROKEN)
+  brokenDeployables=[421]
+  extendedDeployables=[]
+step broken-again ut=1020: ok
+  brokenDeployables=[421]
+  extendedDeployables=[]
+## BG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial-broken ut=1010: ok
+  ev DeployableBroken pid=421 name=panelPoselessBroken ut=1010 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: DeployableBroken 'panelPoselessBroken' pid=421 (bg vessel 7, deployable-broken edge)
+  brokenDeployables=[421]
+  extendedDeployables=[]
+step broken-again ut=1020: ok
+  brokenDeployables=[421]
+  extendedDeployables=[]
