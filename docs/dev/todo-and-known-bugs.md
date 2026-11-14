@@ -174,6 +174,37 @@ one registry key shared by every KSP on the PC.
   and the Unity screen prefs matched the pre-run values afterwards.
 - Reports: `logs/console/2026-11-14/parallel-daily-check*.txt` on the owner's PC.
 
+## DEAD-CODE-TEST-ONLY-METHODS-PARKED: 773 methods the game never runs, 117 of them really dead and kept alive only by their own tests [FILED 2026-11-14 for refactor plan item 21, branch `item21-test-only-methods`, measured at main 24abf0dba (Debug). PARKED (owner 2026-11-14 21:07Z); the really-dead subset APPROVED FOR REMOVAL as the final change of this refactor pass (owner 2026-11-14 21:16Z); dead code, no product change]
+
+The uncalled-code fixpoint (`scripts/arch/ilanalysis.py`, README "Code facts") leaves 773
+methods the roots do not reach (17,333 instructions): 282 hook-named, and 491 others, which is
+the `[uncalledInAssembly]` ratchet bound in `facts_pins.toml` exactly. B7 deleted only what no
+test called, so most of these stay alive through unit tests alone. Every one now has a verdict:
+`docs/dev/research/test-only-methods-2026-11-14.tsv` (one row per method, keyed by the IL
+signature so it survives the folder move) and `test-only-methods-2026-11-14.md` (definitions,
+regenerate commands, counts, the ready-to-delete list by module).
+
+- `really-dead` 117 (5,721 instructions): no production caller (IL and a comment-stripped
+  source scan), no reach by name, attribute, override or harness source-sync, no keep recorded
+  in a gate, a doc comment ("DECIDED", "kept", "scaffolding", "second cut" ...) or a doc line
+  naming it, every production caller itself really-dead, and no live logic left untested by the
+  deletion. Each row names the tests that go with it (`[only-dead]`: delete, 268 test calls;
+  `[edit:N-live]`: edit, 62) and the doc lines that name it (bare-name search).
+- `dead-but-tests-guard-live-logic` 198: no live caller, but the tests are the coverage of a live
+  twin (overloads, forwarders, the Re-Fly world-action cluster, `TreeDiscardService.RemoveRecordingAt`,
+  which CLAUDE.md still names, and `GhostPlaybackLogic.ComputeLoopPhaseFromUT` /
+  `TryComputeLoopPlaybackUT`, whose cases move to the live `TryComputeLoopPlaybackPhase` first).
+  Re-point the tests before any deletion.
+- `test-hook` 399 (30 hook-named ones no test calls), `tested-helper-of-live-code` 18,
+  `kept-by-design` 37 (recorded keeps, among them `RecordingsTableUI.ScrollToRecording`, the
+  `MapRenderTrace` second-cut scaffolding and `GuiMockSession.NoteScopeBroken`; none is a
+  root-rule gap), `unsure` 4.
+
+Fix (when the time comes): after the folder move, one vetted PR deletes the really-dead set and
+its `[only-dead]` tests, edits the `[edit]` tests, the two negative assertions and the docs the
+list names, and re-pins `[uncalledInAssembly]` (bound and key list) and `headless_pins.toml`. The
+rest of the list stays parked.
+
 ## ARCH-COLD-RESET-HOLDERS: save-scoped statics are reset field by field, so a new field can be forgotten [FILED 2026-11-14 for refactor plan item 15 ("B1", as corrected by the 2026-11-11 architecture review), branch `item15-cold-reset-holders`. IN PROGRESS; refactor, no product change]
 
 The mod keeps the loaded save's state in statics spread over many stores, and a Cold load
@@ -908,7 +939,7 @@ the same strip to the embedded `GAME_STATE/LEDGER` (`strip_embedded_ledger`, 2 s
 rows out, the 6 zero-award rows kept) and `verify_sfs` refuses a leftover; the fixture is
 rebuilt (`--check` OK for all six). Test: `test_route_career.test_the_embedded_ledger_gets_the_same_strip`.
 
-## NEXT-TESTS-TO-BUILD-2026-11-11: the ranked list merging the moon matrix and the test gap audit, plus the new ideas of the 2026-11-11 review [FILED 2026-11-11 (owner asked to update the list), checked against main b5877e51f (1.1.0), reviewed the same day by a clean-context agent. OPEN; test program, no known defect]
+## NEXT-TESTS-TO-BUILD-2026-11-11: the ranked list merging the moon matrix and the test gap audit, plus the new ideas of the 2026-11-11 review [FILED 2026-11-11 (owner asked to update the list), checked against main b5877e51f (1.0.2), reviewed the same day by a clean-context agent. OPEN; test program, no known defect]
 
 Merges the two lists the owner had: the moon flight-test matrix (MOON-FLIGHT-TEST-PROGRAM below,
 project file `missions/moon-flight-test-matrix-2026-11-07.md`) and the 2026-10-31 test gap audit
@@ -916,7 +947,7 @@ project file `missions/moon-flight-test-matrix-2026-11-07.md`) and the 2026-10-3
 No committed spec was still waiting for its first flight when this list was written (the map
 picture lanes TP-1..TP-8, committed later the same day, flew green on their first flight that
 evening: see MAP-PICTURE-LANES-FIRST-FLIGHT): every lane added since the 2026-11-06 full run is live-proven, and the refactor batch (254 lanes, 2026-11-10 / 11, per the PR #2561
-body) re-flew the re-aim regression slice and the six moon-to-moon lanes on the new 1.1.0 clock
+body) re-flew the re-aim regression slice and the six moon-to-moon lanes on the new 1.0.2 clock
 (run ids in MOON-FLIGHT-TEST-PROGRAM and the six `autotest-status.md` rows). Not repeated here:
 fixes awaiting a re-flight of an existing lane (BDOCK-2), and the other programs in
 `docs/dev/autotest-roadmap.md` (IR-8 and IC-1 .. IC-4 route interaction lanes, Tier 4 / 5 perf,
@@ -960,7 +991,7 @@ in parallel in the cloud):
    The most expensive flight.
 2. [ ] (AUTHORED 2026-11-14, awaiting the PC batch: forges `B43`-`B46`, loop lanes `V43M`-`V46M`;
    the offline solver reads Tylo -> Bop as `joint-best-fit` at 7 x P_Bop, so B45 is no longer
-   expected to decline.) Moon-to-moon pairs on the new 1.1.0 loop spacing: B43 Vall -> Tylo, B44 Laythe -> Tylo,
+   expected to decline.) Moon-to-moon pairs on the new 1.0.2 loop spacing: B43 Vall -> Tylo, B44 Laythe -> Tylo,
    B46 Minmus -> Mun (about 200 Kerbin days between loops), B45 Tylo -> Bop (expected honest
    decline), each a forge plus a loop lane. Only Laythe -> Vall, Mun -> Minmus and Laythe -> Jool
    have flown on the new rule.
@@ -1273,7 +1304,7 @@ Closed since the audit (each with its own entry or PR): A1 RECORDINGS-TAB-LOOP-N
 Re-Fly / multi-cycle warp lanes IR-3 and IR-6 plus `RouteTimelineFuzzerTests` (#2345, part of C1),
 and REV-1 / SWS-1 / CN-4 / CN-5 for Revert to VAB, save switching and CommNet ghosts across a rewind
 and a load (#2348, #2352, #2354). Still open, each found by grep on main 2622fd5 and re-checked on
-main b5877e51f (1.1.0) on 2026-11-11, when every item below was still open; the ranked list that
+main b5877e51f (1.0.2) on 2026-11-11, when every item below was still open; the ranked list that
 merges this residue with the moon program is NEXT-TESTS-TO-BUILD-2026-11-11 at the top of this file:
 
 - [ ] C4: `BackgroundRecorder.OnBackgroundVesselGoOffRails` is named by no xUnit file, and
@@ -2214,6 +2245,93 @@ byte-identity with the base, so they must move together) and re-pin whatever rea
 Leave the fixtures and document that Jeb reads held on them. No migration or load-time repair of old
 ledgers: the recording schema policy (CLAUDE.md, "Recording schema") is one current contract, and a
 missing capture row is not something load code should synthesize.
+
+## ARCH-GHOSTMAPPRESENCE-SPLIT: GhostMapPresence is the biggest type left, one static class over 16 files with 63 static fields [FILED 2026-11-14 from the Atlas opportunity row 5 ("GhostMapPresence: source-resolver type, then the static state"). PARKED by the owner 2026-11-14 as later work, not part of the current refactor pass (which closes after the folder move, the cold load leftovers, the six-edge ledger cut and the really-dead removal); re-measure mid-December. Architecture debt, no behavior defect]
+
+Measured at main 24abf0dba (2026-11-14, Debug): `GhostMapPresence` is 16 files, 16,575 lines,
+408 methods, 34,331 IL instructions, and 63 static fields that are not constants (27
+reassignable, 36 `static readonly` collections whose contents change; the IL facts of
+`scripts/arch/ilfacts.py`). The Atlas row calls it the largest hub inside the residue after the
+ledger and the type with the most static fields; its size estimate is 3 to 5 PRs.
+
+Done already, all in place (no new type), on main since 1.0.2:
+
+- W5a (2026-11-07): the static-state map,
+  `docs/dev/research/ghostmappresence-static-state-map-2026-11-07.md` (every field with its
+  writers, readers, reset paths and lifetime; the 13 index-keyed stores all shifted by
+  `ShiftIndexKeyedPresence`; outside production code writes two fields and reads three).
+- W5c / W5c2 (2026-11-08): `ResolveMapPresenceGhostSource` (603 lines) and the flight map
+  deferred-create and orbit-reseed passes split into named units in the same files, each pinned
+  first by a characterization golden (`MapPresenceSourceResolveCharacterizationTests`,
+  `FlightMapPassCharacterizationTests`).
+- W5d1 / W5d2 (2026-11-10): `RefreshTrackingStationGhosts` (484 -> 25 lines) and
+  `UpdateGhostOrbitFromStateVectors` (410 -> 87), pinned by
+  `TrackingStationRefreshCharacterizationTests` and `StateVectorOrbitUpdateCharacterizationTests`.
+- W5b (a separate source-resolver type) was dropped on 2026-11-08: a plain MOVE raises the
+  replayed residue by one (263 -> 264 then), because the resolver's call set reaches five members
+  of the knot (`ParsekFlight.BodyFixedPrimaryCoversPlaybackUT`,
+  `GhostPlaybackEngine.ShouldUseLoopAnchoredDebrisChain`, `EffectiveState.EffectiveTipRecordingId`,
+  `ParsekScenario.Instance`, `RecordingStore.CommittedRecordings`).
+
+Still open: (1) the source-resolver type as a DECOUPLE, the five knot answers passed in as
+delegates or values, plus a decision on the `TrackingStationGhostSource` enum that 25 files spell
+as `GhostMapPresence.TrackingStationGhostSource` (the static map's count); (2) the static state:
+moving the stores into holders or owner types, keeping the two lifetimes the map records (the
+ghost-pid and Tracking Station stores die with the ghosts, the flight per-frame stores only in
+`ClearFlightMapPresenceState`), the re-entrancy depth counters inside one try / finally, and the
+index-keyed stores on the committed-list contract.
+
+Proof: a characterization golden before each step, `il_compare.py --fold` for any pure move, the
+semantic ratchet for the residue, then map flights. Lanes whose specs pin `[GhostMap]` lines
+(measured by grep at 24abf0dba): CI-2, CN-5, GUI-6, GUI-9, V5-ts-loop-arrival, V6T, V7T. The
+map picture lanes TP-1..TP-9 and the standalone-loop map lanes SLM-1, SLM-1T and SLM-2 fly
+ghost map presence too.
+
+Multiplayer (2026-11-14): not needed for multiplayer. `RivalMapPresence` (R3W-18) is a new type
+built only on the `GhostMapVessels` primitive that P3-01..P3-05 carve out
+(`docs/dev/plans/multiplayer/r0b-prep-map-watch-codec.md`); everything keyed by recording index,
+chain, overlap cycle or own render state stays in `GhostMapPresence`, and rivals never run it.
+Leave this parked for multiplayer's sake. If it is done anyway: make P3-01..P3-05 its first PRs
+so the primitive is not extracted twice, land P3-02 after P2a-07 (both touch
+`GhostMapPresence.StateVectors.cs`), and never run it concurrently with P3.
+
+## ARCH-GHOST-POSITIONING-FILE: ParsekFlightGhostPositioner.cs is the one production file above 5,000 lines [FILED 2026-11-14 from the Atlas opportunity row 10 ("the single-file giants") and its "Largest files and types" finding. PARKED by the owner 2026-11-14 as later work, not part of the current refactor pass (which closes after the folder move, the cold load leftovers, the six-edge ledger cut and the really-dead removal); re-measure mid-December. Architecture debt, no behavior defect]
+
+Measured at main 24abf0dba (2026-11-14): `Source/Parsek/ParsekFlightGhostPositioner.cs` is
+5,567 lines (6,017 when PF2 created it; B7 and later commits removed code since), one file
+holding `internal sealed class ParsekFlightGhostPositioner : IGhostPositioner`, the flight
+scene's ghost positioner that `ParsekFlight` builds lazily as `Positioner` (PF2, Phase B). IL:
+120 methods, 15,606 instructions, 6 instance fields, 3 static readonly fields, 9 constants. By a
+brace scan, 89 block-bodied methods, 7 at or above 90 lines: `InterpolateAndPosition` 293,
+`TraceDebrisBodyFixedPrimaryPlayback` 163, `TryResolveRecordedRelativeAnchorPose` 158,
+`TryResolvePlaybackWorldPosition` 149, `TryResolvePredictedOrbitTailContinuityOffset` 107,
+`TryResolveLoopLiveAnchorPose` 103, `TryPositionGhostRecordedRelativeAt` 93. The next largest
+production file is `WatchModeController.cs` at 3,791. The Atlas (2026-11-14): one production
+file above 5,000 lines; the W8c partial splits of 2026-11-10 left `ParsekFlightGhostPositioner`
+as "the one single-file giant left".
+
+A split would follow W8c: a partial class over area files written by a one-shot
+`scripts/refactor/split_*.py` (fields, constants and the constructor stay in the main file),
+grouped by what the positioner does (interpolate and place, the Relative anchor pose and its
+recorded / loop / live arms, the body-fixed primary and debris paths, the orbit tail and
+continuity offsets, the tail lift, the trace lines), with source gates that read the file
+through a `*SourceFiles` helper. Proof: IL identical (`scripts/refactor/il_compare.py`, as for
+every W8c split), the source gates green through the helper, the xUnit and harness suites. A
+pure partial split changes no IL, so no flight is required; extracting `InterpolateAndPosition`
+into units would change IL and needs a characterization golden first plus the ghost playback
+lanes (`harness/tools/run_index.py lanes-for --module Controllers` names them from the run
+archive on the owner's PC).
+
+Multiplayer (2026-11-14): closely related. The rival lane builds a second
+`ParsekFlightGhostPositioner(host, laneState)` (R3W-09), and steps P2a-03, P2a-04 and
+P2b-02..P2b-09 (`docs/dev/plans/multiplayer/r0b-prep-playback.md`) edit this file; it is frozen
+for the P2b window (P2b-02 to P2b-10). A FILE-ONLY split (the same class made partial, identical
+IL, no flights) is fine BEFORE multiplayer starts; when it merges, the file:line facts in section
+3 of `r0b-prep-playback.md` need re-anchoring. A split into several CLASSES waits until AFTER
+P2b-10: P2b moves the orbit cache, the position entries, the reapply stamps and the log-once sets
+(the state that tangles this file) into `ParsekFlightPlaybackLane`, so a class split before it
+would invalidate P2b's member tables and need the 18-lane flight proof twice. Never during the
+P2b window.
 
 ## ARCH-STOCK-UI-RESERVATION-CYCLES-2026-09-25: the stock-UI reservation layer added eight types to the kernel knot and a new 7-type knot [FILED 2026-09-25 when `scripts/arch/modules.toml` classified the layer; OPEN, low; architecture debt, no behavior defect. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
@@ -6712,7 +6830,7 @@ Do NOT re-implement intercept / window math from scratch. The 2026-05-28 prior-a
 
 - Owner: "we will need flight tests for all combinations of moons", building on the existing recordings. Plan doc: project file `missions/moon-flight-test-matrix-2026-11-07.md`. Already live: park -> one moon for Mun, Minmus, Ike, Gilly, Laythe, Tylo, Bop, Pol (V6M/V7M/V14M/V15M/V16M/V28M/V29M/V30M), moon -> moon Laythe -> Vall (V17M) and Mun -> Minmus (V21M). Missing: interplanetary trip carrying on to a moon (the lone-moon hold), Jool-park -> Vall, a Jool multi-moon tour (M-MIS-6), and more moon-to-moon pairs.
 - **Group A GREEN (2026-11-07, branch `claude/project-thread-ni23y9`):** forges B36 Duna->Ike (`2026-11-07_2214`), B37 Eve->Gilly (`_2220`), B38 Jool->Laythe (`_2230`) appended each moon hop to the committed Kerbin->planet tree and were harvested as `duna-ike-recorded`, `eve-gilly-recorded`, `jool-laythe-recorded`; loop lanes V31M / V31T / V32M / V32T / V33M all PASS attempt 1 (see LOOP-LONE-MOON-ARRIVAL-NOT-ALIGNED). Harness fix on the way: `harvest_bdock_station.py --keep-parsek` now keeps the `_versions` sidecar bodies the save names (a committed tree beside its resumed in-flight copy names an older root `.prec`; pruning it made the cold load drop the committed tree). Still open: Mun, Minmus, Vall, Tylo, Bop and Pol as continuation forges, a multi-moon Jool tree, and a Laythe Tracking Station lane (no V33T draft).
-- **Re-checked 2026-11-11 on main b5877e51f (1.1.0):** Group A is done (above). The moon-to-moon spacing (MOON-TO-MOON-LOOP-NOT-RETIMED, #2554) shipped in 1.1.0 and its six lanes V17M / V17T / V19M / V19T / V21M / V21T flew green on the new clock in the refactor batch (V17T `2026-11-11_0124`, V19T `_0125`, V19M `_0126`, V21T `_0151`, V21M `_0152` at e5b47f331, V17M `_0710` at fa3de158d after the #2559 / #2560 re-pins; rows in `autotest-status.md`), which also re-flew the matrix's re-aim regression slice (V3R, V8 .. V13A, V20M, V24W, V25M, GUI-18, M1). No B39 .. B46 or V34M+ spec exists. Still to build, in this order (ranked with the rest in NEXT-TESTS-TO-BUILD-2026-11-11): (1) Group B, new moon-to-moon pairs now that the code exists: B43 Vall -> Tylo, B44 Laythe -> Tylo, B46 Minmus -> Mun, B45 Tylo -> Bop (expected decline), each with a loop lane reading the moon-rooted phase lock; (2) Group C, the Jool multi-moon tour (M-MIS-6, never flown); (3) B39 .. B42 Jool -> Vall / Tylo / Bop / Pol continuations with V34M .. V37M, and V33T; then the Mun / Minmus continuations and the optional Ike / Gilly landings.
+- **Re-checked 2026-11-11 on main b5877e51f (1.0.2):** Group A is done (above). The moon-to-moon spacing (MOON-TO-MOON-LOOP-NOT-RETIMED, #2554) shipped in 1.0.2 and its six lanes V17M / V17T / V19M / V19T / V21M / V21T flew green on the new clock in the refactor batch (V17T `2026-11-11_0124`, V19T `_0125`, V19M `_0126`, V21T `_0151`, V21M `_0152` at e5b47f331, V17M `_0710` at fa3de158d after the #2559 / #2560 re-pins; rows in `autotest-status.md`), which also re-flew the matrix's re-aim regression slice (V3R, V8 .. V13A, V20M, V24W, V25M, GUI-18, M1). No B39 .. B46 or V34M+ spec exists. Still to build, in this order (ranked with the rest in NEXT-TESTS-TO-BUILD-2026-11-11): (1) Group B, new moon-to-moon pairs now that the code exists: B43 Vall -> Tylo, B44 Laythe -> Tylo, B46 Minmus -> Mun, B45 Tylo -> Bop (expected decline), each with a loop lane reading the moon-rooted phase lock; (2) Group C, the Jool multi-moon tour (M-MIS-6, never flown); (3) B39 .. B42 Jool -> Vall / Tylo / Bop / Pol continuations with V34M .. V37M, and V33T; then the Mun / Minmus continuations and the optional Ike / Gilly landings.
 
 ### ~~HARVEST-COMMITS-THE-LAUNCH-PATH~~ - a harvested fixture carried the operator's install path [~~FIXED 2026-11-14~~, found 2026-11-14]
 

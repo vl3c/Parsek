@@ -1892,7 +1892,9 @@ given, so they are written in as decided; any of them can be reopened.
 
 ## 14. Implementation phasing
 
-No phase starts before the owner says so. Each phase is independently testable.
+No phase starts before the owner says so. Each phase is independently testable. The mode
+ships as version 1.1.0 (owner decision of 2026-11-14); work starts after version 1.0.2, the
+refactored build, is released.
 
 | Phase | Scope | Notes |
 |-------|-------|-------|
@@ -1916,7 +1918,9 @@ Task-level plans are written per phase at dispatch time, per
 
 Owner ruling 2026-11-14: multiplayer is implemented "on the structure of the 1.1.x build", and
 "lets really think about the ideal structure and architecture from the start, so we don't have
-a lot to refactor later". This section is that structure. It is written against the 1.1 module
+a lot to refactor later". This section is that structure. (That build ships as version 1.0.2,
+by the owner's decision of 2026-11-14; "1.1" in this document names its code structure, not a
+version number. Multiplayer itself ships as version 1.1.0.) It is written against the 1.1 module
 map (`scripts/arch/modules.toml`, `docs/dev/arch/README.md`): five declared layers (floor,
 model, features, presentation, entry), headless modules, forbidden edges, static lifetimes,
 all ratcheted in CI. File and type names are proposals; the shape is binding.

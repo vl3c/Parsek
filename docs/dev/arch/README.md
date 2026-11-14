@@ -399,6 +399,10 @@ through a method a test calls), 709 a test calls. After B6 split
 `RouteAnalysisEngine::AnalyzeWindows` (2026-11-12): complexity 614 / 31 / 4.
 After B6 split `AnchorPropagator::Run` (2026-11-14): complexity 611 / 29 / 3
 (612 / 30 / 4 on the tree it started from), and `Run` left the watch band.
+Each of the 773 methods the roots do not reach at 24abf0dba (2026-11-14) carries a verdict
+(test hook, guards live logic, kept by design, really dead ...) in
+`docs/dev/research/test-only-methods-2026-11-14.tsv`, with the regenerate commands in the `.md`
+beside it (todo DEAD-CODE-TEST-ONLY-METHODS-PARKED).
 
 ### Coverage snapshot
 
