@@ -1175,8 +1175,10 @@ A discard WITHOUT a load - the merge dialog's Discard and Re-Fly discard, the tr
 **Behavior:** `Status = MissingSourceRecording`. Route cannot dispatch and cargo transfers stop. UI explains that the proof Supply Run is gone and the route must be recreated or the recording restored. If the recording is restored by loading/reverting to a save where it exists, or by restoring recording sidecars, route load/revalidation clears the status back to `Active` and recalculates `NextDispatchUT`.
 
 ### 10.16 Source recording changed or superseded
-**Scenario:** Source recording IDs still exist, but optimizer rewrite, re-fly supersede, sidecar epoch change, or route-proof metadata rewrite changes route timing or proof data after route creation.
+**Scenario:** Source recording IDs still exist, but re-fly supersede, sidecar epoch change, or route-proof metadata rewrite changes route timing or proof data after route creation.
 **Behavior:** `Status = SourceChanged`. Route cannot dispatch and in-transit delivery aborts before moving cargo. UI explains that the proof Supply Run changed and the route must be recreated or explicitly reanalyzed. Stored `TransitDuration` and `DeliveryOffsetSeconds` remain unchanged for diagnosis, but they are not used to keep moving cargo against changed proof data.
+
+The optimizer never causes this: `CommittedListOptimizer.RunOptimizationPass` collects every recording a committed or dormant route names in `SourceRefs` (`RouteStore.CollectSourceRecordingIds`) and does not merge, split or tail-trim those recordings, so the source refs stay immutable (section 4.7). Unnamed recordings are optimized as before.
 
 ### 10.17 Save/load round-trip
 **Scenario:** Save, load.
