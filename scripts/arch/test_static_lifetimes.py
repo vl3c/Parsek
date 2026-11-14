@@ -829,7 +829,7 @@ class RealTreeLifetimeTests(unittest.TestCase):
 
     def test_the_test_assembly_writes_are_read(self):
         written = self.ctx["written"]
-        self.assertIn("Parsek.RewindInvokeContext::Pending", written)  # an stsfld
+        self.assertIn("Parsek.ParsekLog::SuppressLogging", written)  # an stsfld
         # A hand-written static setter (ParsekLog.TestSinkForTesting assigns t_testSinkForTesting).
         self.assertIn("Parsek.ParsekLog::t_testSinkForTesting", written)
         self.assertGreater(len(written), 100)
@@ -851,7 +851,7 @@ class RealTreeLifetimeTests(unittest.TestCase):
     def test_a_save_static_losing_its_clearing_write_reds(self):
         mutating = set(CONFIG["statics"]["mutating_members"])
         for key in ("Parsek.RecordingStore::committedTrees",          # cleared by a List.Clear call
-                    "Parsek.RewindInvokeContext::CapturedBundle"):    # cleared by ldsflda + initobj
+                    "Parsek.RewindInvokeContext::state"):             # a ColdResetState holder: an stsfld
             with self.subTest(key=key):
                 self.assertIn(self.result["tagged"][key][0], lifetimes.COLD_CLEARED)
                 self.assertNotIn(key, self.result["findings"]["coldLoadMisses"])
@@ -956,7 +956,7 @@ class RealTreeLifetimeTests(unittest.TestCase):
         # miss): one static fixed since the pin while another loses its clear. Built here, so
         # the cell holds whatever the real coldLoadMisses pin is, zero included.
         fixed = "Parsek.RecordingStore::committedTrees"
-        broken = "Parsek.RewindInvokeContext::CapturedBundle"
+        broken = "Parsek.RewindInvokeContext::state"
         self.assertNotIn(fixed, self.result["findings"]["coldLoadMisses"])
         pins = copy.deepcopy(self.pins)
         pins["coldLoadMisses"]["keys"] = sorted(set(pins["coldLoadMisses"]["keys"]) | {fixed})

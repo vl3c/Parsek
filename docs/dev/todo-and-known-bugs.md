@@ -56,6 +56,7 @@ construction.
 - `CommittedTreeRestoreAttempt`: the armed attempt (4 fields, private accessors keep the old names); `ResetForLoad` swaps.
 - `InertRecordingTrees`: the held trees, their id sets and the notice latch (4 fields); `Clear` (BeginLoad, `ResetForLoad`, the test reset) swaps. No caller keeps a reference to the old lists.
 - `RewindContext`: the plain-rewind context (16 properties, the three save-clock UTs start at NaN in the holder); `ResetForTesting` (which `ResetForSaveLoad` calls after its Warn) swaps. `EndRewind` still clears its subset.
+- `RewindInvokeContext`: the Re-Fly invoke context (11 fields, now properties); `Clear` swaps to a holder naming no slot (-1). The arch IL cells that named `::Pending` and `::CapturedBundle` re-anchor (no save static is cleared by `ldsflda` + `initobj` any more; the fixture cells keep that rule covered).
 
 ## COLD-RESET-LEFTOVERS: four save / load-transition statics a Cold load leaves set [FILED 2026-11-14 from the ARCH-COLD-RESET-HOLDERS cold-loader cells, by a headless test. OPEN; none reproduced in play, low; pinned in `SaveScopedSessionResetTests.ColdLoaderKnownGaps`, not fixed]
 
