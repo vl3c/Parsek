@@ -627,6 +627,35 @@ harness lane drives Warp to time through a rewind or the deferred flight warp (L
 the read-only `WarpToTime` ResolvePlan cell); the InvokeRewindToLaunch lanes (H58, RB-4, RF-15,
 FLG-1 and the rest) exercise the touched `InitiateRewind` return.
 
+## ROUTE-SOURCE-OPTIMIZER-REWRITE: the optimizer merged, split and trimmed recordings a supply route was built from, breaking the route [FIXED 2026-11-14, found by the C8 test of NEXT-TESTS-TO-BUILD-2026-11-11]
+
+`CommittedListOptimizer.RunOptimizationPass` runs after every commit and on every load. It merged,
+split and tail-trimmed recordings a route names in its `SourceRefs`, each of which moves a field the
+route captured (the id on a merge, `EndUT` on a split or trim), so the next
+`RouteStore.RevalidateSources` set the route to `SourceChanged` (a dormant route to
+`MissingSourceRecording`), neither of which recovers. Realistic trigger: creating a route clears the
+manual loop on its tree (`RouteTreeGuard.ForceClearManualLoopForRoute`), the loop was the only thing
+holding a chain pair apart, and the next pass broke the route the player had just built.
+Fix: `RouteStore.CollectSourceRecordingIds` (committed + dormant routes) is collected once per pass;
+the merge (`ChooseMergeCandidateIndex`), split (`ChooseSplitCandidateIndex`) and tail-trim passes
+skip those recordings and log one Verbose summary each. Design section 10.16 updated (source refs
+stay immutable, section 4.7). Tests: `RouteSourceOptimizerTests` (6 of the first 7 facts red before
+the fix). Not covered: any `FilesDirty` flush of a source recording still advances its sidecar
+epoch; `FindSplitCandidatesForOptimizer`'s `EnsureCheckpointSectionsForTopLevelOrbitSegments
+(markDirty: true)` runs over sources too. Whether that can drift a source ref to SourceChanged is
+unproven (follow-up below).
+
+## ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW: a route whose docked origin is a depot may drain cargo another route reserved there [SUSPECTED 2026-11-14 by code read, no test proves it. OPEN]
+
+`LiveRouteRuntimeEnvironment.OriginProvenanceHasCargo` probes `route.Origin` without
+`RouteStore.OtherRoutesReservedFor`; only `PickupSourcesHaveCargo` nets the escrow. So route A
+whose docked origin is depot D can take fuel an in-flight multi-stop route B reserved at its later
+pickup window at D. B's pickup debit then comes up short, but B's delivery still writes its full
+recorded `DeliveryManifest` (`RouteDeliveryPlanner` never reads what was picked up): cargo is
+created. Proving it needs a live origin resolve (FlightGlobals), so an in-game test or a seam.
+Also check here: whether a sidecar flush of a source recording (see ROUTE-SOURCE-OPTIMIZER-REWRITE)
+can move a route to SourceChanged.
+
 ## NEXT-TESTS-TO-BUILD-2026-11-11: the ranked list merging the moon matrix and the test gap audit, plus the new ideas of the 2026-11-11 review [FILED 2026-11-11 (owner asked to update the list), checked against main b5877e51f (1.1.0), reviewed the same day by a clean-context agent. OPEN; test program, no known defect]
 
 Merges the two lists the owner had: the moon flight-test matrix (MOON-FLIGHT-TEST-PROGRAM below,
@@ -646,6 +675,14 @@ V32T / V33M, all green 2026-11-07), the moon-to-moon spacing fix (#2554, V17 / V
 A1 Recordings-tab loops on the map (SLM lanes), Revert to VAB / save switch / CommNet across a
 rewind and a load (REV-1, SWS-1, CN-4, CN-5), routes under a Re-Fly and real warp (IR-3, IR-6),
 route conservation (RCN-1), the Re-Fly value fuzzer and the save round-trip gate.
+
+Gap finding aid (2026-11-14): `docs/dev/flight-profiles.md` is the GENERATED catalog of every lane
+(host save, bodies, seam verbs, timeline operations, mission, in-game categories, status) with
+body x operation and family x operation matrices and the never-used verbs, dimension values and
+in-game categories; regenerate with `python harness/tools/lane_catalog.py`. Its first reading:
+Re-Fly, revert and rewind-to-launch never leave Kerbin and the Mun, career and ledger lanes stop at
+the Mun, vessel switching and physics warp are thin and Kerbin-only, and seven in-game categories
+(the six of B11 plus FreeTechUnlock) are run by no lane.
 
 Still to build, most valuable to a player first (items 8 and 10 need no PC flight time and can run
 in parallel in the cloud):
@@ -671,14 +708,16 @@ in parallel in the cloud):
    LF-2 cover only a plain Rewind-to-Launch with a loop armed).
 7. [ ] Ghost engine and FX effects across a Re-Fly or a revert (audit B8; the FX fingerprint A/B,
    T48, has never been re-run).
-8. [ ] A load-time optimizer pass over a route WITH source recording refs, asserting the route
-   does not flip to SourceChanged (audit C8, xUnit; `ChainTipRouteCargoTests` runs the pass beside
-   a route that has no source refs and asserts nothing about the route's status).
+8. [x] ~~A load-time optimizer pass over a route WITH source recording refs, asserting the route
+   does not flip to SourceChanged (audit C8, xUnit).~~ Done 2026-11-14: `RouteSourceOptimizerTests`
+   went red (the pass merged, split and trimmed route sources) and found
+   ROUTE-SOURCE-OPTIMIZER-REWRITE, fixed in the same PR.
 9. [ ] Missing mission shapes (audit B9): a live atmospheric landing off Kerbin (Eve or Laythe),
    a Minmus or orbital miner, a boat, and the RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT formation
    flight through an SOI edge with a background wingman.
-10. [ ] The unit-test residue of the audit (C4 background off-rails handler, C6 harvest totals,
-   C9 GhostCommNetManager, C5 rewind point slot ambiguity, C1 in-game conservation category) and
+10. [ ] The unit-test residue of the audit (C4 background off-rails handler and C9
+   GhostCommNetManager, both Unity-bound; C6 harvest totals, C5 rewind point slot ambiguity and the
+   headless half of C1 done 2026-11-14, see the residue entry) and
    B11 (in-game categories no lane runs). Fixes proven only by xUnit that a lane could show:
    ROUTE-DELIVERY-IGNORES-DESCENT-TRIGGER, the two rescue marker fixes, the drop path of
    TRIMMED-CHECKPOINT-SECTION-ENDS-BEFORE-IT-STARTS and the RW-9R reading variant. The three
@@ -691,10 +730,12 @@ uncovered by the reviewer; the four cheap ones first):
   ProbesBeforeCrew and CommunityDeltaVMaps installed (`harness/provision/profiles/stock-minimal.toml`),
   so a stock bug those mods hide is invisible. A profile with only Parsek's real dependencies,
   re-running a few seam-only daily lanes.
-- [ ] Produced save is stock-clean: a `saveparse.py` report-only check that the produced save
-  holds no ghost ProtoVessel or Parsek-only module in FLIGHTSTATE, so removing Parsek (the user
-  guide says this is safe) cannot break the save. Pure Python, no flight.
-- [ ] New game under an old save name: `DetectSaveFolderChange` keys on the folder name, so a
+- [x] ~~Produced save is stock-clean~~ Done 2026-11-14: `saveparse.stock_load_findings`, a
+  report-only `stockLoad` facet of the `saveParse` row (ghost map vessels, Parsek modules, nodes or
+  keys outside the ParsekScenario node). All 136 committed fixture saves read clean
+  (`StockLoadabilityTests`).
+- [ ] (Low value, 2026-11-14: `lastSaveFolder` is reset on the main menu, so a new game always
+  reads as a folder change.) New game under an old save name: `DetectSaveFolderChange` keys on the folder name, so a
   fresh game created where an old Parsek save lived may pick up its sidecars. `NewGame` over a
   folder pre-seeded with `Parsek/Recordings`.
 - [ ] Difficulty sliders changed mid-career, then a rewind: no lane changes a reward multiplier
@@ -968,16 +1009,22 @@ merges this residue with the moon program is NEXT-TESTS-TO-BUILD-2026-11-11 at t
   `OnBackgroundVesselSOIChanged` only by the source gate of
   `BackgroundPhysicsSoiSectionSplitTests` (the loaded-state arming order); neither has a decision
   test.
-- [ ] C8: no test runs `RunOptimizationPass` over a committed route WITH source recording refs and
-  checks its status (`ChainTipRouteCargoTests` runs the pass beside a ref-less route), so a load-time
-  rewrite that flips a route to SourceChanged would go unseen.
+- [x] ~~C8~~ Done 2026-11-14: `RouteSourceOptimizerTests` (10 facts) found and pins
+  ROUTE-SOURCE-OPTIMIZER-REWRITE.
 - [ ] C9: `GhostCommNetManager` is named by no xUnit file (see GHOSTCOMMNET-PASS3-DEDUPE-AND-SCAN-COST).
-- [ ] C6: `RouteHarvestAnalysis.ComputeHarvestedTotals`, `ComputeFullRunGains` and
+- [x] ~~C6~~ Done 2026-11-14: `RouteHarvestAnalysisComputeTests` (30 cases, all green on the
+  existing code). Was: `RouteHarvestAnalysis.ComputeHarvestedTotals`, `ComputeFullRunGains` and
   `FindGainAnchorIndex` have no test (`HarvestCapture_CatchUpOnLoad` no longer skips: its body runs
   on a drill on ore in the `MiningHarvest` category, lane MINE-5a).
-- [ ] C5: `EffectiveState.ResolveRewindPointSlotIndexForRecording` still takes the first match
-  silently when two slots resolve to one recording.
-- [ ] C1 remainder: no per-resource conservation check (origin debit = delivered + by-design loss)
+- [x] ~~C5~~ Done 2026-11-14: `ResolveRewindPointSlotIndexForRecording` still returns the first
+  match but logs a rate-limited `[Supersede]` Warn naming both slots, and the graph fuzzer's INV-9
+  checks every slot claim is inside its origin's forward reach (so two slots claim one recording
+  only when both origins reach it, which no real rewind point does).
+- [ ] C1 remainder (headless half done 2026-11-14: `RouteOriginDebitConservationTests` drives the
+  production `ApplyOriginDebit` against an unloaded depot, 300 seeds, and `RouteTimelineFuzzerTests`
+  gains a vessel-origin timeline where depot drawdown equals the debited rows across warps, saves
+  and Re-Fly; the loaded-vessel and inventory halves stay in-game only; one suspected gap filed as
+  ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW): no per-resource conservation check (origin debit = delivered + by-design loss)
   in an in-game category or the harness (HARNESS-RESOURCE-ORACLE-AND-INVARIANT-RULES).
   Progress 2026-11-06 (branch `routecons`): lane `RCN-1-route-conservation-across-loads` (LIVE-PROVEN
   `2026-11-07_0010`) reads both ends of the two-stop relay route on `rover-relay-c-recorded` and gates
@@ -3117,6 +3164,28 @@ compare).
   `CommittedTreeRestoreAttempt`, `SwitchSegmentAttempts`, `ConversionLegBinding`,
   `PostWalkActionReconciler`; moves and delegate parameters only, headless), ratchet
   140 -> 124; the other 24 edges buy 3 more and need installed hooks proven in flight.
+- 2026-11-14 (B6 second half, split `AnchorPropagator.Run`): the DAG walk (about 490 lines,
+  complexity 104) is now an orchestrator (complexity 8) over 13 private static steps in the same
+  file, in walk order: `IndexRecordingsById`, `EmitSeedAnchors` with `EmitSeedCandidate`,
+  `AddBranchPointEdges` (per tree, per branch point), `AddChainEdges`,
+  `IndexOutgoingEdgesByParentSlot`, `WalkEdges` with `EnqueueAnchoredSlots` and `PropagateEdge`
+  (`LookupUpstreamEpsilon`, `TryEvaluateEdgeOffsets`), `LogWalkSummary`; the walk's 14 counters
+  ride in one private `DagWalkCounters` object built per call. Highest step 18
+  (`AddBranchPointEdges` per branch point); no behaviour change: bodies moved, log text, level,
+  tag, counter and ordering unchanged; `TryResolveSeedEpsilon` and
+  `TryResolveBoundaryInstantEpsilon` untouched. Tests first, on the tree after the
+  REFLY-ANCHOR-EPSILON-1300KM residual fix (SoiTransition read at the boundary instant): 38
+  transcript cells plus 8 facts (`AnchorPropagatorRunCharacterizationTests`, goldens recorded
+  from the unsplit method). A throwaway seeded differential over 6,000 random scenarios (every
+  source, side, body, branch type, chain shape, suppression and seam mode) gave byte-identical
+  raw transcripts on both builds; no pre-split copy is kept test-side because the old body calls
+  private members (`Edge`, `TryResolveSeedEpsilon`, `ResolveBody`) a copy could reach only by
+  widening them. 57 mutants on the split, one or more per step: 53 killed; the 4 survivors are
+  equivalent (an empty-id or first-wins index entry nothing looks up, the zero epsilon a failed
+  resolve already carries, a no-op branch-type guard). Three holes the first sweep found
+  (parent-first fallback reason, a sampled but unsplined parent, branch-point edges walking
+  before chain edges) are closed by the cell `edge-offset-precedence-and-edge-order`.
+  Complexity >= 20 / 50 / 100: 612 / 30 / 4 -> 611 / 29 / 3; `complexityWatch` 52 -> 51.
 - 2026-11-11 (metrics history): `scripts/arch/metrics.py` builds one JSON row per commit
   (schema `parsek-metrics/1`) from the existing tools' output: the text scan, the semantic
   headline, the code facts (with test reach when given the test DLL) and `count-code.py`'s

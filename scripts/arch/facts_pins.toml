@@ -612,7 +612,6 @@ keys = [
     "Parsek.RecordingsTableUI::DrawGroupTree",
     "Parsek.RecordingsTableUI::DrawRecordingBlock",
     "Parsek.RecordingsTableUI::DrawRecordingRow",
-    "Parsek.Rendering.AnchorPropagator::Run",
     "Parsek.Rendering.RenderSessionState::RebuildFromMarker",
     "Parsek.RouteProofCapture::TryBindStartDockedOriginAtUndock",
     "Parsek.StockPoolReference::Measure",
