@@ -1075,7 +1075,9 @@ namespace Parsek.Tests
                 Assert.Contains("Vector3 worldAxis = boundaryWorldRot * segment.angularVelocity;", body);
                 Assert.Contains(
                     "(float)((double)segment.angularVelocity.magnitude * dt * Mathf.Rad2Deg)", body);
-                Assert.Contains("Quaternion.AngleAxis(angle, worldAxis) * boundaryWorldRot", body);
+                // OrbitalAngleAxis is Quaternion.AngleAxis behind a test seam (the Windows test
+                // host cannot JIT Unity's wrapper), so the order is still spin * boundary.
+                Assert.Contains("OrbitalAngleAxis(angle, worldAxis) * boundaryWorldRot", body);
                 // The non-spinning arm is the orbital-frame decode, not a second spin.
                 Assert.Contains("ghostRot = orbFrame * segment.orbitalFrameRotation;", body);
             }
