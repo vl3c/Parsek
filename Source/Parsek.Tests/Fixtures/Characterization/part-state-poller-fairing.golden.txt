@@ -1,0 +1,35 @@
+# CheckFairingState
+## FG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial ut=1010: ok
+  ev FairingJettisoned pid=803 name=fairingDeployed ut=1010 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Fairing: unable to read GetScalar for 'fairingNoFsm' pid=801 (NullReferenceException: <message>)
+  log [Parsek][VERBOSE][Recorder] Part event: FairingJettisoned 'fairingDeployed' pid=803
+  deployedFairings=[803]
+  loggedFairingReadFailures=[801]
+step again ut=1020: ok
+  deployedFairings=[803]
+  loggedFairingReadFailures=[801]
+step B-deployed ut=1030: ok
+  ev FairingJettisoned pid=802 name=fairingFlightIdle ut=1030 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: FairingJettisoned 'fairingFlightIdle' pid=802
+  deployedFairings=[802,803]
+  loggedFairingReadFailures=[801]
+## BG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial ut=1010: ok
+  ev FairingJettisoned pid=803 name=fairingDeployed ut=1010 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Fairing: unable to read GetScalar for 'fairingNoFsm' pid=801 (NullReferenceException: <message>)
+  log [Parsek][VERBOSE][BgRecorder] Part event: FairingJettisoned 'fairingDeployed' pid=803 (bg vessel 7)
+  deployedFairings=[803]
+  loggedFairingReadFailures=[801]
+step again ut=1020: ok
+  deployedFairings=[803]
+  loggedFairingReadFailures=[801]
+step B-deployed ut=1030: ok
+  ev FairingJettisoned pid=802 name=fairingFlightIdle ut=1030 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: FairingJettisoned 'fairingFlightIdle' pid=802 (bg vessel 7)
+  deployedFairings=[802,803]
+  loggedFairingReadFailures=[801]

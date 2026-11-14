@@ -1,0 +1,21 @@
+# CheckAnimationGroupState
+## FG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial ut=1010: ok
+  log [Parsek][VERBOSE][Recorder] AnimationGroup: unable to classify 'groupMissSecond' pid=951 midx=1; fields=[<none>]
+  deployedAnimationGroups=[]
+  loggedAnimationGroupClassificationMisses=[243457]
+step again ut=1020: ok
+  deployedAnimationGroups=[]
+  loggedAnimationGroupClassificationMisses=[243457]
+## BG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial ut=1010: ok
+  log [Parsek][VERBOSE][BgRecorder] AnimationGroup: unable to classify 'groupMissSecond' pid=951 midx=1
+  deployedAnimationGroups=[]
+  loggedAnimationGroupClassificationMisses=[243457]
+step again ut=1020: ok
+  deployedAnimationGroups=[]
+  loggedAnimationGroupClassificationMisses=[243457]

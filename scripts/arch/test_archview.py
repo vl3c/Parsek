@@ -4082,12 +4082,16 @@ class RealTreeSmokeTests(unittest.TestCase):
         # RouteMemberRunExpansion) were knot members and were deleted with it: 434.
         # Plan item 17 (B5) gives ParsekFlightMergeFlow its host through IMergeFlowHost, which
         # ParsekFlight implements and which names knot types (the recorders, the tree): 435.
+        # B3's shared part-state poller adds three: PartStatePoller, which calls the
+        # recorders' transition statics and which both recorders call, and the two nested
+        # sinks (FlightRecorder's and BackgroundRecorder's), each reaching its owner and
+        # reached from it: 438.
         # It was [301, 7, 4, 2, 2] on 2026-09-25,
         # [286, 4, 2, 2] on 2026-09-22 and [391, 4, 2] before the 2026-09-14
         # arch PRs shrank the kernel.
         # It is a canary: when it reds, re-derive it and the README numbers
         # from a fresh run in the same commit as whatever moved them.
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [435, 9, 4, 3, 2])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [438, 9, 4, 3, 2])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
@@ -4154,7 +4158,7 @@ class RealTreeSmokeTests(unittest.TestCase):
         # facts a reader relies on rather than a committed copy.
         self.assertEqual(fresh, again)
         self.assertIn("| Core |", fresh)
-        # 213: the historical before-state collects every root file the narrowed
+        # 216: the historical before-state collects every root file the narrowed
         # family rules leave behind (138 on 2026-09-25, 126 before the stock-UI
         # reservation files landed at the root; the 2026-11-01 refresh placed
         # 50 more by hand, the first 2026-11-04 merge of main three more, the
@@ -4168,10 +4172,11 @@ class RealTreeSmokeTests(unittest.TestCase):
         # VesselSpawner.<Area>.cs partial files eight more; PR 8's follow-up
         # FlightRecorder.LiveSnapshot.cs matches a family prefix and adds none;
         # the map-geometry dump's MapGeometryJson.cs and MapGeometryRecorder.cs,
-        # placed in TestCommands by an explicit rule, two more);
+        # placed in TestCommands by an explicit rule, two more; B3's PartStatePoller.cs,
+        # placed in Recording by an explicit rule, one more);
         # 8 after, the kernel list as it stands today (9 until
         # file-placement PR 9 placed VesselSpawner.cs in Controllers).
-        self.assertIn("| Core | 215 | 8 |", fresh)
+        self.assertIn("| Core | 216 | 8 |", fresh)
 
     def test_atlas_prose_matches_the_tree(self):
         prose = archview.load_prose(archview.DEFAULT_ATLAS)
@@ -4270,11 +4275,13 @@ class RealTreeSmokeTests(unittest.TestCase):
         # The two deleted route-line types were on the uncut side of all three cuts, so
         # each lands two lower (434 -> 403, 403 -> 381, 381 -> 362).
         # Plan item 17's IMergeFlowHost joins the knot on the cut side (435 before, the cut still
-        # lands on 403).
+        # lands on 403). B3's three poller types (see the knot sizes above) stay on the uncut
+        # side until the recorder cut, so each of the first three lands three higher
+        # (438 -> 406, 406 -> 384, 384 -> 365).
         first, second, third = self.model["knots"][0]["cuts"][:3]
         self.assertEqual(first["sink"], "ParsekFlight")
-        self.assertEqual(first["sizeBefore"], 435)
-        self.assertEqual(first["sizeAfter"], 403)
+        self.assertEqual(first["sizeBefore"], 438)
+        self.assertEqual(first["sizeAfter"], 406)
         for service in ("ParsekFlightGhostPositioner", "ParsekFlightMapMarkers", "ParsekWindowSet",
                         "ParsekFlightMergeFlow",
                         "ParsekFlightPlaybackHost", "ParsekFlightPostSwitchAutoRecord",
@@ -4282,8 +4289,8 @@ class RealTreeSmokeTests(unittest.TestCase):
                         "ParsekFlightSurfaceCapture", "ParsekFlightSwitchContinuation"):
             self.assertIn(service, first["droppedReferences"])
         self.assertEqual(second["sink"], "GhostPlaybackLogic")
-        self.assertEqual(second["sizeBefore"], 403)
-        self.assertEqual(second["sizeAfter"], 381)
+        self.assertEqual(second["sizeBefore"], 406)
+        self.assertEqual(second["sizeAfter"], 384)
         for dropped in ("LoopUnit", "MissionPeriodicity", "MissionRelaunchSchedule"):
             self.assertIn(dropped, second["droppedReferences"])
         # File-placement PR 4 (2026-11-07) deleted OrbitReseed -> GhostMapPresence;
@@ -4305,8 +4312,8 @@ class RealTreeSmokeTests(unittest.TestCase):
         # after W1b). Since W1c the third cut is the route (406 -> 387; 388 -> 369 after W3b;
         # 383 -> 364 after W6's window set).
         self.assertEqual(third["sink"], "Route")
-        self.assertEqual(third["sizeBefore"], 381)
-        self.assertEqual(third["sizeAfter"], 362)
+        self.assertEqual(third["sizeBefore"], 384)
+        self.assertEqual(third["sizeAfter"], 365)
         self.assertEqual(
             third["droppedReferences"], ["RouteCodec", "RouteDispatchEvaluator", "RouteIds"])
 

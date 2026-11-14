@@ -1,0 +1,35 @@
+# CheckWheelDamageState
+## FG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial ut=1010: ok
+  ev WheelBroken pid=602 name=wheelSecondModule ut=1010 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: WheelBroken 'wheelSecondModule' pid=602 (wheel damage)
+  damagedWheelParts=[602]
+step A-broken ut=1020: ok
+  ev WheelBroken pid=601 name=wheelA ut=1020 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: WheelBroken 'wheelA' pid=601 (wheel damage)
+  damagedWheelParts=[601,602]
+step A-broken-again ut=1030: ok
+  damagedWheelParts=[601,602]
+step A-repaired ut=1040: ok
+  ev WheelRepaired pid=601 name=wheelA ut=1040 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: WheelRepaired 'wheelA' pid=601 (wheel damage)
+  damagedWheelParts=[602]
+## BG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial ut=1010: ok
+  ev WheelBroken pid=602 name=wheelSecondModule ut=1010 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: WheelBroken 'wheelSecondModule' pid=602 (bg vessel 7, wheel damage)
+  damagedWheelParts=[602]
+step A-broken ut=1020: ok
+  ev WheelBroken pid=601 name=wheelA ut=1020 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: WheelBroken 'wheelA' pid=601 (bg vessel 7, wheel damage)
+  damagedWheelParts=[601,602]
+step A-broken-again ut=1030: ok
+  damagedWheelParts=[601,602]
+step A-repaired ut=1040: ok
+  ev WheelRepaired pid=601 name=wheelA ut=1040 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: WheelRepaired 'wheelA' pid=601 (bg vessel 7, wheel damage)
+  damagedWheelParts=[602]

@@ -1,0 +1,83 @@
+# CheckDeployableState
+## FG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial ut=1010: ok
+  log [Parsek][VERBOSE][Recorder] Deployable poll skipped 1 pose-animation-less module(s) (deployable-no-pose-animation gate)
+  extendedDeployables=[]
+  brokenDeployables=[]
+step A-extending ut=1020: ok
+  extendedDeployables=[]
+  brokenDeployables=[]
+step A-extended ut=1030: ok
+  ev DeployableExtended pid=401 name=panelA ut=1030 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: DeployableExtended 'panelA' pid=401
+  extendedDeployables=[401]
+  brokenDeployables=[]
+step A-broken ut=1040: ok
+  ev DeployableBroken pid=401 name=panelA ut=1040 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: DeployableBroken 'panelA' pid=401 (deployable-broken edge, deployState=BROKEN)
+  extendedDeployables=[]
+  brokenDeployables=[401]
+step A-broken-again ut=1050: ok
+  extendedDeployables=[]
+  brokenDeployables=[401]
+step A-repaired ut=1060: ok
+  ev DeployableRetracted pid=401 name=panelA ut=1060 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: DeployableRetracted 'panelA' pid=401 (deployable-broken edge, deployState=RETRACTED)
+  extendedDeployables=[]
+  brokenDeployables=[]
+step A-retracting ut=1070: ok
+  extendedDeployables=[]
+  brokenDeployables=[]
+step A-extended-again ut=1080: ok
+  ev DeployableExtended pid=401 name=panelA ut=1080 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: DeployableExtended 'panelA' pid=401
+  extendedDeployables=[401]
+  brokenDeployables=[]
+step A-retracted ut=1090: ok
+  ev DeployableRetracted pid=401 name=panelA ut=1090 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: DeployableRetracted 'panelA' pid=401
+  extendedDeployables=[]
+  brokenDeployables=[]
+## BG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial ut=1010: ok
+  log [Parsek][VERBOSE][BgRecorder] Deployable poll skipped 1 pose-animation-less module(s) (deployable-no-pose-animation gate, bg vessel 7)
+  extendedDeployables=[]
+  brokenDeployables=[]
+step A-extending ut=1020: ok
+  extendedDeployables=[]
+  brokenDeployables=[]
+step A-extended ut=1030: ok
+  ev DeployableExtended pid=401 name=panelA ut=1030 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: DeployableExtended 'panelA' pid=401 (bg vessel 7)
+  extendedDeployables=[401]
+  brokenDeployables=[]
+step A-broken ut=1040: ok
+  ev DeployableBroken pid=401 name=panelA ut=1040 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: DeployableBroken 'panelA' pid=401 (bg vessel 7, deployable-broken edge)
+  extendedDeployables=[]
+  brokenDeployables=[401]
+step A-broken-again ut=1050: ok
+  extendedDeployables=[]
+  brokenDeployables=[401]
+step A-repaired ut=1060: ok
+  ev DeployableRetracted pid=401 name=panelA ut=1060 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: DeployableRetracted 'panelA' pid=401 (bg vessel 7, deployable-broken edge)
+  extendedDeployables=[]
+  brokenDeployables=[]
+step A-retracting ut=1070: ok
+  extendedDeployables=[]
+  brokenDeployables=[]
+step A-extended-again ut=1080: ok
+  ev DeployableExtended pid=401 name=panelA ut=1080 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: DeployableExtended 'panelA' pid=401 (bg vessel 7)
+  extendedDeployables=[401]
+  brokenDeployables=[]
+step A-retracted ut=1090: ok
+  ev DeployableRetracted pid=401 name=panelA ut=1090 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: DeployableRetracted 'panelA' pid=401 (bg vessel 7)
+  extendedDeployables=[]
+  brokenDeployables=[]

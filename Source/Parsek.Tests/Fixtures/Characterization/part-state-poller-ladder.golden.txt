@@ -1,0 +1,53 @@
+# CheckLadderState
+## FG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial ut=1010: ok
+  ev DeployableExtended pid=903 name=partTwoModules ut=1010 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Ladder: unable to classify 'partMiss' pid=902 midx=0; fields=[<none>]
+  log [Parsek][VERBOSE][Recorder] Part event: DeployableExtended 'partTwoModules' pid=903 (ladder)
+  deployedLadders=[231168]
+  loggedLadderClassificationMisses=[230912]
+step A-extended ut=1020: ok
+  ev DeployableExtended pid=901 name=partA ut=1020 val=0 midx=1
+  log [Parsek][VERBOSE][Recorder] Part event: DeployableExtended 'partA' pid=901 (ladder)
+  deployedLadders=[230657,231168]
+  loggedLadderClassificationMisses=[230912]
+step A-extended-again ut=1030: ok
+  deployedLadders=[230657,231168]
+  loggedLadderClassificationMisses=[230912]
+step A-extending ut=1040: ok
+  log [Parsek][VERBOSE][Recorder] Ladder: unable to classify 'partA' pid=901 midx=1; fields=[StateName, isDeployed, stagingEnabled, stagingToggleEnabledEditor, stagingToggleEnabledFlight, stagingEnableText, stagingDisableText, overrideStagingIconIfBlank, moduleIsEnabled, upgradesApply, upgradesAsk, showUpgradesInModuleInfo]
+  deployedLadders=[230657,231168]
+  loggedLadderClassificationMisses=[230657,230912]
+step A-retracted ut=1050: ok
+  ev DeployableRetracted pid=901 name=partA ut=1050 val=0 midx=1
+  log [Parsek][VERBOSE][Recorder] Part event: DeployableRetracted 'partA' pid=901 (ladder)
+  deployedLadders=[231168]
+  loggedLadderClassificationMisses=[230657,230912]
+## BG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial ut=1010: ok
+  ev DeployableExtended pid=903 name=partTwoModules ut=1010 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Ladder: unable to classify 'partMiss' pid=902 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: DeployableExtended 'partTwoModules' pid=903 (ladder, bg vessel 7)
+  deployedLadders=[231168]
+  loggedLadderClassificationMisses=[230912]
+step A-extended ut=1020: ok
+  ev DeployableExtended pid=901 name=partA ut=1020 val=0 midx=1
+  log [Parsek][VERBOSE][BgRecorder] Part event: DeployableExtended 'partA' pid=901 (ladder, bg vessel 7)
+  deployedLadders=[230657,231168]
+  loggedLadderClassificationMisses=[230912]
+step A-extended-again ut=1030: ok
+  deployedLadders=[230657,231168]
+  loggedLadderClassificationMisses=[230912]
+step A-extending ut=1040: ok
+  log [Parsek][VERBOSE][BgRecorder] Ladder: unable to classify 'partA' pid=901 midx=1
+  deployedLadders=[230657,231168]
+  loggedLadderClassificationMisses=[230657,230912]
+step A-retracted ut=1050: ok
+  ev DeployableRetracted pid=901 name=partA ut=1050 val=0 midx=1
+  log [Parsek][VERBOSE][BgRecorder] Part event: DeployableRetracted 'partA' pid=901 (ladder, bg vessel 7)
+  deployedLadders=[231168]
+  loggedLadderClassificationMisses=[230657,230912]

@@ -1574,34 +1574,5 @@ namespace Parsek
         }
 
         #endregion
-
-
-        #region Jettison Name Cache
-
-        /// <summary>
-        /// Per-vessel jettison name cache (mirrors FlightRecorder.GetCachedJettisonNames).
-        /// </summary>
-        private static string[] GetCachedJettisonNames(BackgroundVesselState state, ulong moduleKey, string rawNames)
-        {
-            rawNames = rawNames ?? string.Empty;
-            string cachedRaw;
-            if (state.jettisonNameRawCache.TryGetValue(moduleKey, out cachedRaw) &&
-                string.Equals(cachedRaw, rawNames, StringComparison.Ordinal) &&
-                state.parsedJettisonNamesCache.TryGetValue(moduleKey, out string[] cachedNames))
-            {
-                return cachedNames;
-            }
-
-            string[] parsedNames = ParseJettisonNames(rawNames);
-            state.jettisonNameRawCache[moduleKey] = rawNames;
-            state.parsedJettisonNamesCache[moduleKey] = parsedNames;
-            return parsedNames;
-        }
-
-        // ParseJettisonNames: use FlightRecorder.ParseJettisonNames (internal static)
-        private static string[] ParseJettisonNames(string rawNames)
-            => FlightRecorder.ParseJettisonNames(rawNames);
-
-        #endregion
     }
 }
