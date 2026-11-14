@@ -1727,6 +1727,89 @@ invocation: one machine lock, one Parsek.Tests build, one coverage refresh.
   across every invocation of that plan, plus `pending=N of M`. That last field
   is the one to read after a resume.
 
+### Parallel runs (`tools/parallel_runner.py`)
+
+Flies lanes on two or three provisioned KSP copies at once (slots: copy 1 is
+`automation/<profile>`, copy k is `automation/<profile>-<k>`, `lib/slots.py`),
+one `run.py --slot <s>` child per lane. Everything is plain text in and out, so
+an agent can drive it:
+
+```
+cd harness && python tools/parallel_runner.py run --name nightly-1 --tier nightly --slots 2
+cd harness && python tools/parallel_runner.py run --name fix-1 --ids-file lanes.txt --ids A,B
+cd harness && printf 'A\nB\n' | python tools/parallel_runner.py run --name x --ids-file -
+cd harness && python tools/parallel_runner.py status --name nightly-1
+cd harness && python tools/parallel_runner.py set-slots --name nightly-1 3   # 2 while you work, 3 when away
+cd harness && python tools/parallel_runner.py stop --name nightly-1
+cd harness && python tools/parallel_runner.py resume --name nightly-1
+```
+
+- **Selection.** `--ids-file F` (repeatable; `-` reads stdin; one id per line,
+  `#` comments and blank lines ignored), `--ids a,b,c` and `--tier T`
+  (repeatable) add up; a lane selected twice flies once. Any unknown id or tier
+  refuses the whole run up front, naming every one. A lane on an unstaged
+  operator-local fixture is not flown and is named. `--dry-run` prints the plan,
+  the slots found and the window choice, and writes nothing.
+- **Order and slots.** Longest p50 first (`coverage/duration.json`, else the
+  median PASS wall in `<umbrella>/automation/results-archive/index.jsonl`, else
+  120 s). A lane needs a free slot of its `instanceProfile`; at most
+  `control.json` `slots` lanes run at once (re-read before every start, so
+  `set-slots` takes effect at the next start and never stops a running lane).
+  After a start the next waits 45 s, so the memory guard reads the machine
+  after the previous copy booted. Memory guard: beyond the first running lane,
+  nothing starts while free RAM is under 6 GB or free VRAM under 5.5 GB
+  (`GlobalMemoryStatusEx`, `nvidia-smi`; a reading that is not available is not
+  a refusal); each deferral is logged and shown by `status`.
+- **Preconditions.** The runner refuses a lane profile with no provisioned slot
+  and slots that deploy different `Parsek.dll` builds (sha256, naming the odd
+  slot): both exit 2. It takes the machine lock for the whole run (payload
+  `kind = "parallel-runner"`, a random `token`, the run name), heartbeats it
+  from a thread and releases it at the end; a held lock exits 3 with nothing
+  started. Children get `PARSEK_HARNESS_RUNNER_TOKEN` / `PARSEK_HARNESS_RUNNER_PID`
+  and take only their slot lock. On Windows the children run in a Job Object
+  with KILL_ON_JOB_CLOSE, so a dead runner takes its children and their KSPs
+  with it. Parsek.Tests builds once (run.py's own selection build) and every
+  child runs `--tests-prebuilt --no-coverage --keep-stop-request --report-json`.
+- **Windows.** `--window desktop` (default) puts every test window on the last
+  virtual desktop that is not the current one (read once from
+  `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\VirtualDesktops`);
+  with one desktop it falls back to `minimize` and prints one hint (Win+Ctrl+D
+  makes a second). `minimize` and `normal` are passed through. The Unity
+  Screenmanager prefs every KSP shares are snapshotted at the start and
+  restored after the last child exited.
+- **Exclusive lanes** move the OS cursor or take the foreground:
+  `[runtime] exclusive = true` (LT-1, GUI-7), or a step the runner recognises
+  (`UiAction op=pointer`, any `focus=true`, `StockScreen act=hover`, a
+  `RunTests` category in `parallel.POINTER_TEST_CATEGORIES`). They are NOT
+  flown by default (`summary.txt` names them as `notFlown`);
+  `--include-exclusive` flies them last, alone, with `--window normal`.
+- **Stop and resume.** `stop` sets `control.json` `stop`; `results/stop-request`
+  (what `tier_runner.py --stop` writes) is honoured too. Running lanes finish,
+  nothing new starts, and the run reads STOPPED (exit 3) unless something is
+  already red. `resume` flies every planned lane without a settled line in the
+  run's `summary.txt` (tier_runner's rule: only an attempt-1 INVALID, or a lane
+  whose child left no report, flies again) and clears the stop flag.
+- **Run folder** `results/parallel/<run>/`: `plan.json` (lanes with profile,
+  p50 and its source, exclusive reason; window mode; git HEAD), `control.json`
+  (`slots`, `stop`), `events.jsonl` (start, dispatch, wait, finish, stop, end),
+  `runner.log`, `lanes/<id>.<seq>.log` and `.report.json` per child, and
+  `summary.txt`: one line per finished lane
+  (`<ended> <VERDICT> <id> attempts=N wall=Ns slot=S runIds=a,b`; `NO-REPORT`
+  when the child left no report) and a final `# totals` line. The children
+  still write `results/summary.txt` and every result JSON as usual.
+- **End of run.** Once, after the last child exited and while the lock is
+  still held: the run index append with every run id the reports name
+  (`tools/run_index.py` `append_runs`), then `run.py --refresh-coverage` and
+  `run.py --sweep-results` under the runner's token (the coverage / flake /
+  duration refresh and the results retention sweeps, which slot children skip).
+  A failure there is one Warn and never changes a verdict.
+- **Exit code.** run.py's selection rule: 0 when every planned lane ended PASS
+  or EXPECTED-FAIL; 1 on any PARSEK-FAIL, INVALID, KILLED, XPASS, NO-REPORT, on
+  lanes left unflown without a stop, or a failed Parsek.Tests build; 2 for a
+  refused selection or a provisioning problem; 3 for a held lock or a stop; 4
+  when the runner itself broke. Decisions: `lib/parallel.py`; tests:
+  `lib/test_parallel.py`.
+
 ### Reviewing a run
 
 When a requested tier finishes - hours later for a nightly - four surfaces, each

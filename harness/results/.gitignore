@@ -21,3 +21,6 @@ summary.txt
 tier-runs/
 # tools/mutation_check.py reports (local sweep evidence, never committed).
 mutation-check/
+# Parallel-runner run folders (tools/parallel_runner.py): plan, control, events,
+# summary and per-lane child logs. Local run evidence, never committed.
+parallel/
