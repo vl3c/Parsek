@@ -11267,12 +11267,12 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "TIP's milestone seals the slot: StashSlot and InvokeRewind refused, no "
             "merge), NOT RE-FLOWN; the rewind block is disarmed. Owes the re-flight",
         "RF-21-refly-sibling-crosses-mun-soi.toml":
-            "operator by the reading-run discipline; AUTHORED 2026-11-14, FIRST FLOWN "
-            "2026-11-14 PARSEK-FAIL on a by-design raise (forbid since bounded): the live "
+            "operator by the reading-run discipline; AUTHORED 2026-11-14, LIVE-PROVEN "
+            "2026-11-14 (2026-11-14_2300, after a first flight red on a by-design raise "
+            "whose forbid was then bounded): the live "
             "proof of REFLY-ANCHOR-EPSILON-1300KM across a moon crossing (GS-2's in-orbit "
             "split, b23's Kerbin -> Mun machine, a Re-Fly of the probe slot and a merge, "
-            "gated on the per-body boundary-instant residual line). Owes a green "
-            "re-flight, not a human call",
+            "gated on the per-body boundary-instant residual line). No human call owed",
         "RH-1-live-rp-handle-rewind.toml":
             "operator by the reading-run discipline (V1/V2/V24W precedent); AUTHORED "
             "2026-09-08, NEVER FLOWN, reading pending. Owes a flight, not a human call",

@@ -2,8 +2,8 @@ schema = 1
 id = "RF-21-refly-sibling-crosses-mun-soi"
 # =====================================================================================
 # RF-21: A RE-FLY WHOSE COMMITTED SIBLING CROSSES FROM KERBIN INTO THE MUN'S SOI. AUTHORED
-# 2026-11-14, FIRST FLOWN 2026-11-14 (PARSEK-FAIL on one forbid, since re-scoped; see FIRST
-# FLIGHT below). The live proof that todo REFLY-ANCHOR-EPSILON-1300KM left open for a moon
+# 2026-11-14, LIVE-PROVEN 2026-11-14 (`2026-11-14_2300`, PASS attempt 1; the first flight was
+# PARSEK-FAIL on one forbid, since re-scoped; see FIRST and SECOND FLIGHT below). The live proof that todo REFLY-ANCHOR-EPSILON-1300KM left open for a moon
 # crossing ("Left open (1)" and "(5)": no lane flew a Re-Fly whose anchors span an SOI
 # crossing).
 #
@@ -145,21 +145,38 @@ id = "RF-21-refly-sibling-crosses-mun-soi"
 #               approach (the start is in the target's parent's orbit).
 #   6 fail fast the machine's named give-ups; retry once, because a mission flake is not the
 #               subject and a second attempt flies the same deterministic Re-Fly.
-#   7-9         wait on the first flight (count windows, tier by p50, flight_efficiency).
+#   7 counts    recordings pinned to the green flight's 3 (below); the saveParse windows are
+#               pinned to its readings too, still report-only.
+#   8 tier      wall 1044 s and 1032 s, under hlib.LONGHAUL_MIN_P50_SECONDS (1,800 s): operator.
+#   9 efficiency `tools/flight_efficiency.py --scenario RF-21-refly-sibling-crosses-mun-soi`
+#               is owed on the PC, where the green run's results live.
 #
-# STATUS: FIRST FLOWN 2026-11-14 (PARSEK-FAIL on the since-bounded forbid, every required token
-# matched, so the flight is the reading run for the shapes that were derived: the in-orbit
-# PartAction split, the b23 machine from LKO to the Mun, the in-flight commit followed directly
-# by InvokeRewind from the Mun). Owes a green re-flight with the bounded forbid. saveParse
-# blocks stay REPORT-ONLY (nothing new armed off a red run); the recordings window stays
-# derived until a green run reads the count.
+# SECOND FLIGHT 2026-11-14 (`2026-11-14_2300_RF-21-refly-sibling-crosses-mun-soi`, PC, head
+# 2b5654be6, deployed DLL sha256 4967b870... equal to the worktree Debug build): PASS attempt 1,
+# wall 1032 s (mission 950 s, MISSION-OK); driverValidity, analyzer red=0, logValidate,
+# anomalySweep and expectations (0 mismatches) all passed, unityExceptions 0. The one walk:
+# `bodies=Kerbin:resolved=18,maxEpsilonM=1.556;Mun:resolved=6,maxEpsilonM=1.284` and the
+# summary `seedCandidatesEmitted=32 resolvedOrb=8 resolvedBubble=16 deferredNoSpline=8 ...
+# boundaryInstantMaxEpsilonM=1.556`. Exactly one `outcome=unbound-refly-provisional
+# reason=refly-provisional-has-no-trajectory-at-save` (treeKind=pending tree) at 01:16:37.736,
+# BEFORE `MISSIONMARK label=rf21-refly-live` (01:16:37.871), none after. The log confirms the
+# saving write: InvokeRewind 01:16:36.044, load classified ReFlyStart 36.572, stock `Flight
+# State Captured` 37.614, the OnSave, `Game State Saved as persistent` 37.795, then `[Flight]
+# Flight ready. Checking for pending recordings...`, i.e. stock's flight-start persistent
+# write. Recordings 3; saveParse (report-only): 1 committed tree, 3 recordings (Kerbal X x1,
+# Kerbal X Probe x2), all Orbiting, 425 points, supersedeRows 1, tombstones 0, rewindPoints 0.
+#
+# STATUS: LIVE-PROVEN 2026-11-14 (`2026-11-14_2300`). Both flights read the same structure
+# (32 seeds, 18 Kerbin / 6 Mun resolved) with metre residuals (max 1.712 / 1.556 m Kerbin,
+# 1.314 / 1.284 m Mun). saveParse blocks stay REPORT-ONLY: arming is a per-scenario operator
+# decision, not taken here.
 # =====================================================================================
 tier = "operator"
-description = "FIRST FLOWN 2026-11-14 (PARSEK-FAIL on a by-design raise, forbid since bounded). Live proof for REFLY-ANCHOR-EPSILON-1300KM across a moon crossing: on gs2-orbital-stack the probe core is decoupled in LKO (a staging RewindPoint), the pod stack flies b23's orbit-start machine Kerbin -> Mun, captures, parks and commits in the Mun SOI, then the probe slot is re-flown from the separation and merged. The Re-Fly rebuild's per-body boundary-instant residual line must name Kerbin and the Mun with every boundary-instant residual under 50 m (flown 1.712 m and 1.314 m), no anchor may exceed the 2,500 m bubble radius, supersede rows are written and the merge journal completes."
+description = "LIVE-PROVEN 2026-11-14 (2026-11-14_2300, PASS attempt 1). Live proof for REFLY-ANCHOR-EPSILON-1300KM across a moon crossing: on gs2-orbital-stack the probe core is decoupled in LKO (a staging RewindPoint), the pod stack flies b23's orbit-start machine Kerbin -> Mun, captures, parks and commits in the Mun SOI, then the probe slot is re-flown from the separation and merged. The Re-Fly rebuild's per-body boundary-instant residual line must name Kerbin and the Mun with every boundary-instant residual under 50 m (flown Kerbin 1.712 / 1.556 m, Mun 1.314 / 1.284 m), no anchor may exceed the 2,500 m bubble radius, supersede rows are written and the merge journal completes."
 instanceProfile = "stock-minimal"
 tags = ["RF-21", "rewind", "refly", "rewind-to-separation", "anchor", "render-anchor", "mun",
         "cross-soi", "orbit-start", "mechjeb", "capture", "commit-in-foreign-soi", "staging",
-        "orbital", "supersede", "merge-journal", "pending-flight"]
+        "orbital", "supersede", "merge-journal"]
 
 [fixture]
 # GS-2's committed template (no Parsek state: StartRecording opens a fresh standalone tree).
@@ -289,10 +306,10 @@ D14 = ["kerbin", "mun", "sandbox", "scene-flight", "warp-rails"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# Derived, wide until the reading run: the root (pod stack, continuing through the split) and
-# the probe, any optimizer splits of the root, the Re-Fly's provisional, and a HEAD / TIP if
-# the merge splits the probe's recording at the rewind UT. Pin to the measured value after.
-count = { min = 3, max = 10 }
+# PINNED to the green flight's reading (fast-lane item 7): 3 = the pod stack (one recording:
+# its Kerbin -> Mun coast crosses on rails, checkpoint to checkpoint, which the optimizer keeps
+# cohesive), the probe's original and the Re-Fly's fork. A split of either reds here.
+count = { min = 3, max = 3 }
 
 [expectations.logContracts]
 required = [
@@ -351,14 +368,14 @@ forbidden = [
   "outcome=unbound-refly-provisional reason=refly-restore-gave-up-on-",
 ]
 
-# REPORT-ONLY (never flown; arming is a per-scenario operator decision after a reading run).
-# Derived: the merge seals the re-flown probe slot (a stable terminal) and the pod stack slot
-# is closed, so the point may be reaped (0) or kept (1); at least one supersede row (the
-# probe's original recording); no tombstone (the probe is uncrewed and earned nothing).
+# REPORT-ONLY (arming is a per-scenario operator decision, not taken). Pinned to the green
+# flight's reading `2026-11-14_2300`: the merge seals the re-flown probe slot and the pod stack
+# slot is closed, so the point is reaped (0); one supersede row (the probe's original
+# recording); no tombstone (the probe is uncrewed and earned nothing).
 [expectations.rewind]
 gating        = false
-rewindPoints  = { min = 0, max = 1 }
-supersedeRows = { min = 1 }
+rewindPoints  = { min = 0, max = 0 }
+supersedeRows = { min = 1, max = 1 }
 tombstones    = { max = 0 }
 
 [expectations.recordings.structure]

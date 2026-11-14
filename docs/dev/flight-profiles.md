@@ -19,8 +19,8 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | profile modded-compat | 4 |
 | autopilot (mission) lanes | 140 |
 | seam-only lanes | 454 |
-| LIVE-PROVEN date in status row | 461 |
-| no LIVE-PROVEN date | 133 |
+| LIVE-PROVEN date in status row | 462 |
+| no LIVE-PROVEN date | 132 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -88,7 +88,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | RC | 3 | - | 2 | 1 | - | - | 3 |
 | RCN | 1 | - | 1 | - | - | - | 1 |
 | REV | 1 | - | - | 1 | - | - | 1 |
-| RF | 32 | - | 2 | 30 | - | 15 | 29 |
+| RF | 32 | - | 2 | 30 | - | 15 | 30 |
 | RH | 1 | - | - | 1 | - | - | - |
 | RL | 1 | - | 1 | - | - | - | 1 |
 | RR | 1 | - | 1 | - | - | - | 1 |
@@ -299,14 +299,14 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 
 | body | lanes | autopilot | live-proven | families |
 |---|---|---|---|---|
-| Kerbin | 356 | 109 | 279 | RF 29, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +63 |
-| Mun | 55 | 13 | 42 | RW 22, V 8, B 5, CS 5, TP 4, MC 2, EVA 1, GUI 1, H 1 +6 |
+| Kerbin | 356 | 109 | 280 | RF 29, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +63 |
+| Mun | 55 | 13 | 43 | RW 22, V 8, B 5, CS 5, TP 4, MC 2, EVA 1, GUI 1, H 1 +6 |
 | Minmus | 13 | 5 | 7 | V 6, B 5, AP 1, TP 1 |
 | Moho | 3 | 1 | 2 | V 2, B 1 |
 | Eve | 12 | 4 | 5 | V 7, B 4, FAR 1 |
 | Gilly | 7 | 2 | 4 | V 4, B 2, FAR 1 |
 | Duna | 29 | 10 | 18 | V 13, B 4, FAR 4, TP 3, AT 1, CN 1, FORGE 1, GUI 1, H 1 |
-| Ike | 10 | 3 | 8 | V 4, FAR 3, B 2, RF 1 |
+| Ike | 10 | 3 | 9 | V 4, FAR 3, B 2, RF 1 |
 | Dres | 8 | 6 | 2 | B 5, V 2, FORGE 1 |
 | Jool | 45 | 18 | 28 | V 25, B 18, FAR 1, TP 1 |
 | Laythe | 27 | 14 | 21 | B 14, V 11, FAR 1, TP 1 |
@@ -1446,7 +1446,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | RF-19-refly-session-eva-reboard-merges | operator | refly-split-crewed-recorded | rf12s_refly_orbit_insert | Kerbin | re-fly | - | LIVE-PROVEN 2026-09-27 |
 | RF-2-two-reflies-in-sequence | operator | bdock-recorded | seam | Kerbin | re-fly, reload, time-jump | - | LIVE-PROVEN 2026-09-09 |
 | RF-20-stashed-eva-slot-refly | operator | gs2-orbital-stack | gs2_orbital_probe_deploy | Kerbin | re-fly, reload, save, scene-change | - | LIVE-PROVEN 2026-09-27 |
-| RF-21-refly-sibling-crosses-mun-soi | operator | gs2-orbital-stack | b23_ike_orbit | Kerbin, Mun, Ike | re-fly, warp | - | FIRST FLOWN 2026-11-14 |
+| RF-21-refly-sibling-crosses-mun-soi | operator | gs2-orbital-stack | b23_ike_orbit | Kerbin, Mun, Ike | re-fly, warp | - | LIVE-PROVEN 2026-11-14 |
 | RF-3-refly-discard-then-commit | operator | bdock-recorded | seam | Kerbin | re-fly, reload, time-jump | - | LIVE-PROVEN 2026-09-09 |
 | RF-4-rewind-to-launch-after-merge | operator | gs1-two-stage-pad | gs1_auto_chute_booster | Kerbin | rewind-to-launch, re-fly, reload, save +1 | - | LIVE-PROVEN 2026-09-09 |
 | RF-5-seal-closes-the-slot | operator | bdock-recorded | seam | Kerbin | reload | - | LIVE-PROVEN 2026-09-09 |
