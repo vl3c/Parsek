@@ -16,7 +16,9 @@ and a design consultation. v2 folds in three independent reviews of v1 (one clea
 adversarial on the rules of play, one adversarial on the technical plan): the data model
 (section 6), the rival world (7.5 to 7.13) and the architecture (15.2 to 15.6, 15.9, 15.11 to
 15.14) were rewritten where the reviews found them wrong, and section 13 lists the decisions
-still open. Nothing here is implemented, and nothing is implemented before the owner says so
+still open. A measured inventory of the 1.1 code
+(`docs/dev/research/multiplayer-base-refactoring-2026-11-14.md`) then sized what base Parsek
+needs changed first (15.11) and corrected 15.5, 15.6 and 15.14. Nothing here is implemented, and nothing is implemented before the owner says so
 (roadmap "Current focus").
 **Supersedes:** `docs/dev/done/design-coop-async-multiplayer.md`. Cooperative multiplayer is
 deprecated (owner ruling 2026-11-14). Section 5 lists what this design keeps from it.
@@ -242,7 +244,7 @@ board is a comparison, not an economy.
     Nothing is refused for them, and nothing is taken from the player's own game. The one
     thing that costs points is a flight flown with such a tool (7.12, owner ruling).
 11. **Reuse before invention.** Ghost playback, map presence, flag replay, the milestone rows
-    and their once-ever walk, the log-table window template and the safe-write file helpers
+    and their once-ever walk, the shared window chrome and styles and the safe-write file helpers
     already exist. This feature adds the exchange, the sites, the looks, the board and its
     window.
 
@@ -554,7 +556,14 @@ module (`ParsekRaceScenario`), for two reasons the reviews found:
   continuation and an optimizer merge keep the id and change the bytes. With the hash in the
   name a payload file is immutable by construction, a rewritten recording is simply a new
   file, and nothing is frozen on the owner's side. The exporter takes each hash from the
-  sidecar version the save already recorded, so no file is re-hashed at every sync.
+  sidecar version the save already recorded, so no file is re-hashed at every sync. That
+  16-character hash is a name, not a proof (it is the first 64 bits of SHA-1). What the
+  chain, the receipts and the payload check of 7.15 compare is a SHA-256, computed once
+  when a file is first copied (15.9) and carried in the standing beside the file's name.
+- **A ghost snapshot of its own.** A recording whose ghost looks exactly like its vessel
+  keeps no separate ghost snapshot file in the save: the vessel snapshot is used for both.
+  The vessel snapshot is never shared (4.3), so for such a recording the exporter writes a
+  ghost snapshot derived from it (parts only) into the payload.
 - **Export only what is on disk.** The exporter runs after the save's sidecars are flushed,
   copies the files, and hashes the COPY. A standing never names bytes that were still
   changing.
@@ -572,8 +581,10 @@ module (`ParsekRaceScenario`), for two reasons the reviews found:
   rival are marked "not checked here", because this build cannot verify them (7.8).
 - **Id safety.** Every id that becomes part of a path passes the recording id validator
   first (today `RecordingPaths.ValidateRecordingId`; its pure check moves to the floor so
-  the rules module can call it, prerefactor P7). A standing with an unsafe id is refused
-  whole.
+  the rules module can call it, prerefactor P7). The moved check uses a fixed character set:
+  today's asks the operating system which characters are invalid, so the same id can pass on
+  Linux and fail on Windows, and a shared folder is read by both. A standing with an unsafe
+  id is refused whole.
 - **Path length.** Windows paths are limited to roughly 250 characters, and the cache sits
   under `saves/<save>/Parsek/Race/rivals/<playerId>/`. The cache uses short directory names
   (the first 8 characters of a player id, checked for collision), the setup dialog caps the
@@ -938,9 +949,10 @@ same for everyone. Three things differ and are accepted:
 **Moving the space center cleanly.** The review listed what holds the stock position and
 must follow the move, so the spike (S4) and the implementation reset each one and nothing is
 found later: the stock space center object caches its latitude, longitude and surface
-normal once at start; each stock launch site caches its spawn points; Parsek caches its
-launch-area circles and holds the stock pad and runway coordinates as constants (prerefactor
-P1); the flattening patches need the terrain rebuilt after they are added or removed. Site
+normal once at start; each stock launch site caches its spawn points; Parsek holds the stock
+pad and runway coordinates as four constants and caches the circles of the other stock
+launch sites for the life of the process with no reset (prerefactor P1); the flattening
+patches need the terrain rebuilt after they are added or removed. Site
 0's stock patch stays where it is in every game; a player at another site gets a new patch
 there. The whole set is applied before a race save's first scene and undone on every return
 to the main menu, as one pair of operations with an in-game test on both.
@@ -979,10 +991,12 @@ always distinct, with or without DLC.
 - Rival ghost kerbals (EVA ghosts) are drawn with the rival's look, whatever suit the rival's
   kerbal actually wore. Today's EVA ghost is built from the kerbal part named in the
   recording, and the suit styles may be separate parts: on a machine that lacks the
-  expansion a recorded suit's part would be missing, and the missing-parts rule would skip
-  the whole kerbal. So the ghost build needs a substitution, not only a texture: any kerbal
-  part resolves to one the machine has, dressed in the look's suit or its replacement
-  (prerefactor P5; VERIFY in task S3).
+  expansion a recorded suit's part would be missing, and a kerbal is a single part, so the
+  whole ghost would fall back to the plain placeholder sphere. So the ghost build needs a
+  substitution, not only a texture: any kerbal part resolves to one the machine has, dressed
+  in the look's suit or its replacement. The texture is new as well: a ghost kerbal shares
+  the stock model's materials today, so no ghost shows a suit color yet (addition A4 of
+  15.11; VERIFY in task S3).
 - Rival vessels keep their own appearance. Their label, map icon and orbit line carry the
   color.
 
@@ -1004,6 +1018,10 @@ flight that was merged and is not superseded, retired or discarded. So:
 
 - An unmerged flight, a flight awaiting its merge dialog and an open Re-Fly attempt are never
   shared.
+- Nothing is exported while a Re-Fly session is open. The effective set hides the flights
+  the open attempt would replace, so a standing written then would withdraw flights the
+  rivals already have. The standing stays as it was until the attempt is merged or
+  discarded.
 - A Re-Fly merge replaces the superseded flight in the next standing.
 - A load that drops flights (a quickload, a loaded older save) drops them from the next
   standing (principle 7; the co-op rule "shared stays shared" is gone because nothing depends
@@ -1106,11 +1124,13 @@ Rival ghosts play at the game dates they were recorded, against the local player
 
   This extends a rule single player already has: a flight that ends parked on the KSC pad or
   runway threshold, or on a stock alternate site, is retired and never becomes a real vessel
-  (`SpawnCollisionDetector.DecideLaunchSiteEndOfFlightRetirement`, 50 m circles from
+  (`SpawnCollisionDetector.DecideLaunchSiteEndOfFlightRetirement`, 50 m circles: the KSC
+  pad and the runway's west threshold are constants there, the alternate sites come from
   `LaunchSiteExclusionZones`). The race rule is wider (whole runways, all four sites, flags)
-  and applies to what is SHOWN, so it needs its own pure predicate over the site table and
-  plain coordinates rather than a wider single-player rule. In a race save the single-player
-  circles must follow the moved home site (task S4).
+  and applies to what is SHOWN. Both use one pure shape test over plain coordinates (a
+  circle or a strip, longitude wrapped), each with its own areas: single player keeps its
+  50 m circles, the race passes the site table (prerefactor P1). In a race save the
+  single-player circles must follow the moved home site (task S4).
 
   While a rival's flight is being replayed its ghost is shown wherever it is, launch areas
   included: a launch has to start on a pad, and a ghost cannot block anything. The first
@@ -1118,8 +1138,15 @@ Rival ghosts play at the game dates they were recorded, against the local player
   That is dropped from the first build: a ghost blocks nothing, a flight ends when it is
   committed, and the rule had loopholes of its own (a slowly creeping rover). It stays as an
   option if play shows a need (13.B).
+- **Where rival ghosts show.** In flight, in map view and in the Tracking Station. The Space
+  Center scene shows a rival's scenery and nothing that moves in the first build: that scene
+  has its own playback code, separate from the flight scene's engine (15.6), and the sites
+  are a quarter of the planet apart.
 - **Watching.** The existing watch camera works on a rival ghost while that ghost is in the
   scene, which is while the local clock is inside the flight. It is a camera, nothing else.
+  The camera code identifies what it follows by its position in the player's own list, so
+  this needs prerefactor P3b; if the first phase has to be trimmed, watching is the piece to
+  move later, at the cost that a distant rival flight is then seen on the map only.
   A flight in the local past is watched the way the player's own past is: by rewinding to
   before it. A viewer that replays any rival flight at any time, outside the local timeline,
   is a later addition (7.15, hardening).
@@ -1304,14 +1331,21 @@ when they differ from the race's:
   milestones are shown on the board, marked, and count for nothing. The player can fly it
   again without the tool.
 
+  None of this is stored today. Single player detects a gravity hack, a cheat teleport and
+  a cheat currency change and writes log lines only. The per-flight fact is new capture in
+  base Parsek, kept on the recording so it follows optimizer splits and merges (addition A3
+  of 15.11).
+
 A standing stamped before the end date that the local machine first saw long after it is
 marked "arrived late" locally (7.10).
 
 ### 7.13 The Space Race window
 
 A new Parsek window, present only in race saves, opened from a button in the main Parsek
-window. It follows KSP's UI scale like every Parsek window and reuses the log-table window
-template.
+window. It follows KSP's UI scale like every Parsek window and shares their window chrome
+and styles; the board itself is new drawing (the existing log-table window has four fixed
+text columns and cannot draw a column per player). Like every Parsek window it exists in the
+Flight and Space Center scenes, the two scenes that host the Parsek UI.
 
 - **Header:** race name; time left or "final"; one block per player in their color: name,
   points, frontier ("at day 61"), last shared time, their site and its height, disclosure
@@ -1671,7 +1705,7 @@ running game.
 | Create a save from code | `GamePersistence.CreateNewGame(name, mode, parameters, flag, scene, facility)` is public and is what the stock New Game dialog calls | S6: create and start a race save from the dialog |
 | Milestones in every mode | `ProgressTracking` is added to every new game, Sandbox included; Parsek's recorder writes a milestone event in every mode | None |
 | Readable rival flags | `FlagSite` exposes Read Plaque, Take Down and Pick Up as separate part events, but a real flag is a saved vessel whose placed state re-enables taking it down, and the plaque is readable only from within 2 m on EVA. A replica (flag model, click target, the stock plaque dialog) avoids all of that | S7: build the replica; open the stock plaque dialog with supplied text; decide the click range |
-| Launch areas stay clear | Parsek already retires a flight that ends parked on the KSC pad, the runway threshold or a stock alternate site (`LaunchSiteExclusionZones`, 50 m circles read from `PSystemSetup` launch-site spawn points); a rival end state is only a ghost, so not showing it is a filter at the rival store | S4: measure the pad and full runway footprints at the moved sites and the alternate sites |
+| Launch areas stay clear | Parsek already retires a flight that ends parked on the KSC pad, the runway threshold or a stock alternate site (50 m circles: the KSC pad and runway threshold are constants in `SpawnCollisionDetector`, the alternate sites are read from `PSystemSetup` by `LaunchSiteExclusionZones`); a rival end state is only a ghost, so not showing it is a filter at the rival store | S4: measure the pad and full runway footprints at the moved sites and the alternate sites |
 | Cheat disclosure | `CheatOptions` holds the stock cheat switches as public static fields. The debug menu's ACTIONS (set orbit, set position, add science, unlock technology) are not switches | S9: which of those actions a mod can observe |
 | Joining later | Nothing game-side: a join writes one new subfolder; all four sites exist in every game from the start | None |
 | Noticing edited files | Hashes, a chain and a local witness log need only file reads and a hash function, which the recording sidecars already use | None for the simple version; for signed standings, prove the runtime's signing classes work inside KSP |
@@ -1714,6 +1748,10 @@ given, so they are written in as decided; any of them can be reopened.
 | The 60-second standing-still rule is not in the first build | 7.7 |
 | The shared folder location is typed or pasted, with no folder picker; rival sites get no map marker | 0, 7.2 |
 | One background worker that only copies files (needs the owner's yes, as an exception to the no-threads rule, when the feature is planned) | 15.9 |
+| Rival ghosts show in flight, in map view and in the Tracking Station; the Space Center scene shows rival scenery only in the first build | 7.7, 15.6 |
+| A rival's docking approach, or a kerbal beside its lander, is played from the stored body-fixed positions, not relative to the other vessel | 15.5 |
+| The Space Race window and the Multiplayer settings exist in the Flight and Space Center scenes, like every Parsek window | 7.13 |
+| Nothing is exported while a Re-Fly session is open | 7.5 |
 
 ### 13.C For the play test and the phase plans
 
@@ -1751,11 +1789,11 @@ No phase starts before the owner says so. Each phase is independently testable.
 
 | Phase | Scope | Notes |
 |-------|-------|-------|
-| R0 | The inventory of 15.6 (every store read on the playback path, with sizes for P2, P3 and P9), then spikes S1 to S7 of section 12 and S8, S9 of 15.11, on the owner's PC | Decides the site table, sizes the prerefactors and retires the feasibility risks before any feature code |
-| R0b | Prerefactors P1 to P9 of 15.11, each its own change with no behavior change | Single player keeps passing every suite and lane; the feature then lands on prepared ground. P2 is the large one |
+| R0 | Spikes S1 to S7 of section 12 and S8 to S10 of 15.11, on the owner's PC. The code inventory that sizes the prerefactors is done (`docs/dev/research/multiplayer-base-refactoring-2026-11-14.md`) | Decides the site table and retires the feasibility risks before any feature code |
+| R0b | The prerefactors of 15.11 in the order given there, each its own change with no behavior change | Single player keeps passing every suite and lane; the feature then lands on prepared ground. P2b is the largest. The additions of 15.11 land with the phase that first uses them |
 | R1 | The three new modules with their layer, headless and forbidden-edge rules in place from the first commit; the race mark and gate, the main menu entry, the setup dialog (create, join, continue), `race.cfg` and `player.cfg`, slot and look assignment | A race save that plays as single player |
 | R2 | The four sites: moving the working space center, the four terrain patches, the scenery copies, launch rules, removal on leaving the save, science parity | The world of the race, still without rivals |
-| R3 | Export (standings, payload, digest) and import (the copy step, rival cache, rival store), rival ghosts in flight, map, tracking station and Space Center, leftovers, readable flags, launch areas kept clear, the isolation gates including the whole-save lane, and the simple tamper evidence of 7.15 (chain, witness log, receipts, self-heal) | "See your rivals" |
+| R3 | Export (standings, payload, digest) and import (the copy step, rival cache, rival store), rival ghosts in flight, map view and the Tracking Station, leftovers, readable flags, launch areas kept clear, the isolation gates including the whole-save lane, and the simple tamper evidence of 7.15 (chain, witness log, receipts, self-heal) | "See your rivals" |
 | R4 | Milestone tables, the board, the Space Race window, holder-change messages | "Have a race" |
 | R5 | Looks: own roster, ghost kerbals, colors on labels, icons and orbit lines; the replacement suit sets | |
 | R6 | End date and final board, disclosure, the no-retakes house rule, missing-parts and newer-version notes, poll tuning | |
@@ -1859,10 +1897,12 @@ Allowed references:
 - `Controllers` and `Patches` reference the `RaceWorld` facade and `RaceExport`'s source,
   and compose them.
 
-New `[forbidden]` edges in `scripts/arch/modules.toml`:
+New `[forbidden]` edges in `scripts/arch/modules.toml`. They are written here with a list
+on the right side, for reading. The map takes one `From -> To` string per edge today and
+holds 2 of them; this block is 54. Prerefactor P12 teaches both parsers the list form.
 
 ```
-Nothing below the entry and presentation layers may name the race:
+Only the entry layer and the UI may name the race:
   Recording   -> RaceWorld | RaceExport | RaceCore
   GameActions -> RaceWorld | RaceExport | RaceCore
   Crew        -> RaceWorld | RaceExport | RaceCore
@@ -1898,7 +1938,9 @@ Consequences the reviews pointed out, each with its answer:
   `RaceExport` hands it neutral rows; the rule picks the earliest per ladder id.
 - The launch-area predicate takes plain coordinates, not a recording type.
 - The later flight checks (7.15, step B) reuse the offline analyzer's rules, which are typed
-  on `Recording` and live in a tooling module. Where they run (on the loader's private
+  on `Recording` and live in a tooling module. (Four of them read only what the playback
+  interface offers. None checks continuity, so a "teleport" check is a new rule, not a
+  reused one.) Where they run (on the loader's private
   `Recording` inside `RaceWorld`, or after the rules are generalized to trajectories) is
   decided when that step is planned; nothing in the first build depends on it.
 
@@ -1934,9 +1976,24 @@ What a `RivalFlight` deliberately answers differently from an own recording:
   (6.4, 7.7).
 - **No loop.** Loop playback anchors to a live vessel of the local game by its id. A rival
   flight reports loop playback off and no anchor, always.
-- **Segment events through the interface.** Two places in the part-event code cast the
-  trajectory back to `Recording` to read its segment events; a rival flight would silently
-  get none. Those reads move onto the interface (prerefactor P8).
+- **No segment events.** The part-event code casts the trajectory back to `Recording` in two
+  places to read its segment events, and the only ones playback acts on are flag pick-ups,
+  which remove real flag vessels and write records into the save. The first draft wanted
+  those reads moved onto the interface (P8). That is dropped: the cast is what keeps a
+  trajectory that is not a `Recording` away from those side effects, so it stays, and a test
+  pins that a `RivalFlight` reaches neither. (The five other casts on the playback path, four
+  in `GhostMapPresence` and one in the anchor resolver, are in code the rival lane does not
+  run.)
+- **No relative sections.** A stretch flown close to another vessel (a docking approach, a
+  kerbal beside its lander) is stored relative to that vessel. Placing it means finding the
+  other vessel's recording through about 2,200 lines that are typed on `Recording` and read
+  chain and tree fields the playback interface does not have. Both recorders also keep a
+  second, body-fixed copy beside such a stretch, the one single-player debris already plays
+  from. The loader keeps only that copy and hands the engine plain body-fixed sections, so a
+  rival flight never asks for an anchor and that code is not generalized. A stretch with
+  fewer than two stored positions is not drawn. The cost is a possible small wobble between
+  two rival ghosts that are docking. Spike S10 looks at it, and counts how many relative
+  stretches in real saves carry a complete copy.
 
 Rival ids live in their own space: every key the display code holds for a rival ghost is the
 pair (player id, recording id), never a bare recording id and never a committed-list index.
@@ -1944,34 +2001,46 @@ pair (player id, recording id), never a bare recording id and never a committed-
 ### 15.6 The rival ghost lane
 
 **Rival ghosts play on their own instance of the playback engine.** That much of the first
-draft stands. What the technical review corrected is the claim that this is nearly free:
-the engine is an instance, but it and its collaborators reach into the player's own stores
-in about 120 places, and a second instance would read the same stores.
+draft stands. What the technical review corrected is the claim that this is nearly free, and
+the code inventory that followed (`docs/dev/research/multiplayer-base-refactoring-2026-11-14.md`)
+measured by how much. The whole playback path reads the player's own stores about 120
+times, but the part a second engine actually runs holds about 28 of those reads, in 8
+lookup functions. The larger problem is a different one: the code that places ghosts keeps
+its working state on the flight scene object, keyed by position in the player's own list,
+so two lanes on one scene object would overwrite each other.
 
-What was checked in the code:
+What was measured in the code:
 
 | Piece | Today | What the rival lane needs |
 |-------|-------|---------------------------|
-| `GhostPlaybackEngine` | An instance; takes a list of `IPlaybackTrajectory`; its only static is a test hook; in-game tests build extra instances. But it looks up trees and recordings by bare id in `RecordingStore.CommittedTrees` and `PendingTreeSlot`, and calls a static of `ParsekFlight` | A catalog handed in at construction (below) |
-| `IGhostPositioner` and `ParsekFlightGhostPositioner` | The interface is placed in `Controllers`, the entry layer; the implementation is built on a `ParsekFlight` host and reads the own stores | The interface moves down to the floor; the implementation takes the catalog |
-| Relative-section anchors (`RecordedRelativeAnchorPoseResolver`) | Resolve the anchor recording from the own stores only | Through the catalog, or a rival's rendezvous, docking approach or EVA beside its lander will not be placed |
-| `GhostMapPresence` | A static class of about 16,600 lines with about 20 static stores keyed by committed index or vessel id; its tracking-station file is typed on `Recording` | Not made per-lane. Rivals get a small map presence of their own (below) |
-| `WatchModeController` | Keyed by committed index; needs a ghost that is live at the current game date | A lane-qualified key; rivals are watchable only while live (7.7) |
-| `ParsekKSC.Playback.cs` | The Space Center scene's own playback with its own slots | A second slot set for the rival list |
-| `ParsekFlightPlaybackHost`, `ParsekPlaybackPolicy` | Drive and police the own engine; read the own stores | Not reused for rivals: the rival engine gets its own small host and policy |
+| `GhostPlaybackEngine` | An instance; takes a list of `IPlaybackTrajectory`; in-game tests already build extra instances. One store-reading function (the tree of a debris recording). It writes the global diagnostics state, and its spawn throttle is a field of the instance | The catalog for that one lookup, its own diagnostics sink, and a spawn budget shared with the own engine (P2a, P2c) |
+| `IPlaybackTrajectory` | 37 members and one setter: a position in the player's own list, written by the optimizer | The setter leaves the interface, so a rival flight can be immutable (P2c) |
+| `IGhostPositioner` and `ParsekFlightGhostPositioner` | The implementation is built on a `ParsekFlight` host. Four store lookups, and about 60 references to 14 host members: the orbit cache (keyed by list position), the ghost position entries the late update re-applies, log-once sets, the watch state, the loop units | The catalog (P2a) and a per-lane state object in place of the host fields (P2b). The interface stays in the entry layer, where the scene controllers compose the lane |
+| Relative-section anchors (`RelativeAnchorResolver`, about 2,200 lines) | Typed on `Recording` and `RecordingTree`; reads chain and tree fields the interface does not have | Not used by the rival lane: a rival flight's relative stretches are flattened at load (15.5) |
+| `GhostMapPresence` | A static class of about 16,600 lines with 36 static collections, 11 of them keyed by committed index. The part that creates a map vessel is about 400 lines, already typed on the interface | Not made per-lane. Rivals get a small map presence of their own on the extracted primitive (P3) |
+| `WatchModeController` | Identity is a committed index, at 45 sites; needs a ghost that is live at the current game date | A lane-qualified target (P3b); rivals are watchable only while live (7.7) |
+| `ParsekKSC*.cs` | The Space Center scene does not use the engine: it has its own slots and a single-ghost path typed on `Recording` | Nothing in the first build: that scene shows rival scenery only (7.7) |
+| `ParsekTrackingStation.cs` | No engine either: `GhostMapPresence` plus markers keyed by committed index | Rival map vessels through `RivalMapPresence`; no marker for a rival ghost inside an atmosphere |
+| `ParsekFlightPlaybackHost`, `ParsekPlaybackPolicy` | Drive and police the own engine; read the own stores | Not reused: the rival engine gets its own small host and policy |
 
 The design that follows:
 
-- **A catalog port.** One small interface on the floor, `IPlaybackCatalog`: find a tree or a
-  recording by id, the pending tree, the chain and anchor lookups the engine, the positioner
-  and the anchor resolver need. The own lane's catalog is a thin wrapper over the stores,
-  with no behavior change. The rival lane's catalog is the rival store. After this the
-  engine and the positioner do not name a store at all, which is also a cleaner engine for
-  single player. This is the largest prerefactor (P2).
+- **A catalog port.** One small interface on the floor, `IPlaybackCatalog`: find a recording
+  by id, find the tree that holds an id, the pending tree. Five copies of that tree lookup
+  exist today, in two different search orders, and each caller keeps its order. The own
+  lane's catalog is a thin wrapper over the stores, with no behavior change. The rival
+  lane's catalog is the rival store. After this the engine and the positioner do not name a
+  store at all, which is also a cleaner engine for single player (P2a).
+- **Lane state.** The orbit cache, the ghost position entries, the log-once sets, the watch
+  query and the loop-unit lookup move from fields of the flight scene object into one
+  per-lane object that the positioner and the late-update helpers are handed. The own lane's
+  object holds exactly what the fields hold today. This is the largest prerefactor (P2b),
+  and the one the first drafts did not see.
 - **Composition at the entry layer.** The scene controllers already build the own engine
   and its positioner. In a race save they build a second engine and a second positioner with
-  the rival catalog, which they get from the `RaceRuntime` facade. `RaceWorld` supplies data
-  and policy; it does not construct the engine, so it never has to name an entry-layer type.
+  the rival catalog and the rival lane's state, which they get from the `RaceRuntime`
+  facade. `RaceWorld` supplies data and policy; it does not construct the engine, so it
+  never has to name an entry-layer type.
 - **A second instance has its own slot index space**, so the committed-list index contract
   (`RecordingStore.CommittedListNotifications.cs`) is untouched and no rival ghost can sit at
   a committed index. The rival list is replaced only at scene load (7.6), so the rival engine
@@ -1991,20 +2060,24 @@ The design that follows:
   service, with its own stores keyed by (player id, recording id). Lane-qualifying the
   existing `GhostMapPresence` would touch most of its 16,600 lines for a lane that never
   spawns, never chains and never loops (prerefactor P3 is the extraction of that primitive).
+  Three patch sites assume a guarded map vessel belongs to the player's own timeline (the
+  "will materialize" message, the map watch menu, the Tracking Station selection); they get
+  a neutral "whose ghost is this" query in the same change.
 - **Flags** go through `RivalFlags` (plaque replicas, 7.7).
 - **Neutral seams for what the ghost code must not know.** The ghost and map code may not
   name the race, yet rival ghosts need a color on their label, icon and orbit line, an owner
   name, a visibility filter and a share of the ghost budget. Each is a neutral value on the
   floor that the lane is constructed with: a style (color and label prefix) per trajectory,
-  a visibility predicate, and one budget object both engines draw from, own ghosts first
-  (prerefactor P9).
+  a visibility flag, and one budget object both engines draw from, own ghosts first
+  (addition A5). The visibility flag exists (the per-trajectory skip flag the own host
+  already passes). The other two are new concepts, not extractions: map icons are drawn in
+  a fixed grey today, Parsek never sets a ghost's orbit line color, and there is no
+  ghost-count cap at all.
 - Each scene controller reaches all of this through one facade, `RaceRuntime`, with four
   calls: scene ready, per-frame tick, scene exit, and sync. In a single-player save the
   facade is absent and the calls are one null check.
 
-The sizes of P2, P3 and P9 are not known from reading. Phase R0 therefore starts with an
-inventory (every store read on the playback path, by file, with the catalog member that
-replaces it), and the prerefactors are sized from it before any is started.
+The sizes and the order of the prerefactors are in 15.11.
 
 ### 15.7 State and lifetimes
 
@@ -2014,7 +2087,7 @@ replaces it), and the prerefactors are sized from it before any is started.
 | `RaceSession` | memory | the loaded save | Built at load from `RaceLink`; dropped by the cold-load reset; tagged in `scripts/arch/lifetimes.toml` |
 | Rival store | memory | the loaded save, rebuilt each scene | Replaced whole, never edited in place |
 | `RaceLocal`: folder location, display name and look, show toggles, last export digest | `Race/local.cfg` beside the save | the machine | Not in the save, so no load rolls a setting back; missing file means "ask for the folder again" and the name and look are read back from `player.cfg` |
-| Rival cache, witness log, own mirror | `Race/` beside the save | until deleted | Never named by the save, never synced. VERIFY at planning that the save-folder sweeps, the file collector and the pre-Parsek backup footprint check treat `Parsek/Race/` correctly |
+| Rival cache, witness log, own mirror | `Race/` beside the save | until deleted | Never named by the save, never synced. Checked in the inventory: no save-folder sweep walks unknown children of `Parsek/`, and a race save has a footprint from birth so no pre-Parsek backup is taken; the file collector and the test-batch crash reconcile do sweep the whole folder and get the change of addition A7 |
 | Applied sites (moved space center, terrain patches, scenery) | Kerbin's own objects | the process, across saves | The one piece of state that outlives a save: `RaceSites` owns apply and restore as a pair. Apply runs when a race save starts, before its first scene; restore runs on every return to the main menu and before a different race save applies its own; an in-game test pins stock Kerbin after leaving a race save (7.3 lists what must be reset) |
 | Exchange files | shared folder | until pruned by their writer (6.3) | `raceFormat` is registered in `SaveFormat.cs` with a golden fixture folder, like every persisted format; unknown blocks in a newer standing are ignored, the additive rule of the save-format policy |
 
@@ -2121,24 +2194,51 @@ Choices made now so later ideas need no restructuring:
 - **House rules are pure functions** from the set of standings to holders, so a new rule is
   one function and one manifest flag.
 
-### 15.11 Prerefactors and extra spikes
+### 15.11 Prerefactors, additions and extra spikes
 
-Changes to single-player code that multiplayer needs. Each lands on its own, before the
-feature, with no behavior change, proven by the existing suites and lanes. They are not all
-small: P2 and P3 touch the playback path widely, and their size is set by the R0 inventory
-(15.6), not by this table.
+Measured in `docs/dev/research/multiplayer-base-refactoring-2026-11-14.md`,
+which holds the evidence (file and line) for every row. Sizes: S is under about 15 call
+sites; M is 15 to 60 sites, or a change to saved bytes or to a per-frame path. Nothing on
+the list is larger.
 
-| Id | Change | Why |
-|----|--------|-----|
-| P1 | One source for "where is the working space center": today the pad and runway coordinates are constants in `SpawnCollisionDetector`, with related readers in `LaunchSiteExclusionZones` (which also caches its circles), the launch-site departure rule and the route origin proof. A `HomeSpaceCenter` value in `Core` that returns the stock numbers unless a race sets it, and a reset for the cached circles | The home site moves in a race save |
-| P2 | The catalog port: `IPlaybackCatalog` on the floor, handed to the engine, the positioner and the relative-anchor resolver, replacing their direct reads of `RecordingStore` and `PendingTreeSlot`; `IGhostPositioner` moves from `Controllers` to the floor; the committed-index member `LoopSyncParentIdx` leaves `IPlaybackTrajectory` | The rival lane (15.6). The largest prerefactor |
-| P3 | Extract the ghost-map-vessel primitive (create, register in the guard set, update orbit, remove) from `GhostMapPresence` into a small service; lane-qualified key in the watch camera; a second slot set in the Space Center scene's playback | Rival map presence and watching (15.6) |
-| P4 | (dropped) Options on the flag replay spawn | Rival flags are plaque replicas, not flag vessels (7.7) |
-| P5 | A kerbal-look hook on the EVA ghost build: which suit model and texture to use, including a substitute when the recorded suit's part is not installed | Looks on ghost kerbals (7.4) |
-| P6 | Let the sidecar codecs decode into a plain trajectory value, with `Recording` as one consumer | `RivalFlight` (15.5) |
-| P7 | Move the pure recording-id check to the floor (`RecordingPaths.ValidateRecordingId` keeps calling it) | The standing codec validates ids without naming `Recording` (15.4) |
-| P8 | Segment events through `IPlaybackTrajectory` instead of a cast back to `Recording` in the part-event code | A rival flight's part events (15.5) |
-| P9 | Neutral ghost seams on the floor: a per-trajectory style (color, label prefix), a visibility predicate, and one ghost budget object shared by engine instances | Color, hiding and the shared soft cap without the ghost code naming the race (15.6) |
+**Prerefactors.** Changes to single-player code. Each lands on its own, before the feature,
+with no behavior change, proven by the existing suites and lanes.
+
+| Id | Change | Size | Why |
+|----|--------|------|-----|
+| P1 | One source for "where is the working space center": a `HomeSpaceCenter` value in `Core` (pad, runway threshold and end, strip half-width) that returns the stock numbers unless a race sets it, replacing the four constants in `SpawnCollisionDetector` (about 12 production sites); one pure launch-area shape test (circle or strip, longitude wrapped) that single player's 50 m rule calls; a reset for the launch-site circles `LaunchSiteExclusionZones` caches for the process | M | The home site moves in a race save; launch areas (7.3, 7.7) |
+| P2a | The catalog port: `IPlaybackCatalog` on the floor (find a recording by id, find the tree holding an id, the pending tree). The five copies of the tree lookup and the two by-id lookups in the engine, the positioner, the anchor resolvers and the map state vectors call it, each keeping its search order | M | The rival lane (15.6) |
+| P2b | Lane state: the orbit cache, the ghost position entries, the log-once sets, the watch query and the loop-unit lookup move from `ParsekFlight` fields into one per-lane object handed to the positioner (about 60 references to 14 members) and to the late-update helpers of `ParsekFlightPlaybackHost` | M | Two lanes in one flight scene (15.6). The largest one |
+| P2c | The committed-index member `LoopSyncParentIdx` leaves `IPlaybackTrajectory`; the engine gets its own diagnostics sink and a spawn budget shared between instances | S | An immutable `RivalFlight` (15.5); two engines in one scene |
+| P3 | Extract the ghost-map-vessel primitive (build, register in the guard set, remove, strip at save; about 400 lines) from `GhostMapPresence` into a small service; a neutral "whose ghost is this" query for the three patch sites that assume an own-timeline ghost | M | Rival map presence (15.6) |
+| P3b | A lane-qualified watch target (engine, trajectory list, index, id) in `WatchModeController` (45 sites) | M | Watching a rival flight (7.7); deferred if watching is |
+| P4 | (dropped) Options on the flag replay spawn | | Rival flags are plaque replicas, not flag vessels (7.7) |
+| P5 | (now addition A4) | | |
+| P6 | Let the trajectory codec decode into a plain value, with `Recording` as one consumer, and give the load from a given path a production entry (today it exists only under test-hook names) | M | `RivalFlight` (15.5) |
+| P7 | Move the pure recording-id check to the floor with a fixed character set (`RecordingPaths.ValidateRecordingId` keeps calling it); a public save-root accessor on `RecordingPaths` | S | The standing codec validates ids without naming `Recording` (15.4); the local race directory |
+| P8 | (dropped) Segment events through `IPlaybackTrajectory` | | The cast it would remove is a safety (15.5) |
+| P9 | (now addition A5) | | |
+| P10 | Lift the create-and-start-a-save core out of `TestCommands` into a production file that the test verb and the race setup both call | S | The setup dialog's Create (7.2) and the harness verb for it |
+| P11 | Harness specs derive the window count instead of pinning it (100 `windows=11` literals in 25 specs); the two near-identical `ParsekUI` constructors share one helper | S | Adding one window |
+| P12 | `[forbidden]` accepts a list on the right side in both parsers; the Controllers placement rule covers `ParsekRace*` files | S | 15.4, 15.2 |
+
+Order: P12 and P11 (tooling only); then P7, P1 and P10 (independent of each other); then
+P2c and P2a; then P2b on its own, with every flight lane behind it; then P3 and P3b; P6
+last, because it touches saved bytes. P2a, P7, P10, P11 and the cache reset of P1 are worth
+doing for single player alone.
+
+**Additions.** Facts and seams base Parsek does not have today. Each is additive (no save
+format bump), inert outside a race, and lands with the phase that first uses it.
+
+| Id | Addition | Size | For |
+|----|----------|------|-----|
+| A1 | One pure query beside `CommittedMilestoneReach`: the credited once-ever row per milestone id over the effective ledger, with its date and flight id | S | The milestone table (7.8) |
+| A2 | One pure "stands from date A until date B" query composing the existing spawnable-leaf, vessel-identity, ghost-chain and recovery checks, plus a recorded fact when a committed flight's vessel is deleted or destroyed outside a recording (today nothing records that) | M | Leftovers (7.7) |
+| A3 | A per-flight "tools used" fact on the recording (gravity hack, cheat teleport, cheat currency) | S to M | Disclosure (7.12) |
+| A4 | Build options on the ghost kerbal build: a part-name substitute before the part lookup, a material override after the materials are cloned | S to M | Looks on ghost kerbals (7.4) |
+| A5 | Neutral ghost seams on the floor: a per-trajectory style (color, label prefix) read at about 6 sites, and one ghost budget object | S each | Color and the shared soft cap (15.6) |
+| A6 | Window chrome shared by Parsek's table windows (id, rectangle, input lock, resize, UI scale, hover strip, Close) | S | The Space Race window (7.13) |
+| A7 | The file collector lists `Parsek/Race/` and does not copy it; the test-batch crash reconcile leaves it alone; one shared "find the scenario node of a game before its scenarios load" helper in place of seven copies | S | The race mark's gate (7.1); other players' files stay out of log bundles |
 
 Spikes beyond S1 to S7 of section 12:
 
@@ -2147,6 +2247,10 @@ Spikes beyond S1 to S7 of section 12:
   15.9.
 - **S9**: which stock debug-menu actions (set orbit, set position, add science, unlock
   technology) can be observed by a mod, to settle the list of 7.12.
+- **S10**: play a recorded docking, and a kerbal walking beside a lander, from the
+  body-fixed copy of their relative stretches alone, and look at them; and count, over the
+  saves on the owner's PC, how many relative stretches carry a complete copy. Settles the
+  flattening of 15.5.
 
 ### 15.12 Code layout
 
@@ -2165,7 +2269,7 @@ Spikes beyond S1 to S7 of section 12:
 | Rival store, flights, lane | `RaceWorld/RivalStore.cs`, `RivalFlight.cs`, `RivalCatalog.cs`, `RivalPlaybackPolicy.cs`, `RivalMapPresence.cs`, `RivalFlags.cs` |
 | Sites | `RaceWorld/RaceSites.cs` (space center move, patches), `RaceScenery.cs` |
 | Looks | `RaceWorld/RaceLooks.cs`; suit sets under `GameData/Parsek/Suits/` |
-| Menu entry, setup dialog, window | `ParsekRaceMenu.cs`, `UI/RaceSetupDialog.cs`, `UI/SpaceRaceWindowUI.cs` (on the `StructureListWindowUI` template, registered in `ParsekWindowSet`) |
+| Menu entry, setup dialog, window | `ParsekRaceMenu.cs`, `UI/RaceSetupDialog.cs`, `UI/SpaceRaceWindowUI.cs` (new drawing on the shared window chrome of A6, registered in `ParsekWindowSet`) |
 | Flight checks (later) | `ClaimChecks` entries; where the analyzer's rules run is decided with step B (15.4) |
 
 ### 15.13 Cost: what the feature may spend
@@ -2189,27 +2293,43 @@ The 1.1 build guards its structure with tests that a new feature trips unless it
 itself. Named here so the phase plans carry them, not discover them:
 
 - `scripts/arch/modules.toml`: a placement rule for every new root file (`ParsekRaceMenu.cs`,
-  `ParsekRaceScenario.cs`) and a layer for each new module; the forbidden edges of 15.4;
-  `RaceCore` in `[headless.modules]` with its pins.
+  `ParsekRaceScenario.cs`; the Controllers rule is a file-name pattern that does not match
+  them today, P12) and a layer for each new module; the forbidden edges of 15.4; `RaceCore`
+  in `[headless.modules]` with its pins. The module count, knot, layer, headless and facts
+  pins move with three new modules and are re-pinned in the change that adds them.
+- The uncalled-method ratchet: a production method that only tests call counts as uncalled,
+  and that count may not rise. So `RaceCore` does not land ahead of its shell as a pure
+  library: each piece arrives with a thin production caller in the same change.
 - `scripts/arch/lifetimes.toml` and `SaveScopedSessionResetTests`: every mutable static of
   the feature, with the applied-sites state tagged for the process and everything else for
-  the loaded save.
-- `LoadReconcilePolicy`: the dialog's Continue and the first start of a created save are
-  loads through a declared initiator (`KnownLoadInitiators`), and the race mark gets its row
-  in the load-kind table (it is taken from the loaded save by every kind).
+  the loaded save. The cold-load roots are `ParsekScenario`'s and `ParsekSettings`' load
+  methods, so a second scenario module's statics read as never cleared:
+  `ParsekRaceScenario` keeps instance state only, or its `OnLoad` joins the roots.
+- `LoadReconcilePolicy`: the dialog's Continue is a load through a declared initiator
+  (`KnownLoadInitiators`, a table keyed by file that gates `GamePersistence.LoadGame(` calls
+  only), and the race mark gets its row in the load-kind table (it is taken from the loaded
+  save by every kind). Creating and starting a new save is not a load and that gate does not
+  see it; it goes through the one create-and-start core of P10.
 - `SaveFormat.cs` and `SaveFormatGoldenGateTests`: `raceFormat` registered with a golden
   folder, although it is not a save format.
 - The background-thread gate: one allowlisted site, if the owner allows the copy worker
   (15.9).
 - The ERS / ELS routing gate: `RaceExportSource` reads through `EffectiveState`, so it needs
   no exemption.
-- The GUI gates: the new window in `design-gui-inventory.md`, its `UiSurface` key, the
-  window and tab vocabularies `GuiCensusSeamVerbTests` pins, its gallery mock states, and
-  the UI-scale source gate.
+- The GUI gates: the new window in `design-gui-inventory.md`, the window and tab
+  vocabularies `GuiCensusSeamVerbTests` pins, the harness window count (P11), its gallery
+  mock states, and the UI-scale source gate; about 17 places in all. It gets no `UiSurface`
+  key: that table only says Basic or Advanced, and "race saves only" stays the `RaceGate`
+  predicate. Two things are firsts for the mod and so are new code with their own UI-scale
+  host: something drawn at the main menu, and a dialog with typed fields (7.2). The Settings
+  window opens 280 wide, too narrow for a folder path, so its Multiplayer section shows the
+  path shortened, with the whole path in the hover and a button that opens the setup
+  dialog's field to change it.
 - The save-folder sweeps, the file collector (`collect-logs.py` copies every `Parsek/<dir>`
-  beside a save; `Race/` holds other players' files and should be listed, not copied whole)
-  and the pre-Parsek backup (a race save is created by Parsek, so it has a footprint from
-  birth and no backup is taken).
+  beside a save; `Race/` holds other players' files and should be listed, not copied whole),
+  the test-batch crash reconcile (it deletes and restores a save's whole `Parsek/` folder;
+  both are addition A7) and the pre-Parsek backup (a race save is created by Parsek, so it
+  has a footprint from birth and no backup is taken).
 
 ---
 
@@ -2221,5 +2341,7 @@ itself. Named here so the phase plans carry them, not discover them:
 - `docs/parsek-game-actions-and-resources-recorder-design.md` - milestone rows and the
   once-ever walk the milestone table reads.
 - `docs/dev/design-load-restores-the-save.md` - the load contracts a race save keeps.
+- `docs/dev/research/multiplayer-base-refactoring-2026-11-14.md` - the measured inventory of
+  the 1.1 code behind the prerefactors and additions of 15.11.
 - `docs/dev/design-save-format-policy.md` - what a build keeps of data it does not know, and
   why the race mark is a scenario node of its own (6.2).
