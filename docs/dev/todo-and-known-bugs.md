@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~LAUNCH-SITE-WOUND-LONGITUDE~~: a flight parked on the pad or runway spawned there when its stored longitude was wound past the date line [FILED 2026-11-14 by the multiplayer implementation plan (`docs/dev/plans/multiplayer/r0b-prep-small.md`, P1-02, question 10.1; owner answer "Fix both"), by code reading and the committed fixtures. FIXED 2026-11-14, branch `claude/project-thread-xgsu2i`; xUnit; low]
+## ~~LAUNCH-SITE-WOUND-LONGITUDE~~: a flight parked on the pad or runway spawned there when its stored longitude was wound past the date line [FILED 2026-11-14 by the multiplayer implementation plan (`docs/dev/plans/multiplayer/r0b-prep-small.md`, P1-02, question 10.1; owner answer "Fix both"), by code reading and the committed fixtures. FIXED 2026-11-14, branch `claude/project-thread-xgsu2i` (PR #2605); xUnit; FLOWN GREEN 2026-11-14 on the PR DLL: EX-1 (`2026-11-14_2025`, pad retirement), PADG-1 (`_2030`), LF-1 (`_2027`), LF-2 (`_2028`), MC-4 (`_2020`), all first attempt; no committed lane stores a wound longitude, so the wrap itself is proven by xUnit only; low]
 
 Recorded longitudes are not always in [-180, 180]: 2,686 of 118,819 `lon =` values in the committed
 fixtures are outside it, and two `.prec.txt` points over the KSC read -434.4 / -434.5. The
@@ -38,7 +38,7 @@ decision on an unwound longitude is bit-identical. `SurfaceDistance` and its oth
 bit-equality grid, wound pad / runway / Desert / Woomerang hits, a wound pad recording retiring
 and a wound one 2 km off still spawning).
 
-## ~~LAUNCH-SITE-PARTIAL-READ-CACHED~~: a first read of the Making History launch sites made before they were built kept fallback positions for the process [FILED 2026-11-14 by the multiplayer implementation plan (`r0b-prep-small.md`, P1-04, question 10.1; owner answer "Fix both"), by code reading. FIXED 2026-11-14, branch `claude/project-thread-xgsu2i`; xUnit; MC-4 is the lane that reads the Desert pad; low]
+## ~~LAUNCH-SITE-PARTIAL-READ-CACHED~~: a first read of the Making History launch sites made before they were built kept fallback positions for the process [FILED 2026-11-14 by the multiplayer implementation plan (`r0b-prep-small.md`, P1-04, question 10.1; owner answer "Fix both"), by code reading. FIXED 2026-11-14, branch `claude/project-thread-xgsu2i` (PR #2605); xUnit; FLOWN GREEN 2026-11-14 with the four lanes above and MC-4 (`2026-11-14_2020`, Desert pad): every run logged `Launch-site retirement circles resolved: runtime=8 fallback=0` once and no partial read, so the partial path is proven by xUnit only; low]
 
 `LaunchSiteExclusionZones.GetAltSiteCircles` cached its merged list for the process whenever the
 runtime read returned at least one circle. The runtime read keeps the KSC `LaunchPad` / `Runway`
