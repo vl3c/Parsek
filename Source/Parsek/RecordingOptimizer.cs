@@ -927,6 +927,131 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: true when <paramref name="rec"/> carries a spawn stamp, i.e. a real vessel
+        /// already stands for the recording's end (<see cref="Recording.VesselSpawned"/> or a
+        /// non-zero <see cref="Recording.SpawnedVesselPersistentId"/>).
+        /// </summary>
+        internal static bool HasSpawnStamp(Recording rec)
+        {
+            return rec != null && (rec.VesselSpawned || rec.SpawnedVesselPersistentId != 0);
+        }
+
+        /// <summary>
+        /// A spawn stamp belongs on the chain piece that holds the recording's end: the one
+        /// with the terminal state and the vessel snapshot. A split moves those to the later
+        /// half but left the stamp on the earlier one, so the tip looked like a vessel that
+        /// never spawned: the load-time crew pass then marked it spawned with no pid, and the
+        /// committed-spawned restore matched the live vessel to no recording and started a
+        /// fresh tree (todo LOAD-SPLIT-SPAWN-STAMP-ON-HEAD). For each chain whose tip has a
+        /// terminal state and no stamp, moves the stamp of the one earlier non-terminal piece
+        /// of the same launch onto the tip. Skips a chain with a superseded piece (the Re-Fly
+        /// HEAD / TIP pair keeps its own shape) and a chain with more than one stamped piece.
+        /// Runs on every optimization pass, so a save whose split already happened is healed
+        /// on load. Returns the number of stamps moved.
+        /// </summary>
+        internal static int MoveChainSpawnStampsToTip(
+            IReadOnlyList<Recording> recordings,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            if (recordings == null || recordings.Count == 0)
+                return 0;
+
+            var chains = new Dictionary<string, List<Recording>>(StringComparer.Ordinal);
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                Recording rec = recordings[i];
+                if (rec == null || string.IsNullOrEmpty(rec.ChainId) || rec.ChainIndex < 0)
+                    continue;
+                string key = rec.ChainId + "|" + rec.ChainBranch.ToString(CultureInfo.InvariantCulture);
+                if (!chains.TryGetValue(key, out List<Recording> pieces))
+                {
+                    pieces = new List<Recording>();
+                    chains[key] = pieces;
+                }
+                pieces.Add(rec);
+            }
+
+            int moved = 0;
+            int skippedAmbiguous = 0;
+            int skippedSuperseded = 0;
+            foreach (List<Recording> pieces in chains.Values)
+            {
+                if (pieces.Count < 2)
+                    continue;
+
+                Recording tip = null;
+                bool tieAtTip = false;
+                for (int i = 0; i < pieces.Count; i++)
+                {
+                    if (tip == null || pieces[i].ChainIndex > tip.ChainIndex)
+                    {
+                        tip = pieces[i];
+                        tieAtTip = false;
+                    }
+                    else if (pieces[i].ChainIndex == tip.ChainIndex)
+                    {
+                        tieAtTip = true;
+                    }
+                }
+                if (tip == null || tieAtTip || HasSpawnStamp(tip) || !tip.TerminalStateValue.HasValue)
+                    continue;
+
+                Recording holder = null;
+                int holders = 0;
+                for (int i = 0; i < pieces.Count; i++)
+                {
+                    Recording piece = pieces[i];
+                    if (ReferenceEquals(piece, tip) || !HasSpawnStamp(piece))
+                        continue;
+                    holders++;
+                    holder = piece;
+                }
+                if (holders == 0)
+                    continue;
+                if (holders > 1
+                    || holder.TerminalStateValue.HasValue
+                    || !VesselLaunchIdentity.RecordingsShareLaunch(holder, tip))
+                {
+                    skippedAmbiguous++;
+                    continue;
+                }
+
+                bool superseded = false;
+                for (int i = 0; i < pieces.Count && !superseded; i++)
+                    superseded = EffectiveState.IsSupersededByRelation(pieces[i], supersedes);
+                if (superseded)
+                {
+                    skippedSuperseded++;
+                    continue;
+                }
+
+                // Same move as the in-flight commit's InFlightCommitOptimization.CarrySpawnStampToTip
+                // (which this pass now does first): a spawned tip has applied all its resources.
+                tip.VesselSpawned = holder.VesselSpawned;
+                tip.SpawnedVesselPersistentId = holder.SpawnedVesselPersistentId;
+                tip.LastAppliedResourceIndex = tip.Points.Count - 1;
+                holder.VesselSpawned = false;
+                holder.SpawnedVesselPersistentId = 0;
+                moved++;
+                ParsekLog.Info("Optimizer",
+                    $"Chain spawn stamp moved to the tip: chain={tip.ChainId} " +
+                    $"from '{holder.RecordingId}' (chain index {holder.ChainIndex.ToString(CultureInfo.InvariantCulture)}) " +
+                    $"to '{tip.RecordingId}' (chain index {tip.ChainIndex.ToString(CultureInfo.InvariantCulture)}) " +
+                    $"spawnedPid={tip.SpawnedVesselPersistentId.ToString(CultureInfo.InvariantCulture)} " +
+                    $"vessel='{tip.VesselName}'");
+            }
+
+            if (moved > 0 || skippedAmbiguous > 0 || skippedSuperseded > 0)
+            {
+                ParsekLog.Verbose("Optimizer",
+                    $"MoveChainSpawnStampsToTip: moved={moved.ToString(CultureInfo.InvariantCulture)} " +
+                    $"skippedAmbiguous={skippedAmbiguous.ToString(CultureInfo.InvariantCulture)} " +
+                    $"skippedSuperseded={skippedSuperseded.ToString(CultureInfo.InvariantCulture)}");
+            }
+            return moved;
+        }
+
+        /// <summary>
         /// Merges recording B into recording A (A absorbs B).
         /// Points, events, sections, and orbit segments are concatenated.
         /// Returns B's RecordingId (caller deletes files + removes from store).
@@ -996,6 +1121,13 @@ namespace Parsek
             // 7. VesselSnapshot: if absorbed was chain tip (non-null), target inherits it
             if (absorbed.VesselSnapshot != null)
                 target.VesselSnapshot = absorbed.VesselSnapshot;
+            // The spawn stamp (a real vessel already stands for this recording's end) travels
+            // with the end the snapshot describes.
+            if (HasSpawnStamp(absorbed))
+            {
+                target.VesselSpawned = absorbed.VesselSpawned;
+                target.SpawnedVesselPersistentId = absorbed.SpawnedVesselPersistentId;
+            }
             if (!string.IsNullOrEmpty(absorbed.ChildBranchPointId))
                 target.ChildBranchPointId = absorbed.ChildBranchPointId;
 

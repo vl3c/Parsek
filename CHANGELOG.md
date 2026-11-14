@@ -55,8 +55,9 @@ All notable changes to Parsek are documented here.
   far from the ship's icon. The looped trip now shows only its own transfer path.
   (LOOP-SUN-LEG-DRAWN-OFF-PATH)
 - **Resuming an old flight no longer adds a stray piece to its launch recording.** Flying a
-  spawned vessel on from a finished mission now records onto the latest part of its flight, not
-  back onto the launch. (COMMITTED-RESTORE-APPENDS-TO-ROOT)
+  spawned vessel on from a finished mission, or loading a save with it in flight, now records onto
+  the latest part of its flight, not back onto the launch or into a new recording.
+  (COMMITTED-RESTORE-APPENDS-TO-ROOT)
 
 ## 1.0.1
 
