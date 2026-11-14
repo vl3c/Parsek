@@ -110,7 +110,7 @@ namespace Parsek
                 var walker = SealCreditWalkerForTesting;
                 walk = walker != null
                     ? walker(rows)
-                    : RecalculationEngine.WalkBalancesOnClones(rows);
+                    : RecalculationEngine.WalkBalancesOnClones(LedgerOrchestrator.Modules, rows);
                 SealCreditWalkCountForTesting++;
             }
             catch (Exception ex)

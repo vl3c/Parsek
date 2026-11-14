@@ -8,6 +8,8 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class RecalculationFuzzerTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         // Keep this count in sync with CreateAction's switch below so a new
         // GameActionType cannot land without an explicit fuzzer payload.
         private const int ExpectedGameActionTypeCount = 42;
@@ -18,13 +20,11 @@ namespace Parsek.Tests
             priorSuppressLogging = ParsekLog.SuppressLogging;
             ParsekLog.SuppressLogging = true;
             ParsekLog.ResetTestOverrides();
-            RecalculationEngine.ClearModules();
-            RecalculationEngine.RegisterModule(new ContractsModule(), RecalculationEngine.ModuleTier.FirstTier);
+            modules.Register(new ContractsModule(), RecalculationModuleSet.ModuleTier.FirstTier);
         }
 
         public void Dispose()
         {
-            RecalculationEngine.ClearModules();
             RecalculationEngine.ResetSortActionsCallCountForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = priorSuppressLogging;
@@ -57,7 +57,7 @@ namespace Parsek.Tests
                 {
                     int expectedSortCalls = ExpectedSortCalls(actions, cutoffs[i]);
                     RecalculationEngine.ResetSortActionsCallCountForTesting();
-                    RecalculationEngine.Recalculate(actions, cutoffs[i]);
+                    RecalculationEngine.Recalculate(modules, actions, cutoffs[i]);
                     Assert.Equal(expectedSortCalls, RecalculationEngine.SortActionsCallCountForTesting);
                 }
             }

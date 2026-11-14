@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the five committed `<source>-career` route fixtures BY CONSTRUCTION (no KSP launch).
+"""Build the six committed `<source>-career` fixtures BY CONSTRUCTION (no KSP launch).
 
 WHY THIS EXISTS. Every save that runs a real supply route is SANDBOX: the recorded route
 hosts were hand-flown operator campaigns, and none can be re-flown automatically. So the
@@ -13,6 +13,12 @@ can fly its source lane's driver steps verbatim over it:
     gloops-airshow         -> gloops-airshow-career           (H77 = H34)
     bdock-recorded         -> bdock-recorded-career           (H78 = H39)
     rover-route-recorded   -> rover-route-recorded-career     (H79 = H58)
+    duna-ike-recorded      -> duna-ike-recorded-career        (FAR-1)
+
+The sixth source is not a route host: duna-ike-recorded is the DD1 probe's Kerbin -> Duna
+-> Ike flight, converted so the far-body timeline lane FAR-1 can run a Rewind-to-Launch
+with a committed far-body flight in a career timeline and read the ledger.
+Its lane is a new seam lane, not a copy of a source lane's driver.
 
 THE EDITS, per save, against the source (read, never modified) and `fresh-career` (the
 career donor, read, never modified):
@@ -100,7 +106,7 @@ launch-cost, recovery or hire rows; a ground-truth (L2-style) reconstruction ove
 saves would compare against a history that never charged anything.
 
 Usage:
-    python harness/tools/build_route_career.py              # write all five fixtures
+    python harness/tools/build_route_career.py              # write all six fixtures
     python harness/tools/build_route_career.py --check      # re-derive, compare bytes
     python harness/tools/build_route_career.py --only bdock-recorded
 
@@ -136,6 +142,7 @@ SOURCES = (
     "gloops-airshow",
     "bdock-recorded",
     "rover-route-recorded",
+    "duna-ike-recorded",
 )
 
 SFS = "persistent.sfs"
@@ -182,6 +189,7 @@ EXPECTED_KSC_DEBRIS = {
     "gloops-airshow": 0,
     "bdock-recorded": 4,
     "rover-route-recorded": 0,
+    "duna-ike-recorded": 0,
 }
 
 # GameActionType ids (Source/Parsek/GameActions/GameAction.cs).

@@ -21,6 +21,8 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class FreeTechUnlockCaptureTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private const string GiftTech = "advRocketry";
         private const string StartTech = "start";
         private readonly List<string> logLines = new List<string>();
@@ -40,14 +42,12 @@ namespace Parsek.Tests
             LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(true, true, true);
             KspStatePatcher.SuppressUnityCallsForTesting = true;
             FreeTechUnlockCapturePatch.ResetForTesting();
-            RecalculationEngine.ClearModules();
             EffectiveState.ResetCachesForTesting();
             ParsekScenario.ResetInstanceForTesting();
         }
 
         public void Dispose()
         {
-            RecalculationEngine.ClearModules();
             FreeTechUnlockCapturePatch.ResetForTesting();
             EffectiveState.ResetCachesForTesting();
             ParsekScenario.ResetInstanceForTesting();
@@ -225,10 +225,10 @@ namespace Parsek.Tests
         // The walk
         // ================================================================
 
-        private static ScienceModule RegisterScience()
+        private ScienceModule RegisterScience()
         {
             var science = new ScienceModule();
-            RecalculationEngine.RegisterModule(science, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(science, RecalculationModuleSet.ModuleTier.SecondTier);
             return science;
         }
 
@@ -253,7 +253,7 @@ namespace Parsek.Tests
                 TechRow("free", 5000.0, 10, GiftTech, 0f),
             };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.True(actions[1].Affordable);
             Assert.True(actions[1].Effective);
@@ -273,7 +273,7 @@ namespace Parsek.Tests
                 TechRow("paid", 3000.0, 20, GiftTech, 45f),
             };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.Equal(55.0, science.GetRunningScience(), 3);
             var free = actions.Single(a => a.ActionId == "free");

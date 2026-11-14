@@ -2736,6 +2736,22 @@ that catches a dropped row before it costs a flight - the weaker "the saveTempla
 names a real directory" form stays green when a row goes missing. Pure resolution:
 `hlib.plan_shared_ship_overlay` / `hlib.validate_shared_ships_manifest`.
 
+## The flight profile catalog (`docs/dev/flight-profiles.md`)
+
+Every lane spec, flattened to one row and summarized for gap-hunting, lives in the
+GENERATED `docs/dev/flight-profiles.md`: lanes per family, host save, body, seam
+verb, timeline operation (rewind-to-launch, Re-Fly, revert, reload, save, warp,
+time jump, scene change, vessel switch, new game), mission machine and in-game
+category; a body x timeline-operation and a family x timeline-operation matrix; and
+the seam verbs, `registry.toml` dimension values and `[InGameTest]` categories no
+lane uses. Status is quoted from `docs/dev/autotest-status.md`, which stays the
+authority. Regenerate with `python harness/tools/lane_catalog.py` (pure derivations
+in `lib/lanecatalog.py`; `--check` exits 1 when stale, `--json -` prints the per-lane
+data) after changing a spec, the registry, an in-game category or a lane's status
+row: `lib/test_lanecatalog.py` regenerates it in memory and reds while the committed
+copy differs. Bodies are a name scan and timeline operations come from seam verbs
+only, so a mission's own kRPC warps and an unnamed Kerbin do not show.
+
 ## Spec authoring: pinning a multi-category batch
 
 A batch-owning spec drives ONE `RunTests` step. Since 2026-09-07 that step may name

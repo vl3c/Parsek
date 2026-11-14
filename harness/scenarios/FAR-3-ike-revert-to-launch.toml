@@ -1,0 +1,137 @@
+schema = 1
+id = "FAR-3-ike-revert-to-launch"
+# =====================================================================================
+# FAR-3: A RECORDED KERBIN FLIGHT REVERTED TO LAUNCH WHILE A COMMITTED FLIGHT SITS AT IKE.
+# (Far-body timeline program, 2026-11-14: IR-2's stock revert road with a far-body leaf in
+# the timeline.)
+#
+# WHY. A stock Revert to Launch is an IN-SESSION load (LoadReconcilePolicy StockRevert):
+# the committed recordings stay in memory while stock reloads the launch state, and the
+# reverted flight's tree goes through the Limbo stash. Every revert lane runs on a
+# Kerbin-only timeline. Here the timeline already holds a committed flight whose spawned
+# leaf (the DD1 probe) orbits Ike; the revert must leave that vessel where the launch state
+# had it (same orbit, same phase at the clock, one copy), and must not re-spawn, strip or
+# re-place it off the Kerbin flight's revert. The clock is moved forward in the reverted
+# flight by a rails warp (never a TimeJump, which epoch-shifts DD1 off its recorded phase
+# by design), so a revert that kept the future state, or re-placed DD1 from a cached
+# pre-warp orbit, reads as a phase or a duplicate.
+#
+# THE HOST. `duna-ike-recorded` (SANDBOX, UT 9,181,510.7): DD1 Duna Direct Probe ORBITING
+# Ike (pid 2200110044), the spawned leaf 9e2f5bfa of committed tree
+# ccb5e4afd7974dbe9118090468ac00ae (4 recordings). The pad and runway are clear.
+#
+# THE FLIGHT, IR-2's road:
+#   boot   LoadGame (FLIGHT on DD1, the committed tip promoted), stop and discard that
+#          promotion, settings, ExitToSpaceCenter.
+#   F      GoToEditor VAB + the stock Kerbal X, LaunchFromEditor (pad), StartRecording, the
+#          flight-ready wait, WarpToUT 9181900 on the pad (rails, ~6 min of Ike orbit).
+#   revert RevertToLaunch: classified StockRevert in FLIGHT; F's tree dropped.
+#   check  RecordingState polls, LeafVesselPlacement in FLIGHT (DD1 on its recorded Ike
+#          orbit and phase at the clock, one copy), SaveGame, quit.
+#
+# PRE-REGISTERED READINGS:
+#   - recordings 5: F's tree survived the revert (it must not, the flight never happened);
+#     read the `Revert:` and `[SceneExit]` lines.
+#   - `bad=1 ... verdict=phase` on DD1: the revert re-placed DD1 from a state other than the
+#     launch state at the reverted clock.
+#   - `duplicate=1`, or vesselNames DD1 = 2: the revert re-spawned the committed leaf.
+#   - a merge dialog line after the revert: the in-session revert offered F's tree.
+#
+# FAST-LANE CHECKLIST: (1) reuse: IR-2's revert road and V31M's boot, no new flight;
+# (2) explicit-UT warp only; (3)-(5) no dwell, burn or coast; (6) retry `once`;
+# (7) recordings window 4..4 (the host's committed recordings); (8) operator, ~3 min
+# expected; (9) flight_efficiency.py after the first green flight.
+tier = "operator"
+description = "Far-body revert: on duna-ike-recorded the stock Kerbal X is launched from the VAB, recorded and warped ~6 min on the pad while the committed DD1 probe orbits Ike, then Revert to Launch; the StockRevert load must drop the reverted flight's tree and leave DD1 as one vessel on its recorded Ike orbit and phase at the reverted clock (LeafVesselPlacement in FLIGHT)."
+instanceProfile = "stock-minimal"
+tags = ["FAR-3", "far-body", "ike", "duna", "sandbox", "stock-revert", "revert",
+        "editor-route", "leaf-placement", "ingame-batch", "timeline-ops",
+        "recorded-fixture", "pending-flight", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/duna-ike-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+# Budget arithmetic: 300 LoadGame + 120 ExitToSpaceCenter + 120 GoToEditor + 180
+# LaunchFromEditor + 180 StartRecording + 300 warp + 180 RevertToLaunch + 300 RunTests
+# + 120 SaveGame = 1800; runtime 2400 adds the inert steps and FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },           expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                  expect = "OK" },
+  { cmd = "DiscardTree",                                                                    expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },        expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },             expect = "OK" },
+  { cmd = "ExitToSpaceCenter",                                                              expect = "OK", budget = 120 },
+
+  # ---- F: a recorded Kerbin flight, the clock moved by a rails warp ----
+  { cmd = "GoToEditor",     args = { facility = "VAB", craft = "Kerbal X" },                expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                               expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                 expect = "OK", budget = 180 },
+  { cmd = "ListHandles",    args = { kind = "chains" },                                     expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "9181900" },                                      expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "far3-flying" },                               expect = "OK" },
+
+  # ---- the stock revert ----
+  { cmd = "RevertToLaunch",                                                                 expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                                 expect = "OK" },
+  { cmd = "RecordingState",                                                                 expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "far3-reverted" },                             expect = "OK" },
+
+  # ---- DD1 read by position at the reverted clock ----
+  { cmd = "RunTests",       args = { category = "LeafVesselPlacement" },                    expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                                       expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                   expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["ike", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 4, max = 4 }
+
+[expectations.recordings.structure]
+# Report-only (no `gating`).
+committedTrees = { min = 1, max = 1 }
+vesselNames = { "DD1 Duna Direct Probe" = 1 }
+
+[expectations.logContracts]
+required = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "goeditor complete facility=VAB craft=Kerbal X scene=EDITOR parts=[1-9][0-9]* ship=Kerbal X ",
+  "launchfromeditor complete scene=FLIGHT vessel=Kerbal X pid=[0-9]+ site=LaunchPad situation=PRELAUNCH ",
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  "MISSIONMARK label=far3-flying ut=[\\s\\S]*?reverttolaunch start pid=[0-9]+ name='Kerbal X' situation=\\S+ recording=true hasActiveTree=true",
+  "MISSIONMARK label=far3-flying ut=[\\s\\S]*?GameEvents\\.OnRevertToLaunchFlightState fired; armed RevertKind\\.Launch for next OnLoad",
+  "MISSIONMARK label=far3-flying ut=[\\s\\S]*?Load classified: early=\\w+ refined=StockRevert scene=FLIGHT",
+  "MISSIONMARK label=far3-flying ut=[\\s\\S]*?reverttolaunch complete pid=[0-9]+ name='Kerbal X' situation=PRELAUNCH elapsed=",
+  # DD1 at its recorded Ike orbit and phase after the revert, one copy.
+  "MISSIONMARK label=far3-reverted ut=[\\s\\S]*?LeafPlacement summary: scene=FLIGHT compared=1 ok=1 bad=0 absent=0 duplicate=0 unsupported=0 bodies=\\[Ike\\]",
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "goeditor rejected",
+  "launchfromeditor refused",
+  "warptout refused",
+  "timejump ",
+  "reverttolaunch rejected",
+  "reverttolaunch error",
+  "Load classified: early=\\w+ refined=QuickloadFlight ",
+  "LeafPlacement: [^\\r\\n]*verdict=(?!ok)",
+]
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

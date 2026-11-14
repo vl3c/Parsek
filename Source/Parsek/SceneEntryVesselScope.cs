@@ -10,16 +10,29 @@ namespace Parsek
     /// </summary>
     internal static class SceneEntryVesselScope
     {
+        // The save-scoped state: every field below. The Cold reset replaces the whole object
+        // (ResetForLoad), so a field added here is forgotten with the rest.
+        private sealed class ColdResetState
+        {
+            internal uint SceneEntryActiveVesselPid;
+            internal string SceneEntryActiveVesselGuid;
+            internal uint SceneEntryFreshRolloutVesselPid;
+            internal uint RewindReplayTargetSourcePid;
+            internal string RewindReplayTargetRecordingId;
+        }
+
+        private static ColdResetState state = new ColdResetState();
+
         // PID of the active vessel at scene entry. Used by SpawnVesselOrChainTip to
         // bypass PID dedup statelessly - if a recording's VesselPersistentId matches
         // this, the existing real vessel is the player's reverted/active vessel, not
         // a previously-spawned endpoint. Static so it survives Recording object recreation.
-        internal static uint SceneEntryActiveVesselPid;
+        internal static uint SceneEntryActiveVesselPid { get => state.SceneEntryActiveVesselPid; set => state.SceneEntryActiveVesselPid = value; }
 
         // Launch guid ("N" form, null = unknown) of that scene-entry vessel. The #226 bypass
         // is withheld when no pid-matching live vessel is the recording's launch
         // (VesselSpawner.ShouldKeepReplayBypassForLaunchIdentity).
-        internal static string SceneEntryActiveVesselGuid;
+        internal static string SceneEntryActiveVesselGuid { get => state.SceneEntryActiveVesselGuid; set => state.SceneEntryActiveVesselGuid = value; }
 
         // PID of the vessel that rolled out fresh from the VAB/SPH this scene
         // (set only for NEW_FROM_FILE / NEW_FROM_CRAFT_NODE startups; 0 otherwise).
@@ -29,32 +42,26 @@ namespace Parsek
         // mis-seat stand-ins via KSP's craft-stable part persistentId reuse. Static
         // so the chain-commit / merge call sites (which have no ParsekFlight handle)
         // can consult it, mirroring SceneEntryActiveVesselPid.
-        internal static uint SceneEntryFreshRolloutVesselPid;
+        internal static uint SceneEntryFreshRolloutVesselPid { get => state.SceneEntryFreshRolloutVesselPid; set => state.SceneEntryFreshRolloutVesselPid = value; }
 
         // During launch-point rewind, scope the #226 duplicate-source bypass to the
         // recording whose rewind was actually requested. Other scene-entry vessels may
         // also match committed recordings, but they are not the replay target.
-        internal static uint RewindReplayTargetSourcePid;
-        internal static string RewindReplayTargetRecordingId;
+        internal static uint RewindReplayTargetSourcePid { get => state.RewindReplayTargetSourcePid; set => state.RewindReplayTargetSourcePid = value; }
+        internal static string RewindReplayTargetRecordingId { get => state.RewindReplayTargetRecordingId; set => state.RewindReplayTargetRecordingId = value; }
 
         /// <summary>Cold-load reset, called by <c>RecordingStore.ResetSaveScopedStateForLoad</c>
         /// at the point where it used to clear these fields itself.</summary>
         internal static void ResetForLoad()
         {
-            SceneEntryActiveVesselPid = 0;
-            SceneEntryActiveVesselGuid = null;
-            SceneEntryFreshRolloutVesselPid = 0;
-            ClearRewindReplayTargetScope();
+            state = new ColdResetState();
         }
 
         /// <summary>Test reset, called by <c>RecordingStore.ResetForTestingInternal</c> at the
         /// point where it used to clear these fields itself.</summary>
         internal static void ResetForTesting()
         {
-            SceneEntryActiveVesselPid = 0;
-            SceneEntryActiveVesselGuid = null;
-            SceneEntryFreshRolloutVesselPid = 0;
-            ClearRewindReplayTargetScope();
+            state = new ColdResetState();
         }
 
         internal static void SetRewindReplayTargetScope(Recording owner)

@@ -73,6 +73,10 @@ FINDING_LABELS = {
     "testWrittenUntagged": "untagged statics the test assembly writes directly",
     "resetGateDisagreement": "statics ResetSaveScopedSessionState resets that are not tagged save or load-transition",
 }
+# A store's save-scoped holder: a static whose type is the nested class of this name. The
+# store's Cold reset replaces the object, so its instance fields carry the holder static's
+# lifetime (SaveScopedSessionResetTests reads through it the same way).
+HOLDER_TYPE_NAME = "ColdResetState"
 TOP_KEYS = frozenset({"lifetimes", "cold_load", "pattern", "type"})
 PATTERN_KEYS = frozenset({"match", "lifetime", "reason"})
 TYPE_KEYS = frozenset({"name", "default", "reason", "fields"})
@@ -550,6 +554,16 @@ def analyse(index, statics, config, decl, gate=None, tests_written=None):
                 disagreement.append(key)
                 details[key] = "reset by the helper, tagged %s" % lifetime
 
+    holders = holders_of(index.fields, population)
+    held = Counter()
+    for key, members in holders.items():
+        lifetime = tags.get(key, (None,))[0]
+        if lifetime not in COLD_CLEARED:
+            problems.append("%s is a %s holder tagged %s: its fields are the store's save-scoped state, so"
+                            " it is save or load-transition" % (key, HOLDER_TYPE_NAME, lifetime))
+            continue
+        held[lifetime] += len(members)
+
     by_lifetime = Counter(lifetime for lifetime, _s, _r in tags.values())
     by_source = Counter(source for _l, source, _r in tags.values())
     findings = {
@@ -566,11 +580,26 @@ def analyse(index, statics, config, decl, gate=None, tests_written=None):
         "bySource": dict(by_source),
         "coldRoots": roots,
         "coldClosure": len(closure),
+        "holders": {key: len(members) for key, members in holders.items()},
+        "heldByLifetime": dict(held),
         "findings": findings,
         "details": details,
         "problems": assembly_problems(decl, index.facts) + problems,
         "gates": dict({"untagged": list(untagged)}, **{name: keys for name, keys in findings.items()}),
     }
+
+
+def holders_of(fields, population):
+    """{holder static key: [its instance field keys]} for the population's ColdResetState holders."""
+    held = {}
+    for key in population:
+        path = key.split("::", 1)[0]
+        holder_type = path + "/" + HOLDER_TYPE_NAME
+        if (fields.get(key) or {}).get("fieldType") != holder_type:
+            continue
+        held[key] = sorted(k for k, row in fields.items()
+                           if k.split("::", 1)[0] == holder_type and not row.get("static") and not row.get("literal"))
+    return held
 
 
 def summary(result):
@@ -688,6 +717,12 @@ def format_report(result, top=8):
                  % (result["bySource"].get("field", 0), result["bySource"].get("pattern", 0),
                     result["bySource"].get("type", 0)))
     lines.append("  Cold load closure: %d methods from %s" % (result["coldClosure"], ", ".join(result["coldRoots"])))
+    holders = result.get("holders") or {}
+    if holders:
+        held = result.get("heldByLifetime") or {}
+        lines.append("  %s holders: %d statics holding %d fields (%s)"
+                     % (HOLDER_TYPE_NAME, len(holders), sum(holders.values()),
+                        ", ".join("%s %d" % (name, held[name]) for name in COLD_CLEARED if name in held)))
     for name in FINDINGS:
         keys = result["findings"][name]
         if keys is None:

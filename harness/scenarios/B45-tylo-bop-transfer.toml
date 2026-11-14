@@ -1,0 +1,183 @@
+schema = 1
+id = "B45-tylo-bop-transfer"
+# =====================================================================================
+# B45: Tylo -> Bop, a moon-to-moon forge. AUTHORED 2026-11-14, NEVER FLOWN.
+# Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 2 / MOON-FLIGHT-TEST-PROGRAM Group B.
+#
+# WHAT IT IS FOR. The hard case of the moon-rooted rule: Bop (P 544,507 s, e 0.235,
+# i 15 deg) and Tylo (P 211,926 s) share no small resonance, so the matrix expects
+# a long wait or an honest decline. The real solver, driven offline over a modelled
+# Tylo -> Bop tree (2026-11-14, stock periods), does NOT decline: it locks
+# `joint-best-fit` at P = 7 x P_Bop = ~3.81 Ms with a 3,122 s residual inside
+# tolerance, and the zero-drift schedule runs at 3.81 Ms intervals with gaps up to
+# ~27.8 Ms. V45M reads which answer the game gives. Its harvest `tylo-bop-recorded`
+# is V45M's subject.
+#
+# THE MACHINE: B26's parent relay through the `b29_jool_kerbin` module, with a
+# CIRCULAR capture at Bop (no `captureEllipticalApoapsisMeters`: Bop's mu is so
+# small that an elliptical capture saves under 20 m/s). Capture, terrain and park
+# values are B34's (Bop's own harvest lane).
+#
+# THE FIXTURE: `tylo-park-nerv`, `tylo-orbit-recorded` (B33's harvest) with every
+# ParsekScenario child stripped. The Duna Rocket parks at 129,602 x 147,370 m (SMA
+# 738,486 m, ECC 0.0120, INC 12.70 deg), LiquidFuel 605.02.
+#
+# DELTA-V. 605.02 LF = 3.025 t over 7.18 t dry at 800 s: ~2,758 m/s.
+#   escape   vsoi 290 at the fixture park ~724 m/s: Tylo's well is deep (754 at the
+#            gate's 100 km round corner, 632 at its 100 x 300 km one). The SOI
+#            floor is 177.5-199.6, so 290 clears it by 45%; Hohmann excess 288.7.
+#   stage 2  Hohmann departure 288.7 plus whatever plane change MechJeb folds in
+#            for Bop's 15 deg: ~450 nominal, ~700 worst.
+#   capture  circular at a 250 km periapsis: 188 m/s at v_inf 246, ~520 at 600,
+#            ~800 at 900 (B34's worst v_inf).
+#   corr     <= 4 x 100.
+#   nominal ~1,600 m/s, worst ~2,650: fits, narrowly in the worst case.
+#
+# TIMING: Hohmann transfer ~182,700 s (150,000-230,000 across Bop's eccentric
+# radius band), Tylo-Bop synodic 346,970 s; Bop SOI entry to periapsis 2,400-4,600 s.
+# Correction triggers [160000, 30000] s to SOI.
+#
+# OUTWARD TRANSFER (68.5 Mm -> Bop's 98.3-158.7 Mm band). Pol's band starts at
+# 149.1 Mm, so a long transfer could graze it: forbidden by name below. Stage-2
+# evidence: the Jool-altitude apoapsis floor 85 Mm (Bop's periapsis altitude 92.3 Mm).
+#
+# HARVEST after a green flight, from the run's own snapshot, never `--force`:
+#   python tools/harvest_bdock_station.py --save-dir results/<runId>_save
+#       --target-name tylo-bop-recorded --expect-situation ORBITING --keep-parsek
+# then register it in test_saveparse.RECORDED_FIXTURES, put its tree id into V45M
+# and drop V45M from test_hlib PENDING_FIXTURE_LANES (both in the same commit).
+# =====================================================================================
+tier = "operator"
+description = "AUTHORED 2026-11-14, NEVER FLOWN. Moon-to-moon forge Tylo -> Bop: B26's parent-relay from the Parsek-stripped `tylo-park-nerv` (B33's harvest) out to the inclined, eccentric Bop, a circular capture with B34's Bop values, and the tree committed in the Bop orbit. A fresh Tylo-rooted tree that never leaves Jool's SOI; the matrix expected the loop to decline, the offline solver predicts a joint-best-fit lock at 7 x P_Bop. Produces `tylo-bop-recorded` for V45M."
+instanceProfile = "stock-minimal"
+tags = ["B45", "tylo", "bop", "jool", "moon-to-moon", "parent-relay", "inclined-target",
+        "orbit", "mechjeb", "cross-soi", "capture", "commit-in-foreign-soi", "orbit-start",
+        "crewed", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/tylo-park-nerv"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "b29_jool_kerbin"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },   expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                     expect = "OK" },
+  { cmd = "DiscardTree",                                                       expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "StartRecording",                                                    expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 7200 },
+  { cmd = "FlushAndQuit",                                                      expect = "OK" },
+]
+
+[driver.missionParams]
+startInOrbit                    = true
+startInOrbitMinPeriapsisMeters  = 100000
+startInOrbitMaxApoapsisMeters   = 300000
+startInOrbitMaxEccentricity     = 0.05
+startInOrbitSituations          = ["ORBITING"]
+startInOrbitDebounceFrames      = 3
+startInOrbitSettleSeconds       = 120
+
+homeBodyName               = "Tylo"
+targetBodyName             = "Bop"
+interplanetaryTransfer     = true
+
+parentRelayTransfer        = true
+escapeSoiSpeedMps          = 290
+escapeMaxDeltaVMps         = 850
+escapeNodeMinLeadSeconds   = 300
+# ESCAPE plans only (the burn is TRANSFER-BURN's): one Tylo park period is ~2,370 s.
+escapeTimeoutSeconds       = 3600
+returnBodyName             = "Jool"
+viaBodyNames               = ["Jool"]
+transferMinApoapsisMeters  = 85000000
+ejectionEccFloor           = 0
+courseCorrectPeriapsisMeters = 250000
+correctionTriggerTimeToSoiSeconds = [160000, 30000]
+correctionTriggerAltsMeters       = []
+planTimeoutSeconds         = 300
+planRetrySeconds           = 10
+planWarpFactor             = 2
+transferBurnTimeoutSeconds = 1000000
+coastTimeoutSeconds        = 1000000
+flybyTimeoutSeconds        = 60000
+coastWarpFactor            = 5
+soiLeadSeconds             = 3000
+approachWindowSeconds      = 10000
+approachMaxWarpFactor      = 3
+soiNativeLeadSeconds       = 400
+triggerNativeLeadSeconds   = 30
+flybyWarpFactor            = 2
+flybyMaxWarpFactor         = 3
+nodeArrivalMarginSeconds   = 15
+flipPhysicsWarpFactor      = 1
+targetPeriapsisFloorMeters = 45000
+
+captureEnabled             = true
+capturePlanTimeoutSeconds  = 300
+captureBurnTimeoutSeconds  = 60000
+parkMinPeriapsisMeters     = 25000
+parkMaxApoapsisMeters      = 1100000
+parkMaxEccentricity        = 0.25
+parkMaxAngularVelocityRadPerSec = 0.05
+parkSituations             = ["ORBITING"]
+parkDwellSeconds           = 60
+parkDebounceFrames         = 3
+parkTimeoutSeconds         = 600
+commitTimeoutSeconds       = 300
+burnStagnantSeconds        = 120
+burnNoStartSeconds         = 600
+correctionThrottle         = 0.25
+correctionCutDvMps         = 2.0
+correctionSettleSeconds    = 10
+maxAttitudeErrorDeg        = 30
+frozenTelemetrySamples     = 10
+maxCorrectionDvMps         = 100
+
+[dimensionsCovered]
+D1  = ["commit-in-foreign-soi"]
+D14 = ["tylo", "bop", "jool", "warp-rails", "scene-flight", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 4 }
+
+[expectations.logContracts]
+required  = [
+  "Recording started",
+  "Recording stopped",
+  "SOI change boundary suppressed in tree mode: Tylo to Jool",
+  "SOI change boundary suppressed in tree mode: Jool to Bop",
+  "CommitTreeFlight: starting tree commit at UT=",
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Bop",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "SOI change boundary suppressed in tree mode: \\w+ to Laythe",
+  "SOI change boundary suppressed in tree mode: \\w+ to Vall",
+  "SOI change boundary suppressed in tree mode: \\w+ to Pol",
+  "SOI change boundary suppressed in tree mode: \\w+ to Sun",
+]
+
+[expectations.rewind]
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+committedTrees = { min = 1, max = 1 }
+
+[runtime]
+budgetSeconds = 7900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

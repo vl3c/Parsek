@@ -1458,6 +1458,40 @@ namespace Parsek.Logistics
         // -----------------------------------------------------------------
 
         /// <summary>
+        /// The recording ids every committed AND dormant route names in its
+        /// <see cref="Route.SourceRefs"/>: the recordings the source immutability contract
+        /// (design 4.7) pins. <see cref="CommittedListOptimizer.RunOptimizationPass"/> leaves
+        /// them unmerged, unsplit and untrimmed, because any of those rewrites moves a captured
+        /// fingerprint field (id, start / end UT, sidecar epoch, proof hash) and
+        /// <see cref="RevalidateSources"/> would then pause the route as SourceChanged or
+        /// MissingSourceRecording, neither of which recovers by itself. Dormant routes count
+        /// because they revalidate when they materialize. Never null; empty when no route
+        /// carries a source ref.
+        /// </summary>
+        internal static HashSet<string> CollectSourceRecordingIds()
+        {
+            var ids = new HashSet<string>(StringComparer.Ordinal);
+            AddSourceRecordingIds(committedRoutes, ids);
+            AddSourceRecordingIds(dormantRoutes, ids);
+            return ids;
+        }
+
+        private static void AddSourceRecordingIds(List<Route> routes, HashSet<string> ids)
+        {
+            for (int i = 0; i < routes.Count; i++)
+            {
+                Route route = routes[i];
+                if (route?.SourceRefs == null) continue;
+                for (int s = 0; s < route.SourceRefs.Count; s++)
+                {
+                    string id = route.SourceRefs[s]?.RecordingId;
+                    if (!string.IsNullOrEmpty(id))
+                        ids.Add(id);
+                }
+            }
+        }
+
+        /// <summary>
         /// For each committed route, validate every <see cref="RouteSourceRef"/>
         /// against the current ERS (Effective Recording Set, computed by
         /// <see cref="EffectiveState.ComputeERS"/>). Transition status to:

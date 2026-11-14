@@ -10,7 +10,8 @@ namespace Parsek
     /// each action to the appropriate tier of modules.
     ///
     /// Pure computation — no KSP state access, no file I/O.
-    /// Modules are registered, not hardcoded — the engine does not know about specific module types.
+    /// Every entry point takes the <see cref="RecalculationModuleSet"/> it walks; the engine
+    /// keeps no module state of its own and does not know about specific module types.
     ///
     /// Tier ordering (design doc 1.8):
     ///   First-tier (independent): Science, Milestones, Contracts, Kerbals
@@ -20,119 +21,19 @@ namespace Parsek
     /// </summary>
     internal static class RecalculationEngine
     {
-        private static readonly List<IResourceModule> firstTierModules = new List<IResourceModule>();
-        private static readonly List<IResourceModule> secondTierModules = new List<IResourceModule>();
-        private static IResourceModule strategyTransform;
-        private static IResourceModule facilitiesModule;
-
-        // ================================================================
-        // Module registration
-        // ================================================================
-
-        internal enum ModuleTier
-        {
-            FirstTier,
-            SecondTier,
-            Strategy,
-            Facilities
-        }
-
-        /// <summary>
-        /// Registers a resource module for the recalculation walk at the specified tier.
-        /// Modules are dispatched in tier order: first-tier, strategy transform, second-tier, facilities.
-        /// </summary>
-        internal static void RegisterModule(IResourceModule module, ModuleTier tier)
-        {
-            if (module == null)
-            {
-                ParsekLog.Warn("RecalcEngine", "RegisterModule called with null module, skipping");
-                return;
-            }
-
-            switch (tier)
-            {
-                case ModuleTier.FirstTier:
-                    if (firstTierModules.Contains(module))
-                    {
-                        ParsekLog.Verbose("RecalcEngine",
-                            $"First-tier module already registered: {module.GetType().Name}, skipping");
-                        return;
-                    }
-                    firstTierModules.Add(module);
-                    ParsekLog.Verbose("RecalcEngine",
-                        $"Registered first-tier module: {module.GetType().Name}, total={firstTierModules.Count}");
-                    break;
-
-                case ModuleTier.SecondTier:
-                    if (secondTierModules.Contains(module))
-                    {
-                        ParsekLog.Verbose("RecalcEngine",
-                            $"Second-tier module already registered: {module.GetType().Name}, skipping");
-                        return;
-                    }
-                    secondTierModules.Add(module);
-                    ParsekLog.Verbose("RecalcEngine",
-                        $"Registered second-tier module: {module.GetType().Name}, total={secondTierModules.Count}");
-                    break;
-
-                case ModuleTier.Strategy:
-                    if (strategyTransform == module)
-                    {
-                        ParsekLog.Verbose("RecalcEngine",
-                            $"Strategy transform module already registered: {module.GetType().Name}, skipping");
-                        return;
-                    }
-                    strategyTransform = module;
-                    ParsekLog.Verbose("RecalcEngine",
-                        $"Registered strategy transform module: {module.GetType().Name}");
-                    break;
-
-                case ModuleTier.Facilities:
-                    if (facilitiesModule == module)
-                    {
-                        ParsekLog.Verbose("RecalcEngine",
-                            $"Facilities module already registered: {module.GetType().Name}, skipping");
-                        return;
-                    }
-                    facilitiesModule = module;
-                    ParsekLog.Verbose("RecalcEngine",
-                        $"Registered facilities module: {module.GetType().Name}");
-                    break;
-
-                default:
-                    ParsekLog.Warn("RecalcEngine", $"Unknown tier '{tier}' for module {module.GetType().Name}");
-                    break;
-            }
-        }
-
-        /// <summary>
-        /// Clears all registered modules. Used for test isolation.
-        /// </summary>
-        internal static void ClearModules()
-        {
-            int total = firstTierModules.Count + secondTierModules.Count
-                + (strategyTransform != null ? 1 : 0)
-                + (facilitiesModule != null ? 1 : 0);
-
-            firstTierModules.Clear();
-            secondTierModules.Clear();
-            strategyTransform = null;
-            facilitiesModule = null;
-
-            ParsekLog.Verbose("RecalcEngine", $"ClearModules: removed={total}");
-        }
-
         // ================================================================
         // Core recalculation
         // ================================================================
 
         /// <summary>
-        /// Runs the full recalculation walk from UT=0 forward:
+        /// Runs the full recalculation walk of <paramref name="modules"/> from UT=0 forward:
         ///   1. Sort actions by (UT ascending, earnings before spendings, sequence)
         ///   2. Reset all modules
         ///   3. Walk sorted actions, dispatching each to all tiers
         ///   4. Log summary
         /// </summary>
+        /// <param name="modules">The modules to walk (production passes
+        /// <c>LedgerOrchestrator.Modules</c>); null walks none.</param>
         /// <param name="actions">All game actions to consider. The list is not mutated.</param>
         /// <param name="utCutoff">
         /// Optional UT cutoff. When non-null, only actions with <c>UT &lt;= utCutoff</c> are
@@ -148,8 +49,11 @@ namespace Parsek
         /// action's UT) is the deadline clock, as before.
         /// </param>
         internal static void Recalculate(
+            RecalculationModuleSet modules,
             List<GameAction> actions, double? utCutoff = null, double? deadlineClockUT = null)
         {
+            if (modules == null)
+                modules = new RecalculationModuleSet();
             if (actions == null)
             {
                 ParsekLog.Warn("RecalcEngine", "Recalculate called with null actions list");
@@ -197,16 +101,17 @@ namespace Parsek
                 // registered live modules. Projection uses the latest explicit action UT or
                 // contract deadline so deadline-only future penalties are synthesized too.
                 projectedTimeline = RunProjectionWalk(
+                    modules,
                     CopyNonNullActions(actions),
                     ComputeProjectionHorizon(actions)).Sorted;
                 if (needsFloorPlans)
-                    floorPlans = BuildReservedFloorPlans(projectedTimeline, LedgerRowSet(actions), logPlans: true);
+                    floorPlans = BuildReservedFloorPlans(modules, projectedTimeline, LedgerRowSet(actions), logPlans: true);
             }
 
-            WalkResult walk = RunWalk(effective, utCutoff, deadlineClockUT, floorPlans);
+            WalkResult walk = RunWalk(modules, effective, utCutoff, deadlineClockUT, floorPlans);
 
             if (utCutoff.HasValue)
-                ApplyProjectedAvailability(projectedTimeline, utCutoff.Value, LedgerRowSet(actions));
+                ApplyProjectedAvailability(modules, projectedTimeline, utCutoff.Value, LedgerRowSet(actions));
 
             // 4. Log summary
             string cutoffLabel = utCutoff.HasValue
@@ -220,19 +125,19 @@ namespace Parsek
                 cutoffLabel,
                 filteredOut,
                 walk.Sorted.Count,
-                firstTierModules.Count,
+                modules.FirstTier.Count,
                 walk.FirstTierDispatches,
                 walk.StrategyDispatches,
-                secondTierModules.Count,
+                modules.SecondTier.Count,
                 walk.SecondTierDispatches,
                 walk.FacilitiesDispatches);
             string message =
                 $"Recalculate complete: actionsTotal={actions.Count}, " +
                 $"actionsAfterCutoff={effective.Count}, cutoffUT={cutoffLabel}, " +
                 $"filteredOut={filteredOut}, walkedSorted={walk.Sorted.Count}, " +
-                $"firstTier={firstTierModules.Count} modules ({walk.FirstTierDispatches} dispatches), " +
+                $"firstTier={modules.FirstTier.Count} modules ({walk.FirstTierDispatches} dispatches), " +
                 $"strategy={walk.StrategyDispatches} dispatches, " +
-                $"secondTier={secondTierModules.Count} modules ({walk.SecondTierDispatches} dispatches), " +
+                $"secondTier={modules.SecondTier.Count} modules ({walk.SecondTierDispatches} dispatches), " +
                 $"facilities={walk.FacilitiesDispatches} dispatches";
             if (utCutoff.HasValue)
             {
@@ -251,18 +156,20 @@ namespace Parsek
         /// A read-only availability probe: the same cutoff walk <see cref="Recalculate"/>
         /// runs (the full-timeline projection, then the walk of the rows up to
         /// <paramref name="utCutoff"/>, then the projected availability), but over CLONES of
-        /// the registered modules, so no registered module changes (the kerbals module's
-        /// reservations above all: a cutoff walk of the live module drops every hold a
+        /// the modules of <paramref name="modules"/>, so none of them changes (the kerbals
+        /// module's reservations above all: a cutoff walk of the live module drops every hold a
         /// future committed flight owns until the next full recalculation). The action-derived
         /// fields the walk rewrites are restored afterwards, and the probe logs nothing.
-        /// Returns the probe's clone of type <typeparamref name="T"/>, or null when none is
-        /// registered or it cannot be cloned. The affordability gates and the R&amp;D
+        /// Returns the probe's clone of type <typeparamref name="T"/>, or null when the set
+        /// holds none or it cannot be cloned. The affordability gates and the R&amp;D
         /// Research mark read this.
         /// </summary>
-        internal static T ProbeModuleAtCutoff<T>(List<GameAction> actions, double utCutoff)
+        internal static T ProbeModuleAtCutoff<T>(
+            RecalculationModuleSet modules, List<GameAction> actions, double utCutoff)
             where T : class, IResourceModule
         {
             if (actions == null) return null;
+            if (modules == null) modules = new RecalculationModuleSet();
             var all = CopyNonNullActions(actions);
             var effective = new List<GameAction>(all.Count);
             for (int i = 0; i < all.Count; i++)
@@ -275,18 +182,18 @@ namespace Parsek
                 using (ParsekLog.SuppressScope())
                 {
                     List<GameAction> projected = RunProjectionWalk(
-                        CopyNonNullActions(all), ComputeProjectionHorizon(all)).Sorted;
+                        modules, CopyNonNullActions(all), ComputeProjectionHorizon(all)).Sorted;
                     HashSet<GameAction> ledgerRows = LedgerRowSet(all);
                     // The same planned walk as Recalculate (plan section 2.3).
                     List<ReservedFloorPlan> floorPlans =
                         ReservedFloorPlan.HasCostCapturedAheadOfALaterLoss(all)
-                            ? BuildReservedFloorPlans(projected, ledgerRows, logPlans: false)
+                            ? BuildReservedFloorPlans(modules, projected, ledgerRows, logPlans: false)
                             : null;
 
-                    var first = CreateProjectionModules(firstTierModules);
-                    var strategy = CreateProjectionModule(strategyTransform);
-                    var second = CreateProjectionModules(secondTierModules);
-                    var facilities = CreateProjectionModule(facilitiesModule);
+                    var first = CreateProjectionModules(modules.FirstTier);
+                    var strategy = CreateProjectionModule(modules.Strategy);
+                    var second = CreateProjectionModules(modules.SecondTier);
+                    var facilities = CreateProjectionModule(modules.Facilities);
                     RunWalk(effective, utCutoff, first, strategy, second, facilities,
                         plans: floorPlans);
 
@@ -354,10 +261,12 @@ namespace Parsek
         /// committed cost row after now, whatever its capture order. Logs nothing; derived
         /// fields are restored.
         /// </summary>
-        internal static ClickReservationProbe ProbeClickReservationAtCutoff(List<GameAction> actions, double utCutoff)
+        internal static ClickReservationProbe ProbeClickReservationAtCutoff(
+            RecalculationModuleSet modules, List<GameAction> actions, double utCutoff)
         {
             var result = new ClickReservationProbe();
             if (actions == null) return result;
+            if (modules == null) modules = new RecalculationModuleSet();
             var all = CopyNonNullActions(actions);
             var effective = new List<GameAction>(all.Count);
             for (int i = 0; i < all.Count; i++)
@@ -370,25 +279,25 @@ namespace Parsek
                 using (ParsekLog.SuppressScope())
                 {
                     List<GameAction> projected = RunProjectionWalk(
-                        CopyNonNullActions(all), ComputeProjectionHorizon(all)).Sorted;
+                        modules, CopyNonNullActions(all), ComputeProjectionHorizon(all)).Sorted;
                     HashSet<GameAction> ledgerRows = LedgerRowSet(all);
 
                     var floorModules = new List<IReservedFloorModule>();
-                    CollectFloorModules(firstTierModules, floorModules);
-                    if (strategyTransform is IReservedFloorModule s) floorModules.Add(s);
-                    CollectFloorModules(secondTierModules, floorModules);
-                    if (facilitiesModule is IReservedFloorModule f) floorModules.Add(f);
+                    CollectFloorModules(modules.FirstTier, floorModules);
+                    if (modules.Strategy is IReservedFloorModule s) floorModules.Add(s);
+                    CollectFloorModules(modules.SecondTier, floorModules);
+                    if (modules.Facilities is IReservedFloorModule f) floorModules.Add(f);
                     for (int m = 0; m < floorModules.Count; m++)
                         result.Pools.Add(MeasureClickPoolAhead(floorModules[m], projected, ledgerRows, utCutoff));
 
                     List<ReservedFloorPlan> floorPlans =
                         ReservedFloorPlan.HasCostCapturedAheadOfALaterLoss(all)
-                            ? BuildReservedFloorPlans(projected, ledgerRows, logPlans: false)
+                            ? BuildReservedFloorPlans(modules, projected, ledgerRows, logPlans: false)
                             : null;
-                    var first = CreateProjectionModules(firstTierModules);
-                    var strategy = CreateProjectionModule(strategyTransform);
-                    var second = CreateProjectionModules(secondTierModules);
-                    var facilities = CreateProjectionModule(facilitiesModule);
+                    var first = CreateProjectionModules(modules.FirstTier);
+                    var strategy = CreateProjectionModule(modules.Strategy);
+                    var second = CreateProjectionModules(modules.SecondTier);
+                    var facilities = CreateProjectionModule(modules.Facilities);
                     RunWalk(effective, utCutoff, first, strategy, second, facilities, plans: floorPlans);
 
                     ApplyProjectedAvailability(first, projected, utCutoff, ledgerRows);
@@ -473,20 +382,21 @@ namespace Parsek
 
         /// <summary>
         /// A full walk of <paramref name="actions"/> (no cutoff, as the live recalculation
-        /// walks) over CLONES of the registered modules, sampling the running funds,
+        /// walks) over CLONES of the modules of <paramref name="modules"/>, sampling the running funds,
         /// science and reputation after every dispatched action, and reading back each
         /// input row's Affordable / Effective flags and whether the walk counted it
-        /// (<see cref="IsolatedBalanceWalk.NotCountedByActionId"/>). Nothing registered changes, no state
+        /// (<see cref="IsolatedBalanceWalk.NotCountedByActionId"/>). No module of the set changes, no state
         /// is patched, the action-derived fields the walk rewrites are restored, and the
         /// walk logs nothing. The Re-Fly merge dominance check (design section 2.12 Rule 5)
         /// compares two of these, so it passes the same <paramref name="deadlineClockUT"/> to
         /// both: contract deadlines are judged at that instant, not at each list's last action.
         /// </summary>
         internal static IsolatedBalanceWalk WalkBalancesOnClones(
-            List<GameAction> actions, double? deadlineClockUT = null)
+            RecalculationModuleSet modules, List<GameAction> actions, double? deadlineClockUT = null)
         {
             var result = new IsolatedBalanceWalk();
             if (actions == null) return result;
+            if (modules == null) modules = new RecalculationModuleSet();
             var all = CopyNonNullActions(actions);
             var saved = SnapshotDerivedFields(all);
             try
@@ -498,14 +408,14 @@ namespace Parsek
                     if (ReservedFloorPlan.HasCostCapturedAheadOfALaterLoss(all))
                     {
                         List<GameAction> projected = RunProjectionWalk(
-                            CopyNonNullActions(all), ComputeProjectionHorizon(all)).Sorted;
-                        floorPlans = BuildReservedFloorPlans(projected, LedgerRowSet(all), logPlans: false);
+                            modules, CopyNonNullActions(all), ComputeProjectionHorizon(all)).Sorted;
+                        floorPlans = BuildReservedFloorPlans(modules, projected, LedgerRowSet(all), logPlans: false);
                     }
 
-                    var first = CreateProjectionModules(firstTierModules);
-                    var strategy = CreateProjectionModule(strategyTransform);
-                    var second = CreateProjectionModules(secondTierModules);
-                    var facilities = CreateProjectionModule(facilitiesModule);
+                    var first = CreateProjectionModules(modules.FirstTier);
+                    var strategy = CreateProjectionModule(modules.Strategy);
+                    var second = CreateProjectionModules(modules.SecondTier);
+                    var facilities = CreateProjectionModule(modules.Facilities);
                     var funds = FindModule<FundsModule>(second) ?? FindModule<FundsModule>(first);
                     var science = FindModule<ScienceModule>(first) ?? FindModule<ScienceModule>(second);
                     var reputation = FindModule<ReputationModule>(second) ?? FindModule<ReputationModule>(first);
@@ -933,16 +843,17 @@ namespace Parsek
         }
 
         private static WalkResult RunWalk(
+            RecalculationModuleSet modules,
             List<GameAction> actions, double? walkNowUT, double? deadlineClockUT,
             List<ReservedFloorPlan> plans)
         {
             return RunWalk(
                 actions,
                 walkNowUT,
-                firstTierModules,
-                strategyTransform,
-                secondTierModules,
-                facilitiesModule,
+                modules.FirstTier,
+                modules.Strategy,
+                modules.SecondTier,
+                modules.Facilities,
                 deadlineClockUT,
                 plans: plans);
         }
@@ -954,16 +865,17 @@ namespace Parsek
         /// An injected row (not in <paramref name="ledgerRows"/>) is told apart by membership.
         /// </summary>
         private static List<ReservedFloorPlan> BuildReservedFloorPlans(
+            RecalculationModuleSet modules,
             List<GameAction> projectedSorted, HashSet<GameAction> ledgerRows, bool logPlans)
         {
             var plans = new List<ReservedFloorPlan>();
             if (projectedSorted == null)
                 return plans;
             var floorModules = new List<IReservedFloorModule>();
-            CollectFloorModules(firstTierModules, floorModules);
-            if (strategyTransform is IReservedFloorModule s) floorModules.Add(s);
-            CollectFloorModules(secondTierModules, floorModules);
-            if (facilitiesModule is IReservedFloorModule f) floorModules.Add(f);
+            CollectFloorModules(modules.FirstTier, floorModules);
+            if (modules.Strategy is IReservedFloorModule s) floorModules.Add(s);
+            CollectFloorModules(modules.SecondTier, floorModules);
+            if (modules.Facilities is IReservedFloorModule f) floorModules.Add(f);
 
             for (int m = 0; m < floorModules.Count; m++)
             {
@@ -1043,12 +955,13 @@ namespace Parsek
             }
         }
 
-        private static WalkResult RunProjectionWalk(List<GameAction> actions, double projectionNowUT)
+        private static WalkResult RunProjectionWalk(
+            RecalculationModuleSet modules, List<GameAction> actions, double projectionNowUT)
         {
-            var projectionFirstTier = CreateProjectionModules(firstTierModules);
-            var projectionStrategy = CreateProjectionModule(strategyTransform);
-            var projectionSecondTier = CreateProjectionModules(secondTierModules);
-            var projectionFacilities = CreateProjectionModule(facilitiesModule);
+            var projectionFirstTier = CreateProjectionModules(modules.FirstTier);
+            var projectionStrategy = CreateProjectionModule(modules.Strategy);
+            var projectionSecondTier = CreateProjectionModules(modules.SecondTier);
+            var projectionFacilities = CreateProjectionModule(modules.Facilities);
 
             using (ParsekLog.SuppressScope())
             {
@@ -1369,20 +1282,21 @@ namespace Parsek
         }
 
         private static void ApplyProjectedAvailability(
+            RecalculationModuleSet modules,
             List<GameAction> projectedTimeline, double cutoff, HashSet<GameAction> ledgerRows)
         {
             if (projectedTimeline == null)
                 return;
 
-            ApplyProjectedAvailability(firstTierModules, projectedTimeline, cutoff, ledgerRows);
+            ApplyProjectedAvailability(modules.FirstTier, projectedTimeline, cutoff, ledgerRows);
 
-            if (strategyTransform != null)
-                ApplyProjectedAvailability(strategyTransform, projectedTimeline, cutoff, ledgerRows);
+            if (modules.Strategy != null)
+                ApplyProjectedAvailability(modules.Strategy, projectedTimeline, cutoff, ledgerRows);
 
-            ApplyProjectedAvailability(secondTierModules, projectedTimeline, cutoff, ledgerRows);
+            ApplyProjectedAvailability(modules.SecondTier, projectedTimeline, cutoff, ledgerRows);
 
-            if (facilitiesModule != null)
-                ApplyProjectedAvailability(facilitiesModule, projectedTimeline, cutoff, ledgerRows);
+            if (modules.Facilities != null)
+                ApplyProjectedAvailability(modules.Facilities, projectedTimeline, cutoff, ledgerRows);
         }
 
         private static void ApplyProjectedAvailability(

@@ -7,6 +7,8 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class ScienceModuleTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private readonly ScienceModule module;
         private readonly List<string> logLines = new List<string>();
 
@@ -403,8 +405,8 @@ namespace Parsek.Tests
         public void RecalculationWalk_RetroactivePriority()
         {
             // Full recalculation walk: engine sorts and dispatches to module
-            RecalculationEngine.ClearModules();
-            RecalculationEngine.RegisterModule(module, RecalculationEngine.ModuleTier.FirstTier);
+            modules.Clear();
+            modules.Register(module, RecalculationModuleSet.ModuleTier.FirstTier);
 
             // Two recordings same subject, added in reverse chronological order
             var actions = new List<GameAction>
@@ -413,7 +415,7 @@ namespace Parsek.Tests
                 MakeEarning(700.0, "crewReport@MunSrfLandedMidlands", 10f, 15f, "rec-T0")
             };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             // After recalc: T0 (earlier) gets full credit, T1 gets remainder
             // actions[1] = T0 at UT=700, actions[0] = T1 at UT=1000
@@ -421,7 +423,7 @@ namespace Parsek.Tests
             Assert.Equal(5f, actions[0].EffectiveScience);  // T1
             Assert.Equal(15.0, module.GetRunningScience());
 
-            RecalculationEngine.ClearModules();
+            modules.Clear();
         }
 
         // ================================================================
@@ -1106,8 +1108,8 @@ namespace Parsek.Tests
         {
             // Full integration through RecalculationEngine: seed 11.04, then two
             // spendings of 5 each at the same UT. Final balance should be ~1.04.
-            RecalculationEngine.ClearModules();
-            RecalculationEngine.RegisterModule(module, RecalculationEngine.ModuleTier.FirstTier);
+            modules.Clear();
+            modules.Register(module, RecalculationModuleSet.ModuleTier.FirstTier);
 
             var actions = new List<GameAction>
             {
@@ -1121,12 +1123,12 @@ namespace Parsek.Tests
                 MakeSpending(420.54, "engineering101", 5f, 1)
             };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.Equal(1.04, module.GetRunningScience(), 2);
             Assert.Equal(10.0, module.GetTotalCommittedSpendings());
 
-            RecalculationEngine.ClearModules();
+            modules.Clear();
         }
 
         // ================================================================

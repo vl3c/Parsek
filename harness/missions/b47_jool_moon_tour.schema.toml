@@ -1,0 +1,16 @@
+# Declared param schema for mission b47_jool_moon_tour, the Jool multi-moon tour
+# (todo NEXT-TESTS-TO-BUILD-2026-11-11 item 1).
+#
+# ONE key: `legs`, a list of full B5 param tables in flight order, written in the
+# spec as `[[driver.missionParams.legs]]`. hlib validates only the top level of a
+# missionParams block (a declared `list` is type-checked, not walked), so each
+# leg's keys are checked where they are read: `mlib.mtour_params_from_dict` runs
+# every leg through `b5_params_from_dict` (the same load-time implications b25 and
+# b26 get) and then the tour's own rules (two or more legs, each a parked orbit
+# capture from an orbit start, distinct targets, nested park / entry bands). The
+# spec's own load test (`test_b47_jool_moon_tour`) runs that parse over the
+# committed spec, so a typo in a leg reds the committed suite, not the flight.
+
+[params.legs]
+required = true
+type = "list"

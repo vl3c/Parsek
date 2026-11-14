@@ -20,6 +20,8 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class ReservedFloorTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private readonly List<string> logLines = new List<string>();
         private readonly List<GameAction> ledger = new List<GameAction>();
         private readonly FundsModule funds = new FundsModule();
@@ -38,16 +40,14 @@ namespace Parsek.Tests
             Ledger.ResetForTesting();
             GameStateStore.ResetForTesting();
             CaptureSequence.ResetForTesting();
-            RecalculationEngine.ClearModules();
-            RecalculationEngine.RegisterModule(science, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(contracts, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(reputation, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(science, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(contracts, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(funds, RecalculationModuleSet.ModuleTier.SecondTier);
+            modules.Register(reputation, RecalculationModuleSet.ModuleTier.SecondTier);
         }
 
         public void Dispose()
         {
-            RecalculationEngine.ClearModules();
             KspStatePatcher.AllowNegativeCurrencyProviderForTesting = null;
             StockPoolReference.ResetForTesting();
             Ledger.ResetForTesting();
@@ -133,7 +133,7 @@ namespace Parsek.Tests
 
         private double PatchFunds(double now, double live)
         {
-            RecalculationEngine.Recalculate(new List<GameAction>(ledger), now);
+            RecalculationEngine.Recalculate(modules, new List<GameAction>(ledger), now);
             var state = StockPoolReference.Funds;
             List<StockPoolRow> rows = StockPoolReference.BuildRows(StockPool.Funds, ledger, funds.GetRowEffects());
             double min = funds.GetProjectionMinBalance();
@@ -151,7 +151,7 @@ namespace Parsek.Tests
 
         private double PatchReputation(double now, double live)
         {
-            RecalculationEngine.Recalculate(new List<GameAction>(ledger), now);
+            RecalculationEngine.Recalculate(modules, new List<GameAction>(ledger), now);
             var state = StockPoolReference.Reputation;
             List<StockPoolRow> rows = StockPoolReference.BuildRows(
                 StockPool.Reputation, ledger, reputation.GetRowEffects());
@@ -352,7 +352,7 @@ namespace Parsek.Tests
             Assert.DoesNotContain(logLines, l => l.Contains("Reserved floor plans built"));
 
             // The production shape too: a full walk with no future rows.
-            RecalculationEngine.Recalculate(new List<GameAction>(ledger));
+            RecalculationEngine.Recalculate(modules, new List<GameAction>(ledger));
             Assert.Equal(100.0, funds.GetRunningBalance(), 6);
             Assert.Equal(100.0, funds.GetAvailableFunds(), 6);
             Assert.Equal(2000.0, funds.GetForgivenBelowZero(), 6);
@@ -470,14 +470,14 @@ namespace Parsek.Tests
             {
                 FundsSeed(120000), Upgrade("up", 500, 100000f, 2), Fail("f", 200, 50000f, 3),
             };
-            RecalculationEngine.Recalculate(actions, 250);
+            RecalculationEngine.Recalculate(modules, actions, 250);
             Assert.Equal(100000.0, funds.GetRunningBalance(), 6);
             Assert.Equal(30000.0, funds.GetOutstandingDebt(), 6);
             Assert.Equal(0.0, funds.GetAvailableFunds(), 6);
 
             // Past the upgrade (no cutoff, the production shape once nothing lies ahead).
             actions.Add(Earn("e", 600, 10000f, 4));
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.Equal(0.0, funds.GetRunningBalance(), 6);
             Assert.Equal(20000.0, funds.GetOutstandingDebt(), 6);
             Assert.Equal(0.0, funds.GetAvailableFunds(), 6);
@@ -492,8 +492,8 @@ namespace Parsek.Tests
             {
                 FundsSeed(1000), Fail("f", 10, 3000f, 2), Earn("e", 20, 500f, 3), Spend("s", 30, 400f, 4),
             };
-            RecalculationEngine.Recalculate(actions, 5);
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions, 5);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.Equal(100.0, funds.GetRunningBalance(), 6);
             Assert.Equal(0.0, funds.GetOutstandingDebt(), 6);
             Assert.False(AnySettle());
@@ -511,7 +511,7 @@ namespace Parsek.Tests
             {
                 FundsSeed(50000), Upgrade("up", 500, 100000f, 2), Fail("f", 200, 10000f, 3),
             };
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             // The fail stops at the floor (100k needed, 40k left: 10k held back); the upgrade
             // is paid in full.
             Assert.Equal(-50000.0, funds.GetRunningBalance(), 6);
@@ -521,11 +521,11 @@ namespace Parsek.Tests
 
             // Gains first fill the overcommitted shortfall, then repay the debt above 0.
             actions.Add(Earn("e1", 600, 55000f, 4));
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.Equal(0.0, funds.GetRunningBalance(), 6);
             Assert.Equal(5000.0, funds.GetOutstandingDebt(), 6);
             actions.Add(Earn("e2", 700, 6000f, 5));
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.Equal(1000.0, funds.GetRunningBalance(), 6);
             Assert.Equal(0.0, funds.GetOutstandingDebt(), 6);
         }
@@ -540,7 +540,7 @@ namespace Parsek.Tests
                 FundsSeed(120000), Earn("e", 400, 20000f, 2), Upgrade("up", 500, 100000f, 3),
                 Fail("f", 200, 50000f, 4),
             };
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             // need at the fail = 80k: 70k -> 80k, debt 10k; the committed earning cannot repay
             // it (the upgrade still needs all 100k), so the upgrade is paid and the debt stays.
             Assert.Equal(0.0, funds.GetRunningBalance(), 6);
@@ -560,25 +560,25 @@ namespace Parsek.Tests
                 Fail("f", 200, 50000f, 4), Death("d", 210, 30f, 5), Earn("e", 300, 10000f, 6),
             };
 
-            RecalculationEngine.Recalculate(actions, 310);
+            RecalculationEngine.Recalculate(modules, actions, 310);
             double running = funds.GetRunningBalance();
             double available = funds.GetAvailableFunds();
             double debt = funds.GetOutstandingDebt();
             double rep = reputation.GetRunningRep();
 
-            var probe = RecalculationEngine.ProbeModuleAtCutoff<FundsModule>(actions, 310);
+            var probe = RecalculationEngine.ProbeModuleAtCutoff<FundsModule>(modules, actions, 310);
             Assert.Equal(running, probe.GetRunningBalance(), 6);
             Assert.Equal(available, probe.GetAvailableFunds(), 6);
             Assert.Equal(debt, probe.GetOutstandingDebt(), 6);
-            var repProbe = RecalculationEngine.ProbeModuleAtCutoff<ReputationModule>(actions, 310);
+            var repProbe = RecalculationEngine.ProbeModuleAtCutoff<ReputationModule>(modules, actions, 310);
             Assert.Equal(rep, repProbe.GetRunningRep(), 4);
             Assert.Equal(100000.0, running, 6);
             Assert.Equal(20000.0, debt, 6);
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             double fullFunds = funds.GetRunningBalance();
             double fullRep = reputation.GetRunningRep();
-            var balances = RecalculationEngine.WalkBalancesOnClones(actions);
+            var balances = RecalculationEngine.WalkBalancesOnClones(modules, actions);
             var last = balances.Samples[balances.Samples.Count - 1];
             Assert.Equal(fullFunds, last.Funds, 6);
             Assert.Equal(fullRep, last.Reputation, 4);
@@ -631,12 +631,12 @@ namespace Parsek.Tests
             {
                 RepSeed(10), Death("d", 10, 30f, 2), RepGain("g", 20, 50f, 3), Strategy("st", 30, 20f, 4),
             };
-            RecalculationEngine.Recalculate(sequenced);
+            RecalculationEngine.Recalculate(modules, sequenced);
             float withSequences = reputation.GetRunningRep();
             Assert.Equal(0.0, reputation.GetOutstandingDebt(), 6);
 
             foreach (var a in sequenced) a.CaptureSequence = 0;
-            RecalculationEngine.Recalculate(sequenced);
+            RecalculationEngine.Recalculate(modules, sequenced);
             Assert.Equal(reputation.GetRunningRep(), withSequences);
             Assert.False(AnySettle());
         }
@@ -648,14 +648,14 @@ namespace Parsek.Tests
             {
                 RepSeed(50), Strategy("st", 30, 20f, 2), Death("d", 10, 40f, 3), RepGain("g", 40, 50f, 4),
             };
-            RecalculationEngine.Recalculate(actions, 15);
+            RecalculationEngine.Recalculate(modules, actions, 15);
             // need at the death: the strategy's ~20 with nothing in between -> 50 - 40 is held at
             // ~20 and the ~10 below it is a debt.
             Assert.InRange(reputation.GetRunningRep(), 19.0, 21.5);
             Assert.InRange(reputation.GetOutstandingDebt(), 9.0, 11.0);
             Assert.True(AnySettle());
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             // The strategy is paid (rep ~0), then the gain repays the debt before rep rises.
             Assert.Equal(0.0, reputation.GetOutstandingDebt(), 3);
             Assert.InRange(reputation.GetRunningRep(), 37.0, 42.0);
@@ -689,7 +689,7 @@ namespace Parsek.Tests
                     }
                 }
 
-                RecalculationEngine.Recalculate(rows);
+                RecalculationEngine.Recalculate(modules, rows);
                 double f = funds.GetRunningBalance(), fa = funds.GetAvailableFunds();
                 float r = reputation.GetRunningRep();
                 var effects = funds.GetRowEffects().ToDictionary(kv => kv.Key, kv => kv.Value);
@@ -697,7 +697,7 @@ namespace Parsek.Tests
                 Assert.Equal(0.0, reputation.GetOutstandingDebt(), 9);
 
                 foreach (var a in rows) a.CaptureSequence = 0;
-                RecalculationEngine.Recalculate(rows);
+                RecalculationEngine.Recalculate(modules, rows);
                 Assert.Equal(f, funds.GetRunningBalance(), 9);
                 Assert.Equal(fa, funds.GetAvailableFunds(), 9);
                 Assert.Equal(r, reputation.GetRunningRep());
@@ -739,7 +739,7 @@ namespace Parsek.Tests
             };
             Ledger.AddActions(rows, LedgerRowWriter.StockApplied);
 
-            RecalculationEngine.Recalculate(Ledger.Actions.ToList());
+            RecalculationEngine.Recalculate(modules, Ledger.Actions.ToList());
             Assert.Equal(45000.0, funds.GetRunningBalance(), 6);
             Assert.All(rows, r => Assert.True(r.CaptureSequence < 0, "an unsequenced event's row stays unsequenced"));
             Assert.Equal(0.0, funds.GetOutstandingDebt(), 6);
@@ -798,7 +798,7 @@ namespace Parsek.Tests
             {
                 RepSeed(60), Strategy("st", 300, 50f, 2), RepExchange("x", 150, 40f, 3, source),
             };
-            RecalculationEngine.Recalculate(actions, 200);
+            RecalculationEngine.Recalculate(modules, actions, 200);
             Assert.InRange(reputation.GetRunningRep(), 19.0, 21.0);
             Assert.Equal(0.0, reputation.GetOutstandingDebt(), 6);
             Assert.False(AnySettle());
@@ -820,7 +820,7 @@ namespace Parsek.Tests
                 RepSeed(60), RepExchange("x", 300, 30f, 2, ReputationPenaltySource.Strategy),
                 Death("d", 100, 50f, 3),
             };
-            RecalculationEngine.Recalculate(actions, 200);
+            RecalculationEngine.Recalculate(modules, actions, 200);
             Assert.InRange(reputation.GetRunningRep(), 29.0, 31.0);
             Assert.InRange(reputation.GetOutstandingDebt(), 19.0, 21.0);
             Assert.True(AnySettle());

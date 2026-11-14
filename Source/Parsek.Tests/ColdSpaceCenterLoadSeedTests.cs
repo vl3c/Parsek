@@ -25,7 +25,6 @@ namespace Parsek.Tests
 
         public ColdSpaceCenterLoadSeedTests()
         {
-            RecalculationEngine.ClearModules();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
@@ -45,7 +44,6 @@ namespace Parsek.Tests
         public void Dispose()
         {
             LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(null, null, null);
-            RecalculationEngine.ClearModules();
             CurrencyScenarioReadiness.ResetForTesting();
             GameStateRecorder.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();

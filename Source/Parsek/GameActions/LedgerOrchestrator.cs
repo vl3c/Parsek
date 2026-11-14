@@ -28,6 +28,10 @@ namespace Parsek
         private static FacilitiesModule facilitiesModule;
         private static StrategiesModule strategiesModule;
         private static KerbalsModule kerbalsModule;
+        // The set every production walk and probe passes to RecalculationEngine: the eight
+        // modules above, registered by Initialize in tier order. Replaced, never shared, on
+        // a reset.
+        private static RecalculationModuleSet moduleSet = new RecalculationModuleSet();
         private static bool initialized;
         private static bool fundsSeedDone;
         private static bool scienceSeedDone;
@@ -94,25 +98,25 @@ namespace Parsek
             facilitiesModule = new FacilitiesModule();
             strategiesModule = new StrategiesModule();
 
-            RecalculationEngine.ClearModules();
+            ReplaceModuleSet();
 
             kerbalsModule = new KerbalsModule();
 
             // Register in tier order per design doc 1.8
-            RecalculationEngine.RegisterModule(milestonesModule, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(contractsModule, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(scienceModule, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(kerbalsModule, RecalculationEngine.ModuleTier.FirstTier);
+            moduleSet.Register(milestonesModule, RecalculationModuleSet.ModuleTier.FirstTier);
+            moduleSet.Register(contractsModule, RecalculationModuleSet.ModuleTier.FirstTier);
+            moduleSet.Register(scienceModule, RecalculationModuleSet.ModuleTier.FirstTier);
+            moduleSet.Register(kerbalsModule, RecalculationModuleSet.ModuleTier.FirstTier);
 
             // Strategy transform between tiers
-            RecalculationEngine.RegisterModule(strategiesModule, RecalculationEngine.ModuleTier.Strategy);
+            moduleSet.Register(strategiesModule, RecalculationModuleSet.ModuleTier.Strategy);
 
             // Second tier
-            RecalculationEngine.RegisterModule(fundsModule, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(reputationModule, RecalculationEngine.ModuleTier.SecondTier);
+            moduleSet.Register(fundsModule, RecalculationModuleSet.ModuleTier.SecondTier);
+            moduleSet.Register(reputationModule, RecalculationModuleSet.ModuleTier.SecondTier);
 
             // Facilities parallel
-            RecalculationEngine.RegisterModule(facilitiesModule, RecalculationEngine.ModuleTier.Facilities);
+            moduleSet.Register(facilitiesModule, RecalculationModuleSet.ModuleTier.Facilities);
 
             initialized = true;
             ParsekLog.Info(Tag, "Initialized: 8 modules registered");
@@ -397,7 +401,7 @@ namespace Parsek
             facilitiesModule = null;
             strategiesModule = null;
             kerbalsModule = null;
-            RecalculationEngine.ClearModules();
+            ReplaceModuleSet();
             fundsSeedDone = false;
             scienceSeedDone = false;
             repSeedDone = false;
@@ -437,7 +441,7 @@ namespace Parsek
             facilitiesModule = null;
             strategiesModule = null;
             kerbalsModule = null;
-            RecalculationEngine.ClearModules();
+            ReplaceModuleSet();
             Ledger.ResetForTesting();
             LedgerHeldWindow.ResetForTesting();
             OnTimelineDataChanged = null;
@@ -540,6 +544,26 @@ namespace Parsek
         internal static StrategiesModule Strategies => strategiesModule;
         internal static KerbalsModule Kerbals => kerbalsModule;
         internal static void SetKerbalsForTesting(KerbalsModule module) { kerbalsModule = module; }
+
+        /// <summary>
+        /// The module set production walks: <see cref="Initialize"/> registers the eight
+        /// modules in tier order; empty before it runs and after a reset. The read-only probes
+        /// and clone walks outside this class (click reservation, Re-Fly seal credit, merge
+        /// dominance) pass it too.
+        /// </summary>
+        internal static RecalculationModuleSet Modules => moduleSet;
+
+        /// <summary>
+        /// Drops the module set for a fresh empty one (a reset never mutates the set a caller
+        /// may still hold) and logs what it removed.
+        /// </summary>
+        private static void ReplaceModuleSet()
+        {
+            int removed = RecalculationModuleSet.CountOf(moduleSet);
+            moduleSet = new RecalculationModuleSet();
+            RecalculationModuleSet.LogCleared(removed);
+        }
+
         internal static bool IsInitialized => initialized;
 
         // ================================================================

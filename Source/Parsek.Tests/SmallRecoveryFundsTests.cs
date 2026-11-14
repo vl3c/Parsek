@@ -22,6 +22,8 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class SmallRecoveryFundsTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private const uint RecoveredPid = 424242;
         private readonly List<string> logLines = new List<string>();
 
@@ -47,7 +49,6 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
-            RecalculationEngine.ClearModules();
             StockPoolReference.ResetForTesting();
             GameStateRecorder.ResetForTesting();
             RecordingStore.ResetForTesting();
@@ -190,10 +191,10 @@ namespace Parsek.Tests
         /// One funds patch through the pure core, as <c>KspStatePatcher.PatchFunds</c> runs it:
         /// walk at <paramref name="now"/>, measure against the reference, write the target.
         /// </summary>
-        private static double PatchFunds(
+        private double PatchFunds(
             FundsModule funds, List<GameAction> els, double now, double live, bool authoritative)
         {
-            RecalculationEngine.Recalculate(els, now);
+            RecalculationEngine.Recalculate(modules, els, now);
             var state = StockPoolReference.Funds;
             List<StockPoolRow> rows = StockPoolReference.BuildRows(StockPool.Funds, els, funds.GetRowEffects());
             double min = funds.GetProjectionMinBalance();
@@ -410,9 +411,9 @@ namespace Parsek.Tests
                 hasMergeJournal: false, tombstonePath: false, rewindResourceAdjustmentInProgress: false));
 
             // The reference already patched the pool at the seed, before the recovery.
-            RecalculationEngine.ClearModules();
+            modules.Clear();
             var funds = new FundsModule();
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(funds, RecalculationModuleSet.ModuleTier.SecondTier);
             var seed = new GameAction
             {
                 ActionId = "seedF", UT = 0, Type = GameActionType.FundsInitial, InitialFunds = 1000f,
@@ -421,8 +422,8 @@ namespace Parsek.Tests
 
             // Inside the attempt: 60-funds debris recovered, stock pays 1000 -> 1060.
             RecoverAtKsc("Reusable", VesselType.Debris, 2000.0, 1000.0, 60.0);
-            RecalculationEngine.ClearModules();
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Clear();
+            modules.Register(funds, RecalculationModuleSet.ModuleTier.SecondTier);
 
             var els = new List<GameAction> { seed };
             els.AddRange(EffectiveState.ComputeELS());

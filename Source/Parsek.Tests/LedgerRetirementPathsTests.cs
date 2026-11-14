@@ -31,7 +31,7 @@ namespace Parsek.Tests
             Ledger.ResetForTesting();
             MissionStore.ResetForTesting();
             GroupHierarchyStore.ResetForTesting();
-            RecalculationEngine.ClearModules();
+            LedgerOrchestrator.Modules.Clear();
             ParsekScenario.ResetInstanceForTesting();
             EffectiveState.ResetCachesForTesting();
             ParsekLog.ResetTestOverrides();
@@ -49,7 +49,7 @@ namespace Parsek.Tests
             Ledger.ResetForTesting();
             MissionStore.ResetForTesting();
             GroupHierarchyStore.ResetForTesting();
-            RecalculationEngine.ClearModules();
+            LedgerOrchestrator.Modules.Clear();
             ParsekScenario.ResetInstanceForTesting();
             EffectiveState.ResetCachesForTesting();
             HighLogic.LoadedScene = originalScene;

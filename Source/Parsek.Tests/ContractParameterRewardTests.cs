@@ -19,6 +19,8 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class ContractParameterRewardTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private readonly List<string> logLines = new List<string>();
 
         private const string FirstLaunch = "a5a1f217-d79b-4ef9-8122-f051ecdd1681";
@@ -39,14 +41,12 @@ namespace Parsek.Tests
             LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(true, true, true);
             KspStatePatcher.SuppressUnityCallsForTesting = true;
             ContractParameterRewardCapturePatch.ResetForTesting();
-            RecalculationEngine.ClearModules();
             EffectiveState.ResetCachesForTesting();
             ParsekScenario.ResetInstanceForTesting();
         }
 
         public void Dispose()
         {
-            RecalculationEngine.ClearModules();
             ContractParameterRewardCapturePatch.ResetForTesting();
             EffectiveState.ResetCachesForTesting();
             ParsekScenario.ResetInstanceForTesting();
@@ -437,13 +437,13 @@ namespace Parsek.Tests
             internal ReputationModule Rep = new ReputationModule();
         }
 
-        private static Walk RegisterWalk()
+        private Walk RegisterWalk()
         {
             var w = new Walk();
-            RecalculationEngine.RegisterModule(w.Contracts, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(w.Funds, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(w.Science, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(w.Rep, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(w.Contracts, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(w.Funds, RecalculationModuleSet.ModuleTier.SecondTier);
+            modules.Register(w.Science, RecalculationModuleSet.ModuleTier.SecondTier);
+            modules.Register(w.Rep, RecalculationModuleSet.ModuleTier.SecondTier);
             return w;
         }
 
@@ -469,7 +469,7 @@ namespace Parsek.Tests
             actions.Add(ParameterRow(Science, "0", 345.9, 6400f, 1f, 2f));
             actions.Add(ContractRow(Science, 345.9, 4160f, 1f, 2f));
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.Equal(25000.0 + 3200 + 2080 + 6400 + 4160, w.Funds.GetRunningBalance(), 3);
             Assert.Equal(4.0, w.Science.GetRunningScience(), 3);
@@ -491,7 +491,7 @@ namespace Parsek.Tests
             var actions = Seeds();
             actions.Add(ParameterRow(Science, "0", 10.0, 0f, 7.5f, 0f));
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.Equal(7.5, w.Science.GetRunningScience(), 3);
             Assert.True(ScienceModule.TryGetRowDelta(actions.Last(), out double delta));
@@ -516,7 +516,7 @@ namespace Parsek.Tests
             actions.Add(again);
             actions.Add(sibling);
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.True(first.Effective);
             Assert.False(again.Effective);
@@ -540,13 +540,13 @@ namespace Parsek.Tests
             });
             actions.Add(ParameterRow(FirstLaunch, "0", 4.8, 3200f, 1f, 1f));
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.Equal(1, w.Contracts.GetActiveContractCount());
             Assert.False(w.Contracts.IsContractCredited(FirstLaunch));
 
             actions.Add(ContractRow(FirstLaunch, 4.8, 2080f, 1f, 1f));
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.Equal(0, w.Contracts.GetActiveContractCount());
             Assert.True(w.Contracts.IsContractCredited(FirstLaunch));
@@ -566,7 +566,7 @@ namespace Parsek.Tests
             var late = ParameterRow(FirstLaunch, "0", 9.0, 3200f, 0f, 0f);
             actions.Add(late);
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.False(late.Effective);
             Assert.Equal(GameActionNotCountedReason.ContractAlreadyResolved, late.NotCountedReason);
@@ -596,7 +596,7 @@ namespace Parsek.Tests
             actions.Add(complete);
             actions.Add(paid);
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.True(paid.Effective);
             Assert.True(complete.Effective);
@@ -613,7 +613,7 @@ namespace Parsek.Tests
 
             // The next walk without the completion counts the parameter again.
             actions.Remove(complete);
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.True(late.Effective);
             Assert.Equal(GameActionNotCountedReason.None, late.NotCountedReason);
         }
@@ -630,7 +630,7 @@ namespace Parsek.Tests
             actions.Add(after);
             actions.Add(complete);
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.True(complete.Effective);
             Assert.False(after.Effective);
@@ -651,7 +651,7 @@ namespace Parsek.Tests
             actions.Add(complete);
             actions.Add(before);
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.True(before.Effective);
             Assert.Equal(GameActionNotCountedReason.None, before.NotCountedReason);
@@ -672,7 +672,7 @@ namespace Parsek.Tests
             actions.Add(complete);
             actions.Add(unordered);
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.True(unordered.Effective);
             Assert.Equal(25000.0 + 3200 + 2080, w.Funds.GetRunningBalance(), 3);
@@ -833,7 +833,7 @@ namespace Parsek.Tests
             actions.Add(a);
             actions.Add(b);
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.Equal(aCounts, a.Effective);
             Assert.Equal(!aCounts, b.Effective);
@@ -856,7 +856,7 @@ namespace Parsek.Tests
             var a = ParameterRow(FirstLaunch, "0", 100.0, 3200f, 1f, 1f, "rec-A");
             actions.Add(a);
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             var credited = w.Contracts.GetCreditedParameters();
 
             // Clock before X: stock's parameter stays open (the flight has not happened yet).
@@ -876,7 +876,7 @@ namespace Parsek.Tests
             // A row B for the same parameter later in the walk is not counted and moves no pool.
             var b = ParameterRow(FirstLaunch, "0", 200.0, 3200f, 1f, 1f, "rec-B");
             actions.Add(b);
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.True(a.Effective);
             Assert.False(b.Effective);
             Assert.False(FundsModule.TryGetRowDelta(b, out double bDelta));

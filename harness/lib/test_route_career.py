@@ -1,7 +1,7 @@
-"""Drift and shape gates for the five `<source>-career` route fixtures and their six lanes.
+"""Drift and shape gates for the six `<source>-career` fixtures and their route lanes.
 
 The fixtures are BUILT by `harness/tools/build_route_career.py` from committed SANDBOX
-route saves: `Mode = CAREER`, `fresh-career`'s PARAMETERS (the source's ParsekSettings
+saves (five route hosts and the far-body host duna-ike-recorded): `Mode = CAREER`, `fresh-career`'s PARAMETERS (the source's ParsekSettings
 child kept), its Funding / ResearchAndDevelopment / Reputation / facilities / strategy /
 contract scenarios, the 29 + 3 granted tech nodes H73's host carries, every facility at
 its top level, and a ledger stripped of its SANDBOX starting-value rows, its
@@ -11,7 +11,8 @@ source's, byte for byte. A hand edit to a fixture, a change to a source save, to
 
 The six lanes (H74-H79) are career copies of RVR-7, RVR-8, H40, H34, H39 and H58: each
 must fly its source's driver steps verbatim over the career fixture, so the game mode is
-the only variable moved.
+the only variable moved. duna-ike-recorded-career is not a route host and has no copy lane:
+its lane (FAR-1) is a new seam lane, listed in TIMELINE_LANES.
 
 Stdlib only; ASCII only; no em dashes.
 """
@@ -61,6 +62,8 @@ EXPECTED_LEDGER_COUNTS = {
     "gloops-airshow": None,
     "bdock-recorded": {"seed": 2, "route": 0, "award": 12, "keep": 15},
     "rover-route-recorded": {"seed": 2, "route": 4, "award": 5, "keep": 0},
+    # Measured 2026-11-14 off the committed source bytes.
+    "duna-ike-recorded": {"seed": 2, "route": 0, "award": 12, "keep": 6},
 }
 
 # career lane -> (source lane, source fixture)
@@ -87,6 +90,11 @@ POOL_GATED = ("H74-rover-relay-c-dispatch-career.toml",
 LEDGER_ORACLE = {"H74-rover-relay-c-dispatch-career.toml": "sum",
                  "H75-rover-relay-c-second-cycle-hold-career.toml": "sum",
                  "H79-route-rewind-to-launch-career.toml": "rewind-aware"}
+# Career fixtures whose lanes are new seam lanes rather than copies of a source lane.
+TIMELINE_SOURCES = ("duna-ike-recorded",)
+TIMELINE_LANES = {
+    "FAR-1-ike-rewind-to-launch-career.toml": "duna-ike-recorded",
+}
 FUNDS_CELL = ("H76-logistics-isolated-depot-route-career.toml",
               "H78-logistics-isolated-bdock-career.toml")
 
@@ -97,10 +105,22 @@ class RouteCareerFixtureDriftTests(unittest.TestCase):
     def setUpClass(cls):
         cls.b = _load_builder()
 
-    def test_the_source_set_is_the_five_route_hosts(self):
+    def test_the_source_set_is_the_five_route_hosts_plus_the_far_body_host(self):
         self.assertEqual(sorted(EXPECTED_LEDGER_COUNTS), sorted(self.b.SOURCES))
-        self.assertEqual(sorted(set(src for _, src in LANES.values())),
+        self.assertEqual(sorted(set(src for _, src in LANES.values())
+                                | set(TIMELINE_SOURCES)),
                          sorted(self.b.SOURCES))
+        self.assertEqual(sorted(TIMELINE_SOURCES), sorted(set(TIMELINE_LANES.values())))
+
+    def test_each_timeline_lane_flies_its_career_copy(self):
+        for name, source in sorted(TIMELINE_LANES.items()):
+            with self.subTest(lane=name):
+                lane = _spec(name)
+                self.assertEqual("fixtures/saves/%s-career" % source,
+                                 lane["fixture"]["saveTemplate"])
+                self.assertIn("career", lane["dimensionsCovered"]["D14"])
+                self.assertIn("NOT FIT FOR LEDGER GROUND TRUTH",
+                              _read(os.path.join(SCENARIOS, name)))
 
     def test_every_committed_fixture_is_byte_identical_to_a_fresh_build(self):
         for source in self.b.SOURCES:

@@ -459,6 +459,26 @@ namespace Parsek
             Recording rec,
             IReadOnlyList<RecordingSupersedeRelation> supersedes)
         {
+            return ResolveRewindPointSlotIndexForRecording(rp, rec, supersedes, out _);
+        }
+
+        /// <summary>
+        /// The FIRST slot of <paramref name="rp"/> that claims <paramref name="rec"/>
+        /// (its origin, the origin's supersede walk, the composite chain+supersede
+        /// tip walk, or the origin's supersede forward trail), or -1.
+        /// <paramref name="secondClaimantIndex"/> is the next slot that also claims
+        /// it, or -1: two claimants mean the slot a Re-Fly picks for this
+        /// recording is decided by slot order alone, so a second claimant is
+        /// logged (rate-limited: the recordings table resolves per draw). The
+        /// returned index is the first claimant either way.
+        /// </summary>
+        internal static int ResolveRewindPointSlotIndexForRecording(
+            RewindPoint rp,
+            Recording rec,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes,
+            out int secondClaimantIndex)
+        {
+            secondClaimantIndex = -1;
             if (rp == null || rp.ChildSlots == null || rec == null)
                 return -1;
             if (string.IsNullOrEmpty(rec.RecordingId))
@@ -471,31 +491,56 @@ namespace Parsek
             // chain-hop branches; the dict overload amortizes those scans
             // across every slot iteration.
             Dictionary<string, Recording> recById = null;
+            int first = -1;
             for (int i = 0; i < rp.ChildSlots.Count; i++)
             {
                 var slot = rp.ChildSlots[i];
                 if (slot == null) continue;
-                string origin = slot.OriginChildRecordingId;
-                if (string.Equals(origin, rec.RecordingId, StringComparison.Ordinal))
-                    return i;
-                string effective = EffectiveRecordingId(origin, effectiveSupersedes);
-                if (string.Equals(effective, rec.RecordingId, StringComparison.Ordinal))
-                    return i;
-                // Composite tip match: follows the chain-then-supersede walker so
-                // a fork can match its slot's origin even when a rewind-UT split
-                // separates the slot's origin id (HEAD) from the supersede target
-                // (TIP) via a chain hop before the supersede edge to fork.
-                if (recById == null) recById = BuildRecordingIdIndex();
-                string compositeEffective = EffectiveTipRecordingId(origin, effectiveSupersedes, recById);
-                if (!string.IsNullOrEmpty(compositeEffective)
-                    && !string.Equals(compositeEffective, effective, StringComparison.Ordinal)
-                    && string.Equals(compositeEffective, rec.RecordingId, StringComparison.Ordinal))
-                    return i;
-                if (IsInSupersedeForwardTrail(origin, rec.RecordingId, effectiveSupersedes, recById))
-                    return i;
+                if (!SlotClaimsRecording(slot.OriginChildRecordingId, rec.RecordingId,
+                        effectiveSupersedes, ref recById))
+                    continue;
+                if (first < 0)
+                {
+                    first = i;
+                    continue;
+                }
+                secondClaimantIndex = i;
+                ParsekLog.WarnRateLimited("Supersede",
+                    "slot-double-claim|" + (rp.RewindPointId ?? "") + "|" + rec.RecordingId,
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Rewind point {0}: slots {1} and {2} both claim recording {3} " +
+                        "(origins {4} / {5}); resolving to slot {1}",
+                        rp.RewindPointId ?? "<no-rp>", first, i, rec.RecordingId,
+                        rp.ChildSlots[first].OriginChildRecordingId ?? "<null>",
+                        slot.OriginChildRecordingId ?? "<null>"));
+                break;
             }
 
-            return -1;
+            return first;
+        }
+
+        private static bool SlotClaimsRecording(
+            string origin,
+            string recordingId,
+            IReadOnlyList<RecordingSupersedeRelation> effectiveSupersedes,
+            ref Dictionary<string, Recording> recById)
+        {
+            if (string.Equals(origin, recordingId, StringComparison.Ordinal))
+                return true;
+            string effective = EffectiveRecordingId(origin, effectiveSupersedes);
+            if (string.Equals(effective, recordingId, StringComparison.Ordinal))
+                return true;
+            // Composite tip match: follows the chain-then-supersede walker so
+            // a fork can match its slot's origin even when a rewind-UT split
+            // separates the slot's origin id (HEAD) from the supersede target
+            // (TIP) via a chain hop before the supersede edge to fork.
+            if (recById == null) recById = BuildRecordingIdIndex();
+            string compositeEffective = EffectiveTipRecordingId(origin, effectiveSupersedes, recById);
+            if (!string.IsNullOrEmpty(compositeEffective)
+                && !string.Equals(compositeEffective, effective, StringComparison.Ordinal)
+                && string.Equals(compositeEffective, recordingId, StringComparison.Ordinal))
+                return true;
+            return IsInSupersedeForwardTrail(origin, recordingId, effectiveSupersedes, recById);
         }
 
         /// <summary>
