@@ -70,6 +70,9 @@ These are binding. Quotes are the owner's words.
   inside the KSP folder"; "that location - it should be editable from settings" (4.4, 7.2).
 - "the four ksc copies means that the main game KSC camera should be moved for each player to
   their location so they see their own buildings" (7.3).
+- "for later (but important to mention now), we might want to support adding AI or recorded
+  flights that could play as another player, so we should think if this changes anything at
+  the start" (15.10).
 - "we will implement on the structure of the 1.1.x build", after the design is settled;
   "important: lets really think about the ideal structure and architecture from the start, so
   we don't have a lot to refactor later" (section 15).
@@ -403,6 +406,8 @@ RaceManifest (race.cfg, written once by the creator)
 PlayerManifest (players/<id>/player.cfg, single writer = that player)
   playerId: string          - "p_" + Guid("N")
   displayName: string
+  kind: string              - HUMAN (default), RECORDED or AI (15.10); the first
+                              build writes and accepts only HUMAN
   look: int                 - 0..3 (7.4)
   siteSlot: int             - 0..3 (7.3)
   joinedRealTime: string
@@ -650,10 +655,13 @@ exactly the KSC's altitude, so nobody launches from thinner air; room for the fu
 at the KSC's orientation (pad to the east). A target that fails moves along the equator to the
 nearest spot that passes.
 
-**Slot assignment.** Slots are taken in the order 0, 1, 2, 3: two players are opposite each
+**Slot assignment.** A human player takes the first free slot in the order 0, 1, 2, 3: two players are opposite each
 other, the third and fourth take the quarter turns. A late joiner never moves anyone, which
 matters because flights already recorded launched from a fixed place. Three players therefore
 sit at 0, 180 and 90 degrees rather than 120 apart; stability is worth more than symmetry.
+The rule is "first free slot in that order", not "slot equals join order", because a seat can
+already be taken out of order: a recorded opponent (15.10) is tied to the site its flights
+were launched from and brings its slot with it.
 
 Two players who join at the same moment, before the folder synced, can claim the same slot or
 the same look. The rule is deterministic: the earlier `joinedRealTime` keeps it (ties by
@@ -1273,6 +1281,10 @@ running game.
     creator free it for a newcomer, who would then get a site with old ghosts on it?
 13. **How far the first build goes against cheating.** The simple version of 7.15 (proposed),
     or also signed standings and the flight check before a first public release?
+14. **Recorded and AI opponents** (later). Do they compete for firsts and the win, or only set
+    the pace? Does a recorded opponent take one of the four seats (proposed: yes, it needs a
+    site and a look), and may a race be one human against recorded opponents only?
+
 ---
 
 ## 14. Implementation phasing
@@ -1490,8 +1502,31 @@ Choices made now so later ideas need no restructuring:
   any number of players. Four is a property of the site table and the looks only.
 - **Tables are data with ids** (`siteTableId`, `ladderId`): a new ladder or site table is a
   new id, and old races keep theirs.
-- **An opponent pack is a rival.** A pre-recorded space program to race against alone is a
-  folder of standings and payload under a player id; the importer needs nothing new.
+- **A rival does not have to be a person** (owner note 2026-11-14: AI or recorded flights
+  playing as another player, later). Nothing in the import, the rival store, the ghost lane
+  or the board asks who wrote a player folder, so this needs no restructuring, but four
+  things are fixed now so it stays true:
+  - *The player entry says what it is* (`kind`: human, recorded, AI). The window can label
+    it, and rules can treat it differently: a recorded opponent never "sees" anything, so
+    the no-retakes rule and the receipts skip it, and it does not count as a player for
+    "everyone has joined".
+  - *A recorded opponent is a finished player folder*: one manifest, one final standing and
+    its payload, copied into `players/` by the race creator (or shipped as a pack). Its
+    flights were launched from one site, so it carries its site slot and takes that seat;
+    slot assignment already allows a seat taken out of order (7.3). A pack records the mode,
+    the difficulty, the mod list and the site table it was flown with, and a race refuses a
+    pack whose site table differs. Its dates are all known from day 1, which fits the ruling
+    that rival dates are always shown: it is a pace car.
+  - *An AI is a writer of a player folder.* Whatever produces the flights (a script flying a
+    second game, a planner that picks from a library of recorded flights as the race goes
+    on), it joins by writing standings into its own subfolder, exactly as a player's game
+    does. So the shared folder format IS the interface for it: it is documented in this
+    document, versioned by `raceFormat`, and changed only additively. The pure `RaceCore`
+    codec can be used outside the game for that reason (it has no game types).
+  - *Fair play still applies.* A recorded or AI player is marked as such on the board, and
+    whether it can hold firsts and win, or only sets the pace, is a race setting.
+  What is deliberately NOT designed now: how an AI decides what to fly, re-timing a recorded
+  program to keep pace with the humans, or moving a recorded program to another site.
 - **Verification is a pipeline of checks** over (claim, rival flight) returning marks. The
   first build registers one check (the flight exists and covers the date); the flight checks
   of 7.15 are more entries in the same list. A signature field is reserved in the standing.
