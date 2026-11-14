@@ -36,6 +36,17 @@ namespace Parsek.Tests
 
         #region CommittedListOptimizer.ChooseSplitCandidateIndex
 
+        private static int ChooseWithNoRouteSources(
+            List<(int, int)> candidates, List<Recording> recordings,
+            string deferredActiveReFlyId, out int deferredObserved)
+        {
+            HashSet<string> held = null;
+            int chosen = CommittedListOptimizer.ChooseSplitCandidateIndex(
+                candidates, recordings, deferredActiveReFlyId, null, ref held, out deferredObserved);
+            Assert.Null(held);
+            return chosen;
+        }
+
         [Fact]
         public void ChooseSplitCandidateIndex_NoDeferredId_ReturnsFirstCandidate()
         {
@@ -46,7 +57,7 @@ namespace Parsek.Tests
                 new Recording { RecordingId = "b" }
             };
 
-            int chosen = CommittedListOptimizer.ChooseSplitCandidateIndex(
+            int chosen = ChooseWithNoRouteSources(
                 candidates, recordings, deferredActiveReFlyId: null, out int deferredObserved);
 
             Assert.Equal(0, chosen);
@@ -59,7 +70,7 @@ namespace Parsek.Tests
             var candidates = new List<(int, int)> { (0, 0) };
             var recordings = new List<Recording> { new Recording { RecordingId = "a" } };
 
-            int chosen = CommittedListOptimizer.ChooseSplitCandidateIndex(
+            int chosen = ChooseWithNoRouteSources(
                 candidates, recordings, deferredActiveReFlyId: "", out int deferredObserved);
 
             Assert.Equal(0, chosen);
@@ -77,7 +88,7 @@ namespace Parsek.Tests
                 new Recording { RecordingId = "other" }
             };
 
-            int chosen = CommittedListOptimizer.ChooseSplitCandidateIndex(
+            int chosen = ChooseWithNoRouteSources(
                 candidates, recordings, deferredActiveReFlyId: "deferred", out int deferredObserved);
 
             Assert.Equal(1, chosen);          // candidate-list index of the non-deferred candidate
@@ -94,7 +105,7 @@ namespace Parsek.Tests
                 new Recording { RecordingId = "deferred" }
             };
 
-            int chosen = CommittedListOptimizer.ChooseSplitCandidateIndex(
+            int chosen = ChooseWithNoRouteSources(
                 candidates, recordings, deferredActiveReFlyId: "deferred", out int deferredObserved);
 
             Assert.Equal(-1, chosen);
@@ -113,7 +124,7 @@ namespace Parsek.Tests
                 new Recording { RecordingId = "c" }
             };
 
-            int chosen = CommittedListOptimizer.ChooseSplitCandidateIndex(
+            int chosen = ChooseWithNoRouteSources(
                 candidates, recordings, deferredActiveReFlyId: "deferred", out int deferredObserved);
 
             Assert.Equal(1, chosen);
@@ -132,7 +143,7 @@ namespace Parsek.Tests
                 new Recording { RecordingId = "c" }
             };
 
-            int chosen = CommittedListOptimizer.ChooseSplitCandidateIndex(
+            int chosen = ChooseWithNoRouteSources(
                 candidates, recordings, deferredActiveReFlyId: "deferred", out int deferredObserved);
 
             Assert.Equal(0, chosen);

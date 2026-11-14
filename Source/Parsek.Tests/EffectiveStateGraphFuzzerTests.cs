@@ -394,6 +394,7 @@ namespace Parsek.Tests
             AssertRetirementSoundness(g, committedIds);
             AssertErsSoundnessAndIdempotence(g, supersedes, committedIds);
             AssertRewindPointSlotResolutionInRange(g, supersedes);
+            AssertRewindPointSlotClaimsAreUnique(g, supersedes);
         }
 
         /// <summary>
@@ -797,6 +798,130 @@ namespace Parsek.Tests
             }
         }
 
+        /// <summary>
+        /// INV-9: a rewind point's slots claim recordings uniquely. The resolver
+        /// returns the FIRST claimant, so a second one would send a Re-Fly of that
+        /// recording to whichever slot happens to come first.
+        ///
+        /// <para>
+        /// The generator picks slot origins at random, so it also builds rewind
+        /// points no split can make: two slots whose origins share forward reach
+        /// (one origin superseded into another, or both into one target). Those
+        /// double claims are the graph's, not the resolver's, so the invariant is
+        /// stated as SOUNDNESS: every claimant's origin reaches the claimed
+        /// recording in <see cref="ReferenceForwardReach"/> (an over-approximation
+        /// of every claim path: supersede rows, chain siblings, branch-point
+        /// children). Two slots therefore claim one recording only where both
+        /// origins reach it, and a rewind point whose slot origins have pairwise
+        /// disjoint reach (every production rewind point: its slots are the
+        /// distinct siblings of one split) has at most one claimant per recording.
+        /// Checked over EVERY recording through the resolver's own second-claimant
+        /// output. Returns (disjoint rewind points checked, double claims seen).
+        /// </para>
+        /// </summary>
+        private static (int DisjointRps, int DoubleClaims) AssertRewindPointSlotClaimsAreUnique(
+            FuzzGraph g,
+            List<RecordingSupersedeRelation> supersedes)
+        {
+            int disjointRps = 0, doubleClaims = 0;
+            for (int rp = 0; rp < g.RewindPoints.Count; rp++)
+            {
+                var point = g.RewindPoints[rp];
+                var reach = new List<HashSet<string>>(point.ChildSlots.Count);
+                for (int s = 0; s < point.ChildSlots.Count; s++)
+                    reach.Add(ReferenceForwardReach(g, point.ChildSlots[s]?.OriginChildRecordingId));
+                bool disjoint = true;
+                for (int a = 0; a < reach.Count && disjoint; a++)
+                    for (int b = a + 1; b < reach.Count && disjoint; b++)
+                        if (reach[a].Overlaps(reach[b])) disjoint = false;
+                if (disjoint) disjointRps++;
+
+                long budget = (long)(point.ChildSlots.Count + 1) * 4L
+                    * SingleWalkReadBudget(g.Recordings.Count + 2, supersedes.Count);
+                for (int i = 0; i < g.Recordings.Count; i++)
+                {
+                    var rec = g.Recordings[i];
+                    int second = -1;
+                    int first = BoundedCall(g,
+                        "ResolveRewindPointSlotIndexForRecording(" + point.RewindPointId + "," + rec.RecordingId + ", out second)",
+                        supersedes, budget,
+                        s => EffectiveState.ResolveRewindPointSlotIndexForRecording(point, rec, s, out second));
+                    string what = "rp=" + point.RewindPointId + " rec=" + Show(rec.RecordingId);
+                    if (first < 0)
+                    {
+                        Check(second == -1, g, "second claimant " + second + " without a first for " + what);
+                        continue;
+                    }
+                    Check(reach[first].Contains(rec.RecordingId), g,
+                        "slot " + first + " claims " + what + " outside its origin's forward reach");
+                    if (second < 0) continue;
+                    doubleClaims++;
+                    Check(second > first && second < point.ChildSlots.Count, g,
+                        "second claimant " + second + " not after first " + first + " for " + what);
+                    Check(reach[second].Contains(rec.RecordingId), g,
+                        "slot " + second + " claims " + what + " outside its origin's forward reach");
+                    Check(!disjoint, g,
+                        "slots " + first + " and " + second + " both claim " + what +
+                        " although the slot origins share no forward reach");
+                }
+            }
+            return (disjointRps, doubleClaims);
+        }
+
+        /// <summary>
+        /// Every id <paramref name="origin"/> can reach through any edge a slot
+        /// claim path follows, over-approximated: every supersede row, every
+        /// recording sharing a chain id (any branch, any index, any tree) and
+        /// every child of a branch point the id is a parent of or names as its
+        /// child branch point (any type). Includes the origin; empty for a
+        /// null / empty origin.
+        /// </summary>
+        private static HashSet<string> ReferenceForwardReach(FuzzGraph g, string origin)
+        {
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            if (string.IsNullOrEmpty(origin)) return seen;
+            var queue = new Queue<string>();
+            seen.Add(origin);
+            queue.Enqueue(origin);
+            while (queue.Count > 0)
+            {
+                string cur = queue.Dequeue();
+                var next = new List<string>();
+                for (int i = 0; i < g.Supersedes.Count; i++)
+                {
+                    var rel = g.Supersedes[i];
+                    if (rel != null && string.Equals(rel.OldRecordingId, cur, StringComparison.Ordinal))
+                        next.Add(rel.NewRecordingId);
+                }
+                for (int i = 0; i < g.Recordings.Count; i++)
+                {
+                    var rec = g.Recordings[i];
+                    if (!string.Equals(rec.RecordingId, cur, StringComparison.Ordinal)) continue;
+                    if (!string.IsNullOrEmpty(rec.ChainId))
+                    {
+                        for (int j = 0; j < g.Recordings.Count; j++)
+                            if (string.Equals(g.Recordings[j].ChainId, rec.ChainId, StringComparison.Ordinal))
+                                next.Add(g.Recordings[j].RecordingId);
+                    }
+                    for (int t = 0; t < g.Trees.Count; t++)
+                    {
+                        var bps = g.Trees[t].BranchPoints;
+                        for (int b = 0; bps != null && b < bps.Count; b++)
+                        {
+                            var bp = bps[b];
+                            if (string.Equals(bp.Id, rec.ChildBranchPointId, StringComparison.Ordinal)
+                                || bp.ParentRecordingIds.Contains(cur))
+                                next.AddRange(bp.ChildRecordingIds);
+                        }
+                    }
+                }
+                for (int i = 0; i < next.Count; i++)
+                    if (!string.IsNullOrEmpty(next[i]) && seen.Add(next[i]))
+                        queue.Enqueue(next[i]);
+            }
+            return seen;
+        }
+
         // =====================================================================
         // Reference implementations (test-side oracles)
         // =====================================================================
@@ -966,9 +1091,87 @@ namespace Parsek.Tests
             return seen;
         }
 
+        /// <summary>
+        /// Anti-vacuity for INV-9: across the whole corpus the soundness check
+        /// must meet both branches - rewind points whose slot origins have
+        /// disjoint reach (where uniqueness is asserted outright) and genuine
+        /// double claims (where the second-claimant output is exercised).
+        /// </summary>
+        [Fact]
+        public void Fuzz_SlotClaimInvariant_MeetsDisjointRewindPointsAndDoubleClaims()
+        {
+            int disjointRps = 0, doubleClaims = 0;
+            var seeds = new List<(int Seed, int Nodes, bool Corrupt)>();
+            foreach (var c in CorruptSeeds) seeds.Add((c.Seed, c.Nodes, true));
+            foreach (var v in ValidSeeds) seeds.Add((v.Seed, v.Nodes, false));
+            foreach (var entry in seeds)
+            {
+                var g = BuildGraph(entry.Seed, entry.Nodes, entry.Corrupt);
+                Install(g);
+                WithinBudget("slot-claim corpus seed=" + entry.Seed, () =>
+                {
+                    var counts = AssertRewindPointSlotClaimsAreUnique(g, g.Supersedes);
+                    disjointRps += counts.DisjointRps;
+                    doubleClaims += counts.DoubleClaims;
+                });
+            }
+            Assert.True(disjointRps > 0, "no generated rewind point had disjoint slot reach");
+            Assert.True(doubleClaims > 0, "no generated rewind point produced a double claim");
+        }
+
         // =====================================================================
         // Deterministic pins found while building the fuzzer
         // =====================================================================
+
+        /// <summary>
+        /// The double-claim shape INV-9 first met (production-shaped seed 23,
+        /// rewind point rp_1): slot 0's origin is superseded INTO slot 1's origin,
+        /// so both slots claim that recording. No split authors it (a fork is a
+        /// fresh recording, never a sibling slot's origin), so it is a generator
+        /// shape, not a production defect; it pins what the resolver does with it:
+        /// the first claimant is still returned, the second is reported, and one
+        /// rate-limited Warn names the rewind point, both slots and the recording.
+        /// </summary>
+        [Fact]
+        public void ResolveSlotIndex_TwoSlotsClaimOneRecording_ReturnsFirstAndWarnsOnce()
+        {
+            var a = MakeRecording("rec_slotA", "tree_1");
+            var b = MakeRecording("rec_slotB", "tree_1");
+            InstallTree("tree_1", new List<Recording> { a, b }, null);
+            var sups = new List<RecordingSupersedeRelation> { Rel("rec_slotA", "rec_slotB") };
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_double",
+                ChildSlots = new List<ChildSlot>
+                {
+                    new ChildSlot { SlotIndex = 0, OriginChildRecordingId = "rec_slotA", Controllable = true },
+                    new ChildSlot { SlotIndex = 1, OriginChildRecordingId = "rec_slotB", Controllable = true },
+                },
+            };
+
+            var lines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => lines.Add(line);
+
+            int first = EffectiveState.ResolveRewindPointSlotIndexForRecording(
+                rp, b, Bounded(sups, 256), out int second);
+            Assert.Equal(0, first);
+            Assert.Equal(1, second);
+            Assert.Equal(0, EffectiveState.ResolveRewindPointSlotIndexForRecording(
+                rp, b, Bounded(sups, 256)));
+
+            var warns = lines.FindAll(l => l.Contains("[WARN]") && l.Contains("[Supersede]")
+                && l.Contains("Rewind point rp_double: slots 0 and 1 both claim recording rec_slotB"));
+            Assert.Single(warns);
+            Assert.Contains("origins rec_slotA / rec_slotB", warns[0]);
+            Assert.Contains("resolving to slot 0", warns[0]);
+
+            // A singly-claimed recording reports no second claimant and logs nothing.
+            lines.Clear();
+            Assert.Equal(0, EffectiveState.ResolveRewindPointSlotIndexForRecording(
+                rp, a, Bounded(sups, 256), out int secondForA));
+            Assert.Equal(-1, secondForA);
+            Assert.DoesNotContain(lines, l => l.Contains("both claim recording"));
+        }
 
         /// <summary>
         /// Pins the cross-tree TODO at <c>EffectiveState.cs:109</c>
