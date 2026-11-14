@@ -39,8 +39,9 @@ ghost-map-vessel primitive (P3), the trajectory codec change (P6), the ghost-cou
   P11-02, derived window counts) per the 15.11 order. Nothing in this slice needs their
   content; the order only keeps the arch tooling and harness specs stable while these
   refactors re-pin canaries.
-- P7 (P7-01, P7-02), P1 (P1-01 to P1-04), P10 (P10-01) per the 15.11 order. No file overlap
-  with this slice (section 5); they are an ordering preference, not a dependency.
+- P7 (P7-01, P7-02), P1 (P1-01 to P1-03; P1-04 is dropped), P10 (P10-01) per the 15.11
+  order. No file overlap with this slice (section 5); they are an ordering preference, not a
+  dependency.
 - Inside this slice: P2c before P2a before P2b (15.11). P2a-01 is the port's specification, not
   a pull request; P2a-05 lands first among the P2a tasks and creates the catalog files, and the
   other P2a tasks depend on it. P2b-02 starts after P2a-02 to P2a-07
@@ -530,7 +531,7 @@ The port as specified:
 
 The P2b series lands as one window: no other PR that touches the files in section 5's hot list
 merges between P2b-02 and P2b-10, no P6 PR merges in that window either (it shares no file, but
-the proof must fly one known change set), and the full flight proof (section 6.4) runs once
+the proof must fly one known change set), and the flight proof (section 6.4) runs once
 after P2b-10.
 
 **P2b-01 il_compare folds a renamed reference field**
@@ -724,7 +725,8 @@ after P2b-10.
 - **Registers:** `scripts/arch/log_tags.json` unchanged (tag `Flight` exists). CLAUDE.md
   `ParsekFlight.cs` bullet: one clause on the lane resets.
 - **Size:** S. **Depends on:** P2b-09.
-- **PC:** yes: the full flight proof of section 6.4 runs after this task.
+- **PC:** yes: the representative flight proof of section 6.4 (18 lanes plus the daily tier,
+  through the parallel runner) runs after this task.
 - **Risk:** medium; a missed clear would leak a log-once key or a stale orbit across an index shift,
   which only long loop and map flights show.
 
@@ -762,7 +764,7 @@ Tracks:
 
 Against other prerefactors:
 
-- In parallel with P1 (P1-01 to P1-04: `SpawnCollisionDetector`, `HomeSpaceCenter` in Core),
+- In parallel with P1 (P1-01 to P1-03: `SpawnCollisionDetector`, `HomeSpaceCenter` in Core),
   P7 (P7-01, P7-02: `RecordingPaths`), P10 (P10-01: `TestCommands` save core), P11 (P11-01,
   P11-02: harness specs, `ParsekUI` constructors) and P12 (P12-01, P12-02: `scripts/arch`
   parsers, a Controllers placement rule): every P2c and P2a task touches none of their files.
@@ -820,23 +822,79 @@ in-game test, so no batch tally (`CommittedBatchTallySourceSyncTests`) and no la
 
 ### 6.4 The P2b flight proof
 
-P2b changes how every ghost is positioned every frame, so after P2b-10 the owner flies the `full`
-tier: `python harness/tools/tier_runner.py --tier full --provision`. The last measured full run
-(2026-10-31) was 523 lanes and about 21.5 h of summed p50 plus untimed lanes; `harness/README.md`
-("The full run") says to plan a day and a half. No P6 PR merges between P2b-02 and this run, so
-it flies one known change set. The 10 pending-fixture specs cannot fly. Per-task
-checks before that: daily tier (about 0.4 h) after P2b-07, P2b-08 and P2b-10, and the two hand-run
-categories after P2b-07. If the owner chooses the smaller set (Question 1), it is daily plus
-nightly (about 9.9 h measured p50) plus the operator lanes W1-watch-distance-cutoff, SLM-1, SLM-1T,
-SLM-2, V4, V3F, V3R, GS-7, GS-12 and the TP-* and V*M loop and map picture lanes.
+P2b changes how every ghost is positioned every frame. The owner's answer (question 1, Q-05,
+2026-11-14): no run of every lane for this; after P2b-10 the owner flies a short set of the
+most representative lanes, one per distinct way the positioner places a ghost, to recheck the
+ghost system. The full run (every lane on every install, `tier_runner.py --tier full`) is not
+flown for P2b; it runs once, at release time. No P6 PR merges between P2b-02 and this run, so
+it flies one known change set.
 
-P2c and P2a need no full run: their in-game categories and the lanes named per task, flown once
-after Track A, C and D merge (nightly tier, about 9.5 h, covers H27, H11, H36, LT-5; S1.4, S1.6,
-S1.7 are daily).
+The set flies through the parallel runner (`harness/README.md`, "Parallel runs"), on two
+copies while the owner works at the PC and three when away, with the daily tier added in the
+same run (a lane selected twice flies once):
+
+```
+cd harness
+python tools/parallel_runner.py run --name p2b --tier daily --ids-file set.txt --slots 3
+```
+
+where `set.txt` holds the 18 lane ids below, one per line.
+
+Every lane below is on the `stock-minimal` install, which is the profile the runner needs a
+provisioned copy of (`provision.py --profile stock-minimal --copy 2`, then `--copy 3`), and
+none is an exclusive (cursor or focus) lane, so none is held back for `--include-exclusive`.
+Tier and p50 come from the spec and from `harness/coverage/duration.json` (the measured p50
+the runner orders by; the generated lane catalog `docs/dev/flight-profiles.md` lists no p50).
+
+| Lane | Placement path it exercises | Tier | Measured p50 |
+|---|---|---|---|
+| S1.4-injected-playback | basic playback over the injected synthetic corpus: positioning and tail lift (`GhostPlayback` category), map presence and the polyline | daily | 70 s |
+| H17-flight-integration | body-fixed surface placement: a ghost's world position matches its recorded lat / lon / alt through `GetWorldSurfacePosition` (D3 `surface-body-fixed`) | nightly | 69 s |
+| GS-12-kerbalx-loop-cycles | a flown atmospheric ascent replayed (Kerbal X), its booster debris ghosts (parent-anchored debris, `Kerbal X Debris` spawned at least 6), then the mission looped in three period modes under 10x rails warp, overlap cap | operator | 432 s |
+| S1.8-soi-crossing-playback | orbital segment resolution across the two SOI handoffs of a real flown transfer (`FindOrbitSegment*`, `EvaluateOrbitSegmentTruePositionAtUT`); no ghost spawned | daily | 54 s |
+| V7W-minmus-physics-warp | orbital ghosts replayed under physics warp, across the Kerbin to Minmus SOI seam and in watch mode | nightly | 98 s |
+| V6M-mun-player-loop | a moon mission loop (same-parent, phase-locked retiming): Warp-to, the SOI seam on rails, Watch at the Mun park, two cycles | operator | 53 s |
+| RL-1-relative-loop-live-anchor | a loop-anchored Relative section placed against a live anchor vessel by the flight loop positioner (D3 `relative-loop`) | nightly | 139 s |
+| LT-2-long-tail-spacecenter | a non-loop Relative section with `anchorRecordingId`, placed through the recorded-anchor pose resolver by the KSC positioner (D3 `relative-anchored-nonloop`) | nightly | 53 s |
+| SLM-1-standalone-loop-map-position | a standalone loop's map ghost at the loop clock UT (loop units through the lane, `StandaloneLoopMap`) | operator | not measured |
+| LT-5-long-tail-playback-flight | active ghosts, loop-unit and overlap cells (`GhostLifecycle`) | nightly | 70 s |
+| W1-watch-distance-cutoff | the Watch camera following a ghost, refused at 1,064 km and entered at 0.46 km (the 300 km cutoff) | operator | 147 s |
+| S1.7-maprender-parity | the flight map render spine: descent, dock-undock, overlap, parent-anchored and BG-on-rails cells, the polyline (`MapRender`) | daily | 69 s |
+| H44-ghost-map-trackstation | Tracking Station ghost map presence, polyline legs, marker hold (`GhostMap`, TRACKSTATION) | nightly | 67 s |
+| TP-1-mun-loop-map-pictures | the picture lane: the looped Mun mission on the open flight map, captured at transfer, arrival and park | operator | not measured |
+| V22K-kerbin-splashdown-ksc-arrival | Space Center scene ghosts (`ParsekKSC` host, `KSC SURFACE playback resolved`) of a splashdown descent | operator | 62 s |
+| RF-8-ghost-during-refly | the committed sibling's ghost during a live Re-Fly, watched and drawn on the map | operator | 61 s |
+| H11-pipeline-anchor | the anchor seed epsilon through `ProductionAnchorWorldFrameResolver` and the SOI and checkpoint fixtures (resolves, plays nothing back) | nightly | 47 s |
+| H66-playback-control-isolated | spawn at the end of a ghost's flight, exactly once (D6 `spawn-at-end-pid-dedup`) | nightly | 70 s |
+
+Summed measured p50, one lane at a time: 1,561 s, about 26 minutes, plus the two lanes not
+measured (SLM-1, TP-1). On three copies, an estimate from the one measurement so far (the
+daily tier took 12 min 35 s on three copies against about 25 minutes one lane at a time, about
+half): about 13 minutes plus the two unmeasured lanes, and never less than the longest lane
+(GS-12, 432 s). The daily tier added to the same run is about 25 minutes one lane at a time
+and 12 min 35 s on three copies (measured), less the three lanes it shares with the set.
+
+Paths with no lane, said rather than stretched: the ghost position re-apply in late update
+(`GhostReapplyFrame`, `ChainTipBlockedGhost`; no lane runs either category, so they stay hand
+runs); a non-loop Relative section placed by the FLIGHT positioner (LT-2 covers the same
+recorded-anchor resolver at the KSC only); a Re-Fly ghost placed through an anchor (RF-8 shows
+the sibling ghost during a Re-Fly, H11 the anchor resolver without playback; RW-5, RW-6 and
+RW-7 are ledger lanes on another install with no measured p50).
+
+Per-task checks that stay: the daily tier (about 0.4 h one lane at a time) after P2b-07 and
+P2b-08, and after P2b-10 inside the set's run as above; the two hand-run categories
+(`GhostReapplyFrame`, `ChainTipBlockedGhost`) after P2b-07 and again after P2b-10, since no
+lane covers them.
+
+P2c and P2a need no full run either: their in-game categories and the lanes named per task,
+flown once after Track A, C and D merge (nightly tier, about 9.5 h one lane at a time, covers
+H27, H11, H36, LT-5; S1.4, S1.6, S1.7 are daily). That nightly also flies through the
+parallel runner; the nightly on it is not yet measured, so its time there is only the
+estimate of about half.
 
 Not provable without the owner's PC: every in-game category above, every harness lane, and the
-absence of a visual difference in ghosts on screen (the full run's picture lanes are the only
-check).
+absence of a visual difference in ghosts on screen (TP-1 in the set is the picture check until
+the release run's picture lanes).
 
 ## 7. Gates and registrations
 
@@ -893,7 +951,8 @@ check).
 - A lane reset misses a member or runs at the wrong time. Noticed by
   `ParsekFlightPlaybackLaneTests`, `FlightGhostSkipCacheCleanupTests` and the handler-order gate;
   at runtime by stale log-once keys
-  (a missing first-time log line) in loop and map lanes of the full run.
+  (a missing first-time log line) in the loop and map lanes of the P2b set (GS-12, V6M,
+  SLM-1, TP-1, S1.7, H44; section 6.4).
 - Uninitialized test hosts see a null lane member and throw. Prevented by the lazy getter setting
   every lane member; noticed by the 22 uninitialized-host test files.
 - The shared spawn budget is reset twice or never. With one engine it is owned and reset as today;
@@ -952,7 +1011,7 @@ check).
    Settled (OV-46): R3W-09 passes one shared `GhostSpawnFrameBudget` to both engines and resets
    it once per frame.
 10. 15.11 says P2b "lands alone". The plan cuts it into nine code PRs plus a tooling PR, landed as
-    one uninterrupted window with one full flight proof at the end. Settled (supervisor, P6
+    one uninterrupted window with one flight proof at the end. Settled (supervisor, P6
     order): P6 is built in parallel with the prerefactors and merged when green, but not inside
     this window.
 11. `il_compare` cannot fold a renamed field or a new parameter (P2b-01 adds the alias; P2b-07
@@ -974,8 +1033,8 @@ check).
 
 1. How long should your PC fly to prove the lane change before the next step starts? The lane
    change touches where every ghost is drawn every frame.
-   - Option A: the full run, every lane on every install, about a day and a half.
-   - Option B: daily plus nightly (about 10 hours) plus the watch, loop and map picture lanes of
-     the operator tier (a few hours more).
-   Recommendation: A. It is the one change in this slice that every ghost on every flight passes
-   through, and a missed reset shows only in long loop or map flights.
+   **Answered 2026-11-14 (Q-05):** "there's no point in running every single test for that,
+   we can do it later at release; pick the most representative tests to run to recheck the
+   ghost system after changes". The proof is the representative set of section 6.4 (18
+   lanes, one per way a ghost is placed), flown through the parallel runner with the daily
+   tier; the full run happens once, at release time.

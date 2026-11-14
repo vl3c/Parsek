@@ -9,8 +9,11 @@ Phase R0b, steps 1 and 2 of the analysis's order of work.
 ## 1. Goal and scope
 
 Five small changes to single-player code and tooling that land before any race code. Each
-is its own pull request (or two), lands on a green tree, and changes nothing a player sees,
-with the two exceptions named in P1-02 and P1-04 and put to the owner in section 10.
+is its own pull request (or two), lands on a green tree, and changes nothing a player sees.
+The two small single-player fixes this plan once carried (the wound longitude and the partial
+Making History read) were answered "fix both" by the owner (question 10.1, Q-04, 2026-11-14)
+and moved out of this plan to the launch pad fixes work, which lands them on main first; P1-04
+is dropped and P1-02 keeps only its behavior-neutral half.
 
 Built here:
 
@@ -43,8 +46,13 @@ about saves, sites or ghosts beyond the above.
 - Version 1.1.0 is released and the owner says go (brief; design section 14).
 - No other plan of the multiplayer program. Every task here builds on `main`. One spike:
   P1-03 waits for spike S4a.
-- P1-04 waits for the owner's answer to question 10.1. P1-02 lands its longitude wrap only
-  with that answer too (same question).
+- The launch pad fixes are on main (owner answer to question 10.1, Q-04, 2026-11-14: fix
+  both, in a separate work item outside this plan). That work fixes, in place and minimally,
+  the longitude wrap in today's launch-area test and the partial first read of the Making
+  History sites in the `LaunchSiteExclusionZones` cache, each with a unit test, a CHANGELOG
+  line and a todo entry; it does not create `HomeSpaceCenter`, `LaunchArea` or
+  `LaunchAreaGeometry`. P1-02 and P1-03 edit the same files (`SpawnCollisionDetector.cs`,
+  `LaunchSiteExclusionZones.cs`), so both start after it is on main.
 - The VERIFY before P1-03 is written is folded into spike S4a (OV-52): whether the runtime
   alt-site read includes the KSC's own `LaunchPad` and `Runway` spawn points (section 9,
   item 5). P1-03 is correct either way; only its comment and test wording change. If they
@@ -214,6 +222,9 @@ All read on 2026-11-14 at commit abf7de3.
   whose name passes `IsStockLaunchSiteName` (`:132-142`), and that list names `LaunchPad`
   and `Runway` (`:79-83`), so the cache very likely holds the KSC's own spawn points too
   (VERIFY, section 9 item 5).
+- The launch pad fixes work changes two things above before P1-02 and P1-03 start: the
+  launch-area test wraps the longitude, and a partial first read is no longer cached. The
+  line numbers here are from before it.
 - Lifetime: `cachedRuntimeCircles` is untagged and listed in
   `scripts/arch/lifetime_pins.toml:143`.
 - Log wording the lanes pin is written elsewhere and does not move:
@@ -501,11 +512,11 @@ All read on 2026-11-14 at commit abf7de3.
     constructor and the factory `Circle(lat, lon, radius)`, which calls it; and `internal
     static class LaunchAreaGeometry` with
     `double WrappedDeltaLongitudeDegrees(double lon1, double lon2)` (into (-180, 180]),
-    `double SurfaceDistanceMeters(lat1, lon1, lat2, lon2, bodyRadius)` (today's flat-earth
-    formula, `SpawnCollisionDetector.cs:385-394`, with the wrapped delta, keeping the same
-    evaluation order `(dLonDeg) * Math.PI / 180.0` so values whose delta is already inside
-    the range are bit-identical), and `bool Contains(LaunchArea area, double lat, double lon,
-    double bodyRadius)`: a circle is `distance < margin` (strict, as today); a strip
+    `double SurfaceDistanceMeters(lat1, lon1, lat2, lon2, bodyRadius)` (the flat-earth
+    formula of `SpawnCollisionDetector.cs:385-394` with the wrapped delta, exactly as the
+    launch pad fixes left the launch-site test on main, in the same evaluation order, so
+    every distance is bit-identical), and `bool Contains(LaunchArea area, double lat,
+    double lon, double bodyRadius)`: a circle is `distance < margin` (strict, as today); a strip
     projects the point into the strip's local frame (east-north metres about the strip's
     start, longitude wrapped), takes the along-track and cross-track excess outside the
     rectangle and tests the excess length `< margin`. NaN inputs or a radius `<= 0` give
@@ -524,33 +535,30 @@ All read on 2026-11-14 at commit abf7de3.
     here, so it lands with its first one: R2-01 adds it to `LaunchArea.cs` when it builds
     `SiteRow.LaunchAreas` (the runway strip). This task's strip tests build strips through
     the internal constructor.
-- **Behavior.** Identical for every position whose longitude differs from the circle's by at
-  most 180 degrees. A position stored as, for example, -434.5 (the KSC wound once) is now
-  inside the KSC pad circle where today it is 360 degrees away: a flight that ends parked on
-  the pad with such a stored longitude is retired (as the rule intends) instead of
-  spawning, and `LaunchSiteOnlyGhost` now recognizes such points as launch-site ground. That
-  is a single-player fix; it lands only with the owner's yes (question 10.1). If the answer
-  is no, the single-player callers keep `SurfaceDistance`, the shape test would have no
-  production caller, and the uncalled-method bound may not rise (A1): this task then splits
-  by first production caller. `LaunchArea` (constructor, `Circle`, `Strip`) lands in
-  R2-01's pull request, which builds `SiteRow.LaunchAreas`; `LaunchAreaGeometry` lands in
-  R3W-12's, which reads those rows through `LaunchAreaGeometry.Contains` (OV-41). The
-  tests of this task move with the code they test.
+- **Behavior.** None. The longitude wrap itself is already on main from the launch pad fixes
+  work (owner answer to question 10.1, Q-04, 2026-11-14), so a flight parked on the pad or
+  runway with a wound longitude (for example -434.5 instead of -74.5) is already retired.
+  This task only extracts the shape test that the 50 m rule calls:
+  `WrappedDeltaLongitudeDegrees` and `SurfaceDistanceMeters` take over the wrap and the
+  distance as they read on main after that fix, with the same arithmetic in the same order,
+  so every distance is bit-identical to main's.
 - **Proof.** New `LaunchAreaTests`: wrapped delta (179 vs -179 is 2; -434.5 vs -74.5 is 0;
-  exactly 180 stays 180); circle equals today's `SurfaceDistance < r` on a grid of points
-  within 180 degrees (bit-equal distances); the 59.7 m rover of LF-1 / LF-2 is outside the
+  exactly 180 stays 180); circle equals main's launch-area test on a grid of points, wound
+  longitudes included (bit-equal distances); the 59.7 m rover of LF-1 / LF-2 is outside the
   runway circle and the EX-1 pad position is inside; the strip: inside along the centre
-  line, outside past the end plus margin, the corner case, a strip across the date line. A
-  test that a recording ending at the pad with a wound longitude is retired (new
-  behavior, in `KscPadRetirementTests`). Existing retirement and launch-site-only cells
-  unchanged. Lanes on the owner's PC: EX-1, LF-1, LF-2, MC-4.
+  line, outside past the end plus margin, the corner case, a strip across the date line. The
+  wound-longitude retirement cell in `KscPadRetirementTests` (a recording ending at the pad
+  with a wound longitude is retired) pins existing behavior: it is the launch pad fixes'
+  cell if that work added it there, and a new pin otherwise. Existing retirement and
+  launch-site-only cells unchanged. Lanes on the owner's PC: EX-1, LF-1, LF-2, MC-4, kept as
+  the no-change proof of the extraction (same retirements, same pinned lines).
 - **Registers.** `modules.toml` Core list (`|^LaunchArea[.]cs$`), `test_archview.py` count
-  and list, README. CHANGELOG (if the wrap lands): one entry, "a flight that ends parked on
-  the launch pad or runway is now recognized even when its stored longitude has wound past
-  the date line". todo: an entry for the wound-longitude miss, closed by this change.
-- **Size.** S to M. **Depends on.** P1-01. **PC.** Yes (four lanes).
-- **Risk.** Medium for the wrap (it changes what retires on real saves with wound
-  longitudes); low otherwise.
+  and list, README. No CHANGELOG and no todo entry (no behavior change; the wound-longitude
+  entry belongs to the launch pad fixes work).
+- **Size.** S to M. **Depends on.** P1-01; starts after the launch pad fixes are on main (the
+  same `SpawnCollisionDetector.cs` and `LaunchSiteExclusionZones.cs`). **PC.** Yes (four
+  lanes).
+- **Risk.** Low: a move of arithmetic already on main, proven bit-equal by the grid cell.
 
 ### P1-03 The launch-site circle cache follows the home center and the main menu
 
@@ -592,31 +600,18 @@ All read on 2026-11-14 at commit abf7de3.
   reports before pushing. No CHANGELOG (no player effect). todo: if the analysis finding
   "cache never reset" was filed, mark it done with this task.
 - **Size.** S. **Depends on.** P1-01 (`Version`); spike S4a, which carries the VERIFY of
-  section 2 (OV-52), for its comment and test wording. P1-03 does not filter the KSC's own
-  pad and runway out of the cache; if S4a finds them there, R2-05 filters or rebuilds them.
+  section 2 (OV-52), for its comment and test wording; starts after the launch pad fixes are
+  on main (the same `LaunchSiteExclusionZones.cs`; their rule of not caching a partial first
+  read stays, and the version key and the main-menu drop sit beside it). P1-03 does not
+  filter the KSC's own pad and runway out of the cache; if S4a finds them there, R2-05
+  filters or rebuilds them.
   **PC.** Yes (three lanes).
 - **Risk.** Low: same data re-read; the main-menu hook is additive.
 
-### P1-04 (owner-gated) Do not keep a partial first read for the process
+### P1-04 Do not keep a partial first read for the process
 
-- **Change.** In `GetAltSiteCircles`, cache the merged list only when no fallback row was
-  merged in (every expected site came from the runtime read); otherwise return the merged
-  list uncached and log the partial read rate-limited (`InfoRateLimited`, key carries the
-  missing site names). A pure `internal static bool ShouldCacheRuntimeRead(int runtimeCount,
-  int fallbackMerged)` holds the rule.
-- **Behavior.** A first read that misses a site (its transform not yet built) no longer
-  freezes the fallback coordinates for that site for the whole process; later reads pick
-  up the runtime spawn point. Retirement near the edge of that site's circle can differ by
-  the distance between the fallback and the runtime coordinates.
-- **Proof.** xUnit with the reader seam: partial then full read caches the full one; full
-  first read caches at once; without Making History the empty fallback still caches.
-  Lane MC-4.
-- **Registers.** CHANGELOG entry (one line about the Making History sites' retirement
-  circles using the game's own positions); todo entry closed. **Size.** S. **Depends on.**
-  P1-03, owner question 10.1. **PC.** Yes (MC-4).
-- **Risk.** Low to medium: re-reads cost a walk of `PSystemSetup.LaunchSites` per call while
-  partial; bounded by the number of calls (spawn decisions), not per frame (VERIFY:
-  `LaunchSiteOnlyGhost` callers; if one is per frame, rate-limit the re-read).
+Dropped: landed outside this plan by the launch pad fixes work, with its own unit test,
+CHANGELOG line and todo entry (owner answer to question 10.1, Q-04, 2026-11-14).
 
 ### P10-01 The create-and-start core in production
 
@@ -706,14 +701,15 @@ Files each task touches:
 | P7-01 | new `SafeFileId.cs`, `RecordingPaths.cs`, `modules.toml` (Core :478, comments :11, :471), `test_archview.py` (:4101-4120), README (:1991), `RecordingPathsLoggingTests.cs`, new `SafeFileIdTests.cs`, two Bug27x test comments, todo |
 | P7-02 | `RecordingPaths.cs`, `ParsekFileCollector.cs`, an xUnit file |
 | P1-01 | new `HomeSpaceCenter.cs`, `SpawnCollisionDetector.cs`, `modules.toml` (Core), `test_archview.py` (Core), README (:1991), new `HomeSpaceCenterTests.cs` |
-| P1-02 | new `LaunchArea.cs`, `SpawnCollisionDetector.cs`, `LaunchSiteExclusionZones.cs`, `modules.toml` (Core), `test_archview.py` (Core), README, new `LaunchAreaTests.cs`, `KscPadRetirementTests.cs`, CHANGELOG, todo |
+| P1-02 | new `LaunchArea.cs`, `SpawnCollisionDetector.cs`, `LaunchSiteExclusionZones.cs`, `modules.toml` (Core), `test_archview.py` (Core), README, new `LaunchAreaTests.cs`, `KscPadRetirementTests.cs` |
 | P1-03 | `LaunchSiteExclusionZones.cs`, `HomeSpaceCenter.cs`, `ParsekScenario.SceneTransitions.cs`, `lifetimes.toml`, `lifetime_pins.toml`, `LaunchSiteFollowupTests.cs` or a new test file |
-| P1-04 | `LaunchSiteExclusionZones.cs`, a test file, CHANGELOG, todo |
+| P1-04 | dropped: landed outside this plan by the launch pad fixes work |
 | P10-01 | new `NewSaveStarter.cs`, `ParsekTestCommandAddon.NewGame.cs`, `modules.toml` (LogIO :326), `harness/lib/test_hlib.py` (:18812), new `NewSaveStarterTests.cs` and `NewSaveStarterWiringTests.cs`, `.claude/CLAUDE.md`, `AGENTS.md`, `scripts/arch/log_tags.json`, `scripts/parsek-file-deletes-allowlist.txt` |
 
 Five tracks run at the same time, one agent each: **P12** (P12-01 then P12-02, one branch),
 **P11** (P11-01 and P11-02 are independent of each other and may run as two agents),
-**P7** (P7-01 then P7-02), **P1** (P1-01, P1-02, P1-03, P1-04 in order), **P10**.
+**P7** (P7-01 then P7-02), **P1** (P1-01, P1-02, P1-03 in order; P1-02 and P1-03 start after
+the launch pad fixes are on main), **P10**.
 
 The task index (C.2) groups P12, P7-01, P7-02, P1-01 and P1-02 in its ARCH track, P10-01 in
 SETUP and P11 in GUI; the merge order below holds either way.
@@ -742,8 +738,9 @@ the wave-0 notes of E.5):
 - `ParsekUI.cs`: P11-02, then R4-08 and R4-09.
 - `scripts/arch/lifetimes.toml` and `lifetime_pins.toml`: P1-03 first of C.1's row; every
   later task re-pins after merging.
-- `SpawnCollisionDetector.cs` and `LaunchSiteExclusionZones.cs`: P1 only, in order (R2-05
-  edits `HomeSpaceCenter.cs` after P1-01 and P1-03).
+- `SpawnCollisionDetector.cs` and `LaunchSiteExclusionZones.cs`: the launch pad fixes work
+  (outside this plan, already on main), then P1 only, in order (R2-05 edits
+  `HomeSpaceCenter.cs` after P1-01 and P1-03).
 - `RecordingPaths.cs`: P7 only, in order.
 
 ## 6. Tests and proof
@@ -757,9 +754,9 @@ the wave-0 notes of E.5):
 | P7-01 | xUnit `SafeFileIdTests` (verdicts, 41-char theory, `:` on every OS, producer shapes), `RecordingPathsLoggingTests` (fixed char), existing callers | none required | the check is OS-independent and refuses nothing a producer makes |
 | P7-02 | xUnit accessor cells, `ParsekFileCollector` tests | none | same paths, one production caller |
 | P1-01 | xUnit `HomeSpaceCenterTests`, existing retirement tests | none required | the KSC circles read one source with the same numbers |
-| P1-02 | xUnit `LaunchAreaTests` (wrap, circle equality, strip, date line), wound-longitude retirement cell | EX-1, LF-1, LF-2, MC-4 | same retirements on every lane; wound longitudes now retire |
+| P1-02 | xUnit `LaunchAreaTests` (wrap, circle equality, strip, date line), wound-longitude retirement cell (a pin of behavior already on main) | EX-1, LF-1, LF-2, MC-4 (no-change proof) | same retirements on every lane, wound longitudes included |
 | P1-03 | xUnit cache cells with the reader seam and the version override | MC-4, SWS-1, EX-1 | cache follows the version and the main menu, same decisions |
-| P1-04 | xUnit `ShouldCacheRuntimeRead` and cache cells | MC-4 | a partial read is not frozen |
+| P1-04 | dropped (launch pad fixes work) | - | - |
 | P10-01 | xUnit delete-step cells, `NewSaveStarterWiringTests`; Python `NewGameSourceSyncTests` | CS-0-new-career-game, CS-0-new-science-game, SWS-1 | the verb creates and starts a save exactly as before through the production core |
 
 Every task also runs, before its PR: `scripts/cloud-test.sh` (or `dotnet test` on Windows),
@@ -789,9 +786,8 @@ and `python harness/tools/lane_catalog.py` apply in the same commit.
 - **Headless pins**: Core gains three headless types with no game reference, so no new leak;
   `headless_pins.toml` `[measured]` is report-only. LogIO is not headless.
 - **Code facts** (`facts_pins.toml`): no new uncalled production method (each new method has a
-  production caller in its own pull request; `LaunchArea.Strip` lands with R2-01, and in
-  the owner-no case of P1-02 its files land with R2-01 and R3W-12); no cross-type static
-  write; no method near complexity 45.
+  production caller in its own pull request; `LaunchArea.Strip` lands with R2-01); no
+  cross-type static write; no method near complexity 45.
 - **Static lifetimes**: P1-03 tags `cachedRuntimeCircles` and its version key `process` and
   re-pins `lifetime_pins.toml`; `HomeSpaceCenter.CurrentOverrideForTesting` and
   `LaunchSiteExclusionZones.RuntimeAltSiteReaderForTesting` take `test-hook` from the
@@ -812,18 +808,20 @@ and `python harness/tools/lane_catalog.py` apply in the same commit.
   `harness/` (P10-01 edits that list).
 - **Docs**: `docs/dev/arch/README.md` (P12-01, P7-01, P1-01, P1-02);
   `design-autotest-command-seam.md` and `autotest-status.md` (P11-01); `.claude/CLAUDE.md` and
-  `AGENTS.md` (P10-01); CHANGELOG only for P1-02's wrap and P1-04, under the version header
-  current when they land; `docs/dev/todo-and-known-bugs.md` entries for the id check (P7-01),
-  the wound longitude (P1-02) and the frozen cache read (P1-03 / P1-04), each opened and closed
-  in its task.
+  `AGENTS.md` (P10-01); no CHANGELOG entry in this plan (the wound longitude and the partial
+  cache read have theirs in the launch pad fixes work, which lands them on main first);
+  `docs/dev/todo-and-known-bugs.md` entries for the id check (P7-01) and, if filed, the
+  "cache never reset" finding (P1-03), each opened and closed in its task.
 
 ## 8. Risks
 
-- **The longitude wrap retires flights it did not retire before** (P1-02). Real recordings
-  carry wound longitudes (section 3.4). Noticed by: the wound-longitude unit cell, and by
-  any lane whose pinned `Spawn RETIRED` count or forbidden pattern changes on the four named
-  lanes and the next tier run. Mitigation: the owner decides (10.1); the change is isolated
-  to the launch-site circles; the other `SurfaceDistance` callers keep their arithmetic.
+- **The extraction moves a retirement** (P1-02). Real recordings carry wound longitudes
+  (section 3.4), and the wrap that handles them is already on main (launch pad fixes work);
+  a slip in the moved arithmetic would change what retires. Noticed by: the bit-equal grid
+  cell (wound longitudes included), the wound-longitude retirement pin, and any lane whose
+  pinned `Spawn RETIRED` count or forbidden pattern changes on the four named lanes and the
+  next tier run. Mitigation: the move keeps the arithmetic and its order; the other
+  `SurfaceDistance` callers are not touched.
 - **The list-form expansion drops an edge silently** (P12-01). Noticed by the per-element
   cells and the committed-file count cell.
 - **A stale automation DLL is no longer caught by `windows=11`** (P11-01). The token was an
@@ -851,8 +849,10 @@ and `python harness/tools/lane_catalog.py` apply in the same commit.
    `GuiCensusSeamVerbTests`).
 2. **The longitude wrap is not behavior-neutral** (design 15.11 lists P1 as "no behavior
    change"). Recorded longitudes outside [-180, 180] exist in committed fixtures, including
-   points over the KSC stored as about -434.5. The plan treats the wrap in the
-   single-player circles as a small fix with a CHANGELOG entry, owner-gated (10.1).
+   points over the KSC stored as about -434.5. Settled (owner answer to 10.1, Q-04,
+   2026-11-14): the wrap and the partial-read cache fix land on main as single-player fixes
+   in the separate launch pad fixes work, each with a CHANGELOG line; P1 itself stays
+   behavior-neutral.
 3. **`HomeSpaceCenter` lands without the runway end, the strip half-width and a setter.** The
    design lists all three. The code has no stock numbers for the runway's east end or width
    (only the west threshold, `SpawnCollisionDetector.cs:221-225`), and a setter with no
@@ -903,3 +903,7 @@ and `python harness/tools/lane_catalog.py` apply in the same commit.
    approximate positions for them until KSP restarts. Options: **land both** (each with a
    CHANGELOG line; the race needs the same shape test anyway); land (a) only; land neither
    (P1 stays strictly neutral, the shape test waits for the race). Recommendation: land both.
+   **Answered 2026-11-14 (Q-04): fix both, in a separate work item outside this plan.** The
+   launch pad fixes work lands (a) and (b) on main, minimally and in place, each with a unit
+   test, a CHANGELOG line and a todo entry. P1-04 is dropped; P1-02 and P1-03 start after
+   that work is on main, and P1-02 is a behavior-neutral extraction.

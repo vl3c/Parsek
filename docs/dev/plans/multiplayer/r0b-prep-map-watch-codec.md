@@ -21,10 +21,10 @@ the same sidecar bytes, the same log lines, the same map and watch behavior.
 - **P3b, a lane-qualified watch target.** `WatchModeController` names what it follows by a
   `WatchModeTarget` (lane, index, id) and reaches ghost states and trajectories through a
   lane adapter instead of `host.Engine` and the committed list directly. The own lane keeps
-  every behavior; a foreign lane gets camera follow only. Deferred out of R0b (supervisor
-  decision): built when watching a rival flight is scheduled, and R3W-26, the camera half of
-  R4-11 and R5-06 wait with it. The first race build shows rivals on the map, in the Tracking
-  Station and as ghosts nearby, without the Watch camera.
+  every behavior; a foreign lane gets camera follow only. Deferred out of R0b (question
+  10.2, answered 2026-11-14: later): built when watching a rival flight is scheduled, and
+  R3W-26, the camera half of R4-11 and R5-06 wait with it. The first race build shows rivals
+  on the map, in the Tracking Station and as ghosts nearby, without the Watch camera.
 - **P6, the trajectory payload.** The binary trajectory codec decodes into a plain
   `RecordingTrajectoryPayload` (the six lists plus header facts). `Recording` becomes one
   consumer of it; the two production sites that today build a scratch `Recording` only to
@@ -420,9 +420,9 @@ section 9), and any change to what is written to disk.
 
 ### P3b: the lane-qualified watch target (deferred)
 
-Deferred out of R0b (supervisor decision): planned work, built when watching a rival flight
-is scheduled. What waits with it: R3W-26 and the camera half of R4-11 (on P3b-04), and
-R5-06 (on P3b-03 and R3W-26).
+Deferred out of R0b (question 10.2, Q-07, answered 2026-11-14: later, not in the first
+build): planned work, built when watching a rival flight is scheduled. What waits with it:
+R3W-26 and the camera half of R4-11 (on P3b-04), and R5-06 (on P3b-03 and R3W-26).
 
 **P3b-01 A watch target value**
 - **Change:** new `Source/Parsek/WatchModeTarget.cs` (module Controllers by `^WatchMode`):
@@ -808,7 +808,7 @@ per-frame watch path, and the last waits for P2b.
 Recommendation: A only if watching is in the first race build; otherwise B, since nothing
 else depends on it.
 
-Assumed until the owner says otherwise: B. P3b is deferred out of R0b and built when watching
-a rival flight is scheduled; R3W-26, the camera half of R4-11 and R5-06 wait with it. The
-first race build shows rivals on the map, in the Tracking Station and as ghosts nearby,
-without the Watch camera. The owner can ask for it earlier.
+Answered 2026-11-14 (Q-07): later, not in the first build, which is B. P3b is deferred out
+of R0b and built when watching a rival flight is scheduled; R3W-26, the camera half of R4-11
+and R5-06 wait with it. The first race build shows rivals on the map, in the Tracking Station
+and as ghosts nearby, without the Watch camera.

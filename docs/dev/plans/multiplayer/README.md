@@ -35,8 +35,8 @@ size, its dependencies and whether it needs the owner's PC.
 
 | Phase | Plans | What exists when it is done |
 |-------|-------|-----------------------------|
-| R0 spikes | r0 | answers, not code: site positions, scenery copy, suits, difficulty panel, plaque window, sync program speed, what a mod can see of debug tools |
-| R0b preparation | small, playback, map | base Parsek ready for a second ghost lane; no player-visible change except two small fixes (question Q-04) |
+| R0 spikes | r0 | answers, not code: site positions, scenery copy, suits, difficulty panel, plaque window, what a mod can see of debug tools; sync program speed (S8) runs last, after the race works on a plain folder |
+| R0b preparation | small, playback, map | base Parsek ready for a second ghost lane; no player-visible change (the two small launch pad fixes of question Q-04 land on main outside this plan) |
 | R1 mode and setup | r1 | a race save can be created and joined; it plays like single player |
 | R2 sites | r2 | each player starts at an own copy of the KSC; stock saves are untouched |
 | R3 exchange and rivals | r3e, r3w | a player's flights reach the shared folder and show up for rivals as ghosts, leftovers and flags |
@@ -62,8 +62,8 @@ wrong.
    in the same pull request is a valid first caller, and is preferred over joining two tasks.
    Where two tasks must share a pull request the plans say so; never more than two.
 3. **Dropped tasks keep their ids.** R1-13, T-08, T-09, T-11, T-14, T-15, T-22, T-23, R3E-05,
-   R3W-31, R4-14, R6-09 and R5-13 are dropped; each keeps a heading that says what replaced it. No
-   task is renumbered. P2a-01 is a specification, not a pull request.
+   R3W-31, R4-14, R6-09, R5-13 and P1-04 are dropped; each keeps a heading that says what
+   replaced it. No task is renumbered. P2a-01 is a specification, not a pull request.
 4. **Race code is inert outside a race save.** A single-player save gains no node, no file, no
    window and no cost from any task. The isolation gates (R1-06, R3W-27) and the "rivals change
    nothing" lanes prove it.
@@ -71,7 +71,8 @@ wrong.
    golden folder `v2`. R3E-04 registers nothing and adds golden `v3` at the same numbers. Both
    use T-01's driver. One pin class, `RaceFormatPinTests`.
 6. **No thread.** Every file access is on the main thread until the owner allows the one copy
-   worker (question Q-18, after spike S8). The plan builds the main-thread form first.
+   worker (question Q-18, after spike S8, which runs last). The plan builds the main-thread
+   form first, with the design's default poll numbers.
 7. **In-game test categories and their lanes.** The first test of a new in-game category
    regenerates the lane catalog (`python harness/tools/lane_catalog.py`) in its own pull
    request. The host specs RACE-9, RACE-10 and RACE-11 are T-29's and land last; until
@@ -126,7 +127,8 @@ ones that change the design are in `design-corrections.md`.
 - The trajectory decode change (P6) is built in parallel and merged when green, outside the
   window in which the ghost positioner change (P2b) is proven by flights (question Q-06).
 - The groundwork for the Watch camera on a rival flight (P3b) is not in the first build. Rivals
-  are seen on the map, in the Tracking Station and as ghosts nearby (question Q-07).
+  are seen on the map, in the Tracking Station and as ghosts nearby (question Q-07, answered
+  2026-11-14 by the owner: later).
 - The Multiplayer entry stays behind a developer switch until rivals and the board exist
   (question Q-08).
 - A milestone completed from the debug menu does not score, by the owner's decision D3. R3E-09
@@ -141,7 +143,7 @@ ones that change the design are in `design-corrections.md`.
 
 ## 5. What starts first
 
-`task-index.md` puts the 206 pull requests of the plan (211 live tasks) into 21 waves: a task
+`task-index.md` puts the 205 pull requests of the plan (210 live tasks) into 21 waves: a task
 is in wave 0 when it needs nothing but the owner's go, and in wave N when everything it needs
 is in a lower wave. A wave is not a week; it only says what can run side by side.
 
@@ -191,31 +193,39 @@ of slack against it, so its long flight proof does not hold the feature back.
 
 ## 6. The owner's PC
 
-Only one KSP runs a flight at a time, and the spikes need the same machine. `task-index.md`
-section D lists every task that needs the PC, by wave. In short:
+The spikes and the harness lanes need the same machine. `task-index.md` section D lists every
+task that needs the PC, by wave. In short:
 
-- **Spikes:** about 25 hours over four days (`r0-spikes.md`, day plan). They need a test copy
-  of the game and a copy without the expansions (question Q-01).
-- **The ghost positioner change (P2b):** ten pull requests proven by one flight run at the end
-  (question Q-05 asks how long that run is).
+- **Spikes:** about 23 hours over four days (`r0-spikes.md`, day plan), then about 3 hours for
+  S8 (sync program speed) at the very end. They need a test copy of the game and a copy
+  without the expansions (question Q-01).
+- **The ghost positioner change (P2b):** ten pull requests proven at the end by a short
+  representative set of 18 lanes plus the daily tier (question Q-05, answered 2026-11-14);
+  the full run of every lane happens once, at release time.
 - **Everything else:** one in-game test batch or one short lane per task that says "PC: yes".
   The cloud runs the unit tests, the architecture suite and the harness Python suites.
+
+PC lanes run through the parallel runner (`harness/tools/parallel_runner.py`, on main) where it
+applies: two game copies while the owner works at the PC, three when away. Its one measurement
+so far is the daily tier, 12 min 35 s on three copies against about 25 minutes one lane at a
+time, so lanes take about half as long on three copies (an estimate from that one ratio). It
+skips by default the lanes that move the cursor or take the focus, and the full tier on it is
+not yet measured. What still runs alone: the spikes' frame-cost sessions (S5's frame cost, S8b,
+S11), which need an otherwise idle PC, and the in-game test batches run by hand.
 
 ## 7. Questions for the owner
 
 `design-corrections.md` part 2 lists 26 questions (Q-01 to Q-26), each with options and a
 recommendation. Part 2 orders them by when the answer is needed; the groups below order them
-by what the owner has to do, so Q-06, Q-07 and Q-08 sit under "assumed" here.
+by what the owner has to do, so Q-06 and Q-08 sit under "assumed" here.
 
-**Needed before work starts (5).** Q-01 a separate game copy for the spikes; Q-02 keep the
-spike branch on GitHub; Q-03 which sync programs the file-speed test covers; Q-04 land two
-small single-player fixes with the launch-pad rule; Q-05 how long the PC flies to prove the
-ghost-position change.
+**Needed before work starts (2).** Q-01 a separate game copy for the spikes; Q-02 keep the
+spike branch on GitHub.
 
-**Assumed as recommended, the plans already follow them (7).** Q-06 P6 in parallel; Q-07 no
-Watch camera on rivals in the first build; Q-08 menu entry hidden until R3 and R4; Q-22 rival
-ghosts show their owner's name; Q-23 no atmosphere marker for rivals in R3; Q-24 harness races
-never score; Q-25 two copies racing on one PC as an optional lane.
+**Assumed as recommended, the plans already follow them (6).** Q-06 P6 in parallel; Q-08 menu
+entry hidden until R3 and R4; Q-22 rival ghosts show their owner's name; Q-23 no atmosphere
+marker for rivals in R3; Q-24 harness races never score; Q-25 two copies racing on one PC as an
+optional lane.
 
 **Asked when their phase comes (8).** Q-09 who sets the length of a race day; Q-10 a race save
 whose space center cannot be set up; Q-11 "allow other launch sites" turned on against the race
@@ -227,7 +237,15 @@ follows its recommendation.
 **Asked after a spike (5).** Q-17 difficulty presets only (S6); Q-18 the copy worker (S8); Q-19
 and Q-20 the replacement suits (S3); Q-21 a small dialog for a rival's plaque (S7).
 
-Q-26 is answered by the owner's decision D3.
+**Asked at the end, before S8 runs (1).** Q-03 which sync programs the file-speed test covers.
+The owner (2026-11-14): "leave this at the end, its an external dependency". S8 is the last
+piece of the plan, run after the race works end to end on a plain shared folder.
+
+**Answered (4).** Q-04 (2026-11-14): fix both, in a separate work item outside this plan (the
+launch pad fixes work); P1-04 is dropped and P1-02 is behavior-neutral. Q-05 (2026-11-14): no
+run of every lane for P2b; a representative set of lanes rechecks the ghost system, and the full
+run happens at release. Q-07 (2026-11-14): the Watch camera on rival flights comes later, not
+in the first build. Q-26 by the owner's decision D3.
 
 ## 8. The design after this plan
 

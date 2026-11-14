@@ -349,12 +349,11 @@ Logging (tag `RaceSites`, design section 10):
   :509-512): every member lands with a production caller. `SiteTable.Get`, `Decide` and
   `Reconcile` are reached from `OnSceneRequest`; the table itself is built in `SiteTable`'s
   static initializer (a root), so this task adds the `LaunchArea.Strip` factory to P1-02's
-  `LaunchArea.cs` together with `SiteRow.LaunchAreas` (P1-02 does not create it); if the
-  owner says no to P1-02's longitude wrap, `LaunchArea` itself (constructor, `Circle`,
-  `Strip`) lands in this task's PR and `LaunchAreaGeometry` with R3W-12, so the
-  `SiteTableTests` containment cells then move to R3W-12; `SiteRow.LaunchAreas` is a
-  readonly field (no method); `HomePointsFor` lands with R2-05 and `LongitudeShift` with
-  R2-04, their first callers.
+  `LaunchArea.cs` together with `SiteRow.LaunchAreas` (P1-02 does not create it; P1-02 is
+  behavior-neutral since the owner's answer to Q-04, 2026-11-14, moved the longitude wrap
+  itself to the launch pad fixes work on main, so `LaunchArea` and `LaunchAreaGeometry`
+  always exist before this task); `SiteRow.LaunchAreas` is a readonly field (no method);
+  `HomePointsFor` lands with R2-05 and `LongitudeShift` with R2-04, their first callers.
 - **Proof:** xUnit `SiteTableTests` (four rows, slots 0-3, site 0 equal to the stock
   constants, derived points of site k at the same latitude and shifted longitude, longitude
   wrap at 162.3 W, unknown id null, every launch area contains its own pad and runway

@@ -715,7 +715,8 @@ behavior change; lines 2342-2343: the longitude wrap is "worth doing for single 
 Found: r0b-prep-small.md:772-775. Committed fixtures hold longitudes outside [-180, 180],
 including about -434.5 over the KSC, so the wrap changes single-player results. Check (code):
 `harness/fixtures/saves/eve-gilly-recorded/` and `bdock-recorded-career/` hold `-434.`
-values. See Q-04.
+values. See Q-04, answered 2026-11-14: the wrap lands on main in a separate work item outside
+this plan, so P1 itself stays behavior-neutral.
 
 **DC-116 CONTRADICTION.** Design 15.11 P1 (line 2324): `HomeSpaceCenter` carries the runway end,
 the strip half-width and a setter; 15.14 (lines 2418-2420): no method may land with test
@@ -829,7 +830,8 @@ session's references are at `/home/user/ksp-refs`.
 ## Part 2. Questions for the owner
 
 Ordered by class: NOW, BEFORE-PHASE, AFTER-SPIKE, DESIGNER, ANSWERED. "Waits" names the tasks
-that need the answer.
+that need the answer. A question answered or re-timed after this list was written keeps its
+place and its number; its Class line says what changed (Q-03, Q-04, Q-05, Q-07).
 
 ### NOW
 
@@ -851,7 +853,11 @@ whether copying race files needs its own background worker.
   that is offline; (c) every program you use.
 - Recommended: (b); friends will use a mix, and the offline share is the worst case.
 - Source: r0-spikes.md:969-973. Waits: S8a, S8b; then R3E-23 and R6-10. Spike first: this is
-  the setup of S8. Class: NOW.
+  the setup of S8.
+- Class: DEFERRED TO THE END by the owner, 2026-11-14: "leave this at the end, its an external
+  dependency". S8 is the last piece of the plan, run after the race works end to end on a plain
+  shared folder; this question is asked only when S8 is about to run. Until then the plan
+  builds the main-thread form with the design's default poll numbers.
 
 **Q-04 Land two small single-player fixes with the launch-pad rule?** Today a flight that ends
 parked on the pad or runway is retired. (a) If its stored longitude has wound past the date
@@ -860,16 +866,24 @@ were read before they were built, approximate positions are kept until KSP resta
 - Options: land both (each with a changelog line); land (a) only; land neither (the
   prerefactor stays strictly behavior-neutral).
 - Recommended: land both.
-- Source: r0b-prep-small.md:812-819; correction DC-115. Waits: P1-02, P1-04. Spike first: none
-  (a log read on your PC settles the wording of P1-03). Class: NOW.
+- Source: r0b-prep-small.md:812-819; correction DC-115. Waits: nothing in this plan now (P1-04
+  is dropped; P1-02 and P1-03 start after the fixes are on main). Spike first: none.
+- Class: ANSWERED 2026-11-14 by the owner: fix both, in a separate work item outside this plan
+  (the launch pad fixes work, which lands each fix on main with a unit test, a CHANGELOG line
+  and a todo entry). P1-04 is dropped; P1-02 keeps only the behavior-neutral extraction of the
+  shape test.
 
 **Q-05 How long should your PC fly to prove the ghost-position change before the next step?**
 The change touches where every ghost is drawn every frame.
-- Options: (a) the full run, every lane on every install, about a day and a half; (b) the daily
-  and nightly tiers (about 10 hours) plus the watch, loop and map picture lanes.
-- Recommended: (a).
 - Source: r0b-prep-playback.md:837-843. Waits: P2b-10, and every prerefactor after it. Spike
-  first: none. Class: NOW.
+  first: none.
+- Class: ANSWERED 2026-11-14 by the owner: "there's no point in running every single test for
+  that, we can do it later at release; pick the most representative tests to run to recheck
+  the ghost system after changes". The proof is a representative set of 18 lanes, one per way
+  the positioner places a ghost, flown with the daily tier through the parallel runner
+  (`harness/tools/parallel_runner.py`, two copies while the owner works, three when away);
+  r0b-prep-playback.md section 6.4 lists the lanes. The full run happens once, at release
+  time.
 
 **Q-06 May the trajectory file change land in parallel with the other prerefactors?** The
 design puts it last because it touches saved files; in practice it writes nothing differently
@@ -886,7 +900,9 @@ cannot follow it.
   scheduled.
 - Recommended: (a) only if watching is in the first race build; otherwise (b).
 - Source: r0b-prep-map-watch-codec.md:720-728. Waits: P3b-01 to P3b-04, R3W-26, the camera
-  half of R4-11, R5-06. Spike first: none. Class: NOW.
+  half of R4-11, R5-06. Spike first: none.
+- Class: ANSWERED 2026-11-14 by the owner: later, not in the first build, which is (b). P3b
+  stays deferred, as the plans already assumed.
 
 ### BEFORE-PHASE
 
@@ -1043,11 +1059,11 @@ plays is marked by the test tooling, so its own flights never score.
   debug tool does not score (design 0, lines 102-103).
 
 **Q-25 Test two game copies racing on one PC at the same moment?**
-- Options: (a) an optional operator lane, once parallel flights exist; (b) leave it to the
+- Options: (a) an optional operator lane on the parallel runner's copies; (b) leave it to the
   two-PC play test.
 - Recommended: (a); the only proof of two live writers short of a two-PC test.
 - Source: test-and-harness.md:912-915. Waits: T-34. Spike first: none. Class: DESIGNER; assume
-  (a), built only when parallel flights exist.
+  (a). The parallel runner it builds on is on main (pull request #2592).
 
 ### ANSWERED
 

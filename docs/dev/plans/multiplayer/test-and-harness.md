@@ -2,8 +2,8 @@
 
 Status: PLAN (2026-11-14), not started. Design sections covered: 11 (in full), the gates of
 6.4, 10 (log tags as test anchors), 15.8, 15.10 (harness-made opponents, the seed only),
-15.14. Phases: R0b (the day-one tasks), then alongside R1 to R4; one optional task after the
-parallel-flights work lands.
+15.14. Phases: R0b (the day-one tasks), then alongside R1 to R4; one optional task (T-34)
+on the parallel runner, which is on main.
 
 ## 1. Goal and scope
 
@@ -37,7 +37,7 @@ the tests that no single feature slice owns. Concretely:
 | B. Generator-built rival folders, committed as fixtures and staged by `run.py` (T-16, T-17, T-03) | Import, the rival store, rival ghosts, flags, map objects and the board in the real game against known rival data, including tampered, incomplete, newer-format and conflict-copy cases | That a real second build exports what the generator writes (the codec round trip covers the bytes, not the exporter) |
 | C. Two race saves in one install, played in turn (the SWS-1 / `NewGame as=` precedent) (`RaceSetup` from R1-10 / R1-11, RACE-1, RACE-6) | The real exporter feeding the real importer through a real folder; join, slots and looks; a quickload that drops a shared flight | Concurrency; anything a scoring flight would show (every harness-flown flight is tool-marked, section 9 item 1) |
 | D. A harness campaign that flies a race save and harvests its player folder (T-33, 15.10) | A real, flown, unmarked-by-generator rival folder as a fixture; the seed of R8 | Nothing new about sync; it is a fixture source |
-| E. Two game copies on one PC sharing one folder (T-34, after parallel flights) | True concurrency of two live writers on one folder | Real sync clients, real clock skew |
+| E. Two game copies on one PC sharing one folder (T-34, on the parallel runner's slot copies) | True concurrency of two live writers on one folder | Real sync clients, real clock skew |
 
 Recommendation: **A is primary for the rules, B is primary for everything live**, C is the
 one end-to-end proof of the real exporter, D feeds B with real flights, E is optional.
@@ -73,11 +73,13 @@ instance (the harness may not touch one, section 9 item 11).
   then the lanes T-24 to T-29 (T-24 also after R3W-20, T-25 after R3E-20, T-29 after
   R2-03, R2-05, R5-11 and R3W-30). T-33 after R1-10, R3E-16 and T-21.
 - After R4-04 (the board): T-30, T-31 (also R3E-19, R6-03), T-32 (also R4-07).
-- T-34: after the sibling parallel-flights work lands (two copies, two kRPC port pairs).
+- T-34: after T-21 and T-30. The parallel-flights machinery it builds on (slot copies, each
+  with its own kRPC ports, and `harness/tools/parallel_runner.py`, pull request #2592) is on
+  main, so it no longer waits on that work.
 - Dropped here and owned elsewhere: T-08, T-09, T-15 (R1-06), T-11 (R1-10, R1-11), T-14
   (R2-13), T-22 (R3W-27), T-23 (R3W-29).
 - Spikes: none blocks a task here. S8 (sync clients) feeds the fake store's file behaviours
-  (T-02 can start on the cases in this plan and gain S8's findings later).
+  (T-02 proceeds without S8, which runs last; S8's findings become new cases then).
 
 ## 3. What the code looks like today
 
@@ -693,15 +695,15 @@ Dropped: replaced by R3W-29 (OV-20).
 
 ### T-34 Lane RACE-13-paired-copies (optional)
 
-- **Change:** operator lane that runs two game copies at once on one shared folder (the
-  sibling parallel-flights work): both create or join, both export and sync for a few
-  cycles; assert both boards equal and the folder well-formed.
+- **Change:** operator lane that runs two game copies at once on one shared folder (on the
+  slot copies of the parallel runner, now on main): both create or join, both export and
+  sync for a few cycles; assert both boards equal and the folder well-formed.
 - **Proof:** the lane.
 - **Registers:** as any lane.
-- **Size:** M. **Depends on:** parallel flights (two instances, two kRPC port pairs: the
-  parallel runner `harness/tools/parallel_runner.py` of pull request #2592, outside this
-  plan), T-21, T-30. Built only once that runner is on main (question 3, assumed (a)).
-  **PC:** yes.
+- **Size:** M. **Depends on:** T-21, T-30. The parallel runner
+  (`harness/tools/parallel_runner.py`, pull request #2592: two instances, each with its own
+  kRPC ports) is on main, so T-34 no longer waits on it being merged. Optional (question 3,
+  assumed (a)). **PC:** yes.
 - **Risk:** medium; it is the only proof of two live writers, and it depends on machinery
   this plan does not own.
 
@@ -800,17 +802,17 @@ All estimates are from the reference p50s of section 3 (boot floor 45 s, a main-
 trip like SWS-1, a B1 or B2 flight), not measured; each lane's first flight replaces them.
 
 Capacity: daily gains about 45 s (+3% on 0.42 h); nightly about 1800 s (+4% on 12.5 h);
-operator about 400 s. The race lanes are small next to the prerefactors: P2b-10 wants a full
-run as its proof ("about 21.5 h measured p50 plus 169 untimed; plan on a day and a half",
-`harness/README.md:1652-1728`); P2c and P2a name one nightly run, P3 and P3b named lanes and
-P6 a daily run (the prerefactor plans own those choices). That is where the PC hours of the
-project go, not the RACE lanes.
+operator about 400 s. The race lanes are small next to the prerefactors: P2b-10's proof is a
+representative set of 18 lanes plus the daily tier (owner's answer to Q-05, 2026-11-14;
+playback 6.4), with the full run left to release time; P2c and P2a name one nightly run, P3
+and P3b named lanes and P6 a daily run (the prerefactor plans own those choices). That is
+where the PC hours of the project go, not the RACE lanes.
 
-Parallel flights: every RACE lane except RACE-3, RACE-6 and RACE-12 drives the seam only
-and needs no kRPC port, so two or three copies can run them side by side; the expected gain
-is near the copy count for those lanes (an estimate; the sibling work measures it). The
-kRPC lanes stay limited by the two hard-coded ports and the one GPU
-(`harness/README.md:1492-1553`) until that work gives each copy its own ports.
+Parallel flights: the parallel runner (`harness/tools/parallel_runner.py`, on main;
+`harness/README.md`, "Parallel runs") flies lanes on two or three copies at once, each copy
+with its own kRPC ports ("Install slots"), so every RACE lane can run through it. The one
+measurement so far is the daily tier: 12 min 35 s on three copies against about 25 minutes
+one lane at a time, about half; the RACE lanes on it are not measured.
 
 ### What needs the owner's PC
 
@@ -973,10 +975,10 @@ AGENTS.md`); `design-gui-inventory.md` is untouched.
    forces a session where no time passes and so cannot see a rival flag or a rival landing.
 
    Assumed until the owner says otherwise: (a), applied in T-05 and T-27.
-3. **Two game copies racing on one PC.** Once parallel flights exist, a lane can run two
+3. **Two game copies racing on one PC.** With the parallel runner's copies, a lane can run two
    copies writing one folder at the same moment. Options: (a) build it as an operator lane
    (recommended: the only proof of two live writers short of your two-PC test); (b) leave
    concurrency to the two-PC play test.
 
-   Assumed until the owner says otherwise: (a); T-34 stays optional and is built only once
-   parallel flights exist.
+   Assumed until the owner says otherwise: (a); T-34 stays optional. The parallel runner it
+   builds on is on main (pull request #2592).
