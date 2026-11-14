@@ -9227,8 +9227,12 @@ SCREEN_RESOLUTION_SPEC_KEY = "screenResolution"
 # The [runtime] keys validate_spec accepts. A misspelled `screenResolution`
 # would otherwise read as "no opt-in" and silently capture at 1280x720.
 KSP_SETTINGS_SPEC_KEY = "kspSettings"
+# `exclusive = true`: the lane moves the OS cursor or takes the foreground, so the
+# parallel runner (tools/parallel_runner.py, lib/parallel.py) flies it alone, last.
+EXCLUSIVE_SPEC_KEY = "exclusive"
 RUNTIME_SPEC_KEYS: Tuple[str, ...] = (
-    "budgetSeconds", SCREEN_RESOLUTION_SPEC_KEY, KSP_SETTINGS_SPEC_KEY)
+    "budgetSeconds", SCREEN_RESOLUTION_SPEC_KEY, KSP_SETTINGS_SPEC_KEY,
+    EXCLUSIVE_SPEC_KEY)
 
 # The sizes a spec may ask for. 1280x720 is the provisioned default (declaring it
 # is a no-op); 1920x1080 is the GUI census frame. A closed set, so a lane cannot
@@ -9270,6 +9274,9 @@ def validate_screen_resolution(runtime: Dict) -> List[str]:
             errors.append("runtime.%s: %r not in %s"
                           % (SCREEN_RESOLUTION_SPEC_KEY, value,
                              list(ALLOWED_SCREEN_RESOLUTIONS)))
+    if EXCLUSIVE_SPEC_KEY in runtime and not isinstance(runtime[EXCLUSIVE_SPEC_KEY], bool):
+        errors.append("runtime.%s: %r must be true or false"
+                      % (EXCLUSIVE_SPEC_KEY, runtime[EXCLUSIVE_SPEC_KEY]))
     errors.extend(validate_ksp_gameplay_settings(runtime))
     return errors
 
