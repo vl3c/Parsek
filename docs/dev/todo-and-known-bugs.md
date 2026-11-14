@@ -2847,26 +2847,49 @@ hunk buckets of later commits, which now land on the service files. The gap to t
 state is the measured forwarders above and the reset fan-out (the plan's optional `ResetRequested`
 event would remove the latter).
 
-## ARCH-ONLOAD-CONTEXT-AND-BRANCHES: ParsekScenario.OnLoad is one 1,377-line method with about 108 branches [FILED 2026-11-14 from the refactor plan item 14 (B2; review `analysis-review-2026-11-11/review-architecture.md`, section B2). OPEN; structural debt, no behavior defect]
+## ~~ARCH-ONLOAD-CONTEXT-AND-BRANCHES: ParsekScenario.OnLoad is one 1,377-line method with about 108 branches~~ [FILED 2026-11-14 from the refactor plan item 14 (B2; review `analysis-review-2026-11-11/review-architecture.md`, section B2). DONE 2026-11-14 on branch `item14-onload-context` (step table unchanged, token golden re-pinned by a stated mechanical rename, mutant sweep; xUnit and harness suites, not flown: the covering lanes are named below)]
 
-**What is true.**
-- OnLoad holds the prologue, three branches (plain rewind, in-session, cold) and two copies
+**What was true.**
+- OnLoad held the prologue, three branches (plain rewind, in-session, cold) and two copies
   of the same tail, threading about twenty locals through 67 named phases (`loadPhase`).
 - Its order was proven only by source text (`ParsekScenarioOnLoadCharacterizationTests`,
   `LoadReconcileWiringGateTests`) and by flights: no headless test ran it.
 
-**Step 1 (done, test-only).** `ParsekScenarioOnLoadStepOrderTests` runs the real OnLoad
-headless for every load kind (Cold, PlainRewind, ReFlyStart, DiscardReFly, StockRevert,
+**Step 1 (test-only).** `ParsekScenarioOnLoadStepOrderTests` runs the real OnLoad headless
+for every load kind (Cold, PlainRewind, ReFlyStart, DiscardReFly, StockRevert,
 QuickloadFlight, InSessionOther) over an empty save and pins, per kind, the steps it
 executes: every phase, every call it makes into Parsek code, every coroutine and seam hit,
 the classification and the final status (`Fixtures/SourceCharacterization/ParsekScenario.OnLoad.steps.txt`).
 Harmony replaces what cannot run headless: the inline `UnityEngine.Time` reads, `StartCoroutine`
 (recorded, not started) and the two facility-cache readers that call `FindObjectsOfType`.
-Data-dependent phases (merge journal, sweep recalculation, a pending tree, the backup hold)
-do not run over an empty save; the token characterization still pins their order.
+Data-dependent phases (merge journal, sweep recalculation, a pending tree) do not run over an
+empty save; the token characterization still pins their order.
 
-**Fix.** A load context object for the shared values, one method per branch, the shared
-tail, and a phase trace; the step table must pass unchanged.
+**Fix.** OnLoad is now the skeleton: the inert gate, an `OnLoadContext` (save node,
+committed list, early kind, cold reason, classification facts, refined kind, phase, status,
+count, the prologue stop flag), the try / catch / finally and the timing line. It dispatches to
+`OnLoadFlowPrologue`, then `OnLoadFlowPlainRewind`, `OnLoadFlowInSession` or `OnLoadFlowCold`;
+the in-session and Cold branches share `OnLoadFlowTailSweep`, `OnLoadFlowTailReap` and
+`OnLoadFlowTailCollect` (Cold's quit-without-saving reap sits between the last two). The
+backup hold stops the load through `ctx.StoppedInPrologue`. The phase trace: every
+`ctx.Phase` assignment is kept, and the finally writes one `[LoadPolicy] Load phases:
+kind= status= count= [phase@ms > ...]` Verbose line per load (gated by verbose logging, like
+the other one-shot load diagnostics; a separate setting would have added a Settings toggle).
+Proof: the step table passes unchanged; `il_compare.py` reads every method except OnLoad
+identical (the seven flow methods and the context are new); the token golden differs from
+the original only by `loadPhase` / `loadStatus` / `loadedRecordingCount` -> `ctx.*`, the
+context aliases at the top of each flow method, and the vessel-name reason passed into the
+tail. Source gates read OnLoad through `ParsekScenarioSourceFiles.ReadText`, which inlines
+the flow calls. A 20-mutant sweep (swap, drop, misroute) killed 19; the survivor (the
+in-session tail collecting in Cold mode) and two mutants killed only by source text (a hold
+that does not stop, a wrong vessel-name reason) now die in two headless cells that pin the
+branch arguments of the tail and the backup-hold stop.
+
+Re-pins: `scripts/arch/facts_pins.toml` swaps `OnLoad` for `OnLoadFlowInSession` (complexity
+68) in the complexity watch list; `harness/lib/test_ledgeraudit.py` reads the two classification
+guards without their indentation.
+
+**Lanes that cover it in a real game (not flown):** QWS-1, PPB-3, VN-5, QL-3, QL-5d, REV-1.
 
 ## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY DONE 2026-09-14: the Missions -> Logistics crossing closed in #1685 (merged); the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 merged as #1686 (`VesselSnapshotOps`), plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 

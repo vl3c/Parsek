@@ -1039,9 +1039,9 @@ namespace Parsek
             DiagnosticsState.ResetSessionCounters();
             IncompleteBallisticSceneExitFinalizer.ResetLifecycleDiagnostics();
             var sw = Stopwatch.StartNew();
-            int loadedRecordingCount = 0;
-            string loadPhase = "entry";
-            string loadStatus = "running";
+            var ctx = new OnLoadContext(node, sw);
+            ctx.Phase = "entry";
+            ctx.Status = "running";
             // Route-timeline events: while OnLoad is on the stack, every
             // BumpSupersedeStateVersionLive degrades to the silent shape
             // (ledger writes during load are unsafe, and on a scene-change
@@ -1054,1321 +1054,30 @@ namespace Parsek
             ClearFlightSceneReadyForVesselSwitchFlag();
             try
             {
-                // Reset deferred dialog flag and clear input lock (dialog may have been
-                // destroyed by scene change without the user clicking a button)
-                loadPhase = "reset-dialog";
-                mergeDialogPending = false;
-                InputLockManager.RemoveControlLock("ParsekMergeDialog");
-
-                // GUI state gallery (design-gui-state-gallery.md 7.5, layer 4). A mock
-                // scope is a static on an automation-only type and every exit path clears
-                // it, so finding one set here is UNREACHABLE across processes: a crash
-                // mid-mock takes the static with the process. One bool read per load
-                // turns "nothing injected can survive into a load" from an assumption
-                // into an observable claim, which is the only kind of crash-safety
-                // statement worth making.
-                OnLoadPhaseDropLiveGuiMockSession();
-
-                // Restore user-intent settings (tracking-station visibility, readable
-                // sidecar mirrors, etc.) from the
-                // external settings.cfg file, overwriting whatever stale value KSP's
-                // GameParameters restored from the save. Runs before anything reads
-                // ParsekSettings.Current so the rest of OnLoad sees the fresh values.
-                // Survives rewind (parsek_rw_* quicksaves), save/load, and KSP restart.
-                loadPhase = "settings";
-                // scenarioNodePopulated is a BARE BOOL: "does my own SCENARIO node carry
-                // real Parsek data", judged exactly as PreParsekBackup.HasParsekGameplayFootprint
-                // judges it (any child node, or any value beyond the stock name+scene pair;
-                // the empty node KSP injects on first AddToAllGames contact is NOT data).
-                // The settings layer owns what that signal MEANS - this file deliberately
-                // names no UI-mode symbol.
-                bool scenarioNodePopulated =
-                    node != null && (node.nodes.Count > 0 || node.values.Count > 2);
-                ParsekSettingsPersistence.ApplyTo(
-                    ParsekSettings.Current, scenarioNodePopulated: scenarioNodePopulated);
-                // The hidden-but-kept settings (auto-record trio, autoMerge,
-                // forceFaithfulLoopPlayback) have no player-facing UI since the 2026-08-27
-                // settings simplification, so a stale save-stored value (e.g. autoMerge=False
-                // from an older career) is clamped back to the shipping value here - unless
-                // an automation env hook is armed, in which case the harness keeps authority
-                // over these fields (fixture pins + SetSetting must survive scene loads).
-                OnLoadPhaseClampHiddenSettingsToShippingValues();
-                RecorderStateLog.RecState("OnLoad:settings-applied", CaptureScenarioRecorderState());
-
-                // The save-wide format stamp: log what wrote this save (pre-1.0, current, newer).
-                // Each store's own reader decides what it keeps; this read changes nothing.
-                loadPhase = "save-format";
-                SaveFormat.ClassifyLoadedScenarioNode(node, scenarioNodePopulated);
-
-                var recordings = RecordingStore.CommittedRecordings;
-                loadedRecordingCount = recordings.Count;
-
-                loadPhase = "hooks";
-                RegisterMainMenuHook();
-                string saveFolderBeforeDetect = backupHoldRetryDetected
-                    ? backupHoldRetrySaveFolderBefore
-                    : lastSaveFolder;
-                backupHoldRetryDetected = false;
-                backupHoldRetrySaveFolderBefore = null;
-                DetectSaveFolderChange();
-
-                // Load classification (LoadReconcilePolicy) before the prologue consumes any
-                // state, after DetectSaveFolderChange settles initialLoadDone. An in-session
-                // load is refined once the revert detector has run (below); every other kind
-                // is final here and logs now.
-                loadPhase = "load-classify";
-                bool classifyInitialLoadDone = initialLoadDone;
-                bool classifyRewinding = RewindContext.IsRewinding;
-                bool classifyReFlyInvoke = RewindInvokeContext.Pending;
-                bool classifyDiscardReFly = DiscardReFlyLoadIntent.TryConsume(
-                    HighLogic.LoadedScene, "ParsekScenario.OnLoad", out RevertTarget discardReFlyIntentTarget,
-                    HighLogic.CurrentGame?.flightState != null
-                        ? HighLogic.CurrentGame.flightState.universalTime
-                        : double.NaN);
-                string classifyDiscardReFlyTarget = classifyDiscardReFly
-                    ? discardReFlyIntentTarget.ToString()
-                    : null;
-                // A save file stock just loaded (F9, the pause-menu Load, the main-menu Load):
-                // consumed by this load whatever it classifies as. The revert detector is read
-                // without consuming it (the revert branch consumes it below): stock fires the
-                // save-file event inside a revert too, and the revert wins.
-                bool classifyRevertPending = RevertDetector.PendingKind != RevertKind.None;
-                bool classifySaveFileLoad = SaveFileLoadIntent.TryConsume(
-                    UnityEngine.Time.realtimeSinceStartup, UnityEngine.Time.frameCount,
-                    "ParsekScenario.OnLoad", out double saveFileIntentNodeUT, out int saveFileIntentAgeFrames);
-                string classifyHandoff = InSessionStagedStateHandoff.DescribeForClassification();
-                EarlyLoadKind earlyLoadKind = LoadReconcilePolicy.ClassifyEarly(
-                    classifyInitialLoadDone, classifyRewinding, classifyReFlyInvoke, classifyDiscardReFly,
-                    classifySaveFileLoad, classifyRevertPending);
-                string coldReason = LoadReconcilePolicy.ResolveColdReason(
-                    earlyLoadKind, classifyInitialLoadDone,
-                    coldLoadsThisProcess, saveFolderBeforeDetect, HighLogic.SaveFolder);
-                var classification = new LoadClassificationFacts(
-                    classifyInitialLoadDone, classifyRewinding, classifyReFlyInvoke, classifyDiscardReFlyTarget,
-                    classifyHandoff, coldReason, classifySaveFileLoad, classifyRevertPending,
-                    classifySaveFileLoad ? saveFileIntentAgeFrames : -1,
-                    classifySaveFileLoad ? saveFileIntentNodeUT : double.NaN);
-                if (earlyLoadKind != EarlyLoadKind.InSession)
-                    LogLoadClassification(earlyLoadKind, LoadReconcilePolicy.ToLoadKind(earlyLoadKind), classification);
-
-                // A save-file load replaces everything from the save (design 4.1): the cold
-                // branch below runs, and the handoff the torn-down scenario captured is not
-                // this load's (the save's own staging nodes are).
-                if (coldReason == LoadReconcilePolicy.ColdReasonSaveFile)
+                OnLoadFlowPrologue(ctx);
+                if (!ctx.StoppedInPrologue)
                 {
-                    initialLoadDone = false;
-                    InSessionStagedStateHandoff.Drop(InSessionStagedStateHandoff.DropSaveFileLoad);
-                }
-                else if (classifySaveFileLoad)
-                {
-                    ParsekLog.Verbose(LoadReconcilePolicy.LogTag,
-                        "Save-file load intent dropped reason=consumed-by-" + earlyLoadKind
-                        + (classifyRevertPending ? " (a revert is pending)" : ""));
-                }
-
-                // Every Cold load starts from nothing: the save (and, for a save written by an
-                // older build, the external files) is the only source of what follows
-                // (design-load-restores-the-save.md 4.2).
-                if (earlyLoadKind == EarlyLoadKind.Cold)
-                {
-                    loadPhase = "save-scoped-reset";
-                    ResetSaveScopedSessionState(coldReason);
-                }
-
-                if (!RewindContext.IsRewinding)
-                    KerbalLoadRepairDiagnostics.Begin();
-                loadPhase = "crew-groups";
-                LoadCrewAndGroupState(node);
-                // Rewind-to-Staging Phase 1 (design sections 5.1-5.9). Load runs
-                // on every OnLoad so a revert or scene change rebuilds the lists
-                // from .sfs rather than reusing stale in-memory state.
-                loadPhase = "refly-state-load";
-                LoadRewindStagingState(node);
-
-                // The drawdown guard's stock pool reference comes from the same .sfs as the
-                // live pools it describes, on every load kind (LoadReconcilePolicy,
-                // StockPoolReference category); a save without one starts afresh at its
-                // first patch.
-                loadPhase = "stock-pool-reference-load";
-                LoadStockPoolReference(node, earlyLoadKind);
-
-                // The ledger held-through UT says which ledger rows the loaded world already
-                // holds (a save written inside a Rewind-to-Launch lead window), before any walk
-                // or committed-future read of this load (LoadReconcilePolicy, LedgerHeldWindow).
-                loadPhase = "ledger-held-window-load";
-                LoadLedgerHeldWindow(node, earlyLoadKind);
-
-                // The vessels a plain rewind held back for their committed future describe the
-                // world of the save that holds them (LoadReconcilePolicy, RewindVesselHolds).
-                loadPhase = "rewind-vessel-holds-load";
-                LoadRewindVesselHolds(node, earlyLoadKind);
-
-                // The replay-scope latch describes the timeline of the save that carries it
-                // (LoadReconcilePolicy, PlaybackReplayScope): a cold load takes the save's, so a
-                // save written mid-replay keeps its ghosts drawn and relaying.
-                loadPhase = "playback-replay-scope-load";
-                LoadPlaybackReplayScope(node, earlyLoadKind);
-
-                // The flags the player removed describe the world of the save that carries them
-                // (LoadReconcilePolicy, RemovedReplayFlags): a cold load takes the save's; every
-                // other load keeps memory's and drops the removals after the loaded world's UT below.
-                loadPhase = "removed-replay-flags-load";
-                LoadRemovedReplayFlags(node, earlyLoadKind);
-
-                // A rewind point always survives a plain rewind (operator ruling
-                // 2026-09-23). The node above is persistent.sfs as last written, not the
-                // rewind save (SpaceCenterMain.Start reloads persistent), so its RP list is
-                // of unknown age: put back the in-memory list captured when the rewind
-                // started. No-op on every load that is not a rewind.
-                loadPhase = "rewind-point-carry-over";
-                RewindCarry.ReinstallRewindCarriedRewindPointsAfterLoad(this);
-
-                // Same for the supersede, rewind-retirement and tombstone lists and the merge
-                // journal: the recordings and the ledger are kept from memory across a plain
-                // rewind, so these must be too. A rewind keeps every supersede row, the rewound
-                // tree's included (owner ruling 2026-10-24). No-op when not a rewind.
-                loadPhase = "rewind-staged-lists-carry-over";
-                RewindCarry.ReinstallRewindCarriedStagedListsAfterLoad(this);
-
-                // In-session loads: the same lists, the journal and (on a Discard Re-fly) the marker
-                // come from the scenario instance this load replaces, as the committed recordings
-                // and the ledger do (InSessionStagedStateHandoff, captured in OnDestroy). Consumed
-                // by every load: a cold load, a plain rewind (the carries above own its lists) and
-                // a Re-Fly start (the reconciliation bundle owns them) drop it. The rewind points
-                // are partitioned by owner, and a resumed tree's rows handed back to the save, once
-                // the tree restores below have detached that tree (step B).
-                loadPhase = "in-session-staged-handoff";
-                ApplyInSessionStagedStateHandoffStepA(earlyLoadKind);
-
-                // Pre-Parsek safety backup: the first time Parsek cold-loads a save with no
-                // Parsek footprint, copy it (before any Parsek write, so the persistent.sfs is
-                // gameplay-pristine) into a timestamped sibling folder that shows up in KSP's
-                // Load menu. Cold-load-only (!initialLoadDone) so it never captures a
-                // post-autosave file on a later same-session OnLoad; runs before LoadExternalFiles
-                // (Parsek's first read/recalc). Idempotent via on-disk footprint + done-marker.
-                loadPhase = "pre-parsek-backup";
-                if (!initialLoadDone)
-                {
-                    PreParsekBackup.SweepOrphanStagingDirs();
-                    if (PreParsekBackup.MaybeBackupOnFirstColdContact()
-                        == PreParsekBackup.BackupAttemptOutcome.Failed)
+                    if (initialLoadDone)
                     {
-                        // Owner ruling 2026-11-06: never change a save Parsek could not back
-                        // up. Everything above only read the (footprint-free) node into empty
-                        // stores; nothing below runs, and the save's node goes back out empty.
-                        EnterBackupHold(node, HighLogic.SaveFolder);
-                        loadStatus = "backup-hold";
-                        return;
-                    }
-                }
-                else
-                {
-                    PreParsekBackup.DropUnusedAutomationFault("an in-session load makes no backup attempt");
-                }
+                        // Go-back detection: must be BEFORE revert detection and BEFORE any
+                        // .sfs data loading. In-memory state is the source of truth.
+                        if (RewindContext.IsRewinding)
+                        {
+                            OnLoadFlowPlainRewind(ctx);
+                            return;
+                        }
 
-                // Game state recorder lifecycle — re-subscribe on every OnLoad (handles reverts)
-                loadPhase = "game-state-recorder";
-                stateRecorder?.Unsubscribe();
-                if (!initialLoadDone)
-                    LoadExternalFiles(node);
-                stateRecorder = new GameStateRecorder();
-                stateRecorder.SeedFacilityCacheFromCurrentState();
-                stateRecorder.Subscribe();
-                // Subscribe() seeds the resource baselines from whichever currency singletons
-                // exist right now, and OnLoad runs from the middle of KSP's own scenario-module
-                // load pass - so on some scene loads one or more baselines are left NaN, and an
-                // unseeded baseline eats the first real change of the scene instead of emitting
-                // it. Top them up as soon as the singletons appear.
-                StartCoroutine(SeedRecorderResourceBaselinesWhenReady(stateRecorder));
-
-                loadPhase = "initial-baseline";
-                SubscribeVesselLifecycleEvents();
-                CaptureInitialBaseline();
-
-                if (initialLoadDone)
-                {
-                    // Go-back detection: must be BEFORE revert detection and BEFORE any
-                    // .sfs data loading. In-memory state is the source of truth.
-                    if (RewindContext.IsRewinding)
-                    {
-                        // Timeline break (design 3.15 step 5): a plain rewind keeps the in-memory
-                        // ledger and loads the rewind save's stock state. This branch returns
-                        // before the refined classification below, so it records its own break.
-                        // Both read the rewind save's WORLD UT, not the wound-back clock: the
-                        // world holds everything up to the save's own UT (and the held-through
-                        // UT it carries), so income earned in the lead window is not forgotten
-                        // (todo REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE).
-                        loadPhase = "timeline-break";
-                        double rewindWorldUT = ResolvePlainRewindWorldUT(
-                            KerbalsModule.ReadLoadedSaveUT(), RewindContext.RewindSaveOwnClockUT,
-                            RewindContext.RewindSaveLedgerHeldThroughUT);
-                        StockShadowTakeBack.NoteLoad(
-                            LoadKind.PlainRewind, rewindWorldUT, CaptureSequence.CurrentHighWater());
-                        // Live-only income (design 3.15 step 9): the rewind save's stock state
-                        // forgets income no ledger channel converts that was earned after its UT.
-                        LiveOnlyIncome.DropAfterTimeTravelLoad(LoadKind.PlainRewind, rewindWorldUT);
-                        // A flag the player removed after the rewind save's UT stands in its world
-                        // again (or replay plants it at its moment).
-                        ReconcileRemovedReplayFlagsAtLoad(LoadKind.PlainRewind, rewindWorldUT);
-
-                        loadPhase = "rewind";
-                        HandleRewindOnLoad(node, recordings);
-                        ReconcileReadableSidecarMirrorsOnLoadIfDisabled();
-                        // The rewind save's vessels carry the names of its UT: re-apply the
-                        // decisions (design 7.6 step 1; a rewind keeps every rename, ruling 5).
-                        loadPhase = "vessel-names-apply";
-                        VesselNameStore.RunSpawnLinkBackfill("onload-tail:rewind");
-                        VesselNameStore.ApplyAll("onload-tail:rewind", VesselNameLiveScope.ProtosOnly);
-                        DiagnosticsComputation.EmitSceneLoadSnapshot(recordings.Count, HighLogic.LoadedScene.ToString());
-                        loadedRecordingCount = recordings.Count;
-                        loadStatus = "returned";
+                        OnLoadFlowInSession(ctx);
                         return;
                     }
 
-                    // Restore an in-flight tree from the save file (if OnSave wrote one).
-                    // This stashes it into the pending-Limbo slot so the revert-detection
-                    // dispatch below can decide between "restore and resume" (quickload)
-                    // and "finalize and commit" (real revert).
-                    // Runs AFTER ParsekSettingsPersistence.ApplyTo so restored settings
-                    // affect the rest of OnLoad, but BEFORE revert detection so the
-                    // pending slot is populated when it runs.
-                    loadPhase = "active-tree-restore";
-                    bool activeTreeRestoredFromSave = TryRestoreActiveTreeNode(
-                        node, earlyLoadKind, HighLogic.LoadedScene == GameScenes.FLIGHT);
-                    bool pendingTreeRestoredFromSave = TryRestorePendingTreeNode(
-                        node, activeTreeRestoredFromSave);
-                    RecorderStateLog.RecState("OnLoad:active-tree-restored", CaptureScenarioRecorderState());
-
-                    // Step B of the in-session handoff: rewind points of trees memory still holds
-                    // committed come from memory, the rest from the save. After the restores
-                    // above, so the committed set it partitions by is the one this load keeps.
-                    loadPhase = "in-session-handoff-step-b";
-                    ApplyInSessionStagedStateHandoffStepB();
-
-                    loadPhase = "revert-classification";
-
-                    // Count tree recordings from saved tree nodes for accurate revert
-                    // detection. Pure node arithmetic, extracted so the rule is testable.
-                    int savedTreeRecCount = CountSavedCommittedRecordingNodes(node);
-
-                    // FLIGHT→FLIGHT can be a revert, a quickload, or a vessel switch.
-                    // The event-based revert detector below owns the distinction; the
-                    // FLIGHT→FLIGHT boolean alone is not enough to classify the load.
-                    bool isFlightToFlight = lastOnSaveScene == GameScenes.FLIGHT
-                                            && HighLogic.LoadedScene == GameScenes.FLIGHT;
-                    // vesselSwitchPending must be BOTH set AND fresh. EVA events
-                    // fire onVesselSwitching without causing a scene reload, so
-                    // the raw flag can sit sticky for thousands of frames before
-                    // the next unrelated quickload consumes it — the staleness
-                    // check prevents an EVA-then-F9 sequence from being
-                    // mis-identified as a tracking-station vessel switch and
-                    // routed into FinalizeLimboForRevert (post-PR #163 playtest
-                    // bug; see CHANGELOG for full narrative).
-                    int currentFrame = UnityEngine.Time.frameCount;
-                    bool vesselSwitchFlagFresh = IsVesselSwitchFlagFresh(
-                        vesselSwitchPending, vesselSwitchPendingFrame,
-                        currentFrame, VesselSwitchPendingMaxAgeFrames);
-                    bool isVesselSwitch = isFlightToFlight && vesselSwitchFlagFresh;
-                    if (vesselSwitchPending && !vesselSwitchFlagFresh)
-                    {
-                        int age = currentFrame - vesselSwitchPendingFrame;
-                        ParsekLog.Info("Scenario",
-                            $"vesselSwitchPending flag stale ({age} frames old, " +
-                            $"max {VesselSwitchPendingMaxAgeFrames}) — " +
-                            "treating FLIGHT→FLIGHT as quickload, not vessel switch");
-                    }
-                    vesselSwitchPending = false; // consume the flag regardless
-                    int vesselSwitchFlagAgeOnConsume =
-                        vesselSwitchPendingFrame >= 0
-                            ? currentFrame - vesselSwitchPendingFrame
-                            : -1;
-                    vesselSwitchPendingFrame = -1;
-
-                    // UT-backwards signal (Bug A). F5 followed by flight and then F9
-                    // is indistinguishable from a normal FLIGHT→FLIGHT scene change
-                    // on every recording-count-based signal when F5 happens post-merge
-                    // (both sides have equal counts). The one unambiguous fingerprint
-                    // is that Planetarium UT regresses
-                    // between OnSceneChangeRequested and OnLoad — a quickload /
-                    // revert / rewind is the only legitimate way that happens.
-                    // Captured in ParsekFlight.OnSceneChangeRequested via
-                    // StampSceneChangeRequestedUT; consumed exactly once here.
-                    // Planetarium.fetch can theoretically be null during early
-                    // OnLoad in non-flight scenes; if so we have no clock to
-                    // compare and must NOT report a UT regression (would false-
-                    // positive a discard against any non-zero preChangeUT).
-                    bool planetariumReady = Planetarium.fetch != null;
-                    double loadedUT = planetariumReady
-                        ? Planetarium.GetUniversalTime()
-                        : 0.0;
-                    double preChangeUT = lastSceneChangeRequestedUT;
-                    lastSceneChangeRequestedUT = -1.0; // consume regardless of outcome
-                    bool utWentBackwards = planetariumReady && IsQuickloadOnLoad(
-                        preChangeUT, loadedUT, UtBackwardsEpsilon);
-
-                    // Contradict a stale-but-fresh-classified vessel-switch flag on
-                    // quickload: the frame-count heuristic can mis-classify under
-                    // low render FPS, and even when it's correct, a quickload must
-                    // always win over a vessel-switch interpretation.
-                    if (utWentBackwards && isFlightToFlight && isVesselSwitch)
-                    {
-                        ParsekLog.Info("Scenario",
-                            "OnLoad: UT went backwards " +
-                            $"({preChangeUT.ToString("F2", CultureInfo.InvariantCulture)} → " +
-                            $"{loadedUT.ToString("F2", CultureInfo.InvariantCulture)}) — " +
-                            "forcing isVesselSwitch=false for quickload classification " +
-                            $"(flag was fresh at age={vesselSwitchFlagAgeOnConsume} frames; " +
-                            $"cap={VesselSwitchPendingMaxAgeFrames})");
-                        isVesselSwitch = false;
-                    }
-
-                    // Bug #300: on first-ever flight (no prior commits), recording
-                    // counts are zero on both sides. The distinguishing signal is that
-                    // TryRestoreActiveTreeNode returned false (the launch quicksave
-                    // has no active tree) yet a Limbo tree persists from the
-                    // StashActiveTreeAsPendingLimbo call before this OnLoad.
-                    // Quickloads (F5/F9) always have an active tree in the save file
-                    // because OnSave writes it, so activeTreeRestoredFromSave=true.
-                    bool hasOrphanedLimboTree = ComputeHasOrphanedLimboTree(
-                        PendingTreeSlot.HasPendingTree,
-                        PendingTreeSlot.PendingTreeStateValue,
-                        activeTreeRestoredFromSave);
-                    // #434: event-based revert detection. GameEvents.OnRevertTo{Launch,Prelaunch}FlightState
-                    // fires synchronously inside FlightDriver.RevertToLaunch / RevertToPrelaunch,
-                    // BEFORE HighLogic.LoadScene, so by the time OnLoad runs the flag is set.
-                    // We consume it here; any later OnLoad (e.g. an F9 into a pre-revert flight
-                    // quicksave) sees RevertKind.None and classifies as a plain quickload resume.
-                    var revertKind = RevertDetector.Consume("ParsekScenario.OnLoad");
-                    // BUG-H: consume the revert-target whitelist together with the kind so the
-                    // captured static can never leak into a later OnLoad (e.g. a revert event that
-                    // this load classifies as a vessel switch). Only used below when isRevert.
-                    HashSet<uint> revertTargetPids = RevertDetector.ConsumeRevertTargetVesselPids();
-                    bool isRevert = ComputeIsRevertOnLoad(isVesselSwitch, revertKind);
-                    ParsekLog.Verbose("Scenario",
-                        $"OnLoad: revert detection — revertKind={revertKind}, " +
-                        $"savedTreeRecs={savedTreeRecCount}, " +
-                        $"memoryRecordings={recordings.Count}, lastOnSaveScene={lastOnSaveScene}, " +
-                        $"isFlightToFlight={isFlightToFlight}, isVesselSwitch={isVesselSwitch}, isRevert={isRevert}, " +
-                        $"pendingTreeState={PendingTreeSlot.PendingTreeStateValue}, " +
-                        $"activeTreeRestoredFromSave={activeTreeRestoredFromSave}, " +
-                        $"pendingTreeRestoredFromSave={pendingTreeRestoredFromSave}, " +
-                        $"hasOrphanedLimboTree={hasOrphanedLimboTree}");
-
-                    // Refined load kind: the revert detector has run, so an in-session load now
-                    // splits into StockRevert / QuickloadFlight / InSessionOther. Every consumer
-                    // of the refined kind sits below this line.
-                    LoadKind refinedLoadKind = LoadReconcilePolicy.ClassifyRefined(
-                        earlyLoadKind, isRevert, isFlightToFlight, utWentBackwards);
-                    if (earlyLoadKind == EarlyLoadKind.InSession)
-                        LogLoadClassification(earlyLoadKind, refinedLoadKind, classification);
-
-                    // The saveStamp canary (design 4.1): an in-session read of a save this
-                    // process did not write last is a load no stock path announced. One Warn;
-                    // the classification stands.
-                    CheckLoadedSaveStamp(node, refinedLoadKind);
-
-                    // Timeline break (design 3.15 step 5): a load that keeps the in-memory
-                    // ledger and loads an earlier stock state makes stock forget every credit
-                    // after the loaded UT, so a later live repeat of one is a duplicate payment.
-                    // The loaded world's UT: the loaded clock raised to the held-through UT the
-                    // prologue installed from this save (a save written inside a Rewind-to-Launch
-                    // lead window holds everything up to it).
-                    double loadedWorldUT = LedgerHeldWindow.ResolveLedgerNowUT(KerbalsModule.ReadLoadedSaveUT());
-                    StockShadowTakeBack.NoteLoad(
-                        refinedLoadKind, loadedWorldUT, CaptureSequence.CurrentHighWater());
-                    // Live-only income (design 3.15 step 9): the same load forgets income no
-                    // ledger channel converts that was earned after the loaded UT.
-                    LiveOnlyIncome.DropAfterTimeTravelLoad(refinedLoadKind, loadedWorldUT);
-                    // The same load forgets the player's flag removals after the loaded UT.
-                    ReconcileRemovedReplayFlagsAtLoad(refinedLoadKind, loadedWorldUT);
-
-                    // Vessel names (design 7.6, ruling 5): a stock revert or Discard Re-fly cancels
-                    // the current flight epoch, and with it the stock renames made inside it.
-                    // Before the OnLoad tail re-applies the decisions to recordings and protos.
-                    if (LoadReconcilePolicy.Decide(refinedLoadKind, LoadStateCategory.VesselNames).Action
-                        == LoadReconcileAction.MemoryUndoRevertedFlight)
-                    {
-                        loadPhase = "vessel-names-revert-undo";
-                        VesselNameStore.UndoCurrentFlightEpoch("onload:" + refinedLoadKind);
-                    }
-
-                    // Capture the launch UT for the editor-revert orphan-prune boundary. A fresh
-                    // launch from the editor (NEW_FROM_FILE / NEW_FROM_CRAFT_NODE) enters FLIGHT
-                    // with loadedUT == the launch instant, regardless of launch site (KSC
-                    // pad/runway, Making History Desert/Woomerang) or game mode. A non-fresh
-                    // flight load (quickload-resume) clears the static so a stale value can't
-                    // over-prune a later editor revert. Revert loads (isRevert) and non-flight
-                    // loads leave the static untouched so the captured launch UT survives until
-                    // the matching Revert-to-editor reads it.
-                    OnLoadPhaseApplyFreshLaunchUtDecision(isRevert, isVesselSwitch, loadedUT);
-
-                    // Discard stashed-this-transition recordings on quickload (Bug A).
-                    // Must run BEFORE the isRevert branch at line ~580, because the
-                    // revert branch consumes PendingStashedThisTransition for its own
-                    // "keep across revert" logic. For a pure F5/F9 after a merged
-                    // tree, isRevert=false, so the existing revert-branch discard path
-                    // never runs — this is why the bug manifested in the 2026-04-09 playtest.
-                    //
-                    // #434 follow-up (2026-04-17): skip this on revert. Revert-to-Launch is
-                    // always `utWentBackwards && isFlightToFlight`, so without the !isRevert
-                    // guard the hard-discard path ran first and deleted sidecar files +
-                    // purged tagged events, defeating the soft-unstash invariant established
-                    // in the isRevert branch below. Observed in
-                    // `logs/2026-04-17_2158_revert-stress-test`: recording 4f2a8438's .prec /
-                    // _ghost.craft files were deleted before `UnstashPendingTreeOnRevert`
-                    // could run, which would break F9-from-flight-quicksave in any playthrough
-                    // where the user F5'd during the doomed flight. Gate extracted to
-                    // ShouldRunQuickloadDiscard so the contract is unit-testable.
-                    //
-                    // Re-Fly retry has the same quickload shape, but during the pre-marker
-                    // invoke window the session is represented by RewindInvokeContext.Pending.
-                    // The gate treats that pending invoke as active so the RP quicksave and
-                    // pending tree survive until RewindInvoker.ConsumePostLoad recreates the
-                    // marker and resumes the session.
-                    //
-                    // The pending-science half reads the policy table. Wherever this gate
-                    // passes, the refined kind is QuickloadFlight (Clear): an early ReFlyStart
-                    // keeps RewindInvokeContext.Pending set, so the gate refuses; an early
-                    // DiscardReFly only matches a Space Center / editor load, so
-                    // isFlightToFlight is false; an in-session load with the clock backwards,
-                    // FLIGHT->FLIGHT and no revert refines to QuickloadFlight.
-                    if (ShouldRunQuickloadDiscard(utWentBackwards, isFlightToFlight, isRevert))
-                    {
-                        DiscardStashedOnQuickload(preChangeUT, loadedUT,
-                            clearPendingScience: LoadReconcilePolicy.Decide(
-                                refinedLoadKind, LoadStateCategory.PendingScience).Action
-                                == LoadReconcileAction.Clear);
-                    }
-
-                    RecorderStateLog.RecState(
-                        isRevert ? "OnLoad:revert-decided=Y" : "OnLoad:revert-decided=N",
-                        CaptureScenarioRecorderState());
-                    if (isFlightToFlight && !isRevert && !isVesselSwitch)
-                    {
-                        ParsekLog.Info("Scenario",
-                            "OnLoad: FLIGHT→FLIGHT without revert indicators — treating as quickload / scene reload, not revert");
-                    }
-
-                    // Collect spawned vessel PIDs + names BEFORE restore resets them.
-                    // Only on revert — on normal scene changes the spawned vessels are
-                    // legitimate and must not be cleaned up.
-                    // Guard: if cleanup data was already set by a prior rewind path,
-                    // do NOT overwrite — the rewind path's data is authoritative.
-                    // (After rewind, ResetAllPlaybackState zeros spawn tracking, so
-                    // CollectSpawnedVesselInfo returns empty here and would clobber
-                    // the rewind data with null.)
-                    if (isRevert)
-                    {
-                        loadPhase = "revert-cleanup";
-                        ArmRevertCleanupData(RewindLauncher.CollectSpawnedVesselInfo);
-
-                        // Clear pending tree/recording from a PREVIOUS flight — dialog was shown
-                        // but user reverted before acting on it. Prevents OnFlightReady fallback
-                        // from showing the dialog again (#64).
-                        // However, if the pending was stashed during THIS scene transition
-                        // (OnSceneChangeRequested → StashPendingTree), it is fresh and must
-                        // survive long enough for the current OnLoad to classify it correctly.
-                        // On true revert the later soft-unstash branch below clears it again;
-                        // on quickload/non-revert paths other dispatch owns it.
-                        OnLoadPhaseApplyRevertPendingTreeDisposition();
-                    }
-
-                    // Restore tree recording mutable state from RECORDING_TREE nodes.
-                    // First, reset ALL tree recordings' spawn-tracking fields to defaults, so
-                    // VesselSpawned/SpawnedPid/etc. never carry over from a flight whose
-                    // vessels a revert undid; the tree-state-restore loop below then puts
-                    // back what the saved RECORDING_TREE nodes say. Those nodes are present
-                    // on revert too: the launch/prelaunch GameBackup the revert loads was
-                    // written through OnSave, so it carries every tree committed before the
-                    // launch. Terminal verdicts are NOT reset here: a committed recording's
-                    // terminalState is recorded content (see
-                    // ResetTreeRecordingMutableStateForLoad).
-                    loadPhase = "tree-mutable-state";
-                    ResetTreeRecordingMutableStateForLoad(recordings);
-
-                    // Strip orphaned spawned vessels from flightState on revert.
-                    // These vessels were spawned by Parsek in a previous flight but their
-                    // tracking was lost when spawn flags were reset. Without stripping,
-                    // they contaminate the next launch quicksave and persist across reverts.
-                    //
-                    // BUG-H: this is launch-identity-aware AND scoped to the reverted flight.
-                    // The deletion decision matches a vessel against a recording's spawn endpoint
-                    // by pid+launch-Guid (never name alone) and only removes vessels that appeared
-                    // DURING the reverted flight (not in the revert-target launch/prelaunch
-                    // quicksave whitelist). A stock revert must only undo the current launch — it
-                    // must never delete a real, separately-launched craft from an unrelated mission
-                    // that merely reuses the craft-baked name/pid of a recording. The strip fails
-                    // closed when the scope whitelist is unavailable.
-                    if (isRevert)
-                    {
-                        loadPhase = "revert-strip";
-                        // Preserve for the OnFlightReady belt-and-suspenders cleanup (FLIGHT->FLIGHT
-                        // launch revert recovers LOADED vessels, which OnLoad's protoVessel strip
-                        // does not see). Null is a meaningful "fail-closed" scope there too.
-                        RewindLauncher.PendingRevertPreExistingPids = revertTargetPids;
-
-                        var flightState = HighLogic.CurrentGame?.flightState;
-                        if (flightState != null)
-                        {
-                            var allCommitted = RecordingStore.CollectAllCommittedRecordings();
-                            StripOrphanedSpawnedVessels(
-                                flightState.protoVessels, allCommitted,
-                                matchSource: false, skipPrelaunch: true,
-                                requireWhitelist: true, preExistingWhitelist: revertTargetPids);
-                        }
-                        ReleaseRevertCleanupOutsideFlight(HighLogic.LoadedScene);
-                    }
-
-                    // Rescue crew orphaned by vessel stripping (#116)
-                    if (isRevert && HighLogic.CurrentGame?.flightState != null)
-                        CrewReservationManager.RescueOrphanedCrew(
-                            HighLogic.CurrentGame.flightState.protoVessels);
-
-                    // Then restore from saved tree nodes (present on scene change and on revert:
-                    // the revert target was written through OnSave at launch).
-                    loadPhase = "tree-state-restore";
-                    ConfigNode[] savedTreeNodes = node.GetNodes("RECORDING_TREE");
-                    if (savedTreeNodes.Length > 0)
-                    {
-                        // Rebuild tree mutable state from saved tree nodes.
-                        // Skip active-tree (in-flight) marker nodes: their recordings live
-                        // in pending-Limbo and are not in `recordings` (the committed list).
-                        // Matching against `recordings` would harmlessly fail today, but
-                        // the defensive skip avoids future refactors conflating the two.
-                        foreach (var savedTreeNode in savedTreeNodes)
-                        {
-                            if (IsActiveTreeNode(savedTreeNode)) continue;
-                            if (IsPendingTreeNode(savedTreeNode)) continue;
-
-                            ConfigNode[] savedTreeRecNodes = savedTreeNode.GetNodes("RECORDING");
-                            foreach (var savedTreeRecNode in savedTreeRecNodes)
-                            {
-                                string savedRecId = savedTreeRecNode.GetValue("recordingId");
-                                if (string.IsNullOrEmpty(savedRecId)) continue;
-
-                                // Find the in-memory recording by ID and restore mutable state
-                                for (int i = 0; i < recordings.Count; i++)
-                                {
-                                    if (recordings[i].RecordingId == savedRecId)
-                                    {
-                                        string pidStr = savedTreeRecNode.GetValue("spawnedPid");
-                                        uint savedPid = 0;
-                                        if (pidStr != null)
-                                            uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out savedPid);
-                                        recordings[i].SpawnedVesselPersistentId = savedPid;
-                                        // Keep the VesselSpawned flag in sync with the spawned-pid invariant
-                                        // so the scene-enter resume path's filter matches after save/load.
-                                        recordings[i].VesselSpawned = savedPid != 0;
-
-                                        string resIdxStr = savedTreeRecNode.GetValue("lastResIdx");
-                                        int resIdx = -1;
-                                        if (resIdxStr != null)
-                                            int.TryParse(resIdxStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out resIdx);
-                                        recordings[i].LastAppliedResourceIndex = resIdx;
-
-                                        // BUG-C: re-restore the durable terminal-orbit
-                                        // cannot-spawn-safely abandon that the tree-mutable-state
-                                        // reset cleared above. This in-session ("returned-scene-
-                                        // change" / quickload) path reconciles the in-memory
-                                        // committed recordings rather than rebuilding them via
-                                        // RecordingTreeRecordCodec, so without this a known-dead
-                                        // terminal-orbit vessel re-spawns after every scene change.
-                                        RestorePersistedTerminalAbandon(recordings[i], savedTreeRecNode);
-
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Reconcile spawn state after all restore + strip operations (#168).
-                    // If a recording's SpawnedVesselPersistentId points to a vessel that was
-                    // stripped, reset the PID so the vessel can be re-spawned at the correct time.
-                    // BUG-H: guid-aware — a surviving same-pid vessel from a DIFFERENT launch does
-                    // not keep the recording's spawn state alive (it would otherwise block re-spawn).
-                    if (isRevert)
-                    {
-                        var flightStateForReconcile = HighLogic.CurrentGame?.flightState;
-                        if (flightStateForReconcile != null)
-                            ReconcileSpawnStateAfterStrip(
-                                CollectSurvivingVesselIdentities(flightStateForReconcile.protoVessels),
-                                recordings);
-                    }
-
-                    // The Discard Re-fly lands in the rewind point's world: hold back what the
-                    // committed future uses there, as a plain rewind does (rewind design 10.13).
-                    // After the spawn-state restore above, so the claims the hold releases stay
-                    // released.
-                    if (refinedLoadKind == LoadKind.DiscardReFly)
-                    {
-                        loadPhase = "discard-refly-vessel-holds";
-                        ApplyDiscardReFlyVesselHolds(recordings, KerbalsModule.ReadLoadedSaveUT());
-                    }
-
-                    // The revert prune's launch boundary, read by the route reconcile below.
-                    double revertPruneCutoffUTForRoutes = double.NaN;
-                    if (isRevert)
-                    {
-                        loadPhase = "revert-milestones";
-                        // Restore milestone mutable state from .sfs.
-                        // resetUnmatched: true — milestones created after the launch quicksave
-                        // (not in the saved state) must be reset to unreplayed (-1). Hidden
-                        // branch exclusion now comes from recording-id visibility, not a
-                        // synthetic epoch bump.
-                        MilestoneStore.RestoreMutableState(node, resetUnmatched: true);
-
-                        // #434: Revert is a player declaration that "this mission never happened."
-                        // Soft-unstash the pending tree — clear the slot but preserve sidecar files
-                        // and event state so that a quicksave taken during the flight can still be
-                        // F9'd back into (the ACTIVE_TREE node in that quicksave refers to the same
-                        // recording ids, and both persistent.sfs and sidecars survive KSP's revert).
-                        // Events stay in-memory and on-disk; recording-id visibility filters
-                        // them out of the post-revert ledger walks until a matching quickload
-                        // restores the tree.
-                        //
-                        // This runs BEFORE the limbo-dispatch block below — clearing the pending
-                        // slot short-circuits the finalize/restore paths because the tree is gone.
-                        //
-                        // Call UnstashPendingTreeOnRevert unconditionally — even with no pending
-                        // tree, the method clears any in-flight PendingScienceSubjects captured
-                        // after the launch quicksave, which otherwise would leak onto the next
-                        // committed recording. (The function no-ops cleanly when both the tree and
-                        // the subject list are empty.) Only show the screen message when a tree
-                        // was actually unstashed, since the user's only observable action was the
-                        // revert itself.
-                        bool hadPendingTree = PendingTreeSlot.HasPendingTree;
-                        PendingTreeSlot.UnstashPendingTreeOnRevert();
-
-                        // Drop orphan ledger actions earned live during the reverted flight that
-                        // carry no recording id (e.g. launch-pad science transmitted during the
-                        // PRELAUNCH window before auto-record starts, their milestone rewards, and
-                        // the vessel rollout spend). UnstashPendingTreeOnRevert only filters
-                        // recording-tied actions; these untagged ones would otherwise be
-                        // re-applied by the recalc below, overriding stock KSP's revert. The
-                        // cutoff is the launch UT (see ResolveRevertPruneCutoff): Revert-to-Launch
-                        // uses loadedUT (the rewound clock == launch UT) and keeps the rollout on
-                        // the pad (exclusive); Revert-to-editor does not rewind, so it anchors on
-                        // the captured fresh-launch UT (site/mode independent), falling back to the
-                        // VesselRollout-spend UT, and refunds the rollout (inclusive).
-                        bool pruneInclusive;
-                        double editorBoundaryUT = ResolveEditorRevertBoundaryUT(
-                            currentFlightLaunchUT, Ledger.GetLatestUntaggedVesselBuildUT());
-                        double pruneCutoffUT = ResolveRevertPruneCutoff(
-                            revertKind, loadedUT, editorBoundaryUT, out pruneInclusive);
-                        // Route events are not ledger rows: the in-session route reconcile below
-                        // retires the reverted flight's route events at this cutoff (raised to the
-                        // revert save's route state floor).
-                        int prunedOrphans = PruneRevertedFlightLedgerRows(
-                            pruneCutoffUT, pruneInclusive, revertKind);
-                        revertPruneCutoffUTForRoutes = pruneCutoffUT;
-                        if (prunedOrphans > 0)
-                            ParsekLog.Info("Scenario",
-                                $"Revert ({revertKind}): pruned {prunedOrphans} untagged ledger action(s) " +
-                                $"{(pruneInclusive ? "at/after" : "after")} launchUT=" +
-                                $"{pruneCutoffUT.ToString("R", CultureInfo.InvariantCulture)} " +
-                                "(launch-pad/PRELAUNCH currency earned before auto-record)");
-                        // The reverted flight's strategy conversion rows carry its own
-                        // (never-committed) recording tag, so the orphan prune above skips them.
-                        LedgerOrchestrator.PruneRevertedFlightStrategyConversionRows(
-                            pruneCutoffUT, pruneInclusive);
-
-                        if (hadPendingTree)
-                        {
-                            // ScreenMessages.PostScreenMessage calls into Unity's UI stack,
-                            // which isn't wired up in xUnit test hosts — typed catch so
-                            // real runtime errors still surface in logs.
-                            try { ParsekLog.ScreenMessage("Recording unstashed (revert)", 4f); }
-                            catch (System.NullReferenceException) { /* xUnit: no KSP UI */ }
-                            catch (System.MissingMethodException) { /* xUnit: no KSP UI */ }
-                            catch (System.TypeInitializationException) { /* xUnit: no KSP UI */ }
-                        }
-
-                        // Schedule committed resource deduction (singletons may not be ready yet)
-                        ParsekLog.Verbose("Scenario", "Scheduling budget deduction coroutine (singletons may not be ready yet)");
-                        budgetDeductionApplied = false;
-                        StartCoroutine(ApplyBudgetDeductionWhenReady());
-                    }
-                    else
-                    {
-                        loadPhase = "scene-milestones";
-                        // Scene change — restore milestone state without resetting unmatched.
-                        MilestoneStore.RestoreMutableState(node);
-                        ParsekLog.Verbose("Scenario", "Scene change — milestone state restored (resetUnmatched=false)");
-                    }
-
-                    // Dispatch pending-Limbo trees (Bug C fix: quickload-resume).
-                    // The tree was stashed without finalization in StashActiveTreeAsPendingLimbo
-                    // (Limbo) or pre-transitioned for a vessel switch in
-                    // StashActiveTreeForVesselSwitch (LimboVesselSwitch — bug #266).
-                    // #434: on revert the block above already discarded the pending tree, so
-                    // HasPendingTree will be false here and the dispatch is skipped entirely.
-                    loadPhase = "limbo-dispatch";
-                    ClearPendingQuickloadResumeContext();
-                    if (PendingTreeSlot.HasPendingTree
-                        && (PendingTreeSlot.PendingTreeStateValue == PendingTreeState.Limbo
-                            || PendingTreeSlot.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch))
-                    {
-                        RecorderStateLog.RecState("OnLoad:limbo-dispatched", CaptureScenarioRecorderState());
-                        var pendState = PendingTreeSlot.PendingTreeStateValue;
-                        var limboOutcome = ClassifyLimboDispatch(isVesselSwitch, pendState);
-                        if (limboOutcome == LimboDispatchOutcome.VesselSwitchRestore)
-                        {
-                            // Bug #266: tree was pre-transitioned at stash time. Just defer
-                            // to OnFlightReady for the vessel-switch restore coroutine, which
-                            // reinstalls the tree and (optionally) promotes the new active
-                            // vessel from BackgroundMap.
-                            ClearPendingQuickloadResumeContext();
-                            ScheduleActiveTreeRestoreOnFlightReady = ActiveTreeRestoreMode.VesselSwitch;
-                            ParsekLog.Info("Scenario",
-                                $"OnLoad: pending-LimboVesselSwitch tree '{PendingTreeSlot.PendingTree?.TreeName}' " +
-                                "deferred to OnFlightReady for vessel-switch restore (#266)");
-                        }
-                        else if (limboOutcome == LimboDispatchOutcome.SafetyNetFinalize)
-                        {
-                            // Safety net: Limbo state (NOT LimboVesselSwitch) but the
-                            // OnLoad classifier still says vessel switch. This means the
-                            // stash path missed the vessel-switch detection (e.g.
-                            // pendingTreeDockMerge bailed out, or vesselSwitchPending was
-                            // set after FinalizeTreeOnSceneChange ran). Fall back to the
-                            // pre-#266 finalize behavior — better to lose the tree than
-                            // to leak a half-transitioned state into the restore path.
-                            // The bug #278 fix applies here too: surviving leaves keep
-                            // their real situation, since this safety-net path is the
-                            // exact case where vessels ARE still loaded in FlightGlobals
-                            // (it's a vessel switch, not a quickload — no scene reset).
-                            FinalizePendingLimboTreeForRevert();
-                            ClearPendingQuickloadResumeContext();
-                            ParsekLog.Info("Scenario",
-                                "OnLoad: Limbo tree finalized on vessel switch (safety-net path; " +
-                                "stash didn't pre-transition — usually means a guard at stash " +
-                                "time bailed out, see #266)");
-                        }
-                        else
-                        {
-                            // Quickload or cold-start resume: defer restore to OnFlightReady.
-                            // ParsekFlight.RestoreActiveTreeFromPending picks up the
-                            // pending-Limbo tree and wires a fresh recorder to it.
-                            ConfigurePendingQuickloadResumeContext(
-                                PendingTreeSlot.PendingTree,
-                                refinedLoadKind);
-                            ScheduleActiveTreeRestoreOnFlightReady = ActiveTreeRestoreMode.Quickload;
-                            ParsekLog.Info("Scenario",
-                                $"OnLoad: pending-Limbo tree '{PendingTreeSlot.PendingTree?.TreeName}' " +
-                                "deferred to OnFlightReady for quickload-resume");
-                        }
-                    }
-
-                    // Handle pending recordings on non-revert scene exits to non-flight scenes.
-                    // The pre-transition merge dialog (SceneExitInterceptor) is the
-                    // primary path; this OnLoad path commits whatever a flight-exit left
-                    // pending (one that bypassed our HighLogic.LoadScene prefix: KSP
-                    // version drift, a foreign mod patch). It never asks: leaving a flight
-                    // commits (owner ruling 2026-11-01), and the deferred merge dialog
-                    // that used to ask here under autoMerge OFF was retired 2026-11-06
-                    // (todo GUI-D5); AutoCommitPendingTreeOutsideFlight still reads the
-                    // setting to pick its commit fidelity.
-                    loadPhase = "pending-outside-flight";
-                    if (!isRevert && HighLogic.LoadedScene != GameScenes.FLIGHT)
-                    {
-                        {
-                            // #88 folded: landed/splashed no longer forces an approval
-                            // dialog under autoMerge — the silent commit is now
-                            // full-fidelity (spawn-at-end preserved), so it is safe for
-                            // surviving vessels.
-
-                            // Auto-discard idle-on-pad before auto-commit. Only for
-                            // Finalized trees (Limbo trees are resume-flow stashes).
-                            if (PendingTreeSlot.HasPendingTree
-                                && PendingTreeSlot.PendingTreeStateValue == PendingTreeState.Finalized
-                                && ParsekFlight.IsTreeIdleOnPad(PendingTreeSlot.PendingTree))
-                            {
-                                ParsekLog.Info("Scenario", "Idle on pad at scene exit — auto-discarding tree");
-                                DiscardPendingTreeAndRecalculate(
-                                    "scene-exit idle-on-pad auto-discard");
-                            }
-
-                            // Silent auto-commit: full-fidelity MergeCommit when the tree
-                            // qualifies (Finalized, no active re-fly, real scene), else the
-                            // lightweight ghost-only commit. Resources were applied live
-                            // during the flight we are exiting (!isRevert checked upstream),
-                            // so the tree is marked applied to disarm the lump-sum replay.
-                            AutoCommitPendingTreeOutsideFlight("scene-exit");
-                        }
-                    }
-
-                    // Routes on a load back in time (LoadReconcilePolicy Routes cells): RouteStore and
-                    // the route event log stay in memory across an in-session load, so an F9, a stock
-                    // revert or the Discard Re-fly load runs the go-back rewind's reconcile keyed to the
-                    // loaded save, and any other in-session load does when route state lies after the
-                    // save. Removes events only, never adds one, so it is OnLoad-safe.
-                    loadPhase = "route-load-reconcile";
-                    double loadedSaveUTForRoutes = KerbalsModule.ReadLoadedSaveUT();
-                    try
-                    {
-                        Logistics.RouteLoadReconcile.ReconcileAtInSessionLoad(
-                            refinedLoadKind,
-                            Logistics.RouteLoadReconcile.ResolveCutoffUT(
-                                refinedLoadKind, loadedSaveUTForRoutes, revertPruneCutoffUTForRoutes),
-                            loadedSaveUTForRoutes,
-                            node);
-                    }
-                    catch (Exception ex)
-                    {
-                        ParsekLog.Error(LoadReconcilePolicy.LogTag,
-                            $"Route reconcile at in-session load threw {ex.GetType().Name}: {ex.Message}; " +
-                            $"routes left as they were (kind={refinedLoadKind})");
-                    }
-                    Logistics.RouteEventLog.LogWalkSummary();
-
-                    loadPhase = "ledger-recalculate";
-                    // The ledger walks at the LOADED save's clock: inside a Space Center OnLoad
-                    // Planetarium still reads the clock from before the load (QL-1 measured
-                    // 1000.10 against the quicksave's 409.9), which would walk the committed
-                    // rows the load moved back in front of the clock as if already reached.
-                    double ledgerClockUT = ResolveInSessionLoadLedgerClockUT(
-                        loadedSaveUTForRoutes, planetariumReady, loadedUT);
-                    double inSessionLedgerCutoffUT = double.IsNaN(ledgerClockUT) ? loadedUT : ledgerClockUT;
-                    // A Discard Re-fly load lands on the rewind point's pools after a session whose
-                    // Re-Fly start walked the whole ledger (committed future included), so its first
-                    // patch is a time-travel patch like the merge dialog's discard: it writes the
-                    // ledger at the loaded clock and re-baselines the stock pool reference instead of
-                    // measuring a leak (LoadReconcilePolicy, StockPoolReference category;
-                    // REFLY-DISCARD-AFTER-REWIND-LOSES-COMMITTED-FUTURE).
-                    bool inSessionLedgerUsedCutoff = RecalculateLedgerForInSessionLoad(
-                        isRevert, HighLogic.LoadedScene, !double.IsNaN(ledgerClockUT),
-                        inSessionLedgerCutoffUT,
-                        planetariumReady ? loadedUT : double.NaN,
-                        reFlyDiscard: refinedLoadKind == LoadKind.DiscardReFly);
-                    // KSP loads the save's SCENARIO modules in file order, and R&D and
-                    // Reputation usually come after this one: the patch above skipped
-                    // their pools, and their own OnLoad then installs the save's values.
-                    // Patch again once every currency module has loaded.
-                    CurrencySingletons expectedCurrency = CurrencyScenarioReadiness.ExpectedForCurrentGame();
-                    CurrencySingletons presentCurrency = CurrencyScenarioReadiness.PresentNow();
-                    CurrencySingletons loadedCurrency = CurrencyScenarioReadiness.LoadedNow();
-                    if (ShouldRepatchAfterInSessionLoad(expectedCurrency, presentCurrency, loadedCurrency))
-                    {
-                        ParsekLog.Info("Scenario",
-                            $"OnLoad: in-session ledger patch ran before the currency modules loaded " +
-                            $"(expected={CurrencyScenarioReadiness.Format(expectedCurrency)} " +
-                            $"present={CurrencyScenarioReadiness.Format(presentCurrency)} " +
-                            $"loaded={CurrencyScenarioReadiness.Format(loadedCurrency)}); " +
-                            "scheduling a re-patch once they have");
-                        StartCoroutine(RepatchAfterInSessionLoadWhenCurrenciesLoaded(
-                            inSessionLedgerUsedCutoff, inSessionLedgerCutoffUT,
-                            refinedLoadKind == LoadKind.DiscardReFly));
-                    }
-                    if (KerbalLoadRepairDiagnostics.IsActive)
-                        KerbalLoadRepairDiagnostics.EmitAndReset();
-                    ParsekLog.Info("Scenario", $"{(isRevert ? "Revert" : "Scene change")} — preserving {recordings.Count} session recordings");
-                    loadPhase = "sidecar-reconcile";
-                    ReconcileReadableSidecarMirrorsOnLoadIfDisabled();
-                    DiagnosticsComputation.EmitSceneLoadSnapshot(recordings.Count, HighLogic.LoadedScene.ToString());
-
-                    // Phase 6 of Rewind-to-Staging: re-fly invocation drains
-                    // the static context in the new scenario. Lives on the
-                    // FLIGHT→FLIGHT branch because the RP quicksave always
-                    // lands in FLIGHT and the invoker issues LoadScene(FLIGHT)
-                    // from FLIGHT/SPACECENTER/TRACKSTATION.
-                    loadPhase = "rewind-post-load";
-                    DispatchRewindPostLoadIfPending(node);
-
-                    // Phase 10 of Rewind-to-Staging (design §6.9 step 2):
-                    // resume any interrupted staged-commit merge on the
-                    // FLIGHT→FLIGHT branch too (quickload mid-merge, scene
-                    // preservation, etc.).
-                    if (ActiveMergeJournal != null)
-                    {
-                        loadPhase = "merge-journal";
-                        MergeJournalOrchestrator.RunFinisher();
-                    }
-
-                    // Phase 13 load-time sweep (design §6.9): validate the
-                    // re-fly session marker, gather + delete zombie
-                    // provisionals, log orphan supersedes / tombstones,
-                    // clear stray transient fields. Runs AFTER the Phase 6
-                    // re-fly dispatch (which may have populated the marker)
-                    // and the Phase 10 finisher (which may have cleared it),
-                    // and BEFORE the Phase 11 reaper (whose input is the
-                    // sweep's post-zombie-removal state).
-                    loadPhase = "load-time-sweep";
-                    LoadTimeSweep.Run();
-                    RefreshPendingQuickloadTrimScope();
-
-                    // The sweep runs after this branch's ledger recalculation: when it discarded a
-                    // zombie attempt (rewind design section 2.12 Rule 3), walk the ledger again so
-                    // the patched career no longer carries its rows, nor what it earned into the
-                    // pools of a save written during its session (it files rows only at merge).
-                    if (LoadTimeSweep.SweepDiscardedAnAttempt(
-                            LoadTimeSweep.LedgerRowsRemovedByLastRun, LoadTimeSweep.ZombiesDiscardedByLastRun))
-                    {
-                        loadPhase = "load-time-sweep-recalculate";
-                        ParsekLog.Info("Scenario",
-                            $"OnLoad: load-time sweep discarded {LoadTimeSweep.ZombiesDiscardedByLastRun} zombie attempt recording(s) " +
-                            $"and removed {LoadTimeSweep.LedgerRowsRemovedByLastRun} zombie ledger row(s) " +
-                            "after the in-session recalculation; recalculating again");
-                        RecalculateLedgerForInSessionLoad(
-                            isRevert, HighLogic.LoadedScene, !double.IsNaN(ledgerClockUT),
-                            inSessionLedgerCutoffUT,
-                            planetariumReady ? loadedUT : double.NaN,
-                            reFlyDiscard: true);
-                    }
-
-                    loadPhase = "test-batch-reconcile";
-                    RunTestBatchCrashReconcile();
-
-                    // Phase 11 housekeeping pass — same rationale as the
-                    // cold-start branch below; runs after the finisher so
-                    // live-session RPs stay put.
-                    loadPhase = "rewind-point-reap";
-                    RewindPointReaper.ReapOrphanedRPs();
-
-                    // Memory's lists are final: collect files no save and no memory names
-                    // (design-load-restores-the-save.md 4.5; rate-limited in-session).
-                    loadPhase = "file-collection";
-                    ParsekFileCollector.RunAtLoad(earlyLoadKind, coldBranch: false, scenario: this);
-
-                    loadPhase = "vessel-names-apply";
-                    VesselNameStore.RunSpawnLinkBackfill(isRevert ? "onload-tail:revert" : "onload-tail:scene-change");
-                    VesselNameStore.ApplyAll(isRevert ? "onload-tail:revert" : "onload-tail:scene-change",
-                        VesselNameLiveScope.ProtosOnly);
-                    // The revert target of the flight that starts here (O2); a revert keeps the
-                    // entry it went back to.
-                    if (HighLogic.LoadedScene == GameScenes.FLIGHT && !isRevert)
-                        RememberFlightEntryLedgerRows("in-session:" + refinedLoadKind);
-                    loadedRecordingCount = recordings.Count;
-                    loadStatus = isRevert ? "returned-revert" : "returned-scene-change";
-                    return;
+                    OnLoadFlowCold(ctx);
                 }
-
-                loadPhase = "cold-start";
-                initialLoadDone = true;
-                // Recording hydration from here to the end of this OnLoad reads the sidecar
-                // versions the save names (design-load-restores-the-save.md 4.4).
-                SidecarVersionResolution.BeginColdLoad(node);
-
-                // A recording file the collector quarantined goes back before hydration when
-                // this save names it (design-load-restores-the-save.md 4.5).
-                loadPhase = "quarantine-restore";
-                ParsekFileCollector.RestoreQuarantinedNamedBy(node);
-
-                // A game load ends any window in which an in-game batch's persistent.sfs
-                // restore was still the intended final state of a save (the batch's own
-                // baseline quickload precedes its teardown latch, so this never disarms the
-                // H38-H41 teardown -> FlushAndQuit suppression).
-                InGameTests.InGameTestRunner.NotifyStateMutatedAfterBatchBaselineRestore(
-                    "game load (cold OnLoad)");
-
-                // The stale-pending discard below deletes the discarded tree's sidecars,
-                // and its committed-overlap guard reads the in-memory committed store -
-                // which LoadRecordingTrees has NOT populated yet at this point. A pending
-                // tree that is a copy-on-write clone of a committed one (the
-                // TryTakeCommittedTreeForSpawnedVesselRestore overlap, ids PRESERVED) would
-                // therefore take the COMMITTED tree's .prec files down with it, and every
-                // later save would drop that tree as unserializable. Publish the save
-                // node's own committed ids for exactly this window.
-                loadPhase = "durable-committed-id-hint";
-                RecordingStore.SetDurableCommittedRecordingIdHint(
-                    CollectCommittedRecordingIdsFromScenarioNode(node));
-                try
-                {
-                    loadPhase = "stale-pending-discard";
-                    DiscardStalePendingState();
-                }
-                finally
-                {
-                    RecordingStore.ClearDurableCommittedRecordingIdHint();
-                }
-
-                loadPhase = "clear-committed";
-                RecordingStore.ClearCommittedInternal();
-
-                // Validate chain integrity before any playback
-                loadPhase = "chain-validation";
-                RecordingChainQueries.ValidateChains();
-
-                // The vessel name decisions read only their own node; loading them before the
-                // trees keeps a tree-load fault from dropping them on the next save.
-                loadPhase = "vessel-names";
-                VesselNameStore.Load(node);
-
-                loadPhase = "recording-trees";
-                LoadRecordingTrees(node, recordings);
-                loadedRecordingCount = recordings.Count;
-                // GC-3: one screen message per load that kept trees of another schema
-                // generation inert (posted once the scene settles).
-                string inertTreeNotice = InertRecordingTrees.TakeLoadNotice();
-                if (inertTreeNotice != null)
-                    ParsekHarmony.QueueNoticeForSettledScene(inertTreeNotice);
-                loadPhase = "sanitize-nonloopable-loop";
-                RecordingStore.SanitizeNonLoopableLoopPlayback();
-                loadPhase = "missions";
-                MissionStore.Load(node);
-                // The committed tree + mission state finished loading for this cold load, so the
-                // load-fault guard may now trust an empty committed store as legitimate. A throw
-                // in either call above leaves this false (guard fires on the next save); the later
-                // reconcile steps operate on already-loaded data and do not clear the store.
-                committedTreeStateLoaded = true;
-                // Protect missions whose tree is parked (a quickload-resume isActive / isPending
-                // node restored LATER in this OnLoad by TryRestoreActiveTreeNode, or an already
-                // stashed pending tree) so PruneOrphans does not strip the mission name + loop
-                // settings of a tree that survives but is not yet committed. Limbo-tree data-loss fix.
-                OnLoadPhaseReconcileMissionsWithCommittedTrees(node);
-
-                // Cold-start active-tree restore (quickload-resume cold path).
-                // When the player quits KSP mid-flight and later relaunches + "Resume Saved
-                // Game", OnLoad runs with initialLoadDone=false and falls through to this
-                // block. TryRestoreActiveTreeNode here picks up any isActive=True tree
-                // from the save and stashes it into pending-Limbo so OnFlightReady's
-                // restore coroutine can resume recording — same path used by in-session
-                // quickload. Without this, cold-start resume silently drops the active
-                // tree and the player's in-progress mission fragments just like the
-                // original Bug C scenario.
-                loadPhase = "cold-active-tree-restore";
-                ClearPendingQuickloadResumeContext();
-                if (TryRestoreActiveTreeNode(
-                        node, EarlyLoadKind.Cold, HighLogic.LoadedScene == GameScenes.FLIGHT))
-                {
-                    // Flag the coroutine to run on OnFlightReady so the active vessel is
-                    // available for name matching. Cold start always lands in flight for
-                    // a "Resume" action, so OnFlightReady will fire.
-                    //
-                    // Bug #266: TryRestoreActiveTreeNode picks the stash state based on
-                    // whether the saved tree had an active recording. Pick the matching
-                    // restore mode here:
-                    //   - LimboVesselSwitch (outsider state at save time) → VesselSwitch
-                    //   - Limbo (active recording present) → Quickload
-                    ScheduleActiveTreeRestoreOnFlightReady =
-                        PendingTreeSlot.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch
-                            ? ActiveTreeRestoreMode.VesselSwitch
-                            : ActiveTreeRestoreMode.Quickload;
-                    if (ScheduleActiveTreeRestoreOnFlightReady == ActiveTreeRestoreMode.Quickload)
-                        ConfigurePendingQuickloadResumeContext(PendingTreeSlot.PendingTree, LoadKind.Cold);
-                    else
-                        ClearPendingQuickloadResumeContext();
-                    ParsekLog.Info("Scenario",
-                        $"OnLoad: cold-start active tree detected (state={PendingTreeSlot.PendingTreeStateValue}) — " +
-                        $"deferred to OnFlightReady as {ScheduleActiveTreeRestoreOnFlightReady}");
-                }
-                // The save's restore-attempt events (memory only) follow the active tree they
-                // belong to; dropped otherwise (design 4.3, #866).
-                loadPhase = "cold-attempt-events";
-                ApplySaveAttemptEventsAfterActiveTreeRestore();
-                bool coldActiveTreeRestoredFromSave =
-                    PendingTreeSlot.PendingTreeStateValue == PendingTreeState.Limbo
-                    || PendingTreeSlot.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch;
-                bool coldPendingTreeRestoredFromSave = TryRestorePendingTreeNode(
-                    node, coldActiveTreeRestoredFromSave);
-                OnLoadPhaseLogColdPendingTreeRestore(coldPendingTreeRestoredFromSave);
-
-                // Restore milestone mutable state (LastReplayedEventIndex) from .sfs
-                loadPhase = "milestones";
-                MilestoneStore.RestoreMutableState(node);
-
-                // Reconcile ledger against loaded recordings (prunes orphaned actions, recalculates)
-                // at the loaded save's own clock (design 4.1): never the clock from before the load.
-                loadPhase = "ledger-load";
-                var validIds = BuildValidRecordingIdsForKspLoad();
-                double coldPlanetariumUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : 0.0;
-                double coldLoadedSaveUT = ReadLoadedFlightStateUTRaw();
-                double coldClockUT = ResolveColdLoadClockUT(coldLoadedSaveUT, coldPlanetariumUT);
-                ParsekLog.Info("Scenario",
-                    "OnLoad: cold clock=" + coldClockUT.ToString("R", CultureInfo.InvariantCulture)
-                    + " (saveUT=" + coldLoadedSaveUT.ToString("R", CultureInfo.InvariantCulture)
-                    + " planetariumUT=" + coldPlanetariumUT.ToString("R", CultureInfo.InvariantCulture)
-                    + " coldReason=" + (coldReason ?? "none") + ")");
-                double reconcileUT = coldClockUT;
-                LedgerOrchestrator.OnKspLoad(
-                    validIds,
-                    reconcileUT,
-                    useCurrentUtCutoffForFutureActions:
-                        IsCurrentUtCutoffSupportedScene(HighLogic.LoadedScene),
-                    loadDroppedRecordingIds: TakeLoadDroppedRecordingIds());
-
-                // Supply routes (design §4.7). Loads after recordings + ledger so
-                // Phase 5 source-ref validation has the ERS / ELS data it needs.
-                // RevalidateSources is folded into the "routes" phase: load + validate
-                // is one logical operation, and missing-source / fingerprint-drift
-                // transitions must run on every load before any UI / scheduler sees
-                // a stale Active status.
-                loadPhase = "routes";
-                RouteStore.LoadRoutesFrom(node);
-                RouteStore.RevalidateSources("OnLoad");
-
-                // Mutual-exclusion reconcile (design §0.6): a tree is EITHER a supply route
-                // OR a manually looped recording/mission, never both. Runs AFTER MissionStore
-                // load/normalize (above) and AFTER RouteStore load + RevalidateSources (so
-                // route statuses (and thus BindsTree decisions) are final). For every
-                // route-bound tree, clear both the mission loop and any per-recording loop a
-                // hand-edited or legacy save might carry on that tree. Route looping wins.
-                loadPhase = "route-loop-reconcile";
-                {
-                    double reconcileUtForLoops = coldClockUT;
-                    OnLoadPhaseReconcileRouteBoundManualLoops(reconcileUtForLoops);
-                }
-
-                // Schedule deferred seeding: during OnLoad, Funding/R&D/Reputation singletons
-                // may exist but have not loaded their save data yet (KSP loads scenarios in
-                // parallel). The deferred coroutine waits for singletons to be ready, then
-                // seeds initial balances and recalculates so the ledger has correct values.
-                loadPhase = "deferred-seed";
-                StartCoroutine(DeferredSeedAndRecalculate());
-
-                // Diagnostic summary of loaded recordings with UT context. Per-recording
-                // status used to be enumerated at Verbose, but a save with hundreds of
-                // recordings (synthetic showcases, KSC eligibles, long histories) emits
-                // hundreds of identical "future (starts in …s)" lines per scenario load.
-                // Bucket the statuses into counts; keep IN_PROGRESS detail (rare and
-                // most useful when debugging spawn timing) at Verbose.
-                loadPhase = "load-summary";
-                double loadUT = coldClockUT;
-                OnLoadPhaseLogColdLoadSummary(recordings, loadUT);
-
-                // Run recording optimization pass (merge redundant segments, split monolithic ones)
-                loadPhase = "optimization";
-                CommittedListOptimizer.RunOptimizationPass();
-
-                // Auto-unreserve crew for recordings whose EndUT has already passed
-                // but vessel was never spawned. Skip at SpaceCenter — ParsekKSC now
-                // handles spawning there (bug #99), so nulling the snapshot here would
-                // pre-empt the KSC spawn.
-                loadPhase = "crew-auto-unreserve";
-                double currentUT = coldClockUT;
-                OnLoadPhaseAutoUnreserveCrewPastEndUT(recordings, currentUT);
-
-                // Handle pending recordings outside Flight (Esc > Abort Mission → Space Center path).
-                // Always auto-commit on main menu (game is being unloaded).
-                loadPhase = "pending-outside-flight";
-                if (HighLogic.LoadedScene != GameScenes.FLIGHT &&
-                    PendingTreeSlot.HasPendingTree)
-                {
-                    // Auto-discard idle-on-pad recordings before auto-committing.
-                    // ONLY for Finalized-state trees — those come from a
-                    // completed flight session that produced a terminal-state
-                    // merge-dialog candidate. For Limbo / LimboVesselSwitch
-                    // trees (quickload-resume stashes populated from the
-                    // save's ACTIVE_TREE node by `TryRestoreActiveTreeNode`),
-                    // the maxDist values can legitimately be near zero right
-                    // after a rewind reload because the provisional recording
-                    // was just created and hasn't moved yet. Auto-discarding
-                    // those would silently wipe the player's entire mission
-                    // tree plus its Rewind Point and quicksave on every
-                    // subsequent SPACECENTER load, as seen in
-                    // logs/2026-04-25_0103_recordings-vanish-on-load:
-                    //   TryRestoreActiveTreeNode: stashed active tree
-                    //     'Kerbal X' (8 recording(s)) into pending-Limbo slot
-                    //   IsTreeIdleOnPad: all 8 recordings within 30m — idle on pad
-                    //   Idle on pad — auto-discarding pending tree
-                    //   PurgeTree deleted rewind quicksave rp=... path=...
-                    //   Discarded pending tree 'Kerbal X' (state=Limbo)
-                    // The normal idle-on-pad use case (player starts recording,
-                    // doesn't launch, exits to KSC) produces a Finalized state
-                    // via CommitTreeSceneExit, so the gate still fires there.
-                    if (PendingTreeSlot.PendingTreeStateValue == PendingTreeState.Finalized
-                        && ParsekFlight.IsTreeIdleOnPad(PendingTreeSlot.PendingTree))
-                    {
-                        ScenarioLog("[Parsek Scenario] Idle on pad — auto-discarding pending tree");
-                        DiscardPendingTreeAndRecalculate(
-                            "outside-flight idle-on-pad auto-discard");
-                    }
-                    else if (PendingTreeSlot.PendingTreeStateValue != PendingTreeState.Finalized)
-                    {
-                        ParsekLog.Verbose("Scenario",
-                            $"Idle-on-pad auto-discard skipped: pending tree state is " +
-                            $"{PendingTreeSlot.PendingTreeStateValue} (not Finalized), " +
-                            "resume/restore flow will run instead");
-                    }
-
-                    // Silent auto-commit: full-fidelity MergeCommit when the tree
-                    // qualifies (autoMerge, Finalized, no active re-fly, real scene),
-                    // else the lightweight ghost-only commit. MAINMENU (game
-                    // unloading) and non-autoMerge always fall to ghost-only. The
-                    // originating flight already applied its resources live, so the
-                    // commit marks the tree applied to disarm the lump-sum replay.
-                    // Never a dialog here: the deferred merge dialog was retired
-                    // 2026-11-06 (todo GUI-D5).
-                    AutoCommitPendingTreeOutsideFlight("cold-load outside-flight");
-                }
-
-                loadPhase = "sidecar-reconcile";
-                ReconcileReadableSidecarMirrorsOnLoadIfDisabled();
-
-                // Scene load memory snapshot (once per load, after all recordings are loaded)
-                DiagnosticsComputation.EmitSceneLoadSnapshot(recordings.Count, HighLogic.LoadedScene.ToString());
-
-                // Phase 6 of Rewind-to-Staging (design §6.3 step 4 / §6.4):
-                // if a re-fly invocation is pending, the preceding LoadGame was
-                // triggered by RewindInvoker.StartInvoke. Drain the static
-                // RewindInvokeContext now — Restore → Strip → Activate →
-                // AtomicMarkerWrite — in the new scenario, synchronously, NO
-                // coroutine (the old scenario's coroutine was torn down with
-                // the scene).
-                loadPhase = "rewind-post-load";
-                DispatchRewindPostLoadIfPending(node);
-
-                // Phase 10 of Rewind-to-Staging (design §6.9 step 2): if a
-                // staged-commit merge crashed mid-way, the scenario's
-                // MergeJournal persisted across the load. The finisher drives
-                // the remaining steps to completion from whatever phase the
-                // journal reached (no phase rolls back). Runs AFTER Phase 6
-                // so any re-fly invocation that was interrupted can still
-                // rehydrate its context before the journal finisher decides
-                // what to do with the session marker.
-                if (ActiveMergeJournal != null)
-                {
-                    loadPhase = "merge-journal";
-                    MergeJournalOrchestrator.RunFinisher();
-                }
-
-                // Phase 13 of Rewind-to-Staging (design §6.9 full load-time
-                // sweep): marker validation + zombie provisional cleanup +
-                // orphan supersede/tombstone log + stray-field clearing.
-                // Must run after the finisher (which may have cleared the
-                // marker) and before the Phase 11 reaper (whose input is the
-                // sweep's zombie-removed state).
-                loadPhase = "load-time-sweep";
-                LoadTimeSweep.Run();
-                RefreshPendingQuickloadTrimScope();
-
-                loadPhase = "test-batch-reconcile";
-                RunTestBatchCrashReconcile();
-
-                // Phase 11 of Rewind-to-Staging (design §6.8 load-time sweep):
-                // housekeeping pass for RPs orphaned by merges that crashed
-                // between TagRpsForReap and the reaper, or whose slots went
-                // Immutable later via a non-rewind code path. Runs after the
-                // finisher so we never try to reap an RP whose session is
-                // still live.
-                loadPhase = "rewind-point-reap";
-                RewindPointReaper.ReapOrphanedRPs();
-
-                // Memory's lists are final: delete the files of a quit-without-saving flight
-                // this load dropped (NoSaveSceneExit), then collect files no save and no memory
-                // names (design-load-restores-the-save.md 4.5).
-                loadPhase = "quit-without-saving-reap";
-                NoSaveSceneExit.ReapDroppedFlightSidecars(
-                    RewindContext.IsRewinding,
-                    ActiveReFlySessionMarker != null,
-                    ActiveMergeJournal != null);
-
-                loadPhase = "file-collection";
-                ParsekFileCollector.RunAtLoad(earlyLoadKind, coldBranch: true, scenario: this);
-
-                // After hydration repair and the journal finisher: re-apply every vessel name
-                // decision to the recordings this load produced (design 7.4 / 7.6).
-                loadPhase = "vessel-names-apply";
-                VesselNameStore.RunSpawnLinkBackfill("onload-tail:cold");
-                VesselNameStore.ApplyAll("onload-tail:cold", VesselNameLiveScope.ProtosOnly);
-                if (HighLogic.LoadedScene == GameScenes.FLIGHT)
-                    RememberFlightEntryLedgerRows("cold");
-                loadedRecordingCount = recordings.Count;
-                loadStatus = "completed";
             }
             catch (Exception ex)
             {
-                loadStatus = "exception";
-                LogScenarioLifecycleException("OnLoad", loadPhase, ex);
+                ctx.Status = "exception";
+                LogScenarioLifecycleException("OnLoad", ctx.Phase, ex);
                 throw;
             }
             finally
@@ -2377,8 +1086,1408 @@ namespace Parsek
                 SidecarVersionResolution.End("cold-onload");
                 KerbalLoadRepairDiagnostics.Reset();
                 // Always capture timing exactly once, even on exception.
-                loadedRecordingCount = SafeCommittedRecordingCount();
-                WriteLoadTiming(sw, loadedRecordingCount, loadPhase, loadStatus);
+                ctx.LoadedRecordingCount = SafeCommittedRecordingCount();
+                WriteLoadTiming(sw, ctx.LoadedRecordingCount, ctx.Phase, ctx.Status);
+                ParsekLog.Verbose(LoadReconcilePolicy.LogTag, ctx.FormatPhaseTrace());
+            }
+        }
+
+        /// <summary>
+        /// OnLoad's prologue, run by every load that is not inert: settings, the load classification,
+        /// the save-scoped reset of a Cold load, the staging loads and carries, the in-session handoff
+        /// step A, the pre-Parsek backup and the game-state recorder. Fills <paramref name="ctx"/>.
+        /// Sets <see cref="OnLoadContext.StoppedInPrologue"/> when the load stops here (the backup hold).
+        /// </summary>
+        private void OnLoadFlowPrologue(OnLoadContext ctx)
+        {
+            ConfigNode node = ctx.Node;
+            // Reset deferred dialog flag and clear input lock (dialog may have been
+            // destroyed by scene change without the user clicking a button)
+            ctx.Phase = "reset-dialog";
+            mergeDialogPending = false;
+            InputLockManager.RemoveControlLock("ParsekMergeDialog");
+
+            // GUI state gallery (design-gui-state-gallery.md 7.5, layer 4). A mock
+            // scope is a static on an automation-only type and every exit path clears
+            // it, so finding one set here is UNREACHABLE across processes: a crash
+            // mid-mock takes the static with the process. One bool read per load
+            // turns "nothing injected can survive into a load" from an assumption
+            // into an observable claim, which is the only kind of crash-safety
+            // statement worth making.
+            OnLoadPhaseDropLiveGuiMockSession();
+
+            // Restore user-intent settings (tracking-station visibility, readable
+            // sidecar mirrors, etc.) from the
+            // external settings.cfg file, overwriting whatever stale value KSP's
+            // GameParameters restored from the save. Runs before anything reads
+            // ParsekSettings.Current so the rest of OnLoad sees the fresh values.
+            // Survives rewind (parsek_rw_* quicksaves), save/load, and KSP restart.
+            ctx.Phase = "settings";
+            // scenarioNodePopulated is a BARE BOOL: "does my own SCENARIO node carry
+            // real Parsek data", judged exactly as PreParsekBackup.HasParsekGameplayFootprint
+            // judges it (any child node, or any value beyond the stock name+scene pair;
+            // the empty node KSP injects on first AddToAllGames contact is NOT data).
+            // The settings layer owns what that signal MEANS - this file deliberately
+            // names no UI-mode symbol.
+            bool scenarioNodePopulated =
+                node != null && (node.nodes.Count > 0 || node.values.Count > 2);
+            ParsekSettingsPersistence.ApplyTo(
+                ParsekSettings.Current, scenarioNodePopulated: scenarioNodePopulated);
+            // The hidden-but-kept settings (auto-record trio, autoMerge,
+            // forceFaithfulLoopPlayback) have no player-facing UI since the 2026-08-27
+            // settings simplification, so a stale save-stored value (e.g. autoMerge=False
+            // from an older career) is clamped back to the shipping value here - unless
+            // an automation env hook is armed, in which case the harness keeps authority
+            // over these fields (fixture pins + SetSetting must survive scene loads).
+            OnLoadPhaseClampHiddenSettingsToShippingValues();
+            RecorderStateLog.RecState("OnLoad:settings-applied", CaptureScenarioRecorderState());
+
+            // The save-wide format stamp: log what wrote this save (pre-1.0, current, newer).
+            // Each store's own reader decides what it keeps; this read changes nothing.
+            ctx.Phase = "save-format";
+            SaveFormat.ClassifyLoadedScenarioNode(node, scenarioNodePopulated);
+
+            var recordings = RecordingStore.CommittedRecordings;
+            ctx.Recordings = recordings;
+            ctx.LoadedRecordingCount = recordings.Count;
+
+            ctx.Phase = "hooks";
+            RegisterMainMenuHook();
+            string saveFolderBeforeDetect = backupHoldRetryDetected
+                ? backupHoldRetrySaveFolderBefore
+                : lastSaveFolder;
+            backupHoldRetryDetected = false;
+            backupHoldRetrySaveFolderBefore = null;
+            DetectSaveFolderChange();
+
+            // Load classification (LoadReconcilePolicy) before the prologue consumes any
+            // state, after DetectSaveFolderChange settles initialLoadDone. An in-session
+            // load is refined once the revert detector has run (below); every other kind
+            // is final here and logs now.
+            ctx.Phase = "load-classify";
+            bool classifyInitialLoadDone = initialLoadDone;
+            bool classifyRewinding = RewindContext.IsRewinding;
+            bool classifyReFlyInvoke = RewindInvokeContext.Pending;
+            bool classifyDiscardReFly = DiscardReFlyLoadIntent.TryConsume(
+                HighLogic.LoadedScene, "ParsekScenario.OnLoad", out RevertTarget discardReFlyIntentTarget,
+                HighLogic.CurrentGame?.flightState != null
+                    ? HighLogic.CurrentGame.flightState.universalTime
+                    : double.NaN);
+            string classifyDiscardReFlyTarget = classifyDiscardReFly
+                ? discardReFlyIntentTarget.ToString()
+                : null;
+            // A save file stock just loaded (F9, the pause-menu Load, the main-menu Load):
+            // consumed by this load whatever it classifies as. The revert detector is read
+            // without consuming it (the revert branch consumes it below): stock fires the
+            // save-file event inside a revert too, and the revert wins.
+            bool classifyRevertPending = RevertDetector.PendingKind != RevertKind.None;
+            bool classifySaveFileLoad = SaveFileLoadIntent.TryConsume(
+                UnityEngine.Time.realtimeSinceStartup, UnityEngine.Time.frameCount,
+                "ParsekScenario.OnLoad", out double saveFileIntentNodeUT, out int saveFileIntentAgeFrames);
+            string classifyHandoff = InSessionStagedStateHandoff.DescribeForClassification();
+            EarlyLoadKind earlyLoadKind = LoadReconcilePolicy.ClassifyEarly(
+                classifyInitialLoadDone, classifyRewinding, classifyReFlyInvoke, classifyDiscardReFly,
+                classifySaveFileLoad, classifyRevertPending);
+            string coldReason = LoadReconcilePolicy.ResolveColdReason(
+                earlyLoadKind, classifyInitialLoadDone,
+                coldLoadsThisProcess, saveFolderBeforeDetect, HighLogic.SaveFolder);
+            var classification = new LoadClassificationFacts(
+                classifyInitialLoadDone, classifyRewinding, classifyReFlyInvoke, classifyDiscardReFlyTarget,
+                classifyHandoff, coldReason, classifySaveFileLoad, classifyRevertPending,
+                classifySaveFileLoad ? saveFileIntentAgeFrames : -1,
+                classifySaveFileLoad ? saveFileIntentNodeUT : double.NaN);
+            ctx.Classify(classification, earlyLoadKind, coldReason);
+            if (earlyLoadKind != EarlyLoadKind.InSession)
+                LogLoadClassification(earlyLoadKind, LoadReconcilePolicy.ToLoadKind(earlyLoadKind), classification);
+
+            // A save-file load replaces everything from the save (design 4.1): the cold
+            // branch below runs, and the handoff the torn-down scenario captured is not
+            // this load's (the save's own staging nodes are).
+            if (coldReason == LoadReconcilePolicy.ColdReasonSaveFile)
+            {
+                initialLoadDone = false;
+                InSessionStagedStateHandoff.Drop(InSessionStagedStateHandoff.DropSaveFileLoad);
+            }
+            else if (classifySaveFileLoad)
+            {
+                ParsekLog.Verbose(LoadReconcilePolicy.LogTag,
+                    "Save-file load intent dropped reason=consumed-by-" + earlyLoadKind
+                    + (classifyRevertPending ? " (a revert is pending)" : ""));
+            }
+
+            // Every Cold load starts from nothing: the save (and, for a save written by an
+            // older build, the external files) is the only source of what follows
+            // (design-load-restores-the-save.md 4.2).
+            if (earlyLoadKind == EarlyLoadKind.Cold)
+            {
+                ctx.Phase = "save-scoped-reset";
+                ResetSaveScopedSessionState(coldReason);
+            }
+
+            if (!RewindContext.IsRewinding)
+                KerbalLoadRepairDiagnostics.Begin();
+            ctx.Phase = "crew-groups";
+            LoadCrewAndGroupState(node);
+            // Rewind-to-Staging Phase 1 (design sections 5.1-5.9). Load runs
+            // on every OnLoad so a revert or scene change rebuilds the lists
+            // from .sfs rather than reusing stale in-memory state.
+            ctx.Phase = "refly-state-load";
+            LoadRewindStagingState(node);
+
+            // The drawdown guard's stock pool reference comes from the same .sfs as the
+            // live pools it describes, on every load kind (LoadReconcilePolicy,
+            // StockPoolReference category); a save without one starts afresh at its
+            // first patch.
+            ctx.Phase = "stock-pool-reference-load";
+            LoadStockPoolReference(node, earlyLoadKind);
+
+            // The ledger held-through UT says which ledger rows the loaded world already
+            // holds (a save written inside a Rewind-to-Launch lead window), before any walk
+            // or committed-future read of this load (LoadReconcilePolicy, LedgerHeldWindow).
+            ctx.Phase = "ledger-held-window-load";
+            LoadLedgerHeldWindow(node, earlyLoadKind);
+
+            // The vessels a plain rewind held back for their committed future describe the
+            // world of the save that holds them (LoadReconcilePolicy, RewindVesselHolds).
+            ctx.Phase = "rewind-vessel-holds-load";
+            LoadRewindVesselHolds(node, earlyLoadKind);
+
+            // The replay-scope latch describes the timeline of the save that carries it
+            // (LoadReconcilePolicy, PlaybackReplayScope): a cold load takes the save's, so a
+            // save written mid-replay keeps its ghosts drawn and relaying.
+            ctx.Phase = "playback-replay-scope-load";
+            LoadPlaybackReplayScope(node, earlyLoadKind);
+
+            // The flags the player removed describe the world of the save that carries them
+            // (LoadReconcilePolicy, RemovedReplayFlags): a cold load takes the save's; every
+            // other load keeps memory's and drops the removals after the loaded world's UT below.
+            ctx.Phase = "removed-replay-flags-load";
+            LoadRemovedReplayFlags(node, earlyLoadKind);
+
+            // A rewind point always survives a plain rewind (operator ruling
+            // 2026-09-23). The node above is persistent.sfs as last written, not the
+            // rewind save (SpaceCenterMain.Start reloads persistent), so its RP list is
+            // of unknown age: put back the in-memory list captured when the rewind
+            // started. No-op on every load that is not a rewind.
+            ctx.Phase = "rewind-point-carry-over";
+            RewindCarry.ReinstallRewindCarriedRewindPointsAfterLoad(this);
+
+            // Same for the supersede, rewind-retirement and tombstone lists and the merge
+            // journal: the recordings and the ledger are kept from memory across a plain
+            // rewind, so these must be too. A rewind keeps every supersede row, the rewound
+            // tree's included (owner ruling 2026-10-24). No-op when not a rewind.
+            ctx.Phase = "rewind-staged-lists-carry-over";
+            RewindCarry.ReinstallRewindCarriedStagedListsAfterLoad(this);
+
+            // In-session loads: the same lists, the journal and (on a Discard Re-fly) the marker
+            // come from the scenario instance this load replaces, as the committed recordings
+            // and the ledger do (InSessionStagedStateHandoff, captured in OnDestroy). Consumed
+            // by every load: a cold load, a plain rewind (the carries above own its lists) and
+            // a Re-Fly start (the reconciliation bundle owns them) drop it. The rewind points
+            // are partitioned by owner, and a resumed tree's rows handed back to the save, once
+            // the tree restores below have detached that tree (step B).
+            ctx.Phase = "in-session-staged-handoff";
+            ApplyInSessionStagedStateHandoffStepA(earlyLoadKind);
+
+            // Pre-Parsek safety backup: the first time Parsek cold-loads a save with no
+            // Parsek footprint, copy it (before any Parsek write, so the persistent.sfs is
+            // gameplay-pristine) into a timestamped sibling folder that shows up in KSP's
+            // Load menu. Cold-load-only (!initialLoadDone) so it never captures a
+            // post-autosave file on a later same-session OnLoad; runs before LoadExternalFiles
+            // (Parsek's first read/recalc). Idempotent via on-disk footprint + done-marker.
+            ctx.Phase = "pre-parsek-backup";
+            if (!initialLoadDone)
+            {
+                PreParsekBackup.SweepOrphanStagingDirs();
+                if (PreParsekBackup.MaybeBackupOnFirstColdContact()
+                    == PreParsekBackup.BackupAttemptOutcome.Failed)
+                {
+                    // Owner ruling 2026-11-06: never change a save Parsek could not back
+                    // up. Everything above only read the (footprint-free) node into empty
+                    // stores; nothing below runs, and the save's node goes back out empty.
+                    EnterBackupHold(node, HighLogic.SaveFolder);
+                    ctx.Status = "backup-hold";
+                    ctx.StoppedInPrologue = true;
+                    return;
+                }
+            }
+            else
+            {
+                PreParsekBackup.DropUnusedAutomationFault("an in-session load makes no backup attempt");
+            }
+
+            // Game state recorder lifecycle — re-subscribe on every OnLoad (handles reverts)
+            ctx.Phase = "game-state-recorder";
+            stateRecorder?.Unsubscribe();
+            if (!initialLoadDone)
+                LoadExternalFiles(node);
+            stateRecorder = new GameStateRecorder();
+            stateRecorder.SeedFacilityCacheFromCurrentState();
+            stateRecorder.Subscribe();
+            // Subscribe() seeds the resource baselines from whichever currency singletons
+            // exist right now, and OnLoad runs from the middle of KSP's own scenario-module
+            // load pass - so on some scene loads one or more baselines are left NaN, and an
+            // unseeded baseline eats the first real change of the scene instead of emitting
+            // it. Top them up as soon as the singletons appear.
+            StartCoroutine(SeedRecorderResourceBaselinesWhenReady(stateRecorder));
+
+            ctx.Phase = "initial-baseline";
+            SubscribeVesselLifecycleEvents();
+            CaptureInitialBaseline();
+        }
+
+        /// <summary>
+        /// The plain rewind (Rewind-to-Launch, Warp-to-game-start): keeps memory's recordings and
+        /// ledger and loads the rewind save's stock state. Returns before the refined classification.
+        /// </summary>
+        private void OnLoadFlowPlainRewind(OnLoadContext ctx)
+        {
+            ConfigNode node = ctx.Node;
+            var recordings = ctx.Recordings;
+            // Timeline break (design 3.15 step 5): a plain rewind keeps the in-memory
+            // ledger and loads the rewind save's stock state. This branch returns
+            // before the refined classification below, so it records its own break.
+            // Both read the rewind save's WORLD UT, not the wound-back clock: the
+            // world holds everything up to the save's own UT (and the held-through
+            // UT it carries), so income earned in the lead window is not forgotten
+            // (todo REWIND-LEAD-WINDOW-KSC-ACTIONS-LAND-IN-THE-FUTURE).
+            ctx.Phase = "timeline-break";
+            double rewindWorldUT = ResolvePlainRewindWorldUT(
+                KerbalsModule.ReadLoadedSaveUT(), RewindContext.RewindSaveOwnClockUT,
+                RewindContext.RewindSaveLedgerHeldThroughUT);
+            StockShadowTakeBack.NoteLoad(
+                LoadKind.PlainRewind, rewindWorldUT, CaptureSequence.CurrentHighWater());
+            // Live-only income (design 3.15 step 9): the rewind save's stock state
+            // forgets income no ledger channel converts that was earned after its UT.
+            LiveOnlyIncome.DropAfterTimeTravelLoad(LoadKind.PlainRewind, rewindWorldUT);
+            // A flag the player removed after the rewind save's UT stands in its world
+            // again (or replay plants it at its moment).
+            ReconcileRemovedReplayFlagsAtLoad(LoadKind.PlainRewind, rewindWorldUT);
+
+            ctx.Phase = "rewind";
+            HandleRewindOnLoad(node, recordings);
+            ReconcileReadableSidecarMirrorsOnLoadIfDisabled();
+            // The rewind save's vessels carry the names of its UT: re-apply the
+            // decisions (design 7.6 step 1; a rewind keeps every rename, ruling 5).
+            ctx.Phase = "vessel-names-apply";
+            VesselNameStore.RunSpawnLinkBackfill("onload-tail:rewind");
+            VesselNameStore.ApplyAll("onload-tail:rewind", VesselNameLiveScope.ProtosOnly);
+            DiagnosticsComputation.EmitSceneLoadSnapshot(recordings.Count, HighLogic.LoadedScene.ToString());
+            ctx.LoadedRecordingCount = recordings.Count;
+            ctx.Status = "returned";
+        }
+
+        /// <summary>
+        /// Every in-session load that is not a plain rewind: refines the kind (StockRevert,
+        /// QuickloadFlight, InSessionOther; ReFlyStart and DiscardReFly keep their early kind) and
+        /// reconciles memory's recordings and ledger with the loaded save.
+        /// </summary>
+        private void OnLoadFlowInSession(OnLoadContext ctx)
+        {
+            ConfigNode node = ctx.Node;
+            var recordings = ctx.Recordings;
+            EarlyLoadKind earlyLoadKind = ctx.EarlyLoadKind;
+            var classification = ctx.Classification;
+
+            // Restore an in-flight tree from the save file (if OnSave wrote one).
+            // This stashes it into the pending-Limbo slot so the revert-detection
+            // dispatch below can decide between "restore and resume" (quickload)
+            // and "finalize and commit" (real revert).
+            // Runs AFTER ParsekSettingsPersistence.ApplyTo so restored settings
+            // affect the rest of OnLoad, but BEFORE revert detection so the
+            // pending slot is populated when it runs.
+            ctx.Phase = "active-tree-restore";
+            bool activeTreeRestoredFromSave = TryRestoreActiveTreeNode(
+                node, earlyLoadKind, HighLogic.LoadedScene == GameScenes.FLIGHT);
+            bool pendingTreeRestoredFromSave = TryRestorePendingTreeNode(
+                node, activeTreeRestoredFromSave);
+            RecorderStateLog.RecState("OnLoad:active-tree-restored", CaptureScenarioRecorderState());
+
+            // Step B of the in-session handoff: rewind points of trees memory still holds
+            // committed come from memory, the rest from the save. After the restores
+            // above, so the committed set it partitions by is the one this load keeps.
+            ctx.Phase = "in-session-handoff-step-b";
+            ApplyInSessionStagedStateHandoffStepB();
+
+            ctx.Phase = "revert-classification";
+
+            // Count tree recordings from saved tree nodes for accurate revert
+            // detection. Pure node arithmetic, extracted so the rule is testable.
+            int savedTreeRecCount = CountSavedCommittedRecordingNodes(node);
+
+            // FLIGHT→FLIGHT can be a revert, a quickload, or a vessel switch.
+            // The event-based revert detector below owns the distinction; the
+            // FLIGHT→FLIGHT boolean alone is not enough to classify the load.
+            bool isFlightToFlight = lastOnSaveScene == GameScenes.FLIGHT
+                                    && HighLogic.LoadedScene == GameScenes.FLIGHT;
+            // vesselSwitchPending must be BOTH set AND fresh. EVA events
+            // fire onVesselSwitching without causing a scene reload, so
+            // the raw flag can sit sticky for thousands of frames before
+            // the next unrelated quickload consumes it — the staleness
+            // check prevents an EVA-then-F9 sequence from being
+            // mis-identified as a tracking-station vessel switch and
+            // routed into FinalizeLimboForRevert (post-PR #163 playtest
+            // bug; see CHANGELOG for full narrative).
+            int currentFrame = UnityEngine.Time.frameCount;
+            bool vesselSwitchFlagFresh = IsVesselSwitchFlagFresh(
+                vesselSwitchPending, vesselSwitchPendingFrame,
+                currentFrame, VesselSwitchPendingMaxAgeFrames);
+            bool isVesselSwitch = isFlightToFlight && vesselSwitchFlagFresh;
+            if (vesselSwitchPending && !vesselSwitchFlagFresh)
+            {
+                int age = currentFrame - vesselSwitchPendingFrame;
+                ParsekLog.Info("Scenario",
+                    $"vesselSwitchPending flag stale ({age} frames old, " +
+                    $"max {VesselSwitchPendingMaxAgeFrames}) — " +
+                    "treating FLIGHT→FLIGHT as quickload, not vessel switch");
+            }
+            vesselSwitchPending = false; // consume the flag regardless
+            int vesselSwitchFlagAgeOnConsume =
+                vesselSwitchPendingFrame >= 0
+                    ? currentFrame - vesselSwitchPendingFrame
+                    : -1;
+            vesselSwitchPendingFrame = -1;
+
+            // UT-backwards signal (Bug A). F5 followed by flight and then F9
+            // is indistinguishable from a normal FLIGHT→FLIGHT scene change
+            // on every recording-count-based signal when F5 happens post-merge
+            // (both sides have equal counts). The one unambiguous fingerprint
+            // is that Planetarium UT regresses
+            // between OnSceneChangeRequested and OnLoad — a quickload /
+            // revert / rewind is the only legitimate way that happens.
+            // Captured in ParsekFlight.OnSceneChangeRequested via
+            // StampSceneChangeRequestedUT; consumed exactly once here.
+            // Planetarium.fetch can theoretically be null during early
+            // OnLoad in non-flight scenes; if so we have no clock to
+            // compare and must NOT report a UT regression (would false-
+            // positive a discard against any non-zero preChangeUT).
+            bool planetariumReady = Planetarium.fetch != null;
+            double loadedUT = planetariumReady
+                ? Planetarium.GetUniversalTime()
+                : 0.0;
+            double preChangeUT = lastSceneChangeRequestedUT;
+            lastSceneChangeRequestedUT = -1.0; // consume regardless of outcome
+            bool utWentBackwards = planetariumReady && IsQuickloadOnLoad(
+                preChangeUT, loadedUT, UtBackwardsEpsilon);
+
+            // Contradict a stale-but-fresh-classified vessel-switch flag on
+            // quickload: the frame-count heuristic can mis-classify under
+            // low render FPS, and even when it's correct, a quickload must
+            // always win over a vessel-switch interpretation.
+            if (utWentBackwards && isFlightToFlight && isVesselSwitch)
+            {
+                ParsekLog.Info("Scenario",
+                    "OnLoad: UT went backwards " +
+                    $"({preChangeUT.ToString("F2", CultureInfo.InvariantCulture)} → " +
+                    $"{loadedUT.ToString("F2", CultureInfo.InvariantCulture)}) — " +
+                    "forcing isVesselSwitch=false for quickload classification " +
+                    $"(flag was fresh at age={vesselSwitchFlagAgeOnConsume} frames; " +
+                    $"cap={VesselSwitchPendingMaxAgeFrames})");
+                isVesselSwitch = false;
+            }
+
+            // Bug #300: on first-ever flight (no prior commits), recording
+            // counts are zero on both sides. The distinguishing signal is that
+            // TryRestoreActiveTreeNode returned false (the launch quicksave
+            // has no active tree) yet a Limbo tree persists from the
+            // StashActiveTreeAsPendingLimbo call before this OnLoad.
+            // Quickloads (F5/F9) always have an active tree in the save file
+            // because OnSave writes it, so activeTreeRestoredFromSave=true.
+            bool hasOrphanedLimboTree = ComputeHasOrphanedLimboTree(
+                PendingTreeSlot.HasPendingTree,
+                PendingTreeSlot.PendingTreeStateValue,
+                activeTreeRestoredFromSave);
+            // #434: event-based revert detection. GameEvents.OnRevertTo{Launch,Prelaunch}FlightState
+            // fires synchronously inside FlightDriver.RevertToLaunch / RevertToPrelaunch,
+            // BEFORE HighLogic.LoadScene, so by the time OnLoad runs the flag is set.
+            // We consume it here; any later OnLoad (e.g. an F9 into a pre-revert flight
+            // quicksave) sees RevertKind.None and classifies as a plain quickload resume.
+            var revertKind = RevertDetector.Consume("ParsekScenario.OnLoad");
+            // BUG-H: consume the revert-target whitelist together with the kind so the
+            // captured static can never leak into a later OnLoad (e.g. a revert event that
+            // this load classifies as a vessel switch). Only used below when isRevert.
+            HashSet<uint> revertTargetPids = RevertDetector.ConsumeRevertTargetVesselPids();
+            bool isRevert = ComputeIsRevertOnLoad(isVesselSwitch, revertKind);
+            ParsekLog.Verbose("Scenario",
+                $"OnLoad: revert detection — revertKind={revertKind}, " +
+                $"savedTreeRecs={savedTreeRecCount}, " +
+                $"memoryRecordings={recordings.Count}, lastOnSaveScene={lastOnSaveScene}, " +
+                $"isFlightToFlight={isFlightToFlight}, isVesselSwitch={isVesselSwitch}, isRevert={isRevert}, " +
+                $"pendingTreeState={PendingTreeSlot.PendingTreeStateValue}, " +
+                $"activeTreeRestoredFromSave={activeTreeRestoredFromSave}, " +
+                $"pendingTreeRestoredFromSave={pendingTreeRestoredFromSave}, " +
+                $"hasOrphanedLimboTree={hasOrphanedLimboTree}");
+
+            // Refined load kind: the revert detector has run, so an in-session load now
+            // splits into StockRevert / QuickloadFlight / InSessionOther. Every consumer
+            // of the refined kind sits below this line.
+            LoadKind refinedLoadKind = LoadReconcilePolicy.ClassifyRefined(
+                earlyLoadKind, isRevert, isFlightToFlight, utWentBackwards);
+            ctx.RefinedLoadKind = refinedLoadKind;
+            if (earlyLoadKind == EarlyLoadKind.InSession)
+                LogLoadClassification(earlyLoadKind, refinedLoadKind, classification);
+
+            // The saveStamp canary (design 4.1): an in-session read of a save this
+            // process did not write last is a load no stock path announced. One Warn;
+            // the classification stands.
+            CheckLoadedSaveStamp(node, refinedLoadKind);
+
+            // Timeline break (design 3.15 step 5): a load that keeps the in-memory
+            // ledger and loads an earlier stock state makes stock forget every credit
+            // after the loaded UT, so a later live repeat of one is a duplicate payment.
+            // The loaded world's UT: the loaded clock raised to the held-through UT the
+            // prologue installed from this save (a save written inside a Rewind-to-Launch
+            // lead window holds everything up to it).
+            double loadedWorldUT = LedgerHeldWindow.ResolveLedgerNowUT(KerbalsModule.ReadLoadedSaveUT());
+            StockShadowTakeBack.NoteLoad(
+                refinedLoadKind, loadedWorldUT, CaptureSequence.CurrentHighWater());
+            // Live-only income (design 3.15 step 9): the same load forgets income no
+            // ledger channel converts that was earned after the loaded UT.
+            LiveOnlyIncome.DropAfterTimeTravelLoad(refinedLoadKind, loadedWorldUT);
+            // The same load forgets the player's flag removals after the loaded UT.
+            ReconcileRemovedReplayFlagsAtLoad(refinedLoadKind, loadedWorldUT);
+
+            // Vessel names (design 7.6, ruling 5): a stock revert or Discard Re-fly cancels
+            // the current flight epoch, and with it the stock renames made inside it.
+            // Before the OnLoad tail re-applies the decisions to recordings and protos.
+            if (LoadReconcilePolicy.Decide(refinedLoadKind, LoadStateCategory.VesselNames).Action
+                == LoadReconcileAction.MemoryUndoRevertedFlight)
+            {
+                ctx.Phase = "vessel-names-revert-undo";
+                VesselNameStore.UndoCurrentFlightEpoch("onload:" + refinedLoadKind);
+            }
+
+            // Capture the launch UT for the editor-revert orphan-prune boundary. A fresh
+            // launch from the editor (NEW_FROM_FILE / NEW_FROM_CRAFT_NODE) enters FLIGHT
+            // with loadedUT == the launch instant, regardless of launch site (KSC
+            // pad/runway, Making History Desert/Woomerang) or game mode. A non-fresh
+            // flight load (quickload-resume) clears the static so a stale value can't
+            // over-prune a later editor revert. Revert loads (isRevert) and non-flight
+            // loads leave the static untouched so the captured launch UT survives until
+            // the matching Revert-to-editor reads it.
+            OnLoadPhaseApplyFreshLaunchUtDecision(isRevert, isVesselSwitch, loadedUT);
+
+            // Discard stashed-this-transition recordings on quickload (Bug A).
+            // Must run BEFORE the isRevert branch at line ~580, because the
+            // revert branch consumes PendingStashedThisTransition for its own
+            // "keep across revert" logic. For a pure F5/F9 after a merged
+            // tree, isRevert=false, so the existing revert-branch discard path
+            // never runs — this is why the bug manifested in the 2026-04-09 playtest.
+            //
+            // #434 follow-up (2026-04-17): skip this on revert. Revert-to-Launch is
+            // always `utWentBackwards && isFlightToFlight`, so without the !isRevert
+            // guard the hard-discard path ran first and deleted sidecar files +
+            // purged tagged events, defeating the soft-unstash invariant established
+            // in the isRevert branch below. Observed in
+            // `logs/2026-04-17_2158_revert-stress-test`: recording 4f2a8438's .prec /
+            // _ghost.craft files were deleted before `UnstashPendingTreeOnRevert`
+            // could run, which would break F9-from-flight-quicksave in any playthrough
+            // where the user F5'd during the doomed flight. Gate extracted to
+            // ShouldRunQuickloadDiscard so the contract is unit-testable.
+            //
+            // Re-Fly retry has the same quickload shape, but during the pre-marker
+            // invoke window the session is represented by RewindInvokeContext.Pending.
+            // The gate treats that pending invoke as active so the RP quicksave and
+            // pending tree survive until RewindInvoker.ConsumePostLoad recreates the
+            // marker and resumes the session.
+            //
+            // The pending-science half reads the policy table. Wherever this gate
+            // passes, the refined kind is QuickloadFlight (Clear): an early ReFlyStart
+            // keeps RewindInvokeContext.Pending set, so the gate refuses; an early
+            // DiscardReFly only matches a Space Center / editor load, so
+            // isFlightToFlight is false; an in-session load with the clock backwards,
+            // FLIGHT->FLIGHT and no revert refines to QuickloadFlight.
+            if (ShouldRunQuickloadDiscard(utWentBackwards, isFlightToFlight, isRevert))
+            {
+                DiscardStashedOnQuickload(preChangeUT, loadedUT,
+                    clearPendingScience: LoadReconcilePolicy.Decide(
+                        refinedLoadKind, LoadStateCategory.PendingScience).Action
+                        == LoadReconcileAction.Clear);
+            }
+
+            RecorderStateLog.RecState(
+                isRevert ? "OnLoad:revert-decided=Y" : "OnLoad:revert-decided=N",
+                CaptureScenarioRecorderState());
+            if (isFlightToFlight && !isRevert && !isVesselSwitch)
+            {
+                ParsekLog.Info("Scenario",
+                    "OnLoad: FLIGHT→FLIGHT without revert indicators — treating as quickload / scene reload, not revert");
+            }
+
+            // Collect spawned vessel PIDs + names BEFORE restore resets them.
+            // Only on revert — on normal scene changes the spawned vessels are
+            // legitimate and must not be cleaned up.
+            // Guard: if cleanup data was already set by a prior rewind path,
+            // do NOT overwrite — the rewind path's data is authoritative.
+            // (After rewind, ResetAllPlaybackState zeros spawn tracking, so
+            // CollectSpawnedVesselInfo returns empty here and would clobber
+            // the rewind data with null.)
+            if (isRevert)
+            {
+                ctx.Phase = "revert-cleanup";
+                ArmRevertCleanupData(RewindLauncher.CollectSpawnedVesselInfo);
+
+                // Clear pending tree/recording from a PREVIOUS flight — dialog was shown
+                // but user reverted before acting on it. Prevents OnFlightReady fallback
+                // from showing the dialog again (#64).
+                // However, if the pending was stashed during THIS scene transition
+                // (OnSceneChangeRequested → StashPendingTree), it is fresh and must
+                // survive long enough for the current OnLoad to classify it correctly.
+                // On true revert the later soft-unstash branch below clears it again;
+                // on quickload/non-revert paths other dispatch owns it.
+                OnLoadPhaseApplyRevertPendingTreeDisposition();
+            }
+
+            // Restore tree recording mutable state from RECORDING_TREE nodes.
+            // First, reset ALL tree recordings' spawn-tracking fields to defaults, so
+            // VesselSpawned/SpawnedPid/etc. never carry over from a flight whose
+            // vessels a revert undid; the tree-state-restore loop below then puts
+            // back what the saved RECORDING_TREE nodes say. Those nodes are present
+            // on revert too: the launch/prelaunch GameBackup the revert loads was
+            // written through OnSave, so it carries every tree committed before the
+            // launch. Terminal verdicts are NOT reset here: a committed recording's
+            // terminalState is recorded content (see
+            // ResetTreeRecordingMutableStateForLoad).
+            ctx.Phase = "tree-mutable-state";
+            ResetTreeRecordingMutableStateForLoad(recordings);
+
+            // Strip orphaned spawned vessels from flightState on revert.
+            // These vessels were spawned by Parsek in a previous flight but their
+            // tracking was lost when spawn flags were reset. Without stripping,
+            // they contaminate the next launch quicksave and persist across reverts.
+            //
+            // BUG-H: this is launch-identity-aware AND scoped to the reverted flight.
+            // The deletion decision matches a vessel against a recording's spawn endpoint
+            // by pid+launch-Guid (never name alone) and only removes vessels that appeared
+            // DURING the reverted flight (not in the revert-target launch/prelaunch
+            // quicksave whitelist). A stock revert must only undo the current launch — it
+            // must never delete a real, separately-launched craft from an unrelated mission
+            // that merely reuses the craft-baked name/pid of a recording. The strip fails
+            // closed when the scope whitelist is unavailable.
+            if (isRevert)
+            {
+                ctx.Phase = "revert-strip";
+                // Preserve for the OnFlightReady belt-and-suspenders cleanup (FLIGHT->FLIGHT
+                // launch revert recovers LOADED vessels, which OnLoad's protoVessel strip
+                // does not see). Null is a meaningful "fail-closed" scope there too.
+                RewindLauncher.PendingRevertPreExistingPids = revertTargetPids;
+
+                var flightState = HighLogic.CurrentGame?.flightState;
+                if (flightState != null)
+                {
+                    var allCommitted = RecordingStore.CollectAllCommittedRecordings();
+                    StripOrphanedSpawnedVessels(
+                        flightState.protoVessels, allCommitted,
+                        matchSource: false, skipPrelaunch: true,
+                        requireWhitelist: true, preExistingWhitelist: revertTargetPids);
+                }
+                ReleaseRevertCleanupOutsideFlight(HighLogic.LoadedScene);
+            }
+
+            // Rescue crew orphaned by vessel stripping (#116)
+            if (isRevert && HighLogic.CurrentGame?.flightState != null)
+                CrewReservationManager.RescueOrphanedCrew(
+                    HighLogic.CurrentGame.flightState.protoVessels);
+
+            // Then restore from saved tree nodes (present on scene change and on revert:
+            // the revert target was written through OnSave at launch).
+            ctx.Phase = "tree-state-restore";
+            ConfigNode[] savedTreeNodes = node.GetNodes("RECORDING_TREE");
+            if (savedTreeNodes.Length > 0)
+            {
+                // Rebuild tree mutable state from saved tree nodes.
+                // Skip active-tree (in-flight) marker nodes: their recordings live
+                // in pending-Limbo and are not in `recordings` (the committed list).
+                // Matching against `recordings` would harmlessly fail today, but
+                // the defensive skip avoids future refactors conflating the two.
+                foreach (var savedTreeNode in savedTreeNodes)
+                {
+                    if (IsActiveTreeNode(savedTreeNode)) continue;
+                    if (IsPendingTreeNode(savedTreeNode)) continue;
+
+                    ConfigNode[] savedTreeRecNodes = savedTreeNode.GetNodes("RECORDING");
+                    foreach (var savedTreeRecNode in savedTreeRecNodes)
+                    {
+                        string savedRecId = savedTreeRecNode.GetValue("recordingId");
+                        if (string.IsNullOrEmpty(savedRecId)) continue;
+
+                        // Find the in-memory recording by ID and restore mutable state
+                        for (int i = 0; i < recordings.Count; i++)
+                        {
+                            if (recordings[i].RecordingId == savedRecId)
+                            {
+                                string pidStr = savedTreeRecNode.GetValue("spawnedPid");
+                                uint savedPid = 0;
+                                if (pidStr != null)
+                                    uint.TryParse(pidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out savedPid);
+                                recordings[i].SpawnedVesselPersistentId = savedPid;
+                                // Keep the VesselSpawned flag in sync with the spawned-pid invariant
+                                // so the scene-enter resume path's filter matches after save/load.
+                                recordings[i].VesselSpawned = savedPid != 0;
+
+                                string resIdxStr = savedTreeRecNode.GetValue("lastResIdx");
+                                int resIdx = -1;
+                                if (resIdxStr != null)
+                                    int.TryParse(resIdxStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out resIdx);
+                                recordings[i].LastAppliedResourceIndex = resIdx;
+
+                                // BUG-C: re-restore the durable terminal-orbit
+                                // cannot-spawn-safely abandon that the tree-mutable-state
+                                // reset cleared above. This in-session ("returned-scene-
+                                // change" / quickload) path reconciles the in-memory
+                                // committed recordings rather than rebuilding them via
+                                // RecordingTreeRecordCodec, so without this a known-dead
+                                // terminal-orbit vessel re-spawns after every scene change.
+                                RestorePersistedTerminalAbandon(recordings[i], savedTreeRecNode);
+
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Reconcile spawn state after all restore + strip operations (#168).
+            // If a recording's SpawnedVesselPersistentId points to a vessel that was
+            // stripped, reset the PID so the vessel can be re-spawned at the correct time.
+            // BUG-H: guid-aware — a surviving same-pid vessel from a DIFFERENT launch does
+            // not keep the recording's spawn state alive (it would otherwise block re-spawn).
+            if (isRevert)
+            {
+                var flightStateForReconcile = HighLogic.CurrentGame?.flightState;
+                if (flightStateForReconcile != null)
+                    ReconcileSpawnStateAfterStrip(
+                        CollectSurvivingVesselIdentities(flightStateForReconcile.protoVessels),
+                        recordings);
+            }
+
+            // The Discard Re-fly lands in the rewind point's world: hold back what the
+            // committed future uses there, as a plain rewind does (rewind design 10.13).
+            // After the spawn-state restore above, so the claims the hold releases stay
+            // released.
+            if (refinedLoadKind == LoadKind.DiscardReFly)
+            {
+                ctx.Phase = "discard-refly-vessel-holds";
+                ApplyDiscardReFlyVesselHolds(recordings, KerbalsModule.ReadLoadedSaveUT());
+            }
+
+            // The revert prune's launch boundary, read by the route reconcile below.
+            double revertPruneCutoffUTForRoutes = double.NaN;
+            if (isRevert)
+            {
+                ctx.Phase = "revert-milestones";
+                // Restore milestone mutable state from .sfs.
+                // resetUnmatched: true — milestones created after the launch quicksave
+                // (not in the saved state) must be reset to unreplayed (-1). Hidden
+                // branch exclusion now comes from recording-id visibility, not a
+                // synthetic epoch bump.
+                MilestoneStore.RestoreMutableState(node, resetUnmatched: true);
+
+                // #434: Revert is a player declaration that "this mission never happened."
+                // Soft-unstash the pending tree — clear the slot but preserve sidecar files
+                // and event state so that a quicksave taken during the flight can still be
+                // F9'd back into (the ACTIVE_TREE node in that quicksave refers to the same
+                // recording ids, and both persistent.sfs and sidecars survive KSP's revert).
+                // Events stay in-memory and on-disk; recording-id visibility filters
+                // them out of the post-revert ledger walks until a matching quickload
+                // restores the tree.
+                //
+                // This runs BEFORE the limbo-dispatch block below — clearing the pending
+                // slot short-circuits the finalize/restore paths because the tree is gone.
+                //
+                // Call UnstashPendingTreeOnRevert unconditionally — even with no pending
+                // tree, the method clears any in-flight PendingScienceSubjects captured
+                // after the launch quicksave, which otherwise would leak onto the next
+                // committed recording. (The function no-ops cleanly when both the tree and
+                // the subject list are empty.) Only show the screen message when a tree
+                // was actually unstashed, since the user's only observable action was the
+                // revert itself.
+                bool hadPendingTree = PendingTreeSlot.HasPendingTree;
+                PendingTreeSlot.UnstashPendingTreeOnRevert();
+
+                // Drop orphan ledger actions earned live during the reverted flight that
+                // carry no recording id (e.g. launch-pad science transmitted during the
+                // PRELAUNCH window before auto-record starts, their milestone rewards, and
+                // the vessel rollout spend). UnstashPendingTreeOnRevert only filters
+                // recording-tied actions; these untagged ones would otherwise be
+                // re-applied by the recalc below, overriding stock KSP's revert. The
+                // cutoff is the launch UT (see ResolveRevertPruneCutoff): Revert-to-Launch
+                // uses loadedUT (the rewound clock == launch UT) and keeps the rollout on
+                // the pad (exclusive); Revert-to-editor does not rewind, so it anchors on
+                // the captured fresh-launch UT (site/mode independent), falling back to the
+                // VesselRollout-spend UT, and refunds the rollout (inclusive).
+                bool pruneInclusive;
+                double editorBoundaryUT = ResolveEditorRevertBoundaryUT(
+                    currentFlightLaunchUT, Ledger.GetLatestUntaggedVesselBuildUT());
+                double pruneCutoffUT = ResolveRevertPruneCutoff(
+                    revertKind, loadedUT, editorBoundaryUT, out pruneInclusive);
+                // Route events are not ledger rows: the in-session route reconcile below
+                // retires the reverted flight's route events at this cutoff (raised to the
+                // revert save's route state floor).
+                int prunedOrphans = PruneRevertedFlightLedgerRows(
+                    pruneCutoffUT, pruneInclusive, revertKind);
+                revertPruneCutoffUTForRoutes = pruneCutoffUT;
+                if (prunedOrphans > 0)
+                    ParsekLog.Info("Scenario",
+                        $"Revert ({revertKind}): pruned {prunedOrphans} untagged ledger action(s) " +
+                        $"{(pruneInclusive ? "at/after" : "after")} launchUT=" +
+                        $"{pruneCutoffUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                        "(launch-pad/PRELAUNCH currency earned before auto-record)");
+                // The reverted flight's strategy conversion rows carry its own
+                // (never-committed) recording tag, so the orphan prune above skips them.
+                LedgerOrchestrator.PruneRevertedFlightStrategyConversionRows(
+                    pruneCutoffUT, pruneInclusive);
+
+                if (hadPendingTree)
+                {
+                    // ScreenMessages.PostScreenMessage calls into Unity's UI stack,
+                    // which isn't wired up in xUnit test hosts — typed catch so
+                    // real runtime errors still surface in logs.
+                    try { ParsekLog.ScreenMessage("Recording unstashed (revert)", 4f); }
+                    catch (System.NullReferenceException) { /* xUnit: no KSP UI */ }
+                    catch (System.MissingMethodException) { /* xUnit: no KSP UI */ }
+                    catch (System.TypeInitializationException) { /* xUnit: no KSP UI */ }
+                }
+
+                // Schedule committed resource deduction (singletons may not be ready yet)
+                ParsekLog.Verbose("Scenario", "Scheduling budget deduction coroutine (singletons may not be ready yet)");
+                budgetDeductionApplied = false;
+                StartCoroutine(ApplyBudgetDeductionWhenReady());
+            }
+            else
+            {
+                ctx.Phase = "scene-milestones";
+                // Scene change — restore milestone state without resetting unmatched.
+                MilestoneStore.RestoreMutableState(node);
+                ParsekLog.Verbose("Scenario", "Scene change — milestone state restored (resetUnmatched=false)");
+            }
+
+            // Dispatch pending-Limbo trees (Bug C fix: quickload-resume).
+            // The tree was stashed without finalization in StashActiveTreeAsPendingLimbo
+            // (Limbo) or pre-transitioned for a vessel switch in
+            // StashActiveTreeForVesselSwitch (LimboVesselSwitch — bug #266).
+            // #434: on revert the block above already discarded the pending tree, so
+            // HasPendingTree will be false here and the dispatch is skipped entirely.
+            ctx.Phase = "limbo-dispatch";
+            ClearPendingQuickloadResumeContext();
+            if (PendingTreeSlot.HasPendingTree
+                && (PendingTreeSlot.PendingTreeStateValue == PendingTreeState.Limbo
+                    || PendingTreeSlot.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch))
+            {
+                RecorderStateLog.RecState("OnLoad:limbo-dispatched", CaptureScenarioRecorderState());
+                var pendState = PendingTreeSlot.PendingTreeStateValue;
+                var limboOutcome = ClassifyLimboDispatch(isVesselSwitch, pendState);
+                if (limboOutcome == LimboDispatchOutcome.VesselSwitchRestore)
+                {
+                    // Bug #266: tree was pre-transitioned at stash time. Just defer
+                    // to OnFlightReady for the vessel-switch restore coroutine, which
+                    // reinstalls the tree and (optionally) promotes the new active
+                    // vessel from BackgroundMap.
+                    ClearPendingQuickloadResumeContext();
+                    ScheduleActiveTreeRestoreOnFlightReady = ActiveTreeRestoreMode.VesselSwitch;
+                    ParsekLog.Info("Scenario",
+                        $"OnLoad: pending-LimboVesselSwitch tree '{PendingTreeSlot.PendingTree?.TreeName}' " +
+                        "deferred to OnFlightReady for vessel-switch restore (#266)");
+                }
+                else if (limboOutcome == LimboDispatchOutcome.SafetyNetFinalize)
+                {
+                    // Safety net: Limbo state (NOT LimboVesselSwitch) but the
+                    // OnLoad classifier still says vessel switch. This means the
+                    // stash path missed the vessel-switch detection (e.g.
+                    // pendingTreeDockMerge bailed out, or vesselSwitchPending was
+                    // set after FinalizeTreeOnSceneChange ran). Fall back to the
+                    // pre-#266 finalize behavior — better to lose the tree than
+                    // to leak a half-transitioned state into the restore path.
+                    // The bug #278 fix applies here too: surviving leaves keep
+                    // their real situation, since this safety-net path is the
+                    // exact case where vessels ARE still loaded in FlightGlobals
+                    // (it's a vessel switch, not a quickload — no scene reset).
+                    FinalizePendingLimboTreeForRevert();
+                    ClearPendingQuickloadResumeContext();
+                    ParsekLog.Info("Scenario",
+                        "OnLoad: Limbo tree finalized on vessel switch (safety-net path; " +
+                        "stash didn't pre-transition — usually means a guard at stash " +
+                        "time bailed out, see #266)");
+                }
+                else
+                {
+                    // Quickload or cold-start resume: defer restore to OnFlightReady.
+                    // ParsekFlight.RestoreActiveTreeFromPending picks up the
+                    // pending-Limbo tree and wires a fresh recorder to it.
+                    ConfigurePendingQuickloadResumeContext(
+                        PendingTreeSlot.PendingTree,
+                        refinedLoadKind);
+                    ScheduleActiveTreeRestoreOnFlightReady = ActiveTreeRestoreMode.Quickload;
+                    ParsekLog.Info("Scenario",
+                        $"OnLoad: pending-Limbo tree '{PendingTreeSlot.PendingTree?.TreeName}' " +
+                        "deferred to OnFlightReady for quickload-resume");
+                }
+            }
+
+            // Handle pending recordings on non-revert scene exits to non-flight scenes.
+            // The pre-transition merge dialog (SceneExitInterceptor) is the
+            // primary path; this OnLoad path commits whatever a flight-exit left
+            // pending (one that bypassed our HighLogic.LoadScene prefix: KSP
+            // version drift, a foreign mod patch). It never asks: leaving a flight
+            // commits (owner ruling 2026-11-01), and the deferred merge dialog
+            // that used to ask here under autoMerge OFF was retired 2026-11-06
+            // (todo GUI-D5); AutoCommitPendingTreeOutsideFlight still reads the
+            // setting to pick its commit fidelity.
+            ctx.Phase = "pending-outside-flight";
+            if (!isRevert && HighLogic.LoadedScene != GameScenes.FLIGHT)
+            {
+                {
+                    // #88 folded: landed/splashed no longer forces an approval
+                    // dialog under autoMerge — the silent commit is now
+                    // full-fidelity (spawn-at-end preserved), so it is safe for
+                    // surviving vessels.
+
+                    // Auto-discard idle-on-pad before auto-commit. Only for
+                    // Finalized trees (Limbo trees are resume-flow stashes).
+                    if (PendingTreeSlot.HasPendingTree
+                        && PendingTreeSlot.PendingTreeStateValue == PendingTreeState.Finalized
+                        && ParsekFlight.IsTreeIdleOnPad(PendingTreeSlot.PendingTree))
+                    {
+                        ParsekLog.Info("Scenario", "Idle on pad at scene exit — auto-discarding tree");
+                        DiscardPendingTreeAndRecalculate(
+                            "scene-exit idle-on-pad auto-discard");
+                    }
+
+                    // Silent auto-commit: full-fidelity MergeCommit when the tree
+                    // qualifies (Finalized, no active re-fly, real scene), else the
+                    // lightweight ghost-only commit. Resources were applied live
+                    // during the flight we are exiting (!isRevert checked upstream),
+                    // so the tree is marked applied to disarm the lump-sum replay.
+                    AutoCommitPendingTreeOutsideFlight("scene-exit");
+                }
+            }
+
+            // Routes on a load back in time (LoadReconcilePolicy Routes cells): RouteStore and
+            // the route event log stay in memory across an in-session load, so an F9, a stock
+            // revert or the Discard Re-fly load runs the go-back rewind's reconcile keyed to the
+            // loaded save, and any other in-session load does when route state lies after the
+            // save. Removes events only, never adds one, so it is OnLoad-safe.
+            ctx.Phase = "route-load-reconcile";
+            double loadedSaveUTForRoutes = KerbalsModule.ReadLoadedSaveUT();
+            try
+            {
+                Logistics.RouteLoadReconcile.ReconcileAtInSessionLoad(
+                    refinedLoadKind,
+                    Logistics.RouteLoadReconcile.ResolveCutoffUT(
+                        refinedLoadKind, loadedSaveUTForRoutes, revertPruneCutoffUTForRoutes),
+                    loadedSaveUTForRoutes,
+                    node);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error(LoadReconcilePolicy.LogTag,
+                    $"Route reconcile at in-session load threw {ex.GetType().Name}: {ex.Message}; " +
+                    $"routes left as they were (kind={refinedLoadKind})");
+            }
+            Logistics.RouteEventLog.LogWalkSummary();
+
+            ctx.Phase = "ledger-recalculate";
+            // The ledger walks at the LOADED save's clock: inside a Space Center OnLoad
+            // Planetarium still reads the clock from before the load (QL-1 measured
+            // 1000.10 against the quicksave's 409.9), which would walk the committed
+            // rows the load moved back in front of the clock as if already reached.
+            double ledgerClockUT = ResolveInSessionLoadLedgerClockUT(
+                loadedSaveUTForRoutes, planetariumReady, loadedUT);
+            double inSessionLedgerCutoffUT = double.IsNaN(ledgerClockUT) ? loadedUT : ledgerClockUT;
+            // A Discard Re-fly load lands on the rewind point's pools after a session whose
+            // Re-Fly start walked the whole ledger (committed future included), so its first
+            // patch is a time-travel patch like the merge dialog's discard: it writes the
+            // ledger at the loaded clock and re-baselines the stock pool reference instead of
+            // measuring a leak (LoadReconcilePolicy, StockPoolReference category;
+            // REFLY-DISCARD-AFTER-REWIND-LOSES-COMMITTED-FUTURE).
+            bool inSessionLedgerUsedCutoff = RecalculateLedgerForInSessionLoad(
+                isRevert, HighLogic.LoadedScene, !double.IsNaN(ledgerClockUT),
+                inSessionLedgerCutoffUT,
+                planetariumReady ? loadedUT : double.NaN,
+                reFlyDiscard: refinedLoadKind == LoadKind.DiscardReFly);
+            // KSP loads the save's SCENARIO modules in file order, and R&D and
+            // Reputation usually come after this one: the patch above skipped
+            // their pools, and their own OnLoad then installs the save's values.
+            // Patch again once every currency module has loaded.
+            CurrencySingletons expectedCurrency = CurrencyScenarioReadiness.ExpectedForCurrentGame();
+            CurrencySingletons presentCurrency = CurrencyScenarioReadiness.PresentNow();
+            CurrencySingletons loadedCurrency = CurrencyScenarioReadiness.LoadedNow();
+            if (ShouldRepatchAfterInSessionLoad(expectedCurrency, presentCurrency, loadedCurrency))
+            {
+                ParsekLog.Info("Scenario",
+                    $"OnLoad: in-session ledger patch ran before the currency modules loaded " +
+                    $"(expected={CurrencyScenarioReadiness.Format(expectedCurrency)} " +
+                    $"present={CurrencyScenarioReadiness.Format(presentCurrency)} " +
+                    $"loaded={CurrencyScenarioReadiness.Format(loadedCurrency)}); " +
+                    "scheduling a re-patch once they have");
+                StartCoroutine(RepatchAfterInSessionLoadWhenCurrenciesLoaded(
+                    inSessionLedgerUsedCutoff, inSessionLedgerCutoffUT,
+                    refinedLoadKind == LoadKind.DiscardReFly));
+            }
+            if (KerbalLoadRepairDiagnostics.IsActive)
+                KerbalLoadRepairDiagnostics.EmitAndReset();
+            ParsekLog.Info("Scenario", $"{(isRevert ? "Revert" : "Scene change")} — preserving {recordings.Count} session recordings");
+            OnLoadFlowTailSweep(ctx);
+
+            // The sweep runs after this branch's ledger recalculation: when it discarded a
+            // zombie attempt (rewind design section 2.12 Rule 3), walk the ledger again so
+            // the patched career no longer carries its rows, nor what it earned into the
+            // pools of a save written during its session (it files rows only at merge).
+            if (LoadTimeSweep.SweepDiscardedAnAttempt(
+                    LoadTimeSweep.LedgerRowsRemovedByLastRun, LoadTimeSweep.ZombiesDiscardedByLastRun))
+            {
+                ctx.Phase = "load-time-sweep-recalculate";
+                ParsekLog.Info("Scenario",
+                    $"OnLoad: load-time sweep discarded {LoadTimeSweep.ZombiesDiscardedByLastRun} zombie attempt recording(s) " +
+                    $"and removed {LoadTimeSweep.LedgerRowsRemovedByLastRun} zombie ledger row(s) " +
+                    "after the in-session recalculation; recalculating again");
+                RecalculateLedgerForInSessionLoad(
+                    isRevert, HighLogic.LoadedScene, !double.IsNaN(ledgerClockUT),
+                    inSessionLedgerCutoffUT,
+                    planetariumReady ? loadedUT : double.NaN,
+                    reFlyDiscard: true);
+            }
+
+            OnLoadFlowTailReap(ctx);
+            OnLoadFlowTailCollect(
+                ctx, coldBranch: false,
+                vesselNamesReason: isRevert ? "onload-tail:revert" : "onload-tail:scene-change");
+            // The revert target of the flight that starts here (O2); a revert keeps the
+            // entry it went back to.
+            if (HighLogic.LoadedScene == GameScenes.FLIGHT && !isRevert)
+                RememberFlightEntryLedgerRows("in-session:" + refinedLoadKind);
+            ctx.LoadedRecordingCount = recordings.Count;
+            ctx.Status = isRevert ? "returned-revert" : "returned-scene-change";
+        }
+
+        /// <summary>
+        /// The Cold load: everything from the save (design-load-restores-the-save.md 4.2).
+        /// </summary>
+        private void OnLoadFlowCold(OnLoadContext ctx)
+        {
+            ConfigNode node = ctx.Node;
+            var recordings = ctx.Recordings;
+            string coldReason = ctx.ColdReason;
+
+            ctx.Phase = "cold-start";
+            initialLoadDone = true;
+            // Recording hydration from here to the end of this OnLoad reads the sidecar
+            // versions the save names (design-load-restores-the-save.md 4.4).
+            SidecarVersionResolution.BeginColdLoad(node);
+
+            // A recording file the collector quarantined goes back before hydration when
+            // this save names it (design-load-restores-the-save.md 4.5).
+            ctx.Phase = "quarantine-restore";
+            ParsekFileCollector.RestoreQuarantinedNamedBy(node);
+
+            // A game load ends any window in which an in-game batch's persistent.sfs
+            // restore was still the intended final state of a save (the batch's own
+            // baseline quickload precedes its teardown latch, so this never disarms the
+            // H38-H41 teardown -> FlushAndQuit suppression).
+            InGameTests.InGameTestRunner.NotifyStateMutatedAfterBatchBaselineRestore(
+                "game load (cold OnLoad)");
+
+            // The stale-pending discard below deletes the discarded tree's sidecars,
+            // and its committed-overlap guard reads the in-memory committed store -
+            // which LoadRecordingTrees has NOT populated yet at this point. A pending
+            // tree that is a copy-on-write clone of a committed one (the
+            // TryTakeCommittedTreeForSpawnedVesselRestore overlap, ids PRESERVED) would
+            // therefore take the COMMITTED tree's .prec files down with it, and every
+            // later save would drop that tree as unserializable. Publish the save
+            // node's own committed ids for exactly this window.
+            ctx.Phase = "durable-committed-id-hint";
+            RecordingStore.SetDurableCommittedRecordingIdHint(
+                CollectCommittedRecordingIdsFromScenarioNode(node));
+            try
+            {
+                ctx.Phase = "stale-pending-discard";
+                DiscardStalePendingState();
+            }
+            finally
+            {
+                RecordingStore.ClearDurableCommittedRecordingIdHint();
+            }
+
+            ctx.Phase = "clear-committed";
+            RecordingStore.ClearCommittedInternal();
+
+            // Validate chain integrity before any playback
+            ctx.Phase = "chain-validation";
+            RecordingChainQueries.ValidateChains();
+
+            // The vessel name decisions read only their own node; loading them before the
+            // trees keeps a tree-load fault from dropping them on the next save.
+            ctx.Phase = "vessel-names";
+            VesselNameStore.Load(node);
+
+            ctx.Phase = "recording-trees";
+            LoadRecordingTrees(node, recordings);
+            ctx.LoadedRecordingCount = recordings.Count;
+            // GC-3: one screen message per load that kept trees of another schema
+            // generation inert (posted once the scene settles).
+            string inertTreeNotice = InertRecordingTrees.TakeLoadNotice();
+            if (inertTreeNotice != null)
+                ParsekHarmony.QueueNoticeForSettledScene(inertTreeNotice);
+            ctx.Phase = "sanitize-nonloopable-loop";
+            RecordingStore.SanitizeNonLoopableLoopPlayback();
+            ctx.Phase = "missions";
+            MissionStore.Load(node);
+            // The committed tree + mission state finished loading for this cold load, so the
+            // load-fault guard may now trust an empty committed store as legitimate. A throw
+            // in either call above leaves this false (guard fires on the next save); the later
+            // reconcile steps operate on already-loaded data and do not clear the store.
+            committedTreeStateLoaded = true;
+            // Protect missions whose tree is parked (a quickload-resume isActive / isPending
+            // node restored LATER in this OnLoad by TryRestoreActiveTreeNode, or an already
+            // stashed pending tree) so PruneOrphans does not strip the mission name + loop
+            // settings of a tree that survives but is not yet committed. Limbo-tree data-loss fix.
+            OnLoadPhaseReconcileMissionsWithCommittedTrees(node);
+
+            // Cold-start active-tree restore (quickload-resume cold path).
+            // When the player quits KSP mid-flight and later relaunches + "Resume Saved
+            // Game", OnLoad runs with initialLoadDone=false and falls through to this
+            // block. TryRestoreActiveTreeNode here picks up any isActive=True tree
+            // from the save and stashes it into pending-Limbo so OnFlightReady's
+            // restore coroutine can resume recording — same path used by in-session
+            // quickload. Without this, cold-start resume silently drops the active
+            // tree and the player's in-progress mission fragments just like the
+            // original Bug C scenario.
+            ctx.Phase = "cold-active-tree-restore";
+            ClearPendingQuickloadResumeContext();
+            if (TryRestoreActiveTreeNode(
+                    node, EarlyLoadKind.Cold, HighLogic.LoadedScene == GameScenes.FLIGHT))
+            {
+                // Flag the coroutine to run on OnFlightReady so the active vessel is
+                // available for name matching. Cold start always lands in flight for
+                // a "Resume" action, so OnFlightReady will fire.
+                //
+                // Bug #266: TryRestoreActiveTreeNode picks the stash state based on
+                // whether the saved tree had an active recording. Pick the matching
+                // restore mode here:
+                //   - LimboVesselSwitch (outsider state at save time) → VesselSwitch
+                //   - Limbo (active recording present) → Quickload
+                ScheduleActiveTreeRestoreOnFlightReady =
+                    PendingTreeSlot.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch
+                        ? ActiveTreeRestoreMode.VesselSwitch
+                        : ActiveTreeRestoreMode.Quickload;
+                if (ScheduleActiveTreeRestoreOnFlightReady == ActiveTreeRestoreMode.Quickload)
+                    ConfigurePendingQuickloadResumeContext(PendingTreeSlot.PendingTree, LoadKind.Cold);
+                else
+                    ClearPendingQuickloadResumeContext();
+                ParsekLog.Info("Scenario",
+                    $"OnLoad: cold-start active tree detected (state={PendingTreeSlot.PendingTreeStateValue}) — " +
+                    $"deferred to OnFlightReady as {ScheduleActiveTreeRestoreOnFlightReady}");
+            }
+            // The save's restore-attempt events (memory only) follow the active tree they
+            // belong to; dropped otherwise (design 4.3, #866).
+            ctx.Phase = "cold-attempt-events";
+            ApplySaveAttemptEventsAfterActiveTreeRestore();
+            bool coldActiveTreeRestoredFromSave =
+                PendingTreeSlot.PendingTreeStateValue == PendingTreeState.Limbo
+                || PendingTreeSlot.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch;
+            bool coldPendingTreeRestoredFromSave = TryRestorePendingTreeNode(
+                node, coldActiveTreeRestoredFromSave);
+            OnLoadPhaseLogColdPendingTreeRestore(coldPendingTreeRestoredFromSave);
+
+            // Restore milestone mutable state (LastReplayedEventIndex) from .sfs
+            ctx.Phase = "milestones";
+            MilestoneStore.RestoreMutableState(node);
+
+            // Reconcile ledger against loaded recordings (prunes orphaned actions, recalculates)
+            // at the loaded save's own clock (design 4.1): never the clock from before the load.
+            ctx.Phase = "ledger-load";
+            var validIds = BuildValidRecordingIdsForKspLoad();
+            double coldPlanetariumUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : 0.0;
+            double coldLoadedSaveUT = ReadLoadedFlightStateUTRaw();
+            double coldClockUT = ResolveColdLoadClockUT(coldLoadedSaveUT, coldPlanetariumUT);
+            ParsekLog.Info("Scenario",
+                "OnLoad: cold clock=" + coldClockUT.ToString("R", CultureInfo.InvariantCulture)
+                + " (saveUT=" + coldLoadedSaveUT.ToString("R", CultureInfo.InvariantCulture)
+                + " planetariumUT=" + coldPlanetariumUT.ToString("R", CultureInfo.InvariantCulture)
+                + " coldReason=" + (coldReason ?? "none") + ")");
+            double reconcileUT = coldClockUT;
+            LedgerOrchestrator.OnKspLoad(
+                validIds,
+                reconcileUT,
+                useCurrentUtCutoffForFutureActions:
+                    IsCurrentUtCutoffSupportedScene(HighLogic.LoadedScene),
+                loadDroppedRecordingIds: TakeLoadDroppedRecordingIds());
+
+            // Supply routes (design §4.7). Loads after recordings + ledger so
+            // Phase 5 source-ref validation has the ERS / ELS data it needs.
+            // RevalidateSources is folded into the "routes" phase: load + validate
+            // is one logical operation, and missing-source / fingerprint-drift
+            // transitions must run on every load before any UI / scheduler sees
+            // a stale Active status.
+            ctx.Phase = "routes";
+            RouteStore.LoadRoutesFrom(node);
+            RouteStore.RevalidateSources("OnLoad");
+
+            // Mutual-exclusion reconcile (design §0.6): a tree is EITHER a supply route
+            // OR a manually looped recording/mission, never both. Runs AFTER MissionStore
+            // load/normalize (above) and AFTER RouteStore load + RevalidateSources (so
+            // route statuses (and thus BindsTree decisions) are final). For every
+            // route-bound tree, clear both the mission loop and any per-recording loop a
+            // hand-edited or legacy save might carry on that tree. Route looping wins.
+            ctx.Phase = "route-loop-reconcile";
+            {
+                double reconcileUtForLoops = coldClockUT;
+                OnLoadPhaseReconcileRouteBoundManualLoops(reconcileUtForLoops);
+            }
+
+            // Schedule deferred seeding: during OnLoad, Funding/R&D/Reputation singletons
+            // may exist but have not loaded their save data yet (KSP loads scenarios in
+            // parallel). The deferred coroutine waits for singletons to be ready, then
+            // seeds initial balances and recalculates so the ledger has correct values.
+            ctx.Phase = "deferred-seed";
+            StartCoroutine(DeferredSeedAndRecalculate());
+
+            // Diagnostic summary of loaded recordings with UT context. Per-recording
+            // status used to be enumerated at Verbose, but a save with hundreds of
+            // recordings (synthetic showcases, KSC eligibles, long histories) emits
+            // hundreds of identical "future (starts in …s)" lines per scenario load.
+            // Bucket the statuses into counts; keep IN_PROGRESS detail (rare and
+            // most useful when debugging spawn timing) at Verbose.
+            ctx.Phase = "load-summary";
+            double loadUT = coldClockUT;
+            OnLoadPhaseLogColdLoadSummary(recordings, loadUT);
+
+            // Run recording optimization pass (merge redundant segments, split monolithic ones)
+            ctx.Phase = "optimization";
+            CommittedListOptimizer.RunOptimizationPass();
+
+            // Auto-unreserve crew for recordings whose EndUT has already passed
+            // but vessel was never spawned. Skip at SpaceCenter — ParsekKSC now
+            // handles spawning there (bug #99), so nulling the snapshot here would
+            // pre-empt the KSC spawn.
+            ctx.Phase = "crew-auto-unreserve";
+            double currentUT = coldClockUT;
+            OnLoadPhaseAutoUnreserveCrewPastEndUT(recordings, currentUT);
+
+            // Handle pending recordings outside Flight (Esc > Abort Mission → Space Center path).
+            // Always auto-commit on main menu (game is being unloaded).
+            ctx.Phase = "pending-outside-flight";
+            if (HighLogic.LoadedScene != GameScenes.FLIGHT &&
+                PendingTreeSlot.HasPendingTree)
+            {
+                // Auto-discard idle-on-pad recordings before auto-committing.
+                // ONLY for Finalized-state trees — those come from a
+                // completed flight session that produced a terminal-state
+                // merge-dialog candidate. For Limbo / LimboVesselSwitch
+                // trees (quickload-resume stashes populated from the
+                // save's ACTIVE_TREE node by `TryRestoreActiveTreeNode`),
+                // the maxDist values can legitimately be near zero right
+                // after a rewind reload because the provisional recording
+                // was just created and hasn't moved yet. Auto-discarding
+                // those would silently wipe the player's entire mission
+                // tree plus its Rewind Point and quicksave on every
+                // subsequent SPACECENTER load, as seen in
+                // logs/2026-04-25_0103_recordings-vanish-on-load:
+                //   TryRestoreActiveTreeNode: stashed active tree
+                //     'Kerbal X' (8 recording(s)) into pending-Limbo slot
+                //   IsTreeIdleOnPad: all 8 recordings within 30m — idle on pad
+                //   Idle on pad — auto-discarding pending tree
+                //   PurgeTree deleted rewind quicksave rp=... path=...
+                //   Discarded pending tree 'Kerbal X' (state=Limbo)
+                // The normal idle-on-pad use case (player starts recording,
+                // doesn't launch, exits to KSC) produces a Finalized state
+                // via CommitTreeSceneExit, so the gate still fires there.
+                if (PendingTreeSlot.PendingTreeStateValue == PendingTreeState.Finalized
+                    && ParsekFlight.IsTreeIdleOnPad(PendingTreeSlot.PendingTree))
+                {
+                    ScenarioLog("[Parsek Scenario] Idle on pad — auto-discarding pending tree");
+                    DiscardPendingTreeAndRecalculate(
+                        "outside-flight idle-on-pad auto-discard");
+                }
+                else if (PendingTreeSlot.PendingTreeStateValue != PendingTreeState.Finalized)
+                {
+                    ParsekLog.Verbose("Scenario",
+                        $"Idle-on-pad auto-discard skipped: pending tree state is " +
+                        $"{PendingTreeSlot.PendingTreeStateValue} (not Finalized), " +
+                        "resume/restore flow will run instead");
+                }
+
+                // Silent auto-commit: full-fidelity MergeCommit when the tree
+                // qualifies (autoMerge, Finalized, no active re-fly, real scene),
+                // else the lightweight ghost-only commit. MAINMENU (game
+                // unloading) and non-autoMerge always fall to ghost-only. The
+                // originating flight already applied its resources live, so the
+                // commit marks the tree applied to disarm the lump-sum replay.
+                // Never a dialog here: the deferred merge dialog was retired
+                // 2026-11-06 (todo GUI-D5).
+                AutoCommitPendingTreeOutsideFlight("cold-load outside-flight");
+            }
+
+            OnLoadFlowTailSweep(ctx);
+
+            OnLoadFlowTailReap(ctx);
+
+            // Memory's lists are final: delete the files of a quit-without-saving flight
+            // this load dropped (NoSaveSceneExit), then collect files no save and no memory
+            // names (design-load-restores-the-save.md 4.5).
+            ctx.Phase = "quit-without-saving-reap";
+            NoSaveSceneExit.ReapDroppedFlightSidecars(
+                RewindContext.IsRewinding,
+                ActiveReFlySessionMarker != null,
+                ActiveMergeJournal != null);
+
+            OnLoadFlowTailCollect(ctx, coldBranch: true, vesselNamesReason: "onload-tail:cold");
+            if (HighLogic.LoadedScene == GameScenes.FLIGHT)
+                RememberFlightEntryLedgerRows("cold");
+            ctx.LoadedRecordingCount = recordings.Count;
+            ctx.Status = "completed";
+        }
+
+        /// <summary>
+        /// The first half of the tail the in-session and Cold loads share: sidecar mirrors, the
+        /// scene snapshot, the Re-Fly post-load dispatch, the merge-journal finisher and the
+        /// load-time sweep. The in-session load may walk the ledger again before the second half.
+        /// </summary>
+        private void OnLoadFlowTailSweep(OnLoadContext ctx)
+        {
+            ConfigNode node = ctx.Node;
+            var recordings = ctx.Recordings;
+            ctx.Phase = "sidecar-reconcile";
+            ReconcileReadableSidecarMirrorsOnLoadIfDisabled();
+            DiagnosticsComputation.EmitSceneLoadSnapshot(recordings.Count, HighLogic.LoadedScene.ToString());
+
+            // Phase 6 of Rewind-to-Staging (design 6.3 step 4 / 6.4): a pending re-fly
+            // invocation drains the static RewindInvokeContext in the new scenario,
+            // synchronously (Restore, Strip, Activate, AtomicMarkerWrite; the old scenario's
+            // coroutines died with the scene). The RP quicksave always lands in FLIGHT.
+            ctx.Phase = "rewind-post-load";
+            DispatchRewindPostLoadIfPending(node);
+
+            // Phase 10 of Rewind-to-Staging (design 6.9 step 2): a staged-commit merge that
+            // stopped mid-way left its journal in the save; the finisher drives the remaining
+            // steps forward (no phase rolls back). After Phase 6, so an interrupted re-fly
+            // invocation rehydrates before the finisher decides about the session marker.
+            if (ActiveMergeJournal != null)
+            {
+                ctx.Phase = "merge-journal";
+                MergeJournalOrchestrator.RunFinisher();
+            }
+
+            // Phase 13 load-time sweep (design §6.9): validate the
+            // re-fly session marker, gather + delete zombie
+            // provisionals, log orphan supersedes / tombstones,
+            // clear stray transient fields. Runs AFTER the Phase 6
+            // re-fly dispatch (which may have populated the marker)
+            // and the Phase 10 finisher (which may have cleared it),
+            // and BEFORE the Phase 11 reaper (whose input is the
+            // sweep's post-zombie-removal state).
+            ctx.Phase = "load-time-sweep";
+            LoadTimeSweep.Run();
+            RefreshPendingQuickloadTrimScope();
+        }
+
+        /// <summary>
+        /// The second part of the shared tail: the test-batch crash reconcile and the
+        /// rewind-point reaper. The Cold load runs its quit-without-saving reap after it.
+        /// </summary>
+        private void OnLoadFlowTailReap(OnLoadContext ctx)
+        {
+            ctx.Phase = "test-batch-reconcile";
+            RunTestBatchCrashReconcile();
+
+            // Phase 11 of Rewind-to-Staging (design 6.8 load-time sweep): reap RPs
+            // orphaned by merges that crashed between TagRpsForReap and the reaper, or
+            // whose slots went Immutable later through a non-rewind path. Runs after the
+            // finisher so a live session's RPs stay put.
+            ctx.Phase = "rewind-point-reap";
+            RewindPointReaper.ReapOrphanedRPs();
+        }
+
+        /// <summary>
+        /// The last part of the shared tail: the file collector and the vessel name re-apply,
+        /// with the branch's own collector mode and vessel-name reason.
+        /// </summary>
+        private void OnLoadFlowTailCollect(OnLoadContext ctx, bool coldBranch, string vesselNamesReason)
+        {
+            EarlyLoadKind earlyLoadKind = ctx.EarlyLoadKind;
+            // Memory's lists are final: collect files no save and no memory names
+            // (design-load-restores-the-save.md 4.5; rate-limited in-session).
+            ctx.Phase = "file-collection";
+            ParsekFileCollector.RunAtLoad(earlyLoadKind, coldBranch: coldBranch, scenario: this);
+
+            ctx.Phase = "vessel-names-apply";
+            VesselNameStore.RunSpawnLinkBackfill(vesselNamesReason);
+            VesselNameStore.ApplyAll(vesselNamesReason, VesselNameLiveScope.ProtosOnly);
+        }
+
+        /// <summary>
+        /// The values OnLoad's phases share, built in its prologue: the save node, the
+        /// committed list, the load classification (early kind, cold reason, facts; the refined
+        /// kind once the in-session branch has it) and the skeleton's phase, status and count,
+        /// which the try / catch / finally in OnLoad reads. Every phase assignment is kept, so
+        /// the load ends with one trace line naming each phase and when it started.
+        /// </summary>
+        internal sealed class OnLoadContext
+        {
+            private readonly Stopwatch stopwatch;
+            private readonly List<string> phases = new List<string>();
+            private readonly List<long> phaseStartMs = new List<long>();
+            private string phase;
+
+            internal OnLoadContext(ConfigNode node, Stopwatch stopwatch)
+            {
+                Node = node;
+                this.stopwatch = stopwatch;
+            }
+
+            internal ConfigNode Node { get; }
+            internal IReadOnlyList<Recording> Recordings;
+            internal bool Classified { get; private set; }
+            internal EarlyLoadKind EarlyLoadKind { get; private set; }
+            internal string ColdReason { get; private set; }
+            internal LoadClassificationFacts Classification { get; private set; }
+            internal LoadKind? RefinedLoadKind;
+            internal string Status;
+            internal int LoadedRecordingCount;
+            internal bool StoppedInPrologue;
+
+            /// <summary>The phase the load is in; every assignment is appended to the trace.</summary>
+            internal string Phase
+            {
+                get => phase;
+                set
+                {
+                    phase = value;
+                    phases.Add(value);
+                    phaseStartMs.Add(stopwatch != null ? stopwatch.ElapsedMilliseconds : 0L);
+                }
+            }
+
+            internal void Classify(LoadClassificationFacts facts, EarlyLoadKind early, string coldReason)
+            {
+                Classified = true;
+                EarlyLoadKind = early;
+                ColdReason = coldReason;
+                Classification = facts;
+            }
+
+            /// <summary>
+            /// The once-per-load phase trace: the load kind (refined when known), the status and
+            /// every phase in order with the millisecond it started.
+            /// </summary>
+            internal string FormatPhaseTrace()
+            {
+                string kind = !Classified
+                    ? "unclassified"
+                    : (RefinedLoadKind.HasValue ? RefinedLoadKind.Value.ToString() : EarlyLoadKind.ToString());
+                var sb = new System.Text.StringBuilder();
+                sb.Append("Load phases: kind=").Append(kind)
+                    .Append(" status=").Append(Status ?? "<none>")
+                    .Append(" count=").Append(phases.Count.ToString(CultureInfo.InvariantCulture))
+                    .Append(" [");
+                for (int i = 0; i < phases.Count; i++)
+                {
+                    if (i > 0) sb.Append(" > ");
+                    sb.Append(phases[i]).Append('@')
+                        .Append(phaseStartMs[i].ToString(CultureInfo.InvariantCulture)).Append("ms");
+                }
+                sb.Append(']');
+                return sb.ToString();
             }
         }
 

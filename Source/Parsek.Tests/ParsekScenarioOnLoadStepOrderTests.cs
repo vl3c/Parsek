@@ -20,7 +20,7 @@ namespace Parsek.Tests
     /// <see cref="ParsekScenario"/> whose name starts with <c>OnLoad</c> (OnLoad itself and the
     /// methods it delegates to) is transpiled to record, in execution order:
     /// <c>phase NAME</c> when one of the OnLoad phase names is loaded (the
-    /// <c>loadPhase</c> assignment), and <c>call Type.Method</c> before each call it makes into
+    /// <c>ctx.Phase</c> assignment), and <c>call Type.Method</c> before each call it makes into
     /// Parsek code (property accessors, <c>ParsekLog</c>, compiler-generated members and other
     /// <c>OnLoad*</c> members excluded: those are part of the flow, not steps). Calls made
     /// deeper down are not steps. The table also carries the classification line, every
@@ -54,7 +54,7 @@ namespace Parsek.Tests
             "Parsek.GameStateFacilityRecorder::PollFacilityState",
         };
 
-        /// <summary>Every phase name OnLoad assigns (its <c>loadPhase</c> literals).</summary>
+        /// <summary>Every phase name OnLoad assigns (its <c>ctx.Phase</c> literals).</summary>
         internal static readonly HashSet<string> PhaseNames = new HashSet<string>(StringComparer.Ordinal)
         {
             "entry", "reset-dialog", "settings", "save-format", "hooks", "load-classify",
@@ -79,6 +79,7 @@ namespace Parsek.Tests
 
         private readonly Harmony harmony = new Harmony(HarmonyId);
         private readonly List<string> logLines = new List<string>();
+        private string lastPhaseTrace;
         private readonly bool priorInitialLoadDone;
         private readonly GameScenes priorLastOnSaveScene;
         private readonly GameScenes priorScene;
@@ -176,6 +177,108 @@ namespace Parsek.Tests
                 string lastPhase = rows.Last(r => r.StartsWith("phase ", StringComparison.Ordinal)).Substring(6);
                 string timing = rows.Single(r => r.StartsWith("timing ", StringComparison.Ordinal));
                 Assert.StartsWith("timing phase=" + lastPhase + " ", timing);
+            }
+        }
+
+        [Fact]
+        public void TheProductionPhaseTrace_NamesEveryRecordedPhaseInOrder()
+        {
+            // OnLoad's own once-per-load trace line (from its finally) names the load kind,
+            // the final status and the same phase sequence the transpiled recorder saw.
+            foreach (Scenario scenario in Scenarios())
+            {
+                List<string> rows = RunScenario(scenario);
+                Assert.True(lastPhaseTrace != null, scenario.Kind + ": no 'Load phases:' line");
+                Assert.Contains("[VERBOSE][" + LoadReconcilePolicy.LogTag + "]", lastPhaseTrace);
+                Assert.Equal(scenario.Kind, Token(lastPhaseTrace, "kind="));
+                string timing = rows.Single(r => r.StartsWith("timing ", StringComparison.Ordinal));
+                Assert.EndsWith(" status=" + Token(lastPhaseTrace, "status="), timing);
+
+                int open = lastPhaseTrace.IndexOf('[', lastPhaseTrace.IndexOf("Load phases:", StringComparison.Ordinal));
+                int close = lastPhaseTrace.LastIndexOf(']');
+                List<string> traced = lastPhaseTrace.Substring(open + 1, close - open - 1)
+                    .Split(new[] { " > " }, StringSplitOptions.None)
+                    .Select(entry => entry.Substring(0, entry.LastIndexOf('@')))
+                    .ToList();
+                List<string> recorded = rows
+                    .Where(r => r.StartsWith("phase ", StringComparison.Ordinal))
+                    .Select(r => r.Substring(6))
+                    .ToList();
+                Assert.Equal(recorded, traced);
+                Assert.Equal(traced.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    Token(lastPhaseTrace, "count="));
+            }
+        }
+
+        [Fact]
+        public void EveryLoadKind_PassesItsBranchArgumentsToTheSharedTail()
+        {
+            // The shared tail takes the branch's collector mode and vessel-name reason as
+            // arguments, which no step row shows: pin them per kind.
+            harmony.Patch(
+                AccessTools.Method(typeof(ParsekFileCollector), nameof(ParsekFileCollector.RunAtLoad)),
+                prefix: new HarmonyMethod(typeof(StepRecorder), nameof(StepRecorder.RunAtLoadArgsPrefix)));
+            harmony.Patch(
+                AccessTools.Method(typeof(VesselNameStore), nameof(VesselNameStore.ApplyAll)),
+                prefix: new HarmonyMethod(typeof(StepRecorder), nameof(StepRecorder.ApplyAllArgsPrefix)));
+            harmony.Patch(
+                AccessTools.Method(typeof(VesselNameStore), nameof(VesselNameStore.RunSpawnLinkBackfill)),
+                prefix: new HarmonyMethod(typeof(StepRecorder), nameof(StepRecorder.BackfillArgsPrefix)));
+
+            var expected = new Dictionary<string, string[]>(StringComparer.Ordinal)
+            {
+                ["Cold"] = new[] { "collector Cold coldBranch=True", "backfill onload-tail:cold", "names onload-tail:cold" },
+                ["PlainRewind"] = new[] { "backfill onload-tail:rewind", "names onload-tail:rewind" },
+                ["ReFlyStart"] = new[] { "collector ReFlyStart coldBranch=False", "backfill onload-tail:scene-change", "names onload-tail:scene-change" },
+                ["DiscardReFly"] = new[] { "collector DiscardReFly coldBranch=False", "backfill onload-tail:scene-change", "names onload-tail:scene-change" },
+                ["StockRevert"] = new[] { "collector InSession coldBranch=False", "backfill onload-tail:revert", "names onload-tail:revert" },
+                ["QuickloadFlight"] = new[] { "collector InSession coldBranch=False", "backfill onload-tail:scene-change", "names onload-tail:scene-change" },
+                ["InSessionOther"] = new[] { "collector InSession coldBranch=False", "backfill onload-tail:scene-change", "names onload-tail:scene-change" },
+            };
+            foreach (Scenario scenario in Scenarios())
+            {
+                List<string> rows = RunScenario(scenario);
+                List<string> args = rows
+                    .Where(r => r.StartsWith("arg ", StringComparison.Ordinal))
+                    .Select(r => r.Substring(4))
+                    .Where(r => !r.StartsWith("names ", StringComparison.Ordinal)
+                        && !r.StartsWith("backfill ", StringComparison.Ordinal)
+                        || r.Contains(" onload-tail:"))
+                    .ToList();
+                Assert.True(expected[scenario.Kind].SequenceEqual(args),
+                    scenario.Kind + ": expected [" + string.Join(", ", expected[scenario.Kind])
+                    + "], actual [" + string.Join(", ", args) + "]");
+            }
+        }
+
+        [Fact]
+        public void AColdLoadWhoseBackupFails_StopsInThePrologueAndRunsNoBranch()
+        {
+            // The backup hold is data-dependent (a save that needs a backup the copy cannot
+            // make), so the table never shows it: force the outcome and pin where the load stops.
+            harmony.Patch(
+                AccessTools.Method(typeof(PreParsekBackup), nameof(PreParsekBackup.MaybeBackupOnFirstColdContact)),
+                prefix: new HarmonyMethod(typeof(StepRecorder), nameof(StepRecorder.BackupFailsPrefix)));
+            harmony.Patch(
+                AccessTools.Method(typeof(ParsekHarmony), nameof(ParsekHarmony.QueueNoticeForSettledScene)),
+                prefix: new HarmonyMethod(typeof(StepRecorder), nameof(StepRecorder.SkipSeamPrefix)));
+            try
+            {
+                Scenario cold = Scenarios().First(s => s.Kind == "Cold");
+                List<string> rows = RunScenario(cold);
+                List<string> phases = rows
+                    .Where(r => r.StartsWith("phase ", StringComparison.Ordinal))
+                    .Select(r => r.Substring(6))
+                    .ToList();
+                Assert.Equal("pre-parsek-backup", phases.Last());
+                Assert.DoesNotContain("game-state-recorder", phases);
+                Assert.Equal("timing phase=pre-parsek-backup status=backup-hold", rows.Last());
+                Assert.Contains("seam ParsekHarmony.QueueNoticeForSettledScene", rows);
+                Assert.Equal("backup-hold", Token(lastPhaseTrace, "status="));
+            }
+            finally
+            {
+                PreParsekBackup.ResetHoldForTesting();
             }
         }
 
@@ -280,6 +383,8 @@ namespace Parsek.Tests
             rows.AddRange(steps);
             string timing = logLines.LastOrDefault(l => l.Contains("[Diagnostics] OnLoad: "));
             rows.Add("timing " + TimingTail(timing));
+            lastPhaseTrace = logLines.LastOrDefault(
+                l => l.Contains("[" + LoadReconcilePolicy.LogTag + "]") && l.Contains("Load phases: "));
             ResetStatics();
             return rows;
         }
@@ -401,6 +506,28 @@ namespace Parsek.Tests
                 if (open >= 0 && close > open) name = name.Substring(open + 1, close - open - 1);
                 Steps?.Add("coroutine " + name);
                 __result = null;
+                return false;
+            }
+
+            internal static void RunAtLoadArgsPrefix(EarlyLoadKind kind, bool coldBranch)
+            {
+                Steps?.Add("arg collector " + kind + " coldBranch=" + coldBranch);
+            }
+
+            public static void ApplyAllArgsPrefix(string reason)
+            {
+                Steps?.Add("arg names " + reason);
+            }
+
+            public static void BackfillArgsPrefix(string reason)
+            {
+                Steps?.Add("arg backfill " + reason);
+            }
+
+            internal static bool BackupFailsPrefix(ref PreParsekBackup.BackupAttemptOutcome __result)
+            {
+                Steps?.Add("seam PreParsekBackup.MaybeBackupOnFirstColdContact=Failed");
+                __result = PreParsekBackup.BackupAttemptOutcome.Failed;
                 return false;
             }
 
