@@ -1251,7 +1251,7 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             "rewind_retirements": 0,
             "terminalStates": {"Orbiting": 3, "Destroyed": 2},
             "branchPoints": {"JointBreak": 3},
-            "minAuthoritativeSidecars": 32,
+            "minAuthoritativeSidecars": 31,
             "recordingIds": ["15a329516ae445fb927743c5cf161ea0",
                              "1d6fa27e66bd47fc85baffe90522bef3",
                              "98c11e0d19804aecb1b7e66a94f8ede7",

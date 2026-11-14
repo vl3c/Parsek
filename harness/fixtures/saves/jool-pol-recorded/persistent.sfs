@@ -16,7 +16,7 @@ GAME
 	defaultVABLaunchSite = LaunchPad
 	defaultSPHLaunchSite = Runway
 	modded = True
-	envInfo =  - Environment Info - Win32NT 7FFFFFFFFFFFFFFF  Args: KSP_x64.exe -logFile C:\Users\vlad3\Documents\Code\Parsek\automation\stock-minimal\Player.log -screen-fullscreen 0 -screen-width 1280 -screen-height 720 - 
+	envInfo =  - Environment Info - Win32NT 7FFFFFFFFFFFFFFF  Args: KSP_x64.exe  - 
 	versionFull = 1.12.5.3190 (WindowsPlayer x64)
 	versionCreated = 1.12.5.3190 (WindowsPlayer x64)
 	persistentTimestamp = 2026-11-14T19:34:00.2659725Z
