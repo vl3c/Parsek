@@ -51,14 +51,14 @@ namespace Parsek.Patches
     /// The Postfix clears the marker with reason <c>refused-no-switch</c> in all of
     /// these.
     ///
-    /// Unloaded-vessel branch outcome: when the target is unloaded, setActiveVessel
-    /// fires <c>onVesselSwitchingToUnloaded</c>, saves, and calls
-    /// <c>FlightDriver.StartAndFocusVessel</c> — a scene transition into a fresh
-    /// FLIGHT scene load. The Postfix sees no <c>onVesselChange</c> consume happened
-    /// and clears the marker with <c>refused-no-switch</c>; the new FLIGHT scene has
-    /// no in-scene marker to consume. The deliberate outcome is that Map Switch-To
-    /// to an unloaded vessel does NOT immediate-start a segment; the first-
-    /// modification watcher catches the first meaningful change in the new scene.
+    /// Unloaded target: setActiveVessel fires <c>onVesselSwitchingToUnloaded</c>,
+    /// runs <c>GamePersistence.SaveGame</c> and <c>Game.Updated()</c> (both call
+    /// <c>ParsekScenario.OnSave</c>) and then <c>FlightDriver.StartAndFocusVessel</c>,
+    /// all before it returns, so anything armed at that point is saved into the
+    /// reloaded FLIGHT scene and a Postfix clear comes too late. A Switch-To to an
+    /// unloaded vessel must not start a segment, so the arm sites arm NO intent for an
+    /// unloaded target (<see cref="ShouldArmIntentForSwitchTarget"/>); the Postfix then
+    /// receives an empty intent id and does nothing.
     /// </summary>
     [HarmonyPatch]
     internal static class MapFocusObjectOnSelectPatch
@@ -1305,8 +1305,7 @@ namespace Parsek.Patches
         /// <c>FlightDriver.StartAndFocusVessel</c> before it returns, and both saves run
         /// <c>ParsekScenario.OnSave</c>, so an intent armed for it would be written into the
         /// reloaded scene and consumed there whenever the reload beat its 2 s TTL. The
-        /// design outcome for that switch is no segment (the first-modification watcher
-        /// takes over), so nothing is armed.
+        /// design outcome for that switch is no segment, so nothing is armed.
         /// </summary>
         internal static bool ShouldArmIntentForSwitchTarget(bool targetLoaded)
         {
@@ -1326,7 +1325,8 @@ namespace Parsek.Patches
             ParsekLog.Info("SwitchIntentPatch",
                 $"{label} intent not armed: reason={FarSwitchNotArmedReason} " +
                 $"targetPid={targetPid.ToString(CultureInfo.InvariantCulture)} - the switch reloads FLIGHT " +
-                "and starts no switch segment (the first-modification watcher takes over)");
+                "and starts no switch segment; recording resumes only through the far scene's own " +
+                "restore and watch paths");
             return true;
         }
 

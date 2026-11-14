@@ -85,6 +85,18 @@ requires the not-armed line before the reload and forbids every MapSwitchTo inte
 debris, `intent kept-armed on OnLoad` and the segment, with recordings {1,1}. The 10 s scene-load TTL
 alternative was rejected: it contradicts the plan's stated outcome.
 
+Known residue, not built (from the fix's review):
+  (a) A decline neither clears nor supersedes a still-armed EARLIER MapSwitchTo marker (before the
+      fix the new arm superseded it), and `ArmIntentAndSwitchTo` has no Postfix refund when stock
+      refuses its switch (a pre-existing gap). So in a contrived sequence a marker for another target
+      could survive up to 2 s, be saved by the far branch and be consumed on the far side. The
+      optional OnLoad clear of any loaded MapSwitchTo marker (no Map marker has a designed
+      cross-scene consume) would close it.
+  (b) When `FlightGlobals.ActiveVessel == null`, stock skips the ClearToSave and loaded checks and
+      switches in-scene even to an unloaded target (decompiled `setActiveVessel`: IL_0089 branches
+      to the in-scene IL_02be), so Parsek now declines where it used to arm. Degenerate: a FLIGHT
+      Switch-To with no active vessel.
+
 ## PARALLEL-RUNNER-INSTANCE-BUSY-ON-EXITING-SIBLING: a slot's preflight refuses instance-busy on a sibling slot's KSP that is still exiting [FILED 2026-11-14 from a parallel daily run on the PC (2 slots); harness, no fix yet; low (one lane INVALID per occurrence, passes when re-flown)]
 
 `RVR-3` was dispatched on slot 1 9 ms after slot 1's previous lane finished, and its zombie preflight
