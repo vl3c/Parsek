@@ -105,6 +105,15 @@ namespace Parsek
             return t.gameObject.activeInHierarchy;
         }
 
+        // Part.FindModelTransform calls Transform.Find, whose callee is a Unity ECall; a
+        // Release JIT may inline both into the caller, which would then fail to JIT-compile
+        // under the Windows .NET test host. Kept out of the loop for the same reason as above.
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static Transform FindModelTransformNotInlined(Part p, string name)
+        {
+            return p.FindModelTransform(name);
+        }
+
         internal static string[] GetCachedJettisonNames(Dictionary<ulong, string> rawCache,
             Dictionary<ulong, string[]> parsedCache, ulong moduleKey, string rawNames)
         {
@@ -169,7 +178,7 @@ namespace Parsek
                         jettisonNameRawCache, parsedJettisonNamesCache, moduleKey, jettisonNames);
                     for (int n = 0; n < names.Length; n++)
                     {
-                        Transform jt = p.FindModelTransform(names[n]);
+                        Transform jt = FindModelTransformNotInlined(p, names[n]);
                         if (jt != null && !IsTransformActiveInHierarchy(jt))
                         {
                             isJettisoned = true;
