@@ -20,6 +20,34 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## PARALLEL-HARNESS-RUNS: fly harness lanes on 2-3 KSP copies at once while the owner keeps using the PC [FILED 2026-11-14 (owner request). C# PART BUILT 2026-11-14 (branch `par-w1`, xUnit only, not flown); harness side (slots, locks, provisioning copies, the parallel runner) in progress on sibling branches; PC validation owed]
+
+**Plan.** `harness/parallel-runs-plan-2026-11-14.md` in the project files (sections 1-6 and the
+v2 overrides): slots `automation/<profile>-<k>`, a per-slot lock under the machine lock, stamped
+kRPC ports, path-scoped process checks, per-copy `-logFile`, Unity prefs snapshot / restore,
+and `harness/tools/parallel_runner.py`.
+
+**C# part (done, automation only, inert unless `PARSEK_TEST_COMMANDS=1`).**
+- Focus-lock suppression: `TestCommands/AutomationFocusLockSuppressionPatch.cs` prefixes the
+  private `OnApplicationFocus(bool)` of `FlightDriver`, `EditorDriver`, `SpaceCenterMain`,
+  `UISpaceCenter` and `MainMenu` and skips stock on focus loss, so an unfocused copy no longer
+  takes the `ControlTypes.All` lock that made `WarpToUT` answer `warp-locked`, stalled the editor
+  launch and paused the KSC Planetarium. `Prepare()` reads the env, so a player build applies
+  zero targets. Log: rate-limited `focus lock suppressed scene=... lockId=...`.
+- Window lookup by process: `TestCommands/OwnProcessWindowFinder.cs` (`EnumWindows` + own pid,
+  `UnityWndClass` preferred) replaces the title lookups in `UiAction op=pointer`
+  (`via=own-process`) and `DisabledHoverEchoImguiTest` (`window=own-process`).
+- Boot window placement: `PARSEK_AUTOMATION_DESKTOP_ID` / `PARSEK_AUTOMATION_RETURN_FOREGROUND`;
+  the seam moves its own window with `IVirtualDesktopManager.MoveWindowToDesktop` and hands the
+  foreground back, ending with one Info line `window placement desktop=<moved|failed hr=..|
+  skipped|no-window> foreground=<returned|not-foreground|failed|skipped> ...` (grammar in
+  `design-autotest-command-seam.md`, "Addon lifecycle"). The harness minimises the window
+  whenever the line does not say `desktop=moved`.
+
+**Still owed.** The PC validation of the plan (daily tier with `--slots 2`, switched to 3), which
+is the first live proof of the focus patch, the virtual-desktop move under Unity's mono (the
+vtable call is the untested risk) and the foreground hand-back.
+
 ## ~~ROUTE-LINE-DETACHED-SEGMENTS~~: the supply route overview line drew route segments far from the ship's icon; the line is retired [FILED 2026-11-12 from the TP-7 pictures; RULED 2026-11-12 by the owner; REMOVED 2026-11-12 on branch `claude/project-thread-zfo2hk` (PR #2586); FLOWN GREEN 2026-11-12, seven lanes on the first attempt]
 
 **What the player saw.** Lane TP-7, view `tp7-c2-neardock-kerbin-low-top` (Tracking Station,
