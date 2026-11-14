@@ -1076,6 +1076,7 @@ For each stage, the table below lists the events that must produce a log line, t
 | Edge propagated                              | Verbose | `Pipeline-AnchorPropagate`   | parent → child recordingId, branchPointType, ε delta               |
 | Suppressed predecessor skipped               | Verbose | `Pipeline-AnchorPropagate`   | recordingId, reason="suppressed"                                   |
 | DAG walk summary                             | Info    | `Pipeline-AnchorPropagate`   | edges visited, anchors set, terminal reasons (no-successor / suppressed) |
+| DAG walk boundary-instant bodies             | Info    | `Pipeline-AnchorPropagate`   | per body whose frame a boundary-instant seed (OrbitalCheckpoint / SoiTransition / BubbleEntry / BubbleExit) was compared in: resolved count and largest body-fixed residual (`Kerbin:resolved=N,maxEpsilonM=F3;Mun:...`, ordinal); only when one resolved |
 
 #### Stage 4 — Correction Interpolation
 
