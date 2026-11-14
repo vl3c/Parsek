@@ -53,7 +53,7 @@ description = "Far-body owner strip: on duna-park-recorded the stock Kerbal X is
 instanceProfile = "stock-minimal"
 tags = ["FAR-2", "far-body", "duna", "sandbox", "rewind", "rewind-to-launch", "rewind-strip",
         "same-craft-relaunch", "editor-route", "leaf-placement", "ingame-batch",
-        "timeline-ops", "recorded-fixture", "pending-flight", "reading-run"]
+        "timeline-ops", "recorded-fixture", "flown", "reading-run"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/duna-park-recorded"
@@ -130,7 +130,7 @@ required = [
   "Rewind strip scope: keep spawned pid=567464503 of 'Kerbal X' \\(id=[0-9a-f]{32}\\) as committed history",
   # The three spawned leaves at their terminal places, two on Duna and one in Kerbin orbit.
   "MISSIONMARK label=far2-rewound ut=[\\s\\S]*?LeafPlacement summary: scene=SPACECENTER compared=3 ok=3 bad=0 absent=0 duplicate=0 unsupported=0 bodies=\\[Duna,Kerbin\\]",
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=SPACECENTER",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=LeafVesselPlacement scene=SPACECENTER",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

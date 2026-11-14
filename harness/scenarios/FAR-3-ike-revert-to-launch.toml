@@ -46,7 +46,7 @@ description = "Far-body revert: on duna-ike-recorded the stock Kerbal X is launc
 instanceProfile = "stock-minimal"
 tags = ["FAR-3", "far-body", "ike", "duna", "sandbox", "stock-revert", "revert",
         "editor-route", "leaf-placement", "ingame-batch", "timeline-ops",
-        "recorded-fixture", "pending-flight", "reading-run"]
+        "recorded-fixture", "flown", "reading-run"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/duna-ike-recorded"
@@ -113,7 +113,7 @@ required = [
   "MISSIONMARK label=far3-flying ut=[\\s\\S]*?reverttolaunch complete pid=[0-9]+ name='Kerbal X' situation=PRELAUNCH elapsed=",
   # DD1 at its recorded Ike orbit and phase after the revert, one copy.
   "MISSIONMARK label=far3-reverted ut=[\\s\\S]*?LeafPlacement summary: scene=FLIGHT compared=1 ok=1 bad=0 absent=0 duplicate=0 unsupported=0 bodies=\\[Ike\\]",
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=LeafVesselPlacement scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

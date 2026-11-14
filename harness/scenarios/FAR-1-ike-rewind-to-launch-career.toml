@@ -29,8 +29,9 @@ id = "FAR-1-ike-rewind-to-launch-career"
 #            UT ...`), WarpToUT 9181700 (rails, ~190 s of Ike orbit), stop, CommitTree
 #            (a second tree), stop.
 #   rewind   InvokeRewindToLaunch tree=latest: the Space Center at R's start - 15 s.
-#   TS       SaveGame, LoadGame scene=trackstation, WarpToUT 9181600 (inside R): R's
-#            ghost must be created at Ike in the Tracking Station.
+#   TS       SaveGame, LoadGame scene=trackstation, WarpToUT 9181600 maxRate=1 (inside R,
+#            ~105 s of 1x: the Tracking Station's intro_TS lock refuses any faster warp,
+#            first flight): R's ghost must be created at Ike in the Tracking Station.
 #   KSC      SaveGame, LoadGame scene=spacecenter, WarpToUT 9181800 (past R's end): the
 #            leaf spawn runs, then LeafVesselPlacement in SPACECENTER reads every live
 #            spawned leaf against its recording's terminal orbit (elements and phase).
@@ -101,7 +102,7 @@ steps = [
 
   # ---- the Tracking Station inside R's window: R's ghost at Ike ----
   { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "trackstation" }, expect = "OK", budget = 300 },
-  { cmd = "WarpToUT",       args = { ut = "9181600" },                                     expect = "OK", budget = 300 },
+  { cmd = "WarpToUT",       args = { ut = "9181600", maxRate = "1" },                      expect = "OK", budget = 300 },
   { cmd = "RecordingState",                                                                expect = "OK" },
   { cmd = "RecordingState",                                                                expect = "OK" },
   { cmd = "MissionMark",    args = { label = "far1-ts" },                                  expect = "OK" },

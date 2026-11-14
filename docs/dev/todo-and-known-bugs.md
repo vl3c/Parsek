@@ -715,6 +715,25 @@ created. Proving it needs a live origin resolve (FlightGlobals), so an in-game t
 Also check here: whether a sidecar flush of a source recording (see ROUTE-SOURCE-OPTIMIZER-REWRITE)
 can move a route to SourceChanged.
 
+## ~~PRESWITCH-CASE-C-LIVE-TREE-MEMBER~~: switching back to the ship a kerbal just left ended the recording when that ship ended an earlier committed flight [FILED 2026-11-14 from lane FAR-4's first flight, runs `2026-11-14_1525` and `_1526_a2` (INVALID driver-gate, the seam refused `dialog-required case=C-loaded-separate-committed`). FIXED 2026-11-14, branch `pc-lanes-fix`; xUnit, FAR-4 re-flight owed; medium]
+
+Shape: a recording is started on a vessel that an earlier committed flight also recorded (the
+committed tree's spawned leaf), a kerbal goes on EVA (the vessel becomes a background member of
+the live tree), then the player switches back to it from the map. The pre-switch gate's Case C
+looked the target up among committed trees, found the OLDER tree, saw its id differ from the live
+tree's and called the target a separate committed vessel. With auto-merge on (every player
+build: `ClampHiddenSettingsToShippingValues`) `TryAutoResolvePreSwitch` then silently merged
+(or, for a no-op, discarded) the live recording and the switch restored the older committed
+tree; with auto-merge off (the harness) the Merge / Discard dialog opened, and either answer
+ends the live recording.
+Fix: `MapFocusObjectOnSelectPatch.IsSeparateCommittedTarget` also requires that the target is not
+in the live tree's `BackgroundMap` (`IsLiveTreeBackgroundMember`); the switch then takes the
+ordinary background-member continuation. `SimulateStockSwitchClick`'s seam evaluator reads the
+same two helpers. A skipped Case C logs one Verbose `pre-switch Case C skipped: target is a
+background member of the live tree`. Tests: `PreSwitchCaseCLiveTreeMemberTests` (6 facts).
+Live proof owed: FAR-4's re-flight (`targetIsSeparateCommittedVessel=false
+dialogDecision=NoPriorSession`, `route=bg-member-continuation`).
+
 ## NEXT-TESTS-TO-BUILD-2026-11-11: the ranked list merging the moon matrix and the test gap audit, plus the new ideas of the 2026-11-11 review [FILED 2026-11-11 (owner asked to update the list), checked against main b5877e51f (1.1.0), reviewed the same day by a clean-context agent. OPEN; test program, no known defect]
 
 Merges the two lists the owner had: the moon flight-test matrix (MOON-FLIGHT-TEST-PROGRAM below,
@@ -735,8 +754,12 @@ A1 Recordings-tab loops on the map (SLM lanes), Revert to VAB / save switch / Co
 rewind and a load (REV-1, SWS-1, CN-4, CN-5), routes under a Re-Fly and real warp (IR-3, IR-6),
 route conservation (RCN-1), the Re-Fly value fuzzer and the save round-trip gate.
 
-Far-body timeline lanes (2026-11-14, from the catalog's first reading): FAR-1 .. FAR-6 authored,
-awaiting the PC batch (rewind-to-launch with a committed Ike flight in career, a relaunch rewind
+Far-body timeline lanes (2026-11-14, from the catalog's first reading): FAR-1 .. FAR-6 authored
+(first PC batch 2026-11-14: FAR-2 `2026-11-14_1524`, FAR-3 `_1529` and V33T `_1534` green on the
+first flight; FAR-4 found PRESWITCH-CASE-C-LIVE-TREE-MEMBER, fixed; FAR-1 (the Tracking Station's
+intro_TS warp lock, now a 1x wait), FAR-5 (a Kerbin leaf in the bodies list) and FAR-6 (an F9 is a
+cold save-file load since Phase 3, and a missing leading mark) re-pinned; FAR-1/4/5/6 re-flights
+owed) (rewind-to-launch with a committed Ike flight in career, a relaunch rewind
 keeping Duna vessels, a revert with Ike committed, an EVA switch at Gilly, physics warp at Laythe,
 a looped Ike watch across a quickload), read by position through the new in-game category
 `LeafVesselPlacement`. Re-Fly at a far body is still uncovered: no far-body fixture has a rewind
