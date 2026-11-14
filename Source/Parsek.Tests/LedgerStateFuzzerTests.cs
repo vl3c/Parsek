@@ -61,7 +61,7 @@ namespace Parsek.Tests
     /// </para>
     /// </summary>
     [Collection("Sequential")]
-    public class LedgerStateFuzzerTests : IDisposable
+    public partial class LedgerStateFuzzerTests : IDisposable
     {
         private const int BaseSeed = 0x1EDBEEF;
         // 500 iterations x 4 cutoffs x ~45 actions runs the five property tests in
@@ -640,34 +640,35 @@ namespace Parsek.Tests
         // Canonical state snapshot across all eight modules
         // =====================================================================
 
-        private string Snapshot()
+        private string Snapshot(Func<double, string> num = null)
         {
+            if (num == null) num = R;
             var sb = new StringBuilder();
 
             sb.Append("funds{seed=").Append(funds.HasSeed ? 1 : 0)
-              .Append(",initial=").Append(R(funds.GetInitialFunds()))
-              .Append(",balance=").Append(R(funds.GetRunningBalance()))
-              .Append(",available=").Append(R(funds.GetAvailableFunds()))
-              .Append(",earnings=").Append(R(funds.GetTotalEarnings()))
-              .Append(",spendings=").Append(R(funds.GetTotalCommittedSpendings()))
+              .Append(",initial=").Append(num(funds.GetInitialFunds()))
+              .Append(",balance=").Append(num(funds.GetRunningBalance()))
+              .Append(",available=").Append(num(funds.GetAvailableFunds()))
+              .Append(",earnings=").Append(num(funds.GetTotalEarnings()))
+              .Append(",spendings=").Append(num(funds.GetTotalCommittedSpendings()))
               .Append('}');
 
             sb.Append("|science{seed=").Append(science.HasSeed ? 1 : 0)
-              .Append(",running=").Append(R(science.GetRunningScience()))
-              .Append(",available=").Append(R(science.GetAvailableScience()))
-              .Append(",earnings=").Append(R(science.GetTotalEffectiveEarnings()))
-              .Append(",spendings=").Append(R(science.GetTotalCommittedSpendings()))
+              .Append(",running=").Append(num(science.GetRunningScience()))
+              .Append(",available=").Append(num(science.GetAvailableScience()))
+              .Append(",earnings=").Append(num(science.GetTotalEffectiveEarnings()))
+              .Append(",spendings=").Append(num(science.GetTotalCommittedSpendings()))
               .Append(",subjects=[");
             foreach (var key in science.GetAllSubjects().Keys.OrderBy(k => k, StringComparer.Ordinal))
             {
                 var state = science.GetAllSubjects()[key];
-                sb.Append(key).Append(':').Append(R(state.CreditedTotal))
-                  .Append('/').Append(R(state.MaxValue)).Append(';');
+                sb.Append(key).Append(':').Append(num(state.CreditedTotal))
+                  .Append('/').Append(num(state.MaxValue)).Append(';');
             }
             sb.Append("]}");
 
             sb.Append("|rep{seed=").Append(reputation.HasSeed ? 1 : 0)
-              .Append(",running=").Append(R(reputation.GetRunningRep())).Append('}');
+              .Append(",running=").Append(num(reputation.GetRunningRep())).Append('}');
 
             sb.Append("|milestones{count=").Append(milestones.GetCreditedCount()).Append(",ids=[");
             foreach (var id in milestones.GetCreditedMilestoneIds().OrderBy(k => k, StringComparer.Ordinal))
@@ -709,7 +710,7 @@ namespace Parsek.Tests
             foreach (var key in kerbals.Reservations.Keys.OrderBy(k => k, StringComparer.Ordinal))
             {
                 var reservation = kerbals.Reservations[key];
-                sb.Append(key).Append(':').Append(R(reservation.ReservedUntilUT))
+                sb.Append(key).Append(':').Append(num(reservation.ReservedUntilUT))
                   .Append('/').Append(reservation.IsPermanent ? 1 : 0).Append(';');
             }
             sb.Append("],slots=[");

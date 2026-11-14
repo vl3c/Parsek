@@ -3082,6 +3082,13 @@ compare).
   il_compare: only the `AnalyzeWindows` body differs, plus the 14 new private methods; the 140
   string literals and every outside call target of the old body are the same multiset across the
   new ones. Complexity >= 20 / 50 / 100: 613 / 32 / 5 -> 614 / 31 / 4; `complexityWatch` 54 -> 53.
+- 2026-11-14 (B4, the recalculation module set): pins first, in
+  `LedgerStateFuzzerTests.ModuleSet.cs`: production `Initialize` registers the eight modules in
+  tier order (the eight `Registered ...` lines, `ClearModules: removed=0`, idempotent), the
+  production set walks like the fuzzer's mirrored registration (40 ledgers x 4 cutoffs, balances
+  and every derived field), and a SHA-256 digest over the fuzz corpus (120 ledgers) through all
+  four engine entry points (visible walk, clone balance walk, the module probe, the click probe),
+  numbers rounded to 3 decimals. The digest must not move unless a ledger result does.
 - 2026-11-11 (metrics history): `scripts/arch/metrics.py` builds one JSON row per commit
   (schema `parsek-metrics/1`) from the existing tools' output: the text scan, the semantic
   headline, the code facts (with test reach when given the test DLL) and `count-code.py`'s
