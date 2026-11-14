@@ -292,16 +292,16 @@ namespace Parsek.Tests
         public void SettingsLoad_SweepsTmp_AndReadsRealFile()
         {
             string path = Path.Combine(root, "PluginData", "settings.cfg");
-            WriteText(path, "showRouteLines = False\n");
+            WriteText(path, "writeReadableSidecarMirrors = False\n");
             byte[] before = File.ReadAllBytes(path);
-            WriteText(path + ".tmp", "showRouteLines = True");
+            WriteText(path + ".tmp", "writeReadableSidecarMirrors = True");
             ParsekSettingsPersistence.SetFilePathOverrideForTesting(path);
 
             ParsekSettingsPersistence.LoadIfNeeded();
 
             Assert.False(File.Exists(path + ".tmp"));
             Assert.Equal(before, File.ReadAllBytes(path));
-            Assert.False(ParsekSettingsPersistence.GetStoredShowRouteLines().Value);
+            Assert.False(ParsekSettingsPersistence.GetStoredReadableSidecarMirrors().Value);
             Assert.Contains(logLines, l => l.Contains("settings.cfg.tmp") && l.Contains("deleted stale temp file"));
         }
     }

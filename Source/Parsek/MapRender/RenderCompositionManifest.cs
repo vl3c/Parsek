@@ -37,7 +37,6 @@ namespace Parsek.MapRender
         internal const int MaxOwnershipChanges = 4096;
         internal const int MaxPlanUnits = 512;
         internal const int MaxChainBuilds = 1024;
-        internal const int MaxRouteRecords = 1024;
 
         // ---- GLOBAL record caps. The per-pid bounds above bound ONE ghost; a scene holding twenty
         // ghosts multiplies every one of them, which is how a 512-per-pid dwell bound turns into a
@@ -135,10 +134,6 @@ namespace Parsek.MapRender
         private readonly List<OwnershipChangeRecord> ownershipChanges = new List<OwnershipChangeRecord>();
         private readonly List<RatifiedSkipRecord> ratifiedSkips = new List<RatifiedSkipRecord>();
         private readonly List<AnomalyEchoRecord> anomalyEchoRecords = new List<AnomalyEchoRecord>();
-        private readonly List<RouteLineBuildRecord> routeLineBuilds = new List<RouteLineBuildRecord>();
-        private readonly List<RouteLegDeferRecord> routeLegDefers = new List<RouteLegDeferRecord>();
-        private readonly List<RouteCoDrawViolationRecord> routeCoDrawViolations =
-            new List<RouteCoDrawViolationRecord>();
         private readonly List<TruncationRecord> truncations = new List<TruncationRecord>();
 
         private bool haveClockDefer;
@@ -159,8 +154,6 @@ namespace Parsek.MapRender
         internal int LineBranchCount => lineBranches.Count;
         internal int SeamTangentCount => seamTangents.Count;
         internal int SeamEndpointCount => seamEndpoints.Count;
-        internal int RouteLineBuildCount => routeLineBuilds.Count;
-        internal int RouteCoDrawViolationCount => routeCoDrawViolations.Count;
         internal int AnomalyEchoRecordCount => anomalyEchoRecords.Count;
         internal int TruncationCount => truncations.Count;
 
@@ -191,9 +184,6 @@ namespace Parsek.MapRender
             ownershipChanges.Clear();
             ratifiedSkips.Clear();
             anomalyEchoRecords.Clear();
-            routeLineBuilds.Clear();
-            routeLegDefers.Clear();
-            routeCoDrawViolations.Clear();
             truncations.Clear();
             haveClockDefer = false;
             clockDeferFirstUT = 0.0;
@@ -1000,58 +990,6 @@ namespace Parsek.MapRender
         }
 
         // =====================================================================================
-        //  ROUTE OVERVIEW LINE
-        // =====================================================================================
-
-        internal void AppendRouteLineBuild(RouteLineBuildRecord rec)
-        {
-            if (rec == null)
-                return;
-            if (!TryAdmit("ROUTE_LINE_BUILD", 0u, "route-line-build",
-                    routeLineBuilds.Count, MaxRouteRecords, null, 0))
-                return;
-            routeLineBuilds.Add(rec);
-        }
-
-        /// <summary>Aggregated per (routeId, recId).</summary>
-        internal void NoteRouteLegDeferred(string routeId, string recId)
-        {
-            if (string.IsNullOrEmpty(routeId) || string.IsNullOrEmpty(recId))
-                return;
-            for (int i = 0; i < routeLegDefers.Count; i++)
-            {
-                RouteLegDeferRecord r = routeLegDefers[i];
-                if (string.Equals(r.RouteId, routeId, System.StringComparison.Ordinal)
-                    && string.Equals(r.RecId, recId, System.StringComparison.Ordinal))
-                {
-                    r.Count++;
-                    routeLegDefers[i] = r;
-                    return;
-                }
-            }
-            if (!TryAdmit("ROUTE_LEG_DEFER", 0u, "route-leg-defer",
-                    routeLegDefers.Count, MaxRouteRecords, null, 0))
-                return;
-            routeLegDefers.Add(new RouteLegDeferRecord { RouteId = routeId, RecId = recId, Count = 1 });
-        }
-
-        internal void AppendRouteCoDrawViolation(string routeId, string recId, double ut, int frame)
-        {
-            if (string.IsNullOrEmpty(routeId) || string.IsNullOrEmpty(recId))
-                return;
-            if (!TryAdmit("ROUTE_CODRAW_VIOLATION", 0u, "route-codraw-violation",
-                    routeCoDrawViolations.Count, MaxRouteRecords, null, 0))
-                return;
-            routeCoDrawViolations.Add(new RouteCoDrawViolationRecord
-            {
-                RouteId = routeId,
-                RecId = recId,
-                UT = ut,
-                Frame = frame,
-            });
-        }
-
-        // =====================================================================================
         //  TRUNCATION accounting
         // =====================================================================================
 
@@ -1302,7 +1240,6 @@ namespace Parsek.MapRender
                     on.AddValue("recordedDockUT", D(u.Route.RecordedDockUT));
                     on.AddValue("recordedOriginUndockUT", D(u.Route.RecordedOriginUndockUT));
                     on.AddValue("dispatchWindowPeriod", D(u.Route.DispatchWindowPeriod));
-                    on.AddValue("scope", u.Route.Scope ?? "");
                     on.AddValue("excludedIntervalKeys", u.Route.ExcludedIntervalKeys ?? "");
                 }
             }
@@ -1487,41 +1424,6 @@ namespace Parsek.MapRender
                 n.AddValue("firstUT", D(clockDeferFirstUT));
                 n.AddValue("lastUT", D(clockDeferLastUT));
                 n.AddValue("count", clockDeferCount.ToString(IC));
-            }
-
-            for (int i = 0; i < routeLineBuilds.Count; i++)
-            {
-                RouteLineBuildRecord r = routeLineBuilds[i];
-                ConfigNode n = obs.AddNode("ROUTE_LINE_BUILD");
-                n.AddValue("routeId", r.RouteId ?? "");
-                n.AddValue("signature", r.Signature.ToString(IC));
-                n.AddValue("dockClipUT", D(r.DockClipUT));
-                n.AddValue("dispatchWindowPeriod", D(r.DispatchWindowPeriod));
-                n.AddValue("scope", r.Scope ?? "");
-                n.AddValue("resolvableMembers", r.ResolvableMembers.ToString(IC));
-                n.AddValue("groups", r.Groups.ToString(IC));
-                n.AddValue("totalLegs", r.TotalLegs.ToString(IC));
-                n.AddValue("transferLegsDropped", r.TransferLegsDropped.ToString(IC));
-                n.AddValue("ut", D(r.UT));
-            }
-
-            for (int i = 0; i < routeLegDefers.Count; i++)
-            {
-                RouteLegDeferRecord r = routeLegDefers[i];
-                ConfigNode n = obs.AddNode("ROUTE_LEG_DEFER");
-                n.AddValue("routeId", r.RouteId ?? "");
-                n.AddValue("recId", r.RecId ?? "");
-                n.AddValue("count", r.Count.ToString(IC));
-            }
-
-            for (int i = 0; i < routeCoDrawViolations.Count; i++)
-            {
-                RouteCoDrawViolationRecord r = routeCoDrawViolations[i];
-                ConfigNode n = obs.AddNode("ROUTE_CODRAW_VIOLATION");
-                n.AddValue("routeId", r.RouteId ?? "");
-                n.AddValue("recId", r.RecId ?? "");
-                n.AddValue("ut", D(r.UT));
-                n.AddValue("frame", r.Frame.ToString(IC));
             }
 
             for (int i = 0; i < truncations.Count; i++)
@@ -1882,35 +1784,6 @@ namespace Parsek.MapRender
             internal int Count;
         }
 
-        internal sealed class RouteLineBuildRecord
-        {
-            internal string RouteId;
-            internal long Signature;
-            internal double DockClipUT;
-            internal double DispatchWindowPeriod;
-            internal string Scope;
-            internal int ResolvableMembers;
-            internal int Groups;
-            internal int TotalLegs;
-            internal int TransferLegsDropped;
-            internal double UT;
-        }
-
-        internal struct RouteLegDeferRecord
-        {
-            internal string RouteId;
-            internal string RecId;
-            internal int Count;
-        }
-
-        internal struct RouteCoDrawViolationRecord
-        {
-            internal string RouteId;
-            internal string RecId;
-            internal double UT;
-            internal int Frame;
-        }
-
         internal struct TruncationRecord
         {
             internal string Section;
@@ -1950,7 +1823,6 @@ namespace Parsek.MapRender
             internal double RecordedDockUT;
             internal double RecordedOriginUndockUT;
             internal double DispatchWindowPeriod;
-            internal string Scope;
             internal string ExcludedIntervalKeys;
         }
 

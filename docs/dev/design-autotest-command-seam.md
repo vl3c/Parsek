@@ -296,13 +296,16 @@ and as a last-resort tie-break when a PID cannot be probed.
 parse-and-range check. There is no reflective "set any field": the dispatcher switches on
 the whitelisted name and calls a typed setter, so the command is data, never code.
 
-The **persistence route** column is load-bearing. 5 of the 13 whitelisted settings are
-NOT authoritatively persisted through `GameParameters.CustomParameterNode` (13/5 since
-the 2026-08-27 settings simplification retired `showCommittedFutureOverlays`,
-`blockCommittedActions`, `autoBackupExistingSaves` and `transitedBodyRotationModeIndex`
--- SetSetting on any of those four now rejects `setting-not-whitelisted`): for
-`writeReadableSidecarMirrors`, `showRouteLines`, `ghostRenderTracing`,
-`mapRenderTracing`, and `ledgerTracing`, the `ParsekSettingsPersistence` sidecar
+The **persistence route** column is load-bearing. 7 of the 12 whitelisted settings are
+NOT authoritatively persisted through `GameParameters.CustomParameterNode` (the
+2026-08-27 settings simplification retired `showCommittedFutureOverlays`,
+`blockCommittedActions`, `autoBackupExistingSaves` and `transitedBodyRotationModeIndex`;
+`verboseLogging`, `samplingDensity` and `ghostAudioVolume` became install-wide on
+2026-09-26; `showRouteLines` went with the supply route overview line on 2026-11-12
+-- SetSetting on any of the five retired names rejects `setting-not-whitelisted`): for
+`verboseLogging`, `samplingDensity`, `ghostAudioVolume`, `writeReadableSidecarMirrors`,
+`ghostRenderTracing`, `mapRenderTracing`, and `ledgerTracing`, the
+`ParsekSettingsPersistence` sidecar
 (`GameData/Parsek/settings.cfg`) is authoritative -- `ParsekScenario.OnLoad` calls
 `ParsekSettingsPersistence.ApplyTo(ParsekSettings.Current)`, which OVERWRITES the
 `GameParameters` values on EVERY save load. A dispatcher that only mutated the live field
@@ -317,14 +320,13 @@ the same), not through the `GameParameters` field alone.
 | `autoRecordOnEva` | bool | true/false | `autoRecordOnEva` | GameParameters |
 | `autoRecordOnFirstModificationAfterSwitch` | bool | true/false | same field | GameParameters |
 | `autoMerge` | bool | true/false | `autoMerge` | GameParameters |
-| `verboseLogging` | bool | true/false | `verboseLogging` | GameParameters |
+| `verboseLogging` | bool | true/false | `verboseLogging` | GameParameters + `ParsekSettingsPersistence.Record*` |
 | `ghostRenderTracing` | bool | true/false | `ghostRenderTracing` | GameParameters + `ParsekSettingsPersistence.Record*` |
 | `mapRenderTracing` | bool | true/false | `mapRenderTracing` | GameParameters + `ParsekSettingsPersistence.Record*` |
 | `ledgerTracing` | bool | true/false | `ledgerTracing` | GameParameters + `ParsekSettingsPersistence.Record*` |
 | `writeReadableSidecarMirrors` | bool | true/false | `writeReadableSidecarMirrors` | GameParameters + `ParsekSettingsPersistence.Record*` |
-| `showRouteLines` | bool | true/false | `showRouteLines` | GameParameters + `ParsekSettingsPersistence.Record*` |
-| `samplingDensity` | int | 0..2 | `samplingDensity` | GameParameters |
-| `ghostAudioVolume` | float | 0.0..1.0 (InvariantCulture) | `ghostAudioVolume` | GameParameters |
+| `samplingDensity` | int | 0..2 | `samplingDensity` | GameParameters + `ParsekSettingsPersistence.Record*` |
+| `ghostAudioVolume` | float | 0.0..1.0 (InvariantCulture) | `ghostAudioVolume` | GameParameters + `ParsekSettingsPersistence.Record*` |
 
 (Removed 2026-08-27 with their settings: `autoBackupExistingSaves`,
 `showCommittedFutureOverlays`, `blockCommittedActions` -- behaviors permanently on --
@@ -5986,12 +5988,12 @@ Unit tests (each: input -> expected -> what makes it fail):
 - **Whitelist rejects arbitrary field.** `name=someOtherField` -> `REJECTED
   not-whitelisted`; assert no reflective set occurs. Fails if the dispatcher can set a
   non-whitelisted field (the security-critical test - proves commands are data, not code).
-- **Tracked-setting persistence route.** Each of the 5
-  `ParsekSettingsPersistence`-authoritative names (`writeReadableSidecarMirrors`,
-  `showRouteLines`, `ghostRenderTracing`, `mapRenderTracing`, `ledgerTracing`; 8 before
-  the 2026-08-27 settings simplification)
+- **Tracked-setting persistence route.** Each of the 7
+  `ParsekSettingsPersistence`-authoritative names (`verboseLogging`, `samplingDensity`,
+  `ghostAudioVolume`, `writeReadableSidecarMirrors`, `ghostRenderTracing`,
+  `mapRenderTracing`, `ledgerTracing`)
   routes through the matching `ParsekSettingsPersistence.Record*` call (asserted via the
-  persistence seam / a spy), and the 8 GameParameters-only names do NOT. Fails if a tracked
+  persistence seam / a spy), and the 5 GameParameters-only names do NOT. Fails if a tracked
   setting is written only to the live field, which `ParsekScenario.OnLoad`'s `ApplyTo`
   would silently revert at the next save load (the exact bug this column fixes).
 - **Dispatch decision matrix.** For each verb x state

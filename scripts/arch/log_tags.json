@@ -1062,17 +1062,17 @@
    "helperSites": 1,
    "levels": {
     "ERROR": 9,
-    "INFO": 60,
+    "INFO": 59,
     "VERBOSE": 153,
     "WARN": 39
    },
    "modules": {
     "Controllers": 11,
-    "Display": 41,
+    "Display": 40,
     "Ghost": 157,
     "Patches": 52
    },
-   "sites": 261
+   "sites": 260
   },
   "GhostOrbitArc": {
    "levels": {
@@ -1805,15 +1805,15 @@
   },
   "Pipeline-Anchor": {
    "levels": {
-    "INFO": 5,
+    "INFO": 6,
     "VERBOSE": 21,
     "WARN": 8
    },
    "modules": {
-    "InGameTests": 4,
+    "InGameTests": 5,
     "Rendering": 30
    },
-   "sites": 34
+   "sites": 35
   },
   "Pipeline-AnchorPropagate": {
    "levels": {
@@ -2512,15 +2512,6 @@
    },
    "sites": 11
   },
-  "RouteLine": {
-   "levels": {
-    "VERBOSE": 9
-   },
-   "modules": {
-    "Display": 9
-   },
-   "sites": 9
-  },
   "SafeWrite": {
    "levels": {
     "INFO": 2,
@@ -2623,15 +2614,15 @@
   "SettingsStore": {
    "helperSites": 2,
    "levels": {
-    "INFO": 10,
+    "INFO": 9,
     "VERBOSE": 14,
     "WARN": 7,
     "mixed": 2
    },
    "modules": {
-    "Config": 33
+    "Config": 32
    },
-   "sites": 33
+   "sites": 32
   },
   "Snapshot": {
    "levels": {
@@ -2967,16 +2958,16 @@
    "helperSites": 2,
    "levels": {
     "ERROR": 12,
-    "INFO": 414,
+    "INFO": 408,
     "VERBOSE": 233,
     "WARN": 185,
     "mixed": 2
    },
    "modules": {
-    "InGameTests": 845,
+    "InGameTests": 839,
     "TestCommands": 1
    },
-   "sites": 846
+   "sites": 840
   },
   "TestSub": {
    "levels": {
@@ -3074,7 +3065,7 @@
   },
   "UI": {
    "levels": {
-    "INFO": 114,
+    "INFO": 113,
     "VERBOSE": 163,
     "WARN": 20
    },
@@ -3082,9 +3073,9 @@
     "Config": 1,
     "Controllers": 1,
     "Missions": 1,
-    "UI": 294
+    "UI": 293
    },
-   "sites": 297
+   "sites": 296
   },
   "UIScale": {
    "levels": {
@@ -3211,7 +3202,7 @@
  "totals": {
   "forwarders": 46,
   "nonLiteralSites": 13,
-  "sites": 9280,
-  "tags": 284
+  "sites": 9263,
+  "tags": 283
  }
 }

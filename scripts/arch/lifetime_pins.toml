@@ -7,7 +7,7 @@
 # `bound`; a swap inside the bound passes, and slack after a fall is not enforced until
 # a re-pin, so re-pin in the PR that lowers a count and raise one only for a change
 # the PR explains.
-# Pinned from Parsek.dll 2026-11-11
+# Pinned from Parsek.dll 2026-11-12
 
 [untagged]
 keys = [
@@ -29,23 +29,13 @@ keys = [
     "Parsek.Display.GhostTrajectoryPolylineRenderer::diffAppearedScratch",
     "Parsek.Display.GhostTrajectoryPolylineRenderer::diffDisappearedScratch",
     "Parsek.Display.GhostTrajectoryPolylineRenderer::drewNonOrbitalLegRecordings",
-    "Parsek.Display.GhostTrajectoryPolylineRenderer::drewNonOrbitalLegSpans",
     "Parsek.Display.GhostTrajectoryPolylineRenderer::forwardArcCache",
     "Parsek.Display.GhostTrajectoryPolylineRenderer::forwardArcSampleScratch",
     "Parsek.Display.GhostTrajectoryPolylineRenderer::lastGoodOnLine",
     "Parsek.Display.GhostTrajectoryPolylineRenderer::legChangeLastEmitRealtime",
-    "Parsek.Display.GhostTrajectoryPolylineRenderer::paintedLegSpans",
-    "Parsek.Display.GhostTrajectoryPolylineRenderer::paintedLegSpansMaintainedFrame",
     "Parsek.Display.GhostTrajectoryPolylineRenderer::polylineCache",
     "Parsek.Display.GhostTrajectoryPolylineRenderer::previousDrewForwardArcRecordings",
     "Parsek.Display.GhostTrajectoryPolylineRenderer::previousDrewNonOrbitalLegRecordings",
-    "Parsek.Display.RouteMemberRunExpansion::cachedErs",
-    "Parsek.Display.RouteMemberRunExpansion::claimsByTreeId",
-    "Parsek.Display.RouteMemberRunExpansion::visibleById",
-    "Parsek.Display.RouteMemberRunExpansion::visibleRunByMemberId",
-    "Parsek.Display.RouteTrajectoryLineRenderer::committedIdScratch",
-    "Parsek.Display.RouteTrajectoryLineRenderer::routeCache",
-    "Parsek.Display.RouteTrajectoryLineRenderer::staleKeyScratch",
     "Parsek.DockingPortSeparation::armedOtherPartPid",
     "Parsek.DockingPortSeparation::armedPortPartPid",
     "Parsek.DockingPortSeparation::armedUT",
@@ -267,7 +257,6 @@ keys = [
     "Parsek.ParsekSettingsPersistence::storedMapRenderTracing",
     "Parsek.ParsekSettingsPersistence::storedReadableSidecarMirrors",
     "Parsek.ParsekSettingsPersistence::storedSamplingDensity",
-    "Parsek.ParsekSettingsPersistence::storedShowRouteLines",
     "Parsek.ParsekSettingsPersistence::storedUiComplexityMode",
     "Parsek.ParsekSettingsPersistence::storedVerboseLogging",
     "Parsek.ParsekSettingsPersistence::storedWarpDay",

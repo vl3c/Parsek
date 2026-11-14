@@ -84,6 +84,8 @@ namespace Parsek.Tests
         [InlineData("autoBackupExistingSaves")]
         [InlineData("showCommittedFutureOverlays")]
         [InlineData("blockCommittedActions")]
+        // Retired with the supply route overview line: nothing reads it any more.
+        [InlineData("showRouteLines")]
         public void Reject_NonWhitelisted(string name)
         {
             var r = SettingWhitelist.TryApply(name, "true");
@@ -93,7 +95,7 @@ namespace Parsek.Tests
             Assert.Null(r.RecordMethod);
         }
 
-        // ----- Persistence route for all 13 -----
+        // ----- Persistence route for all 12 -----
 
         [Theory]
         [InlineData("autoRecordOnLaunch")]
@@ -114,7 +116,6 @@ namespace Parsek.Tests
         [InlineData("mapRenderTracing", "RecordMapRenderTracing")]
         [InlineData("ledgerTracing", "RecordLedgerTracing")]
         [InlineData("writeReadableSidecarMirrors", "RecordReadableSidecarMirrors")] // name asymmetry
-        [InlineData("showRouteLines", "RecordShowRouteLines")]
         // Install-wide since 2026-09-26: without the Record* half a stored sidecar value
         // would revert a harness SetSetting at the next save load.
         [InlineData("verboseLogging", "RecordVerboseLogging")]
@@ -129,9 +130,9 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Whitelist_HasExactly13Entries_8Tracked()
+        public void Whitelist_HasExactly12Entries_7Tracked()
         {
-            Assert.Equal(13, SettingWhitelist.WhitelistedNames.Count);
+            Assert.Equal(12, SettingWhitelist.WhitelistedNames.Count);
 
             int tracked = 0;
             foreach (string name in SettingWhitelist.WhitelistedNames)
@@ -148,7 +149,7 @@ namespace Parsek.Tests
                     Assert.Null(r.RecordMethod);
                 }
             }
-            Assert.Equal(8, tracked);
+            Assert.Equal(7, tracked);
         }
 
         [Fact]

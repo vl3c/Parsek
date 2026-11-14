@@ -95,9 +95,8 @@ tier = "operator"
 # THE ANALYZER ROW IS LEFT GATING, unlike GUI-1 / GUI-2. Those two declare
 # `[expectations.analyzer] gating = false` because their host is the operator's own career
 # and carries pre-existing findings no census causes or observes. This host is a COMMITTED
-# fixture that three other committed lanes already fly green (`B32-interbody-route-scope`,
-# `V26M`, `V26T`), so there is nothing to exempt and `ANALYZER_REPORT_ONLY_ALLOWLIST` stays
-# exactly as it is.
+# fixture that another committed lane already flies green (`V26T`), so there is nothing to
+# exempt and `ANALYZER_REPORT_ONLY_ALLOWLIST` stays exactly as it is.
 #
 # WHAT THIS LANE CANNOT PHOTOGRAPH, named rather than left to a reader to notice:
 #   - ANY `PopupDialog`. All 21 of them stay dark, and the cause is structural rather than
@@ -359,8 +358,7 @@ steps = [
 [dimensionsCovered]
 # BASICS ONLY, deliberately. A dimension claim says a value was EXERCISED AND OBSERVED,
 # and this lane observes LAYOUT: it opens windows over a route corpus and photographs
-# them. It drives no route, creates none and runs none, so no D10 value is earned here -
-# `B32-interbody-route-scope` is the lane that claims those on this same host. The two
+# them. It drives no route, creates none and runs none, so no D10 value is earned here. The two
 # below are properties of the host and hold the moment the boot lands.
 D14 = ["sandbox", "scene-ksc"]
 
@@ -431,7 +429,7 @@ required = [
 # `[Parsek][ERROR]` surface of a route-carrying save's cold OnLoad (route reconcile over
 # two routes and a dismissed list, ledger recalc) is not something a LAYOUT review
 # controls, observes or is about. The ERROR surface of this fixture is gated where it is
-# attributable - `B32-interbody-route-scope`, which flies it for its route behaviour.
+# attributable - `V26T-interbody-route-ts-arrival`, which flies it for its route behaviour.
 forbidden = []
 
 [runtime]

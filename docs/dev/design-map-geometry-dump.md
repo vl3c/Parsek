@@ -12,7 +12,7 @@ document owns the JSON file and how each field is read.
 ## The problem
 
 The owner cannot judge by eye whether the map and Tracking Station draw a looped mission or a
-supply route correctly (takeoffs, transfers, tilted orbits, parking orbits, landings, seams). The
+supply route's ship correctly (takeoffs, transfers, tilted orbits, parking orbits, landings, seams). The
 existing instruments - `MapRenderProbe` parity and the render-composition manifest - speak in log
 lines about DECISIONS. A screenshot shows the picture but cannot say which line is which, in which
 body frame it was drawn, or which vertices the renderer actually received.
@@ -39,7 +39,7 @@ UI, and neither needs `mapRenderTracing`.
 | `Source/Parsek/TestCommands/TestCommandDumpMapGeometry.cs` | Pure half of the dump verb: label parse (delegates to `CaptureScreenshot`), scene admission, poll decision, payload, log lines, reason tables. |
 | `Source/Parsek/TestCommands/TestCommandMapCamera.cs` | Pure half of the camera verb: body resolution, arg parse and ranges, unit conversions, clamp report, settle decision, payload, log line, reason tables. |
 | `Source/Parsek/TestCommands/ParsekTestCommandAddon.DumpMapGeometry.cs` / `.MapCamera.cs` | Thin appliers. |
-| Read accessors added to existing files | `ShadowRenderDriver.TryGetLastIntent`, `GhostMapPresence.TryGetOverlapCycleForPid`, `GhostTrajectoryPolylineRenderer.VisitCachedLegs` / `VisitCachedForwardArcs` / `VisitCachedBridgeLines` / `IsForwardSecondaryDictKey`, `RouteTrajectoryLineRenderer.VisitCachedRouteLegs`, the marker-position tap on `MapMarkerRenderer` (`SetDrawnMarkerTapArmed`, `NoteDrawnMarker`, `CopyDrawnMarkers`) noted from `MapMarkerRenderer.DrawMarker` and `ParsekFlightMapMarkers.DrawMapMarkerAt`, and the arc-clip tap on `GhostOrbitArcPatch` (`SetDrawnArcTapArmed`, `TryGetDrawnArcClip`) noted where the clip returns. The seam-bridge cache entry (`BridgeLineEntry`) also records the leg, side and body of its last draw for the bridge visitor. |
+| Read accessors added to existing files | `ShadowRenderDriver.TryGetLastIntent`, `GhostMapPresence.TryGetOverlapCycleForPid`, `GhostTrajectoryPolylineRenderer.VisitCachedLegs` / `VisitCachedForwardArcs` / `VisitCachedBridgeLines` / `IsForwardSecondaryDictKey`, the marker-position tap on `MapMarkerRenderer` (`SetDrawnMarkerTapArmed`, `NoteDrawnMarker`, `CopyDrawnMarkers`) noted from `MapMarkerRenderer.DrawMarker` and `ParsekFlightMapMarkers.DrawMapMarkerAt`, and the arc-clip tap on `GhostOrbitArcPatch` (`SetDrawnArcTapArmed`, `TryGetDrawnArcClip`) noted where the clip returns. The seam-bridge cache entry (`BridgeLineEntry`) also records the leg, side and body of its last draw for the bridge visitor. |
 
 Arch: the two root files are rule `TestCommands` (tooling) in `scripts/arch/modules.toml`.
 
@@ -89,7 +89,6 @@ marked, naming the additive orbit-line keys), then the additive keys, then every
                            "clipped": .., "opacity": .., "drawMode": "..",   // ADDITIVE, orbit lines only (see "Additive keys")
                            "reference": [[x,y,z], ...], "referenceKind": "recorded" | "intended"   // optional: the reference path the existing parity capture already has for this piece, same frame as points
                           } ... ] } ... ],
-  "routeLines": [ {"routeId": "...", "routeName": "...", "legs": [ {"body": "...", "recordingId": "...", "points": [[x,y,z], ...]} ] } ],
   "counts": {"ghosts": n, "lines": n, "points": n, "truncated": false}
 }
 ```
@@ -120,8 +119,12 @@ marked, naming the additive orbit-line keys), then the additive keys, then every
   `REDRAW_AND_RECALCULATE`; Parsek sets `REDRAW_AND_RECALCULATE` on every ghost renderer).
 - `counts.unknownBodyItems`: items skipped because the body they name is not in `bodies` (see
   "Every named body is listed"). Always written; not a cap, so it does not set `truncated`.
-- `counts.dropped`: `{"ghosts", "lines", "routes", "legs", "bodies"}`, the totals each hard cap
-  dropped. Written only when `truncated` is true.
+- `counts.dropped`: `{"ghosts", "lines", "bodies"}`, the totals each hard cap dropped. Written
+  only when `truncated` is true.
+- No `routeLines` block: the supply route overview line was retired on 2026-11-12 (todo
+  ROUTE-LINE-DETACHED-SEGMENTS) and the key went with it, as did `routes` / `legs` in
+  `counts.dropped`. A route's ship is a ghost like any other and appears under `ghosts`. The
+  schema id is unchanged; a reader must not require the key.
 
 ### Conventions (owner clarifications 2026-11-11)
 
@@ -137,16 +140,16 @@ marked, naming the additive orbit-line keys), then the additive keys, then every
    viewer closes the ring.
 4. **Origins.** `bodies[].pos` is root-relative (body centre minus the root's centre, metres, same
    axes). Every other point is relative to the CENTRE of the body it names: a line's `points` and
-   `reference` to the line's `body`, an icon's `pos` to the ghost's `body`, a route leg's `points`
-   to the leg's `body`, a body's `orbit` to its `parent`. To place anything in the system, add the
+   `reference` to the line's `body`, an icon's `pos` to the ghost's `body`, a body's `orbit` to
+   its `parent`. To place anything in the system, add the
    named body's `pos`.
 5. **Line order.** A ghost's `lines` are in time order where their `ut` ranges are known: lines
    with a `ut` range first, sorted by start then end; then the lines with no range, in capture
    order (the stock orbit line, then polyline legs, then forward arcs, each in its renderer's cache
    order). Ties keep capture order (`MapGeometryDecisions.OrderLines`, a stable sort).
-6. **Every named body is listed.** Every body a ghost, line, icon or leg names is present in
+6. **Every named body is listed.** Every body a ghost, line or icon names is present in
    `bodies`. An item naming any other body is skipped and counted in `counts.unknownBodyItems`: a
-   line or route leg is dropped; a ghost keeps its entry and lines but loses its `body` and its
+   line is dropped; a ghost keeps its entry and lines but loses its `body` and its
    icon `pos` (which would be relative to that body). `kind` is only `orbit`, `polyline`, `tail`
    or `bridge` (review 2026-11-11: a seam bridge is a fourth drawn piece; when one draws, the
    forward arc it joins is clipped back by the bridge's length, so a consumer that knew only three
@@ -180,9 +183,8 @@ marked, naming the additive orbit-line keys), then the additive keys, then every
 | `lines[]` kind `polyline` | Each cached Parsek trajectory leg (`GhostTrajectoryPolylineRenderer.VisitCachedLegs`) reported when its mesh is active or it drew this frame or the previous one (`MapGeometryDecisions.ClassifyCachedLine`). `active` = the mesh is active; `points` are filled ONLY for an active line. `ut` = the leg's recorded span. `reference` = the leg's parity capture `parityRecordedRel` (`referenceKind` `recorded`), only when the leg is not anchored and its parity capture is from THIS frame's draw. |
 | `lines[]` kind `tail` | Each cached forward arc (the chain drawn AHEAD of the ghost icon, `VisitCachedForwardArcs`), same reporting and points rule. When a seam bridge draws, the arc's `drawStart` / `drawEnd` are already pulled in by the bridge's length, so `points` are the piece left. `reference` = the arc's intended body-relative offsets (`referenceKind` `intended`). |
 | `lines[]` kind `bridge` | Each cached seam bridge (`VisitCachedBridgeLines`, ordinal key order), the filler from a body-fixed leg's drawn end to the adjacent inertial conic; attached to the LEG's recording's entry. Same reporting and points rule. `body` = the body its scaled points are centred on (the joined conic's body). No `ut` (it blends two pieces and covers no recorded span of its own), no `reference`. |
-| `points` (all lines, route legs) | The vertices Vectrosity hands the renderer: `VectorLine.points3[drawStart..drawEnd]` (clamped), each mapped back to metres relative to the body as drawn THIS frame by `RenderGeometrySampler.RenderedScaledVertexToBodyRelative(vertex, body.scaledBody.transform.position, ScaledSpace.ScaleFactor)`. A line whose body cannot be resolved keeps no points. |
-| `routeLines[]` | `RouteTrajectoryLineRenderer.VisitCachedRouteLegs`, ACTIVE legs only (the route renderer's own sweep hides a leg a ghost owns or paints this frame); sorted by `routeId`; `routeName` from `RouteStore.CommittedRoutes`; leg `recordingId` = the member recording. |
-| `counts` | From `MapGeometryJson.ApplyCaps`: `ghosts` written, `lines` and `points` over ghost lines AND route legs (body rings and references are context, not counted), `truncated` when any hard cap dropped an entry. |
+| `points` (all lines) | The vertices Vectrosity hands the renderer: `VectorLine.points3[drawStart..drawEnd]` (clamped), each mapped back to metres relative to the body as drawn THIS frame by `RenderGeometrySampler.RenderedScaledVertexToBodyRelative(vertex, body.scaledBody.transform.position, ScaledSpace.ScaleFactor)`. A line whose body cannot be resolved keeps no points. |
+| `counts` | From `MapGeometryJson.ApplyCaps`: `ghosts` written, `lines` and `points` over the ghost lines (body rings and references are context, not counted), `truncated` when any hard cap dropped an entry. |
 
 ### Absent and partial fields
 
@@ -205,12 +207,12 @@ key; a non-finite point is dropped from its list. Specifically:
 
 ## Bounds
 
-- Decimation (`MapGeometryJson.Decimate`): every point list - a line, a route leg, a reference, a
-  body ring - keeps at most 512 points: output index i is source index
+- Decimation (`MapGeometryJson.Decimate`): every point list - a line, a reference, a body
+  ring - keeps at most 512 points: output index i is source index
   `round(i * (n - 1) / 511)`, so the first and last point survive and the spread is even.
   Decimation is the documented resolution limit, not a truncation.
 - Hard caps (whole entries, in document order): 512 bodies, 512 ghosts, 4096 lines, 262144 points
-  (ghost lines plus route legs), 128 routes, 256 legs per route. Any drop sets
+  (over the ghost lines). Any drop sets
   `counts.truncated` and writes `counts.dropped`; the verb's OK payload carries `truncated=` and a
   WARN `dumpmapgeometry truncated ...` names every dropped total. Nothing is capped silently.
 - Numbers: `ToString("R", CultureInfo.InvariantCulture)` everywhere (pinned under `de-DE`); NaN
@@ -247,8 +249,8 @@ are `recording` on the post-mission axis. hlib mirrors the vocabularies
 ## The capture's log line
 
 Each capture logs ONE Info line, `[MapGeometry] capture frame=.. scene=.. bodies=.. ghosts=..
-protoGhosts=.. legs=.. legRefs=.. arcs=.. bridges=.. markersDrawn=.. markerBodiesBySoi=.. routes=..
-routeLegs=.. scaledOffset=(x,y,z) maxScaledCentreSkewM=.. iconLineMeasured=..
+protoGhosts=.. legs=.. legRefs=.. arcs=.. bridges=.. markersDrawn=.. markerBodiesBySoi=..
+scaledOffset=(x,y,z) maxScaledCentreSkewM=.. iconLineMeasured=..
 maxIconToOrbitLineM=<m> pid=<pid> orbitLinesFaded=.. orbitOpacityUnknown=..`
 (`MapGeometryDecisions.FormatCaptureSummary`, invariant culture). It is the frame-offset check
 under warp:

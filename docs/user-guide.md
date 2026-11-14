@@ -215,7 +215,7 @@ The window has three sections, Active Routes, Paused Routes and Candidates, each
 - **Cadence** - Advanced mode sets how often a route runs (the Every stepper and the detail block); Basic shows the interval read-only. Inter-body routes deliver every Nth transfer window.
 - **Origins** - routes can start from KSC or from any docked depot, and chaining routes builds hub-and-spoke networks. Routes never charge or credit funds, in any game mode: a KSC-origin route is free, and a depot-origin route takes its cargo from the depot.
 - **Reach** - routes work same-body and between planets; inter-body delivery follows the transfer windows the ghost flies.
-- **Legibility** - a route that is not delivering says why in its Status cell (origin out of a named resource, destination full, waiting on a linked partner, or cargo reserved by another route), and its details give the date of the last held run. Committed routes draw their path on the map and Tracking Station (toggle with the "Show supply route paths on map" setting). Candidates you do not intend to run can be **Dismissed** and restored later.
+- **Legibility** - a route that is not delivering says why in its Status cell (origin out of a named resource, destination full, waiting on a linked partner, or cargo reserved by another route), and its details give the date of the last held run. A route's ship shows on the map and in the Tracking Station the way a looped mission's ghost does: the part of its path it is on and what lies ahead. Candidates you do not intend to run can be **Dismissed** and restored later.
 - **Round-trip** - two one-way routes can be linked into a round-trip pair so they alternate, modeling one reused transport flying out and back.
 
 See `docs/parsek-logistics-supply-routes-design.md` for the full feature design.
@@ -290,7 +290,7 @@ Click the "Settings" button in the main Parsek window to open the Settings panel
 
 Which values stick where:
 
-- **Install-wide** (stored in `GameData/Parsek/PluginData/settings.cfg`): the interface mode, ghost audio, supply-route paths, recorder sample density, verbose logging, the three tracing toggles and the readable `.txt` copies. Once you change one it keeps your value across every save, F9 quickload, rewind and KSP restart. Until you first change it, each save uses its own stored value (a new save starts from the defaults below).
+- **Install-wide** (stored in `GameData/Parsek/PluginData/settings.cfg`): the interface mode, ghost audio, recorder sample density, verbose logging, the three tracing toggles and the readable `.txt` copies. Once you change one it keeps your value across every save, F9 quickload, rewind and KSP restart. Until you first change it, each save uses its own stored value (a new save starts from the defaults below).
 - **Per save**: the auto-launch period. It lives in the save, so a quickload or rewind restores the value that save had, and a new save starts at 30s.
 
 The sections appear in this order. Basic mode shows Interface and Ghosts; Advanced adds Looping, Recorder Sample Density and Diagnostics.
@@ -306,7 +306,6 @@ Ghosts:
 | Setting | Default | Description |
 |---------|---------|-------------|
 | Ghost audio | 70% | Volume multiplier for ghost engines, RCS, decouplers, and explosions. Set to 0% to mute |
-| Show supply route paths on map | On | Draw each supply route's recorded path as a line on the flight map and in the Tracking Station |
 
 There is no "Show ghosts in Tracking Station" setting, and never has been. Ghosts always get their Tracking Station presence.
 

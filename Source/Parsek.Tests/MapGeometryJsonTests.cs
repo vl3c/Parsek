@@ -108,17 +108,12 @@ namespace Parsek.Tests
         public void ApplyCaps_UnderEveryCap_IsNotTruncated_AndCountsTheDrawnGeometry()
         {
             var doc = DocWithGhosts(3, 2, 10);
-            doc.Routes.Add(new MapGeometryRoute
-            {
-                RouteId = "r1",
-                Legs = { new MapGeometryRouteLeg { Body = "Kerbin", RecordingId = "m", Points = Line(4) } },
-            });
             doc.Bodies[0].Orbit = Line(64);
             var c = MapGeometryJson.ApplyCaps(doc);
             Assert.False(c.Truncated);
             Assert.Equal(3, c.Ghosts);
-            Assert.Equal(7, c.Lines);              // 6 ghost lines + 1 route leg
-            Assert.Equal(64, c.Points);            // 60 ghost points + 4 leg points; rings not counted
+            Assert.Equal(6, c.Lines);              // the ghost lines
+            Assert.Equal(60, c.Points);            // the ghost points; rings not counted
         }
 
         [Fact]
@@ -168,22 +163,6 @@ namespace Parsek.Tests
             Assert.Equal(300, c.Ghosts); // the ghosts stay; their lines went
             Assert.Empty(doc.Ghosts[299].Lines);
             Assert.Equal(0, c.DroppedGhosts);
-        }
-
-        [Fact]
-        public void ApplyCaps_RouteAndLegCaps_AreExplicit()
-        {
-            var doc = new MapGeometryDocument();
-            doc.Bodies.Add(new MapGeometryBody { Name = "Kerbin" });
-            for (int r = 0; r < MapGeometryJson.MaxRoutes + 1; r++)
-                doc.Routes.Add(new MapGeometryRoute { RouteId = "r" + r });
-            for (int l = 0; l < MapGeometryJson.MaxLegsPerRoute + 2; l++)
-                doc.Routes[0].Legs.Add(new MapGeometryRouteLeg { Body = "Kerbin", Points = Line(2) });
-            var c = MapGeometryJson.ApplyCaps(doc);
-            Assert.True(c.Truncated);
-            Assert.Equal(1, c.DroppedRoutes);
-            Assert.Equal(2, c.DroppedLegs);
-            Assert.Equal(MapGeometryJson.MaxLegsPerRoute, doc.Routes[0].Legs.Count);
         }
 
         [Fact]
@@ -251,11 +230,6 @@ namespace Parsek.Tests
             });
             doc.Ghosts.Add(ghost);
             doc.Ghosts.Add(new MapGeometryGhost { RecordingId = "pidless", Treatment = "DriverOnly" });
-            doc.Routes.Add(new MapGeometryRoute
-            {
-                RouteId = "route-1", RouteName = "Mun run",
-                Legs = { new MapGeometryRouteLeg { Body = "Mun", RecordingId = "m1", Points = Line(2) } },
-            });
             return doc;
         }
 
@@ -332,20 +306,16 @@ namespace Parsek.Tests
             Assert.False(g1.ContainsKey("loopCycle"));
             Assert.False(g1.ContainsKey("icon"));
 
-            var routes = (List<object>)root["routeLines"];
-            var r0 = (Dictionary<string, object>)routes[0];
-            Assert.Equal("Mun run", r0["routeName"]);
-            var leg = (Dictionary<string, object>)((List<object>)r0["legs"])[0];
-            Assert.Equal("m1", leg["recordingId"]);
+            Assert.False(root.ContainsKey("routeLines"));
 
             var c = (Dictionary<string, object>)root["counts"];
             Assert.Equal(2.0, c["ghosts"]);
-            Assert.Equal(3.0, c["lines"]);
-            Assert.Equal(7.0, c["points"]);         // 5 orbit + 0 inactive polyline + 2 leg
+            Assert.Equal(2.0, c["lines"]);
+            Assert.Equal(5.0, c["points"]);         // 5 orbit + 0 inactive polyline
             Assert.Equal(false, c["truncated"]);
             Assert.Equal(0.0, c["unknownBodyItems"]);
             Assert.False(c.ContainsKey("dropped"));
-            Assert.Equal(7, counts.Points);
+            Assert.Equal(5, counts.Points);
         }
 
         [Fact]
@@ -548,7 +518,6 @@ namespace Parsek.Tests
             var root = (Dictionary<string, object>)MiniJson.ParseValue(json);
             Assert.Empty((List<object>)root["bodies"]);
             Assert.Empty((List<object>)root["ghosts"]);
-            Assert.Empty((List<object>)root["routeLines"]);
         }
 
         [Fact]
@@ -559,12 +528,10 @@ namespace Parsek.Tests
             doc.Bodies.Add(new MapGeometryBody { Name = "Kerbin" });
             doc.Ghosts.Add(null);
             doc.Ghosts.Add(new MapGeometryGhost { RecordingId = "r", Body = "Kerbin" });
-            doc.Routes.Add(null);
             string json = MapGeometryJson.Write(doc, out MapGeometryCounts counts);
             var root = (Dictionary<string, object>)MiniJson.ParseValue(json);
             Assert.Single((List<object>)root["bodies"]);
             Assert.Single((List<object>)root["ghosts"]);
-            Assert.Empty((List<object>)root["routeLines"]);
             Assert.Equal(1, counts.Ghosts);
             Assert.False(counts.Truncated);
         }
@@ -617,22 +584,12 @@ namespace Parsek.Tests
             ghost.Lines.Add(new MapGeometryLine { Kind = "polyline", Body = "Eve", Active = true, Points = Line(2) });
             ghost.Lines.Add(new MapGeometryLine { Kind = "tail", Body = null, Active = true, Points = Line(2) });
             doc.Ghosts.Add(ghost);
-            doc.Routes.Add(new MapGeometryRoute
-            {
-                RouteId = "x",
-                Legs =
-                {
-                    new MapGeometryRouteLeg { Body = "Kerbin", Points = Line(2) },
-                    new MapGeometryRouteLeg { Body = "Dres", Points = Line(2) },
-                },
-            });
 
             string json = MapGeometryJson.Write(doc, out MapGeometryCounts counts);
-            Assert.Equal(4, counts.UnknownBodyItems);   // ghost body, 2 lines, 1 leg
+            Assert.Equal(3, counts.UnknownBodyItems);   // ghost body, 2 lines
             Assert.False(counts.Truncated);
             Assert.DoesNotContain("Jool", json);
             Assert.DoesNotContain("Eve", json);
-            Assert.DoesNotContain("Dres", json);
             var root = (Dictionary<string, object>)MiniJson.ParseValue(json);
             var g = (Dictionary<string, object>)((List<object>)root["ghosts"])[0];
             Assert.False(g.ContainsKey("body"));
@@ -640,7 +597,7 @@ namespace Parsek.Tests
             Assert.Equal(true, icon["drawn"]);
             Assert.False(icon.ContainsKey("pos"));      // relative to a body we cannot name
             Assert.Single((List<object>)g["lines"]);
-            Assert.Equal(4.0, ((Dictionary<string, object>)root["counts"])["unknownBodyItems"]);
+            Assert.Equal(3.0, ((Dictionary<string, object>)root["counts"])["unknownBodyItems"]);
         }
 
         [Fact]
@@ -828,7 +785,6 @@ namespace Parsek.Tests
                 {
                     Frame = 42, Scene = "FLIGHT", Bodies = 17, Ghosts = 3, ProtoGhosts = 2, Legs = 4,
                     LegRefs = 1, Arcs = 2, Bridges = 1, MarkersDrawn = 1, MarkerBodiesBySoi = 1,
-                    Routes = 0, RouteLegs = 0,
                     ScaledOffset = new[] { 1.5, -2.25, 0.0 },
                     MaxScaledCentreSkewM = 0.125,
                     IconLineMeasured = 2, MaxIconToLineM = 1234.56, MaxIconToLinePid = 77,

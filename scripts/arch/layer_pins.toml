@@ -10,7 +10,7 @@
 # someone re-pins, so re-pin in the PR that lowers a count, and raise one only for a
 # deliberate change the PR explains.
 # 52 backward module pairs, 440 type pairs.
-# Pinned from Parsek.dll 2026-11-11
+# Pinned from Parsek.dll 2026-11-12
 
 [[backward]]
 edge = "Rewind -> Controllers"

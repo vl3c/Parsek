@@ -404,8 +404,7 @@ namespace Parsek.Tests.MapRender
                 + RenderCompositionManifest.MaxOwnershipChanges
                 + RenderCompositionManifest.MaxPlanUnits
                 + RenderCompositionManifest.MaxChainBuilds
-                + RenderCompositionManifest.MaxAnomalyEchoRecords
-                + (3L * RenderCompositionManifest.MaxRouteRecords);   // build + leg-defer + co-draw
+                + RenderCompositionManifest.MaxAnomalyEchoRecords;
 
             Assert.True(familySum <= RenderCompositionManifest.MaxTotalRecords,
                 "the family caps now sum to " + familySum.ToString(CultureInfo.InvariantCulture)
@@ -696,12 +695,8 @@ namespace Parsek.Tests.MapRender
             m.NoteRatifiedSkip(1u, 14.5, "reaim-segment-skip");
             m.NoteClockDefer(15.0);
 
-            // Standalone ANOMALY_ECHO + the three ROUTE families + a TRUNCATED marker.
+            // Standalone ANOMALY_ECHO + a TRUNCATED marker.
             m.AppendAnomalyEchoRecord("route-0001", "rec-1", "line-blink", 15.5);
-            m.AppendRouteLineBuild(new RenderCompositionManifest.RouteLineBuildRecord
-            { RouteId = "route-0001", UT = 16.0 });
-            m.NoteRouteLegDeferred("route-0001", "rec-1");
-            m.AppendRouteCoDrawViolation("route-0001", "rec-1", 16.5, 42);
             m.NoteTruncationForTesting("DWELL", 99u, "dwell");
 
             // Everything is really there before the Reset, so the cell cannot pass vacuously.
@@ -710,8 +705,7 @@ namespace Parsek.Tests.MapRender
             foreach (string kind in new[]
             {
                 "DWELL", "TRANSITION", "SEAM_TANGENT", "SEAM_ENDPOINT", "CLOCK_EVENT", "LINE_BRANCH",
-                "OWNERSHIP_CHANGE", "RATIFIED_SKIP", "CLOCK_DEFER", "ANOMALY_ECHO", "ROUTE_LINE_BUILD",
-                "ROUTE_LEG_DEFER", "ROUTE_CODRAW_VIOLATION", "TRUNCATED",
+                "OWNERSHIP_CHANGE", "RATIFIED_SKIP", "CLOCK_DEFER", "ANOMALY_ECHO", "TRUNCATED",
             })
             {
                 Assert.True(before.GetNode("OBSERVED").GetNodes(kind).Length > 0,
@@ -733,8 +727,6 @@ namespace Parsek.Tests.MapRender
             Assert.Equal(0, m.LineBranchCount);
             Assert.Equal(0, m.SeamTangentCount);
             Assert.Equal(0, m.SeamEndpointCount);
-            Assert.Equal(0, m.RouteLineBuildCount);
-            Assert.Equal(0, m.RouteCoDrawViolationCount);
             Assert.Equal(0, m.AnomalyEchoRecordCount);
             Assert.Equal(0, m.TruncationCount);
             Assert.Equal(0, m.TotalRecordCount);

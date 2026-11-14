@@ -125,22 +125,6 @@ namespace Parsek
         internal List<MapGeometryLine> Lines = new List<MapGeometryLine>();
     }
 
-    /// <summary>One leg of a route overview line.</summary>
-    internal sealed class MapGeometryRouteLeg
-    {
-        internal string Body;
-        internal string RecordingId;
-        internal List<double[]> Points = new List<double[]>();
-    }
-
-    /// <summary>One <c>routeLines[]</c> entry.</summary>
-    internal sealed class MapGeometryRoute
-    {
-        internal string RouteId;
-        internal string RouteName;
-        internal List<MapGeometryRouteLeg> Legs = new List<MapGeometryRouteLeg>();
-    }
-
     /// <summary>The whole dump.</summary>
     internal sealed class MapGeometryDocument
     {
@@ -155,7 +139,6 @@ namespace Parsek
         internal string Root;
         internal List<MapGeometryBody> Bodies = new List<MapGeometryBody>();
         internal List<MapGeometryGhost> Ghosts = new List<MapGeometryGhost>();
-        internal List<MapGeometryRoute> Routes = new List<MapGeometryRoute>();
     }
 
     /// <summary>The <c>counts</c> block, computed by <see cref="MapGeometryJson.ApplyCaps"/>.</summary>
@@ -167,12 +150,10 @@ namespace Parsek
         internal bool Truncated;
         internal int DroppedGhosts;
         internal int DroppedLines;
-        internal int DroppedRoutes;
-        internal int DroppedLegs;
         internal int DroppedBodies;
 
         /// <summary>Items skipped because the body they name is not in <c>bodies</c> (a
-        /// ghost's or line's or leg's body; not a cap, so it does not set
+        /// ghost's or line's body; not a cap, so it does not set
         /// <see cref="Truncated"/>).</summary>
         internal int UnknownBodyItems;
     }
@@ -406,7 +387,7 @@ namespace Parsek
             internal int Frame;
             internal string Scene;
             internal int Bodies, Ghosts, ProtoGhosts, Legs, LegRefs, Arcs, Bridges, MarkersDrawn;
-            internal int MarkerBodiesBySoi, Routes, RouteLegs;
+            internal int MarkerBodiesBySoi;
             /// <summary><c>ScaledSpace</c>'s floating offset at the capture (scaled units):
             /// <c>-LocalToScaledSpace(0)</c>, i.e. its private <c>totalOffset</c>.</summary>
             internal double[] ScaledOffset;
@@ -446,12 +427,12 @@ namespace Parsek
             return string.Format(ic,
                 "capture frame={0} scene={1} bodies={2} ghosts={3} protoGhosts={4} legs={5} " +
                 "legRefs={6} arcs={7} bridges={8} markersDrawn={9} markerBodiesBySoi={10} " +
-                "routes={11} routeLegs={12} scaledOffset={13} maxScaledCentreSkewM={14} " +
-                "iconLineMeasured={15} maxIconToOrbitLineM={16} orbitLinesFaded={17} " +
-                "orbitOpacityUnknown={18}",
+                "scaledOffset={11} maxScaledCentreSkewM={12} " +
+                "iconLineMeasured={13} maxIconToOrbitLineM={14} orbitLinesFaded={15} " +
+                "orbitOpacityUnknown={16}",
                 s.Frame, s.Scene ?? "?", s.Bodies, s.Ghosts, s.ProtoGhosts, s.Legs,
                 s.LegRefs, s.Arcs, s.Bridges, s.MarkersDrawn, s.MarkerBodiesBySoi,
-                s.Routes, s.RouteLegs, offset, skew, s.IconLineMeasured, icon,
+                offset, skew, s.IconLineMeasured, icon,
                 s.OrbitLinesFaded, s.OrbitOpacityUnknown);
         }
 
@@ -594,12 +575,11 @@ namespace Parsek
     /// non-finite scalar omits its field, and a non-finite point is dropped before decimation
     /// (a point list keeps only finite triples).</para>
     ///
-    /// <para>Bounds. Every point list (a line, a route leg, a line's reference) is decimated to
+    /// <para>Bounds. Every point list (a line, a line's reference) is decimated to
     /// at most <see cref="MaxPointsPerLine"/> points, keeping the first and last point and an
     /// even index spread between them - decimation is the documented resolution limit, not a
     /// truncation. The hard caps drop WHOLE entries (a ghost past <see cref="MaxGhosts"/>, a line
-    /// past <see cref="MaxLines"/> or past <see cref="MaxPoints"/> drawn points, a route past
-    /// <see cref="MaxRoutes"/>, a leg past <see cref="MaxLegsPerRoute"/>, a body past
+    /// past <see cref="MaxLines"/> or past <see cref="MaxPoints"/> drawn points, a body past
     /// <see cref="MaxBodies"/>), and any drop sets <c>counts.truncated</c> with the dropped
     /// totals beside it. Nothing is capped silently.</para>
     /// </summary>
@@ -617,8 +597,6 @@ namespace Parsek
         internal const int MaxGhosts = 512;
         internal const int MaxLines = 4096;
         internal const long MaxPoints = 262144;
-        internal const int MaxRoutes = 128;
-        internal const int MaxLegsPerRoute = 256;
         internal const int MaxBodies = 512;
 
         private static readonly CultureInfo Ic = CultureInfo.InvariantCulture;
@@ -663,13 +641,13 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Skips (and counts in <c>UnknownBodyItems</c>) every ghost body, line and route leg
+        /// Skips (and counts in <c>UnknownBodyItems</c>) every ghost body and line
         /// naming a body not listed in <c>bodies</c>, orders each ghost's lines in time
         /// (<see cref="MapGeometryDecisions.OrderLines"/>), then
         /// decimates every point list of <paramref name="doc"/> and applies the hard caps in
-        /// document order (bodies, then ghosts and their lines, then routes and their legs),
+        /// document order (bodies, then ghosts and their lines),
         /// dropping whole entries past a cap. Returns the counts the writer emits:
-        /// <c>lines</c> and <c>points</c> cover ghost lines AND route legs (the drawn geometry;
+        /// <c>lines</c> and <c>points</c> cover the ghost lines (the drawn geometry;
         /// body rings and line references are context and are not counted).
         /// </summary>
         internal static MapGeometryCounts ApplyCaps(MapGeometryDocument doc)
@@ -680,11 +658,9 @@ namespace Parsek
 
             if (doc.Bodies == null) doc.Bodies = new List<MapGeometryBody>();
             if (doc.Ghosts == null) doc.Ghosts = new List<MapGeometryGhost>();
-            if (doc.Routes == null) doc.Routes = new List<MapGeometryRoute>();
             // A null entry is not an item: it is neither written nor counted.
             doc.Bodies.RemoveAll(b => b == null);
             doc.Ghosts.RemoveAll(g => g == null);
-            doc.Routes.RemoveAll(r => r == null);
 
             if (doc.Bodies.Count > MaxBodies)
             {
@@ -698,7 +674,7 @@ namespace Parsek
                     body.Orbit = Decimate(body.Orbit, MaxPointsPerLine);
             }
 
-            // Every body a ghost, line, icon or leg names must be listed in bodies: an item
+            // Every body a ghost, line or icon names must be listed in bodies: an item
             // naming an unlisted body is skipped and counted, never written with an unknown
             // name. A ghost whose own body is unknown keeps its lines but loses its body and
             // its icon position (which is relative to that body).
@@ -735,22 +711,6 @@ namespace Parsek
                 }
                 ghost.Lines = MapGeometryDecisions.OrderLines(keptKnown);
             }
-            for (int r = 0; r < doc.Routes.Count; r++)
-            {
-                MapGeometryRoute route = doc.Routes[r];
-                if (route == null || route.Legs == null) continue;
-                for (int l = route.Legs.Count - 1; l >= 0; l--)
-                {
-                    MapGeometryRouteLeg leg = route.Legs[l];
-                    if (leg == null) continue;
-                    if (leg.Body == null || !known.Contains(leg.Body))
-                    {
-                        counts.UnknownBodyItems++;
-                        route.Legs.RemoveAt(l);
-                    }
-                }
-            }
-
             if (doc.Ghosts.Count > MaxGhosts)
             {
                 for (int g = MaxGhosts; g < doc.Ghosts.Count; g++)
@@ -790,46 +750,11 @@ namespace Parsek
                 ghost.Lines = kept;
             }
 
-            if (doc.Routes.Count > MaxRoutes)
-            {
-                for (int r = MaxRoutes; r < doc.Routes.Count; r++)
-                {
-                    counts.DroppedRoutes++;
-                    MapGeometryRoute dropped = doc.Routes[r];
-                    if (dropped != null && dropped.Legs != null)
-                        counts.DroppedLegs += dropped.Legs.Count;
-                }
-                doc.Routes.RemoveRange(MaxRoutes, doc.Routes.Count - MaxRoutes);
-            }
-            for (int r = 0; r < doc.Routes.Count; r++)
-            {
-                MapGeometryRoute route = doc.Routes[r];
-                if (route == null) continue;
-                if (route.Legs == null) route.Legs = new List<MapGeometryRouteLeg>();
-                var kept = new List<MapGeometryRouteLeg>(route.Legs.Count);
-                for (int l = 0; l < route.Legs.Count; l++)
-                {
-                    MapGeometryRouteLeg leg = route.Legs[l];
-                    if (leg == null) continue;
-                    leg.Points = Decimate(leg.Points, MaxPointsPerLine);
-                    if (kept.Count >= MaxLegsPerRoute || lines >= MaxLines
-                        || points + leg.Points.Count > MaxPoints)
-                    {
-                        counts.DroppedLegs++;
-                        continue;
-                    }
-                    lines++;
-                    points += leg.Points.Count;
-                    kept.Add(leg);
-                }
-                route.Legs = kept;
-            }
-
             counts.Ghosts = doc.Ghosts.Count;
             counts.Lines = lines;
             counts.Points = points;
             counts.Truncated = counts.DroppedGhosts > 0 || counts.DroppedLines > 0
-                || counts.DroppedRoutes > 0 || counts.DroppedLegs > 0 || counts.DroppedBodies > 0;
+                || counts.DroppedBodies > 0;
             return counts;
         }
 
@@ -920,35 +845,6 @@ namespace Parsek
             }
             sb.Append(firstGhost ? "]" : "\n  ]");
 
-            sb.Append(",\n  \"routeLines\": [");
-            bool firstRoute = true;
-            for (int i = 0; i < doc.Routes.Count; i++)
-            {
-                MapGeometryRoute r = doc.Routes[i];
-                if (r == null) continue;
-                sb.Append(firstRoute ? "\n    {" : ",\n    {");
-                firstRoute = false;
-                bool first = true;
-                FieldFirst(sb, ref first, "routeId", r.RouteId);
-                FieldFirst(sb, ref first, "routeName", r.RouteName);
-                Sep(sb, ref first);
-                sb.Append("\"legs\": [");
-                for (int l = 0; l < r.Legs.Count; l++)
-                {
-                    MapGeometryRouteLeg leg = r.Legs[l];
-                    sb.Append(l == 0 ? "{" : ", {");
-                    bool lf = true;
-                    FieldFirst(sb, ref lf, "body", leg.Body);
-                    FieldFirst(sb, ref lf, "recordingId", leg.RecordingId);
-                    Sep(sb, ref lf);
-                    sb.Append("\"points\": ");
-                    Points(sb, leg.Points);
-                    sb.Append('}');
-                }
-                sb.Append("]}");
-            }
-            sb.Append(firstRoute ? "]" : "\n  ]");
-
             sb.Append(",\n  \"counts\": {\"ghosts\": ").Append(counts.Ghosts.ToString(Ic));
             sb.Append(", \"lines\": ").Append(counts.Lines.ToString(Ic));
             sb.Append(", \"points\": ").Append(counts.Points.ToString(Ic));
@@ -958,8 +854,6 @@ namespace Parsek
             {
                 sb.Append(", \"dropped\": {\"ghosts\": ").Append(counts.DroppedGhosts.ToString(Ic));
                 sb.Append(", \"lines\": ").Append(counts.DroppedLines.ToString(Ic));
-                sb.Append(", \"routes\": ").Append(counts.DroppedRoutes.ToString(Ic));
-                sb.Append(", \"legs\": ").Append(counts.DroppedLegs.ToString(Ic));
                 sb.Append(", \"bodies\": ").Append(counts.DroppedBodies.ToString(Ic));
                 sb.Append('}');
             }

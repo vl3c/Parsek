@@ -72,7 +72,7 @@ keys = [
 ]
 
 [uncalledInAssembly]
-bound = 498
+bound = 491
 keys = [
     "Parsek.AnchorDetector::FindNearestAnchor(uint32,Vector3d,System.Collections.Generic.List`1<System.ValueTuple`2<uint32,Vector3d>>,System.Collections.Generic.HashSet`1<uint32>)",
     "Parsek.AnchorDetector::IsInDockingApproach(float64)",
@@ -119,12 +119,6 @@ keys = [
     "Parsek.CrewReservationManager::TryResolveActiveVesselPartForSeat(uint32,string,System.Collections.Generic.IList`1<Parsek.CrewReservationManager/ActivePartSeat>,Parsek.CrewReservationManager/SeatMatchKind&)",
     "Parsek.CrewReservationManager::get_RescuePlacedKerbals()",
     "Parsek.DiscardReFlyLoadIntent::get_ArmedTarget()",
-    "Parsek.Display.RouteMemberRunExpansion::ExpandRunForRoute(Parsek.RecordingTree,string,Parsek.Recording,System.Func`2<string,Parsek.Recording>,System.Collections.Generic.ICollection`1<string>,System.Collections.Generic.ICollection`1<string>,Parsek.Display.RouteMemberRunExpansion/RunTally&)",
-    "Parsek.Display.RouteMemberRunExpansion::SuccessorIdsAfter(Parsek.MissionThroughLineView,string)",
-    "Parsek.Display.RouteTrajectoryLineRenderer::BuildRouteMemberLegs(Parsek.Logistics.Route,System.Func`2<string,Parsek.Recording>,int32&,int32&,int32&)",
-    "Parsek.Display.RouteTrajectoryLineRenderer::ClassifyRouteScope(string,System.Collections.Generic.IReadOnlyList`1<string>,System.Collections.Generic.IReadOnlyList`1<string>)",
-    "Parsek.Display.RouteTrajectoryLineRenderer::ComputeRouteSignature(Parsek.Logistics.Route,System.Func`2<string,Parsek.Recording>)",
-    "Parsek.Display.RouteTrajectoryLineRenderer::IsSameBodyRoute(string,System.Collections.Generic.IReadOnlyList`1<string>,System.Collections.Generic.IReadOnlyList`1<string>)",
     "Parsek.DistanceThresholds/GhostFlight::GetWatchCameraCutoffMeters()",
     "Parsek.EffectiveState::IsRewindRetired(Parsek.Recording,System.Collections.Generic.IReadOnlyList`1<Parsek.RecordingRewindRetirement>)",
     "Parsek.FacilitiesModule::GetFacilityState(string)",
@@ -398,7 +392,6 @@ keys = [
     "Parsek.ParsekSettingsPersistence::GetStoredMapRenderTracing()",
     "Parsek.ParsekSettingsPersistence::GetStoredReadableSidecarMirrors()",
     "Parsek.ParsekSettingsPersistence::GetStoredSamplingDensity()",
-    "Parsek.ParsekSettingsPersistence::GetStoredShowRouteLines()",
     "Parsek.ParsekSettingsPersistence::GetStoredUiComplexityMode()",
     "Parsek.ParsekSettingsPersistence::GetStoredVerboseLogging()",
     "Parsek.ParsekTrackingStation::ShouldDrawAtmosphericMarker(Parsek.Recording,int32,float64,System.Collections.Generic.HashSet`1<string>)",
@@ -597,7 +590,6 @@ keys = [
     "Parsek.Logistics.RouteBuilder::BuildRoute",
     "Parsek.Logistics.RouteCodec::SerializeInto",
     "Parsek.Logistics.RouteOrchestrator::ProcessMultiStopCrossings",
-    "Parsek.MapRender.RenderCompositionManifest::WriteObserved",
     "Parsek.MapRenderProbe::Sample",
     "Parsek.MissionCompositionBuilder::BuildNode",
     "Parsek.MissionLoopUnitBuilder::ApplyReaim",

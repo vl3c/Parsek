@@ -4,7 +4,6 @@ using System.Globalization;
 using System.IO;
 using HarmonyLib;
 using Parsek.Display;
-using Parsek.Logistics;
 using Parsek.MapRender;
 using UnityEngine;
 using Vectrosity;
@@ -16,12 +15,12 @@ namespace Parsek
     /// (<c>docs/dev/design-map-geometry-dump.md</c>): reads, in ONE frame after every map draw
     /// (the applier calls <see cref="Capture"/> from <c>WaitForEndOfFrame</c>), the geometry the
     /// map drew - body context, every ghost's proto icon and stock orbit line, Parsek's polyline
-    /// legs and forward arcs, Parsek's IMGUI markers, the route overview lines - into a
+    /// legs and forward arcs, Parsek's IMGUI markers - into a
     /// <see cref="MapGeometryDocument"/>, and writes it with the pure <see cref="MapGeometryJson"/>.
     ///
     /// <para>READ-ONLY. Every source is read through a read accessor that copies
     /// (<c>VisitCachedLegs</c>, <c>VisitCachedForwardArcs</c>, <c>VisitCachedBridgeLines</c>,
-    /// <c>VisitCachedRouteLegs</c>, <c>ShadowRenderDriver.TryGetLastIntent</c>, the two taps);
+    /// <c>ShadowRenderDriver.TryGetLastIntent</c>, the two taps);
     /// nothing drawn is touched and no setting is read, so the dump works with
     /// <c>mapRenderTracing</c> off. The only state it arms is two taps
     /// (<see cref="MapMarkerRenderer.SetDrawnMarkerTapArmed"/>,
@@ -37,7 +36,7 @@ namespace Parsek
     /// translation and a scale).</para>
     ///
     /// <para>IDENTITY. Recording ids and indices come from the render layer's own maps
-    /// (<c>GhostMapPresence</c>'s pid maps, the polyline and route caches, the marker keys),
+    /// (<c>GhostMapPresence</c>'s pid maps, the polyline caches, the marker keys),
     /// never from a raw committed-list read, so the ERS / ELS gate has nothing to allowlist.</para>
     /// </summary>
     internal static class MapGeometryRecorder
@@ -256,8 +255,6 @@ namespace Parsek
             // entry with no line takes the body whose SOI contains the marker.
             summary.MarkerBodiesBySoi = ResolveIconPositions(doc, bodiesByName);
 
-            summary.RouteLegs = CaptureRoutes(doc, frame, scale, bodiesByName);
-            summary.Routes = doc.Routes.Count;
             summary.Bodies = doc.Bodies.Count;
             summary.Ghosts = doc.Ghosts.Count;
             MeasureScaledSpace(bodiesByName, scale, summary);
@@ -689,55 +686,6 @@ namespace Parsek
                 if (!summary.MaxScaledCentreSkewM.HasValue || m > summary.MaxScaledCentreSkewM.Value)
                     summary.MaxScaledCentreSkewM = m;
             }
-        }
-
-        private static int CaptureRoutes(
-            MapGeometryDocument doc, int frame, double scale, Dictionary<string, CelestialBody> bodiesByName)
-        {
-            var routesById = new Dictionary<string, MapGeometryRoute>(StringComparer.Ordinal);
-            var order = new List<string>();
-            int legs = 0;
-            RouteTrajectoryLineRenderer.VisitCachedRouteLegs((routeId, memberId, index, leg) =>
-            {
-                // A route leg is drawn only while its mesh is active; the route renderer's own
-                // sweep hides a leg the ghost owns or paints this frame.
-                if (!leg.vectorLine.active) return;
-                if (!routesById.TryGetValue(routeId, out MapGeometryRoute route))
-                {
-                    route = new MapGeometryRoute { RouteId = routeId };
-                    routesById[routeId] = route;
-                    order.Add(routeId);
-                }
-                var tmp = new MapGeometryLine { Body = leg.bodyName };
-                FillDrawnPoints(tmp, leg.vectorLine, leg.bodyName, bodiesByName, scale);
-                route.Legs.Add(new MapGeometryRouteLeg
-                {
-                    Body = leg.bodyName,
-                    RecordingId = memberId,
-                    Points = tmp.Points,
-                });
-                legs++;
-            });
-            if (order.Count == 0) return 0;
-
-            var names = new Dictionary<string, string>(StringComparer.Ordinal);
-            var committed = RouteStore.CommittedRoutes;
-            if (committed != null)
-            {
-                for (int i = 0; i < committed.Count; i++)
-                {
-                    Route r = committed[i];
-                    if (r != null && r.Id != null && !names.ContainsKey(r.Id)) names[r.Id] = r.Name;
-                }
-            }
-            order.Sort(StringComparer.Ordinal);
-            for (int i = 0; i < order.Count; i++)
-            {
-                MapGeometryRoute route = routesById[order[i]];
-                if (names.TryGetValue(route.RouteId, out string name)) route.RouteName = name;
-                doc.Routes.Add(route);
-            }
-            return legs;
         }
 
         // The vertices a Vectrosity line hands the renderer, [drawStart, drawEnd], mapped back

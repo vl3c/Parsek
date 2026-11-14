@@ -93,8 +93,9 @@ namespace Parsek.Tests
             // Settings: DrawIfOpen seeds new Rect(..., 280, 600) on first open. The floor
             // dropped 15 -> 10 with the 2026-08-27 settings simplification (the Recording,
             // Stock UI, auto-backup, landing-body-alignment and force-faithful controls
-            // and their tooltips were retired).
-            yield return new object[] { "UI/SettingsWindowUI.cs", 280f, 10, TooltipEchoBox.DoubleLine };
+            // and their tooltips were retired), and 10 -> 9 when the supply route overview
+            // line and its toggle went (2026-11-12).
+            yield return new object[] { "UI/SettingsWindowUI.cs", 280f, 9, TooltipEchoBox.DoubleLine };
             // Kerbals: DefaultWindowWidth = 760 as of the 2026-09-15 column-table rebuild
             // (it was 410, half of Career's 820, while both tabs were indented outlines).
             // The Roster tab's three fixed columns are 190 + 220 + 130 = 540 px plus 200

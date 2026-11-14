@@ -900,14 +900,8 @@ or `TracedPathTreatment`.
   ACTUAL draw (either the owned or the Driver-direct path - the draw, not the TracedPath /
   StockConic classification, decides whether the proto line must hide);
   `IsRenderingNonOrbitalLeg` resolves membership via the pure `ResolveNonOrbitalLegOwnership`.
-  The SAME feeder also publishes `drewNonOrbitalLegSpans` - the recorded UT span that draw covers
-  (the union of the primary head's drawn legs; the boundary-overlap secondary is excluded exactly
-  as it is from the id set). That is NOT a second ownership source and does not widen the
-  ownership question: membership of the id set is still the whole answer for `GhostMapPresence`,
-  and the span exists only so the route line's ownership arm can arbitrate per leg
-  (`IsOwningNonOrbitalLegSpan` / the pure `ResolveOwnedLegOverlap`, fail-CLOSED when a span is
-  somehow absent). One publish site, one clear lifecycle: both are dropped at the top of every
-  `LateUpdate` and in `Clear()`.
+  One publish site, one clear lifecycle: the set is dropped at the top of every `LateUpdate`
+  and in `Clear()`.
   Per-leg head-UT gate + contiguous-span merge; `[DefaultExecutionOrder(-50)]` so the publish
   precedes the orbit-patch read.
 - The icon floor + `ghostsWithSuppressedIcon` + `IsIconSuppressed` are a KEPT PERMANENT
@@ -996,108 +990,20 @@ what its tooltip said.
   interval), and a RecordingId carries no prefix - 32 bare hex characters, unlike a
   RewindPoint's `rp_`.
 
-### `Display/RouteTrajectoryLineRenderer.cs` + `RouteMemberRunExpansion.cs` - a route MEMBER is a RUN
+### The supply route overview line - RETIRED 2026-11-12
 
-- `Route.RecordingIds` holds composition RUN HEADS, not recordings.
-  `RouteBackingMission.ComputeMemberRecordingIds` keys every selectable interval of one
-  physical vessel's through-line under that run's head (`StripSegMarker(HeadLegId)`), and
-  `MissionCompositionBuilder` walks the run through
-  `MissionThroughLineBuilder.ContinuationSuccessor`. A run of N chained recordings therefore
-  contributes exactly ONE id.
-- The renderer expands each member id to its whole continuation run
-  (`RouteMemberRunExpansion.ExpandVisibleRun`, which reuses
-  `MissionThroughLineBuilder.Build`'s own `MemberLegIds` rather than re-walking) and builds one
-  GROUP per segment, from that segment's own `Recording`. Before the expansion the drawn path
-  was each run's HEAD alone, so an interplanetary transfer - which always lands in a
-  continuation - was never drawn and `FilterLegsToEndpointBodies` could never drop a
-  third-body leg (`transferDropped=0` was structural on any chained subject;
-  ROUTE-LINE-MEMBER-DROPS-CONTINUATION-SEGMENTS).
-- Three filters bound the walk, each mirroring an authority that already exists, and the walk
-  STOPS at the first segment any of them rejects (the vessel's through-line ends there, it is
-  not a set to be sieved): ERS visibility (a superseded / rewind-retired segment is never
-  walked into), `Route.CreationTreeRecordingIds` (post-creation branches, fail-open when the
-  snapshot is empty), and whole-recording `Route.ExcludedIntervalKeys` entries (a
-  `<id>/segN` or `<id>@dockM` key names a sub-interval the renderer cannot cut and is NOT an
-  exclusion here).
-- The DECLARED member is never filtered and the expansion only ADDS groups. `members=` in
-  `Route line build:` still counts declared members that resolved; `Route line members:`
-  reports `heads=` / `segments=` alongside.
-- `RouteMemberLegs.isDeclaredMember` is load-bearing: only declared members feed
-  `CollectMemberBodies`, so `ClassifyRouteScope`'s malformed-mixed-bodies cross-check reads the
-  route's own member set. Feeding it derived segments would let ONE continuation on another
-  body classify a declared same-body route `MalformedMixedBodies` and hide a line that drew
-  before. The dock clip and the per-recording RELATIVE-frame dispatch are unchanged: each
-  segment goes through `BuildLegsForRecording` against its own recording.
-- `ComputeRouteSignature` folds every expanded segment's id + content hash, so a continuation's
-  re-cut invalidates the cached line. The tree-scoped half of the expansion is memoized against
-  the ERS list identity (`DrawAll` runs on the map onPreCull hook).
-- OWNERSHIP ALONE CANNOT ANSWER FOR AN EXPANDED SEGMENT.
-  `drewNonOrbitalLegRecordings` remains the SOLE ownership source (nothing below widens it):
-  it is published only on the ghost's CURRENT-element draw, so it answers for a run HEAD the
-  ghost is flying and never for a chain CONTINUATION segment, which the ghost's FORWARD RUN-LEG
-  pass paints under its own recording id without publishing ownership - by design, since a
-  forward leg owns no phase and hides no proto line. The route line therefore arbitrates each
-  on TWO ARMS, both PER LEG since 2026-09-15:
-  - OWNERSHIP (`ShouldSkipGroupAsGhostDrawn` over `IsRenderingNonOrbitalLeg` as the member-level
-    precondition and cheap early-out, then `ShouldSkipLegAsGhostOwned` over
-    `IsOwningNonOrbitalLegSpan` per leg): the owning draw publishes the span it covers, so a
-    member the ghost is FLYING keeps the legs that draw does not reach. Was whole-group through
-    M6 v1, because the publish carried no span (ROUTE-LINE-OWNERSHIP-ARM-IS-STILL-WHOLE-MEMBER).
-    On a ONE-LEG member the two granularities agree, so H59's armed census pin is unmoved
-    (`skippedOwned=1`), and the deferral is still recorded once per (route, member) per frame.
-  - PAINT, PER LEG (`ShouldSkipLegAsGhostPainted` over `IsPaintingNonOrbitalLegSpan`): a leg is
-    stood down only when a VISIBLE ghost mesh of the same recording overlaps THAT LEG'S recorded
-    span (strict overlap, so adjacent legs sharing an endpoint UT do not drag each other down).
-    A member the ghost paints only partly keeps drawing its unpainted legs. The whole-group form
-    was the first cut and it punched a hole in the route path: reading run 2 (2026-09-06) read
-    V26M `legsDrawn` 33 -> 20 on its stand-down frames, i.e. a 13-leg group erased for a mesh
-    covering part of it.
-  Both arms feed the one `skippedOwned` counter, which counts LEGS (a whole-group ownership skip
-  contributes `legs.Length`), split for reading by the `ownedLegs=` / `paintedLegs=` tail of the
-  `Route line draw:` line; each arm emits at most one M-A7 `NoteRouteLegDeferred` record per
-  (route, member) per frame. Measured: with no paint arm at all, V26M / V26T raised
-  `ROUTE_CODRAW_VIOLATION` on the expanded segment with `skippedOwned=0` (reading run 1). The
-  mirror direction holds too - a declared member's non-head leg can be forward-painted the same
-  way - so the paint arm applies to every group.
-- "PAINTED" MEANS "HAS A VISIBLE MESH", NOT "DREW THIS FRAME". `paintedLegSpans` is MEMBERSHIP:
-  a leg enters it on its ACTUAL draw (with its recorded span) and leaves it when its mesh is
-  hidden by the deactivation sweep, when its cache entry is released, when its legs are rebuilt,
-  on a scene load, on a cross-save flush, or when the Driver is destroyed. It is NOT cleared per
-  frame, and the frame stamp it carries is only a dead-renderer staleness guard. The reason is
-  measured: `OnMapCameraPreCull` early-returns whenever the -50 decide walk did not run
-  (`pendingDrawsFrame != frame`) AND the deactivation sweep lives inside that same pass, so on
-  such a frame nothing paints, nothing is hidden, and last frame's mesh is still on screen. The
-  first cut cleared and re-stamped the set per frame, so it read "painting nothing" exactly
-  there: reading run 2 measured V26M `routeCoDrawViolations=403`, all on one recording,
-  beginning 50 frames after the last stand-down frame - the route line resuming over a live mesh.
-- THE HIDE PATHS ARE THE CONTRACT, AND THEY ARE SOURCE-GATED. Membership only means anything
-  because every way a mesh leaves the screen retires it: `ClearPaintedLegMesh` from the
-  deactivation sweep (per leg, beside the flip that hides the line) and from `TryDrawLeg`'s
-  MAP-LINE MODE-FLIP REBUILD (per leg - the rebuild DESTROYS the VectorLine, and the sweep cannot
-  cover that because it only flips lines that are currently ACTIVE, so a draw bailing after the
-  rebuild would leave the route line deferring to a mesh that no longer exists);
-  `ClearPaintedLegMeshes` per recording on cache release and whole-recording rebuild; and
-  `ResetPaintedLegMeshes` on scene load, cross-save flush and Driver destroy. A NEW hide path must
-  call one of these, and a new PAINT path must call `NotePaintedLegMesh` on the ACTUAL draw.
-  `RouteLinePaintArbitrationSourceGateTests` pins the sweep site, the rebuild site and `DrawAll`'s
-  consumption of BOTH arms - structurally, inside each enclosing method's brace-matched body over
-  a comment- and literal-blanked copy of the source - because the behavioural cells drive a
-  test-side replica of the live loop (`ArbitrateGroup`) and a test-side paint seam
-  (`SetLegPaintForTesting`, which calls the hide path itself), so deleting any of those live sites
-  leaves every one of them green.
-- Not to be confused with `GhostMapPresence.NotePaintedRecordingLine` and its
-  `paintedRecordingIdsThisFrame`: that set is TRACING-GATED, per recording with no spans, records
-  the decide walk's ENQUEUE INTENT, and is read only by the map-render probe's line-blink
-  coverage guard. `paintedLegSpans` is ungated, spanned, mesh-true, and arbitrates a real draw.
-- The M-A7 co-draw probe (`IsAnyLegActiveForRecording` -> `NoteRouteCoDrawViolation`) stays the
-  INSTRUMENT of the arbitration rather than its input: it reads live `VectorLine.active` out of
-  `polylineCache` - now filtered to the drawn leg's own span, or every correct partial draw would
-  read as a violation - and never the membership set. A membership set that drifts from the
-  meshes it mirrors (a hide path nobody wired) therefore still reds as a recorded violation.
-- The residual this pass left - the ownership arm standing a member down WHOLE - was closed on
-  2026-09-15 by giving the ownership publish a span at its one existing feeder; both arms are now
-  per leg through the same `LegSpansOverlap` rule. The ownership SET is unchanged and stays the
-  sole ownership source.
+Owner ruling 2026-11-12 (todo ROUTE-LINE-DETACHED-SEGMENTS): a supply route's ship renders
+exactly like a looped mission's ghost, through this file's renderer (the head-gated leg that
+holds the icon, then the forward pass), and nothing draws a route segment detached from its
+vessel icon. `Display/RouteTrajectoryLineRenderer.cs` and `RouteMemberRunExpansion.cs` (the
+static overview of every recorded non-orbital leg of a route, drawn in its own map-camera
+onPreCull slot) are deleted, together with the plumbing that existed only to arbitrate that
+line against the ghost's own draw: the owned-leg span publish (`drewNonOrbitalLegSpans`), the
+painted-mesh membership (`paintedLegSpans`), the two span predicates, the M-A7 co-draw probe
+and the `showRouteLines` setting. `drewNonOrbitalLegRecordings` is unchanged and stays the
+sole ownership source; `GhostMapPresence.NotePaintedRecordingLine` and its
+`paintedRecordingIdsThisFrame` (the tracing-gated enqueue-intent set the line-blink coverage
+guard reads) are a different thing and stay.
 
 ### Predicted continuation tails on the map (2026-09-08)
 

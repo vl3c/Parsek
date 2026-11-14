@@ -20,6 +20,10 @@ All notable changes to Parsek are documented here.
   back where they were, so the ghost no longer jumps as it leaves one moon or reaches the other.
   The trip replays exactly as recorded; only the wait between loops changes.
   (MOON-TO-MOON-LOOP-NOT-RETIMED)
+- **Supply routes no longer draw a separate overview line on the map.** A route's ship now shows
+  the same way a looped mission's ghost does: its path is drawn with the ship's icon and ahead of
+  it, never as loose segments away from the ship. The "Show supply route paths on map" setting
+  is gone. (ROUTE-LINE-DETACHED-SEGMENTS)
 - **Dev: a page that draws the map's trajectory lines from the numbers.** Map geometry dumps
   from an automated run become one page of to-scale views beside the screenshot, with the
   gaps between line pieces and the line altitudes measured (`harness/tools/map_mirror.py`).

@@ -4,7 +4,7 @@ using System.Globalization;
 namespace Parsek.TestCommands
 {
     /// <summary>
-    /// Where a whitelisted setting is authoritatively persisted. 8 of the 13 are
+    /// Where a whitelisted setting is authoritatively persisted. 7 of the 12 are
     /// NOT authoritative through <c>GameParameters.CustomParameterNode</c>: for
     /// those the <c>ParsekSettingsPersistence</c> sidecar
     /// (<c>GameData/Parsek/PluginData/settings.cfg</c>) is authoritative and
@@ -75,7 +75,7 @@ namespace Parsek.TestCommands
             public string RecordMethod; // null for GameParameters-only
         }
 
-        // The 13 whitelisted settings. Fields and Record* method names verified
+        // The 12 whitelisted settings. Fields and Record* method names verified
         // against ParsekSettings.cs and ParsekSettingsPersistence.cs. Note the name
         // asymmetry: setting `writeReadableSidecarMirrors` -> method
         // `RecordReadableSidecarMirrors` (the method drops the "write" prefix).
@@ -94,7 +94,7 @@ namespace Parsek.TestCommands
             ["autoMerge"] = Bool(PersistenceRoute.GameParameters, null),
             ["forceFaithfulLoopPlayback"] = Bool(PersistenceRoute.GameParameters, null),
 
-            // --- GameParameters + ParsekSettingsPersistence sidecar (8 tracked) ---
+            // --- GameParameters + ParsekSettingsPersistence sidecar (7 tracked) ---
             // verboseLogging / samplingDensity / ghostAudioVolume joined this group when
             // they became install-wide (2026-09-26); without the Record* half, a stored
             // sidecar value would revert a SetSetting at the next save load. The harness
@@ -106,7 +106,6 @@ namespace Parsek.TestCommands
             ["mapRenderTracing"] = Bool(PersistenceRoute.GameParametersPlusSidecar, "RecordMapRenderTracing"),
             ["ledgerTracing"] = Bool(PersistenceRoute.GameParametersPlusSidecar, "RecordLedgerTracing"),
             ["writeReadableSidecarMirrors"] = Bool(PersistenceRoute.GameParametersPlusSidecar, "RecordReadableSidecarMirrors"),
-            ["showRouteLines"] = Bool(PersistenceRoute.GameParametersPlusSidecar, "RecordShowRouteLines"),
         };
 
         /// <summary>

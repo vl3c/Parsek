@@ -149,11 +149,8 @@ namespace Parsek
         // always runs (PreParsekBackup), committed-future overlays always draw
         // (StockUiOverlayController), and committed-action click blocking is always
         // active (TechResearch/FacilityUpgrade/ContractAccept/KerbalHire patches).
+        // showRouteLines went with the supply route overview line (2026-11-12).
         // Stale keys in existing saves / settings.cfg are silently ignored on load.
-
-        [GameParameters.CustomParameterUI("Show supply route paths on map",
-            toolTip = "When on, each committed same-body supply route draws its recorded launch-to-dock path as a line on the flight map and Tracking Station, so you can see where a route runs")]
-        public bool showRouteLines = true;
 
         /// <summary>
         /// UI complexity mode (0 = Basic, 1 = Advanced; design

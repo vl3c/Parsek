@@ -1208,7 +1208,7 @@ Mun route; this fixture's routes carry no runs of their own, so it shows the emp
 
 ### 3.8 Parsek - Settings
 
-Purpose: the nine settings that still have a control and the complexity toggle itself. Five
+Purpose: the eight settings that still have a control and the complexity toggle itself. Five
 sections drawn top to bottom in one pass; no tabs, no scroll view.
 
 Hosts: `ParsekFlight`, `ParsekKSC`. `UiSurface.MainButtonSettings` is visible in both modes by
@@ -1220,7 +1220,7 @@ Without an active game it draws `Settings unavailable (no active game).` and `Cl
 | # | section | gate | controls |
 |---|---|---|---|
 | 1 | Interface | always | `Basic` / `Advanced` pressed toggles of one fixed equal width (`SettingsWindowPresentation.OptionCellWidth`) plus the hint `Basic hides power-user windows. Advanced is the full UI.`; neither option is ever greyed |
-| 2 | Ghosts | always | `Ghost audio` label (85 px), a 0..1 slider and a 35 px percent label; the ` Show supply route paths on map` toggle |
+| 2 | Ghosts | always | `Ghost audio` label (85 px), a 0..1 slider and a 35 px percent label |
 | 3 | Looping | `SettingsSectionLooping` | `Auto-launch every` label, a 45 px value field, a 40 px unit button |
 | 4 | Recorder Sample Density | `SettingsSectionSampleDensity` | `Low` / `Medium` / `High` pressed toggles of one fixed equal width, plus a summary label |
 | 5 | Diagnostics | `SettingsSectionDiagnostics` | five toggles (` Verbose logging`, ` Ghost render tracing (Warning: huge logs)`, ` Map/TS render tracing (Warning: huge logs)`, ` Ledger apply tracing (Warning: huge logs)`, ` Write readable .txt recording copies`), `In-Game Test Runner`, `Run Diagnostics Report`, and the `Rewind points on disk: <size> (<n> files)` readout whose hover carries the live / crashed / stable / concluded counts |
@@ -1231,7 +1231,7 @@ interface mode) and `Close`. Each hidden section's trailing gap lives INSIDE its
 Basic shows no double gap. In Basic the window's click-away commit for the auto-launch field is
 replaced by dropping an open edit, since the Looping section is not drawn.
 
-Persistence: the interface mode, ghost audio, route paths, sample density, verbose logging, the
+Persistence: the interface mode, ghost audio, sample density, verbose logging, the
 three tracers and the readable copies are install-wide (`ParsekSettingsPersistence`,
 `GameData/Parsek/PluginData/settings.cfg`; the audio slider is written once per finished drag);
 only the auto-launch period is per save. The readable copies default OFF for players, and the
