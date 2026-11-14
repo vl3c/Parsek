@@ -561,7 +561,7 @@ namespace Parsek.Rendering
                 double dt = ut - segment.startUT;
                 Vector3 worldAxis = boundaryWorldRot * segment.angularVelocity;
                 float angle = (float)((double)segment.angularVelocity.magnitude * dt * Mathf.Rad2Deg);
-                rotation = Quaternion.AngleAxis(angle, worldAxis) * boundaryWorldRot;
+                rotation = ParsekFlight.OrbitalAngleAxis(angle, worldAxis) * boundaryWorldRot;
             }
             else
             {

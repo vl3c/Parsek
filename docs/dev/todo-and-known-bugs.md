@@ -20,6 +20,33 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~WINDOWS-TEST-HOST-ONLY-REDS-2026-11-14: 16 xUnit tests red on the owner's Windows PC and green on CI~~ [FILED 2026-11-14 from a Windows run of main 37a6c6101 (Debug and Release, OS culture ro-RO). FIXED 2026-11-14, branch `claude/project-thread-lkzj01`; xUnit on mono, the Windows re-run owed; tests only, no player-visible change]
+
+Two defects, one gap.
+
+1. Culture (3 tests, `MergeFlowDecisionTests`). `ParsekFlightMergeFlow` wrote
+   `CommitTreeFlight: starting tree commit at UT=` and `CommitTreeSceneExit: finalizing tree at UT=`
+   with the thread culture, so ro-RO printed `300,0` where the tests read `300.0`. Fix: both lines
+   format with `CultureInfo.InvariantCulture`. Reproduced red on mono with `LANG=ro_RO.UTF-8`
+   (the 3 tests, nothing else in a whole-suite ro_RO run), green after.
+2. Unity native call (all 13 tests of `AnchorEpsilonResidualTests`). The class constructor
+   Harmony-patched Unity's `Quaternion.LookRotation(Vector3, Vector3)` and `AngleAxis`. Both are
+   managed wrappers whose body calls a native `_Injected` method, and Harmony must JIT the original
+   to patch it, which the .NET Framework host refuses ("ECall methods must be packaged into a
+   system module"), so every test died in the constructor. Fix: no Harmony; the orbital pose code
+   (`ParsekFlight.ComputeOrbitalRotation`, `ParsekFlightGhostPositioner.SafeOrbitalLookRotation`,
+   `ProductionAnchorWorldFrameResolver.TryComputeBoundaryInstantOrbitalAnchorPose`) calls
+   `ParsekFlight.OrbitalLookRotation` / `OrbitalAngleAxis`, which use a `*OverrideForTesting`
+   delegate when a test sets one and otherwise Unity's call inside a `NoInlining` wrapper. A
+   `mono --trace` of the class, audited for direct native callees of every method it enters,
+   lists the two patched Unity originals before and none after (the two remaining entries are the
+   deliberate probes `RecordingStore.ReadUnityApplicationIsPlayingCore` and
+   `UnityEntryFactAttribute.TouchUnityNative`, both caught), and no entered method calls a small
+   Unity wrapper a Release JIT could inline.
+3. The gap: CI runs the suite on mono only. Mono takes its culture from the environment (C /
+   invariant on CI) and refuses a native call only when it executes, so both kinds of failure show
+   only on a Windows run (a PC `dotnet test` or `release.py`, which runs Debug and Release).
+
 ## ARCH-COLD-RESET-HOLDERS: save-scoped statics are reset field by field, so a new field can be forgotten [FILED 2026-11-14 for refactor plan item 15 ("B1", as corrected by the 2026-11-11 architecture review), branch `item15-cold-reset-holders`. IN PROGRESS; refactor, no product change]
 
 The mod keeps the loaded save's state in statics spread over many stores, and a Cold load
@@ -715,6 +742,25 @@ created. Proving it needs a live origin resolve (FlightGlobals), so an in-game t
 Also check here: whether a sidecar flush of a source recording (see ROUTE-SOURCE-OPTIMIZER-REWRITE)
 can move a route to SourceChanged.
 
+## ~~PRESWITCH-CASE-C-LIVE-TREE-MEMBER~~: switching back to the ship a kerbal just left ended the recording when that ship ended an earlier committed flight [FILED 2026-11-14 from lane FAR-4's first flight, runs `2026-11-14_1525` and `_1526_a2` (INVALID driver-gate, the seam refused `dialog-required case=C-loaded-separate-committed`). FIXED 2026-11-14, branch `pc-lanes-fix`; xUnit, FAR-4 re-flight owed; medium]
+
+Shape: a recording is started on a vessel that an earlier committed flight also recorded (the
+committed tree's spawned leaf), a kerbal goes on EVA (the vessel becomes a background member of
+the live tree), then the player switches back to it from the map. The pre-switch gate's Case C
+looked the target up among committed trees, found the OLDER tree, saw its id differ from the live
+tree's and called the target a separate committed vessel. With auto-merge on (every player
+build: `ClampHiddenSettingsToShippingValues`) `TryAutoResolvePreSwitch` then silently merged
+(or, for a no-op, discarded) the live recording and the switch restored the older committed
+tree; with auto-merge off (the harness) the Merge / Discard dialog opened, and either answer
+ends the live recording.
+Fix: `MapFocusObjectOnSelectPatch.IsSeparateCommittedTarget` also requires that the target is not
+in the live tree's `BackgroundMap` (`IsLiveTreeBackgroundMember`); the switch then takes the
+ordinary background-member continuation. `SimulateStockSwitchClick`'s seam evaluator reads the
+same two helpers. A skipped Case C logs one Verbose `pre-switch Case C skipped: target is a
+background member of the live tree`. Tests: `PreSwitchCaseCLiveTreeMemberTests` (6 facts).
+Live proof owed: FAR-4's re-flight (`targetIsSeparateCommittedVessel=false
+dialogDecision=NoPriorSession`, `route=bg-member-continuation`).
+
 ## NEXT-TESTS-TO-BUILD-2026-11-11: the ranked list merging the moon matrix and the test gap audit, plus the new ideas of the 2026-11-11 review [FILED 2026-11-11 (owner asked to update the list), checked against main b5877e51f (1.1.0), reviewed the same day by a clean-context agent. OPEN; test program, no known defect]
 
 Merges the two lists the owner had: the moon flight-test matrix (MOON-FLIGHT-TEST-PROGRAM below,
@@ -735,8 +781,12 @@ A1 Recordings-tab loops on the map (SLM lanes), Revert to VAB / save switch / Co
 rewind and a load (REV-1, SWS-1, CN-4, CN-5), routes under a Re-Fly and real warp (IR-3, IR-6),
 route conservation (RCN-1), the Re-Fly value fuzzer and the save round-trip gate.
 
-Far-body timeline lanes (2026-11-14, from the catalog's first reading): FAR-1 .. FAR-6 authored,
-awaiting the PC batch (rewind-to-launch with a committed Ike flight in career, a relaunch rewind
+Far-body timeline lanes (2026-11-14, from the catalog's first reading): FAR-1 .. FAR-6 authored
+(first PC batch 2026-11-14: FAR-2 `2026-11-14_1524`, FAR-3 `_1529` and V33T `_1534` green on the
+first flight; FAR-4 found PRESWITCH-CASE-C-LIVE-TREE-MEMBER, fixed; FAR-1 (the Tracking Station's
+intro_TS warp lock, now a 1x wait), FAR-5 (a Kerbin leaf in the bodies list) and FAR-6 (an F9 is a
+cold save-file load since Phase 3, and a missing leading mark) re-pinned; FAR-1/4/5/6 re-flights
+owed) (rewind-to-launch with a committed Ike flight in career, a relaunch rewind
 keeping Duna vessels, a revert with Ike committed, an EVA switch at Gilly, physics warp at Laythe,
 a looped Ike watch across a quickload), read by position through the new in-game category
 `LeafVesselPlacement`. Re-Fly at a far body is still uncovered: no far-body fixture has a rewind

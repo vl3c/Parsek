@@ -291,7 +291,7 @@ namespace Parsek
                 double dt = ut - segment.startUT;
                 Vector3 worldAxis = boundaryWorldRot * segment.angularVelocity;
                 float angle = (float)((double)segment.angularVelocity.magnitude * dt * Mathf.Rad2Deg);
-                ghostRot = Quaternion.AngleAxis(angle, worldAxis) * boundaryWorldRot;
+                ghostRot = OrbitalAngleAxis(angle, worldAxis) * boundaryWorldRot;
             }
             else if (hasOfr && velocity.sqrMagnitude > 0.001)
             {
@@ -311,12 +311,44 @@ namespace Parsek
                 // ghost is still being oriented IN WORLD SPACE, so the Zup velocity has to be
                 // lifted just the same — pointing a world transform along a Zup axis is the
                 // same mismatch with one of the two halves missing.
-                ghostRot = Quaternion.LookRotation(
-                    (Vector3)TrajectoryMath.SwizzleZupBodyRelativeToWorld(velocity));
+                ghostRot = OrbitalLookRotation(
+                    (Vector3)TrajectoryMath.SwizzleZupBodyRelativeToWorld(velocity), Vector3.up);
             }
 
             return (ghostRot, boundaryWorldRot);
         }
+
+        // Unity's Quaternion.LookRotation(Vector3, Vector3) and Quaternion.AngleAxis are managed
+        // wrappers whose bodies call a native (internalcall) method. The .NET Framework test host
+        // refuses to JIT any method that calls one ("ECall methods must be packaged into a system
+        // module"), and Harmony must JIT the original to patch it, so a test cannot route them to
+        // managed code by patching. The orbital pose code calls them through these two seams
+        // instead: a test sets the override, and the Unity call sits in a NoInlining wrapper so no
+        // method a test enters ever contains it (a Release JIT may otherwise inline the Unity
+        // wrapper, and its native call, into the caller). Quaternion.LookRotation(v) is
+        // LookRotation(v, Vector3.up) in Unity's own body.
+        internal static Func<Vector3, Vector3, Quaternion> LookRotationOverrideForTesting;
+        internal static Func<float, Vector3, Quaternion> AngleAxisOverrideForTesting;
+
+        internal static Quaternion OrbitalLookRotation(Vector3 forward, Vector3 upwards)
+        {
+            Func<Vector3, Vector3, Quaternion> over = LookRotationOverrideForTesting;
+            return over != null ? over(forward, upwards) : UnityLookRotationCore(forward, upwards);
+        }
+
+        internal static Quaternion OrbitalAngleAxis(float angleDeg, Vector3 axis)
+        {
+            Func<float, Vector3, Quaternion> over = AngleAxisOverrideForTesting;
+            return over != null ? over(angleDeg, axis) : UnityAngleAxisCore(angleDeg, axis);
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static Quaternion UnityLookRotationCore(Vector3 forward, Vector3 upwards)
+            => Quaternion.LookRotation(forward, upwards);
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static Quaternion UnityAngleAxisCore(float angleDeg, Vector3 axis)
+            => Quaternion.AngleAxis(angleDeg, axis);
 
         /// <summary>
         /// The orbital-checkpoint anchor pose (<see cref="TryResolveOrbitalAnchorPose"/>) the
