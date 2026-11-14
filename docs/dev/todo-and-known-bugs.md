@@ -3273,7 +3273,7 @@ guards without their indentation.
 
 **Lanes that cover it in a real game (not flown):** QWS-1, PPB-3, VN-5, QL-3, QL-5d, REV-1.
 
-## ~~ARCH-MODULE-FOLDERS: 540 source files sat in the root of Source/Parsek, placed in modules only by name rules~~ [FILED 2026-11-14 from the refactor plan item 18 (B8). DONE 2026-11-14 on branch `item18-folder-move` (pure renames, IL-proven; module map identical; xUnit, arch and harness suites, not flown: no product change)]
+## ~~ARCH-MODULE-FOLDERS: 540 source files sat in the root of Source/Parsek, placed in modules only by name rules~~ [FILED 2026-11-14 from the refactor plan item 18 (B8). DONE 2026-11-14 on branch `item18-folder-move` (pure renames, IL-proven; module map identical; xUnit, arch and harness suites; addon creation order changed, checked harmless and pinned)]
 
 **What was true.** 709 of the 1,249 `.cs` files sat in module folders; the other 540 sat in
 the root of `Source/Parsek`, and `scripts/arch/modules.toml` placed them with 63 prefix
@@ -3292,7 +3292,13 @@ no exceptions); a root `.cs` file is an error (archview prints `ERROR root-level
 file`, `RealTreeSmokeTests` and `ModuleFolderLayoutTests` red). The path readers followed:
 the test source gates (module-folder literals; the partial-class readers resolve the family
 folder through `PartialClassSourceFiles.FamilyDir`), the harness source-sync cells, the
-allowlists and grep gates, and the docs that name paths.
+allowlists and grep gates, and the docs that name paths. A folder-prefix allowlist entry keeps exactly
+the files it exempted before the move: the UI-complexity-mode gate exempts `Source/Parsek/UI/`,
+which the move filled with 22 non-window files (`ResourceBudget.cs`, the `StockUi*` family,
+`CurrencyReservationOverlay.cs`, ...), so `scripts/ui-complexity-mode-audit-allowlist.txt`
+lists each as a `!` entry that keeps it scanned (the pwsh gate and the managed mirror both read
+`!`; a `!` entry naming no file reds; `GrepAuditTests.UiComplexityMode_ProbeInAFileTheFolderMoveBroughtIntoUi_IsRed`
+plants a mode read into three of them and red-checks it).
 
 **Proof.** The module of every file before and after is identical (1,249 files, 0 unplaced);
 the knot, residue and canary pins did not move. `il_compare.py` over the Debug DLL built
@@ -3300,6 +3306,27 @@ before and after in the same worktree path (main 24abf0dba checked out detached,
 branch with main merged): 4,007 types, 24,748 fields, 26,824 methods, 0 differences (the
 file is 8,192 bytes larger: the TypeDef table follows file order, which re-encodes the type
 tokens inside signature blobs).
+
+**What the move did change: type order.** The compiler emits TypeDef rows in source file
+order, and `Assembly.GetTypes()` returns them in row order, so the move reordered the types.
+KSP's `AddonLoader.StartAddons` creates `[KSPAddon]` components in `GetTypes()` order, so the
+creation order of Parsek's 19 addons changed (for example, in FLIGHT the pass was
+CurrencyReservationOverlay, GuiTreeRecorderPump, ParsekFlight and is now ParsekFlight,
+GuiTreeRecorderPump, CurrencyReservationOverlay; in the Instantly pass ParsekHarmony now runs
+before MapRenderProbe, PostFlightDialogLogHost, ParsekToolbarRegistration and those two).
+Checked pair by pair, none can matter: the Awakes that moved only subscribe GameEvents (each
+shared event keeps its subscribers' relative order: `onLevelWasLoaded` WarpToTimeConsumer <
+ParsekTestCommandAddon < polyline Driver, `onGameSceneSwitchRequested` MapRenderProbe <
+RenderCompositionRecorder), Starts run after every Awake of the pass, the overlay's hover box is
+not a window so Parsek's IMGUI windows still draw above it (it now draws over ParsekFlight's
+non-window markers and labels, which overlap only at the stock currency widget), the GUI-tree
+pump only flushes in LateUpdate, the Harmony patch order (153 `HarmonyPatch` rows) is
+identical, the in-game test order is sorted by name, and ParsekScenario is the one
+ScenarioModule. What moves: a few start-up log lines print in another order, and in a game
+where Parsek is inert the FLIGHT inert line names `ParsekFlight.Start` instead of
+`CurrencyReservationOverlay.Start`. No `GUI.depth` restore was needed.
+`KspAddonCreationOrderTests` pins the creation order (reflection-only: `GetTypes()` plus
+`GetCustomAttributesData()`), so a later rename that reorders it reds with that warning.
 
 **Left as it was.** `LoadReconcilePolicy.KnownLoadInitiators` keys four initiators by the
 bare name they had in the root (`ParsekScenario.cs`, `RewindLauncher.cs`, `RewindInvoker.cs`,
