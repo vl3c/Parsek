@@ -30,6 +30,10 @@ All notable changes to Parsek are documented here.
 
 ### Fixed
 
+- **Supply routes no longer break after a save is loaded.** Parsek's clean-up of saved recordings
+  could merge, split or trim the recordings a route was built from, and the route then stopped
+  with "source changed", often right after you created it. Those recordings are now left as they
+  are. (ROUTE-SOURCE-OPTIMIZER-REWRITE)
 - **Ghosts stay on their path during a Re-Fly.** Near where a recorded flight went on or off rails,
   crossed into or out of a moon's influence, or left a close approach to a ship coasting on rails,
   a ghost replayed during a Re-Fly could be drawn tens to thousands of km from where it flew, more

@@ -7,12 +7,13 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class StrategiesModuleTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private readonly List<string> logLines = new List<string>();
         private readonly StrategiesModule module;
 
         public StrategiesModuleTests()
         {
-            RecalculationEngine.ClearModules();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
@@ -22,7 +23,6 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
-            RecalculationEngine.ClearModules();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -643,7 +643,7 @@ namespace Parsek.Tests
             // and the module still tracks active strategies for slot accounting. Rewards
             // on ContractComplete stay identity in both windows because KSP pre-applies
             // the transform through the modifier query.
-            RecalculationEngine.RegisterModule(module, RecalculationEngine.ModuleTier.Strategy);
+            modules.Register(module, RecalculationModuleSet.ModuleTier.Strategy);
 
             var actions = new List<GameAction>
             {
@@ -657,7 +657,7 @@ namespace Parsek.Tests
                     fundsReward: 20000f, repReward: 40f, scienceReward: 0f)
             };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             // The DISPATCH the name claims, witnessed by the module's own log lines. The
             // Transformed* assertions below cannot see it: the helper prefills those fields,

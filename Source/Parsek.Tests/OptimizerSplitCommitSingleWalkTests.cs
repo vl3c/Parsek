@@ -50,7 +50,6 @@ namespace Parsek.Tests
             ParsekScenario.ResetInstanceForTesting();
             SessionSuppressionState.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
-            RecalculationEngine.ClearModules();
             MergeJournalOrchestrator.ResetTestOverrides();
             RewindPointReaper.ResetTestOverrides();
             KspStatePatcher.SuppressUnityCallsForTesting = true;
@@ -71,7 +70,6 @@ namespace Parsek.Tests
             ParsekScenario.ResetInstanceForTesting();
             SessionSuppressionState.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
-            RecalculationEngine.ClearModules();
             MergeJournalOrchestrator.ResetTestOverrides();
             RewindPointReaper.ResetTestOverrides();
             KspStatePatcher.ResetForTesting();

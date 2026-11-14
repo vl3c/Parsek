@@ -56,10 +56,28 @@ namespace Parsek
             public List<string> GroupNames = new List<string>();
         }
 
-        private static readonly List<Entry> entries = new List<Entry>();
-        private static readonly HashSet<string> recordingIds = new HashSet<string>(StringComparer.Ordinal);
-        private static readonly HashSet<string> treeIds = new HashSet<string>(StringComparer.Ordinal);
-        private static bool loadNoticeTaken;
+        // The save-scoped state: the held trees and their notice latch. Every reset (the Cold
+        // reset, BeginLoad, the test reset) replaces the whole object, so a field added here is
+        // forgotten with the rest.
+        private sealed class ColdResetState
+        {
+            internal readonly List<Entry> Entries = new List<Entry>();
+            internal readonly HashSet<string> RecordingIds = new HashSet<string>(StringComparer.Ordinal);
+            internal readonly HashSet<string> TreeIds = new HashSet<string>(StringComparer.Ordinal);
+            internal bool LoadNoticeTaken;
+        }
+
+        private static ColdResetState state = new ColdResetState();
+
+        private static List<Entry> entries => state.Entries;
+        private static HashSet<string> recordingIds => state.RecordingIds;
+        private static HashSet<string> treeIds => state.TreeIds;
+
+        private static bool loadNoticeTaken
+        {
+            get => state.LoadNoticeTaken;
+            set => state.LoadNoticeTaken = value;
+        }
 
         internal static int Count => entries.Count;
 
@@ -470,10 +488,7 @@ namespace Parsek
 
         private static void Clear()
         {
-            entries.Clear();
-            recordingIds.Clear();
-            treeIds.Clear();
-            loadNoticeTaken = false;
+            state = new ColdResetState();
         }
     }
 }

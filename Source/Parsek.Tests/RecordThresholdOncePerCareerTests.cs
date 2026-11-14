@@ -18,11 +18,12 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class RecordThresholdOncePerCareerTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private readonly List<string> logLines = new List<string>();
 
         public RecordThresholdOncePerCareerTests()
         {
-            RecalculationEngine.ClearModules();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
@@ -43,7 +44,6 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
-            RecalculationEngine.ClearModules();
             CommittedMilestoneReach.ResetForTesting();
             GameStateRecorder.PendingMilestoneEventById.Clear();
             LedgerOrchestrator.ResetForTesting();
@@ -70,15 +70,15 @@ namespace Parsek.Tests
         }
 
         // Production tiers (LedgerOrchestrator.Initialize), the subset a milestone touches.
-        private static Walk Register(PreLedgerProgressSeed seed = null)
+        private Walk Register(PreLedgerProgressSeed seed = null)
         {
             var w = new Walk();
             if (seed != null)
                 w.Milestones.SetPreLedgerProgressSeed(seed);
-            RecalculationEngine.RegisterModule(w.Milestones, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(w.Science, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(w.Funds, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(w.Rep, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(w.Milestones, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(w.Science, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(w.Funds, RecalculationModuleSet.ModuleTier.SecondTier);
+            modules.Register(w.Rep, RecalculationModuleSet.ModuleTier.SecondTier);
             return w;
         }
 
@@ -212,7 +212,7 @@ namespace Parsek.Tests
             actions.Add(committed22km);
             actions.Add(reclimb);
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.True(lowBands.Effective);
             Assert.True(reclimb.Effective);
@@ -240,7 +240,7 @@ namespace Parsek.Tests
             actions.Add(later);
             actions.Add(committed);
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.True(committed.Effective);
             Assert.False(committed.RecordPartlyCredited);
@@ -267,7 +267,7 @@ namespace Parsek.Tests
             actions.Add(committed);
             actions.Add(reclimb);
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.True(reclimb.Effective);
             Assert.False(reclimb.RecordPartlyCredited);
@@ -307,7 +307,7 @@ namespace Parsek.Tests
             var reclimb = Named("RecordsAltitude", 580.0, 20, "rec-flight2", 2);
             actions.Add(committed);
             actions.Add(reclimb);
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.True(FundsModule.TryGetRowDelta(committed, out double delta));
             Assert.Equal(3000.0, delta, 3);
@@ -333,7 +333,7 @@ namespace Parsek.Tests
             actions.Add(completion);
             actions.Add(a);
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.True(a.Effective && b.Effective && completion.Effective);
             Assert.False(a.RecordPartlyCredited || b.RecordPartlyCredited);
@@ -359,7 +359,7 @@ namespace Parsek.Tests
             actions.Add(legacy);
             actions.Add(reclimb);
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.True(legacy.Effective);
             Assert.True(legacy.RecordPartlyCredited);
@@ -386,7 +386,7 @@ namespace Parsek.Tests
             actions.Add(committed);
             actions.Add(reclimb);
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.True(committed.RecordPartlyCredited);
             Assert.Equal(4000f, committed.CreditedMilestoneFunds);
@@ -412,7 +412,7 @@ namespace Parsek.Tests
             actions.Add(derived);
             actions.Add(named);
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.True(derived.Effective && named.Effective);
             Assert.False(derived.RecordPartlyCredited || named.RecordPartlyCredited);
@@ -436,7 +436,7 @@ namespace Parsek.Tests
             actions.Add(first);
             actions.Add(repay);
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.True(first.Effective && repay.Effective);
             Assert.False(repay.RecordPartlyCredited);
@@ -463,7 +463,7 @@ namespace Parsek.Tests
                 new RecordThresholdCredit(5, 700f, 0f, 0f, repay: true));
             actions.AddRange(new[] { committedCrossing, committedRepay, reclimb, reclimbRepay });
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.True(reclimb.Effective && reclimbRepay.Effective);
             Assert.False(committedCrossing.Effective);
@@ -488,7 +488,7 @@ namespace Parsek.Tests
             actions.Add(committed);
             actions.Add(reclimb);
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.True(reclimb.Effective);
             Assert.False(committed.Effective);
@@ -509,7 +509,7 @@ namespace Parsek.Tests
             actions.Add(committed);
             actions.Add(reclimb);
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.True(reclimb.Effective && committed.Effective);
             Assert.Equal(12000.0, Funds(w), 3);
@@ -736,16 +736,16 @@ namespace Parsek.Tests
             var w = Register(seed);
             var actions = Seeds();
             actions.AddRange(career);
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             double walkFunds = Funds(w);
             double science = w.Science.GetRunningScience();
             float rep = w.Rep.GetRunningRep();
 
-            RecalculationEngine.ClearModules();
+            modules.Clear();
             var r = Register();
             var refActions = Seeds();
             refActions.AddRange(reference);
-            RecalculationEngine.Recalculate(refActions);
+            RecalculationEngine.Recalculate(modules, refActions);
 
             Assert.All(career, a => Assert.True(a.Effective));
             Assert.All(career, a => Assert.False(a.RecordPartlyCredited));
@@ -802,11 +802,11 @@ namespace Parsek.Tests
                 Assert.Equal(Math.Max(0, seeded - foldedRepays), captured.GetRecordPaidCount(id));
             }
 
-            RecalculationEngine.ClearModules();
+            modules.Clear();
             var fromCaptured = Register(captured);
             var again = Seeds();
             again.AddRange(career);
-            RecalculationEngine.Recalculate(again);
+            RecalculationEngine.Recalculate(modules, again);
             Assert.All(career, a => Assert.True(a.Effective));
             Assert.Equal(stockFunds + oneShotFunds, Funds(fromCaptured), 1);
             foreach (string id in ids)
@@ -867,7 +867,7 @@ namespace Parsek.Tests
             var actions = Seeds();
             actions.Add(committed);
             actions.Add(GameStateEventConverter.ConvertMilestoneAchieved(events[1], "rec1"));
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.True(committed.Effective);
             Assert.False(committed.RecordPartlyCredited);
             Assert.Equal(6000.0, Funds(w), 3);
@@ -912,7 +912,7 @@ namespace Parsek.Tests
             var actions = Seeds();
             actions.Add(crossing);
             actions.Add(repay);
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.Equal(5, w.Milestones.GetEffectiveMilestoneCount("RecordsAltitude"));
             Assert.Equal(19000.0, Funds(w), 3);
         }
@@ -931,7 +931,7 @@ namespace Parsek.Tests
             actions.Add(Named("RecordsAltitude", 300.0, 10, "rec-flight1", 1, 2));
             actions.Add(Named("RecordsAltitude", 700.0, 11, "rec-flight1b", 3));
             actions.Add(Named("RecordsAltitude", 580.0, 20, "rec-flight2", 3));
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             int effective = w.Milestones.GetEffectiveMilestoneCount("RecordsAltitude");
             Assert.Equal(3, effective);

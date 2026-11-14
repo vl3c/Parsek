@@ -1,0 +1,192 @@
+schema = 1
+id = "B43-vall-tylo-transfer"
+# =====================================================================================
+# B43: Vall -> Tylo, a moon-to-moon forge. AUTHORED 2026-11-14, NEVER FLOWN.
+# Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 2 / MOON-FLIGHT-TEST-PROGRAM Group B.
+#
+# WHAT IT IS FOR. Rule 4a (`MissionPeriodicity.ResolveMoonRootedFrameParent`, #2554)
+# phase-locks a tree that starts at a moon and never leaves its planet's SOI. Only
+# Laythe -> Vall (V17) and Mun -> Minmus (V21) have flown on it. This forge makes a
+# third, Jool-rooted subject whose TARGET is the dominant constraint: P_Tylo =
+# 2 x P_Vall (the Laplace chain), so the solver should lock `dominant-intercept`
+# at P = P_Tylo with a near-zero residual. Its harvest `vall-tylo-recorded` is the
+# subject of V43M.
+#
+# THE MACHINE: B26's live-proven PARENT-RELAY (`parentRelayTransfer`) from a moon
+# park, plus B29's ELLIPTICAL capture, through the `b29_jool_kerbin` module (a thin
+# alias over `mlib.b5_decide` whose schema is the only one carrying the relay block,
+# the orbit-start block AND `captureEllipticalApoapsisMeters`). No new mission code;
+# the lane needed `mlib.STOCK_BODY_GRAVITY` rows for Vall (escape home) and Tylo
+# (capture target).
+#
+# THE FIXTURE: `vall-park-nerv`, `vall-transfer-recorded` (B26's harvest) with every
+# ParsekScenario child stripped, so the seam StartRecording opens a fresh tree that
+# starts AT VALL. The crewed Duna Rocket parks at SMA 468,787 m, ECC 0.0035, INC
+# 15.68 deg (B26 measured 167,158 x 170,417 m) with LiquidFuel 219.6.
+#
+# DELTA-V, the tightest of the four pair forges. 219.6 LF = 1.098 t over a 7.18 t dry
+# stack at the NERV's 800 s: ~1,116 m/s (B26 measured 1,116.6 left).
+#   escape   vsoi 250 at the fixture park ~215 m/s (242.8 at the gate's 100 km round
+#            corner, 174.6 at its 300 km one). Hohmann excess is 275.6; 250 sits 35%
+#            above the worst-corner SOI floor 185.5, and every m/s here is paid
+#            again in stage 2.
+#   stage 2  the Hohmann departure is 275.6 m/s; B26's measured stage 2 was 1.20x
+#            its Hohmann (415.46 / 347.2), so ~330 nominal, ~550 if unlucky.
+#   capture  ELLIPTICAL to a 6,000 km apoapsis: 161-201 m/s at a 500 km periapsis
+#            for v_inf 245-491 (a circular capture is 840-890 and does not fit).
+#   corr     <= 4 x 50.
+#   nominal ~830 m/s (two correction rounds), worst ~1,130 (stage 2 at 1.8x the
+#   Hohmann, capture at twice the arrival excess, four full rounds): THE WORST CASE
+#   DOES NOT FIT (the tank holds ~1,116) and that is the risk
+#   this lane carries. An out-of-fuel capture reads as a mission failure
+#   (driver-INVALID), never PARSEK-FAIL.
+#
+# TIMING: Hohmann transfer 77,960 s, Vall-Tylo synodic 211,922 s; Tylo SOI entry to
+# periapsis 10,000-11,500 s. Correction triggers [70000, 15000] s to SOI.
+#
+# THE TRANSFER IS OUTWARD (43.15 -> 68.5 Mm), so the stage-2 apoapsis floor 55 Mm
+# (Jool altitude; Tylo's SOI shell starts at 51.6 Mm) is real evidence. Forbidden:
+# every SOI this hop must not touch (Laythe sits inside, Bop and Pol outside).
+#
+# HARVEST after a green flight, from the run's own snapshot, never `--force`:
+#   python tools/harvest_bdock_station.py --save-dir results/<runId>_save
+#       --target-name vall-tylo-recorded --expect-situation ORBITING --keep-parsek
+# then register it in test_saveparse.RECORDED_FIXTURES, put its tree id into V43M
+# and drop V43M from test_hlib PENDING_FIXTURE_LANES (both in the same commit).
+# =====================================================================================
+tier = "operator"
+description = "AUTHORED 2026-11-14, NEVER FLOWN. Moon-to-moon forge Vall -> Tylo: B26's parent-relay from the Parsek-stripped `vall-park-nerv` (B26's harvest), B29's elliptical capture at Tylo (6,000 km apoapsis), tree committed in the Tylo orbit. A fresh Vall-rooted tree that never leaves Jool's SOI, so rule 4a should phase-lock its loop at P = P_Tylo. Produces `vall-tylo-recorded` for V43M. Delta-v is tight: ~830 m/s nominal, ~1,130 worst, against ~1,116 available."
+instanceProfile = "stock-minimal"
+tags = ["B43", "vall", "tylo", "jool", "moon-to-moon", "parent-relay", "elliptical-capture",
+        "orbit", "mechjeb", "cross-soi", "capture", "commit-in-foreign-soi", "orbit-start",
+        "crewed", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/vall-park-nerv"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "b29_jool_kerbin"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },   expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                     expect = "OK" },
+  { cmd = "DiscardTree",                                                       expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "StartRecording",                                                    expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 7200 },
+  { cmd = "FlushAndQuit",                                                      expect = "OK" },
+]
+
+[driver.missionParams]
+startInOrbit                    = true
+startInOrbitMinPeriapsisMeters  = 100000
+startInOrbitMaxApoapsisMeters   = 300000
+startInOrbitMaxEccentricity     = 0.05
+startInOrbitSituations          = ["ORBITING"]
+startInOrbitDebounceFrames      = 3
+startInOrbitSettleSeconds       = 120
+
+homeBodyName               = "Vall"
+targetBodyName             = "Tylo"
+interplanetaryTransfer     = true
+
+parentRelayTransfer        = true
+escapeSoiSpeedMps          = 250
+escapeMaxDeltaVMps         = 300
+escapeNodeMinLeadSeconds   = 300
+# ESCAPE plans only (the burn is TRANSFER-BURN's): one Vall park period is ~4,430 s.
+escapeTimeoutSeconds       = 6000
+returnBodyName             = "Jool"
+viaBodyNames               = ["Jool"]
+transferMinApoapsisMeters  = 55000000
+ejectionEccFloor           = 0
+courseCorrectPeriapsisMeters = 500000
+correctionTriggerTimeToSoiSeconds = [70000, 15000]
+correctionTriggerAltsMeters       = []
+planTimeoutSeconds         = 300
+planRetrySeconds           = 10
+planWarpFactor             = 2
+transferBurnTimeoutSeconds = 1200000
+coastTimeoutSeconds        = 600000
+flybyTimeoutSeconds        = 60000
+coastWarpFactor            = 5
+soiLeadSeconds             = 3000
+approachWindowSeconds      = 20000
+approachMaxWarpFactor      = 3
+soiNativeLeadSeconds       = 400
+triggerNativeLeadSeconds   = 30
+flybyWarpFactor            = 2
+flybyMaxWarpFactor         = 3
+nodeArrivalMarginSeconds   = 15
+flipPhysicsWarpFactor      = 1
+targetPeriapsisFloorMeters = 40000
+
+captureEnabled             = true
+captureEllipticalApoapsisMeters = 6000000
+capturePlanTimeoutSeconds  = 300
+captureBurnTimeoutSeconds  = 60000
+parkMinPeriapsisMeters     = 20000
+parkMaxApoapsisMeters      = 8000000
+parkMaxEccentricity        = 0.85
+parkMaxAngularVelocityRadPerSec = 0.05
+parkSituations             = ["ORBITING"]
+parkDwellSeconds           = 60
+parkDebounceFrames         = 3
+parkTimeoutSeconds         = 600
+commitTimeoutSeconds       = 300
+burnStagnantSeconds        = 120
+burnNoStartSeconds         = 600
+correctionThrottle         = 0.25
+correctionCutDvMps         = 2.0
+correctionSettleSeconds    = 10
+maxAttitudeErrorDeg        = 30
+frozenTelemetrySamples     = 10
+maxCorrectionDvMps         = 50
+
+[dimensionsCovered]
+D1  = ["commit-in-foreign-soi"]
+D14 = ["vall", "tylo", "jool", "warp-rails", "scene-flight", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 4 }
+
+[expectations.logContracts]
+required  = [
+  "Recording started",
+  "Recording stopped",
+  "SOI change boundary suppressed in tree mode: Vall to Jool",
+  "SOI change boundary suppressed in tree mode: Jool to Tylo",
+  "CommitTreeFlight: starting tree commit at UT=",
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Tylo",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "SOI change boundary suppressed in tree mode: \\w+ to Laythe",
+  "SOI change boundary suppressed in tree mode: \\w+ to Bop",
+  "SOI change boundary suppressed in tree mode: \\w+ to Pol",
+  "SOI change boundary suppressed in tree mode: \\w+ to Sun",
+]
+
+[expectations.rewind]
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+committedTrees = { min = 1, max = 1 }
+
+[runtime]
+# runtime >= 300 LoadGame + ~10 seam steps + 7,200 mission + ~60 FlushAndQuit + margin.
+budgetSeconds = 7900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

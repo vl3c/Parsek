@@ -24,40 +24,59 @@ namespace Parsek
     /// </summary>
     internal static class RewindInvokeContext
     {
+        // The load-transition state: every field below. Clear (the Cold reset among its
+        // callers) replaces the whole object, so a field added here is cleared with the rest.
+        private sealed class ColdResetState
+        {
+            internal bool Pending;
+            internal string SessionId;
+            internal RewindPoint RewindPoint;
+            internal ChildSlot Selected;
+            internal string RewindPointId;
+            internal int SelectedSlotIndex;
+            internal string SelectedOriginChildRecordingId;
+            internal ReconciliationBundle CapturedBundle;
+            internal bool HasCapturedBundle;
+            internal string TempQuicksavePath;
+            internal EconomySnapshot? ReadbackPreRewind;
+        }
+
+        private static ColdResetState state = new ColdResetState();
+
         /// <summary>True while a re-fly invocation is in flight (between
         /// <see cref="RewindInvoker.StartInvoke"/> and the post-load consumer).
         /// </summary>
-        internal static bool Pending;
+        internal static bool Pending { get => state.Pending; set => state.Pending = value; }
 
         /// <summary>Unique session id generated pre-load.</summary>
-        internal static string SessionId;
+        internal static string SessionId { get => state.SessionId; set => state.SessionId = value; }
 
         /// <summary>The invoked <see cref="RewindPoint"/>.</summary>
-        internal static RewindPoint RewindPoint;
+        internal static RewindPoint RewindPoint { get => state.RewindPoint; set => state.RewindPoint = value; }
 
         /// <summary>The selected child slot.</summary>
-        internal static ChildSlot Selected;
+        internal static ChildSlot Selected { get => state.Selected; set => state.Selected = value; }
 
         /// <summary>RP id (denormalised for easy access / logging even if
         /// <see cref="RewindPoint"/> is null).</summary>
-        internal static string RewindPointId;
+        internal static string RewindPointId { get => state.RewindPointId; set => state.RewindPointId = value; }
 
         /// <summary>Selected slot index (denormalised for logging).</summary>
-        internal static int SelectedSlotIndex;
+        internal static int SelectedSlotIndex { get => state.SelectedSlotIndex; set => state.SelectedSlotIndex = value; }
 
         /// <summary>Selected slot origin recording id (denormalised for logging).</summary>
-        internal static string SelectedOriginChildRecordingId;
+        internal static string SelectedOriginChildRecordingId { get => state.SelectedOriginChildRecordingId; set => state.SelectedOriginChildRecordingId = value; }
 
         /// <summary>Pre-load reconciliation snapshot; restored post-load to
         /// re-install the in-memory state the .sfs reload blew away.</summary>
-        internal static ReconciliationBundle CapturedBundle;
+        internal static ReconciliationBundle CapturedBundle { get => state.CapturedBundle; set => state.CapturedBundle = value; }
 
         /// <summary>True once <see cref="CapturedBundle"/> is valid.</summary>
-        internal static bool HasCapturedBundle;
+        internal static bool HasCapturedBundle { get => state.HasCapturedBundle; set => state.HasCapturedBundle = value; }
 
         /// <summary>Absolute path of the root-level temp quicksave copy that the
         /// post-load consumer must delete after successful consumption.</summary>
-        internal static string TempQuicksavePath;
+        internal static string TempQuicksavePath { get => state.TempQuicksavePath; set => state.TempQuicksavePath = value; }
 
         /// <summary>
         /// Live career economy captured in <see cref="RewindInvoker.StartInvoke"/> BEFORE
@@ -67,24 +86,15 @@ namespace Parsek
         /// completes within one process). Cleared with the rest of the context in
         /// <see cref="Clear"/> so the guard never carries a stale witness.
         /// </summary>
-        internal static EconomySnapshot? ReadbackPreRewind;
+        internal static EconomySnapshot? ReadbackPreRewind { get => state.ReadbackPreRewind; set => state.ReadbackPreRewind = value; }
 
         /// <summary>
         /// Clears every field. Idempotent.
         /// </summary>
         internal static void Clear()
         {
-            Pending = false;
-            SessionId = null;
-            RewindPoint = null;
-            Selected = null;
-            RewindPointId = null;
-            SelectedSlotIndex = -1;
-            SelectedOriginChildRecordingId = null;
-            CapturedBundle = default(ReconciliationBundle);
-            HasCapturedBundle = false;
-            TempQuicksavePath = null;
-            ReadbackPreRewind = null;
+            // A cleared context names no slot (-1); the process starts at the field default.
+            state = new ColdResetState { SelectedSlotIndex = -1 };
         }
 
         /// <summary>

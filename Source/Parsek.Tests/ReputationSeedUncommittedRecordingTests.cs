@@ -24,7 +24,6 @@ namespace Parsek.Tests
 
         public ReputationSeedUncommittedRecordingTests()
         {
-            RecalculationEngine.ClearModules();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
@@ -47,7 +46,6 @@ namespace Parsek.Tests
         {
             ParsekScenario.SetOnLoadInProgressForTesting(false);
             LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(null, null, null);
-            RecalculationEngine.ClearModules();
             CurrencyScenarioReadiness.ResetForTesting();
             GameStateRecorder.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();

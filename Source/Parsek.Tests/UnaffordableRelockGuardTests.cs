@@ -49,6 +49,8 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class UnaffordableRelockGuardTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private readonly List<string> logLines = new List<string>();
 
         public UnaffordableRelockGuardTests()
@@ -57,12 +59,10 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
-            RecalculationEngine.ClearModules();
         }
 
         public void Dispose()
         {
-            RecalculationEngine.ClearModules();
             ParsekLog.ResetTestOverrides();
         }
 
@@ -135,9 +135,9 @@ namespace Parsek.Tests
             spend.UnaffordableRunningScience = 3.0;
 
             var actions = new List<GameAction> { MakeScienceInitial(1000f), spend };
-            RecalculationEngine.RegisterModule(
-                new ScienceModule(), RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.Recalculate(actions);
+            modules.Register(
+                new ScienceModule(), RecalculationModuleSet.ModuleTier.FirstTier);
+            RecalculationEngine.Recalculate(modules, actions);
 
             // The walk now affords it, so the marker must be gone (and the row affordable).
             Assert.True(spend.Affordable);
@@ -567,9 +567,9 @@ namespace Parsek.Tests
             var unpayable = MakeSpending("advRocketry", cost: 90f, ut: 100.0);
 
             var actions = new List<GameAction> { seed, earn, paid, unpayable };
-            RecalculationEngine.RegisterModule(
-                new ScienceModule(), RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.Recalculate(actions);
+            modules.Register(
+                new ScienceModule(), RecalculationModuleSet.ModuleTier.FirstTier);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.True(paid.Affordable);
             Assert.True(unpayable.Affordable);

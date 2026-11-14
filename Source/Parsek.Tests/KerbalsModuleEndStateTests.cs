@@ -24,6 +24,8 @@ namespace Parsek.Tests
     [Collection("Sequential")] // KerbalsModule / RecordingStore / crewReplacements statics
     public class KerbalsModuleEndStateTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private readonly List<string> logLines = new List<string>();
 
         public KerbalsModuleEndStateTests()
@@ -36,7 +38,6 @@ namespace Parsek.Tests
             GameStateStore.SuppressLogging = true;
             GameStateStore.ResetForTesting();
             CrewReservationManager.ResetReplacementsForTesting();
-            RecalculationEngine.ClearModules();
             // The slot-chain leg of ReverseMapCrewNames reads this static; pin it
             // to a known-empty module so a sibling class's leftover cannot leak in.
             LedgerOrchestrator.SetKerbalsForTesting(new KerbalsModule());
@@ -45,7 +46,6 @@ namespace Parsek.Tests
         public void Dispose()
         {
             LedgerOrchestrator.SetKerbalsForTesting(new KerbalsModule());
-            RecalculationEngine.ClearModules();
             CrewReservationManager.ResetReplacementsForTesting();
             GameStateStore.ResetForTesting();
             RecordingStore.ResetForTesting();
@@ -816,7 +816,7 @@ namespace Parsek.Tests
         public void Cutoff_RowsAfterTheCutoffAreExcludedFromTheEndStateWalk()
         {
             var kerbals = new KerbalsModule();
-            RecalculationEngine.RegisterModule(kerbals, RecalculationEngine.ModuleTier.FirstTier);
+            modules.Register(kerbals, RecalculationModuleSet.ModuleTier.FirstTier);
 
             AddFlight("early-flight", new[] { "Jeb" }, new[] { "Jeb" },
                 TerminalState.Recovered, 100, 900);
@@ -824,14 +824,14 @@ namespace Parsek.Tests
                 TerminalState.Recovered, 5000, 6000);
             var actions = BuildAssignmentActionsForStore();
 
-            RecalculationEngine.Recalculate(actions, 1000.0);
+            RecalculationEngine.Recalculate(modules, actions, 1000.0);
 
             Assert.True(kerbals.Reservations.ContainsKey("Jeb"));
             Assert.False(kerbals.Reservations.ContainsKey("Val"));
             Assert.True(kerbals.IsKerbalAvailableForTesting("Val"));
 
             // The uncut walk sees both.
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.True(kerbals.Reservations.ContainsKey("Jeb"));
             Assert.True(kerbals.Reservations.ContainsKey("Val"));
         }
@@ -840,7 +840,7 @@ namespace Parsek.Tests
         public void Cutoff_ADeathAfterTheCutoffDoesNotMakeTheKerbalPermanentlyGone()
         {
             var kerbals = new KerbalsModule();
-            RecalculationEngine.RegisterModule(kerbals, RecalculationEngine.ModuleTier.FirstTier);
+            modules.Register(kerbals, RecalculationModuleSet.ModuleTier.FirstTier);
 
             AddFlight("survived", new[] { "Jeb" }, new[] { "Jeb" },
                 TerminalState.Recovered, 100, 900);
@@ -848,7 +848,7 @@ namespace Parsek.Tests
                 TerminalState.Destroyed, 5000, 6000);
             var actions = BuildAssignmentActionsForStore();
 
-            RecalculationEngine.Recalculate(actions, 1000.0);
+            RecalculationEngine.Recalculate(modules, actions, 1000.0);
 
             Assert.False(kerbals.Reservations["Jeb"].IsPermanent);
             Assert.Equal(900.0, kerbals.Reservations["Jeb"].ReservedUntilUT);
@@ -860,7 +860,7 @@ namespace Parsek.Tests
                 && jebSlot.OwnerPermanentlyGone);
             Assert.True(kerbals.IsKerbalAvailableForTesting("Jeb"));
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.True(kerbals.Reservations["Jeb"].IsPermanent);
         }

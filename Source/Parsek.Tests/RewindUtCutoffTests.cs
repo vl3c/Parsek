@@ -17,6 +17,8 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class RewindUtCutoffTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private const string Tag = "[LedgerOrchestrator]";
         private const string EngineTag = "[RecalcEngine]";
         private readonly List<string> logLines = new List<string>();
@@ -520,8 +522,8 @@ namespace Parsek.Tests
             // in module dispatch. Prove the filter excludes it by using a test module and
             // calling the engine directly.
             var capture = new CaptureModule();
-            RecalculationEngine.ClearModules();
-            RecalculationEngine.RegisterModule(capture, RecalculationEngine.ModuleTier.FirstTier);
+            modules.Clear();
+            modules.Register(capture, RecalculationModuleSet.ModuleTier.FirstTier);
 
             var actions = new List<GameAction>
             {
@@ -530,7 +532,7 @@ namespace Parsek.Tests
                 KerbalAssignment(500.0, "Bill", 400.0, 600.0)
             };
 
-            RecalculationEngine.Recalculate(actions, 300.0);
+            RecalculationEngine.Recalculate(modules, actions, 300.0);
 
             // Three actions are sent to each module per dispatch iteration. The seed at UT=0
             // always passes, the UT=200 assignment passes (<=300), the UT=500 assignment is
@@ -544,7 +546,7 @@ namespace Parsek.Tests
             }
             Assert.Equal(1, assignmentDispatches);
 
-            RecalculationEngine.ClearModules();
+            modules.Clear();
         }
 
         // ================================================================
@@ -1222,8 +1224,8 @@ namespace Parsek.Tests
         public void Log_RecalcEngineAlsoLogsCutoff()
         {
             var capture = new CaptureModule();
-            RecalculationEngine.ClearModules();
-            RecalculationEngine.RegisterModule(capture, RecalculationEngine.ModuleTier.FirstTier);
+            modules.Clear();
+            modules.Register(capture, RecalculationModuleSet.ModuleTier.FirstTier);
 
             var actions = new List<GameAction>
             {
@@ -1231,7 +1233,7 @@ namespace Parsek.Tests
                 Milestone(100.0, "M1", 50f)
             };
 
-            RecalculationEngine.Recalculate(actions, 50.0);
+            RecalculationEngine.Recalculate(modules, actions, 50.0);
 
             Assert.Contains(logLines, l =>
                 l.Contains(EngineTag)
@@ -1241,7 +1243,7 @@ namespace Parsek.Tests
                 && l.Contains("cutoffUT=50")
                 && l.Contains("filteredOut=1"));
 
-            RecalculationEngine.ClearModules();
+            modules.Clear();
         }
 
         // ================================================================
@@ -1252,8 +1254,8 @@ namespace Parsek.Tests
         public void DirectEngine_AllThreeSeedTypesSurviveCutoff()
         {
             var capture = new CaptureModule();
-            RecalculationEngine.ClearModules();
-            RecalculationEngine.RegisterModule(capture, RecalculationEngine.ModuleTier.FirstTier);
+            modules.Clear();
+            modules.Register(capture, RecalculationModuleSet.ModuleTier.FirstTier);
 
             var actions = new List<GameAction>
             {
@@ -1263,7 +1265,7 @@ namespace Parsek.Tests
                 Milestone(100.0, "M1", 10f)
             };
 
-            RecalculationEngine.Recalculate(actions, -1.0);
+            RecalculationEngine.Recalculate(modules, actions, -1.0);
 
             // All 3 seeds survive; the milestone is filtered out.
             int fundsSeed = 0, sciSeed = 0, repSeed = 0, milestones = 0;
@@ -1280,15 +1282,15 @@ namespace Parsek.Tests
             Assert.Equal(1, repSeed);
             Assert.Equal(0, milestones);
 
-            RecalculationEngine.ClearModules();
+            modules.Clear();
         }
 
         [Fact]
         public void DirectEngine_CutoffProjection_UsesProjectionCloneInsteadOfRegisteredModule()
         {
             var counting = new CountingModule();
-            RecalculationEngine.ClearModules();
-            RecalculationEngine.RegisterModule(counting, RecalculationEngine.ModuleTier.FirstTier);
+            modules.Clear();
+            modules.Register(counting, RecalculationModuleSet.ModuleTier.FirstTier);
 
             var actions = new List<GameAction>
             {
@@ -1296,14 +1298,14 @@ namespace Parsek.Tests
                 Milestone(100.0, "future-only", 50f)
             };
 
-            RecalculationEngine.Recalculate(actions, 50.0);
+            RecalculationEngine.Recalculate(modules, actions, 50.0);
 
             Assert.Equal(1, counting.ResetCalls);
             Assert.Equal(1, counting.ProcessCalls);
             Assert.Equal(1, counting.PostWalkCalls);
             Assert.Equal(0, counting.FutureProcessCalls);
 
-            RecalculationEngine.ClearModules();
+            modules.Clear();
         }
 
         // ================================================================

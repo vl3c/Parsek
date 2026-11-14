@@ -4080,16 +4080,18 @@ class RealTreeSmokeTests(unittest.TestCase):
         # names ParsekFlight, and IParsekUIWindows, which names ISpawnControlWindow: 436.
         # The supply route overview line's two types (RouteTrajectoryLineRenderer and
         # RouteMemberRunExpansion) were knot members and were deleted with it: 434.
+        # Plan item 17 (B5) gives ParsekFlightMergeFlow its host through IMergeFlowHost, which
+        # ParsekFlight implements and which names knot types (the recorders, the tree): 435.
         # B3's shared part-state poller adds three: PartStatePoller, which calls the
         # recorders' transition statics and which both recorders call, and the two nested
         # sinks (FlightRecorder's and BackgroundRecorder's), each reaching its owner and
-        # reached from it: 437.
+        # reached from it: 438.
         # It was [301, 7, 4, 2, 2] on 2026-09-25,
         # [286, 4, 2, 2] on 2026-09-22 and [391, 4, 2] before the 2026-09-14
         # arch PRs shrank the kernel.
         # It is a canary: when it reds, re-derive it and the README numbers
         # from a fresh run in the same commit as whatever moved them.
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [437, 9, 4, 3, 2])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [438, 9, 4, 3, 2])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
@@ -4271,12 +4273,14 @@ class RealTreeSmokeTests(unittest.TestCase):
         # the flight controller, which builds it: the first cut drops it too and lands lower
         # (436 -> 405), and the ghost playback cut follows from there (405 -> 383).
         # The two deleted route-line types were on the uncut side of all three cuts, so
-        # each lands two lower (434 -> 403, 403 -> 381, 381 -> 362). B3's three poller types
-        # (see the knot sizes above) stay on the uncut side until the recorder cut, so each
-        # of the first three lands three higher (437 -> 406, 406 -> 384, 384 -> 365).
+        # each lands two lower (434 -> 403, 403 -> 381, 381 -> 362).
+        # Plan item 17's IMergeFlowHost joins the knot on the cut side (435 before, the cut still
+        # lands on 403). B3's three poller types (see the knot sizes above) stay on the uncut
+        # side until the recorder cut, so each of the first three lands three higher
+        # (438 -> 406, 406 -> 384, 384 -> 365).
         first, second, third = self.model["knots"][0]["cuts"][:3]
         self.assertEqual(first["sink"], "ParsekFlight")
-        self.assertEqual(first["sizeBefore"], 437)
+        self.assertEqual(first["sizeBefore"], 438)
         self.assertEqual(first["sizeAfter"], 406)
         for service in ("ParsekFlightGhostPositioner", "ParsekFlightMapMarkers", "ParsekWindowSet",
                         "ParsekFlightMergeFlow",

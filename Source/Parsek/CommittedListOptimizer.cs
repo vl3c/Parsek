@@ -40,15 +40,20 @@ namespace Parsek
                 return;
             }
 
-            int mergeCount = RunOptimizationMergePass(recordings);
-            int splitCount = RunOptimizationSplitPass(recordings);
+            // A recording a supply route sources from is never rewritten here: a merge drops
+            // its id, a split or a trim moves its EndUT, and RouteStore.RevalidateSources would
+            // pause the route for good (design 4.7, source immutability).
+            HashSet<string> routeSourceIds = Logistics.RouteStore.CollectSourceRecordingIds();
+
+            int mergeCount = RunOptimizationMergePass(recordings, routeSourceIds);
+            int splitCount = RunOptimizationSplitPass(recordings, routeSourceIds);
             if (mergeCount > 0 || splitCount > 0)
             {
                 ParsekLog.Verbose("RecordingStore",
                     $"Optimization pass: committed list restructured (merges={mergeCount} splits={splitCount}) - " +
                     $"StateVersion now {RecordingStore.StateVersion}");
             }
-            TrimBoringTailsForOptimization(recordings);
+            TrimBoringTailsForOptimization(recordings, routeSourceIds);
 
             // Loop sync pass: link debris recordings to their parent recording
             // so debris ghosts replay in sync with the parent's loop cycle.
@@ -72,9 +77,11 @@ namespace Parsek
             RecordingStore.FlushDirtyCommittedFiles();
         }
 
-        private static int RunOptimizationMergePass(IReadOnlyList<Recording> recordings)
+        private static int RunOptimizationMergePass(
+            IReadOnlyList<Recording> recordings, HashSet<string> routeSourceIds)
         {
             int mergeCount = 0;
+            HashSet<string> heldForRoutes = null;
             const int maxMergesPerPass = 50;
             // Iterate merge passes until no more candidates (merging may create new adjacent pairs)
             bool changed = true;
@@ -84,8 +91,12 @@ namespace Parsek
                 var candidates = RecordingOptimizer.FindMergeCandidates(recordings);
                 if (candidates.Count == 0) break;
 
-                // Process first candidate only per pass (indices shift after removal)
-                var (idxA, idxB) = candidates[0];
+                // Process one candidate per pass (indices shift after removal): the first one
+                // that touches no route source recording.
+                int chosenMerge = ChooseMergeCandidateIndex(
+                    candidates, recordings, routeSourceIds, ref heldForRoutes);
+                if (chosenMerge < 0) break;
+                var (idxA, idxB) = candidates[chosenMerge];
                 var target = recordings[idxA];
                 var absorbed = recordings[idxB];
 
@@ -125,10 +136,62 @@ namespace Parsek
             else
                 ParsekLog.Verbose("RecordingStore", "Optimization pass: no merge candidates found");
 
+            if (heldForRoutes != null)
+                ParsekLog.Verbose("RecordingStore",
+                    $"Optimization pass: merge held for {heldForRoutes.Count} route source recording(s) " +
+                    $"[{FormatSortedIds(heldForRoutes)}] - a supply route's source recordings stay whole");
+
             return mergeCount;
         }
 
-        private static int RunOptimizationSplitPass(IReadOnlyList<Recording> recordings)
+        /// <summary>
+        /// Picks the merge candidate to apply this iteration: the first pair whose two
+        /// recordings no supply route sources from (<paramref name="routeSourceIds"/>). The
+        /// recording ids of every pair passed over for that reason are added to
+        /// <paramref name="heldForRoutes"/> (allocated on first use) for the pass summary.
+        /// Returns -1 when every candidate touches a route source. Pure read over the inputs.
+        /// </summary>
+        internal static int ChooseMergeCandidateIndex(
+            IReadOnlyList<(int, int)> candidates,
+            IReadOnlyList<Recording> recordings,
+            HashSet<string> routeSourceIds,
+            ref HashSet<string> heldForRoutes)
+        {
+            if (candidates == null) return -1;
+            for (int c = 0; c < candidates.Count; c++)
+            {
+                Recording a = ResolveCandidate(recordings, candidates[c].Item1);
+                Recording b = ResolveCandidate(recordings, candidates[c].Item2);
+                bool aHeld = IsRouteSource(a, routeSourceIds);
+                bool bHeld = IsRouteSource(b, routeSourceIds);
+                if (!aHeld && !bHeld)
+                    return c;
+                if (heldForRoutes == null)
+                    heldForRoutes = new HashSet<string>(StringComparer.Ordinal);
+                if (aHeld) heldForRoutes.Add(a.RecordingId);
+                if (bHeld) heldForRoutes.Add(b.RecordingId);
+            }
+            return -1;
+        }
+
+        private static Recording ResolveCandidate(IReadOnlyList<Recording> recordings, int index)
+            => recordings != null && index >= 0 && index < recordings.Count ? recordings[index] : null;
+
+        private static bool IsRouteSource(Recording rec, HashSet<string> routeSourceIds)
+            => rec != null
+               && routeSourceIds != null
+               && !string.IsNullOrEmpty(rec.RecordingId)
+               && routeSourceIds.Contains(rec.RecordingId);
+
+        private static string FormatSortedIds(HashSet<string> ids)
+        {
+            var sorted = new List<string>(ids);
+            sorted.Sort(StringComparer.Ordinal);
+            return string.Join(", ", sorted);
+        }
+
+        private static int RunOptimizationSplitPass(
+            IReadOnlyList<Recording> recordings, HashSet<string> routeSourceIds)
         {
             // Split pass: break multi-environment recordings at environment boundaries.
             // Each split produces two recordings sharing a ChainId for UI grouping.
@@ -149,6 +212,7 @@ namespace Parsek
             string deferredActiveReFlyId =
                 ParsekScenario.Instance?.ActiveReFlySessionMarker?.ActiveReFlyRecordingId;
             int deferredCandidatesObservedTotal = 0;
+            HashSet<string> heldForRoutes = null;
             bool splitChanged = true;
             while (splitChanged && splitCount < maxSplitsPerPass)
             {
@@ -158,6 +222,7 @@ namespace Parsek
 
                 int chosen = ChooseSplitCandidateIndex(
                     splitCandidates, recordings, deferredActiveReFlyId,
+                    routeSourceIds, ref heldForRoutes,
                     out int deferredCandidatesThisIter);
 
                 deferredCandidatesObservedTotal += deferredCandidatesThisIter;
@@ -243,25 +308,35 @@ namespace Parsek
                     $"id={deferredActiveReFlyId} candidatesObserved={deferredCandidatesObservedTotal}");
             }
 
+            if (heldForRoutes != null)
+                ParsekLog.Verbose("RecordingStore",
+                    $"Optimization pass: split held for {heldForRoutes.Count} route source recording(s) " +
+                    $"[{FormatSortedIds(heldForRoutes)}] - a supply route's source recordings stay whole");
+
             return splitCount;
         }
 
         /// <summary>
-        /// Picks the split candidate to apply this iteration. With no live Re-Fly defer id,
-        /// the first candidate (index 0) is chosen. Otherwise walks the candidate list,
-        /// skipping any whose recording id equals the deferred Re-Fly id (counting them in
-        /// <paramref name="deferredObserved"/>), and returns the first non-deferred candidate's
-        /// index. Returns -1 when every remaining candidate is deferred. Pure read over the
-        /// inputs.
+        /// Picks the split candidate to apply this iteration. With no live Re-Fly defer id
+        /// and no route source ids, the first candidate (index 0) is chosen. Otherwise walks
+        /// the candidate list, skipping any whose recording id equals the deferred Re-Fly id
+        /// (counting them in <paramref name="deferredObserved"/>) and any whose recording a
+        /// supply route sources from (<paramref name="routeSourceIds"/>, may be null; adding
+        /// its id to <paramref name="heldForRoutes"/>, allocated on first use), and returns
+        /// the first remaining candidate's index. Returns -1 when every remaining candidate
+        /// is deferred or held. Pure read over the inputs.
         /// </summary>
         internal static int ChooseSplitCandidateIndex(
             IReadOnlyList<(int, int)> splitCandidates,
             IReadOnlyList<Recording> recordings,
             string deferredActiveReFlyId,
+            HashSet<string> routeSourceIds,
+            ref HashSet<string> heldForRoutes,
             out int deferredObserved)
         {
             deferredObserved = 0;
-            if (string.IsNullOrEmpty(deferredActiveReFlyId))
+            if (string.IsNullOrEmpty(deferredActiveReFlyId)
+                && (routeSourceIds == null || routeSourceIds.Count == 0))
             {
                 return 0;
             }
@@ -272,7 +347,15 @@ namespace Parsek
                 if (candIdx < 0 || candIdx >= recordings.Count)
                     continue;
                 var candRec = recordings[candIdx];
+                if (IsRouteSource(candRec, routeSourceIds))
+                {
+                    if (heldForRoutes == null)
+                        heldForRoutes = new HashSet<string>(StringComparer.Ordinal);
+                    heldForRoutes.Add(candRec.RecordingId);
+                    continue;
+                }
                 if (candRec != null
+                    && !string.IsNullOrEmpty(deferredActiveReFlyId)
                     && string.Equals(
                         candRec.RecordingId,
                         deferredActiveReFlyId,
@@ -324,7 +407,13 @@ namespace Parsek
             second.SwitchSegmentSessionId = original.SwitchSegmentSessionId;
         }
 
-        internal static void TrimBoringTailsForOptimization(IReadOnlyList<Recording> recordings)
+        /// <summary>
+        /// The trim pass. A recording a supply route sources from (<paramref name="routeSourceIds"/>)
+        /// keeps its tail and is counted under the <c>route-source</c> skip category; null means
+        /// no recording is held.
+        /// </summary>
+        internal static void TrimBoringTailsForOptimization(
+            IReadOnlyList<Recording> recordings, HashSet<string> routeSourceIds = null)
         {
             // Boring tail trim pass: remove trailing idle tails from leaf recordings
             // so the real vessel spawns promptly instead of waiting through minutes of
@@ -341,12 +430,22 @@ namespace Parsek
             for (int i = 0; i < recordings.Count; i++)
             {
                 double endBeforeTrim = recordings[i] != null ? recordings[i].EndUT : double.NaN;
-                bool trimmed = RecordingOptimizer.TrimBoringTailInternal(
-                    recordings[i],
-                    recordings,
-                    RecordingOptimizer.DefaultTailBufferSeconds,
-                    logSkipReason: false,
-                    skipCategory: out string skipCategory);
+                bool trimmed;
+                string skipCategory;
+                if (IsRouteSource(recordings[i], routeSourceIds))
+                {
+                    trimmed = false;
+                    skipCategory = "route-source";
+                }
+                else
+                {
+                    trimmed = RecordingOptimizer.TrimBoringTailInternal(
+                        recordings[i],
+                        recordings,
+                        RecordingOptimizer.DefaultTailBufferSeconds,
+                        logSkipReason: false,
+                        skipCategory: out skipCategory);
+                }
                 if (trimmed)
                 {
                     recordings[i].FilesDirty = true;

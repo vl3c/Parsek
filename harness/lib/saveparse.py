@@ -609,6 +609,9 @@ class ParsekSaveSnapshot:
     # Every FLIGHTSTATE VESSEL in the save (not only Parsek's). Empty on a save
     # with no FLIGHTSTATE node.
     flight_vessels: Tuple[FlightVesselRow, ...] = ()
+    # What only Parsek can read OUTSIDE its SCENARIO node (stock_load_findings).
+    # Empty on a stock-loadable save.
+    stock_load: Tuple["StockLoadFinding", ...] = ()
 
     @property
     def recordings(self) -> Tuple[RecordingRow, ...]:
@@ -644,6 +647,150 @@ def _count_ghost_chain_nodes(scenario: SfsNode) -> int:
             count += 1
         stack.extend(node.nodes)
     return count
+
+
+# ---------------------------------------------------------------------------
+# Stock loadability: what ONLY Parsek can read, found OUTSIDE its own SCENARIO.
+# ---------------------------------------------------------------------------
+#
+# The user guide promises that removing Parsek is safe: a save Parsek wrote
+# must load in stock KSP with nothing left behind that stock cannot read or
+# that would surface as junk. The ParsekScenario SCENARIO node itself is the
+# designed container (stock keeps an unknown scenario's node and skips it), so
+# the check reads everything EXCEPT that subtree and reports:
+#
+#   - ``ghost-map-vessel``: a FLIGHTSTATE VESSEL that is a Parsek ghost map
+#     ProtoVessel. ``GhostMapPresence.BuildGhostProtoVesselNode`` names it
+#     ``GhostVesselNamePrefix + name`` ("Ghost: ") with exactly ONE part,
+#     ``sensorBarometer``; ``ParsekScenario.OnSave`` strips every one through
+#     ``GhostMapPresence.StripFromSave`` (fail-closed), so one in a save means
+#     the strip was skipped. The signature is the prefix AND the lone barometer
+#     part, never the prefix alone: a player craft may be named "Ghost: ...".
+#   - ``parsek-module``: a MODULE node (a PartModule, or a VESSELMODULES child)
+#     whose name carries "parsek". Parsek ships no PartModule and no
+#     VesselModule, so stock would hit a missing-module type on load.
+#   - ``parsek-node``: any other node whose name carries "parsek" or is one of
+#     the ParsekScenario child-node names (``PARSEK_SCENARIO_CHILD_NODE_NAMES``),
+#     i.e. Parsek state that leaked out of its container; also a SCENARIO
+#     whose ``name`` carries "parsek" but is not ParsekScenario.
+#   - ``parsek-key``: a value KEY carrying "parsek" (``parsekSaveFormat`` and
+#     friends belong inside the ParsekScenario node).
+#
+# BY DESIGN and excluded (both written by STOCK mechanisms that tolerate the
+# mod being absent; ``STOCK_LOAD_BY_DESIGN``):
+#   - ``GAME > LoaderInfo``: stock's own list of the assemblies loaded when the
+#     save was written. A missing one draws stock's missing-mods notice and the
+#     save still loads.
+#   - ``GAME > PARAMETERS > ParsekSettings``: the ``ParsekSettings``
+#     ``GameParameters.CustomParameterNode``; stock reads only the custom nodes
+#     whose type is loaded and leaves the rest.
+
+STOCK_LOAD_GHOST_VESSEL = "ghost-map-vessel"
+STOCK_LOAD_PARSEK_MODULE = "parsek-module"
+STOCK_LOAD_PARSEK_NODE = "parsek-node"
+STOCK_LOAD_PARSEK_KEY = "parsek-key"
+STOCK_LOAD_KINDS: Tuple[str, ...] = (
+    STOCK_LOAD_GHOST_VESSEL, STOCK_LOAD_PARSEK_MODULE,
+    STOCK_LOAD_PARSEK_NODE, STOCK_LOAD_PARSEK_KEY)
+
+# GhostMapPresence.GhostVesselNamePrefix and the one part
+# GhostMapPresence.BuildGhostProtoVesselNode creates.
+GHOST_MAP_VESSEL_NAME_PREFIX = "Ghost: "
+GHOST_MAP_VESSEL_PART_NAME = "sensorBarometer"
+
+# The ParsekScenario children this module parses (see parse_parsek_scenario).
+# Any of them outside the scenario node is Parsek state stock cannot read.
+PARSEK_SCENARIO_CHILD_NODE_NAMES: Tuple[str, ...] = (
+    "RECORDING_TREE", "RECORDING_SUPERSEDES", "LEDGER_TOMBSTONES",
+    "RECORDING_REWIND_RETIREMENTS", "REWIND_POINTS", "DORMANT_ROUTES",
+    "DISMISSED_ROUTE_CANDIDATES", "PROMPTED_ROUTE_CANDIDATES")
+
+# (parent node name, node name) pairs excluded by design, see above.
+STOCK_LOAD_BY_DESIGN: Tuple[Tuple[str, str], ...] = (
+    ("GAME", "LoaderInfo"),
+    ("PARAMETERS", "ParsekSettings"),
+)
+
+# How many findings the ``stockLoad`` facet describes in full.
+STOCK_LOAD_FIRST_LIMIT = 5
+
+
+@dataclass(frozen=True)
+class StockLoadFinding:
+    """One thing outside the ParsekScenario node that only Parsek can read."""
+
+    kind: str
+    path: str
+    detail: str
+
+    def describe(self) -> str:
+        return "%s at %s (%s)" % (self.kind, self.path, self.detail)
+
+
+def _carries_parsek(text: Optional[str]) -> bool:
+    return "parsek" in (text or "").lower()
+
+
+def _is_ghost_map_vessel(node: SfsNode) -> bool:
+    if node.name != "VESSEL":
+        return False
+    if not (node.value("name") or "").startswith(GHOST_MAP_VESSEL_NAME_PREFIX):
+        return False
+    parts = node.nodes_named("PART")
+    return len(parts) == 1 and parts[0].value("name") == GHOST_MAP_VESSEL_PART_NAME
+
+
+def stock_load_findings(root: Optional[SfsNode]) -> Tuple[StockLoadFinding, ...]:
+    """Everything in a parsed save (``parse_sfs(...).root``) that only Parsek
+    can read, OUTSIDE the ParsekScenario SCENARIO subtree. Pure; document order.
+    Empty on a stock-loadable save."""
+    if root is None:
+        return ()
+    findings: List[StockLoadFinding] = []
+    # (node, parent node name, path); the synthetic root's children (GAME)
+    # have the empty parent name.
+    stack: List[Tuple[SfsNode, str, str]] = [
+        (top, root.name, top.name) for top in reversed(root.nodes)]
+    while stack:
+        node, parent, path = stack.pop()
+        if node.name == "SCENARIO" and node.value("name") == PARSEK_SCENARIO_NAME:
+            continue
+        if (parent, node.name) in STOCK_LOAD_BY_DESIGN:
+            continue
+        if _is_ghost_map_vessel(node):
+            findings.append(StockLoadFinding(
+                STOCK_LOAD_GHOST_VESSEL, path,
+                "name=%r pid=%s" % (node.value("name"), node.value("persistentId"))))
+        if node.name == "MODULE" and _carries_parsek(node.value("name")):
+            findings.append(StockLoadFinding(
+                STOCK_LOAD_PARSEK_MODULE, path, "name=%r" % node.value("name")))
+        elif parent == "VESSELMODULES" and _carries_parsek(node.name):
+            findings.append(StockLoadFinding(
+                STOCK_LOAD_PARSEK_MODULE, path, "vessel module %r" % node.name))
+        elif _carries_parsek(node.name) or node.name in PARSEK_SCENARIO_CHILD_NODE_NAMES:
+            findings.append(StockLoadFinding(
+                STOCK_LOAD_PARSEK_NODE, path, "node %r" % node.name))
+        elif node.name == "SCENARIO" and _carries_parsek(node.value("name")):
+            findings.append(StockLoadFinding(
+                STOCK_LOAD_PARSEK_NODE, path, "scenario %r" % node.value("name")))
+        for key, _ in node.values:
+            if _carries_parsek(key):
+                findings.append(StockLoadFinding(
+                    STOCK_LOAD_PARSEK_KEY, path, "key %r" % key))
+        for i in range(len(node.nodes) - 1, -1, -1):
+            child = node.nodes[i]
+            stack.append((child, node.name, "%s/%s[%d]" % (path, child.name, i)))
+    return tuple(findings)
+
+
+def stock_load_facets(findings: Tuple[StockLoadFinding, ...]) -> Dict[str, Any]:
+    """The measured ``stockLoad`` facet: the finding count, a per-kind count and
+    the first few findings described (enough to triage without the save)."""
+    kinds: Dict[str, int] = {}
+    for f in findings:
+        kinds[f.kind] = kinds.get(f.kind, 0) + 1
+    return {"findings": len(findings), "kinds": kinds,
+            "first": [f.describe() for f in findings[:STOCK_LOAD_FIRST_LIMIT]]}
 
 
 def _find_parsek_scenarios(root: SfsNode) -> List[SfsNode]:
@@ -804,7 +951,8 @@ def parse_parsek_scenario(text: Optional[str]) -> ParsekSaveSnapshot:
     scenarios = _find_parsek_scenarios(res.root)
     if not scenarios:
         return ParsekSaveSnapshot(parsed=True, error="", scenario_found=False,
-                                  flight_vessels=_parse_flight_vessels(res.root))
+                                  flight_vessels=_parse_flight_vessels(res.root),
+                                  stock_load=stock_load_findings(res.root))
     if len(scenarios) > 1:
         return ParsekSaveSnapshot(
             parsed=False,
@@ -880,7 +1028,8 @@ def parse_parsek_scenario(text: Optional[str]) -> ParsekSaveSnapshot:
         prompted_candidate_tree_ids=(tuple(prompted.values_named("treeId"))
                                      if prompted is not None else ()),
         ghost_chain_nodes=_count_ghost_chain_nodes(sc),
-        flight_vessels=_parse_flight_vessels(res.root))
+        flight_vessels=_parse_flight_vessels(res.root),
+        stock_load=stock_load_findings(res.root))
 
 
 def spawned_vessel_count(snapshot: ParsekSaveSnapshot) -> int:
@@ -1390,6 +1539,10 @@ def observed_structure_facets(snapshot: Optional[ParsekSaveSnapshot]) -> Dict[st
         # and REWIND_POINTS, and a route is not a property of a recording (it
         # merely NAMES recordings through SOURCE_REFS).
         "routes": observed_routes_facets(snapshot),
+        # Measured-only (no spec block): what only Parsek can read outside its
+        # SCENARIO node, the remove-Parsek-safely promise. Zero on every
+        # committed fixture (test_saveparse.StockLoadabilityTests).
+        "stockLoad": stock_load_facets(snapshot.stock_load),
     }
 
 

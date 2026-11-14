@@ -10,8 +10,42 @@ namespace Parsek
 {
     // The merge flow: scene-exit finalize, tree commit, auto-discard of idle or no-op trees, and
     // terminal inference.
-    public partial class ParsekFlight
+    public partial class ParsekFlight : IMergeFlowHost
     {
+        // IMergeFlowHost: explicit, so the interface adds nothing to ParsekFlight's own surface.
+        // Each member forwards to the host member of the same name; the last three make the live
+        // KSP reads ParsekFlightMergeFlow made itself before it took the interface.
+        RecordingTree IMergeFlowHost.activeTree { get => activeTree; set => activeTree = value; }
+        FlightRecorder IMergeFlowHost.recorder { get => recorder; set => recorder = value; }
+        BackgroundRecorder IMergeFlowHost.backgroundRecorder
+        {
+            get => backgroundRecorder;
+            set => backgroundRecorder = value;
+        }
+        RecorderStateSnapshot IMergeFlowHost.CaptureRecorderState() => CaptureRecorderState();
+        void IMergeFlowHost.FlushRecorderToTreeRecording(FlightRecorder rec, RecordingTree tree) =>
+            FlushRecorderToTreeRecording(rec, tree);
+        void IMergeFlowHost.FlushRecorderIntoActiveTreeForSerialization() =>
+            FlushRecorderIntoActiveTreeForSerialization();
+        RecordingFinalizationCache IMergeFlowHost.ResolveFinalizationCacheForRecording(
+            RecordingTree tree, Recording recording) =>
+            ResolveFinalizationCacheForRecording(tree, recording);
+        bool IMergeFlowHost.CanPreTransitionForVesselSwitch() => CanPreTransitionForVesselSwitch();
+        void IMergeFlowHost.StashActiveTreeForVesselSwitch(double commitUT) =>
+            StashActiveTreeForVesselSwitch(commitUT);
+        void IMergeFlowHost.StashActiveTreeAsPendingLimbo(double commitUT) =>
+            StashActiveTreeAsPendingLimbo(commitUT);
+        void IMergeFlowHost.ClearSceneChangeTransientState() => ClearSceneChangeTransientState();
+        int IMergeFlowHost.lastPlaybackIndex { get => lastPlaybackIndex; set => lastPlaybackIndex = value; }
+        void IMergeFlowHost.ScreenMessage(string message, float duration) => ScreenMessage(message, duration);
+        void IMergeFlowHost.Log(string message) => Log(message);
+        void IMergeFlowHost.SpawnTreeLeaves(RecordingTree tree, string activeRecordingId) =>
+            SpawnHost.SpawnTreeLeaves(tree, activeRecordingId);
+        void IMergeFlowHost.EvaluateAndApplyGhostChains() => SpawnHost.EvaluateAndApplyGhostChains();
+        double IMergeFlowHost.CurrentUniversalTime() => Planetarium.GetUniversalTime();
+        bool IMergeFlowHost.IsVesselSwitchPendingFresh() => ParsekScenario.IsVesselSwitchPendingFresh();
+        uint IMergeFlowHost.ActiveVesselPersistentIdOrZero() =>
+            FlightGlobals.ActiveVessel != null ? FlightGlobals.ActiveVessel.persistentId : 0u;
 
         /// <summary>
         /// Pure: true when a scene exit out of flight to a non-flight scene belongs to a save-file

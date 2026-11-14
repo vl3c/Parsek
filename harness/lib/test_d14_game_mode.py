@@ -25,7 +25,11 @@ the operator's, so the claim is unresolvable here in the same way it is for the 
 per-spec cells that read a template off disk. Those specs are collected and reported
 by id, never silently dropped, and the cell asserts the SKIPPED SET IS EXACTLY THE
 LOCAL-FIXTURE SET - so a claiming spec with no fixture at all reds here rather than
-disappearing into the skip list.
+disappearing into the skip list. Third, a lane committed AHEAD OF ITS FIXTURE (a
+two-stage program whose forge has not flown) is skipped only while its spec is named
+in `test_hlib.SharedShipsManifestTests.PENDING_FIXTURE_LANES` AND the awaited
+directory is still absent; that map's own self-retiring cell reds the moment the
+fixture lands, and from then on the claim is checked here like any other.
 
 THE MODE PARSE IS NOT A SECOND COPY. It reuses `harvest_bdock_station.read_game_mode`,
 the tool that stamps committed fixtures' titles from the same line. That parser bounds
@@ -55,6 +59,12 @@ if TOOLS_DIR not in sys.path:
 
 import harvest_bdock_station as harvest  # noqa: E402
 
+# A module import, not `from test_hlib import ...`: binding the TestCase class here
+# would make discovery run its cells a second time under this module.
+import test_hlib  # noqa: E402
+
+PENDING_FIXTURE_LANES = test_hlib.SharedShipsManifestTests.PENDING_FIXTURE_LANES
+
 
 def _load_specs():
     """Every committed scenario spec as (path, parsed dict), sorted by path."""
@@ -79,7 +89,7 @@ def _fixture_sfs_path(save_template):
 class D14GameModeClaimsMatchTheirFixtures(unittest.TestCase):
 
     def test_every_game_mode_claim_agrees_with_its_fixture_mode(self):
-        checked, skipped = [], []
+        checked, skipped, pending = [], [], []
         for path, spec in _load_specs():
             sid = spec.get("id") or os.path.basename(path)
             claims = hlib.claimed_d14_game_modes(spec)
@@ -98,6 +108,10 @@ class D14GameModeClaimsMatchTheirFixtures(unittest.TestCase):
                 "%s claims D14 %s but stages no fixture.saveTemplate, so nothing "
                 "witnesses the game mode" % (sid, claims[0]))
             sfs = _fixture_sfs_path(template)
+            if (os.path.basename(path) in PENDING_FIXTURE_LANES
+                    and not os.path.isfile(sfs)):
+                pending.append(os.path.basename(path))
+                continue
             self.assertTrue(
                 os.path.isfile(sfs),
                 "%s claims D14 %s but its fixture %r has no persistent.sfs at %s"
@@ -120,6 +134,14 @@ class D14GameModeClaimsMatchTheirFixtures(unittest.TestCase):
         self.assertGreater(len(checked), 200,
                            "expected the bulk of the spec corpus to claim a game "
                            "mode; only %d resolved" % len(checked))
+
+        # A pending skip names a listed spec whose awaited leaf is the one it stages.
+        for name in pending:
+            leaf = _save_template(
+                dict(_load_specs())[os.path.join(SCENARIOS_DIR, name)]
+            ).replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+            self.assertEqual(PENDING_FIXTURE_LANES[name], leaf,
+                             "%s skipped as pending but stages %r" % (name, leaf))
 
         # The skip list is EXACTLY the operator-local set, by derivation not by name.
         local = [(spec.get("id") or os.path.basename(p), _save_template(spec))

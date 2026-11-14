@@ -42,10 +42,28 @@ namespace Parsek.Logistics
         /// persisted prompted set guarantees the at-most-once contract either
         /// way. Null when no prompt is pending.
         /// </summary>
-        internal static string PendingPromptTreeId { get; private set; }
+        internal static string PendingPromptTreeId
+        {
+            get => state.PendingPromptTreeId;
+            private set => state.PendingPromptTreeId = value;
+        }
 
         /// <summary>Display label (tree name) for the pending prompt banner.</summary>
-        internal static string PendingPromptLabel { get; private set; }
+        internal static string PendingPromptLabel
+        {
+            get => state.PendingPromptLabel;
+            private set => state.PendingPromptLabel = value;
+        }
+
+        // The save-scoped state: the pending prompt. A Cold load replaces the whole object
+        // (ResetForSaveLoad), so a field added here is forgotten with the rest.
+        private sealed class ColdResetState
+        {
+            internal string PendingPromptTreeId;
+            internal string PendingPromptLabel;
+        }
+
+        private static ColdResetState state = new ColdResetState();
 
         /// <summary>True while a banner prompt is pending in this session.</summary>
         internal static bool HasPendingPrompt => !string.IsNullOrEmpty(PendingPromptTreeId);
@@ -219,15 +237,13 @@ namespace Parsek.Logistics
             if (PendingPromptTreeId != null || PendingPromptLabel != null)
                 ParsekLog.Info(Tag,
                     $"RouteRunPrompt cleared tree={PendingPromptTreeId ?? "<null>"} reason={reason ?? "<none>"}");
-            PendingPromptTreeId = null;
-            PendingPromptLabel = null;
+            state = new ColdResetState();
         }
 
         /// <summary>Test seam: reset the pending-prompt statics.</summary>
         internal static void ResetForTesting()
         {
-            PendingPromptTreeId = null;
-            PendingPromptLabel = null;
+            state = new ColdResetState();
         }
     }
 }

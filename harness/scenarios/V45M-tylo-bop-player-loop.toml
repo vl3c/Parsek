@@ -1,0 +1,122 @@
+schema = 1
+id = "V45M-tylo-bop-player-loop"
+# =====================================================================================
+# V45M: the Tylo -> Bop moon-to-moon loop. AUTHORED 2026-11-14, NEVER FLOWN.
+# Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 2 / MOON-FLIGHT-TEST-PROGRAM Group B.
+#
+# WHAT IT READS. The subject is a Tylo-rooted tree that never leaves
+# Jool's SOI, so rule 4a (`MissionPeriodicity.ResolveMoonRootedFrameParent`,
+# #2554) takes its phase constraints in the moon-rooted frame: Orbital(Bop) and
+# Orbital(Tylo), both same-parent, support Supported. The lane loops the tree
+# and reads three lines: the Verbose `ExtractConstraints: moon-rooted frame` line,
+# the Verbose ExtractConstraints summary, and the phase-lock decision.
+#
+# TWO ANSWERS ARE PRE-REGISTERED AND THE LANE GATES ON NEITHER. The moon matrix
+# (2026-11-07) expected Tylo -> Bop to wait a very long time or decline honestly: Bop
+# (P 544,507.43 s, e 0.235, i 15 deg) and Tylo (P 211,926.36 s) share no small
+# resonance. The real `MissionPeriodicity.Solve`, driven offline 2026-11-14 over a
+# modelled Tylo -> Bop tree with stock periods, does NOT decline:
+#   ExtractConstraints  launchBody=Tylo support=Supported constraints=2
+#                       [Orbital(Bop) same-parent; Orbital(Tylo) same-parent]
+#   Solve               dominant=Bop, method=joint-best-fit, P = 7 x P_Bop
+#                       = ~3,811,552 s (~176 Kerbin days), residual ~3,122 s inside
+#                       Tylo's tolerance
+#   schedule            zero-drift, IRREGULAR: mostly 3.81 Ms apart with gaps up to
+#                       ~27.8 Ms (7 x 7 x P_Bop + ...), worst residual ~4,964 s
+# So the reading is (A) `PhaseLock APPLIED ... method=joint-best-fit` with P near
+# 3.81 Ms (the prediction; a "long wait"), or (B) `PhaseLock SKIPPED ...
+# support=Supported` (an honest decline: the fixed-cadence solve missed tolerance
+# and no schedule was attached). Either is a product answer; the lane requires that
+# the solver DECIDED (one of the two lines) on the moon-rooted constraint set, and
+# the first flight's reading picks the pin. What would be a defect: no decision
+# line, or `UnsupportedCrossParent` (rule 4a not engaging).
+#
+# NOT FLYABLE YET: tier "pending-fixture", tag "awaiting-fixture". The fixture `tylo-bop-recorded`
+# is the harvest of the forge `B45-tylo-bop-transfer`, which has not flown. Until it exists this
+# spec stays out of every cadence and the full run (tier_runner FULL_RUN_EXCLUDED_TIERS),
+# `test_hlib.SharedShipsManifestTests.PENDING_FIXTURE_LANES` exempts it from the
+# saveTemplate sweep, and that map's self-retiring cell reds the day the fixture lands.
+# The MissionConfig / StartLoopPlayback tree id is a ZERO PLACEHOLDER.
+#
+# TO MAKE IT FLYABLE, in ONE commit after the forge's harvest: replace the two
+# placeholder tree ids with the harvested tree id (the RECORDING_TREE `id` in
+# `tylo-bop-recorded/persistent.sfs`), set tier = "operator" and swap the tag
+# "awaiting-fixture" for "pending-flight", add "sandbox" back to D14 (the game-mode
+# claim needs a fixture to witness it), delete the PENDING_FIXTURE_LANES entry,
+# register `tylo-bop-recorded` in test_saveparse.RECORDED_FIXTURES, and re-derive the count and
+# structure windows from the harvested bytes (the forge's own count window is
+# {1,4}; B26 and B30 each harvested ONE recording).
+#
+# THE LANE IS DELIBERATELY SHORT. It loads the subject, turns its loop on and starts
+# loop playback, which is where `MissionLoopUnitBuilder` extracts the phase
+# constraints and solves the period; it then quits. No jump table: the cycle seam
+# UTs depend on the harvested span and the solver's first window, both unknown until
+# the forge flies. A later lane (V17M / V21M shape) can add the jumps off the real
+# bytes. Verbose logging is on because both ExtractConstraints lines are Verbose.
+# =====================================================================================
+tier = "pending-fixture"
+description = "AUTHORED 2026-11-14, NEVER FLOWN, NOT FLYABLE UNTIL `B45-tylo-bop-transfer` IS HARVESTED (fixture `tylo-bop-recorded` absent; zero placeholder tree id). Loops the Tylo-rooted Tylo -> Bop tree and reads the moon-rooted phase lock: rule 4a's Orbital(Bop) + Orbital(Tylo) constraint set, Supported, and the solver's decision."
+instanceProfile = "stock-minimal"
+tags = ["V45M", "player-loop", "loop-playback", "moon-to-moon", "moon-rooted-phase-lock",
+        "tylo", "bop", "jool", "awaiting-fixture"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/tylo-bop-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig",     args = { tree = "00000000000000000000000000000000", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "00000000000000000000000000000000" }, expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["tylo", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 4 }
+
+[expectations.logContracts]
+required  = [
+  "missionconfig applied:",
+  "SetLoopEnabled: loop ON",
+  "startloopplayback initiated:",
+  "ExtractConstraints: moon-rooted frame launchMoon=Tylo planet=Jool launchMoonPeriod=",
+  "ExtractConstraints: tree=\\w+ members=[0-9]+ launchBody=Tylo ut0=[^ \\r\\n]+ support=Supported constraints=2 \\[Orbital\\(Bop\\) same-parent P=[^;\\r\\n]+; Orbital\\(Tylo\\) same-parent P=",
+  "PhaseLock (APPLIED|SKIPPED): mission='[^'\\r\\n]*' tree=\\w+ ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "UnsupportedCrossParent",
+]
+
+[expectations.rewind]
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+committedTrees = { min = 1, max = 1 }
+trees          = { min = 1, max = 2 }
+
+[runtime]
+# Boot + LoadGame + one StartLoopPlayback (a multi-day forward clock set) + quit;
+# V31M's comparable seam lane measured 49 s.
+budgetSeconds = 1200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

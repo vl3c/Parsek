@@ -109,7 +109,6 @@ namespace Parsek.Tests
             RouteStore.ResetForTesting();
             RouteEventLog.ResetForTesting();
             RetiredRouteCargoStore.ResetForTesting();
-            RecalculationEngine.ClearModules();
             ParsekScenario.ResetInstanceForTesting();
             EffectiveState.ResetCachesForTesting();
             SaveFormat.ResetForTesting();

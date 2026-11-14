@@ -519,7 +519,7 @@ namespace Parsek
             }
 
             var list = new List<GameAction>(els);
-            var probe = RecalculationEngine.ProbeClickReservationAtCutoff(list, now);
+            var probe = RecalculationEngine.ProbeClickReservationAtCutoff(LedgerOrchestrator.Modules, list, now);
             // The probe holds until the clock reaches the next row after now.
             double until = double.PositiveInfinity;
             for (int i = 0; i < list.Count; i++)

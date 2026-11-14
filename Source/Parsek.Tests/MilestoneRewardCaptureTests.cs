@@ -22,11 +22,12 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class MilestoneRewardCaptureTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private readonly List<string> logLines = new List<string>();
 
         public MilestoneRewardCaptureTests()
         {
-            RecalculationEngine.ClearModules();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
@@ -46,7 +47,6 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
-            RecalculationEngine.ClearModules();
             GameStateRecorder.PendingMilestoneEventById.Clear();
             LedgerOrchestrator.ResetForTesting();
             KspStatePatcher.ResetForTesting();
@@ -871,10 +871,10 @@ namespace Parsek.Tests
 
             var milestones = new MilestonesModule();
             var funds = new FundsModule();
-            RecalculationEngine.RegisterModule(milestones, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(milestones, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(funds, RecalculationModuleSet.ModuleTier.SecondTier);
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             var recordActions = actions.Where(a =>
                 a.Type == GameActionType.MilestoneAchievement &&

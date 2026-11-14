@@ -195,14 +195,62 @@ namespace Parsek.Rendering
                 sessionId, treeId, activeReFly));
 
             var sw = Stopwatch.StartNew();
-            int edgesVisited = 0;
-            int edgesPropagated = 0;
-            int suppressedSkipped = 0;
-            int cycleSkipped = 0;
-            int seedCandidatesEmitted = 0;
-            int candidatesDeferred = 0;
+            var counters = new DagWalkCounters();
 
-            // Index recordings by id for O(1) lookup during the walk.
+            Dictionary<string, Recording> byId = IndexRecordingsById(recordings);
+
+            // Phase 1: emit non-DockOrMerge seed anchors. For §7.4 / §7.5 /
+            // §7.6 / §7.7 / §7.10 the world-frame resolver computes a real ε;
+            // for §7.9 (deferred source, see the class docstring) the slot is
+            // reserved with ε = 0 so the §7.11 priority resolver still runs.
+            // §7.8 (CoBubblePeer) was retired in v0.9.3 along with the
+            // co-bubble subsystem; the enum slot remains as Reserved7 to
+            // preserve the persisted AnchorCandidate type-byte layout, but no
+            // producer ever emits an AnchorSource.Reserved7 candidate.
+            IAnchorWorldFrameResolver activeResolver = ResolverOverrideForTesting ?? resolver;
+            EmitSeedAnchors(recordings, activeResolver, surfaceLookup, counters);
+
+            // Phase 2: walk the DockOrMerge / Split BranchPoint edges and
+            // the chain edges to propagate epsilon along the section 9.1 rule.
+            var edges = new List<Edge>();
+            AddBranchPointEdges(trees, byId, edges);
+            AddChainEdges(recordings, edges);
+
+            Dictionary<string, List<int>> outgoingByParentSlot = IndexOutgoingEdgesByParentSlot(edges, byId);
+            WalkEdges(recordings, edges, outgoingByParentSlot, byId, surfaceLookup, counters);
+
+            sw.Stop();
+            LogWalkSummary(sessionId, sw, counters);
+        }
+
+        /// <summary>
+        /// The counters of one walk, printed by its summary line. Fields, so the seed resolver
+        /// can take them by reference.
+        /// </summary>
+        private sealed class DagWalkCounters
+        {
+            public int EdgesVisited;
+            public int EdgesPropagated;
+            public int SuppressedSkipped;
+            public int CycleSkipped;
+            public int SeedCandidatesEmitted;
+            public int CandidatesDeferred;
+            public int ResolvedRel;
+            public int ResolvedOrb;
+            public int ResolvedSoi;
+            public int ResolvedLoop;
+            public int ResolvedBubble;
+            public int DeferredNoResolver;
+            public int DeferredNoSpline;
+            public double MaxBoundaryInstantEpsilonM;
+        }
+
+        /// <summary>
+        /// Index recordings by id for O(1) lookup during the walk. A later entry with the same
+        /// id replaces an earlier one; null entries and empty ids are left out.
+        /// </summary>
+        private static Dictionary<string, Recording> IndexRecordingsById(IReadOnlyList<Recording> recordings)
+        {
             var byId = new Dictionary<string, Recording>(StringComparer.Ordinal);
             if (recordings != null)
             {
@@ -213,221 +261,254 @@ namespace Parsek.Rendering
                     byId[r.RecordingId] = r;
                 }
             }
+            return byId;
+        }
 
-            // Phase 1: emit non-DockOrMerge seed anchors. For §7.4 / §7.5 /
-            // §7.6 / §7.7 / §7.10 the world-frame resolver computes a real ε;
-            // for §7.9 (deferred source, see the class docstring) the slot is
-            // reserved with ε = 0 so the §7.11 priority resolver still runs.
-            // §7.8 (CoBubblePeer) was retired in v0.9.3 along with the
-            // co-bubble subsystem; the enum slot remains as Reserved7 to
-            // preserve the persisted AnchorCandidate type-byte layout, but no
-            // producer ever emits an AnchorSource.Reserved7 candidate.
-            int resolvedRel = 0, resolvedOrb = 0, resolvedSoi = 0,
-                resolvedLoop = 0, resolvedBubble = 0,
-                deferredNoResolver = 0, deferredNoSpline = 0;
-            double maxBoundaryInstantEpsilonM = 0.0;
-            IAnchorWorldFrameResolver activeResolver = ResolverOverrideForTesting ?? resolver;
-            if (recordings != null)
+        /// <summary>
+        /// The seed pass: every persisted candidate of every section of every unsuppressed
+        /// recording, in list order, written through the section 7.11 priority resolver.
+        /// </summary>
+        private static void EmitSeedAnchors(
+            IReadOnlyList<Recording> recordings,
+            IAnchorWorldFrameResolver activeResolver,
+            Func<string, double, double, double, Vector3d> surfaceLookup,
+            DagWalkCounters counters)
+        {
+            if (recordings == null)
+                return;
+            for (int i = 0; i < recordings.Count; i++)
             {
-                for (int i = 0; i < recordings.Count; i++)
+                Recording r = recordings[i];
+                if (r == null) continue;
+                if (r.TrackSections == null) continue;
+                if (IsSuppressed(r.RecordingId))
                 {
-                    Recording r = recordings[i];
-                    if (r == null) continue;
-                    if (r.TrackSections == null) continue;
-                    if (IsSuppressed(r.RecordingId))
+                    // Suppressed-predecessor symmetry: a suppressed
+                    // recording cannot seed candidates either.
+                    continue;
+                }
+
+                for (int sIdx = 0; sIdx < r.TrackSections.Count; sIdx++)
+                {
+                    if (!SectionAnnotationStore.TryGetAnchorCandidates(
+                            r.RecordingId, sIdx, out AnchorCandidate[] arr) || arr == null)
+                        continue;
+                    for (int k = 0; k < arr.Length; k++)
+                        EmitSeedCandidate(activeResolver, surfaceLookup, r, sIdx, arr[k], counters);
+                }
+            }
+        }
+
+        /// <summary>
+        /// One seed candidate: resolve its epsilon by source and write it, zero when unresolved
+        /// so the priority slot is still reserved. DockOrMerge candidates are left to the walk.
+        /// </summary>
+        private static void EmitSeedCandidate(
+            IAnchorWorldFrameResolver activeResolver,
+            Func<string, double, double, double, Vector3d> surfaceLookup,
+            Recording r, int sIdx, AnchorCandidate cand,
+            DagWalkCounters counters)
+        {
+            // DockOrMerge candidates are propagated by the
+            // edge walk below — skip them here so the seed
+            // pass and the walk don't double-write the
+            // same slot.
+            if (cand.Source == AnchorSource.DockOrMerge) return;
+
+            // Resolve world-frame reference position by source.
+            Vector3d epsilon = Vector3d.zero;
+            bool resolved = TryResolveSeedEpsilon(
+                activeResolver, surfaceLookup, r, sIdx, cand,
+                ref counters.ResolvedRel, ref counters.ResolvedOrb, ref counters.ResolvedSoi,
+                ref counters.ResolvedLoop, ref counters.ResolvedBubble,
+                ref counters.DeferredNoResolver, ref counters.DeferredNoSpline,
+                ref counters.MaxBoundaryInstantEpsilonM,
+                out epsilon);
+
+            var ac = new AnchorCorrection(
+                recordingId: r.RecordingId,
+                sectionIndex: sIdx,
+                side: cand.Side,
+                ut: cand.UT,
+                epsilon: resolved ? epsilon : Vector3d.zero,
+                source: cand.Source);
+            if (TryWriteAnchor(ac))
+                counters.SeedCandidatesEmitted++;
+            else
+                counters.CandidatesDeferred++;
+        }
+
+        /// <summary>
+        /// The structural edges: one per (parent, child) pair of every Dock, Board, Undock,
+        /// EVA, JointBreak and Breakup branch point, in tree and list order.
+        /// </summary>
+        private static void AddBranchPointEdges(
+            IReadOnlyList<RecordingTree> trees,
+            Dictionary<string, Recording> byId,
+            List<Edge> edges)
+        {
+            if (trees == null)
+                return;
+            for (int t = 0; t < trees.Count; t++)
+            {
+                RecordingTree tree = trees[t];
+                if (tree == null || tree.BranchPoints == null) continue;
+                for (int b = 0; b < tree.BranchPoints.Count; b++)
+                {
+                    BranchPoint bp = tree.BranchPoints[b];
+                    if (bp == null) continue;
+                    AddBranchPointEdges(bp, byId, edges);
+                }
+            }
+        }
+
+        private static void AddBranchPointEdges(
+            BranchPoint bp,
+            Dictionary<string, Recording> byId,
+            List<Edge> edges)
+        {
+            // Only propagate on edges that imply ε passes
+            // through the structural event. Terminal / Launch
+            // are not propagation events for Phase 6.
+            //
+            // Breakup IS a propagation event for its controlled
+            // (non-debris) children: a coalesced staging split
+            // (decoupler fire during a crash/structural window)
+            // is recorded as a Breakup BranchPoint whose
+            // ChildRecordingIds enumerate both the controlled
+            // stage halves AND short-lived debris fragments. The
+            // controlled halves are continuing vessels and need
+            // ε just like an Undock/JointBreak child; debris
+            // keeps the parent-anchored contract and is
+            // skipped per-child below.
+            if (bp.Type != BranchPointType.Dock
+                && bp.Type != BranchPointType.Board
+                && bp.Type != BranchPointType.Undock
+                && bp.Type != BranchPointType.EVA
+                && bp.Type != BranchPointType.JointBreak
+                && bp.Type != BranchPointType.Breakup)
+            {
+                return;
+            }
+            if (bp.ParentRecordingIds == null || bp.ChildRecordingIds == null) return;
+            for (int p = 0; p < bp.ParentRecordingIds.Count; p++)
+            {
+                string pid = bp.ParentRecordingIds[p];
+                if (string.IsNullOrEmpty(pid)) continue;
+                for (int c = 0; c < bp.ChildRecordingIds.Count; c++)
+                {
+                    string cid = bp.ChildRecordingIds[c];
+                    if (string.IsNullOrEmpty(cid)) continue;
+                    if (string.Equals(pid, cid, StringComparison.Ordinal)) continue;
+                    // Breakup BPs list debris children alongside
+                    // controlled stage halves; debris must not
+                    // receive a propagated DockOrMerge ε (it plays
+                    // back through the parent-anchored debris
+                    // contract). Only controlled children walk.
+                    if (bp.Type == BranchPointType.Breakup
+                        && byId.TryGetValue(cid, out Recording rChildClassify)
+                        && rChildClassify != null
+                        && rChildClassify.IsDebris)
                     {
-                        // Suppressed-predecessor symmetry: a suppressed
-                        // recording cannot seed candidates either.
                         continue;
                     }
-
-                    for (int sIdx = 0; sIdx < r.TrackSections.Count; sIdx++)
-                    {
-                        if (!SectionAnnotationStore.TryGetAnchorCandidates(
-                                r.RecordingId, sIdx, out AnchorCandidate[] arr) || arr == null)
-                            continue;
-                        for (int k = 0; k < arr.Length; k++)
-                        {
-                            AnchorCandidate cand = arr[k];
-                            // DockOrMerge candidates are propagated by the
-                            // edge walk below — skip them here so the seed
-                            // pass and the walk don't double-write the
-                            // same slot.
-                            if (cand.Source == AnchorSource.DockOrMerge) continue;
-
-                            // Resolve world-frame reference position by source.
-                            Vector3d epsilon = Vector3d.zero;
-                            bool resolved = TryResolveSeedEpsilon(
-                                activeResolver, surfaceLookup, r, sIdx, cand,
-                                ref resolvedRel, ref resolvedOrb, ref resolvedSoi,
-                                ref resolvedLoop, ref resolvedBubble,
-                                ref deferredNoResolver, ref deferredNoSpline,
-                                ref maxBoundaryInstantEpsilonM,
-                                out epsilon);
-
-                            var ac = new AnchorCorrection(
-                                recordingId: r.RecordingId,
-                                sectionIndex: sIdx,
-                                side: cand.Side,
-                                ut: cand.UT,
-                                epsilon: resolved ? epsilon : Vector3d.zero,
-                                source: cand.Source);
-                            if (TryWriteAnchor(ac))
-                                seedCandidatesEmitted++;
-                            else
-                                candidatesDeferred++;
-                        }
-                    }
+                    edges.Add(new Edge(pid, cid, bp.UT, bp.Type, isChain: false));
                 }
             }
+        }
 
-            // Phase 2 — walk the DockOrMerge / Split BranchPoint edges +
-            // chain edges to propagate ε along the §9.1 rule. Visited keys
-            // guard against cycles.
-            var visitedEdges = new HashSet<string>(StringComparer.Ordinal);
-
-            // Build the unified edge set.
-            var edges = new List<Edge>();
-            if (trees != null)
+        /// <summary>
+        /// Chain edges (PID continuity across recordings). Reviewer
+        /// P1-2: chain continuity is encoded by Recording.ChainId +
+        /// Recording.ChainIndex, NOT Recording.ParentRecordingId
+        /// (which is EVA child linkage, already covered by the
+        /// BranchPointType.EVA edges). Group recordings by
+        /// ChainId, sort by ChainIndex, emit edges between consecutive
+        /// members at the boundary UT (parent.EndUT == child.StartUT).
+        /// </summary>
+        private static void AddChainEdges(IReadOnlyList<Recording> recordings, List<Edge> edges)
+        {
+            if (recordings == null)
+                return;
+            var chainGroups = new Dictionary<string, List<Recording>>(StringComparer.Ordinal);
+            for (int i = 0; i < recordings.Count; i++)
             {
-                for (int t = 0; t < trees.Count; t++)
+                Recording r = recordings[i];
+                if (r == null) continue;
+                if (string.IsNullOrEmpty(r.ChainId)) continue;
+                if (r.ChainIndex < 0) continue;
+                if (!chainGroups.TryGetValue(r.ChainId, out var list))
                 {
-                    RecordingTree tree = trees[t];
-                    if (tree == null || tree.BranchPoints == null) continue;
-                    for (int b = 0; b < tree.BranchPoints.Count; b++)
-                    {
-                        BranchPoint bp = tree.BranchPoints[b];
-                        if (bp == null) continue;
-                        // Only propagate on edges that imply ε passes
-                        // through the structural event. Terminal / Launch
-                        // are not propagation events for Phase 6.
-                        //
-                        // Breakup IS a propagation event for its controlled
-                        // (non-debris) children: a coalesced staging split
-                        // (decoupler fire during a crash/structural window)
-                        // is recorded as a Breakup BranchPoint whose
-                        // ChildRecordingIds enumerate both the controlled
-                        // stage halves AND short-lived debris fragments. The
-                        // controlled halves are continuing vessels and need
-                        // ε just like an Undock/JointBreak child; debris
-                        // keeps the parent-anchored contract and is
-                        // skipped per-child below.
-                        if (bp.Type != BranchPointType.Dock
-                            && bp.Type != BranchPointType.Board
-                            && bp.Type != BranchPointType.Undock
-                            && bp.Type != BranchPointType.EVA
-                            && bp.Type != BranchPointType.JointBreak
-                            && bp.Type != BranchPointType.Breakup)
-                        {
-                            continue;
-                        }
-                        if (bp.ParentRecordingIds == null || bp.ChildRecordingIds == null) continue;
-                        for (int p = 0; p < bp.ParentRecordingIds.Count; p++)
-                        {
-                            string pid = bp.ParentRecordingIds[p];
-                            if (string.IsNullOrEmpty(pid)) continue;
-                            for (int c = 0; c < bp.ChildRecordingIds.Count; c++)
-                            {
-                                string cid = bp.ChildRecordingIds[c];
-                                if (string.IsNullOrEmpty(cid)) continue;
-                                if (string.Equals(pid, cid, StringComparison.Ordinal)) continue;
-                                // Breakup BPs list debris children alongside
-                                // controlled stage halves; debris must not
-                                // receive a propagated DockOrMerge ε (it plays
-                                // back through the parent-anchored debris
-                                // contract). Only controlled children walk.
-                                if (bp.Type == BranchPointType.Breakup
-                                    && byId.TryGetValue(cid, out Recording rChildClassify)
-                                    && rChildClassify != null
-                                    && rChildClassify.IsDebris)
-                                {
-                                    continue;
-                                }
-                                edges.Add(new Edge(pid, cid, bp.UT, bp.Type, isChain: false));
-                            }
-                        }
-                    }
+                    list = new List<Recording>();
+                    chainGroups[r.ChainId] = list;
                 }
+                list.Add(r);
             }
-            // Chain edges (PID continuity across recordings). Reviewer
-            // P1-2: chain continuity is encoded by Recording.ChainId +
-            // Recording.ChainIndex, NOT Recording.ParentRecordingId
-            // (which is EVA child linkage — already covered by the
-            // BranchPointType.EVA loop above). Group recordings by
-            // ChainId, sort by ChainIndex, emit edges between consecutive
-            // members at the boundary UT (parent.EndUT == child.StartUT).
-            if (recordings != null)
+            const double chainBoundaryToleranceSeconds = 1e-3;
+            foreach (var kvp in chainGroups)
             {
-                var chainGroups = new Dictionary<string, List<Recording>>(StringComparer.Ordinal);
-                for (int i = 0; i < recordings.Count; i++)
+                List<Recording> members = kvp.Value;
+                if (members.Count < 2) continue;
+                members.Sort((a, b) => a.ChainIndex.CompareTo(b.ChainIndex));
+                for (int i = 0; i < members.Count - 1; i++)
                 {
-                    Recording r = recordings[i];
-                    if (r == null) continue;
-                    if (string.IsNullOrEmpty(r.ChainId)) continue;
-                    if (r.ChainIndex < 0) continue;
-                    if (!chainGroups.TryGetValue(r.ChainId, out var list))
+                    Recording parent = members[i];
+                    Recording child = members[i + 1];
+                    // Verify boundary continuity within tolerance.
+                    // Recordings whose endUT/startUT do not abut are
+                    // either misordered or have a gap — skip emit
+                    // and surface a Verbose so a real chain corruption
+                    // doesn't silently propagate stale ε.
+                    double parentEnd = parent.EndUT;
+                    double childStart = child.StartUT;
+                    if (System.Math.Abs(parentEnd - childStart) > chainBoundaryToleranceSeconds)
                     {
-                        list = new List<Recording>();
-                        chainGroups[r.ChainId] = list;
+                        ParsekLog.Verbose("Pipeline-AnchorPropagate", string.Format(CultureInfo.InvariantCulture,
+                            "chain-edge-boundary-mismatch: chainId={0} parent={1} parentEndUT={2} child={3} childStartUT={4}",
+                            kvp.Key, parent.RecordingId,
+                            parentEnd.ToString("R", CultureInfo.InvariantCulture),
+                            child.RecordingId,
+                            childStart.ToString("R", CultureInfo.InvariantCulture)));
+                        continue;
                     }
-                    list.Add(r);
-                }
-                const double chainBoundaryToleranceSeconds = 1e-3;
-                foreach (var kvp in chainGroups)
-                {
-                    List<Recording> members = kvp.Value;
-                    if (members.Count < 2) continue;
-                    members.Sort((a, b) => a.ChainIndex.CompareTo(b.ChainIndex));
-                    for (int i = 0; i < members.Count - 1; i++)
-                    {
-                        Recording parent = members[i];
-                        Recording child = members[i + 1];
-                        // Verify boundary continuity within tolerance.
-                        // Recordings whose endUT/startUT do not abut are
-                        // either misordered or have a gap — skip emit
-                        // and surface a Verbose so a real chain corruption
-                        // doesn't silently propagate stale ε.
-                        double parentEnd = parent.EndUT;
-                        double childStart = child.StartUT;
-                        if (System.Math.Abs(parentEnd - childStart) > chainBoundaryToleranceSeconds)
-                        {
-                            ParsekLog.Verbose("Pipeline-AnchorPropagate", string.Format(CultureInfo.InvariantCulture,
-                                "chain-edge-boundary-mismatch: chainId={0} parent={1} parentEndUT={2} child={3} childStartUT={4}",
-                                kvp.Key, parent.RecordingId,
-                                parentEnd.ToString("R", CultureInfo.InvariantCulture),
-                                child.RecordingId,
-                                childStart.ToString("R", CultureInfo.InvariantCulture)));
-                            continue;
-                        }
-                        edges.Add(new Edge(parent.RecordingId, child.RecordingId,
-                            childStart, BranchPointType.Terminal /* sentinel — chain edges */, isChain: true));
-                    }
+                    edges.Add(new Edge(parent.RecordingId, child.RecordingId,
+                        childStart, BranchPointType.Terminal /* sentinel — chain edges */, isChain: true));
                 }
             }
+        }
 
-            // Phase 2 worklist (ultrareview P2-A + follow-up: slot-keyed).
-            // The first iteration keyed worklist + outgoing-edge index by
-            // parent recordingId; that fixed BranchPoints list-order
-            // dependence but introduced a subtler order-dependence bug
-            // (subsequent ultrareview P1): when a recording was queued
-            // because an UNRELATED section had a seed anchor, edges whose
-            // parentSectionIdx was a DIFFERENT, still-unanchored section
-            // would fall through to ε = 0, write a stale child anchor,
-            // and mark the edge visitedEdges. When the real upstream
-            // anchor for that edge's section was later written, the
-            // edge was already visited and the corrected ε never flowed
-            // downstream.
-            //
-            // The slot-keyed worklist makes the propagation actually
-            // section-precise: index by (parentRecordingId, parentSectionIdx),
-            // seed by walking every populated AnchorKey, and only walk
-            // edges whose parent slot has been seeded. This way an edge
-            // is processed exactly when its specific upstream anchor
-            // exists, never sooner.
-            //
-            // Slot keys are encoded as `recordingId@sectionIdx` strings to
-            // keep using HashSet<string> / Dictionary<string, _> without
-            // a value-tuple-based equality comparer.
+        /// <summary>
+        /// The outgoing-edge index of the walk, keyed by parent slot
+        /// (<c>recordingId@sectionIdx</c>, the parent section that holds the edge UT).
+        /// </summary>
+        /// <remarks>
+        /// Phase 2 worklist (ultrareview P2-A + follow-up: slot-keyed).
+        /// The first iteration keyed worklist + outgoing-edge index by
+        /// parent recordingId; that fixed BranchPoints list-order
+        /// dependence but introduced a subtler order-dependence bug
+        /// (subsequent ultrareview P1): when a recording was queued
+        /// because an UNRELATED section had a seed anchor, edges whose
+        /// parentSectionIdx was a DIFFERENT, still-unanchored section
+        /// would fall through to ε = 0, write a stale child anchor,
+        /// and mark the edge visitedEdges. When the real upstream
+        /// anchor for that edge's section was later written, the
+        /// edge was already visited and the corrected ε never flowed
+        /// downstream.
+        ///
+        /// The slot-keyed worklist makes the propagation actually
+        /// section-precise: index by (parentRecordingId, parentSectionIdx),
+        /// seed by walking every populated AnchorKey, and only walk
+        /// edges whose parent slot has been seeded. This way an edge
+        /// is processed exactly when its specific upstream anchor
+        /// exists, never sooner.
+        ///
+        /// Slot keys are encoded as `recordingId@sectionIdx` strings to
+        /// keep using HashSet&lt;string&gt; / Dictionary&lt;string, _&gt; without
+        /// a value-tuple-based equality comparer.
+        /// </remarks>
+        private static Dictionary<string, List<int>> IndexOutgoingEdgesByParentSlot(
+            List<Edge> edges, Dictionary<string, Recording> byId)
+        {
             var outgoingByParentSlot = new Dictionary<string, List<int>>(StringComparer.Ordinal);
             for (int e = 0; e < edges.Count; e++)
             {
@@ -446,16 +527,74 @@ namespace Parsek.Rendering
                 }
                 bucket.Add(e);
             }
+            return outgoingByParentSlot;
+        }
 
-            // Seed the worklist with every (recordingId, sectionIndex)
-            // that already has an anchor written (any Side). Phase 2
-            // LiveSeparation seeds from RebuildFromMarker plus the per-
-            // source seed pass above both populate the anchor map BEFORE
-            // this code runs. Slots without anchors are never enqueued —
-            // edges depending on them stay deferred until a future
-            // worklist iteration writes the missing anchor.
-            var worklist = new Queue<string>();
+        /// <summary>
+        /// Drive the walk. For each anchored parent slot, propagate ε
+        /// along its outgoing edges. If propagation actually inserts a
+        /// new anchor on the child slot (TryWriteAnchor returned true),
+        /// enqueue THAT slot, not just the child recording, so only
+        /// edges whose parent slot is the newly-anchored one re-fire.
+        /// Cycle defense: the visitedEdges set ensures each edge
+        /// processes at most once even if the same slot gets enqueued
+        /// multiple times via priority overwrites.
+        /// </summary>
+        private static void WalkEdges(
+            IReadOnlyList<Recording> recordings,
+            List<Edge> edges,
+            Dictionary<string, List<int>> outgoingByParentSlot,
+            Dictionary<string, Recording> byId,
+            Func<string, double, double, double, Vector3d> surfaceLookup,
+            DagWalkCounters counters)
+        {
+            var visitedEdges = new HashSet<string>(StringComparer.Ordinal);
             var enqueuedSlots = new HashSet<string>(StringComparer.Ordinal);
+            Queue<string> worklist = EnqueueAnchoredSlots(recordings, enqueuedSlots);
+
+            while (worklist.Count > 0)
+            {
+                string parentSlotKey = worklist.Dequeue();
+                if (!outgoingByParentSlot.TryGetValue(parentSlotKey, out var edgeIndices))
+                    continue;
+
+                for (int ei = 0; ei < edgeIndices.Count; ei++)
+                {
+                    int e = edgeIndices[ei];
+                    Edge edge = edges[e];
+                    counters.EdgesVisited++;
+
+                    // Worklist propagation: when the child slot now has an
+                    // anchor, enqueue (childRecordingId, childSectionIdx)
+                    // — not just the recording — so only edges whose
+                    // parent slot IS this newly-anchored slot can re-fire
+                    // downstream. visitedEdges keeps cycle defense; once
+                    // an edge has run, a later §7.11 priority overwrite
+                    // on the same child slot will NOT re-flow through
+                    // visited edges. That limitation is documented in
+                    // docs/dev/todo-and-known-bugs.md (Phase 6 known
+                    // gaps); the iterative-refinement variant is tracked
+                    // for a future phase.
+                    string childSlotKey = PropagateEdge(edge, byId, surfaceLookup, visitedEdges, counters);
+                    if (childSlotKey != null && enqueuedSlots.Add(childSlotKey))
+                        worklist.Enqueue(childSlotKey);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Seed the worklist with every (recordingId, sectionIndex)
+        /// that already has an anchor written (any Side). Phase 2
+        /// LiveSeparation seeds from RebuildFromMarker plus the per-
+        /// source seed pass both populate the anchor map BEFORE
+        /// this runs. Slots without anchors are never enqueued:
+        /// edges depending on them stay deferred until a later
+        /// worklist iteration writes the missing anchor.
+        /// </summary>
+        private static Queue<string> EnqueueAnchoredSlots(
+            IReadOnlyList<Recording> recordings, HashSet<string> enqueuedSlots)
+        {
+            var worklist = new Queue<string>();
             if (recordings != null)
             {
                 for (int i = 0; i < recordings.Count; i++)
@@ -476,189 +615,204 @@ namespace Parsek.Rendering
                     }
                 }
             }
+            return worklist;
+        }
 
-            // Drive the walk. For each anchored parent slot, propagate ε
-            // along its outgoing edges. If propagation actually inserts a
-            // new anchor on the child slot (TryWriteAnchor returned true),
-            // enqueue THAT slot — not just the child recording — so only
-            // edges whose parent slot is the newly-anchored one re-fire.
-            // Cycle defense — the visitedEdges set ensures each edge
-            // processes at most once even if the same slot gets enqueued
-            // multiple times via priority overwrites.
-            while (worklist.Count > 0)
+        /// <summary>
+        /// One edge of the walk: the cycle and suppression guards, the section 9.1 propagation and
+        /// the priority-aware write of the child's Start anchor. Returns the child slot key
+        /// when the write landed, else null (a guard skipped the edge or the slot's existing
+        /// anchor outranks it).
+        /// </summary>
+        private static string PropagateEdge(
+            Edge edge,
+            Dictionary<string, Recording> byId,
+            Func<string, double, double, double, Vector3d> surfaceLookup,
+            HashSet<string> visitedEdges,
+            DagWalkCounters counters)
+        {
+            string edgeKey = edge.ParentId + "->" + edge.ChildId + "@" +
+                edge.UT.ToString("R", CultureInfo.InvariantCulture);
+            if (!visitedEdges.Add(edgeKey))
             {
-                string parentSlotKey = worklist.Dequeue();
-                if (!outgoingByParentSlot.TryGetValue(parentSlotKey, out var edgeIndices))
-                    continue;
+                // Cycle suspected (HR-13 defense) — halt the subtree.
+                counters.CycleSkipped++;
+                ParsekLog.Warn("Pipeline-AnchorPropagate", string.Format(CultureInfo.InvariantCulture,
+                    "cycle suspected, halting subtree: parent={0} child={1} ut={2}",
+                    edge.ParentId, edge.ChildId,
+                    edge.UT.ToString("R", CultureInfo.InvariantCulture)));
+                return null;
+            }
 
-                for (int ei = 0; ei < edgeIndices.Count; ei++)
-                {
-                    int e = edgeIndices[ei];
-                    Edge edge = edges[e];
-                    edgesVisited++;
+            bool childSuppressed = IsSuppressed(edge.ChildId);
+            bool parentSuppressed = IsSuppressed(edge.ParentId);
+            if (childSuppressed || parentSuppressed)
+            {
+                counters.SuppressedSkipped++;
+                ParsekLog.Verbose("Pipeline-AnchorPropagate", string.Format(CultureInfo.InvariantCulture,
+                    "suppressed-predecessor: parent={0} child={1} reason={2}",
+                    edge.ParentId, edge.ChildId,
+                    childSuppressed ? "suppressed-child" : "suppressed-parent"));
+                return null;
+            }
 
-                string edgeKey = edge.ParentId + "->" + edge.ChildId + "@" +
-                    edge.UT.ToString("R", CultureInfo.InvariantCulture);
-                if (!visitedEdges.Add(edgeKey))
+            if (!byId.TryGetValue(edge.ParentId, out Recording rParent)) return null;
+            if (!byId.TryGetValue(edge.ChildId, out Recording rChild)) return null;
+            if (rParent.TrackSections == null || rChild.TrackSections == null) return null;
+
+            int parentSectionIdx = TrajectoryMath.FindTrackSectionForUT(rParent.TrackSections, edge.UT);
+            int childSectionIdx = TrajectoryMath.FindTrackSectionForUT(rChild.TrackSections, edge.UT);
+            if (parentSectionIdx < 0 || childSectionIdx < 0) return null;
+
+            Vector3d epsilonUpstream = LookupUpstreamEpsilon(edge.ParentId, parentSectionIdx);
+
+            // §9.1 propagation rule. For non-chain edges we evaluate
+            // (recordedOffset_at_event - smoothedOffset_at_event) and
+            // feed it through Propagate(). For chain edges (PID
+            // continuity across recordings) the recorded offset is
+            // zero by construction — the same vessel writes both
+            // sides — so we keep ε' = ε without invoking the
+            // per-side evaluator.
+            Vector3d recordedOffset = Vector3d.zero;
+            Vector3d smoothedOffset = Vector3d.zero;
+            bool nineOneApplied = false;
+            if (!edge.IsChain)
+            {
+                nineOneApplied = TryEvaluateEdgeOffsets(
+                    edge, rParent, parentSectionIdx, rChild, childSectionIdx, surfaceLookup,
+                    out recordedOffset, out smoothedOffset);
+            }
+
+            Vector3d epsilonChild = Propagate(epsilonUpstream, recordedOffset, smoothedOffset);
+
+            AnchorSide side = AnchorSide.Start;
+            var acChild = new AnchorCorrection(
+                recordingId: edge.ChildId,
+                sectionIndex: childSectionIdx,
+                side: side,
+                ut: edge.UT,
+                epsilon: epsilonChild,
+                source: AnchorSource.DockOrMerge);
+
+            if (TryWriteAnchor(acChild))
+            {
+                counters.EdgesPropagated++;
+                ParsekLog.Verbose("Pipeline-AnchorPropagate", string.Format(CultureInfo.InvariantCulture,
+                    "Edge propagated: {0}->{1} bpType={2} bpUT={3} chainEdge={4} nineOneApplied={5} epsilonDeltaM={6}",
+                    edge.ParentId, edge.ChildId, edge.IsChain ? "chain" : edge.BranchType.ToString(),
+                    edge.UT.ToString("R", CultureInfo.InvariantCulture),
+                    edge.IsChain ? "true" : "false",
+                    nineOneApplied ? "true" : "false",
+                    (epsilonChild - epsilonUpstream).magnitude.ToString("F3", CultureInfo.InvariantCulture)));
+                return edge.ChildId + "@" +
+                    childSectionIdx.ToString(CultureInfo.InvariantCulture);
+            }
+            else
+            {
+                counters.CandidatesDeferred++;
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// The parent slot's End epsilon (preferred), then its Start epsilon, then
+        /// zero. Phase 2 LiveSeparation seeds usually populate the
+        /// Start side; either side is accepted as the upstream
+        /// reference.
+        /// </summary>
+        private static Vector3d LookupUpstreamEpsilon(string parentId, int parentSectionIdx)
+        {
+            Vector3d epsilonUpstream = Vector3d.zero;
+            if (RenderSessionState.TryLookup(parentId, parentSectionIdx, AnchorSide.End, out AnchorCorrection acEnd))
+                epsilonUpstream = acEnd.Epsilon;
+            else if (RenderSessionState.TryLookup(parentId, parentSectionIdx, AnchorSide.Start, out AnchorCorrection acStart))
+                epsilonUpstream = acStart.Epsilon;
+            return epsilonUpstream;
+        }
+
+        /// <summary>
+        /// The section 9.1 offsets of a structural edge: the recorded and the smoothed
+        /// child-minus-parent offset at the edge UT. Returns false (both offsets zero, so the
+        /// child inherits the upstream epsilon unchanged) when
+        /// either side has no Absolute section, no recorded sample at the UT, or no body,
+        /// logging the reason once per edge.
+        /// </summary>
+        private static bool TryEvaluateEdgeOffsets(
+            Edge edge,
+            Recording rParent, int parentSectionIdx,
+            Recording rChild, int childSectionIdx,
+            Func<string, double, double, double, Vector3d> surfaceLookup,
+            out Vector3d recordedOffset,
+            out Vector3d smoothedOffset)
+        {
+            recordedOffset = Vector3d.zero;
+            smoothedOffset = Vector3d.zero;
+            bool nineOneApplied = false;
+            string nineOneFallbackReason = null;
+
+            // Pass our body resolver so FrameTag=1 inertial splines
+            // dispatch through LowerFromInertialToWorld instead of
+            // falling back to the raw sample (ultrareview P1-B).
+            Func<string, CelestialBody> bodyResolver = ResolveBody;
+            bool parentOk = RenderSessionState.TryEvaluatePerSegmentWorldPositions(
+                rParent, parentSectionIdx, edge.UT, surfaceLookup,
+                out Vector3d parentRecorded, out Vector3d parentSmoothed,
+                out bool parentSplineHit, out string parentReason,
+                bodyResolver);
+            bool childOk = RenderSessionState.TryEvaluatePerSegmentWorldPositions(
+                rChild, childSectionIdx, edge.UT, surfaceLookup,
+                out Vector3d childRecorded, out Vector3d childSmoothed,
+                out bool childSplineHit, out string childReason,
+                bodyResolver);
+            if (parentOk && childOk)
+            {
+                recordedOffset = childRecorded - parentRecorded;
+                smoothedOffset = childSmoothed - parentSmoothed;
+                nineOneApplied = true;
+
+                // HR-9: surface a "no-spline-skip" Verbose when
+                // either side fell through to recorded == smoothed.
+                // The propagation formula still runs (the offset
+                // delta is just zero on that side) but the
+                // operator needs to see that the §9.1 correction
+                // term is degraded.
+                if (!parentSplineHit || !childSplineHit)
                 {
-                    // Cycle suspected (HR-13 defense) — halt the subtree.
-                    cycleSkipped++;
-                    ParsekLog.Warn("Pipeline-AnchorPropagate", string.Format(CultureInfo.InvariantCulture,
-                        "cycle suspected, halting subtree: parent={0} child={1} ut={2}",
-                        edge.ParentId, edge.ChildId,
+                    ParsekLog.Verbose("Pipeline-AnchorPropagate", string.Format(CultureInfo.InvariantCulture,
+                        "no-spline-skip: parent={0} parentSection={1} parentSplineHit={2} child={3} childSection={4} childSplineHit={5} bpUT={6}",
+                        edge.ParentId, parentSectionIdx, parentSplineHit ? "true" : "false",
+                        edge.ChildId, childSectionIdx, childSplineHit ? "true" : "false",
                         edge.UT.ToString("R", CultureInfo.InvariantCulture)));
-                    continue;
                 }
-
-                bool childSuppressed = IsSuppressed(edge.ChildId);
-                bool parentSuppressed = IsSuppressed(edge.ParentId);
-                if (childSuppressed || parentSuppressed)
-                {
-                    suppressedSkipped++;
-                    ParsekLog.Verbose("Pipeline-AnchorPropagate", string.Format(CultureInfo.InvariantCulture,
-                        "suppressed-predecessor: parent={0} child={1} reason={2}",
-                        edge.ParentId, edge.ChildId,
-                        childSuppressed ? "suppressed-child" : "suppressed-parent"));
-                    continue;
-                }
-
-                if (!byId.TryGetValue(edge.ParentId, out Recording rParent)) continue;
-                if (!byId.TryGetValue(edge.ChildId, out Recording rChild)) continue;
-                if (rParent.TrackSections == null || rChild.TrackSections == null) continue;
-
-                int parentSectionIdx = TrajectoryMath.FindTrackSectionForUT(rParent.TrackSections, edge.UT);
-                int childSectionIdx = TrajectoryMath.FindTrackSectionForUT(rChild.TrackSections, edge.UT);
-                if (parentSectionIdx < 0 || childSectionIdx < 0) continue;
-
-                // Look up parent's End ε (preferred), then Start ε, then
-                // zero. Phase 2 LiveSeparation seeds usually populate the
-                // Start side; we accept either side as the upstream
-                // reference.
-                Vector3d epsilonUpstream = Vector3d.zero;
-                if (RenderSessionState.TryLookup(edge.ParentId, parentSectionIdx, AnchorSide.End, out AnchorCorrection acEnd))
-                    epsilonUpstream = acEnd.Epsilon;
-                else if (RenderSessionState.TryLookup(edge.ParentId, parentSectionIdx, AnchorSide.Start, out AnchorCorrection acStart))
-                    epsilonUpstream = acStart.Epsilon;
-
-                // §9.1 propagation rule. For non-chain edges we evaluate
-                // (recordedOffset_at_event - smoothedOffset_at_event) and
-                // feed it through Propagate(). For chain edges (PID
-                // continuity across recordings) the recorded offset is
-                // zero by construction — the same vessel writes both
-                // sides — so we keep ε' = ε without invoking the
-                // per-side evaluator.
-                Vector3d recordedOffset = Vector3d.zero;
-                Vector3d smoothedOffset = Vector3d.zero;
-                bool nineOneApplied = false;
-                string nineOneFallbackReason = null;
-                if (!edge.IsChain)
-                {
-                    // Pass our body resolver so FrameTag=1 inertial splines
-                    // dispatch through LowerFromInertialToWorld instead of
-                    // falling back to the raw sample (ultrareview P1-B).
-                    Func<string, CelestialBody> bodyResolver = ResolveBody;
-                    bool parentOk = RenderSessionState.TryEvaluatePerSegmentWorldPositions(
-                        rParent, parentSectionIdx, edge.UT, surfaceLookup,
-                        out Vector3d parentRecorded, out Vector3d parentSmoothed,
-                        out bool parentSplineHit, out string parentReason,
-                        bodyResolver);
-                    bool childOk = RenderSessionState.TryEvaluatePerSegmentWorldPositions(
-                        rChild, childSectionIdx, edge.UT, surfaceLookup,
-                        out Vector3d childRecorded, out Vector3d childSmoothed,
-                        out bool childSplineHit, out string childReason,
-                        bodyResolver);
-                    if (parentOk && childOk)
-                    {
-                        recordedOffset = childRecorded - parentRecorded;
-                        smoothedOffset = childSmoothed - parentSmoothed;
-                        nineOneApplied = true;
-
-                        // HR-9: surface a "no-spline-skip" Verbose when
-                        // either side fell through to recorded == smoothed.
-                        // The propagation formula still runs (the offset
-                        // delta is just zero on that side) but the
-                        // operator needs to see that the §9.1 correction
-                        // term is degraded.
-                        if (!parentSplineHit || !childSplineHit)
-                        {
-                            ParsekLog.Verbose("Pipeline-AnchorPropagate", string.Format(CultureInfo.InvariantCulture,
-                                "no-spline-skip: parent={0} parentSection={1} parentSplineHit={2} child={3} childSection={4} childSplineHit={5} bpUT={6}",
-                                edge.ParentId, parentSectionIdx, parentSplineHit ? "true" : "false",
-                                edge.ChildId, childSectionIdx, childSplineHit ? "true" : "false",
-                                edge.UT.ToString("R", CultureInfo.InvariantCulture)));
-                        }
-                    }
-                    else
-                    {
-                        // Either side lacks an Absolute section, or no
-                        // recorded sample at bp.UT, or body resolve failed.
-                        // Identity-propagate (ε' = ε) and surface the
-                        // failure reason once per edge.
-                        nineOneFallbackReason = !parentOk ? parentReason : childReason;
-                        string failTag = "no-sample-skip";
-                        // section-not-absolute / no-sample / body-resolve-failed
-                        // each get their own diagnostic suffix so log readers
-                        // can distinguish them without parsing the reason field.
-                        if (string.Equals(nineOneFallbackReason, "section-not-absolute", StringComparison.Ordinal))
-                            failTag = "section-not-absolute-skip";
-                        else if (string.Equals(nineOneFallbackReason, "no-sample", StringComparison.Ordinal))
-                            failTag = "no-sample-skip";
-                        else
-                            failTag = "no-spline-skip"; // catch-all for body-resolve / out-of-range
-                        ParsekLog.Verbose("Pipeline-AnchorPropagate", string.Format(CultureInfo.InvariantCulture,
-                            "{0}: parent={1} parentSection={2} parentReason={3} child={4} childSection={5} childReason={6} bpUT={7}",
-                            failTag, edge.ParentId, parentSectionIdx, parentReason ?? "<ok>",
-                            edge.ChildId, childSectionIdx, childReason ?? "<ok>",
-                            edge.UT.ToString("R", CultureInfo.InvariantCulture)));
-                    }
-                }
-
-                Vector3d epsilonChild = Propagate(epsilonUpstream, recordedOffset, smoothedOffset);
-
-                AnchorSide side = AnchorSide.Start;
-                var acChild = new AnchorCorrection(
-                    recordingId: edge.ChildId,
-                    sectionIndex: childSectionIdx,
-                    side: side,
-                    ut: edge.UT,
-                    epsilon: epsilonChild,
-                    source: AnchorSource.DockOrMerge);
-
-                if (TryWriteAnchor(acChild))
-                {
-                    edgesPropagated++;
-                    ParsekLog.Verbose("Pipeline-AnchorPropagate", string.Format(CultureInfo.InvariantCulture,
-                        "Edge propagated: {0}->{1} bpType={2} bpUT={3} chainEdge={4} nineOneApplied={5} epsilonDeltaM={6}",
-                        edge.ParentId, edge.ChildId, edge.IsChain ? "chain" : edge.BranchType.ToString(),
-                        edge.UT.ToString("R", CultureInfo.InvariantCulture),
-                        edge.IsChain ? "true" : "false",
-                        nineOneApplied ? "true" : "false",
-                        (epsilonChild - epsilonUpstream).magnitude.ToString("F3", CultureInfo.InvariantCulture)));
-
-                    // Worklist propagation: the child slot now has an
-                    // anchor, so enqueue (childRecordingId, childSectionIdx)
-                    // — not just the recording — so only edges whose
-                    // parent slot IS this newly-anchored slot can re-fire
-                    // downstream. visitedEdges keeps cycle defense; once
-                    // an edge has run, a later §7.11 priority overwrite
-                    // on the same child slot will NOT re-flow through
-                    // visited edges. That limitation is documented in
-                    // docs/dev/todo-and-known-bugs.md (Phase 6 known
-                    // gaps); the iterative-refinement variant is tracked
-                    // for a future phase.
-                    string childSlotKey = edge.ChildId + "@" +
-                        childSectionIdx.ToString(CultureInfo.InvariantCulture);
-                    if (enqueuedSlots.Add(childSlotKey))
-                        worklist.Enqueue(childSlotKey);
-                }
+            }
+            else
+            {
+                // Either side lacks an Absolute section, or no
+                // recorded sample at bp.UT, or body resolve failed.
+                // Identity-propagate (ε' = ε) and surface the
+                // failure reason once per edge.
+                nineOneFallbackReason = !parentOk ? parentReason : childReason;
+                string failTag = "no-sample-skip";
+                // section-not-absolute / no-sample / body-resolve-failed
+                // each get their own diagnostic suffix so log readers
+                // can distinguish them without parsing the reason field.
+                if (string.Equals(nineOneFallbackReason, "section-not-absolute", StringComparison.Ordinal))
+                    failTag = "section-not-absolute-skip";
+                else if (string.Equals(nineOneFallbackReason, "no-sample", StringComparison.Ordinal))
+                    failTag = "no-sample-skip";
                 else
-                {
-                    candidatesDeferred++;
-                }
-                } // for ei
-            } // while worklist
+                    failTag = "no-spline-skip"; // catch-all for body-resolve / out-of-range
+                ParsekLog.Verbose("Pipeline-AnchorPropagate", string.Format(CultureInfo.InvariantCulture,
+                    "{0}: parent={1} parentSection={2} parentReason={3} child={4} childSection={5} childReason={6} bpUT={7}",
+                    failTag, edge.ParentId, parentSectionIdx, parentReason ?? "<ok>",
+                    edge.ChildId, childSectionIdx, childReason ?? "<ok>",
+                    edge.UT.ToString("R", CultureInfo.InvariantCulture)));
+            }
+            return nineOneApplied;
+        }
 
-            sw.Stop();
+        private static void LogWalkSummary(string sessionId, Stopwatch sw, DagWalkCounters counters)
+        {
             ParsekLog.Info("Pipeline-AnchorPropagate", string.Format(CultureInfo.InvariantCulture,
                 "DAG walk summary: sessionId={0} edgesVisited={1} edgesPropagated={2} " +
                 "seedCandidatesEmitted={3} candidatesDeferredByPriority={4} " +
@@ -667,14 +821,14 @@ namespace Parsek.Rendering
                 "deferredNoResolver={10} deferredNoSpline={11} " +
                 "suppressedSkipped={12} cycleSkipped={13} durationMs={14} " +
                 "boundaryInstantMaxEpsilonM={15}",
-                sessionId, edgesVisited, edgesPropagated,
-                seedCandidatesEmitted, candidatesDeferred,
-                resolvedRel, resolvedOrb, resolvedSoi, resolvedLoop,
-                resolvedBubble,
-                deferredNoResolver, deferredNoSpline,
-                suppressedSkipped, cycleSkipped,
+                sessionId, counters.EdgesVisited, counters.EdgesPropagated,
+                counters.SeedCandidatesEmitted, counters.CandidatesDeferred,
+                counters.ResolvedRel, counters.ResolvedOrb, counters.ResolvedSoi, counters.ResolvedLoop,
+                counters.ResolvedBubble,
+                counters.DeferredNoResolver, counters.DeferredNoSpline,
+                counters.SuppressedSkipped, counters.CycleSkipped,
                 sw.Elapsed.TotalMilliseconds.ToString("F2", CultureInfo.InvariantCulture),
-                maxBoundaryInstantEpsilonM.ToString("F3", CultureInfo.InvariantCulture)));
+                counters.MaxBoundaryInstantEpsilonM.ToString("F3", CultureInfo.InvariantCulture)));
         }
 
         /// <summary>

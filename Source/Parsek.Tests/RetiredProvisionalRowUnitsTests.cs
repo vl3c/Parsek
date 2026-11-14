@@ -49,7 +49,6 @@ namespace Parsek.Tests
             EffectiveState.ResetCachesForTesting();
             ParsekScenario.ResetInstanceForTesting();
             LedgerOrchestrator.ResetForTesting();
-            RecalculationEngine.ClearModules();
         }
 
         private static void AddMilestone(string id, double ut, string tag)

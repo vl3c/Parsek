@@ -16,18 +16,18 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class LedgerEventIdentityRegistryTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private readonly List<string> logLines = new List<string>();
 
         public LedgerEventIdentityRegistryTests()
         {
             ParsekLog.ResetTestOverrides();
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
-            RecalculationEngine.ClearModules();
         }
 
         public void Dispose()
         {
-            RecalculationEngine.ClearModules();
             ParsekLog.ResetTestOverrides();
         }
 
@@ -265,15 +265,15 @@ namespace Parsek.Tests
         }
 
         // Production tiers (LedgerOrchestrator.Initialize).
-        private static Walk Register()
+        private Walk Register()
         {
             var w = new Walk();
-            RecalculationEngine.RegisterModule(w.Milestones, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(w.Contracts, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(w.Science, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(w.Funds, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(w.Rep, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(w.Facilities, RecalculationEngine.ModuleTier.Facilities);
+            modules.Register(w.Milestones, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(w.Contracts, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(w.Science, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(w.Funds, RecalculationModuleSet.ModuleTier.SecondTier);
+            modules.Register(w.Rep, RecalculationModuleSet.ModuleTier.SecondTier);
+            modules.Register(w.Facilities, RecalculationModuleSet.ModuleTier.Facilities);
             return w;
         }
 
@@ -296,7 +296,7 @@ namespace Parsek.Tests
             };
         }
 
-        private static readonly Dictionary<string, Action> Probes = new Dictionary<string, Action>
+        private Dictionary<string, Action> Probes => new Dictionary<string, Action>
         {
             { "ScienceEarning/subject", ProbeScienceCapHeadroom },
             { "ScienceEarning/continuous", ProbeProducerSliceOncePerSlice },
@@ -331,7 +331,7 @@ namespace Parsek.Tests
             Action probe;
             Assert.True(Probes.TryGetValue(entryName, out probe),
                 entryName + " is marked enforced with a deciding rule but has no probe in this test");
-            RecalculationEngine.ClearModules();
+            modules.Clear();
             probe();
         }
 
@@ -343,7 +343,7 @@ namespace Parsek.Tests
                 Assert.Contains(name, enforced);
         }
 
-        private static void ProbeScienceCapHeadroom()
+        private void ProbeScienceCapHeadroom()
         {
             var w = Register();
             var actions = Seeds();
@@ -359,7 +359,7 @@ namespace Parsek.Tests
             };
             actions.Add(later);
             actions.Add(earlier);
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.Equal(3.0, earlier.EffectiveScience, 3);
             Assert.Equal(0.9, later.EffectiveScience, 3);
             Assert.Equal(3.9, w.Science.GetRunningScience(), 3);
@@ -367,7 +367,7 @@ namespace Parsek.Tests
 
         // A rewind separated two surveys of Mun: the one earlier on the timeline (captured
         // later) keeps the bonus.
-        private static void ProbeSurveyOncePerBody()
+        private void ProbeSurveyOncePerBody()
         {
             var w = Register();
             var actions = Seeds();
@@ -375,7 +375,7 @@ namespace Parsek.Tests
             var rewound = new GameAction { UT = 200, CaptureSequence = 50, Type = GameActionType.ScienceLabEarning, ScanBodyName = "Mun", ScienceAwarded = 12f };
             actions.Add(committed);
             actions.Add(rewound);
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.True(rewound.Effective);
             Assert.False(committed.Effective);
             Assert.Equal(GameActionNotCountedReason.SurveyBodyAlreadyCredited, committed.NotCountedReason);
@@ -384,7 +384,7 @@ namespace Parsek.Tests
 
         // A rewind separated two slices of one producer over the same time: the slice earlier
         // in walk order keeps it.
-        private static void ProbeProducerSliceOncePerSlice()
+        private void ProbeProducerSliceOncePerSlice()
         {
             var w = Register();
             var actions = Seeds();
@@ -400,14 +400,14 @@ namespace Parsek.Tests
             };
             actions.Add(committed);
             actions.Add(rewound);
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.Equal(4.0, rewound.EffectiveScience, 3);
             Assert.False(committed.Effective);
             Assert.Equal(GameActionNotCountedReason.ProducerSliceAlreadyCredited, committed.NotCountedReason);
             Assert.Equal(4.0, w.Science.GetRunningScience(), 3);
         }
 
-        private static void ProbeMilestoneFirstWins()
+        private void ProbeMilestoneFirstWins()
         {
             Register();
             var actions = Seeds();
@@ -415,7 +415,7 @@ namespace Parsek.Tests
             var again = new GameAction { UT = 300, Type = GameActionType.MilestoneAchievement, MilestoneId = "Mun/Landing", MilestoneFundsAwarded = 500f };
             actions.Add(again);
             actions.Add(first);
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.True(first.Effective);
             Assert.False(again.Effective);
             Assert.Equal(GameActionNotCountedReason.MilestoneAlreadyAchieved, again.NotCountedReason);
@@ -424,7 +424,7 @@ namespace Parsek.Tests
         // A committed flight crossed record thresholds 1-3 at UT 700; after a rewind a new
         // flight (captured later) crossed 1-2 at UT 580. The earliest crossing wins each
         // threshold: the new flight earns its two, the committed row only its third.
-        private static void ProbeWorldRecordOncePerThreshold()
+        private void ProbeWorldRecordOncePerThreshold()
         {
             var w = Register();
             var actions = Seeds();
@@ -458,7 +458,7 @@ namespace Parsek.Tests
             actions.Add(committed);
             actions.Add(reclimb);
             actions.Add(again);
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.True(reclimb.Effective);
             Assert.False(reclimb.RecordPartlyCredited);
             Assert.True(committed.Effective);
@@ -470,7 +470,7 @@ namespace Parsek.Tests
             Assert.Equal(100000.0 + 300.0 + 300.0, w.Funds.GetRunningBalance(), 3);
         }
 
-        private static void ProbeContractCompleteFirstWins()
+        private void ProbeContractCompleteFirstWins()
         {
             Register();
             var actions = Seeds();
@@ -479,13 +479,13 @@ namespace Parsek.Tests
             var again = Contract(GameActionType.ContractComplete, 200, "c1");
             actions.Add(again);
             actions.Add(first);
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.True(first.Effective);
             Assert.False(again.Effective);
             Assert.Equal(GameActionNotCountedReason.ContractAlreadyCompleted, again.NotCountedReason);
         }
 
-        private static void ProbeContractFailFirstOutcomeWins()
+        private void ProbeContractFailFirstOutcomeWins()
         {
             Register();
             var actions = Seeds();
@@ -494,13 +494,13 @@ namespace Parsek.Tests
             var fail = Contract(GameActionType.ContractFail, 200, "c1");
             actions.Add(complete);
             actions.Add(fail);
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.True(complete.Effective);
             Assert.False(fail.Effective);
             Assert.Equal(GameActionNotCountedReason.ContractOutcomeAfterEnd, fail.NotCountedReason);
         }
 
-        private static void ProbeContractCancelFirstOutcomeWins()
+        private void ProbeContractCancelFirstOutcomeWins()
         {
             Register();
             var actions = Seeds();
@@ -509,13 +509,13 @@ namespace Parsek.Tests
             var again = Contract(GameActionType.ContractCancel, 200, "c1");
             actions.Add(first);
             actions.Add(again);
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.True(first.Effective);
             Assert.False(again.Effective);
             Assert.Equal(GameActionNotCountedReason.ContractOutcomeAfterEnd, again.NotCountedReason);
         }
 
-        private static void ProbeParameterFirstWinsWhileOpen()
+        private void ProbeParameterFirstWinsWhileOpen()
         {
             Register();
             var actions = Seeds();
@@ -528,7 +528,7 @@ namespace Parsek.Tests
             actions.Add(completion);
             actions.Add(again);
             actions.Add(first);
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.True(first.Effective);
             Assert.False(again.Effective);
             Assert.Equal(GameActionNotCountedReason.ContractAlreadyCompleted, again.NotCountedReason);
@@ -537,7 +537,7 @@ namespace Parsek.Tests
             Assert.Equal(GameActionNotCountedReason.ContractParameterAfterCompletion, afterCompletion.NotCountedReason);
         }
 
-        private static void ProbeFacilityRepairStateRule()
+        private void ProbeFacilityRepairStateRule()
         {
             Register();
             var actions = Seeds();
@@ -547,7 +547,7 @@ namespace Parsek.Tests
             var again = new GameAction { UT = 300, Type = GameActionType.FacilityRepair, FacilityId = building, FacilityCost = 4000f };
             actions.Add(repair);
             actions.Add(again);
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.True(repair.Effective);
             Assert.False(again.Effective);
             Assert.Equal(GameActionNotCountedReason.FacilityAlreadyIntact, again.NotCountedReason);
@@ -555,7 +555,7 @@ namespace Parsek.Tests
 
         // The purchase state rule (3.15 step 6): a committed purchase (captured first) whose item a
         // purchase captured after it already bought earlier on timeline is not charged.
-        private static void ProbeTechPurchaseStateRule()
+        private void ProbeTechPurchaseStateRule()
         {
             var w = Register();
             var actions = Seeds();
@@ -564,14 +564,14 @@ namespace Parsek.Tests
             var bought = new GameAction { UT = 300, CaptureSequence = 20, Type = GameActionType.ScienceSpending, NodeId = "basicRocketry", Cost = 5f };
             actions.Add(committed);
             actions.Add(bought);
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.True(bought.Effective);
             Assert.False(committed.Effective);
             Assert.Equal(GameActionNotCountedReason.PurchaseAlreadyOwned, committed.NotCountedReason);
             Assert.Equal(95.0, w.Science.GetRunningScience(), 3);
         }
 
-        private static void ProbeFundsPurchaseStateRule(FundsSpendingSource source)
+        private void ProbeFundsPurchaseStateRule(FundsSpendingSource source)
         {
             var w = Register();
             var actions = Seeds();
@@ -581,14 +581,14 @@ namespace Parsek.Tests
                 FundsSpendingSource = source, DedupKey = "item", FundsSpent = 800f };
             actions.Add(committed);
             actions.Add(bought);
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.True(bought.Effective);
             Assert.False(committed.Effective);
             Assert.Equal(GameActionNotCountedReason.PurchaseAlreadyOwned, committed.NotCountedReason);
             Assert.Equal(100000.0 - 800.0, w.Funds.GetRunningBalance(), 3);
         }
 
-        private static void ProbeFacilityLevelStateRule()
+        private void ProbeFacilityLevelStateRule()
         {
             var w = Register();
             var actions = Seeds();
@@ -597,14 +597,14 @@ namespace Parsek.Tests
             var bought = new GameAction { UT = 300, CaptureSequence = 20, Type = GameActionType.FacilityUpgrade, FacilityId = vab, ToLevel = 2, FacilityCost = 30000f };
             actions.Add(committed);
             actions.Add(bought);
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.True(bought.Effective);
             Assert.False(committed.Effective);
             Assert.Equal(GameActionNotCountedReason.PurchaseAlreadyOwned, committed.NotCountedReason);
             Assert.Equal(70000.0, w.Funds.GetRunningBalance(), 3);
         }
 
-        private static void ProbeHireStateRule()
+        private void ProbeHireStateRule()
         {
             var w = Register();
             var actions = Seeds();
@@ -612,7 +612,7 @@ namespace Parsek.Tests
             var hired = new GameAction { UT = 300, CaptureSequence = 20, Type = GameActionType.KerbalHire, KerbalName = "Bill", HireCost = 20000f };
             actions.Add(committed);
             actions.Add(hired);
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.True(hired.Effective);
             Assert.False(committed.Effective);
             Assert.Equal(GameActionNotCountedReason.PurchaseAlreadyOwned, committed.NotCountedReason);
