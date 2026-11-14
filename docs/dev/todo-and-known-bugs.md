@@ -3296,9 +3296,10 @@ allowlists and grep gates, and the docs that name paths.
 
 **Proof.** The module of every file before and after is identical (1,249 files, 0 unplaced);
 the knot, residue and canary pins did not move. `il_compare.py` over the Debug DLL built
-before and after in the same worktree path: 4,007 types, 24,747 fields, 26,821 methods,
-0 differences (the file is 8,192 bytes larger: the TypeDef table follows file order, which
-re-encodes the type tokens inside signature blobs).
+before and after in the same worktree path (main 24abf0dba checked out detached, then the
+branch with main merged): 4,007 types, 24,748 fields, 26,824 methods, 0 differences (the
+file is 8,192 bytes larger: the TypeDef table follows file order, which re-encodes the type
+tokens inside signature blobs).
 
 **Left as it was.** `LoadReconcilePolicy.KnownLoadInitiators` keys four initiators by the
 bare name they had in the root (`ParsekScenario.cs`, `RewindLauncher.cs`, `RewindInvoker.cs`,
