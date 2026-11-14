@@ -3386,7 +3386,9 @@ compare).
   read (two Unity ECalls) and its `Part.FindModelTransform` call (which a Release JIT may
   inline down to `Transform.Find`'s ECall) each sit in a `NoInlining` helper, so the loop the
   jettison cells call still JIT-compiles under the Windows .NET test host; an IL audit of every
-  method the poll wrappers reach finds no other direct ECall and no `FlightGlobals` read.
+  method the poll wrappers reach finds no other direct ECall and no `FlightGlobals` read. One
+  more cell polls two background vessels through one `BackgroundRecorder` (the sink is reused
+  and rebound per call) and kills the bind-only-once mutants that every golden let through.
 - 2026-11-14 (B4, the recalculation module set): pins first, in
   `LedgerStateFuzzerTests.ModuleSet.cs`: production `Initialize` registers the eight modules in
   tier order (the eight `Registered ...` lines, `ClearModules: removed=0`, idempotent), the
