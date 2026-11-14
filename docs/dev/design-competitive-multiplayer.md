@@ -92,6 +92,8 @@ These are binding. Quotes are the owner's words.
   card, 2026-11-14, after the terrain survey).
 - Scoring: a points ladder (decision card, 2026-11-14). Each first is worth points by
   difficulty; the most points held when time runs out wins.
+- Game dates are compared in whole days, and players tied on a day split the points
+  (decision card, 2026-11-14; 6.6, 7.8).
 - Rival milestones dated after your own game clock are always shown (decision card,
   2026-11-14).
 
@@ -633,11 +635,11 @@ A milestone's date is stored exactly, as the game's universal time in seconds. H
 are COMPARED is a race setting, `dateUnit`, fixed in the manifest so every machine compares
 alike:
 
-- `DAY` (proposed default, decision pending): dates are compared as whole game days. Two
+- `DAY` (the default, owner ruling 2026-11-14): dates are compared as whole game days. Two
   players who reach a milestone on the same game day are tied.
 - `SECOND`: dates are compared exactly. Ties practically never happen.
 
-Why whole days are proposed: (a) the sites are spread around Kerbin, so the Mun and the
+Why whole days: (a) the sites are spread around Kerbin, so the Mun and the
 launch windows to it come up to three hours apart for different players, a difference that
 is nobody's skill and that a whole-day comparison mostly absorbs; (b) with exact seconds the
 opening firsts become a clicking race and a rival's date can be beaten by one second, which
@@ -1151,7 +1153,7 @@ landing) is a later hardening (open question 13.C.4).
 **The board.** For every ladder milestone m and every player p, the date d(p, m) or nothing.
 The first is the earliest date in the race's date unit (6.6); its holders are every player
 with that date. With whole-day comparison, two players who reached the milestone on the same
-game day are co-holders and **split the points** (proposed, decision pending): a milestone
+game day are co-holders and **split the points** (owner ruling 2026-11-14): a milestone
 worth 6 gives each of two co-holders 3. Matching a rival's day therefore takes half of the
 points from them, and only being a full day earlier takes them all. A player's score is the
 sum over the milestones they hold.
@@ -1675,7 +1677,7 @@ Each is written into the document as a proposal and asked as a decision card on 
 
 | Id | Question | Proposal in this document |
 |----|----------|---------------------------|
-| D1 | How finely are game dates compared, and what does a tie give? | Whole game days; players tied on a day split the points (6.6, 7.8) |
+| D1 | How finely are game dates compared, and what does a tie give? | DECIDED 2026-11-14: whole game days; players tied on a day split the points (6.6, 7.8) |
 | D2 | May a player hold flights back and share them at the last moment before the end date? | Yes; the last standing stamped before the end counts (7.10) |
 | D3 | Does a flight flown with cheat or debug tools score? | No: shown, marked, worth nothing (7.12) |
 | D4 | The shared launch sites exist only with the Making History expansion. What does a race do? | A race setting chosen by the creator; when it is on, joining needs the expansion (7.3) |
