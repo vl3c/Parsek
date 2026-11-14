@@ -46,7 +46,6 @@ namespace Parsek.Tests
             ParsekScenario.ResetInstanceForTesting();
             SessionSuppressionState.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
-            RecalculationEngine.ClearModules();
             RewindContext.ResetForTesting();
             RevertDetector.ResetForTesting();
         }

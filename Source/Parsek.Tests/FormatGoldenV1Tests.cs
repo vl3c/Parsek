@@ -159,7 +159,7 @@ namespace Parsek.Tests
         private static double RecalculatedFunds()
         {
             LedgerOrchestrator.Initialize();
-            RecalculationEngine.Recalculate(new List<GameAction>(EffectiveState.ComputeELS()));
+            RecalculationEngine.Recalculate(LedgerOrchestrator.Modules, new List<GameAction>(EffectiveState.ComputeELS()));
             return LedgerOrchestrator.Funds.GetRunningBalance();
         }
 

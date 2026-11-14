@@ -192,7 +192,7 @@ namespace Parsek.Tests
             // so the module graph under replay is the one production builds.
             var actions = LoadFixtureLedger();
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(LedgerOrchestrator.Modules, actions);
 
             double reconFunds = LedgerOrchestrator.Funds.GetRunningBalance();
             double reconScience = LedgerOrchestrator.Science.GetRunningScience();

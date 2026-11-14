@@ -3089,6 +3089,27 @@ compare).
   and every derived field), and a SHA-256 digest over the fuzz corpus (120 ledgers) through all
   four engine entry points (visible walk, clone balance walk, the module probe, the click probe),
   numbers rounded to 3 decimals. The digest must not move unless a ledger result does.
+  Then the change: `RecalculationEngine` keeps no module state (its four registry statics are
+  gone; only the test counter `SortActionsCallCountForTesting` stays). Every entry point
+  (`Recalculate`, `ProbeModuleAtCutoff`, `ProbeClickReservationAtCutoff`,
+  `WalkBalancesOnClones`) takes a `RecalculationModuleSet` (`GameActions/
+  RecalculationModuleSet.cs`: the four tiers, `Register` with the old log lines, `Clear`, and
+  the `ModuleTier` enum, moved off the engine so the set stays a leaf of the text graph: with
+  the enum left on the engine the text knot read 434 -> 435).
+  Production builds one in `LedgerOrchestrator.Initialize` (`moduleSet`, read as
+  `LedgerOrchestrator.Modules` by the click probe, the Re-Fly seal credit and merge
+  dominance); a reset replaces the set and logs `ClearModules: removed=N` as before. Tests
+  that registered modules build their own set; a `ClearModules` beside an orchestrator reset
+  is dropped. The digest did not move, and three mutants red the pins (two registrations
+  swapped in `Initialize`; tiers swapped in the visible walk; strategy registration dropped);
+  a fourth, the clone balance walk without the strategy module, survives (the strategy
+  transform is an identity for rewards, and no balance or flag the clone walk returns moves
+  on the corpus without it).
+  No `[Collection("Sequential")]` was relaxed: the modules still read shared statics
+  (`StockPoolReference`, `RecordingStore`, `LedgerOrchestrator.Kerbals`) and every walk bumps
+  the shared sort counter. `lifetime_pins.toml` untagged 499 -> 495. The semantic measure is
+  unchanged (knot 391, greedy 140, replayed 144); `ClickReservationGate` reading the set is
+  one new residue edge into the orchestrator (29 -> 30).
 - 2026-11-11 (metrics history): `scripts/arch/metrics.py` builds one JSON row per commit
   (schema `parsek-metrics/1`) from the existing tools' output: the text scan, the semantic
   headline, the code facts (with test reach when given the test DLL) and `count-code.py`'s

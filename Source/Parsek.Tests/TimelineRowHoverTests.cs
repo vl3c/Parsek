@@ -14,6 +14,8 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class TimelineRowHoverTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private readonly List<string> logLines = new List<string>();
 
         // "D<day>" from whole hundreds, like KSPUtil.PrintDateCompact reads.
@@ -24,12 +26,10 @@ namespace Parsek.Tests
         {
             ParsekLog.ResetTestOverrides();
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
-            RecalculationEngine.ClearModules();
         }
 
         public void Dispose()
         {
-            RecalculationEngine.ClearModules();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -169,13 +169,13 @@ namespace Parsek.Tests
         public void Walk_StampsTheReason_AndTheNextWalkResetsIt()
         {
             var contracts = new ContractsModule();
-            RecalculationEngine.RegisterModule(contracts, RecalculationEngine.ModuleTier.FirstTier);
+            modules.Register(contracts, RecalculationModuleSet.ModuleTier.FirstTier);
             var accept = new GameAction { UT = 100, Type = GameActionType.ContractAccept, ContractId = "c1" };
             var first = new GameAction { UT = 200, Type = GameActionType.ContractComplete, ContractId = "c1", FundsReward = 10f };
             var dup = new GameAction { UT = 300, Type = GameActionType.ContractComplete, ContractId = "c1", FundsReward = 10f };
             var actions = new List<GameAction> { accept, first, dup };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.True(first.Effective);
             Assert.Equal(GameActionNotCountedReason.None, first.NotCountedReason);
             Assert.False(dup.Effective);
@@ -183,7 +183,7 @@ namespace Parsek.Tests
 
             // Remove the first completion: the former duplicate now counts, reason cleared.
             actions.Remove(first);
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.True(dup.Effective);
             Assert.Equal(GameActionNotCountedReason.None, dup.NotCountedReason);
         }
@@ -218,13 +218,13 @@ namespace Parsek.Tests
         public void IneffectiveFail_IsGreyedAndSaysNotCharged_AndNeverDecidesAContractMark()
         {
             var contracts = new ContractsModule();
-            RecalculationEngine.RegisterModule(contracts, RecalculationEngine.ModuleTier.FirstTier);
+            modules.Register(contracts, RecalculationModuleSet.ModuleTier.FirstTier);
             var accept = new GameAction { UT = 100, Type = GameActionType.ContractAccept, ContractId = "c1" };
             var complete = new GameAction { UT = 500, Type = GameActionType.ContractComplete, ContractId = "c1", FundsReward = 10f };
             var lateFail = new GameAction { UT = 700, Type = GameActionType.ContractFail, ContractId = "c1", FundsPenalty = 50f };
             var actions = new List<GameAction> { accept, complete, lateFail };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.True(complete.Effective);
             Assert.False(lateFail.Effective);
             Assert.Equal(GameActionNotCountedReason.ContractOutcomeAfterEnd, lateFail.NotCountedReason);

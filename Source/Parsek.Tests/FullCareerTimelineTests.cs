@@ -195,7 +195,7 @@ namespace Parsek.Tests
 
             // Act: recalculate (same pattern as LedgerOrchestrator.RecalculateAndPatch but without KSP patching)
             var actionsCopy = new List<GameAction>(Ledger.Actions);
-            RecalculationEngine.Recalculate(actionsCopy);
+            RecalculationEngine.Recalculate(LedgerOrchestrator.Modules, actionsCopy);
 
             // Assert: Science balance
             // 0 (seed) + 5 + 8 + 12 + 30 (experiments) + 5 (contract reward) - 5 - 5 (spendings) = 50
@@ -288,7 +288,7 @@ namespace Parsek.Tests
 
             Ledger.AddActions(actions);
             var actionsCopy = new List<GameAction>(Ledger.Actions);
-            RecalculationEngine.Recalculate(actionsCopy);
+            RecalculationEngine.Recalculate(LedgerOrchestrator.Modules, actionsCopy);
 
             // Find the two competing actions by recordingId
             var rec2Action = actionsCopy
@@ -331,7 +331,7 @@ namespace Parsek.Tests
 
             // Act: first recalculation
             var actionsCopy = new List<GameAction>(Ledger.Actions);
-            RecalculationEngine.Recalculate(actionsCopy);
+            RecalculationEngine.Recalculate(LedgerOrchestrator.Modules, actionsCopy);
 
             double scienceBalance1 = LedgerOrchestrator.Science.GetRunningScience();
             double fundsBalance1 = LedgerOrchestrator.Funds.GetRunningBalance();
@@ -348,7 +348,7 @@ namespace Parsek.Tests
             var affordable1 = actionsCopy.Select(a => a.Affordable).ToList();
 
             // Act: second recalculation on the same actions
-            RecalculationEngine.Recalculate(actionsCopy);
+            RecalculationEngine.Recalculate(LedgerOrchestrator.Modules, actionsCopy);
 
             // Assert: module-level state is identical
             Assert.Equal(scienceBalance1, LedgerOrchestrator.Science.GetRunningScience());

@@ -44,7 +44,6 @@ namespace Parsek.Tests
             ParsekScenario.ResetInstanceForTesting();
             SessionSuppressionState.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
-            RecalculationEngine.ClearModules();
             KspStatePatcher.SuppressUnityCallsForTesting = true;
             CrewReservationManager.ResetReplacementsForTesting();
         }
@@ -60,7 +59,6 @@ namespace Parsek.Tests
             ParsekScenario.ResetInstanceForTesting();
             SessionSuppressionState.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
-            RecalculationEngine.ClearModules();
             KspStatePatcher.ResetForTesting();
             CrewReservationManager.ResetReplacementsForTesting();
             KerbalsModule.CrewRespawnPolicyProviderForTesting = null;

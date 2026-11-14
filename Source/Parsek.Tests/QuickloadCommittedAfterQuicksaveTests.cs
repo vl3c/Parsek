@@ -65,7 +65,6 @@ namespace Parsek.Tests
             ParsekScenario.pendingActiveTreeResumeRewindSave = null;
             SessionSuppressionState.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
-            RecalculationEngine.ClearModules();
             RewindContext.ResetForTesting();
             RevertDetector.ResetForTesting();
             FlightRecorder.QuickloadResumeUTProviderForTesting = null;

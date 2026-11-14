@@ -22,10 +22,11 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class StrategyCaptureTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private readonly List<string> logLines = new List<string>();
         public StrategyCaptureTests()
         {
-            RecalculationEngine.ClearModules();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
@@ -39,7 +40,6 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
-            RecalculationEngine.ClearModules();
             GameStateRecorder.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
             KspStatePatcher.ResetForTesting();
@@ -511,8 +511,8 @@ namespace Parsek.Tests
             // expects and walk an activate + deactivate pair. The module must see
             // both actions and land in the expected activeStrategies state.
             var strategies = new StrategiesModule();
-            RecalculationEngine.RegisterModule(
-                strategies, RecalculationEngine.ModuleTier.Strategy);
+            modules.Register(
+                strategies, RecalculationModuleSet.ModuleTier.Strategy);
 
             var activateEvt = new GameStateEvent
             {
@@ -528,7 +528,7 @@ namespace Parsek.Tests
                 activateEvt, null);
             var actions = new List<GameAction> { activateAction };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.True(strategies.IsStrategyActive("UnpaidResearch"));
             Assert.Equal(1, strategies.GetActiveStrategyCount());
 
@@ -545,7 +545,7 @@ namespace Parsek.Tests
             actions.Add(GameStateEventConverter.ConvertStrategyDeactivated(
                 deactivateEvt, null));
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.False(strategies.IsStrategyActive("UnpaidResearch"));
             Assert.Equal(0, strategies.GetActiveStrategyCount());
         }

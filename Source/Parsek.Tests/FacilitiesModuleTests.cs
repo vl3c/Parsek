@@ -7,12 +7,13 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class FacilitiesModuleTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private readonly FacilitiesModule module;
         private readonly List<string> logLines = new List<string>();
 
         public FacilitiesModuleTests()
         {
-            RecalculationEngine.ClearModules();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
@@ -21,7 +22,6 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
-            RecalculationEngine.ClearModules();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -374,7 +374,7 @@ namespace Parsek.Tests
         [Fact]
         public void Integration_EngineDispatchesFacilityActions()
         {
-            RecalculationEngine.RegisterModule(module, RecalculationEngine.ModuleTier.Facilities);
+            modules.Register(module, RecalculationModuleSet.ModuleTier.Facilities);
 
             var actions = new List<GameAction>
             {
@@ -384,7 +384,7 @@ namespace Parsek.Tests
                 MakeUpgrade(2000, "LaunchPad", 3)
             };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.Equal(3, module.GetFacilityLevel("LaunchPad"));
             Assert.False(module.IsFacilityDestroyed("LaunchPad"));

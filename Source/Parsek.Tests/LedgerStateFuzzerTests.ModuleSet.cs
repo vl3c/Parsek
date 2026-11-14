@@ -62,8 +62,20 @@ namespace Parsek.Tests
 
                 // Initialize is idempotent: a second call registers nothing.
                 lines.Clear();
+                var initialized = LedgerOrchestrator.Modules;
                 LedgerOrchestrator.Initialize();
                 Assert.DoesNotContain(lines, l => l.Contains("Registered "));
+                Assert.Same(initialized, LedgerOrchestrator.Modules);
+                Assert.Equal(8, initialized.Count);
+
+                // A reset drops the set for a fresh empty one and logs what it removed; the
+                // set a caller still holds is not emptied under it.
+                lines.Clear();
+                LedgerOrchestrator.ResetForTesting();
+                Assert.NotSame(initialized, LedgerOrchestrator.Modules);
+                Assert.Equal(0, LedgerOrchestrator.Modules.Count);
+                Assert.Equal(8, initialized.Count);
+                Assert.Contains(lines, l => l.Contains("[RecalcEngine]") && l.Contains("ClearModules: removed=8"));
             }
             finally
             {
@@ -84,14 +96,14 @@ namespace Parsek.Tests
                     var ledger = BuildLedger(iteration);
                     foreach (double? cutoff in CutoffsFor(ledger))
                     {
-                        RecalculationEngine.ClearModules();
+                        modules.Clear();
                         RegisterProductionModules();
-                        RecalculationEngine.Recalculate(ledger.Actions, cutoff);
+                        RecalculationEngine.Recalculate(modules, ledger.Actions, cutoff);
                         string mirrored = WalkOutcome(ledger.Actions, funds, science, reputation);
 
                         LedgerOrchestrator.ResetForTesting();
                         LedgerOrchestrator.Initialize();
-                        RecalculationEngine.Recalculate(ledger.Actions, cutoff);
+                        RecalculationEngine.Recalculate(LedgerOrchestrator.Modules, ledger.Actions, cutoff);
                         string production = WalkOutcome(ledger.Actions,
                             LedgerOrchestrator.Funds, LedgerOrchestrator.Science, LedgerOrchestrator.Reputation);
 
@@ -124,13 +136,13 @@ namespace Parsek.Tests
                 sb.Append("#it=").Append(iteration.ToString(IC)).Append('\n');
                 foreach (double? cutoff in CutoffsFor(ledger))
                 {
-                    RecalculationEngine.Recalculate(ledger.Actions, cutoff);
+                    RecalculationEngine.Recalculate(modules, ledger.Actions, cutoff);
                     sb.Append("cut=").Append(cutoff.HasValue ? Q(cutoff.Value) : "null").Append('\n');
                     sb.Append(Snapshot(Q)).Append('\n');
                     sb.Append(DerivedFields(ledger.Actions)).Append('\n');
                 }
 
-                var walk = RecalculationEngine.WalkBalancesOnClones(ledger.Actions, ledger.MaxUT);
+                var walk = RecalculationEngine.WalkBalancesOnClones(modules, ledger.Actions, ledger.MaxUT);
                 sb.Append("clones science=").Append(walk.ScienceWalked ? 1 : 0).Append(" samples=");
                 foreach (var s in walk.Samples)
                     sb.Append(Q(s.UT)).Append(':').Append(Q(s.Funds)).Append('/')
@@ -144,15 +156,15 @@ namespace Parsek.Tests
                 sb.Append('\n');
 
                 double probeUT = ledger.MaxUT * 0.5;
-                var fundsProbe = RecalculationEngine.ProbeModuleAtCutoff<FundsModule>(ledger.Actions, probeUT);
-                var scienceProbe = RecalculationEngine.ProbeModuleAtCutoff<ScienceModule>(ledger.Actions, probeUT);
+                var fundsProbe = RecalculationEngine.ProbeModuleAtCutoff<FundsModule>(modules, ledger.Actions, probeUT);
+                var scienceProbe = RecalculationEngine.ProbeModuleAtCutoff<ScienceModule>(modules, ledger.Actions, probeUT);
                 sb.Append("probe funds=")
                   .Append(fundsProbe == null ? "null" : Q(fundsProbe.GetRunningBalance()) + "/" + Q(fundsProbe.GetAvailableFunds()))
                   .Append(" science=")
                   .Append(scienceProbe == null ? "null" : Q(scienceProbe.GetRunningScience()) + "/" + Q(scienceProbe.GetAvailableScience()))
                   .Append('\n');
 
-                var click = RecalculationEngine.ProbeClickReservationAtCutoff(ledger.Actions, probeUT);
+                var click = RecalculationEngine.ProbeClickReservationAtCutoff(modules, ledger.Actions, probeUT);
                 sb.Append("click modules=").Append(string.Join(",", click.Modules.Select(m => m.GetType().Name).ToArray()))
                   .Append(" pools=");
                 foreach (var p in click.Pools)
@@ -172,6 +184,33 @@ namespace Parsek.Tests
             Assert.True(digest == WalkDigestPin,
                 "walk digest over the fuzz corpus moved: got " + digest + ", pinned " + WalkDigestPin
                 + " (a moved digest is a changed ledger result)");
+        }
+
+        [Fact]
+        public void TwoModuleSets_WalkIndependently()
+        {
+            // The engine keeps no module state: walking another set (here an empty one and
+            // a second production-shaped one) leaves this class's modules exactly as its
+            // own walk left them.
+            var ledger = BuildLedger(7);
+            RecalculationEngine.Recalculate(modules, ledger.Actions, null);
+            string own = Snapshot(Q);
+            string ownDerived = DerivedFields(ledger.Actions);
+
+            RecalculationEngine.Recalculate(new RecalculationModuleSet(), ledger.Actions, null);
+            Assert.Equal(own, Snapshot(Q));
+
+            var other = new RecalculationModuleSet();
+            var otherFunds = new FundsModule();
+            other.Register(new ScienceModule(), RecalculationModuleSet.ModuleTier.FirstTier);
+            other.Register(otherFunds, RecalculationModuleSet.ModuleTier.SecondTier);
+            RecalculationEngine.Recalculate(other, BuildLedger(8).Actions, null);
+            Assert.Equal(own, Snapshot(Q));
+            Assert.True(otherFunds.HasSeed, "the other set's funds module walked its own ledger");
+
+            RecalculationEngine.Recalculate(modules, ledger.Actions, null);
+            Assert.Equal(own, Snapshot(Q));
+            Assert.Equal(ownDerived, DerivedFields(ledger.Actions));
         }
 
         private static string WalkOutcome(

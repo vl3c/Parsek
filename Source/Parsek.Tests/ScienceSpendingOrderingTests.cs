@@ -32,6 +32,8 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class ScienceSpendingOrderingTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private readonly List<string> logLines = new List<string>();
 
         public ScienceSpendingOrderingTests()
@@ -40,21 +42,19 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             Ledger.ResetForTesting();
-            RecalculationEngine.ClearModules();
         }
 
         public void Dispose()
         {
-            RecalculationEngine.ClearModules();
             Ledger.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
 
-        private static ScienceModule RegisterScienceModule()
+        private ScienceModule RegisterScienceModule()
         {
             var science = new ScienceModule();
-            RecalculationEngine.RegisterModule(science, RecalculationEngine.ModuleTier.FirstTier);
+            modules.Register(science, RecalculationModuleSet.ModuleTier.FirstTier);
             return science;
         }
 
@@ -108,7 +108,7 @@ namespace Parsek.Tests
                 Spending(200.0, "basicRocketry", 90f)
             };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             // 100 seed + 50 earned - 90 spent.
             Assert.Equal(60.0, science.GetRunningScience(), 3);
@@ -140,7 +140,7 @@ namespace Parsek.Tests
                 Earning(20.0, "mysteryGoo@KerbinSrfLandedShores", 50f)
             };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             // Step 6: charged in full into a science debt, NOT refused, NOT clamped to
             // zero; the tech stays researched.
@@ -179,7 +179,7 @@ namespace Parsek.Tests
                 Earning(100.0, "mysteryGoo@KerbinSrfLandedShores", 50f)
             };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.True(actions[1].Affordable,
                 "the equal-UT earning sorts first, so the spend must be affordable");
@@ -206,7 +206,7 @@ namespace Parsek.Tests
                 Earning(100.0, "mysteryGoo@KerbinSrfLandedShores", 50f)
             };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             // Not covered by the equal-UT tiebreak: the spend goes into a 40 debt that the
             // earning repays. The end balance matches the same-UT cell; the difference is
