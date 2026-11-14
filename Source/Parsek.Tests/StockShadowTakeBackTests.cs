@@ -21,6 +21,8 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class StockShadowTakeBackTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private readonly List<string> logLines = new List<string>();
         private readonly List<GameAction> ledger = new List<GameAction>();
         private readonly MilestonesModule milestones = new MilestonesModule();
@@ -39,17 +41,15 @@ namespace Parsek.Tests
             StockPoolReference.ResetForTesting();
             Ledger.ResetForTesting();
             CommittedMilestoneReach.ResetForTesting();
-            RecalculationEngine.ClearModules();
-            RecalculationEngine.RegisterModule(milestones, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(contracts, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(science, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(reputation, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(milestones, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(contracts, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(science, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(funds, RecalculationModuleSet.ModuleTier.SecondTier);
+            modules.Register(reputation, RecalculationModuleSet.ModuleTier.SecondTier);
         }
 
         public void Dispose()
         {
-            RecalculationEngine.ClearModules();
             KspStatePatcher.AllowNegativeCurrencyProviderForTesting = null;
             StockPoolReference.ResetForTesting();
             CommittedMilestoneReach.ResetForTesting();
@@ -66,7 +66,7 @@ namespace Parsek.Tests
             ledger.Where(a => a != null && !string.IsNullOrEmpty(a.ActionId)).Select(a => a.ActionId),
             StringComparer.Ordinal);
 
-        private void Walk(double now) => RecalculationEngine.Recalculate(ledger.ToList(), now);
+        private void Walk(double now) => RecalculationEngine.Recalculate(modules, ledger.ToList(), now);
 
         private void File(StockPoolMeasurement m, StockPool pool, double now)
         {

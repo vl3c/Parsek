@@ -8,11 +8,12 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class RecalculationEngineTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private readonly List<string> logLines = new List<string>();
 
         public RecalculationEngineTests()
         {
-            RecalculationEngine.ClearModules();
             RecalculationEngine.ResetSortActionsCallCountForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
@@ -21,7 +22,6 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
-            RecalculationEngine.ClearModules();
             RecalculationEngine.ResetSortActionsCallCountForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
@@ -560,7 +560,7 @@ namespace Parsek.Tests
         public void PrePassNoInjection_SkipsSecondSort()
         {
             var module = new TestModule();
-            RecalculationEngine.RegisterModule(module, RecalculationEngine.ModuleTier.FirstTier);
+            modules.Register(module, RecalculationModuleSet.ModuleTier.FirstTier);
 
             var actions = new List<GameAction>
             {
@@ -569,7 +569,7 @@ namespace Parsek.Tests
             };
 
             RecalculationEngine.ResetSortActionsCallCountForTesting();
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.Equal(1, RecalculationEngine.SortActionsCallCountForTesting);
             Assert.Contains(logLines, l =>
@@ -582,8 +582,8 @@ namespace Parsek.Tests
         {
             var contracts = new ContractsModule();
             var capture = new TestModule();
-            RecalculationEngine.RegisterModule(contracts, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(capture, RecalculationEngine.ModuleTier.FirstTier);
+            modules.Register(contracts, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(capture, RecalculationModuleSet.ModuleTier.FirstTier);
 
             var actions = new List<GameAction>
             {
@@ -600,7 +600,7 @@ namespace Parsek.Tests
             };
 
             RecalculationEngine.ResetSortActionsCallCountForTesting();
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.Equal(2, RecalculationEngine.SortActionsCallCountForTesting);
             Assert.Contains(capture.ProcessedActions, a =>
@@ -612,7 +612,7 @@ namespace Parsek.Tests
         [Fact]
         public void CutoffWalk_AllocationsBounded()
         {
-            RecalculationEngine.RegisterModule(new AllocationProbeModule(), RecalculationEngine.ModuleTier.FirstTier);
+            modules.Register(new AllocationProbeModule(), RecalculationModuleSet.ModuleTier.FirstTier);
             var actions = new List<GameAction>();
 
             bool previousSuppress = ParsekLog.SuppressLogging;
@@ -620,7 +620,7 @@ namespace Parsek.Tests
             try
             {
                 for (int i = 0; i < 10; i++)
-                    RecalculationEngine.Recalculate(actions, 15.0);
+                    RecalculationEngine.Recalculate(modules, actions, 15.0);
 
                 long before;
                 if (!TryGetAllocatedBytesForCurrentThread(out before))
@@ -632,7 +632,7 @@ namespace Parsek.Tests
 
                 const int iterations = 100;
                 for (int i = 0; i < iterations; i++)
-                    RecalculationEngine.Recalculate(actions, 15.0);
+                    RecalculationEngine.Recalculate(modules, actions, 15.0);
                 long after;
                 Assert.True(TryGetAllocatedBytesForCurrentThread(out after));
 
@@ -654,12 +654,12 @@ namespace Parsek.Tests
             var strategy = new TestModule();
             var facilities = new TestModule();
 
-            RecalculationEngine.RegisterModule(firstTier, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(secondTier, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(strategy, RecalculationEngine.ModuleTier.Strategy);
-            RecalculationEngine.RegisterModule(facilities, RecalculationEngine.ModuleTier.Facilities);
+            modules.Register(firstTier, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(secondTier, RecalculationModuleSet.ModuleTier.SecondTier);
+            modules.Register(strategy, RecalculationModuleSet.ModuleTier.Strategy);
+            modules.Register(facilities, RecalculationModuleSet.ModuleTier.Facilities);
 
-            RecalculationEngine.Recalculate(new List<GameAction>());
+            RecalculationEngine.Recalculate(modules, new List<GameAction>());
 
             Assert.Equal(1, firstTier.ResetCount);
             Assert.Equal(1, secondTier.ResetCount);
@@ -671,7 +671,7 @@ namespace Parsek.Tests
         public void Recalculate_DispatchesToFirstTierModule()
         {
             var module = new TestModule();
-            RecalculationEngine.RegisterModule(module, RecalculationEngine.ModuleTier.FirstTier);
+            modules.Register(module, RecalculationModuleSet.ModuleTier.FirstTier);
 
             var actions = new List<GameAction>
             {
@@ -679,7 +679,7 @@ namespace Parsek.Tests
                 new GameAction { UT = 17100.0, Type = GameActionType.ScienceSpending }
             };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.Equal(1, module.ResetCount);
             Assert.Equal(2, module.ProcessedActions.Count);
@@ -691,14 +691,14 @@ namespace Parsek.Tests
         public void Recalculate_DispatchesToSecondTierModule()
         {
             var module = new TestModule();
-            RecalculationEngine.RegisterModule(module, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(module, RecalculationModuleSet.ModuleTier.SecondTier);
 
             var actions = new List<GameAction>
             {
                 new GameAction { UT = 17000.0, Type = GameActionType.FundsEarning, FundsAwarded = 5000f }
             };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.Equal(1, module.ResetCount);
             Assert.Single(module.ProcessedActions);
@@ -709,14 +709,14 @@ namespace Parsek.Tests
         public void Recalculate_DispatchesToStrategyModule()
         {
             var module = new TestModule();
-            RecalculationEngine.RegisterModule(module, RecalculationEngine.ModuleTier.Strategy);
+            modules.Register(module, RecalculationModuleSet.ModuleTier.Strategy);
 
             var actions = new List<GameAction>
             {
                 new GameAction { UT = 17000.0, Type = GameActionType.StrategyActivate, StrategyId = "S1" }
             };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.Equal(1, module.ResetCount);
             Assert.Single(module.ProcessedActions);
@@ -726,14 +726,14 @@ namespace Parsek.Tests
         public void Recalculate_DispatchesToFacilitiesModule()
         {
             var module = new TestModule();
-            RecalculationEngine.RegisterModule(module, RecalculationEngine.ModuleTier.Facilities);
+            modules.Register(module, RecalculationModuleSet.ModuleTier.Facilities);
 
             var actions = new List<GameAction>
             {
                 new GameAction { UT = 17000.0, Type = GameActionType.FacilityUpgrade, FacilityId = "LaunchPad" }
             };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.Equal(1, module.ResetCount);
             Assert.Single(module.ProcessedActions);
@@ -743,7 +743,7 @@ namespace Parsek.Tests
         public void Recalculate_DispatchesInSortedOrder()
         {
             var module = new TestModule();
-            RecalculationEngine.RegisterModule(module, RecalculationEngine.ModuleTier.FirstTier);
+            modules.Register(module, RecalculationModuleSet.ModuleTier.FirstTier);
 
             var actions = new List<GameAction>
             {
@@ -752,7 +752,7 @@ namespace Parsek.Tests
                 new GameAction { UT = 200.0, Type = GameActionType.ScienceEarning, SubjectId = "second" }
             };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.Equal(100.0, module.ProcessedActions[0].UT);
             Assert.Equal(200.0, module.ProcessedActions[1].UT);
@@ -767,10 +767,10 @@ namespace Parsek.Tests
             var strategy = new TestModule();
             var facilities = new TestModule();
 
-            RecalculationEngine.RegisterModule(firstTier, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(secondTier, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(strategy, RecalculationEngine.ModuleTier.Strategy);
-            RecalculationEngine.RegisterModule(facilities, RecalculationEngine.ModuleTier.Facilities);
+            modules.Register(firstTier, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(secondTier, RecalculationModuleSet.ModuleTier.SecondTier);
+            modules.Register(strategy, RecalculationModuleSet.ModuleTier.Strategy);
+            modules.Register(facilities, RecalculationModuleSet.ModuleTier.Facilities);
 
             var actions = new List<GameAction>
             {
@@ -778,7 +778,7 @@ namespace Parsek.Tests
                 new GameAction { UT = 17100.0, Type = GameActionType.FundsSpending }
             };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             // Every module receives every action — modules decide internally what to process
             Assert.Equal(2, firstTier.ProcessedActions.Count);
@@ -794,10 +794,10 @@ namespace Parsek.Tests
             var science = new ScienceModule();
             var funds = new FundsModule();
             var reputation = new ReputationModule();
-            RecalculationEngine.RegisterModule(contracts, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(science, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(reputation, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(contracts, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(science, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(funds, RecalculationModuleSet.ModuleTier.SecondTier);
+            modules.Register(reputation, RecalculationModuleSet.ModuleTier.SecondTier);
 
             var complete = ContractComplete(400.0, "c-before", funds: 1000f, rep: 10f, sci: 5f);
             var actions = new List<GameAction>
@@ -808,7 +808,7 @@ namespace Parsek.Tests
                 complete
             };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.True(complete.Effective);
             Assert.Equal(11100.0, funds.GetRunningBalance(), 1);
@@ -828,10 +828,10 @@ namespace Parsek.Tests
             var science = new ScienceModule();
             var funds = new FundsModule();
             var reputation = new ReputationModule();
-            RecalculationEngine.RegisterModule(contracts, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(science, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(reputation, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(contracts, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(science, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(funds, RecalculationModuleSet.ModuleTier.SecondTier);
+            modules.Register(reputation, RecalculationModuleSet.ModuleTier.SecondTier);
 
             var complete = ContractComplete(600.0, "c-late", funds: 1000f, rep: 10f, sci: 5f);
             var actions = new List<GameAction>
@@ -842,7 +842,7 @@ namespace Parsek.Tests
                 complete
             };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.False(complete.Effective);
             // The synthetic fail retires the contract and moves no pool (committed-value
@@ -870,10 +870,10 @@ namespace Parsek.Tests
             var science = new ScienceModule();
             var funds = new FundsModule();
             var reputation = new ReputationModule();
-            RecalculationEngine.RegisterModule(contracts, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(science, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(reputation, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(contracts, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(science, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(funds, RecalculationModuleSet.ModuleTier.SecondTier);
+            modules.Register(reputation, RecalculationModuleSet.ModuleTier.SecondTier);
 
             var complete = ContractComplete(500.0, "c-boundary", funds: 1000f, rep: 10f, sci: 5f);
             var actions = new List<GameAction>
@@ -884,7 +884,7 @@ namespace Parsek.Tests
                 complete
             };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.False(complete.Effective);
             // The synthetic fail retires the contract and moves no pool (committed-value
@@ -913,8 +913,8 @@ namespace Parsek.Tests
         {
             var contracts = new ContractsModule();
             var funds = new FundsModule();
-            RecalculationEngine.RegisterModule(contracts, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(contracts, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(funds, RecalculationModuleSet.ModuleTier.SecondTier);
 
             var actions = new List<GameAction>
             {
@@ -924,7 +924,7 @@ namespace Parsek.Tests
                 ContractPenalty(type, 600.0, "c-explicit", fundsPenalty: 300f)
             };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.Equal(9800.0, funds.GetRunningBalance(), 1);
             Assert.Equal(0, contracts.GetActiveContractCount());
@@ -943,9 +943,9 @@ namespace Parsek.Tests
             var contracts = new ContractsModule();
             var funds = new FundsModule();
             var science = new ScienceModule();
-            RecalculationEngine.RegisterModule(contracts, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(science, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(contracts, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(funds, RecalculationModuleSet.ModuleTier.SecondTier);
+            modules.Register(science, RecalculationModuleSet.ModuleTier.SecondTier);
 
             var complete = ContractComplete(600.0, "c-terminal", funds: 1000f, sci: 7f);
             var actions = new List<GameAction>
@@ -957,7 +957,7 @@ namespace Parsek.Tests
                 complete
             };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.False(complete.Effective);
             Assert.Equal(9800.0, funds.GetRunningBalance(), 1);
@@ -984,9 +984,9 @@ namespace Parsek.Tests
             var contracts = new ContractsModule();
             var funds = new FundsModule();
             var science = new ScienceModule();
-            RecalculationEngine.RegisterModule(contracts, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(science, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(contracts, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(funds, RecalculationModuleSet.ModuleTier.SecondTier);
+            modules.Register(science, RecalculationModuleSet.ModuleTier.SecondTier);
 
             var complete = ContractComplete(400.0, "c-same-ut", funds: 1000f, sci: 7f);
             complete.Sequence = 2;
@@ -1001,7 +1001,7 @@ namespace Parsek.Tests
                 complete
             };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.False(complete.Effective);
             Assert.Equal(9800.0, funds.GetRunningBalance(), 1);
@@ -1020,15 +1020,15 @@ namespace Parsek.Tests
         {
             var moduleA = new TestModule();
             var moduleB = new TestModule();
-            RecalculationEngine.RegisterModule(moduleA, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(moduleB, RecalculationEngine.ModuleTier.FirstTier);
+            modules.Register(moduleA, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(moduleB, RecalculationModuleSet.ModuleTier.FirstTier);
 
             var actions = new List<GameAction>
             {
                 new GameAction { UT = 17000.0, Type = GameActionType.ScienceEarning }
             };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.Equal(1, moduleA.ResetCount);
             Assert.Equal(1, moduleB.ResetCount);
@@ -1044,9 +1044,9 @@ namespace Parsek.Tests
         public void Recalculate_EmptyActions_NoException()
         {
             var module = new TestModule();
-            RecalculationEngine.RegisterModule(module, RecalculationEngine.ModuleTier.FirstTier);
+            modules.Register(module, RecalculationModuleSet.ModuleTier.FirstTier);
 
-            RecalculationEngine.Recalculate(new List<GameAction>());
+            RecalculationEngine.Recalculate(modules, new List<GameAction>());
 
             // Reset is called even with no actions
             Assert.Equal(1, module.ResetCount);
@@ -1056,7 +1056,7 @@ namespace Parsek.Tests
         [Fact]
         public void Recalculate_NullActions_LogsWarning()
         {
-            RecalculationEngine.Recalculate(null);
+            RecalculationEngine.Recalculate(modules, null);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[RecalcEngine]") && l.Contains("null actions"));
@@ -1071,7 +1071,7 @@ namespace Parsek.Tests
             };
 
             // Should not throw even with no modules registered
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[RecalcEngine]") && l.Contains("Recalculate complete"));
@@ -1085,7 +1085,7 @@ namespace Parsek.Tests
         public void Recalculate_LogsSummary()
         {
             var module = new TestModule();
-            RecalculationEngine.RegisterModule(module, RecalculationEngine.ModuleTier.FirstTier);
+            modules.Register(module, RecalculationModuleSet.ModuleTier.FirstTier);
 
             var actions = new List<GameAction>
             {
@@ -1093,7 +1093,7 @@ namespace Parsek.Tests
                 new GameAction { UT = 17100.0, Type = GameActionType.FundsEarning }
             };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[RecalcEngine]") &&
@@ -1106,8 +1106,8 @@ namespace Parsek.Tests
         {
             var actions = new List<GameAction>();
 
-            RecalculationEngine.Recalculate(actions);
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.Equal(1, logLines.Count(l =>
                 l.Contains("[RecalcEngine]") &&
@@ -1115,7 +1115,7 @@ namespace Parsek.Tests
                 l.Contains("actionsTotal=0")));
 
             actions.Add(new GameAction { UT = 10.0, Type = GameActionType.ScienceEarning });
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.Equal(1, logLines.Count(l =>
                 l.Contains("[RecalcEngine]") &&
@@ -1127,7 +1127,7 @@ namespace Parsek.Tests
         public void RegisterModule_LogsRegistration()
         {
             var module = new TestModule();
-            RecalculationEngine.RegisterModule(module, RecalculationEngine.ModuleTier.FirstTier);
+            modules.Register(module, RecalculationModuleSet.ModuleTier.FirstTier);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[RecalcEngine]") &&
@@ -1138,7 +1138,7 @@ namespace Parsek.Tests
         [Fact]
         public void RegisterModule_NullModule_LogsWarning()
         {
-            RecalculationEngine.RegisterModule(null, RecalculationEngine.ModuleTier.FirstTier);
+            modules.Register(null, RecalculationModuleSet.ModuleTier.FirstTier);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[RecalcEngine]") && l.Contains("null module"));
@@ -1150,11 +1150,11 @@ namespace Parsek.Tests
             logLines.Clear();
             var m1 = new TestModule();
             var m2 = new TestModule();
-            RecalculationEngine.RegisterModule(m1, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(m2, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(m1, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(m2, RecalculationModuleSet.ModuleTier.SecondTier);
 
             logLines.Clear();
-            RecalculationEngine.ClearModules();
+            modules.Clear();
 
             Assert.Contains(logLines, l =>
                 l.Contains("[RecalcEngine]") && l.Contains("ClearModules") && l.Contains("removed=2"));

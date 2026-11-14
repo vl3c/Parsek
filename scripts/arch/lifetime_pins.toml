@@ -7,7 +7,7 @@
 # `bound`; a swap inside the bound passes, and slack after a fall is not enforced until
 # a re-pin, so re-pin in the PR that lowers a count and raise one only for a change
 # the PR explains.
-# Pinned from Parsek.dll 2026-11-12
+# Pinned from Parsek.dll 2026-11-14
 
 [untagged]
 keys = [
@@ -356,10 +356,6 @@ keys = [
     "Parsek.Reaim.ReaimTransferSynthesizer::RetainedTiltCount",
     "Parsek.Reaim.ReaimTransferSynthesizer::TransferSolver",
     "Parsek.Reaim.ReaimTransferSynthesizer::UnreachablePlaneDeclineCount",
-    "Parsek.RecalculationEngine::facilitiesModule",
-    "Parsek.RecalculationEngine::firstTierModules",
-    "Parsek.RecalculationEngine::secondTierModules",
-    "Parsek.RecalculationEngine::strategyTransform",
     "Parsek.RecorderStateLog::s_recStateSeq",
     "Parsek.RecorderStateLog::t_lastSeenActiveRecId",
     "Parsek.RecordingFinalizationCacheProducer::emittedMaterialRefreshSummaryKeys",

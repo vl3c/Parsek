@@ -271,7 +271,7 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
 
             var actions = LoadFixtureLedger();
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(LedgerOrchestrator.Modules, actions);
 
             var debts = logLines.FindAll(l =>
                 l.Contains("[ScienceModule]") && l.Contains("Spending charged into science debt"));
@@ -294,7 +294,7 @@ namespace Parsek.Tests
             // so the module graph under replay is the one production builds.
             var actions = LoadFixtureLedger();
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(LedgerOrchestrator.Modules, actions);
 
             double reconFunds = LedgerOrchestrator.Funds.GetRunningBalance();
             double reconScience = LedgerOrchestrator.Science.GetRunningScience();

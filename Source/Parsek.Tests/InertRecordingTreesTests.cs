@@ -22,6 +22,8 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class InertRecordingTreesTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private const string TreeA = "inert-tree-a";
         private const string TreeB = "inert-tree-b";
         private const string RecA1 = "inert-rec-a1";
@@ -47,7 +49,6 @@ namespace Parsek.Tests
             MissionStore.ResetForTesting();
             GroupHierarchyStore.ResetForTesting();
             ParsekFileCollector.ResetForTesting();
-            RecalculationEngine.ClearModules();
             ParsekScenario.ResetInstanceForTesting();
             EffectiveState.ResetCachesForTesting();
             ParsekLog.ResetTestOverrides();
@@ -66,7 +67,6 @@ namespace Parsek.Tests
             MissionStore.ResetForTesting();
             GroupHierarchyStore.ResetForTesting();
             ParsekFileCollector.ResetForTesting();
-            RecalculationEngine.ClearModules();
             ParsekScenario.ResetInstanceForTesting();
             EffectiveState.ResetCachesForTesting();
             RecordingPaths.SaveRootOverrideForTesting = null;
@@ -325,9 +325,9 @@ namespace Parsek.Tests
 
             var milestones = new MilestonesModule();
             var funds = new FundsModule();
-            RecalculationEngine.RegisterModule(milestones, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.Recalculate(new List<GameAction>(EffectiveState.ComputeELS()));
+            modules.Register(milestones, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(funds, RecalculationModuleSet.ModuleTier.SecondTier);
+            RecalculationEngine.Recalculate(modules, new List<GameAction>(EffectiveState.ComputeELS()));
 
             Assert.True(milestones.IsMilestoneCredited("FirstLaunch"));
             Assert.Equal(13300.0, funds.GetRunningBalance(), 1);

@@ -121,7 +121,7 @@ namespace Parsek
             var walker = WalkerForTesting;
             return walker != null
                 ? walker(actions)
-                : RecalculationEngine.WalkBalancesOnClones(actions, deadlineClockUT);
+                : RecalculationEngine.WalkBalancesOnClones(LedgerOrchestrator.Modules, actions, deadlineClockUT);
         }
 
         // ------------------------------------------------------------------

@@ -3141,6 +3141,41 @@ compare).
   il_compare: only the `AnalyzeWindows` body differs, plus the 14 new private methods; the 140
   string literals and every outside call target of the old body are the same multiset across the
   new ones. Complexity >= 20 / 50 / 100: 613 / 32 / 5 -> 614 / 31 / 4; `complexityWatch` 54 -> 53.
+- 2026-11-14 (B4, the recalculation module set): pins first, in
+  `LedgerStateFuzzerTests.ModuleSet.cs`: production `Initialize` registers the eight modules in
+  tier order (the eight `Registered ...` lines, `ClearModules: removed=0`, idempotent), the
+  production set walks like the fuzzer's mirrored registration (40 ledgers x 4 cutoffs, balances
+  and every derived field), and a SHA-256 digest over the fuzz corpus (120 ledgers) through all
+  four engine entry points (visible walk, clone balance walk, the module probe, the click probe),
+  numbers rounded to 3 decimals. The digest must not move unless a ledger result does.
+  Then the change: `RecalculationEngine` keeps no module state (its four registry statics are
+  gone; only the test counter `SortActionsCallCountForTesting` stays). Every entry point
+  (`Recalculate`, `ProbeModuleAtCutoff`, `ProbeClickReservationAtCutoff`,
+  `WalkBalancesOnClones`) takes a `RecalculationModuleSet` (`GameActions/
+  RecalculationModuleSet.cs`: the four tiers, `Register` with the old log lines, `Clear`, and
+  the `ModuleTier` enum, moved off the engine so the set stays a leaf of the text graph: with
+  the enum left on the engine the text knot read 434 -> 435).
+  Production builds one in `LedgerOrchestrator.Initialize` (`moduleSet`, read as
+  `LedgerOrchestrator.Modules` by the click probe, the Re-Fly seal credit and merge
+  dominance); a reset replaces the set and logs `ClearModules: removed=N` as before. Tests
+  that registered modules build their own set; a `ClearModules` beside an orchestrator reset
+  is dropped. The digest did not move, and three mutants red the pins (two registrations
+  swapped in `Initialize`; tiers swapped in the visible walk; strategy registration dropped);
+  a fourth, the clone balance walk without the strategy module, survives (the strategy
+  transform is an identity for rewards, and no balance or flag the clone walk returns moves
+  on the corpus without it).
+  No `[Collection("Sequential")]` was relaxed: the modules still read shared statics
+  (`StockPoolReference`, `RecordingStore`, `LedgerOrchestrator.Kerbals`) and every walk bumps
+  the shared sort counter. `lifetime_pins.toml` untagged 499 -> 495. The semantic measure is
+  unchanged (knot 391, greedy 140, replayed 144); `ClickReservationGate` reading the set is
+  one new residue edge into the orchestrator (29 -> 30).
+  Part 2, design only: `docs/dev/research/ledger-orchestrator-back-edges-2026-11-14.md` groups
+  the orchestrator's 30 residue back-edges by need (query, notification, recalculation
+  trigger, state to own) and re-measures the residue per inversion with the moved code's
+  edges included. Recommendation: cut six edges in one PR (`Ledger`, `RecordingTreeSplitter`,
+  `CommittedTreeRestoreAttempt`, `SwitchSegmentAttempts`, `ConversionLegBinding`,
+  `PostWalkActionReconciler`; moves and delegate parameters only, headless), ratchet
+  140 -> 124; the other 24 edges buy 3 more and need installed hooks proven in flight.
 - 2026-11-14 (B6 second half, split `AnchorPropagator.Run`): the DAG walk (about 490 lines,
   complexity 104) is now an orchestrator (complexity 8) over 13 private static steps in the same
   file, in walk order: `IndexRecordingsById`, `EmitSeedAnchors` with `EmitSeedCandidate`,

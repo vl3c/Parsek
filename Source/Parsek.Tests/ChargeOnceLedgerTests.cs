@@ -16,6 +16,8 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class ChargeOnceLedgerTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private const string MainBuilding = "SpaceCenter/LaunchPad/Facility/mainBuilding";
         private const string OtherBuilding = "SpaceCenter/VehicleAssemblyBuilding/Facility/mainBuilding";
         private readonly List<string> logLines = new List<string>();
@@ -24,12 +26,10 @@ namespace Parsek.Tests
         {
             ParsekLog.ResetTestOverrides();
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
-            RecalculationEngine.ClearModules();
         }
 
         public void Dispose()
         {
-            RecalculationEngine.ClearModules();
             ParsekLog.ResetTestOverrides();
         }
 
@@ -45,7 +45,7 @@ namespace Parsek.Tests
             public FacilitiesModule Facilities;
         }
 
-        private static Walk Register()
+        private Walk Register()
         {
             var w = new Walk
             {
@@ -55,10 +55,10 @@ namespace Parsek.Tests
                 Facilities = new FacilitiesModule()
             };
             // Production tiers (LedgerOrchestrator.Initialize).
-            RecalculationEngine.RegisterModule(w.Contracts, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(w.Funds, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(w.Rep, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(w.Facilities, RecalculationEngine.ModuleTier.Facilities);
+            modules.Register(w.Contracts, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(w.Funds, RecalculationModuleSet.ModuleTier.SecondTier);
+            modules.Register(w.Rep, RecalculationModuleSet.ModuleTier.SecondTier);
+            modules.Register(w.Facilities, RecalculationModuleSet.ModuleTier.Facilities);
             return w;
         }
 
@@ -147,7 +147,7 @@ namespace Parsek.Tests
             var w = Register();
             var first = Resolution(GameActionType.ContractCancel, 150.0, "c-x3", 200f, 4f);
             var second = Resolution(GameActionType.ContractCancel, 300.0, "c-x3", 300f, 6f, "rec-committed");
-            RecalculationEngine.Recalculate(new List<GameAction>
+            RecalculationEngine.Recalculate(modules, new List<GameAction>
             {
                 FundsSeed(), Accept(100.0, "c-x3"), first, second
             });
@@ -169,7 +169,7 @@ namespace Parsek.Tests
             var w = Register();
             var complete = Complete(150.0, "c-c6", 3000f, "rec-present");
             var later = Resolution(committed, 300.0, "c-c6", 800f, 8f, "rec-committed");
-            RecalculationEngine.Recalculate(new List<GameAction>
+            RecalculationEngine.Recalculate(modules, new List<GameAction>
             {
                 FundsSeed(), Accept(100.0, "c-c6"), complete, later
             });
@@ -193,7 +193,7 @@ namespace Parsek.Tests
             var w = Register();
             var worldFail = Resolution(GameActionType.ContractFail, 150.0, "c-w", 500f, 5f, "rec-present");
             var later = Resolution(committed, 300.0, "c-w", 500f, 5f, "rec-committed");
-            RecalculationEngine.Recalculate(new List<GameAction>
+            RecalculationEngine.Recalculate(modules, new List<GameAction>
             {
                 FundsSeed(), Accept(100.0, "c-w"), worldFail, later
             });
@@ -212,7 +212,7 @@ namespace Parsek.Tests
             var w = Register();
             var worldFail = Resolution(GameActionType.ContractFail, 150.0, "c-w1", 500f, 5f, "rec-present");
             var complete = Complete(300.0, "c-w1", 3000f, "rec-committed");
-            RecalculationEngine.Recalculate(new List<GameAction>
+            RecalculationEngine.Recalculate(modules, new List<GameAction>
             {
                 FundsSeed(), Accept(100.0, "c-w1"), worldFail, complete
             });
@@ -226,7 +226,7 @@ namespace Parsek.Tests
         public void FirstResolutionStaysTheTerminalOutcome()
         {
             var w = Register();
-            RecalculationEngine.Recalculate(new List<GameAction>
+            RecalculationEngine.Recalculate(modules, new List<GameAction>
             {
                 FundsSeed(), Accept(100.0, "c-t"),
                 Resolution(GameActionType.ContractCancel, 150.0, "c-t", 200f),
@@ -248,7 +248,7 @@ namespace Parsek.Tests
         {
             var w = Register();
             var resolution = Resolution(type, 150.0, "c-s", 500f, 5f);
-            RecalculationEngine.Recalculate(new List<GameAction>
+            RecalculationEngine.Recalculate(modules, new List<GameAction>
             {
                 FundsSeed(), Accept(100.0, "c-s"), resolution
             });
@@ -265,7 +265,7 @@ namespace Parsek.Tests
             // resolution, and stock charged the penalty.
             var w = Register();
             var fail = Resolution(GameActionType.ContractFail, 150.0, "c-pre", 500f, 5f);
-            RecalculationEngine.Recalculate(new List<GameAction> { FundsSeed(), fail });
+            RecalculationEngine.Recalculate(modules, new List<GameAction> { FundsSeed(), fail });
 
             Assert.True(fail.Effective);
             AssertFunds(w, 10000.0 - 500.0);
@@ -279,7 +279,7 @@ namespace Parsek.Tests
             var w = Register();
             var expiryFail = Resolution(GameActionType.ContractFail, 260.0, "c-d", 500f, 5f);
             var laterCancel = Resolution(GameActionType.ContractCancel, 400.0, "c-d", 300f, 3f);
-            RecalculationEngine.Recalculate(new List<GameAction>
+            RecalculationEngine.Recalculate(modules, new List<GameAction>
             {
                 FundsSeed(), Accept(100.0, "c-d", deadline: 250.0), expiryFail, laterCancel
             });
@@ -297,7 +297,7 @@ namespace Parsek.Tests
             // A row the walk injected moves contract state only (committed-value rule plan
             // section 2.4, revision 6): stock files its own fail row when it charges one.
             var w = Register();
-            RecalculationEngine.Recalculate(new List<GameAction>
+            RecalculationEngine.Recalculate(modules, new List<GameAction>
             {
                 FundsSeed(), Accept(100.0, "c-syn", deadline: 250.0),
                 new GameAction { UT = 500.0, Type = GameActionType.FundsEarning, FundsAwarded = 0f }
@@ -314,7 +314,7 @@ namespace Parsek.Tests
             // Review reproduction: PrePass counted both penalties, so the patched
             // (no-projection) availability read 9500.
             var w = Register();
-            RecalculationEngine.Recalculate(new List<GameAction>
+            RecalculationEngine.Recalculate(modules, new List<GameAction>
             {
                 FundsSeed(), Accept(100.0, "c-nc"),
                 Resolution(GameActionType.ContractCancel, 200.0, "c-nc", 200f),
@@ -330,7 +330,7 @@ namespace Parsek.Tests
         {
             // Review reproduction: the patched availability read 2000.
             var w = Register();
-            RecalculationEngine.Recalculate(new List<GameAction>
+            RecalculationEngine.Recalculate(modules, new List<GameAction>
             {
                 FundsSeed(), Destruction(200.0, MainBuilding),
                 Repair(300.0, MainBuilding, 4000f), Repair(400.0, MainBuilding, 4000f)
@@ -346,7 +346,7 @@ namespace Parsek.Tests
             var w = Register();
             var a = Resolution(GameActionType.ContractFail, 150.0, null, 500f);
             var b = Resolution(GameActionType.ContractFail, 300.0, null, 300f);
-            RecalculationEngine.Recalculate(new List<GameAction> { FundsSeed(), a, b });
+            RecalculationEngine.Recalculate(modules, new List<GameAction> { FundsSeed(), a, b });
 
             Assert.True(a.Effective);
             Assert.True(b.Effective);
@@ -357,7 +357,7 @@ namespace Parsek.Tests
         public void ReacceptedContract_ChargesEachLifecycleOnce()
         {
             var w = Register();
-            RecalculationEngine.Recalculate(new List<GameAction>
+            RecalculationEngine.Recalculate(modules, new List<GameAction>
             {
                 FundsSeed(), Accept(100.0, "c-r"),
                 Resolution(GameActionType.ContractCancel, 150.0, "c-r", 200f),
@@ -376,7 +376,7 @@ namespace Parsek.Tests
             var w = Register();
             var complete = Complete(200.0, "c-tie", 3000f);
             var fail = Resolution(GameActionType.ContractFail, 200.0, "c-tie", 500f);
-            RecalculationEngine.Recalculate(new List<GameAction>
+            RecalculationEngine.Recalculate(modules, new List<GameAction>
             {
                 FundsSeed(), Accept(100.0, "c-tie"), complete, fail
             });
@@ -393,7 +393,7 @@ namespace Parsek.Tests
             // with the present-day cancel gone, the committed fail is the transition.
             var w = Register();
             var fail = Resolution(GameActionType.ContractFail, 300.0, "c-tomb", 500f);
-            RecalculationEngine.Recalculate(new List<GameAction>
+            RecalculationEngine.Recalculate(modules, new List<GameAction>
             {
                 FundsSeed(), Accept(100.0, "c-tomb"), fail
             });
@@ -407,7 +407,7 @@ namespace Parsek.Tests
         {
             var w = Register();
             var committedFail = Resolution(GameActionType.ContractFail, 300.0, "c-proj", 500f, 0f, "rec-committed");
-            RecalculationEngine.Recalculate(new List<GameAction>
+            RecalculationEngine.Recalculate(modules, new List<GameAction>
             {
                 FundsSeed(), Accept(100.0, "c-proj"),
                 Resolution(GameActionType.ContractCancel, 150.0, "c-proj", 200f),
@@ -425,7 +425,7 @@ namespace Parsek.Tests
         public void CutoffWalk_AnOpenContractsCommittedFail_IsStillReserved()
         {
             var w = Register();
-            RecalculationEngine.Recalculate(new List<GameAction>
+            RecalculationEngine.Recalculate(modules, new List<GameAction>
             {
                 FundsSeed(), Accept(100.0, "c-open"),
                 Resolution(GameActionType.ContractFail, 300.0, "c-open", 500f, 0f, "rec-committed")
@@ -458,7 +458,7 @@ namespace Parsek.Tests
         {
             var w = Register();
             var repair = Repair(300.0, MainBuilding, 4000f);
-            RecalculationEngine.Recalculate(new List<GameAction>
+            RecalculationEngine.Recalculate(modules, new List<GameAction>
             {
                 FundsSeed(), Destruction(200.0, MainBuilding, "rec-crash"), repair
             });
@@ -476,7 +476,7 @@ namespace Parsek.Tests
             var w = Register();
             var liveRepair = Repair(300.0, MainBuilding, 4000f);
             var committedRepair = Repair(400.0, MainBuilding, 4000f);
-            RecalculationEngine.Recalculate(new List<GameAction>
+            RecalculationEngine.Recalculate(modules, new List<GameAction>
             {
                 FundsSeed(), Destruction(200.0, MainBuilding, "rec-crash"), liveRepair, committedRepair
             });
@@ -499,7 +499,7 @@ namespace Parsek.Tests
             // destruction from before the ledger began leaves no row, and stock charged.
             var w = Register();
             var repair = Repair(300.0, MainBuilding, 4000f);
-            RecalculationEngine.Recalculate(new List<GameAction> { FundsSeed(), repair });
+            RecalculationEngine.Recalculate(modules, new List<GameAction> { FundsSeed(), repair });
 
             Assert.True(repair.Effective);
             AssertFunds(w, 10000.0 - 4000.0);
@@ -511,7 +511,7 @@ namespace Parsek.Tests
             var w = Register();
             var first = Repair(300.0, MainBuilding, 4000f);
             var second = Repair(400.0, MainBuilding, 4000f);
-            RecalculationEngine.Recalculate(new List<GameAction> { FundsSeed(), first, second });
+            RecalculationEngine.Recalculate(modules, new List<GameAction> { FundsSeed(), first, second });
 
             Assert.True(first.Effective);
             Assert.False(second.Effective);
@@ -522,7 +522,7 @@ namespace Parsek.Tests
         public void TwoDestructionsEachRepaired_ChargeTwice()
         {
             var w = Register();
-            RecalculationEngine.Recalculate(new List<GameAction>
+            RecalculationEngine.Recalculate(modules, new List<GameAction>
             {
                 FundsSeed(),
                 Destruction(200.0, MainBuilding), Repair(300.0, MainBuilding, 4000f),
@@ -537,7 +537,7 @@ namespace Parsek.Tests
         {
             var w = Register();
             var otherRepair = Repair(310.0, OtherBuilding, 1000f);
-            RecalculationEngine.Recalculate(new List<GameAction>
+            RecalculationEngine.Recalculate(modules, new List<GameAction>
             {
                 FundsSeed(),
                 Destruction(200.0, MainBuilding), Repair(300.0, MainBuilding, 4000f),
@@ -553,7 +553,7 @@ namespace Parsek.Tests
         {
             var w = Register();
             var committedRepair = Repair(400.0, MainBuilding, 4000f);
-            RecalculationEngine.Recalculate(new List<GameAction>
+            RecalculationEngine.Recalculate(modules, new List<GameAction>
             {
                 FundsSeed(), Destruction(200.0, MainBuilding, "rec-crash"),
                 Repair(300.0, MainBuilding, 4000f), committedRepair
@@ -569,7 +569,7 @@ namespace Parsek.Tests
         public void CutoffWalk_ACommittedRepairOfADestroyedBuilding_IsStillReserved()
         {
             var w = Register();
-            RecalculationEngine.Recalculate(new List<GameAction>
+            RecalculationEngine.Recalculate(modules, new List<GameAction>
             {
                 FundsSeed(), Destruction(200.0, MainBuilding, "rec-crash"),
                 Repair(400.0, MainBuilding, 4000f)
@@ -591,9 +591,9 @@ namespace Parsek.Tests
                 Destruction(200.0, MainBuilding), Repair(300.0, MainBuilding, 4000f),
                 Repair(400.0, MainBuilding, 4000f)
             };
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             double first = w.Funds.GetRunningBalance();
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.Equal(10000.0 - 200.0 - 4000.0, first, 1);
             AssertFunds(w, first);

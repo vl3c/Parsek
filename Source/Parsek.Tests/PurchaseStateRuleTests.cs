@@ -16,11 +16,12 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class PurchaseStateRuleTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private readonly List<string> logLines = new List<string>();
 
         public PurchaseStateRuleTests()
         {
-            RecalculationEngine.ClearModules();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
@@ -33,7 +34,6 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
-            RecalculationEngine.ClearModules();
             LedgerOrchestrator.ResetForTesting();
             KspStatePatcher.ResetForTesting();
             GameStateStore.ResetForTesting();
@@ -56,15 +56,15 @@ namespace Parsek.Tests
         }
 
         // Production tiers (LedgerOrchestrator.Initialize), the subset purchases touch.
-        private static Walk Register()
+        private Walk Register()
         {
             var w = new Walk();
-            RecalculationEngine.RegisterModule(w.Milestones, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(w.Contracts, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(w.Science, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(w.Funds, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(w.Rep, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(w.Facilities, RecalculationEngine.ModuleTier.Facilities);
+            modules.Register(w.Milestones, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(w.Contracts, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(w.Science, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(w.Funds, RecalculationModuleSet.ModuleTier.SecondTier);
+            modules.Register(w.Rep, RecalculationModuleSet.ModuleTier.SecondTier);
+            modules.Register(w.Facilities, RecalculationModuleSet.ModuleTier.Facilities);
             return w;
         }
 
@@ -179,7 +179,7 @@ namespace Parsek.Tests
             actions.Add(committed);
             actions.Add(again);
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.True(again.Effective);
             Assert.False(committed.Effective);
@@ -208,7 +208,7 @@ namespace Parsek.Tests
             actions.Add(committed);
             actions.Add(again);
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.True(again.Effective);
             Assert.False(committed.Effective);
@@ -232,7 +232,7 @@ namespace Parsek.Tests
             actions.Add(committedTo3);
             actions.Add(newTo2);
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.True(newTo2.Effective);
             Assert.False(committedTo2.Effective);
@@ -265,7 +265,7 @@ namespace Parsek.Tests
             Assert.Contains(committedTo2, owned);
             Assert.Contains(committedTo3, owned);
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.Equal(500000.0 - 90000.0, w.Funds.GetRunningBalance(), 3);
             Assert.True(newTo2.Effective && newTo3.Effective);
             Assert.Equal(GameActionNotCountedReason.PurchaseAlreadyOwned, committedTo2.NotCountedReason);
@@ -275,9 +275,9 @@ namespace Parsek.Tests
                 && l.Contains("toLevel=2") && l.Contains("level stays 3"));
 
             // Between the two committed rows the facility is still at L3.
-            RecalculationEngine.ClearModules();
+            modules.Clear();
             w = Register();
-            RecalculationEngine.Recalculate(actions, 150);
+            RecalculationEngine.Recalculate(modules, actions, 150);
             Assert.Equal(3, w.Facilities.GetFacilityLevel(Vab));
         }
 
@@ -303,7 +303,7 @@ namespace Parsek.Tests
             var w = Register();
             var newTo3 = Level(Vab, 400, 30, 3, 60000f);
             ledger.Add(newTo3);
-            RecalculationEngine.Recalculate(ledger);
+            RecalculationEngine.Recalculate(modules, ledger);
             Assert.False(committedTo2.Effective);
             Assert.Equal(GameActionNotCountedReason.PurchaseAlreadyOwned, committedTo2.NotCountedReason);
             Assert.Equal(500000.0 - 90000.0, w.Funds.GetRunningBalance(), 3);
@@ -329,7 +329,7 @@ namespace Parsek.Tests
             actions.Add(Level(Vab, 60, 20, 2, 30000f));
             actions.Add(Level(Vab, 70, 21, 3, 60000f));
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.False(committedTo2.Effective);
             Assert.False(committedTo3.Effective);
             Assert.True(committedRebuild.Effective);
@@ -337,9 +337,9 @@ namespace Parsek.Tests
             Assert.Equal(500000.0 - 30000.0 - 60000.0 - 5000.0 - 60000.0, w.Funds.GetRunningBalance(), 3);
             Assert.Equal(3, w.Facilities.GetFacilityLevel(Vab));
 
-            RecalculationEngine.ClearModules();
+            modules.Clear();
             w = Register();
-            RecalculationEngine.Recalculate(actions, 350);
+            RecalculationEngine.Recalculate(modules, actions, 350);
             Assert.Equal(2, w.Facilities.GetFacilityLevel(Vab));
         }
 
@@ -356,7 +356,7 @@ namespace Parsek.Tests
             actions.Add(committedRebuild);
             actions.Add(Level(Vab, 450, 20, 2, 5000f, rebuild: true));
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.False(committedRebuild.Effective);
             Assert.Equal(GameActionNotCountedReason.PurchaseAlreadyOwned, committedRebuild.NotCountedReason);
             Assert.Equal(500000.0 - 95000.0, w.Funds.GetRunningBalance(), 3);
@@ -373,7 +373,7 @@ namespace Parsek.Tests
             actions.Add(committed);
             actions.Add(again);
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.True(again.Effective);
             Assert.False(committed.Effective);
@@ -393,7 +393,7 @@ namespace Parsek.Tests
             actions.Add(Part("p", 300, 0, 800f));
             actions.Add(Part("q", 500, 0, 100f));
             actions.Add(Part("q", 300, 7, 100f));
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.All(actions, a => Assert.True(a.Effective));
             Assert.Equal(100000.0 - 1800.0, w.Funds.GetRunningBalance(), 3);
         }
@@ -411,7 +411,7 @@ namespace Parsek.Tests
             var actions = Seeds();
             actions.Add(Part("p", 100, 1, 800f));
             actions.Add(Part("p", 200, 2, 800f));
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.All(actions, a => Assert.True(a.Effective));
             Assert.Equal(100000.0 - 1600.0, w.Funds.GetRunningBalance(), 3);
         }
@@ -428,7 +428,7 @@ namespace Parsek.Tests
             actions.Add(down);
             actions.Add(upAgain);
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.True(up.Effective && down.Effective && upAgain.Effective);
             Assert.Equal(500000.0 - 65000.0, w.Funds.GetRunningBalance(), 3);
@@ -449,7 +449,7 @@ namespace Parsek.Tests
             actions.Add(newUp);
             actions.Add(newDown);
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.True(committedUp.Effective);
             Assert.Equal(GameActionNotCountedReason.None, committedUp.NotCountedReason);
@@ -466,7 +466,7 @@ namespace Parsek.Tests
             var again = Hire("Bob Kerman", 400, 5, 26000f);
             actions.Add(first);
             actions.Add(again);
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.True(first.Effective && again.Effective);
             Assert.Equal(100000.0 - 46000.0, w.Funds.GetRunningBalance(), 3);
         }
@@ -482,7 +482,7 @@ namespace Parsek.Tests
             actions.Add(new GameAction { UT = 550, CaptureSequence = 11, Type = GameActionType.StrategyDeactivate, StrategyId = "AggressiveNegotiations" });
             actions.Add(new GameAction { UT = 300, CaptureSequence = 20, Type = GameActionType.StrategyActivate, StrategyId = "AggressiveNegotiations", SetupCost = 5000f });
             actions.Add(new GameAction { UT = 350, CaptureSequence = 21, Type = GameActionType.StrategyDeactivate, StrategyId = "AggressiveNegotiations" });
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.All(actions, a => Assert.True(a.Effective));
             Assert.Equal(90000.0, w.Funds.GetRunningBalance(), 3);
         }
@@ -495,7 +495,7 @@ namespace Parsek.Tests
             actions.Add(new GameAction { UT = 100, CaptureSequence = 1, Type = GameActionType.ContractAccept, ContractId = "c1", AdvanceFunds = 1000f });
             actions.Add(new GameAction { UT = 200, CaptureSequence = 2, Type = GameActionType.ContractFail, ContractId = "c1", FundsPenalty = 300f });
             actions.Add(new GameAction { UT = 300, CaptureSequence = 3, Type = GameActionType.ContractAccept, ContractId = "c1", AdvanceFunds = 1000f });
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.Equal(100000.0 + 1000.0 - 300.0 + 1000.0, w.Funds.GetRunningBalance(), 3);
             Assert.DoesNotContain(actions, a => a.NotCountedReason == GameActionNotCountedReason.PurchaseAlreadyOwned);
         }
@@ -517,7 +517,7 @@ namespace Parsek.Tests
             var earlier = Hire("Jebediah Junior", 300, 20, 20000f);
             actions.Add(committed);
             actions.Add(earlier);
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.True(committed.Effective && earlier.Effective);
             Assert.Equal(20000f, committed.HireCost);
             Assert.Equal(60000.0, w.Funds.GetRunningBalance(), 3);
@@ -572,7 +572,7 @@ namespace Parsek.Tests
             actions.Add(Part("p", 100, 1, 10f));
             actions.Add(Part("p", 200, 2, 10f));
             var owned = PurchaseStateRule.CollectAlreadyOwned(actions);
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             foreach (var a in actions)
                 Assert.Equal(owned.Contains(a), a.NotCountedReason == GameActionNotCountedReason.PurchaseAlreadyOwned);
             Assert.Equal(3, owned.Count);
@@ -586,16 +586,16 @@ namespace Parsek.Tests
             GameAction committed, bought;
             var w = Register();
             var actions = OwnedFuturePartLedger(out committed, out bought);
-            RecalculationEngine.Recalculate(actions, 350);
+            RecalculationEngine.Recalculate(modules, actions, 350);
             Assert.Equal(100000.0 - 800.0, w.Funds.GetAvailableFunds(), 3);
 
             // Control: a different committed part ahead is reserved.
-            RecalculationEngine.ClearModules();
+            modules.Clear();
             var c = Register();
             var control = Seeds();
             control.Add(Part("fuelTank", 500, 10, 800f));
             control.Add(Part("mk1pod.v2", 300, 20, 800f));
-            RecalculationEngine.Recalculate(control, 350);
+            RecalculationEngine.Recalculate(modules, control, 350);
             Assert.Equal(100000.0 - 1600.0, c.Funds.GetAvailableFunds(), 3);
         }
 
@@ -605,18 +605,18 @@ namespace Parsek.Tests
             GameAction committed, bought;
             Register();
             var actions = OwnedFuturePartLedger(out committed, out bought);
-            var probe = RecalculationEngine.ProbeClickReservationAtCutoff(actions, 350);
+            var probe = RecalculationEngine.ProbeClickReservationAtCutoff(modules, actions, 350);
             RecalculationEngine.ClickPoolAhead funds;
             Assert.True(probe.TryGetPool(StockPool.Funds, out funds));
             Assert.False(funds.CostAhead);
             Assert.Equal(0, funds.CostRowsAhead);
 
-            RecalculationEngine.ClearModules();
+            modules.Clear();
             Register();
             var control = Seeds();
             control.Add(Part("fuelTank", 500, 10, 800f));
             control.Add(Part("mk1pod.v2", 300, 20, 800f));
-            probe = RecalculationEngine.ProbeClickReservationAtCutoff(control, 350);
+            probe = RecalculationEngine.ProbeClickReservationAtCutoff(modules, control, 350);
             Assert.True(probe.TryGetPool(StockPool.Funds, out funds));
             Assert.True(funds.CostAhead);
         }
@@ -868,7 +868,7 @@ namespace Parsek.Tests
             var w = Register();
             var actions = Seeds(300000f, 0f);
             actions.AddRange(career);
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             double walkFunds = w.Funds.GetRunningBalance();
             double walkScience = w.Science.GetRunningScience();
             double walkRep = w.Rep.GetRunningRep();
@@ -881,11 +881,11 @@ namespace Parsek.Tests
             Assert.Equal(funds, walkFunds, 3);
             Assert.Equal(science, walkScience, 3);
 
-            RecalculationEngine.ClearModules();
+            modules.Clear();
             var r = Register();
             var refActions = Seeds(300000f, 0f);
             refActions.AddRange(reference);
-            RecalculationEngine.Recalculate(refActions);
+            RecalculationEngine.Recalculate(modules, refActions);
             Assert.Equal(r.Funds.GetRunningBalance(), walkFunds, 3);
             Assert.Equal(r.Science.GetRunningScience(), walkScience, 3);
             Assert.Equal((double)r.Rep.GetRunningRep(), walkRep, 3);
