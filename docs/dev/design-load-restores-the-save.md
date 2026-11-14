@@ -238,8 +238,12 @@ load Cold, as today. The helper:
   `currentFlightLaunchUT`, `ScheduleActiveTreeRestoreOnFlightReady`,
   `pendingActiveTreeResumeRewindSave`, `pendingFreshRecordingAfterDiscard`,
   `mergeDialogPending`, `budgetDeductionApplied`, `lastSceneChangeRequestedUT`;
-- drops `DiscardReFlyLoadIntent` and the quickload resume context. `InSessionStagedStateHandoff`
-  is not touched here: step A already drops it on every cold load (reason `cold-load`);
+- drops `DiscardReFlyLoadIntent` (its target too) and the quickload resume context, and a stock
+  revert `RevertDetector` still holds (kind and target pids; Warn when either was set,
+  COLD-RESET-LEFTOVERS): the classification above already read it, a save-file load with a
+  revert pending is the revert's own in-session load, and only the in-session branch consumes
+  one. `InSessionStagedStateHandoff` is not touched here: step A already drops it on every cold
+  load (reason `cold-load`);
 - clears `RewindContext` (Warn when `IsRewinding` or the deferred resource adjustment was still
   set), `RewindInvokeContext` (Warn when `Pending` was set) and the Supply Route banner
   (`RouteRunPrompt`), GC1-SAVE-SCOPED-STATE-LEFTOVERS. A Cold load is never a rewind's or a Re-Fly

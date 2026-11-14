@@ -63,9 +63,7 @@ namespace Parsek
 
             string sessionId = armedSessionId;
             double rewindPointUT = armedRewindPointUT;
-            armed = false;
-            armedSessionId = null;
-            armedRewindPointUT = double.NaN;
+            Disarm();
             GameScenes expected = ExpectedSceneFor(target);
             if (loadedScene != expected)
             {
@@ -113,23 +111,30 @@ namespace Parsek
             {
                 ParsekLog.Verbose(LoadReconcilePolicy.LogTag,
                     $"DiscardReFly load intent clear requested reason={reason ?? "<none>"}: nothing armed");
+                Disarm();
                 return;
             }
 
             ParsekLog.Info(LoadReconcilePolicy.LogTag,
                 $"DiscardReFly load intent cleared reason={reason ?? "<none>"} target={armedTarget} "
                 + $"sess={armedSessionId ?? "<no-id>"}");
+            Disarm();
+        }
+
+        // Every field back to its resting value, the target included: a consumed or cleared
+        // intent must not leave the previous discard's target for the next save
+        // (COLD-RESET-LEFTOVERS; the Cold reset reaches it through Clear).
+        private static void Disarm()
+        {
             armed = false;
+            armedTarget = RevertTarget.Launch;
             armedSessionId = null;
             armedRewindPointUT = double.NaN;
         }
 
         internal static void ResetForTesting()
         {
-            armed = false;
-            armedTarget = RevertTarget.Launch;
-            armedSessionId = null;
-            armedRewindPointUT = double.NaN;
+            Disarm();
         }
     }
 }
