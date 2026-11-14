@@ -138,6 +138,11 @@ deleting the text edge `ReFlyInvokeHold -> Hold` (only the qualifier of
 `ReFlyInvokeHold.Entry`): the text residue fell 272 -> 263 (knot 459 -> 450)
 and the semantic residue stayed 250, which never counted that edge.
 
+A worked example of reading one hub's back-edges off this graph, with the residue
+re-measured per inversion step (replacement edges included):
+`docs/dev/research/ledger-orchestrator-back-edges-2026-11-14.md` (the 30 residue types
+that call `LedgerOrchestrator`).
+
 ## Member facts (compiled IL)
 
 `scripts/arch/ilfacts.py` turns the same parse (`ilgraph.parse_il` records

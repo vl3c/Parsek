@@ -3110,6 +3110,13 @@ compare).
   the shared sort counter. `lifetime_pins.toml` untagged 499 -> 495. The semantic measure is
   unchanged (knot 391, greedy 140, replayed 144); `ClickReservationGate` reading the set is
   one new residue edge into the orchestrator (29 -> 30).
+  Part 2, design only: `docs/dev/research/ledger-orchestrator-back-edges-2026-11-14.md` groups
+  the orchestrator's 30 residue back-edges by need (query, notification, recalculation
+  trigger, state to own) and re-measures the residue per inversion with the moved code's
+  edges included. Recommendation: cut six edges in one PR (`Ledger`, `RecordingTreeSplitter`,
+  `CommittedTreeRestoreAttempt`, `SwitchSegmentAttempts`, `ConversionLegBinding`,
+  `PostWalkActionReconciler`; moves and delegate parameters only, headless), ratchet
+  140 -> 124; the other 24 edges buy 3 more and need installed hooks proven in flight.
 - 2026-11-11 (metrics history): `scripts/arch/metrics.py` builds one JSON row per commit
   (schema `parsek-metrics/1`) from the existing tools' output: the text scan, the semantic
   headline, the code facts (with test reach when given the test DLL) and `count-code.py`'s
