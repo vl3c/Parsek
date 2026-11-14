@@ -8,7 +8,8 @@ launch areas), 7.12 (observable debug actions), 15.9 (file access on sync client
 ## 1. Goal and scope
 
 R0 turns every "still to prove" cell of design section 12 and every spike of 15.11 into a
-measured answer before feature code starts. A spike is throwaway code run on the owner's
+measured answer before feature code starts, except S8, which runs last (section 5, "S8 runs
+last"). A spike is throwaway code run on the owner's
 Windows PC inside KSP, or a plain script, that answers one question with numbers. Its
 product is a spike report in `docs/dev/research/`, not code.
 
@@ -37,7 +38,7 @@ The spikes and what waits on them:
 | S5 | Can stripped KSC copies stand as inert scenery, at what cost; same heights in two processes | 7.3 scenery, 15.13 scenery row | R2-02, R2-03, R2-06, R2-07, R2-15 |
 | S6 | Does an unknown scenario node survive; main menu entry; create a save from code | 6.2 race mark, 7.2 menu and setup | R1-03 (mark), R1-10 (create), R1-14 (menu, dialog) |
 | S7 | Flag replica built the way the code builds a flag, with the stock plaque dialog and supplied text; click range | 7.7 readable rival flags | R3W-24, R3W-25 |
-| S8 | What a sync client costs a file open; is a copy worker thread needed | 15.9 worker thread (owner yes or no) | R6-10, R3E-23; soft: R3E-16, T-02 |
+| S8 (runs last) | What a sync client costs a file open; is a copy worker thread needed | 15.9 worker thread (owner yes or no) | R6-10, R3E-23 (both run last too); R3E-16 and T-02 proceed without it |
 | S9 | Which debug actions a mod can observe, with no false positives, including milestones completed outside a flight | 7.12 tool list and disclosure | R3E-09, R6-01 |
 | S10 | How many relative stretches have a usable body-fixed copy; how far a flattened stretch drifts | 15.5 flatten rule | R3W-04 |
 | S11 (new) | What one ghost costs per frame at race scale | 15.13 per-frame budget | the cap of R3W-14 (A5 budget) |
@@ -53,8 +54,9 @@ section 12 asks to "prove the runtime's signing classes work inside KSP" with no
 - Nothing from another slice. No prerefactor (P1 to P12) or addition (A1 to A7) is needed
   first: every spike runs on `main` as it stands at the go commit plus throwaway code.
 - Inside R0: S0 first (spike branch and instances). S4a (probe) before S1b scoring, S4b,
-  S2 and S5. S4b before S2, S5 and S7's last step. S8a before S8b. S10a before S10b. S13
-  last.
+  S2 and S5. S4b before S2, S5 and S7's last step. S10a before S10b. S13 closes the day
+  plan. S8a and S8b are not in the day plan: they run last, after the race works end to end
+  on a plain shared folder (section 5, "S8 runs last"), S8a before S8b.
 
 Tasks in other slices that depend on this one (final ids, `task-index.md` section A):
 
@@ -68,7 +70,9 @@ Tasks in other slices that depend on this one (final ids, `task-index.md` sectio
 - S3: R5-08, R5-10, R5-11, R5-12, R4-10; soft: R5-02, R5-04, R5-07, R5-09.
 - S6: R1-03, R1-10, R1-14.
 - S7: R3W-24, R3W-25.
-- S8a, S8b: R3E-23, R6-10; soft: R3E-16, T-02.
+- S8a, S8b: R3E-23, R6-10, which run last with them. R3E-16 and T-02 were soft on S8; they
+  now proceed without it (main-thread form, the design's default poll numbers, the fake
+  store's own cases).
 - S9: R3E-09, R6-01.
 - S10a, S10b: R3W-04.
 - S11: R3W-14 (the cap of the A5 budget).
@@ -625,8 +629,8 @@ Common to every spike task below:
 - **Question:** how long a file open, read, stat, listing and rename take in a folder kept
   by a sync client, for files that are local, cloud-only (placeholder) and being synced,
   and on an unreachable network share. Settles 15.9: is a copy worker thread needed (the
-  owner's yes), and the poll numbers. Waits: R6-10, R3E-23 (the copy worker); soft:
-  R3E-16 (the copy-out), T-02.
+  owner's yes), and the poll numbers. Waits: R6-10, R3E-23 (the copy worker), which run
+  last with it. R3E-16 (the copy-out) and T-02 proceed without it.
 - **Change:** `spikes/r0/S8/fileaccess.py` (stdlib, Windows): for sizes 10 KB, 1 MB,
   10 MB creates files, waits for upload, sets them cloud-only (the client's own "free up
   space"), then times `os.stat`, `os.scandir`, first `open`, first 4 KB read, full read,
@@ -635,6 +639,9 @@ Common to every spike task below:
   st_file_attributes`. Also: open on `\\10.255.255.1\x` (unreachable) and on a share whose
   host is asleep; rename while the client holds the file; how conflict copies are named.
   Writes `<umbrella>/logs/spikes/S8/<date>/fileaccess.csv`.
+- **When:** last in the plan, after the race works end to end on a plain shared folder (a
+  local or network folder with no sync program; section 5, "S8 runs last"). Question 10.1
+  (Q-03) is asked only then.
 - **Procedure:** owner installs or uses the clients chosen (question 10.1), points each at
   a test folder, runs the script three times per client (cold after a reboot, warm,
   during a large upload).
@@ -649,7 +656,8 @@ Common to every spike task below:
 - **Duration:** half a day of agent work, 2 hours on the PC.
 - **Proof:** report with a table per client and the decision.
 - **Registers:** report folder only.
-- **Size:** S. **Depends on:** S0 (only the branch). **PC:** yes (Windows and the clients).
+- **Size:** S. **Depends on:** S0 (only the branch); runs after the end-to-end race on a plain
+  folder (`task-index.md`, T-28). **PC:** yes (Windows and the clients).
 - **Risk:** low; plain script, no game.
 
 ### S8b A blocking read in KSP versus a worker thread
@@ -671,7 +679,8 @@ Common to every spike task below:
 - **Artifacts:** frame-time CSVs.
 - **Duration:** half a day of agent work, 1 hour on the PC.
 - **Proof:** report.
-- **Registers:** report folder only.
+- **Registers:** report folder; S13 has closed by the time S8 runs, so S8b's report pull
+  request also writes the 15.9 decision into the design's "still to prove" cell.
 - **Size:** S. **Depends on:** S8a. **PC:** yes. **Risk:** low.
 
 ### S9 Which debug actions a mod can observe
@@ -816,14 +825,16 @@ Common to every spike task below:
   of 1 MB and 10 MB buffers; RSA 2048 and ECDsa P-256 key creation, sign and verify of a
   1 KB blob; export and import of the key as XML / parameters; each wrapped so a
   `PlatformNotSupportedException` is logged, not thrown.
-- **Procedure:** rides in the S8b session.
+- **Procedure:** rides in the S10b session on day 4 (session C4), after S10b's runs; it is a
+  10 minute check and needs no file or sync setup, so it no longer waits for S8b, which
+  runs last.
 - **Pass:** SHA-256 over 10 MB under 100 ms; at least one signing algorithm creates,
   signs, verifies and round-trips its key with no exception.
 - **Fallback:** a managed implementation shipped in the mod (R7 sizes it).
-- **Artifacts:** results lines in the S8 raw folder.
+- **Artifacts:** results lines in `<umbrella>/logs/spikes/S12/<date>/`.
 - **Duration:** 2 hours of agent work, 10 minutes on the PC.
-- **Proof:** report section inside the S8 report.
-- **Registers:** none beyond S8's report.
+- **Proof:** a short report of its own.
+- **Registers:** report folder only.
 - **Size:** S. **Depends on:** S0. **PC:** yes. **Risk:** low.
 
 ### S13 Close-out: results into the design
@@ -832,13 +843,15 @@ Common to every spike task below:
   12 "Still to prove" cells replaced by each spike's verdict and report link; the 7.3 site
   table rows from S1b and S4a; the 7.4 colors from S3; the 7.12 tool list from S9, with
   the milestone completions S9 found a mod cannot observe listed as out of reach; the
-  15.9 decision from S8; the 15.13 budget numbers from S5 and S11; every correction of
+  15.13 budget numbers from S5 and S11 (the 15.9 decision waits for S8, which runs last
+  and writes it with S8b's report); every correction of
   section 9 below that a spike confirmed. Notes that the spike branch stays unmerged.
 - **Proof:** the reports it links exist; `test_doc_spec_sync.py` (it reads `docs/dev`)
   stays green.
 - **Registers:** design doc; `scripts/build-design-pdfs.py` rerun if the design is in its
   `DOCS` table.
-- **Size:** S. **Depends on:** every spike report. **PC:** no.
+- **Size:** S. **Depends on:** every spike report of the day plan (S0 to S12 except S8a and
+  S8b, which run last). **PC:** no.
 - **Risk:** low; docs only.
 
 ## 5. Parallel tracks
@@ -847,12 +860,13 @@ Sessions (one KSP process each, on the spike instance unless named):
 
 | Session | Spikes | Game | Notes |
 |---------|--------|------|-------|
-| A | S8a, S10a (fixtures), S1b tooling PR, KSCSwitcher source read | none | agent work; S8a needs the owner's PC but no KSP |
+| A | S10a (fixtures), S1b tooling PR, KSCSwitcher source read | none | agent work |
 | B | S1b scan | spike-r0, kRPC | needs kRPC ports 50000 / 50001 |
 | C1 | S4a, then S4b, S2, S5 | spike-r0 | one process, Space Center and flight |
 | C2 | S6, S7, S9 | second copy (spike-r0-nodlc is fine; S6 lane can use any) | no kRPC needed; seam only |
 | C3 | S3 | spike-r0 then spike-r0-nodlc | needs both instances |
-| C4 | S10b, S8b with S12, S11 | spike-r0 | frame-cost sessions run with nothing else open |
+| C4 | S10b with S12, S11 | spike-r0 | frame-cost sessions run with nothing else open |
+| D (last) | S8a, then S8b | none for S8a (the owner's PC and its sync clients); spike-r0 for S8b | after the end-to-end race on a plain folder; S8b is a frame-cost session |
 
 Which run at the same time on two or three game copies:
 
@@ -872,11 +886,23 @@ its patches through one list there, so S0 lands first and each spike adds one li
 
 Order that unblocks the most downstream planning:
 
-1. Day 1: S0; S4a; S6; S9; S8a; S10a; S1b scan (raw grids).
-2. Day 2: S4b; S1b scoring with S4a's radius; S2 steps 1 to 3.
-3. Day 3: S5; S7; S2 step 4 (it needs S5's copy).
-4. Day 4: S3; S10b; S8b with S12; S11.
+1. Day 1: S0; S4a; S6; S9; S10a; S1b scan (raw grids). About 7 hours on the PC.
+2. Day 2: S4b; S1b scoring with S4a's radius; S2 steps 1 to 3. About 5.5 hours.
+3. Day 3: S5; S7; S2 step 4 (it needs S5's copy). About 5 hours.
+4. Day 4: S3; S10b with S12; S11. About 5 hours.
 5. Then S13.
+
+About 23 hours on the PC over four days (the Duration lines of the day-plan spikes sum to
+22.7 h).
+
+**S8 runs last.** The owner's instruction (2026-11-14, on question 10.1 / Q-03): "leave this
+at the end, its an external dependency". S8a and S8b leave the day plan and become the last
+piece of the plan, run after the race works end to end on a plain shared folder (a local or
+network folder with no sync program): the two-saves lane RACE-6 (T-28) is that proof.
+Question 10.1 is asked only when S8 is about to run. Until then the race builds the
+main-thread form with the design's default poll numbers, and what waits on S8 moves with it:
+R3E-23 (the copy worker, also gated on question Q-18) and R6-10 (poll tuning). S8 adds about
+3 hours on the PC (S8a 2 h with no KSP, S8b 1 h).
 
 S4a and S6 first because R2 and R1 are the first feature phases and their hooks depend on
 them (S4a: R1-04, R2-01, R2-05, P1-03; S6: R1-03); S9 early because the A3 capture
@@ -905,7 +931,7 @@ One spike lane, `SPIKE-S6-mark-survives`, on the spike branch only, run with
 existing scan tool. Nothing lands in `harness/scenarios/` on `main`.
 
 What needs the owner's PC: every spike except S10a over committed fixtures and the S1b
-tooling PR. S8a needs the PC and its sync clients but no KSP.
+tooling PR. S8a (run last) needs the PC and its sync clients but no KSP.
 
 ### 6.4 Spike report template
 
@@ -1049,7 +1075,9 @@ KSP 1.12.5, DLCs <yes/no>, mods <list from the instance manifest>
 
 ## 10. Questions for the owner
 
-1. **Which sync clients should S8 measure?** The answer decides whether the race's
+1. **Which sync clients should S8 measure?** Deferred by the owner (2026-11-14): "leave this
+   at the end, its an external dependency". Asked only when S8 is about to run, last in the
+   plan (section 5, "S8 runs last"). The answer decides whether the race's
    background copy needs its own thread. Options: (a) OneDrive only; (b) OneDrive plus
    Dropbox or Google Drive, plus an unreachable network share; (c) every client you use.
    Recommendation: (b); friends will use a mix, and the unreachable share is the worst

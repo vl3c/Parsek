@@ -79,7 +79,8 @@ which writes `local.cfg` through the `RaceLocal` codec (read side R1-08, write s
   - R3 rival world: the scene calls on the facade (R3W-08), the SHOW reader (R3W-13), the
     watch call that fills R4-11's stub (R3W-26).
 - **Spikes:** S3 (the four look colors) before R4-10 draws final colors (R5-07's table holds
-  placeholder colors until S3a); S8a, S8b before R6-10; S9 before R6-01 is final (it fixes
+  placeholder colors until S3a); S8a, S8b before R6-10 (all three run last, after the
+  end-to-end race T-28); S9 before R6-01 is final (it fixes
   the tool list A3 captures and which debug completions R3E-09 can observe; the check
   itself does not depend on the list).
 
@@ -760,6 +761,8 @@ from the Join button.
   R3E-17's driver file (A1).
 - **Size:** S. **Depends on:** R3E-17, S8a, S8b. **PC:** yes, for the numbers.
   **Risk:** low.
+- **When:** last, after S8a and S8b (wave 19), which run after the end-to-end race (T-28).
+  Until then R3E-17 polls at its 60 s constant.
 
 ### R6-11 No retakes and the end date on generator-built rival folders
 
@@ -790,7 +793,8 @@ from the Join button.
 - **Track A, rules (RaceCore, headless):** R4-01 and R4-02 first (after R1-10; R3E-11
   depends on no R4 task, so nothing here lands inside R3); then R4-03 with R4-04 (one pull
   request, after R3E-11 and R3E-18); then R4-05 and R4-07 in parallel; then R4-06, R6-01,
-  R6-05, R6-06, R6-10 in parallel; then R6-02, R6-03, R6-04, R6-08 in that order.
+  R6-05, R6-06 in parallel; then R6-02, R6-03, R6-04, R6-08 in that order; R6-10 runs last,
+  after S8.
 - **Track B, window (UI):** R4-08 can start at once (base Parsek only). R4-09 needs R4-04,
   P11-01, P11-02, R1-14, R1-18 and R3E-17; then R4-10, then R4-11 (hover half), R4-12,
   R6-07 in parallel; R4-13 last. The camera half of R4-11 waits with P3b and R3W-26.
@@ -875,7 +879,8 @@ Other proof:
 - In-game (owner's PC): R4-13 (ladder ids live, window draws in both scenes; categories
   `SpaceRace` and `SpaceRaceFlight`, hosted by T-29's RACE-9 and RACE-10), R4-11 camera
   half in flight once P3b is scheduled, R6-07 look.
-- Harness (owner's PC): the census photographs of R4-12, the poll measurement of R6-10.
+- Harness (owner's PC): the census photographs of R4-12; at the end, after S8, the poll
+  measurement of R6-10.
   The board's log lines (`Board computed`, `Holder changed`, the message-posted line) are
   asserted by T-28 RACE-6 and T-32 RACE-7 (OV-07); no lane is planned here.
 

@@ -71,7 +71,7 @@ Explicitly not built here:
 | T-18 (two-machine simulator) | the loopback tests, including their self-heal case | R3E-19, R3E-20 |
 | R3W-05 (the verdict consumer) | R3E-18 hands verdicts to it; until it lands the driver only logs them | none (soft) |
 | R3W-03 (the tree loader) | agrees the tree key list in R3E-02's pull request (OV-35) | none (soft) |
-| Spikes S8a, S8b (stall of a first open on sync clients) and the owner's yes on the worker | the copy worker | R3E-23 |
+| Spikes S8a, S8b (stall of a first open on sync clients; they run last, after T-28) and the owner's yes on the worker | the copy worker | R3E-23 (runs last) |
 | Spike S9 (which stock debug actions a mod can observe) | the debug-action list of A3 and the debug-completion fact | R3E-09 |
 
 No other spike gates this plan. No task needs a flight before R3E-08.
@@ -783,7 +783,8 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
   transport.
 - **Registers:** none beyond log tags.
 - **Size:** M. **Depends on:** R3E-04, R1-08 (`sharedFolderPath`, the in-memory folder),
-  R1-10 (`IRaceSharedFolder` and its adapter), T-02. **PC:** no (S8 adds the real numbers).
+  R1-10 (`IRaceSharedFolder` and its adapter), T-02. **PC:** no. It proceeds without S8, which
+  runs last; it builds the main-thread form with the design's default poll numbers.
   **Risk:** medium.
 
 ### R3E-17 Sync ticks
@@ -938,7 +939,8 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
 - **Registers:** `scripts/background-threads-audit-allowlist.txt` entry with its rationale;
   `.claude/CLAUDE.md` InvariantCulture paragraph names the one thread (then
   `cp .claude/CLAUDE.md AGENTS.md`); lifetimes (instance state only).
-- **Size:** M. **Depends on:** R3E-16, S8a, S8b, owner's yes (question 2). **PC:** yes.
+- **Size:** M. **Depends on:** R3E-16, S8a, S8b, owner's yes (question 2, Q-18). **PC:** yes.
+- **When:** last, after S8a and S8b (wave 19), which run after the end-to-end race (T-28).
 - **Risk:** high; a thread in a mod that has none.
 
 ### R3E-24 In-game exchange check
@@ -1001,8 +1003,9 @@ R1 task; `ParsekConfigFactCapture.cs` (R3E-06, 09, 15); `LoadReconcilePolicy.cs`
   `RaceFactsTrackingStation` (TRACKSTATION, RACE-11: R3E-13's terminate) and `RaceExchange`
   (SPACECENTER, RACE-9: R3E-01's folder cell, R3E-24). They prove the stock events behave
   as the VERIFY items assume.
-- **Owner's PC, not automated:** S8 measurements and the worker over Dropbox, Google Drive and
-  OneDrive placeholders (R3E-23); one two-machine session over a real sync client.
+- **Owner's PC, not automated:** one two-machine session over a real sync client; at the end,
+  after T-28, the S8 measurements and the worker over Dropbox, Google Drive and OneDrive
+  placeholders (R3E-23).
 - **Harness:** no lane of its own; the whole-save isolation lane is T-27 (RACE-4), the
   two-player lanes are T-28 (RACE-6) and T-32 (RACE-7), driving two race saves through T-19's
   `RaceCommand action=sync|offline|online`; the in-game categories ride T-29's hosts.
@@ -1067,7 +1070,7 @@ R1 task; `ParsekConfigFactCapture.cs` (R3E-06, 09, 15); `LoadReconcilePolicy.cs`
   exports until the next save. Noticed by the `notReady reason=epoch-pending` count.
 - **Main-thread stall.** A cloud placeholder or an offline share can block one open for
   seconds (15.9). Mitigation: no shared-folder access in flight without the worker; S8
-  numbers; R3E-23.
+  numbers and R3E-23 at the end (S8 runs last, after T-28).
 - **Privacy leak in a payload.** The `.prec` and the public ghost could carry a kerbal name or
   another private value. R3E-03 strips `crew`; VERIFY the rest by reading a real `.prec`
   event list and a real snapshot; a test pins the stripped key set.
@@ -1179,4 +1182,5 @@ R1 task; `ParsekConfigFactCapture.cs` (R3E-06, 09, 15); `LoadReconcilePolicy.cs`
    worker that copies files and checks them, an exception to the "no threads" rule;
    (b) keep everything on the main thread, with copying paused during flights and a possible
    freeze in the Space Center. Recommendation: (a) if spike S8 shows freezes longer than one
-   second on any common sync client; otherwise (b). The plan builds (b) first either way.
+   second on any common sync client; otherwise (b). The plan builds (b) first either way;
+   S8 runs last, after the end-to-end race (T-28), so the answer comes at the end.
