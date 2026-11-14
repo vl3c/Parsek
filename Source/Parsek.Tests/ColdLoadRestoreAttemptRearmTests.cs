@@ -387,12 +387,12 @@ namespace Parsek.Tests
         [Fact]
         public void Wiring_FlightArmResolvesTheHold_OnLoadDropsIt()
         {
-            string take = Collapse(PreparedMethodBody("ParsekFlight.cs", "internal static bool TryTakeCommittedTreeForSpawnedVesselRestore("));
+            string take = Collapse(PreparedMethodBody("Controllers/ParsekFlight.cs", "internal static bool TryTakeCommittedTreeForSpawnedVesselRestore("));
             int arm = IndexOrFail(take, "CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(");
             int resolve = IndexOrFail(take, "ParsekScenario.ResolveHeldSaveAttemptEventsOnArm(committedTree.Id)");
             Assert.True(arm < resolve);
 
-            string onLoad = Collapse(PreparedMethodBody("ParsekScenario.cs", "public override void OnLoad(ConfigNode node)"));
+            string onLoad = Collapse(PreparedMethodBody("Controllers/ParsekScenario.cs", "public override void OnLoad(ConfigNode node)"));
             int drop = IndexOrFail(onLoad, "DropHeldSaveAttemptEvents(");
             int apply = IndexOrFail(onLoad, "ApplySaveAttemptEventsAfterActiveTreeRestore()");
             Assert.True(drop < apply);
@@ -405,7 +405,7 @@ namespace Parsek.Tests
         [Fact]
         public void Wiring_RearmBeforeSpliceAndDetach_BothSkippedWhenRearmed()
         {
-            string body = Collapse(PreparedMethodBody("ParsekScenario.cs", "internal static bool TryRestoreActiveTreeNode("));
+            string body = Collapse(PreparedMethodBody("Controllers/ParsekScenario.cs", "internal static bool TryRestoreActiveTreeNode("));
             int drop = IndexOrFail(body, "DropFailedSidecarHydrationRecordings(");
             int rearm = IndexOrFail(body, "TryRearmSaveAttemptForRestoredTree(tree, earlyLoadKind)");
             int splice = IndexOrFail(body, "SpliceMissingCommittedRecordingsIntoLoadedTree(");
@@ -414,7 +414,7 @@ namespace Parsek.Tests
             Assert.Contains("int splicedFromCommitted = saveAttemptRearmed || liveAttemptKeepsCommittedCopy ? 0 : SpliceMissingCommittedRecordingsIntoLoadedTree(", body);
             Assert.Contains("bool committedCopyDetached = !saveAttemptRearmed && !reFlySessionResumed && !liveAttemptKeepsCommittedCopy && RecordingStore.RemoveCommittedTreeById(", body);
 
-            string persist = Collapse(PreparedMethodBody("ParsekScenario.cs", "private static void PersistGameStateAndMilestones(ConfigNode node)"));
+            string persist = Collapse(PreparedMethodBody("Controllers/ParsekScenario.cs", "private static void PersistGameStateAndMilestones(ConfigNode node)"));
             Assert.Contains("GameStateStore.BuildEventsNode( RecordingStore.CommittedTreeRestoreAttemptTreeId, "
                 + "RecordingStore.CommittedTreeRestoreAttemptReason)", persist);
         }

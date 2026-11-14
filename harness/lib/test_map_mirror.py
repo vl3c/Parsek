@@ -9,7 +9,7 @@ on the page instead of drawing a plausible picture, and the page is a single
 self-contained file that fits its budget.
 
 The sample dumps under `testdata/` were built by hand in the shape the C#
-writer (`Source/Parsek/MapGeometryJson.cs`) emits - open 64-point body rings,
+writer (`Source/Parsek/TestCommands/MapGeometryJson.cs`) emits - open 64-point body rings,
 `counts` over the ghost lines, `unknownBodyItems`, `icon.source`,
 `markerDecision`, an inactive line with empty points, a pid-0 entry - with
 these deliberate, hand-checkable features (all metres):
@@ -753,11 +753,11 @@ class CSharpWriterSourceSyncTests(unittest.TestCase):
     """SOURCE-SYNC GATE: reads OUTSIDE `harness/` on purpose (precedent:
     `test_gui_tree_view.CSharpWriterSourceSyncTests`). The tool indexes the dump
     by key name and every name is written by one C# writer,
-    `Source/Parsek/MapGeometryJson.cs`. Rename a key there and the page would go
+    `Source/Parsek/TestCommands/MapGeometryJson.cs`. Rename a key there and the page would go
     quiet about it; fail here instead, naming the key. The treatment tokens the
     page explains come from the same file plus the Director's `Treatment` enum."""
 
-    WRITER = os.path.join(REPO_ROOT, "Source", "Parsek", "MapGeometryJson.cs")
+    WRITER = os.path.join(REPO_ROOT, "Source", "Parsek", "TestCommands", "MapGeometryJson.cs")
     TREATMENT_ENUM = os.path.join(REPO_ROOT, "Source", "Parsek", "MapRender", "RenderSegment.cs")
 
     # Every key map_mirror.py reads, and what goes quiet without it.
@@ -849,7 +849,7 @@ class CSharpWriterSourceSyncTests(unittest.TestCase):
         self.assertEqual(set(mm.TREATMENTS), consts | members)
 
     def test_the_icon_sources_are_the_recorder_literals(self):
-        rec = self._read(os.path.join(REPO_ROOT, "Source", "Parsek", "MapGeometryRecorder.cs"))
+        rec = self._read(os.path.join(REPO_ROOT, "Source", "Parsek", "TestCommands", "MapGeometryRecorder.cs"))
         for src in ("proto", "marker"):
             self.assertRegex(rec, r'Source = [^;,}]*"%s"' % src,
                              "the recorder no longer writes icon source %r" % src)

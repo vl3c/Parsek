@@ -6,7 +6,7 @@ save format on.*
 **Status:** BINDING. Owner ruling (V, 2026-11-04): the next release is the first stable save
 format, the 1.0 baseline. Today's version numbers stay as the baseline ("any safe number"), and
 the alpha-era migration and repair code is deleted ("clean, without old baggage"). Todo
-`SAVE-FORMAT-1-0-FREEZE` (done). Code authority: `Source/Parsek/SaveFormat.cs`.
+`SAVE-FORMAT-1-0-FREEZE` (done). Code authority: `Source/Parsek/Recording/SaveFormat.cs`.
 
 **Release numbering:** the 1.0 save format first shipped in Parsek **v0.10.7**; Parsek **v1.0.0**
 is the first public release and writes the same format numbers. "1.0+ save" in this document

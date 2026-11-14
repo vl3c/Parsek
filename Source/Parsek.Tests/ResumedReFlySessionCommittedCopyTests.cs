@@ -56,7 +56,7 @@ namespace Parsek.Tests
         public void TryRestoreActiveTreeNode_SkipsTheDetachForAResumedSession()
         {
             string src = Regex.Replace(
-                SourceScanText.StripCSharpComments(ParsekScenarioSourceFiles.ReadText(LocateSource("ParsekScenario.cs"))),
+                SourceScanText.StripCSharpComments(ParsekScenarioSourceFiles.ReadText(LocateSource("Controllers/ParsekScenario.cs"))),
                 @"\s+", " ");
             int method = src.IndexOf("internal static bool TryRestoreActiveTreeNode(", StringComparison.Ordinal);
             Assert.True(method >= 0);

@@ -24,7 +24,7 @@ namespace Parsek.Tests
     /// </summary>
     public class WatchEntryAcceptanceWiringGateTests
     {
-        private const string ControllerPath = "WatchModeController.cs";
+        private const string ControllerPath = "Controllers/WatchModeController.cs";
 
         // ---- (a) the body term resolves from the trajectory, not the stale cache ----
 
@@ -113,7 +113,7 @@ namespace Parsek.Tests
                 + string.Join(", ", offenders.ToArray()));
 
             // ...and ParsekFlight's forwarder must still be a forwarder.
-            string forwarder = StripComments(ReadParsekSource("ParsekFlight.cs"));
+            string forwarder = StripComments(ReadParsekSource("Controllers/ParsekFlight.cs"));
             Assert.Contains(
                 "internal bool IsGhostOnSameBody(int index) => watchMode.IsGhostOnSameBody(index);",
                 forwarder);

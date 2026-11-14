@@ -23,7 +23,7 @@ Implementation should branch from `origin/main` so it can also absorb the
 
 Related: `docs/dev/observability-audit-2026-04-26.md`,
 `docs/dev/plan-observability-logging-visibility.md`,
-`Source/Parsek/GhostRenderTrace.cs` (the model), `Source/Parsek/TraceSeparation.cs`
+`Source/Parsek/Ghost/GhostRenderTrace.cs` (the model), `Source/Parsek/Recording/TraceSeparation.cs`
 (pre-event window prior art).
 
 > **STATUS (2026-06-06): IMPLEMENTED and instrumenting BOTH scenes.** `MapRenderTrace` /
@@ -462,7 +462,7 @@ Wired like `ghostRenderTracing`. The first draft under-counted the mirror sites;
 COMPLETE set (verified against every `ghostRenderTracing` occurrence) is below. Missing
 the save block in particular ships a setting that loads and restores but never persists.
 
-1. `Source/Parsek/ParsekSettings.cs` (next to `ghostRenderTracing`, ~line 54):
+1. `Source/Parsek/Config/ParsekSettings.cs` (next to `ghostRenderTracing`, ~line 54):
 
    ```csharp
    [GameParameters.CustomParameterUI("Map/TS render tracing (Warning: huge logs)",
@@ -470,7 +470,7 @@ the save block in particular ships a setting that loads and restores but never p
    public bool mapRenderTracing = false;
    ```
 
-2. `Source/Parsek/ParsekSettingsPersistence.cs` - mirror EVERY `ghostRenderTracing`
+2. `Source/Parsek/Config/ParsekSettingsPersistence.cs` - mirror EVERY `ghostRenderTracing`
    site:
    - `private const string MapRenderTracingKey = "mapRenderTracing";` (~line 45)
    - `private static bool? storedMapRenderTracing;` backing field (~line 60)

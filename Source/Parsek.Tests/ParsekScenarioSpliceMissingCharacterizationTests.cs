@@ -28,7 +28,7 @@ namespace Parsek.Tests
         internal const string PhasePrefix = "SpliceMissingCommittedRecordingsPhase";
         // The method and its phases live in this one older partial, which the joined
         // ParsekScenario text (ParsekScenarioSourceFiles.ReadAll) does not read.
-        private const string HostFileName = "ParsekScenario.HydrationRepair.cs";
+        private const string HostFileName = "Controllers/ParsekScenario.HydrationRepair.cs";
         private const string GoldenFile = "ParsekScenario.SpliceMissingCommittedRecordings.tokens.txt";
 
         private static string ClassText()

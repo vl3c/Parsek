@@ -2123,7 +2123,7 @@ namespace Parsek.Tests
         {
             // Line endings normalized: the adjacency needle below spans a line break, and a
             // core.autocrlf=true checkout stores the file with CRLF.
-            string src = TooltipEchoBudgetTests.ReadParsekSource("ParsekUI.cs").Replace("\r\n", "\n");
+            string src = TooltipEchoBudgetTests.ReadParsekSource("UI/ParsekUI.cs").Replace("\r\n", "\n");
             // Both constructors subscribe (one per scene host), and Cleanup drops them.
             Assert.Equal(2, CountOccurrences(src, "kerbalsUI.SubscribeLiveCrewEvents();"));
             Assert.Equal(1, CountOccurrences(src, "kerbalsUI.UnsubscribeLiveCrewEvents();"));

@@ -200,7 +200,7 @@ namespace Parsek.Tests
         [Fact]
         public void SourceGate_OnLoadClearsReadinessBeforeItsBody()
         {
-            string body = MethodBody(ReadSource("ParsekScenario.cs"),
+            string body = MethodBody(ReadSource("Controllers/ParsekScenario.cs"),
                 "public override void OnLoad(ConfigNode node)");
             int clear = IndexOrFail(body, "ClearFlightSceneReadyForVesselSwitchFlag();");
             Match tryBlock = Regex.Match(body, @"\btry\s*\{");
@@ -213,7 +213,7 @@ namespace Parsek.Tests
         [Fact]
         public void SourceGate_OnVesselSwitchingRoutesThroughTryArm()
         {
-            string body = MethodBody(ReadSource("ParsekScenario.cs"),
+            string body = MethodBody(ReadSource("Controllers/ParsekScenario.cs"),
                 "private void OnVesselSwitching(Vessel from, Vessel to)");
             IndexOrFail(body, "TryArmVesselSwitchFlag(");
             Assert.DoesNotContain("vesselSwitchPending = true", body);
@@ -222,7 +222,7 @@ namespace Parsek.Tests
         [Fact]
         public void SourceGate_OnFlightReadyArmsBeforeTheRestoreEarlyReturn()
         {
-            string body = MethodBody(ReadSource("ParsekFlight.cs"), "void OnFlightReady()");
+            string body = MethodBody(ReadSource("Controllers/ParsekFlight.cs"), "void OnFlightReady()");
             int arm = IndexOrFail(body, "ParsekScenario.NoteFlightSceneReadyForVesselSwitchFlag();");
             int earlyReturn = IndexOrFail(body, "if (restoringActiveTree)");
             Assert.True(arm < earlyReturn,
@@ -232,7 +232,7 @@ namespace Parsek.Tests
         [Fact]
         public void SourceGate_SwitchRestoreRefusesFreshRolloutBeforePop()
         {
-            string body = MethodBody(ReadSource("ParsekFlight.cs"),
+            string body = MethodBody(ReadSource("Controllers/ParsekFlight.cs"),
                 "IEnumerator RestoreActiveTreeFromPendingForVesselSwitch()");
             int refuse = IndexOrFail(body, "ShouldRefuseVesselSwitchRestoreForFreshRollout(");
             int revert = IndexOrFail(body, "TryRevertPreTransitionForVesselSwitch(");

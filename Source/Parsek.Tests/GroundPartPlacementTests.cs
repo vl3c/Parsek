@@ -149,7 +149,7 @@ namespace Parsek.Tests
             string path = null;
             for (int i = 0; i < 10 && !string.IsNullOrEmpty(dir); i++)
             {
-                string candidate = System.IO.Path.Combine(dir, "Source", "Parsek", "ParsekFlight.cs");
+                string candidate = System.IO.Path.Combine(dir, "Source", "Parsek", "Controllers", "ParsekFlight.cs");
                 if (System.IO.File.Exists(candidate)) { path = candidate; break; }
                 dir = System.IO.Path.GetDirectoryName(dir);
             }

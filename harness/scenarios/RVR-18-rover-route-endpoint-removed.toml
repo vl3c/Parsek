@@ -185,7 +185,7 @@ tier = "nightly"
 #   body=Kerbin at ut=1600
 #
 # THE THREE FIELDS THAT WOULD BITE A NAIVE PIN, each settled here rather than guessed:
-#   * `from=...'<unknown>'` - `RouteEndpoint` (`Source/Parsek/RouteProofMetadata.cs`)
+#   * `from=...'<unknown>'` - `RouteEndpoint` (`Source/Parsek/Logistics/RouteProofMetadata.cs`)
 #     carries pid / rootPartUId / body / lat / lon / alt / isSurface and NO VESSEL NAME,
 #     so the old name is only renderable while a live vessel still carries the recorded
 #     pid. This lane DELETES that vessel, so `<unknown>` is the correct and REQUIRED

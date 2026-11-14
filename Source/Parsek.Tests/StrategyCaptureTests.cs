@@ -1015,7 +1015,7 @@ namespace Parsek.Tests
             // would compute against a store that has not seen it yet.
             string path = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory,
-                "..", "..", "..", "..", "..", "Source", "Parsek", "GameStateRecorder.cs"));
+                "..", "..", "..", "..", "..", "Source", "Parsek", "GameActions", "GameStateRecorder.cs"));
             Assert.True(File.Exists(path), "source file not found for scan: " + path);
             string source = File.ReadAllText(path);
 

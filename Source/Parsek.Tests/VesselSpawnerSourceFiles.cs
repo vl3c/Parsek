@@ -17,6 +17,9 @@ namespace Parsek.Tests
     /// </summary>
     internal static class VesselSpawnerSourceFiles
     {
+        /// <summary>The module folder under Source/Parsek that holds the class's files.</summary>
+        internal const string ModuleFolder = "Controllers";
+
         internal static readonly string[] SplitFileNames =
         {
             "VesselSpawner.CrewRoster.cs",
@@ -38,7 +41,7 @@ namespace Parsek.Tests
         internal static IReadOnlyList<string> Paths(string parsekSourceDir)
         {
             return PartialClassSourceFiles.Paths(
-                parsekSourceDir,
+                PartialClassSourceFiles.FamilyDir(parsekSourceDir, "VesselSpawner.cs", ModuleFolder),
                 "VesselSpawner.cs",
                 SplitFileNames,
                 OtherPartialFileNames,

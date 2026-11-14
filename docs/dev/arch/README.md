@@ -1435,11 +1435,15 @@ not a claim about the code).
 `modules.toml` used to end with a catch-all rule (`Core`) that collected every
 root-level file no other rule claimed. That was a map maintenance queue, not a
 module, and the placement policy below emptied it. The kernel guard has since
-replaced the catch-all with an explicit list: `Core` now names the eight kernel
-files, and an unplaced root file is reported and skipped rather than silently
-joining the kernel. `--place` still scores the files in the last rule's module
-and writes the phase's evidence to `core-placement.md`; for the historical
-report it rebuilds the before-state with the old catch-all semantics. That
+replaced the catch-all with an explicit list: `Core` named the eight kernel
+files, and an unplaced root file was reported and skipped rather than silently
+joining the kernel. The 2026-11-14 folder move then put every file in its
+module's folder (`Source/Parsek/<Module>/`), and `modules.toml` became one
+folder rule per module, so no root file is left for a catch-all to collect.
+`--place` still scores the files in the last rule's module (`Core`, the kernel
+folder) and writes `core-placement.md`, but the before-state it rebuilds with
+the old catch-all semantics is now empty: the phase's evidence below is history,
+and the report as it stood is in git history before the folder move. That
 report is generated evidence - produced by `--place`, never edited by hand.
 
 For every catch-all file the evidence line gives its declared type count (a
@@ -1983,21 +1987,33 @@ deliberately deferred.
 
 ## Editing `modules.toml`
 
-Rules are read top to bottom and the first match wins.
+The folder is the module: every `.cs` file sits in `Source/Parsek/<Module>/`
+(any depth below it), and the file has one rule per module.
 
 - `folder = "X"` matches the first path segment under `Source/Parsek/`, so it
-  applies to files in that folder and its subfolders.
-- `prefix = "regex"` is matched against the file name of root-level files only.
-- `Core` is the kernel list (eight explicit file names) and MUST stay last; a
-  new root file must get its own rule above it. An unplaced root file warns as
-  `WARN unplaced root file: <name> (add a rule to modules.toml; Core is the
-  kernel, not a catch-all)`; an unplaced folder file keeps the
-  `WARN unclassified file` wording.
+  applies to files in that folder and its subfolders. Each rule's `name` is its
+  folder (`RealTreeSmokeTests.test_modules_toml_places_every_module_by_its_folder`
+  pins that, and that the rule set equals the folders on disk).
+- A `.cs` file in the root of `Source/Parsek` is an error: archview prints
+  `ERROR root-level source file: <name> (move it into its module's folder,
+  Source/Parsek/<Module>/; the folder is the module)` and skips it, and
+  `RealTreeSmokeTests.test_no_source_file_sits_in_the_root_of_source_parsek`
+  reds. `python3 scripts/refactor/move_to_module_folders.py --check` exits 1
+  naming it; without `--check` the script `git mv`s every root file into the
+  folder its module's rule names (`--dry-run` prints the plan), reading the
+  working tree's rules first and then `origin/main`'s, so a root file a merge
+  of an older main brings in is placed by the prefix rules that main still
+  carries.
+- `prefix = "regex"` is still read, against the file name of a root-level file
+  only, for test fixtures and historical reconstructions; `modules.toml` uses
+  none. An unplaced folder file keeps the `WARN unclassified file` wording.
+- `Core` (the kernel folder) stays last: `--place` scores the module the last
+  rule names.
 - `bin/`, `obj/` and `Properties/` are always skipped.
 
-Add the most specific rules first, confirm with
-`python scripts/arch/archview.py --check` that nothing is unplaced, and
-mention module additions in the same commit as the code they cover.
+A new module is a new folder, a rule here, a layer and a line in `atlas.toml`,
+in the same commit as the code they cover; confirm with
+`python scripts/arch/archview.py --check` that nothing is unplaced.
 
 The other sections:
 

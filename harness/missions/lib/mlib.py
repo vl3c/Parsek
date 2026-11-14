@@ -2771,7 +2771,7 @@ STOCK_BODY_GRAVITY: Dict[str, Tuple[float, float, float]] = {
     #     (`TestBodyRegistry.Install(("Kerbin", 600000.0, 3.5316e12), ...)`), the same
     #     value `scripts/reaim_sim.py:21` carries at full precision (3.5316000e12) and
     #     `harness/missions/lib/test_b30_mun_minmus.py:49` already imports.
-    #   R 600,000     - the same Install call, and `Source/Parsek/SessionMerger.cs:35`.
+    #   R 600,000     - the same Install call, and `Source/Parsek/Recording/SessionMerger.cs:35`.
     #   SOI 84,159,286 - quoted in THIS TABLE's own Mun comment above ("Kerbin's SOI is
     #     only 7.01x Mun's orbital radius (84,159,286 / 12,000,000)").
     #

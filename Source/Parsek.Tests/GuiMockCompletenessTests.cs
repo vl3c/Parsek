@@ -86,7 +86,7 @@ namespace Parsek.Tests
             {
                 EnumType = typeof(TerminalState),
                 ShortName = "TerminalState",
-                RelativePath = "MissionComposition.cs",
+                RelativePath = "Missions/MissionComposition.cs",
                 MethodMarker = "internal static string TerminalName(TerminalState? t)",
                 Why = "the Structure window's terminal Event cell draws exactly "
                       + "this vocabulary, and six of its words have no capture",

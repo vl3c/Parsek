@@ -42,7 +42,7 @@ namespace Parsek.Tests.Logistics
 
             Assert.True(File.Exists(path), $"{fileName} not found at {path}");
             // ParsekFlight is split into partial files; read the text that was ParsekFlight.cs.
-            if (fileName == "ParsekFlight.cs")
+            if (fileName == "Controllers/ParsekFlight.cs")
                 return ParsekFlightSourceFiles.ReadAll(Path.GetDirectoryName(path));
             return ParsekFlightSourceFiles.ReadText(path);
         }
@@ -84,9 +84,9 @@ namespace Parsek.Tests.Logistics
         }
 
         [Theory]
-        [InlineData("ParsekFlight.cs")]
-        [InlineData("ParsekKSC.cs")]
-        [InlineData("ParsekTrackingStation.cs")]
+        [InlineData("Controllers/ParsekFlight.cs")]
+        [InlineData("Controllers/ParsekKSC.cs")]
+        [InlineData("Controllers/ParsekTrackingStation.cs")]
         public void Seam_BuildsRouteMissionsViaSharedSelector(string fileName)
         {
             string body = ExtractDriveMissionLoopUnitsBody(ResolveSourceFile(fileName));
@@ -99,9 +99,9 @@ namespace Parsek.Tests.Logistics
         }
 
         [Theory]
-        [InlineData("ParsekFlight.cs")]
-        [InlineData("ParsekKSC.cs")]
-        [InlineData("ParsekTrackingStation.cs")]
+        [InlineData("Controllers/ParsekFlight.cs")]
+        [InlineData("Controllers/ParsekKSC.cs")]
+        [InlineData("Controllers/ParsekTrackingStation.cs")]
         public void Seam_UnionsRouteMissionsOntoMissionStoreList(string fileName)
         {
             string body = ExtractDriveMissionLoopUnitsBody(ResolveSourceFile(fileName));
@@ -113,9 +113,9 @@ namespace Parsek.Tests.Logistics
         }
 
         [Theory]
-        [InlineData("ParsekFlight.cs")]
-        [InlineData("ParsekKSC.cs")]
-        [InlineData("ParsekTrackingStation.cs")]
+        [InlineData("Controllers/ParsekFlight.cs")]
+        [InlineData("Controllers/ParsekKSC.cs")]
+        [InlineData("Controllers/ParsekTrackingStation.cs")]
         public void Seam_PassesUnionedListToBuildSignatureAndBuild(string fileName)
         {
             string body = ExtractDriveMissionLoopUnitsBody(ResolveSourceFile(fileName));

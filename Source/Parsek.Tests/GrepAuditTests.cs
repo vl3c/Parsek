@@ -79,20 +79,20 @@ namespace Parsek.Tests
             Assert.Empty(ParsekFileDeleteViolations(allowlist, files));
 
             var planted = new Dictionary<string, string[]>(files, StringComparer.OrdinalIgnoreCase);
-            planted["Source/Parsek/MissionStore.cs"] = new[]
+            planted["Source/Parsek/Missions/MissionStore.cs"] = new[]
             {
                 "string p = RecordingPaths.ResolveSaveScopedPath(RecordingPaths.BuildTrajectoryRelativePath(id));",
                 "File.Delete(p);",
             };
             var unlisted = ParsekFileDeleteViolations(allowlist, planted);
-            Assert.Contains(unlisted, v => v.StartsWith("Source/Parsek/MissionStore.cs:2:", StringComparison.Ordinal));
+            Assert.Contains(unlisted, v => v.StartsWith("Source/Parsek/Missions/MissionStore.cs:2:", StringComparison.Ordinal));
 
             var pinned = new Dictionary<string, string[]>(files, StringComparer.OrdinalIgnoreCase);
-            var recorder = new List<string>(pinned["Source/Parsek/FlightRecorder.StartRecording.cs"]);
+            var recorder = new List<string>(pinned["Source/Parsek/Recording/FlightRecorder.StartRecording.cs"]);
             recorder.Add("System.IO.File.Delete(RecordingPaths.ResolveSaveScopedPath(RecordingPaths.BuildRewindSaveRelativePath(name)));");
-            pinned["Source/Parsek/FlightRecorder.StartRecording.cs"] = recorder.ToArray();
+            pinned["Source/Parsek/Recording/FlightRecorder.StartRecording.cs"] = recorder.ToArray();
             var moved = ParsekFileDeleteViolations(allowlist, pinned);
-            Assert.Contains(moved, v => v.Contains("Source/Parsek/FlightRecorder.StartRecording.cs: pinned 2"));
+            Assert.Contains(moved, v => v.Contains("Source/Parsek/Recording/FlightRecorder.StartRecording.cs: pinned 2"));
         }
 
         [Fact]

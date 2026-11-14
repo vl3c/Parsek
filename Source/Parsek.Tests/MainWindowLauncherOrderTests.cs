@@ -74,7 +74,7 @@ namespace Parsek.Tests
         internal static string MainWindowDrawText()
         {
             const string sectionCall = "logisticsUI.DrawMainWindowSection(complexity);";
-            string main = MethodBodyText("ParsekUI.cs", "public void DrawWindow(int windowID)");
+            string main = MethodBodyText("UI/ParsekUI.cs", "public void DrawWindow(int windowID)");
             int call = main.IndexOf(sectionCall, StringComparison.Ordinal);
             Assert.True(call >= 0, "ParsekUI.DrawWindow no longer draws the Logistics section");
             Assert.True(main.IndexOf(sectionCall, call + 1, StringComparison.Ordinal) < 0,

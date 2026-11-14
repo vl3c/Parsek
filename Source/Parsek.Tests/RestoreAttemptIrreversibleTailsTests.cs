@@ -215,10 +215,10 @@ namespace Parsek.Tests
         // flipped to a live discard, which would credit what KSP no longer has; and a live
         // drop site flipped to rollback, which would drop what KSP keeps.
         [Theory]
-        [InlineData(RewindInvokerSourceFiles.PostLoad, "internal static bool DiscardRestoreAttemptOfAbandonedFlight(", "false")]
-        [InlineData("ParsekFlight.cs", "private void ResetFlightReadyState(", "false")]
-        [InlineData("ParsekFlight.cs", "internal void DiscardActiveTreeForSuppressedSceneExit(", "false")]
-        [InlineData("ParsekFlightSwitchContinuation.cs", "internal void AutoDiscardNoOpNoSessionCommittedResume(", "true")]
+        [InlineData(RewindInvokerSourceFiles.ModuleFolder + "/" + RewindInvokerSourceFiles.PostLoad, "internal static bool DiscardRestoreAttemptOfAbandonedFlight(", "false")]
+        [InlineData("Controllers/ParsekFlight.cs", "private void ResetFlightReadyState(", "false")]
+        [InlineData("Controllers/ParsekFlight.cs", "internal void DiscardActiveTreeForSuppressedSceneExit(", "false")]
+        [InlineData("Controllers/ParsekFlightSwitchContinuation.cs", "internal void AutoDiscardNoOpNoSessionCommittedResume(", "true")]
         [InlineData("Patches/MapFocusObjectOnSelectPatch.cs", "private static void DiscardActiveRecordingAndSwitchTo(", "true")]
         public void DropSites_PassTheirPreserveFlag(string file, string signature, string expected)
         {

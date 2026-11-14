@@ -787,7 +787,7 @@ namespace Parsek.Tests
             // recovery handler means duplicate XP events on every subsequent recovery. Source
             // scan rather than reflection because the subscription is a statement, not a
             // member. Fails if either half of the pair is dropped.
-            string source = ReadSource("GameStateRecorder.cs");
+            string source = ReadSource("GameActions/GameStateRecorder.cs");
 
             const string handler = "OnVesselRecoveryProcessingForExperience";
             var adds = Regex.Matches(

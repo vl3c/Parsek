@@ -129,7 +129,7 @@ namespace Parsek.Tests
         [Fact]
         public void Consumer_BothCoroutinesRecheckAfterTheFirstYield()
         {
-            string src = Prepared("WarpToTimeConsumer.cs");
+            string src = Prepared("Controllers/WarpToTimeConsumer.cs");
 
             string deferred = Body(src, "IEnumerator ConsumeDeferredKscWarp()");
             int yieldD = IndexOrFail(deferred, "yield return null;");
@@ -192,11 +192,11 @@ namespace Parsek.Tests
             callers.Sort(StringComparer.Ordinal);
             Assert.Equal(new[] { "ParsekScenario.SceneTransitions.cs", "ParsekScenario.SessionReset.cs" }, callers);
 
-            string reset = Body(Prepared("ParsekScenario.SessionReset.cs"),
+            string reset = Body(Prepared("Controllers/ParsekScenario.SessionReset.cs"),
                 "internal static void ResetSaveScopedSessionState(string reason)");
             Assert.Equal(1, Occurrences(reset, "WarpToTimeRequest.DropAll("));
 
-            string mainMenu = Body(Prepared("ParsekScenario.SceneTransitions.cs"),
+            string mainMenu = Body(Prepared("Controllers/ParsekScenario.SceneTransitions.cs"),
                 "private void OnMainMenuTransition(GameScenes newScene)");
             int gate = IndexOrFail(mainMenu, "if (newScene == GameScenes.MAINMENU)");
             int gateOpen = mainMenu.IndexOf('{', gate);
@@ -209,7 +209,7 @@ namespace Parsek.Tests
         [Fact]
         public void StartRewind_ArmsThePendingWarpOnlyThroughTheDroppingWrapper()
         {
-            string src = Prepared("WarpToTimeController.cs");
+            string src = Prepared("Controllers/WarpToTimeController.cs");
             string start = Body(src, "private static void StartRewind(RewindTarget target, double targetUT)");
             Assert.Equal(0, Occurrences(start, "WarpToTimeRequest.Set("));
             Assert.Equal(2, Occurrences(start, "ArmPendingWarpAndLaunch("));

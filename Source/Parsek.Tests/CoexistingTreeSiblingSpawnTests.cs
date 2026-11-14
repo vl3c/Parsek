@@ -857,7 +857,7 @@ namespace Parsek.Tests
             string srcRoot = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "Parsek"));
             // VesselSpawner is a partial class; its gate reads every split file as one text.
-            string raw = (file == "VesselSpawner.cs"
+            string raw = (file == "Controllers/VesselSpawner.cs"
                 ? VesselSpawnerSourceFiles.ReadAll(srcRoot)
                 : File.ReadAllText(Path.Combine(srcRoot, file))).Replace("\r\n", "\n");
             return SourceScanText.StripCSharpComments(raw);
@@ -886,8 +886,8 @@ namespace Parsek.Tests
         }
 
         [Theory]
-        [InlineData("VesselGhoster.cs", 4)]
-        [InlineData("VesselSpawner.cs", 3)]
+        [InlineData("Ghost/VesselGhoster.cs", 4)]
+        [InlineData("Controllers/VesselSpawner.cs", 3)]
         public void EverySpawnOverlapCheck_PassesTheSpawningRecording(string file, int expectedSites)
         {
             List<string> calls = CallArgumentLists(
@@ -903,14 +903,14 @@ namespace Parsek.Tests
                     Assert.Contains("candidateUT: candidateUT", args);
                 }
             }
-            Assert.Equal(file == "VesselGhoster.cs" ? 2 : 1, walkbackSites);
+            Assert.Equal(file == "Ghost/VesselGhoster.cs" ? 2 : 1, walkbackSites);
         }
 
         [Fact]
         public void KscLandedDeOverlap_PassesTheSpawningRecording()
         {
             List<string> calls = CallArgumentLists(
-                ReadSource("ParsekKSC.cs"), "VesselSpawner.GatherExistingLandedVesselPositions");
+                ReadSource("Controllers/ParsekKSC.cs"), "VesselSpawner.GatherExistingLandedVesselPositions");
             Assert.Single(calls);
             string[] args = calls[0].Split(',');
             Assert.Equal(6, args.Length);

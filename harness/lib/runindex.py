@@ -65,7 +65,7 @@ literal by ``test_runindex.HealthFactSourceSyncTests`` (a reworded line reds
 there instead of reading zero). All are on the ``Diagnostics`` tag:
 
 - ``load`` ``[count, maxMs, sumMs]``: ``OnLoad: {0}ms ({1} recordings) ...``,
-  Source/Parsek/ParsekScenario.Diagnostics.cs:218 (written at :241, Verbose).
+  Source/Parsek/Controllers/ParsekScenario.Diagnostics.cs:218 (written at :241, Verbose).
 - ``save`` ``[count, maxMs, sumMs]``: ``OnSave: {0}ms ({1} dirty of {2})``,
   ParsekScenario.Diagnostics.cs:261 (written at :259, Verbose).
 - ``playback`` ``[lines, frames, maxMs, maxGhosts]``: ``Playback frame budget
@@ -79,7 +79,7 @@ there instead of reading zero). All are on the ``Diagnostics`` tag:
 - ``scene`` ``[count, maxRecordings, maxGhosts]``: ``Scene load complete ({0}):
   {1} recordings, ... {6} ghosts``, DiagnosticsComputation.cs:1161 (Verbose at :1159).
 - ``growth`` ``[count, maxPoints, sumEstBytes]``: ``Recording growth rate at stop:
-  {0} points, ... est {5} bytes``, Source/Parsek/FlightRecorder.PointCommit.cs:279
+  {0} points, ... est {5} bytes``, Source/Parsek/Recording/FlightRecorder.PointCommit.cs:279
   (Verbose, FlightRecorder.StopAndFinalize.cs:174).
 
 NOT logged by the mod (so not measured here): frame time on frames under the
@@ -190,17 +190,17 @@ class HealthFact:
         self.expected = expected
 
 
-_SD = "Source/Parsek/ParsekScenario.Diagnostics.cs"
+_SD = "Source/Parsek/Controllers/ParsekScenario.Diagnostics.cs"
 _DC = "Source/Parsek/Diagnostics/DiagnosticsComputation.cs"
 
 HEALTH_FACTS: Tuple[HealthFact, ...] = (
     HealthFact("load", r"^OnLoad: (\d+)ms \((\d+) recordings\)",
-               "Source/Parsek/ParsekScenario.Diagnostics.cs",
+               "Source/Parsek/Controllers/ParsekScenario.Diagnostics.cs",
                ("OnLoad: {0}ms ({1} recordings) phase={2} status={3}",),
                {"0": "1234", "1": "7", "2": "cold", "3": "ok"}, ("1234", "7"),
                (_SD, r'ParsekLog\.Verbose\("Diagnostics",\s*FormatLoadTimingMessage\(')),
     HealthFact("save", r"^OnSave: (\d+)ms \((\d+) dirty of (\d+)\)",
-               "Source/Parsek/ParsekScenario.Diagnostics.cs",
+               "Source/Parsek/Controllers/ParsekScenario.Diagnostics.cs",
                ("OnSave: {0}ms ({1} dirty of {2})",),
                {"0": "88", "1": "2", "2": "9"}, ("88", "2", "9"),
                (_SD, r'ParsekLog\.Verbose\("Diagnostics",\s*string\.Format\(CultureInfo\.InvariantCulture,\s*"OnSave: ')),
@@ -222,12 +222,12 @@ HEALTH_FACTS: Tuple[HealthFact, ...] = (
                ("FLIGHT", "4", "2"),
                (_DC, r'ParsekLog\.Verbose\("Diagnostics",\s*string\.Format\(Inv,\s*"Scene load complete ')),
     HealthFact("growth", r"^Recording growth rate at stop: (\d+) points, (\d+) events, .* est (\d+) bytes$",
-               "Source/Parsek/FlightRecorder.PointCommit.cs",
+               "Source/Parsek/Recording/FlightRecorder.PointCommit.cs",
                ("Recording growth rate at stop: {0} points, {1} events, {2:F1}s elapsed, ",
                 "{3:F2} pts/s, {4:F2} evts/s, est {5} bytes"),
                {"0": "512", "1": "33", "2": "61.0", "3": "8.39", "4": "0.54", "5": "43520"},
                ("512", "33", "43520"),
-               ("Source/Parsek/FlightRecorder.StopAndFinalize.cs",
+               ("Source/Parsek/Recording/FlightRecorder.StopAndFinalize.cs",
                 r'ParsekLog\.Verbose\("Diagnostics",\s*FormatGrowthRateAtStop\(')),
 )
 FACTS_BY_KEY = {f.key: f for f in HEALTH_FACTS}

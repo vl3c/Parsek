@@ -331,7 +331,7 @@ namespace Parsek.Tests
         [Fact]
         public void OnBackgroundPhysicsFrame_ChecksTheBodyBeforeTheRelativeRewriteAndTheAppend()
         {
-            string body = MethodBody("BackgroundRecorder.cs", "public void OnBackgroundPhysicsFrame(Vessel bgVessel)");
+            string body = MethodBody("Recording/BackgroundRecorder.cs", "public void OnBackgroundPhysicsFrame(Vessel bgVessel)");
             int packed = body.IndexOf("if (bgVessel.packed)", StringComparison.Ordinal);
             int gate = body.IndexOf("!state.physicsSoiSamplePending", StringComparison.Ordinal);
             int split = body.IndexOf("SplitBackgroundSectionIfPhysicsBodyChanged(state, treeRec, bgVessel, point)", StringComparison.Ordinal);
@@ -348,7 +348,7 @@ namespace Parsek.Tests
         [Fact]
         public void OnBackgroundVesselSOIChanged_ArmsLoadedStates_AfterTheOnRailsHalf()
         {
-            string body = MethodBody("BackgroundRecorder.cs",
+            string body = MethodBody("Recording/BackgroundRecorder.cs",
                 "public void OnBackgroundVesselSOIChanged(Vessel v, CelestialBody fromBody)");
             int onRails = body.IndexOf("onRailsStates.TryGetValue(pid, out state)", StringComparison.Ordinal);
             int loaded = body.IndexOf("loadedStates.TryGetValue(pid, out loadedState)", StringComparison.Ordinal);

@@ -232,7 +232,7 @@ namespace Parsek.Tests
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
             string source = SourceScanText.StripCSharpComments(ParsekFlightSourceFiles.ReadText(
-                    Path.Combine(projectRoot, "Source", "Parsek", "ParsekFlight.cs")))
+                    Path.Combine(projectRoot, "Source", "Parsek", "Controllers", "ParsekFlight.cs")))
                 .Replace("\r\n", "\n");
 
             int start = source.IndexOf("void FallbackCommitSplitRecorder(FlightRecorder splitRec)\n",

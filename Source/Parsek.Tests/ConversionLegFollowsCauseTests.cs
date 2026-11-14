@@ -1199,7 +1199,7 @@ namespace Parsek.Tests
         public void Wiring_RecorderPassesTheResolvedCauseToTheLegWriter()
         {
             string path = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
-                "..", "..", "..", "..", "..", "Source", "Parsek", "GameStateRecorder.cs"));
+                "..", "..", "..", "..", "..", "Source", "Parsek", "GameActions", "GameStateRecorder.cs"));
             Assert.True(File.Exists(path), "source file not found for scan: " + path);
             string recorder = File.ReadAllText(path);
             int door = recorder.IndexOf("void OnCurrencyModified(", StringComparison.Ordinal);

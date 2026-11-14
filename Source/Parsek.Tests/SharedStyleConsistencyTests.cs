@@ -190,9 +190,12 @@ namespace Parsek.Tests
         public void NoWindowDrawsANoneParenthesis()
         {
             // "(none)" is never an empty state: an empty list is one grey sentence and an
-            // empty value drops its clause.
+            // empty value drops its clause. The StockUi*.cs files in the UI module annotate
+            // stock screens and draw no Parsek window (their "(none)" is a log value).
             foreach (string f in Directory.GetFiles(SourceDir("UI"), "*.cs"))
             {
+                if (Path.GetFileName(f).StartsWith("StockUi", StringComparison.Ordinal))
+                    continue;
                 string code = StripComments(File.ReadAllText(f));
                 Assert.False(code.Contains("\"(none)\""), Path.GetFileName(f) + " draws \"(none)\"");
             }

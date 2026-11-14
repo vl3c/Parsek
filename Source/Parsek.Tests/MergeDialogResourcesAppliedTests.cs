@@ -1588,7 +1588,7 @@ namespace Parsek.Tests
                 System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
             string mergeDialogPath = System.IO.Path.Combine(
-                projectRoot, "Source", "Parsek", "MergeDialog.cs");
+                projectRoot, "Source", "Parsek", "Rewind", "MergeDialog.cs");
             Assert.True(System.IO.File.Exists(mergeDialogPath),
                 $"MergeDialog.cs not found at {mergeDialogPath}");
             string source = System.IO.File.ReadAllText(mergeDialogPath);

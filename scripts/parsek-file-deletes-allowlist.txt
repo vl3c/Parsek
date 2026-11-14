@@ -22,38 +22,38 @@
 # of the three directories route it through the collector instead of raising the pin.
 
 # Owners.
-Source/Parsek/ParsekFileCollector.cs
-Source/Parsek/SidecarFileCommitBatch.cs
+Source/Parsek/Recording/ParsekFileCollector.cs
+Source/Parsek/Recording/SidecarFileCommitBatch.cs
 
 # Test-only code: in-game tests and the batch crash reconcile they drive.
 Source/Parsek/InGameTests/
 
 # Generic safe-write helpers (temp + rename of the caller's own target, and the
 # .loadmeta sidecar KSP writes next to a root save).
-Source/Parsek/FileIOUtils.cs 12
+Source/Parsek/LogIO/FileIOUtils.cs 12
 # Analyzer codec round trip: its own temp file.
 Source/Parsek/Analyzer/Rules/Inv10CodecRoundtrip.cs 1
 # Career-start snapshot: the root temp written by SaveGame, and its move INTO Parsek/Saves.
-Source/Parsek/CareerStartSnapshot.cs 2
+Source/Parsek/Harness/CareerStartSnapshot.cs 2
 # Rewind save capture (FlightRecorder.CaptureRewindSave, in the recorder's start-recording
 # partial): the root temp written by SaveGame, and its move INTO Parsek/Saves.
-Source/Parsek/FlightRecorder.StartRecording.cs 2
+Source/Parsek/Recording/FlightRecorder.StartRecording.cs 2
 # Ledger baselines under Parsek/GameState.
-Source/Parsek/GameStateStore.cs 1
+Source/Parsek/GameActions/GameStateStore.cs 1
 # The save-root parsek_rw_*.sfs temp copies a crashed rewind left behind (LoadExternalFiles,
 # split out of ParsekScenario.cs).
-Source/Parsek/ParsekScenario.LoadSteps.cs 1
+Source/Parsek/Controllers/ParsekScenario.LoadSteps.cs 1
 # Test-batch crash reconcile (snapshot dir, persistent.sfs .bak artifacts; split out of
 # ParsekScenario.cs).
-Source/Parsek/ParsekScenario.TestBatchReconcile.cs 3
+Source/Parsek/Controllers/ParsekScenario.TestBatchReconcile.cs 3
 # Pre-Parsek backup staging directories (outside Parsek/).
-Source/Parsek/PreParsekBackup.cs 2
+Source/Parsek/LogIO/PreParsekBackup.cs 2
 # Discard Re-fly save-root temps.
-Source/Parsek/RevertInterceptor.cs 2
+Source/Parsek/Rewind/RevertInterceptor.cs 2
 # Re-Fly save-root temp quicksave.
-Source/Parsek/RewindInvoker.cs 1
+Source/Parsek/Rewind/RewindInvoker.cs 1
 # Save-root temp copies of a rewind save.
-Source/Parsek/RewindLauncher.cs 2
+Source/Parsek/Rewind/RewindLauncher.cs 2
 # Harness screenshot command: its own output file.
 Source/Parsek/TestCommands/ParsekTestCommandAddon.CaptureScreenshot.cs 1
 # Harness NewGame command: stock's New Game overwrite of the run's own saves/<save> folder

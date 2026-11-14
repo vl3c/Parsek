@@ -4,19 +4,40 @@
 # Source/Parsek/ to exactly one module. It is the single hand-authored input;
 # edges.json and every view are derived from it.
 #
-# Rules are evaluated in file order and the FIRST match wins.
-#   folder = match the first path segment under Source/Parsek/ (only applies to
-#            files inside a subfolder; a folder rule never matches a root file).
-#   prefix = a regex applied to the file name of a ROOT-LEVEL file only.
-# A file that matches no rule is reported as unplaced and skipped; Core is the
-# kernel list (nine explicit files), written last so it can never shadow a
-# rule above it. A new root file must get a rule.
-
-# --- folder rules ---------------------------------------------------------
+# The folder is the module. Every .cs file lives in a module folder,
+# Source/Parsek/<Module>/ (any depth below it), and each rule below names one
+# module and its folder:
+#   folder = the first path segment under Source/Parsek/.
+# A .cs file in the root of Source/Parsek is an error: the arch suite reds
+# naming it (RealTreeSmokeTests), archview.py prints an ERROR line for it, and
+# scripts/refactor/move_to_module_folders.py --check exits 1 naming it (run the
+# script without --check to move it into its module's folder).
+# A file in a folder no rule names is reported as unclassified, so a new module
+# needs a rule here, a layer below and a line in atlas.toml.
+#
+# Placing a new file: put it in the folder of the module that owns it. The
+# history of the old per-file rules (git log of this file before the
+# 2026-11-14 folder move) says why each existing file sits where it does.
+#
+# The `prefix` rule form (a regex over the name of a root-level file) is still
+# read by archview.py for test fixtures and historical reconstructions; this
+# file uses none.
 
 [[module]]
 name = "Analyzer"
 folder = "Analyzer"
+
+[[module]]
+name = "Config"
+folder = "Config"
+
+[[module]]
+name = "Controllers"
+folder = "Controllers"
+
+[[module]]
+name = "Crew"
+folder = "Crew"
 
 [[module]]
 name = "Diagnostics"
@@ -31,8 +52,24 @@ name = "GameActions"
 folder = "GameActions"
 
 [[module]]
+name = "Ghost"
+folder = "Ghost"
+
+[[module]]
+name = "GuiTree"
+folder = "GuiTree"
+
+[[module]]
+name = "Harness"
+folder = "Harness"
+
+[[module]]
 name = "InGameTests"
 folder = "InGameTests"
+
+[[module]]
+name = "LogIO"
+folder = "LogIO"
 
 [[module]]
 name = "Logistics"
@@ -43,6 +80,10 @@ name = "MapRender"
 folder = "MapRender"
 
 [[module]]
+name = "Missions"
+folder = "Missions"
+
+[[module]]
 name = "Patches"
 folder = "Patches"
 
@@ -51,8 +92,20 @@ name = "Reaim"
 folder = "Reaim"
 
 [[module]]
+name = "Recording"
+folder = "Recording"
+
+[[module]]
 name = "Rendering"
 folder = "Rendering"
+
+[[module]]
+name = "Rewind"
+folder = "Rewind"
+
+[[module]]
+name = "SwitchIntent"
+folder = "SwitchIntent"
 
 [[module]]
 name = "TestCommands"
@@ -63,420 +116,18 @@ name = "Timeline"
 folder = "Timeline"
 
 [[module]]
+name = "Trajectory"
+folder = "Trajectory"
+
+[[module]]
 name = "UI"
 folder = "UI"
 
-# --- root-level file rules -------------------------------------------------
-
-# --- R0 operator placements (phase 2b) ------------------------------------
-# Evaluated FIRST so an explicit file name beats every family prefix below.
-# Files below the R2 evidence floor or referenced by nothing outside Core,
-# placed by hand from what each file does. The eight kernel files stay in Core
-# on purpose: BranchPoint, IPlaybackTrajectory, VesselLaunchIdentity,
-# VesselSnapshotOps, MilestoneStore, GroupHierarchyStore, InventoryManifest
-# and PlaybackTrajectoryBoundsResolver have no majority owner
-# because every module uses them; that is the shared vocabulary, not a
-# placement gap.
-
-# session lifecycle, revert and unfinished-flight machinery (named in the rewind section of CLAUDE.md); SceneExitInterceptor is a Harmony-driven entry point referenced only from comments
-[[module]]
-name = "Rewind"
-prefix = "^UnfinishedFlightClassifier[.]cs$|^UnfinishedFlightSealHandler[.]cs$|^UnfinishedFlightStashHandler[.]cs$|^PostLoadStripper[.]cs$|^ReconciliationBundle[.]cs$|^MarkerValidator[.]cs$|^RevertDetector[.]cs$|^RevertInterceptor[.]cs$|^SceneExitInterceptor[.]cs$|^QuickloadResumeMatchGuard[.]cs$|^CrashCoalescer[.]cs$"
-placement = "R0"
-
-# sidecar I/O, recorder policy and classifiers; each referenced only by Recording or by Recording plus one controller
-[[module]]
-name = "Recording"
-prefix = "^SnapshotSidecarCodec[.]cs$|^RecorderStateLog[.]cs$|^IncompleteBallisticSceneExitFinalizer[.]cs$|^TrajectorySidecarBinary[.]cs$|^TrajectoryTextSidecarCodec[.]cs$|^OrbitSegmentCheckpointBridge[.]cs$|^OrbitalCheckpointDensifier[.]cs$|^OrbitSeedResolver[.]cs$|^SidecarFileCommitBatch[.]cs$|^SessionMerger[.]cs$|^TreeDiscardPurge[.]cs$|^DiscardSidecarReap[.]cs$|^PartStateSeeder[.]cs$|^PartStateSeeder[.]Diff[.]cs$|^PartStatePoller[.]cs$|^ProximityRateSelector[.]cs$|^SegmentPhaseClassifier[.]cs$|^TraceSeparation[.]cs$|^DebrisParentStateGate[.]cs$|^DebrisRelativeRecorderPolicy[.]cs$|^IdentityLossClassifier[.]cs$|^StockWarpAltitudeLimits[.]cs$|^AntennaSpec[.]cs$|^DiagnosticFormatters[.]cs$|^RecorderStateSnapshot[.]cs$"
-placement = "R0"
-
-# playback, spawn and ghost visual support
-[[module]]
-name = "Ghost"
-prefix = "^PlaybackTrace[.]cs$|^PlaybackScopeTracker[.]cs$|^PlaybackOrbitDiagnostics[.]cs$|^EngineFxBuilder[.]cs$|^MaterialCleanup[.]cs$|^RecordedRelativeAnchorPoseResolver[.]cs$|^DebrisRelativeCoveragePrimitives[.]cs$|^LoopSeamMarkerRuntime[.]cs$|^LoopSeamMarkerBuilder[.]cs$|^VesselGhoster[.]cs$|^SpawnCollisionDetector[.]cs$|^TerrainCorrector[.]cs$|^SpawnWarningUI[.]cs$|^VesselDisassemblyClassifier[.]cs$"
-placement = "R0"
-
-# scene-level runtime control; the WarpToTime family is one unit
-[[module]]
-name = "Controllers"
-prefix = "^TimeJumpManager[.]cs$|^PauseMenuGate[.]cs$|^InputFocusGuard[.]cs$|^MapMarkerRenderer[.]cs$|^ConnectionProducerClassifier[.]cs$|^WarpToTimeController[.]cs$|^WarpToTimeConsumer[.]cs$|^WarpToTimeMath[.]cs$|^WarpToTimeRequest[.]cs$"
-placement = "R0"
-
-# dialogs, caches for windows, and Unity-instantiated overlays that no code references (KSP creates them)
-[[module]]
-name = "UI"
-prefix = "^CommittedActionDialog[.]cs$|^DockEventGraphCache[.]cs$|^ResourceBudget[.]cs$|^CurrencyReservationOverlay[.]cs$|^StockUiOverlayController[.]cs$|^ParsekToolbarRegistration[.]cs$|^StockUi[A-Za-z]+[.]cs$|^ReservationExplanation[.]cs$"
-placement = "R0"
-
-# stock-UI reservation layer: ledger-derived predicates the stock-screen blocks and marks read
-[[module]]
-name = "GameActions"
-prefix = "^CommittedFutureIndex[.]cs$|^ContractSlotReservation[.]cs$|^StrategyReservationPredicates[.]cs$|^FacilityRepairCapture[.]cs$"
-placement = "R0"
-
-# its references come from MapRender
-[[module]]
-name = "MapRender"
-prefix = "^RefusedResumedCopyTail[.]cs$"
-placement = "R0"
-
-# all three references come from Display
-[[module]]
-name = "Display"
-prefix = "^ForwardRenderWindow[.]cs$"
-placement = "R0"
-
-# all references come from Rendering
-[[module]]
-name = "Rendering"
-prefix = "^PannotationsSidecarBinary[.]cs$"
-placement = "R0"
-
-# ledger observability
-[[module]]
-name = "GameActions"
-prefix = "^LedgerTrace[.]cs$"
-placement = "R0"
-
-# in-game test and harness support; tooling, hidden from production views
-[[module]]
-name = "Harness"
-prefix = "^LedgerGroundTruth[.]cs$|^LedgerGroundTruthDiff[.]cs$|^CareerSaveParser[.]cs$|^TestBatchMarker[.]cs$|^CareerStartSnapshot[.]cs$"
-placement = "R0"
-
-# the DumpMapGeometry seam verb's JSON writer and end-of-frame capture
-# (docs/dev/design-map-geometry-dump.md): automation-only, called only by the seam
-# applier, so they sit with the seam in its tooling module
-[[module]]
-name = "TestCommands"
-prefix = "^MapGeometryJson[.]cs$|^MapGeometryRecorder[.]cs$"
-placement = "R0"
-# --- R0 operator placements (2026-11-01 refresh) ---------------------------
-# Root files added since 2026-09-25 that no family rule matched (the checker
-# reported 50 unplaced and skipped them). Placed by hand from what each file
-# does, with the --place evidence (docs/dev/arch/core-placement.md) as a tiebreak.
-
-# Re-Fly / supersede bookkeeping
-[[module]]
-name = "Rewind"
-prefix = "^DiscardReFlyLoadIntent[.]cs$|^InertRecordingTrees[.]cs$|^SlotVesselWalk[.]cs$|^SplitParentLinks[.]cs$"
-placement = "R0"
-
-# load and scene lifecycle driven by ParsekScenario
-[[module]]
-name = "Controllers"
-prefix = "^LoadReconcilePolicy[.]cs$|^SaveFileLoadIntent[.]cs$|^InSessionStagedStateHandoff[.]cs$|^NoSaveSceneExit[.]cs$|^StartupNotices[.]cs$"
-placement = "R0"
-
-# spawn, claim, time-jump and in-flight commit policy the scene controllers run
-[[module]]
-name = "Controllers"
-prefix = "^ClaimedVesselHoldGhost[.]cs$|^ClaimedVesselRemoval[.]cs$|^CoexistingTreeSiblingSpawn[.]cs$|^ConstructionGhostShape[.]cs$|^ConverterJumpPolicy[.]cs$|^GroundPartPlacement[.]cs$|^InFlightCommitOptimization[.]cs$|^InFlightRecoveryRequest[.]cs$|^PostPhysicsPose[.]cs$|^ResumedSpawnPartCoverage[.]cs$|^SpawnWarpOutcome[.]cs$|^SpawnedHarvesterRestore[.]cs$|^TimeJumpManager[.]Placement[.]cs$|^TimeJumpPlacement[.]cs$|^LaunchSiteExclusionZones[.]cs$|^ForeignInventoryTransfer[.]cs$"
-placement = "R0"
-
-# ghost-side launch-site policy
-[[module]]
-name = "Ghost"
-prefix = "^LaunchSiteOnlyGhost[.]cs$"
-placement = "R0"
-
-# gates and observers the Harmony patches read
-[[module]]
-name = "Patches"
-prefix = "^ClaimedVesselDisposalGate[.]cs$|^ParsekGameModeGate[.]cs$|^PostFlightDialogLog[.]cs$|^StandInSeatCount[.]cs$"
-placement = "R0"
-
-# ledger capture scopes
-[[module]]
-name = "GameActions"
-prefix = "^CurrencyScenarioReadiness[.]cs$|^FacilityUpgradeCapture[.]cs$|^RecoveryDispatchScope[.]cs$|^RecoveryPayoutScope[.]cs$"
-placement = "R0"
-
-# recording files, sidecars and recorder classification
-[[module]]
-name = "Recording"
-prefix = "^GravityHackDetector[.]cs$|^SidecarVersions[.]cs$|^SectionWarpRuns[.]cs$|^SaveReferenceScanner[.]cs$|^ParsekFileCollector[.]cs$|^DockingPortSeparation[.]cs$"
-placement = "R0"
-
-# pure tail-velocity math
-[[module]]
-name = "Trajectory"
-prefix = "^RecordedTailVelocityResolver[.]cs$"
-placement = "R0"
-
-# window presentation
-[[module]]
-name = "UI"
-prefix = "^CareerSlotSummary[.]cs$"
-placement = "R0"
-
-# --- R0 operator placements (2026-11-04 merge of main) ---------------------
-# Root files main added after the 2026-11-01 refresh that no family rule matched.
-
-# flag replay: the recorded flag pick-up event (a SegmentEvent payload) and the removed-flag
-# tombstones the replay reads so it never replants a flag the player took away
-[[module]]
-name = "Ghost"
-prefix = "^FlagPickUp[.]cs$|^RemovedReplayFlags[.]cs$"
-placement = "R0"
-
-# the save-time view of a recorder parked by a deferred split (its buffers, the parent recording)
-[[module]]
-name = "Recording"
-prefix = "^ParkedSplitSaveOverlay[.]cs$"
-placement = "R0"
-
-# vessel and mission names (docs/dev/design-vessel-and-mission-names.md); MissionVesselNaming unions on VesselIdentity
-[[module]]
-name = "Missions"
-prefix = "^VesselIdentity[.]cs$|^VesselNameStore[.]cs$|^VesselNameStore[.]Links[.]cs$|^VesselNameStore[.]RevertUndo[.]cs$|^VesselNameLiveSync[.]cs$|^VesselNameSpawn[.]cs$|^VesselRenameWriter[.]cs$|^DisplayNames[.]cs$"
-placement = "R0"
-
-# the save-format version registry (SaveFormat.cs): every on-disk format number, its 1.0
-# baseline and the load-side classification; most readers are the recording sidecar codecs
-[[module]]
-name = "Recording"
-prefix = "^SaveFormat[.]cs$"
-placement = "R0"
-
-# pure classifier over the flat Recording.Points list: which entries are Relative-section
-# metre offsets, and the body-fixed shadow a flat-points playback fallback reads instead
-[[module]]
-name = "Trajectory"
-prefix = "^FlatPointFrameDispatch[.]cs$"
-placement = "R0"
-
-# trajectory data vocabulary, next to TrajectoryPoint / OrbitSegment: a TrackSection
-# (and the ReferenceFrame / SegmentEnvironment / TrackSectionSource it declares)
-# references only TrajectoryPoint and OrbitSegment, and TerminalState references
-# nothing (file-placement PR 2, 2026-11-06)
-[[module]]
-name = "Trajectory"
-prefix = "^TrackSection[.]cs$|^TerminalState[.]cs$"
-placement = "R0"
-
-# RecordingStore services whose names the family prefixes below miss (the 2026-11-06
-# RecordingStore services plan): the scene-entry vessel scope is store state the spawn
-# dedup and the replay bypass read; the committed-list optimizer is the store's
-# optimization pass; the committed-tree restore attempt is store state the commit and
-# discard paths read; the pending-tree slot is store state OnSave serializes and OnLoad
-# dispatches; the tree discard service is the store's pending-tree discard and committed
-# removal
-[[module]]
-name = "Recording"
-prefix = "^SceneEntryVesselScope[.]cs$|^CommittedListOptimizer[.]cs$|^CommittedTreeRestoreAttempt[.]cs$|^PendingTreeSlot[.]cs$|^TreeDiscardService[.]cs$|^TreeCommitService[.]cs$|^TreeCommitService[.]TreeReplaceDiff[.]cs$|^TreeCommitService[.]SupersedeTerminalSpawn[.]cs$"
-placement = "R0"
-
-# live snapshot support for the recorders: the snapshot normalizers, the body-name /
-# body-index registry the snapshots read, and the max-distance family; moved out of
-# VesselSpawner by file-placement PR 8 (2026-11-06). The capture entry points
-# (TryBackupSnapshot, SnapshotVessel) live on FlightRecorder, which keeps this type
-# off the type knot
-[[module]]
-name = "Recording"
-prefix = "^LiveVesselSnapshot[.]cs$"
-placement = "R0"
-
-# the vessel spawner: spawn, respawn, end-of-recording spawn-or-recover, KSC
-# retirement, crew roster and terminal-orbit seeding the scene controllers run.
-# It left the Core kernel list in file-placement PR 9 (2026-11-06) once PRs 6-8
-# had moved its pure snapshot half to VesselSnapshotOps and its live capture to
-# LiveVesselSnapshot; the spawn half references 12 Controllers types, so
-# Controllers is the home with the smaller upward weight. PR 10 split it into
-# partial files (scripts/refactor/split_vesselspawner.py), which the rule names too
-[[module]]
-name = "Controllers"
-prefix = "^VesselSpawner[.]cs$|^VesselSpawner[.][A-Za-z]+[.]cs$"
-placement = "R0"
-
-[[module]]
-name = "Missions"
-prefix = "^Mission"
-
-[[module]]
-name = "Ghost"
-prefix = "^Ghost|^Waterfall|^Pristine|^ReStock"
-
-[[module]]
-name = "Rewind"
-prefix = "^Rewind|^Supersede|^Merge|^EffectiveState|^ReFly|^LoadTimeSweep|^RecordingTreeSplit"
-
-[[module]]
-name = "SwitchIntent"
-prefix = "^Switch|^StockAction"
-
-[[module]]
-name = "Recording"
-prefix = "^Recording|^BackgroundRecorder|^FlightRecorder|^Chain|^Track|^Optimiz"
-
-[[module]]
-name = "Trajectory"
-prefix = "^Trajectory|^Orbit|^Ballistic|^PatchedConic|^TwoBody"
-
-[[module]]
-name = "Crew"
-prefix = "^Crew|^Kerbal"
-
-[[module]]
-name = "Controllers"
-prefix = "^Parsek(Flight|KSC|TrackingStation|Scenario|Harmony|Playback)|^WatchMode"
-
-[[module]]
-name = "LogIO"
-prefix = "^ParsekLog|^FileIO|^ParsekProcess|^Suppression|^PreParsek"
-
-# --- R1 name-family placements (phase 2) ----------------------------------
-# A file whose name starts with one of the family prefixes goes to the
-# family's module regardless of references; the family is a unit. The
-# evidence table is docs/dev/arch/core-placement.md. The Mission family is
-# already placed by the Missions rule above.
-
-[[module]]
-name = "GuiTree"
-prefix = "^GuiTree"
-placement = "R1"
-
-[[module]]
-name = "GameActions"
-prefix = "^GameState"
-placement = "R1"
-
-[[module]]
-name = "Config"
-prefix = "^ParsekConfig|^ParsekSettings|^SettingWhitelist"
-placement = "R1"
-
-[[module]]
-name = "UI"
-prefix = "^ParsekUI"
-placement = "R1"
-
-[[module]]
-name = "MapRender"
-prefix = "^MapRender"
-placement = "R1"
-
-[[module]]
-name = "Logistics"
-prefix = "^RouteProof|^RouteConnection|^RouteEndpoint|^RouteHarvest|^RouteRun|^RouteOrigin|^Route"
-placement = "R1"
-
-[[module]]
-name = "Recording"
-prefix = "^PartEvent|^FlagEvent|^SegmentEvent|^SegmentBoundary|^SurfacePosition|^AnchorDetector|^RelativeAnchor|^TrackSection|^ControllerInfo"
-placement = "R1"
-
-# --- R2 clear-owner placements (phase 2) ----------------------------------
-# One exact-file rule per placement: the module that references the file most
-# owns it (a majority share of its external references, or at least twice the
-# second module). Evidence is the comment above each rule; the full table is
-# docs/dev/arch/core-placement.md.
-
-# evidence: externalRefs=9 share=0.56 top=Rewind(5) second=Recording(2)
-[[module]]
-name = "Rewind"
-prefix = '^ChildSlot[.]cs$'
-placement = "R2"
-
-# evidence: externalRefs=8 share=0.50 top=Controllers(4) second=Ghost(4)
-[[module]]
-name = "Controllers"
-prefix = '^DebrisRelativePlaybackPolicy[.]cs$'
-placement = "R2"
-
-# evidence: externalRefs=18 share=0.50 top=Missions(9) second=UI(9)
-[[module]]
-name = "Missions"
-prefix = '^DockEventGraph[.]cs$'
-placement = "R2"
-
-# evidence: externalRefs=5 share=1.00 top=Recording(5) second=-
-[[module]]
-name = "Recording"
-prefix = '^EnvironmentDetector[.]cs$'
-placement = "R2"
-
-# evidence: externalRefs=6 share=0.50 top=Controllers(3) second=Ghost(3)
-[[module]]
-name = "Controllers"
-prefix = '^IGhostPositioner[.]cs$'
-placement = "R2"
-
-# evidence: externalRefs=6 share=0.67 top=Controllers(4) second=Ghost(2)
-[[module]]
-name = "Controllers"
-prefix = '^IndexShift[.]cs$'
-placement = "R2"
-
-# evidence: externalRefs=6 share=0.67 top=GameActions(4) second=Rewind(1)
-[[module]]
-name = "GameActions"
-prefix = '^Milestone[.]cs$'
-placement = "R2"
-
-# evidence: externalRefs=8 share=0.38 top=UI(3) second=Controllers(1)
-[[module]]
-name = "UI"
-prefix = '^ParsekTimeFormat[.]cs$'
-placement = "R2"
-
-# evidence: externalRefs=5 share=1.00 top=Recording(5) second=-
-[[module]]
-name = "Recording"
-prefix = '^ProximitySamplingCadence[.]cs$'
-placement = "R2"
-
-# evidence: externalRefs=13 share=0.77 top=GameActions(10) second=Controllers(3)
-[[module]]
-name = "GameActions"
-prefix = '^RecoveryPayoutContext[.]cs$'
-placement = "R2"
-
-# evidence: externalRefs=8 share=0.62 top=Ghost(5) second=Controllers(3)
-[[module]]
-name = "Ghost"
-prefix = '^RenderingZoneManager[.]cs$'
-placement = "R2"
-
-# evidence: externalRefs=25 share=0.68 top=Logistics(17) second=Recording(3)
-[[module]]
-name = "Logistics"
-prefix = '^ResourceManifest[.]cs$'
-placement = "R2"
-
-# evidence: externalRefs=9 share=0.78 top=UI(7) second=Controllers(2)
-[[module]]
-name = "UI"
-prefix = '^SelectiveSpawnUI[.]cs$'
-placement = "R2"
-
-# evidence: externalRefs=6 share=0.50 top=Controllers(3) second=Ghost(2)
-[[module]]
-name = "Controllers"
-prefix = '^SessionSuppressionState[.]cs$'
-placement = "R2"
-
-# evidence: externalRefs=5 share=1.00 top=Rewind(5) second=-
-[[module]]
-name = "Rewind"
-prefix = '^TerminalKindClassifier[.]cs$'
-placement = "R2"
-
-# evidence: externalRefs=7 share=0.86 top=Controllers(6) second=Recording(1)
-[[module]]
-name = "Controllers"
-prefix = '^TerminalOrbitSpawnSafety[.]cs$'
-placement = "R2"
-
-# Core is the kernel vocabulary, not a catch-all: exactly the eight root files
-# every module leans on (VesselSnapshotOps joined in the 2026-09-14
-# VesselSpawner split; its R2 evidence would say Logistics, and the placement
-# report names that disagreement - see the README, "Placing catch-all files";
-# VesselSpawner itself left for Controllers in file-placement PR 9). Any other root file must be placed by a rule above; an
-# unplaced root file is reported by the checker and skipped. MUST stay last.
+# Core, the kernel, stays last: archview.py --place scores the module the last rule
+# names (the old catch-all), which is the kernel list now.
 [[module]]
 name = "Core"
-prefix = "^BranchPoint[.]cs$|^IPlaybackTrajectory[.]cs$|^VesselLaunchIdentity[.]cs$|^MilestoneStore[.]cs$|^GroupHierarchyStore[.]cs$|^InventoryManifest[.]cs$|^PlaybackTrajectoryBoundsResolver[.]cs$|^VesselSnapshotOps[.]cs$"
+folder = "Core"
 
 # --- production views ------------------------------------------------------
 # Modules listed here are hidden from the production views (dot + matrix) and

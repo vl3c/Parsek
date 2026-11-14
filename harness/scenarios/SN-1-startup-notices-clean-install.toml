@@ -1,7 +1,7 @@
 schema = 1
 id = "SN-1-startup-notices-clean-install"
 tier = "nightly"
-# THE LIVE CHECK FOR THE STARTUP NOTICES (`Source/Parsek/StartupNotices.cs`,
+# THE LIVE CHECK FOR THE STARTUP NOTICES (`Source/Parsek/Controllers/StartupNotices.cs`,
 # `ParsekHarmony.cs`). Authored 2026-10-03. Reading run 2026-10-04_1828 (attempt 2 of a
 # run whose verdict read INVALID/analyzer-error only because the session worktree was too
 # deep for the analyzer build) measured the prediction, `passed=3 failed=0 skipped=0`, and

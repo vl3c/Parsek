@@ -255,13 +255,13 @@ namespace Parsek.Tests.Logistics
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
             string scenarioPath = Path.Combine(projectRoot,
-                "Source", "Parsek", "ParsekScenario.cs");
+                "Source", "Parsek", "Controllers", "ParsekScenario.cs");
 
             // Fallback path if the test runs from an unusual working dir.
             if (!File.Exists(scenarioPath))
             {
                 scenarioPath = Path.Combine(projectRoot,
-                    "Parsek", "ParsekScenario.cs");
+                    "Parsek", "Controllers", "ParsekScenario.cs");
             }
 
             Assert.True(File.Exists(scenarioPath),
@@ -306,13 +306,13 @@ namespace Parsek.Tests.Logistics
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
             string scenarioPath = Path.Combine(projectRoot,
-                "Source", "Parsek", "ParsekScenario.cs");
+                "Source", "Parsek", "Controllers", "ParsekScenario.cs");
 
             // Fallback path if the test runs from an unusual working dir.
             if (!File.Exists(scenarioPath))
             {
                 scenarioPath = Path.Combine(projectRoot,
-                    "Parsek", "ParsekScenario.cs");
+                    "Parsek", "Controllers", "ParsekScenario.cs");
             }
 
             Assert.True(File.Exists(scenarioPath),

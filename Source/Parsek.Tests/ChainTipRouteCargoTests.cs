@@ -1139,11 +1139,11 @@ namespace Parsek.Tests
         public void EverySpawnCopySite_TakesTheRetiredRouteCargoOut()
         {
             string root = FindRepoRoot();
-            AssertMethodCallsApply(Path.Combine(root, "Source", "Parsek", "VesselGhoster.cs"),
+            AssertMethodCallsApply(Path.Combine(root, "Source", "Parsek", "Ghost", "VesselGhoster.cs"),
                 "private uint SpawnChainTipWithResolvedState(", "spawnSnapshot");
-            AssertMethodCallsApply(Path.Combine(root, "Source", "Parsek", "ParsekKSC.cs"),
+            AssertMethodCallsApply(Path.Combine(root, "Source", "Parsek", "Controllers", "ParsekKSC.cs"),
                 "ConfigNode spawnSnapshot = rec.VesselSnapshot.CreateCopy();", "spawnSnapshot");
-            AssertMethodCallsApply(Path.Combine(root, "Source", "Parsek", "VesselSpawner.cs"),
+            AssertMethodCallsApply(Path.Combine(root, "Source", "Parsek", "Controllers", "VesselSpawner.cs"),
                 "internal static ConfigNode BuildValidatedRespawnSnapshot(\n            Recording rec,\n            double currentUT,\n            string logContext,\n            out string materializationRejectionReason)",
                 "snapshot");
         }

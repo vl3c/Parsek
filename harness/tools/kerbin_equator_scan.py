@@ -48,7 +48,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 KERBIN_RADIUS_M = 600000.0
 METERS_PER_DEG = KERBIN_RADIUS_M * math.pi / 180.0  # 10471.98 m at the equator
 
-# The stock KSC, from Source/Parsek/SpawnCollisionDetector.cs (pad and runway
+# The stock KSC, from Source/Parsek/Ghost/SpawnCollisionDetector.cs (pad and runway
 # threshold) and their midpoint as the footprint centre.
 KSC_PAD = (-0.0972, -74.5575)
 KSC_RUNWAY = (-0.0502, -74.7300)

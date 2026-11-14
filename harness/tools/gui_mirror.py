@@ -2274,8 +2274,8 @@ def attach_records(vocab, changelog, todos, merges, ui_paths=None):
 
 def is_window_source(path):
     """The window sources: anything under `Source/Parsek/UI/`, plus the
-    surface-shaped files that live at `Source/Parsek/` root - `*UI.cs`,
-    `*Window*.cs` and `*Dialog*.cs`.
+    surface-shaped files in the other module folders of `Source/Parsek/` -
+    `*UI.cs`, `*Window*.cs` and `*Dialog*.cs`.
 
     Widening it to the whole tree makes every PR that touched a recording look
     like a PR about a window; leaving it at `UI/` alone attributed MergeDialog,

@@ -26,6 +26,9 @@ namespace Parsek.Tests
     /// </summary>
     internal static class ParsekFlightSourceFiles
     {
+        /// <summary>The module folder under Source/Parsek that holds the class's files.</summary>
+        internal const string ModuleFolder = "Controllers";
+
         internal static readonly string[] SplitFileNames =
         {
             "ParsekFlight.GhostPositioner.cs",
@@ -74,7 +77,7 @@ namespace Parsek.Tests
         internal static IReadOnlyList<string> Paths(string parsekSourceDir)
         {
             return PartialClassSourceFiles.Paths(
-                parsekSourceDir,
+                PartialClassSourceFiles.FamilyDir(parsekSourceDir, "ParsekFlight.cs", ModuleFolder),
                 "ParsekFlight.cs",
                 SplitFileNames,
                 OtherPartialFileNames,
@@ -83,8 +86,9 @@ namespace Parsek.Tests
 
         internal static string ReadAll(string parsekSourceDir)
         {
-            return string.Join("\n", Paths(parsekSourceDir)
-                .Concat(ServiceFileNames.Select(n => Path.Combine(parsekSourceDir, n)))
+            string dir = PartialClassSourceFiles.FamilyDir(parsekSourceDir, "ParsekFlight.cs", ModuleFolder);
+            return string.Join("\n", Paths(dir)
+                .Concat(ServiceFileNames.Select(n => Path.Combine(dir, n)))
                 .Select(File.ReadAllText));
         }
 

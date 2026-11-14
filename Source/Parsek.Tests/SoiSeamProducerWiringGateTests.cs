@@ -121,8 +121,8 @@ namespace Parsek.Tests
 
         private static string ReadRecorderSources()
         {
-            string main = ReadParsekSource("FlightRecorder.cs");
-            string dir = Path.GetDirectoryName(ResolveParsekSourcePath("FlightRecorder.cs"));
+            string main = ReadParsekSource("Recording/FlightRecorder.cs");
+            string dir = Path.GetDirectoryName(ResolveParsekSourcePath("Recording/FlightRecorder.cs"));
             string[] partials = Directory.GetFiles(dir, "FlightRecorder.*.cs");
             Array.Sort(partials, StringComparer.Ordinal);
             var sb = new System.Text.StringBuilder(main);

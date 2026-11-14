@@ -27,6 +27,9 @@ All notable changes to Parsek are documented here.
 - **Dev: a page that draws the map's trajectory lines from the numbers.** Map geometry dumps
   from an automated run become one page of to-scale views beside the screenshot, with the
   gaps between line pieces and the line altitudes measured (`harness/tools/map_mirror.py`).
+- **Dev: the mod's source files sit in one folder per module.** Every source file now lives in
+  `Source/Parsek/<Module>/`, the folder named after the part of the code it belongs to, so the
+  folder tells you the module. Nothing in the game changes. (ARCH-MODULE-FOLDERS)
 
 ### Fixed
 

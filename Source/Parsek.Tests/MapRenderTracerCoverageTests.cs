@@ -225,9 +225,9 @@ namespace Parsek.Tests
         {
             string root = System.IO.Path.GetFullPath(System.IO.Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
-            string path = System.IO.Path.Combine(root, "Source", "Parsek", "GhostMapPresence.cs");
+            string path = System.IO.Path.Combine(root, "Source", "Parsek", "Ghost", "GhostMapPresence.cs");
             if (!System.IO.File.Exists(path))
-                path = System.IO.Path.Combine(root, "Parsek", "GhostMapPresence.cs"); // alt layout
+                path = System.IO.Path.Combine(root, "Parsek", "Ghost", "GhostMapPresence.cs"); // alt layout
             Assert.True(System.IO.File.Exists(path), "Source file not found at " + path);
             var sb = new System.Text.StringBuilder(System.IO.File.ReadAllText(path));
             string[] partials = System.IO.Directory.GetFiles(
@@ -262,7 +262,7 @@ namespace Parsek.Tests
         {
             // The Tier-C anomaly raises (icon-jump / line-blink / decision-vs-truth / parity-drift / ...)
             // are emitted from the end-of-frame truth probe.
-            string src = ReadProductionSource("MapRenderProbe.cs");
+            string src = ReadProductionSource("MapRender/MapRenderProbe.cs");
             Assert.Contains("MapRenderTrace.EmitAnomaly(", src);
         }
     }

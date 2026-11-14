@@ -219,7 +219,7 @@ namespace Parsek.Tests
         private static string VesselGhosterSourcePath()
         {
             return Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
-                "..", "..", "..", "..", "..", "Source", "Parsek", "VesselGhoster.cs"));
+                "..", "..", "..", "..", "..", "Source", "Parsek", "Ghost", "VesselGhoster.cs"));
         }
 
         private static string StripLineComments(string source)

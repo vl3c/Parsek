@@ -615,21 +615,21 @@ namespace Parsek.Tests
             string repoRoot = ResolveRepoRoot();
             foreach (string rel in new[]
             {
-                "Source/Parsek/DockEventGraph.cs",
-                "Source/Parsek/DockEventGraphCache.cs",
+                "Source/Parsek/Missions/DockEventGraph.cs",
+                "Source/Parsek/UI/DockEventGraphCache.cs",
                 // PR4's digest provider inherits the same contract: it is a consumer of the graph
                 // and takes its tree, mission and resolvers as parameters.
-                "Source/Parsek/MissionEventDigest.cs",
+                "Source/Parsek/Missions/MissionEventDigest.cs",
                 // PR5's chapter derivation likewise: graph, tree, structure, composition roots and
                 // the name resolver all arrive as parameters.
-                "Source/Parsek/MissionChapters.cs",
+                "Source/Parsek/Missions/MissionChapters.cs",
                 // PR6's seam-marker computation likewise: the graph, the loop unit's member
                 // windows, the committed-index map and the name resolver all arrive as parameters
                 // (the loop-unit builder, itself pure, hands them over).
-                "Source/Parsek/LoopSeamMarkerBuilder.cs",
+                "Source/Parsek/Ghost/LoopSeamMarkerBuilder.cs",
                 // ...and PR6's RUNTIME half: the cursor / dedup / same-frame message-joining rules
                 // live outside the engine and the policy so they are testable without a live host.
-                "Source/Parsek/LoopSeamMarkerRuntime.cs",
+                "Source/Parsek/Ghost/LoopSeamMarkerRuntime.cs",
             })
             {
                 string path = Path.Combine(repoRoot, rel.Replace('/', Path.DirectorySeparatorChar));
@@ -642,11 +642,11 @@ namespace Parsek.Tests
             // reaching for the store there is how a "pure" module quietly becomes untestable.
             foreach (string rel in new[]
             {
-                "Source/Parsek/DockEventGraph.cs",
-                "Source/Parsek/MissionEventDigest.cs",
-                "Source/Parsek/MissionChapters.cs",
-                "Source/Parsek/LoopSeamMarkerBuilder.cs",
-                "Source/Parsek/LoopSeamMarkerRuntime.cs",
+                "Source/Parsek/Missions/DockEventGraph.cs",
+                "Source/Parsek/Missions/MissionEventDigest.cs",
+                "Source/Parsek/Missions/MissionChapters.cs",
+                "Source/Parsek/Ghost/LoopSeamMarkerBuilder.cs",
+                "Source/Parsek/Ghost/LoopSeamMarkerRuntime.cs",
             })
             {
                 string core = File.ReadAllText(

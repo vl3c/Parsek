@@ -26,7 +26,7 @@ Source/Parsek/InGameTests/
 # ParsekUI owns the main window's button gates, the frame-latched
 # AppliedUiComplexityMode, the SetUiComplexityMode setter seam, the
 # OnUiComplexityModeApplied extension point and the gated-window close set.
-Source/Parsek/ParsekUI.cs
+Source/Parsek/UI/ParsekUI.cs
 
 # --- Deferred-apply Update hosts ---
 # ParsekFlight.Update and ParsekKSC.Update call
@@ -40,11 +40,11 @@ Source/Parsek/ParsekUI.cs
 # allowlisted rather than an invisible back door: it changes the message WORDING
 # only, never whether the message fires, what is detected, or what spawning
 # does.
-Source/Parsek/ParsekFlight.cs
+Source/Parsek/Controllers/ParsekFlight.cs
 # The proximity message moved verbatim with the spawning members into the flight
 # spawn host (ARCH-PARSEKFLIGHT-CHANGE-HUB PF5); same consumption as above.
-Source/Parsek/ParsekFlightSpawnHost.cs
-Source/Parsek/ParsekKSC.cs
+Source/Parsek/Controllers/ParsekFlightSpawnHost.cs
+Source/Parsek/Controllers/ParsekKSC.cs
 
 # --- Settings layer ---
 # ParsekSettings holds the persisted uiComplexityMode int + the clamping
@@ -53,8 +53,8 @@ Source/Parsek/ParsekKSC.cs
 # ParsekScenario.cs is deliberately NOT allowlisted: it passes the scenario-node
 # signal into the persistence layer as a bare bool, so the mode vocabulary never
 # reaches it.
-Source/Parsek/ParsekSettings.cs
-Source/Parsek/ParsekSettingsPersistence.cs
+Source/Parsek/Config/ParsekSettings.cs
+Source/Parsek/Config/ParsekSettingsPersistence.cs
 
 # --- The automation-only M-A2 seam (GUI census, 2026-09-10) ---
 # The `UiAction op=complexity` seam op sets the mode for a SCREENSHOT: the GUI
