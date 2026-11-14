@@ -112,6 +112,22 @@ id = "S0.14-far-switch-merges-before-reload"
 # and the clear pinned to its two code reasons exactly (`stale-intent` at OnLoad,
 # `stale-intent-ttl` at the consume; a bare `reason=stale-intent` prefix would also match
 # `stale-intent-ttl` and `stale-intent-ut-regressed`).
+#
+# THIRD FLIGHT 2026-11-14 on the PC (head a3624e48f), PARSEK-FAIL on P6, a PRODUCT
+# defect, filed as todo FAR-SWITCH-INTENT-TTL-RACE: the merge before the reload matched
+# again (`resolution=Merge case=B-unloaded` 12.292, `CommitTreeFlight` 12.293), the intent
+# was armed at 12.404, OnLoad kept it at 12.983, and OnFlightReady came at 13.741, 1.34 s
+# after the arm, so the consume was Authorized: `[SwitchSegment] created ...
+# parentRecId=<standalone> ... focusedPid=4267147709 ... reason=MapSwitchTo` at 13.744,
+# then `recordingstate recording=true ... points=1` (recordings 2 > max 1). The design
+# (docs/dev/done/plans/segment-scoped-switch-fly-autorecord.md, "Unloaded-vessel branch
+# outcome") says a Switch-To to an unloaded vessel does NOT start a segment, and sizes the
+# 2 s MapSwitchTo TTL for the same-frame in-scene consume; the marker reaches the far
+# scene only because stock's far branch saves (`GamePersistence.SaveGame` and
+# `Game.Updated()`, both serializing the scenario) before any Postfix can clear it. The
+# spec stays as pinned: P6 is the designed outcome's opposite, and this host reaches
+# OnFlightReady well inside 2 s, so the lane reds on every flight until the fix lands.
+# The fix (todo) removes the far-scene intent, so it re-pins the clear token here.
 # =====================================================================================
 tier = "operator"
 description = "A far map-style Switch-To with a live recording (Case B, no session) commits the tree BEFORE stock's FLIGHT reload (todo FAR-SWITCH-CASE-B-UNFLOWN): on jool-park-nerv, record the Duna Rocket in Jool orbit, then a stock Alarm Clock Jump to an unloaded debris in Kerbin orbit auto-resolves Merge case=B-unloaded, CommitTreeFlight runs, the reload carries no pending or Limbo tree, the stale switch intent is cleared, no recording continues, and the save holds one committed tree of one recording."
