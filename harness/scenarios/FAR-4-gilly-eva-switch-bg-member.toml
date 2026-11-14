@@ -44,7 +44,7 @@ id = "FAR-4-gilly-eva-switch-bg-member"
 #
 # FAST-LANE CHECKLIST: (1) reuse: CI-1's driver and V32M's boot, no new flight; (2) no
 # warp; (3)-(5) no dwell, burn or coast beyond the 10 s settle; (6) retry `once`;
-# (7) recordings window 10..10 (nothing new is committed; the live tree is not saved);
+# (7) recordings 14 (the 10 committed plus the live tree's four, measured);
 # (8) operator, ~90 s expected; (9) flight_efficiency.py after the first green flight.
 tier = "operator"
 description = "Far-body vessel switch: in Gilly orbit on eve-gilly-recorded the committed Kerbal X lander is recorded, Jebediah goes EVA (release, 10 s settle) and the map Switch-To returns to the lander, which is both the live tree's background member and a committed tree's spawned leaf; the switch must take the bg-member-continuation route with no Case C dialog and no committed-clone restore."
@@ -84,7 +84,9 @@ D14 = ["gilly", "sandbox", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-count = { min = 10, max = 10 }
+# Measured on the second flight (2026-11-14_1638): 14, the host's 10 committed
+# recordings plus the live tree's four the quit's save writes.
+count = { min = 14, max = 14 }
 
 [expectations.logContracts]
 required = [
@@ -93,7 +95,11 @@ required = [
   # CI-1's shape: the branch's activeChild is the vessel, then the vessel goes background.
   "Tree branch created: type=EVA, bp=[0-9a-f]{32}, activeChild=[0-9a-f]{32} \\(pid=2708531065\\), bgChild=[0-9a-f]{32} \\(pid=[0-9]+\\), evaCrew=Jebediah Kerman",
   "Transitioned to background \\(pid=2708531065, points=[1-9][0-9]*, orbitSegments=[0-9]+\\)",
-  "listhandles kind=active count=2 truncated=false",
+  # One member, measured on the second flight (2026-11-14_1638), and the switch then took
+  # the bg-member route onto the lander, so the lander is that member. CI-1 read 1 on its
+  # first reading and reads 2 (lander plus parked EVA kerbal) since its start moved to an
+  # unpacked ship; which start shape this Gilly boot gives is not separately measured.
+  "listhandles kind=active count=1 truncated=false",
   "switchclick gate targetPid=2708531065 targetName=[^\\r\\n]* scenarioReady=true canSwitchVesselsFar=true targetIsActiveVessel=false targetIsUnloaded=false hasActiveRecording=true hasActiveSession=false priorFocusedPid=0 anotherDialogOpen=false targetIsSeparateCommittedVessel=false dialogDecision=NoPriorSession",
   "switchclick armed intent: intentId=.* action=MapSwitchTo targetPid=2708531065 sourceScene=Flight .* ttl=2s route=plain-arm-and-switch",
   "unique-terminal-leaf treeId=\\S+ focusedPid=2708531065 leafRecId=[0-9a-f]{32}",

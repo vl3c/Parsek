@@ -46,7 +46,7 @@ description = "Far-body loop under watch with a quickload: on duna-ike-recorded 
 instanceProfile = "stock-minimal"
 tags = ["FAR-6", "far-body", "ike", "duna", "sandbox", "loop-playback", "watch-mode",
         "quickload", "render-composition", "timeline-ops", "runtime-handles",
-        "recorded-fixture", "pending-flight", "reading-run"]
+        "recorded-fixture", "flown", "reading-run"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/duna-ike-recorded"

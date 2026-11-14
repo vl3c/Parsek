@@ -4954,10 +4954,10 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # CommittedBatchTallySourceSyncTests gates their `total=`. Each leaves on its first flight.
     # FAR-2-duna-relaunch-rewind-keeps-landed LEFT on run 2026-11-14_1524 (passed=1 failed=0 skipped=0, pinned whole).
     # FAR-3-ike-revert-to-launch LEFT on run 2026-11-14_1529 (passed=1 failed=0 skipped=0, pinned whole).
+    # FAR-5-laythe-physics-warp-record LEFT on run 2026-11-14_1639 (passed=1 failed=0 skipped=0, pinned whole).
     INTERIM_PIN_IDS: set = {
         "FGV-1-fairing-ghost-visual",
         "FAR-1-ike-rewind-to-launch-career",
-        "FAR-5-laythe-physics-warp-record",
     }
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
@@ -10814,8 +10814,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "FAR-2-duna-relaunch-rewind-keeps-landed.toml": "tier=operator by the calibration discipline, NOT debt: RR-1's relaunch and Rewind-to-Launch on `duna-park-recorded` (stock-minimal), where two same-name 'Kerbal X' ships are landed on Duna; the owner strip must keep both and every spawned leaf must sit at its terminal place (LeafVesselPlacement). AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_1524`, first flight); owed: the ordinary promotion call",
         "FAR-3-ike-revert-to-launch.toml": "tier=operator by the calibration discipline, NOT debt: IR-2's stock Revert to Launch on `duna-ike-recorded` (stock-minimal) after a rails warp on the pad, with the committed DD1 leaf read at its Ike orbit and phase after the revert (LeafVesselPlacement in FLIGHT). AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_1529`, first flight); owed: the ordinary promotion call",
         "FAR-4-gilly-eva-switch-bg-member.toml": "tier=operator by the calibration discipline, NOT debt: CI-1's EVA and map Switch-To in Gilly orbit on `eve-gilly-recorded` (stock-minimal), where the switch target is both the live tree's background member and a committed tree's spawned leaf. AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), NEVER FLOWN; owed: the reading run (tag `pending-flight`), then the ordinary promotion call",
-        "FAR-5-laythe-physics-warp-record.toml": "tier=operator by the calibration discipline, NOT debt: a recording made through ~120 s of 4x physics warp in Laythe orbit on `jool-laythe-recorded` (stock-minimal), committed, with the vessel read against its committed leaf's orbit (LeafVesselPlacement in FLIGHT). AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), NEVER FLOWN; owed: the reading run (tag `pending-flight`), then the ordinary promotion call",
-        "FAR-6-ike-loop-watch-quickload.toml": "tier=operator by the calibration discipline, NOT debt: a looped arc of the DD1 probe's Ike orbit on `duna-ike-recorded` (stock-minimal) watched, then F5 / F9 under watch with the loop's ghost re-entered after the Cold save-file load. AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), NEVER FLOWN; owed: the reading run (tag `pending-flight`), then the ordinary promotion call",
+        "FAR-5-laythe-physics-warp-record.toml": "tier=operator by the calibration discipline, NOT debt: a recording made through ~120 s of 4x physics warp in Laythe orbit on `jool-laythe-recorded` (stock-minimal), committed, with the vessel read against its committed leaf's orbit (LeafVesselPlacement in FLIGHT). AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_1639`, second flight after a spec re-pin); owed: the ordinary promotion call",
+        "FAR-6-ike-loop-watch-quickload.toml": "tier=operator by the calibration discipline, NOT debt: a looped arc of the DD1 probe's Ike orbit on `duna-ike-recorded` (stock-minimal) watched, then F5 / F9 under watch with the loop's ghost re-entered after the Cold save-file load. AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), LIVE-PROVEN 2026-11-14 (`2026-11-14_1641`, second flight after a spec re-pin); owed: the ordinary promotion call",
         "FGV-1-fairing-ghost-visual.toml": "tier=operator by PURPOSE, NOT debt: a visual-confirmation lane whose product is a set of PNGs for the owner's eyes (four stock procedural fairings, an engine plate and an engine shroud beside their Parsek ghosts in LKO on `eva2-lko-crewed`, intact / jettisoned / separated) and whose gates are that the cells passed, every image was written and the ghost shows the same truss, shroud and mount meshes as the real part. Flown green 2026-11-07 (one-cell shape twice; two-cell shape `2026-11-07_2342`)",
         "SLM-2-standalone-loop-map-pause.toml": "tier=operator by the calibration discipline, NOT debt: the same `standalone-loop-map` preset on `pad-runway-pair` (stock-minimal), read in FLIGHT map view in the pause after its second run, where no map ghost may exist. LIVE-PROVEN 2026-11-01 (`2026-11-01_0036`, 104 s) after a first flight red on a fixture defect; owed: the ordinary promotion call",
         "RW-20-strategy-and-deadline-after-rewind.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a Jumping Flea on the pad, a strategy activated at the Space Center and a real contract deadline passed by warp, a Rewind-to-Launch before both, the same strategy refused, and the committed fail applied once when the deadline passes again. LIVE-PROVEN 2026-10-31 (`2026-10-31_0425_RW-20-strategy-and-deadline-after-rewind`); owed: the ordinary promotion call",
@@ -13959,9 +13959,9 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
                                     # [M] arm-only floor case, Dres fixture.
                                     "V9-dres-player-loop.toml",
                                     # [M] 2026-11-14, the far-body timeline program.
-                                    # DECLARED BARE, NEVER FLOWN: a looped Ike-orbit
-                                    # arc watched across an F5 / F9; the manifest is
-                                    # report-only until its reading run.
+                                    # DECLARED BARE: a looped Ike-orbit arc watched
+                                    # across an F5 / F9; flown green 2026-11-14_1641,
+                                    # the manifest still report-only.
                                     "FAR-6-ike-loop-watch-quickload.toml",
                                     # [M] the Dres re-aimed arrival; synthesizer runs.
                                     "V10-dres-loop-arrival.toml",

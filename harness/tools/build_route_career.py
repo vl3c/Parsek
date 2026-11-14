@@ -46,8 +46,12 @@ career donor, read, never modified):
      (`lvl = 1`, the normalized maximum). A sandbox has every facility at its top level,
      and a level-0 Tracking Station or Mission Control changes map lines, patched
      conics and EVA rules, which would confound a route lane.
-  5. The ledger sidecar `Parsek/GameState/ledger.pgld` (these saves carry no embedded
-     `GAME_STATE` node) loses three row families and keeps everything else in order:
+  5. The ledger sidecar `Parsek/GameState/ledger.pgld` loses three row families and keeps
+     everything else in order. A source whose ParsekScenario node embeds a `GAME_STATE`
+     node (duna-ike-recorded; the other five do not) gets the same strip on its embedded
+     `GAME_STATE/LEDGER` too, because a load reads that copy and ignores the sidecar
+     (`Ledger.LoadFromNodeCore`); stripping only the sidecar left the award rows and the
+     SANDBOX seeds live (FAR-1's first flights, todo FAR1-CAREER-FIXTURE-EMBEDDED-LEDGER):
        a. the starting-value rows written while SANDBOX: `ScienceInitial` (21, science 0)
           and `ReputationInitial` (22). `FundsInitial` (20) is dropped too should one
           ever appear. Kept, `LedgerOrchestrator.EnsureInitialScienceSeed` finds a seed
@@ -321,6 +325,10 @@ def build_sfs(source: str, src: List[str], base: List[str]) -> List[str]:
                          % (source, removed, EXPECTED_KSC_DEBRIS.get(source)))
     for body, milestone in PROGRESS_SEEDS.get(source, ()):
         seed_progress(out, body, milestone)
+
+    # 5, embedded copy: a source that keeps its game state inside the ParsekScenario
+    # node loads its ledger from there, so the strip must reach it too.
+    strip_embedded_ledger(out)
     return out
 
 
@@ -510,6 +518,67 @@ def build_ledger(src: List[str]) -> Tuple[List[str], Dict[str, int]]:
     return out, counts
 
 
+def embedded_ledger_node(lines: List[str]) -> Optional[Tuple[int, int, int]]:
+    """(start, end_exclusive, child_indent) of the ParsekScenario's embedded
+    `GAME_STATE/LEDGER` node, or None when the save keeps its game state in the sidecar
+    files. When the node exists it is the copy a load reads (`Ledger.LoadFromNodeCore`,
+    `GAME_STATE/LEDGER`); the sidecar is only the fallback for a save without it."""
+    scen = _recipe._scenario_node(lines, "ParsekScenario")
+    if scen is None:
+        return None
+    states = _recipe.child_nodes(lines, scen, "GAME_STATE")
+    if not states:
+        return None
+    if len(states) > 1:
+        raise SystemExit("ParsekScenario carries more than one GAME_STATE node")
+    ledgers = _recipe.child_nodes(lines, states[0], "LEDGER")
+    if not ledgers:
+        return None
+    if len(ledgers) > 1:
+        raise SystemExit("GAME_STATE carries more than one LEDGER node")
+    start, end = ledgers[0]
+    header = lines[start]
+    indent = len(header) - len(header.lstrip("\t")) + 1
+    return start, end, indent
+
+
+def _dedent(block: List[str], indent: int) -> List[str]:
+    prefix = "\t" * indent
+    out = []
+    for line in block:
+        if line.startswith(prefix):
+            out.append(line[indent:])
+        elif line.strip():
+            raise SystemExit("embedded LEDGER line not indented %d tab(s): %r" % (indent, line))
+        else:
+            out.append(line)
+    return out
+
+
+def strip_embedded_ledger(lines: List[str]) -> Optional[Dict[str, int]]:
+    """Edit 5 applied in place to the embedded `GAME_STATE/LEDGER`, the same row strip
+    as the sidecar's. Returns the counts, or None when the save has no embedded ledger."""
+    node = embedded_ledger_node(lines)
+    if node is None:
+        return None
+    start, end, indent = node
+    # The node's own name and braces stay; its children are stripped as a ledger file.
+    inner = _dedent(lines[start + 2:end - 1], indent)
+    stripped, counts = build_ledger(inner)
+    prefix = "\t" * indent
+    lines[start + 2:end - 1] = [prefix + l if l.strip() else l for l in stripped]
+    return counts
+
+
+def verify_embedded_ledger(lines: List[str]) -> List[str]:
+    node = embedded_ledger_node(lines)
+    if node is None:
+        return []
+    start, end, indent = node
+    return ["embedded GAME_STATE/LEDGER: " + p
+            for p in verify_ledger(_dedent(lines[start + 2:end - 1], indent))]
+
+
 # ---------------------------------------------------------------------------
 # The whole fixture
 # ---------------------------------------------------------------------------
@@ -596,6 +665,7 @@ def verify_sfs(lines: List[str]) -> List[str]:
     leftover = ksc_debris_vessels(lines)
     if leftover:
         problems.append("%d KSC debris vessel(s) left for stock to recover" % len(leftover))
+    problems += verify_embedded_ledger(lines)
     return problems
 
 

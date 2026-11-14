@@ -19,8 +19,8 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | profile modded-compat | 4 |
 | autopilot (mission) lanes | 139 |
 | seam-only lanes | 454 |
-| LIVE-PROVEN date in status row | 452 |
-| no LIVE-PROVEN date | 141 |
+| LIVE-PROVEN date in status row | 454 |
+| no LIVE-PROVEN date | 139 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -52,7 +52,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | CX | 6 | - | 6 | - | - | - | 6 |
 | EVA | 16 | 1 | 15 | - | - | 1 | 15 |
 | EX | 2 | - | 2 | - | - | - | 2 |
-| FAR | 6 | - | - | 6 | - | - | 2 |
+| FAR | 6 | - | - | 6 | - | - | 4 |
 | FGV | 1 | - | - | 1 | - | - | 1 |
 | FLG | 1 | - | 1 | - | - | - | 1 |
 | FORGE | 8 | - | - | 8 | - | 8 | 3 |
@@ -305,11 +305,11 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 | Moho | 3 | 1 | 2 | V 2, B 1 |
 | Eve | 12 | 4 | 5 | V 7, B 4, FAR 1 |
 | Gilly | 7 | 2 | 4 | V 4, B 2, FAR 1 |
-| Duna | 29 | 10 | 17 | V 13, B 4, FAR 4, TP 3, AT 1, CN 1, FORGE 1, GUI 1, H 1 |
-| Ike | 9 | 2 | 7 | V 4, FAR 3, B 2 |
+| Duna | 29 | 10 | 18 | V 13, B 4, FAR 4, TP 3, AT 1, CN 1, FORGE 1, GUI 1, H 1 |
+| Ike | 9 | 2 | 8 | V 4, FAR 3, B 2 |
 | Dres | 8 | 6 | 2 | B 5, V 2, FORGE 1 |
-| Jool | 45 | 18 | 20 | V 25, B 18, FAR 1, TP 1 |
-| Laythe | 27 | 14 | 16 | B 14, V 11, FAR 1, TP 1 |
+| Jool | 45 | 18 | 21 | V 25, B 18, FAR 1, TP 1 |
+| Laythe | 27 | 14 | 17 | B 14, V 11, FAR 1, TP 1 |
 | Vall | 11 | 5 | 4 | B 5, V 5, TP 1 |
 | Tylo | 12 | 6 | 2 | B 6, V 6 |
 | Bop | 8 | 4 | 2 | B 4, V 4 |
@@ -987,8 +987,8 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | FAR-2-duna-relaunch-rewind-keeps-landed | operator | duna-park-recorded | seam | Duna | rewind-to-launch, reload, save, scene-change | LeafVesselPlacement | LIVE-PROVEN 2026-11-14 |
 | FAR-3-ike-revert-to-launch | operator | duna-ike-recorded | seam | Duna, Ike | revert, save, warp, scene-change | LeafVesselPlacement | LIVE-PROVEN 2026-11-14 |
 | FAR-4-gilly-eva-switch-bg-member | operator | eve-gilly-recorded | seam | Eve, Gilly | vessel-switch | - | AUTHORED 2026-11-14, NEVER FLOWN |
-| FAR-5-laythe-physics-warp-record | operator | jool-laythe-recorded | seam | Jool, Laythe | warp, physics-warp | LeafVesselPlacement | AUTHORED 2026-11-14, NEVER FLOWN |
-| FAR-6-ike-loop-watch-quickload | operator | duna-ike-recorded | seam | Duna, Ike | reload, save, warp | - | AUTHORED 2026-11-14, NEVER FLOWN |
+| FAR-5-laythe-physics-warp-record | operator | jool-laythe-recorded | seam | Jool, Laythe | warp, physics-warp | LeafVesselPlacement | LIVE-PROVEN 2026-11-14 |
+| FAR-6-ike-loop-watch-quickload | operator | duna-ike-recorded | seam | Duna, Ike | reload, save, warp | - | LIVE-PROVEN 2026-11-14 |
 
 ### FGV (1)
 

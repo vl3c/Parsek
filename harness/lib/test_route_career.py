@@ -163,6 +163,27 @@ class RouteCareerFixtureDriftTests(unittest.TestCase):
             with self.subTest(source=source):
                 self.assertEqual(want, self.b.ledger_counts(source))
 
+    def test_the_embedded_ledger_gets_the_same_strip(self):
+        # A source whose ParsekScenario embeds GAME_STATE loads its ledger from there and
+        # ignores the sidecar, so the strip must reach that copy too (todo
+        # FAR1-CAREER-FIXTURE-EMBEDDED-LEDGER: FAR-1's first flights loaded 12 award rows
+        # and the SANDBOX science seed off it). Only duna-ike-recorded embeds one.
+        expected = {"duna-ike-recorded": {"seed": 2, "route": 0, "award": 12, "keep": 6}}
+        for source in self.b.SOURCES:
+            with self.subTest(source=source):
+                src_lines = self.b.read_text(os.path.join(SAVES, source, "persistent.sfs"))[0]
+                node = self.b.embedded_ledger_node(src_lines)
+                if source not in expected:
+                    self.assertIsNone(node)
+                    continue
+                self.assertEqual(expected[source], self.b.strip_embedded_ledger(list(src_lines)))
+                built = self.b.read_text(os.path.join(SAVES, self.b.target_name(source),
+                                                      "persistent.sfs"))[0]
+                self.assertEqual([], self.b.verify_embedded_ledger(built))
+                start, end, _ = self.b.embedded_ledger_node(built)
+                types = [l.strip() for l in built[start:end] if l.strip().startswith("type = ")]
+                self.assertEqual(expected[source]["keep"], len(types))
+
     def test_no_starting_value_route_or_award_row_remains(self):
         for source in self.b.SOURCES:
             path = os.path.join(SAVES, self.b.target_name(source), "Parsek", "GameState",
@@ -229,6 +250,9 @@ class RouteCareerFixtureDriftTests(unittest.TestCase):
                 self.b.strip_ksc_debris(lines)
                 for body, milestone in self.b.PROGRESS_SEEDS.get(source, ()):
                     self.b.seed_progress(lines, body, milestone)
+                # Edit 5's embedded half (duna-ike-recorded only) changes the embedded
+                # GAME_STATE/LEDGER inside ParsekScenario; apply it to the source side too.
+                self.b.strip_embedded_ledger(lines)
                 src = "\n".join(lines)
                 self.assertEqual(strip(src, []), strip(dst, inserted))
                 ps = re.compile(r"\n\t\tParsekSettings\n\t\t\{.*?\n\t\t\}\n", re.S)
