@@ -902,7 +902,8 @@ in parallel in the cloud):
    have flown on the new rule.
 3. [ ] Aircraft: no lane flies a plane (BAY-1's never moves). A runway takeoff, a circuit and a
    landing, then its ghost replays at the Space Center.
-4. [ ] (AUTHORED 2026-11-14 as `B39`-`B42` / `V34M`-`V37M` and `V33T`, awaiting the PC batch.)
+4. [ ] (AUTHORED 2026-11-14 as `B39`-`B42` / `V34M`-`V37M` and `V33T`. FLOWN 2026-11-14: V33T green;
+   B39-B42 green on 8d4e8b01c and their four fixtures harvested; V34M-V36M green; V37M still to fly.)
    Jool park -> one moon continuations: B39 Vall, B40 Tylo, B41 Bop, B42 Pol with loop lanes
    V34M .. V37M (Vall has no park lane at all), plus the missing Laythe Tracking Station lane
    (V33T). Later: Mun / Minmus continuations and the optional Ike / Gilly landing continuations.
@@ -6496,7 +6497,7 @@ Do NOT re-implement intercept / window math from scratch. The 2026-05-28 prior-a
 - Seen in all four Jool moon forges B39-B42 (runs `2026-11-14_1648` .. `_1715`, DLL at `37a6c6101`), each PARSEK-FAIL(expectation) on `startrecording ... already=false` and a missing `SOI change boundary suppressed in tree mode: Jool to <Moon> (tree=6ec68e87...`. Loading `jool-orbit-recorded` into FLIGHT logged no committed-tree restore at all and the seam's StartRecording built a fresh single-node tree for the live Duna Rocket (pid 807470910). B38 on 2026-11-10 resumed the same fixture.
 - Cause: the load-time optimizer split gives the tail the recording's end (terminal state, vessel snapshot) but left the spawn stamp (`VesselSpawned`, `SpawnedVesselPersistentId`) on the head. `ParsekScenario.OnLoadPhaseAutoUnreserveCrewPastEndUT` then read the tail as a vessel that never spawned: it nulled the tail's snapshot, unreserved its crew and set `VesselSpawned` with no pid. `TryFindCommittedTreeForSpawnedVessel` matches a stamped recording only by its spawn pid and an unstamped one only when `VesselSpawned` is false, so the tail matched neither way, silently. Before #2588 the head stayed the active recording and matched by its stamp, which hid the defect (and appended to the head instead).
 - Fix: `RecordingOptimizer.MoveChainSpawnStampsToTip`, run by `CommittedListOptimizer.RunOptimizationPass` after the split pass, moves the stamp of the one earlier non-terminal piece of the same launch onto a terminal, unstamped chain tip (skips a chain with a superseded piece or more than one stamped piece; Info line `Chain spawn stamp moved to the tip`). It runs on every load, so saves split earlier heal too. `RecordingOptimizer.MergeInto` carries the absorbed piece's stamp the same way. This is the load-time twin of the in-flight commit's `InFlightCommitOptimization.CarrySpawnStampToTip` (same move, including `LastAppliedResourceIndex`), which now runs after the pass as a backstop and normally finds nothing to move (`spawnStampMoved=False`). Tests `LoadSplitSpawnStampRestoreTests` (the real `jool-orbit-recorded` save through the optimization pass, the crew pass, the restore match and the prepare; mutation-checked: dropping the call reds it).
-- Proof owed: re-fly B39-B42 with this build.
+- Proven 2026-11-14: B39-B42 flew green on 8d4e8b01c (runs `2026-11-14_1857`, `_1907`, `_1917`, `_1926`, PASS attempt 1, `already=true` into tree 6ec68e87); their fixtures are harvested.
 
 ### COMMITTED-RESTORE-APPENDS-TO-ROOT - a resumed committed tree records onto its root recording [~~FIXED 2026-11-14~~, found 2026-11-07; fixture re-harvest open]
 

@@ -11011,6 +11011,10 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "B47-jool-moon-tour.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; Jool moon round (2026-11-14): the new mtour composer (three B5 legs, Jool -> Laythe -> Vall -> Tylo in one tree) from `jool-orbit-recorded`, to harvest `jool-tour-recorded` for V38M; what is open is the flight, not a human review call",
         "B48-jool-laythe-bop-continuation.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; Jool moon round (2026-11-14): B26's parent-relay machine from `jool-laythe-recorded` re-pointed at Bop, to harvest `jool-laythe-bop-recorded` for V39M's amber decline; what is open is the flight, not a human review call",
         "V33T-jool-laythe-continuation-ts-arrival.toml": "tier=operator by the calibration discipline (its one jump derived off the harvested fixture bytes and the V-lane clock formula, first run is a calibration reading), NOT debt; Jool moon round (2026-11-14): the Tracking Station half V33M never had, the ghost icon on Laythe after a jump past the replayed Laythe SOI entry; LIVE-PROVEN 2026-11-14 (`2026-11-14_1534`, first flight); owed: the ordinary promotion call",
+        "V34M-jool-vall-continuation-player-loop.toml": "tier=operator by the calibration discipline (its count window re-pinned off the harvested fixture, first run is a calibration reading), NOT debt; Jool moon round (2026-11-14): V33M's player loop on B39's harvested `jool-vall-recorded` (the Jool->Vall hop appended to B22's tree), reading the lone-moon arrival hold on Vall's period and driving the MoonArrivalHold cell at the Space Center; LIVE-PROVEN 2026-11-14 (`2026-11-14_1906`, first flight); owed: the ordinary promotion call",
+        "V35M-jool-tylo-continuation-player-loop.toml": "tier=operator by the calibration discipline (its count window re-pinned off the harvested fixture, first run is a calibration reading), NOT debt; Jool moon round (2026-11-14): V33M's player loop on B40's harvested `jool-tylo-recorded` (the Jool->Tylo hop appended to B22's tree), reading the lone-moon arrival hold on Tylo's period and driving the MoonArrivalHold cell at the Space Center; LIVE-PROVEN 2026-11-14 (`2026-11-14_1916`, first flight); owed: the ordinary promotion call",
+        "V36M-jool-bop-continuation-player-loop.toml": "tier=operator by the calibration discipline (its count window re-pinned off the harvested fixture, first run is a calibration reading), NOT debt; Jool moon round (2026-11-14): V33M's player loop on B41's harvested `jool-bop-recorded` (the Jool->Bop hop appended to B22's tree), reading the lone-moon arrival hold on Bop's period and driving the MoonArrivalHold cell at the Space Center; LIVE-PROVEN 2026-11-14 (`2026-11-14_1925`, first flight); owed: the ordinary promotion call",
+        "V37M-jool-pol-continuation-player-loop.toml": "tier=operator by the calibration discipline (its count window re-pinned off the harvested fixture, first run is a calibration reading), NOT debt; Jool moon round (2026-11-14): V33M's player loop on B42's harvested `jool-pol-recorded` (the Jool->Pol hop appended to B22's tree), reading the lone-moon arrival hold on Pol's period and driving the MoonArrivalHold cell at the Space Center; what is open is the flight, not a human review call",
         # THE MAP PICTURE LANES (2026-11-11). Operator-tier by MECHANISM: each replays a
         # committed fixture to take MapCamera + CaptureScreenshot + DumpMapGeometry views
         # for a human and the map mirror page, run on request. Their model lanes keep every
@@ -25449,12 +25453,10 @@ class SharedShipsManifestTests(unittest.TestCase):
     # RE-ARMED 2026-11-14 by the Jool moon round (todo NEXT-TESTS-TO-BUILD-2026-11-11
     # items 1 and 4): six loop lanes committed ahead of the forges B39-B42 / B47 / B48
     # that produce their fixtures. Each entry is deleted in the commit that harvests
-    # its fixture and re-pins the lane off the real bytes.
+    # its fixture and re-pins the lane off the real bytes. V34M-V37M retired
+    # 2026-11-14: B39-B42 flew green on 8d4e8b01c and their four fixtures are
+    # committed; V38M / V39M still wait on B47 / B48.
     PENDING_FIXTURE_LANES = {
-        "V34M-jool-vall-continuation-player-loop.toml": "jool-vall-recorded",
-        "V35M-jool-tylo-continuation-player-loop.toml": "jool-tylo-recorded",
-        "V36M-jool-bop-continuation-player-loop.toml": "jool-bop-recorded",
-        "V37M-jool-pol-continuation-player-loop.toml": "jool-pol-recorded",
         "V38M-jool-moon-tour-player-loop.toml": "jool-tour-recorded",
         "V39M-jool-laythe-bop-player-loop.toml": "jool-laythe-bop-recorded",
     # And by the moon-to-moon pairs (todo NEXT-TESTS-TO-BUILD-2026-11-11
