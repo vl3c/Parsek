@@ -77,6 +77,9 @@ namespace Parsek.Tests
                 })
                 .OrderBy(rel => rel, StringComparer.Ordinal)
                 .ToList();
+            // The comparisons below are ordinal (case-sensitive) on purpose: a folder or file
+            // whose case differs from modules.toml is a different path on Linux CI, so this
+            // reds there even when a case-insensitive Windows file system finds the file.
             Assert.Contains(folder + "/" + stem + ".cs", family);
             var elsewhere = family.Where(rel => rel.Substring(0, rel.LastIndexOf('/') + 1) != folder + "/").ToList();
             Assert.True(elsewhere.Count == 0,

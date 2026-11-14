@@ -192,6 +192,7 @@ namespace Parsek.Tests
             // "(none)" is never an empty state: an empty list is one grey sentence and an
             // empty value drops its clause. The StockUi*.cs files in the UI module annotate
             // stock screens and draw no Parsek window (their "(none)" is a log value).
+            Assert.True(Directory.GetFiles(SourceDir("UI"), "*.cs").Length >= 90, "UI/ scan floor: the UI module folder moved or emptied");
             foreach (string f in Directory.GetFiles(SourceDir("UI"), "*.cs"))
             {
                 if (Path.GetFileName(f).StartsWith("StockUi", StringComparison.Ordinal))
@@ -252,6 +253,7 @@ namespace Parsek.Tests
         {
             Assert.Equal("Go to", TimelineWindowUI.GoToButtonLabel);
             Assert.Equal(TimelineWindowUI.GoToButtonLabel, LogisticsRoutePresentation.GoToButtonLabel);
+            Assert.True(Directory.GetFiles(SourceDir("UI"), "*.cs").Length >= 90, "UI/ scan floor: the UI module folder moved or emptied");
             foreach (string f in Directory.GetFiles(SourceDir("UI"), "*.cs"))
             {
                 string code = StripComments(File.ReadAllText(f));
