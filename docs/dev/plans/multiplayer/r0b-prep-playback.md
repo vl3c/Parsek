@@ -34,7 +34,7 @@ ghost-map-vessel primitive (P3), the trajectory codec change (P6), the ghost-cou
 
 ## 2. Starts after
 
-- Version 1.1.0 is released and the owner says go (brief).
+- Version 1.0.2 is released and the owner says go (brief).
 - P12 (P12-01 `[forbidden]` list form, P12-02 `ParsekRace*` placement) and P11 (P11-01,
   P11-02, derived window counts) per the 15.11 order. Nothing in this slice needs their
   content; the order only keeps the arch tooling and harness specs stable while these

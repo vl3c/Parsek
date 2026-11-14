@@ -60,7 +60,7 @@ instance (the harness may not touch one, section 9 item 11).
 
 ## 2. Starts after
 
-- Version 1.1.0 is released and the owner says go.
+- Version 1.0.2 is released and the owner says go.
 - **Day-one tasks (no feature code present):** T-01, T-02, T-03, T-04, T-05, T-06, T-07.
   They touch only the test project, the harness and the `TestCommands` tooling module.
 - After R1-04 (`RaceGate`): T-10 (with T-01).

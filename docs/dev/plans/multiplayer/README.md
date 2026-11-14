@@ -1,6 +1,6 @@
 # Multiplayer implementation - master plan
 
-PLAN (2026-11-14), not started. Work starts after 1.1.0 is released, on the owner's go.
+PLAN (2026-11-14), not started. Work starts after 1.0.2 is released, on the owner's go.
 
 This folder holds the implementation plan for the competitive multiplayer mode ("the space
 race"). The design is `docs/dev/design-competitive-multiplayer.md` (v2); the measured list of
