@@ -8408,7 +8408,7 @@ class ReferenceDllAdmissionTests(unittest.TestCase):
 
     def test_no_entry_for_the_reference_a_match_or_an_unknown_hash(self):
         self.assertEqual("stock-minimal", hlib.REFERENCE_DLL_PROFILE)
-        for args, kw in ((("stock-minimal", "aa", "bb"), {}),
+        for args, kw in ((("stock-minimal", "aa", "bb"), {"same_instance": True}),
                          (("modded-compat", "AA11", "aa11"), {}),
                          (("modded-compat", None, "bb"), {}),
                          (("modded-compat", "aa", None), {}),
@@ -8432,6 +8432,17 @@ class ReferenceDllAdmissionTests(unittest.TestCase):
     def test_the_hint_names_the_profile(self):
         self.assertEqual("cd harness && python provision/provision.py --profile modded-compat",
                          hlib.provision_command_hint("modded-compat"))
+        self.assertEqual("cd harness && python provision/provision.py --profile stock-minimal "
+                         "--copy 2", hlib.provision_command_hint("stock-minimal", 2))
+        self.assertEqual(hlib.provision_command_hint("stock-tree"),
+                         hlib.provision_command_hint("stock-tree", 1))
+
+    def test_a_copy_of_the_reference_profile_is_compared_by_dir(self):
+        # automation/stock-minimal-2 carries profile stock-minimal but is not the
+        # reference DIR: a different DLL there is drift like on any other install.
+        d = hlib.decide_reference_dll_drift("stock-minimal", "aa", "bb")
+        self.assertIsNotNone(d)
+        self.assertEqual(("bb", "aa"), (d.expected, d.actual))
 
 
 class BootStallWatchdogTests(unittest.TestCase):
@@ -8606,6 +8617,32 @@ class ClassifyVerdictMatrixTests(unittest.TestCase):
         d, v = _clean_pass_facts()
         d["instance_busy"] = True
         self.assertEqual(self._classify(d, v).subkind, "instance-busy")
+
+    def test_parallel_run_refusals_are_terminal_invalids(self):
+        for key, value, subkind in (("runner_token_ok", False, hlib.RUNNER_TOKEN_SUBKIND),
+                                    ("slot_lock_ok", False, hlib.SLOT_LOCKED_SUBKIND),
+                                    ("slot_profile_ok", False,
+                                     hlib.SLOT_PROFILE_MISMATCH_SUBKIND),
+                                    ("port_busy", True, hlib.PORT_BUSY_SUBKIND)):
+            with self.subTest(subkind=subkind):
+                d, v = _clean_pass_facts()
+                d[key] = value
+                v["killed"] = True  # a pre-boot refusal outranks every later fact
+                r = self._classify(d, v)
+                self.assertEqual(("INVALID", subkind), (r.verdict, r.subkind))
+                self.assertFalse(hlib.should_retry(r, 1, "once"))
+        # Absent keys default to the pre-slot verdicts.
+        d, v = _clean_pass_facts()
+        self.assertEqual("PASS", self._classify(d, v).verdict)
+
+    def test_parallel_run_subkinds_are_flake_exempt(self):
+        self.assertEqual(("port-busy", "runner-token", "slot-locked", "slot-profile-mismatch"),
+                         hlib.PARALLEL_RUN_INVALID_SUBKINDS)
+        for subkind in hlib.PARALLEL_RUN_INVALID_SUBKINDS:
+            with self.subTest(subkind=subkind):
+                self.assertIn(subkind, hlib.FLAKE_EXEMPT_INVALID_SUBKINDS)
+                self.assertTrue(hlib.flake_entry_is_exempt(
+                    {"outcome": "INVALID", "subkind": subkind}))
 
     def test_killed_short_circuits(self):
         d, v = _clean_pass_facts()
