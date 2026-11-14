@@ -647,17 +647,34 @@ text says sharing is paused and why.
 **The site table.** Four fixed sites on Kerbin, identical in every race save, shipped with the
 mod and named by `siteTableId`:
 
-- Site 0: the stock KSC (latitude -0.097, longitude -74.56).
-- Site 1: the opposite side of Kerbin (target longitude near 105 E).
-- Site 2 and site 3: a quarter turn either way (targets near 15 E and 165 W).
+- Site 0: the stock KSC (footprint centre latitude -0.074, longitude -74.64; ground at 66 m).
+- Site 1: the opposite side of Kerbin (ideal longitude 105.36 E).
+- Site 2 and site 3: a quarter turn either way (ideal longitudes 15.36 E and 164.64 W).
 
-The targets are where the sites would be if spacing were exact. The real coordinates come from
-a terrain survey (section 12, task S1) and must satisfy: dry land under the whole footprint;
-the same latitude as the KSC, so every player launches into the same inclination with the same
-rotation speed; ground elevation close enough to the KSC's that the flattened patch can sit at
-exactly the KSC's altitude, so nobody launches from thinner air; room for the full footprint
-at the KSC's orientation (pad to the east). A target that fails moves along the equator to the
-nearest spot that passes.
+The ideal longitudes are where the sites would be if spacing were exact. The terrain survey
+of 2026-11-14 (`docs/dev/research/kerbin-equator-survey-2026-11-14/`, task S1) measured what
+is there:
+
+| Site | Ideal point | Nearest usable ground | Its natural height |
+|------|-------------|-----------------------|--------------------|
+| 1 | 105.36 E: dry, rough upland | 106.7 E, 1.3 degrees away | about 135 m |
+| 2 | 15.36 E: open sea | 18.8 E, 3.4 degrees away (a plateau) | about 520 m |
+| 3 | 164.64 W: dry, rough highlands | 162.3 W, 2.3 degrees away | about 675 m |
+
+So every site can stand within 3.4 degrees of its ideal point, which keeps the sites
+opposite for every practical purpose (3.4 degrees is 36 km on the ground and 49 seconds of
+Kerbin's rotation). What the survey also shows is that none of that ground is at the KSC's
+height: ground as low as the KSC's lies 12 degrees from site 2's point and 32 degrees from
+site 3's. The stock KSC itself stands on a flattened patch in rough terrain (415 m of
+height range within 3 km), so a site does not need naturally flat land, only dry ground
+under its patch. That leaves one choice for the owner (open question 13.2): keep each
+site at its natural height, cut every site down to the KSC's height, or move two sites
+far from their ideal points to reach low ground.
+
+Requirements a final site must meet, whatever the choice: dry land under the whole
+footprint; the same latitude as the KSC, so every player launches into the same inclination
+with the same rotation speed; room for the full footprint at the KSC's orientation (pad to
+the east); and the same terrain patch data in every game.
 
 **Slot assignment.** A human player takes the first free slot in the order 0, 1, 2, 3: two players are opposite each
 other, the third and fourth take the quarter turns. A late joiner never moves anyone, which
@@ -1240,7 +1257,7 @@ running game.
 | The Space Center camera at the home site | `SpaceCenterCamera2` finds its start position by a named transform under Kerbin's surface (`pqsName`, `initialPositionTransformName`), which is part of the KSC object that moves; `altitudeInitial` is public. KSCSwitcher resets this camera after a move | S4: enter the Space Center scene at each of the four sites; camera height, building clicks, the day and night lighting |
 | Exact KSC copies as scenery | Kerbal Konstructs clones the stock KSC buildings at run time as static objects | S5: clone the hierarchy, strip facility, click and destruction behaviour, keep colliders; show a chosen facility level; measure load and frame cost of three copies |
 | Same terrain in every game | The patch is data on a PQS mod; the same patch data gives the same heights | S5: sample heights on two machines |
-| Dry, flat land on the equator | NOT verified. The stock height data could not be read from files, and the wiki maps were unreachable | S1: an in-game scan of the equator (height, ocean, slope) around the three targets; the result fixes the site table |
+| Dry land on the equator | MEASURED 2026-11-14 (`docs/dev/research/kerbin-equator-survey-2026-11-14/`): half the KSC latitude is dry, and there is dry ground within 3.4 degrees of each ideal point, at 135 m, about 520 m and about 675 m. The eastern quarter point itself is open sea | The owner's choice on site height (13.2), then a finer scan of the chosen spots for the exact coordinates and the footprint's fit |
 | KSC science at every site | Building mini-biomes are tag-based (`MiniBiome`), so they should follow the buildings; the KSC area biome is in the biome map | S2: prove both at a moved site; design the biome override |
 | Four stock looks | `ProtoCrewMember.KerbalSuit` has Default, Vintage, Future, Slim; Vintage and Future belong to the DLCs; per kerbal the suit, the combo id and the light color are saved | S3: confirm each look in game and pick the four UI colors |
 | Stock-like replacements | Mods add suit sets with `SUITCOMBOS` config nodes (suit type, gender, textures, sprite); stock supports this since 1.10 | S3: two replacement texture sets; how a missing-DLC machine resolves a DLC suit |
@@ -1261,8 +1278,13 @@ running game.
 1. **The ladder's numbers.** The steps, the body multipliers and which stock firsts are in
    (7.9) are a first proposal. They want a play test before they are frozen under a
    `ladderId`.
-2. **The exact sites.** Fixed by the survey (S1). If no spot near a target passes, how far may
-   a site move before "opposite" stops being true enough?
+2. **The height of the three new sites.** The survey found dry ground within 3.4 degrees of
+   every ideal point, but at 135 m, about 520 m and about 675 m, against the KSC's 66 m.
+   (a) Keep each site at its natural height: looks natural, simplest to build, and a higher
+   site starts in slightly thinner air and a little closer to space, an edge of roughly one
+   percent or less of the fuel to orbit. (b) Cut all sites down to 66 m: identical
+   conditions, but two sites would sit in basins about half a kilometre deep. (c) Move sites
+   2 and 3 to low ground: similar heights, but 12 and 32 degrees from their ideal points.
 3. **Rival facility levels in Career.** Latest shared levels (proposed), levels as of the
    local game date (needs an upgrade history in the standing), or always fully built?
 4. **Targeting rival ghosts.** Allowed as for any ghost (proposed), or blocked so that nothing
@@ -1546,6 +1568,18 @@ Choices made now so later ideas need no restructuring:
     save exports is the opponent. Difficulty is the schedule: an easy opponent lands on the
     Mun on day 120, a hard one on day 25. Because each is really flown, every flight is
     watchable and passes the same checks a human's would. Generating them is later work.
+  - *Any playthrough can become an opponent* (owner note 2026-11-14: "if I or another
+    player play a career save, that all gets recorded anyway, maybe we could use that as the
+    AI player later, of various difficulty depending on how good the initial player was").
+    A player's public state is already exported as one complete snapshot, so "save this
+    playthrough as an opponent" is the same exporter writing a finished player folder to a
+    chosen place. It works from a race save and from an ordinary single-player save. How
+    hard the opponent is follows from how well it was played, and a set of them is a
+    difficulty ladder. Two limits follow from what a recording is: an opponent keeps the
+    site it launched from, and an ordinary single-player save launches from the stock KSC,
+    so a race can hold one opponent made from a single-player save and the person racing it
+    takes another site; and an opponent carries the mode, difficulty and mod list it was
+    played with, which the race it is added to must match or disclose.
   What is deliberately NOT designed now: how a live AI would decide what to fly, re-timing
   a recorded program to keep pace with the humans, or moving a recorded program to another
   site (an opponent recorded from site 1 always sits at site 1).
