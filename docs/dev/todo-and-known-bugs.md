@@ -20,6 +20,96 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## PARALLEL-HARNESS-RUNS: fly harness lanes on 2-3 KSP copies at once while the owner keeps using the PC [FILED 2026-11-14 (owner request). BUILT 2026-11-14: C# part (xUnit only) and harness part (slots, locks, provisioning copies, the parallel runner; unit suites only); LIVE-PROVEN 2026-11-14 on the owner's PC: daily tier 28/28 PASS on 2 and 3 slots]
+
+**Plan.** `harness/parallel-runs-plan-2026-11-14.md` in the project files (sections 1-6 and the
+v2 overrides): slots `automation/<profile>-<k>`, a per-slot lock under the machine lock, stamped
+kRPC ports, path-scoped process checks, per-copy `-logFile`, Unity prefs snapshot / restore,
+and `harness/tools/parallel_runner.py`.
+
+**C# part (done, automation only, inert unless `PARSEK_TEST_COMMANDS=1`).**
+- Focus-lock suppression: `TestCommands/AutomationFocusLockSuppressionPatch.cs` prefixes the
+  private `OnApplicationFocus(bool)` of `FlightDriver`, `EditorDriver`, `SpaceCenterMain`,
+  `UISpaceCenter` and `MainMenu` and skips stock on focus loss, so an unfocused copy no longer
+  takes the `ControlTypes.All` lock that made `WarpToUT` answer `warp-locked`, stalled the editor
+  launch and paused the KSC Planetarium. `Prepare()` reads the env, so a player build applies
+  zero targets. Log: rate-limited `focus lock suppressed scene=... lockId=...`.
+- Window lookup by process: `TestCommands/OwnProcessWindowFinder.cs` (`EnumWindows` + own pid,
+  `UnityWndClass` preferred) replaces the title lookups in `UiAction op=pointer`
+  (`via=own-process`) and `DisabledHoverEchoImguiTest` (`window=own-process`).
+- Boot window placement: `PARSEK_AUTOMATION_DESKTOP_ID` / `PARSEK_AUTOMATION_RETURN_FOREGROUND`;
+  the seam moves its own window with `IVirtualDesktopManager.MoveWindowToDesktop` and hands the
+  foreground back, ending with one Info line `window placement desktop=<moved|failed hr=..|
+  skipped|no-window> foreground=<returned|not-foreground|failed|skipped> ...` (grammar in
+  `design-autotest-command-seam.md`, "Addon lifecycle"). The harness minimises the window
+  whenever the line does not say `desktop=moved`.
+
+**Harness part (done, unit-tested, not flown).**
+- Slots: `harness/lib/slots.py` (copy 1 = `automation/<profile>`, copy k = `automation/<profile>-<k>`;
+  per-profile kRPC port blocks 50000 / 50020 / 50040, `+2*(k-1)`), run.py's decisions in
+  `harness/lib/slotrun.py`.
+- `run.py --slot <s>` (child of the runner): no machine lock, the runner token
+  (`PARSEK_HARNESS_RUNNER_TOKEN` / `_PID`) re-checked at every attempt boundary, its slot lock,
+  serial verify, no prune sweeps / run-index append / coverage refresh, stop request read-only;
+  `--tests-prebuilt`, `--report-json` (`parsek-run-report/1`), `--window`, `--desktop-id`, and the
+  maintenance flags `--sweep-results` / `--refresh-coverage`. New flake-exempt INVALID subkinds
+  `port-busy`, `runner-token`, `slot-locked`, `slot-profile-mismatch`.
+- Every run.py (serial too): holds the slot lock of each instance it flies, stamps the slot's kRPC
+  ports before every launch (copy 1 of stock-tree / modded-compat moves to 50020 / 50040 on its next
+  run or provision) and refuses `port-busy` on a listening port, writes `Player.log` into the instance
+  (`-logFile`, plus `-screen-*` from settings.cfg), and as machine-lock holder snapshots / restores the
+  shared Unity screen prefs (`HKCU\Software\Squad\Kerbal Space Program`; crash marker restored on the
+  next start). Slot children are spaced 15 s apart at launch and count only their own instance's KSP.
+- Provisioning: `provision.py --copy K` (manifest keys `slot` / `copy` / `krpcRpcPort` /
+  `krpcStreamPort`, VERIFY expects the slot stamp, 8 GiB free-space margin for K >= 2),
+  `--copy K --remove` (junctions unlinked first), `EC-10` while any slot lock is live.
+- `harness/tools/parallel_runner.py` (pure `harness/lib/parallel.py`): `run` / `resume` / `set-slots`
+  / `stop` / `status`, longest p50 first, 15 s dispatch gap, a memory guard that keeps 1.5 GB RAM
+  / 1.5 GB VRAM free after the new copy loads (footprint 4.5 GB RAM / 2 GB VRAM, a booting copy's
+  remaining footprint ramped down over 60 s), exclusive lanes skipped unless
+  `--include-exclusive`, run.py's exit rule.
+- Throughput fix (2026-11-14, after the first PC daily run, 28 lanes, 2 slots then `set-slots 3`
+  at minute 10): the runner held every start 45 s after the previous one, and daily lanes take
+  46-90 s, so the run took 21m46s against 25 min serial (1.2x) and slot 3 never got a lane; the
+  wait was not logged. Fix: the gap is now the 15 s launch spacing
+  (`parallel.DISPATCH_GAP_SECONDS`), the memory guard accounts for copies still booting, and
+  every wait kind is logged once per change.
+- Memory guard recalibrated (2026-11-14, after daily-par-3: 28 lanes, 3 slots). The run took
+  15m24s against 21m46s for the first parallel daily run, but on 2 effective slots: the third
+  slot never ran. 66 memory holds, 56 of them "2 running, 2 booting", typically
+  `free RAM 10.4 GB - 2 booting x 4.5 GB = 1.4 GB < 6.0 GB; free VRAM 13.7 - 2 x 5.0 = 3.7 < 5.5`.
+  Measured: free
+  RAM 14.8 GB with no KSP, 6.07 GB at its lowest with two copies flying, one copy peaks at
+  4.25 GB RAM and about 1 GB VRAM in the 1280x720 window (peak 3.7 GB VRAM used with 2 copies on
+  a 1.8 GB baseline; the ~5 GB figure was fullscreen), an earlier trial ran 3 copies at full
+  speed with 1.7 GB RAM free. Findings: daily lanes last 48-60 s, so the 75 s window marked a copy
+  as booting for its whole life, and the reading already holds part of a booting copy's memory,
+  so a full reserve on top counted it twice, against floors (6 / 5.5 GB) sized as if the new copy
+  were not yet subtracted. Fix: projected = reading - remaining footprint of each booting copy
+  (`footprint * max(0, 1 - elapsed / 60 s)`) - one full footprint for the new copy, held under
+  1.5 GB (`COPY_FOOTPRINT_RAM_GB` 4.5, `COPY_FOOTPRINT_VRAM_GB` 2.0, `MIN_FREE_RAM_GB` /
+  `MIN_FREE_VRAM_GB` 1.5, `BOOT_WINDOW_SECONDS` 60). The daily-par-3 hold (copies 50 s and 20 s
+  in) now starts (RAM 10.4 - 3.75 - 4.5 = 2.15 GB); two booted copies at 6.07 GB free start a
+  third; 5.5 GB RAM or 3.0 GB VRAM free hold (`DispatchTests` `test_pc_*`).
+- Docs: `harness/README.md` ("The machine lock", "Install slots", "Parallel runs"),
+  `design-autotest-harness-core.md` ("Install slots and parallel runs"),
+  `design-autotest-stack-setup.md` ("Provisioning slot copies"), `autotest-status.md`.
+
+**Measured basis (owner's PC, 2026-11-14).** Per copy about 1 CPU core, ~4.3 GB RAM at peak,
+~9.4 GB commit, ~1 GB VRAM in a 1280x720 window; 1, 2 and 3 copies all at full speed; RAM is the
+limit, so 2 copies while the owner uses the PC and 3 when away. Unity's Screenmanager prefs are
+one registry key shared by every KSP on the PC.
+
+**PC validation (done 2026-11-14, owner's PC, daily tier, 28 lanes, every lane PASS first attempt).**
+- 2 slots then `set-slots 3` (360e486): 21m46s; slot 3 never ran (45 s settle, fixed in 47562f0).
+- 3 slots (47562f0): 15m24s; slot 3 still idle (memory guard too strict, recalibrated in 2b118be).
+- 3 slots (2b118be): 12m35s, lanes 10 / 9 / 9 per copy, peak 3 at once, min free RAM 3.65 GB, peak
+  VRAM 9.0 / 16.3 GB, PC responsive. Serial p50 sum for comparison: about 25 min.
+- Every lane logged `window placement desktop=moved` (foreground `returned` or `not-foreground`
+  when the copy never took it), each copy wrote its own `Player.log`, ports 50000 / 50002 / 50004,
+  and the Unity screen prefs matched the pre-run values afterwards.
+- Reports: `logs/console/2026-11-14/parallel-daily-check*.txt` on the owner's PC.
+
 ## ARCH-COLD-RESET-HOLDERS: save-scoped statics are reset field by field, so a new field can be forgotten [FILED 2026-11-14 for refactor plan item 15 ("B1", as corrected by the 2026-11-11 architecture review), branch `item15-cold-reset-holders`. IN PROGRESS; refactor, no product change]
 
 The mod keeps the loaded save's state in statics spread over many stores, and a Cold load

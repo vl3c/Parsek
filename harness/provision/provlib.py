@@ -414,6 +414,9 @@ def apply_settings(base_lines: Sequence[str], deltas: Dict[str, str]) -> List[st
 # 0,0 - harmless, and kRPC rewrites them anyway), the three hands-free
 # overrides, and one ProtocolBuffersOverTCP server on 127.0.0.1:50000/50001
 # (the mission_runner contract) with a FIXED id so stamping is deterministic.
+# A parallel-run slot (harness/lib/slots.py) is stamped with its OWN ports and a
+# server id / name derived from its rpc port, so two copies never share a server
+# identity; the default ports reproduce the template below byte for byte.
 # The server window is stamped HIDDEN (mainWindowVisible = False): it is an
 # IMGUI window at the top-left of every frame, and a census capture reads what
 # sits under it (the VAB part tooltip, a crew-dialog seat). kRPC's Addon starts
@@ -472,8 +475,70 @@ KRPC_GOLDEN_SETTINGS_LINES: Tuple[str, ...] = (
 )
 
 
-def stamp_krpc_settings(shipped_text: Optional[str]) -> str:
-    """Return the FULL golden kRPC settings.cfg text (KRPC_GOLDEN_SETTINGS_LINES).
+KRPC_DEFAULT_RPC_PORT = 50000
+KRPC_DEFAULT_STREAM_PORT = 50001
+KRPC_DEFAULT_SERVER_NAME = "Default Server"
+# The fixed default id's last group is "7a8d21e3" + 4 hex digits; a slot's id keeps
+# that prefix and encodes its rpc port in the 4 digits (port 50000 -> 0001, the
+# default id), so every port gets its own deterministic id.
+_KRPC_SERVER_ID_PREFIX = "6aae4b41-0f5a-4f14-9b58-7a8d21e3"
+
+
+def _check_port(name: str, port: object) -> int:
+    if not isinstance(port, int) or isinstance(port, bool) or port < 1 or port > 65535:
+        raise ValueError("%s must be an int in 1..65535, got %r" % (name, port))
+    return port
+
+
+def krpc_server_id_for_port(rpc_port: int) -> str:
+    """Deterministic kRPC server id for a server on ``rpc_port``. The default
+    port maps to KRPC_DEFAULT_SERVER_ID exactly."""
+    _check_port("rpc_port", rpc_port)
+    return "%s%04x" % (_KRPC_SERVER_ID_PREFIX, (rpc_port - KRPC_DEFAULT_RPC_PORT + 1) & 0xFFFF)
+
+
+def krpc_server_name_for_ports(rpc_port: int, stream_port: int) -> str:
+    """The default ports keep kRPC's own "Default Server"; any other pair is
+    named after its ports so the kRPC window of a copy says which slot it is."""
+    if (rpc_port, stream_port) == (KRPC_DEFAULT_RPC_PORT, KRPC_DEFAULT_STREAM_PORT):
+        return KRPC_DEFAULT_SERVER_NAME
+    return "Harness Server %d-%d" % (rpc_port, stream_port)
+
+
+def krpc_golden_settings_lines(rpc_port: int = KRPC_DEFAULT_RPC_PORT,
+                               stream_port: int = KRPC_DEFAULT_STREAM_PORT) -> Tuple[str, ...]:
+    """KRPC_GOLDEN_SETTINGS_LINES with the server id, name and both ports set
+    for one slot. Only those four lines differ; every executor key stays."""
+    _check_port("rpc_port", rpc_port)
+    _check_port("stream_port", stream_port)
+    if rpc_port == stream_port:
+        raise ValueError("rpc_port and stream_port must differ, both %d" % rpc_port)
+    out: List[str] = []
+    pending_port: Optional[int] = None
+    for line in KRPC_GOLDEN_SETTINGS_LINES:
+        stripped = line.strip()
+        if stripped == "id = " + KRPC_DEFAULT_SERVER_ID:
+            line = line.replace(KRPC_DEFAULT_SERVER_ID, krpc_server_id_for_port(rpc_port))
+        elif stripped == "name = " + KRPC_DEFAULT_SERVER_NAME:
+            line = line.replace(KRPC_DEFAULT_SERVER_NAME,
+                                krpc_server_name_for_ports(rpc_port, stream_port))
+        elif stripped == "key = rpc_port":
+            pending_port = rpc_port
+        elif stripped == "key = stream_port":
+            pending_port = stream_port
+        elif pending_port is not None and stripped.startswith("value = "):
+            line = line[:line.index("value = ")] + "value = %d" % pending_port
+            pending_port = None
+        out.append(line)
+    return tuple(out)
+
+
+def stamp_krpc_settings(shipped_text: Optional[str],
+                        rpc_port: int = KRPC_DEFAULT_RPC_PORT,
+                        stream_port: int = KRPC_DEFAULT_STREAM_PORT) -> str:
+    """Return the FULL golden kRPC settings.cfg text for one server on
+    ``rpc_port`` / ``stream_port`` (KRPC_GOLDEN_SETTINGS_LINES at the default
+    ports, byte for byte).
 
     ``shipped_text`` (the current on-disk / zip-shipped contents, or None) is
     deliberately IGNORED: the harness owns this instance and the config must be
@@ -483,9 +548,34 @@ def stamp_krpc_settings(shipped_text: Optional[str]) -> str:
     permanently starves RPC execution while handshakes still succeed, and (b)
     kRPC itself rewrites the file at exit, so preserved-in-place bytes drift
     anyway. Trivially idempotent. The returned text is LF-terminated (the
-    caller writes it newline='\\n' so the on-disk hash matches)."""
+    caller writes it newline='\\n' so the on-disk hash matches). Raises
+    ValueError on a port outside 1..65535 or equal rpc / stream ports."""
     _ = shipped_text
-    return "\n".join(KRPC_GOLDEN_SETTINGS_LINES) + "\n"
+    return "\n".join(krpc_golden_settings_lines(rpc_port, stream_port)) + "\n"
+
+
+def krpc_settings_verify_reason(on_disk_sha: Optional[str], manifest_sha: Optional[str],
+                                slot_stamp_sha: Optional[str]) -> str:
+    """VERIFY decision for the stamped kRPC settings.cfg.
+
+    ``ok`` / ``not-recorded`` (no kRPC in the stack) / ``absent-on-disk`` pass;
+    ``manifest-mismatch`` (the file changed after the stamp) and
+    ``not-slot-stamp`` (the file and manifest agree but carry another slot's
+    ports, e.g. a manifest written before slots existed) are drift. The expected
+    stamp is the slot's: provisioning re-stamps on every pass, --repair
+    included, and run.py stamps the same bytes before every launch."""
+    if not manifest_sha:
+        return "not-recorded"
+    if not on_disk_sha:
+        return "absent-on-disk"
+    if on_disk_sha != manifest_sha:
+        return "manifest-mismatch"
+    if slot_stamp_sha and on_disk_sha != slot_stamp_sha:
+        return "not-slot-stamp"
+    return "ok"
+
+
+KRPC_SETTINGS_VERIFY_PASS = frozenset(("ok", "not-recorded", "absent-on-disk"))
 
 
 # ---------------------------------------------------------------------------
@@ -836,15 +926,28 @@ def check_instance_dir_alias(instance_dir: str, dev_install: str, instance_rel: 
 # Lockfile acquire / reclaim (design EC-10). Pure over injected clock + pid +
 # liveness probe.
 #
-# ONE MACHINE, ONE LOCK. The lock is keyed on the MACHINE, not on the instance
-# directory. The resources a KSP automation run actually monopolises are
-# machine-global, not per-instance: the hardcoded kRPC ports 50000/50001
-# (mission_runner.py --rpc-port/--stream-port), the single GPU, and the
-# timing-sensitive physics clock that a second concurrent KSP perturbs. A
-# per-instance-dir lock lets two DIFFERENT profiles both acquire, both launch,
-# and both bind port 50000 -- where the loser's bind fails soft and its mission
-# then drives the WINNER's game, a live path to a false PASS. Keying on the
-# machine makes the serialization structural instead of accidental.
+# ONE MACHINE OWNER, PLUS ONE LOCK PER INSTANCE. The machine lock is the single
+# token for "who drives the KSP side of this PC": a serial run.py, a
+# provision.py, or the parallel runner (harness/tools/parallel_runner.py), each
+# for its whole run. What it guards is still machine-global: the GPU and RAM
+# budget, the owner's foreground and focus, the Unity Screenmanager registry
+# values every KSP on the PC shares, the results prune sweeps and every DEPLOY
+# over an instance. A per-instance key alone would let two independent
+# invocations both start and fight over those.
+#
+# The kRPC ports are no longer one of them. Each install copy (a slot,
+# harness/lib/slots.py) is stamped with its own port pair, run.py re-stamps the
+# slot's ports before every launch and refuses a port that already accepts a
+# connection, so a mission can no longer drive another copy's game. Parallel
+# flights therefore happen only under ONE machine holder, the runner, whose
+# children each take a slot lock ``automation/.ksp-slot-<slot>.lock`` (the same
+# protocol and lease); every run.py, serial included, holds its instance's slot
+# lock while it flies there.
+#
+# provision.py takes the machine lock AND refuses while any slot lock is live: a
+# slot lock that outlives its runner's machine lock (a runner reclaimed as
+# stale, an orphaned child) still means a KSP may be flying in that instance,
+# and a DEPLOY under it would swap the DLL mid-flight.
 # ---------------------------------------------------------------------------
 
 # Relative to the umbrella root, so every worktree and both shells (run.py and
@@ -962,6 +1065,104 @@ def should_release(existing_lock: Optional[Dict], pid: int) -> bool:
         return int(existing_lock.get("pid")) == int(pid)
     except (TypeError, ValueError):
         return False
+
+
+@dataclass(frozen=True)
+class SlotLockState:
+    """One ``automation/.ksp-slot-<slot>.lock`` as read from disk. ``lock`` is
+    the parsed payload (None when unparseable); ``empty`` marks a zero-byte file
+    (a holder between its O_EXCL create and its write)."""
+    slot: str
+    lock: Optional[Dict]
+    empty: bool = False
+
+
+def live_slot_locks(states: Sequence[SlotLockState], pid: int, now: float,
+                    is_alive_fn: Callable[[int], bool],
+                    lease_seconds: Optional[float] = DEFAULT_LEASE_SECONDS) -> List[SlotLockState]:
+    """The slot locks a provision must refuse on, by the machine lock's own
+    liveness rule (acquire_lock): a live holder pid within its lease. A dead
+    holder, an expired lease or an unparseable payload is stale and does not
+    block (machinelock.acquire would reclaim it). An EMPTY file blocks: it is a
+    holder mid-create, and machinelock.acquire never reclaims one either."""
+    live: List[SlotLockState] = []
+    for state in states:
+        if state.empty:
+            live.append(state)
+            continue
+        if state.lock is None:
+            continue
+        decision = acquire_lock(state.lock, pid, now, is_alive_fn, lease_seconds=lease_seconds)
+        if not decision.acquired:
+            live.append(state)
+    return live
+
+
+def describe_slot_lock(state: SlotLockState) -> str:
+    if state.empty:
+        return "slot=%s (empty lockfile: a holder is creating it, or a crash left it; " \
+               "delete it by hand only when nothing runs)" % state.slot
+    lock = state.lock or {}
+    return "slot=%s pid=%s worktree=%s selection=%s since=%s" % (
+        state.slot, lock.get("pid"), lock.get("worktree") or "?",
+        lock.get("selection") or "?", lock.get("startedIso") or "?")
+
+
+# Free space a provision must leave on the instance volume after its copy. Copy 1
+# keeps the original margin; an extra copy (k >= 2) is optional capacity, so it
+# must leave room for the owner's own work on the same disk.
+FREE_SPACE_MARGIN_BYTES = 512 * 1024 * 1024
+EXTRA_COPY_FREE_SPACE_MARGIN_BYTES = 8 * 1024 * 1024 * 1024
+
+
+def free_space_margin_bytes(copy: int) -> int:
+    return FREE_SPACE_MARGIN_BYTES if copy <= 1 else EXTRA_COPY_FREE_SPACE_MARGIN_BYTES
+
+
+@dataclass(frozen=True)
+class CopyRemovalDecision:
+    ok: bool
+    reason: str  # "ok" | "copy-1-never-removed" | "instance-aliases-dev-install"
+                 # | "instance-is-a-link" | "slot-locked" | "ksp-running"
+
+
+def decide_copy_removal(copy: int, alias_ok: bool, instance_is_link: bool,
+                        slot_lock_live: bool, ksp_running: bool) -> CopyRemovalDecision:
+    """May ``provision.py --copy <k> --remove`` delete the copy's directory?
+
+    Copy 1 is the profile's own instance (every serial run and tier flies it)
+    and is never removed this way. The remaining guards, in order: the dir must
+    not alias the dev install (EC-16), must not itself be a link (deleting
+    through it would reach the target), its slot lock must not be live, and no
+    KSP may run from it (an unreadable process path counts as running)."""
+    if copy <= 1:
+        return CopyRemovalDecision(False, "copy-1-never-removed")
+    if not alias_ok:
+        return CopyRemovalDecision(False, "instance-aliases-dev-install")
+    if instance_is_link:
+        return CopyRemovalDecision(False, "instance-is-a-link")
+    if slot_lock_live:
+        return CopyRemovalDecision(False, "slot-locked")
+    if ksp_running:
+        return CopyRemovalDecision(False, "ksp-running")
+    return CopyRemovalDecision(True, "ok")
+
+
+def parse_tasklist_csv_pids(text: Optional[str], image_name: str) -> List[int]:
+    """PIDs of ``image_name`` rows in ``tasklist /FO CSV /NH`` output
+    (``"KSP_x64.exe","1234","Console","1","4,000,000 K"``). The "INFO: No tasks"
+    line and malformed rows are ignored. Image names compare case-insensitively."""
+    import csv
+    pids: List[int] = []
+    want = (image_name or "").lower()
+    for row in csv.reader((text or "").splitlines()):
+        if len(row) < 2 or row[0].strip().lower() != want:
+            continue
+        try:
+            pids.append(int(row[1].strip()))
+        except ValueError:
+            continue
+    return pids
 
 
 # ---------------------------------------------------------------------------
@@ -1680,13 +1881,15 @@ def krpc_installed_dll_names(pin: Dict) -> List[str]:
 
 
 SETTINGS_REPAIR_TOKEN = "__settings__"
+KRPC_SETTINGS_REPAIR_TOKEN = "__krpc_settings__"
 
 
 def component_of_diff_field(field: str) -> Optional[str]:
     """Map a manifest-diff field path to the work item that repairs it.
 
     ``components.<name>....`` -> the component name; ``settingsDeltasApplied....``
-    -> the settings sentinel; ``devSourcedMods.<name>`` -> ``devmod:<name>``.
+    -> the settings sentinel; ``krpcSettingsSha256`` -> the kRPC settings
+    sentinel (a re-stamp); ``devSourcedMods.<name>`` -> ``devmod:<name>``.
     Anything else -> None (not repairable by a targeted re-install; a full
     re-provision is the fallback the caller logs)."""
     parts = (field or "").split(".")
@@ -1694,6 +1897,8 @@ def component_of_diff_field(field: str) -> Optional[str]:
         return parts[1]
     if parts and parts[0] == "settingsDeltasApplied":
         return SETTINGS_REPAIR_TOKEN
+    if parts and parts[0] == "krpcSettingsSha256":
+        return KRPC_SETTINGS_REPAIR_TOKEN
     if len(parts) >= 2 and parts[0] == "devSourcedMods":
         return "devmod:" + parts[1]
     return None
@@ -1705,6 +1910,7 @@ class RepairPlan:
     dev_mods: Tuple[str, ...]       # dev-sourced mod folders to re-copy
     settings: bool                  # re-apply settings deltas
     unrepairable: Tuple[str, ...]   # diff fields with no targeted repair
+    krpc_settings: bool = False     # re-stamp the slot's kRPC settings.cfg
 
 
 def plan_repair(diffs: Sequence["ManifestDiff"]) -> RepairPlan:
@@ -1715,6 +1921,7 @@ def plan_repair(diffs: Sequence["ManifestDiff"]) -> RepairPlan:
     components: set = set()
     dev_mods: set = set()
     settings = False
+    krpc_settings = False
     unrepairable: set = set()
     for d in diffs:
         item = component_of_diff_field(d.field)
@@ -1722,6 +1929,8 @@ def plan_repair(diffs: Sequence["ManifestDiff"]) -> RepairPlan:
             unrepairable.add(d.field)
         elif item == SETTINGS_REPAIR_TOKEN:
             settings = True
+        elif item == KRPC_SETTINGS_REPAIR_TOKEN:
+            krpc_settings = True
         elif item.startswith("devmod:"):
             dev_mods.add(item[len("devmod:"):])
         else:
@@ -1731,6 +1940,7 @@ def plan_repair(diffs: Sequence["ManifestDiff"]) -> RepairPlan:
         dev_mods=tuple(sorted(dev_mods)),
         settings=settings,
         unrepairable=tuple(sorted(unrepairable)),
+        krpc_settings=krpc_settings,
     )
 
 

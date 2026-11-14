@@ -272,6 +272,10 @@ namespace Parsek.TestCommands
                 GameEvents.onGameSceneLoadRequested.Add(OnSceneChangeRequested);
                 GameEvents.onLevelWasLoaded.Add(OnLevelWasLoaded);
                 GameEvents.onFlightReady.Add(OnSeamFlightReady);
+                // Parallel harness runs: move this window to the harness's virtual desktop
+                // and hand the foreground back (PARSEK_AUTOMATION_DESKTOP_ID /
+                // PARSEK_AUTOMATION_RETURN_FOREGROUND); one Info line, report-only.
+                StartCoroutine(RunWindowPlacement());
             }
             else
             {
