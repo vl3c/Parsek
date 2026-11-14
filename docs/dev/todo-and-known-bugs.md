@@ -96,8 +96,7 @@ pin). Outputs: branch `carrier/route-line-2026-11-12` (commit 0cc14bb2b), dir
   `warp-hold-traversal-evidence-absent`, one each), `lineBranches=2 chainBuilds=2 openDwells=2`,
   seam kinds `rigid=15 flexible-soi=2`.
 
-Not done: `docs/pdf/` was not regenerated for the two design docs this touches
-(`docs/parsek-logistics-supply-routes-design.md`, `docs/roadmap.md`); the stale-key load of a
+Not done: the stale-key load of a
 save that still holds `showRouteLines` was not exercised live; the suite was not run in the
 Windows Release configuration.
 
