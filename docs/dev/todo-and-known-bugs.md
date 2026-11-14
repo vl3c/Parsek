@@ -475,6 +475,23 @@ extension, not built: add the applied render-anchor correction magnitude (the
 `AnchorCorrectionInterval` value the positioner adds) to that line and have an RW lane arm the
 trace and forbid a value over the bubble radius.
 
+**The moon-crossing live proof, AUTHORED 2026-11-14, NEVER FLOWN** (branch `item19-refly-moon-lane`):
+`RF-21-refly-sibling-crosses-mun-soi` closes the "no Re-Fly whose anchors span an SOI crossing"
+half of (1) and (5) pending its first flight. On `gs2-orbital-stack` the probe core is decoupled in
+LKO (a staging RewindPoint), the pod stack flies `b23_ike_orbit` Kerbin -> Mun and commits parked
+in the Mun SOI, then the probe slot is re-flown from the separation and merged, so the Re-Fly
+rebuild walks the pod stack's committed recording, whose OrbitalCheckpoint / Bubble boundaries lie
+on both sides of the crossing. The witness is a new observation-only Info line after the walk
+summary, `DAG walk boundary-instant bodies: sessionId= bodies=Kerbin:resolved=N,maxEpsilonM=F3;Mun:...`
+(`AnchorPropagator.FormatBoundaryInstantBodies`, tests `AnchorBoundaryInstantBodiesTests` and two
+cells in `AnchorBoundaryInstantEpsilonTests` / `AnchorPropagatorRunCharacterizationTests`); the lane
+requires both bodies with every residual under the 2,500 m bubble radius, forbids the
+`exceeds bubble radius` line, and requires the supersede rows and the merge journal to
+`Completed`. Still open after it flies: (6) the drawn ghost across the crossing, and the
+SoiTransition source, which no real flight produces (a real crossing is checkpoint to
+checkpoint or Absolute to Absolute); the synthetic-injection proposal in (5) stays the only route
+to that source live.
+
 ---
 
 ## ~~REAIM-PARKING-ICON-AFTER-LANDING: after a time jump over a looped re-aimed landing, the ship shows in the parking orbit a month later~~ [FILED 2026-11-11 from the TP-4 pictures, runs `2026-11-11_2238` and `_2316`; NARROWED 2026-11-11 by run `_2332`: after a landing that PLAYED the map is clean. FIXED AND FLOWN 2026-11-12 (PR #2579): the destination transfer member stays hidden from the end of the landing to the next cycle, on the map and in flight; xUnit, and four check lanes green on the first attempt (`2026-11-12_0700` TP-9, `_0701` TP-4, `_0704` V25M, `_0705` AT-1). Not measured: the 3D flight ghost near Duna after the landing (unit tests only) and a watched transfer ghost; low]
