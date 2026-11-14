@@ -20,6 +20,65 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ARCH-COLD-RESET-HOLDERS: save-scoped statics are reset field by field, so a new field can be forgotten [FILED 2026-11-14 for refactor plan item 15 ("B1", as corrected by the 2026-11-11 architecture review), branch `item15-cold-reset-holders`. IN PROGRESS; refactor, no product change]
+
+The mod keeps the loaded save's state in statics spread over many stores, and a Cold load
+must forget all of it (`ParsekScenario.ResetSaveScopedSessionState`, then each store's own
+Cold-path loader). A static the reset forgets leaks from one save into the next (PR #2568
+fixed one: a stale Warp to time request). The agreed shape is NOT state owned by the scenario
+module (KSP destroys it on every scene request) but a process-lifetime holder per store: the
+store keeps its static facade, its save-scoped fields live in one nested `ColdResetState`
+object, and the store's Cold reset replaces that object, so a new field is reset by
+construction.
+
+**Step 1, the cells (test-only).** `SaveScopedSessionResetTests` now covers every store
+`scripts/arch/lifetimes.toml` tags save or load-transition, not only the 22 types
+`ResetSaveScopedSessionState` resets:
+
+- `ColdResetCells_CoverEverySaveScopedType` reads the lifetime map and reds on a tagged type
+  with no cell (and on a cell for a type the map no longer tags).
+- `ColdLoader_ResetsEverySaveScopedStatic` (one row per store the helper does not reset, 18
+  rows) dirties every save / load-transition static of the store (lifetime resolved as
+  `lifetimes.py` does: field entry, pattern, type default), runs the helper and then the
+  store's own Cold-path call with a save that holds nothing (`VesselNameStore.Load`,
+  `RouteStore.LoadRoutesFrom`, `LedgerOrchestrator.OnLoad`, `SaveFileLoadIntent.TryConsume`,
+  ...), and reads each back. What it leaves set today is pinned in `ColdLoaderKnownGaps`
+  (COLD-RESET-LEFTOVERS below), and a pinned gap that closes reds until its entry goes.
+- Both reset cells read through a `ColdResetState` holder: each field of the holder the reset
+  leaves current is a slot keyed `Store.field`, so a field moved into the holder keeps its
+  allowlist key and a field added to it is covered with no test edit.
+
+**Step 2, the holders.** One store per commit, smallest first; listed here as they land.
+
+- `WarpToTimeRequest`: both requests (9 fields); `DropAll` logs what it drops, then swaps.
+- `RouteRunPrompt`: the pending prompt (2 fields); `ResetForSaveLoad` logs the cleared prompt, then swaps.
+- `SceneEntryVesselScope`: the scene-entry and rewind-replay-target pids (5 fields, now properties); `ResetForLoad` swaps.
+- `CommittedTreeRestoreAttempt`: the armed attempt (4 fields, private accessors keep the old names); `ResetForLoad` swaps.
+- `InertRecordingTrees`: the held trees, their id sets and the notice latch (4 fields); `Clear` (BeginLoad, `ResetForLoad`, the test reset) swaps. No caller keeps a reference to the old lists.
+- `RewindContext`: the plain-rewind context (16 properties, the three save-clock UTs start at NaN in the holder); `ResetForTesting` (which `ResetForSaveLoad` calls after its Warn) swaps. `EndRewind` still clears its subset.
+- `RewindInvokeContext`: the Re-Fly invoke context (11 fields, now properties); `Clear` swaps to a holder naming no slot (-1). The arch IL cells that named `::Pending` and `::CapturedBundle` re-anchor (no save static is cleared by `ldsflda` + `initobj` any more; the fixture cells keep that rule covered).
+- Re-pin: `facts_pins.toml` `crossTypeStaticWrites` stays at 55 with the same keys. The extractor now counts another type's call to a static property setter that reads a `ColdResetState` holder as a cross-type static write keyed by the property, so the 14 keys the holders moved (`RewindInvokeContext` x11, `SceneEntryVesselScope` x3) are still seen (a first re-pin to 41 had let the gate go blind to them). A call to a holder type's method that assigns holder fields is not counted. The lifetime gate still reads every holder field as save-scoped (7 holders, 51 fields), findings 0, `lifetime_pins.toml` unchanged.
+
+## COLD-RESET-LEFTOVERS: four save / load-transition statics a Cold load leaves set [FILED 2026-11-14 from the ARCH-COLD-RESET-HOLDERS cold-loader cells, by a headless test. OPEN; none reproduced in play, low; pinned in `SaveScopedSessionResetTests.ColdLoaderKnownGaps`, not fixed]
+
+- `RevertDetector.pending` and `revertTargetVesselPids`: consumed only by `OnLoad`'s
+  in-session branch (`RevertDetector.Consume`, `ConsumeRevertTargetVesselPids`); the Cold
+  branch, the reset helper and the main-menu transition never read or clear them. A revert
+  that armed them and then did not load (stock fires the event inside
+  `FlightDriver.RevertToLaunch` / `RevertToPrelaunch`, before `HighLogic.LoadScene`) would
+  carry into the next save, where the first in-session load would classify as a revert. The
+  lifetimes gate passes them by reachability only (the in-session consume is in the closure).
+- `DiscardReFlyLoadIntent.armedTarget`: `Clear` and `TryConsume` drop `armed`, the session and
+  the UT but keep the target. Inert while `armed` is false (every reader checks it); the
+  lifetimes gate passes it through `ResetForTesting` reachability (docs/dev/arch/README.md,
+  "Static lifetimes", Limits).
+- `VesselNameStore.lastPostInitState`: tagged `save` by the type default, but `Load` keeps it
+  with the flight epoch on purpose (`ClearRevertUndoState(resetEpoch: false)`); the tag is the
+  thing to fix (a `process` field entry, beside `FlightEpoch`), not the code.
+
+**Fix.** Clear the two `RevertDetector` fields in the Cold reset and `armedTarget` in
+`DiscardReFlyLoadIntent.Clear`, retag `lastPostInitState`, and drop the four entries.
+
 ## ~~ROUTE-LINE-DETACHED-SEGMENTS~~: the supply route overview line drew route segments far from the ship's icon; the line is retired [FILED 2026-11-12 from the TP-7 pictures; RULED 2026-11-12 by the owner; REMOVED 2026-11-12 on branch `claude/project-thread-zfo2hk` (PR #2586); FLOWN GREEN 2026-11-12, seven lanes on the first attempt]
 
 **What the player saw.** Lane TP-7, view `tp7-c2-neardock-kerbin-low-top` (Tracking Station,

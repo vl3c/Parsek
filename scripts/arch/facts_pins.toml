@@ -9,7 +9,7 @@
 # watch band of 5, so a compiler that counts a method a decision or two higher
 # cannot red); a method not listed here reds when it reaches 50. A listed method
 # may grow without a red, and a rename or a move into another type needs a re-pin.
-# Pinned from Parsek.dll 2026-11-12
+# Pinned from Parsek.dll 2026-11-14
 
 [crossTypeStaticWrites]
 bound = 55

@@ -490,6 +490,14 @@ methods at complexity 20 or more), which the complexity watch band absorbs.
 
 - `crossTypeStaticWrites`: the statics written by another production type
   may not outnumber `bound` (55). A red names the new keys and their writers.
+  A write is an `stsfld`, a call to a static auto-property setter, or a call
+  to a static property setter of a type that keeps its save-scoped fields in
+  a nested `ColdResetState` holder when that setter reads the holder static;
+  such a write is keyed by the property (`Type::Property`, the name the field
+  had before it moved into the holder) and attributed to the holder, not to
+  one holder field. A call to a holder type's static METHOD that assigns
+  holder fields (`RewindInvokeContext.Clear()`) is not counted: a method
+  call is not a write.
 - `complexityWatch` (the complexity gate): every method (by `Type::Name`, so
   overloads and a parameter change do not move it) at complexity 45 or more
   is pinned (51), the gate 50 minus a watch band of 5
@@ -637,7 +645,26 @@ Limits:
   instantiation (a static of a generic Parsek type written from a test), and
   `testWrittenUntagged` checks only untagged statics.
 - A lifetime tag is a claim with a reason, read by a person; only the four
-  findings above check one against the IL.
+  findings above check one against the IL, and the headless cells below
+  check the `save` / `load-transition` ones by running the reset.
+
+The C# side runs what this side only reaches. `SaveScopedSessionResetTests`
+reads this file: `ColdResetCells_CoverEverySaveScopedType` reds on a type
+tagged `save` or `load-transition` (by default or by a field entry) that
+neither `InventoryTypes` (reset by `ResetSaveScopedSessionState`) nor
+`ColdLoaderCells` (reset by its own Cold-path call: a loader given a save that
+holds nothing, a consume, a drop) names, and `ColdLoader_ResetsEverySaveScopedStatic`
+dirties every such static of each `ColdLoaderCells` store, runs the helper and
+the store's call, and reads it back; what it leaves set today is pinned in
+`ColdLoaderKnownGaps` (todo COLD-RESET-LEFTOVERS). Both reset cells read
+through a store's save-scoped holder, a static of a nested class named
+`ColdResetState` (todo ARCH-COLD-RESET-HOLDERS): the holder's instance fields
+are slots keyed `Store.field`, so the IL population counts the holder as one
+`save` static while the cells check every field in it. The report prints the
+holders and the fields they carry by lifetime (`ColdResetState holders: N
+statics holding M fields`), and a holder tagged anything but `save` or
+`load-transition` is a declaration problem
+(`test_a_holder_tagged_as_surviving_the_load_reds`).
 
 Tag a static by adding a field entry (or a type default) with the reason its
 write sites support, then re-pin after a Debug build:
