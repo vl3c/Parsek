@@ -84,6 +84,8 @@ These are binding. Quotes are the owner's words.
 - "we should also consider some ideas about how we could prevent players just modifying the
   shared game files to cheat (but we can start with a simple version, hoping players know each
   other and are well meaning)".
+- Site height: each new site keeps its natural ground height, near its exact point (decision
+  card, 2026-11-14, after the terrain survey).
 - Scoring: a points ladder (decision card, 2026-11-14). Each first is worth points by
   difficulty; the most points held when time runs out wins.
 - Rival milestones dated after your own game clock are always shown (decision card,
@@ -667,11 +669,17 @@ Kerbin's rotation). What the survey also shows is that none of that ground is at
 height: ground as low as the KSC's lies 12 degrees from site 2's point and 32 degrees from
 site 3's. The stock KSC itself stands on a flattened patch in rough terrain (415 m of
 height range within 3 km), so a site does not need naturally flat land, only dry ground
-under its patch. That leaves one choice for the owner (open question 13.2): keep each
-site at its natural height, cut every site down to the KSC's height, or move two sites
-far from their ideal points to reach low ground.
+under its patch.
 
-Requirements a final site must meet, whatever the choice: dry land under the whole
+**Each site keeps its natural height** (owner ruling 2026-11-14). The sites stand at the
+nearest usable ground to their ideal points and are flattened at the local ground level,
+not cut down to the KSC's 66 m and not moved away to low ground. Being as opposite as
+possible, and looking like part of the landscape, is worth more than identical heights. The
+cost is known and small: a higher site starts in slightly thinner air and a little closer
+to space, an edge of roughly one percent or less of the fuel to orbit, in a race that is
+scored on game dates. The Space Race window shows each site's height so nobody is surprised.
+
+Requirements a final site must meet: dry land under the whole
 footprint; the same latitude as the KSC, so every player launches into the same inclination
 with the same rotation speed; room for the full footprint at the KSC's orientation (pad to
 the east); and the same terrain patch data in every game.
@@ -1257,7 +1265,7 @@ running game.
 | The Space Center camera at the home site | `SpaceCenterCamera2` finds its start position by a named transform under Kerbin's surface (`pqsName`, `initialPositionTransformName`), which is part of the KSC object that moves; `altitudeInitial` is public. KSCSwitcher resets this camera after a move | S4: enter the Space Center scene at each of the four sites; camera height, building clicks, the day and night lighting |
 | Exact KSC copies as scenery | Kerbal Konstructs clones the stock KSC buildings at run time as static objects | S5: clone the hierarchy, strip facility, click and destruction behaviour, keep colliders; show a chosen facility level; measure load and frame cost of three copies |
 | Same terrain in every game | The patch is data on a PQS mod; the same patch data gives the same heights | S5: sample heights on two machines |
-| Dry land on the equator | MEASURED 2026-11-14 (`docs/dev/research/kerbin-equator-survey-2026-11-14/`): half the KSC latitude is dry, and there is dry ground within 3.4 degrees of each ideal point, at 135 m, about 520 m and about 675 m. The eastern quarter point itself is open sea | The owner's choice on site height (13.2), then a finer scan of the chosen spots for the exact coordinates and the footprint's fit |
+| Dry land on the equator | MEASURED 2026-11-14 (`docs/dev/research/kerbin-equator-survey-2026-11-14/`): half the KSC latitude is dry, and there is dry ground within 3.4 degrees of each ideal point, at 135 m, about 520 m and about 675 m. The eastern quarter point itself is open sea | Site height is decided (natural height). Remaining: a finer scan of the three spots for the exact coordinates and the footprint's fit |
 | KSC science at every site | Building mini-biomes are tag-based (`MiniBiome`), so they should follow the buildings; the KSC area biome is in the biome map | S2: prove both at a moved site; design the biome override |
 | Four stock looks | `ProtoCrewMember.KerbalSuit` has Default, Vintage, Future, Slim; Vintage and Future belong to the DLCs; per kerbal the suit, the combo id and the light color are saved | S3: confirm each look in game and pick the four UI colors |
 | Stock-like replacements | Mods add suit sets with `SUITCOMBOS` config nodes (suit type, gender, textures, sprite); stock supports this since 1.10 | S3: two replacement texture sets; how a missing-DLC machine resolves a DLC suit |
@@ -1278,13 +1286,9 @@ running game.
 1. **The ladder's numbers.** The steps, the body multipliers and which stock firsts are in
    (7.9) are a first proposal. They want a play test before they are frozen under a
    `ladderId`.
-2. **The height of the three new sites.** The survey found dry ground within 3.4 degrees of
-   every ideal point, but at 135 m, about 520 m and about 675 m, against the KSC's 66 m.
-   (a) Keep each site at its natural height: looks natural, simplest to build, and a higher
-   site starts in slightly thinner air and a little closer to space, an edge of roughly one
-   percent or less of the fuel to orbit. (b) Cut all sites down to 66 m: identical
-   conditions, but two sites would sit in basins about half a kilometre deep. (c) Move sites
-   2 and 3 to low ground: similar heights, but 12 and 32 degrees from their ideal points.
+2. **The exact coordinates of the three new sites.** Their height is decided (natural
+   height, 7.3). What remains is a finer scan around 106.7 E, 18.8 E and 162.3 W to pick the
+   exact spot where the whole footprint fits at the KSC's orientation.
 3. **Rival facility levels in Career.** Latest shared levels (proposed), levels as of the
    local game date (needs an upgrade history in the standing), or always fully built?
 4. **Targeting rival ghosts.** Allowed as for any ghost (proposed), or blocked so that nothing
