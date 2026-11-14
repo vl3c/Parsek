@@ -1,0 +1,408 @@
+schema = 1
+id = "RF-21-refly-sibling-crosses-mun-soi"
+# =====================================================================================
+# RF-21: A RE-FLY WHOSE COMMITTED SIBLING CROSSES FROM KERBIN INTO THE MUN'S SOI. AUTHORED
+# 2026-11-14, LIVE-PROVEN 2026-11-14 (`2026-11-14_2300`, PASS attempt 1; the first flight was
+# PARSEK-FAIL on one forbid, since re-scoped; see FIRST and SECOND FLIGHT below). The live proof that todo REFLY-ANCHOR-EPSILON-1300KM left open for a moon
+# crossing ("Left open (1)" and "(5)": no lane flew a Re-Fly whose anchors span an SOI
+# crossing).
+#
+# FIRST FLIGHT 2026-11-14 (PC, head 709bd0045, DLL verified to carry the per-body literal):
+# attempts=1, wall 1044 s, b23_ike_orbit MISSION-OK, every driver step met. PARSEK-FAIL on ONE
+# forbidden token, `outcome=unbound-refly-provisional`; every required token matched.
+#   split    `partaction applied button=decouple ... part='Decoupler.2' event=Decouple
+#            newName='Kerbal X Probe' vessels=3->4 ut=418.031`; `Controllable split children:
+#            [3620499050,3571437020]`; `RewindPoint begin: ... slots=2 controllablePids=2
+#            focusSlot=0 ut=418.55`; `slot capture ... populated=2/2 disabled=0`.
+#   crossing `SOI change boundary suppressed in tree mode: Kerbin to Mun`.
+#   commit   `CommitTreeFlight terminal: ... terminalState=Orbiting terminalOrbitBody=Mun` (the
+#            pod stack) and `... terminalOrbitBody=Kerbin` (the probe); `committree committed=true`.
+#   re-fly   StartInvoke slot=1; the session's only walk: `DAG walk summary: ... seedCandidates
+#            Emitted=32 ... resolvedOrb=8 resolvedSoi=0 resolvedBubble=16 deferredNoSpline=8 ...
+#            boundaryInstantMaxEpsilonM=1.712` and `DAG walk boundary-instant bodies: ...
+#            bodies=Kerbin:resolved=18,maxEpsilonM=1.712;Mun:resolved=6,maxEpsilonM=1.314`. No
+#            `exceeds bubble radius` line anywhere.
+#   merge    `[MergeJournal] ... phase=Begin`; `Added 1 supersede relations ... (subtreeCount=1,
+#            all skipped=0)`; `[MergeJournal] Completed`; `answermergedialog complete
+#            choice=merge result=committed`.
+# THE FORBID THAT HIT WAS WRONG, not the product (read from the code, 2026-11-14). The raise
+# came from the stock persistent write 0.5 s after the Re-Fly load (the first OnSave after
+# `AtomicMarkerWrite`, `treeKind=pending tree`, i.e. before the restore coroutine had popped
+# the tree and bound the recorder). `AtomicMarkerWrite` (RewindInvoker.MarkerWrite.cs) builds
+# the fork as a NEW recording id with no `.prec` on disk; the origin's history goes to the
+# fork's in-memory PreReFlyAnchor* lists (Recording.CapturePreReFlyAnchorTrajectoryFrom), never
+# to a sidecar. `ReFlyProvisionalBinding.EvaluateSidecarRewrite` raises on
+# `reason=trajectory-missing` for the session's provisional, so the FIRST OnSave of EVERY
+# Re-Fly session raises it, whatever the origin's tail and whatever the scene, and that same
+# save writes the `.prec` (SaveRecordingFiles writes it unconditionally), so no later save can.
+# RF-4 (`2026-09-09_1641`), RF-12, RF-14 and RW-5 measured the same raise at the invoke's first
+# save and dropped the forbid; RW-6 / RW-7 never copied it; CLAUDE.md calls the state reachable
+# from ordinary play. The merge then wrote its supersede row, so the raise predicted nothing.
+# The forbid is therefore BOUNDED, not deleted: any raise AFTER `rf21-refly-live` (the
+# `awaitRecorderLive=refly` point, recorder live AND marker live) is forbidden, as is the
+# restore give-up reason anywhere (`refly-restore-gave-up-on-*`, the binding really failing),
+# and the merge-time refusal `outcome=refused-unflown-provisional` stays forbidden outright.
+#
+# THE DEFECT CLASS. Before PRs #2582 / #2585 a boundary-instant seed anchor (OrbitalCheckpoint,
+# SoiTransition, BubbleEntry, BubbleExit) was resolved from live state at the Re-Fly rebuild,
+# so the body's rotation since the boundary leaked into epsilon: 1,307.87 km measured on the
+# cs-career-mun4 LKO exit, 15,897 to 25,286 km headless for a Kerbin / Mun SoiTransition. The
+# fix compares both sides at the boundary's own UT in that body's body-fixed frame; headless
+# every case reads about 3 m, the fixture's worst seed 4.97 m.
+#
+# THE FLIGHT (gs2-orbital-stack, GS-2's host: the crewed Kerbal X stack with its probe-cored
+# core still attached, ORBITING Kerbin at 93 x 106 km, UT 416.91, SANDBOX):
+#   split    StartRecording, then the core decoupler (Decoupler.2 partPid 2923926328, the
+#            istg 2 one; the other Decoupler.2 is the pod's heat-shield stack, istg 0) is
+#            fired by PartAction. The split authors a staging RewindPoint: slot 0 = the pod
+#            stack (the root recording keeps flying, the FOCUS slot), slot 1 = "Kerbal X
+#            Probe" (RF-20 measured that order on this host). The Skipper is lit by
+#            PartAction activate, so no stage is popped for the burns.
+#   mission  b23_ike_orbit's orbit-start machine with home Kerbin / target Mun and B11's
+#            Kerbin -> Mun transfer, capture and park values: Hohmann to the Mun, cross the
+#            SOI on rails, capture burn at the Mun periapsis, park, mid-mission CommitTree
+#            (ORBIT-COMMIT). The probe stays in LKO as a background recording.
+#   commit   The pod stack leaf is Orbiting the Mun (focus slot, stays Immutable), the probe
+#            leaf is Orbiting Kerbin (non-focus, `stableLeafUnconcluded`), so slot 1 opens
+#            and the RewindPoint survives (GS-2's verdict).
+#   re-fly   InvokeRewind slot 1 from the Mun park: back to the separation (UT ~420), the
+#            probe live, the pod stack a ghost. RebuildFromMarker writes the LiveSeparation
+#            anchor and AnchorPropagator.Run walks every committed recording, among them
+#            the pod stack's, whose OrbitalCheckpoint and Bubble boundaries lie on BOTH
+#            sides of the crossing: the TLI burn and its coast start in Kerbin's frame, the
+#            capture burn and the park in the Mun's.
+#   merge    WarpToUT 1000 (the attempt records), AnswerMergeDialog merge: supersede rows,
+#            the merge journal to Completed.
+#
+# THE WITNESS (added on this branch, observation only): after its `DAG walk summary`,
+# AnchorPropagator.Run prints `DAG walk boundary-instant bodies: sessionId=<sess>
+# bodies=Kerbin:resolved=N,maxEpsilonM=F3;Mun:resolved=M,maxEpsilonM=F3`, the boundary-instant
+# residuals split by the body whose body-fixed frame they were compared in. Requiring a Mun
+# entry proves the session's anchors span the crossing; the bound proves none of them carries
+# the rotation chord.
+#
+# THE TOLERANCE. The `Anchor epsilon exceeds bubble radius` Warn stays forbidden at the
+# shipped threshold (2,500 m, `RenderSessionState.WarnIfEpsilonExceedsBubbleRadius`, RW-5 /
+# RW-6 / RW-7's forbid). The per-body and summary boundary-instant residuals are TIGHTENED off
+# the first flight to UNDER 50 m (fast-lane item 7): flown 1.712 m (Kerbin) and 1.314 m (Mun),
+# headless about 3 m on every case and 4.97 m on the fixture's worst seed, so 50 m is ~10x the
+# worst value ever measured and ~29x the flown one (no jitter reds it), while the defect class
+# reads 1,307.87 km live and 15,897 to 25,286 km headless (26,000x over it). What 50 m does NOT
+# catch, said plainly: a comparison one physics tick off the boundary UT would read about
+# 2.2 km/s x 0.02 s = 45 m in LKO; that is not this lane's defect class.
+# The Kerbin and the Mun requirements are SEPARATE regexes, so in principle they may be met by
+# two different `boundary-instant bodies` lines of the one session (this flight printed
+# exactly one), while the per-body forbid bounds EVERY such line in the log, so no line with a
+# residual of 50 m or more can hide behind a passing one.
+#
+# WHAT IT DOES NOT PROVE, said plainly:
+#   - Where the ghost is DRAWN across the crossing. The flight scene draws the pod stack ghost
+#     only near the live probe (the Re-Fly ends at UT 1000, long before the TLI coast reaches
+#     the Mun), watch mode exits past ~305 km, and the map's proto-vessel orbits never read
+#     the epsilon (todo item (6)). What bounds the drawn correction is the anchors it
+#     interpolates between, which this lane bounds; the drawn position itself is unasserted.
+#   - The SoiTransition source. The candidate builder emits it only on an Absolute <->
+#     OrbitalCheckpoint pair across two bodies, and a real crossing is checkpoint to
+#     checkpoint on rails (or Absolute to Absolute in physics, SOI-1), so no flight produces
+#     one; it stays proven headlessly (`AnchorEpsilonResidualTests`) and in the H11 / LT-1
+#     `Pipeline_Anchor_SOI` cell.
+#   - The LiveSeparation magnitude in orbit: its `Anchor epsilon computed` line is read, not
+#     bounded beyond the bubble-radius forbid.
+#
+# PINNED LITERALS (read 2026-11-14 on this branch, main 384aea926 + the witness commit):
+#   partaction applied button= ... event=Decouple newPid=     TestCommands/TestCommandPartAction.cs FormatAppliedLine
+#   Controllable split children: [a,b]                        SegmentBoundaryLogic.cs
+#   RewindPoint begin: rp= bp= slots= controllablePids= focusSlot= ut=   RewindPointAuthor.cs
+#   RewindPoint slot capture: rp= populated=2/2 disabled=0    RewindPointAuthor.cs
+#   SOI change boundary suppressed in tree mode: Kerbin to Mun   ParsekFlight.RecorderSession.cs (B11 measured)
+#   CommitTreeFlight terminal: rec= terminalState=Orbiting terminalOrbitBody=Mun   ParsekFlight.MergeFlow.cs (B11 measured)
+#   CommitTree promoted [chain-tip ]rec= ... slot=1 rp= reason=stableLeafUnconcluded to CommittedProvisional
+#                                                             TreeCommitService.cs (RF-20 measured on this host)
+#   listhandles kind=rewindpoints count=1 truncated=false     TestCommands (RF-20 measured)
+#   Re-Fly (Rewind-to-Separation) StartInvoke: sess= rp= slot=   RewindInvoker.cs
+#   Invocation complete: sess= rp= slot= activePid=           RewindInvoker.StripActivate.cs
+#   RebuildFromMarker complete: sessionId= siblingsConsidered= anchorsWritten=   Rendering/RenderSessionState.cs
+#   DAG walk summary: ... boundaryInstantMaxEpsilonM=         Rendering/AnchorPropagator.cs
+#   DAG walk boundary-instant bodies: sessionId= bodies=      Rendering/AnchorPropagator.cs (THIS BRANCH)
+#   Anchor epsilon exceeds bubble radius                      Rendering/RenderSessionState.cs (forbidden)
+#   [MergeJournal] sess= phase=Begin / DurableSave checkpoint=durable2 persisted via
+#     persistent.sfs / Completed sess=                        MergeJournalOrchestrator.cs
+#   End reason=merged sess= provisional=                      MergeJournalOrchestrator.cs
+#   Added N supersede relations for subtree rooted at         SupersedeCommit.cs
+#   answermergedialog complete choice=merge result=committed  TestCommands/ParsekTestCommandAddon.cs
+#   outcome=unbound-refly-provisional reason=                 ParsekScenario.Save.cs (OnSave raise) /
+#                                                             ParsekFlight.TreeRestore.cs (restore give-up)
+#   MISSIONMARK label= ut=                                    TestCommands/TestCommandMissionMark.cs
+#
+# FAST-LANE CHECKLIST (harness/README.md "Authoring a fast lane"):
+#   1 reuse     no existing lane flies a Re-Fly on a tree that crosses into a moon's SOI; the
+#               only flights on this host stop in LKO (GS-2 / RF-18 / RF-20), and one spec
+#               carries one mission, so the transfer cannot be appended to theirs.
+#   2 waits     the only wait is WarpToUT to an explicit UT (1000) at the rails rate.
+#   3 dwells    B11's 60 game-s park dwell, the minimum the ORBIT-COMMIT gate holds.
+#   4 burns     at 1x, the machine's own policy.
+#   5 b5 coast  no soiNativeLeadSeconds: the coast has no SOI crossing BEFORE the target
+#               approach (the start is in the target's parent's orbit).
+#   6 fail fast the machine's named give-ups; retry once, because a mission flake is not the
+#               subject and a second attempt flies the same deterministic Re-Fly.
+#   7 counts    recordings pinned to the green flight's 3 (below); the saveParse windows are
+#               pinned to its readings too, still report-only.
+#   8 tier      wall 1044 s and 1032 s, under hlib.LONGHAUL_MIN_P50_SECONDS (1,800 s): operator.
+#   9 efficiency `tools/flight_efficiency.py --scenario RF-21-refly-sibling-crosses-mun-soi`
+#               is owed on the PC, where the green run's results live.
+#
+# SECOND FLIGHT 2026-11-14 (`2026-11-14_2300_RF-21-refly-sibling-crosses-mun-soi`, PC, head
+# 2b5654be6, deployed DLL sha256 4967b870... equal to the worktree Debug build): PASS attempt 1,
+# wall 1032 s (mission 950 s, MISSION-OK); driverValidity, analyzer red=0, logValidate,
+# anomalySweep and expectations (0 mismatches) all passed, unityExceptions 0. The one walk:
+# `bodies=Kerbin:resolved=18,maxEpsilonM=1.556;Mun:resolved=6,maxEpsilonM=1.284` and the
+# summary `seedCandidatesEmitted=32 resolvedOrb=8 resolvedBubble=16 deferredNoSpline=8 ...
+# boundaryInstantMaxEpsilonM=1.556`. Exactly one `outcome=unbound-refly-provisional
+# reason=refly-provisional-has-no-trajectory-at-save` (treeKind=pending tree) at 01:16:37.736,
+# BEFORE `MISSIONMARK label=rf21-refly-live` (01:16:37.871), none after. The log confirms the
+# saving write: InvokeRewind 01:16:36.044, load classified ReFlyStart 36.572, stock `Flight
+# State Captured` 37.614, the OnSave, `Game State Saved as persistent` 37.795, then `[Flight]
+# Flight ready. Checking for pending recordings...`, i.e. stock's flight-start persistent
+# write. Recordings 3; saveParse (report-only): 1 committed tree, 3 recordings (Kerbal X x1,
+# Kerbal X Probe x2), all Orbiting, 425 points, supersedeRows 1, tombstones 0, rewindPoints 0.
+#
+# STATUS: LIVE-PROVEN 2026-11-14 (`2026-11-14_2300`). Both flights read the same structure
+# (32 seeds, 18 Kerbin / 6 Mun resolved) with metre residuals (max 1.712 / 1.556 m Kerbin,
+# 1.314 / 1.284 m Mun). saveParse blocks stay REPORT-ONLY: arming is a per-scenario operator
+# decision, not taken here.
+# =====================================================================================
+tier = "operator"
+description = "LIVE-PROVEN 2026-11-14 (2026-11-14_2300, PASS attempt 1). Live proof for REFLY-ANCHOR-EPSILON-1300KM across a moon crossing: on gs2-orbital-stack the probe core is decoupled in LKO (a staging RewindPoint), the pod stack flies b23's orbit-start machine Kerbin -> Mun, captures, parks and commits in the Mun SOI, then the probe slot is re-flown from the separation and merged. The Re-Fly rebuild's per-body boundary-instant residual line must name Kerbin and the Mun with every boundary-instant residual under 50 m (flown Kerbin 1.712 / 1.556 m, Mun 1.314 / 1.284 m), no anchor may exceed the 2,500 m bubble radius, supersede rows are written and the merge journal completes."
+instanceProfile = "stock-minimal"
+tags = ["RF-21", "rewind", "refly", "rewind-to-separation", "anchor", "render-anchor", "mun",
+        "cross-soi", "orbit-start", "mechjeb", "capture", "commit-in-foreign-soi", "staging",
+        "orbital", "supersede", "merge-journal"]
+
+[fixture]
+# GS-2's committed template (no Parsek state: StartRecording opens a fresh standalone tree).
+# Measured off the save: Kerbal X ORBITING Kerbin, SMA 699,751 m, ECC 0.00951, pe 93.1 km,
+# ap 106.4 km, stg = 3, mainThrottle 0, Skipper (1592830016) not ignited, its X200-16 full
+# (720 LF / 880 Ox). The pod stack after the split is ~16.5 t wet / ~8.5 t dry on a 320 s
+# Skipper: ~2,000 m/s against ~860 (TLI) + ~280 (capture) + corrections.
+saveTemplate       = "fixtures/saves/gs2-orbital-stack"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "b23_ike_orbit"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+#
+# The split comes BEFORE the mission (one mission per spec, and b23's orbit-start entry
+# stages nothing). ONE commit, MID-MISSION (ORBIT-COMMIT); the post-mission StopRecording is
+# the idempotent belt RW-25 uses before a rewind (InvokeRewind REJECTs `recording-active`).
+# The in-flight commit followed directly by InvokeRewind is RW-25's order (no ExitToSpaceCenter,
+# so no pre-commit save to reload, which is the RF-9 / RF-20 trap).
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },      expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },  expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },       expect = "OK" },
+  { cmd = "StartRecording",                                                           expect = "OK" },
+
+  # ---- the split: the core decoupler (istg 2), then the Skipper lit without staging ----
+  { cmd = "PartAction",     args = { button = "decouple", part = "Decoupler.2", partPid = "2923926328" }, label = "dec", expect = "OK" },
+  { cmd = "RecordingState",                                                           expect = "OK" },
+  { cmd = "PartAction",     args = { button = "activate", part = "liquidEngine2-2.v2" }, expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rf21-split" },                          expect = "OK" },
+
+  # ---- the transfer, capture, park and mid-mission commit in the Mun SOI ----
+  { phase = "mission",      expect = "MISSION-OK", budget = 2700 },
+
+  # ---- the Re-Fly of the probe slot from the Mun park ----
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" }, label = "handles",      expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rf21-before-refly" },                   expect = "OK" },
+  { cmd = "InvokeRewind",   args = { rp = "${handles.rp0}", slot = "1" },             expect = "OK", budget = 300 },
+  # The flight-ready wait (RF-2's REFLY-LANES-JUMP-BEFORE-FLIGHT-READY order).
+  { cmd = "ListHandles",    args = { kind = "chains" },                               expect = "OK" },
+  { cmd = "RecordingState", args = { awaitRecorderLive = "refly" },                   expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "rf21-refly-live" },                     expect = "OK" },
+  # Forward-only from the rewound clock: the RewindPoint's UT is pinned to 400-999 below.
+  { cmd = "WarpToUT",       args = { ut = "1000" },                                   expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                           expect = "OK" },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                           expect = "OK", budget = 240 },
+  { cmd = "MissionMark",    args = { label = "rf21-merged" },                         expect = "OK" },
+  { cmd = "FlushAndQuit",                                                             expect = "OK" },
+]
+
+# b23's orbit-start machine (validated against b23_ike_orbit.schema.toml) with home Kerbin and
+# target Mun. The entry gate is sized from the fixture's own orbit; the transfer, capture and
+# park values are B11's (LIVE-PROVEN Kerbin -> Mun, derivations in B11-mun-orbit.toml); the
+# watchdog values are B23's. Phase budgets are GAME seconds.
+[driver.missionParams]
+startInOrbit                    = true
+# The fixture parks at pe 93.1 km / ap 106.4 km / ecc 0.0095; the decoupler's kick moves that
+# by a few m/s at most. 80 km keeps the gate above Kerbin's 70 km atmosphere.
+startInOrbitMinPeriapsisMeters  = 80000
+startInOrbitMaxApoapsisMeters   = 150000
+startInOrbitMaxEccentricity     = 0.05
+startInOrbitSituations          = ["ORBITING"]
+startInOrbitDebounceFrames      = 3
+startInOrbitSettleSeconds       = 120
+
+homeBodyName               = "Kerbin"
+targetBodyName             = "Mun"
+transferMinApoapsisMeters  = 10000000
+courseCorrectPeriapsisMeters = 250000
+maxCorrectionDvMps         = 300
+correctionTriggerAltsMeters = [0, 6000000]
+planTimeoutSeconds         = 300
+planRetrySeconds           = 10
+transferBurnTimeoutSeconds = 4000
+coastTimeoutSeconds        = 400000
+flybyTimeoutSeconds        = 300000
+coastWarpFactor            = 6
+flybyWarpFactor            = 5
+flybyMaxWarpFactor         = 6
+nodeArrivalMarginSeconds   = 15
+planWarpFactor             = 2
+soiLeadSeconds             = 30
+flipPhysicsWarpFactor      = 1
+targetPeriapsisFloorMeters = 10000
+
+captureEnabled             = true
+capturePlanTimeoutSeconds  = 300
+captureBurnTimeoutSeconds  = 60000
+parkMinPeriapsisMeters     = 15000
+parkMaxApoapsisMeters      = 2000000
+parkMaxEccentricity        = 0.25
+parkMaxAngularVelocityRadPerSec = 0.05
+parkSituations             = ["ORBITING"]
+parkDwellSeconds           = 60
+parkDebounceFrames         = 3
+parkTimeoutSeconds         = 600
+commitTimeoutSeconds       = 300
+
+burnStagnantSeconds        = 120
+burnNoStartSeconds         = 600
+correctionThrottle         = 0.25
+correctionCutDvMps         = 2.0
+correctionSettleSeconds    = 10
+maxAttitudeErrorDeg        = 30
+frozenTelemetrySamples     = 10
+
+[dimensionsCovered]
+# Every value is backed by a REQUIRED token below (claim-is-not-gate):
+#   D1 commit-in-foreign-soi   <- `CommitTreeFlight terminal: ... terminalOrbitBody=Mun` + `committree committed=true`
+#   D5 controlled-decoupled-child <- `Controllable split children: [a,b]` + the slot 1 promotion
+#   D9 rewind-to-separation    <- StartInvoke ... slot=1 + Invocation complete
+#   D9 supersede-relation      <- `Added N supersede relations`
+#   D9 merge-journal           <- `[MergeJournal] sess= phase=Begin` ... `Completed sess=`
+#   D14 kerbin / mun           <- the per-body line naming both
+#   D14 sandbox / scene-flight <- the fixture's mode; every step runs in FLIGHT
+#   D14 warp-rails             <- `SOI change boundary suppressed in tree mode: Kerbin to Mun` (the on-rails coast)
+D1  = ["commit-in-foreign-soi"]
+D5  = ["controlled-decoupled-child"]
+D9  = ["rewind-to-separation", "supersede-relation", "merge-journal"]
+D14 = ["kerbin", "mun", "sandbox", "scene-flight", "warp-rails"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# PINNED to the green flight's reading (fast-lane item 7): 3 = the pod stack (one recording:
+# its Kerbin -> Mun coast crosses on rails, checkpoint to checkpoint, which the optimizer keeps
+# cohesive), the probe's original and the Re-Fly's fork. A split of either reds here.
+count = { min = 3, max = 3 }
+
+[expectations.logContracts]
+required = [
+  "Recording started",
+
+  # ---- GROUP 1: the split on the core decoupler, a two-slot RewindPoint, focus = the pod stack ----
+  "partaction applied button=decouple pid=[0-9]+ part='Decoupler\\.2' partId=[0-9]+ event=Decouple newPid=[1-9][0-9]* ",
+  "partaction applied button=activate pid=[0-9]+ part='liquidEngine2-2\\.v2' [^\\r\\n]*state='engine:ignited=1'",
+  "Controllable split children: \\[[0-9]+,[0-9]+\\]",
+  # ut= 400-999: the split happens seconds after the load (UT 416.91), and WarpToUT 1000 after
+  # the rewind needs it below 1000.
+  "RewindPoint begin: rp=(rp_[0-9a-f]{32}) bp=[0-9a-f]{32} slots=2 controllablePids=2 focusSlot=0 ut=[4-9][0-9]{2}\\.[0-9]{2}[\\s\\S]*?RewindPoint slot capture: rp=\\1 populated=2/2 disabled=0",
+
+  # ---- GROUP 2: the crossing and the commit in the Mun SOI (B11's tokens) ----
+  "SOI change boundary suppressed in tree mode: Kerbin to Mun",
+  "committree committed=true",
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Mun",
+  # The probe slot opens (RF-20's measured line on this host), on THIS RewindPoint.
+  "RewindPoint begin: rp=(rp_[0-9a-f]{32}) [\\s\\S]*?CommitTree promoted (?:chain-tip )?rec=\\S+ [^\\r\\n]*slot=1 rp=\\1 reason=stableLeafUnconcluded to CommittedProvisional",
+  # One RewindPoint listed after the commit: the probe slot keeps it alive.
+  "listhandles kind=rewindpoints count=1 truncated=false[\\s\\S]*?MISSIONMARK label=rf21-before-refly ut=",
+
+  # ---- GROUP 3: the Re-Fly of slot 1 and its anchor rebuild ----
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=(sess_[0-9a-f]{32}) rp=rp_[0-9a-f]{32} slot=1\\.[\\s\\S]*?Invocation complete: sess=\\1 rp=rp_[0-9a-f]{32} slot=1 activePid=[0-9]+",
+  "StartInvoke: sess=(sess_[0-9a-f]{32}) [\\s\\S]*?RebuildFromMarker complete: sessionId=\\1 siblingsConsidered=[0-9]+ anchorsWritten=[0-9]+ ",
+  # The session's whole-walk maximum is under 50 m (flown 1.712; see THE TOLERANCE).
+  "StartInvoke: sess=(sess_[0-9a-f]{32}) [\\s\\S]*?DAG walk summary: sessionId=\\1 [^\\r\\n]*boundaryInstantMaxEpsilonM=(?:[0-9]|[1-4][0-9])\\.[0-9]{3}(?![0-9])",
+  # THE CROSSING: the same walk compared boundary-instant seeds in Kerbin's frame AND in the
+  # Mun's, each body's largest residual under 50 m (flown Kerbin 1.712 over 18 seeds, Mun
+  # 1.314 over 6). One token per body, so an extra body (or `<unknown>`) in the list neither
+  # hides nor fakes either; the two may match different lines, the forbid below bounds all.
+  "StartInvoke: sess=(sess_[0-9a-f]{32}) [\\s\\S]*?DAG walk boundary-instant bodies: sessionId=\\1 bodies=(?:[^;\\r\\n]*;)*Kerbin:resolved=[1-9][0-9]*,maxEpsilonM=(?:[0-9]|[1-4][0-9])\\.[0-9]{3}(?![0-9])",
+  "StartInvoke: sess=(sess_[0-9a-f]{32}) [\\s\\S]*?DAG walk boundary-instant bodies: sessionId=\\1 bodies=(?:[^;\\r\\n]*;)*Mun:resolved=[1-9][0-9]*,maxEpsilonM=(?:[0-9]|[1-4][0-9])\\.[0-9]{3}(?![0-9])",
+
+  # ---- GROUP 4: the merge: supersede rows and the journal to Completed ----
+  "MISSIONMARK label=rf21-refly-live ut=(?:(?!MISSIONMARK label=rf21-merged )[\\s\\S])*?Added [1-9][0-9]* supersede relations for subtree rooted at",
+  "StartInvoke: sess=(sess_[0-9a-f]{32}) [\\s\\S]*?\\[MergeJournal\\] sess=\\1 phase=Begin lossSwapVariant=[\\s\\S]*?\\[MergeJournal\\] DurableSave checkpoint=durable2 persisted via persistent\\.sfs[\\s\\S]*?\\[MergeJournal\\] Completed sess=\\1(?![0-9a-f])",
+  "StartInvoke: sess=(sess_[0-9a-f]{32}) [\\s\\S]*?End reason=merged sess=\\1 provisional=",
+  "answermergedialog complete choice=merge result=committed",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The shipped tolerance, on every anchor any writer inserts (RW-5 / RW-6 / RW-7's forbid).
+  "\\[Pipeline-Anchor\\] Anchor \\S+ exceeds bubble radius",
+  # A per-body residual of 50 m or more on ANY line of ANY rebuild (the per-body line covers
+  # seeds that lost the priority contention, which the Warn above never sees).
+  "DAG walk boundary-instant bodies: [^\\r\\n]*maxEpsilonM=(?:[5-9][0-9]|[0-9]{3,})\\.",
+  # The Re-Fly concluded with nothing to supersede (an unflown provisional).
+  "outcome=refused-unflown-provisional",
+  # BOUNDED, per the FIRST FLIGHT verdict in the header: the session's first OnSave raises
+  # `outcome=unbound-refly-provisional reason=refly-provisional-has-no-trajectory-at-save` by
+  # construction (the fork is born without a `.prec`; that save writes it), so the token is
+  # tolerated BEFORE the recorder-live mark and forbidden after it, and the restore give-up
+  # reason (the recorder really never bound) is forbidden anywhere.
+  "MISSIONMARK label=rf21-refly-live ut=[\\s\\S]*?outcome=unbound-refly-provisional",
+  "outcome=unbound-refly-provisional reason=refly-restore-gave-up-on-",
+]
+
+# REPORT-ONLY (arming is a per-scenario operator decision, not taken). Pinned to the green
+# flight's reading `2026-11-14_2300`: the merge seals the re-flown probe slot and the pod stack
+# slot is closed, so the point is reaped (0); one supersede row (the probe's original
+# recording); no tombstone (the probe is uncrewed and earned nothing).
+[expectations.rewind]
+gating        = false
+rewindPoints  = { min = 0, max = 0 }
+supersedeRows = { min = 1, max = 1 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+gating         = false
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+branchPoints   = { JointBreak = { min = 1, max = 1 } }
+
+[runtime]
+# Budget arithmetic (M-A5 S8): run.py waits max(step_budget, 600) + 60 for a DEFERRED verb
+# (LoadGame / InvokeRewind) and max(step_budget, dispatch_budget + 60) otherwise (60 s
+# dispatch default):
+#   LoadGame          660            =  660
+#   SetSetting x2     120 x2         =  240
+#   StartRecording, PartAction x2, RecordingState x3, MissionMark x4, StopRecording,
+#   ListHandles x2, WarpToUT, FlushAndQuit: 15 x 120 = 1800
+#   mission           2700           = 2700
+#   InvokeRewind      660            =  660
+#   AnswerMergeDialog 240            =  240   -> sum 6300
+# 6600 clears it by 300. The first flight's wall was 1044 s. The mission budget: B11 measured ~1,300 wall from the PAD (about
+# 460 of it the ascent and plan, ~620 the capture with MechJeb's 1x pre-ignition hold), so
+# ~1,000 wall from LKO nominal and ~1,800 with B11's worst-case re-plan; 2,700 is ~1.5x that.
+# Expected wall for the whole run: ~20-25 min (boot ~3, mission ~17, Re-Fly and merge ~2).
+budgetSeconds = 6600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
