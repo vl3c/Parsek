@@ -894,5 +894,84 @@ namespace Parsek.Tests
                 },
                 "deployedAnimateGenericModules", "loggedAnimateGenericClassificationMisses");
         }
+
+        // One BackgroundRecorder reuses a single poll sink for every vessel it polls, rebinding
+        // its state and recording on each call. Two vessels polled in turn through the SAME
+        // recorder, over two families, must each get their own events, containers and log
+        // context; a sink left bound to the first vessel would file the second vessel's events
+        // in the first vessel's recording.
+        [Fact]
+        public void Background_TwoVesselsThroughOneRecorder_EachGetsItsOwnEvents()
+        {
+            BackgroundRecorder bg = NewBg();
+            object stateA = NewBgState(7u, "rec_bg_7");
+            object stateB = NewBgState(8u, "rec_bg_8");
+            var recA = new Recording { RecordingId = "rec_bg_7" };
+            var recB = new Recording { RecordingId = "rec_bg_8" };
+            Type[] sig = { typeof(Vessel), BgStateType, typeof(Recording), typeof(double) };
+            MethodInfo gear = typeof(BackgroundRecorder).GetMethod("CheckGearState",
+                BindingFlags.Instance | BindingFlags.NonPublic, null, sig, null);
+            MethodInfo chute = typeof(BackgroundRecorder).GetMethod("CheckParachuteState",
+                BindingFlags.Instance | BindingFlags.NonPublic, null, sig, null);
+            Assert.NotNull(gear);
+            Assert.NotNull(chute);
+
+            var gearA = Module<ModuleWheels.ModuleWheelDeployment>();
+            gearA.stateString = "Retracted";
+            var chuteA = Module<ModuleParachute>();
+            chuteA.deploymentState = ModuleParachute.deploymentStates.STOWED;
+            var gearB = Module<ModuleWheels.ModuleWheelDeployment>();
+            gearB.stateString = "Retracted";
+            var chuteB = Module<ModuleParachute>();
+            chuteB.deploymentState = ModuleParachute.deploymentStates.STOWED;
+            Vessel vA = MakeVessel(71u, MakePart(701, "gearOnA", gearA), MakePart(702, "chuteOnA", chuteA));
+            Vessel vB = MakeVessel(81u, MakePart(801, "gearOnB", gearB), MakePart(802, "chuteOnB", chuteB));
+
+            void Poll(MethodInfo mi, Vessel v, object state, Recording rec, double ut)
+                => mi.Invoke(bg, new object[] { v, state, rec, ut });
+
+            logLines.Clear();
+            // Seed both vessels (A first, so the sink is first bound to A).
+            Poll(gear, vA, stateA, recA, StartUT);
+            Poll(chute, vA, stateA, recA, StartUT);
+            Poll(gear, vB, stateB, recB, StartUT);
+            Poll(chute, vB, stateB, recB, StartUT);
+            int seededA = recA.PartEvents.Count;
+            int seededB = recB.PartEvents.Count;
+
+            // B changes first, then A, then B again on the other family.
+            gearB.stateString = "Deployed";
+            chuteA.deploymentState = ModuleParachute.deploymentStates.DEPLOYED;
+            chuteB.deploymentState = ModuleParachute.deploymentStates.DEPLOYED;
+            Poll(gear, vB, stateB, recB, StartUT + 10);
+            Poll(chute, vA, stateA, recA, StartUT + 10);
+            Poll(chute, vB, stateB, recB, StartUT + 20);
+
+            List<PartEvent> newA = recA.PartEvents.Skip(seededA).ToList();
+            List<PartEvent> newB = recB.PartEvents.Skip(seededB).ToList();
+            Assert.Equal(new uint[] { 702 }, newA.Select(e => e.partPersistentId).ToArray());
+            Assert.Equal(new uint[] { 801, 802 }, newB.Select(e => e.partPersistentId).ToArray());
+            Assert.All(recA.PartEvents, e => Assert.True(e.partPersistentId / 100 == 7,
+                "vessel 7's recording holds pid " + e.partPersistentId));
+            Assert.All(recB.PartEvents, e => Assert.True(e.partPersistentId / 100 == 8,
+                "vessel 8's recording holds pid " + e.partPersistentId));
+            Assert.Equal(PartEventType.GearDeployed, newB[0].eventType);
+
+            HashSet<uint> deployedA = (HashSet<uint>)BgStateType.GetField("deployedGear").GetValue(stateA);
+            HashSet<uint> deployedB = (HashSet<uint>)BgStateType.GetField("deployedGear").GetValue(stateB);
+            Assert.Empty(deployedA);
+            Assert.Equal(new uint[] { 801 }, deployedB.ToArray());
+
+            // Every event log line names the vessel whose part it reports.
+            List<string> eventLines = logLines.Where(l => l.Contains("Part event:")).ToList();
+            Assert.NotEmpty(eventLines);
+            foreach (string line in eventLines)
+            {
+                bool onA = line.Contains("pid=70");
+                bool onB = line.Contains("pid=80");
+                Assert.True(onA != onB, "unexpected event line: " + line);
+                Assert.Contains(onA ? "(bg vessel 7)" : "(bg vessel 8)", line);
+            }
+        }
     }
 }
