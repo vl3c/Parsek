@@ -1597,10 +1597,12 @@ serial path uses slots too: a plain `run.py` flies copy 1 of each lane's
 profile and holds that slot's lock.
 
 **Measured on the owner's PC (2026-11-14).** One copy takes about one CPU
-core, about 4 GB of RAM working set (9.4 GB commit) and about 5 GB of VRAM.
-One, two and three copies all ran at full speed (no slowdown); RAM, then VRAM,
-are the limits. So: 2 copies while the owner uses the PC, 3 when the owner is
-away; 4 does not fit. A copy is about 4.4 GB on disk (Squad and SquadExpansion
+core, about 4.3 GB of RAM at its peak (9.4 GB commit) and about 1 GB of VRAM
+in its 1280x720 window (the earlier ~5 GB VRAM figure was a fullscreen copy).
+Free RAM is 14.8 GB with no KSP running and 6.07 GB at its lowest with two
+copies flying. One, two and three copies all ran at full speed (no slowdown),
+three with 1.7 GB of RAM free; RAM is the limit. So: 2 copies while the owner
+uses the PC, 3 when the owner is away; 4 does not fit. A copy is about 4.4 GB on disk (Squad and SquadExpansion
 are junctions to the dev install).
 
 **Provisioning a copy.**
@@ -1898,7 +1900,7 @@ one `run.py --slot <s>` child per lane. Provision the extra copies first
 model, the child's flags, ports, locks, `Player.log` and window placement are
 in "Install slots" above, and who owns the PC in "The machine lock". Use 2
 slots while the owner works at the PC and 3 when the owner is away (measured:
-RAM, then VRAM, run out at 4). Everything is plain text in and out, so an
+RAM runs out at 4). Everything is plain text in and out, so an
 agent can drive it:
 
 ```
@@ -1924,13 +1926,20 @@ cd harness && python tools/parallel_runner.py resume --name nightly-1
   `set-slots` takes effect at the next start and never stops a running lane).
   After a start the next waits 15 s (the dispatch gap, equal to the launch
   spacing every child enforces anyway). Memory guard: beyond the first running
-  lane, nothing starts while free RAM is under 6 GB or free VRAM under 5.5 GB
-  (`GlobalMemoryStatusEx`, `nvidia-smi`; a reading that is not available is not
-  a refusal), after 4.5 GB RAM and 5 GB VRAM are taken off the reading for
-  every copy started less than 75 s ago (a booting copy has not taken its
-  memory yet). Every wait (dispatch gap, memory, slots, exclusive, slot busy,
-  drain, stop) is logged once per change in `runner.log` and `events.jsonl`;
-  `status` shows the last memory deferral.
+  lane, a lane starts only when a floor is left AFTER the new copy has fully
+  loaded. For RAM and VRAM separately (`GlobalMemoryStatusEx`, `nvidia-smi`; a
+  reading that is not available is not a refusal): projected = reading - the
+  remaining footprint of each booting copy - one full footprint for the new
+  copy, held when under 1.5 GB (`MIN_FREE_RAM_GB` / `MIN_FREE_VRAM_GB`). A copy
+  footprint is 4.5 GB RAM and 2 GB VRAM (`COPY_FOOTPRINT_*_GB`); a booting
+  copy still owes `footprint * max(0, 1 - elapsed / 60 s)`
+  (`BOOT_WINDOW_SECONDS`), because the reading already holds what it has taken.
+  The hold reason shows the arithmetic, e.g. `free RAM 10.4 GB - booting
+  3.1 GB - new copy 4.5 GB = 2.8 GB < 1.5 GB`. Every wait (dispatch gap,
+  memory, slots, exclusive, slot busy, drain, stop) is logged once per change
+  in `runner.log` and `events.jsonl` (a memory wait once per change of the
+  reading, the held resources or the running / booting counts, not per tick of
+  the boot ramp); `status` shows the last memory deferral.
 - **Preconditions.** The runner refuses a lane profile with no provisioned slot
   and slots that deploy different `Parsek.dll` builds (sha256, naming the odd
   slot): both exit 2. It takes the machine lock for the whole run (payload

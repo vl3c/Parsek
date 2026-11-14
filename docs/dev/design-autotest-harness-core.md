@@ -1245,15 +1245,23 @@ in `harness/results/parallel/<run>/` (`plan.json`, `control.json`,
   the machine-wide launch stamp. The gap is not a memory measure: a 45 s gap
   capped a 2026-11-14 daily run (lanes of 46-90 s) at one start per ~46 s, and
   the third slot never got a lane.
-- **Memory guard.** Beyond the first running lane, nothing starts while free
-  RAM is under 6 GB or free VRAM under 5.5 GB (`GlobalMemoryStatusEx`,
-  `nvidia-smi`); a reading that is not available is not a refusal, and at
-  least one lane always runs. A copy started less than
-  `parallel.BOOT_WINDOW_SECONDS` (75 s; boot measured 37 s alone, 42-45 s
-  beside others, then the footprint ramps) ago has not taken its memory yet,
-  so the guard takes `BOOT_RESERVE_RAM_GB` (4.5) and `BOOT_RESERVE_VRAM_GB`
-  (5.0) off the reading per such copy before it compares, and the reason names
-  the booting count. The runner re-reads memory after every start.
+- **Memory guard.** Beyond the first running lane, the guard asks whether
+  the machine keeps a floor after the new copy has fully loaded. For RAM and
+  VRAM separately (`GlobalMemoryStatusEx`, `nvidia-smi`): projected =
+  reading - remaining footprint of each booting copy - one full footprint for
+  the new copy, and the lane is held while projected < `MIN_FREE_RAM_GB` /
+  `MIN_FREE_VRAM_GB` (1.5 / 1.5). The footprint is `COPY_FOOTPRINT_RAM_GB`
+  4.5 / `COPY_FOOTPRINT_VRAM_GB` 2.0 (measured on the owner's PC, 1280x720
+  window: peak 4.25 GB RAM, about 1 GB VRAM per copy). A booting copy's
+  remaining footprint ramps down linearly, `footprint * max(0, 1 - elapsed /
+  parallel.BOOT_WINDOW_SECONDS)` with a 60 s window (boot measured 37 s alone,
+  42-45 s beside others), because the reading already holds the part it has
+  taken; a full reserve on top would count it twice. A reading that is not
+  available is not a refusal, and at least one lane always runs. The reason
+  shows the arithmetic (`free RAM 10.4 GB - booting 3.1 GB - new copy 4.5 GB
+  = 2.8 GB < 1.5 GB`); a memory wait is logged once per change of the
+  reading, the held resources or the running / booting counts. The runner
+  re-reads memory after every start.
 - **Waits are visible.** Every wait kind (dispatch gap, memory, slots,
   exclusive, slot busy, drain, stop) is logged once per change in `runner.log`
   and as a `wait` event in `events.jsonl`.

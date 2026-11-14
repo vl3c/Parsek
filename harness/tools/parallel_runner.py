@@ -928,8 +928,8 @@ def _dispatch(ctx: Context, folder: RunFolder, plan: Dict, lanes: List[parallel.
             folder.event("dispatch", seq=seq, lane=lane.lane_id, slot=decision.slot,
                          window=window, pid=child.proc.pid, reason=decision.reason)
             continue
-        key = (decision.wait_kind or "", decision.reason
-               if decision.wait_kind in (parallel.WAIT_MEMORY, parallel.WAIT_STOP) else "")
+        key = (decision.wait_kind or "", decision.log_key or
+               (decision.reason if decision.wait_kind == parallel.WAIT_STOP else ""))
         if key != last_wait:
             # Every wait kind is logged once per change, so a cap on throughput
             # (the dispatch gap, the memory guard) shows in runner.log and events.

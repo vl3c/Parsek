@@ -64,26 +64,41 @@ and `harness/tools/parallel_runner.py`.
   `krpcStreamPort`, VERIFY expects the slot stamp, 8 GiB free-space margin for K >= 2),
   `--copy K --remove` (junctions unlinked first), `EC-10` while any slot lock is live.
 - `harness/tools/parallel_runner.py` (pure `harness/lib/parallel.py`): `run` / `resume` / `set-slots`
-  / `stop` / `status`, longest p50 first, 15 s dispatch gap, 6 GB RAM / 5.5 GB VRAM memory guard
-  that reserves 4.5 GB RAM / 5 GB VRAM per copy started under 75 s ago, exclusive lanes skipped
-  unless `--include-exclusive`, run.py's exit rule.
+  / `stop` / `status`, longest p50 first, 15 s dispatch gap, a memory guard that keeps 1.5 GB RAM
+  / 1.5 GB VRAM free after the new copy loads (footprint 4.5 GB RAM / 2 GB VRAM, a booting copy's
+  remaining footprint ramped down over 60 s), exclusive lanes skipped unless
+  `--include-exclusive`, run.py's exit rule.
 - Throughput fix (2026-11-14, after the first PC daily run, 28 lanes, 2 slots then `set-slots 3`
   at minute 10): the runner held every start 45 s after the previous one, and daily lanes take
   46-90 s, so the run took 21m46s against 25 min serial (1.2x) and slot 3 never got a lane; the
   wait was not logged. Fix: the gap is now the 15 s launch spacing
-  (`parallel.DISPATCH_GAP_SECONDS`), the memory guard subtracts a projected footprint for every
-  copy still booting (`BOOT_WINDOW_SECONDS` 75, `BOOT_RESERVE_RAM_GB` 4.5,
-  `BOOT_RESERVE_VRAM_GB` 5.0), and every wait kind is logged once per change. Sanity against the
-  PC: a third copy right after the second with ~12 GB RAM / ~11 GB VRAM free starts; ~8 GB RAM
-  free with one copy booting holds (`DispatchTests` pins both).
+  (`parallel.DISPATCH_GAP_SECONDS`), the memory guard accounts for copies still booting, and
+  every wait kind is logged once per change.
+- Memory guard recalibrated (2026-11-14, after daily-par-3: 28 lanes, 3 slots). The run took
+  15m24s against 21m46s for the first parallel daily run, but on 2 effective slots: the third
+  slot never ran. 66 memory holds, 56 of them "2 running, 2 booting", typically
+  `free RAM 10.4 GB - 2 booting x 4.5 GB = 1.4 GB < 6.0 GB; free VRAM 13.7 - 2 x 5.0 = 3.7 < 5.5`.
+  Measured: free
+  RAM 14.8 GB with no KSP, 6.07 GB at its lowest with two copies flying, one copy peaks at
+  4.25 GB RAM and about 1 GB VRAM in the 1280x720 window (peak 3.7 GB VRAM used with 2 copies on
+  a 1.8 GB baseline; the ~5 GB figure was fullscreen), an earlier trial ran 3 copies at full
+  speed with 1.7 GB RAM free. Findings: daily lanes last 48-60 s, so the 75 s window marked a copy
+  as booting for its whole life, and the reading already holds part of a booting copy's memory,
+  so a full reserve on top counted it twice, against floors (6 / 5.5 GB) sized as if the new copy
+  were not yet subtracted. Fix: projected = reading - remaining footprint of each booting copy
+  (`footprint * max(0, 1 - elapsed / 60 s)`) - one full footprint for the new copy, held under
+  1.5 GB (`COPY_FOOTPRINT_RAM_GB` 4.5, `COPY_FOOTPRINT_VRAM_GB` 2.0, `MIN_FREE_RAM_GB` /
+  `MIN_FREE_VRAM_GB` 1.5, `BOOT_WINDOW_SECONDS` 60). The daily-par-3 hold (copies 50 s and 20 s
+  in) now starts (RAM 10.4 - 3.75 - 4.5 = 2.15 GB); two booted copies at 6.07 GB free start a
+  third; 5.5 GB RAM or 3.0 GB VRAM free hold (`DispatchTests` `test_pc_*`).
 - Docs: `harness/README.md` ("The machine lock", "Install slots", "Parallel runs"),
   `design-autotest-harness-core.md` ("Install slots and parallel runs"),
   `design-autotest-stack-setup.md` ("Provisioning slot copies"), `autotest-status.md`.
 
-**Measured basis (owner's PC, 2026-11-14).** Per copy about 1 CPU core, ~4 GB RAM working set,
-~9.4 GB commit, ~5 GB VRAM; 1, 2 and 3 copies all at full speed; RAM then VRAM are the limits, so 2
-copies while the owner uses the PC and 3 when away. Unity's Screenmanager prefs are one registry key
-shared by every KSP on the PC.
+**Measured basis (owner's PC, 2026-11-14).** Per copy about 1 CPU core, ~4.3 GB RAM at peak,
+~9.4 GB commit, ~1 GB VRAM in a 1280x720 window; 1, 2 and 3 copies all at full speed; RAM is the
+limit, so 2 copies while the owner uses the PC and 3 when away. Unity's Screenmanager prefs are
+one registry key shared by every KSP on the PC.
 
 **Still owed (PC validation, one machine turn).**
 1. Provision `stock-minimal-2` and `stock-minimal-3` from the branch build

@@ -244,41 +244,106 @@ class DispatchTests(unittest.TestCase):
                         mem=P.MemoryReading(20.0, 12.0))
         self.assertEqual((d.action, d.slot), ("start", "stock-minimal-3"))
 
-    def test_booting_copies_are_reserved_for(self):
-        self.assertEqual(P.booting_count([P.Running("a", "s", False, 990.0),
-                                          P.Running("b", "s2", False, 900.0)], 1000.0), 1)
-        # A third copy shortly after the second (still booting): ~12 GB free RAM and
-        # ~11 GB free VRAM leave 7.5 / 6.0 GB after the reserve, so it starts.
+    def test_boot_ramp(self):
+        self.assertEqual(P.BOOT_WINDOW_SECONDS, 60.0)
+        self.assertAlmostEqual(P.boot_remaining_share(1000.0, 1000.0), 1.0)
+        self.assertAlmostEqual(P.boot_remaining_share(970.0, 1000.0), 0.5)
+        self.assertEqual(P.boot_remaining_share(940.0, 1000.0), 0.0)
+        self.assertEqual(P.boot_remaining_share(100.0, 1000.0), 0.0)
+        # A start stamp ahead of the clock counts as one whole copy, never more.
+        self.assertEqual(P.boot_remaining_share(1010.0, 1000.0), 1.0)
+        self.assertEqual(P.boot_remaining_share(990.0, 1000.0, boot_window_seconds=0), 0.0)
+        running = [P.Running("a", "s", False, 950.0), P.Running("b", "s2", False, 980.0)]
+        self.assertAlmostEqual(P.booting_share(running, 1000.0), 1.0 / 6 + 2.0 / 3)
+        self.assertEqual(P.booting_count(running, 1000.0), 2)
+
+    # Cases from the owner's PC (2026-11-14, daily-par-3, 3 slots, 1280x720
+    # windows): one copy peaks at 4.25 GB RAM and about 1 GB VRAM.
+
+    def test_pc_a_two_booted_copies_at_the_lowest_free_ram_start_a_third(self):
+        # 6.07 - 4.5 = 1.57 >= 1.5.
         running = [P.Running("a", "stock-minimal", False, 800.0),
+                   P.Running("b", "stock-minimal-2", False, 900.0)]
+        d = self.decide([lane("c")], running, slots=3, now=1000.0, last=900.0,
+                        mem=P.MemoryReading(6.07, 12.0))
+        self.assertEqual((d.action, d.slot), ("start", "stock-minimal-3"), d.reason)
+
+    def test_pc_b_the_daily_par_3_hold_now_starts(self):
+        # The old rule held this reading ("10.4 - 2 x 4.5 = 1.4 < 6.0"). Started
+        # 50 s and 20 s ago, the copies still owe 1/6 + 2/3 = 0.83 of a footprint:
+        # RAM 10.4 - 3.75 - 4.5 = 2.15 >= 1.5, VRAM 13.7 - 1.67 - 2.0 = 10.03 >= 1.5.
+        running = [P.Running("a", "stock-minimal", False, 950.0),
                    P.Running("b", "stock-minimal-2", False, 980.0)]
         d = self.decide([lane("c")], running, slots=3, now=1000.0, last=980.0,
-                        mem=P.MemoryReading(12.0, 11.0))
-        self.assertEqual(d.action, "start", d.reason)
-        # ~8 GB free RAM with one copy booting reads 3.5 GB after the reserve: held.
-        d = self.decide([lane("c")], running, slots=3, now=1000.0, last=980.0,
-                        mem=P.MemoryReading(8.0, 11.0))
+                        mem=P.MemoryReading(10.4, 13.7))
+        self.assertEqual((d.action, d.slot), ("start", "stock-minimal-3"), d.reason)
+        self.assertEqual(P.memory_holds(P.MemoryReading(10.4, 13.7), 2,
+                                        P.booting_share(running, 1000.0)), [])
+        # The same reading with both copies just launched still holds on RAM.
+        fresh = [P.Running("a", "stock-minimal", False, 1000.0),
+                 P.Running("b", "stock-minimal-2", False, 1000.0)]
+        d = self.decide([lane("c")], fresh, slots=3, now=1000.0, last=None,
+                        mem=P.MemoryReading(10.4, 13.7))
         self.assertEqual(d.wait_kind, "memory")
-        self.assertIn("1 booting", d.reason)
-        self.assertIn("free RAM 8.0 GB", d.reason)
-        # The same reading once the copy is past its boot window passes the floor.
-        d = self.decide([lane("c")], running, slots=3, now=980.0 + P.BOOT_WINDOW_SECONDS,
-                        last=980.0, mem=P.MemoryReading(8.0, 11.0))
-        self.assertEqual(d.action, "start", d.reason)
-        # Two copies booting take two reserves off the VRAM reading.
-        both = [P.Running("a", "stock-minimal", False, 975.0),
-                P.Running("b", "stock-minimal-2", False, 980.0)]
-        d = self.decide([lane("c")], both, slots=3, now=1000.0, last=980.0,
-                        mem=P.MemoryReading(20.0, 12.0))
+        self.assertIn("free RAM 10.4 GB - booting 9.0 GB - new copy 4.5 GB = -3.1 GB < 1.5 GB",
+                      d.reason)
+        self.assertIn("2 running, 2 booting", d.reason)
+        self.assertNotIn("VRAM", d.reason)
+
+    def test_pc_c_low_free_ram_holds_naming_ram(self):
+        running = [P.Running("a", "stock-minimal", False, 800.0),
+                   P.Running("b", "stock-minimal-2", False, 900.0)]
+        d = self.decide([lane("c")], running, slots=3, now=1000.0, last=900.0,
+                        mem=P.MemoryReading(5.5, 12.0))
         self.assertEqual(d.wait_kind, "memory")
-        self.assertIn("2 booting", d.reason)
-        self.assertIn("VRAM", d.reason)
+        self.assertIn("free RAM 5.5 GB - new copy 4.5 GB = 1.0 GB < 1.5 GB", d.reason)
+        self.assertNotIn("booting 0", d.reason)
+        self.assertNotIn("VRAM", d.reason)
+
+    def test_pc_d_low_free_vram_holds_naming_vram(self):
+        running = [P.Running("a", "stock-minimal", False, 800.0),
+                   P.Running("b", "stock-minimal-2", False, 900.0)]
+        d = self.decide([lane("c")], running, slots=3, now=1000.0, last=900.0,
+                        mem=P.MemoryReading(20.0, 3.0))
+        self.assertEqual(d.wait_kind, "memory")
+        self.assertIn("free VRAM 3.0 GB - new copy 2.0 GB = 1.0 GB < 1.5 GB", d.reason)
+        self.assertNotIn("free RAM", d.reason)
+
+    def test_memory_wait_log_key_ignores_the_boot_ramp(self):
+        # The ramp moves the reason's numbers every poll; the log key moves only
+        # with the reading, which readings hold, and the running / booting counts.
+        running = [P.Running("a", "stock-minimal", False, 990.0),
+                   P.Running("b", "stock-minimal-2", False, 995.0)]
+        mem = P.MemoryReading(9.0, 13.0)
+        d1 = self.decide([lane("c")], running, slots=3, now=1000.0, mem=mem)
+        d2 = self.decide([lane("c")], running, slots=3, now=1002.0, mem=mem)
+        self.assertEqual((d1.wait_kind, d2.wait_kind), ("memory", "memory"))
+        self.assertNotEqual(d1.reason, d2.reason)
+        self.assertEqual(d1.log_key, d2.log_key)
+        d3 = self.decide([lane("c")], running, slots=3, now=1002.0,
+                         mem=P.MemoryReading(8.9, 13.0))
+        self.assertNotEqual(d1.log_key, d3.log_key)
+        self.assertEqual(self.decide([lane("c")], [], mem=mem).log_key, "")
 
     def test_memory_deferral_rules(self):
-        self.assertIsNone(P.memory_deferral(P.MemoryReading(1.0, 1.0), 0, booting=3))
-        self.assertIsNone(P.memory_deferral(None, 2, booting=2))
-        self.assertIsNone(P.memory_deferral(P.MemoryReading(None, None), 2, booting=2))
-        self.assertIsNone(P.memory_deferral(P.MemoryReading(10.5, 10.5), 1, booting=1))
-        self.assertIn("RAM", P.memory_deferral(P.MemoryReading(10.4, 10.5), 1, booting=1))
+        self.assertEqual((P.MIN_FREE_RAM_GB, P.MIN_FREE_VRAM_GB), (1.5, 1.5))
+        self.assertEqual((P.COPY_FOOTPRINT_RAM_GB, P.COPY_FOOTPRINT_VRAM_GB), (4.5, 2.0))
+        # The first lane is never held; an unavailable reading never holds.
+        self.assertIsNone(P.memory_deferral(P.MemoryReading(1.0, 1.0), 0, booting_copies=3))
+        self.assertIsNone(P.memory_deferral(None, 2, booting_copies=2))
+        self.assertIsNone(P.memory_deferral(P.MemoryReading(None, None), 2, booting_copies=2))
+        # Floor met exactly: starts. One booting copy's full footprint on top: held.
+        self.assertIsNone(P.memory_deferral(P.MemoryReading(6.0, 3.5), 1))
+        held = P.memory_deferral(P.MemoryReading(6.0, 3.5), 1, booting_copies=1.0)
+        self.assertIn("free RAM 6.0 GB - booting 4.5 GB - new copy 4.5 GB = -3.0 GB < 1.5 GB",
+                      held)
+        self.assertIn("free VRAM 3.5 GB - booting 2.0 GB - new copy 2.0 GB = -0.5 GB < 1.5 GB",
+                      held)
+        self.assertEqual(P.memory_deferral(P.MemoryReading(6.0, 3.5), 1, booting_copies=-1),
+                         None)
+        self.assertIsNone(P.memory_deferral(P.MemoryReading(5.0, 5.0), 1, booting_copies=0.5,
+                                            min_free_ram_gb=0.0, min_free_vram_gb=0.0,
+                                            footprint_ram_gb=3.0, footprint_vram_gb=3.0))
 
     def test_memory_guard_holds_extra_lanes_only(self):
         low = P.MemoryReading(4.0, None)
@@ -287,7 +352,7 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual(d.wait_kind, "memory")
         self.assertIn("free RAM 4.0 GB", d.reason)
         d = self.decide([lane("b")], [self.run_("a", "stock-minimal")],
-                        mem=P.MemoryReading(10.0, 5.0))
+                        mem=P.MemoryReading(10.0, 3.0))
         self.assertIn("VRAM", d.reason)
         d = self.decide([lane("b")], [self.run_("a", "stock-minimal")],
                         mem=P.MemoryReading(None, None))
@@ -460,7 +525,7 @@ class ControlAndStatusTests(unittest.TestCase):
                   {"kind": "dispatch", "seq": 2, "lane": "B", "slot": "stock-minimal-2",
                    "epoch": 150.0},
                   {"kind": "finish", "seq": 1, "lane": "A"},
-                  {"kind": "wait", "waitKind": "memory", "reason": "free RAM 4.0 GB < 6.0 GB",
+                  {"kind": "wait", "waitKind": "memory", "reason": "free RAM 4.0 GB - new copy 4.5 GB = -0.5 GB < 1.5 GB",
                    "epoch": 160.0}]
         self.assertEqual([e["lane"] for e in P.running_from_events(events)], ["B"])
         plan = {"name": "n", "windowMode": "desktop",

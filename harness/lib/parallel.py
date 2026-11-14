@@ -11,8 +11,8 @@ registry and the clock, and hands plain values in.
   or focus step) never shares the machine with another lane.
 - Duration estimates (p50) and the longest-first order.
 - The dispatch decision: which lane starts next on which slot, or why nothing
-  starts now (slot cap, a free slot of the profile, the memory guard with its
-  reserve for copies still booting, the dispatch gap after a start, an
+  starts now (slot cap, a free slot of the profile, the memory guard that
+  projects free memory after the new copy loads, the dispatch gap after a start, an
   exclusive lane, a stop request).
 - The Windows virtual-desktop registry values, parsed from bytes.
 - The run folder's ``summary.txt`` lines, the settled predicate a resume uses
@@ -52,19 +52,26 @@ P50_SOURCE_DURATION = "duration.json"
 P50_SOURCE_INDEX = "run-index"
 P50_SOURCE_DEFAULT = "default"
 
-# Memory guard (plan, measured 2026-11-14: one KSP copy takes 3.6-4.9 GB of RAM
-# and about 5 GB of VRAM). A lane beyond the first running one starts only when
-# both readings clear these floors; an unavailable reading is not a refusal.
-MIN_FREE_RAM_GB = 6.0
-MIN_FREE_VRAM_GB = 5.5
+# Memory guard. A lane beyond the first running one starts only when the
+# machine would still keep a floor of free RAM and VRAM AFTER that new copy has
+# fully loaded:
+#   projected = reading - remaining footprint of each booting copy
+#               - one full footprint for the new copy
+# separately for RAM and VRAM, held when projected < MIN_FREE_*. An unavailable
+# reading is not a refusal. Measured on the owner's PC (2026-11-14, 1280x720
+# window): one copy peaks at 4.25 GB RAM and about 1 GB VRAM; free RAM is
+# 14.8 GB with no KSP running and 6.07 GB at its lowest with two copies flying;
+# three copies ran at full speed with 1.7 GB of RAM free.
+COPY_FOOTPRINT_RAM_GB = 4.5
+COPY_FOOTPRINT_VRAM_GB = 2.0
+MIN_FREE_RAM_GB = 1.5
+MIN_FREE_VRAM_GB = 1.5
 
-# A copy started less than BOOT_WINDOW_SECONDS ago has not taken its memory yet
-# (boot measured 37 s alone, 42-45 s beside other copies, then the footprint
-# ramps), so a reading taken then overstates the headroom. The guard subtracts
-# one projected footprint per such copy from the reading before it compares.
-BOOT_WINDOW_SECONDS = 75.0
-BOOT_RESERVE_RAM_GB = 4.5
-BOOT_RESERVE_VRAM_GB = 5.0
+# A copy started less than BOOT_WINDOW_SECONDS ago has not taken all of its
+# memory yet, and the reading already holds the part it has taken. Its remaining
+# footprint ramps down linearly: footprint * max(0, 1 - elapsed / window). Boot
+# measured 37 s alone and 42-45 s beside other copies; daily lanes last 48-60 s.
+BOOT_WINDOW_SECONDS = 60.0
 
 # Seconds after a lane start before another may start while one runs. It is the
 # machine-wide launch spacing run.py enforces at the launch stamp, so a child
@@ -405,6 +412,25 @@ class DispatchDecision:
     window: Optional[str] = None      # set for an exclusive start (normal)
     wait_kind: Optional[str] = None
     reason: str = ""
+    log_key: str = ""                 # set for a memory wait (memory_wait_log_key)
+
+
+def boot_remaining_share(started_epoch: float, now_epoch: float,
+                         boot_window_seconds: float = BOOT_WINDOW_SECONDS) -> float:
+    """The share (0..1) of one copy's footprint a copy started at
+    ``started_epoch`` has still to take: ``max(0, 1 - elapsed / window)``,
+    capped at 1 for a start stamp ahead of the clock."""
+    if boot_window_seconds <= 0:
+        return 0.0
+    share = 1.0 - (now_epoch - started_epoch) / boot_window_seconds
+    return max(0.0, min(1.0, share))
+
+
+def booting_share(running: Sequence[Running], now_epoch: float,
+                  boot_window_seconds: float = BOOT_WINDOW_SECONDS) -> float:
+    """Sum of the remaining footprint shares of the running lanes, in copies."""
+    return sum(boot_remaining_share(r.started_epoch, now_epoch, boot_window_seconds)
+               for r in running)
 
 
 def booting_count(running: Sequence[Running], now_epoch: float,
@@ -413,33 +439,63 @@ def booting_count(running: Sequence[Running], now_epoch: float,
     return sum(1 for r in running if now_epoch - r.started_epoch < boot_window_seconds)
 
 
-def memory_deferral(reading: Optional[MemoryReading], running_count: int,
-                    booting: int = 0,
-                    min_ram_gb: float = MIN_FREE_RAM_GB,
-                    min_vram_gb: float = MIN_FREE_VRAM_GB,
-                    reserve_ram_gb: float = BOOT_RESERVE_RAM_GB,
-                    reserve_vram_gb: float = BOOT_RESERVE_VRAM_GB) -> Optional[str]:
-    """Why the memory guard holds the next lane back, or None. Never holds the
+def memory_holds(reading: Optional[MemoryReading], running_count: int,
+                 booting_copies: float = 0.0,
+                 min_free_ram_gb: float = MIN_FREE_RAM_GB,
+                 min_free_vram_gb: float = MIN_FREE_VRAM_GB,
+                 footprint_ram_gb: float = COPY_FOOTPRINT_RAM_GB,
+                 footprint_vram_gb: float = COPY_FOOTPRINT_VRAM_GB) -> List[Tuple[str, str]]:
+    """The readings that hold the next lane back, as ``(label, arithmetic)``
+    pairs (label ``RAM`` / ``VRAM``); empty when nothing holds. Never holds the
     FIRST lane (one lane always runs), and an unavailable reading never holds.
-    ``booting`` copies still booting each have a projected footprint taken off
-    the reading before it meets the floors."""
+    ``booting_copies`` is the remaining footprint of the copies still booting,
+    in copies (``booting_share``). Each reading is projected to after those
+    copies and the new one have fully loaded, and holds when the projection is
+    under its floor."""
     if running_count < 1 or reading is None:
-        return None
-    booting = max(0, int(booting))
-    reasons = []
-    for label, free, reserve, floor in (
-            ("RAM", reading.free_ram_gb, reserve_ram_gb, min_ram_gb),
-            ("VRAM", reading.free_vram_gb, reserve_vram_gb, min_vram_gb)):
+        return []
+    booting_copies = max(0.0, float(booting_copies))
+    holds = []
+    for label, free, footprint, floor in (
+            ("RAM", reading.free_ram_gb, footprint_ram_gb, min_free_ram_gb),
+            ("VRAM", reading.free_vram_gb, footprint_vram_gb, min_free_vram_gb)):
         if free is None:
             continue
-        effective = free - booting * reserve
-        if effective < floor:
-            if booting:
-                reasons.append("free %s %.1f GB - %d booting x %.1f GB = %.1f GB < %.1f GB"
-                               % (label, free, booting, reserve, effective, floor))
-            else:
-                reasons.append("free %s %.1f GB < %.1f GB" % (label, free, floor))
-    return "; ".join(reasons) or None
+        booting = booting_copies * footprint
+        projected = free - booting - footprint
+        if projected < floor:
+            parts = ["free %s %.1f GB" % (label, free)]
+            if booting > 0:
+                parts.append("booting %.1f GB" % booting)
+            parts.append("new copy %.1f GB" % footprint)
+            holds.append((label, "%s = %.1f GB < %.1f GB"
+                          % (" - ".join(parts), projected, floor)))
+    return holds
+
+
+def memory_deferral(reading: Optional[MemoryReading], running_count: int,
+                    booting_copies: float = 0.0,
+                    min_free_ram_gb: float = MIN_FREE_RAM_GB,
+                    min_free_vram_gb: float = MIN_FREE_VRAM_GB,
+                    footprint_ram_gb: float = COPY_FOOTPRINT_RAM_GB,
+                    footprint_vram_gb: float = COPY_FOOTPRINT_VRAM_GB) -> Optional[str]:
+    """Why the memory guard holds the next lane back (``memory_holds`` joined),
+    or None."""
+    holds = memory_holds(reading, running_count, booting_copies, min_free_ram_gb,
+                         min_free_vram_gb, footprint_ram_gb, footprint_vram_gb)
+    return "; ".join(text for _, text in holds) or None
+
+
+def memory_wait_log_key(reading: Optional[MemoryReading], labels: Sequence[str],
+                        running_count: int, booting: int) -> str:
+    """What a memory wait is logged once per: which readings hold, the reading
+    itself and the running / booting counts. The booting ramp moves the reason's
+    numbers every poll, so the reason text is not the key."""
+    ram = vram = None
+    if reading is not None:
+        ram, vram = reading.free_ram_gb, reading.free_vram_gb
+    return "%s|ram=%s|vram=%s|running=%d|booting=%d" % (
+        ",".join(labels), ram, vram, running_count, booting)
 
 
 def parse_nvidia_smi_free_gb(text: str) -> Optional[float]:
@@ -496,12 +552,15 @@ def decide_next(pending: Sequence[Lane], running: Sequence[Running],
             return DispatchDecision(ACTION_WAIT, wait_kind=WAIT_GAP,
                                     reason="the last start was %.0f s ago (< %.0f s dispatch gap)"
                                     % (now_epoch - last_start_epoch, gap_seconds))
-        booting = booting_count(running, now_epoch, boot_window_seconds)
-        held = memory_deferral(memory, len(running), booting)
-        if held:
+        share = booting_share(running, now_epoch, boot_window_seconds)
+        holds = memory_holds(memory, len(running), share)
+        if holds:
+            booting = booting_count(running, now_epoch, boot_window_seconds)
             return DispatchDecision(ACTION_WAIT, wait_kind=WAIT_MEMORY,
-                                    reason="memory guard: %s; %d running, %d booting reserved for"
-                                    % (held, len(running), booting))
+                                    reason="memory guard: %s; %d running, %d booting"
+                                    % ("; ".join(t for _, t in holds), len(running), booting),
+                                    log_key=memory_wait_log_key(
+                                        memory, [l for l, _ in holds], len(running), booting))
         for lane in normal:
             for slot in by_profile.get(lane.profile, []):
                 if slot not in busy:
