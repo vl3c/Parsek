@@ -174,7 +174,7 @@ one registry key shared by every KSP on the PC.
   and the Unity screen prefs matched the pre-run values afterwards.
 - Reports: `logs/console/2026-11-14/parallel-daily-check*.txt` on the owner's PC.
 
-## DEAD-CODE-TEST-ONLY-METHODS-PARKED: 773 methods the game never runs, 124 of them really dead and kept alive only by their own tests [FILED 2026-11-14 for refactor plan item 21, branch `item21-test-only-methods`, measured at main 24abf0dba (Debug). PARKED (owner 2026-11-14 21:07Z); the really-dead subset APPROVED FOR REMOVAL as the final change of this refactor pass (owner 2026-11-14 21:16Z); dead code, no product change]
+## DEAD-CODE-TEST-ONLY-METHODS-PARKED: 773 methods the game never runs, 117 of them really dead and kept alive only by their own tests [FILED 2026-11-14 for refactor plan item 21, branch `item21-test-only-methods`, measured at main 24abf0dba (Debug). PARKED (owner 2026-11-14 21:07Z); the really-dead subset APPROVED FOR REMOVAL as the final change of this refactor pass (owner 2026-11-14 21:16Z); dead code, no product change]
 
 The uncalled-code fixpoint (`scripts/arch/ilanalysis.py`, README "Code facts") leaves 773
 methods the roots do not reach (17,333 instructions): 282 hook-named, and 491 others, which is
@@ -184,20 +184,26 @@ test called, so most of these stay alive through unit tests alone. Every one now
 signature so it survives the folder move) and `test-only-methods-2026-11-14.md` (definitions,
 regenerate commands, counts, the ready-to-delete list by module).
 
-- `really-dead` 124 (6,387 instructions): no production caller (IL and a comment-stripped
-  source scan), no reach by name, attribute, override or harness source-sync, no recorded keep,
-  every production caller itself really-dead, and no live logic left untested by the deletion. Each row names the
-  tests that go with it (`[only-dead]`: delete, `[edit:N-live]`: edit) and the doc lines that
-  name it.
-- `dead-but-tests-guard-live-logic` 196: no live caller, but the tests are the coverage of a live
+- `really-dead` 117 (5,721 instructions): no production caller (IL and a comment-stripped
+  source scan), no reach by name, attribute, override or harness source-sync, no keep recorded
+  in a gate, a doc comment ("DECIDED", "kept", "scaffolding", "second cut" ...) or a doc line
+  naming it, every production caller itself really-dead, and no live logic left untested by the
+  deletion. Each row names the tests that go with it (`[only-dead]`: delete, 268 test calls;
+  `[edit:N-live]`: edit, 62) and the doc lines that name it (bare-name search).
+- `dead-but-tests-guard-live-logic` 198: no live caller, but the tests are the coverage of a live
   twin (overloads, forwarders, the Re-Fly world-action cluster, `TreeDiscardService.RemoveRecordingAt`,
-  which CLAUDE.md still names). Re-point the tests before any deletion.
+  which CLAUDE.md still names, and `GhostPlaybackLogic.ComputeLoopPhaseFromUT` /
+  `TryComputeLoopPlaybackUT`, whose cases move to the live `TryComputeLoopPlaybackPhase` first).
+  Re-point the tests before any deletion.
 - `test-hook` 399 (30 hook-named ones no test calls), `tested-helper-of-live-code` 18,
-  `kept-by-design` 32 (recorded keeps; none is a root-rule gap), `unsure` 4.
+  `kept-by-design` 37 (recorded keeps, among them `RecordingsTableUI.ScrollToRecording`, the
+  `MapRenderTrace` second-cut scaffolding and `GuiMockSession.NoteScopeBroken`; none is a
+  root-rule gap), `unsure` 4.
 
 Fix (when the time comes): after the folder move, one vetted PR deletes the really-dead set and
-its `[only-dead]` tests, edits the `[edit]` tests and the docs the list names, and re-pins
-`[uncalledInAssembly]`. The rest of the list stays parked.
+its `[only-dead]` tests, edits the `[edit]` tests, the two negative assertions and the docs the
+list names, and re-pins `[uncalledInAssembly]` (bound and key list) and `headless_pins.toml`. The
+rest of the list stays parked.
 
 ## ARCH-COLD-RESET-HOLDERS: save-scoped statics are reset field by field, so a new field can be forgotten [FILED 2026-11-14 for refactor plan item 15 ("B1", as corrected by the 2026-11-11 architecture review), branch `item15-cold-reset-holders`. IN PROGRESS; refactor, no product change]
 
@@ -2281,6 +2287,14 @@ semantic ratchet for the residue, then map flights. Lanes whose specs pin `[Ghos
 map picture lanes TP-1..TP-9 and the standalone-loop map lanes SLM-1, SLM-1T and SLM-2 fly
 ghost map presence too.
 
+Multiplayer (2026-11-14): not needed for multiplayer. `RivalMapPresence` (R3W-18) is a new type
+built only on the `GhostMapVessels` primitive that P3-01..P3-05 carve out
+(`docs/dev/plans/multiplayer/r0b-prep-map-watch-codec.md`); everything keyed by recording index,
+chain, overlap cycle or own render state stays in `GhostMapPresence`, and rivals never run it.
+Leave this parked for multiplayer's sake. If it is done anyway: make P3-01..P3-05 its first PRs
+so the primitive is not extracted twice, land P3-02 after P2a-07 (both touch
+`GhostMapPresence.StateVectors.cs`), and never run it concurrently with P3.
+
 ## ARCH-GHOST-POSITIONING-FILE: ParsekFlightGhostPositioner.cs is the one production file above 5,000 lines [FILED 2026-11-14 from the Atlas opportunity row 10 ("the single-file giants") and its "Largest files and types" finding. PARKED by the owner 2026-11-14 as later work, not part of the current refactor pass (which closes after the folder move, the cold load leftovers, the six-edge ledger cut and the really-dead removal); re-measure mid-December. Architecture debt, no behavior defect]
 
 Measured at main 24abf0dba (2026-11-14): `Source/Parsek/ParsekFlightGhostPositioner.cs` is
@@ -2307,6 +2321,17 @@ pure partial split changes no IL, so no flight is required; extracting `Interpol
 into units would change IL and needs a characterization golden first plus the ghost playback
 lanes (`harness/tools/run_index.py lanes-for --module Controllers` names them from the run
 archive on the owner's PC).
+
+Multiplayer (2026-11-14): closely related. The rival lane builds a second
+`ParsekFlightGhostPositioner(host, laneState)` (R3W-09), and steps P2a-03, P2a-04 and
+P2b-02..P2b-09 (`docs/dev/plans/multiplayer/r0b-prep-playback.md`) edit this file; it is frozen
+for the P2b window (P2b-02 to P2b-10). A FILE-ONLY split (the same class made partial, identical
+IL, no flights) is fine BEFORE multiplayer starts; when it merges, the file:line facts in section
+3 of `r0b-prep-playback.md` need re-anchoring. A split into several CLASSES waits until AFTER
+P2b-10: P2b moves the orbit cache, the position entries, the reapply stamps and the log-once sets
+(the state that tangles this file) into `ParsekFlightPlaybackLane`, so a class split before it
+would invalidate P2b's member tables and need the 18-lane flight proof twice. Never during the
+P2b window.
 
 ## ARCH-STOCK-UI-RESERVATION-CYCLES-2026-09-25: the stock-UI reservation layer added eight types to the kernel knot and a new 7-type knot [FILED 2026-09-25 when `scripts/arch/modules.toml` classified the layer; OPEN, low; architecture debt, no behavior defect. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
