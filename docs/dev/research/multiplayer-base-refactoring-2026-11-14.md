@@ -13,9 +13,11 @@ Yes, but it is a short, mostly small list, and it is not the list the design had
 - **Eleven changes to base Parsek should land before any feature code** (section 4). Five are
   small, six are medium, none is large. Each is a change with no behavior change in single
   player, proven by the existing suites and lanes.
-- **Seven small additions to base Parsek come with the feature** (section 5): new facts that
+- **Seven additions to base Parsek come with the feature** (section 5; none is larger than
+  medium): new facts that
   single player does not record or compute today (whether a flight used cheat tools, when a
-  deleted vessel stopped existing, the date a milestone is credited), and small seams on ghost visuals.
+  deleted vessel stopped existing, the dates a milestone was reached), and small seams on
+  ghost visuals.
 - **Six things the design called refactors are not needed** if the design makes a simpler
   choice (section 6). The largest saving: a rival flight is turned into plain positions when
   it is loaded, so the code that places a ghost relative to another vessel never runs for a
@@ -81,7 +83,8 @@ caller's order.
   (`ClassifyKscExclusionZone`, :271) and about 12 production sites in all. Everything else
   matches a launch site NAME or reads stock live. The optimizer's launch-site rule and the
   route origin proof read no position, so the design's P1 overstated the reader set. 64 test
-  references and one harness lane (EX-1) pin the constants and the log wording.
+  references and three harness lanes pin the constants and the log wording (EX-1, and LF-1 and
+  LF-2, whose rover parks 59.7 m from the runway threshold, just outside the 50 m circle).
 - **A cache that is never reset.** `LaunchSiteExclusionZones.cachedRuntimeCircles` (:130)
   holds the Making History sites for the life of the process, and a partial read is frozen
   with fallback rows merged in (:237-247). Only a test hook clears it.
@@ -101,9 +104,10 @@ caller's order.
 
 - **Trajectory files decode into a `Recording`** (`TrajectorySidecarBinary.Read(path,
   Recording, probe)`, :290). The private readers already take plain lists, so a variant that
-  fills a plain value is mostly plumbing; two helpers stay typed on `Recording` (:601, :658).
+  fills a plain value is mostly plumbing; two helpers of the text codec stay typed on
+  `Recording` (`TrajectoryTextSidecarCodec.cs:601`, `:658`).
   Loading from a path outside the save exists only under test-hook names
-  (`RecordingSidecarStore.cs:190`, `:608`, `:910`). Snapshot files already decode into a plain
+  (`RecordingSidecarStore.cs:190`, `:910`, `:2092`). Snapshot files already decode into a plain
   node.
 - **The recording's saved metadata is not a public projection.**
   `RecordingTreeRecordCodec.SaveRecordingInto` writes private state next to what a ghost
@@ -159,9 +163,11 @@ caller's order.
 
 - `[forbidden]` edges take one `"From -> To"` string each (`scripts/arch/layers.py:225`,
   `scripts/arch/archview.py:6517`). The design's `A -> B | C` lists are rejected by both
-  parsers; written out they are 54 edges against 2 today.
-- `ParsekRaceMenu.cs` and `ParsekRaceScenario.cs` match no placement rule and would fall
-  into module Core (`scripts/arch/modules.toml:322`).
+  parsers; written out they are 71 edges against 2 today.
+- `ParsekRaceMenu.cs` and `ParsekRaceScenario.cs` match no placement rule (the Controllers
+  rule at `scripts/arch/modules.toml:322` is a file-name pattern that does not cover them).
+  A root file with no rule is reported as unplaced and reds the map suite
+  (`scripts/arch/archview.py:7179`), so they need a rule in the change that adds them.
 - `UiSurface` only expresses Basic and Advanced; it cannot say "race saves only".
 - `KnownLoadInitiators` gates `GamePersistence.LoadGame(` per file. Creating and starting a
   new game is not gated by it.
@@ -179,7 +185,7 @@ Each lands on its own with no behavior change. The id column is the design's 15.
 
 | Id | Change | Size | Evidence | Risk and proof |
 |----|--------|------|----------|----------------|
-| P1 | One source for the working space center's position: a `HomeSpaceCenter` value in `Core` (pad, runway threshold and end, strip half-width, a version) that returns the stock numbers unless set; a shared launch-area predicate (circle or strip, longitude wrapped) that single player's 50 m rule calls; a reset for `cachedRuntimeCircles` | M | 4 constants, about 12 production sites, 64 test references, lane EX-1 | Low. The log wording EX-1 pins must not move |
+| P1 | One source for the working space center's position: a `HomeSpaceCenter` value in `Core` (pad, runway threshold and end, strip half-width, a version) that returns the stock numbers unless set; a shared launch-area predicate (circle or strip, longitude wrapped) that single player's 50 m rule calls; a reset for `cachedRuntimeCircles` | M | 4 constants, about 12 production sites, 64 test references, lanes EX-1, LF-1, LF-2 | Low. The log wording EX-1 pins must not move |
 | P2a | The catalog port: `IPlaybackCatalog` (find a recording by id, find the tree holding an id, the pending tree) on the floor; the five copies of the tree lookup and the two by-id lookups call it; the own lane's catalog wraps the stores | M | About 28 store reads in 8 functions | Medium. The copies search in different orders; each call keeps its order. Per-frame path: all flight lanes |
 | P2b | Lane state for the positioner: the orbit cache, the ghost position entries, the log-once sets, the watch query and the loop-unit lookup move from `ParsekFlight` fields to one per-lane object the positioner and the late-update helpers of `ParsekFlightPlaybackHost` are handed | M | About 60 host references to 14 members, plus about 10 helper methods | Medium. The largest one. Per-frame path, index-keyed caches. Mechanical re-homing provable with `scripts/refactor/il_compare.py`, then all flight lanes |
 | P2c | `LoopSyncParentIdx` leaves `IPlaybackTrajectory` (the optimizer keeps it beside the list) and the engine gets its own diagnostics sink and a shared spawn budget | S | 2 writers, 2 readers; 16 diagnostics writes | Low |
@@ -195,14 +201,14 @@ Five of these are worth doing even if multiplayer never ships: P2a (one lookup i
 that disagree on order), P1's cache reset and longitude wrap, P7 (an id check that differs by
 operating system), P10 (production-worthy code living in test tooling) and P11.
 
-## 5. Small additions to base Parsek that come with the feature
+## 5. Additions to base Parsek that come with the feature
 
 Not refactors: single player has no such fact or seam today. Each is additive (no save
 format bump under the save-format policy) and inert outside a race.
 
 | Id | Addition | Size | Why it must be in base code |
 |----|----------|------|-----------------------------|
-| A1 | One pure query beside `CommittedMilestoneReach`: the credited once-ever row per milestone id over the effective ledger, with its date and flight id | S | The board's input (design 7.8). VERIFY with it: what a milestone does when the flight that reached it is superseded by a Re-Fly (its row is tombstone-eligible, `GameActions/TombstoneEligibility.cs:87`) |
+| A1 | One pure query beside `CommittedMilestoneReach`: the reach rows per milestone id over the effective ledger, earliest first (the first is the one the once-ever walk credits), each with its date and flight id | S | The board's input (design 7.8). VERIFY with it: what a milestone does when the flight that reached it is superseded by a Re-Fly (its row is tombstone-eligible, `GameActions/TombstoneEligibility.cs:87`) |
 | A2 | One pure "stands from date A until date B" query composing the four existing blocks, plus a recorded fact when a committed flight's vessel is deleted or destroyed outside a recording | M | Leftovers (design 7.7). The second half is new capture: today that vessel's end is not recorded anywhere |
 | A3 | A per-flight "tools used" fact (gravity hack, cheat teleport, cheat currency), stored on the recording so it follows optimizer splits and merges | S to M | Disclosure (design 7.12, owner decision D3). The detectors exist; nothing is stored |
 | A4 | Build options on the ghost kerbal build: a part-name substitute before the part lookup, and a material override after the materials are cloned | S to M | Looks (design 7.4). Without the substitute a missing suit part gives a 12 m sphere |

@@ -528,7 +528,7 @@ Revised 2026-10-05 (owner rulings; full design in `docs/dev/gloops-recorder-desi
 
 ## Phase 15: Multiplayer - the Space Race
 
-**Status: DESIGN v1 (2026-11-14), not implemented.** Binding design:
+**Status: DESIGN v2 (2026-11-14), not implemented.** Binding design:
 `docs/dev/design-competitive-multiplayer.md`. No implementation starts before the owner says so
 (see "Current focus").
 
@@ -539,8 +539,9 @@ their public state through a shared folder. Nobody needs to be online at the sam
   Career. A race save is a normal save with a race mark; single-player saves are untouched.
 - **Four space centers.** Each player gets an exact copy of the KSC at a fixed site on Kerbin's
   equator, assigned automatically so players are as far apart as possible. Only its owner
-  launches from a KSC; the stock alternate launch sites are common. Players can join later
-  while a seat is free.
+  launches from a KSC; the stock alternate launch sites are common when the race uses them
+  (a race setting; they need the Making History expansion). Players can join later while a
+  seat is free.
 - **Name and look.** Each player picks a display name and one of four distinct looks (a stock
   suit style with its color; stock-like replacements where a DLC is missing).
 - **Rivals are only seen.** Other players' buildings, flights and leftovers appear as ghosts and
@@ -556,8 +557,9 @@ their public state through a shared folder. Nobody needs to be online at the sam
   what was seen, self-healing own files); the replay of a flight is the proof of its
   milestone. Signed files and automatic flight checks are later hardening.
 
-Ideas kept for later, not in the design: pre-built opponent packs (a recorded space program to
-race against alone) and community races against a published campaign.
+A later optional feature the design allows for (its section 15.10, phase R8): recorded
+opponents, a recorded space program to race against alone. An idea kept for later, not in
+the design: community races against a published campaign.
 
 ---
 
@@ -614,7 +616,7 @@ Phase 14: Cooperative Async Multiplayer (DEPRECATED 2026-11-14, not planned)
     │  (archived design: docs/dev/done/design-coop-async-multiplayer.md)
     │
     ▼
-Phase 15: Multiplayer - the Space Race (design v1; after the public release)
+Phase 15: Multiplayer - the Space Race (design v2; after the public release)
     │  New game mode, four KSC sites, rivals as ghosts only, shared folder,
     │  milestone board with a points ladder
     │  (design: docs/dev/design-competitive-multiplayer.md)

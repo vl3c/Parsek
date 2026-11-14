@@ -18,7 +18,8 @@ adversarial on the rules of play, one adversarial on the technical plan): the da
 15.14) were rewritten where the reviews found them wrong, and section 13 lists the decisions
 still open. A measured inventory of the 1.1 code
 (`docs/dev/research/multiplayer-base-refactoring-2026-11-14.md`) then sized what base Parsek
-needs changed first (15.11) and corrected 15.5, 15.6 and 15.14. Nothing here is implemented, and nothing is implemented before the owner says so
+needs changed first (15.11) and corrected 15.5, 15.6 and 15.14. Two final reviews were then
+folded in. Nothing here is implemented, and nothing is implemented before the owner says so
 (roadmap "Current focus").
 **Supersedes:** `docs/dev/done/design-coop-async-multiplayer.md`. Cooperative multiplayer is
 deprecated (owner ruling 2026-11-14). Section 5 lists what this design keeps from it.
@@ -146,7 +147,7 @@ most points wins.
 | Player creates a race | They pick a race name, game mode, difficulty, shared folder, optional end date and house rules, then their own name and look. A fresh save starts at day 1 at their space center |
 | Friend joins | They point at the shared folder, see the race and who is in it, pick a name and a free look, and get a fresh save at their own space center, on the far side of Kerbin |
 | A friend joins weeks later | The same Join. A race always has four seats; any free one can be taken at any time. The newcomer starts at day 1, sees everything the others already did as ghosts and board dates, and can still take any first by reaching it at an earlier game date |
-| Player launches | From their own KSC (only they can), or from any stock alternate launch site (anyone can) |
+| Player launches | From their own KSC (only they can), or, when the race uses them, from any stock alternate launch site (anyone can; they need the Making History expansion, 7.3) |
 | Player commits a flight | Their public state is written to their own subfolder of the shared folder |
 | A rival's state arrives | Their flights appear as ghosts at the game dates they were flown, in their color; their milestones appear on the board |
 | Player looks at a rival's site | An exact copy of the KSC stands there as scenery. Rival rockets lift off from it as ghosts when the player's clock reaches each launch |
@@ -219,11 +220,13 @@ board is a comparison, not an economy.
    the few standings they need are kept on purpose (6.3): when a date first appeared (the
    no-retakes rule), what was shared before the end date (the final board), and whether a
    file was changed after it was seen (7.15).
-4. **Same files, same board.** Every score is a function of the files in the shared folder
+4. **Same files, same board.** Every score is a function of the files the players wrote
    and of nothing else: not of when a file reached one machine, not of a player's calendar
-   setting, not of what one machine remembers. What a machine remembers (its witness log)
-   can add a mark next to a name; it never changes a score. No machine is special and there
-   is no server.
+   setting. No machine is special and there is no server. One exception follows from having
+   no server (7.15): a machine refuses a rival's file that was changed after it saw it and
+   keeps scoring what it saw, so while a changed file sits in the folder, a machine that
+   never saw the real one can show a different board. The writer's own game puts the real
+   file back at its next sync, and the boards agree again.
 5. **Game date is the race clock; real time only bounds the race.** Firsts are compared by game
    date. Time warp gives no advantage, because it spends game days. The optional end date is
    the only place real time enters.
@@ -243,8 +246,8 @@ board is a comparison, not an economy.
     difficulty settings and cheat or debug tool use are shown next to the player's name.
     Nothing is refused for them, and nothing is taken from the player's own game. The one
     thing that costs points is a flight flown with such a tool (7.12, owner ruling).
-11. **Reuse before invention.** Ghost playback, map presence, flag replay, the milestone rows
-    and their once-ever walk, the shared window chrome and styles and the safe-write file helpers
+11. **Reuse before invention.** Ghost playback, map presence, the milestone rows and their
+    once-ever walk, the shared window chrome and styles and the safe-write file helpers
     already exist. This feature adds the exchange, the sites, the looks, the board and its
     window.
 
@@ -268,7 +271,7 @@ board is a comparison, not an economy.
 | Standing | One immutable export file: a player's complete public state at one moment (section 6.1). |
 | Payload | The recording files a standing refers to, stored under the player's subtree, each named by recording id and content hash so a file never changes. |
 | Leftover | What a finished rival flight left in the world: a vessel in orbit or on a surface, shown as a ghost for as long as its owner's game says it is there (7.7). |
-| Game date | The game's own clock. Stored exactly; compared in the race's date unit, whole days or seconds (6.6). |
+| Game date | The game's own clock. Stored exactly; compared in whole game days (6.6). |
 | Rival store | The in-memory, read-only set of rivals' recordings, flags and milestones built from the latest complete standing of each rival. Not part of the save. |
 | Ladder | The fixed list of milestones that count in a race, each with a point value (section 7.9). |
 | First / holder | For a ladder milestone, the earliest game date any player reached it, and the player or players who did. |
@@ -309,8 +312,13 @@ saves/<save>/Parsek/Race/
   local.cfg                         this machine's settings: the shared folder
                                     location, the show-ghosts toggles, the digest
                                     of the last export
+  race.cfg                          a copy of the race file, taken at create or join
   own/standings/                    a copy of the standings this player exported
+  own/payload/                      the payload of standings not yet whole in the
+                                    shared folder, and of the last standing before
+                                    the end date (6.3)
   rivals/<playerId>/                the local copy the game plays from:
+    player.cfg                      a copy of that rival's identity file
     standings/                      the standing in effect for that rival and the
                                     few older ones the rules need (6.3)
     payload/...                     the recording files the one in effect names
@@ -332,7 +340,7 @@ saves/<save>/Parsek/Race/
  rival recordings, flags,                      + the payload it names
  milestones, looks, sites                      (copied to a local cache)
         |
-        +--> ghost playback (flight, map, tracking station, KSC)
+        +--> ghost playback (flight, map, tracking station)
         +--> rival flags (readable objects, never saved)
         +--> the board --> Space Race window, one-shot messages
 ```
@@ -363,7 +371,7 @@ from while it plays.
 | Half-synced state | Must be handled on every read | Handled once, at copy time: a standing is copied only when everything it names has arrived and matches its hash |
 | Noticing edited files (7.15) | Nothing local to compare against | The copy and the witness log are the comparison |
 | Disk space | None extra | One copy of each rival flight in use (flights are small: trajectories and one craft snapshot each) |
-| Freshness | Always the folder's latest | The latest as of the last sync; a sync runs at every scene change, on a slow poll outside flight, and on Sync now |
+| Freshness | Always the folder's latest | The latest as of the last sync; a sync runs at the ticks of 7.5 (a save load, entering the Space Center or the Tracking Station, a slow poll there, Sync now) |
 | Moving or renaming the shared folder | The game breaks until the path is fixed | The game plays on; only sharing pauses until the path is fixed in Settings |
 
 **Decision: copy.** The shared folder is transport only. Only the copy step touches it
@@ -393,7 +401,7 @@ is no interaction.
 | Co-op design element | Here |
 |----------------------|------|
 | Shared folder, one write-only subfolder per player, no server | Kept (4.1) |
-| Player identity: stable id plus display name | Kept (7.1) |
+| Player identity: stable id plus display name | Kept (6.1, 7.2) |
 | Payload written first, envelope last, hashes gate integrity | Kept (6.3) |
 | Safe-write with retry, cloud-placeholder and sync-conflict-copy handling | Kept (9) |
 | Missing-parts ghosts render with the absent parts skipped | Kept (7.6) |
@@ -434,7 +442,7 @@ RaceManifest (race.cfg, written once by the creator)
   DIFFICULTY { }            - the stock GameParameters node every save is created from
   difficultyDigest: string  - hash of that node, for disclosure
   ladderId: string          - which ladder table applies ("standard-1")
-  dateUnit: string          - how game dates are compared: DAY or SECOND (6.6)
+  dateUnit: string          - how game dates are compared; always DAY in this format (6.6)
   calendar: string          - KERBIN or EARTH: what "a day" is, for every player (6.6)
   alternateSites: bool      - the stock alternate launch sites are in use (7.3)
   endRealTime: string       - optional; empty = no limit
@@ -448,7 +456,8 @@ PlayerManifest (players/<id>/player.cfg, single writer = that player)
   displayName: string       - unique within the race (7.2)
   kind: string              - HUMAN (default), RECORDED or AI (15.10); the first
                               build writes and accepts only HUMAN
-  look: int                 - 0..3 (7.4); may be changed once by the clash rule (7.3)
+  look: int                 - 0..3 (7.4); changed by the clash rule at join (7.3)
+                              or by the player in Settings (7.2)
   siteSlot: int             - 0..3 (7.3); never changes
   joinedRealTime: string
 
@@ -469,10 +478,12 @@ Standing (players/<id>/standings/<seq>.pstd, immutable, written LAST)
                               debug tools were on while it was flown (7.12)
   TREES { TREE id hash ... }                 - their trees
   MILESTONES { M id ut recordingId since ... }
-                            - the player's ladder table (7.8); since = the seq of
-                              this player's standing in which this exact date
-                              first appeared, carried forward unchanged while
-                              the date stands (7.10, 7.11)
+                            - the player's ladder table (7.8): one entry per
+                              date on record, so usually one per milestone and
+                              two after a rewind and an earlier re-earn; since =
+                              the seq of this player's standing in which this
+                              exact date first appeared, carried forward
+                              unchanged while the date stands (7.10, 7.11)
   LEFTOVERS { L recordingId fromUT untilUT ... }
                             - what the player's flights left in the world and for
                               how long (7.7); untilUT empty = still there
@@ -509,18 +520,29 @@ RivalCache (local files under saves/<save>/Parsek/Race/rivals/<playerId>/, not n
 
 OwnMirror (local files under saves/<save>/Parsek/Race/own/, never synced)
   a copy of the standings this player exported, to detect and undo changes
-  somebody else made to this player's subtree in the shared folder (7.15)
+  somebody else made to this player's subtree in the shared folder (7.15),
+  and the payload of the standings that are not yet whole in the shared
+  folder and of the last standing before the end date (6.3)
 
 Board (derived, runtime only; section 7.8)
 ```
 
 ### 6.2 Changes to existing types
 
-None of the recording, tree or ledger types gain a field. In particular there is no owner tag
-on `Recording`, `RecordingTree` or `GameAction`: a rival's recording never becomes one of those
-in the local stores (6.4). The "tools were on" fact of 7.12 is derived at export time from data
-the recorder already keeps or from a small additive key on the recording (decided at planning;
-additive either way, so no format bump).
+There is no owner tag on `Recording`, `RecordingTree` or `GameAction`: a rival's recording
+never becomes one of those in the local stores (6.4). The tree and ledger types gain nothing.
+
+The player's own recordings gain two small facts that base Parsek does not keep today. Both
+are optional keys, so neither bumps a format (the save format policy's additive rule), and
+both are written only in a race save, which is marked from its creation (principle 9), so
+a single-player recording stays byte-identical:
+
+- which of the listed tools were used during the flight (7.12; addition A3 of 15.11). Single
+  player detects them and writes log lines only, so there is nothing to derive this from at
+  export time;
+- that a committed flight's vessel was later deleted or destroyed outside any recording
+  (7.7; addition A2). Today nothing records that end. Where the fact is kept (on the
+  recording or beside it) is decided when A2 is planned.
 
 The race mark is NOT a child of the PARSEK node. It is the node of a second, tiny scenario
 module (`ParsekRaceScenario`), for two reasons the reviews found:
@@ -549,7 +571,11 @@ module (`ParsekRaceScenario`), for two reasons the reviews found:
 - **Every standing is copied out, in order.** A standing is written to the local own mirror
   first and copied to the shared folder when it is reachable. Standings written while it was
   not are copied later, oldest first, so the chain in the folder has no hole of the writer's
-  making.
+  making. The payload goes the same way: when the exporter writes a standing it copies the
+  payload files that standing newly names into the own mirror (the bytes the hashes were
+  taken from), and each stays there until it is in the shared folder. The save may rewrite
+  a recording in the meantime (an optimizer merge, an in-place Re-Fly); the mirror's copy
+  is what keeps the older standing whole.
 - **Payload identity.** A recording's payload files are named by recording id AND content
   hash (`<recordingId>.<hash><suffix>`), the naming the save's own sidecar versions already
   use (`SidecarVersions`). A recording id alone does not identify content: an in-place Re-Fly
@@ -569,11 +595,13 @@ module (`ParsekRaceScenario`), for two reasons the reviews found:
   changing.
 - **What is kept.** A standing is a full snapshot, so the folder would grow without bound if
   every one were kept. A player's exporter keeps in the shared folder: the last 20 standings;
-  every standing that is the `since` of a milestone date the latest standing still lists
-  (those answer "when did this date first appear", 7.10 and 7.11); and the last standing
-  stamped before the end date (7.10). It deletes the rest, and payload none of the kept
-  standings names, after a grace period. Importers keep the same set in the rival cache, so
-  the board, the final board and the no-retakes rule are all computed from the local copy.
+  every standing that is the `since` of a milestone date listed by the latest standing or
+  by the last standing stamped before the end date (those answer "when did this date first
+  appear", 7.10 and 7.11); and the last standing stamped before the end date itself (7.10),
+  whose payload the own mirror also keeps for good so it can be put back. It deletes the
+  rest, and payload none of the kept standings names, after a grace period. Importers keep
+  the same set in the rival cache, so the board, the final board and the no-retakes rule are
+  all computed from the local copy.
 - **Versioning.** `raceFormat` versions the exchange files. A standing with a newer
   `raceFormat`, or recordings in a newer recording format than the local build reads, is not
   applied: the rival's board rows are still shown if the milestone block parses, their ghosts
@@ -608,8 +636,9 @@ stock game or Parsek's own model counts.**
   vessel disposal gate, the spawn gate and every spawn path, rewind points and Re-Fly, the
   optimizer, Missions, Logistics (route sources and endpoints), the own Timeline window and
   the Recordings table.
-- The consumers of the rival store are exactly: the rival ghost lane (flight, map, tracking
-  station, KSC scene), the rival flag presenter, the board, and the Space Race window.
+- The consumers of the rival store are exactly: the rival ghost lane (flight, map view and
+  the Tracking Station; not the Space Center scene in the first build, 15.6), the rival flag
+  presenter, the board, and the Space Race window.
 
 The reviews found four side channels that the rule above does not close by itself. Each is
 closed by a design choice, not by a guard added later:
@@ -624,8 +653,14 @@ closed by a design choice, not by a guard added later:
 Mechanical gates, so the invariant stays true as the code changes:
 
 - `[forbidden]` edges in `scripts/arch/modules.toml` (listed in 15.4): the ledger, roster,
-  recorder, rewind, mission and route modules cannot name anything of the race, and the race
-  modules cannot name them, except the one export module.
+  recorder, rewind, mission and route modules cannot name anything of the race. In the other
+  direction: the rules module names nothing above the floor; the live half (`RaceWorld`)
+  cannot name the ledger, the roster, rewind, missions or routes, and may name the
+  `Recording` module only for its file codecs and data types, inside its loader; only the
+  export module reads the player's own model.
+- A grep-audit gate for the part of that the module map cannot express: inside `RaceWorld`,
+  types of the `Recording` module appear only in the loader files, and no race file names a
+  recorder or a recording store (15.4).
 - A grep-audit gate in the `GrepAuditTests` family: the rival store's type names appear only
   in an allowlisted set of files.
 - A headless test: load a race save with a populated rival cache, run the ledger walk and the
@@ -651,13 +686,12 @@ rule does not use real time at all; it uses the receipts (7.11).
 
 ### 6.6 Game dates
 
-A milestone's date is stored exactly, as the game's universal time in seconds. How two dates
-are COMPARED is a race setting, `dateUnit`, fixed in the manifest so every machine compares
-alike:
-
-- `DAY` (the default, owner ruling 2026-11-14): dates are compared as whole game days. Two
-  players who reach a milestone on the same game day are tied.
-- `SECOND`: dates are compared exactly. Ties practically never happen.
+A milestone's date is stored exactly, as the game's universal time in seconds. Two dates
+are COMPARED as whole game days (owner ruling 2026-11-14): two players who reach a milestone
+on the same game day are tied. This is a rule of the race, not a setting. The manifest
+still carries it, as `dateUnit = DAY`, so that every machine reads the rule from the file
+and a later format could add another unit; this build writes `DAY` and refuses to join a
+race whose manifest says anything else. Comparing exact seconds is not offered.
 
 Why whole days: (a) the sites are spread around Kerbin, so the Mun and the
 launch windows to it come up to three hours apart for different players, a difference that
@@ -711,7 +745,7 @@ One dialog in the stock dialog style, with three actions.
 - the shared folder's location, in the same dialog as the name and the look: a path field
   (typed or pasted; there is no folder picker) and a Validate button (exists, writable,
   empty of any race, short enough for the paths the local copy needs, 6.3);
-- how game dates are compared (6.6), and whether the shared launch sites are in use (7.3);
+- whether the shared launch sites are in use (7.3);
 - optional end date (real time);
 - house rules: "no retakes" (7.11);
 - their own display name and look.
@@ -744,7 +778,9 @@ at the next sync ("Dan joined the race"). What a late joiner gets:
 - The same chance at every first: a first belongs to the earliest game date, so the newcomer
   takes one by reaching it earlier in game time than its holder did. Under the "no retakes"
   house rule a late joiner has seen everything already shared, so they can only take firsts
-  nobody has reached yet; the Join dialog says so before they commit.
+  nobody has reached yet; the Join dialog says so before they commit. (To make that true of
+  the files, a game that has just joined writes its first standing only after its first
+  import has completed, 7.5.)
 - A first sync that may be large. It is spread over several polls with progress in the status
   text, and the game is playable meanwhile.
 
@@ -819,13 +855,13 @@ is there:
 | 2 | 15.36 E: open sea | 18.8 E, 3.4 degrees away (a plateau) | about 520 m |
 | 3 | 164.64 W: dry, rough highlands | 162.3 W, 2.3 degrees away | about 675 m |
 
-So every site can stand within 3.4 degrees of its ideal point, which keeps the sites
-opposite for every practical purpose (3.4 degrees is 36 km on the ground and 49 seconds of
-Kerbin's rotation). What the survey also shows is that none of that ground is at the KSC's
-height: ground as low as the KSC's lies 12 degrees from site 2's point and 32 degrees from
-site 3's. The stock KSC itself stands on a flattened patch in rough terrain (415 m of
-height range within 3 km), so a site does not need naturally flat land, only dry ground
-under its patch.
+So every site can stand within 3.4 degrees of its ideal point, which keeps the sites opposite
+for every practical purpose (3.4 degrees is 36 km on the ground and about three and a half
+minutes of Kerbin's rotation). What the survey also shows is that none of that ground is at the
+KSC's height: ground as low as the KSC's lies 12 degrees from site 2's point and 32 degrees from
+site 3's. The stock KSC itself stands on a flattened patch in rough terrain (415 m of height
+range within 3 km), so a site does not need naturally flat land, only dry ground under its
+patch.
 
 **Each site keeps its natural height** (owner ruling 2026-11-14). The sites stand at the
 nearest usable ground to their ideal points and are flattened at the local ground level,
@@ -858,7 +894,7 @@ race mark, vessels stand on it, and a load must find it where the save left it. 
   they have not flown yet the remedy costs nothing: delete the save and join again.
 - *The same look:* the later joiner's look is changed to the first free one, with one
   on-screen message. A look is cosmetic and lives outside the save file (6.1), so this is
-  safe at any time; their kerbals are re-dressed at the next load.
+  safe at any time; their kerbals are re-dressed once, at the next load.
 
 A fifth player folder (five simultaneous joins) is ignored by every game, by the same order:
 the four earliest are the race.
@@ -1032,12 +1068,15 @@ flight that was merged and is not superseded, retired or discarded. So:
 
 **Sync ticks.** Save load, entering the Space Center or the Tracking Station, after a tree
 commit or a Re-Fly merge, a low-frequency poll in the Space Center and the Tracking Station,
-and the Sync now button. During a flight the only tick is the one after a commit, and it only
-exports; nothing is polled while a vessel is flying.
+and the Sync now button. During a flight the only ticks are the one after a commit and the
+Sync now button, and both only export; nothing is polled and no rival standing is applied
+while a vessel is flying.
 
 **Order inside a tick: export first, then import.** The standing written in a tick lists as
 seen only what had been applied before the tick. A flight committed before the player's game
 had applied a rival's claim is therefore never stamped as "flown after seeing it" (7.11).
+The one exception is a game that has just joined: it writes no standing until its first
+import has completed, so a late joiner's first standing lists everything already shared.
 
 An export failure (folder offline) is silent apart from the status text and one log warning.
 Nothing is lost: the standing is in the local own mirror and is copied out when the folder
@@ -1157,11 +1196,18 @@ Rival ghosts play at the game dates they were recorded, against the local player
 
 ### 7.8 Milestones and the board
 
-**A player's milestone table.** For each ladder milestone, the earliest game date at which one
-of the player's effective committed flights reached it, and that flight's recording id. It is
-derived from data single player already keeps: the ledger's milestone rows, which exist in all
-three game modes and which the once-ever walk already credits to the earliest date. After a
-rewind and an earlier flight, the walk credits the earlier one, and the table follows.
+**A player's milestone table.** For each ladder milestone, every game date at which one of
+the player's effective committed flights is on record as reaching it, earliest first, each
+with that flight's recording id. It is derived from data single player already keeps: the
+ledger's milestone rows, which exist in all three game modes and which the once-ever walk
+already credits to the earliest date. Nearly always that is one date. A second one exists
+only after a rewind: stock records a milestone once, so a flight flown AFTER the date on
+record reaches nothing new and adds no row, while a flight flown after a rewind to before
+it, reaching the milestone at an earlier date, adds an earlier row; the walk then credits
+the earlier one, and the later flight's row stays for as long as that flight is committed.
+The date that counts for a player is the earliest of their dates that scores (the board,
+below). (VERIFY with addition A1 that the later row is still in the effective ledger after
+the earlier re-earn; the no-retakes rule of 7.11 reads it.)
 (Checked in the code by the review: milestone events are captured in every mode; the walk
 credits the first in game-date order; after a rewind a milestone is open again until the
 clock passes the committed row, so an earlier re-earn is recorded; rows follow their flight
@@ -1187,15 +1233,31 @@ A deeper check of the trajectory against the claim (on the Mun's surface and at 
 landing) is a later hardening (open question 13.C.4).
 
 **The board.** For every ladder milestone m and every player p, the date d(p, m) or nothing.
-The first is the earliest date in the race's date unit (6.6); its holders are every player
+Only a date that scores can hold a first. A date that is unverified (above), or that comes
+from a flight flown with a listed tool (7.12), is shown on the board with its mark and is
+skipped when the holder is decided: it takes no points and it keeps none from the next
+player, and the player's own next date, if they have one, is read instead. The first is
+the earliest scoring date, compared in whole game days (6.6); its holders are every player
 with that date. With whole-day comparison, two players who reached the milestone on the same
 game day are co-holders and **split the points** (owner ruling 2026-11-14): a milestone
-worth 6 gives each of two co-holders 3. Matching a rival's day therefore takes half of the
-points from them, and only being a full day earlier takes them all. A player's score is the
-sum over the milestones they hold.
+worth 6 gives each of two co-holders 3. Shares are not rounded (a 1-point milestone held by
+three players gives each a third); the window shows totals to two decimals. Matching a
+rival's day therefore takes half of the points from them, and only being a full day earlier
+takes them all. A player's score is the sum over the milestones they hold.
 
 The board is recomputed from the applied standings at every sync and whenever the local
 player's own table changes. Nothing about it is stored.
+
+**Rows this install cannot fully read.** Two marks say "not checked here", and they mean
+different things for the score:
+
+- A flight to a body this install does not have (7.6) cannot be WATCHED here. Its date is
+  still checked, because the check above reads only the standing, so the row scores like any
+  other.
+- A standing written by a newer build than this one (6.3) cannot be CHECKED here. Its rows
+  count as the standing states them, and stay marked. This is the one case in which two
+  machines can show different boards from the same files, and the mark is what tells the
+  players so; updating the older build removes it.
 
 **All dates are shown** (owner ruling 2026-11-14): a rival's milestone appears on the board
 with its game date as soon as it is shared, even when that date is ahead of the local clock.
@@ -1248,21 +1310,23 @@ flights; the setup dialog says so next to the mode.
 ### 7.10 The end date
 
 A race may have a real-time end date. When it has passed, the board is final: for each player
-it counts their last standing stamped before the end date. The Space Race window names the
-winner and shows the final board. Everyone can keep playing and sharing; later standings
-still drive ghosts and are shown as "after the end".
+it counts their last complete standing stamped before the end date (a standing whose
+payload is not all in the folder never counts, 6.3). The Space Race window names the winner,
+or the joint winners when players are level on points, and shows the final board. Everyone
+can keep playing and sharing; later standings still drive ghosts and are shown as "after the end".
 
 - **The final board is a function of the files.** It is computed from the standings in the
   folder (each player's exporter keeps their last pre-end standing for good, and its payload,
   6.3), not from when a file happened to arrive on one machine. Every machine that has the
-  files shows the same final board.
+  files, and a build that reads all of them (7.8), shows the same final board.
 - **Holding back is legal** (owner ruling 2026-11-14). A player may fly in private and
   share at the last hour; the race has no referee to say when a flight "should" have been
   shared. What a player risks by holding back is the sync itself: a standing that is not in
   the folder cannot count.
 - **The clock is the writer's own.** A standing stamped before the end that reaches the
   others long after it is marked "arrived late" on every machine that saw it late (7.12). It
-  still counts. Among friends a wrong clock is visible and talked about; a group that wants
+  still counts, so a final board can still change after the end date, when such a file
+  arrives. Among friends a wrong clock is visible and talked about; a group that wants
   more gets it from the hardening steps of 7.15.
 - **No end date:** the race simply continues, and the board always shows the present.
 
@@ -1275,8 +1339,9 @@ without any real-time stamp:
 **You cannot take a first you already knew about.** Each standing records, in its SEEN block,
 the highest standing of each rival its writer's game had applied before writing it, and each
 milestone entry records the standing in which that date first appeared (`since`). A player's
-date for a milestone is **blocked by a rival** when the rival's own entry for that milestone
-had already been seen by the player's game when the player's date first appeared. Under this
+date for a milestone is **blocked by a rival** when a scoring entry of that rival for that
+milestone (any of them, if the rival lists two, 7.8) had already been seen by the player's
+game when the player's date first appeared. Under this
 rule the holder is the earliest date that is not blocked. Two players who each reached the
 Mun before seeing the other's claim compare by game date as usual; once a player's game has
 seen a rival's Mun landing, flying an earlier one no longer takes it.
@@ -1290,6 +1355,10 @@ Details the reviews asked for:
 - **A block lasts only while the rival's claim stands.** If the rival's flight leaves the
   race (they loaded an older save), their claim is gone and the milestone is open again for
   everyone who had seen it.
+- **Only a date that scores can block.** A rival's date that is unverified or tool-marked
+  holds nothing (7.8), so having seen it blocks nobody. If it becomes a scoring date later
+  (the rival reaches the milestone again cleanly, 7.12), it blocks from the standing in which
+  the scoring date first appeared.
 - **A dropped first can be lost for good.** A player who held a first, quickloads past its
   flight and flies it again has, by then, seen the rivals' claims. That is the rule working;
   the message after such a load (7.5) says a first left the race.
@@ -1328,8 +1397,15 @@ when they differ from the race's:
   Not on the list, because they change nothing a rival could not also do: part clipping,
   non-strict part attachment, and the biome overlay.
   A flight flown with a listed tool **does not score** (owner ruling 2026-11-14): its
-  milestones are shown on the board, marked, and count for nothing. The player can fly it
-  again without the tool.
+  milestones are shown on the board, marked, and count for nothing. A flight is cut into
+  several recordings, so the mark follows the flight, not the cut: a milestone date is
+  marked when a recording of its tree that begins at or before that date carries a tool.
+  A tool used later in the same flight does not reach back.
+  To score such a milestone the player has to reach it again without the tool at an EARLIER
+  game date, after a rewind to before the marked flight, or in a save loaded from before
+  it. A clean flight flown after the marked one adds no date, because stock records a
+  milestone only once (7.8). Using a tool on the way to a first is therefore expensive, and
+  the mark on the flight says so as soon as the flight is merged.
 
   None of this is stored today. Single player detects a gravity hack, a cheat teleport and
   a cheat currency change and writes log lines only. The per-flight fact is new capture in
@@ -1403,11 +1479,20 @@ version; the hardening steps are listed so the formats leave room for them.
    "files in Ana's folder were changed", with the reason. The wording is deliberate. Without
    signatures nobody can tell WHO changed a file in Ana's folder, and the likeliest victim of
    an edit is Ana herself, so the mark describes the folder and accuses nobody. An older
-   standing that is simply gone is "history incomplete", not a change: owners prune (6.3).
-   A receipt that contradicts a file is shown as a disagreement naming both players.
+   standing that is simply gone is "history incomplete", not a change: owners prune (6.3),
+   and the newer standing is applied as usual. A receipt that contradicts a file is shown as
+   a disagreement naming both players. A game that never saw the real file (a late joiner,
+   a rebuilt cache) has no earlier state to keep, so it applies the file it finds and shows
+   that disagreement; until the writer's game heals the folder (item 4) its board can
+   differ from the others' (principle 4). The race file is treated the same way: each game
+   keeps the copy it took when it joined, and a `race.cfg` that differs from it is not
+   applied and is marked.
 4. **Your own files heal themselves.** At every sync the exporter compares its subfolder in
    the shared folder with its local copy of what it wrote.
-   - A file it wrote that was changed or deleted there is put back.
+   - A file it wrote that was changed or deleted there is put back: a standing from the own
+     mirror, a payload file from the own mirror or, while the save still holds those exact
+     bytes, from the save. Payload of an older standing that neither holds any more cannot
+     be put back; the others keep the newer standing they already applied.
    - A standing it did not write (a higher number than its own latest) is not deleted, since
      it may be this same player's export from another machine or from before a restored
      backup. Instead the game writes a fresh standing after it at once, with a note saying
@@ -1443,9 +1528,10 @@ with no flight behind it, a quietly replaced history. What it does not catch, sa
   - *The claim check:* at the claimed date the trajectory really does what the milestone
     says (at rest on the Mun's surface for a landing, a closed orbit around Duna for an
     orbit).
-  - *The teleport check:* the recording is continuous. The existing offline recording
-    analyzer already holds such rules; they run over a rival's recording as they do over the
-    player's own, and catch a craft moved by an editor or a debug tool.
+  - *The teleport check:* the recording is continuous. The offline recording analyzer has
+    no continuity rule today, so this is a new rule (15.4); it would run over a rival's
+    recording and over the player's own alike, and catch a craft moved by an editor or a
+    debug tool.
   - *The sky check:* the planets and moons are a clock nobody can edit. A flight to the Mun
     or beyond crosses from one body's surroundings to another's at a place and time that only
     fit where those bodies were at that game date. A flight whose dates were shifted earlier
@@ -1473,7 +1559,8 @@ anyone can watch it.
 
 **On detection** the rule follows principle 10: mark and explain, keep the last good state,
 never delete anything of a rival's, never touch the local player's game. A mark changes no
-score: the last good state keeps scoring, because the mark cannot say who is at fault.
+score: the last good state keeps scoring, because the mark cannot say who is at fault. This
+is the one place where what a machine remembers decides what it scores (principle 4).
 
 ---
 
@@ -1564,8 +1651,8 @@ score: the last good state keeps scoring, because the mark cannot say who is at 
     and scenery are removed before the single-player save's scene builds (7.1). A harness lane
     pins this.
 24. **Kerbin is changed by a planet mod.** The site table assumes stock Kerbin. A race refuses
-    to start on a modified Kerbin and says why (the one refusal besides format, because
-    terrain parity is not a matter of taste).
+    to start on a modified Kerbin and says why (a refusal, like a newer format or a missing
+    expansion the race needs, because terrain parity is not a matter of taste).
 25. **Three players; site 3 is empty.** Its buildings stand, fully built like every site, and
     nobody launches from them.
 26. **My site starts at night and my rival's in daylight.** Yes: the sites are spread around
@@ -1590,7 +1677,7 @@ score: the last good state keeps scoring, because the mark cannot say who is at 
 
 | Failure | Recovery | Data loss |
 |---------|----------|-----------|
-| Export interrupted (crash, folder offline) | Payload without a standing is inert; the next tick writes a fresh standing | None |
+| Export interrupted (crash, folder offline) | Payload without a standing is inert. After a crash the next tick writes a fresh standing; a standing already in the own mirror is copied out, with its payload, when the folder returns (6.3) | None |
 | Shared-folder write hits a sync-client lock | Safe-write retries with backoff, then waits for the next tick | None |
 | Corrupt or unsafe standing (bad hash, bad id, bad stamp, truncated) | Refused whole with the file and reason logged; the previous applied standing stays | None locally |
 | Cloud placeholder payload (not downloaded) | The copy step downloads it outside the game's frame loop (15.9); the game never opens a placeholder itself. The status text says what is still arriving | None; slow |
@@ -1628,8 +1715,10 @@ per-rival poll results at Verbose, rate-limited where they repeat.
 - Latest-complete-standing selection, including incomplete newest and seq gaps.
 - Slot and look assignment, and the simultaneous-join rule.
 - Milestone table derivation from a ledger with rewinds, Re-Fly supersedes and discards.
-- Board derivation: holders, co-holders and the split of points, unverified and tool-marked
-  entries, both date units and both calendars, the end date cut.
+- Board derivation: holders, co-holders and the split of points; an unverified or
+  tool-marked date earlier than a scoring one is shown, holds nothing, and under no retakes
+  blocks nobody; both calendars; the end date cut; a manifest whose `dateUnit` is not `DAY`
+  is refused.
 - Verification: a date inside the named recording, inside a sibling recording of the same
   tree, on a boundary within the tolerance, outside every range.
 - The no-retakes rule over standing histories: blind dates, a date improved after seeing, a
@@ -1645,8 +1734,18 @@ per-rival poll results at Verbose, rate-limited where they repeat.
   chain; a receipt that contradicts a file; the own subfolder is restored after a foreign
   edit; an unknown newer standing in the own subfolder is superseded with a note; a restored
   backup continues the numbering.
-- Same files, same board: the board computed from one folder on two machines with different
-  witness logs, arrival orders and calendar settings is identical.
+- Same files, same board: the board computed from one untampered folder on two machines
+  running the same build, with different arrival orders, calendar settings and installed
+  bodies, is identical.
+- A changed file: the machine that saw the real standing keeps it, scores it and marks the
+  folder; a machine that never saw it applies the changed one and shows the receipt
+  disagreement; after the writer's heal both boards agree.
+- Two dates for one milestone: the earlier one tool-marked or blocked, the later one counts;
+  a tool in an earlier recording of the same tree marks the date, a tool in a later one
+  does not.
+- The keep rule after the end date: a date the last pre-end standing lists and the latest
+  standing dropped still has its `since` standing; a pre-end standing whose payload the
+  save has since rewritten is completed from the own mirror.
 - Cost: building the rival store opens no payload file.
 - A late join: slot and look taken from what is free, no change to the existing players'
   state, the no-retakes rule for a player who has seen everything.
@@ -1752,6 +1851,14 @@ given, so they are written in as decided; any of them can be reopened.
 | A rival's docking approach, or a kerbal beside its lander, is played from the stored body-fixed positions, not relative to the other vessel | 15.5 |
 | The Space Race window and the Multiplayer settings exist in the Flight and Space Center scenes, like every Parsek window | 7.13 |
 | Nothing is exported while a Re-Fly session is open | 7.5 |
+| A date that scores nothing (unverified, or flown with a listed tool) cannot hold a first and, under "no retakes", cannot block one; the next scoring date holds it | 7.8, 7.11 |
+| A standing from a newer build than the local one counts as it states, marked "not checked here" | 6.3, 7.8 |
+| Whole game days is the only way dates are compared; exact seconds is not offered as a race setting | 6.6 |
+| A changed file is refused only by the games that saw the real one; until its writer's game restores it, a game that never saw it can show a different board | 2, 7.15 |
+| A tool marks every milestone its flight reaches afterwards, across the cuts into recordings; scoring such a milestone takes an earlier clean flight after a rewind | 7.12 |
+| Split points are not rounded; players level on points at the end are joint winners | 7.8, 7.10 |
+| A game that has just joined exports nothing until its first import is complete | 7.5 |
+| The own mirror keeps payload until it is in the shared folder, and the last pre-end standing's payload for good | 6.3 |
 
 ### 13.C For the play test and the phase plans
 
@@ -1789,8 +1896,8 @@ No phase starts before the owner says so. Each phase is independently testable.
 
 | Phase | Scope | Notes |
 |-------|-------|-------|
-| R0 | Spikes S1 to S7 of section 12 and S8 to S10 of 15.11, on the owner's PC. The code inventory that sizes the prerefactors is done (`docs/dev/research/multiplayer-base-refactoring-2026-11-14.md`) | Decides the site table and retires the feasibility risks before any feature code |
-| R0b | The prerefactors of 15.11 in the order given there, each its own change with no behavior change | Single player keeps passing every suite and lane; the feature then lands on prepared ground. P2b is the largest. The additions of 15.11 land with the phase that first uses them |
+| R0 | Spikes S2 to S7 of section 12 and S8 to S10 of 15.11, on the owner's PC (S1, the terrain survey, is done; a finer scan of the three spots remains). The code inventory that sizes the prerefactors is done (`docs/dev/research/multiplayer-base-refactoring-2026-11-14.md`) | Decides the site table and retires the feasibility risks before any feature code |
+| R0b | The prerefactors of 15.11 in the order given there, each its own change with no behavior change | Single player keeps passing every suite and lane; the feature then lands on prepared ground. P2b is the largest. The additions of 15.11 land with the phase that first uses them; A1 and the capture halves of A2 and A3 land in R3 with export, because a fact that was not recorded cannot be rebuilt later |
 | R1 | The three new modules with their layer, headless and forbidden-edge rules in place from the first commit; the race mark and gate, the main menu entry, the setup dialog (create, join, continue), `race.cfg` and `player.cfg`, slot and look assignment | A race save that plays as single player |
 | R2 | The four sites: moving the working space center, the four terrain patches, the scenery copies, launch rules, removal on leaving the save, science parity | The world of the race, still without rivals |
 | R3 | Export (standings, payload, digest) and import (the copy step, rival cache, rival store), rival ghosts in flight, map view and the Tracking Station, leftovers, readable flags, launch areas kept clear, the isolation gates including the whole-save lane, and the simple tamper evidence of 7.15 (chain, witness log, receipts, self-heal) | "See your rivals" |
@@ -1841,7 +1948,7 @@ Three new modules, placed by folder rule, plus a few files in existing ones.
 | Module | Folder | Layer | Headless | What it holds |
 |--------|--------|-------|----------|---------------|
 | `RaceCore` | `Source/Parsek/RaceCore/` | model | yes | The vocabulary and every rule: manifests, the standing codec and chain, the witness log, slot and look assignment, the site table and launch-area predicate (over plain latitude and longitude), the ladder, milestone-table and board derivation (from neutral rows, below), the house rules, the public-state digest, the sync pipeline as a pure function over ports (15.3), the Space Race window's row model (dates as numbers; the text is formatted in `UI`). No game types, no stores, nothing above the floor |
-| `RaceExport` | `Source/Parsek/RaceExport/` | features | no | The one reader of the player's own model. `RaceExportSource` turns ERS, ELS, the vessel identities and names into one immutable `PublicState`: recordings with hashes and date ranges, the milestone rows the walk credited (as neutral rows: id, date, recording id, tree id), the leftovers and their lifetimes, the disclosure facts. Nothing else lives here |
+| `RaceExport` | `Source/Parsek/RaceExport/` | features | no | The one reader of the player's own model. `RaceExportSource` turns ERS, ELS, the vessel identities and names into one immutable `PublicState`: recordings with hashes and date ranges, the milestone reach rows (as neutral rows: id, date, recording id, tree id), the leftovers and their lifetimes, the disclosure facts. Nothing else lives here |
 | `RaceWorld` | `Source/Parsek/RaceWorld/` | features | no (runtime-coupled) | Everything live that is not a read of the own model: the race session for the loaded save, the adapters behind the folder, clock and payload ports, the rival store, the rival side of the ghost lane (catalog, policy, leftovers, flags, map presence), the four sites (space center move, terrain patches, scenery), looks |
 | (existing) `UI` | `Source/Parsek/UI/` | presentation | no | `SpaceRaceWindowUI`, `RaceSetupDialog`, the Settings section; drawn from `RaceCore` row models |
 | (existing) `Controllers` | root files | entry | no | `ParsekRaceMenu.cs` (the main menu entry point; it needs its own placement rule in `modules.toml`, a root file with no rule reds the map suite), `ParsekRaceScenario.cs` (the race mark's scenario module), and the composition of the rival lane in each scene controller (15.6) |
@@ -1899,7 +2006,7 @@ Allowed references:
 
 New `[forbidden]` edges in `scripts/arch/modules.toml`. They are written here with a list
 on the right side, for reading. The map takes one `From -> To` string per edge today and
-holds 2 of them; this block is 54. Prerefactor P12 teaches both parsers the list form.
+holds 2 of them; this block is 71. Prerefactor P12 teaches both parsers the list form.
 
 ```
 Only the entry layer and the UI may name the race:
@@ -1907,11 +2014,13 @@ Only the entry layer and the UI may name the race:
   GameActions -> RaceWorld | RaceExport | RaceCore
   Crew        -> RaceWorld | RaceExport | RaceCore
   Rewind, Missions, Logistics, SwitchIntent, Reaim, Timeline,
-  Ghost, MapRender, Display, Rendering -> RaceWorld | RaceExport
+  Ghost, MapRender, Display, Rendering -> RaceWorld | RaceExport | RaceCore
 
-The rules module names nothing above the floor:
+The rules module names nothing above the floor (every module of every higher layer):
   RaceCore -> Recording | GameActions | Crew | Ghost | Rewind | Missions |
-              Logistics | RaceWorld | RaceExport | UI | Controllers
+              Logistics | MapRender | SwitchIntent | Reaim | Rendering |
+              Display | UI | Timeline | Controllers | Patches |
+              RaceWorld | RaceExport
 
 The live half cannot reach the player's own model:
   RaceWorld -> GameActions | Crew | Rewind | Missions | Logistics |
@@ -1935,7 +2044,7 @@ Consequences the reviews pointed out, each with its answer:
   is registered in `SaveFormat.cs` by the shell, and `RaceCore` carries its own constant that
   a test pins equal.
 - The milestone table is a rule, so it stays in `RaceCore`, but it cannot read ledger rows.
-  `RaceExport` hands it neutral rows; the rule picks the earliest per ladder id.
+  `RaceExport` hands it neutral rows; the rule orders them per ladder id, earliest first.
 - The launch-area predicate takes plain coordinates, not a recording type.
 - The later flight checks (7.15, step B) reuse the offline analyzer's rules, which are typed
   on `Recording` and live in a tooling module. (Four of them read only what the playback
@@ -1955,6 +2064,12 @@ family:
   the suit of the player's OWN kerbals (`RaceLooks`, stock roster fields, cosmetic) and the
   position of the stock space center objects (`RaceSites`).
 - **The rival store's type names** appear only in an allowlisted set of files (6.4).
+- **Recording types only in the loader.** `RaceWorld` may reference the `Recording` module,
+  and that module also holds the recorders and the recording stores. So: inside `RaceWorld`
+  a type of that module is named only in the loader files, and no file of the three race
+  modules names `FlightRecorder`, `BackgroundRecorder`, `RecordingStore`, the pending-tree
+  slot or the tree commit and discard services. (`RaceExport` reads the own recordings
+  through `EffectiveState` only.)
 
 Plus the headless test and the harness lane of 6.4, and `RaceCore` joins
 `[headless.modules]`.
@@ -2206,7 +2321,7 @@ with no behavior change, proven by the existing suites and lanes.
 
 | Id | Change | Size | Why |
 |----|--------|------|-----|
-| P1 | One source for "where is the working space center": a `HomeSpaceCenter` value in `Core` (pad, runway threshold and end, strip half-width) that returns the stock numbers unless a race sets it, replacing the four constants in `SpawnCollisionDetector` (about 12 production sites); one pure launch-area shape test (circle or strip, longitude wrapped) that single player's 50 m rule calls; a reset for the launch-site circles `LaunchSiteExclusionZones` caches for the process | M | The home site moves in a race save; launch areas (7.3, 7.7) |
+| P1 | One source for "where is the working space center": a `HomeSpaceCenter` value in `Core` (pad, runway threshold and end, strip half-width, and a version for caches to key on) that returns the stock numbers unless a race sets it, replacing the four constants in `SpawnCollisionDetector` (about 12 production sites); one pure launch-area shape test (circle or strip, longitude wrapped) that single player's 50 m rule calls; a reset for the launch-site circles `LaunchSiteExclusionZones` caches for the process | M | The home site moves in a race save; launch areas (7.3, 7.7) |
 | P2a | The catalog port: `IPlaybackCatalog` on the floor (find a recording by id, find the tree holding an id, the pending tree). The five copies of the tree lookup and the two by-id lookups in the engine, the positioner, the anchor resolvers and the map state vectors call it, each keeping its search order | M | The rival lane (15.6) |
 | P2b | Lane state: the orbit cache, the ghost position entries, the log-once sets, the watch query and the loop-unit lookup move from `ParsekFlight` fields into one per-lane object handed to the positioner (about 60 references to 14 members) and to the late-update helpers of `ParsekFlightPlaybackHost` | M | Two lanes in one flight scene (15.6). The largest one |
 | P2c | The committed-index member `LoopSyncParentIdx` leaves `IPlaybackTrajectory`; the engine gets its own diagnostics sink and a spawn budget shared between instances | S | An immutable `RivalFlight` (15.5); two engines in one scene |
@@ -2224,15 +2339,15 @@ with no behavior change, proven by the existing suites and lanes.
 
 Order: P12 and P11 (tooling only); then P7, P1 and P10 (independent of each other); then
 P2c and P2a; then P2b on its own, with every flight lane behind it; then P3 and P3b; P6
-last, because it touches saved bytes. P2a, P7, P10, P11 and the cache reset of P1 are worth
-doing for single player alone.
+last, because it touches saved bytes. P2a, P7, P10, P11 and two parts of P1 (the cache
+reset and the longitude wrap) are worth doing for single player alone.
 
 **Additions.** Facts and seams base Parsek does not have today. Each is additive (no save
 format bump), inert outside a race, and lands with the phase that first uses it.
 
 | Id | Addition | Size | For |
 |----|----------|------|-----|
-| A1 | One pure query beside `CommittedMilestoneReach`: the credited once-ever row per milestone id over the effective ledger, with its date and flight id | S | The milestone table (7.8) |
+| A1 | One pure query beside `CommittedMilestoneReach`: the reach rows per milestone id over the effective ledger, earliest first (the first is the one the once-ever walk credits), each with its date and flight id | S | The milestone table (7.8) |
 | A2 | One pure "stands from date A until date B" query composing the existing spawnable-leaf, vessel-identity, ghost-chain and recovery checks, plus a recorded fact when a committed flight's vessel is deleted or destroyed outside a recording (today nothing records that) | M | Leftovers (7.7) |
 | A3 | A per-flight "tools used" fact on the recording (gravity hack, cheat teleport, cheat currency) | S to M | Disclosure (7.12) |
 | A4 | Build options on the ghost kerbal build: a part-name substitute before the part lookup, a material override after the materials are cloned | S to M | Looks on ghost kerbals (7.4) |
@@ -2240,7 +2355,7 @@ format bump), inert outside a race, and lands with the phase that first uses it.
 | A6 | Window chrome shared by Parsek's table windows (id, rectangle, input lock, resize, UI scale, hover strip, Close) | S | The Space Race window (7.13) |
 | A7 | The file collector lists `Parsek/Race/` and does not copy it; the test-batch crash reconcile leaves it alone; one shared "find the scenario node of a game before its scenarios load" helper in place of seven copies | S | The race mark's gate (7.1); other players' files stay out of log bundles |
 
-Spikes beyond S1 to S7 of section 12:
+Spikes beyond S2 to S7 of section 12 (S1, the terrain survey of 7.3, is done):
 
 - **S8**: measure what a first open of a not-yet-downloaded file, and an open on an offline
   network share, cost on the common sync clients (Dropbox, Google Drive, OneDrive), to settle
@@ -2297,6 +2412,9 @@ itself. Named here so the phase plans carry them, not discover them:
   them today, P12) and a layer for each new module; the forbidden edges of 15.4; `RaceCore`
   in `[headless.modules]` with its pins. The module count, knot, layer, headless and facts
   pins move with three new modules and are re-pinned in the change that adds them.
+- The "statics written by another production type" ratchet: the home space center value of
+  P1 is set by `RaceWorld`, so it is set through a method of its own type, never as a static
+  field another type writes; the same holds for every static of the feature.
 - The uncalled-method ratchet: a production method that only tests call counts as uncalled,
   and that count may not rise. So `RaceCore` does not land ahead of its shell as a pure
   library: each piece arrives with a thin production caller in the same change.
