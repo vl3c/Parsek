@@ -30,7 +30,7 @@ id = "V38M-jool-moon-tour-player-loop"
 # `alignedWindows=` (design section 2 predicts ~40) is reported on the same line and
 # deliberately not pinned until the reading.
 # =====================================================================================
-tier = "operator"
+tier = "pending-fixture"
 description = "AUTHORED 2026-11-14, NEVER FLOWN, WAITING ON ITS FIXTURE `jool-tour-recorded` (harvested from B47-jool-moon-tour). The player loop on the Kerbin->Jool->Laythe->Vall->Tylo tree: re-aim Kerbin->Jool engages and the M-MIS-6 multi-moon configuration hold engages with three moons on T_config = 2 x P_Vall; the live MoonArrivalHold cell runs at the Space Center."
 instanceProfile = "stock-minimal"
 tags = ["V38", "player-loop", "loop-playback", "reaim", "arrival-hold", "multi-moon-hold", "jool", "laythe", "vall", "tylo", "moon", "ingame-batch", "pending-fixture", "pending-flight"]

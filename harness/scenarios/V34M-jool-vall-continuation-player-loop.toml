@@ -24,7 +24,7 @@ id = "V34M-jool-vall-continuation-player-loop"
 #       period (105,962.09 s, mu_Jool 2.82528e14; one participant, so T_config = P).
 #   `BATCH_COMPLETE ... category=MoonArrivalHold scene=SPACECENTER`, pinned whole.
 # =====================================================================================
-tier = "operator"
+tier = "pending-fixture"
 description = "AUTHORED 2026-11-14, NEVER FLOWN, WAITING ON ITS FIXTURE `jool-vall-recorded` (harvested from B39-jool-vall-continuation). The player loop on the Kerbin->Jool->Vall tree, V33M's shape: re-aim Kerbin->Jool engages and the lone-moon arrival hold aligns Vall's orbital phase on its period at the Jool SOI entry; the live MoonArrivalHold cell runs at the Space Center."
 instanceProfile = "stock-minimal"
 tags = ["V34", "player-loop", "loop-playback", "reaim", "arrival-hold", "lone-moon-hold", "jool", "vall", "moon", "ingame-batch", "pending-fixture", "pending-flight"]

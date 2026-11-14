@@ -11,9 +11,9 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | lanes | 593 |
 | tier daily | 28 |
 | tier nightly | 284 |
-| tier operator | 272 |
+| tier operator | 266 |
 | tier longhaul | 5 |
-| tier (other) | 4 |
+| tier (other) | 10 |
 | profile stock-minimal | 549 |
 | profile stock-tree | 40 |
 | profile modded-compat | 4 |
@@ -114,7 +114,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | TOUR | 1 | - | 1 | - | - | - | 1 |
 | TP | 9 | - | - | 9 | - | - | 9 |
 | UIS | 1 | - | 1 | - | - | - | 1 |
-| V | 67 | - | 7 | 56 | - | 6 | 23 |
+| V | 67 | - | 7 | 50 | - | 6 | 23 |
 | VB | 1 | - | 1 | - | - | - | 1 |
 | VN | 13 | - | 13 | - | - | 5 | 13 |
 | W | 1 | - | - | 1 | - | - | - |
@@ -1736,12 +1736,12 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | V32T-eve-gilly-continuation-ts-arrival | operator | eve-gilly-recorded | seam | Kerbin, Eve, Gilly | reload, save, time-jump, scene-change | MoonArrivalHold | LIVE-PROVEN 2026-11-07 |
 | V33M-jool-laythe-continuation-player-loop | operator | jool-laythe-recorded | seam | Kerbin, Jool, Laythe | reload, scene-change | MoonArrivalHold | LIVE-PROVEN 2026-11-07 |
 | V33T-jool-laythe-continuation-ts-arrival | operator | jool-laythe-recorded | seam | Kerbin, Jool, Laythe | reload, save, time-jump, scene-change | MoonArrivalHold | NEVER FLOWN, authored 2026-11-14 |
-| V34M-jool-vall-continuation-player-loop | operator | jool-vall-recorded | seam | Kerbin, Jool, Vall | reload, scene-change | MoonArrivalHold | NEVER FLOWN, WAITING ON jool-vall-recorde... |
-| V35M-jool-tylo-continuation-player-loop | operator | jool-tylo-recorded | seam | Kerbin, Jool, Tylo | reload, scene-change | MoonArrivalHold | NEVER FLOWN, WAITING ON jool-tylo-recorde... |
-| V36M-jool-bop-continuation-player-loop | operator | jool-bop-recorded | seam | Kerbin, Jool, Bop | reload, scene-change | MoonArrivalHold | NEVER FLOWN, WAITING ON jool-bop-recorded... |
-| V37M-jool-pol-continuation-player-loop | operator | jool-pol-recorded | seam | Kerbin, Jool, Pol | reload, scene-change | MoonArrivalHold | NEVER FLOWN, WAITING ON jool-pol-recorded... |
-| V38M-jool-moon-tour-player-loop | operator | jool-tour-recorded | seam | Kerbin, Jool, Laythe, Vall +1 | reload, scene-change | MoonArrivalHold | NEVER FLOWN, WAITING ON jool-tour-recorde... |
-| V39M-jool-laythe-bop-player-loop | operator | jool-laythe-bop-recorded | seam | Kerbin, Jool, Laythe, Bop | reload, scene-change | MoonArrivalHold | NEVER FLOWN, WAITING ON jool-laythe-bop-r... |
+| V34M-jool-vall-continuation-player-loop | pending-fixture | jool-vall-recorded | seam | Kerbin, Jool, Vall | reload, scene-change | MoonArrivalHold | NEVER FLOWN, WAITING ON jool-vall-recorde... |
+| V35M-jool-tylo-continuation-player-loop | pending-fixture | jool-tylo-recorded | seam | Kerbin, Jool, Tylo | reload, scene-change | MoonArrivalHold | NEVER FLOWN, WAITING ON jool-tylo-recorde... |
+| V36M-jool-bop-continuation-player-loop | pending-fixture | jool-bop-recorded | seam | Kerbin, Jool, Bop | reload, scene-change | MoonArrivalHold | NEVER FLOWN, WAITING ON jool-bop-recorded... |
+| V37M-jool-pol-continuation-player-loop | pending-fixture | jool-pol-recorded | seam | Kerbin, Jool, Pol | reload, scene-change | MoonArrivalHold | NEVER FLOWN, WAITING ON jool-pol-recorded... |
+| V38M-jool-moon-tour-player-loop | pending-fixture | jool-tour-recorded | seam | Kerbin, Jool, Laythe, Vall +1 | reload, scene-change | MoonArrivalHold | NEVER FLOWN, WAITING ON jool-tour-recorde... |
+| V39M-jool-laythe-bop-player-loop | pending-fixture | jool-laythe-bop-recorded | seam | Kerbin, Jool, Laythe, Bop | reload, scene-change | MoonArrivalHold | NEVER FLOWN, WAITING ON jool-laythe-bop-r... |
 | V3C-flight-arrival-companion | nightly | b17-duna-pad +inj looped-interp... | b17_duna_direct | Duna | time-jump | - | LIVE-PROVEN 2026-09-07 |
 | V3F-flight-arrival-faithful | operator | duna-direct-recorded | m3_loop_arrival_dwell | Duna | - | - | LIVE-PROVEN 2026-08-07 |
 | V3R-flight-arrival-reaim | operator | duna-direct-recorded | m3_loop_arrival_dwell | Duna | - | - | LIVE-PROVEN 2026-08-07 |

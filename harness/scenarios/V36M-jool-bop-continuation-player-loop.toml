@@ -31,7 +31,7 @@ id = "V36M-jool-bop-continuation-player-loop"
 # for `Arrival amber SET: tree=6ec68e87b782476f970a71df8c8b4685 mission='[^']*' 1 constrained moon
 # of 'Jool'` with the reason the reading names, and forbid the ARRIVAL HOLD line.
 # =====================================================================================
-tier = "operator"
+tier = "pending-fixture"
 description = "AUTHORED 2026-11-14, NEVER FLOWN, WAITING ON ITS FIXTURE `jool-bop-recorded` (harvested from B41-jool-bop-continuation). The player loop on the Kerbin->Jool->Bop tree, V33M's shape: re-aim Kerbin->Jool engages and the lone-moon arrival hold aligns Bop's orbital phase on its period at the Jool SOI entry; the live MoonArrivalHold cell runs at the Space Center."
 instanceProfile = "stock-minimal"
 tags = ["V36", "player-loop", "loop-playback", "reaim", "arrival-hold", "lone-moon-hold", "jool", "bop", "moon", "ingame-batch", "pending-fixture", "pending-flight"]

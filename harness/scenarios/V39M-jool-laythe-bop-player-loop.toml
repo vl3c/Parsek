@@ -17,7 +17,7 @@ id = "V39M-jool-laythe-bop-player-loop"
 # or the slack-clamp budget) is left loose until the reading names it; then pin it.
 # The engage line must NOT print. V33M's shape otherwise.
 # =====================================================================================
-tier = "operator"
+tier = "pending-fixture"
 description = "AUTHORED 2026-11-14, NEVER FLOWN, WAITING ON ITS FIXTURE `jool-laythe-bop-recorded` (harvested from B48-jool-laythe-bop-continuation). The player loop on the Kerbin->Jool->Laythe->Bop tree: re-aim Kerbin->Jool engages and the multi-moon configuration hold DECLINES with an amber naming 2 constrained moons of Jool (Bop is incommensurate), never a silent faithful; the live MoonArrivalHold cell runs at the Space Center."
 instanceProfile = "stock-minimal"
 tags = ["V39", "player-loop", "loop-playback", "reaim", "arrival-hold", "multi-moon-hold", "decline", "jool", "laythe", "bop", "moon", "ingame-batch", "pending-fixture", "pending-flight"]
