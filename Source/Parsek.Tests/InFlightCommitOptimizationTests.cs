@@ -285,18 +285,21 @@ namespace Parsek.Tests
             var tip = InFlightCommitOptimization.ResolveChainTip(
                 activeRec, RecordingStore.CommittedRecordings);
             Assert.NotSame(activeRec, tip);
-            // The hazard the carry exists for: the split gave the vessel line a new tip that
-            // holds the snapshot and terminal but no spawn stamp.
+            // The split gave the vessel line a new tip that holds the snapshot and terminal;
+            // the pass itself moves the spawn stamp there (RecordingOptimizer.
+            // MoveChainSpawnStampsToTip, todo LOAD-SPLIT-SPAWN-STAMP-ON-HEAD).
             Assert.NotNull(tip.VesselSnapshot);
             Assert.Null(activeRec.VesselSnapshot);
-            Assert.False(tip.VesselSpawned);
-            Assert.True(activeRec.VesselSpawned);
-
-            Assert.True(InFlightCommitOptimization.CarrySpawnStampToTip(activeRec, tip));
             Assert.True(tip.VesselSpawned);
             Assert.Equal(42u, tip.SpawnedVesselPersistentId);
+            Assert.Equal(tip.Points.Count - 1, tip.LastAppliedResourceIndex);
             Assert.False(activeRec.VesselSpawned);
             Assert.Equal(0u, activeRec.SpawnedVesselPersistentId);
+
+            // The commit's own carry is a backstop that now finds nothing left to move.
+            Assert.False(InFlightCommitOptimization.CarrySpawnStampToTip(activeRec, tip));
+            Assert.True(tip.VesselSpawned);
+            Assert.Equal(42u, tip.SpawnedVesselPersistentId);
         }
 
         // --- Source gate: the pass runs between the commit and the leaf spawn ---
