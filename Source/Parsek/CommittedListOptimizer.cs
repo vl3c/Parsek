@@ -47,6 +47,10 @@ namespace Parsek
 
             int mergeCount = RunOptimizationMergePass(recordings, routeSourceIds);
             int splitCount = RunOptimizationSplitPass(recordings, routeSourceIds);
+            // After the split: a split gives the tail the recording's end (terminal state and
+            // snapshot), so the spawn stamp goes with it; this also heals saves split earlier.
+            RecordingOptimizer.MoveChainSpawnStampsToTip(
+                recordings, ParsekScenario.Instance?.RecordingSupersedes);
             if (mergeCount > 0 || splitCount > 0)
             {
                 ParsekLog.Verbose("RecordingStore",

@@ -30,6 +30,7 @@ import gzip
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -37,7 +38,7 @@ import time
 import tomllib
 from collections import deque
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Sequence, Set, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LIB_DIR = os.path.join(HERE, "lib")
@@ -55,6 +56,8 @@ import oracle  # noqa: E402
 import provlib  # noqa: E402
 import rendercompose  # noqa: E402  (the M-A7 pure sibling behind the renderCompose row)
 import savepatch  # noqa: E402  (the pure FLIGHTSTATE patcher behind [[fixture.liveState]])
+import slotrun  # noqa: E402  (install-slot decisions: ports, runner token, launch args, report)
+import slots  # noqa: E402  (the install-slot contract shared with provision and the runner)
 import samplingq  # noqa: E402  (the recording-sampling measures behind the saveParse row's sampling block)
 import saveparse  # noqa: E402
 
@@ -102,12 +105,14 @@ REQUIREMENTS_PATH = os.path.join(MISSIONS_DIR, "requirements.txt")
 # different schema is treated as unreadable (fail-closed), never mis-parsed.
 MISSION_RESULT_SCHEMA = missionverify.MISSION_RESULT_SCHEMA
 
-# Default kRPC endpoint (design "Connection lifecycle" item 1): the stamped kRPC
-# settings bind 127.0.0.1:50000 (RPC) / 50001 (stream). v1 uses these defaults;
-# a future multi-instance layout overrides them per instance (deferred).
+# kRPC endpoint (design "Connection lifecycle" item 1). Before every launch run.py
+# stamps the instance's kRPC settings with its install slot's ports
+# (slotrun.krpc_ports_for_instance: stock-minimal copy 1 keeps 50000 / 50001) and
+# hands the same ports to the mission.
 DEFAULT_RPC_HOST = "127.0.0.1"
-DEFAULT_RPC_PORT = 50000
-DEFAULT_STREAM_PORT = 50001
+DEFAULT_RPC_PORT, DEFAULT_STREAM_PORT = slotrun.DEFAULT_KRPC_PORTS
+# The pre-launch "port already in use" probe's connect timeout.
+PORT_PROBE_TIMEOUT_SECONDS = 0.5
 
 # Per-verifier wall-clock timeouts (design S14): distinct from the KSP run budget
 # (already spent by the time the chain starts). A verifier subprocess that exceeds
@@ -264,13 +269,15 @@ def utcnow_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def default_harness_log_path() -> str:
-    """Per-INVOCATION harness log path ``harness/results/<ts>_harness.log`` (S6).
-    One run.py invocation runs a whole selection, so the log is keyed by the launch
-    timestamp, not a per-scenario runId; every stdout line is also appended here so
-    a scheduled unattended run is reconstructable from the file alone."""
+def default_harness_log_path(slot: Optional[str] = None) -> str:
+    """Per-INVOCATION harness log path ``harness/results/<ts>_harness.log`` (S6),
+    ``<ts>_<slot>_harness.log`` for a ``--slot`` child (two children of one
+    parallel run can start in the same second). One run.py invocation runs a
+    whole selection, so the log is keyed by the launch timestamp, not a
+    per-scenario runId; every stdout line is also appended here so a scheduled
+    unattended run is reconstructable from the file alone."""
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H%M%S")
-    return os.path.join(RESULTS_DIR, "%s_harness.log" % ts)
+    return os.path.join(RESULTS_DIR, slotrun.harness_log_name(ts, slot))
 
 
 # ---------------------------------------------------------------------------
@@ -343,6 +350,12 @@ class Runtime:
     # test runtime (most never call Runtime.__init__) starts False, i.e. the scripts
     # keep building for themselves exactly as before.
     tests_prebuilt = False
+    # True for a `--slot` child: only a KSP whose exe lives in THIS instance blocks
+    # it (another slot's KSP is a sibling, not a zombie). Serial runs keep the
+    # any-KSP-on-the-machine rule.
+    scope_ksp_to_instance = False
+    # Minimum wall seconds between two KSP starts machine-wide (slot mode only).
+    launch_spacing_seconds = slots.DEFAULT_LAUNCH_SPACING_SECONDS
 
     def now(self) -> float:
         return time.time()
@@ -375,27 +388,81 @@ class Runtime:
         return False
 
     def ksp_running(self, instance_dir: str) -> Optional[int]:
-        """Return the pid of a KSP_x64.exe holding the instance (zombie preflight,
-        reusing the provisioner's EC-1 approach), else None. The stock tasklist
-        probe cannot bind a pid to a directory, so this is the coarse 'any KSP
-        alive' signal the provisioner uses; the harness refuses on it."""
+        """Return the pid of a KSP_x64.exe that blocks a launch into the instance
+        (zombie preflight, reusing the provisioner's EC-1 approach), else None.
+        Serial runs: any KSP on the machine. Slot children
+        (``scope_ksp_to_instance``): only a KSP whose exe lives in this instance,
+        or whose path cannot be read (slotrun.blocking_ksp_pid)."""
+        procs = self.list_ksp_processes()
+        return slotrun.blocking_ksp_pid(procs, instance_dir, bool(self.scope_ksp_to_instance))
+
+    def list_ksp_processes(self) -> List[Tuple[int, Optional[str]]]:
+        """Every live KSP_x64.exe as (pid, exe path or None). Windows: pids by
+        name from a Toolhelp32 snapshot, image paths best-effort through
+        QueryFullProcessImageNameW (an unreadable one stays as None, read as
+        busy); when the snapshot fails, tasklist pids with unknown paths."""
+        if os.name == "nt":
+            try:
+                return _windows_ksp_processes()
+            except Exception:  # noqa: BLE001 - fall back to the coarse probe
+                pass
+        return self._tasklist_ksp_processes()
+
+    def _tasklist_ksp_processes(self) -> List[Tuple[int, Optional[str]]]:
         try:
             out = subprocess.run(
                 ["tasklist", "/FI", "IMAGENAME eq KSP_x64.exe", "/FO", "CSV", "/NH"],
                 capture_output=True, text=True)
-            text = out.stdout or ""
-            if "KSP_x64.exe" not in text:
-                return None
-            for row in text.splitlines():
-                cells = [c.strip('"') for c in row.split('","')]
-                if cells and cells[0].startswith("KSP_x64"):
-                    try:
-                        return int(cells[1])
-                    except (IndexError, ValueError):
-                        return -1
-            return -1
         except OSError:
+            return []
+        text = out.stdout or ""
+        if "KSP_x64.exe" not in text:
+            return []
+        procs: List[Tuple[int, Optional[str]]] = []
+        for row in text.splitlines():
+            cells = [c.strip('"') for c in row.split('","')]
+            if cells and cells[0].startswith("KSP_x64"):
+                try:
+                    procs.append((int(cells[1]), None))
+                except (IndexError, ValueError):
+                    procs.append((-1, None))
+        return procs or [(-1, None)]
+
+    def port_accepts(self, host: str, port: int) -> bool:
+        """True when something accepts a TCP connection on host:port."""
+        try:
+            with socket.create_connection((host, int(port)), timeout=PORT_PROBE_TIMEOUT_SECONDS):
+                return True
+        except OSError:
+            return False
+
+    def foreground_window(self) -> Optional[Tuple[int, Optional[str]]]:
+        """(hwnd, exe path of its process or None) of the foreground window, or
+        None off Windows / when there is none."""
+        if os.name != "nt":
             return None
+        try:
+            return _windows_foreground_window()
+        except Exception:  # noqa: BLE001 - placement is report-only
+            return None
+
+    def minimize_process_windows(self, pid: int) -> Optional[int]:
+        """Minimise (without activating) every visible top-level window of
+        ``pid``. Returns how many were minimised, or None when unsupported."""
+        if os.name != "nt":
+            return None
+        try:
+            return _windows_minimize_process_windows(int(pid))
+        except Exception:  # noqa: BLE001 - placement is report-only
+            return None
+
+    def unity_prefs_begin(self, umbrella_root: str, logger) -> str:
+        return _load_unity_prefs_module().begin(
+            umbrella_root, lambda level, msg: getattr(logger, level.lower())("UnityPrefs", msg))
+
+    def unity_prefs_end(self, umbrella_root: str, logger) -> str:
+        return _load_unity_prefs_module().end(
+            umbrella_root, lambda level, msg: getattr(logger, level.lower())("UnityPrefs", msg))
 
     def resolve_exe(self, instance_dir: str) -> str:
         return os.path.join(instance_dir, "KSP_x64.exe")
@@ -517,16 +584,22 @@ class Runtime:
                          timeout: float, player_log: Optional[str] = None) -> ToolResult:
         args = [sys.executable, os.path.join(SCRIPTS_DIR, "collect-logs.py"),
                 label, "--save", save_name, "--ksp-dir", instance_dir]
-        # Pipelined verification hands collect-logs a private copy of Player.log:
-        # the machine-wide one is rewritten by the next lane's boot.
+        # Pipelined verification hands collect-logs a private copy of Player.log
+        # (the next lane's boot rewrites the live one); otherwise it reads the
+        # instance's own, the -logFile every launch passes.
+        if not player_log:
+            player_log = self.player_log_path(instance_dir)
         if player_log:
             args += ["--player-log", player_log]
         return self._run(args, timeout, cwd=WORKTREE_ROOT)
 
-    def player_log_path(self) -> Optional[str]:
-        """Unity's Player.log for KSP (the path collect-logs.py's find_player_log
-        reads). It is machine-wide, outside the instance, and rewritten by every
-        KSP boot, so the pipelined post-quit copy has to take it too."""
+    def player_log_path(self, instance_dir: Optional[str] = None) -> Optional[str]:
+        """Unity's Player.log for a launch into ``instance_dir``: every launch
+        passes ``-logFile <instance>/Player.log`` (slotrun.ksp_launch_args), so
+        each install keeps its own. Without an instance dir, the machine-wide
+        default path collect-logs.py's find_player_log reads."""
+        if instance_dir:
+            return slotrun.instance_player_log(instance_dir)
         if sys.platform == "win32":
             appdata = os.environ.get("APPDATA")
             if not appdata:
@@ -595,6 +668,149 @@ class Runtime:
             return ToolResult(-1, True, exc.stdout or "", exc.stderr or "")
         except OSError as exc:
             return ToolResult(-1, False, "", str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Windows process / window probes behind the Runtime seam (ctypes, imported
+# lazily so every suite runs on Linux). Each raises on failure; the Runtime
+# wrappers catch and degrade.
+# ---------------------------------------------------------------------------
+
+_PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+_SW_SHOWMINNOACTIVE = 7
+_TH32CS_SNAPPROCESS = 0x00000002
+
+
+def _windows_image_path(pid: int) -> Optional[str]:
+    """The full exe path of ``pid``, or None when it cannot be opened / read."""
+    import ctypes
+    from ctypes import wintypes
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.QueryFullProcessImageNameW.argtypes = [
+        wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    handle = kernel32.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid))
+    if not handle:
+        return None
+    try:
+        size = wintypes.DWORD(32768)
+        buf = ctypes.create_unicode_buffer(size.value)
+        if not kernel32.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size)):
+            return None
+        return buf.value or None
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def _windows_process_names() -> List[Tuple[int, str]]:
+    """Every live process as (pid, exe file name) from a Toolhelp32 snapshot.
+    The snapshot names every process without opening it, so a KSP whose image
+    path cannot be read (OpenProcess denied) is still listed."""
+    import ctypes
+    from ctypes import wintypes
+
+    class PROCESSENTRY32W(ctypes.Structure):
+        _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD),
+                    ("th32ProcessID", wintypes.DWORD), ("th32DefaultHeapID", ctypes.c_size_t),
+                    ("th32ModuleID", wintypes.DWORD), ("cntThreads", wintypes.DWORD),
+                    ("th32ParentProcessID", wintypes.DWORD), ("pcPriClassBase", ctypes.c_long),
+                    ("dwFlags", wintypes.DWORD), ("szExeFile", ctypes.c_wchar * 260)]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    kernel32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+    kernel32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    snap = kernel32.CreateToolhelp32Snapshot(_TH32CS_SNAPPROCESS, 0)
+    if not snap or snap == ctypes.c_void_p(-1).value:
+        raise OSError("CreateToolhelp32Snapshot failed")
+    try:
+        entry = PROCESSENTRY32W()
+        entry.dwSize = ctypes.sizeof(PROCESSENTRY32W)
+        out: List[Tuple[int, str]] = []
+        ok = kernel32.Process32FirstW(snap, ctypes.byref(entry))
+        if not ok:
+            raise OSError("Process32FirstW failed")
+        while ok:
+            out.append((int(entry.th32ProcessID), entry.szExeFile))
+            ok = kernel32.Process32NextW(snap, ctypes.byref(entry))
+        return out
+    finally:
+        kernel32.CloseHandle(snap)
+
+
+def _windows_ksp_processes(lister: Optional[Callable[[], List[Tuple[int, str]]]] = None,
+                           image_path_fn: Optional[Callable[[int], Optional[str]]] = None
+                           ) -> List[Tuple[int, Optional[str]]]:
+    """Every KSP_x64.exe as (pid, exe path or None). The pids come by NAME from a
+    process snapshot first; the full image paths are filled in best-effort, and
+    a KSP whose path cannot be read stays listed with None, which every caller
+    reads as busy (slotrun.ksp_processes_from_listing)."""
+    return slotrun.ksp_processes_from_listing((lister or _windows_process_names)(),
+                                              image_path_fn or _windows_image_path)
+
+
+def _windows_foreground_window() -> Optional[Tuple[int, Optional[str]]]:
+    import ctypes
+    from ctypes import wintypes
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32.GetForegroundWindow.restype = wintypes.HWND
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    hwnd = user32.GetForegroundWindow()
+    if not hwnd:
+        return None
+    pid = wintypes.DWORD()
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    return int(hwnd), (_windows_image_path(pid.value) if pid.value else None)
+
+
+def _windows_minimize_process_windows(pid: int) -> int:
+    """ShowWindowAsync(SW_SHOWMINNOACTIVE) on every visible top-level window
+    owned by ``pid`` (EnumWindows + GetWindowThreadProcessId: a title lookup
+    would pick a random KSP when several run)."""
+    import ctypes
+    from ctypes import wintypes
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    user32.ShowWindowAsync.argtypes = [wintypes.HWND, ctypes.c_int]
+    found: List[int] = []
+    proto = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+    def _each(hwnd, _lparam):
+        owner = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+        if owner.value == pid and user32.IsWindowVisible(hwnd):
+            found.append(hwnd)
+        return True
+
+    user32.EnumWindows(proto(_each), 0)
+    for hwnd in found:
+        user32.ShowWindowAsync(hwnd, _SW_SHOWMINNOACTIVE)
+    return len(found)
+
+
+_unity_prefs_module = None
+
+
+def _load_unity_prefs_module():
+    """Load harness/tools/unity_prefs.py by FILE PATH (the contact-sheet rule: no
+    sys.path insert of tools/)."""
+    global _unity_prefs_module
+    if _unity_prefs_module is not None:
+        return _unity_prefs_module
+    import importlib.util
+    path = os.path.join(TOOLS_DIR, "unity_prefs.py")
+    spec = importlib.util.spec_from_file_location("parsek_unity_prefs", path)
+    if spec is None or spec.loader is None:
+        raise ImportError("cannot load unity_prefs from %s" % path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    _unity_prefs_module = module
+    return module
 
 
 # ---------------------------------------------------------------------------
@@ -775,6 +991,9 @@ class MissionContext:
         self.cwd = cwd
         self.stamp_path = stamp_path
         self.requirements = requirements
+        # The instance's kRPC ports, set by run_attempt after it stamped them.
+        self.rpc_port = DEFAULT_RPC_PORT
+        self.stream_port = DEFAULT_STREAM_PORT
 
 
 # ---------------------------------------------------------------------------
@@ -853,13 +1072,11 @@ def build_expected_from_manifest(manifest: Dict, instance_dir: str,
 def _reference_dll_drift(profile: Optional[str], instance_dir: str, umbrella_root: str,
                          logger: HarnessLogger) -> Optional["provlib.ManifestDiff"]:
     """The I/O half of hlib.decide_reference_dll_drift: hash this instance's and
-    the reference instance's DEPLOYED Parsek.dll. One Info line either way."""
-    if profile == hlib.REFERENCE_DLL_PROFILE:
-        return None
+    the reference instance's DEPLOYED Parsek.dll. One Info line either way.
+    Keyed on the instance DIR: only the reference dir itself is skipped, so a
+    copy of stock-minimal (``automation/stock-minimal-2``) is compared too."""
     ref_dir = resolve_instance_dir(hlib.REFERENCE_DLL_PROFILE, umbrella_root, None)
-    same = (ref_dir is not None
-            and os.path.normcase(os.path.abspath(ref_dir))
-            == os.path.normcase(os.path.abspath(instance_dir)))
+    same = ref_dir is not None and slots.same_instance_dir(ref_dir, instance_dir)
     mine = _sha256_file(os.path.join(instance_dir, PARSEK_DLL_REL))
     ref = (_sha256_file(os.path.join(ref_dir, PARSEK_DLL_REL))
            if ref_dir is not None and not same else None)
@@ -904,7 +1121,8 @@ def admit_instance_dir(profile: Optional[str], instance_dir: str, umbrella_root:
                                  "%s (the instance every routine provision updates); "
                                  "provision it (a HUMAN call): %s"
                         % (profile, hlib.REFERENCE_DLL_PROFILE,
-                           hlib.provision_command_hint(profile)))
+                           hlib.provision_command_hint(
+                               profile, slotrun.instance_copy_number(instance_dir))))
     return admission, admit_diff, reference_diff
 
 
@@ -989,6 +1207,316 @@ def release_run_lock(lock_path: Optional[str], logger: Optional[HarnessLogger] =
         lock_path,
         log_fn=(lambda level, msg: getattr(logger, level.lower())("Lock", msg))
         if logger else None)
+
+
+# ---------------------------------------------------------------------------
+# Install slots (parallel runs; plan harness/parallel-runs-plan-2026-11-14.md).
+#
+# Every run.py holds the SLOT LOCK of each instance it flies
+# (``automation/.ksp-slot-<slot>.lock``, the machinelock protocol): a serial run
+# takes it beside the machine lock, before the instance's first lane, and keeps
+# it to the end of the invocation. A ``--slot`` child of the parallel runner
+# takes ONLY its slot lock: the runner holds the machine lock for its whole run,
+# and the child checks at every attempt boundary that the lock still carries the
+# runner's token and that the runner pid is alive (slotrun.decide_runner_token).
+# An instance dir that is not a slot name (a test's --instance-dir) has no slot
+# lock.
+# ---------------------------------------------------------------------------
+
+
+class SelectionContext:
+    """What one invocation knows about its slot mode, held module-wide for the
+    duration of ``run()`` (the deep helpers, result writes and prune passes read
+    it). The default instance is a serial run with nothing held, which is what a
+    test that calls ``_run_selection`` / ``run_attempt`` directly gets."""
+
+    def __init__(self, slot: Optional[str] = None,
+                 window_mode: str = slotrun.WINDOW_NORMAL,
+                 desktop_id: Optional[str] = None,
+                 umbrella_root: Optional[str] = None):
+        self.slot = slot
+        self.slot_profile = slots.parse_slot_name(slot)[0] if slot else None
+        self.window_mode = window_mode
+        self.desktop_id = desktop_id
+        self.umbrella_root = umbrella_root
+        # slot name -> held lock path
+        self.slot_locks: Dict[str, str] = {}
+        self.report_results: List[Tuple[Dict, str]] = []
+        self._results_lock = threading.Lock()
+
+    @property
+    def slot_mode(self) -> bool:
+        return self.slot is not None
+
+    def note_result(self, result: Dict, path: str) -> None:
+        with self._results_lock:
+            self.report_results.append((dict(result), path))
+
+
+_CTX = SelectionContext()
+
+
+def _arg_str(args, name: str) -> Optional[str]:
+    """A string CLI value, or None. ``args`` may be None or a test Mock whose
+    unset attributes are Mocks, which must never read as a value."""
+    value = getattr(args, name, None) if args is not None else None
+    return value if isinstance(value, str) and value else None
+
+
+def _slot_lock_payload(runtime: Runtime, selection: str, slot: str) -> Dict:
+    payload = _lock_payload(runtime, selection)
+    payload["slot"] = slot
+    return payload
+
+
+def ensure_instance_slot_lock(instance_dir: str, umbrella_root: str, runtime: Runtime,
+                              logger, selection: str = "?") -> bool:
+    """Hold the slot lock of ``instance_dir`` for the rest of the invocation.
+    True when held (or the dir is not a slot); False when a live process holds it."""
+    slot = slotrun.instance_slot_name(instance_dir)
+    if slot is None or slot in _CTX.slot_locks:
+        return True
+    lock_path = slots.slot_lock_path(umbrella_root, slot)
+    path, reason, holder = machinelock.acquire(
+        lock_path,
+        payload_fn=lambda: _slot_lock_payload(runtime, selection, slot),
+        now_fn=runtime.now,
+        pid_alive_fn=runtime.pid_alive,
+        log_fn=lambda level, msg: getattr(logger, level.lower())("Lock", msg))
+    if path is None:
+        logger.warn("Lock", "slot-lock refused slot=%s (%s): holder %s (lockfile %s)"
+                    % (slot, reason, machinelock.describe_holder(holder), lock_path))
+        return False
+    _CTX.slot_locks[slot] = path
+    logger.info("Lock", "slot-lock acquired slot=%s (%s) path=%s pid=%d"
+                % (slot, reason, path, os.getpid()))
+    return True
+
+
+def heartbeat_slot_locks(runtime: Runtime, logger, selection: str = "?") -> Optional[str]:
+    """Refresh every held slot lock; the first slot whose lock is no longer ours,
+    or None."""
+    for slot, path in list(_CTX.slot_locks.items()):
+        ok = machinelock.heartbeat(
+            path, payload_fn=lambda s=slot: _slot_lock_payload(runtime, selection, s),
+            log_fn=lambda level, msg: getattr(logger, level.lower())("Lock", msg))
+        if not ok:
+            _CTX.slot_locks.pop(slot, None)
+            return slot
+    return None
+
+
+def release_slot_locks(logger) -> None:
+    for slot, path in list(_CTX.slot_locks.items()):
+        machinelock.release(path, log_fn=lambda level, msg: getattr(logger, level.lower())(
+            "Lock", "%s (slot=%s)" % (msg, slot)))
+        _CTX.slot_locks.pop(slot, None)
+
+
+def check_runner_token(umbrella_root: str, runtime: Runtime,
+                       env: Optional[Dict[str, str]] = None) -> "slotrun.RunnerTokenDecision":
+    env = os.environ if env is None else env
+    return slotrun.decide_runner_token(env.get(slotrun.RUNNER_TOKEN_ENV),
+                                       env.get(slotrun.RUNNER_PID_ENV),
+                                       machinelock.read_lock(run_lock_path(umbrella_root)),
+                                       runtime.pid_alive)
+
+
+def _selection_boundary_check(umbrella_root: str, runtime: Runtime, logger,
+                              selection: str) -> Optional[Tuple[str, str]]:
+    """The slot half of the attempt-boundary check (the machine-lock heartbeat is
+    the other): (subkind, note) when the selection must stop, else None."""
+    if _CTX.slot_mode:
+        decision = check_runner_token(umbrella_root, runtime)
+        if not decision.ok:
+            logger.error("Lock", "runner check failed: %s; stopping this slot child"
+                         % decision.reason)
+            return hlib.RUNNER_TOKEN_SUBKIND, "runner check failed: %s" % decision.reason
+    lost = heartbeat_slot_locks(runtime, logger, selection)
+    if lost is not None:
+        logger.error("Lock", "lost the slot lock of %s mid-selection; stopping" % lost)
+        return hlib.SLOT_LOCKED_SUBKIND, "slot lock of %s lost mid-selection" % lost
+    return None
+
+
+def _lane_instance(spec: Dict, umbrella_root: str, args) -> Tuple[Optional[str], Optional[str]]:
+    """(instance dir, refusal subkind) for one lane. A slot child flies only lanes
+    of its slot's profile, in its slot's dir."""
+    profile = spec.get("instanceProfile")
+    if _CTX.slot_mode:
+        if profile != _CTX.slot_profile:
+            return None, hlib.SLOT_PROFILE_MISMATCH_SUBKIND
+        return slots.instance_dir(umbrella_root, _CTX.slot), None
+    return resolve_instance_dir(profile, umbrella_root, _arg_str(args, "instance_dir")), None
+
+
+# ---------------------------------------------------------------------------
+# Launch-site helpers: kRPC port stamp, screen args, launch spacing, window step.
+# ---------------------------------------------------------------------------
+
+# A launch-spacing mini-lock older than this is a crashed holder's, never a live
+# one (the lock spans one spacing wait plus one Popen).
+LAUNCH_LOCK_STALE_SECONDS = 120.0
+LAUNCH_LOCK_WAIT_SECONDS = 120.0
+
+
+def krpc_settings_path(instance_dir: str) -> str:
+    return os.path.join(instance_dir, *slotrun.KRPC_SETTINGS_RELPATH)
+
+
+def stamp_krpc_ports(instance_dir: str, rpc_port: int, stream_port: int, logger) -> bool:
+    """Write the golden kRPC settings with the slot's ports (provlib's template,
+    the one provisioning stamps). Skipped when the instance has no kRPC; written
+    only when the bytes differ. Never raises: a failure is one Warn and the lane
+    flies on the file as it stands."""
+    kdir = os.path.join(instance_dir, "GameData", "kRPC")
+    if not os.path.isdir(kdir):
+        logger.verbose("Preflight", "kRPC stamp skipped: no %s" % kdir)
+        return False
+    path = krpc_settings_path(instance_dir)
+    try:
+        want = provlib.stamp_krpc_settings(None, rpc_port=rpc_port, stream_port=stream_port)
+        try:
+            with open(path, "r", encoding="utf-8", newline="") as fh:
+                have = fh.read()
+        except OSError:
+            have = None
+        if have == want:
+            logger.verbose("Preflight", "kRPC settings already carry rpc=%d stream=%d"
+                           % (rpc_port, stream_port))
+            return True
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".harness-tmp"
+        with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(want)
+        os.replace(tmp, path)
+    except Exception as exc:  # noqa: BLE001 - see the docstring
+        logger.warn("Preflight", "kRPC port stamp FAILED path=%s (%s: %s)"
+                    % (path, type(exc).__name__, exc))
+        return False
+    logger.info("Preflight", "kRPC settings stamped rpc=%d stream=%d slot=%s (%s)"
+                % (rpc_port, stream_port, slotrun.instance_slot_name(instance_dir) or "-",
+                   "replaced" if have is not None else "absent before"))
+    return True
+
+
+def read_ksp_screen_values(instance_dir: str) -> Dict[str, str]:
+    """The screen keys of the instance settings.cfg as they stand now (after the
+    stage screen patch), or {} when unreadable."""
+    try:
+        with open(ksp_settings_path(instance_dir), "r", encoding="utf-8",
+                  errors="replace", newline="") as fh:
+            return hlib.read_ksp_settings_values(fh.read())
+    except OSError:
+        return {}
+
+
+def _read_launch_stamp(path: str) -> Optional[float]:
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return float(fh.read().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def _acquire_launch_lock(lock_path: str, runtime: Runtime, logger) -> bool:
+    """The O_EXCL mini-lock around one spacing wait + launch. A lock older than
+    LAUNCH_LOCK_STALE_SECONDS is removed; after LAUNCH_LOCK_WAIT_SECONDS the
+    launch goes ahead without it (spacing never stalls a run)."""
+    start = runtime.now()
+    os.makedirs(os.path.dirname(lock_path), exist_ok=True)
+    while True:
+        try:
+            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            try:
+                age = time.time() - os.path.getmtime(lock_path)
+            except OSError:
+                continue
+            if age > LAUNCH_LOCK_STALE_SECONDS:
+                logger.warn("Launch", "launch-spacing lock %s is %.0fs old; removing it"
+                            % (lock_path, age))
+                try:
+                    os.remove(lock_path)
+                except OSError:
+                    pass
+                continue
+            if runtime.now() - start > LAUNCH_LOCK_WAIT_SECONDS:
+                logger.warn("Launch", "launch-spacing lock %s still held after %.0fs; "
+                                      "launching without it" % (lock_path,
+                                                                LAUNCH_LOCK_WAIT_SECONDS))
+                return False
+            runtime.sleep(0.2)
+            continue
+        except OSError as exc:
+            logger.warn("Launch", "launch-spacing lock unusable (%s); launching without it"
+                        % exc)
+            return False
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write("%d\n" % os.getpid())
+        return True
+
+
+def spaced_launch(umbrella_root: str, runtime: Runtime, logger, launch_fn):
+    """Run ``launch_fn`` (it starts KSP) at least ``runtime.launch_spacing_seconds``
+    after the previous KSP start on the machine (slots.launch_stamp_path), and
+    stamp this start right after it. Slot children only: a serial run is the one
+    KSP on the machine. Retries pass through here too."""
+    if not _CTX.slot_mode:
+        return launch_fn()
+    stamp = slots.launch_stamp_path(umbrella_root)
+    lock_path = stamp + ".lock"
+    held = _acquire_launch_lock(lock_path, runtime, logger)
+    try:
+        wait = slots.launch_wait_seconds(_read_launch_stamp(stamp), runtime.now(),
+                                         float(runtime.launch_spacing_seconds))
+        if wait > 0:
+            logger.info("Launch", "launch spacing: waiting %.1fs after the previous KSP start "
+                                  "on this machine" % wait)
+            deadline = runtime.now() + wait
+            while runtime.now() < deadline:
+                runtime.sleep(min(1.0, max(0.0, deadline - runtime.now())))
+        proc = launch_fn()
+        try:
+            tmp = "%s.tmp-%d" % (stamp, os.getpid())
+            with open(tmp, "w", encoding="utf-8") as fh:
+                fh.write("%.3f\n" % runtime.now())
+            os.replace(tmp, stamp)
+        except OSError as exc:
+            logger.warn("Launch", "launch stamp write FAILED %s (%s)" % (stamp, exc))
+        return proc
+    finally:
+        if held:
+            try:
+                os.remove(lock_path)
+            except OSError:
+                pass
+
+
+def apply_window_mode(proc, ksp_log_path: str, runtime: Runtime, logger) -> str:
+    """The once-per-attempt window step after boot (``--window``): read this
+    launch's window-placement line from KSP.log (desktop mode) and minimise the
+    child's own windows when slotrun.decide_window_action says so. Returns the
+    action taken."""
+    mode = _CTX.window_mode
+    placement = None
+    if mode == slotrun.WINDOW_DESKTOP:
+        try:
+            with open(ksp_log_path, "r", encoding="utf-8", errors="replace") as fh:
+                placement = slotrun.parse_window_placement(fh.read())
+        except OSError:
+            placement = None
+    action, reason = slotrun.decide_window_action(mode, placement)
+    placed = ("desktop=%s foreground=%s" % (placement.get("desktop"), placement.get("foreground")
+                                             or "-")) if placement else "none"
+    if action == slotrun.WINDOW_ACTION_MINIMIZE:
+        count = runtime.minimize_process_windows(getattr(proc, "pid", 0))
+        logger.info("Window", "window mode=%s placement=%s action=minimize windows=%s (%s)"
+                    % (mode, placed, "unsupported" if count is None else count, reason))
+    else:
+        logger.info("Window", "window mode=%s placement=%s action=none (%s)"
+                    % (mode, placed, reason))
+    return action
 
 
 # ---------------------------------------------------------------------------
@@ -1775,8 +2303,12 @@ class BootWatch:
     TAIL_KEEP_BYTES = 4096
 
     def __init__(self, log_path: str, pre_identity: Optional[Tuple[int, int]],
-                 launch_time: float, limits: "hlib.BootWatchdogLimits"):
+                 launch_time: float, limits: "hlib.BootWatchdogLimits",
+                 on_ready=None):
         self.log_path = log_path
+        # Called once when the boot is ready (the window step of a non-normal
+        # --window mode). A failure there is logged and never touches the run.
+        self.on_ready = on_ready
         self.pre_identity = pre_identity
         self.launch_time = launch_time
         self.limits = limits
@@ -1800,6 +2332,12 @@ class BootWatch:
         logger.info("Boot-Wait", "boot ready via=%s elapsed=%.1fs kspLogBytes=%d; "
                                  "boot-stall watchdog off for this attempt"
                     % (via, now - self.launch_time, self.size))
+        if self.on_ready is not None:
+            try:
+                self.on_ready()
+            except Exception as exc:  # noqa: BLE001 - window placement is report-only
+                logger.warn("Window", "window step FAILED (%s: %s); the run goes on"
+                            % (type(exc).__name__, exc))
 
     def _mark_mainmenu(self, now: float, logger: "HarnessLogger") -> None:
         self.mainmenu = True
@@ -2115,8 +2653,8 @@ def _drive_mission_step(result: DriveResult, step: Dict, step_id: str, step_inde
     params_json = json.dumps(mission_params, sort_keys=True)
     args = ["--params", params_json,
             "--rpc-host", DEFAULT_RPC_HOST,
-            "--rpc-port", str(DEFAULT_RPC_PORT),
-            "--stream-port", str(DEFAULT_STREAM_PORT),
+            "--rpc-port", str(mission_ctx.rpc_port),
+            "--stream-port", str(mission_ctx.stream_port),
             "--result", result_path,
             "--budget", str(int(mission_budget))]
     # Mid-mission command-seam bridge (route 1, section 3.2 of the B-DOCK design):
@@ -2131,9 +2669,10 @@ def _drive_mission_step(result: DriveResult, step: Dict, step_id: str, step_inde
     args += ["--seam-commands", os.path.join(mission_ctx.cwd, "parsek-test-commands.txt"),
              "--seam-responses", os.path.join(mission_ctx.cwd, "parsek-test-responses.txt"),
              "--seam-commit-id", step_id]
-    logger.info("Mission", "mission spawn name=%s venv-python=%s rpc=%s:%d budget=%ds result=%s"
+    logger.info("Mission", "mission spawn name=%s venv-python=%s rpc=%s:%d stream=%d budget=%ds result=%s"
                 % (mission_ctx.mission_name, mission_ctx.venv_python, DEFAULT_RPC_HOST,
-                   DEFAULT_RPC_PORT, int(mission_budget), result_path))
+                   mission_ctx.rpc_port, mission_ctx.stream_port, int(mission_budget),
+                   result_path))
     mproc = runtime.spawn_mission(mission_ctx.venv_python, mission_ctx.mission_py,
                                   args, mission_ctx.cwd, stdout_path)
 
@@ -4017,7 +4556,7 @@ def _take_post_quit_copy(run_id: str, instance_dir: str, run_save_name: Optional
                     # have counted a failed copy from the instance.
                     continue
         player_log = os.path.join(root, POST_QUIT_PLAYER_LOG_NAME)
-        player_src = runtime.player_log_path()
+        player_src = runtime.player_log_path(instance_dir)
         if player_src and os.path.isfile(player_src):
             shutil.copy2(player_src, player_log)
             files += 1
@@ -4226,7 +4765,8 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
         reason = "admission %s" % admission.subkind
         note = ""
         if reference_diff is not None:
-            hint = hlib.provision_command_hint(profile)
+            hint = hlib.provision_command_hint(profile,
+                                               slotrun.instance_copy_number(instance_dir))
             note = ("this instance's Parsek.dll is not the build %s carries; "
                     "provision it: %s" % (hlib.REFERENCE_DLL_PROFILE, hint))
             reason += "; " + note
@@ -4297,6 +4837,28 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
                            admission_rec)
         logger.info("Preflight", "zombie-check instance=%s result=CLEAR" % profile)
 
+        # ---- KRPC PORTS --------------------------------------------------
+        # Stamp the instance's kRPC server with its slot's ports and refuse when
+        # either already accepts a connection: a mission would otherwise drive
+        # whatever listens there (another copy's KSP).
+        rpc_port, stream_port = slotrun.krpc_ports_for_instance(instance_dir)
+        stamp_krpc_ports(instance_dir, rpc_port, stream_port, logger)
+        busy_ports = [p for p in (rpc_port, stream_port)
+                      if runtime.port_accepts(DEFAULT_RPC_HOST, p)]
+        if busy_ports:
+            logger.warn("Preflight", "port-busy: kRPC port(s) %s on %s already accept a "
+                                     "connection; refusing before %s (INVALID %s)"
+                        % (busy_ports, DEFAULT_RPC_HOST, instance_dir,
+                           hlib.PORT_BUSY_SUBKIND))
+            return _refuse(hlib.Verdict(hlib.VERDICT_INVALID, hlib.PORT_BUSY_SUBKIND, False,
+                                        "kRPC port(s) %s already accept connections"
+                                        % busy_ports),
+                           admission_rec)
+        logger.info("Preflight", "port-check rpc=%d stream=%d result=CLEAR"
+                    % (rpc_port, stream_port))
+        if mission_ctx is not None:
+            mission_ctx.rpc_port, mission_ctx.stream_port = rpc_port, stream_port
+
         # ---- STAGE -------------------------------------------------------
         staged, run_save_name, stage_subkind = stage_fixture(spec, instance_dir, runtime, logger)
         if not staged:
@@ -4362,16 +4924,44 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
         # boot, so the file as it stands BEFORE the launch is the previous run's.
         ksp_log_path = os.path.join(instance_dir, "KSP.log")
         boot_log_baseline = _ksp_log_identity(ksp_log_path)
-        proc = runtime.launch(exe, [], env, instance_dir)
+        # Per-instance Player.log and a windowed boot at the size settings.cfg
+        # carries (after stage_fixture's screen patch), whatever the machine-wide
+        # Unity prefs say.
+        player_log = (runtime.player_log_path(instance_dir)
+                      or slotrun.instance_player_log(instance_dir))
+        launch_args = slotrun.ksp_launch_args(player_log, read_ksp_screen_values(instance_dir))
+        if _CTX.desktop_id:
+            env[slotrun.DESKTOP_ID_ENV] = _CTX.desktop_id
+
+        def _launch_now():
+            # Captured AFTER the spacing wait, right before KSP takes the foreground.
+            fg = None
+            if _CTX.window_mode != slotrun.WINDOW_NORMAL:
+                fg = runtime.foreground_window()
+            if fg is not None and slotrun.should_return_foreground(
+                    _CTX.window_mode, fg[1], umbrella_root):
+                env[slotrun.RETURN_FOREGROUND_ENV] = str(fg[0])
+            return runtime.launch(exe, launch_args, env, instance_dir)
+
+        proc = spaced_launch(umbrella_root, runtime, logger, _launch_now)
         limits_fn = getattr(runtime, "boot_watchdog_limits", None)
         boot_limits = limits_fn() if callable(limits_fn) else hlib.BootWatchdogLimits()
-        boot_watch = BootWatch(ksp_log_path, boot_log_baseline, runtime.now(), boot_limits)
+        on_ready = None
+        if _CTX.window_mode != slotrun.WINDOW_NORMAL:
+            def on_ready(p=proc, path=ksp_log_path):
+                apply_window_mode(p, path, runtime, logger)
+        boot_watch = BootWatch(ksp_log_path, boot_log_baseline, runtime.now(), boot_limits,
+                               on_ready=on_ready)
         logger.info("Launch", "launch exe=%s pid=%s env=[TEST_COMMANDS=1 AUTORUN=%s EXIT=%s ISOLATED=%s RENDER_MANIFEST=%s] batchIsolated=%s budget=%ds"
                     % (exe, proc.pid, env.get("PARSEK_AUTORUN_TESTS", "unset"),
                        env.get("PARSEK_AUTORUN_EXIT", "0"),
                        env.get("PARSEK_AUTORUN_ISOLATED", "0"),
                        env.get("PARSEK_RENDER_MANIFEST", "0"),
                        hlib.spec_batch_isolated(spec), int(run_budget)))
+        logger.info("Launch", "launch args=%s window=%s desktopId=%s returnForeground=%s"
+                    % (" ".join(launch_args), _CTX.window_mode,
+                       env.get(slotrun.DESKTOP_ID_ENV, "-"),
+                       env.get(slotrun.RETURN_FOREGROUND_ENV, "-")))
 
         # ---- DRIVE + BUDGET ----------------------------------------------
         drive = drive_seam(spec, instance_dir, run_save_name, proc, runtime, logger,
@@ -4705,7 +5295,12 @@ def _dir_size_bytes(path: str) -> int:
 
 def _prune_shots_dirs(protect_name: str, logger: HarnessLogger) -> None:
     """Remove the oldest ``results/*_shots`` dirs past the retention budget
-    (hlib.select_shots_dirs_to_prune; the current run's dir is always kept)."""
+    (hlib.select_shots_dirs_to_prune; the current run's dir is always kept).
+    Skipped in a ``--slot`` child: a sibling child may be writing the dir this
+    would prune; the runner sweeps once at its end (``run.py --sweep-results``)."""
+    if _CTX.slot_mode:
+        logger.verbose("Artifacts", "shots-dir retention skipped (slot mode; the runner sweeps)")
+        return
     entries = []
     for name in os.listdir(RESULTS_DIR):
         if not name.endswith("_shots"):
@@ -4866,7 +5461,12 @@ def _prune_save_snapshot_dirs(protect_name: str, logger: HarnessLogger) -> None:
     kept), and sweep orphaned ``results/*_save.harness-tmp`` dirs left by a run
     killed mid-copy (hlib.select_stale_save_snapshot_tmp_dirs_to_sweep; the
     current run's own tmp name is never swept). Touches nothing but those two
-    name shapes directly under results/."""
+    name shapes directly under results/. Skipped in a ``--slot`` child (a
+    sibling child's copy in progress is not stale); the runner sweeps once."""
+    if _CTX.slot_mode:
+        logger.verbose("Snapshot", "save-snapshot retention skipped (slot mode; the runner "
+                                   "sweeps)")
+        return
     if not os.path.isdir(RESULTS_DIR):
         return
     entries = []
@@ -5135,7 +5735,12 @@ def _archive_attempt_results(results: Sequence[Dict], umbrella_root: Optional[st
                                        instance_dir=instance_dir)
         if done:
             archived.append(run_id)
-    if archived:
+    if archived and _CTX.slot_mode:
+        # The runner appends every run id once at its end (run_index.append_runs
+        # is idempotent); two children appending at once would race the file.
+        logger.verbose("Archive", "run index append skipped (slot mode; the runner appends "
+                                  "%s)" % ", ".join(archived))
+    elif archived:
         _index_archived_runs(root, archived, logger)
 
 
@@ -5382,6 +5987,7 @@ def write_result(result: Dict, logger: HarnessLogger,
             fh.write(text)
         os.replace(tmp, path)
         logger.info("Result", "result written %s" % path)
+        _CTX.note_result(result, path)
     except OSError as exc:
         # Degrade to a .pending fallback, then to stdout, so a verdict is never lost.
         try:
@@ -5791,11 +6397,86 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
     parser.add_argument("--serial-verify", action="store_true",
                         help="verify each lane before the next one stages (the pre-2026-10-14 "
                              "path); same as %s=1" % hlib.SERIAL_VERIFY_ENV)
+    parser.add_argument("--slot",
+                        help="fly in install slot SLOT (automation/<SLOT>, e.g. stock-minimal-2) "
+                             "as a child of tools/parallel_runner.py: takes the slot lock only, "
+                             "requires the runner's machine-lock token in %s / %s, verifies "
+                             "serially, skips the results prune, the run-index append, the "
+                             "coverage refresh and the stop-request clear"
+                             % (slotrun.RUNNER_TOKEN_ENV, slotrun.RUNNER_PID_ENV))
+    parser.add_argument("--tests-prebuilt", action="store_true",
+                        help="skip the selection-start Parsek.Tests build (the caller built "
+                             "it); --slot only")
+    parser.add_argument("--report-json",
+                        help="write a parsek-run-report/1 JSON (per lane: verdict, failure "
+                             "class, attempts, run ids, wall, result paths) to this path at "
+                             "the end, refusals included")
+    parser.add_argument("--window", choices=slotrun.WINDOW_MODES, default=slotrun.WINDOW_NORMAL,
+                        help="what happens to the KSP window after boot: desktop (Parsek moves "
+                             "it to --desktop-id; minimised when that did not happen), "
+                             "minimize, or normal (default)")
+    parser.add_argument("--desktop-id",
+                        help="virtual desktop GUID handed to KSP as %s"
+                             % slotrun.DESKTOP_ID_ENV)
+    parser.add_argument("--sweep-results", action="store_true",
+                        help="maintenance: run the results retention sweeps (old _shots, old "
+                             "and orphaned _save snapshots, stale .verify-private) and exit; "
+                             "what the parallel runner calls once after its slots drained")
+    parser.add_argument("--refresh-coverage", action="store_true",
+                        help="maintenance: refresh coverage/duration/flake from results/ and "
+                             "exit")
     args = parser.parse_args(argv)
+    slot = args.slot
+    if slot is not None:
+        try:
+            slots.parse_slot_name(slot)
+        except slots.SlotError as exc:
+            parser.error("--slot: %s" % exc)
+        if args.instance_dir:
+            parser.error("--slot and --instance-dir are mutually exclusive")
+    if args.tests_prebuilt and slot is None:
+        parser.error("--tests-prebuilt is accepted only with --slot")
 
     runtime = runtime or Runtime()
     umbrella_root = os.path.abspath(args.umbrella_root) if args.umbrella_root else DEFAULT_UMBRELLA_ROOT
-    logger = HarnessLogger(default_harness_log_path())
+    ctx = SelectionContext(slot=slot, window_mode=args.window, desktop_id=args.desktop_id,
+                           umbrella_root=umbrella_root)
+    global _CTX
+    prev_ctx, _CTX = _CTX, ctx
+    runtime.scope_ksp_to_instance = ctx.slot_mode
+    logger = HarnessLogger(default_harness_log_path(slot) if slot
+                           else default_harness_log_path())
+    selected_ids: List[str] = []
+    exit_code = 1
+    try:
+        exit_code = _run_invocation(args, runtime, umbrella_root, logger, selected_ids)
+        return exit_code
+    finally:
+        if args.report_json:
+            write_run_report(args.report_json, slot, exit_code, selected_ids, logger)
+        logger.close()
+        _CTX = prev_ctx
+
+
+def write_run_report(path: str, slot: Optional[str], exit_code: int,
+                     selected_ids: Sequence[str], logger) -> None:
+    """``--report-json``: the caller's read-back of this invocation (slotrun.build_run_report)."""
+    report = slotrun.build_run_report(slot, exit_code, selected_ids, _CTX.report_results)
+    try:
+        path = os.path.abspath(path)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        write_text_atomic(path, json.dumps(report, indent=1, sort_keys=True) + "\n")
+        logger.info("Report", "run report -> %s lanes=%d exit=%d"
+                    % (path, len(report["lanes"]), exit_code))
+    except OSError as exc:
+        logger.error("Report", "run report write FAILED %s (%s)" % (path, exc))
+
+
+def _run_invocation(args, runtime, umbrella_root: str, logger, selected_ids: List[str]) -> int:
+    """Everything ``run()`` does after argument parsing; the caller owns the
+    logger and the report. Returns the exit code."""
+    if args.sweep_results or args.refresh_coverage:
+        return _run_maintenance(args, runtime, umbrella_root, logger)
 
     registry = load_registry()
     specs = load_all_specs()
@@ -5818,11 +6499,16 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
                                   "no result row): %s" % (len(unknown_ids), unknown_ids))
     else:
         selected = hlib.select_scenarios(specs, expr)
+    selected_ids.extend(str(s.get("id")) for s in selected)
     logger.info("Select", "select expr='%s' -> %d scenarios: %s"
                 % (expr, len(selected), [s.get("id") for s in selected]))
+    if _CTX.slot_mode:
+        logger.info("Select", "slot mode slot=%s instance=%s window=%s"
+                    % (_CTX.slot, slots.instance_dir(umbrella_root, _CTX.slot), _CTX.window_mode))
 
     def instance_root_fn(profile):
-        return resolve_instance_dir(profile, umbrella_root, args.instance_dir) or "<unresolved>"
+        return _lane_instance({"instanceProfile": profile}, umbrella_root, args)[0] \
+            or "<unresolved>"
 
     if args.dry_run:
         print_dry_run_plan(selected, instance_root_fn, logger)
@@ -5858,9 +6544,11 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
         return 0
 
     if getattr(args, "admit_only", False):
-        exit_code = admit_only(selected, umbrella_root, args, runtime, logger)
-        logger.close()
-        return exit_code
+        return admit_only(selected, umbrella_root, args, runtime, logger)
+
+    if _CTX.slot_mode:
+        return _run_slot_child(selected, specs, registry, umbrella_root, args, runtime,
+                               logger, expr)
 
     # ---- MACHINE LOCK (whole invocation) ---------------------------------
     # Acquired ONCE here, around the entire selection, and released in the
@@ -5875,19 +6563,102 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
                              "active, delete %s" % (expr, holder_note, run_lock_path(umbrella_root)))
         for spec in selected:
             _write_instance_locked_result(spec, holder_note, runtime, logger)
-        logger.close()
         return 1
 
+    # The machine-lock holder owns the Unity screen prefs every KSP on the PC
+    # shares: snapshot now, restore after the last KSP exited (below).
+    _unity_prefs_step(runtime, umbrella_root, logger, begin=True)
     try:
-        exit_code = _run_selection(selected, specs, registry, umbrella_root, args,
-                                   runtime, logger, lock_path, expr)
+        return _run_selection(selected, specs, registry, umbrella_root, args,
+                              runtime, logger, lock_path, expr)
     finally:
-        # Release FIRST so a release warning still reaches an open log, then
-        # close. Both run even if the selection raises: an exception must not
-        # leave the machine locked until the lease expires, nor the log unflushed.
+        # Restore the prefs and release FIRST so a release warning still reaches
+        # an open log; the caller closes it. All of this runs even if the
+        # selection raises: an exception must not leave the machine locked until
+        # the lease expires.
+        _unity_prefs_step(runtime, umbrella_root, logger, begin=False)
+        release_slot_locks(logger)
         release_run_lock(lock_path, logger)
-        logger.close()
-    return exit_code
+
+
+def _unity_prefs_step(runtime, umbrella_root: str, logger, begin: bool) -> None:
+    fn = getattr(runtime, "unity_prefs_begin" if begin else "unity_prefs_end", None)
+    if fn is None:
+        return
+    try:
+        fn(umbrella_root, logger)
+    except Exception as exc:  # noqa: BLE001 - prefs hygiene never costs a run
+        logger.warn("UnityPrefs", "unity prefs %s FAILED (%s: %s)"
+                    % ("snapshot" if begin else "restore", type(exc).__name__, exc))
+
+
+def _run_slot_child(selected, specs, registry, umbrella_root: str, args, runtime, logger,
+                    expr: str) -> int:
+    """A ``--slot`` child: no machine lock (the runner holds it), the runner token
+    checked now and at every attempt boundary, the slot lock for the selection."""
+    decision = check_runner_token(umbrella_root, runtime)
+    if not decision.ok:
+        note = "runner check failed: %s" % decision.reason
+        logger.error("Lock", "refusing selection '%s' in slot %s: %s"
+                     % (expr, _CTX.slot, decision.reason))
+        for spec in selected:
+            _write_selection_refusal_result(spec, hlib.RUNNER_TOKEN_SUBKIND, note, logger)
+        return 1
+    logger.info("Lock", "runner check ok: %s" % decision.reason)
+    instance_dir = slots.instance_dir(umbrella_root, _CTX.slot)
+    try:
+        if not ensure_instance_slot_lock(instance_dir, umbrella_root, runtime, logger, expr):
+            note = _lane_refusal_note(hlib.SLOT_LOCKED_SUBKIND, None, instance_dir)
+            for spec in selected:
+                _write_selection_refusal_result(spec, hlib.SLOT_LOCKED_SUBKIND, note, logger)
+            return 1
+        return _run_selection(selected, specs, registry, umbrella_root, args, runtime,
+                              logger, None, expr)
+    finally:
+        release_slot_locks(logger)
+
+
+def _run_maintenance(args, runtime, umbrella_root: str, logger) -> int:
+    """``--sweep-results`` / ``--refresh-coverage``: under the machine lock, or
+    under a live parallel runner's (its token in the env)."""
+    lock_path = None
+    if os.environ.get(slotrun.RUNNER_TOKEN_ENV):
+        decision = check_runner_token(umbrella_root, runtime)
+        if not decision.ok:
+            logger.error("Lock", "maintenance refused: runner check failed: %s"
+                         % decision.reason)
+            return 1
+        logger.info("Lock", "maintenance under the parallel runner: %s" % decision.reason)
+    else:
+        lock_path = acquire_run_lock(umbrella_root, runtime, logger, selection="maintenance")
+        if lock_path is None:
+            logger.error("Lock", "maintenance refused: the machine lock is held")
+            return 1
+    try:
+        if args.sweep_results:
+            sweep_results_dir(logger)
+        if args.refresh_coverage:
+            refresh_coverage_and_flake(load_all_specs(), load_registry(), logger)
+        return 0
+    finally:
+        release_run_lock(lock_path, logger)
+
+
+def sweep_results_dir(logger) -> None:
+    """The results retention passes a slot child skips, once: old ``_shots`` dirs,
+    old / orphaned ``_save`` snapshots and leftover ``.verify-private`` copies.
+    Run only while no lane is flying (the runner calls it after its slots drained)."""
+    if not os.path.isdir(RESULTS_DIR):
+        logger.info("Artifacts", "sweep: no results dir at %s" % RESULTS_DIR)
+        return
+    _prune_shots_dirs("", logger)
+    _prune_save_snapshot_dirs("", logger)
+    stale_copies = os.path.join(RESULTS_DIR, POST_QUIT_COPY_DIRNAME)
+    if os.path.isdir(stale_copies):
+        logger.info("Pipeline", "sweep: removing %d stale post-quit copy dir(s): %s"
+                    % (len(os.listdir(stale_copies)), stale_copies))
+        shutil.rmtree(stale_copies, ignore_errors=True)
+    logger.info("Artifacts", "sweep: results retention done (%s)" % RESULTS_DIR)
 
 
 ADMIT_ONLY_SUMMARY_PREFIX = "admit-only summary"
@@ -5907,7 +6678,7 @@ def admit_only(selected, umbrella_root, args, runtime, logger) -> int:
             profiles.append(profile)
     drifted: List[str] = []
     for profile in profiles:
-        instance_dir = resolve_instance_dir(profile, umbrella_root, args.instance_dir)
+        instance_dir = _lane_instance({"instanceProfile": profile}, umbrella_root, args)[0]
         if instance_dir is None:
             logger.error("Admit", "admit instance=%s manifest=missing result=DRIFT "
                                   "(cannot resolve the instance dir)" % profile)
@@ -5938,7 +6709,10 @@ def stop_request_path() -> str:
 
 def clear_stale_stop_request(logger) -> None:
     """A stop request left over from a run that already ended must not stop this
-    one: drop it at selection start, with one line saying so."""
+    one: drop it at selection start, with one line saying so. Never in a
+    ``--slot`` child: the stop request is the parallel runner's to clear."""
+    if _CTX.slot_mode:
+        return
     path = stop_request_path()
     if os.path.exists(path):
         try:
@@ -5949,10 +6723,15 @@ def clear_stale_stop_request(logger) -> None:
 
 
 def consume_stop_request(logger) -> bool:
-    """True (and the request file removed) when a stop has been requested."""
+    """True (and the request file removed) when a stop has been requested. A
+    ``--slot`` child honours it READ-ONLY: the runner and every sibling child
+    must see the same request."""
     path = stop_request_path()
     if not os.path.exists(path):
         return False
+    if _CTX.slot_mode:
+        logger.warn("Select", "stop request %s present; honoured read-only (slot mode)" % path)
+        return True
     try:
         os.remove(path)
     except OSError as exc:
@@ -5966,12 +6745,16 @@ def _run_selection(selected, specs, registry, umbrella_root, args, runtime, logg
     """The selection loop, running under an already-held machine lock."""
     if getattr(args, "keep_stop_request", False) is not True:
         clear_stale_stop_request(logger)
+    if getattr(args, "tests_prebuilt", False) is True:
+        prebuilt_ok = _accept_prebuilt_tests(runtime, logger)
+    else:
+        prebuilt_ok = _prebuild_tests_for_selection(runtime, logger)
     # Build Parsek.Tests ONCE, before the first lane, so every verifier subprocess
     # (seed analyzer, analyzer, log validation) runs -NoBuild behind it. A failed
     # build refuses the WHOLE selection pre-boot with one INVALID(tooling-build) row
     # per scenario, like the lock refusal: verifiers must never judge a flight with
     # whatever stale assembly happens to be on disk.
-    if not _prebuild_tests_for_selection(runtime, logger):
+    if not prebuilt_ok:
         note = "Parsek.Tests build failed at selection start (see the Build log line)"
         for spec in selected:
             _write_selection_refusal_result(spec, hlib.TESTS_BUILD_INVALID_SUBKIND,
@@ -5980,11 +6763,14 @@ def _run_selection(selected, specs, registry, umbrella_root, args, runtime, logg
     # Validate every selected spec; an invalid spec is SKIPPED with an INVALID-SPEC
     # result (never launches KSP), so one broken spec cannot abort the batch.
     bug_ids = _load_bug_ids()
-    if hlib.pipelined_verify_enabled(os.environ, bool(getattr(args, "serial_verify", False))):
+    # A slot child verifies serially: no .verify-private copies beside its siblings'.
+    serial_flag = bool(getattr(args, "serial_verify", False)) or _CTX.slot_mode
+    refresh_coverage = not (args.no_coverage or _CTX.slot_mode) if args is not None else False
+    if hlib.pipelined_verify_enabled(os.environ, serial_flag):
         exit_code, ran_any = _run_selection_pipelined(selected, registry, bug_ids,
                                                       umbrella_root, args, runtime, logger,
                                                       lock_path, expr)
-        if ran_any and not args.no_coverage:
+        if ran_any and refresh_coverage:
             refresh_coverage_and_flake(specs, registry, logger)
         return exit_code
     exit_code = 0
@@ -6017,6 +6803,13 @@ def _run_selection(selected, specs, registry, umbrella_root, args, runtime, logg
             for abandoned in selected[index:]:
                 _write_instance_locked_result(abandoned, note, runtime, logger)
             return max(exit_code, 1)
+        # The slot half: a slot child's runner must still hold the machine, and
+        # every slot lock this invocation holds must still be ours.
+        stop = _selection_boundary_check(umbrella_root, runtime, logger, expr)
+        if stop is not None:
+            for abandoned in selected[index:]:
+                _write_selection_refusal_result(abandoned, stop[0], stop[1], logger)
+            return max(exit_code, 1)
         # M-B1 spec admission: resolve the autopilot mission ref SHELL-SIDE (read
         # the mission's declared schema toml + confirm the mission .py exists) and
         # hand the parsed registry to the pure validator. A missing schema / missing
@@ -6035,7 +6828,17 @@ def _run_selection(selected, specs, registry, umbrella_root, args, runtime, logg
             continue
 
         profile = spec.get("instanceProfile")
-        instance_dir = resolve_instance_dir(profile, umbrella_root, args.instance_dir)
+        instance_dir, refusal = _lane_instance(spec, umbrella_root, args)
+        if refusal is None and instance_dir is not None and not ensure_instance_slot_lock(
+                instance_dir, umbrella_root, runtime, logger, expr):
+            refusal = hlib.SLOT_LOCKED_SUBKIND
+        if refusal is not None:
+            note = _lane_refusal_note(refusal, profile, instance_dir)
+            logger.warn("Admit", "lane %s refused INVALID(%s): %s"
+                        % (spec.get("id"), refusal, note))
+            _write_selection_refusal_result(spec, refusal, note, logger)
+            exit_code = 1
+            continue
         if instance_dir is None:
             logger.error("Admit", "cannot resolve instance dir for profile=%s" % profile)
             exit_code = 1
@@ -6048,7 +6851,7 @@ def _run_selection(selected, specs, registry, umbrella_root, args, runtime, logg
                                    hlib.VERDICT_KILLED, hlib.VERDICT_XPASS):
             exit_code = max(exit_code, 1)
 
-    if ran_any and not args.no_coverage:
+    if ran_any and refresh_coverage:
         refresh_coverage_and_flake(specs, registry, logger)
 
     # The caller (run) owns logger.close() -- it must happen AFTER the lock is
@@ -6418,6 +7221,24 @@ def _run_selection_pipelined(selected, registry, bug_ids, umbrella_root, args, r
                                         _pipeline_finalize(item, umbrella_root, logger))
                 queue.clear()
                 return max(exit_code, 1), ran_any
+            stop = _selection_boundary_check(umbrella_root, runtime, logger, expr)
+            if stop is not None:
+                if worker is not None:
+                    exit_code = max(exit_code, _pipeline_join(worker, queue, umbrella_root,
+                                                              logger, allow_retry=False,
+                                                              no_retry_reason=stop[1]))
+                    worker = None
+                for kind, item in list(queue):
+                    if kind == "new":
+                        _write_selection_refusal_result(item, stop[0], stop[1], logger)
+                    else:
+                        item.deferred.warn("Retry", "retry scenario=%s attempt=2 NOT "
+                                                    "flown: %s; attempt 1 is the terminal"
+                                           % (item.spec.get("id"), stop[1]))
+                        exit_code = max(exit_code,
+                                        _pipeline_finalize(item, umbrella_root, logger))
+                queue.clear()
+                return max(exit_code, 1), ran_any
             if queue[0][0] == "new" and consume_stop_request(logger):
                 # Unstarted lanes are dropped; a queued attempt-2 retry of a lane
                 # that already flew stays, so that scenario still gets its terminal.
@@ -6445,7 +7266,21 @@ def _run_selection_pipelined(selected, registry, bug_ids, umbrella_root, args, r
                     exit_code = 1
                     continue
                 profile = spec.get("instanceProfile")
-                instance_dir = resolve_instance_dir(profile, umbrella_root, args.instance_dir)
+                instance_dir, refusal = _lane_instance(spec, umbrella_root, args)
+                if refusal is None and instance_dir is not None and \
+                        not ensure_instance_slot_lock(instance_dir, umbrella_root, runtime,
+                                                      logger, expr):
+                    refusal = hlib.SLOT_LOCKED_SUBKIND
+                if refusal is not None:
+                    note = _lane_refusal_note(refusal, profile, instance_dir)
+                    logger.warn("Admit", "lane %s refused INVALID(%s): %s"
+                                % (spec.get("id"), refusal, note))
+                    flown = (None, _DeferredAttempt(
+                        None, None,
+                        lambda lg, s=spec, k=refusal, n=note: _write_selection_refusal_result(
+                            s, k, n, lg)))
+                    exit_code = 1
+                    continue
                 if instance_dir is None:
                     logger.error("Admit", "cannot resolve instance dir for profile=%s" % profile)
                     exit_code = 1
@@ -6504,6 +7339,31 @@ def _prebuild_tests_for_selection(runtime, logger) -> bool:
     runtime.tests_prebuilt = True
     logger.info("Build", "tests prebuild ok wall=%.1fs; verifiers run -NoBuild" % wall)
     return True
+
+
+def _accept_prebuilt_tests(runtime, logger) -> bool:
+    """``--tests-prebuilt`` (a slot child of the parallel runner, which built
+    Parsek.Tests once for every child): skip the build, but refuse the selection
+    like a failed build when the assembly is not there."""
+    if not runtime.tests_assembly_present():
+        logger.error("Build", "tests prebuild REFUSED: --tests-prebuilt given but %s is missing "
+                              "-> every selected scenario INVALID(%s)"
+                     % (TESTS_ASSEMBLY_PATH, hlib.TESTS_BUILD_INVALID_SUBKIND))
+        return False
+    runtime.tests_prebuilt = True
+    logger.info("Build", "tests prebuild skipped (--tests-prebuilt: the caller built %s); "
+                         "verifiers run -NoBuild" % TESTS_ASSEMBLY_PATH)
+    return True
+
+
+def _lane_refusal_note(subkind: str, profile, instance_dir: Optional[str]) -> str:
+    if subkind == hlib.SLOT_PROFILE_MISMATCH_SUBKIND:
+        return ("lane profile %s is not slot %s's profile %s"
+                % (profile, _CTX.slot, _CTX.slot_profile))
+    if subkind == hlib.SLOT_LOCKED_SUBKIND:
+        return ("the slot lock of %s is held by another live process"
+                % (slotrun.instance_slot_name(instance_dir) or instance_dir))
+    return subkind
 
 
 def _write_selection_refusal_result(spec, subkind, note, logger) -> None:

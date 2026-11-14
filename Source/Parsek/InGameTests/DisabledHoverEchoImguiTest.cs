@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Runtime.InteropServices;
+using Parsek.TestCommands;
 using UnityEngine;
 
 namespace Parsek.InGameTests
@@ -176,14 +177,13 @@ namespace Parsek.InGameTests
                     return new CursorPlacement(false, "not Windows: " + Environment.OSVersion.Platform, 0, 0);
                 try
                 {
-                    // This process's own main window first: a title lookup would find
-                    // whichever KSP instance was created first (the dev instance sits outside
-                    // the harness machine lock and may be open alongside a nightly), and the
-                    // foreground window may be anything at all.
-                    // On a harness-launched instance MainWindowHandle reads zero (measured on
-                    // LT-1 run 2026-09-08_1114, which placed through the title lookup), so the
-                    // title fallback is the path that carries the nightly; the process handle
-                    // is what protects an operator with a second KSP open.
+                    // This process's own window only: a title lookup would find whichever
+                    // KSP instance was created first (the dev instance, the operator's Steam
+                    // game or a parallel harness slot may be open alongside), and the
+                    // foreground window may be anything at all. On a harness-launched
+                    // instance MainWindowHandle reads zero (measured on LT-1 run
+                    // 2026-09-08_1114), so the enumeration by pid is the path that carries
+                    // the nightly.
                     IntPtr window = IntPtr.Zero;
                     string source = "process";
                     try
@@ -196,13 +196,8 @@ namespace Parsek.InGameTests
                     }
                     if (window == IntPtr.Zero)
                     {
-                        window = NativeMethods.FindWindowW(null, "Kerbal Space Program");
-                        source = "title";
-                    }
-                    if (window == IntPtr.Zero)
-                    {
-                        window = NativeMethods.GetForegroundWindow();
-                        source = "foreground";
+                        window = OwnProcessWindowFinder.FindOwnWindow(out _);
+                        source = "own-process";
                     }
                     if (window == IntPtr.Zero)
                         return new CursorPlacement(false, "no game window handle", 0, 0);
@@ -268,12 +263,6 @@ namespace Parsek.InGameTests
                 public int X;
                 public int Y;
             }
-
-            [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-            internal static extern IntPtr FindWindowW(string className, string windowName);
-
-            [DllImport("user32.dll")]
-            internal static extern IntPtr GetForegroundWindow();
 
             [DllImport("user32.dll")]
             [return: MarshalAs(UnmanagedType.Bool)]

@@ -55,6 +55,7 @@ namespace Parsek
             (new[] { "ResourceScan" }, "resource scan recording"),
             (new[] { "CanAffordLaunchTest", "EditorLaunchButton", "VesselSpawnDialogLaunch", "LaunchSiteFlyout" }, "launch cost reservations"),
             (new[] { "AllowNegativeCurrencyLock" }, "career settings lock"),
+            (new[] { "AutomationFocusLock" }, "automated testing"),
         };
 
         /// <summary>

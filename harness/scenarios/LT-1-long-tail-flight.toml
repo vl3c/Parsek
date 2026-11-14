@@ -153,6 +153,9 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 # 660 (LoadGame, the deferred-step floor) + 660 (RunTests) = 1320 worst case; 1400
 # clears it. Measured census wall 386 s over 38 constituents.
 budgetSeconds = 1400
+# The batch's DisabledHoverEcho test moves the OS cursor (SetCursorPos), so the
+# parallel runner flies this lane alone (harness/README.md, "Parallel runs").
+exclusive = true
 
 [retry]
 policy = "once"
