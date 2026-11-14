@@ -30,6 +30,13 @@ All notable changes to Parsek are documented here.
 
 ### Fixed
 
+- **A flight that ends parked on the launch pad or runway is always recognized.** Some recorded
+  positions store the longitude wound past the date line (-434.5 instead of -74.5); such a flight
+  spawned a vessel on the pad instead of ending there. It now ends there like any other.
+  (LAUNCH-SITE-WOUND-LONGITUDE)
+- **Making History launch sites use the game's own positions.** If Parsek read the launch sites
+  before the game had built them, it kept approximate positions for those sites until KSP was
+  restarted. It now reads them again until every site is there. (LAUNCH-SITE-PARTIAL-READ-CACHED)
 - **Switching back to a ship your kerbal just stepped out of keeps your recording going.** When
   the ship was also the end of an earlier recorded flight, the map's Switch To quietly merged the
   recording you were making and loaded that earlier flight instead. The switch now just continues
