@@ -559,9 +559,9 @@ All read on 2026-11-14 at commit abf7de3.
   longitudes included (bit-equal distances); the 59.7 m rover of LF-1 / LF-2 is outside the
   runway circle and the EX-1 pad position is inside; the strip: inside along the centre
   line, outside past the end plus margin, the corner case, a strip across the date line. The
-  wound-longitude retirement cell in `KscPadRetirementTests` (a recording ending at the pad
-  with a wound longitude is retired) pins existing behavior: it is the launch pad fixes'
-  cell if that work added it there, and a new pin otherwise. Existing retirement and
+  wound-longitude retirement cell already exists
+  (`LaunchSiteWrapAndCacheTests.TryRetire_KscPad_WoundLongitude_Retires`, from pull request
+  #2605) and stays green unchanged; this task adds no second pin. Existing retirement and
   launch-site-only cells unchanged. Lanes on the owner's PC: EX-1, LF-1, LF-2, MC-4, kept as
   the no-change proof of the extraction (same retirements, same pinned lines).
 - **Registers.** `modules.toml` Core list (`|^LaunchArea[.]cs$`), `test_archview.py` count
