@@ -3129,6 +3129,28 @@ compare).
   il_compare: only the `AnalyzeWindows` body differs, plus the 14 new private methods; the 140
   string literals and every outside call target of the old body are the same multiset across the
   new ones. Complexity >= 20 / 50 / 100: 613 / 32 / 5 -> 614 / 31 / 4; `complexityWatch` 54 -> 53.
+- 2026-11-14 (B6 second half, split `AnchorPropagator.Run`): the DAG walk (about 490 lines,
+  complexity 104) is now an orchestrator (complexity 8) over 13 private static steps in the same
+  file, in walk order: `IndexRecordingsById`, `EmitSeedAnchors` with `EmitSeedCandidate`,
+  `AddBranchPointEdges` (per tree, per branch point), `AddChainEdges`,
+  `IndexOutgoingEdgesByParentSlot`, `WalkEdges` with `EnqueueAnchoredSlots` and `PropagateEdge`
+  (`LookupUpstreamEpsilon`, `TryEvaluateEdgeOffsets`), `LogWalkSummary`; the walk's 14 counters
+  ride in one private `DagWalkCounters` object built per call. Highest step 18
+  (`AddBranchPointEdges` per branch point); no behaviour change: bodies moved, log text, level,
+  tag, counter and ordering unchanged; `TryResolveSeedEpsilon` and
+  `TryResolveBoundaryInstantEpsilon` untouched. Tests first, on the tree after the
+  REFLY-ANCHOR-EPSILON-1300KM residual fix (SoiTransition read at the boundary instant): 38
+  transcript cells plus 8 facts (`AnchorPropagatorRunCharacterizationTests`, goldens recorded
+  from the unsplit method). A throwaway seeded differential over 6,000 random scenarios (every
+  source, side, body, branch type, chain shape, suppression and seam mode) gave byte-identical
+  raw transcripts on both builds; no pre-split copy is kept test-side because the old body calls
+  private members (`Edge`, `TryResolveSeedEpsilon`, `ResolveBody`) a copy could reach only by
+  widening them. 57 mutants on the split, one or more per step: 53 killed; the 4 survivors are
+  equivalent (an empty-id or first-wins index entry nothing looks up, the zero epsilon a failed
+  resolve already carries, a no-op branch-type guard). Three holes the first sweep found
+  (parent-first fallback reason, a sampled but unsplined parent, branch-point edges walking
+  before chain edges) are closed by the cell `edge-offset-precedence-and-edge-order`.
+  Complexity >= 20 / 50 / 100: 612 / 30 / 4 -> 611 / 29 / 3; `complexityWatch` 52 -> 51.
 - 2026-11-11 (metrics history): `scripts/arch/metrics.py` builds one JSON row per commit
   (schema `parsek-metrics/1`) from the existing tools' output: the text scan, the semantic
   headline, the code facts (with test reach when given the test DLL) and `count-code.py`'s
