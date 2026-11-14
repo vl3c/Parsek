@@ -54,6 +54,7 @@ construction.
 - `RouteRunPrompt`: the pending prompt (2 fields); `ResetForSaveLoad` logs the cleared prompt, then swaps.
 - `SceneEntryVesselScope`: the scene-entry and rewind-replay-target pids (5 fields, now properties); `ResetForLoad` swaps.
 - `CommittedTreeRestoreAttempt`: the armed attempt (4 fields, private accessors keep the old names); `ResetForLoad` swaps.
+- `InertRecordingTrees`: the held trees, their id sets and the notice latch (4 fields); `Clear` (BeginLoad, `ResetForLoad`, the test reset) swaps. No caller keeps a reference to the old lists.
 
 ## COLD-RESET-LEFTOVERS: four save / load-transition statics a Cold load leaves set [FILED 2026-11-14 from the ARCH-COLD-RESET-HOLDERS cold-loader cells, by a headless test. OPEN; none reproduced in play, low; pinned in `SaveScopedSessionResetTests.ColdLoaderKnownGaps`, not fixed]
 
