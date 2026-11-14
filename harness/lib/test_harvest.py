@@ -608,3 +608,56 @@ class RewindSaveHintStripTests(unittest.TestCase):
         with open(os.path.join(target, "Parsek", "RewindPoints", "rp_1.sfs")) as fh:
             self.assertEqual("\tnote = see parsek_rw_ab12\n\trewindSave = \n",
                              fh.read())
+
+    def test_the_harvest_resets_the_launch_arguments_in_every_written_save(self):
+        leaky = EnvLaunchArgsScrubTests.LEAKY
+        save = self._make_recorded_save("\trewindSave = \n" + leaky + "\n",
+                                        sfs_tail=leaky + "\n")
+        target = self._harvest(save)
+        for rel in ("persistent.sfs", os.path.join("Parsek", "RewindPoints", "rp_1.sfs")):
+            with open(os.path.join(target, rel)) as fh:
+                text = fh.read()
+            self.assertNotIn("-logFile", text, rel)
+            self.assertIn(EnvLaunchArgsScrubTests.BARE, text, rel)
+
+
+class EnvLaunchArgsScrubTests(unittest.TestCase):
+    """The harness launches KSP with `-logFile <instance>/Player.log`, and KSP
+    writes the launch command line into every save's `envInfo`, so an unscrubbed
+    harvest commits the operator's install path (their home folder) to a public
+    repository. The harvest resets the Args; the corpus cell keeps it that way."""
+
+    LEAKY = ("\tenvInfo =  - Environment Info - Win32NT 7FFFFFFFFFFFFFFF  Args: KSP_x64.exe"
+             " -logFile C:\\Users\\someone\\automation\\stock-minimal\\Player.log"
+             " -screen-fullscreen 0 - ")
+    BARE = "\tenvInfo =  - Environment Info - Win32NT 7FFFFFFFFFFFFFFF  Args: KSP_x64.exe  - "
+
+    def test_the_launch_arguments_are_reset_to_the_bare_form(self):
+        text, n = harvest.scrub_env_launch_args("GAME\n" + self.LEAKY + "\r\n\tx = 1\n")
+        self.assertEqual(1, n)
+        self.assertEqual("GAME\n" + self.BARE + "\r\n\tx = 1\n", text)
+
+    def test_an_already_bare_line_is_left_alone(self):
+        text, n = harvest.scrub_env_launch_args(self.BARE + "\n")
+        self.assertEqual(0, n)
+        self.assertEqual(self.BARE + "\n", text)
+
+    def test_no_committed_fixture_carries_a_launch_path(self):
+        saves = os.path.join(os.path.dirname(_HERE), "fixtures", "saves")
+        offenders = []
+        for dirpath, _, filenames in os.walk(saves):
+            for fn in filenames:
+                if not fn.endswith(".sfs"):
+                    continue
+                path = os.path.join(dirpath, fn)
+                with open(path, "rb") as fh:
+                    text = fh.read().decode("latin-1")
+                for line in text.split("\n"):
+                    if "envInfo" in line and "Args:" in line and \
+                            line.split("Args:", 1)[1].strip() != "KSP_x64.exe  -".strip():
+                        offenders.append(os.path.relpath(path, saves).replace("\\", "/"))
+                        break
+        self.assertEqual([], sorted(offenders),
+                         "a committed save carries KSP's launch arguments in envInfo "
+                         "(the harness's -logFile path names the operator's home "
+                         "folder); harvest_bdock_station.scrub_env_launch_args resets them")

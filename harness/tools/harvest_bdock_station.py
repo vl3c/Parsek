@@ -216,6 +216,31 @@ def strip_rewind_save_hints(text: str):
     return "\n".join(out), cleared, leftovers
 
 
+# KSP writes the launch command line into every save's `envInfo` line. Since the
+# harness launches with `-logFile <instance>/Player.log` (parallel install slots),
+# that argument carries the operator's absolute install path - their home folder
+# on Windows - into every produced save, and this repository is public. KSP
+# rewrites `envInfo` on every save and nothing reads it, so the harvest resets the
+# Args to the no-argument form the older fixtures carry.
+_ENV_INFO_ARGS_RE = re.compile(r"^(\s*envInfo = .*?Args: )(.*)$")
+ENV_INFO_BARE_ARGS = "KSP_x64.exe  - "
+
+
+def scrub_env_launch_args(text: str):
+    """Reset the Args of every `envInfo` line to the bare form; returns
+    (text, scrubbed). Line endings are preserved: a CR before the LF stays."""
+    out, scrubbed = [], 0
+    for line in text.split("\n"):
+        body, cr = (line[:-1], "\r") if line.endswith("\r") else (line, "")
+        m = _ENV_INFO_ARGS_RE.match(body)
+        if m and m.group(2) != ENV_INFO_BARE_ARGS:
+            out.append(m.group(1) + ENV_INFO_BARE_ARGS + cr)
+            scrubbed += 1
+            continue
+        out.append(line)
+    return "\n".join(out), scrubbed
+
+
 def rewind_point_quicksaves(save_dir: str):
     """Every file directly under `<save_dir>/Parsek/RewindPoints`, sorted; []
     when absent. Every file, not just `*.sfs`: the corpus cell scans the whole
@@ -228,7 +253,7 @@ def rewind_point_quicksaves(save_dir: str):
 
 
 def strip_rewind_point_hints(save_dir: str, write: bool):
-    """Apply `strip_rewind_save_hints` to every RewindPoint quicksave under
+    """Apply `strip_rewind_save_hints` and `scrub_env_launch_args` to every RewindPoint quicksave under
     `save_dir`. Returns (cleared, leftovers) summed over the files, each leftover
     prefixed with its file name. `write=False` is the dry run the pre-write
     refusal gate uses; `write=True` rewrites only the files that changed.
@@ -240,9 +265,10 @@ def strip_rewind_point_hints(save_dir: str, write: bool):
         with open(path, "rb") as fh:
             text = fh.read().decode("latin-1")
         new_text, cleared, left = strip_rewind_save_hints(text)
+        new_text, scrubbed = scrub_env_launch_args(new_text)
         total += cleared
         leftovers.extend("%s:%s" % (os.path.basename(path), l) for l in left)
-        if write and cleared:
+        if write and (cleared or scrubbed):
             with open(path, "wb") as fh:
                 fh.write(new_text.encode("latin-1"))
     return total, leftovers
@@ -537,6 +563,10 @@ def harvest(save_dir: str, target_name: str, title: str, force: bool,
     #    the pointer would commit a dangling reference).
     normalized = normalize_title(sfs_text, title)
     normalized, cleared_hints, _ = strip_rewind_save_hints(normalized)
+    normalized, scrubbed_env = scrub_env_launch_args(normalized)
+    if scrubbed_env:
+        log("reset the launch arguments in %d envInfo line(s) in persistent.sfs "
+            "(they carry the operator's install path)" % scrubbed_env)
     if cleared_hints:
         log("cleared %d dangling rewind-save reference(s) in persistent.sfs "
             "(payload lives in the pruned Parsek/Saves)" % cleared_hints)
