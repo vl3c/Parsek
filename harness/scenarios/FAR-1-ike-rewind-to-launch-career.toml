@@ -56,8 +56,8 @@ id = "FAR-1-ike-rewind-to-launch-career"
 # FAST-LANE CHECKLIST: (1) reuse: V31M's boot and H79's career RTL shape, no new flight;
 # (2) explicit-UT warps only, no TimeJump (a TimeJump epoch-shifts DD1 off its recorded
 # phase by design, which the placement cell would read as a red); (3)-(5) no dwell, burn
-# or coast beyond the ~190 s Ike segment; (6) retry `once`; (7) recordings window 5..6
-# while never flown; (8) operator, ~4 min expected; (9) flight_efficiency.py after the
+# or coast beyond the ~190 s Ike segment; (6) retry `once`; (7) recordings pinned 5,
+# the first green flight's reading; (8) operator, ~4 min expected; (9) flight_efficiency.py after the
 # first green flight.
 tier = "operator"
 description = "Far-body Rewind-to-Launch in a career: on duna-ike-recorded-career a ~190 s segment of the DD1 probe's Ike orbit is recorded and committed, then rewound to; the rewound timeline must show the segment's ghost at Ike in the Tracking Station, spawn the leaf at the Space Center past the segment's end on its recorded Ike orbit and phase (LeafVesselPlacement), keep no spawn pid on two vessels, and leave the ledger equal to the template plus the rewind-aware walk."
