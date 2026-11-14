@@ -307,6 +307,21 @@ class FindingTests(unittest.TestCase):
         self.assertEqual(tagged["Parsek.Loose::ClockForTesting"][:2], ["test-hook", "pattern"])
         self.assertEqual(result["untagged"], ["Parsek.Loose::Free"])
 
+    def test_a_cold_reset_holder_carries_its_fields(self):
+        holder = "Parsek.Store/" + lifetimes.HOLDER_TYPE_NAME
+        fields = {
+            "Parsek.Store::state": {"fieldType": holder, "static": True, "literal": False},
+            "Parsek.Store::other": {"fieldType": "Parsek.Other/" + lifetimes.HOLDER_TYPE_NAME, "static": True,
+                                    "literal": False},
+            holder + "::A": {"fieldType": "int32", "static": False, "literal": False},
+            holder + "::B": {"fieldType": "string", "static": False, "literal": False},
+            holder + "::Shared": {"fieldType": "int32", "static": True, "literal": False},
+            "Parsek.Store::Plain": {"fieldType": "int32", "static": True, "literal": False},
+        }
+        held = lifetimes.holders_of(fields, ["Parsek.Store::state", "Parsek.Store::other", "Parsek.Store::Plain"])
+        # Only a nested ColdResetState of the declaring type is a holder; its static fields are not held.
+        self.assertEqual(held, {"Parsek.Store::state": [holder + "::A", holder + "::B"]})
+
     def test_cold_load_misses(self):
         result = run_fixture()
         # Saved (stsfld behind a branch), Boxed (ldsflda + initobj), Items (List.Clear)
@@ -767,6 +782,25 @@ class RealTreeLifetimeTests(unittest.TestCase):
 
     def test_the_pins_hold(self):
         self.assertEqual(self.problems(self.result), [])
+
+    def test_every_cold_reset_holder_is_save_scoped(self):
+        holders = self.result["holders"]
+        for key, count in holders.items():
+            self.assertIn(self.result["tagged"][key][0], lifetimes.COLD_CLEARED, key)
+            self.assertGreater(count, 0, key)
+        self.assertEqual(sum(self.result["heldByLifetime"].values()), sum(holders.values()))
+
+    def test_a_holder_tagged_as_surviving_the_load_reds(self):
+        if not self.result["holders"]:
+            self.skipTest("no ColdResetState holder in this assembly")
+        key = sorted(self.result["holders"])[0]
+        path, name = key.split("::", 1)
+        decl = copy.deepcopy(self.ctx["decl"])
+        entry = next(e for e in decl["type"] if e["name"] == path)
+        entry.setdefault("fields", {})[name] = "process: a mutant"
+        result = self.rerun(decl=decl)
+        self.assertTrue(any(lifetimes.HOLDER_TYPE_NAME + " holder tagged process" in p for p in result["problems"]),
+                        result["problems"])
 
     def test_the_load_path_reaches_the_reset_helper(self):
         self.assertIn("Parsek.ParsekScenario::ResetSaveScopedSessionState(string)", self.closure)

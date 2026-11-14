@@ -645,7 +645,11 @@ the store's call, and reads it back; what it leaves set today is pinned in
 through a store's save-scoped holder, a static of a nested class named
 `ColdResetState` (todo ARCH-COLD-RESET-HOLDERS): the holder's instance fields
 are slots keyed `Store.field`, so the IL population counts the holder as one
-`save` static while the cells check every field in it.
+`save` static while the cells check every field in it. The report prints the
+holders and the fields they carry by lifetime (`ColdResetState holders: N
+statics holding M fields`), and a holder tagged anything but `save` or
+`load-transition` is a declaration problem
+(`test_a_holder_tagged_as_surviving_the_load_reds`).
 
 Tag a static by adding a field entry (or a type default) with the reason its
 write sites support, then re-pin after a Debug build:
