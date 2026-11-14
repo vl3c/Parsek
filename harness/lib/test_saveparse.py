@@ -1219,6 +1219,83 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "ddcc6d007ff54a9c8246c7958011883a"],
             "schemaGeneration": 4,
         },
+        # --- THE JOOL MOON ROUND: JOOL + ONE OTHER MOON IN ONE TREE -------
+        # PROVENANCE (all four): B39-B42, flown 2026-11-14 on 8d4e8b01c (PR #2603,
+        # the load-split spawn stamp moved to the chain tip), automation DLL
+        # sha256 prefix e397cc61, --keep-parsek, each from its run's own `_save`
+        # snapshot. B38's machine flown from the UNSTRIPPED `jool-orbit-recorded`
+        # with no kill pair, so each hop joined B22's committed tree 6ec68e87
+        # (already=true). The facets below are read off the harvested bytes.
+        # jool-vall-recorded <- B39-jool-vall-continuation, run 2026-11-14_1857, PASS attempt 1
+        # (wall 570 s): the Jool->Vall hop.
+        "jool-vall-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 6,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 3, "Destroyed": 2},
+            "branchPoints": {"JointBreak": 3},
+            "minAuthoritativeSidecars": 24,
+            "recordingIds": ["1d6fa27e66bd47fc85baffe90522bef3",
+                             "483bc6dc4101404da3f6558d5df2123e",
+                             "98c11e0d19804aecb1b7e66a94f8ede7",
+                             "ad34ea8948ba4c1fb839bbc691f21deb",
+                             "b13418e758764bb8adf061cff8236f1b",
+                             "ddcc6d007ff54a9c8246c7958011883a"],
+            "schemaGeneration": 4,
+        },
+        # jool-tylo-recorded <- B40-jool-tylo-continuation, run 2026-11-14_1907, PASS attempt 1
+        # (wall 550 s): the Jool->Tylo hop.
+        "jool-tylo-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 8,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 3, "Destroyed": 2},
+            "branchPoints": {"JointBreak": 3},
+            "minAuthoritativeSidecars": 31,
+            "recordingIds": ["15a329516ae445fb927743c5cf161ea0",
+                             "1d6fa27e66bd47fc85baffe90522bef3",
+                             "98c11e0d19804aecb1b7e66a94f8ede7",
+                             "a29bc72cff9b47538e49250ab3c8ae62",
+                             "ad34ea8948ba4c1fb839bbc691f21deb",
+                             "ad6b3d17aa3e4202ba98d3d7dd6c928c",
+                             "b13418e758764bb8adf061cff8236f1b",
+                             "ddcc6d007ff54a9c8246c7958011883a"],
+            "schemaGeneration": 4,
+        },
+        # jool-bop-recorded <- B41-jool-bop-continuation, run 2026-11-14_1917, PASS attempt 1
+        # (wall 485 s): the Jool->Bop hop.
+        "jool-bop-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 6,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 3, "Destroyed": 2},
+            "branchPoints": {"JointBreak": 3},
+            "minAuthoritativeSidecars": 24,
+            "recordingIds": ["1d6fa27e66bd47fc85baffe90522bef3",
+                             "82cea2970645433d88c73e0f22684ef7",
+                             "98c11e0d19804aecb1b7e66a94f8ede7",
+                             "ad34ea8948ba4c1fb839bbc691f21deb",
+                             "b13418e758764bb8adf061cff8236f1b",
+                             "ddcc6d007ff54a9c8246c7958011883a"],
+            "schemaGeneration": 4,
+        },
+        # jool-pol-recorded <- B42-jool-pol-continuation, run 2026-11-14_1926, PASS attempt 1
+        # (wall 452 s): the Jool->Pol hop.
+        "jool-pol-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 6,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 3, "Destroyed": 2},
+            "branchPoints": {"JointBreak": 3},
+            "minAuthoritativeSidecars": 24,
+            "recordingIds": ["1d6fa27e66bd47fc85baffe90522bef3",
+                             "98c11e0d19804aecb1b7e66a94f8ede7",
+                             "acab37e64a814dcaa04956c6d57eb129",
+                             "ad34ea8948ba4c1fb839bbc691f21deb",
+                             "b13418e758764bb8adf061cff8236f1b",
+                             "ddcc6d007ff54a9c8246c7958011883a"],
+            "schemaGeneration": 4,
+        },
         # --- THE ECCENTRIC-MOON LOOP SUBJECT -----------------------------
         # PROVENANCE: gilly-orbit-recorded <- B24-gilly-orbit, run
         # 2026-08-19_1655, PASS attempt 1 (mission wall 1,075 s, every assertion

@@ -85,6 +85,9 @@ namespace Parsek
         /// <summary>Test seam: replaces the runtime read + fallback merge.</summary>
         internal static Func<IList<LaunchSiteCircle>> AltSiteCirclesOverrideForTesting;
 
+        /// <summary>Test seam: replaces the runtime read of the stock launch sites.</summary>
+        internal static Func<List<LaunchSiteCircle>> RuntimeAltSiteReaderForTesting;
+
         /// <summary>Test seam: replaces the Making History install check.</summary>
         internal static Func<bool> MakingHistoryInstalledOverrideForTesting;
 
@@ -195,7 +198,7 @@ namespace Parsek
                 LaunchSiteCircle c = altCircles[i];
                 if (c.Kind == KscExclusionZone.None)
                     continue;
-                double d = SpawnCollisionDetector.SurfaceDistance(
+                double d = SpawnCollisionDetector.LaunchSiteSurfaceDistance(
                     latitude, longitude, c.Latitude, c.Longitude, bodyRadius);
                 if (d < exclusionRadiusMeters)
                     return new LaunchSiteZoneHit { Kind = c.Kind, SiteName = c.SiteName, IsKsc = false };
@@ -212,10 +215,23 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Whether a runtime read may be kept for the process: it must have produced at least
+        /// one circle, and no fallback row may have been merged in. A site whose transform is
+        /// not built yet when the first read runs is missing from it; keeping that read would
+        /// hold the fallback coordinates for that site until the game restarts. Pure.
+        /// </summary>
+        internal static bool ShouldCacheRuntimeRead(int runtimeCount, int fallbackMerged)
+        {
+            return runtimeCount > 0 && fallbackMerged == 0;
+        }
+
+        /// <summary>
         /// The non-KSC circles: runtime positions merged over the fallback table (the table
         /// only when Making History is installed). Headless or before PSystemSetup exists this
-        /// is the fallback table, or nothing without the expansion. A successful runtime read is
-        /// cached for the process (site spawn points are body-fixed).
+        /// is the fallback table, or nothing without the expansion. A complete runtime read is
+        /// cached for the process (site spawn points are body-fixed); a partial one (some site
+        /// filled from the fallback table) is used but not cached, so a later read can pick up
+        /// the game's own position for that site.
         /// </summary>
         internal static IList<LaunchSiteCircle> GetAltSiteCircles()
         {
@@ -227,7 +243,8 @@ namespace Parsek
             List<LaunchSiteCircle> runtime = null;
             try
             {
-                runtime = ReadRuntimeAltSiteCirclesCore();
+                var reader = RuntimeAltSiteReaderForTesting;
+                runtime = reader != null ? reader() : ReadRuntimeAltSiteCirclesCore();
             }
             catch (Exception)
             {
@@ -244,13 +261,29 @@ namespace Parsek
             }
             if (runtime != null && runtime.Count > 0)
             {
-                cachedRuntimeCircles = merged;
                 int fallbackCount = 0;
+                string missing = string.Empty;
                 for (int i = 0; i < merged.Count; i++)
-                    if (merged[i].Source == "fallback") fallbackCount++;
-                ParsekLog.Info(Tag, string.Format(CultureInfo.InvariantCulture,
-                    "Launch-site retirement circles resolved: runtime={0} fallback={1}",
-                    runtime.Count, fallbackCount));
+                {
+                    if (merged[i].Source != "fallback")
+                        continue;
+                    fallbackCount++;
+                    missing = missing.Length == 0 ? merged[i].SiteName : missing + "," + merged[i].SiteName;
+                }
+                if (ShouldCacheRuntimeRead(runtime.Count, fallbackCount))
+                {
+                    cachedRuntimeCircles = merged;
+                    ParsekLog.Info(Tag, string.Format(CultureInfo.InvariantCulture,
+                        "Launch-site retirement circles resolved: runtime={0} fallback={1}",
+                        runtime.Count, fallbackCount));
+                }
+                else
+                {
+                    ParsekLog.InfoRateLimited(Tag, "partial-read|" + missing,
+                        string.Format(CultureInfo.InvariantCulture,
+                            "Launch-site retirement circles partial read: runtime={0} fallback={1} missing={2}; not cached, the next read retries",
+                            runtime.Count, fallbackCount, missing));
+                }
             }
             return merged;
         }
@@ -321,6 +354,7 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             AltSiteCirclesOverrideForTesting = null;
+            RuntimeAltSiteReaderForTesting = null;
             MakingHistoryInstalledOverrideForTesting = null;
             cachedRuntimeCircles = null;
         }

@@ -1,11 +1,11 @@
 schema = 1
 id = "V35M-jool-tylo-continuation-player-loop"
 # =====================================================================================
-# AUTHORED 2026-11-14, NEVER FLOWN, WAITING ON ITS FIXTURE: `jool-tylo-recorded` does not
-# exist until B40-jool-tylo-continuation flies green and is harvested --keep-parsek. Until then
-# this lane is listed in harness/lib/test_hlib.py PENDING_FIXTURE_LANES, which keeps
-# every committed suite green without the fixture; a run refuses at staging. Order
-# and commands: docs/dev/plans/moon-lane-drafts/README.md.
+# AUTHORED 2026-11-14. Fixture `jool-tylo-recorded` harvested --keep-parsek from
+# B40-jool-tylo-continuation run `2026-11-14_1907` (PASS, 8d4e8b01c); this lane flew green
+# on its first flight `2026-11-14_1916` and its count window is re-pinned to {8, 9} off
+# the fixture's 8 sidecars (the flight read 8). Order and commands:
+# docs/dev/plans/moon-lane-drafts/README.md.
 #
 # THE PLAYER-LOOP HALF, V33M's shape exactly (live-proven 2026-11-07 on Laythe):
 # MissionConfig loop=true + StartLoopPlayback on the Kerbin -> Jool -> Tylo tree,
@@ -24,10 +24,10 @@ id = "V35M-jool-tylo-continuation-player-loop"
 #       period (211,926.36 s, mu_Jool 2.82528e14; one participant, so T_config = P).
 #   `BATCH_COMPLETE ... category=MoonArrivalHold scene=SPACECENTER`, pinned whole.
 # =====================================================================================
-tier = "pending-fixture"
-description = "AUTHORED 2026-11-14, NEVER FLOWN, WAITING ON ITS FIXTURE `jool-tylo-recorded` (harvested from B40-jool-tylo-continuation). The player loop on the Kerbin->Jool->Tylo tree, V33M's shape: re-aim Kerbin->Jool engages and the lone-moon arrival hold aligns Tylo's orbital phase on its period at the Jool SOI entry; the live MoonArrivalHold cell runs at the Space Center."
+tier = "operator"
+description = "AUTHORED 2026-11-14. On `jool-tylo-recorded` (harvested from B40-jool-tylo-continuation). The player loop on the Kerbin->Jool->Tylo tree, V33M's shape: re-aim Kerbin->Jool engages and the lone-moon arrival hold aligns Tylo's orbital phase on its period at the Jool SOI entry; the live MoonArrivalHold cell runs at the Space Center."
 instanceProfile = "stock-minimal"
-tags = ["V35", "player-loop", "loop-playback", "reaim", "arrival-hold", "lone-moon-hold", "jool", "tylo", "moon", "ingame-batch", "pending-fixture", "pending-flight"]
+tags = ["V35", "player-loop", "loop-playback", "reaim", "arrival-hold", "lone-moon-hold", "jool", "tylo", "moon", "ingame-batch"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/jool-tylo-recorded"
@@ -66,9 +66,8 @@ D14 = ["jool", "tylo", "scene-flight", "scene-ksc", "sandbox"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# DERIVED from V33M (7 sidecars on `jool-laythe-recorded`, window {7, 8}): re-pin to
-# {N, N + 1} from the harvested fixture's own sidecar count.
-count = { min = 6, max = 9 }
+# {N, N + 1} off the harvested fixture's 8 sidecars (first flight read 8).
+count = { min = 8, max = 9 }
 
 [expectations.logContracts]
 required  = [

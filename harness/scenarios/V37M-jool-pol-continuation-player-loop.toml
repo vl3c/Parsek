@@ -1,11 +1,10 @@
 schema = 1
 id = "V37M-jool-pol-continuation-player-loop"
 # =====================================================================================
-# AUTHORED 2026-11-14, NEVER FLOWN, WAITING ON ITS FIXTURE: `jool-pol-recorded` does not
-# exist until B42-jool-pol-continuation flies green and is harvested --keep-parsek. Until then
-# this lane is listed in harness/lib/test_hlib.py PENDING_FIXTURE_LANES, which keeps
-# every committed suite green without the fixture; a run refuses at staging. Order
-# and commands: docs/dev/plans/moon-lane-drafts/README.md.
+# AUTHORED 2026-11-14, NEVER FLOWN. Fixture `jool-pol-recorded` harvested --keep-parsek
+# from B42-jool-pol-continuation run `2026-11-14_1926` (PASS, 8d4e8b01c); the count window
+# is re-pinned to {6, 7} off the fixture's 6 sidecars. Order and commands:
+# docs/dev/plans/moon-lane-drafts/README.md.
 #
 # THE PLAYER-LOOP HALF, V33M's shape exactly (live-proven 2026-11-07 on Laythe):
 # MissionConfig loop=true + StartLoopPlayback on the Kerbin -> Jool -> Pol tree,
@@ -31,10 +30,10 @@ id = "V37M-jool-pol-continuation-player-loop"
 # for `Arrival amber SET: tree=6ec68e87b782476f970a71df8c8b4685 mission='[^']*' 1 constrained moon
 # of 'Jool'` with the reason the reading names, and forbid the ARRIVAL HOLD line.
 # =====================================================================================
-tier = "pending-fixture"
-description = "AUTHORED 2026-11-14, NEVER FLOWN, WAITING ON ITS FIXTURE `jool-pol-recorded` (harvested from B42-jool-pol-continuation). The player loop on the Kerbin->Jool->Pol tree, V33M's shape: re-aim Kerbin->Jool engages and the lone-moon arrival hold aligns Pol's orbital phase on its period at the Jool SOI entry; the live MoonArrivalHold cell runs at the Space Center."
+tier = "operator"
+description = "AUTHORED 2026-11-14, NEVER FLOWN. On `jool-pol-recorded` (harvested from B42-jool-pol-continuation). The player loop on the Kerbin->Jool->Pol tree, V33M's shape: re-aim Kerbin->Jool engages and the lone-moon arrival hold aligns Pol's orbital phase on its period at the Jool SOI entry; the live MoonArrivalHold cell runs at the Space Center."
 instanceProfile = "stock-minimal"
-tags = ["V37", "player-loop", "loop-playback", "reaim", "arrival-hold", "lone-moon-hold", "jool", "pol", "moon", "ingame-batch", "pending-fixture", "pending-flight"]
+tags = ["V37", "player-loop", "loop-playback", "reaim", "arrival-hold", "lone-moon-hold", "jool", "pol", "moon", "ingame-batch", "pending-flight"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/jool-pol-recorded"
@@ -73,9 +72,8 @@ D14 = ["jool", "pol", "scene-flight", "scene-ksc", "sandbox"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# DERIVED from V33M (7 sidecars on `jool-laythe-recorded`, window {7, 8}): re-pin to
-# {N, N + 1} from the harvested fixture's own sidecar count.
-count = { min = 6, max = 9 }
+# {N, N + 1} off the harvested fixture's 6 sidecars.
+count = { min = 6, max = 7 }
 
 [expectations.logContracts]
 required  = [
