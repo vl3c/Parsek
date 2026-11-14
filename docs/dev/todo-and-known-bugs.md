@@ -267,9 +267,12 @@ construction.
 - `RevertDetector.DropForColdLoad(reason)`, called by `ResetSaveScopedSessionState` after the
   load is classified, clears both fields and logs one line (Warn
   `Cold load dropped a stale pending revert: kind=.. targetPids=.. reason=..` when either was
-  set, Verbose otherwise). No race with the consumer: `ClassifyEarly` reads the kind before the
-  reset, a save-file load with a revert pending stays in session (the revert's own load), and
-  `Consume` runs only in the in-session branch, which a Cold load never enters. The pending kind
+  set, Verbose otherwise). Only a Cold load drops it: a load from the main menu or of another
+  save folder. A load of the same save that finds `initialLoadDone` true (F9, the pause-menu
+  Load into the same folder) with a revert pending still classifies in session by design
+  (`ClassifyEarly` treats it as the revert's own load) and consumes the revert there. No race
+  with the consumer: `ClassifyEarly` reads the kind before the reset, and `Consume` runs only in
+  the in-session branch, which a Cold load never enters. The pending kind
   is also read at scene exit (`SceneExitInterceptor` persistent-write skip, the merge flow's
   save-file stash), so a stale one would have misled those too.
 - `DiscardReFlyLoadIntent`: `TryConsume` and `Clear` (both paths) now reset every field, the

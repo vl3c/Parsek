@@ -59,8 +59,8 @@ All notable changes to Parsek are documented here.
   time still waiting to finish. (WARP-REQUEST-SURVIVES-A-FAILED-REWIND)
 - **Loading another save forgets a revert that never finished.** If a Revert to Launch or to the
   editor was cut short before the game reloaded, the next save you loaded could treat its first
-  scene change as that revert and remove vessels Parsek had placed. Loading a save now drops the
-  unfinished revert. (COLD-RESET-LEFTOVERS)
+  scene change as that revert and remove vessels Parsek had placed. Loading another save, or any
+  save from the main menu, now drops the unfinished revert. (COLD-RESET-LEFTOVERS)
 - **A looped ship that landed on another planet no longer shows in orbit there afterwards.**
   After a looped trip to another planet ends in a landing, the ship's ghost, map icon and orbit
   line stay gone until the next loop. They used to come back in the parking orbit about a month
