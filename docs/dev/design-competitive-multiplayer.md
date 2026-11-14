@@ -94,6 +94,8 @@ These are binding. Quotes are the owner's words.
   difficulty; the most points held when time runs out wins.
 - Game dates are compared in whole days, and players tied on a day split the points
   (decision card, 2026-11-14; 6.6, 7.8).
+- Holding flights back and sharing them just before the end date is allowed (decision card,
+  2026-11-14; 7.10).
 - Rival milestones dated after your own game clock are always shown (decision card,
   2026-11-14).
 
@@ -1220,7 +1222,7 @@ still drive ghosts and are shown as "after the end".
   folder (each player's exporter keeps their last pre-end standing for good, and its payload,
   6.3), not from when a file happened to arrive on one machine. Every machine that has the
   files shows the same final board.
-- **Holding back is legal** (proposed, decision pending). A player may fly in private and
+- **Holding back is legal** (owner ruling 2026-11-14). A player may fly in private and
   share at the last hour; the race has no referee to say when a flight "should" have been
   shared. What a player risks by holding back is the sync itself: a standing that is not in
   the folder cannot count.
@@ -1678,7 +1680,7 @@ Each is written into the document as a proposal and asked as a decision card on 
 | Id | Question | Proposal in this document |
 |----|----------|---------------------------|
 | D1 | How finely are game dates compared, and what does a tie give? | DECIDED 2026-11-14: whole game days; players tied on a day split the points (6.6, 7.8) |
-| D2 | May a player hold flights back and share them at the last moment before the end date? | Yes; the last standing stamped before the end counts (7.10) |
+| D2 | May a player hold flights back and share them at the last moment before the end date? | DECIDED 2026-11-14: yes; the last standing stamped before the end counts (7.10) |
 | D3 | Does a flight flown with cheat or debug tools score? | No: shown, marked, worth nothing (7.12) |
 | D4 | The shared launch sites exist only with the Making History expansion. What does a race do? | A race setting chosen by the creator; when it is on, joining needs the expansion (7.3) |
 | D5 | Are a rival's buildings solid? | Solid, fully built, and the same in every game (7.3) |
