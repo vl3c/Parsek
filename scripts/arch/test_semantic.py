@@ -632,7 +632,9 @@ class RealTreeSemanticTests(unittest.TestCase):
         # 2026-11-14 (the six-edge LedgerOrchestrator back-edge cut, edge 4:
         # SwitchSegmentAttempts and CommittedTreeRestoreAttempt take the ledger's
         # discard preservations as parameters, so 18 types leave the residue):
-        # greedy 126, replayed 126.
+        # greedy 126, replayed 126. Tightened to 125 by edge 5
+        # (IsStrategyConversionRow moved to ConversionLegBinding, which leaves
+        # the residue): greedy 125, replayed 125.
         # History of the same pair: 250 under the text
         # bound 272 (62d9b1b56) and 263 (be2512a0d; W1b deleted the false
         # text edge ReFlyInvokeHold -> Hold, which moved the text residue 9
@@ -643,7 +645,7 @@ class RealTreeSemanticTests(unittest.TestCase):
         # it. Tighten the bound to the measured value in the PR that lowers
         # it; never loosen it, not even for a new type that only splits a
         # residue member.
-        self.assertLessEqual(semantic.ratchet_residue(self.result["semanticMeasure"]), 126)
+        self.assertLessEqual(semantic.ratchet_residue(self.result["semanticMeasure"]), 125)
 
 if __name__ == "__main__":
     unittest.main()

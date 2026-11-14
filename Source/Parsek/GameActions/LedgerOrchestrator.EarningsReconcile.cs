@@ -532,7 +532,7 @@ namespace Parsek
 
         /// <summary>
         /// Appends to <paramref name="walk"/> every strategy conversion row
-        /// (<see cref="IsStrategyConversionRow"/>) in <paramref name="ledgerActions"/> that
+        /// (<see cref="ConversionLegBinding.IsStrategyConversionRow"/>) in <paramref name="ledgerActions"/> that
         /// the store side of <see cref="ReconcileEarningsWindow"/> sees the event of, and
         /// that <paramref name="newActions"/> does not already carry. The conversion door
         /// (<see cref="OnStrategyCurrencyConversion"/>) writes these rows straight into the
@@ -558,7 +558,7 @@ namespace Parsek
             for (int i = 0; i < ledgerActions.Count; i++)
             {
                 var a = ledgerActions[i];
-                if (a == null || !IsStrategyConversionRow(a)) continue;
+                if (a == null || !ConversionLegBinding.IsStrategyConversionRow(a)) continue;
                 if (IsSameRowIn(newActions, a)) continue;
 
                 bool scoped = string.IsNullOrEmpty(recordingId)

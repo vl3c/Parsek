@@ -3630,7 +3630,9 @@ compare).
   gameplay, restore-attempt tails) as required parameters, null throwing before the session
   is touched (one new theory pins that); with the first four edges in place 18 types leave
   the residue and none joins: ratchet 140 -> 126 (greedy 126, replayed 126), 24 back-edges,
-  bound re-pinned to 126. Measured per step in the note's "as built" table.
+  bound re-pinned to 126. `IsStrategyConversionRow` moved verbatim to `ConversionLegBinding`
+  (its one outside caller; the orchestrator now calls it there): ratchet 125, 23 back-edges.
+  Measured per step in the note's "as built" table.
 - 2026-11-14 (B6 second half, split `AnchorPropagator.Run`): the DAG walk (about 490 lines,
   complexity 104) is now an orchestrator (complexity 8) over 13 private static steps in the same
   file, in walk order: `IndexRecordingsById`, `EmitSeedAnchors` with `EmitSeedCandidate`,
