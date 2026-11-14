@@ -30,10 +30,10 @@ All notable changes to Parsek are documented here.
 
 ### Fixed
 
-- **Ghosts stay on their path during a Re-Fly.** Near the point where a recorded flight went on
-  or off rails, a ghost replayed during a Re-Fly could be drawn tens to thousands of km from where
-  it flew, by an amount that grew the later you re-flew. It now stays within a few metres.
-  (REFLY-ANCHOR-EPSILON-1300KM)
+- **Ghosts stay on their path during a Re-Fly.** Near where a recorded flight went on or off rails,
+  crossed into or out of a moon's influence, or left a close approach to a ship coasting on rails,
+  a ghost replayed during a Re-Fly could be drawn tens to thousands of km from where it flew, more
+  the later you re-flew. It now stays within a few metres. (REFLY-ANCHOR-EPSILON-1300KM)
 - **A Warp to time whose rewind did not start no longer jumps the clock later.** The next return
   to the Space Center, or another save loaded in the same session, used to jump forward to the
   date you had picked. Loading a save or quitting to the main menu now also cancels a Warp to

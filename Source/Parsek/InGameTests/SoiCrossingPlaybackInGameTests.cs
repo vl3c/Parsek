@@ -123,7 +123,7 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "SoiCrossingPlayback", Scene = GameScenes.FLIGHT,
-            Description = "GATING seam-continuity assertion (D6 soi-crossing-playback): at each recorded cross-body SOI handoff, the production segment resolution (EvaluateOrbitSegmentAtUT over each side's segment) yields world positions that agree within the seam tolerance -- the property whose ABSENCE is the re-aim dead-end defect (~1-SOI-radius teleports, four orders of magnitude above this tolerance).")]
+            Description = "GATING seam-continuity assertion (D6 soi-crossing-playback): at each recorded cross-body SOI handoff, the production segment resolution (EvaluateOrbitSegmentTruePositionAtUT over each side's segment) yields world positions that agree within the seam tolerance -- the property whose ABSENCE is the re-aim dead-end defect (~1-SOI-radius teleports, four orders of magnitude above this tolerance).")]
         public static void SoiSeamWorldPositionsAreContinuous()
         {
             Recording rec = FindCorpusRecording();

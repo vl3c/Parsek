@@ -8,18 +8,18 @@
 # [coupling] records the facts.toml lists the leaks were measured under, and the
 # DLL-free suite reds when facts.toml differs or the declared modules change without
 # a re-pin, so widening the inert list is a deliberate diff here.
-# 278 leaks in 5 modules.
+# 276 leaks in 5 modules.
 # Pinned from Parsek.dll 2026-11-12
 
 # The measure at this pin, which the README section prints (not gated against a build).
 [measured]
-leaks = 278
-leaking_methods = 123
+leaks = 276
+leaking_methods = 122
 seams = 29
 top_things = [
     { thing = "game:UnityEngine.Object", count = 46 },
-    { thing = "game:CelestialBody", count = 44 },
-    { thing = "game:Orbit", count = 38 },
+    { thing = "game:CelestialBody", count = 43 },
+    { thing = "game:Orbit", count = 37 },
     { thing = "game:Vessel", count = 18 },
     { thing = "game:Contracts.Contract", count = 13 },
     { thing = "game:KSP.UI.Screens.MissionControl", count = 10 },
@@ -30,23 +30,23 @@ top_things = [
 ]
 modules = [
     { name = "Core", headless = true, methods = 191, reachMethods = 14, directMethods = 6, instructions = 10202, reachInstructions = 669, directInstructions = 264, leaks = 14 },
+    { name = "Trajectory", headless = true, methods = 269, reachMethods = 57, directMethods = 47, instructions = 18722, reachInstructions = 4169, directInstructions = 1930, leaks = 77 },
     { name = "LogIO", headless = false, methods = 95, reachMethods = 14, directMethods = 7, instructions = 4890, reachInstructions = 1107, directInstructions = 650 },
-    { name = "Trajectory", headless = true, methods = 255, reachMethods = 58, directMethods = 48, instructions = 17747, reachInstructions = 4416, directInstructions = 2084, leaks = 79 },
     { name = "Missions", headless = true, methods = 624, reachMethods = 95, directMethods = 45, instructions = 58391, reachInstructions = 15354, directInstructions = 3796, leaks = 148 },
     { name = "GameActions", headless = false, methods = 2137, reachMethods = 384, directMethods = 168, instructions = 147933, reachInstructions = 41291, directInstructions = 21269 },
     { name = "Timeline", headless = true, methods = 92, reachMethods = 11, directMethods = 0, instructions = 6653, reachInstructions = 1930, directInstructions = 0, leaks = 5 },
+    { name = "Logistics", headless = false, methods = 962, reachMethods = 172, directMethods = 96, instructions = 87287, reachInstructions = 27065, directInstructions = 13418 },
     { name = "MapRender", headless = false, methods = 723, reachMethods = 107, directMethods = 48, instructions = 28526, reachInstructions = 9013, directInstructions = 5081 },
-    { name = "Logistics", headless = false, methods = 948, reachMethods = 170, directMethods = 96, instructions = 87060, reachInstructions = 28608, directInstructions = 13418 },
-    { name = "Recording", headless = false, methods = 2569, reachMethods = 657, directMethods = 444, instructions = 204163, reachInstructions = 78246, directInstructions = 53162 },
+    { name = "Recording", headless = false, methods = 2565, reachMethods = 653, directMethods = 440, instructions = 203797, reachInstructions = 77880, directInstructions = 52796 },
     { name = "Crew", headless = false, methods = 286, reachMethods = 71, directMethods = 49, instructions = 22147, reachInstructions = 8557, directInstructions = 4740 },
     { name = "Rewind", headless = false, methods = 1025, reachMethods = 235, directMethods = 99, instructions = 91620, reachInstructions = 35656, directInstructions = 12239 },
     { name = "SwitchIntent", headless = false, methods = 62, reachMethods = 16, directMethods = 2, instructions = 6456, reachInstructions = 2518, directInstructions = 81 },
-    { name = "Rendering", headless = false, methods = 198, reachMethods = 40, directMethods = 24, instructions = 16417, reachInstructions = 7676, directInstructions = 4829 },
     { name = "Reaim", headless = true, methods = 197, reachMethods = 26, directMethods = 11, instructions = 15736, reachInstructions = 7403, directInstructions = 3208, leaks = 32 },
+    { name = "Rendering", headless = false, methods = 203, reachMethods = 46, directMethods = 31, instructions = 17240, reachInstructions = 8345, directInstructions = 4873 },
     { name = "UI", headless = false, methods = 1946, reachMethods = 670, directMethods = 467, instructions = 110334, reachInstructions = 62283, directInstructions = 49397 },
-    { name = "Ghost", headless = false, methods = 2114, reachMethods = 778, directMethods = 551, instructions = 172460, reachInstructions = 98617, directInstructions = 80046 },
+    { name = "Ghost", headless = false, methods = 2115, reachMethods = 777, directMethods = 550, instructions = 172408, reachInstructions = 98494, directInstructions = 79924 },
     { name = "Display", headless = false, methods = 221, reachMethods = 70, directMethods = 59, instructions = 20416, reachInstructions = 12506, directInstructions = 11721 },
-    { name = "Controllers", headless = false, methods = 2554, reachMethods = 1019, directMethods = 710, instructions = 209133, reachInstructions = 134319, directInstructions = 106114 },
+    { name = "Controllers", headless = false, methods = 2555, reachMethods = 1020, directMethods = 711, instructions = 209110, reachInstructions = 134296, directInstructions = 106091 },
     { name = "Config", headless = false, methods = 89, reachMethods = 23, directMethods = 6, instructions = 2893, reachInstructions = 1908, directInstructions = 216 },
     { name = "Patches", headless = false, methods = 796, reachMethods = 543, directMethods = 375, instructions = 36191, reachInstructions = 29887, directInstructions = 23437 },
 ]
@@ -447,8 +447,6 @@ leaks = [
     "Parsek.TrajectoryMath/FrameTransform::ShiftLongitudeDegrees -> game:CelestialBody",
     "Parsek.TrajectoryMath/FrameTransform::ShiftSurfaceRelativeRotation -> game:CelestialBody",
     "Parsek.TrajectoryMath/FrameTransform::ShiftSurfaceRelativeRotation -> game:UnityEngine.Quaternion::AngleAxis",
-    "Parsek.TrajectoryMath::EvaluateOrbitSegmentAtUT -> game:CelestialBody",
-    "Parsek.TrajectoryMath::EvaluateOrbitSegmentAtUT -> game:Orbit",
     "Parsek.TrajectoryMath::EvaluateOrbitSegmentTruePositionAtUT -> game:CelestialBody",
     "Parsek.TrajectoryMath::EvaluateOrbitSegmentTruePositionAtUT -> game:Orbit",
 ]

@@ -216,21 +216,70 @@ in-game cells `Pipeline_Anchor_OrbitalCheckpoint` / `BubbleExit` / `BubbleEntry`
 propagator against a live body and assert `0 < |eps| < 5 m`. RW-5 / RW-6 / RW-7 forbid the
 `exceeds bubble radius` line.
 
+**The two residuals, fixed 2026-11-12 (headless).** Both are the same mixed-frame class, on synthetic
+recordings (no committed fixture has either shape, see (5)); the failing-first cells read, at
+rebuild clocks of 0 / T/4 / T/2 after the boundary (T the Absolute body's day):
+- RelativeBoundary with the anchor on rails (an OrbitalCheckpoint section) at the boundary:
+  3.0 m / 957 km / 1,354 km (predicted `2 r cos(lat) |sin(pi dt / T)|`: 962 / 1,360 km in LKO).
+  The production resolver's relative-anchor context now gets its own orbital pose,
+  `ProductionAnchorWorldFrameResolver.TryComputeBoundaryInstantOrbitalAnchorPose`: the conic's
+  stored-frame state at `t_b`, lowered to the body-fixed frame of `t_b` and placed through the same
+  surface placement as every other point; velocity and radial go through that placement as
+  differences of placed points, so the orbital-frame rotation (`ComputeOrbitalRotation`, the spin
+  branch transcribed) rides the same rigid map. At `t_b` = now it equals the shared pose (position
+  0.000 m, rotation dot 1, spinning and not). The shared pose, its five hosts and
+  `ComputeOrbitalRotation` are unchanged (il_compare: every difference is in `AnchorPropagator`,
+  `ProductionAnchorWorldFrameResolver`, `TrajectoryMath.BoundaryFrame` and the in-game cells).
+- SoiTransition: 3 m / 15,897 km / 25,286 km (Kerbin spline, Mun conic) and 3 m / 17,733 km /
+  25,079 km (Mun spline, Kerbin conic). Now through `TryResolveBoundaryInstantEpsilon`: the conic is
+  carried to the body the Absolute spline is placed with by the two bodies' own conics at `t_b`
+  (summed up the parent chain to a common root, `BoundaryFrame.TryOrbitSegmentInBodyFixedOfAtUT`)
+  and compared in THAT body's body-fixed frame of `t_b`, in both directions (Absolute then
+  checkpoint, checkpoint then Absolute) and both ways across the crossing.
+After the fix every case reads 2.86 to 3.01 m at all three clocks, the body-fixed vector equal to
+5 cm. Tests: `AnchorEpsilonResidualTests` (Harmony routes Unity's native `LookRotation` /
+`AngleAxis` to the managed transcriptions so the stock pose runs headless). In-game: H11 / LT-1
+`Pipeline_Anchor_RelativeBoundary` and `Pipeline_Anchor_SOI` are live fixtures asserting
+`0 < |eps| < 5 m` (the SOI cell: the main body's first moon, else its parent, then a parent conic
+beside every moon of the main and home body, asserting on stock that an inclined moon ran (Minmus:
+6 / 78 / 38 deg), where a misread LAN / argPe link would read 165 to 3,365 km). Headless, the Mun
+carries Minmus's angles and a moonlet orbits it, so a dropped chain link and a swapped LAN / argPe
+both red `SoiTransition_EpsilonIsTheDesignedMetresAtEveryRebuildClock`.
+
 **Left open.** (1) Live proof: an RW-5 / 6 / 7 flight with zero `exceeds bubble radius` lines and a
 `DAG walk summary` whose `boundaryInstantMaxEpsilonM=` reads metres, equal at both rebuilds.
-(2) Residuals of the same defect class, still on the resolver path: SoiTransition (cross-body, needs
-the other body's ephemeris; zero candidates on the fixture; its Kepler side is
-`TrajectoryMath.EvaluateOrbitSegmentAtUT` through `TryResolveCheckpointSideWorldPos`) and
-RelativeBoundary's orbital-anchor branch (anchor on rails at the boundary). The second is the
-shared orbital-checkpoint anchor pose (`ParsekFlight.TryResolveOrbitalCheckpointAnchorPose` /
-`TryComputeOrbitalCheckpointAnchorPose`, 2026-11-12 one implementation for all five relative-anchor
-hosts): it places stock `Orbit.getPositionAtUT(ut)` through the CURRENT Zup and body position.
-The two recorders ask at the current UT, and flight / map / KSC playback ask at the playback UT,
-the same convention playback uses for every orbital-checkpoint ghost; it is mixed-frame only where
-the render-anchor rebuild compares its answer, at a past boundary UT, with body-fixed data.
+~~(2) Residuals of the same defect class: SoiTransition and RelativeBoundary's orbital-anchor
+branch~~ (fixed above). The old world-frame SOI path is deleted with it: the resolver member
+`IAnchorWorldFrameResolver.TryResolveSoiBoundaryWorldPos`, the production
+`TryResolveCheckpointSideWorldPos` and `TrajectoryMath.EvaluateOrbitSegmentAtUT` (live
+`Orbit.getPositionAtUT`) lost their last production caller; the endpoint-fallback cells moved to
+`TryPickOrbitSegmentForBoundaryUT`, the pick the boundary-instant path reads. The loop anchor (section 7.10) still reads the live
+vessel, and the relative-anchor context's `tryResolveLiveAnchorTransform` (loop-anchored debris)
+reads a live transform for a past UT, by design of the loop contract.
 (3) A Bubble boundary whose
 physics neighbour is a Relative section is deferred (`relative-section-deferred`), as before.
 (4) The warning fires once per rebuild rather than once per anchor per session.
+(5) No lane flies either residual during a Re-Fly: a survey of every `harness/fixtures/saves`
+fixture finds no RelativeBoundary whose anchor is on rails at the boundary, and one SoiTransition
+candidate (`interbody-route-recorded`, Kerbal X, section 4 End), which joins a Kerbin ascent ending
+at UT 42874302 to a Duna checkpoint starting 9.69e6 s later: the candidate builder compares body
+names across adjacent sections, not time adjacency (suspected defect; inert today because the
+section is Atmospheric and has no spline; pinned by
+`AnchorEpsilonResidualTests.InterbodyFixture_TheOnlySoiCandidateSpansANineMillionSecondGap`).
+`cs-career-mun4`'s Mun crossings are checkpoint to checkpoint. Cheapest proof, proposed and not
+built: inject two synthetic recordings into an RW host (RW-5's `cs-career-mun4` prefix), one with
+an Absolute (Kerbin, ExoBallistic) to OrbitalCheckpoint (Mun) boundary and one whose Relative
+section is anchored to an on-rails recording, and pin the Re-Fly rebuild's `DAG walk summary` to
+`resolvedSoi=[1-9]` / `resolvedRel=[1-9]` with `boundaryInstantMaxEpsilonM` in metres, beside the
+existing `exceeds bubble radius` forbid.
+(6) Where a ghost is DRAWN during a Re-Fly is asserted nowhere. The map instruments
+(`DumpMapGeometry` / `MapCamera`, TP-1..TP-8) cannot see it: map proto-vessel orbits never read
+the epsilon. The flight-scene instrument is `GhostRenderTrace` (`ghostRenderTracing`, armable by
+`SetSetting`, as RL-1 does): its PostUpdate line carries the rendered `pos=` and an attitude
+residual `dRotDeg=`, but no position residual and no applied anchor correction. Cheapest
+extension, not built: add the applied render-anchor correction magnitude (the
+`AnchorCorrectionInterval` value the positioner adds) to that line and have an RW lane arm the
+trace and forbid a value over the bubble radius.
 
 ---
 

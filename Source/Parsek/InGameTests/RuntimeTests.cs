@@ -26243,20 +26243,18 @@ namespace Parsek.InGameTests
         // -------------------------------------------------------------------
 
         /// <summary>
-        /// Phase 6 §7.4. RELATIVE-boundary candidate emits on the ABSOLUTE
-        /// side; the resolver returns a known world position and the
-        /// propagator computes ε = worldRef − P_smoothed. The test injects
-        /// the resolver via the propagator's test seam so the runtime
-        /// doesn't need a live anchor vessel.
+        /// Phase 6 section 7.4. RELATIVE-boundary candidate on the ABSOLUTE side of a boundary
+        /// a quarter of a body rotation in the past, whose anchor is on rails (an
+        /// OrbitalCheckpoint section) there, against live KSP through the production resolver:
+        /// the physics samples are stock's own placement of the anchor's conic plus the
+        /// anchor-local offset, so the epsilon must be metres (todo
+        /// REFLY-ANCHOR-EPSILON-1300KM read about 1.4 r cos(lat) here).
         /// </summary>
         [InGameTest(Category = "Pipeline-Anchor", Scene = GameScenes.FLIGHT,
-            Description = "Phase 6 §7.4 RELATIVE-boundary candidate produces non-zero ε via the resolver")]
+            Description = "Phase 6 section 7.4 RELATIVE-boundary eps with an on-rails anchor a quarter rotation after the boundary is metres against live KSP")]
         public IEnumerator Pipeline_Anchor_RelativeBoundary()
         {
-            yield return RunPhase6PerSourceFixture(
-                testName: "Pipeline_Anchor_RelativeBoundary",
-                source: Parsek.Rendering.AnchorSource.RelativeBoundary,
-                side: Parsek.Rendering.AnchorSide.End);
+            yield return RunRelativeBoundaryLiveFixture("Pipeline_Anchor_RelativeBoundary");
         }
 
         /// <summary>
@@ -26274,18 +26272,18 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
-        /// Phase 6 §7.6. SOI transition: same shape as §7.5 with the
-        /// post-SOI body's frame. The resolver delegates to the same
-        /// Kepler propagation; only the labelling differs.
+        /// Phase 6 section 7.6. SOI transition a quarter of a body rotation in the past, against
+        /// live KSP: physics samples around the active body, then a checkpoint conic around a
+        /// neighbouring body (a moon, else the parent). The samples are stock's own placement of
+        /// that conic, carried into the active body by stock's own body conics, so the epsilon
+        /// must be metres (the old comparison carried the other body's motion and the active
+        /// body's rotation since the boundary: thousands of km).
         /// </summary>
         [InGameTest(Category = "Pipeline-Anchor", Scene = GameScenes.FLIGHT,
-            Description = "Phase 6 §7.6 SOI-transition candidate produces non-zero ε via the resolver")]
+            Description = "Phase 6 section 7.6 SOI-transition eps a quarter rotation after the boundary is metres against live KSP")]
         public IEnumerator Pipeline_Anchor_SOI()
         {
-            yield return RunPhase6PerSourceFixture(
-                testName: "Pipeline_Anchor_SOI",
-                source: Parsek.Rendering.AnchorSource.SoiTransition,
-                side: Parsek.Rendering.AnchorSide.End);
+            yield return RunSoiLiveFixture("Pipeline_Anchor_SOI");
         }
 
         /// <summary>
@@ -26665,6 +26663,348 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
+        /// The physics samples of the live boundary fixtures: body-fixed lat / lon / alt of
+        /// <paramref name="worldAt"/> (a world point in today's frame, from stock's own conics),
+        /// each longitude moved back by the body's rotation since its own UT, every 0.5 s for
+        /// 20 s from <paramref name="from"/>.
+        /// </summary>
+        private static List<TrajectoryPoint> LiveBoundarySamples(
+            CelestialBody body, double now, double from, System.Func<double, Vector3d> worldAt)
+        {
+            var frames = new List<TrajectoryPoint>();
+            for (int i = 0; i <= 40; i++)
+            {
+                double t = from + 0.5 * i;
+                Vector3d w = worldAt(t);
+                frames.Add(new TrajectoryPoint
+                {
+                    ut = t,
+                    latitude = body.GetLatitude(w),
+                    longitude = body.GetLongitude(w) + 360.0 * (now - t) / body.rotationPeriod,
+                    altitude = body.GetAltitude(w),
+                    bodyName = body.bodyName,
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero,
+                });
+            }
+            return frames;
+        }
+
+        private static TrackSection LiveAbsoluteSection(List<TrajectoryPoint> frames)
+        {
+            return new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                environment = SegmentEnvironment.ExoBallistic,
+                source = TrackSectionSource.Active,
+                startUT = frames[0].ut, endUT = frames[frames.Count - 1].ut,
+                frames = frames,
+                checkpoints = new List<OrbitSegment>(),
+            };
+        }
+
+        private static TrackSection LiveCheckpointSection(OrbitSegment seg)
+        {
+            return new TrackSection
+            {
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                environment = SegmentEnvironment.ExoBallistic,
+                source = TrackSectionSource.Checkpoint,
+                startUT = seg.startUT, endUT = seg.endUT,
+                frames = new List<TrajectoryPoint>(),
+                checkpoints = new List<OrbitSegment> { seg },
+            };
+        }
+
+        private static void AssertLiveBoundaryEpsilon(
+            string testName, Recording rec, int sectionIndex, Parsek.Rendering.AnchorSide side,
+            Parsek.Rendering.AnchorSource source, string detail, double tb, double now)
+        {
+            const double tol = 5.0;
+            bool hit = Parsek.Rendering.RenderSessionState.TryLookup(
+                rec.RecordingId, sectionIndex, side, out Parsek.Rendering.AnchorCorrection ac);
+            InGameAssert.IsTrue(hit, $"{testName}: anchor slot must be present");
+            InGameAssert.AreEqual(source, ac.Source, $"{testName}: source must round-trip");
+            double eps = ac.Epsilon.magnitude;
+            ParsekLog.Info("Pipeline-Anchor", string.Format(CultureInfo.InvariantCulture,
+                "{0}: {1} boundaryUT={2:F1} now={3:F1} |eps|={4:F3}m tol={5:F1}m",
+                testName, detail, tb, now, eps, tol));
+            InGameAssert.IsTrue(eps > 0.0, $"{testName}: eps must be resolved, not a reserved zero slot");
+            InGameAssert.IsTrue(eps < tol, $"{testName}: eps {eps:F3}m exceeds {tol}m a quarter rotation after the boundary");
+        }
+
+        private static void ResetAnchorPipelineForLiveFixture()
+        {
+            Parsek.Rendering.RenderSessionState.ResetForTesting();
+            Parsek.Rendering.SmoothingPipeline.ResetForTesting();
+            Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
+            Parsek.Rendering.AnchorPropagator.ResetForTesting();
+        }
+
+        /// <summary>
+        /// Live RelativeBoundary check (todo REFLY-ANCHOR-EPSILON-1300KM): an anchor recording on
+        /// rails around the active body (one OrbitalCheckpoint section), and a focus recording
+        /// whose Absolute section ends at the boundary a quarter rotation ago, followed by a
+        /// Relative section on that anchor. The focus's samples are the anchor's stock conic plus
+        /// the anchor-local offset turned by the recorders' and playback's shared anchor pose at
+        /// the boundary. The production resolver finds the anchor through the committed trees,
+        /// so the fixture tree is in the committed list only for the synchronous propagator run.
+        /// </summary>
+        private IEnumerator RunRelativeBoundaryLiveFixture(string testName)
+        {
+            ResetAnchorPipelineForLiveFixture();
+            CelestialBody body = FlightGlobals.ActiveVessel != null
+                ? FlightGlobals.ActiveVessel.mainBody
+                : FlightGlobals.GetHomeBody();
+            InGameAssert.IsTrue(body != null && body.rotates && body.rotationPeriod > 0.0,
+                $"{testName}: needs a rotating main body");
+
+            var tree = new RecordingTree { Id = testName + "-tree" };
+            bool treeAdded = false;
+            try
+            {
+                // One synchronous pass: every stock read below uses the same Zup and rotation.
+                double now = Planetarium.GetUniversalTime();
+                double tb = now - 0.25 * body.rotationPeriod;
+                double sma = body.Radius + System.Math.Max(body.atmosphereDepth, 10000.0) + 80000.0;
+                var seg = new OrbitSegment
+                {
+                    bodyName = body.bodyName,
+                    inclination = 28.0, eccentricity = 0.01, semiMajorAxis = sma,
+                    longitudeOfAscendingNode = 40.0, argumentOfPeriapsis = 15.0,
+                    meanAnomalyAtEpoch = 0.3, epoch = tb - 20.0,
+                    startUT = tb - 600.0, endUT = tb + 600.0,
+                    orbitalFrameRotation = new Quaternion(0.1825742f, 0.3651484f, 0.5477226f, 0.7302967f),
+                };
+                var stock = new Orbit(seg.inclination, seg.eccentricity, seg.semiMajorAxis,
+                    seg.longitudeOfAscendingNode, seg.argumentOfPeriapsis,
+                    seg.meanAnomalyAtEpoch, seg.epoch, body);
+
+                var anchor = new Recording
+                {
+                    RecordingId = testName + "-anchor", VesselName = testName + "-anchor", TreeId = tree.Id,
+                    RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                };
+                anchor.TrackSections.Add(LiveCheckpointSection(seg));
+
+                var offset = new Vector3(30f, -20f, 12f);
+                InGameAssert.IsTrue(ParsekFlight.TryComputeOrbitalCheckpointAnchorPose(
+                        anchor, seg, body, 0, tb, out AnchorPose truthPose),
+                    $"{testName}: the shared anchor pose must resolve at the boundary");
+                Vector3d worldOffset = (Vector3d)(truthPose.WorldRotation * offset);
+
+                var focus = new Recording
+                {
+                    RecordingId = testName + "-focus", VesselName = testName + "-focus", TreeId = tree.Id,
+                    RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                };
+                focus.TrackSections.Add(LiveAbsoluteSection(LiveBoundarySamples(
+                    body, now, tb - 20.0, t => stock.getPositionAtUT(t) + worldOffset)));
+                var relFrames = new List<TrajectoryPoint>();
+                for (int i = 0; i <= 10; i++)
+                    relFrames.Add(new TrajectoryPoint
+                    {
+                        ut = tb + 2.0 * i,
+                        latitude = offset.x, longitude = offset.y, altitude = offset.z,
+                        bodyName = body.bodyName,
+                        rotation = Quaternion.identity,
+                        velocity = Vector3.zero,
+                    });
+                focus.TrackSections.Add(new TrackSection
+                {
+                    referenceFrame = ReferenceFrame.Relative,
+                    environment = SegmentEnvironment.ExoBallistic,
+                    source = TrackSectionSource.Active,
+                    startUT = tb, endUT = tb + 20.0,
+                    anchorRecordingId = anchor.RecordingId,
+                    frames = relFrames,
+                    checkpoints = new List<OrbitSegment>(),
+                });
+                tree.AddOrReplaceRecording(anchor);
+                tree.AddOrReplaceRecording(focus);
+
+                Parsek.Rendering.SmoothingPipeline.FitAndStorePerSection(focus);
+                RecordingStore.AddCommittedTreeForTesting(tree);
+                treeAdded = true;
+                Parsek.Rendering.AnchorPropagator.Run(
+                    new ReFlySessionMarker { SessionId = testName + "-sess" },
+                    new List<Recording> { anchor, focus },
+                    new List<RecordingTree> { tree },
+                    surfaceLookup: null,
+                    resolver: new Parsek.Rendering.ProductionAnchorWorldFrameResolver());
+                RecordingStore.CommittedTrees.Remove(tree);
+                treeAdded = false;
+
+                AssertLiveBoundaryEpsilon(testName, focus, 0, Parsek.Rendering.AnchorSide.End,
+                    Parsek.Rendering.AnchorSource.RelativeBoundary, "body=" + body.bodyName, tb, now);
+            }
+            finally
+            {
+                if (treeAdded)
+                    RecordingStore.CommittedTrees.Remove(tree);
+                ResetAnchorPipelineForLiveFixture();
+            }
+            yield break;
+        }
+
+        /// <summary>
+        /// Live SoiTransition check (todo REFLY-ANCHOR-EPSILON-1300KM): physics samples ending at
+        /// a boundary a quarter of the spline body's rotation ago, then a checkpoint conic around
+        /// the body on the other side. The samples are that conic as stock places it, carried
+        /// into the spline body by stock's own body conics at each sample's UT. Cases: the active
+        /// body's first moon's conic seen from the active body (for a moonless body: the parent's
+        /// conic seen from it), and, for every moon of the active body (of its parent when it has
+        /// none) and of the home body, a parent conic beside the moon seen from the moon, so every moon's own conic is
+        /// read as a chain link. On a stock system at least one of those moons (Minmus) has a
+        /// non-zero inclination with distinct LAN and argument of periapsis, the case where a
+        /// misread element moves the carried position.
+        /// </summary>
+        private IEnumerator RunSoiLiveFixture(string testName)
+        {
+            ResetAnchorPipelineForLiveFixture();
+            CelestialBody body = FlightGlobals.ActiveVessel != null
+                ? FlightGlobals.ActiveVessel.mainBody
+                : FlightGlobals.GetHomeBody();
+            InGameAssert.IsTrue(body != null && body.rotates && body.rotationPeriod > 0.0,
+                $"{testName}: needs a rotating main body");
+            bool hasMoon = body.orbitingBodies != null && body.orbitingBodies.Count > 0;
+            CelestialBody parent = object.ReferenceEquals(body.referenceBody, body) ? null : body.referenceBody;
+            InGameAssert.IsTrue(hasMoon || (parent != null && body.orbit != null),
+                $"{testName}: needs a main body with a moon or a parent");
+
+            // (spline body, conic body); the conic body is a moon of the spline body or its parent.
+            var cases = new List<KeyValuePair<CelestialBody, CelestialBody>>();
+            if (hasMoon)
+                cases.Add(new KeyValuePair<CelestialBody, CelestialBody>(body, body.orbitingBodies[0]));
+            else
+                cases.Add(new KeyValuePair<CelestialBody, CelestialBody>(body, parent));
+            var parents = new List<CelestialBody>();
+            foreach (CelestialBody p in new[] { hasMoon ? body : parent, FlightGlobals.GetHomeBody() })
+                if (p != null && p.orbitingBodies != null && p.orbitingBodies.Count > 0 && !parents.Contains(p))
+                    parents.Add(p);
+            foreach (CelestialBody p in parents)
+                foreach (CelestialBody m in p.orbitingBodies)
+                    if (m != null && m.orbit != null && m.rotates && m.rotationPeriod > 0.0
+                        && !(m == body && p == parent))
+                        cases.Add(new KeyValuePair<CelestialBody, CelestialBody>(m, p));
+
+            int inclinedMoons = 0;
+            var inclinedNames = new List<string>();
+            try
+            {
+                foreach (var c in cases)
+                {
+                    CelestialBody moon = c.Value.referenceBody == c.Key ? c.Value : c.Key;
+                    if (RunSoiLiveCase(testName, c.Key, c.Value) && IsInclinedOrbit(moon.orbit)
+                        && !inclinedNames.Contains(moon.bodyName))
+                    {
+                        inclinedMoons++;
+                        inclinedNames.Add(moon.bodyName);
+                    }
+                }
+            }
+            finally
+            {
+                ResetAnchorPipelineForLiveFixture();
+            }
+
+            bool stockSystem = FlightGlobals.Bodies != null && FlightGlobals.Bodies.Count == 17
+                && FlightGlobals.GetHomeBody() != null && FlightGlobals.GetHomeBody().bodyName == "Kerbin";
+            ParsekLog.Info("Pipeline-Anchor", string.Format(CultureInfo.InvariantCulture,
+                "{0}: cases={1} inclinedMoons={2} [{3}] stockSystem={4}",
+                testName, cases.Count, inclinedMoons, string.Join(",", inclinedNames.ToArray()), stockSystem));
+            if (stockSystem)
+                InGameAssert.IsTrue(inclinedMoons > 0,
+                    $"{testName}: a stock system has a moon with inclination, LAN and argument of periapsis set (Minmus); none was exercised");
+            yield break;
+        }
+
+        // Inclination, LAN and argument of periapsis all away from zero and LAN apart from argPe.
+        private static bool IsInclinedOrbit(Orbit o)
+        {
+            return o != null
+                && System.Math.Abs(o.inclination) > 1.0
+                && System.Math.Abs(o.LAN) > 1.0
+                && System.Math.Abs(o.argumentOfPeriapsis) > 1.0
+                && System.Math.Abs(o.LAN - o.argumentOfPeriapsis) > 1.0;
+        }
+
+        /// <summary>
+        /// One live SOI case: Absolute samples around <paramref name="splineBody"/> ending at the
+        /// boundary, then a checkpoint conic around <paramref name="conicBody"/>. A conic around a
+        /// moon is a low orbit; a conic around the parent is the moon's own orbit shrunk so the
+        /// path passes about 1,000 km above the moon at the boundary (a path tens of thousands of
+        /// km from the spline body adds metres of spline fit residue).
+        /// One synchronous pass, so every stock read uses the same Zup and rotation.
+        /// </summary>
+        private static bool RunSoiLiveCase(string testName, CelestialBody splineBody, CelestialBody conicBody)
+        {
+            ResetAnchorPipelineForLiveFixture();
+            bool conicAroundMoon = conicBody.referenceBody == splineBody;
+            double now = Planetarium.GetUniversalTime();
+            double tb = now - 0.25 * splineBody.rotationPeriod;
+            OrbitSegment seg;
+            if (conicAroundMoon)
+            {
+                seg = new OrbitSegment
+                {
+                    bodyName = conicBody.bodyName,
+                    inclination = 12.0, eccentricity = 0.05,
+                    semiMajorAxis = conicBody.Radius + System.Math.Max(conicBody.atmosphereDepth, 10000.0) + 60000.0,
+                    longitudeOfAscendingNode = 70.0, argumentOfPeriapsis = 25.0,
+                    meanAnomalyAtEpoch = 1.1, epoch = tb - 20.0,
+                };
+            }
+            else
+            {
+                Orbit mo = splineBody.orbit;
+                double a = mo.semiMajorAxis;
+                double n = System.Math.Sqrt(conicBody.gravParameter / (a * a * a));
+                double gap = System.Math.Min(
+                    splineBody.Radius + System.Math.Max(splineBody.atmosphereDepth, 10000.0) + 1000000.0, 0.3 * a);
+                seg = new OrbitSegment
+                {
+                    bodyName = conicBody.bodyName,
+                    inclination = mo.inclination, eccentricity = mo.eccentricity,
+                    semiMajorAxis = a - gap,
+                    longitudeOfAscendingNode = mo.LAN, argumentOfPeriapsis = mo.argumentOfPeriapsis,
+                    meanAnomalyAtEpoch = mo.meanAnomalyAtEpoch + n * (tb - mo.epoch), epoch = tb,
+                };
+            }
+            seg.startUT = tb;
+            seg.endUT = tb + 600.0;
+            var stock = new Orbit(seg.inclination, seg.eccentricity, seg.semiMajorAxis,
+                seg.longitudeOfAscendingNode, seg.argumentOfPeriapsis,
+                seg.meanAnomalyAtEpoch, seg.epoch, conicBody);
+            System.Func<double, Vector3d> worldAt;
+            if (conicAroundMoon)
+                worldAt = t => conicBody.orbit.getPositionAtUT(t) + (stock.getPositionAtUT(t) - conicBody.position);
+            else
+                worldAt = t => splineBody.position + (stock.getPositionAtUT(t) - conicBody.position)
+                    - (splineBody.orbit.getPositionAtUT(t) - conicBody.position);
+
+            var rec = new Recording
+            {
+                RecordingId = testName + "-" + splineBody.bodyName + "-" + conicBody.bodyName,
+                VesselName = testName,
+            };
+            rec.TrackSections.Add(LiveAbsoluteSection(LiveBoundarySamples(splineBody, now, tb - 20.0, worldAt)));
+            rec.TrackSections.Add(LiveCheckpointSection(seg));
+
+            Parsek.Rendering.SmoothingPipeline.FitAndStorePerSection(rec);
+            Parsek.Rendering.AnchorPropagator.Run(
+                new ReFlySessionMarker { SessionId = rec.RecordingId + "-sess" },
+                new List<Recording> { rec },
+                new List<RecordingTree>(),
+                surfaceLookup: null);
+
+            AssertLiveBoundaryEpsilon(testName, rec, 0, Parsek.Rendering.AnchorSide.End,
+                Parsek.Rendering.AnchorSource.SoiTransition,
+                "body=" + splineBody.bodyName + " conicBody=" + conicBody.bodyName, tb, now);
+            return true;
+        }
+
+        /// <summary>
         /// In-game stub resolver — returns a fixed world position from
         /// every TryResolve* method. Production callers use
         /// <see cref="Parsek.Rendering.ProductionAnchorWorldFrameResolver"/>;
@@ -26677,10 +27017,6 @@ namespace Parsek.InGameTests
             internal InGamePerSourceStubResolver(Vector3d worldPos) { this.worldPos = worldPos; }
 
             public bool TryResolveRelativeBoundaryWorldPos(
-                Recording rec, int sectionIndex, Parsek.Rendering.AnchorSide side,
-                double boundaryUT, out Vector3d worldPos)
-            { worldPos = this.worldPos; return true; }
-            public bool TryResolveSoiBoundaryWorldPos(
                 Recording rec, int sectionIndex, Parsek.Rendering.AnchorSide side,
                 double boundaryUT, out Vector3d worldPos)
             { worldPos = this.worldPos; return true; }

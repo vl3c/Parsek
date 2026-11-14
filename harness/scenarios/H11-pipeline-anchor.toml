@@ -9,20 +9,22 @@ tier = "nightly"
 # suppressed subtree.
 #
 # WHAT THESE SEVEN CELLS ACTUALLY EXERCISE, stated precisely because the obvious
-# reading is wrong. TWO resolve through a live CelestialBody: LiveSeparation calls
-# kerbin.GetWorldSurfacePosition, and OrbitalCheckpoint (RunBoundaryInstantLiveFixture,
-# since todo REFLY-ANCHOR-EPSILON-1300KM) runs the production boundary-instant epsilon
-# (body constants, spline fit, surface placement) against stock's own placement of a
-# conic whose boundary is a quarter rotation in the past, and asserts metres. THREE
-# (RelativeBoundary, SOI, Loop) route through RunPhase6PerSourceFixture, which installs
+# reading is wrong. FOUR resolve through a live CelestialBody: LiveSeparation calls
+# kerbin.GetWorldSurfacePosition, and OrbitalCheckpoint (RunBoundaryInstantLiveFixture),
+# RelativeBoundary (RunRelativeBoundaryLiveFixture) and SOI (RunSoiLiveFixture), since
+# todo REFLY-ANCHOR-EPSILON-1300KM, run the production seed epsilon (body constants,
+# spline fit, surface placement; for RelativeBoundary the production
+# ProductionAnchorWorldFrameResolver with an on-rails anchor; for SOI the body's first
+# moon, or its parent, plus every moon of the body and of the home body, through stock's
+# own body conics, asserting an inclined moon ran on stock) against stock's own placement of a
+# conic whose boundary is a quarter rotation in the past, and assert 0 < |eps| < 5 m.
+# ONE (Loop) routes through RunPhase6PerSourceFixture, which installs
 # AnchorPropagator.ResolverOverrideForTesting (a stub returning a CONSTANT offset)
 # plus SmoothedPositionForTesting, so the production resolver is REPLACED for the
 # duration. TWO (Dock, SuppressedSubtree) drive RenderSessionState.PutAnchorForTesting
-# seams and touch no body at all. So apart from the OrbitalCheckpoint cell this spec
-# gates the anchor EPSILON ARITHMETIC and the per-source dispatch around it, exercised
-# inside a live KSP process - NOT ProductionAnchorWorldFrameResolver's frame
-# resolution, which the stub bypasses. Do not read a green H11 as cover for that
-# resolver.
+# seams and touch no body at all. The four live cells resolve the seed epsilon only:
+# nothing here plays a recording back, so a green H11 says the epsilon is metres, not
+# that a ghost is drawn where it should be.
 description = "Run the in-game Pipeline-Anchor category unattended: anchor epsilon within tolerance of the recorded geometric offset across live separation, Relative boundary, orbital checkpoint, SOI, loop, dock, and suppressed-subtree cases."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "anchor", "reference-frames", "H11"]
@@ -46,13 +48,13 @@ steps = [
 [dimensionsCovered]
 # HONEST, and DELIBERATELY NARROWER than the first cut. The obvious claim here would
 # be D3 relative-anchored-nonloop / relative-loop / orbital-checkpoint, because three
-# cells carry those names. That claim is WITHDRAWN: two of those cells run with
+# cells carry those names. That claim is WITHDRAWN: the loop cell runs with
 # AnchorPropagator.ResolverOverrideForTesting installed (a constant-returning stub),
-# and the third resolves its frames without playing them back, so a regression in
+# and the other two resolve their frames without playing them back, so a regression in
 # how those reference frames PLAY BACK is invisible to them. Claiming the tokens would record coverage that does
 # not exist and would let a later audit skip writing the test that WOULD catch it -
 # the worse of the two errors. Only the environment axes are claimed.
-# NOT claimed and why: D3 (stubbed resolver, see above); parent-anchored-debris (no
+# NOT claimed and why: D3 (no playback, see above); parent-anchored-debris (no
 # debris recording is built); any D5 topology token (the dock and suppressed-subtree
 # cells assert anchor GEOMETRY through a PutAnchorForTesting seam, not tree structure).
 #
@@ -69,14 +71,22 @@ steps = [
 #                                    written BEFORE the tolerance assert, so it is not
 #                                    gating-grade either. Not D3 `absolute` (no
 #                                    Absolute-frame PLAYBACK runs).
-#   Pipeline_Anchor_RelativeBoundary }
-#   Pipeline_Anchor_SOI              } `RunPhase6PerSourceFixture`: installs
-#   Pipeline_Anchor_Loop             } `AnchorPropagator.ResolverOverrideForTesting`
-#                                    (a constant-offset stub) for the run; the
-#                                    source enum member is the only thing that varies.
-#                                    Not `relative-anchored-nonloop` / `relative-loop`
-#                                    / `boundary-seam`: no TrackSection of any of
-#                                    those frames is resolved, let alone played back.
+#   Pipeline_Anchor_Loop             `RunPhase6PerSourceFixture`: installs
+#                                    `AnchorPropagator.ResolverOverrideForTesting`
+#                                    (a constant-offset stub) for the run. Not
+#                                    `relative-loop`: no loop section is resolved,
+#                                    let alone played back.
+#   Pipeline_Anchor_RelativeBoundary `RunRelativeBoundaryLiveFixture`: an Absolute and a
+#                                    Relative section on an on-rails anchor recording
+#                                    are RESOLVED through the production resolver (the
+#                                    fixture tree sits in the committed list for the
+#                                    synchronous run only) but never played back, so
+#                                    no `relative-anchored-nonloop` cell.
+#   Pipeline_Anchor_SOI              `RunSoiLiveFixture`: same, an Absolute section on
+#                                    the main body and a checkpoint conic on its moon,
+#                                    then per moon (main and home body) an Absolute
+#                                    section on the moon and a parent conic beside it;
+#                                    on stock it asserts Minmus-like elements ran.
 #   Pipeline_Anchor_OrbitalCheckpoint `RunBoundaryInstantLiveFixture`: an Absolute and
 #                                    an OrbitalCheckpoint section are RESOLVED (the
 #                                    seed epsilon) but never played back, so it earns
@@ -111,7 +121,11 @@ count = { min = 0, max = 0 }
 #    [InGameTest(Category = "Pipeline-Anchor")] methods.
 #  - skipped=0 is DERIVED: all 7 carry Scene = GameScenes.FLIGHT and the batch runs
 #    at FLIGHT; none sets AllowBatchExecution = false; none of the 7 bodies, nor any
-#    helper they call, contains an InGameAssert.Skip.
+#    helper they call, contains an InGameAssert.Skip (the SOI cell ASSERTS a main body
+#    with a moon or a parent, and on stock an inclined moon; Kerbin has both, and Minmus).
+#  - 2026-11-12 (todo REFLY-ANCHOR-EPSILON-1300KM residuals): the RelativeBoundary and
+#    SOI cells became live fixtures. The count and names are unchanged, so the pin
+#    holds; they are unflown in this shape while PC flights are paused.
 #  - failed=0 is the ASSERTION. passed=7 follows.
 #  - scene=FLIGHT is INFERRED from the fixture (Focusable route) and is
 #    LOAD-BEARING: at any other scene all 7 scene-skip.

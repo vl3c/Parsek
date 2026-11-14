@@ -2466,7 +2466,7 @@ namespace Parsek
         }
 
         // Build a KSP Orbit from a recorded OrbitSegment's Kepler elements (the SAME construction
-        // TrajectoryMath.EvaluateOrbitSegmentAtUT / GhostMapPresence.TryResolveOrbitWorldPosition use). Unity
+        // TrajectoryMath.EvaluateOrbitSegmentTruePositionAtUT / GhostMapPresence.TryResolveOrbitWorldPosition use). Unity
         // construction isolated here so the pure RenderGeometrySampler stays Unity-ECall-free. Returns null
         // on any throw (degenerate elements). internal so the in-game capture-harness fixture builds the
         // reference orbit through the EXACT production construction.

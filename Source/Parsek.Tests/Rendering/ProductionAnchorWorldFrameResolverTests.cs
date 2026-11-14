@@ -91,34 +91,6 @@ namespace Parsek.Tests.Rendering
             return rec;
         }
 
-        private static Recording MakeAbsoluteAndCheckpoint(string id, bool checkpointHasSegments)
-        {
-            var rec = new Recording { RecordingId = id };
-            rec.TrackSections.Add(new TrackSection
-            {
-                referenceFrame = ReferenceFrame.Absolute,
-                startUT = 0, endUT = 100,
-                frames = new List<TrajectoryPoint>(),
-                checkpoints = new List<OrbitSegment>(),
-            });
-            var ckSection = new TrackSection
-            {
-                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
-                startUT = 100, endUT = 200,
-                frames = null,
-                checkpoints = new List<OrbitSegment>(),
-            };
-            if (checkpointHasSegments)
-            {
-                ckSection.checkpoints.Add(new OrbitSegment
-                {
-                    startUT = 100, endUT = 200, bodyName = "DoesNotExist",
-                });
-            }
-            rec.TrackSections.Add(ckSection);
-            return rec;
-        }
-
         // --- §7.4 RelativeBoundary guard paths -----------------------------
 
         [Fact]
@@ -384,47 +356,6 @@ namespace Parsek.Tests.Rendering
             Assert.Equal(0.0, worldPos.x, 6);
             Assert.Equal(0.0, worldPos.y, 6);
             Assert.Equal(0.0, worldPos.z, 6);
-        }
-
-        // --- §7.6 SoiTransition guard paths -------------------------------
-
-        [Fact]
-        public void SoiBoundary_NullRecording_ReturnsFalse()
-        {
-            AssertReturnsFalseOrSecurityException((out Vector3d w) =>
-                resolver.TryResolveSoiBoundaryWorldPos(
-                    rec: null, sectionIndex: 0, side: AnchorSide.Start,
-                    boundaryUT: 0, out w));
-        }
-
-        [Fact]
-        public void SoiBoundary_OutOfRangeSectionIndex_ReturnsFalse()
-        {
-            var rec = MakeAbsoluteAndCheckpoint("rec-soi-oor", checkpointHasSegments: false);
-            AssertReturnsFalseOrSecurityException((out Vector3d w) =>
-                resolver.TryResolveSoiBoundaryWorldPos(
-                    rec, sectionIndex: -5, side: AnchorSide.Start,
-                    boundaryUT: 0, out w));
-        }
-
-        [Fact]
-        public void SoiBoundary_AdjacentNotCheckpoint_ReturnsFalse()
-        {
-            var rec = MakeAbsoluteOnly("rec-soi-not-cp");
-            AssertReturnsFalseOrSecurityException((out Vector3d w) =>
-                resolver.TryResolveSoiBoundaryWorldPos(
-                    rec, sectionIndex: 1, side: AnchorSide.Start,
-                    boundaryUT: 100, out w));
-        }
-
-        [Fact]
-        public void SoiBoundary_NoCheckpointSegments_ReturnsFalse()
-        {
-            var rec = MakeAbsoluteAndCheckpoint("rec-soi-empty", checkpointHasSegments: false);
-            AssertReturnsFalseOrSecurityException((out Vector3d w) =>
-                resolver.TryResolveSoiBoundaryWorldPos(
-                    rec, sectionIndex: 0, side: AnchorSide.End,
-                    boundaryUT: 100, out w));
         }
 
         // --- §7.10 Loop guard paths ---------------------------------------
