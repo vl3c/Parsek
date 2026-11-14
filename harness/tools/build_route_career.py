@@ -99,7 +99,8 @@ career donor, read, never modified):
           the source's own convention for its Orbit and Landing nodes.
 
 WHAT IS NOT TOUCHED: FLIGHTSTATE (every vessel but 7a's debris), ROSTER, the ParsekScenario
-node (trees, routes, rewind points), ProgressTracking (but 7b's seeds), every recording
+node (trees, routes, rewind points; only 5's embedded GAME_STATE/LEDGER strip changes it),
+ProgressTracking (but 7b's seeds), every recording
 sidecar, every other GameState sidecar (baselines, milestones, events), RewindPoints
 quicksaves (they stay SANDBOX saves: a Re-Fly into one of bdock-recorded's rewind points
 would load a sandbox game, and no lane built on these copies invokes one), AddOns and Ships. Each file keeps its own
