@@ -9,6 +9,13 @@ drifted instance.
 
 Entry point:
     python harness/provision/provision.py --profile stock-minimal [--repair] [--dry-run]
+    python harness/provision/provision.py --profile stock-minimal --copy 2   # slot copy
+    python harness/provision/provision.py --profile stock-minimal --copy 2 --remove
+
+--copy K (default 1) provisions the parallel-run slot copy K (harness/lib/slots.py):
+copy 1 is the profile's own instanceDir, copy K >= 2 is automation/<profile>-<K>,
+provisioned identically except for its kRPC ports. --remove deletes copy K >= 2,
+unlinking its junctions without following them.
 
 Behavior phases (design docs/dev/design-autotest-stack-setup.md), each a
 function, each idempotent and logged:
@@ -47,6 +54,12 @@ from typing import Dict, List, Optional, Sequence
 
 import machinelock  # shared lock I/O with run.py; pure decisions live in provlib
 import provlib
+
+_LIB_DIR = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, "lib"))
+if _LIB_DIR not in sys.path:
+    sys.path.append(_LIB_DIR)  # appended: nothing in harness/lib may shadow this dir
+
+import slots  # noqa: E402  (the shared slots contract: names, dirs, ports, lock paths)
 
 # ---------------------------------------------------------------------------
 # Paths + context
@@ -92,14 +105,39 @@ class ProvisionContext:
     # trusts on-disk state only when prior_complete is True.
     prior_manifest: Optional[Dict] = None
     prior_complete: bool = False
+    # Parallel-run slot copy (harness/lib/slots.py). 1 = the profile's own
+    # instanceDir, exactly as before slots existed; k >= 2 = automation/<profile>-<k>.
+    copy: int = 1
 
     @property
     def dev_install(self) -> str:
         return os.path.join(self.umbrella_root, self.profile.get("baseInstall", "Kerbal Space Program"))
 
     @property
+    def instance_rel(self) -> str:
+        """The instance dir relative to the umbrella root, forward slashes."""
+        if self.copy >= 2:
+            return "/".join(slots.instance_relpath(self.profile_name, self.copy))
+        return self.profile.get("instanceDir", "automation/instance")
+
+    @property
     def instance_dir(self) -> str:
-        return os.path.join(self.umbrella_root, self.profile.get("instanceDir", "automation/instance"))
+        return os.path.join(self.umbrella_root, self.instance_rel)
+
+    @property
+    def slot(self) -> str:
+        """The slot name: the instance dir's basename (the key run.py and the
+        parallel runner use for the slot lock and the kRPC ports)."""
+        return (self.instance_rel or "").replace("\\", "/").rstrip("/").split("/")[-1]
+
+    @property
+    def krpc_ports(self) -> tuple:
+        """(rpc, stream) this instance's kRPC settings are stamped with. An
+        instance whose basename is not a slot name keeps the legacy default."""
+        try:
+            return slots.krpc_ports_for_slot(self.slot)
+        except slots.SlotError:
+            return (provlib.KRPC_DEFAULT_RPC_PORT, provlib.KRPC_DEFAULT_STREAM_PORT)
 
     @property
     def parsek_gamedata(self) -> str:
@@ -376,6 +414,8 @@ def phase_preflight(ctx: ProvisionContext) -> None:
     log(ctx, "Info", "Preflight", "dev-install=%s" % ctx.dev_install)
     log(ctx, "Info", "Preflight", "instance-dir=%s" % ctx.instance_dir)
     log(ctx, "Info", "Preflight", "mode=%s repair=%s" % ("dry-run" if ctx.dry_run else "live", ctx.repair))
+    log(ctx, "Info", "Preflight", "slot=%s copy=%d krpc-ports=%d/%d"
+        % (ctx.slot, ctx.copy, ctx.krpc_ports[0], ctx.krpc_ports[1]))
 
     if not os.path.isdir(ctx.dev_install):
         abort(ctx, "Preflight", "EC-PRE", "dev install missing at %s" % ctx.dev_install)
@@ -395,7 +435,7 @@ def phase_preflight(ctx: ProvisionContext) -> None:
     # under automation/) would corrupt the clone source. ABORT before any write.
     inst_norm = os.path.normcase(os.path.normpath(ctx.instance_dir))
     dev_norm = os.path.normcase(os.path.normpath(ctx.dev_install))
-    alias = provlib.check_instance_dir_alias(inst_norm, dev_norm, ctx.profile.get("instanceDir", ""))
+    alias = provlib.check_instance_dir_alias(inst_norm, dev_norm, ctx.instance_rel)
     if not alias.ok:
         abort(ctx, "Preflight", "EC-16",
               "instance dir aliases the dev install (%s): instance=%s dev=%s"
@@ -458,6 +498,12 @@ def phase_preflight(ctx: ProvisionContext) -> None:
         ctx.lock_path = lock_path  # type: ignore[attr-defined]
         ctx.lock_acquired = True  # type: ignore[attr-defined]
 
+    # Slot locks (parallel runs). Checked AFTER the machine lock so no new
+    # runner can start in between; a live one left means a KSP may still be
+    # flying in some instance under a runner that lost its machine lock.
+    if not _refuse_on_live_slot_locks(ctx, "Preflight"):
+        return
+
     # KSP-running check (EC-1). Best-effort: on a live run, refuse if the
     # instance exe is held open. Under dry-run we only log the intent.
     if not ctx.dry_run and _ksp_running_against(ctx.instance_dir):
@@ -465,6 +511,26 @@ def phase_preflight(ctx: ProvisionContext) -> None:
         return
     log(ctx, "Info", "Preflight", "profile loaded name=%s devSourcedMods=%d"
         % (ctx.profile_name, len(ctx.profile.get("devSourcedMods", []) or [])))
+
+
+def _refuse_on_live_slot_locks(ctx: ProvisionContext, step: str,
+                               only_slot: Optional[str] = None) -> bool:
+    """Abort EC-10 while a live slot lock exists (every slot, or ``only_slot``).
+    Returns True when nothing blocks. Dry-run decides the same and writes nothing."""
+    states = machinelock.read_slot_locks(ctx.umbrella_root)
+    if only_slot is not None:
+        states = [st for st in states if st.slot == only_slot]
+    live = provlib.live_slot_locks(states, os.getpid(), _now(), _pid_alive,
+                                   lease_seconds=provlib.DEFAULT_LEASE_SECONDS)
+    log(ctx, "Info", step, "slot locks found=%d live=%d%s"
+        % (len(states), len(live), (" (scope=%s)" % only_slot) if only_slot else ""))
+    if live:
+        abort(ctx, step, "EC-10",
+              "slot locked by live %s; a harness run is flying in that instance "
+              "(wait for it, or stop its runner)"
+              % "; ".join(provlib.describe_slot_lock(st) for st in live))
+        return False
+    return True
 
 
 def phase_pin(ctx: ProvisionContext) -> Dict[str, str]:
@@ -1270,7 +1336,14 @@ def phase_manifest(ctx: ProvisionContext, resolved: Dict[str, str],
         "generatedUtc": _utcnow_iso(),
         "provisionScriptCommit": _git_head(WORKTREE_ROOT),
         "kspVersion": ctx.pins.get("kspVersion", "1.12.5"),
-        "instanceDir": ctx.profile.get("instanceDir"),
+        "instanceDir": ctx.instance_rel,
+        # Parallel-run slot identity (harness/lib/slots.py): the slot name, the
+        # copy number and the kRPC ports the settings were stamped with. Not
+        # admission keys: every copy of a profile admits on the same projection.
+        "slot": ctx.slot,
+        "copy": ctx.copy,
+        "krpcRpcPort": ctx.krpc_ports[0],
+        "krpcStreamPort": ctx.krpc_ports[1],
         "components": {
             "krpc": {"kind": "release-zip", "tag": krpc.get("tag"),
                      "commit": resolved.get("krpc", krpc.get("commit")),
@@ -1445,15 +1518,20 @@ def phase_verify(ctx: ProvisionContext, manifest: Dict) -> bool:
 
     # krpcSettingsSha256 re-hash (F3): the stamped kRPC PluginData/settings.cfg
     # must still carry the hands-free keys; a manual kRPC settings change drifts.
+    # The expected bytes are the SLOT's stamp (ctx.krpc_ports): a file carrying
+    # another slot's ports drifts even when the manifest agrees with it.
     krpc_settings = manifest.get("krpcSettingsSha256")
     krpc_settings_path = _krpc_settings_path(ctx)
-    if krpc_settings and os.path.isfile(krpc_settings_path):
-        cur = sha256_file(krpc_settings_path)
-        match = cur == krpc_settings
+    if krpc_settings:
+        cur = sha256_file(krpc_settings_path) if os.path.isfile(krpc_settings_path) else None
+        slot_sha = _slot_krpc_stamp_sha(ctx)
+        reason = provlib.krpc_settings_verify_reason(cur, krpc_settings, slot_sha)
+        match = reason in provlib.KRPC_SETTINGS_VERIFY_PASS
         log(ctx, "Info" if match else "Error", "Verify",
-            "krpcSettingsSha256 re-hash %s" % ("OK" if match else "DRIFT"))
+            "krpcSettingsSha256 re-hash %s reason=%s slot=%s ports=%d/%d"
+            % ("OK" if match else "DRIFT", reason, ctx.slot, ctx.krpc_ports[0], ctx.krpc_ports[1]))
         if not match:
-            _drift("krpcSettingsSha256", krpc_settings, cur)
+            _drift("krpcSettingsSha256", slot_sha if reason == "not-slot-stamp" else krpc_settings, cur)
 
     # buildId64Sha256 re-hash (N-5): pins the ACTUAL instance KSP version.
     b64 = manifest.get("buildId64Sha256")
@@ -1667,6 +1745,61 @@ def _ksp_running_against(instance_dir: str) -> bool:
         return False
 
 
+KSP_IMAGE_NAME = "KSP_x64.exe"
+
+
+def _process_image_path(pid: int) -> Optional[str]:
+    """Full exe path of ``pid`` (Windows: QueryFullProcessImageNameW with
+    PROCESS_QUERY_LIMITED_INFORMATION), None when unreadable. Imported lazily so
+    the module loads on every platform."""
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.OpenProcess.restype = wintypes.HANDLE
+        k32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+        k32.QueryFullProcessImageNameW.restype = wintypes.BOOL
+        k32.QueryFullProcessImageNameW.argtypes = (
+            wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD))
+        k32.CloseHandle.argtypes = (wintypes.HANDLE,)
+        handle = k32.OpenProcess(0x1000, False, int(pid))
+        if not handle:
+            return None
+        try:
+            size = wintypes.DWORD(32768)
+            buf = ctypes.create_unicode_buffer(size.value)
+            if not k32.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size)):
+                return None
+            return buf.value or None
+        finally:
+            k32.CloseHandle(handle)
+    except (OSError, AttributeError, ValueError):
+        return None
+
+
+def _list_ksp_processes() -> List[tuple]:
+    """``[(pid, exe_path_or_None), ...]`` for every running KSP_x64.exe. Empty
+    off Windows (no KSP runs there) and when tasklist is unavailable."""
+    if os.name != "nt":
+        return []
+    try:
+        out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq %s" % KSP_IMAGE_NAME,
+                              "/FO", "CSV", "/NH"], capture_output=True, text=True)
+    except OSError:
+        return []
+    return [(pid, _process_image_path(pid))
+            for pid in provlib.parse_tasklist_csv_pids(out.stdout, KSP_IMAGE_NAME)]
+
+
+def _ksp_running_in_dir(instance_dir: str, lister=None) -> List[tuple]:
+    """The KSP processes that run from ``instance_dir`` (path-scoped, equality of
+    the exe's directory; an unreadable exe path counts, slots.exe_belongs_to_instance)."""
+    procs = (lister or _list_ksp_processes)()
+    return [(pid, exe) for pid, exe in procs if slots.exe_belongs_to_instance(exe, instance_dir)]
+
+
 def _download(ctx: ProvisionContext, url: str) -> Optional[bytes]:
     import urllib.request
     try:
@@ -1854,12 +1987,14 @@ def _precheck_free_space(ctx: ProvisionContext) -> bool:
     parent = os.path.dirname(os.path.abspath(ctx.instance_dir)) or ctx.instance_dir
     os.makedirs(parent, exist_ok=True)
     free = shutil.disk_usage(parent).free
-    margin = 512 * 1024 * 1024
+    margin = provlib.free_space_margin_bytes(ctx.copy)
     if provlib.is_over_budget(est, free, margin):
         abort(ctx, "Clone", "EC-6",
-              "insufficient free space: estimate=%d margin=%d free=%d" % (est, margin, free))
+              "insufficient free space for slot %s: estimate=%d margin=%d free=%d"
+              % (ctx.slot, est, margin, free))
         return False
-    log(ctx, "Info", "Clone", "free-space pre-check estimate=%d free=%d OK" % (est, free))
+    log(ctx, "Info", "Clone", "free-space pre-check slot=%s estimate=%d margin=%d free=%d OK"
+        % (ctx.slot, est, margin, free))
     return True
 
 
@@ -1955,7 +2090,7 @@ def _recheck_alias_resolved(ctx: ProvisionContext) -> bool:
         targets.append(gd)
     for t in targets:
         real = os.path.normcase(os.path.normpath(os.path.realpath(t)))
-        alias = provlib.check_instance_dir_alias(real, dev_real, ctx.profile.get("instanceDir", ""))
+        alias = provlib.check_instance_dir_alias(real, dev_real, ctx.instance_rel)
         if alias.reason in ("equals-dev-install", "nested-in-dev-install",
                             "dev-install-nested-in-instance"):
             abort(ctx, "Clone", "EC-16",
@@ -2441,6 +2576,11 @@ def _krpc_settings_path(ctx: ProvisionContext) -> str:
     return os.path.join(ctx.instance_dir, "GameData", "kRPC", "PluginData", "settings.cfg")
 
 
+def _slot_krpc_stamp_sha(ctx: ProvisionContext) -> str:
+    """sha256 of the exact bytes _stamp_krpc_settings writes for this slot."""
+    return sha256_bytes(provlib.stamp_krpc_settings(None, *ctx.krpc_ports).encode("utf-8"))
+
+
 def _stamp_krpc_settings(ctx: ProvisionContext) -> None:
     """F3: rewrite the kRPC PluginData/settings.cfg with the COMPLETE golden
     template (provlib.stamp_krpc_settings ignores the prior contents by design:
@@ -2452,7 +2592,8 @@ def _stamp_krpc_settings(ctx: ProvisionContext) -> None:
     if os.path.isfile(path):
         with open(path, "r", encoding="utf-8") as fh:
             shipped = fh.read()
-    stamped = provlib.stamp_krpc_settings(shipped)
+    rpc_port, stream_port = ctx.krpc_ports
+    stamped = provlib.stamp_krpc_settings(shipped, rpc_port, stream_port)
     os.makedirs(_long(os.path.dirname(path)), exist_ok=True)
     # newline="\n": no CRLF translation, so the on-disk bytes match the hash.
     with open(path, "w", encoding="utf-8", newline="\n") as fh:
@@ -2460,8 +2601,9 @@ def _stamp_krpc_settings(ctx: ProvisionContext) -> None:
     sha = sha256_file(path)
     ctx.krpc_settings_sha = sha  # type: ignore[attr-defined]
     log(ctx, "Info", "Install",
-        "kRPC settings stamped golden-template (full key set + Item-wrapped default server; prior file %s) sha256=%s"
-        % ("replaced" if shipped is not None else "absent", sha))
+        "kRPC settings stamped golden-template (full key set + Item-wrapped server; slot=%s "
+        "rpc=%d stream=%d; prior file %s) sha256=%s"
+        % (ctx.slot, rpc_port, stream_port, "replaced" if shipped is not None else "absent", sha))
 
 
 def _git_head(repo: str) -> str:
@@ -2528,9 +2670,12 @@ def load_toml(path: str) -> Dict:
 
 
 def print_action_plan(ctx: ProvisionContext) -> None:
-    plan = provlib.build_action_plan(ctx.pins, ctx.profile)
+    # The plan names the instance through the profile's instanceDir; a slot copy
+    # plans against its own dir.
+    profile = dict(ctx.profile, instanceDir=ctx.instance_rel)
+    plan = provlib.build_action_plan(ctx.pins, profile)
     print("")
-    print("=== DRY-RUN ACTION PLAN: profile=%s ===" % ctx.profile_name)
+    print("=== DRY-RUN ACTION PLAN: profile=%s slot=%s ===" % (ctx.profile_name, ctx.slot))
     for a in plan:
         print("  [%-9s] %-8s %s" % (a.step, a.verb, a.detail))
     print("=== %d planned actions ===" % len(plan))
@@ -2638,9 +2783,9 @@ def _repair_and_reverify(ctx: ProvisionContext, manifest: Dict, resolved: Dict,
     drift = getattr(ctx, "verify_drift", [])
     plan = provlib.plan_repair(drift)
     log(ctx, "Info", "Repair",
-        "drift=%d -> components=%s devMods=%s settings=%s unrepairable=%s"
+        "drift=%d -> components=%s devMods=%s settings=%s krpcSettings=%s unrepairable=%s"
         % (len(drift), ",".join(plan.components) or "-", ",".join(plan.dev_mods) or "-",
-           plan.settings, ",".join(plan.unrepairable) or "-"))
+           plan.settings, plan.krpc_settings, ",".join(plan.unrepairable) or "-"))
     for f in plan.unrepairable:
         log(ctx, "Warn", "Repair", "field %s has no targeted repair (needs a full re-provision)" % f)
 
@@ -2655,6 +2800,9 @@ def _repair_and_reverify(ctx: ProvisionContext, manifest: Dict, resolved: Dict,
     if plan.settings:
         log(ctx, "Info", "Repair", "re-applying settings deltas")
         phase_settings(ctx)
+    if plan.krpc_settings and "krpc" not in stack_repair:
+        log(ctx, "Info", "Repair", "re-stamping kRPC settings for slot %s" % ctx.slot)
+        _stamp_krpc_settings(ctx)
     if ctx.aborted:
         return False
     # Re-stamp the manifest with any refreshed component hashes, then re-VERIFY.
@@ -2720,7 +2868,7 @@ def _scoped_delete_instance_subtree(ctx: ProvisionContext, target: str) -> bool:
     gd_instance = os.path.join(ctx.instance_dir, "GameData")
     inst_norm = os.path.normcase(os.path.normpath(ctx.instance_dir))
     dev_norm = os.path.normcase(os.path.normpath(ctx.dev_install))
-    alias = provlib.check_instance_dir_alias(inst_norm, dev_norm, ctx.profile.get("instanceDir", ""))
+    alias = provlib.check_instance_dir_alias(inst_norm, dev_norm, ctx.instance_rel)
     if not alias.ok:
         log(ctx, "Error", "Repair",
             "EC-16 refuse scoped delete: instance aliases dev install (%s)" % alias.reason)
@@ -2743,6 +2891,158 @@ def _scoped_delete_instance_subtree(ctx: ProvisionContext, target: str) -> bool:
     return True
 
 
+# ---------------------------------------------------------------------------
+# --remove: delete an extra slot copy (k >= 2) without following its junctions.
+# ---------------------------------------------------------------------------
+
+
+def _is_link_entry(path: str) -> bool:
+    """True when ``path`` ITSELF is a symlink or a Windows reparse point
+    (junction), from lstat alone. Unlike _is_reparse_point this never compares
+    realpath with abspath, so a real directory under a linked umbrella path is
+    not mistaken for a link."""
+    import stat as _stat
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    if _stat.S_ISLNK(st.st_mode) or getattr(st, "st_reparse_tag", 0):
+        return True
+    isjunction = getattr(os.path, "isjunction", None)
+    return bool(isjunction and isjunction(path))
+
+
+def _unlink_reparse_point(path: str) -> None:
+    """Remove a link / junction ITSELF, never its target. os.unlink removes a
+    POSIX symlink and, on Windows, a file symlink; a directory junction or
+    directory symlink on Windows needs os.rmdir, which removes only the link."""
+    try:
+        os.unlink(path)
+    except OSError:
+        os.rmdir(path)
+
+
+def _find_reparse_points(root: str) -> List[str]:
+    """Every link / junction under ``root``, found without descending into one
+    (os.walk follows junctions on some Windows Pythons, so this walks by hand)."""
+    found: List[str] = []
+    stack = [root]
+    while stack:
+        cur = stack.pop()
+        try:
+            entries = list(os.scandir(cur))
+        except OSError:
+            continue
+        for entry in entries:
+            full = entry.path
+            if _is_link_entry(full):
+                found.append(full)
+            elif entry.is_dir(follow_symlinks=False):
+                stack.append(full)
+    return sorted(found)
+
+
+def _remove_instance_tree(ctx: ProvisionContext, root: str) -> bool:
+    """Unlink every reparse point under ``root`` first, prove none remain, then
+    delete the tree. Never deletes through a junction: the stock trees
+    (StreamingAssets, GameData/Squad, GameData/SquadExpansion) are the DEV
+    install's own folders."""
+    import shutil
+    links = _find_reparse_points(root)
+    for link in links:
+        if not _is_link_entry(link):
+            abort(ctx, "Remove", "EC-16", "refuse: %s is no longer a link; nothing deleted past it" % link)
+            return False
+        try:
+            _unlink_reparse_point(link)
+        except OSError as exc:
+            abort(ctx, "Remove", "EC-6", "could not unlink %s: %s" % (link, exc))
+            return False
+        log(ctx, "Info", "Remove", "unlinked %s (target untouched)" % link)
+    left = _find_reparse_points(root)
+    if left:
+        abort(ctx, "Remove", "EC-16", "refuse tree delete: links remain after unlink: %s" % ", ".join(left))
+        return False
+    try:
+        shutil.rmtree(_long(root))
+    except OSError as exc:
+        abort(ctx, "Remove", "EC-6", "tree delete of %s failed: %s" % (root, exc))
+        return False
+    log(ctx, "Info", "Remove", "deleted %s (links=%d)" % (root, len(links)))
+    return True
+
+
+def remove_copy(ctx: ProvisionContext, lister=None) -> int:
+    """``--copy <k> --remove``: delete slot copy k >= 2 of the profile.
+
+    Takes the machine lock like a provision (a runner holding it may dispatch to
+    this slot at any moment), refuses while the slot's own lock is live or a KSP
+    runs from the dir, unlinks every junction / link before the tree delete.
+    Logs to stdout only: the instance provision-log.txt is being deleted."""
+    log(ctx, "Info", "Remove", "slot=%s copy=%d instance-dir=%s mode=%s"
+        % (ctx.slot, ctx.copy, ctx.instance_dir, "dry-run" if ctx.dry_run else "live"))
+    inst_norm = os.path.normcase(os.path.normpath(ctx.instance_dir))
+    dev_norm = os.path.normcase(os.path.normpath(ctx.dev_install))
+    alias = provlib.check_instance_dir_alias(inst_norm, dev_norm, ctx.instance_rel)
+    if alias.ok and os.path.lexists(ctx.instance_dir):
+        real = os.path.normcase(os.path.realpath(ctx.instance_dir))
+        dev_real = os.path.normcase(os.path.realpath(ctx.dev_install))
+        alias = provlib.check_instance_dir_alias(real, dev_real, ctx.instance_rel)
+    is_link = _is_link_entry(ctx.instance_dir)
+    early = provlib.decide_copy_removal(ctx.copy, alias.ok, is_link, False, False)
+    if not early.ok:
+        abort(ctx, "Remove", "EC-16" if early.reason != "copy-1-never-removed" else "EC-PRE",
+              "refuse --remove of %s: %s" % (ctx.slot, early.reason))
+        return _finish(ctx, 2)
+
+    lock_path = machinelock.lock_path_for(ctx.umbrella_root)
+    if ctx.dry_run:
+        existing = machinelock.read_lock(lock_path)
+        decision = provlib.acquire_lock(existing, os.getpid(), _now(), _pid_alive,
+                                        lease_seconds=provlib.DEFAULT_LEASE_SECONDS)
+        log(ctx, "Info", "Remove", "lock decision=%s (dry-run: not written)" % decision.reason)
+        if not decision.acquired:
+            abort(ctx, "Remove", "EC-10", "machine locked by live %s" % machinelock.describe_holder(existing))
+            return _finish(ctx, 2)
+    else:
+        acquired, reason, holder = machinelock.acquire(
+            lock_path,
+            payload_fn=lambda: {"pid": os.getpid(), "timestamp": _now(),
+                                "worktree": WORKTREE_ROOT,
+                                "selection": "provision-remove:%s" % ctx.slot,
+                                "startedIso": _utcnow_iso()},
+            now_fn=_now, pid_alive_fn=_pid_alive,
+            lease_seconds=provlib.DEFAULT_LEASE_SECONDS,
+            log_fn=lambda level, msg: log(ctx, level, "Remove", msg))
+        log(ctx, "Info", "Remove", "lock decision=%s path=%s" % (reason, lock_path))
+        if acquired is None:
+            abort(ctx, "Remove", "EC-10", "machine locked by live %s" % machinelock.describe_holder(holder))
+            return _finish(ctx, 2)
+        ctx.lock_path = lock_path  # type: ignore[attr-defined]
+        ctx.lock_acquired = True  # type: ignore[attr-defined]
+
+    if not _refuse_on_live_slot_locks(ctx, "Remove", only_slot=ctx.slot):
+        return _finish(ctx, 2)
+    running = _ksp_running_in_dir(ctx.instance_dir, lister)
+    decision = provlib.decide_copy_removal(ctx.copy, True, False, False, bool(running))
+    if not decision.ok:
+        abort(ctx, "Remove", "EC-1", "refuse --remove of %s: KSP running from it (%s)"
+              % (ctx.slot, ", ".join("pid=%s exe=%s" % (pid, exe or "unreadable") for pid, exe in running)))
+        return _finish(ctx, 2)
+
+    if not os.path.lexists(ctx.instance_dir):
+        log(ctx, "Info", "Remove", "slot %s already absent; nothing to do" % ctx.slot)
+        return _finish(ctx, 0)
+    if ctx.dry_run:
+        links = _find_reparse_points(ctx.instance_dir)
+        log(ctx, "Info", "Remove", "would unlink %d links (%s) then delete %s"
+            % (len(links), ", ".join(links) or "-", ctx.instance_dir))
+        return _finish(ctx, 0)
+    if not _remove_instance_tree(ctx, ctx.instance_dir):
+        return _finish(ctx, 2)
+    return _finish(ctx, 0)
+
+
 def _finish(ctx: ProvisionContext, code: int) -> int:
     # Release the instance lock this run acquired (live only). Only remove a lock
     # we own; a lock held by another live run was refused, not written, here.
@@ -2759,10 +3059,12 @@ def _finish(ctx: ProvisionContext, code: int) -> int:
     if ctx.aborted:
         log(ctx, "Error", "Summary", "ABORT: %s (exit=2)" % ctx.abort_reason)
         return 2
-    log(ctx, "Info", "Summary",
-        "instance=%s %s exit=%d" % (ctx.profile_name,
-                                    "dry-run plan complete" if ctx.dry_run else "provisioned",
-                                    code))
+    if getattr(ctx, "remove", False):
+        done = "remove plan complete" if ctx.dry_run else "removed"
+    else:
+        done = "dry-run plan complete" if ctx.dry_run else "provisioned"
+    log(ctx, "Info", "Summary", "instance=%s slot=%s %s exit=%d"
+        % (ctx.profile_name, ctx.slot, done, code))
     return code
 
 
@@ -2835,6 +3137,21 @@ def seed_artifact_cache(pins: Dict, umbrella_root: str, source_dirs: Sequence[st
     return 0 if cached_ok == len(wanted) else 1
 
 
+def validate_copy_args(profile: str, copy: int, remove: bool, repair: bool) -> Optional[str]:
+    """CLI error text for a bad --copy / --remove combination, or None."""
+    if copy != 1:
+        try:
+            slots.slot_name(profile, copy)
+        except slots.SlotError as exc:
+            return "--copy %s: %s" % (copy, exc)
+    if remove:
+        if copy < 2:
+            return "--remove needs --copy K >= 2 (copy 1 is the profile's own instance and is never removed)"
+        if repair:
+            return "--remove and --repair are exclusive"
+    return None
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     p = argparse.ArgumentParser(description="M-A6 automation-stack provisioner")
     p.add_argument("--profile", help="profile name under profiles/ (e.g. stock-minimal); "
@@ -2850,6 +3167,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--krpc-src", help="explicit path to a kRPC git clone for BUILD-TT/PIN "
                    "(else a module-owned shallow clone under harness/provision/.cache/krpc-src)")
     p.add_argument("--umbrella-root", help="override the umbrella root (default: parent of this worktree)")
+    p.add_argument("--copy", type=int, default=1, metavar="K",
+                   help="slot copy to provision (default 1 = the profile's own instanceDir); "
+                   "K >= 2 provisions automation/<profile>-<K> with that slot's kRPC ports "
+                   "(harness/lib/slots.py)")
+    p.add_argument("--remove", action="store_true",
+                   help="with --copy K >= 2: delete that copy (refused for copy 1, while its slot "
+                   "lock is live, or while a KSP runs from it); junctions are unlinked, never followed")
     args = p.parse_args(argv)
 
     if args.seed_cache_from:
@@ -2858,6 +3182,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                                    dry_run=args.dry_run)
     if not args.profile:
         p.error("--profile is required (unless --seed-cache-from is given)")
+    copy_error = validate_copy_args(args.profile, args.copy, args.remove, args.repair)
+    if copy_error:
+        p.error(copy_error)
     profile_path = os.path.join(PROFILES_DIR, "%s.toml" % args.profile)
     if not os.path.isfile(profile_path):
         print("[Provision][Error][Preflight] profile not found: %s" % profile_path)
@@ -2875,7 +3202,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         repair=args.repair,
         parsek_dll_override=args.parsek_dll,
         krpc_src_override=args.krpc_src,
+        copy=args.copy,
     )
+    if args.remove:
+        ctx.remove = True  # type: ignore[attr-defined]
+        return remove_copy(ctx)
     return run(ctx)
 
 
