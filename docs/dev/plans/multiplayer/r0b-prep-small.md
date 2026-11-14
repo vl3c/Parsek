@@ -53,6 +53,12 @@ about saves, sites or ghosts beyond the above.
   line and a todo entry; it does not create `HomeSpaceCenter`, `LaunchArea` or
   `LaunchAreaGeometry`. P1-02 and P1-03 edit the same files (`SpawnCollisionDetector.cs`,
   `LaunchSiteExclusionZones.cs`), so both start after it is on main.
+  It landed 2026-11-14 in pull request #2605 (todo LAUNCH-SITE-WOUND-LONGITUDE and
+  LAUNCH-SITE-PARTIAL-READ-CACHED). It left on main:
+  `SpawnCollisionDetector.WrapLongitudeDeltaDegrees(deltaDegrees)` and
+  `LaunchSiteSurfaceDistance(lat1, lon1, lat2, lon2, bodyRadius)`, which the pad, runway and
+  alternate-site circles call; `LaunchSiteExclusionZones.ShouldCacheRuntimeRead(runtimeCount,
+  fallbackMerged)`; and the test seam `RuntimeAltSiteReaderForTesting`.
 - The VERIFY before P1-03 is written is folded into spike S4a (OV-52): whether the runtime
   alt-site read includes the KSC's own `LaunchPad` and `Runway` spawn points (section 9,
   item 5). P1-03 is correct either way; only its comment and test wording change. If they
@@ -527,6 +533,12 @@ All read on 2026-11-14 at commit abf7de3.
     now from the wrapped distance). `LaunchSiteExclusionZones.Classify` (`:194-200`) uses
     `LaunchAreaGeometry.Contains(LaunchArea.Circle(c.Latitude, c.Longitude, radius), ...)`.
   - `SpawnCollisionDetector.SurfaceDistance` and its eight other callers are NOT changed.
+  - Main already holds the wrap and the wrapped distance (pull request #2605):
+    `SpawnCollisionDetector.WrapLongitudeDeltaDegrees(deltaDegrees)` and
+    `LaunchSiteSurfaceDistance`. `LaunchAreaGeometry` takes that arithmetic over in the same
+    order (`WrappedDeltaLongitudeDegrees(lon1, lon2)` is `WrapLongitudeDeltaDegrees(lon1 -
+    lon2)`), the callers move to `Contains`, and the two detector methods and their xUnit
+    cells move with it, so no method is left with only test callers.
   - Uncalled-method ratchet (second pass, A1): every method this task adds is reached from
     production in this pull request (`Circle` and the constructor from `Classify` and the
     detector, `WrappedDeltaLongitudeDegrees` and `SurfaceDistanceMeters` from `Contains`).
@@ -573,9 +585,11 @@ All read on 2026-11-14 at commit abf7de3.
   - `ParsekScenario.OnMainMenuTransition` (`ParsekScenario.SceneTransitions.cs:248-283`)
     calls `LaunchSiteExclusionZones.InvalidateCachedCircles("main-menu")` inside the
     `MAINMENU` branch, beside the other RAM-cache resets. This is its production caller.
-  - A test seam `RuntimeAltSiteReaderForTesting` (`Func<List<LaunchSiteCircle>>`, consulted
-    before `ReadRuntimeAltSiteCirclesCore`) so the cache rules can be unit-tested; reset in
-    `ResetForTesting`.
+  - The test seam `RuntimeAltSiteReaderForTesting` (`Func<List<LaunchSiteCircle>>`, consulted
+    before `ReadRuntimeAltSiteCirclesCore`, reset in `ResetForTesting`) is already on main
+    from pull request #2605; this task uses it and does not add it. The cache rule
+    `ShouldCacheRuntimeRead` from the same pull request stays as it is: the version is
+    recorded only when a read is cached.
   - `scripts/arch/lifetimes.toml`: a `[[type]]` entry for `Parsek.LaunchSiteExclusionZones`
     tagging `cachedRuntimeCircles` and `cachedRuntimeCirclesHomeVersion` `process` ("a cache
     of stock site positions keyed on the home center's version, dropped at the main menu").
@@ -611,7 +625,9 @@ All read on 2026-11-14 at commit abf7de3.
 ### P1-04 Do not keep a partial first read for the process
 
 Dropped: landed outside this plan by the launch pad fixes work, with its own unit test,
-CHANGELOG line and todo entry (owner answer to question 10.1, Q-04, 2026-11-14).
+CHANGELOG line and todo entry (owner answer to question 10.1, Q-04, 2026-11-14). On main
+since pull request #2605 (`LaunchSiteExclusionZones.ShouldCacheRuntimeRead`, todo
+LAUNCH-SITE-PARTIAL-READ-CACHED).
 
 ### P10-01 The create-and-start core in production
 

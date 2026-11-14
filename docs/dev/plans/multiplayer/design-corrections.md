@@ -871,7 +871,7 @@ were read before they were built, approximate positions are kept until KSP resta
 - Class: ANSWERED 2026-11-14 by the owner: fix both, in a separate work item outside this plan
   (the launch pad fixes work, which lands each fix on main with a unit test, a CHANGELOG line
   and a todo entry). P1-04 is dropped; P1-02 keeps only the behavior-neutral extraction of the
-  shape test.
+  shape test. Both fixes are on main since pull request #2605 (2026-11-14).
 
 **Q-05 How long should your PC fly to prove the ghost-position change before the next step?**
 The change touches where every ghost is drawn every frame.
