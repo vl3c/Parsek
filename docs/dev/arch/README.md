@@ -392,6 +392,8 @@ instructions: 32 test hooks by name, 8 that source gates pin (the `ParsekUI`
 hover check and `LogisticsWindowUI.DetailLine(GUIContent)`), 38 reached only
 through a method a test calls), 709 a test calls. After B6 split
 `RouteAnalysisEngine::AnalyzeWindows` (2026-11-12): complexity 614 / 31 / 4.
+After B6 split `AnchorPropagator::Run` (2026-11-14): complexity 611 / 29 / 3
+(612 / 30 / 4 on the tree it started from), and `Run` left the watch band.
 
 ### Coverage snapshot
 
@@ -485,7 +487,7 @@ methods at complexity 20 or more), which the complexity watch band absorbs.
   may not outnumber `bound` (55). A red names the new keys and their writers.
 - `complexityWatch` (the complexity gate): every method (by `Type::Name`, so
   overloads and a parameter change do not move it) at complexity 45 or more
-  is pinned (53), the gate 50 minus a watch band of 5
+  is pinned (51), the gate 50 minus a watch band of 5
   (`COMPLEXITY_WATCH_BAND`). A method that is not pinned reds when it
   reaches 50, so a compiler that counts a pinned method a decision or two
   higher cannot red the check, while a method growing from below 45 to 50
