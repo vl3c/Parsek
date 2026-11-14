@@ -29,6 +29,10 @@ namespace Parsek
             internal override string Tag => "Recorder";
             internal override List<PartEvent> Events => owner.PartEvents;
             internal override string EventSuffix() => "";
+            internal override string DeployableBrokenSuffix(ModuleDeployablePart.DeployState ds) =>
+                $" (deployable-broken edge, deployState={ds})";
+            internal override string DeployableNoPoseRateKey() => "deployable-no-pose-animation";
+            internal override string DeployableNoPoseNote() => "(deployable-no-pose-animation gate)";
         }
 
         private ActivePartPollSink activePollSink;
@@ -131,26 +135,7 @@ namespace Parsek
         private void CheckParachuteState(Vessel v)
         {
             if (v == null || v.parts == null) return;
-
-            double ut = Planetarium.GetUniversalTime();
-            for (int i = 0; i < v.parts.Count; i++)
-            {
-                Part p = v.parts[i];
-                if (p == null) continue;
-
-                var chute = p.FindModuleImplementing<ModuleParachute>();
-                if (chute == null) continue;
-
-                int state = ClassifyParachuteState(chute.deploymentState);
-
-                var evt = CheckParachuteTransition(
-                    p.persistentId, p.partInfo?.name ?? "unknown", state, parachuteStates, ut);
-                if (evt.HasValue)
-                {
-                    PartEvents.Add(evt.Value);
-                    ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
-                }
-            }
+            PartStatePoller.PollParachutes(v, parachuteStates, Planetarium.GetUniversalTime(), ActivePollSink);
         }
 
         internal static PartEvent? CheckJettisonTransition(
@@ -168,23 +153,6 @@ namespace Parsek
             }
 
             return null;
-        }
-
-        private string[] GetCachedJettisonNames(ulong moduleKey, string rawNames)
-        {
-            rawNames = rawNames ?? string.Empty;
-            string cachedRaw;
-            if (jettisonNameRawCache.TryGetValue(moduleKey, out cachedRaw) &&
-                string.Equals(cachedRaw, rawNames, StringComparison.Ordinal) &&
-                parsedJettisonNamesCache.TryGetValue(moduleKey, out string[] cachedNames))
-            {
-                return cachedNames;
-            }
-
-            string[] parsedNames = ParseJettisonNames(rawNames);
-            jettisonNameRawCache[moduleKey] = rawNames;
-            parsedJettisonNamesCache[moduleKey] = parsedNames;
-            return parsedNames;
         }
 
         internal static string[] ParseJettisonNames(string rawNames)
@@ -210,68 +178,8 @@ namespace Parsek
         private void CheckJettisonState(Vessel v)
         {
             if (v == null || v.parts == null) return;
-
-            double ut = Planetarium.GetUniversalTime();
-            for (int i = 0; i < v.parts.Count; i++)
-            {
-                Part p = v.parts[i];
-                if (p == null) continue;
-
-                bool hasJettisonModule = false;
-                bool isJettisoned = false;
-                int jettisonModuleIndex = 0;
-                // Parts with ModulePartVariants legitimately hide non-selected transforms
-                // (e.g. Poodle DoubleBell hides Shroud2). The transform-visibility fallback
-                // would misinterpret those as jettisoned, so skip it for variant parts.
-                bool skipTransformFallback = p.FindModuleImplementing<ModulePartVariants>() != null;
-                for (int m = 0; m < p.Modules.Count; m++)
-                {
-                    var jettison = p.Modules[m] as ModuleJettison;
-                    if (jettison == null) continue;
-                    hasJettisonModule = true;
-                    ulong moduleKey = EncodeEngineKey(p.persistentId, jettisonModuleIndex);
-                    jettisonModuleIndex++;
-
-                    // Primary state flag.
-                    if (jettison.isJettisoned)
-                    {
-                        isJettisoned = true;
-                        break;
-                    }
-
-                    // Fallback: if any configured jettison object is already hidden,
-                    // treat as jettisoned. Skip for variant parts (see above).
-                    if (skipTransformFallback)
-                        continue;
-
-                    string jettisonNames = jettison.jettisonName;
-                    if (string.IsNullOrWhiteSpace(jettisonNames))
-                        continue;
-
-                    string[] names = GetCachedJettisonNames(moduleKey, jettisonNames);
-                    for (int n = 0; n < names.Length; n++)
-                    {
-                        Transform jt = p.FindModelTransform(names[n]);
-                        if (jt != null && !jt.gameObject.activeInHierarchy)
-                        {
-                            isJettisoned = true;
-                            break;
-                        }
-                    }
-                    if (isJettisoned)
-                        break;
-                }
-
-                if (!hasJettisonModule) continue;
-
-                var evt = CheckJettisonTransition(
-                    p.persistentId, p.partInfo?.name ?? "unknown", isJettisoned, jettisonedShrouds, ut);
-                if (evt.HasValue)
-                {
-                    PartEvents.Add(evt.Value);
-                    ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
-                }
-            }
+            PartStatePoller.PollJettisons(v, jettisonedShrouds, jettisonNameRawCache,
+                parsedJettisonNamesCache, Planetarium.GetUniversalTime(), ActivePollSink);
         }
 
         /// <summary>
@@ -383,67 +291,8 @@ namespace Parsek
         private void CheckDeployableState(Vessel v)
         {
             if (v == null || v.parts == null) return;
-
-            double ut = Planetarium.GetUniversalTime();
-            int poselessDeployables = 0;
-            for (int i = 0; i < v.parts.Count; i++)
-            {
-                Part p = v.parts[i];
-                if (p == null) continue;
-
-                var deployable = p.FindModuleImplementing<ModuleDeployablePart>();
-                if (deployable == null) continue;
-
-                var ds = deployable.deployState;
-                string partName = p.partInfo?.name ?? "unknown";
-                bool isBroken = ds == ModuleDeployablePart.DeployState.BROKEN;
-
-                // S6: BROKEN is now a RECORDED state rather than a skipped one. This runs first
-                // and owns both edges of it — entering (emit DeployableBroken, silently clear the
-                // extended flag) and leaving via repair (emit DeployableRetracted).
-                var brokenEvt = CheckDeployableBrokenTransition(
-                    p.persistentId, partName, isBroken, brokenDeployables, extendedDeployables, ut);
-                if (brokenEvt.HasValue)
-                {
-                    PartEvents.Add(brokenEvt.Value);
-                    ParsekLog.Verbose("Recorder", $"Part event: {brokenEvt.Value.eventType} '{brokenEvt.Value.partName}' " +
-                        $"pid={brokenEvt.Value.partPersistentId} (deployable-broken edge, deployState={ds})");
-                }
-
-                // While BROKEN there is no extended/retracted opinion to form: the subtree is
-                // gone, and the ordinary check would read "not extended" and emit a retract.
-                if (isBroken) continue;
-
-                // MIRROR of PartStateSeeder.SeedDeployables' pose-animation gate, and load-bearing
-                // rather than cosmetic: with the seed removed, a pose-less module's first poll
-                // would read EXTENDED against an empty set and emit the very DeployableExtended
-                // the seed no longer writes, one frame later. Both ends read the same predicate.
-                if (PartStateSeeder.DeployableHasNoPoseAnimation(deployable.animationName))
-                {
-                    poselessDeployables++;
-                    continue;
-                }
-
-                // Transitional states — only fire on completed transitions.
-                if (ds == ModuleDeployablePart.DeployState.EXTENDING) continue;
-                if (ds == ModuleDeployablePart.DeployState.RETRACTING) continue;
-
-                bool isExtended = ds == ModuleDeployablePart.DeployState.EXTENDED;
-
-                var evt = CheckDeployableTransition(
-                    p.persistentId, partName, isExtended, extendedDeployables, ut);
-                if (evt.HasValue)
-                {
-                    PartEvents.Add(evt.Value);
-                    ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
-                }
-            }
-
-            // Per-frame poll, so rate-limited and aggregated: one line, never one per panel.
-            if (poselessDeployables > 0)
-                ParsekLog.VerboseRateLimited("Recorder", "deployable-no-pose-animation",
-                    $"Deployable poll skipped {poselessDeployables} pose-animation-less module(s) " +
-                    "(deployable-no-pose-animation gate)", 60.0);
+            PartStatePoller.PollDeployables(v, brokenDeployables, extendedDeployables,
+                Planetarium.GetUniversalTime(), ActivePollSink);
         }
 
         /// <summary>

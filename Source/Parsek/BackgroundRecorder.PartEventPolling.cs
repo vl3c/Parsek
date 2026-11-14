@@ -23,6 +23,12 @@ namespace Parsek
             internal override string Tag => "BgRecorder";
             internal override List<PartEvent> Events => TreeRec.PartEvents;
             internal override string EventSuffix() => $" (bg vessel {State.vesselPid})";
+            internal override string DeployableBrokenSuffix(ModuleDeployablePart.DeployState ds) =>
+                $" (bg vessel {State.vesselPid}, deployable-broken edge)";
+            internal override string DeployableNoPoseRateKey() =>
+                $"deployable-no-pose-animation-{State.vesselPid}";
+            internal override string DeployableNoPoseNote() =>
+                $"(deployable-no-pose-animation gate, bg vessel {State.vesselPid})";
         }
 
         private readonly BackgroundPartPollSink pollSink = new BackgroundPartPollSink();
@@ -142,161 +148,21 @@ namespace Parsek
         private void CheckParachuteState(Vessel v, BackgroundVesselState state,
             Recording treeRec, double ut)
         {
-            if (v == null || v.parts == null) return;
-
-            for (int i = 0; i < v.parts.Count; i++)
-            {
-                Part p = v.parts[i];
-                if (p == null) continue;
-
-                var chute = p.FindModuleImplementing<ModuleParachute>();
-                if (chute == null) continue;
-
-                // Same four-state classifier the foreground recorder uses, so a repack observed on
-                // a background vessel emits ParachuteRepacked rather than ParachuteCut.
-                //
-                // This path is not theoretical — it is the LIKELIER of the two. Stock
-                // ModuleParachute.Repack is [KSPEvent(externalToEVAOnly = true, unfocusedRange = 4f)],
-                // so a repack is performed BY an EVA kerbal ON another craft. The kerbal is the
-                // active vessel; the craft whose chute is being repacked is a loaded vessel in the
-                // background map, i.e. exactly this poll. (Background polling early-returns on
-                // packed/on-rails vessels, and a repack requires a loaded one, so the gate and the
-                // action agree.)
-                int chuteState = FlightRecorder.ClassifyParachuteState(chute.deploymentState);
-
-                var evt = FlightRecorder.CheckParachuteTransition(
-                    p.persistentId, p.partInfo?.name ?? "unknown", chuteState, state.parachuteStates, ut);
-                if (evt.HasValue)
-                {
-                    treeRec.PartEvents.Add(evt.Value);
-                    ParsekLog.Verbose("BgRecorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
-                        $"pid={evt.Value.partPersistentId} (bg vessel {state.vesselPid})");
-                }
-            }
+            PartStatePoller.PollParachutes(v, state.parachuteStates, ut, BindPollSink(state, treeRec));
         }
 
         private void CheckJettisonState(Vessel v, BackgroundVesselState state,
             Recording treeRec, double ut)
         {
-            if (v == null || v.parts == null) return;
-
-            for (int i = 0; i < v.parts.Count; i++)
-            {
-                Part p = v.parts[i];
-                if (p == null) continue;
-
-                bool hasJettisonModule = false;
-                bool isJettisoned = false;
-                int jettisonModuleIndex = 0;
-                bool skipTransformFallback = p.FindModuleImplementing<ModulePartVariants>() != null;
-                for (int m = 0; m < p.Modules.Count; m++)
-                {
-                    var jettison = p.Modules[m] as ModuleJettison;
-                    if (jettison == null) continue;
-                    hasJettisonModule = true;
-                    ulong moduleKey = FlightRecorder.EncodeEngineKey(p.persistentId, jettisonModuleIndex);
-                    jettisonModuleIndex++;
-
-                    if (jettison.isJettisoned)
-                    {
-                        isJettisoned = true;
-                        break;
-                    }
-
-                    if (skipTransformFallback)
-                        continue;
-
-                    string jettisonNames = jettison.jettisonName;
-                    if (string.IsNullOrWhiteSpace(jettisonNames))
-                        continue;
-
-                    string[] names = GetCachedJettisonNames(state, moduleKey, jettisonNames);
-                    for (int n = 0; n < names.Length; n++)
-                    {
-                        Transform jt = p.FindModelTransform(names[n]);
-                        if (jt != null && !jt.gameObject.activeInHierarchy)
-                        {
-                            isJettisoned = true;
-                            break;
-                        }
-                    }
-                    if (isJettisoned)
-                        break;
-                }
-
-                if (!hasJettisonModule) continue;
-
-                var evt = FlightRecorder.CheckJettisonTransition(
-                    p.persistentId, p.partInfo?.name ?? "unknown", isJettisoned, state.jettisonedShrouds, ut);
-                if (evt.HasValue)
-                {
-                    treeRec.PartEvents.Add(evt.Value);
-                    ParsekLog.Verbose("BgRecorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
-                        $"pid={evt.Value.partPersistentId} (bg vessel {state.vesselPid})");
-                }
-            }
+            PartStatePoller.PollJettisons(v, state.jettisonedShrouds, state.jettisonNameRawCache,
+                state.parsedJettisonNamesCache, ut, BindPollSink(state, treeRec));
         }
 
         private void CheckDeployableState(Vessel v, BackgroundVesselState state,
             Recording treeRec, double ut)
         {
-            if (v == null || v.parts == null) return;
-
-            int poselessDeployables = 0;
-            for (int i = 0; i < v.parts.Count; i++)
-            {
-                Part p = v.parts[i];
-                if (p == null) continue;
-
-                var deployable = p.FindModuleImplementing<ModuleDeployablePart>();
-                if (deployable == null) continue;
-
-                var ds = deployable.deployState;
-                string partName = p.partInfo?.name ?? "unknown";
-                bool isBroken = ds == ModuleDeployablePart.DeployState.BROKEN;
-
-                // S6 BG parity: a background station's solar panel snapping off is one of the
-                // visible cases (a micrometeorite / overspeed break on an unattended base), so
-                // the BG wrapper polls the same edge through the same pure transition.
-                var brokenEvt = FlightRecorder.CheckDeployableBrokenTransition(
-                    p.persistentId, partName, isBroken, state.brokenDeployables,
-                    state.extendedDeployables, ut);
-                if (brokenEvt.HasValue)
-                {
-                    treeRec.PartEvents.Add(brokenEvt.Value);
-                    ParsekLog.Verbose("BgRecorder", $"Part event: {brokenEvt.Value.eventType} '{brokenEvt.Value.partName}' " +
-                        $"pid={brokenEvt.Value.partPersistentId} (bg vessel {state.vesselPid}, deployable-broken edge)");
-                }
-
-                if (isBroken) continue;
-
-                // BG parity for the pose-animation gate; same argument as the flight-scene poll.
-                if (PartStateSeeder.DeployableHasNoPoseAnimation(deployable.animationName))
-                {
-                    poselessDeployables++;
-                    continue;
-                }
-
-                if (ds == ModuleDeployablePart.DeployState.EXTENDING) continue;
-                if (ds == ModuleDeployablePart.DeployState.RETRACTING) continue;
-
-                bool isExtended = ds == ModuleDeployablePart.DeployState.EXTENDED;
-
-                var evt = FlightRecorder.CheckDeployableTransition(
-                    p.persistentId, partName, isExtended, state.extendedDeployables, ut);
-                if (evt.HasValue)
-                {
-                    treeRec.PartEvents.Add(evt.Value);
-                    ParsekLog.Verbose("BgRecorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
-                        $"pid={evt.Value.partPersistentId} (bg vessel {state.vesselPid})");
-                }
-            }
-
-            if (poselessDeployables > 0)
-                ParsekLog.VerboseRateLimited("BgRecorder",
-                    $"deployable-no-pose-animation-{state.vesselPid}",
-                    $"Deployable poll skipped {poselessDeployables} pose-animation-less module(s) " +
-                    $"(deployable-no-pose-animation gate, bg vessel {state.vesselPid})", 60.0);
+            PartStatePoller.PollDeployables(v, state.brokenDeployables, state.extendedDeployables,
+                ut, BindPollSink(state, treeRec));
         }
 
         /// <summary>
