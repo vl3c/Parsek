@@ -35,14 +35,24 @@ JOOL_MOONS = ("Laythe", "Vall", "Tylo", "Bop", "Pol")
 
 # body -> (sma m, ecc, radius m, mu, soi m, highest terrain m); stock KSP 1.12.5.
 MOONS = {
+    # Vall: no park lane of its own; sized by the B39 continuation forge.
+    "Vall": (43_152_000.0, 0.0, 300_000.0, 2.074815e11, 2_406_401.4, 8_000.0),
     "Tylo": (68_500_000.0, 0.0, 600_000.0, 2.82489e12, 10_856_518.4, 11_290.0),
     "Bop": (128_500_000.0, 0.235, 65_000.0, 2.4868349e9, 1_221_060.9, 21_757.0),
     "Pol": (179_890_000.0, 0.171, 44_000.0, 7.2170208e8, 1_042_138.9, 5_591.0),
 }
 LANES = {"Tylo": "B33-tylo-orbit.toml", "Bop": "B34-bop-orbit.toml",
          "Pol": "B35-pol-orbit.toml"}
+# The Jool park -> one moon continuation forges (NEXT-TESTS-TO-BUILD-2026-11-11 item 4):
+# B38's shape on the UNSTRIPPED `jool-orbit-recorded`, params from the harvest lanes.
+CONTINUATIONS = {"Vall": "B39-jool-vall-continuation.toml",
+                 "Tylo": "B40-jool-tylo-continuation.toml",
+                 "Bop": "B41-jool-bop-continuation.toml",
+                 "Pol": "B42-jool-pol-continuation.toml"}
+# The params the sizing cells read: the harvest lane where one exists, else the forge.
+SIZED = dict(CONTINUATIONS, **LANES)
 # Pessimistic v_inf per target (m/s): the Hohmann excess, plus the plane mismatch for Bop.
-V_INF_WORST = {"Tylo": 750.0, "Bop": 900.0, "Pol": 490.0}
+V_INF_WORST = {"Vall": 1100.0, "Tylo": 750.0, "Bop": 900.0, "Pol": 490.0}
 
 
 def _spec(name):
@@ -51,7 +61,7 @@ def _spec(name):
 
 
 def _params(moon):
-    return _spec(LANES[moon])["driver"]["missionParams"]
+    return _spec(SIZED[moon])["driver"]["missionParams"]
 
 
 def _transfer_ecc(r_target):
@@ -95,6 +105,50 @@ class HarvestLaneShapeTests(unittest.TestCase):
                               forbidden, (name, other))
                 self.assertIn("SOI change boundary suppressed in tree mode: %s to \\w+" % other,
                               forbidden, (name, other))
+
+
+class ContinuationLaneTests(unittest.TestCase):
+    """B39-B42: B38's preamble on the unstripped fixture, the harvest lane's params
+    verbatim (Vall's are its own and sized by HarvestSizingTests)."""
+
+    def test_each_forge_is_b38s_preamble_on_the_unstripped_fixture(self):
+        b38 = _spec("B38-jool-laythe-continuation.toml")
+        for moon, name in CONTINUATIONS.items():
+            spec = _spec(name)
+            self.assertEqual("b25_laythe_orbit", spec["driver"]["mission"], name)
+            self.assertEqual(b38["fixture"], spec["fixture"], name)
+            self.assertEqual(b38["driver"]["steps"], spec["driver"]["steps"], name)
+            cmds = [s.get("cmd") for s in spec["driver"]["steps"]]
+            self.assertNotIn("StopRecording", cmds, name)
+            self.assertNotIn("DiscardTree", cmds, name)
+            mlib.b5_params_from_dict(spec["driver"]["missionParams"])
+
+    def test_tylo_bop_pol_fly_the_harvest_lanes_params_verbatim(self):
+        for moon, name in LANES.items():
+            self.assertEqual(_spec(name)["driver"]["missionParams"],
+                             _spec(CONTINUATIONS[moon])["driver"]["missionParams"], moon)
+
+    def test_vall_is_b38s_set_with_vall_floors(self):
+        b38 = _spec("B38-jool-laythe-continuation.toml")["driver"]["missionParams"]
+        vall = _spec(CONTINUATIONS["Vall"])["driver"]["missionParams"]
+        moved = {k for k in set(b38) | set(vall) if b38.get(k) != vall.get(k)}
+        self.assertEqual({"targetBodyName", "targetPeriapsisFloorMeters",
+                          "parkMinPeriapsisMeters"}, moved)
+
+    def test_each_forge_joins_the_kerbin_jool_tree_and_poisons_the_other_moons(self):
+        for moon, name in CONTINUATIONS.items():
+            lc = _spec(name)["expectations"]["logContracts"]
+            self.assertIn("startrecording recordingId=\\w+ already=true", lc["required"])
+            self.assertIn("startrecording recordingId=\\w+ already=false", lc["forbidden"])
+            self.assertIn("SOI change boundary suppressed in tree mode: Jool to %s "
+                          "\\(tree=6ec68e87b782476f970a71df8c8b4685," % moon, lc["required"])
+            self.assertIn("CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting "
+                          "terminalOrbitBody=%s" % moon, lc["required"])
+            for other in ("Laythe",) + JOOL_MOONS[1:]:
+                if other == moon:
+                    continue
+                self.assertIn("SOI change boundary suppressed in tree mode: \\w+ to %s" % other,
+                              lc["forbidden"], (name, other))
 
 
 class HarvestSizingTests(unittest.TestCase):

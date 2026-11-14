@@ -576,8 +576,13 @@ namespace Parsek.Tests
             // fixture's measured reading; a fix that stops the stray tail flips this entry.
             // `eve-gilly-recorded` (B37) and `jool-laythe-recorded` (B38), same night, carry the same
             // tail on their roots, at Gilly and Laythe.
+            // `duna-ike-recorded-career` (the far-body timeline lanes' career host, built by
+            // harness/tools/build_route_career.py) carries duna-ike-recorded's sidecars byte for
+            // byte, so its root's entry appears twice.
             var expectedBodySplits = new[]
             {
+                "311d98e32547491e8dd37aec2526d25d.prec.txt :: 1->2 @ut 9181509.7 "
+                + ": Atmospheric(Absolute)/Kerbin -> ExoBallistic(Absolute)/Ike",
                 "311d98e32547491e8dd37aec2526d25d.prec.txt :: 1->2 @ut 9181509.7 "
                 + ": Atmospheric(Absolute)/Kerbin -> ExoBallistic(Absolute)/Ike",
                 "75a6ab25a0f445219a82b7b841e44ba8.prec.txt :: 5->6 @ut 15879278.5 "

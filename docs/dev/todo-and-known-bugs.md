@@ -676,6 +676,14 @@ A1 Recordings-tab loops on the map (SLM lanes), Revert to VAB / save switch / Co
 rewind and a load (REV-1, SWS-1, CN-4, CN-5), routes under a Re-Fly and real warp (IR-3, IR-6),
 route conservation (RCN-1), the Re-Fly value fuzzer and the save round-trip gate.
 
+Far-body timeline lanes (2026-11-14, from the catalog's first reading): FAR-1 .. FAR-6 authored,
+awaiting the PC batch (rewind-to-launch with a committed Ike flight in career, a relaunch rewind
+keeping Duna vessels, a revert with Ike committed, an EVA switch at Gilly, physics warp at Laythe,
+a looped Ike watch across a quickload), read by position through the new in-game category
+`LeafVesselPlacement`. Re-Fly at a far body is still uncovered: no far-body fixture has a rewind
+point (every far vessel has one command part), so it needs a new forge that separates two
+controllable vessels at a far body.
+
 Gap finding aid (2026-11-14): `docs/dev/flight-profiles.md` is the GENERATED catalog of every lane
 (host save, bodies, seam verbs, timeline operations, mission, in-game categories, status) with
 body x operation and family x operation matrices and the never-used verbs, dimension values and
@@ -687,17 +695,21 @@ the Mun, vessel switching and physics warp are thin and Kerbin-only, and seven i
 Still to build, most valuable to a player first (items 8 and 10 need no PC flight time and can run
 in parallel in the cloud):
 
-1. [ ] The Jool multi-moon tour (Group C, M-MIS-6): built, never seen in game. One forge
+1. [ ] (AUTHORED 2026-11-14, awaiting the PC batch: forge `B47-jool-moon-tour`, loop lane `V38M`,
+   Bop decline `B48` / `V39M`.) The Jool multi-moon tour (Group C, M-MIS-6): built, never seen in game. One forge
    (Laythe, Vall, Tylo in one tree from `jool-orbit-recorded`) and a loop lane reading
    `ARRIVAL HOLD dest=Jool kind=config moons=3`; a Bop variant must decline with the amber.
    The most expensive flight.
-2. [ ] Moon-to-moon pairs on the new 1.1.0 loop spacing: B43 Vall -> Tylo, B44 Laythe -> Tylo,
+2. [ ] (AUTHORED 2026-11-14, awaiting the PC batch: forges `B43`-`B46`, loop lanes `V43M`-`V46M`;
+   the offline solver reads Tylo -> Bop as `joint-best-fit` at 7 x P_Bop, so B45 is no longer
+   expected to decline.) Moon-to-moon pairs on the new 1.1.0 loop spacing: B43 Vall -> Tylo, B44 Laythe -> Tylo,
    B46 Minmus -> Mun (about 200 Kerbin days between loops), B45 Tylo -> Bop (expected honest
    decline), each a forge plus a loop lane. Only Laythe -> Vall, Mun -> Minmus and Laythe -> Jool
    have flown on the new rule.
 3. [ ] Aircraft: no lane flies a plane (BAY-1's never moves). A runway takeoff, a circuit and a
    landing, then its ghost replays at the Space Center.
-4. [ ] Jool park -> one moon continuations: B39 Vall, B40 Tylo, B41 Bop, B42 Pol with loop lanes
+4. [ ] (AUTHORED 2026-11-14 as `B39`-`B42` / `V34M`-`V37M` and `V33T`, awaiting the PC batch.)
+   Jool park -> one moon continuations: B39 Vall, B40 Tylo, B41 Bop, B42 Pol with loop lanes
    V34M .. V37M (Vall has no park lane at all), plus the missing Laythe Tracking Station lane
    (V33T). Later: Mun / Minmus continuations and the optional Ike / Gilly landing continuations.
    The three Group A fixtures carry the stray root tail of COMMITTED-RESTORE-APPENDS-TO-ROOT

@@ -1174,6 +1174,7 @@ MISSION_MACHINES = {
     "b25_laythe_orbit": "b5_decide", "b26_laythe_vall": "b5_decide",
     "b28_laythe_jool": "b5_decide", "b29_jool_kerbin": "b5_decide",
     "b2_lko_ascent": "b2_decide", "b30_mun_minmus": "b5_decide",
+    "b47_jool_moon_tour": "mtour_decide",
     "b4_reentry": "b4_decide", "b4_reentry_career": "b4_decide",
     "b5_mun_flyby": "b5_decide", "b5_mun_flyby_return": "mfr_decide",
     "b6_minmus_flyby": "b5_decide", "b7_duna_flyby": "b5_decide",
