@@ -96,6 +96,60 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void UiComplexityMode_ProbeInAFileTheFolderMoveBroughtIntoUi_IsRed()
+        {
+            // The UI/ prefix exempts the gated draw paths. The 2026-11-14 folder move put 22
+            // scanned root files (stock-screen annotations, budget and reservation helpers,
+            // formatting, the toolbar registration) into UI/, and the prefix exempted them
+            // silently until '!' entries kept them scanned. A mode read planted in one of them
+            // must red, like one in a root file or another module; one planted in a draw path
+            // the prefix has always exempted must not.
+            string repoRoot = ResolveRepoRoot();
+            string[] allowlist = File.ReadAllLines(
+                Path.Combine(repoRoot, "scripts", "ui-complexity-mode-audit-allowlist.txt"));
+            var files = LoadParsekSourceFiles(repoRoot);
+            int hits;
+            Assert.Empty(AllowlistAuditViolations(allowlist, files, UiComplexityModeLineMatches, out hits));
+            Assert.True(hits > 0, "the UI complexity-mode scan saw no hit at all");
+
+            const string probe = "            bool basic = ParsekUI.AppliedUiComplexityMode == UiComplexityMode.Basic;";
+            foreach (string target in new[]
+                     {
+                         "Source/Parsek/UI/ResourceBudget.cs",
+                         "Source/Parsek/UI/StockUiDecorationQuery.cs",
+                         "Source/Parsek/UI/CurrencyReservationOverlay.cs",
+                         "Source/Parsek/GameActions/LedgerTrace.cs",
+                         "Source/Parsek/UiModeProbe.cs",
+                     })
+            {
+                var planted = new Dictionary<string, string[]>(files, StringComparer.OrdinalIgnoreCase);
+                string[] body;
+                var lines = new List<string>(planted.TryGetValue(target, out body) ? body : new string[0]);
+                lines.Add(probe);
+                planted[target] = lines.ToArray();
+                List<string> red = AllowlistAuditViolations(allowlist, planted, UiComplexityModeLineMatches, out hits);
+                Assert.True(red.Any(v => v.StartsWith(target + ":", StringComparison.Ordinal)),
+                    "a mode read planted in " + target + " passes the UI complexity-mode gate");
+            }
+
+            var exempt = new Dictionary<string, string[]>(files, StringComparer.OrdinalIgnoreCase);
+            const string drawPath = "Source/Parsek/UI/TimelineWindowUI.cs";
+            Assert.True(exempt.ContainsKey(drawPath), "the exempt draw path moved: " + drawPath);
+            exempt[drawPath] = new List<string>(exempt[drawPath]) { probe }.ToArray();
+            Assert.Empty(AllowlistAuditViolations(allowlist, exempt, UiComplexityModeLineMatches, out hits));
+
+            // Each '!' entry names a file that exists and that a prefix would otherwise exempt.
+            foreach (string raw in allowlist)
+            {
+                string entry = raw.Trim();
+                if (!entry.StartsWith("!", StringComparison.Ordinal)) continue;
+                string path = entry.Substring(1).Trim();
+                Assert.True(files.ContainsKey(path), "still-scanned entry names no file: " + path);
+                Assert.StartsWith("Source/Parsek/UI/", path, StringComparison.Ordinal);
+            }
+        }
+
+        [Fact]
         public void GrepAudit_GuiMockWriteSetIsUiOnly()
         {
             RunGrepAuditScript("grep-audit-gui-mock-writeset.ps1", RunManagedGuiMockWriteSetAudit);
@@ -264,24 +318,27 @@ namespace Parsek.Tests
         // scripts/ui-complexity-mode-audit-allowlist.txt.
         private static void RunManagedUiComplexityModeAudit(string repoRoot)
         {
-            string[] tokens =
-            {
-                "UiComplexityMode",
-                "UiSurfaceVisibility",
-                "UiSurface",
-                "uiComplexityMode",
-                "IsSpawnControlReachable",
-            };
             RunManagedAllowlistAudit(
                 repoRoot, "ui-complexity-mode-audit-allowlist.txt", "UI complexity-mode",
-                line =>
-                {
-                    foreach (string token in tokens)
-                    {
-                        if (line.IndexOf(token, StringComparison.Ordinal) >= 0) return true;
-                    }
-                    return false;
-                });
+                UiComplexityModeLineMatches);
+        }
+
+        private static readonly string[] UiComplexityModeTokens =
+        {
+            "UiComplexityMode",
+            "UiSurfaceVisibility",
+            "UiSurface",
+            "uiComplexityMode",
+            "IsSpawnControlReachable",
+        };
+
+        internal static bool UiComplexityModeLineMatches(string line)
+        {
+            foreach (string token in UiComplexityModeTokens)
+            {
+                if (line.IndexOf(token, StringComparison.Ordinal) >= 0) return true;
+            }
+            return false;
         }
 
         // Managed mirror of scripts/grep-audit-background-threads.ps1: the same
@@ -454,62 +511,14 @@ namespace Parsek.Tests
             string repoRoot, string allowlistFileName, string label, Func<string, bool> lineMatches,
             bool expectHits = true, string failureHint = null)
         {
-            string sourceRoot = Path.Combine(repoRoot, "Source", "Parsek");
-            Assert.True(Directory.Exists(sourceRoot),
-                "managed " + label + " audit: source root not found: " + sourceRoot);
             string allowlistPath = Path.Combine(repoRoot, "scripts", allowlistFileName);
             Assert.True(File.Exists(allowlistPath),
                 "managed " + label + " audit: allowlist not found: " + allowlistPath);
+            var files = LoadParsekSourceFiles(repoRoot);
 
-            var allowedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var allowedPrefixes = new List<string>();
-            foreach (string rawLine in File.ReadLines(allowlistPath))
-            {
-                string entry = rawLine.Trim();
-                if (entry.Length == 0) continue;
-                if (entry.StartsWith("#", StringComparison.Ordinal)) continue;
-                string normalized = entry.Replace('\\', '/');
-                if (normalized.EndsWith("/", StringComparison.Ordinal))
-                    allowedPrefixes.Add(normalized);
-                else
-                    allowedFiles.Add(normalized);
-            }
-
-            string repoRootNorm = repoRoot.Replace('\\', '/');
-            var violations = new List<string>();
-            int hitsTotal = 0;
-            foreach (string path in Directory.EnumerateFiles(sourceRoot, "*.cs", SearchOption.AllDirectories))
-            {
-                string rel = path.Replace('\\', '/');
-                if (rel.StartsWith(repoRootNorm, StringComparison.OrdinalIgnoreCase))
-                    rel = rel.Substring(repoRootNorm.Length).TrimStart('/');
-
-                bool allowed = allowedFiles.Contains(rel);
-                if (!allowed)
-                {
-                    foreach (string prefix in allowedPrefixes)
-                    {
-                        if (rel.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                        {
-                            allowed = true;
-                            break;
-                        }
-                    }
-                }
-
-                int lineNumber = 0;
-                foreach (string line in File.ReadLines(path))
-                {
-                    lineNumber++;
-                    if (!lineMatches(line)) continue;
-                    hitsTotal++;
-                    if (!allowed)
-                    {
-                        violations.Add(string.Format(
-                            "{0}:{1}: {2}", rel, lineNumber, line.Trim()));
-                    }
-                }
-            }
+            int hitsTotal;
+            List<string> violations = AllowlistAuditViolations(
+                File.ReadAllLines(allowlistPath), files, lineMatches, out hitsTotal);
 
             Assert.True(violations.Count == 0,
                 "managed " + label + " audit failed (un-allowlisted reference(s), total pattern hits: "
@@ -522,6 +531,74 @@ namespace Parsek.Tests
                     "managed " + label + " audit saw ZERO pattern hits — the allowlisted definitions alone "
                         + "should match, so the scan is broken (wrong root or dead patterns), not clean.");
             }
+        }
+
+        /// <summary>
+        /// The allowlist semantics every managed mirror shares, pure over the allowlist lines
+        /// and the (repo-relative path, raw lines) set: an entry ending in '/' allows every file
+        /// under it, a plain entry allows that file, and an entry starting with '!' keeps that
+        /// file SCANNED even when a prefix covers it (it wins over every allowing entry; a '!'
+        /// entry naming no file is itself a violation, so a rename cannot silently exempt the
+        /// file). Every matching line of a file that is not allowed is a violation.
+        /// </summary>
+        internal static List<string> AllowlistAuditViolations(
+            IEnumerable<string> allowlistLines, IDictionary<string, string[]> files,
+            Func<string, bool> lineMatches, out int hitsTotal)
+        {
+            var allowedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var scannedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var allowedPrefixes = new List<string>();
+            foreach (string rawLine in allowlistLines)
+            {
+                string entry = rawLine.Trim();
+                if (entry.Length == 0) continue;
+                if (entry.StartsWith("#", StringComparison.Ordinal)) continue;
+                string normalized = entry.Replace('\\', '/');
+                if (normalized.StartsWith("!", StringComparison.Ordinal))
+                    scannedFiles.Add(normalized.Substring(1).Trim());
+                else if (normalized.EndsWith("/", StringComparison.Ordinal))
+                    allowedPrefixes.Add(normalized);
+                else
+                    allowedFiles.Add(normalized);
+            }
+
+            var violations = new List<string>();
+            foreach (string scanned in scannedFiles.OrderBy(f => f, StringComparer.Ordinal))
+            {
+                if (!files.ContainsKey(scanned))
+                    violations.Add("still-scanned allowlist entry names no file: " + scanned);
+            }
+
+            hitsTotal = 0;
+            foreach (var file in files.OrderBy(f => f.Key, StringComparer.Ordinal))
+            {
+                string rel = file.Key;
+                bool allowed = !scannedFiles.Contains(rel) && IsAllowedByEntries(rel, allowedFiles, allowedPrefixes);
+                int lineNumber = 0;
+                foreach (string line in file.Value)
+                {
+                    lineNumber++;
+                    if (!lineMatches(line)) continue;
+                    hitsTotal++;
+                    if (!allowed)
+                    {
+                        violations.Add(string.Format(
+                            "{0}:{1}: {2}", rel, lineNumber, line.Trim()));
+                    }
+                }
+            }
+            return violations;
+        }
+
+        private static bool IsAllowedByEntries(string rel, HashSet<string> allowedFiles, List<string> allowedPrefixes)
+        {
+            if (allowedFiles.Contains(rel)) return true;
+            foreach (string prefix in allowedPrefixes)
+            {
+                if (rel.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>
