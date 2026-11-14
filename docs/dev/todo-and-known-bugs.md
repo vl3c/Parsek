@@ -89,7 +89,7 @@ pin). Outputs: branch `carrier/route-line-2026-11-12` (commit 0cc14bb2b), dir
   before the change: "Duna Supply 1 Probe" at Kerbin (one orbit line) and "Duna Supply 1" on its
   transfer around the Sun (orbit line, icon on it) with two short forward legs of the looped
   ghost pass. Those two legs are drawn far from the ship; that is the looped ghost renderer, not
-  the route line, and it is filed below as LOOP-SUN-LEG-DRAWN-OFF-PATH.
+  the route line, and it is filed below as LOOP-SUN-LEG-DRAWN-OFF-PATH (fixed 2026-11-14).
 - **V26T's render-composition reading** (bare block): status REPORT, 0 findings, 0 mismatches,
   `unevaluable=5` (`cut-dwell-containment-needs-recorded-clock`, `no-cycle-rollover-events`,
   `no-dwells-attributable-to-unit`, `plan-primitive-body-unidentified`,
@@ -113,7 +113,7 @@ asserts only that every view was taken): `interbody-route-recorded` has no deriv
 instant (the Duna route's anchor is not computable from the committed bytes: `loopAnchorUT = -1`
 and per-tick re-aim windows), so a behavioural map lane of that ship needs one first.
 
-## LOOP-SUN-LEG-DRAWN-OFF-PATH: a looped interplanetary ghost's short legs recorded around the Sun are drawn far from the ship and off its path [FILED 2026-11-12 from the TP-8 dumps, runs `2026-11-11_2243` and `2026-11-12_2110`; OPEN; cause not established; low on screen]
+## LOOP-SUN-LEG-DRAWN-OFF-PATH: a looped interplanetary ghost's short legs recorded around the Sun are drawn far from the ship and off its path [FILED 2026-11-12 from the TP-8 dumps, runs `2026-11-11_2243` and `2026-11-12_2110`; ~~FIXED 2026-11-14~~, branch `claude/project-thread-5ijjc4`]
 
 **Measured.** `interbody-route-recorded`, the Duna supply ship "Duna Supply 1" (recording
 `36c7688b8e5141f7809e2d4dbe9dc094`, treatment StockConic, body Sun), flight map at the save
@@ -147,6 +147,24 @@ same, so it should).
 conic; a lane needs an instant with the head just before those legs, which
 `interbody-route-recorded` cannot give (no derivable dispatch instant, see above), so a looped
 Duna mission host with an off-rails stretch in solar orbit is the likely subject.
+
+**Cause (2026-11-14).** The loop unit is a RE-AIM: `GhostMapPresence.ResolveEffectiveMapOrbitSegments`
+replaces the three recorded Sun segments [63,901,473.6 .. 68,378,174.7], [68,378,180.4 ..
+68,378,236.0], [68,378,313.4 .. 72,258,643.3] with ONE synthesized transfer conic over
+[63,901,473.6 .. 72,258,643.3] (drawn LAN 208.18, argPe 2.40 against the recorded 156.18 /
+12.72). The two burn legs sit in the gaps between the recorded segments, so they are geometry
+of the transfer the re-aim replaced; the forward pass drew them from their recorded frames
+(and `TryAnchorLegToConicSeam` anchors to the RECORDED segments), which is the recorded
+inertial position, 37 degrees behind the re-aimed icon. Not a frame-rotation bug.
+
+**Fix.** `GhostTrajectoryPolylineRenderer.IsLegSupersededByReaimedConic` (pure): a leg on the
+re-aim's common-ancestor body lying wholly inside one synthesized segment of the effective list
+is not drawn. `TryResolveReaimedLegFilter` turns it on only when the unit is a re-aim and the
+resolver returned a list other than the recorded one, so faithful members and declined windows
+draw exactly as before. Read by the head-gated pass, the head-leg bridge candidate and the
+forward run legs; each skip logs `Leg hidden (inside re-aimed conic): ... pass=<head|forward>`.
+Tests `ReaimSupersededLegTests` (TP-8 numbers); TP-8 gates the forward-pass line for the two
+legs. Not covered: the icon while the loop head is inside those 77 s (no lane instant).
 
 ## ROUTE-CREATION-TREE-IDS-UNREAD: `Route.CreationTreeRecordingIds` is saved and loaded but nothing reads it [FILED 2026-11-12 with ROUTE-LINE-DETACHED-SEGMENTS; OPEN]
 
@@ -645,8 +663,8 @@ in parallel in the cloud):
 4. [ ] Jool park -> one moon continuations: B39 Vall, B40 Tylo, B41 Bop, B42 Pol with loop lanes
    V34M .. V37M (Vall has no park lane at all), plus the missing Laythe Tracking Station lane
    (V33T). Later: Mun / Minmus continuations and the optional Ike / Gilly landing continuations.
-   The three Group A fixtures carry the stray root tail of COMMITTED-RESTORE-APPENDS-TO-ROOT and
-   are re-harvested when that bug is fixed.
+   The three Group A fixtures carry the stray root tail of COMMITTED-RESTORE-APPENDS-TO-ROOT
+   (fixed 2026-11-14) and are re-harvested with a build carrying the fix.
 5. [ ] Supply-route ghosts checked by position: route render lanes (H59, V26M, V26T, V27M, V18T)
    still pin counts and log lines, so a route ghost drawn in the wrong place passes (audit B3).
 6. [ ] Loops meeting a Re-Fly, a career save and a scene change in watch mode (audit B7; LF-1 and
@@ -6119,11 +6137,14 @@ Do NOT re-implement intercept / window math from scratch. The 2026-05-28 prior-a
 - **Group A GREEN (2026-11-07, branch `claude/project-thread-ni23y9`):** forges B36 Duna->Ike (`2026-11-07_2214`), B37 Eve->Gilly (`_2220`), B38 Jool->Laythe (`_2230`) appended each moon hop to the committed Kerbin->planet tree and were harvested as `duna-ike-recorded`, `eve-gilly-recorded`, `jool-laythe-recorded`; loop lanes V31M / V31T / V32M / V32T / V33M all PASS attempt 1 (see LOOP-LONE-MOON-ARRIVAL-NOT-ALIGNED). Harness fix on the way: `harvest_bdock_station.py --keep-parsek` now keeps the `_versions` sidecar bodies the save names (a committed tree beside its resumed in-flight copy names an older root `.prec`; pruning it made the cold load drop the committed tree). Still open: Mun, Minmus, Vall, Tylo, Bop and Pol as continuation forges, a multi-moon Jool tree, and a Laythe Tracking Station lane (no V33T draft).
 - **Re-checked 2026-11-11 on main b5877e51f (1.1.0):** Group A is done (above). The moon-to-moon spacing (MOON-TO-MOON-LOOP-NOT-RETIMED, #2554) shipped in 1.1.0 and its six lanes V17M / V17T / V19M / V19T / V21M / V21T flew green on the new clock in the refactor batch (V17T `2026-11-11_0124`, V19T `_0125`, V19M `_0126`, V21T `_0151`, V21M `_0152` at e5b47f331, V17M `_0710` at fa3de158d after the #2559 / #2560 re-pins; rows in `autotest-status.md`), which also re-flew the matrix's re-aim regression slice (V3R, V8 .. V13A, V20M, V24W, V25M, GUI-18, M1). No B39 .. B46 or V34M+ spec exists. Still to build, in this order (ranked with the rest in NEXT-TESTS-TO-BUILD-2026-11-11): (1) Group B, new moon-to-moon pairs now that the code exists: B43 Vall -> Tylo, B44 Laythe -> Tylo, B46 Minmus -> Mun, B45 Tylo -> Bop (expected decline), each with a loop lane reading the moon-rooted phase lock; (2) Group C, the Jool multi-moon tour (M-MIS-6, never flown); (3) B39 .. B42 Jool -> Vall / Tylo / Bop / Pol continuations with V34M .. V37M, and V33T; then the Mun / Minmus continuations and the optional Ike / Gilly landings.
 
-### COMMITTED-RESTORE-APPENDS-TO-ROOT - a resumed committed tree records onto its root recording [OPEN, found 2026-11-07]
+### COMMITTED-RESTORE-APPENDS-TO-ROOT - a resumed committed tree records onto its root recording [~~FIXED 2026-11-14~~, found 2026-11-07; fixture re-harvest open]
 
 - Seen in the B36 forge (`duna-ike-recorded`, run `2026-11-07_2214`): `TryRestoreCommittedTreeForSpawnedActiveVessel` resumes B17's committed tree with `activeRecordingId` = the ROOT (pad head) id, not the tip of the vessel's chain. The Duna->Ike hop logs `activeRec=311d98e3...` (the root), and after the in-flight commit at UT 9,181,507.7 a ~1 s Ike section is appended to the root past its `explicitEndUT` (4,653,681.9), with a 4.5 Ms gap. The commit-time optimizer re-split the hop itself onto chain index 2, so the visible structure is right; the stray tail on the root is what remains. Same root-resume shape as B23 flight 1. B37 (`eve-gilly-recorded`) shows the same tail on its root `75a6ab25`, at Gilly (UT 15,879,278.5). B38 (`jool-laythe-recorded`) shows it on root `ddcc6d00`, at Laythe (UT 28,816,905.0): every lane of this forge shape reproduces it.
 - Player impact not yet measured: playback reads the root up to `explicitEndUT`, so the tail is likely invisible, but any reader that walks sidecar sections (the analyzer, `OptimizerTransferCohesionTests.E4`, which pins it) sees a Kerbin->Ike body change on the launch recording.
 - Fix direction: resume on the chain tip of the active vessel's leg (the `EffectiveTipRecordingId` walk), not the stored `activeRecordingId`; then drop the E4 pin and re-harvest the fixture.
+- Cause (2026-11-14): the commit-time optimizer split (`CommittedListOptimizer.RunOptimizationSplitPass`) keeps the original id on the HEAD and gives the tail a new id, but left `RecordingTree.ActiveRecordingId` on the head (the merge path already moves it to the survivor). The restore then preferred the active id in `IsCommittedSpawnedRecordingRestorable` before asking whether a later chain segment exists, so it resumed on the head.
+- Fix: (1) the split moves a tree's active recording to the split tail (`CommittedListOptimizer.MoveActiveRecordingToSplitTail`, Info line `active recording moved from the head ... to the split tail ...`); (2) for saves written before that, `IsCommittedSpawnedRecordingRestorable` checks for a next chain segment before the active-id shortcut, and `PrepareCommittedTreeRestoreForSpawnedVessel` resumes on the tip as the ACTIVE recording when the stored active id is an earlier piece of the same chain (`IsEarlierSegmentOfSameChain`, Info line `resuming on the chain tip`). Tests `CommittedRestoreChainTipTests`.
+- Still open: the three committed fixtures (`duna-ike-recorded` root `311d98e3`, `eve-gilly-recorded` root `75a6ab25`, `jool-laythe-recorded` root `ddcc6d00`) keep the stray tail until the B36 / B37 / B38 forges are re-flown and harvested with this build; `OptimizerTransferCohesionTests.E4` keeps its pin until then (NEXT-TESTS item 4).
 
 ### M-MIS-10 - Scenario verification sweep: believed-supported archetypes, never explicitly verified [not sequenced - run incrementally alongside any milestone]
 

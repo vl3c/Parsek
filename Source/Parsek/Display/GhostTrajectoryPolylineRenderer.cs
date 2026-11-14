@@ -1256,6 +1256,10 @@ namespace Parsek.Display
             private readonly List<List<OrbitSegment>> chainRunMemberSegsScratch =
                 new List<List<OrbitSegment>>();
             private readonly List<long> chainRunMemberReaimScratch = new List<long>();
+            // Per-member EFFECTIVE (pre-coalesce) segments, parallel to chainRunMemberSegsScratch: the
+            // re-aimed list by reference for a re-aimed window, the recorded list otherwise.
+            private readonly List<List<OrbitSegment>> chainRunMemberEffectiveScratch =
+                new List<List<OrbitSegment>>();
             private readonly List<OrbitSegment> chainRunConcatScratch = new List<OrbitSegment>();
 
             // Chains whose run was already decided this frame: the run is computed ONCE per chain per
@@ -1688,6 +1692,14 @@ namespace Parsek.Display
                             out deorbitHead, out deorbitConicEndUT, out deorbitSeamUT);
                     }
 
+                    // A re-aim member's recorded legs inside its re-aimed transfer conic are geometry of
+                    // the transfer the re-aim replaced (todo LOOP-SUN-LEG-DRAWN-OFF-PATH): skip them, so
+                    // the icon stays on the drawn conic instead of jumping to the recorded burn. False
+                    // (no test at all) for every member outside a re-aimed window.
+                    bool hasReaimLegFilter = TryResolveReaimedLegFilter(
+                        recordingIndex, rec, currentUT, loopUnits,
+                        out List<OrbitSegment> reaimLegEffective, out string reaimLegBody);
+
                     for (int li = 0; li < set.legs.Length; li++)
                     {
                         var leg = set.legs[li];
@@ -1713,6 +1725,15 @@ namespace Parsek.Display
                         if (!ShouldDrawLegAtHeadUT(leg.startUT, leg.endUT, legHeadUT))
                         {
                             frameLegsHeadUtGated++;
+                            continue;
+                        }
+                        if (hasReaimLegFilter
+                            && IsLegSupersededByReaimedConic(
+                                reaimLegEffective, rec.OrbitSegments, reaimLegBody,
+                                leg.bodyName, leg.startUT, leg.endUT))
+                        {
+                            LogLegSupersededByReaimedConic(
+                                "head", rec.RecordingId, li, leg.startUT, leg.endUT, leg.bodyName);
                             continue;
                         }
 
@@ -2932,6 +2953,7 @@ namespace Parsek.Display
                 // first (plan: gaps-between-same-body-segments must not split the forward chain).
                 chainRunMemberSegsScratch.Clear();
                 chainRunMemberReaimScratch.Clear();
+                chainRunMemberEffectiveScratch.Clear();
                 chainRunConcatScratch.Clear();
                 // The chain's recorded data end (max member EndUT): lets the window keep the run
                 // alive while the icon rides a TRAILING leg past the last conic (review MAJOR-1)
@@ -2948,6 +2970,7 @@ namespace Parsek.Display
                         TrajectoryMath.CoalesceSameOrbitFragments(memberEffective);
                     chainRunMemberSegsScratch.Add(memberCoalesced);
                     chainRunMemberReaimScratch.Add(memberReaimWindow);
+                    chainRunMemberEffectiveScratch.Add(memberEffective);
                     if (memberCoalesced != null)
                         chainRunConcatScratch.AddRange(memberCoalesced);
                     // Re-aim descent trigger (Clamp B, applied PER-MEMBER): cap a NON-descent transfer/owner
@@ -3025,12 +3048,20 @@ namespace Parsek.Display
                 // its own trigger-gated primary pass.
                 bridgeLegScratch.Clear();
                 bool recIsDescentMember = IsDescentTriggerMember(recordingIndex, loopUnits);
+                bool recReaimLegFilter = TryResolveReaimedLegFilter(
+                    recordingIndex, rec, currentUT, loopUnits,
+                    out List<OrbitSegment> recReaimLegEffective, out string recReaimLegBody);
                 if (set.legs != null && !recIsDescentMember)
                 {
                     for (int li = 0; li < set.legs.Length; li++)
                     {
                         var hl = set.legs[li];
                         if (!ShouldDrawLegAtHeadUT(hl.startUT, hl.endUT, headUT)) continue;
+                        if (recReaimLegFilter
+                            && IsLegSupersededByReaimedConic(
+                                recReaimLegEffective, rec.OrbitSegments, recReaimLegBody,
+                                hl.bodyName, hl.startUT, hl.endUT))
+                            break;
                         if (IsRunLegAnchorCandidate(rec.OrbitSegments, hl.bodyName, hl.startUT, hl.endUT))
                             break;
                         if (!WillLegDraw(hl.PointCount, true)) break;
@@ -3088,11 +3119,31 @@ namespace Parsek.Display
 
                     if (haveLegs)
                     {
+                        // The member's re-aimed transfer conic replaces its recorded heliocentric legs
+                        // (todo LOOP-SUN-LEG-DRAWN-OFF-PATH); the effective list resolved above is the
+                        // re-aimed one exactly when it is not the recorded list by reference.
+                        List<OrbitSegment> memberReaimEffective = null;
+                        string memberReaimBody = null;
+                        if (loopUnits != null
+                            && loopUnits.TryGetUnitForMember(member.index, out GhostPlaybackLogic.LoopUnit memberUnit)
+                            && memberUnit.IsReaim && memberUnit.ReaimPlan.HasValue)
+                        {
+                            memberReaimEffective = chainRunMemberEffectiveScratch[mi];
+                            memberReaimBody = memberUnit.ReaimPlan.Value.CommonAncestor;
+                        }
                         for (int li = 0; li < memberSet.legs.Length; li++)
                         {
                             var leg = memberSet.legs[li];
                             if (!ShouldDrawForwardLeg(leg.startUT, leg.endUT, winStart, winStop, headUT))
                                 continue;
+                            if (IsLegSupersededByReaimedConic(
+                                    memberReaimEffective, member.rec.OrbitSegments, memberReaimBody,
+                                    leg.bodyName, leg.startUT, leg.endUT))
+                            {
+                                LogLegSupersededByReaimedConic(
+                                    "forward", member.rec.RecordingId, li, leg.startUT, leg.endUT, leg.bodyName);
+                                continue;
+                            }
                             // Past/future split (playtest-7 revision of the playtest-5 hide): a PAST
                             // body-fixed leg hides when inertial run geometry FOLLOWS it (it would
                             // rotate-sweep into that line behind the icon - the launch ascent case);

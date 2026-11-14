@@ -207,6 +207,13 @@ namespace Parsek
                 // Update tree dict if applicable
                 AddToCommittedTree(original.TreeId, second);
 
+                // The vessel flies on in the later half, so a tree whose active recording was
+                // the original now has the tail as its active recording (the mirror of the
+                // merge's ActiveRecordingId move). Left on the head, a later resume of the tree
+                // recorded onto the head past its end (todo COMMITTED-RESTORE-APPENDS-TO-ROOT).
+                MoveActiveRecordingToSplitTail(
+                    RecordingStore.FindCommittedTreeById(original.TreeId), original, second);
+
                 original.FilesDirty = true;
                 second.FilesDirty = true;
 
@@ -526,6 +533,28 @@ namespace Parsek
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// After a split of <paramref name="original"/> into itself (the earlier half) and
+        /// <paramref name="second"/> (the later half): when the tree's active recording is the
+        /// original, it becomes the second half, where the vessel's flight continues. Returns
+        /// true when it moved.
+        /// </summary>
+        internal static bool MoveActiveRecordingToSplitTail(
+            RecordingTree tree, Recording original, Recording second)
+        {
+            if (tree == null || original == null || second == null
+                || string.IsNullOrEmpty(original.RecordingId)
+                || string.IsNullOrEmpty(second.RecordingId))
+                return false;
+            if (!string.Equals(tree.ActiveRecordingId, original.RecordingId, StringComparison.Ordinal))
+                return false;
+            tree.ActiveRecordingId = second.RecordingId;
+            ParsekLog.Info("RecordingStore",
+                $"Optimization split: tree={tree.Id} active recording moved from the head " +
+                $"'{original.RecordingId}' to the split tail '{second.RecordingId}'");
+            return true;
         }
 
         internal static void UpdateTreeStateAfterOptimizationMerge(Recording target, Recording absorbed)
