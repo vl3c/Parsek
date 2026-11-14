@@ -1,0 +1,47 @@
+# CheckParachuteState
+## FG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial ut=1010: ok
+  parachuteStates=[202:3]
+step A-semi ut=1020: ok
+  ev ParachuteSemiDeployed pid=201 name=chuteA ut=1020 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: ParachuteSemiDeployed 'chuteA' pid=201
+  parachuteStates=[201:1,202:3]
+step A-deployed ut=1030: ok
+  ev ParachuteDeployed pid=201 name=chuteA ut=1030 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: ParachuteDeployed 'chuteA' pid=201
+  parachuteStates=[201:2,202:3]
+step A-cut ut=1040: ok
+  ev ParachuteCut pid=201 name=chuteA ut=1040 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: ParachuteCut 'chuteA' pid=201
+  parachuteStates=[201:3,202:3]
+step A-repacked ut=1050: ok
+  ev ParachuteRepacked pid=201 name=chuteA ut=1050 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: ParachuteRepacked 'chuteA' pid=201
+  parachuteStates=[202:3]
+step A-active ut=1060: ok
+  parachuteStates=[202:3]
+## BG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial ut=1010: ok
+  parachuteStates=[202:3]
+step A-semi ut=1020: ok
+  ev ParachuteSemiDeployed pid=201 name=chuteA ut=1020 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: ParachuteSemiDeployed 'chuteA' pid=201 (bg vessel 7)
+  parachuteStates=[201:1,202:3]
+step A-deployed ut=1030: ok
+  ev ParachuteDeployed pid=201 name=chuteA ut=1030 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: ParachuteDeployed 'chuteA' pid=201 (bg vessel 7)
+  parachuteStates=[201:2,202:3]
+step A-cut ut=1040: ok
+  ev ParachuteCut pid=201 name=chuteA ut=1040 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: ParachuteCut 'chuteA' pid=201 (bg vessel 7)
+  parachuteStates=[201:3,202:3]
+step A-repacked ut=1050: ok
+  ev ParachuteRepacked pid=201 name=chuteA ut=1050 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: ParachuteRepacked 'chuteA' pid=201 (bg vessel 7)
+  parachuteStates=[202:3]
+step A-active ut=1060: ok
+  parachuteStates=[202:3]

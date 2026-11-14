@@ -1,0 +1,12 @@
+# CheckDeployableState pose-less rate-limit keys
+## FG
+step recorder-A ut=1000: ok
+  log [Parsek][VERBOSE][Recorder] Deployable poll skipped 2 pose-animation-less module(s) (deployable-no-pose-animation gate)
+step recorder-A-again ut=1001: ok
+step recorder-B ut=1002: ok
+## BG
+step vessel-7 ut=1000: ok
+  log [Parsek][VERBOSE][BgRecorder] Deployable poll skipped 2 pose-animation-less module(s) (deployable-no-pose-animation gate, bg vessel 7)
+step vessel-7-again ut=1001: ok
+step vessel-8 ut=1002: ok
+  log [Parsek][VERBOSE][BgRecorder] Deployable poll skipped 2 pose-animation-less module(s) (deployable-no-pose-animation gate, bg vessel 8)

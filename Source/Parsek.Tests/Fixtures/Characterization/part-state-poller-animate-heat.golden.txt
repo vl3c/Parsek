@@ -1,0 +1,63 @@
+# CheckAnimateHeatState
+## FG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial ut=1010: ok
+  ev ThermalAnimationHot pid=1003 name=heatHot ut=1010 val=0.9 midx=0
+  log [Parsek][VERBOSE][Recorder] AnimateHeat: unable to classify 'heatMiss' pid=1002 midx=0; fields=[<none>]
+  log [Parsek][VERBOSE][Recorder] [Recording][AnimateHeat] Part 'heatHot' pid=1003: heat level Cold -> Hot (normalizedHeat=0.900)
+  log [Parsek][VERBOSE][Recorder] Part event: ThermalAnimationHot 'heatHot' pid=1003 midx=0 heat=0.90 src=IScalarModule.GetScalar
+  animateHeatLevels=[256768:Hot]
+  loggedAnimateHeatClassificationMisses=[256512]
+step A-medium ut=1020: ok
+  ev ThermalAnimationMedium pid=1001 name=heatA ut=1020 val=0.5 midx=1
+  log [Parsek][VERBOSE][Recorder] [Recording][AnimateHeat] Part 'heatA' pid=1001: heat level Cold -> Medium (normalizedHeat=0.500)
+  log [Parsek][VERBOSE][Recorder] Part event: ThermalAnimationMedium 'heatA' pid=1001 midx=1 heat=0.50 src=IScalarModule.GetScalar
+  animateHeatLevels=[256257:Medium,256768:Hot]
+  loggedAnimateHeatClassificationMisses=[256512]
+step A-hot ut=1030: ok
+  ev ThermalAnimationHot pid=1001 name=heatA ut=1030 val=0.85 midx=1
+  log [Parsek][VERBOSE][Recorder] [Recording][AnimateHeat] Part 'heatA' pid=1001: heat level Medium -> Hot (normalizedHeat=0.850)
+  log [Parsek][VERBOSE][Recorder] Part event: ThermalAnimationHot 'heatA' pid=1001 midx=1 heat=0.85 src=IScalarModule.GetScalar
+  animateHeatLevels=[256257:Hot,256768:Hot]
+  loggedAnimateHeatClassificationMisses=[256512]
+step A-gap-stays-hot ut=1040: ok
+  animateHeatLevels=[256257:Hot,256768:Hot]
+  loggedAnimateHeatClassificationMisses=[256512]
+step A-cold ut=1050: ok
+  ev ThermalAnimationCold pid=1001 name=heatA ut=1050 val=0.1 midx=1
+  log [Parsek][VERBOSE][Recorder] [Recording][AnimateHeat] Part 'heatA' pid=1001: heat level Hot -> Cold (normalizedHeat=0.100)
+  log [Parsek][VERBOSE][Recorder] Part event: ThermalAnimationCold 'heatA' pid=1001 midx=1 heat=0.10 src=IScalarModule.GetScalar
+  animateHeatLevels=[256257:Cold,256768:Hot]
+  loggedAnimateHeatClassificationMisses=[256512]
+## BG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial ut=1010: ok
+  ev ThermalAnimationHot pid=1003 name=heatHot ut=1010 val=0.9 midx=0
+  log [Parsek][VERBOSE][BgRecorder] AnimateHeat: unable to classify 'heatMiss' pid=1002 midx=0
+  log [Parsek][VERBOSE][Recorder] [Recording][AnimateHeat] Part 'heatHot' pid=1003: heat level Cold -> Hot (normalizedHeat=0.900)
+  log [Parsek][VERBOSE][BgRecorder] Part event: ThermalAnimationHot 'heatHot' pid=1003 midx=0 (animate-heat, bg vessel 7)
+  animateHeatLevels=[256768:Hot]
+  loggedAnimateHeatClassificationMisses=[256512]
+step A-medium ut=1020: ok
+  ev ThermalAnimationMedium pid=1001 name=heatA ut=1020 val=0.5 midx=1
+  log [Parsek][VERBOSE][Recorder] [Recording][AnimateHeat] Part 'heatA' pid=1001: heat level Cold -> Medium (normalizedHeat=0.500)
+  log [Parsek][VERBOSE][BgRecorder] Part event: ThermalAnimationMedium 'heatA' pid=1001 midx=1 (animate-heat, bg vessel 7)
+  animateHeatLevels=[256257:Medium,256768:Hot]
+  loggedAnimateHeatClassificationMisses=[256512]
+step A-hot ut=1030: ok
+  ev ThermalAnimationHot pid=1001 name=heatA ut=1030 val=0.85 midx=1
+  log [Parsek][VERBOSE][Recorder] [Recording][AnimateHeat] Part 'heatA' pid=1001: heat level Medium -> Hot (normalizedHeat=0.850)
+  log [Parsek][VERBOSE][BgRecorder] Part event: ThermalAnimationHot 'heatA' pid=1001 midx=1 (animate-heat, bg vessel 7)
+  animateHeatLevels=[256257:Hot,256768:Hot]
+  loggedAnimateHeatClassificationMisses=[256512]
+step A-gap-stays-hot ut=1040: ok
+  animateHeatLevels=[256257:Hot,256768:Hot]
+  loggedAnimateHeatClassificationMisses=[256512]
+step A-cold ut=1050: ok
+  ev ThermalAnimationCold pid=1001 name=heatA ut=1050 val=0.1 midx=1
+  log [Parsek][VERBOSE][Recorder] [Recording][AnimateHeat] Part 'heatA' pid=1001: heat level Hot -> Cold (normalizedHeat=0.100)
+  log [Parsek][VERBOSE][BgRecorder] Part event: ThermalAnimationCold 'heatA' pid=1001 midx=1 (animate-heat, bg vessel 7)
+  animateHeatLevels=[256257:Cold,256768:Hot]
+  loggedAnimateHeatClassificationMisses=[256512]

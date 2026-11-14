@@ -1,0 +1,79 @@
+# CheckCargoBayState
+## FG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial ut=1010: ok
+  log [Parsek][VERBOSE][Recorder] CargoBay: invalid DeployModuleIndex for 'bayBadIndex' pid=701 deployIdx=-1 modules=1
+  log [Parsek][VERBOSE][Recorder] CargoBay: invalid DeployModuleIndex for 'bayIndexPastEnd' pid=702 deployIdx=5 modules=1
+  log [Parsek][VERBOSE][Recorder] CargoBay: DeployModuleIndex did not resolve to ModuleAnimateGeneric for 'bayNotAnim' pid=703 deployIdx=1 module='ModuleJettison'
+  log [Parsek][VERBOSE][Recorder] CargoBay: unsupported closedPosition for 'bayMidClosed' pid=704 closedPosition=0.500 animTime=0.300
+  log [Parsek][VERBOSE][Recorder] CargoBay: DeployModuleIndex did not resolve to ModuleAnimateGeneric for 'bayNullAnim' pid=707 deployIdx=1 module='<null>'
+  openCargoBays=[]
+  loggedCargoBayDeployIndexIssues=[701,702]
+  loggedCargoBayAnimationIssues=[703,707]
+  loggedCargoBayClosedPositionIssues=[704]
+step again-diagnostics-once ut=1020: ok
+  openCargoBays=[]
+  loggedCargoBayDeployIndexIssues=[701,702]
+  loggedCargoBayAnimationIssues=[703,707]
+  loggedCargoBayClosedPositionIssues=[704]
+step A-open ut=1030: ok
+  ev CargoBayOpened pid=705 name=bayA ut=1030 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: CargoBayOpened 'bayA' pid=705
+  openCargoBays=[705]
+  loggedCargoBayDeployIndexIssues=[701,702]
+  loggedCargoBayAnimationIssues=[703,707]
+  loggedCargoBayClosedPositionIssues=[704]
+step A-mid-limited-at-stop ut=1040: ok
+  ev CargoBayOpened pid=706 name=bayLimited ut=1040 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: CargoBayOpened 'bayLimited' pid=706
+  openCargoBays=[705,706]
+  loggedCargoBayDeployIndexIssues=[701,702]
+  loggedCargoBayAnimationIssues=[703,707]
+  loggedCargoBayClosedPositionIssues=[704]
+step A-closed ut=1050: ok
+  ev CargoBayClosed pid=705 name=bayA ut=1050 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: CargoBayClosed 'bayA' pid=705
+  openCargoBays=[706]
+  loggedCargoBayDeployIndexIssues=[701,702]
+  loggedCargoBayAnimationIssues=[703,707]
+  loggedCargoBayClosedPositionIssues=[704]
+## BG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial ut=1010: ok
+  log [Parsek][VERBOSE][BgRecorder] CargoBay: invalid DeployModuleIndex for 'bayBadIndex' pid=701 deployIdx=-1 modules=1
+  log [Parsek][VERBOSE][BgRecorder] CargoBay: invalid DeployModuleIndex for 'bayIndexPastEnd' pid=702 deployIdx=5 modules=1
+  log [Parsek][VERBOSE][BgRecorder] CargoBay: DeployModuleIndex did not resolve to ModuleAnimateGeneric for 'bayNotAnim' pid=703 deployIdx=1 module='ModuleJettison'
+  log [Parsek][VERBOSE][BgRecorder] CargoBay: unsupported closedPosition for 'bayMidClosed' pid=704 closedPosition=0.500 animTime=0.300
+  log [Parsek][VERBOSE][BgRecorder] CargoBay: DeployModuleIndex did not resolve to ModuleAnimateGeneric for 'bayNullAnim' pid=707 deployIdx=1 module='<null>'
+  openCargoBays=[]
+  loggedCargoBayDeployIndexIssues=[701,702]
+  loggedCargoBayAnimationIssues=[703,707]
+  loggedCargoBayClosedPositionIssues=[704]
+step again-diagnostics-once ut=1020: ok
+  openCargoBays=[]
+  loggedCargoBayDeployIndexIssues=[701,702]
+  loggedCargoBayAnimationIssues=[703,707]
+  loggedCargoBayClosedPositionIssues=[704]
+step A-open ut=1030: ok
+  ev CargoBayOpened pid=705 name=bayA ut=1030 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: CargoBayOpened 'bayA' pid=705 (bg vessel 7)
+  openCargoBays=[705]
+  loggedCargoBayDeployIndexIssues=[701,702]
+  loggedCargoBayAnimationIssues=[703,707]
+  loggedCargoBayClosedPositionIssues=[704]
+step A-mid-limited-at-stop ut=1040: ok
+  ev CargoBayOpened pid=706 name=bayLimited ut=1040 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: CargoBayOpened 'bayLimited' pid=706 (bg vessel 7)
+  openCargoBays=[705,706]
+  loggedCargoBayDeployIndexIssues=[701,702]
+  loggedCargoBayAnimationIssues=[703,707]
+  loggedCargoBayClosedPositionIssues=[704]
+step A-closed ut=1050: ok
+  ev CargoBayClosed pid=705 name=bayA ut=1050 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: CargoBayClosed 'bayA' pid=705 (bg vessel 7)
+  openCargoBays=[706]
+  loggedCargoBayDeployIndexIssues=[701,702]
+  loggedCargoBayAnimationIssues=[703,707]
+  loggedCargoBayClosedPositionIssues=[704]

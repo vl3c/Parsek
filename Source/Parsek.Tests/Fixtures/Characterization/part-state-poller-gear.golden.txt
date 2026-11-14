@@ -1,0 +1,39 @@
+# CheckGearState
+## FG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial ut=1010: ok
+  ev GearDeployed pid=102 name=gearTransitFirst ut=1010 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: GearDeployed 'gearTransitFirst' pid=102
+  deployedGear=[102]
+step A-deployed ut=1020: ok
+  ev GearDeployed pid=101 name=gearA ut=1020 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: GearDeployed 'gearA' pid=101
+  deployedGear=[101,102]
+step A-deployed-again ut=1030: ok
+  deployedGear=[101,102]
+step A-retracting ut=1040: ok
+  deployedGear=[101,102]
+step A-retracted ut=1050: ok
+  ev GearRetracted pid=101 name=gearA ut=1050 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: GearRetracted 'gearA' pid=101
+  deployedGear=[102]
+## BG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial ut=1010: ok
+  ev GearDeployed pid=102 name=gearTransitFirst ut=1010 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: GearDeployed 'gearTransitFirst' pid=102 (bg vessel 7)
+  deployedGear=[102]
+step A-deployed ut=1020: ok
+  ev GearDeployed pid=101 name=gearA ut=1020 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: GearDeployed 'gearA' pid=101 (bg vessel 7)
+  deployedGear=[101,102]
+step A-deployed-again ut=1030: ok
+  deployedGear=[101,102]
+step A-retracting ut=1040: ok
+  deployedGear=[101,102]
+step A-retracted ut=1050: ok
+  ev GearRetracted pid=101 name=gearA ut=1050 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: GearRetracted 'gearA' pid=101 (bg vessel 7)
+  deployedGear=[102]

@@ -1,0 +1,47 @@
+# CheckJettisonState
+## FG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial ut=1010: threw NullReferenceException
+  ev ShroudJettisoned pid=303 name=jettisonSecondModule ut=1010 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: ShroudJettisoned 'jettisonSecondModule' pid=303
+  jettisonedShrouds=[303]
+  jettisonNameRawCache=[78080: shroud1 ,, shroud2 ]
+  parsedJettisonNamesCache=[78080:{shroud1|shroud2}]
+step plain-jettisoned ut=1020: threw NullReferenceException
+  ev ShroudJettisoned pid=301 name=jettisonPlain ut=1020 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: ShroudJettisoned 'jettisonPlain' pid=301
+  jettisonedShrouds=[301,303]
+  jettisonNameRawCache=[78080: shroud1 ,, shroud2 ]
+  parsedJettisonNamesCache=[78080:{shroud1|shroud2}]
+step plain-again ut=1030: threw NullReferenceException
+  jettisonedShrouds=[301,303]
+  jettisonNameRawCache=[78080: shroud1 ,, shroud2 ]
+  parsedJettisonNamesCache=[78080:{shroud1|shroud2}]
+step plain-reset-flag ut=1040: threw NullReferenceException
+  jettisonedShrouds=[301,303]
+  jettisonNameRawCache=[78080: shroud1 ,, shroud2 ]
+  parsedJettisonNamesCache=[78080:{shroud1|shroud2}]
+## BG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial ut=1010: threw NullReferenceException
+  ev ShroudJettisoned pid=303 name=jettisonSecondModule ut=1010 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: ShroudJettisoned 'jettisonSecondModule' pid=303 (bg vessel 7)
+  jettisonedShrouds=[303]
+  jettisonNameRawCache=[78080: shroud1 ,, shroud2 ]
+  parsedJettisonNamesCache=[78080:{shroud1|shroud2}]
+step plain-jettisoned ut=1020: threw NullReferenceException
+  ev ShroudJettisoned pid=301 name=jettisonPlain ut=1020 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: ShroudJettisoned 'jettisonPlain' pid=301 (bg vessel 7)
+  jettisonedShrouds=[301,303]
+  jettisonNameRawCache=[78080: shroud1 ,, shroud2 ]
+  parsedJettisonNamesCache=[78080:{shroud1|shroud2}]
+step plain-again ut=1030: threw NullReferenceException
+  jettisonedShrouds=[301,303]
+  jettisonNameRawCache=[78080: shroud1 ,, shroud2 ]
+  parsedJettisonNamesCache=[78080:{shroud1|shroud2}]
+step plain-reset-flag ut=1040: threw NullReferenceException
+  jettisonedShrouds=[301,303]
+  jettisonNameRawCache=[78080: shroud1 ,, shroud2 ]
+  parsedJettisonNamesCache=[78080:{shroud1|shroud2}]

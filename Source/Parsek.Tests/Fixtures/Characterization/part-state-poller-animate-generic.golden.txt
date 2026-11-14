@@ -1,0 +1,51 @@
+# CheckAnimateGenericState
+## FG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial ut=1010: ok
+  ev DeployableExtended pid=1107 name=genericTwoModules ut=1010 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: DeployableExtended 'genericTwoModules' pid=1107 midx=0 (anim-generic)
+  deployedAnimateGenericModules=[283392]
+  loggedAnimateGenericClassificationMisses=[]
+step A-open ut=1020: ok
+  ev DeployableExtended pid=1101 name=genericA ut=1020 val=0 midx=1
+  log [Parsek][VERBOSE][Recorder] Part event: DeployableExtended 'genericA' pid=1101 midx=1 (anim-generic)
+  deployedAnimateGenericModules=[281857,283392]
+  loggedAnimateGenericClassificationMisses=[]
+step A-mid-unclassified ut=1030: ok
+  log [Parsek][VERBOSE][Recorder] AnimateGeneric: unable to classify 'genericA' pid=1101 midx=1 anim='doors'; fields=[<none>]
+  deployedAnimateGenericModules=[281857,283392]
+  loggedAnimateGenericClassificationMisses=[281857]
+step A-mid-again ut=1040: ok
+  deployedAnimateGenericModules=[281857,283392]
+  loggedAnimateGenericClassificationMisses=[281857]
+step A-closed ut=1050: ok
+  ev DeployableRetracted pid=1101 name=genericA ut=1050 val=0 midx=1
+  log [Parsek][VERBOSE][Recorder] Part event: DeployableRetracted 'genericA' pid=1101 midx=1 (anim-generic)
+  deployedAnimateGenericModules=[283392]
+  loggedAnimateGenericClassificationMisses=[281857]
+## BG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial ut=1010: ok
+  ev DeployableExtended pid=1107 name=genericTwoModules ut=1010 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: DeployableExtended 'genericTwoModules' pid=1107 midx=0 (anim-generic, bg vessel 7)
+  deployedAnimateGenericModules=[283392]
+  loggedAnimateGenericClassificationMisses=[]
+step A-open ut=1020: ok
+  ev DeployableExtended pid=1101 name=genericA ut=1020 val=0 midx=1
+  log [Parsek][VERBOSE][BgRecorder] Part event: DeployableExtended 'genericA' pid=1101 midx=1 (anim-generic, bg vessel 7)
+  deployedAnimateGenericModules=[281857,283392]
+  loggedAnimateGenericClassificationMisses=[]
+step A-mid-unclassified ut=1030: ok
+  log [Parsek][VERBOSE][BgRecorder] AnimateGeneric: unable to classify 'genericA' pid=1101 midx=1
+  deployedAnimateGenericModules=[281857,283392]
+  loggedAnimateGenericClassificationMisses=[281857]
+step A-mid-again ut=1040: ok
+  deployedAnimateGenericModules=[281857,283392]
+  loggedAnimateGenericClassificationMisses=[281857]
+step A-closed ut=1050: ok
+  ev DeployableRetracted pid=1101 name=genericA ut=1050 val=0 midx=1
+  log [Parsek][VERBOSE][BgRecorder] Part event: DeployableRetracted 'genericA' pid=1101 midx=1 (anim-generic, bg vessel 7)
+  deployedAnimateGenericModules=[283392]
+  loggedAnimateGenericClassificationMisses=[281857]

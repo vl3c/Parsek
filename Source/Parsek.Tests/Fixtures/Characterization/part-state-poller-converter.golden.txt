@@ -1,0 +1,43 @@
+# CheckConverterState
+## FG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial ut=1010: ok
+  ev ConverterActivated pid=503 name=isruSecondModule ut=1010 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: ConverterActivated 'isruSecondModule' pid=503 (converter)
+  activeConverterParts=[503]
+step A-and-drill-on ut=1020: ok
+  ev ConverterActivated pid=501 name=isruA ut=1020 val=0 midx=0
+  ev ConverterActivated pid=502 name=drillLeaving ut=1020 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: ConverterActivated 'isruA' pid=501 (converter)
+  log [Parsek][VERBOSE][Recorder] Part event: ConverterActivated 'drillLeaving' pid=502 (converter)
+  activeConverterParts=[501,502,503]
+step drill-departs ut=1030: ok
+  ev ConverterDeactivated pid=502 name=drillLeaving ut=1030 val=0 midx=0
+  log [Parsek][INFO][Recorder] Converter part(s) left the vessel while running: vessel pid=77 stopped=1 pids=[502] ut=1030.00 (ConverterDeactivated written so this recording no longer reads them as running)
+  activeConverterParts=[501,503]
+step A-off ut=1040: ok
+  ev ConverterDeactivated pid=501 name=isruA ut=1040 val=0 midx=0
+  log [Parsek][VERBOSE][Recorder] Part event: ConverterDeactivated 'isruA' pid=501 (converter)
+  activeConverterParts=[503]
+## BG
+step null-vessel ut=1000: ok
+step null-parts ut=1000: ok
+step initial ut=1010: ok
+  ev ConverterActivated pid=503 name=isruSecondModule ut=1010 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: ConverterActivated 'isruSecondModule' pid=503 (bg vessel 7, converter)
+  activeConverterParts=[503]
+step A-and-drill-on ut=1020: ok
+  ev ConverterActivated pid=501 name=isruA ut=1020 val=0 midx=0
+  ev ConverterActivated pid=502 name=drillLeaving ut=1020 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: ConverterActivated 'isruA' pid=501 (bg vessel 7, converter)
+  log [Parsek][VERBOSE][BgRecorder] Part event: ConverterActivated 'drillLeaving' pid=502 (bg vessel 7, converter)
+  activeConverterParts=[501,502,503]
+step drill-departs ut=1030: ok
+  ev ConverterDeactivated pid=502 name=drillLeaving ut=1030 val=0 midx=0
+  log [Parsek][INFO][BgRecorder] Converter part(s) left the vessel while running: bg vessel pid=7 rec=rec_bg_7 stopped=1 pids=[502] ut=1030.00 (ConverterDeactivated written so this recording no longer reads them as running)
+  activeConverterParts=[501,503]
+step A-off ut=1040: ok
+  ev ConverterDeactivated pid=501 name=isruA ut=1040 val=0 midx=0
+  log [Parsek][VERBOSE][BgRecorder] Part event: ConverterDeactivated 'isruA' pid=501 (bg vessel 7, converter)
+  activeConverterParts=[503]
