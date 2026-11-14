@@ -1859,9 +1859,9 @@ class LockOwnershipTests(unittest.TestCase):
 
 
 class MachineLockPathTests(unittest.TestCase):
-    """ONE MACHINE, ONE LOCK. The key is the machine, not the instance dir: the
-    monopolised resources (kRPC 50000/50001, the single GPU) are machine-global,
-    so a per-instance key let two profiles both acquire and both launch."""
+    """The machine lock is keyed on the machine, not the instance dir: it is the
+    one PC-owner token (GPU, desktop, Unity registry prefs, DEPLOY). Parallel
+    flights run under ONE holder with per-slot locks (test_provision_slots)."""
 
     def test_relpath_is_umbrella_scoped_not_instance_scoped(self):
         self.assertEqual(provlib.MACHINE_LOCK_RELPATH, ("automation", ".ksp-machine.lock"))
