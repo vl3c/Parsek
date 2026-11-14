@@ -20,6 +20,43 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~LAUNCH-SITE-WOUND-LONGITUDE~~: a flight parked on the pad or runway spawned there when its stored longitude was wound past the date line [FILED 2026-11-14 by the multiplayer implementation plan (`docs/dev/plans/multiplayer/r0b-prep-small.md`, P1-02, question 10.1; owner answer "Fix both"), by code reading and the committed fixtures. FIXED 2026-11-14, branch `claude/project-thread-xgsu2i`; xUnit; low]
+
+Recorded longitudes are not always in [-180, 180]: 2,686 of 118,819 `lon =` values in the committed
+fixtures are outside it, and two `.prec.txt` points over the KSC read -434.4 / -434.5. The
+launch-site circles (`SpawnCollisionDetector.ClassifyKscExclusionZone` /
+`IsWithinKscExclusionZone`, `LaunchSiteExclusionZones.Classify`) used the flat-earth
+`SurfaceDistance`, which does not wrap, so such a point was 360 degrees from the pad: the
+end-of-flight retirement missed it (the vessel spawned on the pad) and `LaunchSiteOnlyGhost` did
+not see it as launch-site ground.
+
+Fix: the three launch-site callers use `SpawnCollisionDetector.LaunchSiteSurfaceDistance`, the
+same formula with the longitude difference wrapped into (-180, 180]
+(`WrapLongitudeDeltaDegrees`); a difference already in range is used unchanged, so every
+decision on an unwound longitude is bit-identical. `SurfaceDistance` and its other callers
+(not launch-site rules) are unchanged. Tests: `LaunchSiteWrapAndCacheTests` (the wrap table, a
+bit-equality grid, wound pad / runway / Desert / Woomerang hits, a wound pad recording retiring
+and a wound one 2 km off still spawning).
+
+## ~~LAUNCH-SITE-PARTIAL-READ-CACHED~~: a first read of the Making History launch sites made before they were built kept fallback positions for the process [FILED 2026-11-14 by the multiplayer implementation plan (`r0b-prep-small.md`, P1-04, question 10.1; owner answer "Fix both"), by code reading. FIXED 2026-11-14, branch `claude/project-thread-xgsu2i`; xUnit; MC-4 is the lane that reads the Desert pad; low]
+
+`LaunchSiteExclusionZones.GetAltSiteCircles` cached its merged list for the process whenever the
+runtime read returned at least one circle. The runtime read keeps the KSC `LaunchPad` / `Runway`
+too, so a read made while a Making History site's spawn transform was not built yet still
+cached, with that site's fallback coordinates merged in, until KSP restarted.
+
+Fix: a pure `ShouldCacheRuntimeRead(runtimeCount, fallbackMerged)` caches only a read with at
+least one runtime circle and no fallback row merged in. A partial read is still used for that
+call and logs `Launch-site retirement circles partial read: ... missing=<sites>; not cached`
+(Info, rate-limited per missing set); the next call reads again. Without Making History the
+fallback table is empty, so a KSC-only read still caches at once. A test seam
+`RuntimeAltSiteReaderForTesting` replaces the runtime read. Cost while partial: one walk of
+`PSystemSetup.LaunchSites` per call; the callers are spawn decisions, the ledger walk (once per
+surface-terminal home-world recording per recalculation) and the `LaunchSiteOnlyGhost` cache,
+which recomputes only when `RecordingStore.StateVersion` moves, so nothing reads it per frame. A
+read stays partial only while a site is not set up yet (normally the load window), or forever if
+a mod broke a site's setup, in which case the fallback circle keeps being used as before.
+
 ## ~~WINDOWS-TEST-HOST-ONLY-REDS-2026-11-14: 16 xUnit tests red on the owner's Windows PC and green on CI~~ [FILED 2026-11-14 from a Windows run of main 37a6c6101 (Debug and Release, OS culture ro-RO). FIXED 2026-11-14, branch `claude/project-thread-lkzj01`; xUnit on mono, the Windows re-run owed; tests only, no player-visible change]
 
 Two defects, one gap.

@@ -240,8 +240,8 @@ namespace Parsek
         internal static bool IsWithinKscExclusionZone(
             double latitude, double longitude, double bodyRadius, double exclusionRadiusMeters)
         {
-            double padDist = SurfaceDistance(latitude, longitude, KscPadLatitude, KscPadLongitude, bodyRadius);
-            double runwayDist = SurfaceDistance(latitude, longitude, KscRunwayLatitude, KscRunwayLongitude, bodyRadius);
+            double padDist = LaunchSiteSurfaceDistance(latitude, longitude, KscPadLatitude, KscPadLongitude, bodyRadius);
+            double runwayDist = LaunchSiteSurfaceDistance(latitude, longitude, KscRunwayLatitude, KscRunwayLongitude, bodyRadius);
 
             bool withinPad = padDist < exclusionRadiusMeters;
             bool withinRunway = runwayDist < exclusionRadiusMeters;
@@ -275,10 +275,10 @@ namespace Parsek
                 || double.IsNaN(bodyRadius) || bodyRadius <= 0.0)
                 return KscExclusionZone.None;
 
-            double padDist = SurfaceDistance(latitude, longitude, KscPadLatitude, KscPadLongitude, bodyRadius);
+            double padDist = LaunchSiteSurfaceDistance(latitude, longitude, KscPadLatitude, KscPadLongitude, bodyRadius);
             if (padDist < exclusionRadiusMeters)
                 return KscExclusionZone.Pad;
-            double runwayDist = SurfaceDistance(latitude, longitude, KscRunwayLatitude, KscRunwayLongitude, bodyRadius);
+            double runwayDist = LaunchSiteSurfaceDistance(latitude, longitude, KscRunwayLatitude, KscRunwayLongitude, bodyRadius);
             if (runwayDist < exclusionRadiusMeters)
                 return KscExclusionZone.Runway;
             return KscExclusionZone.None;
@@ -388,6 +388,44 @@ namespace Parsek
         {
             double dLat = (lat1 - lat2) * Math.PI / 180.0;
             double dLon = (lon1 - lon2) * Math.PI / 180.0;
+            double avgLat = (lat1 + lat2) * 0.5 * Math.PI / 180.0;
+            double dx = dLon * Math.Cos(avgLat) * bodyRadius;
+            double dy = dLat * bodyRadius;
+            return Math.Sqrt(dx * dx + dy * dy);
+        }
+
+        /// <summary>
+        /// A longitude difference in degrees brought into (-180, 180]. A difference already in
+        /// that range is returned unchanged, bit for bit; only a wound difference (a stored
+        /// longitude such as -434.5, which is -74.5) moves. NaN or infinity gives NaN.
+        /// </summary>
+        internal static double WrapLongitudeDeltaDegrees(double deltaDegrees)
+        {
+            if (deltaDegrees > -180.0 && deltaDegrees <= 180.0)
+                return deltaDegrees;
+            if (double.IsNaN(deltaDegrees) || double.IsInfinity(deltaDegrees))
+                return double.NaN;
+            double wrapped = deltaDegrees % 360.0;
+            if (wrapped > 180.0)
+                wrapped -= 360.0;
+            else if (wrapped <= -180.0)
+                wrapped += 360.0;
+            return wrapped;
+        }
+
+        /// <summary>
+        /// <see cref="SurfaceDistance"/> with the longitude difference wrapped
+        /// (<see cref="WrapLongitudeDeltaDegrees"/>), for the launch-site circles: recorded
+        /// longitudes are not always in [-180, 180], and a point over the pad stored wound by
+        /// a full turn must still read as over the pad. Identical to
+        /// <see cref="SurfaceDistance"/> whenever the two longitudes differ by at most 180
+        /// degrees.
+        /// </summary>
+        internal static double LaunchSiteSurfaceDistance(
+            double lat1, double lon1, double lat2, double lon2, double bodyRadius)
+        {
+            double dLat = (lat1 - lat2) * Math.PI / 180.0;
+            double dLon = WrapLongitudeDeltaDegrees(lon1 - lon2) * Math.PI / 180.0;
             double avgLat = (lat1 + lat2) * 0.5 * Math.PI / 180.0;
             double dx = dLon * Math.Cos(avgLat) * bodyRadius;
             double dy = dLat * bodyRadius;
