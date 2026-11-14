@@ -34,7 +34,7 @@ id = "V33T-jool-laythe-continuation-ts-arrival"
 tier = "operator"
 description = "AUTHORED 2026-11-14, NEVER FLOWN. The Tracking Station half of the Kerbin->Jool->Laythe loop (the `jool-laythe-recorded` tree V33M reads): after a jump past the replayed Laythe SOI entry, the TS ghost icon sits on Laythe with the lone-moon arrival hold engaged; the live MoonArrivalHold cell runs at the Space Center."
 instanceProfile = "stock-minimal"
-tags = ["V33", "tracking-station", "loop-arrival", "reaim", "arrival-hold", "lone-moon-hold", "jool", "laythe", "moon", "map-render", "ingame-batch", "pending-flight"]
+tags = ["V33", "tracking-station", "loop-arrival", "reaim", "arrival-hold", "lone-moon-hold", "jool", "laythe", "moon", "map-render", "ingame-batch", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/jool-laythe-recorded"

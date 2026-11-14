@@ -30,6 +30,10 @@ All notable changes to Parsek are documented here.
 
 ### Fixed
 
+- **Switching back to a ship your kerbal just stepped out of no longer asks to merge.** When the
+  ship was also the end of an earlier recorded flight, the map's Switch To opened the Merge /
+  Discard dialog, and either answer ended the recording you were making. The switch now just
+  continues it. (PRESWITCH-CASE-C-LIVE-TREE-MEMBER)
 - **Supply routes no longer break after a save is loaded.** Parsek's clean-up of saved recordings
   could merge, split or trim the recordings a route was built from, and the route then stopped
   with "source changed", often right after you created it. Those recordings are now left as they

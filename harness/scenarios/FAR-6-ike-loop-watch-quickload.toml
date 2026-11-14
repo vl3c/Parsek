@@ -7,8 +7,8 @@ id = "FAR-6-ike-loop-watch-quickload"
 # WHY. The far-body loop lanes (V31M / V32M / V33M) loop the fixtures' WHOLE Kerbin ->
 # moon trees through re-aim and read them at the Space Center or in the Tracking Station;
 # none watches a loop that lives entirely inside a far moon's SOI, and no loop lane at any
-# body quickloads while the camera follows the ghost. A quickload is an in-session load
-# (LoadReconcilePolicy QuickloadFlight): the loop's engine slot, the watch target index
+# body quickloads while the camera follows the ghost. A player F9 is a cold save-file load
+# (LoadReconcilePolicy Cold, coldReason=save-file): the loop's engine slot, the watch target index
 # and the ghost's moon-relative placement all have to come back from the save, with the
 # floating origin on a vessel ~3.2 Mm from Duna and the ghost a few hundred km away on
 # the same Ike orbit. A watch that cannot re-enter, a ghost re-placed in Duna's frame
@@ -42,7 +42,7 @@ id = "FAR-6-ike-loop-watch-quickload"
 # segment; (6) retry `once`; (7) recordings window 5..6 while never flown; (8) operator,
 # ~3 min expected; (9) flight_efficiency.py after the first green flight.
 tier = "operator"
-description = "Far-body loop under watch with a quickload: on duna-ike-recorded a ~4.5 min arc of the DD1 probe's Ike orbit is recorded, committed and looped, the camera enters watch mode on its ghost, then F5 / F9 (a QuickloadFlight load) must bring the loop and its watchable ghost back at Ike with no render anomaly."
+description = "Far-body loop under watch with a quickload: on duna-ike-recorded a ~4.5 min arc of the DD1 probe's Ike orbit is recorded, committed and looped, the camera enters watch mode on its ghost, then F5 / F9 (a cold save-file load) must bring the loop and its watchable ghost back at Ike with no render anomaly."
 instanceProfile = "stock-minimal"
 tags = ["FAR-6", "far-body", "ike", "duna", "sandbox", "loop-playback", "watch-mode",
         "quickload", "render-composition", "timeline-ops", "runtime-handles",
@@ -116,8 +116,8 @@ required = [
   "missionconfig applied:",
   "SetLoopEnabled: loop ON",
   "startloopplayback initiated:",
-  "MISSIONMARK label=far6-[\\s\\S]*?enterwatchmode complete: index=[\\s\\S]*?MISSIONMARK label=far6-watching ut=",
-  "MISSIONMARK label=far6-watching ut=[\\s\\S]*?loadgame player-load: firing [\\s\\S]*?Load classified: early=InSession refined=QuickloadFlight",
+  "enterwatchmode complete: index=[\\s\\S]*?MISSIONMARK label=far6-watching ut=",
+  "MISSIONMARK label=far6-watching ut=[\\s\\S]*?loadgame player-load: firing onGameStatePostLoad save=\\S+ name=quicksave (?:(?!Load classified: )[\\s\\S])*Load classified: early=Cold refined=Cold scene=FLIGHT [^\\r\\n]*\\bcoldReason=save-file\\b",
   "MISSIONMARK label=far6-reloaded ut=[\\s\\S]*?enterwatchmode complete: index=[\\s\\S]*?MISSIONMARK label=far6-rewatching ut=",
 ]
 forbidden = [

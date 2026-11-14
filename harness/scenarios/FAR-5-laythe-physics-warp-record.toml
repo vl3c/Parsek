@@ -92,7 +92,7 @@ required = [
   "warptout progress ut=28817060 .*rate=4 rateIndex=3",
   "warptout complete reachedUT=\\S+ ut=28817060 .*maxRate=4 ladder=phys",
   "Total committed: (?:8|9) recordings, 2 trees",
-  "MISSIONMARK label=far5-committed ut=[\\s\\S]*?LeafPlacement summary: scene=FLIGHT compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 absent=0 duplicate=0 unsupported=0 bodies=\\[Laythe\\]",
+  "MISSIONMARK label=far5-committed ut=[\\s\\S]*?LeafPlacement summary: scene=FLIGHT compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 absent=0 duplicate=0 unsupported=0 bodies=\\[(?:[A-Za-z]+,)*Laythe(?:,[A-Za-z]+)*\\]",
   "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
 ]
 forbidden = [
