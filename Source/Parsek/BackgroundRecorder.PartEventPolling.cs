@@ -78,8 +78,9 @@ namespace Parsek
 
         /// <summary>
         /// Polls all part event types for a background vessel in loaded/physics mode.
-        /// Duplicates the Layer 2 wrapper methods from FlightRecorder, calling the
-        /// same Layer 1 static transition methods.
+        /// Fifteen of the Check*State wrappers below run the same loop as FlightRecorder's
+        /// through <see cref="PartStatePoller"/>; engine, RCS, light, robotic and EVA keep a
+        /// background loop of their own because the two recorders poll them differently.
         ///
         /// Part Event Coverage Audit (BackgroundRecorder vs FlightRecorder):
         ///

@@ -3082,6 +3082,31 @@ compare).
   il_compare: only the `AnalyzeWindows` body differs, plus the 14 new private methods; the 140
   string literals and every outside call target of the old body are the same multiset across the
   new ones. Complexity >= 20 / 50 / 100: 613 / 32 / 5 -> 614 / 31 / 4; `complexityWatch` 54 -> 53.
+- 2026-11-14 (B3, shared part-state poller): the fifteen part families that `FlightRecorder` and
+  `BackgroundRecorder` polled with near-identical loops (gear, parachute, jettison, deployable,
+  converter, wheel damage, cargo bay, fairing, ladder, animation group, aero surface, control
+  surface, robot arm scanner, animate heat, animate generic) now run one loop each in
+  `PartStatePoller.cs` (module Recording). Each recorder keeps its `Check*State` wrapper (the
+  `BackgroundPartEventAuditTests` call-set gate reads them) and passes its own containers plus a
+  `PartPollSink`: the event list, the log tag and every recorder-specific log wording (the
+  `bg vessel N` notes, the flight-only `fields=[...]` miss detail and animate-heat `heat= src=`,
+  the per-vessel pose-less rate-limit key, the converter departure context). The jettison-name
+  cache is one helper over the caller's dictionaries. Kept apart, because the two sides poll
+  differently: light (flight also reads `ModuleColorChanger` cabin lights), EVA (flight also
+  debounces jetpack thrust), engine and RCS (flight-only one-shot tracking lines; the shroud
+  fallback logs Info on flight, Verbose on background), robotic (flight logs unable-to-sample
+  and tracking once and reads the moving state first). Two loop differences were provably
+  neutral and unified: the background animation-group neither-flag guard (the classifier never
+  returns true with neither flag) and the background inline dedicated-handler check of the
+  animate-generic loop (`HasDedicatedAnimateHandler`, same calls in the same order). Tests
+  first: 21 golden cells (`PartStatePollerCharacterizationTests`, both recorders per file,
+  generated on the pre-move code, unchanged after every move); three cultured log numbers made
+  invariant so the goldens read the same everywhere. Mutants on the shared loops: 34, 30 killed,
+  4 equivalent (no jettison module means not jettisoned; stock `ModuleProceduralFairing.GetScalar`
+  returns only 0 or 1, so the 0.5 boundary and the NaN guard never decide; the neither-flag
+  guard above). il_compare: only the 30 wrappers, the removed jettison caches and the new types
+  differ. Text knot 434 -> 437 (the poller and the two nested sinks); semantic residue
+  unchanged (greedy 140, replayed 144).
 - 2026-11-11 (metrics history): `scripts/arch/metrics.py` builds one JSON row per commit
   (schema `parsek-metrics/1`) from the existing tools' output: the text scan, the semantic
   headline, the code facts (with test reach when given the test DLL) and `count-code.py`'s
