@@ -92,10 +92,6 @@ namespace Parsek
             }
         }
 
-        /// <summary>
-        /// Parsed <c>jettisonName</c> list for one jettison module, re-parsed only when the raw
-        /// string changes. The two caches are the caller's per-vessel ones.
-        /// </summary>
         // Component.gameObject and GameObject.activeInHierarchy are Unity ECalls: a method
         // that calls one directly cannot be JIT-compiled under the Windows .NET test host
         // (SecurityException on entry), so the read lives here, never inlined into the loop.
@@ -114,6 +110,10 @@ namespace Parsek
             return p.FindModelTransform(name);
         }
 
+        /// <summary>
+        /// Parsed <c>jettisonName</c> list for one jettison module, re-parsed only when the raw
+        /// string changes. The two caches are the caller's per-vessel ones.
+        /// </summary>
         internal static string[] GetCachedJettisonNames(Dictionary<ulong, string> rawCache,
             Dictionary<ulong, string[]> parsedCache, ulong moduleKey, string rawNames)
         {
