@@ -174,6 +174,37 @@ one registry key shared by every KSP on the PC.
   and the Unity screen prefs matched the pre-run values afterwards.
 - Reports: `logs/console/2026-11-14/parallel-daily-check*.txt` on the owner's PC.
 
+## DEAD-CODE-TEST-ONLY-METHODS-PARKED: 773 methods the game never runs, 117 of them really dead and kept alive only by their own tests [FILED 2026-11-14 for refactor plan item 21, branch `item21-test-only-methods`, measured at main 24abf0dba (Debug). PARKED (owner 2026-11-14 21:07Z); the really-dead subset APPROVED FOR REMOVAL as the final change of this refactor pass (owner 2026-11-14 21:16Z); dead code, no product change]
+
+The uncalled-code fixpoint (`scripts/arch/ilanalysis.py`, README "Code facts") leaves 773
+methods the roots do not reach (17,333 instructions): 282 hook-named, and 491 others, which is
+the `[uncalledInAssembly]` ratchet bound in `facts_pins.toml` exactly. B7 deleted only what no
+test called, so most of these stay alive through unit tests alone. Every one now has a verdict:
+`docs/dev/research/test-only-methods-2026-11-14.tsv` (one row per method, keyed by the IL
+signature so it survives the folder move) and `test-only-methods-2026-11-14.md` (definitions,
+regenerate commands, counts, the ready-to-delete list by module).
+
+- `really-dead` 117 (5,721 instructions): no production caller (IL and a comment-stripped
+  source scan), no reach by name, attribute, override or harness source-sync, no keep recorded
+  in a gate, a doc comment ("DECIDED", "kept", "scaffolding", "second cut" ...) or a doc line
+  naming it, every production caller itself really-dead, and no live logic left untested by the
+  deletion. Each row names the tests that go with it (`[only-dead]`: delete, 268 test calls;
+  `[edit:N-live]`: edit, 62) and the doc lines that name it (bare-name search).
+- `dead-but-tests-guard-live-logic` 198: no live caller, but the tests are the coverage of a live
+  twin (overloads, forwarders, the Re-Fly world-action cluster, `TreeDiscardService.RemoveRecordingAt`,
+  which CLAUDE.md still names, and `GhostPlaybackLogic.ComputeLoopPhaseFromUT` /
+  `TryComputeLoopPlaybackUT`, whose cases move to the live `TryComputeLoopPlaybackPhase` first).
+  Re-point the tests before any deletion.
+- `test-hook` 399 (30 hook-named ones no test calls), `tested-helper-of-live-code` 18,
+  `kept-by-design` 37 (recorded keeps, among them `RecordingsTableUI.ScrollToRecording`, the
+  `MapRenderTrace` second-cut scaffolding and `GuiMockSession.NoteScopeBroken`; none is a
+  root-rule gap), `unsure` 4.
+
+Fix (when the time comes): after the folder move, one vetted PR deletes the really-dead set and
+its `[only-dead]` tests, edits the `[edit]` tests, the two negative assertions and the docs the
+list names, and re-pins `[uncalledInAssembly]` (bound and key list) and `headless_pins.toml`. The
+rest of the list stays parked.
+
 ## ARCH-COLD-RESET-HOLDERS: save-scoped statics are reset field by field, so a new field can be forgotten [FILED 2026-11-14 for refactor plan item 15 ("B1", as corrected by the 2026-11-11 architecture review), branch `item15-cold-reset-holders`. IN PROGRESS; refactor, no product change]
 
 The mod keeps the loaded save's state in statics spread over many stores, and a Cold load
@@ -2244,6 +2275,93 @@ byte-identity with the base, so they must move together) and re-pin whatever rea
 Leave the fixtures and document that Jeb reads held on them. No migration or load-time repair of old
 ledgers: the recording schema policy (CLAUDE.md, "Recording schema") is one current contract, and a
 missing capture row is not something load code should synthesize.
+
+## ARCH-GHOSTMAPPRESENCE-SPLIT: GhostMapPresence is the biggest type left, one static class over 16 files with 63 static fields [FILED 2026-11-14 from the Atlas opportunity row 5 ("GhostMapPresence: source-resolver type, then the static state"). PARKED by the owner 2026-11-14 as later work, not part of the current refactor pass (which closes after the folder move, the cold load leftovers, the six-edge ledger cut and the really-dead removal); re-measure mid-December. Architecture debt, no behavior defect]
+
+Measured at main 24abf0dba (2026-11-14, Debug): `GhostMapPresence` is 16 files, 16,575 lines,
+408 methods, 34,331 IL instructions, and 63 static fields that are not constants (27
+reassignable, 36 `static readonly` collections whose contents change; the IL facts of
+`scripts/arch/ilfacts.py`). The Atlas row calls it the largest hub inside the residue after the
+ledger and the type with the most static fields; its size estimate is 3 to 5 PRs.
+
+Done already, all in place (no new type), on main since 1.0.2:
+
+- W5a (2026-11-07): the static-state map,
+  `docs/dev/research/ghostmappresence-static-state-map-2026-11-07.md` (every field with its
+  writers, readers, reset paths and lifetime; the 13 index-keyed stores all shifted by
+  `ShiftIndexKeyedPresence`; outside production code writes two fields and reads three).
+- W5c / W5c2 (2026-11-08): `ResolveMapPresenceGhostSource` (603 lines) and the flight map
+  deferred-create and orbit-reseed passes split into named units in the same files, each pinned
+  first by a characterization golden (`MapPresenceSourceResolveCharacterizationTests`,
+  `FlightMapPassCharacterizationTests`).
+- W5d1 / W5d2 (2026-11-10): `RefreshTrackingStationGhosts` (484 -> 25 lines) and
+  `UpdateGhostOrbitFromStateVectors` (410 -> 87), pinned by
+  `TrackingStationRefreshCharacterizationTests` and `StateVectorOrbitUpdateCharacterizationTests`.
+- W5b (a separate source-resolver type) was dropped on 2026-11-08: a plain MOVE raises the
+  replayed residue by one (263 -> 264 then), because the resolver's call set reaches five members
+  of the knot (`ParsekFlight.BodyFixedPrimaryCoversPlaybackUT`,
+  `GhostPlaybackEngine.ShouldUseLoopAnchoredDebrisChain`, `EffectiveState.EffectiveTipRecordingId`,
+  `ParsekScenario.Instance`, `RecordingStore.CommittedRecordings`).
+
+Still open: (1) the source-resolver type as a DECOUPLE, the five knot answers passed in as
+delegates or values, plus a decision on the `TrackingStationGhostSource` enum that 25 files spell
+as `GhostMapPresence.TrackingStationGhostSource` (the static map's count); (2) the static state:
+moving the stores into holders or owner types, keeping the two lifetimes the map records (the
+ghost-pid and Tracking Station stores die with the ghosts, the flight per-frame stores only in
+`ClearFlightMapPresenceState`), the re-entrancy depth counters inside one try / finally, and the
+index-keyed stores on the committed-list contract.
+
+Proof: a characterization golden before each step, `il_compare.py --fold` for any pure move, the
+semantic ratchet for the residue, then map flights. Lanes whose specs pin `[GhostMap]` lines
+(measured by grep at 24abf0dba): CI-2, CN-5, GUI-6, GUI-9, V5-ts-loop-arrival, V6T, V7T. The
+map picture lanes TP-1..TP-9 and the standalone-loop map lanes SLM-1, SLM-1T and SLM-2 fly
+ghost map presence too.
+
+Multiplayer (2026-11-14): not needed for multiplayer. `RivalMapPresence` (R3W-18) is a new type
+built only on the `GhostMapVessels` primitive that P3-01..P3-05 carve out
+(`docs/dev/plans/multiplayer/r0b-prep-map-watch-codec.md`); everything keyed by recording index,
+chain, overlap cycle or own render state stays in `GhostMapPresence`, and rivals never run it.
+Leave this parked for multiplayer's sake. If it is done anyway: make P3-01..P3-05 its first PRs
+so the primitive is not extracted twice, land P3-02 after P2a-07 (both touch
+`GhostMapPresence.StateVectors.cs`), and never run it concurrently with P3.
+
+## ARCH-GHOST-POSITIONING-FILE: ParsekFlightGhostPositioner.cs is the one production file above 5,000 lines [FILED 2026-11-14 from the Atlas opportunity row 10 ("the single-file giants") and its "Largest files and types" finding. PARKED by the owner 2026-11-14 as later work, not part of the current refactor pass (which closes after the folder move, the cold load leftovers, the six-edge ledger cut and the really-dead removal); re-measure mid-December. Architecture debt, no behavior defect]
+
+Measured at main 24abf0dba (2026-11-14): `Source/Parsek/ParsekFlightGhostPositioner.cs` is
+5,567 lines (6,017 when PF2 created it; B7 and later commits removed code since), one file
+holding `internal sealed class ParsekFlightGhostPositioner : IGhostPositioner`, the flight
+scene's ghost positioner that `ParsekFlight` builds lazily as `Positioner` (PF2, Phase B). IL:
+120 methods, 15,606 instructions, 6 instance fields, 3 static readonly fields, 9 constants. By a
+brace scan, 89 block-bodied methods, 7 at or above 90 lines: `InterpolateAndPosition` 293,
+`TraceDebrisBodyFixedPrimaryPlayback` 163, `TryResolveRecordedRelativeAnchorPose` 158,
+`TryResolvePlaybackWorldPosition` 149, `TryResolvePredictedOrbitTailContinuityOffset` 107,
+`TryResolveLoopLiveAnchorPose` 103, `TryPositionGhostRecordedRelativeAt` 93. The next largest
+production file is `WatchModeController.cs` at 3,791. The Atlas (2026-11-14): one production
+file above 5,000 lines; the W8c partial splits of 2026-11-10 left `ParsekFlightGhostPositioner`
+as "the one single-file giant left".
+
+A split would follow W8c: a partial class over area files written by a one-shot
+`scripts/refactor/split_*.py` (fields, constants and the constructor stay in the main file),
+grouped by what the positioner does (interpolate and place, the Relative anchor pose and its
+recorded / loop / live arms, the body-fixed primary and debris paths, the orbit tail and
+continuity offsets, the tail lift, the trace lines), with source gates that read the file
+through a `*SourceFiles` helper. Proof: IL identical (`scripts/refactor/il_compare.py`, as for
+every W8c split), the source gates green through the helper, the xUnit and harness suites. A
+pure partial split changes no IL, so no flight is required; extracting `InterpolateAndPosition`
+into units would change IL and needs a characterization golden first plus the ghost playback
+lanes (`harness/tools/run_index.py lanes-for --module Controllers` names them from the run
+archive on the owner's PC).
+
+Multiplayer (2026-11-14): closely related. The rival lane builds a second
+`ParsekFlightGhostPositioner(host, laneState)` (R3W-09), and steps P2a-03, P2a-04 and
+P2b-02..P2b-09 (`docs/dev/plans/multiplayer/r0b-prep-playback.md`) edit this file; it is frozen
+for the P2b window (P2b-02 to P2b-10). A FILE-ONLY split (the same class made partial, identical
+IL, no flights) is fine BEFORE multiplayer starts; when it merges, the file:line facts in section
+3 of `r0b-prep-playback.md` need re-anchoring. A split into several CLASSES waits until AFTER
+P2b-10: P2b moves the orbit cache, the position entries, the reapply stamps and the log-once sets
+(the state that tangles this file) into `ParsekFlightPlaybackLane`, so a class split before it
+would invalidate P2b's member tables and need the 18-lane flight proof twice. Never during the
+P2b window.
 
 ## ARCH-STOCK-UI-RESERVATION-CYCLES-2026-09-25: the stock-UI reservation layer added eight types to the kernel knot and a new 7-type knot [FILED 2026-09-25 when `scripts/arch/modules.toml` classified the layer; OPEN, low; architecture debt, no behavior defect. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
