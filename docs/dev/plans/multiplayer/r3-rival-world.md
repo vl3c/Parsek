@@ -10,9 +10,10 @@ isolation gates).
 Built here:
 
 - `RivalFlight`, the immutable rival recording type that implements `IPlaybackTrajectory`,
-  and the loader that fills it from the local rival cache. The loader is the only place in
-  `RaceWorld` that names a `Recording` module type. It reads metadata at store build and the
-  trajectory file only when a ghost first needs it.
+  and the loader that fills it from the local rival cache. The loader and `RivalFlight`
+  itself (whose interface members are typed with `Recording`-module value types) are the
+  only places in `RaceWorld` that name a `Recording` module type. The loader reads metadata
+  at store build and the trajectory file only when a ghost first needs it.
 - The rival store, rebuilt whole at every scene load from the applied standings in the
   cache (one `RivalStandingVerdict` per rival), keyed by (player id, recording id). There is
   no rival catalog type: the rival engine gets the empty `RecordingPlaybackCatalog.None`
@@ -317,9 +318,10 @@ method (an enum member and cases in existing switches). R3W-02 to R3W-08, whose 
 caller is R3W-09, each ship an in-game cell of `RaceRivalLane` (FLIGHT) that calls every member
 the task adds and asserts on the result; T-20's `ListHandles kind=rivals` cannot serve, as it
 depends on R3W-09. Their input is a scratch rival cache written by the in-game helper
-`RivalScratchCache` (`InGameTests/`): R3W-03 creates it to write the current save's first
-committed recording's tree through the production tree writer (the standing is built in
-memory), R3W-04 adds a copy of its `.prec` and `_ghost.craft`, and R3W-05 writes the standing
+`RivalScratchCache` (`InGameTests/`): whichever of R3W-03 and R3W-04 lands first creates
+it (neither depends on the other). R3W-03's part writes the current save's first committed
+recording's tree through the production tree writer (the standing is built in memory),
+R3W-04's part adds a copy of its `.prec` and `_ghost.craft`, and R3W-05 writes the standing
 through R3E-04's `StandingCodec.Write` into a one-rival cache folder in the save's scratch
 directory; the folder is deleted after the cell. R3W-02's cell reads the recording directly. A
 cell skips, naming the context, when the save has no committed recording. `RivalCacheBuilder`
@@ -357,7 +359,11 @@ cells and stay their own pull requests; the one member that waits for a later ta
   0, `LoopAnchorVesselId` 0, loop start and end 0; `ParentAnchorRecordingId` null;
   `VesselSnapshot` null; `PlaybackEnabled` true; `RecordedVesselGuid` null. Before the
   payload is attached every list getter returns an empty list, never null and never a file
-  read. Not a `Recording` subclass.
+  read. Not a `Recording` subclass. Its `IPlaybackTrajectory` members are typed with
+  `Recording`-module value types (`PartEvent`, `FlagEvent`, `SurfacePosition`,
+  `LoopTimeUnit`), so this task adds `RaceWorld/RivalFlight.cs` to
+  `scripts/race-loader-files-allowlist.txt` with that reason (R1-06's "`Recording` types
+  only in the loader" cell reads the list).
 - **Proof:** xUnit `RivalFlightTests`: each fixed answer, empty lists before attach, attach
   twice refused (logged), `StartUT` / `EndUT` an outer envelope of the payload, and a
   reflection check that `RivalFlight` does not derive from `Recording`.
@@ -438,8 +444,19 @@ cells and stay their own pull requests; the one member that waits for a later ta
 
 - **Change:** new `RaceWorld/RivalStore.cs`. It is built by
   `RivalStore.Build(IReadOnlyList<RivalStandingVerdict>, IRacePayload, IBodyLookup)` from
-  each rival's verdict (R3E-04's value type, the import output; it replaces the name
-  `AppliedRival`, OV-37) plus the tree headers of R3W-03; it holds `RivalFlight`s keyed by
+  each rival's verdict (R3E-04's value type; it replaces the name `AppliedRival`, OV-37)
+  plus the tree headers of R3W-03. The verdicts come from the local rival cache, not from
+  a sync: this task adds `RaceCore/RivalCache.cs` with
+  `ReadVerdicts(IRaceFolder) -> IReadOnlyList<RivalStandingVerdict>`, pure over the port:
+  it reads `rivals/index.cfg`, and per rival the cached `player.cfg` and the highest
+  standing in `standings/` (only complete standings are ever moved there), and returns one
+  verdict per rival with status Applied and its `manifest` (display name, look, slot). A
+  scene load in FLIGHT, or a session that starts offline, has no import to ask; the cache
+  is the one source, and R3E-18's import builds its Applied verdicts through the same
+  reader. The rival cache layout of `RacePaths` (R3E-01 specified it) lands with whichever
+  of this task and R3E-18 merges first. The store keeps each rival's display name and look
+  from the verdict's manifest (`RivalStore.PlayerOf(playerId)`, added with its first
+  reader, R3W-15); it holds `RivalFlight`s keyed by
   (player id, recording id) in a stable order (player id, then start UT, then recording
   id), replaced whole, never edited. Flights whose standing row names no tree, or a payload
   missing from the cache, are kept out with a reason. The payload port is R3E-04's
@@ -516,8 +533,10 @@ cells and stay their own pull requests; the one member that waits for a later ta
   and `RaceRuntime` and the one static, on `RaceSession`; the runtime is an instance owned by
   the session and `internal static RaceRuntime Current => RaceSession.Current?.Runtime`
   forwards (no backing static of its own). Calls added here: `SceneReady(scene)` rebuilds
-  the `RivalStore` from the cache; `SceneExit()` drops it. No `Tick()` or `Sync()` hook is
-  added (a no-op with no caller would move the ratchet): R3E-17's `RaceSyncDriver.Tick` is
+  the `RivalStore` from the cache (R3W-05's `RivalCache.ReadVerdicts`, then
+  `RivalStore.Build`; no sync and no import is needed); `SceneExit()` drops it. No `Tick()`
+  or `Sync()` hook is added (a no-op with no caller would move the ratchet): R3E-17's
+  `RaceSyncDriver.Tick` is
   the sync entry point. Exposes `Rivals` (the store),
   `CreatePlaybackPolicy(engine, isWatched)`, `IsRivalShown(playerId)` (from the `SHOW` key of
   R1-08's `RaceLocal` codec; default shown).
@@ -706,9 +725,10 @@ cells and stay their own pull requests; the one member that waits for a later ta
   fallback sphere, the map vessel name and orbit color, the Parsek-drawn overlays). This
   task adds `RaceWorld/RivalStyleSource.cs : IPlaybackStyleSource`, which maps a flight to
   its player and returns one style per player: `LabelPrefix = "<display name> - "` (the one
-  prefix format, a designer choice, OV-45; display name from the rival's cached
-  `player.cfg`) and the color of that rival's look, a neutral grey placeholder until R5-07's
-  `RaceLookTable` provides the colors. It is handed to the rival engine through R5-03's
+  prefix format, a designer choice, OV-45; display name from the rival store, which holds
+  it from the verdict's manifest, R3W-05) and the color of that rival's look, a neutral
+  grey placeholder until R5-07's `RaceLookTable` provides the colors. It is handed to the rival
+  engine through R5-03's
   argument, to `RivalMapPresence` (R3W-18) and to the flight labels (R3W-16). The own lane
   passes no source, so every own site keeps its present color.
 - **Proof:** xUnit `RivalStyleSourceTests`: one style per player, the prefix `Ana - ` for
@@ -940,12 +960,15 @@ Tracking Station and as ghosts nearby, without the Watch camera.
   `RaceWorld/RivalStore.cs`, `RivalFlight.cs` and `RivalFlags.cs`, read from those files),
   so a new store type is covered without an edit (OV-13); they appear only in the files of
   `scripts/rival-store-allowlist.txt`: the RaceWorld lane files, the two `*RivalLane.cs`
-  controllers and the board / window files R4 adds. Comment-stripped scan.
+  controllers, the board / window files R4 adds and the race in-game test files under
+  `Source/Parsek/InGameTests/` (the `RaceRivalLane*` cells and `RivalScratchCache` name the
+  store's types). Comment-stripped scan.
   The loader boundary is not a second script (OV-12): R1-06's "`Recording` types only in
   the loader" arch cell owns the rule and reads `scripts/race-loader-files-allowlist.txt`;
   this task owns the rival loader entries there (`RaceWorld/RivalFlightLoader.cs`,
   `RaceWorld/RivalFlightLoader.Payload.cs`, which R3W-03 and R3W-04 add as they land) and
-  checks that no other RaceWorld file is listed. The recorder ban lives once, in R1-06's
+  checks that the only other RaceWorld file listed is `RaceWorld/RivalFlight.cs` (R3W-02's
+  entry, for the interface's member types). The recorder ban lives once, in R1-06's
   `race-no-recorder`.
 - **Proof:** `GrepAuditTests.GrepAudit_RivalStore*`, mutation check (add a name in a
   non-listed file: red; add a type to `RivalStore.cs` and use it outside: red); R1-06's

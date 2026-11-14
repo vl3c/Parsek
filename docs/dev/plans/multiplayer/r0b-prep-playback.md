@@ -124,7 +124,8 @@ Callers that thread a catalog:
 - L1 is reached only through `internal static ShouldUseLoopAnchoredDebrisChain`
   (`GhostPlaybackEngine.SectionPositioning.cs:268`). It is called from the static
   `ShouldApplyOrdinaryParentAnchoredDebrisCoveragePolicy` (:77, :83) and from instance methods
-  (:120, :417, :445); `ShouldApplyOrdinary...` is called from :67, :91,
+  (:120, :417, :445); `ShouldApplyOrdinary...` is called from :67 and :91 (inside the
+  statics declared at :62 and :86),
   `GhostPlaybackEngine.LoopPlayback.cs:1321`, `ParsekKSC.Playback.cs:247` and
   `GhostMapPresence.StateVectors.cs:712`. Tests call the 2-argument form statically
   (`GhostPlaybackEngineTests.cs` 1171-1269).
@@ -416,8 +417,12 @@ The port as specified:
   `ShouldUseLoopAnchoredDebrisChain` and `ShouldApplyOrdinaryParentAnchoredDebrisCoveragePolicy`
   gain a trailing optional `IPlaybackCatalog catalog = null` (null reads `Own`), so the static
   callers in `ParsekKSC.Playback.cs:247`, `GhostMapPresence.StateVectors.cs:712` and the tests are
-  untouched. The engine's instance call sites (:67, :91, :120, :417, :445,
-  `LoopPlayback.cs:1321`) pass `catalog`. `TryFindPlaybackRecordingTree` and
+  untouched. The call sites at :67 and :91 sit inside two more statics
+  (`ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage`, :62, and
+  `ShouldSkipRecordedRelativeResolverForAuthoredFrameGap`, :86), which have no instance
+  catalog: both gain the same trailing optional `IPlaybackCatalog catalog = null` and hand
+  it on, and their instance callers pass `catalog`. The engine's instance call sites (:120,
+  :417, :445, `LoopPlayback.cs:1321`) pass `catalog`. `TryFindPlaybackRecordingTree` and
   `TryFindRecordingInTree` are deleted; the body uses
   `catalog.TryFindTreeHolding(id, PendingFirstNonNull, ...)`. The loop over `tree.Recordings` for
   loop anchors (:268 onward) stays.

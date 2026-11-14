@@ -456,8 +456,9 @@ Lands only with R3W-26 (watching a live rival ghost).
 - **Change:** in R3's flight composition (`ParsekFlightRivalLane`, R3W-09) and the Tracking
   Station composition (R3W-20): build one `RaceLookDresser` per look in use and hand the
   rival engine an `IGhostBuildOptionsSource` that maps a flight to its player's look (from
-  the rival store's cached `player.cfg`); R3W-15's rival style source returns the look's
-  color (from `RaceLookTable`, R5-07) and `LabelPrefix = "<display name> - "` (OV-45) in
+  the rival store, which holds each rival's manifest from the cache, R3W-05); R3W-15's
+  rival style source returns the look's color (from `RaceLookTable`, R5-07) and `LabelPrefix =
+  "<display name> - "` (OV-45) in
   place of the neutral placeholder. `RivalMapPresence` (R3W-18) already composes the map name
   through `GhostMapPresence.ComposeGhostVesselName` and sets the orbit color through R5-04's
   helper from its tick (OV-44), so the map and Tracking Station show `Ghost: Ana - Kerbal X`
@@ -542,7 +543,7 @@ Lands only with R3W-26 (watching a live rival ghost).
   gains the marker row; `CHANGELOG.md` (kerbals in a race save wear the player's look); todo
   entry; lane catalog (new category `RaceLooks`); RACE-9's pinned tally re-pinned in the same
   change if T-29 has already pinned `RaceLooks`.
-- **Size:** M. **Depends on:** R1-03, R1-08, R1-09, R5-10, R5-12, S3 (not R1-10 or R1-11,
+- **Size:** M. **Depends on:** R1-03, R1-08, R1-09, R5-08, R5-10, R5-12, S3 (not R1-10 or R1-11,
   task index E.3.7). **PC:** yes. **S3:** S3a, S3b (the replacement dress writes texture
   paths; if S3b shows IVA or the portrait ignore them, the dress also writes a combo id and
   needs question 10.1 answered (a)), S3c.
@@ -574,7 +575,8 @@ Shape depends on question 10.2 (art source) and 10.1 (combo entry or not).
 - **Uncalled-method check (A1):** `RaceSuitSets` is live through `ReplacementSetsResolve`
   (an in-game cell, a root) in the same change; its production callers are R5-08 and R5-11.
 - **Registers:** packaging files above; `CHANGELOG.md` only through R5-09 / R5-11.
-- **Size:** M (either shape). **Depends on:** S3b, questions 10.1 and 10.2. **PC:** yes.
+- **Size:** M (either shape). **Depends on:** R1-01 (the `RaceWorld` module rule), S3b,
+  questions 10.1 and 10.2. **PC:** yes.
   **S3:** S3b decides the shape; S3d the property names.
 - **Risk:** medium; a packaging miss ships a zip whose replacement shows the base suit,
   which `ReplacementSetsResolve` catches on a zip install.
@@ -591,7 +593,7 @@ Dropped: replaced by T-29 (OV-06).
 | Engine and style (after P2c-04, P2a-02) | R5-03 | `GhostPlaybackEngine.cs`, `GhostPlaybackEngine.GhostVisuals.cs`, new `PlaybackTrajectoryStyle.cs`, `modules.toml` |
 | Map vessel style (after P3-04; helper lands in R3W-18) | R5-04 | `GhostMapPresence.cs` (name composer beside the prefix), `GhostMapVessels.cs` (orbit color helper) |
 | Conditional overlays | R5-05, R5-06 (with P3b, R3W-26) | `MapMarkerRenderer.cs`, `LegDraw.cs`, `WatchModeController.cs` |
-| Race rules (after R1-01; merged with their first caller, R5-08 or R5-11) | R5-07 -> R5-10 | `RaceCore/RaceLookTable.cs`, `RaceCore/RaceLookDress.cs` |
+| Race rules (after R1-01; R5-07 merges in R5-08's pull request, R5-10 in R5-11's) | R5-07 -> R5-10 | `RaceCore/RaceLookTable.cs`, `RaceCore/RaceLookDress.cs` |
 | Content (after S3) | R5-12 | `GameData/Parsek/Suits/`, `release.py`, `Parsek.csproj`, `provlib.py` |
 | Race runtime | R5-08, then R5-11 (after R1-03, R1-08, R1-09) and R5-09 | `RaceWorld/RaceLookDresser.cs`, `RaceWorld/RaceLooks.cs`, R3W-09's `ParsekFlightRivalLane.cs`, R3W-20's `ParsekTrackingStationRivalLane.cs`, R3W-15's rival style source |
 
@@ -644,8 +646,8 @@ Dropped: replaced by T-29 (OV-06).
 - **Code facts ratchets:** the "methods the roots do not reach" count does not rise (ruling
   A1; each task's "Uncalled-method check" line). R5-01, R5-02, R5-03, R5-05 and R5-06 are
   optional parameters on existing methods reached by today's callers with a neutral null;
-  R5-08 and R5-12 are live through their in-game cells; R5-07 and R5-10 merge with their
-  first caller (R5-08 or R5-11); R5-04's orbit color helper lands in R3W-18's pull request.
+  R5-08 and R5-12 are live through their in-game cells; R5-07 merges in R5-08's pull
+  request and R5-10 in R5-11's; R5-04's orbit color helper lands in R3W-18's pull request.
   `ResolveBuildPartName` keeps
   `AdvanceTimelineGhostBuild` out of the complexity watch band.
 - **Lifetimes:** no new statics planned. The dresser cache and `RaceLooks` are instances;

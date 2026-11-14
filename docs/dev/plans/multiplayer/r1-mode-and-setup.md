@@ -351,7 +351,8 @@ report-only tag map `scripts/arch/log_tags.json` is refreshed in the task that f
   Log: `[Race] Mark loaded: raceId=.. playerId=.. slot=.. format=..` and `[Race] Mark held verbatim:
   reason=..`.
 - **Registers:** `lifetimes.toml` needs nothing (no static); `headless_pins.toml` re-pinned
-  if `RaceCore` shows a leak (it should show none); atlas file count; `log_tags.json`.
+  if `RaceCore` shows a leak (it should show none); atlas file count; `log_tags.json`; the
+  lane catalog for the new `RaceMode` category (`python harness/tools/lane_catalog.py`).
 - **Size:** M. **Depends on:** R1-01, P12-02, S6. **PC:** yes, the in-game test.
 - **Risk:** medium; if S6 shows stock drops a proto of a `None` module, the module needs
   another creation option, which the in-game test would show at once.
@@ -388,8 +389,9 @@ report-only tag map `scripts/arch/log_tags.json` is refreshed in the task that f
   Apply then Clear; race A to race B gives the switched transition; race to a single-player save
   without the main menu gives left); a single-player inertness pin `RaceInertTests`: the `v1` golden
   `persistent.sfs` GAME node decides `no-mark`, and the R1 code adds no `SCENARIO` node to it.
-  In-game tests in `RaceMode` (SPACECENTER, RACE-9): the gate is false in a single-player save after
-  a scene change; true after loading a race fixture save. Logs: `[Race] Gate: race save raceId=..
+  In-game test in `RaceMode` (SPACECENTER, RACE-9): the gate is true after loading a race
+  fixture save. (The single-player side is not an in-game cell: RACE-9 runs only in a race
+  save, and T-13 pins `reason=no-mark` in a stock save.) Logs: `[Race] Gate: race save raceId=..
   slot=.. scene=..`, `[Race] Gate: not a race save reason=..` (once per game and scene, like
   `CheckInert`), `[Race] Gate: cleared at main menu`, `[Race] Gate: transition entered|left|switched
   from=.. to=..`.
@@ -779,7 +781,8 @@ Dropped: replaced by T-13 (OV-02).
 - **Change:** `RaceSetupDialog` Join page: folder field and Validate; race summary (name,
   mode, end date, house rules, seats with look and name); display name field; look toggles
   with taken looks greyed; the site the player will get; the mod differences as
-  information; the late-join "no retakes" note; a "start over as" choice per existing
+  information; the late-join "no retakes" note (one fixed sentence when the race's
+  `noRetakes` is set; no list of rows, R6-09 is dropped); a "start over as" choice per existing
   player with the warning text of design 7.2, confirmed through the stock confirmation
   dialog. Calls `IRaceSetupHost.Join` / `StartOver`, which this task adds (their first
   caller, A1).
@@ -857,7 +860,7 @@ What other phases wait for (final ids; R3 per task, task index E.3.5):
 | R2 (sites) | R2-01: R1-01, R1-03, R1-04; R2-02, R2-08: R1-10; R2-12: R1-10, R1-11 | modules; `siteSlot` and `siteTableId` in the link; the one handler `ParsekRaceBoot.OnSceneRequest`, where R2-01 adds the `RaceSites.Reconcile` call (every request, the main menu included) and R2-07 its fallback scene-ready tick, so R2 adds no second addon (OV-51, A4); the modified-Kerbin refusal slot R2-02 fills (OV-31); R2's in-game proof at slots 1 to 3 needs R1-11 |
 | R3E (export, exchange) | R3E-01: R1-01, R1-03, R1-06, R1-07, R1-08, R1-10; R3E-04: R1-03, R1-08, R1-12; R3E-06: R1-04, R1-08; R3E-15: R1-03, R1-10; R3E-16: R1-08, R1-10; R3E-18: R1-08, R1-09 | modules and gates; `RaceFormat.Current` and the one pin class (OV-16); `IRaceFolder`, `RaceFolder`, `RaceTimestamp`, `RaceIds` to extend (OV-22, OV-24; no P7-02; R3E-01 adds the members R1 has no caller for, `List`, `Move`, `Exists`, `Delete` and the short id, A1); R1-10's path-budget constant, which R3E-01 replaces with the computed longest path; `RaceSession`; the `RaceLocal` keys it writes (OV-27); golden `v3` after `v2` (OV-15); the child hooks of the race scenario (OV-28); `IRaceSharedFolder` folded into `IRaceTransport` (OV-25); the clash rules re-run after import |
 | R3W (rival world) | R3W-02, R3W-06: R1-01; R3W-08, R3W-13: R1-08; R3W-09: R1-10; R3W-27: R1-06 | modules; R3W-08 extends R1's `RaceSession` / `RaceRuntime` (OV-26); the SHOW block in `RaceLocal` (OV-27); the shared scanner and the loader allowlist file R3W-27 adds entries to (OV-12, OV-13) |
-| R4, R6 (board, window) | R4-01: R1-01, R1-08, R1-10; R4-02: R1-01, R1-08, R1-10; R4-07: R1-08; R4-09: R1-04, R1-08, R1-14, R1-18; R4-10: R1-10; R6-09: R1-17 | modules; R4-01 extends R1-10's `TryAcceptDateRule` (OV-30); `RaceSession` (R4-07); the CLAUDE.md exception R1-14 owns (OV-42); the Settings section where R4-09 adds Sync now (OV-40); the SHOW setter on R1-08's codec key; facade members added on R1's `RaceRuntime` (OV-39) |
+| R4, R6 (board, window) | R4-01: R1-01, R1-08, R1-10; R4-02: R1-01, R1-08, R1-10; R4-07: R1-08; R4-09: R1-04, R1-08, R1-14, R1-18; R4-10: R1-10 | modules; R4-01 extends R1-10's `TryAcceptDateRule` (OV-30); `RaceSession` (R4-07); the CLAUDE.md exception R1-14 owns (OV-42); the Settings section where R4-09 adds Sync now (OV-40); the SHOW setter on R1-08's codec key; facade members added on R1's `RaceRuntime` (OV-39) |
 | R5 (looks) | R5-07: R1-01; R5-11: R1-03, R1-08, R1-09 | look assignment; `local.cfg`'s look; the child hook for `RACE_LOOK_DRESS` (OV-28). The starting crew is dressed at R5-11's first load pass, not in R1-10's before-start step (OV-54), so R5 does not wait for R1-10 or R1-11 |
 | T&H | T-10: R1-04; T-12: R1-08; T-13: R1-10, R1-11; T-16: R1-10 | `RaceGate`; T-12 adds `set-folder` to R1-08's `RaceCommand`; RACE-1 drives R1's `RaceSetup` actions and carries the dropped R1-13's assertions (OV-02) |
 

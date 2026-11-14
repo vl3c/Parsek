@@ -276,7 +276,7 @@ Files (all new unless stated):
 | `RaceWorld/RaceSites.Move.cs` | RaceWorld | move / restore the "KSC" city, refresh the stock caches |
 | `RaceWorld/RaceScenery.cs` | RaceWorld | build / destroy one KSC copy |
 | `RaceWorld/KerbinProbe.cs` | RaceWorld | the live reads behind the fingerprint |
-| `ParsekRaceBoot.cs` (R1-04's, edited) | Controllers | R1-04's one process-lifetime addon; its handler on `onGameSceneLoadRequested` calls the hook `OnSceneRequest(RaceGateDecision, GameScenes)` on every request (the main menu included); R2-01 fills that hook: the wanted state from the gate decision, then `RaceSites.Reconcile` (OV-51; no second addon); it also hosts R2-07's fallback scene-ready tick |
+| `ParsekRaceBoot.cs` (R1-04's, edited) | Controllers | R1-04's one process-lifetime addon; its handler `OnSceneRequest(GameScenes)` runs on every `onGameSceneLoadRequested` request (the main menu included); R2-01 adds a call inside it: the wanted state from the gate decision the handler just applied, then `RaceSites.Reconcile` (OV-51; no second addon, no empty hook); it also hosts R2-07's fallback scene-ready tick |
 | `Patches/RaceLaunchGuardPatch.cs` | Patches | prefix on `FlightDriver.StartWithNewLaunch`, postfix on `EditorDriver.OtherLaunchSitesValid` |
 | `InGameTests/RaceSitesTests.<Area>.cs` | InGameTests | one category per scene (OV-09): `RaceSites` (SPACECENTER, race save), `RaceSitesFlight` (FLIGHT), `RaceSitesTrackingStation` (TRACKSTATION), `RaceSitesEditor` (EDITOR), `RaceSitesStock` (SPACECENTER, single-player save after a race) |
 
@@ -340,10 +340,11 @@ Logging (tag `RaceSites`, design section 10):
   row's areas with P1-02's `LaunchAreaGeometry.Contains` (OV-41; no `RaceLaunchAreas.cs`).
   Unknown table id answers null. `RaceCore/RaceSitesPlan.cs` with `SitesState` and
   `Decide`. `RaceWorld/RaceSites.cs` with `Reconcile(wanted, sceneName)` that in this task
-  only logs the decision. R2-01 fills R1-04's empty hook
-  `ParsekRaceBoot.OnSceneRequest(RaceGateDecision, GameScenes)`, which runs on every
+  only logs the decision. R2-01 adds a call inside R1-04's handler
+  `ParsekRaceBoot.OnSceneRequest(GameScenes)`, which runs on every
   `onGameSceneLoadRequested` request (the main menu included): it builds the wanted state
-  from the gate decision and calls `RaceSites.Reconcile` (OV-51; no second addon).
+  from the gate decision the handler just applied and calls `RaceSites.Reconcile` (OV-51;
+  no second addon; R1-04 leaves no empty hook).
   Placement rules for the new files. Uncalled-method ratchet (`docs/dev/arch/README.md`
   :509-512): every member lands with a production caller. `SiteTable.Get`, `Decide` and
   `Reconcile` are reached from `OnSceneRequest`; the table itself is built in `SiteTable`'s
@@ -586,7 +587,8 @@ Logging (tag `RaceSites`, design section 10):
   onto a copy's pad, VAB roof and grounds hits only `Untagged`, non-trigger colliders, which
   by Part.cs:7787-7791 and :9561-9583 cannot set `landedAt`).
 - **Proof:** the three tests above; a note in the test file citing the stock lines.
-- **Registers:** RACE-10's pinned tally (`CommittedBatchTallySourceSyncTests`).
+- **Registers:** RACE-10's pinned tally (`CommittedBatchTallySourceSyncTests`), if T-29's
+  spec is committed by then; until T-29 no spec pins the category and nothing is re-pinned.
 - **Size:** S. **Depends on:** R2-04, R2-07. **Spike:** S2. If S2 finds the KSC area to be a
   biome-map biome, R2-10 applies.
 - **PC:** yes.
@@ -621,7 +623,9 @@ Logging (tag `RaceSites`, design section 10):
 - **Proof:** in-game `RaceSites.SpaceCenterCamera` (RACE-9),
   `RaceSitesTrackingStation.MapKscNode` (RACE-11), `RaceSitesFlight.RecoveryDistance` and
   `RaceSitesFlight.CommNetHome` (RACE-10).
-- **Registers:** the pinned tallies of RACE-9, RACE-10 and RACE-11.
+- **Registers:** the pinned tallies of RACE-9, RACE-10 and RACE-11, if T-29's specs are
+  committed by then; the lane catalog (`python harness/tools/lane_catalog.py`) for a
+  category's first test.
 - **Size:** S (tests) to M (if CommNet needs a move). **Depends on:** R2-04. **Spike:** S4b.
 - **PC:** yes.
 - **Risk:** medium.
@@ -643,6 +647,9 @@ Logging (tag `RaceSites`, design section 10):
   `RaceSitesTrackingStation` cells run on T-29's hosts RACE-9, RACE-10 and RACE-11 (OV-09).
   logContract pins `Sites applied: table=kerbin-equator-1 home=<slot>` once per save and no
   `Sites apply failed`.
+- **Sample points:** this task extends T-07's sample-point table of `ListHandles kind=sites`
+  with the four patches of `SiteTable` (T-07 ships only the KSC pad and runway ends), and
+  re-pins RACE-0's expected lines for the added points.
 - **Proof:** the lane; pre-registered readings in its header (a `Sites apply failed` line,
   a `ListHandles kind=sites` value off its row, a launch that lands at the stock pad in a
   slot 1-3 save). No batch, so no `INTERIM_PIN_IDS` entry.
@@ -669,7 +676,7 @@ Logging (tag `RaceSites`, design section 10):
   (no main menu; `harness/run.py:1450-1451`): `ListHandles kind=sites` equals RACE-0's stock
   values again. Last, the spec's one `RunTests category=RaceSitesStock` in that
   single-player save (`StockRestored`, `NoPatchesWhenStock`, `NoCopiesWhenStock`,
-  `KerbinIsStock`; T-14's `RaceStockKerbin` cells join them). Design cases 23 and 31.
+  `KerbinIsStock`). Design cases 23 and 31.
 - **Proof:** the lane, with logContract on the restore and apply lines in order and the
   `ListHandles` comparisons against RACE-0; never-flown pins (`total=` exact) and an entry
   in `IngameBatchWiringGroupTests.INTERIM_PIN_IDS` until the first flight.
@@ -736,7 +743,9 @@ Hot files that force an order: `RaceWorld/RaceSites.cs` and `RaceCore/RaceSitesS
 (every step is added there: R2-03, R2-04, R2-05, R2-07), `RaceCore/SitePlacementMath.cs`
 (R2-03, R2-04, R2-06), `InGameTests/RaceSitesTests.cs` (every task adds tests; split into
 `RaceSitesTests.<Area>.cs` partials to avoid conflicts), the pinned tallies of T-29's
-RACE-9, RACE-10 and RACE-11 specs (each new test re-pins its host's `total=`),
+RACE-9, RACE-10 and RACE-11 specs (once T-29 has committed them, each new test re-pins its
+host's `total=`; before that there is nothing to re-pin, and the first test of a category
+regenerates the lane catalog in its own pull request: R2-02, R2-03, R2-05, R2-08, R2-11),
 `scripts/arch/lifetimes.toml`, `scripts/arch/headless_pins.toml`,
 `docs/dev/flight-profiles.md` (generated by the lane catalog), `docs/dev/autotest-status.md`.
 R2-01 adds one call to R1-04's `ParsekRaceBoot.cs`, and R2-05 edits P1-01's

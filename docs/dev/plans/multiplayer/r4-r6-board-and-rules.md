@@ -741,12 +741,11 @@ Dropped: replaced by T-28 and T-32 (OV-07).
 
 ### R6-09 The no-retakes preview for the Join dialog
 
-- **Change:** `HouseRules.PreviewForJoiner(board)`: the ladder rows nobody holds a scoring
-  date for, for the Join dialog's "you can only take firsts nobody has reached yet" text
-  (7.2, 7.11).
-- **Proof:** `NoRetakesTests` preview rows.
-- **Registers:** caller: R1-17's Join page (one call added here).
-- **Size:** S. **Depends on:** R6-02, R1-17. **PC:** no. **Risk:** low.
+Dropped: the design asks only that the Join dialog says so before the player commits (7.2,
+7.11), and R1-17's Join page already shows that sentence when the race's `noRetakes` is set.
+A list of the rows still open would need a board in the main menu, where there is no session
+and no import. If the owner wants the list, it is a later task that reads the shared folder
+from the Join button.
 
 ### R6-10 Poll tuning
 
@@ -767,15 +766,15 @@ Dropped: replaced by T-28 and T-32 (OV-07).
 - **Change:** not a flown lane (OV-08, supervisor decision): a harness-flown race save is
   tool-marked for good, so its own dates never score and a flown rewind cannot show a
   scoring `SeenFirst`. No-retakes and the end date are proven headless, on rival folders
-  built by T-16's `RaceFolderBuilder`, in which no seam ran, so they carry no mark. This
-  task adds two folders to T-17's env-gated fixture writer, with their builder calls and
-  README rows (T-17's currency test then covers them): `no-retakes-seen-first` and
-  `end-date-cutoff`. `Source/Parsek.Tests/Race/RaceRulesFolderTests.cs`: each folder is
-  read with the production codec (R3E-01), its standings become verdicts and R4-04's
-  player records, and `RaceBoard.Compute` runs. Case 1 (`no-retakes-seen-first`,
+  built by T-16's `RaceFolderBuilder`, in which no seam ran, so they carry no mark. The
+  two folders are T-17's, written by its env-gated fixture writer and kept current by its
+  currency test: `noretakes-seen-first` and `enddate-between`. This task adds no folder.
+  `Source/Parsek.Tests/Race/RaceRulesFolderTests.cs`: each folder is read with the production codec
+  (R3E-01), its standings become verdicts and R4-04's
+  player records, and `RaceBoard.Compute` runs. Case 1 (`noretakes-seen-first`,
   `noRetakes = true`): A reaches `Kerbin/Orbit` (standing A3); B's standing B4 lists
   `Seen` A3 and an earlier date for `Kerbin/Orbit` since B4; B's date is `SeenFirst`, A
-  holds, and the log shows `No retakes: blocked=1`. Case 2 (`end-date-cutoff`, an end date
+  holds, and the log shows `No retakes: blocked=1`. Case 2 (`enddate-between`, an end date
   between B's standings): the final board takes the pre-end standings, its `Final board:`
   line names the cutoffs, and a date first listed after the end is `AfterTheEnd` on the
   present board only.
@@ -791,7 +790,7 @@ Dropped: replaced by T-28 and T-32 (OV-07).
 - **Track A, rules (RaceCore, headless):** R4-01 and R4-02 first (after R1-10; R3E-11
   depends on no R4 task, so nothing here lands inside R3); then R4-03 with R4-04 (one pull
   request, after R3E-11 and R3E-18); then R4-05 and R4-07 in parallel; then R4-06, R6-01,
-  R6-05, R6-06, R6-10 in parallel; then R6-02, R6-03, R6-04, R6-08, R6-09 in that order.
+  R6-05, R6-06, R6-10 in parallel; then R6-02, R6-03, R6-04, R6-08 in that order.
 - **Track B, window (UI):** R4-08 can start at once (base Parsek only). R4-09 needs R4-04,
   P11-01, P11-02, R1-14, R1-18 and R3E-17; then R4-10, then R4-11 (hover half), R4-12,
   R6-07 in parallel; R4-13 last. The camera half of R4-11 waits with P3b and R3W-26.
@@ -817,7 +816,7 @@ Hot files (one task at a time):
   `RaceInstallCheck` (R1-10; R4-02), `RaceSync.cs` (R3E-04; R4-04, R4-07), the standing
   codec file (R3E; R6-01 lands the derived `ToolsFromUT` / `ToolIds` view), R3E-17's
   driver file (R4-09 lands `RequestSyncNow`, R6-10 the poll call), `RaceSession` (R1-08;
-  R4-07), the Join page (R1-17; R6-09), T-17's fixture writer (R6-11).
+  R4-07), T-17's fixtures (R6-11 reads them).
 
 ## 6. Tests and proof
 

@@ -18,18 +18,18 @@ the plans as they read after the three reconciliation passes; the plans are the 
 | `r2-sites.md` | r2 | 15 | 0 | 15 | 15 |
 | `r3-export-and-exchange.md` | r3e | 24 | 1 | 23 | 23 |
 | `r3-rival-world.md` | r3w | 32 | 1 | 31 | 31 |
-| `r4-r6-board-and-rules.md` | r4 | 25 | 1 | 24 | 23 |
+| `r4-r6-board-and-rules.md` | r4 | 25 | 2 | 23 | 22 |
 | `r5-looks.md` | r5 | 13 | 1 | 12 | 10 |
 | `test-and-harness.md` | T | 34 | 7 | 27 | 27 |
-| Total | | 224 | 12 | 212 | 207 |
+| Total | | 224 | 13 | 211 | 206 |
 
 A live task is a heading that is not dropped. P2a-01 is live but is a specification with no pull
 request of its own. Four live tasks land inside another task's pull request (P3b-01, R4-03, R5-07,
-R5-10; see the "lands in PR of" column), so 211 live tasks make 207 pull requests. R3E-04's
-golden folder may be a second pull request of that task (r3e :488), which would make 208. Ten of
-the 207 are deferred or conditional: P3b-02, P3b-03 (with P3b-01), P3b-04, R3W-26 and R5-06 wait
+R5-10; see the "lands in PR of" column), so 210 live tasks make 206 pull requests. R3E-04's
+golden folder may be a second pull request of that task (r3e :488), which would make 207. Ten of
+the 206 are deferred or conditional: P3b-02, P3b-03 (with P3b-01), P3b-04, R3W-26 and R5-06 wait
 for the owner to schedule the Watch camera (map 10.2, assumed B); P1-04, R2-10, R3E-23, R5-05 and
-T-34 land only on an owner answer or a spike result. That leaves 197 firm pull requests. Every
+T-34 land only on an owner answer or a spike result. That leaves 196 firm pull requests. Every
 count here comes from a script over the plan headings and their `Size` / `Depends on` / `PC`
 lines, not from hand counting.
 
@@ -278,7 +278,7 @@ earliest wave (section B). A dropped task keeps its heading and says where its w
 | R3W-31 | Whole-save harness lane | - | dropped: work moved to T-27 | - | - | - | - | - | - |
 | R3W-32 | Per-frame cost check | S | R3W-14 | - | - | - | in-game | - | 16 |
 
-### A.9 `r4-r6-board-and-rules.md` (25 tasks, 1 dropped, 23 pull requests)
+### A.9 `r4-r6-board-and-rules.md` (25 tasks, 2 dropped, 22 pull requests)
 
 | id | title (short) | size | hard dependencies | spikes | soft (not counted) | owner gate | PC | lands in PR of | wave |
 |---|---|---|---|---|---|---|---|---|---|
@@ -304,7 +304,7 @@ earliest wave (section B). A dropped task keeps its heading and says where its w
 | R6-06 | Missing-parts, newer-version and cannot-be-... | S | R4-10, R1-08, R3E-18 | - | - | - | no | - | 17 |
 | R6-07 | The window at the end and its header | M | R6-03, R6-05, R6-06 | - | - | - | in-game | - | 18 |
 | R6-08 | End-of-race messages | S | R6-03, R4-07 | - | - | r4 Q3 | no | - | 18 |
-| R6-09 | The no-retakes preview for the Join dialog | S | R6-02, R1-17 | - | - | - | no | - | 17 |
+| R6-09 | The no-retakes preview for the Join dialog | - | dropped: R1-17's Join page shows the sentence | - | - | - | - | - | - |
 | R6-10 | Poll tuning | S | R3E-17 | S8a, S8b | - | - | in-game | - | 13 |
 | R6-11 | No retakes and the end date on generator-bu... | S | R6-02, R6-03, T-16, T-17 | - | - | - | no | - | 18 |
 
@@ -318,12 +318,12 @@ earliest wave (section B). A dropped task keeps its heading and says where its w
 | R5-04 | Ghost map vessels carry the style (A5) | S | P3-04, R5-03 | - | S3a (colors); in-file order after R3W-17 | r5 Q3 (assumed a) | in-game | - | 5 |
 | R5-05 | Parsek-drawn map overlays take the style (c... | S | R5-03 | - | - | r3w Q2 = b only (assumed a: not built) | no | - | 4 |
 | R5-06 | Watch overlay title carries the prefix (con... | S | P3b-03, R5-03, R3W-26 | - | - | deferred with P3b, R3W-26 | no | - | 19 |
-| R5-07 | The look table's visual half (RaceCore) | S | R1-01 | - | S3a, S3b (placeholder colors) | - | no | R5-08 or R5-11, first to land | 3 |
+| R5-07 | The look table's visual half (RaceCore) | S | R1-01 | - | S3a, S3b (placeholder colors) | - | no | R5-08 | 3 |
 | R5-08 | The rival ghost dresser (RaceWorld) | M | R5-02, R5-07, R5-12 | S3 | - | - | in-game | - | 3 |
 | R5-09 | The rival lane wears the looks and colors | M | R3W-09, R3W-15, R3W-18, R3W-20, R3W-21, R5-03, R5-04, R5-08 | - | S3c | - | in-game | - | 19 |
 | R5-10 | The dress rules (RaceCore, pure) | S | R5-07 | S3 | - | - | no | R5-11 | 6 |
-| R5-11 | `RaceLooks`: own roster dressing | M | R1-03, R1-08, R1-09, R5-10, R5-12 | S3 | - | - | in-game | - | 6 |
-| R5-12 | The replacement suit sets | M | - | S3 | - | r5 Q1, Q2 | in-game | - | 2 |
+| R5-11 | `RaceLooks`: own roster dressing | M | R1-03, R1-08, R1-09, R5-08, R5-10, R5-12 | S3 | - | - | in-game | - | 6 |
+| R5-12 | The replacement suit sets | M | R1-01 | S3 | - | r5 Q1, Q2 | in-game | - | 2 |
 | R5-13 | A harness lane pins the `RaceLooks` category | - | dropped: work moved to T-29 | - | - | - | - | - | - |
 
 ### A.11 `test-and-harness.md` (34 tasks, 7 dropped, 27 pull requests)
@@ -364,7 +364,7 @@ earliest wave (section B). A dropped task keeps its heading and says where its w
 | T-32 | Lane RACE-7-holder-change-folder-update | S | T-17, T-19, T-30, T-06, R4-07 | - | - | - | flight | - | 15 |
 | T-33 | Lane RACE-12-flown-rival-campaign and the h... | M | R1-10, T-21, R3E-16 | - | - | - | flight | - | 15 |
 | T-34 | Lane RACE-13-paired-copies (optional) | M | T-21, T-30 | - | parallel flights (outside the program) | T Q3 (assumed a); optional | flight | - | 15 |
-Total: 224 task headings in 11 plans, each listed once: 12 dropped, 212 live, 207 pull requests.
+Total: 224 task headings in 11 plans, each listed once: 13 dropped, 211 live, 206 pull requests.
 
 ## B. Waves
 
@@ -524,10 +524,10 @@ run in parallel unless section C names a shared file. Two windows sit across the
 - r4-r6-board-and-rules: R4-10, R6-02
 - test-and-harness: T-26, T-28
 
-**Wave 17** (8 tasks)
+**Wave 17** (7 tasks)
 
 - r3-rival-world: R3W-19, R3W-23
-- r4-r6-board-and-rules: R4-11, R4-12, R6-03, R6-05, R6-06, R6-09
+- r4-r6-board-and-rules: R4-11, R4-12, R6-03, R6-05, R6-06
 
 **Wave 18** (10 tasks)
 
@@ -778,7 +778,7 @@ cost about 107 hours of a PC that also runs the spikes.
 - Every task id with a heading in a plan appears in section A exactly once (224 ids).
 - No hard dependency names an unknown id, a dropped task or the P2a-01 specification. No plan's
   `Depends on` line names a dropped task.
-- The graph of 207 pull requests has no cycle.
+- The graph of 206 pull requests has no cycle.
 - Every finding of the previous index (missing providers, the R4-03 / R3E-11 cycle, the wrong
   or loose dependencies, the duplicate providers, the wave-0 shared files, the oversized tasks)
   is settled in the plans as they read today and is removed here.

@@ -598,7 +598,7 @@ Dropped: replaced by R3W-29 (OV-20).
   ledger untouched (`RunTests LedgerGroundTruth`). Then A loads the pre-flight quicksave,
   exports; B syncs: the ghost and the row are gone. Design 11's first and third lanes in
   one spec, per "reuse a host's flight". From R4-04 on, its `logContract` pins
-  `[RaceBoard] Board computed` after each of B's syncs (R4-14's line, OV-07).
+  `[RaceBoard] Board computed` after each of B's syncs (R4-04's line, OV-07).
 - **Proof:** lane; `raceParse` gated leak scan, armed structure after two reading runs.
 - **Registers:** catalog, D19 `two-saves`, `quickload-drop`, status.
 - **Size:** M. **Depends on:** R1-10, R1-11, T-19, T-20, T-21, R3E-16; soft: R4-04 (the
@@ -670,10 +670,10 @@ Dropped: replaced by R3W-29 (OV-20).
 - **Change:** nightly, seam-only. Join a race staged from `holder-gen1`; `sync`; board shows
   rival P1 as holder (rival standings carry no local tool mark, so they score); the
   `raceFolder replace from=holder-gen2` step; `sync`; board shows P2 holder and the
-  holder-change message line is logged once. Its `logContract` takes R4-14's lines
-  (OV-07): `[RaceBoard] Board computed` after each sync, `Holder changed:
-  milestone=Kerbin/Orbit` once, and the message-posted line once (the driver posts it from
-  `SyncResult.Messages`, OV-38).
+  holder-change message line is logged once. Its `logContract` takes the board lines
+  (OV-07): `[RaceBoard] Board computed` after each sync (R4-04), `Holder changed:
+  milestone=Kerbin/Orbit` once (R4-07), and `[RaceSync] Message posted:` once (R3E-22's
+  driver site posts it from `SyncResult.Messages` and logs that line, OV-38).
 - **Proof:** lane; `ListHandles kind=board`.
 - **Registers:** catalog, D19 `holder-change`, status.
 - **Size:** S. **Depends on:** T-17, T-19, T-30, T-06, R4-07. **PC:** yes.

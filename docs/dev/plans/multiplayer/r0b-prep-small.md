@@ -709,7 +709,7 @@ Files each task touches:
 | P1-02 | new `LaunchArea.cs`, `SpawnCollisionDetector.cs`, `LaunchSiteExclusionZones.cs`, `modules.toml` (Core), `test_archview.py` (Core), README, new `LaunchAreaTests.cs`, `KscPadRetirementTests.cs`, CHANGELOG, todo |
 | P1-03 | `LaunchSiteExclusionZones.cs`, `HomeSpaceCenter.cs`, `ParsekScenario.SceneTransitions.cs`, `lifetimes.toml`, `lifetime_pins.toml`, `LaunchSiteFollowupTests.cs` or a new test file |
 | P1-04 | `LaunchSiteExclusionZones.cs`, a test file, CHANGELOG, todo |
-| P10-01 | new `NewSaveStarter.cs`, `ParsekTestCommandAddon.NewGame.cs`, `modules.toml` (LogIO :326), `harness/lib/test_hlib.py` (:18812), new `NewSaveStarterTests.cs` and `NewSaveStarterWiringTests.cs`, `.claude/CLAUDE.md`, `AGENTS.md`, `scripts/arch/log_tags.json` |
+| P10-01 | new `NewSaveStarter.cs`, `ParsekTestCommandAddon.NewGame.cs`, `modules.toml` (LogIO :326), `harness/lib/test_hlib.py` (:18812), new `NewSaveStarterTests.cs` and `NewSaveStarterWiringTests.cs`, `.claude/CLAUDE.md`, `AGENTS.md`, `scripts/arch/log_tags.json`, `scripts/parsek-file-deletes-allowlist.txt` |
 
 Five tracks run at the same time, one agent each: **P12** (P12-01 then P12-02, one branch),
 **P11** (P11-01 and P11-02 are independent of each other and may run as two agents),
@@ -796,8 +796,13 @@ and `python harness/tools/lane_catalog.py` apply in the same commit.
   re-pins `lifetime_pins.toml`; `HomeSpaceCenter.CurrentOverrideForTesting` and
   `LaunchSiteExclusionZones.RuntimeAltSiteReaderForTesting` take `test-hook` from the
   `*ForTesting` pattern. `SaveScopedSessionResetTests` is untouched.
-- **Grep-audit gates**: none changes. P10-01 adds a C# source gate (`NewSaveStarterWiringTests`)
-  of its own.
+- **Grep-audit gates**: one changes. P10-01 moves the four save-folder delete / move calls
+  out of `ParsekTestCommandAddon.NewGame.cs`, so `scripts/parsek-file-deletes-allowlist.txt`
+  (pinned per file by `GrepAuditTests`) replaces the entry
+  `Source/Parsek/TestCommands/ParsekTestCommandAddon.NewGame.cs 4` with
+  `Source/Parsek/NewSaveStarter.cs 4` and its one-line reason (the save-folder overwrite of
+  a new game, also used by R1-10). P10-01 also adds a C# source gate
+  (`NewSaveStarterWiringTests`) of its own.
 - **Save format**: nothing persisted changes. No `SaveFormat.cs` edit, no golden folder.
 - **Load policy**: no `GamePersistence.LoadGame(` call moves; `KnownLoadInitiators` unchanged.
 - **GUI gates**: P11-02 changes no window; `design-gui-inventory.md` unchanged.

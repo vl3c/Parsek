@@ -954,7 +954,7 @@ an even earlier one?**
   (b) no, only a date that counts can block.
 - Recommended: (a); it never depends on a chain of other players' receipts and cannot loop on
   edited files.
-- Source: r4-r6-board-and-rules.md:862-868; correction DC-072. Waits: R6-02, R6-09, R6-11.
+- Source: r4-r6-board-and-rules.md:862-868; correction DC-072. Waits: R6-02, R6-11.
   Spike first: none. Class: BEFORE-PHASE R6.
 
 **Q-16 After the end date, do changes on the "now" board still send messages?**

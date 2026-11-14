@@ -440,8 +440,9 @@ task adds it to the earlier task's file. Fields and enum members are not methods
     a `SyncPorts` from its simulated machine.
   - `RaceCore/RivalStandingVerdict.cs`: the value type of the import output (OV-37; A4:
     declared by this task), so R3W-05 and R3W-09 can build on it before the import lands:
-    `{ playerId, cacheDir, appliedSeq, standing, status (Applied, KeptPrevious, NewerFormat,
-    Refused), marks, disagreements }`, a struct of public fields with no constructor or
+    `{ playerId, cacheDir, appliedSeq, standing, manifest (the rival's `PlayerManifest`
+    from the cached `player.cfg`, null when missing), status (Applied, KeptPrevious,
+    NewerFormat, Refused), marks, disagreements }`, a struct of public fields with no constructor or
     method, so it costs the ratchet nothing until R3E-18 builds the first value.
     `SyncResult.Verdicts` (a field, empty here) carries one per rival; R3E-18 fills it.
   - `RaceSync.cs` and `RaceSync.Export.cs`: `Run(SyncPorts, SyncInputs) -> SyncResult`.
@@ -559,10 +560,12 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
 - **Proof:** `ToolUseDecisionTests`, log assertions per site helper; in-game test category
   `RaceFacts` (FLIGHT only, OV-09): toggle hack gravity during a recording in a race-armed
   save and read `ToolUses`; the same in a single-player save reads empty.
-- **Registers:** a new in-game category, hosted by T-29's FLIGHT host lane RACE-10 (OV-09);
-  each later test in it re-pins that spec's `total=` in the same pull request
-  (`CommittedBatchTallySourceSyncTests`); the `TestToolingUsed` field entry in
-  `scripts/session-reset-allowlist.txt` and `lifetimes.toml`; log tags.
+- **Registers:** a new in-game category (regenerate the lane catalog,
+  `python harness/tools/lane_catalog.py`), hosted by T-29's FLIGHT host lane RACE-10
+  (OV-09); once T-29's spec is committed, each later test in it re-pins that spec's
+  `total=` in the same pull request (`CommittedBatchTallySourceSyncTests`); the
+  `TestToolingUsed` field entry in `scripts/session-reset-allowlist.txt` and
+  `lifetimes.toml`; log tags.
 - **Size:** M. **Depends on:** R3E-06, R3E-07. **PC:** yes (the in-game test).
 - **Risk:** medium; VERIFY with S9 that no non-cheat stock path calls `PostOrbitSet`.
 
@@ -657,7 +660,9 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
   tombstone eligibility.
 - **Registers:** `docs/dev/design-save-format-policy.md` needs no bump (additive enum member,
   the accepted one-way downgrade of `GameAction.cs:160-183`); post-change checklist
-  (ledger generator can build the row).
+  (ledger generator can build the row); `harness/lib/ledgeraudit.py` `GAME_ACTION_TYPES`
+  gains `42: "VesselEnded"` (`test_ledgeraudit.test_game_action_types_and_seeds` compares
+  it with the C# enum).
 - **Size:** M. **Depends on:** none. **PC:** no.
 - **Risk:** medium; a missed switch falls into a default that may block or misclassify.
 
@@ -684,7 +689,9 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
   RACE-11): terminate a spawned committed vessel -> one row; `RaceFacts` (FLIGHT, RACE-10):
   leave and re-enter flight -> zero rows; crash an unrecorded spawned vessel -> one row;
   a single-player save -> zero rows in all three.
-- **Registers:** `StartupNotices.cs` patch list; `ParsekHarmony` patch registration;
+- **Registers:** the lane catalog for the new `RaceFactsTrackingStation` category
+  (`python harness/tools/lane_catalog.py`); `StartupNotices.cs` patch list; `ParsekHarmony`
+  patch registration;
   `docs/dev/todo-and-known-bugs.md` entry for any destruction path the VERIFY finds
   unobservable.
 - **Size:** M. **Depends on:** R3E-06, R3E-12. **PC:** yes.
@@ -814,8 +821,12 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
   - First production callers of R3E-01's `IRaceFolder.Move` (out of `incoming/`) and the
     `RaceIds` short id; the rival cache paths of `RacePaths`, which R3E-01 specified, land
     here with their tests (A1).
+  - Applying a standing also copies the rival's `player.cfg` (the manifest read in this
+    tick) to `rivals/<short>/player.cfg`, so the cache alone can name and dress a rival.
   - Builds the values of R3E-04's `RivalStandingVerdict` (the type stays R3E-04's, A4; one
-    per rival, in `SyncResult.Verdicts`) for
+    per rival, in `SyncResult.Verdicts`; an Applied verdict is read back from the cache
+    through R3W-05's `RaceCore/RivalCache.ReadVerdicts`, the same reader a scene load uses,
+    which lands with whichever of R3W-05 and this task merges first) for
     R3W-05 (OV-37: it takes the verdict in place of `AppliedRival`; R4-04 builds
     `RacePlayerRecord` from verdicts and manifests); until R3W-05 consumes it the driver
     logs one line per rival.
@@ -901,7 +912,9 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
   zero, one message ("2 shared flights left the race") in `SyncResult.Messages`.
   - The driver's one screen-message site lands here, in the first task with a message to
     post (OV-38): after each sync tick the driver posts every entry of
-    `SyncResult.Messages` with `ParsekLog.ScreenMessage`. Every later race message
+    `SyncResult.Messages` with `ParsekLog.ScreenMessage` and logs one Info line per message,
+    `[RaceSync] Message posted: <text>` (a screen message writes no log line of its own;
+    T-32's `logContract` reads this one). Every later race message
     (R3E-18's clash note, R3E-20's heal, R4-07's holder changes) is appended to that list
     and uses this site; no other task adds one.
 - **Proof:** tests for quickload-shaped and Re-Fly-shaped differences; a driver test that

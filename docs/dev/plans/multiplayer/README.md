@@ -62,7 +62,7 @@ wrong.
    in the same pull request is a valid first caller, and is preferred over joining two tasks.
    Where two tasks must share a pull request the plans say so; never more than two.
 3. **Dropped tasks keep their ids.** R1-13, T-08, T-09, T-11, T-14, T-15, T-22, T-23, R3E-05,
-   R3W-31, R4-14 and R5-13 are dropped; each keeps a heading that says what replaced it. No
+   R3W-31, R4-14, R6-09 and R5-13 are dropped; each keeps a heading that says what replaced it. No
    task is renumbered. P2a-01 is a specification, not a pull request.
 4. **Race code is inert outside a race save.** A single-player save gains no node, no file, no
    window and no cost from any task. The isolation gates (R1-06, R3W-27) and the "rivals change
@@ -72,7 +72,12 @@ wrong.
    use T-01's driver. One pin class, `RaceFormatPinTests`.
 6. **No thread.** Every file access is on the main thread until the owner allows the one copy
    worker (question Q-18, after spike S8). The plan builds the main-thread form first.
-7. **New player-facing surfaces** are only the ones the owner asked for: the Multiplayer menu
+7. **In-game test categories and their lanes.** The first test of a new in-game category
+   regenerates the lane catalog (`python harness/tools/lane_catalog.py`) in its own pull
+   request. The host specs RACE-9, RACE-10 and RACE-11 are T-29's and land last; until
+   then no spec pins a race category and nothing is re-pinned. After T-29, a test added to
+   a hosted category re-pins that spec's tally in the same pull request.
+8. **New player-facing surfaces** are only the ones the owner asked for: the Multiplayer menu
    entry, the setup dialog, the Space Race window, the race section in Settings. R1-14 writes
    the exception into `.claude/CLAUDE.md`. Anything else needs a new ruling (question Q-21).
 
@@ -92,7 +97,7 @@ wrong.
 | Line and label style | `PlaybackTrajectoryStyle` (R5-03); label prefix `"<display name> - "` |
 | Ghost map name | `GhostMapPresence.ComposeGhostVesselName`: `Ghost: Ana - Kerbal X` |
 | Empty catalog for the rival lane | `RecordingPlaybackCatalog.None` (R3W-09); there is no `RivalCatalog` |
-| Screen messages | one posting site, the sync driver's, landed by R3E-22 |
+| Race sync screen messages | one posting site, the sync driver's, landed by R3E-22, which also logs `[RaceSync] Message posted:`. The only other race screen messages are R2-08's refused launch and R3W-19's refused switch to a rival ghost |
 | Log tags | plain: `RaceSync`, `RivalLane`, `RaceBoard`, listed in R1-06 |
 
 ### In-game test categories
@@ -136,7 +141,7 @@ ones that change the design are in `design-corrections.md`.
 
 ## 5. What starts first
 
-`task-index.md` puts the 207 pull requests of the plan (212 live tasks) into 21 waves: a task
+`task-index.md` puts the 206 pull requests of the plan (211 live tasks) into 21 waves: a task
 is in wave 0 when it needs nothing but the owner's go, and in wave N when everything it needs
 is in a lower wave. A wave is not a week; it only says what can run side by side.
 
@@ -199,7 +204,8 @@ section D lists every task that needs the PC, by wave. In short:
 ## 7. Questions for the owner
 
 `design-corrections.md` part 2 lists 26 questions (Q-01 to Q-26), each with options and a
-recommendation. They fall into four groups.
+recommendation. Part 2 orders them by when the answer is needed; the groups below order them
+by what the owner has to do, so Q-06, Q-07 and Q-08 sit under "assumed" here.
 
 **Needed before work starts (5).** Q-01 a separate game copy for the spikes; Q-02 keep the
 spike branch on GitHub; Q-03 which sync programs the file-speed test covers; Q-04 land two
@@ -211,7 +217,7 @@ Watch camera on rivals in the first build; Q-08 menu entry hidden until R3 and R
 ghosts show their owner's name; Q-23 no atmosphere marker for rivals in R3; Q-24 harness races
 never score; Q-25 two copies racing on one PC as an optional lane.
 
-**Asked when their phase comes (9).** Q-09 who sets the length of a race day; Q-10 a race save
+**Asked when their phase comes (8).** Q-09 who sets the length of a race day; Q-10 a race save
 whose space center cannot be set up; Q-11 "allow other launch sites" turned on against the race
 setting; Q-12 one player on two computers at once; Q-13 how the two saves of the "rivals change
 nothing" test are compared; Q-14 announce a first no rival had reached; Q-15 no retakes and a
