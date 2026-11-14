@@ -954,7 +954,10 @@ namespace Parsek.Patches
                     // Degenerate (no flight controller): fall back to the bare
                     // scoped discard so the session is still cleared.
                     string reason;
-                    var disposition = SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(out reason);
+                    var disposition = SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(
+                        LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard,
+                        LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard,
+                        out reason);
                     ParsekLog.Warn("SwitchIntentPatch",
                         $"pre-switch-dialog scoped-discard (no flight controller) " +
                         $"priorSessionId={priorSessionIdStr} " +

@@ -544,7 +544,7 @@ STORE_FORWARDERS = {
     ("UnionActiveReFlyTreeIntoCommittedForMerge", 5): "TreeCommitService",
     ("RefreshSaveAndQuicksaveAfterDiscard", 2): "TreeDiscardService",
     ("RunOptimizationPass", 0): "CommittedListOptimizer",
-    ("TryDiscardActiveSwitchSegmentAttempt", 1): "SwitchSegmentAttempts",
+    ("TryDiscardActiveSwitchSegmentAttempt", 3): "SwitchSegmentAttempts",
 }
 
 
@@ -628,7 +628,11 @@ class RealTreeSemanticTests(unittest.TestCase):
         # passed its bound 179: greedy 150, replayed 150 with
         # SEMANTIC_CUT_ORDER. Tightened to 141 on 272daa49d (2026-11-09, after
         # wave 2 W6: ParsekUI reaches its windows only through interfaces, so it
-        # leaves the residue): greedy 141, replayed 145.
+        # leaves the residue): greedy 141, replayed 145. Tightened to 126 on
+        # 2026-11-14 (the six-edge LedgerOrchestrator back-edge cut, edge 4:
+        # SwitchSegmentAttempts and CommittedTreeRestoreAttempt take the ledger's
+        # discard preservations as parameters, so 18 types leave the residue):
+        # greedy 126, replayed 126.
         # History of the same pair: 250 under the text
         # bound 272 (62d9b1b56) and 263 (be2512a0d; W1b deleted the false
         # text edge ReFlyInvokeHold -> Hold, which moved the text residue 9
@@ -639,7 +643,7 @@ class RealTreeSemanticTests(unittest.TestCase):
         # it. Tighten the bound to the measured value in the PR that lowers
         # it; never loosen it, not even for a new type that only splits a
         # residue member.
-        self.assertLessEqual(semantic.ratchet_residue(self.result["semanticMeasure"]), 141)
+        self.assertLessEqual(semantic.ratchet_residue(self.result["semanticMeasure"]), 126)
 
 if __name__ == "__main__":
     unittest.main()

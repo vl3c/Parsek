@@ -32,7 +32,7 @@ All notable changes to Parsek are documented here.
   folder tells you the module. Nothing in the game changes. (ARCH-MODULE-FOLDERS)
 - **Dev: fewer parts of the code call back into the career ledger's entry point.** A recording
   lookup moved to the recording store and the timeline-changed signal to a small type of its
-  own. Nothing in the game changes.
+  own, and the discard paths are handed the ledger step they run. Nothing in the game changes.
 
 ### Fixed
 

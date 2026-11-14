@@ -178,6 +178,8 @@ namespace Parsek
                     : null;
 
             var disposition = SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(
+                LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard,
+                LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard,
                 out discardReason);
 
             // In-flight (pre-stash) the committed clone is the live activeTree, not
