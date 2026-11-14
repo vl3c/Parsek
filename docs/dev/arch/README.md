@@ -630,7 +630,22 @@ Limits:
   instantiation (a static of a generic Parsek type written from a test), and
   `testWrittenUntagged` checks only untagged statics.
 - A lifetime tag is a claim with a reason, read by a person; only the four
-  findings above check one against the IL.
+  findings above check one against the IL, and the headless cells below
+  check the `save` / `load-transition` ones by running the reset.
+
+The C# side runs what this side only reaches. `SaveScopedSessionResetTests`
+reads this file: `ColdResetCells_CoverEverySaveScopedType` reds on a type
+tagged `save` or `load-transition` (by default or by a field entry) that
+neither `InventoryTypes` (reset by `ResetSaveScopedSessionState`) nor
+`ColdLoaderCells` (reset by its own Cold-path call: a loader given a save that
+holds nothing, a consume, a drop) names, and `ColdLoader_ResetsEverySaveScopedStatic`
+dirties every such static of each `ColdLoaderCells` store, runs the helper and
+the store's call, and reads it back; what it leaves set today is pinned in
+`ColdLoaderKnownGaps` (todo COLD-RESET-LEFTOVERS). Both reset cells read
+through a store's save-scoped holder, a static of a nested class named
+`ColdResetState` (todo ARCH-COLD-RESET-HOLDERS): the holder's instance fields
+are slots keyed `Store.field`, so the IL population counts the holder as one
+`save` static while the cells check every field in it.
 
 Tag a static by adding a field entry (or a type default) with the reason its
 write sites support, then re-pin after a Debug build:
