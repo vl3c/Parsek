@@ -25,7 +25,7 @@ namespace Parsek
         }
 
         /// <summary>The classification inputs OnLoad logs, captured once in its prologue.</summary>
-        private readonly struct LoadClassificationFacts
+        internal readonly struct LoadClassificationFacts
         {
             internal readonly bool InitialLoadDone;
             internal readonly bool Rewinding;

@@ -3171,6 +3171,70 @@ hunk buckets of later commits, which now land on the service files. The gap to t
 state is the measured forwarders above and the reset fan-out (the plan's optional `ResetRequested`
 event would remove the latter).
 
+## ~~ARCH-ONLOAD-CONTEXT-AND-BRANCHES: ParsekScenario.OnLoad is one 1,377-line method with about 108 branches~~ [FILED 2026-11-14 from the refactor plan item 14 (B2; review `analysis-review-2026-11-11/review-architecture.md`, section B2). DONE 2026-11-14 on branch `item14-onload-context` (step table unchanged, token golden re-pinned by a stated mechanical rename, mutant sweep; xUnit and harness suites, not flown: the covering lanes are named below)]
+
+**What was true.**
+- OnLoad held the prologue, three branches (plain rewind, in-session, cold) and two copies
+  of the same tail, threading about twenty locals through 67 named phases (`loadPhase`).
+- Its order was proven only by source text (`ParsekScenarioOnLoadCharacterizationTests`,
+  `LoadReconcileWiringGateTests`) and by flights: no headless test ran it.
+
+**Step 1 (test-only).** `ParsekScenarioOnLoadStepOrderTests` runs the real OnLoad headless
+for every load kind (Cold, PlainRewind, ReFlyStart, DiscardReFly, StockRevert,
+QuickloadFlight, InSessionOther) over an empty save and pins, per kind, the steps it
+executes: every phase, every call it makes into Parsek code, every coroutine and seam hit,
+the classification and the final status (`Fixtures/SourceCharacterization/ParsekScenario.OnLoad.steps.txt`).
+Harmony replaces what cannot run headless, at the call site in the transpiled methods: OnLoad's
+two Unity clock reads (fixed values) and `MonoBehaviour.StartCoroutine` (recorded, not started;
+also in `HandleRewindOnLoad`), and it skips the two facility-cache readers that call
+`FindObjectsOfType`. Data-dependent phases (merge journal, sweep recalculation, a pending
+tree) do not run over an empty save; the token characterization still pins their order.
+
+**Fix.** OnLoad is now the skeleton: the inert gate, an `OnLoadContext` (save node,
+committed list, early kind, cold reason, classification facts, refined kind, phase, status,
+count, the prologue stop flag), the try / catch / finally and the timing line. It dispatches to
+`OnLoadFlowPrologue`, then `OnLoadFlowPlainRewind`, `OnLoadFlowInSession` or `OnLoadFlowCold`;
+the in-session and Cold branches share `OnLoadFlowTailSweep`, `OnLoadFlowTailReap` and
+`OnLoadFlowTailCollect` (Cold's quit-without-saving reap sits between the last two). The
+backup hold stops the load through `ctx.StoppedInPrologue`. The phase trace: every
+`ctx.Phase` assignment is kept, and the finally writes one `[LoadPolicy] Load phases:
+kind= status= count= [phase@ms > ...]` Verbose line per load (gated by verbose logging, like
+the other one-shot load diagnostics; a separate setting would have added a Settings toggle).
+Proof: the step table passes unchanged; `il_compare.py` reads every method except OnLoad
+identical (the seven flow methods and the context are new); the token golden differs from
+the original only by `loadPhase` / `loadStatus` / `loadedRecordingCount` -> `ctx.*`, the
+context aliases at the top of each flow method, and the vessel-name reason passed into the
+tail. Source gates read OnLoad through `ParsekScenarioSourceFiles.ReadText`, which inlines
+the flow calls. A 20-mutant sweep (swap, drop, misroute) killed 19; the survivor (the
+in-session tail collecting in Cold mode) and two mutants killed only by source text (a hold
+that does not stop, a wrong vessel-name reason) now die in two headless cells that pin the
+branch arguments of the tail and the backup-hold stop.
+
+**Windows .NET host.** The first cut patched OnLoad's flow methods while they read
+`UnityEngine.Time` inline, and patched `MonoBehaviour.StartCoroutine` itself. Harmony compiles
+the original of every method it patches, and the Windows .NET test host cannot compile a method
+that calls a Unity internalcall directly (`SecurityException`: ECall methods must be packaged
+into a system module; mono fails only when the call runs), so all six cells failed there while
+mono CI stayed green. The pre-refactor OnLoad read the same clocks inline; no test on main ran
+or patched it. The clock reads now go through two `[MethodImpl(NoInlining)]` helpers on
+`ParsekScenario` (`ReadUnityRealtimeSinceStartupCore`, `ReadUnityFrameCountCore`; same values,
+read at the same points), `GameStateFacilityRecorder`'s `FindObjectsOfType<DestructibleBuilding>`
+moved into a NoInlining helper (its generic wrapper is small enough for the Release JIT to
+inline into a patched seam), and the test swaps `StartCoroutine` and the backup-hold notice at
+the call site instead of patching Unity or `ParsekHarmony.QueueNoticeForSettledScene`. A new
+cell, `NoPatchedMethod_CallsAUnityInternalcallDirectly`, reads the IL of every method the facts
+patch and reds on any direct non-mscorlib internalcall, on every host. Not provable off Windows:
+whether the Release JIT inlines the 56-byte `StartCoroutine` into a patched flow method (it
+calls two internalcalls; if a Windows Release run fails on it, route the flow's coroutine starts
+through a NoInlining helper).
+
+Re-pins: the OnLoad token golden gains the three helper-call tokens;
+`scripts/arch/facts_pins.toml` swaps `OnLoad` for `OnLoadFlowInSession` (complexity 68) in the
+complexity watch list; `harness/lib/test_ledgeraudit.py` reads the two classification
+guards without their indentation.
+
+**Lanes that cover it in a real game (not flown):** QWS-1, PPB-3, VN-5, QL-3, QL-5d, REV-1.
+
 ## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY DONE 2026-09-14: the Missions -> Logistics crossing closed in #1685 (merged); the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 merged as #1686 (`VesselSnapshotOps`), plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
 **What is true.**

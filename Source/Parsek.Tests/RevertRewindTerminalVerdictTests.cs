@@ -358,7 +358,7 @@ namespace Parsek.Tests
             string onLoad = Flatten(BraceBody(src, "public override void OnLoad(ConfigNode node)"));
 
             Assert.Contains(
-                "loadPhase = \"tree-mutable-state\"; ResetTreeRecordingMutableStateForLoad(recordings);",
+                "ctx.Phase = \"tree-mutable-state\"; ResetTreeRecordingMutableStateForLoad(recordings);",
                 onLoad);
             Assert.Equal(1, Occurrences(onLoad, "ResetTreeRecordingMutableStateForLoad("));
         }

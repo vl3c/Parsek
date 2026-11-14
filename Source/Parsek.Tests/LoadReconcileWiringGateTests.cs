@@ -203,7 +203,7 @@ namespace Parsek.Tests
             Assert.Equal(1, Occurrences(body, "RevertDetector.Consume("));
             Assert.Contains("bool classifyRevertPending = RevertDetector.PendingKind != RevertKind.None;", flat);
             Assert.Contains("bool classifySaveFileLoad = SaveFileLoadIntent.TryConsume( "
-                + "UnityEngine.Time.realtimeSinceStartup, UnityEngine.Time.frameCount,", flat);
+                + "ReadUnityRealtimeSinceStartupCore(), ReadUnityFrameCountCore(),", flat);
 
             int detect = IndexOrFail(body, "DetectSaveFolderChange();");
             int pendingKind = IndexOrFail(body, "RevertDetector.PendingKind");

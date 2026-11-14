@@ -1616,10 +1616,11 @@ class SourceSyncTests(unittest.TestCase):
         self.assertIn('internal const string LogTag = "LoadPolicy";', src)
         scen = _src(la.SRC_SCENARIO)
         self.assertEqual(2, scen.count("LogLoadClassification(earlyLoadKind,"))
-        self.assertIn("if (earlyLoadKind != EarlyLoadKind.InSession)\n"
-                      "                    LogLoadClassification(", scen)
-        self.assertIn("if (earlyLoadKind == EarlyLoadKind.InSession)\n"
-                      "                        LogLoadClassification(", scen)
+        # Indentation-free: OnLoad's prologue and branches are separate methods.
+        self.assertRegex(scen, r"if \(earlyLoadKind != EarlyLoadKind\.InSession\)\n[ \t]*"
+                               r"LogLoadClassification\(")
+        self.assertRegex(scen, r"if \(earlyLoadKind == EarlyLoadKind\.InSession\)\n[ \t]*"
+                               r"LogLoadClassification\(")
         self.assertIn('ParsekLog.Verbose("Diagnostics",\n                '
                       'FormatLoadTimingMessage(', scen)
         self.assertEqual(1, scen.count("WriteLoadTiming(sw,"))

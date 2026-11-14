@@ -328,7 +328,7 @@ rank = 2
 item = "ParsekScenario: partial files by load phase, then name the OnLoad phases"
 evidence = "Largest file, longest method, 31 reassignable statics, on the top co-change pair (<em>Largest files and types</em>, <em>What changes together</em>)."
 size = "2 to 4 PRs"
-status = "Partly done 2026-11-07 to 2026-11-10: partial files (W2a), the OnLoad, OnSave and tree-load phases extracted (W2b), the static map in docs (W2c). OnLoad keeps the gate-named lines and is still the longest method."
+status = "Partly done 2026-11-07 to 2026-11-10: partial files (W2a), the OnLoad, OnSave and tree-load phases extracted (W2b), the static map in docs (W2c). On 2026-11-14 OnLoad became a skeleton over a load context and one flow method per branch plus the shared tail parts (todo ARCH-ONLOAD-CONTEXT-AND-BRANCHES); the in-session branch is now the longest stretch."
 types = ["ParsekScenario"]
 
 [[opportunities]]

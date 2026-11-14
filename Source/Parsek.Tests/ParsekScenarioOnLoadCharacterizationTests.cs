@@ -23,15 +23,33 @@ namespace Parsek.Tests
     /// captured from the original method; on a mismatch the actual stream is written next to
     /// the test binaries and the first divergence is reported.</para>
     ///
-    /// <para><b>What stays in OnLoad.</b> The phase skeleton is pinned on OnLoad's OWN body
-    /// (no expansion): the ordered <c>loadPhase = "..."</c> values, and no phase method may
-    /// touch <c>loadPhase</c>, <c>loadStatus</c> or <c>onLoadInProgress</c>, or hold a
-    /// <c>try</c>, <c>catch</c>, <c>finally</c> or <c>yield</c>.</para>
+    /// <para><b>The flow methods.</b> OnLoad's per-load-kind control flow lives in methods named
+    /// <c>OnLoadFlow*</c> (the prologue, one per branch, the shared tail parts), all taking the
+    /// load context. They are expanded like the phases. The golden was re-pinned once when
+    /// they were introduced: the skeleton locals became context members
+    /// (<c>loadPhase</c> -> <c>ctx.Phase</c>, <c>loadStatus</c> -> <c>ctx.Status</c>,
+    /// <c>loadedRecordingCount</c> -> <c>ctx.LoadedRecordingCount</c>), each flow method aliases
+    /// the context values it reads, and the vessel-name reason is passed into the tail.</para>
+    ///
+    /// <para><b>What stays in the skeleton.</b> OnLoad's own body keeps the try / catch /
+    /// finally and <c>onLoadInProgress</c>; the ordered <c>ctx.Phase = "..."</c> values are
+    /// pinned over OnLoad with only the flow methods expanded; no phase method may touch the
+    /// skeleton (<c>ctx</c>'s phase, status or count, <c>onLoadInProgress</c>) or hold a
+    /// <c>try</c>, <c>catch</c>, <c>finally</c> or <c>yield</c>; a flow method keeps the inner
+    /// try blocks it moved with but never the skeleton's guard, exception log or timing line,
+    /// and is called only from OnLoad or another flow method.</para>
     /// </summary>
     public class ParsekScenarioOnLoadCharacterizationTests
     {
         internal const string OnLoadSignature = "public override void OnLoad(ConfigNode node)";
         internal const string PhasePrefix = "OnLoadPhase";
+        internal const string FlowPrefix = "OnLoadFlow";
+        private static readonly string[] OnLoadPrefixes = { PhasePrefix, FlowPrefix };
+        private static readonly string[] SkeletonTokens =
+        {
+            "A:loadPhase", "A:loadStatus", "A:loadedRecordingCount", "A:onLoadInProgress",
+            "A:ctx.Phase", "A:ctx.Status", "A:ctx.LoadedRecordingCount",
+        };
 
         private static readonly HashSet<string> Keywords = new HashSet<string>(StringComparer.Ordinal)
         {
@@ -77,15 +95,19 @@ namespace Parsek.Tests
             string classText = ParsekScenarioSourceFiles.ReadAll(ParsekSourceRoot());
             string body = MethodBody(classText, OnLoadSignature);
             List<string> tokens = Tokenize(body);
+            List<string> flowTokens = ExpandedTokens(
+                classText, OnLoadSignature, new[] { FlowPrefix },
+                new HashSet<string>(StringComparer.Ordinal));
             var phases = new List<string>();
-            for (int i = 0; i + 1 < tokens.Count; i++)
+            for (int i = 0; i + 1 < flowTokens.Count; i++)
             {
-                if (tokens[i] == "A:loadPhase") phases.Add(tokens[i + 1]);
+                if (flowTokens[i] == "A:ctx.Phase") phases.Add(flowTokens[i + 1]);
             }
 
             Assert.Equal(PinnedLoadPhases.Select(p => "S:" + p), phases);
             Assert.Contains("A:onLoadInProgress", tokens);
-            Assert.Contains("A:loadStatus", tokens);
+            Assert.Contains("A:ctx.Status", tokens);
+            Assert.Contains("A:ctx.LoadedRecordingCount", tokens);
             string masked = Mask(body);
             foreach (string kw in new[] { "try", "catch", "finally" })
                 Assert.True(SourceScanText.ContainsIdentifier(masked, kw), "OnLoad lost its '" + kw + "'");
@@ -107,9 +129,8 @@ namespace Parsek.Tests
                 string phaseBody = MethodBody(classText, kv.Value[0]);
                 List<string> tokens = Tokenize(phaseBody);
                 string phaseMasked = Mask(phaseBody);
-                Assert.DoesNotContain("A:loadPhase", tokens);
-                Assert.DoesNotContain("A:loadStatus", tokens);
-                Assert.DoesNotContain("A:onLoadInProgress", tokens);
+                foreach (string skeleton in SkeletonTokens)
+                    Assert.DoesNotContain(skeleton, tokens);
                 foreach (string kw in new[] { "try", "catch", "finally", "yield" })
                 {
                     Assert.False(SourceScanText.ContainsIdentifier(phaseMasked, kw),
@@ -122,7 +143,61 @@ namespace Parsek.Tests
             ExpandedOnLoadTokens(classText, reached);
             Assert.Equal(
                 declared.Keys.OrderBy(k => k, StringComparer.Ordinal),
-                reached.OrderBy(k => k, StringComparer.Ordinal));
+                reached.Where(k => k.StartsWith(PhasePrefix, StringComparison.Ordinal))
+                    .OrderBy(k => k, StringComparer.Ordinal));
+        }
+
+        [Fact]
+        public void EveryOnLoadFlowMethod_IsDeclaredOnceCalledOnlyFromTheFlowAndHoldsNoSkeleton()
+        {
+            string classText = ParsekScenarioSourceFiles.ReadAll(ParsekSourceRoot());
+            string masked = Mask(classText);
+            var declared = PhaseDeclarations(classText, FlowPrefix);
+            Assert.Equal(
+                new[]
+                {
+                    "OnLoadFlowCold", "OnLoadFlowInSession", "OnLoadFlowPlainRewind",
+                    "OnLoadFlowPrologue", "OnLoadFlowTailCollect", "OnLoadFlowTailReap",
+                    "OnLoadFlowTailSweep",
+                },
+                declared.Keys.OrderBy(k => k, StringComparer.Ordinal));
+
+            // The calls a flow method may have: those in OnLoad and in the flow bodies.
+            var flowBodies = new List<string> { Mask(MethodBody(classText, OnLoadSignature)) };
+            foreach (var kv in declared)
+            {
+                Assert.True(kv.Value.Count == 1, kv.Key + " is declared " + kv.Value.Count + " times");
+                flowBodies.Add(Mask(MethodBody(classText, kv.Value[0])));
+            }
+            foreach (var kv in declared)
+            {
+                string name = kv.Key;
+                int calls = CountCalls(masked, name) - 1;   // minus the declaration itself
+                int flowCalls = flowBodies.Sum(b => CountCalls(b, name));
+                Assert.True(calls >= 1, name + " is never called");
+                Assert.True(calls == flowCalls,
+                    name + " is called " + calls + " times, " + flowCalls + " of them from OnLoad's "
+                    + "flow; a flow method called from elsewhere would run a load stretch outside OnLoad");
+
+                string flowBody = MethodBody(classText, kv.Value[0]);
+                // A flow method keeps the inner try blocks it moved with, but never the
+                // skeleton's: the in-progress guard, the exception log and the timing line.
+                List<string> tokens = Tokenize(flowBody);
+                foreach (string skeleton in new[]
+                         { "A:onLoadInProgress", "C:LogScenarioLifecycleException", "C:WriteLoadTiming" })
+                    Assert.DoesNotContain(skeleton, tokens);
+                Assert.False(SourceScanText.ContainsIdentifier(Mask(flowBody), "yield"),
+                    name + " holds 'yield'; OnLoad runs synchronously");
+            }
+
+            // The tails are shared: the sweep and the reap / collect parts run on both the
+            // in-session and the Cold branch, the rest exactly once.
+            Assert.Equal(2, CountCalls(masked, "OnLoadFlowTailSweep") - 1);
+            Assert.Equal(2, CountCalls(masked, "OnLoadFlowTailReap") - 1);
+            Assert.Equal(2, CountCalls(masked, "OnLoadFlowTailCollect") - 1);
+            foreach (string once in new[]
+                     { "OnLoadFlowPrologue", "OnLoadFlowPlainRewind", "OnLoadFlowInSession", "OnLoadFlowCold" })
+                Assert.Equal(1, CountCalls(masked, once) - 1);
         }
 
         // ---- the tokenizer and the expansion on synthetic text ----
@@ -247,7 +322,7 @@ namespace Parsek.Tests
 
         internal static List<string> ExpandedOnLoadTokens(string classText, HashSet<string> reached)
         {
-            return ExpandedTokens(classText, OnLoadSignature, PhasePrefix, reached);
+            return ExpandedTokens(classText, OnLoadSignature, OnLoadPrefixes, reached);
         }
 
         /// <summary>
@@ -258,20 +333,35 @@ namespace Parsek.Tests
         internal static List<string> ExpandedTokens(
             string classText, string signature, string prefix, HashSet<string> reached)
         {
-            var declarations = PhaseDeclarations(classText, prefix);
+            return ExpandedTokens(classText, signature, new[] { prefix }, reached);
+        }
+
+        /// <summary>As above, expanding the methods named after any of <paramref name="prefixes"/>.</summary>
+        internal static List<string> ExpandedTokens(
+            string classText, string signature, string[] prefixes, HashSet<string> reached)
+        {
+            var declarations = new Dictionary<string, List<int>>(StringComparer.Ordinal);
+            foreach (string prefix in prefixes)
+                foreach (var kv in PhaseDeclarations(classText, prefix))
+                    declarations[kv.Key] = kv.Value;
             var result = new List<string>();
-            Expand(classText, MethodBody(classText, signature), declarations, prefix, reached,
+            Expand(classText, MethodBody(classText, signature), declarations, prefixes, reached,
                 new Stack<string>(), result);
             return result;
         }
 
         private static void Expand(
             string classText, string body, Dictionary<string, List<int>> declarations,
-            string prefix, HashSet<string> reached, Stack<string> active, List<string> output)
+            string[] prefixes, HashSet<string> reached, Stack<string> active, List<string> output)
         {
             foreach (string token in Tokenize(body))
             {
-                string phase = PhaseName(token, prefix);
+                string phase = null;
+                foreach (string prefix in prefixes)
+                {
+                    phase = PhaseName(token, prefix);
+                    if (phase != null) break;
+                }
                 if (phase == null)
                 {
                     output.Add(token);
@@ -282,7 +372,7 @@ namespace Parsek.Tests
                 reached.Add(phase);
                 active.Push(phase);
                 Expand(classText, MethodBody(classText, declarations[phase][0]), declarations,
-                    prefix, reached, active, output);
+                    prefixes, reached, active, output);
                 active.Pop();
             }
         }
