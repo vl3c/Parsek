@@ -10941,6 +10941,24 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "V33M-jool-laythe-continuation-player-loop.toml": "tier=operator by the calibration discipline (its jump table comes from its own reading run, first run is a calibration reading), NOT debt; moon flight-test program Group A (2026-11-07, PR #2468): the player loop on B38's harvested `jool-laythe-recorded` (one tree crossing Jool's SOI and Laythe's, one Jool moon only), reading the lone-moon arrival hold and driving the MoonArrivalHold cell at the Space Center; what is open is the flight, not a human review call",
         "V31T-duna-ike-continuation-ts-arrival.toml": "tier=operator by the calibration discipline (its one jump derived off V31M's reading and the harvested fixture bytes, first run is a calibration reading), NOT debt; moon flight-test program Group A (2026-11-07, PR #2468): the Tracking Station half on `duna-ike-recorded`, the ghost icon on Ike after a jump past the replayed Ike SOI entry; what is open is the flight, not a human review call",
         "V32T-eve-gilly-continuation-ts-arrival.toml": "tier=operator by the calibration discipline (its one jump derived off V32M's reading and the harvested fixture bytes, first run is a calibration reading), NOT debt; moon flight-test program Group A (2026-11-07, PR #2468): the Tracking Station half on `eve-gilly-recorded`, the ghost icon on Gilly after a jump past the replayed Gilly SOI entry; what is open is the flight, not a human review call",
+        # The Jool moon round (2026-11-14, todo NEXT-TESTS-TO-BUILD-2026-11-11 items 1 and 4):
+        # B38's continuation machine re-pointed at the other four Jool moons, the B47
+        # Laythe -> Vall -> Tylo tour, the B48 Laythe -> Bop decline subject, their loop
+        # lanes (ahead of their fixtures, see PENDING_FIXTURE_LANES) and V33M's missing
+        # Tracking Station half. All NEVER FLOWN; same calibration discipline.
+        "B39-jool-vall-continuation.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; Jool moon round (2026-11-14): B38's machine from the unstripped `jool-orbit-recorded` re-pointed at Vall, to harvest `jool-vall-recorded` for V34M; what is open is the flight, not a human review call",
+        "B40-jool-tylo-continuation.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; Jool moon round (2026-11-14): B38's machine from `jool-orbit-recorded` with B33's Tylo params, to harvest `jool-tylo-recorded` for V35M; what is open is the flight, not a human review call",
+        "B41-jool-bop-continuation.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; Jool moon round (2026-11-14): B38's machine from `jool-orbit-recorded` with B34's Bop params, to harvest `jool-bop-recorded` for V36M; what is open is the flight, not a human review call",
+        "B42-jool-pol-continuation.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; Jool moon round (2026-11-14): B38's machine from `jool-orbit-recorded` with B35's Pol params, to harvest `jool-pol-recorded` for V37M; what is open is the flight, not a human review call",
+        "B47-jool-moon-tour.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; Jool moon round (2026-11-14): the new mtour composer (three B5 legs, Jool -> Laythe -> Vall -> Tylo in one tree) from `jool-orbit-recorded`, to harvest `jool-tour-recorded` for V38M; what is open is the flight, not a human review call",
+        "B48-jool-laythe-bop-continuation.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; Jool moon round (2026-11-14): B26's parent-relay machine from `jool-laythe-recorded` re-pointed at Bop, to harvest `jool-laythe-bop-recorded` for V39M's amber decline; what is open is the flight, not a human review call",
+        "V33T-jool-laythe-continuation-ts-arrival.toml": "tier=operator by the calibration discipline (its one jump derived off the harvested fixture bytes and the V-lane clock formula, first run is a calibration reading), NOT debt; Jool moon round (2026-11-14): the Tracking Station half V33M never had, the ghost icon on Laythe after a jump past the replayed Laythe SOI entry; what is open is the flight, not a human review call",
+        "V34M-jool-vall-continuation-player-loop.toml": "tier=operator by the calibration discipline (its jump table comes from its own reading run, first run is a calibration reading), NOT debt; Jool moon round (2026-11-14): the player loop on B39's `jool-vall-recorded` (pending), reading the lone-moon arrival hold at Vall; what is open is the forge flight, the harvest and this flight, not a human review call",
+        "V35M-jool-tylo-continuation-player-loop.toml": "tier=operator by the calibration discipline (its jump table comes from its own reading run, first run is a calibration reading), NOT debt; Jool moon round (2026-11-14): the player loop on B40's `jool-tylo-recorded` (pending), reading the lone-moon arrival hold at Tylo; what is open is the forge flight, the harvest and this flight, not a human review call",
+        "V36M-jool-bop-continuation-player-loop.toml": "tier=operator by the calibration discipline (its jump table comes from its own reading run, first run is a calibration reading), NOT debt; Jool moon round (2026-11-14): the player loop on B41's `jool-bop-recorded` (pending), reading the lone-moon arrival hold at Bop (a decline is a pre-registered reading); what is open is the forge flight, the harvest and this flight, not a human review call",
+        "V37M-jool-pol-continuation-player-loop.toml": "tier=operator by the calibration discipline (its jump table comes from its own reading run, first run is a calibration reading), NOT debt; Jool moon round (2026-11-14): the player loop on B42's `jool-pol-recorded` (pending), reading the lone-moon arrival hold at Pol (a decline is a pre-registered reading); what is open is the forge flight, the harvest and this flight, not a human review call",
+        "V38M-jool-moon-tour-player-loop.toml": "tier=operator by the calibration discipline (its jump table comes from its own reading run, first run is a calibration reading), NOT debt; Jool moon round (2026-11-14): the player loop on B47's `jool-tour-recorded` (pending), reading the three-moon config hold `ARRIVAL HOLD dest=Jool kind=config moons=3`; what is open is the forge flight, the harvest and this flight, not a human review call",
+        "V39M-jool-laythe-bop-player-loop.toml": "tier=operator by the calibration discipline (its jump table comes from its own reading run, first run is a calibration reading), NOT debt; Jool moon round (2026-11-14): the player loop on B48's `jool-laythe-bop-recorded` (pending), reading the incommensurate Laythe + Bop config hold's amber decline; what is open is the forge flight, the harvest and this flight, not a human review call",
         # THE MAP PICTURE LANES (2026-11-11). Operator-tier by MECHANISM: each replays a
         # committed fixture to take MapCamera + CaptureScreenshot + DumpMapGeometry views
         # for a human and the map mirror page, run on request. Their model lanes keep every
@@ -13900,6 +13918,18 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
                                     "V32T-eve-gilly-continuation-ts-arrival.toml",
                                     # [M] the same on B38's jool-laythe-recorded.
                                     "V33M-jool-laythe-continuation-player-loop.toml",
+                                    # [T] its Tracking Station half (2026-11-14,
+                                    # bare, reading-pending).
+                                    "V33T-jool-laythe-continuation-ts-arrival.toml",
+                                    # [M] the Jool moon round (2026-11-14): bare,
+                                    # reading-pending, each AHEAD of its fixture
+                                    # (PENDING_FIXTURE_LANES).
+                                    "V34M-jool-vall-continuation-player-loop.toml",
+                                    "V35M-jool-tylo-continuation-player-loop.toml",
+                                    "V36M-jool-bop-continuation-player-loop.toml",
+                                    "V37M-jool-pol-continuation-player-loop.toml",
+                                    "V38M-jool-moon-tour-player-loop.toml",
+                                    "V39M-jool-laythe-bop-player-loop.toml",
                                     "V8-eve-player-loop.toml",
                                     "V24W-duna-one-warp-stair.toml",
                                     "V6M-mun-player-loop.toml",
@@ -25358,7 +25388,18 @@ class SharedShipsManifestTests(unittest.TestCase):
     # bytes (tree id, span envelope, both seam offsets, the segment-less tail),
     # so the two entries were deleted in the same commit - the discipline this
     # cell enforces, and it DID fire red first, for the second time.
+    #
+    # RE-ARMED 2026-11-14 by the Jool moon round (todo NEXT-TESTS-TO-BUILD-2026-11-11
+    # items 1 and 4): six loop lanes committed ahead of the forges B39-B42 / B47 / B48
+    # that produce their fixtures. Each entry is deleted in the commit that harvests
+    # its fixture and re-pins the lane off the real bytes.
     PENDING_FIXTURE_LANES = {
+        "V34M-jool-vall-continuation-player-loop.toml": "jool-vall-recorded",
+        "V35M-jool-tylo-continuation-player-loop.toml": "jool-tylo-recorded",
+        "V36M-jool-bop-continuation-player-loop.toml": "jool-bop-recorded",
+        "V37M-jool-pol-continuation-player-loop.toml": "jool-pol-recorded",
+        "V38M-jool-moon-tour-player-loop.toml": "jool-tour-recorded",
+        "V39M-jool-laythe-bop-player-loop.toml": "jool-laythe-bop-recorded",
     }
 
     def test_the_pending_fixture_exemption_retires_itself(self):

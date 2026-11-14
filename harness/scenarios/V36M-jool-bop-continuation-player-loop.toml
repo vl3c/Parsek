@@ -1,0 +1,120 @@
+schema = 1
+id = "V36M-jool-bop-continuation-player-loop"
+# =====================================================================================
+# AUTHORED 2026-11-14, NEVER FLOWN, WAITING ON ITS FIXTURE: `jool-bop-recorded` does not
+# exist until B41-jool-bop-continuation flies green and is harvested --keep-parsek. Until then
+# this lane is listed in harness/lib/test_hlib.py PENDING_FIXTURE_LANES, which keeps
+# every committed suite green without the fixture; a run refuses at staging. Order
+# and commands: docs/dev/plans/moon-lane-drafts/README.md.
+#
+# THE PLAYER-LOOP HALF, V33M's shape exactly (live-proven 2026-11-07 on Laythe):
+# MissionConfig loop=true + StartLoopPlayback on the Kerbin -> Jool -> Bop tree,
+# reading the loop unit's build lines, then the MoonArrivalHold batch at the Space
+# Center. No jump table: its UTs come from this lane's own reading, and a Tracking
+# Station lane (V33T's shape) follows once it is green.
+#
+# THE SUBJECT. `jool-bop-recorded`, harvested from `B41-jool-bop-continuation`: the Jool -> Bop hop
+# appended to `jool-orbit-recorded`'s committed Kerbin -> Jool tree
+# `6ec68e87b782476f970a71df8c8b4685` (the forge resumes that tree, so the id is unchanged).
+#
+# WHAT THE LOG MUST SHOW (literals from Source/Parsek/MissionLoopUnitBuilder.cs):
+#   `ENGAGED re-aim Kerbin->Jool via Sun`, as on V33M.
+#   `ARRIVAL HOLD dest=Jool kind=config Talign=<P_Bop>s moons=1 ...
+#       (aligns the moon orbital phases, mode=` - the lone-moon hold on Bop's
+#       period (544,507.43 s, mu_Jool 2.82528e14; one participant, so T_config = P).
+#   `BATCH_COMPLETE ... category=MoonArrivalHold scene=SPACECENTER`, pinned whole.
+#
+# BOP IS THE PLAUSIBLE DECLINE (eccentric, inclined, a ~824 s SOI
+# tolerance against a 544,507.43 s period, so the slack clamp has the least room).
+# The plan's rule, as V32T's for Gilly: pin what the first reading measures. This
+# draft REQUIRES the engage; if the reading declines, swap the ARRIVAL HOLD tokens
+# for `Arrival amber SET: tree=6ec68e87b782476f970a71df8c8b4685 mission='[^']*' 1 constrained moon
+# of 'Jool'` with the reason the reading names, and forbid the ARRIVAL HOLD line.
+# =====================================================================================
+tier = "operator"
+description = "AUTHORED 2026-11-14, NEVER FLOWN, WAITING ON ITS FIXTURE `jool-bop-recorded` (harvested from B41-jool-bop-continuation). The player loop on the Kerbin->Jool->Bop tree, V33M's shape: re-aim Kerbin->Jool engages and the lone-moon arrival hold aligns Bop's orbital phase on its period at the Jool SOI entry; the live MoonArrivalHold cell runs at the Space Center."
+instanceProfile = "stock-minimal"
+tags = ["V36", "player-loop", "loop-playback", "reaim", "arrival-hold", "lone-moon-hold", "jool", "bop", "moon", "ingame-batch", "pending-fixture", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/jool-bop-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+# V33M's steps verbatim (the restore-stub kill pair, tracers, verbose, the loop
+# reading, then the Space Center batch).
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "MissionConfig",     args = { tree = "6ec68e87b782476f970a71df8c8b4685", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "6ec68e87b782476f970a71df8c8b4685" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                   expect = "OK" },
+  { cmd = "DiscardTree",                                                     expect = "OK" },
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "RunTests",   args = { category = "MoonArrivalHold" },             expect = "OK", budget = 300 },
+  # The export sits right before teardown (RenderComposeVerifierWiringTests placement
+  # rule): the recorder accumulates from Awake, so an earlier export drops later steps.
+  { cmd = "ExportRenderManifest",                                            expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                    expect = "OK" },
+]
+
+[dimensionsCovered]
+D11 = ["arrival-hold"]
+D14 = ["jool", "bop", "scene-flight", "scene-ksc", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# DERIVED from V33M (7 sidecars on `jool-laythe-recorded`, window {7, 8}): re-pin to
+# {N, N + 1} from the harvested fixture's own sidecar count.
+count = { min = 6, max = 9 }
+
+[expectations.logContracts]
+required  = [
+  "missionconfig applied:",
+  "SetLoopEnabled: loop ON",
+  "startloopplayback initiated:",
+  "ENGAGED re-aim Kerbin->Jool via Sun",
+  "ARRIVAL HOLD dest=Jool kind=config Talign=54450[78]\\.[0-9]+s moons=1 ",
+  "ARRIVAL HOLD dest=Jool kind=config .*\\(aligns the moon orbital phases, mode=",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=MoonArrivalHold scene=SPACECENTER",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "FORCED FAITHFUL",
+  "no member yields a re-aim transfer",
+  "MOON HOLD declined",
+  "Arrival amber SET: tree=6ec68e87b782476f970a71df8c8b4685",
+  "timejump refused reason=backward-jump",
+]
+
+[expectations.rewind]
+# REPORT-ONLY until a reading.
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+# REPORT-ONLY: the forge's one committed tree.
+committedTrees = { min = 1, max = 1 }
+trees          = { min = 1, max = 2 }
+
+[expectations.renderComposition]
+
+[runtime]
+# 2 x 300 LoadGame + 300 StartLoopPlayback + 300 RunTests + 120 manifest + margin.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
