@@ -68,6 +68,8 @@ These are binding. Quotes are the owner's words.
 - "when selecting the name and color the player should also select the location where the
   shared folder is; we should analyze if we would read directly from there or copy that stuff
   inside the KSP folder"; "that location - it should be editable from settings" (4.4, 7.2).
+- "the four ksc copies means that the main game KSC camera should be moved for each player to
+  their location so they see their own buildings" (7.3).
 - "we will implement on the structure of the 1.1.x build", after the design is settled;
   "important: lets really think about the ideal structure and architecture from the start, so
   we don't have a lot to refactor later" (section 15).
@@ -667,6 +669,14 @@ moving the stock space center object and its flattening terrain patch, the techn
 KSCSwitcher mod has used for years (section 12). Only one working space center per game is
 needed, because each player runs their own game.
 
+The Space Center view follows (owner ruling 2026-11-14): entering the Space Center scene
+shows the player's own site, with the camera starting over their own buildings, and those are
+the buildings that are clicked, upgraded and repaired. Nothing in the game still points at
+the stock location: the camera, the "return to Space Center" button, recovery distance, the
+tracking station's home marker and the map's KSC marker all mean the home site. A player
+never sees the Space Center scene of a rival's site; a rival's buildings are only visible
+from outside, in flight or from the map.
+
 **The other three sites are scenery.** At each other site stands an exact visual copy of the
 KSC buildings: solid, not clickable, not destructible, not upgradable. In Sandbox and Science
 they show the fully built look. In Career each shows its player's facility levels from their
@@ -1215,6 +1225,7 @@ running game.
 |------|---------|------------------------|
 | Launch from another place | Stock has a launch-site mechanism: `LaunchSite` (public constructor) and `PSystemSetup.AddLaunchSite` (public); the stock alternate sites use it | Not needed for the home site if the working KSC is moved |
 | Move the working KSC | `SpaceCenter` reads its position from its transform at `Start` (private latitude, longitude, surface normal); the flatten patch is a `PQSMod_MapDecalTangent` with public position, radius and absolute offset; the KSC is a `PQSCity`. KSCSwitcher and Kopernicus move all three on 1.12 | S4: move it in a spike and run a full launch, recovery and Space Center visit; check Parsek's own readers of the space center position (`LaunchSiteExclusionZones`, launch-site names in recordings, the launch-site departure rule in the optimizer, KSC-scene ghost playback) |
+| The Space Center camera at the home site | `SpaceCenterCamera2` finds its start position by a named transform under Kerbin's surface (`pqsName`, `initialPositionTransformName`), which is part of the KSC object that moves; `altitudeInitial` is public. KSCSwitcher resets this camera after a move | S4: enter the Space Center scene at each of the four sites; camera height, building clicks, the day and night lighting |
 | Exact KSC copies as scenery | Kerbal Konstructs clones the stock KSC buildings at run time as static objects | S5: clone the hierarchy, strip facility, click and destruction behaviour, keep colliders; show a chosen facility level; measure load and frame cost of three copies |
 | Same terrain in every game | The patch is data on a PQS mod; the same patch data gives the same heights | S5: sample heights on two machines |
 | Dry, flat land on the equator | NOT verified. The stock height data could not be read from files, and the wiki maps were unreachable | S1: an in-game scan of the equator (height, ocean, slope) around the three targets; the result fixes the site table |
