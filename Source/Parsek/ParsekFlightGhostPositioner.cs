@@ -2362,9 +2362,9 @@ namespace Parsek
                 string msgSuffix = suffix != null ? $" at {suffix}UT" : "";
                 ParsekLog.VerboseRateLimited("Playback", $"orbit-near-parallel{tagSuffix}-{cacheKey}",
                     $"Orbit segment {cacheKey}: velocity/radialOut near-parallel{msgSuffix}, LookRotation fallback");
-                return Quaternion.LookRotation(velocity, Vector3.up);
+                return ParsekFlight.OrbitalLookRotation(velocity, Vector3.up);
             }
-            return Quaternion.LookRotation(velocity, radialOut);
+            return ParsekFlight.OrbitalLookRotation(velocity, radialOut);
         }
 
         /// <summary>

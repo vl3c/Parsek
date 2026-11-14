@@ -20,6 +20,33 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~WINDOWS-TEST-HOST-ONLY-REDS-2026-11-14: 16 xUnit tests red on the owner's Windows PC and green on CI~~ [FILED 2026-11-14 from a Windows run of main 37a6c6101 (Debug and Release, OS culture ro-RO). FIXED 2026-11-14, branch `claude/project-thread-lkzj01`; xUnit on mono, the Windows re-run owed; tests only, no player-visible change]
+
+Two defects, one gap.
+
+1. Culture (3 tests, `MergeFlowDecisionTests`). `ParsekFlightMergeFlow` wrote
+   `CommitTreeFlight: starting tree commit at UT=` and `CommitTreeSceneExit: finalizing tree at UT=`
+   with the thread culture, so ro-RO printed `300,0` where the tests read `300.0`. Fix: both lines
+   format with `CultureInfo.InvariantCulture`. Reproduced red on mono with `LANG=ro_RO.UTF-8`
+   (the 3 tests, nothing else in a whole-suite ro_RO run), green after.
+2. Unity native call (all 13 tests of `AnchorEpsilonResidualTests`). The class constructor
+   Harmony-patched Unity's `Quaternion.LookRotation(Vector3, Vector3)` and `AngleAxis`. Both are
+   managed wrappers whose body calls a native `_Injected` method, and Harmony must JIT the original
+   to patch it, which the .NET Framework host refuses ("ECall methods must be packaged into a
+   system module"), so every test died in the constructor. Fix: no Harmony; the orbital pose code
+   (`ParsekFlight.ComputeOrbitalRotation`, `ParsekFlightGhostPositioner.SafeOrbitalLookRotation`,
+   `ProductionAnchorWorldFrameResolver.TryComputeBoundaryInstantOrbitalAnchorPose`) calls
+   `ParsekFlight.OrbitalLookRotation` / `OrbitalAngleAxis`, which use a `*OverrideForTesting`
+   delegate when a test sets one and otherwise Unity's call inside a `NoInlining` wrapper. A
+   `mono --trace` of the class, audited for direct native callees of every method it enters,
+   lists the two patched Unity originals before and none after (the two remaining entries are the
+   deliberate probes `RecordingStore.ReadUnityApplicationIsPlayingCore` and
+   `UnityEntryFactAttribute.TouchUnityNative`, both caught), and no entered method calls a small
+   Unity wrapper a Release JIT could inline.
+3. The gap: CI runs the suite on mono only. Mono takes its culture from the environment (C /
+   invariant on CI) and refuses a native call only when it executes, so both kinds of failure show
+   only on a Windows run (a PC `dotnet test` or `release.py`, which runs Debug and Release).
+
 ## PARALLEL-HARNESS-RUNS: fly harness lanes on 2-3 KSP copies at once while the owner keeps using the PC [FILED 2026-11-14 (owner request). BUILT 2026-11-14: C# part (xUnit only) and harness part (slots, locks, provisioning copies, the parallel runner; unit suites only); LIVE-PROVEN 2026-11-14 on the owner's PC: daily tier 28/28 PASS on 2 and 3 slots]
 
 **Plan.** `harness/parallel-runs-plan-2026-11-14.md` in the project files (sections 1-6 and the

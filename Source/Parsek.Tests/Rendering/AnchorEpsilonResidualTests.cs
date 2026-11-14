@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Reflection;
-using HarmonyLib;
 using Parsek;
 using Parsek.Rendering;
 using Parsek.Tests.Analyzer;
@@ -40,9 +39,13 @@ namespace Parsek.Tests.Rendering
     /// the shared pose's Unity null test passes and stock <c>Orbit</c> runs headless) and the
     /// placement model through its internal constructor; the propagator and the smoothing pipeline
     /// get uninitialised bodies with the same constants. Unity's <c>Quaternion.LookRotation</c> and
-    /// <c>AngleAxis</c> are native calls, so a Harmony prefix routes them to the managed
+    /// <c>AngleAxis</c> wrap native calls, so the orbital pose code's seams
+    /// (<see cref="ParsekFlight.LookRotationOverrideForTesting"/>,
+    /// <see cref="ParsekFlight.AngleAxisOverrideForTesting"/>) route them to the managed
     /// <see cref="TrajectoryMath.PureLookRotation"/> and an axis-angle transcription for the
-    /// duration of each cell. The smoothed side of a RelativeBoundary is read through
+    /// duration of each cell. Not a Harmony patch: the .NET Framework test host refuses to JIT
+    /// Unity's wrapper (an ECall outside a system module), which Harmony must do to patch it.
+    /// The smoothed side of a RelativeBoundary is read through
     /// <see cref="AnchorPropagator.SmoothedPositionForTesting"/>, which here does what production's
     /// <c>DispatchSplineWorldByFrameTag</c> does: the fitted spline at the UT, lowered and placed
     /// at the rebuild clock.
@@ -113,8 +116,6 @@ namespace Parsek.Tests.Rendering
         private readonly Dictionary<string, CelestialBody> propagatorBodies = new Dictionary<string, CelestialBody>(StringComparer.Ordinal);
         private readonly Dictionary<string, CelestialBody> resolverBodies = new Dictionary<string, CelestialBody>(StringComparer.Ordinal);
         private readonly Planetarium.CelestialFrame originalZup;
-        private readonly Harmony harmony;
-        private const string HarmonyId = "parsek.tests.anchor-epsilon-residuals";
 
         public AnchorEpsilonResidualTests(ITestOutputHelper output)
         {
@@ -162,21 +163,14 @@ namespace Parsek.Tests.Rendering
                 }
             }
 
-            harmony = new Harmony(HarmonyId);
-            harmony.Patch(
-                AccessTools.Method(typeof(Quaternion), nameof(Quaternion.LookRotation), new[] { typeof(Vector3), typeof(Vector3) }),
-                prefix: new HarmonyMethod(typeof(AnchorEpsilonResidualTests), nameof(LookRotationPrefix)));
-            harmony.Patch(
-                AccessTools.Method(typeof(Quaternion), nameof(Quaternion.LookRotation), new[] { typeof(Vector3) }),
-                prefix: new HarmonyMethod(typeof(AnchorEpsilonResidualTests), nameof(LookRotationUpPrefix)));
-            harmony.Patch(
-                AccessTools.Method(typeof(Quaternion), nameof(Quaternion.AngleAxis), new[] { typeof(float), typeof(Vector3) }),
-                prefix: new HarmonyMethod(typeof(AnchorEpsilonResidualTests), nameof(AngleAxisPrefix)));
+            ParsekFlight.LookRotationOverrideForTesting = ManagedLookRotation;
+            ParsekFlight.AngleAxisOverrideForTesting = ManagedAngleAxis;
         }
 
         public void Dispose()
         {
-            harmony.UnpatchAll(HarmonyId);
+            ParsekFlight.LookRotationOverrideForTesting = null;
+            ParsekFlight.AngleAxisOverrideForTesting = null;
             Planetarium.Zup = originalZup;
             ResetStores();
             ParsekLog.ResetTestOverrides();
@@ -202,25 +196,15 @@ namespace Parsek.Tests.Rendering
 
         // ---- Unity's native quaternion calls, managed ------------------------------------
 
-        private static bool LookRotationPrefix(Vector3 __0, Vector3 __1, ref Quaternion __result)
-        {
-            __result = TrajectoryMath.PureLookRotation(__0, __1);
-            return false;
-        }
+        private static Quaternion ManagedLookRotation(Vector3 forward, Vector3 upwards) =>
+            TrajectoryMath.PureLookRotation(forward, upwards);
 
-        private static bool LookRotationUpPrefix(Vector3 __0, ref Quaternion __result)
+        private static Quaternion ManagedAngleAxis(float angleDeg, Vector3 axis)
         {
-            __result = TrajectoryMath.PureLookRotation(__0, Vector3.up);
-            return false;
-        }
-
-        private static bool AngleAxisPrefix(float __0, Vector3 __1, ref Quaternion __result)
-        {
-            Vector3 axis = __1.normalized;
-            double half = __0 * Math.PI / 360.0;
+            Vector3 n = axis.normalized;
+            double half = angleDeg * Math.PI / 360.0;
             float s = (float)Math.Sin(half);
-            __result = new Quaternion(axis.x * s, axis.y * s, axis.z * s, (float)Math.Cos(half));
-            return false;
+            return new Quaternion(n.x * s, n.y * s, n.z * s, (float)Math.Cos(half));
         }
 
         // ---- the world model ---------------------------------------------------------------

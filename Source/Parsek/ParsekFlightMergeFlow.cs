@@ -819,7 +819,8 @@ namespace Parsek
             }
 
             double commitUT = host.CurrentUniversalTime();
-            ParsekLog.Info("Flight", $"CommitTreeFlight: starting tree commit at UT={commitUT:F1}");
+            ParsekLog.Info("Flight", "CommitTreeFlight: starting tree commit at UT=" +
+                commitUT.ToString("F1", CultureInfo.InvariantCulture));
 
             // Finalize all recordings (active + background)
             FinalizeTreeRecordings(host.activeTree, commitUT, isSceneExit: false);
@@ -972,7 +973,8 @@ namespace Parsek
         {
             if (host.activeTree == null) return;
 
-            ParsekLog.Info("Flight", $"CommitTreeSceneExit: finalizing tree at UT={commitUT:F1}");
+            ParsekLog.Info("Flight", "CommitTreeSceneExit: finalizing tree at UT=" +
+                commitUT.ToString("F1", CultureInfo.InvariantCulture));
             RecorderStateLog.RecState("CommitTreeSceneExit:entry", host.CaptureRecorderState());
 
             // Finalize all recordings
