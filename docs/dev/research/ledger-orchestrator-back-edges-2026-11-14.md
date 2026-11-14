@@ -199,3 +199,16 @@ B4 digest as the witness that ledger results did not move; no installed hooks, n
 Leave the remaining 24 edges: they buy 3 more (124 -> 121) at the cost of putting ten
 recalculation and notification entry points behind installed delegates whose install
 order needs runtime proof in every scene.
+
+## The six-edge cut, as built (2026-11-14)
+
+Approved by the owner on 2026-11-14 and built as one PR, one commit per edge, each a move
+or a delegate parameter with no behaviour change. Re-measured on the folder-move tree
+(PR #2611 tip), Debug `Parsek.dll`, with the snippet above: before the cut knot 394,
+greedy 140, replayed 144, ratchet 140, 30 back-edges. The knot member set and its size do
+not move in any step below (the moves add no type to it and take none out).
+
+| Edge | How | Ratchet after | Back-edges |
+|---|---|---|---|
+| `Ledger` | `FindRecordingById` moved verbatim to `RecordingStore`; every caller names it there (`CommittedFutureIndexCache` used nothing else either) | 140 | 28 |
+

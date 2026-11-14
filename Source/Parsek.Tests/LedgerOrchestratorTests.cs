@@ -2910,8 +2910,8 @@ namespace Parsek.Tests
         [Fact]
         public void FindRecordingById_NullId_ReturnsNull()
         {
-            Assert.Null(LedgerOrchestrator.FindRecordingById(null));
-            Assert.Null(LedgerOrchestrator.FindRecordingById(""));
+            Assert.Null(RecordingStore.FindRecordingById(null));
+            Assert.Null(RecordingStore.FindRecordingById(""));
         }
 
         [Fact]
@@ -2921,7 +2921,7 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
             RecordingStore.AddRecordingWithTreeForTesting(rec);
 
-            var found = LedgerOrchestrator.FindRecordingById("rec-find-test");
+            var found = RecordingStore.FindRecordingById("rec-find-test");
 
             Assert.NotNull(found);
             Assert.Equal("rec-find-test", found.RecordingId);
@@ -2934,7 +2934,7 @@ namespace Parsek.Tests
         {
             RecordingStore.ResetForTesting();
 
-            var found = LedgerOrchestrator.FindRecordingById("does-not-exist");
+            var found = RecordingStore.FindRecordingById("does-not-exist");
 
             Assert.Null(found);
 

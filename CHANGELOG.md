@@ -30,6 +30,8 @@ All notable changes to Parsek are documented here.
 - **Dev: the mod's source files sit in one folder per module.** Every source file now lives in
   `Source/Parsek/<Module>/`, the folder named after the part of the code it belongs to, so the
   folder tells you the module. Nothing in the game changes. (ARCH-MODULE-FOLDERS)
+- **Dev: fewer parts of the code call back into the career ledger's entry point.** A recording
+  lookup moved to the recording store. Nothing in the game changes.
 
 ### Fixed
 

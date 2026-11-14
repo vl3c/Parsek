@@ -3610,6 +3610,11 @@ compare).
   `CommittedTreeRestoreAttempt`, `SwitchSegmentAttempts`, `ConversionLegBinding`,
   `PostWalkActionReconciler`; moves and delegate parameters only, headless), ratchet
   140 -> 124; the other 24 edges buy 3 more and need installed hooks proven in flight.
+- 2026-11-14 (item 24, the six-edge cut, approved by the owner the same day): one commit per
+  edge, each a move or a delegate parameter. `FindRecordingById` moved verbatim from the
+  orchestrator to `RecordingStore` and every caller names it there (`Ledger` and
+  `CommittedFutureIndexCache` leave the back-edge list: 30 -> 28; ratchet 140 unchanged, as
+  the note predicts for this step alone). Measured per step in the note's "as built" table.
 - 2026-11-14 (B6 second half, split `AnchorPropagator.Run`): the DAG walk (about 490 lines,
   complexity 104) is now an orchestrator (complexity 8) over 13 private static steps in the same
   file, in walk order: `IndexRecordingsById`, `EmitSeedAnchors` with `EmitSeedCandidate`,

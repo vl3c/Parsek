@@ -21266,7 +21266,7 @@ namespace Parsek.InGameTests
 
                 // Remove the committed accepts: the open screen re-evaluates and gives Accept back.
                 for (int i = 0; i < fixtures.Count; i++)
-                    RemoveCommittedOverlayFixture(fixtures[i].Key, fixtures[i].Value ?? LedgerOrchestrator.FindRecordingById(fixtures[i].Key));
+                    RemoveCommittedOverlayFixture(fixtures[i].Key, fixtures[i].Value ?? RecordingStore.FindRecordingById(fixtures[i].Key));
                 fixtures.Clear();
                 NotifyTimelineDataChangedForOverlayTest();
                 float deadline = Time.realtimeSinceStartup + 4f;
@@ -21288,7 +21288,7 @@ namespace Parsek.InGameTests
             {
                 CommittedActionDialog.TestHookForTesting = priorHook;
                 for (int i = 0; i < fixtures.Count; i++)
-                    RemoveCommittedOverlayFixture(fixtures[i].Key, fixtures[i].Value ?? LedgerOrchestrator.FindRecordingById(fixtures[i].Key));
+                    RemoveCommittedOverlayFixture(fixtures[i].Key, fixtures[i].Value ?? RecordingStore.FindRecordingById(fixtures[i].Key));
                 if (fixtures.Count > 0)
                     NotifyTimelineDataChangedForOverlayTest();
                 ClearMissionControlSelectionForTest();

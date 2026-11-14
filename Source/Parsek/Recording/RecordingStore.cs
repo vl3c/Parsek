@@ -1279,6 +1279,25 @@ namespace Parsek
             return null;
         }
 
+        /// <summary>
+        /// Finds a committed recording by its ID. Returns null if not found.
+        /// </summary>
+        internal static Recording FindRecordingById(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return null;
+
+            var recordings = RecordingStore.CommittedRecordings;
+            if (recordings == null) return null;
+
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                if (recordings[i].RecordingId == recordingId)
+                    return recordings[i];
+            }
+
+            return null;
+        }
+
         internal static bool IsCommittedRecordingId(string recordingId)
         {
             return TryFindCommittedRecordingById(recordingId) != null;

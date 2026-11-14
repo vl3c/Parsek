@@ -1341,7 +1341,7 @@ namespace Parsek
                     out endUt,
                     out collapsedPersistedSpan))
             {
-                var rec = LedgerOrchestrator.FindRecordingById(action.RecordingId);
+                var rec = RecordingStore.FindRecordingById(action.RecordingId);
                 if (rec == null)
                     return false;
 

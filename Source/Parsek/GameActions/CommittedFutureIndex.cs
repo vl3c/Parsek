@@ -890,7 +890,7 @@ namespace Parsek
         internal static string ResolveRecordingDisplayName(string recordingId)
         {
             if (string.IsNullOrEmpty(recordingId)) return null;
-            Recording rec = LedgerOrchestrator.FindRecordingById(recordingId);
+            Recording rec = RecordingStore.FindRecordingById(recordingId);
             if (rec == null) return null;
             Mission mission = !string.IsNullOrEmpty(rec.TreeId)
                 ? MissionStore.FindOriginalMission(rec.TreeId)
