@@ -447,4 +447,4 @@ rank = 16
 item = "Folders that match the module map"
 evidence = "On 2026-11-14, 528 of 898 production files sat at the root of <code>Source/Parsek</code>; <code>scripts/arch/modules.toml</code>, not the folders, says which module each belongs to (plan item 18)."
 size = "mechanical, large"
-status = "Waiting for the owner's decision; not started."
+status = "Approved by the owner on 2026-11-14; in progress."
