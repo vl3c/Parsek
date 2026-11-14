@@ -41,6 +41,10 @@ All notable changes to Parsek are documented here.
   the ship was also the end of an earlier recorded flight, the map's Switch To quietly merged the
   recording you were making and loaded that earlier flight instead. The switch now just continues
   the current recording. (PRESWITCH-CASE-C-LIVE-TREE-MEMBER)
+- **Switching to a far-away vessel no longer starts a recording by itself.** After a map Switch To
+  (or an alarm's Jump) to a vessel outside the loaded area, the game reloads the flight, and on a
+  fast load Parsek could start recording the new vessel at once, depending on load speed. It now
+  never does; recording starts when you first do something. (FAR-SWITCH-INTENT-TTL-RACE)
 - **Supply routes no longer break after a save is loaded.** Parsek's clean-up of saved recordings
   could merge, split or trim the recordings a route was built from, and the route then stopped
   with "source changed", often right after you created it. Those recordings are now left as they

@@ -47,22 +47,21 @@ id = "S0.14-far-switch-merges-before-reload"
 #   3. The far switch reloads FLIGHT on the debris. `ListHandles kind=chains` holds the
 #      lane until the reloaded scene's OnFlightReady has run (the seam defers it
 #      `ghost-chains-pending` while `ParsekFlight.FlightReadyObserved` is false, CI-2's
-#      idiom); OnFlightReady runs `DispatchConsumeIntentIfArmed` in that same call, so
-#      the switch intent has been consumed or cleared by then. `RecordingState` then reads
-#      no live recording.
+#      idiom); OnFlightReady runs `DispatchConsumeIntentIfArmed` in that same call, so any
+#      switch intent would have been consumed by then (none is armed for an unloaded
+#      target). `RecordingState` then reads no live recording.
 #   4. `FlushAndQuit` saves: one committed tree.
 #
-# THE INTENT ON THE FAR SIDE (read from the code after the second flight, below).
-# `ArmIntentAndSwitchTo` arms a MapSwitchTo intent with a 2 s wall-clock TTL
-# (`StockActionIntentMarker.MapSwitchToTtlSeconds`). Two sites can clear it:
-# `ParsekScenario.ValidateLoadedStockActionIntentFreshness` at OnLoad (reason
-# `stale-intent` if the TTL already ran out, else `intent kept-armed on OnLoad`), and the
-# OnFlightReady consume (`StockActionIntentConsumeDecision.Evaluate`: past the TTL,
-# `refused: reason=stale-intent-ttl ...` and `cleared: ... reason=stale-intent-ttl`). If
-# OnFlightReady came within 2 s of the click, the consume would be Authorized and, with
-# no live tree and no committed match for the debris, start a STANDALONE segment on it;
-# that is forbidden below (P6). The second flight measured OnLoad 0.7 s after the arm
-# (kept armed), so the clear is expected at the consume.
+# THE INTENT ON THE FAR SIDE (fixed after the third flight, todo FAR-SWITCH-INTENT-TTL-RACE).
+# `ArmIntentAndSwitchTo` arms NO MapSwitchTo intent for an unloaded target
+# (`DeclineArmForUnloadedTarget` -> `ShouldArmIntentForSwitchTarget`, logging `pre-switch-dialog
+# intent not armed: reason=far-switch-target-unloaded targetPid=...`) and still switches.
+# Before the fix it armed one with a 2 s wall-clock TTL; stock's unloaded branch saved it
+# into the reloaded scene (two saves inside `setActiveVessel` run OnSave), and a far scene
+# that reached OnFlightReady within 2 s consumed it into a standalone segment on the
+# debris (the third flight). The design outcome is no segment, so the lane now requires
+# the not-armed line before the reload and forbids every MapSwitchTo intent line for the
+# debris, the OnLoad keep, and the segment (P6).
 #
 # WHY NOT `eva2-lko-crewed` (S0.13's host, this lane's first host). FIRST FLIGHT 2026-11-14
 # on the PC, INVALID(driver-arg) on both attempts, pre-registered P2: the target was one of
@@ -81,9 +80,10 @@ id = "S0.14-far-switch-merges-before-reload"
 # PRE-REGISTERED OUTCOMES (the first flight is the reading run; tier operator):
 #   (P1) Every required token below matches: auto-resolve `resolution=Merge
 #        case=B-unloaded reason=not-committed-restore-clone`, the commit, the merge-chosen
-#        line before the FLIGHT scene change, the reload with no pending / Limbo tree, the
-#        MapSwitchTo intent cleared stale (2 s TTL; by design a far switch starts no
-#        segment), no live recording after it, one committed tree of one recording.
+#        line and the not-armed intent line before the FLIGHT scene change, the reload
+#        with no pending / Limbo tree, no MapSwitchTo intent for the debris (by design a
+#        far switch starts no segment), no live recording after it, one committed tree of
+#        one recording.
 #   (P2) `alarmjump rejected reason=alarmjump-target-not-found`: the pid lookup missed
 #        the debris. It TOOK this branch on eva2-lko-crewed (stock's KSC declutter, above);
 #        here the target orbits Kerbin and the rule cannot remove it, so a miss now is a
@@ -97,7 +97,7 @@ id = "S0.14-far-switch-merges-before-reload"
 #        idle-on-pad. A classifier question, filed in docs/dev/todo-and-known-bugs.md.
 #   (P6) A recording live after the reload, a `[SwitchSegment] created` on the debris,
 #        or a second committed recording: the far switch started a segment (the 2 s TTL
-#        race above) or doubled the tree. A PARSEK-FAIL, filed.
+#        race, FAR-SWITCH-INTENT-TTL-RACE, fixed) or doubled the tree. A PARSEK-FAIL.
 #
 # SECOND FLIGHT 2026-11-14 on the PC (first on jool-park-nerv, head ace27412f), wall
 # 70 s, every seam step OK, PARSEK-FAIL(log) on ONE token, a spec error: the Case B
@@ -125,12 +125,14 @@ id = "S0.14-far-switch-merges-before-reload"
 # 2 s MapSwitchTo TTL for the same-frame in-scene consume; the marker reaches the far
 # scene only because stock's far branch saves (`GamePersistence.SaveGame` and
 # `Game.Updated()`, both serializing the scenario) before any Postfix can clear it. The
-# spec stays as pinned: P6 is the designed outcome's opposite, and this host reaches
-# OnFlightReady well inside 2 s, so the lane reds on every flight until the fix lands.
-# The fix (todo) removes the far-scene intent, so it re-pins the clear token here.
+# third flight's spec was right to red: P6 is the designed outcome's opposite, and this
+# host reaches OnFlightReady well inside 2 s.
+# FIXED on the same branch (todo FAR-SWITCH-INTENT-TTL-RACE): no intent is armed for an
+# unloaded target, so the spec now requires the not-armed line and forbids any MapSwitchTo
+# intent for the debris instead of pinning its stale clear. Not yet flown with the fix.
 # =====================================================================================
 tier = "operator"
-description = "A far map-style Switch-To with a live recording (Case B, no session) commits the tree BEFORE stock's FLIGHT reload (todo FAR-SWITCH-CASE-B-UNFLOWN): on jool-park-nerv, record the Duna Rocket in Jool orbit, then a stock Alarm Clock Jump to an unloaded debris in Kerbin orbit auto-resolves Merge case=B-unloaded, CommitTreeFlight runs, the reload carries no pending or Limbo tree, the stale switch intent is cleared, no recording continues, and the save holds one committed tree of one recording."
+description = "A far map-style Switch-To with a live recording (Case B, no session) commits the tree BEFORE stock's FLIGHT reload (todo FAR-SWITCH-CASE-B-UNFLOWN): on jool-park-nerv, record the Duna Rocket in Jool orbit, then a stock Alarm Clock Jump to an unloaded debris in Kerbin orbit auto-resolves Merge case=B-unloaded, CommitTreeFlight runs, the reload carries no pending or Limbo tree, no switch intent is armed for the unloaded target (todo FAR-SWITCH-INTENT-TTL-RACE), no recording starts on it, and the save holds one committed tree of one recording."
 instanceProfile = "stock-minimal"
 tags = ["switch-segment", "alarm-jump", "S0.14", "pre-switch-auto-resolve", "far-switch",
         "D1", "pending-flight"]
@@ -206,7 +208,9 @@ required  = [
   # The commit lands BEFORE stock's far-switch reload (MergeActiveTreeAndSwitchTo, then
   # ParsekFlight.OnSceneChangeRequested).
   "(?s)pre-switch-dialog-merge-chosen-no-session priorTreeId=\\S+ newTargetPid=4267147709\\b.*?Scene change requested: FLIGHT at UT=",
-  "pre-switch-dialog re-armed intent: intentId=[0-9a-f-]{36} action=MapSwitchTo targetPid=4267147709 ",
+  # No switch intent is armed for the unloaded target, before the reload
+  # (MapFocusObjectOnSelectPatch.ArmIntentAndSwitchTo -> DeclineArmForUnloadedTarget).
+  "(?s)pre-switch-dialog intent not armed: reason=far-switch-target-unloaded targetPid=4267147709 .*?Scene change requested: FLIGHT at UT=",
   # Parsek owns the switch; stock's OnJump body is skipped (AlarmJumpSwitchPatch).
   "\\[AlarmJump\\] Jump in FLIGHT targetPid=4267147709 runStock=False intentArmed=False",
   "alarmjump result targetPid=4267147709 targetIsGhost=false targetLoaded=false alarmId=[0-9]+ stockWouldShowJump=true jumpShown=true decision=leave-to-stock jump=shown pressed=true before=807470910 after=[0-9]+ switched=\\S+ sceneLoadRequested=true alarmRemoved=\\S+",
@@ -214,22 +218,21 @@ required  = [
   # (ParsekScenario.OnLoad's revert-detection line).
   "OnLoad: revert detection [^\\n]*isFlightToFlight=True, isVesselSwitch=False, isRevert=False, pendingTreeState=\\w+, activeTreeRestoredFromSave=False, pendingTreeRestoredFromSave=False, hasOrphanedLimboTree=False",
   "Load classified: early=InSession refined=InSessionOther scene=FLIGHT ",
-  # The switch intent does not survive the reload: cleared past its 2 s TTL, at OnLoad
-  # (`stale-intent`) or at the OnFlightReady consume (`stale-intent-ttl`), and no other
-  # reason (ParsekScenario.StockActionIntent.ClearStockActionIntent; header).
-  "cleared: intentId=[0-9a-f-]{36} action=MapSwitchTo targetPid=4267147709 reason=stale-intent(?:-ttl)?(?![-\\w])",
   # The far scene reached OnFlightReady before the last read (ListHandles kind=chains).
   "listhandles kind=chains count=[0-9]+ truncated=",
   # Nothing records after the reload, and the save holds the one committed tree.
   "recordingstate recording=false tree= points=0 scene=FLIGHT",
   "OnSave: saving 1 committed tree\\(s\\)",
 ]
-# The suite-wide ERROR pattern; the dialog (the switch must decide); a switch segment on
-# the debris (the TTL race, P6); every Limbo / #266
+# The suite-wide ERROR pattern; the dialog (the switch must decide); any MapSwitchTo
+# intent for the debris (armed, kept at OnLoad, refused or cleared: none may exist) and a
+# switch segment on it (P6); every Limbo / #266
 # stash and restore line (the tree is committed before the reload, so none may run);
 # the merge guards and an aborted commit; and the AlarmJump verb's own failure lines.
 forbidden = ["\\[Parsek\\]\\[ERROR\\]",
              "pre-switch-dialog opening",
+             "action=MapSwitchTo targetPid=4267147709",
+             "intent kept-armed on OnLoad",
              "\\[SwitchSegment\\] created [^\\n]*focusedPid=4267147709",
              "ShowPreSwitchDecisionDialog",
              "StashActiveTreeAsPendingLimbo",

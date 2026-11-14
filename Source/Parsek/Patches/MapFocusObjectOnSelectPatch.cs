@@ -423,6 +423,12 @@ namespace Parsek.Patches
                     break;
             }
 
+            // A target outside the physics bubble reloads FLIGHT, and stock saves the
+            // scenario before that reload, so an armed intent would cross it. Arm none:
+            // stock still switches, and no segment starts on the far side.
+            if (DeclineArmForUnloadedTarget(vessel.loaded, vessel.persistentId, label))
+                return true;
+
             Guid intentId = Guid.NewGuid();
             var marker = new StockActionIntentMarker
             {
@@ -1160,11 +1166,12 @@ namespace Parsek.Patches
         }
 
         /// <summary>
-        /// Shared arm-then-switch finisher for the dialog button handlers.
-        /// Arms a fresh Map Switch-To intent and invokes
-        /// <c>FlightGlobals.SetActiveVessel(target)</c>. The consume helper
-        /// will pick up the marker on the synchronous <c>onVesselChange</c>
-        /// firing inside <c>SetActiveVessel</c>.
+        /// Shared arm-then-switch finisher for the dialog button handlers and the
+        /// pre-switch auto-resolve. Arms a fresh Map Switch-To intent for a LOADED
+        /// target and invokes <c>FlightGlobals.SetActiveVessel(target)</c>; the consume
+        /// helper picks the marker up on the synchronous <c>onVesselChange</c> firing
+        /// inside <c>SetActiveVessel</c>. An unloaded target is switched with no intent
+        /// armed (<see cref="DeclineArmForUnloadedTarget"/>).
         /// </summary>
         private static void ArmIntentAndSwitchTo(Vessel target)
         {
@@ -1182,22 +1189,25 @@ namespace Parsek.Patches
                 return;
             }
 
-            Guid intentId = Guid.NewGuid();
-            var marker = new StockActionIntentMarker
+            if (!DeclineArmForUnloadedTarget(target.loaded, target.persistentId, "pre-switch-dialog"))
             {
-                IntentId = intentId,
-                Action = StockActionType.MapSwitchTo,
-                TargetVesselPersistentId = target.persistentId,
-                SourceScene = StockActionSourceScene.Flight,
-                CapturedRealtime = UnityEngine.Time.realtimeSinceStartup,
-                CapturedUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : 0.0,
-                ProcessSessionId = ParsekProcess.ProcessSessionId,
-            };
-            scenario.ArmStockActionIntent(marker);
-            ParsekLog.Info("SwitchIntentPatch",
-                $"pre-switch-dialog re-armed intent: intentId={marker.IntentId:D} action={marker.Action} " +
-                $"targetPid={marker.TargetVesselPersistentId} " +
-                $"capturedUT={marker.CapturedUT.ToString("R", CultureInfo.InvariantCulture)}");
+                Guid intentId = Guid.NewGuid();
+                var marker = new StockActionIntentMarker
+                {
+                    IntentId = intentId,
+                    Action = StockActionType.MapSwitchTo,
+                    TargetVesselPersistentId = target.persistentId,
+                    SourceScene = StockActionSourceScene.Flight,
+                    CapturedRealtime = UnityEngine.Time.realtimeSinceStartup,
+                    CapturedUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : 0.0,
+                    ProcessSessionId = ParsekProcess.ProcessSessionId,
+                };
+                scenario.ArmStockActionIntent(marker);
+                ParsekLog.Info("SwitchIntentPatch",
+                    $"pre-switch-dialog re-armed intent: intentId={marker.IntentId:D} action={marker.Action} " +
+                    $"targetPid={marker.TargetVesselPersistentId} " +
+                    $"capturedUT={marker.CapturedUT.ToString("R", CultureInfo.InvariantCulture)}");
+            }
 
             try
             {
@@ -1271,14 +1281,53 @@ namespace Parsek.Patches
             // Marker is still armed under our IntentId — consume site (Phase C
             // OnVesselSwitchComplete) didn't fire, meaning SetActiveVessel took an
             // early-return path (vessel null, already active, ClearToSave failed,
-            // DiscoveryLevel != Owned) or the unloaded-vessel scene-transition
-            // branch. Clear with refused-no-switch. (Per Contract above, a
+            // DiscoveryLevel != Owned). Clear with refused-no-switch. An unloaded
+            // target never gets here: no intent is armed for it
+            // (DeclineArmForUnloadedTarget), so __state is empty and the guard above
+            // returned. (Per Contract above, a
             // refusal inside TryConsumeStockActionIntent would already have
             // cleared the marker and we would have taken the `current == null`
             // branch earlier.)
             scenario.ClearStockActionIntent("refused-no-switch");
             ParsekLog.Info("SwitchIntentPatch",
                 $"{label} Postfix: cleared own marker intentId={__state:D} reason=refused-no-switch");
+        }
+
+        /// <summary>Reason token of the line logged when a Switch-To to an unloaded
+        /// target arms no intent.</summary>
+        internal const string FarSwitchNotArmedReason = "far-switch-target-unloaded";
+
+        /// <summary>
+        /// Pure: whether a Map Switch-To (or the alarm Jump in FLIGHT, or a pre-switch
+        /// dialog finisher) arms a <c>MapSwitchTo</c> intent for its target. Only a LOADED
+        /// target does. Stock's <c>FlightGlobals.setActiveVessel</c> sends an unloaded one
+        /// through <c>GamePersistence.SaveGame</c>, <c>Game.Updated()</c> and
+        /// <c>FlightDriver.StartAndFocusVessel</c> before it returns, and both saves run
+        /// <c>ParsekScenario.OnSave</c>, so an intent armed for it would be written into the
+        /// reloaded scene and consumed there whenever the reload beat its 2 s TTL. The
+        /// design outcome for that switch is no segment (the first-modification watcher
+        /// takes over), so nothing is armed.
+        /// </summary>
+        internal static bool ShouldArmIntentForSwitchTarget(bool targetLoaded)
+        {
+            return targetLoaded;
+        }
+
+        /// <summary>
+        /// Reads <see cref="ShouldArmIntentForSwitchTarget"/> for one arm site. Returns
+        /// true (and logs one Info line naming the target and
+        /// <see cref="FarSwitchNotArmedReason"/>) when the site must NOT arm; the caller
+        /// still lets the switch happen.
+        /// </summary>
+        internal static bool DeclineArmForUnloadedTarget(bool targetLoaded, uint targetPid, string label)
+        {
+            if (ShouldArmIntentForSwitchTarget(targetLoaded))
+                return false;
+            ParsekLog.Info("SwitchIntentPatch",
+                $"{label} intent not armed: reason={FarSwitchNotArmedReason} " +
+                $"targetPid={targetPid.ToString(CultureInfo.InvariantCulture)} - the switch reloads FLIGHT " +
+                "and starts no switch segment (the first-modification watcher takes over)");
+            return true;
         }
 
         /// <summary>

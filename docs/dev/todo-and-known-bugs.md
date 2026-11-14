@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## FAR-SWITCH-INTENT-TTL-RACE: a fast far Switch-To starts a switch segment on the target, which the design says it must not [FILED 2026-11-14 from S0.14's third flight (PC, head a3624e48f, PARSEK-FAIL on its pre-registered P6), branch `item20-switch-pending-merge-lane`; code and decompile reading, no fix yet; low (a recording the player did not ask for, on a rare path)]
+## ~~FAR-SWITCH-INTENT-TTL-RACE~~: a fast far Switch-To starts a switch segment on the target, which the design says it must not [FILED 2026-11-14 from S0.14's third flight (PC, head a3624e48f, PARSEK-FAIL on its pre-registered P6), branch `item20-switch-pending-merge-lane`; code and decompile reading. FIXED 2026-11-14 on the same branch (PR #2609): no intent is armed for an unloaded target; xUnit + mutation; S0.14 re-pinned, owes its flight with the fix; low (a recording the player did not ask for, on a rare path)]
 
 What the player sees: with Parsek recording, a Switch-To (map menu, or the stock alarm's Jump in
 FLIGHT) to a vessel outside the physics bubble reloads the flight scene, and on a fast machine the
@@ -63,24 +63,27 @@ created ... parentRecId=<standalone> ... focusedPid=4267147709 focusedName='Duna
 reason=MapSwitchTo` 13.744, `cleared ... reason=consumed-into-segment` 13.754, then `recordingstate
 recording=true ... points=1` (recordings 2 > max 1). The second flight of the same lane reached OnLoad
 0.7 s after the arm and quit before OnFlightReady, so it does not say which way that run would have
-gone; this host reloads well inside 2 s, so S0.14 reds on every flight until the fix lands.
+gone; this host reloads well inside 2 s, so before the fix S0.14 would red on every flight.
 
-Fix (proposed, not built): do not arm a MapSwitchTo intent for an unloaded target, so nothing
-crosses the reload. One pure predicate (for example `ShouldArmMapSwitchTo` gaining `targetLoaded`,
-or a sibling `ShouldArmForSwitchTarget`) read by every FLIGHT arm site: the plain map Prefix
-(`PrepareOwnedVesselSwitch`, also reached from the alarm Jump in FLIGHT) and `ArmIntentAndSwitchTo`;
-an unloaded target logs one Info line naming the designed outcome (`intent not armed: target
-unloaded, far switch reloads FLIGHT and starts no segment`) and still switches. Defensive second half
-(optional): `ValidateLoadedStockActionIntentFreshness` clears any loaded `MapSwitchTo` marker with
-its own reason, since a Map marker has no designed cross-scene consume; it covers an arm site added
-later. Tests: the predicate (loaded arms, unloaded does not), the mirror case that an in-bubble
-switch still arms with the 2 s TTL and is consumed same-frame (S0.8 / S0.12 / S0.13 keep their
-`[SwitchSegment] created`), and source gates that both arm sites read the predicate; the TS / KSC
-Fly markers (10 s TTL, cross-scene by design) are untouched. S0.14 then re-pins: no `[SwitchIntent]
-armed:` / `re-armed intent` for pid 4267147709, the new not-armed line required, no `stale-intent`
-clear (nothing to clear), the `[SwitchSegment] created` forbid kept, recordings {1,1}. The opposite
-reading (make the far switch start a segment by giving it the 10 s scene-load TTL) contradicts the
-plan's stated outcome and would need an owner ruling first.
+Fix: a MapSwitchTo intent is armed only for a LOADED target, so nothing crosses the reload. The
+pure predicate `MapFocusObjectOnSelectPatch.ShouldArmIntentForSwitchTarget(targetLoaded)` is read
+through `DeclineArmForUnloadedTarget` by both FLIGHT arm sites, `PrepareOwnedVesselSwitch` (the map
+Prefix, also reached from the alarm Jump in FLIGHT) and `ArmIntentAndSwitchTo` (the Case A / B / C
+dialog and auto-resolve finisher). An unloaded target logs one Info line, `[SwitchIntentPatch]
+<label> intent not armed: reason=far-switch-target-unloaded targetPid=<pid> ...`, arms nothing and
+still switches; the map and alarm Postfix refunds see an empty intent id and log nothing. The third
+arm site, the automation seam `SimulateStockSwitchClick`, already refused an unloaded target
+(`target-unloaded`); its gate now reads the same predicate. A loaded target arms exactly as before
+(2 s TTL, same-frame consume), so S0.8 / S0.12 / S0.13 / CI-1 / GS-3 / FAR-4 keep their pins. No
+OnLoad clear was added, and the TS / KSC Fly markers and every TTL are unchanged. Tests:
+`FarSwitchIntentArmTests` (predicate truth table, the log line through the sink, the empty refund,
+the seam gate, source gates on both sites read comment-stripped, and the set of every
+`ArmStockActionIntent` call site in production). Mutation: the predicate forced to always arm reds
+five cells (the truth-table row, the decline cell, the seam-gate cell and the two existing
+`Gate_UnloadedTarget_*` cells); removing either site's call reds that site's source gate. S0.14 now
+requires the not-armed line before the reload and forbids every MapSwitchTo intent line for the
+debris, `intent kept-armed on OnLoad` and the segment, with recordings {1,1}. The 10 s scene-load TTL
+alternative was rejected: it contradicts the plan's stated outcome.
 
 ## PARALLEL-RUNNER-INSTANCE-BUSY-ON-EXITING-SIBLING: a slot's preflight refuses instance-busy on a sibling slot's KSP that is still exiting [FILED 2026-11-14 from a parallel daily run on the PC (2 slots); harness, no fix yet; low (one lane INVALID per occurrence, passes when re-flown)]
 
@@ -110,7 +113,7 @@ What a fix needs, either of:
      crash path must keep.
 The first is smaller and needs no new state.
 
-## FAR-SWITCH-CASE-B-UNFLOWN: no lane flew a far vessel switch while recording, so the commit before stock's reload was never checked in game [FILED 2026-11-14 from a lane gap audit (the vessel-switch stash family). LANE AUTHORED 2026-11-14, branch `item20-switch-pending-merge-lane`: `S0.14-far-switch-merges-before-reload`, operator (flight 1 INVALID on its host, re-hosted on `jool-park-nerv`; flight 2 red on a spec error, fixed; flight 3 PARSEK-FAIL on a product defect, filed as FAR-SWITCH-INTENT-TTL-RACE); the two-switch reading lane S0.15 flew once and was WITHDRAWN (no committed host). Closes when S0.14 flies green, which needs FAR-SWITCH-INTENT-TTL-RACE fixed first; the #266 stash stays unreached by any flown lane until a host is harvested; test gap]
+## FAR-SWITCH-CASE-B-UNFLOWN: no lane flew a far vessel switch while recording, so the commit before stock's reload was never checked in game [FILED 2026-11-14 from a lane gap audit (the vessel-switch stash family). LANE AUTHORED 2026-11-14, branch `item20-switch-pending-merge-lane`: `S0.14-far-switch-merges-before-reload`, operator (flight 1 INVALID on its host, re-hosted on `jool-park-nerv`; flight 2 red on a spec error, fixed; flight 3 PARSEK-FAIL on a product defect, FAR-SWITCH-INTENT-TTL-RACE, now fixed and the lane re-pinned to it); the two-switch reading lane S0.15 flew once and was WITHDRAWN (no committed host). Closes when S0.14 flies green with the fix; the #266 stash stays unreached by any flown lane until a host is harvested; test gap]
 
 Shape: the player records a vessel, then switches to a vessel OUTSIDE the physics bubble (map
 Switch-To, or the stock alarm's Jump in FLIGHT). Stock's `setActiveVessel` fires
@@ -194,8 +197,11 @@ S0.14 third flight, 2026-11-14 on the PC (head a3624e48f): the far scene reached
 1.34 s after the arm, the consume was Authorized and a standalone segment started on the debris,
 the P6 outcome above (recordings 2 > max 1, `recording=true` after the reload). The Case B merge
 before the reload matched again. That is a product defect, not a spec error: FAR-SWITCH-INTENT-TTL-RACE
-(above) has the design evidence, the decompile and the proposed fix. The spec is unchanged; it
-reds on every flight on this host until that fix lands and re-pins its intent token.
+(above) has the design evidence and the decompile. It is fixed on this branch (no intent is armed
+for an unloaded target), and the spec now requires `pre-switch-dialog intent not armed:
+reason=far-switch-target-unloaded targetPid=4267147709` before the reload and forbids any MapSwitchTo
+intent line for the debris in place of the old stale-clear pin. Its fourth flight, with the fix, is
+owed.
 
 The two-switch sequence above flew once as the reading lane S0.15 on `miner-rover-depot` (PC,
 head ace27412f, wall 78 s), was PARSEK-FAIL(log) on its own premise and is WITHDRAWN from the

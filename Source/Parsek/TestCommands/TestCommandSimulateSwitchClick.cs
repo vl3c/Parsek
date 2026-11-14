@@ -449,7 +449,7 @@ namespace Parsek.TestCommands
                 return SwitchClickGateDecision.RefusedDialogRequired;
             if (dialogDecision == MapFocusObjectOnSelectPatch.PreSwitchDialogDecision.SkipDialogReEntry)
                 return SwitchClickGateDecision.RefusedDialogPending;
-            if (!targetIsLoaded)
+            if (!MapFocusObjectOnSelectPatch.ShouldArmIntentForSwitchTarget(targetIsLoaded))
                 return SwitchClickGateDecision.RefusedTargetUnloaded;
             return SwitchClickGateDecision.Proceed;
         }
