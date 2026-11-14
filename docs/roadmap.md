@@ -530,7 +530,7 @@ Revised 2026-10-05 (owner rulings; full design in `docs/dev/gloops-recorder-desi
 
 **Status: DESIGN v2 (2026-11-14), not implemented.** Binding design:
 `docs/dev/design-competitive-multiplayer.md`. No implementation starts before the owner says so
-(see "Current focus").
+(see "Current focus"). Planned to ship as version 1.1.0.
 
 Up to four players race each other, each in their own save and at their own pace, exchanging
 their public state through a shared folder. Nobody needs to be online at the same time.
