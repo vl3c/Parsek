@@ -29,6 +29,10 @@ namespace Parsek
                 $"deployable-no-pose-animation-{State.vesselPid}";
             internal override string DeployableNoPoseNote() =>
                 $"(deployable-no-pose-animation gate, bg vessel {State.vesselPid})";
+            internal override string LabelSuffix(string label) => $" ({label}, bg vessel {State.vesselPid})";
+            internal override string VesselFirstLabelSuffix(string label) => $" (bg vessel {State.vesselPid}, {label})";
+            internal override string ConverterDepartureContext(Vessel v) =>
+                $"bg vessel pid={State.vesselPid} rec={State.recordingId}";
         }
 
         private readonly BackgroundPartPollSink pollSink = new BackgroundPartPollSink();
@@ -174,32 +178,7 @@ namespace Parsek
         private void CheckConverterState(Vessel v, BackgroundVesselState state,
             Recording treeRec, double ut)
         {
-            if (v == null || v.parts == null) return;
-
-            int presentActive = 0;
-            for (int i = 0; i < v.parts.Count; i++)
-            {
-                Part p = v.parts[i];
-                if (p == null) continue;
-
-                var evt = FlightRecorder.CheckConverterTransition(
-                    p.persistentId, p.partInfo?.name ?? "unknown",
-                    FlightRecorder.IsAnyConverterActiveOnPart(p), state.activeConverterParts, ut);
-                if (evt.HasValue)
-                {
-                    treeRec.PartEvents.Add(evt.Value);
-                    ParsekLog.Verbose("BgRecorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
-                        $"pid={evt.Value.partPersistentId} (bg vessel {state.vesselPid}, converter)");
-                }
-                if (state.activeConverterParts.Contains(p.persistentId))
-                    presentActive++;
-            }
-
-            // A running converter part that left this vessel (decouple, undock, death) gets a
-            // stop here, or the recording reads it as running to its end.
-            FlightRecorder.AppendDepartedConverterStops(v, state.activeConverterParts, presentActive,
-                treeRec.PartEvents, ut, "BgRecorder",
-                $"bg vessel pid={state.vesselPid} rec={state.recordingId}");
+            PartStatePoller.PollConverters(v, state.activeConverterParts, ut, BindPollSink(state, treeRec));
         }
 
         /// <summary>
@@ -211,23 +190,7 @@ namespace Parsek
         private void CheckWheelDamageState(Vessel v, BackgroundVesselState state,
             Recording treeRec, double ut)
         {
-            if (v == null || v.parts == null) return;
-
-            for (int i = 0; i < v.parts.Count; i++)
-            {
-                Part p = v.parts[i];
-                if (p == null) continue;
-
-                var evt = FlightRecorder.CheckWheelDamageTransition(
-                    p.persistentId, p.partInfo?.name ?? "unknown",
-                    FlightRecorder.IsAnyWheelDamagedOnPart(p), state.damagedWheelParts, ut);
-                if (evt.HasValue)
-                {
-                    treeRec.PartEvents.Add(evt.Value);
-                    ParsekLog.Verbose("BgRecorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
-                        $"pid={evt.Value.partPersistentId} (bg vessel {state.vesselPid}, wheel damage)");
-                }
-            }
+            PartStatePoller.PollWheelDamage(v, state.damagedWheelParts, ut, BindPollSink(state, treeRec));
         }
 
         /// <summary>
@@ -319,105 +282,16 @@ namespace Parsek
         private void CheckCargoBayState(Vessel v, BackgroundVesselState state,
             Recording treeRec, double ut)
         {
-            if (v == null || v.parts == null) return;
-
-            for (int i = 0; i < v.parts.Count; i++)
-            {
-                Part p = v.parts[i];
-                if (p == null) continue;
-
-                var cargo = p.FindModuleImplementing<ModuleCargoBay>();
-                if (cargo == null) continue;
-
-                int deployIdx = cargo.DeployModuleIndex;
-                if (deployIdx < 0 || deployIdx >= p.Modules.Count)
-                {
-                    if (state.loggedCargoBayDeployIndexIssues.Add(p.persistentId))
-                    {
-                        ParsekLog.Verbose("BgRecorder", $"CargoBay: invalid DeployModuleIndex for '{p.partInfo?.name}' " +
-                            $"pid={p.persistentId} deployIdx={deployIdx} modules={p.Modules.Count}");
-                    }
-                    continue;
-                }
-                var animModule = p.Modules[deployIdx] as ModuleAnimateGeneric;
-                if (animModule == null)
-                {
-                    if (state.loggedCargoBayAnimationIssues.Add(p.persistentId))
-                    {
-                        PartModule moduleAtIndex = p.Modules[deployIdx];
-                        string moduleName = moduleAtIndex?.moduleName ?? "<null>";
-                        ParsekLog.Verbose("BgRecorder", $"CargoBay: DeployModuleIndex did not resolve to ModuleAnimateGeneric for " +
-                            $"'{p.partInfo?.name}' pid={p.persistentId} deployIdx={deployIdx} module='{moduleName}'");
-                    }
-                    continue;
-                }
-
-                FlightRecorder.ClassifyCargoBayState(animModule.animTime, cargo.closedPosition,
-                    FlightRecorder.ResolveCargoBayDeployLimitStop(animModule, cargo.closedPosition),
-                    out bool isOpen, out bool isClosed);
-
-                if (!isOpen && !isClosed)
-                {
-                    if (cargo.closedPosition >= 0.1f && cargo.closedPosition <= 0.9f &&
-                        state.loggedCargoBayClosedPositionIssues.Add(p.persistentId))
-                    {
-                        ParsekLog.Verbose("BgRecorder", $"CargoBay: unsupported closedPosition for '{p.partInfo?.name}' " +
-                            $"pid={p.persistentId} closedPosition={cargo.closedPosition.ToString("F3", CultureInfo.InvariantCulture)} " +
-                            $"animTime={animModule.animTime.ToString("F3", CultureInfo.InvariantCulture)}");
-                    }
-                    continue;
-                }
-
-                var evt = FlightRecorder.CheckCargoBayTransition(
-                    p.persistentId, p.partInfo?.name ?? "unknown", isOpen, state.openCargoBays, ut);
-                if (evt.HasValue)
-                {
-                    treeRec.PartEvents.Add(evt.Value);
-                    ParsekLog.Verbose("BgRecorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
-                        $"pid={evt.Value.partPersistentId} (bg vessel {state.vesselPid})");
-                }
-            }
+            PartStatePoller.PollCargoBays(v, state.openCargoBays, state.loggedCargoBayDeployIndexIssues,
+                state.loggedCargoBayAnimationIssues, state.loggedCargoBayClosedPositionIssues,
+                ut, BindPollSink(state, treeRec));
         }
 
         private void CheckFairingState(Vessel v, BackgroundVesselState state,
             Recording treeRec, double ut)
         {
-            if (v == null || v.parts == null) return;
-
-            for (int i = 0; i < v.parts.Count; i++)
-            {
-                Part p = v.parts[i];
-                if (p == null) continue;
-
-                var fairing = p.FindModuleImplementing<ModuleProceduralFairing>();
-                if (fairing == null) continue;
-
-                bool isDeployed;
-                try
-                {
-                    float scalar = fairing.GetScalar;
-                    if (float.IsNaN(scalar) || float.IsInfinity(scalar)) continue;
-                    isDeployed = scalar >= 0.5f;
-                }
-                catch (Exception ex)
-                {
-                    if (state.loggedFairingReadFailures.Add(p.persistentId))
-                    {
-                        ParsekLog.Verbose("BgRecorder", $"Fairing: unable to read GetScalar for '{p.partInfo?.name}' " +
-                            $"pid={p.persistentId} ({ex.GetType().Name}: {ex.Message})");
-                    }
-                    continue;
-                }
-
-                var evt = FlightRecorder.CheckFairingTransition(
-                    p.persistentId, p.partInfo?.name ?? "unknown", isDeployed, state.deployedFairings, ut);
-                if (evt.HasValue)
-                {
-                    treeRec.PartEvents.Add(evt.Value);
-                    ParsekLog.Verbose("BgRecorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
-                        $"pid={evt.Value.partPersistentId} (bg vessel {state.vesselPid})");
-                }
-            }
+            PartStatePoller.PollFairings(v, state.deployedFairings, state.loggedFairingReadFailures,
+                ut, BindPollSink(state, treeRec));
         }
 
         private void CheckEngineState(Vessel v, BackgroundVesselState state,

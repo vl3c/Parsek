@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using UnityEngine;
 
 namespace Parsek
@@ -29,6 +30,15 @@ namespace Parsek
 
         /// <summary>Closing note of the pose-less deployable summary line.</summary>
         internal abstract string DeployableNoPoseNote();
+
+        /// <summary>Text after <c>pid=N</c> when the family label leads the vessel note.</summary>
+        internal abstract string LabelSuffix(string label);
+
+        /// <summary>Text after <c>pid=N</c> when the vessel note leads the family label.</summary>
+        internal abstract string VesselFirstLabelSuffix(string label);
+
+        /// <summary>The vessel context of the departed-converter summary line.</summary>
+        internal abstract string ConverterDepartureContext(Vessel v);
     }
 
     /// <summary>
@@ -152,6 +162,171 @@ namespace Parsek
 
                 var evt = FlightRecorder.CheckJettisonTransition(
                     p.persistentId, p.partInfo?.name ?? "unknown", isJettisoned, jettisonedShrouds, ut);
+                if (evt.HasValue)
+                {
+                    sink.Events.Add(evt.Value);
+                    ParsekLog.Verbose(sink.Tag, $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
+                        $"pid={evt.Value.partPersistentId}{sink.EventSuffix()}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Converter on / off per part, then a stop for every running converter part that left
+        /// the vessel (decouple, undock, death), or the recording reads it as running to its end.
+        /// </summary>
+        internal static void PollConverters(Vessel v, HashSet<uint> activeConverterParts,
+            double ut, PartPollSink sink)
+        {
+            if (v == null || v.parts == null) return;
+
+            int presentActive = 0;
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                var evt = FlightRecorder.CheckConverterTransition(
+                    p.persistentId, p.partInfo?.name ?? "unknown",
+                    FlightRecorder.IsAnyConverterActiveOnPart(p), activeConverterParts, ut);
+                if (evt.HasValue)
+                {
+                    sink.Events.Add(evt.Value);
+                    ParsekLog.Verbose(sink.Tag, $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
+                        $"pid={evt.Value.partPersistentId}{sink.VesselFirstLabelSuffix("converter")}");
+                }
+                if (activeConverterParts.Contains(p.persistentId))
+                    presentActive++;
+            }
+
+            FlightRecorder.AppendDepartedConverterStops(v, activeConverterParts, presentActive,
+                sink.Events, ut, sink.Tag, sink.ConverterDepartureContext(v));
+        }
+
+        /// <summary>
+        /// Wheel break / repair per part. On the background side this is the path an EVA repair
+        /// takes: the engineer is the active vessel, so the rover he fixes is a loaded background
+        /// vessel and only its poll can see <c>isDamaged</c> clear.
+        /// </summary>
+        internal static void PollWheelDamage(Vessel v, HashSet<uint> damagedWheelParts,
+            double ut, PartPollSink sink)
+        {
+            if (v == null || v.parts == null) return;
+
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                var evt = FlightRecorder.CheckWheelDamageTransition(
+                    p.persistentId, p.partInfo?.name ?? "unknown",
+                    FlightRecorder.IsAnyWheelDamagedOnPart(p), damagedWheelParts, ut);
+                if (evt.HasValue)
+                {
+                    sink.Events.Add(evt.Value);
+                    ParsekLog.Verbose(sink.Tag, $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
+                        $"pid={evt.Value.partPersistentId}{sink.VesselFirstLabelSuffix("wheel damage")}");
+                }
+            }
+        }
+
+        internal static void PollCargoBays(Vessel v, HashSet<uint> openCargoBays,
+            HashSet<uint> loggedDeployIndexIssues, HashSet<uint> loggedAnimationIssues,
+            HashSet<uint> loggedClosedPositionIssues, double ut, PartPollSink sink)
+        {
+            if (v == null || v.parts == null) return;
+
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                var cargo = p.FindModuleImplementing<ModuleCargoBay>();
+                if (cargo == null) continue;
+
+                // Resolve the linked ModuleAnimateGeneric via DeployModuleIndex
+                int deployIdx = cargo.DeployModuleIndex;
+                if (deployIdx < 0 || deployIdx >= p.Modules.Count)
+                {
+                    if (loggedDeployIndexIssues.Add(p.persistentId))
+                    {
+                        ParsekLog.Verbose(sink.Tag, $"CargoBay: invalid DeployModuleIndex for '{p.partInfo?.name}' " +
+                            $"pid={p.persistentId} deployIdx={deployIdx} modules={p.Modules.Count}");
+                    }
+                    continue;
+                }
+                var animModule = p.Modules[deployIdx] as ModuleAnimateGeneric;
+                if (animModule == null)
+                {
+                    if (loggedAnimationIssues.Add(p.persistentId))
+                    {
+                        PartModule moduleAtIndex = p.Modules[deployIdx];
+                        string moduleName = moduleAtIndex?.moduleName ?? "<null>";
+                        ParsekLog.Verbose(sink.Tag, $"CargoBay: DeployModuleIndex did not resolve to ModuleAnimateGeneric for " +
+                            $"'{p.partInfo?.name}' pid={p.persistentId} deployIdx={deployIdx} module='{moduleName}'");
+                    }
+                    continue;
+                }
+
+                FlightRecorder.ClassifyCargoBayState(animModule.animTime, cargo.closedPosition,
+                    FlightRecorder.ResolveCargoBayDeployLimitStop(animModule, cargo.closedPosition),
+                    out bool isOpen, out bool isClosed);
+
+                if (!isOpen && !isClosed)
+                {
+                    if (cargo.closedPosition >= 0.1f && cargo.closedPosition <= 0.9f &&
+                        loggedClosedPositionIssues.Add(p.persistentId))
+                    {
+                        ParsekLog.Verbose(sink.Tag, $"CargoBay: unsupported closedPosition for '{p.partInfo?.name}' " +
+                            $"pid={p.persistentId} closedPosition={cargo.closedPosition.ToString("F3", CultureInfo.InvariantCulture)} " +
+                            $"animTime={animModule.animTime.ToString("F3", CultureInfo.InvariantCulture)}");
+                    }
+                    continue; // mid-transition or non-standard closedPosition
+                }
+
+                var evt = FlightRecorder.CheckCargoBayTransition(
+                    p.persistentId, p.partInfo?.name ?? "unknown", isOpen, openCargoBays, ut);
+                if (evt.HasValue)
+                {
+                    sink.Events.Add(evt.Value);
+                    ParsekLog.Verbose(sink.Tag, $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
+                        $"pid={evt.Value.partPersistentId}{sink.EventSuffix()}");
+                }
+            }
+        }
+
+        internal static void PollFairings(Vessel v, HashSet<uint> deployedFairings,
+            HashSet<uint> loggedReadFailures, double ut, PartPollSink sink)
+        {
+            if (v == null || v.parts == null) return;
+
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                var fairing = p.FindModuleImplementing<ModuleProceduralFairing>();
+                if (fairing == null) continue;
+
+                bool isDeployed;
+                try
+                {
+                    float scalar = fairing.GetScalar;
+                    if (float.IsNaN(scalar) || float.IsInfinity(scalar)) continue;
+                    isDeployed = scalar >= 0.5f;
+                }
+                catch (Exception ex)
+                {
+                    if (loggedReadFailures.Add(p.persistentId))
+                    {
+                        ParsekLog.Verbose(sink.Tag, $"Fairing: unable to read GetScalar for '{p.partInfo?.name}' " +
+                            $"pid={p.persistentId} ({ex.GetType().Name}: {ex.Message})");
+                    }
+                    continue;
+                }
+
+                var evt = FlightRecorder.CheckFairingTransition(
+                    p.persistentId, p.partInfo?.name ?? "unknown", isDeployed, deployedFairings, ut);
                 if (evt.HasValue)
                 {
                     sink.Events.Add(evt.Value);

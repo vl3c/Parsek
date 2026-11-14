@@ -33,6 +33,9 @@ namespace Parsek
                 $" (deployable-broken edge, deployState={ds})";
             internal override string DeployableNoPoseRateKey() => "deployable-no-pose-animation";
             internal override string DeployableNoPoseNote() => "(deployable-no-pose-animation gate)";
+            internal override string LabelSuffix(string label) => $" ({label})";
+            internal override string VesselFirstLabelSuffix(string label) => $" ({label})";
+            internal override string ConverterDepartureContext(Vessel v) => $"vessel pid={v.persistentId}";
         }
 
         private ActivePartPollSink activePollSink;
@@ -510,29 +513,7 @@ namespace Parsek
         private void CheckConverterState(Vessel v)
         {
             if (v == null || v.parts == null) return;
-
-            double ut = Planetarium.GetUniversalTime();
-            int presentActive = 0;
-            for (int i = 0; i < v.parts.Count; i++)
-            {
-                Part p = v.parts[i];
-                if (p == null) continue;
-
-                var evt = CheckConverterTransition(
-                    p.persistentId, p.partInfo?.name ?? "unknown",
-                    IsAnyConverterActiveOnPart(p), activeConverterParts, ut);
-                if (evt.HasValue)
-                {
-                    PartEvents.Add(evt.Value);
-                    ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
-                        $"pid={evt.Value.partPersistentId} (converter)");
-                }
-                if (activeConverterParts.Contains(p.persistentId))
-                    presentActive++;
-            }
-
-            AppendDepartedConverterStops(v, activeConverterParts, presentActive, PartEvents, ut,
-                "Recorder", $"vessel pid={v.persistentId}");
+            PartStatePoller.PollConverters(v, activeConverterParts, Planetarium.GetUniversalTime(), ActivePollSink);
         }
 
         /// <summary>
@@ -605,23 +586,7 @@ namespace Parsek
         private void CheckWheelDamageState(Vessel v)
         {
             if (v == null || v.parts == null) return;
-
-            double ut = Planetarium.GetUniversalTime();
-            for (int i = 0; i < v.parts.Count; i++)
-            {
-                Part p = v.parts[i];
-                if (p == null) continue;
-
-                var evt = CheckWheelDamageTransition(
-                    p.persistentId, p.partInfo?.name ?? "unknown",
-                    IsAnyWheelDamagedOnPart(p), damagedWheelParts, ut);
-                if (evt.HasValue)
-                {
-                    PartEvents.Add(evt.Value);
-                    ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
-                        $"pid={evt.Value.partPersistentId} (wheel damage)");
-                }
-            }
+            PartStatePoller.PollWheelDamage(v, damagedWheelParts, Planetarium.GetUniversalTime(), ActivePollSink);
         }
 
         /// <summary>
@@ -1379,64 +1344,9 @@ namespace Parsek
         private void CheckCargoBayState(Vessel v)
         {
             if (v == null || v.parts == null) return;
-
-            double ut = Planetarium.GetUniversalTime();
-            for (int i = 0; i < v.parts.Count; i++)
-            {
-                Part p = v.parts[i];
-                if (p == null) continue;
-
-                var cargo = p.FindModuleImplementing<ModuleCargoBay>();
-                if (cargo == null) continue;
-
-                // Resolve the linked ModuleAnimateGeneric via DeployModuleIndex
-                int deployIdx = cargo.DeployModuleIndex;
-                if (deployIdx < 0 || deployIdx >= p.Modules.Count)
-                {
-                    if (loggedCargoBayDeployIndexIssues.Add(p.persistentId))
-                    {
-                        ParsekLog.Verbose("Recorder", $"CargoBay: invalid DeployModuleIndex for '{p.partInfo?.name}' " +
-                            $"pid={p.persistentId} deployIdx={deployIdx} modules={p.Modules.Count}");
-                    }
-                    continue;
-                }
-                var animModule = p.Modules[deployIdx] as ModuleAnimateGeneric;
-                if (animModule == null)
-                {
-                    if (loggedCargoBayAnimationIssues.Add(p.persistentId))
-                    {
-                        PartModule moduleAtIndex = p.Modules[deployIdx];
-                        string moduleName = moduleAtIndex?.moduleName ?? "<null>";
-                        ParsekLog.Verbose("Recorder", $"CargoBay: DeployModuleIndex did not resolve to ModuleAnimateGeneric for " +
-                            $"'{p.partInfo?.name}' pid={p.persistentId} deployIdx={deployIdx} module='{moduleName}'");
-                    }
-                    continue;
-                }
-
-                ClassifyCargoBayState(animModule.animTime, cargo.closedPosition,
-                    ResolveCargoBayDeployLimitStop(animModule, cargo.closedPosition),
-                    out bool isOpen, out bool isClosed);
-
-                if (!isOpen && !isClosed)
-                {
-                    if (cargo.closedPosition >= 0.1f && cargo.closedPosition <= 0.9f &&
-                        loggedCargoBayClosedPositionIssues.Add(p.persistentId))
-                    {
-                        ParsekLog.Verbose("Recorder", $"CargoBay: unsupported closedPosition for '{p.partInfo?.name}' " +
-                            $"pid={p.persistentId} closedPosition={cargo.closedPosition.ToString("F3", CultureInfo.InvariantCulture)} " +
-                            $"animTime={animModule.animTime.ToString("F3", CultureInfo.InvariantCulture)}");
-                    }
-                    continue; // mid-transition or non-standard closedPosition
-                }
-
-                var evt = CheckCargoBayTransition(
-                    p.persistentId, p.partInfo?.name ?? "unknown", isOpen, openCargoBays, ut);
-                if (evt.HasValue)
-                {
-                    PartEvents.Add(evt.Value);
-                    ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
-                }
-            }
+            PartStatePoller.PollCargoBays(v, openCargoBays, loggedCargoBayDeployIndexIssues,
+                loggedCargoBayAnimationIssues, loggedCargoBayClosedPositionIssues,
+                Planetarium.GetUniversalTime(), ActivePollSink);
         }
 
         private void CheckLadderState(Vessel v)
@@ -1805,41 +1715,8 @@ namespace Parsek
         private void CheckFairingState(Vessel v)
         {
             if (v == null || v.parts == null) return;
-
-            double ut = Planetarium.GetUniversalTime();
-            for (int i = 0; i < v.parts.Count; i++)
-            {
-                Part p = v.parts[i];
-                if (p == null) continue;
-
-                var fairing = p.FindModuleImplementing<ModuleProceduralFairing>();
-                if (fairing == null) continue;
-
-                bool isDeployed;
-                try
-                {
-                    float scalar = fairing.GetScalar;
-                    if (float.IsNaN(scalar) || float.IsInfinity(scalar)) continue;
-                    isDeployed = scalar >= 0.5f;
-                }
-                catch (Exception ex)
-                {
-                    if (loggedFairingReadFailures.Add(p.persistentId))
-                    {
-                        ParsekLog.Verbose("Recorder", $"Fairing: unable to read GetScalar for '{p.partInfo?.name}' " +
-                            $"pid={p.persistentId} ({ex.GetType().Name}: {ex.Message})");
-                    }
-                    continue;
-                }
-
-                var evt = CheckFairingTransition(
-                    p.persistentId, p.partInfo?.name ?? "unknown", isDeployed, deployedFairings, ut);
-                if (evt.HasValue)
-                {
-                    PartEvents.Add(evt.Value);
-                    ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
-                }
-            }
+            PartStatePoller.PollFairings(v, deployedFairings, loggedFairingReadFailures,
+                Planetarium.GetUniversalTime(), ActivePollSink);
         }
     }
 }
