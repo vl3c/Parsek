@@ -4074,6 +4074,9 @@ class CommittedFixtureSweepTests(unittest.TestCase):
     RECORDED_FIXTURES["depot-route-recorded-career"] = RECORDED_FIXTURES["depot-route-recorded"]
     RECORDED_FIXTURES["bdock-recorded-career"] = RECORDED_FIXTURES["bdock-recorded"]
     RECORDED_FIXTURES["rover-route-recorded-career"] = RECORDED_FIXTURES["rover-route-recorded"]
+    # The far-body timeline lanes' career host (FAR-1, FAR-3): the same builder over
+    # duna-ike-recorded, so it pins its source's payload the same way.
+    RECORDED_FIXTURES["duna-ike-recorded-career"] = RECORDED_FIXTURES["duna-ike-recorded"]
     # TOUR-1's host, built by harness/tools/build_tourist_splashdown_career.py: the same
     # career conversion plus a seated tourist, her Active contract and its accept row;
     # the ParsekScenario node and every recording sidecar stay byte-identical (gated by

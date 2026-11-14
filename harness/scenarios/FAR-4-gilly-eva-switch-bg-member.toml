@@ -1,0 +1,127 @@
+schema = 1
+id = "FAR-4-gilly-eva-switch-bg-member"
+# =====================================================================================
+# FAR-4: CI-1's EVA + MAP SWITCH-BACK, IN GILLY ORBIT, ON A VESSEL THAT IS ALSO A
+# COMMITTED SPAWNED LEAF.
+# (Far-body timeline program, 2026-11-14: the vessel-switch timeline operation at a far
+# body.)
+#
+# WHY. CI-1 proved the switch-segment consume on the bg-member-continuation route in LKO,
+# on a vessel no committed tree claims. Two things change at Gilly, and each picks a
+# different branch of the same decision:
+#   1. The switch target is the spawned leaf (fcb6f503) of a committed tree. The map
+#      Switch-To prefix asks `targetIsSeparateCommittedVessel` (Case C: commit or discard
+#      the live tree first, then restore the committed clone). Here the vessel is ALSO the
+#      live tree's background member (the EVA branch's bg child), so the right answer is
+#      NOT Case C: the live tree owns it now. A lookup that matches the committed claim by
+#      pid first sends the switch down `committed-spawned-clone` or a dialog instead.
+#   2. Gilly's gravity is tiny (mu 8.29e6, ~14 m/s orbital speed at the host's 40 km
+#      SMA), so the kerbal's push-off and the 10 s settle move the pair in a frame where a
+#      Kerbin-tuned distance or speed constant can misjudge "loaded" or "on surface".
+#
+# THE HOST. `eve-gilly-recorded` (SANDBOX, UT 15,879,279.58): the stock Kerbal X lander
+# ('#autoLOC_501232', pid 2708531065, guid 5493223fe49b42b181998849a9a2aefa) ORBITING
+# Gilly at SMA 40,106.8 m with Jebediah aboard; the spawned leaf fcb6f503 of committed
+# tree 16af6b5e546a4bef86fcd8cde1ddc924 (10 recordings), plus an isActive copy the boot
+# discards.
+#
+# THE FLIGHT, CI-1's order after V32M's boot:
+#   boot   LoadGame (FLIGHT, the committed tip promoted), stop and discard that promotion,
+#          settings (auto-record on launch and on EVA off).
+#   R      StartRecording on the lander; EvaExit release=true settleSeconds=10 (Jebediah
+#          out, the EVA branch: active child the kerbal, bg child the lander);
+#          ListHandles kind=active (the bg member); SimulateStockSwitchClick pid=2708531065
+#          (the map Switch-To back to the lander); StopRecording; quit.
+#
+# PRE-REGISTERED READINGS:
+#   - `targetIsSeparateCommittedVessel=true` / `dialogDecision=` other than NoPriorSession:
+#     the committed claim on the lander won over the live tree's bg member (the defect
+#     class this lane exists for). Read `switchclick gate` in full.
+#   - `route=committed-spawned-clone`: the consume restored the committed clone instead of
+#     continuing the bg member.
+#   - `on-surface-defer-to-trigger`: the consume read the Gilly orbit as on-surface.
+#   - `targetIsUnloaded=true`: the 10 s settle carried the pair past the load range.
+#
+# FAST-LANE CHECKLIST: (1) reuse: CI-1's driver and V32M's boot, no new flight; (2) no
+# warp; (3)-(5) no dwell, burn or coast beyond the 10 s settle; (6) retry `once`;
+# (7) recordings window 10..10 (nothing new is committed; the live tree is not saved);
+# (8) operator, ~90 s expected; (9) flight_efficiency.py after the first green flight.
+tier = "operator"
+description = "Far-body vessel switch: in Gilly orbit on eve-gilly-recorded the committed Kerbal X lander is recorded, Jebediah goes EVA (release, 10 s settle) and the map Switch-To returns to the lander, which is both the live tree's background member and a committed tree's spawned leaf; the switch must take the bg-member-continuation route with no Case C dialog and no committed-clone restore."
+instanceProfile = "stock-minimal"
+tags = ["FAR-4", "far-body", "gilly", "eve", "sandbox", "switch-segment", "bg-member", "eva",
+        "timeline-ops", "runtime-handles", "recorded-fixture", "pending-flight", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/eve-gilly-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+# Budget arithmetic: 300 LoadGame + 180 StartRecording + 120 EvaExit + 120 switch = 720;
+# runtime 1200 adds the inert steps and FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },           expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                  expect = "OK" },
+  { cmd = "DiscardTree",                                                                    expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },        expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnEva", value = "false" },           expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },             expect = "OK" },
+  { cmd = "StartRecording",                                                                 expect = "OK", budget = 180 },
+  { cmd = "EvaExit",        args = { release = "true", settleSeconds = "10" },              expect = "OK", budget = 120 },
+  { cmd = "ListHandles",    args = { kind = "active" }, label = "bg",                       expect = "OK" },
+  { cmd = "SimulateStockSwitchClick", args = { pid = "2708531065" },                        expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                  expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                   expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["gilly", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 10, max = 10 }
+
+[expectations.logContracts]
+required = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "Recording started",
+  # CI-1's shape: the branch's activeChild is the vessel, then the vessel goes background.
+  "Tree branch created: type=EVA, bp=[0-9a-f]{32}, activeChild=[0-9a-f]{32} \\(pid=2708531065\\), bgChild=[0-9a-f]{32} \\(pid=[0-9]+\\), evaCrew=Jebediah Kerman",
+  "Transitioned to background \\(pid=2708531065, points=[1-9][0-9]*, orbitSegments=[0-9]+\\)",
+  "listhandles kind=active count=2 truncated=false",
+  "switchclick gate targetPid=2708531065 targetName=[^\\r\\n]* scenarioReady=true canSwitchVesselsFar=true targetIsActiveVessel=false targetIsUnloaded=false hasActiveRecording=true hasActiveSession=false priorFocusedPid=0 anotherDialogOpen=false targetIsSeparateCommittedVessel=false dialogDecision=NoPriorSession",
+  "switchclick armed intent: intentId=.* action=MapSwitchTo targetPid=2708531065 sourceScene=Flight .* ttl=2s route=plain-arm-and-switch",
+  "unique-terminal-leaf treeId=\\S+ focusedPid=2708531065 leafRecId=[0-9a-f]{32}",
+  "\\[SwitchSegment\\] created intentId=\\S+ sessionId=\\S+ treeId=\\S+ parentRecId=[0-9a-f]{32} segmentRecId=[0-9a-f-]{36} branchPointId=[0-9a-f-]{36} sourcePid=[0-9]+ focusedPid=2708531065 focusedName='[^'\\r\\n]*' reason=MapSwitchTo",
+  "\\[SwitchSegment\\] recorder-bound route=bg-member-continuation new-recording-id=[0-9a-f-]{36} vessel-pid=2708531065",
+  "\\[SwitchSegment\\] route=bg-member-continuation intentId=\\S+ sessionId=\\S+ treeId=\\S+ parentRecId=[0-9a-f]{32} segmentRecId=[0-9a-f-]{36} bgRecId=[0-9a-f]{32} sourcePid=[0-9]+ focusedPid=2708531065",
+  "\\[SwitchIntent\\] cleared: intentId=\\S+ action=MapSwitchTo targetPid=2708531065 reason=consumed-into-segment",
+  "switchclick complete site=map targetPid=2708531065 targetName=[^\\r\\n]* activeVesselPid=2708531065 switched=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "\\[SwitchSegment\\] route=standalone",
+  "\\[SwitchSegment\\] route=bg-lookup-failed-standalone",
+  "\\[SwitchSegment\\] route=committed-spawned-clone",
+  "bg-lookup-failed-start-standalone",
+  "bg-flush-failed-start-standalone",
+  "continuation-refused-start-standalone",
+  "ambiguous-parent-start-standalone",
+  "reason=dangling-childbranchpoint",
+  "switchclick refused",
+  "on-surface-defer-to-trigger",
+]
+
+[runtime]
+budgetSeconds = 1200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

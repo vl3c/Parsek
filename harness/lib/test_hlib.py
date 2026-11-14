@@ -4945,8 +4945,19 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # regexed). Not an H-series id; CommittedBatchTallySourceSyncTests gates its `total=`.
     # Flown green twice with one cell on 2026-11-07; a second cell (engine skirts) and the
     # kept-truss checks were added after, so it leaves on the first flight of that shape.
+    # FAR-1-ike-rewind-to-launch-career, FAR-2-duna-relaunch-rewind-keeps-landed,
+    # FAR-3-ike-revert-to-launch and FAR-5-laythe-physics-warp-record ENTERED on 2026-11-14
+    # (the far-body timeline program: a Rewind-to-Launch at Ike in a career, RR-1's relaunch
+    # rewind on duna-park-recorded, a stock revert with a committed Ike leaf, a recording under
+    # physics warp in Laythe orbit, each then the LeafVesselPlacement category's one cell,
+    # `total=1` literal with the split regexed). Not H-series ids;
+    # CommittedBatchTallySourceSyncTests gates their `total=`. Each leaves on its first flight.
     INTERIM_PIN_IDS: set = {
         "FGV-1-fairing-ghost-visual",
+        "FAR-1-ike-rewind-to-launch-career",
+        "FAR-2-duna-relaunch-rewind-keeps-landed",
+        "FAR-3-ike-revert-to-launch",
+        "FAR-5-laythe-physics-warp-record",
     }
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
@@ -10799,6 +10810,12 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "RW-25-refly-recover-pressed.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a Re-Fly of a committed CS Flea Probe lands on KSC grass, stock's Recover is pressed into the Re-Fly merge modal (Recover mergeDialog=refly), the merge lands at the Space Center where stock recovers the pod and its payout is booked once, and after a Rewind-to-Launch the recovery crosses once. LIVE-PROVEN 2026-10-31 (`2026-10-31_1811`, 348 s); owed: the ordinary promotion call",
         "SLM-1-standalone-loop-map-position.toml": "tier=operator by the calibration discipline, NOT debt: a Recordings-tab loop on `pad-runway-pair` (stock-minimal, the `standalone-loop-map` preset: a 1500 s orbital run looping every 4000 s) whose map ghost is read by position against the recorded orbit in FLIGHT map view 300 s into its second run. LIVE-PROVEN 2026-11-01 (`2026-11-01_0034`, 105 s) after a first flight red on a fixture defect; owed: the ordinary promotion call",
         "SLM-1T-standalone-loop-ts-position.toml": "tier=operator by the calibration discipline, NOT debt: the same `standalone-loop-map` preset on `pad-runway-pair` (stock-minimal), saved 400 s into its third run and reloaded into the Tracking Station, where its map ghost is read by position against the recorded orbit. LIVE-PROVEN 2026-11-01 (`2026-11-01_0037`, 105 s) after a first flight red on a fixture defect; owed: the ordinary promotion call",
+        "FAR-1-ike-rewind-to-launch-career.toml": "tier=operator by the calibration discipline, NOT debt: a Rewind-to-Launch whose launch is a recorded segment of the DD1 probe's Ike orbit on `duna-ike-recorded-career` (stock-minimal), its ghost read at Ike in the Tracking Station, the leaf spawn at the Space Center read by position (LeafVesselPlacement) and the ledger by the rewind-aware oracle. AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), NEVER FLOWN; owed: the reading run (tag `pending-flight`), then the ordinary promotion call",
+        "FAR-2-duna-relaunch-rewind-keeps-landed.toml": "tier=operator by the calibration discipline, NOT debt: RR-1's relaunch and Rewind-to-Launch on `duna-park-recorded` (stock-minimal), where two same-name 'Kerbal X' ships are landed on Duna; the owner strip must keep both and every spawned leaf must sit at its terminal place (LeafVesselPlacement). AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), NEVER FLOWN; owed: the reading run (tag `pending-flight`), then the ordinary promotion call",
+        "FAR-3-ike-revert-to-launch.toml": "tier=operator by the calibration discipline, NOT debt: IR-2's stock Revert to Launch on `duna-ike-recorded` (stock-minimal) after a rails warp on the pad, with the committed DD1 leaf read at its Ike orbit and phase after the revert (LeafVesselPlacement in FLIGHT). AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), NEVER FLOWN; owed: the reading run (tag `pending-flight`), then the ordinary promotion call",
+        "FAR-4-gilly-eva-switch-bg-member.toml": "tier=operator by the calibration discipline, NOT debt: CI-1's EVA and map Switch-To in Gilly orbit on `eve-gilly-recorded` (stock-minimal), where the switch target is both the live tree's background member and a committed tree's spawned leaf. AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), NEVER FLOWN; owed: the reading run (tag `pending-flight`), then the ordinary promotion call",
+        "FAR-5-laythe-physics-warp-record.toml": "tier=operator by the calibration discipline, NOT debt: a recording made through ~120 s of 4x physics warp in Laythe orbit on `jool-laythe-recorded` (stock-minimal), committed, with the vessel read against its committed leaf's orbit (LeafVesselPlacement in FLIGHT). AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), NEVER FLOWN; owed: the reading run (tag `pending-flight`), then the ordinary promotion call",
+        "FAR-6-ike-loop-watch-quickload.toml": "tier=operator by the calibration discipline, NOT debt: a looped arc of the DD1 probe's Ike orbit on `duna-ike-recorded` (stock-minimal) watched, then F5 / F9 under watch with the loop's ghost re-entered after the QuickloadFlight load. AUTHORED 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), NEVER FLOWN; owed: the reading run (tag `pending-flight`), then the ordinary promotion call",
         "FGV-1-fairing-ghost-visual.toml": "tier=operator by PURPOSE, NOT debt: a visual-confirmation lane whose product is a set of PNGs for the owner's eyes (four stock procedural fairings, an engine plate and an engine shroud beside their Parsek ghosts in LKO on `eva2-lko-crewed`, intact / jettisoned / separated) and whose gates are that the cells passed, every image was written and the ghost shows the same truss, shroud and mount meshes as the real part. Flown green 2026-11-07 (one-cell shape twice; two-cell shape `2026-11-07_2342`)",
         "SLM-2-standalone-loop-map-pause.toml": "tier=operator by the calibration discipline, NOT debt: the same `standalone-loop-map` preset on `pad-runway-pair` (stock-minimal), read in FLIGHT map view in the pause after its second run, where no map ghost may exist. LIVE-PROVEN 2026-11-01 (`2026-11-01_0036`, 104 s) after a first flight red on a fixture defect; owed: the ordinary promotion call",
         "RW-20-strategy-and-deadline-after-rewind.toml": "tier=operator by the calibration discipline, NOT debt: the rewind ledger campaign's lane on `cs-career-mun4` (stock-tree, not in the nightly instance set): a Jumping Flea on the pad, a strategy activated at the Space Center and a real contract deadline passed by warp, a Rewind-to-Launch before both, the same strategy refused, and the committed fail applied once when the deadline passes again. LIVE-PROVEN 2026-10-31 (`2026-10-31_0425_RW-20-strategy-and-deadline-after-rewind`); owed: the ordinary promotion call",
@@ -13913,6 +13930,11 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
                                     "V7W-minmus-physics-warp.toml",
                                     # [M] arm-only floor case, Dres fixture.
                                     "V9-dres-player-loop.toml",
+                                    # [M] 2026-11-14, the far-body timeline program.
+                                    # DECLARED BARE, NEVER FLOWN: a looped Ike-orbit
+                                    # arc watched across an F5 / F9; the manifest is
+                                    # report-only until its reading run.
+                                    "FAR-6-ike-loop-watch-quickload.toml",
                                     # [M] the Dres re-aimed arrival; synthesizer runs.
                                     "V10-dres-loop-arrival.toml",
                                     # [M] arm-only floor case, Moho fixture.

@@ -1,0 +1,112 @@
+schema = 1
+id = "FAR-5-laythe-physics-warp-record"
+# =====================================================================================
+# FAR-5: A RECORDING MADE UNDER PHYSICS WARP IN LAYTHE ORBIT, COMMITTED, READ BY POSITION.
+# (Far-body timeline program, 2026-11-14: the physics-warp timeline operation at a far
+# body.)
+#
+# WHY. Physics warp keeps the vessel unpacked and integrates it at 4x, so the recorder's
+# per-frame sampling, the Krakensbane-corrected velocity and the floating origin all run
+# at the speed and distance a far moon gives them: the host orbits Laythe at ~2.2 km/s,
+# ~71 km up, ~27.5 Gm from the Sun's origin through Jool. V7W read physics warp in Minmus
+# orbit through a loop ghost; no lane records under physics warp outside Kerbin's SOI,
+# commits the result and then asks where the vessel is. A frame bug in that path either
+# kicks the live vessel (its orbit no longer the one its committed leaf recorded) or
+# writes a recording whose terminal orbit is not the one the vessel flies.
+#
+# THE HOST. `jool-laythe-recorded` (SANDBOX, UT 28,816,906.09): 'Duna Rocket' (pid
+# 807470910, Valentina aboard) ORBITING Laythe at SMA 571,060.8 m, ecc 0.028, inc 16.4 deg,
+# the spawned leaf 96d1d5b9 of committed tree 6ec68e87b782476f970a71df8c8b4685
+# (7 recordings), plus an isActive copy the boot discards.
+#
+# THE FLIGHT:
+#   boot   LoadGame (FLIGHT, the committed tip promoted), stop and discard that promotion,
+#          settings (tracers on).
+#   R      StartRecording; WarpToUT +~120 s with ladder=phys (physics warp, 4x, V7W's
+#          tokens); stop, CommitTree (a second tree), stop.
+#   check  LeafVesselPlacement in FLIGHT: the fixture's leaf 96d1d5b9 and, if the commit
+#          stamped one, R's own leaf, both against the vessel's live orbit and phase.
+#
+# PRE-REGISTERED READINGS:
+#   - `bad=1 ... verdict=sma|eccentricity|phase` on the fixture's leaf: the vessel left the
+#     orbit it was spawned on while only coasting under physics warp. The tolerances are
+#     1e-3 relative SMA (~570 m) and 1 deg of mean longitude (~10 km); a coast at 4x for
+#     120 s is not expected to approach either. Read the physics-frame and Krakensbane lines.
+#   - `compared=1`: R carries no spawn pid (in-flight commit without an adoption stamp);
+#     that is a reading, not a red.
+#   - `warptout rate requested=3 applied=` below 3: the 4x physics rate was refused at
+#     Laythe (altitude or atmosphere ceiling); V7W's Minmus reading applied 3.
+#
+# FAST-LANE CHECKLIST: (1) reuse: V7W's warp tokens and V33M's boot, no new flight;
+# (2) explicit-UT warp only; (3)-(5) one 120 s physics coast, no burn; (6) retry `once`;
+# (7) recordings window 8..9 while never flown (the host's 7 plus R, one or two);
+# (8) operator, ~2 min expected; (9) flight_efficiency.py after the first green flight.
+tier = "operator"
+description = "Far-body physics warp: on jool-laythe-recorded the Duna Rocket in Laythe orbit is recorded through ~120 s of 4x physics warp and committed; the vessel must still fly the orbit its committed leaf recorded (elements and phase at the clock), with no spawn pid on two vessels (LeafVesselPlacement in FLIGHT)."
+instanceProfile = "stock-minimal"
+tags = ["FAR-5", "far-body", "laythe", "jool", "sandbox", "physics-warp", "leaf-placement",
+        "ingame-batch", "timeline-ops", "recorded-fixture", "pending-flight", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/jool-laythe-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+# Budget arithmetic: 300 LoadGame + 180 StartRecording + 300 warp + 120 CommitTree + 300
+# RunTests = 1200; runtime 1800 adds the inert steps and FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },           expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                  expect = "OK" },
+  { cmd = "DiscardTree",                                                                    expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },        expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "ghostRenderTracing", value = "true" },         expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },             expect = "OK" },
+  { cmd = "StartRecording",                                                                 expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "28817060", ladder = "phys" },                    expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                  expect = "OK" },
+  { cmd = "CommitTree",                                                                     expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                  expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "far5-committed" },                            expect = "OK" },
+  { cmd = "RunTests",       args = { category = "LeafVesselPlacement" },                    expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit",                                                                   expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["laythe", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 8, max = 9 }
+
+[expectations.logContracts]
+required = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  "warptout start ut=28817060 .*ladder=phys",
+  "warptout rate requested=3 applied=3 rate=\\S+ mode=LOW ceilingIndex=3 clamped=false remaining=\\S+ ut=28817060",
+  "warptout progress ut=28817060 .*rate=4 rateIndex=3",
+  "warptout complete reachedUT=\\S+ ut=28817060 .*maxRate=4 ladder=phys",
+  "Total committed: (?:8|9) recordings, 2 trees",
+  "MISSIONMARK label=far5-committed ut=[\\s\\S]*?LeafPlacement summary: scene=FLIGHT compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 absent=0 duplicate=0 unsupported=0 bodies=\\[Laythe\\]",
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=FLIGHT",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "warptout refused",
+  "timejump ",
+  "LeafPlacement: [^\\r\\n]*verdict=(?!ok)",
+]
+
+[runtime]
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
