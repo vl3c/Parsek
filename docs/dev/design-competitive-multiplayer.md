@@ -16,7 +16,7 @@ and a design consultation. v2 folds in three independent reviews of v1 (one clea
 adversarial on the rules of play, one adversarial on the technical plan): the data model
 (section 6), the rival world (7.5 to 7.13) and the architecture (15.2 to 15.6, 15.9, 15.11 to
 15.14) were rewritten where the reviews found them wrong, and section 13 lists the decisions
-still open. A measured inventory of the 1.0.2 code
+still open. A measured inventory of the 1.1 code
 (`docs/dev/research/multiplayer-base-refactoring-2026-11-14.md`) then sized what base Parsek
 needs changed first (15.11) and corrected 15.5, 15.6 and 15.14. Two final reviews were then
 folded in. Nothing here is implemented, and nothing is implemented before the owner says so
@@ -84,8 +84,7 @@ These are binding. Quotes are the owner's words.
   something that could allow a single player to get a feel for what multiplayer is like ...
   in game a player would see the timeline of a player and use that to challenge themselves to
   compete" (15.10).
-- "we will implement on the structure of the 1.1.x build" (the line released as 1.0.2),
-  after the design is settled;
+- "we will implement on the structure of the 1.1.x build", after the design is settled;
   "important: lets really think about the ideal structure and architecture from the start, so
   we don't have a lot to refactor later" (section 15).
 - "we should support allowing other players to join that multiplayer game later".
@@ -1915,10 +1914,11 @@ Task-level plans are written per phase at dispatch time, per
 
 ## 15. Architecture
 
-Owner ruling 2026-11-14: multiplayer is implemented "on the structure of the 1.1.x build" (the
-line released as 1.0.2), and
+Owner ruling 2026-11-14: multiplayer is implemented "on the structure of the 1.1.x build", and
 "lets really think about the ideal structure and architecture from the start, so we don't have
-a lot to refactor later". This section is that structure. It is written against the 1.0.2 module
+a lot to refactor later". This section is that structure. (That build ships as version 1.0.2,
+by the owner's decision of 2026-11-14; "1.1" in this document names its code structure, not a
+version number.) It is written against the 1.1 module
 map (`scripts/arch/modules.toml`, `docs/dev/arch/README.md`): five declared layers (floor,
 model, features, presentation, entry), headless modules, forbidden edges, static lifetimes,
 all ratcheted in CI. File and type names are proposals; the shape is binding.
@@ -1957,7 +1957,7 @@ Three new modules, placed by folder rule, plus a few files in existing ones.
 | (existing) `Patches` | `Patches/` | entry | no | Guards that must sit on stock entry points (for example a launch from a rival's site) |
 | (tooling) `TestCommands`, `InGameTests`, `UI/Gallery` | | | | Seam verbs for the harness lanes, the in-game test category, the window's gallery mock states |
 
-Why three modules and not one: the 1.0.2 map assigns a module to exactly one layer, and
+Why three modules and not one: the 1.1 map assigns a module to exactly one layer, and
 multiplayer has a half that is rules over data and a half that is Unity objects. Keeping the
 rules in their own headless module means the whole race (export, import, tamper checks, the
 board) runs in the unit-test host with a fake folder, and CI's headless ratchet stops game
@@ -1986,7 +1986,7 @@ the game, and nothing inside it waits on the shared folder.
 
 ### 15.4 Dependency rules, enforced
 
-What the 1.0.2 map can and cannot enforce, said exactly, because the first draft overstated it:
+What the 1.1 map can and cannot enforce, said exactly, because the first draft overstated it:
 a reference from a lower layer up to a higher one is counted and ratcheted; a reference
 between two modules of the SAME layer is only reported. `RaceWorld` sits in the features
 layer beside Ghost, Rewind, Missions, Logistics and the rest, so without more it could name
@@ -2406,7 +2406,7 @@ measured in the spikes and pinned where it can be:
 
 ### 15.14 Existing gates the feature has to satisfy
 
-The 1.0.2 build guards its structure with tests that a new feature trips unless it registers
+The 1.1 build guards its structure with tests that a new feature trips unless it registers
 itself. Named here so the phase plans carry them, not discover them:
 
 - `scripts/arch/modules.toml`: a placement rule for every new root file (`ParsekRaceMenu.cs`,
@@ -2462,6 +2462,6 @@ itself. Named here so the phase plans carry them, not discover them:
   once-ever walk the milestone table reads.
 - `docs/dev/design-load-restores-the-save.md` - the load contracts a race save keeps.
 - `docs/dev/research/multiplayer-base-refactoring-2026-11-14.md` - the measured inventory of
-  the 1.0.2 code behind the prerefactors and additions of 15.11.
+  the 1.1 code behind the prerefactors and additions of 15.11.
 - `docs/dev/design-save-format-policy.md` - what a build keeps of data it does not know, and
   why the race mark is a scenario node of its own (6.2).
