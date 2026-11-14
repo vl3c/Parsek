@@ -2122,7 +2122,17 @@ runs sequentially and each script builds for itself.
    nodes, one tree, two non-committed trees) stays counted twice;
    `committedTrees` stays the raw committed-node count, and the measured-only
    `treeNodes` / `inFlightCopyTrees` / `duplicateRecordingIds` keep the copy
-   visible. The
+   visible. A top-level measured-only `stockLoad` facet (`findings`, `kinds`,
+   the first five described) backs the remove-Parsek-safely promise:
+   `saveparse.stock_load_findings` reads everything OUTSIDE the ParsekScenario
+   node and reports a ghost map ProtoVessel (the `Ghost: ` name prefix AND the
+   lone `sensorBarometer` part `GhostMapPresence` builds; `OnSave` strips them),
+   a MODULE / VESSELMODULES entry naming Parsek, a leaked Parsek node or
+   scenario, or a `parsek*` key. Stock's own `LoaderInfo` mod list and the
+   `PARAMETERS > ParsekSettings` custom parameter node are by design. It has no
+   spec block; `run.py` prints a `verify saveParse stockLoad` line only when it
+   is nonzero, and `StockLoadabilityTests` holds every committed fixture .sfs
+   at zero. The
    points block is a SIBLING of structure, not a key inside it, precisely because
    gating is per-block: folding it in would have auto-armed every points window
    on any spec that had already armed structure. Its source is the save's own

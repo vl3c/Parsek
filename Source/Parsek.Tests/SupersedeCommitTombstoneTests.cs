@@ -20,6 +20,8 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class SupersedeCommitTombstoneTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private readonly List<string> logLines = new List<string>();
         private readonly bool priorParsekLogSuppress;
         private readonly bool priorStoreSuppress;
@@ -42,7 +44,6 @@ namespace Parsek.Tests
             ParsekScenario.ResetInstanceForTesting();
             SessionSuppressionState.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
-            RecalculationEngine.ClearModules();
             KspStatePatcher.SuppressUnityCallsForTesting = true;
         }
 
@@ -58,7 +59,6 @@ namespace Parsek.Tests
             ParsekScenario.ResetInstanceForTesting();
             SessionSuppressionState.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
-            RecalculationEngine.ClearModules();
             KspStatePatcher.ResetForTesting();
         }
 
@@ -486,10 +486,10 @@ namespace Parsek.Tests
             Assert.Contains(els, a => a.ActionId == retryScience.ActionId);
             Assert.Contains(els, a => a.ActionId == retryComplete.ActionId);
 
-            RecalculationEngine.ClearModules();
-            RecalculationEngine.RegisterModule(new ScienceModule(), RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(new ContractsModule(), RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.Recalculate(els);
+            modules.Clear();
+            modules.Register(new ScienceModule(), RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(new ContractsModule(), RecalculationModuleSet.ModuleTier.FirstTier);
+            RecalculationEngine.Recalculate(modules, els);
 
             Assert.Equal(10f, retryScience.EffectiveScience);
             Assert.True(retryComplete.Effective);

@@ -25,6 +25,8 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class StockPoolReferenceTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private readonly List<string> logLines = new List<string>();
         private readonly List<GameAction> ledger = new List<GameAction>();
         private readonly FundsModule funds = new FundsModule();
@@ -41,16 +43,14 @@ namespace Parsek.Tests
             KspStatePatcher.AllowNegativeCurrencyProviderForTesting = () => false;
             StockPoolReference.ResetForTesting();
             Ledger.ResetForTesting();
-            RecalculationEngine.ClearModules();
-            RecalculationEngine.RegisterModule(science, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(contracts, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(reputation, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(science, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(contracts, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(funds, RecalculationModuleSet.ModuleTier.SecondTier);
+            modules.Register(reputation, RecalculationModuleSet.ModuleTier.SecondTier);
         }
 
         public void Dispose()
         {
-            RecalculationEngine.ClearModules();
             KspStatePatcher.AllowNegativeCurrencyProviderForTesting = null;
             StockPoolReference.ResetForTesting();
             Ledger.ResetForTesting();
@@ -76,7 +76,7 @@ namespace Parsek.Tests
 
         private void Walk(double now)
         {
-            RecalculationEngine.Recalculate(Els(), now);
+            RecalculationEngine.Recalculate(modules, Els(), now);
         }
 
         /// <summary>Files the measurement's adjustment into the test ledger, as the patcher does.</summary>

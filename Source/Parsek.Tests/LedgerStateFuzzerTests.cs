@@ -61,8 +61,10 @@ namespace Parsek.Tests
     /// </para>
     /// </summary>
     [Collection("Sequential")]
-    public class LedgerStateFuzzerTests : IDisposable
+    public partial class LedgerStateFuzzerTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private const int BaseSeed = 0x1EDBEEF;
         // 500 iterations x 4 cutoffs x ~45 actions runs the five property tests in
         // roughly 3 s. PARSEK_FUZZ_ITERATIONS raises it for a deeper local sweep
@@ -106,7 +108,6 @@ namespace Parsek.Tests
             priorOrchestratorKerbals = LedgerOrchestrator.Kerbals;
             LedgerOrchestrator.SetKerbalsForTesting(kerbals);
 
-            RecalculationEngine.ClearModules();
             RegisterProductionModules();
             SeedCommittedRecordings();
         }
@@ -137,7 +138,6 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
-            RecalculationEngine.ClearModules();
             RecalculationEngine.ResetSortActionsCallCountForTesting();
             LedgerOrchestrator.SetKerbalsForTesting(priorOrchestratorKerbals);
 
@@ -158,14 +158,14 @@ namespace Parsek.Tests
         /// </summary>
         private void RegisterProductionModules()
         {
-            RecalculationEngine.RegisterModule(milestones, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(contracts, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(science, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(kerbals, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(strategies, RecalculationEngine.ModuleTier.Strategy);
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(reputation, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(facilities, RecalculationEngine.ModuleTier.Facilities);
+            modules.Register(milestones, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(contracts, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(science, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(kerbals, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(strategies, RecalculationModuleSet.ModuleTier.Strategy);
+            modules.Register(funds, RecalculationModuleSet.ModuleTier.SecondTier);
+            modules.Register(reputation, RecalculationModuleSet.ModuleTier.SecondTier);
+            modules.Register(facilities, RecalculationModuleSet.ModuleTier.Facilities);
         }
 
         /// <summary>
@@ -199,19 +199,19 @@ namespace Parsek.Tests
             foreach (var rawLine in source.Split('\n'))
             {
                 string line = rawLine.Trim();
-                if (!line.StartsWith("RecalculationEngine.RegisterModule(", StringComparison.Ordinal))
+                if (!line.StartsWith("moduleSet.Register(", StringComparison.Ordinal))
                     continue;
 
                 int open = line.IndexOf('(');
                 int close = line.LastIndexOf(')');
-                Assert.True(close > open, "Unparseable RegisterModule call: " + line);
+                Assert.True(close > open, "Unparseable moduleSet.Register call: " + line);
 
                 string[] args = line.Substring(open + 1, close - open - 1).Split(',');
                 Assert.Equal(2, args.Length);
 
                 string module = args[0].Trim();
                 string tier = args[1].Trim();
-                const string tierPrefix = "RecalculationEngine.ModuleTier.";
+                const string tierPrefix = "RecalculationModuleSet.ModuleTier.";
                 Assert.StartsWith(tierPrefix, tier);
                 actual.Add(module + "|" + tier.Substring(tierPrefix.Length));
             }
@@ -235,7 +235,7 @@ namespace Parsek.Tests
                 var ledger = BuildLedger(iteration);
                 foreach (double? cutoff in CutoffsFor(ledger))
                 {
-                    RecalculationEngine.Recalculate(ledger.Actions, cutoff);
+                    RecalculationEngine.Recalculate(modules, ledger.Actions, cutoff);
                     AssertFinite(iteration, cutoff);
                     cutoffWalks++;
                 }
@@ -307,13 +307,13 @@ namespace Parsek.Tests
 
                 foreach (double? cutoff in CutoffsFor(ledger))
                 {
-                    RecalculationEngine.Recalculate(ledger.Actions, cutoff);
+                    RecalculationEngine.Recalculate(modules, ledger.Actions, cutoff);
                     string baseline = Snapshot();
 
                     var permuted = PermuteWithinEqualUtGroups(ledger.Actions, new Random(BaseSeed + iteration));
                     Assert.Equal(ledger.Actions.Count, permuted.Count);
 
-                    RecalculationEngine.Recalculate(permuted, cutoff);
+                    RecalculationEngine.Recalculate(modules, permuted, cutoff);
                     string shuffled = Snapshot();
 
                     Assert.True(baseline == shuffled,
@@ -343,10 +343,10 @@ namespace Parsek.Tests
                 var ledger = BuildLedger(iteration);
                 foreach (double? cutoff in CutoffsFor(ledger))
                 {
-                    RecalculationEngine.Recalculate(ledger.Actions, cutoff);
+                    RecalculationEngine.Recalculate(modules, ledger.Actions, cutoff);
                     string first = Snapshot();
 
-                    RecalculationEngine.Recalculate(ledger.Actions, cutoff);
+                    RecalculationEngine.Recalculate(modules, ledger.Actions, cutoff);
                     string second = Snapshot();
 
                     Assert.True(first == second,
@@ -375,7 +375,7 @@ namespace Parsek.Tests
                 var ledger = BuildLedger(iteration);
                 foreach (double? cutoff in CutoffsFor(ledger))
                 {
-                    RecalculationEngine.Recalculate(ledger.Actions, cutoff);
+                    RecalculationEngine.Recalculate(modules, ledger.Actions, cutoff);
 
                     string where = " (iteration=" + iteration.ToString(IC)
                         + ", cutoff=" + (cutoff.HasValue ? cutoff.Value.ToString("R", IC) : "null") + ")";
@@ -389,7 +389,7 @@ namespace Parsek.Tests
 
                 // A cutoff strictly before every action leaves the seeds and nothing
                 // else: the balances must collapse onto the seeded baseline exactly.
-                RecalculationEngine.Recalculate(ledger.Actions, PreEverythingCutoff);
+                RecalculationEngine.Recalculate(modules, ledger.Actions, PreEverythingCutoff);
                 Assert.Equal(ledger.SeedFunds, funds.GetRunningBalance(), 3);
                 Assert.Equal(ledger.SeedScience, science.GetRunningScience(), 3);
                 Assert.Equal((double)ledger.SeedReputation, (double)reputation.GetRunningRep(), 3);
@@ -612,12 +612,12 @@ namespace Parsek.Tests
                 return seedRows;
             }
 
-            RecalculationEngine.Recalculate(Build(true));
+            RecalculationEngine.Recalculate(modules, Build(true));
             double fundsAFirst = funds.GetRunningBalance();
             float repAFirst = reputation.GetRunningRep();
             var terminalAFirst = contracts.GetTerminalContractIds().OrderBy(x => x, StringComparer.Ordinal).ToList();
 
-            RecalculationEngine.Recalculate(Build(false));
+            RecalculationEngine.Recalculate(modules, Build(false));
             double fundsBFirst = funds.GetRunningBalance();
             float repBFirst = reputation.GetRunningRep();
             var terminalBFirst = contracts.GetTerminalContractIds().OrderBy(x => x, StringComparer.Ordinal).ToList();
@@ -640,34 +640,35 @@ namespace Parsek.Tests
         // Canonical state snapshot across all eight modules
         // =====================================================================
 
-        private string Snapshot()
+        private string Snapshot(Func<double, string> num = null)
         {
+            if (num == null) num = R;
             var sb = new StringBuilder();
 
             sb.Append("funds{seed=").Append(funds.HasSeed ? 1 : 0)
-              .Append(",initial=").Append(R(funds.GetInitialFunds()))
-              .Append(",balance=").Append(R(funds.GetRunningBalance()))
-              .Append(",available=").Append(R(funds.GetAvailableFunds()))
-              .Append(",earnings=").Append(R(funds.GetTotalEarnings()))
-              .Append(",spendings=").Append(R(funds.GetTotalCommittedSpendings()))
+              .Append(",initial=").Append(num(funds.GetInitialFunds()))
+              .Append(",balance=").Append(num(funds.GetRunningBalance()))
+              .Append(",available=").Append(num(funds.GetAvailableFunds()))
+              .Append(",earnings=").Append(num(funds.GetTotalEarnings()))
+              .Append(",spendings=").Append(num(funds.GetTotalCommittedSpendings()))
               .Append('}');
 
             sb.Append("|science{seed=").Append(science.HasSeed ? 1 : 0)
-              .Append(",running=").Append(R(science.GetRunningScience()))
-              .Append(",available=").Append(R(science.GetAvailableScience()))
-              .Append(",earnings=").Append(R(science.GetTotalEffectiveEarnings()))
-              .Append(",spendings=").Append(R(science.GetTotalCommittedSpendings()))
+              .Append(",running=").Append(num(science.GetRunningScience()))
+              .Append(",available=").Append(num(science.GetAvailableScience()))
+              .Append(",earnings=").Append(num(science.GetTotalEffectiveEarnings()))
+              .Append(",spendings=").Append(num(science.GetTotalCommittedSpendings()))
               .Append(",subjects=[");
             foreach (var key in science.GetAllSubjects().Keys.OrderBy(k => k, StringComparer.Ordinal))
             {
                 var state = science.GetAllSubjects()[key];
-                sb.Append(key).Append(':').Append(R(state.CreditedTotal))
-                  .Append('/').Append(R(state.MaxValue)).Append(';');
+                sb.Append(key).Append(':').Append(num(state.CreditedTotal))
+                  .Append('/').Append(num(state.MaxValue)).Append(';');
             }
             sb.Append("]}");
 
             sb.Append("|rep{seed=").Append(reputation.HasSeed ? 1 : 0)
-              .Append(",running=").Append(R(reputation.GetRunningRep())).Append('}');
+              .Append(",running=").Append(num(reputation.GetRunningRep())).Append('}');
 
             sb.Append("|milestones{count=").Append(milestones.GetCreditedCount()).Append(",ids=[");
             foreach (var id in milestones.GetCreditedMilestoneIds().OrderBy(k => k, StringComparer.Ordinal))
@@ -709,7 +710,7 @@ namespace Parsek.Tests
             foreach (var key in kerbals.Reservations.Keys.OrderBy(k => k, StringComparer.Ordinal))
             {
                 var reservation = kerbals.Reservations[key];
-                sb.Append(key).Append(':').Append(R(reservation.ReservedUntilUT))
+                sb.Append(key).Append(':').Append(num(reservation.ReservedUntilUT))
                   .Append('/').Append(reservation.IsPermanent ? 1 : 0).Append(';');
             }
             sb.Append("],slots=[");

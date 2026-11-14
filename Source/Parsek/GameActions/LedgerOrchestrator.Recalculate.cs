@@ -527,7 +527,7 @@ namespace Parsek
             // release / re-reserve transitions.
             if (utCutoff.HasValue && kerbalsModule != null)
                 kerbalsModule.MarkNextWalkProvisional();
-            RecalculationEngine.Recalculate(actions, utCutoff, deadlineClockUT);
+            RecalculationEngine.Recalculate(moduleSet, actions, utCutoff, deadlineClockUT);
 
             // FacilitiesModule is dispatched after contracts/strategies, so a
             // facility upgrade's final slot limit is only known after the walk.

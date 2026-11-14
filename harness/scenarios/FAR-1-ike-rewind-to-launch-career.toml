@@ -1,0 +1,185 @@
+schema = 1
+id = "FAR-1-ike-rewind-to-launch-career"
+# =====================================================================================
+# FAR-1: A REWIND-TO-LAUNCH WHOSE LAUNCH IS AT IKE, IN A CAREER, READ BY POSITION.
+# (Far-body timeline program, 2026-11-14: timeline operations aimed at the far-body
+# fixtures, seam only, no new forge flight.)
+#
+# WHY. Every Rewind-to-Launch lane launches at Kerbin. The rewind save, the owner strip
+# and the leaf spawn are body-agnostic by design, but none of them has ever run on a
+# vessel that starts its recording in a far moon's SOI, and no lane reads the respawned
+# leaf by POSITION: a far-body leaf stripped and not re-spawned, spawned twice, spawned
+# on Duna's or Kerbin's frame, or re-placed with the phase it had at the rewind instead
+# of the phase the clock reached, all read "1 vessel" to a count.
+#
+# THE HOST. `duna-ike-recorded-career`, built by harness/tools/build_route_career.py
+# from `duna-ike-recorded` (B36): the DD1 Duna Direct Probe ORBITING Ike (pid 2200110044,
+# guid bf2fbd01c9e64908a682e40775ca728c, SMA 166,502 m, ecc 0.0001, inc 12.0 deg, Ike
+# period ~3,121 s) as the spawned leaf (9e2f5bfa) of the committed tree
+# ccb5e4afd7974dbe9118090468ac00ae, UT 9,181,510.7. CAREER: funds 500000, science 100,
+# rep 0, the ledger stripped of its SANDBOX starting-value and award rows.
+# NOT FIT FOR LEDGER GROUND TRUTH (L2-style): the source flights were flown in SANDBOX,
+# so the ledger carries no launch-cost history to reconstruct against. The ledger block
+# below is the H79 rewind-aware oracle over the template, not an L2 reconstruction.
+#
+# THE TIMELINE:
+#   boot     LoadGame (FLIGHT on DD1; the recorder promotes the committed tip), stop and
+#            discard that promotion (V31M's boot), settings.
+#   R        StartRecording on DD1 at Ike (a non-launch start: `Captured rewind save at
+#            UT ...`), WarpToUT 9181700 (rails, ~190 s of Ike orbit), stop, CommitTree
+#            (a second tree), stop.
+#   rewind   InvokeRewindToLaunch tree=latest: the Space Center at R's start - 15 s.
+#   TS       SaveGame, LoadGame scene=trackstation, WarpToUT 9181600 (inside R): R's
+#            ghost must be created at Ike in the Tracking Station.
+#   KSC      SaveGame, LoadGame scene=spacecenter, WarpToUT 9181800 (past R's end): the
+#            leaf spawn runs, then LeafVesselPlacement in SPACECENTER reads every live
+#            spawned leaf against its recording's terminal orbit (elements and phase).
+#   save     SaveGame (the ledger oracle's save point), FlushAndQuit.
+#
+# PRE-REGISTERED READINGS (check these first if the first flight reds):
+#   - R and the fixture's leaf 9e2f5bfa both claim DD1 (R by an in-flight adoption stamp,
+#     9e2f5bfa as its spawn). The rewind save holds DD1, so the owner strip (by owner
+#     guid) and the rewind strip scope (keep spawned pid as committed history) answer the
+#     same vessel. Read `Rewind strip scope:` and `Stripped N vessel(s)` first: which one
+#     won decides whether the KSC spawn makes a new DD1 at R's end. Either is a reading,
+#     not a red; a red is `duplicate=` above 0, `bad=` above 0 or an Ike leaf on the
+#     wrong body / phase.
+#   - `compared=0` (the cell SKIPS): no live vessel holds any spawn pid at the Space
+#     Center, i.e. DD1 was stripped and nothing re-spawned it. That is the defect class
+#     this lane exists for; read the `KSCSpawn` lines.
+#   - no `phase=GhostCreated ... body=Ike scene=TRACKSTATION`: R's ghost was not built
+#     in the Tracking Station inside R's window; read `[MapRender]` and `GhostMap` lines.
+#   - a ledger oracle red or a `Patch(Funds|Science)` write: the RTL inside a converted
+#     career moved a pool with no row; H79's reading of the same shape stayed silent.
+#
+# FAST-LANE CHECKLIST: (1) reuse: V31M's boot and H79's career RTL shape, no new flight;
+# (2) explicit-UT warps only, no TimeJump (a TimeJump epoch-shifts DD1 off its recorded
+# phase by design, which the placement cell would read as a red); (3)-(5) no dwell, burn
+# or coast beyond the ~190 s Ike segment; (6) retry `once`; (7) recordings window 5..6
+# while never flown; (8) operator, ~4 min expected; (9) flight_efficiency.py after the
+# first green flight.
+tier = "operator"
+description = "Far-body Rewind-to-Launch in a career: on duna-ike-recorded-career a ~190 s segment of the DD1 probe's Ike orbit is recorded and committed, then rewound to; the rewound timeline must show the segment's ghost at Ike in the Tracking Station, spawn the leaf at the Space Center past the segment's end on its recorded Ike orbit and phase (LeafVesselPlacement), keep no spawn pid on two vessels, and leave the ledger equal to the template plus the rewind-aware walk."
+instanceProfile = "stock-minimal"
+tags = ["FAR-1", "far-body", "ike", "duna", "career", "ledger", "rewind", "rewind-to-launch",
+        "leaf-placement", "tracking-station", "ingame-batch", "timeline-ops",
+        "recorded-fixture", "pending-flight", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/duna-ike-recorded-career"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+
+# Budget arithmetic: 3 x 300 LoadGame + 180 StartRecording + 4 x 300 warps + 120 CommitTree
+# + 300 rewind + 3 x 120 SaveGame + 300 RunTests = 3360; runtime 3900 adds the inert steps.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },          expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "DiscardTree",                                                                   expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "ghostRenderTracing", value = "true" },        expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "mapRenderTracing", value = "true" },          expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "ledgerTracing", value = "true" },             expect = "OK" },
+
+  # ---- R: a recorded segment of DD1's Ike orbit, committed ----
+  { cmd = "StartRecording",                                                                expect = "OK", budget = 180 },
+  { cmd = "WarpToUT",       args = { ut = "9181700" },                                     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "CommitTree",                                                                    expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                 expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "far1-committed" },                           expect = "OK" },
+
+  # ---- the rewind to R's start ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                              expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },       expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "far1-rewound" },                             expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "persistent" },                                expect = "OK", budget = 120 },
+
+  # ---- the Tracking Station inside R's window: R's ghost at Ike ----
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "trackstation" }, expect = "OK", budget = 300 },
+  { cmd = "WarpToUT",       args = { ut = "9181600" },                                     expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  { cmd = "RecordingState",                                                                expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "far1-ts" },                                  expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "persistent" },                                expect = "OK", budget = 120 },
+
+  # ---- the Space Center past R's end: the leaf spawn, read by position ----
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "WarpToUT",       args = { ut = "9181800" },                                     expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "far1-past-end" },                            expect = "OK" },
+  { cmd = "RunTests",       args = { category = "LeafVesselPlacement" },                   expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                                      expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                  expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["ike", "career", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The host's 4 committed recordings plus R (one recording, or two should the commit split
+# it); a window while never flown, pinned exactly off the first flight.
+count = { min = 5, max = 6 }
+
+[expectations.recordings.structure]
+# Report-only (no `gating`): the reading run measures these.
+committedTrees = { min = 2, max = 2 }
+vesselNames = { "DD1 Duna Direct Probe" = 1 }
+
+[expectations.ledger]
+seedFrom = "template"
+tolerances = "default"
+timeline = "rewind-aware"
+
+[expectations.logContracts]
+required = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "Seeded initial funds: amount=500000,",
+  "Seeded initial science: amount=100,",
+  # ---- R ----
+  "Captured rewind save at UT ([0-9.]+): vessel \"DD1 Duna Direct Probe\" in [A-Z_]+ \\(save: (parsek_rw_[0-9a-f]+)\\)[\\s\\S]*Rewind-to-Launch initiated to UT \\1 \\(save: \\2\\)",
+  "Total committed: [56] recordings, 2 trees",
+  # ---- the rewind ----
+  "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest committedTrees=2",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=918(?:14[89]|15[0-4])[0-9]\\.[0-9]+",
+  "MISSIONMARK label=far1-committed ut=[\\s\\S]*?Load classified: early=PlainRewind refined=PlainRewind ",
+  # ---- the Tracking Station: R's ghost at Ike ----
+  "loadgame complete scene=TRACKSTATION save=.* game-loaded=true expected=TrackingStation",
+  "MISSIONMARK label=far1-rewound ut=[\\s\\S]*?phase=GhostCreated surface=ProtoIcon pid=\\d+ .*body=Ike scene=TRACKSTATION[\\s\\S]*?MISSIONMARK label=far1-ts ut=",
+  # ---- the Space Center past R's end: every live leaf on its Ike orbit ----
+  "MISSIONMARK label=far1-past-end ut=[\\s\\S]*?LeafPlacement summary: scene=SPACECENTER compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 absent=[0-9]+ duplicate=0 unsupported=[0-9]+ bodies=\\[Ike\\]",
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=SPACECENTER",
+  "savegame name=persistent folder=\\S+ saved=true",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "invokerewindtolaunch refused",
+  "invokerewindtolaunch failed",
+  "warptout refused",
+  "timejump ",
+  "LeafPlacement: [^\\r\\n]*verdict=(?!ok)",
+  "savegame refused ",
+  "savegame failed ",
+  "refusing to treat current (funds|science|reputation) as initial",
+  "Patch(Funds|Science): -?[0-9]+\\.[0-9] -> ",
+  "PatchReputation: -?[0-9]+\\.[0-9]+ -> ",
+  "GUARDED (DRAWDOWN|UPLIFT) clamped resource=",
+  "\\[LedgerTrace\\] phase=Anomaly ",
+  "ABORTING rewind ledger patch",
+]
+
+[runtime]
+budgetSeconds = 3900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

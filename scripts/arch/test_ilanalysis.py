@@ -400,6 +400,81 @@ class StaticStateTests(unittest.TestCase):
         self.assertEqual(statics["byModule"]["Core"]["writtenElsewhere"], 3)
         self.assertEqual(statics["byType"]["Parsek.Store"]["reassignable"], 5)
 
+    def build_holder(self):
+        holder = "Parsek.Held/ColdResetState"
+        state = "ldsfld     class %s Parsek.Held::state" % holder
+        nested = cls("Parsek.Held/ColdResetState",
+                     "  .field assembly int32 Mode",
+                     "  .field assembly int32 Other",
+                     ctor(),
+                     flags="nested private auto ansi sealed beforefieldinit").replace(
+            ".class nested private auto ansi sealed beforefieldinit Parsek.Held/ColdResetState",
+            ".class nested private auto ansi sealed beforefieldinit ColdResetState")
+        setter = "public hidebysig specialname static"
+        owner = cls(
+            "Parsek.Held",
+            "  .field private static class %s state" % holder,
+            "  .field private static int32 Loose",
+            # A setter over the holder: the property is the write.
+            meth("set_Mode", [state, "ldarg.0", "stfld      int32 %s::Mode" % holder, "ret"],
+                 flags=setter, params="int32 'value'"),
+            # A static setter that does not read the holder is no holder write.
+            meth("set_Plain", ["ret"], flags=setter, params="int32 'value'"),
+            # A method that assigns a holder field is a call, not a write.
+            meth("Bump", [state, "ldc.i4.1", "stfld      int32 %s::Other" % holder, "ret"]),
+            # The swap is the owner's own write of its holder static.
+            meth("Reset", ["newobj     instance void %s::.ctor()" % holder,
+                           "stsfld     class %s Parsek.Held::state" % holder, "ret"]),
+            meth("Own", ["ldc.i4.7", "call       void Parsek.Held::set_Mode(int32)", "ret"]),
+            nested,
+        )
+        # A static setter of a type with no holder is no write either.
+        bare = cls("Parsek.Bare", meth("set_Mode", ["ret"], flags=setter, params="int32 'value'"))
+        other = cls("Parsek.Caller", meth("Poke", [
+            "ldc.i4.1", "call       void Parsek.Held::set_Mode(int32)",
+            "ldc.i4.2", "call       void Parsek.Held::set_Plain(int32)",
+            "call       void Parsek.Held::Bump()",
+            "call       void Parsek.Held::Reset()",
+            "ldc.i4.3", "call       void Parsek.Bare::set_Mode(int32)", "ret"]))
+        tool = cls("Parsek.InGameTests.Poker",
+                   meth("Poke", ["ldc.i4.4", "call       void Parsek.Held::set_Mode(int32)", "ret"]))
+        return analyse(owner + bare + other + tool, tooling_types=("Parsek.InGameTests.Poker",))["statics"]
+
+    def test_a_holder_property_setter_called_from_another_type_is_a_write(self):
+        statics = self.build_holder()
+        # Only the holder setter Caller calls; not the owner's own call, the
+        # tooling call, the setter that does not read the holder, the method
+        # that assigns a holder field, or the holder-less type's setter.
+        self.assertEqual(sorted(statics["crossTypeWrites"]), ["Parsek.Held::Mode"])
+        self.assertEqual(statics["crossTypeWrites"]["Parsek.Held::Mode"], ["Parsek.Caller::Poke()"])
+        row = statics["fields"]["Parsek.Held::Mode"]
+        self.assertTrue(row["holderProperty"])
+        # The property row adds a write, not a reassignable static: the holder
+        # static is the one the type owns.
+        self.assertFalse(row["reassignable"])
+        self.assertNotIn("Parsek.Held::Plain", statics["fields"])
+        self.assertEqual(statics["byType"]["Parsek.Held"]["reassignable"], 2)
+        self.assertEqual(statics["byType"]["Parsek.Held"]["writtenElsewhere"], 1)
+
+    def test_a_holder_property_written_only_by_its_owner_is_no_cross_write(self):
+        statics = self.build_holder()
+        own_only = {k: v for k, v in statics["fields"].items() if v.get("holderProperty")}
+        self.assertEqual(sorted(own_only), ["Parsek.Held::Mode"])
+        # The holder store alone: its own call to the setter is no cross write.
+        statics = analyse(
+            cls("Parsek.Held",
+                "  .field private static class Parsek.Held/ColdResetState state",
+                meth("set_Mode", ["ldsfld     class Parsek.Held/ColdResetState Parsek.Held::state", "ldarg.0",
+                                  "stfld      int32 Parsek.Held/ColdResetState::Mode", "ret"],
+                     flags="public hidebysig specialname static", params="int32 'value'"),
+                meth("Own", ["ldc.i4.7", "call       void Parsek.Held::set_Mode(int32)", "ret"]),
+                cls("Parsek.Held/ColdResetState", "  .field assembly int32 Mode", ctor(),
+                    flags="nested private auto ansi sealed beforefieldinit").replace(
+                    ".class nested private auto ansi sealed beforefieldinit Parsek.Held/ColdResetState",
+                    ".class nested private auto ansi sealed beforefieldinit ColdResetState")))["statics"]
+        self.assertEqual(statics["crossTypeWrites"], {})
+        self.assertEqual(statics["fields"]["Parsek.Held::Mode"]["writtenElsewhereBy"], [])
+
     def test_an_address_taken_elsewhere_is_reported_not_gated(self):
         statics = self.build()
         rows = statics["fields"]

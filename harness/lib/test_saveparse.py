@@ -834,6 +834,31 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # decouples B30 from V6M/V6T, whose jump UTs are calibrated off
         # `mun-orbit-recorded`'s exact bytes.
         "mun-park-kerbalx": True,
+        # THE SIXTH TO EIGHTH PARSEK-STRIPPED DERIVED FIXTURES, the hosts of the
+        # moon-to-moon pair forges (todo NEXT-TESTS-TO-BUILD-2026-11-11 item 2), cut
+        # with the same "drop every ParsekScenario child, keep the node, retitle"
+        # recipe (re-run 2026-11-14 against `mun-orbit-recorded`, it reproduces
+        # `mun-park-kerbalx` byte for byte). `persistent.loadmeta` and `AddOns/` are
+        # copied unchanged; no `Parsek/` directory.
+        #   `vall-park-nerv`      from `vall-transfer-recorded` (B26's product, V17's
+        #                         subject): RECORDING_TREE, KERBAL_SLOTS,
+        #                         CREW_REPLACEMENTS, MILESTONE_STATE x3. Host of B43.
+        #   `tylo-park-nerv`      from `tylo-orbit-recorded` (B33's product, V28's
+        #                         subject): the same four types, MILESTONE_STATE x2.
+        #                         Host of B45.
+        #   `minmus-park-kerbalx` from `minmus-orbit-recorded` (B12's product, V7's
+        #                         subject): the four plus GROUP_HIERARCHY,
+        #                         MILESTONE_STATE x2. Host of B46.
+        # WHY THE STRIP IS LOAD-BEARING: each forge starts its recording through the
+        # seam on a vessel the source save holds a COMMITTED TREE for, and a seam
+        # StartRecording cannot open a standalone tree on a committed tree's own
+        # launch (measured, B23 flight 1). A fresh tree is also what makes the forge's
+        # product MOON-ROOTED, the shape the loop lanes V43M-V46M read (rule 4a,
+        # `MissionPeriodicity.ResolveMoonRootedFrameParent`): the source trees all
+        # start at Kerbin.
+        "vall-park-nerv": True,
+        "tylo-park-nerv": True,
+        "minmus-park-kerbalx": True,
         "eva2-lko-crewed": True,
         "eva3-pad-3crew": True,
         # `eva3-pad-3crew` plus a crewless rover clone parked 153 m off the pad, the
@@ -4074,6 +4099,9 @@ class CommittedFixtureSweepTests(unittest.TestCase):
     RECORDED_FIXTURES["depot-route-recorded-career"] = RECORDED_FIXTURES["depot-route-recorded"]
     RECORDED_FIXTURES["bdock-recorded-career"] = RECORDED_FIXTURES["bdock-recorded"]
     RECORDED_FIXTURES["rover-route-recorded-career"] = RECORDED_FIXTURES["rover-route-recorded"]
+    # The far-body timeline lanes' career host (FAR-1, FAR-3): the same builder over
+    # duna-ike-recorded, so it pins its source's payload the same way.
+    RECORDED_FIXTURES["duna-ike-recorded-career"] = RECORDED_FIXTURES["duna-ike-recorded"]
     # TOUR-1's host, built by harness/tools/build_tourist_splashdown_career.py: the same
     # career conversion plus a seated tourist, her Active contract and its accept row;
     # the ParsekScenario node and every recording sidecar stay byte-identical (gated by
@@ -5733,6 +5761,187 @@ class RouteFacetFixtureAgreementTests(unittest.TestCase):
             if origins != dests or len(origins) > 1 or len(dests) > 1:
                 cross.append(name)
         self.assertEqual(["interbody-route-recorded"], cross)
+
+
+def _stock_load_save(flightstate_body="", game_extra="", scenario_body=""):
+    """A minimal GAME text with a FLIGHTSTATE, the two by-design Parsek traces
+    stock writes (LoaderInfo, PARAMETERS > ParsekSettings) and a ParsekScenario
+    node carrying Parsek's own surfaces."""
+    return (
+        "GAME\n{\n"
+        "\tversion = 1.12.5\n"
+        "\tPARAMETERS\n\t{\n\t\tParsekSettings\n\t\t{\n"
+        "\t\t\tSamplingDensityLevel = Medium\n\t\t}\n\t}\n"
+        "\tSCENARIO\n\t{\n\t\tname = ParsekScenario\n\t\tscene = 5, 7, 8\n"
+        "\t\tparsekSaveFormat = 1\n"
+        "\t\tRECORDING_TREE\n\t\t{\n\t\t\tid = t1\n\t\t}\n"
+        "\t\tPARSEK_TEST_BATCH_MARKER\n\t\t{\n\t\t}\n"
+        + scenario_body +
+        "\t}\n"
+        "\tFLIGHTSTATE\n\t{\n\t\tversion = 1.12.5\n"
+        + flightstate_body +
+        "\t}\n"
+        + game_extra +
+        "\tLoaderInfo\n\t{\n\t\tParsek v1.0.0.0 = True\n\t\tParsek = True\n\t}\n"
+        "}\n")
+
+
+def _vessel(name, part_names, extra_part="", vessel_modules=""):
+    parts = "".join(
+        "\t\t\tPART\n\t\t\t{\n\t\t\t\tname = %s\n%s\t\t\t}\n" % (pn, extra_part)
+        for pn in part_names)
+    return ("\t\tVESSEL\n\t\t{\n\t\t\tname = %s\n\t\t\tpersistentId = 4242\n"
+            "\t\t\tprst = True\n\t\t\tcln = False\n%s"
+            "\t\t\tVESSELMODULES\n\t\t\t{\n%s\t\t\t}\n\t\t}\n"
+            % (name, parts, vessel_modules))
+
+
+class StockLoadabilityTests(unittest.TestCase):
+    """The remove-Parsek-safely promise: nothing outside the ParsekScenario
+    SCENARIO node that only Parsek can read (saveparse.stock_load_findings)."""
+
+    def _findings(self, text):
+        res = saveparse.parse_sfs(text)
+        self.assertTrue(res.ok, res.error)
+        return saveparse.stock_load_findings(res.root)
+
+    def _kinds(self, text):
+        return [f.kind for f in self._findings(text)]
+
+    def test_clean_save_with_by_design_traces_has_no_findings(self):
+        text = _stock_load_save(_vessel("Kerbal X", ["mk1pod.v2", "fuelTank"]))
+        self.assertEqual((), self._findings(text))
+        snap = saveparse.parse_parsek_scenario(text)
+        self.assertTrue(snap.parsed, snap.error)
+        self.assertEqual({"findings": 0, "kinds": {}, "first": []},
+                         saveparse.observed_structure_facets(snap)["stockLoad"])
+
+    def test_ghost_map_vessel_is_found(self):
+        text = _stock_load_save(_vessel("Ghost: Kerbal X", ["sensorBarometer"]))
+        found = self._findings(text)
+        self.assertEqual([saveparse.STOCK_LOAD_GHOST_VESSEL], [f.kind for f in found])
+        self.assertIn("Ghost: Kerbal X", found[0].detail)
+        self.assertIn("4242", found[0].detail)
+        self.assertTrue(found[0].path.startswith("GAME/FLIGHTSTATE[2]/VESSEL[0]"),
+                        found[0].path)
+        facet = saveparse.observed_structure_facets(
+            saveparse.parse_parsek_scenario(text))["stockLoad"]
+        self.assertEqual(1, facet["findings"])
+        self.assertEqual({saveparse.STOCK_LOAD_GHOST_VESSEL: 1}, facet["kinds"])
+        self.assertEqual(1, len(facet["first"]))
+
+    def test_player_craft_named_ghost_is_not_a_ghost(self):
+        # The prefix alone is a player's choice; the ghost is the prefix AND the
+        # lone barometer part.
+        self.assertEqual([], self._kinds(_stock_load_save(
+            _vessel("Ghost: Rocket", ["sensorBarometer", "fuelTank"]))))
+        self.assertEqual([], self._kinds(_stock_load_save(
+            _vessel("Ghost: Probe", ["probeCoreSphere"]))))
+        self.assertEqual([], self._kinds(_stock_load_save(
+            _vessel("Barometer Sat", ["sensorBarometer"]))))
+
+    def test_parsek_part_module_is_found(self):
+        module = "\t\t\t\tMODULE\n\t\t\t\t{\n\t\t\t\t\tname = ModuleParsekGhost\n\t\t\t\t}\n"
+        found = self._findings(_stock_load_save(_vessel("Kerbal X", ["mk1pod.v2"], module)))
+        self.assertEqual([saveparse.STOCK_LOAD_PARSEK_MODULE], [f.kind for f in found])
+        self.assertIn("ModuleParsekGhost", found[0].detail)
+
+    def test_stock_part_module_is_not_a_finding(self):
+        module = "\t\t\t\tMODULE\n\t\t\t\t{\n\t\t\t\t\tname = ModuleCommand\n\t\t\t\t}\n"
+        self.assertEqual([], self._kinds(_stock_load_save(
+            _vessel("Kerbal X", ["mk1pod.v2"], module))))
+
+    def test_parsek_vessel_module_is_found(self):
+        vm = "\t\t\t\tParsekVesselModule\n\t\t\t\t{\n\t\t\t\t}\n"
+        self.assertEqual([saveparse.STOCK_LOAD_PARSEK_MODULE], self._kinds(
+            _stock_load_save(_vessel("Kerbal X", ["mk1pod.v2"], vessel_modules=vm))))
+
+    def test_parsek_state_outside_the_scenario_is_found(self):
+        leaked = ("\tRECORDING_TREE\n\t{\n\t\tid = leaked\n\t}\n"
+                  "\tPARSEK_TEST_BATCH_MARKER\n\t{\n\t}\n"
+                  "\tSCENARIO\n\t{\n\t\tname = ParsekOtherScenario\n\t}\n")
+        found = self._findings(_stock_load_save(game_extra=leaked))
+        self.assertEqual([saveparse.STOCK_LOAD_PARSEK_NODE] * 3, [f.kind for f in found])
+        self.assertEqual(["node 'RECORDING_TREE'", "node 'PARSEK_TEST_BATCH_MARKER'",
+                          "scenario 'ParsekOtherScenario'"],
+                         [f.detail for f in found])
+
+    def test_parsek_key_outside_the_scenario_is_found(self):
+        found = self._findings(_stock_load_save("\t\tparsekSaveFormat = 1\n"))
+        self.assertEqual([saveparse.STOCK_LOAD_PARSEK_KEY], [f.kind for f in found])
+        self.assertEqual("GAME/FLIGHTSTATE[2]", found[0].path)
+
+    def test_by_design_exclusions_are_location_bound(self):
+        # ParsekSettings is by design ONLY under PARAMETERS, LoaderInfo only
+        # under GAME.
+        stray = ("\tFLIGHTSTATE_EXTRA\n\t{\n"
+                 "\t\tParsekSettings\n\t\t{\n\t\t}\n"
+                 "\t\tLoaderInfo\n\t\t{\n\t\t\tParsek = True\n\t\t}\n\t}\n")
+        found = self._findings(_stock_load_save(game_extra=stray))
+        self.assertEqual([saveparse.STOCK_LOAD_PARSEK_NODE, saveparse.STOCK_LOAD_PARSEK_KEY],
+                         [f.kind for f in found])
+
+    def test_facet_lists_at_most_the_first_limit(self):
+        many = "".join(_vessel("Ghost: G%d" % i, ["sensorBarometer"]) for i in range(8))
+        facet = saveparse.observed_structure_facets(
+            saveparse.parse_parsek_scenario(_stock_load_save(many)))["stockLoad"]
+        self.assertEqual(8, facet["findings"])
+        self.assertEqual(saveparse.STOCK_LOAD_FIRST_LIMIT, len(facet["first"]))
+
+    def test_every_committed_fixture_save_is_stock_loadable(self):
+        """Every committed .sfs (persistent saves, rewind-point quicksaves,
+        donor originals) is a real save a flight produced: none may carry
+        anything only Parsek can read outside its SCENARIO node."""
+        fixtures_root = os.path.join(HARNESS_ROOT, "fixtures")
+        scanned = 0
+        rp_quicksaves = 0
+        dirty = {}
+        for dirpath, _, files in os.walk(fixtures_root):
+            for fn in sorted(files):
+                if not fn.endswith(".sfs"):
+                    continue
+                path = os.path.join(dirpath, fn)
+                res = saveparse.parse_sfs(_read(path))
+                rel = os.path.relpath(path, HARNESS_ROOT)
+                self.assertTrue(res.ok, "%s: %s" % (rel, res.error))
+                scanned += 1
+                if os.path.basename(dirpath) == "RewindPoints":
+                    rp_quicksaves += 1
+                found = saveparse.stock_load_findings(res.root)
+                if found:
+                    dirty[rel] = [f.describe() for f in found]
+        # Anti-vacuity: the sweep must actually read the committed corpus.
+        self.assertGreaterEqual(scanned, 100)
+        self.assertGreater(rp_quicksaves, 0)
+        self.assertEqual({}, dirty)
+
+    def test_ghost_signature_tracks_the_csharp_writer(self):
+        src_dir = os.path.join(HARNESS_ROOT, "..", "Source", "Parsek")
+        presence = _read(os.path.join(src_dir, "GhostMapPresence.cs"))
+        self.assertIn('GhostVesselNamePrefix = "%s";'
+                      % saveparse.GHOST_MAP_VESSEL_NAME_PREFIX, presence)
+        lifecycle = _read(os.path.join(src_dir, "GhostMapPresence.ProtoVesselLifecycle.cs"))
+        self.assertIn('ProtoVessel.CreatePartNode("%s", 0)'
+                      % saveparse.GHOST_MAP_VESSEL_PART_NAME, lifecycle)
+
+    def test_parsek_ships_no_part_or_vessel_module(self):
+        """The module check keys on "parsek" in a module name. That covers every
+        module Parsek could write only while Parsek declares none: a new
+        PartModule / VesselModule subclass reds here so the check is extended
+        to its name."""
+        src_dir = os.path.join(HARNESS_ROOT, "..", "Source", "Parsek")
+        base = re.compile(r":\s*(PartModule|VesselModule)\b")
+        hits = []
+        for dirpath, _, files in os.walk(src_dir):
+            for fn in files:
+                if not fn.endswith(".cs"):
+                    continue
+                text = _read(os.path.join(dirpath, fn))
+                # Strip line comments so prose never counts.
+                text = "\n".join(l.split("//", 1)[0] for l in text.splitlines())
+                for m in base.finditer(text):
+                    hits.append("%s: %s" % (fn, m.group(0)))
+        self.assertEqual([], hits)
 
 
 if __name__ == "__main__":  # pragma: no cover

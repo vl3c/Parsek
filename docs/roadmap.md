@@ -16,8 +16,11 @@ The work now is bringing Parsek to a quality, bug-free state fit for a public re
 defects, live-proving fixes that so far have only unit tests, and closing the gaps the harness finds.
 Owner ruling (V, 2026-10-24): "we're not starting work on the multiplayer implementation phase; we
 have to bring Parsek to a sufficient quality bug-free state so that we can release it publicly first;
-multiplayer comes later, if we have users". Phase 14 is therefore deferred until after the public
-release, and only if Parsek has users. The co-op design stays as written and is not being implemented.
+multiplayer comes later, if we have users". Multiplayer is therefore deferred until after the public
+release, and only if Parsek has users. Owner ruling (V, 2026-11-14): cooperative multiplayer
+(Phase 14) is deprecated; the only multiplayer planned is the competitive space race (Phase 15),
+designed in `docs/dev/design-competitive-multiplayer.md`. It is a design only; no implementation
+starts before the owner says so.
 
 v0.10.7 is the first stable save format (owner ruling, 2026-11-04): today's version
 numbers become the 1.0 baseline, every later build loads every 1.0+ save, and the alpha-era save
@@ -494,20 +497,16 @@ Out of scope by doctrine (revisit on demand): non-docking connection producers b
 
 ---
 
-## Phase 14: Cooperative Async Multiplayer
+## Phase 14: Cooperative Async Multiplayer (deprecated)
 
-**Status: deferred (owner ruling 2026-10-24).** Implementation does not start before Parsek's public
-release, and comes later only if Parsek has users. See "Current focus" above.
-Owner note (2026-11-11): competitive play (Phase 15) is probably built first; see its note.
-
-Multiple players run one shared space program: one KSC, one timeline with per-player attribution, and in later versions one pooled economy. It is built mode by mode (owner ruling 2026-10-24): Sandbox first (no shared pool), then Science (one shared science pool), then Career (science, funds, reputation; contracts stay local-only). The Kerbal system feels populated with vessels flying and bases being built. Players never need to be online simultaneously; the timeline converges over time - correspondence chess, not real-time multiplayer.
-
-**Design (binding):** `docs/dev/design-coop-async-multiplayer.md` (2026-09-01). It supersedes this section's earlier sketch in two ways:
-
-- **No Gloops prerequisite.** The exchange uses Parsek-native full-fidelity packets (recording metadata + sidecars + ledger actions), because imported missions are full timeline citizens that feed the ledger, spawn real vessels, and support docking - all things a stripped `.gloop` deliberately cannot carry. The Gloops extraction (see below) remains on the roadmap for the standalone-mod goal but is no longer on this feature's critical path.
-- **Full citizenship, not ghost-only import.** The earlier "purely additive ghosts, no conflict with live game state" model is replaced by: per-player append-only contribution folders in a file-sharing-synced shared folder, foreign recordings imported as read-only citizens, real spawns of peers' terminal vessels with dock/board interaction, a deterministic arbitration fold for concurrent-interaction conflicts, and a merged economy (deterministic walk order, once-ever spend dedup, debt semantics, earlier-UT milestone credit).
-
-Carried forward from the original sketch: the shared cloud-synced folder, player identity + attribution, and the correspondence-chess framing. Launch pad allocation is not part of v1.
+**Status: DEPRECATED (owner ruling 2026-11-14).** "i've decided its too complicated to support
+coop multiplayer, so that idea is deprecated". No shared space program, pooled economy, real
+spawns of other players' vessels or docking between players is planned. The design
+(`docs/dev/done/design-coop-async-multiplayer.md`, v7) and its plans
+(`docs/dev/done/plans/coop-async-multiplayer-*.md`) are archived for reference. What carries over
+into Phase 15 is the exchange idea: a shared folder synced by any file-sharing service, one
+writer per file, payload written before the file that names it. The phase number is kept so
+older documents still resolve.
 
 ### Gloops Extraction (decoupled from Phase 14)
 
@@ -527,37 +526,40 @@ Revised 2026-10-05 (owner rulings; full design in `docs/dev/gloops-recorder-desi
 
 ---
 
-## Phase 15: Competitive Play & Space Race
+## Phase 15: Multiplayer - the Space Race
 
-**Owner note (V, 2026-11-11): probably built before Phase 14.** "We should probably build
-competitive multiplayer first on this general design stroke." The stroke, as discussed that day:
+**Status: DESIGN v2 (2026-11-14), not implemented.** Binding design:
+`docs/dev/design-competitive-multiplayer.md`. No implementation starts before the owner says so
+(see "Current focus").
 
-- Science and kerbals only; no career features (funds, reputation, contracts, strategies).
-- Vessels and ledgers stay fully separate per player, so there are no contested docks, shared
-  crew or held earnings to settle. Only two things are common: other players' ghosts and one
-  milestone timeline.
-- A "first" is never final. The timeline is dynamic: any player can go back and land earlier, or
-  fly more efficiently, to take a first again, so who is first is recomputed from the timeline
-  like every other derived value. A race is bounded by a real-time limit, not winner takes all;
-  "first to get there wins, no retakes" is a house rule a group can choose.
+Up to four players race each other, each in their own save and at their own pace, exchanging
+their public state through a shared folder. Nobody needs to be online at the same time.
 
-This is a note of direction, not a design, and it does not change the deferral: no multiplayer
-work starts before the public release (see "Current focus").
+- **A new game mode.** Multiplayer is chosen from the main menu and supports Sandbox, Science and
+  Career. A race save is a normal save with a race mark; single-player saves are untouched.
+- **Four space centers.** Each player gets an exact copy of the KSC at a fixed site on Kerbin's
+  equator, assigned automatically so players are as far apart as possible. Only its owner
+  launches from a KSC; the stock alternate launch sites are common when the race uses them
+  (a race setting; they need the Making History expansion). Players can join later while a
+  seat is free.
+- **Name and look.** Each player picks a display name and one of four distinct looks (a stock
+  suit style with its color; stock-like replacements where a DLC is missing).
+- **Rivals are only seen.** Other players' buildings, flights and leftovers appear as ghosts and
+  scenery that nothing can interact with, so no rival can change a player's own timeline. Flags
+  are readable. Leftovers parked on a runway, a pad or a launch site are not shown.
+- **Separate everything else.** Ledgers, science, funds, contracts, tech, facilities, rosters
+  and vessels stay per player. A rival's data is never an input to the local game.
+- **The race.** A Space Race window shows every player's game date for each milestone of a
+  points ladder, color coded. A first belongs to the earliest game date and can be retaken by
+  rewinding and getting there earlier. An optional real-time end date closes the race; "no
+  retakes" is a house rule.
+- **Fair play.** Edited shared files are noticed by every game (hash chain, a local record of
+  what was seen, self-healing own files); the replay of a flight is the proof of its
+  milestone. Signed files and automatic flight checks are later hardening.
 
-Player boundaries that enable competitive multiplayer. Each player has their own game actions timeline (separate science, funds, reputation, contracts, kerbals). Only things with visible effect on the common game world are shared — vessel recordings play as ghosts in everyone's game, but each player's economy is independent.
-
-### Player Boundaries
-
-- **Per-player game actions timeline** — each player's resource ledger is independent; importing another player's recordings adds their ghosts to the world but does not affect the local player's science, funds, or reputation
-- **Shared world layer** — vessel recordings (trajectories, part events, ghost chains) are shared and visible to all players; the physical world is common, the economic world is separate
-- **Milestone visibility** — all players can see each other's milestones (first orbit, first Mun landing) but milestones only feed into the achieving player's resource pipeline
-
-### Space Race
-
-- **Pre-built recording packs** — a set of recordings representing an AI space program's progression (first orbit on Day 30, Mun landing on Day 150, etc.); hand-crafted or community-contributed
-- **Milestone racing** — Parsek already tracks milestones; space race is a comparison UI showing both programs' achievements side by side
-- **Difficulty scaling** — different packs for different skill levels
-- **Community races** — players export their full campaign as a space race opponent ("Can you beat Scott Manley's career run?")
+A later optional feature the design allows for (its section 15.10, phase R8): recorded
+opponents, a recorded space program to race against alone. An idea kept for later, not in
+the design: community races against a published campaign.
 
 ---
 
@@ -610,15 +612,14 @@ Phase 13: Logistics (Supply Routes) (v0.10.0 ✓)
     │   non-KSC origins, claw and inter-body routes followed in v0.10.1-v0.10.3, M1-M6)
     │
     ▼
-Phase 14: Cooperative Async Multiplayer (deferred until after the public release)
-    │  Parsek-native packet exchange, shared folder, campaigns,
-    │  player identity, pooled economy, arbitration fold
-    │  (design: docs/dev/design-coop-async-multiplayer.md;
-    │   Gloops extraction decoupled - no longer a prerequisite)
+Phase 14: Cooperative Async Multiplayer (DEPRECATED 2026-11-14, not planned)
+    │  (archived design: docs/dev/done/design-coop-async-multiplayer.md)
     │
     ▼
-Phase 15: Competitive Play + Space Race
-    │  Per-player game actions, milestone racing, opponent packs
+Phase 15: Multiplayer - the Space Race (design v2; after the public release)
+    │  New game mode, four KSC sites, rivals as ghosts only, shared folder,
+    │  milestone board with a points ladder
+    │  (design: docs/dev/design-competitive-multiplayer.md)
     │
     ▼
 Phase 16: Mod Compatibility
@@ -671,6 +672,6 @@ Ghost escape orbits clip at finite distance (~12,000 km). Active vessels show fu
 
 - **Racing modes or lap timing**
 - **AI playback or autopilot**
-- **Real-time multiplayer synchronization** — Parsek's multiplayer model is async (Phases 13–14). No shared physics simulation, no lockstep networking.
+- **Real-time multiplayer synchronization** — Parsek's multiplayer model is async (Phase 15). No shared physics simulation, no lockstep networking.
 - **Taking control of recorded vessels mid-playback** — jumping into a live ghost while it is playing out creates unresolvable paradoxes (recording future events, reserved crew, applied resource deltas). The complexity is not worth the payoff. **Note:** the narrower "Rewind to Separation" feature (see above) does allow re-flying a sibling vessel from a past split event — that works because it rewinds UT to the split moment and replaces the sibling's BG-crash via append-only supersede, rather than hijacking an in-flight ghost.
 - **Timeline branching or alternate histories**

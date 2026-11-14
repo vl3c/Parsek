@@ -3006,6 +3006,22 @@ that catches a dropped row before it costs a flight - the weaker "the saveTempla
 names a real directory" form stays green when a row goes missing. Pure resolution:
 `hlib.plan_shared_ship_overlay` / `hlib.validate_shared_ships_manifest`.
 
+## The flight profile catalog (`docs/dev/flight-profiles.md`)
+
+Every lane spec, flattened to one row and summarized for gap-hunting, lives in the
+GENERATED `docs/dev/flight-profiles.md`: lanes per family, host save, body, seam
+verb, timeline operation (rewind-to-launch, Re-Fly, revert, reload, save, warp,
+time jump, scene change, vessel switch, new game), mission machine and in-game
+category; a body x timeline-operation and a family x timeline-operation matrix; and
+the seam verbs, `registry.toml` dimension values and `[InGameTest]` categories no
+lane uses. Status is quoted from `docs/dev/autotest-status.md`, which stays the
+authority. Regenerate with `python harness/tools/lane_catalog.py` (pure derivations
+in `lib/lanecatalog.py`; `--check` exits 1 when stale, `--json -` prints the per-lane
+data) after changing a spec, the registry, an in-game category or a lane's status
+row: `lib/test_lanecatalog.py` regenerates it in memory and reds while the committed
+copy differs. Bodies are a name scan and timeline operations come from seam verbs
+only, so a mission's own kRPC warps and an unnamed Kerbin do not show.
+
 ## Spec authoring: pinning a multi-category batch
 
 A batch-owning spec drives ONE `RunTests` step. Since 2026-09-07 that step may name
@@ -3067,6 +3083,26 @@ New lanes join `MultiCategoryBatchWiringGroupTests.GROUP` (`id -> (scene,
 {category: total})`) in the commit that commits them. Full contract and rationale:
 `docs/dev/design-autotest-harness-core.md` -> "AMENDMENT 2026-09-07 - Multi-category
 batch contract".
+
+## Terrain survey for the space-race sites (`tools/kerbin_equator_scan.py`)
+
+A read-only measuring tool for design spike S1 of
+`docs/dev/design-competitive-multiplayer.md` (section 7.3): it samples stock Kerbin's
+terrain height and biome along the KSC's latitude through kRPC and ranks the dry, flat
+spots near a half turn and the two quarter turns from the KSC. It flies nothing and
+writes nothing into a save; it needs a KSP with the kRPC server up sitting in any
+loaded scene (the provisioned automation instance at the Space Center is enough).
+It is not a lane: no spec, no verdict, no machine lock of its own, so run it only
+while you hold the machine (no `run.py` or `provision.py` in flight).
+
+```
+missions/.venv/Scripts/python tools/kerbin_equator_scan.py            # about 90,000 samples
+missions/.venv/Scripts/python tools/kerbin_equator_scan.py --selftest # no game, no kRPC
+```
+
+Output goes to `<umbrella>/logs/terrain/<YYYY-MM-DD>/` (`coarse.csv`, `biomes.csv`,
+`ksc_fine.csv`, `fine_<target>_<n>.csv`, `summary.json`, `summary.txt`), never into
+the repo tree.
 
 ## Running the tests
 

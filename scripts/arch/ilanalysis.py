@@ -323,6 +323,10 @@ class Index:
 
 # --- a. static state -----------------------------------------------------------
 
+# The nested holder type a store keeps its save-scoped statics in (the same name
+# lifetimes.HOLDER_TYPE_NAME reads).
+HOLDER_TYPE_NAME = "ColdResetState"
+
 
 def static_state(index, config):
     mutating = set(config["statics"]["mutating_members"])
@@ -386,6 +390,45 @@ def static_state(index, config):
             bucket["mutatedElsewhere"] += bool(row["mutatedElsewhereBy"])
             bucket["addressTakenElsewhere"] += bool(row["addressTakenElsewhereBy"])
         return {name: dict(counts) for name, counts in out.items()}
+
+    # A store that keeps its save-scoped fields in a nested `ColdResetState`
+    # holder exposes them as static properties whose setter writes the holder
+    # (`ldsfld state; stfld`), so no `stsfld` names them. A static property
+    # setter of the store that reads its holder static counts as the write,
+    # keyed by the property: another type's call to it is a cross-type static
+    # write, as the `stsfld` was before the move. The setter is attributed to
+    # the holder, not to one holder field (the facts keep no instance-field
+    # writes). A store METHOD that assigns holder fields (`Clear()`) is a call,
+    # not a write, as it was before.
+    holders_by_type = defaultdict(set)
+    for key, field in index.fields.items():
+        path = _key_type(key)
+        if field["static"] and field["fieldType"] == path + "/" + HOLDER_TYPE_NAME:
+            holders_by_type[path].add(key)
+    for path, holders in sorted(holders_by_type.items()):
+        if not index.production(path):
+            continue
+        for method_key in index.by_type.get(path, ()):
+            method = index.methods[method_key]
+            name = method["name"]
+            if not name.startswith("set_") or "static" not in method["flags"]:
+                continue
+            if not holders & set(method.get("staticReads", ())):
+                continue
+            key = path + "::" + name[4:]
+            if key in rows:
+                continue
+            rows[key] = {
+                "type": path,
+                "module": index.module(path),
+                "reassignable": False,
+                "collection": False,
+                "mutated": False,
+                "holderProperty": True,
+                "writtenElsewhereBy": other_production(key, index.callers.get(method_key, set())),
+                "mutatedElsewhereBy": [],
+                "addressTakenElsewhereBy": [],
+            }
 
     by_module = tally(lambda _k, row: row["module"])
     by_type = tally(lambda _k, row: ilfacts.outermost(row["type"]))

@@ -27,7 +27,6 @@ namespace Parsek.Tests
 
         public KspSettingsLedgerTests()
         {
-            RecalculationEngine.ClearModules();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
@@ -44,7 +43,6 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
-            RecalculationEngine.ClearModules();
             CurrencyScenarioReadiness.ResetForTesting();
             GameStateRecorder.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();

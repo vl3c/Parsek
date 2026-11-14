@@ -15,6 +15,8 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class OncePerBodyAndSliceTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private readonly List<string> logLines = new List<string>();
         private readonly List<GameAction> ledger = new List<GameAction>();
         private readonly MilestonesModule milestones = new MilestonesModule();
@@ -34,17 +36,15 @@ namespace Parsek.Tests
             ConversionCauseScope.ResetForTesting();
             Ledger.ResetForTesting();
             CommittedMilestoneReach.ResetForTesting();
-            RecalculationEngine.ClearModules();
-            RecalculationEngine.RegisterModule(milestones, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(contracts, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(science, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(reputation, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(milestones, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(contracts, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(science, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(funds, RecalculationModuleSet.ModuleTier.SecondTier);
+            modules.Register(reputation, RecalculationModuleSet.ModuleTier.SecondTier);
         }
 
         public void Dispose()
         {
-            RecalculationEngine.ClearModules();
             KspStatePatcher.AllowNegativeCurrencyProviderForTesting = null;
             StockPoolReference.ResetForTesting();
             StockShadowTakeBack.ResetForTesting();
@@ -64,8 +64,8 @@ namespace Parsek.Tests
 
         private void Walk(double? now = null)
         {
-            if (now.HasValue) RecalculationEngine.Recalculate(ledger.ToList(), now.Value);
-            else RecalculationEngine.Recalculate(ledger.ToList());
+            if (now.HasValue) RecalculationEngine.Recalculate(modules, ledger.ToList(), now.Value);
+            else RecalculationEngine.Recalculate(modules, ledger.ToList());
         }
 
         private static GameAction Survey(string id, string body, double ut, long cseq, float sci = 12f)
@@ -277,10 +277,10 @@ namespace Parsek.Tests
                     });
                     cseq++;
                 }
-                RecalculationEngine.Recalculate(asLab);
+                RecalculationEngine.Recalculate(modules, asLab);
                 double expected = science.GetRunningScience();
                 double expectedAvail = science.GetAvailableScience();
-                RecalculationEngine.Recalculate(surveyed);
+                RecalculationEngine.Recalculate(modules, surveyed);
                 Assert.True(expected == science.GetRunningScience(), "science differs for seed " + seed);
                 Assert.True(expectedAvail == science.GetAvailableScience(), "available science differs for seed " + seed);
                 Assert.All(surveyed.Where(ScienceModule.IsOrbitalSurveyRow), r => Assert.True(r.Effective));
@@ -507,9 +507,9 @@ namespace Parsek.Tests
                     });
                     cseq++;
                 }
-                RecalculationEngine.Recalculate(plain);
+                RecalculationEngine.Recalculate(modules, plain);
                 double expected = science.GetRunningScience();
-                RecalculationEngine.Recalculate(withProducer);
+                RecalculationEngine.Recalculate(modules, withProducer);
                 Assert.True(expected == science.GetRunningScience(), "science differs for seed " + seed);
                 Assert.All(withProducer.Where(ProducerSliceBook.IsProducerSlice), r => Assert.True(r.Effective));
             }

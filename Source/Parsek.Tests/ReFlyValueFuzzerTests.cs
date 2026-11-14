@@ -523,7 +523,7 @@ namespace Parsek.Tests
             List<GameAction> l = Els().ToList();
             double clock = c.DeadlineClock();
             var walkL = Walk(l, clock);
-            var gateWalk = RecalculationEngine.WalkBalancesOnClones(l);
+            var gateWalk = RecalculationEngine.WalkBalancesOnClones(LedgerOrchestrator.Modules, l);
             var retire = SupersedeCommit.BuildRetireSet(
                 closure, r, Ledger.Actions, TombstonedIds(c), logDecisions: false).Rows;
             var sealing = SupersedeCommit.SelectSealingRows(retire, gateWalk.NotCountedByActionId, null);
@@ -1126,7 +1126,7 @@ namespace Parsek.Tests
         /// <summary>The production recalculation (no cutoff) over the registered modules.</summary>
         private static Totals RealTotals(IReadOnlyList<GameAction> rows, double clock)
         {
-            RecalculationEngine.Recalculate(new List<GameAction>(rows), null, clock);
+            RecalculationEngine.Recalculate(LedgerOrchestrator.Modules, new List<GameAction>(rows), null, clock);
             var t = new Totals
             {
                 Funds = LedgerOrchestrator.Funds.GetRunningBalance(),
@@ -1183,7 +1183,7 @@ namespace Parsek.Tests
 
         private static RecalculationEngine.IsolatedBalanceWalk Walk(IReadOnlyList<GameAction> rows, double clock)
         {
-            return RecalculationEngine.WalkBalancesOnClones(new List<GameAction>(rows), clock);
+            return RecalculationEngine.WalkBalancesOnClones(LedgerOrchestrator.Modules, new List<GameAction>(rows), clock);
         }
 
         private static HashSet<string> TombstonedIds(Career c)
