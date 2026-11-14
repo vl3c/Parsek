@@ -98,6 +98,9 @@ These are binding. Quotes are the owner's words.
   2026-11-14; 7.10).
 - A flight flown with the cheat menu or a debug tool does not score: it is shown on the
   board, marked, worth nothing (decision card, 2026-11-14; 7.12).
+- The shared launch sites need Making History, so whether a race uses them is a setting the
+  creator chooses; when it is on, joining needs the expansion (decision card, 2026-11-14;
+  7.3).
 - Rival milestones dated after your own game clock are always shown (decision card,
   2026-11-14).
 
@@ -894,7 +897,7 @@ in every game.
   Island airfield): common. Any player can launch from them, exactly as stock offers them.
   The review found the catch: all of them come with the Making History expansion, and a game
   without it has none. So whether a race uses them is a race setting the creator chooses
-  (proposed, decision D4). When it is on, joining needs the expansion, and the race's
+  (owner ruling 2026-11-14). When it is on, joining needs the expansion, and the race's
   difficulty settings enable the sites from the start, so nobody has to travel farther than a
   rival to unlock one. When it is off, every player launches only from their own site. (The
   sites stock hides until a player has visited them are not part of this: they would favor
@@ -1684,7 +1687,7 @@ Each is written into the document as a proposal and asked as a decision card on 
 | D1 | How finely are game dates compared, and what does a tie give? | DECIDED 2026-11-14: whole game days; players tied on a day split the points (6.6, 7.8) |
 | D2 | May a player hold flights back and share them at the last moment before the end date? | DECIDED 2026-11-14: yes; the last standing stamped before the end counts (7.10) |
 | D3 | Does a flight flown with cheat or debug tools score? | DECIDED 2026-11-14: no; shown, marked, worth nothing (7.12) |
-| D4 | The shared launch sites exist only with the Making History expansion. What does a race do? | A race setting chosen by the creator; when it is on, joining needs the expansion (7.3) |
+| D4 | The shared launch sites exist only with the Making History expansion. What does a race do? | DECIDED 2026-11-14: a race setting chosen by the creator; when it is on, joining needs the expansion (7.3) |
 | D5 | Are a rival's buildings solid? | Solid, fully built, and the same in every game (7.3) |
 
 ### 13.B Chosen by the designer, for the owner to overrule
