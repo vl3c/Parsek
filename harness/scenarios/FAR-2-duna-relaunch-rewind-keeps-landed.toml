@@ -1,0 +1,158 @@
+schema = 1
+id = "FAR-2-duna-relaunch-rewind-keeps-landed"
+# =====================================================================================
+# FAR-2: A KERBIN RELAUNCH OF THE CRAFT ALREADY LANDED ON DUNA, REWOUND, READ BY POSITION.
+# (Far-body timeline program, 2026-11-14: RR-1's relaunch-and-rewind on the far-body host
+# that carries the most same-name vessels.)
+#
+# WHY. The Rewind-to-Launch owner strip matches the owner by NAME and keeps a same-name
+# vessel only when its launch guid differs (todo RR-1's keep rule). RR-1 proved that with
+# ONE same-name vessel on Kerbin. `duna-park-recorded` holds TWO vessels named 'Kerbal X'
+# on Duna's surface, ~788 km apart, one of them a committed spawned leaf and one not, plus
+# the tree's other spawned leaves (an EVA kerbal on Duna, a probe in Kerbin orbit). A strip
+# that reads a far-body vessel as the owner deletes a landed Duna ship from the timeline;
+# a keep that re-places one on the wrong body or frame moves it. Both read as "kept" to a
+# count; LeafVesselPlacement reads them by POSITION.
+#
+# THE HOST. `duna-park-recorded` (SANDBOX, UT 5,336,112,610.65): active vessel
+# 'Jumping Flea' PRELAUNCH on the pad (pid 2905720181, no recording); on Duna LANDED:
+# 'Kerbal X' pid 2708531065 guid a424011b746440baae6030e225c9de31 (NOT a spawned leaf),
+# 'Kerbal X' pid 567464503 guid 6763f69fa48e40bbad09db821b29feea (leaf 5466feba, Landed),
+# 'Merger Kerman' pid 2798211014 (leaf 2f724cbd, Landed, 9 m from it); in Kerbin orbit
+# 'Kerbal X Probe' pid 753981973 (leaf ed76396d, Orbiting). One committed tree
+# ced7848157674b8ea19311377c0f6fbc, 14 recordings. These literals are FIXTURE constants; a
+# re-harvest moves them and must re-pin this spec.
+#
+# THE FLIGHT, RR-1's order verbatim:
+#   ACT 0  boot hygiene (stop and discard any entry stub, settings, save, reload at the
+#          Space Center).
+#   ACT 1  GoToEditor SPH + the stock Kerbal X, LaunchFromEditor onto the Runway (the pad
+#          holds the Flea), StartRecording, a few RecordingState polls, the flight-ready
+#          wait (`ListHandles kind=chains`, RR-1's reason), stop, commit (a second tree).
+#   ACT 2  InvokeRewindToLaunch tree=latest: the relaunch. Its quicksave holds the relaunch
+#          (the owner, stripped by name) and both Duna 'Kerbal X' ships (same name,
+#          different guids: kept).
+#   ACT 3  at the Space Center: LeafVesselPlacement (the three spawned leaves at their
+#          recorded terminal places: two on Duna by surface distance, one in Kerbin orbit
+#          by elements and phase), save, quit.
+#
+# PRE-REGISTERED READINGS:
+#   - `kept 1 other launch(es)`: one Duna ship was stripped. Read the two keep lines; the
+#     missing one names the defect (by-PID or by-name over a far-body vessel).
+#   - `compared=2` or `absent=1`: a spawned leaf left the save; `bad=1` with
+#     `kind=surface ... distM=` large: a kept Duna vessel was re-placed.
+#   - `bodies=[Duna,Kerbin]` with `compared=3` is the expected reading; the relaunch
+#     recording carries no spawn pid (RR-1 read `own-<rec>-false-0`), so it is skipped.
+#
+# FAST-LANE CHECKLIST: (1) reuse: RR-1's driver verbatim on another host, no new flight;
+# (2) no warp at all; (3)-(5) no dwell, burn or coast; (6) retry `once`; (7) recordings
+# window 15..15 (the host's 14 plus the relaunch, RR-1's exact count shape); (8) operator,
+# ~2 min expected; (9) flight_efficiency.py after the first green flight.
+tier = "operator"
+description = "Far-body owner strip: on duna-park-recorded the stock Kerbal X is relaunched from the SPH, recorded, committed and rewound to; the owner strip must remove only the relaunch and keep both 'Kerbal X' ships landed on Duna (different launch guids), and every spawned leaf (two on Duna, one in Kerbin orbit) must sit at its recorded terminal place at the Space Center (LeafVesselPlacement)."
+instanceProfile = "stock-minimal"
+tags = ["FAR-2", "far-body", "duna", "sandbox", "rewind", "rewind-to-launch", "rewind-strip",
+        "same-craft-relaunch", "editor-route", "leaf-placement", "ingame-batch",
+        "timeline-ops", "recorded-fixture", "pending-flight", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/duna-park-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+# Budget arithmetic: 2 x 300 LoadGame + 120 GoToEditor + 180 LaunchFromEditor + 180
+# StartRecording + 120 CommitTree + 300 rewind + 120 SaveGame + 300 RunTests = 1920;
+# runtime 2400 adds the inert steps and FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },           expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                  expect = "OK" },
+  { cmd = "DiscardTree",                                                                    expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },        expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },             expect = "OK" },
+  { cmd = "SaveGame",       args = { name = "persistent" },                                 expect = "OK" },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "ListHandles",    args = { kind = "committed" },                                  expect = "OK" },
+
+  # ---- ACT 1: the relaunch ----
+  { cmd = "GoToEditor",     args = { facility = "SPH", craft = "Kerbal X" },                expect = "OK", budget = 120 },
+  { cmd = "LaunchFromEditor",                                                               expect = "OK", budget = 180 },
+  { cmd = "StartRecording",                                                                 expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                                 expect = "OK" },
+  { cmd = "RecordingState",                                                                 expect = "OK" },
+  { cmd = "RecordingState",                                                                 expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "chains" },                                     expect = "OK" },
+  { cmd = "StopRecording",                                                                  expect = "OK" },
+  { cmd = "CommitTree",                                                                     expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                  expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "far2-committed" },                            expect = "OK" },
+
+  # ---- ACT 2: the rewind ----
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                               expect = "OK", budget = 300 },
+  { cmd = "MissionMark",    args = { label = "far2-rewound" },                              expect = "OK" },
+
+  # ---- ACT 3: every spawned leaf at its terminal place ----
+  { cmd = "RunTests",       args = { category = "LeafVesselPlacement" },                    expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                                       expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                   expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["duna", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 15, max = 15 }
+
+[expectations.recordings.structure]
+# Report-only (no `gating`): the produced save is taken ~15 s before the relaunch
+# recording starts, so the relaunch is absent and both Duna ships present.
+committedTrees = { min = 2, max = 2 }
+vesselNames = { "Kerbal X" = 2, "Merger Kerman" = 1, "Kerbal X Probe" = 2 }
+
+[expectations.logContracts]
+required = [
+  "goeditor complete facility=SPH craft=Kerbal X scene=EDITOR parts=[1-9][0-9]* ship=Kerbal X ",
+  "launchfromeditor complete scene=FLIGHT vessel=Kerbal X pid=[0-9]+ site=Runway situation=PRELAUNCH ",
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  "Captured rewind save at UT ([0-9.]+): vessel \"Kerbal X\" in [A-Z_]+ \\(save: (parsek_rw_[0-9a-f]+)\\)[\\s\\S]*Rewind-to-Launch initiated to UT \\1 \\(save: \\2\\)",
+  "Committed tree 'Kerbal X' \\(1 recordings\\)\\. Total committed: 15 recordings, 2 trees",
+  "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest committedTrees=2",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  # Both Duna ships kept by guid against the relaunch owner.
+  "Rewind owner strip: owner='Kerbal X' guid=([0-9a-f]{32}) evaChildNames=0[\\s\\S]*Rewind owner strip: keeping vessel 'Kerbal X' \\(pid=567464503, guid=6763f69fa48e40bbad09db821b29feea\\) in rewind save: owner's name but a different launch \\(owner guid=\\1\\)",
+  "Rewind owner strip: owner='Kerbal X' guid=([0-9a-f]{32}) evaChildNames=0[\\s\\S]*Rewind owner strip: keeping vessel 'Kerbal X' \\(pid=2708531065, guid=a424011b746440baae6030e225c9de31\\) in rewind save: owner's name but a different launch \\(owner guid=\\1\\)",
+  "\\[Parsek\\]\\[INFO\\]\\[Rewind\\] Stripped [1-9][0-9]* vessel\\(s\\) from save \\(1 by name \\[Kerbal X\\], 0 by owner guid, [0-9]+ by PID; kept 2 other launch\\(es\\) of the owner's craft\\)",
+  "Rewind strip scope: keep spawned pid=567464503 of 'Kerbal X' \\(id=[0-9a-f]{32}\\) as committed history",
+  # The three spawned leaves at their terminal places, two on Duna and one in Kerbin orbit.
+  "MISSIONMARK label=far2-rewound ut=[\\s\\S]*?LeafPlacement summary: scene=SPACECENTER compared=3 ok=3 bad=0 absent=0 duplicate=0 unsupported=0 bodies=\\[Duna,Kerbin\\]",
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=SPACECENTER",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "goeditor rejected",
+  "goeditor error",
+  "launchfromeditor refused",
+  "launchfromeditor timeout",
+  "invokerewindtolaunch refused",
+  "invokerewindtolaunch failed",
+  "Updated committed tree",
+  "Rewind strip scope: strip spawned pid=(?:567464503|2798211014|753981973) ",
+  "Stripping orphaned spawned vessel '(?:Kerbal X|Merger Kerman|Kerbal X Probe)'",
+  "Stripped [0-9]+ vessel\\(s\\) from save \\((?!1 by name)[0-9]+ by name \\[Kerbal X\\]",
+  "kept [01] other launch\\(es\\) of the owner's craft",
+  "LeafPlacement: [^\\r\\n]*verdict=(?!ok)",
+]
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

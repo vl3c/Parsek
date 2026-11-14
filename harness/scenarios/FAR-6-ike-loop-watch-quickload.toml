@@ -1,0 +1,139 @@
+schema = 1
+id = "FAR-6-ike-loop-watch-quickload"
+# =====================================================================================
+# FAR-6: A LOOPED IKE-ORBIT RECORDING WATCHED, QUICKSAVED AND QUICKLOADED IN WATCH MODE.
+# (Far-body timeline program, 2026-11-14: save / reload of a far-body loop under watch.)
+#
+# WHY. The far-body loop lanes (V31M / V32M / V33M) loop the fixtures' WHOLE Kerbin ->
+# moon trees through re-aim and read them at the Space Center or in the Tracking Station;
+# none watches a loop that lives entirely inside a far moon's SOI, and no loop lane at any
+# body quickloads while the camera follows the ghost. A quickload is an in-session load
+# (LoadReconcilePolicy QuickloadFlight): the loop's engine slot, the watch target index
+# and the ghost's moon-relative placement all have to come back from the save, with the
+# floating origin on a vessel ~3.2 Mm from Duna and the ghost a few hundred km away on
+# the same Ike orbit. A watch that cannot re-enter, a ghost re-placed in Duna's frame
+# (render anomaly sweep, allowedAnomalies = []) or an index left pointing at the wrong row
+# after the load all red here.
+#
+# THE HOST. `duna-ike-recorded` (SANDBOX, UT 9,181,510.7): DD1 Duna Direct Probe ORBITING
+# Ike (pid 2200110044, SMA 166,502 m, period ~3,121 s), the spawned leaf of committed tree
+# ccb5e4afd7974dbe9118090468ac00ae, plus an isActive copy the boot discards.
+#
+# THE FLIGHT:
+#   boot     LoadGame (FLIGHT on DD1), stop and discard the promotion, settings (tracers).
+#   R        StartRecording on DD1, ListHandles kind=active (R's tree id), WarpToUT
+#            9181800 (~4.5 min of Ike orbit on rails), stop, CommitTree, stop.
+#   loop     MissionConfig loop=true + StartLoopPlayback on R's tree; EnterWatchMode on it
+#            (the ghost replays R's arc of the same orbit, a few tens of degrees behind
+#            DD1, well inside the 300 km watch cutoff).
+#   F5/F9    SaveGame quicksave, LoadGame quicksave playerLoad=true (the player's F9),
+#            RecordingState polls, EnterWatchMode on R's tree again.
+#   end      ExportRenderManifest, FlushAndQuit.
+#
+# PRE-REGISTERED READINGS:
+#   - `enterwatchmode rejected reason=no-watchable-ghost` after the load: the loop's ghost
+#     did not come back from the quickload (engine slot or loop config lost).
+#   - an `icon-teleport` / `icon-off-orbit` / `parity-drift` anomaly: the ghost was placed
+#     in another body's frame after the load.
+#   - recordings 7 or more: the watch or the load recorded a stub.
+#
+# FAST-LANE CHECKLIST: (1) reuse: V31M's boot, V7W's watch and QL-2b's player load, no new
+# flight; (2) explicit-UT warp only; (3)-(5) no dwell, burn or coast beyond the Ike
+# segment; (6) retry `once`; (7) recordings window 5..6 while never flown; (8) operator,
+# ~3 min expected; (9) flight_efficiency.py after the first green flight.
+tier = "operator"
+description = "Far-body loop under watch with a quickload: on duna-ike-recorded a ~4.5 min arc of the DD1 probe's Ike orbit is recorded, committed and looped, the camera enters watch mode on its ghost, then F5 / F9 (a QuickloadFlight load) must bring the loop and its watchable ghost back at Ike with no render anomaly."
+instanceProfile = "stock-minimal"
+tags = ["FAR-6", "far-body", "ike", "duna", "sandbox", "loop-playback", "watch-mode",
+        "quickload", "render-composition", "timeline-ops", "runtime-handles",
+        "recorded-fixture", "pending-flight", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/duna-ike-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+# Budget arithmetic: 2 x 300 LoadGame + 180 StartRecording + 300 warp + 120 CommitTree +
+# 300 StartLoopPlayback + 2 x 120 EnterWatchMode + 120 SaveGame + 120 manifest = 1980;
+# runtime 2400 adds the inert steps and FlushAndQuit.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },           expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                  expect = "OK" },
+  { cmd = "DiscardTree",                                                                    expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" },        expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "ghostRenderTracing", value = "true" },         expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "mapRenderTracing", value = "true" },           expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },             expect = "OK" },
+
+  # ---- R: an arc of DD1's Ike orbit, committed ----
+  { cmd = "StartRecording",                                                                 expect = "OK", budget = 180 },
+  { cmd = "ListHandles",    args = { kind = "active" }, label = "live",                     expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "9181800" },                                      expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                  expect = "OK" },
+  { cmd = "CommitTree",                                                                     expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                  expect = "OK" },
+
+  # ---- the loop, watched ----
+  { cmd = "MissionConfig",  args = { tree = "${live.tree}", loop = "true" },                expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "${live.tree}" },                            expect = "OK", budget = 300 },
+  { cmd = "EnterWatchMode", args = { tree = "${live.tree}" },                               expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                                 expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "far6-watching" },                             expect = "OK" },
+
+  # ---- F5 / F9 under watch ----
+  { cmd = "SaveGame",       args = { name = "quicksave" },                                  expect = "OK", budget = 120 },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "quicksave", playerLoad = "true" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                                 expect = "OK" },
+  { cmd = "RecordingState",                                                                 expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "far6-reloaded" },                             expect = "OK" },
+  { cmd = "EnterWatchMode", args = { tree = "${live.tree}" },                               expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                                 expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "far6-rewatching" },                           expect = "OK" },
+  { cmd = "ExportRenderManifest",                                                           expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                   expect = "OK" },
+]
+
+[dimensionsCovered]
+# Boot facts only until the first green flight (the H35 claim-is-not-gate rule).
+D14 = ["ike", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 5, max = 6 }
+
+[expectations.renderComposition]
+# Report-only until the reading run (no `gating`).
+
+[expectations.logContracts]
+required = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  "Total committed: [56] recordings, 2 trees",
+  "missionconfig applied:",
+  "SetLoopEnabled: loop ON",
+  "startloopplayback initiated:",
+  "MISSIONMARK label=far6-[\\s\\S]*?enterwatchmode complete: index=[\\s\\S]*?MISSIONMARK label=far6-watching ut=",
+  "MISSIONMARK label=far6-watching ut=[\\s\\S]*?loadgame player-load: firing [\\s\\S]*?Load classified: early=InSession refined=QuickloadFlight",
+  "MISSIONMARK label=far6-reloaded ut=[\\s\\S]*?enterwatchmode complete: index=[\\s\\S]*?MISSIONMARK label=far6-rewatching ut=",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "enterwatchmode rejected",
+  "warptout refused",
+  "startloopplayback (?:rejected|error|timeout)",
+  "FORCED FAITHFUL",
+  "loadgame (?:refused|rejected|failed|timeout)",
+]
+
+[runtime]
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

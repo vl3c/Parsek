@@ -1,0 +1,85 @@
+version = 0
+recordingSchemaGeneration = 4
+takeBackFromCseq = 1
+allowNegativeLocked = 0
+GAME_ACTION
+{
+	ut = 4653654.2238905169
+	type = 4
+	actionId = act_e12d8334e79649bebc05f92025e50abe
+	recordingId = 311d98e32547491e8dd37aec2526d25d
+	seq = 5
+	milestoneId = RecordsDistance
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 4653681.8638905426
+	type = 4
+	actionId = act_9541baf9f4574b4b80ba74972bcb1b8a
+	recordingId = 311d98e32547491e8dd37aec2526d25d
+	seq = 6
+	milestoneId = RecordsAltitude
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 4655278.2553432817
+	type = 4
+	actionId = act_197e1035d05b4360baf25921ea39bb57
+	recordingId = cb6acf4e1f4043878db57c89ffc9948f
+	seq = 9
+	milestoneId = RecordsSpeed
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 9177489.5565805025
+	type = 4
+	actionId = act_7aa5ff1fa9df41ba8cc8361d5f92a3af
+	recordingId = 9e2f5bfae0b6414893f2c4a0be740a57
+	seq = 1
+	cseq = 2
+	milestoneId = Ike/Flyby
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 9177489.5565805025
+	type = 4
+	actionId = act_84a1ee7c9dd84131a9d0561181e60378
+	recordingId = 9e2f5bfae0b6414893f2c4a0be740a57
+	seq = 2
+	cseq = 3
+	milestoneId = Duna/Escape
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 9181438.349337358
+	type = 4
+	actionId = act_79e930daec91472cba6be4ba4b48eee2
+	recordingId = 9e2f5bfae0b6414893f2c4a0be740a57
+	seq = 3
+	cseq = 4
+	milestoneId = Ike/Orbit
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+PROGRESS_SEED
+{
+	captured = True
+	node = Duna/Orbit
+	node = Sun/Orbit
+}
