@@ -1,0 +1,47 @@
+TP-8-interbody-route-map-pictures re-aim legs validation, PR #2588
+worktree: Parsek-reaim-legs @ cf45d7b89 (origin/claude/project-thread-5ijjc4)
+automation DLL sha256 d1fda7b7491bab5f691a1fafc91be3aa32e24096a5368079eb61aa12049b5eb8
+  'Leg hidden (inside re-aimed conic)' utf16=1, MoveActiveRecordingToSplitTail utf8=1, IsLegSupersededByReaimedConic utf8=1
+verdict: [Harness][Info][Classify] verdict=PASS scenario=TP-8-interbody-route-map-pictures attempt=1 reason=driver valid, every verifier PASS/SKIPPED
+
+== 'Leg hidden (inside re-aimed conic)' count: 8
+      8 pass=forward
+[LOG 12:49:19.774] [Parsek][VERBOSE][GhostMap] Leg hidden (inside re-aimed conic): rec=36c7688b8e5141f7809e2d4dbe9dc094 leg=3 [68378174.9,68378180.1] body=Sun pass=forward - recorded geometry of the transfer the re-aim replaced
+[LOG 12:49:24.780] [Parsek][VERBOSE][GhostMap] Leg hidden (inside re-aimed conic): rec=36c7688b8e5141f7809e2d4dbe9dc094 leg=3 [68378174.9,68378180.1] body=Sun pass=forward - recorded geometry of the transfer the re-aim replaced | suppressed=591
+[LOG 12:49:29.788] [Parsek][VERBOSE][GhostMap] Leg hidden (inside re-aimed conic): rec=36c7688b8e5141f7809e2d4dbe9dc094 leg=3 [68378174.9,68378180.1] body=Sun pass=forward - recorded geometry of the transfer the re-aim replaced | suppressed=593
+[LOG 12:49:34.790] [Parsek][VERBOSE][GhostMap] Leg hidden (inside re-aimed conic): rec=36c7688b8e5141f7809e2d4dbe9dc094 leg=3 [68378174.9,68378180.1] body=Sun pass=forward - recorded geometry of the transfer the re-aim replaced | suppressed=593
+[LOG 12:49:39.794] [Parsek][VERBOSE][GhostMap] Leg hidden (inside re-aimed conic): rec=36c7688b8e5141f7809e2d4dbe9dc094 leg=3 [68378174.9,68378180.1] body=Sun pass=forward - recorded geometry of the transfer the re-aim replaced | suppressed=591
+[LOG 12:49:44.796] [Parsek][VERBOSE][GhostMap] Leg hidden (inside re-aimed conic): rec=36c7688b8e5141f7809e2d4dbe9dc094 leg=3 [68378174.9,68378180.1] body=Sun pass=forward - recorded geometry of the transfer the re-aim replaced | suppressed=589
+[LOG 12:49:49.808] [Parsek][VERBOSE][GhostMap] Leg hidden (inside re-aimed conic): rec=36c7688b8e5141f7809e2d4dbe9dc094 leg=3 [68378174.9,68378180.1] body=Sun pass=forward - recorded geometry of the transfer the re-aim replaced | suppressed=595
+[LOG 12:49:54.814] [Parsek][VERBOSE][GhostMap] Leg hidden (inside re-aimed conic): rec=36c7688b8e5141f7809e2d4dbe9dc094 leg=3 [68378174.9,68378180.1] body=Sun pass=forward - recorded geometry of the transfer the re-aim replaced | suppressed=593
+
+== WRN/ERR lines mentioning polyline / re-aim: 0
+
+== map dumps: ghosts and lines (target rec 36c7688b8e5141f7809e2d4dbe9dc094 'Duna Supply 1')
+== tp8-save-clock-duna-top.map.json ut=87625350.6 counts= {"ghosts": 2, "lines": 2, "points": 0, "truncated": false, "unknownBodyItems": 0}
+  ghost 36c7688b 'Duna Supply 1' treatment= StockConic body= Sun icon.drawn= True TARGET
+     line kind=orbit body=Sun active=False pts=0 {'ut': [63901473.58333458, 72258643.29620738], 'opacity': 0, 'drawMode': 'REDRAW_AND_RECALCULATE', 'conic': {'sma': 17382844515.84026, 'ecc': 0.21775086787318923, 'incDeg': 0.1075474620510836, 'lanDeg': 208.17538531324593, 'argPeDeg': 2.3955406312605985, 'meanAnomalyAtEpoch': 6.256969419301068, 'epoch': 83554549.3503125}}
+  ghost 5ca48c99 'Duna Supply 1 Probe' treatment= StockConic body= Kerbin icon.drawn= True 
+     line kind=orbit body=Kerbin active=False pts=0 {'ut': [63828965.133316085, 72353497.07554221], 'opacity': 0, 'drawMode': 'REDRAW_AND_RECALCULATE', 'conic': {'sma': 789675.6317018069, 'ecc': 0.04948993625228077, 'incDeg': 0.22396466817982666, 'lanDeg': 113.73427723563805, 'argPeDeg': 8.617417171844757, 'meanAnomalyAtEpoch': 6.271343585183132, 'epoch': 83482040.900294}}
+== tp8-save-clock-kerbin-top.map.json ut=87625339.4 counts= {"ghosts": 2, "lines": 2, "points": 0, "truncated": false, "unknownBodyItems": 0}
+  ghost 36c7688b 'Duna Supply 1' treatment= StockConic body= Sun icon.drawn= True TARGET
+     line kind=orbit body=Sun active=False pts=0 {'ut': [63901473.58333458, 72258643.29620738], 'opacity': 0, 'drawMode': 'REDRAW_AND_RECALCULATE', 'conic': {'sma': 17382844515.84026, 'ecc': 0.21775086787318923, 'incDeg': 0.1075474620510836, 'lanDeg': 208.17538531324593, 'argPeDeg': 2.3955406312605985, 'meanAnomalyAtEpoch': 6.256969419301068, 'epoch': 83554549.3503125}}
+  ghost 5ca48c99 'Duna Supply 1 Probe' treatment= StockConic body= Kerbin icon.drawn= True 
+     line kind=orbit body=Kerbin active=False pts=0 {'ut': [63828965.133316085, 72353497.07554221], 'opacity': 0, 'drawMode': 'REDRAW_AND_RECALCULATE', 'conic': {'sma': 789675.6317018069, 'ecc': 0.04948993625228077, 'incDeg': 0.22396466817982666, 'lanDeg': 113.73427723563805, 'argPeDeg': 8.617417171844757, 'meanAnomalyAtEpoch': 6.271343585183132, 'epoch': 83482040.900294}}
+== tp8-save-clock-mun-top.map.json ut=87625345.1 counts= {"ghosts": 2, "lines": 2, "points": 181, "truncated": false, "unknownBodyItems": 0}
+  ghost 36c7688b 'Duna Supply 1' treatment= StockConic body= Sun icon.drawn= True TARGET
+     line kind=orbit body=Sun active=False pts=0 {'ut': [63901473.58333458, 72258643.29620738], 'opacity': 0, 'drawMode': 'REDRAW_AND_RECALCULATE', 'conic': {'sma': 17382844515.84026, 'ecc': 0.21775086787318923, 'incDeg': 0.1075474620510836, 'lanDeg': 208.17538531324593, 'argPeDeg': 2.3955406312605985, 'meanAnomalyAtEpoch': 6.256969419301068, 'epoch': 83554549.3503125}}
+  ghost 5ca48c99 'Duna Supply 1 Probe' treatment= StockConic body= Kerbin icon.drawn= True 
+     line kind=orbit body=Kerbin active=True pts=181 {'ut': [63828965.133316085, 72353497.07554221], 'clipped': False, 'opacity': 0.9957844018936157, 'drawMode': 'REDRAW_AND_RECALCULATE', 'conic': {'sma': 789675.6317018069, 'ecc': 0.04948993625228077, 'incDeg': 0.22396466817982666, 'lanDeg': 113.73427723563805, 'argPeDeg': 8.617417171844757, 'meanAnomalyAtEpoch': 6.271343585183132, 'epoch': 83482040.900294}}
+== tp8-save-clock-sys-edge.map.json ut=87625333.2 counts= {"ghosts": 2, "lines": 2, "points": 180, "truncated": false, "unknownBodyItems": 0}
+  ghost 36c7688b 'Duna Supply 1' treatment= StockConic body= Sun icon.drawn= True TARGET
+     line kind=orbit body=Sun active=True pts=180 {'ut': [63901473.58333458, 72258643.29620738], 'clipped': True, 'opacity': 0.9958332777023315, 'drawMode': 'REDRAW_AND_RECALCULATE', 'conic': {'sma': 17382844515.84026, 'ecc': 0.21775086787318923, 'incDeg': 0.1075474620510836, 'lanDeg': 208.17538531324593, 'argPeDeg': 2.3955406312605985, 'meanAnomalyAtEpoch': 6.256969419301068, 'epoch': 83554549.3503125}}
+  ghost 5ca48c99 'Duna Supply 1 Probe' treatment= StockConic body= Kerbin icon.drawn= True 
+     line kind=orbit body=Kerbin active=False pts=0 {'ut': [63828965.133316085, 72353497.07554221], 'opacity': 0, 'drawMode': 'REDRAW_AND_RECALCULATE', 'conic': {'sma': 789675.6317018069, 'ecc': 0.04948993625228077, 'incDeg': 0.22396466817982666, 'lanDeg': 113.73427723563805, 'argPeDeg': 8.617417171844757, 'meanAnomalyAtEpoch': 6.271343585183132, 'epoch': 83482040.900294}}
+== tp8-save-clock-sys-top.map.json ut=87625328.3 counts= {"ghosts": 2, "lines": 2, "points": 180, "truncated": false, "unknownBodyItems": 0}
+  ghost 36c7688b 'Duna Supply 1' treatment= StockConic body= Sun icon.drawn= True TARGET
+     line kind=orbit body=Sun active=True pts=180 {'ut': [63901473.58333458, 72258643.29620738], 'clipped': True, 'opacity': 0.9999996423721313, 'drawMode': 'REDRAW_AND_RECALCULATE', 'conic': {'sma': 17382844515.84026, 'ecc': 0.21775086787318923, 'incDeg': 0.1075474620510836, 'lanDeg': 208.17538531324593, 'argPeDeg': 2.3955406312605985, 'meanAnomalyAtEpoch': 6.256969419301068, 'epoch': 83554549.3503125}}
+  ghost 5ca48c99 'Duna Supply 1 Probe' treatment= StockConic body= Kerbin icon.drawn= True 
+     line kind=orbit body=Kerbin active=False pts=0 {'ut': [63828965.133316085, 72353497.07554221], 'opacity': 0, 'drawMode': 'REDRAW_AND_RECALCULATE', 'conic': {'sma': 789675.6317018069, 'ecc': 0.04948993625228077, 'incDeg': 0.22396466817982666, 'lanDeg': 113.73427723563805, 'argPeDeg': 8.617417171844757, 'meanAnomalyAtEpoch': 6.271343585183132, 'epoch': 83482040.900294}}
+
+Result: no line of kind 'polyline' in any of the 5 dumps for the target; its Sun 'orbit' line is present in all 5 (drawn, active=True, in sys-top and sys-edge) and its icon is drawn in all 5.
