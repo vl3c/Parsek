@@ -3619,8 +3619,14 @@ compare).
   field having left `LedgerOrchestrator`); the orchestrator raises and resets it there, the
   splitter and the windows name it there (28 -> 26: `RecordingTreeSplitter`,
   `TimelineWindowUI`; ratchet 140). The `StockUiOverlay: initialised` log line still names
-  `LedgerOrchestrator.OnTimelineDataChanged`, kept byte-stable. Measured per step in the
-  note's "as built" table.
+  `LedgerOrchestrator.OnTimelineDataChanged`, kept byte-stable. The committed-tree restore
+  attempt's `bool preserveIrreversibleTails` became a delegate parameter of the same name
+  (the ledger's `PreserveIrreversibleRestoreAttemptTailsOnDiscard` on a live drop, null on a
+  rollback, so null is the old `false` and no new path exists); every caller passes it, and
+  the drop-site source gate now pins the delegate or `null` per site (25 back-edges, ratchet
+  140). Two mutants red the existing cells: the attempt ignoring the delegate
+  (`RestoreAttemptIrreversibleTailsTests`, 2 cells) and the pending discard passing null
+  (1 cell). Measured per step in the note's "as built" table.
 - 2026-11-14 (B6 second half, split `AnchorPropagator.Run`): the DAG walk (about 490 lines,
   complexity 104) is now an orchestrator (complexity 8) over 13 private static steps in the same
   file, in walk order: `IndexRecordingsById`, `EmitSeedAnchors` with `EmitSeedCandidate`,

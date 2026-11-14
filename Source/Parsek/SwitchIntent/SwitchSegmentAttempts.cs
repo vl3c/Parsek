@@ -270,7 +270,7 @@ namespace Parsek
 
                 CommittedTreeRestoreAttempt.DiscardCommittedTreeRestoreAttempt(
                     "switch-segment-scoped-discard committed-restore-clone",
-                    preserveIrreversibleTails: true);
+                    preserveIrreversibleTails: LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard);
                 // Pending science was already scoped-removed for this segment subtree by
                 // PreserveIrreversibleLiveGameplayOnDiscard(ownedIds) above. Do NOT
                 // blanket-Clear() here: that would silently drop a DIFFERENT live

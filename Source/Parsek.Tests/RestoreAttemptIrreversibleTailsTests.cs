@@ -134,7 +134,7 @@ namespace Parsek.Tests
             AddScience("sci-tail", 270.0);
             AddScience("sci-history", 190.0);
 
-            RecordingStore.DiscardCommittedTreeRestoreAttempt("test-live", preserveIrreversibleTails: true);
+            RecordingStore.DiscardCommittedTreeRestoreAttempt("test-live", preserveIrreversibleTails: LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard);
 
             var contract = Ledger.Actions.SingleOrDefault(a =>
                 a.Type == GameActionType.ContractComplete && a.ContractId == "guid-tail");
@@ -173,7 +173,7 @@ namespace Parsek.Tests
             AddEvent(GameStateEventType.ContractCompleted, "guid-tail", 250.0);
             AddScience("sci-tail", 270.0);
 
-            RecordingStore.DiscardCommittedTreeRestoreAttempt("test-rollback", preserveIrreversibleTails: false);
+            RecordingStore.DiscardCommittedTreeRestoreAttempt("test-rollback", preserveIrreversibleTails: null);
 
             Assert.DoesNotContain(Ledger.Actions, a => a.ContractId == "guid-tail");
             Assert.DoesNotContain(Ledger.Actions, a => a.SubjectId == "sci-tail");
@@ -214,19 +214,23 @@ namespace Parsek.Tests
         // catches: a site whose drop follows a reload (KSP already reverted with the save)
         // flipped to a live discard, which would credit what KSP no longer has; and a live
         // drop site flipped to rollback, which would drop what KSP keeps.
+        // A live drop passes the ledger's re-home step, a rollback drop passes null.
+        private const string LivePreserve = "LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard";
+        private const string RollbackPreserve = "null";
+
         [Theory]
-        [InlineData(RewindInvokerSourceFiles.ModuleFolder + "/" + RewindInvokerSourceFiles.PostLoad, "internal static bool DiscardRestoreAttemptOfAbandonedFlight(", "false")]
-        [InlineData("Controllers/ParsekFlight.cs", "private void ResetFlightReadyState(", "false")]
-        [InlineData("Controllers/ParsekFlight.cs", "internal void DiscardActiveTreeForSuppressedSceneExit(", "false")]
-        [InlineData("Controllers/ParsekFlightSwitchContinuation.cs", "internal void AutoDiscardNoOpNoSessionCommittedResume(", "true")]
-        [InlineData("Patches/MapFocusObjectOnSelectPatch.cs", "private static void DiscardActiveRecordingAndSwitchTo(", "true")]
+        [InlineData(RewindInvokerSourceFiles.ModuleFolder + "/" + RewindInvokerSourceFiles.PostLoad, "internal static bool DiscardRestoreAttemptOfAbandonedFlight(", RollbackPreserve)]
+        [InlineData("Controllers/ParsekFlight.cs", "private void ResetFlightReadyState(", RollbackPreserve)]
+        [InlineData("Controllers/ParsekFlight.cs", "internal void DiscardActiveTreeForSuppressedSceneExit(", RollbackPreserve)]
+        [InlineData("Controllers/ParsekFlightSwitchContinuation.cs", "internal void AutoDiscardNoOpNoSessionCommittedResume(", LivePreserve)]
+        [InlineData("Patches/MapFocusObjectOnSelectPatch.cs", "private static void DiscardActiveRecordingAndSwitchTo(", LivePreserve)]
         public void DropSites_PassTheirPreserveFlag(string file, string signature, string expected)
         {
             string body = ExtractMethodBody(
                 SourceScanText.StripCSharpComments(ParsekFlightSourceFiles.ReadText(LocateParsekSourceFile(file))),
                 signature);
             Assert.Contains("preserveIrreversibleTails: " + expected, body);
-            string other = expected == "true" ? "false" : "true";
+            string other = expected == LivePreserve ? RollbackPreserve : LivePreserve;
             Assert.DoesNotContain("preserveIrreversibleTails: " + other, body);
         }
 

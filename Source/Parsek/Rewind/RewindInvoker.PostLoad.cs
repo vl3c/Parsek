@@ -192,7 +192,7 @@ namespace Parsek
             // The Re-Fly load reverted KSP to the rewind point: nothing of the attempt stays.
             RecordingStore.DiscardCommittedTreeRestoreAttempt(
                 "refly-start: pre-rewind flight abandoned",
-                preserveIrreversibleTails: false);
+                preserveIrreversibleTails: null);
             return true;
         }
 

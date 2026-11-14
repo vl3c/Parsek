@@ -449,7 +449,7 @@ namespace Parsek
             // or when the tree is another attempt's clone.
             CommittedTreeRestoreAttempt.ClearCommittedTreeRestoreAttemptForDroppedTree(
                 host.activeTree?.Id, "auto-discard dropped the restore clone",
-                preserveIrreversibleTails: true);
+                preserveIrreversibleTails: LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard);
             host.activeTree = null;
 
             // A discarded active tree must not leave an armed switch-segment
@@ -710,7 +710,7 @@ namespace Parsek
             // reverts KSP, so nothing of the attempt is preserved.
             CommittedTreeRestoreAttempt.ClearCommittedTreeRestoreAttemptForDroppedTree(
                 host.activeTree?.Id, "suppressed scene exit dropped the restore clone",
-                preserveIrreversibleTails: false);
+                preserveIrreversibleTails: null);
             host.activeTree = null;
             if (logRecorderState)
                 RecorderStateLog.RecState("FinalizeTreeOnSceneChange:suppressed-post", host.CaptureRecorderState());

@@ -356,7 +356,7 @@ namespace Parsek
         {
             CommittedTreeRestoreAttempt.DiscardCommittedTreeRestoreAttempt(
                 "noop-no-session-committed-resume-revert",
-                preserveIrreversibleTails: true);
+                preserveIrreversibleTails: LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard);
             host.AutoDiscardActiveTreeWithMessage(
                 reason: reason,
                 screenMessage: "Recording discarded - vessel unchanged after switch",

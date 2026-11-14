@@ -1128,7 +1128,7 @@ namespace Parsek.Patches
                     CommittedTreeRestoreAttempt.ClearCommittedTreeRestoreAttemptForDroppedTree(
                         flight.ActiveTreeForDisplay?.Id,
                         "pre-switch-dialog discard (no-session)",
-                        preserveIrreversibleTails: true);
+                        preserveIrreversibleTails: LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard);
                     flight.AutoDiscardActiveTreeWithMessage(
                         reason: "pre-switch-dialog discard (no-session)",
                         screenMessage: "Recording discarded - switching vessels",

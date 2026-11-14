@@ -89,7 +89,9 @@ namespace Parsek
             // purged; the abandon path (preserve=false) has its economy rolled back.
             int purgedSameIdAttemptEventTails =
                 CommittedTreeRestoreAttempt.PurgeCommittedTreeRestoreAttemptEventTailsForPendingDiscard(
-                    preserveIrreversibleLiveGameplay);
+                    preserveIrreversibleLiveGameplay
+                        ? LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard
+                        : null);
 
             // #431: purge tagged events for pending-only recording IDs first. A pending
             // tree can intentionally reference a committed recording ID; those events,

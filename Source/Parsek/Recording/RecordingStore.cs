@@ -198,7 +198,7 @@ namespace Parsek
         }
 
         internal static void DiscardCommittedTreeRestoreAttempt(
-            string reason, bool preserveIrreversibleTails)
+            string reason, Action<IReadOnlyDictionary<string, double>, string> preserveIrreversibleTails)
         {
             CommittedTreeRestoreAttempt.DiscardCommittedTreeRestoreAttempt(
                 reason, preserveIrreversibleTails);
