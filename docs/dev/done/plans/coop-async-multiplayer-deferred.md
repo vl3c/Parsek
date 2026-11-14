@@ -1,5 +1,10 @@
 # Cooperative Async Multiplayer - Deferred Items
 
+> **DEPRECATED (owner ruling 2026-11-14).** Cooperative multiplayer is not planned; this plan
+> is archived for reference only. Its design is `docs/dev/done/design-coop-async-multiplayer.md`
+> (also archived); the current multiplayer design is
+> `docs/dev/design-competitive-multiplayer.md`. Paths below are as they were when written.
+
 Items identified during design (2026-09-01 interview, adversarial reviews, code verification, player-perspective pass) that are out of scope for v1. Each has a justification and a trigger for revisiting. Design authority: `docs/dev/design-coop-async-multiplayer.md`.
 
 ---

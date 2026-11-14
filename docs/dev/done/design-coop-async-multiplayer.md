@@ -1,5 +1,12 @@
 # Parsek Cooperative Async Multiplayer - Design Document
 
+> **DEPRECATED (owner ruling 2026-11-14).** "i've decided its too complicated to support coop
+> multiplayer, so that idea is deprecated". Cooperative multiplayer is not planned. This document
+> is archived for reference only; nothing in it is binding. Multiplayer in Parsek is the
+> competitive space race: `docs/dev/design-competitive-multiplayer.md`. The file paths below
+> are as they were when this was written; the plan files it names moved to
+> `docs/dev/done/plans/`.
+
 *Design specification for shared-folder cooperative async multiplayer: multiple players contribute missions to one shared career timeline.*
 
 *Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to a timeline, rewind to earlier points, and see previously recorded missions play back as ghost vessels alongside new ones. This document specifies how multiple players, each in their own KSP instance, share one cooperative career: one KSC, one pooled economy, one timeline, exchanged asynchronously through a file-sharing folder (Dropbox, Google Drive, or any service of the players' choice).*
