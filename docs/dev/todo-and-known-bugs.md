@@ -3614,7 +3614,13 @@ compare).
   edge, each a move or a delegate parameter. `FindRecordingById` moved verbatim from the
   orchestrator to `RecordingStore` and every caller names it there (`Ledger` and
   `CommittedFutureIndexCache` leave the back-edge list: 30 -> 28; ratchet 140 unchanged, as
-  the note predicts for this step alone). Measured per step in the note's "as built" table.
+  the note predicts for this step alone). `OnTimelineDataChanged` moved to a new leaf,
+  `LedgerTimelineSignal` (its lifetime tag moved with it; the reset allowlist line went, the
+  field having left `LedgerOrchestrator`); the orchestrator raises and resets it there, the
+  splitter and the windows name it there (28 -> 26: `RecordingTreeSplitter`,
+  `TimelineWindowUI`; ratchet 140). The `StockUiOverlay: initialised` log line still names
+  `LedgerOrchestrator.OnTimelineDataChanged`, kept byte-stable. Measured per step in the
+  note's "as built" table.
 - 2026-11-14 (B6 second half, split `AnchorPropagator.Run`): the DAG walk (about 490 lines,
   complexity 104) is now an orchestrator (complexity 8) over 13 private static steps in the same
   file, in walk order: `IndexRecordingsById`, `EmitSeedAnchors` with `EmitSeedCandidate`,

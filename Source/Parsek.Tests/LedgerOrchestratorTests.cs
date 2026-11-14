@@ -335,7 +335,7 @@ namespace Parsek.Tests
 
             int callbackCount = 0;
             bool nestedWalkRan = false;
-            LedgerOrchestrator.OnTimelineDataChanged += () =>
+            LedgerTimelineSignal.OnTimelineDataChanged += () =>
             {
                 callbackCount++;
                 if (nestedWalkRan)

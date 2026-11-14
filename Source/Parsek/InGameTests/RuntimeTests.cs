@@ -21803,7 +21803,7 @@ namespace Parsek.InGameTests
 
         private static void NotifyTimelineDataChangedForOverlayTest()
         {
-            LedgerOrchestrator.OnTimelineDataChanged?.Invoke();
+            LedgerTimelineSignal.OnTimelineDataChanged?.Invoke();
         }
 
         // The stock facility close path is firing the matching despawn GameEvent —

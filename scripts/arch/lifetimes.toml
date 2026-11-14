@@ -142,7 +142,6 @@ NowUtProviderForTesting = "test-hook"
 OneShotReconcileSkipLogIntervalSeconds = "process: constant"
 OnRecordingCommittedFaultInjector = "test-hook: fault injector"
 OnRecordingCommittedPostSciencePersistFaultInjector = "test-hook: fault injector"
-OnTimelineDataChanged = "process: timeline invalidation callback the UI subscribes"
 ProgressSeedProbeForTesting = "test-hook"
 repTrackedOverrideForTesting = "test-hook"
 scienceTrackedOverrideForTesting = "test-hook"
@@ -392,6 +391,11 @@ armed = "load-transition: consumed by the scene-exit finalize; OnLoad clears a l
 name = "Parsek.EffectiveState"
 default = "process"
 reason = "ERS / ELS / suppression / retired caches keyed on RecordingStore.StateVersion, Ledger.StateVersion, the supersede and tombstone versions and the marker identity; a cold load bumps the static counters"
+
+[[type]]
+name = "Parsek.LedgerTimelineSignal"
+default = "process"
+reason = "the timeline invalidation callback the windows subscribe and the ledger raises; a subscription, not save state"
 
 [[type]]
 name = "Parsek.ClickReservationGate"

@@ -69,20 +69,6 @@ namespace Parsek
         internal const string RolloutDedupPrefix = "rollout:";
 
         /// <summary>
-        /// Fired after RecalculateAndPatch completes — signals that timeline data
-        /// (recordings, ledger actions, milestone replay cursors, or event
-        /// visibility) may have changed. Subscribed by ParsekUI to invalidate the
-        /// TimelineWindowUI cache and by StockUiOverlayController to refresh open
-        /// stock-screen badges.
-        ///
-        /// Future code that mutates MilestoneStore.LastReplayedEventIndex or
-        /// GameStateStore event visibility must end with RecalculateAndPatch()
-        /// or invoke this signal directly, otherwise open stock overlays can stay
-        /// stale until their building is reopened.
-        /// </summary>
-        internal static Action OnTimelineDataChanged;
-
-        /// <summary>
         /// Initialize modules and register with engine. Call once on game start.
         /// Idempotent — safe to call multiple times.
         /// </summary>
@@ -444,7 +430,7 @@ namespace Parsek
             ReplaceModuleSet();
             Ledger.ResetForTesting();
             LedgerHeldWindow.ResetForTesting();
-            OnTimelineDataChanged = null;
+            LedgerTimelineSignal.OnTimelineDataChanged = null;
             OnRecordingCommittedFaultInjector = null;
             OnRecordingCommittedPostSciencePersistFaultInjector = null;
             NowUtProviderForTesting = null;

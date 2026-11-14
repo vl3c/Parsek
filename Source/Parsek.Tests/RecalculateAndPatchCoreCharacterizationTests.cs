@@ -122,7 +122,7 @@ namespace Parsek.Tests
         private void Run(StringBuilder sb, string label, Action call)
         {
             int timelineChanged = 0;
-            LedgerOrchestrator.OnTimelineDataChanged = () => timelineChanged++;
+            LedgerTimelineSignal.OnTimelineDataChanged = () => timelineChanged++;
             logLines.Clear();
             string outcome = "ok";
             try

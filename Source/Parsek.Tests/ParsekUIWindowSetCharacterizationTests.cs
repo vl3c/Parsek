@@ -37,8 +37,8 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = true;
             ParsekSettings.CurrentOverrideForTesting = null;
             ParsekUI.ResetUiComplexityModeForTesting();
-            savedTimelineHook = LedgerOrchestrator.OnTimelineDataChanged;
-            LedgerOrchestrator.OnTimelineDataChanged = null;
+            savedTimelineHook = LedgerTimelineSignal.OnTimelineDataChanged;
+            LedgerTimelineSignal.OnTimelineDataChanged = null;
             DisplayNames.ResetSubscribersForTesting();
         }
 
@@ -46,7 +46,7 @@ namespace Parsek.Tests
         {
             foreach (ParsekUI ui in built)
                 CleanupIgnoringUnityTeardown(ui);
-            LedgerOrchestrator.OnTimelineDataChanged = savedTimelineHook;
+            LedgerTimelineSignal.OnTimelineDataChanged = savedTimelineHook;
             DisplayNames.ResetSubscribersForTesting();
             ParsekUI.ResetUiComplexityModeForTesting();
             ParsekSettings.CurrentOverrideForTesting = null;

@@ -52,7 +52,7 @@ namespace Parsek
             GameEvents.onGUIMissionControlDespawn.Add(OnMissionControlDespawn);
             GameEvents.onFacilityContextMenuSpawn.Add(OnFacilityMenuSpawn);
             GameEvents.onFacilityContextMenuDespawn.Add(OnFacilityMenuDespawn);
-            LedgerOrchestrator.OnTimelineDataChanged += OnTimelineDataChanged;
+            LedgerTimelineSignal.OnTimelineDataChanged += OnTimelineDataChanged;
 
             ParsekLog.Info(Tag,
                 "StockUiOverlay: initialised, listening for R&D / Astronaut / MissionControl / facility menu spawns + LedgerOrchestrator.OnTimelineDataChanged");
@@ -70,7 +70,7 @@ namespace Parsek
             GameEvents.onGUIMissionControlDespawn.Remove(OnMissionControlDespawn);
             GameEvents.onFacilityContextMenuSpawn.Remove(OnFacilityMenuSpawn);
             GameEvents.onFacilityContextMenuDespawn.Remove(OnFacilityMenuDespawn);
-            LedgerOrchestrator.OnTimelineDataChanged -= OnTimelineDataChanged;
+            LedgerTimelineSignal.OnTimelineDataChanged -= OnTimelineDataChanged;
         }
 
         private void OnTimelineDataChanged()

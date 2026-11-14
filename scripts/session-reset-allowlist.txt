@@ -45,7 +45,6 @@ LedgerOrchestrator.NowUtProviderForTesting test seam
 LedgerOrchestrator.OneShotReconcileSkipLogIntervalSeconds constant
 LedgerOrchestrator.OnRecordingCommittedFaultInjector test seam
 LedgerOrchestrator.OnRecordingCommittedPostSciencePersistFaultInjector test seam
-LedgerOrchestrator.OnTimelineDataChanged UI subscription (timeline invalidation callback), not save state
 LedgerOrchestrator.ProgressSeedProbeForTesting test seam
 LedgerOrchestrator.repTrackedOverrideForTesting test seam
 LedgerOrchestrator.scienceTrackedOverrideForTesting test seam

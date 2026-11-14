@@ -273,26 +273,26 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Hooks <see cref="InvalidateCache"/> to <c>LedgerOrchestrator.OnTimelineDataChanged</c>
+        /// Hooks <see cref="InvalidateCache"/> to <c>LedgerTimelineSignal.OnTimelineDataChanged</c>
         /// (every ledger-side change). Called from both <see cref="ParsekUI"/> constructors,
         /// after the Timeline window's hook, and undone by <see cref="UnsubscribeTimelineDataChanged"/> from
         /// <c>ParsekUI.Cleanup</c>, so the hook lives and dies with the scene's ParsekUI.
         /// </summary>
         public void SubscribeTimelineDataChanged()
         {
-            LedgerOrchestrator.OnTimelineDataChanged += InvalidateCache;
+            LedgerTimelineSignal.OnTimelineDataChanged += InvalidateCache;
         }
 
         public void UnsubscribeTimelineDataChanged()
         {
-            LedgerOrchestrator.OnTimelineDataChanged -= InvalidateCache;
+            LedgerTimelineSignal.OnTimelineDataChanged -= InvalidateCache;
         }
 
         // ------------------------- the live-crew refresh -------------------------
 
         /// <summary>
         /// The stock GameEvents that change what the two tabs read off LIVE state, as
-        /// opposed to off the ledger. <c>LedgerOrchestrator.OnTimelineDataChanged</c>
+        /// opposed to off the ledger. <c>LedgerTimelineSignal.OnTimelineDataChanged</c>
         /// covers every ledger-side change, but the view model is ALSO built from the stock
         /// roster walk (<c>CrewRoster.Crew</c> / <c>.Applicants</c> / <c>.Tourist</c>) and
         /// from the live crew-to-vessel map (<c>GatherAssignedVessels</c>), and neither

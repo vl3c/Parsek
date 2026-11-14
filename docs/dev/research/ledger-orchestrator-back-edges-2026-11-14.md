@@ -211,4 +211,5 @@ not move in any step below (the moves add no type to it and take none out).
 | Edge | How | Ratchet after | Back-edges |
 |---|---|---|---|
 | `Ledger` | `FindRecordingById` moved verbatim to `RecordingStore`; every caller names it there (`CommittedFutureIndexCache` used nothing else either) | 140 | 28 |
+| `RecordingTreeSplitter` | `OnTimelineDataChanged` moved to the new leaf `LedgerTimelineSignal` (no references of its own); the orchestrator raises and resets it there, the splitter raises it there, the windows subscribe there (`TimelineWindowUI` used nothing else either) | 140 | 26 |
 
