@@ -512,9 +512,9 @@ extension, not built: add the applied render-anchor correction magnitude (the
 `AnchorCorrectionInterval` value the positioner adds) to that line and have an RW lane arm the
 trace and forbid a value over the bubble radius.
 
-**The moon-crossing live proof, AUTHORED 2026-11-14, NEVER FLOWN** (branch `item19-refly-moon-lane`):
+**The moon-crossing live proof, FLOWN 2026-11-14** (branch `item19-refly-moon-lane`):
 `RF-21-refly-sibling-crosses-mun-soi` closes the "no Re-Fly whose anchors span an SOI crossing"
-half of (1) and (5) pending its first flight. On `gs2-orbital-stack` the probe core is decoupled in
+half of (1) and (5). On `gs2-orbital-stack` the probe core is decoupled in
 LKO (a staging RewindPoint), the pod stack flies `b23_ike_orbit` Kerbin -> Mun and commits parked
 in the Mun SOI, then the probe slot is re-flown from the separation and merged, so the Re-Fly
 rebuild walks the pod stack's committed recording, whose OrbitalCheckpoint / Bubble boundaries lie
@@ -524,7 +524,20 @@ summary, `DAG walk boundary-instant bodies: sessionId= bodies=Kerbin:resolved=N,
 cells in `AnchorBoundaryInstantEpsilonTests` / `AnchorPropagatorRunCharacterizationTests`); the lane
 requires both bodies with every residual under the 2,500 m bubble radius, forbids the
 `exceeds bubble radius` line, and requires the supersede rows and the merge journal to
-`Completed`. Still open after it flies: (6) the drawn ghost across the crossing, and the
+`Completed`. FIRST FLIGHT 2026-11-14 (PC, head 709bd0045, attempts=1, wall 1044 s, MISSION-OK):
+the Re-Fly rebuild's one walk read `resolvedOrb=8 resolvedBubble=16 deferredNoSpline=8
+boundaryInstantMaxEpsilonM=1.712` and `bodies=Kerbin:resolved=18,maxEpsilonM=1.712;
+Mun:resolved=6,maxEpsilonM=1.314`, so the boundary-instant residuals across the crossing are
+metres on BOTH bodies (pre-fix: 1,307.87 km live, 15,897 to 25,286 km headless), no anchor
+crossed the bubble radius, the merge wrote 1 supersede row and the journal completed. The lane's
+bounds are tightened to under 50 m off those values. The run read PARSEK-FAIL on one forbid,
+`outcome=unbound-refly-provisional reason=refly-provisional-has-no-trajectory-at-save`, which is
+the lane's error, not a defect: the fork `AtomicMarkerWrite` creates has no `.prec` until its
+first save, so `ReFlyProvisionalBinding.EvaluateSidecarRewrite` raises at the first OnSave of
+every Re-Fly session (here the stock persistent write 0.5 s after the load, `treeKind=pending
+tree`) and that save writes the file, as RF-4 / RF-12 / RF-14 / RW-5 had measured. The forbid is
+now bounded to after the recorder-live mark plus the restore give-up reason. Owes a green
+re-flight. Still open: (6) the drawn ghost across the crossing, and the
 SoiTransition source, which no real flight produces (a real crossing is checkpoint to
 checkpoint or Absolute to Absolute); the synthetic-injection proposal in (5) stays the only route
 to that source live.

@@ -1446,7 +1446,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | RF-19-refly-session-eva-reboard-merges | operator | refly-split-crewed-recorded | rf12s_refly_orbit_insert | Kerbin | re-fly | - | LIVE-PROVEN 2026-09-27 |
 | RF-2-two-reflies-in-sequence | operator | bdock-recorded | seam | Kerbin | re-fly, reload, time-jump | - | LIVE-PROVEN 2026-09-09 |
 | RF-20-stashed-eva-slot-refly | operator | gs2-orbital-stack | gs2_orbital_probe_deploy | Kerbin | re-fly, reload, save, scene-change | - | LIVE-PROVEN 2026-09-27 |
-| RF-21-refly-sibling-crosses-mun-soi | operator | gs2-orbital-stack | b23_ike_orbit | Kerbin, Mun, Ike | re-fly, warp | - | NEVER FLOWN, authored 2026-11-14 |
+| RF-21-refly-sibling-crosses-mun-soi | operator | gs2-orbital-stack | b23_ike_orbit | Kerbin, Mun, Ike | re-fly, warp | - | FIRST FLOWN 2026-11-14 |
 | RF-3-refly-discard-then-commit | operator | bdock-recorded | seam | Kerbin | re-fly, reload, time-jump | - | LIVE-PROVEN 2026-09-09 |
 | RF-4-rewind-to-launch-after-merge | operator | gs1-two-stage-pad | gs1_auto_chute_booster | Kerbin | rewind-to-launch, re-fly, reload, save +1 | - | LIVE-PROVEN 2026-09-09 |
 | RF-5-seal-closes-the-slot | operator | bdock-recorded | seam | Kerbin | reload | - | LIVE-PROVEN 2026-09-09 |
