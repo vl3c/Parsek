@@ -552,15 +552,6 @@ namespace Parsek.Patches
         }
 
         /// <summary>
-        /// Decides the prior recording for a switch the dialog would otherwise ask about,
-        /// and when the decision is Merge or Discard runs that button's handler, which also
-        /// arms the new intent and switches. Returns false (nothing done) when the dialog
-        /// must still show (auto-merge off) or, with <paramref name="resolution"/>
-        /// <see cref="PreSwitchAutoResolution.StockWillRefuse"/>, when stock is about to
-        /// refuse the switch and the caller takes its plain path. Shared by the map Prefix, the alarm Jump and the
-        /// <c>SimulateStockSwitchClick</c> seam verb, so the verb drives this exact path.
-        /// </summary>
-        /// <summary>
         /// Case C's input: the loaded target matches a committed tree other than the live
         /// one AND the live tree is not already recording it. A vessel the live tree records
         /// in the background (the craft a kerbal just left on EVA, when the live tree was
@@ -586,6 +577,15 @@ namespace Parsek.Patches
             return liveTree.BackgroundMap.ContainsKey(pid);
         }
 
+        /// <summary>
+        /// Decides the prior recording for a switch the dialog would otherwise ask about,
+        /// and when the decision is Merge or Discard runs that button's handler, which also
+        /// arms the new intent and switches. Returns false (nothing done) when the dialog
+        /// must still show (auto-merge off) or, with <paramref name="resolution"/>
+        /// <see cref="PreSwitchAutoResolution.StockWillRefuse"/>, when stock is about to
+        /// refuse the switch and the caller takes its plain path. Shared by the map Prefix, the alarm Jump and the
+        /// <c>SimulateStockSwitchClick</c> seam verb, so the verb drives this exact path.
+        /// </summary>
         internal static bool TryAutoResolvePreSwitch(
             Vessel target,
             SwitchSegmentSession existingSession,

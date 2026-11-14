@@ -715,14 +715,17 @@ created. Proving it needs a live origin resolve (FlightGlobals), so an in-game t
 Also check here: whether a sidecar flush of a source recording (see ROUTE-SOURCE-OPTIMIZER-REWRITE)
 can move a route to SourceChanged.
 
-## ~~PRESWITCH-CASE-C-LIVE-TREE-MEMBER~~: switching back to the ship a kerbal just left asked to merge the recording when that ship ended an earlier committed flight [FILED 2026-11-14 from lane FAR-4's first flight, runs `2026-11-14_1525` and `_1526_a2` (INVALID driver-gate, the seam refused `dialog-required case=C-loaded-separate-committed`). FIXED 2026-11-14, branch `pc-lanes-fix`; xUnit, FAR-4 re-flight owed; medium]
+## ~~PRESWITCH-CASE-C-LIVE-TREE-MEMBER~~: switching back to the ship a kerbal just left ended the recording when that ship ended an earlier committed flight [FILED 2026-11-14 from lane FAR-4's first flight, runs `2026-11-14_1525` and `_1526_a2` (INVALID driver-gate, the seam refused `dialog-required case=C-loaded-separate-committed`). FIXED 2026-11-14, branch `pc-lanes-fix`; xUnit, FAR-4 re-flight owed; medium]
 
 Shape: a recording is started on a vessel that an earlier committed flight also recorded (the
 committed tree's spawned leaf), a kerbal goes on EVA (the vessel becomes a background member of
 the live tree), then the player switches back to it from the map. The pre-switch gate's Case C
 looked the target up among committed trees, found the OLDER tree, saw its id differ from the live
-tree's and called the target a separate committed vessel, so the Merge / Discard dialog opened
-before a switch inside the player's own recording. Either answer ends the live recording.
+tree's and called the target a separate committed vessel. With auto-merge on (every player
+build: `ClampHiddenSettingsToShippingValues`) `TryAutoResolvePreSwitch` then silently merged
+(or, for a no-op, discarded) the live recording and the switch restored the older committed
+tree; with auto-merge off (the harness) the Merge / Discard dialog opened, and either answer
+ends the live recording.
 Fix: `MapFocusObjectOnSelectPatch.IsSeparateCommittedTarget` also requires that the target is not
 in the live tree's `BackgroundMap` (`IsLiveTreeBackgroundMember`); the switch then takes the
 ordinary background-member continuation. `SimulateStockSwitchClick`'s seam evaluator reads the

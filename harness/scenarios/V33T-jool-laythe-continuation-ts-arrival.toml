@@ -1,7 +1,7 @@
 schema = 1
 id = "V33T-jool-laythe-continuation-ts-arrival"
 # =====================================================================================
-# AUTHORED 2026-11-14, NEVER FLOWN. The missing Tracking Station half of V33M (todo
+# AUTHORED 2026-11-14; LIVE-PROVEN 2026-11-14 on its first flight (`2026-11-14_1534`). The missing Tracking Station half of V33M (todo
 # NEXT-TESTS-TO-BUILD-2026-11-11 item 4), on the committed `jool-laythe-recorded`.
 # V31T's shape (live-proven 2026-11-07, icon body=Ike in the TS): one TimeJump to
 # just past the replayed Laythe SOI entry, SaveGame, reload into the Tracking
@@ -32,7 +32,7 @@ id = "V33T-jool-laythe-continuation-ts-arrival"
 # `phase=GhostCreated surface=ProtoIcon pid=<n> ... body=Laythe scene=TRACKSTATION`.
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-11-14, NEVER FLOWN. The Tracking Station half of the Kerbin->Jool->Laythe loop (the `jool-laythe-recorded` tree V33M reads): after a jump past the replayed Laythe SOI entry, the TS ghost icon sits on Laythe with the lone-moon arrival hold engaged; the live MoonArrivalHold cell runs at the Space Center."
+description = "The Tracking Station half of the Kerbin->Jool->Laythe loop (the `jool-laythe-recorded` tree V33M reads): after a jump past the replayed Laythe SOI entry, the TS ghost icon sits on Laythe with the lone-moon arrival hold engaged; the live MoonArrivalHold cell runs at the Space Center."
 instanceProfile = "stock-minimal"
 tags = ["V33", "tracking-station", "loop-arrival", "reaim", "arrival-hold", "lone-moon-hold", "jool", "laythe", "moon", "map-render", "ingame-batch", "flown"]
 
