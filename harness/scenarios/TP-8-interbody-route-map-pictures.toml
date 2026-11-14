@@ -13,6 +13,14 @@ id = "TP-8-interbody-route-map-pictures"
 # ROUTE-LINE-DETACHED-SEGMENTS), and its setting step and log tokens left with it.
 # RE-FLIGHT ON THE NEW DLL PENDING: the two flights above ran with the line on.
 #
+# THE ONE GATED READING. Both earlier flights also dumped two short Sun polylines of
+# "Duna Supply 1" (recording 36c7688b, recorded UT 68,378,174.9 .. 180.1 and
+# 68,378,239.0 .. 311.3): the ship's recorded course-correction burns, drawn where the
+# RECORDED transfer went, 12.4 Gm off the icon on its re-aimed transfer conic (todo
+# LOOP-SUN-LEG-DRAWN-OFF-PATH). A recorded leg inside a re-aimed transfer conic no longer
+# draws; the required `Leg hidden (inside re-aimed conic)` line below is that skip on the
+# forward pass, which reads the two legs ahead of the head at the save clock.
+#
 # ONE INSTANT, AND WHY. The Duna route's anchor is not computable from the committed bytes
 # (loopAnchorUT -1, per-tick re-aim windows, transit 8,527,534 s), so any "mid-leg" or
 # "near-endpoint" UT derived here would be a guess. The lane keeps the save clock (a 1x
@@ -137,6 +145,7 @@ required  = [
   "dumpmapgeometry ok label=tp8-save-clock-mun-top scene=FLIGHT ",
   "capturescreenshot ok label=tp8-save-clock-duna-top bytes=",
   "dumpmapgeometry ok label=tp8-save-clock-duna-top scene=FLIGHT ",
+  "Leg hidden \\(inside re-aimed conic\\): rec=36c7688b8e5141f7809e2d4dbe9dc094 leg=[0-9]+ \\[68378[0-9.]+,68378[0-9.]+\\] body=Sun pass=forward",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

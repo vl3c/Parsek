@@ -102,6 +102,80 @@ namespace Parsek.Display
             return beforeIdx >= 0 && afterIdx >= 0;
         }
 
+        /// <summary>
+        /// PURE (todo LOOP-SUN-LEG-DRAWN-OFF-PATH): is this recorded non-orbital leg replaced by a
+        /// RE-AIMED conic? A re-aim loop unit swaps the recorded heliocentric stretch (its coasts AND
+        /// the course-correction burns between them) for one synthesized transfer segment aimed at the
+        /// target's current position. The burn legs inside that stretch are recorded geometry of the
+        /// replaced transfer: drawn, they land where the RECORDED transfer went (the Duna supply ship's
+        /// two Sun legs, 12.4 Gm off its icon), and anchored they meet only the recorded conics. True
+        /// when <paramref name="effective"/> is a re-aimed list (not the recorded list by reference),
+        /// the leg is on the re-aimed body <paramref name="reaimedBodyName"/>, and a same-body effective
+        /// segment spans the whole leg. A faithful member (effective == recorded by reference) and a
+        /// leg on any other body answer false, so their drawing is unchanged. xUnit-testable.
+        /// </summary>
+        internal static bool IsLegSupersededByReaimedConic(
+            List<OrbitSegment> effective, List<OrbitSegment> recorded, string reaimedBodyName,
+            string legBodyName, double legStartUT, double legEndUT)
+        {
+            if (effective == null || ReferenceEquals(effective, recorded))
+                return false;
+            if (string.IsNullOrEmpty(reaimedBodyName)
+                || !string.Equals(legBodyName, reaimedBodyName, StringComparison.Ordinal))
+                return false;
+            if (double.IsNaN(legStartUT) || double.IsNaN(legEndUT) || legEndUT < legStartUT)
+                return false;
+            for (int i = 0; i < effective.Count; i++)
+            {
+                OrbitSegment s = effective[i];
+                if (s.endUT <= s.startUT) continue;
+                if (!string.Equals(s.bodyName, reaimedBodyName, StringComparison.Ordinal)) continue;
+                if (s.startUT <= legStartUT && s.endUT >= legEndUT)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The re-aimed effective segments of committed member <paramref name="recordingIndex"/> this
+        /// frame and the re-aimed body (the plan's common ancestor). False, with nulls, for a member
+        /// outside a re-aim unit or a window the resolver keeps faithful (the effective list is the
+        /// recorded one by reference), so callers skip the superseded-leg test entirely there.
+        /// </summary>
+        internal static bool TryResolveReaimedLegFilter(
+            int recordingIndex, Recording rec, double currentUT,
+            GhostPlaybackLogic.LoopUnitSet loopUnits,
+            out List<OrbitSegment> effective, out string reaimedBodyName)
+        {
+            effective = null;
+            reaimedBodyName = null;
+            if (rec == null || loopUnits == null)
+                return false;
+            if (!loopUnits.TryGetUnitForMember(recordingIndex, out GhostPlaybackLogic.LoopUnit unit)
+                || !unit.IsReaim || !unit.ReaimPlan.HasValue)
+                return false;
+            List<OrbitSegment> resolved = GhostMapPresence.ResolveEffectiveMapOrbitSegments(
+                recordingIndex, rec.RecordingId, rec.OrbitSegments, currentUT, loopUnits);
+            if (resolved == null || ReferenceEquals(resolved, rec.OrbitSegments))
+                return false;
+            effective = resolved;
+            reaimedBodyName = unit.ReaimPlan.Value.CommonAncestor;
+            return !string.IsNullOrEmpty(reaimedBodyName);
+        }
+
+        /// <summary>Rate-limited log for a leg <see cref="IsLegSupersededByReaimedConic"/> hid.</summary>
+        internal static void LogLegSupersededByReaimedConic(
+            string pass, string recordingId, int legIndex, double legStartUT, double legEndUT,
+            string bodyName)
+        {
+            ParsekLog.VerboseRateLimited(Tag, "leg-reaim-superseded." + pass + "." + recordingId,
+                string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "Leg hidden (inside re-aimed conic): rec={0} leg={1} [{2:F1},{3:F1}] body={4} pass={5} " +
+                    "- recorded geometry of the transfer the re-aim replaced",
+                    recordingId, legIndex, legStartUT, legEndUT, bodyName ?? "(null)", pass),
+                5.0);
+        }
+
         internal static void FindBracketingOrbitSegments(
             List<OrbitSegment> segs, string bodyName, double legStartUT, double legEndUT,
             out int beforeIdx, out int afterIdx)

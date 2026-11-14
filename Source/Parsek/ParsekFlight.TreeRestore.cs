@@ -2370,6 +2370,25 @@ namespace Parsek
                 return CommittedSpawnedVesselRestoreAction.ResumeActiveRecording;
             }
 
+            // The tree's active recording is an earlier piece of the target's own chain: a split
+            // that left the active id on the head (saves written before the split moved it). The
+            // vessel's flight continues on the target, so it becomes the active recording and
+            // resumes in place (todo COMMITTED-RESTORE-APPENDS-TO-ROOT).
+            if (!string.IsNullOrEmpty(tree.ActiveRecordingId)
+                && tree.Recordings.TryGetValue(tree.ActiveRecordingId, out Recording staleActiveRec)
+                && IsEarlierSegmentOfSameChain(staleActiveRec, targetRec))
+            {
+                string staleActiveId = tree.ActiveRecordingId;
+                tree.ActiveRecordingId = targetRecordingId;
+                RemoveRecordingIdFromBackgroundMap(tree, targetRecordingId);
+                ParsekLog.Info("Flight",
+                    $"PrepareCommittedTreeRestoreForSpawnedVessel: tree={tree.Id} active recording " +
+                    $"'{staleActiveId}' (chain index {staleActiveRec.ChainIndex.ToString(CultureInfo.InvariantCulture)}) " +
+                    $"is an earlier piece of the target's chain; resuming on the chain tip " +
+                    $"'{targetRecordingId}' (chain index {targetRec.ChainIndex.ToString(CultureInfo.InvariantCulture)})");
+                return CommittedSpawnedVesselRestoreAction.ResumeActiveRecording;
+            }
+
             if (!string.IsNullOrEmpty(tree.ActiveRecordingId)
                 && tree.Recordings.TryGetValue(tree.ActiveRecordingId, out Recording oldActiveRec))
             {
@@ -2396,10 +2415,12 @@ namespace Parsek
         {
             if (tree == null || rec == null || string.IsNullOrEmpty(rec.RecordingId))
                 return false;
-            if (string.Equals(tree.ActiveRecordingId, rec.RecordingId, StringComparison.Ordinal))
-                return true;
+            // A later piece of the same chain means the flight went on past this recording, even
+            // when the tree still names it as active (a split that left the id on the head).
             if (HasNextChainSegmentInTree(tree, rec))
                 return false;
+            if (string.Equals(tree.ActiveRecordingId, rec.RecordingId, StringComparison.Ordinal))
+                return true;
             if (rec.TerminalStateValue.HasValue)
             {
                 TerminalState terminalState = rec.TerminalStateValue.Value;
@@ -2414,6 +2435,22 @@ namespace Parsek
 
             return string.IsNullOrEmpty(rec.ChildBranchPointId)
                 || GhostPlaybackLogic.IsEffectiveLeafForVessel(rec, tree);
+        }
+
+        /// <summary>
+        /// Pure: true when <paramref name="earlier"/> and <paramref name="later"/> are distinct
+        /// pieces of one chain (same chain id and branch) and <paramref name="earlier"/> has the
+        /// lower chain index.
+        /// </summary>
+        internal static bool IsEarlierSegmentOfSameChain(Recording earlier, Recording later)
+        {
+            if (earlier == null || later == null || ReferenceEquals(earlier, later))
+                return false;
+            if (string.IsNullOrEmpty(earlier.ChainId)
+                || !string.Equals(earlier.ChainId, later.ChainId, StringComparison.Ordinal))
+                return false;
+            return earlier.ChainBranch == later.ChainBranch
+                && earlier.ChainIndex < later.ChainIndex;
         }
 
         internal static bool HasNextChainSegmentInTree(RecordingTree tree, Recording rec)

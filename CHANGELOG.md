@@ -42,6 +42,13 @@ All notable changes to Parsek are documented here.
   After a looped trip to another planet ends in a landing, the ship's ghost, map icon and orbit
   line stay gone until the next loop. They used to come back in the parking orbit about a month
   later when a time jump had skipped the landing. (REAIM-PARKING-ICON-AFTER-LANDING)
+- **A looped trip to another planet no longer draws stray path pieces away from the ship.**
+  Short course-correction stretches of the original trip were drawn on the old, unshifted path,
+  far from the ship's icon. The looped trip now shows only its own transfer path.
+  (LOOP-SUN-LEG-DRAWN-OFF-PATH)
+- **Resuming an old flight no longer adds a stray piece to its launch recording.** Flying a
+  spawned vessel on from a finished mission now records onto the latest part of its flight, not
+  back onto the launch. (COMMITTED-RESTORE-APPENDS-TO-ROOT)
 
 ## 1.0.1
 
