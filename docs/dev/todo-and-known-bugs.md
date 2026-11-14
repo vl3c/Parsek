@@ -2616,6 +2616,25 @@ forward keeps); the rest is the interface, ParsekFlight's header and its 4 expli
 (23 methods), the service constructor and the `MergeFlow` accessor's `newobj`. Knot 434 -> 435 (the interface names
 knot types; the ParsekFlight cut still lands on 403), replayed residue unchanged, no layer pin
 moved.
+Tests: `MergeFlowDecisionTests` (37 cells) drive the service through `FakeMergeFlowHost` (records
+every host call, stashes like the host): the scene-exit path choice (restore guard, consumed
+suppression with and without the recorder-state lines, FLIGHT pre-transition vs Limbo with and
+without the unsafe line, save-file load and quit-without-saving Limbo, a revert keeping the
+commit, auto-merge off stash with snapshots kept, auto-merge commit releasing non-spawnable
+snapshots, a rewind load committing with auto-merge off), the live and callback entries' UT and
+transient reset, the teardown and the recovery-request clear; FinalizeTreeRecordings' backgrounded
+stop, flush and destroyed flag; CommitTreeFlight's no-tree guard, stamp source, optimization
+skip / run, leaf spawn and session clear; the auto-discard message, transient reset and recorder
+stop; idle-on-pad's restore guard and flush; the live recording lookup; the merge-dialog ghost
+chain call. Still unreachable headless, because the concrete recorders read the game
+themselves: a foreground `FlightRecorder.ForceStop` (FinalizeRecordingState) and
+`BackgroundRecorder.Shutdown()` / `CheckpointAllVessels` (Planetarium), so the scene-exit
+checkpoint line and the background shutdown are untested; `StashActiveTreeAsPendingLimbo` /
+`StashActiveTreeForVesselSwitch` bodies stay on the host and are faked. Mutants: 26 on the
+decisions (guards flipped, commit / stash paths swapped, teardown and clear steps deleted); the
+existing merge-flow classes killed 5, the full set kills 26 (the one the new cells miss, leaves
+spawned with the pre-pass id, is equivalent without an optimizer split and is killed by
+`InFlightCommitOptimizationTests`' source order gate).
 
 ## ~~ARCH-RECORDINGSTORE-GOD-OBJECT: RecordingStore is a list plus eight services in one type~~ [FILED 2026-09-14 off the architecture program (item 4). POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun. DONE 2026-11-07 on the refactor branch `claude/project-thread-bkwmrr` (services plan PRs 1-14, each IL-proven a pure move; xUnit and harness suites, not flown: the covering lanes are named per PR)]
 
