@@ -19,6 +19,8 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class StrategyReservationTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         private static readonly Func<double, string> Date = ut => "D" + ut.ToString("F0", IC);
         private const string Committed = "rec-committed";
@@ -45,7 +47,6 @@ namespace Parsek.Tests
             CommittedFutureIndexCache.ResetForTesting();
             StrategyReservationGate.ResetForTesting();
             StrategyStatePatcher.ResetForTesting();
-            RecalculationEngine.ClearModules();
             ParsekSettings.CurrentOverrideForTesting = new ParsekSettings();
             CommittedFutureIndexCache.NowUtProviderForTesting = () => 100.0;
             StrategyReservationGate.ActiveStrategyIdsProviderForTesting = () => new List<string>();
@@ -64,7 +65,6 @@ namespace Parsek.Tests
             StrategyReservationGate.ResetForTesting();
             CommittedFutureIndexCache.ResetForTesting();
             GameStateRecorder.IsReplayingActions = false;
-            RecalculationEngine.ClearModules();
             GameStateStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
             RecordingStore.ResetForTesting();
@@ -924,10 +924,10 @@ namespace Parsek.Tests
         public void Plan_FromACutoffWalk_MatchesTheCommittedTimelineAtNow()
         {
             var strategies = new StrategiesModule();
-            RecalculationEngine.RegisterModule(strategies, RecalculationEngine.ModuleTier.Strategy);
+            modules.Register(strategies, RecalculationModuleSet.ModuleTier.Strategy);
             var rows = new List<GameAction> { On(10.0, "A"), On(20.0, "B"), Off(60.0, "B"), On(300.0, "C") };
 
-            RecalculationEngine.Recalculate(rows, 100.0);
+            RecalculationEngine.Recalculate(modules, rows, 100.0);
             var plan = PlanFromModule(strategies, new HashSet<string> { "B" }, 100.0);
 
             Assert.Equal(new[] { "A" }, plan.ToActivate);
@@ -947,22 +947,22 @@ namespace Parsek.Tests
         public void Plan_StockAutoExpiry_IsNotUndone_AndCannotLoop()
         {
             var strategies = new StrategiesModule();
-            RecalculationEngine.RegisterModule(strategies, RecalculationEngine.ModuleTier.Strategy);
+            modules.Register(strategies, RecalculationModuleSet.ModuleTier.Strategy);
             var rows = new List<GameAction> { On(10.0, "A") };
             var stock = new HashSet<string>(); // KSPCF expired A at UT 110
 
             // The captured expiry row is in the ledger: nothing to do.
             rows.Add(Off(110.0, "A"));
-            RecalculationEngine.Recalculate(rows, 120.0);
+            RecalculationEngine.Recalculate(modules, rows, 120.0);
             Assert.False(PlanFromModule(strategies, stock, 120.0).HasChanges);
 
             // The expiry row was lost: one re-activation, then the re-expiry's row settles it.
             rows.RemoveAt(rows.Count - 1);
-            RecalculationEngine.Recalculate(rows, 120.0);
+            RecalculationEngine.Recalculate(modules, rows, 120.0);
             var once = PlanFromModule(strategies, stock, 120.0);
             Assert.Equal(new[] { "A" }, once.ToActivate);
             rows.Add(Off(120.0, "A"));
-            RecalculationEngine.Recalculate(rows, 121.0);
+            RecalculationEngine.Recalculate(modules, rows, 121.0);
             Assert.False(PlanFromModule(strategies, stock, 121.0).HasChanges);
         }
 
@@ -1061,14 +1061,14 @@ namespace Parsek.Tests
         public void DeferredPatch_SnapshotCopiesTheWalkState()
         {
             var strategies = new StrategiesModule();
-            RecalculationEngine.RegisterModule(strategies, RecalculationEngine.ModuleTier.Strategy);
-            RecalculationEngine.Recalculate(new List<GameAction>
+            modules.Register(strategies, RecalculationModuleSet.ModuleTier.Strategy);
+            RecalculationEngine.Recalculate(modules, new List<GameAction>
             {
                 On(10.0, "A", commitment: 0.5f), On(20.0, "B"), Off(30.0, "B")
             }, 100.0);
 
             var snapshot = LedgerStrategySnapshot.From(strategies);
-            RecalculationEngine.Recalculate(new List<GameAction>(), 100.0);
+            RecalculationEngine.Recalculate(modules, new List<GameAction>(), 100.0);
 
             Assert.Equal(new[] { "A" }, snapshot.ActivateUT.Keys.ToArray());
             Assert.Equal(10.0, snapshot.ActivateUT["A"]);

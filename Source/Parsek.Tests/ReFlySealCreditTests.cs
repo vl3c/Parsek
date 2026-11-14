@@ -63,20 +63,19 @@ namespace Parsek.Tests
             ParsekScenario.ResetInstanceForTesting();
             SessionSuppressionState.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
-            RecalculationEngine.ClearModules();
             KspStatePatcher.ResetForTesting();
             ParsekLog.SuppressLogging = true;
         }
 
         private static void RegisterWalkModules()
         {
-            RecalculationEngine.ClearModules();
-            RecalculationEngine.RegisterModule(new MilestonesModule(), RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(new ContractsModule(), RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(new ScienceModule(), RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(new FundsModule(), RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(new ReputationModule(), RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(new FacilitiesModule(), RecalculationEngine.ModuleTier.Facilities);
+            LedgerOrchestrator.Modules.Clear();
+            LedgerOrchestrator.Modules.Register(new MilestonesModule(), RecalculationModuleSet.ModuleTier.FirstTier);
+            LedgerOrchestrator.Modules.Register(new ContractsModule(), RecalculationModuleSet.ModuleTier.FirstTier);
+            LedgerOrchestrator.Modules.Register(new ScienceModule(), RecalculationModuleSet.ModuleTier.FirstTier);
+            LedgerOrchestrator.Modules.Register(new FundsModule(), RecalculationModuleSet.ModuleTier.SecondTier);
+            LedgerOrchestrator.Modules.Register(new ReputationModule(), RecalculationModuleSet.ModuleTier.SecondTier);
+            LedgerOrchestrator.Modules.Register(new FacilitiesModule(), RecalculationModuleSet.ModuleTier.Facilities);
         }
 
         // ---------- fixture ------------------------------------------------
@@ -485,7 +484,7 @@ namespace Parsek.Tests
                 var rows = countedFirst
                     ? new List<GameAction> { seed, counted, dup }
                     : new List<GameAction> { seed, dup, counted };
-                RecalculationEngine.IsolatedBalanceWalk walk = RecalculationEngine.WalkBalancesOnClones(rows);
+                RecalculationEngine.IsolatedBalanceWalk walk = RecalculationEngine.WalkBalancesOnClones(LedgerOrchestrator.Modules, rows);
                 Assert.False(walk.NotCountedByActionId.ContainsKey("act_shared"), "countedFirst=" + countedFirst);
                 Assert.True(ReplayCredit.IsCounted(dup, walk.NotCountedByActionId));
             }
@@ -529,7 +528,7 @@ namespace Parsek.Tests
             {
                 Milestone("act_attempt", "rec_fork", 105.0, 5000f),
             };
-            RecalculationEngine.Recalculate(withAttempt);
+            RecalculationEngine.Recalculate(LedgerOrchestrator.Modules, withAttempt);
             Assert.False(counted.Effective);
             Assert.Equal(GameActionNotCountedReason.MilestoneAlreadyAchieved, counted.NotCountedReason);
 
@@ -627,7 +626,7 @@ namespace Parsek.Tests
         {
             RewindPoint rp; ChildSlot slot; Recording origin;
             InstallOpenSlot(out rp, out slot, out origin);
-            RecalculationEngine.ClearModules();
+            LedgerOrchestrator.Modules.Clear();
             Ledger.AddAction(Milestone("act_first", "rec_other", 110.0, 5000f));
             Ledger.AddAction(Science("act_sci_first", "rec_other", 110.0, 5f));
             Ledger.AddAction(Science("act_sci", "rec_a", 120.0, 5f));

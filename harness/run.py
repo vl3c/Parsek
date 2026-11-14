@@ -3444,6 +3444,13 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                        routes_obs.get("count", "-"),
                        routes_obs.get("statuses", "-"),
                        routes_obs.get("codecRejects", "-"), len(sp.mismatches)))
+        # The remove-Parsek-safely facet (measured-only, gates nothing): printed
+        # only when the save carries something stock cannot read.
+        stock_obs = (sp.observed.get("stockLoad") or {})
+        if stock_obs.get("findings"):
+            logger.info("Verify", "verify saveParse stockLoad findings=%s kinds=%s first=%s"
+                        % (stock_obs.get("findings"), stock_obs.get("kinds"),
+                           stock_obs.get("first")))
         report_only = [m for m in sp.mismatches if m not in sp.armed_mismatches]
         sampling_obs = ((sp.observed.get("recordings") or {}).get("sampling") or {})
         if sampling_obs:

@@ -19,6 +19,8 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class StockZeroClampAndOpenPenaltyTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private readonly List<string> logLines = new List<string>();
 
         public StockZeroClampAndOpenPenaltyTests()
@@ -28,12 +30,10 @@ namespace Parsek.Tests
             ParsekLog.VerboseOverrideForTesting = true;
             KspStatePatcher.AllowNegativeCurrencyProviderForTesting = () => false;
             CareerSettingsLock.ResetForTesting();
-            RecalculationEngine.ClearModules();
         }
 
         public void Dispose()
         {
-            RecalculationEngine.ClearModules();
             KspStatePatcher.AllowNegativeCurrencyProviderForTesting = null;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
@@ -190,11 +190,11 @@ namespace Parsek.Tests
             internal FundsModule Funds;
         }
 
-        private static Registered Register()
+        private Registered Register()
         {
             var r = new Registered { Contracts = new ContractsModule(), Funds = new FundsModule() };
-            RecalculationEngine.RegisterModule(r.Contracts, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(r.Funds, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(r.Contracts, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(r.Funds, RecalculationModuleSet.ModuleTier.SecondTier);
             return r;
         }
 
@@ -220,7 +220,7 @@ namespace Parsek.Tests
         public void OpenContract_ItsSyntheticDeadlineFail_IsNotHeldInThePool()
         {
             var r = Register();
-            RecalculationEngine.Recalculate(OpenContractLedger(withCommittedFail: false), 100.0);
+            RecalculationEngine.Recalculate(modules, OpenContractLedger(withCommittedFail: false), 100.0);
 
             // The reserve holds the committed cost only: 10000 - 1000. With the synthetic
             // penalty it was 6000.
@@ -238,7 +238,7 @@ namespace Parsek.Tests
         public void ACommittedFail_ALedgerRow_IsStillReserved()
         {
             var r = Register();
-            RecalculationEngine.Recalculate(OpenContractLedger(withCommittedFail: true), 100.0);
+            RecalculationEngine.Recalculate(modules, OpenContractLedger(withCommittedFail: true), 100.0);
 
             Assert.Equal(6000.0, r.Funds.GetProjectionMinBalance(), 6);
             Assert.Contains(logLines, l => l.Contains("Projection reserve for FundsModule")
@@ -259,7 +259,7 @@ namespace Parsek.Tests
         public void TheAffordabilityProbe_LeavesTheSyntheticFailOutToo()
         {
             Register();
-            FundsModule probe = RecalculationEngine.ProbeModuleAtCutoff<FundsModule>(
+            FundsModule probe = RecalculationEngine.ProbeModuleAtCutoff<FundsModule>(modules,
                 OpenContractLedger(withCommittedFail: false), 100.0);
             Assert.NotNull(probe);
             Assert.Equal(9000.0, probe.GetProjectionMinBalance(), 6);

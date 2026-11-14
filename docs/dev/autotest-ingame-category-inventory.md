@@ -1,4 +1,4 @@
-# In-game test category inventory (all 141 categories)
+# In-game test category inventory (all 142 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -138,6 +138,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `KSP` | 6 | 6 | 4 | 4 | 0 | 0 | H13 | A |
 | `KerbalInventorySpawn` | 2 | 2 | 0 | 0 | 0 | 2 | H72-kerbal-inventory-spawn (authored 2026-09-27, branch `lane-inventory-spawn`, NOT YET FLOWN: `total=2` literal with the split regexed, predicted `passed=2 skipped=0`, and both cells already required through the runner's `PASSED:` lines, over `b1-pad-craft`'s seated Jeb, whose roster entry carries a two-part inventory so neither self-skip can fire; A1, `H36`'s standing, like CN-2 / CN-3 before their reading runs; the end-to-end capture -> commit -> spawn-at-end restore is `EVA-7-crew-inventory-spawn-after-rewind`, a seam lane with no batch). Opened by KERBAL-INVENTORY-NOT-RESTORED-AT-SPAWN (2026-09-27, branch `kss2-inventory`). Two FLIGHT cells over the ACTIVE vessel: a `TryBackupSnapshot` captures one `INVENTORY` per crew member with a stored inventory (roster backing field, a live `KerbalInventoryScenario` instance or a loaded EVA kerbal's own module) without writing a default onto anyone who had none, and the spawn restore's roster applier replaces a kerbal's roster inventory and drops the live instance, then the spawn-failure rollback writer puts the prior back. Both self-skip without a crewed active vessel (the first also when no crew member has a stored inventory). Its OWN category for the standing reason - a cell added to a pinned category moves a committed `BATCH_COMPLETE` tally. NEVER FLOWN | A |
 | `KspApiSanity` | 5 | 5 | 3 | 3 | 0 | 3 | H24 | A |
+| `LeafVesselPlacement` | 1 | 1 | 1 | 1 | 0 | 1 | FAR-1-ike-rewind-to-launch-career (SPACECENTER), FAR-2-duna-relaunch-rewind-keeps-landed (SPACECENTER), FAR-3-ike-revert-to-launch (FLIGHT) and FAR-5-laythe-physics-warp-record (FLIGHT), all authored 2026-11-14 (the far-body timeline program, branch `pc-farrefly`), NEVER FLOWN: `total=1` literal with the split regexed. One scene-agnostic cell that reads every effective committed recording's live spawned vessel (Orbiting / Landed / Splashed terminal) against the recording's terminal place - body, orbit elements and mean-longitude phase at the clock, or great-circle distance to the terminal surface position (pure core `LeafVesselPlacement`, xUnit `LeafVesselPlacementTests`) - and fails on two live vessels holding one spawn pid. Its own category so no pinned `BATCH_COMPLETE` tally moves. Self-skips when no live spawned vessel is there to compare, which each driving lane reds by requiring `passed=` of at least 1. Bucket **B** until a lane flies it | B |
 | `Ledger` | 4 | 0 | 4 | 0 | 0 | 4 | H48 (flown 2026-08-28, executes 4 of 4) | A |
 | `LedgerGroundTruth` | 3 | 3 | 0 | 0 | 0 | 3 | L2, L4 (the third cell, `CurrencyTooltipLiveInvariantTest`, was added 2026-09-02 and both lanes' tallies were RE-DERIVED to total=3 ahead of a flight; all three members self-skip - career-only, singleton and live-tree guards) | B |
 | `LocalizedName` | 3 | 3 | 3 | 3 | 0 | 0 | H29 | A |
@@ -235,8 +236,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **141 categories / 697 declarations**. Buckets **A 103 categories
-(393 declarations)**, **B 36 categories (299 declarations)**, **C 2 categories (5
+Totals, re-derived: **142 categories / 698 declarations**. Buckets **A 103 categories
+(393 declarations)**, **B 37 categories (300 declarations)**, **C 2 categories (5
 declarations)** - the C rows are `GuiMock`, opened 2026-09-22 by P1 of the GUI state
 gallery, which ships no lane by design (P2 owns the two gallery lanes), and
 `MoonArrivalHold`, opened 2026-11-07 by the lone-moon arrival hold, which waits for the

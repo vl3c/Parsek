@@ -271,11 +271,11 @@ namespace Parsek.Tests
             };
 
             // Rewound before the transmission: not yet earned.
-            RecalculationEngine.Recalculate(actions, 100);
+            RecalculationEngine.Recalculate(LedgerOrchestrator.Modules, actions, 100);
             Assert.Equal(20.0, LedgerOrchestrator.Science.GetRunningScience(), 4);
 
             // The clock passes it again: the committed lab science is re-applied.
-            RecalculationEngine.Recalculate(actions, 600);
+            RecalculationEngine.Recalculate(LedgerOrchestrator.Modules, actions, 600);
             Assert.Equal(35.0, LedgerOrchestrator.Science.GetRunningScience(), 4);
         }
 

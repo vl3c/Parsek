@@ -14,11 +14,12 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class ScienceDebtTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private readonly List<string> logLines = new List<string>();
 
         public ScienceDebtTests()
         {
-            RecalculationEngine.ClearModules();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
@@ -31,7 +32,6 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
-            RecalculationEngine.ClearModules();
             LedgerOrchestrator.ResetForTesting();
             KspStatePatcher.ResetForTesting();
             GameStateStore.ResetForTesting();
@@ -45,11 +45,11 @@ namespace Parsek.Tests
             internal readonly FundsModule Funds = new FundsModule();
         }
 
-        private static Walk Register()
+        private Walk Register()
         {
             var w = new Walk();
-            RecalculationEngine.RegisterModule(w.Science, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(w.Funds, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(w.Science, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(w.Funds, RecalculationModuleSet.ModuleTier.SecondTier);
             return w;
         }
 
@@ -99,7 +99,7 @@ namespace Parsek.Tests
             var tech = Tech("survivability", 200, 2, 30f);
             actions.Add(tech);
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.Equal(-20.0, w.Science.GetRunningScience(), 3);
             Assert.Equal(20.0, w.Science.GetTechDebtCharged(), 3);
@@ -131,14 +131,14 @@ namespace Parsek.Tests
             actions.Add(Earn("a", 100, 1, 10f));
             actions.Add(Tech("survivability", 200, 2, 30f));
             actions.Add(Earn("b", 300, 3, 8f));
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.Equal(-12.0, w.Science.GetRunningScience(), 3);
 
-            RecalculationEngine.ClearModules();
+            modules.Clear();
             w = Register();
             actions.Add(Earn("c", 400, 4, 10f));
             actions.Add(Earn("d", 500, 5, 9f));
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.Equal(7.0, w.Science.GetRunningScience(), 3);
             Assert.Equal(7.0, w.Science.GetAvailableScience(), 3);
         }
@@ -161,7 +161,7 @@ namespace Parsek.Tests
             actions.Add(newEarn);
             actions.Add(newTech);
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.Equal(0f, committedEarn.EffectiveScience);
             Assert.True(committedTech.Effective && committedTech.Affordable);
@@ -180,7 +180,7 @@ namespace Parsek.Tests
             var w = Register();
             var actions = Seeds(5f);
             actions.Add(Tech("survivability", 200, 2, 30f));
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
             Assert.Equal(-25.0, w.Science.GetRunningScience(), 3);
             Assert.DoesNotContain(logLines, l => l.Contains("[ScienceModule]") && l.Contains("Zero clamp: ScienceSpending"));
         }
@@ -198,7 +198,7 @@ namespace Parsek.Tests
                 UT = 200, CaptureSequence = 3, Type = GameActionType.FundsSpending,
                 FundsSpendingSource = FundsSpendingSource.Other, DedupKey = "p", FundsSpent = 100020f
             });
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             double sciRunning = w.Science.GetProjectionCurrentBalance();
             double fundsRunning = w.Funds.GetProjectionCurrentBalance();
@@ -232,7 +232,7 @@ namespace Parsek.Tests
             actions.Add(Earn("a", 300, 20, 10f));   // a repeat of a capped subject earns nothing
             actions.Add(Earn("b", 350, 21, 6f));
             actions.Add(Tech("survivability", 500, 2, 15f)); // the committed tech ahead
-            RecalculationEngine.Recalculate(actions, 400);
+            RecalculationEngine.Recalculate(modules, actions, 400);
             // Running 16 now, the committed tech needs 15 and nothing earns before it.
             Assert.Equal(16.0, w.Science.GetRunningScience(), 3);
             Assert.Equal(1.0, w.Science.GetAvailableScience(), 3);

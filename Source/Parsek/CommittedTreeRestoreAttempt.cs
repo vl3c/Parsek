@@ -21,10 +21,41 @@ namespace Parsek
         // overlap sidecars must not be written over committed history, and
         // Discard must remove same-id game-state event tails authored after the
         // committed recording's original end UT.
-        private static string committedTreeRestoreAttemptTreeId;
-        private static string committedTreeRestoreAttemptReason;
-        private static HashSet<string> committedTreeRestoreAttemptRecordingIds;
-        private static Dictionary<string, double> committedTreeRestoreAttemptEventCutoffs;
+        // The save-scoped state: the armed attempt. The Cold reset replaces the whole object
+        // (ResetForLoad), so a field added here is forgotten with the rest.
+        private sealed class ColdResetState
+        {
+            internal string TreeId;
+            internal string Reason;
+            internal HashSet<string> RecordingIds;
+            internal Dictionary<string, double> EventCutoffs;
+        }
+
+        private static ColdResetState state = new ColdResetState();
+
+        private static string committedTreeRestoreAttemptTreeId
+        {
+            get => state.TreeId;
+            set => state.TreeId = value;
+        }
+
+        private static string committedTreeRestoreAttemptReason
+        {
+            get => state.Reason;
+            set => state.Reason = value;
+        }
+
+        private static HashSet<string> committedTreeRestoreAttemptRecordingIds
+        {
+            get => state.RecordingIds;
+            set => state.RecordingIds = value;
+        }
+
+        private static Dictionary<string, double> committedTreeRestoreAttemptEventCutoffs
+        {
+            get => state.EventCutoffs;
+            set => state.EventCutoffs = value;
+        }
 
         internal static bool HasCommittedTreeRestoreAttempt =>
             committedTreeRestoreAttemptTreeId != null;
@@ -42,20 +73,14 @@ namespace Parsek
         /// reloaded from the save with the rest, so nothing is purged.</summary>
         internal static void ResetForLoad()
         {
-            committedTreeRestoreAttemptTreeId = null;
-            committedTreeRestoreAttemptReason = null;
-            committedTreeRestoreAttemptRecordingIds = null;
-            committedTreeRestoreAttemptEventCutoffs = null;
+            state = new ColdResetState();
         }
 
         /// <summary>Test reset, called by <c>RecordingStore.ResetForTestingInternal</c> at the
         /// point where it used to clear these fields itself.</summary>
         internal static void ResetForTesting()
         {
-            committedTreeRestoreAttemptTreeId = null;
-            committedTreeRestoreAttemptReason = null;
-            committedTreeRestoreAttemptRecordingIds = null;
-            committedTreeRestoreAttemptEventCutoffs = null;
+            state = new ColdResetState();
         }
 
         internal static void ArmCommittedTreeRestoreAttempt(RecordingTree tree, string reason)

@@ -45,7 +45,6 @@ namespace Parsek.Tests
             ParsekScenario.ResetInstanceForTesting();
             SessionSuppressionState.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
-            RecalculationEngine.ClearModules();
             KspStatePatcher.SuppressUnityCallsForTesting = true;
             SupersedeCommit.ResetWorldActionSafetyCacheForTesting();
             MarkerValidator.ResetTestOverrides();
@@ -91,7 +90,6 @@ namespace Parsek.Tests
             ParsekScenario.ResetInstanceForTesting();
             SessionSuppressionState.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
-            RecalculationEngine.ClearModules();
             KspStatePatcher.ResetForTesting();
             if (Directory.Exists(tempDir))
             {

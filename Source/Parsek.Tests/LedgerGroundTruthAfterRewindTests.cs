@@ -15,18 +15,18 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class LedgerGroundTruthAfterRewindTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         public LedgerGroundTruthAfterRewindTests()
         {
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
-            RecalculationEngine.ClearModules();
             LedgerGroundTruthDiff.StrictPerIdentityForTesting = false;
         }
 
         public void Dispose()
         {
             StockShadowTakeBack.ResetForTesting();
-            RecalculationEngine.ClearModules();
             LedgerGroundTruthDiff.StrictPerIdentityForTesting = false;
             ParsekLog.ResetTestOverrides();
         }
@@ -51,14 +51,14 @@ namespace Parsek.Tests
             };
         }
 
-        private static double WalkReputation(double? cutoff)
+        private double WalkReputation(double? cutoff)
         {
-            RecalculationEngine.ClearModules();
+            modules.Clear();
             var contracts = new ContractsModule();
             var rep = new ReputationModule();
-            RecalculationEngine.RegisterModule(contracts, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(rep, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.Recalculate(LedgerWithAFutureReputationLoss(), cutoff);
+            modules.Register(contracts, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(rep, RecalculationModuleSet.ModuleTier.SecondTier);
+            RecalculationEngine.Recalculate(modules, LedgerWithAFutureReputationLoss(), cutoff);
             return rep.GetRunningRep();
         }
 
@@ -145,11 +145,11 @@ namespace Parsek.Tests
             StockShadowTakeBack.ResetForTesting();
             StockShadowTakeBack.SetEligibleFromForTesting(1);
             StockShadowTakeBack.AddBreakForTesting(15, 50.0, "PlainRewind");
-            RecalculationEngine.ClearModules();
+            modules.Clear();
             var milestones = new MilestonesModule();
             var funds = new FundsModule();
-            RecalculationEngine.RegisterModule(milestones, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(milestones, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(funds, RecalculationModuleSet.ModuleTier.SecondTier);
             var repeat = new GameAction
             {
                 ActionId = "b", UT = 120.0, CaptureSequence = 20, Type = GameActionType.MilestoneAchievement,
@@ -165,7 +165,7 @@ namespace Parsek.Tests
                 },
                 repeat,
             };
-            RecalculationEngine.Recalculate(ledger, 200.0);
+            RecalculationEngine.Recalculate(modules, ledger, 200.0);
 
             Assert.Equal(GameActionNotCountedReason.MilestoneAlreadyAchieved, repeat.NotCountedReason);
             Assert.Equal(5000f, repeat.TakeBackFunds);

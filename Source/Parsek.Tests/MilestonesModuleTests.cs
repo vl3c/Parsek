@@ -8,12 +8,13 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class MilestonesModuleTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private readonly List<string> logLines = new List<string>();
         private readonly MilestonesModule module;
 
         public MilestonesModuleTests()
         {
-            RecalculationEngine.ClearModules();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
@@ -23,7 +24,6 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
-            RecalculationEngine.ClearModules();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -337,7 +337,7 @@ namespace Parsek.Tests
         [Fact]
         public void Integration_EngineDispatchesMilestoneToModule()
         {
-            RecalculationEngine.RegisterModule(module, RecalculationEngine.ModuleTier.FirstTier);
+            modules.Register(module, RecalculationModuleSet.ModuleTier.FirstTier);
 
             var actions = new List<GameAction>
             {
@@ -348,7 +348,7 @@ namespace Parsek.Tests
             };
 
             // Engine sorts by UT, so recB (UT=700) processes before recA (UT=1000)
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             // recB at UT=700 should be effective (processed first)
             Assert.True(actions[1].Effective);

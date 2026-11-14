@@ -438,7 +438,7 @@ namespace Parsek
             // probe's walk.
             var actions = new System.Collections.Generic.List<GameAction>(EffectiveState.ComputeELS());
             double nowUT = GetNowUT();
-            var probe = RecalculationEngine.ProbeModuleAtCutoff<ScienceModule>(actions, nowUT);
+            var probe = RecalculationEngine.ProbeModuleAtCutoff<ScienceModule>(moduleSet, actions, nowUT);
             if (probe == null)
             {
                 ParsekLog.Warn(Tag, "CanAffordScienceSpending: science module probe unavailable - allowing");
@@ -491,7 +491,7 @@ namespace Parsek
             // probe's walk.
             var actions = new System.Collections.Generic.List<GameAction>(EffectiveState.ComputeELS());
             double nowUT = GetNowUT();
-            var probe = RecalculationEngine.ProbeModuleAtCutoff<FundsModule>(actions, nowUT);
+            var probe = RecalculationEngine.ProbeModuleAtCutoff<FundsModule>(moduleSet, actions, nowUT);
             if (probe == null)
             {
                 ParsekLog.Warn(Tag, "CanAffordFundsSpending: funds module probe unavailable - allowing");

@@ -1,0 +1,175 @@
+schema = 1
+id = "B44-laythe-tylo-transfer"
+# =====================================================================================
+# B44: Laythe -> Tylo, a moon-to-moon forge. AUTHORED 2026-11-14, NEVER FLOWN.
+# Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 2 / MOON-FLIGHT-TEST-PROGRAM Group B.
+#
+# WHAT IT IS FOR. The same rule-4a question as B43 from the innermost moon: a
+# Laythe-rooted tree whose target (Tylo, P = 4 x P_Laythe) dominates, so the loop
+# should lock `dominant-intercept` at P = P_Tylo. The pair with B43 separates "the
+# target sets the period" from "the launch moon happens to be Vall". Its harvest
+# `laythe-tylo-recorded` is the subject of V44M.
+#
+# THE MACHINE: B43's (B26's parent relay + B29's elliptical capture through the
+# `b29_jool_kerbin` module). THE FIXTURE is B26's own host `laythe-park-nerv`, so the
+# entry gate is B26's verbatim: the Duna Rocket parks at 56,239 x 87,933 m (SMA
+# 572,086 m, ECC 0.0277, INC 16.37 deg), LiquidFuel 534.87.
+#
+# DELTA-V. 534.87 LF = 2.674 t over 7.18 t dry at 800 s: ~2,484 m/s.
+#   escape   vsoi 500 at the fixture park ~596 m/s (B26 flew 450 here for 586.69).
+#            The SOI floor is 368.8 at the gate's 52 km corner and 431.7 at its
+#            300 km round one; 500 clears the worst by 16%. Hohmann excess is 633.7.
+#   stage 2  Hohmann departure 633.7; ~760 nominal at B26's measured 1.20x.
+#   capture  ELLIPTICAL to 6,000 km: 203-359 m/s at a 500 km periapsis for v_inf
+#            500-1,000 (circular is 900+ and blows the worst case).
+#   corr     <= 4 x 75 (B26's 100 would push the worst case past the tank).
+#   nominal ~1,730 m/s (two correction rounds), worst ~2,420 (stage 2 at 1.8x the
+#   Hohmann, capture at twice the arrival excess, four full rounds): fits, narrowly.
+#
+# TIMING: Hohmann transfer 61,849 s, Laythe-Tylo synodic 70,641 s; Tylo SOI entry to
+# periapsis 7,700-10,400 s. Correction triggers [55000, 12000] s to SOI.
+#
+# OUTWARD TRANSFER (27.18 -> 68.5 Mm) that CROSSES VALL'S ORBIT (43.15 Mm). A Vall
+# encounter is a real possibility, not a typo: it is forbidden below, and if it
+# happens the run fails on it by name.
+#
+# HARVEST after a green flight, from the run's own snapshot, never `--force`:
+#   python tools/harvest_bdock_station.py --save-dir results/<runId>_save
+#       --target-name laythe-tylo-recorded --expect-situation ORBITING --keep-parsek
+# then register it in test_saveparse.RECORDED_FIXTURES, put its tree id into V44M
+# and drop V44M from test_hlib PENDING_FIXTURE_LANES (both in the same commit).
+# =====================================================================================
+tier = "operator"
+description = "AUTHORED 2026-11-14, NEVER FLOWN. Moon-to-moon forge Laythe -> Tylo: B26's parent-relay from B26's own host `laythe-park-nerv`, crossing Vall's orbit outward, with B29's elliptical capture at Tylo (6,000 km apoapsis) and the tree committed there. A fresh Laythe-rooted tree that never leaves Jool's SOI, so rule 4a should phase-lock its loop at P = P_Tylo. Produces `laythe-tylo-recorded` for V44M."
+instanceProfile = "stock-minimal"
+tags = ["B44", "laythe", "tylo", "jool", "moon-to-moon", "parent-relay", "elliptical-capture",
+        "orbit", "mechjeb", "cross-soi", "capture", "commit-in-foreign-soi", "orbit-start",
+        "crewed", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/laythe-park-nerv"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "b29_jool_kerbin"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },   expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                     expect = "OK" },
+  { cmd = "DiscardTree",                                                       expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "StartRecording",                                                    expect = "OK" },
+  { phase = "mission",  expect = "MISSION-OK", budget = 7200 },
+  { cmd = "FlushAndQuit",                                                      expect = "OK" },
+]
+
+[driver.missionParams]
+startInOrbit                    = true
+startInOrbitMinPeriapsisMeters  = 52000
+startInOrbitMaxApoapsisMeters   = 300000
+startInOrbitMaxEccentricity     = 0.10
+startInOrbitSituations          = ["ORBITING"]
+startInOrbitDebounceFrames      = 3
+startInOrbitSettleSeconds       = 120
+
+homeBodyName               = "Laythe"
+targetBodyName             = "Tylo"
+interplanetaryTransfer     = true
+
+parentRelayTransfer        = true
+escapeSoiSpeedMps          = 500
+escapeMaxDeltaVMps         = 750
+escapeNodeMinLeadSeconds   = 300
+escapeTimeoutSeconds       = 2400
+returnBodyName             = "Jool"
+viaBodyNames               = ["Jool"]
+transferMinApoapsisMeters  = 55000000
+ejectionEccFloor           = 0
+courseCorrectPeriapsisMeters = 500000
+correctionTriggerTimeToSoiSeconds = [55000, 12000]
+correctionTriggerAltsMeters       = []
+planTimeoutSeconds         = 300
+planRetrySeconds           = 10
+planWarpFactor             = 2
+transferBurnTimeoutSeconds = 600000
+coastTimeoutSeconds        = 600000
+flybyTimeoutSeconds        = 60000
+coastWarpFactor            = 5
+soiLeadSeconds             = 3000
+approachWindowSeconds      = 20000
+approachMaxWarpFactor      = 3
+soiNativeLeadSeconds       = 400
+triggerNativeLeadSeconds   = 30
+flybyWarpFactor            = 2
+flybyMaxWarpFactor         = 3
+nodeArrivalMarginSeconds   = 15
+flipPhysicsWarpFactor      = 1
+targetPeriapsisFloorMeters = 40000
+
+captureEnabled             = true
+captureEllipticalApoapsisMeters = 6000000
+capturePlanTimeoutSeconds  = 300
+captureBurnTimeoutSeconds  = 60000
+parkMinPeriapsisMeters     = 20000
+parkMaxApoapsisMeters      = 8000000
+parkMaxEccentricity        = 0.85
+parkMaxAngularVelocityRadPerSec = 0.05
+parkSituations             = ["ORBITING"]
+parkDwellSeconds           = 60
+parkDebounceFrames         = 3
+parkTimeoutSeconds         = 600
+commitTimeoutSeconds       = 300
+burnStagnantSeconds        = 120
+burnNoStartSeconds         = 600
+correctionThrottle         = 0.25
+correctionCutDvMps         = 2.0
+correctionSettleSeconds    = 10
+maxAttitudeErrorDeg        = 30
+frozenTelemetrySamples     = 10
+maxCorrectionDvMps         = 75
+
+[dimensionsCovered]
+D1  = ["commit-in-foreign-soi"]
+D14 = ["laythe", "tylo", "jool", "warp-rails", "scene-flight", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 4 }
+
+[expectations.logContracts]
+required  = [
+  "Recording started",
+  "Recording stopped",
+  "SOI change boundary suppressed in tree mode: Laythe to Jool",
+  "SOI change boundary suppressed in tree mode: Jool to Tylo",
+  "CommitTreeFlight: starting tree commit at UT=",
+  "CommitTreeFlight terminal: rec=\\w+ terminalState=Orbiting terminalOrbitBody=Tylo",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "SOI change boundary suppressed in tree mode: \\w+ to Vall",
+  "SOI change boundary suppressed in tree mode: \\w+ to Bop",
+  "SOI change boundary suppressed in tree mode: \\w+ to Pol",
+  "SOI change boundary suppressed in tree mode: \\w+ to Sun",
+]
+
+[expectations.rewind]
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+committedTrees = { min = 1, max = 1 }
+
+[runtime]
+budgetSeconds = 7900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

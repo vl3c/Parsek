@@ -17,9 +17,26 @@ namespace Parsek
     {
         private const string Tag = "WarpTime";
 
-        internal static bool HasPending { get; private set; }
-        internal static double TargetUT { get; private set; }
-        internal static Guid SessionId { get; private set; }
+        // The save-scoped state: both requests. A Cold load and the main-menu transition
+        // replace the whole object (DropAll), so a field added here is dropped with the rest.
+        private sealed class ColdResetState
+        {
+            internal bool HasPending;
+            internal double TargetUT;
+            internal Guid SessionId;
+            internal bool HasDeferredKscWarp;
+            internal int DeferYear;
+            internal int DeferDay;
+            internal int DeferHour;
+            internal int DeferMinute;
+            internal Guid DeferSessionId;
+        }
+
+        private static ColdResetState state = new ColdResetState();
+
+        internal static bool HasPending { get => state.HasPending; private set => state.HasPending = value; }
+        internal static double TargetUT { get => state.TargetUT; private set => state.TargetUT = value; }
+        internal static Guid SessionId { get => state.SessionId; private set => state.SessionId = value; }
 
         /// <summary>Arms a pending forward-warp to <paramref name="targetUT"/>.</summary>
         internal static void Set(double targetUT)
@@ -78,11 +95,9 @@ namespace Parsek
                 ParsekLog.Info(Tag,
                     $"Deferred flight warp dropped: Y{DeferYear} D{DeferDay} {DeferHour}:{DeferMinute:00} " +
                     $"reason={reason ?? "unspecified"}");
-                HasDeferredKscWarp = false;
-                DeferYear = DeferDay = DeferHour = DeferMinute = 0;
-                deferSessionId = Guid.Empty;
                 dropped++;
             }
+            state = new ColdResetState();
             return dropped;
         }
 
@@ -101,12 +116,11 @@ namespace Parsek
         // first - we never auto-commit. The entered date is re-resolved and executed KSC-side
         // (WarpToTimeController.ExecuteAtKsc) with no further confirmation.
 
-        internal static bool HasDeferredKscWarp { get; private set; }
-        internal static int DeferYear { get; private set; }
-        internal static int DeferDay { get; private set; }
-        internal static int DeferHour { get; private set; }
-        internal static int DeferMinute { get; private set; }
-        private static Guid deferSessionId;
+        internal static bool HasDeferredKscWarp { get => state.HasDeferredKscWarp; private set => state.HasDeferredKscWarp = value; }
+        internal static int DeferYear { get => state.DeferYear; private set => state.DeferYear = value; }
+        internal static int DeferDay { get => state.DeferDay; private set => state.DeferDay = value; }
+        internal static int DeferHour { get => state.DeferHour; private set => state.DeferHour = value; }
+        internal static int DeferMinute { get => state.DeferMinute; private set => state.DeferMinute = value; }
 
         internal static void SetDeferredKscWarp(int year, int day, int hour, int minute)
         {
@@ -115,9 +129,9 @@ namespace Parsek
             DeferDay = day;
             DeferHour = hour;
             DeferMinute = minute;
-            deferSessionId = ParsekProcess.ProcessSessionId;
+            state.DeferSessionId = ParsekProcess.ProcessSessionId;
             ParsekLog.Info(Tag,
-                $"Deferred flight warp armed: Y{year} D{day} {hour}:{minute:00} session={deferSessionId}");
+                $"Deferred flight warp armed: Y{year} D{day} {hour}:{minute:00} session={state.DeferSessionId}");
         }
 
         internal static void ClearDeferredKscWarp()
@@ -126,22 +140,17 @@ namespace Parsek
             ParsekLog.Verbose(Tag, "Deferred flight warp cleared");
             HasDeferredKscWarp = false;
             DeferYear = DeferDay = DeferHour = DeferMinute = 0;
-            deferSessionId = Guid.Empty;
+            state.DeferSessionId = Guid.Empty;
         }
 
         internal static bool IsDeferredKscWarpStale()
         {
-            return HasDeferredKscWarp && deferSessionId != ParsekProcess.ProcessSessionId;
+            return HasDeferredKscWarp && state.DeferSessionId != ParsekProcess.ProcessSessionId;
         }
 
         internal static void ResetForTesting()
         {
-            HasPending = false;
-            TargetUT = 0;
-            SessionId = Guid.Empty;
-            HasDeferredKscWarp = false;
-            DeferYear = DeferDay = DeferHour = DeferMinute = 0;
-            deferSessionId = Guid.Empty;
+            state = new ColdResetState();
         }
     }
 }

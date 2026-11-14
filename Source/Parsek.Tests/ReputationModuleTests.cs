@@ -8,12 +8,13 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class ReputationModuleTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private readonly List<string> logLines = new List<string>();
         private readonly ReputationModule module;
 
         public ReputationModuleTests()
         {
-            RecalculationEngine.ClearModules();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
@@ -23,7 +24,6 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
-            RecalculationEngine.ClearModules();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -1191,7 +1191,7 @@ namespace Parsek.Tests
         [Fact]
         public void Integration_EngineDispatchesRepActionsToModule()
         {
-            RecalculationEngine.RegisterModule(module, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(module, RecalculationModuleSet.ModuleTier.SecondTier);
 
             var actions = new List<GameAction>
             {
@@ -1199,7 +1199,7 @@ namespace Parsek.Tests
                 MakeRepEarning(25f, 1000.0, "recB") // earlier UT, sorted first
             };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             // recB (UT=1000) processed first at rep=0
             // recA (UT=2000) processed second at higher rep — diminished gain

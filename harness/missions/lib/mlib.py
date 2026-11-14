@@ -2807,6 +2807,29 @@ STOCK_BODY_GRAVITY: Dict[str, Tuple[float, float, float]] = {
     #     (`f.Soi["Jool"]`), quoted at full precision as 2,455,985,185 m in
     #     `harness/missions/b22_jool_orbit.py`'s header.
     "Jool": (2.82528e14, 6_000_000.0, 2.4559852e9),
+    #
+    # VALL, TYLO, BOP and MINMUS, added for the moon-to-moon pair forges B43 (Vall ->
+    # Tylo), B44 (Laythe -> Tylo), B45 (Tylo -> Bop) and B46 (Minmus -> Mun). Vall,
+    # Tylo and Minmus are relay HOME bodies (`escape_node_plan` reads the row, so the
+    # SOI radius is load-bearing); Tylo and Bop are ELLIPTICAL-capture targets
+    # (`capture_node_plan` reads mu and R). In-repo sources:
+    #   Vall    mu 2.074815e11 (stock gravParameter, quoted rounded as 2.074e11 in
+    #             `B26-laythe-vall-transfer.toml`'s delta-v section), R 300,000 (the
+    #             same section), SOI 2,406,401.4 - `MissionPeriodicityTests.cs`
+    #             (`f.Soi["Vall"]`).
+    #   Tylo    mu 2.82489e12, R 600,000, SOI 10,856,518.4 - `B33-tylo-orbit.toml`'s
+    #             header and `harness/missions/lib/test_jool_moon_orbits.py` (MOONS).
+    #   Bop     mu 2.4868349e9, R 65,000, SOI 1,221,060.9 - `B34-bop-orbit.toml`'s
+    #             header and the same MOONS table.
+    #   Minmus  mu 1.7658e9 (`scripts/reaim_sim.py`, `B12-minmus-orbit.toml`), R 60,000
+    #             (`B12-minmus-orbit.toml`), SOI 2,247,428.4 (`V7M-minmus-player-loop.toml`);
+    #             all three as `harness/missions/lib/test_b30_mun_minmus.py` imports them.
+    # The Vall and Tylo values are the ones the Jool tour branch (`B47`) carries, so a
+    # merge of the two keeps one copy of each row.
+    "Vall": (2.074815e11, 300_000.0, 2_406_401.4),
+    "Tylo": (2.82489e12, 600_000.0, 10_856_518.4),
+    "Bop": (2.4868349e9, 65_000.0, 1_221_060.9),
+    "Minmus": (1.7658e9, 60_000.0, 2_247_428.4),
 }
 STOCK_HELIO_ELEMENTS: Dict[str, Tuple[float, float, float, float]] = {
     "Kerbin": (13_599_840_256.0, 0.0, 3.14, 0.0),
@@ -35373,3 +35396,261 @@ def evaluate_soi1_assertions(frames, params: Soi1Params,
              "liquidFuelAtEnd": st.end_liquid_fuel,
              "phasesReached": list(st.phases_reached)}),
     ]
+
+
+# ---------------------------------------------------------------------------
+# MOON-TOUR composed machine (mission b47_jool_moon_tour; todo
+# NEXT-TESTS-TO-BUILD-2026-11-11 item 1, the M-MIS-6 subject). Pure.
+#
+# WHY A COMPOSED MACHINE. The multi-moon configuration hold needs ONE tree that
+# enters two or more moon SOIs of the same planet. Every flown moon lane parks at
+# ONE moon and COMMITS there through the mid-mission seam, and hlib.validate_spec
+# allows ONE mission step per autopilot spec, so a tour (Laythe, then Vall, then
+# Tylo) runs as one machine. b5_decide is delegated VERBATIM once per leg; each leg
+# is a full B5 param table (B25's orbit-start moon path, B26's parent relay, ...).
+#
+# THE ONE EDIT (mor's, applied to every leg but the last): on the PARK exit frame
+# B5 enters ORBIT-COMMIT and emits the mid-mission CommitTree; the composer DROPS
+# that action and starts the next leg's fresh B5 machine, which enters through the
+# ORBIT-START door (startInOrbit) at the park the previous leg just held. The last
+# leg's commit is kept, so the whole tour is ONE recording session committed once,
+# at the final moon. B5's own rows through parkedStable hold on the dropped frame
+# (ORBIT-COMMIT is in its phase list), exactly as on mor.
+#
+# THE HAND-OFF INVARIANT, checked at load (mtour_leg_handoff_faults): every park
+# leg i ACCEPTS must pass leg i+1's ORBIT-START gate. A park the previous leg
+# accepts and the next leg's gate refuses is a deterministic ASSERT-FAIL after the
+# expensive half of the flight, so the spec must nest the bands, not hope.
+#
+# THE PHASE REPORT is the active leg's B5 phase name, unchanged, so the runner's
+# warp policy, the flight-efficiency hints and every phase-keyed reader see the
+# names they know; `leg_index` says which leg is flying.
+# ---------------------------------------------------------------------------
+
+MTOUR_MIN_LEGS = 2
+
+
+@dataclass(frozen=True)
+class MtourParams:
+    """b47_jool_moon_tour tuning: one full B5 param set per leg, in flight order."""
+    legs: Tuple[B5Params, ...]
+    leg_dicts: Tuple[Dict, ...] = ()
+
+
+def mtour_leg_handoff_faults(prev: B5Params, nxt: B5Params) -> List[str]:
+    """Every reason a park ``prev`` accepts could fail ``nxt``'s ORBIT-START gate,
+    or why the two legs do not chain at all. Empty = the hand-off is sound. Pure.
+
+    The PARK gate (_b5_capture_achieved / _b5_park_stable) is ``0 < ap <=
+    park_max_apoapsis``, ``pe >= park_min_periapsis``, ``ecc <=
+    park_max_eccentricity`` and a situation in ``park_situations``; the ORBIT-START
+    gate (start_in_orbit_frame_verdict) is the same four quantities against its own
+    bounds, with a 0 apoapsis ceiling meaning unbounded. The second band must
+    CONTAIN the first."""
+    faults: List[str] = []
+    if not nxt.start_in_orbit:
+        faults.append("leg to %r does not start in orbit (startInOrbit)" % (nxt.target_body,))
+    if nxt.home_body != prev.target_body:
+        faults.append("leg to %r departs %r, but the previous leg parks at %r"
+                      % (nxt.target_body, nxt.home_body, prev.target_body))
+    if nxt.start_in_orbit_situations:
+        missing = [s for s in prev.park_situations
+                   if s not in nxt.start_in_orbit_situations]
+        if missing:
+            faults.append("park situations %r are not admitted by the next entry gate %r"
+                          % (missing, list(nxt.start_in_orbit_situations)))
+    if nxt.start_in_orbit_min_periapsis > prev.park_min_periapsis:
+        faults.append("entry periapsis floor %.0f m is above the park floor %.0f m"
+                      % (nxt.start_in_orbit_min_periapsis, prev.park_min_periapsis))
+    if (nxt.start_in_orbit_max_apoapsis > 0.0
+            and nxt.start_in_orbit_max_apoapsis < prev.park_max_apoapsis):
+        faults.append("entry apoapsis ceiling %.0f m is below the park ceiling %.0f m"
+                      % (nxt.start_in_orbit_max_apoapsis, prev.park_max_apoapsis))
+    if nxt.start_in_orbit_max_eccentricity < prev.park_max_eccentricity:
+        faults.append("entry eccentricity ceiling %.4f is below the park ceiling %.4f"
+                      % (nxt.start_in_orbit_max_eccentricity, prev.park_max_eccentricity))
+    return faults
+
+
+def mtour_params_from_dict(params: Dict) -> MtourParams:
+    """Build ``MtourParams`` from a spec ``missionParams`` dict whose ``legs`` key is
+    a list of full B5 param tables (TOML ``[[driver.missionParams.legs]]``). Every
+    leg goes through ``b5_params_from_dict`` (its own load-time implications), then
+    the tour's: at least two legs, every leg a parked orbit capture (no landing, no
+    pad, no park-at-parent), every target distinct, and every hand-off sound
+    (``mtour_leg_handoff_faults``). RAISES ``ValueError`` naming the leg."""
+    params = params or {}
+    raw = params.get("legs")
+    if not isinstance(raw, (list, tuple)) or len(raw) < MTOUR_MIN_LEGS:
+        raise ValueError("legs must be a list of at least %d leg tables, got %r"
+                         % (MTOUR_MIN_LEGS, type(raw).__name__ if not isinstance(
+                             raw, (list, tuple)) else len(raw)))
+    legs: List[B5Params] = []
+    for i, leg in enumerate(raw):
+        if not isinstance(leg, dict):
+            raise ValueError("legs[%d] must be a table, got %s" % (i, type(leg).__name__))
+        try:
+            p = b5_params_from_dict(leg)
+        except ValueError as exc:
+            raise ValueError("legs[%d]: %s" % (i, exc)) from exc
+        if not p.capture_enabled:
+            raise ValueError("legs[%d] (%s): captureEnabled is required, every leg "
+                             "ends in a park" % (i, p.target_body))
+        for flag, name in ((p.landing_enabled, "landingEnabled"),
+                           (p.pad_align_ejection, "padAlignEjection"),
+                           (p.relay_park_at_parent, "relayParkAtParent")):
+            if flag:
+                raise ValueError("legs[%d] (%s): %s is not a tour leg"
+                                 % (i, p.target_body, name))
+        if not p.start_in_orbit:
+            raise ValueError("legs[%d] (%s): startInOrbit is required, the tour "
+                             "starts parked and never launches" % (i, p.target_body))
+        if p.target_body == p.home_body:
+            raise ValueError("legs[%d]: targetBodyName %r is the home body"
+                             % (i, p.target_body))
+        legs.append(p)
+    targets = [p.target_body for p in legs]
+    if len(set(targets)) != len(targets):
+        raise ValueError("leg targets repeat: %r" % (targets,))
+    for i in range(1, len(legs)):
+        faults = mtour_leg_handoff_faults(legs[i - 1], legs[i])
+        if faults:
+            raise ValueError("legs[%d] -> legs[%d] hand-off: %s"
+                             % (i - 1, i, "; ".join(faults)))
+    return MtourParams(legs=tuple(legs), leg_dicts=tuple(dict(d) for d in raw))
+
+
+@dataclass(frozen=True)
+class MtourState:
+    """b47_jool_moon_tour machine state. ``flight`` is the ACTIVE leg's delegated
+    B5 machine (named so ``frozen_detector_holder`` resolves it); ``finished_legs``
+    keeps each completed leg's final B5 state for the assertions."""
+    params: MtourParams
+    flight: B5State
+    leg_index: int = 0
+    finished_legs: Tuple[B5State, ...] = ()
+    leg_exit_uts: Tuple[float, ...] = ()
+    phase: str = B5_PRELAUNCH
+    phase_entry_ut: float = 0.0
+    phases_reached: Tuple[str, ...] = (B5_PRELAUNCH,)
+    warp_to_cmd: Optional[float] = None
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    flake_reason: Optional[str] = None
+    loss_reason: Optional[str] = None
+    done: bool = False
+
+
+def mtour_initial_state(params: MtourParams) -> MtourState:
+    """Fresh machine inside leg 0's own PRELAUNCH (the ORBIT-START door)."""
+    flight = b5_initial_state(params.legs[0])
+    return MtourState(params=params, flight=flight, phase=flight.phase,
+                      phases_reached=(flight.phase,))
+
+
+def _mtour_report(state: MtourState, phase: str, entry_ut: float) -> MtourState:
+    reached = state.phases_reached
+    if phase != state.phase:
+        reached = reached + (phase,)
+    return replace(state, phase=phase, phase_entry_ut=entry_ut, phases_reached=reached)
+
+
+def mtour_decide(state: MtourState,
+                 snapshot: TelemetrySnapshot) -> Tuple[MtourState, List[Action]]:
+    """Advance the tour one frame; return (new_state, actions). The active leg's
+    b5_decide runs verbatim; on a non-final leg's PARK exit frame the CommitTree is
+    dropped and the next leg's machine takes over on the next frame. A leg's
+    flake / loss ends the tour with the leg named. Once ``done`` the machine is
+    idempotent."""
+    if state.done:
+        return state, []
+    p = state.params
+    i = state.leg_index
+    leg_tag = "leg %d/%d (%s->%s)" % (i + 1, len(p.legs), p.legs[i].home_body,
+                                     p.legs[i].target_body)
+    flight, actions = b5_decide(state.flight, snapshot)
+    st = replace(state, flight=flight, warp_to_cmd=flight.warp_to_cmd)
+    if (flight.phase == B5_ORBIT_COMMIT and not flight.done
+            and i + 1 < len(p.legs)):
+        # THE PARK EXIT FRAME of a non-final leg: drop the commit, keep B5's
+        # physics-warp teardown, and hand the next leg a fresh machine.
+        kept = [a for a in actions if a.kind != ACTION_PARSEK_COMMIT_TREE]
+        st = _mtour_report(st, flight.phase, flight.phase_entry_ut)
+        nxt = b5_initial_state(p.legs[i + 1])
+        st = replace(st, flight=nxt, leg_index=i + 1, warp_to_cmd=None,
+                     finished_legs=st.finished_legs + (flight,),
+                     leg_exit_uts=st.leg_exit_uts + (
+                         float(snapshot.ut) if _is_finite(snapshot.ut) else float("nan"),))
+        st = _mtour_report(st, nxt.phase,
+                           snapshot.ut if _is_finite(snapshot.ut) else st.phase_entry_ut)
+        return st, kept
+    st = _mtour_report(st, flight.phase, flight.phase_entry_ut)
+    if not flight.done:
+        return st, actions
+    if flight.loss_reason:
+        return replace(st, done=True, verdict=MISSION_ASSERT_FAIL,
+                       loss_reason="%s: %s" % (leg_tag, flight.loss_reason)), actions
+    if flight.verdict is not None:
+        inner = flight.flake_phase or flight.phase
+        return (replace(st, done=True, verdict=flight.verdict, flake_phase=inner,
+                        flake_reason="%s %s in phase %s: %s"
+                        % (leg_tag, flight.verdict, inner,
+                           flight.flake_reason or ("phase %s timed out" % inner))),
+                actions)
+    if i + 1 < len(p.legs):
+        return (replace(st, done=True, verdict=MISSION_FLAKE, flake_phase=flight.phase,
+                        flake_reason="%s reported done with a clean verdict before its "
+                        "PARK exit (phases=%s)" % (leg_tag, list(flight.phases_reached))),
+                actions)
+    # The final leg's clean terminal (ORBIT-COMMITTED): the tour is done.
+    return replace(st, done=True), actions
+
+
+def evaluate_mtour_assertions(frames, params: MtourParams,
+                              state: Optional[MtourState] = None
+                              ) -> List[AssertionOutcome]:
+    """Each leg's B5 rows, prefixed ``leg<N><Target>.`` (a non-final leg drops its
+    ``treeCommitted`` row: its commit is dropped by design), plus ``tourCompleted``:
+    every leg reached its park exit and the final leg's commit answered. A leg that
+    never started reports one unmet ``leg<N><Target>.started`` row, so the result
+    names how far the tour got."""
+    legs = params.legs
+    finished = tuple(getattr(state, "finished_legs", ()) or ())
+    active_index = int(getattr(state, "leg_index", 0) or 0)
+    active = getattr(state, "flight", None)
+    rows: List[AssertionOutcome] = []
+    all_parked = True
+    for i, leg in enumerate(legs):
+        prefix = "leg%d%s." % (i + 1, leg.target_body)
+        if i < len(finished):
+            leg_state = finished[i]
+        elif i == active_index and active is not None:
+            leg_state = active
+        else:
+            leg_state = None
+        if leg_state is None:
+            all_parked = False
+            rows.append(AssertionOutcome(prefix + "started", False, None,
+                                         {"home": leg.home_body, "target": leg.target_body}))
+            continue
+        final = i == len(legs) - 1
+        for r in evaluate_b5_assertions(
+                frames, leg,
+                phases_reached=tuple(getattr(leg_state, "phases_reached", ()) or ()),
+                min_target_altitude=getattr(leg_state, "min_target_altitude", None),
+                state=leg_state):
+            if r.name == "treeCommitted" and not final:
+                continue
+            rows.append(replace(r, name=prefix + r.name))
+        if B5_ORBIT_COMMIT not in tuple(getattr(leg_state, "phases_reached", ()) or ()):
+            all_parked = False
+    final_state = active if active_index == len(legs) - 1 else None
+    committed = bool(final_state is not None
+                     and B5_ORBIT_COMMITTED in tuple(final_state.phases_reached or ()))
+    rows.append(AssertionOutcome(
+        "tourCompleted", bool(all_parked and committed), len(finished)
+        + (1 if committed else 0),
+        {"legs": [leg.target_body for leg in legs],
+         "legExitUts": list(getattr(state, "leg_exit_uts", ()) or ()),
+         "finalCommitted": committed}))
+    return rows

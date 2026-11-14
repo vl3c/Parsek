@@ -14,6 +14,8 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class StockUiReservationVerificationTests : System.IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private const string LaunchPadId = "SpaceCenter/LaunchPad";
         private readonly List<string> logLines = new List<string>();
 
@@ -29,7 +31,6 @@ namespace Parsek.Tests
             LedgerOrchestrator.ResetForTesting();
             EffectiveState.ResetCachesForTesting();
             ParsekScenario.ResetInstanceForTesting();
-            RecalculationEngine.ClearModules();
         }
 
         public void Dispose()
@@ -37,7 +38,6 @@ namespace Parsek.Tests
             LedgerOrchestrator.ResetForTesting();
             EffectiveState.ResetCachesForTesting();
             ParsekScenario.ResetInstanceForTesting();
-            RecalculationEngine.ClearModules();
             RecordingStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
             GameStateStore.ResetForTesting();
@@ -230,16 +230,16 @@ namespace Parsek.Tests
             return actions;
         }
 
-        private static FundsModule RegisterContractsScienceFunds(out ScienceModule science)
+        private FundsModule RegisterContractsScienceFunds(out ScienceModule science)
         {
             var contracts = new ContractsModule();
             science = new ScienceModule();
             var funds = new FundsModule();
             // Production order (LedgerOrchestrator.Initialize): contracts before science in
             // the first tier, funds in the second.
-            RecalculationEngine.RegisterModule(contracts, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(science, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(contracts, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(science, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(funds, RecalculationModuleSet.ModuleTier.SecondTier);
             return funds;
         }
 
@@ -249,7 +249,7 @@ namespace Parsek.Tests
             var funds = RegisterContractsScienceFunds(out var science);
             var actions = BuildX1Timeline(false, out var complete, out var tech, out var build);
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.True(complete.Effective);
             Assert.True(tech.Affordable);
@@ -263,7 +263,7 @@ namespace Parsek.Tests
             var funds = RegisterContractsScienceFunds(out var science);
             var actions = BuildX1Timeline(true, out var complete, out var tech, out var build);
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             // The committed completion loses funds, reputation and science.
             Assert.False(complete.Effective);
@@ -300,8 +300,8 @@ namespace Parsek.Tests
             GameActionType committedType, float committedPenalty)
         {
             var funds = new FundsModule();
-            RecalculationEngine.RegisterModule(new ContractsModule(), RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(new ContractsModule(), RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(funds, RecalculationModuleSet.ModuleTier.SecondTier);
 
             var actions = new List<GameAction>
             {
@@ -311,7 +311,7 @@ namespace Parsek.Tests
                 Resolution(committedType, 300.0, "c-x2", fundsPenalty: committedPenalty)
             };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             // Was ..._ChargesBothPenalties_DocumentsDefect (section 7.5): the committed fail
             // or cancel of a contract the player already cancelled is charged nothing, as
@@ -461,13 +461,13 @@ namespace Parsek.Tests
             // Owner ruling D4: whether a second purchase row is legitimate depends on WHEN it
             // was made, so the walk charges every row; the fix is the block, not a dedupe.
             var funds = new FundsModule();
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(funds, RecalculationModuleSet.ModuleTier.SecondTier);
 
             var committed = GameStateEventConverter.ConvertEvent(PartPurchase(300.0, 1600f, false), null);
             var boughtNow = GameStateEventConverter.ConvertEvent(PartPurchase(120.0, 1600f, false), null);
             var actions = new List<GameAction> { FundsSeed(10000f), committed, boughtNow };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.True(committed.Affordable);
             Assert.True(boughtNow.Affordable);
@@ -500,13 +500,13 @@ namespace Parsek.Tests
         public void P1_BypassEntryPurchase_PurchaseIsFree_NoDoubleCharge()
         {
             var funds = new FundsModule();
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(funds, RecalculationModuleSet.ModuleTier.SecondTier);
 
             var committed = GameStateEventConverter.ConvertEvent(PartPurchase(300.0, 1600f, true), null);
             var boughtNow = GameStateEventConverter.ConvertEvent(PartPurchase(120.0, 1600f, true), null);
             var actions = new List<GameAction> { FundsSeed(10000f), committed, boughtNow };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.Equal(0f, committed.FundsSpent);
             Assert.Equal(10000.0, funds.GetRunningBalance(), 1);
@@ -521,8 +521,8 @@ namespace Parsek.Tests
         {
             var strategies = new StrategiesModule();
             var funds = new FundsModule();
-            RecalculationEngine.RegisterModule(strategies, RecalculationEngine.ModuleTier.Strategy);
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Register(strategies, RecalculationModuleSet.ModuleTier.Strategy);
+            modules.Register(funds, RecalculationModuleSet.ModuleTier.SecondTier);
 
             GameAction Activate(double ut) => new GameAction
             {
@@ -537,7 +537,7 @@ namespace Parsek.Tests
 
             var actions = new List<GameAction> { FundsSeed(10000f), Activate(300.0), Activate(120.0) };
 
-            RecalculationEngine.Recalculate(actions);
+            RecalculationEngine.Recalculate(modules, actions);
 
             Assert.Equal(1, strategies.GetActiveStrategyCount());
             Assert.Contains(logLines, l => l.Contains("[Strategies]")

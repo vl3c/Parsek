@@ -17,6 +17,8 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class CareerEarnedPadOldGenFixtureTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private const string TreeId = "5eb172ab29034ccbbac497ce6406c149";
         private const double SaveClockUT = 408.72;
 
@@ -34,7 +36,6 @@ namespace Parsek.Tests
             Ledger.ResetForTesting();
             MissionStore.ResetForTesting();
             GroupHierarchyStore.ResetForTesting();
-            RecalculationEngine.ClearModules();
             ParsekScenario.ResetInstanceForTesting();
             EffectiveState.ResetCachesForTesting();
             ParsekLog.ResetTestOverrides();
@@ -53,7 +54,6 @@ namespace Parsek.Tests
             Ledger.ResetForTesting();
             MissionStore.ResetForTesting();
             GroupHierarchyStore.ResetForTesting();
-            RecalculationEngine.ClearModules();
             ParsekScenario.ResetInstanceForTesting();
             EffectiveState.ResetCachesForTesting();
             HighLogic.LoadedScene = originalScene;
@@ -170,8 +170,8 @@ namespace Parsek.Tests
                 && l.EndsWith(", validRecordingIds=2", StringComparison.Ordinal));
 
             var milestones = new MilestonesModule();
-            RecalculationEngine.RegisterModule(milestones, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.Recalculate(new List<GameAction>(EffectiveState.ComputeELS()));
+            modules.Register(milestones, RecalculationModuleSet.ModuleTier.FirstTier);
+            RecalculationEngine.Recalculate(modules, new List<GameAction>(EffectiveState.ComputeELS()));
             Assert.Equal(5, milestones.GetCreditedCount());
         }
 

@@ -16,6 +16,8 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class LiveOnlyIncomeTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private readonly List<string> logLines = new List<string>();
 
         public LiveOnlyIncomeTests()
@@ -42,7 +44,6 @@ namespace Parsek.Tests
             GameStateStore.ResetForTesting();
             StockPoolReference.ResetForTesting();
             StockShadowTakeBack.ResetForTesting();
-            RecalculationEngine.ClearModules();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -216,10 +217,10 @@ namespace Parsek.Tests
         // The pool: income stepped, not adjusted, and the same end value
         // ------------------------------------------------------------------
 
-        private static double PatchFunds(List<GameAction> ledger, FundsModule funds, double now, double live,
+        private double PatchFunds(List<GameAction> ledger, FundsModule funds, double now, double live,
             out StockPoolMeasurement m)
         {
-            RecalculationEngine.Recalculate(ledger.ToList(), now);
+            RecalculationEngine.Recalculate(modules, ledger.ToList(), now);
             var state = StockPoolReference.Funds;
             List<StockPoolRow> rows = StockPoolReference.BuildRows(
                 StockPool.Funds, ledger, funds.GetRowEffects(), funds.GetTakeBackDeltas());
@@ -264,8 +265,8 @@ namespace Parsek.Tests
         {
             StockPoolReference.ResetForTesting();
             var funds = new FundsModule();
-            RecalculationEngine.ClearModules();
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Clear();
+            modules.Register(funds, RecalculationModuleSet.ModuleTier.SecondTier);
             var ledger = new List<GameAction>
             {
                 new GameAction { ActionId = "seedF", UT = 0, Type = GameActionType.FundsInitial, InitialFunds = 1000f },

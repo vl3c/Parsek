@@ -19,6 +19,8 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class ConversionLegFollowsCauseTests : IDisposable
     {
+        private readonly RecalculationModuleSet modules = new RecalculationModuleSet();
+
         private readonly List<string> logLines = new List<string>();
         private readonly List<GameAction> ledger = new List<GameAction>();
         private readonly MilestonesModule milestones = new MilestonesModule();
@@ -43,7 +45,6 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
-            RecalculationEngine.ClearModules();
             KspStatePatcher.AllowNegativeCurrencyProviderForTesting = null;
             StockPoolReference.ResetForTesting();
             StockShadowTakeBack.ResetForTesting();
@@ -56,12 +57,12 @@ namespace Parsek.Tests
 
         private void RegisterModules()
         {
-            RecalculationEngine.ClearModules();
-            RecalculationEngine.RegisterModule(milestones, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(contracts, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(science, RecalculationEngine.ModuleTier.FirstTier);
-            RecalculationEngine.RegisterModule(funds, RecalculationEngine.ModuleTier.SecondTier);
-            RecalculationEngine.RegisterModule(reputation, RecalculationEngine.ModuleTier.SecondTier);
+            modules.Clear();
+            modules.Register(milestones, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(contracts, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(science, RecalculationModuleSet.ModuleTier.FirstTier);
+            modules.Register(funds, RecalculationModuleSet.ModuleTier.SecondTier);
+            modules.Register(reputation, RecalculationModuleSet.ModuleTier.SecondTier);
         }
 
         // ------------------------------------------------------------------
@@ -150,8 +151,8 @@ namespace Parsek.Tests
 
         private void Walk(double? now = null)
         {
-            if (now.HasValue) RecalculationEngine.Recalculate(ledger.ToList(), now.Value);
-            else RecalculationEngine.Recalculate(ledger.ToList());
+            if (now.HasValue) RecalculationEngine.Recalculate(modules, ledger.ToList(), now.Value);
+            else RecalculationEngine.Recalculate(modules, ledger.ToList());
         }
 
         private bool Rewalked => logLines.Any(l => l.Contains("Conversion legs follow their cause: walking again"));
@@ -577,7 +578,7 @@ namespace Parsek.Tests
             ledger.Add(Milestone("a", "Mun/Landing", 100, 10, 5000));
             ledger.Add(FundsDebitLeg("la1", 100, 11, 1000, c));
             ledger.Add(Milestone("b", "Mun/Landing", 50, 20, 5000));
-            var walk = RecalculationEngine.WalkBalancesOnClones(ledger);
+            var walk = RecalculationEngine.WalkBalancesOnClones(modules, ledger);
             Assert.Equal(ledger.Count, walk.Samples.Count);
             Assert.Equal(5000.0, walk.Samples.Last().Funds, 6);
             Assert.False(walk.EffectiveByActionId["la1"]);
@@ -1137,13 +1138,13 @@ namespace Parsek.Tests
         {
             for (int seed = 1; seed <= 60; seed++)
             {
-                RecalculationEngine.Recalculate(RandomCareer(seed, withCauses: false));
+                RecalculationEngine.Recalculate(modules, RandomCareer(seed, withCauses: false));
                 double f0 = funds.GetRunningBalance(), s0 = science.GetRunningScience(), r0 = reputation.GetRunningRep();
                 double fa0 = funds.GetAvailableFunds(), sa0 = science.GetAvailableScience();
 
                 logLines.Clear();
                 List<GameAction> caused = RandomCareer(seed, withCauses: true);
-                RecalculationEngine.Recalculate(caused);
+                RecalculationEngine.Recalculate(modules, caused);
                 Assert.True(f0 == funds.GetRunningBalance(), "funds differ for seed " + seed);
                 Assert.True(s0 == science.GetRunningScience(), "science differs for seed " + seed);
                 Assert.True(r0 == reputation.GetRunningRep(), "reputation differs for seed " + seed);

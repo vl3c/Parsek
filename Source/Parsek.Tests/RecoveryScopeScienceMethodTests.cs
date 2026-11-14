@@ -32,7 +32,6 @@ namespace Parsek.Tests
 
         public RecoveryScopeScienceMethodTests()
         {
-            RecalculationEngine.ClearModules();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.VerboseOverrideForTesting = true;
@@ -47,7 +46,6 @@ namespace Parsek.Tests
         public void Dispose()
         {
             ResetState();
-            RecalculationEngine.ClearModules();
             KspStatePatcher.ResetForTesting();
             RecordingStore.SuppressLogging = false;
             ParsekLog.ResetTestOverrides();

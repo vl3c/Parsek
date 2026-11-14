@@ -12,10 +12,12 @@ namespace Parsek.Tests
     /// <summary>
     /// The save-scoped session reset (design-load-restores-the-save.md 4.2, plan 1.1):
     /// <see cref="ParsekScenario.ResetSaveScopedSessionState"/> forgets every static of the
-    /// seven save-scoped classes that is not named in <c>scripts/session-reset-allowlist.txt</c>.
-    /// The inventory gate lists the statics by reflection, so a new static fails the suite until
-    /// someone decides which side it is on; the generic cell sets every reset field, resets and
-    /// reads it back; the group cells pin what the cold branch then reloads.
+    /// <see cref="InventoryTypes"/> that is not named in <c>scripts/session-reset-allowlist.txt</c>,
+    /// and every other store <c>scripts/arch/lifetimes.toml</c> tags save or load-transition is
+    /// reset by its own Cold-path call (<see cref="ColdLoaderCells"/>). The inventory gate lists the
+    /// statics by reflection, so a new static fails the suite until someone decides which side it
+    /// is on; the generic cells set every reset field, reset and read it back (through a store's
+    /// <c>ColdResetState</c> holder); the group cells pin what the cold branch then reloads.
     /// </summary>
     [Collection("Sequential")]
     public class SaveScopedSessionResetTests : IDisposable
@@ -88,6 +90,7 @@ namespace Parsek.Tests
             FacilityStatePatcher.ResetForTesting();
             RecordingGroupStore.ResetForTesting();
             WarpToTimeRequest.ResetForTesting();
+            ResetColdLoaderStores();
         }
 
         // ---- the allowlist ----
@@ -132,23 +135,85 @@ namespace Parsek.Tests
         {
             var fields = new List<FieldInfo>();
             foreach (Type t in InventoryTypes)
+                fields.AddRange(StaticFieldsOf(t));
+            return fields;
+        }
+
+        private static IEnumerable<FieldInfo> StaticFieldsOf(Type t)
+        {
+            foreach (FieldInfo f in t.GetFields(BindingFlags.Static | BindingFlags.Public
+                | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
             {
-                foreach (FieldInfo f in t.GetFields(BindingFlags.Static | BindingFlags.Public
+                if (f.IsLiteral)
+                    continue;
+                yield return f;
+            }
+        }
+
+        // ---- slots: a static, or a field of a save-scoped holder ----
+
+        // A save-scoped holder is a static whose type is a class named ColdResetState nested in
+        // the store that declares it: the store's save-scoped fields live in one holder object
+        // that the cold reset replaces. The cells read through it: each instance field of the
+        // CURRENT holder is a slot keyed Store.field, so a field moved into the holder keeps its
+        // key, and a field added to the holder is covered without a test edit.
+        internal const string HolderTypeName = "ColdResetState";
+
+        private sealed class Slot
+        {
+            internal string Key;
+            internal FieldInfo Field;
+            internal FieldInfo Holder;   // null for a plain static
+
+            internal object Target => Holder == null ? null : Holder.GetValue(null);
+            internal object Read() => Field.GetValue(Target);
+        }
+
+        internal static bool IsSaveScopedHolder(FieldInfo f)
+        {
+            Type t = f.FieldType;
+            return f.IsStatic && t.IsClass && t.DeclaringType == f.DeclaringType
+                && t.Name == HolderTypeName;
+        }
+
+        private static List<Slot> SlotsOf(IEnumerable<FieldInfo> statics)
+        {
+            var slots = new List<Slot>();
+            foreach (FieldInfo f in statics)
+            {
+                if (!IsSaveScopedHolder(f))
+                {
+                    slots.Add(new Slot { Key = FieldKey(f), Field = f });
+                    continue;
+                }
+                foreach (FieldInfo inner in f.FieldType.GetFields(BindingFlags.Instance | BindingFlags.Public
                     | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
                 {
-                    if (f.IsLiteral)
-                        continue;
-                    fields.Add(f);
+                    slots.Add(new Slot
+                    {
+                        Key = f.DeclaringType.Name + "." + DisplayName(inner),
+                        Field = inner,
+                        Holder = f,
+                    });
                 }
             }
-            return fields;
+            return slots;
+        }
+
+        private static string DisplayName(FieldInfo f)
+        {
+            string name = f.Name;
+            if (name.StartsWith("<", StringComparison.Ordinal) && name.Contains(">k__BackingField"))
+                name = name.Substring(1, name.IndexOf('>') - 1);
+            return name;
         }
 
         [Fact]
         public void Inventory_AllowlistNamesOnlyRealFields()
         {
             var allow = ReadAllowlist();
-            var real = new HashSet<string>(InventoryFields().Select(FieldKey), StringComparer.Ordinal);
+            var real = new HashSet<string>(SlotsOf(InventoryFields()).Select(sl => sl.Key)
+                .Concat(InventoryFields().Select(FieldKey)), StringComparer.Ordinal);
             var stale = allow.Keys.Where(k => !real.Contains(k)).OrderBy(k => k, StringComparer.Ordinal).ToList();
             Assert.True(stale.Count == 0,
                 "session-reset gate: scripts/session-reset-allowlist.txt names field(s) that no longer exist: "
@@ -158,45 +223,72 @@ namespace Parsek.Tests
         // Every static of the inventory classes is either allowlisted or reset by the helper: this
         // cell sets each non-allowlisted one to a value the reset must undo, runs the reset and
         // reads it back. A new static fails here (or in the mutation step, naming the field)
-        // until it is reset or allowlisted with a reason.
+        // until it is reset or allowlisted with a reason. A save-scoped holder is read through:
+        // every field of the holder the reset leaves current must be back at its value.
         [Fact]
         public void Inventory_EveryOtherStaticIsResetByTheHelper()
         {
             var allow = ReadAllowlist();
-            var fields = InventoryFields().Where(f => !allow.ContainsKey(FieldKey(f))).ToList();
-            Assert.NotEmpty(fields);
+            var statics = InventoryFields().Where(f => !allow.ContainsKey(FieldKey(f))).ToList();
+            var slots = SlotsOf(statics).Where(sl => !allow.ContainsKey(sl.Key)).ToList();
+            Assert.NotEmpty(slots);
 
-            ParsekScenario.ResetSaveScopedSessionState("test-baseline");
-            var baseline = fields.ToDictionary(f => f, f => f.GetValue(null));
-            var baselineCounts = fields.ToDictionary(f => f, f => CountOf(f.GetValue(null)));
+            List<string> notReset = FindSlotsNotReset(slots,
+                () => ParsekScenario.ResetSaveScopedSessionState("test-gate"), "ResetSaveScopedSessionState");
+            Assert.True(notReset.Count == 0,
+                "session-reset gate: ParsekScenario.ResetSaveScopedSessionState leaves these statics as set: "
+                + string.Join(", ", notReset)
+                + " (reset them in the helper, or allowlist them in scripts/session-reset-allowlist.txt with a reason)");
+        }
 
-            var mutated = new Dictionary<FieldInfo, object>();
+        // Runs the reset once for the baseline, sets every slot to a value the reset must undo,
+        // runs it again and returns the slots that did not come back. A slot the generic
+        // mutation cannot set fails the calling cell by name.
+        private static List<string> FindSlotsNotReset(List<Slot> slots, Action reset, string resetName)
+        {
+            reset();
+            var baseline = slots.ToDictionary(sl => sl, sl => sl.Read());
+            var baselineCounts = slots.ToDictionary(sl => sl, sl => CountOf(sl.Read()));
+            var holdersBefore = slots.Where(sl => sl.Holder != null).Select(sl => sl.Holder).Distinct()
+                .ToDictionary(h => h, h => h.GetValue(null));
+
+            var mutated = new Dictionary<Slot, object>();
             var cannotMutate = new List<string>();
-            foreach (FieldInfo f in fields)
+            foreach (Slot sl in slots)
             {
-                if (!TryMutate(f, baseline[f], out object mutatedValue))
-                    cannotMutate.Add(FieldKey(f) + " (" + f.FieldType.Name + ")");
+                if (sl.Holder != null && sl.Target == null)
+                {
+                    cannotMutate.Add(sl.Key + " (holder " + sl.Holder.Name + " is null)");
+                    continue;
+                }
+                if (!TryMutate(sl.Field, sl.Target, baseline[sl], out object mutatedValue))
+                    cannotMutate.Add(sl.Key + " (" + sl.Field.FieldType.Name + ")");
                 else
-                    mutated[f] = mutatedValue;
+                    mutated[sl] = mutatedValue;
             }
             Assert.True(cannotMutate.Count == 0,
-                "session-reset gate: the generic cell cannot set these statics; teach TryMutate the type or "
-                + "allowlist the field with a reason: " + string.Join(", ", cannotMutate));
+                "session-reset gate (" + resetName + "): the generic cell cannot set these statics; teach TryMutate "
+                + "the type or allowlist the field with a reason: " + string.Join(", ", cannotMutate));
 
-            ParsekScenario.ResetSaveScopedSessionState("test-gate");
+            reset();
 
             var notReset = new List<string>();
-            foreach (FieldInfo f in fields)
+            foreach (var holder in holdersBefore)
             {
-                object after = f.GetValue(null);
-                object before = baseline[f];
+                if (holder.Key.GetValue(null) == null)
+                    notReset.Add(holder.Key.DeclaringType.Name + "." + holder.Key.Name + " (holder left null)");
+            }
+            foreach (Slot sl in slots)
+            {
+                object after = sl.Target == null && sl.Holder != null ? null : sl.Read();
+                object before = baseline[sl];
                 bool ok;
-                if (IsCollectionValue(f.FieldType, before) || IsCollectionValue(f.FieldType, after))
+                if (IsCollectionValue(sl.Field.FieldType, before) || IsCollectionValue(sl.Field.FieldType, after))
                 {
                     ok = (before == null) == (after == null)
-                        && CountOf(after) == baselineCounts[f];
+                        && CountOf(after) == baselineCounts[sl];
                 }
-                else if (f.FieldType.IsValueType || f.FieldType == typeof(string))
+                else if (sl.Field.FieldType.IsValueType || sl.Field.FieldType == typeof(string))
                 {
                     ok = Equals(before, after);
                 }
@@ -206,15 +298,12 @@ namespace Parsek.Tests
                 }
                 else
                 {
-                    ok = after != null && !ReferenceEquals(after, mutated[f]);
+                    ok = after != null && !(mutated.TryGetValue(sl, out object m) && ReferenceEquals(after, m));
                 }
                 if (!ok)
-                    notReset.Add(FieldKey(f));
+                    notReset.Add(sl.Key);
             }
-            Assert.True(notReset.Count == 0,
-                "session-reset gate: ParsekScenario.ResetSaveScopedSessionState leaves these statics as set: "
-                + string.Join(", ", notReset)
-                + " (reset them in the helper, or allowlist them in scripts/session-reset-allowlist.txt with a reason)");
+            return notReset;
         }
 
         private static bool IsCollectionValue(Type declared, object value)
@@ -240,13 +329,14 @@ namespace Parsek.Tests
             return FormatterServices.GetUninitializedObject(t);
         }
 
-        private static bool TryMutate(FieldInfo f, object current, out object mutatedValue)
+        private static bool TryMutate(FieldInfo f, object target, object current, out object mutatedValue)
         {
             mutatedValue = null;
             Type t = f.FieldType;
             if (t == typeof(bool)) { mutatedValue = !(bool)current; }
             else if (t == typeof(int)) { mutatedValue = (int)current + 7; }
             else if (t == typeof(uint)) { mutatedValue = (uint)current + 7u; }
+            else if (t == typeof(long)) { mutatedValue = (long)current + 7L; }
             else if (t == typeof(double))
             {
                 double d = (double)current;
@@ -300,7 +390,7 @@ namespace Parsek.Tests
 
             if (f.IsInitOnly)
                 return false;
-            f.SetValue(null, mutatedValue);
+            f.SetValue(target, mutatedValue);
             return true;
         }
 
@@ -371,6 +461,276 @@ namespace Parsek.Tests
                 return true;
             }
             return false;
+        }
+
+        // ---- the lifetime map: every save-scoped store has a cold-reset cell ----
+
+        // The stores scripts/arch/lifetimes.toml tags save or load-transition that the helper
+        // does not reset: each is reset on a Cold load by its own Cold-path call (a loader that
+        // replaces it from the save, a consume or a drop). The cell runs the helper, then that
+        // call with a save that holds nothing, exactly as the Cold OnLoad does, and reads every
+        // save / load-transition static of the store back. A type the map tags that is in
+        // neither this table nor InventoryTypes fails ColdResetCells_CoverEverySaveScopedType.
+        private static ConfigNode emptyLedgerNode;
+
+        private static readonly Dictionary<Type, Action> ColdLoaderCells = new Dictionary<Type, Action>
+        {
+            // ParsekScenario.OnLoad cold branch: VesselNameStore.Load(node).
+            [typeof(VesselNameStore)] = () => VesselNameStore.Load(EmptyScenarioNode()),
+            // ParsekScenario.OnLoad cold branch: MissionStore.Load(node).
+            [typeof(MissionStore)] = () => MissionStore.Load(EmptyScenarioNode()),
+            // The helper's ClearAllEscrow, then the cold branch's RouteStore.LoadRoutesFrom(node).
+            [typeof(Parsek.Logistics.RouteStore)] = () => Parsek.Logistics.RouteStore.LoadRoutesFrom(EmptyScenarioNode()),
+            // RouteStore.LoadRoutesFrom calls RouteEventLog.LoadFrom(node).
+            [typeof(Parsek.Logistics.RouteEventLog)] = () => Parsek.Logistics.RouteStore.LoadRoutesFrom(EmptyScenarioNode()),
+            // LoadCrewAndGroupState: the group hierarchy and the hidden groups.
+            [typeof(GroupHierarchyStore)] = () =>
+            {
+                ConfigNode node = EmptyScenarioNode();
+                GroupHierarchyStore.LoadGroupHierarchy(node);
+                GroupHierarchyStore.LoadHiddenGroups(node);
+            },
+            // LoadCrewAndGroupState: CrewReservationManager.LoadCrewReplacements(node).
+            [typeof(CrewReservationManager)] = () => CrewReservationManager.LoadCrewReplacements(EmptyScenarioNode()),
+            // The helper's PlaybackScopeTracker.Reset, then LoadPlaybackReplayScope's Save cell.
+            [typeof(PlaybackScopeTracker)] = () => PlaybackScopeTracker.InstallFromSave(EmptyScenarioNode(), "load Cold"),
+            // The cold branch's LedgerOrchestrator.OnLoad -> Ledger.LoadFromNode -> StockShadowTakeBack.LoadFrom.
+            [typeof(StockShadowTakeBack)] = () => LedgerOrchestrator.OnLoad(emptyLedgerNode.CreateCopy()),
+            [typeof(Ledger)] = () => LedgerOrchestrator.OnLoad(emptyLedgerNode.CreateCopy()),
+            // LoadLedgerHeldWindow's Save cell: InstallAfterLoad(the loaded clock, the saved floor).
+            [typeof(LedgerHeldWindow)] = () => LedgerHeldWindow.InstallAfterLoad(
+                0.0, LedgerHeldWindow.ReadSaved(EmptyScenarioNode()), "Load (Cold)"),
+            // The rewind vessel holds' Save cell: Replace(LoadFrom(node)).
+            [typeof(RewindVesselHold)] = () => RewindVesselHold.Replace(
+                RewindVesselHold.LoadFrom(EmptyScenarioNode()), "load Cold"),
+            // The removed replay flags' Save cell: Replace(LoadFrom(node)).
+            [typeof(RemovedReplayFlags)] = () => RemovedReplayFlags.Replace(
+                RemovedReplayFlags.LoadFrom(EmptyScenarioNode()), "load Cold"),
+            // The helper captures the dropped flight; the cold branch reaps it once the lists are final.
+            [typeof(NoSaveSceneExit)] = () => NoSaveSceneExit.ReapDroppedFlightSidecars(false, false, false),
+            // Every OnLoad consumes the intent while it classifies, before the helper runs.
+            [typeof(SaveFileLoadIntent)] = () => SaveFileLoadIntent.TryConsume(
+                0.0, 0, "test-cold", out double _, out int _),
+            // The helper clears it (DiscardReFlyLoadIntent.Clear("save-scoped-reset")).
+            [typeof(DiscardReFlyLoadIntent)] = () => { },
+            // Handoff step A takes the captured handoff on every load and drops it on a Cold one.
+            [typeof(InSessionStagedStateHandoff)] = () => InSessionStagedStateHandoff.Take(),
+            // OnLoad clears a leftover recovery request before it classifies.
+            [typeof(InFlightRecoveryRequest)] = () => InFlightRecoveryRequest.Clear("OnLoad"),
+            // RevertDetector is consumed only by the in-session branch: see ColdLoaderKnownGaps.
+            [typeof(RevertDetector)] = () => { },
+        };
+
+        // Save / load-transition statics a Cold load does not reset today. Each is pinned so
+        // the cell stays green on the code as it is and goes red the day the gap closes (drop
+        // the entry then). Value: the todo id and why.
+        private static readonly Dictionary<string, string> ColdLoaderKnownGaps = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["DiscardReFlyLoadIntent.armedTarget"] = "COLD-RESET-LEFTOVERS: Clear and TryConsume drop armed, the "
+                + "session and the UT but keep the target; inert while armed is false (every reader checks it)",
+            ["VesselNameStore.lastPostInitState"] = "COLD-RESET-LEFTOVERS: tagged save by the type default, but "
+                + "Load keeps it with FlightEpoch on purpose (ClearRevertUndoState(resetEpoch: false))",
+            ["RevertDetector.pending"] = "COLD-RESET-LEFTOVERS: consumed only by OnLoad's in-session branch; a "
+                + "revert armed with no load of its own would classify a later load of another save",
+            ["RevertDetector.revertTargetVesselPids"] = "COLD-RESET-LEFTOVERS: consumed with pending, only by "
+                + "OnLoad's in-session branch",
+        };
+
+        private static ConfigNode EmptyScenarioNode() => new ConfigNode("SCENARIO");
+
+        private static void ResetColdLoaderStores()
+        {
+            VesselNameStore.ResetForTesting();
+            MissionStore.ResetForTesting();
+            Parsek.Logistics.RouteStore.ResetForTesting();
+            Parsek.Logistics.RouteEventLog.ResetForTesting();
+            GroupHierarchyStore.ResetForTesting();
+            CrewReservationManager.ResetReplacementsForTesting();
+            PlaybackScopeTracker.ResetForTesting();
+            StockShadowTakeBack.ResetForTesting();
+            LedgerHeldWindow.ResetForTesting();
+            RewindVesselHold.ResetForTesting();
+            RemovedReplayFlags.ResetForTesting();
+            Ledger.ResetForTesting();
+            NoSaveSceneExit.ResetForTesting();
+            SaveFileLoadIntent.ResetForTesting();
+            DiscardReFlyLoadIntent.ResetForTesting();
+            InSessionStagedStateHandoff.ResetForTesting();
+            InFlightRecoveryRequest.ResetForTesting();
+            RevertDetector.ResetForTesting();
+        }
+
+        // A minimal reader of scripts/arch/lifetimes.toml, enough for its [[type]] and
+        // [[pattern]] tables: a static's lifetime is its field entry, else the first pattern
+        // its name matches, else its type's default (lifetimes.py resolve()).
+        private sealed class LifetimeMap
+        {
+            internal readonly Dictionary<string, string> Defaults = new Dictionary<string, string>(StringComparer.Ordinal);
+            internal readonly Dictionary<string, Dictionary<string, string>> Fields =
+                new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
+            internal readonly List<KeyValuePair<string, string>> Patterns = new List<KeyValuePair<string, string>>();
+
+            internal string Resolve(string typeFullName, string fieldDisplayName)
+            {
+                if (Fields.TryGetValue(typeFullName, out var fields)
+                    && fields.TryGetValue(fieldDisplayName, out string tagged))
+                    return tagged;
+                foreach (var p in Patterns)
+                {
+                    if (p.Key.StartsWith("*", StringComparison.Ordinal)
+                        && fieldDisplayName.EndsWith(p.Key.Substring(1), StringComparison.Ordinal))
+                        return p.Value;
+                }
+                return Defaults.TryGetValue(typeFullName, out string d) ? d : null;
+            }
+
+            internal IEnumerable<string> ColdClearedTypes()
+            {
+                var names = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var d in Defaults)
+                    if (IsColdCleared(d.Value)) names.Add(d.Key);
+                foreach (var f in Fields)
+                    if (f.Value.Values.Any(IsColdCleared)) names.Add(f.Key);
+                return names.OrderBy(n => n, StringComparer.Ordinal);
+            }
+        }
+
+        private static bool IsColdCleared(string lifetime) => lifetime == "save" || lifetime == "load-transition";
+
+        private static string LifetimesPath()
+        {
+            return Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..",
+                "scripts", "arch", "lifetimes.toml"));
+        }
+
+        private static string TomlString(string value)
+        {
+            value = value.Trim();
+            if (value.Length >= 2 && value[0] == '"')
+                return value.Substring(1, value.IndexOf('"', 1) - 1);
+            return value;
+        }
+
+        private static LifetimeMap ReadLifetimeMap()
+        {
+            string path = LifetimesPath();
+            Assert.True(File.Exists(path), "lifetime map not found at " + path);
+            var map = new LifetimeMap();
+            string section = null;
+            string typeName = null;
+            string patternMatch = null;
+            foreach (string raw in File.ReadAllLines(path))
+            {
+                string line = raw.Trim();
+                if (line.Length == 0 || line.StartsWith("#", StringComparison.Ordinal))
+                    continue;
+                if (line.StartsWith("[", StringComparison.Ordinal))
+                {
+                    section = line;
+                    if (line == "[[type]]") typeName = null;
+                    if (line == "[[pattern]]") patternMatch = null;
+                    continue;
+                }
+                int eq = line.IndexOf('=');
+                if (eq <= 0) continue;
+                string key = line.Substring(0, eq).Trim();
+                string value = TomlString(line.Substring(eq + 1));
+                if (section == "[[type]]")
+                {
+                    if (key == "name") typeName = value;
+                    else if (key == "default" && typeName != null) map.Defaults[typeName] = value;
+                }
+                else if (section == "[type.fields]" && typeName != null)
+                {
+                    if (!map.Fields.TryGetValue(typeName, out var fields))
+                        map.Fields[typeName] = fields = new Dictionary<string, string>(StringComparer.Ordinal);
+                    int colon = value.IndexOf(':');
+                    fields[key] = (colon < 0 ? value : value.Substring(0, colon)).Trim();
+                }
+                else if (section == "[[pattern]]")
+                {
+                    if (key == "match") patternMatch = value;
+                    else if (key == "lifetime" && patternMatch != null)
+                        map.Patterns.Add(new KeyValuePair<string, string>(patternMatch, value));
+                }
+            }
+            Assert.NotEmpty(map.Defaults);
+            return map;
+        }
+
+        // The statics of a cold-loader store that the map says a Cold load must clear: a
+        // reassignable static, or a readonly collection (lifetimes.py's population), whose
+        // lifetime resolves to save or load-transition. A save-scoped holder is read through.
+        private static List<Slot> ColdClearedSlots(Type t, LifetimeMap map)
+        {
+            var statics = StaticFieldsOf(t).Where(f =>
+                    (!f.IsInitOnly || IsCollectionValue(f.FieldType, f.GetValue(null)))
+                    && IsColdCleared(map.Resolve(t.FullName, DisplayName(f))))
+                .ToList();
+            return SlotsOf(statics);
+        }
+
+        // catches: a type the lifetime map tags save or load-transition with no cold-reset
+        // cell (a new save-scoped store nobody tied to the Cold load), or a cell for a type the
+        // map no longer tags.
+        [Fact]
+        public void ColdResetCells_CoverEverySaveScopedType()
+        {
+            LifetimeMap map = ReadLifetimeMap();
+            var covered = new HashSet<string>(
+                InventoryTypes.Select(t => t.FullName).Concat(ColdLoaderCells.Keys.Select(t => t.FullName)),
+                StringComparer.Ordinal);
+            var tagged = map.ColdClearedTypes().ToList();
+            var uncovered = tagged.Where(n => !covered.Contains(n)).ToList();
+            Assert.True(uncovered.Count == 0,
+                "cold-reset gate: scripts/arch/lifetimes.toml tags these types save or load-transition, but no "
+                + "cell resets them (add the store's Cold-path call to ColdLoaderCells, or its type to "
+                + "InventoryTypes when ResetSaveScopedSessionState resets it): " + string.Join(", ", uncovered));
+            var stale = ColdLoaderCells.Keys.Select(t => t.FullName).Where(n => !tagged.Contains(n)).ToList();
+            Assert.True(stale.Count == 0,
+                "cold-reset gate: ColdLoaderCells names types the lifetime map tags no save or load-transition "
+                + "static in: " + string.Join(", ", stale));
+            foreach (Type t in ColdLoaderCells.Keys)
+                Assert.True(ColdClearedSlots(t, map).Count > 0, "cold-reset gate: no save-scoped static found in " + t.FullName);
+        }
+
+        public static IEnumerable<object[]> ColdLoaderTypeNames()
+        {
+            return ColdLoaderCells.Keys.Select(t => new object[] { t.FullName }).OrderBy(o => (string)o[0], StringComparer.Ordinal);
+        }
+
+        // Every save / load-transition static of a cold-loader store is back at its value after
+        // the Cold load's own path (the helper, then the store's call). The known gaps are the
+        // statics it leaves set today, each pinned with its todo id.
+        [Theory]
+        [MemberData(nameof(ColdLoaderTypeNames))]
+        public void ColdLoader_ResetsEverySaveScopedStatic(string typeName)
+        {
+            Type t = ColdLoaderCells.Keys.Single(k => k.FullName == typeName);
+            Action loader = ColdLoaderCells[t];
+            LifetimeMap map = ReadLifetimeMap();
+            List<Slot> slots = ColdClearedSlots(t, map);
+            Assert.NotEmpty(slots);
+
+            ResetAll();
+            emptyLedgerNode = Ledger.BuildSaveNode();
+            List<string> notReset = FindSlotsNotReset(slots, () =>
+            {
+                ParsekScenario.ResetSaveScopedSessionState("test-cold-loader");
+                loader();
+            }, typeName);
+
+            var unexpected = notReset.Where(k => !ColdLoaderKnownGaps.ContainsKey(k)).ToList();
+            Assert.True(unexpected.Count == 0,
+                "cold-reset gate: a Cold load leaves these " + typeName + " statics as set: "
+                + string.Join(", ", unexpected)
+                + " (clear them on the store's Cold path, or tag them with the lifetime they really have)");
+            var closed = ColdLoaderKnownGaps.Keys
+                .Where(k => slots.Any(sl => sl.Key == k) && !notReset.Contains(k)).ToList();
+            Assert.True(closed.Count == 0,
+                "cold-reset gate: these known gaps are reset now; drop them from ColdLoaderKnownGaps: "
+                + string.Join(", ", closed));
         }
 
         // ---- GC1-SAVE-SCOPED-STATE-LEFTOVERS ----

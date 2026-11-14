@@ -320,7 +320,7 @@ namespace Parsek.Tests
             Assert.Equal(LossSwapVariant.A, v.Variant);
 
             var after = new List<GameAction>(els) { earlier };
-            var walk = RecalculationEngine.WalkBalancesOnClones(after);
+            var walk = RecalculationEngine.WalkBalancesOnClones(LedgerOrchestrator.Modules, after);
             Assert.True(walk.EffectiveByActionId["ms_attempt"]);
             Assert.False(walk.EffectiveByActionId["ms_later"]);
             Assert.True(later.Effective);
@@ -352,8 +352,8 @@ namespace Parsek.Tests
                 els, new List<GameAction> { newLoss }, retireIds, retireIds, new HashSet<string> { NewRec });
             Assert.Contains(after, a => a.ActionId == "rep_old");
             Assert.DoesNotContain(after, a => a.ActionId == "rep_new");
-            var before = ReFlyMergeDominance.BalanceSeries.From(RecalculationEngine.WalkBalancesOnClones(els));
-            var afterSeries = ReFlyMergeDominance.BalanceSeries.From(RecalculationEngine.WalkBalancesOnClones(after));
+            var before = ReFlyMergeDominance.BalanceSeries.From(RecalculationEngine.WalkBalancesOnClones(LedgerOrchestrator.Modules, els));
+            var afterSeries = ReFlyMergeDominance.BalanceSeries.From(RecalculationEngine.WalkBalancesOnClones(LedgerOrchestrator.Modules, after));
             foreach (double ut in before.UTs.Concat(afterSeries.UTs).Concat(new[] { 305.0, 310.0, 1000.0 }))
                 Assert.True(afterSeries.ValueAt("reputation", ut) >= before.ValueAt("reputation", ut) - 1e-6,
                     "reputation at ut=" + ut);
