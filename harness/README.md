@@ -1489,68 +1489,228 @@ spares the current run's own tmp name, since the pass can run while that copy is
 still being written. Between the two, the retention pass touches nothing under
 `results/` but `*_save/` and `*_save.harness-tmp/`.
 
-## The machine lock (only one run at a time, machine-wide)
+## The machine lock (one PC owner at a time)
 
-`run.py` and `provision/provision.py` are mutually exclusive, arbitrated by ONE
-lockfile:
+The machine has ONE owner at a time: a serial `run.py`, a
+`provision/provision.py`, or the parallel runner (`tools/parallel_runner.py`).
+They are arbitrated by ONE lockfile:
 
 ```
 <umbrella-root>/automation/.ksp-machine.lock
 ```
 
-**Why the MACHINE and not the instance directory.** The resources an automation
-run monopolises are machine-global, not per-instance: the hardcoded kRPC ports
-(50000/50001), the single GPU, and the timing-sensitive physics clock a second
-concurrent KSP perturbs. A per-instance lock let two different profiles both
-acquire, both launch, and both bind 50000 - where the loser's bind fails soft and
-its mission then drives the WINNER's game, a live path to a false PASS.
+Under the owner, each install copy (a SLOT, see "Install slots" below) has its
+own slot lock, `automation/.ksp-slot-<slot>.lock`, so the parallel runner's
+children can fly several copies at once without taking the machine lock
+themselves.
 
-**What takes it.** A whole `run.py` invocation (acquired before the spec loop,
-released in a `finally`, timestamp heartbeated at each scenario boundary) and a
-whole `provision.py` run including `--repair`. A nightly therefore holds the
-machine for its full duration, which is the point.
+**Why the MACHINE and not only the instance directory.** Some of what an
+automation run uses is machine-global: the single GPU (and its VRAM), the
+owner's desktop and foreground, the Unity screen prefs every KSP on the PC
+shares (`HKCU\Software\Squad\Kerbal Space Program`), and the results / index
+files the post-run bookkeeping rewrites. Before slots existed the kRPC ports
+were too: every instance listened on 50000/50001, and a per-instance lock let
+two profiles both launch and both bind 50000, where the loser's bind fails soft
+and its mission then drives the WINNER's game, a live path to a false PASS. The
+ports are now per slot and stamped before every launch, and a launch whose port
+already accepts a connection is refused `INVALID(port-busy)`; the machine lock
+still decides WHO may fly at all, and the slot locks decide where.
 
-**What does NOT take it,** deliberately: `--dry-run` (launches nothing), the unit
-suites, venv bootstrap, `collect-logs.py`, and `dotnet build`'s deploy to the DEV
-instance. Locking routine dev builds behind an 8h harness hold would be worse
-than the disease; the dev install stays under the hash-verify discipline in
-`.claude/CLAUDE.md`.
+**What takes it.** A whole serial `run.py` invocation (acquired before the spec
+loop, released in a `finally`, timestamp heartbeated at each scenario boundary),
+a whole `provision.py` run including `--repair` and `--copy K --remove`, and a
+whole parallel runner run (payload `kind = "parallel-runner"` plus a random
+`token`, heartbeated from a thread). A nightly therefore holds the machine for
+its full duration, which is the point. A serial `run.py` also takes the slot
+lock of each instance it flies, before that instance's first lane, and keeps it
+to the end of the invocation.
 
-**On contention** both shells fail FAST (no queueing): `run.py` writes one
-`INVALID(instance-locked)` result per selected scenario and exits 1;
-`provision.py` aborts `EC-10`. Neither ever touches the holder's lockfile. The
-refusal names the holder's pid, worktree, selection and start time.
+**What takes only a slot lock.** A `run.py --slot <s>` child of the parallel
+runner. It never takes the machine lock; instead it requires that the machine
+lock carries its runner's token (`PARSEK_HARNESS_RUNNER_TOKEN`) and that the
+runner pid (`PARSEK_HARNESS_RUNNER_PID`) is alive, at selection start and at
+every attempt boundary (`slotrun.decide_runner_token`). A child whose runner is
+gone stops `INVALID(runner-token)` instead of flying on beside a new owner.
 
-**Stale locks** are reclaimed automatically two ways: the holder pid is dead, or
-the lease (`provlib.DEFAULT_LEASE_SECONDS`, 8h) has expired - the second is the
-backstop for Windows pid reuse, which pid-liveness alone cannot escape. A live
-run heartbeats its timestamp, so expiry never fires on a genuinely running
+**What takes neither,** deliberately: `--dry-run` and `--admit-only` (launch
+nothing), the unit suites, venv bootstrap, `collect-logs.py`, and `dotnet
+build`'s deploy to the DEV instance. Locking routine dev builds behind an 8h
+harness hold would be worse than the disease; the dev install stays under the
+hash-verify discipline in `.claude/CLAUDE.md`.
+
+**On contention** every shell fails FAST (no queueing): a serial `run.py`
+writes one `INVALID(instance-locked)` result per selected scenario and exits 1;
+`provision.py` aborts `EC-10`, both when the machine lock is held and when any
+LIVE slot lock exists (a runner that lost its machine lock may still have a KSP
+flying in some copy); the parallel runner exits 3 having started nothing; a
+slot child whose slot lock is held refuses `INVALID(slot-locked)`. Nobody ever
+touches a holder's lockfile. The refusal names the holder's pid, worktree,
+selection and start time.
+
+**Stale locks** (machine and slot alike, one `machinelock` protocol) are
+reclaimed automatically two ways: the holder pid is dead, or the lease
+(`provlib.DEFAULT_LEASE_SECONDS`, 8h) has expired - the second is the backstop
+for Windows pid reuse, which pid-liveness alone cannot escape. A live run
+heartbeats its timestamps, so expiry never fires on a genuinely running
 selection. If you are certain nothing is running and want the machine back now,
-delete the lockfile.
+delete the lockfile (and any `.ksp-slot-*.lock` beside it).
 
-The coarse "any `KSP_x64.exe` alive" zombie preflight is UNCHANGED and still runs
-per attempt. It is the backstop for KSPs no lockfile knows about (a manual
-launch, an orphan from a killed run). It cannot bind a pid to a directory, so a
-dev-instance KSP being open also refuses a harness run - a deliberate
-false-positive, since one GPU means it would perturb the flight anyway. **Do not
-narrow it without re-reading this section** (the deferred residual R8
-"`_ksp_running_against` coarseness" in `docs/dev/design-autotest-stack-setup.md`
+**The zombie preflight** still runs per attempt and is the backstop for KSPs no
+lockfile knows about (a manual launch, an orphan from a killed run). In a
+serial run it stays COARSE: any live `KSP_x64.exe` refuses `INVALID(instance-busy)`,
+so a dev-instance KSP being open also refuses a harness run - a deliberate
+false-positive, since a serial run is meant to be the only KSP on the GPU. In a
+slot child it is PATH-SCOPED: only a KSP whose exe lives in that child's own
+instance dir counts (`slotrun.blocking_ksp_pid`, exe paths read with
+`QueryFullProcessImageNameW`; an unreadable path counts as busy, never as
+somebody else's), because the sibling copies are expected to be running. Do not
+narrow the serial probe without re-reading this section (the deferred residual
+R8 "`_ksp_running_against` coarseness" in `docs/dev/design-autotest-stack-setup.md`
 - NOT the unrelated R8 in `autotest-roadmap.md`): it is a second, independent
 guard.
 
 ### Known constraint: the key is the umbrella root
 
-The lockfile path is derived from the umbrella root, so exclusion holds across
+The lockfile paths are derived from the umbrella root, so exclusion holds across
 checkouts that SHARE an umbrella - the documented sibling-worktree layout. Two
 invocations given different `--umbrella-root` values, or run from a checkout
 whose parent differs (e.g. a nested `.claude/worktrees/<name>` isolation
 worktree), resolve DIFFERENT lockfiles while still contending for the same
-machine-global kRPC ports and GPU. This is deliberate: a truly machine-global
-path would serialize the unit suites and `--umbrella-root` test runs against
-real runs. `--instance-dir` bypasses umbrella resolution entirely, so pointing it
-at the shared automation instance from an odd umbrella flies that instance under
-a different lock. Prefer the default umbrella; treat those flags as
+machine-global GPU, desktop and Unity prefs (the kRPC port check still refuses a
+launch whose port is taken). This is deliberate: a truly machine-global path
+would serialize the unit suites and `--umbrella-root` test runs against real
+runs. `--instance-dir` bypasses umbrella resolution entirely, so pointing it at
+the shared automation instance from an odd umbrella flies that instance under a
+different lock. Prefer the default umbrella; treat those flags as
 single-operator tools.
+
+## Install slots (several KSP copies on one PC)
+
+A SLOT is one provisioned KSP install copy a lane can fly in. Copy 1 of a
+profile is the profile's own `automation/<profile>`; copy k >= 2 is
+`automation/<profile>-<k>`, provisioned identically. The slot name is the
+directory's basename (`stock-minimal`, `stock-minimal-2`, ...). The contract
+(names, ports, lock / stamp / snapshot paths, process ownership) is
+`lib/slots.py`; the run.py decisions on top of it are `lib/slotrun.py`. The
+serial path uses slots too: a plain `run.py` flies copy 1 of each lane's
+profile and holds that slot's lock.
+
+**Measured on the owner's PC (2026-11-14).** One copy takes about one CPU
+core, about 4 GB of RAM working set (9.4 GB commit) and about 5 GB of VRAM.
+One, two and three copies all ran at full speed (no slowdown); RAM, then VRAM,
+are the limits. So: 2 copies while the owner uses the PC, 3 when the owner is
+away; 4 does not fit. A copy is about 4.4 GB on disk (Squad and SquadExpansion
+are junctions to the dev install).
+
+**Provisioning a copy.**
+
+```
+cd harness && python provision/provision.py --profile stock-minimal --copy 2
+cd harness && python provision/provision.py --profile stock-minimal --copy 3
+cd harness && python provision/provision.py --profile stock-minimal --copy 3 --remove
+```
+
+`--copy K` (default 1) provisions `automation/<profile>-<K>` exactly like copy
+1 (same stack, same DEPLOY of this worktree's `Parsek.dll`) and stamps the
+slot's kRPC ports. An extra copy must leave 8 GiB free on the volume after its
+copy (copy 1 keeps 512 MiB): extra copies are optional capacity and must not
+eat the owner's working space. `--remove` deletes copy K >= 2 under the
+machine lock: it refuses copy 1, a dir that aliases the dev install or is
+itself a link, a live slot lock, or a KSP running from the dir, and it unlinks
+every junction first, so the delete never follows one into the dev install.
+Provisioning refuses `EC-10` while any slot lock is live. Contract:
+`docs/dev/design-autotest-stack-setup.md`, "Provisioning slot copies".
+
+**kRPC ports.** Each profile owns a block of 20 ports: stock-minimal 50000,
+stock-tree 50020, modded-compat 50040; copy k uses `base + 2*(k-1)` for RPC and
+the next port for the stream. Before EVERY launch (serial or slot) run.py
+writes the instance's `GameData/kRPC/PluginData/settings.cfg` with its slot's
+ports and passes the same ports to the mission, then refuses
+`INVALID(port-busy)` when either port already accepts a connection on
+127.0.0.1 (a mission would otherwise drive whatever listens there). Copy 1 of
+stock-minimal keeps 50000/50001; copy 1 of stock-tree and modded-compat moves
+to 50020 / 50040 on its next provision or run. Provisioning VERIFY expects the
+slot's stamp (`krpcSettingsSha256` re-hash `reason=not-slot-stamp` is drift),
+and `--repair` re-stamps.
+
+**`run.py` slot mode** (what the parallel runner runs per lane; a human rarely
+types it):
+
+```
+python run.py --slot stock-minimal-2 --ids <lane> --tests-prebuilt --no-coverage \
+    --keep-stop-request --report-json <path> --window desktop --desktop-id <guid>
+```
+
+- `--slot S` flies only lanes of S's profile, in `automation/S` (a lane of
+  another profile is refused `INVALID(slot-profile-mismatch)`; `--slot` and
+  `--instance-dir` are exclusive). It needs the runner env described in "The
+  machine lock" (`INVALID(runner-token)` otherwise), takes only its slot lock
+  (`INVALID(slot-locked)` when held), forces serial verify (no
+  `.verify-private` copies), and skips what a sibling would race: the results
+  prune sweeps, the run-index append, the coverage / flake / duration refresh
+  and the stale stop-request clear (a stop request is honoured read-only). The
+  runner does those once at its end, through the maintenance flags
+  `run.py --sweep-results` and `run.py --refresh-coverage`, which run under the
+  machine lock or a live runner's token.
+- `--tests-prebuilt` (slot mode only) skips the selection-start Parsek.Tests
+  build; the caller built it.
+- `--report-json PATH` writes a `parsek-run-report/1` JSON at the end,
+  refusals included: `{schema, slot, exitCode, lanes: [{id, verdict, subkind,
+  failureClass, attempts, runIds, wallSeconds, resultPaths}]}`. A lane's
+  verdict and subkind are its last attempt's; `failureClass` is empty on PASS /
+  EXPECTED-FAIL, else the subkind or verdict; a selected lane with no result
+  reads `NOT-RUN` (`slotrun.build_run_report`). Serial runs accept it too.
+- `--window desktop|minimize|normal` (default `normal`) and `--desktop-id GUID`:
+  see "Window placement" below.
+- The harness log is `<stamp>_<slot>_harness.log`, so two children that start
+  in the same second never share one.
+- Launch spacing: a slot child starts KSP at least 15 s after the previous KSP
+  start on the machine (`automation/.ksp-launch-stamp`, guarded by an O_EXCL
+  mini-lock; retries pass through it too), so the boot focus grabs and the
+  boot contention do not pile up.
+
+**The four parallel-run INVALID subkinds** (`hlib.PARALLEL_RUN_INVALID_SUBKINDS`)
+are pre-boot refusals about the MACHINE, never the scenario: `port-busy`,
+`runner-token`, `slot-locked`, `slot-profile-mismatch`. None is retried and all
+four are flake-exempt (`hlib.FLAKE_EXEMPT_INVALID_SUBKINDS`), like
+`instance-locked`.
+
+**Every launch, serial or slot.** KSP gets `-logFile <instance>/Player.log
+-screen-fullscreen 0 -screen-width W -screen-height H` (W/H read back from the
+instance settings.cfg after the lane's screen patch). So each install keeps its
+own `Player.log` in its root (the `%USERPROFILE%\AppData\LocalLow\Squad\Kerbal
+Space Program\Player.log` file is no longer the harness's), collect-logs gets it
+through `--player-log`, and a fullscreen value in the shared Unity prefs can no
+longer win the boot frames. Reference-DLL admission compares every instance
+except the reference DIR itself (`automation/stock-minimal`) against the
+reference DLL, so copies admit exactly like copy 1.
+
+**Unity screen prefs.** Every KSP on the PC, the owner's Steam play install
+included, reads and writes ONE registry key for its window mode and size
+(`HKCU\Software\Squad\Kerbal Space Program`, the `Screenmanager*` and
+`UnitySelectMonitor*` values), and every KSP quit writes its own mode back. The
+machine-lock HOLDER (a serial `run.py`, or the parallel runner) therefore
+snapshots those values at its start into `automation/.unity-prefs-snapshot.json`
+and restores them after its last KSP exited (`tools/unity_prefs.py` begin / end,
+pure `lib/unityprefs.py`). The snapshot doubles as the crash marker: one left by
+a run that died is restored before the next run snapshots. Slot children never
+touch the key. A prefs failure is one Warn and never costs a run. By hand:
+`python tools/unity_prefs.py {begin|end}`.
+
+**Window placement.** `--window desktop` hands KSP `PARSEK_AUTOMATION_DESKTOP_ID`
+(the target virtual desktop) and, when the foreground window at launch is not a
+KSP, `PARSEK_AUTOMATION_RETURN_FOREGROUND` (its hwnd); Parsek's armed seam addon
+moves its own window there and hands the foreground back, logging one
+`[TestCommands] window placement desktop=<moved|failed hr=..|skipped|no-window>
+foreground=<...>` Info line (`docs/dev/design-autotest-command-seam.md`, "Addon
+lifecycle"). After boot run.py reads that line and minimises the child's window
+(`SW_SHOWMINNOACTIVE`, measured at full speed with real screenshots) unless it
+says `desktop=moved`. `--window minimize` always minimises; `normal` leaves the
+window alone. With `PARSEK_TEST_COMMANDS=1` Parsek also skips stock's
+focus-loss input lock, so an unfocused copy can still warp.
+
+**Parallel runs** use all of the above: see "Parallel runs
+(`tools/parallel_runner.py`)" under "Running a tier on request".
 
 ## Running a tier on request (agent-driven)
 
@@ -1731,8 +1891,13 @@ invocation: one machine lock, one Parsek.Tests build, one coverage refresh.
 
 Flies lanes on two or three provisioned KSP copies at once (slots: copy 1 is
 `automation/<profile>`, copy k is `automation/<profile>-<k>`, `lib/slots.py`),
-one `run.py --slot <s>` child per lane. Everything is plain text in and out, so
-an agent can drive it:
+one `run.py --slot <s>` child per lane. Provision the extra copies first
+(`provision.py --profile stock-minimal --copy 2`, then `--copy 3`); the slot
+model, the child's flags, ports, locks, `Player.log` and window placement are
+in "Install slots" above, and who owns the PC in "The machine lock". Use 2
+slots while the owner works at the PC and 3 when the owner is away (measured:
+RAM, then VRAM, run out at 4). Everything is plain text in and out, so an
+agent can drive it:
 
 ```
 cd harness && python tools/parallel_runner.py run --name nightly-1 --tier nightly --slots 2
@@ -1774,9 +1939,12 @@ cd harness && python tools/parallel_runner.py resume --name nightly-1
   virtual desktop that is not the current one (read once from
   `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\VirtualDesktops`);
   with one desktop it falls back to `minimize` and prints one hint (Win+Ctrl+D
-  makes a second). `minimize` and `normal` are passed through. The Unity
-  Screenmanager prefs every KSP shares are snapshotted at the start and
-  restored after the last child exited.
+  makes a second). `minimize` and `normal` are passed through. The mode is
+  resolved ONCE by the runner and handed to every child as `--window` /
+  `--desktop-id` (what a child then does: "Install slots" -> "Window
+  placement"). The Unity Screenmanager prefs every KSP shares are snapshotted
+  at the start and restored after the last child exited (the runner is the
+  machine-lock holder, so it owns that duty; children never touch the key).
 - **Exclusive lanes** move the OS cursor or take the foreground:
   `[runtime] exclusive = true` (LT-1, GUI-7), or a step the runner recognises
   (`UiAction op=pointer`, any `focus=true`, `StockScreen act=hover`, a
