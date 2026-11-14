@@ -11,6 +11,30 @@ namespace Parsek
         #region Part Event Polling
 
         /// <summary>
+        /// The background sink for <see cref="PartStatePoller"/>: events land in the polled
+        /// vessel's tree recording, lines on the <c>BgRecorder</c> tag naming the bg vessel.
+        /// One instance is re-bound to the vessel at each Check*State call.
+        /// </summary>
+        private sealed class BackgroundPartPollSink : PartPollSink
+        {
+            internal BackgroundVesselState State;
+            internal Recording TreeRec;
+
+            internal override string Tag => "BgRecorder";
+            internal override List<PartEvent> Events => TreeRec.PartEvents;
+            internal override string EventSuffix() => $" (bg vessel {State.vesselPid})";
+        }
+
+        private readonly BackgroundPartPollSink pollSink = new BackgroundPartPollSink();
+
+        private PartPollSink BindPollSink(BackgroundVesselState state, Recording treeRec)
+        {
+            pollSink.State = state;
+            pollSink.TreeRec = treeRec;
+            return pollSink;
+        }
+
+        /// <summary>
         /// Background mirror of <c>FlightRecorder.ShouldPollCachedModule</c> (M5). Returns true when
         /// a cached engine / RCS / robotic entry is still on the BG vessel being polled; logs once
         /// per key when it is not. The identity comparison is the same live-object one the
@@ -423,32 +447,7 @@ namespace Parsek
         private void CheckGearState(Vessel v, BackgroundVesselState state,
             Recording treeRec, double ut)
         {
-            if (v == null || v.parts == null) return;
-
-            for (int i = 0; i < v.parts.Count; i++)
-            {
-                Part p = v.parts[i];
-                if (p == null) continue;
-
-                for (int m = 0; m < p.Modules.Count; m++)
-                {
-                    var wheel = p.Modules[m] as ModuleWheels.ModuleWheelDeployment;
-                    if (wheel == null) continue;
-
-                    FlightRecorder.ClassifyGearState(wheel.stateString, out bool isDeployed, out bool isRetracted);
-                    if (!isDeployed && !isRetracted) continue;
-
-                    var evt = FlightRecorder.CheckGearTransition(
-                        p.persistentId, p.partInfo?.name ?? "unknown", isDeployed, state.deployedGear, ut);
-                    if (evt.HasValue)
-                    {
-                        treeRec.PartEvents.Add(evt.Value);
-                        ParsekLog.Verbose("BgRecorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
-                            $"pid={evt.Value.partPersistentId} (bg vessel {state.vesselPid})");
-                    }
-                    break;
-                }
-            }
+            PartStatePoller.PollGear(v, state.deployedGear, ut, BindPollSink(state, treeRec));
         }
 
         private void CheckCargoBayState(Vessel v, BackgroundVesselState state,

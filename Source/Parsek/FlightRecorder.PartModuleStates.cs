@@ -14,6 +14,29 @@ namespace Parsek
     public partial class FlightRecorder
     {
         /// <summary>
+        /// The active-vessel sink for <see cref="PartStatePoller"/>: events land in
+        /// <see cref="PartEvents"/>, lines on the <c>Recorder</c> tag with the active wording.
+        /// </summary>
+        private sealed class ActivePartPollSink : PartPollSink
+        {
+            private readonly FlightRecorder owner;
+
+            internal ActivePartPollSink(FlightRecorder owner)
+            {
+                this.owner = owner;
+            }
+
+            internal override string Tag => "Recorder";
+            internal override List<PartEvent> Events => owner.PartEvents;
+            internal override string EventSuffix() => "";
+        }
+
+        private ActivePartPollSink activePollSink;
+
+        private PartPollSink ActivePollSink =>
+            activePollSink ?? (activePollSink = new ActivePartPollSink(this));
+
+        /// <summary>
         /// Detect parachute state transitions over the four states
         /// <see cref="ClassifyParachuteState"/> produces: 0=stowed/active, 1=semi-deployed,
         /// 2=deployed, 3=cut. Stowed is the map's implicit default and removes the entry.
@@ -1468,33 +1491,7 @@ namespace Parsek
         private void CheckGearState(Vessel v)
         {
             if (v == null || v.parts == null) return;
-
-            double ut = Planetarium.GetUniversalTime();
-            for (int i = 0; i < v.parts.Count; i++)
-            {
-                Part p = v.parts[i];
-                if (p == null) continue;
-
-                for (int m = 0; m < p.Modules.Count; m++)
-                {
-                    var wheel = p.Modules[m] as ModuleWheels.ModuleWheelDeployment;
-                    if (wheel == null) continue;
-
-                    ClassifyGearState(wheel.stateString, out bool isDeployed, out bool isRetracted);
-
-                    // Skip transitional states ("Deploying"/"Retracting") — only fire on endpoints
-                    if (!isDeployed && !isRetracted) continue;
-
-                    var evt = CheckGearTransition(
-                        p.persistentId, p.partInfo?.name ?? "unknown", isDeployed, deployedGear, ut);
-                    if (evt.HasValue)
-                    {
-                        PartEvents.Add(evt.Value);
-                        ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
-                    }
-                    break; // one deployment module per part
-                }
-            }
+            PartStatePoller.PollGear(v, deployedGear, Planetarium.GetUniversalTime(), ActivePollSink);
         }
 
         internal static PartEvent? CheckCargoBayTransition(
