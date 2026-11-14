@@ -4080,12 +4080,14 @@ class RealTreeSmokeTests(unittest.TestCase):
         # names ParsekFlight, and IParsekUIWindows, which names ISpawnControlWindow: 436.
         # The supply route overview line's two types (RouteTrajectoryLineRenderer and
         # RouteMemberRunExpansion) were knot members and were deleted with it: 434.
+        # Plan item 17 (B5) gives ParsekFlightMergeFlow its host through IMergeFlowHost, which
+        # ParsekFlight implements and which names knot types (the recorders, the tree): 435.
         # It was [301, 7, 4, 2, 2] on 2026-09-25,
         # [286, 4, 2, 2] on 2026-09-22 and [391, 4, 2] before the 2026-09-14
         # arch PRs shrank the kernel.
         # It is a canary: when it reds, re-derive it and the README numbers
         # from a fresh run in the same commit as whatever moved them.
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [434, 9, 4, 3, 2])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [435, 9, 4, 3, 2])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
@@ -4267,9 +4269,11 @@ class RealTreeSmokeTests(unittest.TestCase):
         # (436 -> 405), and the ghost playback cut follows from there (405 -> 383).
         # The two deleted route-line types were on the uncut side of all three cuts, so
         # each lands two lower (434 -> 403, 403 -> 381, 381 -> 362).
+        # Plan item 17's IMergeFlowHost joins the knot on the cut side (435 before, the cut still
+        # lands on 403).
         first, second, third = self.model["knots"][0]["cuts"][:3]
         self.assertEqual(first["sink"], "ParsekFlight")
-        self.assertEqual(first["sizeBefore"], 434)
+        self.assertEqual(first["sizeBefore"], 435)
         self.assertEqual(first["sizeAfter"], 403)
         for service in ("ParsekFlightGhostPositioner", "ParsekFlightMapMarkers", "ParsekWindowSet",
                         "ParsekFlightMergeFlow",
