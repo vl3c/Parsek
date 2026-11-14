@@ -9,8 +9,8 @@
 # reds nothing. A count may fall without a re-pin; the slack is not enforced until
 # someone re-pins, so re-pin in the PR that lowers a count, and raise one only for a
 # deliberate change the PR explains.
-# 52 backward module pairs, 440 type pairs.
-# Pinned from Parsek.dll 2026-11-12
+# 52 backward module pairs, 441 type pairs.
+# Pinned from Parsek.dll 2026-11-14
 
 [[backward]]
 edge = "Rewind -> Controllers"
@@ -71,7 +71,7 @@ pairs = [
 [[backward]]
 edge = "Recording -> Logistics"
 layers = "model -> features"
-count = 45
+count = 46
 pairs = [
     "BackgroundRecorder -> ResourceAmount",
     "ChainTipRouteCargo -> RetiredRouteCargoRow",
@@ -86,6 +86,7 @@ pairs = [
     "ChainTipRouteCargo -> RouteEventRetire",
     "ChainTipRouteCargo -> RouteStop",
     "ChainTipRouteCargo -> RouteStore",
+    "CommittedListOptimizer -> RouteStore",
     "FlightRecorder -> DockSeamHalfIdentity",
     "FlightRecorder -> DockSeamPairAdmission",
     "FlightRecorder -> DockSeamPairCandidate",
