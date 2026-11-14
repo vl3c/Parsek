@@ -1,0 +1,182 @@
+schema = 1
+id = "S0.15-two-switch-stash-reading"
+# =====================================================================================
+# A READING LANE: A SWITCH CLICK, THEN AT ONCE A FAR JUMP (todo FAR-SWITCH-CASE-B-UNFLOWN;
+# game rules in docs/parsek-flight-recorder-design.md section 5.4, "Switching vessels in
+# flight"). S0.14 flies a far switch with NO session (Case B, committed before the reload).
+# This lane asks what the #266 pre-transition stash (`StashActiveTreeForVesselSwitch`,
+# `as LimboVesselSwitch`) does when it is finally reached, or proves from stock's own play
+# that it is not. That stash needs `ParsekScenario.vesselSwitchPending`, which only
+# `onVesselSwitching` arms (`TryArmVesselSwitchFlag`, after onFlightReady), fresh within
+# `VesselSwitchPendingMaxAgeFrames` = 60 frames (`IsVesselSwitchPendingFresh`) when a
+# FLIGHT -> FLIGHT scene change is requested with a live tree
+# (`ParsekFlightMergeFlow.FinalizeTreeOnSceneChange`, FLIGHT branch). Stock fires
+# `onVesselSwitching` only on an IN-BUBBLE switch (`FlightGlobals.setActiveVessel`'s loaded
+# branch; the far branch fires `onVesselSwitchingToUnloaded`, saves and calls
+# `FlightDriver.StartAndFocusVessel`). So: an in-bubble switch click, then a far Jump inside
+# 60 frames. The closed todo VESSEL-SWITCH-266-UNREACHABLE-FOR-FAR-SWITCH
+# (docs/dev/done/todo-and-known-bugs-v11.md) says this path still takes the stash; nothing
+# has flown it.
+#
+# CAN THE SEAM ISSUE THE JUMP INSIDE 60 FRAMES? Yes, by the code (not measured):
+# `ParsekTestCommandAddon.Update` reads the command file EVERY frame and returns early only
+# during LOADING, while `sceneTransitioning` is set or `settleCounter > 0`, which only
+# onGameSceneLoadRequested / a level load set; an in-bubble switch sets neither, and
+# `TestCommandDispatcher.DecideDispatch` defers on the same gates (`not-safe-point`).
+# `SimulateStockSwitchClick` and `AlarmJump` are both single-phase (they answer in their
+# execute frame), and the harness polls every 0.025 s for 2 s after a write
+# (`hlib.SEAM_FAST_POLL_SECONDS`, run.py's step loop). The gap is one harness poll plus
+# one or two frames; the `frame=` on the `Vessel switch detected:` line is the start.
+#
+# THE SHAPE, on `miner-rover-depot` (SANDBOX, CanSwitchVesselsFar=True, nothing committed):
+# the active "Mining Rover RC" pid 110406740 and the "Ore Depot" pid 3950359723 are LANDED
+# about 2.4 m apart west of the pad, both commandable (ModuleCommand), so stock's KSC
+# declutter (`FlightState..ctor`: not isCommandable, LANDED, LandedInKSC) cannot remove
+# them; the "Observer Probe" pid 2109271953 ORBITS Kerbin at about 101.8 km, owned
+# (DISCOVERY state -1), out of the bubble. No other committed fixture holds a loaded
+# second vessel AND an unloaded owned target with nothing committed (eva2-lko-crewed's only
+# far targets are KSC debris stock deletes on load; see S0.14's header).
+#   1. `StartRecording` on the rover, a WarpToUT dwell.
+#   2. `SimulateStockSwitchClick vessel="Ore Depot"`: no session yet, the plain path; the
+#      depot's segment joins the live tree and a SwitchSegmentSession is armed (S0.13's
+#      first click, same mechanism). `onVesselSwitching` arms the vessel-switch flag.
+#   3. AT ONCE, no dwell: `AlarmJump pid=2109271953`. Case A (session armed, new target):
+#      `TryAutoResolvePreSwitch` flushes the recorder and classifies the depot's segment a
+#      few frames old.
+#   4. The far reload, a dwell on the far side, a MISSIONMARK, `FlushAndQuit`.
+#
+# PRE-REGISTERED OUTCOMES (the first flight decides which one this lane pins):
+#   (A) STASH AS LimboVesselSwitch, the tree restored on the far side. The segment reads
+#       a no-op (`resolution=Discard ... disposition=BgMemberOrMixed`),
+#       `DiscardPriorAndSwitchTo` keeps the live tree, the flag is fresh and
+#       `CanPreTransitionForVesselSwitch` holds: `StashActiveTreeForVesselSwitch:
+#       pre-transitioning tree '`, then `OnLoad: pending-LimboVesselSwitch tree '` and
+#       `RestoreActiveTreeFromPendingForVesselSwitch`. The #266 stash IS reachable.
+#   (B) STASH AS Limbo. Discard as in (A), but the flag is stale (the jump landed past 60
+#       frames) or the guards fail: `StashActiveTreeAsPendingLimbo: stashing tree '`, then
+#       the OnLoad Limbo dispatch.
+#   (C) MERGE BEFORE THE RELOAD. The segment is too young to judge (`reason=
+#       insufficient-data`: under 2 points, no section, no orbit segment) or did something:
+#       `resolution=Merge`, `pre-switch-dialog committed-prior-segment`, and no tree
+#       crosses the reload. Then the #266 stash is UNREACHABLE from stock play through the
+#       switch path: any Case A switch decides the tree before stock's far branch runs.
+#   (D) NO SWITCH. `resolution=StockWillRefuse` at the jump (stock's ClearToSave not
+#       CLEAR) and stock refuses; or a seam refusal (the click REJECTED / ERROR, the jump
+#       `alarmjump rejected` / `alarmjump failed`), which the step verdict reads as a
+#       driver INVALID, never a red.
+# The required list holds only what every outcome shares, plus ONE alternation of the
+# four family witnesses; the forbidden list holds every PAIR of them, so exactly one
+# family's line appears. A flight in none (or two) is the finding. After the first flight
+# the family's own lines are pinned and the other three forbidden.
+# =====================================================================================
+tier = "operator"
+description = "Reading lane for the #266 vessel-switch stash (todo FAR-SWITCH-CASE-B-UNFLOWN): on miner-rover-depot, record the Mining Rover RC, click the loaded Ore Depot (a switch segment and session start, onVesselSwitching arms the 60-frame vessel-switch flag), then at once a stock Alarm Clock Jump to the unloaded Observer Probe (Case A). Exactly one pre-registered family must appear: stash as LimboVesselSwitch, stash as Limbo, merge before the reload, or no switch; no ERROR, no doubled tree, no pending tree left after the far scene settles."
+instanceProfile = "stock-minimal"
+tags = ["switch-segment", "stock-click", "alarm-jump", "S0.15", "pre-switch-auto-resolve",
+        "far-switch", "vessel-switch-stash", "D1", "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/miner-rover-depot"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# StopRecording + DiscardTree after the load are MINE-5a / MINE-5b's idempotent clean
+# start on this host. `autoMerge = true` is LOAD-BEARING (with it off Case A opens the
+# dialog and decides nothing); `verboseLogging = true` keeps the classifier and OnLoad
+# lines. The first WarpToUT (fixture UT 30 + 5 s) is S0.12's LoadGame-race guard; the
+# second gives the rover's recording points. NO step sits between the click and the jump.
+# The RecordingState after the jump is held by the seam until the reloaded scene settles;
+# the WarpToUT 47 dwell lets the far side's restore run before the mark (the jump lands
+# near UT 39).
+steps = [
+  { cmd = "LoadGame",                 args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                     expect = "OK" },
+  { cmd = "DiscardTree",                                                                       expect = "OK" },
+  { cmd = "SetSetting",               args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",               args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  { cmd = "SetSetting",               args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "WarpToUT",                 args = { ut = "35", maxRate = "1" },                      expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                                    expect = "OK" },
+  { cmd = "WarpToUT",                 args = { ut = "39", maxRate = "1" },                      expect = "OK", budget = 60 },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "SimulateStockSwitchClick", args = { vessel = "Ore Depot" },                         expect = "OK", budget = 120 },
+  { cmd = "AlarmJump",                args = { pid = "2109271953", jump = "shown" },           expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                                    expect = "OK", budget = 240 },
+  { cmd = "WarpToUT",                 args = { ut = "47", maxRate = "1" },                      expect = "OK", budget = 60 },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "MissionMark",              args = { label = "s015-settled" },                       expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                      expect = "OK" },
+]
+
+[dimensionsCovered]
+# A re-claim: the click and the Case A auto-resolve line run only with a live session.
+D1 = ["switch-segment"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Sidecars on disk at the end. (C): the rover's root and the depot's segment, committed.
+# (A) / (B): the rover's root, plus whatever the pruned segment left. (D): the live tree.
+# Below 1 is a lost recording, above 3 a doubled one; nothing here is measured yet.
+count = { min = 1, max = 3 }
+
+# REPORT-ONLY (no `gating`): what the first flight is read for, not a gate.
+[expectations.recordings.structure]
+trees          = { min = 1, max = 1 }
+vesselNames    = { "Mining Rover RC" = { min = 1, max = 1 }, "Ore Depot" = { min = 1, max = 1 }, "Observer Probe" = { min = 1, max = 1 } }
+
+[expectations.logContracts]
+# Every literal is read from the source named; none is measured yet.
+required  = [
+  # The rover is recording before the click (TestCommands, ParsekTestCommandAddon.cs).
+  "recordingstate recording=true tree=\\S+ points=[0-9]+ scene=FLIGHT",
+  # The click is carried out on the plain path (ParsekTestCommandAddon.SimulateSwitchClick.cs).
+  "switchclick gate targetPid=3950359723 targetName=Ore Depot scenarioReady=true canSwitchVesselsFar=true targetIsActiveVessel=false targetIsUnloaded=false hasActiveRecording=true hasActiveSession=false priorFocusedPid=0 anotherDialogOpen=false targetIsSeparateCommittedVessel=false dialogDecision=NoPriorSession",
+  "switchclick complete site=map targetPid=3950359723 targetName=Ore Depot intentId=[0-9a-f-]{36} route=plain-arm-and-switch activeVesselPid=3950359723 switched=true",
+  # onVesselSwitching armed the flag (ParsekScenario.TryArmVesselSwitchFlag; the arrows and
+  # the dash in that line are not ASCII, so \\S+ stands for them).
+  "Vessel switch detected: 'Mining Rover RC' \\S+ 'Ore Depot' \\S+ next FLIGHT\\S+FLIGHT OnLoad within 60 frames will skip revert strip/cleanup \\(frame=[0-9]+\\)",
+  # The jump is offered and pressed, after the click (ParsekTestCommandAddon.AlarmJump.cs).
+  "(?s)switchclick complete site=map targetPid=3950359723 .*?alarmjump start targetPid=2109271953 vessel='Observer Probe' targetIsGhost=false targetLoaded=false active=3950359723 stockWouldShowJump=true decision=leave-to-stock jump=shown",
+  "alarmjump press OnJump alarmId=[0-9]+ targetPid=2109271953 jumpShown=true",
+  # Case A decides (any resolution) without a dialog (MapFocusObjectOnSelectPatch).
+  "pre-switch auto-resolve: resolution=\\w+ case=A-session autoMerge=True evaluable=\\w+ priorIsNoOp=\\w+ disposition=\\w+ idleOnPad=False reason=\\S+ priorSessionId=[0-9a-f-]{36} targetPid=2109271953",
+  "\\[AlarmJump\\] Jump in FLIGHT targetPid=2109271953 runStock=\\w+ intentArmed=\\w+",
+  "alarmjump result targetPid=2109271953 targetIsGhost=false targetLoaded=false alarmId=[0-9]+ stockWouldShowJump=true jumpShown=true decision=leave-to-stock jump=shown pressed=true before=3950359723 after=[0-9]+ switched=\\S+ sceneLoadRequested=\\S+ alarmRemoved=\\S+",
+  # EXACTLY ONE FAMILY, half 1: at least one witness, (A) | (B) | (C) | (D)
+  # (ParsekFlight.TreeRestore.cs StashActiveTreeForVesselSwitch / StashActiveTreeAsPendingLimbo;
+  # MapFocusObjectOnSelectPatch.MergePriorAndSwitchTo / TryAutoResolvePreSwitch).
+  "(?:StashActiveTreeForVesselSwitch: pre-transitioning tree '|StashActiveTreeAsPendingLimbo: stashing tree '|pre-switch-dialog committed-prior-segment priorSessionId=|pre-switch auto-resolve: resolution=StockWillRefuse case=A-session )",
+  "MISSIONMARK label=s015-settled ut=",
+]
+# The suite-wide ERROR pattern and the dialog (auto-merge decides). EXACTLY ONE FAMILY,
+# half 2: every pair of witnesses, either order. NOTHING DOUBLED: never two committed
+# trees. NO ORPHAN: no Limbo / Finalized pending tree serialized after the far scene
+# settled (ParsekScenario.Save.cs SavePendingTreeIfAny / SavePendingTreeNode).
+forbidden = ["\\[Parsek\\]\\[ERROR\\]",
+             "pre-switch-dialog opening",
+             "(?s)(?:StashActiveTreeForVesselSwitch: pre-transitioning tree '.*?StashActiveTreeAsPendingLimbo: stashing tree '|StashActiveTreeAsPendingLimbo: stashing tree '.*?StashActiveTreeForVesselSwitch: pre-transitioning tree ')",
+             "(?s)(?:StashActiveTreeForVesselSwitch: pre-transitioning tree '.*?pre-switch-dialog committed-prior-segment priorSessionId=|pre-switch-dialog committed-prior-segment priorSessionId=.*?StashActiveTreeForVesselSwitch: pre-transitioning tree ')",
+             "(?s)(?:StashActiveTreeForVesselSwitch: pre-transitioning tree '.*?pre-switch auto-resolve: resolution=StockWillRefuse case=A-session |pre-switch auto-resolve: resolution=StockWillRefuse case=A-session .*?StashActiveTreeForVesselSwitch: pre-transitioning tree ')",
+             "(?s)(?:StashActiveTreeAsPendingLimbo: stashing tree '.*?pre-switch-dialog committed-prior-segment priorSessionId=|pre-switch-dialog committed-prior-segment priorSessionId=.*?StashActiveTreeAsPendingLimbo: stashing tree ')",
+             "(?s)(?:StashActiveTreeAsPendingLimbo: stashing tree '.*?pre-switch auto-resolve: resolution=StockWillRefuse case=A-session |pre-switch auto-resolve: resolution=StockWillRefuse case=A-session .*?StashActiveTreeAsPendingLimbo: stashing tree ')",
+             "(?s)(?:pre-switch-dialog committed-prior-segment priorSessionId=.*?pre-switch auto-resolve: resolution=StockWillRefuse case=A-session |pre-switch auto-resolve: resolution=StockWillRefuse case=A-session .*?pre-switch-dialog committed-prior-segment priorSessionId=)",
+             "OnSave: saving (?:[2-9]|[1-9][0-9]+) committed tree\\(s\\)",
+             "(?s)MISSIONMARK label=s015-settled .*?SavePendingTreeIfAny: serializing Limbo pending tree '",
+             "(?s)MISSIONMARK label=s015-settled .*?OnSave: wrote (?:ACTIVE-RESUME|PENDING) tree '"]
+
+[runtime]
+# 300 LoadGame + 120 + 60 + 60 WarpToUT + 120 click + 120 jump + 240 post-reload
+# RecordingState + the fast verbs + boot and margin. S0.13 flies at ~69 s; 1200 is a kill
+# backstop.
+budgetSeconds = 1200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

@@ -31,19 +31,36 @@ id = "S0.14-far-switch-merges-before-reload"
 # only in a Re-Fly session, where the switch is refused before Case B is decided.
 # The #266 stash itself (`StashActiveTreeForVesselSwitch`, literal `as LimboVesselSwitch`)
 # stays unreached: it needs an in-scene switch followed within 60 frames by a
-# FLIGHT -> FLIGHT reload, which no seam verb drives deterministically.
+# FLIGHT -> FLIGHT reload, which no seam verb drives deterministically (S0.15 reads
+# whether a switch click followed at once by this jump reaches it).
 #
-# THE SHAPE, on `eva2-lko-crewed` (S0.13's fixture; SANDBOX, CanSwitchVesselsFar=True,
-# nothing committed): "Kerbal X" pid 3620499050 is the active orbiting stack, and four
-# "Kerbal X Debris" vessels are LANDED at the KSC, owned (discovery -1) and unloaded.
-#   1. `StartRecording` on Kerbal X, then a WarpToUT dwell so the recording has points.
-#   2. `AlarmJump pid=2325190904`: a stock alarm on one landed debris fires its message
-#      dialog, the Jump button is shown (the pid is live and not the active vessel) and
-#      stock's `OnJump` is pressed. Parsek's Prefix decides Case B -> Merge, commits the
-#      tree and switches; stock's own OnJump body does not run (`runStock=False`).
+# THE SHAPE, on `jool-park-nerv` (SANDBOX, CanSwitchVesselsFar=True, nothing committed, no
+# Parsek state): "Duna Rocket" pid 807470910 is the active crewed Ship ORBITING Jool (REF 8,
+# SMA 590,325,785 m), and two "Duna Rocket Debris" vessels ORBIT Kerbin (REF 1), owned
+# (DISCOVERY state -1): pid 4267147709 (14 parts, SMA 1,369,582 m, ecc 4.2e-5) and pid
+# 1165394793 (4 parts). Another body's SOI, so the target is unloaded by construction.
+#   1. `StartRecording` on the Duna Rocket, then a WarpToUT dwell so the recording has points.
+#   2. `AlarmJump pid=4267147709`: a stock alarm on that debris fires its message dialog,
+#      the Jump button is shown (the pid is live and not the active vessel) and stock's
+#      `OnJump` is pressed. Parsek's Prefix decides Case B -> Merge, commits the tree and
+#      switches; stock's own OnJump body does not run (`runStock=False`).
 #   3. The far switch reloads FLIGHT on the debris. `RecordingState` (dispatched only
 #      after the new scene settles) reads no live recording.
 #   4. `FlushAndQuit` saves: one committed tree.
+#
+# WHY NOT `eva2-lko-crewed` (S0.13's host, this lane's first host). FIRST FLIGHT 2026-11-14
+# on the PC, INVALID(driver-arg) on both attempts, pre-registered P2: the target was one of
+# the four "Kerbal X Debris" LANDED at KSC (pid 2325190904, landedAt KSC_Pad_Grounds), and
+# stock deleted all four about 1.5 s after the Cold load ("Vessel Kerbal X Debris was
+# removed from the game: it was debris cluttering up KSC."), so the jump read `alarmjump
+# rejected reason=alarmjump-target-not-found vessel= pid=2325190904 matches=0
+# vesselsScanned=3`. Steps 1 to 8 were OK (`recordingstate recording=true ... points=2`).
+# The stock rule (KSP 1.12.5 `FlightState..ctor`, decompiled): with
+# `GameSettings.DECLUTTER_KSC` on, a vessel that is not `isCommandable`, not
+# `isPersistent`, in situation LANDED and `LandedInKSC` (or `LandedInStockLaunchSite`) gets
+# `SetAutoClean("it was debris cluttering up KSC")`. eva2-lko-crewed has no other far
+# target: its only other vessel is an asteroid at DISCOVERY state 1, not Owned, which stock
+# refuses to switch to. Any vessel ORBITING, or any commandable one, survives the rule.
 #
 # PRE-REGISTERED OUTCOMES (the first flight is the reading run; tier operator):
 #   (P1) Every required token below matches: auto-resolve `resolution=Merge
@@ -52,8 +69,10 @@ id = "S0.14-far-switch-merges-before-reload"
 #        MapSwitchTo intent cleared stale (2 s TTL; by design a far switch starts no
 #        segment), no live recording after it, one committed tree of one recording.
 #   (P2) `alarmjump rejected reason=alarmjump-target-not-found`: the pid lookup missed
-#        the unloaded debris. Re-pin the target by `vessel=` is not possible (four share
-#        the name); read the sweep and file it.
+#        the debris. It TOOK this branch on eva2-lko-crewed (stock's KSC declutter, above);
+#        here the target orbits Kerbin and the rule cannot remove it, so a miss now is a
+#        finding: read `vesselsScanned=` (4 on this host: the asteroid, the Duna Rocket and
+#        the two debris) and file it.
 #   (P3) The AlarmJump step gets no reply (TIMEOUT / driver-INVALID): the seam reply did
 #        not survive the reload the verb itself triggers. A seam finding, not a Parsek one.
 #   (P4) `resolution=StockWillRefuse reason=stock-not-clear-to-save:<status>`: stock
@@ -64,22 +83,23 @@ id = "S0.14-far-switch-merges-before-reload"
 #        switch started a segment or doubled the tree. A PARSEK-FAIL, filed.
 # =====================================================================================
 tier = "operator"
-description = "A far map-style Switch-To with a live recording (Case B, no session) commits the tree BEFORE stock's FLIGHT reload (todo FAR-SWITCH-CASE-B-UNFLOWN): on eva2-lko-crewed, record Kerbal X in orbit, then a stock Alarm Clock Jump to an unloaded landed debris auto-resolves Merge case=B-unloaded, CommitTreeFlight runs, the reload carries no pending or Limbo tree, the stale switch intent is cleared, no recording continues, and the save holds one committed tree of one recording."
+description = "A far map-style Switch-To with a live recording (Case B, no session) commits the tree BEFORE stock's FLIGHT reload (todo FAR-SWITCH-CASE-B-UNFLOWN): on jool-park-nerv, record the Duna Rocket in Jool orbit, then a stock Alarm Clock Jump to an unloaded debris in Kerbin orbit auto-resolves Merge case=B-unloaded, CommitTreeFlight runs, the reload carries no pending or Limbo tree, the stale switch intent is cleared, no recording continues, and the save holds one committed tree of one recording."
 instanceProfile = "stock-minimal"
 tags = ["switch-segment", "alarm-jump", "S0.14", "pre-switch-auto-resolve", "far-switch",
         "D1", "pending-flight"]
 
 [fixture]
-saveTemplate = "fixtures/saves/eva2-lko-crewed"
+saveTemplate = "fixtures/saves/jool-park-nerv"
 injectedRecordings = "none"
 craft = []
 
 [driver]
 kind = "seam"
-# `autoMerge = true` is LOAD-BEARING: the fixture saves it false, and with it off Case B
-# opens the Merge / Discard dialog instead of deciding. `verboseLogging = true` is
-# mandatory (the OnLoad detection line is Verbose). The WarpToUT 424 settle is S0.12's
-# LoadGame-race guard; the WarpToUT 428 dwell gives the recording points to commit.
+# `autoMerge = true` is LOAD-BEARING: with it off Case B opens the Merge / Discard
+# dialog instead of deciding. `verboseLogging = true` is
+# mandatory (the OnLoad detection line is Verbose). The first WarpToUT (fixture UT
+# 27,787,319.42 + 4.6 s; eva2-lko-crewed's +2.8 s reached it on the first flight) is
+# S0.12's LoadGame-race guard; the second dwell gives the recording points to commit.
 # The RecordingState after the AlarmJump is held by the seam until the reloaded scene
 # settles (onGameSceneLoadRequested sets the seam's transition gate), hence its budget.
 steps = [
@@ -87,11 +107,11 @@ steps = [
   { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   { cmd = "SetSetting",     args = { name = "autoMerge", value = "true" },           expect = "OK" },
   { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
-  { cmd = "WarpToUT",       args = { ut = "424", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",       args = { ut = "27787324", maxRate = "1" },               expect = "OK", budget = 120 },
   { cmd = "StartRecording",                                                          expect = "OK" },
-  { cmd = "WarpToUT",       args = { ut = "428", maxRate = "1" },                     expect = "OK", budget = 60 },
+  { cmd = "WarpToUT",       args = { ut = "27787328", maxRate = "1" },               expect = "OK", budget = 60 },
   { cmd = "RecordingState",                                                          expect = "OK" },
-  { cmd = "AlarmJump",      args = { pid = "2325190904", jump = "shown" },           expect = "OK", budget = 120 },
+  { cmd = "AlarmJump",      args = { pid = "4267147709", jump = "shown" },           expect = "OK", budget = 120 },
   { cmd = "RecordingState",                                                          expect = "OK", budget = 240 },
   { cmd = "FlushAndQuit",                                                            expect = "OK" },
 ]
@@ -107,8 +127,8 @@ D14 = ["sandbox", "scene-flight"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# Kerbal X's tree only: one recording, committed before the switch; the debris after
-# the reload records nothing (pre-registered, not yet measured).
+# The Duna Rocket's tree only: one recording, committed before the switch; the debris
+# after the reload records nothing (pre-registered, not yet measured).
 count = { min = 1, max = 1 }
 
 # REPORT-ONLY (no `gating`): read on the first flight, armed only by an operator call.
@@ -118,7 +138,7 @@ committedTrees = { min = 1, max = 1 }
 recordings     = { min = 1, max = 1 }
 terminalStates = { Orbiting = { min = 1, max = 1 } }
 spawnedVessels = { min = 1, max = 1 }
-vesselNames    = { "Kerbal X" = { min = 1, max = 1 }, "Kerbal X Debris" = { min = 4, max = 4 }, "Kerbal X Probe" = { min = 1, max = 1 } }
+vesselNames    = { "Duna Rocket" = { min = 1, max = 1 }, "Duna Rocket Debris" = { min = 2, max = 2 } }
 
 [expectations.logContracts]
 # In the order the mechanism runs. Every literal is read from the source at the line
@@ -127,27 +147,27 @@ required  = [
   # The recording is live before the Jump (TestCommands, ParsekTestCommandAddon.cs).
   "recordingstate recording=true tree=\\S+ points=[1-9][0-9]* scene=FLIGHT",
   # The Jump is offered and pressed (ParsekTestCommandAddon.AlarmJump.cs).
-  "alarmjump start targetPid=2325190904 vessel='Kerbal X Debris' targetIsGhost=false targetLoaded=false active=3620499050 stockWouldShowJump=true decision=leave-to-stock jump=shown",
-  "alarmjump press OnJump alarmId=[0-9]+ targetPid=2325190904 jumpShown=true",
+  "alarmjump start targetPid=4267147709 vessel='Duna Rocket Debris' targetIsGhost=false targetLoaded=false active=807470910 stockWouldShowJump=true decision=leave-to-stock jump=shown",
+  "alarmjump press OnJump alarmId=[0-9]+ targetPid=4267147709 jumpShown=true",
   # Case B decides Merge without asking (MapFocusObjectOnSelectPatch.TryAutoResolvePreSwitch).
-  "pre-switch auto-resolve: resolution=Merge case=B-unloaded autoMerge=True evaluable=True priorIsNoOp=False disposition=None idleOnPad=False reason=not-committed-restore-clone priorSessionId=<no-session> targetPid=2325190904",
+  "pre-switch auto-resolve: resolution=Merge case=B-unloaded autoMerge=True evaluable=True priorIsNoOp=False disposition=None idleOnPad=False reason=not-committed-restore-clone priorSessionId=<no-session> targetPid=4267147709",
   # The tree of ONE recording is committed in flight (ParsekFlightMergeFlow.CommitTreeFlight).
   "CommitTreeFlight: starting tree commit at UT=",
   "CommitTreeFlight: marked [0-9]+/1 recordings as fully applied",
   # The commit lands BEFORE stock's far-switch reload (MergeActiveTreeAndSwitchTo, then
   # ParsekFlight.OnSceneChangeRequested).
-  "(?s)pre-switch-dialog-merge-chosen-no-session priorTreeId=\\S+ newTargetPid=2325190904\\b.*?Scene change requested: FLIGHT at UT=",
-  "pre-switch-dialog re-armed intent: intentId=[0-9a-f-]{36} action=MapSwitchTo targetPid=2325190904 ",
+  "(?s)pre-switch-dialog-merge-chosen-no-session priorTreeId=\\S+ newTargetPid=4267147709\\b.*?Scene change requested: FLIGHT at UT=",
+  "pre-switch-dialog re-armed intent: intentId=[0-9a-f-]{36} action=MapSwitchTo targetPid=4267147709 ",
   # Parsek owns the switch; stock's OnJump body is skipped (AlarmJumpSwitchPatch).
-  "\\[AlarmJump\\] Jump in FLIGHT targetPid=2325190904 runStock=False intentArmed=False",
-  "alarmjump result targetPid=2325190904 targetIsGhost=false targetLoaded=false alarmId=[0-9]+ stockWouldShowJump=true jumpShown=true decision=leave-to-stock jump=shown pressed=true before=3620499050 after=[0-9]+ switched=\\S+ sceneLoadRequested=true alarmRemoved=\\S+",
+  "\\[AlarmJump\\] Jump in FLIGHT targetPid=4267147709 runStock=False intentArmed=False",
+  "alarmjump result targetPid=4267147709 targetIsGhost=false targetLoaded=false alarmId=[0-9]+ stockWouldShowJump=true jumpShown=true decision=leave-to-stock jump=shown pressed=true before=807470910 after=[0-9]+ switched=\\S+ sceneLoadRequested=true alarmRemoved=\\S+",
   # The reload: FLIGHT -> FLIGHT, not a #266 vessel switch, no tree crossed it
   # (ParsekScenario.OnLoad's revert-detection line).
   "OnLoad: revert detection [^\\n]*isFlightToFlight=True, isVesselSwitch=False, isRevert=False, pendingTreeState=\\w+, activeTreeRestoredFromSave=False, pendingTreeRestoredFromSave=False, hasOrphanedLimboTree=False",
   "Load classified: early=InSession refined=InSessionOther scene=FLIGHT ",
   # The switch intent does not survive the reload: cleared stale, so no segment starts
   # (ParsekScenario.StockActionIntent.ClearStockActionIntent).
-  "cleared: intentId=[0-9a-f-]{36} action=MapSwitchTo targetPid=2325190904 reason=stale-intent",
+  "cleared: intentId=[0-9a-f-]{36} action=MapSwitchTo targetPid=4267147709 reason=stale-intent",
   # Nothing records after the reload, and the save holds the one committed tree.
   "recordingstate recording=false tree= points=0 scene=FLIGHT",
   "OnSave: saving 1 committed tree\\(s\\)",
@@ -173,8 +193,8 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]",
 
 [runtime]
 # 300 LoadGame + 120 + 60 WarpToUT + 120 AlarmJump + 240 post-reload RecordingState + the
-# fast verbs + boot and margin. S0.13 (same fixture, one more act) flies at ~69 s; 1200 is
-# a kill backstop.
+# fast verbs + boot and margin. S0.13 (one more act, on eva2-lko-crewed) flies at ~69 s;
+# 1200 is a kill backstop.
 budgetSeconds = 1200
 
 [retry]

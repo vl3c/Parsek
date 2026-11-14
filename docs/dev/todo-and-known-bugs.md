@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## FAR-SWITCH-CASE-B-UNFLOWN: no lane flew a far vessel switch while recording, so the commit before stock's reload was never checked in game [FILED 2026-11-14 from a lane gap audit (the vessel-switch stash family). LANE AUTHORED 2026-11-14, branch `item20-switch-pending-merge-lane`: `S0.14-far-switch-merges-before-reload`, operator, NEVER FLOWN; closes when its first flight is green; test gap, no known defect]
+## FAR-SWITCH-CASE-B-UNFLOWN: no lane flew a far vessel switch while recording, so the commit before stock's reload was never checked in game [FILED 2026-11-14 from a lane gap audit (the vessel-switch stash family). LANES AUTHORED 2026-11-14, branch `item20-switch-pending-merge-lane`: `S0.14-far-switch-merges-before-reload` (first flight INVALID on its host, re-hosted on `jool-park-nerv`) and the reading lane `S0.15-two-switch-stash-reading`, both operator; closes when S0.14 flies green and S0.15's reading is pinned; test gap, no known defect]
 
 Shape: the player records a vessel, then switches to a vessel OUTSIDE the physics bubble (map
 Switch-To, or the stock alarm's Jump in FLIGHT). Stock's `setActiveVessel` fires
@@ -40,8 +40,8 @@ Gap, by grep on 2026-11-14 over every `harness/scenarios/*.toml` and
 is refused before Case B. The xUnit cells (`MergeFlowDecisionTests`, the
 `DecidePreSwitchAutoResolution` truth table) fake the host.
 
-Lane: S0.14 on `eva2-lko-crewed` records Kerbal X in orbit and presses `AlarmJump
-pid=2325190904` (an unloaded landed debris). It requires the Merge auto-resolve with
+Lane: S0.14 on `jool-park-nerv` records the Duna Rocket in Jool orbit and presses `AlarmJump
+pid=4267147709` (a `Duna Rocket Debris` in Kerbin orbit, unloaded). It requires the Merge auto-resolve with
 `case=B-unloaded`, the commit of a one-recording tree before `Scene change requested: FLIGHT`,
 an OnLoad with no pending or Limbo tree, the MapSwitchTo intent cleared stale, no recording after
 the reload and one committed tree in the save; every Limbo / #266 stash and restore line and the
@@ -69,6 +69,38 @@ also unflown on a switch. What would prove either: a seam lane that runs
 debris (S0.13 + S0.14 hosts), reading `stashed tree '...' as LimboVesselSwitch (` or
 `as Limbo`; if the no-op check needs more than 60 frames of data (`insufficient-data` keeps the
 segment, so Case A merges and commits), the #266 stash is unreachable from stock.
+
+S0.14 first flight, 2026-11-14 on the PC, INVALID(driver-arg) on both attempts (its
+pre-registered P2): the first host `eva2-lko-crewed` targeted pid 2325190904, one of four
+`Kerbal X Debris` LANDED at KSC, and stock removed all four about 1.5 s after the Cold load
+("it was debris cluttering up KSC"), so the jump read `alarmjump rejected
+reason=alarmjump-target-not-found ... matches=0 vesselsScanned=3`; steps 1-8 were OK. Stock's
+rule, decompiled from `FlightState..ctor` (Assembly-CSharp 1.12.5): with
+`GameSettings.DECLUTTER_KSC` on, a vessel that is not `isCommandable`, not `isPersistent`, in
+situation LANDED and `LandedInKSC` (else `LandedInStockLaunchSite`, "cluttering up a
+LaunchSite") gets `SetAutoClean`. A fixture sweep of `harness/fixtures/saves` found no host
+with a recordable vessel, a loaded neighbour, an unloaded owned non-debris-at-KSC target and
+nothing committed except `miner-rover-depot`, whose active vessel is LANDED (a stationary landed
+recording reads idle-on-pad, so Case B would Discard there). So S0.14 moved to `jool-park-nerv`
+(nothing committed; the asteroid aside, its only other vessels are two owned debris ORBITING
+Kerbin, which the rule never touches), and the two-switch lane went to `miner-rover-depot`.
+
+The two-switch sequence above is now the reading lane `S0.15-two-switch-stash-reading` on
+`miner-rover-depot`: the rover records, `SimulateStockSwitchClick vessel="Ore Depot"` (loaded,
+both commandable, so the declutter cannot touch them) arms a session and the vessel-switch flag,
+and `AlarmJump pid=2109271953` (the Observer Probe, orbiting) follows with no step between. The
+seam can issue it inside 60 frames by the code: the addon pumps the command file every frame and
+defers only during LOADING, a scene transition or its settle, which an in-scene switch does not
+set (`ParsekTestCommandAddon.Update`, `TestCommandDispatcher.DecideDispatch`), and the harness
+polls 0.025 s after a write. Its four pre-registered families decide this entry's open
+question: (A) `StashActiveTreeForVesselSwitch: pre-transitioning tree` (the stash IS reachable;
+then read the far-side restore), (B) `StashActiveTreeAsPendingLimbo: stashing tree` (stale flag
+or guards), (C) `pre-switch-dialog committed-prior-segment` (Case A merged, so the stash is
+unreachable from stock play and the closed todo VESSEL-SWITCH-266-UNREACHABLE-FOR-FAR-SWITCH,
+`docs/dev/done/todo-and-known-bugs-v11.md`, which says this path still takes it, is wrong
+for the switch path),
+(D) no switch (`resolution=StockWillRefuse` or a seam refusal). The spec requires one witness and
+forbids every pair; the first flight's log decides which family is pinned.
 
 ## ~~LAUNCH-SITE-WOUND-LONGITUDE~~: a flight parked on the pad or runway spawned there when its stored longitude was wound past the date line [FILED 2026-11-14 by the multiplayer implementation plan (`docs/dev/plans/multiplayer/r0b-prep-small.md`, P1-02, question 10.1; owner answer "Fix both"), by code reading and the committed fixtures. FIXED 2026-11-14, branch `claude/project-thread-xgsu2i` (PR #2605); xUnit; FLOWN GREEN 2026-11-14 on the PR DLL: EX-1 (`2026-11-14_2025`, pad retirement), PADG-1 (`_2030`), LF-1 (`_2027`), LF-2 (`_2028`), MC-4 (`_2020`), all first attempt; no committed lane stores a wound longitude, so the wrap itself is proven by xUnit only; low]
 
