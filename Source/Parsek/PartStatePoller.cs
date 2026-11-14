@@ -39,6 +39,18 @@ namespace Parsek
 
         /// <summary>The vessel context of the departed-converter summary line.</summary>
         internal abstract string ConverterDepartureContext(Vessel v);
+
+        /// <summary>
+        /// Text after <c>midx=N</c> on a once-per-module "unable to classify" line. Evaluated only
+        /// when the line is written.
+        /// </summary>
+        internal abstract string ClassificationMissDetail(PartModule module);
+
+        /// <summary>The same for a <c>ModuleAnimateGeneric</c> miss.</summary>
+        internal abstract string AnimateGenericMissDetail(ModuleAnimateGeneric module);
+
+        /// <summary>Text after <c>midx=N</c> on an animate-heat event line.</summary>
+        internal abstract string AnimateHeatEventSuffix(float normalizedHeat, string sourceField);
     }
 
     /// <summary>
@@ -332,6 +344,327 @@ namespace Parsek
                     sink.Events.Add(evt.Value);
                     ParsekLog.Verbose(sink.Tag, $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
                         $"pid={evt.Value.partPersistentId}{sink.EventSuffix()}");
+                }
+            }
+        }
+
+        internal static void PollLadders(Vessel v, HashSet<ulong> deployedLadders,
+            HashSet<ulong> loggedClassificationMisses, double ut, PartPollSink sink)
+        {
+            if (v == null || v.parts == null) return;
+
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    PartModule module = p.Modules[m];
+                    if (module == null) continue;
+                    if (!string.Equals(module.moduleName, "RetractableLadder", StringComparison.Ordinal))
+                        continue;
+
+                    ulong key = FlightRecorder.EncodeEngineKey(p.persistentId, m);
+                    bool isDeployed;
+                    bool isRetracted;
+                    if (!FlightRecorder.TryClassifyRetractableLadderState(module, out isDeployed, out isRetracted))
+                    {
+                        if (loggedClassificationMisses.Add(key))
+                        {
+                            ParsekLog.Verbose(sink.Tag, $"Ladder: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
+                                $"midx={m}{sink.ClassificationMissDetail(module)}");
+                        }
+                        continue;
+                    }
+
+                    var evt = FlightRecorder.CheckLadderTransition(
+                        key, p.persistentId, p.partInfo?.name ?? "unknown",
+                        isDeployed, deployedLadders, ut, m);
+                    if (evt.HasValue)
+                    {
+                        sink.Events.Add(evt.Value);
+                        ParsekLog.Verbose(sink.Tag, $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
+                            $"pid={evt.Value.partPersistentId}{sink.LabelSuffix("ladder")}");
+                    }
+
+                    break; // one RetractableLadder module per ladder part
+                }
+            }
+        }
+
+        internal static void PollAnimationGroups(Vessel v, HashSet<ulong> deployedAnimationGroups,
+            HashSet<ulong> loggedClassificationMisses, double ut, PartPollSink sink)
+        {
+            if (v == null || v.parts == null) return;
+
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    PartModule module = p.Modules[m];
+                    if (module == null) continue;
+                    if (!string.Equals(module.moduleName, "ModuleAnimationGroup", StringComparison.Ordinal))
+                        continue;
+
+                    bool isDeployed;
+                    bool isRetracted;
+                    if (!FlightRecorder.TryClassifyAnimationGroupState(module, out isDeployed, out isRetracted))
+                    {
+                        ulong diagnosticKey = FlightRecorder.EncodeEngineKey(p.persistentId, m);
+                        if (loggedClassificationMisses.Add(diagnosticKey))
+                        {
+                            ParsekLog.Verbose(sink.Tag, $"AnimationGroup: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
+                                $"midx={m}{sink.ClassificationMissDetail(module)}");
+                        }
+                        continue;
+                    }
+                    if (!isDeployed && !isRetracted)
+                        continue;
+
+                    ulong key = FlightRecorder.EncodeEngineKey(p.persistentId, m);
+                    var evt = FlightRecorder.CheckAnimationGroupTransition(
+                        key, p.persistentId, p.partInfo?.name ?? "unknown",
+                        isDeployed, deployedAnimationGroups, ut, m);
+                    if (evt.HasValue)
+                    {
+                        sink.Events.Add(evt.Value);
+                        ParsekLog.Verbose(sink.Tag, $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
+                            $"pid={evt.Value.partPersistentId} midx={evt.Value.moduleIndex}{sink.LabelSuffix("animation-group")}");
+                    }
+                }
+            }
+        }
+
+        internal static void PollAeroSurfaces(Vessel v, HashSet<ulong> deployedModules,
+            HashSet<ulong> loggedClassificationMisses, double ut, PartPollSink sink)
+        {
+            if (v == null || v.parts == null) return;
+
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    PartModule module = p.Modules[m];
+                    if (module == null) continue;
+                    if (!string.Equals(module.moduleName, "ModuleAeroSurface", StringComparison.Ordinal))
+                        continue;
+
+                    bool isDeployed;
+                    bool isRetracted;
+                    if (!FlightRecorder.TryClassifyAeroSurfaceState(module, out isDeployed, out isRetracted))
+                    {
+                        ulong diagnosticKey = FlightRecorder.EncodeEngineKey(p.persistentId, m);
+                        if (loggedClassificationMisses.Add(diagnosticKey))
+                        {
+                            ParsekLog.Verbose(sink.Tag, $"AeroSurface: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
+                                $"midx={m}{sink.ClassificationMissDetail(module)}");
+                        }
+                        continue;
+                    }
+                    if (!isDeployed && !isRetracted)
+                        continue;
+
+                    ulong key = FlightRecorder.EncodeEngineKey(p.persistentId, m);
+                    var evt = FlightRecorder.CheckAnimationGroupTransition(
+                        key, p.persistentId, p.partInfo?.name ?? "unknown",
+                        isDeployed, deployedModules, ut, m);
+                    if (evt.HasValue)
+                    {
+                        sink.Events.Add(evt.Value);
+                        ParsekLog.Verbose(sink.Tag, $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
+                            $"pid={evt.Value.partPersistentId} midx={evt.Value.moduleIndex}{sink.LabelSuffix("aero-surface")}");
+                    }
+                }
+            }
+        }
+
+        internal static void PollControlSurfaces(Vessel v, HashSet<ulong> deployedModules,
+            HashSet<ulong> loggedClassificationMisses, double ut, PartPollSink sink)
+        {
+            if (v == null || v.parts == null) return;
+
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    PartModule module = p.Modules[m];
+                    if (module == null) continue;
+                    if (!string.Equals(module.moduleName, "ModuleControlSurface", StringComparison.Ordinal))
+                        continue;
+
+                    bool isDeployed;
+                    bool isRetracted;
+                    if (!FlightRecorder.TryClassifyControlSurfaceState(module, out isDeployed, out isRetracted))
+                    {
+                        ulong diagnosticKey = FlightRecorder.EncodeEngineKey(p.persistentId, m);
+                        if (loggedClassificationMisses.Add(diagnosticKey))
+                        {
+                            ParsekLog.Verbose(sink.Tag, $"ControlSurface: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
+                                $"midx={m}{sink.ClassificationMissDetail(module)}");
+                        }
+                        continue;
+                    }
+                    if (!isDeployed && !isRetracted)
+                        continue;
+
+                    ulong key = FlightRecorder.EncodeEngineKey(p.persistentId, m);
+                    var evt = FlightRecorder.CheckAnimationGroupTransition(
+                        key, p.persistentId, p.partInfo?.name ?? "unknown",
+                        isDeployed, deployedModules, ut, m);
+                    if (evt.HasValue)
+                    {
+                        sink.Events.Add(evt.Value);
+                        ParsekLog.Verbose(sink.Tag, $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
+                            $"pid={evt.Value.partPersistentId} midx={evt.Value.moduleIndex}{sink.LabelSuffix("control-surface")}");
+                    }
+                }
+            }
+        }
+
+        internal static void PollRobotArmScanners(Vessel v, HashSet<ulong> deployedModules,
+            HashSet<ulong> loggedClassificationMisses, double ut, PartPollSink sink)
+        {
+            if (v == null || v.parts == null) return;
+
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    PartModule module = p.Modules[m];
+                    if (module == null) continue;
+                    if (!string.Equals(module.moduleName, "ModuleRobotArmScanner", StringComparison.Ordinal))
+                        continue;
+
+                    bool isDeployed;
+                    bool isRetracted;
+                    if (!FlightRecorder.TryClassifyRobotArmScannerState(module, out isDeployed, out isRetracted))
+                    {
+                        ulong diagnosticKey = FlightRecorder.EncodeEngineKey(p.persistentId, m);
+                        if (loggedClassificationMisses.Add(diagnosticKey))
+                        {
+                            ParsekLog.Verbose(sink.Tag, $"RobotArmScanner: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
+                                $"midx={m}{sink.ClassificationMissDetail(module)}");
+                        }
+                        continue;
+                    }
+                    if (!isDeployed && !isRetracted)
+                        continue;
+
+                    ulong key = FlightRecorder.EncodeEngineKey(p.persistentId, m);
+                    var evt = FlightRecorder.CheckAnimationGroupTransition(
+                        key, p.persistentId, p.partInfo?.name ?? "unknown",
+                        isDeployed, deployedModules, ut, m);
+                    if (evt.HasValue)
+                    {
+                        sink.Events.Add(evt.Value);
+                        ParsekLog.Verbose(sink.Tag, $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
+                            $"pid={evt.Value.partPersistentId} midx={evt.Value.moduleIndex}{sink.LabelSuffix("robot-arm-scanner")}");
+                    }
+                }
+            }
+        }
+
+        internal static void PollAnimateHeat(Vessel v, Dictionary<ulong, HeatLevel> animateHeatLevels,
+            HashSet<ulong> loggedClassificationMisses, double ut, PartPollSink sink)
+        {
+            if (v == null || v.parts == null) return;
+
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    PartModule module = p.Modules[m];
+                    if (module == null) continue;
+                    if (!string.Equals(module.moduleName, "ModuleAnimateHeat", StringComparison.Ordinal))
+                        continue;
+
+                    if (!FlightRecorder.TryClassifyAnimateHeatState(
+                        module, out float normalizedHeat, out string sourceField))
+                    {
+                        ulong diagnosticKey = FlightRecorder.EncodeEngineKey(p.persistentId, m);
+                        if (loggedClassificationMisses.Add(diagnosticKey))
+                        {
+                            ParsekLog.Verbose(sink.Tag, $"AnimateHeat: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
+                                $"midx={m}{sink.ClassificationMissDetail(module)}");
+                        }
+                        continue;
+                    }
+
+                    ulong key = FlightRecorder.EncodeEngineKey(p.persistentId, m);
+                    var evt = FlightRecorder.CheckAnimateHeatTransition(
+                        key, p.persistentId, p.partInfo?.name ?? "unknown",
+                        normalizedHeat, animateHeatLevels, ut, m);
+                    if (evt.HasValue)
+                    {
+                        sink.Events.Add(evt.Value);
+                        ParsekLog.Verbose(sink.Tag, $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
+                            $"pid={evt.Value.partPersistentId} midx={evt.Value.moduleIndex}" +
+                            sink.AnimateHeatEventSuffix(normalizedHeat, sourceField));
+                    }
+                }
+            }
+        }
+
+        internal static void PollAnimateGeneric(Vessel v, HashSet<ulong> deployedAnimateGenericModules,
+            HashSet<ulong> loggedClassificationMisses, double ut, PartPollSink sink)
+        {
+            if (v == null || v.parts == null) return;
+
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+
+                // Avoid duplicate events for modules already tracked via dedicated handlers.
+                if (FlightRecorder.HasDedicatedAnimateHandler(p)) continue;
+
+                for (int m = 0; m < p.Modules.Count; m++)
+                {
+                    ModuleAnimateGeneric animateModule = p.Modules[m] as ModuleAnimateGeneric;
+                    if (animateModule == null) continue;
+                    if (string.IsNullOrEmpty(animateModule.animationName)) continue;
+
+                    bool isDeployed;
+                    bool isRetracted;
+                    if (!FlightRecorder.TryClassifyAnimateGenericState(animateModule, out isDeployed, out isRetracted))
+                    {
+                        ulong diagnosticKey = FlightRecorder.EncodeEngineKey(p.persistentId, m);
+                        if (loggedClassificationMisses.Add(diagnosticKey))
+                        {
+                            ParsekLog.Verbose(sink.Tag, $"AnimateGeneric: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
+                                $"midx={m}{sink.AnimateGenericMissDetail(animateModule)}");
+                        }
+                        continue;
+                    }
+                    if (!isDeployed && !isRetracted)
+                        continue;
+
+                    ulong key = FlightRecorder.EncodeEngineKey(p.persistentId, m);
+                    var evt = FlightRecorder.CheckAnimationGroupTransition(
+                        key, p.persistentId, p.partInfo?.name ?? "unknown",
+                        isDeployed, deployedAnimateGenericModules, ut, m);
+                    if (evt.HasValue)
+                    {
+                        sink.Events.Add(evt.Value);
+                        ParsekLog.Verbose(sink.Tag, $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
+                            $"pid={evt.Value.partPersistentId} midx={evt.Value.moduleIndex}{sink.LabelSuffix("anim-generic")}");
+                    }
                 }
             }
         }

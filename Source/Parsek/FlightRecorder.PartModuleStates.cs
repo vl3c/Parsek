@@ -36,6 +36,18 @@ namespace Parsek
             internal override string LabelSuffix(string label) => $" ({label})";
             internal override string VesselFirstLabelSuffix(string label) => $" ({label})";
             internal override string ConverterDepartureContext(Vessel v) => $"vessel pid={v.persistentId}";
+            internal override string ClassificationMissDetail(PartModule module) =>
+                $"; fields=[{DescribeModuleFields(module)}]";
+
+            internal override string AnimateGenericMissDetail(ModuleAnimateGeneric module)
+            {
+                string fields = DescribeModuleFields(module);
+                if (fields.Length > 200) fields = fields.Substring(0, 200) + "...";
+                return $" anim='{module.animationName}'; fields=[{fields}]";
+            }
+
+            internal override string AnimateHeatEventSuffix(float normalizedHeat, string sourceField) =>
+                $" heat={normalizedHeat.ToString("F2", CultureInfo.InvariantCulture)} src={sourceField ?? "<unknown>"}";
         }
 
         private ActivePartPollSink activePollSink;
@@ -1352,228 +1364,36 @@ namespace Parsek
         private void CheckLadderState(Vessel v)
         {
             if (v == null || v.parts == null) return;
-
-            double ut = Planetarium.GetUniversalTime();
-            for (int i = 0; i < v.parts.Count; i++)
-            {
-                Part p = v.parts[i];
-                if (p == null) continue;
-
-                for (int m = 0; m < p.Modules.Count; m++)
-                {
-                    PartModule module = p.Modules[m];
-                    if (module == null) continue;
-                    if (!string.Equals(module.moduleName, "RetractableLadder", StringComparison.Ordinal))
-                        continue;
-
-                    ulong key = EncodeEngineKey(p.persistentId, m);
-                    bool isDeployed;
-                    bool isRetracted;
-                    if (!TryClassifyRetractableLadderState(module, out isDeployed, out isRetracted))
-                    {
-                        if (loggedLadderClassificationMisses.Add(key))
-                        {
-                            ParsekLog.Verbose("Recorder", $"Ladder: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
-                                $"midx={m}; fields=[{DescribeModuleFields(module)}]");
-                        }
-                        continue;
-                    }
-
-                    var evt = CheckLadderTransition(
-                        key, p.persistentId, p.partInfo?.name ?? "unknown",
-                        isDeployed, deployedLadders, ut, m);
-                    if (evt.HasValue)
-                    {
-                        PartEvents.Add(evt.Value);
-                        ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
-                            $"pid={evt.Value.partPersistentId} (ladder)");
-                    }
-
-                    break; // one RetractableLadder module per ladder part
-                }
-            }
+            PartStatePoller.PollLadders(v, deployedLadders, loggedLadderClassificationMisses,
+                Planetarium.GetUniversalTime(), ActivePollSink);
         }
 
         private void CheckAnimationGroupState(Vessel v)
         {
             if (v == null || v.parts == null) return;
-
-            double ut = Planetarium.GetUniversalTime();
-            for (int i = 0; i < v.parts.Count; i++)
-            {
-                Part p = v.parts[i];
-                if (p == null) continue;
-
-                for (int m = 0; m < p.Modules.Count; m++)
-                {
-                    PartModule module = p.Modules[m];
-                    if (module == null) continue;
-                    if (!string.Equals(module.moduleName, "ModuleAnimationGroup", StringComparison.Ordinal))
-                        continue;
-
-                    bool isDeployed;
-                    bool isRetracted;
-                    if (!TryClassifyAnimationGroupState(module, out isDeployed, out isRetracted))
-                    {
-                        ulong diagnosticKey = EncodeEngineKey(p.persistentId, m);
-                        if (loggedAnimationGroupClassificationMisses.Add(diagnosticKey))
-                        {
-                            ParsekLog.Verbose("Recorder", $"AnimationGroup: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
-                                $"midx={m}; fields=[{DescribeModuleFields(module)}]");
-                        }
-                        continue;
-                    }
-
-                    ulong key = EncodeEngineKey(p.persistentId, m);
-                    var evt = CheckAnimationGroupTransition(
-                        key, p.persistentId, p.partInfo?.name ?? "unknown",
-                        isDeployed, deployedAnimationGroups, ut, m);
-                    if (evt.HasValue)
-                    {
-                        PartEvents.Add(evt.Value);
-                        ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
-                            $"pid={evt.Value.partPersistentId} midx={evt.Value.moduleIndex} (animation-group)");
-                    }
-                }
-            }
+            PartStatePoller.PollAnimationGroups(v, deployedAnimationGroups,
+                loggedAnimationGroupClassificationMisses, Planetarium.GetUniversalTime(), ActivePollSink);
         }
 
         private void CheckAeroSurfaceState(Vessel v)
         {
             if (v == null || v.parts == null) return;
-
-            double ut = Planetarium.GetUniversalTime();
-            for (int i = 0; i < v.parts.Count; i++)
-            {
-                Part p = v.parts[i];
-                if (p == null) continue;
-
-                for (int m = 0; m < p.Modules.Count; m++)
-                {
-                    PartModule module = p.Modules[m];
-                    if (module == null) continue;
-                    if (!string.Equals(module.moduleName, "ModuleAeroSurface", StringComparison.Ordinal))
-                        continue;
-
-                    bool isDeployed;
-                    bool isRetracted;
-                    if (!TryClassifyAeroSurfaceState(module, out isDeployed, out isRetracted))
-                    {
-                        ulong diagnosticKey = EncodeEngineKey(p.persistentId, m);
-                        if (loggedAeroSurfaceClassificationMisses.Add(diagnosticKey))
-                        {
-                            ParsekLog.Verbose("Recorder", $"AeroSurface: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
-                                $"midx={m}; fields=[{DescribeModuleFields(module)}]");
-                        }
-                        continue;
-                    }
-                    if (!isDeployed && !isRetracted)
-                        continue;
-
-                    ulong key = EncodeEngineKey(p.persistentId, m);
-                    var evt = CheckAnimationGroupTransition(
-                        key, p.persistentId, p.partInfo?.name ?? "unknown",
-                        isDeployed, deployedAeroSurfaceModules, ut, m);
-                    if (evt.HasValue)
-                    {
-                        PartEvents.Add(evt.Value);
-                        ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
-                            $"pid={evt.Value.partPersistentId} midx={evt.Value.moduleIndex} (aero-surface)");
-                    }
-                }
-            }
+            PartStatePoller.PollAeroSurfaces(v, deployedAeroSurfaceModules,
+                loggedAeroSurfaceClassificationMisses, Planetarium.GetUniversalTime(), ActivePollSink);
         }
 
         private void CheckControlSurfaceState(Vessel v)
         {
             if (v == null || v.parts == null) return;
-
-            double ut = Planetarium.GetUniversalTime();
-            for (int i = 0; i < v.parts.Count; i++)
-            {
-                Part p = v.parts[i];
-                if (p == null) continue;
-
-                for (int m = 0; m < p.Modules.Count; m++)
-                {
-                    PartModule module = p.Modules[m];
-                    if (module == null) continue;
-                    if (!string.Equals(module.moduleName, "ModuleControlSurface", StringComparison.Ordinal))
-                        continue;
-
-                    bool isDeployed;
-                    bool isRetracted;
-                    if (!TryClassifyControlSurfaceState(module, out isDeployed, out isRetracted))
-                    {
-                        ulong diagnosticKey = EncodeEngineKey(p.persistentId, m);
-                        if (loggedControlSurfaceClassificationMisses.Add(diagnosticKey))
-                        {
-                            ParsekLog.Verbose("Recorder", $"ControlSurface: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
-                                $"midx={m}; fields=[{DescribeModuleFields(module)}]");
-                        }
-                        continue;
-                    }
-                    if (!isDeployed && !isRetracted)
-                        continue;
-
-                    ulong key = EncodeEngineKey(p.persistentId, m);
-                    var evt = CheckAnimationGroupTransition(
-                        key, p.persistentId, p.partInfo?.name ?? "unknown",
-                        isDeployed, deployedControlSurfaceModules, ut, m);
-                    if (evt.HasValue)
-                    {
-                        PartEvents.Add(evt.Value);
-                        ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
-                            $"pid={evt.Value.partPersistentId} midx={evt.Value.moduleIndex} (control-surface)");
-                    }
-                }
-            }
+            PartStatePoller.PollControlSurfaces(v, deployedControlSurfaceModules,
+                loggedControlSurfaceClassificationMisses, Planetarium.GetUniversalTime(), ActivePollSink);
         }
 
         private void CheckRobotArmScannerState(Vessel v)
         {
             if (v == null || v.parts == null) return;
-
-            double ut = Planetarium.GetUniversalTime();
-            for (int i = 0; i < v.parts.Count; i++)
-            {
-                Part p = v.parts[i];
-                if (p == null) continue;
-
-                for (int m = 0; m < p.Modules.Count; m++)
-                {
-                    PartModule module = p.Modules[m];
-                    if (module == null) continue;
-                    if (!string.Equals(module.moduleName, "ModuleRobotArmScanner", StringComparison.Ordinal))
-                        continue;
-
-                    bool isDeployed;
-                    bool isRetracted;
-                    if (!TryClassifyRobotArmScannerState(module, out isDeployed, out isRetracted))
-                    {
-                        ulong diagnosticKey = EncodeEngineKey(p.persistentId, m);
-                        if (loggedRobotArmScannerClassificationMisses.Add(diagnosticKey))
-                        {
-                            ParsekLog.Verbose("Recorder", $"RobotArmScanner: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
-                                $"midx={m}; fields=[{DescribeModuleFields(module)}]");
-                        }
-                        continue;
-                    }
-                    if (!isDeployed && !isRetracted)
-                        continue;
-
-                    ulong key = EncodeEngineKey(p.persistentId, m);
-                    var evt = CheckAnimationGroupTransition(
-                        key, p.persistentId, p.partInfo?.name ?? "unknown",
-                        isDeployed, deployedRobotArmScannerModules, ut, m);
-                    if (evt.HasValue)
-                    {
-                        PartEvents.Add(evt.Value);
-                        ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
-                            $"pid={evt.Value.partPersistentId} midx={evt.Value.moduleIndex} (robot-arm-scanner)");
-                    }
-                }
-            }
+            PartStatePoller.PollRobotArmScanners(v, deployedRobotArmScannerModules,
+                loggedRobotArmScannerClassificationMisses, Planetarium.GetUniversalTime(), ActivePollSink);
         }
 
         /// <summary>
@@ -1604,95 +1424,15 @@ namespace Parsek
         private void CheckAnimateGenericState(Vessel v)
         {
             if (v == null || v.parts == null) return;
-
-            double ut = Planetarium.GetUniversalTime();
-            for (int i = 0; i < v.parts.Count; i++)
-            {
-                Part p = v.parts[i];
-                if (p == null) continue;
-
-                // Avoid duplicate events for modules already tracked via dedicated handlers.
-                if (HasDedicatedAnimateHandler(p)) continue;
-
-                for (int m = 0; m < p.Modules.Count; m++)
-                {
-                    ModuleAnimateGeneric animateModule = p.Modules[m] as ModuleAnimateGeneric;
-                    if (animateModule == null) continue;
-                    if (string.IsNullOrEmpty(animateModule.animationName)) continue;
-
-                    bool isDeployed;
-                    bool isRetracted;
-                    if (!TryClassifyAnimateGenericState(animateModule, out isDeployed, out isRetracted))
-                    {
-                        ulong diagnosticKey = EncodeEngineKey(p.persistentId, m);
-                        if (loggedAnimateGenericClassificationMisses.Add(diagnosticKey))
-                        {
-                            string fields = DescribeModuleFields(animateModule);
-                            if (fields.Length > 200) fields = fields.Substring(0, 200) + "...";
-                            ParsekLog.Verbose("Recorder", $"AnimateGeneric: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
-                                $"midx={m} anim='{animateModule.animationName}'; fields=[{fields}]");
-                        }
-                        continue;
-                    }
-                    if (!isDeployed && !isRetracted)
-                        continue;
-
-                    ulong key = EncodeEngineKey(p.persistentId, m);
-                    var evt = CheckAnimationGroupTransition(
-                        key, p.persistentId, p.partInfo?.name ?? "unknown",
-                        isDeployed, deployedAnimateGenericModules, ut, m);
-                    if (evt.HasValue)
-                    {
-                        PartEvents.Add(evt.Value);
-                        ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
-                            $"pid={evt.Value.partPersistentId} midx={evt.Value.moduleIndex} (anim-generic)");
-                    }
-                }
-            }
+            PartStatePoller.PollAnimateGeneric(v, deployedAnimateGenericModules,
+                loggedAnimateGenericClassificationMisses, Planetarium.GetUniversalTime(), ActivePollSink);
         }
 
         private void CheckAnimateHeatState(Vessel v)
         {
             if (v == null || v.parts == null) return;
-
-            double ut = Planetarium.GetUniversalTime();
-            for (int i = 0; i < v.parts.Count; i++)
-            {
-                Part p = v.parts[i];
-                if (p == null) continue;
-
-                for (int m = 0; m < p.Modules.Count; m++)
-                {
-                    PartModule module = p.Modules[m];
-                    if (module == null) continue;
-                    if (!string.Equals(module.moduleName, "ModuleAnimateHeat", StringComparison.Ordinal))
-                        continue;
-
-                    if (!TryClassifyAnimateHeatState(
-                        module, out float normalizedHeat, out string sourceField))
-                    {
-                        ulong diagnosticKey = EncodeEngineKey(p.persistentId, m);
-                        if (loggedAnimateHeatClassificationMisses.Add(diagnosticKey))
-                        {
-                            ParsekLog.Verbose("Recorder", $"AnimateHeat: unable to classify '{p.partInfo?.name}' pid={p.persistentId} " +
-                                $"midx={m}; fields=[{DescribeModuleFields(module)}]");
-                        }
-                        continue;
-                    }
-
-                    ulong key = EncodeEngineKey(p.persistentId, m);
-                    var evt = CheckAnimateHeatTransition(
-                        key, p.persistentId, p.partInfo?.name ?? "unknown",
-                        normalizedHeat, animateHeatLevels, ut, m);
-                    if (evt.HasValue)
-                    {
-                        PartEvents.Add(evt.Value);
-                        ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' " +
-                            $"pid={evt.Value.partPersistentId} midx={evt.Value.moduleIndex} " +
-                            $"heat={normalizedHeat.ToString("F2", CultureInfo.InvariantCulture)} src={sourceField ?? "<unknown>"}");
-                    }
-                }
-            }
+            PartStatePoller.PollAnimateHeat(v, animateHeatLevels,
+                loggedAnimateHeatClassificationMisses, Planetarium.GetUniversalTime(), ActivePollSink);
         }
 
         internal static PartEvent? CheckFairingTransition(
