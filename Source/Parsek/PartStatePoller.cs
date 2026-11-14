@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using UnityEngine;
 
 namespace Parsek
@@ -95,6 +96,15 @@ namespace Parsek
         /// Parsed <c>jettisonName</c> list for one jettison module, re-parsed only when the raw
         /// string changes. The two caches are the caller's per-vessel ones.
         /// </summary>
+        // Component.gameObject and GameObject.activeInHierarchy are Unity ECalls: a method
+        // that calls one directly cannot be JIT-compiled under the Windows .NET test host
+        // (SecurityException on entry), so the read lives here, never inlined into the loop.
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static bool IsTransformActiveInHierarchy(Transform t)
+        {
+            return t.gameObject.activeInHierarchy;
+        }
+
         internal static string[] GetCachedJettisonNames(Dictionary<ulong, string> rawCache,
             Dictionary<ulong, string[]> parsedCache, ulong moduleKey, string rawNames)
         {
@@ -160,7 +170,7 @@ namespace Parsek
                     for (int n = 0; n < names.Length; n++)
                     {
                         Transform jt = p.FindModelTransform(names[n]);
-                        if (jt != null && !jt.gameObject.activeInHierarchy)
+                        if (jt != null && !IsTransformActiveInHierarchy(jt))
                         {
                             isJettisoned = true;
                             break;

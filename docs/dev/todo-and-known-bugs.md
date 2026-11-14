@@ -3268,7 +3268,10 @@ compare).
   returns only 0 or 1, so the 0.5 boundary and the NaN guard never decide; the neither-flag
   guard above). il_compare: only the 30 wrappers, the removed jettison caches and the new types
   differ. Text knot 435 -> 438 (the poller and the two nested sinks); semantic residue
-  unchanged (greedy 140, replayed 144).
+  unchanged (greedy 140, replayed 144). The jettison loop's `gameObject.activeInHierarchy`
+  read (two Unity ECalls) sits in a `NoInlining` helper, so the loop the jettison cells call
+  still JIT-compiles under the Windows .NET test host; an IL audit of every method the poll
+  wrappers reach finds no other direct ECall and no `FlightGlobals` read.
 - 2026-11-14 (B4, the recalculation module set): pins first, in
   `LedgerStateFuzzerTests.ModuleSet.cs`: production `Initialize` registers the eight modules in
   tier order (the eight `Registered ...` lines, `ClearModules: removed=0`, idempotent), the
