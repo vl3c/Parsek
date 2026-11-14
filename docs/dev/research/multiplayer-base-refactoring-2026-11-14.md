@@ -39,7 +39,7 @@ Sizes used below. **S**: one small change, under about 15 call sites. **M**: one
 
 ## 2. Method
 
-Four read-only inventories of the 1.1 code (commit c48b137 of the design branch, which
+Four read-only inventories of the 1.0.2 code (commit c48b137 of the design branch, which
 changes no source file), each returning counts and `file:line` evidence:
 playback path; space center position, flags and kerbal looks; export data; windows, menus,
 save creation and the build gates. Counts are token counts on comment-stripped source. The
