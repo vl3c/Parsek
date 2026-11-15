@@ -4,20 +4,15 @@ All notable changes to Parsek are documented here.
 
 ---
 
-## 1.1.0
+## 1.0.3
 
-Not released yet. A line marked (in progress) is work that has not landed on main; it is
-rewritten when its change merges. Multiplayer is built on a separate `multiplayer` branch and
-joins main in one merge, so its lines arrive then.
+Not released yet.
 
 ### Added
 
-- **Multiplayer: the Space Race (in progress).** Up to four players race each other in their
-  own saves, sharing progress through a shared folder. This line is a placeholder until the
-  `multiplayer` branch merges.
 - **Dev: five automated lanes for asteroids and comets.** AST-1 to AST-4 and COM-1 fly a real
   Klaw grab with a rewind, a release, rock mining onto a supply route, a Re-Fly across a grab and
-  a comet grab. Written and checked offline; their first flights are owed.
+  a comet grab.
 
 ### Changed
 
