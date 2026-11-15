@@ -16,7 +16,7 @@ namespace Parsek
     /// spawn-node writers and checks: the deliberate position-override stamp,
     /// the surface-relative rotation node, finite-metadata validation, the
     /// canonical surface orbit and the spawn-readiness / orbital normalization,
-    /// and the asteroid / comet ("rock") part identification.
+    /// and the asteroid / comet ("rock") part identification and size class.
     ///
     /// <para>Nothing here touches live KSP state (no FlightGlobals, no live
     /// Vessel, no roster; a CelestialBody argument is read for its name and
@@ -1748,7 +1748,8 @@ namespace Parsek
         // modules ModuleAsteroid / ModuleComet). Owner rulings 2026-11-15: a rock is
         // recorded only from the Klaw grab on; a released rock records as its own branch
         // and becomes real at its tip, but it is never a Re-Fly slot. Callers: the Re-Fly
-        // controllability predicate and the Unfinished Flights classifier's legacy guard.
+        // controllability predicate, the Unfinished Flights classifier's legacy guard and
+        // the spawn bounds (SpawnCollisionDetector, the size class helpers).
 
         /// <summary>Stock asteroid part name (cfg and runtime name coincide).</summary>
         internal const string RockAsteroidPartName = "PotatoRoid";
@@ -1850,6 +1851,109 @@ namespace Parsek
             }
             why = "rock-parts-only";
             return true;
+        }
+
+        /// <summary>Number of stock size classes (UntrackedObjectClass A..I).</summary>
+        internal const int RockSizeClassCount = 9;
+
+        /// <summary>The largest stock size class index (UntrackedObjectClass.I).</summary>
+        internal const int RockLargestSizeClass = RockSizeClassCount - 1;
+
+        /// <summary>
+        /// Reads the size class (UntrackedObjectClass index, A = 0 .. I = 8) of a rock PART
+        /// node from its rock MODULE's persisted <c>prefabBaseURL</c>. Decompiled KSP 1.12.5:
+        /// ModuleAsteroid / ModuleComet persist <c>prefabBaseURL</c>, set on the first start
+        /// to <c>"Procedural/PA_" + objectSize</c> (comet <c>"Procedural/PC_"</c>), and build
+        /// the rock at that prefab's radius. False when the part has no rock module or the
+        /// URL does not end in a class letter (a comet built from a custom prefab).
+        /// </summary>
+        internal static bool TryReadPartSizeClass(ConfigNode partNode, out int sizeClass, out string url)
+        {
+            sizeClass = -1;
+            url = null;
+            ConfigNode module = FindRockModuleNode(partNode);
+            if (module == null)
+                return false;
+            url = module.GetValue("prefabBaseURL");
+            return TryParseSizeClassFromPrefabUrl(url, out sizeClass);
+        }
+
+        /// <summary>
+        /// Parses the class letter of a stock procedural rock prefab URL
+        /// (<c>Procedural/PA_E</c>, <c>Procedural/PC_C</c>). Pure.
+        /// </summary>
+        internal static bool TryParseSizeClassFromPrefabUrl(string url, out int sizeClass)
+        {
+            sizeClass = -1;
+            if (string.IsNullOrEmpty(url))
+                return false;
+            string trimmed = url.Trim();
+            int underscore = trimmed.LastIndexOf('_');
+            if (underscore < 0 || underscore != trimmed.Length - 2)
+                return false;
+            return TryParseSizeClassLetter(trimmed.Substring(underscore + 1), out sizeClass);
+        }
+
+        /// <summary>A..I (case-insensitive) to 0..8. Pure.</summary>
+        internal static bool TryParseSizeClassLetter(string letter, out int sizeClass)
+        {
+            sizeClass = -1;
+            if (string.IsNullOrEmpty(letter) || letter.Length != 1)
+                return false;
+            char c = char.ToUpperInvariant(letter[0]);
+            if (c < 'A' || c > 'I')
+                return false;
+            sizeClass = c - 'A';
+            return true;
+        }
+
+        /// <summary>
+        /// Reads the VESSEL's <c>DISCOVERY</c> <c>size</c> (the int cast of
+        /// UntrackedObjectClass, decompiled <c>DiscoveryInfo.Save</c>). Only meaningful for
+        /// the rock's own vessel: a ship carrying a rock keeps its own discovery info.
+        /// </summary>
+        internal static bool TryReadDiscoverySizeClass(ConfigNode vesselSnapshot, out int sizeClass)
+        {
+            sizeClass = -1;
+            ConfigNode discovery = vesselSnapshot?.GetNode("DISCOVERY");
+            string raw = discovery?.GetValue("size");
+            int parsed;
+            if (string.IsNullOrEmpty(raw)
+                || !int.TryParse(raw.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out parsed)
+                || parsed < 0 || parsed > RockLargestSizeClass)
+                return false;
+            sizeClass = parsed;
+            return true;
+        }
+
+        /// <summary>
+        /// Stock nominal radius (metres) of a size class, decompiled from
+        /// <c>DiscoveryInfo.GetClassRadius</c> (before its random 0.75..1.25 factor):
+        /// A 3.24, B 5.4, C 9, D 15, E 25, F 41.7, G 69.5, H 115.8, I 193. An index out of
+        /// range reads as the largest class. Pure.
+        /// </summary>
+        internal static float NominalRadiusForClass(int sizeClass)
+        {
+            switch (sizeClass)
+            {
+                case 0: return 3.24f;
+                case 1: return 5.4f;
+                case 2: return 9f;
+                case 3: return 15f;
+                case 4: return 25f;
+                case 5: return 41.7f;
+                case 6: return 69.5f;
+                case 7: return 115.8f;
+                default: return 193f;
+            }
+        }
+
+        /// <summary>Class letter for logs ("A".."I", "?" when out of range). Pure.</summary>
+        internal static string SizeClassLetter(int sizeClass)
+        {
+            if (sizeClass < 0 || sizeClass > RockLargestSizeClass)
+                return "?";
+            return ((char)('A' + sizeClass)).ToString();
         }
     }
 }

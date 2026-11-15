@@ -20,6 +20,33 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~ROCK-SPAWN-BOUNDS-TOO-SMALL~~: the spawn space check sized a grabbed asteroid or comet like any 2.5 m part [FILED 2026-11-15 by the asteroid / comet review (owner rulings 2026-11-15), by code reading. FIXED 2026-11-15, branch `ast-fixes`; xUnit; no lane spawns a rock-carrying ship; low (a big rock could materialize inside a nearby vessel)]
+
+What the player saw: a recorded ship holding a grabbed rock becomes real at its tip (and a
+released rock at its own tip). `SpawnCollisionDetector.ComputeVesselBounds` gives every snapshot
+part the same 1.25 m half extent, so a ship carrying a 40 m class E asteroid was checked for
+room as a few metres and could spawn into a loaded vessel inside the rock. The same bounds feed
+the Real Spawn Control time-jump placement.
+
+Decompile (KSP 1.12.5). No rock radius is persisted. `ModuleAsteroid` / `ModuleComet` persist
+`prefabBaseURL`, set on first start to `"Procedural/PA_" + objectSize` (comet `"Procedural/PC_"`),
+and build the rock at `prefab.radius x Random(minRadiusMultiplier 0.75, maxRadiusMultiplier
+1.25)`, then a procedural mesh whose PQS mods add relief scaled by the radius. The class radii
+are `DiscoveryInfo.GetClassRadius`: A 3.24, B 5.4, C 9, D 15, E 25, F 41.7, G 69.5, H 115.8,
+I 193 m. The VESSEL's `DISCOVERY size` is the int class (`DiscoveryInfo.Save`), the rock's own
+only on a bare rock vessel (a ship keeps its own discovery info).
+
+Fix: `SpawnCollisionDetector.ResolvePartHalfExtent` sizes a rock part (part name PotatoRoid /
+PotatoComet or a ModuleAsteroid / ModuleComet MODULE, `VesselSnapshotOps.IsRockPartNode`) at
+`class radius x 1.25 (max multiplier) x 1.25 (relief margin)` (class E: 39.1 m), the class from
+the part's `prefabBaseURL` (`source=prefab:E`), else, for a bare rock vessel, its `DISCOVERY
+size` (`source=discovery:C`), else the largest class I (301.6 m, `source=fallback-largest`,
+logged at Info). Ordinary parts keep 1.25 m. Logs: `[SpawnCollision] ParsePartPositions: rock
+part 'PotatoRoid' half extent 39.1m source=prefab:E` (rate-limited). Tests:
+`RockSpawnBoundsTests`. Not covered: the 1.25 relief margin is a judgment (the PQS mod ranges
+live in the prefab assets, not the code), and a comet built from a custom prefab URL has no class
+letter, so it reads as the largest class.
+
 ## ~~ROCK-DRILL-HARVEST-UNCAPPED~~: a mining window with an asteroid or comet aboard had no plausibility cap [FILED 2026-11-15 by the asteroid / comet review (owner rulings 2026-11-15), by code reading; the gap was known since HV-2 (2026-10-16) and left open there. FIXED 2026-11-15, branch `ast-fixes`; xUnit + the HV-2 rate cell flipped to "modeled"; HV-2 re-flight owed; low (a route built on rock mining could credit a catch-up burst every run)]
 
 What the player saw: a supply route whose recorded ship drilled a grabbed asteroid or comet
