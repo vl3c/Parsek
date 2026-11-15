@@ -562,7 +562,7 @@ class CSharpWriterSourceSyncTests(unittest.TestCase):
 
     Precedent: `test_hlib.py::test_the_c_sharp_writer_still_emits_pointcount`. The
     viewer indexes the dump by KEY NAME, and every one of those names is produced
-    by exactly one hand-rolled C# writer, `Source/Parsek/GuiTreeJson.cs`. Rename a
+    by exactly one hand-rolled C# writer, `Source/Parsek/GuiTree/GuiTreeJson.cs`. Rename a
     key there and the viewer silently degrades - boxes vanish, the notes strip goes
     quiet, the tree loses its detail column - with nothing failing anywhere. Fail
     HERE, locally, naming the key, instead of on someone's next dump.
@@ -572,7 +572,7 @@ class CSharpWriterSourceSyncTests(unittest.TestCase):
     def _writer_source():
         repo_root = os.path.dirname(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        path = os.path.join(repo_root, "Source", "Parsek", "GuiTreeJson.cs")
+        path = os.path.join(repo_root, "Source", "Parsek", "GuiTree", "GuiTreeJson.cs")
         with open(path, "r", encoding="utf-8", errors="replace") as fh:
             return path, fh.read()
 
@@ -659,7 +659,7 @@ class CSharpWriterSourceSyncTests(unittest.TestCase):
     def test_the_dump_suffix_matches_the_one_the_viewer_globs(self):
         repo_root = os.path.dirname(
             os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        path = os.path.join(repo_root, "Source", "Parsek", "GuiTreeRecorder.cs")
+        path = os.path.join(repo_root, "Source", "Parsek", "GuiTree", "GuiTreeRecorder.cs")
         with open(path, "r", encoding="utf-8", errors="replace") as fh:
             src = fh.read()
         self.assertIn('OutputSuffix = "%s"' % gtv.DUMP_SUFFIX, src,

@@ -107,7 +107,7 @@ namespace Parsek.Tests
             if (expectedVessel != null)
             {
                 SnapshotSidecarProbe vesselProbe;
-                Assert.True(RecordingSidecarStore.TryProbeSnapshotSidecar(vesselPath, out vesselProbe));
+                Assert.True(SnapshotSidecarCodec.TryProbe(vesselPath, out vesselProbe));
                 Assert.Equal(SnapshotSidecarEncoding.DeflateV1, vesselProbe.Encoding);
 
                 ConfigNode loadedVessel;
@@ -122,7 +122,7 @@ namespace Parsek.Tests
             {
                 ConfigNode expectedGhost = original.GhostVisualSnapshot;
                 SnapshotSidecarProbe ghostProbe;
-                Assert.True(RecordingSidecarStore.TryProbeSnapshotSidecar(ghostPath, out ghostProbe));
+                Assert.True(SnapshotSidecarCodec.TryProbe(ghostPath, out ghostProbe));
                 Assert.Equal(SnapshotSidecarEncoding.DeflateV1, ghostProbe.Encoding);
 
                 ConfigNode loadedGhost;
@@ -841,73 +841,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SnapshotSidecar_TextFile_IsRejectedAsMagicMismatch()
-        {
-            ConfigNode expected = BuildSnapshot("Legacy Snapshot", pid: 1001);
-            string path = Path.Combine(tempDir, "legacy_vessel.craft");
-            expected.Save(path);
-
-            SnapshotSidecarProbe probe;
-            Assert.True(RecordingSidecarStore.TryProbeSnapshotSidecar(path, out probe));
-            Assert.Equal(SnapshotSidecarEncoding.UnknownBinary, probe.Encoding);
-            Assert.False(probe.Supported);
-            Assert.Equal("magic-mismatch", probe.FailureReason);
-
-            ConfigNode loaded;
-            Assert.False(RecordingSidecarStore.LoadSnapshotSidecarForTesting(path, out loaded));
-            Assert.Null(loaded);
-        }
-
-        [Fact]
-        public void SnapshotSidecar_CompressedFormat_UsesOptimalCompression_AndRoundTrips()
-        {
-            Assert.Equal(CompressionLevel.Optimal, SnapshotSidecarCodec.CurrentCompressionLevel);
-
-            ConfigNode expected = VesselSnapshotBuilder.FleaRocket("Compressed Snapshot", "Jebediah Kerman", pid: 2002)
-                .Build();
-            string path = Path.Combine(tempDir, "compressed_vessel.craft");
-
-            RecordingSidecarStore.WriteSnapshotSidecarForTesting(path, expected);
-
-            SnapshotSidecarProbe probe;
-            Assert.True(RecordingSidecarStore.TryProbeSnapshotSidecar(path, out probe));
-            Assert.Equal(SnapshotSidecarEncoding.DeflateV1, probe.Encoding);
-            Assert.Equal(SnapshotSidecarCodec.CurrentVersion, probe.FormatVersion);
-            Assert.True(probe.CompressedLength > 0);
-            Assert.True(probe.UncompressedLength > probe.CompressedLength,
-                $"Expected compressed sidecar ({probe.CompressedLength} bytes) to be smaller than uncompressed payload ({probe.UncompressedLength} bytes)");
-
-            ConfigNode loaded;
-            Assert.True(RecordingSidecarStore.LoadSnapshotSidecarForTesting(path, out loaded));
-            AssertConfigNodeEquivalent(expected, loaded, "compressedSnapshot");
-        }
-
-        [Fact]
-        public void SnapshotSidecar_MixedLegacyAndCompressedFiles_RejectsLegacyAndLoadsCompressed()
-        {
-            ConfigNode legacy = BuildSnapshot("Legacy Mixed", pid: 3001);
-            ConfigNode compressed = VesselSnapshotBuilder.FleaRocket("Compressed Mixed", "Valentina Kerman", pid: 3002)
-                .Build();
-
-            string legacyPath = Path.Combine(tempDir, "mixed-legacy_vessel.craft");
-            string compressedPath = Path.Combine(tempDir, "mixed-compressed_vessel.craft");
-
-            legacy.Save(legacyPath);
-            RecordingSidecarStore.WriteSnapshotSidecarForTesting(compressedPath, compressed);
-
-            ConfigNode loadedLegacy;
-            ConfigNode loadedCompressed;
-            SnapshotSidecarProbe legacyProbe;
-            Assert.True(RecordingSidecarStore.TryProbeSnapshotSidecar(legacyPath, out legacyProbe));
-            Assert.False(legacyProbe.Supported);
-            Assert.Equal("magic-mismatch", legacyProbe.FailureReason);
-            Assert.False(RecordingSidecarStore.LoadSnapshotSidecarForTesting(legacyPath, out loadedLegacy));
-            Assert.True(RecordingSidecarStore.LoadSnapshotSidecarForTesting(compressedPath, out loadedCompressed));
-            Assert.Null(loadedLegacy);
-            AssertConfigNodeEquivalent(compressed, loadedCompressed, "mixedCompressed");
-        }
-
-        [Fact]
         public void SnapshotSidecar_CompressedFormat_IsSmallerThanEquivalentLegacyText()
         {
             ConfigNode expected = VesselSnapshotBuilder.FleaRocket("Snapshot Size", "Bill Kerman", pid: 4004)
@@ -948,33 +881,6 @@ namespace Parsek.Tests
                 l.Contains("[RecordingStore]") &&
                 l.Contains("unsupported binary trajectory") &&
                 l.Contains("reason=format-version-mismatch"));
-        }
-
-        [Fact]
-        public void UnsupportedSnapshotSidecarVersion_IsRejected()
-        {
-            string path = Path.Combine(tempDir, "unsupported_vessel.craft");
-            using (var stream = new FileStream(path, FileMode.Create, FileAccess.Write))
-            using (var writer = new BinaryWriter(stream))
-            {
-                writer.Write(new byte[] { (byte)'P', (byte)'R', (byte)'K', (byte)'S' });
-                writer.Write(99);
-                writer.Write((byte)1);
-                writer.Write(16);
-                writer.Write(4);
-                writer.Write(0u);
-                writer.Write(new byte[] { 1, 2, 3, 4 });
-            }
-
-            logLines.Clear();
-            SnapshotSidecarProbe probe;
-            Assert.True(RecordingSidecarStore.TryProbeSnapshotSidecar(path, out probe));
-            Assert.False(probe.Supported);
-            Assert.Equal(SnapshotSidecarEncoding.UnknownBinary, probe.Encoding);
-            Assert.Contains(logLines, l =>
-                l.Contains("[WARN]") &&
-                l.Contains("[RecordingStore]") &&
-                l.Contains("unsupported snapshot sidecar"));
         }
 
         [Fact]

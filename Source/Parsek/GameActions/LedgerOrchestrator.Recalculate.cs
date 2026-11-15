@@ -485,7 +485,7 @@ namespace Parsek
             LogRecalculateAndPatchComplete(
                 actions, utCutoff, patchDeferralReason, authoritativeRepeatableRecordState);
 
-            OnTimelineDataChanged?.Invoke();
+            LedgerTimelineSignal.OnTimelineDataChanged?.Invoke();
         }
 
         /// <summary>

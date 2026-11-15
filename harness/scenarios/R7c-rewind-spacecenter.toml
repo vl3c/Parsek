@@ -246,7 +246,7 @@ count = { min = 3, max = 3 }
 # So the branch is pinned positively and its two escape hatches negatively.
 #
 #  - REQUIRED, the Step 2.13 success summary from `RecordingTreeSplitter`
-#    (`Source/Parsek/RecordingTreeSplitter.cs`, the `Split origin {id} at UT=...`
+#    (`Source/Parsek/Rewind/RecordingTreeSplitter.cs`, the `Split origin {id} at UT=...`
 #    ParsekLog.Info). The regex is derived from that interpolated format string and was
 #    VALIDATED against the archived KSP.log of run `2026-08-04_1914_R7c-rewind-
 #    spacecenter` (line 11682) before it was committed - it matches, token for token:

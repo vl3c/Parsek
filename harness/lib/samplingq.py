@@ -19,7 +19,7 @@ recorder that spaces by game time keeps its bounds under physics warp up to a co
 frame quantum, and that is exactly what this module holds it to: the same min / max /
 threshold contract as at 1x, with a ONE-FRAME allowance of ``0.02 * rate``. The rate of
 each frame comes from the recorder's own section-close line (``warpRuns=`` on
-``TrackSection closed:``, ``Source/Parsek/SectionWarpRuns.cs``), parsed by
+``TrackSection closed:``, ``Source/Parsek/Recording/SectionWarpRuns.cs``), parsed by
 ``parse_warp_runs``.
 
 Measured per adjacent sample pair inside one ACTIVE, ABSOLUTE track section (the

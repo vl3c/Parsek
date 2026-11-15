@@ -1,0 +1,1972 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Reflection;
+using Contracts;
+using UnityEngine;
+
+namespace Parsek
+{
+    /// <summary>
+    /// Records career-mode game state changes (contracts, tech, crew, facilities, resources).
+    /// Lifecycle managed by ParsekScenario — Subscribe/Unsubscribe called on every OnLoad.
+    /// </summary>
+    internal partial class GameStateRecorder
+    {
+        /// <summary>
+        /// Set to true by ParsekScenario during its own crew mutations
+        /// (UnreserveCrewInSnapshot, CleanUpReplacement)
+        /// to prevent recording Parsek's internal bookkeeping as real game state events.
+        /// </summary>
+        internal static bool SuppressCrewEvents = false;
+
+        /// <summary>
+        /// Set to true by ParsekFlight during timeline resource replay
+        /// (AddFunds/AddScience/AddReputation) to prevent recording replay
+        /// mechanics as real game state events.
+        /// </summary>
+        internal static bool SuppressResourceEvents = false;
+
+        /// <summary>
+        /// Set to true by KspStatePatcher during ledger-based state patching to prevent
+        /// recording replayed actions as new game state events and to bypass
+        /// blocking Harmony patches (TechResearchPatch, FacilityUpgradePatch)
+        /// that normally prevent duplicate actions on committed items.
+        /// </summary>
+        internal static bool IsReplayingActions = false;
+
+        /// <summary>
+        /// Science subjects captured during the current recording session.
+        /// Converted into ScienceEarning actions and then mirrored into
+        /// GameStateStore.committedScienceSubjects on commit.
+        /// </summary>
+        internal static List<PendingScienceSubject> PendingScienceSubjects = new List<PendingScienceSubject>();
+
+        /// <summary>
+        /// Optimizer-split partition of the in-memory capture state, the companion of
+        /// <see cref="GameStateStore.RetagEventsForSplitSecondHalf"/>
+        /// (RETAG-ON-SPLIT-MISSES-LATER-ROWS): every pending science subject tagged
+        /// <paramref name="firstRecordingId"/> whose <c>captureUT</c> is <c>&gt;= splitUT</c>
+        /// is retagged to <paramref name="secondRecordingId"/>, so the commit converts it for
+        /// the segment it was captured in (its row takes that segment's end as its UT, not
+        /// the first segment's). The cached copies in <see cref="PendingMilestoneEventById"/>
+        /// get the same retag, because <see cref="EnrichPendingMilestoneRewards"/> finds the
+        /// stored event by an identity that includes the tag. Returns the number of science
+        /// subjects retagged.
+        /// </summary>
+        internal static int RetagPendingScienceForSplitSecondHalf(
+            string firstRecordingId, string secondRecordingId, double splitUT)
+        {
+            if (string.IsNullOrEmpty(firstRecordingId) || string.IsNullOrEmpty(secondRecordingId))
+                return 0;
+            if (string.Equals(firstRecordingId, secondRecordingId, StringComparison.Ordinal))
+                return 0;
+            if (double.IsNaN(splitUT) || double.IsInfinity(splitUT))
+                return 0;
+
+            int retagged = 0;
+            for (int i = 0; i < PendingScienceSubjects.Count; i++)
+            {
+                var s = PendingScienceSubjects[i];
+                if (!string.Equals(s.recordingId ?? "", firstRecordingId, StringComparison.Ordinal))
+                    continue;
+                if (!(s.captureUT >= splitUT))
+                    continue;
+                s.recordingId = secondRecordingId;
+                PendingScienceSubjects[i] = s;
+                retagged++;
+            }
+
+            int milestoneCopies = 0;
+            if (PendingMilestoneEventById.Count > 0)
+            {
+                var keys = new List<string>(PendingMilestoneEventById.Keys);
+                for (int i = 0; i < keys.Count; i++)
+                {
+                    var evt = PendingMilestoneEventById[keys[i]];
+                    if (!string.Equals(evt.recordingId ?? "", firstRecordingId, StringComparison.Ordinal))
+                        continue;
+                    if (!(evt.ut >= splitUT))
+                        continue;
+                    evt.recordingId = secondRecordingId;
+                    PendingMilestoneEventById[keys[i]] = evt;
+                    milestoneCopies++;
+                }
+            }
+
+            ParsekLog.Verbose("GameStateRecorder",
+                $"RetagPendingScienceForSplitSecondHalf: first='{firstRecordingId}' second='{secondRecordingId}' " +
+                $"splitUT={splitUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"retagged={retagged.ToString(CultureInfo.InvariantCulture)} " +
+                $"pendingMilestoneCopies={milestoneCopies.ToString(CultureInfo.InvariantCulture)} " +
+                $"total={PendingScienceSubjects.Count.ToString(CultureInfo.InvariantCulture)}");
+            return retagged;
+        }
+
+        /// <summary>
+        /// Optimizer-merge companion of <see cref="GameStateStore.RetagEventsForRecording"/>
+        /// (OPTIMIZER-MERGE-RETAGS-LEDGER-ROWS-ONLY): every pending science subject tagged
+        /// <paramref name="oldRecordingId"/> moves to <paramref name="newRecordingId"/>, and so
+        /// do the cached copies in <see cref="PendingMilestoneEventById"/> (found by an identity
+        /// that includes the tag). The mirror of <see cref="RetagPendingScienceForSplitSecondHalf"/>
+        /// with no cut: the absorbed recording leaves the committed list whole. Returns the
+        /// number of science subjects retagged.
+        /// </summary>
+        internal static int RetagPendingScienceForRecording(string oldRecordingId, string newRecordingId)
+        {
+            if (string.IsNullOrEmpty(oldRecordingId) || string.IsNullOrEmpty(newRecordingId))
+                return 0;
+            if (string.Equals(oldRecordingId, newRecordingId, StringComparison.Ordinal))
+                return 0;
+
+            int retagged = 0;
+            for (int i = 0; i < PendingScienceSubjects.Count; i++)
+            {
+                var s = PendingScienceSubjects[i];
+                if (!string.Equals(s.recordingId ?? "", oldRecordingId, StringComparison.Ordinal))
+                    continue;
+                s.recordingId = newRecordingId;
+                PendingScienceSubjects[i] = s;
+                retagged++;
+            }
+
+            int milestoneCopies = 0;
+            if (PendingMilestoneEventById.Count > 0)
+            {
+                var keys = new List<string>(PendingMilestoneEventById.Keys);
+                for (int i = 0; i < keys.Count; i++)
+                {
+                    var evt = PendingMilestoneEventById[keys[i]];
+                    if (!string.Equals(evt.recordingId ?? "", oldRecordingId, StringComparison.Ordinal))
+                        continue;
+                    evt.recordingId = newRecordingId;
+                    PendingMilestoneEventById[keys[i]] = evt;
+                    milestoneCopies++;
+                }
+            }
+
+            ParsekLog.Verbose("GameStateRecorder",
+                $"RetagPendingScienceForRecording: '{oldRecordingId}' -> '{newRecordingId}' " +
+                $"retagged={retagged.ToString(CultureInfo.InvariantCulture)} " +
+                $"pendingMilestoneCopies={milestoneCopies.ToString(CultureInfo.InvariantCulture)} " +
+                $"total={PendingScienceSubjects.Count.ToString(CultureInfo.InvariantCulture)}");
+            return retagged;
+        }
+
+        internal struct RecentScienceChangeCapture
+        {
+            public double Ut;
+            public string ReasonKey;
+            public float Delta;
+            public string RecordingId;
+            public bool Valid;
+        }
+
+        /// <summary>
+        /// #431: test hook. When non-null, <see cref="ResolveCurrentRecordingTag"/> returns its result
+        /// instead of probing <see cref="ParsekFlight"/> / <see cref="RecordingStore"/>. Unit tests
+        /// set this to simulate a live recording without spinning up the MonoBehaviour.
+        /// Production code never touches it.
+        /// </summary>
+        internal static System.Func<string> TagResolverForTesting;
+        internal static System.Func<bool> HasLiveRecorderProviderForTesting;
+        internal static System.Func<bool> HasActiveUncommittedTreeProviderForTesting;
+        /// <summary>Test hook for <see cref="IsLiveFlightVessel"/>.</summary>
+        internal static System.Func<uint, bool> LiveFlightVesselProviderForTesting;
+
+        /// <summary>
+        /// #431: central funnel for every <see cref="GameStateEvent"/> the recorder produces.
+        /// Resolves the current recording tag, stamps it on the event, logs the emission, and warns
+        /// on drift (tagged event with no live recorder / no pending vessel-switch, or in-flight event
+        /// with an active recorder but no tag). All captured-event sites in this class route through
+        /// <c>Emit</c>.
+        /// </summary>
+        internal static void Emit(ref GameStateEvent evt, string source)
+        {
+            Emit(ref evt, source, out _);
+        }
+
+        /// <summary>
+        /// <see cref="Emit(ref GameStateEvent, string)"/> that also reports the recovery owner
+        /// it applied. An event no live recording tags is offered to the open
+        /// <see cref="RecoveryDispatchScope"/> (QUICKLOAD-UNTAGGED-RECOVERY-MILESTONE-SURVIVES-F9):
+        /// a progress event raised inside a vessel recovery is tagged to the recovered
+        /// recording. A live tag, or a tag the caller already set, always wins.
+        /// </summary>
+        internal static void Emit(ref GameStateEvent evt, string source, out RecoveryEventOwner recoveryOwner)
+        {
+            recoveryOwner = RecoveryEventOwner.NoOwner("not-consulted");
+            // Inside a stock transition the clock causes (a contract's deadline or offer
+            // running out), every event is that transition's: filed under no flight.
+            string tag = InClockCauseScope ? "" : ResolveCurrentRecordingTag();
+            // Design section 2.12 Rule 3: inside a vessel recovery during a Re-Fly session,
+            // the event is filed under the recovered vessel's own session recording.
+            string causeTag;
+            if (!InClockCauseScope
+                && ReFlyAwardTagging.TryResolveCauseTag(RecoveryDispatchScope.CurrentPersistentId, tag, out causeTag))
+                tag = causeTag;
+            if (string.IsNullOrEmpty(evt.recordingId))
+            {
+                if (InClockCauseScope)
+                {
+                    evt.recordingId = "";
+                }
+                else if (string.IsNullOrEmpty(tag))
+                {
+                    recoveryOwner = RecoveryDispatchScope.ResolveOwnerForEvent(evt.eventType, evt.key, evt.ut);
+                    evt.recordingId = recoveryOwner.HasOwner ? recoveryOwner.RecordingId : "";
+                }
+                else
+                {
+                    evt.recordingId = tag;
+                }
+            }
+
+            ParsekLog.Verbose("GameStateRecorder",
+                $"Emit: {evt.eventType} key='{evt.key}' tag='{evt.recordingId}' source='{source ?? ""}'");
+
+            bool inFlight = HighLogic.LoadedScene == GameScenes.FLIGHT;
+            bool midSwitch = PendingTreeSlot.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch;
+            bool flightAlive = ParsekFlight.Instance != null;
+            // Drift A: non-empty tag with no live flight context. During FLIGHT -> KSC transitions,
+            // ParsekFlight.Instance lingers for a few frames while the scene enum already reads
+            // SPACECENTER and recovery-reward events fire — that path is legitimate, so the warn
+            // gates on Instance == null (not just scene != FLIGHT).
+            if (!inFlight && !midSwitch && !flightAlive && !string.IsNullOrEmpty(tag))
+                ParsekLog.Warn("GameStateRecorder",
+                    $"Emit drift: event '{evt.eventType}' tagged '{tag}' with no live flight context — stale tag?");
+            // Drift B: in flight with a live recorder but no tag resolved. An event inside a
+            // clock-caused transition is untagged by design, not drift.
+            if (inFlight && !InClockCauseScope && string.IsNullOrEmpty(tag) && HasLiveRecorder())
+                ParsekLog.Warn("GameStateRecorder",
+                    $"Emit drift: event '{evt.eventType}' in-flight with live recorder but empty tag");
+
+            // `ref evt` propagates any AddEvent-side normalization back to the caller's
+            // local copy. Callers that cache `evt` after Emit (e.g.
+            // RegisterPendingMilestoneEvent) see the final recordingId / legacy-field
+            // shape automatically, so there is no value-type field-mirror footgun to
+            // work around.
+            GameStateStore.AddEvent(ref evt);
+        }
+
+        /// <summary>
+        /// Stores an event filed under no recording, whatever flight is live: a career event
+        /// no vessel causes (a contract's deadline expiry). <see cref="Emit(ref GameStateEvent, string)"/>
+        /// would tag it to the live recording, and a discard, a Re-Fly merge check or a
+        /// supersede would then treat the clock's own event as that flight's.
+        /// </summary>
+        private static int clockCauseDepth;
+
+        /// <summary>True while a stock transition the clock causes runs (owner ruling
+        /// 2026-10-24: an event no flight causes is filed under no flight). Entered and left
+        /// by <c>ContractEarlyFailPatch</c> around <c>Contract.SetState(DeadlineExpired /
+        /// OfferExpired)</c>, which applies the penalty, fires the events and runs the
+        /// contract's own expiry code inside one call, and by <c>ClockCauseScopePatches</c>
+        /// around a ground station's science submission and a Sentinel detection, inside
+        /// which stock pays the award, its strategy conversions and any contract it
+        /// completes.</summary>
+        internal static bool InClockCauseScope => clockCauseDepth > 0;
+
+        /// <summary>The reason stock files the open ground-station submission's award under
+        /// (set by <c>DeployedScienceSubmitScopePatch</c> for the length of the call), or null.
+        /// The subject capture falls back to it when the award's <c>ScienceChanged</c> capture
+        /// was cleared before <c>OnScienceRecieved</c> reached the recorder: a contract that
+        /// another subscriber of the same fire completes pays its own science reward first.</summary>
+        internal static string GroundStationSubmissionReasonKey;
+
+        internal static void EnterClockCauseScope(string what)
+        {
+            clockCauseDepth++;
+            ParsekLog.Verbose("GameStateRecorder",
+                $"Clock-caused transition begins: {what ?? "(unnamed)"} (depth={clockCauseDepth}); its events are filed untagged");
+        }
+
+        internal static void ExitClockCauseScope(string what)
+        {
+            if (clockCauseDepth > 0) clockCauseDepth--;
+            ParsekLog.Verbose("GameStateRecorder",
+                $"Clock-caused transition ends: {what ?? "(unnamed)"} (depth={clockCauseDepth})");
+        }
+
+        internal static void EmitUntagged(ref GameStateEvent evt, string source)
+        {
+            evt.recordingId = "";
+            ParsekLog.Verbose("GameStateRecorder",
+                $"Emit: {evt.eventType} key='{evt.key}' tag='' (untagged: no flight causes it) source='{source ?? ""}'");
+            GameStateStore.AddEvent(ref evt);
+        }
+
+        /// <summary>
+        /// #431: resolves the current recording id for event tagging.
+        /// Primary source is <see cref="ParsekFlight.GetActiveRecordingIdForTagging"/>; the fallback
+        /// reads <see cref="PendingTreeSlot.PendingTree"/>.ActiveRecordingId while the pending tree is in
+        /// <see cref="PendingTreeState.LimboVesselSwitch"/> — events captured during a vessel-switch stash
+        /// belong to the outgoing recording. While a Re-Fly session's provisional has no recorder
+        /// bound, an in-flight tag that is empty or names the superseded origin is replaced by the
+        /// provisional (<see cref="ReFlyAwardTagging"/>), so the award belongs to the attempt.
+        /// </summary>
+        internal static string ResolveCurrentRecordingTag()
+        {
+            if (TagResolverForTesting != null)
+                return TagResolverForTesting() ?? "";
+
+            return ReFlyAwardTagging.ApplyToLiveTag(ResolveLiveRecordingTag());
+        }
+
+        /// <summary>
+        /// The recording a strategy currency conversion belongs to
+        /// (STRATEGY-CONVERSION-ROWS-OUTLIVE-THEIR-AWARD). The conversion fires inside the
+        /// same stock <c>Add*</c> as the award it diverts from, so it takes the tag
+        /// <see cref="Emit"/> gives that award's event: the live recording tag, else the
+        /// open recovery scope's owner for a progress reward, else none (a Space Center
+        /// transaction, which stays an untagged KSC row). Returns null for none.
+        /// </summary>
+        internal static string ResolveStrategyConversionRecordingTag(string reason, double ut)
+        {
+            // A conversion inside a clock-caused transition diverts that transition's
+            // currency change (a deadline penalty), which is filed under no flight.
+            if (InClockCauseScope) return null;
+            string tag = ResolveCurrentRecordingTag();
+            // Same cause tag as Emit, so the conversion follows its award inside a recovery
+            // during a Re-Fly session.
+            string causeTag;
+            if (ReFlyAwardTagging.TryResolveCauseTag(RecoveryDispatchScope.CurrentPersistentId, tag, out causeTag))
+                tag = causeTag;
+            if (!string.IsNullOrEmpty(tag))
+                return tag;
+
+            // A conversion carries no event type of its own; the recovery scope owns only
+            // progress rewards, which it recognizes by the reason key on a currency change.
+            RecoveryEventOwner owner = RecoveryDispatchScope.ResolveOwnerForEvent(
+                GameStateEventType.FundsChanged, reason ?? "", ut);
+            return owner.HasOwner ? owner.RecordingId : null;
+        }
+
+        private static string ResolveLiveRecordingTag()
+        {
+            var live = ParsekFlight.GetActiveRecordingIdForTagging();
+            if (!string.IsNullOrEmpty(live)) return live;
+
+            if (PendingTreeSlot.PendingTreeStateValue == PendingTreeState.LimboVesselSwitch)
+            {
+                var pend = PendingTreeSlot.PendingTree?.ActiveRecordingId;
+                if (!string.IsNullOrEmpty(pend)) return pend;
+            }
+
+            return "";
+        }
+
+        /// <summary>
+        /// True when a live recorder can still claim an untagged event at its commit: a live
+        /// recorder outside a clock-caused transition. Inside one the event is filed under no
+        /// flight and no commit converts it (a commit converts only its own tag), so the
+        /// #405 direct-ledger doors write it at once, as they do at the Space Center.
+        /// </summary>
+        internal static bool HasClaimingLiveRecorder()
+        {
+            return !InClockCauseScope && HasLiveRecorder();
+        }
+
+        /// <summary>
+        /// True when <paramref name="persistentId"/> names a vessel the live flight records:
+        /// the active recorder's vessel or a background member of the active tree. A live
+        /// vessel's persistentId is unique among live vessels (stock regenerates it on a
+        /// collision), so a pid match against the live flight's own members is an identity
+        /// match here.
+        /// </summary>
+        internal static bool IsLiveFlightVessel(uint persistentId)
+        {
+            var provider = LiveFlightVesselProviderForTesting;
+            if (provider != null)
+                return provider(persistentId);
+
+            return ParsekFlight.IsLiveFlightVesselForTagging(persistentId);
+        }
+
+        /// <summary>
+        /// Pure (todo LEDGER-EVENTS-OF-MOD-BACKGROUND-SOURCES-TAGGED-TO-THE-FLIGHT): true when
+        /// an event a known vessel causes belongs to no flight, so it is filed untagged. Only
+        /// while a live recorder would otherwise claim it, never inside a recovery (the
+        /// recovery scope names its own owner), and only for an UNLOADED vessel the live flight
+        /// does not record: a background vessel's transmission under a mod. A loaded vessel
+        /// outside the tree stays the flight's, since the flight's EVA kerbal can act on it.
+        /// </summary>
+        internal static bool IsVesselEventOutsideTheFlight(
+            bool hasLiveRecorder, bool recoveryScopeOpen, bool vesselLoaded, bool vesselInFlight)
+        {
+            return hasLiveRecorder && !recoveryScopeOpen && !vesselLoaded && !vesselInFlight;
+        }
+
+        /// <summary>
+        /// #431: true when a flight recorder is currently live on the active tree. Used by
+        /// <see cref="Emit"/>'s drift-warn branch to flag "in-flight, should have a tag, doesn't."
+        /// </summary>
+        internal static bool HasLiveRecorder()
+        {
+            var provider = HasLiveRecorderProviderForTesting;
+            if (provider != null)
+                return provider();
+
+            return ParsekFlight.HasLiveRecorderForTagging();
+        }
+
+        internal static bool HasActiveUncommittedTree()
+        {
+            var provider = HasActiveUncommittedTreeProviderForTesting;
+            if (provider != null)
+                return provider();
+
+            return ParsekFlight.HasUncommittedTreeForKspPatchDeferral();
+        }
+
+        internal static string FormatEventRejectSummary(
+            string source,
+            string reason,
+            string key = null,
+            string detail = null)
+        {
+            return string.Format(CultureInfo.InvariantCulture,
+                "Event rejected: source={0} reason={1} key={2} detail={3}",
+                string.IsNullOrEmpty(source) ? "(unknown)" : source,
+                string.IsNullOrEmpty(reason) ? "unspecified" : reason,
+                string.IsNullOrEmpty(key) ? "(none)" : key,
+                string.IsNullOrEmpty(detail) ? "(none)" : detail);
+        }
+
+        private static void LogEventReject(
+            string source,
+            string reason,
+            string key = null,
+            string detail = null)
+        {
+            string rateKey = string.Format(CultureInfo.InvariantCulture,
+                "reject-{0}-{1}-{2}",
+                string.IsNullOrEmpty(source) ? "unknown" : source,
+                string.IsNullOrEmpty(reason) ? "unspecified" : reason,
+                string.IsNullOrEmpty(key) ? "none" : key);
+            ParsekLog.VerboseRateLimited("GameStateRecorder",
+                rateKey,
+                FormatEventRejectSummary(source, reason, key, detail),
+                5.0);
+        }
+
+        internal const string PendingScienceNodeName = "PENDING_SCIENCE";
+        private const string PendingScienceSubjectNodeName = "SUBJECT";
+
+        /// <summary>
+        /// Builds the save's <c>GAME_STATE/PENDING_SCIENCE</c> node: one <c>SUBJECT</c> per
+        /// pending science subject, every field, invariant culture.
+        /// </summary>
+        internal static ConfigNode BuildPendingScienceNode(IReadOnlyList<PendingScienceSubject> subjects)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            var root = new ConfigNode(PendingScienceNodeName);
+            if (subjects == null)
+                return root;
+            for (int i = 0; i < subjects.Count; i++)
+            {
+                var s = subjects[i];
+                var n = root.AddNode(PendingScienceSubjectNodeName);
+                n.AddValue("subjectId", s.subjectId ?? "");
+                n.AddValue("science", s.science.ToString("R", ic));
+                n.AddValue("subjectMaxValue", s.subjectMaxValue.ToString("R", ic));
+                n.AddValue("captureUT", s.captureUT.ToString("R", ic));
+                if (!string.IsNullOrEmpty(s.reasonKey))
+                    n.AddValue("reasonKey", s.reasonKey);
+                if (!string.IsNullOrEmpty(s.recordingId))
+                    n.AddValue("recordingId", s.recordingId);
+                n.AddValue("scienceGainMultiplier", s.scienceGainMultiplier.ToString("R", ic));
+                if (!string.IsNullOrEmpty(s.captureActionId))
+                    n.AddValue("captureActionId", s.captureActionId);
+            }
+            return root;
+        }
+
+        /// <summary>
+        /// Parses a <c>PENDING_SCIENCE</c> node built by <see cref="BuildPendingScienceNode"/>.
+        /// A subject with no id is skipped and counted in <paramref name="malformed"/>.
+        /// </summary>
+        internal static List<PendingScienceSubject> ParsePendingScienceNode(ConfigNode node, out int malformed)
+        {
+            malformed = 0;
+            var result = new List<PendingScienceSubject>();
+            if (node == null)
+                return result;
+            var ic = CultureInfo.InvariantCulture;
+            ConfigNode[] subjects = node.GetNodes(PendingScienceSubjectNodeName);
+            for (int i = 0; i < subjects.Length; i++)
+            {
+                var n = subjects[i];
+                string id = n.GetValue("subjectId");
+                if (string.IsNullOrEmpty(id))
+                {
+                    malformed++;
+                    continue;
+                }
+                var s = new PendingScienceSubject { subjectId = id };
+                float.TryParse(n.GetValue("science"), NumberStyles.Float, ic, out s.science);
+                float.TryParse(n.GetValue("subjectMaxValue"), NumberStyles.Float, ic, out s.subjectMaxValue);
+                double.TryParse(n.GetValue("captureUT"), NumberStyles.Float, ic, out s.captureUT);
+                float.TryParse(n.GetValue("scienceGainMultiplier"), NumberStyles.Float, ic, out s.scienceGainMultiplier);
+                string reason = n.GetValue("reasonKey");
+                s.reasonKey = string.IsNullOrEmpty(reason) ? null : reason;
+                string rec = n.GetValue("recordingId");
+                s.recordingId = string.IsNullOrEmpty(rec) ? null : rec;
+                string actionId = n.GetValue("captureActionId");
+                s.captureActionId = string.IsNullOrEmpty(actionId) ? null : actionId;
+                result.Add(s);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Production reset for a cold load (<c>ParsekScenario.ResetSaveScopedSessionState</c>):
+        /// pending milestone rewards, the contract-completion dedup, the recovery payout
+        /// contexts and the pending science subjects. Test seams and the scoped suppression
+        /// flags are left alone. Returns the number of pending science subjects dropped.
+        /// </summary>
+        internal static int ResetForSaveLoad()
+        {
+            ClearPendingMilestoneEvents("save-scoped-reset");
+            ClearContractCompletionDedup("save-scoped-reset");
+            RecoveryPayoutContextStore.Clear("save-scoped-reset");
+            int droppedScience = PendingScienceSubjects.Count;
+            PendingScienceSubjects.Clear();
+            return droppedScience;
+        }
+
+        internal static void ResetForTesting()
+        {
+            clockCauseDepth = 0;
+            GroundStationSubmissionReasonKey = null;
+            TagResolverForTesting = null;
+            HasLiveRecorderProviderForTesting = null;
+            HasActiveUncommittedTreeProviderForTesting = null;
+            LiveFlightVesselProviderForTesting = null;
+            ReFlyAwardTagging.ResetForTesting();
+            ClearPendingMilestoneEvents("ResetForTesting");
+            ClearContractCompletionDedup("ResetForTesting");
+            RecoveryPayoutContextStore.ResetForTesting();
+            RecoveryDispatchScope.ResetForTesting();
+            PendingScienceSubjects.Clear();
+            SuppressCrewEvents = false;
+            SuppressResourceEvents = false;
+            IsReplayingActions = false;
+            BypassEntryPurchaseAfterResearchProviderForTesting = null;
+            ScienceGainMultiplierProviderForTesting = null;
+            FundsChangedUtProviderForTesting = null;
+            RecoveryPayoutScope.ResetForTesting();
+        }
+
+        /// <summary>
+        /// Test-only seam for the stock R&amp;D-part-purchase difficulty toggle. Production
+        /// reads <c>HighLogic.CurrentGame.Parameters.Difficulty.BypassEntryPurchaseAfterResearch</c>
+        /// directly; tests install a provider to drive both branches without a live KSP game.
+        /// Cleared by <see cref="ResetForTesting"/>.
+        /// </summary>
+        internal static Func<bool> BypassEntryPurchaseAfterResearchProviderForTesting;
+
+        /// <summary>
+        /// Returns whether the stock R&amp;D difficulty toggle is available and, if so,
+        /// whether KSP bypasses one-time part entry purchases after research.
+        /// </summary>
+        internal static bool TryGetBypassEntryPurchaseAfterResearch(out bool bypassEntryPurchaseAfterResearch)
+        {
+            var provider = BypassEntryPurchaseAfterResearchProviderForTesting;
+            if (provider != null)
+            {
+                bypassEntryPurchaseAfterResearch = provider();
+                return true;
+            }
+
+            var game = HighLogic.CurrentGame;
+            if (game == null || game.Parameters == null || game.Parameters.Difficulty == null)
+            {
+                bypassEntryPurchaseAfterResearch = false;
+                return false;
+            }
+
+            bypassEntryPurchaseAfterResearch =
+                game.Parameters.Difficulty.BypassEntryPurchaseAfterResearch;
+            return true;
+        }
+
+        /// <summary>
+        /// Test-only seam for <c>Career.ScienceGainMultiplier</c>. Production reads the live
+        /// game parameter; tests install a provider to drive non-Normal presets headless.
+        /// Cleared by <see cref="ResetForTesting"/>.
+        /// </summary>
+        internal static Func<float> ScienceGainMultiplierProviderForTesting;
+
+        /// <summary>
+        /// The <c>Career.ScienceGainMultiplier</c> stock applies to subject science right now
+        /// (decompiled <c>ResearchAndDevelopment.SubmitScienceData</c>: it adds the raw value to
+        /// <c>subject.science</c>, THEN multiplies before <c>AddScience</c>). Read ONLY at
+        /// capture time and frozen onto the pending subject; replay never calls this.
+        /// Null-guarded: no live game (or a non-positive value) reads as 1.
+        /// </summary>
+        internal static float ReadScienceGainMultiplierAtCapture()
+        {
+            var provider = ScienceGainMultiplierProviderForTesting;
+            if (provider != null)
+                return GameAction.NormalizeScienceGainMultiplier(provider());
+
+            var game = HighLogic.CurrentGame;
+            if (game == null || game.Parameters == null || game.Parameters.Career == null)
+                return 1f;
+            return GameAction.NormalizeScienceGainMultiplier(game.Parameters.Career.ScienceGainMultiplier);
+        }
+
+        /// <summary>
+        /// Returns whether stock KSP bypasses the one-time part entry purchase in R&amp;D.
+        /// Defensive: returns false when no live game exists.
+        /// </summary>
+        internal static bool IsBypassEntryPurchaseAfterResearch()
+        {
+            bool bypassEntryPurchaseAfterResearch;
+            return TryGetBypassEntryPurchaseAfterResearch(out bypassEntryPurchaseAfterResearch)
+                && bypassEntryPurchaseAfterResearch;
+        }
+
+        /// <summary>
+        /// Builds the canonical PartPurchased event payload from stock KSP semantics:
+        /// when bypass is on, the player pays 0; when bypass is off, the player pays
+        /// the part's <c>entryCost</c> (not its rollout/build <c>cost</c>), except for an
+        /// identical part stock buys alongside it (<paramref name="costsFunds"/> false),
+        /// which is free. Internal static for unit test coverage.
+        /// </summary>
+        internal static GameStateEvent CreatePartPurchasedEvent(
+            string partName,
+            float entryCost,
+            bool bypassEntryPurchaseAfterResearch,
+            double ut,
+            double currentFunds,
+            bool costsFunds = true)
+        {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            float chargedCost = ComputePartPurchaseChargedCost(
+                entryCost, costsFunds, bypassEntryPurchaseAfterResearch);
+            return new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.PartPurchased,
+                key = partName ?? "",
+                detail = "cost=" + chargedCost.ToString("R", ic),
+                valueBefore = currentFunds + chargedCost,
+                valueAfter = currentFunds
+            };
+        }
+
+        /// <summary>
+        /// Builds the PartUpgradePurchased event payload from stock KSP semantics
+        /// (<c>Funding.onUpgradePurchased</c>, KSP 1.12.5 decompiled): nothing is charged
+        /// under bypass-entry-purchase or for an upgrade whose <c>entryCost</c> is not
+        /// positive, otherwise the upgrade's <c>entryCost</c>. Internal static for unit tests.
+        /// </summary>
+        internal static GameStateEvent CreatePartUpgradePurchasedEvent(
+            string upgradeName,
+            float entryCost,
+            bool bypassEntryPurchaseAfterResearch,
+            double ut,
+            double currentFunds)
+        {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            float chargedCost = ComputePartUpgradeChargedCost(entryCost, bypassEntryPurchaseAfterResearch);
+            return new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.PartUpgradePurchased,
+                key = upgradeName ?? "",
+                detail = "cost=" + chargedCost.ToString("R", ic) + ";entryCost=" + entryCost.ToString("R", ic),
+                valueBefore = currentFunds + chargedCost,
+                valueAfter = currentFunds
+            };
+        }
+
+        /// <summary>
+        /// What stock's <c>Funding.onUpgradePurchased</c> deducts for one upgrade purchase:
+        /// nothing under bypass-entry-purchase or for an <c>entryCost</c> that is not
+        /// positive, otherwise the <c>entryCost</c>. Pure.
+        /// </summary>
+        internal static float ComputePartUpgradeChargedCost(float entryCost, bool bypassEntryPurchaseAfterResearch)
+        {
+            if (bypassEntryPurchaseAfterResearch || !(entryCost > 0f)) return 0f;
+            return entryCost;
+        }
+
+        private bool subscribed = false;
+        private readonly GameStateFacilityRecorder facilityRecorder;
+
+        // Crew status debouncing (filters EVA start/board bounce: Assigned→Available→Assigned)
+        private struct PendingCrewEvent
+        {
+            public GameStateEvent gameEvent;
+            public ProtoCrewMember.RosterStatus from;
+            public ProtoCrewMember.RosterStatus to;
+        }
+        private Dictionary<string, PendingCrewEvent> pendingCrewEvents = new Dictionary<string, PendingCrewEvent>();
+        private RecentScienceChangeCapture latestScienceChangeCapture;
+
+        // Resource tracking for threshold checks
+        private double lastFunds = double.NaN;
+        private double lastScience = double.NaN;
+        private float lastReputation = float.NaN;
+
+        internal const double FundsThreshold = 100.0;
+        private const double ScienceThreshold = 0.001;
+        private const double ScienceCaptureMatchWindowSeconds = 5.0;
+        private const float ScienceCaptureMatchDeltaTolerance = 0.05f;
+        private const float ReputationThreshold = 1.0f;
+        private const float ReputationThresholdEpsilon = 0.001f;
+
+        internal GameStateRecorder()
+        {
+            facilityRecorder = new GameStateFacilityRecorder(this);
+        }
+
+        #region Subscription Management
+
+        internal void Subscribe()
+        {
+            if (subscribed) return;
+            subscribed = true;
+            pendingCrewEvents.Clear();
+            latestScienceChangeCapture = default(RecentScienceChangeCapture);
+            ClearPendingMilestoneEvents("Subscribe");
+            ClearContractCompletionDedup("Subscribe");
+
+            // Contracts
+            GameEvents.Contract.onOffered.Add(OnContractOffered);
+            GameEvents.Contract.onAccepted.Add(OnContractAccepted);
+            GameEvents.Contract.onCompleted.Add(OnContractCompleted);
+            GameEvents.Contract.onFailed.Add(OnContractFailed);
+            GameEvents.Contract.onCancelled.Add(OnContractCancelled);
+            GameEvents.Contract.onDeclined.Add(OnContractDeclined);
+            Patches.ContractOfferExpiredCapturePatch.ActiveContractOfferExpired += OnActiveContractOfferExpired;
+            // A parameter's own reward: read inside stock's AwardCompletion, because stock zeroes
+            // the reward fields before it fires onParameterChange.
+            Patches.ContractParameterRewardCapturePatch.RewardPaid += OnContractParameterRewardPaid;
+
+            // Tech
+            GameEvents.OnTechnologyResearched.Add(OnTechResearched);
+            // A free unlock (anomaly tech gift, debug menu) fires no OnTechnologyResearched.
+            Patches.FreeTechUnlockCapturePatch.FreeUnlockCaptured += OnFreeTechUnlocked;
+            GameEvents.OnPartPurchased.Add(OnPartPurchased);
+            GameEvents.OnPartUpgradePurchased.Add(OnPartUpgradePurchased);
+
+            // Crew
+            // #416: OnCrewmemberHired (fired from KerbalRoster.HireApplicant) — NOT
+            // onKerbalAdded, which also fires for applicant pool generation and the
+            // four starter kerbals at new-career creation, triggering spurious
+            // KerbalHire debits that wiped starting funds.
+            GameEvents.OnCrewmemberHired.Add(OnCrewmemberHired);
+            // A dismissal (KerbalRoster.SackAvailable, the Astronaut Complex's dismiss
+            // button) makes the kerbal an applicant and then fires OnCrewmemberSacked; it never
+            // reaches onKerbalRemoved (decompiled KSP 1.12.5, design section 9.12.1).
+            GameEvents.OnCrewmemberSacked.Add(OnCrewmemberSacked);
+            GameEvents.onKerbalRemoved.Add(OnKerbalRemoved);
+            GameEvents.onKerbalStatusChange.Add(OnKerbalStatusChange);
+            GameEvents.onKerbalTypeChange.Add(OnKerbalTypeChange);
+
+            // Resources
+            GameEvents.OnFundsChanged.Add(OnFundsChanged);
+            GameEvents.OnScienceChanged.Add(OnScienceChanged);
+            GameEvents.OnReputationChanged.Add(OnReputationChanged);
+
+            // Query-family strategy door (STRATEGY-SCIENCE-CONVERSION-LEAK /
+            // STRATEGY-FUNDS-YIELD-DRIFT). OnCurrencyModified - NOT
+            // OnCurrencyModifierQuery, which stock's 33 display sites fire through
+            // CurrencyModifierQuery.RunQuery without moving any balance. Instance
+            // method, so EventData.Add gets a real target (a static method handed to
+            // EventData.Add throws - see the static-GameEvent-handler NRE trap).
+            GameEvents.Modifiers.OnCurrencyModified.Add(OnCurrencyModified);
+
+            // Science subjects (per-experiment tracking for duplication prevention)
+            GameEvents.OnScienceRecieved.Add(OnScienceReceived);
+
+            // Progress milestones
+            GameEvents.OnProgressComplete.Add(OnProgressComplete);
+
+            // Kerbal experience: fires immediately AFTER VesselRecovery archives each crew
+            // member's flight log into their career log (decompile-verified ordering).
+            GameEvents.onVesselRecoveryProcessing.Add(OnVesselRecoveryProcessingForExperience);
+
+            // Facility upgrades (event-driven). The scene-load PollFacilityState below only
+            // catches upgrades across a scene change; subscribing to OnKSCFacilityUpgrading
+            // captures an in-scene upgrade (UI or seam) immediately, without a seeded
+            // baseline. See GameStateFacilityRecorder.OnFacilityUpgrading.
+            GameEvents.OnKSCFacilityUpgrading.Add(OnFacilityUpgrading);
+
+            // KSC building destruction / repair (event-driven, at the moment it happens).
+            // Both events fire synchronously inside DestructibleBuilding.Demolish / Repair;
+            // the later Collapsed / Repaired events wait on an animation coroutine. The
+            // ResetStructures hook catches the silent repair inside a facility upgrade.
+            // See GameStateFacilityRecorder.RecordBuildingTransition.
+            GameEvents.OnKSCStructureCollapsing.Add(OnStructureCollapsing);
+            GameEvents.OnKSCStructureRepairing.Add(OnStructureRepairing);
+            FacilityRepairCapture.StructuresReset += OnStructuresReset;
+
+            // Initialize resource tracking from current state
+            SeedResourceState();
+
+            // Poll facility/building state for changes since last save
+            PollFacilityState();
+
+            ParsekLog.Info("GameStateRecorder", $"GameStateRecorder subscribed ({GameStateStore.EventCount} events in history)");
+        }
+
+        internal void Unsubscribe()
+        {
+            if (!subscribed) return;
+            subscribed = false;
+            latestScienceChangeCapture = default(RecentScienceChangeCapture);
+            ClearPendingMilestoneEvents("Unsubscribe");
+            ClearContractCompletionDedup("Unsubscribe");
+
+            // Contracts
+            GameEvents.Contract.onOffered.Remove(OnContractOffered);
+            GameEvents.Contract.onAccepted.Remove(OnContractAccepted);
+            GameEvents.Contract.onCompleted.Remove(OnContractCompleted);
+            GameEvents.Contract.onFailed.Remove(OnContractFailed);
+            GameEvents.Contract.onCancelled.Remove(OnContractCancelled);
+            GameEvents.Contract.onDeclined.Remove(OnContractDeclined);
+            Patches.ContractOfferExpiredCapturePatch.ActiveContractOfferExpired -= OnActiveContractOfferExpired;
+            Patches.ContractParameterRewardCapturePatch.RewardPaid -= OnContractParameterRewardPaid;
+
+            // Tech
+            GameEvents.OnTechnologyResearched.Remove(OnTechResearched);
+            Patches.FreeTechUnlockCapturePatch.FreeUnlockCaptured -= OnFreeTechUnlocked;
+            GameEvents.OnPartPurchased.Remove(OnPartPurchased);
+            GameEvents.OnPartUpgradePurchased.Remove(OnPartUpgradePurchased);
+
+            // Crew
+            GameEvents.OnCrewmemberHired.Remove(OnCrewmemberHired);
+            GameEvents.OnCrewmemberSacked.Remove(OnCrewmemberSacked);
+            GameEvents.onKerbalRemoved.Remove(OnKerbalRemoved);
+            GameEvents.onKerbalStatusChange.Remove(OnKerbalStatusChange);
+            GameEvents.onKerbalTypeChange.Remove(OnKerbalTypeChange);
+
+            // Resources
+            GameEvents.OnFundsChanged.Remove(OnFundsChanged);
+            GameEvents.OnScienceChanged.Remove(OnScienceChanged);
+            GameEvents.OnReputationChanged.Remove(OnReputationChanged);
+
+            // Query-family strategy door (symmetric with the Subscribe side).
+            GameEvents.Modifiers.OnCurrencyModified.Remove(OnCurrencyModified);
+
+            // Science subjects
+            GameEvents.OnScienceRecieved.Remove(OnScienceReceived);
+
+            // Progress milestones
+            GameEvents.OnProgressComplete.Remove(OnProgressComplete);
+
+            // Kerbal experience
+            GameEvents.onVesselRecoveryProcessing.Remove(OnVesselRecoveryProcessingForExperience);
+
+            // Facility upgrades (event-driven)
+            GameEvents.OnKSCFacilityUpgrading.Remove(OnFacilityUpgrading);
+
+            // KSC building destruction / repair
+            GameEvents.OnKSCStructureCollapsing.Remove(OnStructureCollapsing);
+            GameEvents.OnKSCStructureRepairing.Remove(OnStructureRepairing);
+            FacilityRepairCapture.StructuresReset -= OnStructuresReset;
+
+            ParsekLog.Info("GameStateRecorder", "GameStateRecorder unsubscribed");
+        }
+
+        #endregion
+
+        #region Resource Handlers
+
+        /// <summary>
+        /// True while any resource baseline is still unseeded (NaN).
+        ///
+        /// <para>
+        /// An unseeded baseline is not inert: <see cref="OnScienceChanged"/> /
+        /// <see cref="OnFundsChanged"/> / <see cref="OnReputationChanged"/> all stamp the new
+        /// value and then <c>return</c> on <c>IsNaN(old)</c>, so the FIRST real change of the
+        /// scene is silently consumed as the primer - no event, no log, and (for science) no
+        /// reason capture for the subject that caused it. See
+        /// <see cref="SeedResourceState"/> for why a baseline can start out NaN.
+        /// </para>
+        /// </summary>
+        internal bool HasUnseededResourceBaselines =>
+            double.IsNaN(lastFunds) || double.IsNaN(lastScience) || double.IsNaN(lastReputation);
+
+        /// <summary>
+        /// Seeds any still-unseeded resource baseline from the live currency singletons, and
+        /// reports whether all three are now seeded.
+        ///
+        /// <para>
+        /// <b>Fill-only-NaN, so it is safe to call repeatedly.</b> A baseline that is already
+        /// seeded is left alone; overwriting one would silently swallow whatever changed since
+        /// it was taken.
+        /// </para>
+        ///
+        /// <para>
+        /// <b>Why a baseline can start out NaN</b> (CAREER-TRANSMIT-SCIENCE-EMITS-NO-CORROBORATING-EVENT):
+        /// a fresh recorder is constructed and subscribed from <c>ParsekScenario.OnLoad</c> on
+        /// every scene load, and KSP calls OnLoad from the middle of
+        /// <c>ScenarioRunner.LoadModules</c> - so the currency ScenarioModules that happen to
+        /// sit after Parsek's in the save can still be null here. On the flight that found
+        /// this, <c>ResearchAndDevelopment.Instance</c> was null at the space-centre subscribe,
+        /// <c>lastScience</c> stayed NaN, and the recovered Mystery Goo's +3.6 science credit
+        /// was eaten as the primer: no <c>ScienceChanged(VesselRecovery)</c> event, so the
+        /// subject reached the ledger with an empty reason, fell back to
+        /// <c>method=Transmitted</c>, and the post-walk reconcile could never match it.
+        /// <c>ParsekScenario</c> re-runs this once the singletons appear.
+        /// </para>
+        /// </summary>
+        internal bool SeedResourceState()
+        {
+            lastFunds = SeedBaselineIfUnseeded(
+                lastFunds,
+                Funding.Instance != null,
+                Funding.Instance != null ? Funding.Instance.Funds : 0.0);
+            lastScience = SeedBaselineIfUnseeded(
+                lastScience,
+                ResearchAndDevelopment.Instance != null,
+                ResearchAndDevelopment.Instance != null ? ResearchAndDevelopment.Instance.Science : 0.0);
+            lastReputation = (float)SeedBaselineIfUnseeded(
+                lastReputation,
+                Reputation.Instance != null,
+                Reputation.Instance != null ? Reputation.Instance.reputation : 0.0);
+
+            return !HasUnseededResourceBaselines;
+        }
+
+        /// <summary>
+        /// Pure baseline-seeding decision: take the singleton's value ONLY when the baseline is
+        /// still unseeded (NaN) AND the singleton exists.
+        ///
+        /// <para>
+        /// Both halves matter. Overwriting a seeded baseline would discard the change history
+        /// between the old baseline and now - the very swallow this seeding exists to prevent -
+        /// and a value read from an absent singleton would be a fabricated zero, which for
+        /// funds or science is a large false delta on the next real change.
+        /// </para>
+        ///
+        /// <para>
+        /// A genuinely-zero pool (fresh career science, a career that started at reputation 0)
+        /// seeds to 0 and is then SEEDED, not unseeded: zero is a real baseline, and only NaN
+        /// means "never read".
+        /// </para>
+        /// </summary>
+        internal static double SeedBaselineIfUnseeded(
+            double currentBaseline,
+            bool singletonPresent,
+            double singletonValue)
+        {
+            if (!double.IsNaN(currentBaseline))
+                return currentBaseline;
+            return singletonPresent ? singletonValue : currentBaseline;
+        }
+
+        private void OnFundsChanged(double newFunds, TransactionReasons reason)
+        {
+            double oldFunds = lastFunds;
+            lastFunds = newFunds;
+
+            // An open UpgradeFacility scope reads stock's StructureConstruction debit off this
+            // same delta, so the upgrade row's cost equals the FundsChanged event below. It
+            // ignores every other reason and does nothing outside a scope.
+            FacilityUpgradeCapture.ObserveFundsChange(reason, oldFunds, newFunds);
+
+            if (SuppressResourceEvents)
+            {
+                ParsekLog.VerboseRateLimited("GameStateRecorder", "suppress-funds",
+                    $"Suppressed FundsChanged event ({reason}) during timeline replay", 5.0);
+                return;
+            }
+            if (double.IsNaN(oldFunds)) return;
+            double delta = newFunds - oldFunds;
+            RecoveryPayoutScope.FundsEventSource source = RecoveryPayoutScope.Current;
+            if (IsFundsDeltaBelowThreshold(delta, reason, source))
+            {
+                ParsekLog.VerboseRateLimited("GameStateRecorder", "funds-threshold",
+                    $"Ignored FundsChanged delta={delta:+0.0;-0.0} below threshold={FundsThreshold:F1} ({reason}, {source})", 5.0);
+                return;
+            }
+            if (Math.Abs(delta) < FundsThreshold)
+                ParsekLog.Verbose("GameStateRecorder",
+                    $"FundsChanged delta={delta.ToString("+0.###;-0.###", CultureInfo.InvariantCulture)} ({reason}) " +
+                    $"below threshold={FundsThreshold.ToString("F1", CultureInfo.InvariantCulture)} recorded anyway: " +
+                    DescribeFundsThresholdExemption(reason));
+
+            double ut = ReadFundsChangedUT();
+            string detail = null;
+            if (reason == TransactionReasons.VesselRecovery)
+            {
+                if (source == RecoveryPayoutScope.FundsEventSource.StrategyEffect)
+                {
+                    // A strategy's yield under the recovery reason (its leg is the row): stamped
+                    // so no recovery pairing takes it, and it claims no payout context.
+                    detail = RecoveryPayoutContextStore.NotPayoutFundsEventDetail;
+                    ParsekLog.Verbose("GameStateRecorder",
+                        $"FundsChanged {delta.ToString("+0.###;-0.###", CultureInfo.InvariantCulture)} (VesselRecovery) " +
+                        "is a strategy effect, not the recovery payout - stamped so no recovery pairing takes it");
+                }
+                else
+                {
+                    detail = BuildVesselRecoveryFundsDetail(ut, delta);
+                }
+            }
+
+            var fundsEvt = new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.FundsChanged,
+                key = reason.ToString(),
+                detail = detail,
+                valueBefore = oldFunds,
+                valueAfter = newFunds
+            };
+            Emit(ref fundsEvt, "FundsChanged");
+            ParsekLog.Info("GameStateRecorder", $"Game state: FundsChanged {delta:+0;-0} ({reason}) → {newFunds:F0}");
+            LogUnledgeredCheatCurrency(reason, "funds", delta, newFunds);
+
+            // #445: VesselRollout deducts the vessel cost when the player launches from
+            // VAB/SPH onto the launchpad/runway. KSP captures this BEFORE
+            // FlightRecorder.CapturePreLaunchResources runs, so the recording-side
+            // CreateVesselCostActions sees a near-zero PreLaunchFunds-to-first-point delta
+            // and the cost was previously dropped on the floor (especially when the player
+            // cancels the rollout without ever starting a recording). Route the deduction
+            // through the ledger immediately as a FundsSpending(VesselBuild). A subsequent
+            // recording from the same vessel will adopt this action via TryAdoptRolloutAction.
+            //
+            // Sign/positivity contract: OnVesselRolloutSpending is the authoritative
+            // non-positive-cost guard (rejects cost <= 0 with VERBOSE) — we pass the
+            // negated delta unconditionally and let the orchestrator decide, so the
+            // contract is enforced in one place even if KSP ever fires a refund-style
+            // VesselRollout event.
+            //
+            // IsReplayingActions guard mirrors other career-event handlers — KspStatePatcher
+            // replays AddFunds during ledger walks and we must not synthesize new actions.
+            //
+            // Ordering invariant: this call MUST follow the Emit(...FundsChanged(VesselRollout))
+            // above so OnVesselRolloutSpending's ReconcileKscAction can pair the action
+            // against the just-emitted event in GameStateStore.
+            if (reason == TransactionReasons.VesselRollout && !IsReplayingActions)
+                LedgerOrchestrator.OnVesselRolloutSpending(ut, -delta);
+
+            if (reason == TransactionReasons.VesselRecovery && !IsReplayingActions)
+                LedgerOrchestrator.OnRecoveryFundsEventRecorded(fundsEvt);
+
+            // Bail-Out Grant (stock CurrencyExchanger) credits funds directly under
+            // TransactionReasons.StrategyOutput with no recording owner and no other
+            // capture channel. Forward it straight to the ledger so the recalc preserves
+            // the grant instead of clobbering it. ShouldForwardDirectLedgerEvent skips the
+            // write when a live recorder owns the event (it then flows through the
+            // commit-time ConvertEvents path). See
+            // fix-bailout-grant-currency-exchange-capture.md.
+            if (reason == TransactionReasons.StrategyOutput &&
+                ShouldForwardDirectLedgerEvent(fundsEvt.recordingId, HasClaimingLiveRecorder()))
+                LedgerOrchestrator.OnKscSpending(fundsEvt);
+        }
+
+        /// <summary>
+        /// Pure threshold decision for <see cref="OnFundsChanged"/>: true when the change is
+        /// dropped as noise. Stock's own recovery payout (a positive <c>VesselRecovery</c>
+        /// change inside <c>Funding.onVesselRecoveryProcessing</c>,
+        /// <see cref="RecoveryPayoutScope.FundsEventSource.Payout"/>) is never dropped, whatever
+        /// its size (SMALL-RECOVERY-FUNDS-ERASED-IN-REFLY): it is the only source the recovery
+        /// pairing builds its <c>FundsEarning(Recovery)</c> row from, and a gain with no row
+        /// survives only as an untagged pool adjustment on a measured patch, while an
+        /// authoritative patch (a Re-Fly session, a rewind, a merge) writes the pool back to
+        /// the ledger target and erases it. The same holds for the two other reasons whose
+        /// change is the only capture of a ledger row (SUB-100-ROLLOUT-AND-BAILOUT-NOT-LEDGERED):
+        /// a <c>VesselRollout</c> charge (a negative change; <c>OnVesselRolloutSpending</c> files
+        /// its <c>FundsSpending(VesselBuild)</c> row from it, after this check) and a currency
+        /// exchanger's funds out under <c>StrategyOutput</c> (a positive change, the Bail-Out
+        /// Grant's direct forward and <c>ConvertStrategyExchangeFunds</c>). Everything else keeps
+        /// the <see cref="FundsThreshold"/> floor, including a strategy yield under the recovery
+        /// reason (its own leg is its row), an unscoped recovery change and a zero change.
+        /// </summary>
+        internal static bool IsFundsDeltaBelowThreshold(
+            double delta, TransactionReasons reason, RecoveryPayoutScope.FundsEventSource source)
+        {
+            if (reason == TransactionReasons.VesselRecovery
+                && source == RecoveryPayoutScope.FundsEventSource.Payout
+                && delta > 0.0)
+                return false;
+            if (reason == TransactionReasons.VesselRollout && delta < 0.0)
+                return false;
+            if (reason == TransactionReasons.StrategyOutput && delta > 0.0)
+                return false;
+            return Math.Abs(delta) < FundsThreshold;
+        }
+
+        /// <summary>Log text: why a change under the funds threshold is recorded.</summary>
+        internal static string DescribeFundsThresholdExemption(TransactionReasons reason)
+        {
+            switch (reason)
+            {
+                case TransactionReasons.VesselRollout:
+                    return "a rollout charge is filed as its VesselBuild row";
+                case TransactionReasons.StrategyOutput:
+                    return "a currency exchange's funds out is filed as its strategy row";
+                default:
+                    return "stock's recovery payout is paired exactly";
+            }
+        }
+
+        /// <summary>
+        /// Test-only UT source for <see cref="OnFundsChanged"/> (Planetarium is absent in the
+        /// xUnit host). Null in production. Cleared by <see cref="ResetForTesting"/>.
+        /// </summary>
+        internal static Func<double> FundsChangedUtProviderForTesting;
+
+        private static double ReadFundsChangedUT()
+        {
+            var provider = FundsChangedUtProviderForTesting;
+            return provider != null ? provider() : Planetarium.GetUniversalTime();
+        }
+
+        internal static string BuildVesselRecoveryFundsDetail(double ut)
+        {
+            return BuildVesselRecoveryFundsDetail(ut, double.NaN);
+        }
+
+        internal static string BuildVesselRecoveryFundsDetail(double ut, double fundsDelta)
+        {
+            return RecoveryPayoutContextStore.TryBuildFundsEventDetail(ut, fundsDelta, out string detail)
+                ? detail
+                : null;
+        }
+
+        private void OnScienceChanged(float newScience, TransactionReasons reason)
+        {
+            double oldScience = lastScience;
+            lastScience = newScience;
+
+            if (SuppressResourceEvents)
+            {
+                ParsekLog.VerboseRateLimited("GameStateRecorder", "suppress-science",
+                    $"Suppressed ScienceChanged event ({reason}) during timeline replay", 5.0);
+                return;
+            }
+            if (double.IsNaN(oldScience)) return;
+            double delta = newScience - oldScience;
+            double ut = Planetarium.GetUniversalTime();
+            string reasonKey = reason.ToString();
+
+            // STRATEGY-ECHO-CAPTURE-WIPE: the threshold check runs FIRST, so a
+            // below-threshold ScienceChanged - notably the zero-delta trailing echo a
+            // stock CurrencyConverter strategy produces after it has already taken its
+            // share - leaves latestScienceChangeCapture untouched instead of wiping it.
+            // Before this ordering, every recovery award landing while a query-family
+            // strategy was active lost the VesselRecovery reasonKey the capture carried,
+            // so LedgerOrchestrator.ResolveKscScienceRecordingId fell back to
+            // method=Transmitted and the science kept its credit but lost its recording
+            // attribution. A REAL negative delta still clears the capture below (that
+            // cache is for POSITIVE subject awards and a stale one would mis-attribute).
+            // Accepted corollary of the same ordering: a below-threshold POSITIVE subject
+            // award no longer SETS the capture either. Its magnitude is under the ledger's
+            // own science floor, so there is nothing for the attribution it would carry to
+            // attribute; a sub-milli-point award is not worth a capture.
+            if (IsScienceDeltaBelowThreshold(delta))
+            {
+                ParsekLog.VerboseRateLimited("GameStateRecorder", "science-threshold",
+                    $"Ignored ScienceChanged delta={delta:+0.000;-0.000} below threshold={ScienceThreshold:F3}", 5.0);
+                return;
+            }
+
+            bool hadCapture = latestScienceChangeCapture.Valid;
+            bool subjectCredit = delta > 0.0 && IsScienceSubjectReasonKey(reasonKey);
+            latestScienceChangeCapture = NextScienceChangeCapture(
+                latestScienceChangeCapture,
+                delta,
+                reasonKey,
+                ut,
+                subjectCredit ? (InClockCauseScope ? "" : ResolveCurrentRecordingTag()) : null);
+            if (hadCapture && latestScienceChangeCapture.Valid && delta > 0.0 && !subjectCredit)
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    $"ScienceChanged +{delta.ToString("R", CultureInfo.InvariantCulture)} ({reasonKey}) " +
+                    $"kept the pending subject capture key='{latestScienceChangeCapture.ReasonKey}' " +
+                    $"delta={latestScienceChangeCapture.Delta.ToString("R", CultureInfo.InvariantCulture)} " +
+                    "for its OnScienceReceived callback");
+            }
+
+            var sciEvt = new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.ScienceChanged,
+                key = reasonKey,
+                valueBefore = oldScience,
+                valueAfter = newScience
+            };
+            Emit(ref sciEvt, "ScienceChanged");
+            ParsekLog.Info("GameStateRecorder", $"Game state: ScienceChanged {delta:+0.0;-0.0} ({reason}) → {newScience:F1}");
+            LogUnledgeredCheatCurrency(reason, "science", delta, newScience);
+
+            // Patents Licensing (stock CurrencyExchanger / CurrencyConverter,
+            // researchIPsellout) subtracts science directly under
+            // TransactionReasons.StrategyInput with no recording owner and no other
+            // capture channel - the strategy's own InitialCostScience setup charge is
+            // separate and rides StrategyActivate. Forward it straight to the ledger so
+            // the recalc preserves the traded-away science instead of refunding it.
+            // ShouldForwardDirectLedgerEvent skips the write when a live recorder owns
+            // the event (it then flows through the commit-time ConvertEvents path).
+            // Third leg of the carve-out pair at OnFundsChanged (StrategyOutput) and
+            // OnReputationChanged (StrategyInput). See
+            // fix-bailout-grant-currency-exchange-capture.md and the
+            // STRATEGY-SCIENCE-CONVERSION-LEAK entry in docs/dev/todo-and-known-bugs.md.
+            //
+            // Ordering invariant: this call MUST follow the Emit(...ScienceChanged) above
+            // so the event is IN GameStateStore before OnKscSpending's downstream reads.
+            // NOT for ReconcileKscAction pairing - ClassifyAction returns Transformed for
+            // StrategyScienceDebit and the reconcile short-circuits before any leg is
+            // matched, so no pairing ever happens. What DOES read the store synchronously
+            // inside this call is OnKscSpending's recalc tail:
+            // ComputePendingUncommittedStrategyScienceDebit (which must see this event to
+            // net it against the row being written) and ComputeEarningsWindowStoreDeltas.
+            //
+            // Two live traps, both intentional: this method early-returns above when
+            // |delta| < ScienceThreshold (0.001), so a sub-milli-point exchange is not
+            // captured at all; and a REAL negative delta still CLEARS
+            // latestScienceChangeCapture. The clear is kept (that cache is for POSITIVE
+            // subject awards and a stale capture would mis-attribute one), but it is
+            // not free: an exchange firing between a recovery's ScienceChanged credit
+            // and its OnScienceReceived callbacks drops the reasonKey the capture
+            // carried, so LedgerOrchestrator.ResolveKscScienceRecordingId no longer
+            // sees VesselRecovery and the recovered science loses its recording
+            // attribution (it stays credited, untagged). Recorded as a residual on the
+            // STRATEGY-SCIENCE-CONVERSION-LEAK entry in docs/dev/todo-and-known-bugs.md.
+            // The far more common ZERO-delta echo no longer does this - see
+            // STRATEGY-ECHO-CAPTURE-WIPE and the reordered block above. Inside an open
+            // recovery scope for the source vessel, CaptureScienceSubject takes the reason
+            // from the scope instead (ResolveRecoveryScopeScienceReasonKey), so the residual
+            // is left only for a recovery no scope covers.
+            if (reason == TransactionReasons.StrategyInput &&
+                ShouldForwardDirectLedgerEvent(sciEvt.recordingId, HasClaimingLiveRecorder()))
+                LedgerOrchestrator.OnKscSpending(sciEvt);
+        }
+
+        private void OnReputationChanged(float newReputation, TransactionReasons reason)
+        {
+            float oldReputation = lastReputation;
+            lastReputation = newReputation;
+
+            if (SuppressResourceEvents)
+            {
+                ParsekLog.VerboseRateLimited("GameStateRecorder", "suppress-reputation",
+                    $"Suppressed ReputationChanged event ({reason}) during timeline replay", 5.0);
+                return;
+            }
+            if (float.IsNaN(oldReputation)) return;
+            float delta = newReputation - oldReputation;
+            if (IsReputationDeltaBelowThreshold(delta, reason))
+            {
+                ParsekLog.VerboseRateLimited("GameStateRecorder", "reputation-threshold",
+                    $"Ignored ReputationChanged delta={delta:+0.0;-0.0} below threshold={ReputationThreshold:F1}", 5.0);
+                return;
+            }
+
+            var repEvt = new GameStateEvent
+            {
+                ut = Planetarium.GetUniversalTime(),
+                eventType = GameStateEventType.ReputationChanged,
+                key = reason.ToString(),
+                valueBefore = oldReputation,
+                valueAfter = newReputation
+            };
+            Emit(ref repEvt, "ReputationChanged");
+            ParsekLog.Info("GameStateRecorder", $"Game state: ReputationChanged {delta:+0.0;-0.0} ({reason}) → {newReputation:F1}");
+            LogUnledgeredCheatCurrency(reason, "reputation", delta, newReputation);
+
+            // Bail-Out Grant (stock CurrencyExchanger) subtracts reputation directly under
+            // TransactionReasons.StrategyInput with no recording owner and no other capture
+            // channel. Forward it straight to the ledger so the recalc preserves the spent
+            // reputation instead of refunding it. ShouldForwardDirectLedgerEvent skips the
+            // write when a live recorder owns the event. See
+            // fix-bailout-grant-currency-exchange-capture.md.
+            //
+            // Declined contract (Career.RepLossDeclined, KSP-SETTINGS-AUDIT S2): stock
+            // Contract.Decline subtracts it under TransactionReasons.ContractDecline AFTER
+            // the ContractDeclined event (SetState fires that first, with no amount), so
+            // this post-curve delta is the only capture of what stock applied. Same
+            // KSC-origin door as the StrategyInput leg above; a live recorder owns it at
+            // commit through ConvertEvents instead.
+            if ((reason == TransactionReasons.StrategyInput
+                 || reason == TransactionReasons.ContractDecline) &&
+                ShouldForwardDirectLedgerEvent(repEvt.recordingId, HasClaimingLiveRecorder()))
+                LedgerOrchestrator.OnKscSpending(repEvt);
+        }
+
+        internal static bool IsReputationDeltaBelowThreshold(float delta)
+        {
+            float absDelta = Math.Abs(delta);
+            return absDelta < ReputationThreshold - ReputationThresholdEpsilon;
+        }
+
+        /// <summary>
+        /// Reason-aware threshold. A ContractDecline or StrategyInput change is exempt from the 1-point
+        /// noise floor: stock only fires it for a real decline penalty, and the curve can
+        /// shrink a Normal-preset RepLossDeclined of 1 below one point at a negative pool,
+        /// which would otherwise drop the ledger row and leave the loss to be refunded by
+        /// the next recalc. Only an exact zero is ignored.
+        /// </summary>
+        internal static bool IsReputationDeltaBelowThreshold(float delta, TransactionReasons reason)
+        {
+            // StrategyInput: a currency exchanger's reputation in (the Bail-Out Grant's other
+            // leg), directly forwarded like the decline. A grant small enough to pay under 100
+            // funds spends well under a point, and dropping that leg while its funds out is
+            // filed would leave the spent reputation to be refunded by the next recalc
+            // (SUB-100-ROLLOUT-AND-BAILOUT-NOT-LEDGERED).
+            if (reason == TransactionReasons.ContractDecline
+                || reason == TransactionReasons.StrategyInput)
+                return delta == 0f;
+            return IsReputationDeltaBelowThreshold(delta);
+        }
+
+        /// <summary>
+        /// Pure: true for the Alt+F12 cheat menu's currency reason. A cheat GAIN made through
+        /// stock's Add path (the cheat menu's buttons: <c>Funding.AddFunds</c> fires the currency
+        /// query) is live-only income (design 3.15 step 9, owner ruling 2026-10-26,
+        /// <see cref="LiveOnlyIncome"/>): an untagged row at its UT that a rewind to before it
+        /// drops. A value SET directly (<c>Funding.SetFunds</c> and its science / reputation
+        /// twins, as the debug console does) fires no query, so no row is filed for it. A
+        /// cheat LOSS stays unledgered (KSP-SETTINGS-AUDIT S11): it is held by the drawdown
+        /// clamp until the next authoritative recalc (a rewind) removes it.
+        /// </summary>
+        internal static bool IsCheatCurrencyReason(TransactionReasons reason)
+        {
+            return reason == TransactionReasons.Cheating;
+        }
+
+        /// <summary>
+        /// One Info line per captured cheat currency event saying what the ledger does with
+        /// it: a gain is live-only income (filed by the currency-modified door), a loss is not
+        /// ledgered. Returns true when it logged. No UI, no screen message (standing ruling).
+        /// </summary>
+        internal static bool LogUnledgeredCheatCurrency(
+            TransactionReasons reason, string currency, double delta, double newValue)
+        {
+            if (!IsCheatCurrencyReason(reason))
+                return false;
+
+            string change = $"Cheat {currency} change {delta.ToString("+0.###;-0.###", CultureInfo.InvariantCulture)} " +
+                $"(-> {newValue.ToString("0.###", CultureInfo.InvariantCulture)})";
+            // The changed event cannot tell an Add (which ran the currency query, so the
+            // currency-modified door filed live-only income) from a Set (no query, nothing filed).
+            if (delta > 0)
+                ParsekLog.Info("GameStateRecorder",
+                    change + " is live-only income when stock's currency query ran for it (the cheat " +
+                    "menu's buttons; a 'Live-only income' line shows it): it counts on this timeline, and " +
+                    "a rewind to before it drops it. A value set directly (SetFunds / SetScience / " +
+                    "SetReputation, the debug console) runs no query and is not ledgered");
+            else
+                ParsekLog.Info("GameStateRecorder",
+                    change + " is not ledgered: it is held only until the next rewind, which undoes it");
+            return true;
+        }
+
+        /// <summary>
+        /// The QUERY-FAMILY strategy door (STRATEGY-SCIENCE-CONVERSION-LEAK /
+        /// STRATEGY-FUNDS-YIELD-DRIFT). <c>Strategies.Effects.CurrencyConverter</c>
+        /// (Patents Licensing + 7 siblings) and <c>CurrencyOperation</c> mutate a
+        /// <c>CurrencyModifierQuery</c> in place; <c>AddScience</c>/<c>AddFunds</c> then
+        /// fire their Changed events ALREADY NET, under the ORIGINAL reason, so the
+        /// three reason-keyed doors above cannot see the strategy's share at all.
+        /// This handler reads it from the query itself.
+        ///
+        /// <para>Bound to <c>OnCurrencyModified</c>, which rides an actual <c>Add*</c> -
+        /// NOT <c>OnCurrencyModifierQuery</c>, which stock's 33
+        /// <c>CurrencyModifierQuery.RunQuery</c> display sites fire without moving a
+        /// balance.</para>
+        ///
+        /// <para>Stands down on the same two flags every other recorder door does, so
+        /// timeline replay, the in-game tests' <c>SuppressionGuard.Resources()</c>
+        /// restores, and <c>KspStatePatcher</c>'s own ledger-walk writes cannot feed the
+        /// ledger back into itself.</para>
+        /// </summary>
+        private void OnCurrencyModified(CurrencyModifierQuery qry)
+        {
+            if (qry == null)
+                return;
+
+            string standDownReason;
+            if (StrategyConversionCapture.ShouldStandDown(
+                    SuppressResourceEvents, IsReplayingActions, out standDownReason))
+            {
+                ParsekLog.VerboseRateLimited("GameStateRecorder", "suppress-currency-modified",
+                    $"Suppressed OnCurrencyModified capture ({standDownReason})", 5.0);
+                return;
+            }
+
+            StrategyConversionQuery snapshot;
+            try
+            {
+                snapshot = new StrategyConversionQuery
+                {
+                    InputFunds = qry.GetInput(Currency.Funds),
+                    DeltaFunds = qry.GetEffectDelta(Currency.Funds),
+                    InputScience = qry.GetInput(Currency.Science),
+                    DeltaScience = qry.GetEffectDelta(Currency.Science),
+                    InputReputation = qry.GetInput(Currency.Reputation),
+                    DeltaReputation = qry.GetEffectDelta(Currency.Reputation),
+                    Reason = qry.reason.ToString()
+                };
+            }
+            catch (Exception ex)
+            {
+                // Never let a modded query implementation take down a stock Add* call.
+                ParsekLog.Warn("GameStateRecorder",
+                    $"OnCurrencyModified: reading the query threw, capture skipped: {ex}");
+                return;
+            }
+
+            // Income no ledger channel converts (design 3.15 step 9): filed at its own UT,
+            // live-only. Independent of the strategy legs below, which carry any diversion.
+            double ut = Planetarium.GetUniversalTime();
+            LiveOnlyIncome.Capture(qry.reason, snapshot, ut);
+
+            var legs = StrategyConversionCapture.EvaluateLegs(snapshot);
+            if (legs.Count == 0)
+            {
+                ParsekLog.VerboseRateLimited("GameStateRecorder", "currency-modified-noop",
+                    $"OnCurrencyModified: no capture-worthy leg - " +
+                    $"{StrategyConversionCapture.FormatQuery(snapshot, 0)}", 5.0);
+                return;
+            }
+
+            ParsekLog.Info("GameStateRecorder",
+                $"Game state: strategy currency conversion - " +
+                $"{StrategyConversionCapture.FormatQuery(snapshot, legs.Count)}");
+
+            // Conversion legs follow their cause (design 3.15 step 7): the award stock is paying
+            // right now, when a scope names one for this reason; otherwise no cause, and the
+            // legs stay as captured.
+            string conversionCause = ResolveConversionCause(snapshot);
+            // A facility repair pays for every destroyed building in one debit: each building's
+            // repair row is the cause of its share of the legs.
+            legs = StrategyConversionCapture.SplitRepairLegs(legs, snapshot, FacilityRepairCapture.ActiveCostShares);
+            LedgerOrchestrator.OnStrategyCurrencyConversion(ut, legs, snapshot.Reason, conversionCause);
+        }
+
+        /// <summary>
+        /// The <see cref="GameAction.ConversionCause"/> text for legs captured from
+        /// <paramref name="snapshot"/>: the innermost open <see cref="ConversionCauseScope"/>'s
+        /// award, in the query's one input currency, when the query's reason is one that award
+        /// pays with. Null (no positive evidence) otherwise, with one Verbose line saying why.
+        /// </summary>
+        internal static string ResolveConversionCause(StrategyConversionQuery snapshot)
+        {
+            StockPool source;
+            if (!ConversionCauseScope.TryGetSourcePool(snapshot, out source))
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    "Strategy conversion has no single input currency - its legs name no cause");
+                return null;
+            }
+            ConversionCause cause;
+            if (!ConversionCauseScope.TryResolve(snapshot.Reason, source, out cause))
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    $"Strategy conversion ({snapshot.Reason ?? "(none)"}, {source}) is inside no matching award scope " +
+                    $"(depth={ConversionCauseScope.Depth.ToString(CultureInfo.InvariantCulture)}) - its legs name no cause " +
+                    "and stay as captured");
+                return null;
+            }
+            string text = cause.Format();
+            ParsekLog.Verbose("GameStateRecorder", "Strategy conversion legs name their cause " + text);
+            return text;
+        }
+
+        internal static bool IsScienceDeltaBelowThreshold(double delta)
+        {
+            return Math.Abs(delta) < ScienceThreshold;
+        }
+
+        internal static bool IsScienceSubjectReasonKey(string reasonKey)
+        {
+            return string.Equals(reasonKey, "ScienceTransmission", StringComparison.Ordinal) ||
+                   string.Equals(reasonKey, "VesselRecovery", StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// The subject capture after one above-threshold ScienceChanged. A positive credit
+        /// under a subject reason (VesselRecovery / ScienceTransmission) replaces it; a
+        /// negative move clears it (the cache is for positive subject awards and a stale one
+        /// would mis-attribute the next). A positive credit under any OTHER reason leaves it
+        /// in place: stock pays a subject's ScienceChanged and only then fires
+        /// onScienceReceived, and other listeners of that event can pay in between - a
+        /// SCIENCE contract completing on the received data pays ContractReward science, a
+        /// milestone pays Progression - so wiping the capture there filed the subject with no
+        /// reason, i.e. as a transmission with no recording
+        /// (RECOVERY-BURST-CONTRACT-SCIENCE-RECONCILE). The amount match in
+        /// <see cref="ShouldUseRecentScienceChangeCapture"/> still decides the pairing. Pure.
+        /// </summary>
+        internal static RecentScienceChangeCapture NextScienceChangeCapture(
+            RecentScienceChangeCapture current,
+            double delta,
+            string reasonKey,
+            double ut,
+            string recordingId)
+        {
+            if (delta > 0.0 && IsScienceSubjectReasonKey(reasonKey))
+            {
+                return new RecentScienceChangeCapture
+                {
+                    Ut = ut,
+                    ReasonKey = reasonKey,
+                    Delta = (float)delta,
+                    RecordingId = recordingId,
+                    Valid = true
+                };
+            }
+            if (delta > 0.0)
+                return current;
+            return default(RecentScienceChangeCapture);
+        }
+
+        /// <summary>
+        /// The reason key a science subject callback takes from an open
+        /// <see cref="RecoveryDispatchScope"/> when it matched no ScienceChanged capture, or
+        /// null to leave it empty (RECOVERY-RECONCILE-ERROR-ON-TWO-SCIENCE-CREDITS). Stock
+        /// submits a recovered vessel's science, its reverse-engineered <c>recovery@</c>
+        /// subjects included, inside that vessel's <c>onVesselRecovered</c> dispatch with the
+        /// vessel as the source, so a callback naming the scope's own vessel is a recovery
+        /// submission. A callback with no source vessel, or naming another vessel, decides
+        /// nothing. The key only says HOW stock paid: the credited amount and the subject cap
+        /// do not read it. Pure.
+        /// </summary>
+        internal static string ResolveRecoveryScopeScienceReasonKey(
+            bool scopeOpen,
+            uint scopePersistentId,
+            uint sourceVesselPersistentId)
+        {
+            if (!scopeOpen) return null;
+            if (scopePersistentId == 0u || sourceVesselPersistentId == 0u) return null;
+            if (scopePersistentId != sourceVesselPersistentId) return null;
+            return LedgerOrchestrator.VesselRecoveryReasonKey;
+        }
+
+        internal static bool ShouldUseRecentScienceChangeCapture(
+            RecentScienceChangeCapture capture,
+            float amount,
+            double currentUt,
+            string currentRecordingId)
+        {
+            if (!capture.Valid)
+                return false;
+            if (capture.Delta <= 0f)
+                return false;
+            if (!IsScienceSubjectReasonKey(capture.ReasonKey ?? ""))
+                return false;
+            if (currentUt < capture.Ut)
+                return false;
+            if (currentUt - capture.Ut > ScienceCaptureMatchWindowSeconds)
+                return false;
+            if (!string.Equals(
+                    capture.RecordingId ?? "",
+                    currentRecordingId ?? "",
+                    StringComparison.Ordinal))
+                return false;
+
+            return Math.Abs(capture.Delta - amount) <= ScienceCaptureMatchDeltaTolerance;
+        }
+
+        #endregion
+
+        #region Science Subject Tracking
+
+        private void OnScienceReceived(float amount, ScienceSubject subject, ProtoVessel vessel, bool reverseEngineered)
+        {
+            // SuppressResourceEvents is set during timeline replay (ApplyResourceDeltas,
+            // ApplyTreeLumpSum) where AddScience replays pool deltas. We must not
+            // re-capture subjects during replay - they are already committed.
+            if (SuppressResourceEvents)
+            {
+                ParsekLog.VerboseRateLimited("GameStateRecorder", "suppress-science-subject",
+                    "Suppressed OnScienceReceived during timeline replay", 5.0);
+                return;
+            }
+
+            if (subject == null || string.IsNullOrEmpty(subject.id))
+            {
+                ParsekLog.Verbose("GameStateRecorder", "OnScienceReceived: skipped - null subject or empty id");
+                return;
+            }
+
+            CaptureScienceSubject(
+                amount,
+                subject.id,
+                subject.science,
+                subject.scienceCap,
+                ReadScienceGainMultiplierAtCapture(),
+                Planetarium.GetUniversalTime(),
+                vessel != null ? vessel.vesselName : null,
+                // KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 1: pass the live launch
+                // guid alongside the name so a recovery-science subject cannot be scoped to a
+                // DIFFERENT launch of the same craft. Null (no ProtoVessel, or no vessel guid)
+                // leaves the filter inert.
+                VesselLaunchIdentity.ReadLaunchGuid(vessel),
+                // Stage 3: the pid is the spawn identity for a Parsek-spawned vessel.
+                vessel != null ? vessel.persistentId : 0u);
+        }
+
+        /// <summary>
+        /// SCIENCE-SUBJECT-RUNNING-TOTAL-OVER-CREDIT: the per-callback science INCREMENT, in
+        /// subject units (the units of <c>subject.science</c> / <c>scienceCap</c>, which the
+        /// ledger's per-subject cap walk uses). Stock does <c>subject.science += value</c> and
+        /// then fires the event with <c>value * ScienceGainMultiplier</c>, so the increment is
+        /// <paramref name="amount"/> / multiplier. A ledger <c>ScienceEarning</c> row is ADDED
+        /// by <see cref="ScienceModule.ProcessEarning"/>, so it must carry this increment, never
+        /// the subject's running total (which re-credits every earlier submission of the same
+        /// subject). Clamped to the running total, which the increment can never exceed.
+        /// Pure.
+        /// </summary>
+        internal static float ComputeScienceSubjectIncrement(
+            float amount,
+            float scienceGainMultiplier,
+            float subjectScienceAfter)
+        {
+            if (float.IsNaN(amount) || float.IsInfinity(amount) || amount <= 0f)
+                return 0f;
+
+            float increment = amount;
+            if (scienceGainMultiplier > 0f
+                && !float.IsNaN(scienceGainMultiplier)
+                && !float.IsInfinity(scienceGainMultiplier))
+            {
+                increment = amount / scienceGainMultiplier;
+            }
+
+            if (subjectScienceAfter > 0f
+                && !float.IsInfinity(subjectScienceAfter)
+                && increment > subjectScienceAfter)
+            {
+                increment = subjectScienceAfter;
+            }
+
+            return increment;
+        }
+
+        /// <summary>Test seam: installs the ScienceChanged capture a stock reward burst would have left.</summary>
+        internal void SetLatestScienceChangeCaptureForTesting(RecentScienceChangeCapture capture)
+        {
+            latestScienceChangeCapture = capture;
+        }
+
+        /// <summary>
+        /// Mints the per-callback identity of a science capture, in the
+        /// <see cref="GameAction.ActionId"/> format (the converted row adopts it as its id).
+        /// </summary>
+        internal static string NewScienceCaptureActionId()
+        {
+            return "act_" + Guid.NewGuid().ToString("N");
+        }
+
+        /// <summary>
+        /// Headless core of <see cref="OnScienceReceived"/>: every value the stock callback
+        /// supplies is passed in, so the capture -> ledger chain is testable without KSP.
+        /// </summary>
+        internal void CaptureScienceSubject(
+            float amount,
+            string subjectId,
+            float subjectScienceAfter,
+            float subjectCap,
+            float scienceGainMultiplier,
+            double captureUt,
+            string vesselName,
+            string launchGuid,
+            uint vesselPersistentId = 0)
+        {
+            if (string.IsNullOrEmpty(subjectId))
+            {
+                ParsekLog.Verbose("GameStateRecorder", "OnScienceReceived: skipped - null subject or empty id");
+                return;
+            }
+            if (amount <= 0)
+            {
+                ParsekLog.Verbose("GameStateRecorder",
+                    $"OnScienceReceived: skipped - non-positive amount ({amount:F1}) for {subjectId}");
+                return;
+            }
+
+            // Inside a clock-caused transition the award is filed under no flight, the same
+            // tag Emit gave its ScienceChanged event, so the capture match still pairs them.
+            string currentRecordingId = InClockCauseScope ? "" : (ResolveCurrentRecordingTag() ?? "");
+            string reasonKey = "";
+            string subjectRecordingId = currentRecordingId;
+            bool matchedScienceChange = false;
+            RecentScienceChangeCapture matchedCapture = default(RecentScienceChangeCapture);
+            if (ShouldUseRecentScienceChangeCapture(
+                    latestScienceChangeCapture,
+                    amount,
+                    captureUt,
+                    currentRecordingId))
+            {
+                matchedScienceChange = true;
+                matchedCapture = latestScienceChangeCapture;
+                captureUt = latestScienceChangeCapture.Ut;
+                reasonKey = latestScienceChangeCapture.ReasonKey ?? "";
+                subjectRecordingId = latestScienceChangeCapture.RecordingId ?? currentRecordingId;
+            }
+            else if (latestScienceChangeCapture.Valid &&
+                     (captureUt < latestScienceChangeCapture.Ut ||
+                      captureUt - latestScienceChangeCapture.Ut > ScienceCaptureMatchWindowSeconds ||
+                      !string.Equals(
+                          latestScienceChangeCapture.RecordingId ?? "",
+                          currentRecordingId,
+                          StringComparison.Ordinal)))
+            {
+                latestScienceChangeCapture = default(RecentScienceChangeCapture);
+            }
+            // Design section 2.12 Rule 3: during a Re-Fly session the subject is filed under
+            // the vessel that transmitted or recovered it (its session recording), not the
+            // live one. The live tag above still decides the capture match.
+            string causeTag;
+            if (vesselPersistentId != 0u
+                && ReFlyAwardTagging.TryResolveCauseTag(vesselPersistentId, subjectRecordingId, out causeTag))
+                subjectRecordingId = causeTag;
+
+            // Keep a matched capture alive for the rest of the current stock reward burst.
+            // Vessel recovery and other multi-subject payouts can fire several
+            // OnScienceReceived callbacks after one ScienceChanged capture.
+
+            // Operator ruling 2026-09-26: Breaking Ground deployed-experiment science is
+            // earned by a ground station, not by whichever vessel is being flown, so it is
+            // ALWAYS an untagged ledger row (like KSC / Tracking Station science). Never
+            // tagged means a Re-Fly can neither tombstone it nor auto-seal a slot on it.
+            bool deployedScience = IsDeployedScienceSubjectId(subjectId);
+            if (deployedScience)
+            {
+                if (!string.IsNullOrEmpty(subjectRecordingId))
+                {
+                    ParsekLog.Verbose("GameStateRecorder",
+                        $"OnScienceReceived: deployed-experiment subject '{subjectId}' routed untagged " +
+                        $"(live tag '{subjectRecordingId}' ignored per the deployed-science ruling)");
+                }
+                subjectRecordingId = "";
+                if (matchedScienceChange && !string.IsNullOrEmpty(matchedCapture.RecordingId))
+                    UntagDeployedScienceChangeEvent(matchedCapture, subjectId);
+                if (!matchedScienceChange && !string.IsNullOrEmpty(GroundStationSubmissionReasonKey))
+                {
+                    reasonKey = GroundStationSubmissionReasonKey;
+                    ParsekLog.Verbose("GameStateRecorder",
+                        $"OnScienceReceived: deployed-experiment subject '{subjectId}' had no ScienceChanged " +
+                        $"capture left to match; reason taken from the open ground-station submission ('{reasonKey}')");
+                }
+            }
+
+            // RECOVERY-RECONCILE-ERROR-ON-TWO-SCIENCE-CREDITS: a query-family strategy
+            // (Patents Licensing) takes its share inside stock's AddScience, so the
+            // ScienceChanged(VesselRecovery) capture carries the NET credit while this
+            // callback reports the GROSS amount, and the amount match above fails. Inside
+            // the recovery dispatch of THIS vessel every OnScienceReceived is a recovery
+            // submission, so the reason is the recovery's, exactly as it is when the match
+            // succeeds. Without it the row read as a transmission.
+            if (!matchedScienceChange && !deployedScience && string.IsNullOrEmpty(reasonKey))
+            {
+                string scopedReason = ResolveRecoveryScopeScienceReasonKey(
+                    RecoveryDispatchScope.IsOpen,
+                    RecoveryDispatchScope.CurrentPersistentId,
+                    vesselPersistentId);
+                if (scopedReason != null)
+                {
+                    reasonKey = scopedReason;
+                    ParsekLog.Verbose("GameStateRecorder",
+                        $"OnScienceReceived: subject '{subjectId}' amount={amount.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"matched no ScienceChanged capture (latest key='{latestScienceChangeCapture.ReasonKey ?? ""}' " +
+                        $"delta={latestScienceChangeCapture.Delta.ToString("R", CultureInfo.InvariantCulture)} " +
+                        $"valid={latestScienceChangeCapture.Valid}); reason '{reasonKey}' taken from the open " +
+                        $"recovery scope pid={vesselPersistentId.ToString(CultureInfo.InvariantCulture)}");
+                }
+                else if (RecoveryDispatchScope.IsOpen)
+                {
+                    ParsekLog.Verbose("GameStateRecorder",
+                        $"OnScienceReceived: subject '{subjectId}' matched no ScienceChanged capture inside a " +
+                        $"recovery scope of another vessel (scopePid={RecoveryDispatchScope.CurrentPersistentId.ToString(CultureInfo.InvariantCulture)} " +
+                        $"sourcePid={vesselPersistentId.ToString(CultureInfo.InvariantCulture)}) - reason left empty");
+                }
+            }
+
+            // SCIENCE-SUBJECT-RUNNING-TOTAL-OVER-CREDIT: store the increment this callback
+            // added, not subject.science. The ledger ADDS every ScienceEarning row per
+            // subject (ScienceModule.ProcessEarning, BuildCommittedScienceSubjectCredits),
+            // so a running total would re-credit every earlier submission of the same
+            // subject. subject.science may
+            // include Harmony-injected committed science (ScienceSubjectPatch); the
+            // increment is unaffected by that.
+            float increment = ComputeScienceSubjectIncrement(
+                amount, scienceGainMultiplier, subjectScienceAfter);
+            var pendingSubject = new PendingScienceSubject
+            {
+                subjectId = subjectId,
+                science = increment,
+                subjectMaxValue = subjectCap,
+                captureUT = captureUt,
+                reasonKey = reasonKey,
+                recordingId = subjectRecordingId,
+                // The row stays in subject units (increment = amount / multiplier) and
+                // carries the multiplier frozen now, so ScienceModule's pool credit
+                // (increment * multiplier) equals stock's amount (KSP-SETTINGS-AUDIT S1).
+                scienceGainMultiplier = GameAction.NormalizeScienceGainMultiplier(scienceGainMultiplier),
+                // One id per stock callback: stock calls SubmitScienceData once per data
+                // item, so two canisters of one subject recovered together are two
+                // captures at the same instant and must stay two rows, while a re-file
+                // of THIS capture carries this id and is dropped by the ledger dedup
+                // (SCIENCE-SAME-SUBJECT-SAME-INSTANT-ROW-DROPPED).
+                captureActionId = NewScienceCaptureActionId()
+            };
+
+            bool hasLiveRecorder = HasClaimingLiveRecorder();
+            bool hasActiveUncommittedTree = HasActiveUncommittedTree();
+            bool directLedgerHandled = false;
+            if (deployedScience || InClockCauseScope || ShouldForwardDirectScienceSubject(
+                    pendingSubject.recordingId,
+                    hasLiveRecorder,
+                    hasActiveUncommittedTree))
+            {
+                directLedgerHandled = LedgerOrchestrator.TryRecordKscScienceSubject(
+                    pendingSubject,
+                    deployedScience ? null : vesselName,
+                    deployedScience ? null : launchGuid,
+                    deployedScience ? 0u : vesselPersistentId);
+            }
+
+            if (!directLedgerHandled)
+            {
+                if (deployedScience)
+                {
+                    // Never park deployed science in PendingScienceSubjects: the commit-time
+                    // window routing would hand an untagged subject to the committing
+                    // recording, which is exactly the tagging the ruling forbids.
+                    ParsekLog.Warn("GameStateRecorder",
+                        $"OnScienceReceived: deployed-experiment subject '{subjectId}' was not " +
+                        $"written to the ledger (increment={increment.ToString("R", CultureInfo.InvariantCulture)}) " +
+                        "and is dropped rather than tagged to a recording");
+                }
+                else
+                {
+                    if (ShouldForwardDirectLedgerEvent(pendingSubject.recordingId, hasLiveRecorder) &&
+                        hasActiveUncommittedTree)
+                    {
+                        ParsekLog.Verbose("GameStateRecorder",
+                            $"OnScienceReceived: retained unowned science subject '{subjectId}' " +
+                            "because an uncommitted recording tree is active");
+                    }
+                    PendingScienceSubjects.Add(pendingSubject);
+                }
+            }
+
+            ParsekLog.Info("GameStateRecorder",
+                $"Science subject captured: {subjectId} amount={amount:F1} " +
+                $"increment={increment:F2} total={subjectScienceAfter:F1} " +
+                $"gainMultiplier={pendingSubject.scienceGainMultiplier.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"reason='{reasonKey}' ut={captureUt:F1} tag='{subjectRecordingId}' " +
+                $"deployed={deployedScience} directLedger={directLedgerHandled}");
+        }
+
+        /// <summary>
+        /// A deployed-science award's ScienceChanged event was emitted (tagged to the live
+        /// recording) one callback BEFORE the subject was known. Clear that tag so the
+        /// commit-time earnings-window reconcile does not count a delta the recording never
+        /// owns. Identity is the matched capture's (ut, key, tag).
+        /// </summary>
+        private static void UntagDeployedScienceChangeEvent(
+            RecentScienceChangeCapture capture,
+            string subjectId)
+        {
+            var target = new GameStateEvent
+            {
+                ut = capture.Ut,
+                eventType = GameStateEventType.ScienceChanged,
+                key = capture.ReasonKey ?? "",
+                recordingId = capture.RecordingId ?? ""
+            };
+            bool updated = GameStateStore.UpdateEventRecordingId(target, "");
+            ParsekLog.Verbose("GameStateRecorder",
+                $"OnScienceReceived: deployed-experiment ScienceChanged event for '{subjectId}' " +
+                $"ut={capture.Ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                $"untagged={updated} (was '{capture.RecordingId}')");
+        }
+
+        #endregion
+
+        #region Facility Polling
+
+        /// <summary>
+        /// Seeds the facility/building cache from current game state.
+        /// Always uses live KSP state rather than event history to avoid
+        /// stale data from abandoned future branches after reverts.
+        /// Call before Subscribe()/PollFacilityState().
+        /// </summary>
+        internal void SeedFacilityCacheFromCurrentState()
+        {
+            facilityRecorder.SeedFacilityCacheFromCurrentState();
+        }
+
+        /// <summary>
+        /// Polls current facility/building state and emits events for any changes
+        /// since the cached state. Called on Subscribe() after cache is seeded.
+        /// </summary>
+        internal void PollFacilityState()
+        {
+            facilityRecorder.PollFacilityState();
+        }
+
+        /// <summary>
+        /// GameEvents.OnKSCFacilityUpgrading handler: records an in-scene facility upgrade
+        /// (UI or seam) immediately, without waiting for the next scene-load poll.
+        /// </summary>
+        private void OnFacilityUpgrading(Upgradeables.UpgradeableFacility fac, int newLevelIndex)
+        {
+            facilityRecorder.OnFacilityUpgrading(fac, newLevelIndex);
+        }
+
+        /// <summary>GameEvents.OnKSCStructureCollapsing handler (see GameStateFacilityRecorder).</summary>
+        private void OnStructureCollapsing(DestructibleBuilding db)
+        {
+            facilityRecorder.OnStructureCollapsing(db);
+        }
+
+        /// <summary>GameEvents.OnKSCStructureRepairing handler (see GameStateFacilityRecorder).</summary>
+        private void OnStructureRepairing(DestructibleBuilding db)
+        {
+            facilityRecorder.OnStructureRepairing(db);
+        }
+
+        /// <summary>FacilityRepairCapture.StructuresReset handler (see GameStateFacilityRecorder).</summary>
+        private void OnStructuresReset(IList<string> buildingIds)
+        {
+            facilityRecorder.OnStructuresReset(buildingIds);
+        }
+
+        /// <summary>
+        /// Test seam: records a building transition through the same path the stock events
+        /// use, with an explicit UT (the handlers read Planetarium, which is absent headless).
+        /// </summary>
+        internal bool RecordBuildingTransitionForTesting(
+            string buildingId, bool nowIntact, double ut, float repairCost, string source)
+        {
+            return facilityRecorder.RecordBuildingTransition(buildingId, nowIntact, ut, repairCost, source);
+        }
+
+        /// <summary>
+        /// Test seam: records a facility level change through the same core the
+        /// OnKSCFacilityUpgrading handler uses, with explicit normalized levels and UT (the
+        /// handler takes an UpgradeableFacility and reads Planetarium, both absent headless).
+        /// </summary>
+        internal bool RecordFacilityLevelChangeForTesting(
+            string facilityId, float beforeNorm, float afterNorm, double ut)
+        {
+            return facilityRecorder.RecordEventDrivenLevelChange(facilityId, beforeNorm, afterNorm, ut);
+        }
+
+        #endregion
+
+        internal void EmitFacilityEvent(ref GameStateEvent evt, string source)
+        {
+            Emit(ref evt, source);
+        }
+
+        internal bool ShouldForwardFacilityLedgerEvent(string recordingId)
+        {
+            return ShouldForwardDirectLedgerEvent(recordingId, HasClaimingLiveRecorder());
+        }
+    }
+}

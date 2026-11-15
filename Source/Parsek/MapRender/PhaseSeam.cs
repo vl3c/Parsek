@@ -38,9 +38,6 @@ namespace Parsek.MapRender
             OnCamera = onCamera;
         }
 
-        /// <summary>True iff this seam asserts G1 (position + tangent) continuity (design §6.1).</summary>
-        internal bool RequiresTangentMatch => Continuity == ContinuityOrder.G1;
-
         /// <summary>
         /// design §6.1: the canonical <b>Rigid + G1</b> seam — ascent↔orbit and orbit↔landing (descent
         /// re-stitch). A tangent mismatch beyond tolerance raises <c>rigid-seam-tangent-discontinuity</c>

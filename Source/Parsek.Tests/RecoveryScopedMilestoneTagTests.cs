@@ -42,7 +42,7 @@ namespace Parsek.Tests
 
             ResetAll();
             KspStatePatcher.SuppressUnityCallsForTesting = true;
-            LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(true, true, true);
+            PostWalkActionReconciler.SetResourceTrackingAvailabilityForTesting(true, true, true);
             GameStateRecorder.TagResolverForTesting = () => "";
             GameStateRecorder.HasLiveRecorderProviderForTesting = () => false;
             GameStateRecorder.HasActiveUncommittedTreeProviderForTesting = () => false;

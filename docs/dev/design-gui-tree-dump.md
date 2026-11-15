@@ -768,11 +768,11 @@ THE OFFLINE VIEWER READS A REAL DUMP, which it had never had an input for:
 
 | File | Role |
 |---|---|
-| `Source/Parsek/GuiTreeModel.cs` | pure: `GuiRect`, `GuiTreeEvent`, `GuiTreeNode`, `GuiTreeResult`, `GuiTreeAssembler` |
-| `Source/Parsek/GuiTreeJson.cs` | pure: hand-rolled invariant-culture JSON writer |
-| `Source/Parsek/GuiTreeGeometry.cs` | pure: the containment / per-kind / scroll-offset derivations the live cell asserts |
-| `Source/Parsek/GuiTreeFunnels.cs` | the 17 target signatures, wire names, hit counters, arm-time `patched` snapshot |
-| `Source/Parsek/GuiTreeRecorder.cs` | arm / record / flush, the Unity seam, and `GuiTreeRecorderPump` |
+| `Source/Parsek/GuiTree/GuiTreeModel.cs` | pure: `GuiRect`, `GuiTreeEvent`, `GuiTreeNode`, `GuiTreeResult`, `GuiTreeAssembler` |
+| `Source/Parsek/GuiTree/GuiTreeJson.cs` | pure: hand-rolled invariant-culture JSON writer |
+| `Source/Parsek/GuiTree/GuiTreeGeometry.cs` | pure: the containment / per-kind / scroll-offset derivations the live cell asserts |
+| `Source/Parsek/GuiTree/GuiTreeFunnels.cs` | the 17 target signatures, wire names, hit counters, arm-time `patched` snapshot |
+| `Source/Parsek/GuiTree/GuiTreeRecorder.cs` | arm / record / flush, the Unity seam, and `GuiTreeRecorderPump` |
 | `Source/Parsek/Patches/GuiTreeRecorderPatches.cs` | the applier + the 17 attribute-less Harmony patch classes |
 | `Source/Parsek/TestCommands/TestCommandDumpGuiTree.cs` | pure: the `DumpGuiTree` seam verb's arg parse, poll decision and payload |
 | `Source/Parsek/TestCommands/ParsekTestCommandAddon.DumpGuiTree.cs` | that verb's applier: the arm, the recorder polls, the file stat |

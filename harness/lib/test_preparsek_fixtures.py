@@ -224,20 +224,20 @@ class PreParsekLogTokenSourceSyncTests(unittest.TestCase):
     """
 
     EXPECTED = (
-        ("PreParsekBackup.cs", "Captured pre-Parsek backup: save='",
+        (os.path.join("LogIO", "PreParsekBackup.cs"), "Captured pre-Parsek backup: save='",
          "PPB-1's capture pin"),
-        ("PreParsekBackup.cs", "pristineVerdict=",
+        (os.path.join("LogIO", "PreParsekBackup.cs"), "pristineVerdict=",
          "PPB-1's pristine-outcome token"),
-        ("PreParsekBackup.cs", "outcome=captured-pristine-unverified",
+        (os.path.join("LogIO", "PreParsekBackup.cs"), "outcome=captured-pristine-unverified",
          "the Warn-severity half of the pristine check - a reason nothing pins but "
          "whose EXISTENCE is what keeps a read failure off the Error channel"),
-        ("PreParsekBackup.cs", "First-contact backup: save='",
+        (os.path.join("LogIO", "PreParsekBackup.cs"), "First-contact backup: save='",
          "PPB-1's decision-side pin"),
-        ("PreParsekBackup.cs", "Skip: reason=",
+        (os.path.join("LogIO", "PreParsekBackup.cs"), "Skip: reason=",
          "every skip pin on both specs"),
-        ("PreParsekBackup.cs", "outcome=captured-not-pristine",
+        (os.path.join("LogIO", "PreParsekBackup.cs"), "outcome=captured-not-pristine",
          "the forbidden non-pristine token on both specs"),
-        ("ParsekScenario.cs", "OnSave: saving ",
+        (os.path.join("Controllers", "ParsekScenario.cs"), "OnSave: saving ",
          "PPB-1's ordering pair - both the required existence proof and the "
          "forbidden before-the-capture form"),
         (os.path.join("InGameTests", "PreParsekBackupInGameTests.cs"),
@@ -261,7 +261,7 @@ class PreParsekLogTokenSourceSyncTests(unittest.TestCase):
         # branches plus the two pre-gate skips. Pull them out of the specs and
         # require each to appear in the source, so a renamed reason reds here
         # rather than turning a forbidden pin into a permanent no-op.
-        text = _read(os.path.join(PARSEK_SRC, "PreParsekBackup.cs"))
+        text = _read(os.path.join(PARSEK_SRC, "LogIO", "PreParsekBackup.cs"))
         seen = 0
         for name in (SPEC_UNTOUCHED, SPEC_BRANDNEW):
             lc = ((_spec(name).get("expectations", {}) or {})

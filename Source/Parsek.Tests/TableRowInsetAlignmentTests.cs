@@ -400,9 +400,9 @@ namespace Parsek.Tests
         [Fact]
         public void TheSharedCellStyleTakesTheColumnHeaderHorizontalPadding()
         {
-            string prepared = ReadPreparedSource("ParsekUI.cs");
+            string prepared = ReadPreparedSource("UI/ParsekUI.cs");
             string ensure = Regex.Replace(
-                MethodBody(prepared, "EnsureSharedHeaderStyles", "ParsekUI.cs"), @"\s+", " ");
+                MethodBody(prepared, "EnsureSharedHeaderStyles", "UI/ParsekUI.cs"), @"\s+", " ");
             Assert.Contains("RectOffset hdrPad = sharedColumnHeaderStyle.padding;", ensure);
             Assert.Contains(
                 "ComposeTableCellPadding( hdrPad.left, hdrPad.right, lblPad.top, lblPad.bottom)",
@@ -419,22 +419,6 @@ namespace Parsek.Tests
         {
             Assert.Equal(new[] { 4, 4, 3, 3 }, ParsekUI.ComposeTableCellPadding(4, 4, 3, 3));
             Assert.Equal(new[] { 6, 2, 0, 1 }, ParsekUI.ComposeTableCellPadding(6, 2, 0, 1));
-        }
-
-        /// <summary>
-        /// The text delta, on the numbers the 2026-09-24 census measured: header and body
-        /// cells both at x=284 (0px rect delta), the boxed header padding L4. A bare label
-        /// (L0) reads 4px left; the Structure window's old hand-set indent (L5) read 1px
-        /// right; the header-derived padding reads 0.
-        /// </summary>
-        [Fact]
-        public void HeaderToCellTextDelta_CensusNumbers()
-        {
-            const int cellX = 284, headerPad = 4;
-            Assert.Equal(-4, ParsekUI.HeaderToCellTextDeltaPx(cellX, headerPad, cellX, 0));
-            Assert.Equal(1, ParsekUI.HeaderToCellTextDeltaPx(cellX, headerPad, cellX, 5));
-            int derived = ParsekUI.ComposeTableCellPadding(headerPad, headerPad, 0, 0)[0];
-            Assert.Equal(0, ParsekUI.HeaderToCellTextDeltaPx(cellX, headerPad, cellX, derived));
         }
 
         /// <summary>
@@ -471,7 +455,7 @@ namespace Parsek.Tests
         {
             Assert.Equal(0, ParsekUI.TableRowHorizontalInsetPx);
 
-            string prepared = ReadPreparedSource("ParsekUI.cs");
+            string prepared = ReadPreparedSource("UI/ParsekUI.cs");
 
             string rowStyle = AssignmentBlock(prepared, "sharedTableRowStyle");
             string headerStyle = AssignmentBlock(prepared, "sharedTableHeaderRowStyle");
@@ -512,16 +496,16 @@ namespace Parsek.Tests
         [Fact]
         public void TheReservedGutterIsDerivedFromTheSkinScrollbarAndOneCellMargin()
         {
-            string prepared = ReadPreparedSource("ParsekUI.cs");
+            string prepared = ReadPreparedSource("UI/ParsekUI.cs");
 
             string footprint = MethodBody(prepared, "VerticalScrollbarFootprintWidth",
-                "ParsekUI.cs");
+                "UI/ParsekUI.cs");
             // The footprint is BOTH scrollbar terms, read off the live skin.
             Assert.Contains("verticalScrollbar.fixedWidth", footprint);
             Assert.Contains("verticalScrollbar.margin.left", footprint);
 
             string gutter = MethodBody(prepared, "VerticalScrollbarGutterWidth",
-                "ParsekUI.cs");
+                "UI/ParsekUI.cs");
             Assert.Contains("VerticalScrollbarFootprintWidth()", gutter);
             Assert.Contains("TableCellHorizontalMarginPx()", gutter);
             // No digits in that body: any number there would be a hard-coded
@@ -531,7 +515,7 @@ namespace Parsek.Tests
                 + "skin, not spell a literal: " + gutter);
 
             string cellMargin = MethodBody(prepared, "TableCellHorizontalMarginPx",
-                "ParsekUI.cs");
+                "UI/ParsekUI.cs");
             Assert.Contains("label.margin.right", cellMargin);
 
             // Fallbacks only, for a skin that has no scrollbar style at all. Pinned to

@@ -67,24 +67,6 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// True when the route would need an INVENTORY debit from a physical
-        /// origin: non-KSC origin with a non-empty
-        /// <see cref="Route.InventoryCostManifest"/>. Before M3 Phase 5 this
-        /// gated the <c>inventory-origin-debit-unsupported</c> HOLD (the M1 D6
-        /// carve-out). M3 Phase 5 lifts that hold by wiring the
-        /// <see cref="LiveInventoryPickupWriter"/> into the origin-dispatch path,
-        /// so this predicate is now only the SHAPE detector (does the route carry
-        /// an origin inventory cost?) - the gate proper is
-        /// <see cref="HasRequiredInventory"/>.
-        /// </summary>
-        internal static bool RequiresInventoryDebit(Route route)
-        {
-            if (route == null) return false;
-            if (route.IsKscOrigin) return false;
-            return route.InventoryCostManifest != null && route.InventoryCostManifest.Count > 0;
-        }
-
-        /// <summary>
         /// M3 Phase 5 (design D7 carve-out lift): all-or-nothing inventory
         /// presence gate, the inventory analogue of <see cref="HasRequired"/>.
         /// True when <paramref name="storedCounter"/> reports at least the

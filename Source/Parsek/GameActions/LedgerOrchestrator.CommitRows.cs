@@ -482,7 +482,7 @@ namespace Parsek
         /// <returns>List of 0–2 actions (build cost and/or recovery).</returns>
         internal static List<GameAction> CreateVesselCostActions(string recordingId, double startUT, double endUT)
         {
-            var rec = FindRecordingById(recordingId);
+            var rec = RecordingStore.FindRecordingById(recordingId);
             GameAction adoptionCandidate;
             LedgerRolloutAdoption.RolloutAdoptionContext adoptionContext;
             bool consumesPayout;
@@ -734,7 +734,7 @@ namespace Parsek
         internal static List<GameAction> CreateKerbalAssignmentActions(
             string recordingId, double startUT, double endUT)
         {
-            var rec = FindRecordingById(recordingId);
+            var rec = RecordingStore.FindRecordingById(recordingId);
             if (rec == null) return new List<GameAction>();
 
             if (NeedsCrewEndStatePopulation(rec))
@@ -822,7 +822,7 @@ namespace Parsek
             string recordingId, double startUT, double endUT,
             ReputationSeedOrigin repSeedOrigin)
         {
-            var rec = FindRecordingById(recordingId);
+            var rec = RecordingStore.FindRecordingById(recordingId);
             if (rec == null) return new List<GameAction>();
 
             if (NeedsCrewEndStatePopulation(rec))
@@ -1053,25 +1053,6 @@ namespace Parsek
             }
 
             return false;
-        }
-
-        /// <summary>
-        /// Finds a committed recording by its ID. Returns null if not found.
-        /// </summary>
-        internal static Recording FindRecordingById(string recordingId)
-        {
-            if (string.IsNullOrEmpty(recordingId)) return null;
-
-            var recordings = RecordingStore.CommittedRecordings;
-            if (recordings == null) return null;
-
-            for (int i = 0; i < recordings.Count; i++)
-            {
-                if (recordings[i].RecordingId == recordingId)
-                    return recordings[i];
-            }
-
-            return null;
         }
     }
 }

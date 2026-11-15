@@ -30,7 +30,6 @@ namespace Parsek.MapRender
     /// </summary>
     internal sealed class TracedPathTreatment
     {
-        public Treatment Kind => Treatment.TracedPath;
 
         /// <summary>PURE applicability: a visible TracedPath intent (no conic payload needed - the
         /// treatment reads the source recording's points by the segment's UT window).</summary>

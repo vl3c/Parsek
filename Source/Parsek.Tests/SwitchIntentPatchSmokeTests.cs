@@ -482,7 +482,7 @@ namespace Parsek.Tests
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
             string storePath = Path.Combine(projectRoot,
-                "Source", "Parsek", "SwitchSegmentAttempts.cs");
+                "Source", "Parsek", "SwitchIntent", "SwitchSegmentAttempts.cs");
             string storeSource = ParsekFlightSourceFiles.ReadText(storePath);
             // TryDiscardActiveSwitchSegmentAttempt's success path always
             // calls ClearSwitchSegmentSession("scoped-discard") before
@@ -643,7 +643,7 @@ namespace Parsek.Tests
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
             string flightPath = Path.Combine(projectRoot,
-                "Source", "Parsek", "ParsekFlight.cs");
+                "Source", "Parsek", "Controllers", "ParsekFlight.cs");
             string flightSource = ParsekFlightSourceFiles.ReadText(flightPath);
 
             // The new entry point exists.
@@ -770,7 +770,7 @@ namespace Parsek.Tests
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
             string mergeDialogPath = Path.Combine(projectRoot,
-                "Source", "Parsek", "MergeDialog.cs");
+                "Source", "Parsek", "Rewind", "MergeDialog.cs");
             string mergeDialogSource = ParsekFlightSourceFiles.ReadText(mergeDialogPath);
 
             // The override parameter is the load-bearing seam between

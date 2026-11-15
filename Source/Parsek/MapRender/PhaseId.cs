@@ -35,9 +35,6 @@ namespace Parsek.MapRender
             Ordinal = ordinal;
         }
 
-        /// <summary>True for the default / unset id.</summary>
-        internal bool IsEmpty => RecordingId == null && InstanceKey == 0 && Ordinal == 0;
-
         public bool Equals(PhaseId other)
             => string.Equals(RecordingId, other.RecordingId, StringComparison.Ordinal)
                && InstanceKey == other.InstanceKey

@@ -920,58 +920,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void FindDuplicateBackgroundMapPids_ReturnsEligibleDuplicatesOnly()
-        {
-            var tree = new RecordingTree
-            {
-                Id = "tree_dup_bg",
-                TreeName = "Duplicate Background PID Test",
-                RootRecordingId = "R1",
-                ActiveRecordingId = "R4"
-            };
-
-            tree.Recordings["R1"] = new Recording
-            {
-                RecordingId = "R1",
-                VesselPersistentId = 500,
-                TerminalStateValue = null,
-                ExplicitStartUT = 100.0,
-                ExplicitEndUT = 150.0
-            };
-            tree.Recordings["R2"] = new Recording
-            {
-                RecordingId = "R2",
-                VesselPersistentId = 500,
-                TerminalStateValue = null,
-                ExplicitStartUT = 150.0,
-                ExplicitEndUT = 200.0
-            };
-            tree.Recordings["R3"] = new Recording
-            {
-                RecordingId = "R3",
-                VesselPersistentId = 600,
-                TerminalStateValue = TerminalState.Destroyed,
-                ExplicitStartUT = 200.0,
-                ExplicitEndUT = 250.0
-            };
-            tree.Recordings["R4"] = new Recording
-            {
-                RecordingId = "R4",
-                VesselPersistentId = 700,
-                TerminalStateValue = null,
-                ExplicitStartUT = 250.0,
-                ExplicitEndUT = 300.0
-            };
-
-            var duplicates = tree.FindDuplicateBackgroundMapPids();
-
-            Assert.Single(duplicates);
-            Assert.Contains((uint)500, duplicates);
-            Assert.DoesNotContain((uint)600, duplicates);
-            Assert.DoesNotContain((uint)700, duplicates);
-        }
-
-        [Fact]
         public void BackgroundMap_DuplicateEligiblePids_PreservesTreeOrderWinnerAcrossSaveLoad()
         {
             var tree = new RecordingTree
@@ -1067,10 +1015,8 @@ namespace Parsek.Tests
             Assert.False(tree.IsBackgroundMapEligible(tree.Recordings["R1"]));
             Assert.True(tree.IsBackgroundMapEligible(tree.Recordings["R2"]));
 
-            var duplicates = tree.FindDuplicateBackgroundMapPids();
             tree.RebuildBackgroundMap();
 
-            Assert.Empty(duplicates);
             Assert.Equal("R2", tree.BackgroundMap[500]);
         }
 
@@ -1747,7 +1693,8 @@ namespace Parsek.Tests
                 $"Parsek source dir not found at {parsekDir}");
 
             string source = "";
-            foreach (string scenarioFile in Directory.GetFiles(parsekDir, "ParsekScenario*.cs"))
+            foreach (string scenarioFile in Directory.GetFiles(
+                Path.Combine(parsekDir, ParsekScenarioSourceFiles.ModuleFolder), "ParsekScenario*.cs"))
                 source += File.ReadAllText(scenarioFile);
 
             // Both refresh functions must snapshot the field (declare a local)

@@ -246,7 +246,7 @@ When a kerbal is reserved for a deferred vessel spawn ("Merge to Timeline"), the
 2. **Unreserve** - `UnreserveCrewInSnapshot()` sets kerbal back to Available, calls `CleanUpReplacement()`:
    - If replacement is still Available (unused) → removed from roster
    - If replacement is Assigned (player put them on a mission) → kept as a "real" kerbal
-3. **Wipe** - `ClearReplacements()` cleans up all replacements and clears the mapping
+3. **Wipe** - `CrewReservationManager.ClearReplacementsInternal()` clears the mapping without touching the roster; `KerbalsModule`'s roster pass calls it before it fills the mapping again from the current reservations
 
 **Serialization:** The `crewReplacements` dictionary is persisted as a `CREW_REPLACEMENTS` ConfigNode with `ENTRY` sub-nodes (each containing `original` and `replacement` values). Loaded on both initial save load and revert paths.
 

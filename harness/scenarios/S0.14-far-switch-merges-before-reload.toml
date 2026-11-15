@@ -1,0 +1,277 @@
+schema = 1
+id = "S0.14-far-switch-merges-before-reload"
+# =====================================================================================
+# A FAR SWITCH WITH A LIVE RECORDING (game rules: docs/parsek-flight-recorder-design.md
+# section 5.4, "Switching vessels in flight"; the patch contract in .claude/CLAUDE.md,
+# "Stock-action intent", Case B). A Switch-To whose target is OUT of the physics bubble
+# is not an in-scene switch: stock `FlightGlobals.setActiveVessel` fires
+# `onVesselSwitchingToUnloaded`, saves `persistent` and calls
+# `FlightDriver.StartAndFocusVessel`, a FLIGHT -> FLIGHT scene reload. It never fires
+# `onVesselSwitching`, so `ParsekScenario.TryArmVesselSwitchFlag` never arms and the
+# #266 pre-transition stash (`StashActiveTreeForVesselSwitch`) cannot take it. Parsek
+# therefore decides the live recording BEFORE stock switches:
+# `MapFocusObjectOnSelectPatch.PrepareOwnedVesselSwitch` -> `DecidePreSwitchDialogAction`
+# OpenDialog (no session, a live recording, `target.loaded == false`: Case B) ->
+# `TryAutoResolvePreSwitch` (auto-merge on, the prior recording did something) ->
+# `MergeActiveTreeAndSwitchTo` -> `CommitTreeFlight` -> `ArmIntentAndSwitchTo` ->
+# `FlightGlobals.SetActiveVessel`. The tree is committed in the OLD scene, so
+# `ParsekFlight.OnSceneChangeRequested` sees `activeTree == null`, runs no
+# `FinalizeTreeOnSceneChange` and stashes nothing, and the new scene's OnLoad finds no
+# pending or Limbo tree.
+#
+# WHY THIS LANE. Before it, no spec pinned any line of that branch: a grep of every
+# `harness/scenarios/*.toml` and of `docs/dev/flight-profiles.md` on 2026-11-14 found ZERO
+# hits for `B-unloaded`, `pre-switch-dialog-merge-chosen-no-session`,
+# `pre-switch-dialog-discard-chosen-no-session` and `StashActiveTreeForVesselSwitch`.
+# The `SimulateStockSwitchClick` verb (S0.8 / S0.12 / S0.13) REFUSES an unloaded target
+# (`target-unloaded`, `TestCommandSimulateSwitchClick.RefusedTargetUnloaded`), so no
+# switch lane could reach Case B. The `AlarmJump` verb (AJ-1) can: in FLIGHT stock's
+# alarm Jump switches through the same `SetActiveVessel`, and Parsek's
+# `AlarmJumpSwitchPatch` Prefix runs the same `PrepareOwnedVesselSwitch`. AJ-1 flies it
+# only in a Re-Fly session, where the switch is refused before Case B is decided.
+# The #266 stash itself (`StashActiveTreeForVesselSwitch`, literal `as LimboVesselSwitch`)
+# stays unreached: it needs an in-scene switch followed within 60 frames by a
+# FLIGHT -> FLIGHT reload, which no seam verb drives deterministically (no committed
+# fixture can host that reading; todo FAR-SWITCH-CASE-B-UNFLOWN says what a host needs).
+#
+# THE SHAPE, on `jool-park-nerv` (SANDBOX, CanSwitchVesselsFar=True, nothing committed, no
+# Parsek state): "Duna Rocket" pid 807470910 is the active crewed Ship ORBITING Jool (REF 8,
+# SMA 590,325,785 m), and two "Duna Rocket Debris" vessels ORBIT Kerbin (REF 1), owned
+# (DISCOVERY state -1): pid 4267147709 (14 parts, SMA 1,369,582 m, ecc 4.2e-5) and pid
+# 1165394793 (4 parts). Another body's SOI, so the target is unloaded by construction.
+#   1. `StartRecording` on the Duna Rocket, then a WarpToUT dwell so the recording has points.
+#   2. `AlarmJump pid=4267147709`: a stock alarm on that debris fires its message dialog,
+#      the Jump button is shown (the pid is live and not the active vessel) and stock's
+#      `OnJump` is pressed. Parsek's Prefix decides Case B -> Merge, commits the tree and
+#      switches; stock's own OnJump body does not run (`runStock=False`).
+#   3. The far switch reloads FLIGHT on the debris. `ListHandles kind=chains` holds the
+#      lane until the reloaded scene's OnFlightReady has run (the seam defers it
+#      `ghost-chains-pending` while `ParsekFlight.FlightReadyObserved` is false, CI-2's
+#      idiom); OnFlightReady runs `DispatchConsumeIntentIfArmed` in that same call, so any
+#      switch intent would have been consumed by then (none is armed for an unloaded
+#      target). `RecordingState` then reads no live recording.
+#   4. `FlushAndQuit` saves: one committed tree.
+#
+# THE INTENT ON THE FAR SIDE (fixed after the third flight, todo FAR-SWITCH-INTENT-TTL-RACE).
+# `ArmIntentAndSwitchTo` arms NO MapSwitchTo intent for an unloaded target
+# (`DeclineArmForUnloadedTarget` -> `ShouldArmIntentForSwitchTarget`, logging `pre-switch-dialog
+# intent not armed: reason=far-switch-target-unloaded targetPid=...`) and still switches.
+# Before the fix it armed one with a 2 s wall-clock TTL; stock's unloaded branch saved it
+# into the reloaded scene (two saves inside `setActiveVessel` run OnSave), and a far scene
+# that reached OnFlightReady within 2 s consumed it into a standalone segment on the
+# debris (the third flight). The design outcome is no segment, so the lane now requires
+# the not-armed line before the reload and forbids every MapSwitchTo intent line for the
+# debris, the OnLoad keep, and the segment (P6).
+#
+# WHY NOT `eva2-lko-crewed` (S0.13's host, this lane's first host). FIRST FLIGHT 2026-11-14
+# on the PC, INVALID(driver-arg) on both attempts, pre-registered P2: the target was one of
+# the four "Kerbal X Debris" LANDED at KSC (pid 2325190904, landedAt KSC_Pad_Grounds), and
+# stock deleted all four about 1.5 s after the Cold load ("Vessel Kerbal X Debris was
+# removed from the game: it was debris cluttering up KSC."), so the jump read `alarmjump
+# rejected reason=alarmjump-target-not-found vessel= pid=2325190904 matches=0
+# vesselsScanned=3`. Steps 1 to 8 were OK (`recordingstate recording=true ... points=2`).
+# The stock rule (KSP 1.12.5 `FlightState..ctor`, decompiled): with
+# `GameSettings.DECLUTTER_KSC` on, a vessel that is not `isCommandable`, not
+# `isPersistent`, in situation LANDED and `LandedInKSC` (or `LandedInStockLaunchSite`) gets
+# `SetAutoClean("it was debris cluttering up KSC")`. eva2-lko-crewed has no other far
+# target: its only other vessel is an asteroid at DISCOVERY state 1, not Owned, which stock
+# refuses to switch to. Any vessel ORBITING, or any commandable one, survives the rule.
+#
+# PRE-REGISTERED OUTCOMES (P1 read on the fourth flight, 2026-11-15):
+#   (P1) Every required token below matches: auto-resolve `resolution=Merge
+#        case=B-unloaded reason=not-committed-restore-clone`, the commit, the merge-chosen
+#        line and the not-armed intent line before the FLIGHT scene change, the reload
+#        with no pending / Limbo tree, no MapSwitchTo intent for the debris (by design a
+#        far switch starts no segment), no live recording after it, one committed tree of
+#        one recording.
+#   (P2) `alarmjump rejected reason=alarmjump-target-not-found`: the pid lookup missed
+#        the debris. It TOOK this branch on eva2-lko-crewed (stock's KSC declutter, above);
+#        here the target orbits Kerbin and the rule cannot remove it, so a miss now is a
+#        finding: read `vesselsScanned=` (4 on this host: the asteroid, the Duna Rocket and
+#        the two debris) and file it.
+#   (P3) The AlarmJump step gets no reply (TIMEOUT / driver-INVALID): the seam reply did
+#        not survive the reload the verb itself triggers. A seam finding, not a Parsek one.
+#   (P4) `resolution=StockWillRefuse reason=stock-not-clear-to-save:<status>`: stock
+#        would refuse the switch at that moment; lengthen the dwell, not a finding.
+#   (P5) `resolution=Discard ... idleOnPad=True`: the orbiting recording read as
+#        idle-on-pad. A classifier question, filed in docs/dev/todo-and-known-bugs.md.
+#   (P6) A recording live after the reload, a `[SwitchSegment] created` on the debris,
+#        or a second committed recording: the far switch started a segment (the 2 s TTL
+#        race, FAR-SWITCH-INTENT-TTL-RACE, fixed) or doubled the tree. A PARSEK-FAIL.
+#
+# SECOND FLIGHT 2026-11-14 on the PC (first on jool-park-nerv, head ace27412f), wall
+# 70 s, every seam step OK, PARSEK-FAIL(log) on ONE token, a spec error: the Case B
+# merge worked (`pre-switch auto-resolve: resolution=Merge case=B-unloaded ...
+# targetPid=4267147709` at 00:05:56.183, `CommitTreeFlight: starting tree commit at
+# UT=27787327.9` at .184, `Scene change requested: FLIGHT at UT=27787327.88` at .417).
+# The miss was `cleared: ... reason=stale-intent`: OnLoad logged `intent kept-armed on
+# OnLoad: ... targetPid=4267147709` at 56.882, and the spec's last RecordingState and
+# FlushAndQuit (57.42) ran BEFORE the reloaded scene's onFlightReady (the log has
+# `Vessel switch ignored ... fired before onFlightReady` and no flight-ready after), so
+# the consume that clears the intent never ran. Fixed by the ListHandles wait in step 3
+# and the clear pinned to its two code reasons exactly (`stale-intent` at OnLoad,
+# `stale-intent-ttl` at the consume; a bare `reason=stale-intent` prefix would also match
+# `stale-intent-ttl` and `stale-intent-ut-regressed`).
+#
+# THIRD FLIGHT 2026-11-14 on the PC (head a3624e48f), PARSEK-FAIL on P6, a PRODUCT
+# defect, filed as todo FAR-SWITCH-INTENT-TTL-RACE: the merge before the reload matched
+# again (`resolution=Merge case=B-unloaded` 12.292, `CommitTreeFlight` 12.293), the intent
+# was armed at 12.404, OnLoad kept it at 12.983, and OnFlightReady came at 13.741, 1.34 s
+# after the arm, so the consume was Authorized: `[SwitchSegment] created ...
+# parentRecId=<standalone> ... focusedPid=4267147709 ... reason=MapSwitchTo` at 13.744,
+# then `recordingstate recording=true ... points=1` (recordings 2 > max 1). The design
+# (docs/dev/done/plans/segment-scoped-switch-fly-autorecord.md, "Unloaded-vessel branch
+# outcome") says a Switch-To to an unloaded vessel does NOT start a segment, and sizes the
+# 2 s MapSwitchTo TTL for the same-frame in-scene consume; the marker reaches the far
+# scene only because stock's far branch saves (`GamePersistence.SaveGame` and
+# `Game.Updated()`, both serializing the scenario) before any Postfix can clear it. The
+# third flight's spec was right to red: P6 is the designed outcome's opposite, and this
+# host reaches OnFlightReady well inside 2 s.
+# FIXED on the same branch (todo FAR-SWITCH-INTENT-TTL-RACE): no intent is armed for an
+# unloaded target, so the spec now requires the not-armed line and forbids any MapSwitchTo
+# intent for the debris instead of pinning its stale clear.
+#
+# FOURTH FLIGHT 2026-11-15 on the PC, the first with the fix: LIVE-PROVEN,
+# `2026-11-15_0011_S0.14-far-switch-merges-before-reload` PASS attempt 1 (branch head
+# 94f5b8df9, install copy 1 provisioned from the worktree build, DLL sha256 aa34bc87...3d22),
+# wall 56 s, every gating verifier green, unityExceptions 0. Read in KSP.log order:
+# `CommitTreeFlight` at UT=27787328.0, `Committed tree 'Duna Rocket' (1 recordings)`,
+# `[SwitchIntentPatch] pre-switch-dialog intent not armed: reason=far-switch-target-unloaded
+# targetPid=4267147709` (line 12263), `Scene change requested: FLIGHT at UT=27787328.00`
+# (line 12375), the far scene flight-ready; ZERO `action=MapSwitchTo`, `intent kept-armed on
+# OnLoad` and `[SwitchSegment] created`; saveParse 1 recording in 1 committed tree, 2 points,
+# supersedeRows=0, rewindPoints=0. The pins already sit at the reading (recordings {1,1}, the
+# structure block's 1-tree / 1-recording windows; it stays report-only until an operator arms
+# it). Tier daily by the measured wall (S0.13, the in-bubble sibling, is daily at 69 s).
+# `flight_efficiency.py` was not run here (the results archive is on the PC); the lane has no
+# warp-sized or coast wait to cut: two 1x dwells of 4.6 s and 4 s game time.
+# =====================================================================================
+tier = "daily"
+description = "A far map-style Switch-To with a live recording (Case B, no session) commits the tree BEFORE stock's FLIGHT reload (todo FAR-SWITCH-CASE-B-UNFLOWN): on jool-park-nerv, record the Duna Rocket in Jool orbit, then a stock Alarm Clock Jump to an unloaded debris in Kerbin orbit auto-resolves Merge case=B-unloaded, CommitTreeFlight runs, the reload carries no pending or Limbo tree, no switch intent is armed for the unloaded target (todo FAR-SWITCH-INTENT-TTL-RACE), no recording starts on it, and the save holds one committed tree of one recording."
+instanceProfile = "stock-minimal"
+tags = ["switch-segment", "alarm-jump", "S0.14", "pre-switch-auto-resolve", "far-switch",
+        "D1"]
+
+[fixture]
+saveTemplate = "fixtures/saves/jool-park-nerv"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# `autoMerge = true` is LOAD-BEARING: with it off Case B opens the Merge / Discard
+# dialog instead of deciding. `verboseLogging = true` is
+# mandatory (the OnLoad detection line is Verbose). The first WarpToUT (fixture UT
+# 27,787,319.42 + 4.6 s; eva2-lko-crewed's +2.8 s reached it on the first flight) is
+# S0.12's LoadGame-race guard; the second dwell gives the recording points to commit.
+# The ListHandles after the AlarmJump is held by the seam until the reloaded scene's
+# OnFlightReady ran (`ghost-chains-pending`), hence its budget; the RecordingState after
+# it reads the scene the consume has already decided.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "27787324", maxRate = "1" },               expect = "OK", budget = 120 },
+  { cmd = "StartRecording",                                                          expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "27787328", maxRate = "1" },               expect = "OK", budget = 60 },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "AlarmJump",      args = { pid = "4267147709", jump = "shown" },           expect = "OK", budget = 120 },
+  { cmd = "ListHandles",    args = { kind = "chains" },                              expect = "OK", budget = 240 },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "FlushAndQuit",                                                            expect = "OK" },
+]
+
+[dimensionsCovered]
+# `commit-far-switch` <- the auto-resolve line (`case=B-unloaded`), the no-session merge
+#   line and the in-flight commit, all before `Scene change requested: FLIGHT`; claimed
+#   only once a flight is green (hlib.compute_coverage reads results).
+D1 = ["commit-far-switch"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The Duna Rocket's tree only: one recording, committed before the switch; the debris
+# after the reload records nothing (measured on the fourth flight: 1).
+count = { min = 1, max = 1 }
+
+# REPORT-ONLY (no `gating`): the fourth flight read 1 recording in 1 committed tree;
+# arming it is an operator call.
+[expectations.recordings.structure]
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 1, max = 1 }
+terminalStates = { Orbiting = { min = 1, max = 1 } }
+spawnedVessels = { min = 1, max = 1 }
+vesselNames    = { "Duna Rocket" = { min = 1, max = 1 }, "Duna Rocket Debris" = { min = 2, max = 2 } }
+
+[expectations.logContracts]
+# In the order the mechanism runs. Every literal is read from the source at the line
+# named; all matched on the fourth flight (2026-11-15_0011).
+required  = [
+  # The recording is live before the Jump (TestCommands, ParsekTestCommandAddon.cs).
+  "recordingstate recording=true tree=\\S+ points=[1-9][0-9]* scene=FLIGHT",
+  # The Jump is offered and pressed (ParsekTestCommandAddon.AlarmJump.cs).
+  "alarmjump start targetPid=4267147709 vessel='Duna Rocket Debris' targetIsGhost=false targetLoaded=false active=807470910 stockWouldShowJump=true decision=leave-to-stock jump=shown",
+  "alarmjump press OnJump alarmId=[0-9]+ targetPid=4267147709 jumpShown=true",
+  # Case B decides Merge without asking (MapFocusObjectOnSelectPatch.TryAutoResolvePreSwitch).
+  "pre-switch auto-resolve: resolution=Merge case=B-unloaded autoMerge=True evaluable=True priorIsNoOp=False disposition=None idleOnPad=False reason=not-committed-restore-clone priorSessionId=<no-session> targetPid=4267147709",
+  # The tree of ONE recording is committed in flight (ParsekFlightMergeFlow.CommitTreeFlight).
+  "CommitTreeFlight: starting tree commit at UT=",
+  "CommitTreeFlight: marked [0-9]+/1 recordings as fully applied",
+  # The commit lands BEFORE stock's far-switch reload (MergeActiveTreeAndSwitchTo, then
+  # ParsekFlight.OnSceneChangeRequested).
+  "(?s)pre-switch-dialog-merge-chosen-no-session priorTreeId=\\S+ newTargetPid=4267147709\\b.*?Scene change requested: FLIGHT at UT=",
+  # No switch intent is armed for the unloaded target, before the reload
+  # (MapFocusObjectOnSelectPatch.ArmIntentAndSwitchTo -> DeclineArmForUnloadedTarget).
+  "(?s)pre-switch-dialog intent not armed: reason=far-switch-target-unloaded targetPid=4267147709 .*?Scene change requested: FLIGHT at UT=",
+  # Parsek owns the switch; stock's OnJump body is skipped (AlarmJumpSwitchPatch).
+  "\\[AlarmJump\\] Jump in FLIGHT targetPid=4267147709 runStock=False intentArmed=False",
+  "alarmjump result targetPid=4267147709 targetIsGhost=false targetLoaded=false alarmId=[0-9]+ stockWouldShowJump=true jumpShown=true decision=leave-to-stock jump=shown pressed=true before=807470910 after=[0-9]+ switched=\\S+ sceneLoadRequested=true alarmRemoved=\\S+",
+  # The reload: FLIGHT -> FLIGHT, not a #266 vessel switch, no tree crossed it
+  # (ParsekScenario.OnLoad's revert-detection line).
+  "OnLoad: revert detection [^\\n]*isFlightToFlight=True, isVesselSwitch=False, isRevert=False, pendingTreeState=\\w+, activeTreeRestoredFromSave=False, pendingTreeRestoredFromSave=False, hasOrphanedLimboTree=False",
+  "Load classified: early=InSession refined=InSessionOther scene=FLIGHT ",
+  # The far scene reached OnFlightReady before the last read (ListHandles kind=chains).
+  "listhandles kind=chains count=[0-9]+ truncated=",
+  # Nothing records after the reload, and the save holds the one committed tree.
+  "recordingstate recording=false tree= points=0 scene=FLIGHT",
+  "OnSave: saving 1 committed tree\\(s\\)",
+]
+# The suite-wide ERROR pattern; the dialog (the switch must decide); any MapSwitchTo
+# intent for the debris (armed, kept at OnLoad, refused or cleared: none may exist) and a
+# switch segment on it (P6); every Limbo / #266
+# stash and restore line (the tree is committed before the reload, so none may run);
+# the merge guards and an aborted commit; and the AlarmJump verb's own failure lines.
+forbidden = ["\\[Parsek\\]\\[ERROR\\]",
+             "pre-switch-dialog opening",
+             "action=MapSwitchTo targetPid=4267147709",
+             "intent kept-armed on OnLoad",
+             "\\[SwitchSegment\\] created [^\\n]*focusedPid=4267147709",
+             "ShowPreSwitchDecisionDialog",
+             "StashActiveTreeAsPendingLimbo",
+             "StashActiveTreeForVesselSwitch",
+             "RestoreActiveTreeFromPendingForVesselSwitch",
+             "pending-Limbo",
+             "Limbo tree finalized on vessel switch",
+             "merge-refused-active-merge-journal",
+             "pre-switch-dialog merge abort",
+             "subscriber threw",
+             "alarmjump rejected",
+             "alarmjump failed",
+             "Jump button hide failed",
+             "Alarm read failed"]
+
+[runtime]
+# 300 LoadGame + 120 + 60 WarpToUT + 120 AlarmJump + 240 post-reload ListHandles + the
+# fast verbs + boot and margin. Measured 56 s on the fourth flight (S0.13 flies at ~69 s);
+# 1200 is a kill backstop.
+budgetSeconds = 1200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

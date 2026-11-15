@@ -693,7 +693,7 @@ namespace Parsek.Tests
 
             string path = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..",
-                "Source", "Parsek", "ParsekScenario.cs"));
+                "Source", "Parsek", "Controllers", "ParsekScenario.cs"));
             string prepared = SourceScanText.StripCommentsAndMaskLiterals(
                 ParsekScenarioSourceFiles.ReadText(path).Replace("\r\n", "\n"));
             const string decl = "private IEnumerator ApplyRewindResourceAdjustment()";

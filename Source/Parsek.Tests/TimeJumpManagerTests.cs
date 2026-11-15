@@ -413,80 +413,6 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region ComputeJumpTargetUT
-
-        /// <summary>
-        /// Returns the SpawnUT of the chain for the given vessel PID.
-        /// Guards: basic target computation for a single chain.
-        /// </summary>
-        [Fact]
-        public void ComputeJumpTargetUT_SingleChain_ReturnsSpawnUT()
-        {
-            var chains = new Dictionary<uint, GhostChain>
-            {
-                { 100, MakeChain(100, 1600.0) }
-            };
-
-            double target = TimeJumpManager.ComputeJumpTargetUT(chains, 100);
-
-            Assert.Equal(1600.0, target);
-        }
-
-        /// <summary>
-        /// Non-existent PID returns 0 (invalid).
-        /// Guards: missing vessel PID handling.
-        /// </summary>
-        [Fact]
-        public void ComputeJumpTargetUT_NonExistentPid_ReturnsZero()
-        {
-            var chains = new Dictionary<uint, GhostChain>
-            {
-                { 100, MakeChain(100, 1600.0) }
-            };
-
-            double target = TimeJumpManager.ComputeJumpTargetUT(chains, 999);
-
-            Assert.Equal(0.0, target);
-            Assert.Contains(logLines, l =>
-                l.Contains("[TimeJump]") && l.Contains("not found"));
-        }
-
-        /// <summary>
-        /// With multiple chains, returns the selected chain's SpawnUT regardless of others.
-        /// Earlier independent tips are auto-included by the jump execution, not the target computation.
-        /// Guards: target is based on selection, not on chronological ordering.
-        /// </summary>
-        [Fact]
-        public void ComputeJumpTargetUT_EarlierIndependentTips_ReturnsSelectedSpawnUT()
-        {
-            var chains = new Dictionary<uint, GhostChain>
-            {
-                { 100, MakeChain(100, 1200.0) },
-                { 200, MakeChain(200, 1800.0) },
-                { 300, MakeChain(300, 2400.0) }
-            };
-
-            // Select the middle chain
-            double target = TimeJumpManager.ComputeJumpTargetUT(chains, 200);
-
-            // Returns selected chain's SpawnUT — earlier tips (100) will be crossed during jump
-            Assert.Equal(1800.0, target);
-        }
-
-        /// <summary>
-        /// Null/empty chains returns 0.
-        /// Guards: null safety.
-        /// </summary>
-        [Fact]
-        public void ComputeJumpTargetUT_NullChains_ReturnsZero()
-        {
-            Assert.Equal(0.0, TimeJumpManager.ComputeJumpTargetUT(null, 100));
-            Assert.Equal(0.0, TimeJumpManager.ComputeJumpTargetUT(
-                new Dictionary<uint, GhostChain>(), 100));
-        }
-
-        #endregion
-
         #region IsValidJump
 
         /// <summary>
@@ -716,7 +642,7 @@ namespace Parsek.Tests
             // Comments blanked (literals left intact - the jump-kind arguments ARE the needles):
             // a raw substring scan reads a commented-out call as a live one.
             string source = SourceScanText.StripCSharpComments(System.IO.File.ReadAllText(
-                FindParsekSourceFile("TimeJumpManager.cs")));
+                FindParsekSourceFile("Controllers/TimeJumpManager.cs")));
 
             Assert.Contains(
                 "RecalculateLedgerAfterTimeJump(\"epoch-shift\", targetUT);",
@@ -868,23 +794,6 @@ namespace Parsek.Tests
 
             Assert.Contains(logLines, l =>
                 l.Contains("[TimeJump]") && l.Contains("IsValidJump") && l.Contains("valid=True"));
-        }
-
-        /// <summary>
-        /// ComputeJumpTargetUT logs the selected chain.
-        /// </summary>
-        [Fact]
-        public void ComputeJumpTargetUT_Logs()
-        {
-            var chains = new Dictionary<uint, GhostChain>
-            {
-                { 42, MakeChain(42, 1600.0) }
-            };
-
-            TimeJumpManager.ComputeJumpTargetUT(chains, 42);
-
-            Assert.Contains(logLines, l =>
-                l.Contains("[TimeJump]") && l.Contains("pid=42") && l.Contains("spawnUT=1600"));
         }
 
         /// <summary>

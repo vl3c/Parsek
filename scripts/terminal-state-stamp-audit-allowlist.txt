@@ -26,32 +26,32 @@
 # ── The seam itself ────────────────────────────────────────────────────────────
 # The one assignment StampTerminalState makes before handing the transition to the
 # crew-end-state invalidation.
-Source/Parsek/Recording.cs | TerminalStateValue = value;
+Source/Parsek/Recording/Recording.cs | TerminalStateValue = value;
 
 # ── Structural copies onto a fresh / consistently-copied recording ─────────────
 # ApplyPersistenceArtifactsFrom: copies an already-decided verdict as part of the
 # persistence-artifact bundle. Safe only because its callers copy from sources whose crew
 # end states are still unresolved - see the warning comment at the CrewEndStatesResolved
 # copy in the same method.
-Source/Parsek/Recording.cs | TerminalStateValue = source.TerminalStateValue;
+Source/Parsek/Recording/Recording.cs | TerminalStateValue = source.TerminalStateValue;
 
 # RecordingTreeRecordCodec: load path. Restores the persisted verdict alongside the
 # persisted crew end states; invalidating on load would discard a consistent pair.
-Source/Parsek/RecordingTreeRecordCodec.cs | rec.TerminalStateValue = (TerminalState)terminalInt;
+Source/Parsek/Recording/RecordingTreeRecordCodec.cs | rec.TerminalStateValue = (TerminalState)terminalInt;
 
 # SessionMerger: `merged` is a fresh Recording whose CrewEndStates are still null.
-Source/Parsek/SessionMerger.cs | merged.TerminalStateValue = srcRec.TerminalStateValue;
+Source/Parsek/Recording/SessionMerger.cs | merged.TerminalStateValue = srcRec.TerminalStateValue;
 
 # RecordingOptimizer.SplitAtUT: `second` (the TIP) is a fresh Recording with null end
 # states; `original` (the HEAD) keeps its end states with a nulled terminal, which is
 # exactly the seam's retraction carve-out.
-Source/Parsek/RecordingOptimizer.cs | second.TerminalStateValue = original.TerminalStateValue;
-Source/Parsek/RecordingOptimizer.cs | original.TerminalStateValue = null;
+Source/Parsek/Recording/RecordingOptimizer.cs | second.TerminalStateValue = original.TerminalStateValue;
+Source/Parsek/Recording/RecordingOptimizer.cs | original.TerminalStateValue = null;
 
 # ── Not a Recording at all ─────────────────────────────────────────────────────
 # MissionLeg display DTOs built fresh for the Missions UI; they carry no crew end states.
-Source/Parsek/MissionComposition.cs | TerminalStateValue = isLast ? lastLeg.TerminalStateValue : null,
-Source/Parsek/MissionStructure.cs | TerminalStateValue = rec.TerminalStateValue,
+Source/Parsek/Missions/MissionComposition.cs | TerminalStateValue = isLast ? lastLeg.TerminalStateValue : null,
+Source/Parsek/Missions/MissionStructure.cs | TerminalStateValue = rec.TerminalStateValue,
 
 # ── In-game test fixtures ──────────────────────────────────────────────────────
 # InGameTests builds recordings from scratch in object initializers; a fixture stating its

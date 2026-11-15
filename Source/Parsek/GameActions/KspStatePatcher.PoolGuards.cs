@@ -81,43 +81,6 @@ namespace Parsek
             return unflooredMinBalance > existingDeficit ? unflooredMinBalance : existingDeficit;
         }
 
-        /// <summary>The funds patch target <see cref="PatchFunds"/> writes (before the drawdown guard).</summary>
-        internal static double ResolveFundsPatchTarget(
-            FundsModule funds, double currentLive, bool allowNegativeCurrency)
-        {
-            return ResolveNegativeCurrencyPatchTarget(
-                "funds", funds.GetAvailableFunds(), funds.GetProjectionMinBalance(),
-                funds.GetRunningBalance(), currentLive, allowNegativeCurrency);
-        }
-
-        /// <summary>The science patch target <see cref="PatchScience"/> starts from (before its pending adjusters).</summary>
-        internal static double ResolveSciencePatchBaseTarget(
-            ScienceModule science, double currentLive, bool allowNegativeCurrency)
-        {
-            return ResolveNegativeCurrencyPatchTarget(
-                "science", science.GetAvailableScience(), science.GetProjectionMinBalance(),
-                science.GetRunningScience(), currentLive, allowNegativeCurrency);
-        }
-
-        private static double ResolveNegativeCurrencyPatchTarget(
-            string resource, double flooredAvailable, double unflooredMinBalance,
-            double runningBalanceNow, double currentLive, bool allowNegativeCurrency)
-        {
-            double target = ResolveNegativeCurrencyPatchTarget(
-                flooredAvailable, unflooredMinBalance, runningBalanceNow, currentLive,
-                allowNegativeCurrency);
-            if (target != flooredAvailable)
-            {
-                ParsekLog.VerboseRateLimited(Tag, "negative-currency-target|" + resource,
-                    $"Patch target for {resource}: AllowNegativeCurrency on, existing deficit " +
-                    $"{target.ToString("F1", IC)} kept below zero " +
-                    $"(running={runningBalanceNow.ToString("F1", IC)} live={currentLive.ToString("F1", IC)} " +
-                    $"projectedMin={unflooredMinBalance.ToString("F1", IC)} " +
-                    $"floored available={flooredAvailable.ToString("F1", IC)})");
-            }
-            return target;
-        }
-
         /// <summary>
         /// Pure threshold check for #402: returns true when a negative delta removes
         /// more than 10% of a non-trivial pool (&gt;1000). Below the pool-floor threshold

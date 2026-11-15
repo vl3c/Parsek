@@ -61,18 +61,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Build_ArrivalSeam_IsFlexibleSoiG0_OffCamera()
-        {
-            // design §9.2: the transfer arrival -> station hold seam is FlexibleSoi + G0 (position only —
-            // there is no body SOI to enforce a tangent against at a moving target).
-            MovingTargetStationApproach approach = Build(Guid.NewGuid());
-            Assert.Equal(PhaseSeamKind.FlexibleSoi, approach.ArrivalSeam.Kind);
-            Assert.Equal(ContinuityOrder.G0, approach.ArrivalSeam.Continuity);
-            Assert.False(approach.ArrivalSeam.RequiresTangentMatch);
-            Assert.Null(approach.ArrivalSeam.Crossing); // no body SOI crossing at a moving target
-        }
-
-        [Fact]
         public void Build_StationHold_IsHoldPhase_AnchoredToStation_NotALoiter()
         {
             // The station-period hold is a HoldPhase (renders quietly), NOT an ArrivalLoiterPhase — there is

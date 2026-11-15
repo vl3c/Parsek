@@ -2447,7 +2447,7 @@ class HistoryMetricsTests(unittest.TestCase):
 
 
 class KernelGuardTests(unittest.TestCase):
-    def test_unplaced_root_file_is_warned_about_and_skipped(self):
+    def test_unplaced_root_file_is_reported_as_an_error_and_skipped(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
             src = root / "src"
@@ -2476,8 +2476,8 @@ class KernelGuardTests(unittest.TestCase):
             self.assertEqual(rc, 0)
             output = captured.getvalue()
             self.assertIn(
-                "WARN unplaced root file: MysteryFile.cs (add a rule to modules.toml;"
-                " Core is the kernel, not a catch-all)",
+                "ERROR root-level source file: MysteryFile.cs (move it into its module's folder,"
+                " Source/Parsek/<Module>/; the folder is the module)",
                 output,
             )
             self.assertIn(
@@ -3980,6 +3980,37 @@ class RealTreeSmokeTests(unittest.TestCase):
         # 2026-09-25 and 2026-11-01 while nothing ran this suite in CI.
         self.assertEqual(self.model["unclassified"], [])
 
+    def test_no_source_file_sits_in_the_root_of_source_parsek(self):
+        # The folder is the module: a .cs file in the root of Source/Parsek belongs to no
+        # module folder, so it reds here by name (scripts/refactor/move_to_module_folders.py
+        # --check reports the same list).
+        root_files = archview.root_level_files(REAL_SOURCE)
+        self.assertEqual(
+            root_files,
+            [],
+            "move each file into its module's folder, Source/Parsek/<Module>/"
+            " (the folder is the module; scripts/arch/modules.toml)",
+        )
+
+    def test_modules_toml_places_every_module_by_its_folder(self):
+        # One folder rule per module, the folder named after the module, and no
+        # prefix rule: a file's path is its module.
+        rules, _tooling, _forbidden, _allowed = archview.load_rules(archview.DEFAULT_MODULES)
+        self.assertEqual([r for r in rules if r.get("prefix") or r.get("folder") != r["name"]], [])
+        self.assertEqual(len({r["name"] for r in rules}), len(rules))
+        folders = sorted(p.name for p in REAL_SOURCE.iterdir()
+                         if p.is_dir() and p.name not in archview.SKIP_DIR_NAMES)
+        self.assertEqual(sorted(r["folder"] for r in rules), folders)
+
+    def test_the_walk_sees_every_source_file(self):
+        # A floor against a walk that silently stops descending: every module folder
+        # holds files, and the model covers every .cs under Source/Parsek outside
+        # bin / obj / Properties (1,249 at the 2026-11-14 folder move).
+        on_disk = len(archview.iter_source_files(REAL_SOURCE))
+        self.assertGreaterEqual(on_disk, 1200)
+        self.assertEqual(sum(m["files"] for m in self.model["modules"]), on_disk)
+        self.assertTrue(all(m["files"] > 0 for m in self.model["modules"]))
+
     def test_logio_is_a_pure_sink(self):
         self.assertIn("LogIO", self.by_name)
         self.assertLess(self.by_name["LogIO"]["instability"], 0.1)
@@ -4085,13 +4116,15 @@ class RealTreeSmokeTests(unittest.TestCase):
         # B3's shared part-state poller adds three: PartStatePoller, which calls the
         # recorders' transition statics and which both recorders call, and the two nested
         # sinks (FlightRecorder's and BackgroundRecorder's), each reaching its owner and
-        # reached from it: 438.
+        # reached from it: 438. The dead-method removal (item 25) deleted
+        # RouteOriginCargoCheck.RequiresInventoryDebit, the type's only reference into the
+        # knot, so RouteOriginCargoCheck leaves it: 437.
         # It was [301, 7, 4, 2, 2] on 2026-09-25,
         # [286, 4, 2, 2] on 2026-09-22 and [391, 4, 2] before the 2026-09-14
         # arch PRs shrank the kernel.
         # It is a canary: when it reds, re-derive it and the README numbers
         # from a fresh run in the same commit as whatever moved them.
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [438, 9, 4, 3, 2])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [437, 9, 4, 3, 2])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
@@ -4106,14 +4139,14 @@ class RealTreeSmokeTests(unittest.TestCase):
 
     def test_kernel_files_resolve_to_core(self):
         kernel = [
-            "BranchPoint.cs",
-            "IPlaybackTrajectory.cs",
-            "VesselLaunchIdentity.cs",
-            "VesselSnapshotOps.cs",
-            "MilestoneStore.cs",
-            "GroupHierarchyStore.cs",
-            "InventoryManifest.cs",
-            "PlaybackTrajectoryBoundsResolver.cs",
+            "Core/BranchPoint.cs",
+            "Core/IPlaybackTrajectory.cs",
+            "Core/VesselLaunchIdentity.cs",
+            "Core/VesselSnapshotOps.cs",
+            "Core/MilestoneStore.cs",
+            "Core/GroupHierarchyStore.cs",
+            "Core/InventoryManifest.cs",
+            "Core/PlaybackTrajectoryBoundsResolver.cs",
         ]
         for name in kernel:
             self.assertEqual(self.model["fileModules"][name], "Core")
@@ -4124,11 +4157,11 @@ class RealTreeSmokeTests(unittest.TestCase):
 
     def test_phase_two_placements(self):
         modules = self.model["fileModules"]
-        self.assertEqual(modules["RouteProofMetadata.cs"], "Logistics")
-        self.assertEqual(modules["GuiTreeFunnels.cs"], "GuiTree")
-        self.assertEqual(modules["GameStateEvent.cs"], "GameActions")
-        self.assertEqual(modules["ResourceManifest.cs"], "Logistics")
-        self.assertEqual(modules["RecoveryPayoutContext.cs"], "GameActions")
+        self.assertEqual(modules["Logistics/RouteProofMetadata.cs"], "Logistics")
+        self.assertEqual(modules["GuiTree/GuiTreeFunnels.cs"], "GuiTree")
+        self.assertEqual(modules["GameActions/GameStateEvent.cs"], "GameActions")
+        self.assertEqual(modules["Logistics/ResourceManifest.cs"], "Logistics")
+        self.assertEqual(modules["GameActions/RecoveryPayoutContext.cs"], "GameActions")
 
     def test_committed_placement_report_matches_a_fresh_render(self):
         rules, tooling, _forbidden, _allowed = archview.load_rules(archview.DEFAULT_MODULES)
@@ -4157,26 +4190,12 @@ class RealTreeSmokeTests(unittest.TestCase):
         # The report is generated, gitignored output; pin determinism and the
         # facts a reader relies on rather than a committed copy.
         self.assertEqual(fresh, again)
-        self.assertIn("| Core |", fresh)
-        # 216: the historical before-state collects every root file the narrowed
-        # family rules leave behind (138 on 2026-09-25, 126 before the stock-UI
-        # reservation files landed at the root; the 2026-11-01 refresh placed
-        # 50 more by hand, the first 2026-11-04 merge of main three more, the
-        # second two more while main deleted one, and the RecordingStore
-        # services plan's SceneEntryVesselScope, CommittedListOptimizer,
-        # CommittedTreeRestoreAttempt and PendingTreeSlot, which no family prefix
-        # names, four more (PR11's SwitchSegmentAttempts takes the SwitchIntent
-        # family prefix and adds none; PR12 K's TreeDiscardService one more and
-        # PR12 L's TreeCommitService with its two partial files three more),
-        # file-placement PR 8's LiveVesselSnapshot one more, and PR 10's eight
-        # VesselSpawner.<Area>.cs partial files eight more; PR 8's follow-up
-        # FlightRecorder.LiveSnapshot.cs matches a family prefix and adds none;
-        # the map-geometry dump's MapGeometryJson.cs and MapGeometryRecorder.cs,
-        # placed in TestCommands by an explicit rule, two more; B3's PartStatePoller.cs,
-        # placed in Recording by an explicit rule, one more);
-        # 8 after, the kernel list as it stands today (9 until
-        # file-placement PR 9 placed VesselSpawner.cs in Controllers).
-        self.assertIn("| Core | 216 | 8 |", fresh)
+        # The historical before-state scored the root files a catch-all prefix rule
+        # collected ("| Core | 216 | 8 |" before the folder move). Every file now
+        # sits in its module's folder, so the rebuilt catch-all is empty and the
+        # report records no placement; the phase's evidence is in git history.
+        self.assertIn("Catch-all (%s): 0 files before" % rules[-1]["name"], fresh)
+        self.assertIn("## Files moved\n\n- none", fresh)
 
     def test_atlas_prose_matches_the_tree(self):
         prose = archview.load_prose(archview.DEFAULT_ATLAS)
@@ -4277,11 +4296,14 @@ class RealTreeSmokeTests(unittest.TestCase):
         # Plan item 17's IMergeFlowHost joins the knot on the cut side (435 before, the cut still
         # lands on 403). B3's three poller types (see the knot sizes above) stay on the uncut
         # side until the recorder cut, so each of the first three lands three higher
-        # (438 -> 406, 406 -> 384, 384 -> 365).
+        # (438 -> 406, 406 -> 384, 384 -> 365). Item 25's RouteOriginCargoCheck (out of the
+        # knot, see above) sat on the uncut side until the route cut, so the first two land one
+        # lower and the route cut starts one lower and lands where it did (437 -> 405,
+        # 405 -> 383, 383 -> 365).
         first, second, third = self.model["knots"][0]["cuts"][:3]
         self.assertEqual(first["sink"], "ParsekFlight")
-        self.assertEqual(first["sizeBefore"], 438)
-        self.assertEqual(first["sizeAfter"], 406)
+        self.assertEqual(first["sizeBefore"], 437)
+        self.assertEqual(first["sizeAfter"], 405)
         for service in ("ParsekFlightGhostPositioner", "ParsekFlightMapMarkers", "ParsekWindowSet",
                         "ParsekFlightMergeFlow",
                         "ParsekFlightPlaybackHost", "ParsekFlightPostSwitchAutoRecord",
@@ -4289,8 +4311,8 @@ class RealTreeSmokeTests(unittest.TestCase):
                         "ParsekFlightSurfaceCapture", "ParsekFlightSwitchContinuation"):
             self.assertIn(service, first["droppedReferences"])
         self.assertEqual(second["sink"], "GhostPlaybackLogic")
-        self.assertEqual(second["sizeBefore"], 406)
-        self.assertEqual(second["sizeAfter"], 384)
+        self.assertEqual(second["sizeBefore"], 405)
+        self.assertEqual(second["sizeAfter"], 383)
         for dropped in ("LoopUnit", "MissionPeriodicity", "MissionRelaunchSchedule"):
             self.assertIn(dropped, second["droppedReferences"])
         # File-placement PR 4 (2026-11-07) deleted OrbitReseed -> GhostMapPresence;
@@ -4310,9 +4332,9 @@ class RealTreeSmokeTests(unittest.TestCase):
         # (436 -> 419). Wave 2 W1a made launch identity a sink (installed rules), so it is
         # no longer a cut; the third cut was the scenario module (419 -> 404 then, 410 -> 395
         # after W1b). Since W1c the third cut is the route (406 -> 387; 388 -> 369 after W3b;
-        # 383 -> 364 after W6's window set).
+        # 383 -> 364 after W6's window set; 383 -> 365 after item 25).
         self.assertEqual(third["sink"], "Route")
-        self.assertEqual(third["sizeBefore"], 384)
+        self.assertEqual(third["sizeBefore"], 383)
         self.assertEqual(third["sizeAfter"], 365)
         self.assertEqual(
             third["droppedReferences"], ["RouteCodec", "RouteDispatchEvaluator", "RouteIds"])

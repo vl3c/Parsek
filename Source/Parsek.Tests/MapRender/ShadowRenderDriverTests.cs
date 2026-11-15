@@ -605,9 +605,9 @@ namespace Parsek.Tests
         {
             string root = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
-            string path = Path.Combine(root, "Source", "Parsek", "GhostMapPresence.cs");
+            string path = Path.Combine(root, "Source", "Parsek", "Ghost", "GhostMapPresence.cs");
             if (!File.Exists(path))
-                path = Path.Combine(root, "Parsek", "GhostMapPresence.cs");
+                path = Path.Combine(root, "Parsek", "Ghost", "GhostMapPresence.cs");
             Assert.True(File.Exists(path), $"Source file not found at {path}");
             var sb = new System.Text.StringBuilder(File.ReadAllText(path));
             string[] partials = Directory.GetFiles(

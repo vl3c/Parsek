@@ -1514,7 +1514,7 @@ class SourceSyncTests(unittest.TestCase):
     def test_scenario_split_lists_name_every_partial_file(self):
         # A new ParsekScenario.*.cs must be declared, read with SRC_SCENARIO or not, so an
         # anchor never goes silently unread.
-        src_dir = os.path.join(REPO_ROOT, "Source", "Parsek")
+        src_dir = os.path.join(REPO_ROOT, os.path.dirname(la.SRC_SCENARIO))
         on_disk = sorted(n for n in os.listdir(src_dir)
                          if n.startswith("ParsekScenario.") and n.endswith(".cs")
                          and n != "ParsekScenario.cs")

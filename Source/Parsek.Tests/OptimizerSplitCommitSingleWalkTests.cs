@@ -15,7 +15,7 @@ namespace Parsek.Tests
     /// before the second half's rows existed: one award short of a live pool that already
     /// held it, which the funds drawdown guard clamps (HC-2's forbidden token). The tree
     /// now files every recording's rows and walks once.
-    /// <para>The seam is <see cref="LedgerOrchestrator.OnTimelineDataChanged"/>, raised
+    /// <para>The seam is <see cref="LedgerTimelineSignal.OnTimelineDataChanged"/>, raised
     /// once at the end of every recalculation: each raise records what that walk saw.</para>
     /// </summary>
     [Collection("Sequential")]
@@ -80,7 +80,7 @@ namespace Parsek.Tests
 
         private void CountWalks()
         {
-            LedgerOrchestrator.OnTimelineDataChanged += () =>
+            LedgerTimelineSignal.OnTimelineDataChanged += () =>
             {
                 var milestoneRows = Ledger.Actions
                     .Where(a => a != null && a.Type == GameActionType.MilestoneAchievement)

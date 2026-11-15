@@ -175,7 +175,7 @@ namespace Parsek.Tests
             string root = System.IO.Path.GetFullPath(System.IO.Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
             string flight = ParsekFlightSourceFiles.ReadText(System.IO.Path.Combine(
-                root, "Source", "Parsek", "ParsekFlight.cs")).Replace("\r\n", "\n");
+                root, "Source", "Parsek", "Controllers", "ParsekFlight.cs")).Replace("\r\n", "\n");
             string idleBody = IsActiveTreeIdleOnPadBody(flight);
             int walk = idleBody.IndexOf("AllRecordingsIdleOnPadAfterBackfill(host.activeTree, out bool anyHasPoints)", StringComparison.Ordinal);
             Assert.True(walk >= 0, "distance walk must be called inside IsActiveTreeIdleOnPad");
@@ -184,7 +184,7 @@ namespace Parsek.Tests
             Assert.Contains("TreeHasPendingLabRecoveryForIdle(host.activeTree, \"IsActiveTreeIdleOnPad\")", head);
 
             string scenario = ParsekScenarioSourceFiles.ReadText(System.IO.Path.Combine(
-                root, "Source", "Parsek", "ParsekScenario.cs")).Replace("\r\n", "\n");
+                root, "Source", "Parsek", "Controllers", "ParsekScenario.cs")).Replace("\r\n", "\n");
             int handler = scenario.IndexOf("private void OnVesselRecoveryRequested(Vessel v)", StringComparison.Ordinal);
             Assert.True(handler >= 0, "OnVesselRecoveryRequested not found");
             int arm = scenario.IndexOf("InFlightRecoveryRequest.Arm(", handler, StringComparison.Ordinal);

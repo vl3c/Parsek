@@ -476,17 +476,6 @@ namespace Parsek.Tests
             Assert.True(EffectiveState.IsRewindRetired(child, recordings, retirements));
         }
 
-        [Fact]
-        public void IsRewindRetired_RawOverload_ReturnsFalseForParentAnchoredChild()
-        {
-            // Raw overload (no recordings list) keeps its per-row contract: it
-            // reads direct rows only, never the parent-anchored cascade.
-            var child = Rec("rec_child", parentAnchorRecordingId: "rec_parent");
-            var retirements = new List<RecordingRewindRetirement> { Retire("rec_parent") };
-
-            Assert.False(EffectiveState.IsRewindRetired(child, retirements));
-        }
-
         // =====================================================================
         // End-to-end through ComputeERS
         // =====================================================================

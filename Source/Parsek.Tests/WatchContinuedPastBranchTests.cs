@@ -128,17 +128,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResolveEffectiveWatchTargetIndex_ParentContinuedPastDecouple_DoesNotResolveToChild()
-        {
-            var recs = MakeRecs(ParentEndUT, SplitUT);
-            var trees = MakeTree(BranchPointType.JointBreak, SplitUT);
-
-            int result = GhostPlaybackLogic.ResolveEffectiveWatchTargetIndex(0, recs, trees, idx => idx == 1);
-
-            Assert.Equal(-1, result);
-        }
-
-        [Fact]
         public void FindNextWatchTarget_ParentContinued_SamePidChildStillFollowed()
         {
             // The gate only narrows the different-vessel fallback: a same-PID child is a
@@ -193,17 +182,6 @@ namespace Parsek.Tests
 
             Assert.True(found);
             Assert.Equal(SplitUT + 5.0, activationUT);
-        }
-
-        [Fact]
-        public void ResolveEffectiveWatchTargetIndex_ParentEndedAtDecouple_ResolvesToChild()
-        {
-            var recs = MakeRecs(SplitUT, SplitUT);
-            var trees = MakeTree(BranchPointType.JointBreak, SplitUT);
-
-            int result = GhostPlaybackLogic.ResolveEffectiveWatchTargetIndex(0, recs, trees, idx => idx == 1);
-
-            Assert.Equal(1, result);
         }
 
         [Fact]

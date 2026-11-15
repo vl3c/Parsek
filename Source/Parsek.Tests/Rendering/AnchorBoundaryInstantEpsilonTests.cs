@@ -368,7 +368,8 @@ namespace Parsek.Tests.Rendering
         private string MissReasonFor(Recording rec, int sectionIndex, AnchorCandidate cand)
         {
             bool ok = AnchorPropagator.TryResolveBoundaryInstantEpsilon(
-                rec, sectionIndex, cand, LookupAt(ClockA), out Vector3d eps, out _, out string reason);
+                rec, sectionIndex, cand, LookupAt(ClockA), out Vector3d eps, out _, out string body, out string reason);
+            Assert.Null(body);
             Assert.False(ok);
             Assert.Equal(0.0, eps.magnitude, 12);
             return reason;
@@ -444,6 +445,56 @@ namespace Parsek.Tests.Rendering
                 && l.Contains("source=OrbitalCheckpoint"));
             Assert.Contains(logLines, l => l.Contains("DAG walk summary") && l.Contains("deferredNoSpline=1")
                 && l.Contains("resolvedOrb=0"));
+            // Nothing resolved at a boundary instant: the per-body line stays silent.
+            Assert.DoesNotContain(logLines, l => l.Contains("DAG walk boundary-instant bodies:"));
+        }
+
+        // ---- the per-body split of the boundary-instant residual -------------------------
+
+        [Fact]
+        public void BubbleExit_Hit_NamesTheComparisonBody_OnTheResolverAndThePerBodyLine()
+        {
+            Recording rec = BubbleExitRecording("bubble-exit-body", altOffset: 50.0);
+            AnchorCorrection a = RunAndLookup(rec, ClockA, 1, AnchorSide.Start);
+            Assert.InRange(a.Epsilon.magnitude, 49.9, 50.1);
+
+            string line = Assert.Single(logLines, l => l.Contains("DAG walk boundary-instant bodies:"));
+            // Every resolved boundary-instant seed of this one-body recording is Kerbin's, and
+            // the largest is the 50 m exit.
+            Assert.Matches(@"^\[Parsek\]\[INFO\]\[Pipeline-AnchorPropagate\] DAG walk boundary-instant bodies: "
+                + @"sessionId=boundary-instant bodies=Kerbin:resolved=[1-9],maxEpsilonM=(?:49\.9|50\.0)[0-9]{2}$", line);
+            // The line follows the walk summary it splits.
+            int summaryIdx = logLines.FindIndex(l => l.Contains("DAG walk summary:"));
+            Assert.Equal(summaryIdx + 1, logLines.IndexOf(line));
+
+            bool ok = AnchorPropagator.TryResolveBoundaryInstantEpsilon(
+                rec, 1, new AnchorCandidate(BoundaryUT, AnchorSource.BubbleExit, AnchorSide.Start),
+                LookupAt(ClockA), out Vector3d eps, out double magnitudeM, out string bodyName,
+                out string missReason);
+            Assert.True(ok);
+            Assert.Equal("Kerbin", bodyName);
+            Assert.Null(missReason);
+            Assert.InRange(magnitudeM, 49.9, 50.1);
+            Assert.InRange(eps.magnitude, 49.9, 50.1);
+        }
+
+        [Fact]
+        public void Miss_NamesNoBody()
+        {
+            Recording rec = BubbleExitRecording("unknown-body-name", 0.0);
+            TrackSection ck = rec.TrackSections[1];
+            OrbitSegment seg = ck.checkpoints[0];
+            seg.bodyName = "Eeloo";
+            ck.checkpoints[0] = seg;
+            bool ok = AnchorPropagator.TryResolveBoundaryInstantEpsilon(
+                rec, 1, new AnchorCandidate(BoundaryUT, AnchorSource.BubbleExit, AnchorSide.Start),
+                LookupAt(ClockA), out Vector3d eps, out double magnitudeM, out string bodyName,
+                out string missReason);
+            Assert.False(ok);
+            Assert.Null(bodyName);
+            Assert.Equal("kepler-unresolved", missReason);
+            Assert.Equal(0.0, magnitudeM, 12);
+            Assert.Equal(0.0, eps.magnitude, 12);
         }
     }
 }

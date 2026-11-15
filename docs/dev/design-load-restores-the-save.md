@@ -26,7 +26,7 @@ what was just saved), mission and scenario game modes (Parsek is inert there).
 **Related docs:** `docs/parsek-rewind-to-separation-design.md` (sections 2.12, 6.14, 6.16, D2),
 `docs/parsek-game-actions-and-resources-recorder-design.md` (ledger storage, QL-R1 / QL-R2),
 `docs/parsek-flight-recorder-design.md` (sidecar storage), the load policy table
-`Source/Parsek/LoadReconcilePolicy.cs`, the audit appendix of
+`Source/Parsek/Controllers/LoadReconcilePolicy.cs`, the audit appendix of
 `docs/dev/done/plans/refly-ledger-safety-implementation.md`.
 
 ---
@@ -238,8 +238,14 @@ load Cold, as today. The helper:
   `currentFlightLaunchUT`, `ScheduleActiveTreeRestoreOnFlightReady`,
   `pendingActiveTreeResumeRewindSave`, `pendingFreshRecordingAfterDiscard`,
   `mergeDialogPending`, `budgetDeductionApplied`, `lastSceneChangeRequestedUT`;
-- drops `DiscardReFlyLoadIntent` and the quickload resume context. `InSessionStagedStateHandoff`
-  is not touched here: step A already drops it on every cold load (reason `cold-load`);
+- drops `DiscardReFlyLoadIntent` (its target too) and the quickload resume context, and a stock
+  revert `RevertDetector` still holds (kind and target pids; Warn when either was set,
+  COLD-RESET-LEFTOVERS): the classification above already read it, and only the in-session
+  branch consumes one. Only a Cold load (from the main menu, or of another save folder) drops
+  it: a load of the same save that finds `initialLoadDone` true (F9, the pause-menu Load) with a
+  revert pending is not Cold (`ClassifyEarly` keeps it in session as the revert's own load) and
+  still consumes it. `InSessionStagedStateHandoff` is not touched here: step A already drops it on every cold
+  load (reason `cold-load`);
 - clears `RewindContext` (Warn when `IsRewinding` or the deferred resource adjustment was still
   set), `RewindInvokeContext` (Warn when `Pending` was set) and the Supply Route banner
   (`RouteRunPrompt`), GC1-SAVE-SCOPED-STATE-LEFTOVERS. A Cold load is never a rewind's or a Re-Fly
@@ -575,7 +581,7 @@ sealed points now live as long as some save lists them.
 ### 4.6 Parsek stops writing the player's quicksave
 
 `RecordingStore.RefreshQuicksaveAfterMerge` (the merge dialog's Merge,
-MergeDialog.Commit.cs:151) and the quicksave half of `RefreshSaveAndQuicksaveAfterDiscard` (the
+MergeDialog.Commit.cs:151; since deleted as dead code) and the quicksave half of `RefreshSaveAndQuicksaveAfterDiscard` (the
 dialog's Discard, MergeDialog.ReFlyDiscard.cs:122) overwrite `quicksave.sfs` so an F9 could not
 bring the merged or discarded flight back. Under the rule they move the player's F9 point to the
 merge or discard moment. With exact restore an F9 to the real F5 moment is consistent, so both

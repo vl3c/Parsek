@@ -544,7 +544,7 @@ namespace Parsek.Tests.Rendering
             string dir = AppContext.BaseDirectory;
             for (int i = 0; i < 10 && !string.IsNullOrEmpty(dir); i++)
             {
-                string candidate = Path.Combine(dir, "Source", "Parsek", "ParsekFlight.cs");
+                string candidate = Path.Combine(dir, "Source", "Parsek", "Controllers", "ParsekFlight.cs");
                 if (File.Exists(candidate))
                     return candidate;
                 dir = Path.GetDirectoryName(dir);
@@ -552,7 +552,7 @@ namespace Parsek.Tests.Rendering
 
             return Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory,
-                "..", "..", "..", "..", "Parsek", "ParsekFlight.cs"));
+                "..", "..", "..", "..", "Parsek", "Controllers", "ParsekFlight.cs"));
         }
 
         private static string ExtractMethodBody(string source, string methodSignature)

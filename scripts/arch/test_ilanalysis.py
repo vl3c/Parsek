@@ -861,7 +861,9 @@ class RealTreeRatchetTests(unittest.TestCase):
         index = ilanalysis.Index(facts, tooling)
         dead = ilanalysis.uncalled(index, CONFIG)["uncalled"]
         sole = sole_callers_of_several(index, dead)
-        self.assertGreaterEqual(len(sole), 9)
+        # A floor on the sample's cascade cases, not a pin: deleting dead code removes them
+        # (the 2026-11-15 really-dead removal took three, 11 -> 8).
+        self.assertGreaterEqual(len(sole), 8)
         step = max(1, len(dead) // 50)
         sample = sorted(set(sole) | set(dead[::step]))
         self.assertGreaterEqual(len(sample), 50)

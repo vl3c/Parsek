@@ -70,7 +70,7 @@ Historical note: the original 0.4.3-era architecture spec (class-level pseudo-co
             dev/design-gui-inventory.md
 ```
 
-All UI windows are read-only views of the three stores above (`RecordingStore`, `Ledger`, `KerbalsModule`). Cache invalidation fans out through a single event (`LedgerOrchestrator.OnTimelineDataChanged`) after every recalculation walk.
+All UI windows are read-only views of the three stores above (`RecordingStore`, `Ledger`, `KerbalsModule`). Cache invalidation fans out through a single event (`LedgerTimelineSignal.OnTimelineDataChanged`) after every recalculation walk.
 
 ---
 

@@ -1,0 +1,2050 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Runtime.CompilerServices;
+using UnityEngine;
+using TrackingStationGhostSource = Parsek.GhostMapPresence.TrackingStationGhostSource;
+
+namespace Parsek
+{
+    /// <summary>
+    /// Subscribes to GhostPlaybackEngine lifecycle events and implements
+    /// Parsek-specific policy: vessel spawning, resource replay, camera
+    /// management, deferred spawn queue, spawn-death-loop detection.
+    ///
+    /// This class knows about Recording, RecordingStore, VesselSpawner —
+    /// it is the bridge between the engine's visual mechanics and Parsek's
+    /// recording tree / timeline / spawn system.
+    /// </summary>
+    // [ERS-exempt — Phase 3] ParsekPlaybackPolicy dispatches on PlaybackCompleted
+    // events whose .Index is the committed-recording index used by
+    // GhostPlaybackEngine.ghostStates. Every RecordingStore.CommittedRecordings
+    // read in this file pairs with an index comparison against evt.Index;
+    // converting to EffectiveState.ComputeERS() would de-align the two spaces
+    // and silently misroute spawn / watch / hold decisions.
+    // TODO(phase 6+): once ghostStates migrates to recording-id keys, route all
+    // reads here through ComputeERS().
+    internal class ParsekPlaybackPolicy
+    {
+        // Deferred ghost creation in the 2026-04-26 watch-auto-follow repro took
+        // about 7.7s (KSP.log:27274); keep the retry hold comfortably above that
+        // so partial ghost builds can finish before the camera gives up.
+        private const float DeferredWatchTransferHoldSeconds = 30f;
+
+        private readonly GhostPlaybackEngine engine;
+        private readonly ParsekFlight host;
+        internal Func<bool> IsWarpActiveOverrideForTesting;
+        internal Func<double> CurrentUTOverrideForTesting;
+        internal Func<float> CurrentRealTimeOverrideForTesting;
+        internal Func<IReadOnlyList<Recording>, IReadOnlyDictionary<string, TimelineInactiveReason>>
+            TimelineInactiveIdsOverrideForTesting;
+        internal Action<Recording, int> SpawnVesselOrChainTipOverrideForTesting;
+        internal Action<uint> DeferredActivateVesselOverrideForTesting;
+        internal Action<int, string> DestroyGhostOverrideForTesting;
+        internal Func<Recording, bool> IsSpawnBlockedChainTipOverrideForTesting;
+        internal Func<int> WatchedRecordingIndexOverrideForTesting;
+        internal Action ExitWatchModeOverrideForTesting;
+        internal const int FlagReplayWarnRetryThreshold = 3;
+
+        // Deferred spawn queue: recording IDs queued during warp, flushed when warp ends
+        internal readonly HashSet<string> pendingSpawnRecordingIds = new HashSet<string>();
+        internal readonly HashSet<string> pendingFlagReplayRecordingIds = new HashSet<string>();
+        private readonly Dictionary<string, int> pendingFlagReplayFailureCounts = new Dictionary<string, int>();
+        internal string pendingWatchRecordingId;
+
+        /// <summary>
+        /// Recording whose watch stayed on its held ghost when it ended under warp, so the
+        /// camera is handed over only once warp is over (never retargeted onto a vessel that
+        /// rails warp keeps packed). Null when no such watch is pending.
+        /// </summary>
+        internal string warpHeldWatchRecordingId;
+
+        /// <summary>
+        /// Tracks ghosts held at their final position while waiting for a blocked/deferred
+        /// spawn to resolve. The ghost stays visible so there is no gap between ghost
+        /// disappearance and real vessel appearance (#96).
+        /// Key: recording index. Value: info about the held ghost (start time, watched state).
+        /// </summary>
+        internal readonly Dictionary<int, HeldGhostInfo> heldGhosts = new Dictionary<int, HeldGhostInfo>();
+
+        /// <summary>Minimum real seconds between two seam-marker ScreenMessages (design 7.3 / Q5).
+        /// The engine's (marker, cycle) dedup is the semantic rule; this is the physical floor that
+        /// keeps a high-warp loop from stacking readable lines faster than they can be read. It
+        /// separates distinct seam MOMENTS only: markers raised in the same frame are joined into
+        /// one message first (<see cref="seamMessages"/>), so a seam that raises two markers at once
+        /// can never have its second line permanently throttled away.</summary>
+        internal const float SeamMessageMinRealSeconds = 3.0f;
+
+        /// <summary>Real time of the last posted seam message; 0 = none yet this session.</summary>
+        private float lastSeamMessageRealTime;
+
+        /// <summary>Joins seam markers raised in the SAME frame into one screen line. Flushed once
+        /// per frame from <see cref="RunSpawnDeathChecks"/> (which runs immediately before the engine
+        /// pass), so a buffered line is posted at most one frame late and never lost.</summary>
+        private readonly SeamMessageAccumulator seamMessages = new SeamMessageAccumulator();
+
+        /// <summary>Maximum real-time seconds to hold a ghost before giving up and destroying it.</summary>
+        internal const float HeldGhostTimeoutSeconds = 5.0f;
+        internal const float HeldGhostRetryIntervalSeconds = 1.0f;
+
+        /// <summary>
+        /// Log wording for a hold: whether the engine still has a ghost to keep visible. The
+        /// hold is registered either way (it drives the spawn retries), but the log must not
+        /// claim a visible ghost the engine no longer has.
+        /// </summary>
+        internal static string DescribeHeldGhostVisibility(bool engineHasGhost)
+        {
+            return engineHasGhost
+                ? "ghost stays visible"
+                : "no ghost to keep visible (retrying the spawn only)";
+        }
+
+
+        internal ParsekPlaybackPolicy(GhostPlaybackEngine engine, ParsekFlight host)
+        {
+            this.engine = engine ?? throw new ArgumentNullException(nameof(engine));
+            this.host = host ?? throw new ArgumentNullException(nameof(host));
+
+            // Subscribe to engine events
+            engine.OnPlaybackCompleted += HandlePlaybackCompleted;
+            engine.OnGhostSpawnPending += HandleGhostSpawnPending;
+            engine.OnGhostCreated += HandleGhostCreated;
+            engine.OnGhostDestroyed += HandleGhostDestroyed;
+            engine.OnLoopRestarted += HandleLoopRestarted;
+            engine.OnOverlapExpired += HandleOverlapExpired;
+            engine.OnSeamMarker += HandleSeamMarker;
+            engine.OnAllGhostsDestroying += HandleAllGhostsDestroying;
+
+            // Tell the engine how to check if a ghost is being held
+            engine.IsGhostHeld = idx =>
+                heldGhosts.ContainsKey(idx) || CurrentWatchedRecordingIndex() == idx;
+
+            // Tell the engine how to resolve the chain continuation for a
+            // given slot. Used by ChainHandoffLogic to shadow the head when
+            // the continuation is rendering (overlap case) and bridge-hold
+            // the head when the continuation has not yet activated (gap
+            // case). Returns -1 when no continuation exists.
+            engine.ResolveChainNextIndex = idx => ResolveChainNextSlotIndex(idx);
+
+            ParsekLog.Info("Policy", "ParsekPlaybackPolicy created and subscribed to engine events");
+        }
+
+        /// <summary>
+        /// Pre-check: detect spawned vessels that died since last frame.
+        /// Runs BEFORE engine.UpdatePlayback() so flags reflect current state.
+        /// If a spawned vessel's PID is no longer in FlightGlobals.Vessels, the
+        /// recording is either reset for re-spawn or abandoned after MaxSpawnDeathCycles.
+        ///
+        /// <para>
+        /// The active-re-fly-session short-circuit (re-fly marker) covers
+        /// the §6.4 silent-strip contract for re-fly sessions:
+        /// <see cref="PostLoadStripper.Strip"/> kills sibling vessels on
+        /// purpose during the re-fly load, and those kills must not feed
+        /// back into the policy as "spawned vessel died, please re-spawn".
+        /// </para>
+        ///
+        /// <para>
+        /// The <see cref="RewindContext.IsRewinding"/> short-circuit is
+        /// pure defense-in-depth — by the time the FLIGHT update path
+        /// runs <see cref="RunSpawnDeathChecks"/> after a plain rewind,
+        /// <see cref="ParsekScenario.HandleRewindOnLoad"/> has already
+        /// called <see cref="RewindContext.EndRewind"/>, so the flag is
+        /// false. It does NOT close the source duplicate-spawn from the
+        /// #573 playtest — that duplicate fired through
+        /// <see cref="VesselGhoster.SpawnAtChainTip"/> during a
+        /// warp-deferred activation, not through the spawn-death-then-respawn
+        /// loop. The real fix sets scoped
+        /// <see cref="Recording.SpawnSuppressedByRewind"/> metadata only on
+        /// the active/source recording stripped by rewind (see
+        /// <see cref="ParsekScenario.MarkRewoundTreeRecordingsAsGhostOnly"/>),
+        /// which <see cref="GhostPlaybackLogic.ShouldSpawnAtRecordingEnd"/>
+        /// honours regardless of the rewind flag's state. Same-tree future
+        /// recordings remain spawn-eligible for #589.
+        /// </para>
+        /// </summary>
+        internal void RunSpawnDeathChecks()
+        {
+            // Seam messages raised during the PREVIOUS engine pass are joined per frame and posted
+            // here, before this frame's pass adds more. Placed at the very top so every early return
+            // below still flushes (a re-fly / rewind frame must not strand a buffered line).
+            FlushSeamMessages();
+
+            var scenario = ParsekScenario.Instance;
+            if (!object.ReferenceEquals(null, scenario)
+                && scenario.ActiveReFlySessionMarker != null)
+            {
+                ParsekLog.VerboseRateLimited("Policy", "spawn-death-skip-refly",
+                    $"RunSpawnDeathChecks: skipped during active re-fly session " +
+                    $"sess={scenario.ActiveReFlySessionMarker.SessionId ?? "<no-id>"} — " +
+                    "Strip kills are intentional and must not trigger respawn");
+                return;
+            }
+            if (RewindContext.IsRewinding)
+            {
+                ParsekLog.VerboseRateLimited("Policy", "spawn-death-skip-rewind",
+                    "RunSpawnDeathChecks: defense-in-depth skip during active rewind — " +
+                    "production sequence ends rewind before this path runs; " +
+                    "the real plain-rewind fix is scoped SpawnSuppressedByRewind (#573/#589)");
+                return;
+            }
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed.Count == 0) return;
+            var timelineInactiveIds = CurrentTimelineInactiveRecordingReasons(committed);
+
+            int detected = 0;
+            int abandoned = 0;
+            int recovered = 0;
+            int skippedTimelineInactive = 0;
+            int staleStampOtherLaunch = 0;
+
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                if (IsTimelineInactive(rec, timelineInactiveIds))
+                {
+                    skippedTimelineInactive++;
+                    continue;
+                }
+
+                if (!GhostPlaybackLogic.ShouldCheckForSpawnDeath(
+                        rec.VesselSpawned, rec.SpawnedVesselPersistentId, rec.SpawnAbandoned))
+                    continue;
+
+                // Vessel still alive - no action needed. An adoption stamp names the
+                // craft-baked pid, which a relaunch of the same craft reuses, so a vessel found
+                // by that pid holds the claim only when it is the stamped launch.
+                Vessel spawnedVessel = FlightRecorder.FindVesselByPid(rec.SpawnedVesselPersistentId);
+                if (spawnedVessel != null)
+                {
+                    string spawnedVesselGuid = spawnedVessel.id != Guid.Empty
+                        ? spawnedVessel.id.ToString("N")
+                        : null;
+                    if (IsSpawnClaimHeldByLiveVessel(rec, spawnedVessel.persistentId, spawnedVesselGuid))
+                        continue;
+                    staleStampOtherLaunch++;
+                    ParsekLog.InfoRateLimited("Policy",
+                        "spawn-claim-other-launch|" + (rec.RecordingId ?? "(none)") + "|" + (spawnedVesselGuid ?? "(none)"),
+                        $"Spawn claim of #{i} \"{rec.VesselName}\" pid={rec.SpawnedVesselPersistentId} " +
+                        $"is an adoption stamp held by another launch of the craft " +
+                        $"(recGuid={VesselLaunchIdentity.NormalizeGuid(rec.RecordedVesselGuid) ?? "(none)"} " +
+                        $"liveGuid={spawnedVesselGuid}) - treating the stamped vessel as gone");
+                }
+
+                // A recovered vessel is gone because the player recovered it, not because it
+                // died: clear the claim without counting a death, ahead of the terminal-orbit
+                // branch, so the spawn gate refuses on the recovery evidence instead.
+                if (TryClearRecoveredSpawnClaim(
+                        rec, EffectiveState.IsRecoveredByLedgerRowLive,
+                        out uint recoveredOldPid, out string recoveredEvidence))
+                {
+                    recovered++;
+                    ParsekLog.Info("Policy",
+                        $"Spawned vessel recovered: #{i} \"{rec.VesselName}\" pid={recoveredOldPid} " +
+                        $"evidence={recoveredEvidence} - spawn claim cleared, no respawn");
+                    continue;
+                }
+
+                // Vessel died since last frame
+                rec.SpawnDeathCount++;
+                detected++;
+
+                if (rec.TerminalStateValue == TerminalState.Orbiting
+                    && VesselSpawner.HasRecordedTerminalOrbit(rec))
+                {
+                    uint terminalOldPid = rec.SpawnedVesselPersistentId;
+                    rec.VesselSpawned = false;
+                    rec.SpawnedVesselPersistentId = 0;
+                    var decision = new TerminalOrbitSpawnSafetyDecision
+                    {
+                        Action = TerminalOrbitSpawnSafetyAction.CannotSpawnSafely,
+                        ReasonCode = TerminalOrbitSpawnSafety.ReasonSpawnedVesselDied,
+                        Reason = "spawned terminal orbit vessel died before it could remain materialized",
+                        CurrentAltitude = rec.TerminalSpawnSafetyAltitude,
+                        AtmosphereDepth = double.NaN,
+                        SafetyMargin = TerminalOrbitSpawnSafety.DefaultSafetyMarginMeters,
+                        SafeAltitude = rec.TerminalSpawnSafetySafeAltitude,
+                        PeriapsisAltitude = rec.TerminalSpawnSafetyPeriapsisAltitude,
+                        ApoapsisAltitude = rec.TerminalSpawnSafetyApoapsisAltitude,
+                        NextSafeUT = double.NaN,
+                        NextSafeAltitude = double.NaN,
+                    };
+                    TerminalOrbitSpawnSafety.MarkCannotSpawnSafely(
+                        rec,
+                        decision,
+                        CurrentUniversalTimeSafe(),
+                        rec.TerminalSpawnSafetyPressure);
+                    abandoned++;
+                    ParsekLog.Warn("Policy",
+                        $"Spawn-death detected for terminal orbit and will not be retried: " +
+                        $"#{i} \"{rec.VesselName}\" pid={terminalOldPid} deathCount={rec.SpawnDeathCount} " +
+                        $"reason={decision.ReasonCode}");
+                    continue;
+                }
+
+                uint oldPid;
+                SpawnDeathDisposition disposition = ApplySpawnDeathDisposition(rec, out oldPid);
+                if (disposition == SpawnDeathDisposition.Abandon)
+                {
+                    abandoned++;
+                    ParsekLog.Warn("Policy",
+                        $"Spawn-death loop abandoned: #{i} \"{rec.VesselName}\" " +
+                        $"pid={rec.SpawnedVesselPersistentId} deathCount={rec.SpawnDeathCount} " +
+                        $"— exceeded {VesselSpawner.MaxSpawnDeathCycles} max cycles");
+                }
+                else
+                {
+                    ParsekLog.Info("Policy",
+                        $"Spawn-death detected: #{i} \"{rec.VesselName}\" " +
+                        $"pid={oldPid} deathCount={rec.SpawnDeathCount} — reset for re-spawn");
+                }
+            }
+
+            if (detected > 0 || recovered > 0)
+                ParsekLog.Info("Policy",
+                    $"RunSpawnDeathChecks: {detected} death(s) detected, {abandoned} abandoned, " +
+                    $"{recovered} recovered, {staleStampOtherLaunch} adoption stamp(s) held by another launch");
+            if (skippedTimelineInactive > 0)
+                ParsekLog.VerboseRateLimited("Policy", "spawn-death-skip-timeline-inactive",
+                    $"RunSpawnDeathChecks: skipped {skippedTimelineInactive} timeline-inactive recording(s)");
+        }
+
+        /// <summary>
+        /// Pure liveness half of <see cref="RunSpawnDeathChecks"/>: does the vessel found by the
+        /// recording's spawn pid still hold its spawn claim? A genuine Parsek spawn pid is
+        /// KSP-unique, so a pid match is enough; an adoption stamp
+        /// (<c>SpawnedVesselPersistentId == VesselPersistentId</c>) names the craft-baked pid, so
+        /// a relaunch of the same craft (a conclusively different launch guid with no link to
+        /// the recording's, and an end snapshot that names another launch) does not keep a stale
+        /// stamp alive (<see cref="VesselLaunchIdentity.SpawnClaimStillHeld"/>). With no snapshot
+        /// guid to read, the claim is kept: a live vessel is never declared gone on a guess.
+        /// </summary>
+        internal static bool IsSpawnClaimHeldByLiveVessel(
+            Recording rec, uint foundPid, string foundGuid,
+            Func<Recording, string> snapshotGuidReader = null)
+        {
+            return VesselLaunchIdentity.SpawnClaimStillHeld(rec, foundPid, foundGuid, snapshotGuidReader);
+        }
+
+        /// <summary>
+        /// What <see cref="RunSpawnDeathChecks"/> did with one recording whose spawned
+        /// vessel went missing since the last frame.
+        /// </summary>
+        internal enum SpawnDeathDisposition
+        {
+            /// <summary>Death count reached the cap: the recording is marked abandoned
+            /// and no further spawn is attempted.</summary>
+            Abandon,
+
+            /// <summary>Under the cap: the spawn bookkeeping is cleared so the recording
+            /// is eligible for a fresh spawn attempt.</summary>
+            ResetForRespawn,
+        }
+
+        /// <summary>
+        /// Applies the per-recording spawn-death disposition: abandon at/above
+        /// <see cref="VesselSpawner.MaxSpawnDeathCycles"/>, otherwise reset the spawn
+        /// bookkeeping for a retry. <paramref name="priorSpawnedPid"/> returns the pid the
+        /// recording carried on entry (the reset branch clears it, and the caller's log line
+        /// names it). The caller owns the counters and the log lines; this owns the state.
+        /// </summary>
+        internal static SpawnDeathDisposition ApplySpawnDeathDisposition(
+            Recording rec, out uint priorSpawnedPid)
+        {
+            priorSpawnedPid = rec != null ? rec.SpawnedVesselPersistentId : 0u;
+            if (rec == null) return SpawnDeathDisposition.ResetForRespawn;
+
+            if (VesselSpawner.ShouldAbandonSpawnDeathLoop(
+                    rec.SpawnDeathCount, VesselSpawner.MaxSpawnDeathCycles))
+            {
+                rec.SpawnAbandoned = true;
+                return SpawnDeathDisposition.Abandon;
+            }
+
+            rec.VesselSpawned = false;
+            rec.SpawnedVesselPersistentId = 0;
+            rec.SpawnAttempts = 0;
+            return SpawnDeathDisposition.ResetForRespawn;
+        }
+
+        /// <summary>
+        /// The recovered half of <see cref="RunSpawnDeathChecks"/>: when a recording whose
+        /// spawned vessel went missing reads recovered (its terminal is
+        /// <see cref="TerminalState.Recovered"/>, or <paramref name="isRecoveredByLedgerRow"/>
+        /// finds a recovery ledger row, <see cref="RecoveredRecordingEvidence"/>), the vessel
+        /// left the world through a recovery, not a death. Clears the spawn claim
+        /// (<see cref="Recording.VesselSpawned"/> false, the spawned pid 0) and leaves the
+        /// death count, <see cref="Recording.SpawnAttempts"/> and the abandon flag alone, so
+        /// the claim stops being checked and the spawn gate refuses on the same recovery
+        /// evidence. Returns false (nothing touched) when the recording does not read
+        /// recovered. <paramref name="priorSpawnedPid"/> is the pid on entry;
+        /// <paramref name="evidence"/> is <see cref="RecoveredRecordingEvidence.EvidenceTerminal"/>
+        /// or <see cref="RecoveredRecordingEvidence.EvidenceLedgerRow"/> (null when false).
+        /// The caller owns the counters and the log lines.
+        /// </summary>
+        internal static bool TryClearRecoveredSpawnClaim(
+            Recording rec,
+            Func<Recording, bool> isRecoveredByLedgerRow,
+            out uint priorSpawnedPid,
+            out string evidence)
+        {
+            priorSpawnedPid = rec != null ? rec.SpawnedVesselPersistentId : 0u;
+            evidence = null;
+            if (rec == null) return false;
+
+            if (rec.TerminalStateValue == TerminalState.Recovered)
+                evidence = RecoveredRecordingEvidence.EvidenceTerminal;
+            else if (isRecoveredByLedgerRow != null && isRecoveredByLedgerRow(rec))
+                evidence = RecoveredRecordingEvidence.EvidenceLedgerRow;
+            else
+                return false;
+
+            rec.VesselSpawned = false;
+            rec.SpawnedVesselPersistentId = 0;
+            return true;
+        }
+
+        /// <summary>
+        /// Removes a recording ID from the deferred spawn / deferred flag replay queues
+        /// (for example when the recording is deleted).
+        /// </summary>
+        internal void RemovePendingSpawn(string recordingId)
+        {
+            pendingSpawnRecordingIds.Remove(recordingId);
+            pendingFlagReplayRecordingIds.Remove(recordingId);
+            pendingFlagReplayFailureCounts.Remove(recordingId);
+        }
+
+        /// <summary>
+        /// Keeps the index-keyed held-ghost set aligned with the committed list after a
+        /// removal at <paramref name="removedIndex"/>. The removed slot itself is dropped
+        /// (its ghost was destroyed by the pre-removal handler, which already ran
+        /// <see cref="HandleGhostDestroyed"/>); everything above shifts down.
+        /// </summary>
+        internal void ReindexHeldGhostsAfterDelete(int removedIndex)
+        {
+            int before = heldGhosts.Count;
+            IndexShift.DictAfterDelete(heldGhosts, removedIndex);
+            if (before > 0)
+                ParsekLog.Verbose("Policy",
+                    $"Held ghosts reindexed after committed removal at #{removedIndex}: {before} -> {heldGhosts.Count}");
+        }
+
+        /// <summary>Insert mirror of <see cref="ReindexHeldGhostsAfterDelete"/>.</summary>
+        internal void ReindexHeldGhostsAfterInsert(int insertedIndex)
+        {
+            if (heldGhosts.Count == 0) return;
+            IndexShift.DictAfterInsert(heldGhosts, insertedIndex);
+            ParsekLog.Verbose("Policy",
+                $"Held ghosts reindexed after committed insert at #{insertedIndex}: {heldGhosts.Count} entries shifted");
+        }
+
+        /// <summary>
+        /// Flush deferred spawns that were queued during warp.
+        /// Runs AFTER engine.UpdatePlayback() when warp ends.
+        /// Iterates committed recordings and materializes eligible vessels.
+        /// </summary>
+        internal void FlushDeferredSpawns()
+        {
+            bool isWarpActive = IsWarpActiveOverrideForTesting != null
+                ? IsWarpActiveOverrideForTesting()
+                : GhostPlaybackEngine.IsAnyWarpActiveFromGlobals();
+            var committed = RecordingStore.CommittedRecordings;
+            var timelineInactiveIds = CurrentTimelineInactiveRecordingReasons(committed);
+            PurgeTimelineInactiveDeferredQueues(timelineInactiveIds);
+
+            if (!GhostPlaybackLogic.ShouldFlushDeferredSpawns(
+                    pendingSpawnRecordingIds.Count + pendingFlagReplayRecordingIds.Count,
+                    isWarpActive))
+                return;
+
+            double currentUT = CurrentUTOverrideForTesting != null
+                ? CurrentUTOverrideForTesting()
+                : Planetarium.GetUniversalTime();
+            int spawnedCount = 0;
+            var flushedSpawnIds = new List<string>();
+            var clearedFlagReplayIds = new List<string>();
+
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                if (IsTimelineInactive(rec, timelineInactiveIds))
+                    continue;
+
+                bool pendingSpawn = pendingSpawnRecordingIds.Contains(rec.RecordingId);
+                bool pendingFlagReplay = pendingFlagReplayRecordingIds.Contains(rec.RecordingId);
+                if (!pendingSpawn && !pendingFlagReplay)
+                    continue;
+
+                bool spawnedNow = false;
+                // The held-ghost retry can materialize a warp-deferred recording before warp
+                // ends; the watch follow it skipped is still owed here.
+                bool spawnedWhileDeferred = false;
+                bool watchHeldThroughWarp = pendingSpawn
+                    && string.Equals(warpHeldWatchRecordingId, rec.RecordingId, StringComparison.Ordinal);
+                bool watchStillOnHeldGhost = watchHeldThroughWarp && CurrentWatchedRecordingIndex() == i;
+                if (pendingSpawn && rec.TerminalSpawnCannotSpawnSafely)
+                {
+                    ParsekLog.Warn("Policy",
+                        $"Deferred spawn cannot execute safely: #{i} \"{rec.VesselName}\" " +
+                        $"id={rec.RecordingId} reason={rec.TerminalSpawnSafetyReasonCode ?? "(none)"}");
+                    if (watchStillOnHeldGhost)
+                        HandOffWarpHeldWatch(i, rec, "cannot-spawn-safely");
+                    flushedSpawnIds.Add(rec.RecordingId);
+                    pendingSpawn = false;
+                }
+                else if (pendingSpawn
+                    && TerminalOrbitSpawnSafety.ShouldHoldDeferredSpawnUntilUT(
+                        rec,
+                        currentUT,
+                        out string terminalHoldReason))
+                {
+                    ParsekLog.VerboseRateLimited("Policy",
+                        "terminal-deferred-spawn-held-" + (rec.RecordingId ?? i.ToString(CultureInfo.InvariantCulture)),
+                        $"Deferred spawn held for terminal orbit safety: #{i} \"{rec.VesselName}\" " +
+                        $"id={rec.RecordingId} reason={terminalHoldReason}");
+                    continue;
+                }
+                else if (pendingSpawn && GhostPlaybackLogic.ShouldSkipDeferredSpawn(
+                        rec.VesselSpawned, rec.VesselSnapshot != null))
+                {
+                    ParsekLog.Verbose("Policy",
+                        $"Deferred spawn skipped — #{i} \"{rec.VesselName}\" already spawned or no snapshot");
+                    if (watchStillOnHeldGhost)
+                        HandOffWarpHeldWatch(i, rec, "already-spawned-or-no-snapshot");
+                    flushedSpawnIds.Add(rec.RecordingId);
+                    pendingSpawn = false;
+                    spawnedWhileDeferred = rec.VesselSpawned;
+                }
+                else if (pendingSpawn)
+                {
+                    ParsekLog.Info("Policy",
+                        $"Deferred spawn executing: #{i} \"{rec.VesselName}\" id={rec.RecordingId}");
+                    // Same order as an end-of-watch at 1x: leave the watch, spawn, then
+                    // activate the spawned vessel once it loads.
+                    if (watchStillOnHeldGhost)
+                        HandOffWarpHeldWatch(i, rec, "deferred-spawn");
+                    if (SpawnVesselOrChainTipOverrideForTesting != null)
+                        SpawnVesselOrChainTipOverrideForTesting(rec, i);
+                    else
+                        host.SpawnVesselOrChainTipFromPolicy(rec, i);
+
+                    if (rec.VesselSpawned)
+                    {
+                        spawnedCount++;
+                        flushedSpawnIds.Add(rec.RecordingId);
+                        pendingSpawn = false;
+                        spawnedNow = true;
+                    }
+                    else if (rec.TerminalSpawnCannotSpawnSafely)
+                    {
+                        ParsekLog.Warn("Policy",
+                            $"Deferred spawn resolved as cannot-spawn-safely: #{i} \"{rec.VesselName}\" " +
+                            $"id={rec.RecordingId} reason={rec.TerminalSpawnSafetyReasonCode ?? "(none)"}");
+                        flushedSpawnIds.Add(rec.RecordingId);
+                        pendingSpawn = false;
+                    }
+                    else if (TerminalOrbitSpawnSafety.HasActiveHold(rec))
+                    {
+                        ParsekLog.Info("Policy",
+                            $"Deferred spawn remains pending after terminal orbit safety decision: " +
+                            $"#{i} \"{rec.VesselName}\" id={rec.RecordingId} " +
+                            $"reason={rec.TerminalSpawnSafetyReasonCode ?? "(none)"}");
+                        continue;
+                    }
+                    else
+                    {
+                        ParsekLog.Verbose("Policy",
+                            $"Deferred spawn flushed without materializing: #{i} \"{rec.VesselName}\" " +
+                            $"id={rec.RecordingId} reason=non-terminal-spawn-failed-or-skipped");
+                        flushedSpawnIds.Add(rec.RecordingId);
+                        pendingSpawn = false;
+                    }
+                }
+
+                if (spawnedNow || pendingFlagReplay)
+                {
+                    var (eligibleFlags, spawnedFlags, alreadyPresentFlags, failedFlags, removedFlags) =
+                    GhostPlaybackLogic.SpawnFlagVesselsUpToUT(rec, currentUT);
+
+                    if (rec.FlagEvents != null && rec.FlagEvents.Count > 0)
+                    {
+                        ParsekLog.Verbose("Policy",
+                            $"Deferred flag flush: #{i} \"{rec.VesselName}\" " +
+                            $"spawned {spawnedFlags}/{eligibleFlags} flag(s) " +
+                            $"alreadyPresent={alreadyPresentFlags} removedByPlayer={removedFlags} failed={failedFlags} " +
+                            $"up to UT {currentUT.ToString("R", CultureInfo.InvariantCulture)}");
+                    }
+
+                    if (failedFlags > 0)
+                    {
+                        pendingFlagReplayRecordingIds.Add(rec.RecordingId);
+                        int failureCount = 1;
+                        if (pendingFlagReplayFailureCounts.TryGetValue(rec.RecordingId, out int existingFailureCount))
+                            failureCount = existingFailureCount + 1;
+                        pendingFlagReplayFailureCounts[rec.RecordingId] = failureCount;
+
+                        if (failureCount == FlagReplayWarnRetryThreshold)
+                        {
+                            ParsekLog.Warn("Policy",
+                                $"Deferred flag replay still failing after {failureCount} flush attempt(s): " +
+                                $"#{i} \"{rec.VesselName}\" eligible={eligibleFlags} spawned={spawnedFlags} " +
+                                $"alreadyPresent={alreadyPresentFlags} failed={failedFlags}");
+                        }
+                    }
+                    else
+                    {
+                        clearedFlagReplayIds.Add(rec.RecordingId);
+                        pendingFlagReplayFailureCounts.Remove(rec.RecordingId);
+                    }
+                }
+
+                // The player left a watch that was kept on the held ghost: no switch is owed.
+                bool watchAbandonedDuringWarp = watchHeldThroughWarp && !watchStillOnHeldGhost;
+                if (watchAbandonedDuringWarp && (spawnedNow || spawnedWhileDeferred))
+                {
+                    ParsekLog.Info("Policy",
+                        $"Deferred watch dropped: #{i} \"{rec.VesselName}\" id={rec.RecordingId} " +
+                        "- the watch on the held ghost ended during warp, staying on the current vessel");
+                }
+
+                // Restore camera follow if this recording was being watched when deferred
+                if ((spawnedNow || spawnedWhileDeferred) && !watchAbandonedDuringWarp
+                    && GhostPlaybackLogic.ShouldRestoreWatchMode(
+                        pendingWatchRecordingId, rec.RecordingId, rec.SpawnedVesselPersistentId))
+                {
+                    ParsekLog.Info("Policy",
+                        $"Deferred watch: switching to spawned vessel pid={rec.SpawnedVesselPersistentId}" +
+                        (spawnedWhileDeferred ? " (spawned by held-ghost retry during warp)" : string.Empty));
+                    if (DeferredActivateVesselOverrideForTesting != null)
+                        DeferredActivateVesselOverrideForTesting(rec.SpawnedVesselPersistentId);
+                    else
+                        host.DeferredActivateVesselFromPolicy(rec.SpawnedVesselPersistentId);
+                }
+            }
+
+            // Remove flushed IDs; failed flag replays stay queued.
+            for (int j = 0; j < flushedSpawnIds.Count; j++)
+                pendingSpawnRecordingIds.Remove(flushedSpawnIds[j]);
+            for (int j = 0; j < clearedFlagReplayIds.Count; j++)
+            {
+                pendingFlagReplayRecordingIds.Remove(clearedFlagReplayIds[j]);
+                pendingFlagReplayFailureCounts.Remove(clearedFlagReplayIds[j]);
+            }
+
+            if (spawnedCount > 0 || flushedSpawnIds.Count > 0)
+            {
+                ParsekLog.Info("Policy",
+                    $"Warp ended — flushed {spawnedCount}/{flushedSpawnIds.Count} deferred spawn(s)");
+            }
+            else if (pendingSpawnRecordingIds.Count > 0)
+            {
+                ParsekLog.VerboseRateLimited("Policy", "deferred-spawn-flush-waiting",
+                    $"Deferred spawn flush waiting: pending={pendingSpawnRecordingIds.Count}");
+            }
+
+            if (warpHeldWatchRecordingId != null
+                && !pendingSpawnRecordingIds.Contains(warpHeldWatchRecordingId))
+                warpHeldWatchRecordingId = null;
+            if (pendingSpawnRecordingIds.Count == 0)
+                pendingWatchRecordingId = null;
+        }
+
+        /// <summary>
+        /// A watched ghost that ends under warp keeps its watch on the held ghost (the camera
+        /// stays where it already is) only when there is a ghost to hold; with no ghost the
+        /// watch ends at once as before.
+        /// </summary>
+        internal static bool ShouldKeepWatchOnHeldGhostDuringWarp(bool isWatched, bool ghostWasActive)
+        {
+            return isWatched && ghostWasActive;
+        }
+
+        /// <summary>
+        /// While warp runs, a held ghost that the player is still watching and whose spawn is
+        /// queued for warp end keeps holding: no retry spawn and no timeout. Spawning it here
+        /// would end the watch mid-warp and retarget the camera onto a vessel rails warp keeps
+        /// packed; the warp-end flush spawns it and hands the camera over instead.
+        /// </summary>
+        internal static bool ShouldHoldWatchedGhostForWarp(
+            bool warpActive,
+            int heldIndex,
+            int watchedIndex,
+            string heldRecordingId,
+            string warpHeldWatchRecordingId,
+            bool spawnQueuedForWarpEnd)
+        {
+            return warpActive
+                && heldIndex >= 0
+                && heldIndex == watchedIndex
+                && spawnQueuedForWarpEnd
+                && !string.IsNullOrEmpty(heldRecordingId)
+                && string.Equals(heldRecordingId, warpHeldWatchRecordingId, StringComparison.Ordinal);
+        }
+
+        private int CurrentWatchedRecordingIndex()
+        {
+            return WatchedRecordingIndexOverrideForTesting != null
+                ? WatchedRecordingIndexOverrideForTesting()
+                : host.WatchedRecordingIndexForDiagnostics;
+        }
+
+        private void ExitWatchModeForHandoff()
+        {
+            if (ExitWatchModeOverrideForTesting != null)
+                ExitWatchModeOverrideForTesting();
+            else
+                host.ExitWatchModeFromPolicy();
+        }
+
+        private void HandOffWarpHeldWatch(int index, Recording rec, string reason)
+        {
+            ParsekLog.Info("Policy",
+                $"Warp ended - leaving the watch kept on held ghost #{index} \"{rec?.VesselName}\" " +
+                $"id={rec?.RecordingId} reason={reason}");
+            ExitWatchModeForHandoff();
+        }
+
+        private static IReadOnlyDictionary<string, TimelineInactiveReason> CurrentTimelineInactiveRecordingReasons(
+            IReadOnlyList<Recording> committed)
+        {
+            var scenario = ParsekScenario.Instance;
+            return EffectiveState.ComputeTimelineInactiveRecordingIds(
+                committed,
+                object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes,
+                object.ReferenceEquals(null, scenario) ? null : scenario.RecordingRewindRetirements);
+        }
+
+        private static bool IsTimelineInactive(
+            Recording rec,
+            IReadOnlyDictionary<string, TimelineInactiveReason> timelineInactiveIds)
+        {
+            return rec != null
+                && !string.IsNullOrEmpty(rec.RecordingId)
+                && timelineInactiveIds != null
+                && timelineInactiveIds.ContainsKey(rec.RecordingId);
+        }
+
+        private void PurgeTimelineInactiveDeferredQueues(
+            IReadOnlyDictionary<string, TimelineInactiveReason> timelineInactiveIds)
+        {
+            if (timelineInactiveIds == null || timelineInactiveIds.Count == 0)
+                return;
+
+            var purged = new HashSet<string>();
+            foreach (var id in timelineInactiveIds.Keys)
+            {
+                if (pendingSpawnRecordingIds.Remove(id))
+                    purged.Add(id);
+                if (pendingFlagReplayRecordingIds.Remove(id))
+                    purged.Add(id);
+                if (pendingFlagReplayFailureCounts.Remove(id))
+                    purged.Add(id);
+            }
+
+            bool clearedWatch = !string.IsNullOrEmpty(pendingWatchRecordingId)
+                && timelineInactiveIds.ContainsKey(pendingWatchRecordingId);
+            if (clearedWatch)
+                pendingWatchRecordingId = null;
+            if (!string.IsNullOrEmpty(warpHeldWatchRecordingId)
+                && timelineInactiveIds.ContainsKey(warpHeldWatchRecordingId))
+                warpHeldWatchRecordingId = null;
+
+            if (purged.Count > 0 || clearedWatch)
+            {
+                ParsekLog.Info("Policy",
+                    $"Purged {purged.Count} deferred spawn/flag replay id(s) " +
+                    $"timelineInactive; clearedWatch={clearedWatch}");
+            }
+        }
+
+        /// <summary>
+        /// Whether a completion ends the ghost the player is watching. A loop first-run
+        /// completion never does: the looping ghost keeps cycling, so its spawn must not exit
+        /// watch mode or switch the player to the spawned vessel.
+        /// </summary>
+        internal static bool IsWatchedCompletion(int watchedRecordingIndex, PlaybackCompletedEvent evt)
+        {
+            return evt != null && !evt.LoopFirstRun && watchedRecordingIndex == evt.Index;
+        }
+
+        private void HandlePlaybackCompleted(PlaybackCompletedEvent evt)
+        {
+            bool isWatched = IsWatchedCompletion(CurrentWatchedRecordingIndex(), evt);
+
+            ParsekLog.Verbose("Policy",
+                $"PlaybackCompleted index={evt.Index} vessel={evt.Trajectory?.VesselName} " +
+                $"ghostWasActive={evt.GhostWasActive} pastEffectiveEnd={evt.PastEffectiveEnd} " +
+                $"needsSpawn={evt.Flags.needsSpawn} isMidChain={evt.Flags.isMidChain} watched={isWatched} loopFirstRun={evt.LoopFirstRun}");
+
+            // Mid-chain segments: hold ghost at final position
+            if (evt.Flags.isMidChain && !evt.PastEffectiveEnd)
+            {
+                // Auto-follow watch mode to next chain segment
+                if (isWatched)
+                {
+                    var committed = RecordingStore.CommittedRecordings;
+                    if (evt.Index >= 0 && evt.Index < committed.Count)
+                    {
+                        int nextTarget = host.FindNextWatchTargetFromPolicy(evt.Index, committed[evt.Index]);
+                        if (nextTarget >= 0)
+                        {
+                            if (host.TransferWatchToNextSegmentFromPolicy(nextTarget))
+                            {
+                                ParsekLog.Info("Policy",
+                                    $"Mid-chain auto-follow: #{evt.Index} → #{nextTarget}");
+                            }
+                            else
+                            {
+                                float deferredHoldSeconds = DeferredWatchTransferHoldSeconds;
+                                host.StartWatchHoldFromPolicy(CurrentHoldRealTime() + deferredHoldSeconds);
+                                ParsekLog.Info("Policy",
+                                    $"Mid-chain watch transfer deferred: #{evt.Index} → #{nextTarget} " +
+                                    $"target ghost not active yet, retrying for {deferredHoldSeconds:F0}s");
+                            }
+                        }
+                        else
+                        {
+                            // Next chain segment ghost hasn't spawned yet — set a hold timer
+                            // so UpdateWatchCamera retries FindNextWatchTarget every frame.
+                            // Without this, the camera stays stuck on the stale ghost position
+                            // indefinitely (no retry mechanism, no hold timer).
+                            float holdSeconds = DeferredWatchTransferHoldSeconds;
+                            host.StartWatchHoldFromPolicy(CurrentHoldRealTime() + holdSeconds);
+                            ParsekLog.Info("Policy",
+                                $"Mid-chain watch hold started for #{evt.Index}: " +
+                                $"next chain ghost not spawned yet, retrying for {holdSeconds:F0}s");
+                        }
+                    }
+                }
+                return;
+            }
+
+            // Spawn vessel if needed
+            bool spawned = false;
+            if (evt.Flags.needsSpawn && evt.PastEffectiveEnd)
+            {
+                bool isWarp = IsWarpActiveOverrideForTesting != null
+                    ? IsWarpActiveOverrideForTesting()
+                    : IsAnyWarpActiveFromGlobalsCore();
+                var committedForRetire = RecordingStore.CommittedRecordings;
+                if (!evt.Flags.isMidChain
+                    && evt.Index >= 0 && evt.Index < committedForRetire.Count)
+                {
+                    GhostPlaybackLogic.LogChainLoopFirstRunSpawn(
+                        "Policy", "FLIGHT", evt.Index, committedForRetire[evt.Index],
+                        evt.CurrentUT, evt.Flags.isChainLooping);
+                }
+                if (isWarp
+                    && evt.Index >= 0 && evt.Index < committedForRetire.Count
+                    && !host.IsActiveGhostChainTipFromPolicy(committedForRetire[evt.Index])
+                    && VesselSpawner.TryRetireEndedFlightAtKsc(
+                        committedForRetire[evt.Index],
+                        evt.Index,
+                        requireNoMaterializedSource: true))
+                {
+                    // Operator ruling 2026-09-23: a flight that ended parked in the KSC
+                    // exclusion zone is retired, so there is nothing to defer and no ghost
+                    // to hold during warp; the settled recording falls through to the
+                    // ordinary ghost teardown below. A real counterpart that still exists
+                    // is left to the deferred path, which adopts it, and so is a ghost-chain
+                    // tip, whose chain path retires it and closes the chain. (Without warp the
+                    // retirement runs inside the spawn call, after its adoption check.)
+                    if (isWatched)
+                        host.ExitWatchModeFromPolicy();
+                    spawned = true;
+                }
+                else if (isWarp)
+                {
+                    pendingSpawnRecordingIds.Add(evt.Flags.recordingId);
+                    if (isWatched)
+                    {
+                        pendingWatchRecordingId = evt.Flags.recordingId;
+                        if (ShouldKeepWatchOnHeldGhostDuringWarp(isWatched, evt.GhostWasActive))
+                        {
+                            warpHeldWatchRecordingId = evt.Flags.recordingId;
+                            ParsekLog.Info("Policy",
+                                $"Watch kept on held ghost during warp: #{evt.Index} \"{evt.Trajectory?.VesselName}\" " +
+                                $"id={evt.Flags.recordingId} - camera hand-off waits for warp end");
+                        }
+                        else
+                        {
+                            ExitWatchModeForHandoff();
+                        }
+                    }
+
+                    // Hold ghost during warp-deferred spawn (#96)
+                    if (evt.GhostWasActive)
+                    {
+                        heldGhosts[evt.Index] = new HeldGhostInfo
+                        {
+                            holdStartTime = CurrentHoldRealTime(),
+                            recordingId = evt.Flags.recordingId,
+                            vesselName = evt.Trajectory?.VesselName,
+                        };
+                        ParsekLog.Info("Policy",
+                            $"Ghost held during warp-deferred spawn: #{evt.Index} \"{evt.Trajectory?.VesselName}\" " +
+                            $"id={evt.Flags.recordingId} - {DescribeHeldGhostVisibility(engine.HasGhost(evt.Index))}");
+                    }
+
+                    ParsekLog.Info("Policy",
+                        $"Deferred spawn during warp: #{evt.Index} \"{evt.Trajectory?.VesselName}\"");
+                    return; // Do not destroy ghost — held during warp
+                }
+                else
+                {
+                    var committed = RecordingStore.CommittedRecordings;
+                    if (evt.Index >= 0 && evt.Index < committed.Count)
+                    {
+                        // If watching, exit watch mode and switch to spawned vessel
+                        if (isWatched)
+                            host.ExitWatchModeFromPolicy();
+
+                        if (SpawnVesselOrChainTipOverrideForTesting != null)
+                            SpawnVesselOrChainTipOverrideForTesting(committed[evt.Index], evt.Index);
+                        else
+                            host.SpawnVesselOrChainTipFromPolicy(committed[evt.Index], evt.Index);
+
+                        // Check if spawn actually succeeded
+                        spawned = committed[evt.Index].VesselSpawned;
+
+                        // If spawn succeeded, switch camera to spawned vessel if we were watching
+                        if (spawned && isWatched)
+                        {
+                            uint spawnedPid = committed[evt.Index].SpawnedVesselPersistentId;
+                            if (spawnedPid != 0)
+                                host.DeferredActivateVesselFromPolicy(spawnedPid);
+                        }
+
+                        // A permanent CannotSpawnSafely verdict is not a blocked spawn: no retry
+                        // can clear it, so the ghost ends at EndUT (operator ruling 2026-09-27).
+                        if (!spawned && evt.GhostWasActive
+                            && committed[evt.Index].TerminalSpawnCannotSpawnSafely)
+                        {
+                            ParsekLog.Info("Policy",
+                                $"Ghost not held: #{evt.Index} \"{evt.Trajectory?.VesselName}\" " +
+                                $"id={evt.Flags.recordingId} cannot spawn safely " +
+                                $"reason={committed[evt.Index].TerminalSpawnSafetyReasonCode ?? "(none)"} " +
+                                "- the ghost ends at EndUT without a spawn");
+                        }
+                        // If spawn was blocked, hold the ghost (#96)
+                        else if (!spawned && evt.GhostWasActive)
+                        {
+                            DiagnosticsState.health.spawnFailures++;
+                            heldGhosts[evt.Index] = new HeldGhostInfo
+                            {
+                                holdStartTime = CurrentHoldRealTime(),
+                                recordingId = evt.Flags.recordingId,
+                                vesselName = evt.Trajectory?.VesselName,
+                                };
+                            ParsekLog.Info("Policy",
+                                $"Ghost held pending spawn retry: #{evt.Index} \"{evt.Trajectory?.VesselName}\" " +
+                                $"id={evt.Flags.recordingId} - spawn blocked, " +
+                                DescribeHeldGhostVisibility(engine.HasGhost(evt.Index)));
+                            return; // Do not destroy the ghost
+                        }
+                    }
+                }
+            }
+
+            // Destroy ghost (held paths returned early above)
+            if (evt.GhostWasActive)
+            {
+                // If watching and not spawning: try auto-follow to next stage, else hold
+                if (isWatched && !spawned && !evt.Flags.needsSpawn)
+                {
+                    // Try to find a continuation (tree branch or chain) to auto-follow
+                    var committed = RecordingStore.CommittedRecordings;
+                    if (evt.Index >= 0 && evt.Index < committed.Count)
+                    {
+                        int nextTarget = host.FindNextWatchTargetFromPolicy(evt.Index, committed[evt.Index]);
+                        if (nextTarget >= 0)
+                        {
+                            if (host.TransferWatchToNextSegmentFromPolicy(nextTarget))
+                            {
+                                ParsekLog.Info("Policy",
+                                    $"Auto-follow on completion: #{evt.Index} → #{nextTarget} " +
+                                    $"(vessel={committed[nextTarget].VesselName})");
+                                engine.DestroyGhost(evt.Index, evt.Trajectory, evt.Flags,
+                                    reason: "auto-followed to next stage");
+                            }
+                            else
+                            {
+                                float deferredHoldSeconds = DeferredWatchTransferHoldSeconds;
+                                host.StartWatchHoldFromPolicy(CurrentHoldRealTime() + deferredHoldSeconds);
+                                ParsekLog.Info("Policy",
+                                    $"Auto-follow on completion deferred: #{evt.Index} → #{nextTarget} " +
+                                    $"target ghost not active yet, retrying for {deferredHoldSeconds:F0}s");
+                            }
+                            return;
+                        }
+                    }
+
+                    // No continuation found — hold ghost for camera (3-5 real seconds).
+                    // Pending-activation holds also gate expiry on game UT inside WatchModeController
+                    // so warp-rate changes do not expire the hold before the continuation can spawn.
+                    float holdSeconds = evt.Trajectory?.TerminalStateValue == TerminalState.Destroyed
+                        ? 5f : 3f;
+                    float holdStartedRealTime = CurrentHoldRealTime();
+                    float holdUntilRealTime = holdStartedRealTime + holdSeconds;
+                    float holdMaxRealTime = holdUntilRealTime;
+                    string holdDetail = null;
+                    double pendingContinuationUT = double.NaN;
+                    var scenarioForActivation = ParsekScenario.Instance;
+                    var supersedesForActivation = object.ReferenceEquals(null, scenarioForActivation)
+                        ? null : scenarioForActivation.RecordingSupersedes;
+                    if (evt.Index >= 0 && evt.Index < committed.Count
+                        && GhostPlaybackLogic.TryGetPendingWatchActivationUT(
+                            committed[evt.Index],
+                            committed,
+                            RecordingStore.CommittedTrees,
+                            engine.HasActiveGhost,
+                            out pendingContinuationUT,
+                            supersedesForActivation))
+                    {
+                        GhostPlaybackLogic.ComputePendingWatchHoldWindow(
+                            holdSeconds,
+                            holdStartedRealTime,
+                            evt.CurrentUT,
+                            pendingContinuationUT,
+                            CurrentWarpRate(),
+                            out holdUntilRealTime,
+                            out holdMaxRealTime);
+                        float extendedHold = holdUntilRealTime - holdStartedRealTime;
+                        if (extendedHold > holdSeconds)
+                        {
+                            holdSeconds = extendedHold;
+                            holdDetail = string.Format(
+                                CultureInfo.InvariantCulture,
+                                " pendingContinuationUT={0:F1} currentUT={1:F1}",
+                                pendingContinuationUT,
+                                evt.CurrentUT);
+                        }
+                    }
+                    host.StartWatchHoldFromPolicy(holdUntilRealTime, pendingContinuationUT, holdMaxRealTime);
+
+                    // Trigger explosion if terminal was Destroyed
+                    engine.TriggerExplosionIfDestroyed(evt.State, evt.Trajectory, evt.Index,
+                        CurrentWarpRate());
+
+                    ParsekLog.Info("Policy",
+                        $"Watch hold started for #{evt.Index}: {holdSeconds:F0}s " +
+                        $"terminal={evt.Trajectory?.TerminalStateValue}" +
+                        (holdDetail ?? string.Empty));
+                    // Ghost stays alive — ParsekFlight's watch hold timer will destroy it
+                    return;
+                }
+
+                engine.DestroyGhost(evt.Index, evt.Trajectory, evt.Flags, reason: "playback completed");
+            }
+        }
+
+        /// <summary>
+        /// Retries spawn for ghosts that are held at their final position while waiting
+        /// for a blocked/deferred spawn to resolve. Called each frame after the engine
+        /// update. On success or timeout, destroys the ghost.
+        /// </summary>
+        internal void RetryHeldGhostSpawns()
+        {
+            if (heldGhosts.Count == 0) return;
+
+            var committed = RecordingStore.CommittedRecordings;
+            var timelineInactiveIds = TimelineInactiveIdsOverrideForTesting != null
+                ? TimelineInactiveIdsOverrideForTesting(committed)
+                : CurrentTimelineInactiveRecordingReasons(committed);
+            float now = CurrentRealTimeOverrideForTesting != null
+                ? CurrentRealTimeOverrideForTesting()
+                : CurrentUnityRealTime();
+            double currentUT = CurrentUTOverrideForTesting != null
+                ? CurrentUTOverrideForTesting()
+                : CurrentUniversalTimeSafe();
+
+            bool warpActive = IsWarpActiveOverrideForTesting != null
+                ? IsWarpActiveOverrideForTesting()
+                : IsAnyWarpActiveFromGlobalsCore();
+            int watchedIndex = CurrentWatchedRecordingIndex();
+
+            // Collect indices to release and retry-time updates (cannot modify dict during iteration)
+            List<KeyValuePair<int, string>> toRelease = null;  // index + destroy reason
+            List<KeyValuePair<int, float>> retryTimeUpdates = null;
+
+            foreach (var kvp in heldGhosts)
+            {
+                int index = kvp.Key;
+                HeldGhostInfo info = kvp.Value;
+
+                bool spawnBlockedChainTip = index >= 0 && index < committed.Count
+                    && IsSpawnBlockedChainTipForHold(committed[index]);
+                bool holdForWarpWatch = ShouldHoldWatchedGhostForWarp(
+                    warpActive,
+                    index,
+                    watchedIndex,
+                    info.recordingId,
+                    warpHeldWatchRecordingId,
+                    info.recordingId != null && pendingSpawnRecordingIds.Contains(info.recordingId));
+                var decision = DecideHeldGhostAction(
+                    index, info, committed, now, HeldGhostTimeoutSeconds,
+                    HeldGhostRetryIntervalSeconds,
+                    timelineInactiveIds,
+                    currentUT,
+                    spawnBlockedChainTip,
+                    holdForWarpWatch,
+                    TimeJumpManager.IsSpawnDeferredForPendingPlacement(info.recordingId));
+                if (holdForWarpWatch && decision == HeldGhostAction.Hold)
+                {
+                    ParsekLog.VerboseRateLimited("Policy",
+                        "held-warp-watch-" + (info.recordingId ?? index.ToString(CultureInfo.InvariantCulture)),
+                        $"Held ghost kept for the watch until warp ends: #{index} \"{info.vesselName}\" " +
+                        $"id={info.recordingId} held={now - info.holdStartTime:F1}s");
+                }
+
+                switch (decision)
+                {
+                    case HeldGhostAction.RetrySpawn:
+                        // Recording is valid and not yet spawned — retry
+                        DiagnosticsState.health.spawnRetries++;
+                        if (retryTimeUpdates == null) retryTimeUpdates = new List<KeyValuePair<int, float>>();
+                        retryTimeUpdates.Add(new KeyValuePair<int, float>(index, now));
+                        if (SpawnVesselOrChainTipOverrideForTesting != null)
+                            SpawnVesselOrChainTipOverrideForTesting(committed[index], index);
+                        else
+                            host.SpawnVesselOrChainTipFromPolicy(committed[index], index);
+                        if (committed[index].VesselSpawned)
+                        {
+                            ParsekLog.Info("Policy",
+                                $"Held ghost spawn succeeded on retry: #{index} \"{info.vesselName}\" " +
+                                $"id={info.recordingId} held={now - info.holdStartTime:F1}s");
+
+                            // If user is currently watching this recording, activate the spawned vessel
+                            if (watchedIndex == index)
+                            {
+                                uint spawnedPid = committed[index].SpawnedVesselPersistentId;
+                                if (spawnedPid != 0)
+                                {
+                                    if (DeferredActivateVesselOverrideForTesting != null)
+                                        DeferredActivateVesselOverrideForTesting(spawnedPid);
+                                    else
+                                        host.DeferredActivateVesselFromPolicy(spawnedPid);
+                                }
+                            }
+
+                            if (toRelease == null) toRelease = new List<KeyValuePair<int, string>>();
+                            toRelease.Add(new KeyValuePair<int, string>(index, "held-spawn-succeeded"));
+                        }
+                        break;
+
+                    case HeldGhostAction.ReleaseSpawned:
+                        // Already spawned by another path (e.g. FlushDeferredSpawns)
+                        ParsekLog.Info("Policy",
+                            $"Held ghost released (already spawned): #{index} \"{info.vesselName}\" " +
+                            $"id={info.recordingId} held={now - info.holdStartTime:F1}s");
+                        if (toRelease == null) toRelease = new List<KeyValuePair<int, string>>();
+                        toRelease.Add(new KeyValuePair<int, string>(index, "held-already-spawned"));
+                        break;
+
+                    case HeldGhostAction.ReleaseSupersededByRelation:
+                        ParsekLog.Info("Policy",
+                            $"Held ghost released (superseded by relation): #{index} \"{info.vesselName}\" " +
+                            $"id={info.recordingId} held={now - info.holdStartTime:F1}s");
+                        if (toRelease == null) toRelease = new List<KeyValuePair<int, string>>();
+                        toRelease.Add(new KeyValuePair<int, string>(index, "held-superseded-by-relation"));
+                        break;
+
+                    case HeldGhostAction.ReleaseRewindRetired:
+                        ParsekLog.Info("Policy",
+                            $"Held ghost released (rewind retired): #{index} \"{info.vesselName}\" " +
+                            $"id={info.recordingId} held={now - info.holdStartTime:F1}s");
+                        if (toRelease == null) toRelease = new List<KeyValuePair<int, string>>();
+                        toRelease.Add(new KeyValuePair<int, string>(index, "held-rewind-retired"));
+                        break;
+
+                    case HeldGhostAction.ReleaseCannotSpawnSafely:
+                        ParsekLog.Info("Policy",
+                            $"Held ghost released (cannot spawn safely): #{index} \"{info.vesselName}\" " +
+                            $"id={info.recordingId} reason={committed[index].TerminalSpawnSafetyReasonCode ?? "(none)"} " +
+                            $"held={now - info.holdStartTime:F1}s - the ghost ends at EndUT without a spawn");
+                        if (toRelease == null) toRelease = new List<KeyValuePair<int, string>>();
+                        toRelease.Add(new KeyValuePair<int, string>(index, "held-cannot-spawn-safely"));
+                        break;
+
+                    case HeldGhostAction.Timeout:
+                        ParsekLog.Warn("Policy",
+                            $"Held ghost timed out: #{index} \"{info.vesselName}\" " +
+                            $"id={info.recordingId} held={now - info.holdStartTime:F1}s " +
+                            $"— destroying ghost without spawn");
+                        if (toRelease == null) toRelease = new List<KeyValuePair<int, string>>();
+                        toRelease.Add(new KeyValuePair<int, string>(index, "held-spawn-timeout"));
+                        break;
+
+                    case HeldGhostAction.InvalidIndex:
+                        ParsekLog.Warn("Policy",
+                            $"Held ghost has invalid index: #{index} \"{info.vesselName}\" " +
+                            $"id={info.recordingId} — releasing");
+                        if (toRelease == null) toRelease = new List<KeyValuePair<int, string>>();
+                        toRelease.Add(new KeyValuePair<int, string>(index, "held-invalid-index"));
+                        break;
+
+                    case HeldGhostAction.Hold:
+                        // Keep waiting
+                        break;
+                }
+            }
+
+            // Apply retry-time updates (deferred to avoid dict mutation during iteration)
+            if (retryTimeUpdates != null)
+            {
+                for (int i = 0; i < retryTimeUpdates.Count; i++)
+                {
+                    int idx = retryTimeUpdates[i].Key;
+                    if (heldGhosts.TryGetValue(idx, out var updated))
+                    {
+                        updated.lastRetryTime = retryTimeUpdates[i].Value;
+                        heldGhosts[idx] = updated;
+                    }
+                }
+            }
+
+            if (toRelease != null)
+            {
+                for (int i = 0; i < toRelease.Count; i++)
+                {
+                    int index = toRelease[i].Key;
+                    string reason = toRelease[i].Value;
+                    // Never destroy the ghost the camera is following: leave the watch first,
+                    // as every other end-of-watch does before its ghost goes.
+                    if (index == watchedIndex)
+                    {
+                        ParsekLog.Info("Policy",
+                            $"Leaving watch before releasing held ghost #{index} reason={reason}");
+                        // Parsek ended this watch, not the player: a warp-end switch stays owed.
+                        if (heldGhosts.TryGetValue(index, out var releasedInfo)
+                            && string.Equals(releasedInfo.recordingId, warpHeldWatchRecordingId, StringComparison.Ordinal))
+                            warpHeldWatchRecordingId = null;
+                        ExitWatchModeForHandoff();
+                    }
+                    if (DestroyGhostOverrideForTesting != null)
+                        DestroyGhostOverrideForTesting(index, reason);
+                    else
+                        engine.DestroyGhost(index, reason: reason);
+                    heldGhosts.Remove(index);
+                }
+            }
+        }
+
+        // HandlePlaybackCompleted reads Unity time and warp only through these NoInlining
+        // cores, so the method itself JITs headless (a direct Unity ECall reference fails the
+        // whole method's JIT outside KSP) and its hold decision is unit-testable.
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static float CurrentWarpRate()
+        {
+            return TimeWarp.CurrentRate;
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static bool IsAnyWarpActiveFromGlobalsCore()
+        {
+            return GhostPlaybackEngine.IsAnyWarpActiveFromGlobals();
+        }
+
+        /// <summary>
+        /// True when the held recording is the tip of an active ghost chain whose spawn is
+        /// collision-blocked (design 12.9.2): its hold is exempt from the timeout.
+        /// </summary>
+        private bool IsSpawnBlockedChainTipForHold(Recording rec)
+        {
+            if (IsSpawnBlockedChainTipOverrideForTesting != null)
+                return IsSpawnBlockedChainTipOverrideForTesting(rec);
+            return host.IsSpawnBlockedChainTipFromPolicy(rec);
+        }
+
+        /// <summary>Real time stamped on a new hold; the same clock RetryHeldGhostSpawns reads.</summary>
+        private float CurrentHoldRealTime()
+        {
+            return CurrentRealTimeOverrideForTesting != null
+                ? CurrentRealTimeOverrideForTesting()
+                : CurrentUnityRealTime();
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static float CurrentUnityRealTime()
+        {
+            return Time.time;
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static double CurrentUniversalTimeSafe()
+        {
+            try
+            {
+                return Planetarium.GetUniversalTime();
+            }
+            catch
+            {
+                return double.NaN;
+            }
+        }
+
+        /// <summary>
+        /// Pure decision logic for held ghost retry. Determines what action to take
+        /// for a held ghost based on current state. Testable without Unity side effects.
+        /// </summary>
+        internal static HeldGhostAction DecideHeldGhostAction(
+            int index, HeldGhostInfo info, IReadOnlyList<Recording> committed,
+            float currentTime, float timeoutSeconds,
+            float retryIntervalSeconds = 1.0f,
+            IReadOnlyDictionary<string, TimelineInactiveReason> timelineInactiveIds = null,
+            double currentUT = double.NaN,
+            bool spawnBlockedChainTip = false,
+            bool holdForWarpWatch = false,
+            bool spawnDeferredForPlacement = false)
+        {
+            // Invalid index — recording list may have changed
+            if (index < 0 || index >= committed.Count)
+                return HeldGhostAction.InvalidIndex;
+
+            var rec = committed[index];
+
+            // Verify this is still the same recording (indices can shift after deletes)
+            if (rec.RecordingId != info.recordingId)
+                return HeldGhostAction.InvalidIndex;
+
+            if (!string.IsNullOrEmpty(rec.RecordingId)
+                && timelineInactiveIds != null
+                && timelineInactiveIds.TryGetValue(rec.RecordingId, out TimelineInactiveReason inactiveReason))
+            {
+                if (inactiveReason == TimelineInactiveReason.RewindRetired)
+                    return HeldGhostAction.ReleaseRewindRetired;
+                if (inactiveReason == TimelineInactiveReason.SupersededByRelation)
+                    return HeldGhostAction.ReleaseSupersededByRelation;
+            }
+
+            // Already spawned by another path
+            if (rec.VesselSpawned)
+                return HeldGhostAction.ReleaseSpawned;
+
+            TerminalOrbitDeferredSpawnState terminalDeferredState =
+                TerminalOrbitSpawnSafety.GetDeferredSpawnState(
+                    rec,
+                    currentUT,
+                    out _);
+            // A permanent CannotSpawnSafely verdict (periapsis refusal, failed orbit resolution,
+            // a spawned vessel that died, non-finite values) never clears in this scene: the
+            // ghost is released at EndUT instead of standing in for a vessel that will not come
+            // (operator ruling 2026-09-27). Only a genuine deferral keeps holding.
+            if (terminalDeferredState == TerminalOrbitDeferredSpawnState.Refused)
+                return HeldGhostAction.ReleaseCannotSpawnSafely;
+            if (terminalDeferredState == TerminalOrbitDeferredSpawnState.Hold)
+                return HeldGhostAction.Hold;
+
+            // A watched ghost whose spawn waits for warp end: no retry, no timeout. Every
+            // release above still applies to it.
+            if (holdForWarpWatch)
+                return HeldGhostAction.Hold;
+
+            // A spawn waiting for its armed Ready placement holds without consuming a retry,
+            // so the first retry after the placement fires in that frame. A throttled retry
+            // would spawn up to a second later, and a trajectory-tail end orbit is rebuilt
+            // with the body's live rotation at spawn time, off the placed group's spot.
+            if (spawnDeferredForPlacement)
+                return HeldGhostAction.Hold;
+
+            // Timeout check. A collision-blocked chain tip is exempt: its blocker can move away
+            // at any time, so the ghost stays (following the tip's propagated position, drawn
+            // by ParsekFlight) and the spawn keeps retrying until the overlap clears (design
+            // 12.9.2, phase 6b-4). Every release above still applies to it.
+            float elapsed = currentTime - info.holdStartTime;
+            if (terminalDeferredState != TerminalOrbitDeferredSpawnState.Ready
+                && elapsed >= timeoutSeconds
+                && !ChainTipBlockedGhost.IsExemptFromHeldGhostTimeout(spawnBlockedChainTip))
+                return HeldGhostAction.Timeout;
+
+            // Throttle retry attempts — avoid hammering spawn every frame
+            float sinceLast = currentTime - info.lastRetryTime;
+            if (sinceLast < retryIntervalSeconds)
+                return HeldGhostAction.Hold;
+
+            return HeldGhostAction.RetrySpawn;
+        }
+
+        // The map-presence state (PendingMapVessel struct, the 6 presence dicts,
+        // terminalMapRetentionLoggedIds, nextMapOrbitUpdateTime, MapOrbitUpdateIntervalSec) plus the
+        // per-frame body (CheckPendingMapVessels) and its dict-touching helpers
+        // (ResolveMapPresenceSampleUT, PruneTerminalMapRetentionLogKeys, TryGetMapOrbitKey,
+        // IsMaterializedForMapPresence, RemovePreviousChainMapVessel) moved to GhostMapPresence in
+        // Phase 8d.1 (faithful relocation). MapViewScene.DriveMapPresence now calls
+        // GhostMapPresence.UpdateFlightMapGhostLifecycle directly. The still-in-policy enqueue tail
+        // (HandleGhostCreated) and teardowns reach the moved state via GhostMapPresence.flight*. The
+        // three pure helpers below (ShouldRunMapOrbitReseed, TryResolveTerminalFallbackMapOrbitUpdate,
+        // ShouldRetainMapPresenceForTerminalRealSpawn) stay here per the plan and are called from the
+        // moved body via ParsekPlaybackPolicy.<helper>.
+
+        /// <summary>
+        /// Loop-units pass-through for the flight-scene map-presence driver. Exposes the EXACT same
+        /// per-frame <see cref="GhostPlaybackEngine.CurrentLoopUnits"/> the engine drives the ghost
+        /// meshes with, so <see cref="MapRender.MapViewScene.DriveMapPresence"/> can thread it into
+        /// <see cref="GhostMapPresence.UpdateFlightMapGhostLifecycle"/>. Phase 8d.1: this is the source
+        /// the relocated body used to read directly as <c>engine.CurrentLoopUnits</c>.
+        /// </summary>
+        internal GhostPlaybackLogic.LoopUnitSet CurrentLoopUnitsForPresence => engine.CurrentLoopUnits;
+
+        /// <summary>
+        /// Pure gate for the rate-limited map-orbit reseed pass (warp-aware). Proceeds when the real-time
+        /// timer has elapsed (the steady-state path) OR, only while time-warping, when a tracked ghost's
+        /// playback head has left its applied segment (so the reseed keeps up with the fast head through
+        /// short segments and the orbit line stops blinking). At 1x (<paramref name="warpRate"/> &lt;= 1)
+        /// this is exactly the old timer-only gate, so non-warp behavior is byte-identical.
+        /// </summary>
+        internal static bool ShouldRunMapOrbitReseed(
+            bool timerElapsed, float warpRate, bool anyGhostHeadLeftSegment,
+            bool clockJumped = false)
+            => timerElapsed || clockJumped || (warpRate > 1.0f && anyGhostHeadLeftSegment);
+
+        /// <summary>
+        /// Game seconds one 1x frame may advance the flight map clock before the map counts it a
+        /// jump. A 1x frame advances the clock by about one frame time (well under a second even
+        /// at a few frames per second); a TimeJump or a load moves it by its whole delta.
+        /// </summary>
+        internal const double MapClockJumpGameSeconds = 1.0;
+
+        /// <summary>
+        /// Pure: the flight map clock jumped between two lifecycle passes at 1x (forward or
+        /// back), so every applied ghost orbit may be stale at once. Under time warp the
+        /// head-left-segment scan already reseeds promptly, so only warp &lt;= 1 counts. False on
+        /// the first pass (<paramref name="previousUT"/> NaN).
+        /// </summary>
+        internal static bool IsMapClockDiscontinuity(double previousUT, double currentUT, float warpRate)
+        {
+            if (warpRate > 1.0f)
+                return false;
+            if (double.IsNaN(previousUT) || double.IsNaN(currentUT)
+                || double.IsInfinity(previousUT) || double.IsInfinity(currentUT))
+                return false;
+            return System.Math.Abs(currentUT - previousUT) > MapClockJumpGameSeconds;
+        }
+
+        /// <summary>
+        /// Cap on how much GAME time may elapse between two map-orbit reseed ticks while
+        /// time-warping. The reseed timer is REAL-time (<c>Time.time</c>), so at extreme warp a
+        /// fixed 0.5 s real-time cadence spans warpRate/2 game-seconds per tick (~170-500 s at
+        /// 344x-1000x): the icon propagates on the stale applied conic between ticks while the
+        /// loop replay clock (knob cuts / sawtooth) diverges, then snaps ~1 Mm along-orbit on the
+        /// next reseed (the `2026-06-12_1756_m4b-icon-retest2` mid-cycle fromOrbit==toOrbit
+        /// icon-jump class). 30 game-seconds bounds the per-tick divergence to ~60-100 km at the
+        /// observed ~2-3 km/game-s drift rate — an order of magnitude under the
+        /// <c>MapRenderTrace.IsIconJump</c> 1000 km anomaly floor.
+        /// </summary>
+        internal const float MapOrbitReseedMaxGameSecondsPerTick = 30f;
+
+        /// <summary>
+        /// Pure warp-scaled reseed cadence law: the REAL-time interval to arm the next map-orbit
+        /// reseed tick with. At <paramref name="warpRate"/> &lt;= 1 (and for NaN) this returns
+        /// <paramref name="baseIntervalSec"/> unchanged, so 1x behavior is byte-identical to the
+        /// old fixed cadence. While warping, the interval shrinks so one tick never spans more
+        /// than <see cref="MapOrbitReseedMaxGameSecondsPerTick"/> of game time
+        /// (<c>interval * warpRate &lt;= budget</c>), never exceeding the base interval. The
+        /// threshold falls out of the constants: below budget/base (60x for 30/0.5) the base
+        /// cadence already meets the budget and is returned unchanged; above it the interval is
+        /// budget/warpRate, degrading gracefully to once-per-frame at extreme warp (Update-driven,
+        /// so a sub-frame interval reseeds every frame — the same per-frame cost class the
+        /// head-left-segment eager reseed already exercises under warp).
+        /// </summary>
+        internal static float ResolveMapOrbitReseedIntervalSec(float baseIntervalSec, float warpRate)
+        {
+            if (float.IsNaN(warpRate) || warpRate <= 1.0f)
+                return baseIntervalSec;
+            float warpScaled = MapOrbitReseedMaxGameSecondsPerTick / warpRate;
+            return warpScaled < baseIntervalSec ? warpScaled : baseIntervalSec;
+        }
+
+        /// <summary>
+        /// Pure companion to <see cref="ResolveMapOrbitReseedIntervalSec"/>: clamp an
+        /// already-armed reseed deadline to the interval the CURRENT warp rate allows. The
+        /// deadline is armed with the rate in force at arm time, so a warp STEP-UP mid-interval
+        /// would otherwise let that one pending tick still span up to base*warpRate game-seconds
+        /// (punch 50x -> 1000x and the armed 0.5 s tick spans ~500 game-s — the exact pre-fix
+        /// snap magnitude, once per warp increase). Clamping to <c>now + currentInterval</c>
+        /// every frame keeps the game-time budget honest across rate changes; at steady rate the
+        /// armed deadline never exceeds <c>now + interval</c>, so this is a no-op (1x stays
+        /// byte-identical). A warp step-DOWN leaves the shorter armed deadline in place — one
+        /// early reseed, harmless.
+        /// </summary>
+        internal static float ClampPendingReseedDeadline(
+            float pendingDeadline, float now, float currentIntervalSec)
+        {
+            float allowed = now + currentIntervalSec;
+            return pendingDeadline < allowed ? pendingDeadline : allowed;
+        }
+
+        // Hysteresis thresholds for state-vector orbit creation/removal.
+        // Higher thresholds to create, lower to remove — prevents churn for borderline altitudes.
+        // On bodies with atmosphere, the atmosphere depth overrides these (orbit lines are
+        // only meaningful in vacuum — atmospheric drag makes the Keplerian approximation wild).
+        internal const double StateVectorCreateAltitude = GhostMapPresence.StateVectorCreateAltitude;
+        internal const double StateVectorCreateSpeed = GhostMapPresence.StateVectorCreateSpeed;
+        internal const double StateVectorRemoveAltitude = GhostMapPresence.StateVectorRemoveAltitude;
+        internal const double StateVectorRemoveSpeed = GhostMapPresence.StateVectorRemoveSpeed;
+
+        /// <summary>
+        /// Early map-presence enqueue, decoupled from the mesh build: runs the SAME idempotent
+        /// create-or-update / pending-queue body as <see cref="HandleGhostCreated"/> the moment the
+        /// engine registers a primary pending-spawn state (<see cref="GhostPlaybackEngine.OnGhostSpawnPending"/>).
+        /// The mesh-gated created pass below stays untouched (camera auto-follow at finalize plus a
+        /// map-presence refresh), so finalize-time behavior is unchanged; this only makes the map
+        /// ProtoVessel (and with it the ghost's orbit line) exist EARLIER. Without it a far-SOI
+        /// multi-part ghost's time-sliced visual build (4ms/frame, slowest distance tier) left the
+        /// map orbit line missing for ~24s after a TS Fly vessel switch (2026-07-04 Duna playtest:
+        /// Kerbal X, 75 snapshot parts). The camera concern is deliberately NOT run here - there is
+        /// no mesh to follow yet.
+        /// </summary>
+        private void HandleGhostSpawnPending(GhostLifecycleEvent evt)
+        {
+            GhostMapPresence.HandleFlightGhostCreatedMapPresence(evt, engine.CurrentLoopUnits);
+        }
+
+        private void HandleGhostCreated(GhostLifecycleEvent evt)
+        {
+            // Chain-seam auto-follow: if this is a chain-seam first-spawn AND the watched
+            // recording is the same-chain predecessor, transfer the camera to the successor
+            // immediately. The standard auto-follow path (HandlePlaybackCompleted -> Mid-chain
+            // auto-follow) does NOT fire for chain-head predecessors whose Recording.EndUT is
+            // widened by ExplicitEndUT / orbit-tail projection past the actual seam UT — the
+            // engine's pastEnd check (currentUT > traj.EndUT) stays false, PlaybackCompleted
+            // never fires, the policy never transfers, and the camera stays glued to the
+            // predecessor while the successor is rendering correctly somewhere else (the
+            // "duplicate ghost suspended in air" the Kerbal X playtest 2026-05-19 reproduced).
+            TryAutoFollowChainSeamSpawn(evt);
+
+            // Map-presence enqueue (Phase 8d.2): the debris-skip gate, terminal/orbit-data gates,
+            // per-chain dedup, source resolution, loop-aware defer decision, and immediate-create vs
+            // pending-queue branch moved VERBATIM into GhostMapPresence. The engine's per-frame
+            // CurrentLoopUnits the moved body needs is threaded in as a parameter.
+            GhostMapPresence.HandleFlightGhostCreatedMapPresence(evt, engine.CurrentLoopUnits);
+        }
+
+        /// <summary>
+        /// Pure: should we create a state-vector orbit ProtoVessel at this altitude/speed?
+        /// On bodies with atmosphere, requires altitude above atmosphere (Keplerian orbits
+        /// are meaningless during atmospheric flight — drag makes them wild/flickering).
+        /// On airless bodies, uses the fixed altitude threshold.
+        /// </summary>
+        internal static bool ShouldCreateStateVectorOrbit(double altitude, double speed, double atmosphereDepth)
+        {
+            return GhostMapPresence.ShouldCreateStateVectorOrbit(altitude, speed, atmosphereDepth);
+        }
+
+        /// <summary>
+        /// Pure decision: should an initial ghost-map-presence create (<see cref="HandleGhostCreated"/>)
+        /// defer to the loop-aware per-frame pass (<see cref="CheckPendingMapVessels"/>) instead of
+        /// creating immediately at the raw recorded startUT? True when the member is replaying
+        /// loop-shifted this cycle (<paramref name="loopEpochShiftSeconds"/> != 0) or is outside its
+        /// loop window this cycle (<paramref name="renderHidden"/>). False off the loop path
+        /// (shift 0, not hidden), so non-loop members keep the immediate create unchanged. The
+        /// immediate create would otherwise seed recorded-UT orbit/arc bounds and leave the
+        /// loop-shifted flag clear for a tick, so the map-orbit window resolver hands back a
+        /// recorded-UT fallback window while the live clock is far ahead.
+        /// </summary>
+        internal static bool ShouldDeferLoopShiftedMapPresence(
+            double loopEpochShiftSeconds, bool renderHidden)
+        {
+            return renderHidden || loopEpochShiftSeconds != 0.0;
+        }
+
+        /// <summary>
+        /// Pure decision predicate: should the policy auto-follow the watch camera onto a
+        /// freshly spawned chain-seam successor? True iff the spawn was flagged as a chain
+        /// seam, an active watch exists, the watch is not already on the new spawn, and the
+        /// new spawn's chain predecessor IS the currently watched recording. The chain-topology
+        /// half stays single-sourced in <c>RecordingChainQueries.GetChainPredecessorIndex</c>; this
+        /// predicate composes that with the spawn-time signal and the watch state.
+        /// <para>
+        /// <b>Gates intentionally NOT added (Opus PR review 2026-05-19):</b>
+        /// </para>
+        /// <list type="bullet">
+        /// <item><b>Watch-hold timer active</b>: the hold timer (set by <c>HandlePlaybackCompleted</c>
+        /// when a mid-chain transfer defers and consumed by <c>ProcessWatchEndHoldTimer</c>'s
+        /// per-frame retry) IS the retry-handoff path for the same seam this predicate handles.
+        /// Auto-follow during the hold is the desired-earlier version of the per-frame retry —
+        /// gating on the hold would just add 1 frame of latency before the retry catches up to
+        /// the same transfer. <c>TransferWatchToNextSegmentFromPolicy</c> clears the hold on
+        /// success (<c>WatchModeController.cs:2738</c>).</item>
+        /// <item><b>Time warp active</b>: the existing <c>Mid-chain auto-follow</c> path
+        /// (<c>HandlePlaybackCompleted</c> mid-chain branch above) does not gate on warp either;
+        /// the warp-special branch only triggers for <c>needsSpawn &amp;&amp; PastEffectiveEnd</c>
+        /// (end-of-chain real-vessel spawn), not for mid-chain segment handoffs. Gating only the
+        /// new path would diverge from the existing path's behavior; gating both is a larger
+        /// scope decision out of scope for this PR.</item>
+        /// <item><b>Pre-switch decision dialog up</b>: MergeDialog runs from MAP / TS contexts
+        /// (rapid-switch flows, scene-exit Merge / Discard); flight-scene Watch and the dialog
+        /// path do not realistically overlap. No accessor exposes "any dialog open" today.</item>
+        /// </list>
+        /// </summary>
+        internal static bool ShouldAutoFollowChainSeamSpawn(
+            bool spawnedAtChainSeam,
+            int watchedIndex,
+            int spawnIndex,
+            int predecessorIndexOfSpawn)
+        {
+            if (!spawnedAtChainSeam) return false;
+            if (watchedIndex < 0) return false;
+            if (watchedIndex == spawnIndex) return false;
+            return predecessorIndexOfSpawn == watchedIndex;
+        }
+
+        /// <summary>
+        /// At chain-seam first-spawn, transfer the watch camera from the same-chain
+        /// predecessor to this new successor. The standard <c>HandlePlaybackCompleted</c>
+        /// -&gt; <c>Mid-chain auto-follow</c> path does not fire for chain-head predecessors
+        /// whose <c>Recording.EndUT</c> is widened past the actual seam by
+        /// <c>ExplicitEndUT</c> / orbit-tail projection / Re-Fly origin-split residue.
+        /// The engine's <c>pastEnd = currentUT &gt; traj.EndUT</c> check stays false in
+        /// that case, so the policy never sees a completion event for the predecessor and
+        /// the camera stays glued to the now-frozen predecessor while the successor
+        /// renders correctly somewhere else (the "duplicate ghost suspended in air"
+        /// symptom). The seam-spawn flag is a direct, predecessor-EndUT-independent
+        /// signal that the chain handoff is happening, so we transfer on it.
+        /// <para>
+        /// <b>Engine timing contract relied on:</b> <c>QueueOrEmitGhostCreated</c>
+        /// (<c>GhostPlaybackEngine.cs</c>) defers the Created event into
+        /// <c>deferredCreatedEvents</c> whenever <c>updateStopwatch.IsRunning</c>; the deferred
+        /// pump flushes Created events BEFORE Completed events, AFTER
+        /// <c>FinalizePendingSpawnLifecycle</c> has populated <c>state.ghost</c>,
+        /// <c>state.cameraPivot</c>, and <c>state.horizonProxy</c>. By the time this method
+        /// runs, the new ghost is fully built and <c>TransferWatchToNextSegmentFromPolicy</c>
+        /// can target it. <c>TransferWatchToNextSegment</c> (<c>WatchModeController.cs:2660</c>)
+        /// independently re-checks <c>gs.ghost != null</c> and falls back to deferred-retry
+        /// if the contract is ever violated. No double-transfer risk: the new path runs first
+        /// and flips <c>WatchedRecordingIndex</c> to the successor; when <c>HandlePlaybackCompleted</c>
+        /// then fires for the predecessor (if ever — see EndUT-widening note above), the
+        /// <c>isWatched = host.WatchedRecordingIndex == evt.Index</c> test is now false so the
+        /// Mid-chain branch skips.
+        /// </para>
+        /// </summary>
+        private void TryAutoFollowChainSeamSpawn(GhostLifecycleEvent evt)
+        {
+            if (evt == null || evt.State == null) return;
+            if (evt.Trajectory == null) return;
+
+            int watchedIndex = host.WatchedRecordingIndex;
+            var committed = RecordingStore.CommittedRecordings;
+            if (evt.Index < 0 || evt.Index >= committed.Count) return;
+            Recording successor = committed[evt.Index];
+            if (successor == null) return;
+            int predIdxForSuccessor = RecordingChainQueries.GetChainPredecessorIndex(successor);
+
+            if (!ShouldAutoFollowChainSeamSpawn(
+                evt.State.spawnedAtChainSeam, watchedIndex, evt.Index, predIdxForSuccessor))
+            {
+                return;
+            }
+
+            if (watchedIndex >= committed.Count) return;
+            Recording watched = committed[watchedIndex];
+            if (watched == null) return;
+
+            if (host.TransferWatchToNextSegmentFromPolicy(evt.Index))
+            {
+                ParsekLog.Info("Policy",
+                    $"Chain-seam auto-follow: #{watchedIndex} \"{watched.VesselName}\" -> " +
+                    $"#{evt.Index} \"{successor.VesselName}\" " +
+                    "(seam-spawn while predecessor watched; predecessor EndUT does not gate PlaybackCompleted)");
+            }
+            else
+            {
+                ParsekLog.VerboseRateLimited("Policy", $"chain-seam-transfer-failed-{evt.Index}",
+                    $"Chain-seam auto-follow declined: #{watchedIndex} -> #{evt.Index} " +
+                    "(TransferWatchToNextSegmentFromPolicy returned false)",
+                    1.0);
+            }
+        }
+
+        /// <summary>
+        /// Pure: should we remove a state-vector orbit ProtoVessel at this altitude/speed?
+        /// On bodies with atmosphere, removes immediately when descending into atmosphere.
+        /// On airless bodies, uses lower hysteresis thresholds.
+        /// </summary>
+        internal static bool ShouldRemoveStateVectorOrbit(double altitude, double speed, double atmosphereDepth)
+        {
+            return GhostMapPresence.ShouldRemoveStateVectorOrbit(altitude, speed, atmosphereDepth);
+        }
+
+        /// <summary>
+        /// Pure: is the recording in a RELATIVE reference frame at the given UT?
+        /// RELATIVE frames store dx/dy/dz offsets, not lat/lon/alt — state-vector
+        /// orbit construction would produce nonsense.
+        /// </summary>
+        internal static bool IsInRelativeFrame(IPlaybackTrajectory traj, double ut)
+        {
+            return GhostMapPresence.IsInRelativeFrame(traj, ut);
+        }
+
+        internal static bool ShouldRetainMapPresenceForTerminalRealSpawn(
+            Recording rec,
+            bool hasFutureSegment)
+        {
+            if (hasFutureSegment || rec == null)
+                return false;
+
+            // KEEP debris-only: `rec.IsDebris` here is one of several semantic
+            // gates that exclude debris from terminal-real-spawn map presence
+            // retention. Controlled-decoupled children (extension of the parent-
+            // anchor contract) carry IsDebris=false and correctly pass this gate.
+            if (rec.VesselSpawned
+                || rec.SpawnAbandoned
+                || rec.VesselSnapshot == null
+                || rec.IsDebris
+                || rec.ChainBranch > 0)
+            {
+                return false;
+            }
+
+            if (rec.TerminalStateValue != TerminalState.Orbiting)
+                return false;
+
+            if (!string.IsNullOrEmpty(rec.TerminalSpawnSupersededByRecordingId)
+                || rec.SpawnSuppressedByRewind)
+            {
+                return false;
+            }
+
+            // The retention waits for a real spawn; a permanent CannotSpawnSafely verdict means
+            // none will come, so the map presence ends with the recording like the ghost does.
+            if (rec.TerminalSpawnCannotSpawnSafely)
+                return false;
+
+            return VesselSpawner.HasRecordedTerminalOrbit(rec)
+                || rec.HasOrbitSegments
+                || TerminalOrbitSpawnSafety.HasActiveHold(rec);
+        }
+
+        internal static bool TryResolveTerminalFallbackMapOrbitUpdate(
+            Recording rec,
+            int idx,
+            double currentUT,
+            double loopEpochShiftSeconds,
+            (string body, double sma, double ecc) currentKey,
+            bool alreadyMaterialized,
+            ref int cachedStateVectorIndex,
+            out OrbitSegment fallbackSegment,
+            out (string body, double sma, double ecc) fallbackKey,
+            out bool changed)
+        {
+            fallbackSegment = default(OrbitSegment);
+            fallbackKey = default((string, double, double));
+            changed = false;
+
+            // Loop-aware caller: a non-zero shift on a same-body terminal recording
+            // unlocks the no-segment terminal-orbit synthesis (plan section 1.6). The flag is
+            // computed from the new loopEpochShiftSeconds parameter so the line 1495 call
+            // site can pass the shift in unconditionally; non-loop calls (shift == 0)
+            // produce false and the helper stays byte-identical for non-loop members.
+            bool acceptTerminalOrbitForLoopSynthesis =
+                loopEpochShiftSeconds != 0.0
+                && GhostMapPresence.IsTerminalOrbitSynthesisSafeForLoopMember(rec);
+
+            TrackingStationGhostSource fallbackSource = GhostMapPresence.ResolveMapPresenceGhostSource(
+                rec,
+                false,
+                alreadyMaterialized,
+                currentUT,
+                true,
+                "map-presence-orbit-update",
+                ref cachedStateVectorIndex,
+                out fallbackSegment,
+                out _,
+                out _,
+                recordingIndex: idx,
+                acceptTerminalOrbitForLoopSynthesis: acceptTerminalOrbitForLoopSynthesis,
+                // A loop member at its terminal (no covering segment) keeps its synthesized
+                // terminal-orbit fallback even when a persisted real terminal vessel exists.
+                loopMemberInWindow: loopEpochShiftSeconds != 0.0);
+            if (fallbackSource != TrackingStationGhostSource.TerminalOrbit
+                && fallbackSource != TrackingStationGhostSource.EndpointTail)
+                return false;
+
+            fallbackKey = (
+                fallbackSegment.bodyName,
+                fallbackSegment.semiMajorAxis,
+                fallbackSegment.eccentricity);
+            changed = fallbackKey.body != currentKey.body
+                || fallbackKey.sma != currentKey.sma
+                || fallbackKey.ecc != currentKey.ecc;
+            if (changed)
+            {
+                ParsekLog.Info("Policy",
+                    $"Switched ghost map orbit for #{idx} \"{rec?.VesselName}\" to terminal-orbit fallback " +
+                    $"during sparse gap body={fallbackKey.body} sma={fallbackKey.sma:F0}");
+
+                // Structured GhostMap line so the per-recording trace stays
+                // consistent across files. Emits the new orbit shape and the
+                // ghost's resolved world position (post-update).
+                var fields = GhostMapPresence.NewDecisionFields("update-terminal-orbit-fallback");
+                fields.RecordingId = rec?.RecordingId;
+                fields.RecordingIndex = idx;
+                fields.VesselName = rec?.VesselName;
+                // Report the actual resolved source; this fallback accepts both
+                // TerminalOrbit and EndpointTail (see the acceptance check above).
+                fields.Source = fallbackSource.ToString();
+                fields.Branch = "(n/a)";
+                fields.Body = fallbackSegment.bodyName;
+                fields.Segment = fallbackSegment;
+                fields.TerminalBody = rec?.TerminalOrbitBody;
+                fields.TerminalSma = rec?.TerminalOrbitSemiMajorAxis ?? double.NaN;
+                fields.TerminalEcc = rec?.TerminalOrbitEccentricity ?? double.NaN;
+                fields.UT = currentUT;
+                fields.Reason = "sparse-gap-fallback";
+                if (GhostMapPresence.TryGetGhostWorldPosForRecording(idx, out Vector3d worldPos))
+                    fields.WorldPos = worldPos;
+                ParsekLog.VerboseRateLimited(
+                    "GhostMap",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "gm-terminal-fallback-{0}",
+                        rec?.RecordingId ?? idx.ToString(CultureInfo.InvariantCulture)),
+                    GhostMapPresence.BuildGhostMapDecisionLine(fields),
+                    5.0);
+            }
+
+            return true;
+        }
+
+        private void HandleGhostDestroyed(GhostLifecycleEvent evt)
+        {
+            string name = evt.State?.vesselName ?? evt.Trajectory?.VesselName ?? "Unknown";
+            ParsekLog.Verbose("Policy",
+                $"GhostDestroyed index={evt.Index} vessel={name}");
+
+            // WATCH-LOOPED-PARK-TARGET-LOSS-NRE-STORM: the engine fires OnGhostDestroyed
+            // BEFORE it tears the GameObject hierarchy down, so this is the last frame-safe
+            // moment to get the watch camera off a transform that is about to become a
+            // destroyed Unity object (the documented #895 trigger for the stock per-frame
+            // NRE storm). No-ops unless this index is the watched one AND the camera is
+            // actually bound inside the doomed ghost.
+            host.WatchMode?.NotifyWatchedGhostDestroying(evt.Index, evt.State);
+
+            // If a held ghost was destroyed externally (e.g. soft cap, DestroyAllGhosts),
+            // remove it from the held set so we don't try to destroy it again
+            heldGhosts.Remove(evt.Index);
+
+            // Map-presence teardown (Phase 8d.2): the five per-index presence dict removals, the
+            // committed vesselPid lookup + terminal-retention log-key drop, and the combined
+            // recording-index + chain ghost ProtoVessel removal moved VERBATIM into GhostMapPresence.
+            GhostMapPresence.HandleFlightGhostDestroyedMapPresence(evt.Index);
+        }
+
+        private void HandleLoopRestarted(LoopRestartedEvent evt)
+        {
+            ParsekLog.VerboseRateLimited("Policy", "loop-restarted",
+                $"LoopRestarted index={evt.Index} cycle={evt.PreviousCycleIndex}->{evt.NewCycleIndex} " +
+                $"explosion={evt.ExplosionFired}");
+        }
+
+        private void HandleOverlapExpired(OverlapExpiredEvent evt)
+        {
+            ParsekLog.VerboseRateLimited("Policy", "overlap-expired",
+                $"OverlapExpired index={evt.Index} cycle={evt.CycleIndex} explosion={evt.ExplosionFired}");
+        }
+
+        /// <summary>
+        /// Renders one loop seam explanation (design-dock-event-graph.md 7.3, Q5): the moment a
+        /// looping mission's ghost grows because a partner mission's half joined it (R2), or ends
+        /// because its line docked into a mission this one does not replay (R3). One
+        /// <see cref="ScreenMessages"/> line per SEAM MOMENT - the engine already deduped to once
+        /// per (marker, loop cycle), and markers raised in the same frame are joined here into one
+        /// line rather than competing for the real-time floor.
+        ///
+        /// <para>The design also asks for a ghost-label badge for the window duration. Parsek's only
+        /// floating-label mechanism (<c>ParsekFlight.DrawGhostLabels</c>) draws over
+        /// <c>activeGhostChains</c> - the chain-ghost system - and unit members are playback-ENGINE
+        /// ghosts, which have no label surface at all. Building one would be new per-frame
+        /// per-ghost UI infrastructure, which is exactly what the design's performance budget
+        /// (section 14) and the visual-design principle rule out for a v1 label. v1 therefore ships
+        /// the ScreenMessages line plus this log line, and the badge stays a follow-up.</para>
+        /// </summary>
+        private void HandleSeamMarker(SeamMarkerEvent evt)
+        {
+            if (evt == null || string.IsNullOrEmpty(evt.Text))
+                return;
+
+            // BUFFER FIRST, throttle later. Several markers can belong to ONE seam instant (a
+            // two-parent merge with the docked stretch excluded raises an R3 per parent at the same
+            // UT) and they all arrive in this one engine pass. Posting them separately would run the
+            // second into the real-time floor and drop it EVERY cycle - permanently invisible rather
+            // than merely delayed. Joining them into one line first makes the floor mean what it
+            // says: it separates distinct seam MOMENTS, never lines of the same moment.
+            string vesselName = evt.Trajectory != null ? evt.Trajectory.VesselName : null;
+            string text = string.IsNullOrEmpty(vesselName)
+                ? evt.Text
+                : vesselName + ": " + evt.Text;
+            string due = seamMessages.Offer(CurrentUnityFrame(), text);
+
+            var ic = CultureInfo.InvariantCulture;
+            ParsekLog.VerboseRateLimited(
+                "SeamMarker",
+                // Bounded by member x cycle x kind (NOT frame count): the engine's dedup already
+                // caps this at one emission per marker per cycle, so the key only guards against a
+                // second marker for the same member in the same cycle spamming the same slot.
+                "emit-" + evt.Index.ToString(ic) + "-" + evt.UnitCycle.ToString(ic) + "-" + evt.Kind,
+                "emit kind=" + (evt.Kind == GhostPlaybackLogic.SeamMarkerKind.MergeAppear ? "R2" : "R3")
+                    + " memberIdx=" + evt.Index.ToString(ic)
+                    + " cycle=" + evt.UnitCycle.ToString(ic)
+                    + " seamUT=" + evt.SeamUT.ToString("R", ic)
+                    + " screen=buffered"
+                    + " text=\"" + evt.Text + "\"",
+                5.0);
+
+            if (due != null)
+                PostSeamMessage(due);
+        }
+
+        /// <summary>
+        /// Posts whatever seam text this frame accumulated, if any. Called once per frame from
+        /// <see cref="RunSpawnDeathChecks"/> - i.e. immediately BEFORE the next engine pass - so a
+        /// line buffered in the previous frame is posted at most one frame late and can never sit
+        /// unposted because no further marker arrived.
+        /// </summary>
+        internal void FlushSeamMessages()
+        {
+            string pending = seamMessages.Flush();
+            if (pending != null)
+                PostSeamMessage(pending);
+        }
+
+        // The real-time floor (design Q5's readability rule): distinct seam MOMENTS no closer than
+        // SeamMessageMinRealSeconds apart. At high warp a whole loop cycle can pass in milliseconds,
+        // so the per-cycle dedup alone would still stack lines faster than they can be read; a
+        // player at 100000x is not studying a seam. Every drop is logged.
+        private void PostSeamMessage(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+                return;
+            float nowReal = CurrentRealTimeOverrideForTesting != null
+                ? CurrentRealTimeOverrideForTesting()
+                : CurrentUnityRealTime();
+            if (lastSeamMessageRealTime > 0f
+                && nowReal - lastSeamMessageRealTime < SeamMessageMinRealSeconds)
+            {
+                ParsekLog.VerboseRateLimited("SeamMarker", "screen-throttled",
+                    "screen=throttled (within " + SeamMessageMinRealSeconds.ToString(
+                        "F1", CultureInfo.InvariantCulture)
+                        + "s of the previous seam message) text=\"" + text + "\"",
+                    5.0);
+                return;
+            }
+            lastSeamMessageRealTime = nowReal;
+            try
+            {
+                ScreenMessages.PostScreenMessage("[Parsek] " + text, 6f, ScreenMessageStyle.UPPER_LEFT);
+            }
+            catch (Exception ex)
+            {
+                // A ScreenMessages failure must never take the per-frame playback dispatch with it.
+                ParsekLog.Warn("SeamMarker",
+                    $"PostScreenMessage threw: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        // Unity frame counter, wrapped so the seam accumulator (pure) takes it as a parameter and
+        // a headless test of that class needs no Unity at all.
+        private static int CurrentUnityFrame() => Time.frameCount;
+
+        private void HandleAllGhostsDestroying()
+        {
+            ParsekLog.Info("Policy", "AllGhostsDestroying — clearing policy state");
+            pendingSpawnRecordingIds.Clear();
+            pendingFlagReplayRecordingIds.Clear();
+            pendingFlagReplayFailureCounts.Clear();
+            pendingWatchRecordingId = null;
+            warpHeldWatchRecordingId = null;
+            heldGhosts.Clear();
+            GhostMapPresence.ClearFlightMapPresenceState();
+        }
+
+        /// <summary>
+        /// Unsubscribe from engine events. Called from host's OnDestroy().
+        /// </summary>
+        internal void Dispose()
+        {
+            engine.OnPlaybackCompleted -= HandlePlaybackCompleted;
+            engine.OnGhostSpawnPending -= HandleGhostSpawnPending;
+            engine.OnGhostCreated -= HandleGhostCreated;
+            engine.OnGhostDestroyed -= HandleGhostDestroyed;
+            engine.OnLoopRestarted -= HandleLoopRestarted;
+            engine.OnOverlapExpired -= HandleOverlapExpired;
+            engine.OnSeamMarker -= HandleSeamMarker;
+            engine.OnAllGhostsDestroying -= HandleAllGhostsDestroying;
+            heldGhosts.Clear();
+            GhostMapPresence.ClearFlightMapPresenceState();
+            ParsekLog.Info("Policy", "ParsekPlaybackPolicy disposed and unsubscribed from 8 engine events");
+        }
+
+        /// <summary>
+        /// Live-state adapter for the pure chain-next resolver in
+        /// <see cref="GhostPlaybackLogic.ResolveChainNextSlotIndex"/>. Reads
+        /// the current <see cref="RecordingStore.CommittedRecordings"/> and
+        /// <see cref="ParsekScenario.RecordingSupersedes"/> and delegates the
+        /// lookup. Behaviour is fully covered by
+        /// <c>ResolveChainNextSlotIndexTests</c> against the pure helper.
+        /// </summary>
+        internal int ResolveChainNextSlotIndex(int slotIndex)
+        {
+            return GhostPlaybackLogic.ResolveChainNextSlotIndex(
+                slotIndex,
+                RecordingStore.CommittedRecordings,
+                ParsekScenario.Instance?.RecordingSupersedes);
+        }
+    }
+
+    /// <summary>
+    /// Tracks a ghost held at its final position while waiting for spawn to complete (#96).
+    /// </summary>
+    internal struct HeldGhostInfo
+    {
+        /// <summary>Time.time when the ghost was held (real time, not UT).</summary>
+        public float holdStartTime;
+
+        /// <summary>Time.time of last spawn retry attempt (throttles retries to 1/sec).
+        /// Defaults to 0 so the first retry fires immediately after hold starts — intentional.</summary>
+        public float lastRetryTime;
+
+        /// <summary>Recording ID to verify index stability after deletes.</summary>
+        public string recordingId;
+
+        /// <summary>Vessel name for logging.</summary>
+        public string vesselName;
+
+        /// <summary>Whether this ghost was being watched when held.</summary>
+    }
+
+    /// <summary>
+    /// Decision result for held ghost retry logic. Returned by the pure
+    /// DecideHeldGhostAction method for testability.
+    /// </summary>
+    internal enum HeldGhostAction
+    {
+        /// <summary>Keep holding — retry interval not yet elapsed (throttles to 1/sec).</summary>
+        Hold,
+
+        /// <summary>Retry the spawn attempt.</summary>
+        RetrySpawn,
+
+        /// <summary>Recording was already spawned by another path — release ghost.</summary>
+        ReleaseSpawned,
+
+        /// <summary>Recording was retired by an explicit supersede relation — release ghost.</summary>
+        ReleaseSupersededByRelation,
+
+        /// <summary>Recording was retired by rewind rollback — release ghost.</summary>
+        ReleaseRewindRetired,
+
+        /// <summary>Timeout exceeded — destroy ghost without spawn.</summary>
+        Timeout,
+
+        /// <summary>Index is invalid or recording ID mismatch — release ghost.</summary>
+        InvalidIndex,
+
+        /// <summary>
+        /// The terminal spawn carries a permanent CannotSpawnSafely verdict: release the ghost
+        /// so it ends at EndUT (operator ruling 2026-09-27).
+        /// </summary>
+        ReleaseCannotSpawnSafely,
+    }
+}

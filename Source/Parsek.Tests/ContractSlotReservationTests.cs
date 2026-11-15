@@ -651,7 +651,7 @@ namespace Parsek.Tests
         [Fact]
         public void IndexBuild_ReadsTheAgentFromTheSnapshotOnly()
         {
-            string src = TooltipEchoBudgetTests.ReadParsekSource("CommittedFutureIndex.cs").Replace("\r\n", "\n");
+            string src = TooltipEchoBudgetTests.ReadParsekSource("GameActions/CommittedFutureIndex.cs").Replace("\r\n", "\n");
             int start = src.IndexOf("internal static string ContractAgentTitleFromSnapshot(string contractGuid)",
                 StringComparison.Ordinal);
             Assert.True(start >= 0, "ContractAgentTitleFromSnapshot moved or was renamed.");

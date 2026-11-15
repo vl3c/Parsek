@@ -959,8 +959,9 @@ namespace Parsek.Tests
             Recording tip = CommitTwoClaimTree();
             var chains = Chains();
 
-            GhostChain chain = ChainTipStaleVessel.FindChainForTip(chains, tip.RecordingId);
+            GhostChain chain = GhostChainWalker.FindChainForVessel(chains, DepotPid);
             Assert.NotNull(chain);
+            Assert.Equal(tip.RecordingId, chain.TipRecordingId);
             Assert.Equal(DepotPid, chain.OriginalVesselPid);
             Assert.Equal(StationPid, tip.VesselPersistentId);
             Assert.Null(GhostChainWalker.FindChainForVessel(chains, StationPid));
@@ -981,11 +982,10 @@ namespace Parsek.Tests
         public void TwoClaims_Fixture_TheChainHoldsBackTheDepotAndTheStation()
         {
             Recording tip = CommitTwoClaimTree();
-            GhostChain chain = ChainTipStaleVessel.FindChainForTip(Chains(), tip.RecordingId);
+            GhostChain chain = GhostChainWalker.FindChainForVessel(Chains(), DepotPid);
 
             Assert.NotNull(chain);
-            Assert.True(chain.ClaimsPid(DepotPid));
-            Assert.True(chain.ClaimsPid(StationPid));
+            Assert.Equal(tip.RecordingId, chain.TipRecordingId);
             Assert.Equal(new List<uint> { DepotPid, StationPid },
                 chain.ClaimedVessels.ConvertAll(c => c.Pid));
             // Each held-back vessel keeps its own first claim (the flight CommNet relay reads
@@ -1505,7 +1505,6 @@ namespace Parsek.Tests
             Assert.Equal(tip.RecordingId, chain.TipRecordingId);
             Assert.Equal(StationHalfNewPid, tip.VesselPersistentId);
             Assert.Null(GhostChainWalker.FindChainForVessel(chains, StationHalfNewPid));
-            Assert.Same(chain, ChainTipStaleVessel.FindChainForTip(chains, tip.RecordingId));
         }
 
         [Fact]

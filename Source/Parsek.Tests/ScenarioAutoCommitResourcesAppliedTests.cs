@@ -371,14 +371,14 @@ namespace Parsek.Tests
             string dir = AppDomain.CurrentDomain.BaseDirectory;
             for (int i = 0; i < 10 && !string.IsNullOrEmpty(dir); i++)
             {
-                string candidate = Path.Combine(dir, "Source", "Parsek", "ParsekScenario.cs");
+                string candidate = Path.Combine(dir, "Source", "Parsek", "Controllers", "ParsekScenario.cs");
                 if (File.Exists(candidate)) return candidate;
                 dir = Path.GetDirectoryName(dir);
             }
 
             return Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory,
-                "..", "..", "..", "..", "Parsek", "ParsekScenario.cs"));
+                "..", "..", "..", "..", "Parsek", "Controllers", "ParsekScenario.cs"));
         }
     }
 }

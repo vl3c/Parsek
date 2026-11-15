@@ -133,19 +133,12 @@ reason = "reset by ResetSaveScopedSessionState (SaveScopedSessionResetTests)"
 clockAdvanceRecalcInProgress = "scoped: in-progress flag of one clock-advance recalculation (try/finally)"
 CurrencyPoolProbeForTesting = "test-hook"
 DeferOneFrameForTesting = "test-hook"
-emittedReconcileWarnKeys = "process: log rate limiter, once per play session"
-emittedScienceReconcileDumpKeys = "process: log rate limiter, once per play session"
 EmptyPendingScience = "process: constant empty list"
 ExpectedCurrencySingletonsForTesting = "test-hook"
-fundsTrackedOverrideForTesting = "test-hook"
 NowUtProviderForTesting = "test-hook"
-OneShotReconcileSkipLogIntervalSeconds = "process: constant"
 OnRecordingCommittedFaultInjector = "test-hook: fault injector"
 OnRecordingCommittedPostSciencePersistFaultInjector = "test-hook: fault injector"
-OnTimelineDataChanged = "process: timeline invalidation callback the UI subscribes"
 ProgressSeedProbeForTesting = "test-hook"
-repTrackedOverrideForTesting = "test-hook"
-scienceTrackedOverrideForTesting = "test-hook"
 LoadedFlightStateUTForTesting = "test-hook"
 UncommittedRecordingIdsForTesting = "test-hook"
 
@@ -283,6 +276,7 @@ default = "save"
 reason = "Load clears the state (ClearState) and decodes the VESSEL_NAMES node"
 [type.fields]
 FlightEpoch = "process: the flight epoch survives Load on purpose (ClearRevertUndoState(resetEpoch: false))"
+lastPostInitState = "process: the revert target the flight epoch was last compared with, kept with FlightEpoch; stock rebuilds FlightDriver.PostInitState on every flight start, so the first flight ready after any load bumps the epoch either way"
 Version = "process: change counter that name caches key on"
 
 [[type]]
@@ -392,6 +386,23 @@ armed = "load-transition: consumed by the scene-exit finalize; OnLoad clears a l
 name = "Parsek.EffectiveState"
 default = "process"
 reason = "ERS / ELS / suppression / retired caches keyed on RecordingStore.StateVersion, Ledger.StateVersion, the supersede and tombstone versions and the marker identity; a cold load bumps the static counters"
+
+[[type]]
+name = "Parsek.LedgerTimelineSignal"
+default = "process"
+reason = "the timeline invalidation callback the windows subscribe and the ledger raises; a subscription, not save state"
+
+[[type]]
+name = "Parsek.PostWalkActionReconciler"
+default = "process"
+reason = "the reconcile diagnostics' log-once sets and the tracker-availability overrides only tests set"
+[type.fields]
+emittedReconcileWarnKeys = "process: log rate limiter, once per play session"
+emittedScienceReconcileDumpKeys = "process: log rate limiter, once per play session"
+fundsTrackedOverrideForTesting = "test-hook"
+OneShotReconcileSkipLogIntervalSeconds = "process: constant"
+repTrackedOverrideForTesting = "test-hook"
+scienceTrackedOverrideForTesting = "test-hook"
 
 [[type]]
 name = "Parsek.ClickReservationGate"

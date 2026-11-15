@@ -345,7 +345,7 @@ namespace Parsek.Tests
             // durable-snapshot strip must run in a finally that covers every resolution
             // exit of the spawn attempt, or a dirty sidecar save can persist the stamp.
             string source = VesselSpawnerSourceFiles.ReadAll(
-                Path.GetDirectoryName(FindSourceFile("VesselSpawner.cs")));
+                Path.GetDirectoryName(FindSourceFile("Controllers/VesselSpawner.cs")));
             int callIdx = source.IndexOf(
                 "StripDeliberatePositionOverrideStampFromRecording(rec, logContext);",
                 StringComparison.Ordinal);

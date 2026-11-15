@@ -191,7 +191,7 @@ namespace Parsek.Tests
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
             string scenarioPath = Path.Combine(projectRoot,
-                "Source", "Parsek", "ParsekScenario.cs");
+                "Source", "Parsek", "Controllers", "ParsekScenario.cs");
             string source = ParsekScenarioSourceFiles.ReadText(scenarioPath);
 
             // Save: SWITCH_SEGMENT_SESSION removed and re-emitted.
@@ -320,7 +320,10 @@ namespace Parsek.Tests
 
             PendingTreeSlot.StashPendingTree(tree);
             string discardReason;
-            SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(out discardReason);
+            SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(
+                LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard,
+                LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard,
+                out discardReason);
 
             Assert.Equal(0, GameStateStore.EventCount);
         }

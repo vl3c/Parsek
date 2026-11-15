@@ -71,9 +71,10 @@ and accepts only `kind = HUMAN`.
 
 ## 2. Starts after
 
-- **P12-01, P12-02** (design 15.11): the list form of `[forbidden]` in both parsers
-  (P12-01) and the Controllers rule covering `ParsekRace*` root files (P12-02). R1-01 needs
-  both; every task adding a `ParsekRace*.cs` root file needs P12-02.
+- **P12-01** (design 15.11): the list form of `[forbidden]` in both parsers. R1-03 needs it,
+  because it registers `RaceCore` with its first file and writes the race edges in list form.
+  (P12-02 is dropped: since pull request #2611 the folder is the module, so each
+  `ParsekRace*.cs` file is created in `Source/Parsek/Controllers/` and needs no rule.)
 - **P7-01**: the floor id check with a fixed character set. R1-08 validates player and race
   ids with it. P7-02's public save-root accessor is not used (see section 9, item 11; R3E-01
   does not use it either).
@@ -100,14 +101,15 @@ and accepts only `kind = HUMAN`.
 - `ParsekScenario` is registered for every game:
   `[KSPScenario(ScenarioCreationOptions.AddToAllGames, GameScenes.FLIGHT,
   GameScenes.SPACECENTER, GameScenes.TRACKSTATION, GameScenes.EDITOR)]`
-  (`Source/Parsek/ParsekScenario.cs:30-32`). `OnSave` is at `ParsekScenario.cs:483`, `OnLoad`
-  at `:1007`, `OnDestroy` at `:2410`.
+  (`Source/Parsek/Controllers/ParsekScenario.cs:31-33`). `OnSave` is at `ParsekScenario.cs:484`,
+  `OnLoad` at `:1008`, `OnDestroy` at `:2531`.
 - In an inert game mode or under the backup hold, `OnLoad` stashes the node verbatim and
-  returns (`ParsekScenario.cs:1018-1020`, `ParsekGameModeGate.CheckInert` and
+  returns (`ParsekScenario.cs:1019-1021`, `ParsekGameModeGate.CheckInert` and
   `StashInertGameModeNode`); the stash copies the node as is
-  (`ParsekScenario.InertPassthrough.cs:49`). `OnSave` checks the same gate (`:488`).
-- `ParsekGameModeGate` (`Source/Parsek/ParsekGameModeGate.cs:35`) is placed in `Patches` by
-  a name rule (`scripts/arch/modules.toml:186`). `IsActiveMode` (`:54`),
+  (`ParsekScenario.InertPassthrough.cs:49`). `OnSave` checks the same gate
+  (`ParsekScenario.cs:489`).
+- `ParsekGameModeGate` (`Source/Parsek/Patches/ParsekGameModeGate.cs:35`) sits in `Patches/`,
+  which places it in the `Patches` module. `IsActiveMode` (`ParsekGameModeGate.cs:54`),
   `IsInertForCurrentGame` (`:123`), log-once `CheckInert` (`:156`), live read kept in a
   `NoInlining` core (`:239-252`), the backup hold (`:141`). This is the pattern the race gate
   copies: a pure decision plus a live read in a no-inline core.
@@ -128,20 +130,20 @@ and accepts only `kind = HUMAN`.
   `GameEvents.onGameNewStart` (`:289`) and `HighLogic.CurrentGame.Start()` (`:296`). P10
   lifts this core into a production file.
 - The seam's load route calls `GamePersistence.LoadGame(name, save, true, false)`
-  (`ParsekTestCommandAddon.cs:2256`), fires `onGameStatePostLoad` like the stock load dialog
-  (`:2310-2320`), and for SPACECENTER sets `HighLogic.CurrentGame`, runs
+  (`ParsekTestCommandAddon.cs:2260`), fires `onGameStatePostLoad` like the stock load dialog
+  (`:2314-2324`), and for SPACECENTER sets `HighLogic.CurrentGame`, runs
   `GamePersistence.UpdateScenarioModules`, `SaveGame(..., "persistent", ...)` and
-  `game.Start()` (`:2380-2426`). Its comment states that `SpaceCenterMain.Start` re-reads
+  `game.Start()` (`:2384-2430`). Its comment states that `SpaceCenterMain.Start` re-reads
   `persistent.sfs` from disk, which is why the save is written before `Start`.
-- `LoadReconcilePolicy.KnownLoadInitiators` (`Source/Parsek/LoadReconcilePolicy.cs:242-280`)
-  lists the files allowed to call `GamePersistence.LoadGame(`; `ParsekTestCommandAddon.cs`
-  is one of them.
+- `LoadReconcilePolicy.KnownLoadInitiators`
+  (`Source/Parsek/Controllers/LoadReconcilePolicy.cs:242-280`) lists the files allowed to call
+  `GamePersistence.LoadGame(`; `ParsekTestCommandAddon.cs` is one of them.
 
 ### 3.3 The copies of "find the Parsek scenario node" (A7)
 
 Over a `ProtoScenarioModule` list (six):
 
-- `PlaybackScopeTracker.UnionFromScenarios` (`Source/Parsek/PlaybackScopeTracker.cs:229`)
+- `PlaybackScopeTracker.UnionFromScenarios` (`Source/Parsek/Ghost/PlaybackScopeTracker.cs:229`)
 - `RouteLoadReconcile.ReadSavedEventsFromScenarios` (`Logistics/RouteLoadReconcile.cs:738`)
 - `RouteStore.ReadSavedRouteStateFloorUTFromScenarios` (`Logistics/RouteStore.cs:1205`)
 - `RouteStore.ReadSavedCommittedRoutesFromScenarios` (`Logistics/RouteStore.cs:1253`)
@@ -170,7 +172,7 @@ The scenario name literal is repeated at `SaveReferenceScanner.cs:84` and
 - `InGameTests/InGameTestRunner.cs:1965-1995` (`CaptureBatchFlightParsekSaveSnapshot`)
   copies the whole `Parsek/` folder at batch start, and `:2579`
   (`RestoreParsekSidecarsFromSnapshot`) swaps it back.
-- The C# file collector does NOT sweep it: `ParsekFileCollector.cs:203,235,236` walk only
+- The C# file collector does NOT sweep it: `ParsekFileCollector.cs:203, 235, 236` walk only
   `Recordings`, `RewindPoints` and `Saves`.
 - `PreParsekBackup.MaybeBackupOnFirstColdContact` (`PreParsekBackup.cs:470`) takes no backup
   of a save that has a footprint (`:529`) or is brand new (`:535`); a race save created by
@@ -183,7 +185,7 @@ The scenario name literal is repeated at `SaveReferenceScanner.cs:84` and
   `ParsekUiScale` and `TestRunnerShortcut` call `GUILayout.Window`; every draw host opens a
   scale scope (`EachDrawHostOpensAScaleScope` list `:297-301`). Hosts: `ParsekKSC.cs:259`
   (`"KSC"`), `ParsekFlight.cs:1448` (`"Flight"`).
-- `ParsekWindowSet` builds and holds the windows (`UI/ParsekWindowSet.cs:20,36,78`).
+- `ParsekWindowSet` builds and holds the windows (`UI/ParsekWindowSet.cs:20, 36, 78`).
 - Settings: `UI/SettingsWindowUI.cs` window key `:58`, tooltip budget comment (71
   characters, `TooltipEchoBudgetTests`) `:60`, `DrawIfOpen` `:94`, 280 x 600 window `:112`,
   `DrawSettingsWindow` `:349`, sections Interface, Ghosts, Looping, Sample density,
@@ -199,23 +201,28 @@ The scenario name literal is repeated at `SaveReferenceScanner.cs:84` and
 
 ### 3.6 Architecture map and ratchets
 
-- `scripts/arch/modules.toml`: folder rules `:17-67`; Controllers prefix
-  `^Parsek(Flight|KSC|TrackingStation|Scenario|Harmony|Playback)|^WatchMode` (`:322`), which
-  does not match `ParsekRace*` (P12 fixes it); LogIO prefix
-  `^ParsekLog|^FileIO|^ParsekProcess|^Suppression|^PreParsek` (`:326`); the Core kernel rule
-  must stay last (`:477-479`); layers `:511-519`; `[headless.modules]` `:531-536` (Core,
-  Trajectory, Missions, Timeline, Reaim); `[size].runtimeCoupled` `:560`; `[forbidden]` holds
-  two edges (`:562-566`); `[allowed]` is empty.
-- `scripts/arch/layers.py:71-77` declares a module from its rule name, so a module with no
-  files exists; `:225-254` reds a forbidden spec naming an undeclared module.
-- `scripts/arch/test_archview.py:4031-4091` pins the knot sizes `[435, 9, 4, 3, 2]`; `:4097`
-  pins the Core kernel at 8 files; `:4179` requires an atlas summary for every module
+- `scripts/arch/modules.toml`: one `[[module]] name / folder` rule per module (`:26-130`; the folder
+  is the module since pull request #2611, and no name rule exists); the Core rule stays last
+  (`:126-130`, `archview --place` scores the module the last rule names); layers `:162-170`;
+  `[headless.modules]` `:182-187` (Core, Trajectory, Missions, Timeline, Reaim);
+  `[size].runtimeCoupled` `:211`; `[forbidden]` holds two edges (`:213-217`); `[allowed]` is empty.
+- `scripts/arch/layers.py:71-77` declares a module from its rule name; `:225-254` reds a
+  forbidden spec naming an undeclared module. A module cannot be committed before its first
+  file: `test_archview.py` `test_modules_toml_places_every_module_by_its_folder` reds on a rule
+  whose folder is not on disk (git keeps no empty folder) and
+  `test_the_walk_sees_every_source_file` on a module with no files. So each race module
+  registers in the task that creates its first file (section 4, after the R1-01 heading).
+- `scripts/arch/test_archview.py` pins the knot sizes `[437, 9, 4, 3, 2]` on main ab1cc9478
+  (re-derive before relying on it); `test_phase_two_catch_all_count` pins the Core kernel at 8
+  files; `:4203` requires an atlas summary for every module
   (`missingSummaries == []`, summaries in `scripts/arch/atlas.toml:51-110`).
 - `scripts/arch/facts.toml:18-31` lists inert types (`ConfigNode`, `Game/Modes`, `KSPAddon`,
   `KSPScenario`, `ScenarioCreationOptions`, `GameScenes`); `:49` does not follow calls into
   `ParsekLog`. `ProtoScenarioModule`, `Game`, `HighLogic` are not inert: a headless method
   that names them is a leak.
-- `scripts/arch/facts_pins.toml:75` bounds the uncalled production methods at 491. Tooling
+- `scripts/arch/facts_pins.toml` bounds the uncalled production methods at 374
+  (`[uncalledInAssembly] bound`, `:75`); quote the pin file, not `docs/dev/arch/README.md`,
+  whose figure lags. Tooling
   (`TestCommands`, `InGameTests`) is reachable from the roots, so a seam verb is a caller.
 - `scripts/arch/lifetimes.toml:20-27` defines the lifetimes; the Cold roots are
   `ParsekScenario.OnAwake`, `OnLoad`, `ResetSaveScopedSessionState` and
@@ -224,23 +231,23 @@ The scenario name literal is repeated at `SaveReferenceScanner.cs:84` and
 
 ### 3.7 Save format and paths
 
-- `Source/Parsek/SaveFormat.cs`: `CurrentSaveFormat` `:89`, rows `:92-117`, `All`
+- `Source/Parsek/Recording/SaveFormat.cs`: `CurrentSaveFormat` `:89`, rows `:92-117`, `All`
   `:118-122`, upgrade steps `:129`. `machine` files such as `settings.cfg`
   (`ParsekSettingsPersistence.cs:39`) have no row.
 - `Fixtures/FormatGolden/README.md`: a `vN` folder is frozen; `v1/formats.txt` lists ten
   rows. `SaveFormatGoldenGateTests.cs:42-70` (`FindCoverageProblems`) reds when no golden
   folder carries each version from a row's baseline to its current.
-- `RecordingPaths.SaveRootOverrideForTesting` `:65`, `ResolveSaveScopedPath` `:67`,
+- `RecordingPaths.SaveRootOverrideForTesting` `RecordingPaths.cs:65`, `ResolveSaveScopedPath` `:67`,
   `ValidateRecordingId` (asks the OS for invalid characters) `:302`, private
-  `TryGetSaveContext` `:329`. `PreParsekBackup.SanitizeSaveName` `:181` uses
+  `TryGetSaveContext` `:329`. `PreParsekBackup.SanitizeSaveName` `PreParsekBackup.cs:181` uses
   `Path.GetInvalidFileNameChars` too.
-- `LaunchSiteExclusionZones.cs:118` checks Making History with
+- `LaunchSiteExclusionZones.cs:121` checks Making History with
   `Expansions.ExpansionsLoader.IsExpansionInstalled("MakingHistory")`.
 
 ### 3.8 Grep gates and seam verbs
 
 - `GrepAuditTests.cs:46-70` runs the pwsh gates with the managed fallback;
-  `:99-158` holds the NotVacuous proofs. `scripts/grep-audit-gui-mock-writeset.ps1` is the
+  `:153-212` holds the NotVacuous proofs. `scripts/grep-audit-gui-mock-writeset.ps1` is the
   shape of the "no writer of the own model" gate (type allowlist, comment-stripped, alias
   ban).
 - `scripts/grep-audit-parsek-file-deletes.ps1` with its allowlist pins every `File.Delete`
@@ -268,27 +275,28 @@ report-only tag map `scripts/arch/log_tags.json` is refreshed in the task that f
 
 ### R1-01 Register the three race modules
 
-- **Change:** `scripts/arch/modules.toml`: folder rules `RaceCore/` -> `RaceCore`,
-  `RaceExport/` -> `RaceExport`, `RaceWorld/` -> `RaceWorld` beside the other folder rules
-  (before the Core kernel rule); `[layers.modules]` model += `RaceCore`, features +=
-  `RaceExport`, `RaceWorld`; `[headless.modules]` += `RaceCore` with its reason line;
-  `[size].runtimeCoupled` += `RaceWorld`; the 71 edges of design 15.4 in P12-01's list form
-  (13 modules -> 3, `RaceCore` -> 18, `RaceWorld` -> 9, `RaceExport` -> 5).
-  `scripts/arch/atlas.toml`: one summary per new module. `docs/dev/arch/README.md`: the
-  module table and the headless table gain the rows.
-- **Proof:** the DLL-free arch suite (`python3 -m unittest discover -s scripts/arch -q`);
-  CI's semantic steps after a Debug build (no edge crosses: no file exists yet). Knot sizes,
-  layer pins, headless pins and the facts bound do not move; if a cell reds on a declared
-  module with no files, merge this task into R1-03 instead of re-pinning around it.
-- **Registers:** the files above only.
-- **Size:** S. **Depends on:** P12-01, P12-02. **PC:** no.
-- **Risk:** low; a zero-file module may trip a summary or atlas cell, which the fallback above
-  answers.
+Dropped (2026-11-15): a module rule cannot land before the module's first file
+(`test_modules_toml_places_every_module_by_its_folder` and `test_the_walk_sees_every_source_file`
+red on a rule with no folder or no files, and `layers.forbidden_problems` reds an edge naming a
+module with no rule). Each race module registers in the commit that creates its first file:
+RaceCore in R1-03, RaceWorld in R3W-02 (`RaceWorld/RivalFlight.cs`), RaceExport in R3E-02
+(`RaceExport/RaceExportSource.cs`). That commit adds, in `scripts/arch/modules.toml`, the
+`[[module]] name / folder` rule (before the Core rule), the `[layers.modules]` entry (RaceCore
+model; RaceWorld, RaceExport features), the `[headless.modules]` line (RaceCore, with its reason;
+re-pin `headless_pins.toml`, since a changed module list reds until re-pinned) or the
+`[size].runtimeCoupled` line (RaceWorld), and every design 15.4 `[forbidden]` edge whose two ends
+now exist, in P12-01's list form; plus its `scripts/arch/atlas.toml` summary and its rows in the
+module and headless tables of `docs/dev/arch/README.md`. The 71 edges split as: R1-03 29 (the 13
+lower modules -> RaceCore, RaceCore -> its 16 existing targets), R3W-02 21 (RaceWorld added to the
+13 lists, RaceWorld -> its 8 existing targets), R3E-02 20 (RaceExport added to the 13 lists,
+RaceCore -> RaceExport, RaceWorld -> RaceExport, RaceExport -> its 5 targets), and
+RaceCore -> RaceWorld, added by whichever of R1-03 and R3W-02 lands second (neither waits for the
+other). R3E-02 lands after both: it waits for R1-03 and R3W-02 through R3E-01 and R1-08.
 
 ### R1-02 One helper to find a scenario node (A7, part 3)
 
-- **Change:** new root file `Source/Parsek/ScenarioNodeLookup.cs` (module LogIO: add
-  `^ScenarioNode` to the LogIO prefix at `modules.toml:326`). Three internal static methods:
+- **Change:** new file `Source/Parsek/LogIO/ScenarioNodeLookup.cs` (module LogIO; the folder
+  places it, `modules.toml` is not edited). Three internal static methods:
   `FindInProtoList(IList<ProtoScenarioModule>, string moduleName)` returning the module's
   data node or null; `FindInGameNode(ConfigNode game, string moduleName)` over `SCENARIO`
   children; `EnumerateScenarioNodes(ConfigNode game)`. One constant
@@ -303,10 +311,10 @@ report-only tag map `scripts/arch/log_tags.json` is refreshed in the task that f
   first as today, a node with no `name`); the existing tests of every replaced method stay
   green unchanged (`RouteLoadReconcile*`, `LedgerHeldWindow*`, `PlaybackScopeTracker*`,
   `PreParsekBackup*`, `RevertInterceptor*`, `CommittedTreeCarry*`). No new log line.
-- **Registers:** `modules.toml` prefix; atlas unchanged; re-pin the knot canary only if the
+- **Registers:** none for placement; atlas unchanged; re-pin the knot canary only if the
   text scan moves it (it should not: LogIO is below every caller).
-- **Size:** S. **Depends on:** none; order: after P10-01 (both edit the LogIO prefix,
-  task index C). **PC:** no.
+- **Size:** S. **Depends on:** none (it no longer orders after P10-01: both only create a file in
+  `LogIO/`). **PC:** no.
 - **Risk:** low; a behavior-neutral replacement, but a caller that relied on "last match"
   would change, so the test pins today's order per caller.
 
@@ -328,7 +336,7 @@ report-only tag map `scripts/arch/log_tags.json` is refreshed in the task that f
     file; they add no second constant or classifier.
   - `RaceCore/RaceScenarioChild.cs`: interface `IRaceScenarioChild` (child node name,
     `Load(ConfigNode)`, `Save(ConfigNode)`), the child hooks of OV-28.
-  - Root file `Source/Parsek/ParsekRaceScenario.cs` (Controllers via P12-02's rule):
+  - `Source/Parsek/Controllers/ParsekRaceScenario.cs` (module Controllers, by its folder):
     `[KSPScenario(ScenarioCreationOptions.None, FLIGHT, SPACECENTER, TRACKSTATION, EDITOR)]`
     (S6). Instance state only: the loaded node copy, the parsed link and a list of
     `IRaceScenarioChild` handlers built in `OnAwake` (empty in R1). `OnLoad` keeps the node
@@ -350,10 +358,18 @@ report-only tag map `scripts/arch/log_tags.json` is refreshed in the task that f
   SPACECENTER, hosted by T-29's RACE-9, A2: a proto added to a scratch game round-trips byte-equal).
   Log: `[Race] Mark loaded: raceId=.. playerId=.. slot=.. format=..` and `[Race] Mark held verbatim:
   reason=..`.
-- **Registers:** `lifetimes.toml` needs nothing (no static); `headless_pins.toml` re-pinned
-  if `RaceCore` shows a leak (it should show none); atlas file count; `log_tags.json`; the
-  lane catalog for the new `RaceMode` category (`python harness/tools/lane_catalog.py`).
-- **Size:** M. **Depends on:** R1-01, P12-02, S6. **PC:** yes, the in-game test.
+- **Registers:** the `RaceCore` module, in this commit because `RaceCore/RaceLink.cs` is its
+  first file (see the R1-01 heading): in `scripts/arch/modules.toml` the
+  `[[module]] name = "RaceCore" folder = "RaceCore"` rule before the Core rule, `RaceCore` in
+  `[layers.modules]` model and in `[headless.modules]` with its reason line, and the
+  `[forbidden]` edges whose two ends exist now, in P12-01's list form (29: the 13 lower modules
+  -> RaceCore and RaceCore -> its 16 existing targets; 30 with RaceCore -> RaceWorld if R3W-02
+  landed first); `scripts/arch/atlas.toml` summary; the module
+  and headless rows of `docs/dev/arch/README.md`; `headless_pins.toml` re-pinned (the module
+  list changed; `RaceCore` should show no leak). Also: `lifetimes.toml` needs nothing (no
+  static); `log_tags.json`; the lane catalog for the new `RaceMode` category
+  (`python harness/tools/lane_catalog.py`).
+- **Size:** M. **Depends on:** P12-01, S6. **PC:** yes, the in-game test.
 - **Risk:** medium; if S6 shows stock drops a proto of a `None` module, the module needs
   another creation option, which the in-game test would show at once.
 
@@ -368,7 +384,7 @@ report-only tag map `scripts/arch/log_tags.json` is refreshed in the task that f
     switched race). `IsRaceSave` / `CurrentLink` readers, first called by the race
     scenario's cross-check below (A1). A newer or invalid link is "not a race save" and the
     node is still kept verbatim by R1-03.
-  - Root file `Source/Parsek/ParsekRaceBoot.cs` (Controllers): `[KSPAddon(Startup.Instantly,
+  - `Source/Parsek/Controllers/ParsekRaceBoot.cs` (Controllers): `[KSPAddon(Startup.Instantly,
     true)]`, `DontDestroyOnLoad`, one instance handler `OnSceneRequest(GameScenes)` on
     `onGameSceneLoadRequested`, the one scene-request handler (OV-51, A4): R2 adds no
     second addon and there is no `ParsekRaceSitesHost`. On a request for any scene but
@@ -421,8 +437,9 @@ report-only tag map `scripts/arch/log_tags.json` is refreshed in the task that f
 - **Change:** T-08 is merged into this task (OV-10): every race gate runs on one shared
   scanner, built here once and reused by the later race gates (R3W-27's rival-store gate).
   - `Source/Parsek.Tests/GrepAuditTests.Race.cs` (partial of the test class) with a managed
-    `RaceSourceScan` over the files of `RaceCore/`, `RaceExport/`, `RaceWorld/` and the
-    `ParsekRace*.cs` root files: comment-stripped, string literals masked, `using X =`
+    `RaceSourceScan` over the files of `RaceCore/`, `RaceExport/`, `RaceWorld/` (the folders
+    that exist when it runs: RaceWorld comes with R3W-02, RaceExport with R3E-02) and
+    `Controllers/ParsekRace*.cs`: comment-stripped, string literals masked, `using X =`
     aliases banned, type references matched with the `GuiMockTypeRef` regex shape.
   - `scripts/grep-audit-race-core-no-store.ps1`: no file of `RaceCore` names a type whose
     name ends in `Store`.
@@ -448,7 +465,9 @@ report-only tag map `scripts/arch/log_tags.json` is refreshed in the task that f
     `ParsekLog` call in a race file uses a tag that is not on the list; a new tag joins the
     list in the task that first logs under it.
 - **Proof:** for each gate: the gate fact on the tree; an anti-vacuity cell (the scan sees at
-  least the race modules' file count and a minimum reference count); a planted-red cell (a
+  least the race modules' file count and a minimum reference count, and counts the
+  `Controllers/ParsekRace*.cs` files separately, so a glob that finds none reds); a
+  planted-red cell (a
   temp copy with `MilestoneStore.` in a `RaceCore` file reds the no-store gate, a
   `RecordingStore.` line in a temp `RaceWorld` file reds the recorder ban and the loader
   cell); a mirror cell (the pwsh script and the managed scan agree on a fixed input). The
@@ -457,7 +476,7 @@ report-only tag map `scripts/arch/log_tags.json` is refreshed in the task that f
   (plant one line, see red).
 - **Registers:** `GrepAuditTests.Race.cs`; `scripts/race-loader-files-allowlist.txt`;
   `docs/dev/arch/README.md` names the cell; CLAUDE.md's gate list if it names the family.
-- **Size:** M (it absorbs T-08 and T-15's cell). **Depends on:** R1-01, R1-03 (so the scan
+- **Size:** M (it absorbs T-08 and T-15's cell). **Depends on:** R1-03 (so the scan
   sees a race file). **PC:** no.
 - **Risk:** low; a vacuous gate is the danger, closed by the anti-vacuity and planted-red
   cells.
@@ -543,7 +562,9 @@ report-only tag map `scripts/arch/log_tags.json` is refreshed in the task that f
   test; `design-autotest-command-seam.md` (known-verb row and the `status` contract);
   `lifetimes.toml`: `RaceSession.Current` is `scene` ("attached by the race scenario's
   OnLoad, detached in its OnDestroy"); `headless_pins.toml`; `log_tags.json`.
-- **Size:** M. **Depends on:** R1-04, P7-01. **PC:** no (the session's in-game proof rides on
+- **Size:** M. **Depends on:** R1-04, P7-01, R3W-02 (the RaceWorld module registration, with
+  `RivalFlight.cs`; R1-08's `RaceWorld/` files need the rule). **PC:** no (the session's in-game
+  proof rides on
   T-13's lane RACE-1).
 - **Risk:** medium; reading `local.cfg` on every scene's `OnLoad` is a small file read on
   the main thread from the LOCAL directory, which design 15.9 allows.
@@ -607,7 +628,7 @@ report-only tag map `scripts/arch/log_tags.json` is refreshed in the task that f
     (`ExpansionsLoader.IsExpansionInstalled`, the loaded mod list from `AssemblyLoader`,
     `GameSettings.KERBIN_TIME` for the calendar), each in a `NoInlining` core. The Kerbin
     reads are R2-02's (`RaceWorld/KerbinProbe.cs`).
-  - Root file `Source/Parsek/ParsekRaceSetup.cs` (Controllers): `Create(RaceCreateRequest)`
+  - `Source/Parsek/Controllers/ParsekRaceSetup.cs` (Controllers): `Create(RaceCreateRequest)`
     validates, writes `race.cfg` and the creator's `players/<id>/player.cfg` (safe-write),
     then calls P10-01's separate steps itself: `NewSaveStarter.CreateGame(saveFolder, mode,
     parameters, flagUrl)`; then its own before-start step on the returned game, which adds
@@ -705,7 +726,7 @@ Dropped: replaced by T-13 (OV-02).
 ### R1-14 Main menu entry, setup dialog shell and Continue
 
 - **Change:**
-  - Root file `Source/Parsek/ParsekRaceMenu.cs` (Controllers): `[KSPAddon(Startup.MainMenu,
+  - `Source/Parsek/Controllers/ParsekRaceMenu.cs` (Controllers): `[KSPAddon(Startup.MainMenu,
     false)]`; clones a stock main-menu entry (S6) labelled Multiplayer after Scenarios and
     wires its tap to open the dialog; implements `IRaceSetupHost`.
   - `UI/RaceSetupDialog.cs`: a stock `PopupDialog` / `MultiOptionDialog` with three
@@ -765,8 +786,8 @@ Dropped: replaced by T-13 (OV-02).
 
 ### R1-16 Lift the load-and-start route beside P10's core
 
-- **Change:** move the seam's SPACECENTER load route (`ParsekTestCommandAddon.cs:2256`,
-  `:2310-2320`, `:2380-2426`) into the production file P10-01 created, as
+- **Change:** move the seam's SPACECENTER load route (`ParsekTestCommandAddon.cs:2260`,
+  `:2314-2324`, `:2384-2430`) into the production file P10-01 created, as
   `LoadAndStart(saveFolder)`; the seam verb calls it, logging unchanged.
   `KnownLoadInitiators` moves the `LoadGame(` count from `TestCommands/
   ParsekTestCommandAddon.cs` to that file.
@@ -822,17 +843,17 @@ Dropped: replaced by T-13 (OV-02).
 
 | Track | Tasks, in order | Files it owns |
 |-------|-----------------|---------------|
-| A, arch | R1-01, then R1-06 (after R1-03) | `modules.toml`, `atlas.toml`, arch README, new `grep-audit-race-*` scripts, `GrepAuditTests.Race.cs`, `scripts/race-loader-files-allowlist.txt`, `test_archview.py` (the loader cell) |
-| B, A7 | R1-02 (after P10-01); R1-07 (any time) | `ScenarioNodeLookup.cs`, the nine callers of section 3.3; `collect-logs.py`, `InGameTestRunner.cs`, `ParsekScenario.TestBatchReconcile.cs` |
-| C, mark and gate | R1-03, R1-04, R1-05 | `RaceCore/RaceLink.cs`, `RaceFormat.cs`, `RaceScenarioChild.cs`, `RaceGate.cs`, `ParsekRaceScenario.cs`, `ParsekRaceBoot.cs`, `LoadReconcilePolicy.cs` |
+| A, arch | R1-06 (after R1-03, which registers `RaceCore`) | `atlas.toml`, arch README, new `grep-audit-race-*` scripts, `GrepAuditTests.Race.cs`, `scripts/race-loader-files-allowlist.txt`, `test_archview.py` (the loader cell) |
+| B, A7 | R1-02, R1-07 (any time) | `ScenarioNodeLookup.cs`, the nine callers of section 3.3; `collect-logs.py`, `InGameTestRunner.cs`, `ParsekScenario.TestBatchReconcile.cs` |
+| C, mark and gate | R1-03, R1-04, R1-05 | `modules.toml` and `atlas.toml` (the RaceCore registration, R1-03), `RaceCore/RaceLink.cs`, `RaceFormat.cs`, `RaceScenarioChild.cs`, `RaceGate.cs`, `ParsekRaceScenario.cs`, `ParsekRaceBoot.cs`, `LoadReconcilePolicy.cs` |
 | D, rules and setup | R1-08, R1-09, R1-10, R1-11, R1-12 | `RaceCore/RaceManifest.cs`, `RacePorts.cs`, `RaceTimestamp.cs`, `RaceIds.cs`, `RaceSlots.cs`, `RaceFolderCheck.cs`, `RaceCalendar.cs`, `RaceInstallCheck.cs`, `RaceWorld/*`, `ParsekRaceSetup.cs`, the `RaceCommand` and `RaceSetup` seam files, `InMemoryRaceFolder.cs`, `SaveFormat.cs`, golden v2 |
 | E, load route | R1-16 (any time after P10-01) | P10-01's file, `ParsekTestCommandAddon.cs`, `LoadReconcilePolicy.cs` (initiators) |
 | F, UI | R1-14, then R1-15, R1-17, R1-18 in parallel | `ParsekRaceMenu.cs`, `UI/RaceSetupDialog.cs`, `SettingsWindowUI.cs`, `CLAUDE.md`, `AGENTS.md`, `design-gui-inventory.md` |
 
 Hot files that force an order:
 
-- `scripts/arch/modules.toml`: R1-01, R1-02 (LogIO prefix), and P10-01 (LogIO prefix). Land
-  R1-01 first or rebase; R1-02 lands after P10-01 (task index C).
+- `scripts/arch/modules.toml`: R1-03 (the `RaceCore` registration); R3W-02 and R3E-02 add the
+  other two race modules later (task index C). No other R1 task edits it.
 - `LoadReconcilePolicy.cs`: R1-05 and R1-16. Independent rows; land in either order and
   rebase.
 - `TestCommandVerbs.cs` and `harness/lib/hlib.py`: R1-08 (`RaceCommand action=status`),
@@ -850,18 +871,18 @@ Hot files that force an order:
   and writes `v2`; R3E-04 registers nothing and adds golden `v3` at `race-exchange = 1`
   (OV-15).
 
-The earliest unblocking path is R1-01 and R1-02 at once, then R1-03, R1-04. Track B and
+The earliest unblocking path is R1-02 at once and R1-03 after S6, then R1-04. Track B and
 track E can start on the first day.
 
 What other phases wait for (final ids; R3 per task, task index E.3.5):
 
 | Phase | Waits for | Why |
 |-------|-----------|-----|
-| R2 (sites) | R2-01: R1-01, R1-03, R1-04; R2-02, R2-08: R1-10; R2-12: R1-10, R1-11 | modules; `siteSlot` and `siteTableId` in the link; the one handler `ParsekRaceBoot.OnSceneRequest`, where R2-01 adds the `RaceSites.Reconcile` call (every request, the main menu included) and R2-07 its fallback scene-ready tick, so R2 adds no second addon (OV-51, A4); the modified-Kerbin refusal slot R2-02 fills (OV-31); R2's in-game proof at slots 1 to 3 needs R1-11 |
-| R3E (export, exchange) | R3E-01: R1-01, R1-03, R1-06, R1-07, R1-08, R1-10; R3E-04: R1-03, R1-08, R1-12; R3E-06: R1-04, R1-08; R3E-15: R1-03, R1-10; R3E-16: R1-08, R1-10; R3E-18: R1-08, R1-09 | modules and gates; `RaceFormat.Current` and the one pin class (OV-16); `IRaceFolder`, `RaceFolder`, `RaceTimestamp`, `RaceIds` to extend (OV-22, OV-24; no P7-02; R3E-01 adds the members R1 has no caller for, `List`, `Move`, `Exists`, `Delete` and the short id, A1); R1-10's path-budget constant, which R3E-01 replaces with the computed longest path; `RaceSession`; the `RaceLocal` keys it writes (OV-27); golden `v3` after `v2` (OV-15); the child hooks of the race scenario (OV-28); `IRaceSharedFolder` folded into `IRaceTransport` (OV-25); the clash rules re-run after import |
-| R3W (rival world) | R3W-02, R3W-06: R1-01; R3W-08, R3W-13: R1-08; R3W-09: R1-10; R3W-27: R1-06 | modules; R3W-08 extends R1's `RaceSession` / `RaceRuntime` (OV-26); the SHOW block in `RaceLocal` (OV-27); the shared scanner and the loader allowlist file R3W-27 adds entries to (OV-12, OV-13) |
-| R4, R6 (board, window) | R4-01: R1-01, R1-08, R1-10; R4-02: R1-01, R1-08, R1-10; R4-07: R1-08; R4-09: R1-04, R1-08, R1-14, R1-18; R4-10: R1-10 | modules; R4-01 extends R1-10's `TryAcceptDateRule` (OV-30); `RaceSession` (R4-07); the CLAUDE.md exception R1-14 owns (OV-42); the Settings section where R4-09 adds Sync now (OV-40); the SHOW setter on R1-08's codec key; facade members added on R1's `RaceRuntime` (OV-39) |
-| R5 (looks) | R5-07: R1-01; R5-11: R1-03, R1-08, R1-09 | look assignment; `local.cfg`'s look; the child hook for `RACE_LOOK_DRESS` (OV-28). The starting crew is dressed at R5-11's first load pass, not in R1-10's before-start step (OV-54), so R5 does not wait for R1-10 or R1-11 |
+| R2 (sites) | R2-01: R1-03, R1-04 (and R3W-02 for the RaceWorld rule); R2-02, R2-08: R1-10; R2-12: R1-10, R1-11 | modules; `siteSlot` and `siteTableId` in the link; the one handler `ParsekRaceBoot.OnSceneRequest`, where R2-01 adds the `RaceSites.Reconcile` call (every request, the main menu included) and R2-07 its fallback scene-ready tick, so R2 adds no second addon (OV-51, A4); the modified-Kerbin refusal slot R2-02 fills (OV-31); R2's in-game proof at slots 1 to 3 needs R1-11 |
+| R3E (export, exchange) | R3E-01: R1-03, R1-06, R1-07, R1-08, R1-10; R3E-04: R1-03, R1-08, R1-12; R3E-06: R1-04, R1-08; R3E-15: R1-03, R1-10; R3E-16: R1-08, R1-10; R3E-18: R1-08, R1-09 | modules and gates; `RaceFormat.Current` and the one pin class (OV-16); `IRaceFolder`, `RaceFolder`, `RaceTimestamp`, `RaceIds` to extend (OV-22, OV-24; no P7-02; R3E-01 adds the members R1 has no caller for, `List`, `Move`, `Exists`, `Delete` and the short id, A1); R1-10's path-budget constant, which R3E-01 replaces with the computed longest path; `RaceSession`; the `RaceLocal` keys it writes (OV-27); golden `v3` after `v2` (OV-15); the child hooks of the race scenario (OV-28); `IRaceSharedFolder` folded into `IRaceTransport` (OV-25); the clash rules re-run after import |
+| R3W (rival world) | R3W-02: none of R1 (it registers RaceWorld); R3W-06: R3W-02; R3W-08, R3W-13: R1-08; R3W-09: R1-10; R3W-27: R1-06 | modules; R3W-08 extends R1's `RaceSession` / `RaceRuntime` (OV-26); the SHOW block in `RaceLocal` (OV-27); the shared scanner and the loader allowlist file R3W-27 adds entries to (OV-12, OV-13) |
+| R4, R6 (board, window) | R4-01: R1-08, R1-10; R4-02: R1-08, R1-10; R4-07: R1-08; R4-09: R1-04, R1-08, R1-14, R1-18; R4-10: R1-10 | modules; R4-01 extends R1-10's `TryAcceptDateRule` (OV-30); `RaceSession` (R4-07); the CLAUDE.md exception R1-14 owns (OV-42); the Settings section where R4-09 adds Sync now (OV-40); the SHOW setter on R1-08's codec key; facade members added on R1's `RaceRuntime` (OV-39) |
+| R5 (looks) | R5-07: R1-03; R5-11: R1-03, R1-08, R1-09 | look assignment; `local.cfg`'s look; the child hook for `RACE_LOOK_DRESS` (OV-28). The starting crew is dressed at R5-11's first load pass, not in R1-10's before-start step (OV-54), so R5 does not wait for R1-10 or R1-11 |
 | T&H | T-10: R1-04; T-12: R1-08; T-13: R1-10, R1-11; T-16: R1-10 | `RaceGate`; T-12 adds `set-folder` to R1-08's `RaceCommand`; RACE-1 drives R1's `RaceSetup` actions and carries the dropped R1-13's assertions (OV-02) |
 
 ## 6. Tests and proof
@@ -916,12 +937,16 @@ R1-14 to R1-18.
 
 ## 7. Gates and registrations
 
-- **Architecture map:** three folder rules, layers (`RaceCore` model; `RaceExport`,
-  `RaceWorld` features), `RaceCore` in `[headless.modules]`, `RaceWorld` in
-  `[size].runtimeCoupled`, 71 `[forbidden]` edges (R1-01); `^ScenarioNode` in the LogIO
-  prefix (R1-02); root files `ParsekRaceScenario.cs`, `ParsekRaceBoot.cs`,
-  `ParsekRaceSetup.cs`, `ParsekRaceMenu.cs` placed by P12-02's Controllers rule. Atlas
-  summaries. Knot canary and layer pins: re-pin in the change that moves them, with the
+- **Architecture map:** a new file's module is the folder it is created in
+  (`Source/Parsek/<Module>/<Name>.cs`); no `modules.toml` edit places it, and a file in the
+  root of `Source/Parsek` reds the arch suite. `LogIO/ScenarioNodeLookup.cs` (R1-02) and
+  `Controllers/ParsekRaceScenario.cs`, `ParsekRaceBoot.cs`, `ParsekRaceSetup.cs`,
+  `ParsekRaceMenu.cs` need no registration for placement. The race modules register with
+  their first files (the R1-01 heading): `RaceCore` here in R1-03 (rule, model layer,
+  `[headless.modules]`, 29 edges); `RaceWorld` in R3W-02 (rule, features layer,
+  `[size].runtimeCoupled`, 21 edges); `RaceExport` in R3E-02 (rule, features layer, 20
+  edges); RaceCore -> RaceWorld comes with the second of R1-03 and R3W-02 (71 in all). Atlas
+  summaries with each. Knot canary and layer pins: re-pin in the change that moves them, with the
   reason in the PR (none expected: race modules sit above the knot and are named only from
   entry and UI).
 - **Headless pins:** `RaceCore` should carry no leak; every live read is in `RaceWorld` or
@@ -964,7 +989,7 @@ R1-14 to R1-18.
   is used, then P11-01).
 - **Docs:** `.claude/CLAUDE.md` + `AGENTS.md` (R1-14: the UI exceptions; R1-07: the
   collect-logs line); todo entries per task, no CHANGELOG while the Multiplayer entry is
-  hidden (question 1, assumed (a)); FormatGolden README (R1-12); arch README (R1-01,
+  hidden (question 1, assumed (a)); FormatGolden README (R1-12); arch README (R1-03,
   R1-06).
 
 ## 8. Risks
@@ -997,11 +1022,11 @@ R1-14 to R1-18.
    plus `CareerSaveParser` in tooling (section 3.3). The plan replaces nine and keeps the
    tooling copy.
 2. **"File collector".** `ParsekFileCollector` never copies `Parsek/Race/`
-   (`ParsekFileCollector.cs:203,235,236`). The sweeps that do are `collect-logs.py`, the
+   (`ParsekFileCollector.cs:203, 235, 236`). The sweeps that do are `collect-logs.py`, the
    test-batch reconcile, and the in-game runner's batch snapshot and restore
    (`InGameTestRunner.cs:1965-1995`, `:2579`), which A7 does not name. R1-07 covers all three.
 3. **Before-start step.** The design does not say when the mark is written for a new save.
-   `SpaceCenterMain` re-reads `persistent.sfs` (`ParsekTestCommandAddon.cs:2380-2426`), so the
+   `SpaceCenterMain` re-reads `persistent.sfs` (`ParsekTestCommandAddon.cs:2384-2430`), so the
    proto must be added and the save written before `Game.Start`. P10's core must offer that
    step; the plan assumes it does. Settled: the overlaps audit found that P10-01's three
    steps leave room for it, and it stays for other uses now that the starting crew is
@@ -1048,7 +1073,7 @@ R1-14 to R1-18.
     `scripts/race-loader-files-allowlist.txt`; T-09 and R3W-27's second script are dropped
     (OV-12).
 14. **`RaceWorld` is runtime-coupled** (15.2) but 15.14 does not list `[size].runtimeCoupled`;
-    R1-01 adds it.
+    R3W-02 adds it when it registers `RaceWorld`.
 15. **The gate and inert modes.** The design does not say how the race gate composes with
     `ParsekGameModeGate`, which sits in `Patches` and cannot be named from `RaceCore` or
     `RaceWorld`. The host in Controllers passes the inert flag in; an inert Parsek means no

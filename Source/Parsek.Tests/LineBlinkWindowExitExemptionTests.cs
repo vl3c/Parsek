@@ -851,7 +851,7 @@ namespace Parsek.Tests
 
             string patch = File.ReadAllText(
                 Path.Combine(sourceDir, "Patches", "GhostOrbitLinePatch.cs"));
-            string trace = File.ReadAllText(Path.Combine(sourceDir, "MapRenderTrace.cs"));
+            string trace = File.ReadAllText(Path.Combine(sourceDir, "MapRender/MapRenderTrace.cs"));
             Assert.Contains("RenderWindowCoverage.Unknown", patch);
             Assert.Contains("RenderWindowCoverage windowCoverage = RenderWindowCoverage.Unknown", trace);
             // The handoff stamp rides the SAME channel and must be opt-in the same way: both seams

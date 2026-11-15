@@ -55,7 +55,7 @@ namespace Parsek.Tests
         [Fact]
         public void BackgroundRecorder_WiresNarrowedGateFilter_BeforeNearestSearch()
         {
-            string source = ReadSource("BackgroundRecorder.RelativeAnchors.cs");
+            string source = ReadSource("Recording/BackgroundRecorder.RelativeAnchors.cs");
 
             int filterIdx = source.IndexOf(
                 "ReFlyAnchorSelection.FilterCandidatesForReFlyProvisional(",
@@ -81,14 +81,14 @@ namespace Parsek.Tests
             // (the bypass function and its apply helper were deleted). This
             // test confirms the call string never returns to
             // UpdateBackgroundAnchorDetection.
-            string source = ReadSource("BackgroundRecorder.RelativeAnchors.cs");
+            string source = ReadSource("Recording/BackgroundRecorder.RelativeAnchors.cs");
 
             int updateAnchorIdx = source.IndexOf(
                 "private void UpdateBackgroundAnchorDetection(",
                 StringComparison.Ordinal);
             Assert.True(updateAnchorIdx >= 0,
                 "UpdateBackgroundAnchorDetection method declaration not found in " +
-                "BackgroundRecorder.RelativeAnchors.cs");
+                "Recording/BackgroundRecorder.RelativeAnchors.cs");
 
             // Scope the search to the method: from its declaration to the next
             // class-member declaration. The bypass call string must not appear
@@ -113,7 +113,7 @@ namespace Parsek.Tests
         [Fact]
         public void FlightRecorder_WiresNarrowedGateFilter_BeforeNearestSearch()
         {
-            string source = ReadSource("FlightRecorder.RelativeAnchors.cs");
+            string source = ReadSource("Recording/FlightRecorder.RelativeAnchors.cs");
 
             int updateAnchorIdx = source.IndexOf(
                 "private void UpdateAnchorDetection(Vessel v)",
@@ -146,7 +146,7 @@ namespace Parsek.Tests
             // Symmetric counterpart to
             // BackgroundRecorder_NoLongerCallsSupersedeTargetBypass: the
             // bypass call is gone from UpdateAnchorDetection.
-            string source = ReadSource("FlightRecorder.RelativeAnchors.cs");
+            string source = ReadSource("Recording/FlightRecorder.RelativeAnchors.cs");
 
             int updateAnchorIdx = source.IndexOf(
                 "private void UpdateAnchorDetection(Vessel v)",
@@ -185,7 +185,7 @@ namespace Parsek.Tests
             // frame, even ones where the filter drops every same-tree
             // candidate. The filter also consumes the candidate list, so the
             // ordering is doubly load-bearing.
-            string source = ReadSource("FlightRecorder.RelativeAnchors.cs");
+            string source = ReadSource("Recording/FlightRecorder.RelativeAnchors.cs");
 
             int updateAnchorIdx = source.IndexOf(
                 "private void UpdateAnchorDetection(Vessel v)",

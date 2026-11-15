@@ -243,7 +243,7 @@ namespace Parsek.Tests
                     "..", "..", "..", "..", "Parsek"));
             string sidecarStoreSrc = SourceScanText.StripCommentsAndMaskLiterals(
                 System.IO.File.ReadAllText(
-                    System.IO.Path.Combine(srcRoot, "RecordingSidecarStore.cs")));
+                    System.IO.Path.Combine(srcRoot, "Recording/RecordingSidecarStore.cs")));
 
             // The happy path (snapshot present) still gates the write.
             Assert.Contains("if (rec.VesselSnapshot != null)", sidecarStoreSrc);
@@ -271,7 +271,7 @@ namespace Parsek.Tests
 
             // EndDebrisRecording lives in the split-detection partial.
             string bgRecSrc = System.IO.File.ReadAllText(
-                System.IO.Path.Combine(srcRoot, "BackgroundRecorder.SplitDetection.cs"));
+                System.IO.Path.Combine(srcRoot, "Recording/BackgroundRecorder.SplitDetection.cs"));
 
             // The exact call site format. Must match the string asserted by
             // EndDebrisRecording_PersistContextString_AppearsInFailureLog.

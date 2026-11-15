@@ -1,0 +1,723 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+
+namespace Parsek
+{
+    /// <summary>
+    /// Stores committed game-state event milestones and their replay boundary
+    /// (LastReplayedEventIndex). No production code reads the unreplayed slice
+    /// any more (the ResourceBudget milestone helpers that did were deleted).
+    ///
+    /// The stock-screen click-blocks and overlays do NOT read the unreplayed slice:
+    /// nothing advances LastReplayedEventIndex as the clock passes an event, so a
+    /// slice-keyed block never lifted (F1). They read the UT-keyed
+    /// CommittedFutureIndex over the effective ledger instead, the committed-dismissal
+    /// mark included (a KerbalDismissal ledger row, design section 9.12.1).
+    /// </summary>
+    internal static class MilestoneStore
+    {
+        private static List<Milestone> milestones = new List<Milestone>();
+        private static bool initialLoadDone = false;
+        private static string lastSaveFolder = null;
+
+        /// <summary>The <c>PARSEK_MILESTONES</c> <c>version</c> this build writes (1.0 baseline: 1).</summary>
+        internal const int CurrentMilestonesVersion = 1;
+
+        // A PARSEK_MILESTONES node a newer build wrote (version above CurrentMilestonesVersion),
+        // held as a verbatim copy: nothing is loaded from it and every save writes it back
+        // unchanged, with the MILESTONE_STATE nodes the load saw. Null otherwise. Replaced by every
+        // milestone load and the cold-load reset.
+        private static ConfigNode heldNewerMilestonesNode;
+        private static List<ConfigNode> heldNewerMutableStateNodes;
+
+        /// <summary>True while the loaded milestones came from a newer build and are held verbatim.</summary>
+        internal static bool IsHeldFromNewerVersion => heldNewerMilestonesNode != null;
+
+        private static string ShortId(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return "?";
+            return id.Length <= 8 ? id : id.Substring(0, 8);
+        }
+
+        internal static IReadOnlyList<Milestone> Milestones => milestones;
+        internal static int MilestoneCount => milestones.Count;
+
+        private static bool TryGetVisibleWatermarkEndUT(Milestone milestone, out double watermarkEndUT)
+        {
+            watermarkEndUT = 0;
+            if (milestone == null || !milestone.Committed || milestone.Events == null)
+                return false;
+
+            bool sawVisible = false;
+            bool sawHidden = false;
+            double latestVisibleEventUT = 0;
+            for (int i = 0; i < milestone.Events.Count; i++)
+            {
+                if (GameStateStore.IsEventVisibleToCurrentTimeline(milestone.Events[i]))
+                {
+                    if (!sawVisible || milestone.Events[i].ut > latestVisibleEventUT)
+                        latestVisibleEventUT = milestone.Events[i].ut;
+                    sawVisible = true;
+                }
+                else
+                {
+                    sawHidden = true;
+                }
+            }
+
+            if (!sawVisible)
+                return false;
+
+            // Fully-visible milestones keep their authoritative EndUT so resource-only gaps
+            // still count as consumed. Mixed-visibility milestones clamp to the latest live
+            // event UT so hidden abandoned-branch tails do not advance the current timeline.
+            watermarkEndUT = sawHidden
+                ? Math.Min(milestone.EndUT, latestVisibleEventUT)
+                : milestone.EndUT;
+            return true;
+        }
+
+        /// <summary>
+        /// Returns the highest visible watermark among all committed milestones that still
+        /// contribute at least one event to the current timeline.
+        /// Used by GameStateStore.PruneProcessedEvents to determine the threshold
+        /// below which events have been consumed.
+        /// </summary>
+        internal static double GetLatestCommittedEndUT()
+        {
+            double latest = 0;
+            for (int i = 0; i < milestones.Count; i++)
+            {
+                double visibleWatermarkEndUT;
+                if (TryGetVisibleWatermarkEndUT(milestones[i], out visibleWatermarkEndUT)
+                    && visibleWatermarkEndUT > latest)
+                {
+                    latest = visibleWatermarkEndUT;
+                }
+            }
+            return latest;
+        }
+
+        /// <summary>
+        /// The highest EndUT among ALL committed milestones, hidden ones included. Every
+        /// threshold <see cref="GameStateStore.PruneProcessedEvents"/> has applied is at or
+        /// below it (the visible watermark never exceeds a milestone's EndUT), so a capture
+        /// at or below it may have been pruned. Read by the post-walk reconciler for rows of
+        /// recordings that left the timeline after their capture was pruned.
+        /// </summary>
+        internal static double GetLatestCommittedEndUTIncludingHidden()
+        {
+            double latest = 0;
+            for (int i = 0; i < milestones.Count; i++)
+            {
+                var m = milestones[i];
+                if (m == null || !m.Committed)
+                    continue;
+                if (m.EndUT > latest)
+                    latest = m.EndUT;
+            }
+            return latest;
+        }
+
+        internal static Milestone CreateMilestone(string recordingId, double currentUT)
+        {
+            double startUT = 0;
+            for (int i = 0; i < milestones.Count; i++)
+            {
+                double visibleWatermarkEndUT;
+                if (TryGetVisibleWatermarkEndUT(milestones[i], out visibleWatermarkEndUT)
+                    && visibleWatermarkEndUT > startUT)
+                {
+                    startUT = visibleWatermarkEndUT;
+                }
+            }
+
+            ParsekLog.Verbose("MilestoneStore",
+                $"CreateMilestone: scanning visible events in window UT {startUT:F0}-{currentUT:F0}, recordingId={recordingId ?? "(flush)"}");
+
+            var events = GameStateStore.Events;
+
+            var filtered = new List<GameStateEvent>();
+            int skippedHidden = 0, skippedWindow = 0, skippedResource = 0;
+            for (int i = 0; i < events.Count; i++)
+            {
+                var e = events[i];
+                if (!GameStateStore.IsEventVisibleToCurrentTimeline(e))
+                {
+                    skippedHidden++;
+                    continue;
+                }
+                if (e.ut <= startUT || e.ut > currentUT) { skippedWindow++; continue; }
+                if (GameStateStore.IsMilestoneFilteredEvent(e.eventType)) { skippedResource++; continue; }
+                filtered.Add(e);
+            }
+
+            ParsekLog.Verbose("MilestoneStore",
+                $"CreateMilestone: {events.Count} total events, {filtered.Count} matched, " +
+                $"skipped: hidden={skippedHidden}, window={skippedWindow}, resource={skippedResource}");
+
+            if (filtered.Count == 0)
+            {
+                ParsekLog.Verbose("MilestoneStore",
+                    $"No visible game state events for milestone (UT {startUT:F0}-{currentUT:F0}) — skipped");
+                return null;
+            }
+
+            filtered.Sort((a, b) => a.ut.CompareTo(b.ut));
+
+            var milestone = new Milestone
+            {
+                MilestoneId = Guid.NewGuid().ToString("N"),
+                StartUT = startUT,
+                EndUT = currentUT,
+                RecordingId = recordingId ?? "",
+                Events = filtered,
+                Committed = true,
+                LastReplayedEventIndex = filtered.Count - 1
+            };
+
+            milestones.Add(milestone);
+            ParsekLog.Info("MilestoneStore",
+                $"Milestone created: id={ShortId(milestone.MilestoneId)}, {filtered.Count} events, " +
+                $"UT {startUT:F0}-{currentUT:F0}");
+
+            for (int i = 0; i < filtered.Count; i++)
+            {
+                ParsekLog.Verbose("MilestoneStore",
+                    $"  event[{i}]: {filtered[i].eventType} key='{filtered[i].key}' ut={filtered[i].ut:F1}");
+            }
+
+            return milestone;
+        }
+
+        /// <summary>
+        /// Captures any game state events that occurred after the last milestone's
+        /// EndUT into a new milestone. Called from ParsekScenario.OnSave to ensure
+        /// events are preserved even if the player never commits a recording.
+        /// Returns the created milestone, or null if no new events exist.
+        /// </summary>
+        internal static Milestone FlushPendingEvents(double currentUT)
+        {
+            ParsekLog.Verbose("MilestoneStore", $"FlushPendingEvents: currentUT={currentUT:F0}");
+            return CreateMilestone(null, currentUT);
+        }
+
+        /// <summary>
+        /// #431: removes every tagged event whose <see cref="GameStateEvent.recordingId"/>
+        /// is in <paramref name="recordingIds"/> from the events list of every existing milestone.
+        /// Milestones that become empty are removed. Returns the purged events (callers use
+        /// this to locate orphaned contract snapshots). Untagged events are never touched.
+        /// Called by <see cref="GameStateStore.PurgeEventsForRecordings"/> — production code
+        /// should go through that funnel, not call this helper directly.
+        /// </summary>
+        internal static List<GameStateEvent> PurgeTaggedEvents(HashSet<string> recordingIds, string reason)
+        {
+            var removed = new List<GameStateEvent>();
+            if (recordingIds == null || recordingIds.Count == 0)
+                return removed;
+
+            int emptiedMilestones = 0;
+            int replayIdxAdjustments = 0;
+            for (int i = milestones.Count - 1; i >= 0; i--)
+            {
+                var m = milestones[i];
+                for (int j = m.Events.Count - 1; j >= 0; j--)
+                {
+                    var e = m.Events[j];
+                    if (!string.IsNullOrEmpty(e.recordingId) && recordingIds.Contains(e.recordingId))
+                    {
+                        removed.Add(e);
+                        m.Events.RemoveAt(j);
+                        // #431: if the purged slot sat at or before the replay boundary,
+                        // the next surviving event shifts into this slot and would be wrongly treated as already-replayed
+                        // by any consumer that iterates from LastReplayedEventIndex + 1.
+                        // Clamp at -1 so an empty pre-boundary
+                        // doesn't underflow.
+                        if (j <= m.LastReplayedEventIndex)
+                        {
+                            m.LastReplayedEventIndex--;
+                            if (m.LastReplayedEventIndex < -1) m.LastReplayedEventIndex = -1;
+                            replayIdxAdjustments++;
+                        }
+                    }
+                }
+                if (m.Events.Count == 0)
+                {
+                    // Whole milestone dropped — LastReplayedEventIndex goes with it, no
+                    // adjustment needed.
+                    milestones.RemoveAt(i);
+                    emptiedMilestones++;
+                }
+            }
+
+            if (removed.Count > 0 || emptiedMilestones > 0)
+            {
+                ParsekLog.Info("MilestoneStore",
+                    $"PurgeTaggedEvents ({reason}): {removed.Count} events removed, " +
+                    $"{emptiedMilestones} milestones dropped, " +
+                    $"{replayIdxAdjustments} LastReplayedEventIndex adjustments, " +
+                    $"ids={recordingIds.Count}");
+            }
+            else
+            {
+                ParsekLog.Verbose("MilestoneStore",
+                    $"PurgeTaggedEvents ({reason}): no matches, {milestones.Count} milestones untouched, ids={recordingIds.Count}");
+            }
+
+            return removed;
+        }
+
+        /// <summary>
+        /// Removes tagged events for one recording only after a UT cutoff.
+        /// Preserves earlier events with the same recording id, which is needed
+        /// when an in-place Re-Fly records its attempt onto the origin id.
+        /// </summary>
+        internal static List<GameStateEvent> PurgeTaggedEventsAfterUT(
+            string recordingId, double cutoffUT, string reason)
+        {
+            var removed = new List<GameStateEvent>();
+            if (string.IsNullOrEmpty(recordingId)
+                || double.IsNaN(cutoffUT)
+                || double.IsInfinity(cutoffUT))
+            {
+                return removed;
+            }
+
+            int emptiedMilestones = 0;
+            int replayIdxAdjustments = 0;
+            for (int i = milestones.Count - 1; i >= 0; i--)
+            {
+                var m = milestones[i];
+                for (int j = m.Events.Count - 1; j >= 0; j--)
+                {
+                    var e = m.Events[j];
+                    if (!string.IsNullOrEmpty(e.recordingId)
+                        && string.Equals(e.recordingId, recordingId, StringComparison.Ordinal)
+                        && e.ut > cutoffUT)
+                    {
+                        removed.Add(e);
+                        m.Events.RemoveAt(j);
+                        if (j <= m.LastReplayedEventIndex)
+                        {
+                            m.LastReplayedEventIndex--;
+                            if (m.LastReplayedEventIndex < -1) m.LastReplayedEventIndex = -1;
+                            replayIdxAdjustments++;
+                        }
+                    }
+                }
+                if (m.Events.Count == 0)
+                {
+                    milestones.RemoveAt(i);
+                    emptiedMilestones++;
+                }
+            }
+
+            if (removed.Count > 0 || emptiedMilestones > 0)
+            {
+                ParsekLog.Info("MilestoneStore",
+                    $"PurgeTaggedEventsAfterUT ({reason}): {removed.Count} events removed, " +
+                    $"{emptiedMilestones} milestones dropped, " +
+                    $"{replayIdxAdjustments} LastReplayedEventIndex adjustments, " +
+                    $"rec={recordingId} cutoffUT={cutoffUT.ToString("R", CultureInfo.InvariantCulture)}");
+            }
+            else
+            {
+                ParsekLog.Verbose("MilestoneStore",
+                    $"PurgeTaggedEventsAfterUT ({reason}): no matches, " +
+                    $"{milestones.Count} milestones untouched, rec={recordingId} " +
+                    $"cutoffUT={cutoffUT.ToString("R", CultureInfo.InvariantCulture)}");
+            }
+
+            return removed;
+        }
+
+        #region File I/O
+
+        internal const string MilestonesNodeName = "PARSEK_MILESTONES";
+
+        internal static bool SaveMilestoneFile()
+        {
+            return WriteMilestonesNode(BuildMilestonesNode());
+        }
+
+        /// <summary>Builds the <c>PARSEK_MILESTONES</c> node (file and save node).</summary>
+        internal static ConfigNode BuildMilestonesNode()
+        {
+            if (heldNewerMilestonesNode != null)
+            {
+                if (milestones.Count > 0)
+                    ParsekLog.WarnRateLimited("MilestoneStore", "held-newer-drops-session",
+                        $"Milestones are held from a newer Parsek version; {milestones.Count.ToString(CultureInfo.InvariantCulture)} " +
+                        "milestone(s) made this session are not saved (the held node is written back unchanged)");
+                return heldNewerMilestonesNode.CreateCopy();
+            }
+
+            var rootNode = new ConfigNode(MilestonesNodeName);
+            rootNode.AddValue("version", CurrentMilestonesVersion);
+
+            for (int i = 0; i < milestones.Count; i++)
+            {
+                ConfigNode milestoneNode = rootNode.AddNode("MILESTONE");
+                milestones[i].SerializeInto(milestoneNode);
+            }
+            return rootNode;
+        }
+
+        /// <summary>Writes a built milestones node to the external milestones file (the mirror).</summary>
+        internal static bool WriteMilestonesNode(ConfigNode rootNode)
+        {
+            if (rootNode == null)
+                return false;
+            string path = RecordingPaths.ResolveSaveScopedPath(
+                RecordingPaths.BuildMilestonesRelativePath());
+            if (path == null)
+            {
+                ParsekLog.Warn("MilestoneStore", "Cannot resolve milestones path — save skipped");
+                return false;
+            }
+
+            try
+            {
+                RecordingPaths.EnsureGameStateDirectory();
+
+                SafeWriteConfigNode(rootNode, path);
+
+                ParsekLog.Info("MilestoneStore", $"Saved {milestones.Count} milestones to {path}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("MilestoneStore", $"Failed to save milestones: {ex.Message}");
+                return false;
+            }
+        }
+
+        internal static bool LoadMilestoneFile()
+        {
+            if (!BeginMilestoneLoad("LoadMilestoneFile"))
+                return true;
+
+            string path = RecordingPaths.ResolveSaveScopedPath(
+                RecordingPaths.BuildMilestonesRelativePath());
+            FileIOUtils.SweepStaleSafeWriteTemp(path, "MilestoneStore");
+            if (path == null || !File.Exists(path))
+            {
+                ParsekLog.Info("MilestoneStore", "No milestones file found — starting fresh");
+                return true;
+            }
+
+            try
+            {
+                ConfigNode rootNode = ConfigNode.Load(path);
+                if (rootNode == null)
+                {
+                    ParsekLog.Warn("MilestoneStore", "Failed to parse milestones file");
+                    return false;
+                }
+
+                ParseMilestonesNode(rootNode, path);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("MilestoneStore", $"Failed to load milestones: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Loads the milestones from a save's <c>GAME_STATE/PARSEK_MILESTONES</c> node instead
+        /// of the external file, and marks the once-per-folder load done.
+        /// </summary>
+        internal static bool LoadMilestonesFromSaveNode(ConfigNode milestonesNode)
+        {
+            if (milestonesNode == null)
+                return false;
+
+            initialLoadDone = false;
+            BeginMilestoneLoad("LoadMilestonesFromSaveNode");
+            try
+            {
+                ParseMilestonesNode(milestonesNode, "the save's GAME_STATE node");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("MilestoneStore", $"Failed to load milestones from the save node: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static bool BeginMilestoneLoad(string site)
+        {
+            string currentSave = HighLogic.SaveFolder;
+            if (currentSave != lastSaveFolder)
+            {
+                initialLoadDone = false;
+                lastSaveFolder = currentSave;
+                ParsekLog.Verbose("MilestoneStore", $"Save folder changed to '{currentSave}' — resetting milestone load state");
+            }
+
+            if (initialLoadDone)
+            {
+                ParsekLog.Verbose("MilestoneStore", $"{site}: already loaded, skipping");
+                return false;
+            }
+
+            initialLoadDone = true;
+            milestones.Clear();
+            heldNewerMilestonesNode = null;
+            heldNewerMutableStateNodes = null;
+            return true;
+        }
+
+        private static void ParseMilestonesNode(ConfigNode rootNode, string sourceLabel)
+        {
+            string versionStr = rootNode.GetValue("version");
+            SaveFormatClass versionClass = SaveFormat.Milestones.Classify(SaveFormat.ParseStored(versionStr));
+            if (versionClass == SaveFormatClass.Newer)
+            {
+                heldNewerMilestonesNode = rootNode.CreateCopy();
+                ParsekLog.Warn("MilestoneStore",
+                    $"Milestones in {sourceLabel} have version={versionStr} newer than this build's " +
+                    $"{CurrentMilestonesVersion.ToString(CultureInfo.InvariantCulture)}: held verbatim " +
+                    $"({rootNode.GetNodes("MILESTONE").Length.ToString(CultureInfo.InvariantCulture)} node(s)), " +
+                    "nothing loaded from them, written back unchanged on save");
+                return;
+            }
+            if (versionClass == SaveFormatClass.Upgradable)
+            {
+                // Upgrade a copy: the caller's node is the save's own.
+                rootNode = rootNode.CreateCopy();
+                if (!SaveFormat.TryUpgradeNode(SaveFormat.Milestones, SaveFormat.ParseStored(versionStr).Value,
+                        rootNode, sourceLabel, out string upgradeFailure))
+                    ParsekLog.Warn("MilestoneStore",
+                        $"Milestones in {sourceLabel} version={versionStr} could not be upgraded ({upgradeFailure}); " +
+                        "loading best effort");
+            }
+            else if (versionClass != SaveFormatClass.Current)
+            {
+                ParsekLog.Info("MilestoneStore",
+                    $"Milestones in {sourceLabel} have version='{versionStr ?? "(missing)"}' ({versionClass}); " +
+                    "pre-1.0 data, loading best effort");
+            }
+
+            ConfigNode[] milestoneNodes = rootNode.GetNodes("MILESTONE");
+            int unreadableEvents = 0;
+            if (milestoneNodes != null)
+            {
+                for (int i = 0; i < milestoneNodes.Length; i++)
+                {
+                    Milestone m = Milestone.DeserializeFrom(milestoneNodes[i]);
+                    unreadableEvents += m.UnreadableEventNodes.Count;
+                    milestones.Add(m);
+                }
+            }
+
+            ParsekLog.Info("MilestoneStore",
+                $"Loaded {milestones.Count} milestones from {sourceLabel}; " +
+                $"unreadableEventTypesKeptVerbatim={unreadableEvents.ToString(CultureInfo.InvariantCulture)}");
+            for (int i = 0; i < milestones.Count; i++)
+            {
+                ParsekLog.Verbose("MilestoneStore",
+                    $"  milestone[{i}]: id={ShortId(milestones[i].MilestoneId)}, " +
+                    $"events={milestones[i].Events.Count}, " +
+                    $"committed={milestones[i].Committed}, lastReplayedIdx={milestones[i].LastReplayedEventIndex}");
+            }
+        }
+
+        /// <summary>
+        /// Builds a milestone-id-to-lastReplayedIndex map from MILESTONE_STATE ConfigNodes.
+        /// Pure function — operates only on the provided nodes.
+        /// </summary>
+        internal static Dictionary<string, int> BuildStateMap(ConfigNode[] stateNodes)
+        {
+            var stateMap = new Dictionary<string, int>();
+            if (stateNodes == null) return stateMap;
+
+            for (int i = 0; i < stateNodes.Length; i++)
+            {
+                string id = stateNodes[i].GetValue("id");
+                string idxStr = stateNodes[i].GetValue("lastReplayedIdx");
+                if (id != null && idxStr != null)
+                {
+                    int idx;
+                    if (int.TryParse(idxStr, System.Globalization.NumberStyles.Integer,
+                        System.Globalization.CultureInfo.InvariantCulture, out idx))
+                    {
+                        stateMap[id] = idx;
+                    }
+                }
+            }
+
+            ParsekLog.Verbose("MilestoneStore",
+                $"BuildStateMap: parsed {stateMap.Count} entries from {stateNodes.Length} MILESTONE_STATE nodes");
+            return stateMap;
+        }
+
+        /// <summary>
+        /// Restores mutable milestone state (LastReplayedEventIndex) from the .sfs
+        /// scenario node. When resetUnmatched is true (revert path), milestones not
+        /// found in the saved state are reset to -1 (unreplayed) — these are milestones
+        /// created after the launch quicksave that need to replay from scratch.
+        /// </summary>
+        internal static void RestoreMutableState(ConfigNode scenarioNode, bool resetUnmatched = false)
+        {
+            if (scenarioNode == null)
+            {
+                ParsekLog.Verbose("MilestoneStore", "RestoreMutableState: scenarioNode is null — no-op");
+                return;
+            }
+
+            ConfigNode[] stateNodes = scenarioNode.GetNodes("MILESTONE_STATE");
+            if (heldNewerMilestonesNode != null)
+            {
+                heldNewerMutableStateNodes = new List<ConfigNode>();
+                for (int i = 0; i < stateNodes.Length; i++)
+                    heldNewerMutableStateNodes.Add(stateNodes[i].CreateCopy());
+                ParsekLog.Verbose("MilestoneStore",
+                    $"RestoreMutableState: milestones held from a newer version; kept " +
+                    $"{stateNodes.Length.ToString(CultureInfo.InvariantCulture)} MILESTONE_STATE node(s) verbatim");
+                return;
+            }
+            var stateMap = BuildStateMap(stateNodes);
+
+            ParsekLog.Verbose("MilestoneStore",
+                $"RestoreMutableState: {stateMap.Count} saved states, {milestones.Count} milestones, resetUnmatched={resetUnmatched}");
+
+            int matched = 0, reset = 0, unchanged = 0;
+            for (int i = 0; i < milestones.Count; i++)
+            {
+                int idx;
+                if (stateMap.TryGetValue(milestones[i].MilestoneId, out idx))
+                {
+                    int oldIdx = milestones[i].LastReplayedEventIndex;
+                    milestones[i].LastReplayedEventIndex = idx;
+                    matched++;
+                    if (oldIdx != idx)
+                    {
+                        ParsekLog.Verbose("MilestoneStore",
+                            $"  milestone {ShortId(milestones[i].MilestoneId)}: lastReplayedIdx {oldIdx} → {idx}");
+                    }
+                }
+                else if (resetUnmatched)
+                {
+                    int oldIdx = milestones[i].LastReplayedEventIndex;
+                    milestones[i].LastReplayedEventIndex = -1;
+                    reset++;
+                    ParsekLog.Verbose("MilestoneStore",
+                        $"  milestone {ShortId(milestones[i].MilestoneId)}: unmatched, reset lastReplayedIdx {oldIdx} → -1");
+                }
+                else
+                {
+                    unchanged++;
+                }
+            }
+
+            ParsekLog.Info("MilestoneStore",
+                $"RestoreMutableState complete: matched={matched}, reset={reset}, unchanged={unchanged}");
+        }
+
+        internal static void SaveMutableState(ConfigNode scenarioNode)
+        {
+            if (scenarioNode == null) return;
+
+            scenarioNode.RemoveNodes("MILESTONE_STATE");
+
+            if (heldNewerMilestonesNode != null)
+            {
+                int kept = heldNewerMutableStateNodes?.Count ?? 0;
+                for (int i = 0; i < kept; i++)
+                    scenarioNode.AddNode(heldNewerMutableStateNodes[i].CreateCopy());
+                ParsekLog.Verbose("MilestoneStore",
+                    $"SaveMutableState: milestones held from a newer version; wrote {kept.ToString(CultureInfo.InvariantCulture)} " +
+                    "held MILESTONE_STATE node(s) back verbatim");
+                return;
+            }
+
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            for (int i = 0; i < milestones.Count; i++)
+            {
+                ConfigNode stateNode = scenarioNode.AddNode("MILESTONE_STATE");
+                stateNode.AddValue("id", milestones[i].MilestoneId ?? "");
+                stateNode.AddValue("lastReplayedIdx",
+                    milestones[i].LastReplayedEventIndex.ToString(ic));
+            }
+
+            ParsekLog.Verbose("MilestoneStore", $"SaveMutableState: wrote {milestones.Count} MILESTONE_STATE nodes");
+        }
+
+        private static void SafeWriteConfigNode(ConfigNode node, string path)
+        {
+            FileIOUtils.SafeWriteConfigNode(node, path, "MilestoneStore");
+        }
+
+        #endregion
+
+        #region Removal
+
+        internal static void ClearAll()
+        {
+            int count = milestones.Count;
+            milestones.Clear();
+            ParsekLog.Info("MilestoneStore", $"All milestones cleared (was {count})");
+        }
+
+        #endregion
+
+        #region Testing Support
+
+        internal static void ResetForTesting()
+        {
+            ResetForSaveLoad();
+        }
+
+        /// <summary>
+        /// Production reset for a cold load (<c>ParsekScenario.ResetSaveScopedSessionState</c>):
+        /// forgets the milestones and the once-per-folder load guard so the cold branch
+        /// reloads them from the save (or the file). Returns the number dropped.
+        /// </summary>
+        internal static int ResetForSaveLoad()
+        {
+            int dropped = milestones.Count;
+            milestones.Clear();
+            heldNewerMilestonesNode = null;
+            heldNewerMutableStateNodes = null;
+            initialLoadDone = false;
+            lastSaveFolder = null;
+            return dropped;
+        }
+
+        internal static void AddMilestoneForTesting(Milestone m)
+        {
+            milestones.Add(m);
+        }
+
+        /// <summary>
+        /// Removes the last appended milestone (no-op if empty). Used by
+        /// in-game test teardown to reverse <see cref="AddMilestoneForTesting"/>
+        /// without clobbering the live save's milestone history.
+        /// </summary>
+        internal static void RemoveLastMilestoneForTesting()
+        {
+            if (milestones.Count == 0) return;
+            milestones.RemoveAt(milestones.Count - 1);
+        }
+
+        /// <summary>
+        /// Phase 6 of Rewind-to-Staging (design §6.4 reconciliation table):
+        /// appends a milestone during bundle restore. Identical to
+        /// <see cref="AddMilestoneForTesting"/> but named for production use so
+        /// the call site does not read as a test hook.
+        /// </summary>
+        internal static void RestoreMilestone(Milestone m)
+        {
+            if (m == null) return;
+            milestones.Add(m);
+        }
+
+        #endregion
+    }
+}

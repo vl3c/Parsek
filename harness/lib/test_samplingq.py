@@ -15,9 +15,9 @@ for the declared density, a too-dense spacing for the declared density, a missed
 direction trigger, a missed speed trigger, and a teleport.
 
 Two source-sync guards read OUTSIDE harness/: ``DensityPresetSourceSyncTests`` reads
-``Source/Parsek/ParsekSettings.cs`` (the four preset getters) and
-``WarpRunTokenSourceSyncTests`` reads ``Source/Parsek/SectionWarpRuns.cs`` and the
-FlightRecorder partial-class files ``Source/Parsek/FlightRecorder.cs`` +
+``Source/Parsek/Config/ParsekSettings.cs`` (the four preset getters) and
+``WarpRunTokenSourceSyncTests`` reads ``Source/Parsek/Recording/SectionWarpRuns.cs`` and the
+FlightRecorder partial-class files ``Source/Parsek/Recording/FlightRecorder.cs`` +
 ``FlightRecorder.*.cs`` (the run kinds and the ``warpRuns=`` token the parser anchors
 on). Both strip comments before matching.
 """
@@ -322,11 +322,14 @@ def _read(*rel):
 
 def _read_flight_recorder():
     """FlightRecorder is a partial class: its main file plus every FlightRecorder.*.cs."""
-    src_dir = os.path.join(REPO_ROOT, "Source", "Parsek")
+    src_dir = os.path.join(REPO_ROOT, "Source", "Parsek", "Recording")
     partials = sorted(n for n in os.listdir(src_dir)
                       if n.startswith("FlightRecorder.") and n.endswith(".cs")
                       and n != "FlightRecorder.cs")
-    return "\n".join(_read("Source", "Parsek", n) for n in ["FlightRecorder.cs"] + partials)
+    if not partials:
+        # A floor: a listing of the wrong folder would read the main file alone.
+        raise AssertionError("no FlightRecorder.<Area>.cs beside Recording/FlightRecorder.cs")
+    return "\n".join(_read("Source", "Parsek", "Recording", n) for n in ["FlightRecorder.cs"] + partials)
 
 
 class DensityPresetSourceSyncTests(unittest.TestCase):
@@ -345,7 +348,7 @@ class DensityPresetSourceSyncTests(unittest.TestCase):
         return {"low": float(m.group(1)), "high": float(m.group(2)), "medium": float(m.group(3))}
 
     def test_presets_match_parsek_settings(self):
-        src = _read("Source", "Parsek", "ParsekSettings.cs")
+        src = _read("Source", "Parsek", "Config", "ParsekSettings.cs")
         values = [self._getter(src, g) for g in self.GETTERS]
         for density, preset in samplingq.DENSITY_PRESETS.items():
             self.assertEqual(tuple(v[density] for v in values), preset, density)
@@ -353,7 +356,7 @@ class DensityPresetSourceSyncTests(unittest.TestCase):
 
 class WarpRunTokenSourceSyncTests(unittest.TestCase):
     def test_run_kinds_and_token_match_the_recorder(self):
-        runs_src = _read("Source", "Parsek", "SectionWarpRuns.cs")
+        runs_src = _read("Source", "Parsek", "Recording", "SectionWarpRuns.cs")
         for const, kind in (("KindNormal", "1x"), ("KindPhysics", "phys"), ("KindRails", "rails")):
             self.assertRegex(runs_src, r'internal const string %s = "%s";' % (const, re.escape(kind)))
         self.assertIn('.Append(":max=")', runs_src)

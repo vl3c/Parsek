@@ -331,7 +331,7 @@ deliberately survive).
 
 ### What refreshes the tab
 
-`LedgerOrchestrator.OnTimelineDataChanged` covers every LEDGER-side change, but the view model
+`LedgerTimelineSignal.OnTimelineDataChanged` covers every LEDGER-side change, but the view model
 is ALSO built from live state that no ledger write touches: the stock roster walk
 (`CrewRoster.Crew` / `.Applicants` / `.Tourist`) and the live crew-to-vessel map
 (`GatherAssignedVessels`). Without more, a transfer, an EVA, a board, a hire or a dismissal

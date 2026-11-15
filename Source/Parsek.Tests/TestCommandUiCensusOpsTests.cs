@@ -1471,7 +1471,9 @@ namespace Parsek.Tests
                 System.AppDomain.CurrentDomain.BaseDirectory,
                 "..", "..", "..", "..", "..", "Source", "Parsek", "TestCommands");
             Assert.True(System.IO.Directory.Exists(dir), "missing seam dir: " + dir);
-            return System.IO.Directory.GetFiles(dir, "*.cs");
+            string[] files = System.IO.Directory.GetFiles(dir, "*.cs");
+            Assert.True(files.Length >= 140, "seam source floor: only " + files.Length + " files in " + dir);
+            return files;
         }
 
         /// <summary>Drops whole-line <c>//</c> and <c>///</c> comments. A rationale comment

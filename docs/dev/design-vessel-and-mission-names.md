@@ -535,13 +535,13 @@ None open. The three questions of the 2026-10-10 draft (automatic names, revert,
 
 | New / changed | Role |
 |---|---|
-| `Source/Parsek/VesselIdentity.cs` (new, pure) | union-find resolver, live-vessel lookup |
-| `Source/Parsek/VesselNameStore.cs` (new) | decisions, links, codec, apply pass, version |
-| `Source/Parsek/VesselRenameWriter.cs` (new) | stock-equivalent write-through |
-| `Source/Parsek/VesselNameLiveSync.cs` (new, Phase 2a) | live write rule, stock capture core, post-load pass |
-| `Source/Parsek/VesselNameStore.RevertUndo.cs` (new, Phase 2a) | flight epochs, undo entries, the revert undo |
-| `Source/Parsek/VesselNameStore.Links.cs` (new, Phase 2b) | link rows, dock-absorb rows, their codec, the spawn-link backfill, the identity guid set |
-| `Source/Parsek/VesselNameSpawn.cs` (new, Phase 2b) | spawn node stamp, dock-record uid remap |
+| `Source/Parsek/Missions/VesselIdentity.cs` (new, pure) | union-find resolver, live-vessel lookup |
+| `Source/Parsek/Missions/VesselNameStore.cs` (new) | decisions, links, codec, apply pass, version |
+| `Source/Parsek/Missions/VesselRenameWriter.cs` (new) | stock-equivalent write-through |
+| `Source/Parsek/Missions/VesselNameLiveSync.cs` (new, Phase 2a) | live write rule, stock capture core, post-load pass |
+| `Source/Parsek/Missions/VesselNameStore.RevertUndo.cs` (new, Phase 2a) | flight epochs, undo entries, the revert undo |
+| `Source/Parsek/Missions/VesselNameStore.Links.cs` (new, Phase 2b) | link rows, dock-absorb rows, their codec, the spawn-link backfill, the identity guid set |
+| `Source/Parsek/Missions/VesselNameSpawn.cs` (new, Phase 2b) | spawn node stamp, dock-record uid remap |
 | `Source/Parsek/Patches/VesselRenameCapturePatch.cs` (new) | Prefix / Postfix pairs on the two accept methods |
 | `MissionVesselNaming.cs` | rename becomes a decision; vessel-first grouping |
 | `ParsekScenario.cs` | store load / save, OnLoad tail re-apply |

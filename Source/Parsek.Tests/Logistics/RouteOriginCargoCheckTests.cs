@@ -153,44 +153,6 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(70.0, shortfall); // 80 required - 10 stored
         }
 
-        // catches (D6): a non-KSC route with inventory payload NOT holding
-        // (delivering items without debiting them would duplicate matter),
-        // or a KSC / item-free route being held by the deferral.
-        [Fact]
-        public void RequiresInventoryDebit_NonKscWithInventory_True()
-        {
-            var nonKscWithItems = new Route
-            {
-                Id = "route-inv",
-                IsKscOrigin = false,
-                InventoryCostManifest = new List<InventoryPayloadItem>
-                {
-                    new InventoryPayloadItem { IdentityHash = "h1", PartName = "science.module" },
-                },
-            };
-            Assert.True(RouteOriginCargoCheck.RequiresInventoryDebit(nonKscWithItems));
-
-            // KSC origin: funds carry the cost, no physical debit at all.
-            var kscWithItems = new Route
-            {
-                Id = "route-ksc",
-                IsKscOrigin = true,
-                InventoryCostManifest = new List<InventoryPayloadItem>
-                {
-                    new InventoryPayloadItem { IdentityHash = "h1", PartName = "science.module" },
-                },
-            };
-            Assert.False(RouteOriginCargoCheck.RequiresInventoryDebit(kscWithItems));
-
-            // Non-KSC with no items: resources-only debit is supported in M1.
-            var nonKscEmpty = new Route { Id = "route-res", IsKscOrigin = false };
-            Assert.False(RouteOriginCargoCheck.RequiresInventoryDebit(nonKscEmpty));
-            nonKscEmpty.InventoryCostManifest = new List<InventoryPayloadItem>();
-            Assert.False(RouteOriginCargoCheck.RequiresInventoryDebit(nonKscEmpty));
-
-            Assert.False(RouteOriginCargoCheck.RequiresInventoryDebit(null));
-        }
-
         // ------------------------------------------------------------------
         // BuildInventoryShortToken (hold-token legibility + near-miss)
         // ------------------------------------------------------------------

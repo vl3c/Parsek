@@ -31,7 +31,7 @@ FIXTURE_DIR = os.path.join(SAVES, "career-earned-pad-oldgen")
 FIXTURE_SFS = os.path.join(FIXTURE_DIR, "persistent.sfs")
 FIXTURE_LEDGER = os.path.join(FIXTURE_DIR, "Parsek", "GameState", "ledger.pgld")
 SPEC_PATH = os.path.join(_HARNESS, "scenarios", "GC-3-other-generation-tree-kept-inert.toml")
-SCHEMA_CS = os.path.join(_REPO, "Source", "Parsek", "RecordingSchema.cs")
+SCHEMA_CS = os.path.join(_REPO, "Source", "Parsek", "Recording", "RecordingSchema.cs")
 
 
 def _load_builder():

@@ -1066,6 +1066,28 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
+        public void Summary_SplitsTheBoundaryInstantResidualByBody_OnlyWhenOneResolved()
+        {
+            // Both SoiTransition seeds resolve, one compared in Kerbin's frame and one in the
+            // Mun's: the per-body line names both, right after the summary.
+            List<string> t = Transcript("seed-soi-transition-hits");
+            int summaryIdx = t.FindIndex(l => l.Contains("DAG walk summary:"));
+            string line = Assert.Single(t, l => l.Contains("DAG walk boundary-instant bodies:"));
+            Assert.Equal(summaryIdx + 1, t.IndexOf(line));
+            Assert.StartsWith("[Parsek][INFO][Pipeline-AnchorPropagate] DAG walk boundary-instant bodies: sessionId=char bodies=Kerbin:resolved=1,maxEpsilonM=", line);
+            Assert.Contains(";Mun:resolved=1,maxEpsilonM=", line);
+
+            // The largest per-body residual is the summary's boundaryInstantMaxEpsilonM.
+            List<string> h = Transcript("seed-boundary-instant-hits");
+            Assert.Contains(h, l => l.EndsWith("boundaryInstantMaxEpsilonM=1177596.675"));
+            Assert.Contains(h, l => l.EndsWith("bodies=Kerbin:resolved=3,maxEpsilonM=1177596.675"));
+
+            // No boundary-instant seed resolved: no line.
+            Assert.DoesNotContain(Transcript("seed-boundary-instant-misses"), l => l.Contains("DAG walk boundary-instant bodies:"));
+            Assert.DoesNotContain(Transcript("seed-priority-contention"), l => l.Contains("DAG walk boundary-instant bodies:"));
+        }
+
+        [Fact]
         public void Seed_SoiTransitionResolvesAtTheBoundaryInstantInBothDirections()
         {
             List<string> t = Transcript("seed-soi-transition-hits");

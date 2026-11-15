@@ -107,15 +107,17 @@ namespace Parsek.Tests.MapRender
             Assert.Equal(1, m.OpenDwellCount);
 
             m.ObserveDwellFrame(Sample(7u, "TracedPath", "InSegment", "Kerbin", 0, 130.0, 130.0));
-            m.CloseOpenDwell(7u, 140.0);
+            // A dwell-key change at 140 is the REAL close of the first dwell (and opens the next).
+            m.ObserveDwellFrame(Sample(7u, "StockConic", "InSegment", "Kerbin", 1, 140.0, 140.0));
             Assert.Equal(1, m.ClosedDwellCount);
-            Assert.Equal(0, m.OpenDwellCount);
+            Assert.Equal(1, m.OpenDwellCount);
 
             // The REAL close wins on the second build - one record, no openAtExport, three frames.
             ConfigNode closed = Assert.Single(
                 m.BuildFileNode(Header(200.0))
                     .GetNode(RenderCompositionManifest.RootNodeName).GetNode("OBSERVED")
-                    .GetNodes("DWELL"));
+                    .GetNodes("DWELL"),
+                d => d.GetValue("openUT") == "100");
             Assert.False(closed.HasValue("openAtExport"));
             Assert.Equal("140", closed.GetValue("closeUT"));
             Assert.Equal("3", closed.GetValue("frames"));

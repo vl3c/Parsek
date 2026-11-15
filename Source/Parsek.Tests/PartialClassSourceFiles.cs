@@ -10,7 +10,7 @@ namespace Parsek.Tests
     /// files (<see cref="BackgroundRecorderSourceFiles"/>,
     /// <see cref="GhostTrajectoryPolylineRendererSourceFiles"/>,
     /// <see cref="RecordingsTableUISourceFiles"/>, <see cref="ParsekFlightSourceFiles"/>,
-    /// <see cref="ParsekScenarioSourceFiles"/>). It enumerates every
+    /// <see cref="ParsekScenarioSourceFiles"/>, <see cref="ParsekFlightGhostPositionerSourceFiles"/>). It enumerates every
     /// <c>&lt;Class&gt;.*.cs</c> on disk and refuses when that set differs from the reader's
     /// declared lists, so a new partial file cannot be skipped silently by a gate that reads
     /// "the whole class": the failure names the file and tells the author which list to add it
@@ -18,6 +18,24 @@ namespace Parsek.Tests
     /// </summary>
     internal static class PartialClassSourceFiles
     {
+        /// <summary>
+        /// The directory that holds a class's files: <paramref name="dir"/> when
+        /// <paramref name="mainFileName"/> is there, else <paramref name="dir"/>/<paramref
+        /// name="moduleFolder"/> (a reader handed the Source/Parsek root finds its module's
+        /// folder). Throws when neither holds the main file.
+        /// </summary>
+        internal static string FamilyDir(string dir, string mainFileName, string moduleFolder)
+        {
+            if (File.Exists(Path.Combine(dir, mainFileName)))
+                return dir;
+            string inModule = Path.Combine(dir, moduleFolder);
+            if (File.Exists(Path.Combine(inModule, mainFileName)))
+                return inModule;
+            throw new FileNotFoundException(
+                mainFileName + " not found in " + dir + " or its " + moduleFolder + " folder",
+                Path.Combine(inModule, mainFileName));
+        }
+
         /// <summary>
         /// The main file, then <paramref name="readFileNames"/> in ordinal order, all under
         /// <paramref name="dir"/>. <paramref name="otherFileNames"/> are partial files that

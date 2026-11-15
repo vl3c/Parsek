@@ -30,10 +30,9 @@ namespace Parsek.Tests.Rendering
             byte[] packed = OutlierFlags.BuildPackedBitmap(perSample);
             // Length matches the (count + 7) / 8 contract.
             Assert.Equal((sampleCount + 7) / 8, packed.Length);
-            bool[] unpacked = OutlierFlags.UnpackBitmap(packed, sampleCount);
-            Assert.Equal(sampleCount, unpacked.Length);
+            var flags = new OutlierFlags { PackedBitmap = packed, SampleCount = sampleCount };
             for (int i = 0; i < sampleCount; i++)
-                Assert.Equal(perSample[i], unpacked[i]);
+                Assert.Equal(perSample[i], flags.IsRejected(i));
         }
 
         [Fact]
@@ -59,29 +58,10 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
-        public void Empty_AllFalse_ZeroRejectionsZeroMask()
+        public void IsRejected_ReadsTheLsbFirstBitOfEachSample()
         {
-            // What makes it fail: a non-zero mask or non-zero rejected count
-            // on the Empty placeholder would falsely signal that the
-            // classifier ran and found something — exactly the wrong signal
-            // for HR-9 visibility.
-            OutlierFlags empty = OutlierFlags.Empty(7, 12);
-            Assert.Equal(7, empty.SectionIndex);
-            Assert.Equal(0, empty.ClassifierMask);
-            Assert.Equal(0, empty.RejectedCount);
-            Assert.Equal(12, empty.SampleCount);
-            Assert.NotNull(empty.PackedBitmap);
-            for (int b = 0; b < empty.PackedBitmap.Length; b++)
-                Assert.Equal(0, empty.PackedBitmap[b]);
-            for (int i = 0; i < empty.SampleCount; i++)
-                Assert.False(empty.IsRejected(i));
-        }
-
-        [Fact]
-        public void RejectedSampleIndices_EnumeratesAscending()
-        {
-            // What makes it fail: enumeration in the wrong order would
-            // confuse downstream consumers that assume ascending indices.
+            // What makes it fail: reading the bits in the wrong order would
+            // report the wrong samples as rejected.
             var flags = new OutlierFlags
             {
                 SectionIndex = 0,
@@ -92,7 +72,8 @@ namespace Parsek.Tests.Rendering
                 SampleCount = 10,
             };
             var indices = new System.Collections.Generic.List<int>();
-            foreach (int i in flags.RejectedSampleIndices) indices.Add(i);
+            for (int i = 0; i < flags.SampleCount; i++)
+                if (flags.IsRejected(i)) indices.Add(i);
             Assert.Equal(new[] { 1, 3, 4, 6, 9 }, indices);
         }
 

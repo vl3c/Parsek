@@ -55,16 +55,6 @@ namespace Parsek.MapRender
             Synthesized = 2,
         }
 
-        internal static string ParityModeToken(ParityMode mode)
-        {
-            switch (mode)
-            {
-                case ParityMode.Faithful: return "faithful";
-                case ParityMode.Synthesized: return "synthesized";
-                default: return "unknown";
-            }
-        }
-
         /// <summary>
         /// The outcome of one recorded-vs-rendered (or intended-vs-rendered) geometry diff.
         /// </summary>

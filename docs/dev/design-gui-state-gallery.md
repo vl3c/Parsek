@@ -690,7 +690,7 @@ All seven were put to the owner as yes/no questions and ALL SEVEN were answered 
 | The `op=mock` parse and refusal tokens | `Source/Parsek/TestCommands/TestCommandUiAction.cs` (extend), pure |
 | The applier and the session | `Source/Parsek/TestCommands/ParsekTestCommandAddon.UiMock.cs` (new), `GuiMockSession.cs` (new) |
 | The batch verb | `Source/Parsek/TestCommands/TestCommandGalleryRun.cs` + `ParsekTestCommandAddon.GalleryRun.cs` (new) |
-| Provenance in the dump | `Source/Parsek/GuiTreeJson.cs` (header + writer), `GuiTreeRecorder.cs:1568-1583` (populate) |
+| Provenance in the dump | `Source/Parsek/GuiTree/GuiTreeJson.cs` (header + writer), `GuiTreeRecorder.cs:1568-1583` (populate) |
 | Cache suppression | one predicate read at each site named in 7.4 |
 | Mirror integration | `harness/tools/gui_mirror.py` (`scan_shots_dir`, the badge, `build_index`) |
 | Harvest cap | `harness/lib/hlib.py:9496-9497` (raise), plus its `test_hlib` cells |

@@ -767,17 +767,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void AnchorIdentityKey_RelativeWithoutAnchor_ReturnsEmpty()
-        {
-            var section = MakeSectionWithFrame(
-                10.0, lat: 0.0, lon: 0.0, alt: 0.0,
-                velocity: Vector3.zero,
-                referenceFrame: ReferenceFrame.Relative);
-
-            Assert.Equal(string.Empty, SessionMerger.AnchorIdentityKey(section));
-        }
-
-        [Fact]
         public void MergeTree_SameAnchorRelativeBoundary_MeasuresAnchorLocalDiscontinuity()
         {
             // Renamed from ..._RelativeThreadsCurrentRecordingFormatThroughProductionCallers,
@@ -2707,8 +2696,6 @@ namespace Parsek.Tests
 
             Assert.Equal(0u, background.anchorVesselId);
             Assert.Equal(0u, active.anchorVesselId);
-            Assert.Equal("recording:anchor-background", SessionMerger.AnchorIdentityKey(background));
-            Assert.Equal("recording:anchor-active", SessionMerger.AnchorIdentityKey(active));
 
             var rec = MakeRecording("rec-580-anchor-rec", "Anchor Recording Vessel",
                 new List<TrackSection> { background, active });

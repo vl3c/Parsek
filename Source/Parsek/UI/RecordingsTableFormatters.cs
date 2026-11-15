@@ -24,13 +24,6 @@ namespace Parsek
             return (mps / 1000).ToString("F1", CultureInfo.InvariantCulture) + "km/s";
         }
 
-        internal static string FormatDistance(double meters)
-        {
-            if (meters < 1000) return $"{(int)meters}m";
-            if (meters < 1000000) return (meters / 1000).ToString("F1", CultureInfo.InvariantCulture) + "km";
-            return (meters / 1000000).ToString("F1", CultureInfo.InvariantCulture) + "Mm";
-        }
-
         /// <summary>
         /// Formats the recording start position for the expanded stats column.
         /// Priority: launch site > EVA from vessel > situation + biome + body > biome + body > body.

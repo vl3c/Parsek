@@ -126,7 +126,7 @@ namespace Parsek.Tests
             CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(Tree(CloneTreeId), ArmReason);
 
             bool cleared = CommittedTreeRestoreAttempt.ClearCommittedTreeRestoreAttemptForDroppedTree(
-                CloneTreeId, ResetReason, preserveIrreversibleTails: false);
+                CloneTreeId, ResetReason, preserveIrreversibleTails: null);
 
             Assert.True(cleared);
             Assert.False(CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(CloneTreeId));
@@ -150,7 +150,7 @@ namespace Parsek.Tests
             CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(Tree(CloneTreeId), ArmReason);
 
             bool cleared = CommittedTreeRestoreAttempt.ClearCommittedTreeRestoreAttemptForDroppedTree(
-                OtherTreeId, ResetReason, preserveIrreversibleTails: false);
+                OtherTreeId, ResetReason, preserveIrreversibleTails: null);
 
             Assert.False(cleared);
             Assert.True(CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(CloneTreeId));
@@ -161,7 +161,7 @@ namespace Parsek.Tests
         public void DroppedTree_WithNoAttemptArmed_IsANoOp()
         {
             bool cleared = CommittedTreeRestoreAttempt.ClearCommittedTreeRestoreAttemptForDroppedTree(
-                CloneTreeId, ResetReason, preserveIrreversibleTails: false);
+                CloneTreeId, ResetReason, preserveIrreversibleTails: null);
 
             Assert.False(cleared);
             Assert.DoesNotContain(logLines, l =>
@@ -175,7 +175,7 @@ namespace Parsek.Tests
             CommittedTreeRestoreAttempt.ArmCommittedTreeRestoreAttempt(Tree(CloneTreeId), ArmReason);
 
             bool cleared = CommittedTreeRestoreAttempt.ClearCommittedTreeRestoreAttemptForDroppedTree(
-                null, ResetReason, preserveIrreversibleTails: false);
+                null, ResetReason, preserveIrreversibleTails: null);
 
             Assert.False(cleared);
             Assert.True(CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(CloneTreeId));
@@ -211,7 +211,7 @@ namespace Parsek.Tests
                 preCutoff));
 
             bool cleared = CommittedTreeRestoreAttempt.ClearCommittedTreeRestoreAttemptForDroppedTree(
-                CloneTreeId, ResetReason, preserveIrreversibleTails: false);
+                CloneTreeId, ResetReason, preserveIrreversibleTails: null);
 
             Assert.True(cleared);
             Assert.False(CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(CloneTreeId));
@@ -243,7 +243,7 @@ namespace Parsek.Tests
             GameStateStore.AddEvent(ref postCutoff);
 
             bool cleared = CommittedTreeRestoreAttempt.ClearCommittedTreeRestoreAttemptForDroppedTree(
-                OtherTreeId, ResetReason, preserveIrreversibleTails: false);
+                OtherTreeId, ResetReason, preserveIrreversibleTails: null);
 
             Assert.False(cleared);
             Assert.True(CommittedTreeRestoreAttempt.IsCommittedTreeRestoreAttemptTree(CloneTreeId));
@@ -414,7 +414,7 @@ namespace Parsek.Tests
 
         /// <summary>
         /// Walks up from the current test binary directory looking for
-        /// Source/Parsek/ParsekFlight.cs so the file-scrape gate works regardless of
+        /// Source/Parsek/Controllers/ParsekFlight.cs so the file-scrape gate works regardless of
         /// where dotnet test is invoked from (same walk as OnFlightReadyOrderingTests).
         /// </summary>
         private static string LocateParsekFlightSource()
@@ -422,13 +422,13 @@ namespace Parsek.Tests
             string dir = AppDomain.CurrentDomain.BaseDirectory;
             for (int i = 0; i < 10 && !string.IsNullOrEmpty(dir); i++)
             {
-                string candidate = Path.Combine(dir, "Source", "Parsek", "ParsekFlight.cs");
+                string candidate = Path.Combine(dir, "Source", "Parsek", "Controllers", "ParsekFlight.cs");
                 if (File.Exists(candidate)) return candidate;
                 dir = Path.GetDirectoryName(dir);
             }
             return Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory,
-                "..", "..", "..", "..", "Parsek", "ParsekFlight.cs"));
+                "..", "..", "..", "..", "Parsek", "Controllers", "ParsekFlight.cs"));
         }
     }
 }

@@ -5533,7 +5533,7 @@ namespace Parsek.Tests
                 string vesselPath = Path.Combine(recDir, $"{id}_vessel.craft");
                 Assert.True(File.Exists(vesselPath), $"Expected _vessel.craft at {vesselPath}");
                 SnapshotSidecarProbe vesselProbe;
-                Assert.True(RecordingSidecarStore.TryProbeSnapshotSidecar(vesselPath, out vesselProbe));
+                Assert.True(SnapshotSidecarCodec.TryProbe(vesselPath, out vesselProbe));
                 Assert.Equal(SnapshotSidecarEncoding.DeflateV1, vesselProbe.Encoding);
 
                 ConfigNode vesselSnapshot;

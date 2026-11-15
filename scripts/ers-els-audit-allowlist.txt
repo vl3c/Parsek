@@ -6,8 +6,8 @@
 # One path per line, repo-relative, forward slashes. '#' starts a comment.
 
 # --- Storage + effective-state owners ---
-Source/Parsek/RecordingStore.cs
-Source/Parsek/EffectiveState.cs
+Source/Parsek/Recording/RecordingStore.cs
+Source/Parsek/Rewind/EffectiveState.cs
 
 # RecordingStoreTestSnapshot is the non-destructive snapshot/restore helper
 # that in-game tests wrap their fixtures in (replacing the destructive
@@ -15,76 +15,76 @@ Source/Parsek/EffectiveState.cs
 # raw reads of CommittedRecordings/CommittedTrees because it is part of the
 # storage-owner test surface — supersede-aware filtering would corrupt the
 # round-trip the snapshot exists to provide. No ledger reads.
-Source/Parsek/RecordingStoreTestSnapshot.cs
+Source/Parsek/Recording/RecordingStoreTestSnapshot.cs
 
 # RecordingChainQueries holds the chain queries moved out of RecordingStore.cs
 # verbatim (the RecordingStore services plan, PR4). A chain is a physical
 # sequence of committed recordings, superseded ones included: ValidateChains
 # degrades a broken chain on load and the index queries answer in raw
 # committed-list indices, as they did inside the store. No ledger reads.
-Source/Parsek/RecordingChainQueries.cs
+Source/Parsek/Recording/RecordingChainQueries.cs
 
 # RewindSpawnScope holds the rewind spawn-scope predicates moved out of the
 # RecordingStore partials verbatim (the RecordingStore services plan, PR5). The
 # owner strip collects EVA child names over every committed recording of the
 # owner's chain, and the strip scope walks every committed recording, as they
 # did inside the store. No ledger reads.
-Source/Parsek/RewindSpawnScope.cs
-Source/Parsek/RewindSpawnScope.OwnerStrip.cs
+Source/Parsek/Rewind/RewindSpawnScope.cs
+Source/Parsek/Rewind/RewindSpawnScope.OwnerStrip.cs
 
 # RecordingFileJanitor holds the orphan / file cleanup moved out of the
 # RecordingStore partials verbatim (the RecordingStore services plan, PR6). The
 # known-recording sets that gate file deletion must name every committed
 # recording, superseded ones included, or a superseded recording's sidecars
 # would read as orphans. No ledger reads.
-Source/Parsek/RecordingFileJanitor.cs
+Source/Parsek/Recording/RecordingFileJanitor.cs
 
 # CommittedListOptimizer holds the optimization pass moved out of
 # RecordingStore.Optimization.cs (the RecordingStore services plan, PR8). The pass
 # merges, splits and trims the physical committed list, superseded recordings
 # included, as it did inside the store; it changes the list only through the
 # store's primitives. No Ledger.Actions reads (it retags rows through Ledger).
-Source/Parsek/CommittedListOptimizer.cs
+Source/Parsek/Recording/CommittedListOptimizer.cs
 
 # TreeDiscardService holds the tree discard moved out of RecordingStore.cs (the
 # RecordingStore services plan, PR12 K). RemoveRecordingAt removes one physical
 # committed recording by index, degrading its chain siblings, as it did inside the
 # store; it changes the list only through RecordingStore.RemoveCommittedAt. No
 # Ledger.Actions reads.
-Source/Parsek/TreeDiscardService.cs
+Source/Parsek/Recording/TreeDiscardService.cs
 
 # TreeCommitService holds the tree commit moved out of RecordingStore.cs and its
 # TreeReplaceDiff / SupersedeTerminalSpawn partials (the RecordingStore services plan,
 # PR12 L). The commit installs and replaces physical committed recordings and trees by
 # id and index, and the terminal-spawn supersede marks walk the physical list, as they
 # did inside the store; it changes the lists only through the store's primitives.
-Source/Parsek/TreeCommitService.cs
-Source/Parsek/TreeCommitService.SupersedeTerminalSpawn.cs
+Source/Parsek/Recording/TreeCommitService.cs
+Source/Parsek/Recording/TreeCommitService.SupersedeTerminalSpawn.cs
 
 # RewindCarry holds the rewind carries moved out of RecordingStore (the RecordingStore
 # services plan, PR13 N). The supersede audit a plain rewind logs reads the owner's
 # committed tree and the physical committed recordings by id, as it did inside the store;
 # it changes nothing.
-Source/Parsek/RewindCarry.cs
+Source/Parsek/Rewind/RewindCarry.cs
 
 # RewindLauncher holds the plain rewind moved out of RecordingStore (the RecordingStore
 # services plan, PR13 O). The playback-state reset a rewind runs and the spawned-vessel
 # collection walk every physical committed recording, and the fast-forward gate checks a
 # recording's rewind retirement against the physical list, as they did inside the store.
 # No Ledger.Actions reads.
-Source/Parsek/RewindLauncher.cs
+Source/Parsek/Rewind/RewindLauncher.cs
 
 # --- Serialization (I/O not semantics) ---
-Source/Parsek/ParsekScenario.cs
+Source/Parsek/Controllers/ParsekScenario.cs
 # Split out of ParsekScenario.cs (scripts/refactor/split_parsekscenario.py): the save path's
 # GAME_STATE write logs the raw ledger row count, and the lifecycle exception wrapper logs
 # the raw committed-recording count.
-Source/Parsek/ParsekScenario.Save.cs
-Source/Parsek/ParsekScenario.Diagnostics.cs
+Source/Parsek/Controllers/ParsekScenario.Save.cs
+Source/Parsek/Controllers/ParsekScenario.Diagnostics.cs
 # [ERS-exempt] the cold load's GAME_STATE read logs the raw row count of the ledger it just loaded.
-Source/Parsek/ParsekScenario.SessionReset.cs
+Source/Parsek/Controllers/ParsekScenario.SessionReset.cs
 # [ERS-exempt] the revert prune remembers the raw ledger row ids at each flight entry (O2).
-Source/Parsek/ParsekScenario.RevertLedgerSnapshot.cs
+Source/Parsek/Controllers/ParsekScenario.RevertLedgerSnapshot.cs
 
 # --- Ledger owner + orchestration internals ---
 Source/Parsek/GameActions/Ledger.cs
@@ -110,14 +110,14 @@ Source/Parsek/GameActions/CaptureSequence.cs
 # documented at the call sites with [ERS-exempt] rationale (rollout context
 # is a physical pid+site identity correlation, not a recording-id walk).
 Source/Parsek/GameActions/LedgerRolloutAdoption.cs
-Source/Parsek/KerbalsModule.cs
+Source/Parsek/Crew/KerbalsModule.cs
 # KerbalsModule's partial-class split (scripts/refactor/split_kerbalsmodule.py): the
 # raw read KerbalsModule.cs held (PrePass's recording-metadata cache) now sits in this
 # partial, same trust scope.
-Source/Parsek/KerbalsModule.Walk.cs
+Source/Parsek/Crew/KerbalsModule.Walk.cs
 
 # --- Internal game-state-event suppression check ---
-Source/Parsek/GameStateRecorder.cs
+Source/Parsek/GameActions/GameStateRecorder.cs
 
 # GameStateRecorder.Handlers.cs is the partial-class split holding the
 # contract/tech/crew/progress-milestone/strategy event-handler regions.
@@ -125,7 +125,7 @@ Source/Parsek/GameStateRecorder.cs
 # scans Ledger.Actions directly to update the already-forwarded
 # zero-reward MilestoneAchievement action in place — same trust scope as
 # GameStateRecorder.cs above.
-Source/Parsek/GameStateRecorder.Handlers.cs
+Source/Parsek/GameActions/GameStateRecorder.Handlers.cs
 
 # --- Tests (unit + in-game) ---
 Source/Parsek.Tests/
@@ -135,71 +135,73 @@ Source/Parsek/InGameTests/
 # These hold raw index-based readers that Phase 3 leaves in place pending a
 # deeper refactor (tracked as TODO(phase 6+): migrate to EffectiveRecordingId
 # walk). Each exemption is documented at the call site.
-Source/Parsek/GhostMapPresence.cs
+Source/Parsek/Ghost/GhostMapPresence.cs
 # The GhostMapPresence partials below hold members moved verbatim out of
 # GhostMapPresence.cs (a pure file split); same index-keyed exemption as above.
-Source/Parsek/GhostMapPresence.FlightMapLifecycle.cs
-Source/Parsek/GhostMapPresence.OrbitLines.cs
-Source/Parsek/GhostMapPresence.ProtoVesselLifecycle.cs
-Source/Parsek/GhostMapPresence.ReFlySuppression.cs
-Source/Parsek/GhostMapPresence.SourceResolution.cs
-Source/Parsek/GhostMapPresence.StateVectors.cs
-Source/Parsek/GhostMapPresence.TrackingStationLifecycle.cs
-Source/Parsek/WatchModeController.cs
-Source/Parsek/ParsekFlight.cs
+Source/Parsek/Ghost/GhostMapPresence.FlightMapLifecycle.cs
+Source/Parsek/Ghost/GhostMapPresence.OrbitLines.cs
+Source/Parsek/Ghost/GhostMapPresence.ProtoVesselLifecycle.cs
+Source/Parsek/Ghost/GhostMapPresence.ReFlySuppression.cs
+Source/Parsek/Ghost/GhostMapPresence.SourceResolution.cs
+Source/Parsek/Ghost/GhostMapPresence.StateVectors.cs
+Source/Parsek/Ghost/GhostMapPresence.TrackingStationLifecycle.cs
+Source/Parsek/Controllers/WatchModeController.cs
+Source/Parsek/Controllers/ParsekFlight.cs
 # The ParsekFlight partials below hold members moved verbatim out of ParsekFlight.cs
 # (a pure file split, scripts/refactor/split_parsekflight.py); same index-keyed
 # exemption as above.
-Source/Parsek/ParsekFlight.GhostPositioner.cs
-Source/Parsek/ParsekFlight.GhostPositioning.cs
-Source/Parsek/ParsekFlight.MergeFlow.cs
-Source/Parsek/ParsekFlight.RecorderSession.cs
-Source/Parsek/ParsekFlight.SplitBranching.cs
-Source/Parsek/ParsekFlight.SwitchContinuation.cs
-Source/Parsek/ParsekFlight.TimelinePlayback.cs
-Source/Parsek/ParsekFlight.TreeRestore.cs
+Source/Parsek/Controllers/ParsekFlight.GhostPositioner.cs
+Source/Parsek/Controllers/ParsekFlight.GhostPositioning.cs
+Source/Parsek/Controllers/ParsekFlight.MergeFlow.cs
+Source/Parsek/Controllers/ParsekFlight.RecorderSession.cs
+Source/Parsek/Controllers/ParsekFlight.SplitBranching.cs
+Source/Parsek/Controllers/ParsekFlight.SwitchContinuation.cs
+Source/Parsek/Controllers/ParsekFlight.TimelinePlayback.cs
+Source/Parsek/Controllers/ParsekFlight.TreeRestore.cs
 # The blocked chain tip ghost partial reads the committed list by INDEX to pair a
 # policy-held slot with its engine ghost (the engine's index-keyed contract), not to
 # decide visibility; supersede is honoured through the policy's hold release.
-Source/Parsek/ParsekFlight.BlockedChainTipGhost.cs
+Source/Parsek/Controllers/ParsekFlight.BlockedChainTipGhost.cs
 # ParsekFlight's spawn host, lifted out of the spawning, placement-jump and time-jump
 # partials with its bodies verbatim (ARCH-PARSEKFLIGHT-CHANGE-HUB PF5). It reads the
 # committed list by INDEX to find the engine ghost (index-keyed ghostStates) drawing a
 # recording id and to walk the spawn / proximity candidates by slot, the same index-keyed
 # exemption as ParsekFlight.cs; it decides no visibility.
-Source/Parsek/ParsekFlightSpawnHost.cs
+Source/Parsek/Controllers/ParsekFlightSpawnHost.cs
 # ParsekFlight's IGhostPositioner, lifted out of the positioning partials with its bodies
-# verbatim (ARCH-PARSEKFLIGHT-CHANGE-HUB PF2); it reads the committed list by INDEX to
-# resolve anchor recordings for the engine's index-keyed slots, the same exemption.
-Source/Parsek/ParsekFlightGhostPositioner.cs
+# verbatim (ARCH-PARSEKFLIGHT-CHANGE-HUB PF2) and cut into partial files by group. Its one
+# raw read sits in the tail-lift file: ResolveRecordingById walks the committed list to find
+# the recording a preview's tail lift names by id, outside the active playback scope (a
+# lookup by identity, not a visibility decision). The other positioner files read none.
+Source/Parsek/Controllers/ParsekFlightGhostPositioner.TailLift.cs
 # ParsekFlight's timeline playback host, lifted out of the playback partials with its bodies
 # verbatim (ARCH-PARSEKFLIGHT-CHANGE-HUB PF4); it builds the engine's per-frame trajectory
 # list and flags over the committed list by INDEX (the engine's index-keyed slots), the same
 # exemption as ParsekFlight.cs.
-Source/Parsek/ParsekFlightPlaybackHost.cs
+Source/Parsek/Controllers/ParsekFlightPlaybackHost.cs
 # ParsekFlight's split brancher, lifted out of the split partials with its bodies verbatim
 # (ARCH-PARSEKFLIGHT-CHANGE-HUB PF7). It reads the committed list only to correlate a dock
 # partner with its recorded vessel (is the partner pid known, which endpoint part pids did
 # its recording carry): physical-identity correlation, never visibility.
-Source/Parsek/ParsekFlightSplitBrancher.cs
+Source/Parsek/Controllers/ParsekFlightSplitBrancher.cs
 # ParsekFlight's merge flow, lifted out of the merge-flow partial with its bodies verbatim
 # (ARCH-PARSEKFLIGHT-CHANGE-HUB PF8). Its in-flight commit reads the committed list it just
 # appended to: the optimizer pass's before / after count, the chain tip of the active
 # recording the pass may have merged, and the spawned leaf tips it counts. Commit-time
 # bookkeeping over the raw list the commit wrote, never visibility.
-Source/Parsek/ParsekFlightMergeFlow.cs
-Source/Parsek/ParsekPlaybackPolicy.cs
-Source/Parsek/ParsekTrackingStation.cs
+Source/Parsek/Controllers/ParsekFlightMergeFlow.cs
+Source/Parsek/Controllers/ParsekPlaybackPolicy.cs
+Source/Parsek/Controllers/ParsekTrackingStation.cs
 Source/Parsek/Diagnostics/DiagnosticsComputation.cs
 # FlightRecorder's partial-class split: the one raw read (BootstrapAvgBytesPerPoint, the
 # on-disk .prec size sample, [ERS-exempt] at the call site) lives in this partial.
-Source/Parsek/FlightRecorder.StopAndFinalize.cs
-Source/Parsek/ParsekKSC.cs
-Source/Parsek/ParsekKSC.Playback.cs
+Source/Parsek/Recording/FlightRecorder.StopAndFinalize.cs
+Source/Parsek/Controllers/ParsekKSC.cs
+Source/Parsek/Controllers/ParsekKSC.Playback.cs
 # ParsekFlightMapMarkers holds the flight map-marker pass moved out of ParsekUI.cs verbatim:
 # the ghostStates dict it walks is keyed by CommittedRecordings index ([ERS-exempt] at the
 # read), so markers must be looked up in that same index space.
-Source/Parsek/ParsekFlightMapMarkers.cs
+Source/Parsek/Controllers/ParsekFlightMapMarkers.cs
 Source/Parsek/UI/RecordingsTableUI.cs
 # RecordingsTableUI's partial-class split (scripts/refactor/split_recordingstableui.py):
 # the raw reads RecordingsTableUI.cs held now also sit in these three partials, same
@@ -244,27 +246,27 @@ Source/Parsek/UI/MissionsWindowUI.ViewData.cs
 # resolver introduced by Phase D. It resolves exact recording ids from the
 # raw list when the focus/anchor record is a NotCommitted active Re-Fly
 # attempt that ERS would intentionally filter out.
-Source/Parsek/RecordedRelativeAnchorPoseResolver.cs
+Source/Parsek/Ghost/RecordedRelativeAnchorPoseResolver.cs
 
 # GroupHierarchyStore prunes persisted hierarchy state against the raw
 # committed list, then subtracts explicit supersede-relation ids so the saved
 # hierarchy matches the recordings table's display-effective group membership.
 # Documented at the call site with an inline [ERS-exempt] comment.
-Source/Parsek/GroupHierarchyStore.cs
+Source/Parsek/Core/GroupHierarchyStore.cs
 
 # MissionGroupLink renames a mission's root group and its auto subgroups. A
 # group name is a tag on every committed recording, superseded ones included,
 # so its collision check and rename read the raw committed list, as the
 # RecordingStore group forwarders it used to call did. Documented at the call
 # sites with inline [ERS-exempt] comments; no ledger reads.
-Source/Parsek/MissionGroupLink.cs
+Source/Parsek/Missions/MissionGroupLink.cs
 
 # RewindPointDiskUsage builds a Settings-only retained-RP diagnostic line.
 # It resolves each slot's already-walked effective id against the raw committed
 # list so the explicit scenario overload can classify a supplied scenario rather
 # than only ParsekScenario.Instance. The raw read is documented at the call site
 # with an inline [ERS-exempt] comment; no ledger reads.
-Source/Parsek/RewindPointDiskUsage.cs
+Source/Parsek/Rewind/RewindPointDiskUsage.cs
 
 # --- Phase 4 ERS-exempt files ---
 # RewindPointAuthor captures PidSlotMap / RootPartPidMap at a multi-controllable
@@ -273,7 +275,7 @@ Source/Parsek/RewindPointDiskUsage.cs
 # speculative-RP creation time, before any session merge can produce a
 # RecordingSupersede relation (§6.6). Documented at the call site with an
 # inline [ERS-exempt] comment.
-Source/Parsek/RewindPointAuthor.cs
+Source/Parsek/Rewind/RewindPointAuthor.cs
 
 # --- Phase 6 ERS-exempt files ---
 # RewindInvoker orchestrates the invocation flow; it reads the committed list
@@ -281,28 +283,28 @@ Source/Parsek/RewindPointAuthor.cs
 # OriginChildRecordingId. Supersede-aware lookups would mis-resolve the origin
 # by walking to the effective recording, which is precisely the id we need to
 # store as SupersedeTargetId on the provisional re-fly record (design §6.3).
-Source/Parsek/RewindInvoker.cs
+Source/Parsek/Rewind/RewindInvoker.cs
 # The RewindInvoker partial files (scripts/refactor/split_rewindinvoker.py) that hold its
 # raw reads, under the same rationale: the advisory's sibling slot names, the strip /
 # activate run and its resurrected-vessel hold, the disabled-slot strip and committed vessel
 # names, the marker write's provisional reap and origin lookup, and the in-place debris strip.
-Source/Parsek/RewindInvoker.Advisory.cs
-Source/Parsek/RewindInvoker.InPlaceDebris.cs
-Source/Parsek/RewindInvoker.MarkerWrite.cs
-Source/Parsek/RewindInvoker.SlotStrip.cs
-Source/Parsek/RewindInvoker.StripActivate.cs
+Source/Parsek/Rewind/RewindInvoker.Advisory.cs
+Source/Parsek/Rewind/RewindInvoker.InPlaceDebris.cs
+Source/Parsek/Rewind/RewindInvoker.MarkerWrite.cs
+Source/Parsek/Rewind/RewindInvoker.SlotStrip.cs
+Source/Parsek/Rewind/RewindInvoker.StripActivate.cs
 
 # ReconciliationBundle (design §6.4) captures the raw committed list + raw
 # ledger actions so the restore-after-load path can re-install them verbatim.
 # Routing through ERS/ELS would drop superseded/tombstoned entries from the
 # snapshot, breaking the reconciliation invariant.
-Source/Parsek/ReconciliationBundle.cs
+Source/Parsek/Rewind/ReconciliationBundle.cs
 
 # PostLoadStripper (design §6.4 step 4) correlates live vessels to slot indices
 # via raw Vessel.persistentId / rootPart.persistentId against the RP's
 # PidSlotMap / RootPartPidMap. This is a physical identity correlation at load
 # time, not a supersede-aware recording lookup.
-Source/Parsek/PostLoadStripper.cs
+Source/Parsek/Rewind/PostLoadStripper.cs
 
 # --- Phase 7 ERS-exempt files ---
 # SessionSuppressionState (design §3.3 / §10.3) exposes two index-based helpers
@@ -312,14 +314,14 @@ Source/Parsek/PostLoadStripper.cs
 # shift the index space (ERS excludes NotCommitted / superseded / suppressed
 # entries) and break every caller. The suppression predicate is itself the
 # gate that consumers use AFTER the raw lookup, so it must read the raw list.
-Source/Parsek/SessionSuppressionState.cs
+Source/Parsek/Controllers/SessionSuppressionState.cs
 
 # CrewReservationManager.ActiveVesselMatchesReFlyRecording (§3.3.1 dual-
 # residence carve-out) looks up the provisional re-fly recording by id to
 # correlate its VesselPersistentId with the active vessel. The provisional
 # recording is intentionally NotCommitted (§3.1), so ERS filters it out by
 # definition — the raw read is the only way to find it.
-Source/Parsek/CrewReservationManager.cs
+Source/Parsek/Crew/CrewReservationManager.cs
 
 # --- Phase 8 ERS-exempt files ---
 # MergeDialog.TryCommitReFlySupersede looks up the provisional re-fly
@@ -328,14 +330,14 @@ Source/Parsek/CrewReservationManager.cs
 # list. The provisional still carries MergeState=NotCommitted at this
 # point (Phase 8 step that flips it runs inside SupersedeCommit), so ERS
 # filters it out by definition — raw read is the only way to find it.
-Source/Parsek/MergeDialog.cs
+Source/Parsek/Rewind/MergeDialog.cs
 
 # MergeDialog.DialogText.cs is the partial-class split holding the pure
 # text/duration builders. FindReFlyRecording (moved verbatim from
 # MergeDialog.cs) reads RecordingStore.CommittedRecordings directly to
 # locate the provisional re-fly recording by id when it is not in the
 # pending tree — same NotCommitted-residence rationale as MergeDialog.cs.
-Source/Parsek/MergeDialog.DialogText.cs
+Source/Parsek/Rewind/MergeDialog.DialogText.cs
 
 # MergeDialog.ReFlyDiscard.cs is the partial-class split holding the Re-Fly
 # attempt discard + topology-pruning family (LookupCommittedRecordingById,
@@ -344,7 +346,7 @@ Source/Parsek/MergeDialog.DialogText.cs
 # directly to locate / remove / sanitise the active Re-Fly attempt's
 # NotCommitted recordings, which ERS filters out by definition — same
 # NotCommitted-residence rationale as MergeDialog.cs.
-Source/Parsek/MergeDialog.ReFlyDiscard.cs
+Source/Parsek/Rewind/MergeDialog.ReFlyDiscard.cs
 
 # MergeDialog.Commit.cs is the partial-class split holding the tree-commit +
 # parent-chain-tip adoption + optimization-survivor family (MergeCommit,
@@ -354,7 +356,7 @@ Source/Parsek/MergeDialog.ReFlyDiscard.cs
 # recording by id after CommitPendingTree migrates it into the committed list;
 # the provisional still carries MergeState=NotCommitted, which ERS filters out by
 # definition — same NotCommitted-residence rationale as MergeDialog.cs.
-Source/Parsek/MergeDialog.Commit.cs
+Source/Parsek/Rewind/MergeDialog.Commit.cs
 
 # --- Phase 9 ERS-exempt files ---
 # SupersedeCommit.CommitTombstones scans the RAW ledger to BUILD the
@@ -364,13 +366,13 @@ Source/Parsek/MergeDialog.Commit.cs
 # exist in the ledger and thus need tombstones emitted for them. The tomb
 # write itself bumps TombstoneStateVersion so downstream ELS consumers
 # see the retirement on their next call.
-Source/Parsek/SupersedeCommit.cs
+Source/Parsek/Rewind/SupersedeCommit.cs
 # SupersedeCommit.RetireSet.cs is the same partial class: BuildRetireSet is
 # the one retire-set builder CommitTombstones writes from, and the section
 # 2.12 Rule 1 value gate reads the same raw ledger (minus the tombstone ids
 # it collects itself) and the raw committed list for the tip's chain
 # members, so the gate sees exactly the rows a merge would tombstone.
-Source/Parsek/SupersedeCommit.RetireSet.cs
+Source/Parsek/Rewind/SupersedeCommit.RetireSet.cs
 
 # --- Phase 10 ERS-exempt files ---
 # MergeJournalOrchestrator.RunFinisher's ResolveProvisional scans the RAW
@@ -379,7 +381,7 @@ Source/Parsek/SupersedeCommit.RetireSet.cs
 # The provisional carries MergeState=NotCommitted, so ERS filters it out
 # by definition — the raw read is the only way to find it. Also routes
 # the durable-save + journal lifecycle that the finisher recovers from.
-Source/Parsek/MergeJournalOrchestrator.cs
+Source/Parsek/Rewind/MergeJournalOrchestrator.cs
 
 # --- Phase 11 ERS-exempt files ---
 # RewindPointReaper.ReapOrphanedRPs resolves each ChildSlot's origin
@@ -387,7 +389,7 @@ Source/Parsek/MergeJournalOrchestrator.cs
 # (design §6.6 step 9 / §6.8 / §6.10). The slot may still point at a
 # NotCommitted provisional, which ERS filters out; the reaper MUST see
 # that state to decide "retain" vs "reap." No ELS reads.
-Source/Parsek/RewindPointReaper.cs
+Source/Parsek/Rewind/RewindPointReaper.cs
 
 # TreeDiscardPurge.PurgeTree builds the tree's recording-id set from the
 # tree's own Recordings dictionary (tree-local, no ERS routing needed)
@@ -395,7 +397,7 @@ Source/Parsek/RewindPointReaper.cs
 # action's RecordingId (design §6.10 / §3.5 invariant 7). Routing
 # through ELS would be circular (tombstones we are about to remove are
 # exactly what ELS uses to hide actions).
-Source/Parsek/TreeDiscardPurge.cs
+Source/Parsek/Recording/TreeDiscardPurge.cs
 
 # --- Phase 13 ERS-exempt files ---
 # MarkerValidator.Validate looks up marker references in the RAW
@@ -403,7 +405,7 @@ Source/Parsek/TreeDiscardPurge.cs
 # NotCommitted by definition (design §5.7 / §6.3 step 1), so ERS
 # filters it out. The whole point of marker validation is "does this
 # NotCommitted provisional still exist and is it still NotCommitted."
-Source/Parsek/MarkerValidator.cs
+Source/Parsek/Rewind/MarkerValidator.cs
 
 # LoadTimeSweep.Run gathers zombie NotCommitted recordings from the
 # RAW committed list (design §6.9 step 4-6). NotCommitted recordings
@@ -411,7 +413,7 @@ Source/Parsek/MarkerValidator.cs
 # discard. Also scans raw Ledger.Actions to classify orphan tombstones
 # (§6.9 step 8); routing through ELS would be circular because
 # tombstones ARE the ELS filter.
-Source/Parsek/LoadTimeSweep.cs
+Source/Parsek/Rewind/LoadTimeSweep.cs
 
 # RevertInterceptor.DiscardReFlyHandler looks up the session's provisional
 # re-fly recording by id (marker.ActiveReFlyRecordingId) in the raw
@@ -421,7 +423,7 @@ Source/Parsek/LoadTimeSweep.cs
 # before the user clicks Discard — so ERS filters it out by definition.
 # The raw read is the only way to resolve the provisional to a Recording
 # reference for removal.
-Source/Parsek/RevertInterceptor.cs
+Source/Parsek/Rewind/RevertInterceptor.cs
 
 # --- Ghost trajectory map polyline (docs/dev/done/plans/map-trajectory-polyline.md) ---
 # GhostTrajectoryPolylineRenderer's DDOL Driver MonoBehaviour walks
@@ -460,7 +462,7 @@ Source/Parsek/Rendering/AnchorPropagator.cs
 # match production's view of the raw ledger to avoid surfacing different
 # reasons than the post-finalize classifier will. No mutation; no scenario
 # state-version bumps. Same trust scope as SupersedeCommit.cs above.
-Source/Parsek/ReFlyAutoSealPreview.cs
+Source/Parsek/Rewind/ReFlyAutoSealPreview.cs
 
 # RecordingTreeSplitter.SplitOriginAtRewindUT is the Re-Fly merge-time
 # orchestrator that splits the origin recording at the rewind UT into HEAD
@@ -472,7 +474,7 @@ Source/Parsek/ReFlyAutoSealPreview.cs
 # NotCommitted provisionals on neighboring slots. Same trust scope as
 # SupersedeCommit.cs above. Documented at the call site with an inline
 # [ERS-exempt] comment.
-Source/Parsek/RecordingTreeSplitter.cs
+Source/Parsek/Rewind/RecordingTreeSplitter.cs
 
 # --- Logistics supply routes (routes-on-Missions, plan Phase 4) ---
 # RouteOrchestrator.ResolveLoopUnit builds the route's backing-mission
@@ -531,5 +533,5 @@ Source/Parsek/TestCommands/ParsekTestCommandAddon.EnterWatchMode.cs
 # across every leg it recorded, superseded legs included, so the resolver and
 # the apply pass read the raw committed / pending / live recordings, never the
 # ERS. Both files carry a file-level [ERS-exempt] header comment.
-Source/Parsek/VesselIdentity.cs
-Source/Parsek/VesselNameStore.cs
+Source/Parsek/Missions/VesselIdentity.cs
+Source/Parsek/Missions/VesselNameStore.cs

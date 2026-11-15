@@ -62,13 +62,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsEmpty_DefaultStruct()
-        {
-            Assert.True(default(PhaseId).IsEmpty);
-            Assert.False(new PhaseId("rec-A", 0, 0).IsEmpty);
-        }
-
-        [Fact]
         public void ToString_IsGrepStable()
         {
             Assert.Equal("rec-A#i2#p5", new PhaseId("rec-A", 2, 5).ToString());

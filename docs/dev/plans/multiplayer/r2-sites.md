@@ -56,8 +56,8 @@ Prerefactors and additions (design 15.11):
   `Core`). The site table's launch areas are `LaunchArea` values (R2-01).
 - **P1-03** (the launch-site circle cache keyed on `HomeSpaceCenter`'s version and dropped at
   the main menu). Hard dependency for R2-05.
-- **P12-02** (the Controllers rule covers `ParsekRace*` files). R1-04's `ParsekRaceBoot.cs`,
-  which R2-01 edits, relies on it.
+- **P12-02** is dropped (pull request #2611: the folder is the module). R1-04's
+  `Controllers/ParsekRaceBoot.cs`, which R2-01 edits, is in Controllers by its folder.
 - **P10-01** (create-and-start core) only indirectly, through R1-10's and R1-11's
   `RaceSetup` actions that the harness lanes use.
 - **A7** (one "find a game's scenario node before its scenarios load" helper, R1-02 and
@@ -65,8 +65,9 @@ Prerefactors and additions (design 15.11):
 
 R1 tasks:
 
-- R1-01: the three module scaffolds `RaceCore` / `RaceWorld` / `RaceExport` with layers,
-  headless and forbidden rules (every R2 file lands in one of them);
+- R1-03 and R3W-02: the `RaceCore` and `RaceWorld` registrations (each race module registers
+  with its first file; R1-01 is dropped), with layers, headless and forbidden rules (every R2
+  file lands in one of them);
 - R1-03: `RaceLink` (fields `siteSlot`, `siteTableId`, `alternateSites`);
 - R1-04: `RaceGate`, including a read of the mark from a `Game` whose scenario modules have
   not loaded yet, and `ParsekRaceBoot`, the one process-lifetime addon whose
@@ -208,14 +209,14 @@ Readers of the space center position or of launch-site names:
 |--------|-------|----------------|
 | `SpawnCollisionDetector` constants `KscPadLatitude/Longitude`, `KscRunwayLatitude/Longitude`, `DefaultKscExclusionRadiusMeters` (SpawnCollisionDetector.cs:216-232) | stock pad and runway threshold | wrong at sites 1-3; P1 routes them through `HomeSpaceCenter` |
 | `SpawnCollisionDetector.IsWithinKscExclusionZone` (:240), `ClassifyKscExclusionZone` (:271), `DecideLaunchSiteEndOfFlightRetirement` (:349) | those constants | follows `HomeSpaceCenter` after P1 |
-| `LaunchSiteExclusionZones.Classify` (LaunchSiteExclusionZones.cs:179), `GetAltSiteCircles` (:220), cache `cachedRuntimeCircles` (:130) | KSC via the detector, Making History sites from `PSystemSetup.LaunchSites` | the alternate sites do not move, but the read admits the names `LaunchPad` / `Runway` (:269-270), so the cache may hold the stock KSC's own pad and runway; S4a decides, and if so R2-05 filters or rebuilds them (OV-52); P1-03 keys the cache on `HomeSpaceCenter`'s version |
-| `VesselSpawner.EvaluateKscEndOfFlightRetirement` (VesselSpawner.KscRetirement.cs:87, :127, :153) | the classifier above | follows `HomeSpaceCenter` |
+| `LaunchSiteExclusionZones.Classify` (LaunchSiteExclusionZones.cs:182), `GetAltSiteCircles` (:236), cache `cachedRuntimeCircles` (:133) | KSC via the detector, Making History sites from `PSystemSetup.LaunchSites` | the alternate sites do not move, but the read admits the names `LaunchPad` / `Runway` (:302-303), so the cache may hold the stock KSC's own pad and runway; S4a decides, and if so R2-05 filters or rebuilds them (OV-52); P1-03 keys the cache on `HomeSpaceCenter`'s version |
+| `VesselSpawner.EvaluateKscEndOfFlightRetirement` (VesselSpawner.KscRetirement.cs:88, :127, :153) | the classifier above | follows `HomeSpaceCenter` |
 | `LaunchSiteOnlyGhost` hidden set (LaunchSiteOnlyGhost.cs:36-39, :274) | classifier, cached against `RecordingStore.StateVersion` and the tree count | stale across a move unless the key also holds `HomeSpaceCenter`'s version; R2-05 adds it (OV-53) |
 | `FlightRecorder.ResolveLandedAtLaunchSite` (FlightRecorder.StartRecording.cs:336-342) and `CaptureStartLocation` (:247-272) | the live `landedAt` name, then `FlightDriver.LaunchSiteName` (:364) | stock names at the own site; a copy with retagged colliders gives no name |
-| `RecordingOptimizer.IsLaunchSiteStart` (RecordingOptimizer.cs:648) and `IsLaunchSiteDepartureBoundary` (:724) | `LaunchSiteName` and `StartSituation` only, no position | no change |
+| `RecordingOptimizer.IsLaunchSiteStart` (RecordingOptimizer.cs:647) and `IsLaunchSiteDepartureBoundary` (:724) | `LaunchSiteName` and `StartSituation` only, no position | no change |
 | `RouteAnalysisEngine.IsKscOriginRecording` (Logistics/RouteAnalysisEngine.cs:1453) | a non-empty `LaunchSiteName` on Kerbin | a copy must never give a launch-site name, or a route from a rival's pad reads as a KSC origin |
 | `ParsekKSC.IsGhostInCullRange` (ParsekKSC.cs:1779) and the KSC-scene playback (ParsekKSC.Playback.cs) | distance to the scene camera; recorded positions | follows the moved camera; no position constant |
-| `GameStateFacilityRecorder` (GameStateFacilityRecorder.cs:38, :413), `GameStateBaseline` (GameStateBaseline.cs:128), `FacilityStatePatcher.PatchDestructionState` (GameActions/FacilityStatePatcher.cs:452) | `FindObjectsOfType<DestructibleBuilding>()` | a copy that kept the component would add buildings with the stock ids |
+| `GameStateFacilityRecorder` (GameStateFacilityRecorder.cs:47, :422), `GameStateBaseline` (GameStateBaseline.cs:128), `FacilityStatePatcher.PatchDestructionState` (GameActions/FacilityStatePatcher.cs:452) | `FindObjectsOfType<DestructibleBuilding>()`; the recorder's two reads go through its core `FindDestructibleBuildingsCore` (GameStateFacilityRecorder.cs:26-27) | a copy that kept the component would add buildings with the stock ids |
 | `StockUiFacilityDecoration.HostOf` (StockUiFacilityDecoration.cs:263) | the `SpaceCenterBuilding` of a stock context menu | copies hold none, so no menu opens on them |
 | `LiveVesselSnapshot.TryResolveBiome` (LiveVesselSnapshot.cs:720) | biome map at a lat / lon | the home site's own map biome; accepted as "the neighbourhood" (design 7.3) |
 | in-game test `RuntimeTests` (InGameTests/RuntimeTests.cs:16444) | `IsWithinKscExclusionZone` | test only |
@@ -225,7 +226,7 @@ Hooks and patterns R2 reuses:
 - `ParsekScenario.OnMainMenuTransition` (ParsekScenario.SceneTransitions.cs:247) is the main
   menu reset, subscribed as an INSTANCE method because a static `EventData` handler throws
   (:221-228). R1-04's `ParsekRaceBoot`, which calls R2's reconcile, follows the same rule.
-- `LaunchSiteExclusionZones.IsMakingHistoryInstalled` (LaunchSiteExclusionZones.cs:99) is
+- `LaunchSiteExclusionZones.IsMakingHistoryInstalled` (LaunchSiteExclusionZones.cs:103) is
   the expansion check the launch rules reuse.
 - Harness: `SWS-1-save-switch-through-main-menu` (harness/scenarios/) already switches saves
   through the main menu in one process; `MC-4-making-history-desert` launches from an
@@ -233,9 +234,9 @@ Hooks and patterns R2 reuses:
   `LaunchFromEditor`, `LaunchSiteProbe`, `Recover`, `ExitToSpaceCenter`, `RevertToLaunch`,
   `RunTests` exist (TestCommands/TestCommandVerbs.cs).
 
-Module placement today: `SpawnCollisionDetector.cs` is Ghost (scripts/arch/modules.toml:96),
-`LaunchSiteExclusionZones.cs` is Controllers (:174), `LaunchSiteOnlyGhost.cs` is Ghost (:180),
-`ParsekScenario*` is Controllers (:322). `RaceWorld` (features) therefore must not call
+Module placement today (the folder is the module): `SpawnCollisionDetector.cs` sits in `Ghost/`,
+`LaunchSiteExclusionZones.cs` in `Controllers/`, `LaunchSiteOnlyGhost.cs` in `Ghost/`, and the
+`ParsekScenario*.cs` files in `Controllers/`. `RaceWorld` (features) therefore must not call
 `LaunchSiteExclusionZones` (a backward edge into entry); it only sets `HomeSpaceCenter` (Core)
 and the Parsek readers follow that value.
 
@@ -346,7 +347,7 @@ Logging (tag `RaceSites`, design section 10):
   from the gate decision the handler just applied and calls `RaceSites.Reconcile` (OV-51;
   no second addon; R1-04 leaves no empty hook).
   Placement rules for the new files. Uncalled-method ratchet (`docs/dev/arch/README.md`
-  :509-512): every member lands with a production caller. `SiteTable.Get`, `Decide` and
+  :513-516): every member lands with a production caller. `SiteTable.Get`, `Decide` and
   `Reconcile` are reached from `OnSceneRequest`; the table itself is built in `SiteTable`'s
   static initializer (a root), so this task adds the `LaunchArea.Strip` factory to P1-02's
   `LaunchArea.cs` together with `SiteRow.LaunchAreas` (P1-02 does not create it; P1-02 is
@@ -361,11 +362,12 @@ Logging (tag `RaceSites`, design section 10):
   race(slot) pairs, including same save, other slot, unknown table -> `Refuse`);
   log-capture test of the `Reconcile:` line. Live: one `Reconcile:` line per scene change
   in a race save, none in a single-player save.
-- **Registers:** nothing new in `scripts/arch/modules.toml` (RaceCore / RaceWorld folders
-  are R1-01's, `ParsekRaceBoot.cs` is placed by P12-02's rule in R1-04); headless pins for
+- **Registers:** nothing new in `scripts/arch/modules.toml` (the RaceCore rule is R1-03's, the
+  RaceWorld rule R3W-02's; `ParsekRaceBoot.cs` sits in `Controllers/`); headless pins for
   the RaceCore files; `scripts/arch/log_tags.json` (`RaceSites` -> RaceWorld) via
   `logtags.py --write`; facts pins if a method crosses the complexity watch band.
-- **Size:** M. **Depends on:** R1-01, R1-03, R1-04, P12-02, P1-02.
+- **Size:** M. **Depends on:** R1-03, R1-04, P1-02, R3W-02 (the RaceWorld module registration;
+  `RaceWorld/RaceSites.cs` needs the rule).
   **Spike:** S1b changes the three rows' numbers and launch-area rows only (S4a measures
   the footprints); S4a changes the hook if the new
   `Game` is not yet in `HighLogic.CurrentGame` at the scene request (then R1-04 moves the
@@ -672,7 +674,7 @@ Logging (tag `RaceSites`, design section 10):
   loaded straight from the slot 2 save: `Sites restored ... reason=other-race-save` then
   `Sites applied ... home=1`, and `ListHandles kind=sites` shows slot 1's row; (d) a direct
   seam `LoadGame` of the single-player save straight from the slot 1 save's Space Center
-  (no main menu; `harness/run.py:1450-1451`): `ListHandles kind=sites` equals RACE-0's stock
+  (no main menu; `harness/run.py:1978-1979`): `ListHandles kind=sites` equals RACE-0's stock
   values again. Last, the spec's one `RunTests category=RaceSitesStock` in that
   single-player save (`StockRestored`, `NoPatchesWhenStock`, `NoCopiesWhenStock`,
   `KerbinIsStock`). Design cases 23 and 31.
@@ -796,10 +798,12 @@ anywhere.
 
 ## 7. Gates and registrations
 
-- **Architecture map** (`scripts/arch/modules.toml`): no new root file (the reconcile call
-  sits in R1-04's `ParsekRaceBoot.cs`, placed by P12-02's `ParsekRace*` rule);
-  `Patches/RaceLaunchGuardPatch.cs` by the Patches folder rule; RaceCore / RaceWorld files
-  by R1-01's folder rules. Re-pin module counts if the suite asks.
+- **Architecture map:** a new file's module is the folder it is created in
+  (`Source/Parsek/<Module>/<Name>.cs`); no `modules.toml` edit places it, and a file in the root
+  of `Source/Parsek` reds the arch suite. The reconcile call sits in R1-04's
+  `Controllers/ParsekRaceBoot.cs`; `Patches/RaceLaunchGuardPatch.cs` is in Patches;
+  RaceCore / RaceWorld files are placed by the rules R1-03 and R3W-02 add with their first
+  files. Re-pin module counts if the suite asks.
 - **Layers and forbidden edges:** RaceCore files name only the floor (LogIO, Core); RaceWorld
   files name RaceCore, Core (`HomeSpaceCenter`) and stock types, never `Controllers`,
   `GameActions`, `Recording` or `Ghost` (none needed). `ParsekRaceBoot` (Controllers) and
@@ -807,7 +811,7 @@ anywhere.
   `LaunchSiteExclusionZones` (Controllers) reads only `HomeSpaceCenter` (Core).
   `layer_pins.toml` must not move; if it does, a file is in the wrong module.
 - **Headless:** every RaceCore file stays leak-free (`headless_pins.toml` unchanged except
-  for R1-01's module entry). Live reads live only in `RaceWorld`.
+  for R1-03's module entry). Live reads live only in `RaceWorld`.
 - **Static lifetimes:** every `RaceSites` static tagged `process` in
   `scripts/arch/lifetimes.toml` with the reason "Kerbin's objects outlive a save; reconciled
   at every scene request"; `HomeSpaceCenter`'s static (R2-05) tagged `process` the same
@@ -894,16 +898,17 @@ anywhere.
    last `UpgradeLevel.facilityPrefab` and strip before `Awake`, because
    `DestructibleBuilding` and `UpgradeableFacility` register by id
    (DestructibleBuilding.cs:774, Upgradeables.UpgradeableFacility.cs:61) and Parsek's
-   facility code scans `FindObjectsOfType<DestructibleBuilding>()` at four sites (3.2).
+   facility code scans `FindObjectsOfType<DestructibleBuilding>()` at four production sites
+   (3.2; the recorder's two go through `FindDestructibleBuildingsCore`).
 6. **"Alternate sites off" and a mid-race difficulty change.** The race setting maps onto
    stock `AllowOtherLaunchSites` (GameParameters.cs:223, EditorDriver.cs:1528), which a
    player can change; case 21 allows and discloses difficulty changes. The plan's guard
    enforces `RaceLink.alternateSites` whatever the difficulty says (question 10.2).
 7. **The launch-site circle cache does not need resetting for the move.** Design 7.3 lists
    it among what must follow the move; the cached circles are the Making History sites,
-   which do not move (LaunchSiteExclusionZones.cs:220-247). P1's reset still fixes the
+   which do not move (LaunchSiteExclusionZones.cs:236-275). P1's reset still fixes the
    partial-read freeze, a single-player matter. Settled: not established, because the
-   read admits `LaunchPad` / `Runway` (LaunchSiteExclusionZones.cs:269-270); S4a's P1-03
+   read admits `LaunchPad` / `Runway` (LaunchSiteExclusionZones.cs:302-303); S4a's P1-03
    VERIFY decides, and R2-05 filters or rebuilds those circles if they are cached (OV-52).
 8. **The optimizer's launch-site rule reads no position** (RecordingOptimizer.cs:648),
    confirmed; design 12 lists it as a reader to check. No work.

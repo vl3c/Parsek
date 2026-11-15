@@ -1,0 +1,996 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Runtime.CompilerServices;
+
+namespace Parsek
+{
+    /// <summary>
+    /// What a committed-future row does to a stock item. One member per stock-screen
+    /// block or annotation kind the reservation overlay program keys on
+    /// (docs/dev/research/stock-ui-reservation-overlays-2026-09-25.md, section 10).
+    /// </summary>
+    internal enum CommittedFutureKind
+    {
+        /// <summary><c>ScienceSpending</c> with a <c>NodeId</c>. Key: tech id.</summary>
+        TechResearch,
+        /// <summary>A facility LEVEL CHANGE: a <c>FacilityUpgrade</c> row, either an upgrade or a
+        /// stock "Rebuild lvl N" (a level drop, marked <c>GameAction.FacilityDowngrade</c>; the
+        /// entry's <see cref="CommittedFutureEntry.FacilityDowngrade"/> says which). Levels are
+        /// absolute, so any later committed level change holds every earlier one of that
+        /// facility: the Upgrade and Rebuild blocks both read this kind (owner ruling
+        /// 2026-10-07). A consumer that reads <see cref="CommittedFutureEntry.FacilityToLevel"/>
+        /// as a raise must check the direction. Key: facility id (<c>SpaceCenter/LaunchPad</c>).</summary>
+        FacilityUpgrade,
+        /// <summary><c>ContractAccept</c>. Key: contract guid string.</summary>
+        ContractAccept,
+        /// <summary><c>ContractComplete</c>. Key: contract guid string.</summary>
+        ContractComplete,
+        /// <summary><c>ContractFail</c>. Key: contract guid string.</summary>
+        ContractFail,
+        /// <summary><c>ContractCancel</c>. Key: contract guid string.</summary>
+        ContractCancel,
+        /// <summary><c>KerbalHire</c>. Key: kerbal name.</summary>
+        KerbalHire,
+        /// <summary><c>KerbalDismissal</c>: a Space Center firing on the timeline (design
+        /// section 9.12.1). Holds the kerbal's Dismiss button and his crew assignment until
+        /// its UT. Key: kerbal name.</summary>
+        KerbalDismissal,
+        /// <summary><c>StrategyActivate</c>. Key: strategy id.</summary>
+        StrategyActivate,
+        /// <summary><c>StrategyDeactivate</c>. Key: strategy id.</summary>
+        StrategyDeactivate,
+        /// <summary><c>FundsSpending</c> with <c>FundsSpendingSource.Other</c> and a
+        /// <c>DedupKey</c>: a part entry-cost purchase. Key: part name.</summary>
+        PartPurchase,
+        /// <summary><c>FacilityDestruction</c>. Key: the destructible building id
+        /// (<c>SpaceCenter/LaunchPad/Facility/...</c>), the row's <c>FacilityId</c>.</summary>
+        FacilityDestruction,
+        /// <summary><c>FacilityRepair</c>. Key: the destructible building id, as
+        /// <see cref="FacilityDestruction"/>.</summary>
+        FacilityRepair,
+        /// <summary><c>FundsSpending</c> with <c>FundsSpendingSource.PartUpgrade</c> and a
+        /// <c>DedupKey</c>: a part upgrade purchase. Key: the stock <c>PARTUPGRADE</c> name.</summary>
+        PartUpgradePurchase
+    }
+
+    /// <summary>
+    /// One committed row the index knows about. Immutable. <see cref="RecordingId"/> and
+    /// <see cref="RecordingName"/> are null for a KSC-origin row.
+    /// </summary>
+    internal sealed class CommittedFutureEntry
+    {
+        internal readonly CommittedFutureKind Kind;
+        internal readonly string Key;
+        internal readonly double UT;
+        internal readonly string RecordingId;
+        internal readonly string RecordingName;
+        /// <summary>FacilityUpgrade only: the level the row reaches (1-based), else 0. For a
+        /// Rebuild (<see cref="FacilityDowngrade"/>) that is the LOWER level.</summary>
+        internal readonly int FacilityToLevel;
+        /// <summary>The row's cost: science for a tech, funds for a facility, hire or part.</summary>
+        internal readonly float Amount;
+        /// <summary>Contract rows: the recorded title, or null.</summary>
+        internal readonly string Title;
+        /// <summary>ContractAccept only: the accepted contract's absolute deadline UT, or NaN
+        /// when the row carries none (open-ended).</summary>
+        internal readonly double DeadlineUT;
+        /// <summary>ContractAccept only: true when the accepted contract is a stock
+        /// auto-accept contract (its accept snapshot says <c>autoAccept = True</c>); stock
+        /// neither counts nor slot-checks those.</summary>
+        internal readonly bool AutoAccept;
+        /// <summary>ContractAccept only: the accepted contract's agent as Mission Control
+        /// shows it (the accept snapshot's <c>agent</c>, stock's <c>Agent.Title</c>), or null.
+        /// Several offers can share a title; the agent tells them apart. The index reads the
+        /// snapshot only; a row with no snapshot agent is resolved against stock's live
+        /// contract list when the slot reason is rendered
+        /// (<see cref="ContractSlotReservation.WithStarvedAcceptAgent"/>).</summary>
+        internal readonly string AgentTitle;
+        /// <summary>ContractFail only: true when the fail is the contract's deadline running
+        /// out (stock's <c>DeadlineExpired</c> fires the same fail event), judged against the
+        /// accept it closes with the Timeline's own test
+        /// (<c>GameActionDisplay.IsExpiredContractFail</c>), so Mission Control says "expires"
+        /// where the Timeline says "Expired".</summary>
+        internal readonly bool DeadlineExpiry;
+        /// <summary>FacilityUpgrade only: true when the row is a stock Rebuild (the level drops
+        /// to <see cref="FacilityToLevel"/>), false for an upgrade.</summary>
+        internal readonly bool FacilityDowngrade;
+        /// <summary>ContractCancel only: true when the row is stock ending the Active contract
+        /// because its requirements no longer hold (<see cref="GameAction.ContractRequirementsLost"/>),
+        /// not a player cancel, so Mission Control says "Ended" where the Timeline says "Ended".</summary>
+        internal readonly bool RequirementsLost;
+        /// <summary>The source row's <see cref="GameAction.CaptureSequence"/> and
+        /// <see cref="GameAction.Sequence"/>: the walk's same-UT tie, so two rows of one key at
+        /// one UT (a Rebuild and an Upgrade in one Space Center visit) keep the walk's order.
+        /// 0 for an entry with no ledger row.</summary>
+        internal readonly long CaptureSequence;
+        internal readonly int Sequence;
+        /// <summary>ContractAccept only: the accept row's stock uniqueness id
+        /// (<see cref="GameAction.ContractStockId"/>), 0 when not captured. The twin rule
+        /// (<see cref="ContractTwinRule"/>, design 3.15 step 8) reads it.</summary>
+        internal readonly long StockContractId;
+        /// <summary>ContractAccept only: the accept row's goal key
+        /// (<see cref="GameAction.ContractGoalKey"/>), null when the type has none or it was not
+        /// captured. The twin rule matches on it as well as on the stock id
+        /// (<see cref="ContractTwinRule"/>, owner ruling 2026-10-27).</summary>
+        internal readonly string GoalKey;
+
+        internal CommittedFutureEntry(
+            CommittedFutureKind kind,
+            string key,
+            double ut,
+            string recordingId,
+            string recordingName,
+            int facilityToLevel = 0,
+            float amount = 0f,
+            string title = null,
+            double deadlineUT = double.NaN,
+            bool autoAccept = false,
+            string agentTitle = null,
+            bool deadlineExpiry = false,
+            bool facilityDowngrade = false,
+            bool requirementsLost = false,
+            long captureSequence = 0,
+            int sequence = 0,
+            long stockContractId = 0,
+            string goalKey = null)
+        {
+            Kind = kind;
+            Key = key ?? "";
+            UT = ut;
+            RecordingId = string.IsNullOrEmpty(recordingId) ? null : recordingId;
+            RecordingName = string.IsNullOrEmpty(recordingName) ? null : recordingName;
+            FacilityToLevel = facilityToLevel;
+            Amount = amount;
+            Title = string.IsNullOrEmpty(title) ? null : title;
+            DeadlineUT = deadlineUT;
+            AutoAccept = autoAccept;
+            AgentTitle = string.IsNullOrEmpty(agentTitle) ? null : agentTitle;
+            DeadlineExpiry = deadlineExpiry;
+            FacilityDowngrade = facilityDowngrade;
+            RequirementsLost = requirementsLost;
+            CaptureSequence = captureSequence;
+            Sequence = sequence;
+            StockContractId = stockContractId;
+            GoalKey = string.IsNullOrEmpty(goalKey) ? null : goalKey;
+        }
+
+        /// <summary>A copy of this entry carrying <paramref name="agentTitle"/> as its agent.</summary>
+        internal CommittedFutureEntry WithAgentTitle(string agentTitle)
+        {
+            return new CommittedFutureEntry(
+                Kind, Key, UT, RecordingId, RecordingName, FacilityToLevel, Amount, Title,
+                DeadlineUT, AutoAccept, agentTitle, DeadlineExpiry, FacilityDowngrade,
+                RequirementsLost, CaptureSequence, Sequence, StockContractId, GoalKey);
+        }
+    }
+
+    /// <summary>
+    /// One committed kerbal assignment (a <c>KerbalAssignment</c> row of a committed
+    /// flight), kept so a reservation's explanation can name the flight that holds the
+    /// kerbal. Not filtered by UT: a hold is about a flight that may have started long ago.
+    /// </summary>
+    internal sealed class CommittedKerbalAssignment
+    {
+        internal readonly string KerbalName;
+        internal readonly string RecordingId;
+        internal readonly string RecordingName;
+        internal readonly KerbalEndState EndState;
+        /// <summary>The flight's end, or NaN when the row carries none.</summary>
+        internal readonly double EndUT;
+
+        internal CommittedKerbalAssignment(
+            string kerbalName, string recordingId, string recordingName,
+            KerbalEndState endState, double endUT)
+        {
+            KerbalName = kerbalName ?? "";
+            RecordingId = recordingId;
+            RecordingName = string.IsNullOrEmpty(recordingName) ? null : recordingName;
+            EndState = endState;
+            EndUT = endUT;
+        }
+    }
+
+    /// <summary>
+    /// The UT-keyed committed-future index: every COMMITTED, EFFECTIVE row a stock-screen
+    /// block or annotation keys on, grouped by (kind, key) and sorted in walk order. Built once per
+    /// ledger change by <see cref="CommittedFutureIndexCache"/>; the marks and the
+    /// click-blocks read the SAME instance, so they cannot disagree.
+    ///
+    /// <para><b>Committed.</b> A row counts when it is in the effective ledger
+    /// (<c>EffectiveState.ComputeELS</c>: not tombstoned) AND either has no recording
+    /// (a KSC-origin row, written the moment the player acted) or belongs to a recording
+    /// in the Effective Recording Set (<c>EffectiveState.ComputeERS</c>: committed, not
+    /// <c>MergeState.NotCommitted</c>, not superseded, not session-suppressed). A row
+    /// tagged to the live or pending tree, or to a Re-Fly provisional, is never a
+    /// reservation: a block only protects committed history.</para>
+    ///
+    /// <para><b>Future.</b> A row is committed FUTURE when <c>row.UT &gt; currentUT</c>,
+    /// strictly. A row AT the current UT is already applied: the ledger walk's cutoff is
+    /// <c>UT &lt;= cutoff</c> (<c>RecalculationEngine.Recalculate</c>), so at that instant
+    /// the item has already happened and nothing is blocked any more. Every query takes
+    /// <c>currentUT</c> explicitly, so the index itself never goes stale as the clock
+    /// moves; only a ledger change rebuilds it.</para>
+    /// </summary>
+    internal sealed class CommittedFutureIndex
+    {
+        private static readonly List<CommittedFutureEntry> NoEntries = new List<CommittedFutureEntry>();
+
+        private readonly Dictionary<CommittedFutureKind, Dictionary<string, List<CommittedFutureEntry>>> byKind =
+            new Dictionary<CommittedFutureKind, Dictionary<string, List<CommittedFutureEntry>>>();
+
+        private readonly Dictionary<string, List<CommittedKerbalAssignment>> assignmentsByKerbal =
+            new Dictionary<string, List<CommittedKerbalAssignment>>(StringComparer.Ordinal);
+
+        internal static readonly CommittedFutureIndex Empty = new CommittedFutureIndex();
+
+        /// <summary>Rows the build skipped because their recording is not committed.</summary>
+        internal int SkippedUncommittedRows { get; private set; }
+
+        /// <summary>Purchase rows the build skipped because the walk does not charge them: the
+        /// item is already owned there (<see cref="PurchaseStateRule"/>, design 3.15 step 6).
+        /// A facility level row is never skipped: it keeps holding the facility's controls.</summary>
+        internal int SkippedAlreadyOwnedRows { get; private set; }
+
+        /// <summary>Total indexed entries (all kinds, past and future).</summary>
+        internal int EntryCount { get; private set; }
+
+        private CommittedFutureIndex() { }
+
+        /// <summary>
+        /// True when a row at <paramref name="entryUT"/> is still ahead of
+        /// <paramref name="currentUT"/>. The single definition of the boundary.
+        /// </summary>
+        internal static bool IsFuture(double entryUT, double currentUT)
+        {
+            return entryUT > currentUT;
+        }
+
+        /// <summary>
+        /// Maps one ledger row to its index kind and key. False for a row no stock-screen
+        /// kind keys on.
+        /// </summary>
+        internal static bool TryClassify(GameAction action, out CommittedFutureKind kind, out string key)
+        {
+            kind = default(CommittedFutureKind);
+            key = null;
+            if (action == null) return false;
+            switch (action.Type)
+            {
+                case GameActionType.ScienceSpending:
+                    kind = CommittedFutureKind.TechResearch;
+                    key = action.NodeId;
+                    break;
+                case GameActionType.FacilityUpgrade:
+                    // Upgrades and Rebuilds alike (owner ruling 2026-10-07): a committed level
+                    // change of either direction holds every earlier one of the facility.
+                    kind = CommittedFutureKind.FacilityUpgrade;
+                    key = action.FacilityId;
+                    break;
+                case GameActionType.ContractAccept:
+                    kind = CommittedFutureKind.ContractAccept;
+                    key = action.ContractId;
+                    break;
+                case GameActionType.ContractComplete:
+                    kind = CommittedFutureKind.ContractComplete;
+                    key = action.ContractId;
+                    break;
+                case GameActionType.ContractFail:
+                    kind = CommittedFutureKind.ContractFail;
+                    key = action.ContractId;
+                    break;
+                case GameActionType.ContractCancel:
+                    kind = CommittedFutureKind.ContractCancel;
+                    key = action.ContractId;
+                    break;
+                case GameActionType.KerbalHire:
+                    kind = CommittedFutureKind.KerbalHire;
+                    key = action.KerbalName;
+                    break;
+                case GameActionType.KerbalDismissal:
+                    kind = CommittedFutureKind.KerbalDismissal;
+                    key = action.KerbalName;
+                    break;
+                case GameActionType.StrategyActivate:
+                    kind = CommittedFutureKind.StrategyActivate;
+                    key = action.StrategyId;
+                    break;
+                case GameActionType.StrategyDeactivate:
+                    kind = CommittedFutureKind.StrategyDeactivate;
+                    key = action.StrategyId;
+                    break;
+                case GameActionType.FacilityDestruction:
+                    kind = CommittedFutureKind.FacilityDestruction;
+                    key = action.FacilityId;
+                    break;
+                case GameActionType.FacilityRepair:
+                    kind = CommittedFutureKind.FacilityRepair;
+                    key = action.FacilityId;
+                    break;
+                case GameActionType.FundsSpending:
+                    if (action.FundsSpendingSource == FundsSpendingSource.Other)
+                        kind = CommittedFutureKind.PartPurchase;
+                    else if (action.FundsSpendingSource == FundsSpendingSource.PartUpgrade)
+                        kind = CommittedFutureKind.PartUpgradePurchase;
+                    else
+                        return false;
+                    key = action.DedupKey;
+                    break;
+                default:
+                    return false;
+            }
+            return !string.IsNullOrEmpty(key);
+        }
+
+        /// <summary>
+        /// Builds the index. Pure: every live lookup comes in through a delegate.
+        /// </summary>
+        /// <param name="effectiveActions">The effective ledger (ELS).</param>
+        /// <param name="isCommittedRecording">True when a recording id belongs to the
+        /// committed timeline (ERS membership in production). Null treats every tagged row
+        /// as uncommitted.</param>
+        /// <param name="recordingName">The display name of a recording, or null.</param>
+        /// <param name="fallbackEntries">Extra entries added as given (tests); production
+        /// passes null, every kind being ledger-backed.</param>
+        /// <param name="isAutoAcceptContract">True when a contract guid is a stock
+        /// auto-accept contract (production: its accept snapshot); null treats none as one.</param>
+        /// <param name="contractAgentTitle">The agent title of a contract guid (production:
+        /// its accept snapshot), or null; null reads no agent.</param>
+        internal static CommittedFutureIndex Build(
+            IReadOnlyList<GameAction> effectiveActions,
+            Func<string, bool> isCommittedRecording,
+            Func<string, string> recordingName,
+            IEnumerable<CommittedFutureEntry> fallbackEntries,
+            Func<string, bool> isAutoAcceptContract = null,
+            Func<string, string> contractAgentTitle = null)
+        {
+            var index = new CommittedFutureIndex();
+            var nameCache = new Dictionary<string, string>(StringComparer.Ordinal);
+            int skippedUncommitted = 0;
+            int entries = 0;
+            // Every accept of the effective ledger, by contract: a fail row is an expiry when
+            // it closes an accept whose deadline it reached (the Timeline's test and input).
+            Dictionary<string, List<GameAction>> acceptHistory = null;
+            // The purchase state rule (design 3.15 step 6): a purchase the walk does not charge
+            // because it already owns the item there buys nothing, so it holds no click and
+            // marks nothing. Computed over the same rows in walk order, the walk's own book.
+            // A tech, part, upgrade or hire stays owned whatever the player clicks next (nothing
+            // the player can do un-owns it), so releasing its control is safe. A facility
+            // level is the exception: a Rebuild click ends the run that owns it, and an
+            // upgrade click can take the facility past a committed Rebuild the walk owns, and
+            // either would turn the skipped row back into a level change. So an owned facility
+            // row stays in the index and keeps holding the facility's controls until its UT.
+            HashSet<GameAction> alreadyOwned = PurchaseStateRule.CollectAlreadyOwned(effectiveActions);
+            int skippedOwned = 0;
+
+            if (effectiveActions != null)
+            {
+                for (int i = 0; i < effectiveActions.Count; i++)
+                {
+                    GameAction a = effectiveActions[i];
+                    if (a == null) continue;
+
+                    bool isAssignment = a.Type == GameActionType.KerbalAssignment;
+                    CommittedFutureKind kind = default(CommittedFutureKind);
+                    string key = null;
+                    if (!isAssignment && !TryClassify(a, out kind, out key)) continue;
+                    if (alreadyOwned.Count > 0 && kind != CommittedFutureKind.FacilityUpgrade
+                        && alreadyOwned.Contains(a))
+                    {
+                        skippedOwned++;
+                        continue;
+                    }
+
+                    if (!string.IsNullOrEmpty(a.RecordingId)
+                        && (isCommittedRecording == null || !isCommittedRecording(a.RecordingId)))
+                    {
+                        skippedUncommitted++;
+                        continue;
+                    }
+
+                    string name = ResolveName(a.RecordingId, recordingName, nameCache);
+                    if (isAssignment)
+                    {
+                        if (string.IsNullOrEmpty(a.KerbalName)) continue;
+                        index.AddAssignment(new CommittedKerbalAssignment(
+                            a.KerbalName, a.RecordingId, name, a.KerbalEndStateField,
+                            float.IsNaN(a.EndUT) ? double.NaN : a.EndUT));
+                        continue;
+                    }
+
+                    float amount;
+                    switch (kind)
+                    {
+                        case CommittedFutureKind.TechResearch: amount = a.Cost; break;
+                        case CommittedFutureKind.FacilityUpgrade: amount = a.FacilityCost; break;
+                        case CommittedFutureKind.FacilityRepair: amount = a.FacilityCost; break;
+                        case CommittedFutureKind.KerbalHire: amount = a.HireCost; break;
+                        case CommittedFutureKind.PartPurchase: amount = a.FundsSpent; break;
+                        case CommittedFutureKind.PartUpgradePurchase: amount = a.FundsSpent; break;
+                        case CommittedFutureKind.StrategyActivate: amount = a.SetupCost; break;
+                        default: amount = 0f; break;
+                    }
+                    bool isAccept = kind == CommittedFutureKind.ContractAccept;
+                    bool expiry = false;
+                    if (kind == CommittedFutureKind.ContractFail)
+                    {
+                        if (acceptHistory == null)
+                            acceptHistory = GameActionDisplay.BuildContractAcceptHistory(effectiveActions);
+                        expiry = GameActionDisplay.IsExpiredContractFail(
+                            a, GameActionDisplay.FindAcceptForOutcome(acceptHistory, a));
+                    }
+                    index.Add(new CommittedFutureEntry(
+                        kind, key, a.UT, a.RecordingId, name,
+                        facilityToLevel: kind == CommittedFutureKind.FacilityUpgrade ? a.ToLevel : 0,
+                        amount: amount,
+                        title: a.ContractTitle,
+                        deadlineUT: isAccept ? a.DeadlineUT : double.NaN,
+                        autoAccept: isAccept && isAutoAcceptContract != null && isAutoAcceptContract(key),
+                        agentTitle: isAccept && contractAgentTitle != null ? contractAgentTitle(key) : null,
+                        deadlineExpiry: expiry,
+                        facilityDowngrade: kind == CommittedFutureKind.FacilityUpgrade && a.FacilityDowngrade,
+                        requirementsLost: kind == CommittedFutureKind.ContractCancel && a.ContractRequirementsLost,
+                        captureSequence: a.CaptureSequence,
+                        sequence: a.Sequence,
+                        stockContractId: isAccept ? a.ContractStockId : 0,
+                        goalKey: isAccept ? a.ContractGoalKey : null));
+                    entries++;
+                }
+            }
+
+            if (fallbackEntries != null)
+            {
+                foreach (var e in fallbackEntries)
+                {
+                    if (e == null || string.IsNullOrEmpty(e.Key)) continue;
+                    index.Add(e);
+                    entries++;
+                }
+            }
+
+            foreach (var perKind in index.byKind.Values)
+                foreach (var list in perKind.Values)
+                    SortInWalkOrder(list);
+
+            index.SkippedUncommittedRows = skippedUncommitted;
+            index.SkippedAlreadyOwnedRows = skippedOwned;
+            index.EntryCount = entries;
+            if (skippedOwned > 0)
+                ParsekLog.VerboseOnChange("CommittedFutureIndex", "skipped-owned",
+                    skippedOwned.ToString(CultureInfo.InvariantCulture),
+                    "Build: skipped " + skippedOwned.ToString(CultureInfo.InvariantCulture)
+                    + " purchase row(s) the walk does not charge (item already owned, design 3.15 step 6)");
+            return index;
+        }
+
+        /// <summary>
+        /// Sorts one key's entries in the walk's order: UT, then the walk's same-UT tie
+        /// (<see cref="RecalculationEngine.CompareSameUtTie(long, int, long, int)"/>), then
+        /// build order. One key's rows share a type, so the walk's earnings-before-spendings
+        /// level never separates them. <see cref="FirstFuture"/> and <see cref="LastFuture"/>
+        /// read this order, so a first-wins or last-wins answer at one UT is the walk's.
+        /// </summary>
+        internal static void SortInWalkOrder(List<CommittedFutureEntry> list)
+        {
+            if (list == null || list.Count < 2) return;
+            var indexed = new List<KeyValuePair<int, CommittedFutureEntry>>(list.Count);
+            for (int i = 0; i < list.Count; i++)
+                indexed.Add(new KeyValuePair<int, CommittedFutureEntry>(i, list[i]));
+            indexed.Sort((x, y) =>
+            {
+                int c = x.Value.UT.CompareTo(y.Value.UT);
+                if (c != 0) return c;
+                c = RecalculationEngine.CompareSameUtTie(
+                    x.Value.CaptureSequence, x.Value.Sequence, y.Value.CaptureSequence, y.Value.Sequence);
+                return c != 0 ? c : x.Key.CompareTo(y.Key);
+            });
+            for (int i = 0; i < indexed.Count; i++)
+                list[i] = indexed[i].Value;
+        }
+
+        private static string ResolveName(
+            string recordingId, Func<string, string> recordingName, Dictionary<string, string> cache)
+        {
+            if (string.IsNullOrEmpty(recordingId) || recordingName == null) return null;
+            string name;
+            if (cache.TryGetValue(recordingId, out name)) return name;
+            name = recordingName(recordingId);
+            cache[recordingId] = name;
+            return name;
+        }
+
+        private void Add(CommittedFutureEntry entry)
+        {
+            Dictionary<string, List<CommittedFutureEntry>> perKey;
+            if (!byKind.TryGetValue(entry.Kind, out perKey))
+            {
+                perKey = new Dictionary<string, List<CommittedFutureEntry>>(StringComparer.Ordinal);
+                byKind[entry.Kind] = perKey;
+            }
+            List<CommittedFutureEntry> list;
+            if (!perKey.TryGetValue(entry.Key, out list))
+            {
+                list = new List<CommittedFutureEntry>();
+                perKey[entry.Key] = list;
+            }
+            list.Add(entry);
+        }
+
+        private void AddAssignment(CommittedKerbalAssignment assignment)
+        {
+            List<CommittedKerbalAssignment> list;
+            if (!assignmentsByKerbal.TryGetValue(assignment.KerbalName, out list))
+            {
+                list = new List<CommittedKerbalAssignment>();
+                assignmentsByKerbal[assignment.KerbalName] = list;
+            }
+            list.Add(assignment);
+        }
+
+        private List<CommittedFutureEntry> EntriesOf(CommittedFutureKind kind, string key)
+        {
+            if (string.IsNullOrEmpty(key)) return NoEntries;
+            Dictionary<string, List<CommittedFutureEntry>> perKey;
+            List<CommittedFutureEntry> list;
+            if (byKind.TryGetValue(kind, out perKey) && perKey.TryGetValue(key, out list))
+                return list;
+            return NoEntries;
+        }
+
+        /// <summary>Every committed row of this kind and key, past and future, UT ascending.</summary>
+        internal IReadOnlyList<CommittedFutureEntry> AllEntries(CommittedFutureKind kind, string key)
+        {
+            return EntriesOf(kind, key);
+        }
+
+        private readonly Dictionary<string, StrategyCommittedRows> strategyRows =
+            new Dictionary<string, StrategyCommittedRows>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// One strategy's committed activation / deactivation rows as a
+        /// <see cref="StrategyCommittedRows"/>, built on first use and kept on this index
+        /// instance, so the lookup is rebuilt exactly when the index is (a ledger, recording
+        /// or supersede change). The per-frame <c>Strategy.Update()</c> prefix and the
+        /// strategy state patch read it; null for an empty id.
+        /// </summary>
+        internal StrategyCommittedRows StrategyRows(string strategyId)
+        {
+            if (string.IsNullOrEmpty(strategyId)) return null;
+            lock (strategyRows)
+            {
+                StrategyCommittedRows rows;
+                if (strategyRows.TryGetValue(strategyId, out rows)) return rows;
+                var all = new List<StrategyCommittedRows.Row>();
+                AddStrategyRows(all, EntriesOf(CommittedFutureKind.StrategyActivate, strategyId), true);
+                AddStrategyRows(all, EntriesOf(CommittedFutureKind.StrategyDeactivate, strategyId), false);
+                rows = new StrategyCommittedRows(all);
+                strategyRows[strategyId] = rows;
+                return rows;
+            }
+        }
+
+        /// <summary>Appends one kind's entries with the walk's same-UT tie key, so a
+        /// Deactivate captured after its Activate at one UT reads after it.</summary>
+        private static void AddStrategyRows(
+            List<StrategyCommittedRows.Row> into, List<CommittedFutureEntry> entries, bool isActivation)
+        {
+            for (int i = 0; i < entries.Count; i++)
+                into.Add(new StrategyCommittedRows.Row(
+                    entries[i].UT, isActivation, entries[i].CaptureSequence, entries[i].Sequence));
+        }
+
+        /// <summary>Every committed row of this kind still ahead of
+        /// <paramref name="currentUT"/>, across all keys, UT ascending.</summary>
+        internal List<CommittedFutureEntry> FutureEntriesOfKind(CommittedFutureKind kind, double currentUT)
+        {
+            var result = new List<CommittedFutureEntry>();
+            Dictionary<string, List<CommittedFutureEntry>> perKey;
+            if (!byKind.TryGetValue(kind, out perKey)) return result;
+            foreach (var list in perKey.Values)
+                for (int i = 0; i < list.Count; i++)
+                    if (IsFuture(list[i].UT, currentUT)) result.Add(list[i]);
+            result.Sort((x, y) =>
+            {
+                int c = x.UT.CompareTo(y.UT);
+                return c != 0 ? c : string.CompareOrdinal(x.Key, y.Key);
+            });
+            return result;
+        }
+
+        /// <summary>The committed rows of this kind and key still ahead of
+        /// <paramref name="currentUT"/>, UT ascending.</summary>
+        internal List<CommittedFutureEntry> FutureEntries(
+            CommittedFutureKind kind, string key, double currentUT)
+        {
+            var result = new List<CommittedFutureEntry>();
+            var list = EntriesOf(kind, key);
+            for (int i = 0; i < list.Count; i++)
+                if (IsFuture(list[i].UT, currentUT)) result.Add(list[i]);
+            return result;
+        }
+
+        /// <summary>True when a committed row of this kind and key is still ahead.</summary>
+        internal bool HasFuture(CommittedFutureKind kind, string key, double currentUT)
+        {
+            var list = EntriesOf(kind, key);
+            // UT ascending, so the last entry is the latest.
+            return list.Count > 0 && IsFuture(list[list.Count - 1].UT, currentUT);
+        }
+
+        /// <summary>The earliest committed row still ahead, or null.</summary>
+        internal CommittedFutureEntry FirstFuture(CommittedFutureKind kind, string key, double currentUT)
+        {
+            var list = EntriesOf(kind, key);
+            for (int i = 0; i < list.Count; i++)
+                if (IsFuture(list[i].UT, currentUT)) return list[i];
+            return null;
+        }
+
+        /// <summary>The latest committed row still ahead, or null. A block that keys on
+        /// "any future row" lifts once the clock passes this one.</summary>
+        internal CommittedFutureEntry LastFuture(CommittedFutureKind kind, string key, double currentUT)
+        {
+            var list = EntriesOf(kind, key);
+            if (list.Count == 0) return null;
+            var last = list[list.Count - 1];
+            return IsFuture(last.UT, currentUT) ? last : null;
+        }
+
+        /// <summary>The keys of this kind that have at least one committed row ahead.</summary>
+        internal HashSet<string> FutureKeys(CommittedFutureKind kind, double currentUT)
+        {
+            var result = new HashSet<string>(StringComparer.Ordinal);
+            Dictionary<string, List<CommittedFutureEntry>> perKey;
+            if (!byKind.TryGetValue(kind, out perKey)) return result;
+            foreach (var kvp in perKey)
+            {
+                var list = kvp.Value;
+                if (list.Count > 0 && IsFuture(list[list.Count - 1].UT, currentUT))
+                    result.Add(kvp.Key);
+            }
+            return result;
+        }
+
+        /// <summary>Number of Rebuild (level-drop) rows among the facility level changes.</summary>
+        internal int FacilityRebuildCount()
+        {
+            Dictionary<string, List<CommittedFutureEntry>> perKey;
+            if (!byKind.TryGetValue(CommittedFutureKind.FacilityUpgrade, out perKey)) return 0;
+            int n = 0;
+            foreach (var list in perKey.Values)
+                for (int i = 0; i < list.Count; i++)
+                    if (list[i].FacilityDowngrade) n++;
+            return n;
+        }
+
+        /// <summary>Number of rows of this kind, past and future.</summary>
+        internal int CountOf(CommittedFutureKind kind)
+        {
+            Dictionary<string, List<CommittedFutureEntry>> perKey;
+            if (!byKind.TryGetValue(kind, out perKey)) return 0;
+            int n = 0;
+            foreach (var list in perKey.Values) n += list.Count;
+            return n;
+        }
+
+        /// <summary>Every committed kerbal assignment of this kerbal.</summary>
+        internal IReadOnlyList<CommittedKerbalAssignment> AssignmentsOf(string kerbalName)
+        {
+            List<CommittedKerbalAssignment> list;
+            if (!string.IsNullOrEmpty(kerbalName) && assignmentsByKerbal.TryGetValue(kerbalName, out list))
+                return list;
+            return new List<CommittedKerbalAssignment>();
+        }
+
+        /// <summary>Number of kerbal-assignment rows indexed.</summary>
+        internal int AssignmentCount
+        {
+            get
+            {
+                int n = 0;
+                foreach (var list in assignmentsByKerbal.Values) n += list.Count;
+                return n;
+            }
+        }
+
+        /// <summary>
+        /// The committed flight that holds a reserved kerbal, mirroring
+        /// <c>KerbalsPresentation.ResolveHoldFlight</c>: an open-ended hold is the latest
+        /// flight that ends with the kerbal aboard (or with no recorded ending); otherwise,
+        /// and as the fallback, the latest-ending flight. Null when no committed flight
+        /// names the kerbal.
+        /// </summary>
+        internal CommittedKerbalAssignment ResolveHoldAssignment(string kerbalName, bool openEnded)
+        {
+            var list = AssignmentsOf(kerbalName);
+            if (list.Count == 0) return null;
+            CommittedKerbalAssignment latest = null;
+            CommittedKerbalAssignment latestOpen = null;
+            for (int i = 0; i < list.Count; i++)
+            {
+                var a = list[i];
+                if (latest == null || EndKey(a) > EndKey(latest)) latest = a;
+                if (a.EndState != KerbalEndState.Aboard && a.EndState != KerbalEndState.Unknown) continue;
+                if (latestOpen == null || EndKey(a) > EndKey(latestOpen)) latestOpen = a;
+            }
+            return openEnded && latestOpen != null ? latestOpen : latest;
+        }
+
+        private static double EndKey(CommittedKerbalAssignment a)
+        {
+            return double.IsNaN(a.EndUT) ? double.NegativeInfinity : a.EndUT;
+        }
+
+        /// <summary>
+        /// The per-kind counters the rebuild log line prints, e.g.
+        /// <c>tech=2 facility=1 accept=1 complete=0 ...</c>; <c>facility</c> counts every level
+        /// change and <c>rebuild</c> the Rebuilds among them.
+        /// </summary>
+        internal string DescribeCounts()
+        {
+            var ic = CultureInfo.InvariantCulture;
+            return string.Format(ic,
+                "tech={0} facility={1} accept={2} complete={3} fail={4} cancel={5} hire={6} " +
+                "dismiss={7} strategyOn={8} strategyOff={9} part={10} destroy={11} repair={12} " +
+                "rebuild={13} assignments={14} skippedUncommitted={15} upgrade={16}",
+                CountOf(CommittedFutureKind.TechResearch),
+                CountOf(CommittedFutureKind.FacilityUpgrade),
+                CountOf(CommittedFutureKind.ContractAccept),
+                CountOf(CommittedFutureKind.ContractComplete),
+                CountOf(CommittedFutureKind.ContractFail),
+                CountOf(CommittedFutureKind.ContractCancel),
+                CountOf(CommittedFutureKind.KerbalHire),
+                CountOf(CommittedFutureKind.KerbalDismissal),
+                CountOf(CommittedFutureKind.StrategyActivate),
+                CountOf(CommittedFutureKind.StrategyDeactivate),
+                CountOf(CommittedFutureKind.PartPurchase),
+                CountOf(CommittedFutureKind.FacilityDestruction),
+                CountOf(CommittedFutureKind.FacilityRepair),
+                FacilityRebuildCount(),
+                AssignmentCount,
+                SkippedUncommittedRows,
+                CountOf(CommittedFutureKind.PartUpgradePurchase));
+        }
+
+    }
+
+    /// <summary>
+    /// The one live <see cref="CommittedFutureIndex"/>. Rebuilt lazily, never per row or
+    /// per frame: <see cref="Current"/> returns the cached instance until one of its
+    /// inputs changes.
+    ///
+    /// <para><b>Invalidation.</b> The cache keys on the IDENTITY of the effective ledger
+    /// and effective recording lists (<c>EffectiveState</c> replaces each list on every
+    /// rebuild, which happens exactly when <c>Ledger.StateVersion</c>, the tombstone
+    /// version, <c>RecordingStore.StateVersion</c>, the supersede version or the Re-Fly
+    /// marker change), plus <c>DisplayNames.Version</c> (entries bake a flight's display name, and a rename moves
+    /// none of the other keys) and an explicit generation that <see cref="Invalidate"/> bumps. The stock overlay
+    /// controller calls <see cref="Invalidate"/> from
+    /// <c>LedgerTimelineSignal.OnTimelineDataChanged</c>; the version keys make the cache
+    /// correct even when that delegate was reset (its <c>ResetForTesting</c> nulls it) or
+    /// no subscriber exists, so it cannot go stale across a reset.</para>
+    /// </summary>
+    internal static class CommittedFutureIndexCache
+    {
+        private const string Tag = "CommittedFutureIndex";
+        private static readonly object syncRoot = new object();
+
+        private static CommittedFutureIndex cached;
+        private static object cachedEls;
+        private static object cachedErs;
+        private static int cachedGeneration = int.MinValue;
+        private static int generation;
+        // Entries bake a flight's display name (mission name, else vessel name).
+        private static int cachedDisplayNamesVersion = int.MinValue;
+
+        /// <summary>How many times the index has been rebuilt (tests pin the cache).</summary>
+        internal static int RebuildCount { get; private set; }
+
+        /// <summary>Test seam for the "now" UT the patches and the overlay pass read.
+        /// Null in production (Planetarium).</summary>
+        internal static Func<double> NowUtProviderForTesting;
+
+        /// <summary>The current index, rebuilt only when an input changed.</summary>
+        internal static CommittedFutureIndex Current
+        {
+            get
+            {
+                IReadOnlyList<GameAction> els = EffectiveState.ComputeELS();
+                IReadOnlyList<Recording> ers = EffectiveState.ComputeERS();
+                int displayNamesVersion = DisplayNames.Version;
+                lock (syncRoot)
+                {
+                    if (cached != null
+                        && ReferenceEquals(cachedEls, els)
+                        && ReferenceEquals(cachedErs, ers)
+                        && cachedGeneration == generation
+                        && cachedDisplayNamesVersion == displayNamesVersion)
+                    {
+                        return cached;
+                    }
+
+                    var committedIds = new HashSet<string>(StringComparer.Ordinal);
+                    if (ers != null)
+                        for (int i = 0; i < ers.Count; i++)
+                            if (ers[i] != null && !string.IsNullOrEmpty(ers[i].RecordingId))
+                                committedIds.Add(ers[i].RecordingId);
+
+                    Func<string, bool> isCommitted = id => committedIds.Contains(id);
+                    var index = CommittedFutureIndex.Build(
+                        els,
+                        isCommitted,
+                        ResolveRecordingDisplayName,
+                        null,
+                        IsAutoAcceptContractSnapshot,
+                        ContractAgentTitleFromSnapshot);
+
+                    cached = index;
+                    cachedEls = els;
+                    cachedErs = ers;
+                    cachedGeneration = generation;
+                    cachedDisplayNamesVersion = displayNamesVersion;
+                    RebuildCount++;
+
+                    ParsekLog.Verbose(Tag,
+                        "Rebuilt committed-future index: entries=" +
+                        index.EntryCount.ToString(CultureInfo.InvariantCulture) +
+                        " from els=" + (els != null ? els.Count : 0).ToString(CultureInfo.InvariantCulture) +
+                        " ers=" + committedIds.Count.ToString(CultureInfo.InvariantCulture) +
+                        " " + index.DescribeCounts());
+                    return index;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Drops the cached index so the next <see cref="Current"/> rebuilds. Cheap; the
+        /// rebuild itself is lazy.
+        /// </summary>
+        internal static void Invalidate(string reason)
+        {
+            lock (syncRoot)
+            {
+                unchecked { generation++; }
+            }
+            ParsekLog.Verbose(Tag, "Invalidated committed-future index: reason=" + (reason ?? "(none)"));
+        }
+
+        /// <summary>
+        /// The UT every committed-future query compares against: the clock, raised to the
+        /// ledger held-through UT while the clock is behind it (a Rewind-to-Launch lead window,
+        /// <see cref="LedgerHeldWindow"/>): rows the loaded world already holds are not future.
+        /// </summary>
+        internal static double CurrentUT()
+        {
+            var provider = NowUtProviderForTesting;
+            if (provider != null) return LedgerHeldWindow.ResolveLedgerNowUT(provider());
+            try
+            {
+                return LedgerHeldWindow.ResolveLedgerNowUT(ReadPlanetariumUT());
+            }
+            catch (Exception ex)
+            {
+                // Over-block rather than under-block: UT 0 treats every committed row as ahead.
+                ParsekLog.WarnRateLimited(Tag, "now-ut-unavailable",
+                    "CurrentUT: Planetarium unavailable, using UT 0 (" + ex.GetType().Name + ")");
+                return 0.0;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static double ReadPlanetariumUT()
+        {
+            return Planetarium.GetUniversalTime();
+        }
+
+        /// <summary>
+        /// The display name of a committed flight: its mission name (the Kerbals window's
+        /// flight naming), else the recording's vessel name, else null.
+        /// </summary>
+        internal static string ResolveRecordingDisplayName(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return null;
+            Recording rec = RecordingStore.FindRecordingById(recordingId);
+            if (rec == null) return null;
+            Mission mission = !string.IsNullOrEmpty(rec.TreeId)
+                ? MissionStore.FindOriginalMission(rec.TreeId)
+                : null;
+            if (mission != null && !string.IsNullOrEmpty(mission.Name)) return mission.Name;
+            return string.IsNullOrEmpty(rec.VesselName) ? null : rec.VesselName;
+        }
+
+        /// <summary>
+        /// True when the contract's accept snapshot (<c>GameStateStore.GetContractSnapshot</c>,
+        /// written from stock's <c>Contract.Save</c> on accept) says <c>autoAccept = True</c>.
+        /// A contract with no snapshot reads as not auto-accepted.
+        /// </summary>
+        internal static bool IsAutoAcceptContractSnapshot(string contractGuid)
+        {
+            if (string.IsNullOrEmpty(contractGuid)) return false;
+            ConfigNode node = GameStateStore.GetContractSnapshot(contractGuid);
+            return IsAutoAcceptSnapshotNode(node);
+        }
+
+        /// <summary>
+        /// The agent Mission Control names for a contract, from its accept snapshot's
+        /// <c>agent</c> value (stock <c>Contract.Save</c> writes <c>agent.Title</c>), or null.
+        /// Snapshot only: the index is rebuilt on scene load BEFORE stock's contract list is
+        /// loaded (<c>KspStatePatcher.PatchContracts</c> sees 0 current contracts), and nothing
+        /// rebuilds it once the list arrives, so a live read here would cache a null. A committed
+        /// accept with no snapshot agent is resolved live at render time instead
+        /// (<see cref="LiveContractAgentTitle"/> through
+        /// <see cref="ContractSlotReservation.WithStarvedAcceptAgent"/>).
+        /// </summary>
+        internal static string ContractAgentTitleFromSnapshot(string contractGuid)
+        {
+            if (string.IsNullOrEmpty(contractGuid)) return null;
+            return AgentTitleOfSnapshotNode(GameStateStore.GetContractSnapshot(contractGuid));
+        }
+
+        /// <summary>
+        /// The live contract's <c>Agent.Title</c> when stock's contract list holds the guid
+        /// (an offer the committed timeline accepts later), else null. Never throws: a
+        /// missing contract system (no Career game, a headless test) reads as no agent.
+        /// </summary>
+        internal static string LiveContractAgentTitle(string contractGuid)
+        {
+            if (string.IsNullOrEmpty(contractGuid)) return null;
+            try
+            {
+                return ReadLiveContractAgentTitle(contractGuid);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.VerboseRateLimited(Tag, "live-agent-read",
+                    "LiveContractAgentTitle: stock contract list unavailable (" + ex.GetType().Name + ") - no agent");
+                return null;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static string ReadLiveContractAgentTitle(string contractGuid)
+        {
+            var system = Contracts.ContractSystem.Instance;
+            if (system == null || system.Contracts == null) return null;
+            for (int i = 0; i < system.Contracts.Count; i++)
+            {
+                var c = system.Contracts[i];
+                if (c == null || !string.Equals(c.ContractGuid.ToString(), contractGuid, StringComparison.Ordinal))
+                    continue;
+                return c.Agent != null && !string.IsNullOrEmpty(c.Agent.Title) ? c.Agent.Title : null;
+            }
+            return null;
+        }
+
+        /// <summary>Pure: the snapshot node's trimmed <c>agent</c> value, or null.</summary>
+        internal static string AgentTitleOfSnapshotNode(ConfigNode node)
+        {
+            string value = node != null ? node.GetValue("agent") : null;
+            if (value == null) return null;
+            value = value.Trim();
+            return value.Length > 0 ? value : null;
+        }
+
+        /// <summary>Pure: the snapshot node's <c>autoAccept</c> value, case-insensitively.</summary>
+        internal static bool IsAutoAcceptSnapshotNode(ConfigNode node)
+        {
+            string value = node != null ? node.GetValue("autoAccept") : null;
+            bool parsed;
+            return value != null && bool.TryParse(value.Trim(), out parsed) && parsed;
+        }
+
+        internal static void ResetForTesting()
+        {
+            lock (syncRoot)
+            {
+                cached = null;
+                cachedEls = null;
+                cachedErs = null;
+                cachedGeneration = int.MinValue;
+                generation = 0;
+                RebuildCount = 0;
+            }
+            NowUtProviderForTesting = null;
+        }
+    }
+}

@@ -28,13 +28,6 @@ namespace Parsek.Tests
                 SegmentPayload.Traced, "X");
 
         [Fact]
-        public void Kinds_AreDistinct()
-        {
-            Assert.Equal(Treatment.StockConic, new StockConicTreatment().Kind);
-            Assert.Equal(Treatment.TracedPath, new TracedPathTreatment().Kind);
-        }
-
-        [Fact]
         public void StockConic_ShouldApply_OnlyForVisibleStockConicWithConic()
         {
             Assert.True(StockConicTreatment.ShouldApply(Conic(visible: true)));

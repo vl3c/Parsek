@@ -1,0 +1,1628 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+
+namespace Parsek
+{
+    internal static class GameStateStore
+    {
+        private static List<GameStateEvent> events = new List<GameStateEvent>();
+        private static List<ContractSnapshot> contractSnapshots = new List<ContractSnapshot>();
+        private static List<GameStateBaseline> baselines = new List<GameStateBaseline>();
+        private static Dictionary<string, float> committedScienceSubjects = new Dictionary<string, float>();
+        private static Dictionary<string, float> originalScienceValues = new Dictionary<string, float>();
+
+        // GAME_STATE_EVENT nodes whose type this build cannot read (GameStateEvent.IsUnreadableTypeNode,
+        // a newer build's event type), kept as verbatim copies and appended after the readable events
+        // on every save. Never deserialized, so no converter, ledger, reconcile or UI path sees them.
+        // Replaced by every event load; cleared with the events.
+        private static List<ConfigNode> unreadableEventNodes = new List<ConfigNode>();
+
+        /// <summary>The <c>PARSEK_GAME_STATE</c> <c>version</c> this build writes (1.0 baseline: 1).</summary>
+        internal const int CurrentEventsVersion = 1;
+
+        /// <summary>How many event nodes the last load kept verbatim because this build cannot read their type.</summary>
+        internal static int UnreadableEventCount => unreadableEventNodes.Count;
+
+        private static bool initialLoadDone = false;
+        private static string lastSaveFolder = null;
+
+        internal static bool SuppressLogging = false;
+
+        // UT window (seconds) for same-type/same-tag resource-event coalescing. Also the
+        // single source of truth for the contract-completion debounce window
+        // (GameStateRecorder.IsDuplicateContractCompletion) and the converter intra-batch
+        // contract-lifecycle dedup UT bucket, so a duplicate stock re-fire within the same
+        // coalesce window is suppressed in lockstep with the resource events it carries.
+        // KscActionReconciler.KscReconcileEpsilonSeconds encodes the same invariant
+        // (kept in lockstep by comment, see KscActionReconciler.cs).
+        internal const double ResourceCoalesceEpsilon = 0.1; // seconds
+
+        internal static IReadOnlyList<GameStateEvent> Events => events;
+        internal static IReadOnlyList<ContractSnapshot> ContractSnapshots => contractSnapshots;
+        internal static IReadOnlyList<GameStateBaseline> Baselines => baselines;
+        internal static int EventCount => events.Count;
+        internal static int BaselineCount => baselines.Count;
+
+        #region Event Management
+
+        internal static void AddEvent(ref GameStateEvent e)
+        {
+            // Resource coalescing: if this is a resource event and the last event
+            // of the same type + same key (KSP transaction reason) + same recordingId
+            // tag is within the epsilon window, update it instead. #431: the tag
+            // equality gate is required - without it, an untagged career slot + tagged
+            // in-flight event within epsilon would merge into an untagged slot and
+            // silently drop the tag, leaking through the discard purge.
+            // FundsChanged(VesselRecovery) is excluded: the recovery ledger path needs a
+            // stable 1:1 event/callback pairing.
+            //
+            // The KEY equality gate (STRATEGY-SCIENCE-CONVERSION-LEAK) is required for
+            // the same class of reason: the key IS the transaction reason, and every
+            // reason-keyed consumer reads it as the event's identity
+            // (ConvertStrategyExchange{Funds,Reputation,Science}, the pending-adjustment
+            // helpers, ReconcileKscAction's leg matching). Coalescing key-blind let a
+            // strategy exchange landing within 0.1 s of an unrelated same-type move erase
+            // one reason and fold the other's magnitude into it - e.g. a
+            // ScienceChanged(StrategyInput) debit absorbed into a
+            // ScienceChanged(ScienceTransmission) credit, which is a silent capture loss
+            // in either direction. Two events whose keys differ now stay two events.
+            //
+            // Only a CONTIGUOUS run of one pool merges (RECOVERY-BURST-CONTRACT-SCIENCE-RECONCILE).
+            // valueBefore / valueAfter are absolute pool values, so the merged event's delta is
+            // the pool's whole move from the first event's before to the last event's after.
+            // When a same-type event under another key or tag landed in between, that move
+            // includes the interleaved event's delta, which then counts twice: once in its own
+            // event and again inside the merged one. A recovery that completes a contract does
+            // exactly this (VesselRecovery science, ContractReward science, VesselRecovery
+            // science), and every delta reader (post-walk reconcile, the pending KSC credit the
+            // science patch holds forward) saw the contract's reward a second time. So the
+            // backward scan stops at the first same-type event in the window that does not
+            // match: a later credit starts its own event.
+            if (IsResourceEvent(e.eventType) && events.Count > 0)
+            {
+                string incomingTag = e.recordingId ?? "";
+                for (int i = events.Count - 1; i >= 0; i--)
+                {
+                    var existing = events[i];
+                    string existingTag = existing.recordingId ?? "";
+                    bool withinWindow = Math.Abs(existing.ut - e.ut) <= ResourceCoalesceEpsilon;
+                    if (withinWindow &&
+                        (BlocksResourceCoalescing(existing) || BlocksResourceCoalescing(e)))
+                    {
+                        // VesselRecovery is a hard barrier: do not coalesce across it.
+                        break;
+                    }
+
+                    if (existing.eventType == e.eventType &&
+                        withinWindow &&
+                        string.Equals(existing.key ?? "", e.key ?? "", StringComparison.Ordinal) &&
+                        string.Equals(existingTag, incomingTag, StringComparison.Ordinal))
+                    {
+                        // Update the existing event's valueAfter
+                        existing.valueAfter = e.valueAfter;
+                        events[i] = existing;
+                        // The caller sees the merged event's capture number (a direct
+                        // ledger write of this event carries it).
+                        e.captureSequence = existing.captureSequence;
+                        ParsekLog.VerboseRateLimited("GameStateStore", "resource-coalesce",
+                            $"Coalesced {e.eventType} event at ut={e.ut:F2} tag='{incomingTag}'");
+                        return;
+                    }
+                    if (existing.eventType == e.eventType && withinWindow)
+                    {
+                        if (HasCoalesceCandidateBefore(i, e, incomingTag))
+                        {
+                            ParsekLog.Verbose("GameStateStore",
+                                $"Not coalescing {e.eventType} key='{e.key}' tag='{incomingTag}' at " +
+                                $"ut={e.ut.ToString("F2", CultureInfo.InvariantCulture)} across an " +
+                                $"interleaved key='{existing.key}' tag='{existingTag}' event of the same pool");
+                        }
+                        break;
+                    }
+                    // Stop searching once we pass the epsilon window
+                    if (e.ut - existing.ut > ResourceCoalesceEpsilon)
+                        break;
+                }
+            }
+
+            // The capture order (committed-value rule plan section 2.3): stamped here, where
+            // stock's change is captured, and carried onto every row converted from it.
+            if (e.captureSequence <= 0)
+                e.captureSequence = CaptureSequence.Next();
+            events.Add(e);
+            ParsekLog.Verbose("GameStateStore",
+                $"AddEvent: {e.eventType} key='{e.key}' tag='{e.recordingId ?? ""}' ut={e.ut:F1} cseq={e.captureSequence} (total={events.Count})");
+        }
+
+        /// <summary>
+        /// Diagnostic probe for <see cref="AddEvent"/>: whether an event older than index
+        /// <paramref name="stopIndex"/> would have taken <paramref name="incoming"/> had the
+        /// interleaved event at that index not ended the scan. Only then is the refusal worth
+        /// a log line; two adjacent events under different keys are the ordinary case.
+        /// </summary>
+        private static bool HasCoalesceCandidateBefore(int stopIndex, GameStateEvent incoming, string incomingTag)
+        {
+            for (int j = stopIndex - 1; j >= 0; j--)
+            {
+                var older = events[j];
+                if (incoming.ut - older.ut > ResourceCoalesceEpsilon)
+                    return false;
+                if (Math.Abs(older.ut - incoming.ut) > ResourceCoalesceEpsilon)
+                    continue;
+                if (BlocksResourceCoalescing(older))
+                    return false;
+                if (older.eventType == incoming.eventType
+                    && string.Equals(older.key ?? "", incoming.key ?? "", StringComparison.Ordinal)
+                    && string.Equals(older.recordingId ?? "", incomingTag, StringComparison.Ordinal))
+                    return true;
+            }
+            return false;
+        }
+
+        internal static bool IsEventVisibleToCurrentTimeline(GameStateEvent e)
+        {
+            string recordingId = e.recordingId ?? "";
+            return string.IsNullOrEmpty(recordingId)
+                || RecordingStore.IsCurrentTimelineRecordingId(recordingId);
+        }
+
+        internal static bool EventIdentityMatches(GameStateEvent candidate, GameStateEvent target)
+        {
+            if (candidate.ut != target.ut
+                || candidate.eventType != target.eventType
+                || !string.Equals(candidate.key, target.key, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            string candidateRecordingId = candidate.recordingId ?? "";
+            string targetRecordingId = target.recordingId ?? "";
+            if (!string.Equals(candidateRecordingId, targetRecordingId, StringComparison.Ordinal))
+                return false;
+
+            // Two captures with the same moment, type, key and tag are two events (design
+            // 3.15 step 3): when both copies carry a capture number, it decides. A copy
+            // taken before the store stamped it (0) keeps the field match.
+            if (candidate.captureSequence > 0 && target.captureSequence > 0)
+                return candidate.captureSequence == target.captureSequence;
+
+            return true;
+        }
+
+        internal static bool IsResourceEvent(GameStateEventType type)
+        {
+            return type == GameStateEventType.FundsChanged ||
+                   type == GameStateEventType.ScienceChanged ||
+                   type == GameStateEventType.ReputationChanged;
+        }
+
+        /// <summary>
+        /// FundsChanged(VesselRecovery) must stay 1:1 with the KSP callback that
+        /// produced it. Coalescing a recovery delta with an adjacent resource event
+        /// breaks recovery-action pairing and can misattribute or double-count the
+        /// payout later in LedgerOrchestrator.
+        /// </summary>
+        private static bool BlocksResourceCoalescing(GameStateEvent e)
+        {
+            return e.eventType == GameStateEventType.FundsChanged &&
+                   string.Equals(
+                       e.key,
+                       LedgerOrchestrator.VesselRecoveryReasonKey,
+                       StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Events that should be excluded from milestones and the Actions window.
+        /// Resource events are summarized by the budget; CrewStatusChanged is KSP
+        /// internal bookkeeping (Available↔Assigned) and not a player action;
+        /// ContractOffered is a KSP ContractSystem tick artifact — the UT a contract
+        /// was advertised to the player carries no planning value and pre-#398 saves
+        /// still carry these events baked into historical milestones.
+        /// </summary>
+        internal static bool IsMilestoneFilteredEvent(GameStateEventType type)
+        {
+            return IsResourceEvent(type) ||
+                   type == GameStateEventType.CrewStatusChanged ||
+                   type == GameStateEventType.ContractOffered;
+        }
+
+        /// <summary>
+        /// Stores the ACCEPT-TIME snapshot for a contract (the zero-progress shape the
+        /// contract had when the player took it). Exactly one accept-time row exists per
+        /// guid; re-accepting after a failure replaces it. Rewind-point snapshots are a
+        /// separate population — see <see cref="AddContractSnapshotAtRp"/>.
+        /// </summary>
+        internal static void AddContractSnapshot(string guid, ConfigNode contractNode, double ut = 0.0)
+        {
+            if (string.IsNullOrEmpty(guid) || contractNode == null)
+            {
+                ParsekLog.Verbose("GameStateStore", $"AddContractSnapshot skipped: guid={guid ?? "null"}, node={contractNode != null}");
+                return;
+            }
+
+            // Replace the existing ACCEPT-TIME snapshot for the same GUID (contract
+            // re-accepted after failure). RP snapshots are never replaced from here —
+            // they are keyed by (guid, rpId) and belong to their rewind point.
+            for (int i = 0; i < contractSnapshots.Count; i++)
+            {
+                if (contractSnapshots[i].contractGuid == guid &&
+                    string.IsNullOrEmpty(contractSnapshots[i].sourceRpId))
+                {
+                    contractSnapshots[i] = new ContractSnapshot
+                    {
+                        contractGuid = guid,
+                        contractNode = contractNode,
+                        ut = ut,
+                        sourceRpId = null
+                    };
+                    ParsekLog.Verbose("GameStateStore", $"Replaced existing contract snapshot for guid={guid}");
+                    return;
+                }
+            }
+
+            contractSnapshots.Add(new ContractSnapshot
+            {
+                contractGuid = guid,
+                contractNode = contractNode,
+                ut = ut,
+                sourceRpId = null
+            });
+            ParsekLog.Verbose("GameStateStore", $"Added contract snapshot for guid={guid} (total={contractSnapshots.Count})");
+        }
+
+        /// <summary>
+        /// Stores a rewind-point snapshot: the contract's state AS OF the RP's quicksave
+        /// UT, including whatever parameter progress it had accumulated since accept.
+        ///
+        /// <para>
+        /// Why this exists: reinstating a tombstoned contract used to rebuild it from the
+        /// ACCEPT-time snapshot, which is zero-progress. A contract accepted long before a
+        /// rewind point, worked halfway, then completed by a branch the merge supersedes,
+        /// came back from the merge with all of its progress erased. The RP snapshot gives
+        /// the rebuild a state that matches where the timeline actually rewound to.
+        /// </para>
+        ///
+        /// Appends; deduplicated on (guid, rpId) so a repeated capture for the same RP
+        /// replaces rather than accumulates.
+        /// </summary>
+        internal static void AddContractSnapshotAtRp(
+            string guid, ConfigNode contractNode, double ut, string rpId)
+        {
+            if (string.IsNullOrEmpty(guid) || contractNode == null || string.IsNullOrEmpty(rpId))
+            {
+                ParsekLog.Verbose("GameStateStore",
+                    $"AddContractSnapshotAtRp skipped: guid={guid ?? "null"}, node={contractNode != null}, " +
+                    $"rpId={rpId ?? "null"}");
+                return;
+            }
+
+            for (int i = 0; i < contractSnapshots.Count; i++)
+            {
+                if (contractSnapshots[i].contractGuid == guid &&
+                    string.Equals(contractSnapshots[i].sourceRpId, rpId, StringComparison.Ordinal))
+                {
+                    contractSnapshots[i] = new ContractSnapshot
+                    {
+                        contractGuid = guid,
+                        contractNode = contractNode,
+                        ut = ut,
+                        sourceRpId = rpId
+                    };
+                    return;
+                }
+            }
+
+            contractSnapshots.Add(new ContractSnapshot
+            {
+                contractGuid = guid,
+                contractNode = contractNode,
+                ut = ut,
+                sourceRpId = rpId
+            });
+        }
+
+        /// <summary>
+        /// Returns the ACCEPT-TIME snapshot node for a contract, or null. Unchanged
+        /// semantics for every pre-existing caller: rewind-point snapshots are invisible
+        /// here and are reached only through <see cref="GetContractSnapshotForPatch"/>.
+        /// </summary>
+        internal static ConfigNode GetContractSnapshot(string guid)
+        {
+            if (string.IsNullOrEmpty(guid)) return null;
+
+            for (int i = 0; i < contractSnapshots.Count; i++)
+            {
+                if (contractSnapshots[i].contractGuid == guid &&
+                    string.IsNullOrEmpty(contractSnapshots[i].sourceRpId))
+                {
+                    return contractSnapshots[i].contractNode;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Pure selection rule behind <see cref="GetContractSnapshotForPatch"/>. Returns the
+        /// index of the snapshot to rebuild <paramref name="guid"/> from, or -1.
+        ///
+        /// <para>
+        /// With no cutoff (the contract was never tombstoned, so nothing rewound it) the
+        /// accept-time snapshot is used — identical to the historical behavior, so this
+        /// rule is never worse than what it replaces. With a cutoff, the NEWEST rewind-point
+        /// snapshot at or before it wins: that is the last state the surviving timeline
+        /// actually reached. A cutoff that predates every RP snapshot falls back to
+        /// accept-time rather than reinstating progress from a future the merge discarded.
+        /// </para>
+        ///
+        /// Pure: takes the list as a parameter; no statics, no singletons.
+        /// </summary>
+        internal static int SelectContractSnapshotIndexForPatch(
+            IReadOnlyList<ContractSnapshot> snapshots, string guid, double? cutoffUt)
+        {
+            if (snapshots == null || string.IsNullOrEmpty(guid))
+                return -1;
+
+            int acceptTimeIndex = -1;
+            int bestRpIndex = -1;
+            double bestRpUt = 0.0;
+
+            for (int i = 0; i < snapshots.Count; i++)
+            {
+                var snap = snapshots[i];
+                if (!string.Equals(snap.contractGuid, guid, StringComparison.Ordinal))
+                    continue;
+                if (snap.contractNode == null)
+                    continue;
+
+                if (string.IsNullOrEmpty(snap.sourceRpId))
+                {
+                    if (acceptTimeIndex < 0)
+                        acceptTimeIndex = i;
+                    continue;
+                }
+
+                if (!cutoffUt.HasValue)
+                    continue;
+                if (double.IsNaN(snap.ut) || snap.ut > cutoffUt.Value)
+                    continue;
+                if (bestRpIndex < 0 || snap.ut > bestRpUt)
+                {
+                    bestRpIndex = i;
+                    bestRpUt = snap.ut;
+                }
+            }
+
+            return bestRpIndex >= 0 ? bestRpIndex : acceptTimeIndex;
+        }
+
+        /// <summary>
+        /// Resolves the snapshot node <c>PatchContracts</c> should rebuild
+        /// <paramref name="guid"/> from, honouring the per-contract reinstate cutoff.
+        /// </summary>
+        internal static ConfigNode GetContractSnapshotForPatch(string guid, double? cutoffUt)
+        {
+            int idx = SelectContractSnapshotIndexForPatch(contractSnapshots, guid, cutoffUt);
+            return idx >= 0 ? contractSnapshots[idx].contractNode : null;
+        }
+
+        /// <summary>
+        /// Drops every rewind-point snapshot captured for <paramref name="rpId"/>. Called
+        /// from the reaper when an RP is retired so snapshot storage does not grow without
+        /// bound across a long career. Accept-time snapshots are never touched.
+        /// </summary>
+        internal static int PurgeContractSnapshotsForRewindPoint(string rpId)
+        {
+            if (string.IsNullOrEmpty(rpId))
+                return 0;
+
+            int removed = 0;
+            for (int i = contractSnapshots.Count - 1; i >= 0; i--)
+            {
+                if (string.Equals(contractSnapshots[i].sourceRpId, rpId, StringComparison.Ordinal))
+                {
+                    contractSnapshots.RemoveAt(i);
+                    removed++;
+                }
+            }
+
+            if (removed > 0)
+            {
+                ParsekLog.Verbose("GameStateStore",
+                    $"Purged {removed} rewind-point contract snapshot(s) for rp={rpId} " +
+                    $"(total={contractSnapshots.Count})");
+            }
+            return removed;
+        }
+
+        /// <summary>
+        /// Updates the <c>detail</c> field of the first event matching the given
+        /// ut/eventType/key/tag. Returns true if an entry was found and updated.
+        /// GameStateEvent is a value type, so callers can't just mutate their copy —
+        /// this helper rewrites the underlying list slot. Used by the milestone reward
+        /// enrichment path (#400), which emits the event first with zero-reward detail
+        /// and then, when the Harmony postfix on ProgressNode.AwardProgress has the
+        /// real values, patches the stored event in place.
+        /// </summary>
+        internal static bool UpdateEventDetail(GameStateEvent target, string newDetail)
+        {
+            for (int i = 0; i < events.Count; i++)
+            {
+                if (EventIdentityMatches(events[i], target))
+                {
+                    var e = events[i];
+                    e.detail = newDetail;
+                    events[i] = e;
+                    ParsekLog.Verbose("GameStateStore",
+                        $"Updated event detail: {target.eventType} key='{target.key}' ut={target.ut:F1}");
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Rewrites the <c>recordingId</c> of the first event matching the target's identity
+        /// (ut/eventType/key/recordingId). Returns true when an entry was found and updated.
+        /// Used by the deployed-science capture to untag the ScienceChanged event that stock
+        /// fired one callback before the subject identified the award as ground-station science.
+        /// </summary>
+        internal static bool UpdateEventRecordingId(GameStateEvent target, string newRecordingId)
+        {
+            for (int i = 0; i < events.Count; i++)
+            {
+                if (EventIdentityMatches(events[i], target))
+                {
+                    var e = events[i];
+                    e.recordingId = newRecordingId ?? "";
+                    events[i] = e;
+                    ParsekLog.Verbose("GameStateStore",
+                        $"Updated event recordingId: {target.eventType} key='{target.key}' " +
+                        $"ut={target.ut.ToString("F1", CultureInfo.InvariantCulture)} " +
+                        $"'{target.recordingId ?? ""}' -> '{newRecordingId ?? ""}'");
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Optimizer-split partition of the event store (RETAG-ON-SPLIT-MISSES-LATER-ROWS):
+        /// every event tagged <paramref name="firstRecordingId"/> whose UT is
+        /// <c>&gt;= splitUT</c> is retagged to <paramref name="secondRecordingId"/>, the same
+        /// cut and comparison sense as <see cref="Ledger.RetagActionsForSplitSecondHalf"/>.
+        /// A fresh flight is split BEFORE its events are converted (both commit paths run
+        /// the optimizer pass ahead of <c>LedgerOrchestrator.NotifyLedgerTreeCommitted</c>),
+        /// and the converter treats the capture tag as ownership, so without this every
+        /// event of the flight was converted for the first segment: rows past the cut sat
+        /// outside a later segment's Re-Fly tombstone set, and a VesselLoss reputation
+        /// event never met the deaths the split moves to the second half. Untagged events
+        /// and other recordings' events are untouched. Returns the number retagged.
+        /// </summary>
+        internal static int RetagEventsForSplitSecondHalf(
+            string firstRecordingId, string secondRecordingId, double splitUT)
+        {
+            if (string.IsNullOrEmpty(firstRecordingId) || string.IsNullOrEmpty(secondRecordingId))
+                return 0;
+            if (string.Equals(firstRecordingId, secondRecordingId, StringComparison.Ordinal))
+                return 0;
+            if (double.IsNaN(splitUT) || double.IsInfinity(splitUT))
+                return 0;
+
+            int retagged = 0;
+            for (int i = 0; i < events.Count; i++)
+            {
+                var e = events[i];
+                if (!string.Equals(e.recordingId ?? "", firstRecordingId, StringComparison.Ordinal))
+                    continue;
+                if (!(e.ut >= splitUT))
+                    continue;
+                e.recordingId = secondRecordingId;
+                events[i] = e;
+                retagged++;
+            }
+
+            ParsekLog.Verbose("GameStateStore",
+                $"RetagEventsForSplitSecondHalf: first='{firstRecordingId}' second='{secondRecordingId}' " +
+                $"splitUT={splitUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"retagged={retagged.ToString(CultureInfo.InvariantCulture)} " +
+                $"total={events.Count.ToString(CultureInfo.InvariantCulture)}");
+            return retagged;
+        }
+
+        /// <summary>
+        /// Retags every event tagged <paramref name="oldRecordingId"/> to
+        /// <paramref name="newRecordingId"/> (empty untags). Used when a retired Re-Fly
+        /// provisional's events are filed as untagged rows. Returns the number retagged.
+        /// </summary>
+        internal static int RetagEventsForRecording(string oldRecordingId, string newRecordingId)
+        {
+            if (string.IsNullOrEmpty(oldRecordingId))
+                return 0;
+            string target = newRecordingId ?? "";
+            if (string.Equals(oldRecordingId, target, StringComparison.Ordinal))
+                return 0;
+
+            int retagged = 0;
+            for (int i = 0; i < events.Count; i++)
+            {
+                var e = events[i];
+                if (!string.Equals(e.recordingId ?? "", oldRecordingId, StringComparison.Ordinal))
+                    continue;
+                e.recordingId = target;
+                events[i] = e;
+                retagged++;
+            }
+
+            ParsekLog.Verbose("GameStateStore",
+                $"RetagEventsForRecording: '{oldRecordingId}' -> '{target}' " +
+                $"retagged={retagged.ToString(CultureInfo.InvariantCulture)} " +
+                $"total={events.Count.ToString(CultureInfo.InvariantCulture)}");
+            return retagged;
+        }
+
+        /// <summary>
+        /// Removes an event by matching ut, eventType, and key.
+        /// Returns true if the event was found and removed.
+        /// </summary>
+        internal static bool RemoveEvent(GameStateEvent target)
+        {
+            for (int i = 0; i < events.Count; i++)
+            {
+                if (EventIdentityMatches(events[i], target))
+                {
+                    events.RemoveAt(i);
+                    ParsekLog.Info("GameStateStore",
+                        $"Removed event: {target.eventType} key='{target.key}' ut={target.ut:F1}");
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Removes visible events that have been consumed by milestone creation and ledger
+        /// conversion. Hidden tagged events from reverted-away branches are preserved so a
+        /// later F9 quickload that restores the matching recording ids can make them visible
+        /// again.
+        /// </summary>
+        internal static int PruneProcessedEvents()
+        {
+            double threshold = MilestoneStore.GetLatestCommittedEndUT();
+
+            int pruned = 0;
+            int hiddenPreserved = 0;
+            for (int i = events.Count - 1; i >= 0; i--)
+            {
+                var e = events[i];
+                if (!IsEventVisibleToCurrentTimeline(e))
+                {
+                    hiddenPreserved++;
+                    continue;
+                }
+
+                if (e.ut <= threshold)
+                {
+                    events.RemoveAt(i);
+                    pruned++;
+                }
+            }
+
+            if (pruned > 0)
+            {
+                ParsekLog.Info("GameStateStore",
+                    $"PruneProcessedEvents: removed {pruned} events " +
+                    $"(threshold={threshold:F1}, hiddenPreserved={hiddenPreserved}, remaining={events.Count})");
+            }
+
+            return pruned;
+        }
+
+        /// <summary>
+        /// #431: removes every tagged event whose <see cref="GameStateEvent.recordingId"/>
+        /// is in the given id set. Walks both the live events list AND every milestone's
+        /// events list (via <see cref="MilestoneStore.PurgeTaggedEvents"/>) — the flush-on-save
+        /// path can move tagged events into a milestone before the player decides commit/discard,
+        /// so the purge has to cover both stores. Contract snapshots whose accept event was
+        /// purged are removed too. Untagged events are never touched.
+        /// </summary>
+        internal static int PurgeEventsForRecordings(ICollection<string> recordingIds, string reason)
+        {
+            if (recordingIds == null || recordingIds.Count == 0)
+            {
+                ParsekLog.Verbose("GameStateStore",
+                    $"PurgeEventsForRecordings: no ids supplied ({reason}) — skipping");
+                return 0;
+            }
+
+            var set = recordingIds as HashSet<string> ?? new HashSet<string>(recordingIds);
+
+            // 1. Live events list
+            var liveRemoved = new List<GameStateEvent>();
+            for (int i = events.Count - 1; i >= 0; i--)
+            {
+                var e = events[i];
+                if (!string.IsNullOrEmpty(e.recordingId) && set.Contains(e.recordingId))
+                {
+                    liveRemoved.Add(e);
+                    events.RemoveAt(i);
+                }
+            }
+
+            // 2. Milestone event lists — covers the F5-then-discard path.
+            var milestoneRemoved = MilestoneStore.PurgeTaggedEvents(set, reason);
+
+            // 3. Contract snapshots — only those whose ContractAccepted event was purged.
+            var allPurged = new List<GameStateEvent>(liveRemoved.Count + milestoneRemoved.Count);
+            allPurged.AddRange(liveRemoved);
+            allPurged.AddRange(milestoneRemoved);
+            int snapshotsRemoved = PurgeOrphanedContractSnapshots(allPurged);
+
+            ParsekLog.Info("GameStateStore",
+                $"PurgeEventsForRecordings ({reason}): live={liveRemoved.Count}, " +
+                $"milestone={milestoneRemoved.Count}, snapshots={snapshotsRemoved}, ids={set.Count}");
+
+            return liveRemoved.Count + milestoneRemoved.Count;
+        }
+
+        /// <summary>
+        /// Removes tagged events for one recording only after a UT cutoff. Used by
+        /// in-place Re-Fly discard: the original recording id is also the active
+        /// attempt id, so full id-based purge would delete pre-Re-Fly history.
+        /// </summary>
+        internal static int PurgeEventsForRecordingAfterUT(
+            string recordingId, double cutoffUT, string reason)
+        {
+            if (string.IsNullOrEmpty(recordingId)
+                || double.IsNaN(cutoffUT)
+                || double.IsInfinity(cutoffUT))
+            {
+                ParsekLog.Verbose("GameStateStore",
+                    $"PurgeEventsForRecordingAfterUT: invalid input rec={recordingId ?? "<none>"} " +
+                    $"cutoff={cutoffUT.ToString("R", CultureInfo.InvariantCulture)} ({reason}) - skipping");
+                return 0;
+            }
+
+            var liveRemoved = new List<GameStateEvent>();
+            for (int i = events.Count - 1; i >= 0; i--)
+            {
+                var e = events[i];
+                if (!string.IsNullOrEmpty(e.recordingId)
+                    && string.Equals(e.recordingId, recordingId, StringComparison.Ordinal)
+                    && e.ut > cutoffUT)
+                {
+                    liveRemoved.Add(e);
+                    events.RemoveAt(i);
+                }
+            }
+
+            var milestoneRemoved = MilestoneStore.PurgeTaggedEventsAfterUT(
+                recordingId, cutoffUT, reason);
+
+            var allPurged = new List<GameStateEvent>(liveRemoved.Count + milestoneRemoved.Count);
+            allPurged.AddRange(liveRemoved);
+            allPurged.AddRange(milestoneRemoved);
+            int snapshotsRemoved = PurgeOrphanedContractSnapshots(allPurged);
+
+            ParsekLog.Info("GameStateStore",
+                $"PurgeEventsForRecordingAfterUT ({reason}): rec={recordingId} " +
+                $"cutoffUT={cutoffUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"live={liveRemoved.Count}, milestone={milestoneRemoved.Count}, " +
+                $"snapshots={snapshotsRemoved}");
+
+            return liveRemoved.Count + milestoneRemoved.Count;
+        }
+
+        /// <summary>
+        /// #431: deletes contract snapshots whose corresponding <see cref="GameStateEventType.ContractAccepted"/>
+        /// event appears in the purged list. Both snapshot populations follow the accept
+        /// event's fate: the accept-time row from <c>GameStateRecorder.OnContractAccepted</c>
+        /// AND every rewind-point row from <see cref="AddContractSnapshotAtRp"/>, since an
+        /// RP snapshot of a contract whose accept is gone has nothing left to reinstate.
+        /// A completion/failure/cancel event being purged does NOT drop the snapshot on its own;
+        /// the accept event must be among the purged set for the snapshot to go.
+        /// </summary>
+        internal static int PurgeOrphanedContractSnapshots(List<GameStateEvent> purgedEvents)
+        {
+            if (purgedEvents == null || purgedEvents.Count == 0)
+                return 0;
+
+            var guidsToRemove = new HashSet<string>();
+            for (int i = 0; i < purgedEvents.Count; i++)
+            {
+                var e = purgedEvents[i];
+                if (e.eventType == GameStateEventType.ContractAccepted && !string.IsNullOrEmpty(e.key))
+                    guidsToRemove.Add(e.key);
+            }
+
+            if (guidsToRemove.Count == 0)
+                return 0;
+
+            int removed = 0;
+            for (int i = contractSnapshots.Count - 1; i >= 0; i--)
+            {
+                if (guidsToRemove.Contains(contractSnapshots[i].contractGuid))
+                {
+                    contractSnapshots.RemoveAt(i);
+                    removed++;
+                }
+            }
+            return removed;
+        }
+
+        #endregion
+
+        #region Committed Science Subjects
+
+        /// <summary>
+        /// Provisional cache write for newly filed ScienceEarning rows. Each row is a per-
+        /// submission INCREMENT, so the max merge below is only a lower bound. It is idempotent,
+        /// so a row mirrored twice (a dedup-suppressed duplicate, a commit retry) can never
+        /// over-state a subject. The next recalc (immediately after every caller except the
+        /// switch-segment discard dispositions, which defer it to the next natural recalc)
+        /// runs <c>RebuildCommittedScienceFromSurvivingLedger</c>, which replaces the cache with
+        /// the capped per-subject SUM of the surviving ledger: the authoritative value. Rows
+        /// written by older builds as running totals are summed there unchanged (owner
+        /// decision: fix going forward only, no repair).
+        /// </summary>
+        internal static void CommitScienceActions(IReadOnlyList<GameAction> actions)
+        {
+            if (actions == null || actions.Count == 0) return;
+
+            int added = 0, updated = 0, skipped = 0;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (action == null ||
+                    action.Type != GameActionType.ScienceEarning ||
+                    string.IsNullOrEmpty(action.SubjectId) ||
+                    action.ScienceAwarded <= 0f)
+                {
+                    skipped++;
+                    continue;
+                }
+
+                CommitScienceSubject(action.SubjectId, action.ScienceAwarded, ref added, ref updated);
+            }
+
+            ParsekLog.Info("GameStateStore",
+                $"CommitScienceActions: {added} added, {updated} updated, skipped={skipped} " +
+                $"(total={committedScienceSubjects.Count})");
+        }
+
+        private static void CommitScienceSubject(string id, float science, ref int added, ref int updated)
+        {
+            float existing;
+            if (committedScienceSubjects.TryGetValue(id, out existing))
+            {
+                if (science > existing)
+                {
+                    committedScienceSubjects[id] = science;
+                    updated++;
+                }
+            }
+            else
+            {
+                committedScienceSubjects[id] = science;
+                added++;
+            }
+        }
+
+        /// <summary>
+        /// Returns a snapshot of committed subject IDs for iteration (e.g., by
+        /// <see cref="KspStatePatcher.PatchPerSubjectScience"/>). Returns a new list so
+        /// callers can mutate the underlying store while iterating.
+        /// </summary>
+        internal static List<string> GetCommittedScienceSubjectIds()
+        {
+            return new List<string>(committedScienceSubjects.Keys);
+        }
+
+        /// <summary>
+        /// Tries to get the committed science value for a subject.
+        /// Returns false if the subject has not been committed.
+        /// </summary>
+        internal static bool TryGetCommittedSubjectScience(string subjectId, out float science)
+        {
+            return committedScienceSubjects.TryGetValue(subjectId, out science);
+        }
+
+        /// <summary>
+        /// Rebuilds the committed science subjects dictionary from the given
+        /// (subjectId, scienceAmount) pairs. Used after recording deletion or
+        /// ledger reconciliation to prune stale entries from deleted recordings.
+        /// </summary>
+        internal static void RebuildCommittedScienceSubjects(
+            IEnumerable<KeyValuePair<string, float>> subjectCredits)
+        {
+            int before = committedScienceSubjects.Count;
+            committedScienceSubjects.Clear();
+            int count = 0;
+            foreach (var kv in subjectCredits)
+            {
+                committedScienceSubjects[kv.Key] = kv.Value;
+                count++;
+            }
+            ParsekLog.Info("GameStateStore",
+                $"RebuildCommittedScienceSubjects: before={before}, rebuilt with {count} subjects");
+        }
+
+        internal static int CommittedScienceSubjectCount => committedScienceSubjects.Count;
+        internal static int OriginalScienceValueCount => originalScienceValues.Count;
+
+        internal static bool TryGetOriginalScience(string subjectId, out float science)
+        {
+            return originalScienceValues.TryGetValue(subjectId, out science);
+        }
+
+        /// <summary>
+        /// Records the original (pre-mutation) science value for a subject.
+        /// Only stores the first value — subsequent calls for the same subject are ignored,
+        /// preserving the true pre-Parsek baseline.
+        /// Called by ScienceSubjectPatch before mutating ScienceSubject.science.
+        /// </summary>
+        internal static void RecordOriginalScience(string subjectId, float originalScience)
+        {
+            if (originalScienceValues.ContainsKey(subjectId)) return;
+            originalScienceValues[subjectId] = originalScience;
+            ParsekLog.Verbose("GameStateStore",
+                $"Recorded original science for {subjectId}: {originalScience:F1}");
+        }
+
+        /// <summary>
+        /// Serializes committed science subjects into a SCIENCE_SUBJECTS ConfigNode on the parent.
+        /// </summary>
+        internal static void SerializeScienceSubjectsInto(ConfigNode parent)
+        {
+            if (committedScienceSubjects.Count == 0 && originalScienceValues.Count == 0) return;
+
+            ConfigNode sciNode = parent.AddNode("SCIENCE_SUBJECTS");
+            foreach (var kvp in committedScienceSubjects)
+            {
+                ConfigNode entry = sciNode.AddNode("SUBJECT");
+                entry.AddValue("id", kvp.Key);
+                entry.AddValue("science", kvp.Value.ToString("R", CultureInfo.InvariantCulture));
+            }
+
+            if (originalScienceValues.Count > 0)
+            {
+                ConfigNode origNode = sciNode.AddNode("ORIGINALS");
+                foreach (var kvp in originalScienceValues)
+                {
+                    ConfigNode entry = origNode.AddNode("SUBJECT");
+                    entry.AddValue("id", kvp.Key);
+                    entry.AddValue("science", kvp.Value.ToString("R", CultureInfo.InvariantCulture));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Deserializes committed science subjects from a SCIENCE_SUBJECTS ConfigNode on the parent.
+        /// </summary>
+        internal static void DeserializeScienceSubjectsFrom(ConfigNode parent)
+        {
+            ConfigNode sciSubjectsNode = parent.GetNode("SCIENCE_SUBJECTS");
+            if (sciSubjectsNode == null) return;
+
+            ConfigNode[] subjectNodes = sciSubjectsNode.GetNodes("SUBJECT");
+            if (subjectNodes != null)
+            {
+                foreach (var sn in subjectNodes)
+                {
+                    string id = sn.GetValue("id");
+                    string sciStr = sn.GetValue("science");
+                    float sci;
+                    if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(sciStr) &&
+                        float.TryParse(sciStr, System.Globalization.NumberStyles.Float,
+                            CultureInfo.InvariantCulture, out sci))
+                    {
+                        committedScienceSubjects[id] = sci;
+                    }
+                }
+            }
+
+            ConfigNode origNode = sciSubjectsNode.GetNode("ORIGINALS");
+            if (origNode != null)
+            {
+                ConfigNode[] origSubjects = origNode.GetNodes("SUBJECT");
+                if (origSubjects != null)
+                {
+                    foreach (var sn in origSubjects)
+                    {
+                        string id = sn.GetValue("id");
+                        string sciStr = sn.GetValue("science");
+                        float sci;
+                        if (!string.IsNullOrEmpty(id) && !string.IsNullOrEmpty(sciStr) &&
+                            float.TryParse(sciStr, System.Globalization.NumberStyles.Float,
+                                CultureInfo.InvariantCulture, out sci))
+                        {
+                            originalScienceValues[id] = sci;
+                        }
+                    }
+                }
+            }
+        }
+
+        #endregion
+
+        #region Baseline Management
+
+        internal static void AddBaseline(GameStateBaseline baseline)
+        {
+            if (baseline == null) return;
+            baselines.Add(baseline);
+            ParsekLog.Info("GameStateStore", $"Game state baseline captured at UT {baseline.ut:F0} (total={baselines.Count})");
+        }
+
+        /// <summary>
+        /// Captures a baseline if none exist or if a new one is warranted.
+        /// Called from TreeCommitService.CommitRecordingDirect() and FinalizeTreeCommit() as the single funnel point.
+        /// Silently skipped in test environments (SuppressLogging = true).
+        /// </summary>
+        internal static void CaptureBaselineIfNeeded()
+        {
+            // Skip in test environments where Unity/KSP APIs aren't available
+            if (SuppressLogging) return;
+
+            try
+            {
+                ParsekLog.Verbose("GameStateStore", "CaptureBaselineIfNeeded: capturing baseline...");
+                var baseline = GameStateBaseline.CaptureCurrentState();
+                AddBaseline(baseline);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("GameStateStore", $"Failed to capture baseline: {ex.Message}");
+            }
+        }
+
+        internal static int PruneBaselinesAfterUT(
+            double cutoffUT,
+            bool preserveEarliest = true,
+            bool deleteFiles = true)
+        {
+            if (baselines.Count == 0)
+                return 0;
+
+            double earliestUT = double.PositiveInfinity;
+            if (preserveEarliest)
+            {
+                for (int i = 0; i < baselines.Count; i++)
+                {
+                    var candidate = baselines[i];
+                    if (candidate != null && candidate.ut < earliestUT)
+                        earliestUT = candidate.ut;
+                }
+            }
+
+            var removed = new List<GameStateBaseline>();
+            for (int i = baselines.Count - 1; i >= 0; i--)
+            {
+                var baseline = baselines[i];
+                if (baseline == null)
+                    continue;
+
+                bool isEarliest = preserveEarliest
+                    && Math.Abs(baseline.ut - earliestUT) < 0.000001;
+                if (isEarliest || baseline.ut <= cutoffUT)
+                    continue;
+
+                baselines.RemoveAt(i);
+                removed.Add(baseline);
+            }
+
+            if (removed.Count == 0)
+            {
+                ParsekLog.Verbose("GameStateStore",
+                    $"PruneBaselinesAfterUT: no baselines pruned cutoffUT={cutoffUT.ToString("R", CultureInfo.InvariantCulture)}");
+                return 0;
+            }
+
+            int deletedFiles = 0;
+            if (deleteFiles)
+            {
+                for (int i = 0; i < removed.Count; i++)
+                {
+                    if (TryDeleteBaselineFile(removed[i]))
+                        deletedFiles++;
+                }
+            }
+
+            ParsekLog.Info("GameStateStore",
+                $"PruneBaselinesAfterUT: removed {removed.Count} baseline(s) after cutoffUT={cutoffUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"preserveEarliest={preserveEarliest} deletedFiles={deletedFiles}");
+            return removed.Count;
+        }
+
+        private static bool TryDeleteBaselineFile(GameStateBaseline baseline)
+        {
+            if (baseline == null)
+                return false;
+
+            string relativePath = RecordingPaths.BuildBaselineRelativePath(baseline.ut);
+            string path = RecordingPaths.ResolveSaveScopedPath(relativePath);
+            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+                return false;
+
+            try
+            {
+                File.Delete(path);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("GameStateStore",
+                    $"PruneBaselinesAfterUT: failed to delete stale baseline '{path}': {ex.GetType().Name}: {ex.Message}");
+                return false;
+            }
+        }
+
+        #endregion
+
+        #region File I/O
+
+        internal const string EventsNodeName = "PARSEK_GAME_STATE";
+        internal const string AttemptEventsNodeName = "ATTEMPT_EVENTS";
+        internal const string AttemptTreeIdKey = "attemptTreeId";
+        internal const string AttemptArmReasonKey = "attemptArmReason";
+        internal const string BaselineNodeName = "PARSEK_BASELINE";
+
+        /// <summary>
+        /// The events node <see cref="BuildEventsNode"/> built once per OnSave, with the
+        /// restore-attempt events the #866 filter kept off it.
+        /// </summary>
+        internal sealed class EventsNodeBuild
+        {
+            internal ConfigNode Root;
+            /// <summary>
+            /// The events (and their contract snapshots) the #866 filter removed from
+            /// <see cref="Root"/>, tagged with the attempt's tree id and arm reason. Built
+            /// whenever a committed-tree restore attempt is live, also with no event held
+            /// back, so a cold load of the save can re-arm the attempt; null otherwise.
+            /// </summary>
+            internal ConfigNode AttemptEvents;
+            internal int SavedEvents;
+            internal int SkippedAttemptEvents;
+            internal int SavedSnapshots;
+            internal int SkippedSnapshots;
+        }
+
+        /// <summary>
+        /// Builds the <c>PARSEK_GAME_STATE</c> node the events file and the save's
+        /// <c>GAME_STATE</c> node both carry. Events a live committed-tree restore attempt
+        /// keeps memory-only (#866, <see cref="RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence"/>)
+        /// and the contract snapshots of their accepts are left out of the root and put in
+        /// <see cref="EventsNodeBuild.AttemptEvents"/> instead, tagged with
+        /// <paramref name="attemptTreeId"/> and <paramref name="attemptArmReason"/>; that node
+        /// is built whenever an attempt is live, even when it holds no event.
+        /// </summary>
+        internal static EventsNodeBuild BuildEventsNode(string attemptTreeId, string attemptArmReason = null)
+        {
+            // Events are stored in insertion (capture) order, not UT order.
+            // After reverts, events from an abandoned future branch precede
+            // events from the new branch - UT-sorting would interleave them
+            // and corrupt facility/building cache seeding.
+            var build = new EventsNodeBuild();
+            var rootNode = new ConfigNode(EventsNodeName);
+            rootNode.AddValue("version", CurrentEventsVersion);
+            ConfigNode attemptNode = null;
+            if (!string.IsNullOrEmpty(attemptTreeId))
+            {
+                attemptNode = new ConfigNode(AttemptEventsNodeName);
+                attemptNode.AddValue(AttemptTreeIdKey, attemptTreeId);
+                if (!string.IsNullOrEmpty(attemptArmReason))
+                    attemptNode.AddValue(AttemptArmReasonKey, attemptArmReason);
+            }
+
+            HashSet<string> skippedContractAcceptGuids = null;
+            foreach (var e in events)
+            {
+                if (RecordingStore.ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(e))
+                {
+                    build.SkippedAttemptEvents++;
+                    if (e.eventType == GameStateEventType.ContractAccepted
+                        && !string.IsNullOrEmpty(e.key))
+                    {
+                        if (skippedContractAcceptGuids == null)
+                            skippedContractAcceptGuids = new HashSet<string>();
+                        skippedContractAcceptGuids.Add(e.key);
+                    }
+                    if (attemptNode != null)
+                        e.SerializeInto(attemptNode.AddNode("GAME_STATE_EVENT"));
+                    continue;
+                }
+
+                ConfigNode eventNode = rootNode.AddNode("GAME_STATE_EVENT");
+                e.SerializeInto(eventNode);
+                build.SavedEvents++;
+            }
+            // Events this build could not read go back out untouched, after the readable ones.
+            for (int i = 0; i < unreadableEventNodes.Count; i++)
+                rootNode.AddNode(unreadableEventNodes[i].CreateCopy());
+
+            foreach (var snap in contractSnapshots)
+            {
+                if (skippedContractAcceptGuids != null
+                    && skippedContractAcceptGuids.Contains(snap.contractGuid))
+                {
+                    build.SkippedSnapshots++;
+                    if (attemptNode != null)
+                        snap.SerializeInto(attemptNode);
+                    continue;
+                }
+
+                snap.SerializeInto(rootNode);
+                build.SavedSnapshots++;
+            }
+
+            SerializeScienceSubjectsInto(rootNode);
+            build.Root = rootNode;
+            build.AttemptEvents = attemptNode;
+            return build;
+        }
+
+        internal static bool SaveEventFile()
+        {
+            return WriteEventsNode(BuildEventsNode(
+                RecordingStore.CommittedTreeRestoreAttemptTreeId,
+                RecordingStore.CommittedTreeRestoreAttemptReason));
+        }
+
+        /// <summary>Writes a built events node to the external events file (the mirror).</summary>
+        internal static bool WriteEventsNode(EventsNodeBuild build)
+        {
+            if (build == null || build.Root == null)
+                return false;
+
+            string path = RecordingPaths.ResolveSaveScopedPath(
+                RecordingPaths.BuildGameStateEventsRelativePath());
+            if (path == null)
+            {
+                ParsekLog.Warn("GameStateStore", "Cannot resolve game state events path — save skipped");
+                return false;
+            }
+
+            try
+            {
+                string dir = RecordingPaths.EnsureGameStateDirectory();
+                if (string.IsNullOrEmpty(dir))
+                {
+                    ParsekLog.Warn("GameStateStore", "EnsureGameStateDirectory returned null during SaveEventFile");
+                    return false;
+                }
+
+                SafeWriteConfigNode(build.Root, path);
+
+                ParsekLog.Info("GameStateStore",
+                    $"Saved {build.SavedEvents}/{events.Count} game state events, " +
+                    $"{build.SavedSnapshots}/{contractSnapshots.Count} contract snapshots, " +
+                    $"{committedScienceSubjects.Count} science subjects to {path}" +
+                    (build.SkippedAttemptEvents > 0
+                        ? $" (skippedCommittedRestoreAttemptEvents={build.SkippedAttemptEvents}, " +
+                          $"skippedSnapshots={build.SkippedSnapshots})"
+                        : ""));
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("GameStateStore", $"Failed to save game state events: {ex.Message}");
+                return false;
+            }
+        }
+
+        internal static bool LoadEventFile()
+        {
+            if (!BeginEventLoad("LoadEventFile"))
+                return true;
+
+            string path = RecordingPaths.ResolveSaveScopedPath(
+                RecordingPaths.BuildGameStateEventsRelativePath());
+            FileIOUtils.SweepStaleSafeWriteTemp(path, "GameStateStore");
+            if (path == null || !File.Exists(path))
+            {
+                ParsekLog.Info("GameStateStore", "No game state events file found — starting fresh");
+                return true;
+            }
+
+            try
+            {
+                ConfigNode rootNode = ConfigNode.Load(path);
+                if (rootNode == null)
+                {
+                    ParsekLog.Warn("GameStateStore", "Failed to parse game state events file");
+                    return false;
+                }
+
+                ParseEventsNode(rootNode, path);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("GameStateStore", $"Failed to load game state events: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Loads the events, contract snapshots and science subjects from a save's
+        /// <c>GAME_STATE/PARSEK_GAME_STATE</c> node instead of the external file. Same
+        /// parse and version handling as <see cref="LoadEventFile"/>; marks the
+        /// once-per-folder load done so a later file read in this session does not
+        /// replace what the save restored.
+        /// </summary>
+        internal static bool LoadEventsFromSaveNode(ConfigNode eventsNode)
+        {
+            if (eventsNode == null)
+                return false;
+
+            initialLoadDone = false;
+            BeginEventLoad("LoadEventsFromSaveNode");
+            try
+            {
+                ParseEventsNode(eventsNode, "the save's GAME_STATE node");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("GameStateStore", $"Failed to load game state events from the save node: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// The once-per-folder guard of the event load: returns false (skip) when this
+        /// folder's events are already loaded, otherwise clears the store and returns true.
+        /// </summary>
+        private static bool BeginEventLoad(string site)
+        {
+            string currentSave = HighLogic.SaveFolder;
+            if (currentSave != lastSaveFolder)
+            {
+                initialLoadDone = false;
+                lastSaveFolder = currentSave;
+                ParsekLog.Verbose("GameStateStore", $"Save folder changed to '{currentSave}' — resetting event load state");
+            }
+
+            if (initialLoadDone)
+            {
+                ParsekLog.Verbose("GameStateStore", $"{site}: already loaded, skipping");
+                return false;
+            }
+
+            initialLoadDone = true;
+            int prevEvents = events.Count;
+            int prevSnapshots = contractSnapshots.Count;
+            events.Clear();
+            unreadableEventNodes = new List<ConfigNode>();
+            contractSnapshots.Clear();
+            committedScienceSubjects.Clear();
+            originalScienceValues.Clear();
+            ParsekLog.Verbose("GameStateStore",
+                $"{site}: cleared prior state ({prevEvents} events, {prevSnapshots} snapshots) before loading");
+            return true;
+        }
+
+        private static void ParseEventsNode(ConfigNode rootNode, string sourceLabel)
+        {
+            // Events are self-describing rows: an unreadable row is kept verbatim below, so a
+            // version this build does not know still loads every row it can read.
+            string versionStr = rootNode.GetValue("version");
+            SaveFormatClass versionClass = SaveFormat.GameStateStoreFormat.Classify(SaveFormat.ParseStored(versionStr));
+            if (versionClass != SaveFormatClass.Current)
+            {
+                // Only a newer store is worth a WRN: a missing or older stamp is a pre-1.0 or
+                // hand-built node, loaded best effort like every other pre-baseline store.
+                string versionMessage =
+                    $"Game state events version='{versionStr ?? "(missing)"}' is {versionClass} " +
+                    $"(current={CurrentEventsVersion.ToString(CultureInfo.InvariantCulture)}); loading every readable event";
+                if (versionClass == SaveFormatClass.Newer)
+                    ParsekLog.Warn("GameStateStore", versionMessage);
+                else
+                    ParsekLog.Info("GameStateStore", versionMessage);
+            }
+
+            // ConfigNode.Load returns the file contents directly
+            ConfigNode[] eventNodes = rootNode.GetNodes("GAME_STATE_EVENT");
+            int unreadable = 0;
+            if (eventNodes != null)
+            {
+                foreach (var en in eventNodes)
+                {
+                    if (GameStateEvent.IsUnreadableTypeNode(en))
+                    {
+                        unreadable++;
+                        unreadableEventNodes.Add(en.CreateCopy());
+                        continue;
+                    }
+                    events.Add(GameStateEvent.DeserializeFrom(en));
+                }
+            }
+
+            ConfigNode[] snapNodes = rootNode.GetNodes("CONTRACT_SNAPSHOT");
+            if (snapNodes != null)
+            {
+                foreach (var sn in snapNodes)
+                    contractSnapshots.Add(ContractSnapshot.DeserializeFrom(sn));
+            }
+
+            DeserializeScienceSubjectsFrom(rootNode);
+
+            ParsekLog.Info("GameStateStore",
+                $"Loaded {events.Count} game state events, {contractSnapshots.Count} contract snapshots, " +
+                $"{committedScienceSubjects.Count} science subjects from {sourceLabel}; " +
+                $"unreadableTypesKeptVerbatim={unreadable.ToString(CultureInfo.InvariantCulture)}");
+
+            // Log event type distribution for diagnostics
+            if (events.Count > 0)
+            {
+                string distribution = BuildEventTypeDistribution(events);
+                ParsekLog.Verbose("GameStateStore", $"Event type distribution: {distribution}");
+            }
+        }
+
+        /// <summary>
+        /// Appends the events and contract snapshots of a save's <c>ATTEMPT_EVENTS</c> node to
+        /// memory only (never the file, never a milestone: the live attempt keeps filtering
+        /// them on every save, #866). Returns the number of events appended.
+        /// </summary>
+        internal static int RestoreAttemptEventsToMemory(ConfigNode attemptNode)
+        {
+            return RestoreAttemptEventsToMemory(attemptNode, keepEvent: null, out _);
+        }
+
+        /// <summary>
+        /// As <see cref="RestoreAttemptEventsToMemory(ConfigNode)"/>, but appends only the
+        /// events <paramref name="keepEvent"/> accepts (all of them when it is null). A dropped
+        /// event is counted in <paramref name="droppedEvents"/>, and the contract snapshots of
+        /// dropped accepts are dropped with them, so an event the live attempt would not keep
+        /// off the file never reaches memory.
+        /// </summary>
+        internal static int RestoreAttemptEventsToMemory(
+            ConfigNode attemptNode, Func<GameStateEvent, bool> keepEvent, out int droppedEvents)
+        {
+            droppedEvents = 0;
+            if (attemptNode == null)
+                return 0;
+            int restored = 0;
+            int unreadable = 0;
+            HashSet<string> droppedContractAcceptGuids = null;
+            ConfigNode[] eventNodes = attemptNode.GetNodes("GAME_STATE_EVENT");
+            for (int i = 0; i < eventNodes.Length; i++)
+            {
+                // An attempt event is memory-only state of an uncommitted flight; one this build
+                // cannot read is not restored (counted in the summary below).
+                if (GameStateEvent.IsUnreadableTypeNode(eventNodes[i]))
+                {
+                    unreadable++;
+                    droppedEvents++;
+                    continue;
+                }
+                GameStateEvent e = GameStateEvent.DeserializeFrom(eventNodes[i]);
+                if (keepEvent != null && !keepEvent(e))
+                {
+                    droppedEvents++;
+                    if (e.eventType == GameStateEventType.ContractAccepted
+                        && !string.IsNullOrEmpty(e.key))
+                    {
+                        if (droppedContractAcceptGuids == null)
+                            droppedContractAcceptGuids = new HashSet<string>();
+                        droppedContractAcceptGuids.Add(e.key);
+                    }
+                    continue;
+                }
+                events.Add(e);
+                restored++;
+            }
+            ConfigNode[] snapNodes = attemptNode.GetNodes("CONTRACT_SNAPSHOT");
+            for (int i = 0; i < snapNodes.Length; i++)
+            {
+                ContractSnapshot snap = ContractSnapshot.DeserializeFrom(snapNodes[i]);
+                if (droppedContractAcceptGuids != null
+                    && droppedContractAcceptGuids.Contains(snap.contractGuid))
+                    continue;
+                contractSnapshots.Add(snap);
+            }
+            if (unreadable > 0)
+                ParsekLog.Info("GameStateStore",
+                    $"RestoreAttemptEventsToMemory: skipped {unreadable.ToString(CultureInfo.InvariantCulture)} " +
+                    "attempt event(s) of a type this build cannot read");
+            return restored;
+        }
+
+        /// <summary>Builds the <c>PARSEK_BASELINE</c> node of one baseline (file and save node).</summary>
+        internal static ConfigNode BuildBaselineNode(GameStateBaseline baseline)
+        {
+            if (baseline == null) return null;
+            var rootNode = new ConfigNode(BaselineNodeName);
+            baseline.SerializeInto(rootNode);
+            return rootNode;
+        }
+
+        /// <summary>Writes a built baseline node to its external per-UT file (the mirror).</summary>
+        internal static bool WriteBaselineNode(GameStateBaseline baseline, ConfigNode rootNode)
+        {
+            if (baseline == null || rootNode == null) return false;
+
+            string relativePath = RecordingPaths.BuildBaselineRelativePath(baseline.ut);
+            string path = RecordingPaths.ResolveSaveScopedPath(relativePath);
+            if (path == null)
+            {
+                ParsekLog.Warn("GameStateStore", "Cannot resolve baseline path — save skipped");
+                return false;
+            }
+
+            try
+            {
+                string dir = RecordingPaths.EnsureGameStateDirectory();
+                if (string.IsNullOrEmpty(dir))
+                {
+                    ParsekLog.Warn("GameStateStore", "EnsureGameStateDirectory returned null during SaveBaseline");
+                    return false;
+                }
+
+                SafeWriteConfigNode(rootNode, path);
+
+                ParsekLog.Verbose("GameStateStore", $"Saved baseline at UT {baseline.ut:F0} to {path}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("GameStateStore", $"Failed to save baseline: {ex.Message}");
+                return false;
+            }
+        }
+
+        private const string BaselineFileSearchPattern = "baseline_*.pgsb";
+
+        internal static bool LoadBaselines()
+        {
+            baselines.Clear();
+
+            string dir = RecordingPaths.ResolveGameStateDirectory();
+            if (dir == null || !Directory.Exists(dir))
+            {
+                ParsekLog.Verbose("GameStateStore", "No game state directory found — no baselines to load");
+                return true;
+            }
+
+            // Baseline names are per-UT, so crash residue from a baseline write never gets
+            // overwritten by a later write and would accumulate without this sweep.
+            FileIOUtils.SweepStaleSafeWriteTemps(dir, BaselineFileSearchPattern, "GameStateStore");
+
+            try
+            {
+                string[] files = Directory.GetFiles(dir, BaselineFileSearchPattern);
+                ParsekLog.Verbose("GameStateStore", $"Found {files.Length} baseline files in {dir}");
+
+                foreach (string file in files)
+                {
+                    ConfigNode rootNode = ConfigNode.Load(file);
+                    if (rootNode != null)
+                    {
+                        var baseline = GameStateBaseline.DeserializeFrom(rootNode);
+                        baselines.Add(baseline);
+                    }
+                    else
+                    {
+                        ParsekLog.Warn("GameStateStore", $"Failed to parse baseline file '{file}'");
+                    }
+                }
+
+                // Sort baselines by UT
+                baselines.Sort((a, b) => a.ut.CompareTo(b.ut));
+
+                ParsekLog.Info("GameStateStore", $"Loaded {baselines.Count} baselines");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("GameStateStore", $"Failed to load baselines: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Loads the baselines from a save's <c>GAME_STATE/BASELINES</c> node (one
+        /// <c>PARSEK_BASELINE</c> child per baseline) instead of the per-UT files.
+        /// </summary>
+        internal static bool LoadBaselinesFromSaveNode(ConfigNode baselinesNode)
+        {
+            baselines.Clear();
+            if (baselinesNode == null)
+                return false;
+            try
+            {
+                ConfigNode[] nodes = baselinesNode.GetNodes(BaselineNodeName);
+                for (int i = 0; i < nodes.Length; i++)
+                    baselines.Add(GameStateBaseline.DeserializeFrom(nodes[i]));
+                baselines.Sort((a, b) => a.ut.CompareTo(b.ut));
+                ParsekLog.Info("GameStateStore", $"Loaded {baselines.Count} baselines from the save's GAME_STATE node");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("GameStateStore", $"Failed to load baselines from the save node: {ex.Message}");
+                return false;
+            }
+        }
+
+        private static void SafeWriteConfigNode(ConfigNode node, string path)
+        {
+            FileIOUtils.SafeWriteConfigNode(node, path, "GameStateStore");
+        }
+
+        /// <summary>
+        /// Builds a comma-separated distribution of event types from the given events list.
+        /// Pure function — no side effects, no Unity dependencies.
+        /// Example output: "ContractAccepted=2, FundsChanged=5, TechResearched=1"
+        /// </summary>
+        internal static string BuildEventTypeDistribution(IReadOnlyList<GameStateEvent> eventList)
+        {
+            var typeCounts = new Dictionary<GameStateEventType, int>();
+            for (int i = 0; i < eventList.Count; i++)
+            {
+                var type = eventList[i].eventType;
+                if (typeCounts.ContainsKey(type))
+                    typeCounts[type]++;
+                else
+                    typeCounts[type] = 1;
+            }
+
+            var parts = new List<string>();
+            foreach (var kvp in typeCounts)
+                parts.Add($"{kvp.Key}={kvp.Value}");
+            return string.Join(", ", parts);
+        }
+
+        #endregion
+
+        #region Testing Support
+
+        internal static void ResetForTesting()
+        {
+            ResetForSaveLoad();
+        }
+
+        /// <summary>
+        /// Production reset for a cold load (<c>ParsekScenario.ResetSaveScopedSessionState</c>):
+        /// forgets every event, snapshot, baseline and science subject and the
+        /// once-per-folder load guard, so the cold branch reloads them from the save (or
+        /// the files). Returns the number of events dropped.
+        /// </summary>
+        internal static int ResetForSaveLoad()
+        {
+            int dropped = events.Count;
+            events.Clear();
+            unreadableEventNodes = new List<ConfigNode>();
+            contractSnapshots.Clear();
+            baselines.Clear();
+            committedScienceSubjects.Clear();
+            originalScienceValues.Clear();
+            initialLoadDone = false;
+            lastSaveFolder = null;
+            return dropped;
+        }
+
+        /// <summary>
+        /// Test-only: truncates the event list down to the given count, removing
+        /// any events appended after that point. Used by in-game tests (see
+        /// <c>RuntimeTests.StrategyLifecycle</c>) that exercise a live KSP
+        /// capture path and must leave the save numerically unchanged -- they
+        /// snapshot <see cref="EventCount"/> before the test and truncate back
+        /// to that count in teardown. Silent no-op if <paramref name="newCount"/>
+        /// is at or past the current count.
+        /// </summary>
+        internal static void TruncateEventsForTesting(int newCount)
+        {
+            if (newCount < 0) newCount = 0;
+            if (newCount >= events.Count) return;
+            int removed = events.Count - newCount;
+            events.RemoveRange(newCount, removed);
+            ParsekLog.Verbose("GameStateStore",
+                $"TruncateEventsForTesting: removed={removed}, newCount={events.Count}");
+        }
+
+        #endregion
+    }
+}

@@ -292,7 +292,7 @@ def _parse_float(raw: Optional[str]) -> Optional[float]:
 
 PARSEK_SCENARIO_NAME = "ParsekScenario"
 
-# TerminalState (Source/Parsek/TerminalState.cs) - NUMERIC on disk.
+# TerminalState (Source/Parsek/Trajectory/TerminalState.cs) - NUMERIC on disk.
 TERMINAL_STATE_NAMES: Tuple[str, ...] = (
     "Orbiting", "Landed", "Splashed", "SubOrbital",
     "Destroyed", "Recovered", "Docked", "Boarded",
@@ -302,14 +302,14 @@ TERMINAL_STATE_NAMES: Tuple[str, ...] = (
     "Disassembled",
 )
 
-# BranchPointType (Source/Parsek/BranchPoint.cs) - NUMERIC on disk, so
+# BranchPointType (Source/Parsek/Core/BranchPoint.cs) - NUMERIC on disk, so
 # VesselSwitchContinuation appears as ``type = 8``.
 BRANCH_TYPE_NAMES: Tuple[str, ...] = (
     "Undock", "EVA", "Dock", "Board", "JointBreak",
     "Launch", "Breakup", "Terminal", "VesselSwitchContinuation",
 )
 
-# MergeState (Source/Parsek/MergeState.cs) - NAME string on disk; the default
+# MergeState (Source/Parsek/Rewind/MergeState.cs) - NAME string on disk; the default
 # Immutable is OMITTED by the writer, so an absent key means Immutable.
 MERGE_STATE_DEFAULT = "Immutable"
 
@@ -327,7 +327,7 @@ ROUTE_STATUS_NAMES: Tuple[str, ...] = (
 # missing key reads the way the game reads it, not as a third state.
 ROUTE_STATUS_DEFAULT = "Active"
 
-# RouteConnectionKind (Source/Parsek/RouteProofMetadata.cs) - written as a NAME
+# RouteConnectionKind (Source/Parsek/Logistics/RouteProofMetadata.cs) - written as a NAME
 # by `RouteCodec.SerializeStop`. In ORDINAL order: the numeric spelling the
 # loader also accepts is an INDEX into this tuple, so it must not be reordered.
 ROUTE_CONNECTION_KIND_NAMES: Tuple[str, ...] = (
@@ -1237,7 +1237,7 @@ def observed_points_facets(snapshot: Optional[ParsekSaveSnapshot]) -> Dict[str, 
        with no renderable tail - its real coverage lives in
        `TrackSection.frames` / `bodyFixedFrames`, which this facet cannot see.
     2. TIME WARP. `FlightRecorder.OnPhysicsFrame` early-returns on `isOnRails`
-       (Source/Parsek/FlightRecorder.cs:7713), so NO flat points are sampled
+       (Source/Parsek/Recording/FlightRecorder.cs:7713), so NO flat points are sampled
        while warping. On a warping scenario `pointCount` measures OFF-RAILS
        frame time, not flight coverage: a healthy multi-hour warped coast can
        carry a tiny flat count while its real coverage sits in OrbitSegments.

@@ -36,19 +36,12 @@ GameStateRecorder.GroundStationSubmissionReasonKey scoped by DeployedScienceSubm
 LedgerOrchestrator.clockAdvanceRecalcInProgress scoped in-progress flag of one clock-advance recalculation (try/finally)
 LedgerOrchestrator.CurrencyPoolProbeForTesting test seam
 LedgerOrchestrator.DeferOneFrameForTesting test seam
-LedgerOrchestrator.emittedReconcileWarnKeys log rate limiter (once per play session)
-LedgerOrchestrator.emittedScienceReconcileDumpKeys log rate limiter (once per play session)
 LedgerOrchestrator.EmptyPendingScience constant empty list
 LedgerOrchestrator.ExpectedCurrencySingletonsForTesting test seam
-LedgerOrchestrator.fundsTrackedOverrideForTesting test seam
 LedgerOrchestrator.NowUtProviderForTesting test seam
-LedgerOrchestrator.OneShotReconcileSkipLogIntervalSeconds constant
 LedgerOrchestrator.OnRecordingCommittedFaultInjector test seam
 LedgerOrchestrator.OnRecordingCommittedPostSciencePersistFaultInjector test seam
-LedgerOrchestrator.OnTimelineDataChanged UI subscription (timeline invalidation callback), not save state
 LedgerOrchestrator.ProgressSeedProbeForTesting test seam
-LedgerOrchestrator.repTrackedOverrideForTesting test seam
-LedgerOrchestrator.scienceTrackedOverrideForTesting test seam
 LedgerOrchestrator.LoadedFlightStateUTForTesting test seam
 LedgerOrchestrator.UncommittedRecordingIdsForTesting test seam
 KspStatePatcher.ActiveClockCrossing scoped: set around one clock-advance patch (try/finally), null otherwise

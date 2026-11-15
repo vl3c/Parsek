@@ -1069,7 +1069,7 @@ ANOMALY_TOKENS: Tuple[str, ...] = (
 # Promoting any of them later needs the same thing the seven needed: a measurement
 # that it stays silent on real geometry, plus a reason to call a raise a defect.
 ANOMALY_REASONS_RAISED_UNGATED: Tuple[Tuple[str, str], ...] = (
-    ("unaccounted-drawn-recording", "Source/Parsek/MapRenderProbe.cs:544"),
+    ("unaccounted-drawn-recording", "Source/Parsek/MapRender/MapRenderProbe.cs:544"),
     # Both pointers moved with the M-A7 recorder hooks landing above them in the same
     # two files. Nothing about either instrument changed: this is the pointer-rot the
     # gate below exists to catch, re-derived from the source rather than nudged.
@@ -1092,7 +1092,7 @@ ANOMALY_REASONS_RAISED_UNGATED: Tuple[Tuple[str, str], ...] = (
     # landed above it in the same file. Nothing about the seam instrument changed;
     # the new number was re-derived from the scan, not shifted by arithmetic.
     ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:726"),
-    ("seam-endpoint-outside-soi", "Source/Parsek/MapRenderProbe.cs:2376"),
+    ("seam-endpoint-outside-soi", "Source/Parsek/MapRender/MapRenderProbe.cs:2376"),
 )
 
 # RETIRED tokens: gated once, raised by nothing, REMOVED from ANOMALY_TOKENS
@@ -11612,7 +11612,7 @@ def _entry_identities(contract_guid: str, subject_ids: Sequence[str]) -> List[st
 # Ghost FX fingerprint capture + A/B set-diff (modded-compat lane). Pure.
 # ---------------------------------------------------------------------------
 
-# The producer is Source/Parsek/GhostFxFingerprint.cs, which logs ONE canonical
+# The producer is Source/Parsek/Ghost/GhostFxFingerprint.cs, which logs ONE canonical
 # line per built ghost engine/RCS module in BOTH stock and Waterfall/ReStock
 # installs. Its whole reason to exist is a MECHANICAL A/B: two runs of the same
 # save (config pack off vs on) must produce the same fingerprint set per part,

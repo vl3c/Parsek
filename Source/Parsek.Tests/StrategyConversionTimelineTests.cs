@@ -105,7 +105,7 @@ namespace Parsek.Tests
 
         private static List<GameAction> ConversionRows()
         {
-            return Ledger.Actions.Where(LedgerOrchestrator.IsStrategyConversionRow).ToList();
+            return Ledger.Actions.Where(ConversionLegBinding.IsStrategyConversionRow).ToList();
         }
 
         private static void AddEvent(string recordingId, double ut, GameStateEventType type, string key, string detail)

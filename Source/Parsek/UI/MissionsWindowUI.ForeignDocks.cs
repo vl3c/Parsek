@@ -242,8 +242,8 @@ namespace Parsek
         /// <para>Returns "" (the overwhelmingly common case) when the recording runs right up to the
         /// dock, when it is missing, or when the shortfall is under the threshold. Threshold and
         /// wording are SHARED with the digest's own gap row
-        /// (<see cref="MissionEventDigest.GapThresholdSeconds"/> /
-        /// <see cref="MissionEventDigest.FormatRowText"/> phrasing) so the two surfaces can never
+        /// (<see cref="MissionEventDigest.GapThresholdSeconds"/> and its gap-row phrasing) so the
+        /// two surfaces can never
         /// state the same gap differently. Duration goes through the house formatter
         /// (InvariantCulture).</para>
         /// </summary>

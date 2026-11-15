@@ -20,7 +20,8 @@ tier = "nightly"
 # site's tail purge then deleted the event. KSP kept what the player did (a contract finished,
 # a milestone, banked science), the ledger had no row for it.
 #
-# THE FIX. The drop site passes `preserveIrreversibleTails` (true on a live discard) and,
+# THE FIX. The drop site passes `preserveIrreversibleTails` (the ledger's preservation on a
+# live discard, null on a rollback) and,
 # before the purge, `PreserveIrreversibleRestoreAttemptTailsOnDiscard` re-homes every
 # irreversible event and science subject on a committed id STRICTLY AFTER its cutoff to a
 # direct (untagged) ledger row. A lab credit (`ScienceLabCredited`) is irreversible
@@ -45,7 +46,9 @@ tier = "nightly"
 #             to the `ListHandles kind=committed` mark), stock's pool 100 -> 112.5.
 #   discard   `DiscardTree` (the verb's `AutoDiscardActiveTreeCore`, whose drop site is
 #             `ClearCommittedTreeRestoreAttemptForDroppedTree(..., "auto-discard dropped the
-#             restore clone", preserveIrreversibleTails: true)`, a live discard): the credit is
+#             restore clone", preserveIrreversibleTails:
+#             LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard)`, a live
+#             discard): the credit is
 #             re-homed as a direct row, then the tail is purged, then the discard's own
 #             current-timeline recalc walks the ledger.
 #

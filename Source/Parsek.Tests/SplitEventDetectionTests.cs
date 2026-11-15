@@ -23,48 +23,6 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
         }
 
-        #region IsTrackableVesselType
-
-        [Fact]
-        public void IsTrackableVesselType_SpaceObject_ReturnsTrue()
-        {
-            Assert.True(ParsekFlight.IsTrackableVesselType(VesselType.SpaceObject));
-        }
-
-        [Fact]
-        public void IsTrackableVesselType_Debris_ReturnsFalse()
-        {
-            Assert.False(ParsekFlight.IsTrackableVesselType(VesselType.Debris));
-        }
-
-        [Fact]
-        public void IsTrackableVesselType_Ship_ReturnsFalse()
-        {
-            // Ship alone is not trackable — needs module check (requires Unity)
-            Assert.False(ParsekFlight.IsTrackableVesselType(VesselType.Ship));
-        }
-
-        [Fact]
-        public void IsTrackableVesselType_Probe_ReturnsFalse()
-        {
-            // Probe type alone is not trackable — needs module check
-            Assert.False(ParsekFlight.IsTrackableVesselType(VesselType.Probe));
-        }
-
-        [Fact]
-        public void IsTrackableVesselType_EVA_ReturnsTrue()
-        {
-            // EVA kerbals are directly controllable by the player and must count
-            // as a controllable output for split-event classification, even though
-            // their part carries KerbalEVA rather than ModuleCommand. Without this
-            // an EVA split classifies as single-controllable, no RewindPoint is
-            // authored, and a destroyed EVA kerbal cannot become an Unfinished
-            // Flight (#XXX).
-            Assert.True(ParsekFlight.IsTrackableVesselType(VesselType.EVA));
-        }
-
-        #endregion
-
         #region Deferred breakup scan filtering
 
         [Fact]

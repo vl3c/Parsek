@@ -234,7 +234,7 @@ class HealthFactSourceSyncTests(unittest.TestCase):
             self.assertIn(fact.key, h, fact.key)
 
     def test_parseklog_line_format_levels_and_suppressed_suffix(self):
-        text = self._source("Source/Parsek/ParsekLog.cs")
+        text = self._source("Source/Parsek/LogIO/ParsekLog.cs")
         self.assertIn('$"[Parsek][{level}][{safeSubsystem}] {safeMessage}"', text)
         for level in runindex.LEVELS:
             self.assertIn('Write("%s", subsystem, message);' % level, text)
@@ -1887,7 +1887,7 @@ class SnapshotSourceSyncTests(unittest.TestCase):
             return fh.read()
 
     def test_session_start_is_the_init_line_parsekharmony_writes(self):
-        text = self._source("Source/Parsek/ParsekHarmony.cs")
+        text = self._source("Source/Parsek/Controllers/ParsekHarmony.cs")
         self.assertIn('"SessionStart runUtc=" + runUtcSeconds.ToString(CultureInfo.InvariantCulture)', text)
         self.assertRegex(text, r'ParsekLog\.Info\("Init",\s*FormatSessionStartMessage\(DateTimeOffset\.UtcNow\.ToUnixTimeSeconds\(\)\)\)')
         f = _facts(_pline("INFO", "Init", "SessionStart runUtc=%d" % SNAP_UTC))

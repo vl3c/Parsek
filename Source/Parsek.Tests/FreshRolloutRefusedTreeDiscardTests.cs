@@ -833,7 +833,7 @@ namespace Parsek.Tests
         [Fact]
         public void SourceGate_VesselSwitchRefusal_DisposesBeforeRevertAndPop()
         {
-            string body = MethodBody(ReadSource("ParsekFlight.cs"),
+            string body = MethodBody(ReadSource("Controllers/ParsekFlight.cs"),
                 "IEnumerator RestoreActiveTreeFromPendingForVesselSwitch()");
             int refuse = IndexOrFail(body, "ShouldRefuseVesselSwitchRestoreForFreshRollout(");
             int dispose = IndexOrFail(body, "DisposeFreshRolloutRefusedPendingTree(", refuse);
@@ -850,7 +850,7 @@ namespace Parsek.Tests
         [Fact]
         public void SourceGate_QuickloadRefusal_DisposesBeforeTheLimboGiveUpAndPop()
         {
-            string source = ReadSource("ParsekFlight.cs");
+            string source = ReadSource("Controllers/ParsekFlight.cs");
 
             // The per-frame match unit refuses the fresh rollout before any adoption.
             string match = MethodBody(source,

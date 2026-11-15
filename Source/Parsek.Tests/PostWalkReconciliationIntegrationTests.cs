@@ -37,7 +37,7 @@ namespace Parsek.Tests
             GameStateStore.SuppressLogging = true;
             GameStateStore.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
-            LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(true, true, true);
+            PostWalkActionReconciler.SetResourceTrackingAvailabilityForTesting(true, true, true);
         }
 
         public void Dispose()
@@ -288,7 +288,7 @@ namespace Parsek.Tests
         [Fact]
         public void Integration_AllTrackersUnavailable_PostWalkSkippedOnce_NoWarn()
         {
-            LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(false, false, false);
+            PostWalkActionReconciler.SetResourceTrackingAvailabilityForTesting(false, false, false);
             LedgerOrchestrator.Initialize();
 
             Ledger.AddAction(new GameAction
@@ -330,7 +330,7 @@ namespace Parsek.Tests
         [Fact]
         public void Integration_FundsTrackerUnavailable_PostWalkStillReconcilesTrackedLegs()
         {
-            LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(false, true, true);
+            PostWalkActionReconciler.SetResourceTrackingAvailabilityForTesting(false, true, true);
             LedgerOrchestrator.Initialize();
 
             Ledger.AddAction(new GameAction

@@ -1564,10 +1564,10 @@ guards.
   builds on (especially "Mission-level looping (span-clock integration)").
 - `docs/dev/todo-and-known-bugs.md` - the deferred TODO + the shipped known
   limitation this closes.
-- `Source/Parsek/MissionLoopUnitBuilder.cs` - `TryBuildMissionUnit` (span,
+- `Source/Parsek/Missions/MissionLoopUnitBuilder.cs` - `TryBuildMissionUnit` (span,
   cadence, phase anchor), `BuildSignature`.
-- `Source/Parsek/GhostPlaybackLogic.cs` - `TryComputeSpanLoopUT`,
+- `Source/Parsek/Ghost/GhostPlaybackLogic.cs` - `TryComputeSpanLoopUT`,
   `ComputeEffectiveLaunchCadence`, the span clock.
-- `Source/Parsek/GhostMapPresence.cs` / `ParsekPlaybackPolicy.cs` - the map-presence
+- `Source/Parsek/Ghost/GhostMapPresence.cs` / `ParsekPlaybackPolicy.cs` - the map-presence
   loop fix (`loopEpochShiftSeconds`) that places the ghost at the right phase along
   the recorded ellipse (orthogonal to, and unaffected by, this feature).

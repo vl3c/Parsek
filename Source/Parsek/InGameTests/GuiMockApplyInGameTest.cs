@@ -202,7 +202,7 @@ namespace Parsek.InGameTests
                 // The ledger hook, fired through its own delegate - which is how
                 // the Kerbals window's own hook (SubscribeTimelineDataChanged) reaches its
                 // InvalidateCache (the kerbals-invalidate suppression site).
-                Action timelineHook = LedgerOrchestrator.OnTimelineDataChanged;
+                Action timelineHook = LedgerTimelineSignal.OnTimelineDataChanged;
                 if (timelineHook != null) timelineHook();
                 yield return null;
 

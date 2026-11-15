@@ -354,7 +354,7 @@ namespace Parsek.Tests
             });
 
             int invocations = 0;
-            LedgerOrchestrator.OnTimelineDataChanged = () =>
+            LedgerTimelineSignal.OnTimelineDataChanged = () =>
             {
                 invocations++;
                 if (invocations == 1)
@@ -367,7 +367,7 @@ namespace Parsek.Tests
             }
             finally
             {
-                LedgerOrchestrator.OnTimelineDataChanged = null;
+                LedgerTimelineSignal.OnTimelineDataChanged = null;
             }
 
             var restored = RecordingStore.CommittedRecordings.Single(r => r.RecordingId == "rec_rb");

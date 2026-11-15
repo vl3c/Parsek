@@ -1131,7 +1131,7 @@ namespace Parsek.Tests
         {
             string root = System.IO.Path.GetFullPath(System.IO.Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
-            string path = System.IO.Path.Combine(root, "Source", "Parsek", "ParsekFlight.cs");
+            string path = System.IO.Path.Combine(root, "Source", "Parsek", "Controllers", "ParsekFlight.cs");
             Assert.True(System.IO.File.Exists(path), "Source file not found at " + path);
             return ParsekFlightSourceFiles.ReadAll(System.IO.Path.GetDirectoryName(path));
         }

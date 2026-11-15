@@ -3378,7 +3378,7 @@ MEASUREMENT.** The sentence above claims the return direction "is the ONLY thing
 that activates the KSC render host". That does not survive a read of the code.
 Dimension 3 of this section cites the per-point Kerbin gate in
 `ParsekKSC.Playback.cs`, but there is a STRICTER gate one level up:
-`ParsekKSC.IsKscStructurallyEligible` (`Source/Parsek/ParsekKSC.cs:1483-1490`)
+`ParsekKSC.IsKscStructurallyEligible` (`Source/Parsek/Controllers/ParsekKSC.cs:1483-1490`)
 rejects a recording outright on `rec.Points[0].bodyName != "Kerbin"` - the
 recording's FIRST point, not its arrival body - and the Update loop
 (`ParsekKSC.cs:326`) continues past an ineligible recording, logging nothing

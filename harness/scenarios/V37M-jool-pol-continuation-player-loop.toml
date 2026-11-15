@@ -17,7 +17,7 @@ id = "V37M-jool-pol-continuation-player-loop"
 # appended to `jool-orbit-recorded`'s committed Kerbin -> Jool tree
 # `6ec68e87b782476f970a71df8c8b4685` (the forge resumes that tree, so the id is unchanged).
 #
-# WHAT THE LOG MUST SHOW (literals from Source/Parsek/MissionLoopUnitBuilder.cs):
+# WHAT THE LOG MUST SHOW (literals from Source/Parsek/Missions/MissionLoopUnitBuilder.cs):
 #   `ENGAGED re-aim Kerbin->Jool via Sun`, as on V33M.
 #   `ARRIVAL HOLD dest=Jool kind=config Talign=<P_Pol>s moons=1 ...
 #       (aligns the moon orbital phases, mode=` - the lone-moon hold on Pol's

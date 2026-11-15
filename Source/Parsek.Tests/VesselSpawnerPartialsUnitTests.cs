@@ -105,32 +105,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RelocatedAltitude_NotLandedLike_UsesTheSnapshotAltElseZero()
-        {
-            // The non-landed path never reads the body, so a null body is fine there.
-            var orbiting = new ConfigNode("VESSEL");
-            orbiting.AddValue("sit", "ORBITING");
-            orbiting.AddValue("alt", "123456.5");
-            var withAlt = new Recording { VesselSnapshot = orbiting };
-            Assert.Equal(123456.5, VesselSpawner.ResolveRelocatedAltitude(withAlt, null, 1.0, 2.0));
-            Assert.Contains(logLines, l => l.Contains("[Spawner]")
-                && l.Contains("Relocation altitude selected=")
-                && l.Contains(" source=snapshot landedLike=False"));
-
-            logLines.Clear();
-            var noAlt = new ConfigNode("VESSEL");
-            noAlt.AddValue("sit", "FLYING");
-            Assert.Equal(0.0, VesselSpawner.ResolveRelocatedAltitude(
-                new Recording { VesselSnapshot = noAlt }, null, 1.0, 2.0));
-            Assert.Contains(logLines, l => l.Contains("Relocation altitude selected=")
-                && l.Contains(" source=fallback landedLike=False"));
-
-            logLines.Clear();
-            Assert.Equal(0.0, VesselSpawner.ResolveRelocatedAltitude(null, null, 1.0, 2.0));
-            Assert.Contains(logLines, l => l.Contains("source=fallback") && l.Contains("landedLike=False"));
-        }
-
-        [Fact]
         public void EndpointStateVector_LastPointOnTheBodyWithAFiniteVelocity()
         {
             TrajectoryPoint point;

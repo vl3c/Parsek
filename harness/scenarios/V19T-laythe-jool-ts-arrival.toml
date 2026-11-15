@@ -143,7 +143,7 @@ id = "V19T-laythe-jool-ts-arrival"
 # overlapCadence is still exactly spanDur/20 with no NextUp bump, and the cap still
 # dominates 20x - the two clocks differ by 1.380 s of span and 0.069 s of pitch.
 # (`GhostPlayback.MaxOverlapMissionInstances = 20`, `LoopTiming.DefaultLoopIntervalSeconds
-# = 30.0`, `LoopTiming.MinCycleDuration = 5.0`, all in `Source/Parsek/ParsekConfig.cs`.)
+# = 30.0`, `LoopTiming.MinCycleDuration = 5.0`, all in `Source/Parsek/Config/ParsekConfig.cs`.)
 #
 # So the loop SELF-OVERLAPS - up to 20 concurrent instances launched 599.52 s apart -
 # and because `overlapCadence` is EXACTLY `spanDur / 20`, instance 21 is exactly one

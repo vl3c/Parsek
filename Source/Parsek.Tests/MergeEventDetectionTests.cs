@@ -212,23 +212,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResolveDockRouteTargetPid_UsesOtherDockedVessel()
-        {
-            Assert.Equal(222u, ParsekFlight.ResolveDockRouteTargetPid(
-                activeWasDockTarget: true,
-                mergedVesselPid: 111,
-                absorbedVesselPid: 222));
-            Assert.Equal(111u, ParsekFlight.ResolveDockRouteTargetPid(
-                activeWasDockTarget: false,
-                mergedVesselPid: 111,
-                absorbedVesselPid: 222));
-            Assert.Equal(0u, ParsekFlight.ResolveDockRouteTargetPid(
-                activeWasDockTarget: true,
-                mergedVesselPid: 111,
-                absorbedVesselPid: 0));
-        }
-
-        [Fact]
         public void TryBuildRouteEndpointFromSnapshot_UsesAbsorbedVesselSnapshot()
         {
             LiveVesselSnapshot.BodyNameResolverForTesting = delegate(int index, out string name)

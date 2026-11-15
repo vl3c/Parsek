@@ -366,7 +366,7 @@ id = "B28-laythe-jool-return"
 # point-carrying) and 8 at `ref=2` (OrbitalCheckpoint, exactly one per ORBIT_SEGMENT),
 # and ZERO at `ref=1`**, so there is no Relative-frame resolution anywhere in this
 # subject (`ReferenceFrame` is Absolute=0 / Relative=1 / OrbitalCheckpoint=2,
-# `Source/Parsek/TrackSection.cs`). [The harvest commit wrote this as "THIRTEEN
+# `Source/Parsek/Trajectory/TrackSection.cs`). [The harvest commit wrote this as "THIRTEEN
 # TRACK_SECTIONs all ref=0"; that counted only the point-carrying half and then denied
 # the eight sections that hold the orbit sources. Re-counted off the committed
 # `.prec.txt`.] Zero durable

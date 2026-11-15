@@ -125,7 +125,8 @@ namespace Parsek.Tests
 
         private static HashSet<string> MemberIds()
         {
-            return ForeignInventoryTransfer.CollectTransferMemberRecordingIds(RecordingStore.CommittedTrees);
+            return ForeignInventoryTransfer.CollectForeignAdoptedVesselMemberRecordingIds(
+                RecordingStore.CommittedTrees);
         }
 
         // ---- The repro: the whole plain-rewind strip chain over the EVA-11 shape ----

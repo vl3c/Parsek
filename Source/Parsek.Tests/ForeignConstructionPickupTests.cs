@@ -337,7 +337,7 @@ namespace Parsek.Tests
             var all = new List<Recording> { drop };
             all.AddRange(tree.Recordings.Values);
             var scope = RewindSpawnScope.ResolveRewindSpawnStripScope(
-                all, LaunchUT, ForeignInventoryTransfer.CollectTransferMemberRecordingIds(trees));
+                all, LaunchUT, ForeignInventoryTransfer.CollectForeignAdoptedVesselMemberRecordingIds(trees));
 
             Assert.DoesNotContain(LoosePid, scope.StripPids);
             Assert.Contains(LoosePid, scope.KeptPids);
@@ -348,13 +348,13 @@ namespace Parsek.Tests
         [Fact]
         public void ThePocketSeam_RoutesAVesselOutsideTheTreeToTheAdoption()
         {
-            string terminal = ReadSource("ParsekFlight.TerminalEvents.cs");
+            string terminal = ReadSource("Controllers/ParsekFlight.TerminalEvents.cs");
             Assert.Contains(
                 "if (!activeTree.BackgroundMap.TryGetValue(v.persistentId, out recordingId))\n" +
                 "                return SurfaceCapture.TryAdoptForeignConstructionPickup(v);",
                 terminal.Replace("\r\n", "\n"));
 
-            string seam = ReadSource("ParsekFlightSurfaceCapture.cs");
+            string seam = ReadSource("Controllers/ParsekFlightSurfaceCapture.cs");
             Assert.Contains("ForeignInventoryTransfer.ShouldAdoptConstructionPickup(deathKind, verdict)", seam);
             Assert.Contains("GhostMapPresence.IsGhostMapVessel(changedPid)", seam);
             Assert.Contains("ForeignInventoryTransfer.AttachPickedUpMember(", seam);

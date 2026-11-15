@@ -305,7 +305,7 @@ namespace Parsek.Tests
         public void ReconcileEarningsWindow_LabTransmission_NoMissingChannelWarn()
         {
             LedgerOrchestrator.Initialize();
-            LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(true, true, true);
+            PostWalkActionReconciler.SetResourceTrackingAvailabilityForTesting(true, true, true);
             var events = new List<GameStateEvent>
             {
                 new GameStateEvent

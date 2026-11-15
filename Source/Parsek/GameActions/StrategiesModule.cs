@@ -223,15 +223,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// True when the walk saw a StrategyActivate row for this id, whether or not it is
-        /// still active. False for a strategy the ledger never activated.
+        /// Every id the walk saw a StrategyActivate row for, whether or not it is still active,
+        /// sorted ordinally.
         /// </summary>
-        internal bool IsManagedStrategy(string strategyId)
-        {
-            return everActivated.Contains(strategyId ?? "");
-        }
-
-        /// <summary>Every id <see cref="IsManagedStrategy"/> answers true for, sorted ordinally.</summary>
         internal List<string> GetManagedStrategyIds()
         {
             var ids = new List<string>(everActivated);

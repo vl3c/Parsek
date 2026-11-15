@@ -259,7 +259,7 @@ namespace Parsek.Tests
         [Fact]
         public void CrashReconcile_RevertsSidecarsAndForcesColdReload_BeforeSchedulingDeferredReload()
         {
-            string source = ReadSource("ParsekScenario.cs");
+            string source = ReadSource("Controllers/ParsekScenario.cs");
             int coreStart = source.IndexOf(
                 "private void RunTestBatchCrashReconcileCore(", StringComparison.Ordinal);
             Assert.True(coreStart >= 0, "RunTestBatchCrashReconcileCore method not found");
@@ -290,7 +290,7 @@ namespace Parsek.Tests
         [Fact]
         public void CrashReconcile_ColdReloadPrep_ResetsLedgerAndInitialLoadFlag()
         {
-            string source = ReadSource("ParsekScenario.cs");
+            string source = ReadSource("Controllers/ParsekScenario.cs");
             int prepStart = source.IndexOf(
                 "private static void PrepareInMemoryStateForTestBatchCrashReload(",
                 StringComparison.Ordinal);
@@ -315,7 +315,7 @@ namespace Parsek.Tests
             // source (the BUG-F regression this fix closes).
             // The slice is the coroutine's own brace-matched body (comments blanked), so a
             // sweep call placed anywhere else in the partial class cannot satisfy it.
-            string source = ReadSource("ParsekScenario.cs");
+            string source = ReadSource("Controllers/ParsekScenario.cs");
             string prepared = SourceScanText.StripCommentsAndMaskLiterals(source);
             int deferredStart = prepared.IndexOf(
                 "IEnumerator DeferredReloadAfterTestBatchCrashReconcile(", StringComparison.Ordinal);
@@ -342,7 +342,7 @@ namespace Parsek.Tests
         public void CrashReconcile_CoreWrappedInDefensiveTryCatch()
         {
             // Nit N1: the reconcile must never throw out of OnLoad.
-            string source = ReadSource("ParsekScenario.cs");
+            string source = ReadSource("Controllers/ParsekScenario.cs");
             int wrapperStart = source.IndexOf(
                 "private void RunTestBatchCrashReconcile()", StringComparison.Ordinal);
             Assert.True(wrapperStart >= 0, "RunTestBatchCrashReconcile wrapper not found");

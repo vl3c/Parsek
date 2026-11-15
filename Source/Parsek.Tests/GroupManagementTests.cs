@@ -379,52 +379,6 @@ namespace Parsek.Tests
             Assert.DoesNotContain("Retired Mission / Debris", GroupHierarchyStore.HiddenGroups);
         }
 
-        // ─── GetDescendantGroups ───────────────────────────────────────────
-
-        [Fact]
-        public void GetDescendantGroups_SingleLevel_ReturnsChildren()
-        {
-            GroupHierarchyStore.groupParents["Child1"] = "Root";
-            GroupHierarchyStore.groupParents["Child2"] = "Root";
-
-            var descendants = GroupHierarchyStore.GetDescendantGroups("Root");
-
-            Assert.True(descendants.Count == 2);
-            Assert.Contains("Child1", descendants);
-            Assert.Contains("Child2", descendants);
-        }
-
-        [Fact]
-        public void GetDescendantGroups_MultiLevel_ReturnsGrandchildren()
-        {
-            GroupHierarchyStore.groupParents["B"] = "A";
-            GroupHierarchyStore.groupParents["C"] = "B";
-
-            var descendants = GroupHierarchyStore.GetDescendantGroups("A");
-
-            Assert.True(descendants.Count == 2);
-            Assert.Contains("B", descendants);
-            Assert.Contains("C", descendants);
-        }
-
-        [Fact]
-        public void GetDescendantGroups_NoDescendants_ReturnsEmptyList()
-        {
-            GroupHierarchyStore.groupParents["Leaf"] = "Root";
-
-            var descendants = GroupHierarchyStore.GetDescendantGroups("Leaf");
-
-            Assert.True(descendants.Count == 0);
-        }
-
-        [Fact]
-        public void GetDescendantGroups_NullGroup_ReturnsEmptyList()
-        {
-            var descendants = GroupHierarchyStore.GetDescendantGroups(null);
-
-            Assert.True(descendants.Count == 0);
-        }
-
         // ─── RenameGroupInHierarchy ────────────────────────────────────────
 
         [Fact]

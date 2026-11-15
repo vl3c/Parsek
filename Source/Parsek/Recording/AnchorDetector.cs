@@ -1,0 +1,434 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using UnityEngine;
+
+namespace Parsek
+{
+    // In-memory diagnostic enum only, never serialized. The rendering-side
+    // AnchorSource enum in Rendering/AnchorCorrection.cs is separate.
+    internal enum AnchorCandidateSource
+    {
+        Live,
+        Ghost
+    }
+
+    internal readonly struct RecordingAnchorCandidate
+    {
+        public readonly string RecordingId;
+        public readonly Vector3d WorldPos;
+        public readonly Quaternion WorldRotation;
+        public readonly AnchorCandidateSource Source;
+        public readonly uint DiagnosticPid;
+        public readonly int GhostIndex;
+        public readonly bool IsSealed;
+        public readonly bool IsSameReplayPoint;
+        public readonly bool IsSameVesselLineage;
+
+        public RecordingAnchorCandidate(
+            string recordingId,
+            Vector3d worldPos,
+            Quaternion worldRotation,
+            AnchorCandidateSource source,
+            uint diagnosticPid = 0u,
+            int ghostIndex = -1,
+            bool isSealed = false,
+            bool isSameReplayPoint = false,
+            bool isSameVesselLineage = false)
+        {
+            RecordingId = recordingId;
+            WorldPos = worldPos;
+            WorldRotation = worldRotation;
+            Source = source;
+            DiagnosticPid = diagnosticPid;
+            GhostIndex = ghostIndex;
+            IsSealed = isSealed;
+            IsSameReplayPoint = isSameReplayPoint;
+            IsSameVesselLineage = isSameVesselLineage;
+        }
+    }
+
+    /// <summary>
+    /// Detects when the focused vessel is near a pre-existing persistent vessel
+    /// that could serve as a RELATIVE reference frame anchor.
+    /// A "pre-existing" vessel is one NOT part of the current recording tree --
+    /// it exists independently in the game state (stations, bases, other missions).
+    /// </summary>
+    internal static class AnchorDetector
+    {
+        // Transition thresholds (meters)
+        internal const double RelativeEntryDistance = DistanceThresholds.RelativeFrame.EntryMeters;
+        internal const double RelativeExitDistance = DistanceThresholds.RelativeFrame.ExitMeters;
+        internal const double DockingApproachDistance = DistanceThresholds.RelativeFrame.DockingApproachMeters;
+
+        internal static (RecordingAnchorCandidate candidate, double distance, bool found) FindNearestRecordingAnchor(
+            string focusedRecordingId,
+            uint focusedVesselPid,
+            Vector3d focusedPosition,
+            IReadOnlyList<RecordingAnchorCandidate> candidates,
+            double maxDistanceExclusive = double.MaxValue)
+        {
+            RecordingAnchorCandidate best = default;
+            double bestDistance = double.MaxValue;
+            bool found = false;
+
+            if (candidates == null || candidates.Count == 0)
+                return (best, bestDistance, false);
+
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                RecordingAnchorCandidate candidate = candidates[i];
+                if (string.IsNullOrWhiteSpace(candidate.RecordingId))
+                    continue;
+                if (string.Equals(candidate.RecordingId, focusedRecordingId, StringComparison.Ordinal))
+                    continue;
+                if (focusedVesselPid != 0u
+                    && candidate.DiagnosticPid != 0u
+                    && candidate.DiagnosticPid == focusedVesselPid)
+                {
+                    continue;
+                }
+
+                double distance = Vector3d.Distance(focusedPosition, candidate.WorldPos);
+                if (distance >= maxDistanceExclusive)
+                    continue;
+
+                if (!found || IsBetterRecordingAnchor(candidate, distance, best, bestDistance))
+                {
+                    best = candidate;
+                    bestDistance = distance;
+                    found = true;
+                }
+            }
+
+            if (found)
+            {
+                var ic = CultureInfo.InvariantCulture;
+                ParsekLog.VerboseRateLimited("Anchor", "find-nearest-recording",
+                    $"FindNearestRecordingAnchor: recordingId={best.RecordingId} dist={bestDistance.ToString("F1", ic)}m " +
+                    $"focusedRecordingId={focusedRecordingId ?? "(null)"} source={best.Source} ghostIndex={best.GhostIndex} " +
+                    $"sealed={best.IsSealed} affinity={RecordingAnchorAffinityRank(best)} candidates={candidates.Count}");
+            }
+
+            return (best, bestDistance, found);
+        }
+
+        internal static bool TryCreateRecordingAnchorCandidate(
+            Recording focusRecording,
+            Recording candidateRecording,
+            Vector3d worldPos,
+            Quaternion worldRotation,
+            AnchorCandidateSource source,
+            uint diagnosticPid,
+            int ghostIndex,
+            out RecordingAnchorCandidate candidate)
+        {
+            candidate = default;
+            if (!IsRecordingAnchorEligible(focusRecording, candidateRecording))
+                return false;
+            if (!IsRecordingAnchorDAGOrderEligible(focusRecording, candidateRecording))
+                return false;
+
+            candidate = new RecordingAnchorCandidate(
+                candidateRecording.RecordingId,
+                worldPos,
+                TrajectoryMath.SanitizeQuaternion(worldRotation),
+                source,
+                diagnosticPid,
+                ghostIndex,
+                IsSealedRecordingAnchor(candidateRecording),
+                SharesReplayPoint(focusRecording, candidateRecording),
+                SharesVesselLineage(focusRecording, candidateRecording));
+            return true;
+        }
+
+        internal static bool IsRecordingAnchorEligible(
+            Recording focusRecording,
+            Recording candidateRecording)
+        {
+            if (focusRecording == null || candidateRecording == null)
+                return false;
+            if (string.IsNullOrWhiteSpace(focusRecording.RecordingId)
+                || string.IsNullOrWhiteSpace(candidateRecording.RecordingId))
+            {
+                return false;
+            }
+            if (string.Equals(
+                    focusRecording.RecordingId,
+                    candidateRecording.RecordingId,
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            // Loop-anchored recordings still depend on live anchor PIDs by design.
+            // They are not valid roots for the non-loop recorded-anchor DAG.
+            if (candidateRecording.LoopAnchorVesselId != 0u)
+                return false;
+
+            // Debris recordings are not eligible as anchor candidates for OTHER
+            // recordings. The parent-anchor contract records a debris-owned body-fixed primary surface
+            // and a proximity-limited parent-relative secondary surface, but the
+            // debris lifetime is still owned by its parent recording and may end
+            // when that parent is closed/superseded. Any non-debris recording
+            // that picked debris as a generic live anchor would lose
+            // resolvability when the debris parent is superseded by a Re-Fly.
+            // Observed in
+            // `logs/2026-05-07_2157_refly-debris-regression`: a controlled
+            // child probe recording was anchored to a sibling debris at 8m,
+            // then after the upper-stage Re-Fly the debris was TTL-ended, the
+            // probe's Relative section past the debris's end UT became
+            // unresolvable, and playback fell back to body-fixed primary with a
+            // visibly unstable ghost. Excluding debris from candidacy avoids
+            // creating these fragile cross-recording anchors at recording time.
+            //
+            // Self-reference: a debris recording's own contract path
+            // (`BackgroundRecorder.UpdateBackgroundAnchorDetection` early-return
+            // when `treeRec.ParentAnchorRecordingId != null`) bypasses this
+            // helper entirely and pins the anchor to the parent recording. Keep
+            // this candidate-scan rejection as defense-in-depth for any future
+            // path that accidentally offers debris as a generic live anchor.
+            if (candidateRecording.IsDebris)
+                return false;
+
+            return true;
+        }
+
+        internal static bool IsRecordingAnchorDAGOrderEligible(
+            Recording focusRecording,
+            Recording candidateRecording)
+        {
+            if (focusRecording == null || candidateRecording == null)
+                return false;
+            if (!SameNonEmpty(focusRecording.TreeId, candidateRecording.TreeId))
+                return true;
+            if (focusRecording.TreeOrder < 0 || candidateRecording.TreeOrder < 0)
+                return false;
+
+            return candidateRecording.TreeOrder < focusRecording.TreeOrder;
+        }
+
+        /// <summary>
+        /// Resolves the anchor recording id for a loaded vessel as seen by a
+        /// background recorder's candidate scan. A loaded vessel maps to a
+        /// recording either because it is a background recording
+        /// (<paramref name="backgroundMap"/>) or because it is the currently
+        /// focused/active recording (<paramref name="activeRecordingId"/> with
+        /// matching <paramref name="activeRecordingVesselPid"/>).
+        ///
+        /// Background recorders historically only consulted the BackgroundMap,
+        /// so when the player switched control to a co-recorded anchor vessel
+        /// (e.g. flying the target during a docking approach) that anchor left
+        /// the BackgroundMap, became the active recording, and the still-
+        /// backgrounded chaser silently lost its only RELATIVE anchor and
+        /// dropped to ABSOLUTE for the rest of the close approach. Including the
+        /// active recording here lets the DAG-order rule (candidate.TreeOrder
+        /// &lt; focus.TreeOrder) decide eligibility instead of the focus state.
+        ///
+        /// Pure static -- maps injected for testability. <paramref name="isActiveRecording"/>
+        /// reports which surface resolved the id so callers can sanity-check it
+        /// against the re-fly provisional gate.
+        /// </summary>
+        internal static bool TryResolveLoadedAnchorRecordingId(
+            uint loadedVesselPid,
+            IReadOnlyDictionary<uint, string> backgroundMap,
+            string activeRecordingId,
+            uint activeRecordingVesselPid,
+            out string recordingId,
+            out bool isActiveRecording)
+        {
+            recordingId = null;
+            isActiveRecording = false;
+            if (loadedVesselPid == 0u)
+                return false;
+
+            if (backgroundMap != null
+                && backgroundMap.TryGetValue(loadedVesselPid, out recordingId)
+                && !string.IsNullOrWhiteSpace(recordingId))
+            {
+                return true;
+            }
+
+            recordingId = null;
+            if (!string.IsNullOrWhiteSpace(activeRecordingId)
+                && activeRecordingVesselPid != 0u
+                && activeRecordingVesselPid == loadedVesselPid)
+            {
+                recordingId = activeRecordingId;
+                isActiveRecording = true;
+                return true;
+            }
+
+            recordingId = null;
+            return false;
+        }
+
+        /// <summary>
+        /// Launch-identity gate for a LIVE anchor candidate: true when the live vessel that
+        /// resolved to <paramref name="candidateRecording"/> may be used as that recording's
+        /// anchor pose source.
+        ///
+        /// <para>
+        /// A live vessel resolves to a recording by <c>persistentId</c> (BackgroundMap key /
+        /// active-recording pid), and <c>persistentId</c> is craft-baked, not launch-unique
+        /// (CLAUDE.md). Since Re-Fly stopped emptying the world on load, a DIFFERENT launch of
+        /// the same craft can be standing in the scene carrying the same baked pid. Binding an
+        /// anchor to that stranger is not a cosmetic mistake: the recorder writes
+        /// <c>ReferenceFrame.Relative</c> frames as metre offsets from the anchor's world pose,
+        /// so a stranger anchor silently writes a corrupted trajectory for the vessel being
+        /// recorded, and nothing downstream can tell the offsets were measured against the wrong
+        /// body.
+        /// </para>
+        /// <para>
+        /// The gate is deliberately one-sided: it rejects ONLY a conclusive launch-Guid mismatch
+        /// (<see cref="VesselLaunchIdentity.GuidsConclusivelyDiffer"/>). An unknown Guid on either
+        /// side falls back to today's pid-only behaviour, so a legacy recording with no
+        /// <see cref="Recording.RecordedVesselGuid"/> keeps anchoring exactly as before. It does
+        /// NOT additionally require a pid match: several BackgroundMap writers key the map on a
+        /// live pid that is not the recording's <c>VesselPersistentId</c> (post-switch
+        /// continuation segments), and demanding equality there would drop legitimate anchors.
+        /// </para>
+        /// </summary>
+        internal static bool LiveAnchorLaunchMatches(Recording candidateRecording, string liveVesselGuid)
+        {
+            if (candidateRecording == null)
+                return false;
+            return !VesselLaunchIdentity.GuidsConclusivelyDiffer(
+                candidateRecording.RecordedVesselGuid, liveVesselGuid);
+        }
+
+        /// <summary>
+        /// Reads the launch Guid (<c>Vessel.id</c>) of a live vessel in the normalized "N" form
+        /// <see cref="Recording.RecordedVesselGuid"/> stores, or null when unavailable. Tolerates
+        /// the headless / mid-teardown case where the Unity property throws.
+        /// </summary>
+        internal static string TryReadLiveVesselGuid(Vessel vessel)
+        {
+            if (vessel == null)
+                return null;
+            try
+            {
+                return vessel.id != System.Guid.Empty
+                    ? vessel.id.ToString("N")
+                    : null;
+            }
+            catch (System.Exception)
+            {
+                return null;
+            }
+        }
+
+        internal static bool IsSealedRecordingAnchor(Recording recording)
+        {
+            return recording != null && recording.MergeState == MergeState.Immutable;
+        }
+
+        internal static bool SharesReplayPoint(Recording a, Recording b)
+        {
+            if (a == null || b == null)
+                return false;
+
+            return SameNonEmpty(a.ParentBranchPointId, b.ParentBranchPointId)
+                || SameNonEmpty(a.ParentBranchPointId, b.ChildBranchPointId)
+                || SameNonEmpty(a.ChildBranchPointId, b.ParentBranchPointId)
+                || SameNonEmpty(a.ChildBranchPointId, b.ChildBranchPointId);
+        }
+
+        internal static bool SharesVesselLineage(Recording a, Recording b)
+        {
+            if (a == null || b == null)
+                return false;
+
+            if (a.VesselPersistentId != 0u && a.VesselPersistentId == b.VesselPersistentId)
+                return true;
+            if (SameNonEmpty(a.ChainId, b.ChainId))
+                return true;
+            return SameNonEmpty(a.VesselName, b.VesselName);
+        }
+
+        private static bool IsBetterRecordingAnchor(
+            RecordingAnchorCandidate candidate,
+            double distance,
+            RecordingAnchorCandidate best,
+            double bestDistance)
+        {
+            if (candidate.IsSealed != best.IsSealed)
+                return candidate.IsSealed;
+
+            int candidateAffinity = RecordingAnchorAffinityRank(candidate);
+            int bestAffinity = RecordingAnchorAffinityRank(best);
+            if (candidateAffinity != bestAffinity)
+                return candidateAffinity > bestAffinity;
+
+            int distanceCompare = distance.CompareTo(bestDistance);
+            if (distanceCompare != 0)
+                return distanceCompare < 0;
+
+            int recordingIdCompare = string.Compare(candidate.RecordingId, best.RecordingId, StringComparison.Ordinal);
+            if (recordingIdCompare != 0)
+                return recordingIdCompare < 0;
+
+            int sourceCompare = ((int)candidate.Source).CompareTo((int)best.Source);
+            if (sourceCompare != 0)
+                return sourceCompare < 0;
+
+            return candidate.GhostIndex < best.GhostIndex;
+        }
+
+        internal static int RecordingAnchorAffinityRank(RecordingAnchorCandidate candidate)
+        {
+            int rank = 0;
+            if (candidate.IsSameReplayPoint) rank++;
+            if (candidate.IsSameVesselLineage) rank++;
+            return rank;
+        }
+
+        internal static double RelativeFrameRangeLimit(bool currentlyRelative)
+        {
+            return currentlyRelative
+                ? RelativeExitDistance
+                : RelativeEntryDistance;
+        }
+
+        private static bool SameNonEmpty(string a, string b)
+        {
+            return !string.IsNullOrEmpty(a)
+                && !string.IsNullOrEmpty(b)
+                && string.Equals(a, b, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Determines whether the focused vessel should be in RELATIVE reference frame
+        /// based on anchor detection and hysteresis.
+        /// </summary>
+        internal static bool ShouldUseRelativeFrame(
+            double anchorDistance,
+            bool currentlyRelative)
+        {
+            if (!currentlyRelative)
+            {
+                // Not currently relative -- enter at physics bubble edge
+                bool enter = anchorDistance < RelativeFrameRangeLimit(currentlyRelative);
+                if (enter)
+                {
+                    var ic = CultureInfo.InvariantCulture;
+                    ParsekLog.Info("Anchor",
+                        $"RELATIVE entry: dist={anchorDistance.ToString("F1", ic)}m < {RelativeEntryDistance.ToString("F0", ic)}m");
+                }
+                return enter;
+            }
+            else
+            {
+                // Currently relative -- exit with hysteresis
+                bool stay = anchorDistance < RelativeFrameRangeLimit(currentlyRelative);
+                if (!stay)
+                {
+                    var ic = CultureInfo.InvariantCulture;
+                    ParsekLog.Info("Anchor",
+                        $"RELATIVE exit: dist={anchorDistance.ToString("F1", ic)}m >= {RelativeExitDistance.ToString("F0", ic)}m");
+                }
+                return stay;
+            }
+        }
+    }
+}

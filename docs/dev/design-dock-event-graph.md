@@ -107,7 +107,7 @@ Everything in the left column and all but the last line of the right column is d
 | Gap statement | The R5 string naming an unrecorded span ("loiter, 2d - not recorded") in the digest and partner-journey rows. Gaps are stated, never interpolated. |
 | Digest row | One chronological entry of a mission's story: UT, verb, partner description, GoTo target. |
 
-Design-concept-to-code mapping: DockEventGraph -> new `Source/Parsek/DockEventGraph.cs` (pure core) + `Source/Parsek/DockEventGraphCache.cs` (host cache); same-tree derivation -> new method region in `Source/Parsek/MissionCrossTreeDock.cs`; stamp decoupling -> `ParsekFlight.BuildMergeBranchData` and the pending-dock fields; seam markers -> `MissionLoopUnitBuilder` (computation) + `GhostPlaybackEngine`/`ParsekPlaybackPolicy` (emission); chapters + digest + naming -> `MissionsWindowUI` / `RecordingsTableUI` consuming the graph.
+Design-concept-to-code mapping: DockEventGraph -> new `Source/Parsek/Missions/DockEventGraph.cs` (pure core) + `Source/Parsek/UI/DockEventGraphCache.cs` (host cache); same-tree derivation -> new method region in `Source/Parsek/Missions/MissionCrossTreeDock.cs`; stamp decoupling -> `ParsekFlight.BuildMergeBranchData` and the pending-dock fields; seam markers -> `MissionLoopUnitBuilder` (computation) + `GhostPlaybackEngine`/`ParsekPlaybackPolicy` (emission); chapters + digest + naming -> `MissionsWindowUI` / `RecordingsTableUI` consuming the graph.
 
 ---
 

@@ -581,7 +581,7 @@ namespace Parsek.Tests
         [Fact]
         public void ExecuteRewindSaveLoad_CapturesTheRpListBeforeItLoads()
         {
-            string body = MethodBody(ReadSource("RewindLauncher.cs"),
+            string body = MethodBody(ReadSource("Rewind/RewindLauncher.cs"),
                 "private static bool ExecuteRewindSaveLoad(");
             int capture = body.IndexOf("CaptureRewindPointsForRewind(ParsekScenario.Instance", StringComparison.Ordinal);
             int load = body.IndexOf("GamePersistence.LoadGame(", StringComparison.Ordinal);
@@ -592,7 +592,7 @@ namespace Parsek.Tests
         [Fact]
         public void OnLoad_ReinstallsTheCarriedRps_AfterTheStagingStateLoad_BeforeTheRewindBranch()
         {
-            string body = MethodBody(ReadSource("ParsekScenario.cs"),
+            string body = MethodBody(ReadSource("Controllers/ParsekScenario.cs"),
                 "public override void OnLoad(ConfigNode node)");
             int staging = body.IndexOf("LoadRewindStagingState(node);", StringComparison.Ordinal);
             int reinstall = body.IndexOf("RewindCarry.ReinstallRewindCarriedRewindPointsAfterLoad(this);", StringComparison.Ordinal);

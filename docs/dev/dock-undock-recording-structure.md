@@ -12,7 +12,7 @@ At a dock / undock event there are three distinct entities Parsek tracks:
 
 1. **The two physical KSP vessels.** Each has a `persistentId` (PID). Pre-dock there are two; post-dock there is one merged vessel; post-undock there are two again (often with a different PID for the half that emerged from the docking port).
 2. **Recordings.** A `Recording` is a flat time-series of trajectory points + structural events + snapshots for a single vessel identity. Each carries `VesselPersistentId`, `ExplicitStartUT`, `ExplicitEndUT`, and (since v0 logistics) optional `RouteConnectionWindows`.
-3. **Branch points.** A `BranchPoint` (declared in `Source/Parsek/BranchPoint.cs`) is the tree-topology node that connects parent recording(s) to child recording(s) at a structural event. The `Type` enum distinguishes `Dock`, `Undock`, `EVA`, `Breakup`, `Board`, `Terminal`, `VesselSwitchContinuation`. Dock and Board are "merge" branch points (N parents → 1 child); Undock and EVA are "split" branch points (1 parent → N children).
+3. **Branch points.** A `BranchPoint` (declared in `Source/Parsek/Core/BranchPoint.cs`) is the tree-topology node that connects parent recording(s) to child recording(s) at a structural event. The `Type` enum distinguishes `Dock`, `Undock`, `EVA`, `Breakup`, `Board`, `Terminal`, `VesselSwitchContinuation`. Dock and Board are "merge" branch points (N parents → 1 child); Undock and EVA are "split" branch points (1 parent → N children).
 
 These three layers are independent but coupled through ids: branch points reference recording ids in `ParentRecordingIds` / `ChildRecordingIds`, and each recording stores its own `ParentBranchPointId` / `ChildBranchPointId` so the tree can be traversed in either direction.
 
@@ -91,7 +91,7 @@ Both parent recordings get:
 - `ChildBranchPointId = BP.Id` — back-link to the branch point.
 - `MarkFilesDirty()` — sidecars need to be re-saved.
 
-If only one of the two pre-dock vessels was Parsek-tracked (the cross-tree case yesterday's fix handled), the absorbed/foreign side has no recording to close. In that case the branch point has only one `ParentRecordingIds` entry — the active side — and the merged child still proceeds normally. See `Source/Parsek/ParsekFlight.cs:5207-5208`.
+If only one of the two pre-dock vessels was Parsek-tracked (the cross-tree case yesterday's fix handled), the absorbed/foreign side has no recording to close. In that case the branch point has only one `ParentRecordingIds` entry — the active side — and the merged child still proceeds normally. See `Source/Parsek/Controllers/ParsekFlight.cs:5207-5208`.
 
 The branch point's `targetVesselPid` (`BranchPoint.TargetVesselPersistentId`) carries the couple-event partner identity UNCONDITIONALLY for Dock merges (except when the partner is an EVA kerbal, a claw grab; a kerbal taking an external seat stamps the seat's vessel): since the stamp decoupling (`docs/dev/design-dock-event-graph.md` section 6.1) it is stamped independently of route eligibility via `ResolveBranchPartnerStampPid` -> `pendingDockPartnerPid` -> `BuildMergeBranchData`'s `branchPartnerPid` parameter, so a route-ineligible dock (partner with neither a pre-couple snapshot nor a known recording) still names who it docked with — derivable retroactively once the partner's tree commits. The route surfaces (`TransferTargetVesselPid` / `TransferKind` below, the route window, the phantom-spawn supersede) keep reading the route-eligibility-GATED pid. Board merges are not stamped in v1 (design Q1).
 
@@ -421,14 +421,14 @@ When modifying any code in this area, do not violate:
 
 | Path | Role |
 |---|---|
-| `Source/Parsek/ParsekFlight.cs` (+ `ParsekFlight.*.cs` partials) | the subscribed `OnPartCouple` / `OnPartUndock` / `OnVesselsUndocking` forwarders, `DeferredUndockBranch` (coroutine), `pendingDockPartnerSnapshot` field |
-| `Source/Parsek/ParsekFlightSplitBrancher.cs` | the `OnPartCouple`, `OnPartUndock`, `OnVesselsUndocking` bodies, `CreateMergeBranch`, `CreateSplitBranch`, `HandleTreeDockMerge`, `TryBindStartDockedOriginOnUndock`, `pendingUndockRootPartSeed` field |
-| `Source/Parsek/RouteProofCapture.cs` | `BuildDockRouteConnectionWindow`, `TryCompleteLatestRouteConnectionWindow`, `CompleteRouteConnectionWindowAtUndock`, `TryVerifyRoutePartSetsSeparated` |
-| `Source/Parsek/RouteProofMetadata.cs` | `RouteConnectionWindow` data type, `IsComplete` predicate |
-| `Source/Parsek/BranchPoint.cs` | `BranchPoint` + `BranchPointType` enum (Dock, Undock, Board, Breakup, EVA, ...) |
-| `Source/Parsek/Recording.cs` | `Recording` type with `ParentBranchPointId` / `ChildBranchPointId` / `RouteConnectionWindows` |
-| `Source/Parsek/RecordingTree.cs` | `RecordingTree.Recordings`, `BranchPoints`, `BackgroundMap`, `ActiveRecordingId`, `RootRecordingId` |
-| `Source/Parsek/FlightRecorder.cs` | `AppendStructuralEventSnapshot`, `StopRecordingForChainBoundary`, recorder lifecycle |
-| `Source/Parsek/VesselSpawner.cs` | `TryBackupSnapshot` |
-| `Source/Parsek/VesselSnapshotOps.cs` | `ExtractResourceManifest`, `ExtractInventoryPayloadItems`, `CollectPartPersistentIds` |
+| `Source/Parsek/Controllers/ParsekFlight.cs` (+ `ParsekFlight.*.cs` partials) | the subscribed `OnPartCouple` / `OnPartUndock` / `OnVesselsUndocking` forwarders, `DeferredUndockBranch` (coroutine), `pendingDockPartnerSnapshot` field |
+| `Source/Parsek/Controllers/ParsekFlightSplitBrancher.cs` | the `OnPartCouple`, `OnPartUndock`, `OnVesselsUndocking` bodies, `CreateMergeBranch`, `CreateSplitBranch`, `HandleTreeDockMerge`, `TryBindStartDockedOriginOnUndock`, `pendingUndockRootPartSeed` field |
+| `Source/Parsek/Logistics/RouteProofCapture.cs` | `BuildDockRouteConnectionWindow`, `TryCompleteLatestRouteConnectionWindow`, `CompleteRouteConnectionWindowAtUndock`, `TryVerifyRoutePartSetsSeparated` |
+| `Source/Parsek/Logistics/RouteProofMetadata.cs` | `RouteConnectionWindow` data type, `IsComplete` predicate |
+| `Source/Parsek/Core/BranchPoint.cs` | `BranchPoint` + `BranchPointType` enum (Dock, Undock, Board, Breakup, EVA, ...) |
+| `Source/Parsek/Recording/Recording.cs` | `Recording` type with `ParentBranchPointId` / `ChildBranchPointId` / `RouteConnectionWindows` |
+| `Source/Parsek/Recording/RecordingTree.cs` | `RecordingTree.Recordings`, `BranchPoints`, `BackgroundMap`, `ActiveRecordingId`, `RootRecordingId` |
+| `Source/Parsek/Recording/FlightRecorder.cs` | `AppendStructuralEventSnapshot`, `StopRecordingForChainBoundary`, recorder lifecycle |
+| `Source/Parsek/Controllers/VesselSpawner.cs` | `TryBackupSnapshot` |
+| `Source/Parsek/Core/VesselSnapshotOps.cs` | `ExtractResourceManifest`, `ExtractInventoryPayloadItems`, `CollectPartPersistentIds` |
 | `Source/Parsek/Logistics/RouteAnalysisEngine.cs` | `AnalyzeTree`, `AnalyzeWindows` (the gate orchestrator; one private step per gate), `CollectSourcePathRecordingIds`, the eligibility gates |

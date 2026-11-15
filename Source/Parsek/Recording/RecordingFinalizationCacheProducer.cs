@@ -1,0 +1,1368 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using UnityEngine;
+
+namespace Parsek
+{
+    internal struct RecordingFinalizationOrbitView
+    {
+        public string ReferenceBodyName;
+        public bool ReferenceBodyHasAtmosphere;
+        public double ReferenceBodyAtmosphereDepth;
+        public double Inclination;
+        public double Eccentricity;
+        public double SemiMajorAxis;
+        public double LongitudeOfAscendingNode;
+        public double ArgumentOfPeriapsis;
+        public double MeanAnomalyAtEpoch;
+        public double Epoch;
+        public double PeriapsisAltitude;
+    }
+
+    internal interface IRecordingFinalizationVesselView
+    {
+        uint PersistentId { get; }
+        Vessel.Situations Situation { get; }
+        string BodyName { get; }
+        bool IsInAtmosphere { get; }
+        bool IsPacked { get; }
+        bool IsLoaded { get; }
+        double Latitude { get; }
+        double Longitude { get; }
+        double Altitude { get; }
+        double HeightFromTerrain { get; }
+        bool IsEva { get; }
+        Quaternion SurfaceRelativeRotation { get; }
+        Vessel RawVessel { get; }
+        bool TryGetOrbit(out RecordingFinalizationOrbitView orbit);
+    }
+
+    internal static class RecordingFinalizationCacheProducer
+    {
+        internal const double DefaultRefreshIntervalUT = 5.0;
+        internal const string AlreadyClassifiedDestroyedDeclineReason = "already-classified-destroyed";
+        private const float MeaningfulThrottleThreshold = 0.01f;
+
+        internal delegate bool TryBuildDefaultFinalizationResultDelegate(
+            Recording recording,
+            Vessel vessel,
+            double refreshUT,
+            out IncompleteBallisticFinalizationResult result);
+
+        internal static TryBuildDefaultFinalizationResultDelegate TryBuildDefaultFinalizationResultOverrideForTesting;
+
+        internal static void ResetForTesting()
+        {
+            TryBuildDefaultFinalizationResultOverrideForTesting = null;
+            ResetRefreshSummaryDedupForTesting();
+        }
+
+        internal static bool ShouldRefresh(
+            double lastRefreshUT,
+            double currentUT,
+            double intervalUT,
+            bool force,
+            string previousDigest,
+            string currentDigest,
+            bool requiresPeriodicRefresh)
+        {
+            if (force)
+                return true;
+            if (!IsFinite(currentUT))
+                return false;
+            if (!IsFinite(lastRefreshUT) || lastRefreshUT == double.MinValue)
+                return true;
+            if (!string.Equals(previousDigest, currentDigest, StringComparison.Ordinal))
+                return true;
+
+            return requiresPeriodicRefresh
+                && currentUT - lastRefreshUT >= Math.Max(0.0, intervalUT);
+        }
+
+        internal static bool TryBuildFromLiveVessel(
+            Recording recording,
+            Vessel vessel,
+            double refreshUT,
+            FinalizationCacheOwner owner,
+            string reason,
+            bool hasMeaningfulThrust,
+            RecordingTree recordingTree,
+            out RecordingFinalizationCache cache)
+        {
+            return TryBuildFromLiveVessel(
+                recording,
+                vessel,
+                refreshUT,
+                owner,
+                reason,
+                hasMeaningfulThrust,
+                recordingTree,
+                null,
+                out cache);
+        }
+
+        internal static bool TryBuildFromLiveVessel(
+            Recording recording,
+            Vessel vessel,
+            double refreshUT,
+            FinalizationCacheOwner owner,
+            string reason,
+            bool hasMeaningfulThrust,
+            RecordingTree recordingTree,
+            IList<TrackSection> unflushedTrackSections,
+            out RecordingFinalizationCache cache)
+        {
+            return TryBuildFromLiveVessel(
+                recording,
+                vessel != null ? new VesselFinalizationView(vessel) : null,
+                refreshUT,
+                owner,
+                reason,
+                hasMeaningfulThrust,
+                recordingTree,
+                unflushedTrackSections,
+                out cache);
+        }
+
+        internal static bool TryBuildFromLiveVessel(
+            Recording recording,
+            IRecordingFinalizationVesselView vessel,
+            double refreshUT,
+            FinalizationCacheOwner owner,
+            string reason,
+            bool hasMeaningfulThrust,
+            out RecordingFinalizationCache cache)
+        {
+            return TryBuildFromLiveVessel(
+                recording,
+                vessel,
+                refreshUT,
+                owner,
+                reason,
+                hasMeaningfulThrust,
+                null,
+                out cache);
+        }
+
+        internal static bool TryBuildFromLiveVessel(
+            Recording recording,
+            IRecordingFinalizationVesselView vessel,
+            double refreshUT,
+            FinalizationCacheOwner owner,
+            string reason,
+            bool hasMeaningfulThrust,
+            RecordingTree recordingTree,
+            out RecordingFinalizationCache cache)
+        {
+            return TryBuildFromLiveVessel(
+                recording,
+                vessel,
+                refreshUT,
+                owner,
+                reason,
+                hasMeaningfulThrust,
+                recordingTree,
+                null,
+                out cache);
+        }
+
+        /// <param name="unflushedTrackSections">Sections the calling recorder still holds
+        /// for <paramref name="recording"/> (closed and open) that it has not flushed into
+        /// <c>recording.TrackSections</c>. The default finalizer reads them through a
+        /// read-only view (<see cref="WithUnflushedTrackSections"/>); every write in this
+        /// method still goes to <paramref name="recording"/> itself.</param>
+        internal static bool TryBuildFromLiveVessel(
+            Recording recording,
+            IRecordingFinalizationVesselView vessel,
+            double refreshUT,
+            FinalizationCacheOwner owner,
+            string reason,
+            bool hasMeaningfulThrust,
+            RecordingTree recordingTree,
+            IList<TrackSection> unflushedTrackSections,
+            out RecordingFinalizationCache cache)
+        {
+            string recordingId = recording?.RecordingId;
+            uint vesselPid = ResolveVesselPid(recording, vessel);
+            cache = CreateBase(recordingId, vesselPid, owner, refreshUT, reason);
+            int recordingsExamined = recording != null ? 1 : 0;
+
+            if (vessel == null)
+                return CompleteRefresh(cache, Fail(cache, "vessel-null"), recordingsExamined, 0, 0);
+
+            PopulateObservedVesselState(cache, vessel, refreshUT, hasMeaningfulThrust);
+            RecordingFinalizationCache alreadyDestroyedSkip;
+            if (TryBuildAlreadyClassifiedDestroyedSkip(
+                    recording,
+                    cache.VesselPersistentId,
+                    owner,
+                    refreshUT,
+                    reason,
+                    out alreadyDestroyedSkip))
+            {
+                cache = alreadyDestroyedSkip;
+                PopulateObservedVesselState(cache, vessel, refreshUT, hasMeaningfulThrust);
+                return CompleteRefresh(cache, false, recordingsExamined, 1, 0);
+            }
+
+            // Destroy-event refreshes are the call site's "this vessel is being
+            // destroyed right now" signal (FlightRecorder.OnVesselDestroyed -> "destroy_event",
+            // BackgroundRecorder.OnBackgroundVesselWillDestroy -> "background_destroy").
+            // Without this branch the live vessel's transient post-impact LANDED
+            // situation would short-circuit through TryBuildSurfaceTerminalCache
+            // and stamp TerminalState.Landed on a recording that the player
+            // observed as a crash, surfacing as "would auto-seal because
+            // landed" copy in the Re-Fly merge dialog. The branch also
+            // eagerly mutates recording.TerminalStateValue so the
+            // TryBuildAlreadyClassifiedDestroyedSkip short-circuit catches any
+            // subsequent same-frame refresh (part_die / joint_break / periodic
+            // for residual parts) before they reach the surface-terminal
+            // branch and re-stamp Landed on the same transient LANDED
+            // situation.
+            if (IsDestroyRefreshReason(reason))
+                return CompleteRefresh(
+                    cache, PopulateDestroyEventTerminalCache(recording, cache, refreshUT, reason, vessel.Situation),
+                    recordingsExamined, 0, 1);
+
+            if (TryBuildSurfaceTerminalCache(cache, vessel, refreshUT))
+                return CompleteRefresh(cache, true, recordingsExamined, 0, 0);
+
+            RecordingFinalizationOrbitView orbit;
+            if (!vessel.TryGetOrbit(out orbit))
+            {
+                if (cache.LastWasInAtmosphere)
+                    return CompleteRefresh(cache, PopulateAtmosphericDeletionCache(cache, refreshUT), recordingsExamined, 0, 0);
+
+                return CompleteRefresh(cache, Fail(cache, "vessel-orbit-null"), recordingsExamined, 0, 0);
+            }
+
+            double cutoffAltitude = orbit.ReferenceBodyHasAtmosphere && orbit.ReferenceBodyAtmosphereDepth > 0.0
+                ? orbit.ReferenceBodyAtmosphereDepth
+                : 0.0;
+
+            if (!BallisticExtrapolator.ShouldExtrapolate(
+                    vessel.Situation,
+                    orbit.Eccentricity,
+                    orbit.PeriapsisAltitude,
+                    cutoffAltitude))
+            {
+                return CompleteRefresh(
+                    cache,
+                    PopulateStableOrbitCache(cache, BuildOrbitSegmentFromVessel(vessel, orbit, refreshUT), refreshUT,
+                        DetermineObservedTerminalState(vessel)),
+                    recordingsExamined,
+                    0,
+                    0);
+            }
+
+            Recording context = recording != null
+                ? WithUnflushedTrackSections(recording, unflushedTrackSections)
+                : BuildContextRecording(recordingId, vesselPid, refreshUT);
+            IncompleteBallisticFinalizationResult result;
+            bool finalized;
+            try
+            {
+                finalized = TryBuildDefaultFinalizationResult(
+                    context,
+                    vessel.RawVessel,
+                    refreshUT,
+                    recordingTree,
+                    out result);
+            }
+            catch (Exception ex)
+            {
+                // The finalization cache is an OPTIMISATION - it pre-computes the tail a
+                // recording would be finalized with - and it must never be able to cost a
+                // sample. It could: FlightRecorder.OnPhysicsFrame calls the refresh BEFORE
+                // it samples the trajectory, so an exception escaping here takes that
+                // frame's trajectory point, part events and background pass with it.
+                // Measured on an orbital EVA (2026-07-30): one degenerate stock patched
+                // conic threw ArithmeticException out of the extrapolator on all 501
+                // physics frames of a ten-second EVA, and the recording finalized with a
+                // single point - not degraded, empty.
+                //
+                // The specific throw is fixed at its source and at the solver boundary;
+                // this guard is the structural half, so the NEXT unforeseen extrapolator
+                // failure inside THIS refresh path degrades to "no fresh cache this
+                // refresh" instead of to "no recording". Scope, so it is not over-read:
+                // the SCENE-EXIT twin is NOT covered - IncompleteBallisticSceneExitFinalizer
+                // .TryApply reaches the same TryFinalizeRecording and deliberately rethrows
+                // anything that is not a headless-FlightGlobals failure, and neither
+                // ParsekFlight.Finalization call site catches, so a throw there still costs
+                // the remaining recordings in the tree their finalization.
+                //
+                // Failing the cache re-uses the existing terminal decline path:
+                // TryPreservePreviousCacheAfterFailedRefresh keeps the last good cache.
+                // Note it re-uses the terminal Fail only, NOT the atmospheric-deletion
+                // branch an ordinary `!finalized` decline can take below - a throw on a
+                // packed atmospheric vessel stamps no Destroyed terminal this refresh, and
+                // is left to the destroy_event / background_destroy path. Note also the
+                // RETRY cadence, because the two outcomes differ: with no preservable
+                // previous cache the stored status stays Failed, which holds
+                // `requiresPeriodicRefresh` true and retries on the periodic cadence; when a
+                // previous cache IS preserved the stored status becomes Stale, so a coasting
+                // vessel next retries on a digest change rather than on the cadence. Either
+                // way the RECORDER KEEPS SAMPLING, which is the point - but a long-lived
+                // preserve is not a free lunch for the tail: a Stale cache no longer
+                // advances through TryTouchObservedTerminalCache and the Applier rejects it
+                // once its TerminalUT falls behind the last authored sample.
+                //
+                // The WHOLE exception - type, message AND stack - is logged, and that is
+                // load-bearing rather than verbose. Before this catch existed the throw
+                // escaped into Unity, which logged the frames; that stack is exactly how
+                // the 2026-07-30 EVA defect was pinned to SolveHyperbolicKepler. This guard
+                // spans BallisticExtrapolator + PatchedConicSnapshot +
+                // IncompleteBallisticSceneExitFinalizer, so a bare type+message would name
+                // none of the thousands of lines the next failure could come from. The 30 s
+                // rate limit already bounds the volume. Multi-line content goes LAST so the
+                // grep-stable head of the line survives an exception whose own Message
+                // wraps (MissingReferenceException's does).
+                result = default(IncompleteBallisticFinalizationResult);
+                finalized = false;
+                ParsekLog.WarnRateLimited("FinalizerCache",
+                    $"refresh-threw.{cache.VesselPersistentId}.{ex.GetType().Name}",
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Refresh threw: owner={0} rec={1} pid={2} reason={3} refreshUT={4:F3} body={5} "
+                        + "situation={6} loaded={7} packed={8} exception={9}; "
+                        + "declining the finalization cache for this refresh, recording sampling continues"
+                        + "; detail={10}",
+                        cache.Owner,
+                        recordingId ?? "(pending)",
+                        cache.VesselPersistentId,
+                        reason ?? "(none)",
+                        refreshUT,
+                        cache.LastObservedBodyName ?? "(unknown)",
+                        vessel.Situation,
+                        vessel.IsLoaded,
+                        vessel.IsPacked,
+                        ex.GetType().Name,
+                        ex),
+                    minIntervalSeconds: 30.0);
+
+                return CompleteRefresh(
+                    cache,
+                    Fail(cache, "default-finalizer-threw"),
+                    recordingsExamined,
+                    0,
+                    0);
+            }
+
+            if (!finalized)
+            {
+                if (IsSuppressedSubSurfaceDestroyedDecline(result))
+                {
+                    return CompleteRefresh(
+                        cache,
+                        Fail(cache, "subsurface-destroyed-suppressed"),
+                        recordingsExamined,
+                        0,
+                        0);
+                }
+
+                if (cache.LastWasInAtmosphere && (vessel.IsPacked || !vessel.IsLoaded))
+                    return CompleteRefresh(cache, PopulateAtmosphericDeletionCache(cache, refreshUT), recordingsExamined, 0, 0);
+
+                return CompleteRefresh(cache, Fail(cache, "default-finalizer-declined"), recordingsExamined, 0, 0);
+            }
+
+            if (!result.terminalState.HasValue || !IsFinite(result.terminalUT))
+                return CompleteRefresh(cache, Fail(cache, "default-finalizer-invalid-result"), recordingsExamined, 0, 0);
+
+            cache.Status = FinalizationCacheStatus.Fresh;
+            cache.TerminalState = result.terminalState.Value;
+            cache.TerminalUT = result.terminalUT;
+            cache.TerminalBodyName = !string.IsNullOrEmpty(result.terminalOrbit?.bodyName)
+                ? result.terminalOrbit.Value.bodyName
+                : cache.LastObservedBodyName;
+            cache.TerminalOrbit = result.terminalOrbit;
+            cache.TerminalPosition = result.terminalPosition;
+            cache.TerrainHeightAtEnd = result.terrainHeightAtEnd;
+            cache.PredictedSegments = ClonePredictedSegments(result.appendedOrbitSegments);
+            cache.TailStartsAtUT = cache.PredictedSegments.Count > 0
+                ? cache.PredictedSegments[0].startUT
+                : refreshUT;
+
+            if (!cache.TerminalOrbit.HasValue
+                && (cache.TerminalState == TerminalState.Orbiting
+                    || cache.TerminalState == TerminalState.SubOrbital)
+                && cache.PredictedSegments.Count > 0)
+            {
+                cache.TerminalOrbit =
+                    RecordingFinalizationTerminalOrbit.FromSegment(cache.PredictedSegments[cache.PredictedSegments.Count - 1]);
+            }
+
+            // Either destroyed-vessel start fingerprint counts as a classification (the
+            // NoSolverStart half is the post-calibration route, see
+            // IncompleteBallisticSceneExitFinalizer.IsNoSolverDestroyedFallback); only the
+            // sub-surface half gets the sub-surface log line, because the no-solver route
+            // already emitted its own at the classification site.
+            int newlyClassified =
+                IncompleteBallisticSceneExitFinalizer.IsDestroyedVesselStartFingerprint(
+                    result.extrapolationFailureReason)
+                    ? 1
+                    : 0;
+            if (result.extrapolationFailureReason == ExtrapolationFailureReason.SubSurfaceStart)
+            {
+                IncompleteBallisticSceneExitFinalizer.LogSubSurfaceDestroyedClassificationOnce(
+                    recordingId,
+                    result.terminalUT,
+                    result.subSurfaceDestroyedBodyName,
+                    result.subSurfaceDestroyedAltitude,
+                    result.subSurfaceDestroyedThreshold,
+                    // Background/periodic refresh: an expected, self-correcting
+                    // sub-surface transient logs at Verbose, not WARN. (Usually a
+                    // no-op here anyway: the shared finalize path already logged +
+                    // deduped this recording id.)
+                    warnOnSubSurfaceStart: false);
+            }
+
+            return CompleteRefresh(cache, Accept(cache), recordingsExamined, 0, newlyClassified);
+        }
+
+        internal static bool TryBuildFromStableOrbitSegment(
+            string recordingId,
+            uint vesselPid,
+            OrbitSegment segment,
+            double refreshUT,
+            FinalizationCacheOwner owner,
+            string reason,
+            out RecordingFinalizationCache cache)
+        {
+            cache = CreateBase(recordingId, vesselPid, owner, refreshUT, reason);
+            cache.LastObservedOrbitDigest = BuildOrbitSegmentDigest(segment);
+            int recordingsExamined = string.IsNullOrEmpty(recordingId) ? 0 : 1;
+            if (string.IsNullOrEmpty(segment.bodyName) || !IsFinite(segment.semiMajorAxis))
+                return CompleteRefresh(cache, Fail(cache, "orbit-segment-invalid"), recordingsExamined, 0, 0);
+
+            cache.LastObservedBodyName = segment.bodyName;
+            cache.LastSituation = Vessel.Situations.ORBITING;
+            return CompleteRefresh(
+                cache,
+                PopulateStableOrbitCache(cache, segment, refreshUT, TerminalState.Orbiting),
+                recordingsExamined,
+                0,
+                0);
+        }
+
+        internal static bool TryBuildAlreadyClassifiedDestroyedSkip(
+            Recording recording,
+            uint vesselPid,
+            FinalizationCacheOwner owner,
+            double refreshUT,
+            string reason,
+            out RecordingFinalizationCache cache)
+        {
+            cache = null;
+            if (!IncompleteBallisticSceneExitFinalizer.IsAlreadyClassifiedDestroyed(recording))
+                return false;
+
+            string recordingId = recording?.RecordingId;
+            cache = CreateBase(recordingId, vesselPid, owner, refreshUT, reason);
+            cache.Status = FinalizationCacheStatus.Failed;
+            cache.DeclineReason = AlreadyClassifiedDestroyedDeclineReason;
+            cache.TerminalState = TerminalState.Destroyed;
+            cache.TerminalUT = ResolveDestroyedTerminalUT(recording, refreshUT);
+            cache.TerminalBodyName = ResolveDestroyedTerminalBodyName(recording);
+            cache.TailStartsAtUT = cache.TerminalUT;
+            cache.PredictedSegments = new List<OrbitSegment>();
+
+            IncompleteBallisticSceneExitFinalizer.LogAlreadyClassifiedDestroyedSkip(
+                recording,
+                "FinalizerCache",
+                reason);
+            return true;
+        }
+
+        internal static bool IsAlreadyClassifiedDestroyedSkip(RecordingFinalizationCache cache)
+        {
+            return cache != null
+                && cache.Status == FinalizationCacheStatus.Failed
+                && string.Equals(
+                    cache.DeclineReason,
+                    AlreadyClassifiedDestroyedDeclineReason,
+                    StringComparison.Ordinal);
+        }
+
+        private static readonly HashSet<string> emittedMaterialRefreshSummaryKeys =
+            new HashSet<string>(StringComparer.Ordinal);
+
+        internal static void LogRefreshSummary(
+            FinalizationCacheOwner owner,
+            string reason,
+            int recordingsExamined,
+            int alreadyClassified,
+            int newlyClassified,
+            string recordingId = null,
+            uint vesselPid = 0,
+            FinalizationCacheStatus? status = null,
+            TerminalState? terminalState = null,
+            string declineReason = null,
+            int predictedSegmentCount = -1)
+        {
+            if (recordingsExamined <= 0 && alreadyClassified <= 0 && newlyClassified <= 0)
+                return;
+
+            string message = string.Format(
+                CultureInfo.InvariantCulture,
+                "FinalizerCache refresh summary: owner={0} reason={1} " +
+                "recordingsExamined={2} alreadyClassified={3} newlyClassified={4}{5}",
+                owner,
+                reason ?? "(none)",
+                recordingsExamined,
+                alreadyClassified,
+                newlyClassified,
+                BuildRefreshSummaryContextSuffix(
+                    recordingId,
+                    vesselPid,
+                    status,
+                    terminalState,
+                    declineReason,
+                    predictedSegmentCount));
+
+            string identity = BuildRefreshSummaryIdentity(owner, recordingId, vesselPid);
+            string stateKey = BuildRefreshSummaryStateKey(
+                reason,
+                recordingsExamined,
+                alreadyClassified,
+                newlyClassified,
+                status,
+                terminalState,
+                declineReason,
+                predictedSegmentCount);
+
+            if (newlyClassified > 0)
+            {
+                string materialKey = identity + "|" + stateKey;
+                if (emittedMaterialRefreshSummaryKeys.Add(materialKey))
+                {
+                    ParsekLog.Info("Extrapolator", message);
+                    return;
+                }
+
+                ParsekLog.VerboseRateLimited(
+                    "Extrapolator",
+                    "finalizer-refresh-classified|" + materialKey,
+                    message,
+                    30.0);
+                return;
+            }
+
+            ParsekLog.VerboseRateLimited(
+                "Extrapolator",
+                "finalizer-refresh-stable|" + identity + "|" + stateKey,
+                message,
+                30.0);
+        }
+
+        private static string BuildRefreshSummaryIdentity(
+            FinalizationCacheOwner owner,
+            string recordingId,
+            uint vesselPid)
+        {
+            if (!string.IsNullOrEmpty(recordingId))
+                return string.Format(CultureInfo.InvariantCulture, "{0}|rec={1}", owner, recordingId);
+            if (vesselPid != 0)
+                return string.Format(CultureInfo.InvariantCulture, "{0}|pid={1}", owner, vesselPid);
+            return string.Format(CultureInfo.InvariantCulture, "{0}|aggregate", owner);
+        }
+
+        private static string BuildRefreshSummaryStateKey(
+            string reason,
+            int recordingsExamined,
+            int alreadyClassified,
+            int newlyClassified,
+            FinalizationCacheStatus? status,
+            TerminalState? terminalState,
+            string declineReason,
+            int predictedSegmentCount)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "reason={0}|examined={1}|already={2}|new={3}|status={4}|terminal={5}|decline={6}|segments={7}",
+                reason ?? "(none)",
+                recordingsExamined,
+                alreadyClassified,
+                newlyClassified,
+                status.HasValue ? status.Value.ToString() : "(null)",
+                terminalState.HasValue ? terminalState.Value.ToString() : "(null)",
+                declineReason ?? "(none)",
+                predictedSegmentCount);
+        }
+
+        private static string BuildRefreshSummaryContextSuffix(
+            string recordingId,
+            uint vesselPid,
+            FinalizationCacheStatus? status,
+            TerminalState? terminalState,
+            string declineReason,
+            int predictedSegmentCount)
+        {
+            bool hasContext = !string.IsNullOrEmpty(recordingId)
+                || vesselPid != 0
+                || status.HasValue
+                || terminalState.HasValue
+                || !string.IsNullOrEmpty(declineReason)
+                || predictedSegmentCount >= 0;
+            if (!hasContext)
+                return string.Empty;
+
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                " rec={0} pid={1} status={2} terminal={3} decline={4} segments={5}",
+                recordingId ?? "(pending)",
+                vesselPid,
+                status.HasValue ? status.Value.ToString() : "(null)",
+                terminalState.HasValue ? terminalState.Value.ToString() : "(null)",
+                declineReason ?? "(none)",
+                predictedSegmentCount);
+        }
+
+        internal static void ResetRefreshSummaryDedupForTesting()
+        {
+            emittedMaterialRefreshSummaryKeys.Clear();
+        }
+
+        /// <summary>
+        /// Back-compat test hook kept for older test code. Refresh-summary
+        /// suppression is now keyed by recording/terminal digest rather than a
+        /// global no-delta counter.
+        /// </summary>
+        internal static void ResetSuppressedNoDeltaCountForTesting()
+        {
+            ResetRefreshSummaryDedupForTesting();
+        }
+
+        internal static bool HasMeaningfulThrust(
+            HashSet<ulong> activeEngineKeys,
+            Dictionary<ulong, float> lastThrottle,
+            HashSet<ulong> activeRcsKeys,
+            Dictionary<ulong, float> lastRcsThrottle)
+        {
+            if (HasMeaningfulThrottle(activeEngineKeys, lastThrottle))
+                return true;
+
+            return HasMeaningfulThrottle(activeRcsKeys, lastRcsThrottle);
+        }
+
+        internal static bool IsInAtmosphere(Vessel vessel)
+        {
+            return vessel?.mainBody != null
+                && vessel.mainBody.atmosphere
+                && vessel.altitude < vessel.mainBody.atmosphereDepth;
+        }
+
+        internal static string BuildVesselDigest(Vessel vessel, bool hasMeaningfulThrust)
+        {
+            if (vessel == null)
+                return "(null)";
+
+            string bodyName = vessel.mainBody?.name
+                ?? vessel.orbit?.referenceBody?.name
+                ?? "(unknown-body)";
+            return BuildStateDigest(bodyName, vessel.situation, IsInAtmosphere(vessel), hasMeaningfulThrust);
+        }
+
+        internal static string BuildStateDigest(
+            string bodyName,
+            Vessel.Situations situation,
+            bool inAtmosphere,
+            bool hasMeaningfulThrust)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "{0}|sit={1}|atmo={2}|thrust={3}",
+                bodyName ?? "(unknown-body)",
+                situation,
+                inAtmosphere,
+                hasMeaningfulThrust);
+        }
+
+        internal static bool IsSurfaceTerminalSituation(Vessel.Situations situation)
+        {
+            return situation == Vessel.Situations.LANDED
+                || situation == Vessel.Situations.SPLASHED
+                || situation == Vessel.Situations.PRELAUNCH;
+        }
+
+        internal static string BuildOrbitSegmentDigest(OrbitSegment segment)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "{0}|sma={1:F1}|ecc={2:F8}|inc={3:F6}|lan={4:F6}|arg={5:F6}|mna={6:F8}|epoch={7:F3}",
+                segment.bodyName ?? "(unknown-body)",
+                segment.semiMajorAxis,
+                segment.eccentricity,
+                segment.inclination,
+                segment.longitudeOfAscendingNode,
+                segment.argumentOfPeriapsis,
+                segment.meanAnomalyAtEpoch,
+                segment.epoch);
+        }
+
+        internal static bool TryTouchObservedTerminalCache(
+            RecordingFinalizationCache cache,
+            double observedUT,
+            string reason,
+            string observedDigest)
+        {
+            if (cache == null
+                || cache.Status != FinalizationCacheStatus.Fresh
+                || !cache.TerminalState.HasValue
+                || !IsFinite(observedUT)
+                || (cache.PredictedSegments != null && cache.PredictedSegments.Count > 0)
+                || !IsObservedStableTerminal(cache.TerminalState.Value))
+            {
+                return false;
+            }
+
+            cache.CachedAtUT = observedUT;
+            cache.CachedAtRealtime = SafeRealtime();
+            cache.LastObservedUT = observedUT;
+            cache.TailStartsAtUT = observedUT;
+            cache.TerminalUT = observedUT;
+            cache.RefreshReason = reason;
+            if (!string.IsNullOrEmpty(observedDigest))
+                cache.LastObservedOrbitDigest = observedDigest;
+            return true;
+        }
+
+        internal static bool IsPotentiallyApplicableCache(RecordingFinalizationCache cache)
+        {
+            return cache != null
+                && (cache.Status == FinalizationCacheStatus.Fresh
+                    || cache.Status == FinalizationCacheStatus.Stale)
+                && cache.TerminalState.HasValue
+                && IsFinite(cache.TerminalUT);
+        }
+
+        internal static bool TryPreservePreviousCacheAfterFailedRefresh(
+            RecordingFinalizationCache previous,
+            RecordingFinalizationCache failedRefresh,
+            double observedUT,
+            string reason,
+            string observedDigest)
+        {
+            // Producer failures that escape TryBuild* are expected to flow through
+            // Fail(). Empty is only the pre-population state inside a single
+            // producer call and should not reach this preservation seam.
+            if (!IsPotentiallyApplicableCache(previous)
+                || failedRefresh == null
+                || failedRefresh.Status != FinalizationCacheStatus.Failed)
+            {
+                return false;
+            }
+
+            previous.Status = FinalizationCacheStatus.Stale;
+            previous.CachedAtUT = observedUT;
+            previous.CachedAtRealtime = SafeRealtime();
+            previous.LastObservedUT = observedUT;
+            previous.RefreshReason = reason;
+            previous.DeclineReason = failedRefresh.DeclineReason;
+            if (!string.IsNullOrEmpty(observedDigest))
+                previous.LastObservedOrbitDigest = observedDigest;
+
+            ParsekLog.Warn("FinalizerCache",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Refresh failed; preserving previous cache: owner={0} rec={1} pid={2} " +
+                    "reason={3} terminal={4} terminalUT={5:F3}",
+                    previous.Owner,
+                    previous.RecordingId ?? "(pending)",
+                    previous.VesselPersistentId,
+                    failedRefresh.DeclineReason ?? "(none)",
+                    previous.TerminalState?.ToString() ?? "(null)",
+                    previous.TerminalUT));
+            return true;
+        }
+
+        private static RecordingFinalizationCache CreateBase(
+            string recordingId,
+            uint vesselPid,
+            FinalizationCacheOwner owner,
+            double refreshUT,
+            string reason)
+        {
+            return new RecordingFinalizationCache
+            {
+                RecordingId = recordingId,
+                VesselPersistentId = vesselPid,
+                Owner = owner,
+                Status = FinalizationCacheStatus.Empty,
+                CachedAtUT = refreshUT,
+                CachedAtRealtime = SafeRealtime(),
+                RefreshReason = reason,
+                LastObservedUT = refreshUT,
+                TailStartsAtUT = refreshUT,
+                TerminalUT = double.NaN,
+                PredictedSegments = new List<OrbitSegment>()
+            };
+        }
+
+        private static bool CompleteRefresh(
+            RecordingFinalizationCache cache,
+            bool success,
+            int recordingsExamined,
+            int alreadyClassified,
+            int newlyClassified)
+        {
+            LogRefreshSummary(
+                cache != null ? cache.Owner : FinalizationCacheOwner.Unknown,
+                cache?.RefreshReason,
+                recordingsExamined,
+                alreadyClassified,
+                newlyClassified,
+                cache?.RecordingId,
+                cache != null ? cache.VesselPersistentId : 0,
+                cache?.Status,
+                cache?.TerminalState,
+                cache?.DeclineReason,
+                cache?.PredictedSegments?.Count ?? -1);
+            return success;
+        }
+
+        private static double ResolveDestroyedTerminalUT(Recording recording, double refreshUT)
+        {
+            if (recording == null)
+                return IsFinite(refreshUT) ? refreshUT : double.NaN;
+            if (IsFinite(recording.ExplicitEndUT))
+                return recording.ExplicitEndUT;
+            double endUT = recording.EndUT;
+            if (IsFinite(endUT))
+                return endUT;
+            return IsFinite(refreshUT) ? refreshUT : double.NaN;
+        }
+
+        private static string ResolveDestroyedTerminalBodyName(Recording recording)
+        {
+            if (recording == null)
+                return null;
+            if (!string.IsNullOrEmpty(recording.TerminalOrbitBody))
+                return recording.TerminalOrbitBody;
+            if (recording.TerminalPosition.HasValue
+                && !string.IsNullOrEmpty(recording.TerminalPosition.Value.body))
+                return recording.TerminalPosition.Value.body;
+            if (!string.IsNullOrEmpty(recording.EndpointBodyName))
+                return recording.EndpointBodyName;
+            if (recording.Points != null && recording.Points.Count > 0)
+                return recording.Points[recording.Points.Count - 1].bodyName;
+            if (recording.OrbitSegments != null && recording.OrbitSegments.Count > 0)
+                return recording.OrbitSegments[recording.OrbitSegments.Count - 1].bodyName;
+            return null;
+        }
+
+        private static void PopulateObservedVesselState(
+            RecordingFinalizationCache cache,
+            IRecordingFinalizationVesselView vessel,
+            double refreshUT,
+            bool hasMeaningfulThrust)
+        {
+            cache.VesselPersistentId = cache.VesselPersistentId != 0
+                ? cache.VesselPersistentId
+                : vessel.PersistentId;
+            cache.LastObservedUT = refreshUT;
+            cache.LastObservedBodyName = vessel.BodyName ?? "(unknown-body)";
+            cache.LastSituation = vessel.Situation;
+            cache.LastWasInAtmosphere = vessel.IsInAtmosphere;
+            cache.LastHadMeaningfulThrust = hasMeaningfulThrust;
+            cache.LastObservedOrbitDigest = BuildVesselDigest(vessel, hasMeaningfulThrust);
+        }
+
+        private static bool TryBuildSurfaceTerminalCache(
+            RecordingFinalizationCache cache,
+            IRecordingFinalizationVesselView vessel,
+            double refreshUT)
+        {
+            // An EVA kerbal on the ground can report FLYING / SUB_ORBITAL (stock ground
+            // contact has no hysteresis); its live orbit is then sub-surface and the
+            // default finalizer would decline it as a destroyed-vessel start or reseed it
+            // into a terrain impact. Read it as LANDED here instead.
+            Vessel.Situations situation = RecordingTree.ResolveTerminalSituation(
+                vessel.Situation,
+                vessel.IsEva,
+                vessel.HeightFromTerrain,
+                cache.VesselPersistentId,
+                "FinalizerCache");
+            if (!IsSurfaceTerminalSituation(situation))
+            {
+                return false;
+            }
+
+            cache.Status = FinalizationCacheStatus.Fresh;
+            cache.TerminalState = situation == Vessel.Situations.SPLASHED
+                ? TerminalState.Splashed
+                : TerminalState.Landed;
+            cache.TerminalUT = refreshUT;
+            cache.TerminalBodyName = cache.LastObservedBodyName;
+            cache.TerminalPosition = new SurfacePosition
+            {
+                body = cache.LastObservedBodyName,
+                latitude = vessel.Latitude,
+                longitude = vessel.Longitude,
+                altitude = vessel.Altitude,
+                rotation = vessel.SurfaceRelativeRotation,
+                rotationRecorded = true,
+                situation = situation == Vessel.Situations.SPLASHED
+                    ? SurfaceSituation.Splashed
+                    : SurfaceSituation.Landed
+            };
+            cache.TerrainHeightAtEnd = vessel.HeightFromTerrain;
+            cache.TailStartsAtUT = refreshUT;
+            return Accept(cache);
+        }
+
+        private static bool PopulateStableOrbitCache(
+            RecordingFinalizationCache cache,
+            OrbitSegment segment,
+            double refreshUT,
+            TerminalState terminalState)
+        {
+            cache.Status = FinalizationCacheStatus.Fresh;
+            cache.TerminalState = terminalState;
+            cache.TerminalUT = refreshUT;
+            cache.TerminalBodyName = segment.bodyName;
+            cache.TerminalOrbit = RecordingFinalizationTerminalOrbit.FromSegment(segment);
+            cache.TailStartsAtUT = refreshUT;
+            cache.PredictedSegments = new List<OrbitSegment>();
+            return Accept(cache);
+        }
+
+        private static bool PopulateAtmosphericDeletionCache(
+            RecordingFinalizationCache cache,
+            double terminalUT)
+        {
+            cache.Status = FinalizationCacheStatus.Fresh;
+            cache.TerminalState = TerminalState.Destroyed;
+            cache.TerminalUT = terminalUT;
+            cache.TerminalBodyName = cache.LastObservedBodyName;
+            cache.TailStartsAtUT = terminalUT;
+            cache.PredictedSegments = new List<OrbitSegment>();
+            return Accept(cache);
+        }
+
+        /// <summary>
+        /// Stamp <see cref="TerminalState.Destroyed"/> for a "this vessel is
+        /// being destroyed right now" refresh, bypassing the surface-terminal
+        /// short-circuit. Same shape as
+        /// <see cref="PopulateAtmosphericDeletionCache"/> but called from a
+        /// different signal: the destroy-event call sites in
+        /// <see cref="FlightRecorder"/> and <see cref="BackgroundRecorder"/>
+        /// know the vessel is gone, even when KSP's transient last-frame
+        /// situation still says LANDED.
+        ///
+        /// <para>
+        /// Also eagerly mutates <c>recording.TerminalStateValue</c> to
+        /// <see cref="TerminalState.Destroyed"/> when unset, so any same-frame
+        /// follow-up refresh (e.g. <c>part_die</c>, <c>joint_break</c>,
+        /// <c>periodic</c> on a still-LANDED-situation residual hull) short-
+        /// circuits through <see cref="TryBuildAlreadyClassifiedDestroyedSkip"/>
+        /// instead of re-reaching <see cref="TryBuildSurfaceTerminalCache"/>
+        /// and clobbering the stamp with <see cref="TerminalState.Landed"/>.
+        /// Production callers normally let <see cref="RecordingFinalizationCacheApplier"/>
+        /// be the only writer of <c>TerminalStateValue</c>, so we only mutate
+        /// when the recording's terminal is still null: pre-existing terminal
+        /// verdicts (the cleared-stale-verdict path in
+        /// <see cref="IncompleteBallisticSceneExitFinalizer.ClearAlreadyClassifiedDestroyed"/>,
+        /// for example) are not overwritten.
+        /// </para>
+        /// </summary>
+        private static bool PopulateDestroyEventTerminalCache(
+            Recording recording,
+            RecordingFinalizationCache cache,
+            double terminalUT,
+            string reason,
+            Vessel.Situations observedSituation)
+        {
+            cache.Status = FinalizationCacheStatus.Fresh;
+            cache.TerminalState = TerminalState.Destroyed;
+            cache.TerminalUT = terminalUT;
+            cache.TerminalBodyName = cache.LastObservedBodyName;
+            cache.TailStartsAtUT = terminalUT;
+            cache.PredictedSegments = new List<OrbitSegment>();
+
+            bool eagerStamp = false;
+            if (recording != null && !recording.TerminalStateValue.HasValue)
+            {
+                recording.StampTerminalState(
+                    TerminalState.Destroyed, "RecordingFinalizationCacheProducer.eagerStamp");
+                eagerStamp = true;
+            }
+
+            // Info-level (not rate-limited) so a destroy override is visible
+            // in KSP.log even if a prior Landed stamp's
+            // VerboseRateLimited "Refresh accepted" line is in the dedup
+            // window for the same vessel.
+            ParsekLog.Info("FinalizerCache",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Destroy-reason override: rec={0} pid={1} reason={2} situation={3} terminalUT={4:F3} eagerRecordingStamp={5}",
+                    cache.RecordingId ?? "(pending)",
+                    cache.VesselPersistentId,
+                    reason ?? "(none)",
+                    observedSituation,
+                    terminalUT,
+                    eagerStamp));
+            return Accept(cache);
+        }
+
+        /// <summary>
+        /// True when <paramref name="reason"/> names a refresh triggered by a
+        /// vessel-destroy event. The active-vessel path uses
+        /// <c>"destroy_event"</c> (<see cref="FlightRecorder.OnVesselDestroyed"/>),
+        /// and the background-vessel path uses <c>"background_destroy"</c>
+        /// (<see cref="BackgroundRecorder.OnBackgroundVesselWillDestroy"/>).
+        /// Both signal that the caller has decided the vessel is gone, so the
+        /// producer must not round the transient last-sampled
+        /// <see cref="Vessel.Situations.LANDED"/> situation up to
+        /// <see cref="TerminalState.Landed"/>.
+        /// </summary>
+        internal static bool IsDestroyRefreshReason(string reason)
+        {
+            if (string.IsNullOrEmpty(reason)) return false;
+            return string.Equals(reason, "destroy_event", StringComparison.Ordinal)
+                || string.Equals(reason, "background_destroy", StringComparison.Ordinal);
+        }
+
+        private static bool Accept(RecordingFinalizationCache cache)
+        {
+            ParsekLog.VerboseRateLimited("FinalizerCache", $"refresh.{cache.VesselPersistentId}",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Refresh accepted: owner={0} rec={1} pid={2} reason={3} terminal={4} terminalUT={5:F3} segments={6}",
+                    cache.Owner,
+                    cache.RecordingId ?? "(pending)",
+                    cache.VesselPersistentId,
+                    cache.RefreshReason ?? "(none)",
+                    cache.TerminalState,
+                    cache.TerminalUT,
+                    cache.PredictedSegments?.Count ?? 0),
+                5.0);
+            return true;
+        }
+
+        private static bool Fail(RecordingFinalizationCache cache, string reason)
+        {
+            cache.Status = FinalizationCacheStatus.Failed;
+            cache.DeclineReason = reason;
+            ParsekLog.VerboseRateLimited("FinalizerCache", $"refresh-failed.{cache.VesselPersistentId}",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Refresh declined: owner={0} rec={1} pid={2} reason={3}",
+                    cache.Owner,
+                    cache.RecordingId ?? "(pending)",
+                    cache.VesselPersistentId,
+                    reason ?? "(none)"),
+                5.0);
+            return false;
+        }
+
+        private static uint ResolveVesselPid(Recording recording, IRecordingFinalizationVesselView vessel)
+        {
+            if (recording != null && recording.VesselPersistentId != 0)
+                return recording.VesselPersistentId;
+            return vessel != null ? vessel.PersistentId : 0;
+        }
+
+        private static Recording BuildContextRecording(string recordingId, uint vesselPid, double endUT)
+        {
+            return new Recording
+            {
+                RecordingId = recordingId,
+                VesselPersistentId = vesselPid,
+                ExplicitEndUT = endUT
+            };
+        }
+
+        /// <summary>
+        /// Pure: the sections a recorder holds for a recording but has not flushed into it,
+        /// in recording order: the closed ones, then a copy of the open one when a section
+        /// is active. The copy's <c>endUT</c> is its last sample's UT (its start when it has
+        /// none yet), so a reader that walks section bounds sees a closed-shaped section; the
+        /// recorder's own open section is not touched (TrackSection is a struct, and its
+        /// frame lists are shared read-only). Returns null when there is nothing unflushed.
+        /// </summary>
+        internal static List<TrackSection> CollectUnflushedTrackSections(
+            IList<TrackSection> closedUnflushed,
+            bool openSectionActive,
+            TrackSection openSection)
+        {
+            int closedCount = closedUnflushed != null ? closedUnflushed.Count : 0;
+            if (closedCount == 0 && !openSectionActive)
+                return null;
+
+            var sections = new List<TrackSection>(closedCount + 1);
+            for (int i = 0; i < closedCount; i++)
+                sections.Add(closedUnflushed[i]);
+
+            if (openSectionActive)
+            {
+                TrackSection open = openSection;
+                open.endUT = LastSampleUT(open);
+                sections.Add(open);
+            }
+
+            return sections;
+        }
+
+        private static double LastSampleUT(TrackSection section)
+        {
+            double last = section.startUT;
+            if (section.frames != null && section.frames.Count > 0)
+                last = Math.Max(last, section.frames[section.frames.Count - 1].ut);
+            if (section.bodyFixedFrames != null && section.bodyFixedFrames.Count > 0)
+                last = Math.Max(last, section.bodyFixedFrames[section.bodyFixedFrames.Count - 1].ut);
+            if (section.checkpoints != null)
+            {
+                for (int i = 0; i < section.checkpoints.Count; i++)
+                    last = Math.Max(last, section.checkpoints[i].endUT);
+            }
+            return last;
+        }
+
+        /// <summary>
+        /// Pure: the recording the default finalizer reads during a cache refresh. A
+        /// background recorder keeps a loaded vessel's sections to itself until a flush
+        /// (commit, scene exit, going on rails, leaving the background), while every sample
+        /// also lands in the recording's flat <c>Points</c> list in the frame it was taken
+        /// in. With no flushed section the finalizer's recorded-point readers fall back to
+        /// that flat list, and a Relative sample there is an anchor-local metre offset, not
+        /// lat/lon/alt. Handing them the unflushed sections instead lets them read each
+        /// section in its own frame (a Relative section's <c>bodyFixedFrames</c>). Returns
+        /// <paramref name="recording"/> itself when there is nothing unflushed, otherwise a
+        /// read-only view (<see cref="Recording.CreateReadViewWithTrackSections"/>).
+        /// </summary>
+        internal static Recording WithUnflushedTrackSections(
+            Recording recording,
+            IList<TrackSection> unflushedTrackSections)
+        {
+            if (recording == null
+                || unflushedTrackSections == null
+                || unflushedTrackSections.Count == 0)
+            {
+                return recording;
+            }
+
+            int flushedCount = recording.TrackSections != null ? recording.TrackSections.Count : 0;
+            var sections = new List<TrackSection>(flushedCount + unflushedTrackSections.Count);
+            if (flushedCount > 0)
+                sections.AddRange(recording.TrackSections);
+            int relativeCount = 0;
+            for (int i = 0; i < unflushedTrackSections.Count; i++)
+            {
+                sections.Add(unflushedTrackSections[i]);
+                if (unflushedTrackSections[i].referenceFrame == ReferenceFrame.Relative)
+                    relativeCount++;
+            }
+
+            ParsekLog.VerboseRateLimited(
+                "FinalizerCache",
+                "unflushed-sections-view." + (recording.RecordingId ?? "(null)"),
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Refresh reads unflushed recorder sections: rec={0} flushed={1} unflushed={2} " +
+                    "unflushedRelative={3} flatPoints={4}",
+                    recording.RecordingId ?? "(null)",
+                    flushedCount,
+                    unflushedTrackSections.Count,
+                    relativeCount,
+                    recording.Points != null ? recording.Points.Count : 0),
+                minIntervalSeconds: 30.0);
+
+            return recording.CreateReadViewWithTrackSections(sections);
+        }
+
+        private static OrbitSegment BuildOrbitSegmentFromVessel(
+            IRecordingFinalizationVesselView vessel,
+            RecordingFinalizationOrbitView orbit,
+            double startUT)
+        {
+            return new OrbitSegment
+            {
+                startUT = startUT,
+                endUT = startUT,
+                inclination = orbit.Inclination,
+                eccentricity = orbit.Eccentricity,
+                semiMajorAxis = orbit.SemiMajorAxis,
+                longitudeOfAscendingNode = orbit.LongitudeOfAscendingNode,
+                argumentOfPeriapsis = orbit.ArgumentOfPeriapsis,
+                meanAnomalyAtEpoch = orbit.MeanAnomalyAtEpoch,
+                epoch = orbit.Epoch,
+                bodyName = orbit.ReferenceBodyName ?? vessel.BodyName ?? "(unknown-body)",
+                isPredicted = true
+            };
+        }
+
+        private static bool TryBuildDefaultFinalizationResult(
+            Recording context,
+            Vessel vessel,
+            double refreshUT,
+            RecordingTree recordingTree,
+            out IncompleteBallisticFinalizationResult result)
+        {
+            if (TryBuildDefaultFinalizationResultOverrideForTesting != null)
+                return TryBuildDefaultFinalizationResultOverrideForTesting(context, vessel, refreshUT, out result);
+
+            if (vessel == null)
+            {
+                result = default(IncompleteBallisticFinalizationResult);
+                return false;
+            }
+
+            return IncompleteBallisticSceneExitFinalizer.TryBuildDefaultFinalizationResult(
+                context,
+                vessel,
+                refreshUT,
+                recordingTree,
+                out result);
+        }
+
+        // Accepts BOTH destroyed-vessel start fingerprints. The `subsurface-destroyed-*`
+        // naming (decline reason string included) predates the 2026-08-04_2142 frame
+        // calibration that split the fingerprint in two; it is kept verbatim because the
+        // decline reason is asserted in-game and grepped in KSP.log.
+        private static bool IsSuppressedSubSurfaceDestroyedDecline(IncompleteBallisticFinalizationResult result)
+        {
+            return IncompleteBallisticSceneExitFinalizer.IsDestroyedVesselStartFingerprint(
+                    result.extrapolationFailureReason)
+                && result.terminalState.HasValue
+                && result.terminalState.Value == TerminalState.Destroyed;
+        }
+
+        private static TerminalState DetermineObservedTerminalState(IRecordingFinalizationVesselView vessel)
+        {
+            if (vessel?.RawVessel != null)
+                return RecordingTree.DetermineTerminalState((int)vessel.Situation, vessel.RawVessel);
+
+            if (vessel == null)
+                return TerminalState.Orbiting;
+
+            switch (vessel.Situation)
+            {
+                case Vessel.Situations.LANDED:
+                case Vessel.Situations.PRELAUNCH:
+                    return TerminalState.Landed;
+                case Vessel.Situations.SPLASHED:
+                    return TerminalState.Splashed;
+                case Vessel.Situations.SUB_ORBITAL:
+                    return TerminalState.SubOrbital;
+                case Vessel.Situations.DOCKED:
+                    return TerminalState.Docked;
+                case Vessel.Situations.ORBITING:
+                default:
+                    return TerminalState.Orbiting;
+            }
+        }
+
+        private static string BuildVesselDigest(IRecordingFinalizationVesselView vessel, bool hasMeaningfulThrust)
+        {
+            if (vessel == null)
+                return "(null)";
+
+            return BuildStateDigest(vessel.BodyName, vessel.Situation, vessel.IsInAtmosphere, hasMeaningfulThrust);
+        }
+
+        private static List<OrbitSegment> ClonePredictedSegments(IList<OrbitSegment> source)
+        {
+            var clone = new List<OrbitSegment>();
+            if (source == null)
+                return clone;
+
+            for (int i = 0; i < source.Count; i++)
+            {
+                OrbitSegment segment = source[i];
+                segment.isPredicted = true;
+                clone.Add(segment);
+            }
+            return clone;
+        }
+
+        private static bool HasMeaningfulThrottle(HashSet<ulong> activeKeys, Dictionary<ulong, float> throttles)
+        {
+            if (activeKeys == null || activeKeys.Count == 0)
+                return false;
+            if (throttles == null || throttles.Count == 0)
+                return true;
+
+            foreach (ulong key in activeKeys)
+            {
+                float throttle;
+                if (!throttles.TryGetValue(key, out throttle) || throttle > MeaningfulThrottleThreshold)
+                    return true;
+            }
+            return false;
+        }
+
+        private static bool IsObservedStableTerminal(TerminalState terminalState)
+        {
+            return terminalState == TerminalState.Orbiting
+                || terminalState == TerminalState.Landed
+                || terminalState == TerminalState.Splashed
+                || terminalState == TerminalState.Docked;
+        }
+
+        private static float SafeRealtime()
+        {
+            // Cache freshness is UT-based. This field is diagnostic only, so avoid
+            // UnityEngine.Time: its ECall throws under the xUnit host before it can
+            // be caught reliably.
+            return Environment.TickCount / 1000f;
+        }
+
+        private static bool IsFinite(double value)
+        {
+            return !double.IsNaN(value) && !double.IsInfinity(value);
+        }
+
+        private sealed class VesselFinalizationView : IRecordingFinalizationVesselView
+        {
+            private readonly Vessel vessel;
+
+            internal VesselFinalizationView(Vessel vessel)
+            {
+                this.vessel = vessel;
+            }
+
+            public uint PersistentId => vessel.persistentId;
+            public Vessel.Situations Situation => vessel.situation;
+            public string BodyName => vessel.mainBody?.name
+                ?? vessel.orbit?.referenceBody?.name
+                ?? "(unknown-body)";
+            public bool IsInAtmosphere => RecordingFinalizationCacheProducer.IsInAtmosphere(vessel);
+            public bool IsPacked => vessel.packed;
+            public bool IsLoaded => vessel.loaded;
+            public double Latitude => vessel.latitude;
+            public double Longitude => vessel.longitude;
+            public double Altitude => vessel.altitude;
+            public double HeightFromTerrain => vessel.heightFromTerrain;
+            public bool IsEva => vessel.isEVA;
+            public Quaternion SurfaceRelativeRotation => vessel.srfRelRotation;
+            public Vessel RawVessel => vessel;
+
+            public bool TryGetOrbit(out RecordingFinalizationOrbitView orbit)
+            {
+                orbit = default(RecordingFinalizationOrbitView);
+                Orbit source = vessel.orbit;
+                CelestialBody referenceBody = source?.referenceBody;
+                if (source == null || referenceBody == null)
+                    return false;
+
+                orbit = new RecordingFinalizationOrbitView
+                {
+                    ReferenceBodyName = referenceBody.name,
+                    ReferenceBodyHasAtmosphere = referenceBody.atmosphere,
+                    ReferenceBodyAtmosphereDepth = referenceBody.atmosphereDepth,
+                    Inclination = source.inclination,
+                    Eccentricity = source.eccentricity,
+                    SemiMajorAxis = source.semiMajorAxis,
+                    LongitudeOfAscendingNode = source.LAN,
+                    ArgumentOfPeriapsis = source.argumentOfPeriapsis,
+                    MeanAnomalyAtEpoch = source.meanAnomalyAtEpoch,
+                    Epoch = source.epoch,
+                    PeriapsisAltitude = source.PeA
+                };
+                return true;
+            }
+        }
+    }
+}

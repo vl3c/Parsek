@@ -35,8 +35,8 @@ from test_shells import FakeMissionControl, run  # noqa: E402
 SCHEMA = os.path.join(_MISSIONS, "soi1_mun_exit_burn.schema.toml")
 SHELL = os.path.join(_MISSIONS, "soi1_mun_exit_burn.py")
 SPEC = os.path.join(_HARNESS, "scenarios", "SOI-1-mun-exit-physics-burn.toml")
-PHYSICS_SOI_CS = os.path.join(_REPO, "Source", "Parsek", "FlightRecorder.PhysicsSoi.cs")
-RECORDER_CS = os.path.join(_REPO, "Source", "Parsek", "FlightRecorder.cs")
+PHYSICS_SOI_CS = os.path.join(_REPO, "Source", "Parsek", "Recording", "FlightRecorder.PhysicsSoi.cs")
+RECORDER_CS = os.path.join(_REPO, "Source", "Parsek", "Recording", "FlightRecorder.cs")
 
 NAN = float("nan")
 

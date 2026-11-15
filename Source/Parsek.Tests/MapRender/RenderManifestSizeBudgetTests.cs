@@ -180,7 +180,6 @@ namespace Parsek.Tests.MapRender
                         ToleranceRadians = 0.1,
                     });
                 }
-                m.CloseOpenDwell(pid, ut);
             }
 
             return m;

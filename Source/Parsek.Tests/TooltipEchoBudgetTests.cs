@@ -85,7 +85,7 @@ namespace Parsek.Tests
             // Floor 7 -> 5 (2026-11-08, W6): the Logistics launcher and the candidate
             // banner's Dismiss moved, unchanged, into the Logistics window's main-window
             // section; the next row budgets them at this same width and height.
-            yield return new object[] { "ParsekUI.cs", 250f, 5, TooltipEchoBox.DoubleLine };
+            yield return new object[] { "UI/ParsekUI.cs", 250f, 5, TooltipEchoBox.DoubleLine };
             // The Logistics window's section of the MAIN window (LogisticsWindowUI.
             // MainWindowSection.cs): its tooltips echo in the main window's strip, so it is
             // budgeted as the main window. Floor 2: the Logistics launcher and Dismiss.
@@ -628,7 +628,7 @@ namespace Parsek.Tests
                 Assert.True(constructed.Count == 0,
                     relPath + " now constructs its own TooltipEchoBox - update its "
                     + "StripWindows row to that strip's height instead of the host's.");
-                List<int> host = ExtractTooltipEchoBoxLineArgs(ReadStripWindowSource("ParsekUI.cs"));
+                List<int> host = ExtractTooltipEchoBoxLineArgs(ReadStripWindowSource("UI/ParsekUI.cs"));
                 Assert.True(host.Count == 1 && host[0] == stripLines,
                     relPath + ": the row budgets " + stripLines + " line(s) but its host, the "
                     + "main window, constructs " + string.Join(",", host) + ".");
