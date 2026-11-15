@@ -415,7 +415,8 @@ so a full or missing shared folder never loses an export, it only delays it.
 The copy is a cache, not data: deleting `Race/rivals/` costs nothing but a re-copy at the next
 sync, and it is never included in a save, a quicksave or a backup of the save file itself.
 What it keeps is bounded: what each rival's standing in effect names, the few older
-standings the rules need (6.3), and a grace period for files a newer standing dropped.
+standings the rules need (6.3); a file no kept standing names is deleted at an import tick
+outside a flight.
 
 **Where the location is stored.** In `local.cfg` beside the save, not inside the save file.
 The location belongs to the machine (the same race folder is `D:\Dropbox\Race` on one PC
@@ -587,6 +588,8 @@ RaceLocal (saves/<save>/Parsek/Race/local.cfg; this machine only, not in the sav
   lastStandingDigest: string - hash of the last exported public state
   lastSyncRealTime: string  - when a sync last reached the shared folder (6.5);
                               Continue shows it (7.2)
+  firstImportDone: bool     - the first import after joining has completed; until it
+                              has, this game writes no standing (7.5)
   SHOW { RIVAL playerId bool ... } - the show-ghosts toggles
   Beside it: Race/race.cfg and Race/own/player.cfg, copies of the race file and of
   this player's identity file. Settings rebuilds the shared files from them (7.2),
@@ -702,17 +705,17 @@ module (`ParsekRaceScenario`), for two reasons the reviews found:
   by the last standing stamped before the end date (those answer "when did this date first
   appear", 7.10 and 7.11); and the last standing stamped before the end date itself (7.10),
   whose payload the own mirror also keeps for good so it can be put back. It deletes the
-  rest, and payload none of the kept standings names, after a grace period of 3 days of real
-  time. Importers keep
-  the same set in the rival cache, so the board, the final board and the no-retakes rule are
-  all computed from the local copy.
+  rest, and payload none of the kept standings names, 3 days of real time after it stopped
+  being kept. Importers keep the same set in the rival cache, pruned at import ticks outside
+  a flight, so the board, the final board and the no-retakes rule are all computed from the
+  local copy.
 - **Versioning.** `raceFormat` versions the exchange files. A standing with a newer
   `raceFormat` is not applied: the rival's board rows are still shown if the milestone block
   parses, their ghosts are not, and the Space Race window says "Ana runs a newer Parsek". The
   board rows of such a rival are marked "not checked here", because this build cannot verify
-  them (7.8). Recordings in a newer recording format than the local build reads only stop
-  that rival's ghosts: the check of a board row reads only the standing, so those rows are
-  checked and scored as usual.
+  them (7.8). Recordings in a newer recording format than the local build reads stop only
+  that rival's ghosts, and the window says "Ana runs a newer Parsek" for them too: the check
+  of a board row reads only the standing, so those rows are checked and scored as usual.
 - **Id safety.** Every id that becomes part of a path passes the recording id validator
   first (today `RecordingPaths.ValidateRecordingId`; its pure check moves to the floor so
   the rules module can call it, prerefactor P7). The moved check uses a fixed character set,
@@ -851,10 +854,12 @@ mark is kept as it is and written back unchanged.
 - A race save appears in the stock Resume Saved list like any save (its name carries the race
   name). Loading it there is the same as continuing it from the Multiplayer dialog.
 - The sites, the terrain patches and the scenery (7.3) exist only while a race save is loaded.
-  They are reconciled at every scene load request against the mark of the game being loaded:
-  applied when a race save starts, before its first scene is built, and removed before the
-  first scene of a single-player save by whatever route it is reached (the main menu, a load
-  from inside a game, a harness load), so a single-player save always finds the stock Kerbin.
+  One handler reconciles them at every scene load request against the mark of the game being
+  loaded (spike S4a checks that the game is known there; if it is not, the handler moves as a
+  whole, 7.3): applied when a race save starts, before its first scene is built, and removed
+  before the first scene of a single-player save by whatever route it is reached (the main
+  menu, a load from inside a game, a harness load), so a single-player save always finds the
+  stock Kerbin.
 - Two race saves can live on one install. Each has its own mark and its own local race
   directory; going from one straight to the other, by any route, re-applies the sites for the
   new home site.
@@ -875,7 +880,8 @@ One dialog in the stock dialog style, with three actions.
   manifest stores the full settings either way (open: question Q-17, section 13);
 - the shared folder's location, in the same dialog as the name and the look: a path field
   (typed or pasted; there is no folder picker) and a Validate button (exists, writable,
-  empty of any race, short enough for the paths the local copy needs, 6.3);
+  empty of any race, short enough for the longest paths in the folder and in the local
+  copy, 6.3);
 - whether the shared launch sites are in use (7.3);
 - optional end date (real time);
 - house rules: "no retakes" (7.11);
@@ -1178,9 +1184,10 @@ inside one race save (flight, quickload, revert, rewind, Re-Fly) changes nothing
 into a single-player save (the main menu, a load from inside a game, a harness load)
 restores stock first; a race save with another home site restores, then applies (edge case
 31). Whether the game being loaded is already known at the request on every way in is
-checked by spike S4a; on a way where it is not, the reconcile runs at the first later event
-where it is (the loaded game's post-load event). Apply and restore are one pair of operations
-with an in-game test on both. A failed step rolls the whole set back to stock and logs the
+checked by spike S4a. If it is not, the one handler moves as a whole, the race gate and the
+reconcile together, to the loaded game's post-load event or to a prefix on `Game.Start`, so
+one place still decides on every way in. Apply and restore are one pair of operations with
+an in-game test on both. A failed step rolls the whole set back to stock and logs the
 step. A race save whose sites cannot be set up (a step fails, or Kerbin was changed by a mod
 after the race started) is not loaded: the game goes back to the main menu with one message
 naming the reason, and the save is not touched, because loading it on stock Kerbin could
@@ -1345,8 +1352,9 @@ of the rival store and recomputes the board.
   pack on one side) is not played; its board row shows, and still counts, marked "cannot be
   watched here".
 - **Removal.** A recording the rival's latest standing no longer names leaves the rival store;
-  its ghost, its leftover and its flags go with it. Cached payload files nobody names are
-  deleted after a grace period.
+  its ghost, its leftover and its flags go with it. Cached files that no kept standing
+  names are deleted at the next import tick outside a flight; the 3 days of 6.3 are the
+  shared folder's.
 
 ### 7.7 What a rival's world looks like
 
@@ -2441,7 +2449,7 @@ library, thin I/O shell), applied to the whole feature.
 | `IRaceTransport`: ask for files to be copied between the shared folder and the local race directory, ask for the listing of a shared directory (copy-out needs the folder's highest seq, import the list of standings) and for the proof of a shared file (to heal it), and report what has arrived | `RaceWorld`, the copy step of 15.9: a main-thread transport first, the copy worker if allowed. Both keep their own small copy routine, because `FileIOUtils` logs through `ParsekLog` and has no retry | an in-memory copy that completes at once, or on demand to test half-synced states |
 | `IRaceClock`: real time in UTC | `RaceWorld`, system clock | a settable clock |
 | `IPublicStateSource`: the player's public state as one immutable `PublicState` | `RaceExport`, `RaceExportSource` | a hand-built `PublicState` |
-| `IRacePayload`: the content hash and the local path of a recording's files by id | split in two: the own half in `RaceExport`, over the save's sidecar versions (reading them is reading the own model); the rival half in `RaceWorld`, over the rival cache | byte arrays |
+| `IRacePayload`: the content hash and the local path of a recording's files by id | split in two: the own half in `RaceExport`, reading the trajectory file through the save's sidecar versions (reading them is reading the own model) and the ghost and tree bytes from the exporter's own copies; the rival half in `RaceWorld`, over the rival cache | byte arrays |
 
 The sync is then one pure call, `RaceSync.Run(folder, transport, clock, source, link)`, that
 returns a `SyncResult`: what was exported, the new `RivalState` per rival, the board, the
@@ -2710,9 +2718,9 @@ The sizes and the order of the prerefactors are in 15.11.
 | `RaceSession` | memory | the loaded save | Built at load from `RaceLink`; dropped by the cold-load reset; tagged in `scripts/arch/lifetimes.toml` |
 | Children of the race scenario node: `RACE_FACTS` (whether test tooling ran, `testTooling`, and the debug-menu completions, `DEBUG_COMPLETION` rows) and `RACE_LOOK_DRESS` (the "dressed with look N" marker) | the race scenario node, each child through the `IRaceScenarioChild` hook | the save | They roll back with the save on every load, the marker together with the roster it describes; each child has its own `LoadReconcilePolicy` row (every load kind takes the loaded save's copy), and a child the build does not know is kept verbatim |
 | Rival store | memory | the loaded save, rebuilt each scene | Replaced whole, never edited in place |
-| `RaceLocal`: folder location, display name and look, show toggles, last export digest, time of the last sync; local copies of `race.cfg` and of the own `player.cfg` | `Race/local.cfg`, `Race/race.cfg` and `Race/own/player.cfg` beside the save | the machine | Not in the save, so no load rolls a setting back; missing file means "ask for the folder again" and the name and look are read back from `Race/own/player.cfg`; the Settings folder change rebuilds the shared `race.cfg` and `player.cfg` from the local copies |
+| `RaceLocal`: folder location, display name and look, show toggles, last export digest, time of the last sync, whether the first import after joining is done; local copies of `race.cfg` and of the own `player.cfg` | `Race/local.cfg`, `Race/race.cfg` and `Race/own/player.cfg` beside the save | the machine | Not in the save, so no load rolls a setting back; missing file means "ask for the folder again" and the name and look are read back from `Race/own/player.cfg`; the Settings folder change rebuilds the shared `race.cfg` and `player.cfg` from the local copies |
 | Rival cache, witness log, own mirror | `Race/` beside the save | until deleted | Never named by the save, never synced. Checked in the inventory: no save-folder sweep walks unknown children of `Parsek/`, Parsek's own file collector walks only its recordings, rewind points and saves folders, and a race save has a footprint from birth so no pre-Parsek backup is taken. Three sweeps do take the whole folder and get the change of addition A7: `collect-logs.py`, the test-batch crash reconcile, and the in-game test runner's batch snapshot and restore |
-| Applied sites (moved space center, terrain patches, scenery) | Kerbin's own objects | the process, across saves | The one piece of state that outlives a save: `RaceSites` owns apply and restore as a pair. The one handler of scene load requests, `ParsekRaceBoot.OnSceneRequest`, calls `RaceSites.Reconcile` on every request, the main menu included, against the race mark of the game being loaded: so a load from inside a game (stock's load menu, the harness's `LoadGame`), a race-to-race load and a return to the main menu all apply or restore, and a race save's sites are applied before its first scene; an in-game test pins stock Kerbin after leaving a race save by each route (7.3 lists what must be reset) |
+| Applied sites (moved space center, terrain patches, scenery) | Kerbin's own objects | the process, across saves | The one piece of state that outlives a save: `RaceSites` owns apply and restore as a pair. The one handler of scene load requests, `ParsekRaceBoot.OnSceneRequest`, calls `RaceSites.Reconcile` on every request, the main menu included, against the race mark of the game being loaded (spike S4a checks that the game is known there; if it is not, the handler moves as a whole, with the race gate, to the loaded game's post-load event or a prefix on `Game.Start`, 7.3): so a load from inside a game (stock's load menu, the harness's `LoadGame`), a race-to-race load and a return to the main menu all apply or restore, and a race save's sites are applied before its first scene; an in-game test pins stock Kerbin after leaving a race save by each route (7.3 lists what must be reset) |
 | Exchange files | shared folder | until pruned by their writer (6.3) | `raceFormat` is registered in `SaveFormat.cs` together with `raceLinkFormat` (rows `race-exchange` and `race-link`), both at 1. The golden gate's frozen folders are saves, so the first golden folder is a race save holding the mark and the local files (`race.cfg`, `player.cfg`, `local.cfg`), written when the two rows are registered, since `race.cfg` exists from the first phase; a later golden folder adds a standing, its payload and an own mirror at the same format numbers (a new folder needs no bump). Unknown blocks in a newer standing are ignored, the additive rule of the save-format policy |
 
 ### 15.8 Inert outside a race
