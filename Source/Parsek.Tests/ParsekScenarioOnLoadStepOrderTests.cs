@@ -328,6 +328,70 @@ namespace Parsek.Tests
                 + string.Join("; ", offenders));
         }
 
+        // ---- COLD-RESET-LEFTOVERS: one-shot load markers across a Cold load ----
+
+        // catches: a stock revert armed before a Cold load (its own load never came, or a cold
+        // load that threw left initialLoadDone false) surviving it, so the next in-session load
+        // of the new save classifies as a stock revert and runs the revert strip and prune; and
+        // a Discard Re-fly intent the Cold load's classification consumed leaving its target.
+        [Fact]
+        public void AColdLoad_DropsAStaleRevertAndTheDiscardIntentTarget()
+        {
+            RevertKind pendingAfter = RevertKind.None;
+            HashSet<uint> pidsAfter = null;
+            bool discardArmedAfter = true;
+            RevertTarget discardTargetAfter = RevertTarget.Prelaunch;
+            var cold = new Scenario
+            {
+                Kind = "Cold", Scene = GameScenes.SPACECENTER, PrimeWithColdLoad = false,
+                Arm = () =>
+                {
+                    RevertDetector.SetPendingForTesting(RevertKind.Prelaunch);
+                    typeof(RevertDetector)
+                        .GetField("revertTargetVesselPids", BindingFlags.NonPublic | BindingFlags.Static)
+                        .SetValue(null, new HashSet<uint> { 7u, 9u });
+                    DiscardReFlyLoadIntent.Arm(RevertTarget.Prelaunch, "sess-stale");
+                },
+                AfterLoad = () =>
+                {
+                    pendingAfter = RevertDetector.PendingKind;
+                    pidsAfter = RevertDetector.ConsumeRevertTargetVesselPids();
+                    discardArmedAfter = DiscardReFlyLoadIntent.IsArmed;
+                    discardTargetAfter = DiscardReFlyLoadIntent.ArmedTarget;
+                },
+            };
+
+            List<string> rows = RunScenario(cold);
+
+            Assert.Equal("classified early=Cold refined=Cold", rows[0]);
+            Assert.DoesNotContain(rows, r => r.StartsWith("threw ", StringComparison.Ordinal));
+            Assert.Equal(RevertKind.None, pendingAfter);
+            Assert.Null(pidsAfter);
+            Assert.False(discardArmedAfter);
+            Assert.Equal(RevertTarget.Launch, discardTargetAfter);
+            Assert.Contains(logLines, l => l.Contains("[WARN][RevertDetector]")
+                && l.Contains("Cold load dropped a stale pending revert: kind=Prelaunch targetPids=2 reason="));
+            Assert.DoesNotContain(logLines, l => l.Contains("Consumed pending revert"));
+        }
+
+        // catches: a Cold-load clear placed where an in-session load runs it (before the
+        // classification, or on every load): the revert's own load and the Discard Re-fly's own
+        // load must still classify by, and consume, the marker armed for them.
+        [Fact]
+        public void TheRevertAndDiscardReFlyLoads_StillConsumeTheirMarkers()
+        {
+            List<string> revert = RunScenario(Scenarios().Single(s => s.Kind == "StockRevert"));
+            Assert.Contains("refined=StockRevert ", revert[0] + " ");
+            Assert.Contains(logLines, l => l.Contains("[RevertDetector]")
+                && l.Contains("Consumed pending revert (Launch) at ParsekScenario.OnLoad"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Cold load dropped a stale pending revert"));
+
+            List<string> discard = RunScenario(Scenarios().Single(s => s.Kind == "DiscardReFly"));
+            Assert.Contains("refined=DiscardReFly ", discard[0] + " ");
+            Assert.Contains(logLines, l => l.Contains("[" + LoadReconcilePolicy.LogTag + "]")
+                && l.Contains("DiscardReFly load intent consumed at ParsekScenario.OnLoad: target=Launch sess=sess-step-order"));
+        }
+
         // ---- the scenarios ----
 
         private sealed class Scenario
@@ -338,6 +402,8 @@ namespace Parsek.Tests
             internal double PreChangeUT = -1.0;
             internal bool PrimeWithColdLoad = true;
             internal Action Arm;
+            // Runs right after the recorded load returns, before the scenario is destroyed.
+            internal Action AfterLoad;
         }
 
         private static IEnumerable<Scenario> Scenarios()
@@ -411,6 +477,7 @@ namespace Parsek.Tests
             try
             {
                 instance.OnLoad(new ConfigNode("SCENARIO"));
+                scenario.AfterLoad?.Invoke();
             }
             catch (Exception ex)
             {

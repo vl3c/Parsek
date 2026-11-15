@@ -659,8 +659,8 @@ neither `InventoryTypes` (reset by `ResetSaveScopedSessionState`) nor
 `ColdLoaderCells` (reset by its own Cold-path call: a loader given a save that
 holds nothing, a consume, a drop) names, and `ColdLoader_ResetsEverySaveScopedStatic`
 dirties every such static of each `ColdLoaderCells` store, runs the helper and
-the store's call, and reads it back; what it leaves set today is pinned in
-`ColdLoaderKnownGaps` (todo COLD-RESET-LEFTOVERS). Both reset cells read
+the store's call, and reads it back; what it leaves set is pinned in
+`ColdLoaderKnownGaps` (empty since todo COLD-RESET-LEFTOVERS). Both reset cells read
 through a store's save-scoped holder, a static of a nested class named
 `ColdResetState` (todo ARCH-COLD-RESET-HOLDERS): the holder's instance fields
 are slots keyed `Store.field`, so the IL population counts the holder as one
