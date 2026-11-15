@@ -79,25 +79,39 @@ wrong.
    window and no cost from any task. The isolation gates (R1-06, R3W-27) and the "rivals change
    nothing" lanes prove it.
 5. **Race formats.** R1-12 registers both format rows (`race-link`, `race-exchange`) and writes
-   golden folder `v2`. R3E-04 registers nothing and adds golden `v3` at the same numbers. Both
-   use T-01's driver. One pin class, `RaceFormatPinTests`.
+   the next free golden folder (expected today: `v2`). R3E-04 registers nothing and adds the
+   golden folder after it (expected today: `v3`) at the same format numbers. Both use T-01's
+   driver. One pin class, `RaceFormatPinTests`. Every number this plan writes into files or
+   into an enum another build reads (a golden folder `v<N>`, a `GameActionType` id, an enum
+   member saved by name and number, a registry dimension id such as `D19`, the
+   `GhostPlaybackSkipReason.HostFiltered` value) is "the next free number when the task
+   lands"; where a plan file names one (`v2`, `v3`, `VesselEnded = 42`, `HostFiltered = 17`,
+   `D19`), read it as "expected today". Rule 10 says who renumbers.
 6. **No thread.** Every file access is on the main thread until the owner allows the one copy
    worker (question Q-18, after spike S8, which runs last). The plan builds the main-thread
    form first, with the design's default poll numbers.
 7. **In-game test categories and their lanes.** The first test of a new in-game category
    regenerates the lane catalog (`python harness/tools/lane_catalog.py`) in its own pull
-   request. The host specs RACE-9, RACE-10 and RACE-11 are T-29's and land last; until
-   then no spec pins a race category and nothing is re-pinned. After T-29, a test added to
-   a hosted category re-pins that spec's tally in the same pull request.
-8. **New player-facing surfaces** are only the ones the owner asked for: the Multiplayer menu
-   entry, the setup dialog, the Space Race window, the race section in Settings. R1-14 writes
-   the exception into `.claude/CLAUDE.md`. One more is allowed only on a condition: if spike
-   S7 shows the stock plaque window cannot show a rival's text, one small popup for reading a
-   rival's flag (question Q-21, owner, 2026-11-15), the fourth new-window exception after the
-   Route History window, the setup dialog and the Space Race window; R3W-25 then adds it to
-   R1-14's exception. Blocks on stock controls (the greyed "allow other launch sites"
-   option, R2-08; the blocked suit picker, R5-14) use the existing stock-control annotation
-   exception and are not new surfaces. Anything else needs a new ruling.
+   request. A spec that runs a batch pins the tally of every category it runs. The race
+   categories have five such specs: the host lanes RACE-9 (T-29, wave 14), RACE-10 (T-35)
+   and RACE-11 (T-36, both wave 15), one per scene, and the SITES lanes, which pin their own
+   categories from wave 11 (`RaceSitesStock` in SITES-2, R2-13; `RaceSitesEditor` in
+   SITES-3, R2-14). A category no committed spec pins yet needs no re-pin when a test is
+   added (R5-14's `RaceLooks` cell lands in wave 7, before RACE-9); once a spec pins it, a
+   test added to it re-pins that spec's tally in the same pull request.
+8. **New player-facing surfaces** (the kinds `.claude/CLAUDE.md` forbids: windows, popups,
+   badge counters, panels) are only the ones the owner asked for, the same list as design
+   section 0: the main menu Multiplayer entry, the race setup dialog, the Space Race window,
+   and, only if spike S7 shows the stock plaque window cannot show a rival's text, one small
+   popup for reading a rival's flag (question Q-21, owner, 2026-11-15). That is four, the
+   last one conditional. R1-14 writes the first three into `.claude/CLAUDE.md` as one new
+   exception bullet; R3W-25 adds the popup to that bullet only if S7 fails. The Route
+   History window is an older single-player exception of `.claude/CLAUDE.md`, not one of
+   these. Not new surfaces: the Multiplayer section of the existing Settings window, hover
+   text inside the Space Race window, one-shot screen messages for events, and the blocks on
+   stock controls (the greyed "allow other launch sites" option, R2-08; the blocked suit
+   choice, R5-14), which use the existing stock-control annotation exception. Anything else
+   needs a new ruling.
 9. **The folder is the module** (pull request #2611, on main ab1cc9478). A new source file is
    created in its module's folder, `Source/Parsek/<Module>/<Name>.cs`; a new module needs its
    rule, layer and atlas line in the same commit as its first file. A `.cs` file in the root
@@ -126,8 +140,25 @@ wrong.
     - **Fixes players need now.** A defect in single-player Parsek found while working on the
       branch is fixed on main in its own pull request and reaches the branch with the next
       merge of main. It is never fixed only on the branch.
+    - **Numbers main may take first.** At every merge of main into `multiplayer`, if main
+      has taken a number the branch uses (rule 5: a golden folder, a `GameActionType` id, a
+      saved enum value, a registry dimension), the BRANCH renumbers in that merge's pull
+      request, never main. This is safe because no build from the branch is released, test
+      saves made on the branch before a renumber are thrown away, and golden folders on the
+      branch are not frozen until the final merge (their checksums are rewritten with the
+      renumber). A first small pull request on main that reserves the ledger row id (as
+      `GameAction.cs` reserves ids today) is an option the owner can choose later; it is mod
+      code on main, which needs the owner's go, and it is not part of this plan.
     - **Version and changelog.** The branch carries main's version. Entries for race changes
       go under a `1.1.0` heading that exists only on the branch. No task bumps the version.
+      The 1.1.0 section also carries the warning "do not open a race save with an older
+      Parsek" (design 8, case 22), written by R6-10, the poll tuning, which runs after S8 (the
+      owner put S8 last), in wave 19, the plan's last wave.
+    - **`.claude/CLAUDE.md` on the branch.** Main edits that file often and many of its
+      entries are single very long lines, so a race task adds its text only as new lines or
+      new bullets (for example one bullet under the "ParsekHarmony.cs + Patches/" entry for a
+      race patch), never as words inside an existing line; then `cp .claude/CLAUDE.md
+      AGENTS.md`. A merge of main then conflicts only where both sides added lines.
     - **The plan itself.** From the cut on, this folder is edited on `multiplayer` only (task
       status, re-measured line numbers, answers). Main keeps the plan as it stood at the cut.
     - **The PC.** A lane or an in-game batch for a task flies from a worktree of its
@@ -135,6 +166,11 @@ wrong.
     - **The final merge.** Main is merged into the branch one last time, every lane is flown
       on that tip (the full run of question Q-05), and one pull request merges `multiplayer`
       into main as a merge commit, not squashed, on the owner's go.
+    - **What this rule costs.** The 44 live prerefactor tasks (small, playback, map) reach
+      main only with the final merge, so single-player Parsek gets none of their fixes early;
+      every merge of main can conflict in the hot files those tasks edit (task index C.1); and
+      the final pull request carries the work of about 206 pull requests at once, which is
+      why every lane is flown on its tip first.
 
 ### Names fixed across the plans
 
@@ -143,6 +179,7 @@ wrong.
 | Seam verbs | `RaceSetup action=create|join`, `RaceCommand action=status|set-folder|sync|offline|online`, `ListHandles kind=sites|rivals|board` |
 | Harness lanes | `RACE-0` to `RACE-13` (test-and-harness), `SITES-1` to `SITES-3` (r2) |
 | Scene request handler | `ParsekRaceBoot.OnSceneRequest`, the only one; it calls `RaceSites.Reconcile` on every request |
+| Refused load | `Patches/RaceLoadGatePatch.cs`, a prefix on `Game.Start()` that refuses a race save before its first scene (R2-02); a scene request cannot turn a load back |
 | Race scenario child hook | `IRaceScenarioChild` |
 | Date rule | `RaceCore/RaceCalendar.cs`, `TryAcceptDateRule`, reason `date-unit-not-second`; dates compare to the exact second, the calendar only formats them (owner, 2026-11-15) |
 | Import verdict | `RivalStandingVerdict`, declared by R3E-04, filled by R3E-18 |
@@ -152,7 +189,7 @@ wrong.
 | Line and label style | `PlaybackTrajectoryStyle` (R5-03); label prefix `"<display name> - "` |
 | Ghost map name | `GhostMapPresence.ComposeGhostVesselName`: `Ghost: Ana - Kerbal X` |
 | Empty catalog for the rival lane | `RecordingPlaybackCatalog.None` (R3W-09); there is no `RivalCatalog` |
-| Race sync screen messages | one posting site, the sync driver's, landed by R3E-22, which also logs `[RaceSync] Message posted:`. It also posts R3E-20's two-computers message. The only other race screen messages are R2-02's refused load, R2-08's refused launch and R3W-19's refused switch to a rival ghost |
+| Race sync screen messages | one posting site, the sync driver's, landed by R3E-22, which also logs `[RaceSync] Message posted:`. It also posts R3E-18's clash note and "<name> joined the race" and R3E-20's two-computers message. The only other race screen messages are R2-02's refused load, R2-08's refused launch and R3W-19's refused switch to a rival ghost |
 | Log tags | plain: `RaceSync`, `RivalLane`, `RaceBoard`, listed in R1-06 |
 
 ### In-game test categories
@@ -162,11 +199,11 @@ RACE-9, RACE-10 or RACE-11 pins.
 
 | Category | Scene | Host lane |
 |----------|-------|-----------|
-| RaceMode, RaceSites, RaceExchange, SpaceRace, RaceLooks | SPACECENTER | RACE-9 |
-| RaceSitesFlight, RaceFacts, RaceRivalLane, RaceRivalIsolation, SpaceRaceFlight, RaceLooksFlight | FLIGHT | RACE-10 |
-| RaceSitesTrackingStation, RaceFactsTrackingStation, RaceRivalLaneTrackingStation, RaceRivalIsolationTrackingStation | TRACKSTATION | RACE-11 |
-| RaceSitesStock | SPACECENTER, a single-player save loaded after a race save | SITES-2 |
-| RaceSitesEditor | EDITOR | SITES-3 |
+| RaceMode, RaceSites, RaceExchange, SpaceRace, RaceLooks | SPACECENTER | RACE-9 (T-29) |
+| RaceSitesFlight, RaceFacts, RaceRivalLane, RaceRivalIsolation, SpaceRaceFlight, RaceLooksFlight | FLIGHT | RACE-10 (T-35) |
+| RaceSitesTrackingStation, RaceFactsTrackingStation, RaceRivalLaneTrackingStation, RaceRivalIsolationTrackingStation | TRACKSTATION | RACE-11 (T-36) |
+| RaceSitesStock | SPACECENTER, a single-player save loaded after a race save | SITES-2 (R2-13) |
+| RaceSitesEditor | EDITOR | SITES-3 (R2-14) |
 
 ## 4. Decisions taken while joining the plans
 
@@ -204,9 +241,11 @@ The owner's rulings of 2026-11-15 changed these plan points (each plan cites the
   joint winners. The calendar (the creator's day length, Q-09) only formats dates; cells and
   messages add the time of day when two dates fall on one day. R1-10, R4-01, R4-04, R4-07, R6-03,
   and the rows of r4 section 6.
-- The race suit is locked to the player's race color, and the stock suit picker is blocked
-  in a race save: R5-10 and R5-11 change (no suit state is kept, so the `RACE_LOOK_DRESS`
-  marker and its load-policy row are gone), and new task R5-14 blocks the picker.
+- The race suit is locked to the player's race color, and the suit choice of the stock suit
+  picker is blocked in a race save (only the suit choice: the same window still lets the
+  player take off a kerbal's helmet and neck ring and change the suit light color): R5-10 and
+  R5-11 change (no suit state is kept, so the `RACE_LOOK_DRESS` marker and its load-policy
+  row are gone), and new task R5-14 blocks the suit choice.
 - A race save whose space center cannot be built refuses to load (Q-10, R2-02); stock's
   "allow other launch sites" is greyed in a race created without them (Q-11, R2-08).
 - The creator's choices: game name, mode, the full stock difficulty panel (presets as the
@@ -224,7 +263,7 @@ The owner's rulings of 2026-11-15 changed these plan points (each plan cites the
 
 ## 5. What starts first
 
-`task-index.md` puts the 204 pull requests of the plan (209 live tasks) into 21 waves: a task
+`task-index.md` puts the 206 pull requests of the plan (211 live tasks) into 20 waves: a task
 is in wave 0 when it needs nothing but the owner's go, and in wave N when everything it needs
 is in a lower wave. A wave is not a week; it only says what can run side by side.
 
@@ -266,7 +305,7 @@ Tracks that edit the same file do not run side by side; C.2 lists the files
 | Rivals on the map and in the Tracking Station | R3W-18, R3W-20 | 16, 18 | R3W-09 |
 | No retakes and the end date proven | R6-11 | 18 | the board |
 | Looks on rival ghosts | R5-09 | 19 | R3W-20 |
-| All in-game categories hosted in lanes | T-29 | 20 | the last rival task |
+| Every scene's race categories hosted in a lane | T-29, then T-35 and T-36 | 14, 15 | the staged race (T-17, T-19); RACE-10 also R3W-09. A category joins its host when its first test lands |
 
 The longest chain is the exchange: spike S6, the R1 core, the standing codec, the rival store,
 the rival engine. The ghost positioner change (P2b), the largest prerefactor, has three waves
@@ -277,7 +316,7 @@ of slack against it, so its long flight proof does not hold the feature back.
 The spikes and the harness lanes need the same machine. `task-index.md` section D lists every
 task that needs the PC, by wave. In short:
 
-- **Spikes:** about 23 hours over four days (`r0-spikes.md`, day plan), then about 3 hours for
+- **Spikes:** about 24 hours over four days (`r0-spikes.md`, day plan), then about 3 hours for
   S8 (sync program speed) at the very end. They need a test copy of the game and a copy
   without the expansions (question Q-01).
 - **The ghost positioner change (P2b):** ten pull requests proven at the end by a short

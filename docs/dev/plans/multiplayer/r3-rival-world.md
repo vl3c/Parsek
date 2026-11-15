@@ -48,7 +48,7 @@ Explicitly not built here:
   kerbal looks (R5-07 onward). The "uses parts you do not have" and "not checked here" notes
   (R4 / R6); this slice only records the facts they read.
 - The whole-save harness lane (T-27 RACE-4) and the host lanes of this slice's in-game
-  categories (T-29 RACE-10, RACE-11).
+  categories (T-35 RACE-10, T-36 RACE-11).
 - Anything in the Space Center scene (7.7: rivals show there as scenery only; no rival
   ghosts there in the first build, rival buildings show, owner, 2026-11-15).
 - Any change to the own lane's behavior. Every task is inert in a single-player save.
@@ -103,8 +103,8 @@ Other slices:
   used by R3W-18); R5-07 (`RaceLookTable`: the color of each look and
   `IsKerbalEvaPartName`). R3W-15 ships a neutral placeholder color until R5-07.
 - **Test and harness**: T-01 (`SaveWriterDriver`) and T-16 (`RaceFolderBuilder`), used by
-  R3W-05 and R3W-29; T-27 (RACE-4, the whole-save lane); T-29 (host lanes RACE-10 FLIGHT and
-  RACE-11 TRACKSTATION for this slice's categories).
+  R3W-05 and R3W-29; T-27 (RACE-4, the whole-save lane); T-35 and T-36 (host lanes RACE-10 FLIGHT
+  and RACE-11 TRACKSTATION for this slice's categories).
 
 Spikes:
 
@@ -338,8 +338,10 @@ cells and stay their own pull requests; the one member that waits for a later ta
 
 ### R3W-01 Neutral skip reason for host-filtered entries
 
-- **Change:** `GhostPlaybackEvents.cs`: add `HostFiltered = 17` to `GhostPlaybackSkipReason`
-  (additive, runtime-only enum, never persisted), its `ToLogToken` token `host-filtered`,
+- **Change:** `GhostPlaybackEvents.cs`: add `HostFiltered` to `GhostPlaybackSkipReason` at
+  the next free value when this task lands (expected today: 17; README rules 5 and 10: the
+  branch renumbers if main takes it first) (additive, runtime-only enum, never persisted),
+  its `ToLogToken` token `host-filtered`,
   and a counter case in `CountFrameSkip` (`GhostPlaybackEngine.Diagnostics.cs:171`). The
   host puts the cause in `skipReasonDetail` as a constant string (`window`, `hidden`,
   `pending`, `not-drawn`, `unplayable`). The own host never sets it.
@@ -369,7 +371,9 @@ cells and stay their own pull requests; the one member that waits for a later ta
   `Recording`-module value types (`PartEvent`, `FlagEvent`, `SurfacePosition`,
   `LoopTimeUnit`), so this task adds `RaceWorld/RivalFlight.cs` to
   `scripts/race-loader-files-allowlist.txt` with that reason (R1-06's "`Recording` types
-  only in the loader" cell reads the list).
+  only in the loader" cell reads the list). This task (wave 1) usually lands before R1-06
+  (wave 3), so it creates the file with this one line if it does not exist yet: a data
+  file that no cell reads breaks no rule, and R1-06 adds the reader.
 - **Proof:** xUnit `RivalFlightTests`: each fixed answer, empty lists before attach, attach
   twice refused (logged), `StartUT` / `EndUT` an outer envelope of the payload, and a
   reflection check that `RivalFlight` does not derive from `Recording`.
@@ -518,8 +522,10 @@ cells and stay their own pull requests; the one member that waits for a later ta
   false, then `Dispose` (the handlers are bound when it subscribes).
 - **Size:** S. **Depends on:** P2c-03 (engine diagnostics sink), R3W-02 (the `RaceWorld`
   module rule). **PC:** yes (one
-  run of the cell). Its own pull request; its Verbose lines are the first under `RivalLane`,
-  so it adds that plain tag to `RaceLogTags` and refreshes `log_tags.json`.
+  run of the cell). Its own pull request; its Verbose lines are the first under `RivalLane`.
+  The tag is registered in `RaceLogTags` by R1-06, which creates the list with `RivalLane`
+  in it because this task can land first (wave 2 against wave 3); this task only refreshes
+  `log_tags.json`.
 - **Risk:** low; it subscribes to existing events and does less than the own policy.
 
 ### R3W-07 Rival frame: flags and the open queue (pure)
@@ -628,8 +634,8 @@ cells and stay their own pull requests; the one member that waits for a later ta
   Owner proof: run `InjectRivalCache`, load the race save, see the ghost fly.
 - **Registers:** `CHANGELOG.md` (first entry: rival flights from a race folder play as
   ghosts in flight), todo entry, the in-game category in the lane catalog
-  (`python harness/tools/lane_catalog.py`); the category's host is T-29's RACE-10
-  (FLIGHT), so once T-29 has landed, every new `RaceRivalLane` test re-pins RACE-10's batch
+  (`python harness/tools/lane_catalog.py`); the category's host is T-35's RACE-10
+  (FLIGHT), so once T-35 has landed, every new `RaceRivalLane` test re-pins RACE-10's batch
   tally (`CommittedBatchTallySourceSyncTests`) in the same change; `design-gui-inventory.md`
   not touched (no new surface); the plain log tags `RivalStore` and `RivalLane` are already
   listed (R3W-03, R3W-06).
@@ -857,10 +863,10 @@ cells and stay their own pull requests; the one member that waits for a later ta
   `rivalLane?.Dispose()`. No engine, no marker for a rival inside an atmosphere, no CommNet
   drive.
 - **Proof:** in-game `RaceRivalLaneTrackingStation.TrackingStationListsRivalOrbit` (a
-  TRACKSTATION-only category, OV-09, hosted by T-29's RACE-11): the rival orbit leftover is
+  TRACKSTATION-only category, OV-09, hosted by T-36's RACE-11): the rival orbit leftover is
   in the vessel list under the ghost filter; removed at scene exit.
 - **Registers:** lane catalog regen for the new category; RACE-11's batch tally re-pinned
-  once T-29 has landed.
+  once T-36 has landed.
 - **Size:** S. **Depends on:** R3W-18, R3W-19. **PC:** yes.
 - **Risk:** low.
 
@@ -922,7 +928,8 @@ cells and stay their own pull requests; the one member that waits for a later ta
 ### R3W-24 Plaque replicas in flight
 
 - **Change:** `RivalFlags` live half: per flag inside its window and within a draw radius of
-  the active vessel, a GameObject with the flag model and the rival's texture, parented to
+  the active vessel, a GameObject with the flag model and the texture R3W-23 resolved (the
+  rival's `flagUrl` when this install has that texture, else the default flag), parented to
   the body transform so the floating origin moves
   it, with a trigger collider on a layer vessels do not collide with, used only for the
   click raycast. No ProtoVessel, no `FlagSite`, no entry in `flightState`. Created and
@@ -1052,7 +1059,7 @@ Tracking Station and as ghosts nearby, without the Watch camera.
 
 - **Change:** the in-game isolation cells are this slice's (OV-21), split by scene because a
   host lane runs one batch in one scene (OV-09). Category `RaceRivalIsolation` (FLIGHT,
-  hosted by T-29's RACE-10):
+  hosted by T-35's RACE-10):
   - `RivalSoiCrossingChangesNothing` and `RivalLandingChangesNothing`: snapshot
     `ProgressTracking` nodes, the ledger action count, the game-state event count, contract
     states and funds / science / reputation; warp a rival ghost and its map vessel across an
@@ -1061,11 +1068,11 @@ Tracking Station and as ghosts nearby, without the Watch camera.
   - `RivalFlagIsNotAVessel` (shared with R3W-24);
   - `RivalLeftoverHasNoColliders`: no non-trigger collider under a rival ghost root;
   - `RivalMapVesselStrippedAtSave`.
-  Category `RaceRivalIsolationTrackingStation` (TRACKSTATION, hosted by T-29's RACE-11): the
+  Category `RaceRivalIsolationTrackingStation` (TRACKSTATION, hosted by T-36's RACE-11): the
   Tracking Station runs of `RivalIsNotACommNetNode` (map vessels) and
   `RivalMapVesselStrippedAtSave`. T-26 keeps only its seam assertions.
 - **Proof:** the categories; results in `parsek-test-results.txt`.
-- **Registers:** lane catalog regen; once T-29 has landed, the RACE-10 and RACE-11 batch
+- **Registers:** lane catalog regen; once T-35 and T-36 have landed, the RACE-10 and RACE-11 batch
   tallies re-pinned in the same change (`CommittedBatchTallySourceSyncTests`).
 - **Size:** M. **Depends on:** R3W-18, R3W-20 (the TS cells), R3W-24. **PC:** yes.
 - **Risk:** medium; stock progress events can lag a frame, so each test waits a fixed
@@ -1123,8 +1130,8 @@ Hot files that force an order:
   (the Core count and kernel list): R5-03 (`Core/PlaybackTrajectoryStyle.cs`), then R3W-14
   (`Core/PlaybackGhostBudget.cs`), after P7-01, P1-01 and P1-02.
 - `GrepAuditTests.cs`: R3W-27 (one change).
-- `scripts/race-loader-files-allowlist.txt`: R3W-03, R3W-04 add their entries; R3W-27 owns
-  them.
+- `scripts/race-loader-files-allowlist.txt`: created by R3W-02 or R1-06, whichever lands
+  first; R3W-03, R3W-04 add their entries; R3W-27 owns them.
 - `RivalFlightLoader*.cs`: R3W-03, R3W-04, R3W-11, R3W-21 in order.
 
 ## 6. Tests and proof
@@ -1146,10 +1153,10 @@ Hot files that force an order:
 Every in-game test skips (naming the context it needs) when that context is missing (a
 race save with the fixture; for the scratch-cache cells of R3W-02 to R3W-07 and R3W-23, a
 committed recording in the save), so single-player batches stay green. The host lanes are
-T-29's (RACE-10 FLIGHT, RACE-11 TRACKSTATION). A category no committed spec pins yet needs
-no batch-tally re-pin when a cell is added; T-29 pins the tallies when it lands, and only
-after that does a new cell re-pin its host's tally in the same change. The whole-save
-proof is T-27's RACE-4 (whole saved game identical
+T-35's RACE-10 (FLIGHT) and T-36's RACE-11 (TRACKSTATION). A category no committed spec pins
+yet needs no batch-tally re-pin when a cell is added; T-35 and T-36 pin the tallies when they
+land, and only after that does a new cell re-pin its host's tally in the same change. The
+whole-save proof is T-27's RACE-4 (whole saved game identical
 with and without rivals), which this slice's acceptance names (OV-05).
 
 ## 7. Gates and registrations
@@ -1193,7 +1200,7 @@ with and without rivals), which this slice's acceptance names (OV-05).
 - **Harness:** the four new in-game categories (`RaceRivalLane`,
   `RaceRivalLaneTrackingStation`, `RaceRivalIsolation`,
   `RaceRivalIsolationTrackingStation`) need `python harness/tools/lane_catalog.py`; their
-  host lanes are T-29's RACE-10 and RACE-11, so after T-29 lands each new test re-pins its
+  host lanes are T-35's RACE-10 and T-36's RACE-11, so after they land each new test re-pins its
   host's batch tally in the same change. No spec is added by this slice.
 - **Docs:** CHANGELOG entry opened at R3W-09 and edited by R3W-11, R3W-18, R3W-24, R3W-26;
   todo entries per task; CLAUDE.md "Key source files" gains one line for the rival lane
@@ -1286,7 +1293,9 @@ with and without rivals), which this slice's acceptance names (OV-05).
     ratchet forbids an early setter. R3 reads `SHOW` only. Settled: the `SHOW` key is in
     R1-08's `RaceLocal` codec and the setter is R4-10's (OV-27).
 13. **A custom rival flag texture is not shared.** `flagURL` is a path in the writer's
-    install. The plan falls back to the default flag when the path does not resolve.
+    install. The plan uses it when it resolves in this install (every stock flag does) and
+    falls back to the default flag when it does not; the design says the same (7.7), so
+    `flagUrl` stays in the `FLAGS` row.
 
 ## 10. Questions for the owner
 

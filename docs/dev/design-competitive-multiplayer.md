@@ -178,9 +178,11 @@ These are binding. Quotes are the owner's words.
   playing keeps their seat and points, and nobody can remove a player (7.2; 8, cases 6, 7a).
 - The Space Race window opens in the Flight and Space Center scenes, not in the Tracking
   Station (7.13).
-- The race suit is locked: kerbals always wear the player's race look, and the stock suit
-  picker is blocked in a race save (the owner chose this against the recommendation to leave
-  the picker free; 7.4).
+- The race suit is locked: kerbals always wear the player's race look, and the suit choice of
+  the stock suit picker is blocked in a race save (the owner chose this against the
+  recommendation to leave the picker free; 7.4). Only the suit choice is blocked: the same
+  stock window still lets the player take off a kerbal's helmet and neck ring and change the
+  suit light color (owner, 2026-11-15).
 - Milestone dates are compared to the exact second of game time, replacing the whole days
   of 2026-11-14 (decision D1): "we should just compare exact second when the milestone is
   achieved instead of using this tie mechanism; it's simpler and more realistic". The
@@ -205,10 +207,12 @@ flag (7.7). `.claude/CLAUDE.md` records them when the first one is built. That i
 list. Everything else the feature shows uses a surface that exists: a Multiplayer section in
 the existing Settings window, hover text inside the Space Race window, one-shot screen
 messages for events, and the stock confirmation dialog for the setup dialog's own
-confirmations. Two race blocks sit on stock controls (the "allow other launch sites" option,
-7.3, and the stock suit picker, 7.4); both use the standing stock-control annotation
-exception: the control's own disabled state and reason text on that same control, with a
-click-block that reads the same predicate. There is no folder picker (the location is typed
+confirmations. Two race blocks sit on stock controls (the "allow other launch sites"
+option, 7.3, and the suit choice in the stock suit picker, 7.4); both use the standing
+stock-control annotation exception: the control's own disabled state and reason text on that
+same control, with a click-block that reads the same predicate (for the launch sites option,
+7.3 says what happens if stock's window does not let the toggle be greyed). There is no
+folder picker (the location is typed
 or pasted), no marker drawn at a rival's site, and no panel on a stock screen.
 
 ---
@@ -540,8 +544,11 @@ RaceManifest (race.cfg, written once by the creator)
   raceFormat: int           - version of the exchange format (starts at 1)
   createdRealTime: string   - fixed-format UTC timestamp (6.5)
   gameMode: string          - SANDBOX, SCIENCE_SANDBOX or CAREER
-  DIFFICULTY { }            - the stock GameParameters node every save is created from
-  difficultyDigest: string  - hash of that node, for disclosure
+  DIFFICULTY { }            - the difficulty every save is created from: an explicit,
+                              ordered list of the stock difficulty settings only (7.12),
+                              never the whole GameParameters node and never a
+                              CustomParameterNode
+  difficultyDigest: string  - hash of those values in that order, for disclosure
   ladderId: string          - which ladder table applies ("standard-1")
   dateUnit: string          - how game dates are compared; always SECOND in this
                               format (6.6)
@@ -630,9 +637,9 @@ Standing (players/<id>/standings/<seq>.pstd, immutable, written LAST)
   NAMES { }                                  - mission and vessel names
   DISCLOSURE { modDigest, MOD ..., difficultyDigest, DIFFICULTY { }, testTooling,
                DEBUG_COMPLETION ... }
-                            - DIFFICULTY: the save's current stock GameParameters
-                              node, so the window can name which settings differ
-                              from the manifest's (7.12);
+                            - DIFFICULTY: the save's current values of the same
+                              ordered list of stock settings, so the window can name
+                              which settings differ from the manifest's (7.12);
                               testTooling: Parsek's test tooling ran in this save
                               (7.12); one DEBUG_COMPLETION row (milestone id, ut)
                               per milestone completed with a debug action a mod
@@ -962,9 +969,8 @@ One dialog in the stock dialog style, with three actions.
 - difficulty, through the stock difficulty options panel (the same one Start New uses); the
   resulting settings go into the manifest and every player's save is created from them. If
   spike S6 shows the panel cannot be opened from this dialog, the creator picks one of the
-  four stock presets (Easy, Normal, Moderate, Hard); the manifest stores the full settings
-  either way. Whether custom settings come later in that case is still to be asked
-  (open: question Q-17, section 13);
+  four stock presets (Easy, Normal, Moderate, Hard; owner, 2026-11-15, Q-17 in 13.A); the
+  manifest stores the full settings either way;
 - the shared folder's location, in the same dialog as the name and the look: a path field
   (typed or pasted; there is no folder picker) and a Validate button (exists, writable,
   empty of any race, short enough for the longest paths in the folder and in the local
@@ -1219,7 +1225,14 @@ in every game.
   stock option shows greyed, whatever the difficulty settings say. This is a stock-control
   annotation under the standing exception: the option's own disabled state with the reason
   (the race was created without these sites) on that same option, and the launch refusal
-  reads the same predicate as the greyed option.
+  reads the same predicate as the greyed option. Two parts are certain: the setting itself
+  is held off (set back at every load and whenever the stock difficulty window applies, since
+  stock reads it directly, for example for the ground stations at those sites), and launches
+  from those sites are refused. The greyed option depends on reaching stock's toggle after
+  its window is built (the toggle has no named method of its own); if it cannot be reached,
+  the toggle stays live, snaps back to off when the window applies, and one screen message
+  says why, an event that changed a value the player had just set. The editor's site picker
+  does not list those sites at all, as in a stock game with the option off.
 
 **Launch areas.** The site table also lists the launch areas: for each of the four sites the
 pad (a circle around the pad's spawn point) and the runway (the whole strip, not only its
@@ -1291,9 +1304,16 @@ reconcile together, to the loaded game's post-load event or to a prefix on `Game
 one place still decides on every way in. Apply and restore are one pair of operations with
 an in-game test on both. A failed step rolls the whole set back to stock and logs the
 step. A race save whose sites cannot be set up (a step fails, or Kerbin was changed by a mod
-after the race started) is not loaded: the game goes back to the main menu with one message
+after the race started) is not loaded: the game stays at the main menu with one message
 naming the reason, and the save is not touched, because loading it on stock Kerbin could
-destroy the vessels at its home site (owner, 2026-11-15).
+destroy the vessels at its home site (owner, 2026-11-15). The refusal is decided before the
+save's first scene loads, in a prefix on `Game.Start()`, which every way into a saved game
+calls and which is what loads that scene; a scene request cannot do it, since stock fires
+the request event and then loads the scene anyway. Stock itself rewrites `persistent.sfs`
+from the game it has just read before `Game.Start()` (the load dialog and the quickload), so
+"untouched" means no scene ran and no Parsek code wrote; spike S4a checks the file's bytes.
+If the prefix cannot be used, the load finishes at the stock space center with the save
+copied aside first and copied back after the return to the main menu.
 
 ### 7.4 Looks
 
@@ -1349,13 +1369,17 @@ Q-19 and Q-20, section 13):
   the next load. Stock resets a suit whose DLC is not installed to the default suit when it
   loads the save, before Parsek runs, so on a machine without the DLC the same load dresses
   the player's own kerbals in the replacement (spike S3 checks what stock does).
-- The stock suit picker is blocked in a race save, wherever stock offers it (at least in the
-  Astronaut Complex; spike S3 lists every place by decompile, the VAB and SPH crew dialog
-  included if it has one). The block is a stock-control annotation under the standing
-  exception: the picker's own disabled state, with the reason on that same control (kerbals
-  wear the race suit), and a click-block on the picker's action that reads the same
-  predicate, so a click that reaches it anyway changes nothing. In a single-player save the
-  picker is untouched.
+- The suit choice of the stock suit picker is blocked in a race save. Only the suit choice:
+  the same stock window still lets the player take off a kerbal's helmet and neck ring and
+  change the suit light color (owner, 2026-11-15). Stock has one way into that window, the
+  suit button of a crew list row, which the Astronaut Complex and the VAB and SPH crew
+  dialog both show, so one block covers every place (found by decompile; the task that
+  blocks the picker, plan, looks phase, re-checks it). The block is a stock-control
+  annotation under the standing exception: the suit buttons' own disabled state, with the
+  reason "Race suits are locked to your race look" on those same controls, and a click-block
+  on the suit choice that reads the same predicate, so a click that reaches it anyway changes
+  nothing.
+  In a single-player save the picker is untouched.
 - Rival ghost kerbals (EVA ghosts) are drawn with the rival's look, the suit every race
   kerbal wears; the ghost build does not read the suit from the recording. Today's EVA
   ghost is built from the kerbal part named in the
@@ -1505,8 +1529,10 @@ Rival ghosts play at the game dates they were recorded, against the local player
   not clutter the sky. Debris still plays with its parent while the flight itself replays.
 - **Flags** are the exception the owner asked for: a rival's flag can be walked up to and read.
   A rival's planted flag, listed in the standing's `FLAGS` block, appears from the game date it
-  was planted as a **plaque replica**: a flag model with the default flag texture (a flag's
-  texture is a path inside its writer's install and is not shared), plus a click target, which
+  was planted as a **plaque replica**: a flag model with the rival's flag texture when its
+  path (`flagUrl` in `FLAGS`) names a texture this install also has, as every stock flag
+  does, and the default flag texture otherwise (a flag's texture is a path inside its
+  writer's install, and a custom flag file is not shared), plus a click target, which
   opens the stock plaque dialog with the rival's text. It is not a vessel. This is a change from
   the first draft, which reused Parsek's own flag replay: that replay creates a real flag
   vessel, which the game saves, which stock lets a player switch to, recover and target, and
@@ -1801,7 +1827,14 @@ when they differ from the race's:
   launch sites", 7.3). The standing carries a digest of the save's difficulty settings and
   the settings themselves (`DIFFICULTY` in `DISCLOSURE`, 6.1); the digest differs from the
   manifest's when the player changed them in game, and the mark next to the player's name
-  names which settings changed.
+  names which settings changed. "The difficulty settings" are an explicit, ordered list of
+  the STOCK difficulty settings only: the eleven fields of stock's difficulty block
+  (`GameParameters.DifficultyParams`) and the nine career values of
+  `GameParameters.CareerParams` (starting funds, science and reputation, the five gain and
+  loss multipliers, and the reputation lost for a declined contract).
+  Never the whole `GameParameters` node and never a `CustomParameterNode`: Parsek's own
+  settings and other mods' settings live in those, so changing one of them never marks a
+  player and never leaves the save.
 - **Cheat and debug tools, per flight.** Each recording entry of a standing says whether a
   tool from a fixed list was on or was used while that flight was recorded. The list is
   explicit, because "a cheat" is not one switch:
@@ -2116,9 +2149,11 @@ is the one place where what a machine remembers decides what it scores (principl
     sites" in a race created without the alternate sites: the race setting wins, launches
     from those sites stay refused and the option is greyed with the reason (owner,
     2026-11-15; 7.3).
-21a. **I want to give a kerbal a different suit.** Not in a race save: the stock suit picker
-    is greyed there with the reason, and every kerbal wears my race look (owner, 2026-11-15;
-    7.4). Changing my look in Settings re-dresses the whole roster at the next load.
+21a. **I want to give a kerbal a different suit.** Not in a race save: the suit buttons of
+    the stock suit picker are greyed there with the reason "Race suits are locked to your
+    race look", and every kerbal wears my race look; I can still take off the helmet and neck
+    ring and change the suit light color (owner, 2026-11-15; 7.4). Changing my look in
+    Settings re-dresses the whole roster at the next load.
 22. **I open the race save with multiplayer code missing** (an older Parsek build, or Parsek
     removed). The race mark is a scenario node of its own, which the game keeps and writes
     back even when no installed code knows it (6.2; spike S6 checks it, through Parsek's own
@@ -2137,9 +2172,9 @@ is the one place where what a machine remembers decides what it scores (principl
     to start on a modified Kerbin and says why (a refusal, like a newer format or a missing
     expansion the race needs, because terrain parity is not a matter of taste). A race save
     already under way whose space center cannot be set up (Kerbin changed after the race
-    started) is not loaded: the game returns to the main menu with one message and the save
+    started) is not loaded: the game stays at the main menu with one message and the save
     is left untouched, since loading it on stock Kerbin could destroy its vessels (owner,
-    2026-11-15).
+    2026-11-15). The refusal is decided before the first scene loads (7.3).
 25. **Three players; site 3 is empty.** Its buildings stand, fully built like every site, and
     nobody launches from them.
 26. **My site starts at night and my rival's in daylight.** Yes: the sites are spread around
@@ -2262,8 +2297,9 @@ Tracking Station ones, SITES-3 the editor one, SITES-2 the one for a single-play
 loaded after a race save): the working space center at each of the four sites (pad and
 runway spawn, Space Center scene, recovery distance); terrain height at fixed sample points
 of all four patches equals the site table; scenery present and inert; sites removed on
-leaving the race save; looks applied to own roster and to an EVA ghost; the stock suit picker
-greyed with its reason and its action refused in a race save, and untouched in a
+leaving the race save; looks applied to own roster and to an EVA ghost; the suit buttons of
+the stock suit picker greyed with their reason and the suit choice refused in a race save,
+with the helmet, neck ring and suit light still free, and the picker untouched in a
 single-player save; stock's "allow other launch sites" option greyed with its reason in a
 race created without the shared sites; a rival flag is
 readable and it is not a vessel; a rival leftover has no colliders; a rival ghost crossing a
@@ -2324,11 +2360,11 @@ running game.
 | KSC science at every site | Building mini-biomes are tag-based (`MiniBiome`), so they should follow the buildings. Stock names the landed-at place from collider and trigger tags (`Part.SetLandedAt`), and the experiment biome reads that name first (`ScienceUtil.GetExperimentBiome`), so the KSC area is probably named by tags too; the survey's biome read finds no KSC biome at the KSC's longitudes | S2: prove both at a moved site; a biome override is designed only if S2 shows the KSC area is read from the biome map; prove the scenery copies give none |
 | The shared launch sites | All stock alternate launch sites belong to Making History; a game without it has none (`LaunchSiteExclusionZones` already checks for the expansion) | None; it is a race setting (7.3) |
 | The race mark survives an older build | Stock holds each scenario node as data and writes it back; a node whose module type is not installed should be kept the same way | S6: save a game holding a scenario node of an unknown type and read it back, through stock and through Parsek's own save rewrites (rewind copies, the Discard Re-fly write of `persistent.sfs`, the crash reconcile) |
-| Four stock looks | `ProtoCrewMember.KerbalSuit` has Default, Vintage, Future, Slim; Vintage and Future belong to the DLCs; per kerbal the suit, the combo id and the light color are saved | S3: confirm each look in game and pick the four UI colors; find by decompile every place stock offers the suit picker (the Astronaut Complex at least) and how to grey it with a reason and refuse its action (7.4) |
-| Stock-like replacements | Mods add suit sets with `SUITCOMBOS` config nodes (suit type, gender, textures, sprite); stock supports this since 1.10 | S3: two replacement texture sets; how a missing-DLC machine resolves a DLC suit. A `SUITCOMBOS` node under `GameData` shows in the stock suit picker of every save, single player included; whether the sets are listed there (only single-player saves would see them, since the race picker is blocked) or applied only to race kerbals and rival ghosts, and where their art comes from, is open: questions Q-19 and Q-20, section 13 |
+| Four stock looks | `ProtoCrewMember.KerbalSuit` has Default, Vintage, Future, Slim; Vintage and Future belong to the DLCs; per kerbal the suit, the combo id and the light color are saved | S3: confirm each look in game and pick the four UI colors. The suit picker's one opener and its suit, helmet and light controls are known by decompile; the task that blocks the picker (plan, looks phase) re-checks them and proves the block in game (7.4) |
+| Stock-like replacements | Mods add suit sets with `SUITCOMBOS` config nodes (suit type, gender, textures, sprite); stock supports this since 1.10 | S3: two replacement texture sets; how a missing-DLC machine resolves a DLC suit. A `SUITCOMBOS` node under `GameData` shows in the stock suit picker of every save, single player included; whether the sets are listed there (only single-player saves would see them, since the suit choice is blocked in a race save) or applied only to race kerbals and rival ghosts, and where their art comes from, is open: questions Q-19 and Q-20, section 13 |
 | Look on ghost kerbals | Parsek builds EVA ghosts from the stock EVA part model | S3: apply a suit texture to the ghost |
 | Multiplayer in the main menu | `MainMenu` holds its entries as public `TextProButton3D` fields with a public tap callback; the entry lists used for keyboard navigation are private | S6: clone an entry, place it, wire keyboard navigation |
-| Create a save from code | `GamePersistence.CreateNewGame(name, mode, parameters, flag, scene, facility)` is public and is what the stock New Game dialog calls | S6: create and start a race save from the dialog; open the stock difficulty panel from it (if it cannot, the creator gets the four stock presets, owner 2026-11-15; whether custom settings follow later is open: question Q-17, section 13) |
+| Create a save from code | `GamePersistence.CreateNewGame(name, mode, parameters, flag, scene, facility)` is public and is what the stock New Game dialog calls | S6: create and start a race save from the dialog; open the stock difficulty panel from it (if it cannot, the creator gets the four stock presets: owner, 2026-11-15, Q-17 in 13.A) |
 | Milestones in every mode | `ProgressTracking` is added to every new game, Sandbox included; Parsek's recorder writes a milestone event in every mode | None |
 | Readable rival flags | `FlagSite` exposes Read Plaque, Take Down and Pick Up as separate part events, but a real flag is a saved vessel whose placed state re-enables taking it down, and the plaque is readable only from within 2 m on EVA. A replica (flag model, click target, the stock plaque dialog) avoids all of that. The flag part has no mesh file to clone; the dialog's entry `FlagPlaqueDialog.Spawn(string, string, Callback)` is public and static | S7: how to build the replica's model; open the stock plaque dialog with supplied text (if it cannot, one small Parsek popup, owner 2026-11-15, 7.7); decide the click range |
 | Launch areas stay clear | Parsek already retires a flight that ends parked on the KSC pad, the runway threshold or a stock alternate site (50 m circles: the KSC pad and runway threshold are constants in `SpawnCollisionDetector`, the other launch sites are read from `PSystemSetup` by `LaunchSiteExclusionZones`, whose read admits the names `LaunchPad` and `Runway`, so its cache possibly holds the stock KSC's own pad and runway too); a rival end state is only a ghost, so not showing it is a filter at the rival store | S4: measure the pad and full runway footprints at the moved sites and the alternate sites |
@@ -2370,6 +2406,7 @@ S8 is about to run (listed again at the end of 13.C).
 | Q-14 | Which firsts are announced on screen? | DECIDED 2026-11-15: only those where a rival is involved (beaten, lost to, or tied with in the very same second); a first no rival had reached shows only on the board (7.8) |
 | Q-15 | Under "no retakes", does a rival date that is itself "seen first" still block? | DECIDED 2026-11-15: yes; any real, clean rival flight your game had seen blocks you, even one that won nothing itself (7.11) |
 | Q-16 | Which messages appear after the end date? | DECIDED 2026-11-15: only final results: one "the race is over" message, and one when a late file changes the final board; later changes to the board of the present show in the window only (7.8, 7.10) |
+| Q-17 | What does the creator get if the stock difficulty panel cannot be opened from the setup dialog? | DECIDED 2026-11-15: the full stock difficulty panel, with the four stock presets as the fallback if spike S6 shows the panel cannot be opened there; the manifest stores the full settings either way. Custom settings after a failed S6 are not an owner question now; they come back only if S6 fails (7.2, 12) |
 | Q-21 | If the stock plaque window cannot show a rival flag's text, may Parsek show its own popup? | DECIDED 2026-11-15: yes, one small popup, the fourth new-window exception, only if spike S7 shows the stock window cannot (0, 7.7) |
 | Q-22 | How is a rival's ghost labeled? | DECIDED 2026-11-15: owner name and color, such as "Ghost: Ana - Kerbal X", in the ghost label and the map and Tracking Station lists (7.4) |
 | Setup | What does the creator choose? | DECIDED 2026-11-15: the mode, once, for everyone; the difficulty with the full stock panel (the four stock presets if the panel cannot be opened there); an optional end date; "no retakes", off by default; the shared launch sites, off by default; the game's name; always four seats, no setting. None of it changes after creation, and the creator is then a player like the others (7.2, 7.3, 7.10, 7.11) |
@@ -2379,7 +2416,7 @@ S8 is about to run (listed again at the end of 13.C).
 | Leftovers | Which rival vessels stay as scenery? | DECIDED 2026-11-15: flyable vessels only (landers, stations, rovers, bases); rival debris is not shown or listed as a leftover (7.7) |
 | Seats | Who may join, and what happens to a player who stops? | DECIDED 2026-11-15: anyone with the folder; no join password. A player who stops keeps seat and points, and nobody can remove a player (7.2, 8 cases 6, 7a) |
 | Window | Where does the Space Race window open? | DECIDED 2026-11-15: in the Flight and Space Center scenes, like every Parsek window; not in the Tracking Station (7.13) |
-| Suit | May players change a kerbal's suit in a race? | DECIDED 2026-11-15, against the recommendation: no; the race suit is locked, kerbals always wear the player's look, and the stock suit picker is greyed with its reason and blocked in a race save (7.4) |
+| Suit | May players change a kerbal's suit in a race? | DECIDED 2026-11-15, against the recommendation: no; the race suit is locked, kerbals always wear the player's look, and the suit buttons of the stock suit picker are greyed with their reason and the suit choice is blocked in a race save; the helmet, neck ring and suit light stay free (owner, 2026-11-15) (7.4) |
 | Dates | How finely are game dates compared, and what does a tie give? | DECIDED 2026-11-15, replacing D1: to the exact second of game time ("we should just compare exact second when the milestone is achieved instead of using this tie mechanism; it's simpler and more realistic"). The earliest second holds the first with full points; only the very same second is shared, its points split exactly; players level on total points on the final board are joint winners, with no tiebreak. A tiebreak by the second for same-day ties, ruled earlier the same day, is moot. The owner accepted the costs: seat luck on the first Mun and Minmus flights, the opening firsts to the quickest launch, a seen date beaten by one second (6.6, 7.8, 7.10) |
 | Changed files | What does a hand-edited shared file do to its player? | DECIDED 2026-11-15: a neutral mark, "files in <player>'s folder were changed", visible to all; no points move; the last good state stays (7.15) |
 | Folder entry | How is the shared folder location entered? | DECIDED 2026-11-15: typed or pasted into a text field in the setup dialog and in Settings, checked on Validate; no browse button, no folder picker (7.2) |
@@ -2475,16 +2512,12 @@ The questions the owner answered on 2026-11-15 are in 13.A.
     Recommended: a canonical comparison where only listed time values may differ, each with
     a written reason (6.4, 11).
 - *Asked after a spike.*
-  - Q-17 (S6): what the creator gets if the stock difficulty panel cannot be opened from
-    the setup dialog. The four stock presets are the fallback (owner, 2026-11-15, 13.A), so
-    what is still open is only whether custom settings come later in that case. Recommended:
-    yes (7.2, 12).
   - Q-18 (S8): may the race copy files on one background worker? Recommended: yes if S8
     shows freezes over one second on a common sync program, otherwise no; the main-thread
     form is built first either way (15.9).
   - Q-19 (S3): do the two replacement suit sets appear in the stock suit picker? Since the
-    race suit is locked (13.A), the picker is blocked in a race save, so what is still open
-    is only whether every single-player save may list the two sets. Recommended: no, they
+    race suit is locked (13.A), the suit choice is blocked in a race save, so what is still
+    open is only whether every single-player save may list the two sets. Recommended: no, they
     are applied only to race kerbals and rival ghosts, if S3 shows the applied texture in
     EVA, IVA and the portrait; otherwise yes (7.4, 12).
   - Q-20 (S3): where does the replacement suit art come from? Recommended: Parsek recolors
@@ -2510,7 +2543,7 @@ version).
 | R2 | The four sites: moving the working space center, the four terrain patches, the scenery copies, launch rules (with the greyed "allow other launch sites" option), removal on leaving the save, refusing to load a race save whose sites cannot be set up, science parity | Each player starts at their own copy of the KSC; single-player saves are untouched. The world of the race, still without rivals |
 | R3 | Export (standings, payload, digest) and import (the copy step, rival cache, rival store), with the race calendar, the ladder and the milestone tables the standing's milestones need; rival ghosts in flight, map view and the Tracking Station, in a neutral color until R5; leftovers, readable flags, launch areas kept clear, the isolation gates including the whole-save lane, and the simple tamper evidence of 7.15 (chain, witness log, receipts, self-heal). The Watch camera on rival flights is not part of it | "See your rivals": a player's flights reach the shared folder and show up for rivals as ghosts, leftovers and flags. Every file access is on the main thread |
 | R4 | The board (dates compared to the exact second, 6.6), the Space Race window, holder-change messages | "Have a race" |
-| R5 | Looks: own roster, the locked race suit and the blocked stock suit picker, ghost kerbals, the player colors on labels, icons and orbit lines (replacing R3's neutral color); the replacement suit sets | |
+| R5 | Looks: own roster, the locked race suit and the blocked suit choice of the stock suit picker, ghost kerbals, the player colors on labels, icons and orbit lines (replacing R3's neutral color); the replacement suit sets | |
 | R6 | End date and final board (level total points name joint winners), disclosure marks (naming the changed difficulty settings), the no-retakes house rule, missing-parts and newer-version notes. The copy worker (if the owner allows it, open: question Q-18, section 13) and the poll tuning wait for spike S8 and are the last pieces | |
 | R7 | Hardening of 7.15, as far as the owner wants it: signed standings, the flight check (claim, teleport, sky, launch), the any-time replay viewer, the sealed-race house rule | Optional and not planned for the first build; the formats reserve room from R3 |
 | R8 | Recorded opponents and the solo race (15.10): the `Opponents` folder, the third setup choice, a harness campaign that produces opponents | Optional and not planned for the first build. After R4, independent of R7; needs no change to R1 to R6 beyond the `kind` field and seat reservation they already carry |
@@ -2887,7 +2920,7 @@ Controllers host passes the inert flag in, and an inert Parsek means no race, wi
 mark kept verbatim. The replacement suit sets of 7.4 follow the same rule as working
 reading: Parsek applies them only to race kerbals and rival ghosts, and they are not listed
 in the stock suit picker, which would show them in every single-player save (the race
-picker is blocked, 7.4); whether that listing is allowed is still to be asked
+suit choice is blocked, 7.4); whether that listing is allowed is still to be asked
 (open: question Q-19, section 13; it depends on spike S3 showing the applied suit in EVA,
 IVA and the portrait).
 The proof is mechanical: the existing unit suite, the
@@ -3100,7 +3133,7 @@ existing module needs no registration; a new module registers with its first fil
 | Adapters | `Source/Parsek/RaceWorld/RaceFolder.cs`, `Source/Parsek/RaceWorld/RaceMainThreadTransport.cs` (the copy step on the main thread, built first), `Source/Parsek/RaceWorld/RaceCopyWorker.cs` (the copy worker, if the owner allows it, 15.9), and the rival-cache half of the payload port, in `RaceWorld` (its file name is a proposal: `Source/Parsek/RaceWorld/RacePayloadFiles.cs`) |
 | Rival store, flights, lane | `Source/Parsek/RaceWorld/RivalStore.cs`, `Source/Parsek/RaceWorld/RivalFlight.cs`, `Source/Parsek/RaceWorld/RivalFlightLoader.cs` (the loader), `Source/Parsek/RaceWorld/RivalPlaybackPolicy.cs`, `Source/Parsek/RaceWorld/RivalMapPresence.cs`, `Source/Parsek/RaceWorld/RivalFlags.cs`; the rival lane's empty catalog is `RecordingPlaybackCatalog.None` in `Source/Parsek/Recording/RecordingPlaybackCatalog.cs`; the composition in the scene controllers is `Source/Parsek/Controllers/ParsekFlightRivalLane.cs` and `Source/Parsek/Controllers/ParsekTrackingStationRivalLane.cs` |
 | Sites | `Source/Parsek/RaceWorld/RaceSites.cs` (space center move, patches), `Source/Parsek/RaceWorld/RaceScenery.cs` |
-| Looks | `Source/Parsek/RaceWorld/RaceLooks.cs` (dressing the roster); the stock suit picker block in `Patches`, reading one predicate for its greyed state and its click-block (7.4). The replacement suits are recolored in memory from the player's own base suit, so no suit files ship (open: question Q-20, section 13), applied only to race kerbals and rival ghosts and not listed in the stock suit picker of single-player saves (open: question Q-19, section 13). Only if shipped art is needed instead: suit sets under `GameData/Parsek/Suits/`, which the release zip, the dev deploy and the harness deploy each list by name, so all three lists gain them |
+| Looks | `Source/Parsek/RaceWorld/RaceLooks.cs` (dressing the roster); the block of the suit choice in the stock suit picker in `Patches`, reading one predicate for its greyed state and its click-block (7.4). The replacement suits are recolored in memory from the player's own base suit, so no suit files ship (open: question Q-20, section 13), applied only to race kerbals and rival ghosts and not listed in the stock suit picker of single-player saves (open: question Q-19, section 13). Only if shipped art is needed instead: suit sets under `GameData/Parsek/Suits/`, which the release zip, the dev deploy and the harness deploy each list by name, so all three lists gain them |
 | Setup | `Source/Parsek/Controllers/ParsekRaceSetup.cs` (create, join, continue), behind `IRaceSetupHost`, declared in `Source/Parsek/UI/RaceSetupDialog.cs`; it calls the create-and-start core `Source/Parsek/LogIO/NewSaveStarter.cs` (P10) |
 | Menu entry, setup dialog, window | `Source/Parsek/Controllers/ParsekRaceMenu.cs`, `Source/Parsek/UI/RaceSetupDialog.cs`, `Source/Parsek/UI/SpaceRaceWindowUI.cs` (new drawing on the shared window chrome of A6, registered in `ParsekWindowSet`) |
 | Flight checks (later) | `ClaimChecks` entries; where the analyzer's rules run is decided with step B (15.4) |
@@ -3183,8 +3216,9 @@ itself. Named here so the phase plans carry them, not discover them:
   window opens 280 wide, too narrow for a folder path, so its Multiplayer section shows the
   path shortened, with the whole path in the hover and a button that opens the setup
   dialog's field to change it.
-- The stock-control annotation rules: the two race blocks on stock controls (the suit picker,
-  7.4, and the "allow other launch sites" option, 7.3) are clickable kinds, so each ships its
+- The stock-control annotation rules: the two race blocks on stock controls (the suit choice
+  of the suit picker, 7.4, and the "allow other launch sites" option, 7.3) are clickable
+  kinds, so each ships its
   greyed state, its reason text and its click-block together, reading one predicate, as the
   existing stock-screen blocks do (`StockUiDecorationQuery`), and the GUI mirror's pairing
   check covers them.

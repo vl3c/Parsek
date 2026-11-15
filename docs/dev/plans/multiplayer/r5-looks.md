@@ -24,7 +24,8 @@ Built here:
   starting crew, a hire, a rescue, a Parsek stand-in) is dressed in the player's look. The
   race suit is locked (owner, 2026-11-15, against the plan's recommendation to leave the
   picker free): kerbals always wear the player's race color, and in a race save the stock
-  suit picker is blocked (R5-14, a stock-control annotation). A look changed in Settings or
+  suit choice is blocked in the stock suit picker (R5-14, a stock-control annotation; the
+  helmet, neck ring and suit light stay free, owner, 2026-11-15). A look changed in Settings or
   by the clash rule re-dresses every Crew kerbal at the next load, and a load pass dresses
   any Crew kerbal found in another suit. No suit state is kept in the save: every load
   dresses every Crew kerbal not in the look (design 7.4, 15.7).
@@ -61,7 +62,7 @@ Not built here:
   whose allowlist reserves the `RaceLooks` entry) before R5-11 fills it; for R5-11: R1-03
   (`ParsekRaceScenario`, whose `OnLoad` calls the load pass), R1-08 (`RaceSession`, the look
   field of `RaceLocal` / `player.cfg`) and R1-09 (look assignment and the clash rule). R5-11 does
-  not wait for R1-10 or R1-11 (task index E.3.7).
+  not wait for R1-10 or R1-11 (OV-54).
 - **After R3:** R3W-09 (flight composition), R3W-15 (rival style source; see 9.2), R3W-18
   (`RivalMapPresence`), R3W-20 (Tracking Station composition), R3W-21 (missing-part strip;
   see 9.3) for R5-09.
@@ -512,8 +513,10 @@ Lands only with R3W-26 (watching a live rival ghost).
   production caller), as specified here, with the truth-table cells.
 - **Registers:** RaceCore headless pins (expect none).
 - **Size:** S. **Depends on:** R5-07, S3. **PC:** no. **S3:** S3a (the stock default a fresh
-  kerbal wears, the default combo ids), S3c (whether a DLC dress is still recognisable after
-  the stock fallback, through `comboId`).
+  kerbal wears, the default combo ids), S3c (what `suit` and `comboId` read after the stock
+  fallback on a machine without the DLC, so that `Wears` recognises a kerbal already in the
+  replacement dress and a second load writes nothing; with no marker kept, that is all S3c
+  decides here).
 - **Risk:** low; all decisions are table-tested.
 
 ### R5-11 `RaceLooks`: own roster dressing
@@ -550,7 +553,7 @@ Lands only with R3W-26 (watching a live rival ghost).
   entry; lane catalog (new category `RaceLooks`); RACE-9's pinned tally re-pinned in the same change
   if T-29 has already pinned `RaceLooks`.
 - **Size:** M. **Depends on:** R1-03, R1-08, R1-09, R5-08, R5-10, R5-12, S3 (not R1-10 or R1-11,
-  task index E.3.7). **PC:** yes. **S3:** S3a, S3b (the replacement dress writes texture
+  OV-54). **PC:** yes. **S3:** S3a, S3b (the replacement dress writes texture
   paths; if S3b shows IVA or the portrait ignore them, the dress also writes a combo id and
   needs question 10.1 answered (a)), S3c.
 - **Risk:** medium; a wrong predicate dresses a tourist or applicant, or misses a Crew
@@ -589,41 +592,63 @@ Shape depends on question 10.2 (art source) and 10.1 (combo entry or not).
 
 ### R5-13 A harness lane pins the `RaceLooks` category
 
-Dropped: replaced by T-29 (OV-06).
+Dropped: replaced by the host lanes of T-29 and T-35 (OV-06).
 
-### R5-14 Block the stock suit picker in a race save
+### R5-14 Block the suit choice of the stock suit picker in a race save
 
 Added 2026-11-15: the race suit is locked (owner, 2026-11-15).
 
-- **Change:** first step: find by decompile every stock control that opens the suit picker
-  (`HelmetSuitPickerWindow`, section 3.2; its opening controls, for example in the
-  Astronaut Complex and the editor crew dialog, are not established) and the member a
-  prefix can stop. Then `Source/Parsek/Patches/RaceSuitPickerPatch.cs`: in a race save each
-  such control is shown disabled, with the reason ("Race suits are locked to your race
-  color") on that same control through stock's own mechanism (its disabled state and its
-  stock tooltip or label text), and a click-block on the same control's handler refuses the
-  open. The mark and the block read one predicate, `RaceLooks.SuitPickerBlocked` (true in a
-  race save, from `RaceGate.IsRaceSave`). This is the stock-control annotation exception of
+- **Scope (owner, 2026-11-15):** only the suit choice is blocked in a multiplayer game. The
+  same stock window still lets the player take off a kerbal's helmet and neck ring and change
+  the suit light color; those stay usable.
+- **Decompile facts (2026-11-15, `/home/user/ksp-refs`; no spike step needed):** the stock
+  suit window `HelmetSuitPickerWindow` has one opener, the private
+  `KSP.UI.CrewListItem.OpenHelmetSuitPickerWindow()`, wired as a button listener inside
+  `CrewListItem` itself (IL `ldftn` sites in `CrewListItem`; the window is created through
+  `SuitCombos.CreateHelmetSuitPickerWindow`), so every crew list that shows a suit button
+  (the Astronaut Complex and the editor crew dialog both list `CrewListItem` rows) opens the
+  same window. The window holds three things: the suit buttons (`suitButtons`,
+  HelmetSuitPickerWindow.cs:45; set up in `SetupSuitTypeButtons`, :130) whose combo choice
+  arrives through `GameEvents.onSuitComboSelection` at the private `OnComboSelected`
+  (:66, :1155); the helmet and neck ring choice (`onClickHelmetNeckringButton` ->
+  `OnHelmetNeckringSelection`, :67, :1043); and the suit light color
+  (`onClickSuitLightButton` -> `OpenSuitLightPicker`, :68, :1036). The first step of this
+  task re-reads these on the task's own decompile and names the suit buttons' own stock
+  tooltip or label, if they carry one.
+- **Change:** `Source/Parsek/Patches/RaceSuitPickerPatch.cs`: in a race save, a postfix on
+  `HelmetSuitPickerWindow.SetupSuitTypeButtons` sets the suit and combo buttons not
+  interactable, with the reason "Race suits are locked to your race look" on those same
+  controls through stock's own mechanism (their disabled state, and the text appended to
+  their own stock tooltip; if they carry none, the window's own suit label,
+  `UpdateDisplayName`, :1622); and a prefix on `OnComboSelected` is the click-block: it
+  refuses the combo change, so a click that reaches it anyway changes nothing. The window
+  itself still opens, and the helmet, neck ring and suit light controls are untouched. The
+  mark and the block read one predicate, `RaceLooks.SuitChoiceBlocked` (true in a race save,
+  from `RaceGate.IsRaceSave`). This is the stock-control annotation exception of
   `.claude/CLAUDE.md`; nothing is drawn by Parsek. No change outside a race save. Log:
-  Verbose `[RaceLooks] Suit picker blocked: control=..`. If a control cannot be shown
-  disabled, its click-block stays and the plan names the control as block-only.
+  Verbose `[RaceLooks] Suit choice blocked: kerbal=..`. If a suit button cannot be shown
+  disabled, its click-block stays and the plan names it as block-only.
 - **Proof:** xUnit: the predicate (race save, single-player save) and a source gate that
-  the mark and the block of each control call the same predicate. In-game `RaceLooks`
-  (SPACECENTER, RACE-9): `SuitPickerBlockedInRaceSave` (the control disabled with the reason;
-  a forced click opens nothing) and `SuitPickerFreeInSinglePlayer` (skips with a stated
-  reason in a race save). A control found in the editor gets its cell in the existing
-  EDITOR category `RaceSitesEditor` (SITES-3), not a new category.
+  the mark and the block call the same predicate. In-game `RaceLooks` (SPACECENTER, the
+  Astronaut Complex's window; hosted by RACE-9): `SuitChoiceBlockedInRaceSave` (the suit
+  buttons disabled with the reason; a forced `onSuitComboSelection` leaves the kerbal's
+  suit and combo unchanged; the helmet and neck ring toggle and the suit light color still
+  change) and `SuitChoiceFreeInSinglePlayer` (skips with a stated reason in a race save).
+  The editor crew dialog opens the same window through the same opener, so it needs no cell
+  of its own.
 - **Uncalled-method check (A1):** the patch's prefixes are Harmony roots; the predicate is
   called by both in this pull request.
-- **Registers:** `design-gui-inventory.md` (a stock-control annotation per blocked control);
-  the Harmony patch list in `.claude/CLAUDE.md` ("ParsekHarmony.cs + Patches/" entry), then
+- **Registers:** `design-gui-inventory.md` (one stock-control annotation, the suit buttons);
+  the Harmony patch list in `.claude/CLAUDE.md` as a new bullet under the
+  "ParsekHarmony.cs + Patches/" entry, never inside that line (README rule 10), then
   `cp .claude/CLAUDE.md AGENTS.md`; `CHANGELOG.md` under `1.1.0` (with R5-11's entry);
   todo entry; RACE-9's (and, for an editor cell, SITES-3's) pinned tally re-pinned in the
   same change if already pinned.
 - **Size:** M. **Depends on:** R5-11 (the `RaceLooks` session and category), R1-04.
   **PC:** yes.
-- **Risk:** medium; the picker's entry points are not known until the decompile; a control
-  left open lets a player change a suit until the next load pass re-dresses it.
+- **Risk:** low to medium; the opener and the suit path are known from the decompile; a
+  path the first step misses lets a player change a suit until the next load pass
+  re-dresses it.
 
 ## 5. Parallel tracks
 
@@ -666,7 +691,7 @@ Added 2026-11-15: the race suit is locked (owner, 2026-11-15).
   styles, no race), R5-08 any save, R5-09 skips with a stated reason unless the save is a
   race save with the rival fixture. `RaceLooks` (SPACECENTER): R5-11 cells skip unless the
   save is a race save; R5-12's `ReplacementSetsResolve` runs in any save.
-- **Harness:** R5 adds no lane (R5-13 dropped, OV-06). T-29's host lanes run the two
+- **Harness:** R5 adds no lane (R5-13 dropped, OV-06). The host lanes of T-29 and T-35 run the two
   categories: RACE-9 (SPACECENTER) runs `RaceLooks`, RACE-10 (FLIGHT) runs
   `RaceLooksFlight`. The existing lanes, with no race save loaded, must stay green and
   unchanged (H15 `GhostVisuals`, FGV-1's `Ghost built:` regex, the map lanes behind P3).
@@ -703,19 +728,19 @@ Added 2026-11-15: the race suit is locked (owner, 2026-11-15).
 - **Load policy:** no row. R5-11 adds no child to the race scenario node; every load kind
   dresses the roster it loaded.
 - **GUI:** no new surface. `design-gui-inventory.md` notes the tint on rival objects (R5-09)
-  and on markers if R5-05 lands. In a race save the stock suit picker is blocked with a
-  stock-control annotation (R5-14; owner, 2026-11-15); in a single-player save it is
+  and on markers if R5-05 lands. In a race save the suit choice of the stock suit picker is
+  blocked with a stock-control annotation (R5-14; owner, 2026-11-15); in a single-player save it is
   untouched unless question 10.1 is (a).
 - **Docs:** CHANGELOG at R5-09, R5-11 and R5-14; todo entries per task; lane catalog regen with the
   first in-game cell of each category (R5-01 for `RaceLooksFlight`, R5-11 for `RaceLooks`);
-  once T-29 pins RACE-9 and RACE-10, a cell added to either category re-pins its host's
+  once T-29 pins RACE-9 and T-35 pins RACE-10, a cell added to either category re-pins its host's
   tally in the same change (`CommittedBatchTallySourceSyncTests`); `autotest-status.md` is
   T-29's; `scripts/arch/log_tags.json` refresh (report-only) when the `RaceLooks` tag first
   ships.
 
 ## 8. Risks
 
-- **A suit escapes the lock.** A picker entry point R5-14 did not find, or another mod,
+- **A suit escapes the lock.** A suit path R5-14 did not find, or another mod,
   changes a suit. The next load pass re-dresses it (R5-10, `ForeignSuitRedressedAtLoad`).
 - **A cached look material is destroyed by the engine, or leaks.** The source gate in R5-02
   and the in-game check that the dresser's material survives a ghost's destruction; the
@@ -731,7 +756,7 @@ Added 2026-11-15: the race suit is locked (owner, 2026-11-15).
   The same load pass finds those kerbals out of the look and dresses them in the
   replacement (design 7.4); S3 checks what stock does at that load. If stock leaves a
   state the pass cannot write over, those kerbals show the base suit (the picker is
-  blocked in a race save, R5-14); the color still marks the player.
+  suit choice is blocked in a race save, R5-14); the color still marks the player.
 - **Two simultaneous joiners share a look** until the later one's game applies the clash
   rule and exports; their ghosts share a color for that time. R1's rule ends it; nothing
   here can.
@@ -770,7 +795,7 @@ Added 2026-11-15: the race suit is locked (owner, 2026-11-15).
    `GenerateInitialCrewRoster` before any scenario exists. Assumed: the first load pass of
    a race save dresses it (every Crew kerbal is still in the stock default suit).
    Settled: this reading stands; R1's "before-start step" waiter row is fixed, and R5-11
-   waits for R1-03, R1-08, R1-09 only (OV-54, task index E.3.7).
+   waits for R1-03, R1-08, R1-09 only (OV-54).
 7. **`SUITCOMBOS` is not inert.** A `SUITCOMBOS` node under `GameData` is listed by the stock
    suit picker in every save, single player included, which 15.8 forbids in spirit.
    Question 10.1.

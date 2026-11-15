@@ -24,8 +24,10 @@ Built in R0:
   results back into the design (S13).
 
 Explicitly not built: no feature code, no prerefactor, no change to production code on
-`main` (the spike branch is never merged and never opened as a pull request), no harness
-lane on `main`, no co-op feature, no release, version bump or tag.
+`multiplayer` or on main (the spike branch is never merged and never opened as a pull
+request), no harness lane on `multiplayer`, no co-op feature, no release, version bump or tag.
+Every pull request of R0 (the S1b tooling and the reports) targets `multiplayer`, like every
+other task of this plan (README rule 10); none targets main.
 
 The spikes and what waits on them:
 
@@ -52,7 +54,8 @@ section 12 asks to "prove the runtime's signing classes work inside KSP" with no
 
 - Version 1.0.2 is released and the owner says go (brief; design 14).
 - Nothing from another slice. No prerefactor (P1 to P12) or addition (A1 to A7) is needed
-  first: every spike runs on `main` as it stands at the go commit plus throwaway code.
+  first: every spike runs on `multiplayer` as it stands at the cut (equal to main at the go
+  commit, README rule 10) plus throwaway code.
 - Inside R0: S0 first (spike branch and instances). S4a (probe) before S1b scoring, S4b,
   S2 and S5. S4b before S2, S5 and S7's last step. S10a before S10b. S13 closes the day
   plan. S8a and S8b are not in the day plan: they run last, after the race works end to end
@@ -234,6 +237,33 @@ what the spike still proves in game.
   `SetVesselPosition` calls `FlightGlobals.PostOrbitSet` once. Other debug screens:
   Physics (`ScreenPhysics` load / save of `PhysicsGlobals`), Difficulty, Kerbal create,
   contract tools, resources (heat).
+- Game start (added 2026-11-15 for R2-02's refused load). Every way into a saved game sets
+  `HighLogic.CurrentGame` and then calls `Game.Start()`: main menu new game
+  (`MainMenu.CreateAndStartGame`, MainMenu.cs:1252-1257), the load dialog behind Resume
+  Saved (`OnLoadDialogPipelineFinished`, MainMenu.cs:1478-1501), scenarios
+  (`OnScenarioLoadPipelineFinished`, MainMenu.cs:1583-1633), the in-game quickload and its
+  load dialog (`QuickSaveLoad.quickLoad`, IL `IL_0191`), and Parsek's own seam `LoadGame` and
+  `NewGame` (`ParsekTestCommandAddon.cs`, `game.Start()`). `Game.Start()` is what calls
+  `HighLogic.LoadScene` or `FlightDriver.StartAndFocusVessel` (Game.cs:1752-1865), so a
+  prefix that returns false there stops the first scene. A scene request made from inside
+  `onGameSceneLoadRequested` cannot stop the scene being loaded: `HighLogic.LoadScene` fires
+  the event (HighLogic.cs:795) and then calls `SceneManager.LoadScene` itself (:690-705).
+  Stock writes `persistent.sfs` from the game it just read BEFORE `Game.Start()` on two ways
+  in: the load dialog (`GamePersistence.SaveGame(..., "persistent", ...)`, MainMenu.cs:1497)
+  and the quickload (`GamePersistence.SaveGame` at IL `IL_0182`, just before `Game::Start`);
+  and on a flight entry `FlightDriver.PostInit` writes it again (FlightDriver.cs:918). Which
+  of these rewrites change the file's bytes, and what `HighLogic.CurrentGame` must hold at
+  the main menu after a turn-back, is S4a's turn-back step.
+- Setup (added 2026-11-15; these answer three VERIFY items of `r1-mode-and-setup.md` 3.8).
+  `GamePersistence.UpdateScenarioModules` adds or removes a proto only for a scenario type
+  whose attribute carries an `AddToExisting*` or `RemoveFrom*` create option for the game's
+  mode (GamePersistence.cs:525-700), so `ScenarioCreationOptions.None` neither adds nor
+  removes one. On the main menu ways in above, `HighLogic.CurrentGame` is the game being
+  entered when `onGameSceneLoadRequested` fires, because it is set before `Game.Start()`
+  and the event fires inside the `LoadScene` that `Game.Start()` calls (HighLogic.cs:690,
+  795). `DifficultyOptionsMenu.Create(Game.Modes, GameParameters, bool,
+  Callback<GameParameters, bool>)` is public static (IL of `DifficultyOptionsMenu::Create`);
+  whether it opens over a mod dialog and hands its values back is S6's step (d).
 - `GamePersistence.CreateNewGame(string, Game.Modes, GameParameters, string, GameScenes,
   EditorFacility)` is public static (and is what the `NewGame` verb calls, 3.1).
 
@@ -245,23 +275,25 @@ Common to every spike task below:
   `Source/Parsek/InGameTests/Spikes/<Sx>/` (C#, module InGameTests by its first folder) or
   `spikes/r0/<Sx>/` (scripts), never merged.
 - **Armed** only when the env var `PARSEK_SPIKE` names the spike (S0); unarmed, the spike
-  DLL behaves as `main`.
+  DLL behaves as `multiplayer`.
 - **Logs** use the tag `Spike.<Sx>` (`[Parsek][INFO][Spike.S4] ...`); every measurement is
   one log line plus a CSV row.
 - **Artifacts**: raw output (KSP.log, CSVs, screenshots, `parsek-test-results.txt`) goes to
   `<umbrella>/logs/spikes/<Sx>/<YYYY-MM-DD>/`; the report and small curated data (CSV and
   PNG, under 2 MB per spike) go to `docs/dev/research/mp-spike-<Sx>-<YYYY-MM-DD>/README.md`
-  through a docs-only pull request from a fresh worktree off `origin/main` (template in 6.4).
+  through a docs-only pull request against `multiplayer` from a fresh worktree off
+  `origin/multiplayer` (template in 6.4; README rule 10).
 - **Proof** of a spike is its report: the measurements table against the pass numbers
   stated here, the build it ran (spike commit sha and the deployed DLL hash), and the
-  verdict PASS / FAIL / PARTIAL. A spike changes no test on `main`.
+  verdict PASS / FAIL / PARTIAL. A spike changes no test on `multiplayer`.
 - **Registers** for every spike: its report folder; nothing in CHANGELOG, todo, CLAUDE.md
   or the GUI inventory (no player-visible change). S13 writes the results into the design.
 
 ### S0 Spike branch and spike instances
 
-- **Change:** worktree `../Parsek-spike-mp-r0`, branch `spike/mp-r0` from `origin/main` at
-  the go commit. Add `Source/Parsek/InGameTests/Spikes/SpikeArming.cs`: reads `PARSEK_SPIKE` once (a
+- **Change:** worktree `../Parsek-spike-mp-r0`, branch `spike/mp-r0` from
+  `origin/multiplayer` at the cut (README rule 10; question Q-02). Add
+  `Source/Parsek/InGameTests/Spikes/SpikeArming.cs`: reads `PARSEK_SPIKE` once (a
   comma list, `S4,S5`) in a `[KSPAddon(Startup.Instantly, true)]` `SpikeHost` that calls
   `DontDestroyOnLoad`, logs `[Spike] armed: <list> build=PARSEK-SPIKE-R0`, and owns a
   Harmony instance `com.parsek.spike` that applies a spike's patches by hand
@@ -298,7 +330,8 @@ Common to every spike task below:
   15.36E, 164.64W), and how far the natural ground there deviates from a flat patch.
   Settles the 7.3 site table rows; waits: R2-01 (table values and `SiteRow.LaunchAreas`),
   P1-01's offsets.
-- **Change (merges, unlike the rest):** a tooling pull request on `main` that extends
+- **Change (merges, unlike the rest):** a tooling pull request against `multiplayer`
+  (README rule 10) that extends
   `harness/tools/kerbin_equator_scan.py` with `--spot LAT,LON --spot-radius-km R
   --spot-step DEG` (a dense square grid around a point, default step 0.001 deg, about
   10 m) and `--row-lat`, plus pure scoring functions: `footprint_dry(grid, centre, radius)`
@@ -416,8 +449,10 @@ Common to every spike task below:
   spawn points, the pad and runway footprints, and the order of the scene and save events
   on each way into a save. Feeds S1b (decal radius, true origin), S4b (what to move, when),
   P1-01 (offsets), R2-01's `SiteRow.LaunchAreas` (7.7, OV-41) and the P1-03
-  VERIFY. Waits: R1-04 and R2-01 (is the new `Game` set at the scene load request, OV-51),
-  R2-05 and P1-03 (does the circle cache hold the KSC pad and runway, OV-52).
+  VERIFY; and whether a race save can be turned back at the main menu before its first
+  scene loads (the refused load of R2-02, question Q-10). Waits: R1-04 and R2-01 (is the
+  new `Game` set at the scene load request, OV-51), R2-05 and P1-03 (does the circle cache
+  hold the KSC pad and runway, OV-52), R2-02 (the turn-back).
 - **Change:** `Source/Parsek/InGameTests/Spikes/S4/SpikeS4Probe.cs`, test `DumpKscState`
   (SPACECENTER): logs every `PQSCity` and `PQSMod_MapDecalTangent` on Kerbin (name, all
   public fields of 3.3), `SpaceCenter.Instance` latitude / longitude (by reflection),
@@ -430,10 +465,20 @@ Common to every spike task below:
   logs, with frame number and `HighLogic.CurrentGame` title, `onGameSceneLoadRequested`,
   `onGameStateLoad`, `onGameStatePostLoad`, `onLevelWasLoaded`, `SpaceCenter.Start` (a
   hand-applied postfix), `PQSCity.OnSetup` for "KSC", and `ParsekScenario.OnLoad` entry.
+  `SpikeS4TurnBack` (armed by `PARSEK_SPIKE=S4a-turnback`): a hand-applied prefix on
+  `Game.Start()` that, when `HighLogic.CurrentGame.Title` starts with `SPIKE-REFUSE`, logs
+  `[Spike.S4a] turn-back scene=<loaded scene>`, posts one screen message, sets
+  `HighLogic.CurrentGame` to null and returns false. It rests on the game start facts of
+  3.3 (every way into a saved game calls `Game.Start()`, which loads the first scene; a
+  request from inside `onGameSceneLoadRequested` cannot stop a scene; stock rewrites
+  `persistent.sfs` before `Game.Start()` on two ways in).
 - **Procedure:** (1) Main menu -> Resume Saved; (2) main menu -> New Game; (3) seam
   `LoadGame` from the Space Center into a different save, so the main menu is bypassed (the
   race to single-player route of OV-51); (4) quickload in flight; (5) revert to launch.
-  After each, run `DumpKscState`. With and without `AllowOtherLaunchSites`.
+  After each, run `DumpKscState`. With and without `AllowOtherLaunchSites`. (6) Turn-back:
+  copy a career save to `SPIKE-REFUSE-1`; take the SHA-256 of its `persistent.sfs`; main
+  menu -> Resume Saved -> `SPIKE-REFUSE-1`; then the hash again; then load a normal save
+  from the same main menu, to show the menu still works.
 - **Pass:** this is a measuring spike: it passes when every field above is in the CSV and
   the event order is logged for all five ways in. The report answers, each with a yes or
   no per way in:
@@ -447,10 +492,19 @@ Common to every spike task below:
     fallback is `onGameStatePostLoad`);
   - does the circle cache hold the KSC's own `LaunchPad` and `Runway` (the P1-03 VERIFY).
     If yes, R2-05 filters or rebuilds them when the home moves (OV-52); if no, R2-05 needs
-    no filter.
+    no filter;
+  - the turn-back (R2-02): the player stays at the main menu with the message shown, no
+    scene loads (no `Scene Change` line after the prefix's line), a second save then loads
+    normally, and the hash of `persistent.sfs` is unchanged. If the hash changed, the report
+    diffs the two files: a difference made only by stock's own rewrite before `Game.Start`
+    (the load dialog's `SaveGame`, same content re-serialized) is a PARTIAL that R2-02
+    states as "the save's content is untouched"; any other difference, a scene that still
+    loads or a broken main menu is a FAIL, and R2-02 takes its fallback.
 - **Fallback:** none needed; a missing field is read with a debugger-free reflection dump.
-- **Artifacts:** `ksc_state.csv`, `event_order.csv`, footprints CSV.
-- **Duration:** half a day of agent work, 1 hour on the PC.
+- **Artifacts:** `ksc_state.csv`, `event_order.csv`, footprints CSV, the two hashes and a
+  screenshot of the message at the main menu.
+- **Duration:** half a day of agent work, 1.5 hours on the PC (the turn-back adds half an
+  hour).
 - **Proof:** report; event order table.
 - **Registers:** report folder only.
 - **Size:** S. **Depends on:** S0. **PC:** yes.
@@ -543,7 +597,10 @@ Common to every spike task below:
 - **Question:** does a scenario node whose module type is not installed survive every way
   a save is rewritten (stock and Parsek), what is the earliest hook that can read it, can
   a main menu entry be cloned with keyboard navigation, can a race save be created and
-  started from a typed dialog. Settles 6.2 and 7.2; waits: R1-03, R1-10, R1-14.
+  started from a typed dialog, can the stock difficulty panel be opened over that dialog and
+  its values read back. Settles 6.2 and 7.2; waits: R1-03, R1-10, R1-14, R1-15. It also
+  answers the in-game VERIFY items of `r1-mode-and-setup.md` section 3.8 (the decompile
+  answered the others there).
 - **Change:** (a) a template save: `spikes/r0/S6/template/` holding a career `persistent.sfs` with
   an extra `SCENARIO { name = ParsekRaceSpikeMark  scene = 5, 7, 8 race { id = spike-1  slot = 2 }
   }`, staged by hand into the spike instance's `saves/`. (b) A seam lane on the spike branch
@@ -557,21 +614,43 @@ Common to every spike task below:
   Ctrl+V) and a Create button that calls `GamePersistence.CreateNewGame`, adds a
   `ProtoScenarioModule` for the mark before `HighLogic.CurrentGame.Start()`, and starts the game
   (reusing the `NewGame` verb's sequence, 3.1). Logs the earliest hook at which the mark is readable
-  from `HighLogic.CurrentGame.scenarios`.
+  from `HighLogic.CurrentGame.scenarios`. (d) In the same dialog a "Difficulty" button that
+  opens the stock difficulty panel over it with `DifficultyOptionsMenu.Create(mode,
+  initialParams, newGame: true, onDismiss)` (public static, `il/acs.il` 530080-530102 of the
+  spike decompile) on a copy of the mode's default `GameParameters`; `onDismiss` logs
+  `[Spike.S6] difficulty accepted=<bool>` and every stock difficulty value of the returned
+  `GameParameters` (`Difficulty.*` and the career starting funds, science and reputation),
+  and the Create button passes that object to `CreateNewGame`. (e) At the main menu, log
+  `FlightGlobals.Bodies` count and the home body's radius (the Kerbin check of R2-02 runs
+  there).
 - **Procedure:** run the lane once with Parsek's normal DLL path and once with
   KSPCommunityFixes removed from a copy of the instance (KSPCF patches save code and the
   dev install runs it). Then by hand: Discard Re-fly (`RevertInterceptor` writes
-  persistent.sfs), main menu -> Multiplayer -> create -> quit -> Resume Saved.
+  persistent.sfs), main menu -> Multiplayer -> create -> quit -> Resume Saved. Difficulty
+  panel, by hand: main menu -> Multiplayer -> Difficulty; change two values (for example
+  "allow other launch sites" off and the funds reward percentage to 80); accept; read the
+  logged values; Create; in the created save open the stock difficulty window from the
+  Space Center and read the same two values. Repeat once with Cancel (the values must stay
+  the defaults). Look at the dialog and the panel at UI scale 1.0 and 1.5.
 - **Pass:** the node is byte-identical (after whitespace normalisation) in every file
   written by every path, with and without KSPCF; the menu entry shows, takes a mouse click
   and arrow keys plus Enter; the dialog's text field takes a pasted 200-character path;
-  the created save loads with the mark present at the reported hook.
+
+  the created save loads with the mark present at the reported hook (a proto added before
+  `Game.Start` is instantiated in its target scenes); the difficulty panel opens over the
+  dialog, the two changed values come back in the `onDismiss` log line and are the values
+  of the created save, Cancel leaves the defaults, and the panel and the dialog follow the
+  stock UI scale; `FlightGlobals.Bodies` is populated at the main menu.
 - **Fallback:** the node is dropped by a path: the mark moves to a side file in the save
   folder or into Parsek's own scenario node (raise to the owner, since 6.2 chose a
   separate module so older builds keep it). Menu clone fails: an IMGUI button on the main
-  menu, drawn through the UI-scale host.
+  menu, drawn through the UI-scale host. Difficulty panel fails (it does not open over a mod
+  dialog, or its values do not come back): the setup dialog offers the four stock presets
+  instead (Easy, Normal, Moderate, Hard; owner, 2026-11-15, question Q-17), and R1-15 takes
+  that shape.
 - **Artifacts:** checker diff output, lane result JSON, screenshots of the menu and dialog.
-- **Duration:** 1 day of agent work, 2 hours on the PC.
+- **Duration:** 1 day of agent work, 2.5 hours on the PC (the difficulty panel step adds
+  half an hour).
 - **Proof:** report; lane result.
 - **Registers:** report folder only (the lane exists only on the spike branch).
 - **Size:** M. **Depends on:** S0. **PC:** yes.
@@ -631,7 +710,11 @@ Common to every spike task below:
 
 - **Question:** how long a file open, read, stat, listing and rename take in a folder kept
   by a sync client, for files that are local, cloud-only (placeholder) and being synced,
-  and on an unreachable network share. Settles 15.9: is a copy worker thread needed (the
+  and on an unreachable network share. It answers the three risks R3E's main-thread guards
+  are built against before S8 runs (r3e section 8): an on-demand placeholder whose first
+  open blocks while the client downloads it; conflict copies the client writes beside a
+  file with a changed name; and small-file throttling, where a client uploads a burst of
+  many small files slowly or in a different order. Settles 15.9: is a copy worker thread needed (the
   owner's yes), and the poll numbers. Waits: R6-10, R3E-23 (the copy worker), which run
   last with it. R3E-16 (the copy-out) and T-02 proceed without it.
 - **Change:** `spikes/r0/S8/fileaccess.py` (stdlib, Windows): for sizes 10 KB, 1 MB,
@@ -640,7 +723,9 @@ Common to every spike task below:
   `os.replace` over an existing file, and reads `FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS`
   (0x400000), `RECALL_ON_OPEN` (0x40000) and `OFFLINE` (0x1000) via `os.stat().
   st_file_attributes`. Also: open on `\\10.255.255.1\x` (unreachable) and on a share whose
-  host is asleep; rename while the client holds the file; how conflict copies are named.
+  host is asleep; rename while the client holds the file; how conflict copies are named;
+  a burst of 50 files of 2 KB written at once, timed until the last one is uploaded and
+  the order they arrive in.
   Writes `<umbrella>/logs/spikes/S8/<date>/fileaccess.csv`.
 - **When:** last in the plan, after the race works end to end on a plain shared folder (a
   local or network folder with no sync program; section 5, "S8 runs last"). Question 10.1
@@ -757,8 +842,9 @@ Common to every spike task below:
 - **Pass (decision rule):** if at least 95 percent of relative seconds in the owner's saves
   have a complete copy, R3W-04 keeps "not drawn" for the rest. If fewer, the report names
   the producers that skip the copy (the seam points of `FlightRecorder.PointCommit.cs`
-  pass none, 3.2) and R3W-04 needs either a recorder change on `main` first (a new task
-  for the owner to place) or the small anchor resolver.
+  pass none, 3.2) and R3W-04 needs either a recorder change on `multiplayer` first (a new
+  task for the owner to place; a defect single-player players need goes to main by rule 10)
+  or the small anchor resolver.
 - **Fallback:** none needed; the answer is the count.
 - **Artifacts:** census CSV per save.
 - **Duration:** half a day of agent work; 30 minutes on the PC.
@@ -841,7 +927,8 @@ Common to every spike task below:
 
 ### S13 Close-out: results into the design
 
-- **Change:** one docs pull request from a fresh worktree off `origin/main`: design section
+- **Change:** one docs pull request against `multiplayer` from a fresh worktree off
+  `origin/multiplayer` (README rule 10): design section
   12 "Still to prove" cells replaced by each spike's verdict and report link; the 7.3 site
   table rows from S1b and S4a; the 7.4 colors from S3; the 7.12 tool list from S9, with
   the milestone completions S9 found a mod cannot observe listed as out of reach; the
@@ -886,18 +973,18 @@ Agent work in parallel (different files on the spike branch, so no conflicts):
 `InGameTests/Spikes/S2`, `S3`, `S4`, `S5`, `S6`, `S7`, `S8`, `S9`, `S10`, `S11`, `S12` are separate
 folders. Hot files: `Source/Parsek/InGameTests/Spikes/SpikeArming.cs` (S0 only; every spike
 registers its patches through one list there, so S0 lands first and each spike adds one line);
-`harness/tools/kerbin_equator_scan.py` (S1b alone, on `main`).
+`harness/tools/kerbin_equator_scan.py` (S1b alone, on `multiplayer`).
 
 Order that unblocks the most downstream planning:
 
-1. Day 1: S0; S4a; S6; S9; S10a; S1b scan (raw grids). About 7 hours on the PC.
+1. Day 1: S0; S4a; S6; S9; S10a; S1b scan (raw grids). About 8 hours on the PC.
 2. Day 2: S4b; S1b scoring with S4a's radius; S2 steps 1 to 3. About 5.5 hours.
 3. Day 3: S5; S7; S2 step 4 (it needs S5's copy). About 5 hours.
 4. Day 4: S3; S10b with S12; S11. About 5 hours.
 5. Then S13.
 
-About 23 hours on the PC over four days (the Duration lines of the day-plan spikes sum to
-22.7 h).
+About 24 hours on the PC over four days (the Duration lines of the day-plan spikes sum to
+23.7 h; S4a's turn-back step and S6's difficulty panel step added an hour on 2026-11-15).
 
 **S8 runs last.** The owner's instruction (2026-11-14, on question 10.1 / Q-03): "leave this
 at the end, its an external dependency". S8a and S8b leave the day plan and become the last
@@ -917,7 +1004,7 @@ last step needs.
 
 ### 6.1 Unit tests
 
-None on `main`. The spike branch carries one manual xUnit test (S10a) that skips unless
+None on `multiplayer`. The spike branch carries one manual xUnit test (S10a) that skips unless
 its env var is set, and the S1b tooling PR extends the scan tool's `--selftest`.
 
 ### 6.2 In-game tests
@@ -926,13 +1013,14 @@ Categories `SpikeS2`, `SpikeS3`, `SpikeS4`, `SpikeS5`, `SpikeS7`, `SpikeS8`, `Sp
 `SpikeS10`, `SpikeS11`, `SpikeS12`, all `AllowBatchExecution = false`, run one at a time
 through Ctrl+Shift+T or the `RunTests` seam verb; results land in
 `parsek-test-results.txt`, copied to the spike's raw folder. They exist only on the spike
-branch, so no committed batch tally moves (the hlib tally gate reads `main`).
+branch, so no committed batch tally moves (the hlib tally gate reads the committed specs of
+`multiplayer`).
 
 ### 6.3 Harness
 
 One spike lane, `SPIKE-S6-mark-survives`, on the spike branch only, run with
 `run.py --id SPIKE-S6-mark-survives` against the spike instance by the owner. S1b uses the
-existing scan tool. Nothing lands in `harness/scenarios/` on `main`.
+existing scan tool. Nothing lands in `harness/scenarios/` on `multiplayer`.
 
 What needs the owner's PC: every spike except S10a over committed fixtures and the S1b
 tooling PR. S8a (run last) needs the PC and its sync clients but no KSP.
@@ -979,7 +1067,7 @@ KSP 1.12.5, DLCs <yes/no>, mods <list from the instance manifest>
 ## 7. Gates and registrations
 
 - Architecture map, layers, forbidden edges, lifetimes, headless pins: not touched on
-  `main`. On the spike branch the `InGameTests/Spikes/` files are placed in the InGameTests
+  `multiplayer`. On the spike branch the `InGameTests/Spikes/` files are placed in the InGameTests
   module by their first folder (no `modules.toml` edit), but the lifetime gate would red on
   `SpikeArming`'s statics; the branch never
   opens a pull request, so CI never runs on it. Nothing from it is merged.
@@ -987,7 +1075,7 @@ KSP 1.12.5, DLCs <yes/no>, mods <list from the instance manifest>
   would red on S8b's thread; it is a spike-branch-only fact, recorded in the S8 report as
   "the real copy worker needs one allowlist line and the owner's yes".
 - Save format: no change. The S6 mark lives only in a hand-staged spike save.
-- GUI gates: no change on `main`. S6's menu entry and dialog exist only on the spike
+- GUI gates: no change on `multiplayer`. S6's menu entry and dialog exist only on the spike
   branch; the real ones are R1's and carry the GUI registrations of 15.14.
 - S1b tooling PR: `harness/README.md` tool section in the same PR; no CHANGELOG entry
   (no player-visible change); no todo item.

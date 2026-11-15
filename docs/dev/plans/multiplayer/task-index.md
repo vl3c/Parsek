@@ -20,24 +20,26 @@ the plans as they read after the three reconciliation passes; the plans are the 
 | `r3-rival-world.md` | r3w | 32 | 1 | 31 | 31 |
 | `r4-r6-board-and-rules.md` | r4 | 25 | 2 | 23 | 22 |
 | `r5-looks.md` | r5 | 14 | 1 | 13 | 11 |
-| `test-and-harness.md` | T | 34 | 7 | 27 | 27 |
-| Total | | 225 | 16 | 209 | 204 |
+| `test-and-harness.md` | T | 36 | 7 | 29 | 29 |
+| Total | | 227 | 16 | 211 | 206 |
 
 A live task is a heading that is not dropped. P2a-01 is live but is a specification with no pull
 request of its own. Four live tasks land inside another task's pull request (P3b-01, R4-03, R5-07,
-R5-10; see the "lands in PR of" column), so the 209 live tasks less P2a-01 (208) make
-204 pull requests. R3E-04's golden
-folder may be a second pull request of that task (r3e :488), which would make 205. Nine of the 204
-are deferred or conditional: P3b-02, P3b-03 (with P3b-01), P3b-04, R3W-26 and R5-06 wait for the
-owner to schedule the Watch camera (map 10.2, answered 2026-11-14: later); R2-10, R3E-23, R5-05 and
-T-34 land only on an owner answer, a spike result or as an option. That leaves 195 firm pull
-requests. R5-14 is added (2026-11-15): the owner locked the race suit, so the stock suit picker is
-blocked in a race save. P1-04 is dropped (Q-04 answered 2026-11-14: its fix landed outside this plan
-in the launch pad fixes work). P12-02 and R1-01 are dropped (2026-11-15): since pull request #2611
-the folder is the module, so no name rule places a `ParsekRace*` file, and a module rule cannot land
-before its first file; each race module registers in the task that creates its first file (RaceCore
-R1-03, RaceWorld R3W-02, RaceExport R3E-02). Every count here comes from a script over the plan
-headings and their `Size` / `Depends on` / `PC` lines, not from hand counting.
+R5-10; see the "lands in PR of" column), so the 211 live tasks less P2a-01 (210) make 206 pull
+requests. R3E-04's golden folder may be a second pull request of that task (r3e :488), which
+would make 207. Nine of the 206 are deferred or conditional: P3b-02, P3b-03 (with P3b-01),
+P3b-04, R3W-26 and R5-06 wait for the owner to schedule the Watch camera (map 10.2, answered
+2026-11-14: later); R2-10, R3E-23, R5-05 and T-34 land only on an owner answer, a spike result
+or as an option. That leaves 197 firm pull requests. R5-14 is added (2026-11-15): the owner
+locked the race suit, so the suit choice of the stock suit picker is blocked in a race save.
+T-35 and T-36 are added (2026-11-15): T-29's three host lanes were split so each flies once its
+scene has race categories. P1-04 is dropped (Q-04 answered 2026-11-14: its fix landed outside
+this plan in the launch pad fixes work). P12-02 and R1-01 are dropped (2026-11-15): since pull
+request #2611 the folder is the module, so no name rule places a `ParsekRace*` file, and a
+module rule cannot land before its first file; each race module registers in the task that
+creates its first file (RaceCore R1-03, RaceWorld R3W-02, RaceExport R3E-02). Every count here
+comes from a script over the plan headings and their `Size` / `Depends on` / `PC` lines, not
+from hand counting.
 
 Citations read `plan :line`, using the short names above. "go" means the owner's go only.
 
@@ -203,7 +205,7 @@ earliest wave (section B). A dropped task keeps its heading and says where its w
 | id | title (short) | size | hard dependencies | spikes | soft (not counted) | owner gate | PC | lands in PR of | wave |
 |---|---|---|---|---|---|---|---|---|---|
 | R2-01 | Site table and the reconcile decision, wire... | M | R1-03, R1-04, P1-02, R3W-02 | S1b, S4a | - | r2 Q1 (answered: refuse the load, R2-02) | in-game | - | 4 |
-| R2-02 | Kerbin fingerprint and the modified-Kerbin... | M | R2-01, R1-10 | S5 | - | - | in-game | - | 7 |
+| R2-02 | Kerbin fingerprint and the modified-Kerbin... | M | R2-01, R1-10 | S4a, S5 | - | - | in-game | - | 7 |
 | R2-03 | The three terrain patches in every race save | M | R2-01 | S4b, S5 | - | - | in-game | - | 5 |
 | R2-04 | Move the working space center to the home site | M | R2-03 | S4b | - | - | in-game | - | 6 |
 | R2-05 | Parsek's own home position follows the home... | S | R2-04, P1-01, P1-03 | S4a | - | - | in-game | - | 7 |
@@ -297,7 +299,7 @@ earliest wave (section B). A dropped task keeps its heading and says where its w
 | R4-07 | Holder-change events, message text and posting | S | R4-04, R1-08, R3E-04, R3E-22 | - | - | r4 Q2 (answered: a) | no | - | 14 |
 | R4-08 | Shared table-window chrome (A6) | S | go | - | - | - | lanes (optional census) | - | 0 |
 | R4-09 | The Space Race window: skeleton and registr... | M | R4-04, R4-08, P11-01, P11-02, R1-04, R1-08, R1-14, R1-18, R3E-17 | - | - | - | in-game (R4-13) | - | 14 |
-| R4-10 | The row model and the drawn board | M | R4-09, R4-05, R4-06, R5-07, R1-10 | - | - | - | in-game (R4-13) | - | 16 |
+| R4-10 | The row model and the drawn board | M | R4-09, R4-05, R4-06, R5-07, R1-10, R2-01 | - | - | - | in-game (R4-13) | - | 16 |
 | R4-11 | Click to watch | S | R4-10 | - | camera half: P3b-04, R3W-26 (deferred) | camera half deferred | in-game (camera half) | - | 17 |
 | R4-12 | Gallery mock states and the census | S | R4-10 | - | - | - | lanes (census) | - | 17 |
 | R4-13 | In-game checks: the ladder against stock, t... | S | R4-02, R4-12 | - | - | - | in-game | - | 18 |
@@ -331,9 +333,9 @@ earliest wave (section B). A dropped task keeps its heading and says where its w
 | R5-11 | `RaceLooks`: own roster dressing | M | R1-03, R1-08, R1-09, R5-08, R5-10, R5-12 | S3 | - | - | in-game | - | 6 |
 | R5-12 | The replacement suit sets | M | R3W-02 | S3 | - | r5 Q1, Q2 | in-game | - | 2 |
 | R5-13 | A harness lane pins the `RaceLooks` category | - | dropped: work moved to T-29 | - | - | - | - | - | - |
-| R5-14 | Block the stock suit picker in a race save | M | R5-11, R1-04 | - | - | - | in-game | - | 7 |
+| R5-14 | Block the suit choice of the stock suit picker in a race save | M | R5-11, R1-04 | - | - | - | in-game | - | 7 |
 
-### A.11 `test-and-harness.md` (34 tasks, 7 dropped, 27 pull requests)
+### A.11 `test-and-harness.md` (36 tasks, 7 dropped, 29 pull requests)
 
 | id | title (short) | size | hard dependencies | spikes | soft (not counted) | owner gate | PC | lands in PR of | wave |
 |---|---|---|---|---|---|---|---|---|---|
@@ -365,17 +367,19 @@ earliest wave (section B). A dropped task keeps its heading and says where its w
 | T-26 | Lane RACE-3-rival-ghosts-flight | M | T-17, T-19, T-20 | - | - | - | flight | - | 16 |
 | T-27 | Lane RACE-4-isolation-whole-save | M | T-04, T-05, T-17, T-19 | - | R3W-18, R3W-24 (content) | T Q2 (assumed a) | flight | - | 14 |
 | T-28 | Lane RACE-6-two-saves-in-turn | M | R1-10, R1-11, T-19, T-20, T-21, R3E-16 | - | R4-04 (row assertion) | T Q1 (assumed a) | flight | - | 16 |
-| T-29 | In-game race context helper and the host lanes | M | T-17, T-19, R2-03, R2-05, R5-11, R3W-09, R3W-30 | - | first test of each other category | - | flight | - | 20 |
+| T-29 | In-game race context helper and the Space Center host lane RACE-9 | M | T-17, T-19, R2-03, R2-05, R5-11, R3W-05 | - | first test of each other Space Center category | - | flight | - | 14 |
 | T-30 | `ListHandles kind=board` | S | R4-04 | - | - | - | no (rides a lane) | - | 14 |
 | T-31 | "Same files, same board" and the changed-fi... | M | T-16, T-18, R4-04, R3E-19, R6-03 | - | - | - | no | - | 18 |
 | T-32 | Lane RACE-7-holder-change-folder-update | S | T-17, T-19, T-30, T-06, R4-07 | - | - | - | flight | - | 15 |
 | T-33 | Lane RACE-12-flown-rival-campaign and the h... | M | R1-10, T-21, R3E-16 | - | - | - | flight | - | 15 |
 | T-34 | Lane RACE-13-paired-copies (optional) | M | T-21, T-30 | - | the parallel runner (on main, pull request #2592) | T Q3 (assumed a); optional | flight | - | 15 |
-Total: 225 task headings in 11 plans, each listed once: 16 dropped, 209 live, 204 pull requests.
+| T-35 | Lane RACE-10-flight-batch (the FLIGHT host) | S | T-29, R3W-09 | - | R3W-30 and the first test of each other FLIGHT category | - | flight | - | 15 |
+| T-36 | Lane RACE-11-ts-batch (the TRACKSTATION host) | S | T-29 | - | R3W-20, R3W-30 | - | flight | - | 15 |
+Total: 227 task headings in 11 plans, each listed once: 16 dropped, 211 live, 206 pull requests.
 
 ## B. Waves
 
-Wave 0 needs only the owner's go. 21 waves, 0 to 20. Within a wave, tasks of different plans can
+Wave 0 needs only the owner's go. 20 waves, 0 to 19. Within a wave, tasks of different plans can
 run in parallel unless section C names a shared file. Two windows sit across the waves:
 
 - The P2b window (P2b-02 merge to the P2b-10 flight proof, waves 4 to 10): no P6 pull request
@@ -519,19 +523,19 @@ run in parallel unless section C names a shared file. Two windows sit across the
 - r4-r6-board-and-rules: R4-03, R4-04
 - test-and-harness: T-19
 
-**Wave 14** (8 tasks)
+**Wave 14** (9 tasks)
 
 - r3-export-and-exchange: R3E-20
 - r3-rival-world: R3W-09
 - r4-r6-board-and-rules: R4-05, R4-07, R4-09
-- test-and-harness: T-21, T-27, T-30
+- test-and-harness: T-21, T-27, T-29, T-30
 
-**Wave 15** (15 tasks)
+**Wave 15** (17 tasks)
 
 - r3-export-and-exchange: R3E-24
 - r3-rival-world: R3W-10, R3W-11, R3W-13, R3W-14, R3W-15, R3W-22, R3W-28
 - r4-r6-board-and-rules: R4-06, R6-01
-- test-and-harness: T-20, T-25, T-32, T-33, T-34
+- test-and-harness: T-20, T-25, T-32, T-33, T-34, T-35, T-36
 
 **Wave 16** (8 tasks)
 
@@ -559,10 +563,6 @@ run in parallel unless section C names a shared file. Two windows sit across the
 - r4-r6-board-and-rules: R6-10 (after S8)
 - r5-looks: R5-06, R5-09
 - test-and-harness: T-24
-
-**Wave 20** (1 tasks)
-
-- test-and-harness: T-29
 ### B.2 Critical paths to the milestones
 
 A path counts tasks from the first to the milestone, both included; it is one more than the
@@ -588,7 +588,8 @@ shorter), so the owner's first spike day heads them all.
 | M4: two-player lanes | T-32, T-28 | 15, 16 | 16, 17 | R4-07 for T-32; T-20 (R3W-09) for T-28 |
 | M5: looks | R5-11, R5-09 | 6, 19 | 7, 20 | R1-09 for R5-11; R3W-20 for R5-09 |
 | M6: no retakes and the end date proven | R6-11 | 18 | 19 | R4-05, R6-01, R6-02, R6-03 |
-| last | T-29 | 20 | 21 | R3W-30, which needs R3W-20 and R3W-24 |
+| Race categories hosted: RACE-9, then RACE-10 and RACE-11 | T-29, T-35, T-36 | 14, 15 | 15, 16 | T-19 (the staged race's sync); RACE-10 also R3W-09 |
+| last | R3W-30, R6-10, R3E-23, R3W-25, R5-06, R5-09, T-24 | 19 | 20 | R3W-30 needs R3W-20 and R3W-24; R6-10 and R3E-23 wait for S8 |
 
 The paths:
 
@@ -608,11 +609,16 @@ The paths:
 - Board: the exchange path to R3E-18, then R4-04 -> R4-05 -> R4-06 -> R4-10 -> R4-12 -> R4-13.
 - M4: R3E-18 -> R4-04 -> R4-07 -> T-32; and M1 -> T-20 -> T-28.
 - M6: R3E-18 -> R4-04 -> R4-05 -> R6-01 -> R6-02 -> R6-03 -> R6-11.
-- last: T-29 is the only host of the categories RACE-9, RACE-10 and RACE-11 pin (T :745-765).
-  Its hard dependencies (T-17, T-19, R2-03, R2-05, R5-11, R3W-09, R3W-30) put it in the last
-  wave, so until then those categories run only by hand on the owner's PC (r3e R3E-01 says so
-  for its cell). Splitting T-29 per host would let RACE-9 fly once its first categories exist;
-  the plan keeps one task.
+- Race categories: T-29 (the helper and RACE-9) needs the staged race (T-17 -> T-19), the
+  sites (R2-03, R2-05), `RaceLooks` (R5-11) and the rival store (R3W-05), so it sits in wave
+  14; T-35 (RACE-10, also after R3W-09) and T-36 (RACE-11) in wave 15. Until its host lands
+  a category runs only by hand on the owner's PC (r3e R3E-01 says so for its cell). T-29 was
+  one task holding all three hosts in wave 20, after R3W-30; it was split on 2026-11-15
+  (both reviews), and R3W-30's isolation categories now join RACE-10 and RACE-11 when they
+  land.
+- last: wave 19 holds R3W-30, R3W-25, R5-06, R5-09, T-24 and the two tasks after S8,
+  R3E-23 and R6-10; R6-10 is the last task the release waits for (it writes the 1.1.0
+  CHANGELOG section).
 - S8 and what waits on it hold no milestone: T-28 (wave 16) -> S8a -> S8b -> R3E-23, R6-10
   (wave 19) run last by the owner's instruction (B, the S8 note).
 
@@ -648,13 +654,13 @@ PRs at the same time unless the row says the edits are disjoint.
 | the standing codec (`StandingCodec.cs`, `Standing.cs`, `PublicState.cs`) | R3E-01, R3E-04, the block tasks R3E-10, R3E-11, R3E-14, R3E-15, R3E-22 one at a time, R3E-09, then R6-01 (the tool view) | r3e :951-952, :957; r4 :818 |
 | `ParsekRaceScenario.cs` | R1-03, R1-08, R3E-15, R5-11 (the load pass call) | r5 :651 |
 | `LoadReconcilePolicy.cs` | R1-05, R1-16 (either order), R3E-15 | r1 :834-835; r3e :961 |
-| `SaveFormat.cs`, `Fixtures/FormatGolden/` | R1-12 (both rows, `v2`), then R3E-04 (`v3`) | r1 :852-854; r3e :956 |
+| `SaveFormat.cs`, `Fixtures/FormatGolden/` | R1-12 (both rows, golden expected today `v2`), then R3E-04 (expected today `v3`); each takes the next free folder when it lands (README rules 5, 10) | r1 :852-854; r3e :956 |
 | `TestCommandVerbs.cs`, hlib verb tables, `design-autotest-command-seam.md` | P11-01 (seam doc), T-07, R1-08, R1-10, R1-11, T-12, T-19, T-20, T-30 | small :736-737; r1 :836-838; T :713-716 |
 | `harness/lib/test_hlib.py`, `hlib.py` | P10-01, P11-01, T-03, T-04, T-07, then every lane and verb task | small :733-735; T :707-709 |
 | `.claude/CLAUDE.md`, `AGENTS.md` | P10-01, R1-07, P2a-02, P2b-02, P3-04, R1-14, R2-03, R2-04, R2-07, R2-08, R3E-23, R5-14, R3W-25 (only if S7 fails), the R3W key-file line | small :738-740; playback :885-887; map :720; r1 :963; r2 :829-830; r3e :926; r3w :1145; one mirror copy per PR |
 | generated `docs/dev/flight-profiles.md`, `harness/coverage/registry.toml`, `docs/dev/autotest-status.md` | every task that adds an in-game category or a lane (R5-01 and T-07 in wave 0); P3-01 does not change the catalog (map :269-273) | T :717-721; regenerate after merging `main`, never by hand |
-| the RACE-9, RACE-10, RACE-11 spec tallies (T-29) | every task that adds a test in a hosted category re-pins its host's `total=` | r2 :738-740; T :632 |
-| `GrepAuditTests.Race.cs`, `scripts/race-loader-files-allowlist.txt`, `RaceLogTags` | R1-06 (creates), R3W-03, R3W-04, R3W-06 (tag), R3W-27 | r1 :827; r3w :1075-1076 |
+| the RACE-9, RACE-10, RACE-11 spec tallies (T-29, T-35, T-36) | every task that adds a test in a hosted category re-pins its host's `total=` | r2 :738-740; T :632 |
+| `GrepAuditTests.Race.cs`, `scripts/race-loader-files-allowlist.txt`, `RaceLogTags` | R1-06 (creates the test file and `RaceLogTags`, seeded with `Race` and R3W-06's `RivalLane`); the allowlist file is created by R3W-02 or R1-06, whichever lands first (a data file with no reader breaks no rule); then R3W-03, R3W-04, R3W-27 | r1 R1-06; r3w R3W-02, R3W-06 |
 | `scripts/ers-els-audit-allowlist.txt` | P2a-05, P3b-02 | append-only |
 | `scripts/arch/lifetimes.toml`, `lifetime_pins.toml`, the reset allowlist | P1-03 first, then P3-02, P3-03, R1-03, R1-04, R1-08, R1-10, R2-03, R2-05, R3E-06, R3E-08, R3W-08, R3W-14, R3W-19, R5-12 | small :743-744; re-pin after each merge |
 | `docs/dev/design-gui-inventory.md` | R1-14, R1-15, R1-17, R1-18, R2-02, R2-08, R5-14, R4-08, R4-09, then the R3E, R3W, R4, R5 tasks that add a surface | counts are re-derived, never hand-summed |
@@ -721,14 +727,14 @@ cost, S8b, S11), which need an otherwise idle PC, and the in-game test batches r
 
 | Day | Spikes | Hours on the PC |
 |---|---|---|
-| 1 | S0 1 h, S4a 1 h, S6 2 h, S9 2 h, S10a 0.5 h, S1b scan | about 7 |
+| 1 | S0 1 h, S4a 1.5 h, S6 2.5 h, S9 2 h, S10a 0.5 h, S1b scan | about 8 |
 | 2 | S4b 3 h, S1b scoring (S1b 1 h in all), S2 2 h (steps 1 to 3; E, item 7) | about 5.5 |
 | 3 | S5 3 h, S7 2 h, S2 step 4 (needs S5) | about 5 |
 | 4 | S3 3 h, S10b 1 h with S12 10 min, S11 1 h | about 5 |
 | any | S13 needs no PC | 0 |
 | last (waves 17, 18) | S8a 2 h (no KSP), S8b 1 h, after T-28 (wave 16) | about 3 |
 
-About 23 hours over the four days (the Duration lines of the day-plan spikes sum to 22.7 h),
+About 24 hours over the four days (the Duration lines of the day-plan spikes sum to 23.7 h),
 then about 3 hours for S8 at the end. Never in parallel: S5's frame cost, S8b and S11 (r0
 :862). S4a and S6 go first because R1-04, R2-01, R2-05, P1-03 (S4a) and R1-03,
 R1-10, R1-14 (S6) wait on them (r0 :881-882).
@@ -779,12 +785,11 @@ that use them (T-13, T-24, T-26, T-32).
 | 11 | P3b-02, R2-13 (flight), R2-14 (flight) |
 | 12 | P3b-03 |
 | 13 | P3b-04 |
-| 14 | T-27 (flight) |
-| 15 | T-25 (flight), T-32 (flight), T-33 (flight), T-34 (flight) |
+| 14 | T-27 (flight), T-29 (flight) |
+| 15 | T-25 (flight), T-32 (flight), T-33 (flight), T-34 (flight), T-35 (flight), T-36 (flight) |
 | 16 | T-26 (flight), T-28 (flight) |
 | 17 | R4-12 (census) |
 | 19 | T-24 (flight) |
-| 20 | T-29 (flight) |
 
 ### D.4 Long runs
 
@@ -807,10 +812,10 @@ time.
 
 ### E.1 Checks run on the graph
 
-- Every task id with a heading in a plan appears in section A exactly once (225 ids).
+- Every task id with a heading in a plan appears in section A exactly once (227 ids).
 - No hard dependency names an unknown id, a dropped task or the P2a-01 specification. No plan's
   `Depends on` line names a dropped task.
-- The graph of 204 pull requests has no cycle.
+- The graph of 206 pull requests has no cycle.
 - Every finding of the previous index (missing providers, the R4-03 / R3E-11 cycle, the wrong
   or loose dependencies, the duplicate providers, the wave-0 shared files, the oversized tasks)
   is settled in the plans as they read today and is removed here.

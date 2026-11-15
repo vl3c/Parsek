@@ -18,9 +18,11 @@ never constructs a race object.
 
 Built here:
 
-- The three modules `RaceCore`, `RaceExport`, `RaceWorld`: folder rules, layers, `RaceCore`
-  as a headless module, `RaceWorld` as runtime-coupled, and the 71 forbidden edges of design
-  15.4, all from the first commit (design 15.2, 15.4).
+- The `RaceCore` module (R1-03): its folder rule, layer, headless entry and the forbidden
+  edges of design 15.4 whose two ends exist when it lands. `RaceWorld` (R3W-02, runtime
+  coupled) and `RaceExport` (R3E-02) register the same way with their first files (R1-01
+  is dropped); the 71 edges of design 15.4 are all declared once the last of the three
+  lands (design 15.2, 15.4).
 - The 15.4 grep-audit gates that R1's own files can trip, on one shared race source scanner
   (T-08 merged into R1-06, OV-10): no store in the rules, one no-writer gate (OV-11), the
   one recorder ban, `Recording` types only in the loader files of `RaceWorld` (an arch cell
@@ -59,8 +61,9 @@ Built here:
   the Settings window (design 7.1, 7.2, 15.14).
 - Addition A7 (design 15.11): the shared "find a scenario node" helper, the log bundle and
   the test-batch reconcile leaving `Parsek/Race/` alone.
-- The `.claude/CLAUDE.md` edit (and its `AGENTS.md` copy) recording the three owner UI
-  exceptions, in the task that builds the first one (R1-14 owns it, OV-42).
+- The `.claude/CLAUDE.md` edit (and its `AGENTS.md` copy) recording the three firm owner UI
+  exceptions as one new bullet, in the task that builds the first one (R1-14 owns it, OV-42);
+  the fourth, conditional one (the plaque popup) joins it only if S7 fails (R3W-25).
 
 Not built here: the sites, the terrain patches and scenery (R2: a joiner at slot 1, 2 or 3
 plays at the stock KSC until R2 lands, which is still "plays as single player"); export,
@@ -81,7 +84,8 @@ and accepts only `kind = HUMAN`.
   does not use it either).
 - **P10-01**: the create-and-start core lifted out of `TestCommands`. R1-10 needs it, with a
   "before start" step (section 9, item 3).
-- **Spike S6** (design section 12 table, line 1799 and 1803 to 1804): a scenario node of an
+- **Spike S6** (design section 12 table, the rows "The race mark survives an older build",
+  "Multiplayer in the main menu" and "Create a save from code"): a scenario node of an
   unknown module type survives a save; cloning a main menu entry; creating and starting a
   save from a dialog. R1-03 rests on the first fact, R1-14 on the second, R1-10 and R1-15 on
   the third. The S6 list must also answer the VERIFY items of section 3.8.
@@ -255,15 +259,24 @@ The scenario name literal is repeated at `SaveReferenceScanner.cs:84` and
   site by file and count (the NewGame file is pinned at 4).
 - Seam verbs register in `TestCommands/TestCommandVerbs.cs` (NewGame at `:397-405`) and are
   mirrored in `harness/lib/hlib.py` (`NEWGAME_*` at `:4571`).
-- VERIFY in S6 (no KSP reference assemblies were available to decompile): that
+- Answered by decompile (2026-11-15, the reference assemblies at `/home/user/ksp-refs`;
+  `r0-spikes.md` 3.3, "Setup" and "Game start"):
   `ScenarioCreationOptions.None` neither adds nor removes the proto in
-  `UpdateScenarioModules`; that a proto added to `game.scenarios` before `Game.Start` is
-  instantiated in its target scenes; that `HighLogic.CurrentGame` is the game being entered
-  when `onGameSceneLoadRequested` fires on every load path; `DialogGUITextInput` behavior in
-  a `MultiOptionDialog` at the main menu; whether the stock difficulty panel can be opened
-  from a mod dialog; the `TextProButton3D` clone of design line 1803; whether
-  `FlightGlobals.Bodies` is populated at the main menu (for the Kerbin check, now R2-02's,
-  OV-31).
+  `UpdateScenarioModules`, which adds or removes one only for an `AddToExisting*` or
+  `RemoveFrom*` create option (GamePersistence.cs:525-700); `HighLogic.CurrentGame` is the
+  game being entered when `onGameSceneLoadRequested` fires on the main menu ways in (new
+  game, the load dialog, scenarios) and the in-game quickload, since each sets it before
+  `Game.Start()` and the event fires inside the `LoadScene` that `Game.Start()` calls
+  (MainMenu.cs:1252-1257, 1478-1501, 1583-1633; HighLogic.cs:690, 795);
+  `DifficultyOptionsMenu.Create(Game.Modes, GameParameters, bool,
+  Callback<GameParameters, bool>)` is public static.
+- VERIFY in game, each on a step of spike S6: that a proto added to `game.scenarios`
+  before `Game.Start` is instantiated in its target scenes (step (c), the created save);
+  `DialogGUITextInput` behavior in a `MultiOptionDialog` at the main menu (step (c), the
+  pasted path); that the stock difficulty panel opens over the setup dialog and hands its
+  values back (step (d)); the `TextProButton3D` clone of the main menu entry (step (c));
+  whether `FlightGlobals.Bodies` is populated at the main menu, for R2-02's Kerbin check
+  (step (e)).
 
 ## 4. Tasks
 
@@ -456,16 +469,22 @@ other). R3E-02 lands after both: it waits for R1-03 and R3W-02 through R3E-01 an
   - "`Recording` types only in the loader": a DLL-free cell in `scripts/arch/test_archview.py`
     over the text scan's type-to-module map (a grep cannot know module membership; the
     `Recording` type list comes from `modules.toml`, not typed by hand). The loader files
-    are read from `scripts/race-loader-files-allowlist.txt`, created here empty, one file
-    per line with its reason; R3W-27 adds its loader entries to that file and writes no
-    second script (OV-12; T-09 is dropped).
+    are read from `scripts/race-loader-files-allowlist.txt`, one file per line with its
+    reason. The file is created by whichever of this task and R3W-02 lands first (R3W-02,
+    wave 1, adds `RaceWorld/RivalFlight.cs`; this task is wave 3): a data file that no cell
+    reads yet breaks no rule, so R3W-02 may create it with its one line, and this task then
+    adds the cell that reads it (or creates the file empty if R3W-02 has not landed).
+    R3W-27 adds its loader entries to that file and writes no second script (OV-12; T-09 is
+    dropped).
   - The race log tag list (OV-57): a constant `RaceLogTags` in `GrepAuditTests.Race.cs`,
     one plain tag per subsystem (A4; never a nested form like `[Race][RivalLane]`): `Race`
     (R1), `RaceSites` and `RaceLaunchGuard` (R2), `RaceExport` and `RaceSync` (R3E; every
     sync, import and poll line is `RaceSync`, never `RaceImport`), `RivalStore` and
     `RivalLane` (R3W), `RaceBoard` (R4, R6), `RaceLooks` (R5). A cell reds when a
-    `ParsekLog` call in a race file uses a tag that is not on the list; a new tag joins the
-    list in the task that first logs under it.
+    `ParsekLog` call in a race file uses a tag that is not on the list. This task creates
+    the list with `Race` and `RivalLane`: R3W-06 (wave 2) logs the first `RivalLane` line
+    and can land before this task (wave 3), so its tag is registered here, not by R3W-06.
+    Every other tag joins the list in the task that first logs under it.
 - **Proof:** for each gate: the gate fact on the tree; an anti-vacuity cell (the scan sees at
   least the race modules' file count and a minimum reference count, and counts the
   `Controllers/ParsekRace*.cs` files separately, so a glob that finds none reds); a
@@ -476,7 +495,8 @@ other). R3E-02 lands after both: it waits for R1-03 and R3W-02 through R3E-01 an
   no-writer gate also has T-15's cell: every persistence writer of a `save`-lifetime type
   in `scripts/arch/lifetimes.toml` is on its denylist. Mutation check by hand in the PR
   (plant one line, see red).
-- **Registers:** `GrepAuditTests.Race.cs`; `scripts/race-loader-files-allowlist.txt`;
+- **Registers:** `GrepAuditTests.Race.cs`; `scripts/race-loader-files-allowlist.txt` (created
+  here only if R3W-02 has not created it);
   `docs/dev/arch/README.md` names the cell; CLAUDE.md's gate list if it names the family.
 - **Size:** M (it absorbs T-08 and T-15's cell). **Depends on:** R1-03 (so the scan
   sees a race file). **PC:** no.
@@ -608,9 +628,27 @@ other). R3E-02 lands after both: it waits for R1-03 and R3W-02 through R3E-01 an
     `local.cfg` keys written back when present); `RaceLinkCodec.Write` (R1-03);
     `RaceTimestamp.Format` and the id generation of `RaceIds` (R1-08); `IRaceFolder.SafeWrite`
     and `RaceFolder`'s implementation (R1-08); the write members of R1-09's
-    `IRaceSharedFolder` and `RaceSharedFolder`. `difficultyDigest` = SHA-256 of the
-    `DIFFICULTY` node's invariant text (hex). `RaceCore/RaceModDiff.cs` (the joiner's
+    `IRaceSharedFolder` and `RaceSharedFolder`. `RaceCore/RaceModDiff.cs` (the joiner's
     informational diff) lands with its first caller, R1-11.
+  - `RaceCore/RaceDifficulty.cs`: the race's difficulty list, `RaceDifficulty.Keys`, an
+    explicit, ordered list of the STOCK difficulty settings only: the eleven fields of
+    `GameParameters.DifficultyParams` in declaration order (`AutoHireCrews`,
+    `MissingCrewsRespawn`, `RespawnTimer`, `BypassEntryPurchaseAfterResearch`,
+    `AllowStockVessels`, `IndestructibleFacilities`, `ResourceAbundance`,
+    `ReentryHeatScale`, `EnableCommNet`, `AllowOtherLaunchSites`,
+    `persistKerbalInventories`; decompiled GameParameters.cs:203-226), then the nine career
+    values of `GameParameters.CareerParams` (`StartingFunds`, `StartingScience`,
+    `StartingReputation`, `FundsGainMultiplier`, `RepGainMultiplier`,
+    `ScienceGainMultiplier`, `FundsLossMultiplier`, `RepLossMultiplier`,
+    `RepLossDeclined`; :228-249; `TechTreeUrl` is not a difficulty setting and is left
+    out). Never the whole `GameParameters` node and never a `CustomParameterNode`: Parsek's
+    own settings (`ParsekSettings`) and other mods' settings live in those. The manifest's
+    `DIFFICULTY` node holds exactly these keys in this order; `difficultyDigest` = SHA-256
+    (hex) of their invariant `key = value` text in this order. Pure over strings (RaceCore
+    is headless); the live read of the twenty fields from a game's `Parameters` sits in
+    `RaceWorld/RaceInstallFacts.cs`, and Join applies the twenty values to the mode's
+    default `GameParameters` (R1-11). R3E-15's standing copy and R6-05's mark use this one
+    list.
   - `RaceCore/RaceFolderCheck.cs`: pure checks of design 7.2 and 6.3 over
     `IRaceSharedFolder` (exists, writable, empty, holds a race with id X, longest
     expected path under 250 characters for both the shared layout and the local cache).
@@ -659,7 +697,11 @@ other). R3E-02 lands after both: it waits for R1-03 and R3W-02 through R3E-01 an
   refusal; R4-01 adds its cells) and `RaceInstallCheckTests` (every refusal reason, path
   budget edges, the Kerbin slot passing), `RaceManifestWriteTests` (write then read gives
   the same value, the four optional `local.cfg` keys included; byte pin of a canonical
-  `race.cfg`), the `RaceLinkCodecTests` and `RaceTimestampTests` round trips (their writers
+  `race.cfg`), `RaceDifficultyTests` (the key list in its order, pinned against a reflection
+  read of the two stock classes' public fields so a new stock field reds; the digest of a
+  fixed value set pinned; changing a `ParsekSettings` value, or adding a mod's
+  `CustomParameterNode`, leaves the copy and the digest unchanged; `de-DE` culture gives the
+  same digest), the `RaceLinkCodecTests` and `RaceTimestampTests` round trips (their writers
   land here), `RaceSetupPlanTests` over the pure part of `ParsekRaceSetup` (request to
   files plan), `TestCommandRaceSetupTests` (every arg, every refusal) and a harness
   `RaceSetupSourceSyncTests` cell like `NewGameSourceSyncTests`. Harness lane RACE-1
@@ -682,7 +724,8 @@ other). R3E-02 lands after both: it waits for R1-03 and R3W-02 through R3E-01 an
   folders through `IRaceSharedFolder`, runs the install checks (Making History when the race shares
   launch sites), refuses a full race or a taken name, takes `FirstFreeSlot` and the chosen free
   look, writes the new `players/<p_id>/player.cfg` with `joinedRealTime`, creates the save from the
-  manifest's `gameMode` and `DIFFICULTY` node (`GameParameters` from the node, S6) through the same
+  manifest's `gameMode` and `DIFFICULTY` node (the mode's default `GameParameters` with R1-10's
+  twenty `RaceDifficulty.Keys` values applied, S6) through the same
   P10-01 sequence as Create (`CreateGame`, its own before-start step, `StartGame`; no callback
   parameter); the `local.cfg` it writes carries `firstImportDone = false` (OV-27; R3E-18 sets it
   true). `StartOver(playerId)`: same, with the existing id, slot and look, and a fresh save name; it
@@ -709,8 +752,11 @@ other). R3E-02 lands after both: it waits for R1-03 and R3W-02 through R3E-01 an
   and `player.cfg` carrying `raceFormat` (OV-15, supervisor decision). `SaveFormat.cs`:
   rows `race-link` (baseline 1, current 1) and `race-exchange` (baseline 1, current 1),
   each with a literal constant; cells in `RaceFormatPinTests` (R1-03's class) pin them equal
-  to `RaceFormat.LinkCurrent` and `RaceFormat.Current`. New frozen folder
-  `Fixtures/FormatGolden/v2/`: what R1 writes, by a skipped generator test
+  to `RaceFormat.LinkCurrent` and `RaceFormat.Current`. New golden folder, the next free
+  number when this task lands (expected today: `Fixtures/FormatGolden/v2/`; README rules 5
+  and 10: if main takes that number first, the branch renumbers at the next merge of main,
+  and the folder is frozen only at the final merge): what R1 writes, by a skipped generator
+  test
   (`FormatGoldenV2GeneratorTests`, `PARSEK_WRITE_FORMAT_GOLDEN=v2`) that runs through T-01's
   `SaveWriterDriver` and the production writers: a race save (the fresh-career save plus a
   `ParsekRaceScenario` node holding the link), `race.cfg`, `own/player.cfg` and
@@ -746,9 +792,12 @@ Dropped: replaced by T-13 (OV-02).
   - Continue loads through the load-and-start route (section 9, item 12):
     `ParsekRaceSetup.Continue(saveFolder)` calls the lifted route; its file joins
     `KnownLoadInitiators` if it holds the `LoadGame(` call.
-  - `.claude/CLAUDE.md` "Hard rules": a fourth exception bullet naming the three owner
-    exceptions (the main menu Multiplayer entry, the race setup dialog, the Space Race
-    window; race saves only; owner rulings 2026-11-14, design section 0), then `cp
+  - `.claude/CLAUDE.md` "Hard rules": a fourth exception bullet, added as a new bullet under
+    the "No new player-facing UI surfaces" rule and touching no existing line (README rule
+    10), naming the three firm owner exceptions of four (the main menu Multiplayer entry, the
+    race setup dialog, the Space Race window; race saves only; owner rulings 2026-11-14,
+    design section 0; the fourth, the conditional plaque popup, joins it only through R3W-25,
+    README rule 8), then `cp
     .claude/CLAUDE.md AGENTS.md`. This task owns the edit (OV-42); R4-09 only checks that
     its window is named. `docs/dev/design-gui-inventory.md`: the entry and the dialog. A
     todo entry and a CHANGELOG entry under `1.1.0` (README rule 10).
@@ -839,7 +888,12 @@ Dropped: replaced by T-13 (OV-02).
   confirmation, writing `race.cfg` and `players/<id>/player.cfg` from the local copies
   (design 7.2 "move the race here"); another race or not writable refused. The folder is
   typed or pasted into the same text field as the Create page and checked on Validate (no
-  browse button; owner, 2026-11-15). A name or look change rewrites `player.cfg` (shared)
+  browse button; owner, 2026-11-15). The Settings window opens 280 wide, too narrow for a
+  path, so Settings itself shows the folder (shortened, the whole path in the hover) and a
+  Change button, and the Change button opens that same typed field in the setup dialog's
+  folder-only mode. This is how the ruling "typed or pasted in the setup window and in
+  Settings" is met: the field is reached from Settings, and it is the same field. A name or
+  look change rewrites `player.cfg` (shared)
   and `local.cfg`. Nothing else is offered: mode, end date, "no retakes" and shared launch
   sites are fixed for good after Create, and the creator is a player like the others
   (owner, 2026-11-15). R4-09 adds the Sync now button
@@ -921,7 +975,7 @@ Unit (xUnit, headless, `Source/Parsek.Tests/`):
 | `RaceSaveListingTests`, `RaceSetupDialogModelTests`, `RaceSetupFormTests`, `RaceJoinFormTests`, `RacePlayerSettingsTests` | the dialog and Settings logic without drawing |
 | `SaveFormatTests`, `SaveFormatGoldenGateTests`, `FormatGoldenV2Tests`, `RaceFormatPinTests` (R1-12's cells) | the two rows at 1, pinned to `RaceFormat.LinkCurrent` and `RaceFormat.Current`, and the frozen `v2` |
 | `GrepAuditTests.Race.cs` | the shared `RaceSourceScan`; no store in `RaceCore`, the one no-writer gate (with the save-lifetime writers cell), the one recorder ban: each with anti-vacuity, planted-red and mirror cells; the race log tag list |
-| arch suite | 71 edges declared; `RaceCore` headless with no leak; the loader-only cell reading `scripts/race-loader-files-allowlist.txt` |
+| arch suite | the edges whose two ends exist declared (all 71 once `RaceExport` registers); `RaceCore` headless with no leak; the loader-only cell reading `scripts/race-loader-files-allowlist.txt` |
 
 Every class touching `ParsekLog` or a static uses `[Collection("Sequential")]` and captures
 the log with the test sink (`RewindLoggingTests` pattern).

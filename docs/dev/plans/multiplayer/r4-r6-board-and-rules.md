@@ -228,7 +228,12 @@ StandingMilestone
 StandingSeen     int Seq; string Hash
 StandingDisclosure
   string ModDigest; IReadOnlyList<(string id, string version)> Mods
-  string DifficultyDigest; bool TestToolingUsed   (key `testTooling`, R3E-15)
+  string DifficultyDigest
+  IReadOnlyList<(string key, string value)> Difficulty
+                            (R3E-15's `DIFFICULTY` copy: the keys of R1-10's
+                             `RaceDifficulty.Keys` in that order, stock difficulty settings
+                             only; empty for an older standing without the copy)
+  bool TestToolingUsed      (key `testTooling`, R3E-15)
 
 RacePlayerRecord                 (one per player, own included; built by R4-04 from the
                                   `RivalStandingVerdict` values (type R3E-04, filled by
@@ -246,7 +251,8 @@ RacePlayerRecord                 (one per player, own included; built by R4-04 f
 BoardRules                        (from RaceLink and the manifest)
   string LadderId; RaceCalendarKind Calendar (Kerbin, Earth); string DateUnit;
   bool NoRetakes; DateTime? EndRealTimeUtc; string ManifestModDigest;
-  IReadOnlyList<(string, string)> ManifestMods; string ManifestDifficultyDigest
+  IReadOnlyList<(string, string)> ManifestMods; string ManifestDifficultyDigest;
+  IReadOnlyList<(string key, string value)> ManifestDifficulty  (the manifest's `DIFFICULTY`)
 
 LocalFacts                        (from the shell, once per board build)
   string LocalPlayerId; DateTime NowRealUtc; double NowUT;
@@ -534,7 +540,8 @@ scores when it has none of `Unverified`, `ToolMarked`, `SeenFirst`, `BadDate`.
 - **Change:** `RaceCore/RaceBoardPresentation.cs` (no text, numbers and codes only):
   `Build(RaceBoardResult, players, rules, LocalFacts, view)` gives a `SpaceRaceView`: player blocks
   (name, look index, points, held count, frontier day, last shared UTC, site slot, kind, is-local,
-  show state from the facade), ladder rows grouped by body (row name, points, per player a
+  show state from the facade, and the site's ground height read from R2-01's `SiteTable` row
+  for that slot, design 7.13's header), ladder rows grouped by body (row name, points, per player a
   `CellView`: day number of the date that counts, or of the earliest date when none counts, its UT,
   `ShowTimeOfDay` (true when another player's shown date in the same row falls on the same race day,
   design 7.13), count of other dates, holder or co-holder, the status flags, the watch target
@@ -547,7 +554,9 @@ scores when it has none of `Unverified`, `ToolMarked`, `SeenFirst`, `BadDate`.
   hours)`), a real-time duration formatter (24-hour days). The window draws: holder cell in the
   look's color, co-holder cells in the same color dimmed, a non-scoring date in the house muted grey
   with a one-character mark (`?` unverified, `!` tool, `s` seen first, `~` not checked here) and
-  `+N` for more dates, every meaning in the hover; the points column; a two-button view switch `By
+  `+N` for more dates, every meaning in the hover; the points column; the header with the race
+  name and the player blocks (the site line reads "site 2, 520 m"; the time left or
+  "final" and the disclosure marks join the header in R6-07); a two-button view switch `By
   milestone` / `By date`. Colors come from R5-07's `RaceLookTable` (look index to UI color, OV-41),
   whose colors are placeholders until S3a. Each rival's player block carries a show / hide toggle;
   this task adds the SHOW setter on R1-08's facade, its first caller (OV-39): it writes the rival's
@@ -562,7 +571,7 @@ scores when it has none of `Unverified`, `ToolMarked`, `SeenFirst`, `BadDate`.
 - **Registers:** caller: `SpaceRaceWindowUI`. hlib `UIACTION_WINDOW_TABS` gains
   `spacerace: ("milestones", "dates")` with the C# tab handling, so a census can photograph
   both views.
-- **Size:** M. **Depends on:** R4-09, R4-05, R4-06, R5-07, R1-10. **PC:** in-game look
+- **Size:** M. **Depends on:** R4-09, R4-05, R4-06, R5-07, R1-10, R2-01. **PC:** in-game look
   (R4-13). **Risk:** medium; the hover corpus is the window's main surface and must stay in
   budget.
 
@@ -614,12 +623,12 @@ scores when it has none of `Unverified`, `ToolMarked`, `SeenFirst`, `BadDate`.
   `ProgressTracking` tree under the qualification `QualifyMilestoneId` gives, and the
   window opens, draws a mocked view and closes with its lock released; category
   `SpaceRaceFlight` (FLIGHT): the same open, draw and close.
-- **Proof:** the test results file on the owner's PC; once T-29 lands, its host lanes run
+- **Proof:** the test results file on the owner's PC; once T-29 and T-35 land, their host lanes run
   them in a race save: `SpaceRace` on RACE-9 (SPACECENTER), `SpaceRaceFlight` on RACE-10
   (FLIGHT).
 - **Registers:** two new categories: `python harness/tools/lane_catalog.py` regenerated
   `docs/dev/flight-profiles.md` in the same commit; T-29's host table names both (a host
-  slot each); no committed spec pins them before T-29.
+  slot each); no committed spec pins them before T-29 (RACE-9) and T-35 (RACE-10).
 - **Size:** S. **Depends on:** R4-02, R4-12. **PC:** yes. **Risk:** low.
 
 ### R4-14 Harness: the board in the two-player lanes
@@ -717,7 +726,10 @@ Dropped: replaced by T-28 and T-32 (OV-07).
 
 - **Change:** `RaceCore/RaceDisclosure.cs`: per player `ModsDiffer` (digest differs from
   the manifest's) with the added and missing mod ids and versions, `DifficultyDiffers` with
-  the names of the settings that differ from the manifest's `DIFFICULTY` node (owner,
+  the names of the settings that differ from the manifest's `DIFFICULTY` node, both read as
+  R1-10's race difficulty list (`RaceDifficulty.Keys`: the stock difficulty settings only,
+  never a `CustomParameterNode`, so Parsek's or another mod's settings never mark a player)
+  (owner,
   2026-11-15: a player may change their own difficulty mid-game; nothing is blocked, and a
   mark next to the name says which settings changed; the values are R3E-15's `DIFFICULTY`
   copy),
@@ -726,7 +738,8 @@ Dropped: replaced by T-28 and T-32 (OV-07).
   player block.
 - **Proof:** `RaceDisclosureTests`: equal digests, differing lists, a version change only,
   test tooling, one and three changed difficulty settings named, a standing with no
-  `DIFFICULTY` copy (digest only: the mark without names).
+  `DIFFICULTY` copy (digest only: the mark without names), a `ParsekSettings` value changed
+  in the player's save (no mark: it is not on the list).
 - **Registers:** called by `RaceBoardPresentation.Build` (the call lands in this pull
   request).
 - **Size:** S. **Depends on:** R4-10, R6-01, R3E-15 (the `DISCLOSURE` block). **PC:** no.
@@ -791,7 +804,10 @@ from the Join button.
   sync client) logged as `[RaceSync] Poll: delay=.. reason=..` (the `RaceSync` tag,
   OV-57).
 - **Registers:** the call from R3E-17's poll lands in this pull request, as an edit to
-  R3E-17's driver file (A1).
+  R3E-17's driver file (A1). As the last task of the plan, it also writes the warning of
+  design 8, case 22 into the branch's `1.1.0` CHANGELOG section: "Do not open a race save
+  with an older Parsek: it does not set up the race's space centers, and vessels at a moved
+  site may be destroyed" (README rule 10).
 - **Size:** S. **Depends on:** R3E-17, S8a, S8b. **PC:** yes, for the numbers.
   **Risk:** low.
 - **When:** last, after S8a and S8b (wave 19), which run after the end-to-end race (T-28).
@@ -912,7 +928,7 @@ Other proof:
 - Source gates: the registration gates of R4-09, the tooltip budget, the UI-scale gates,
   the gallery write-set gate.
 - In-game (owner's PC): R4-13 (ladder ids live, window draws in both scenes; categories
-  `SpaceRace` and `SpaceRaceFlight`, hosted by T-29's RACE-9 and RACE-10), R4-11 camera
+  `SpaceRace` and `SpaceRaceFlight`, hosted by T-29's RACE-9 and T-35's RACE-10), R4-11 camera
   half in flight once P3b is scheduled, R6-07 look.
 - Harness (owner's PC): the census photographs of R4-12; at the end, after S8, the poll
   measurement of R6-10.

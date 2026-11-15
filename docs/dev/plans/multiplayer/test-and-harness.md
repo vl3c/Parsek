@@ -70,8 +70,9 @@ instance (the harness may not touch one, section 9 item 11).
   `RaceSync.Run(SyncPorts, SyncInputs)`): T-16, then T-17. After R3E-04 and R3E-16: T-18
   (its self-heal case with R3E-20). After R3E-17 and R3E-18: T-19. After R3E-04 and
   R3E-19: T-21. After R3W-05 and R3W-09 (the rival store and the rival ghost lane): T-20,
-  then the lanes T-24 to T-29 (T-24 also after R3W-20, T-25 after R3E-20, T-29 after
-  R2-03, R2-05, R5-11 and R3W-30). T-33 after R1-10, R3E-16 and T-21.
+  then the lanes T-24 to T-28 (T-24 also after R3W-20, T-25 after R3E-20). After T-17,
+  T-19, R2-03, R2-05, R5-11 and R3W-05: T-29 (the helper and RACE-9); after T-29 and R3W-09: T-35
+  (RACE-10); after T-29: T-36 (RACE-11). T-33 after R1-10, R3E-16 and T-21.
 - After R4-04 (the board): T-30, T-31 (also R3E-19, R6-03), T-32 (also R4-07).
 - T-34: after T-21 and T-30. The parallel-flights machinery it builds on (slot copies, each
   with its own kRPC ports, and `harness/tools/parallel_runner.py`, pull request #2592) is on
@@ -164,7 +165,7 @@ instance (the harness may not touch one, section 9 item 11).
 - `harness/coverage/registry.toml`: dimensions D1 to D18; a new feature adds its values in the
   same PR.
 - `harness/fixtures/saves/fresh-career` is the boot save `CS-0-new-career-game` uses for
-  `NewGame` (`harness/scenarios/CS-0-new-career-game.toml:32`).
+  `NewGame` (`harness/scenarios/CS-0-new-career-game.toml:41`).
 - No spec id starts with `RACE`, `MP` or `ISO` on `main` or on the 15 remote branches read
   with `git ls-tree -r --name-only <branch> -- harness/scenarios`.
 - Runs: one harness owner holds the machine lock (`run.py`, `provision.py` or
@@ -337,7 +338,9 @@ seam-only lane); R7c 52 s; RW-1 146 s; B2-lko-ascent 272 s; B1-pad-hop 389 s.
   pins the stock values SITES-2 (R2-13) compares against (OV-04). SITES-1 to SITES-3 read
   their per-site values with this kind, not with extra batches (OV-03).
 - **Registers:** `design-autotest-command-seam.md` ListHandles grammar; hlib tables; lane
-  catalog regeneration; `registry.toml` D19 `race` dimension with value `stock-sites`;
+  catalog regeneration; `registry.toml` a new `race` dimension at the next free id when this
+  task lands (expected today: D19, written D19 below; README rules 5 and 10: the branch
+  renumbers if main adds a dimension first) with value `stock-sites`;
   `autotest-status.md` row; `INTERIM_PIN_IDS` not needed (no batch).
 - **Size:** M. **Depends on:** nothing. **PC:** yes (one flight of RACE-0).
 - **Risk:** low; read-only.
@@ -626,38 +629,42 @@ Dropped: replaced by R3W-29 (OV-20).
 - **Risk:** medium; about 700 s, the longest RACE lane; a quickload across a shared flight is
   exactly the case most likely to find a real defect.
 
-### T-29 In-game race context helper and the host lanes
+### T-29 In-game race context helper and the Space Center host lane RACE-9
+
+Split on 2026-11-15 (both reviews): T-29 keeps the helper and the first host; the FLIGHT host
+RACE-10 is T-35 and the TRACKSTATION host RACE-11 is T-36, so each host flies once its scene
+has race categories instead of all three waiting for the last rival task.
 
 - **Change:** `Source/Parsek/InGameTests/RaceTestContext.cs` (tooling module): `RequireRace
   (out RaceGate)` which `InGameAssert.Skip`s with the required context named, accessors for
-  the rival store and the applied site. Three host lanes, one per scene, each one `RunTests`
-  with a comma list of the categories of the table in section 6 (A2; one scene per
-  category, OV-09):
+  the rival store and the applied site. One host lane per scene, each one `RunTests` with a
+  comma list of the categories of the table in section 6 (A2; one scene per category,
+  OV-09). This task adds the first:
   - **RACE-9-sc-batch**, SPACECENTER, 5 categories:
     `RaceMode,RaceSites,RaceExchange,SpaceRace,RaceLooks`.
-  - **RACE-10-flight-batch**, FLIGHT, 6 categories:
+  The other two hosts, for the record of all three:
+  - **RACE-10-flight-batch** (T-35), FLIGHT, 6 categories:
     `RaceSitesFlight,RaceFacts,RaceRivalLane,RaceRivalIsolation,SpaceRaceFlight,RaceLooksFlight`.
-  - **RACE-11-ts-batch**, TRACKSTATION, 4 categories: `RaceSitesTrackingStation`,
+  - **RACE-11-ts-batch** (T-36), TRACKSTATION, 4 categories: `RaceSitesTrackingStation`,
     `RaceFactsTrackingStation`, `RaceRivalLaneTrackingStation`,
     `RaceRivalIsolationTrackingStation`.
   Each host joins a staged race as a later player, so it runs in a race save at slot 1 to 3
   (the moved space center, the patches and the copies exist there), and the race
   categories run with `passed` above zero (a single-player batch would skip them all);
   RACE-10 enters FLIGHT with a vessel on the home pad. These three are the only specs that
-  pin these categories, and no other spec runs a batch of any of them: SITES-1 runs no
-  batch (OV-03), R5-13 is dropped (OV-06), and RACE-3 and the other RACE lanes run none.
-  `RaceSitesStock` (SITES-2) and `RaceSitesEditor` (SITES-3) are R2's lanes' own.
-- The hosts list every category whose first test has landed when T-29 lands; a category
-  whose first test lands later joins its host's comma list in that pull request, and after
-  T-29 every new test in a hosted category re-pins its host in its own pull request
-  (section 6).
-- **Proof:** the lanes; each pinned through `INTERIM_PIN_IDS` until its first flight, then
-  whole.
+  run a batch of these categories: SITES-1 runs no batch (OV-03), R5-13 is dropped (OV-06),
+  and RACE-3 and the other RACE lanes run none. `RaceSitesStock` (SITES-2) and
+  `RaceSitesEditor` (SITES-3) are R2's lanes' own categories, pinned by those lanes.
+- Each host lists every category of its scene whose first test has landed when the host
+  lands; a category whose first test lands later joins its host's comma list in that pull
+  request, and after a host lands every new test in a category it hosts re-pins that host
+  in its own pull request (section 6).
+- **Proof:** the lane; pinned through `INTERIM_PIN_IDS` until its first flight, then whole.
 - **Registers:** `MultiCategoryBatchWiringGroupTests.GROUP` (test_hlib.py:7807), catalog,
   autotest-status, D19 `ingame`.
-- **Size:** M. **Depends on:** T-17, T-19, R2-03, R2-05, R5-11, R3W-09, R3W-30; soft: the
-  first test of each other category (R1-03, R2-11, R3E-08, R3E-13, R3E-24, R3W-20, R4-13,
-  R5-01). **PC:** yes.
+- **Size:** M. **Depends on:** T-17, T-19, R2-03, R2-05, R5-11, R3W-05 (the rival store the
+  helper's accessor names); soft: the first test of each other Space Center category
+  (R1-03, R2-11, R3E-01, R3E-24, R4-13: each joins RACE-9 when it lands). **PC:** yes.
 - **Risk:** medium; every later test in a pinned category reds the pin until the spec is
   re-pinned in the same PR (cost in section 6).
 
@@ -723,6 +730,37 @@ Dropped: replaced by R3W-29 (OV-20).
   assumed (a)). **PC:** yes.
 - **Risk:** medium; it is the only proof of two live writers, and it depends on machinery
   this plan does not own.
+
+### T-35 Lane RACE-10-flight-batch (the FLIGHT host)
+
+- **Change:** the FLIGHT host of T-29's table: one spec, RACE-10-flight-batch, that joins a
+  staged race as a later player through T-29's `RaceTestContext`, enters FLIGHT with a
+  vessel on the home pad and runs one `RunTests` over the FLIGHT race categories whose first
+  test has landed (of `RaceSitesFlight`, `RaceFacts`, `RaceRivalLane`, `RaceRivalIsolation`,
+  `SpaceRaceFlight`, `RaceLooksFlight`); a later category joins the comma list in the pull
+  request of its first test.
+- **Proof:** the lane; pinned through `INTERIM_PIN_IDS` until its first flight, then whole.
+- **Registers:** `MultiCategoryBatchWiringGroupTests.GROUP`, catalog, autotest-status,
+  D19 `ingame` (shared with RACE-9).
+- **Size:** S. **Depends on:** T-29, R3W-09 (the rival ghost lane, so `RaceRivalLane` has
+  cells); soft: R3W-30 (`RaceRivalIsolation` joins when it lands) and the first test of each
+  other FLIGHT category (R2-09, R3E-08, R3E-13, R4-13, R5-01). **PC:** yes.
+- **Risk:** medium, as T-29.
+
+### T-36 Lane RACE-11-ts-batch (the TRACKSTATION host)
+
+- **Change:** the TRACKSTATION host of T-29's table: one spec, RACE-11-ts-batch, that joins a
+  staged race as a later player through T-29's `RaceTestContext`, enters the Tracking
+  Station and runs one `RunTests` over the Tracking Station race categories whose first test
+  has landed (`RaceSitesTrackingStation` from R2 and `RaceFactsTrackingStation` from R3E-13
+  exist before it; `RaceRivalLaneTrackingStation` and `RaceRivalIsolationTrackingStation`
+  join in the pull requests of their first tests).
+- **Proof:** the lane; pinned through `INTERIM_PIN_IDS` until its first flight, then whole.
+- **Registers:** `MultiCategoryBatchWiringGroupTests.GROUP`, catalog, autotest-status,
+  D19 `ingame` (shared with RACE-9).
+- **Size:** S. **Depends on:** T-29; soft: R2-11 and R3E-13 (their Tracking Station cells
+  are in before it), R3W-20 and R3W-30 (their categories join when they land). **PC:** yes.
+- **Risk:** low; a short batch in one scene.
 
 ## 5. Parallel tracks
 
@@ -833,7 +871,7 @@ one lane at a time, about half; the RACE lanes on it are not measured.
 
 ### What needs the owner's PC
 
-Every lane task (T-07, T-13, T-24 to T-29, T-32 to T-34), each with a reading run
+Every lane task (T-07, T-13, T-24 to T-29, T-32 to T-36), each with a reading run
 before any block is armed. Nothing headless does.
 
 ## 7. Gates and registrations
@@ -879,7 +917,7 @@ Live roots (A5): `docs/dev/arch/README.md:292-295` counts in-game tests and Test
 tooling as live roots, so a feature slice may make a member live with an in-game cell of its
 category or with one of this plan's seam reads (`ListHandles kind=sites|rivals|board`)
 before its production caller lands; an xUnit test does not count. A category that no
-committed spec pins yet needs no tally re-pin; T-29 pins it later.
+committed spec pins yet needs no tally re-pin; its host (T-29, T-35 or T-36) pins it later.
 
 Uncalled-method ratchet (A1): T-01, T-02, T-10, T-16, T-17, T-18 and T-31 add test-project
 code only, and T-03 to T-06 and T-21 harness code only; the production members they call

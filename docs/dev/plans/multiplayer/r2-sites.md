@@ -30,7 +30,8 @@ Built in this phase:
   a biome override only if spike S2 shows it is needed.
 - The modified-Kerbin refusal (the Kerbin fingerprint), filling R1-10's refusal slot and
   checked at apply.
-- In-game tests (one category per scene, hosted by T-29's lanes RACE-9, RACE-10 and RACE-11
+- In-game tests (one category per scene, hosted by the lanes RACE-9 (T-29), RACE-10 (T-35)
+  and RACE-11 (T-36)
   and by the R2 lanes) and three harness lanes, SITES-1, SITES-2 and SITES-3, that prove a
   launch, a recovery and a Space Center visit at each site, and stock Kerbin after leaving a
   race save.
@@ -83,7 +84,8 @@ Test and harness tasks:
   temporary shared folder the lanes create and join against;
 - T-07: the seam read `ListHandles kind=sites` and the lane RACE-0-stock-sites-baseline that
   pins the stock values (SITES-1, SITES-2);
-- T-29: the host lanes RACE-9 (SPACECENTER), RACE-10 (FLIGHT) and RACE-11 (TRACKSTATION),
+- T-29, T-35, T-36: the host lanes RACE-9 (SPACECENTER), RACE-10 (FLIGHT) and RACE-11
+  (TRACKSTATION),
   each one `RunTests` over a comma list of categories in a joined race save, which run R2's
   in-game categories `RaceSites`, `RaceSitesFlight` and `RaceSitesTrackingStation`.
 
@@ -208,7 +210,7 @@ Readers of the space center position or of launch-site names:
 | Reader | Reads | After the move |
 |--------|-------|----------------|
 | `SpawnCollisionDetector` constants `KscPadLatitude/Longitude`, `KscRunwayLatitude/Longitude`, `DefaultKscExclusionRadiusMeters` (SpawnCollisionDetector.cs:216-232) | stock pad and runway threshold | wrong at sites 1-3; P1 routes them through `HomeSpaceCenter` |
-| `SpawnCollisionDetector.IsWithinKscExclusionZone` (:240), `ClassifyKscExclusionZone` (:271), `DecideLaunchSiteEndOfFlightRetirement` (:349) | those constants | follows `HomeSpaceCenter` after P1 |
+| `SpawnCollisionDetector.IsWithinKscExclusionZone` (:240), `ClassifyKscExclusionZone` (:271), `DecideLaunchSiteEndOfFlightRetirement` (:353) | those constants | follows `HomeSpaceCenter` after P1 |
 | `LaunchSiteExclusionZones.Classify` (LaunchSiteExclusionZones.cs:182), `GetAltSiteCircles` (:236), cache `cachedRuntimeCircles` (:133) | KSC via the detector, Making History sites from `PSystemSetup.LaunchSites` | the alternate sites do not move, but the read admits the names `LaunchPad` / `Runway` (:302-303), so the cache may hold the stock KSC's own pad and runway; S4a decides, and if so R2-05 filters or rebuilds them (OV-52); P1-03 keys the cache on `HomeSpaceCenter`'s version |
 | `VesselSpawner.EvaluateKscEndOfFlightRetirement` (VesselSpawner.KscRetirement.cs:88, :127, :153) | the classifier above | follows `HomeSpaceCenter` |
 | `LaunchSiteOnlyGhost` hidden set (LaunchSiteOnlyGhost.cs:36-39, :274) | classifier, cached against `RecordingStore.StateVersion` and the tree count | stale across a move unless the key also holds `HomeSpaceCenter`'s version; R2-05 adds it (OV-53) |
@@ -279,6 +281,7 @@ Files (all new unless stated):
 | `RaceWorld/KerbinProbe.cs` | RaceWorld | the live reads behind the fingerprint |
 | `ParsekRaceBoot.cs` (R1-04's, edited) | Controllers | R1-04's one process-lifetime addon; its handler `OnSceneRequest(GameScenes)` runs on every `onGameSceneLoadRequested` request (the main menu included); R2-01 adds a call inside it: the wanted state from the gate decision the handler just applied, then `RaceSites.Reconcile` (OV-51; no second addon, no empty hook); it also hosts R2-07's fallback scene-ready tick |
 | `Patches/RaceLaunchGuardPatch.cs` | Patches | prefix on `FlightDriver.StartWithNewLaunch`, postfix on `EditorDriver.OtherLaunchSitesValid` |
+| `Patches/RaceLoadGatePatch.cs` | Patches | prefix on `Game.Start()`: the refused load and the first apply of a race save, before its first scene (R2-02) |
 | `InGameTests/RaceSitesTests.<Area>.cs` | InGameTests | one category per scene (OV-09): `RaceSites` (SPACECENTER, race save), `RaceSitesFlight` (FLIGHT), `RaceSitesTrackingStation` (TRACKSTATION), `RaceSitesEditor` (EDITOR), `RaceSitesStock` (SPACECENTER, single-player save after a race) |
 
 `RaceSites` state, all process lifetime (design 15.7, "the one piece of state that outlives
@@ -390,32 +393,71 @@ Logging (tag `RaceSites`, design section 10):
   (OV-31); `Reconcile` returns `Refuse` before any change when it fails. Ratchet: the slot
   call and `Reconcile` are the production callers of `CheckKerbinStock`,
   `KerbinFingerprint.Evaluate` and `KerbinProbe`, all in this PR.
-  - The refused load (question 10.1, owner, 2026-11-15: refuse to load). When `Refuse` is
-    the decision for a race save being loaded, or R2-04's apply fails and restores stock,
-    the load stops: Parsek goes back to the main menu, shows one screen message naming the
-    reason (an event: the load did not happen), and nothing writes the save. First step:
-    find by decompile the earliest point on the load path where the scene change can be
-    turned back before stock or Parsek writes `persistent.sfs` (stock writes it on several
-    scene paths, for example `FlightDriver.PostInit`); the turn-back is a scene request to
-    the main menu from `ParsekRaceBoot.OnSceneRequest`, with Parsek's own save of that
-    session suppressed. R2-04's "restored to stock" outcome becomes this refusal, as an
-    edit to R2-04's file in this PR. Log: Warn `Race load refused: reason=..`.
+  - The refused load (question 10.1, owner, 2026-11-15: refuse to load). The refusal is
+    decided before stock loads the save's first scene, in `Patches/RaceLoadGatePatch.cs`, a
+    prefix on `Game.Start()`. Decompile facts (`r0-spikes.md` 3.3, "Game start"): every way
+    into a saved game sets `HighLogic.CurrentGame` and then calls `Game.Start()`, which is
+    what loads the first scene (Game.cs:1752-1865); a scene request made from inside
+    `onGameSceneLoadRequested` cannot turn a load back, because `HighLogic.LoadScene` fires
+    that event and then calls `SceneManager.LoadScene` itself (HighLogic.cs:690-705, 795),
+    so `ParsekRaceBoot.OnSceneRequest` is not the refusal point. The prefix: when the game
+    being started carries a race mark (read from its proto scenario node, R1-04's gate), it
+    runs `RaceSites.Reconcile` for that game ahead of the scene request (the Kerbin check
+    and, for Apply, the apply itself; the scene request's own `Reconcile` then finds
+    Nothing). On `Refuse`, or an apply that failed and restored stock, it returns false:
+    stock does not load the scene, `HighLogic.CurrentGame` is set back to null (S4a checks
+    what the main menu needs), and one screen message names the reason (an event: the load
+    did not happen). A game without a race mark passes after one check, with no log line.
+    R2-04's "restored to stock" outcome becomes this refusal, as an edit to R2-04's file in
+    this PR. Log: Warn `Race load refused: reason=.. path=..`. What happens on each way in:
+    - main menu, Resume Saved (the load dialog): the player stays at the main menu with the
+      message. Stock has already rewritten `persistent.sfs` from the game it just read
+      before it calls `Game.Start()` (MainMenu.cs:1497); no Parsek code and no scene runs,
+      so the save's content is what was read. S4a's turn-back step measures whether the
+      bytes change at all;
+    - main menu, new game, and Parsek's Create and Join: R1-10's `RaceInstallCheck` runs the
+      same Kerbin check before anything is created, so a refusal there is the dialog's; an
+      apply that fails at the new save's first start is refused by the prefix like a load;
+    - scenarios: never race saves, the prefix passes;
+    - the in-game quickload and its load dialog (F9, Alt+F9): the quicksave is of the same
+      race save, so the decision is Nothing (the sites are applied in this process for the
+      same mark). If it ever refuses (only a hand-edited quicksave naming another site
+      table could), the prefix also requests the main menu, since the player is in a
+      scene; stock has by then written the quicksave's game into `persistent.sfs`, as a
+      stock quickload always does (`QuickSaveLoad.quickLoad`, `GamePersistence.SaveGame`
+      before `Game::Start`);
+    - Parsek's seam `LoadGame` and `NewGame` (`game.Start()`) go through the same prefix;
+      rewind, Re-Fly and revert stay inside one race save and never call `Game.Start()`.
+    Fallback, if S4a shows the prefix cannot be used (a scene still loads, or the main menu
+    breaks after the turn-back): the load finishes at the scene the save asks for, at the
+    stock space center, with Parsek's own save of that session suppressed, and then
+    `OnSceneRequest`'s refusal sends the player to the main menu with the message. "Save
+    untouched" then needs more than suppressing Parsek's save: a save that resumes in
+    flight is written by stock in `FlightDriver.PostInit` (FlightDriver.cs:918) with its
+    vessels on stock ground, so the fallback copies `persistent.sfs` (and, on the quickload
+    path, the quicksave) aside at the scene request and copies it back after the return to
+    the main menu.
 - **Proof:** xUnit `KerbinFingerprintTests` (stock values pass; each changed value, a
   missing city or decal and a planet-pack assembly each fail with their own reason; culture
   invariant reason text); a pure decision cell that `Refuse` and an apply failure both give
-  the refused load; an in-game check on the owner's PC that a refused race save goes back
-  to the main menu with the message and an unchanged `persistent.sfs` (file hash before and
-  after). In-game test `RaceSitesStock.KerbinIsStock` (SPACECENTER of a
+  the refused load; an in-game check on the owner's PC that a refused race save stays at
+  the main menu with the message, no scene loads, and `persistent.sfs` is unchanged (file
+  hash before and after; a difference made only by stock's own rewrite before
+  `Game.Start()` is shown by a diff, as in S4a). In-game test
+  `RaceSitesStock.KerbinIsStock` (SPACECENTER of a
   single-player save, hosted by SITES-2) records the eight heights it reads, so the table of
   expected heights is taken from a real game once (S5 compares them across two processes on
   one PC; a second machine is a cross-check).
 - **Registers:** the one call in R1-10's refusal slot; headless pins;
   `design-gui-inventory.md` (one screen message added, the refused load; and R1's dialog
   wording if it changes); `LoadReconcilePolicy` only if the turn-back needs a new load kind
-  (expected: none, it is a scene request); CHANGELOG under `1.1.0`.
+  (expected: none, no `OnLoad` runs); the Harmony patch list in `.claude/CLAUDE.md` as a new
+  bullet under the "ParsekHarmony.cs + Patches/" entry (README rule 10), then `cp
+  .claude/CLAUDE.md AGENTS.md`; CHANGELOG under `1.1.0`.
 - **Size:** M (was S to M; the refused load is added). **Depends on:** R2-01, R1-10. **Spike:** S5
   (heights equal in two processes on one PC; if not, the terrain check is dropped and only bodies
-  and assemblies remain).
+  and assemblies remain); S4a (its turn-back step proves the `Game.Start()` prefix, or this task
+  takes the fallback above).
 - **PC:** yes (expected heights, one in-game run).
 - **Risk:** medium; a too-tight tolerance refuses honest installs, which the two-process
   sample settles (a second machine cross-checks it).
@@ -576,27 +618,51 @@ Logging (tag `RaceSites`, design section 10):
   prefix on `FlightDriver.StartWithNewLaunch` skips a refused launch with a Warn line and one
   screen message (an event: the launch did not happen), and a postfix on
   `EditorDriver.OtherLaunchSitesValid` returns false when the race does not use the
-  alternate sites, so the stock picker shows them greyed (the stock-control annotation
-  exception: the mark and the block read the same predicate). The race setting wins over a
-  mid-game difficulty change (question 10.2, owner, 2026-11-15): in a race created without
-  the alternate sites, the stock difficulty option "allow other launch sites"
-  (`GameParameters.AllowOtherLaunchSites`, GameParameters.cs:223) is shown greyed, with its
-  reason appended to that option's own stock description, and a click-block keeps it off;
-  the mark, the block and the launch guard read one predicate,
-  `RaceLaunchRules.AlternateSitesBlocked(link)`. First step: find by decompile the stock
-  control that draws and sets that option in the difficulty window (its class and the
-  member a prefix can stop); if stock offers no disabled state for it, the click-block
-  stands alone with the reason text, and the plan says so. No change outside a race save.
+  alternate sites. Decompile fact (`il/acs.il`, `EditorDriver::setupValidLaunchSites`):
+  that method is the only caller, and when it reads false it does not add the alternate
+  sites to the editor's list, so the postfix HIDES them from the editor's picker rather than
+  greying them (the same thing a stock game with the option off shows; no annotation is
+  needed for an entry that is not there). The race setting wins over a mid-game difficulty
+  change (question 10.2, owner, 2026-11-15: launches from those sites stay refused and the
+  stock option is greyed). Three parts, all reading one predicate,
+  `RaceLaunchRules.AlternateSitesBlocked(link)`:
+  - CERTAIN: the field itself is held off. In a race created without the alternate sites,
+    `GameParameters.DifficultyParams.AllowOtherLaunchSites` (GameParameters.cs:223) is set
+    to false at every load of the race save and again whenever the stock difficulty window
+    applies its values. The window fires no `GameEvents.OnGameSettingsApplied` itself (the IL
+    of `DifficultyOptionsMenu` holds no reference to it); it hands its values to the
+    `OnDismiss` callback its opener passed, so the hold is a postfix on the window's method
+    that calls `OnDismiss` (this task's first step names it by decompile). Holding
+    the field, not only the picker, matters because stock reads it directly elsewhere:
+    `CommNetHome.CreateNode` keeps the alternate sites' ground stations when it is on
+    (CommNetHome.cs:212).
+  - CERTAIN: the launch refusal above, whatever the field says.
+  - IF REACHABLE: the greyed toggle. The option is a toggle of the stock difficulty window
+    whose getter and setter are compiler lambdas (`DifficultyOptionsMenu.<>c__DisplayClass14_0
+    .<CreateDifficultWindow>b__28` / `b__29`), so there is no named method to prefix. If
+    the toggle's UI object can be reached after the window is built (a postfix on
+    `DifficultyOptionsMenu.CreateDifficultWindow` finding the toggle by its label key), it
+    is set not interactable with the reason appended to its own stock description (the
+    stock-control annotation exception), and the click-block is the field hold above. If
+    it cannot be reached, the fallback: the toggle stays live, the value snaps back to off
+    when the window applies, and one screen message says why ("Other launch sites stay off:
+    this race was created without them"); that message is an event (it changed a value the
+    player had just set), which the screen-message rule allows. The report of this task
+    states which of the two shipped.
+  No change outside a race save.
 - **Proof:** xUnit `RaceLaunchRulesTests` (matrix of setting x expansion x name, unknown
   names, empty name); log-capture test of the refusal line. In-game
   `RaceSitesEditor.LaunchRules` (EDITOR; hosted by SITES-3's one `RunTests` step):
-  `OtherLaunchSitesValid()` follows the race setting; the difficulty option is greyed with
-  its reason and a set attempt leaves it off (SPACECENTER, `RaceSites` on RACE-9). Harness
-  SITES-3 (R2-14).
-- **Registers:** `design-gui-inventory.md` (one screen message added; the greyed
-  difficulty option as a stock-control annotation);
-  `TooltipEchoBudgetTests` untouched (no tooltip text); Harmony patch list in CLAUDE.md
-  ("ParsekHarmony.cs + Patches/" entry).
+  `OtherLaunchSitesValid()` follows the race setting and the editor's site list holds no
+  alternate site; `AllowOtherLaunchSites` reads false after a load and after the difficulty
+  window applies with it switched on (SPACECENTER, `RaceSites` on RACE-9), and either the
+  toggle is greyed with its reason or the snap-back message was posted (whichever shipped).
+  Harness SITES-3 (R2-14).
+- **Registers:** `design-gui-inventory.md` (one screen message added, two with the
+  snap-back fallback; the greyed difficulty option as a stock-control annotation when it
+  ships); `TooltipEchoBudgetTests` untouched (no tooltip text); Harmony patch list in
+  CLAUDE.md as a new bullet under the "ParsekHarmony.cs + Patches/" entry (README rule
+  10).
 - **Size:** M (was S to M; the greyed difficulty option is added). **Depends on:** R2-01,
   R1-03 (`RaceLink.alternateSites`), R1-10 (the
   manifest's `AllowOtherLaunchSites`). **Spike:** S4b (that the Space Center picker path
@@ -616,8 +682,8 @@ Logging (tag `RaceSites`, design section 10):
   onto a copy's pad, VAB roof and grounds hits only `Untagged`, non-trigger colliders, which
   by Part.cs:7787-7791 and :9561-9583 cannot set `landedAt`).
 - **Proof:** the three tests above; a note in the test file citing the stock lines.
-- **Registers:** RACE-10's pinned tally (`CommittedBatchTallySourceSyncTests`), if T-29's
-  spec is committed by then; until T-29 no spec pins the category and nothing is re-pinned.
+- **Registers:** RACE-10's pinned tally (`CommittedBatchTallySourceSyncTests`), if T-35's
+  spec is committed by then; until T-35 no spec pins the category and nothing is re-pinned.
 - **Size:** S. **Depends on:** R2-04, R2-07. **Spike:** S2. If S2 finds the KSC area to be a
   biome-map biome, R2-10 applies.
 - **PC:** yes.
@@ -652,8 +718,8 @@ Logging (tag `RaceSites`, design section 10):
 - **Proof:** in-game `RaceSites.SpaceCenterCamera` (RACE-9),
   `RaceSitesTrackingStation.MapKscNode` (RACE-11), `RaceSitesFlight.RecoveryDistance` and
   `RaceSitesFlight.CommNetHome` (RACE-10).
-- **Registers:** the pinned tallies of RACE-9, RACE-10 and RACE-11, if T-29's specs are
-  committed by then; the lane catalog (`python harness/tools/lane_catalog.py`) for a
+- **Registers:** the pinned tallies of RACE-9, RACE-10 and RACE-11, if their specs (T-29,
+  T-35, T-36) are committed by then; the lane catalog (`python harness/tools/lane_catalog.py`) for a
   category's first test.
 - **Size:** S (tests) to M (if CommNet needs a move). **Depends on:** R2-04. **Spike:** S4b.
 - **PC:** yes.
@@ -673,7 +739,8 @@ Logging (tag `RaceSites`, design section 10):
   value; `ExitToSpaceCenter` visit. One save also runs `RevertToLaunch` (a load inside a race
   save must reconcile to Nothing). No `RunTests` step: a spec has at most one, and the
   per-site values come from `ListHandles` (OV-03); the `RaceSites`, `RaceSitesFlight` and
-  `RaceSitesTrackingStation` cells run on T-29's hosts RACE-9, RACE-10 and RACE-11 (OV-09).
+  `RaceSitesTrackingStation` cells run on the hosts RACE-9 (T-29), RACE-10 (T-35) and
+  RACE-11 (T-36) (OV-09).
   logContract pins `Sites applied: table=kerbin-equator-1 home=<slot>` once per save and no
   `Sites apply failed`.
 - **Sample points:** this task extends T-07's sample-point table of `ListHandles kind=sites`
@@ -771,8 +838,8 @@ development builds then.
 Hot files that force an order: `RaceWorld/RaceSites.cs` and `RaceCore/RaceSitesSequence.cs`
 (every step is added there: R2-03, R2-04, R2-05, R2-07), `RaceCore/SitePlacementMath.cs`
 (R2-03, R2-04, R2-06), `InGameTests/RaceSitesTests.cs` (every task adds tests; split into
-`RaceSitesTests.<Area>.cs` partials to avoid conflicts), the pinned tallies of T-29's
-RACE-9, RACE-10 and RACE-11 specs (once T-29 has committed them, each new test re-pins its
+`RaceSitesTests.<Area>.cs` partials to avoid conflicts), the pinned tallies of the
+RACE-9, RACE-10 and RACE-11 specs (once T-29, T-35 and T-36 commit them, each new test re-pins its
 host's `total=`; before that there is nothing to re-pin, and the first test of a category
 regenerates the lane catalog in its own pull request: R2-02, R2-03, R2-05, R2-08, R2-11),
 `scripts/arch/lifetimes.toml`, `scripts/arch/headless_pins.toml`,
@@ -803,8 +870,8 @@ one batch in one scene, so each category has exactly one host:
 | Category | Scene and save | Host | Tests |
 |----------|----------------|------|-------|
 | `RaceSites` | SPACECENTER, race save at slot 1 to 3 | RACE-9 (T-29) | `PatchHeights`, `HomeSiteMoved`, `CopyIsInert`, `CopiesPresent`, `SpaceCenterCamera` |
-| `RaceSitesFlight` | FLIGHT, race save at slot 1 to 3, vessel on the home pad | RACE-10 (T-29) | `RetirementCirclesAtHome`, `CopiesPresent`, `HomePadMiniBiome`, `HomeKscAreaMiniBiome`, `CopyGivesNoMiniBiome`, `RecoveryDistance`, `CommNetHome` |
-| `RaceSitesTrackingStation` | TRACKSTATION, race save at slot 1 to 3 | RACE-11 (T-29) | `MapKscNode` |
+| `RaceSitesFlight` | FLIGHT, race save at slot 1 to 3, vessel on the home pad | RACE-10 (T-35) | `RetirementCirclesAtHome`, `CopiesPresent`, `HomePadMiniBiome`, `HomeKscAreaMiniBiome`, `CopyGivesNoMiniBiome`, `RecoveryDistance`, `CommNetHome` |
+| `RaceSitesTrackingStation` | TRACKSTATION, race save at slot 1 to 3 | RACE-11 (T-36) | `MapKscNode` |
 | `RaceSitesEditor` | EDITOR, race save without the alternate sites | SITES-3 (R2-14) | `LaunchRules` |
 | `RaceSitesStock` | SPACECENTER, single-player save after a race save | SITES-2 (R2-13) | `KerbinIsStock`, `NoPatchesWhenStock`, `StockRestored`, `NoCopiesWhenStock` |
 
@@ -862,7 +929,7 @@ anywhere.
   stock-control annotation exception (question 10.2, owner, 2026-11-15).
 - **In-game tests and harness:** five categories, one per scene (section 6) ->
   `lane_catalog.py`; `RaceSites`, `RaceSitesFlight` and `RaceSitesTrackingStation` hosted by
-  T-29's RACE-9, RACE-10 and RACE-11 (every new test re-pins that host's `total=`,
+  RACE-9 (T-29), RACE-10 (T-35) and RACE-11 (T-36) (every new test re-pins that host's `total=`,
   `CommittedBatchTallySourceSyncTests`), `RaceSitesStock` by SITES-2, `RaceSitesEditor` by
   SITES-3; one `RunTests` step per spec at most; never-flown SITES-2 and SITES-3 in
   `INTERIM_PIN_IDS` (SITES-1 runs no batch); `autotest-status.md` rows; lane ids `SITES-1`,
@@ -890,9 +957,13 @@ anywhere.
   drift Warn.
 - **Apply fails halfway**: the sequence rolls back to stock and logs the step, and the load
   is refused (R2-02; question 10.1, owner, 2026-11-15).
-- **The refused load cannot turn back in time** (R2-02): stock may write `persistent.sfs`
-  before Parsek's scene request runs. The decompile step finds the earliest point; if no
-  point is early enough, R2-02 says so and the owner is asked again.
+- **The refused load cannot turn back in time** (R2-02): a scene request cannot stop a load
+  (HighLogic.cs:690-705), so R2-02 refuses in a prefix on `Game.Start()`, before the first
+  scene, which S4a's turn-back step proves. Stock itself rewrites `persistent.sfs` from the
+  game it just read before `Game.Start()` on the load dialog and quickload paths; that is
+  stock's round trip of the file, with no Parsek code and no scene. If S4a shows the prefix
+  cannot be used, R2-02's fallback copies the save aside and back; the owner is told which
+  one shipped.
 - **Cost** (R2-07): three building sets. S5 measures; the lazy build is the fallback.
 - **Another mod moves the KSC** (KSCSwitcher, Kopernicus, Kerbal Konstructs edits): the
   fingerprint refuses (R2-02); SITES lanes run on stock installs only.
