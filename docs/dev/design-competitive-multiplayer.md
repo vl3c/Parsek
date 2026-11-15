@@ -1423,6 +1423,15 @@ flight that was merged and is not superseded, retired or discarded. So:
   discarded. The exporter asks the effective state whether a Re-Fly session is open (a read
   it gains for this), not the flight scene.
 - A Re-Fly merge replaces the superseded flight in the next standing.
+- A flight that is still open to Re-Fly (merged, ended in a crash, earned nothing; single
+  player lists it under Unfinished Flights) is an effective committed flight like any other:
+  it is shared, and rivals see it as a ghost. Single player closes a flight to Re-Fly once
+  it earned anything, a milestone included, so a flight that holds a date in the milestone
+  table is never one a Re-Fly can replace. A Re-Fly merge can therefore add a date to the
+  table but cannot take one away. A date it adds is the game date of the re-flown flight,
+  which lies in the past of the player's clock; it is treated like any date reached after a
+  rewind: it can take a first, and under the no-retakes rule a rival flight the game had
+  already seen blocks it (7.11). No rule is special to Re-Fly.
 - A load that drops flights (a quickload, a loaded older save) drops them from the next
   standing (principle 7; the co-op rule "shared stays shared" is gone because nothing depends
   on a shared flight). The player is told once, after the load: "2 shared flights left the
@@ -2106,9 +2115,12 @@ is the one place where what a machine remembers decides what it scores (principl
    (7.5), and one message after the load says so. Fly it again; if it is earlier, so much the
    better. Under the no-retakes house rule a first lost this way may be gone for good,
    because by now the rivals' claims have been seen (7.11).
-10. **A Re-Fly of a flight that held a first.** The merged attempt replaces the flight. If the
-    milestone now falls on a different date, the table and the board follow. An open attempt
-    is never shared.
+10. **A Re-Fly of a flight the rivals already have.** A crashed flight that can still be
+    re-flown is shared like any other. Only a flight that earned nothing can be re-flown, so
+    a Re-Fly never removes a date from the table. The merged attempt replaces the old flight
+    for the rivals at the next sync (their ghost of it changes). If the attempt reaches a
+    milestone, its date is the game date of the re-flown flight and follows the usual
+    rules, the no-retakes rule included (7.5, 7.11). An open attempt is never shared.
 11. **Two players reach a milestone on the same game day.** The earlier second holds the
     first with full points; the later player holds nothing for it, even two minutes later
     across midnight or on the same morning (6.6, 7.8).
