@@ -47,7 +47,8 @@ about saves, sites or ghosts beyond the above.
 ## 2. Starts after
 
 - Version 1.0.2 is released and the owner says go (brief; design section 14).
-- No other plan of the multiplayer program. Every task here builds on `main`. One spike:
+- No other plan of the multiplayer program. Every task here builds on `multiplayer` and
+  lands there (README rule 10). One spike:
   P1-03 waits for spike S4a.
 - The launch pad fixes are on main (owner answer to question 10.1, Q-04, 2026-11-14: fix
   both, in a separate work item outside this plan). That work fixes, in place and minimally,
@@ -55,7 +56,8 @@ about saves, sites or ghosts beyond the above.
   History sites in the `LaunchSiteExclusionZones` cache, each with a unit test, a CHANGELOG
   line and a todo entry; it does not create `HomeSpaceCenter`, `LaunchArea` or
   `LaunchAreaGeometry`. P1-02 and P1-03 edit the same files (`SpawnCollisionDetector.cs`,
-  `LaunchSiteExclusionZones.cs`), so both start after it is on main.
+  `LaunchSiteExclusionZones.cs`), so both start after it is on `multiplayer`: it is on main
+  (below) and `multiplayer` is cut from main at the go, so it is there from the cut.
   It landed 2026-11-14 in pull request #2605 (todo LAUNCH-SITE-WOUND-LONGITUDE and
   LAUNCH-SITE-PARTIAL-READ-CACHED). It left on main:
   `SpawnCollisionDetector.WrapLongitudeDeltaDegrees(deltaDegrees)` and
@@ -570,8 +572,9 @@ which places it in Controllers with no `modules.toml` edit. No task depends on P
 - **Registers.** `test_archview.py` Core count and list (`Core/LaunchArea.cs`), README (no
   `modules.toml` edit). No CHANGELOG and no todo entry (no behavior change; the wound-longitude
   entry belongs to the launch pad fixes work).
-- **Size.** S to M. **Depends on.** P1-01; starts after the launch pad fixes are on main (the
-  same `SpawnCollisionDetector.cs` and `LaunchSiteExclusionZones.cs`). **PC.** Yes (four
+- **Size.** S to M. **Depends on.** P1-01; starts after the launch pad fixes are on
+  `multiplayer` (they are from the cut; the same `SpawnCollisionDetector.cs` and
+  `LaunchSiteExclusionZones.cs`). **PC.** Yes (four
   lanes).
 - **Risk.** Low: a move of arithmetic already on main, proven bit-equal by the grid cell.
 
@@ -618,7 +621,8 @@ which places it in Controllers with no `modules.toml` edit. No task depends on P
   "cache never reset" was filed, mark it done with this task.
 - **Size.** S. **Depends on.** P1-01 (`Version`); spike S4a, which carries the VERIFY of
   section 2 (OV-52), for its comment and test wording; starts after the launch pad fixes are
-  on main (the same `LaunchSiteExclusionZones.cs`; their rule of not caching a partial first
+  on `multiplayer` (they are from the cut; the same `LaunchSiteExclusionZones.cs`; their
+  rule of not caching a partial first
   read stays, and the version key and the main-menu drop sit beside it). P1-03 does not
   filter the KSC's own pad and runway out of the cache; if S4a finds them there, R2-05
   filters or rebuilds them.
@@ -751,7 +755,8 @@ the wave-0 notes of E.5):
 - `docs/dev/design-autotest-command-seam.md`: P11-01 before T-07 and the race verb tasks
   (C.1).
 - `.claude/CLAUDE.md` and `AGENTS.md`: P10-01, then R1-07 (E.5.2) and the later rows of C.1;
-  one mirror copy per PR, so re-check `AGENTS.md` equality after merging `origin/main`.
+  one mirror copy per PR, so re-check `AGENTS.md` equality after merging `origin/multiplayer`
+  into the sub-branch (README rule 10).
 - `ParsekUI.cs`: P11-02, then R4-08 and R4-09.
 - `scripts/arch/lifetimes.toml` and `lifetime_pins.toml`: P1-03 first of C.1's row; every
   later task re-pins after merging.

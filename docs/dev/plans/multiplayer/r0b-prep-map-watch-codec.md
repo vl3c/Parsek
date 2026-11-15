@@ -639,7 +639,7 @@ Three tracks that share no file:
   R5-04's `ApplyOrbitStyle` half lands with R3W-18, its first production caller),
   `WatchModeController.cs` (all of P3b), `TrajectorySidecarBinary.cs` (P6-03, P6-04), the
   lifetime and facts pin files (every task that re-pins; re-pin last after
-  merging `main`), `.claude/CLAUDE.md` (P3-04).
+  merging `origin/multiplayer`), `.claude/CLAUDE.md` (P3-04).
 - Against P2a / P2b / P2c: the map and codec tracks touch none of the engine,
   `ParsekFlightGhostPositioner.cs` or `ParsekFlightPlaybackHost.cs`.
   `GhostMapPresence.FindBodyByName` is called from the positioner; P3-04 keeps that forwarder so the
@@ -746,7 +746,8 @@ Three tracks that share no file:
   watch path. It runs for one watched ghost, not per ghost; the watch lanes' timings in the
   run index would show a regression.
 - **Pin churn.** Several tasks re-pin the same TOML files; parallel PRs conflict there.
-  Re-pin after merging `main`, never by hand-merging pin lists.
+  Re-pin after merging `origin/multiplayer` into the sub-branch (README rule 10), never by
+  hand-merging pin lists.
 
 ## 9. Corrections and gaps
 

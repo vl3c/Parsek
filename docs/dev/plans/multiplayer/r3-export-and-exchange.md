@@ -366,7 +366,8 @@ task adds it to the earlier task's file. Fields and enum members are not methods
     reading the marker the way `ComputeERS` does (`EffectiveState.cs:2102`), so `RaceExport`
     needs no edge to Controllers.
   - `RaceExport/RaceExportSource.cs`: reads `EffectiveState.ComputeERS()`; `NotReady` when a
-    Re-Fly session is open (7.5), when any ERS recording has `FilesDirty` or
+    Re-Fly session is open (7.5; owner, 2026-11-15: nothing is sent to rivals while a Re-Fly
+    is in progress, sharing waits until it ends), when any ERS recording has `FilesDirty` or
     `SidecarEpochAdvancePending`, or a malformed `PrecHash` (each reason logged with the
     count); otherwise one `PublicRecording` per ERS recording with `PrecName = PrecHash`;
     trees through `EffectiveState.ResolveOwningTree(rec, null)`; names through
@@ -474,7 +475,8 @@ task adds it to the earlier task's file. Fields and enum members are not methods
     1 together with `race-link`. `RaceFormatPinTests` is R1-03's class; this task adds its
     cells (the standing codec writes and reads `RaceFormat.Current`; a standing at
     `Current + 1` classifies Newer).
-  - Golden `Fixtures/FormatGolden/v3/` (after R1-12's `v2`), at `race-exchange = 1`, written
+  - Golden `Fixtures/FormatGolden/v3/` (the next free number after R1-12's folder when this
+    task lands; expected today: `v3`, README rules 5 and 10), at `race-exchange = 1`, written
     once by `FormatGoldenV3GeneratorTests.WriteV3` (skipped unless
     `PARSEK_WRITE_FORMAT_GOLDEN=v3`) through T-01's `SaveWriterDriver`: `persistent.sfs` (a
     minimal race save with R1-03's race scenario node and two committed trees),
@@ -573,8 +575,8 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
   `RaceFacts` (FLIGHT only, OV-09): toggle hack gravity during a recording in a race-armed
   save and read `ToolUses`; the same in a single-player save reads empty.
 - **Registers:** a new in-game category (regenerate the lane catalog,
-  `python harness/tools/lane_catalog.py`), hosted by T-29's FLIGHT host lane RACE-10
-  (OV-09); once T-29's spec is committed, each later test in it re-pins that spec's
+  `python harness/tools/lane_catalog.py`), hosted by T-35's FLIGHT host lane RACE-10
+  (OV-09); once T-35's spec is committed, each later test in it re-pins that spec's
   `total=` in the same pull request (`CommittedBatchTallySourceSyncTests`); the
   `TestToolingUsed` field entry in `scripts/session-reset-allowlist.txt` and
   `lifetimes.toml`; log tags.
@@ -586,7 +588,9 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
 - **Change:** `FlightRecorder.CheatOptions.cs`: reads the stock `CheatOptions` switches of
   the 7.12 list (exact field names from a decompile) at record start and once per second of
   real time while recording; notes the first "on" of each as `CheatOption` with the field
-  name as detail. The debug actions S9 finds observable become `DebugAction` sites; the
+  name as detail. A tool marks everything its flight reaches after it was first used, also
+  after it is switched off (owner, 2026-11-15), so only the first "on" is kept and a later
+  "off" is not recorded. The debug actions S9 finds observable become `DebugAction` sites; the
   ones it finds unobservable are named in the design's 7.12 out-of-reach list in the same
   change.
   - The save-level debug-completion fact (OV-34; owner decision D3, design 13.A: a debug
@@ -654,7 +658,10 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
 
 ### R3E-12 The vessel-ended ledger row type (A2 data)
 
-- **Change:** `GameActionType.VesselEnded = 42` with a doc block like `VesselRecovered`'s;
+- **Change:** `GameActionType.VesselEnded` at the next free id when this task lands (expected
+  today: 42, after `KerbalDismissal = 41`; README rules 5 and 10: if main takes the id
+  first, the branch renumbers at the next merge of main, and test saves made on the branch
+  with the old id are thrown away), with a doc block like `VesselRecovered`'s;
   fields: `RecordingId`, the vessel name, `EndCause { Destroyed = 1, Deleted = 2 }`.
   Serializer and deserializer next to `VesselRecovered`'s (`GameAction.cs:1375`, `:1559`).
   Every switch that names `VesselRecovered` handles it in the same group: no pool moves
@@ -673,8 +680,8 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
 - **Registers:** `docs/dev/design-save-format-policy.md` needs no bump (additive enum member,
   the accepted one-way downgrade of `GameAction.cs:160-183`); post-change checklist
   (ledger generator can build the row); `harness/lib/ledgeraudit.py` `GAME_ACTION_TYPES`
-  gains `42: "VesselEnded"` (`test_ledgeraudit.test_game_action_types_and_seeds` compares
-  it with the C# enum).
+  gains the same id (expected today `42: "VesselEnded"`;
+  `test_ledgeraudit.test_game_action_types_and_seeds` compares it with the C# enum).
 - **Size:** M. **Depends on:** none. **PC:** no.
 - **Risk:** medium; a missed switch falls into a default that may block or misclassify.
 
@@ -697,7 +704,7 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
     vessel removed by the game, and that `onVesselTerminated` fires only for the Tracking
     Station's terminate.
 - **Proof:** pure `VesselEndCaptureDecision` tests and log assertions; in-game tests, one
-  scene per category (OV-09): `RaceFactsTrackingStation` (TRACKSTATION, hosted by T-29's
+  scene per category (OV-09): `RaceFactsTrackingStation` (TRACKSTATION, hosted by T-36's
   RACE-11): terminate a spawned committed vessel -> one row; `RaceFacts` (FLIGHT, RACE-10):
   leave and re-enter flight -> zero rows; crash an unrecorded spawned vessel -> one row;
   a single-player save -> zero rows in all three.
@@ -714,7 +721,9 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
 - **Change:**
   - `EffectiveState.StandWindows.cs` (Rewind module): pure `StandWindowQuery.Compute(ers,
     trees, elsRows, sameVesselNextLeg)` returns, per spawnable non-debris leaf
-    (`RecordingTree.IsSpawnableLeaf`), `{ recordingId, fromUT = EndUT, untilUT? }`, where
+    (`RecordingTree.IsSpawnableLeaf`; leftovers are flyable vessels only, landers,
+    stations, rovers and bases, and rival debris is neither shared nor shown, owner,
+    2026-11-15), `{ recordingId, fromUT = EndUT, untilUT? }`, where
     `untilUT` = the earliest of: the start of the next ERS leg of the same vessel
     (`VesselIdentity.Resolve`), the first recovery row of its owner recording, the first
     `VesselEnded` row, and a later committed claim of the vessel
@@ -746,8 +755,16 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
 ### R3E-15 Disclosure facts
 
 - **Change:** `RaceExportSource.Disclosure.cs`: the loaded assemblies' names and versions,
-  sorted, and their digest; the digest of the save's difficulty parameters through the same
-  `RaceCore` canonical digest R1-10 uses for `race.cfg`'s `difficultyDigest`;
+  sorted, and their digest; the digest of the save's difficulty settings and a copy of
+  them, both over R1-10's race difficulty list (`RaceDifficulty.Keys`: an explicit, ordered
+  list of stock difficulty settings only, named field by field, forty keys from
+  `DifficultyParams`, `CareerParams` and the two stock custom nodes `AdvancedParams` and
+  `CommNetParams`; never the whole `GameParameters` node, and a `CustomParameterNode` only
+  when it is one of those two stock types, never Parsek's own or another mod's), with
+  the same digest R1-10 writes as `race.cfg`'s `difficultyDigest`, so a rival can be told
+  which settings changed (owner, 2026-11-15: a
+  player may change their own difficulty mid-game; nothing is blocked and a mark names the
+  changed settings, R6-05);
   `testTooling` from `FactCapture.TestToolingUsed` (key `testTooling`, member
   `TestToolingUsed`, OV-28 / OV-32; R4 adds nothing to the wire). Persistence: a race facts
   child (`RACE_FACTS { testTooling }`, later R3E-09's `DEBUG_COMPLETION` rows), an
@@ -756,9 +773,17 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
   caller) and whose `Save` writes it, so the fact holds across scene changes; its row in
   `LoadReconcilePolicy` (every load takes the loaded save's copy, section 9 item 8) lands
   here. Codec `DISCLOSURE { modDigest difficultyDigest
-  testTooling MOD { name version } }`. Showing it is R6.
-- **Proof:** digest stability tests; export block test; the facts child round trips through
-  the hooks; `LoadReconcilePolicyTests` cover the new row.
+  testTooling MOD { name version } DIFFICULTY { <the keys of RaceDifficulty.Keys, in order,
+  and their values> } }`;
+  the `DIFFICULTY` child is additive (an older standing without it reads as digest only).
+  Showing it is R6.
+- **Proof:** digest stability tests; changing a `ParsekSettings` value (a
+  `CustomParameterNode` of the same `GameParameters`) leaves the copy and the digest
+  unchanged, and so does a mod's custom node; changing an `AdvancedParams` value changes
+  both; export block test, the `DIFFICULTY` child
+  included, exactly the keys of `RaceDifficulty.Keys` in order, and read back key for key;
+  a standing without the child reads; the facts child round trips
+  through the hooks; `LoadReconcilePolicyTests` cover the new row.
 - **Registers:** `LoadReconcilePolicy` row. **Size:** S. **Depends on:** R3E-04, R3E-06,
   R1-03, R1-10. **PC:** no. **Risk:** low.
 
@@ -779,6 +804,25 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
     budget (256 KB chunks into `<name>.parsek-part`, then rename; streaming SHA-256), retry
     with backoff across frames (three tries at about 0.2 s, 1 s, 5 s) on `IOException`, then
     the request fails until the next tick. It never runs inside `OnGUI`.
+  - Sync program guards on the main thread (S8 runs last, so these are built before any
+    measurement; section 8 names the three risks). (1) A time budget per poll: the transport
+    times every operation it starts and starts no further one in a poll once 50 ms of real
+    time are spent (default number; R6-10 tunes it after S8); what is left waits for the
+    next poll. (2) A placeholder is opened, never skipped for good: before it opens a
+    shared file, the transport reads the file's attributes; a file marked offline or
+    recall-on-open / recall-on-access (Windows `FILE_ATTRIBUTE_OFFLINE` 0x1000,
+    `RECALL_ON_OPEN` 0x40000, `RECALL_ON_DATA_ACCESS` 0x400000, the on-demand placeholder
+    marks S8a reads) is a placeholder, and only opening it makes the sync client download
+    it, so skipping it at every poll would leave the rival "still arriving" for ever. The
+    transport opens at most one placeholder per poll, and only at an import tick, which is
+    always outside flight (the import never runs in flight, R3E-17; design 15.9); it logs
+    that open with its path and how long it took (Info), copies the file into the local
+    race directory, and leaves any further placeholder for the next poll. (3) An operation
+    that took over 250 ms is logged with its path and that file is skipped on the next poll
+    once. A budget can stop the transport from starting the next read; it cannot bound one
+    open the operating system blocks (design 15.9). The stall of the one placeholder open
+    per poll, and of a blocking open whose attributes did not warn, is the accepted risk
+    until S8 measures it and the owner decides on the worker (R3E-23, question Q-18).
   - `RaceSync.CopyOut.cs`: seq = max(shared listing, own mirror) + 1 (6.3); every own
     standing not yet copied out goes oldest first, each after every payload file it names is
     confirmed in the shared folder; `copiedOut` marked in the own index. While the transport
@@ -791,8 +835,13 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
   with it, R1-08's in-memory folder and T-02's `FakeClock` (offline then back: oldest
   first, payload before standing; partial arrival; a higher seq in the shared folder);
   `RaceMainThreadTransportTests` on temp dirs (a destination held open with `FileShare.None`
-  retries, then succeeds after release); R1-10's `RaceFolderCheckTests` pass over the
-  transport.
+  retries, then succeeds after release; with an injected slow file layer, no operation
+  starts after the poll budget is spent; a placeholder, which the fake file layer keeps
+  reporting as one until the file is opened, as the sync clients do, is opened once at the
+  first import poll with its open time logged and arrives in the local race directory after
+  that one open, while a second placeholder in the same poll waits for the next poll; and
+  an operation over 250 ms is skipped once); R1-10's
+  `RaceFolderCheckTests` pass over the transport.
 - **Registers:** none beyond log tags.
 - **Size:** M. **Depends on:** R3E-04, R1-08 (`sharedFolderPath`, the in-memory folder),
   R1-10 (`IRaceSharedFolder` and its adapter), T-02. **PC:** no. It proceeds without S8, which
@@ -818,6 +867,10 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
   tick, not after an offline one); a source gate test that `RaceWorld` calls no import step
   from a FLIGHT path.
 - **Registers:** none. **Size:** S. **Depends on:** R3E-16. **PC:** no. **Risk:** low.
+  The 60 s poll runs through R3E-16's transport, so each poll is held to its time budget and
+  opens at most one placeholder (R3E-16's guards); every tick that imports (load, scene
+  entry, the poll, Sync now) runs outside flight, so the stall of that open never hits a
+  flight; a poll cut short by the budget carries on at the next poll, not at the next frame.
 
 ### R3E-18 Import: copy-in, completeness and the verdict
 
@@ -829,8 +882,15 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
     cached; complete = every named file present with a matching proof -> move into
     `standings/` and `payload/`; incomplete -> keep the previous standing, status "still
     arriving", retry next tick (edge case 1); a newer `raceFormat` or recording format ->
-    status `NewerFormat` with the milestone block parsed when it parses (6.3); conflict
-    copies ignored with a rate-limited Warn (edge case 2).
+    status `NewerFormat` with the milestone block parsed when it parses (6.3). Only exact
+    names are read: a standing whose file name is exactly the standing pattern and a payload
+    file whose name is exactly one a standing names; every other file in a player's folder
+    is ignored with a rate-limited Warn. That covers every sync program's conflict copies,
+    whatever their naming (`name (1).cfg`, `name-conflict-...`, "conflicted copy"; edge
+    case 2), without a list of their patterns. Every read goes through R3E-16's transport,
+    so the poll budget and the one-placeholder-per-poll rule apply to the import too: a
+    standing whose files are placeholders stays "still arriving" until each has been opened,
+    one per poll, and then applies.
   - First production callers of R3E-01's `IRaceFolder.Move` (out of `incoming/`) and the
     `RaceIds` short id; the rival cache paths of `RacePaths`, which R3E-01 specified, land
     here with their tests (A1).
@@ -851,11 +911,22 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
     `RaceSlots.ResolveClashes` over the player manifests read in this tick and hands the
     result to R1-08's `RaceSession`; a "same site" or changed-look outcome becomes one
     message in `SyncResult.Messages`, posted by R3E-22's driver site.
+  - Joined (design 7.2, "Dan joined the race"): when this tick applies the first standing of
+    a rival whose cache has no `rivals/<short>/player.cfg` yet, one message "<display name>
+    joined the race" in `SyncResult.Messages`, posted by R3E-22's site. Not on the player's
+    own first import (`firstImportDone` false: every rival is new to a newcomer, and the
+    board shows them). A rival is involved, so the message fits the ruling that messages
+    come only when a rival is involved (Q-14, owner, 2026-11-15).
   - Order inside one tick: export, then import.
 - **Proof:** `RaceSyncImportTests` with folders built by T-16's `RaceFolderBuilder`:
-  half-synced, proof mismatch, unsafe id, newer format, conflict copy, late joiner, export
-  before import, a later joiner taking a seen look gets the clash outcome once.
-- **Registers:** log tags.
+  half-synced, proof mismatch, unsafe id, newer format, conflict copies in three sync
+  programs' namings (each ignored, never parsed), a standing and two payload files that are
+  placeholders (applied after three polls, one open each), late joiner, export
+  before import, a later joiner taking a seen look gets the clash outcome once, a joiner
+  seen by an older player gives one "joined the race" message and the next tick none, and
+  a newcomer's own first import gives none.
+- **Registers:** log tags; `design-gui-inventory.md` (the clash note and the joined message
+  under the driver's one screen-message site).
 - **Size:** M. **Depends on:** R3E-16, R3E-22, R1-08, R1-09, T-16; R1-11 writes the false
   (soft).
   **PC:** no. **Risk:** medium.
@@ -871,7 +942,9 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
     chain broken; `prevSeq` absent -> "history incomplete" and applied; the highest witnessed
     seq gone with no higher complete standing -> went backwards; two proofs seen for one seq
     -> the two-machine warning of edge case 3. On changed, broken or backwards: not applied,
-    the last good standing stays, mark `FilesChanged(playerId, reason)`.
+    the last good standing stays, mark `FilesChanged(playerId, reason)`: a neutral mark,
+    "files in <player>'s folder were changed", that every player sees, and no points move
+    (owner, 2026-11-15).
   - Receipts: export writes `SEEN { RIVAL { playerId seq hash } }` from the witness maxima
     taken before this tick's import; import checks a rival's `SEEN` against the own witness
     for third players and against the own mirror for this player, and records
@@ -896,12 +969,15 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
   fresh standing after it at once with `note = "replaces <a>..<b>"`; unpublished own
   standings that collide with an unknown file of the same seq are renumbered after it (they
   were never seen). One screen message per heal event through `SyncResult.Messages`. A file
-  put back twice within three ticks is not put back again; the driver warns naming the
-  two-machine cause (question 1).
-- **Proof:** `RaceSyncHealTests` (each case; the fight stop); `RaceSyncLoopbackTests` gains
-  its self-heal case on T-18's simulator (section 6).
-- **Registers:** `docs/dev/design-gui-inventory.md`: the heal message is listed under the
-  driver's one screen-message site (R3E-22; no new site, OV-38).
+  put back twice within three ticks is not put back again, and one screen message says that
+  the race folder is being written from two computers (question 1, owner, 2026-11-15:
+  restore twice, then stop and say so on screen), through `SyncResult.Messages` like the
+  heal message.
+- **Proof:** `RaceSyncHealTests` (each case; the fight stop and its one message);
+  `RaceSyncLoopbackTests` gains its self-heal case on T-18's simulator (section 6).
+- **Registers:** `docs/dev/design-gui-inventory.md`: the heal message and the two-computers
+  message are listed under the driver's one screen-message site (R3E-22; no new site,
+  OV-38).
 - **Size:** M. **Depends on:** R3E-16, R3E-19, R3E-22, T-18. **PC:** no. **Risk:** medium.
 
 ### R3E-21 Keep and prune
@@ -928,7 +1004,8 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
     `SyncResult.Messages` with `ParsekLog.ScreenMessage` and logs one Info line per message,
     `[RaceSync] Message posted: <text>` (a screen message writes no log line of its own;
     T-32's `logContract` reads this one). Every later race message
-    (R3E-18's clash note, R3E-20's heal, R4-07's holder changes) is appended to that list
+    (R3E-18's clash note and "<name> joined the race", R3E-20's heal and two-computers
+    messages, R4-07's holder changes, R6-08's end-of-race messages) is appended to that list
     and uses this site; no other task adds one.
 - **Proof:** tests for quickload-shaped and Re-Fly-shaped differences; a driver test that
   each message of a result is posted once.
@@ -1010,7 +1087,7 @@ R1 task; `Config/FactCapture.cs` (R3E-06, 09, 15); `LoadReconcilePolicy.cs` (R3E
   byte-identity of a single-player tree and ledger with the feature compiled in.
 - **Golden:** the `v3` folder through `FormatGoldenV3Tests` and the three gate tests;
   R3E-04's cells in R1-03's `RaceFormatPinTests`.
-- **In-game (owner's PC):** one scene per category (OV-09), hosted by T-29's lanes:
+- **In-game (owner's PC):** one scene per category (OV-09), hosted by T-29, T-35 and T-36:
   `RaceFacts` (FLIGHT, RACE-10: A2 and A3 capture, R3E-08, 09, 13),
   `RaceFactsTrackingStation` (TRACKSTATION, RACE-11: R3E-13's terminate) and `RaceExchange`
   (SPACECENTER, RACE-9: R3E-01's folder cell, R3E-24). They prove the stock events behave
@@ -1020,7 +1097,8 @@ R1 task; `Config/FactCapture.cs` (R3E-06, 09, 15); `LoadReconcilePolicy.cs` (R3E
   placeholders (R3E-23).
 - **Harness:** no lane of its own; the whole-save isolation lane is T-27 (RACE-4), the
   two-player lanes are T-28 (RACE-6) and T-32 (RACE-7), driving two race saves through T-19's
-  `RaceCommand action=sync|offline|online`; the in-game categories ride T-29's hosts.
+  `RaceCommand action=sync|offline|online`; the in-game categories ride the hosts of T-29,
+  T-35 and T-36.
 
 ## 7. Gates and registrations
 
@@ -1066,9 +1144,10 @@ R1 task; `Config/FactCapture.cs` (R3E-06, 09, 15); `LoadReconcilePolicy.cs` (R3E
   post-change checklist for R3E-07 and R3E-12; R3E-15's `LoadReconcilePolicy` row for the
   race facts child (OV-28).
 - **GUI gates:** no new surface. Screen messages: one site, the driver's (R3E-22), the one
-  producer of race messages (OV-38); the heal message (R3E-20), the "left the race" message
-  (R3E-22), the clash note (R3E-18) and R4's board messages are listed under it in
-  `design-gui-inventory.md`.
+  producer of race messages (OV-38); the heal and two-computers messages (R3E-20), the "left
+  the race" message (R3E-22), the clash note and the "joined the race" message (R3E-18),
+  R4-07's holder changes and R6-08's end-of-race messages are listed under it in
+  `design-gui-inventory.md` (README, "Race screen messages", lists every race message).
 - **Logs:** tags entered in R1-06's tag list (OV-57); `scripts/arch/log_tags.json` refreshed
   (report-only) when a task adds a tag.
 - **Docs per commit:** `docs/dev/todo-and-known-bugs.md` entries for the gaps of section 9
@@ -1083,9 +1162,22 @@ R1 task; `Config/FactCapture.cs` (R3E-06, 09, 15); `LoadReconcilePolicy.cs` (R3E
   replaced by one that re-uploads every touched trajectory. The plan treats
   `SidecarEpochAdvancePending` as not ready; the cost is that a commit tick in flight rarely
   exports until the next save. Noticed by the `notReady reason=epoch-pending` count.
-- **Main-thread stall.** A cloud placeholder or an offline share can block one open for
-  seconds (15.9). Mitigation: no shared-folder access in flight without the worker; S8
-  numbers and R3E-23 at the end (S8 runs last, after T-28).
+- **Main-thread stall and sync program behaviour.** S8 runs last (owner, Q-03), so R3E-16
+  to R3E-22 are built before any sync program is measured. Three risks, each named in S8a's
+  question list too:
+  - on-demand placeholders: a cloud-only file whose first open blocks while the client
+    downloads it, or an offline share that hangs an open for seconds (15.9). Mitigation:
+    no import in flight; R3E-16's attribute check finds a file marked as a placeholder,
+    which is opened (so it downloads) at most one per poll, only at an import tick outside
+    flight, with its open time logged, and is never skipped for good; a per-poll time
+    budget; the stall of that one open is the accepted risk until S8 and R3E-23;
+  - conflict copies: a client writes a renamed copy beside a file two machines changed.
+    Mitigation: the import reads exact names only (R3E-18), so a conflict copy is never
+    parsed;
+  - small-file throttling: a client uploads a burst of small files slowly or out of order.
+    Mitigation: payload before standing on the way out, and on the way in a standing whose
+    named files have not all arrived stays "still arriving" and is retried (R3E-18, edge
+    case 1); S8a measures how long a burst takes.
 - **Privacy leak in a payload.** The `.prec` and the public ghost could carry a kerbal name or
   another private value. R3E-03 strips `crew`; VERIFY the rest by reading a real `.prec`
   event list and a real snapshot; a test pins the stripped key set.
@@ -1095,9 +1187,10 @@ R1 task; `Config/FactCapture.cs` (R3E-06, 09, 15); `LoadReconcilePolicy.cs` (R3E
 - **ConfigNode text.** Vessel and mission names with `//`, braces or newlines may not round
   trip in a `.pstd`. A codec test with hostile names; such characters are escaped or the name
   is dropped with a log line.
-- **Golden folder collision.** Settled by OV-15: `v2` is R1-12's and `v3` is R3E-04's; a
-  third slice that writes a folder first must take the next number, and the coverage gate
-  names any missing version.
+- **Golden folder collision.** Settled by OV-15: R1-12's folder comes first (expected `v2`)
+  and R3E-04's next (expected `v3`); each takes the next free number when it lands, and if
+  main takes a number first the branch renumbers at the next merge of main (README rules 5
+  and 10). The coverage gate names any missing version.
 - **Two machines on one player** fight through the heal; the fight stop of R3E-20 and the
   edge-case-3 warning make it visible.
 - **Witness loss.** A deleted cache restarts the witness log (section 9 of the design); the
@@ -1161,7 +1254,8 @@ R1 task; `Config/FactCapture.cs` (R3E-06, 09, 15); `LoadReconcilePolicy.cs` (R3E
     (`FileIOUtils.cs:256-627`); the worker keeps its own small copy routine.
 15. **Edge case 3 versus self-heal.** Two machines writing one player would heal over each
     other forever; 7.15 says put back, edge case 3 says only warn. The plan stops after the
-    second put-back of one file and warns (question 1).
+    second put-back of one file and says so on screen. Settled: question 1, answered
+    (owner, 2026-11-15).
 16. **Unpublished standings colliding with an unknown same-seq file** (an own standing written
     offline while another machine published that number) is not covered. The plan renumbers
     the unpublished tail; it was never seen, so no receipt names it.
@@ -1192,6 +1286,7 @@ R1 task; `Config/FactCapture.cs` (R3E-06, 09, 15); `LoadReconcilePolicy.cs` (R3E
    every time (as 7.15 says); (b) put back twice, then stop and say on screen "your race
    folder is being written from two computers". Recommendation: (b); it ends the fight and
    tells the player the cause.
+   Answered (owner, 2026-11-15): (b).
 2. **The background copy worker (15.9).** Shared folders on cloud drives can freeze the game
    for seconds when a file is opened the first time. Options: (a) allow one background
    worker that copies files and checks them, an exception to the "no threads" rule;

@@ -1,6 +1,13 @@
 # Multiplayer implementation - corrections to the design and open questions
 
-PLAN (2026-11-14). Found while planning; not yet folded into the design.
+PLAN (2026-11-14). Found while planning. Folded into design v3 on 2026-11-15; this file stays
+as the record of what changed and why, and every design line number in it refers to v2. Two
+corrections were rejected and not folded: DC-037 and DC-062. The analysis document items
+(DC-126 to DC-132) went into the analysis document's addendum "Corrections found while planning
+(2026-11-14)", with the counts of DC-130 re-measured there; the parts of DC-126 and DC-128 that
+name design 15.6 and 15.11 went into v3 with the rest. DC-133 and DC-134 are `.claude/CLAUDE.md`
+items: they wait for the first code pull request that touches those areas (P2a-02 for DC-133;
+DC-134 has no owning task). The owner's answers of 2026-11-15 are marked in Part 2.
 
 Sources: the eleven plan files in this folder (sections 3, 4, 9 and 10). "Design" is
 `docs/dev/design-competitive-multiplayer.md`; "analysis" is
@@ -109,6 +116,9 @@ copy is listed. Plan adds `lastSyncRealTime`, `Race/race.cfg` and `Race/own/play
 and `RaceLocal` is outside the save. Found: r5-looks.md:615-618. The "dressed with look N"
 marker must roll back with the roster on every load, so it belongs in the save. Plan: a
 `RACE_LOOK_DRESS` child of the race scenario node, save lifetime, one load-policy row.
+Note (2026-11-15): the suit lock (owner, 2026-11-15) removed the marker. With the suit
+locked, every load dresses every Crew kerbal not in the look, so no suit state is kept
+(design 7.4, 15.7); R5-11 adds no child and no load-policy row.
 
 ### 6.2 Changes to existing types
 
@@ -416,6 +426,7 @@ ERS is not covered; the plan drops it (logged) rather than crediting a different
 **DC-065 DETAIL.** Design 7.8 (lines 1243-1245): shares are not rounded. Found:
 r4-r6-board-and-rules.md:845-846. With doubles three thirds do not add to 1; the board uses
 exact fractions.
+Note (2026-11-15): design 7.8 now counts points in twelfths (one whole number); R4-04 follows.
 
 **DC-066 OWNER.** Design 7.8 (lines 1268-1273): messages when a sync changes a holder. Found:
 r4-r6-board-and-rules.md:838-842. Not said: what the first board of a session compares against
@@ -874,7 +885,8 @@ module needs its rule, layer and atlas line in the same commit as its first file
 
 Ordered by class: NOW, BEFORE-PHASE, AFTER-SPIKE, DESIGNER, ANSWERED. "Waits" names the tasks
 that need the answer. A question answered or re-timed after this list was written keeps its
-place and its number; its Class line says what changed (Q-03, Q-04, Q-05, Q-07).
+place and its number; its Class line says what changed (Q-03, Q-04, Q-05, Q-07, and the
+answers of 2026-11-15: Q-08 to Q-12, Q-14 to Q-17, Q-21, Q-22).
 
 ### NOW
 
@@ -955,14 +967,21 @@ save plays like single player: no rivals, no board.
   from the first phase.
 - Recommended: (a), so nobody creates a race that shows nothing yet.
 - Source: r1-mode-and-setup.md:848-851. Waits: R1-14. Spike first: none.
-  Class: BEFORE-PHASE R1.
+- Class: ANSWERED 2026-11-15 by the owner: (b). The hiding and the later change that would
+  show the entry are dropped; the entry is visible from the first R1 build on the
+  `multiplayer` branch, which no player sees before the final merge, and each R1 task that
+  changes what a player sees writes its CHANGELOG line there (README rule 10).
 
 **Q-09 Who chooses how long a race day is (6 hours Kerbin or 24 hours Earth)?**
 - Options: (a) the creator's own game calendar setting, shown in the dialog; (b) a choice in
   the setup dialog.
 - Recommended: (a); one less field, and the creator already chose it.
 - Source: r1-mode-and-setup.md:856-859; correction DC-029. Waits: R1-10, R1-15, R4-01. Spike
-  first: none. Class: BEFORE-PHASE R1 (the choice is written into the race file at creation).
+  first: none.
+- Class: ANSWERED 2026-11-15 by the owner: (a). The day length comes from the creator's own
+  game setting, is shown in the setup window and is written into the race file; there is no
+  field for it. A later ruling the same day (dates compare to the exact second) leaves it
+  only the display of dates.
 
 **Q-10 What happens when a race save's space center cannot be set up?** For example Kerbin was
 changed by a planet mod after the race started. The player's vessels would stand on unflattened
@@ -971,15 +990,17 @@ ground and the game may destroy them.
   on stock Kerbin with one warning.
 - Recommended: (a), because (b) can destroy vessels and the save would be written.
 - Source: r2-sites.md:800-806. Waits: R2-01, R2-02, R2-04. Spike first: S4 helps (what can
-  fail). Class: BEFORE-PHASE R2. The design covers only a refusal at race start (8 case 24,
-  lines 1653-1655).
+  fail). The design covers only a refusal at race start (8 case 24, lines 1653-1655).
+- Class: ANSWERED 2026-11-15 by the owner: (a), refuse to load: one message, back to the main
+  menu, the save untouched (R2-02).
 
 **Q-11 A player turns stock's "allow other launch sites" on in a race created without them.**
 - Options: (a) the race setting wins: launches from those sites stay refused and the option is
   greyed; (b) allow it and only disclose it next to the player's name.
 - Recommended: (a); the creator's choice decides how far every player travels.
 - Source: r2-sites.md:807-812; correction DC-038. Waits: R2-08, R2-14. Spike first: none.
-  Class: BEFORE-PHASE R2.
+- Class: ANSWERED 2026-11-15 by the owner: (a). The race setting wins, and the stock option is
+  greyed with its reason on that option (the stock-control annotation exception; R2-08).
 
 **Q-12 The same player plays one race on two computers at once.** Each game puts back the files
 the other wrote, so they overwrite each other forever.
@@ -987,7 +1008,9 @@ the other wrote, so they overwrite each other forever.
   screen that the race folder is being written from two computers.
 - Recommended: (b).
 - Source: r3-export-and-exchange.md:925-929; correction DC-084. Waits: R3E-20. Spike first:
-  none. Class: BEFORE-PHASE R3.
+  none.
+- Class: ANSWERED 2026-11-15 by the owner: (b). Put files back twice, then stop and say so on
+  screen (R3E-20).
 
 **Q-13 How exactly must the two saves of the "rivals change nothing" test match?** Two flown
 sessions never land on exactly the same time values.
@@ -1004,7 +1027,7 @@ yours: day 31".)
   first you take.
 - Recommended: (a); the opening hour would otherwise post a message for every new first.
 - Source: r4-r6-board-and-rules.md:869-873; correction DC-066. Waits: R4-07. Spike first: none.
-  Class: BEFORE-PHASE R4.
+- Class: ANSWERED 2026-11-15 by the owner: (a), messages only when a rival is involved.
 
 **Q-15 With "no retakes" on: Bogdan's earlier Mun landing itself does not count (he had seen
 yours first). Does Ana, who saw Bogdan's landing, still count as having seen it when she flies
@@ -1014,14 +1037,17 @@ an even earlier one?**
 - Recommended: (a); it never depends on a chain of other players' receipts and cannot loop on
   edited files.
 - Source: r4-r6-board-and-rules.md:862-868; correction DC-072. Waits: R6-02, R6-11.
-  Spike first: none. Class: BEFORE-PHASE R6.
+  Spike first: none.
+- Class: ANSWERED 2026-11-15 by the owner: (a). Any real, clean rival flight (in the shared
+  folder, tool-free) that your game had already seen blocks you, even one that won nothing.
 
 **Q-16 After the end date, do changes on the "now" board still send messages?**
 - Options: (a) no: only a change to the final board (a late file) and the one "race is over"
   message; (b) yes, as before the end.
 - Recommended: (a).
 - Source: r4-r6-board-and-rules.md:874-877; correction DC-066. Waits: R6-08. Spike first: none.
-  Class: BEFORE-PHASE R6.
+- Class: ANSWERED 2026-11-15 by the owner: (a). After the end, one "race is over" message, and a
+  message only when a late file changes the final board.
 
 ### AFTER-SPIKE
 
@@ -1030,7 +1056,10 @@ creator get?**
 - Options: (a) the four stock presets (Easy, Normal, Moderate, Hard) only, custom settings
   later; (b) wait for a custom panel before Create ships.
 - Recommended: (a); the race file stores the full settings either way.
-- Source: r1-mode-and-setup.md:852-855. Waits: R1-15. Spike first: S6. Class: AFTER-SPIKE S6.
+- Source: r1-mode-and-setup.md:852-855. Waits: R1-15. Spike first: S6.
+- Class: ANSWERED 2026-11-15 by the owner, as a creator choice: the full stock difficulty panel,
+  with the four stock presets as the fallback if S6 shows the panel cannot be opened. S6 still
+  decides which of the two ships first.
 
 **Q-18 May the race copy files on one background worker?** Shared folders on cloud drives can
 freeze the game for seconds when a file is opened the first time. The worker would be the one
@@ -1067,9 +1096,13 @@ plaque?**
   read; (c) no rival flags in the first build.
 - Recommended: (a), as one stock-styled popup.
 - Source: r3-rival-world.md:981-985. Waits: R3W-25 (and R3W-24). Spike first: S7.
-  Class: AFTER-SPIKE S7. Note: your ruling that rival flags are readable (design 0, line 67)
-  already rules out (b) and (c), and the UI exception (lines 112-119) does not list (a); so
-  the real question is whether (a) may be a fourth exception.
+  Note: your ruling that rival flags are readable (design 0, line 67) already rules out (b)
+  and (c), and the UI exception (lines 112-119) does not list (a); so the real question was
+  whether (a) may be a fourth exception.
+- Class: ANSWERED 2026-11-15 by the owner: (a), conditional. One small popup is built only if S7
+  shows the stock plaque window cannot show a rival's text; it is then the fourth new-window
+  exception, after the Route History window, the setup dialog and the Space Race window
+  (README rule 8). If S7 passes, no popup is built.
 
 ### DESIGNER
 
@@ -1080,8 +1113,10 @@ the map and in the Tracking Station (`Ghost: Ana - Kerbal X` or `Ghost: Kerbal X
 - Recommended: (a) by both plans; colors are hard to tell apart for some players, and the
   Tracking Station list has no color.
 - Source: r3-rival-world.md:991-993 and r5-looks.md:653-656 (merged). Waits: R3W-15, R3W-16,
-  R5-04. Spike first: none. Class: DESIGNER; assume (a). It uses existing surfaces and follows
-  your ruling that each player has a name and a color (design 0, lines 59-61).
+  R5-04. Spike first: none. It uses existing surfaces and follows your ruling that each player
+  has a name and a color (design 0, lines 59-61).
+- Class: ANSWERED 2026-11-15 by the owner: (a). "Ghost: Ana - Kerbal X" in the label, on the map
+  and in the Tracking Station.
 
 **Q-23 Does a rival ghost flying inside an atmosphere show a marker in the flight map view?**
 Own ghosts get a Parsek-drawn marker there; the design gives rivals none in the Tracking Station
