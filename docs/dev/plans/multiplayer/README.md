@@ -75,10 +75,10 @@ in this order (rule 11). The labels are milestone names, not lane ids: the exist
 | Milestone | Tasks | Waves | DO / SEE | Exit proof (task-index F has the full list) |
 |---|---|---|---|---|
 | MS-1a Test bench and prepared ground | 56 | 0 to 5 | The race test bench runs headless and the prepared ground is in; single-player Parsek is unchanged; the spike answers are in the design. | T-01, T-02, T-05 and T-38 cells; RACE-0 (T-07); `--tag race` (T-45); the campaign runner's replay (T-49); the prerefactor tiers and lanes; S13's reports |
-| MS-1b A race save, created and joined | 17 | 0 to 8 | Through the seam, a race save is created and three players join it at slots 1 to 3; a test game says so; a single-player save stays byte-identical. | RACE-1 (T-13); RACE-9, its own race at slot 1 (T-29); RACE-20 and the inertness test (T-44, T-10); the format and race grep gates; the race overlay (T-48) |
+| MS-1b A race save, created and joined | 17 | 0 to 8 | Through the seam, a race save is created and three players join it at slots 1 to 3; a test game says so; a single-player save stays byte-identical. | RACE-1 (T-13); RACE-9, its own race at slot 1 (T-29); RACE-20 and the inertness test (T-44, T-10); the format and race grep gates; the race overlay's validator and staging cells (T-48; first flown by T-53) |
 | MS-1c Headless skeleton: two machines, one board | 18 | 0 to 14 | In xUnit alone, N simulated machines exchange standings through a fake synced folder and compute byte-equal boards in any arrival order. | `RaceFolderBuilderTests` (T-16), `RaceSyncSimulatorTests` (T-18), same files same board (T-31), the import and board tests (R3E-18, R4-04 with T-52) |
-| MS-1d Live skeleton: two games, one folder, one flight, one board | 35 | 0 to 16 | Two real saves share one folder: A flies and exports, B syncs and sees A's ghost and A's row; the two scripted players trade a first and see each other's ghosts. | RACE-6 (T-28, T-39), RACE-3 (T-26), RACE-2 (T-24), RACE-10 (T-35); the P2b lanes; RCA-1, RCB-1, RCA-2 (T-53); the board oracle (T-51); RCI-1 to RCI-10 (T-55) |
-| MS-2 The four sites | 19 | 4 to 11 | Each player's space center sits at the player's site; launches, recoveries and the editor follow it; stock Kerbin comes back after a race; scripted player B flies from slot 2. | SITES-1 to SITES-3 (R2-12 to R2-14); RACE-11 (T-36); RACE-16, RACE-17 (T-42); the R2-12 / T-50 schedule row (stage S3) |
+| MS-1d Live skeleton: two games, one folder, one flight, one board | 35 | 0 to 16 | Two real saves share one folder: A flies and exports, B syncs and sees A's ghost and A's row; the two scripted players trade a first and see each other's ghosts. | RACE-6 (T-28, T-39), RACE-3 (T-26), RACE-2 (T-24), RACE-10 (T-35); the P2b lanes; RCA-1, RCB-1, RCA-2 to its sync head (T-53); the board oracle (T-51); RCI-1 to RCI-9 (T-55) |
+| MS-2 The four sites | 19 | 4 to 11 | Each player's space center sits at the player's site; launches, recoveries and the editor follow it; stock Kerbin comes back after a race; scripted player B flies from slot 2. | SITES-1 to SITES-3 (R2-12 to R2-14); RACE-11 (T-36); RACE-16, RACE-17 (T-42); the R2-12 / T-50 schedule row (stage S3, flown with or after T-53, wave 16) |
 | MS-3 Edit evidence and self-heal | 6 | 2 to 15 | A changed or deleted standing is caught by the witness log; offline exports copy out later; a foreign edit of the own subfolder heals. | R3E-19 and R3E-20 tests; R3E-24's cell on RACE-9; RACE-8 (T-25); the paired runner (T-54) |
 | MS-4 The rival world beyond flight | 29 | 0 to 19 | Rivals everywhere outside the one flight: leftovers, map and Tracking Station objects, labels, flags, plaques and the ghost budget, none leaking into the career. | RACE-4 (T-27); the rival-lane and isolation cells on RACE-10 and RACE-11; RACE-2's Tracking Station step; RACE-12 over a harvested folder (T-33) |
 | MS-5 Screens and messages | 17 | 0 to 18 | From the main menu a player creates or joins through the dialog, changes the Multiplayer settings and reads the board with holder-change messages. | RACE-7 (T-32); RACE-19 (T-43); `SpaceRace` and `SpaceRaceFlight` on RACE-9 and RACE-10; the R1 and R4 form and presentation tests; the census step (R4-12) |
@@ -131,20 +131,27 @@ wrong.
    form first, with the design's default poll numbers.
 7. **In-game test categories and their lanes.** The first test of a new in-game category
    regenerates the lane catalog (`python harness/tools/lane_catalog.py`) in its own pull
-   request. A spec that runs a batch pins the tally of every category it runs. The race
-   categories have five such specs: the host lanes RACE-9 (T-29, wave 8), RACE-10 (T-35)
-   and RACE-11 (T-36, both wave 9), one per scene, and the SITES lanes, which pin their own
-   categories from wave 11 (`RaceSitesStock` in SITES-2, R2-13; `RaceSitesEditor` in
-   SITES-3, R2-14). RACE-9 creates and joins its own race at slot 1; RACE-10 and RACE-11 move
-   onto the staged race when the rival categories need rivals (R3W-09, R3W-20). A category no
-   committed spec pins yet needs no re-pin when a test is added (R5-14's `RaceLooks` cell
-   lands in wave 7, before RACE-9); once a spec pins it, a test added to it re-pins that
-   spec's tally in the same pull request. A cell that needs no race save goes into an existing
-   category on its existing host instead (`GhostVisuals` on H15, `GhostMap` on S1.6), so it
-   flies the day it lands; the single-player half of a race cell runs on RACE-20 (T-44). Every
-   race lane is tier operator with the tag `race` (T-45). A spec runs several `RunTests`
-   steps only when each names one category and the spec sets `batchVacuityOptOut = true` with
-   a reason (`hlib.py:8321-8343`).
+   request. A spec that runs a batch pins the tally of every category it runs, and a tally
+   counts every cell of the category (`total=` is attribute-exact), so every spec that runs
+   a category is re-pinned together when a cell is added. The race categories have six such
+   specs: the host lanes RACE-9 (T-29, wave 8), RACE-10 (T-35) and RACE-11 (T-36, both wave
+   9), one per scene, which run them in a race save; RACE-20 (T-44), which runs `RaceLooks`,
+   `RaceFacts` and `RaceFactsTrackingStation` in a SINGLE-PLAYER save, one `RunTests` step
+   per category in that category's scene (the cells that need a race save skip there, the
+   single-player halves run), so a cell added to one of those three re-pins RACE-20 with
+   its race host; and the SITES lanes, which pin their own categories from wave 11
+   (`RaceSitesStock` in SITES-2, R2-13; `RaceSitesEditor` in SITES-3, R2-14). RACE-9 creates and
+   joins its own race at slot 1; RACE-10 and RACE-11 move onto the staged race when the rival
+   categories need rivals (R3W-09, R3W-20). A spec that does not pin a category yet needs no
+   re-pin when a test is added to it (R5-14's `RaceLooks` cell lands in wave 7, before RACE-9, so it
+   re-pins only RACE-20, which has run `RaceLooks` since R5-11); once a spec pins
+   it, a test added to it re-pins that spec's tally in the same pull request. A cell that needs no
+   race save goes into an existing category on its existing host instead (`GhostVisuals` on H15;
+   `GhostMap` on S1.6 in FLIGHT and H44 in TRACKSTATION, both re-pinned for a new cell), so it flies
+   the day it lands; the single-player half of a race cell runs on RACE-20 (T-44). Every race lane
+   is tier operator with the tag `race` (T-45). A spec runs several `RunTests` steps only when each
+   names one category and the spec sets `batchVacuityOptOut = true` with a reason
+   (`hlib.py:8321-8343`).
 8. **New player-facing surfaces** (the kinds `.claude/CLAUDE.md` forbids: windows, popups, badge
    counters, panels) are only the ones the owner asked for, the same list as design section 0: the
    main menu Multiplayer entry, the race setup dialog, the Space Race window, and, only if spike S7
@@ -230,7 +237,11 @@ wrong.
        T-30) lands exactly one wave after it.
     4. A milestone's exit proof flies in the wave after its last task lands, and milestones are
        signed off in ladder order (MS-1a, MS-1b, MS-1c, MS-1d, MS-2 to MS-10), even where a
-       later one closes in an earlier wave (MS-2 closes at wave 11, before MS-1c and MS-1d).
+       later one closes in an earlier wave (MS-2's own tasks close at wave 11, before MS-1c
+       and MS-1d; its scripted-player stage S3 flies with or after T-53, wave 16). A proof
+       whose flight comes later is shown headless at its milestone: MS-1b's race overlay
+       (T-48) by its hlib validator cells and the `test_run_smoke` staging cells, with its
+       first flight in T-53's lanes (wave 16).
     5. A red exit proof freezes only the tasks whose dependency closure reaches into that
        milestone, until it is green again; everything else keeps merging. The measured freeze
        radius (task-index B.2 and F give the members):
@@ -267,8 +278,8 @@ wrong.
 | Thing | Name |
 |-------|------|
 | Seam verbs | `RaceSetup action=create|join`, `RaceCommand action=status|set-folder|sync|offline|online`, `ListHandles kind=sites|rivals|board` |
-| Harness lanes | `RACE-0` to `RACE-20` (test-and-harness), the scripted players' `RCA-k` / `RCB-k` (generated by T-50), the integration lanes `RCI-1` to `RCI-10` (T-55), `SITES-1` to `SITES-3` (r2); every one tier operator with the tag `race` |
-| Test game | the race manifest key `testGame` (R1-23), set only by the seam's `RaceSetup action=create`; "Test game" in the Space Race window header and the join summary; in a test game the test-tools mark alone does not stop a flight from scoring (R6-01) |
+| Harness lanes | `RACE-0` to `RACE-20` (test-and-harness), the scripted players' `RCA-k` / `RCB-k` (generated by T-50), the integration lanes `RCI-1` to `RCI-9` (T-55), `SITES-1` to `SITES-3` (r2); every one tier operator with the tag `race` |
+| Test game | the race manifest key `testGame` (R1-23), set only by the test tools: the seam's `RaceSetup action=create` in a running game, or T-48's fixture writer staging a race save before the game starts (same manifest writer); never the setup dialog or any player-reachable path; "Test game" after the race name in the Space Race window header ("<name> - Test game"), the join summary and the Continue list; in a test game the test-tools mark alone does not stop a flight from scoring (R6-01) |
 | Scene request handler | `ParsekRaceBoot.OnSceneRequest`, the only one; it calls `RaceSites.Reconcile` on every request |
 | Refused load | `Patches/RaceLoadGatePatch.cs`, a prefix on `Game.Start()` that refuses a race save before its first scene (R2-02); a scene request cannot turn a load back |
 | Race scenario child hook | `IRaceScenarioChild` |
@@ -284,20 +295,24 @@ wrong.
 | Empty catalog for the rival lane | `RecordingPlaybackCatalog.None` (R3W-09); there is no `RivalCatalog` |
 | Race screen messages | Every race screen message, by task. Through one posting site, the sync driver's, landed by R3E-22, which logs `[RaceSync] Message posted:` for each: R3E-22's "<n> shared flights left the race"; R3E-18's clash note (a look or site taken by a later joiner, R1-09's rule) and "<name> joined the race"; R3E-20's heal message (files put back) and its two-computers message (the folder is being written from two computers); R4-07's holder changes; R6-08's two end-of-race messages. Outside the driver, each from its own task: R2-02's refused load (with R1-20's second reason, a tree or part values that differ); R2-08's refused launch, and its snap-back message ("Other launch sites stay off: ...") only if the stock toggle cannot be greyed; R1-21's snap-back message ("Progression settings stay as this race was created") for a setting it cannot grey; R1-22's launch warning ("This flight will not score: <part names>"); R3W-19's refused switch to a rival ghost. There are no others (R1-20's warning before a join or load is the stock confirmation dialog, not a screen message) |
 | Log tags | plain: `RaceSync`, `RivalLane`, `RaceBoard`, listed in R1-06 |
-| Race lane install | the `stock-tree` profile (the stock tech tree, so R1-20's check passes); `stock-minimal` loads CommunityTechTree and ProbesBeforeCrew, and the race lanes that run there do so on purpose: SITES-2 (R2-13) and RACE-15 (T-41) prove the warning path, RACE-17 (T-42) the refused load with play without scoring off; RACE-16 (T-42) runs on `modded-compat` to load a race save on a changed Kerbin; RACE-0 (T-07) and RACE-20 (T-44) load no race save; a lane answers a warning with the seam arg `unscoredConfirm=continue|cancel` (default `cancel`) on `RaceSetup action=create|join` and `LoadGame` (R1-20) |
+| Race lane install | the `stock-tree` profile (the stock tech tree, so R1-20's check passes); `stock-minimal` loads CommunityTechTree and ProbesBeforeCrew, and the race lanes that run there do so on purpose: SITES-2 (R2-13) and RACE-15 (T-41) prove the warning path, RACE-17 (T-42) the refused load with play without scoring off, and RCI-9 (T-55) is H79's race variant on its career host there, answering the warning with `continue` because its leak scan needs no score; RACE-16 (T-42) runs on `modded-compat` to load a race save on a changed Kerbin; RACE-0 (T-07) and RACE-20 (T-44) load no race save; a lane answers a warning with the seam arg `unscoredConfirm=continue|cancel` (default `cancel`) on `RaceSetup action=create|join` and `LoadGame` (R1-20) |
 
 ### In-game test categories
 
-One scene and one host lane per category. No other spec runs a batch of a category that
-RACE-9, RACE-10 or RACE-11 pins. Cells that need no race save go into existing categories on
-their existing hosts (`GhostVisuals` on H15, `GhostMap` on S1.6), and the single-player halves
-of race cells run on RACE-20 (T-44), a single-player save.
+One scene and one race-save host lane per category: RACE-9, RACE-10 and RACE-11 are the hosts
+in a RACE save. RACE-20 (T-44) hosts `RaceLooks` (SPACECENTER), `RaceFacts` (FLIGHT) and
+`RaceFactsTrackingStation` (TRACKSTATION) in a SINGLE-PLAYER save, one `RunTests` step per
+category and scene (the cells that need a race save skip there; the single-player halves
+run), so it pins those three categories too and its tally is re-pinned with theirs. No other
+spec runs a batch of a race category. Cells that need no race save go into existing
+categories on their existing hosts (`GhostVisuals` on H15; `GhostMap` on S1.6 in FLIGHT and
+H44 in TRACKSTATION, both re-pinned for a new cell).
 
 | Category | Scene | Host lane |
 |----------|-------|-----------|
-| RaceMode, RaceSites, RaceExchange, SpaceRace, RaceLooks | SPACECENTER | RACE-9 (T-29) |
-| RaceSitesFlight, RaceFacts, RaceRivalLane, RaceRivalIsolation, SpaceRaceFlight, RaceLooksFlight | FLIGHT | RACE-10 (T-35) |
-| RaceSitesTrackingStation, RaceFactsTrackingStation, RaceRivalLaneTrackingStation, RaceRivalIsolationTrackingStation | TRACKSTATION | RACE-11 (T-36) |
+| RaceMode, RaceSites, RaceExchange, SpaceRace, RaceLooks | SPACECENTER | RACE-9 (T-29); `RaceLooks` also on RACE-20 (T-44, single-player save) |
+| RaceSitesFlight, RaceFacts, RaceRivalLane, RaceRivalIsolation, SpaceRaceFlight, RaceLooksFlight | FLIGHT | RACE-10 (T-35); `RaceFacts` also on RACE-20 (T-44, single-player save) |
+| RaceSitesTrackingStation, RaceFactsTrackingStation, RaceRivalLaneTrackingStation, RaceRivalIsolationTrackingStation | TRACKSTATION | RACE-11 (T-36); `RaceFactsTrackingStation` also on RACE-20 (T-44, single-player save) |
 | RaceSitesStock | SPACECENTER, a single-player save loaded after a race save | SITES-2 (R2-13) |
 | RaceSitesEditor | EDITOR | SITES-3 (R2-14) |
 
@@ -321,9 +336,12 @@ ones that change the design are in `design-corrections.md`.
   player can see writes its CHANGELOG entry under the branch's `1.1.0` heading (rule 10).
 - A milestone completed from the debug menu does not score, by the owner's decision D3. R3E-09
   records what spike S9 shows a mod can see; R6-01 drops those rows and marks the player.
-- Test games (owner, 2026-11-15, replacing "races flown by the harness never score"): a game
-  created through the command seam's create step is a test game (`testGame = True` in its
-  manifest, R1-23), named "Test game" in the Space Race window header and the join summary.
+- Test games (owner, 2026-11-15, replacing "races flown by the harness never score"): only the
+  test tools make a test game (`testGame = True` in its manifest, R1-23), and two can: the
+  command seam's create step in a running game, and T-48's fixture writer, which stages a race
+  save before the game starts through the same manifest writer. The setup dialog cannot, and no
+  player-reachable code path sets the key. The words "Test game" follow the race name in the
+  Space Race window header ("<name> - Test game"), the join summary and the Continue list.
   In a test game the test-tools mark alone does not stop a flight from scoring; every other
   mark applies. A normal game is unchanged: a flight flown with a test tool scores 0 (R3E-08
   says when a recording carries the mark). So the lanes and the two scripted players prove
@@ -430,9 +448,10 @@ task that needs the PC, by wave. In short:
   the full run of every lane happens once, at release time.
 - **The race lanes:** every one tier operator with the tag `race`, flown on request through
   `parallel_runner.py run --tag race` (T-45). Their first flights add about 2.1 hours one lane
-  at a time (7465 s of estimates; 13 lane tasks not yet estimated), most of it the first change of
+  at a time (7428 s of estimates; 13 lane tasks not yet estimated), most of it the first change of
   hands (T-53) and the integration lanes (T-55); the two scripted careers to the Mun (T-57,
-  MS-10) take about 2.6 hours on two slots. `task-index.md` D.4 has the time per milestone.
+  MS-10) take about 2.24 hours on two slots to player A's last lane. `task-index.md` D.4 has the
+  time per milestone.
 - **Everything else:** one in-game test batch or one short lane per task that says "PC: yes";
   a race-only category runs on its host lane, a cell that needs no race save on an existing
   lane. The cloud runs the unit tests, the architecture suite and the harness Python suites.

@@ -526,9 +526,9 @@ the one test of design 7.8.
   window id key `ParsekSpaceRace`, lock id `Parsek_SpaceRaceWindow`, first-open 760 x 420,
   minimum 480 x 200, Flight and Space Center only, not the Tracking Station (owner,
   2026-11-15). Body: the game name line (owner, 2026-11-15: the creator names the game),
-  which reads "Test game - <name>" when the manifest says `testGame = True` (R1-23; design
-  7.12, owner ruling 2026-11-15: every player of a test game sees it named as one), and
-  an empty table
+  which reads "<name> - Test game" when the manifest says `testGame = True` (R1-23; design
+  7.2 and 7.12, owner ruling 2026-11-15: every player of a test game sees it named as one,
+  the words after the race name), and an empty table
   (milestone column, one column per player, points column) with the empty-state row "No
   milestone reached yet." Registration, every site in one change: `ISpaceRaceWindow` in
   `ParsekUIWindowContracts.cs` and in `IParsekUIWindows`; the field, constructor line and
@@ -587,14 +587,14 @@ the one test of design 7.8.
   look's color, co-holder cells in the same color dimmed, a non-scoring date in the house muted grey
   with a one-character mark (`?` unverified, `!` tool, `s` seen first, `~` not checked here) and
   `+N` for more dates, every meaning in the hover; the points column; the header with the race
-  name (with "Test game" before it in a test game, R4-09) and the player blocks (the site
-  line reads "site 2, 520 m"; the time left or
-  "final" and the disclosure marks join the header in R6-07); a two-button view switch `By
-  milestone` / `By date`. Colors come from R5-07's `RaceLookTable` (look index to UI color, OV-41),
-  whose colors are placeholders until S3a. Each rival's player block carries a show / hide toggle;
-  this task adds the SHOW setter on R1-08's facade, its first caller (OV-39): it writes the rival's
-  entry of `RaceLocal`'s `SHOW` block (R1-08's codec key, OV-27) to `local.cfg` through the
-  `RaceLocal` writer (R1-10); R3W-13's reader applies it at the next scene.
+  name (followed by "Test game" in a test game, "<name> - Test game", R4-09) and the player
+  blocks (the site line reads "site 2, 520 m"; the time left or "final" and the disclosure marks
+  join the header in R6-07); a two-button view switch `By milestone` / `By date`. Colors come from
+  R5-07's `RaceLookTable` (look index to UI color, OV-41), whose colors are placeholders until S3a.
+  Each rival's player block carries a show / hide toggle; this task adds the SHOW setter on R1-08's
+  facade, its first caller (OV-39): it writes the rival's entry of `RaceLocal`'s `SHOW` block
+  (R1-08's codec key, OV-27) to `local.cfg` through the `RaceLocal` writer (R1-10); R3W-13's reader
+  applies it at the next scene.
 - **Proof:** `RaceBoardPresentationTests` (grouping, cell choice, chronological order, the watch
   target, the show state, `ShowTimeOfDay` set on both cells when two players' dates in a row fall on
   one race day and on neither when they do not, under both calendars), `SpaceRaceTextTests` (every
@@ -862,12 +862,14 @@ from the Join button.
 
 ### R6-11 No retakes and the end date on generator-built rival folders
 
-- **Change:** not a flown lane (OV-08, supervisor decision): a harness-flown race save is
-  tool-marked for good, so its own dates never score and a flown rewind cannot show a
-  scoring `SeenFirst`. No-retakes and the end date are proven headless, on rival folders
-  built by T-16's `RaceFolderBuilder`, in which no seam ran, so they carry no mark. The
-  two folders are T-17's, written by its env-gated fixture writer and kept current by its
-  currency test: `noretakes-seen-first` and `enddate-between`. This task adds no folder.
+- **Change:** the scoring `SeenFirst` is flown live: T-56 plays a no-retakes race in a test
+  game (R1-23), where the test-tools mark does not stop a flight from scoring, and asserts
+  B's row is marked "seen first". This task keeps the cases a flight cannot make, proven
+  headless on rival folders built by T-16's `RaceFolderBuilder`: exact arithmetic for an end
+  date that falls between two standings, and standings whose dates are set to the second,
+  with no retakes and no flight time. The two folders are T-17's, written by its env-gated
+  fixture writer and kept current by its currency test: `noretakes-seen-first` and
+  `enddate-between`. This task adds no folder.
   `Source/Parsek.Tests/Race/RaceRulesFolderTests.cs`: each folder is read with the production codec
   (R3E-01), its standings become verdicts and R4-04's
   player records, and `RaceBoard.Compute` runs. Case 1 (`noretakes-seen-first`,

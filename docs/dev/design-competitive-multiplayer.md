@@ -244,13 +244,15 @@ These are binding. Quotes are the owner's words.
   difficulty mid-game (decision card: "Lock them"; 7.12).
 - Games created by the test harness score, as labelled test games (decision card "Let games
   created by the test harness score despite the test tools mark?", answer "Yes, as labelled
-  test games"). Only the automation command seam's create step makes a test game; the setup
-  dialog cannot, and a normal game never becomes one. Every player sees the words "Test
-  game" on the existing surfaces. In a test game the test-tools mark alone does not stop a
-  flight from scoring; the mark is still recorded and travels, and every other mark and rule
-  applies unchanged. In a normal game nothing changes: a flight flown with a cheat or test
-  tool scores 0. This replaces the designer's choice that races the harness flies never
-  score (question Q-24; 6.1, 7.2, 7.12, 7.13, 11).
+  test games"). Only the test tools make a test game: the automation command seam's create
+  step, or the harness's fixture writer staging a race save before the game starts. The setup
+  dialog cannot, no path a player can reach does, a normal game never becomes one, and a test
+  game never stops being one. Every player sees the words "Test game" on the existing
+  surfaces. In a test game the test-tools mark alone does not stop a flight from scoring; the
+  mark is still recorded and travels, and every other mark and rule applies unchanged. In a
+  normal game nothing changes: a flight flown with a cheat or test tool scores 0. This
+  replaces the designer's choice that races the harness flies never score (question Q-24; 6.1,
+  7.2, 7.12, 7.13, 11).
 
 **UI exception.** The standing rule "no new player-facing UI surfaces" gets four owner
 exceptions from the rulings above, all of them absent from single-player saves: the main menu
@@ -424,7 +426,7 @@ board is a comparison, not an economy.
 | Player id | Stable GUID identifying a player, generated at first setup. The display name is separate. |
 | Rival | Any other player in the race, as seen from the local player. |
 | Race save | A save created through the Multiplayer menu. A normal Sandbox, Science or Career save with a race mark in a scenario node of its own (6.2). |
-| Test game | A race created by the automation command seam's create step, never by the setup dialog, and named "Test game" to every player. In it the test-tools mark alone does not stop a flight from scoring; every other rule is a normal race's (7.12). Any other race is a normal game. |
+| Test game | A race created by the test tools (the automation command seam's create step, or the harness's fixture writer staging a race save before the game starts), never by the setup dialog, and named "Test game" to every player. In it the test-tools mark alone does not stop a flight from scoring; every other rule is a normal race's (7.12). Any other race is a normal game. |
 | Site | One of four fixed space center locations on Kerbin's equator. Site 0 is the stock KSC. |
 | Home site | The site a player is assigned. Their working space center stands there. |
 | Alternate launch site | A stock non-KSC launch site (the Dessert pad and airfield, Woomerang, the Island airfield). They exist only with the Making History expansion (7.3). Common to all players. |
@@ -632,10 +634,13 @@ RaceManifest (race.cfg, written once by the creator)
                               listed (7.2)
   allowUnscoredPlay: bool   - "allow play without scoring" (7.2); true unless the
                               creator unticks it
-  testGame: bool            - a test game (7.12): written True only by the automation
-                              command seam's create step; absent or False in every
-                              race made from the setup dialog, and absent reads as
-                              False. Fixed after creation like every other field
+  testGame: bool            - a test game (7.12): written True only by the test
+                              tools (the automation command seam's create step, or
+                              the harness's fixture writer before the game starts);
+                              absent or False in every race made from the setup
+                              dialog, and absent reads as False. No path a player
+                              can reach sets it. Fixed after creation like every
+                              other field
   parsekVersion: string     - informational
   MOD_LIST { MOD id version ... } - the creator's mods, informational
 
@@ -1111,8 +1116,9 @@ in their own game, which is disclosed (7.12), apart from the progression setting
 (7.12, owner, 2026-11-15).
 
 The dialog cannot create a test game: it has no such choice and never writes the manifest's
-`testGame` key, so every race made here is a normal game for good. Only the automation command
-seam's create step makes a test game (7.12, owner, 2026-11-15).
+`testGame` key, so every race made here is a normal game for good. Only the test tools make a
+test game: the automation command seam's create step, or the harness's fixture writer staging
+a race save before the game starts (7.12, owner, 2026-11-15).
 
 Then Parsek writes `race.cfg`, the creator's `player.cfg`, creates the save, adds the race
 mark to it and writes it to disk before the game starts (the Space Center scene reads the
@@ -1129,8 +1135,8 @@ writes their `player.cfg`, creates their save from the manifest with the race ma
 in before the start (as for Create), and starts it at their home site. A joiner who finds
 differences between their mods and the creator's list sees them named, as information. The
 summary also names the ticked part sets and whether play without scoring is allowed, shows
-the words "Test game" after the race name when the race is one (7.12), and a
-set this install lacks is named as
+the race name, followed by the words "Test game" when the race is one (7.12), and a set this
+install lacks is named as
 information ("Breaking Ground counts in this game; you do not have it: you can still join,
 with fewer parts"); a rival's craft built with it shows with those parts missing (7.7).
 
@@ -1225,8 +1231,8 @@ A join after the end date is allowed: the final board is unchanged (a player wit
 standing from before the end date is not on it) and the newcomer plays "after the end"
 (7.10).
 
-**Continue.** Lists the local race saves with race name (followed by "Test game" for a test
-game, 7.12), own look and last sync, and loads the chosen one.
+**Continue.** Lists the local race saves with race name, followed by the words "Test game"
+when the race is one (7.12), own look and last sync, and loads the chosen one.
 
 Refusals, each with its exact reason: the folder is missing or not writable; the folder has no
 race (Join) or already has one (Create); the race is full; the race's `raceFormat` is newer
@@ -2209,16 +2215,19 @@ flight harness proves the race on real flights, and every flight it flies carrie
 test-tools mark, so in a normal game none of them could ever take a first. A race the test
 tools create is therefore a test game, and it is labelled as one:
 
-- **Who makes one.** A game created by the test tools is a test game. Only the automation
-  command seam's create step (`RaceSetup action=create`) can make one, and the seam exists
-  only in a game started with the automation switch set. The race manifest carries
-  `testGame = True` (6.1), fixed at creation like every other setting. The setup dialog
-  cannot make one (7.2), a normal game can never become one, and a test game never stops
-  being one.
-- **Everyone sees it.** Every player of a test game sees it named as one: the words "Test
-  game" after the race name in the header of the Space Race window (7.13) and in the race's
-  summary where a race is joined or listed (the Join summary and the Continue list of 7.2).
-  These are existing surfaces: no new window, badge or message.
+- **Who makes one.** Only the test tools can make a test game, and two of them can. The
+  automation command seam's create step (`RaceSetup action=create`) makes one in a running
+  game; the seam exists only in a game started with the automation switch set. The
+  harness's fixture writer stages one as a race save before the game starts; it writes the
+  same manifest through the same writer, from the test project, never from the shipped
+  game's screens. Either way the race manifest carries `testGame = True` (6.1), fixed at
+  creation like every other setting. The setup dialog cannot make one (7.2), no path a
+  player can reach sets the key, a normal game can never become one, and a test game never
+  stops being one.
+- **Everyone sees it.** Every player of a test game sees it named as one: the race name,
+  followed by the words "Test game", in the header of the Space Race window (7.13) and in
+  the race's summary where a race is joined or listed (the Join summary and the Continue
+  list of 7.2). These are existing surfaces: no new window, badge or message.
 - **What changes.** In a test game the test-tools mark alone does not stop a flight from
   scoring. The mark is still recorded on the flight and on the save, still travels in the
   standing (the `TOOL` child and `testTooling`), and still shows next to the player's name
@@ -2766,25 +2775,25 @@ and ledger unchanged; a rival relay is not a CommNet node; a vessel standing on 
 is not "at the launch pad" and gives no building science; an EVA ghost recorded in a suit this
 install lacks is still drawn.
 
-**Harness lanes** (`RACE-0` to `RACE-13`, and `SITES-1` to `SITES-3` for the sites, plus the
-lanes of the two scripted players and the integration variants below). One PC plays both
-sides: in turn, against a shared folder the harness stages inside the game instance, or on
-two copies of the install at once, against a folder under the harness's own automation
-directory outside both copies (`automation/rs/<run>/<group>/`). The harness touches no folder
-outside that directory, so a folder elsewhere on disk is left to the play test. The lanes
-drive the race through the command seam (`RaceSetup action=create|join`, `RaceCommand
+**Harness lanes** (the race lanes of the lane table in the plan's `test-and-harness.md`: the
+race and site lanes, the two scripted players' lanes and the integration variants below). One
+PC plays both sides: in turn, against a shared folder the harness stages inside the game
+instance, or on two copies of the install at once, against a folder under the harness's own
+automation directory outside both copies (`automation/rs/<run>/<group>/`). The harness touches
+no folder outside that directory, so a folder elsewhere on disk is left to the play test. The
+lanes drive the race through the command seam (`RaceSetup action=create|join`, `RaceCommand
 action=status|set-folder|sync|offline|online`, `ListHandles kind=sites|rivals|board`) and one
 harness step that stages a shared folder. Every race lane loads at the Space Center; a spec
 flies at most one mission and may run several single-category in-game batches, and per-site
 values are read through `ListHandles kind=sites`.
 
 Every flight the harness flies carries the test-tools mark, because the command seam is armed
-from the game's start (7.12). The race lanes therefore play test games, created through the
-seam's create step or staged as one, so their flights score: holder changes, retakes and no
-retakes are proven live on real flights. Generator-built rival folders, which carry no mark,
-stay for the faults and edges a flight cannot make. In a normal game the same flights would
-score 0 and show the mark; the unit tests prove that rule, and the owner's one normal-game
-flight (the owner's list, below) proves scoring in a normal game live.
+from the game's start (7.12). The race lanes therefore play test games, made by the seam's
+create step or staged by the harness's fixture writer (7.12), so their flights score: holder
+changes, retakes and no retakes are proven live on real flights. Generator-built rival
+folders, which carry no mark, stay for the faults and edges a flight cannot make. In a normal
+game the same flights would score 0 and show the mark; the unit tests prove that rule, and the
+owner's one normal-game flight (the owner's list, below) proves scoring in a normal game live.
 
 - Player A creates a test game and flies to orbit; player B joins, syncs, and the lane
   asserts A's ghost launch from site 0, the board row (A holds it, with the test-tools mark
@@ -2811,15 +2820,16 @@ from the save the previous one left, that creates a Career game, accepts the fir
 hops a Flea, reaches orbit and comes back, flies by the Mun, orbits it, brings home Mun
 science and lands on the Mun with an EVA and a flag. It becomes two automated players:
 
-- *Player A* is that campaign as it stands, in a race save at site 0 (the stock space
-  center, where it was first flown, so none of its pinned values move).
+- *Player A* flies that campaign's missions as they stand, in a race save at site 0 (the
+  stock space center, where it was first flown, so none of its pinned values move).
 - *Player B* flies the same missions, craft and research order in a second save of the same
   race, at another site (in a second seat at the stock site until the sites exist), re-timed
   so firsts trade. A schedule table sets each launch's game date, and rival dates for one
   milestone are at least one Kerbin day apart: B takes the first orbit, A takes the Mun
-  flyby back, B retakes Mun orbit by a rewind. B's lanes are generated from A's lanes and
-  the schedule, never copied by hand, and B stops before the Mun landing, the stage whose
-  flights vary most.
+  flyby back, B retakes Mun orbit by a rewind. B stops before the Mun landing, the stage
+  whose flights vary most.
+- Every lane of both players, the first ones included, is generated from the campaign's
+  lanes and the schedule table, adding the race steps; nobody writes or copies one by hand.
 - Each player stage is its own lane, which stages that player's latest save and the shared
   folder the previous lane of either player left. The lanes alternate A, B, A, B on one copy
   of the game, or run pipelined on two copies, one stage apart.
@@ -2984,7 +2994,7 @@ S8 is about to run (listed again at the end of 13.C).
 | Parts by what flew | How is the part rule enforced? | DECIDED 2026-11-15: by what flew; a flight that carries a part outside the counted sets is marked and does not score, like a tool-marked flight; no mod part is refused for being installed (decision card "By what flew"); the window lists such a milestone at its date with 0 points and names the parts in its hover (7.12, 7.13) |
 | Later clean flight | Does a later clean flight score a milestone a marked flight reached? | DECIDED 2026-11-15: no, as for cheat tools; only a rewind and an earlier clean arrival does; the warning at launch is the protection (decision card "No, the launch warning is enough") (7.12) |
 | Progression settings | May the settings that speed up progression change mid-game? | DECIDED 2026-11-15: no; the reward multipliers, the entry purchase bypass, part upgrades, resource abundance and kerbal experience are greyed once the game is created; the other difficulty settings stay free and shown (decision card "Lock them") (7.12) |
-| Test games | Do games the test harness creates score despite the test-tools mark? | DECIDED 2026-11-15 (decision card "Let games created by the test harness score despite the test tools mark?", answer "Yes, as labelled test games"): a game created by the test tools is a test game; only the command seam's create step makes one (`testGame = True` in the manifest, fixed at creation), never the setup dialog, and a normal game never becomes one; every player sees "Test game" in the Space Race window header and in the Join and Continue summaries; in it the test-tools mark alone does not stop a flight from scoring, the mark is still recorded and travels, and every other mark and rule applies; a normal game is unchanged. Replaces the designer's choice Q-24 (6.1, 7.2, 7.12, 7.13, 11) |
+| Test games | Do games the test harness creates score despite the test-tools mark? | DECIDED 2026-11-15 (decision card "Let games created by the test harness score despite the test tools mark?", answer "Yes, as labelled test games"): only the test tools make a test game: the command seam's create step, or the harness's fixture writer staging a race save before the game starts (`testGame = True` in the manifest, fixed at creation); never the setup dialog or any path a player can reach, a normal game never becomes one and a test game never stops being one; every player sees the race name followed by "Test game" in the Space Race window header and in the Join and Continue summaries; in it the test-tools mark alone does not stop a flight from scoring, the mark is still recorded and travels, and every other mark and rule applies; a normal game is unchanged. Replaces the designer's choice Q-24 (6.1, 7.2, 7.12, 7.13, 11) |
 
 ### 13.B Chosen by the designer, for the owner to overrule
 

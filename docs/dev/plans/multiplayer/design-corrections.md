@@ -518,7 +518,8 @@ syncs; the lane asserts the holder change"; 7.12 (lines 1395-1399): a save where
 the test runner ran is marked for good and a marked flight scores nothing. Found:
 test-and-harness.md:857-861. A harness-flown B never takes a milestone. Plan proves the holder
 change with generator-built rival folders (RACE-7) and asserts the marked rows (RACE-6). Edit:
-11's second lane. See Q-24.
+11's second lane. See Q-24. Settled 2026-11-15 by Q-24 (b): in a test game (R1-23) a harness
+flight scores, and T-53 flies the holder change live.
 
 **DC-081 SILENT.** Design 7.12 (lines 1395-1396): "injected recordings" mark the save. Found:
 test-and-harness.md:862-865. Injection runs offline before boot, so Parsek cannot see it ran;

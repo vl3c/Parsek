@@ -276,9 +276,12 @@ with `parallel_runner.py run --tag race` (T-45) when a milestone's exit proof is
 rule 11). A lane other than RACE-1 may start in a race save through the race overlay (T-48)
 instead of a join round trip across the main menu; RACE-1 keeps the real create and join.
 
-Test games (design 7.12, owner ruling 2026-11-15): a race the seam creates is a test game
-(`testGame = True` in the manifest, R1-23), shown as "Test game" to every player, and in it the
-test-tools mark does not stop a flight from scoring; every other mark applies. Every race the
+Test games (design 7.12, owner ruling 2026-11-15): only the test tools make a test game
+(`testGame = True` in the manifest, R1-23), and two can: the seam's create step in a running
+game, and T-48's fixture writer, which stages a race save before the game starts through the
+same manifest writer. The setup dialog cannot, and no player-reachable path sets the key. A test
+game is shown as "Test game" (after the race name) to every player, and in it the test-tools
+mark does not stop a flight from scoring; every other mark applies. Every race the
 harness creates or overlays is a test game, so lanes assert real holders and points. A lane
 that must see a normal game's tool mark builds that rival with the generator (T-16), which
 writes `testGame = False`.
@@ -763,9 +766,13 @@ staged race in their own pull requests (R3W-09, R3W-20).
   Tracking Station cells), that task's pull request moves its host onto a race staged from
   T-17's fixtures (T-48's overlay); R3W-05's pull request adds the rival-store accessor to
   `RaceTestContext`. RACE-9's `logContract` pins R1-07's `[TestBatch] kept Parsek/Race/` line
-  (the batch revert keeps the race directory). These three are the only specs that
-  run a batch of these categories: SITES-1 runs no batch (OV-03), R5-13 is dropped (OV-06),
-  and RACE-3 and the other RACE lanes run none. `RaceSitesStock` (SITES-2) and
+  (the batch revert keeps the race directory). These three are the hosts in a RACE save.
+  RACE-20 (T-44) hosts `RaceLooks`, `RaceFacts` and `RaceFactsTrackingStation` in a
+  SINGLE-PLAYER save, one `RunTests` step per category and scene (the cells that need a race
+  save skip there, the single-player halves run), so it pins those three too and is
+  re-pinned with their race host. No other spec runs a batch of these categories: SITES-1
+  runs no batch (OV-03), R5-13 is dropped (OV-06), and RACE-3 and the other RACE lanes run
+  none. `RaceSitesStock` (SITES-2) and
   `RaceSitesEditor` (SITES-3) are R2's lanes' own categories, pinned by those lanes.
 - Each host lists every category of its scene whose first test has landed when the host
   lands; a category whose first test lands later joins its host's comma list in that pull
@@ -1014,10 +1021,17 @@ Made smaller on 2026-11-15: the pairing machinery is T-54's; this task is its fi
   - A lane-health rule: no line with a race log tag (`[Race`, read from
     `scripts/arch/log_tags.json` by module) appears in any lane without the tag `race`; a
     planted-red cell (a fake run log with one race line under a non-race lane) must red it.
-  - Lane `RACE-20-single-player-hosts`, operator, on a single-player save: runs the
-    single-player halves of the race cells that skip in a race save (R5-14's
-    `SuitChoiceFreeInSinglePlayer`, R3E-08's and R3E-13's single-player cells, R5-11's log
-    contract); each joins the lane in the pull request of its first test.
+  - Lane `RACE-20-single-player-hosts`, operator, on a single-player save: hosts the race
+    categories that have single-player halves, one `RunTests` step per category in that
+    category's scene (`batchVacuityOptOut = true` with its reason): `RaceLooks` in
+    SPACECENTER (R5-14's `SuitChoiceFreeInSinglePlayer`), `RaceFacts` in FLIGHT with a
+    vessel on the home pad, as RACE-10 (R3E-08's and R3E-13's single-player cells, which
+    start their own recording), `RaceFactsTrackingStation` in TRACKSTATION (R3E-13's).
+    The cells that need a race save skip there with their stated reason; the single-player
+    halves run. R5-11's log contract (no `[RaceLooks]` line) is the lane's `logContract`.
+    Each step joins the lane in the pull request of its category's first test. RACE-20 pins
+    those three categories beside RACE-9, RACE-10 and RACE-11, so a cell added to one of
+    them re-pins RACE-20's tally with its race host's.
 - **Proof:** the rule's cells; the lane.
 - **Registers:** `harness/README.md` lane health, catalog, status.
 - **Size:** S. **Depends on:** R1-04, R1-06. **PC:** yes.
@@ -1067,13 +1081,16 @@ Made smaller on 2026-11-15: the pairing machinery is T-54's; this task is its fi
   path to `${raceShared}`; the committed fixture is never touched (the `savepatch` rule:
   staged copy only). Overlays are written by an env-gated xUnit writer through the
   production writers (R1-03's `RaceLinkCodec.Write`, R1-10's manifest writers, R1-11's join
-  plan), carry `testGame = True` (they are test fixtures, never a player's path) and are
-  byte-gated like T-17. Player A takes slot 0, the stock KSC where the campaign fixtures were
-  flown, so no campaign pin moves.
+  plan) and are byte-gated like T-17. This writer is the second of the two test tools that
+  may make a test game (R1-23): it sets `RaceCreateRequest.TestGame` through its `internal`
+  setter (the test project is a friend assembly) and calls the same manifest write codec,
+  so every overlay carries `testGame = True`; no player-reachable path writes one. Player A takes
+  slot 0, the stock KSC where the campaign fixtures were flown, so no campaign pin moves.
 - **Proof:** hlib validator cells; `test_run_smoke` (spliced, snapshotted, the committed
   fixture byte-equal after the run); the overlay currency test.
 - **Registers:** `harness/README.md` fixtures section; `fixtures/race-overlay/README.md`.
-- **Size:** M. **Depends on:** T-03, R1-11, R1-12. **PC:** no (rides T-53).
+- **Size:** M. **Depends on:** T-03, R1-11, R1-12, R1-23 (the key and the writer parameter).
+  **PC:** no (rides T-53).
 - **Risk:** medium; it is a new patch class beside `savepatch`'s FLIGHTSTATE-only one, so
   its boundary (only the race node and `Parsek/Race/`) is argued and pinned by a cell.
 
@@ -1101,7 +1118,9 @@ Made smaller on 2026-11-15: the pairing machinery is T-54's; this task is its fi
   from the CS career specs and a schedule table (player, slot, `WarpToUT` before each launch,
   the race steps `RaceCommand action=sync` after load and after each commit, `ListHandles
   kind=rivals` and `kind=board`, the `[fixture.race]` and `[fixture.raceOverlay]` blocks),
-  and later the RCI variants of T-55. The output is regenerated and byte-gated
+  and later the RCI variants of T-55. The schedule table also names, per lane, the last
+  step whose race assertions gate (T-53 gates `RCA-2` only to its sync head until T-56 and
+  T-57 arm the rest). The output is regenerated and byte-gated
   (`test_race_campaign.py`) and the lane catalog regenerated with it. The schedule row that
   moves player B's overlay to slot 2 is added by whichever of R2-12 and this task lands
   second (normally this task; section 4b, stage S3).
@@ -1141,17 +1160,24 @@ Made smaller on 2026-11-15: the pairing machinery is T-54's; this task is its fi
 
 ### T-53 First change of hands: lanes RCA-1, RCB-1, RCA-2 (stages S1, S2)
 
-- **Change:** three lanes on twin overlays of `cs-career-mc1` (A at slot 0, B at slot 1,
-  T-48), flown in turn: `RCA-1` (A flies CS-4 on day 3 and exports), `RCB-1` (B syncs, sees
-  A's rows on the board, flies CS-4 on day 2, exports, and holds ReachedSpace, Kerbin/Orbit
-  and Kerbin/ReturnFromOrbit), `RCA-2` (A syncs; R4-07's `Holder changed:` line once per
-  row). `RunTests LedgerGroundTruth` in each. From T-20 on, `ListHandles kind=rivals` in
-  flight shows the other's ghost (stage S2); before it the lanes fly without that step. The
-  folder passes from lane to lane through T-59's harvest.
-- **Proof:** the lanes; T-38's leak scan gated; the board rows exact (section 4b).
+- **Change:** the first flight of three lanes T-50 generates (no spec is hand-written here),
+  on twin overlays of `cs-career-mc1` (A at slot 0, B at slot 1, T-48), flown in turn on
+  one install: `RCA-1` (A flies CS-4 on day 3 and exports), `RCB-1` (B syncs, sees A's rows
+  on the board, flies CS-4 on day 2, exports, and holds ReachedSpace, Kerbin/Orbit and
+  Kerbin/ReturnFromOrbit), `RCA-2`. `RCA-2` has one definition, T-57's (sync, then CS-4b
+  and CS-5 on day 5): this task asserts on its sync head, R4-07's `Holder changed:` line
+  once per row, and may end the lane's gating there; the rest of the lane flies, and its
+  race assertions are armed when T-56 (MS-8) and T-57 (MS-10) need them, through T-50's
+  schedule table (the column naming each lane's last gated step), so arming is a table edit
+  and a regeneration, never a second spec. `RunTests LedgerGroundTruth` in each. From T-20
+  on, `ListHandles kind=rivals` in flight shows the other's ghost (stage S2); before it the
+  lanes fly without that step. The folder passes from lane to lane through T-59's harvest.
+- **Proof:** the lanes; T-38's leak scan gated; the board rows exact (section 4b) up to
+  RCA-2's sync head.
 - **Registers:** catalog, D19 `campaign`, status, tag `race`.
-- **Size:** M. **Depends on:** T-48, T-59, T-19, T-30, R4-04; soft: T-20 (`kind=rivals`
-  steps), R4-07 (the holder-change line). **PC:** yes (three lanes, about 900 s each).
+- **Size:** M. **Depends on:** T-48, T-59, T-19, T-30, R4-04, T-50 (generates the three
+  specs); soft: T-20 (`kind=rivals` steps), R4-07 (the holder-change line). **PC:** yes
+  (three lanes from the CS p50s: 860 + 860 + 1195 = 2915 s).
 - **Risk:** medium; CS-4 is 3 of 3 PASS, but its funds and science margins were measured at
   site 0 and B flies first.
 
@@ -1173,7 +1199,7 @@ Made smaller on 2026-11-15: the pairing machinery is T-54's; this task is its fi
 - **Risk:** medium; pairing is new to the runner, and the second `stock-tree` copy needs
   `provision.py --profile stock-tree --copy 2` once.
 
-### T-55 Race integration variants (lanes RCI-1 to RCI-10)
+### T-55 Race integration variants (lanes RCI-1 to RCI-9)
 
 - **Change:** generated race variants (T-50) of single-player lanes that stress what
   multiplayer could disturb, each on a slot-0 overlay of its own host with a rival folder
@@ -1181,7 +1207,8 @@ Made smaller on 2026-11-15: the pairing machinery is T-54's; this task is its fi
   scan, a `sync` after load and after each commit, and one extra race assertion (section
   4b). T-05's `save_equivalence` compares each variant's produced save with its
   single-player lane's snapshot under the pinned mask.
-- **Proof:** the ten lanes (about 0.7 h of p50 in all, from the RW rows of the run index).
+- **Proof:** the nine lanes (about 0.63 h: the ten-lane estimate of 2520 s at its 252 s
+  average per lane, nine lanes = 2268 s; each first flight replaces it).
 - **Registers:** catalog, D19 `integration`, status, tag `race`.
 - **Size:** M. **Depends on:** T-48, T-50, T-21, T-19; soft: T-20. **PC:** yes.
 - **Risk:** medium; the RW lanes are the most defect-dense single-player lanes, so a red here
@@ -1209,7 +1236,8 @@ Made smaller on 2026-11-15: the pairing machinery is T-54's; this task is its fi
 - **Proof:** the campaign run; the oracle armed.
 - **Registers:** status; `harness/README.md` campaign chains.
 - **Size:** S (the specs are generated). **Depends on:** T-49, T-50, T-51, T-56, R2-12;
-  soft: R6-03 (the end-date step). **PC:** flight (about 2.6 h on two slots).
+  soft: R6-03 (the end-date step). **PC:** flight (about 2.24 h on two slots to RCA-5's end,
+  then RCB-5; section 4b, "How the two run").
 - **Risk:** medium; CS-7's landing is the flakiest stage (3 PASS, 35 INVALID in the index);
   only A flies it, with `[retry] once`.
 
@@ -1311,10 +1339,14 @@ RCB-5 (the last sync and the board oracle).
 - **In turn, one install (primary).** Lanes alternate A1, B1, A2, B2 and so on; each stages
   its player's latest save and the folder harvested from the previous lane of either player.
   Deterministic, no rendezvous, every existing harness rule holds (one save, one instance,
-  `${raceShared}` inside it). About 4.7 h serial for both chains.
+  `${raceShared}` inside it). About 3.7 h serial for both chains as planned, from the CS
+  p50s: A on CS-4 to CS-7, 860 + 66 + 1129 + 1000 + 70 + 2342 + 2414 = 7881 s; B on CS-4 to
+  CS-6c, 7881 - 2414 = 5467 s; 7881 + 5467 = 13348 s = 3.71 h.
 - **Pipelined on two slots (the same lanes, less wall time).** B-k needs A-k's folder, but
   A-(k+1) can read B's folder one stage late, so T-49 keeps two `stock-tree` slots busy:
-  about 2.6 h, the longer chain plus one stage. The parallel runner's rules hold (one DLL,
+  over T-57's five lane pairs (KSC stages folded into the next flight lane) RCA-5 ends at
+  8076 s = 2.24 h (A's 7881 s plus 195 s that RCA-4 waits for RCB-2), then RCB-5's last
+  sync and oracle. The parallel runner's rules hold (one DLL,
   memory guard, two slots while the owner works); the second copy needs `provision.py
   --profile stock-tree --copy 2` once (ports 50020 and 50022 are already distinct).
 - **At once, sharing one folder (way E).** T-34 on T-54's paired lanes: both copies write
@@ -1339,17 +1371,17 @@ RCB-5 (the last sync and the board oracle).
 
 | Stage | What it proves | Tasks | Wave | Joins the exit proof of |
 |---|---|---|---|---|
-| S0 | a campaign fixture loads as a race save at slot 0 and slot 1 (gate on, `RaceCommand status`, `testGame=True`); the chain runner replays CS-3 to CS-4b | T-48; T-49 | 8; 0 | MS-1b (overlay), MS-1a (runner) |
-| S1 | one first changes hands, no ghosts (RCA-1, RCB-1, RCA-2) | T-53, T-59 | 15 | MS-1d |
-| S2 | each player sees the other's ghost (`kind=rivals` in flight) | T-53 with T-20 | 15 | MS-1d |
-| S3 | B flies from another site (slot 2) | R2-12's schedule row in T-50 | 15 | MS-2 |
+| S0 | a campaign fixture loads as a race save at slot 0 and slot 1 (gate on, `RaceCommand status`, `testGame=True`); the chain runner replays CS-3 to CS-4b | T-48; T-49 | 8 (headless: T-48's hlib validator and `test_run_smoke` staging cells; first flown in T-53's lanes, wave 16); 0 | MS-1b (overlay), MS-1a (runner) |
+| S1 | one first changes hands, no ghosts (RCA-1, RCB-1, RCA-2 to its sync head) | T-53 (T-50, T-59) | 16 | MS-1d |
+| S2 | each player sees the other's ghost (`kind=rivals` in flight) | T-53 with T-20 | 16 | MS-1d |
+| S3 | B flies from another site (slot 2) | R2-12's schedule row in T-50 | 16 (with or after T-53) | MS-2 |
 | S4 | retake by rewind, no retakes, Re-Fly against a rival | T-56 | 17 | MS-8 |
 | S5 | both careers to the Mun, the board oracle armed | T-57 (T-49, T-50, T-51) | 18 | MS-10 |
 
-S3 has no task of its own; it flies the change-of-hands lanes again from slot 2, at wave 16
-with MS-1d's proof, and is signed off with MS-2 (milestones are signed off in ladder order).
-T-52, the headless real-ledger board, lands at wave 14, one wave before S1, so the first live
-change of hands has a headless twin.
+S3 has no task of its own; it flies the change-of-hands lanes again from slot 2, with or after
+T-53 (wave 16) with MS-1d's proof, and is signed off with MS-2 (milestones are signed off in
+ladder order). T-52, the headless real-ledger board, lands at wave 14, two waves before S1, so
+the first live change of hands has a headless twin.
 
 ### The integration suite
 
@@ -1372,8 +1404,12 @@ in every campaign stage.
 | RCI-6 | RW-25-refly-recover-pressed | cs-career-mun4 | the ledger is unchanged by the rival |
 | RCI-7 | RW-18-ksc-warp-across-committed-future | cs-career-mun4 | rival ghosts do not cross into the local timeline (no ledger row, no vessel) |
 | RCI-8 | SWS-1-save-switch-through-main-menu | cs-career-mun4 | race save, single-player save, race save: gate on, cleared, on |
-| RCI-9 | RF-21-refly-sibling-crosses-mun-soi | its career host | the rival ghost lane is unaffected |
-| RCI-10 | one supply-route lane on a career fixture | its host | the route event log is never exported (leak scan over `ROUTE_EVENT_LOG`) |
+| RCI-9 | H79-route-rewind-to-launch-career | rover-route-recorded-career (`stock-minimal`; the lane answers R1-20's warning with `unscoredConfirm=continue`, since its race assertion needs no score) | the route event log is never exported (leak scan over `ROUTE_EVENT_LOG`) |
+
+RF-21-refly-sibling-crosses-mun-soi, once listed here, is dropped: its host
+`gs2-orbital-stack` is a Sandbox save on `stock-minimal`, so it cannot carry a career race
+overlay, and no lane on a `cs-career` fixture re-flies a sibling across an SOI. Re-Fly against
+a rival stays covered by RCI-3, RCI-4 and T-56's `RCB-3f` / `RCA-3f`.
 
 ### Blockers and the task that removes each
 
@@ -1403,7 +1439,7 @@ in every campaign stage.
 | `oracle.py` (M-B2) and `hlib.MILESTONE_AWARD_LINE_RE` (`hlib.py:11289`) | the board oracle from stock award lines | T-51 |
 | `mutsave.py` / `mutation_check.py` | proof that the leak scan and the oracle bite | T-38, T-51 |
 | `ledger_audit.py` and `RunTests LedgerGroundTruth` (53 lanes) | a rival leak shows as a pool mismatch, in every stage | T-53, T-55, T-56, T-57 |
-| The RW rewind lanes on `cs-career-mun4`, SWS-1, RF-21 | the integration variants | T-55 |
+| The RW rewind lanes on `cs-career-mun4`, SWS-1, H79 | the integration variants | T-55 |
 | `InvokeRewindToLaunch`, `AnswerMergeDialog`, `WarpToUT` | retake by rewind, Re-Fly against a rival, the schedule | T-26, T-56 |
 | `C2CareerLedgerReplayTests` / `CareerSaveParser` and `AnchorEpsilonRebuildClockTests.cs:124` | a headless board over real flown ledgers | T-52 |
 | `parallel_runner.py`, `lib/slots.py` ports | pipelined chains; paired lanes | T-49, T-54 |
@@ -1462,7 +1498,7 @@ T-12, T-19) and of every log literal a race lane pins as present or absent,
 
 ### In-game categories (the slices write the tests; one scene and one host each, A2)
 
-| Category | Scene | Host (the only spec that pins it) | Owner tasks |
+| Category | Scene | Hosts (every spec that pins it) | Owner tasks |
 |---|---|---|---|
 | RaceMode | SPACECENTER | RACE-9 | R1 |
 | RaceSites | SPACECENTER | RACE-9 | R2 |
@@ -1471,18 +1507,18 @@ T-12, T-19) and of every log literal a race lane pins as present or absent,
 | RaceSitesStock | SPACECENTER, single-player save after a race save | SITES-2 | R2-13 |
 | RaceSitesEditor | EDITOR | SITES-3 | R2-14 |
 | RaceExchange | SPACECENTER | RACE-9 | R3E-24 |
-| RaceFacts | FLIGHT | RACE-10 | R3E-08, R3E-13 |
-| RaceFactsTrackingStation | TRACKSTATION | RACE-11 | R3E-13 |
+| RaceFacts | FLIGHT | RACE-10; RACE-20 (single-player save) | R3E-08, R3E-13 |
+| RaceFactsTrackingStation | TRACKSTATION | RACE-11; RACE-20 (single-player save) | R3E-13 |
 | RaceRivalLane | FLIGHT | RACE-10 | R3W |
 | RaceRivalIsolation | FLIGHT | RACE-10 | R3W-30 |
 | RaceRivalLaneTrackingStation | TRACKSTATION | RACE-11 | R3W-20 |
 | RaceRivalIsolationTrackingStation | TRACKSTATION | RACE-11 | R3W-30 |
 | SpaceRace | SPACECENTER | RACE-9 | R4-02 (the ladder against stock), R4-13 |
 | SpaceRaceFlight | FLIGHT | RACE-10 | R4-13 |
-| RaceLooks | SPACECENTER | RACE-9 | R5-11 |
+| RaceLooks | SPACECENTER | RACE-9; RACE-20 (single-player save) | R5-11, R5-14 |
 | RaceLooksFlight | FLIGHT | RACE-10 | R5-09; R5-01, R5-04, R5-08 only for the cells that need a race save |
 | GhostVisuals (existing) | FLIGHT | H15 (its existing host) | R5-01, R5-02, R5-08 cells that need no race save |
-| GhostMap (existing) | FLIGHT, TRACKSTATION | S1.6 (FLIGHT), H44 (TRACKSTATION) | R5-04's cells that need no race save |
+| GhostMap (existing) | FLIGHT, TRACKSTATION | S1.6 (FLIGHT), H44 (TRACKSTATION); both re-pinned for a new cell | R5-04's cells that need no race save |
 
 There is no `RaceStockKerbin`, `RaceRivalMap`, `RaceScenery`, `RaceTerrain`, `RivalGhosts`,
 `RivalFlags` or `RivalMap` category.
@@ -1524,12 +1560,12 @@ whose context H15 lacks; playback plan).
 | RACE-15-content-check-launch-warning | T-41 | operator (stock-minimal) | no (launch) | unestimated | The content warning and the launch warning |
 | RACE-16-refused-load-modded-kerbin, RACE-17-unscored-off-at-load | T-42 | operator (modded-compat, stock-minimal) | yes | unestimated | Refused loads (edges 24, 32) |
 | RACE-19-setup-screens | T-43 | operator | yes | unestimated | The menu entry, setup pages and Settings section drawn and driven |
-| RACE-20-single-player-hosts | T-44 | operator (stock-minimal) | yes | unestimated | The single-player halves of race cells |
-| RCA-1, RCB-1, RCA-2 | T-53 | operator | no (kRPC) | 3 x about 900 s | The first change of hands; each sees the other's ghost |
+| RACE-20-single-player-hosts | T-44 | operator (stock-minimal) | yes (a vessel on the home pad, as RACE-10; the cells start their own recording) | unestimated | `RaceLooks`, `RaceFacts`, `RaceFactsTrackingStation` in a single-player save, one step per category and scene |
+| RCA-1, RCB-1, RCA-2 (first flight of T-50's specs) | T-53 | operator | no (kRPC) | 860 + 860 + 1195 = 2915 s (CS p50s) | The first change of hands; each sees the other's ghost |
 | RCA-3r, RCB-3r, RCA-3n, RCB-3n, RCB-3f, RCA-3f | T-56 | operator | no (kRPC) | unestimated | Retake by rewind, no retakes, Re-Fly against a rival |
-| RCA-1 to RCA-5, RCB-1 to RCB-5 (the full race) | T-57 | operator | no (kRPC) | about 2.6 h on two slots | Both careers to the Mun under the board oracle |
+| RCA-1 to RCA-5, RCB-1 to RCB-5 (the full race) | T-57 | operator | no (kRPC) | 8076 s (2.24 h) on two slots to RCA-5's end, then RCB-5 | Both careers to the Mun under the board oracle |
 | RCA-0, RCB-0 (optional) | T-58 | operator | no | unestimated | A campaign from a race created by the seam |
-| RCI-1 to RCI-10 | T-55 | operator | no (kRPC) | about 2520 s in all | Multiplayer does not disturb the defect-dense single-player lanes |
+| RCI-1 to RCI-9 | T-55 | operator (RCI-9 on stock-minimal) | no (kRPC) | about 2268 s in all (9 x 252 s) | Multiplayer does not disturb the defect-dense single-player lanes |
 | SITES-1 to SITES-3 | R2-12 to R2-14 | operator (SITES-2 on stock-minimal) | mixed | unestimated | The four sites (r2) |
 
 Every race lane carries the tag `race`. The estimates are from the reference p50s of section 3
@@ -1537,12 +1573,12 @@ Every race lane carries the tag `race`. The estimates are from the reference p50
 index), not measured; each lane's first flight replaces them.
 
 Capacity: no race lane joins the daily or nightly tier. One pass of every race lane with an
-estimate is about 7465 s (about 2.1 h) of p50, plus T-49's chain replay (about 1413 s) and
-T-57's campaign (about 2.6 h on two slots); task-index D.4 places them by milestone. The race
-lanes are still small next to the prerefactors: P2b-10's proof is a representative set of 18
-lanes plus the daily tier (owner's answer to Q-05, 2026-11-14; playback 6.4), with the full
-run left to release time; P2c and P2a name one nightly run, P3 and P3b named lanes and P6 a
-daily run (the prerefactor plans own those choices).
+estimate is about 7428 s (about 2.1 h) of p50, plus T-49's chain replay (about 1413 s) and
+T-57's campaign (about 2.24 h on two slots to RCA-5's end); task-index D.4 places them by milestone.
+The race lanes are still small next to the prerefactors: P2b-10's proof is a representative set of
+18 lanes plus the daily tier (owner's answer to Q-05, 2026-11-14; playback 6.4), with the full run
+left to release time; P2c and P2a name one nightly run, P3 and P3b named lanes and P6 a daily run
+(the prerefactor plans own those choices).
 
 Parallel flights: the parallel runner (`harness/tools/parallel_runner.py`, on main;
 `harness/README.md`, "Parallel runs") flies lanes on two or three copies at once, each copy
@@ -1678,8 +1714,10 @@ AGENTS.md`); `design-gui-inventory.md` is untouched.
    runner and injected recordings mark a race save, and a marked flight scores nothing, so a
    harness-flown B would never take a milestone from A. Settled 2026-11-15 by the owner
    ("yes, as labelled test games"; replaces OV-08's "no test race flag"): a game the test
-   tools create is a TEST GAME (`testGame = True` in the manifest, R1-23; only the seam's
-   create sets it, never the setup dialog, and a normal game never becomes one), every
+   tools create is a TEST GAME (`testGame = True` in the manifest, R1-23; only the test tools
+   set it: the seam's create step in a running game, or T-48's fixture writer staging a race
+   save before the game starts through the same manifest writer; never the setup dialog or
+   any other player-reachable path, and a normal game never becomes one), every
    player sees "Test game" in the Space Race window header and in the game's summary where
    it is joined or listed, and in it the test-tools mark does not stop a flight from scoring
    (R6-01 skips only that mark; cheat-menu use, debug completions, uncounted or changed
@@ -1757,7 +1795,8 @@ AGENTS.md`); `design-gui-inventory.md` is untouched.
 ## 10. Questions for the owner
 
 1. **Test races and tool marks.** Answered 2026-11-15: "Yes, as labelled test games", option
-   (b): a test game flag only the seam can set (R1-23), shown to every player, under which
+   (b): a test game flag only the test tools can set (R1-23: the seam's create step or T-48's
+   fixture writer, never the setup dialog), shown to every player, under which
    the test-tools mark does not zero the score (section 9 item 1).
 2. **The whole-save isolation lane compares saves with a small masked list of time values.**
    Options: (a) accept a canonical comparison where only listed time values may differ,

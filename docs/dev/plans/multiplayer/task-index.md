@@ -213,7 +213,7 @@ earliest wave (section B). A dropped task keeps its heading and says where its w
 | R1-20 | The tree and part-value check at create,... | M | R1-19, R1-11, R2-02 | S4a, S6 | - | - | in-game | - | 8 |
 | R1-21 | The progression settings are held | S | R2-08, R1-10 | - | - | - | in-game | - | 8 |
 | R1-22 | The launch warning | S | R1-19, R1-20 | - | - | - | in-game | - | 9 |
-| R1-23 | The test game key in the race manifest | S | R1-10 | - | - | - | no (rides T-13) | - | 7 |
+| R1-23 | The test game key in the race manifest | S | R1-10, R1-06 | - | - | - | no (rides T-13) | - | 7 |
 
 ### A.6 `r2-sites.md` (15 tasks, 0 dropped, 15 pull requests)
 
@@ -277,7 +277,7 @@ earliest wave (section B). A dropped task keeps its heading and says where its w
 | R3W-06 | `RivalPlaybackPolicy` | S | P2c-03, R3W-02 | - | - | - | in-game | - | 2 |
 | R3W-07 | Rival frame: flags and the open queue (pure) | S | R3W-01, R3W-02 | - | - | - | in-game | - | 3 |
 | R3W-08 | `RaceRuntime` scene calls | S | R1-08, R3W-05, R3W-06 | - | - | - | in-game | - | 13 |
-| R3W-09 | Flight composition (milestone MS-1d) | M | R3W-04, R3W-05, R3W-06, R3W-07, R3W-08, P2a-02, P2a-05, P2a-06, P2a-07, P2b-09, P2b-10, P2c-04, R1-10, R3E-04, T-17, T-19 | - | - | - | in-game | - | 14 |
+| R3W-09 | Flight composition (milestone MS-1d) | M | R3W-04, R3W-05, R3W-06, R3W-07, R3W-08, P2a-02, P2a-05, P2a-06, P2a-07, P2b-09, P2b-10, P2c-04, R1-10, R3E-04, T-17, T-19, T-48 | - | - | - | in-game | - | 14 |
 | R3W-10 | Lazy open budget and payload lifetime | S | R3W-09 | - | - | - | in-game | - | 15 |
 | R3W-11 | Leftovers held at their last moment | M | R3W-09, R3E-14 | - | - | - | in-game | - | 15 |
 | R3W-12 | Launch areas kept clear | S | R3W-11, R2-01, P1-02 | - | - | - | no | - | 16 |
@@ -288,7 +288,7 @@ earliest wave (section B). A dropped task keeps its heading and says where its w
 | R3W-17 | Landed variant of the ghost map vessel prim... | S | P3-04, P3-05 | - | - | - | in-game | - | 5 |
 | R3W-18 | `RivalMapPresence` | M | R3W-09, R3W-11, R3W-15, R3W-17, P3-04, P3-05, R5-04 | - | - | r3w Q2 (assumed a) | in-game | - | 16 |
 | R3W-19 | "Whose ghost" answers for rivals | S | R3W-18, P3-05 | - | - | - | in-game | - | 17 |
-| R3W-20 | Tracking Station composition | S | R3W-18, R3W-19, T-17, T-19 | - | adds the Tracking Station step to RACE-2 (T-24) | - | in-game | - | 18 |
+| R3W-20 | Tracking Station composition | S | R3W-18, R3W-19, T-17, T-19, T-48 | - | adds the Tracking Station step to RACE-2 (T-24) | - | in-game | - | 18 |
 | R3W-21 | Missing parts | S | R3W-04 | - | - | - | in-game | - | 6 |
 | R3W-22 | Removal and replacement at scene load | S | R3W-09, R3E-18 | - | - | - | no | - | 15 |
 | R3W-23 | Rival flag records | S | R3W-05, R3W-12, R3E-14 | - | - | - | in-game | - | 17 |
@@ -403,16 +403,16 @@ earliest wave (section B). A dropped task keeps its heading and says where its w
 | T-45 | Race lane plumbing: `race` tag, `parallel_runner --tag`, CI push on `multiplayer` | S | go | - | - | - | no | - | 0 |
 | T-46 | Sites tolerance comparator (`ListHandles kind=sites ... tolerance=`) | S | T-07, R2-01 | - | - | - | no | - | 5 |
 | T-47 | Rival fixture content for hosted cells | M | T-16 | - | - | - | no | - | 12 |
-| T-48 | Race overlay at staging (`[fixture.raceOverlay]`) | M | T-03, R1-11, R1-12 | - | - | - | no (rides T-53) | - | 8 |
+| T-48 | Race overlay at staging (`[fixture.raceOverlay]`) | M | T-03, R1-11, R1-12, R1-23 | - | - | - | no (rides T-53) | - | 8 |
 | T-49 | Campaign chain runner | M | go | - | - | - | lanes (one CS chain replay) | - | 0 |
 | T-50 | Race campaign spec generator (RCA-k / RCB-k) | M | T-03, T-12, T-19, T-30, T-48 | - | - | - | no | - | 15 |
 | T-51 | Board oracle and its mutation checks | M | T-21, T-30, R4-02 | - | - | - | no | - | 15 |
 | T-52 | Real-ledger board, headless | S | R3E-11, R4-04, T-16 | - | - | - | no | - | 14 |
-| T-53 | First change of hands: lanes RCA-1, RCB-1, RCA-2 | M | T-48, T-59, T-19, T-30, R4-04 | - | T-20 (`kind=rivals` steps), R4-07 (holder-change line) | - | flight | - | 15 |
+| T-53 | First change of hands: lanes RCA-1, RCB-1, RCA-2 | M | T-48, T-59, T-19, T-30, R4-04, T-50 | - | T-20 (`kind=rivals` steps), R4-07 (holder-change line) | - | flight | - | 16 |
 | T-54 | Paired lanes in the parallel runner | M | T-03, T-06 | - | - | - | lanes (one pair) | - | 2 |
-| T-55 | Race integration variants (lanes RCI-1 to RCI-10) | M | T-48, T-50, T-21, T-19 | - | T-20 | - | flight | - | 16 |
+| T-55 | Race integration variants (lanes RCI-1 to RCI-9) | M | T-48, T-50, T-21, T-19 | - | T-20 | - | flight | - | 16 |
 | T-56 | Retake, no retakes, Re-Fly against a rival (stage S4) | M | T-53, R6-02, R4-07, T-20 | - | - | - | flight | - | 17 |
-| T-57 | Both careers to the Mun (stage S5) | S | T-49, T-50, T-51, T-56, R2-12 | - | R6-03 (the end-date step) | - | flight (about 2.6 h on two slots) | - | 18 |
+| T-57 | Both careers to the Mun (stage S5) | S | T-49, T-50, T-51, T-56, R2-12 | - | R6-03 (the end-date step) | - | flight (about 2.24 h on two slots) | - | 18 |
 | T-58 | True new race from the seam and an accept-by-type selector (optional) | S | T-50, R1-10, R1-11 | - | - | optional | flight | - | 16 |
 | T-59 | Race harvest flag on `harvest_bdock_station.py` | S | T-03, T-05 | - | T-21 (chain facets) | - | no | - | 1 |
 Total: 257 task headings in 11 plans, each listed once: 16 dropped, 241 live, 236 pull requests.
@@ -575,18 +575,18 @@ run in parallel unless section C names a shared file. Two windows sit across the
 - r4-r6-board-and-rules: R4-05, R4-07, R4-09
 - test-and-harness: T-27, T-30, T-31, T-52
 
-**Wave 15** (17 tasks)
+**Wave 15** (16 tasks)
 
 - r3-export-and-exchange: R3E-24
 - r3-rival-world: R3W-10, R3W-11, R3W-13, R3W-14, R3W-15, R3W-22, R3W-28
 - r4-r6-board-and-rules: R4-06, R6-01
-- test-and-harness: T-20, T-25, T-32, T-34, T-50, T-51, T-53
+- test-and-harness: T-20, T-25, T-32, T-34, T-50, T-51
 
-**Wave 16** (11 tasks)
+**Wave 16** (12 tasks)
 
 - r3-rival-world: R3W-12, R3W-16, R3W-18, R3W-32
 - r4-r6-board-and-rules: R4-10, R6-02
-- test-and-harness: T-24, T-26, T-28, T-55, T-58
+- test-and-harness: T-24, T-26, T-28, T-53, T-55, T-58
 
 **Wave 17** (9 tasks)
 
@@ -640,28 +640,28 @@ The chains (one of the longest where several tie):
 - MS-1a: S0 -> S4a -> S4b -> S5 -> S2 -> S13.
 - MS-1b: S0 -> S6 -> R1-03 -> R1-04 -> R1-08 -> R1-09 -> R1-10 -> R1-12 -> T-48.
 - MS-1c: S0 -> S6 -> R1-03 -> R1-04 -> R1-08 -> R1-09 -> R1-10 -> R3E-01 -> R3E-02 -> R3E-03 ->
-  R3E-04 -> R3E-16 -> R3E-18 -> R4-04 -> T-52.
+  R3E-04 -> T-16 -> R3E-18 -> R4-04 -> T-52.
 - MS-1d: S0 -> S6 -> R1-03 -> R1-04 -> R1-08 -> R1-09 -> R1-10 -> R3E-01 -> R3E-02 -> R3E-03 ->
-  R3E-04 -> R3E-16 -> R3E-17 -> T-19 -> R3W-09 -> T-20 -> T-24.
+  R3E-04 -> T-16 -> R3E-18 -> R4-04 -> T-30 -> T-50 -> T-55.
 - MS-2: S0 -> S6 -> R1-03 -> R1-04 -> R2-01 -> R2-03 -> R2-04 -> R2-06 -> R2-07 -> R2-09 ->
   R2-12 -> R2-13.
 - MS-3: S0 -> S6 -> R1-03 -> R1-04 -> R1-08 -> R1-09 -> R1-10 -> R3E-01 -> R3E-02 -> R3E-03 ->
-  R3E-04 -> R3E-16 -> R3E-18 -> R4-04 -> T-30 -> T-34.
+  R3E-04 -> T-16 -> R3E-18 -> R4-04 -> T-30 -> T-34.
 - MS-4: S0 -> S6 -> R1-03 -> R1-04 -> R1-08 -> R1-09 -> R1-10 -> R3E-01 -> R3E-02 -> R3E-03 ->
-  R3E-04 -> R3E-16 -> R3E-17 -> T-19 -> R3W-09 -> R3W-11 -> R3W-12 -> R3W-23 -> R3W-24 ->
-  R3W-25.
+  R3E-04 -> T-16 -> R3W-05 -> R3W-08 -> R3W-09 -> R3W-11 -> R3W-12 -> R3W-23 -> R3W-24 ->
+  R3W-30.
 - MS-5: S0 -> S6 -> R1-03 -> R1-04 -> R1-08 -> R1-09 -> R1-10 -> R3E-01 -> R3E-02 -> R3E-03 ->
-  R3E-04 -> R3E-16 -> R3E-18 -> R4-04 -> R4-05 -> R4-06 -> R4-10 -> R4-12 -> R4-13.
+  R3E-04 -> T-16 -> R3E-18 -> R4-04 -> R4-05 -> R4-06 -> R4-10 -> R4-12 -> R4-13.
 - MS-6: S0 -> S6 -> R1-03 -> R1-04 -> R1-08 -> R1-09 -> R1-10 -> R3E-01 -> R3E-02 -> R3E-03 ->
-  R3E-04 -> R3E-16 -> R3E-18 -> R4-04 -> R4-05 -> R4-06 -> R4-10 -> R6-06 -> R6-12.
+  R3E-04 -> T-16 -> R3E-18 -> R4-04 -> R4-05 -> R4-06 -> R4-10 -> R6-06 -> R6-12.
 - MS-7: S0 -> S6 -> R1-03 -> R1-04 -> R1-08 -> R1-09 -> R1-10 -> R3E-01 -> R3E-02 -> R3E-03 ->
-  R3E-04 -> R3E-16 -> R3E-17 -> T-19 -> R3W-09 -> R3W-11 -> R3W-18 -> R3W-19 -> R3W-20 -> R5-09.
+  R3E-04 -> T-16 -> R3W-05 -> R3W-08 -> R3W-09 -> R3W-11 -> R3W-18 -> R3W-19 -> R3W-20 -> R5-09.
 - MS-8: S0 -> S6 -> R1-03 -> R1-04 -> R1-08 -> R1-09 -> R1-10 -> R3E-01 -> R3E-02 -> R3E-03 ->
-  R3E-04 -> R3E-16 -> R3E-18 -> R4-04 -> R4-05 -> R4-06 -> R4-10 -> R6-06 -> R6-12 -> T-40.
+  R3E-04 -> T-16 -> R3E-18 -> R4-04 -> R4-05 -> R4-06 -> R4-10 -> R6-06 -> R6-12 -> T-40.
 - MS-9: S0 -> S6 -> R1-03 -> R1-04 -> R1-08 -> R1-09 -> R1-10 -> R3E-01 -> R3E-02 -> R3E-03 ->
-  R3E-04 -> R3E-16 -> R3E-17 -> T-19 -> R3W-09 -> T-20 -> T-28 -> S8a -> S8b -> R3E-23.
+  R3E-04 -> T-16 -> R3W-05 -> R3W-08 -> R3W-09 -> T-20 -> T-28 -> S8a -> S8b -> R3E-23.
 - MS-10: S0 -> S6 -> R1-03 -> R1-04 -> R1-08 -> R1-09 -> R1-10 -> R3E-01 -> R3E-02 -> R3E-03 ->
-  R3E-04 -> R3E-16 -> R3E-18 -> R4-04 -> R4-05 -> R6-01 -> R6-02 -> T-56 -> T-57.
+  R3E-04 -> T-16 -> R3E-18 -> R4-04 -> T-30 -> T-50 -> T-53 -> T-56 -> T-57.
 
 Notes:
 
@@ -831,8 +831,10 @@ gaps are in README rule 11), and its single-player half on RACE-20 (T-44).
 From each task's `PC` line. "(flight)" is a new lane's first flights; the rest re-fly existing
 lanes. R1-08, R1-10, R1-11 and R1-23 are proven through RACE-1 (T-13). T-12, T-19, T-20 and T-30
 ride the lanes that use them (T-13, T-24, T-26, T-32); T-48 rides T-53. Every new race lane is
-tier operator with the tag `race` and flies through `parallel_runner.py run --tag race` (T-45);
-the paired lanes (T-34, T-53, T-56, T-57) take two slots at once.
+tier operator with the tag `race` and flies through `parallel_runner.py run --tag race` (T-45).
+T-53 and T-56 fly their lanes in turn on one install; T-57 is pipelined on two slots (the same
+lanes, B-k one stage behind A-k); only T-54's paired lanes and T-34 on them take two slots at
+once, both copies on one folder.
 
 | Wave | Tasks |
 |---|---|
@@ -849,10 +851,10 @@ the paired lanes (T-34, T-53, T-56, T-57) take two slots at once.
 | 12 | P3b-03, T-33 (flight) |
 | 13 | P3b-04, T-39 (flight) |
 | 14 | T-27 (flight) |
-| 15 | T-25 (flight), T-32 (flight), T-34 (flight), T-53 (flight) |
-| 16 | T-24 (flight), T-26 (flight), T-28 (flight), T-55 (flight), T-58 (flight) |
+| 15 | T-25 (flight), T-32 (flight), T-34 (flight) |
+| 16 | T-24 (flight), T-26 (flight), T-28 (flight), T-53 (flight), T-55 (flight), T-58 (flight) |
 | 17 | R4-12 (census), T-56 (flight) |
-| 18 | T-57 (flight, about 2.6 h on two slots) |
+| 18 | T-57 (flight, about 2.24 h on two slots) |
 | 19 | T-40 (flight) |
 
 ### D.4 Long runs
@@ -867,10 +869,10 @@ the paired lanes (T-34, T-53, T-56, T-57) take two slots at once.
 | after P6-03 | any daily tier run | about 0.4 | map :680-681 |
 | after R1-16 | one tier run | one tier | r1 :775 |
 | after T-49 | one CS chain replay, CS-3 to CS-4b | about 0.4 (1413 s of p50) | T-49 |
-| MS-1d, after T-53 | lanes RCA-1, RCB-1, RCA-2 | about 0.75 (2700 s, estimate) | T-53 |
-| MS-1d, after T-55 | the integration lanes RCI-1 to RCI-10 | about 0.7 (2520 s, estimate) | T-55 |
-| MS-10, after T-57 | both Mun ladders on two slots | about 2.6 wall | T-57, test-and-harness 4b |
-| once the race lanes exist | the operator tier grows by the new race lanes' first flights: 7465 s (about 2.1 h) one lane at a time, of which T-53 and T-55 are the long ones; the daily and nightly tiers gain nothing (every race lane is operator) | about 2.1 | test-and-harness 6 |
+| MS-1d, after T-53 | lanes RCA-1, RCB-1, RCA-2 (T-50's specs) | about 0.81 (2915 s from the CS p50s) | T-53 |
+| MS-1d, after T-55 | the integration lanes RCI-1 to RCI-9 | about 0.63 (2268 s, estimate: 9 x 252 s) | T-55 |
+| MS-10, after T-57 | both Mun ladders on two slots | about 2.24 wall to RCA-5's end (8076 s), then RCB-5 | T-57, test-and-harness 4b |
+| once the race lanes exist | the operator tier grows by the new race lanes' first flights: 7428 s (about 2.1 h) one lane at a time, of which T-53 and T-55 are the long ones; the daily and nightly tiers gain nothing (every race lane is operator) | about 2.1 | test-and-harness 6 |
 
 The plans ask for no full run. The owner's answer to Q-05 (2026-11-14) replaced the one after
 P2b-10 with a representative set of lanes (playback 6.4); the full run happens once, at release
@@ -884,7 +886,7 @@ counts 0 until its first flight is measured; the spike hours are D.1's):
 | MS-1a | 24.7 | 45 | 10.29 | 1 | - |
 | MS-1b | 0.0 | 240 | 0.00 | 3 | T-44 |
 | MS-1c | 0.0 | 0 | 0.00 | 0 | - |
-| MS-1d | 0.0 | 6230 | 1.63 | 8 | T-39 |
+| MS-1d | 0.0 | 6193 | 1.63 | 8 | T-39 |
 | MS-2 | 0.0 | 90 | 0.00 | 12 | R2-13, R2-12, R2-14, T-42 |
 | MS-3 | 0.0 | 70 | 0.00 | 1 | T-54, T-34 |
 | MS-4 | 0.0 | 700 | 0.00 | 15 | - |
@@ -893,9 +895,9 @@ counts 0 until its first flight is measured; the spike hours are D.1's):
 | MS-7 | 0.0 | 0 | 0.00 | 6 | - |
 | MS-8 | 0.0 | 0 | 0.00 | 1 | T-40, T-56 |
 | MS-9 | 3.0 | 0 | 0.00 | 2 | - |
-| MS-10 | 0.0 | 0 | 2.60 | 0 | T-58 |
+| MS-10 | 0.0 | 0 | 2.24 | 0 | T-58 |
 | unanchored | 0.0 | 0 | 0.00 | 2 | - |
-| total | 27.7 | 7465 | 14.53 | 63 | - |
+| total | 27.7 | 7428 | 14.17 | 63 | - |
 
 
 ## E. Findings
@@ -1065,7 +1067,9 @@ with at least `RaceMode` (T-29); `SinglePlayerInertnessTests` (T-10) and the sin
 negative contract with lane RACE-20-single-player-hosts (T-44); R1-23's manifest key cells;
 `SaveFormatTests`, `SaveFormatGoldenGateTests`, `FormatGoldenV2Tests`, `RaceFormatPinTests`
 (R1-12); `LoadReconcilePolicyTests` (R1-05); R1-06's race grep gates with their anti-vacuity
-cells; the race overlay on a campaign save (T-48, stage S0).
+cells; the race overlay on a campaign save (T-48, stage S0), shown headless here by its hlib
+validator cells and the `test_run_smoke` staging cells (spliced, snapshotted, the committed
+fixture byte-equal after the run); its first flight is T-53's lanes (wave 16).
 
 | Id | Title | Wave |
 |---|---|---|
@@ -1132,8 +1136,9 @@ step (T-24), RACE-10-flight-batch (T-35); the `raceParse` structure facets (T-21
 `ListHandles kind=rivals` and `kind=board` formatter tests (T-20, T-30); the committed
 fixtures' currency test (T-17); the P2b proof (D.4: the daily tier after P2b-07 and P2b-08,
 H15 with the two late-update categories, the representative set after P2b-10); lanes RCA-1,
-RCB-1, RCA-2 (T-53, stages S1 and S2); the generated-spec byte gate (T-50); the board oracle
-and its mutation checks (T-51); the integration lanes RCI-1 to RCI-10 (T-55).
+RCB-1 and RCA-2 to its sync head (T-53, the first flight of T-50's generated specs, stages S0
+to S2); the generated-spec byte gate (T-50); the board oracle and its mutation checks (T-51);
+the integration lanes RCI-1 to RCI-9 (T-55).
 
 | Id | Title | Wave |
 |---|---|---|
@@ -1167,11 +1172,11 @@ and its mutation checks (T-51); the integration lanes RCI-1 to RCI-10 (T-55).
 | T-20 | `ListHandles kind=rivals` | 15 |
 | T-50 | Race campaign spec generator (RCA-k / RCB-k) | 15 |
 | T-51 | Board oracle and its mutation checks | 15 |
-| T-53 | First change of hands: lanes RCA-1, RCB-1, RCA-2 | 15 |
 | T-24 | Lane RACE-2-import-generator-folder | 16 |
 | T-26 | Lane RACE-3-rival-ghosts-flight | 16 |
 | T-28 | Lane RACE-6-two-saves-in-turn | 16 |
-| T-55 | Race integration variants (lanes RCI-1 to RCI-10) | 16 |
+| T-53 | First change of hands: lanes RCA-1, RCB-1, RCA-2 | 16 |
+| T-55 | Race integration variants (lanes RCI-1 to RCI-9) | 16 |
 
 ### F.5 MS-2 The four sites (19 tasks, waves 4 to 11)
 
@@ -1183,7 +1188,8 @@ Exit proof: lanes SITES-1 (R2-12), SITES-2 with its comparisons against RACE-0 (
 SITES-3 (R2-14), compared through T-46's tolerance comparator; R2-15's fold into the design with
 `test_doc_spec_sync.py` green; lane RACE-11-ts-batch with `RaceSitesTrackingStation` (T-36);
 the refused-load lanes RACE-16 and RACE-17 (T-42); stage S3, the schedule row that whichever of
-R2-12 and T-50 lands second adds (it flies once T-50 is in, the wave after MS-1d's T-50).
+R2-12 and T-50 lands second adds. MS-2's own tasks close at wave 11; S3 flies with or after
+T-53 (wave 16).
 
 | Id | Title | Wave |
 |---|---|---|

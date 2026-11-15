@@ -647,8 +647,8 @@ cells and stay their own pull requests; the one member that waits for a later ta
   listed (R3W-03, R3W-06).
 - **Size:** M. **Depends on:** R3W-04, R3W-05, R3W-06, R3W-07, R3W-08, P2a-02, P2a-05,
   P2a-06, P2a-07, P2b-09, P2b-10, P2c-04, R1-10 (race save creation), R3E-04 (cache format
-  and `RivalStandingVerdict`), T-17 and T-19 (RACE-10's staged race and its `sync` step).
-  **PC:** yes (the in-game test).
+  and `RivalStandingVerdict`), T-17 and T-19 (RACE-10's staged race and its `sync` step),
+  T-48 (the race overlay RACE-10 is staged from). **PC:** yes (the in-game test).
 - **Risk:** medium; first time two engines share a scene; P2b is the protection, and the
   in-game test plus a normal single-player flight lane prove both lanes.
 
@@ -877,7 +877,8 @@ cells and stay their own pull requests; the one member that waits for a later ta
   once T-36 has landed. This pull request also moves RACE-11 onto a race staged from T-17's
   fixtures (the cell needs a rival orbit leftover) and adds the Tracking Station step to
   T-24's RACE-2 (`LoadGame scene=trackstation`, the rival map objects present and guarded).
-- **Size:** S. **Depends on:** R3W-18, R3W-19, T-17, T-19. **PC:** yes.
+- **Size:** S. **Depends on:** R3W-18, R3W-19, T-17, T-19, T-48 (the race overlay RACE-11
+  is staged from). **PC:** yes.
 - **Risk:** low.
 
 ### R3W-21 Missing parts

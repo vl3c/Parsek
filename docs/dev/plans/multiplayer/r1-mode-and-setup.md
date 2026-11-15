@@ -808,8 +808,9 @@ Dropped: replaced by T-13 (OV-02).
     wires its tap to open the dialog; implements `IRaceSetupHost`.
   - `UI/RaceSetupDialog.cs`: a stock `PopupDialog` / `MultiOptionDialog` with three
     buttons (Create, Join, Continue) and the Continue page: one row per local race save
-    (race name, own look, last sync; "Test game" before the name when the manifest says so,
-    R1-23, which adds that word to this row when it lands after this task). `IRaceSetupHost` is
+    (race name, own look, last sync; the words "Test game" after the race name when the
+    manifest says `testGame = True`, read from R1-23's key, which lands before this task
+    through T-13). `IRaceSetupHost` is
     declared in the same file (the `IMergeFlowHost` precedent) so UI never names Controllers. Its
     members land with their first callers (A1): `Continue` here, `Create` with R1-15's page, `Join`
     and `StartOver` with R1-17's page, the folder-only mode with R1-18's Change button.
@@ -830,7 +831,8 @@ Dropped: replaced by T-13 (OV-02).
     todo entry and a CHANGELOG entry under `1.1.0` (README rule 10).
   - Nothing hides the entry (question 1, owner, 2026-11-15): it is added at every main
     menu; there is no later change that turns it on.
-- **Proof:** xUnit `RaceSaveListingTests`, `RaceSetupDialogModelTests` (pure page state);
+- **Proof:** xUnit `RaceSaveListingTests`, `RaceSetupDialogModelTests` (pure page state; a
+  cell pins a test game's row as the race name followed by "Test game");
   `AgentInstructionMirrorTests`; the menu entry and the dialog are driven by T-43's lane
   RACE-19 (`UiAction op=raise` / `op=state` from a MAINMENU seam step, then `op=dialog` per
   page; 2026-11-15, replacing the manual check); the keyboard feel stays on the owner list
@@ -860,7 +862,7 @@ Dropped: replaced by T-13 (OV-02).
   toggles); the calendar line, read-only (question 3: the day length is the creator's own game
   setting, shown, with no field; it only formats dates, since dates compare to the exact second).
   There is no seat-count field (always four), no password field (anyone with the folder may
-  join) and no test game field (only the seam's create makes a test game, R1-23). Three part set
+  join) and no test game field (only the test tools make a test game, R1-23). Three part set
   checkboxes (Making History, Breaking Ground, ReStock+), none ticked by default (assumed until the
   owner answers, stated 2026-11-15), with one line saying the base game's parts always count; and
   "Allow play without scoring", ticked by default (owner, 2026-11-15), with its hover saying what
@@ -915,8 +917,9 @@ Dropped: replaced by T-13 (OV-02).
   `ParsekRaceSetup.Join`: its refusal shows in the page's refusal line, and its warning (play
   without scoring on) through R1-15's `IRaceSetupHost.ConfirmUnscored`, which this page passes as
   the answer. When the manifest says `testGame = True` (R1-23), the summary's first line reads
-  "Test game" before the game name.
-- **Proof:** xUnit `RaceJoinFormTests`; the page driven by T-43's RACE-19 (a join through
+  the game name followed by the words "Test game" ("<name> - Test game").
+- **Proof:** xUnit `RaceJoinFormTests` (a cell pins a test game's first summary line as
+  "<name> - Test game"); the page driven by T-43's RACE-19 (a join through
   the dialog into the race RACE-19 created, a second save on one install).
 - **Registers:** `design-gui-inventory.md`; todo and a CHANGELOG entry under `1.1.0`.
 - **Size:** M. **Depends on:** R1-14, R1-20. **PC:** yes.
@@ -1159,26 +1162,37 @@ design 7.12).
 
 - **Change:** an additive manifest key `testGame` (bool, default `False`) in `race.cfg`,
   read by R1-08's manifest codec and written by R1-10's write codec, fixed at creation like
-  every other setting (no reader changes it after Create). It is set only by the seam:
-  `RaceSetup action=create` passes `testGame = True` into `RaceCreateRequest` through a
-  field that only `TestCommands` code can reach (an `internal` setter used by the seam's
-  applier; the setup dialog's `RaceSetupForm` has no such field, so the dialog path cannot
-  set it by construction, and a join copies the manifest, never sets it). `RaceCommand
-  action=status` reports `testGame=True|False`. The words "Test game" are shown by the
-  surfaces that already show the race: the Space Race window header (R4-09 / R4-10), the
-  Join page's race summary (R1-17) and the Continue listing (R1-14); no new window, badge
-  or message. The rule that uses it is R6-01's: in a test game the test-tools mark does not
-  stop a flight from scoring. No format bump (an additive key, design save-format policy).
+  every other setting (no reader changes it after Create). Only the test tools set it, and
+  two of them can: the seam's create step in a running game (`RaceSetup action=create`), and
+  the harness's fixture writer that stages a race save before the game starts (T-48's
+  overlay writer in the test project, which calls the same manifest write codec). Both go
+  through one member: `RaceCreateRequest.TestGame`, whose setter is `internal` (the test
+  project reaches it as a friend assembly; in `Source/Parsek` only the seam's applier
+  assigns it). The setup dialog's `RaceSetupForm` has no such field, so the dialog path
+  cannot set it by construction; a join copies the manifest and never sets it; no
+  player-reachable code path sets the key. `RaceCommand action=status` reports
+  `testGame=True|False`. The words "Test game" are shown by the surfaces that already show
+  the race, after the race name ("<name> - Test game" in the Space Race window header,
+  R4-09 / R4-10; after the name in the Join page's race summary, R1-17, and the Continue
+  listing, R1-14); no new window, badge or message. The rule that uses it is R6-01's: in a
+  test game the test-tools mark does not stop a flight from scoring. No format bump (an
+  additive key, design save-format policy).
 - **Proof:** `RaceManifestWriteTests` gains a round trip with the key and a cell that a
   manifest without it reads as `False`; `RaceSetupPlanTests`: a request from
   `RaceSetupForm` never carries `testGame`, a seam request does; `TestCommandRaceSetupTests`
   and the `RaceCommand status` formatter cells; RACE-1 (T-13) asserts `testGame=True` for
-  the created race and each join. Log: the `[Race] Create:` line gains `testGame=..`.
+  the created race and each join. Log: the `[Race] Create:` line gains `testGame=..`. A
+  grep cell in R1-06's `GrepAuditTests.Race.cs` (its shared `RaceSourceScan`, extended to
+  `UI/` for this cell): in `Source/Parsek` the assignment of `TestGame` (a statement or an
+  object initializer) appears in exactly one file, the seam's applier
+  `ParsekTestCommandAddon.RaceSetup.cs`, and no file of `UI/` or of the setup dialog names
+  the setter; the window header and the summaries only read `RaceManifest.TestGame`.
 - **Registers:** the seam contract (`#### RaceSetup`, `#### RaceCommand`), hlib rows,
   `Fixtures/FormatGolden/` untouched (a v2 manifest without the key still loads).
-- **Size:** S. **Depends on:** R1-10. **PC:** no (rides T-13).
+- **Size:** S. **Depends on:** R1-10, R1-06 (the scanner the grep cell extends). **PC:** no
+  (rides T-13).
 - **Risk:** low; the one thing to keep true is that no player path can set the key, which
-  `RaceSetupPlanTests` pins.
+  `RaceSetupPlanTests` and the grep cell pin.
 
 ## 5. Parallel tracks
 

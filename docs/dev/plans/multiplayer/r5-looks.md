@@ -354,7 +354,8 @@ change it.
   the orbit-line patch is not touched.
 - **Proof:** xUnit on `ComposeGhostVesselName` (null style byte-equal to today; a style gives
   `Ghost: Ana - Kerbal X`) and on `NeedsOrbitColor`. In-game `GhostMap`
-  `StyledGhostMapVesselKeepsColor` (FLIGHT, map view; the existing category, hosted by S1.6,
+  `StyledGhostMapVesselKeepsColor` (FLIGHT, map view; the existing category, hosted by S1.6
+  in FLIGHT and H44 in TRACKSTATION,
   since the cell needs no race save): build an orbit ghost through the
   service with a composed name, call the helper each frame as a tick would, assert after
   three frames and after a map toggle that `orbitRenderer.nodeColor` equals the style and the
@@ -363,7 +364,8 @@ change it.
   path (null style) in this change. `ApplyOrbitStyle` and `NeedsOrbitColor` land with their
   first production caller: R3W-18's pull request adds them, with their xUnit cells and the
   in-game cell, as specified here.
-- **Registers:** S1.6's `total=` re-pinned with the cell (`CommittedBatchTallySourceSyncTests`);
+- **Registers:** S1.6's and H44's `total=` re-pinned with the cell (each counts every
+  `GhostMap` cell; `CommittedBatchTallySourceSyncTests`);
   `LineBlinkWindowExitExemptionTests` stays untouched (no new stamp site).
 - **Size:** S. **Depends on:** P3-04, R5-03; the helper half lands in R3W-18. Order in
   `GhostMapVessels.cs`: P3-02 to P3-05, R3W-17, R5-04, R3W-19 (OV-48). **PC:** yes.
@@ -558,8 +560,9 @@ Lands only with R3W-26 (watching a live rival ghost).
 - **Registers:** R1-06's `race-no-writer` allowlist: the reserved `RaceLooks` entry names
   `RaceLooks.cs` for the stock roster suit fields (15.4); no `LoadReconcilePolicy` row and no 15.7
   row (no state is kept); `CHANGELOG.md` (kerbals in a race save wear the player's look); todo
-  entry; lane catalog (new category `RaceLooks`); RACE-9's pinned tally re-pinned in the same change
-  if T-29 has already pinned `RaceLooks`.
+  entry; lane catalog (new category `RaceLooks`); RACE-20's `RaceLooks` step added with its
+  tally (T-44, the category's single-player host), and RACE-9's pinned tally re-pinned in the
+  same change if T-29 has already pinned `RaceLooks`.
 - **Size:** M. **Depends on:** R1-03, R1-08, R1-09, R5-08, R5-10, R5-12, S3 (not R1-10 or R1-11,
   OV-54). **PC:** yes. **S3:** S3a, S3b (the replacement dress writes texture
   paths; if S3b shows IVA or the portrait ignore them, the dress also writes a combo id and
@@ -643,7 +646,9 @@ Added 2026-11-15: the race suit is locked (owner, 2026-11-15).
   buttons disabled with the reason; a forced `onSuitComboSelection` leaves the kerbal's
   suit and combo unchanged; the helmet and neck ring toggle and the suit light color still
   change) and `SuitChoiceFreeInSinglePlayer` (skips with a stated reason in a race save; it
-  runs on T-44's RACE-20, the single-player host, which this pull request re-pins).
+  runs on T-44's RACE-20, the single-player host of `RaceLooks`; this pull request re-pins
+  RACE-20's tally, which counts every `RaceLooks` cell; RACE-9 pins the category from its own
+  first flight, wave 8, after this task).
   The editor crew dialog opens the same window through the same opener, so it needs no cell
   of its own.
 - **Uncalled-method check (A1):** the patch's prefixes are Harmony roots; the predicate is
@@ -699,12 +704,15 @@ Added 2026-11-15: the race suit is locked (owner, 2026-11-15).
 - **In-game, existing categories first (owner's PC runs them through lanes):** a cell that
   needs no race save goes into an existing category, so it flies on the day its task lands:
   R5-01, R5-02 and R5-08 cells into `GhostVisuals` (FLIGHT, hosted by H15), R5-04's into
-  `GhostMap` (FLIGHT map view, hosted by S1.6), each re-pinning that host's `total=`.
+  `GhostMap` (FLIGHT map view, hosted by S1.6 in FLIGHT and H44 in TRACKSTATION), each
+  re-pinning its hosts' `total=` (a `GhostMap` cell re-pins both S1.6 and H44).
 - **In-game, two race categories, one scene each (OV-09):** `RaceLooksFlight` (FLIGHT):
   R5-09 skips with a stated reason unless the save is a race save with the rival fixture.
   `RaceLooks` (SPACECENTER): R5-11 and R5-14 cells skip unless the save is a race save;
   R5-12's `ReplacementSetsResolve` runs in any save. The single-player halves (R5-11's log
-  contract, R5-14's `SuitChoiceFreeInSinglePlayer`) run on T-44's RACE-20.
+  contract, R5-14's `SuitChoiceFreeInSinglePlayer`) run on T-44's RACE-20, which runs a
+  `RaceLooks` step in a single-player save and so pins `RaceLooks` beside RACE-9; a new
+  `RaceLooks` cell re-pins both.
 - **Harness:** R5 adds no lane (R5-13 dropped, OV-06). The host lanes of T-29 and T-35 run the
   two race categories: RACE-9 (SPACECENTER) runs `RaceLooks`, RACE-10 (FLIGHT) runs
   `RaceLooksFlight`; H15 and S1.6 run the moved cells. The existing lanes, with no race save

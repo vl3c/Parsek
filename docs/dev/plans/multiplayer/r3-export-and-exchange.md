@@ -587,13 +587,15 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
   that UT), log assertions per site helper; in-game test category `RaceFacts` (FLIGHT only,
   OV-09): toggle hack gravity during a recording in a race-armed save and read `ToolUses`;
   the single-player half (the same in a single-player save reads empty) runs on T-44's
-  RACE-20.
+  RACE-20, which runs a `RaceFacts` step in a single-player save.
 - **Registers:** a new in-game category (regenerate the lane catalog,
   `python harness/tools/lane_catalog.py`), hosted by T-35's FLIGHT host lane RACE-10
-  (OV-09); once T-35's spec is committed, each later test in it re-pins that spec's
-  `total=` in the same pull request (`CommittedBatchTallySourceSyncTests`); the
-  `TestToolingUsed` field entry in `scripts/session-reset-allowlist.txt` and
-  `lifetimes.toml`; log tags.
+  (OV-09) in a race save and by T-44's RACE-20 in a single-player save; RACE-20 (wave 4) is
+  committed before this task, so this pull request adds its `RaceFacts` step (or re-pins it
+  if R3E-13 added it first); once a host's spec is committed, each later test in it re-pins
+  that spec's `total=` (RACE-10's and RACE-20's both) in the same pull request
+  (`CommittedBatchTallySourceSyncTests`); the `TestToolingUsed` field entry in
+  `scripts/session-reset-allowlist.txt` and `lifetimes.toml`; log tags.
 - **Size:** M. **Depends on:** R3E-06, R3E-07. **PC:** yes (the in-game test).
 - **Risk:** medium; VERIFY with S9 that no non-cheat stock path calls `PostOrbitSet`.
 
@@ -736,9 +738,14 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
   scene per category (OV-09): `RaceFactsTrackingStation` (TRACKSTATION, hosted by T-36's
   RACE-11): terminate a spawned committed vessel -> one row; `RaceFacts` (FLIGHT, RACE-10):
   leave and re-enter flight -> zero rows; crash an unrecorded spawned vessel -> one row;
-  a single-player save -> zero rows in all three.
+  a single-player save -> zero rows in all three (those single-player halves run on T-44's
+  RACE-20, which runs a `RaceFacts` step in FLIGHT and a `RaceFactsTrackingStation` step in
+  TRACKSTATION in a single-player save).
 - **Registers:** the lane catalog for the new `RaceFactsTrackingStation` category
-  (`python harness/tools/lane_catalog.py`); `StartupNotices.cs` patch list; `ParsekHarmony`
+  (`python harness/tools/lane_catalog.py`); on T-44's RACE-20 (wave 4, committed before this
+  task) a `RaceFactsTrackingStation` step added and the `RaceFacts` step added or re-pinned
+  (R3E-08 lands in the same wave); RACE-10 and RACE-11 pin both from their own first flights
+  (wave 9); `StartupNotices.cs` patch list; `ParsekHarmony`
   patch registration;
   `docs/dev/todo-and-known-bugs.md` entry for any destruction path the VERIFY finds
   unobservable.
