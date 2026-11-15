@@ -467,19 +467,37 @@ class StrippedFixtureTests(unittest.TestCase):
 
 class PendingLoopLaneTests(unittest.TestCase):
 
+    @staticmethod
+    def _harvested_tree_ids(harvest):
+        ids = set()
+        with open(os.path.join(SAVES, harvest, "persistent.sfs"), encoding="utf-8") as fh:
+            lines = [l.strip() for l in fh]
+        for i, line in enumerate(lines):
+            if line == "RECORDING_TREE" and i + 2 < len(lines) \
+                    and lines[i + 2].startswith("id = "):
+                ids.add(lines[i + 2][len("id = "):])
+        return ids
+
     def test_each_loop_lane_names_its_forges_harvest_and_waits_on_it(self):
         for forge, (_m, home, target, parent, _f, harvest, lane, _e) in FORGES.items():
             with self.subTest(lane=lane):
                 spec = _spec(lane)
-                self.assertEqual("pending-fixture", spec["tier"])
-                self.assertIn("awaiting-fixture", spec["tags"])
                 self.assertEqual("fixtures/saves/" + harvest, spec["fixture"]["saveTemplate"])
-                self.assertFalse(os.path.exists(os.path.join(SAVES, harvest)),
-                                 "the harvest exists: hand the lane over (its header)")
                 with open(os.path.join(SCENARIOS, forge), encoding="utf-8") as fh:
                     self.assertIn("--target-name %s " % harvest, fh.read())
                 trees = {s["args"]["tree"] for s in spec["driver"]["steps"]
                          if s.get("cmd") in ("MissionConfig", "StartLoopPlayback")}
+                if os.path.exists(os.path.join(SAVES, harvest)):
+                    # HANDED OVER in the harvest commit (the lane's header): a
+                    # flyable tier, no awaiting tag, the harvested tree id.
+                    self.assertNotEqual("pending-fixture", spec["tier"])
+                    self.assertNotIn("awaiting-fixture", spec["tags"])
+                    harvested = self._harvested_tree_ids(harvest)
+                    self.assertEqual(1, len(harvested), harvested)
+                    self.assertEqual(harvested, trees)
+                    continue
+                self.assertEqual("pending-fixture", spec["tier"])
+                self.assertIn("awaiting-fixture", spec["tags"])
                 self.assertEqual({"0" * 32}, trees)
 
     def test_each_loop_lane_reads_the_moon_rooted_constraint_set(self):

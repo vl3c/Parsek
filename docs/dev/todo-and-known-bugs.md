@@ -465,7 +465,7 @@ m/s with 25% margin; 130.5 LF, about 683 m/s, was left after stage 2, enough for
 the 161-201 m/s elliptical capture). Pinned by `test_moon_forge_fixes.B43CorrectionCapTests`.
 Closes when B43 flies green and `vall-tylo-recorded` is harvested.
 
-## B44-LAYTHE-TYLO-NODE-EDIT-UNAVAILABLE: B44's second transfer burn cannot edit its maneuver node and the craft is lost [FILED 2026-11-15 from B44's first flights; FIX AUTHORED 2026-11-15 (mission library + spec, never flown with it); low (the forge cannot harvest `laythe-tylo-recorded`, so V44M stays unflyable; not a Parsek defect)]
+## ~~B44-LAYTHE-TYLO-NODE-EDIT-UNAVAILABLE~~: B44's second transfer burn cannot edit its maneuver node and the craft is lost [CLOSED 2026-11-15: B44 flew green on its first flight with the fix, `2026-11-15_2243` PASS attempt 1 (888 s, origin/main c522ea549), and `laythe-tylo-recorded` is harvested and committed, V44M handed over. FILED 2026-11-15 from B44's first flights; FIX AUTHORED 2026-11-15 (mission library + spec); low (not a Parsek defect)]
 
 `B44-laythe-tylo-transfer` flew twice on 2026-11-15 (runs `2026-11-15_1617` and
 `2026-11-15_1622_a2`) and read INVALID(mission) both times. The kRPC `Maneuver node editing is not
@@ -478,8 +478,8 @@ craft was lost. Fix: new mission param `escapeExtraParkOrbits` (`b29_jool_kerbin
 escape direction about 13.2 deg per 1,941 s pass, and the B44 spec sets 5, which leaves prograde
 (Jool-frame pe 23.45 Mm, ap 73.9 Mm, no encounter in 400,000 s; passes 4 and 6 also prograde).
 A patched-conic model that reproduces flight 1 pins the choice in
-`test_moon_forge_fixes.B44EscapePassGeometryTests`. Closes when B44 flies green and
-`laythe-tylo-recorded` is harvested.
+`test_moon_forge_fixes.B44EscapePassGeometryTests`. Closed by the green flight
+`2026-11-15_2243` (PASS attempt 1) and the `laythe-tylo-recorded` harvest from its own snapshot.
 
 ## B46-MINMUS-MUN-COAST-TIMEOUT: B46's Minmus -> Mun transfer never reaches the Mun before its coast phase times out [FILED 2026-11-15 from B46's first flights; FIX AUTHORED 2026-11-15 (mission library, never flown with it); low (the forge cannot harvest `minmus-mun-recorded`, so V46M stays unflyable; not a Parsek defect)]
 

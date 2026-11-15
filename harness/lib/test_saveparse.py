@@ -1303,6 +1303,50 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "ddcc6d007ff54a9c8246c7958011883a"],
             "schemaGeneration": 4,
         },
+        # --- THE JOOL MOON TOUR: THREE MOONS IN ONE TREE (M-MIS-6) --------
+        # PROVENANCE: jool-tour-recorded <- B47-jool-moon-tour, run 2026-11-15_1648,
+        # PASS attempt 1 (wall 2,889 s), --keep-parsek, from the run's own `_save`
+        # snapshot. The composed b47_jool_moon_tour machine flown from the UNSTRIPPED
+        # `jool-orbit-recorded` with no kill pair parked at Laythe, Vall and Tylo and
+        # committed once, at Tylo, into B22's committed tree 6ec68e87 (already=true):
+        # the main chain's tip recording (e8a83295, chainIndex 1, endpointBodyName
+        # Tylo) carries the tour, the other five ids are jool-orbit-recorded's. The
+        # multi-moon configuration hold's first subject, read by V38M. The facets
+        # below are read off the harvested bytes.
+        "jool-tour-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 6,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 3, "Destroyed": 2},
+            "branchPoints": {"JointBreak": 3},
+            "minAuthoritativeSidecars": 24,
+            "recordingIds": ["1d6fa27e66bd47fc85baffe90522bef3",
+                             "98c11e0d19804aecb1b7e66a94f8ede7",
+                             "ad34ea8948ba4c1fb839bbc691f21deb",
+                             "b13418e758764bb8adf061cff8236f1b",
+                             "ddcc6d007ff54a9c8246c7958011883a",
+                             "e8a83295907444c4871b584e0f458f8d"],
+            "schemaGeneration": 4,
+        },
+        # --- A MOON-ROOTED MOON-TO-MOON SUBJECT (rule 4a) -----------------
+        # PROVENANCE: laythe-tylo-recorded <- B44-laythe-tylo-transfer, run
+        # 2026-11-15_2243, PASS attempt 1 (wall 888 s), automation DLL sha256 prefix
+        # 5bc76f4a built from origin/main c522ea549, --keep-parsek, from the run's
+        # own `_save` snapshot. B26's parent relay from the stripped
+        # `laythe-park-nerv` with an elliptical Tylo capture: a FRESH Laythe-rooted
+        # tree 31e761fd with ONE recording (68b9a408, startBodyName Laythe,
+        # terminal Orbiting at Tylo, ecc 0.657), the moon-rooted subject V44M
+        # reads. The facets below are read off the harvested bytes.
+        "laythe-tylo-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 1,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 1},
+            "branchPoints": {},
+            "minAuthoritativeSidecars": 4,
+            "recordingIds": ["68b9a4089f5644da94a4f8ddd88a0cda"],
+            "schemaGeneration": 4,
+        },
         # --- THE ECCENTRIC-MOON LOOP SUBJECT -----------------------------
         # PROVENANCE: gilly-orbit-recorded <- B24-gilly-orbit, run
         # 2026-08-19_1655, PASS attempt 1 (mission wall 1,075 s, every assertion
