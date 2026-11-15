@@ -6,6 +6,11 @@ comes"). The `really-dead` subset is APPROVED FOR REMOVAL as the final change of
 refactor pass (2026-11-14 21:16Z), after the folder move, as its own vetted PR. Nothing was deleted
 by the work that wrote this list. Todo entry: `DEAD-CODE-TEST-ONLY-METHODS-PARKED`.
 
+**Status (2026-11-15): the 117 `really-dead` methods are deleted** (item 25, branch
+`item25-remove-dead-methods`, measured at ae8f8b9fc). Their rows left the TSV, which now holds the
+656 methods still unreached; the sections "Removed", "Removed: really-dead, largest first" and the
+per-verdict tables below keep the record of what went. The rest of the list stays parked.
+
 ## What the list is
 
 Every production method in Parsek.dll that the uncalled-code fixpoint of `scripts/arch/ilanalysis.py`
@@ -17,8 +22,9 @@ the `really-dead` rows, the tests and docs that go with the method.
 
 Files:
 
-- `docs/dev/research/test-only-methods-2026-11-14.tsv` - one row per method (773 rows), tab
-  separated, ASCII. Columns:
+- `docs/dev/research/test-only-methods-2026-11-14.tsv` - one row per method (656 rows since the
+  really-dead removal; 773 at 24abf0dba), tab separated, ASCII. The `nTests` and `tests` cells were
+  refreshed at the removal (tests deleted with a method are gone from them). Columns:
   - `module` - the `scripts/arch/modules.toml` module of the declaring type.
   - `type`, `method` - the IL key without the `Parsek.` namespace prefix, signature included
     (`Type::Method(sig)`, nested types as `Outer/Inner`, property accessors as `get_X`). The key is
@@ -99,7 +105,20 @@ At 24abf0dba (Debug), against `scripts/arch/facts_pins.toml`:
 | `[uncalledInAssembly] bound` in `facts_pins.toml` | 491 (equal) |
 
 The 491 non-hook rows split as 445 a test calls and 46 no test calls (reached only through other
-dead methods, or pinned by a source gate). The README's B7 line (787 methods, 17,484 instructions,
+dead methods, or pinned by a source gate).
+
+After the really-dead removal (ae8f8b9fc plus the removal, Debug):
+
+| Count | Value |
+|---|---:|
+| methods the roots do not reach | 656 (11,612 instructions) |
+| ... no unit test calls either | 65 |
+| ... a unit test calls | 591 |
+| hook-named | 282 (252 a test calls, 30 orphaned) |
+| the ratchet: uncalled minus hook-named | 656 - 282 = 374 |
+| `[uncalledInAssembly] bound` in `facts_pins.toml` | 374 (equal) |
+
+No method became uncalled by the removal (the fixpoint after it is the 773 minus exactly the 117). The README's B7 line (787 methods, 17,484 instructions,
 78 without a test) was measured on the tree B7 left; main has moved since.
 
 ## Verdicts
@@ -161,15 +180,17 @@ Per verdict (methods, instructions folded):
 
 | Verdict | Methods | IL instructions |
 |---|---:|---:|
-| really-dead | 117 | 5721 |
+| really-dead (removed 2026-11-15) | 117 | 5721 |
 | dead-but-tests-guard-live-logic | 198 | 5475 |
 | tested-helper-of-live-code | 18 | 460 |
 | kept-by-design | 37 | 1340 |
 | unsure | 4 | 296 |
 | test-hook | 399 | 4041 |
-| total | 773 | 17333 |
+| total at 24abf0dba | 773 | 17333 |
+| total after the removal | 656 | 11612 |
 
-Per module (methods per verdict, and the instructions of the really-dead rows):
+Per module (methods per verdict at 24abf0dba, and the instructions of the really-dead rows; the
+`dead` column is the removed set):
 
 | Module | dead | guard | helper | kept | unsure | hook | total | dead IL |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -193,11 +214,11 @@ Per module (methods per verdict, and the instructions of the really-dead rows):
 | Trajectory | 0 | 1 | 0 | 0 | 0 | 1 | 2 | 0 |
 | UI | 7 | 10 | 10 | 2 | 0 | 24 | 53 | 196 |
 
-## Ready to delete
+## Removed
 
-The really-dead set by module, as the deletion PR would take it (method names only, one entry
-per signature, so an overloaded name can appear twice; the TSV has the signatures and the
-tests).
+The really-dead set by module, as the deletion removed it (method names only, one entry per
+signature, so an overloaded name can appear twice; the TSV at 24abf0dba, in git history, has the
+signatures and the tests). Every one was deleted; none was declined.
 
 - **Controllers** (29 methods, 1849 IL): `ForeignInventoryTransfer::CollectTransferMemberRecordingIds`, `ParsekFlight::BuildRecordedAnchorFallbackGapLog`, `ParsekFlight::DistanceOutsideRecordedAnchorCoverage`, `ParsekFlight::IsTrackableVesselType`, `ParsekFlight::RecordedAnchorPointListCoversUT`, `ParsekFlight::ResolveBodyFixedPrimaryPlaybackFrames`, `ParsekFlight::ResolveDockRouteTargetPid`, `ParsekFlight::ShouldSkipMutableActiveReFlyAnchorCandidate`, `ParsekFlight::ShouldUseDenseReFlyAbsolutePlaybackFrames`, `ParsekFlight::ShouldUsePreReFlyAnchorTrajectory`, `ParsekFlight::ShouldWarnRecordedAnchorFallbackGap`, `ParsekFlight::TryFindBodyFixedPrimaryBridgeFrame`, `ParsekFlightGhostPositioner::CountDensebodyFixedFramesForSection`, `ParsekFlightGhostPositioner::PointBelongsToSection`, `ParsekFlightGhostPositioner::TryGetBracketWidthSeconds`, `ParsekFlightGhostPositioner::TryGetDenseSectionBracketWidthSeconds`, `ParsekFlightPostSwitchAutoRecord::HasMeaningfulCrewDelta`, `ParsekFlightPostSwitchAutoRecord::HasMeaningfulInventoryDelta`, `ParsekFlightPostSwitchAutoRecord::HasMeaningfulPartStateChange`, `ParsekFlightPostSwitchAutoRecord::HasMeaningfulPartStateTokenChange`, `ParsekFlightPostSwitchAutoRecord::HasMeaningfulResourceDelta`, `ParsekPlaybackPolicy::StartsInOrbit`, `TimeJumpManager::ComputeJumpTargetUT`, `VesselSpawner::ComputeRecordedTerminalOrbitMeanAnomalyAtUT`, `VesselSpawner::ResolveRelocatedAltitude`, `VesselSpawner::SelectRelocatedAltitude`, `VesselSpawner::ShouldRegenerateIdentity`, `VesselSpawner::TryApplyPreferredSpawnRotation`, `VesselSpawner::TryGetPreferredRecordedOrbitSeedForSpawn`
 - **Core** (3 methods, 158 IL): `GroupHierarchyStore::CollectDescendants`, `GroupHierarchyStore::GetDescendantGroups`, `MilestoneStore::GetPendingEventCount`
@@ -213,7 +234,7 @@ tests).
 - **Rewind** (3 methods, 155 IL): `` EffectiveState::IsRewindRetired(Parsek.Recording,System.Collections.Generic.IReadOnlyList`1<Parsek.RecordingRewindRetirement>) ``, `ReFlySwitchGate::FirstAllowedIndex`, `RewindSpawnScope::IsStableState`
 - **UI** (7 methods, 196 IL): `ParsekUI::HeaderToCellTextDeltaPx`, `RecordingsTableFormatters::FormatDistance`, `RecordingsTableUI::FormatDistance`, `SelectiveSpawnUI::IsSpawnCandidate`, `TimelineWindowUI::ScrollToCareerSubject`, `WideWindowLayout::ClampScrollX`, `WideWindowLayout::MaxScrollX`
 
-How the deletion PR should go (after the folder move):
+How the deletion was planned (after the folder move); item 25 followed these steps:
 
 1. Rebuild and regenerate the list (commands above); drop any row that became live.
 2. Delete the methods module by module. Delete each `[only-dead]` test and edit each
@@ -264,9 +285,10 @@ How the deletion PR should go (after the folder move):
    called from `ParsekKSC.Playback.cs`). Port those cases to `TryComputeLoopPlaybackPhase` first,
    then delete the pair in the same PR or later.
 
-## Really-dead, largest first
+## Removed: really-dead, largest first
 
-Tests: up to three of the test methods that go with it (the TSV lists all, with files).
+Tests: up to three of the test methods that went with it (deleted or edited by the removal; the
+TSV at 24abf0dba listed all, with files).
 
 | # | Method | IL | Tests that go with it | What it was / when it went |
 |---:|---|---:|---|---|
@@ -467,7 +489,7 @@ but they are hooks, so they are not in the approved set:
 
 ## Mechanical and judgment
 
-Mechanical (re-runnable): the 773-row set and its counts, the instruction sizes, the test
+Mechanical (re-runnable): the 773-row set (656 after the removal) and its counts, the instruction sizes, the test
 callers, the hook-name split, the reconciliation with `facts_pins.toml`, and for every
 really-dead row the four checks above (IL callers, comment-stripped source scan, string and
 harness / scripts / docs scans, attribute and override roots), the closure of the set under
