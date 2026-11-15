@@ -451,8 +451,10 @@ Fix: ~~the really-dead set~~ DONE 2026-11-15 (item 25): the 117 methods (5,721 i
 folded) are deleted with their `[only-dead]` tests; the `[edit]` tests drop the dead call, or go
 whole when the dead method was their only subject; the negative assertions naming
 `ResolveEffectiveWatchTargetIndex` and `Refreshed quicksave.sfs` are removed; the docs the list
-names are edited; `[uncalledInAssembly]` (bound 491 -> 374, key list), `headless_pins.toml` and
-`coverage_snapshot.json` are re-pinned. `scripts/refactor/il_compare.py` before vs after: only the
+names are edited; `[uncalledInAssembly]` (bound 491 -> 374, key list), `headless_pins.toml`
+(276 -> 275 leaks) and `layer_pins.toml` (Missions -> UI 15 -> 14) are re-pinned.
+`coverage_snapshot.json` still lists the deleted methods: only a coverlet run on the owner's
+Windows machine refreshes it, and a stale entry reds no gate. `scripts/refactor/il_compare.py` before vs after: only the
 removed methods (and their compiler-generated helpers) differ, no surviving body changed. The
 uncalled fixpoint after is the 773 minus exactly the 117 (no cascade); the list now holds 656 rows.
 Left for a later look (not dead by the fixpoint, but its only consumer went):

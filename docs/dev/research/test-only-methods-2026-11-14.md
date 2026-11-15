@@ -7,7 +7,7 @@ refactor pass (2026-11-14 21:16Z), after the folder move, as its own vetted PR. 
 by the work that wrote this list. Todo entry: `DEAD-CODE-TEST-ONLY-METHODS-PARKED`.
 
 **Status (2026-11-15): the 117 `really-dead` methods are deleted** (item 25, branch
-`item25-remove-dead-methods`, measured at ae8f8b9fc). Their rows left the TSV, which now holds the
+`item25-remove-dead-methods`, measured on main 5da296a2d, where all 117 were still uncalled). Their rows left the TSV, which now holds the
 656 methods still unreached; the sections "Removed", "Removed: really-dead, largest first" and the
 per-verdict tables below keep the record of what went. The rest of the list stays parked.
 
@@ -107,7 +107,8 @@ At 24abf0dba (Debug), against `scripts/arch/facts_pins.toml`:
 The 491 non-hook rows split as 445 a test calls and 46 no test calls (reached only through other
 dead methods, or pinned by a source gate).
 
-After the really-dead removal (ae8f8b9fc plus the removal, Debug):
+After the really-dead removal (main 5da296a2d plus the removal, Debug; main itself measured the
+same 773 / 17,333 / 76 / 282 as 24abf0dba):
 
 | Count | Value |
 |---|---:|
@@ -271,7 +272,12 @@ How the deletion was planned (after the folder move); item 25 followed these ste
    --write-pins` after a Debug build), `headless_pins.toml:283`
    (`MissionEventDigest::FormatRowText -> call:Parsek.ParsekTimeFormat::FormatDuration` becomes
    slack), and the 14 `coverage_snapshot.json` lines that name really-dead methods (refreshed by
-   `coverage.py`). No `lifetime_pins`, `layer_pins` or `log_tags` entry names one.
+   `coverage.py`). No `lifetime_pins`, `layer_pins` or `log_tags` entry names one. As done: the
+   two pin files above, plus `layer_pins.toml` (the `Missions -> UI` pair
+   `MissionEventDigest -> ParsekTimeFormat` went with `FormatRowText`, 15 -> 14) and the knot
+   canaries in `test_archview.py` (`RouteOriginCargoCheck` left the largest knot, 438 -> 437).
+   The coverage snapshot was not refreshed: only the owner's Windows coverlet run makes one, and
+   a snapshot entry the assembly no longer has reds no gate.
 6. `MapRender.OrbitalState` is never constructed by live code; `OrbitalState::FromSegment` was
    its one factory. Both stay with the kept `ITrajectorySample` discriminator (`kept-by-design`),
    so the deletion does not touch the `AbsoluteSample` / `RelativeSample` / `OrbitalState`

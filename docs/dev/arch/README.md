@@ -822,22 +822,22 @@ for instructions, and the leaks of the headless ones (`*`):
 | Trajectory * | 269 | 21% | 17% | 4% | 18,722 | 22% | 10% | 77 |
 | LogIO | 95 | 15% | 7% | 7% | 4,890 | 23% | 13% |  |
 | Missions * | 622 | 15% | 7% | 8% | 58,301 | 26% | 7% | 147 |
-| GameActions | 2,133 | 18% | 8% | 10% | 147,562 | 28% | 14% |  |
+| GameActions | 2,135 | 18% | 8% | 10% | 147,519 | 28% | 14% |  |
 | Timeline * | 92 | 12% | 0% | 12% | 6,653 | 29% | 0% | 5 |
 | Logistics | 965 | 18% | 10% | 8% | 87,348 | 31% | 15% |  |
 | MapRender | 705 | 15% | 7% | 8% | 27,731 | 32% | 18% |  |
-| Recording | 2,633 | 26% | 18% | 8% | 201,657 | 37% | 25% |  |
+| Recording | 2,634 | 26% | 18% | 8% | 201,729 | 37% | 25% |  |
 | Crew | 284 | 25% | 17% | 8% | 22,069 | 38% | 21% |  |
-| Rewind | 1,057 | 22% | 9% | 13% | 91,728 | 39% | 13% |  |
-| SwitchIntent | 62 | 26% | 3% | 23% | 6,456 | 39% | 1% |  |
+| Rewind | 1,057 | 22% | 9% | 13% | 91,746 | 39% | 13% |  |
+| SwitchIntent | 62 | 26% | 3% | 23% | 6,475 | 39% | 1% |  |
 | Rendering | 217 | 24% | 14% | 9% | 17,338 | 44% | 20% |  |
 | Reaim * | 194 | 13% | 6% | 8% | 15,572 | 48% | 21% | 32 |
 | UI | 1,939 | 35% | 24% | 10% | 110,095 | 57% | 45% |  |
 | Ghost | 2,093 | 37% | 26% | 11% | 171,377 | 57% | 47% |  |
-| Controllers | 2,603 | 40% | 28% | 12% | 208,068 | 65% | 51% |  |
+| Controllers | 2,603 | 40% | 28% | 12% | 208,110 | 65% | 51% |  |
 | Config | 86 | 26% | 7% | 19% | 2,780 | 65% | 8% |  |
 | Display | 145 | 39% | 35% | 4% | 16,118 | 69% | 67% |  |
-| Patches | 798 | 68% | 47% | 21% | 36,285 | 82% | 65% |  |
+| Patches | 800 | 68% | 47% | 21% | 36,367 | 82% | 65% |  |
 
 At the pin: 275 leaks in 121 methods, 29 seam calls.
 The live things leaked to most: `UnityEngine.Object` 46, `CelestialBody` 43, `Orbit` 37, `Vessel` 18, `Contracts.Contract` 13, `KSP.UI.Screens.MissionControl` 10, `PatchedConicSolver` 6, `ProtoVessel` 6, `UnityEngine.UI.Button` 6, `VesselNaming` 5.

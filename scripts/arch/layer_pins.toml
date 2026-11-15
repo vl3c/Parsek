@@ -9,8 +9,8 @@
 # reds nothing. A count may fall without a re-pin; the slack is not enforced until
 # someone re-pins, so re-pin in the PR that lowers a count, and raise one only for a
 # deliberate change the PR explains.
-# 52 backward module pairs, 441 type pairs.
-# Pinned from Parsek.dll 2026-11-14
+# 52 backward module pairs, 440 type pairs.
+# Pinned from Parsek.dll 2026-11-15
 
 [[backward]]
 edge = "Rewind -> Controllers"
@@ -348,28 +348,6 @@ pairs = [
 ]
 
 [[backward]]
-edge = "Missions -> UI"
-layers = "features -> presentation"
-count = 15
-pairs = [
-    "MissionControlStockAnnotation -> ReservationExplanation",
-    "MissionControlStockAnnotation -> ReservationText",
-    "MissionControlStockAnnotation -> StockUiDecoration",
-    "MissionControlStockAnnotation -> StockUiDecorationKind",
-    "MissionControlStockAnnotation -> StockUiDecorationQuery",
-    "MissionControlStockAnnotation -> StockUiItem",
-    "MissionControlStockAnnotation -> StockUiReserveButtons",
-    "MissionControlStockAnnotation -> StockUiText",
-    "MissionControlStockUi -> ReservationExplanation",
-    "MissionControlStockUi -> StockUiDecoration",
-    "MissionControlStockUi -> StockUiDecorationKind",
-    "MissionControlStockUi -> StockUiDecorationQuery",
-    "MissionControlStockUi -> StockUiGreyedButton",
-    "MissionControlStockUi -> StockUiReasonTooltip",
-    "MissionEventDigest -> ParsekTimeFormat",
-]
-
-[[backward]]
 edge = "GameActions -> Controllers"
 layers = "model -> entry"
 count = 14
@@ -388,6 +366,27 @@ pairs = [
     "LiveOnlyIncome -> LoadKind",
     "RecoveryDispatchScope -> ParsekScenario",
     "StockShadowTakeBack -> LoadKind",
+]
+
+[[backward]]
+edge = "Missions -> UI"
+layers = "features -> presentation"
+count = 14
+pairs = [
+    "MissionControlStockAnnotation -> ReservationExplanation",
+    "MissionControlStockAnnotation -> ReservationText",
+    "MissionControlStockAnnotation -> StockUiDecoration",
+    "MissionControlStockAnnotation -> StockUiDecorationKind",
+    "MissionControlStockAnnotation -> StockUiDecorationQuery",
+    "MissionControlStockAnnotation -> StockUiItem",
+    "MissionControlStockAnnotation -> StockUiReserveButtons",
+    "MissionControlStockAnnotation -> StockUiText",
+    "MissionControlStockUi -> ReservationExplanation",
+    "MissionControlStockUi -> StockUiDecoration",
+    "MissionControlStockUi -> StockUiDecorationKind",
+    "MissionControlStockUi -> StockUiDecorationQuery",
+    "MissionControlStockUi -> StockUiGreyedButton",
+    "MissionControlStockUi -> StockUiReasonTooltip",
 ]
 
 [[backward]]
