@@ -42,6 +42,7 @@ DOCS = {
     "parsek-ghost-trajectory-rendering-design": "parsek-ghost-trajectory-rendering-design.md",
     "parsek-logistics-supply-routes-design": "parsek-logistics-supply-routes-design.md",
     "parsek-missions-design": "parsek-missions-design.md",
+    "parsek-multiplayer-design": "dev/design-competitive-multiplayer.md",
     "parsek-recording-finalization-design": "parsek-recording-finalization-design.md",
     "parsek-rewind-to-separation-design": "parsek-rewind-to-separation-design.md",
     "parsek-timeline-design": "parsek-timeline-design.md",

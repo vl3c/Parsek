@@ -361,8 +361,8 @@ scores when it has none of `Unverified`, `ToolMarked`, `SeenFirst`, `BadDate`.
   request so the filter has its production caller (uncalled-method ratchet).
 - **Size:** S. **Depends on:** R4-02, R3E-11 (the block it filters; the tests use
   hand-written entries). **PC:** no. **Risk:** low; the VERIFY items of 7.8 (later row kept
-  after an earlier re-earn; a Re-Fly that removes the first flight) belong to R3E-11's
-  tests.
+  after an earlier re-earn; a Re-Fly that removes a flight holding a later repeat, since
+  the credited flight is closed to Re-Fly, design 7.5) belong to R3E-11's tests.
 
 ### R4-04 The board: shapes, exact points and the base rule
 

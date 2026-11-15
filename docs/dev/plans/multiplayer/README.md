@@ -376,8 +376,9 @@ Done on 2026-11-15: the design is v3. It folds in `design-corrections.md` (all b
 DC-062, which were rejected) and the owner's answers of 2026-11-14 and 2026-11-15. The
 corrections to the analysis document (DC-126 to DC-132) went into that document's addendum;
 DC-133 and DC-134 are `.claude/CLAUDE.md` items that wait for the first code pull request
-touching those areas. The design has no PDF (`scripts/build-design-pdfs.py` does not list it),
-so none was regenerated. `design-corrections.md` stays as the record of what changed and why;
+touching those areas. The design has a PDF since 2026-11-15,
+`docs/pdf/parsek-multiplayer-design.pdf` (`scripts/build-design-pdfs.py` lists it), so a
+change to the design reruns that script. `design-corrections.md` stays as the record of what changed and why;
 its design line numbers are v2's. Later findings reach the design through the tasks that
 already say so (S13 and R2-15 fold spike findings into it); where a plan file and the design
 still disagree, the plan file names the correction the task follows. Like the rest of this
