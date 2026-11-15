@@ -20,6 +20,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## REFLY-ATTEMPT-STALE-END-UT: a flown Re-Fly attempt can be saved with its end UT at its start [FILED 2026-11-15 from the AST-4 reading run `2026-11-15_1941_AST-4-klaw-refly` (PR #2633, fcceccd; results branch `ast-flights-2026-11-15`, folder `ast-klaw-2026-11-15b`); not investigated; severity unknown]
+
+What was seen (report-only, the lane passed): in the produced save the Re-Fly attempt recording
+reads `explicitEndUT = 358.01` (its start UT) and `pointCount = 1`, while its `.prec` sidecar
+holds an orbit segment from UT 358.0 to 1097.5 plus one point at 1097.5. The log carries the
+observation-only `outcome=unbound-refly-provisional reason=refly-provisional-has-no-trajectory-at-save`
+at the invoke's save. Open question: is the end UT written once at that early save and never
+refreshed after the attempt flies, and does anything (playback end, spawn, Missions duration)
+read the stale value? Fix: none yet; first decide whether the metadata or the sidecar is right.
+
 ## ~~ROCK-GHOST-PREFAB-MESH~~: a grabbed asteroid or comet replays as the part prefab's small placeholder lump [FILED 2026-11-15 from the H42 flight log of 2026-10-12. FIXED 2026-11-15, branch `ast-ghost-visual`; xUnit + in-game `ClawCouple`; H42 and H41 re-flown green 2026-11-15; low (visual only)]
 
 What the player sees: a 40 m asteroid on a ghost ship's claw, a released asteroid's own replay and
