@@ -230,9 +230,10 @@ StandingDisclosure
   string ModDigest; IReadOnlyList<(string id, string version)> Mods
   string DifficultyDigest
   IReadOnlyList<(string key, string value)> Difficulty
-                            (R3E-15's `DIFFICULTY` copy: the keys of R1-10's
+                            (R3E-15's `DIFFICULTY` copy: the forty keys of R1-10's
                              `RaceDifficulty.Keys` in that order, stock difficulty settings
-                             only; empty for an older standing without the copy)
+                             only, the stock Advanced and CommNet settings included; empty
+                             for an older standing without the copy)
   bool TestToolingUsed      (key `testTooling`, R3E-15)
 
 RacePlayerRecord                 (one per player, own included; built by R4-04 from the
@@ -727,8 +728,9 @@ Dropped: replaced by T-28 and T-32 (OV-07).
 - **Change:** `RaceCore/RaceDisclosure.cs`: per player `ModsDiffer` (digest differs from
   the manifest's) with the added and missing mod ids and versions, `DifficultyDiffers` with
   the names of the settings that differ from the manifest's `DIFFICULTY` node, both read as
-  R1-10's race difficulty list (`RaceDifficulty.Keys`: the stock difficulty settings only,
-  never a `CustomParameterNode`, so Parsek's or another mod's settings never mark a player)
+  R1-10's race difficulty list (`RaceDifficulty.Keys`: forty stock difficulty settings named
+  field by field, the stock Advanced and CommNet settings included; no other
+  `CustomParameterNode`, so Parsek's or another mod's settings never mark a player)
   (owner,
   2026-11-15: a player may change their own difficulty mid-game; nothing is blocked, and a
   mark next to the name says which settings changed; the values are R3E-15's `DIFFICULTY`
@@ -739,7 +741,8 @@ Dropped: replaced by T-28 and T-32 (OV-07).
 - **Proof:** `RaceDisclosureTests`: equal digests, differing lists, a version change only,
   test tooling, one and three changed difficulty settings named, a standing with no
   `DIFFICULTY` copy (digest only: the mark without names), a `ParsekSettings` value changed
-  in the player's save (no mark: it is not on the list).
+  in the player's save (no mark: it is not on the list), an `AdvancedParams` value changed
+  (`GKerbalLimits`: a mark naming it).
 - **Registers:** called by `RaceBoardPresentation.Build` (the call lands in this pull
   request).
 - **Size:** S. **Depends on:** R4-10, R6-01, R3E-15 (the `DISCLOSURE` block). **PC:** no.

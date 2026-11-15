@@ -545,9 +545,9 @@ RaceManifest (race.cfg, written once by the creator)
   createdRealTime: string   - fixed-format UTC timestamp (6.5)
   gameMode: string          - SANDBOX, SCIENCE_SANDBOX or CAREER
   DIFFICULTY { }            - the difficulty every save is created from: an explicit,
-                              ordered list of the stock difficulty settings only (7.12),
-                              never the whole GameParameters node and never a
-                              CustomParameterNode
+                              ordered list of stock difficulty settings only, named
+                              field by field (7.12); never the whole GameParameters
+                              node, and no mod's custom settings node
   difficultyDigest: string  - hash of those values in that order, for disclosure
   ladderId: string          - which ladder table applies ("standard-1")
   dateUnit: string          - how game dates are compared; always SECOND in this
@@ -1828,13 +1828,20 @@ when they differ from the race's:
   the settings themselves (`DIFFICULTY` in `DISCLOSURE`, 6.1); the digest differs from the
   manifest's when the player changed them in game, and the mark next to the player's name
   names which settings changed. "The difficulty settings" are an explicit, ordered list of
-  the STOCK difficulty settings only: the eleven fields of stock's difficulty block
-  (`GameParameters.DifficultyParams`) and the nine career values of
+  STOCK difficulty settings only, named field by field, every one a gameplay setting of the
+  stock difficulty panel: the eleven fields of stock's difficulty block
+  (`GameParameters.DifficultyParams`); the nine career values of
   `GameParameters.CareerParams` (starting funds, science and reputation, the five gain and
-  loss multipliers, and the reputation lost for a declined contract).
-  Never the whole `GameParameters` node and never a `CustomParameterNode`: Parsek's own
-  settings and other mods' settings live in those, so changing one of them never marks a
-  player and never leaves the save.
+  loss multipliers, and the reputation lost for a declined contract); thirteen settings of
+  stock's Advanced section (`GameParameters.AdvancedParams`: negative funds, the G-force
+  and pressure limits, kerbal experience and immediate level-up, part upgrades, building
+  impact damage and the rest; its two Mission-only settings are left out, since a race is
+  never a Mission game); and the seven CommNet settings (`CommNet.CommNetParams`: require
+  signal for control, plasma blackout, range and DSN modifiers, the two occlusion
+  multipliers, extra ground stations). That is forty settings. Never the whole
+  `GameParameters` node: a `CustomParameterNode` is included only when it is one of those
+  two stock types, named by exact type, never Parsek's own settings and never another
+  mod's, so changing one of those never marks a player and never leaves the save.
 - **Cheat and debug tools, per flight.** Each recording entry of a standing says whether a
   tool from a fixed list was on or was used while that flight was recorded. The list is
   explicit, because "a cheat" is not one switch:

@@ -631,24 +631,43 @@ other). R3E-02 lands after both: it waits for R1-03 and R3W-02 through R3E-01 an
     `IRaceSharedFolder` and `RaceSharedFolder`. `RaceCore/RaceModDiff.cs` (the joiner's
     informational diff) lands with its first caller, R1-11.
   - `RaceCore/RaceDifficulty.cs`: the race's difficulty list, `RaceDifficulty.Keys`, an
-    explicit, ordered list of the STOCK difficulty settings only: the eleven fields of
-    `GameParameters.DifficultyParams` in declaration order (`AutoHireCrews`,
-    `MissingCrewsRespawn`, `RespawnTimer`, `BypassEntryPurchaseAfterResearch`,
-    `AllowStockVessels`, `IndestructibleFacilities`, `ResourceAbundance`,
-    `ReentryHeatScale`, `EnableCommNet`, `AllowOtherLaunchSites`,
-    `persistKerbalInventories`; decompiled GameParameters.cs:203-226), then the nine career
-    values of `GameParameters.CareerParams` (`StartingFunds`, `StartingScience`,
-    `StartingReputation`, `FundsGainMultiplier`, `RepGainMultiplier`,
-    `ScienceGainMultiplier`, `FundsLossMultiplier`, `RepLossMultiplier`,
-    `RepLossDeclined`; :228-249; `TechTreeUrl` is not a difficulty setting and is left
-    out). Never the whole `GameParameters` node and never a `CustomParameterNode`: Parsek's
-    own settings (`ParsekSettings`) and other mods' settings live in those. The manifest's
+    explicit, ordered list of STOCK difficulty settings only, named field by field: forty
+    keys, every one a gameplay setting of the stock difficulty panel, in four parts:
+    - the eleven fields of `GameParameters.DifficultyParams` in declaration order
+      (`AutoHireCrews`, `MissingCrewsRespawn`, `RespawnTimer`,
+      `BypassEntryPurchaseAfterResearch`, `AllowStockVessels`, `IndestructibleFacilities`,
+      `ResourceAbundance`, `ReentryHeatScale`, `EnableCommNet`, `AllowOtherLaunchSites`,
+      `persistKerbalInventories`; decompiled GameParameters.cs:203-226);
+    - the nine career values of `GameParameters.CareerParams` (`StartingFunds`,
+      `StartingScience`, `StartingReputation`, `FundsGainMultiplier`, `RepGainMultiplier`,
+      `ScienceGainMultiplier`, `FundsLossMultiplier`, `RepLossMultiplier`,
+      `RepLossDeclined`; :228-249; `TechTreeUrl` is a file path, not a difficulty setting,
+      and is left out);
+    - thirteen settings of the stock custom node `GameParameters.AdvancedParams`
+      (:251-364), in declaration order: `AllowNegativeCurrency`, `PressurePartLimits`,
+      `GPartLimits`, `GKerbalLimits`, `KerbalGToleranceMult`,
+      `ResourceTransferObeyCrossfeed`, `ActionGroupsAlways`, `BuildingImpactDamageMult`,
+      `PartUpgradesInSandbox`, `PartUpgradesInCareer`, `EnableFullSASInSandbox`, then the
+      two properties `EnableKerbalExperience` (:307) and `ImmediateLevelUp` (:364), which
+      stock saves like the fields (a custom node writes its public fields and properties,
+      :611, :920). Left out: `PartUpgradesInMission` and `EnableFullSASInMissions`, which
+      stock shows only in a Mission game (`gameMode = MISSION`, :285, :291), and a race is
+      Sandbox, Science or Career, so they cannot be changed in a race save;
+    - the seven fields of the stock custom node `CommNet.CommNetParams`
+      (il/acs.il:1917783-1917829), in declaration order: `requireSignalForControl`,
+      `plasmaBlackout`, `rangeModifier`, `DSNModifier`, `occlusionMultiplierVac`,
+      `occlusionMultiplierAtm`, `enableGroundStations`.
+    Never the whole `GameParameters` node. A `CustomParameterNode` is included only when it
+    is one of those two stock types, matched by exact type, and only for the fields named
+    here; never Parsek's own (`ParsekSettings`) and never another mod's. The field names are
+    unique across the four parts, so each key is the bare field name. The manifest's
     `DIFFICULTY` node holds exactly these keys in this order; `difficultyDigest` = SHA-256
     (hex) of their invariant `key = value` text in this order. Pure over strings (RaceCore
-    is headless); the live read of the twenty fields from a game's `Parameters` sits in
-    `RaceWorld/RaceInstallFacts.cs`, and Join applies the twenty values to the mode's
-    default `GameParameters` (R1-11). R3E-15's standing copy and R6-05's mark use this one
-    list.
+    is headless); the live read of the forty values from a game's `Parameters`
+    (`Difficulty`, `Career`, `CustomParams<AdvancedParams>()`,
+    `CustomParams<CommNetParams>()`) sits in `RaceWorld/RaceInstallFacts.cs`, and Join
+    applies the forty values to the mode's default `GameParameters` (R1-11). R3E-15's
+    standing copy and R6-05's mark use this one list.
   - `RaceCore/RaceFolderCheck.cs`: pure checks of design 7.2 and 6.3 over
     `IRaceSharedFolder` (exists, writable, empty, holds a race with id X, longest
     expected path under 250 characters for both the shared layout and the local cache).
@@ -693,19 +712,20 @@ other). R3E-02 lands after both: it waits for R1-03 and R3W-02 through R3E-01 an
     lane names it in advance). Refusal reasons are the setup dialog's (design 7.2) verbatim,
     so a lane can drive each. Budget 300 s. The verb marks nothing itself: R3E-08 marks the
     save as tool-used at seam arming (OV-33).
-- **Proof:** xUnit `RaceFolderCheckTests`, `RaceCalendarTests` (the `date-unit-not-second`
-  refusal; R4-01 adds its cells) and `RaceInstallCheckTests` (every refusal reason, path
-  budget edges, the Kerbin slot passing), `RaceManifestWriteTests` (write then read gives
-  the same value, the four optional `local.cfg` keys included; byte pin of a canonical
-  `race.cfg`), `RaceDifficultyTests` (the key list in its order, pinned against a reflection
-  read of the two stock classes' public fields so a new stock field reds; the digest of a
-  fixed value set pinned; changing a `ParsekSettings` value, or adding a mod's
-  `CustomParameterNode`, leaves the copy and the digest unchanged; `de-DE` culture gives the
-  same digest), the `RaceLinkCodecTests` and `RaceTimestampTests` round trips (their writers
-  land here), `RaceSetupPlanTests` over the pure part of `ParsekRaceSetup` (request to
-  files plan), `TestCommandRaceSetupTests` (every arg, every refusal) and a harness
-  `RaceSetupSourceSyncTests` cell like `NewGameSourceSyncTests`. Harness lane RACE-1
-  (T-13). Logs: `[Race] Create: raceId=.. folder=.. save=.. slot=0 look=..`, `[Race] Create
+- **Proof:** xUnit `RaceFolderCheckTests`, `RaceCalendarTests` (the `date-unit-not-second` refusal;
+  R4-01 adds its cells) and `RaceInstallCheckTests` (every refusal reason, path budget edges, the
+  Kerbin slot passing), `RaceManifestWriteTests` (write then read gives the same value, the four
+  optional `local.cfg` keys included; byte pin of a canonical `race.cfg`), `RaceDifficultyTests`
+  (the key list in its order, pinned against a reflection read of the four stock classes' public
+  fields and saved properties, less the named exclusions, so a new stock setting reds; the digest of
+  a fixed value set pinned; changing a `ParsekSettings` value, or adding a mod's
+  `CustomParameterNode`, leaves the copy and the digest unchanged; changing an `AdvancedParams`
+  value (`GKerbalLimits`) or a `CommNetParams` value (`plasmaBlackout`) changes the digest and names
+  that key; `de-DE` culture gives the same digest), the `RaceLinkCodecTests` and
+  `RaceTimestampTests` round trips (their writers land here), `RaceSetupPlanTests` over the pure
+  part of `ParsekRaceSetup` (request to files plan), `TestCommandRaceSetupTests` (every arg, every
+  refusal) and a harness `RaceSetupSourceSyncTests` cell like `NewGameSourceSyncTests`. Harness lane
+  RACE-1 (T-13). Logs: `[Race] Create: raceId=.. folder=.. save=.. slot=0 look=..`, `[Race] Create
   refused: reason=..`.
 - **Registers:** `TestCommandVerbs.ImplementedVerbs`; `design-autotest-command-seam.md`
   (known-verb row and a `#### RaceSetup` contract); the hlib rows beside the NewGame rows;
@@ -725,7 +745,7 @@ other). R3E-02 lands after both: it waits for R1-03 and R3W-02 through R3E-01 an
   launch sites), refuses a full race or a taken name, takes `FirstFreeSlot` and the chosen free
   look, writes the new `players/<p_id>/player.cfg` with `joinedRealTime`, creates the save from the
   manifest's `gameMode` and `DIFFICULTY` node (the mode's default `GameParameters` with R1-10's
-  twenty `RaceDifficulty.Keys` values applied, S6) through the same
+  forty `RaceDifficulty.Keys` values applied, S6) through the same
   P10-01 sequence as Create (`CreateGame`, its own before-start step, `StartGame`; no callback
   parameter); the `local.cfg` it writes carries `firstImportDone = false` (OV-27; R3E-18 sets it
   true). `StartOver(playerId)`: same, with the existing id, slot and look, and a fresh save name; it

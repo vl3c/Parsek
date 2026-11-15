@@ -757,9 +757,10 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
 - **Change:** `RaceExportSource.Disclosure.cs`: the loaded assemblies' names and versions,
   sorted, and their digest; the digest of the save's difficulty settings and a copy of
   them, both over R1-10's race difficulty list (`RaceDifficulty.Keys`: an explicit, ordered
-  list of the stock difficulty settings only, the eleven `GameParameters.DifficultyParams`
-  fields and the nine `CareerParams` values; never the whole `GameParameters` node and never
-  a `CustomParameterNode`, where Parsek's own settings and other mods' settings live), with
+  list of stock difficulty settings only, named field by field, forty keys from
+  `DifficultyParams`, `CareerParams` and the two stock custom nodes `AdvancedParams` and
+  `CommNetParams`; never the whole `GameParameters` node, and a `CustomParameterNode` only
+  when it is one of those two stock types, never Parsek's own or another mod's), with
   the same digest R1-10 writes as `race.cfg`'s `difficultyDigest`, so a rival can be told
   which settings changed (owner, 2026-11-15: a
   player may change their own difficulty mid-game; nothing is blocked and a mark names the
@@ -778,7 +779,8 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
   Showing it is R6.
 - **Proof:** digest stability tests; changing a `ParsekSettings` value (a
   `CustomParameterNode` of the same `GameParameters`) leaves the copy and the digest
-  unchanged, and so does a mod's custom node; export block test, the `DIFFICULTY` child
+  unchanged, and so does a mod's custom node; changing an `AdvancedParams` value changes
+  both; export block test, the `DIFFICULTY` child
   included, exactly the keys of `RaceDifficulty.Keys` in order, and read back key for key;
   a standing without the child reads; the facts child round trips
   through the hooks; `LoadReconcilePolicyTests` cover the new row.
