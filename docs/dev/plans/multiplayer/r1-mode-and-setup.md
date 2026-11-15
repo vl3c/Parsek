@@ -1,8 +1,10 @@
 # Race mode, mark and setup - implementation plan
 
 Status: PLAN (2026-11-14), not started. Design sections covered: 6.1, 6.2, 7.1, 7.2, 7.3
-(slot assignment only), 7.4 (look assignment only), 15.1 to 15.4, 15.7, 15.8, 15.12, 15.14,
-addition A7. Phase: R1 ("a race save that plays as single player").
+(slot assignment only), 7.4 (look assignment only), 7.12 (the progression settings and the
+launch warning, R1-21 and R1-22), 15.1 to 15.4, 15.7, 15.8, 15.12, 15.14, addition A7, and
+the 2026-11-15 rulings on the tech tree and the counted parts (R1-19 to R1-22). Phase: R1
+("a race save that plays as single player").
 
 Design: `docs/dev/design-competitive-multiplayer.md` (cited as "design").
 Inventory: `docs/dev/research/multiplayer-base-refactoring-2026-11-14.md` (cited as
@@ -281,10 +283,10 @@ The scenario name literal is repeated at `SaveReferenceScanner.cs:84` and
 
 ## 4. Tasks
 
-Every task: CHANGELOG and todo are touched only when it changes what a player sees. The
-Multiplayer entry is never hidden (question 1, owner, 2026-11-15), so the R1 tasks a player can
-see (R1-14, R1-15, R1-17, R1-18) each write a CHANGELOG entry under the branch's `1.1.0` heading
-(README rule 10); the others write todo entries only. Log lines use the subsystem tag `Race`
+Every task: CHANGELOG and todo are touched only when it changes what a player sees. The Multiplayer
+entry is never hidden (question 1, owner, 2026-11-15), so the R1 tasks a player can see (R1-14,
+R1-15, R1-17, R1-18, R1-20, R1-21, R1-22) each write a CHANGELOG entry under the branch's `1.1.0`
+heading (README rule 10); the others write todo entries only. Log lines use the subsystem tag `Race`
 (`[Parsek][INFO][Race] ...`), one of the race tags fixed in R1-06's tag list (OV-57); the
 report-only tag map `scripts/arch/log_tags.json` is refreshed in the task that first logs.
 
@@ -539,7 +541,10 @@ other). R3E-02 lands after both: it waits for R1-03 and R3W-02 through R3E-01 an
     (written by R3E-17), `lastStandingDigest` (R3E-04), `firstImportDone` (false written by
     R1-11's join, true by R3E-18) and the `SHOW` block (kept as the node read). A typed
     reader, setter or accessor lands with its first caller (R3W-13 the SHOW reader, R4-10
-    the SHOW setter, R3E-04 / R3E-17 / R3E-18 their keys).
+    the SHOW setter, R3E-04 / R3E-17 / R3E-18 their keys). R1-19 adds the manifest keys
+    `contentTableId`, `PART_SETS` and `allowUnscoredPlay` and the link keys
+    `contentTableId`, `partSets`, `allowUnscoredPlay` (design 6.1) to these codecs and to
+    R1-10's writers, with their first callers.
   - `RaceCore/RaceTimestamp.cs`: parse `yyyy-MM-ddTHH:mm:ssZ` (design 6.5), called by the
     manifest reads. `Format` lands with R1-10's writers; R3E-01 adds `NextStamp` (OV-24).
   - `RaceCore/RaceIds.cs`: `race_` / `p_` + 32 hex; validation through P7-01's floor check,
@@ -855,16 +860,29 @@ Dropped: replaced by T-13 (OV-02).
   toggles); the calendar line, read-only (question 3: the day length is the creator's own game
   setting, shown, with no field; it only formats dates, since dates compare to the exact second).
   There is no seat-count field (always four) and no password field (anyone with the folder may
-  join). The page says once that mode, end date, "no retakes" and shared launch sites never change
-  after Create. The form state is a pure `RaceCore/RaceSetupForm.cs` (field values to a
+  join). Three part set checkboxes (Making History, Breaking Ground, ReStock+), none ticked by
+  default (assumed until the owner answers, stated 2026-11-15), with one line saying the base game's
+  parts always count; and "Allow play without scoring", ticked by default (owner, 2026-11-15), with
+  its hover saying what each state does (design 7.2). The page says once that mode, end date, "no
+  retakes", shared launch sites, the part sets and "allow play without scoring" never change after
+  Create. The form state is a pure `RaceCore/RaceSetupForm.cs` (field values to a
   `RaceCreateRequest` plus the first refusal); Create calls `IRaceSetupHost.Create`, which calls
   `ParsekRaceSetup.Create`. Confirmations use the stock confirmation dialog (design section 0).
+  R1-20's check: `ParsekRaceSetup.Create` runs `RaceContentCheck.Decide` and takes the answer to a
+  warning as an argument; this page passes `IRaceSetupHost.ConfirmUnscored(text)`, which shows the
+  warning (what differs, and that this game's flights will not score while it differs) in the stock
+  confirmation dialog with Continue and Cancel, and shows a refusal (`content-differs`, with
+  `Describe`'s text) in the page's refusal line.
 - **Proof:** xUnit `RaceSetupFormTests` (every field's refusal, the request built from a
-  valid form); manual create on the owner's PC; RACE-1 (T-13) keeps proving the core.
-  Adds `IRaceSetupHost.Create`, its first caller (A1).
+  valid form, the part sets and "allow play without scoring" carried into the request with
+  their defaults: no set ticked, play without scoring on); manual create on the owner's PC,
+  once on a stock-tree install (no warning) and once with a tree mod (the warning, then the
+  refusal with the setting off); RACE-1 (T-13) keeps proving the core.
+  Adds `IRaceSetupHost.Create` and `IRaceSetupHost.ConfirmUnscored`, their first caller
+  (A1); R1-17 reuses `ConfirmUnscored`.
 - **Registers:** `design-gui-inventory.md` (the page); todo and a CHANGELOG entry under
   `1.1.0`.
-- **Size:** M. **Depends on:** R1-14. **PC:** yes.
+- **Size:** M. **Depends on:** R1-14, R1-19, R1-20. **PC:** yes.
 - **Risk:** medium; a text field in a stock dialog at the main menu is new to the mod (S6).
 
 ### R1-16 Lift the load-and-start route beside P10's core
@@ -882,19 +900,23 @@ Dropped: replaced by T-13 (OV-02).
 
 ### R1-17 The Join page and "start over in my seat"
 
-- **Change:** `RaceSetupDialog` Join page: folder field and Validate; race summary (name,
-  mode, end date, house rules, seats with look and name); display name field; look toggles
-  with taken looks greyed; the site the player will get; the mod differences as
-  information; the late-join "no retakes" note (one fixed sentence when the race's
-  `noRetakes` is set; no list of rows, R6-09 is dropped); a "start over as" choice per existing
-  player with the warning text of design 7.2, confirmed through the stock confirmation
-  dialog. Calls `IRaceSetupHost.Join` / `StartOver`, which this task adds (their first
-  caller, A1). The page has no password field: anyone with the folder may join while a seat
-  is free (owner, 2026-11-15). The race summary shows the game name and the fixed settings.
+- **Change:** `RaceSetupDialog` Join page: folder field and Validate; race summary (name, mode, end
+  date, house rules, seats with look and name); display name field; look toggles with taken looks
+  greyed; the site the player will get; the mod differences as information; the late-join "no
+  retakes" note (one fixed sentence when the race's `noRetakes` is set; no list of rows, R6-09 is
+  dropped); a "start over as" choice per existing player with the warning text of design 7.2,
+  confirmed through the stock confirmation dialog. Calls `IRaceSetupHost.Join` / `StartOver`, which
+  this task adds (their first caller, A1). The page has no password field: anyone with the folder
+  may join while a seat is free (owner, 2026-11-15). The race summary shows the game name and the
+  fixed settings, the ticked part sets among them (a set this install lacks named as information,
+  design 7.2) and whether play without scoring is allowed. R1-20's check runs in
+  `ParsekRaceSetup.Join`: its refusal shows in the page's refusal line, and its warning (play
+  without scoring on) through R1-15's `IRaceSetupHost.ConfirmUnscored`, which this page passes as
+  the answer.
 - **Proof:** xUnit `RaceJoinFormTests`; manual join on the owner's PC (a second install or
   a second save on one install, folder shared on disk).
 - **Registers:** `design-gui-inventory.md`; todo and a CHANGELOG entry under `1.1.0`.
-- **Size:** M. **Depends on:** R1-14. **PC:** yes.
+- **Size:** M. **Depends on:** R1-14, R1-20. **PC:** yes.
 - **Risk:** medium; the page shows other players' text, so names are length-capped and
   rendered as plain text.
 
@@ -931,6 +953,202 @@ Dropped: replaced by T-13 (OV-02).
 - **Risk:** medium; `SettingsWindowUI.cs` is shared by every Settings change, so this task
   keeps its additions in one draw method and one partial-free block.
 
+### R1-19 The race content table and its generator
+
+Owner rulings of 2026-11-15 (design 7.2): one versioned reference table shipped with Parsek,
+the stock tree only in the first build, one checkbox per part set, and the creator setting
+"allow play without scoring", ticked by default.
+
+- **Change:**
+  - `RaceCore/GameplayFingerprint.cs` (pure, over `ConfigNode`): the fixed list of gameplay
+    values of design 7.2 read from a part's config as ModuleManager left it (mass, cost,
+    crew capacity, each `RESOURCE` capacity, the engine modules' thrust and Isp curves, the
+    reaction wheel torques, antenna power, generator and converter rates, heat limits, crash
+    tolerance, the drag fields, and the sorted module names), written invariant ("R") and
+    hashed with SHA-256; one fingerprint per variant whose values differ (stock
+    `ModulePartVariants` and the B9PartSwitch subtypes ReStock+ uses, as S6 step (f) lists
+    them). Cosmetic keys are never read. A module another mod adds is not read either: the
+    module list is matched against the table's, so an added module is reported by name and
+    does not change the fingerprint (design 7.15 known limit).
+  - `RaceCore/RaceContentTables.cs` and the generated `RaceCore/RaceContentTable1.g.cs` (id
+    `race-content-1`): the stock nodes (id, cost, `anyToUnlock`, `hideEmpty`, parents), the parts of
+    the base set, `making-history`, `breaking-ground` and `restock-plus` (name in dot form, set,
+    node, entry cost, fingerprints), the stock `PARTUPGRADE` nodes a part names, the
+    `EXPERIMENT_DEFINITION` values and each body's science multipliers.
+    `RaceContentTables.IsKnown(id)` and `TryGet(id)`. The base set also lists the kerbal EVA parts
+    in every suit, `flag` and the stock asteroid and comet parts. A table, once a committed game can
+    name it, is never edited: a change is a new id (design 7.2 and 15.10, "tables are data with
+    ids"; the site table follows the same rule, r2 section 7).
+  - The dev tool. In-game test `RaceDevTests.DumpRaceContent` (category `RaceDev`, `Scene =
+    MAINMENU`, `AllowBatchExecution = false`, so no lane runs it) writes `<KSP
+    root>/race-content-dump.cfg`: the database `TechTree` nodes, every `PartLoader.LoadedPartsList`
+    entry with `name`, `partUrl`, `TechRequired`, entry cost and `partConfig`, every `PARTUPGRADE`
+    and `EXPERIMENT_DEFINITION` node and each body's `scienceValues` (the same read as spike S6 step
+    (f), now production code), plus the list of top-level folders under `GameData` and the nodes of
+    the stock tree file read raw from disk (`GameData/Squad/Resources/TechTree.cfg`, the default of
+    `CareerParams.TechTreeUrl`, GameParameters.cs:230). `scripts/race/build_content_table.py <dump>
+    --id race-content-1` (stdlib only) sorts the parts into sets by `partUrl` prefix (`Squad/`,
+    `SquadExpansion/MakingHistory/`, `SquadExpansion/Serenity/`, `ReStockPlus/`), computes nothing
+    itself (the fingerprints are in the dump, computed by the C# above) and writes the generated C#
+    file. It refuses a dump whose loaded tree is not the stock one: a `GameData` folder
+    `CommunityTechTree` or `ProbesBeforeCrew`, a top-level folder outside its allow list (the stock
+    folders, ReStock, ReStock+ and their dependencies, the harness stack), or a database tree that
+    differs from the raw stock file's nodes, each named in the refusal. The dump of the clean
+    install is committed as `Source/Parsek.Tests/Fixtures/RaceContent/race-content-1.dump.cfg`.
+  - The manifest keys `contentTableId`, `PART_SETS`, `allowUnscoredPlay` (default true) and the link
+    keys `contentTableId`, `partSets`, `allowUnscoredPlay` (design 6.1), as edits to R1-08's read
+    codecs, R1-10's writers and R1-03's link codec; `RaceInstallCheck` refuses an unknown table
+    (`content-table-unknown`, through `RaceContentTables.IsKnown`, the way R4-02 refuses an unknown
+    ladder). Create writes `race-content-1` and the request's sets and setting. Seam verb `RaceSetup
+    action=create` gains `parts=` (a comma list of `mh`, `bg`, `rsp`, empty by default) and
+    `unscored=on|off` (on by default), in R1-10's files.
+- **Proof:** xUnit `GameplayFingerprintTests` (a cosmetic key changes nothing; each listed
+  value changes the hash; an added module is named and leaves the hash; a variant with other
+  values gets its own fingerprint; `de-DE` gives the same hash), `RaceContentTableTests`
+  (the generator's output from the committed dump equals the committed C# byte for byte;
+  every name is in dot form; every part's node is in the table's tree; the fingerprints
+  recomputed from the dump's part configs equal the table's; ids are unique),
+  `RaceInstallCheckTests` gains `content-table-unknown`, `RaceManifestWriteTests` and
+  `RaceLinkCodecTests` the new keys and their defaults, `TestCommandRaceSetupTests` the two
+  args. Harness: `test_build_content_table.py` beside the script. Logs: `[Race]
+  Content table: id=.. parts=.. nodes=..` once per process.
+- **Registers:** `headless_pins.toml` (`GameplayFingerprint`, `RaceContentTables`); the seam
+  contract's `RaceSetup` rows; `harness/README.md` names the new script test; the lane
+  catalog's category list gains `RaceDev` (no spec pins it); `log_tags.json`.
+- **Size:** M. **Depends on:** R1-10, S6. **PC:** yes (the dev tool runs once, on S6 step
+  (f)'s content instance: provisioned from the `stock-tree` profile, so CommunityTechTree and
+  ProbesBeforeCrew are absent and `Squad` and `SquadExpansion` (both expansions) are
+  junctioned from the dev install, then ReStock and ReStock+ copied into its `GameData` by
+  hand; never on a `stock-minimal` install, which loads CommunityTechTree and
+  ProbesBeforeCrew and so a different tree).
+- **Risk:** medium; the value list decides what "changed values" means, so S6's ReStock run
+  is read before the list is frozen.
+
+### R1-20 The tree and part-value check at create, join and load
+
+- **Change:**
+  - `RaceCore/RaceContentCheck.cs` (pure): `Compare(table, observed, mode, bypassOff,
+    partSets) -> RaceContentDiff`: node ids, costs, parents, `anyToUnlock`, `hideEmpty`;
+    each counted part's node, entry cost (Career with the race's entry purchase bypass off
+    only) and fingerprint for the variant set it has; upgrades; experiments; body
+    multipliers. Not a difference (design 7.2): an extra node holding no counted part and no
+    upgrade of one that no table node needs; a counted part not installed. Sandbox compares
+    parts only. `Describe(diff)`: the first three differences and a count, invariant.
+    `Decide(diff, allowUnscoredPlay) -> Pass | Refuse | Warn`.
+  - `RaceWorld/ContentProbe.cs`: the live reads in `NoInlining` cores, once per process
+    (mods do not change without a restart): the database `TechTree` nodes, else the file at
+    `KSPUtil.ApplicationRootPath` + `TechTreeUrl` (stock's order in
+    `RDTechTree.LoadTechTree`, mirrored rather than called, since stock writes a static),
+    the loaded parts through R1-19's fingerprint, the `PARTUPGRADE` and
+    `EXPERIMENT_DEFINITION` nodes and `FlightGlobals.Bodies`' `scienceValues`.
+  - Create and Join core (`ParsekRaceSetup.Create` / `Join`, R1-10's and R1-11's files, after
+    `RaceInstallCheck`): `Refuse` is the refusal `content-differs` with `Describe`'s text and
+    nothing written; `Warn` asks the answer the caller passed in (`Func<string, bool>
+    confirmUnscored`) and writes nothing on Cancel. This task's caller is the seam (below), so the
+    members land with it (A1). The dialog pages are not this task's: R1-15 (Create) and R1-17 (Join)
+    pass `IRaceSetupHost.ConfirmUnscored`, a member that lands with its first caller R1-15. A
+    Continue at Create or Join arms the load gate's one-shot pass for the save it starts, so it is
+    not asked twice.
+  - Load: an edit to R2-02's `Patches/RaceLoadGatePatch.cs` prefix, after its Kerbin check.
+    `Refuse`: the same refusal as a modified Kerbin (screen message, back to the main menu,
+    the save untouched, R2-02's fallback included). `Warn`: the prefix returns false and
+    shows one stock `PopupDialog` with Continue and Cancel; Continue arms a one-shot pass for
+    that game and calls `Game.Start()` again; Cancel stays at the main menu (the turn-back
+    of S4a). A quickload or scene change inside the same race save in the same process does
+    not warn again. In a race that allows play without scoring, the accepted difference is
+    held for the session as `RaceSession.ContentDiff` (tree differs, the changed part
+    names), which R1-22 and R3E-25 read; it is rebuilt by the check at every load, so it is
+    not saved.
+  - The seam's answer. `RaceSetup action=create|join` (R1-10's and R1-11's seam files) and the base
+    `LoadGame` verb gain `unscoredConfirm=continue|cancel`, default `cancel`, so an unexpected
+    warning in a lane fails fast with `[Race] Content warning: choice=cancel source=seam` instead of
+    waiting on a dialog nobody clicks. The create and join appliers pass it as `confirmUnscored`;
+    the `LoadGame` applier hands it to the load gate through
+    `RaceLoadGatePatch.ArmSeamAnswer(choice)`, a one-shot value the gate reads, only while the seam
+    is armed (`PARSEK_TEST_COMMANDS=1`), in place of showing its dialog, and clears on use or at the
+    main menu (lifetime `process`). Without the seam the dialog shows.
+  - Nothing else is blocked in either state: no launch, research or other stock button
+    (owner, 2026-11-15).
+- **Proof:** xUnit `RaceContentCheckTests`: each difference kind found and named; an extra branch, a
+  missing counted part and a cosmetic change are not differences; entry cost compared in Career with
+  the bypass off, not in Science or with it on; Sandbox compares parts only; `Describe` gives three
+  and a count under `de-DE`; `Decide` for both states. `RaceSetupPlanTests` and `RaceJoinPlanTests`
+  cells for both states: off refuses with no file written; on warns, Continue writes, Cancel writes
+  nothing. R2-02's load gate cells: off refuses, on warns, the pass after Continue, no second
+  warning in the session, the seam answer used once and the default `cancel` when none was armed.
+  `TestCommandRaceSetupTests` and the `LoadGame` arg cells: `unscoredConfirm` parsed, default
+  `cancel`, a bad value refused. In-game `RaceModeTests.ContentProbeMatchesRnD` (SPACECENTER,
+  RACE-9, which flies on the `stock-tree` profile): the probe's tree equals
+  `AssetBase.RnDTechTree.GetTreeNodes()`, and on that install the check passes with no difference.
+  Lanes: every ordinary race lane runs on `stock-tree` and so passes the check; SITES-2 (R2-13)
+  stays on `stock-minimal`, whose CommunityTechTree and ProbesBeforeCrew make the tree differ, and
+  proves the Warn path (create, join and load answered with `unscoredConfirm=continue`, one load
+  with `cancel` leaving the save unchanged, and a create with `unscored=off` refused
+  `content-differs`). A manual run on the owner's PC with a tree patch and a stat patch, once with
+  the setting on and once off. Logs: `[Race] Content check: result=.. differences=.. first=..`,
+  `[Race] Content warning: choice=continue|cancel source=dialog|seam`.
+- **Registers:** `design-gui-inventory.md` (the warning dialog; the refusal is R2-02's
+  message with a second reason); the README's race screen message row; `headless_pins.toml`
+  (`RaceContentCheck`); `log_tags.json`; the seam contract (`design-autotest-command-seam.md`)
+  and the hlib arg tables with their source-sync cells for `unscoredConfirm`;
+  `lifetimes.toml` (`RaceLoadGatePatch`'s seam answer, `process`).
+- **Size:** M. **Depends on:** R1-19, R1-11, R2-02, S4a, S6. **PC:** yes.
+- **Risk:** medium; restarting a load after a dialog is new, so S4a's turn-back step must
+  show `Game.Start()` can run again. Fallback: the save loads, the warning shows at the
+  first Space Center entry, and Cancel returns to the main menu with R2-02's copy-aside, so
+  the save is untouched.
+
+### R1-21 The progression settings are held
+
+- **Change:** `RaceCore/RaceDifficultyHold.cs` (pure): `HeldKeys(link)` = the nine
+  progression settings of design 7.12, named against R1-10's `RaceDifficulty.Keys`
+  (`ScienceGainMultiplier`, `FundsGainMultiplier`, `RepGainMultiplier`,
+  `BypassEntryPurchaseAfterResearch`, `ResourceAbundance`, `PartUpgradesInSandbox`,
+  `PartUpgradesInCareer`, `EnableKerbalExperience`, `ImmediateLevelUp`), plus
+  `AllowOtherLaunchSites` when R2-08's `AlternateSitesBlocked(link)` holds; `Apply(values,
+  manifest)` sets them back to the manifest's values. R2-08's load hold and window hold call
+  it instead of their one key (an edit to R2-08's files), and its greying postfix greys each
+  held control found by its label key, with the reason ("Locked for this race") appended to
+  its own stock description. A control it cannot reach snaps back on apply, with one screen
+  message ("Progression settings stay as this race was created"), as R2-08's fallback does.
+- **Proof:** xUnit `RaceDifficultyHoldTests` (the nine keys are members of
+  `RaceDifficulty.Keys`; each is set back; the other thirty-one are untouched; the launch
+  sites key only when blocked). In-game `RaceModeTests.ProgressionSettingsHeld`
+  (SPACECENTER, RACE-9): each of the nine changed and applied is set back, and either the
+  control is greyed or the message was posted. Log: `[Race] Difficulty held: keys=..`.
+- **Registers:** `design-gui-inventory.md` (nine stock-control annotations, one message);
+  the README's race screen message row.
+- **Size:** S. **Depends on:** R2-08, R1-10. **PC:** yes.
+- **Risk:** low; the gain multipliers are sliders, which take the same not-interactable call
+  as a toggle.
+
+### R1-22 The launch warning
+
+- **Change:** `RaceCore/UncountedParts.cs` (pure): `Classify(parts, table, partSets, changedNames)
+  -> (uncounted, changed)`, over `(name, isClamp)` pairs: names compared in dot form with the
+  numeric suffix removed (the rule of `Ghost/GhostVisualBuilder.Parsing.cs:63-72`, copied, since
+  RaceCore cannot name the Ghost module, and pinned equal by a test), the base set always counted, a
+  part carrying stock's `LaunchClamp` module (`isClamp`) never reported.
+  `RaceWorld/UncountedPartsWarning.cs`: for the active vessel, reads its part names and the stored
+  parts of its inventories, takes the changed names from R1-20's `RaceSession.ContentDiff`, and
+  posts one `ParsekLog.ScreenMessage` "This flight will not score: <first three names> (+N)" when
+  the vessel holds a name not yet warned for it this flight. It is called from two handlers this
+  task adds to R1-04's `ParsekRaceBoot`, on `GameEvents.onLaunch` and
+  `GameEvents.onVesselWasModified`, which act only while `RaceGate.IsRaceSave`.
+- **Proof:** xUnit `UncountedPartsTests` (each set, the base always, kerbal EVA parts and the
+  flag counted, a clamp never reported, a changed counted part reported as changed, the
+  suffix and underscore forms; a cell pinning the copied rule against
+  `GhostVisualBuilder.TryExtractPartName` on the same inputs) and
+  `UncountedPartsWarningTests` over a fake vessel source (a launch warns, a dock adding a
+  new name warns again, the same name twice warns once, a clean vessel never). Manual on the
+  owner's PC: a launch with a mod part. Log: `[Race] Unscored flight warned: vessel=..
+  parts=..`.
+- **Registers:** `design-gui-inventory.md` (one screen message); the README's race screen
+  message row; `log_tags.json`.
+- **Size:** S. **Depends on:** R1-19, R1-20. **PC:** yes.
+- **Risk:** low; `onVesselWasModified` fires often, so the warned set keeps the message to one
+  per new name.
+
 ## 5. Parallel tracks
 
 | Track | Tasks, in order | Files it owns |
@@ -941,6 +1159,7 @@ Dropped: replaced by T-13 (OV-02).
 | D, rules and setup | R1-08, R1-09, R1-10, R1-11, R1-12 | `RaceCore/RaceManifest.cs`, `RacePorts.cs`, `RaceTimestamp.cs`, `RaceIds.cs`, `RaceSlots.cs`, `RaceFolderCheck.cs`, `RaceCalendar.cs`, `RaceInstallCheck.cs`, `RaceWorld/*`, `ParsekRaceSetup.cs`, the `RaceCommand` and `RaceSetup` seam files, `InMemoryRaceFolder.cs`, `SaveFormat.cs`, golden v2 |
 | E, load route | R1-16 (any time after P10-01) | P10-01's file, `ParsekTestCommandAddon.cs`, `LoadReconcilePolicy.cs` (initiators) |
 | F, UI | R1-14, then R1-15, R1-17, R1-18 in parallel | `ParsekRaceMenu.cs`, `UI/RaceSetupDialog.cs`, `SettingsWindowUI.cs`, `CLAUDE.md`, `AGENTS.md`, `design-gui-inventory.md` |
+| G, content | R1-19 (after R1-10 and S6), then R1-20 and R1-21 in parallel, then R1-22 | `RaceCore/GameplayFingerprint.cs`, `RaceContentTables.cs`, `RaceContentTable1.g.cs`, `RaceContentCheck.cs`, `RaceDifficultyHold.cs`, `UncountedParts.cs`, `RaceWorld/ContentProbe.cs`, `UncountedPartsWarning.cs`, `scripts/race/build_content_table.py`, `Fixtures/RaceContent/`; edits to R1-08, R1-10 and R1-03's codecs, `RaceInstallCheck.cs`, R2-02's `Patches/RaceLoadGatePatch.cs` and R2-08's hold files |
 
 Hot files that force an order:
 
@@ -959,6 +1178,11 @@ Hot files that force an order:
   its own method, so both can be built at once and rebased.
 - `SettingsWindowUI.cs`, `design-gui-inventory.md`, CHANGELOG, todo: shared with every other
   UI change in the repository; rebase at merge.
+- R1-08's and R1-10's codecs and writers, `RaceInstallCheck.cs`: R1-19 adds the content keys
+  and the `content-table-unknown` refusal after R1-10 lands; R4-02 adds the ladder refusal
+  to the same check, so the two rebase.
+- `Patches/RaceLoadGatePatch.cs` (R2-02) and R2-08's hold: R1-20 adds the content check after
+  the Kerbin check; R1-21 replaces R2-08's one held key with the nine plus the sites key.
 - `SaveFormat.cs` and `Fixtures/FormatGolden/checksums.txt`: R1-12 registers both race rows
   and writes `v2`; R3E-04 registers nothing and adds golden `v3` at `race-exchange = 1`
   (OV-15).
@@ -996,6 +1220,10 @@ Unit (xUnit, headless, `Source/Parsek.Tests/`):
 | `TestCommandRaceCommandTests`, `TestCommandRaceSetupTests` | the `status`, `create` and `join` actions parse with T-11 / T-12's argument names; every refusal |
 | `RaceSaveListingTests`, `RaceSetupDialogModelTests`, `RaceSetupFormTests`, `RaceJoinFormTests`, `RacePlayerSettingsTests` | the dialog and Settings logic without drawing |
 | `SaveFormatTests`, `SaveFormatGoldenGateTests`, `FormatGoldenV2Tests`, `RaceFormatPinTests` (R1-12's cells) | the two rows at 1, pinned to `RaceFormat.LinkCurrent` and `RaceFormat.Current`, and the frozen `v2` |
+| `GameplayFingerprintTests`, `RaceContentTableTests` | R1-19: a cosmetic key changes nothing, each listed value changes the hash, an added module is named; the generated table equals the committed dump's output byte for byte |
+| `RaceContentCheckTests` | R1-20: every difference kind; what is not a difference; Sandbox parts only; `Describe` invariant; `Decide` for the setting on and off |
+| `RaceDifficultyHoldTests` | R1-21: the nine keys held, the other thirty-one free, the sites key only when blocked |
+| `UncountedPartsTests`, `UncountedPartsWarningTests` | R1-22: the counted sets, clamps never reported, changed parts, one warning per new name |
 | `GrepAuditTests.Race.cs` | the shared `RaceSourceScan`; no store in `RaceCore`, the one no-writer gate (with the save-lifetime writers cell), the one recorder ban: each with anti-vacuity, planted-red and mirror cells; the race log tag list |
 | arch suite | the edges whose two ends exist declared (all 71 once `RaceExport` registers); `RaceCore` headless with no leak; the loader-only cell reading `scripts/race-loader-files-allowlist.txt` |
 
@@ -1010,9 +1238,11 @@ In-game (category `RaceMode`, SPACECENTER, hosted only by T-29's RACE-9 (A2, OV-
 that lane pins it no committed spec pins it, so `CommittedBatchTallySourceSyncTests` stays
 green):
 
-- `MarkSurvivesSaveLoad` (R1-03), gate on and off across scenes (R1-04). R1 has no other
-  in-game category: the menu entry (R1-14) is a manual check, since no race category runs at
-  the main menu (A2).
+- `MarkSurvivesSaveLoad` (R1-03), gate on and off across scenes (R1-04),
+  `ContentProbeMatchesRnD` (R1-20), `ProgressionSettingsHeld` (R1-21). The menu entry (R1-14)
+  is a manual check, since no race category runs at the main menu (A2). The one other R1
+  in-game test is R1-19's dev tool `RaceDevTests.DumpRaceContent` (category `RaceDev`,
+  MAINMENU, single run only), which no lane runs.
 
 Harness lanes (owner's PC): R1 owns none. T-13's RACE-1 (folder `${raceShared}` =
 `<instance>/rs/<n>`, T-03) carries the dropped R1-13's assertions (OV-02): create, gate on in
@@ -1022,10 +1252,13 @@ late join gets slot 1 and the first free look. One flight tier for R1-16.
 
 Manual checks on the owner's PC: the cloned menu entry and keyboard navigation (R1-14); the
 Create and Join pages including the difficulty panel (R1-15, R1-17); Settings in FLIGHT and
-SPACECENTER (R1-18); a race save opened from the stock Resume list behaves like Continue.
+SPACECENTER (R1-18); a race save opened from the stock Resume list behaves like Continue;
+the content dump on a clean install with both expansions, ReStock and ReStock+ (R1-19); a
+tree patch and a stat patch, with "allow play without scoring" on and off, at create, join
+and load (R1-20); the nine settings greyed (R1-21); a launch with a mod part (R1-22).
 
 What needs the owner's PC: R1-03, R1-04 (in-game tests), R1-10, R1-11 (through RACE-1),
-R1-14 to R1-18.
+R1-14 to R1-22.
 
 ## 7. Gates and registrations
 
@@ -1047,7 +1280,9 @@ R1-14 to R1-18.
   or tooling caller in the same pull request: R1-02 (the replaced copies), R1-03 (stock
   calls `OnLoad` / `OnSave`), R1-04 (the boot addon's `OnSceneRequest`), R1-08 (the session
   and `RaceCommand action=status`), R1-09 (`status`'s seat lines), R1-10 and R1-11
-  (`RaceSetup action=create`, `action=join`), R1-14 to R1-18 (the dialog and Settings). A
+  (`RaceSetup action=create`, `action=join`), R1-14 to R1-18 (the dialog and Settings), R1-19
+(the install check and Create), R1-20 (Create, Join and the load prefix), R1-21 (R2-08's
+holds), R1-22 (its two handlers on `ParsekRaceBoot`). A
   member another task first calls lands there as an edit to this plan's file: writers,
   `RaceLinkCodec.Write`, `RaceTimestamp.Format`, id generation and `IRaceFolder.SafeWrite`
   with R1-10; `StartOverSeat` and `RaceModDiff` with R1-11; each `IRaceSetupHost` member

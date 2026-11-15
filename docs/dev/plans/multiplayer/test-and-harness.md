@@ -220,6 +220,17 @@ seam-only lane); R7c 52 s; RW-1 146 s; B2-lko-ascent 272 s; B1-pad-hop 389 s.
 
 ## 4. Tasks
 
+The install of the race lanes (owner rulings of 2026-11-15, design 7.2): a race checks the
+game's tech tree and part values against the race content table at create, join and load
+(R1-20). `harness/provision/profiles/stock-minimal.toml` installs CommunityTechTree and
+ProbesBeforeCrew, so on that install the tree differs and every race save reaches the
+warning. Every race lane that creates, joins or loads a race save therefore runs on the
+`stock-tree` profile (`stock-minimal` without those two mods; the RACE lanes of this plan,
+RACE-9 to RACE-11 included, and SITES-1 and SITES-3), where the check passes with no
+difference. One lane stays on `stock-minimal` on purpose and proves the warning path: SITES-2
+(R2-13). A lane answers a warning only through the seam arg `unscoredConfirm` (R1-20),
+whose default `cancel` makes an unexpected warning fail the step at once.
+
 ### T-01 Headless save-output driver and its determinism pin
 
 - **Change:** move `BuildState`, `RunSaveWriters` and `ResetAllStores` from
@@ -401,19 +412,19 @@ Dropped: replaced by R1-10 and R1-11 (OV-01).
 
 ### T-13 Lane RACE-1-setup-create-join
 
-- **Change:** `harness/scenarios/RACE-1-setup-create-join.toml`, tier nightly, profile
-  stock-minimal, boot `fresh-career`, `[fixture.race] sharedFolder = "empty"`,
-  `snapshotSaves` for the joiners. Flow: create as A; join as B, C, D (`as=` saves); a fifth
-  join refused `race-full`; a name already taken refused; Create on a folder with a race
-  refused; `RaceCommand status` after each; slots 0 to 3 and four distinct looks pinned
-  through `[Race]` lines; `ListHandles kind=committed` count 0 in each. It takes R1-13's
-  assertions (OV-02): from MP-1, `Gate: race save` in the Space Center of the new save,
-  `Gate: cleared` at the main menu, the boot single-player save loaded with
-  `LoadGame scene=spacecenter` reads `Gate: not a race save reason=no-mark` and gets no
-  `SCENARIO` node from R1, and the race save loaded again turns the gate on with the same
-  `raceId`; from MP-2, B's join into a folder that already holds A's race takes slot 1 and
-  the first free look (`[Race] Join: ... slot=1 look=..`). Last, B starts over in its seat
-  (`RaceSetup action=join startOverPlayerId=<B>`, R1-11): same slot and look, a fresh save.
+- **Change:** `harness/scenarios/RACE-1-setup-create-join.toml`, tier nightly, profile `stock-tree`
+  (the stock tree, so R1-20's check passes; section 4 head), boot `fresh-career`, `[fixture.race]
+  sharedFolder = "empty"`, `snapshotSaves` for the joiners. Flow: create as A; join as B, C, D
+  (`as=` saves); a fifth join refused `race-full`; a name already taken refused; Create on a folder
+  with a race refused; `RaceCommand status` after each; slots 0 to 3 and four distinct looks pinned
+  through `[Race]` lines; `ListHandles kind=committed` count 0 in each. It takes R1-13's assertions
+  (OV-02): from MP-1, `Gate: race save` in the Space Center of the new save, `Gate: cleared` at the
+  main menu, the boot single-player save loaded with `LoadGame scene=spacecenter` reads `Gate: not a
+  race save reason=no-mark` and gets no `SCENARIO` node from R1, and the race save loaded again
+  turns the gate on with the same `raceId`; from MP-2, B's join into a folder that already holds A's
+  race takes slot 1 and the first free look (`[Race] Join: ... slot=1 look=..`). Last, B starts over
+  in its seat (`RaceSetup action=join startOverPlayerId=<B>`, R1-11): same slot and look, a fresh
+  save.
 - **Proof:** the lane; `raceParse` row report-only (T-21 arms it later).
 - **Registers:** lane catalog; `registry.toml` D19 values `create`, `join`, `refusal`;
   `autotest-status.md`; tags.
