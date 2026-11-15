@@ -19,8 +19,8 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | profile modded-compat | 4 |
 | autopilot (mission) lanes | 145 |
 | seam-only lanes | 455 |
-| LIVE-PROVEN date in status row | 471 |
-| no LIVE-PROVEN date | 129 |
+| LIVE-PROVEN date in status row | 472 |
+| no LIVE-PROVEN date | 128 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -39,7 +39,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | AP | 1 | - | 1 | - | - | - | 1 |
 | AST | 4 | - | 4 | - | - | 4 | 4 |
 | AT | 1 | - | 1 | - | - | - | 1 |
-| B | 41 | 1 | 12 | 23 | 5 | 40 | 25 |
+| B | 41 | 1 | 12 | 23 | 5 | 40 | 26 |
 | BAY | 1 | - | - | 1 | - | 1 | 1 |
 | BDOCK | 2 | - | 1 | 1 | - | 2 | 2 |
 | CA | 1 | - | 1 | - | - | 1 | 1 |
@@ -314,10 +314,10 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 | Duna | 29 | 10 | 19 | V 13, B 4, FAR 4, TP 3, AT 1, CN 1, FORGE 1, GUI 1, H 1 |
 | Ike | 10 | 3 | 10 | V 4, FAR 3, B 2, RF 1 |
 | Dres | 8 | 6 | 2 | B 5, V 2, FORGE 1 |
-| Jool | 46 | 18 | 30 | V 25, B 18, FAR 1, S 1, TP 1 |
-| Laythe | 27 | 14 | 21 | B 14, V 11, FAR 1, TP 1 |
-| Vall | 11 | 5 | 6 | B 5, V 5, TP 1 |
-| Tylo | 12 | 6 | 4 | B 6, V 6 |
+| Jool | 46 | 18 | 31 | V 25, B 18, FAR 1, S 1, TP 1 |
+| Laythe | 27 | 14 | 22 | B 14, V 11, FAR 1, TP 1 |
+| Vall | 11 | 5 | 7 | B 5, V 5, TP 1 |
+| Tylo | 12 | 6 | 5 | B 6, V 6 |
 | Bop | 8 | 4 | 4 | B 4, V 4 |
 | Pol | 4 | 2 | 4 | B 2, V 2 |
 | Eeloo | 3 | 1 | - | V 2, B 1 |
@@ -862,8 +862,8 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | B43-vall-tylo-transfer | operator | vall-park-nerv | b29_jool_kerbin | Kerbin, Jool, Vall, Tylo | - | - | FLOWN, INVALID(mission) |
 | B44-laythe-tylo-transfer | operator | laythe-park-nerv | b29_jool_kerbin | Kerbin, Jool, Laythe, Tylo | - | - | FLOWN, INVALID(mission) |
 | B45-tylo-bop-transfer | operator | tylo-park-nerv | b29_jool_kerbin | Kerbin, Jool, Tylo, Bop | - | - | NEVER FLOWN |
-| B46-minmus-mun-transfer | operator | minmus-park-kerbalx | b30_mun_minmus | Kerbin, Mun, Minmus | - | - | NEVER FLOWN |
-| B47-jool-moon-tour | operator | jool-orbit-recorded | b47_jool_moon_tour | Jool, Laythe, Vall, Tylo | - | - | NEVER FLOWN, authored 2026-11-14 |
+| B46-minmus-mun-transfer | operator | minmus-park-kerbalx | b30_mun_minmus | Kerbin, Mun, Minmus | - | - | FLOWN, INVALID(autopilot-flake) |
+| B47-jool-moon-tour | operator | jool-orbit-recorded | b47_jool_moon_tour | Jool, Laythe, Vall, Tylo | - | - | LIVE-PROVEN 2026-11-15 |
 | B48-jool-laythe-bop-continuation | operator | jool-laythe-recorded | b26_laythe_vall | Jool, Laythe, Vall, Bop | - | - | NEVER FLOWN, authored 2026-11-14 |
 | B5-mun-flyby | nightly | b2-lko-craft | b5_mun_flyby | Kerbin, Mun | - | - | Cross-SOI cohesive coast recording (Kerbi... |
 | B6-minmus-flyby | nightly | b2-lko-craft | b6_minmus_flyby | Kerbin, Minmus | - | - | LIVE-PROVEN 2026-10-01 |

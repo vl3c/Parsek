@@ -1215,9 +1215,15 @@ class RunnerRebindTests(unittest.TestCase):
 # landed_class_max_speed, surface_class_mark_result): with those fields' default reprs
 # removed, the three traces hash to the previous pins (2d7b786a..., 5ee53bde...,
 # 3858f43d...).
-B5_LANDING_TRACE_DIGEST = "fbf99b5c990b066d9e3f68c9876f52cc52795ab05280496a1e8112895beeb65c"
-MOR_TRACE_DIGEST = "9bae0487be0594423c9ee94ae335257b6b5057275d5129614800aa6006c978e8"
-MSC_TRACE_DIGEST = "048c388f884e7355ebb02f3df6332c646ea6ad249c307172468f2991384490ae"
+# Re-pinned 2026-11-15 for one new field only (B5Params escape_extra_park_orbits): with
+# its default repr removed the trace hashes to the previous pin fbf99b5c...b65c.
+B5_LANDING_TRACE_DIGEST = "fd4d3260afd4299bd4173f491372c820f95c2c826ea8ffdb3fba5b2e90887acb"
+# Re-pinned 2026-11-15 for one new field only (B5Params escape_extra_park_orbits): with
+# its default repr removed the trace hashes to the previous pin 9bae0487...78e8.
+MOR_TRACE_DIGEST = "5ddd95e58eb692db873a2a6d8e3ae51dcd30b442458a7f2bb4bfefcf0e578c75"
+# Re-pinned 2026-11-15 for one new field only (B5Params escape_extra_park_orbits): with
+# its default repr removed the trace hashes to the previous pin 048c388f...90ae.
+MSC_TRACE_DIGEST = "e6849f99ae8e220e24471f6b9e736d6cac791afb83e8edb26f815533e8832221"
 MLR_RELEASE_OFF_ACTIONS_DIGEST = (
     "19c29a559fca2e2e26938935b0eb6d27d4a583846d1ad4f5a5da6609d2d82f67")
 

@@ -453,27 +453,47 @@ Where a fix would go (a choice for whoever takes it; no code changed):
      asserts, so it is an owner call.
 Option 1 is the smallest. Done when B7 flies attempt 1 green across several nightlies.
 
-## B43-VALL-TYLO-FLYBY-SUBSURFACE: B43's first flight reaches Tylo on an impact course and never arms the capture [FILED 2026-11-15 from B43's first flights; mission library, no fix yet; low (the forge cannot harvest `vall-tylo-recorded`, so V43M stays unflyable; not a Parsek defect)]
+## B43-VALL-TYLO-FLYBY-SUBSURFACE: B43's first flight reaches Tylo on an impact course and never arms the capture [FILED 2026-11-15 from B43's first flights; FIX AUTHORED 2026-11-15 (spec only, never flown with it); low (the forge cannot harvest `vall-tylo-recorded`, so V43M stays unflyable; not a Parsek defect)]
 
 `B43-vall-tylo-transfer` flew twice on 2026-11-15 (runs `2026-11-15_1617` and `2026-11-15_1632_a2`)
-and read INVALID(mission) both times at the same place: TARGET-FLYBY logged `flyby impact certain,
-capture-never-armed (periapsis-subsurface)`, periapsis about -579,788 m inside Tylo's SOI on both
-attempts. The identical periapsis says the plan is deterministic: the last mid-course correction
-(spec `correctionTriggerTimeToSoiSeconds = [70000, 15000]`) leaves the Tylo periapsis below the
-surface and nothing after it raises it. Next look: read the two runs' `_mission.stdout.log` for the
-correction burns' target periapsis, then either add a later correction window or aim the Tylo
-periapsis higher. Parsek recorded the flight normally up to the abort.
+and read INVALID(mission) both times: TARGET-FLYBY logged `flyby impact certain,
+capture-never-armed (periapsis-subsurface)`, Tylo periapsis about -579,788 m on both attempts.
+Cause (the two `_mission.stdout.log`s): every mid-course correction round was priced at 85.6 to
+169 m/s and refused by the spec's `maxCorrectionDvMps = 50`, so no correction ever burned and the
+raw stage-2 aim reached Tylo below the surface. Fix: the cap is 120 m/s (the first round's 85.6
+m/s with 25% margin; 130.5 LF, about 683 m/s, was left after stage 2, enough for one round plus
+the 161-201 m/s elliptical capture). Pinned by `test_moon_forge_fixes.B43CorrectionCapTests`.
+Closes when B43 flies green and `vall-tylo-recorded` is harvested.
 
-## B44-LAYTHE-TYLO-NODE-EDIT-UNAVAILABLE: B44's second transfer burn cannot edit its maneuver node and the craft is lost [FILED 2026-11-15 from B44's first flights; mission library, no fix yet; low (the forge cannot harvest `laythe-tylo-recorded`, so V44M stays unflyable; not a Parsek defect)]
+## B44-LAYTHE-TYLO-NODE-EDIT-UNAVAILABLE: B44's second transfer burn cannot edit its maneuver node and the craft is lost [FILED 2026-11-15 from B44's first flights; FIX AUTHORED 2026-11-15 (mission library + spec, never flown with it); low (the forge cannot harvest `laythe-tylo-recorded`, so V44M stays unflyable; not a Parsek defect)]
 
 `B44-laythe-tylo-transfer` flew twice on 2026-11-15 (runs `2026-11-15_1617` and
-`2026-11-15_1622_a2`) and read INVALID(mission) both times. The second TRANSFER-BURN logged
-`telemetry read failed (RuntimeError: Maneuver node editing is not available ...)` from kRPC, the
-burn did not fly as planned, and the mission ended vessel-lost and MISSION-ASSERT-FAIL. Both
-attempts failed at the same step, so this is the machine's plan (fixture `laythe-park-nerv`,
-mission `b29_jool_kerbin`, the B26 relay re-pointed at Tylo), not chance. Next look: the
-`_mission.stdout.log` of both runs around the second burn, to see what state (scene, active
-vessel, patched-conics availability) the node edit was refused in.
+`2026-11-15_1622_a2`) and read INVALID(mission) both times. The kRPC `Maneuver node editing is not
+available` error was a symptom. Cause: the parent relay's stage 1 is an unaimed prograde escape at
+the first periapsis pass the min-lead rule accepts, and on `laythe-park-nerv` that pass left
+Laythe almost RADIALLY, so the Jool-frame orbit (pe 19.9 Mm, ap 23.5 Mm) straddled Laythe's own
+orbit and the coast to the stage-2 node met Laythe again (next patch periapsis -266 km) and the
+craft was lost. Fix: new mission param `escapeExtraParkOrbits` (`b29_jool_kerbin` schema, default
+0, so every other lane is unchanged) delays the escape by whole park periods; Laythe turns the
+escape direction about 13.2 deg per 1,941 s pass, and the B44 spec sets 5, which leaves prograde
+(Jool-frame pe 23.45 Mm, ap 73.9 Mm, no encounter in 400,000 s; passes 4 and 6 also prograde).
+A patched-conic model that reproduces flight 1 pins the choice in
+`test_moon_forge_fixes.B44EscapePassGeometryTests`. Closes when B44 flies green and
+`laythe-tylo-recorded` is harvested.
+
+## B46-MINMUS-MUN-COAST-TIMEOUT: B46's Minmus -> Mun transfer never reaches the Mun before its coast phase times out [FILED 2026-11-15 from B46's first flights; FIX AUTHORED 2026-11-15 (mission library, never flown with it); low (the forge cannot harvest `minmus-mun-recorded`, so V46M stays unflyable; not a Parsek defect)]
+
+`B46-minmus-mun-transfer` flew twice on 2026-11-15 in the analysis thread's `final-operator` run
+(runs `2026-11-15_1638` and `2026-11-15_1743_a2`) and read INVALID(autopilot-flake) both times:
+`phase COAST-TO-TARGET timed out`. Cause: dropping off rails warp before the stage-2 node
+re-derived the orbit and moved a 45.55 Mm apoapsis by 39.5 km with no thrust; the burn tracker's
+absolute "apsis changed" floor read that as a burn already done, the apoapsis floor was met, and
+TRANSFER-BURN exited 478 s BEFORE its node, so the transfer was never flown and the coast waited
+for a Mun encounter that could not come. Fix: `mlib._burn_apsis_changed` takes the larger of the
+old absolute floor and 0.5% of the entry apsis (used by the burn stagnation tracker and the
+correction-burn timeout); small orbits keep the absolute floor. Pinned by
+`test_moon_forge_fixes.BurnChangedFloorTests` with B46's own frames. Closes when B46 flies green
+and `minmus-mun-recorded` is harvested.
 
 ## ~~FAR-SWITCH-CASE-B-UNFLOWN~~: no lane flew a far vessel switch while recording, so the commit before stock's reload was never checked in game [CLOSED 2026-11-15: S0.14 LIVE-PROVEN on its fourth flight, `2026-11-15_0011_S0.14-far-switch-merges-before-reload` PASS attempt 1, tier daily; the residue below is the #266 stash, still unreached. FILED 2026-11-14 from a lane gap audit (the vessel-switch stash family). LANE AUTHORED 2026-11-14, branch `item20-switch-pending-merge-lane`: `S0.14-far-switch-merges-before-reload`, operator (flight 1 INVALID on its host, re-hosted on `jool-park-nerv`; flight 2 red on a spec error, fixed; flight 3 PARSEK-FAIL on a product defect, FAR-SWITCH-INTENT-TTL-RACE, now fixed and the lane re-pinned to it); the two-switch reading lane S0.15 flew once and was WITHDRAWN (no committed host). Closes when S0.14 flies green with the fix; the #266 stash stays unreached by any flown lane until a host is harvested; test gap]
 
