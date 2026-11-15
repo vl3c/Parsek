@@ -174,7 +174,7 @@ namespace Parsek.Tests
         {
             string repo = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
-            string path = Path.Combine(repo, "Source", "Parsek", "ParsekScenario.cs");
+            string path = Path.Combine(repo, "Source", "Parsek", "Controllers", "ParsekScenario.cs");
             Assert.True(File.Exists(path), "Source file not found at " + path);
             string prepared = SourceScanText.StripCommentsAndMaskLiterals(ParsekScenarioSourceFiles.ReadText(path));
             int sig = prepared.IndexOf("public override void OnLoad(ConfigNode node)", StringComparison.Ordinal);

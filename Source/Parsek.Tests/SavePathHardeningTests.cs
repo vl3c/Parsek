@@ -136,7 +136,7 @@ namespace Parsek.Tests
         [Fact]
         public void OnSave_StripsGhostsInItsFinally_AndOnTheInertPath()
         {
-            string prepared = SourceScanText.StripCommentsAndMaskLiterals(ReadParsekSource("ParsekScenario.cs"));
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(ReadParsekSource("Controllers/ParsekScenario.cs"));
             int sig = prepared.IndexOf("public override void OnSave(ConfigNode node)", StringComparison.Ordinal);
             Assert.True(sig >= 0, "OnSave signature not found");
             string body = SourceScanText.BraceMatchedBlock(prepared, prepared.IndexOf('{', sig));
@@ -321,7 +321,7 @@ namespace Parsek.Tests
         [Fact]
         public void SaveActiveTreeIfAny_OverlaysTheParkedRecorder_AndRestoresInAFinally()
         {
-            string prepared = SourceScanText.StripCommentsAndMaskLiterals(ReadParsekSource("ParsekScenario.cs"));
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(ReadParsekSource("Controllers/ParsekScenario.cs"));
             int sig = prepared.IndexOf("private static void SaveActiveTreeIfAny(ConfigNode node)", StringComparison.Ordinal);
             Assert.True(sig >= 0, "SaveActiveTreeIfAny signature not found");
             string body = SourceScanText.BraceMatchedBlock(prepared, prepared.IndexOf('{', sig));

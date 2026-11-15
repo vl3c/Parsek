@@ -348,7 +348,7 @@ count = { min = 8 }
 # GROUPS 1-5 are GS-4's, verbatim and for the same reasons; group 6 is this lane's own.
 #
 # GROUP 6 - THE APPLIER, PER FAMILY. The producer, transcribed from source rather than
-# from a pasted log line (`Source/Parsek/GhostPartEventApplyLog.cs` FormatLine +
+# from a pasted log line (`Source/Parsek/Ghost/GhostPartEventApplyLog.cs` FormatLine +
 # `GhostPlaybackLogic.ApplyPartEvents`):
 #
 #     [Parsek][VERBOSE][GhostPartEvents] apply family=<PartEventType member>

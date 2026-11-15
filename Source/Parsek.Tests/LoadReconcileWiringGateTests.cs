@@ -24,10 +24,10 @@ namespace Parsek.Tests
     /// </summary>
     public class LoadReconcileWiringGateTests
     {
-        private const string ScenarioPath = "ParsekScenario.cs";
-        private const string InterceptorPath = "RevertInterceptor.cs";
-        private const string RecorderPath = "FlightRecorder.cs";
-        private const string TrimPath = "ParsekScenario.Trim.cs";
+        private const string ScenarioPath = "Controllers/ParsekScenario.cs";
+        private const string InterceptorPath = "Rewind/RevertInterceptor.cs";
+        private const string RecorderPath = "Recording/FlightRecorder.cs";
+        private const string TrimPath = "Controllers/ParsekScenario.Trim.cs";
 
         // ---- staging nodes ----
 
@@ -88,7 +88,7 @@ namespace Parsek.Tests
                 string prepared = SourceScanText.StripCommentsAndMaskLiterals(ParsekFlightSourceFiles.ReadText(path));
                 int count = callPattern.Matches(prepared).Count;
                 if (count > 0)
-                    actual[rel] = count;
+                    actual[InitiatorTableKey(rel)] = count;
             }
 
             var problems = new List<string>();
@@ -110,6 +110,20 @@ namespace Parsek.Tests
                 + "LoadReconcilePolicy.KnownLoadInitiators entry with its call count and the load kinds "
                 + "it produces (decide how OnLoad classifies the new load first): "
                 + string.Join("; ", problems));
+        }
+
+        // KnownLoadInitiators keys a file in a module folder by its path under Source/Parsek
+        // ("TestCommands/ParsekTestCommandAddon.cs"), but four entries still carry the bare name
+        // the file had when it sat in the root ("ParsekScenario.cs"); the table lives in a moved
+        // file whose text the folder move left unchanged. A scanned path whose table key is its
+        // bare name maps to that key, so the count and the "declared but not found" checks still
+        // meet on one key per file.
+        internal static string InitiatorTableKey(string rel)
+        {
+            if (LoadReconcilePolicy.KnownLoadInitiators.ContainsKey(rel))
+                return rel;
+            string bare = Path.GetFileName(rel);
+            return LoadReconcilePolicy.KnownLoadInitiators.ContainsKey(bare) ? bare : rel;
         }
 
         // ---- OnLoad order ----
@@ -257,7 +271,7 @@ namespace Parsek.Tests
                 if (Occurrences(prepared, "SaveFileLoadIntent.TryConsume(") > 0)
                     consumers.Add(Path.GetFileName(path));
             }
-            Assert.Equal(new[] { ScenarioPath }, consumers);
+            Assert.Equal(new[] { Path.GetFileName(ScenarioPath) }, consumers);
         }
 
         [Fact]
@@ -333,7 +347,7 @@ namespace Parsek.Tests
         [Fact]
         public void FlightSceneExitOfASaveFileLoadStashesTheLiveTree()
         {
-            string core = PreparedMethodBody("ParsekFlight.cs", "private void FinalizeTreeOnSceneChangeCore(");
+            string core = PreparedMethodBody("Controllers/ParsekFlight.cs", "private void FinalizeTreeOnSceneChangeCore(");
             string flat = Collapse(core);
             Assert.Contains("else if (ParsekFlight.ShouldStashLiveTreeForSaveFileLoad( scene, "
                 + "SaveFileLoadIntent.IsArmed || NoSaveSceneExit.IsArmedFor(scene), "
@@ -399,7 +413,7 @@ namespace Parsek.Tests
                 "load-reconcile gate: the in-session branch recalculates again when the sweep removed zombie rows");
             Assert.Contains("reFlyDiscard: true", body.Substring(again, next - again));
 
-            string sweepBody = Collapse(ReadParsekSourcePrepared("LoadTimeSweep.cs"));
+            string sweepBody = Collapse(ReadParsekSourcePrepared("Rewind/LoadTimeSweep.cs"));
             Assert.Equal(1, Occurrences(sweepBody, "Ledger.RemoveActionsForRecordings("));
         }
 
@@ -459,18 +473,18 @@ namespace Parsek.Tests
         [Fact]
         public void ReFlyDiscardPathsRemoveRowsAndNeverUntag()
         {
-            string discard = ReadParsekSourcePrepared("MergeDialog.ReFlyDiscard.cs");
+            string discard = ReadParsekSourcePrepared("Rewind/MergeDialog.ReFlyDiscard.cs");
             Assert.Equal(0, Occurrences(discard, "ClearRecordingTagForRecording"));
             Assert.Equal(1, Occurrences(
-                PreparedMethodBody("MergeDialog.ReFlyDiscard.cs",
+                PreparedMethodBody("Rewind/MergeDialog.ReFlyDiscard.cs",
                     "private static ReFlyAttemptDiscardResult DiscardReFlyAttemptRecordingsAndRewindPoints("),
                 "Ledger.RemoveActionsForRecordings("));
             Assert.Equal(2, Occurrences(
-                PreparedMethodBody("MergeDialog.ReFlyDiscard.cs",
+                PreparedMethodBody("Rewind/MergeDialog.ReFlyDiscard.cs",
                     "internal static AttemptDiscardSummary PruneActiveReFlyAttemptOwnedTopology("),
                 "Ledger.RemoveActionsForRecordings("));
             Assert.Equal(1, Occurrences(
-                PreparedMethodBody("MergeDialog.ReFlyDiscard.cs",
+                PreparedMethodBody("Rewind/MergeDialog.ReFlyDiscard.cs",
                     "internal static RetryRepairResult RepairSessionBeforeRetry("),
                 "Ledger.RemoveActionsForRecordings("));
         }
@@ -587,7 +601,7 @@ namespace Parsek.Tests
                     armFiles.Add(rel);
             }
             // OnLoad's two arm sites in the main file; the declaration in the tree-restore partial.
-            Assert.Equal(new[] { "ParsekScenario.TreeRestore.cs", "ParsekScenario.cs" },
+            Assert.Equal(new[] { "Controllers/ParsekScenario.TreeRestore.cs", "Controllers/ParsekScenario.cs" },
                 armFiles.OrderBy(f => f, StringComparer.Ordinal).ToArray());
         }
 
@@ -660,8 +674,8 @@ namespace Parsek.Tests
                     readSites.Add(rel);
             }
 
-            Assert.Equal(new[] { "RevertInterceptor.cs" }, armSites);
-            Assert.Equal(new[] { "ParsekScenario.cs" }, readSites);
+            Assert.Equal(new[] { "Rewind/RevertInterceptor.cs" }, armSites);
+            Assert.Equal(new[] { "Controllers/ParsekScenario.cs" }, readSites);
         }
 
         // ---- helpers ----
@@ -717,7 +731,9 @@ namespace Parsek.Tests
 
             internal StagingNodeScan()
             {
-                scenarioSources = Directory.GetFiles(ParsekSourceRoot(), "ParsekScenario*.cs", SearchOption.TopDirectoryOnly)
+                scenarioSources = Directory.GetFiles(
+                        Path.Combine(ParsekSourceRoot(), ParsekScenarioSourceFiles.ModuleFolder),
+                        "ParsekScenario*.cs", SearchOption.TopDirectoryOnly)
                     .Select(LoadSource)
                     .Where(src => Regex.IsMatch(src.Masked, @"\bpartial\s+class\s+ParsekScenario\b"))
                     .ToList();

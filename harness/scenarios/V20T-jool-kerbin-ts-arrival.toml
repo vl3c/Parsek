@@ -126,7 +126,7 @@ id = "V20T-jool-kerbin-ts-arrival"
 #     = **1,630,328.788732211 s**        <- THE CAP DOMINATES BY 54,344x
 # (`GhostPlayback.MaxOverlapMissionInstances = 20`,
 # `LoopTiming.DefaultLoopIntervalSeconds = 30.0`, `LoopTiming.MinCycleDuration = 5.0`,
-# all in `Source/Parsek/ParsekConfig.cs`.)
+# all in `Source/Parsek/Config/ParsekConfig.cs`.)
 #
 # So the loop SELF-OVERLAPS - up to 20 concurrent instances launched 1,630,328.8 s apart
 # - and because `overlapCadence` is EXACTLY `spanDur / 20`, instance 21 is exactly one

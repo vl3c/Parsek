@@ -683,7 +683,7 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void HandleRewindOnLoad_RunsTheGoBackRouteReconcileBeforeTheCareerRestore()
         {
-            string body = Between(ReadSource("ParsekScenario.cs"),
+            string body = Between(ReadSource("Controllers/ParsekScenario.cs"),
                 "HandleRewindOnLoad:entry", "HandleRewindOnLoad:exit");
 
             int routeIdx = body.IndexOf(
@@ -717,7 +717,7 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void ExecuteRewindSaveLoad_CapturesTheParsedSavesRoutesBeforeTheSceneLoad()
         {
-            string body = Between(ReadSource("RewindLauncher.cs"),
+            string body = Between(ReadSource("Rewind/RewindLauncher.cs"),
                 "private static bool ExecuteRewindSaveLoad(", "internal static bool InitiateRewindToCareerStart(");
 
             int loadIdx = body.IndexOf("GamePersistence.LoadGame(", StringComparison.Ordinal);
@@ -743,7 +743,7 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void ReFlyStart_PassesTheLoadedNodesRoutesToTheBundleRestore()
         {
-            string consume = MethodBlock(ReadSource(RewindInvokerSourceFiles.PostLoad),
+            string consume = MethodBlock(ReadSource(RewindInvokerSourceFiles.ModuleFolder + "/" + RewindInvokerSourceFiles.PostLoad),
                 "internal static void ConsumePostLoad(");
             Assert.Contains("RouteStore.ReadSavedCommittedRoutes(loadedScenarioNode)", consume);
             Assert.Contains("ReconciliationBundle.Restore( bundle, retireCutoffUT, loadedSaveRoutes, loadedSaveUT, "
@@ -751,7 +751,7 @@ namespace Parsek.Tests.Logistics
                 System.Text.RegularExpressions.Regex.Replace(consume, @"\s+", " "));
             Assert.Contains("RouteEventLog.ReadSavedEvents(loadedScenarioNode)", consume);
 
-            string scenario = ReadSource("ParsekScenario.cs");
+            string scenario = ReadSource("Controllers/ParsekScenario.cs");
             string dispatch = Between(scenario,
                 "private static void DispatchRewindPostLoadIfPending(", "private void HandleRewindOnLoad(");
             Assert.Contains("RewindInvoker.ConsumePostLoad(loadedScenarioNode)", dispatch);

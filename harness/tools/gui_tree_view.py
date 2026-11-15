@@ -10,7 +10,7 @@ versa; clicking either scrolls the other into view.
     python harness/tools/gui_tree_view.py <label>.gui.json [-o out.html]
     python harness/tools/gui_tree_view.py --batch results/<runId>_shots   # + gui-tree-index.html
 
-The dump's producer is ``Source/Parsek/GuiTreeRecorder.cs``; the schema is
+The dump's producer is ``Source/Parsek/GuiTree/GuiTreeRecorder.cs``; the schema is
 ``parsek-gui-tree/1``, documented in ``docs/dev/design-gui-tree-dump.md``.
 
 CONTRACTS (binding):

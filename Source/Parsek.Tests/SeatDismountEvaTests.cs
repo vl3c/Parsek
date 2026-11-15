@@ -98,14 +98,14 @@ namespace Parsek.Tests
         {
             return File.ReadAllText(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory,
-                "..", "..", "..", "..", "..", "Source", "Parsek", "ParsekFlightSplitBrancher.cs"));
+                "..", "..", "..", "..", "..", "Source", "Parsek", "Controllers", "ParsekFlightSplitBrancher.cs"));
         }
 
         private static string ReadParsekFlight()
         {
             return ParsekFlightSourceFiles.ReadText(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory,
-                "..", "..", "..", "..", "..", "Source", "Parsek", "ParsekFlight.cs"));
+                "..", "..", "..", "..", "..", "Source", "Parsek", "Controllers", "ParsekFlight.cs"));
         }
 
         private static string MethodBody(string src, string signature)

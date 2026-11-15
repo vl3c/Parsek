@@ -329,7 +329,7 @@ namespace Parsek.Tests
                 patcher.Substring(withdraw, select - withdraw));
             Assert.Contains("live.Withdraw();", patcher);
 
-            string handlers = Code("GameStateRecorder.Handlers.cs");
+            string handlers = Code("GameActions/GameStateRecorder.Handlers.cs");
             Assert.Contains("FormatContractStockIdDetail(ReadContractStockId(contract))", handlers);
             Assert.Contains("FormatContractGoalKeyDetail(ReadContractGoalKey(contract, contractNode))", handlers);
         }

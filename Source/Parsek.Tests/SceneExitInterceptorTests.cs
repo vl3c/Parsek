@@ -290,7 +290,7 @@ namespace Parsek.Tests
                 System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
             string mergeDialogPath = System.IO.Path.Combine(
-                projectRoot, "Source", "Parsek", "MergeDialog.cs");
+                projectRoot, "Source", "Parsek", "Rewind", "MergeDialog.cs");
             string source = ParsekFlightSourceFiles.ReadText(mergeDialogPath);
 
             // The committed-slot guard must exist verbatim.
@@ -726,7 +726,7 @@ namespace Parsek.Tests
         [Fact]
         public void AutoDiscardActiveTreeCore_ClearsSwitchSegmentSession()
         {
-            string source = ReadProjectSource("ParsekFlight.cs");
+            string source = ReadProjectSource("Controllers/ParsekFlight.cs");
 
             int coreStart = source.IndexOf("internal void AutoDiscardActiveTreeCore(");
             Assert.True(coreStart > 0, "AutoDiscardActiveTreeCore not found");
@@ -747,7 +747,7 @@ namespace Parsek.Tests
         [Fact]
         public void LoadScenePrefix_IdleOnPadBranch_ReSavesAfterDiscard()
         {
-            string source = ReadProjectSource("SceneExitInterceptor.cs");
+            string source = ReadProjectSource("Rewind/SceneExitInterceptor.cs");
 
             // The idle-on-pad branch calls SafeWritePersistent after a true
             // return from TryAutoDiscardIdleActiveTree, and hard-blocks

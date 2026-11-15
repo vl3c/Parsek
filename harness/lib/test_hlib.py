@@ -12174,7 +12174,7 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
         # silently degrades to "unparsed": quiet while the block is report-only,
         # and a confusing red once someone arms it. Fail HERE, locally, naming
         # the cause, instead of on a nightly.
-        path = os.path.join(PARSEK_SOURCE_DIR, "RecordingTreeRecordCodec.cs")
+        path = os.path.join(PARSEK_SOURCE_DIR, "Recording", "RecordingTreeRecordCodec.cs")
         with open(path, "r", encoding="utf-8", errors="replace") as fh:
             src = fh.read()
         self.assertIn('recNode.AddValue("pointCount"', src,
@@ -15268,7 +15268,7 @@ def _split_top_level_args(blob):
 
 
 def _anomaly_const_map():
-    path = os.path.join(PARSEK_SRC_DIR, "MapRenderTrace.cs")
+    path = os.path.join(PARSEK_SRC_DIR, "MapRender", "MapRenderTrace.cs")
     with open(path, encoding="utf-8-sig") as fh:
         src = fh.read()
     return dict(re.findall(r'internal const string (Anomaly\w+)\s*=\s*"([^"]+)"', src))
@@ -15358,7 +15358,7 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
         # 1012 -> 1021 when the M-A7 recorder hooks landed above it in the same file;
         # 1021 -> 1079 (2026-08-28) when the line-blink TracedPath-handoff exemption
         # landed above it. The raise site itself is unchanged both times.
-        self.assertIn("Source/Parsek/MapRenderProbe.cs:1079",
+        self.assertIn("Source/Parsek/MapRender/MapRenderProbe.cs:1079",
                       self.raised.get("icon-teleport", []))
         # 158 -> 168 -> 177 (2026-09-23) when the destructible-building skip landed above it
         # in PatchFacilities. The raise site itself is unchanged.
@@ -15401,9 +15401,9 @@ class AnomalyGroundTruthEnumerationTests(unittest.TestCase):
         # claim; it is renamed rather than re-numbered because the COUNT was never
         # the contract - the membership is.
         self.assertEqual(
-            [("unaccounted-drawn-recording", "Source/Parsek/MapRenderProbe.cs:544"),
+            [("unaccounted-drawn-recording", "Source/Parsek/MapRender/MapRenderProbe.cs:544"),
              ("factory-parity", "Source/Parsek/MapRender/ShadowRenderDriver.cs:726"),
-             ("seam-endpoint-outside-soi", "Source/Parsek/MapRenderProbe.cs:2376")],
+             ("seam-endpoint-outside-soi", "Source/Parsek/MapRender/MapRenderProbe.cs:2376")],
             list(hlib.ANOMALY_REASONS_RAISED_UNGATED),
             "the report-only instrument list changed - that is a calibration "
             "decision (defect signal vs instrument), not a bookkeeping edit")
@@ -17626,7 +17626,7 @@ class ReFlyRevertSourceSyncTests(unittest.TestCase):
                           ("driver-arg", "driver-gate", "driver-dialog"), reason)
 
     def test_the_dialog_labels_the_applier_finds_are_the_dialogs_own(self):
-        text = self._source("ReFlyRevertDialog.cs")
+        text = self._source("Rewind", "ReFlyRevertDialog.cs")
         for const, label in (("RetryButtonText", "Retry from Rewind Point"),
                              ("DiscardButtonText", "Discard Re-Fly"),
                              ("ContinueButtonText", "Continue Flying")):
@@ -19507,7 +19507,7 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         """The funnel count the C# actually ships, read out of `GuiTreeFunnels` rather
         than retyped: `Count = (int)GuiFunnel.Slider + 1`, i.e. the number of members of
         the `GuiFunnel` enum. Reads OUTSIDE harness/, like the verb-table mirrors."""
-        path = os.path.join(PARSEK_SOURCE_DIR, "GuiTreeFunnels.cs")
+        path = os.path.join(PARSEK_SOURCE_DIR, "GuiTree", "GuiTreeFunnels.cs")
         assert os.path.isfile(path), path
         with open(path, encoding="utf-8-sig") as fh:
             text = fh.read()
@@ -24350,7 +24350,7 @@ class DebrisPopulationGateTests(unittest.TestCase):
     def _bg_recorder_source(self):
         # Every BackgroundRecorder.*.cs on disk must be named in one of the two
         # lists, so a new partial file reds here instead of being skipped silently.
-        on_disk = {n for n in os.listdir(PARSEK_SOURCE_DIR)
+        on_disk = {n for n in os.listdir(os.path.join(PARSEK_SOURCE_DIR, "Recording"))
                    if n.startswith("BackgroundRecorder.") and n.endswith(".cs")
                    and n != "BackgroundRecorder.cs"}
         declared = (set(self.BG_RECORDER_SPLIT_FILES) - {"BackgroundRecorder.cs"}) \
@@ -24362,7 +24362,7 @@ class DebrisPopulationGateTests(unittest.TestCase):
                       "undeclared %s (add each to BG_RECORDER_SPLIT_FILES if this gate "
                       "must read it, or to BG_RECORDER_OTHER_PARTIALS if it must not); "
                       "declared but missing %s" % (undeclared, missing))
-        return "\n".join(self._source(n) for n in self.BG_RECORDER_SPLIT_FILES)
+        return "\n".join(self._source("Recording/" + n) for n in self.BG_RECORDER_SPLIT_FILES)
 
     def test_each_gated_spec_requires_the_debris_token(self):
         for name in self.GATED:
@@ -24411,7 +24411,7 @@ class DebrisPopulationGateTests(unittest.TestCase):
         # asserted because the five spec comment blocks and the reachability
         # cell below all cite it by name and level as the path NOT taken, and a
         # silent rename would leave that evidentiary record pointing at nothing.
-        fg = self._source("ParsekFlightSplitBrancher.cs")
+        fg = self._source("Controllers/ParsekFlightSplitBrancher.cs")
         self.assertRegex(
             fg, r'ParsekLog\.Info\(\s*"Coalescer",\s*\$"ProcessBreakupEvent: '
                 r'debris child created: pid=')
@@ -24470,14 +24470,14 @@ class DebrisPopulationGateTests(unittest.TestCase):
         # Pins the reachability facts the first cut got wrong, each INSIDE the
         # member that owns it, so a change to either surfaces here with this
         # explanation attached rather than as five red flights.
-        eligible = self._member_body(self._source("RecordingTree.cs"),
+        eligible = self._member_body(self._source("Recording/RecordingTree.cs"),
                                      "internal bool IsBackgroundMapEligible(Recording rec)")
         self.assertIn("rec.RecordingId != ActiveRecordingId", eligible,
                       "the active vessel must stay out of BackgroundMap - this "
                       "exclusion is why the background debris token cannot fire "
                       "on a foreground booster drop")
         joint_break = self._member_body(
-            self._source("BackgroundRecorder.GameEventHandlers.cs"),
+            self._source("Recording/BackgroundRecorder.GameEventHandlers.cs"),
             "internal void OnBackgroundPartJointBreak(PartJoint joint, float breakForce)")
         self.assertIn("if (!tree.BackgroundMap.TryGetValue(vesselPid, out recordingId)) return;",
                       joint_break,
@@ -24496,7 +24496,7 @@ class DebrisPopulationGateTests(unittest.TestCase):
         # to START the line catches a single-line `if (x) Call();`.
         call = "Recording.ApplyParentAnchorContract(childRec, parentRecordingId);"
         body = self._member_body(
-            self._source("ParsekFlight.SplitBranching.cs"),
+            self._source("Controllers/ParsekFlight.SplitBranching.cs"),
             "internal static Recording CreateBreakupChildRecording(")
         idx = body.index(call)
         line_start = body.rindex("\n", 0, idx) + 1
@@ -25652,7 +25652,7 @@ class CommittedFixtureMirrorTests(unittest.TestCase):
                 | self._recovered_leaves_without_own_snapshot(committed))
 
     _TERMINAL_STATE_RE = re.compile(r"^\s*terminalState = (\d+)\s*$", re.MULTILINE)
-    # TerminalState.Recovered (Source/Parsek/TerminalState.cs).
+    # TerminalState.Recovered (Source/Parsek/Trajectory/TerminalState.cs).
     _TERMINAL_RECOVERED = "5"
 
     def _recovered_leaves_without_own_snapshot(self, committed):

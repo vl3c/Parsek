@@ -973,7 +973,7 @@ namespace Parsek.Tests
         [Fact]
         public void Recorder_SubscribesAndUnsubscribesTheQueryDoorSymmetrically()
         {
-            string src = ReadParsekSource("GameStateRecorder.cs");
+            string src = ReadParsekSource("GameActions/GameStateRecorder.cs");
 
             Assert.Contains("GameEvents.Modifiers.OnCurrencyModified.Add(OnCurrencyModified);", src);
             Assert.Contains("GameEvents.Modifiers.OnCurrencyModified.Remove(OnCurrencyModified);", src);
@@ -986,7 +986,7 @@ namespace Parsek.Tests
         [Fact]
         public void Recorder_QueryDoorStandsDownBeforeReadingTheQuery()
         {
-            string src = ReadParsekSource("GameStateRecorder.cs");
+            string src = ReadParsekSource("GameActions/GameStateRecorder.cs");
             int handlerIdx = src.IndexOf(
                 "private void OnCurrencyModified(", StringComparison.Ordinal);
             Assert.True(handlerIdx >= 0);
@@ -1006,7 +1006,7 @@ namespace Parsek.Tests
             // STRATEGY-ECHO-CAPTURE-WIPE. The converter's zero-delta trailing echo must
             // return at the threshold gate BEFORE the capture block, so it cannot wipe a
             // recovery's reasonKey.
-            string src = ReadParsekSource("GameStateRecorder.cs");
+            string src = ReadParsekSource("GameActions/GameStateRecorder.cs");
             int handlerIdx = src.IndexOf(
                 "private void OnScienceChanged(", StringComparison.Ordinal);
             Assert.True(handlerIdx >= 0);

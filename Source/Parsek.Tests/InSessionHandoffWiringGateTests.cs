@@ -20,9 +20,9 @@ namespace Parsek.Tests
     /// </summary>
     public class InSessionHandoffWiringGateTests
     {
-        private const string ScenarioPath = "ParsekScenario.cs";
-        private const string HandoffPartialPath = "ParsekScenario.InSessionHandoff.cs";
-        private const string DiscardPath = "MergeDialog.ReFlyDiscard.cs";
+        private const string ScenarioPath = "Controllers/ParsekScenario.cs";
+        private const string HandoffPartialPath = "Controllers/ParsekScenario.InSessionHandoff.cs";
+        private const string DiscardPath = "Rewind/MergeDialog.ReFlyDiscard.cs";
 
         private const string StepA = "ApplyInSessionStagedStateHandoffStepA(";
         private const string StepB = "ApplyInSessionStagedStateHandoffStepB(";
@@ -189,7 +189,7 @@ namespace Parsek.Tests
         [Fact]
         public void RetryRepairsTheSessionBeforeTheReinvokeCapturesTheBundle()
         {
-            string retry = PreparedMethodBody("RevertInterceptor.cs",
+            string retry = PreparedMethodBody("Rewind/RevertInterceptor.cs",
                 "internal static void RetryHandler(");
             Assert.Equal(1, Occurrences(retry, "MergeDialog.RepairSessionBeforeRetry("));
             int clear = IndexOrFail(retry, "scenario.ClearActiveReFlySessionMarker(");

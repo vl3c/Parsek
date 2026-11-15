@@ -767,10 +767,10 @@ namespace Parsek.Tests
             string root = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
             string dir = Path.Combine(root, "Source", "Parsek");
-            if (!File.Exists(Path.Combine(dir, "BackgroundRecorder.cs")))
+            if (!File.Exists(Path.Combine(dir, "Recording/BackgroundRecorder.cs")))
                 dir = Path.Combine(root, "Parsek");
-            Assert.True(File.Exists(Path.Combine(dir, "BackgroundRecorder.cs")),
-                "Source file not found at " + Path.Combine(dir, "BackgroundRecorder.cs"));
+            Assert.True(File.Exists(Path.Combine(dir, "Recording/BackgroundRecorder.cs")),
+                "Source file not found at " + Path.Combine(dir, "Recording/BackgroundRecorder.cs"));
             return dir;
         }
     }

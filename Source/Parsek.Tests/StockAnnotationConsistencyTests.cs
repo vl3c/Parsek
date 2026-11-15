@@ -321,7 +321,7 @@ namespace Parsek.Tests
         public void ScienceShortage_TheGateAndTheMarkReadOnePredicate()
         {
             string patch = TooltipEchoBudgetTests.ReadParsekSource("Patches/TechResearchPatch.cs");
-            string rnd = TooltipEchoBudgetTests.ReadParsekSource("StockUiRnDDecoration.cs");
+            string rnd = TooltipEchoBudgetTests.ReadParsekSource("UI/StockUiRnDDecoration.cs");
             Assert.Contains("if (IsScienceShort(sciCostCheck, out free))", patch);
             Assert.Contains("Patches.TechResearchPatch.IsScienceShort(cost, out free)", rnd);
             Assert.DoesNotContain("Not enough science", patch);

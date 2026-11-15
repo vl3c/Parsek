@@ -30,7 +30,7 @@ Authorities read (verified, not assumed, except where flagged):
   cross-tree foreign-dock model (`docs/dev/design-mission-crosstree-dock.md`,
   M-MIS-8), the craft-baked-`persistentId` + `VesselLaunchIdentity` guid
   discriminator (`.claude/CLAUDE.md`), `RouteConnectionWindow` /
-  `RouteProofCapture` (`Source/Parsek/RouteProofCapture.cs`), the removed
+  `RouteProofCapture` (`Source/Parsek/Logistics/RouteProofCapture.cs`), the removed
   commit-time route modal (`Source/Parsek/Logistics/RouteRunPrompt.cs`,
   `RouteCandidateFinder.cs`) - GROUND TRUTH 3, section 4.3.
 - The B2 / B5 mission machine and shells (`harness/missions/lib/mlib.py`,

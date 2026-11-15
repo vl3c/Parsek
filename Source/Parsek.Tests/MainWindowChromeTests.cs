@@ -26,8 +26,8 @@ namespace Parsek.Tests
         }
 
         [Theory]
-        [InlineData("ParsekFlight.cs")]
-        [InlineData("ParsekKSC.cs")]
+        [InlineData("Controllers/ParsekFlight.cs")]
+        [InlineData("Controllers/ParsekKSC.cs")]
         public void BothMainWindowHostsDrawWithTheMainWindowStyle(string file)
         {
             string src = ReadPreparedSource(file);
@@ -40,7 +40,7 @@ namespace Parsek.Tests
         [Fact]
         public void TheFlightStatusBlockIsGone()
         {
-            string src = ReadPreparedSource("ParsekUI.cs");
+            string src = ReadPreparedSource("UI/ParsekUI.cs");
             Assert.DoesNotContain("DrawFlightStatus", src);
             Assert.DoesNotContain("GetStatusText", src);
         }
@@ -51,7 +51,7 @@ namespace Parsek.Tests
             Assert.True(File.Exists(path),
                 "source file moved, this gate is vacuous: " + path);
             // ParsekFlight is split into partial files; read the text that was ParsekFlight.cs.
-            string text = relativePath == "ParsekFlight.cs"
+            string text = relativePath == "Controllers/ParsekFlight.cs"
                 ? ParsekFlightSourceFiles.ReadAll(Path.GetDirectoryName(path))
                 : ParsekFlightSourceFiles.ReadText(path);
             return SourceScanText.StripCommentsAndMaskLiterals(text);

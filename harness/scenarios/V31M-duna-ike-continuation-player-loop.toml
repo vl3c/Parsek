@@ -21,7 +21,7 @@ id = "V31M-duna-ike-continuation-player-loop"
 # resumes that tree, so the id is unchanged). One tree that crosses Duna's SOI and
 # Ike's is exactly the shape PR #2468's lone-moon arrival hold engages on.
 #
-# WHAT THE LOG MUST SHOW (literals from Source/Parsek/MissionLoopUnitBuilder.cs):
+# WHAT THE LOG MUST SHOW (literals from Source/Parsek/Missions/MissionLoopUnitBuilder.cs):
 #   `MissionLoopUnit: ... ENGAGED re-aim Kerbin->Duna via Sun` - the re-aim
 #       engages on the Kerbin -> Duna member, as on the source fixture's own lanes.
 #   `ARRIVAL HOLD dest=Duna kind=config Talign=<P_Ike>s moons=1 ...

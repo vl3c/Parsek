@@ -276,7 +276,7 @@ namespace Parsek.Tests
         [Fact]
         public void TheBoundsWalkStillGatesOnTheNarrowPredicate_PinnedBySourceInspection()
         {
-            string source = ReadSourceFile("PlaybackTrajectoryBoundsResolver.cs");
+            string source = ReadSourceFile("Core/PlaybackTrajectoryBoundsResolver.cs");
             int boundsIdx = source.IndexOf(
                 "TryGetPlayableTrackSectionPayloadBounds(", StringComparison.Ordinal);
             Assert.True(boundsIdx >= 0, "bounds walk not found");

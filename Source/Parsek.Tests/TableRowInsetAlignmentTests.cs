@@ -400,9 +400,9 @@ namespace Parsek.Tests
         [Fact]
         public void TheSharedCellStyleTakesTheColumnHeaderHorizontalPadding()
         {
-            string prepared = ReadPreparedSource("ParsekUI.cs");
+            string prepared = ReadPreparedSource("UI/ParsekUI.cs");
             string ensure = Regex.Replace(
-                MethodBody(prepared, "EnsureSharedHeaderStyles", "ParsekUI.cs"), @"\s+", " ");
+                MethodBody(prepared, "EnsureSharedHeaderStyles", "UI/ParsekUI.cs"), @"\s+", " ");
             Assert.Contains("RectOffset hdrPad = sharedColumnHeaderStyle.padding;", ensure);
             Assert.Contains(
                 "ComposeTableCellPadding( hdrPad.left, hdrPad.right, lblPad.top, lblPad.bottom)",
@@ -471,7 +471,7 @@ namespace Parsek.Tests
         {
             Assert.Equal(0, ParsekUI.TableRowHorizontalInsetPx);
 
-            string prepared = ReadPreparedSource("ParsekUI.cs");
+            string prepared = ReadPreparedSource("UI/ParsekUI.cs");
 
             string rowStyle = AssignmentBlock(prepared, "sharedTableRowStyle");
             string headerStyle = AssignmentBlock(prepared, "sharedTableHeaderRowStyle");
@@ -512,16 +512,16 @@ namespace Parsek.Tests
         [Fact]
         public void TheReservedGutterIsDerivedFromTheSkinScrollbarAndOneCellMargin()
         {
-            string prepared = ReadPreparedSource("ParsekUI.cs");
+            string prepared = ReadPreparedSource("UI/ParsekUI.cs");
 
             string footprint = MethodBody(prepared, "VerticalScrollbarFootprintWidth",
-                "ParsekUI.cs");
+                "UI/ParsekUI.cs");
             // The footprint is BOTH scrollbar terms, read off the live skin.
             Assert.Contains("verticalScrollbar.fixedWidth", footprint);
             Assert.Contains("verticalScrollbar.margin.left", footprint);
 
             string gutter = MethodBody(prepared, "VerticalScrollbarGutterWidth",
-                "ParsekUI.cs");
+                "UI/ParsekUI.cs");
             Assert.Contains("VerticalScrollbarFootprintWidth()", gutter);
             Assert.Contains("TableCellHorizontalMarginPx()", gutter);
             // No digits in that body: any number there would be a hard-coded
@@ -531,7 +531,7 @@ namespace Parsek.Tests
                 + "skin, not spell a literal: " + gutter);
 
             string cellMargin = MethodBody(prepared, "TableCellHorizontalMarginPx",
-                "ParsekUI.cs");
+                "UI/ParsekUI.cs");
             Assert.Contains("label.margin.right", cellMargin);
 
             // Fallbacks only, for a skin that has no scrollbar style at all. Pinned to

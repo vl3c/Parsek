@@ -103,7 +103,7 @@ class MilestoneCaptureParseTests(unittest.TestCase):
         """The capture side reads GameStateRecorder's own line; reword it and every
         optional award would read as captured-nowhere (a disagreement red)."""
         root = os.path.abspath(os.path.join(_HERE, "..", ".."))
-        path = os.path.join(root, "Source", "Parsek", "GameStateRecorder.Handlers.cs")
+        path = os.path.join(root, "Source", "Parsek", "GameActions", "GameStateRecorder.Handlers.cs")
         with open(path, "r", encoding="utf-8") as fh:
             src = fh.read()
         self.assertIn("$\"Milestone enriched: '{evt.key}' funds={funds:F0} rep={rep:F1} "

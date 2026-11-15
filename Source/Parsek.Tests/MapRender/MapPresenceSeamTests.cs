@@ -47,9 +47,9 @@ namespace Parsek.Tests
         // the class lived in one file.
         private static string ReadGhostMapPresenceSource()
         {
-            string path = Path.Combine(ProjectRoot, "Source", "Parsek", "GhostMapPresence.cs");
+            string path = Path.Combine(ProjectRoot, "Source", "Parsek", "Ghost", "GhostMapPresence.cs");
             if (!File.Exists(path))
-                path = Path.Combine(ProjectRoot, "Parsek", "GhostMapPresence.cs");
+                path = Path.Combine(ProjectRoot, "Parsek", "Ghost", "GhostMapPresence.cs");
             Assert.True(File.Exists(path), $"Source file not found at {path}");
             var sb = new System.Text.StringBuilder(File.ReadAllText(path));
             string[] partials = Directory.GetFiles(
@@ -121,7 +121,7 @@ namespace Parsek.Tests
         [Fact]
         public void ParsekPlaybackPolicy_NoLongerOwns_MapPresenceBodyOrDicts()
         {
-            string source = ReadSource("Source", "Parsek", "ParsekPlaybackPolicy.cs");
+            string source = ReadSource("Source", "Parsek", "Controllers", "ParsekPlaybackPolicy.cs");
             string codeOnly = StripLineComments(source);
 
             // The per-frame body is gone (wholesale move, not a copy). The doc/seam comments still
@@ -189,7 +189,7 @@ namespace Parsek.Tests
         [Fact]
         public void ParsekPlaybackPolicy_HandleGhostCreated_DelegatesPresence_KeepsCameraConcern_8d2()
         {
-            string source = ReadSource("Source", "Parsek", "ParsekPlaybackPolicy.cs");
+            string source = ReadSource("Source", "Parsek", "Controllers", "ParsekPlaybackPolicy.cs");
             string codeOnly = StripLineComments(source);
 
             // The handler delegates the presence enqueue to the relocated GhostMapPresence method...
@@ -209,7 +209,7 @@ namespace Parsek.Tests
         [Fact]
         public void ParsekPlaybackPolicy_HandleGhostDestroyed_DelegatesPresence_KeepsHeldGhosts_8d2()
         {
-            string source = ReadSource("Source", "Parsek", "ParsekPlaybackPolicy.cs");
+            string source = ReadSource("Source", "Parsek", "Controllers", "ParsekPlaybackPolicy.cs");
             string codeOnly = StripLineComments(source);
 
             // The handler delegates the presence teardown to the relocated GhostMapPresence method...

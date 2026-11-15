@@ -267,7 +267,7 @@ namespace Parsek.Tests
         [Fact]
         public void BothJumpEntryPoints_ApplyThePolicy_BeforeAnyChainTipSpawns()
         {
-            string raw = System.IO.File.ReadAllText(FindParsekSourceFile("TimeJumpManager.cs"))
+            string raw = System.IO.File.ReadAllText(FindParsekSourceFile("Controllers/TimeJumpManager.cs"))
                 .Replace("\r\n", "\n");
             string code = SourceScanText.StripCSharpComments(raw);
 

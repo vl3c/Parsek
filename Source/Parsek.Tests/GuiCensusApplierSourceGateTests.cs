@@ -334,7 +334,7 @@ namespace Parsek.Tests
             //
             // Source-derived because the method calls PopupDialog.DismissPopup, a Unity
             // uGUI entry point xUnit cannot drive.
-            string code = ReadSource("MergeDialog.cs");
+            string code = ReadSource("Rewind/MergeDialog.cs");
             string body = MethodBody(code, "internal static void DismissAndClearPendingFlag(");
 
             foreach (string name in new[] { "DialogName", "PreSwitchDialogName" })

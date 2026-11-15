@@ -502,7 +502,7 @@ namespace Parsek.Tests
         [Fact]
         public void Wiring_OnSaveBuildsOnce_ColdBranchReadsTheNode()
         {
-            string persist = PreparedMethodBody("ParsekScenario.cs", "private static void PersistGameStateAndMilestones(ConfigNode node)");
+            string persist = PreparedMethodBody("Controllers/ParsekScenario.cs", "private static void PersistGameStateAndMilestones(ConfigNode node)");
             Assert.Equal(1, Occurrences(persist, "GameStateStore.BuildEventsNode("));
             Assert.Equal(1, Occurrences(persist, "GameStateStore.WriteEventsNode(eventsBuild)"));
             Assert.Equal(1, Occurrences(persist, "MilestoneStore.BuildMilestonesNode()"));
@@ -515,11 +515,11 @@ namespace Parsek.Tests
             int add = IndexOrFail(persist, "node.AddNode(BuildGameStateNode(");
             Assert.True(remove < add);
 
-            string external = PreparedMethodBody("ParsekScenario.cs", "private static void LoadExternalFiles(ConfigNode node)");
+            string external = PreparedMethodBody("Controllers/ParsekScenario.cs", "private static void LoadExternalFiles(ConfigNode node)");
             Assert.Equal(1, Occurrences(external, "LoadGameStateFromNodeOrFiles(node);"));
             Assert.Equal(0, Occurrences(external, "LoadEventFile("));
 
-            string onLoad = PreparedMethodBody("ParsekScenario.cs", "public override void OnLoad(ConfigNode node)");
+            string onLoad = PreparedMethodBody("Controllers/ParsekScenario.cs", "public override void OnLoad(ConfigNode node)");
             int classify = IndexOrFail(onLoad, "LoadReconcilePolicy.ClassifyEarly(");
             int reset = IndexOrFail(onLoad, "ResetSaveScopedSessionState(");
             int crew = IndexOrFail(onLoad, "LoadCrewAndGroupState(node);");

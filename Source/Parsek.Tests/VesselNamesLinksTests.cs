@@ -779,7 +779,7 @@ namespace Parsek.Tests
         [Fact]
         public void Wiring_SpawnLinksStampsAndRemapsOnBothSpawnPaths()
         {
-            string regen = MethodBody("VesselSpawner.cs",
+            string regen = MethodBody("Controllers/VesselSpawner.cs",
                 "private static Dictionary<uint, uint> RegenerateVesselIdentity(ConfigNode spawnNode, Recording source)");
             int link = IndexOrFail(regen, "VesselNameStore.AddLink(");
             Assert.True(link < IndexOrFail(regen, "VesselSnapshotOps.RegeneratePartIdentities("),
@@ -797,28 +797,28 @@ namespace Parsek.Tests
                 "public static uint SpawnAtPosition(",
             })
             {
-                string body = MethodBody("VesselSpawner.cs", sig);
+                string body = MethodBody("Controllers/VesselSpawner.cs", sig);
                 int regenerate = IndexOrFail(body, "RegenerateVesselIdentity(spawnNode, nameSource)");
                 int stamp = IndexOrFail(body, "VesselNameSpawn.ApplySpawnStamp(spawnNode, nameSource");
                 int load = IndexOrFail(body, "new ProtoVessel(spawnNode");
                 Assert.True(regenerate < stamp && stamp < load,
                     sig + ": the stamp runs on both identity paths, before the ProtoVessel is built");
             }
-            Assert.Contains("nameSource: rec", MethodBody("VesselSpawner.cs", "internal static uint RespawnValidatedRecording("));
+            Assert.Contains("nameSource: rec", MethodBody("Controllers/VesselSpawner.cs", "internal static uint RespawnValidatedRecording("));
         }
 
         [Fact]
         public void Wiring_ResumeDockAndUndockHooks()
         {
-            string take = MethodBody("ParsekFlight.cs", "internal static bool TryTakeCommittedTreeForSpawnedVesselRestore(");
+            string take = MethodBody("Controllers/ParsekFlight.cs", "internal static bool TryTakeCommittedTreeForSpawnedVesselRestore(");
             int link = IndexOrFail(take, "VesselIdentityLinkKind.Resume");
             Assert.True(link < IndexOrFail(take, "SpawnedVesselPersistentId = 0"),
                 "the Resume link is recorded before the spawn pid is cleared");
 
-            string couple = MethodBody("ParsekFlightSplitBrancher.cs", "void OnPartCouple(GameEvents.FromToAction<Part, Part> data)");
+            string couple = MethodBody("Controllers/ParsekFlightSplitBrancher.cs", "void OnPartCouple(GameEvents.FromToAction<Part, Part> data)");
             Assert.True(IndexOrFail(couple, "VesselNameLiveSync.OnDockCouple(data.from") < couple.IndexOf("return;", StringComparison.Ordinal),
                 "the dock-absorb row is recorded before any early return");
-            string undock = MethodBody("ParsekFlightSplitBrancher.cs", "void OnVesselsUndocking(Vessel oldVessel, Vessel newVessel)");
+            string undock = MethodBody("Controllers/ParsekFlightSplitBrancher.cs", "void OnVesselsUndocking(Vessel oldVessel, Vessel newVessel)");
             Assert.True(IndexOrFail(undock, "VesselNameLiveSync.OnUndockSplit(newVessel)") < undock.IndexOf("return;", StringComparison.Ordinal),
                 "the undock link is recorded before any early return");
         }
@@ -826,7 +826,7 @@ namespace Parsek.Tests
         [Fact]
         public void Wiring_EveryOnLoadTailBackfillsBeforeItsApplyPass()
         {
-            string body = MethodBody("ParsekScenario.cs", "public override void OnLoad(ConfigNode node)");
+            string body = MethodBody("Controllers/ParsekScenario.cs", "public override void OnLoad(ConfigNode node)");
             int applies = Occurrences(body, "VesselNameStore.ApplyAll(");
             Assert.Equal(applies, Occurrences(body, "VesselNameStore.RunSpawnLinkBackfill("));
             int idx = 0;
@@ -847,7 +847,7 @@ namespace Parsek.Tests
         private static string MethodBody(string relPath, string signature)
         {
             // VesselSpawner and ParsekScenario are partial classes; read every split file as one text.
-            string raw = relPath == "VesselSpawner.cs"
+            string raw = relPath == "Controllers/VesselSpawner.cs"
                 ? VesselSpawnerSourceFiles.ReadAll(ParsekSourceRoot())
                 : ParsekScenarioSourceFiles.ReadText(Path.Combine(ParsekSourceRoot(), relPath));
             string prepared = SourceScanText.StripCommentsAndMaskLiterals(raw.Replace("\r\n", "\n"));

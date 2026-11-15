@@ -62,7 +62,7 @@ class SnapshotDecodeTests(unittest.TestCase):
             q.decode_snapshot_sidecar(header[:12] + b"\x02" + header[13:] + body)
 
     def test_the_header_size_matches_the_c_sharp_codec(self):
-        path = os.path.join(os.path.dirname(HARNESS), "Source", "Parsek", "SnapshotSidecarCodec.cs")
+        path = os.path.join(os.path.dirname(HARNESS), "Source", "Parsek", "Recording", "SnapshotSidecarCodec.cs")
         with open(path, encoding="utf-8-sig") as fh:
             text = fh.read()
         self.assertIn('Encoding.ASCII.GetBytes("PSN0")', text)

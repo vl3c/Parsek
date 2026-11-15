@@ -98,7 +98,7 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// Locates Source/Parsek/ParsekScenario.cs by walking up from the test bin directory
+        /// Locates Source/Parsek/Controllers/ParsekScenario.cs by walking up from the test bin directory
         /// (xUnit runs from Source/Parsek.Tests/bin/Debug/net472/). Mirrors the source-gate
         /// pattern used by the ERS/ELS grep-audit and chain-state tests.
         /// </summary>
@@ -107,13 +107,13 @@ namespace Parsek.Tests
             string dir = AppContext.BaseDirectory;
             for (int i = 0; i < 8 && !string.IsNullOrEmpty(dir); i++)
             {
-                string candidate = Path.Combine(dir, "Source", "Parsek", "ParsekScenario.cs");
+                string candidate = Path.Combine(dir, "Source", "Parsek", "Controllers", "ParsekScenario.cs");
                 if (File.Exists(candidate))
                     return ParsekScenarioSourceFiles.ReadText(candidate);
                 dir = Path.GetDirectoryName(dir);
             }
             throw new FileNotFoundException(
-                "Could not locate Source/Parsek/ParsekScenario.cs by walking up from "
+                "Could not locate Source/Parsek/Controllers/ParsekScenario.cs by walking up from "
                 + AppContext.BaseDirectory);
         }
     }

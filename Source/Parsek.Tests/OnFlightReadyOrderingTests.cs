@@ -224,7 +224,7 @@ namespace Parsek.Tests
 
         /// <summary>
         /// Walks up from the current test binary directory looking for
-        /// Source/Parsek/ParsekFlight.cs so the file-scrape guard works
+        /// Source/Parsek/Controllers/ParsekFlight.cs so the file-scrape guard works
         /// regardless of where dotnet test is invoked from.
         /// </summary>
         private static string LocateParsekFlightSource()
@@ -232,14 +232,14 @@ namespace Parsek.Tests
             string dir = AppDomain.CurrentDomain.BaseDirectory;
             for (int i = 0; i < 10 && !string.IsNullOrEmpty(dir); i++)
             {
-                string candidate = Path.Combine(dir, "Source", "Parsek", "ParsekFlight.cs");
+                string candidate = Path.Combine(dir, "Source", "Parsek", "Controllers", "ParsekFlight.cs");
                 if (File.Exists(candidate)) return candidate;
                 dir = Path.GetDirectoryName(dir);
             }
             // Fallback: relative to the test project
             return Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory,
-                "..", "..", "..", "..", "Parsek", "ParsekFlight.cs"));
+                "..", "..", "..", "..", "Parsek", "Controllers", "ParsekFlight.cs"));
         }
     }
 }

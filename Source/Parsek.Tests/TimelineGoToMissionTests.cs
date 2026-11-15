@@ -341,9 +341,9 @@ namespace Parsek.Tests
         {
             string projectRoot = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
-            string path = Path.Combine(projectRoot, "Source", "Parsek", "ParsekFlight.cs");
+            string path = Path.Combine(projectRoot, "Source", "Parsek", "Controllers", "ParsekFlight.cs");
             if (!File.Exists(path))
-                path = Path.Combine(projectRoot, "Parsek", "ParsekFlight.cs");
+                path = Path.Combine(projectRoot, "Parsek", "Controllers", "ParsekFlight.cs");
             Assert.True(File.Exists(path), $"ParsekFlight.cs not found at {path}");
 
             string dense = Regex.Replace(ParsekFlightSourceFiles.ReadAll(Path.GetDirectoryName(path)), @"\s+", string.Empty);

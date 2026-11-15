@@ -74,7 +74,7 @@ $files = Get-ChildItem -Path $sourceRoot -Recurse -Filter *.cs -File
 foreach ($file in $files) {
     $fullPath = $file.FullName -replace '\\', '/'
     # Relative to repo root so allowlist entries can be written as e.g.
-    # Source/Parsek/RecordingStore.cs
+    # Source/Parsek/Recording/RecordingStore.cs
     $rel = $fullPath
     if ($rel.StartsWith($repoRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
         $rel = $rel.Substring($repoRootFull.Length).TrimStart('/')

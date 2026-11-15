@@ -355,7 +355,7 @@ namespace Parsek.Tests
         [Fact]
         public void Wiring_RecorderFilesIncome_AndTheTimeTravelLoadDropsIt()
         {
-            string recorder = ReadSource("GameStateRecorder.cs");
+            string recorder = ReadSource("GameActions/GameStateRecorder.cs");
             int door = recorder.IndexOf("void OnCurrencyModified(", StringComparison.Ordinal);
             Assert.True(door >= 0, "OnCurrencyModified not found");
             int capture = recorder.IndexOf("LiveOnlyIncome.Capture(qry.reason, snapshot, ut);", door, StringComparison.Ordinal);
@@ -367,7 +367,7 @@ namespace Parsek.Tests
             // Both timeline-break sites (the plain rewind's own branch and the in-session
             // branch's refined kind) drop later income right after recording their break, at
             // the same UT.
-            string scenario = System.Text.RegularExpressions.Regex.Replace(ReadSource("ParsekScenario.cs"), @"\s+", " ");
+            string scenario = System.Text.RegularExpressions.Regex.Replace(ReadSource("Controllers/ParsekScenario.cs"), @"\s+", " ");
             int plainNote = scenario.IndexOf("StockShadowTakeBack.NoteLoad( LoadKind.PlainRewind, rewindWorldUT,",
                 StringComparison.Ordinal);
             int plainDrop = scenario.IndexOf("LiveOnlyIncome.DropAfterTimeTravelLoad(LoadKind.PlainRewind, rewindWorldUT);",
@@ -390,7 +390,7 @@ namespace Parsek.Tests
             // The Re-Fly start's bundle restore replaces the ledger after OnLoad's drop: the
             // drop runs again right after it, at the loaded quicksave's clock.
             string invoker = System.Text.RegularExpressions.Regex.Replace(
-                SourceScanText.StripCSharpComments(ReadSource("RewindInvoker.cs")), @"\s+", " ");
+                SourceScanText.StripCSharpComments(ReadSource("Rewind/RewindInvoker.cs")), @"\s+", " ");
             int consume = invoker.IndexOf("internal static void ConsumePostLoad(", StringComparison.Ordinal);
             int restore = invoker.IndexOf("ReconciliationBundle.Restore( bundle, retireCutoffUT,", consume, StringComparison.Ordinal);
             int reDrop = invoker.IndexOf("LiveOnlyIncome.DropAfterReFlyBundleRestore(loadedClockUT, retireCutoffUT);",

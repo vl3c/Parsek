@@ -232,7 +232,7 @@ namespace Parsek.Tests
         public void SpanClock_EveryDescentTriggerCallSite_PassesTheResolvedOffset()
         {
             AssertAllDescentTriggerCallsCarryOffset(
-                ReadParsekSource("GhostPlaybackLogic.SpanClock.cs"),
+                ReadParsekSource("Ghost/GhostPlaybackLogic.SpanClock.cs"),
                 "ResolveDescentSiteAlignOffsetSeconds(unit, unitCycle)");
         }
 
@@ -247,7 +247,7 @@ namespace Parsek.Tests
         [Fact]
         public void Builder_StampsEligibility_OnlyInTheDescentEngageBlock()
         {
-            string src = ReadParsekSource("MissionLoopUnitBuilder.cs");
+            string src = ReadParsekSource("Missions/MissionLoopUnitBuilder.cs");
             // Exactly one assignment site, and it re-stores the stamped plan into the unit's slot.
             int first = src.IndexOf("plan.ArrivalRestitchEligible = true;", StringComparison.Ordinal);
             Assert.True(first >= 0, "the builder must stamp ArrivalRestitchEligible in the engage block");
@@ -272,7 +272,7 @@ namespace Parsek.Tests
             // NO SOI-entered moon (a moon's encounter segments are not rotated, so the approach would
             // tear away from them), and mode != Drop. Docks, land+station duals, and moon-threading
             // landings must all stay unstamped (byte-identical shipped arrival).
-            string src = ReadParsekSource("MissionLoopUnitBuilder.cs");
+            string src = ReadParsekSource("Missions/MissionLoopUnitBuilder.cs");
             int guard = src.IndexOf("bool s4LandingProfile =", StringComparison.Ordinal);
             int stamp = src.IndexOf("plan.ArrivalRestitchEligible = true;", StringComparison.Ordinal);
             Assert.True(guard >= 0 && stamp > guard, "the landing-profile guard must precede the stamp");

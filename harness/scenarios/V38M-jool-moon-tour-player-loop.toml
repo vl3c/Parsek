@@ -14,7 +14,7 @@ id = "V38M-jool-moon-tour-player-loop"
 # MissionConfig loop=true + StartLoopPlayback, the build lines, then the
 # MoonArrivalHold batch at the Space Center.
 #
-# WHAT THE LOG MUST SHOW (literals from Source/Parsek/MissionLoopUnitBuilder.cs):
+# WHAT THE LOG MUST SHOW (literals from Source/Parsek/Missions/MissionLoopUnitBuilder.cs):
 #   `ENGAGED re-aim Kerbin->Jool via Sun`, as on V33M.
 #   `ARRIVAL HOLD dest=Jool kind=config Talign=<T_config>s moons=3 ...
 #       (aligns the multi-moon configuration phases, mode=` - the config hold with

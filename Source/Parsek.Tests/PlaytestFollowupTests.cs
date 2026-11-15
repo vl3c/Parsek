@@ -227,8 +227,8 @@ namespace Parsek.Tests
         /// the other row remains a source-level pin.
         /// </summary>
         [Theory]
-        [InlineData("ParsekFlight.cs", "static void AppendCapturedDataToRecording(")]
-        [InlineData("ParsekFlight.cs", "void FlushRecorderToTreeRecording(FlightRecorder")]
+        [InlineData("Controllers/ParsekFlight.cs", "static void AppendCapturedDataToRecording(")]
+        [InlineData("Controllers/ParsekFlight.cs", "void FlushRecorderToTreeRecording(FlightRecorder")]
         public void Bug273_MethodBody_ContainsMarkFilesDirtyCall(string fileName, string methodSignature)
         {
             string path = LocateSourceFile(fileName);

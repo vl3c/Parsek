@@ -83,7 +83,7 @@ namespace Parsek.Tests
         private static readonly Dictionary<string, int> PinnedRestores =
             new Dictionary<string, int>(StringComparer.Ordinal)
             {
-                ["ReconciliationBundle.cs::Restore"] = 1,
+                ["Rewind/ReconciliationBundle.cs::Restore"] = 1,
             };
 
         private static readonly Regex AddCall = new Regex(@"\bLedger\s*\.\s*AddActions?\s*\(");

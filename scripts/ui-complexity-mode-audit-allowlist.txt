@@ -6,13 +6,43 @@
 # logistics, ledger or rewind behavior.
 #
 # One path per line, repo-relative, forward slashes. A trailing '/' makes the
-# entry a directory prefix. '#' starts a comment.
+# entry a directory prefix. A leading '!' makes the entry a STILL-SCANNED file:
+# it is scanned even when a prefix above covers it (a '!' entry wins over every
+# allowing entry). '#' starts a comment.
 
 # --- UI draw paths (the gate's whole legitimate home) ---
 # Hosts UiComplexityMode.cs itself (the enums + the pure UiSurfaceVisibility
 # decision core) plus every gated window: the settings toggle, the tab bar and
 # clamp, the Timeline GoTo cross-link, and the test-runner launcher.
 Source/Parsek/UI/
+# Still scanned inside UI/: the 2026-11-14 folder move (ARCH-MODULE-FOLDERS) put
+# these 22 files, which sat in the root of Source/Parsek and were scanned, into
+# the UI module's folder. They are stock-screen annotations, reservation and
+# budget helpers, formatting and the toolbar registration, not the gated draw
+# paths this prefix exempts, so they stay scanned exactly as before the move.
+# ParsekUI.cs, the 23rd file that moved into UI/, was already allowlisted below.
+!Source/Parsek/UI/CareerSlotSummary.cs
+!Source/Parsek/UI/CommittedActionDialog.cs
+!Source/Parsek/UI/CurrencyReservationOverlay.cs
+!Source/Parsek/UI/DockEventGraphCache.cs
+!Source/Parsek/UI/ParsekTimeFormat.cs
+!Source/Parsek/UI/ParsekToolbarRegistration.cs
+!Source/Parsek/UI/ReservationExplanation.cs
+!Source/Parsek/UI/ResourceBudget.cs
+!Source/Parsek/UI/SelectiveSpawnUI.cs
+!Source/Parsek/UI/StockUiAdministrationDecoration.cs
+!Source/Parsek/UI/StockUiAstronautDecoration.cs
+!Source/Parsek/UI/StockUiCrewDialogDecoration.cs
+!Source/Parsek/UI/StockUiDecorationQuery.cs
+!Source/Parsek/UI/StockUiFacilityDecoration.cs
+!Source/Parsek/UI/StockUiFlightCrewDecoration.cs
+!Source/Parsek/UI/StockUiGreyedButton.cs
+!Source/Parsek/UI/StockUiLiveSnapshot.cs
+!Source/Parsek/UI/StockUiOverlayController.cs
+!Source/Parsek/UI/StockUiPartPurchase.cs
+!Source/Parsek/UI/StockUiPartUpgradePurchase.cs
+!Source/Parsek/UI/StockUiReasonTooltip.cs
+!Source/Parsek/UI/StockUiRnDDecoration.cs
 
 # --- In-game tests (inside the scan root, unlike Source/Parsek.Tests) ---
 # UiComplexityModeInGameTests.cs is the phase-7 `UiComplexityMode` in-game
@@ -26,7 +56,7 @@ Source/Parsek/InGameTests/
 # ParsekUI owns the main window's button gates, the frame-latched
 # AppliedUiComplexityMode, the SetUiComplexityMode setter seam, the
 # OnUiComplexityModeApplied extension point and the gated-window close set.
-Source/Parsek/ParsekUI.cs
+Source/Parsek/UI/ParsekUI.cs
 
 # --- Deferred-apply Update hosts ---
 # ParsekFlight.Update and ParsekKSC.Update call
@@ -40,11 +70,11 @@ Source/Parsek/ParsekUI.cs
 # allowlisted rather than an invisible back door: it changes the message WORDING
 # only, never whether the message fires, what is detected, or what spawning
 # does.
-Source/Parsek/ParsekFlight.cs
+Source/Parsek/Controllers/ParsekFlight.cs
 # The proximity message moved verbatim with the spawning members into the flight
 # spawn host (ARCH-PARSEKFLIGHT-CHANGE-HUB PF5); same consumption as above.
-Source/Parsek/ParsekFlightSpawnHost.cs
-Source/Parsek/ParsekKSC.cs
+Source/Parsek/Controllers/ParsekFlightSpawnHost.cs
+Source/Parsek/Controllers/ParsekKSC.cs
 
 # --- Settings layer ---
 # ParsekSettings holds the persisted uiComplexityMode int + the clamping
@@ -53,8 +83,8 @@ Source/Parsek/ParsekKSC.cs
 # ParsekScenario.cs is deliberately NOT allowlisted: it passes the scenario-node
 # signal into the persistence layer as a bare bool, so the mode vocabulary never
 # reaches it.
-Source/Parsek/ParsekSettings.cs
-Source/Parsek/ParsekSettingsPersistence.cs
+Source/Parsek/Config/ParsekSettings.cs
+Source/Parsek/Config/ParsekSettingsPersistence.cs
 
 # --- The automation-only M-A2 seam (GUI census, 2026-09-10) ---
 # The `UiAction op=complexity` seam op sets the mode for a SCREENSHOT: the GUI

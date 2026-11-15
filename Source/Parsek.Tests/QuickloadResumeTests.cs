@@ -1610,7 +1610,7 @@ namespace Parsek.Tests
                 System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", "Parsek"));
             string scenarioSrc = ParsekScenarioSourceFiles.ReadText(
-                System.IO.Path.Combine(srcRoot, "ParsekScenario.cs"));
+                System.IO.Path.Combine(srcRoot, "Controllers/ParsekScenario.cs"));
 
             int methodStart = scenarioSrc.IndexOf(
                 "private static void SaveActiveTreeIfAny(ConfigNode node)",
@@ -1643,7 +1643,7 @@ namespace Parsek.Tests
                 System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", "Parsek"));
             string flightSrc = ParsekFlightSourceFiles.ReadText(
-                System.IO.Path.Combine(srcRoot, "ParsekFlight.cs"));
+                System.IO.Path.Combine(srcRoot, "Controllers/ParsekFlight.cs"));
 
             Assert.Contains("CopyRewindSaveToRoot(activeTree, recorder,", flightSrc);
             Assert.Contains("ParsekFlight.CopyRewindSaveToRoot(host.activeTree, splitRecorder);", flightSrc);
@@ -1657,7 +1657,7 @@ namespace Parsek.Tests
                 System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", "Parsek"));
             string flightSrc = ParsekFlightSourceFiles.ReadText(
-                System.IO.Path.Combine(srcRoot, "ParsekFlight.cs"));
+                System.IO.Path.Combine(srcRoot, "Controllers/ParsekFlight.cs"));
 
             int methodStart = flightSrc.IndexOf(
                 "IEnumerator RestoreActiveTreeFromPending()",

@@ -381,7 +381,7 @@ def _drop_grandchild_nodes(lines: List[str], parent_name: str, child_name: str,
 
 # ---------------------------------------------------------------------------
 # Step 5: the INV2 repair. A minimal binary reader over the `.prec` format
-# (`Source/Parsek/TrajectorySidecarBinary.cs`), used ONLY to locate the byte
+# (`Source/Parsek/Recording/TrajectorySidecarBinary.cs`), used ONLY to locate the byte
 # range of each TrackSection record; the splice then removes whole records and
 # decrements the count. Nothing is re-encoded, so every surviving byte - the
 # string table included, even where a dropped section was its only user - is the

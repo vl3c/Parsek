@@ -583,7 +583,7 @@ namespace Parsek.Tests
         {
             string path = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory,
-                "..", "..", "..", "..", "..", "Source", "Parsek", "GameStateRecorder.cs"));
+                "..", "..", "..", "..", "..", "Source", "Parsek", "GameActions", "GameStateRecorder.cs"));
             Assert.True(File.Exists(path), "source file not found for scan: " + path);
             return File.ReadAllText(path);
         }

@@ -26,7 +26,7 @@ what was just saved), mission and scenario game modes (Parsek is inert there).
 **Related docs:** `docs/parsek-rewind-to-separation-design.md` (sections 2.12, 6.14, 6.16, D2),
 `docs/parsek-game-actions-and-resources-recorder-design.md` (ledger storage, QL-R1 / QL-R2),
 `docs/parsek-flight-recorder-design.md` (sidecar storage), the load policy table
-`Source/Parsek/LoadReconcilePolicy.cs`, the audit appendix of
+`Source/Parsek/Controllers/LoadReconcilePolicy.cs`, the audit appendix of
 `docs/dev/done/plans/refly-ledger-safety-implementation.md`.
 
 ---

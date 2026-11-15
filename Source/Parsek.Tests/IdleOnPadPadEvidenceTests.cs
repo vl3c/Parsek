@@ -342,7 +342,7 @@ namespace Parsek.Tests
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
             string source = ParsekFlightSourceFiles.ReadText(
-                Path.Combine(projectRoot, "Source", "Parsek", "ParsekFlight.cs"))
+                Path.Combine(projectRoot, "Source", "Parsek", "Controllers", "ParsekFlight.cs"))
                 .Replace("\r\n", "\n");
 
             string body = IsActiveTreeIdleOnPadBody(source);

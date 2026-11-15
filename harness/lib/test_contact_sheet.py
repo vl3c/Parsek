@@ -407,7 +407,7 @@ class SelectRunScreenshotsTests(unittest.TestCase):
         self.assertIn(".gui.json", hlib.ARTIFACT_SHOTS_SUFFIXES)
         repo_root = os.path.dirname(os.path.dirname(
             os.path.dirname(os.path.abspath(__file__))))
-        path = os.path.join(repo_root, "Source", "Parsek", "GuiTreeRecorder.cs")
+        path = os.path.join(repo_root, "Source", "Parsek", "GuiTree", "GuiTreeRecorder.cs")
         with open(path, "r", encoding="utf-8", errors="replace") as fh:
             src = fh.read()
         self.assertIn('OutputSuffix = ".gui.json"', src,
@@ -421,7 +421,7 @@ class SelectRunScreenshotsTests(unittest.TestCase):
         self.assertIn(".map.json", hlib.ARTIFACT_SHOTS_SUFFIXES)
         repo_root = os.path.dirname(os.path.dirname(
             os.path.dirname(os.path.abspath(__file__))))
-        path = os.path.join(repo_root, "Source", "Parsek", "MapGeometryRecorder.cs")
+        path = os.path.join(repo_root, "Source", "Parsek", "TestCommands", "MapGeometryRecorder.cs")
         with open(path, "r", encoding="utf-8", errors="replace") as fh:
             src = fh.read()
         self.assertIn('OutputSuffix = ".map.json"', src,

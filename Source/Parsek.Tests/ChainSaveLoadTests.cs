@@ -499,13 +499,13 @@ namespace Parsek.Tests
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
             string scenarioPath = Path.Combine(projectRoot,
-                "Source", "Parsek", "ParsekScenario.cs");
+                "Source", "Parsek", "Controllers", "ParsekScenario.cs");
 
             // If the file doesn't exist from this path, try an alternative
             if (!File.Exists(scenarioPath))
             {
                 scenarioPath = Path.Combine(projectRoot,
-                    "Parsek", "ParsekScenario.cs");
+                    "Parsek", "Controllers", "ParsekScenario.cs");
             }
 
             Assert.True(File.Exists(scenarioPath),

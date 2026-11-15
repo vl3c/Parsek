@@ -3425,6 +3425,69 @@ guards without their indentation.
 
 **Lanes that cover it in a real game (not flown):** QWS-1, PPB-3, VN-5, QL-3, QL-5d, REV-1.
 
+## ~~ARCH-MODULE-FOLDERS: 540 source files sat in the root of Source/Parsek, placed in modules only by name rules~~ [FILED 2026-11-14 from the refactor plan item 18 (B8). DONE 2026-11-14 on branch `item18-folder-move` (pure renames, IL-proven; module map identical; xUnit, arch and harness suites; addon creation order changed, checked harmless and pinned)]
+
+**What was true.** 709 of the 1,249 `.cs` files sat in module folders; the other 540 sat in
+the root of `Source/Parsek`, and `scripts/arch/modules.toml` placed them with 63 prefix
+rules (regexes over the file name, many listing names one by one) beside 13 folder rules, so a
+file's module could be read only from that file.
+
+**Fix.** `scripts/refactor/move_to_module_folders.py` asks archview's own `assign_module`
+which module each root file belongs to and `git mv`s it to `Source/Parsek/<Module>/` (sorted,
+re-runnable; `--check`, `--dry-run`; it refuses a taken target, a case-only clash and two
+files with one target, and places a root file a merge of an older main brings in by that
+main's rules). The rename commit is 540 R100 renames: Config 3, Controllers 110, Core 8,
+Crew 16, Display 1, GameActions 17, Ghost 95, GuiTree 5, Harness 5, LogIO 5, Logistics 5,
+MapRender 3, Missions 27, Patches 4, Recording 116, Rendering 1, Rewind 69, SwitchIntent 6,
+TestCommands 2, Trajectory 19, UI 23. `modules.toml` is now one folder rule per module (26,
+no exceptions); a root `.cs` file is an error (archview prints `ERROR root-level source
+file`, `RealTreeSmokeTests` and `ModuleFolderLayoutTests` red). The path readers followed:
+the test source gates (module-folder literals; the partial-class readers resolve the family
+folder through `PartialClassSourceFiles.FamilyDir`), the harness source-sync cells, the
+allowlists and grep gates, and the docs that name paths. A folder-prefix allowlist entry keeps exactly
+the files it exempted before the move: the UI-complexity-mode gate exempts `Source/Parsek/UI/`,
+which the move filled with 22 non-window files (`ResourceBudget.cs`, the `StockUi*` family,
+`CurrencyReservationOverlay.cs`, ...), so `scripts/ui-complexity-mode-audit-allowlist.txt`
+lists each as a `!` entry that keeps it scanned (the pwsh gate and the managed mirror both read
+`!`; a `!` entry naming no file reds; `GrepAuditTests.UiComplexityMode_ProbeInAFileTheFolderMoveBroughtIntoUi_IsRed`
+plants a mode read into three of them and red-checks it).
+
+**Proof.** The module of every file before and after is identical (1,249 files, 0 unplaced);
+the knot, residue and canary pins did not move. `il_compare.py` over the Debug DLL built
+before and after in the same worktree path (main 24abf0dba checked out detached, then the
+branch with main merged): 4,007 types, 24,748 fields, 26,824 methods, 0 differences (the
+file is 8,192 bytes larger: the TypeDef table follows file order, which re-encodes the type
+tokens inside signature blobs).
+
+**What the move did change: type order.** The compiler emits TypeDef rows in source file
+order, and `Assembly.GetTypes()` returns them in row order, so the move reordered the types.
+KSP's `AddonLoader.StartAddons` creates `[KSPAddon]` components in `GetTypes()` order, so the
+creation order of Parsek's 19 addons changed (for example, in FLIGHT the pass was
+CurrencyReservationOverlay, GuiTreeRecorderPump, ParsekFlight and is now ParsekFlight,
+GuiTreeRecorderPump, CurrencyReservationOverlay; in the Instantly pass ParsekHarmony now runs
+before MapRenderProbe, PostFlightDialogLogHost, ParsekToolbarRegistration and those two).
+Checked pair by pair, none can matter: the Awakes that moved only subscribe GameEvents (each
+shared event keeps its subscribers' relative order: `onLevelWasLoaded` WarpToTimeConsumer <
+ParsekTestCommandAddon < polyline Driver, `onGameSceneSwitchRequested` MapRenderProbe <
+RenderCompositionRecorder), Starts run after every Awake of the pass, the overlay's hover box is
+not a window so Parsek's IMGUI windows still draw above it (it now draws over ParsekFlight's
+non-window markers and labels, which overlap only at the stock currency widget), the GUI-tree
+pump only flushes in LateUpdate, the Harmony patch order (153 `HarmonyPatch` rows) is
+identical, the in-game test order is sorted by name, and ParsekScenario is the one
+ScenarioModule. What moves: a few start-up log lines print in another order, and in a game
+where Parsek is inert the FLIGHT inert line names `ParsekFlight.Start` instead of
+`CurrencyReservationOverlay.Start`. No `GUI.depth` restore was needed.
+`KspAddonCreationOrderTests` pins the creation order (reflection-only: `GetTypes()` plus
+`GetCustomAttributesData()`), so a later rename that reorders it reds with that warning.
+
+**Left as it was.** `LoadReconcilePolicy.KnownLoadInitiators` keys four initiators by the
+bare name they had in the root (`ParsekScenario.cs`, `RewindLauncher.cs`, `RewindInvoker.cs`,
+`RevertInterceptor.cs`); the move changed no file's text, so `LoadReconcileWiringGateTests`
+maps a scanned path to its bare name when the table keys it that way. Re-keying them by
+module path is a one-line follow-up per entry. The archived docs and dated research notes
+keep the paths they were written with, and so do the three design docs with committed PDFs
+(`docs/parsek-*-design.md`), until their PDFs are next rebuilt.
+
 ## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY DONE 2026-09-14: the Missions -> Logistics crossing closed in #1685 (merged); the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 merged as #1686 (`VesselSnapshotOps`), plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 
 **What is true.**

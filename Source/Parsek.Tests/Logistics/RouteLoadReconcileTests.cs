@@ -590,7 +590,7 @@ namespace Parsek.Tests.Logistics
         {
             string repo = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
-            string path = Path.Combine(repo, "Source", "Parsek", "ParsekScenario.cs");
+            string path = Path.Combine(repo, "Source", "Parsek", "Controllers", "ParsekScenario.cs");
             Assert.True(File.Exists(path), "ParsekScenario.cs not found at " + path);
             string prepared = SourceScanText.StripCommentsAndMaskLiterals(ParsekScenarioSourceFiles.ReadText(path));
 

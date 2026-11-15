@@ -20,6 +20,9 @@ namespace Parsek.Tests
     /// </summary>
     internal static class RewindInvokerSourceFiles
     {
+        /// <summary>The module folder under Source/Parsek that holds the class's files.</summary>
+        internal const string ModuleFolder = "Rewind";
+
         internal const string MainFileName = "RewindInvoker.cs";
         internal const string Advisory = "RewindInvoker.Advisory.cs";
         internal const string ForkIdentity = "RewindInvoker.ForkIdentity.cs";
@@ -48,7 +51,7 @@ namespace Parsek.Tests
         internal static IReadOnlyList<string> Paths(string parsekDir)
         {
             return PartialClassSourceFiles.Paths(
-                parsekDir,
+                PartialClassSourceFiles.FamilyDir(parsekDir, MainFileName, ModuleFolder),
                 MainFileName,
                 SplitFileNames,
                 OtherPartialFileNames,

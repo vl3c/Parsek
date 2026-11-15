@@ -43,22 +43,37 @@ if (-not (Test-Path $allowlistPath)) {
 
 # Load allowlist, strip comments + whitespace, normalize separators.
 # Entries ending in "/" are directory prefixes (every file underneath allowed).
+# Entries starting with "!" are still-scanned files: scanned even when a prefix
+# covers them (a "!" entry wins over every allowing entry).
 # Other entries are exact file matches (repo-relative, forward slashes).
 $allowedFiles = New-Object System.Collections.Generic.HashSet[string]([System.StringComparer]::OrdinalIgnoreCase)
+$scannedFiles = New-Object System.Collections.Generic.HashSet[string]([System.StringComparer]::OrdinalIgnoreCase)
 $allowedPrefixes = New-Object System.Collections.Generic.List[string]
 foreach ($rawLine in Get-Content $allowlistPath) {
     $line = $rawLine.Trim()
     if ($line.Length -eq 0) { continue }
     if ($line.StartsWith('#')) { continue }
     $normalized = $line -replace '\\', '/'
-    if ($normalized.EndsWith('/')) {
+    if ($normalized.StartsWith('!')) {
+        [void]$scannedFiles.Add($normalized.Substring(1).Trim())
+    } elseif ($normalized.EndsWith('/')) {
         $allowedPrefixes.Add($normalized)
     } else {
         [void]$allowedFiles.Add($normalized)
     }
 }
 
+# A still-scanned entry that names no file would silently stop scanning a file
+# that was renamed under an allowed prefix, so it is a misconfiguration.
+foreach ($scanned in $scannedFiles) {
+    if (-not (Test-Path (Join-Path $RepoRoot $scanned))) {
+        Write-Error "grep-audit: still-scanned allowlist entry names no file: $scanned"
+        exit 2
+    }
+}
+
 function Test-Allowed([string]$rel) {
+    if ($scannedFiles.Contains($rel)) { return $false }
     if ($allowedFiles.Contains($rel)) { return $true }
     foreach ($p in $allowedPrefixes) {
         if ($rel.StartsWith($p, [System.StringComparison]::OrdinalIgnoreCase)) {
@@ -92,7 +107,7 @@ $files = Get-ChildItem -Path $sourceRoot -Recurse -Filter *.cs -File
 foreach ($file in $files) {
     $fullPath = $file.FullName -replace '\\', '/'
     # Relative to repo root so allowlist entries can be written as e.g.
-    # Source/Parsek/ParsekUI.cs
+    # Source/Parsek/UI/ParsekUI.cs
     $rel = $fullPath
     if ($rel.StartsWith($repoRootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
         $rel = $rel.Substring($repoRootFull.Length).TrimStart('/')

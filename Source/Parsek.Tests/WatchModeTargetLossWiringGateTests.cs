@@ -23,8 +23,8 @@ namespace Parsek.Tests
     /// </summary>
     public class WatchModeTargetLossWiringGateTests
     {
-        private const string ControllerPath = "WatchModeController.cs";
-        private const string PolicyPath = "ParsekPlaybackPolicy.cs";
+        private const string ControllerPath = "Controllers/WatchModeController.cs";
+        private const string PolicyPath = "Controllers/ParsekPlaybackPolicy.cs";
 
         // ---- (a) destroy-time bridge: the policy actually calls the controller ----
 

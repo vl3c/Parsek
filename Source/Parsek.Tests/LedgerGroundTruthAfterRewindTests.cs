@@ -200,7 +200,7 @@ namespace Parsek.Tests
             string src = File.ReadAllText(Path.GetFullPath(path));
             Assert.DoesNotContain("TakeBack", src);
             string diffPath = Path.Combine(AppContext.BaseDirectory,
-                "..", "..", "..", "..", "..", "Source", "Parsek", "LedgerGroundTruthDiff.cs");
+                "..", "..", "..", "..", "..", "Source", "Parsek", "Harness", "LedgerGroundTruthDiff.cs");
             Assert.DoesNotContain("TakeBack", File.ReadAllText(Path.GetFullPath(diffPath)));
         }
 

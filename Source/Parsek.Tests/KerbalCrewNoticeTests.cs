@@ -55,7 +55,7 @@ namespace Parsek.Tests
         [Fact]
         public void SwapMessage_IsShownOnceFromTheSwapSiteAndOnlyForRealSwaps()
         {
-            string src = TooltipEchoBudgetTests.ReadParsekSource("CrewReservationManager.cs")
+            string src = TooltipEchoBudgetTests.ReadParsekSource("Crew/CrewReservationManager.cs")
                 .Replace("\r\n", "\n");
             int start = src.IndexOf("public static int SwapReservedCrewInFlight()",
                 StringComparison.Ordinal);
