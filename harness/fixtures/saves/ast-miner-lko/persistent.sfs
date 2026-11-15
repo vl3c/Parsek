@@ -2752,9 +2752,9 @@ GAME
 				mid = 1610000002
 				persistentId = 2710002010
 				launchID = 102
-				parent = 0
-				position = -0.3,0.12,0.3
-				rotation = -0.707106948,0,-4.21468549E-08,0.707106948
+				parent = 1
+				position = -0.36239222535810556,0.287,-0.36239222535810556
+				rotation = 0.923879504,0,0.382683456,0
 				mirror = 1,1,1
 				symMethod = Radial
 				istg = -1
@@ -2765,7 +2765,7 @@ GAME
 				sidx = -1
 				attm = 1
 				sameVesselCollision = False
-				srfN = srfAttach, 0
+				srfN = srfAttach, 1
 				mass = 0.25
 				shielded = False
 				temp = 290

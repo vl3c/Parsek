@@ -251,6 +251,38 @@ class AstKlawFixtureTests(unittest.TestCase):
             at = v.index(P + "\tname = Ore")
             self.assertEqual(P + "\tamount = 0", v[at + 1])
 
+    def test_the_miner_drill_points_its_bit_at_the_held_rock(self):
+        # MiniDrill's impact ray runs along the part's -y (MiniDrill.mu); the Klaw holds the
+        # rock on +y. The drill hangs on the Z-200 with its +x attach normal toward the axis.
+        b = self.b
+        miner = self._vessel(b.AST_MINER, b.MINER_NAME)
+        at = miner.index(P + "name = MiniDrill")
+        part = miner[at:at + 30]
+        self.assertIn(P + "parent = 1", part)
+        self.assertIn(P + "srfN = srfAttach, 1", part)
+        pos = [float(x) for x in next(l for l in part if l.startswith(P + "position = "))
+               .split(" = ")[1].split(",")]
+        q = [float(x) for x in next(l for l in part if l.startswith(P + "rotation = "))
+             .split(" = ")[1].split(",")]
+
+        def rot(v):
+            x, y, z, w = q
+            ux, uy, uz = v
+            # v' = v + 2w (u x v) + 2 u x (u x v), u = (x, y, z)
+            cx, cy, cz = y * uz - z * uy, z * ux - x * uz, x * uy - y * ux
+            dx, dy, dz = y * cz - z * cy, z * cx - x * cz, x * cy - y * cx
+            return (ux + 2 * (w * cx + dx), uy + 2 * (w * cy + dy), uz + 2 * (w * cz + dz))
+
+        bit = rot((0.0, -1.0, 0.0))
+        for got, want in zip(bit, (0.0, 1.0, 0.0)):
+            self.assertAlmostEqual(want, got, places=5)
+        normal = rot((1.0, 0.0, 0.0))
+        inward = (-pos[0], 0.0, -pos[2])
+        norm = (inward[0] ** 2 + inward[2] ** 2) ** 0.5
+        for got, want in zip(normal, (inward[0] / norm, 0.0, inward[2] / norm)):
+            self.assertAlmostEqual(want, got, places=5)
+        self.assertAlmostEqual(b.OKTO_TO_Z200, pos[1], places=6)
+
     def test_save_edits_commnet_off_full_sas_crew_free(self):
         b = self.b
         for name in b.FIXTURES:

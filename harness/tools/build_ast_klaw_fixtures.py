@@ -72,10 +72,12 @@ INVENTED, NOT SOURCED FROM ANY STOCK OUTPUT (no committed save or craft carries 
     comet exists in any committed save, and no radius was invented);
   * every non-donor position: the Klaw, the Z-200 above the OKTO (the tender's own 0.287
     offset), the Jr ports (0.187 below / above an OKTO, 0.295 port to port as in the
-    LABX), the drill / ore tank / packs on the OKTO's side at radius 0.3 to 0.45, the
-    mothership stack; radial rotations other than the RCS ring are identity or the donor's.
-    Positions inside one vessel never collide (same-vessel collisions are off) and only the
-    Klaw's (it must be the forward-most point) and the RCS ring's (thrust axes) matter;
+    LABX), the ore tank / packs on the OKTO's side at radius 0.3 to 0.45, the drill on the
+    Z-200's side facing the rock (DRILL_ROT), the mothership stack; radial rotations other
+    than the RCS ring and the drill are identity or the donor's. Positions inside one vessel
+    never collide (same-vessel collisions are off) and only the Klaw's (it must be the
+    forward-most point), the RCS ring's (thrust axes) and the drill's (its impact ray must
+    reach the held rock) matter;
   * identities: cid / uid / persistentId / vessel pid Guid / launchID, asserted absent from
     the base and every donor.
 
@@ -164,6 +166,17 @@ OKTO_TO_PORT = 0.187           # LABX: OKTO y 1.1243, its Jr port y 0.9372
 OKTO_TO_Z200 = 0.287           # LABX: Z-200 y 1.4114 above the OKTO
 PORT_TO_PORT = 0.295           # LABX: the two PreAttached Jr ports, y 0.6424 / 0.9372
 Z200_TO_KLAW = 0.29            # invented
+# The MiniDrill on the Z-200's free diagonal (-x, -z), its bit pointing +y at the held rock.
+# MiniDrill.cfg (KSP 1.12.5): node_attach = .2,0,0 normal +x; ModuleAsteroidDrill ImpactRange
+# 1.5 along ImpactTransform's forward, which MiniDrill.mu puts on the part's -y (rest pose
+# (-0.27, 0.6, 0)). DRILL_ROT is a half turn about the horizontal axis 22.5 deg off +x toward +z:
+# it maps the drill's -y onto +y and its +x attach normal onto (1,0,1)/sqrt2, toward the Z-200's
+# axis. The Z-200 radius is 0.3125, so the drill origin sits 0.2 m further out. The rest-pose
+# impact point lands at y = 0.287 - 0.6, about 1.55 m below the rock's near face (the Klaw cap
+# is at y ~1.13, the grabbed rock's centre at y ~4.1); the Deploy animation moves it toward
+# the rock, so a deployed drill's ray starts outside the rock and well inside the 1.5 m range.
+DRILL_A = (0.3125 + 0.2) / 2 ** 0.5
+DRILL_ROT = "0.923879504,0,0.382683456,0"
 
 GAME_EDITS = (("\t\t\tEnableCommNet = True", "\t\t\tEnableCommNet = False"),
               ("\t\t\tEnableFullSASInSandbox = False", "\t\t\tEnableFullSASInSandbox = True"))
@@ -232,8 +245,7 @@ def klaw_probe(offset: int = 0) -> List[PartSpec]:
 def miner_parts() -> List[PartSpec]:
     parts = klaw_probe()
     parts += [
-        PartSpec(D_DRILL, 0, "-0.3,0.12,0.3", "-0.707106948,0,-4.21468549E-08,0.707106948",
-                 srf_parent=0),
+        PartSpec(D_DRILL, 1, _pos(-DRILL_A, OKTO_TO_Z200, -DRILL_A), DRILL_ROT, srf_parent=1),
         PartSpec(D_ORE, 0, "0.32,0.12,0.32", IDENT, srf_parent=0, ore=0.0),
         PartSpec(D_Z400, 0, "0.45,-0.05,0", "0,-0.707106829,0,0.707106829", srf_parent=0,
                  sym=(13,)),

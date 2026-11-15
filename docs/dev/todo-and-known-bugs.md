@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~ROCK-GHOST-PREFAB-MESH~~: a grabbed asteroid or comet replays as the part prefab's small placeholder lump [FILED 2026-11-15 from the H42 flight log of 2026-10-12. FIXED 2026-11-15, branch `ast-ghost-visual`; xUnit + in-game `ClawCouple`; H42 / H41 re-flight owed; low (visual only)]
+## ~~ROCK-GHOST-PREFAB-MESH~~: a grabbed asteroid or comet replays as the part prefab's small placeholder lump [FILED 2026-11-15 from the H42 flight log of 2026-10-12. FIXED 2026-11-15, branch `ast-ghost-visual`; xUnit + in-game `ClawCouple`; H42 and H41 re-flown green 2026-11-15; low (visual only)]
 
 What the player sees: a 40 m asteroid on a ghost ship's claw, a released asteroid's own replay and
 the hold ghost of a claimed rock after a rewind (`ClaimedVesselHoldGhost`, built from the despawn
@@ -1693,6 +1693,8 @@ uncovered by the reviewer; the four cheap ones first):
   rewind point, the rock's own recording), COM-1 (a comet), AST-3 (drill a held rock, release,
   dock with a depot, a harvest-origin route that delivers) and AST-4 (Re-Fly across a grab), on
   four fixtures from `harness/tools/build_ast_klaw_fixtures.py` and the mission `ast_klaw_grab`.
+  Second flight 2026-11-15 (PR #2633): AST-1, AST-2 and AST-4 PASS; COM-1 (the comet renamed
+  itself at load) and AST-3 (the drill's bit faced sideways) INVALID, both fixtures fixed.
   Open until they fly green; several pins wait on the SpaceObject-controllability, asteroid
   plausible-rate and rock-ghost sibling fixes. A derelict (a dead vessel, not a rock) is still
   unflown.
