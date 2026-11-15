@@ -20,6 +20,39 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~ROCK-DRILL-HARVEST-UNCAPPED~~: a mining window with an asteroid or comet aboard had no plausibility cap [FILED 2026-11-15 by the asteroid / comet review (owner rulings 2026-11-15), by code reading; the gap was known since HV-2 (2026-10-16) and left open there. FIXED 2026-11-15, branch `ast-fixes`; xUnit + the HV-2 rate cell flipped to "modeled"; HV-2 re-flight owed; low (a route built on rock mining could credit a catch-up burst every run)]
+
+What the player saw: a supply route whose recorded ship drilled a grabbed asteroid or comet
+credited the whole witnessed harvest every run, including a stock catch-up burst (hours of
+mining landing in one frame on load), because `FlightRecorder.ReadHarvestConverterRate` left
+`ModuleAsteroidDrill` / `ModuleCometDrill` with a rock aboard `Unmodeled`, which makes the whole
+window unbounded (HARVEST-ROUTE-PLAUSIBILITY-CAP).
+
+Decompile (KSP 1.12.5). `ModuleAsteroidDrill.PrepareRecipe` (`ModuleCometDrill` is identical modulo names and strings):
+the rock is the LAST part of the drill's own vessel carrying `ModuleAsteroid` (`ModuleComet`)
+(`GetAttachedPotato`); per `ModuleAsteroidResource` (`ModuleCometResource`) on it, the output
+ratio is `abundance x Efficiency x GetEfficiencyMultiplier()` units/s, `min`'d against the
+rock's remaining minable mass (`(currentMass - massThreshold) / density`, only lowers it); the
+drill sets `_preCalculateEfficiency`, so `BaseConverter` applies no second multiplier.
+`GetEfficiencyMultiplier = EfficiencyBonus x heat throttle x _totalEfficiencyModifiers x crew
+bonus`, the same factors the surface drill model reads (heat only lowers it; the margin covers
+the modifiers). The persisted `abundance` is `max(0.01, mass share) x purity`, purity from the
+resource's `lowRange..highRange` percent (`ModuleSpaceObjectInfo.SetupSpaceObjectResources`).
+
+Fix: a new `HarvestConverterKind.SpaceObjectDrill` folded in `RouteHarvestCapture.
+ComputePlausibleRates` as `abundance x Efficiency x multiplier` per rock resource. The live reader
+gets the rocks' (resource, abundance) pairs per kind (`FlightRecorder.ReadRockAbundances`, every
+`ModuleAsteroidResource` / `ModuleCometResource` on a part with `ModuleAsteroid` /
+`ModuleComet`); the pure `RouteHarvestCapture.BuildSpaceObjectDrillRate` takes the per-resource
+maximum over the rocks aboard (the drill mines one), credits an unreadable abundance
+`RockAbundanceFallback = 1.0` (at or above any stock value) and logs it as a Warn, and reads no
+rock of the drill's kind as `NoResourceOutput` (an asteroid drill no longer reads a comet as
+aboard, or the reverse). Log: `[Recorder] Harvest rate: ModuleAsteroidDrill part=... kind=...
+rock=[Ore:...] substituted=N`. Tests: `RouteHarvestCaptureTests` (`SpaceObjectDrill_*`); the
+HV-2 rate cell `StockDrillAndIsruRatesAreModeled` now requires each stock rock drill modeled at a
+synthetic abundance with a rock of its kind aboard and no output for the other kind (tally
+`total=3` unchanged). Open: HV-2 must re-fly to prove the flipped cell; no lane mines a real rock.
+
 ## ~~ROCK-RELEASE-REFLY-SLOT~~: a released asteroid or comet counted as a controllable split child, so releasing one authored a Rewind Point and offered the rock as a Re-Fly slot [FILED 2026-11-15 from the owner rulings of 2026-11-15 ("No Re-Fly for rocks"), by code reading. FIXED 2026-11-15, branch `ast-fixes`; xUnit; no lane flies a Klaw release yet; low (a Re-Fly that cannot be flown, on a rare path)]
 
 What the player saw: grab an asteroid with the Klaw, then release it. The split had two

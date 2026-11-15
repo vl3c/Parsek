@@ -23,8 +23,10 @@ tier = "nightly"
 #     rate cell runs `FlightRecorder.ReadHarvestConverterRate` over the real stock drill
 #     (MiniDrill, RadialDrill) and ISRU (MiniISRU, ISRU) prefabs at the richest Minmus ore
 #     sample on a coarse grid and requires every converter modeled: surface drills as drills
-#     with the abundance ResourceMap gives, the drills' own ModuleAsteroidDrill as no output
-#     (no asteroid aboard; the cell also requires it unmodeled WITH one aboard), every ISRU
+#     with the abundance ResourceMap gives, the drills' own ModuleAsteroidDrill / ModuleCometDrill
+#     as no output (no rock aboard; the cell also requires each modeled at a synthetic rock
+#     abundance WITH a rock of its kind aboard, and no output for the other kind's rock,
+#     ROCK-DRILL-HARVEST-UNCAPPED; not yet flown with that check), every ISRU
 #     recipe with positive LiquidFuel / Oxidizer / MonoPropellant outputs, and the combined set
 #     bounded. Writing this cell found that the asteroid drill on both stock drills left every
 #     stock mining window unbounded; the reader now models it.

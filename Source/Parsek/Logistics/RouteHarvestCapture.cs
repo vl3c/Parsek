@@ -30,6 +30,12 @@ namespace Parsek
         Recipe = 2,
         /// <summary>A converter that produces no resource (the science lab).</summary>
         NoResourceOutput = 3,
+        /// <summary>
+        /// An asteroid or comet drill with a rock of its kind aboard: per rock resource,
+        /// rate = abundance x efficiency x multiplier (<see cref="HarvestConverterRate.Outputs"/>
+        /// holds resource name -> abundance).
+        /// </summary>
+        SpaceObjectDrill = 4,
     }
 
     /// <summary>One converter's inputs to the plausibility bound.</summary>
@@ -38,11 +44,14 @@ namespace Parsek
         public HarvestConverterKind Kind;
         /// <summary>Drill: the harvested resource name.</summary>
         public string ResourceName;
-        /// <summary>Drill: the module's Efficiency field.</summary>
+        /// <summary>Drill / SpaceObjectDrill: the module's Efficiency field.</summary>
         public double Efficiency;
         /// <summary>Drill: the resource abundance at the vessel's location (0..1).</summary>
         public double Abundance;
-        /// <summary>Recipe: output resource name to units/s at full efficiency.</summary>
+        /// <summary>
+        /// Recipe: output resource name to units/s at full efficiency. SpaceObjectDrill:
+        /// rock resource name to its abundance.
+        /// </summary>
         public List<KeyValuePair<string, double>> Outputs;
         /// <summary>
         /// The module's efficiency multiplier without its heat throttle (which
@@ -308,6 +317,19 @@ namespace Parsek
                             return null;
                         AddRate(rates, c.ResourceName, c.Abundance * c.Efficiency * c.Multiplier);
                         break;
+                    case HarvestConverterKind.SpaceObjectDrill:
+                        if (!IsUsableFactor(c.Efficiency))
+                            return null;
+                        if (c.Outputs == null)
+                            break;
+                        for (int o = 0; o < c.Outputs.Count; o++)
+                        {
+                            KeyValuePair<string, double> rock = c.Outputs[o];
+                            if (string.IsNullOrEmpty(rock.Key) || !IsUsableFactor(rock.Value))
+                                return null;
+                            AddRate(rates, rock.Key, rock.Value * c.Efficiency * c.Multiplier);
+                        }
+                        break;
                     case HarvestConverterKind.Recipe:
                         if (c.Outputs == null)
                             break;
@@ -324,6 +346,76 @@ namespace Parsek
                 }
             }
             return rates;
+        }
+
+        /// <summary>
+        /// The abundance credited for a rock resource whose persisted abundance is
+        /// unreadable (NaN, infinite or negative). Stock writes
+        /// <c>abundance = max(0.01, mass share) x purity</c> with purity drawn from the
+        /// resource's lowRange..highRange percent (decompiled
+        /// <c>ModuleSpaceObjectInfo.SetupSpaceObjectResources</c>), so 1.0 is at or above
+        /// any stock value.
+        /// </summary>
+        internal const double RockAbundanceFallback = 1.0;
+
+        /// <summary>
+        /// Builds the plausibility input of an asteroid or comet drill
+        /// (ROCK-DRILL-HARVEST-UNCAPPED). Decompiled KSP 1.12.5
+        /// <c>ModuleAsteroidDrill.PrepareRecipe</c> (<c>ModuleCometDrill</c> is its twin): per
+        /// <c>ModuleAsteroidResource</c> (<c>ModuleCometResource</c>) of the rock it mines,
+        /// the output ratio is <c>abundance x Efficiency x GetEfficiencyMultiplier()</c> units/s
+        /// (<c>min</c>'d against the rock's remaining minable mass, which only lowers it), and
+        /// the drill sets <c>_preCalculateEfficiency</c> so the converter applies no second
+        /// multiplier. <paramref name="rockAbundances"/> holds one (resource, abundance) pair
+        /// per rock resource module across every rock of the drill's kind aboard (the drill
+        /// mines one, so the per-resource maximum is the bound); null means no rock of the
+        /// kind is aboard (the drill mines nothing). An unreadable abundance is credited
+        /// <see cref="RockAbundanceFallback"/> and counted in <paramref name="substituted"/>.
+        /// A nameless resource is dropped (stock cannot mine it). Pure.
+        /// </summary>
+        internal static HarvestConverterRate BuildSpaceObjectDrillRate(
+            double efficiency, double multiplier,
+            IList<KeyValuePair<string, double>> rockAbundances, out int substituted)
+        {
+            substituted = 0;
+            var input = new HarvestConverterRate
+            {
+                Kind = HarvestConverterKind.NoResourceOutput,
+                Efficiency = efficiency,
+                Multiplier = multiplier
+            };
+            if (rockAbundances == null)
+                return input;
+
+            input.Kind = HarvestConverterKind.SpaceObjectDrill;
+            var byResource = new Dictionary<string, double>(System.StringComparer.Ordinal);
+            var order = new List<string>();
+            for (int i = 0; i < rockAbundances.Count; i++)
+            {
+                string name = rockAbundances[i].Key;
+                if (string.IsNullOrEmpty(name))
+                    continue;
+                double abundance = rockAbundances[i].Value;
+                if (!IsUsableFactor(abundance))
+                {
+                    abundance = RockAbundanceFallback;
+                    substituted++;
+                }
+                if (byResource.TryGetValue(name, out double existing))
+                {
+                    if (abundance > existing)
+                        byResource[name] = abundance;
+                }
+                else
+                {
+                    byResource[name] = abundance;
+                    order.Add(name);
+                }
+            }
+            input.Outputs = new List<KeyValuePair<string, double>>(order.Count);
+            for (int i = 0; i < order.Count; i++)
+                input.Outputs.Add(new KeyValuePair<string, double>(order[i], byResource[order[i]]));
+            return input;
         }
 
         /// <summary>

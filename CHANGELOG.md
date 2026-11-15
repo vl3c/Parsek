@@ -47,6 +47,10 @@ All notable changes to Parsek are documented here.
   Klaw still gets its own recording and becomes real where that recording ends, but releasing it
   no longer creates a rewind point, and it never shows up in Unfinished Flights.
   (ROCK-RELEASE-REFLY-SLOT)
+- **Mining an asteroid or comet on a supply route is capped like surface mining.** A route
+  whose ship drilled a grabbed rock could promise, every run, ore that piled up while you were
+  away. The route now credits at most what the drill could mine from that rock in the recorded
+  time. (ROCK-DRILL-HARVEST-UNCAPPED)
 - **A world record set while flying an earlier recorded ship again is kept when you discard.**
   Breaking a distance, altitude, speed or depth record on a resumed recorded ship could be filed
   with that ship's old flight, so discarding the new flight lost it and the game awarded the
