@@ -351,7 +351,12 @@ the one test of design 7.8.
   `QualifyMilestoneId` would produce (`Body/Node` or a bare top-level id) and is in a fixed
   list copied from the decompiled node ids of section 3; no member in two rows; points are
   positive integers; a golden table (id, points) that a retune changes on purpose;
-  `TryGet` of an unknown id fails. The live check is R4-13.
+  `TryGet` of an unknown id fails. The live check of the ladder against stock moved here
+  from R4-13 (2026-11-15, so it flies at wave 8 instead of 18): an in-game cell
+  `SpaceRace.LadderMembersExistInStock` (SPACECENTER): every member id of every ladder row
+  exists in the live `ProgressTracking` tree under the qualification `QualifyMilestoneId`
+  gives; hosted by RACE-9 (T-29), which this pull request joins with the `SpaceRace`
+  category. The cell is the in-game caller of `IsKnown` and the data before R4-04.
 - **Registers:** callers: R1-10's `RaceInstallCheck` refusal list refuses an unknown
   `ladderId` (`ladder-unknown`) through `Ladder.IsKnown`, added here; that call is this
   pull request's only production caller, so it lands the data and `IsKnown` only (A1).
@@ -360,8 +365,8 @@ the one test of design 7.8.
   `IsKnown` does not already read it (`Points`, `MemberStockIds`, `Order` with R4-04;
   `DisplayName` with R4-07; `Body`, `Step` with R4-10); `LadderStandard1Tests` cells move
   with them.
-- **Size:** S. **Depends on:** R1-08, R1-10. **PC:** no.
-  **Risk:** low; a misspelt stock id would score nothing, caught by R4-13.
+- **Size:** S. **Depends on:** R1-08, R1-10. **PC:** yes (through RACE-9).
+  **Risk:** low; a misspelt stock id would score nothing, caught by the cell above.
 
 ### R4-03 The ladder filter at board time
 
@@ -415,7 +420,9 @@ the one test of design 7.8.
   are 4 twelfths each and add to exactly 12 (1 point), display `0.33`; halves and quarters are whole
   twelfths (6 and 3); a share among 5 holders is refused; comparison is exact;
   `RacePlayerRecordsTests`: each verdict status (Applied, KeptPrevious, NewerFormat, Refused) maps
-  to the record as stated above, a manifest with no verdict gives a player with no dates. Log:
+  to the record as stated above, a manifest with no verdict gives a player with no dates;
+  T-52's `RealLedgerBoardTests` (the career campaign's flown ledgers, firsts traded by a UT
+  shift, holders and points pinned) prove the board on real milestone tables. Log:
   `[RaceBoard]` Info `Board computed: players=N rows=M held=K` once per build (Verbose when
   unchanged); T-28 RACE-6 and T-32 RACE-7 read this line in their `logContract` (OV-07).
 - **Registers:** caller: `RaceSync.Run` (R3E-04), after R3E-18's import step, builds the
@@ -518,8 +525,10 @@ the one test of design 7.8.
 - **Change:** `UI/SpaceRaceWindowUI.cs` on `TableWindowChrome`: title `Parsek - Space Race`,
   window id key `ParsekSpaceRace`, lock id `Parsek_SpaceRaceWindow`, first-open 760 x 420,
   minimum 480 x 200, Flight and Space Center only, not the Tracking Station (owner,
-  2026-11-15). Body: the game name line (owner, 2026-11-15: the creator names the game) and
-  an empty table
+  2026-11-15). Body: the game name line (owner, 2026-11-15: the creator names the game),
+  which reads "<name> - Test game" when the manifest says `testGame = True` (R1-23; design
+  7.2 and 7.12, owner ruling 2026-11-15: every player of a test game sees it named as one,
+  the words after the race name), and an empty table
   (milestone column, one column per player, points column) with the empty-state row "No
   milestone reached yet." Registration, every site in one change: `ISpaceRaceWindow` in
   `ParsekUIWindowContracts.cs` and in `IParsekUIWindows`; the field, constructor line and
@@ -544,17 +553,19 @@ the one test of design 7.8.
   `GuiCensusSeamVerbTests` (hlib mirror), `TooltipEchoBudgetTests` (new strip row, two
   lines at 760 px, and the main window launcher), `ParsekUiScaleTests` (automatic),
   a launcher-gate test (absent in a single-player save, present in a race save) with the
-  facade faked; `TooltipEchoBudgetTests` for the `Sync now` hover; a status-text test per
-  `SyncResult.Status` value; a test that the button calls `RequestSyncNow` once. Log: `UI`
-  Verbose `Space Race window toggled: open|closed` and `Sync now requested`.
+  facade faked; a header test for the "Test game" words with the facade faked;
+  `TooltipEchoBudgetTests` for the `Sync now` hover; a status-text test per `SyncResult.Status`
+  value; a test that the button calls `RequestSyncNow` once. Log: `UI` Verbose `Space Race window
+  toggled: open|closed` and `Sync now requested`.
 - **Registers:** design-gui-inventory 3.0 (new row), a new section for the window, 3.1
   (the launcher), the Settings section (the button and the status line), 3.12 / 3.14
   untouched; check that R1-14's `.claude/CLAUDE.md` UI exception names the Space Race
   window (R1-14 owns the edit, OV-42); CHANGELOG entry "Space Race window" (inert outside
   race saves); the lane catalog only if a spec changes.
 - **Size:** M. **Depends on:** R4-04, R4-08, P11-01, P11-02, R1-04, R1-08, R1-14, R1-18,
-  R3E-17. **PC:** an in-game look (R4-13). **Risk:** medium; many registration sites, each
-  with a gate that names the miss.
+  R3E-17, R1-23. **PC:** the window drawn and read through `UiAction op=open` / `op=state` on
+  RACE-9 and RACE-10 (R4-13) and the census (R4-12); the look is on the one owner list.
+  **Risk:** medium; many registration sites, each with a gate that names the miss.
 
 ### R4-10 The row model and the drawn board
 
@@ -576,13 +587,14 @@ the one test of design 7.8.
   look's color, co-holder cells in the same color dimmed, a non-scoring date in the house muted grey
   with a one-character mark (`?` unverified, `!` tool, `s` seen first, `~` not checked here) and
   `+N` for more dates, every meaning in the hover; the points column; the header with the race
-  name and the player blocks (the site line reads "site 2, 520 m"; the time left or
-  "final" and the disclosure marks join the header in R6-07); a two-button view switch `By
-  milestone` / `By date`. Colors come from R5-07's `RaceLookTable` (look index to UI color, OV-41),
-  whose colors are placeholders until S3a. Each rival's player block carries a show / hide toggle;
-  this task adds the SHOW setter on R1-08's facade, its first caller (OV-39): it writes the rival's
-  entry of `RaceLocal`'s `SHOW` block (R1-08's codec key, OV-27) to `local.cfg` through the
-  `RaceLocal` writer (R1-10); R3W-13's reader applies it at the next scene.
+  name (followed by "Test game" in a test game, "<name> - Test game", R4-09) and the player
+  blocks (the site line reads "site 2, 520 m"; the time left or "final" and the disclosure marks
+  join the header in R6-07); a two-button view switch `By milestone` / `By date`. Colors come from
+  R5-07's `RaceLookTable` (look index to UI color, OV-41), whose colors are placeholders until S3a.
+  Each rival's player block carries a show / hide toggle; this task adds the SHOW setter on R1-08's
+  facade, its first caller (OV-39): it writes the rival's entry of `RaceLocal`'s `SHOW` block
+  (R1-08's codec key, OV-27) to `local.cfg` through the `RaceLocal` writer (R1-10); R3W-13's reader
+  applies it at the next scene.
 - **Proof:** `RaceBoardPresentationTests` (grouping, cell choice, chronological order, the watch
   target, the show state, `ShowTimeOfDay` set on both cells when two players' dates in a row fall on
   one race day and on neither when they do not, under both calendars), `SpaceRaceTextTests` (every
@@ -592,9 +604,9 @@ the one test of design 7.8.
 - **Registers:** caller: `SpaceRaceWindowUI`. hlib `UIACTION_WINDOW_TABS` gains
   `spacerace: ("milestones", "dates")` with the C# tab handling, so a census can photograph
   both views.
-- **Size:** M. **Depends on:** R4-09, R4-05, R4-06, R5-07, R1-10, R2-01. **PC:** in-game look
-  (R4-13). **Risk:** medium; the hover corpus is the window's main surface and must stay in
-  budget.
+- **Size:** M. **Depends on:** R4-09, R4-05, R4-06, R5-07, R1-10, R2-01. **PC:** the census
+  (R4-12) and `op=state` rows on RACE-9 (R4-13); the look is on the owner list. **Risk:** medium;
+  the hover corpus is the window's main surface and must stay in budget.
 
 ### R4-11 Click to watch
 
@@ -613,7 +625,9 @@ the one test of design 7.8.
   camera for rivals.
 - **Proof:** `WatchCellDecisionTests` (truth table over scene x live x past / future); a
   stub test when this task adds the stub (the outcome reads "not available"); log
-  `[RaceBoard]` Verbose `Watch requested: player=.. rec=.. outcome=..`.
+  `[RaceBoard]` Verbose `Watch requested: player=.. rec=.. outcome=..`. The camera half, when
+  scheduled, adds an in-game cell that asserts the watch target id through `UiAction
+  op=state`; its feel is on the one owner list.
 - **Registers:** none new.
 - **Size:** S. **Depends on:** R4-10; camera half: P3b-04, R3W-26. **PC:** yes, in flight,
   for the camera half when it is scheduled. **Risk:** medium for the camera half (the
@@ -640,13 +654,11 @@ the one test of design 7.8.
 ### R4-13 In-game checks: the ladder against stock, the window drawn
 
 - **Change:** `InGameTests/SpaceRaceTests.cs`, one category per scene (OV-09): category
-  `SpaceRace` (SPACECENTER): every member id of every ladder row exists in the live
-  `ProgressTracking` tree under the qualification `QualifyMilestoneId` gives, and the
-  window opens, draws a mocked view and closes with its lock released; category
-  `SpaceRaceFlight` (FLIGHT): the same open, draw and close.
-- **Proof:** the test results file on the owner's PC; once T-29 and T-35 land, their host lanes run
-  them in a race save: `SpaceRace` on RACE-9 (SPACECENTER), `SpaceRaceFlight` on RACE-10
-  (FLIGHT).
+  `SpaceRace` (SPACECENTER): the window opens, draws a mocked view and closes with its lock
+  released (the ladder-against-stock cell of this category moved to R4-02 on 2026-11-15);
+  category `SpaceRaceFlight` (FLIGHT): the same open, draw and close.
+- **Proof:** the host lanes run them in a race save: `SpaceRace` on RACE-9 (SPACECENTER),
+  `SpaceRaceFlight` on RACE-10 (FLIGHT), both landed before this task.
 - **Registers:** two new categories: `python harness/tools/lane_catalog.py` regenerated
   `docs/dev/flight-profiles.md` in the same commit; T-29's host table names both (a host
   slot each); no committed spec pins them before T-29 (RACE-9) and T-35 (RACE-10).
@@ -673,10 +685,16 @@ Dropped: replaced by T-28 and T-32 (OV-07).
   `DEBUG_COMPLETION`, persisted through R3E-15's race facts child) is dropped from the
   board, so it holds nothing and blocks nothing, and the player is marked (a per-player
   `DebugCompleted` mark with the count, shown with the disclosure marks, R6-05). A
-  completion S9 shows a mod cannot observe is out of reach (design 7.12).
+  completion S9 shows a mod cannot observe is out of reach (design 7.12). Test games (design
+  7.12, owner ruling 2026-11-15): when the race manifest says `testGame = True` (R1-23), the
+  check skips the `TestTooling` tool kind only: a date whose only tool is the test tooling
+  counts; every other tool kind, the debug completions and every other mark apply
+  unchanged. The standing still carries `testTooling` and the mark is still shown.
 - **Proof:** `ClaimChecksToolTests`: row T3 and its variants (earlier recording, later
   recording, later in the same recording); a marked date holds nothing and does not keep
-  points from the next player; with a later clean date that one counts.
+  points from the next player; with a later clean date that one counts; in a test game a
+  date marked only by `TestTooling` counts, one marked by `TestTooling` and the cheat menu
+  does not, and in a normal game a `TestTooling` date counts nothing.
   `DebugCompletionTests`: a debug-completed date is not on the board and the next player
   holds; the player carries the mark with the count; a debug completion on another
   milestone or another UT drops nothing. Log: `[RaceBoard]` Verbose `Debug completions
@@ -685,7 +703,8 @@ Dropped: replaced by T-28 and T-32 (OV-07).
   standing codec's derived `ToolsFromUT` / `ToolIds` view (specified by R3E-10) lands here
   too, as an edit to R3E's codec file, since this check is its first production caller
   (A1); its codec cells (two uses, none) move with it.
-- **Size:** S. **Depends on:** R4-05, R3E-07, R3E-09, R3E-10. **PC:** no. **Spikes:** S9.
+- **Size:** S. **Depends on:** R4-05, R3E-07, R3E-09, R3E-10, R1-23 (the test game key,
+  read through R1-08's manifest codec). **PC:** no. **Spikes:** S9.
   **Risk:** low.
 
 ### R6-02 No retakes
@@ -794,9 +813,11 @@ Dropped: replaced by T-28 and T-32 (OV-07).
   / `Now`; disclosure marks and notes after each player's name with their hover; the
   folder note of 7.15 when set.
 - **Proof:** `RaceBoardPresentationTests` and `SpaceRaceTextTests` additions; a gallery
-  state for each (R4-12 builder).
+  state for each (R4-12 builder); live, T-40's RACE-14 reads the header marks through
+  `UiAction op=state` on the Space Race window.
 - **Registers:** design-gui-inventory window section; tooltip budget assertions.
-- **Size:** M. **Depends on:** R6-03, R6-05, R6-06. **PC:** in-game look. **Risk:** low.
+- **Size:** M. **Depends on:** R6-03, R6-05, R6-06. **PC:** through T-40; the look is on the
+  owner list. **Risk:** low.
 
 ### R6-08 End-of-race messages
 
@@ -825,9 +846,10 @@ from the Join button.
   outcome: 60 s steady; 5 s while the copy step reports files still arriving (a first large
   sync, 7.2); doubling from 60 s to 10 min while the folder is unreachable; never in
   flight. R3E-17's 60 s poll reads it instead of its constant. Numbers from S8a, S8b.
-- **Proof:** `RacePollPolicyTests`; a measurement on the owner's PC (folder on each common
-  sync client) logged as `[RaceSync] Poll: delay=.. reason=..` (the `RaceSync` tag,
-  OV-57).
+- **Proof:** `RacePollPolicyTests`; a diagnostics-line budget on a lane (the poll line
+  `[RaceSync] Poll: delay=.. reason=..`, the `RaceSync` tag, OV-57, counted per minute on
+  RACE-8 against the policy); the measurement with real sync clients on the owner's PC is on
+  the one owner list.
 - **Registers:** the call from R3E-17's poll lands in this pull request, as an edit to
   R3E-17's driver file (A1). As the last task of the plan, it also writes the warning of
   design 8, case 22 into the branch's `1.1.0` CHANGELOG section: "Do not open a race save
@@ -840,12 +862,14 @@ from the Join button.
 
 ### R6-11 No retakes and the end date on generator-built rival folders
 
-- **Change:** not a flown lane (OV-08, supervisor decision): a harness-flown race save is
-  tool-marked for good, so its own dates never score and a flown rewind cannot show a
-  scoring `SeenFirst`. No-retakes and the end date are proven headless, on rival folders
-  built by T-16's `RaceFolderBuilder`, in which no seam ran, so they carry no mark. The
-  two folders are T-17's, written by its env-gated fixture writer and kept current by its
-  currency test: `noretakes-seen-first` and `enddate-between`. This task adds no folder.
+- **Change:** the scoring `SeenFirst` is flown live: T-56 plays a no-retakes race in a test
+  game (R1-23), where the test-tools mark does not stop a flight from scoring, and asserts
+  B's row is marked "seen first". This task keeps the cases a flight cannot make, proven
+  headless on rival folders built by T-16's `RaceFolderBuilder`: exact arithmetic for an end
+  date that falls between two standings, and standings whose dates are set to the second,
+  with no retakes and no flight time. The two folders are T-17's, written by its env-gated
+  fixture writer and kept current by its currency test: `noretakes-seen-first` and
+  `enddate-between`. This task adds no folder.
   `Source/Parsek.Tests/Race/RaceRulesFolderTests.cs`: each folder is read with the production codec
   (R3E-01), its standings become verdicts and R4-04's
   player records, and `RaceBoard.Compute` runs. Case 1 (`noretakes-seen-first`,

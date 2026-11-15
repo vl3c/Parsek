@@ -312,7 +312,8 @@ Tracking Station, `ParsekTrackingStation.cs`: no engine. `Start` (:250) runs the
 
 ## 4. Tasks
 
-Milestone M1 ("one hand-made rival folder plays as a ghost in flight") is R3W-09. Tasks
+Milestone MS-1d ("two games, one folder, one flight, one board"; README "Milestones") holds
+R3W-09, the step where one hand-made rival folder plays as a ghost in flight. Tasks
 R3W-01 to R3W-09 are its path; R3W-01 (after P2c-03), R3W-02 and R3W-06 start as soon as
 their prerefactor and R1 dependencies have landed; R3W-08 follows R3W-05 and R3W-06.
 
@@ -493,6 +494,8 @@ cells and stay their own pull requests; the one member that waits for a later ta
   (counting port), one summary line `[RivalStore] built rivals=N flights=M
   unplayable=K`. xUnit `RivalCacheBuilderTests`: the built folder round-trips through
   `RivalStore.Build`.
+- **Harness:** this pull request adds the rival-store accessor to T-29's `RaceTestContext`
+  (the host helper no longer waits for this task, 2026-11-15).
 - **Registers:** the store's type names are covered by R3W-27's gate (derived from the
   store's files).
 - **Size:** M. **Depends on:** R3W-03, R3E-04 (cache and standing format,
@@ -573,7 +576,7 @@ cells and stay their own pull requests; the one member that waits for a later ta
   R3W-06. **PC:** yes (one run of the cell). Its own pull request.
 - **Risk:** low; one null check per call site in single player.
 
-### R3W-09 Flight composition (milestone M1)
+### R3W-09 Flight composition (milestone MS-1d)
 
 - **Change:** new `Source/Parsek/Controllers/ParsekFlightRivalLane.cs` (module Controllers, by
   its folder), `internal sealed class ParsekFlightRivalLane`, constructed with the
@@ -608,7 +611,7 @@ cells and stay their own pull requests; the one member that waits for a later ta
   - `Update`: `spawnBudget?.ResetForFrame()` before the first playback call, then
     `rivalLane?.Tick()` right after BOTH `UpdateTimelinePlaybackViaEngine()` calls (:1324
     and :1339), so own ghosts take the budget first. `Tick` runs
-    `SelectOpens` (at most one open per frame in M1), `ComputeFlags`, builds a
+    `SelectOpens` (at most one open per frame in this first form), `ComputeFlags`, builds a
     `FrameContext` with `protectedIndex = -1`, `externalGhostCount = 0`,
     `activeReFlyMarker = null`, and calls `engine.UpdatePlayback`. It clears its own
     lane's position entries at the start of its own tick.
@@ -631,7 +634,10 @@ cells and stay their own pull requests; the one member that waits for a later ta
   folder; warps to inside the flight's window; asserts a ghost GameObject exists in the
   rival engine, none in the own engine for that id, `FlightGlobals.Vessels` count
   unchanged, and the log line `[RivalLane] ghost created player=... rec=...`.
-  Owner proof: run `InjectRivalCache`, load the race save, see the ghost fly.
+  Live: T-35's RACE-10 hosts the category; this pull request moves RACE-10 onto a race staged
+  from T-17's fixtures (T-48's overlay), since the cell needs rivals, and adds its
+  `RaceRivalLane` cells to the batch. T-26's RACE-3 asserts the seam view. The owner's look
+  at the ghost is on the one owner list (test-and-harness section 1).
 - **Registers:** `CHANGELOG.md` (first entry: rival flights from a race folder play as
   ghosts in flight), todo entry, the in-game category in the lane catalog
   (`python harness/tools/lane_catalog.py`); the category's host is T-35's RACE-10
@@ -641,7 +647,8 @@ cells and stay their own pull requests; the one member that waits for a later ta
   listed (R3W-03, R3W-06).
 - **Size:** M. **Depends on:** R3W-04, R3W-05, R3W-06, R3W-07, R3W-08, P2a-02, P2a-05,
   P2a-06, P2a-07, P2b-09, P2b-10, P2c-04, R1-10 (race save creation), R3E-04 (cache format
-  and `RivalStandingVerdict`). **PC:** yes (the in-game test and the owner look).
+  and `RivalStandingVerdict`), T-17 and T-19 (RACE-10's staged race and its `sync` step),
+  T-48 (the race overlay RACE-10 is staged from). **PC:** yes (the in-game test).
 - **Risk:** medium; first time two engines share a scene; P2b is the protection, and the
   in-game test plus a normal single-player flight lane prove both lanes.
 
@@ -773,8 +780,9 @@ cells and stay their own pull requests; the one member that waits for a later ta
   color; rival text is `<style.LabelPrefix><vessel name>`, for example `Ana - Kerbal X`
   (OV-45). Drawn only for live rival ghosts inside the label range, in the rival's color.
   Question 10.3 is answered yes (owner, 2026-11-15; see section 10).
-- **Proof:** xUnit on the helper's text and culling decision; in-game screenshot check on
-  the owner's PC.
+- **Proof:** xUnit on the helper's text and culling decision; on RACE-10 the GUI-tree dump
+  (`.gui.json`) holds a label entry with the rival's prefix (a key assertion, not a
+  picture); the look stays on the owner list.
 - **Registers:** `design-gui-inventory.md` (label kinds); UI-scale gate if the helper moves.
 - **Size:** S. **Depends on:** R3W-15. **PC:** yes.
 - **Risk:** low.
@@ -866,8 +874,11 @@ cells and stay their own pull requests; the one member that waits for a later ta
   TRACKSTATION-only category, OV-09, hosted by T-36's RACE-11): the rival orbit leftover is
   in the vessel list under the ghost filter; removed at scene exit.
 - **Registers:** lane catalog regen for the new category; RACE-11's batch tally re-pinned
-  once T-36 has landed.
-- **Size:** S. **Depends on:** R3W-18, R3W-19. **PC:** yes.
+  once T-36 has landed. This pull request also moves RACE-11 onto a race staged from T-17's
+  fixtures (the cell needs a rival orbit leftover) and adds the Tracking Station step to
+  T-24's RACE-2 (`LoadGame scene=trackstation`, the rival map objects present and guarded).
+- **Size:** S. **Depends on:** R3W-18, R3W-19, T-17, T-19, T-48 (the race overlay RACE-11
+  is staged from). **PC:** yes.
 - **Risk:** low.
 
 ### R3W-21 Missing parts
@@ -881,9 +892,10 @@ cells and stay their own pull requests; the one member that waits for a later ta
   (`[RivalStore] missing parts rec=... count=N names=...`). The ghost builder therefore
   never warns per part for a rival. A snapshot left with no part is `unplayable:no-parts`.
 - **Proof:** xUnit with a fake lookup: parts stripped, names recorded, empty snapshot
-  unplayable, a missing `kerbalEVAVintage` kept (that cell lands with the exception); in-game
-  check that no
-  `ResolveAvailablePart failed` WRN appears for a rival with an unknown part.
+  unplayable, a missing `kerbalEVAVintage` kept (that cell lands with the exception); live,
+  RACE-10's `logContract` pins the `[RivalStore] missing parts` line and the absence of a
+  `ResolveAvailablePart failed` WRN against T-47's unknown-part rival (each literal with a
+  source-sync cell).
 - **Registers:** none (the R4 / R6 note reads `MissingParts` later; the summary line above
   is its first production reader, so the ratchet does not move).
 - **Size:** S. **Depends on:** R3W-04. **PC:** yes (log check).
@@ -1087,10 +1099,11 @@ Dropped: replaced by T-27 (OV-05).
 - **Change:** `ParsekFlightRivalLane` logs one rate-limited line per 10 s of game play:
   entries, live ghosts, opens, budget refusals, and the lane's `Tick` time in ms. An
   in-game test `RaceRivalLane.RivalLaneFrameCost` with three rivals of 200 flights each
-  (fixture) asserts the median tick under a bound set from the first measured run.
+  (T-47's scale folder, hosted by RACE-10) asserts the median tick under a bound set from the
+  first measured run; the frame cost with real sync clients running stays on the owner list.
 - **Proof:** the test and the log line.
 - **Registers:** none.
-- **Size:** S. **Depends on:** R3W-14. **PC:** yes.
+- **Size:** S. **Depends on:** R3W-14; soft: T-47 (the scale folder). **PC:** yes.
 - **Risk:** low.
 
 ## 5. Parallel tracks
@@ -1146,7 +1159,7 @@ Hot files that force an order:
 | xUnit | `PlaybackGhostBudgetTests`, `RivalStyleSourceTests`, `RivalMapPresenceDecideTests` | own ghosts never limited; one style per player with the `Ana - ` prefix; map decisions and the map create throttle | no |
 | xUnit | `RivalLaneWiringGateTests`, `GrepAudit_RivalStore*` (plus R1-06's loader arch cell over the rival entries) | the left-out calls and bare-id caches stay left out; store names stay in their files; the loader boundary | no |
 | xUnit | `RivalIsolationByteIdentityTests` | an empty and a full rival cache give the same ledger and save bytes; rival flags plan no flag vessel | no |
-| In-game | `RaceRivalLane.*` (FLIGHT, host RACE-10) | the per-task cells that keep R3W-02 to R3W-08, R3W-17 and R3W-23 live; the ghost plays (M1), lazy open, leftovers, map vessels guarded, labels, flags, plaque, watch, frame cost | yes |
+| In-game | `RaceRivalLane.*` (FLIGHT, host RACE-10) | the per-task cells that keep R3W-02 to R3W-08, R3W-17 and R3W-23 live; the ghost plays (R3W-09), lazy open, leftovers, map vessels guarded, labels, flags, plaque, watch, frame cost | yes |
 | In-game | `RaceRivalLaneTrackingStation.*` (TRACKSTATION, host RACE-11) | the TS list holds the rival orbit leftover | yes |
 | In-game | `RaceRivalIsolation.*` (FLIGHT, host RACE-10), `RaceRivalIsolationTrackingStation.*` (host RACE-11) | SOI and landing change nothing; no CommNet node; flag not a vessel; no colliders; stripped at save | yes |
 
@@ -1210,7 +1223,7 @@ with and without rivals), which this slice's acceptance names (OV-05).
 ## 8. Risks
 
 - **Two engines, one scene.** A missed host field after P2b would let the lanes overwrite
-  each other's positions. Noticed by: M1's in-game test plus every flight lane passing with
+  each other's positions. Noticed by: R3W-09's in-game test plus every flight lane passing with
   a race save loaded; a log line per lane with its entry count.
 - **Engine reads before activation.** If a later engine change reads trajectory data for
   skipped entries, unopened rival flights read as empty. Noticed by: `RivalFlight` returns

@@ -1,12 +1,13 @@
 # Multiplayer implementation - task index
 
-PLAN (2026-11-14), not started.
+PLAN (2026-11-14, milestone rework 2026-11-15), not started.
 
 This index joins the eleven task plans in this folder into one dependency graph. It lists every
-task once, puts each in a wave, names the files that two plans both edit, orders the owner's PC
-time, and lists what the graph does not close. It changes no plan. Where it recommends a reading,
-the plan files still need the edit; the master plan decides. It was rebuilt on 2026-11-14 from
-the plans as they read after the three reconciliation passes; the plans are the source.
+task once, puts each in a wave and in a milestone (section F), names the files that two plans
+both edit, orders the owner's PC time, and lists what the graph does not close. It changes no
+plan. Where it recommends a reading, the plan files still need the edit; the master plan decides.
+It was rebuilt on 2026-11-14 from the plans as they read after the three reconciliation passes,
+and again on 2026-11-15 for the milestone ladder; the plans are the source.
 
 | Plan file | Short name | Task headings | Dropped | Live tasks | Pull requests |
 |---|---|---|---|---|---|
@@ -14,31 +15,38 @@ the plans as they read after the three reconciliation passes; the plans are the 
 | `r0b-prep-small.md` | small | 11 | 2 | 9 | 9 |
 | `r0b-prep-playback.md` | playback | 21 | 0 | 21 | 20 |
 | `r0b-prep-map-watch-codec.md` | map | 14 | 0 | 14 | 13 |
-| `r1-mode-and-setup.md` | r1 | 22 | 2 | 20 | 20 |
+| `r1-mode-and-setup.md` | r1 | 23 | 2 | 21 | 21 |
 | `r2-sites.md` | r2 | 15 | 0 | 15 | 15 |
 | `r3-export-and-exchange.md` | r3e | 25 | 1 | 24 | 24 |
 | `r3-rival-world.md` | r3w | 32 | 1 | 31 | 31 |
 | `r4-r6-board-and-rules.md` | r4 | 26 | 2 | 24 | 23 |
 | `r5-looks.md` | r5 | 14 | 1 | 13 | 11 |
-| `test-and-harness.md` | T | 36 | 7 | 29 | 29 |
-| Total | | 233 | 16 | 217 | 212 |
+| `test-and-harness.md` | T | 59 | 7 | 52 | 52 |
+| Total | | 257 | 16 | 241 | 236 |
 
 A live task is a heading that is not dropped. P2a-01 is live but is a specification with no pull
 request of its own. Four live tasks land inside another task's pull request (P3b-01, R4-03, R5-07,
-R5-10; see the "lands in PR of" column), so the 217 live tasks less P2a-01 (216) make 212 pull
+R5-10; see the "lands in PR of" column), so the 241 live tasks less P2a-01 (240) make 236 pull
 requests. R3E-04's golden folder may be a second pull request of that task (r3e :488), which would
-make 213. Nine of the 212 are deferred or conditional: P3b-02, P3b-03 (with P3b-01), P3b-04, R3W-26
-and R5-06 wait for the owner to schedule the Watch camera (map 10.2, answered 2026-11-14: later);
-R2-10, R3E-23, R5-05 and T-34 land only on an owner answer, a spike result or as an option. That
-leaves 203 firm pull requests. R1-19 to R1-22, R3E-25 and R6-12 are added (2026-11-15): the owner's
-rulings on the tech tree and the counted parts (one shipped content table, the stock tree, the
-creator setting "allow play without scoring", the part sets, the locked progression settings,
-flights scored by the parts they carried). R5-14 is added (2026-11-15): the owner locked the race
-suit, so the suit choice of the stock suit picker is blocked in a race save. T-35 and T-36 are added
-(2026-11-15): T-29's three host lanes were split so each flies once its scene has race categories.
-P1-04 is dropped (Q-04 answered 2026-11-14: its fix landed outside this plan in the launch pad fixes
-work). P12-02 and R1-01 are dropped (2026-11-15): since pull request #2611 the folder is the module,
-so no name rule places a `ParsekRace*` file, and a module rule cannot land before its first file;
+make 237. Ten of the 236 are deferred, conditional or optional: P3b-02, P3b-03 (with P3b-01),
+P3b-04, R3W-26 and R5-06 wait for the owner to schedule the Watch camera (map 10.2, answered
+2026-11-14: later); R2-10, R3E-23, R5-05, T-34 and T-58 land only on an owner answer, a spike
+result or as an option. That leaves 226 firm pull requests. R1-19 to R1-22, R3E-25 and R6-12 are
+added (2026-11-15): the owner's rulings on the tech tree and the counted parts (one shipped
+content table, the stock tree, the creator setting "allow play without scoring", the part sets,
+the locked progression settings, flights scored by the parts they carried). R5-14 is added
+(2026-11-15): the owner locked the race suit, so the suit choice of the stock suit picker is
+blocked in a race save. T-35 and T-36 are added (2026-11-15): T-29's three host lanes were split
+so each flies once its scene has race categories. R1-23 and T-37 to T-59 are added (2026-11-15,
+the milestone and test-game rework): the test game key in the race manifest, and the test tasks
+that let every milestone end on an automated exit proof (the scripted players T-49, T-50, T-53,
+T-57, the harvest T-59, the integration suite T-55, the host lanes T-40 to T-44, the plumbing
+T-45). Five test tasks were split at the same time: T-21 (its row and leak scan move to T-38),
+T-24 (operator, on the overlay), T-28 (its lane joins through T-39), T-29 (moved earlier, its own
+race at slot 1) and T-31 (the early half; each scoring task extends its generator). P1-04 is
+dropped (Q-04 answered 2026-11-14: its fix landed outside this plan in the launch pad fixes work).
+P12-02 and R1-01 are dropped (2026-11-15): since pull request #2611 the folder is the module, so
+no name rule places a `ParsekRace*` file, and a module rule cannot land before its first file;
 each race module registers in the task that creates its first file (RaceCore R1-03, RaceWorld
 R3W-02, RaceExport R3E-02). Every count here comes from a script over the plan headings and their
 `Size` / `Depends on` / `PC` lines, not from hand counting.
@@ -78,7 +86,7 @@ Citations read `plan :line`, using the short names above. "go" means the owner's
 | "owner's yes (question 2)" (R3E-23, r3e :928) | owner gate r3e Q2, not a task |
 | "R3 question 2" (R5-05, r5 :379) | owner gate r3w Q2, not a task |
 | "questions 10.1 and 10.2" (R5-12, r5 :577) | owner gates r5 Q1, Q2, not tasks |
-| "parallel flights" (T-34, formerly named in T :700) | the parallel runner, on main (pull request #2592); no task in these plans (E, item 11) |
+| "parallel flights" (T-34, formerly named in T :700) | the parallel runner, on main (pull request #2592), driven by T-54's pair runner, a hard dependency of T-34 (E, item 11) |
 
 ### Stricter readings taken
 
@@ -155,7 +163,7 @@ earliest wave (section B). A dropped task keeps its heading and says where its w
 | P2b-04 | Ghost position entries and reapply stamps o... | S | P2b-03 | - | - | - | no | - | 6 |
 | P2b-05 | Loop-unit lookup on the lane (fold) | S | P2b-04 | - | - | - | no | - | 7 |
 | P2b-06 | The positioner holds the lane (fold with al... | S | P2b-01, P2b-05 | - | - | - | no | - | 8 |
-| P2b-07 | The late-update helpers take the lane | S | P2b-06 | - | - | - | lanes (daily tier) | - | 9 |
+| P2b-07 | The late-update helpers take the lane | S | P2b-06 | - | - | - | lanes (daily tier, H15) | - | 9 |
 | P2b-08 | Watch and ghost-world queries on the lane | M | P2b-06 | - | - | - | lanes | - | 9 |
 | P2b-09 | The catalog moves onto the lane | S | P2b-06, P2a-03, P2a-04 | - | - | - | no | - | 9 |
 | P2b-10 | The lane owns its resets | S | P2b-09 | - | - | playback Q1 (answered 2026-11-14) | lanes (18-lane set + daily tier) | - | 10 |
@@ -179,7 +187,7 @@ earliest wave (section B). A dropped task keeps its heading and says where its w
 | P6-04 | `TryValidatePayload` decodes without a `Rec... | S | P6-03 | - | - | - | no | - | 3 |
 | P6-05 | A production entry to load a trajectory fro... | S | P6-04 | - | - | - | no | - | 4 |
 
-### A.5 `r1-mode-and-setup.md` (22 tasks, 2 dropped, 20 pull requests)
+### A.5 `r1-mode-and-setup.md` (23 tasks, 2 dropped, 21 pull requests)
 
 | id | title (short) | size | hard dependencies | spikes | soft (not counted) | owner gate | PC | lands in PR of | wave |
 |---|---|---|---|---|---|---|---|---|---|
@@ -205,6 +213,7 @@ earliest wave (section B). A dropped task keeps its heading and says where its w
 | R1-20 | The tree and part-value check at create,... | M | R1-19, R1-11, R2-02 | S4a, S6 | - | - | in-game | - | 8 |
 | R1-21 | The progression settings are held | S | R2-08, R1-10 | - | - | - | in-game | - | 8 |
 | R1-22 | The launch warning | S | R1-19, R1-20 | - | - | - | in-game | - | 9 |
+| R1-23 | The test game key in the race manifest | S | R1-10, R1-06 | - | - | - | no (rides T-13) | - | 7 |
 
 ### A.6 `r2-sites.md` (15 tasks, 0 dropped, 15 pull requests)
 
@@ -221,8 +230,8 @@ earliest wave (section B). A dropped task keeps its heading and says where its w
 | R2-09 | Science parity: the KSC mini-biomes at home... | S | R2-04, R2-07 | S2 | - | - | in-game | - | 9 |
 | R2-10 | (conditional on S2) Biome override around t... | S-M | R2-09 | S2 | - | S2 result | in-game | - | 10 |
 | R2-11 | Every stock "home" surface at the home site | S-M | R2-04 | S4b | - | - | in-game | - | 7 |
-| R2-12 | Harness lane SITES-1: a launch, a recovery... | M | R2-04, R2-05, R2-07, R2-08, R2-09, R2-11, R1-10, R1-11, T-03, T-07 | - | - | - | flight | - | 10 |
-| R2-13 | Harness lane SITES-2: back to stock Kerbin,... | M | R2-12, T-07, R1-20 | - | - | - | flight | - | 11 |
+| R2-12 | Harness lane SITES-1: a launch, a recovery... | M | R2-04, R2-05, R2-07, R2-08, R2-09, R2-11, R1-10, R1-11, T-03, T-07 | - | T-46 | - | flight | - | 10 |
+| R2-13 | Harness lane SITES-2: back to stock Kerbin,... | M | R2-12, T-07, R1-20 | - | T-46 | - | flight | - | 11 |
 | R2-14 | Harness lane SITES-3: launch rules and the... | S-M | R2-08, R2-12 | - | - | - | flight | - | 11 |
 | R2-15 | Fold the findings into the design and the p... | S | R2-04, R2-09 | S2, S4b, S5 | - | - | no | - | 10 |
 
@@ -268,7 +277,7 @@ earliest wave (section B). A dropped task keeps its heading and says where its w
 | R3W-06 | `RivalPlaybackPolicy` | S | P2c-03, R3W-02 | - | - | - | in-game | - | 2 |
 | R3W-07 | Rival frame: flags and the open queue (pure) | S | R3W-01, R3W-02 | - | - | - | in-game | - | 3 |
 | R3W-08 | `RaceRuntime` scene calls | S | R1-08, R3W-05, R3W-06 | - | - | - | in-game | - | 13 |
-| R3W-09 | Flight composition (milestone M1) | M | R3W-04, R3W-05, R3W-06, R3W-07, R3W-08, P2a-02, P2a-05, P2a-06, P2a-07, P2b-09, P2b-10, P2c-04, R1-10, R3E-04 | - | - | - | in-game | - | 14 |
+| R3W-09 | Flight composition (milestone MS-1d) | M | R3W-04, R3W-05, R3W-06, R3W-07, R3W-08, P2a-02, P2a-05, P2a-06, P2a-07, P2b-09, P2b-10, P2c-04, R1-10, R3E-04, T-17, T-19, T-48 | - | - | - | in-game | - | 14 |
 | R3W-10 | Lazy open budget and payload lifetime | S | R3W-09 | - | - | - | in-game | - | 15 |
 | R3W-11 | Leftovers held at their last moment | M | R3W-09, R3E-14 | - | - | - | in-game | - | 15 |
 | R3W-12 | Launch areas kept clear | S | R3W-11, R2-01, P1-02 | - | - | - | no | - | 16 |
@@ -279,7 +288,7 @@ earliest wave (section B). A dropped task keeps its heading and says where its w
 | R3W-17 | Landed variant of the ghost map vessel prim... | S | P3-04, P3-05 | - | - | - | in-game | - | 5 |
 | R3W-18 | `RivalMapPresence` | M | R3W-09, R3W-11, R3W-15, R3W-17, P3-04, P3-05, R5-04 | - | - | r3w Q2 (assumed a) | in-game | - | 16 |
 | R3W-19 | "Whose ghost" answers for rivals | S | R3W-18, P3-05 | - | - | - | in-game | - | 17 |
-| R3W-20 | Tracking Station composition | S | R3W-18, R3W-19 | - | - | - | in-game | - | 18 |
+| R3W-20 | Tracking Station composition | S | R3W-18, R3W-19, T-17, T-19, T-48 | - | adds the Tracking Station step to RACE-2 (T-24) | - | in-game | - | 18 |
 | R3W-21 | Missing parts | S | R3W-04 | - | - | - | in-game | - | 6 |
 | R3W-22 | Removal and replacement at scene load | S | R3W-09, R3E-18 | - | - | - | no | - | 15 |
 | R3W-23 | Rival flag records | S | R3W-05, R3W-12, R3E-14 | - | - | - | in-game | - | 17 |
@@ -291,7 +300,7 @@ earliest wave (section B). A dropped task keeps its heading and says where its w
 | R3W-29 | Headless byte-identity test | M | R3W-08, R3W-11, R3W-23, T-01, T-16 | - | - | - | no | - | 18 |
 | R3W-30 | In-game isolation category | M | R3W-18, R3W-20, R3W-24 | - | - | - | in-game | - | 19 |
 | R3W-31 | Whole-save harness lane | - | dropped: work moved to T-27 | - | - | - | - | - | - |
-| R3W-32 | Per-frame cost check | S | R3W-14 | - | - | - | in-game | - | 16 |
+| R3W-32 | Per-frame cost check | S | R3W-14 | - | T-47 (the scale folder) | - | in-game | - | 16 |
 
 ### A.9 `r4-r6-board-and-rules.md` (26 tasks, 2 dropped, 23 pull requests)
 
@@ -305,13 +314,13 @@ earliest wave (section B). A dropped task keeps its heading and says where its w
 | R4-06 | Rows this install cannot fully read | S | R4-05 | - | - | - | no | - | 15 |
 | R4-07 | Holder-change events, message text and posting | S | R4-04, R1-08, R3E-04, R3E-22 | - | - | r4 Q2 (answered: a) | no | - | 14 |
 | R4-08 | Shared table-window chrome (A6) | S | go | - | - | - | lanes (optional census) | - | 0 |
-| R4-09 | The Space Race window: skeleton and registr... | M | R4-04, R4-08, P11-01, P11-02, R1-04, R1-08, R1-14, R1-18, R3E-17 | - | - | - | in-game (R4-13) | - | 14 |
+| R4-09 | The Space Race window: skeleton and registr... | M | R4-04, R4-08, P11-01, P11-02, R1-04, R1-08, R1-14, R1-18, R3E-17, R1-23 | - | - | - | in-game (R4-13) | - | 14 |
 | R4-10 | The row model and the drawn board | M | R4-09, R4-05, R4-06, R5-07, R1-10, R2-01 | - | - | - | in-game (R4-13) | - | 16 |
 | R4-11 | Click to watch | S | R4-10 | - | camera half: P3b-04, R3W-26 (deferred) | camera half deferred | in-game (camera half) | - | 17 |
 | R4-12 | Gallery mock states and the census | S | R4-10 | - | - | - | lanes (census) | - | 17 |
 | R4-13 | In-game checks: the ladder against stock, t... | S | R4-02, R4-12 | - | - | - | in-game | - | 18 |
 | R4-14 | Harness: the board in the two-player lanes | - | dropped: work moved to T-28, T-32 | - | - | - | - | - | - |
-| R6-01 | Tool marks | S | R4-05, R3E-07, R3E-09, R3E-10 | S9 | - | - | no | - | 15 |
+| R6-01 | Tool marks | S | R4-05, R3E-07, R3E-09, R3E-10, R1-23 | S9 | - | - | no | - | 15 |
 | R6-02 | No retakes | M | R6-01, R3E-21 | - | - | r4 Q1 (answered: a) | no | - | 16 |
 | R6-03 | The end date and the final board | M | R6-02, R3E-21 | - | - | - | no | - | 17 |
 | R6-04 | Arrived late | S | R6-03, R3E-19 | - | - | - | no | - | 18 |
@@ -334,7 +343,7 @@ earliest wave (section B). A dropped task keeps its heading and says where its w
 | R5-04 | Ghost map vessels carry the style (A5) | S | P3-04, R5-03 | - | S3a (colors); in-file order after R3W-17 | r5 Q3 (answered: a) | in-game | - | 5 |
 | R5-05 | Parsek-drawn map overlays take the style (c... | S | R5-03 | - | - | r3w Q2 = b only (assumed a: not built) | no | - | 4 |
 | R5-06 | Watch overlay title carries the prefix (con... | S | P3b-03, R5-03, R3W-26 | - | - | deferred with P3b, R3W-26 | no | - | 19 |
-| R5-07 | The look table's visual half (RaceCore) | S | R1-03 | - | S3a, S3b (placeholder colors) | - | no | R5-08 | 3 |
+| R5-07 | The look table's visual half (RaceCore) | S | R1-03 | - | S3a, S3b (placeholder colors); lands with its first caller, R5-08 or R4-10 | - | no | R5-08 | 3 |
 | R5-08 | The rival ghost dresser (RaceWorld) | M | R5-02, R5-07, R5-12 | S3 | - | - | in-game | - | 3 |
 | R5-09 | The rival lane wears the looks and colors | M | R3W-09, R3W-15, R3W-18, R3W-20, R3W-21, R5-03, R5-04, R5-08 | - | S3c | - | in-game | - | 19 |
 | R5-10 | The dress rules (RaceCore, pure) | S | R5-07 | S3 | - | - | no | R5-11 | 6 |
@@ -343,7 +352,7 @@ earliest wave (section B). A dropped task keeps its heading and says where its w
 | R5-13 | A harness lane pins the `RaceLooks` category | - | dropped: work moved to T-29 | - | - | - | - | - | - |
 | R5-14 | Block the suit choice of the stock suit picker in a race save | M | R5-11, R1-04 | - | - | - | in-game | - | 7 |
 
-### A.11 `test-and-harness.md` (36 tasks, 7 dropped, 29 pull requests)
+### A.11 `test-and-harness.md` (59 tasks, 7 dropped, 52 pull requests)
 
 | id | title (short) | size | hard dependencies | spikes | soft (not counted) | owner gate | PC | lands in PR of | wave |
 |---|---|---|---|---|---|---|---|---|---|
@@ -359,7 +368,7 @@ earliest wave (section B). A dropped task keeps its heading and says where its w
 | T-10 | Single-player inertness test (15.8) | S | T-01, R1-04 | - | - | - | no | - | 4 |
 | T-11 | Seam verb `RaceSetup action=create/join` | - | dropped: work moved to R1-10, R1-11 | - | - | - | - | - | - |
 | T-12 | Seam action `RaceCommand action=set-folder`... | S | R1-08, R1-11 | - | - | - | no (rides a lane) | - | 8 |
-| T-13 | Lane RACE-1-setup-create-join | M | T-03, T-04, R1-10, R1-11 | - | - | - | flight | - | 8 |
+| T-13 | Lane RACE-1-setup-create-join | M | T-03, T-04, R1-10, R1-11, R1-23 | - | R2-01 (the `[RaceSites] Reconcile:` assertion joins in the later of the two) | - | flight | - | 8 |
 | T-14 | Lane RACE-5-stock-kerbin-after-race | - | dropped: work moved to R2-13 | - | - | - | - | - | - |
 | T-15 | Race grep gate: no writer of the own model | - | dropped: work moved to R1-06 | - | - | - | - | - | - |
 | T-16 | Generator `RaceFolderBuilder` | M | R3E-04, R1-10 | - | - | - | no | - | 11 |
@@ -367,23 +376,46 @@ earliest wave (section B). A dropped task keeps its heading and says where its w
 | T-18 | Two-machine simulator bound to the ports | M | T-02, R3E-04, R3E-16 | - | R3E-20 (self-heal case) | - | no | - | 12 |
 | T-19 | `RaceCommand action=sync` | S | T-12, R3E-17, R3E-18 | - | - | - | no (rides a lane) | - | 13 |
 | T-20 | `ListHandles kind=rivals` | S | R3W-05, R3W-09 | - | - | - | no (rides a lane) | - | 15 |
-| T-21 | Race evaluator, part 2: structure facets an... | M | T-05, T-03, R3E-04, R3E-19 | - | - | - | no | - | 14 |
+| T-21 | Race evaluator, part 2: structure facets an... | M | T-05, T-03, R3E-04, T-38 | - | R3E-19 (adds the witness-log facet) | - | no | - | 11 |
 | T-22 | Race grep gate: rival store names only in a... | - | dropped: work moved to R3W-27 | - | - | - | - | - | - |
 | T-23 | Isolation byte-identity test (6.4) | - | dropped: work moved to R3W-29 | - | - | - | - | - | - |
-| T-24 | Lane RACE-2-import-generator-folder | S | T-17, T-19, T-20, T-21, R3W-20 | - | - | - | flight | - | 19 |
+| T-24 | Lane RACE-2-import-generator-folder | S | T-17, T-19, T-20, T-21 | - | R3W-20 (adds the Tracking Station step) | - | flight | - | 16 |
 | T-25 | Lane RACE-8-export-self-heal-offline | S | T-19, T-21, T-06, R3E-20 | - | - | - | flight | - | 15 |
 | T-26 | Lane RACE-3-rival-ghosts-flight | M | T-17, T-19, T-20 | - | - | - | flight | - | 16 |
 | T-27 | Lane RACE-4-isolation-whole-save | M | T-04, T-05, T-17, T-19 | - | R3W-18, R3W-24 (content) | T Q2 (assumed a) | flight | - | 14 |
-| T-28 | Lane RACE-6-two-saves-in-turn | M | R1-10, R1-11, T-19, T-20, T-21, R3E-16 | - | R4-04 (row assertion) | T Q1 (assumed a) | flight | - | 16 |
-| T-29 | In-game race context helper and the Space Center host lane RACE-9 | M | T-17, T-19, R2-03, R2-05, R5-11, R3W-05 | - | first test of each other Space Center category | - | flight | - | 14 |
-| T-30 | `ListHandles kind=board` | S | R4-04 | - | - | - | no (rides a lane) | - | 14 |
-| T-31 | "Same files, same board" and the changed-fi... | M | T-16, T-18, R4-04, R3E-19, R6-03 | - | - | - | no | - | 18 |
+| T-28 | Lane RACE-6-two-saves-in-turn | M | R1-10, R1-11, T-19, T-20, T-21, R3E-16, T-39 | - | R4-04 (row assertion) | T Q1 (assumed a) | flight | - | 16 |
+| T-29 | In-game race context helper and the Space Center host lane RACE-9 | M | T-03, R1-10, R1-11 | - | R1-07 (logContract); T-17, T-19, R2-03, R2-05, R5-11, R3W-05 and the first test of each other Space Center category (each joins RACE-9 in its own PR) | - | flight | - | 8 |
+| T-30 | `ListHandles kind=board` | S | R4-04, R1-23 | - | T-40 (extends it to every mark) | - | no (rides a lane) | - | 14 |
+| T-31 | "Same files, same board" (early half; T-37 is the late half) | M | T-16, T-18, R4-04 | - | each scoring task extends its generator | - | no | - | 14 |
 | T-32 | Lane RACE-7-holder-change-folder-update | S | T-17, T-19, T-30, T-06, R4-07 | - | - | - | flight | - | 15 |
-| T-33 | Lane RACE-12-flown-rival-campaign and the h... | M | R1-10, T-21, R3E-16 | - | - | - | flight | - | 15 |
-| T-34 | Lane RACE-13-paired-copies (optional) | M | T-21, T-30 | - | the parallel runner (on main, pull request #2592) | T Q3 (assumed a); optional | flight | - | 15 |
-| T-35 | Lane RACE-10-flight-batch (the FLIGHT host) | S | T-29, R3W-09 | - | R3W-30 and the first test of each other FLIGHT category | - | flight | - | 15 |
-| T-36 | Lane RACE-11-ts-batch (the TRACKSTATION host) | S | T-29 | - | R3W-20, R3W-30 | - | flight | - | 15 |
-Total: 233 task headings in 11 plans, each listed once: 16 dropped, 217 live, 212 pull requests.
+| T-33 | Lane RACE-12-flown-rival-campaign (harvest by T-59) | S | R1-10, T-21, R3E-16, T-59 | - | - | - | flight | - | 12 |
+| T-34 | Lane RACE-13-paired-copies (optional; a spec on T-54) | S | T-54, T-21, T-30 | - | - | T Q3 (assumed a); optional | flight | - | 15 |
+| T-35 | Lane RACE-10-flight-batch (the FLIGHT host) | S | T-29 | - | R3W-09 (moves it onto the staged race), R3W-30 and the first test of each other FLIGHT category | - | flight | - | 9 |
+| T-36 | Lane RACE-11-ts-batch (the TRACKSTATION host) | S | T-29 | - | R3W-20 (moves it onto the staged race), R3W-30 | - | flight | - | 9 |
+| T-37 | The changed-file scenario and the keep rule after the end date (late half of T-31) | S | T-31, R3E-19, R3E-20, R6-03 | - | - | - | no | - | 18 |
+| T-38 | `raceParse` verifier row with the gated leak scan (early half of T-21) | S | T-03, T-05 | - | - | - | no | - | 1 |
+| T-39 | Lane RACE-6, first form: two saves exchange through the seam only | M | R3E-17, R3E-18, T-03, T-04, T-38, R1-11 | - | T-28 completes the lane | - | flight | - | 13 |
+| T-40 | Lane RACE-14-scoring-marks; `kind=board` and `RaceCommand status` show every mark | M | T-17, T-19, T-30, R6-12, R6-02, R6-03 | - | - | - | flight | - | 19 |
+| T-41 | Lane RACE-15-content-check-launch-warning (stock-minimal) | S | R1-20, R1-22, R1-11, T-03, T-04 | - | - | - | flight | - | 10 |
+| T-42 | Committed race-save fixtures and the refused-load lanes RACE-16, RACE-17 | M | T-13, R2-02, R1-20 | - | - | - | flight | - | 9 |
+| T-43 | Lane RACE-19-setup-screens: setup screens through the seam | M | R1-15, R1-17, R1-18 | - | - | - | flight | - | 11 |
+| T-44 | Single-player negative contract and lane RACE-20-single-player-hosts | S | R1-04, R1-06 | - | - | - | flight | - | 4 |
+| T-45 | Race lane plumbing: `race` tag, `parallel_runner --tag`, CI push on `multiplayer` | S | go | - | - | - | no | - | 0 |
+| T-46 | Sites tolerance comparator (`ListHandles kind=sites ... tolerance=`) | S | T-07, R2-01 | - | - | - | no | - | 5 |
+| T-47 | Rival fixture content for hosted cells | M | T-16 | - | - | - | no | - | 12 |
+| T-48 | Race overlay at staging (`[fixture.raceOverlay]`) | M | T-03, R1-11, R1-12, R1-23 | - | - | - | no (rides T-53) | - | 8 |
+| T-49 | Campaign chain runner | M | go | - | - | - | lanes (one CS chain replay) | - | 0 |
+| T-50 | Race campaign spec generator (RCA-k / RCB-k) | M | T-03, T-12, T-19, T-30, T-48 | - | - | - | no | - | 15 |
+| T-51 | Board oracle and its mutation checks | M | T-21, T-30, R4-02 | - | - | - | no | - | 15 |
+| T-52 | Real-ledger board, headless | S | R3E-11, R4-04, T-16 | - | - | - | no | - | 14 |
+| T-53 | First change of hands: lanes RCA-1, RCB-1, RCA-2 | M | T-48, T-59, T-19, T-30, R4-04, T-50 | - | T-20 (`kind=rivals` steps), R4-07 (holder-change line) | - | flight | - | 16 |
+| T-54 | Paired lanes in the parallel runner | M | T-03, T-06 | - | - | - | lanes (one pair) | - | 2 |
+| T-55 | Race integration variants (lanes RCI-1 to RCI-9) | M | T-48, T-50, T-21, T-19 | - | T-20 | - | flight | - | 16 |
+| T-56 | Retake, no retakes, Re-Fly against a rival (stage S4) | M | T-53, R6-02, R4-07, T-20 | - | - | - | flight | - | 17 |
+| T-57 | Both careers to the Mun (stage S5) | S | T-49, T-50, T-51, T-56, R2-12 | - | R6-03 (the end-date step) | - | flight (about 2.24 h on two slots) | - | 18 |
+| T-58 | True new race from the seam and an accept-by-type selector (optional) | S | T-50, R1-10, R1-11 | - | - | optional | flight | - | 16 |
+| T-59 | Race harvest flag on `harvest_bdock_station.py` | S | T-03, T-05 | - | T-21 (chain facets) | - | no | - | 1 |
+Total: 257 task headings in 11 plans, each listed once: 16 dropped, 241 live, 236 pull requests.
 
 ## B. Waves
 
@@ -408,7 +440,7 @@ run in parallel unless section C names a shared file. Two windows sit across the
 
 ### B.1 Waves by plan
 
-**Wave 0** (25 tasks)
+**Wave 0** (27 tasks)
 
 - r0-spikes: S0
 - r0b-prep-small: P12-01, P11-01, P11-02, P7-01, P1-01, P10-01
@@ -418,9 +450,9 @@ run in parallel unless section C names a shared file. Two windows sit across the
 - r3-export-and-exchange: R3E-07, R3E-12
 - r4-r6-board-and-rules: R4-08
 - r5-looks: R5-01
-- test-and-harness: T-01, T-02, T-03, T-04, T-05, T-07
+- test-and-harness: T-01, T-02, T-03, T-04, T-05, T-07, T-45, T-49
 
-**Wave 1** (19 tasks)
+**Wave 1** (21 tasks)
 
 - r0-spikes: S3, S4a, S6, S9, S10a, S11, S12
 - r0b-prep-small: P7-02, P1-02
@@ -429,9 +461,9 @@ run in parallel unless section C names a shared file. Two windows sit across the
 - r1-mode-and-setup: R1-16
 - r3-rival-world: R3W-02
 - r5-looks: R5-02
-- test-and-harness: T-06
+- test-and-harness: T-06, T-38, T-59
 
-**Wave 2** (12 tasks)
+**Wave 2** (13 tasks)
 
 - r0-spikes: S1b, S4b, S10b
 - r0b-prep-small: P1-03
@@ -440,6 +472,7 @@ run in parallel unless section C names a shared file. Two windows sit across the
 - r1-mode-and-setup: R1-03
 - r3-rival-world: R3W-01, R3W-06
 - r5-looks: R5-12
+- test-and-harness: T-54
 
 **Wave 3** (11 tasks)
 
@@ -449,7 +482,7 @@ run in parallel unless section C names a shared file. Two windows sit across the
 - r3-rival-world: R3W-07
 - r5-looks: R5-03, R5-07, R5-08
 
-**Wave 4** (9 tasks)
+**Wave 4** (10 tasks)
 
 - r0-spikes: S2
 - r0b-prep-playback: P2b-02
@@ -457,9 +490,9 @@ run in parallel unless section C names a shared file. Two windows sit across the
 - r1-mode-and-setup: R1-08
 - r2-sites: R2-01
 - r5-looks: R5-05
-- test-and-harness: T-10
+- test-and-harness: T-10, T-44
 
-**Wave 5** (8 tasks)
+**Wave 5** (9 tasks)
 
 - r0-spikes: S13
 - r0b-prep-playback: P2b-03
@@ -468,6 +501,7 @@ run in parallel unless section C names a shared file. Two windows sit across the
 - r3-export-and-exchange: R3E-06
 - r3-rival-world: R3W-04, R3W-17
 - r5-looks: R5-04
+- test-and-harness: T-46
 
 **Wave 6** (8 tasks)
 
@@ -478,92 +512,95 @@ run in parallel unless section C names a shared file. Two windows sit across the
 - r3-rival-world: R3W-21
 - r5-looks: R5-10, R5-11
 
-**Wave 7** (13 tasks)
+**Wave 7** (14 tasks)
 
 - r0b-prep-playback: P2b-05
-- r1-mode-and-setup: R1-11, R1-12, R1-19
+- r1-mode-and-setup: R1-11, R1-12, R1-19, R1-23
 - r2-sites: R2-02, R2-05, R2-06, R2-08, R2-11
 - r3-export-and-exchange: R3E-01
 - r4-r6-board-and-rules: R4-01, R4-02
 - r5-looks: R5-14
 
-**Wave 8** (8 tasks)
+**Wave 8** (10 tasks)
 
 - r0b-prep-playback: P2b-06
 - r1-mode-and-setup: R1-20, R1-21
 - r2-sites: R2-07
 - r3-export-and-exchange: R3E-02
 - r3-rival-world: R3W-03
-- test-and-harness: T-12, T-13
+- test-and-harness: T-12, T-13, T-29, T-48
 
-**Wave 9** (7 tasks)
+**Wave 9** (10 tasks)
 
 - r0b-prep-playback: P2b-07, P2b-08, P2b-09
 - r1-mode-and-setup: R1-14, R1-22
 - r2-sites: R2-09
 - r3-export-and-exchange: R3E-03
+- test-and-harness: T-35, T-36, T-42
 
-**Wave 10** (8 tasks)
+**Wave 10** (9 tasks)
 
 - r0b-prep-playback: P2b-10
 - r1-mode-and-setup: R1-15, R1-17, R1-18
 - r2-sites: R2-10, R2-12, R2-15
 - r3-export-and-exchange: R3E-04
+- test-and-harness: T-41
 
-**Wave 11** (10 tasks)
+**Wave 11** (12 tasks)
 
 - r0b-prep-map-watch-codec: P3b-02
 - r2-sites: R2-13, R2-14
 - r3-export-and-exchange: R3E-10, R3E-11, R3E-14, R3E-15, R3E-16, R3E-22
-- test-and-harness: T-16
+- test-and-harness: T-16, T-21, T-43
 
-**Wave 12** (8 tasks)
+**Wave 12** (10 tasks)
 
 - r0b-prep-map-watch-codec: P3b-01, P3b-03
 - r3-export-and-exchange: R3E-09, R3E-17, R3E-18
 - r3-rival-world: R3W-05
-- test-and-harness: T-17, T-18
+- test-and-harness: T-17, T-18, T-33, T-47
 
-**Wave 13** (8 tasks)
+**Wave 13** (9 tasks)
 
 - r0b-prep-map-watch-codec: P3b-04
 - r3-export-and-exchange: R3E-19, R3E-21
 - r3-rival-world: R3W-08, R3W-27
 - r4-r6-board-and-rules: R4-03, R4-04
-- test-and-harness: T-19
+- test-and-harness: T-19, T-39
 
 **Wave 14** (10 tasks)
 
 - r3-export-and-exchange: R3E-20, R3E-25
 - r3-rival-world: R3W-09
 - r4-r6-board-and-rules: R4-05, R4-07, R4-09
-- test-and-harness: T-21, T-27, T-29, T-30
+- test-and-harness: T-27, T-30, T-31, T-52
 
-**Wave 15** (17 tasks)
+**Wave 15** (16 tasks)
 
 - r3-export-and-exchange: R3E-24
 - r3-rival-world: R3W-10, R3W-11, R3W-13, R3W-14, R3W-15, R3W-22, R3W-28
 - r4-r6-board-and-rules: R4-06, R6-01
-- test-and-harness: T-20, T-25, T-32, T-33, T-34, T-35, T-36
+- test-and-harness: T-20, T-25, T-32, T-34, T-50, T-51
 
-**Wave 16** (8 tasks)
+**Wave 16** (12 tasks)
 
 - r3-rival-world: R3W-12, R3W-16, R3W-18, R3W-32
 - r4-r6-board-and-rules: R4-10, R6-02
-- test-and-harness: T-26, T-28
+- test-and-harness: T-24, T-26, T-28, T-53, T-55, T-58
 
-**Wave 17** (8 tasks)
+**Wave 17** (9 tasks)
 
 - r0-spikes: S8a (runs last, after T-28)
 - r3-rival-world: R3W-19, R3W-23
 - r4-r6-board-and-rules: R4-11, R4-12, R6-03, R6-05, R6-06
+- test-and-harness: T-56
 
-**Wave 18** (12 tasks)
+**Wave 18** (13 tasks)
 
 - r0-spikes: S8b
 - r3-rival-world: R3W-20, R3W-24, R3W-26, R3W-29
 - r4-r6-board-and-rules: R4-13, R6-04, R6-07, R6-08, R6-11, R6-12
-- test-and-harness: T-31
+- test-and-harness: T-37, T-57
 
 **Wave 19** (7 tasks)
 
@@ -571,65 +608,68 @@ run in parallel unless section C names a shared file. Two windows sit across the
 - r3-rival-world: R3W-25, R3W-30
 - r4-r6-board-and-rules: R6-10 (after S8)
 - r5-looks: R5-06, R5-09
-- test-and-harness: T-24
-### B.2 Critical paths to the milestones
+- test-and-harness: T-40
+### B.2 The milestone ladder and its critical paths
 
-A path counts tasks from the first to the milestone, both included; it is one more than the
-milestone's wave. A wave number is the earliest wave the milestone can start in; it finishes one
-wave later. Every path below starts with S0 -> S6 -> R1-03 (P12-01 -> R1-03 is one task
-shorter), so the owner's first spike day heads them all.
+Section F lists each milestone's tasks and exit proof; README "Milestones" says what each one
+shows. Here: when each milestone's last task can land, the longest chain of hard dependencies
+from day one that sets it, and how many of its tasks can start two or more milestones early
+("early starters": every dependency sits in a milestone at least two rungs below). A chain
+counts tasks, both ends included, so it is one more than the wave of its last task when nothing
+else holds it. MS-2 closes earlier in waves than MS-1c and MS-1d, but milestones are signed
+off in ladder order (README rule 11), so MS-2 is signed off after MS-1d.
 
-| Milestone | Task | Wave | Tasks on the path | Bound by |
-|---|---|---|---|---|
-| First race save created | R1-10 | 6 | 7 | the R1 core: R1-03, R1-04, R1-08, R1-09 |
-| Create and join proven in a lane (RACE-1) | T-13 | 8 | 9 | R1-11 |
-| M2: menu entry | R1-14 | 9 | 10 | T-13; R1-12 (wave 7) and R1-16 (wave 1) have slack |
-| M2: Create, Join pages, Settings | R1-15, R1-17, R1-18 | 10 | 11 | R1-14 |
-| Sites visible: the KSC moved | R2-04 | 6 | 7 | R2-01, R2-03; spikes S4b (wave 2), S5 (wave 3) |
-| M3: sites lane green | R2-12 | 10 | 11 | R2-06, R2-07, R2-09 (spike S2, wave 4); R1-11 at 7 |
-| First standing exported | R3E-04 | 10 | 11 | R1-10, then R3E-01, R3E-02, R3E-03 |
-| Standing copied out, then imported | R3E-16, R3E-18 | 11, 12 | 12, 13 | R3E-04 |
-| M1: a rival ghost plays in flight | R3W-09 | 14 | 15 | R3E-04, T-16, R3W-05, R3W-08; P2b-10 (wave 10) has 3 waves of slack |
-| Rivals drawn on the map, in the TS | R3W-18, R3W-20 | 16, 18 | 17, 19 | R3W-09, R3W-11, R3W-18, R3W-19 |
-| Board computed | R4-04 (with R4-03) | 13 | 14 | R3E-18; R3E-11 (wave 11) has slack |
-| Board shown in the window | R4-10 | 16 | 17 | R4-05, R4-06; R4-09 (wave 14) has 1 wave of slack |
-| Board checked in game | R4-13 | 18 | 19 | R4-12 |
-| M4: two-player lanes | T-32, T-28 | 15, 16 | 16, 17 | R4-07 for T-32; T-20 (R3W-09) for T-28 |
-| M5: looks | R5-11, R5-09 | 6, 19 | 7, 20 | R1-09 for R5-11; R3W-20 for R5-09 |
-| M6: no retakes and the end date proven | R6-11 | 18 | 19 | R4-05, R6-01, R6-02, R6-03 |
-| Race categories hosted: RACE-9, then RACE-10 and RACE-11 | T-29, T-35, T-36 | 14, 15 | 15, 16 | T-19 (the staged race's sync); RACE-10 also R3W-09 |
-| last | R3W-30, R6-10, R3E-23, R3W-25, R5-06, R5-09, T-24 | 19 | 20 | R3W-30 needs R3W-20 and R3W-24; R6-10 and R3E-23 wait for S8 |
+| Milestone | Tasks | Waves | Last task | Chain from day one | Early starters |
+|---|---|---|---|---|---|
+| MS-1a Test bench and prepared ground | 56 | 0 to 5 | wave 5 | 6 tasks | - |
+| MS-1b A race save, created and joined | 17 | 0 to 8 | wave 8 | 9 tasks | 1 |
+| MS-1c Headless skeleton: two machines, one board | 18 | 0 to 14 | wave 14 | 15 tasks | 2 |
+| MS-1d Live skeleton: two games, one folder, one flight, one board | 35 | 0 to 16 | wave 16 | 17 tasks | 6 |
+| MS-2 The four sites | 19 | 4 to 11 | wave 11 | 12 tasks | 3 |
+| MS-3 Edit evidence and self-heal | 6 | 2 to 15 | wave 15 | 16 tasks | 2 |
+| MS-4 The rival world beyond flight | 29 | 0 to 19 | wave 19 | 20 tasks | 15 |
+| MS-5 Screens and messages | 17 | 0 to 18 | wave 18 | 19 tasks | 4 |
+| MS-6 Scoring rules | 13 | 0 to 18 | wave 18 | 19 tasks | 4 |
+| MS-7 Looks | 7 | 1 to 19 | wave 19 | 20 tasks | 2 |
+| MS-8 End date and no retakes | 10 | 13 to 19 | wave 19 | 20 tasks | 1 |
+| MS-9 Sync tuning (S8, last) | 4 | 17 to 19 | wave 19 | 20 tasks | 1 |
+| MS-10 Two scripted careers to the Mun (capstone) | 2 | 16 to 18 | wave 18 | 19 tasks | 2 |
 
-The paths:
+The chains (one of the longest where several tie):
 
-- First save: S0 -> S6 -> R1-03 -> R1-04 -> R1-08 -> R1-09 -> R1-10. Then R1-11 -> T-13 ->
-  R1-14 -> R1-15, R1-17 or R1-18 (M2).
-- M3: S0 -> S6 -> R1-03 -> R1-04 -> R2-01 -> R2-03 -> R2-04 -> R2-06 -> R2-07 -> R2-09 ->
-  R2-12. R2-03 to R2-09 also wait on S4b, S5 and S2, which r0 puts on the owner's PC days 2
-  and 3 (D.1); the path holds only if those days come before R2-03 is ready.
-- Exchange: the first-save path to R1-10, then R3E-01 -> R3E-02 -> R3E-03 -> R3E-04 ->
-  R3E-16 -> R3E-18.
-- M1: the first-save path to R3E-04, then T-16 -> R3W-05 -> R3W-08 -> R3W-09. R3W-08 now waits
-  for R3W-05 (r3w :529) and R3W-05 for T-16's builder (r3w :468), so M1 sits four waves after the
-  first standing. The playback side (P2c-02 -> P2c-04 -> P2a-02 -> R5-03 -> P2b-02 ... P2b-10)
-  ends at wave 10.
-- Rivals on the map and in the TS: M1, then R3W-11 -> R3W-18 -> R3W-19 -> R3W-20. M5's R5-09
-  follows R3W-20.
-- Board: the exchange path to R3E-18, then R4-04 -> R4-05 -> R4-06 -> R4-10 -> R4-12 -> R4-13.
-- M4: R3E-18 -> R4-04 -> R4-07 -> T-32; and M1 -> T-20 -> T-28.
-- M6: R3E-18 -> R4-04 -> R4-05 -> R6-01 -> R6-02 -> R6-03 -> R6-11.
-- Race categories: T-29 (the helper and RACE-9) needs the staged race (T-17 -> T-19), the
-  sites (R2-03, R2-05), `RaceLooks` (R5-11) and the rival store (R3W-05), so it sits in wave
-  14; T-35 (RACE-10, also after R3W-09) and T-36 (RACE-11) in wave 15. Until its host lands
-  a category runs only by hand on the owner's PC (r3e R3E-01 says so for its cell). T-29 was
-  one task holding all three hosts in wave 20, after R3W-30; it was split on 2026-11-15
-  (both reviews), and R3W-30's isolation categories now join RACE-10 and RACE-11 when they
-  land.
-- last: wave 19 holds R3W-30, R3W-25, R5-06, R5-09, T-24 and the two tasks after S8,
-  R3E-23 and R6-10; R6-10 is the last task the release waits for (it writes the 1.1.0
-  CHANGELOG section).
-- S8 and what waits on it hold no milestone: T-28 (wave 16) -> S8a -> S8b -> R3E-23, R6-10
-  (wave 19) run last by the owner's instruction (B, the S8 note).
+- MS-1a: S0 -> S4a -> S4b -> S5 -> S2 -> S13.
+- MS-1b: S0 -> S6 -> R1-03 -> R1-04 -> R1-08 -> R1-09 -> R1-10 -> R1-12 -> T-48.
+- MS-1c: S0 -> S6 -> R1-03 -> R1-04 -> R1-08 -> R1-09 -> R1-10 -> R3E-01 -> R3E-02 -> R3E-03 ->
+  R3E-04 -> T-16 -> R3E-18 -> R4-04 -> T-52.
+- MS-1d: S0 -> S6 -> R1-03 -> R1-04 -> R1-08 -> R1-09 -> R1-10 -> R3E-01 -> R3E-02 -> R3E-03 ->
+  R3E-04 -> T-16 -> R3E-18 -> R4-04 -> T-30 -> T-50 -> T-55.
+- MS-2: S0 -> S6 -> R1-03 -> R1-04 -> R2-01 -> R2-03 -> R2-04 -> R2-06 -> R2-07 -> R2-09 ->
+  R2-12 -> R2-13.
+- MS-3: S0 -> S6 -> R1-03 -> R1-04 -> R1-08 -> R1-09 -> R1-10 -> R3E-01 -> R3E-02 -> R3E-03 ->
+  R3E-04 -> T-16 -> R3E-18 -> R4-04 -> T-30 -> T-34.
+- MS-4: S0 -> S6 -> R1-03 -> R1-04 -> R1-08 -> R1-09 -> R1-10 -> R3E-01 -> R3E-02 -> R3E-03 ->
+  R3E-04 -> T-16 -> R3W-05 -> R3W-08 -> R3W-09 -> R3W-11 -> R3W-12 -> R3W-23 -> R3W-24 ->
+  R3W-30.
+- MS-5: S0 -> S6 -> R1-03 -> R1-04 -> R1-08 -> R1-09 -> R1-10 -> R3E-01 -> R3E-02 -> R3E-03 ->
+  R3E-04 -> T-16 -> R3E-18 -> R4-04 -> R4-05 -> R4-06 -> R4-10 -> R4-12 -> R4-13.
+- MS-6: S0 -> S6 -> R1-03 -> R1-04 -> R1-08 -> R1-09 -> R1-10 -> R3E-01 -> R3E-02 -> R3E-03 ->
+  R3E-04 -> T-16 -> R3E-18 -> R4-04 -> R4-05 -> R4-06 -> R4-10 -> R6-06 -> R6-12.
+- MS-7: S0 -> S6 -> R1-03 -> R1-04 -> R1-08 -> R1-09 -> R1-10 -> R3E-01 -> R3E-02 -> R3E-03 ->
+  R3E-04 -> T-16 -> R3W-05 -> R3W-08 -> R3W-09 -> R3W-11 -> R3W-18 -> R3W-19 -> R3W-20 -> R5-09.
+- MS-8: S0 -> S6 -> R1-03 -> R1-04 -> R1-08 -> R1-09 -> R1-10 -> R3E-01 -> R3E-02 -> R3E-03 ->
+  R3E-04 -> T-16 -> R3E-18 -> R4-04 -> R4-05 -> R4-06 -> R4-10 -> R6-06 -> R6-12 -> T-40.
+- MS-9: S0 -> S6 -> R1-03 -> R1-04 -> R1-08 -> R1-09 -> R1-10 -> R3E-01 -> R3E-02 -> R3E-03 ->
+  R3E-04 -> T-16 -> R3W-05 -> R3W-08 -> R3W-09 -> T-20 -> T-28 -> S8a -> S8b -> R3E-23.
+- MS-10: S0 -> S6 -> R1-03 -> R1-04 -> R1-08 -> R1-09 -> R1-10 -> R3E-01 -> R3E-02 -> R3E-03 ->
+  R3E-04 -> T-16 -> R3E-18 -> R4-04 -> T-30 -> T-50 -> T-53 -> T-56 -> T-57.
+
+Notes:
+
+- The playback side (P2c-02 -> P2c-04 -> P2a-02 -> R5-03 -> P2b-02 ... P2b-10) ends at wave 10
+  and has slack inside MS-1d; the exchange stem through R3E-04 sets MS-1c to MS-10.
+- S8 runs last (owner, 2026-11-14; B, the S8 note): MS-9 holds it and nothing else waits on it.
+- The ladder replaces this section's earlier list of milestones; a rival ghost playing in flight
+  (R3W-09), the plan's first milestone before the ladder, is part of MS-1d.
 
 ## C. Parallel tracks
 
@@ -686,9 +726,10 @@ PRs at the same time unless the row says the edits are disjoint.
 
 ### C.2 Tracks for waves 0 and 1
 
-One agent per track, tasks in order. The supervisor runs at most four at once, so start ARCH,
-SETUP, ENGINE and HARNESS first: ARCH heads every critical path (P12-01 -> R1-03), and the owner
-runs SPIKES on the PC in parallel (S6 on day 1 ties ARCH for R1-03).
+One agent per track, tasks in order. These are MS-1a's tracks plus the early starters of later
+milestones (B.2). The supervisor runs at most four at once, so start ARCH, SETUP, ENGINE and
+HARNESS first: ARCH heads every critical path (P12-01 -> R1-03), and the owner runs SPIKES on
+the PC in parallel (S6 on day 1 ties ARCH for R1-03). RUNNER and TESTSIM follow as slots free.
 
 | Track | Tasks in order | PC | Notes |
 |---|---|---|---|
@@ -699,13 +740,14 @@ runs SPIKES on the PC in parallel (S6 on day 1 ties ARCH for R1-03).
 | MAP / CODEC | P3-01, P6-01, P6-02 | P3-01: one in-game run | P6 merges when green, never inside the P2b window |
 | GUI | P11-01, P11-02, R4-08 | P11-02: census lanes; R4-08: optional | P11-01 shares `test_hlib.py` with SETUP and HARNESS and lands the seam doc before T-07 |
 | FACTS | R3E-07, R3E-12 | no | independent files |
-| LOOKS | R5-01, R5-02 | one in-game run each | `GhostVisualBuilder.cs` in order; R5-01 regenerates the lane catalog (new `RaceLooksFlight`) |
-| HARNESS | T-03, T-04, T-06, T-05, T-07 | T-07: RACE-0 flight | T-04 and T-06 after T-03 (T :707-709); T-07 shares the verb tables and the lane catalog |
+| LOOKS | R5-01, R5-02 | one in-game run each (their cells run on H15) | `GhostVisualBuilder.cs` in order; each re-pins H15's `total=` (`GhostVisuals`) |
+| HARNESS | T-03, T-04, T-06, T-05, T-38, T-45, T-07 | T-07: RACE-0 flight | T-04 and T-06 after T-03 (T :707-709); T-38 after T-05 (the row gates its leak scan); T-45 (the `race` tag, `--tag`, CI push) early, so RACE-0 can carry the tag (an order, not a dependency); T-07 shares the verb tables and the lane catalog |
+| RUNNER | T-49, T-59, T-54 | T-49: one CS chain replay; T-54: one pair | harness Python only; T-59 after T-03 and T-05; T-54 after T-06, in wave 2 |
 | TESTSIM | T-01, T-02 | no | `Generators/` files only |
 | SPIKES (owner) | S0, then S4a, S6, S9, S10a, S1b scan; S3, S10b with S12, S11 on day 4; S8a, S8b last (waves 17, 18) | spike | D.1 |
 
 Tasks of waves 0 and 1 that need no PC: P12-01, P11-01, P7-01, P7-02, P1-01, P2c-01, P2b-01,
-P6-01, P6-02, R1-02, R1-07, R3E-07, R3E-12, T-01 to T-06 (script output).
+P6-01, P6-02, R1-02, R1-07, R3E-07, R3E-12, T-01 to T-06, T-38, T-45, T-59 (script output).
 
 Not side by side in waves 0 and 1 (same file):
 
@@ -713,11 +755,13 @@ Not side by side in waves 0 and 1 (same file):
   count and kernel list. `modules.toml`: P12-01 (a comment) and R3W-02 (the `RaceWorld`
   registration), disjoint lines.
 - `.claude/CLAUDE.md` and `AGENTS.md`: P10-01, R1-07.
-- `harness/lib/test_hlib.py` and `hlib.py`: P10-01, P11-01, T-03, T-04, T-06, T-07.
+- `harness/lib/test_hlib.py` and `hlib.py`: P10-01, P11-01, T-03, T-04, T-06, T-07, T-38, T-45.
+- `harness/tools/parallel_runner.py`: T-45 (`--tag`), then T-49 (the dispatcher it reuses).
 - `GhostPlaybackEngine.cs`: P2c-02, P2c-03, P2c-04.
 - the catalog files: P2a-05 first; P2a-03, P2a-06, P2a-07 add rows after it (additive).
 - `RecordingPaths.cs`: P7-01, P7-02. `SpawnCollisionDetector.cs`: P1-01, P1-02.
-- generated `flight-profiles.md`: R5-01, T-07. `ParsekUI.cs`: P11-02, R4-08.
+- generated `flight-profiles.md`: T-07, T-45. `ParsekUI.cs`: P11-02, R4-08.
+- `H15-corpus-ghost-visuals.toml` (its pinned `total=`): R5-01, R5-02.
 - `GhostVisualBuilder.cs`: R5-01, R5-02.
 
 ## D. Use of the owner's PC
@@ -753,9 +797,12 @@ then about 3 hours for S8 at the end. Never in parallel: S5's frame cost, S8b an
 :862). S4a and S6 go first because R1-04, R2-01, R2-05, P1-03, R1-20 (S4a) and R1-03,
 R1-10, R1-14, R1-19, R1-20 (S6) wait on them (r0 :881-882).
 
-### D.2 One in-game run (a test batch or a short manual check)
+### D.2 One in-game run (a test batch, through its host lane where it has one)
 
-From each task's `PC` line.
+From each task's `PC` line (63 tasks). A cell that needs no race save runs in an existing
+category on its existing host the day it lands (R5-01, R5-02, R5-08 on H15; R5-04 on S1.6); a
+race-only cell runs on RACE-9, RACE-10 or RACE-11 once its host is in (T-29, T-35, T-36; the
+gaps are in README rule 11), and its single-player half on RACE-20 (T-44).
 
 | Wave | Tasks |
 |---|---|
@@ -766,44 +813,49 @@ From each task's `PC` line.
 | 4 | R2-01 |
 | 5 | R2-03, R3W-04, R3W-17, R5-04 |
 | 6 | R2-04, R3E-08, R3E-13, R3W-21, R5-11 |
-| 7 | R1-19 (the content dump on a clean install), R2-02, R2-05, R2-06, R2-08, R2-11, R5-14 |
+| 7 | R1-19, R2-02, R2-05, R2-06, R2-08, R2-11, R5-14 |
 | 8 | R1-20, R1-21, R2-07, R3W-03 |
 | 9 | R1-14, R1-22, R2-09 |
 | 10 | R1-15, R1-17, R1-18, R2-10 |
 | 12 | R3E-09, R3W-05 |
 | 13 | R3W-08 |
-| 14 | R3W-09, R4-09 |
+| 14 | R3W-09, R4-09 (on R4-13's hosts) |
 | 15 | R3E-24, R3W-10, R3W-11 |
-| 16 | R3W-16, R3W-18, R3W-32, R4-10 |
-| 17 | R3W-19, R3W-23, R4-11 |
+| 16 | R3W-16, R3W-18, R3W-32, R4-10 (on R4-13's hosts) |
+| 17 | R3W-19, R3W-23, R4-11 (camera half) |
 | 18 | R3W-20, R3W-24, R3W-26, R4-13, R6-07 |
-| 19 | R3E-23, R3W-25, R3W-30, R5-09, R6-10 |
+| 19 | R3E-23, R3W-25, R3W-30, R6-10, R5-09 |
 
 ### D.3 Harness lanes, a tier, or a new lane flown
 
 From each task's `PC` line. "(flight)" is a new lane's first flights; the rest re-fly existing
-lanes. R1-10 and R1-11 are proven through RACE-1 (T-13). T-12, T-19, T-20 and T-30 ride the lanes
-that use them (T-13, T-24, T-26, T-32).
+lanes. R1-08, R1-10, R1-11 and R1-23 are proven through RACE-1 (T-13). T-12, T-19, T-20 and T-30
+ride the lanes that use them (T-13, T-24, T-26, T-32); T-48 rides T-53. Every new race lane is
+tier operator with the tag `race` and flies through `parallel_runner.py run --tag race` (T-45).
+T-53 and T-56 fly their lanes in turn on one install; T-57 is pipelined on two slots (the same
+lanes, B-k one stage behind A-k); only T-54's paired lanes and T-34 on them take two slots at
+once, both copies on one folder.
 
 | Wave | Tasks |
 |---|---|
-| 0 | P11-02, P10-01, P2c-02, P2a-05, R4-08 (optional), T-07 (flight) |
+| 0 | P11-02, P10-01, P2c-02, P2a-05, R4-08 (optional census), T-07 (flight), T-49 (one CS chain replay) |
 | 1 | P1-02, P2c-03, P2c-04, P2a-03, P2a-06, P2a-07, R1-16 (tier) |
-| 2 | P1-03, P2a-02, P2a-04 |
-| 4 | P3-04 |
-| 6 | R1-10 (via RACE-1) |
-| 7 | R1-11 (via RACE-1) |
-| 8 | T-13 (flight) |
-| 9 | P2b-07 (daily tier), P2b-08 |
-| 10 | P2b-10 (the 18-lane representative set plus the daily tier), R2-12 (flight) |
-| 11 | P3b-02, R2-13 (flight), R2-14 (flight) |
-| 12 | P3b-03 |
-| 13 | P3b-04 |
-| 14 | T-27 (flight), T-29 (flight) |
-| 15 | T-25 (flight), T-32 (flight), T-33 (flight), T-34 (flight), T-35 (flight), T-36 (flight) |
-| 16 | T-26 (flight), T-28 (flight) |
-| 17 | R4-12 (census) |
-| 19 | T-24 (flight) |
+| 2 | P1-03, P2a-02, P2a-04, T-54 (one pair) |
+| 4 | P3-04, T-44 (flight) |
+| 6 | R1-10 (RACE-1) |
+| 7 | R1-11 (RACE-1) |
+| 8 | T-13 (flight), T-29 (flight) |
+| 9 | P2b-07 (daily tier, H15), P2b-08, T-35 (flight), T-36 (flight), T-42 (flight) |
+| 10 | P2b-10 (18-lane set + daily tier), R2-12 (flight), T-41 (flight) |
+| 11 | P3b-02, R2-13 (flight), R2-14 (flight), T-43 (flight) |
+| 12 | P3b-03, T-33 (flight) |
+| 13 | P3b-04, T-39 (flight) |
+| 14 | T-27 (flight) |
+| 15 | T-25 (flight), T-32 (flight), T-34 (flight) |
+| 16 | T-24 (flight), T-26 (flight), T-28 (flight), T-53 (flight), T-55 (flight), T-58 (flight) |
+| 17 | R4-12 (census), T-56 (flight) |
+| 18 | T-57 (flight, about 2.24 h on two slots) |
+| 19 | T-40 (flight) |
 
 ### D.4 Long runs
 
@@ -816,20 +868,50 @@ that use them (T-13, T-24, T-26, T-32).
 | after P3-01, P3-04 | named lanes (H44, S1.6; then 11 lanes) | small | map :677-679 |
 | after P6-03 | any daily tier run | about 0.4 | map :680-681 |
 | after R1-16 | one tier run | one tier | r1 :775 |
-| once RACE lanes exist | added capacity: daily about +45 s, nightly about +1800 s, operator about +400 s | small | T :799-800 |
+| after T-49 | one CS chain replay, CS-3 to CS-4b | about 0.4 (1413 s of p50) | T-49 |
+| MS-1d, after T-53 | lanes RCA-1, RCB-1, RCA-2 (T-50's specs) | about 0.81 (2915 s from the CS p50s) | T-53 |
+| MS-1d, after T-55 | the integration lanes RCI-1 to RCI-9 | about 0.63 (2268 s, estimate: 9 x 252 s) | T-55 |
+| MS-10, after T-57 | both Mun ladders on two slots | about 2.24 wall to RCA-5's end (8076 s), then RCB-5 | T-57, test-and-harness 4b |
+| once the race lanes exist | the operator tier grows by the new race lanes' first flights: 7428 s (about 2.1 h) one lane at a time, of which T-53 and T-55 are the long ones; the daily and nightly tiers gain nothing (every race lane is operator) | about 2.1 | test-and-harness 6 |
 
 The plans ask for no full run. The owner's answer to Q-05 (2026-11-14) replaced the one after
 P2b-10 with a representative set of lanes (playback 6.4); the full run happens once, at release
 time.
 
+Per milestone (`pc.py` over this index and the plans' stated numbers; a lane with no estimate
+counts 0 until its first flight is measured; the spike hours are D.1's):
+
+| Milestone | Spike hours | New race lanes, first flights (s) | Long runs (h) | In-game runs | Lanes with no estimate yet |
+|---|---|---|---|---|---|
+| MS-1a | 24.7 | 45 | 10.29 | 1 | - |
+| MS-1b | 0.0 | 240 | 0.00 | 3 | T-44 |
+| MS-1c | 0.0 | 0 | 0.00 | 0 | - |
+| MS-1d | 0.0 | 6193 | 1.63 | 8 | T-39 |
+| MS-2 | 0.0 | 90 | 0.00 | 12 | R2-13, R2-12, R2-14, T-42 |
+| MS-3 | 0.0 | 70 | 0.00 | 1 | T-54, T-34 |
+| MS-4 | 0.0 | 700 | 0.00 | 15 | - |
+| MS-5 | 0.0 | 90 | 0.00 | 8 | T-43 |
+| MS-6 | 0.0 | 0 | 0.00 | 4 | T-41 |
+| MS-7 | 0.0 | 0 | 0.00 | 6 | - |
+| MS-8 | 0.0 | 0 | 0.00 | 1 | T-40, T-56 |
+| MS-9 | 3.0 | 0 | 0.00 | 2 | - |
+| MS-10 | 0.0 | 0 | 2.24 | 0 | T-58 |
+| unanchored | 0.0 | 0 | 0.00 | 2 | - |
+| total | 27.7 | 7428 | 14.17 | 63 | - |
+
+
 ## E. Findings
 
 ### E.1 Checks run on the graph
 
-- Every task id with a heading in a plan appears in section A exactly once (233 ids).
+- Every task id with a heading in a plan appears in section A exactly once (257 ids).
 - No hard dependency names an unknown id, a dropped task or the P2a-01 specification. No plan's
   `Depends on` line names a dropped task.
-- The graph of 212 pull requests has no cycle.
+- The graph has no cycle: 240 nodes (the live tasks less the P2a-01 specification), which are
+  the 236 pull requests and the four tasks that land inside another's.
+- Every live task is in exactly one milestone of section F or in its unanchored list
+  (`ladder.py`: 233 in milestones, 8 unanchored, 241 in all), and each milestone's exit proof
+  is the anchor set the script reads.
 - Every finding of the previous index (missing providers, the R4-03 / R3E-11 cycle, the wrong
   or loose dependencies, the duplicate providers, the wave-0 shared files, the oversized tasks)
   is settled in the plans as they read today and is removed here.
@@ -858,10 +940,503 @@ module since pull request #2611; each race module registers with its first file)
 P10-01 -> R1-02 order (both only add a `LogIO/` file). Two tasks moved: R3W-02 from wave 2 to
 wave 1 (its needs are now P2c-01 and P12-01) and R1-02 from wave 1 to wave 0. No other wave
 moved; the wave count stayed 21 then. The split of T-29 (2026-11-15) later moved T-29 from wave 20
-to wave 14, which emptied wave 20: the plan now has 20 waves, 0 to 19.
+to wave 14, which emptied wave 20: the plan then had 20 waves, 0 to 19.
+
+The milestone rework (2026-11-15) added R1-23 and T-37 to T-59, moved T-29 earlier (its own race
+at slot 1, wave 8), and took the five dependency edits of the milestone analysis (c1 T-31 split
+into an early half and T-37; c2 RACE-2's Tracking Station step moved to R3W-20; c3 T-29 creates
+and joins its own race, T-35 and T-36 follow it to wave 9; c4 the witness facet moved to R3E-19;
+c5 R5-07 lands with its first caller). The plan still has 20 waves, 0 to
+19; the wave sizes are B.1's. Dependencies the writer added beyond the analysis, none moving a
+wave: R1-11 for T-39, T-39 for T-28, T-38 for T-21, R1-23 for T-13, T-30, R4-09 and R6-01, and
+the soft T-46 for SITES-1 and SITES-2.
 
 ### E.3 Still open
 
 Nothing in the graph. The questions for the owner are in `design-corrections.md` part 2 and
 in `README.md` section 7. Line citations in this index were taken before the edits above, so a
 cited line of an edited plan can sit a few lines lower than the number says.
+
+## F. Milestones
+
+A milestone is a point where the race does something a player could see, proved by an exit
+proof that runs without the owner's eyes. The ladder (README "Milestones") is MS-1a to MS-1d,
+MS-2 to MS-10. MS-1, the skeleton (two games, one folder, one flight, one board), is milestone
+one, built in four steps MS-1a to MS-1d, and its tasks are taken first (owner, 2026-11-15).
+MS-2 to MS-9 are the rings that widen it; MS-10 is the capstone, both scripted careers to the
+Mun. The labels are milestone names, not lane ids: the existing lane
+`MS-1-mission-leg-trim-clone` and r4's message rows M1 to M10 are unrelated.
+
+Each task is in the earliest milestone whose exit proof needs it: the proof's tasks and
+everything they depend on, hard dependencies only (a task that lands in another task's pull
+request counts with its host; R5-07 lands with its first caller, R5-08 or R4-10). A milestone
+therefore lists only the tasks no earlier milestone needed. The waves are section A's; a
+milestone's exit proof flies in the wave after its last task, and milestones are signed off
+in ladder order (README rule 11). Every live task is in exactly one table below or in the
+unanchored list (`ladder.py` check, E.1).
+
+The two scripted players (test-and-harness section 4b) are a track through the ladder: their
+stage S0 joins MS-1a (the runner T-49) and MS-1b (the overlay T-48), S1 and S2 join MS-1d
+(T-53, with T-20 for S2), S3 joins MS-2 (the R2-12 / T-50 schedule row), S4 joins MS-8 (T-56)
+and S5 is MS-10 (T-57).
+
+### F.1 MS-1a Test bench and prepared ground (56 tasks, waves 0 to 5)
+
+DO / SEE: the race test bench runs headless (the save-output driver, the fake synced store and
+clocks, the staged shared folder, a snapshot of every save a lane makes, the race evaluator's
+leak scan, `ListHandles kind=sites`, the `race` lane tag), the campaign chain runner replays a
+stretch of the single-player career, the prerefactors are in with single-player Parsek
+unchanged, and the spike answers are written into the design.
+
+Exit proof: `SaveWriterDriverDeterminismTests` (T-01); `FakeSyncedStoreTests` (T-02); the
+`test_hlib` and `test_run_smoke` cells of T-03, T-04 and T-06; `test_raceparse.py`'s leak scan
+(T-05) and the gated `raceParse` row (T-38); `parallel_runner.py run --tag race` and the CI push
+trigger (T-45); lane RACE-0-stock-sites-baseline green on stock-minimal (T-07); the campaign
+chain runner's `test_campaign.py` and its replay of CS-3 to CS-4b (T-49, stage S0); the
+prerefactor proofs of D.4 (the nightly tier after P2c and P2a, the daily tier after P6-03, the
+named lanes after P3-01 and P3-04); S13's reports with `test_doc_spec_sync.py` green.
+
+| Id | Title | Wave |
+|---|---|---|
+| P2a-01 | The port and the own-timeline catalog, no c... | - |
+| P1-01 | `HomeSpaceCenter` in `Core`, read by the KS... | 0 |
+| P10-01 | The create-and-start core in production | 0 |
+| P11-01 | Census specs stop pinning the window count | 0 |
+| P11-02 | One `ParsekUI` constructor body | 0 |
+| P12-01 | `[forbidden]` takes a list on the right side | 0 |
+| P2a-05 | RecordedRelativeAnchorPoseResolver through... | 0 |
+| P2b-01 | il_compare folds a renamed reference field | 0 |
+| P2c-01 | Make LoopSyncParentIdx read-only on the int... | 0 |
+| P2c-02 | Engine diagnostics sink: health counters | 0 |
+| P3-01 | Pin the primitive's runtime contract with a... | 0 |
+| P6-01 | Commit an identity manifest over every comm... | 0 |
+| P7-01 | The id check on the floor with a fixed char... | 0 |
+| S0 | Spike branch and spike instances | 0 |
+| T-01 | Headless save-output driver and its determi... | 0 |
+| T-02 | Fake synced store and fake clocks | 0 |
+| T-03 | Shared-folder staging in run.py | 0 |
+| T-04 | Snapshot every save a lane creates | 0 |
+| T-05 | Pure race evaluator, part 1: leak scan and... | 0 |
+| T-07 | Seam read kind `ListHandles kind=sites` | 0 |
+| T-45 | Race lane plumbing: `race` tag, `parallel_runner --tag`, CI push on `multiplayer` | 0 |
+| T-49 | Campaign chain runner | 0 |
+| P1-02 | One launch-area shape test, called by the 5... | 1 |
+| P2a-03 | Positioner and flight context builder throu... | 1 |
+| P2a-06 | ProductionAnchorWorldFrameResolver through... | 1 |
+| P2a-07 | Map state vectors through the catalog (L6) | 1 |
+| P2c-03 | Engine diagnostics sink: frame budget, hist... | 1 |
+| P2c-04 | Spawn budget object an engine can share | 1 |
+| P6-02 | List-level cores for the flat-fallback heal | 1 |
+| P7-02 | A save-root accessor on `RecordingPaths` | 1 |
+| S10a | Count the relative stretches and their body... | 1 |
+| S11 | Ghost cost per frame at race scale (new) | 1 |
+| S12 | Hashing and signing inside KSP's Mono (new,... | 1 |
+| S3 | The four looks, replacement sets, a missing... | 1 |
+| S4a | Probe: where the KSC is and what reads it | 1 |
+| S6 | Race mark survival, main menu entry, create... | 1 |
+| S9 | Which debug actions a mod can observe | 1 |
+| T-06 | Harness-side folder step | 1 |
+| T-38 | `raceParse` verifier row with the gated leak scan (early half of T-21) | 1 |
+| P1-03 | The launch-site circle cache follows the ho... | 2 |
+| P2a-02 | Engine tree lookup through the catalog (L1) | 2 |
+| P2a-04 | Tail-lift recording lookup through the cata... | 2 |
+| P3-02 | Move the guard set and the teardown depth i... | 2 |
+| P6-03 | The payload type; `Read` becomes its first... | 2 |
+| S10b | How far a flattened stretch drifts from its... | 2 |
+| S1b | Finer terrain scan of the three spots | 2 |
+| S4b | Move the working KSC | 2 |
+| P3-03 | Owner record and a teardown that leaves oth... | 3 |
+| P6-04 | `TryValidatePayload` decodes without a `Rec... | 3 |
+| S5 | KSC copies as scenery, cost, terrain parity | 3 |
+| S7 | Flag replica with the stock plaque dialog | 3 |
+| P3-04 | Move the ProtoVessel mechanics into `GhostM... | 4 |
+| P3-05 | The neutral "whose ghost is this" query at... | 4 |
+| P6-05 | A production entry to load a trajectory fro... | 4 |
+| S2 | KSC science at a moved site, and none from... | 4 |
+| S13 | Close-out: results into the design | 5 |
+
+### F.2 MS-1b A race save, created and joined (17 tasks, waves 0 to 8)
+
+DO / SEE: through the seam, a race save is created into an empty shared folder and three more
+players join it; slots 0 to 3, the four looks and every refusal show in `[Race]` lines; a
+test game says so (`testGame = True`); a single-player save is byte-identical with the race
+code present; the Space Center race categories run in a race save at slot 1.
+
+Exit proof: lane RACE-1-setup-create-join (T-13); lane RACE-9-sc-batch, its own race at slot 1,
+with at least `RaceMode` (T-29); `SinglePlayerInertnessTests` (T-10) and the single-player
+negative contract with lane RACE-20-single-player-hosts (T-44); R1-23's manifest key cells;
+`SaveFormatTests`, `SaveFormatGoldenGateTests`, `FormatGoldenV2Tests`, `RaceFormatPinTests`
+(R1-12); `LoadReconcilePolicyTests` (R1-05); R1-06's race grep gates with their anti-vacuity
+cells; the race overlay on a campaign save (T-48, stage S0), shown headless here by its hlib
+validator cells and the `test_run_smoke` staging cells (spliced, snapshotted, the committed
+fixture byte-equal after the run); its first flight is T-53's lanes (wave 16).
+
+| Id | Title | Wave |
+|---|---|---|
+| R1-02 | One helper to find a scenario node (A7, par... | 0 |
+| R3W-02 | `RivalFlight` value type | 1 |
+| R1-03 | The race mark: `RaceLink` and `ParsekRaceSc... | 2 |
+| R1-04 | `RaceGate` and its host | 3 |
+| R1-05 | The race mark's row in `LoadReconcilePolicy` | 3 |
+| R1-06 | The race grep-audit gates (design 15.4) | 3 |
+| R1-08 | Read side: codecs, timestamps, local race d... | 4 |
+| T-10 | Single-player inertness test (15.8) | 4 |
+| T-44 | Single-player negative contract and lane RACE-20-single-player-hosts | 4 |
+| R1-09 | Seats, slots, looks and names (`RaceSlots`) | 5 |
+| R1-10 | Create a race (setup core, write side) | 6 |
+| R1-11 | Join a race and start over in my seat | 7 |
+| R1-12 | Register the race formats with a golden folder | 7 |
+| R1-23 | The test game key in the race manifest | 7 |
+| T-13 | Lane RACE-1-setup-create-join | 8 |
+| T-29 | In-game race context helper and the Space Center host lane RACE-9 | 8 |
+| T-48 | Race overlay at staging (`[fixture.raceOverlay]`) | 8 |
+
+### F.3 MS-1c Headless skeleton: two machines, one board (18 tasks, waves 0 to 14)
+
+DO / SEE: in xUnit alone, N simulated machines export standings, copy them out through the fake
+synced store, import each other's and compute byte-equal boards for any arrival order, from
+generated folders and from real ledgers.
+
+Exit proof: `RaceFolderBuilderTests` (T-16); `RaceSyncSimulatorTests` (T-18); "same files, same
+board", the early half (T-31); `RaceSyncImportTests` (R3E-18); `RaceBoardBaseTests` (R4-04) and
+T-52's real-ledger cells; R3E-22's driver tests; T-59's harvest-flag cells.
+
+| Id | Title | Wave |
+|---|---|---|
+| R1-07 | Logs and test batches leave `Parsek/Race/`... | 0 |
+| T-59 | Race harvest flag on `harvest_bdock_station.py` | 1 |
+| R3E-01 | Exchange vocabulary and the own-mirror scan | 7 |
+| R4-01 | The race calendar and the date rule | 7 |
+| R4-02 | The ladder table standard-1 | 7 |
+| R3E-02 | Public state from the own model | 8 |
+| R3E-03 | The public ghost snapshot | 9 |
+| R3E-04 | Write a standing to the own mirror; golden v3 | 10 |
+| R3E-11 | Milestone reach rows (A1) and the MILESTONE... | 11 |
+| R3E-16 | The main-thread transport and the copy-out | 11 |
+| R3E-22 | "N shared flights left the race" | 11 |
+| T-16 | Generator `RaceFolderBuilder` | 11 |
+| R3E-18 | Import: copy-in, completeness and the verdict | 12 |
+| T-18 | Two-machine simulator bound to the ports | 12 |
+| R4-03 | The ladder filter at board time | 13 |
+| R4-04 | The board: shapes, exact points and the bas... | 13 |
+| T-31 | "Same files, same board" (early half; T-37 is the late half) | 14 |
+| T-52 | Real-ledger board, headless | 14 |
+
+### F.4 MS-1d Live skeleton: two games, one folder, one flight, one board (35 tasks, waves 0 to 16)
+
+DO / SEE: two real game saves share one folder: A flies a pad hop and exports; B joins, syncs,
+sees A's ghost launch from site 0 and A's row on the board; the ghost and the row go after A's
+quickload; a staged rival folder imports with every refusal named; rival ghosts in flight are
+no vessel, collider or CommNet node; the two scripted players trade a first and each sees the
+other's ghost. Before the ladder this was the plan's first milestone (R3W-09).
+
+Exit proof: lanes RACE-6-two-saves-in-turn (T-28) and its seam-only first form (T-39),
+RACE-3-rival-ghosts-flight (T-26), RACE-2-import-generator-folder without its Tracking Station
+step (T-24), RACE-10-flight-batch (T-35); the `raceParse` structure facets (T-21); the
+`ListHandles kind=rivals` and `kind=board` formatter tests (T-20, T-30); the committed
+fixtures' currency test (T-17); the P2b proof (D.4: the daily tier after P2b-07 and P2b-08,
+H15 with the two late-update categories, the representative set after P2b-10); lanes RCA-1,
+RCB-1 and RCA-2 to its sync head (T-53, the first flight of T-50's generated specs, stages S0
+to S2); the generated-spec byte gate (T-50); the board oracle and its mutation checks (T-51);
+the integration lanes RCI-1 to RCI-9 (T-55).
+
+| Id | Title | Wave |
+|---|---|---|
+| R5-01 | Ghost build: a part-name substitute before... | 0 |
+| R3W-01 | Neutral skip reason for host-filtered entries | 2 |
+| R3W-06 | `RivalPlaybackPolicy` | 2 |
+| R3W-07 | Rival frame: flags and the open queue (pure) | 3 |
+| R5-03 | Engine: per-trajectory build options and st... | 3 |
+| P2b-02 | The lane type and the seven log-once sets (... | 4 |
+| P2b-03 | Orbit cache on the lane (fold) | 5 |
+| R3W-04 | Payload loader and the flattening of relati... | 5 |
+| P2b-04 | Ghost position entries and reapply stamps o... | 6 |
+| P2b-05 | Loop-unit lookup on the lane (fold) | 7 |
+| P2b-06 | The positioner holds the lane (fold with al... | 8 |
+| R3W-03 | Header loader from the tree file | 8 |
+| T-12 | Seam action `RaceCommand action=set-folder`... | 8 |
+| P2b-07 | The late-update helpers take the lane | 9 |
+| P2b-08 | Watch and ghost-world queries on the lane | 9 |
+| P2b-09 | The catalog moves onto the lane | 9 |
+| T-35 | Lane RACE-10-flight-batch (the FLIGHT host) | 9 |
+| P2b-10 | The lane owns its resets | 10 |
+| T-21 | Race evaluator, part 2: structure facets an... | 11 |
+| R3E-17 | Sync ticks | 12 |
+| R3W-05 | `RivalStore` | 12 |
+| T-17 | Committed shared-folder fixtures | 12 |
+| R3W-08 | `RaceRuntime` scene calls | 13 |
+| T-19 | `RaceCommand action=sync` | 13 |
+| T-39 | Lane RACE-6, first form: two saves exchange through the seam only | 13 |
+| R3W-09 | Flight composition (milestone MS-1d) | 14 |
+| T-30 | `ListHandles kind=board` | 14 |
+| T-20 | `ListHandles kind=rivals` | 15 |
+| T-50 | Race campaign spec generator (RCA-k / RCB-k) | 15 |
+| T-51 | Board oracle and its mutation checks | 15 |
+| T-24 | Lane RACE-2-import-generator-folder | 16 |
+| T-26 | Lane RACE-3-rival-ghosts-flight | 16 |
+| T-28 | Lane RACE-6-two-saves-in-turn | 16 |
+| T-53 | First change of hands: lanes RCA-1, RCB-1, RCA-2 | 16 |
+| T-55 | Race integration variants (lanes RCI-1 to RCI-9) | 16 |
+
+### F.5 MS-2 The four sites (19 tasks, waves 4 to 11)
+
+DO / SEE: in a race save at slot 1 to 3 the space center sits at the player's site; launches,
+recoveries and the editor's launch rules follow it; leaving the race restores stock Kerbin; a
+modified Kerbin is refused at load; scripted player B flies from slot 2.
+
+Exit proof: lanes SITES-1 (R2-12), SITES-2 with its comparisons against RACE-0 (R2-13) and
+SITES-3 (R2-14), compared through T-46's tolerance comparator; R2-15's fold into the design with
+`test_doc_spec_sync.py` green; lane RACE-11-ts-batch with `RaceSitesTrackingStation` (T-36);
+the refused-load lanes RACE-16 and RACE-17 (T-42); stage S3, the schedule row that whichever of
+R2-12 and T-50 lands second adds. MS-2's own tasks close at wave 11; S3 flies with or after
+T-53 (wave 16).
+
+| Id | Title | Wave |
+|---|---|---|
+| R2-01 | Site table and the reconcile decision, wire... | 4 |
+| R2-03 | The three terrain patches in every race save | 5 |
+| T-46 | Sites tolerance comparator (`ListHandles kind=sites ... tolerance=`) | 5 |
+| R2-04 | Move the working space center to the home site | 6 |
+| R1-19 | The race content table and its generator | 7 |
+| R2-02 | Kerbin fingerprint and the modified-Kerbin... | 7 |
+| R2-05 | Parsek's own home position follows the home... | 7 |
+| R2-06 | One scenery copy of the KSC, built inert | 7 |
+| R2-08 | Launch rules: the own site and, when the ra... | 7 |
+| R2-11 | Every stock "home" surface at the home site | 7 |
+| R1-20 | The tree and part-value check at create,... | 8 |
+| R2-07 | Copies at every other site, as part of apply | 8 |
+| R2-09 | Science parity: the KSC mini-biomes at home... | 9 |
+| T-36 | Lane RACE-11-ts-batch (the TRACKSTATION host) | 9 |
+| T-42 | Committed race-save fixtures and the refused-load lanes RACE-16, RACE-17 | 9 |
+| R2-12 | Harness lane SITES-1: a launch, a recovery... | 10 |
+| R2-15 | Fold the findings into the design and the p... | 10 |
+| R2-13 | Harness lane SITES-2: back to stock Kerbin,... | 11 |
+| R2-14 | Harness lane SITES-3: launch rules and the... | 11 |
+
+### F.6 MS-3 Edit evidence and self-heal (6 tasks, waves 2 to 15)
+
+DO / SEE: a changed or deleted standing shows as a receipt disagreement in the witness log; an
+offline export lands in the own mirror and copies out with continuous seq when back online; a
+foreign edit of the own subfolder heals.
+
+Exit proof: `RaceSyncWitnessTests` and `RaceSyncLoopbackTests` (R3E-19) with T-21's witness
+facet; R3E-20's heal tests; R3E-24's in-game `RaceExchange` cell on RACE-9; lane
+RACE-8-export-self-heal-offline (T-25); the paired runner's cells (T-54); lane
+RACE-13-paired-copies when T-34 is taken (optional).
+
+| Id | Title | Wave |
+|---|---|---|
+| T-54 | Paired lanes in the parallel runner | 2 |
+| R3E-19 | Witness log, chain, receipts and the neutra... | 13 |
+| R3E-20 | Self-heal of the own subfolder | 14 |
+| R3E-24 | In-game exchange check | 15 |
+| T-25 | Lane RACE-8-export-self-heal-offline | 15 |
+| T-34 | Lane RACE-13-paired-copies (optional; a spec on T-54) | 15 |
+
+### F.7 MS-4 The rival world beyond flight (29 tasks, waves 0 to 19)
+
+DO / SEE: rivals everywhere outside the one flight: orbit and surface leftovers, map and
+Tracking Station objects that cannot be flown, labels, flags and plaques, the ghost budget,
+and the whole-save proof that none of it leaks into the player's career.
+
+Exit proof: lane RACE-4-isolation-whole-save (T-27); R3W-29's isolation test; R3W-30's
+`RaceRivalIsolation` and `RaceRivalIsolationTrackingStation` on RACE-10 and RACE-11; the
+`RaceRivalLane` cells of R3W-10 to R3W-25 over T-47's rival fixture content, and
+`RaceRivalLaneTrackingStation.TrackingStationListsRivalOrbit` (R3W-20); RACE-2's Tracking
+Station step (R3W-20); `GrepAuditTests.GrepAudit_RivalStore*` and R3W-28's gate; R3E-13's
+`RaceFactsTrackingStation`; R3W-16's GUI-tree key assertion and R3W-21's `logContract` on
+RACE-10; R5-04's `GhostMap` cell on S1.6; lane RACE-12-flown-rival-campaign over the folder
+T-59 harvests (T-33).
+
+| Id | Title | Wave |
+|---|---|---|
+| R3E-12 | The vessel-ended ledger row type (A2 data) | 0 |
+| R3E-06 | The capture switch for race-only facts | 5 |
+| R3W-17 | Landed variant of the ghost map vessel prim... | 5 |
+| R5-04 | Ghost map vessels carry the style (A5) | 5 |
+| R3E-13 | Record a vessel's end outside a recording (... | 6 |
+| R3W-21 | Missing parts | 6 |
+| R3E-14 | The stand query (A2) and the LEFTOVERS block | 11 |
+| T-33 | Lane RACE-12-flown-rival-campaign (harvest by T-59) | 12 |
+| T-47 | Rival fixture content for hosted cells | 12 |
+| R3W-27 | Grep gates: rival store names and the loade... | 13 |
+| T-27 | Lane RACE-4-isolation-whole-save | 14 |
+| R3W-10 | Lazy open budget and payload lifetime | 15 |
+| R3W-11 | Leftovers held at their last moment | 15 |
+| R3W-13 | Show or hide a rival (reader side) | 15 |
+| R3W-14 | A5: one ghost budget for both engines | 15 |
+| R3W-15 | A5: per-trajectory style | 15 |
+| R3W-22 | Removal and replacement at scene load | 15 |
+| R3W-28 | Source gate: what the rival lane never calls | 15 |
+| R3W-12 | Launch areas kept clear | 16 |
+| R3W-16 | Labels on rival ghosts in flight | 16 |
+| R3W-18 | `RivalMapPresence` | 16 |
+| R3W-32 | Per-frame cost check | 16 |
+| R3W-19 | "Whose ghost" answers for rivals | 17 |
+| R3W-23 | Rival flag records | 17 |
+| R3W-20 | Tracking Station composition | 18 |
+| R3W-24 | Plaque replicas in flight | 18 |
+| R3W-29 | Headless byte-identity test | 18 |
+| R3W-25 | Reading a rival plaque | 19 |
+| R3W-30 | In-game isolation category | 19 |
+
+### F.8 MS-5 Screens and messages (17 tasks, waves 0 to 18)
+
+DO / SEE: from the main menu a player opens Space Race, creates or joins through the dialog,
+changes folder, name or look in Settings, and reads the board in the Space Race window with
+holder-change messages; a test game is named in the window header and the join summary.
+
+Exit proof: lane RACE-7-holder-change-folder-update (T-32); lane RACE-19-setup-screens (T-43)
+over the setup screens and Settings section of R1-14, R1-15, R1-17 and R1-18; R4-13's
+`SpaceRace` on RACE-9 and `SpaceRaceFlight` on RACE-10; the R1 form and model tests
+(`RaceSaveListingTests`, `RaceSetupDialogModelTests`, `RaceSetupFormTests`,
+`RaceJoinFormTests`, `RacePlayerSettingsTests`); `RaceBoardPresentationTests`,
+`RaceMessagesTests`, `WatchCellDecisionTests`, `ClaimChecksCoverTests`; R4-12's gallery cells
+and census step; R4-09's window-set and header tests; R4-11's camera cell through
+`UiAction op=state`; R1-16's tier run (D.4).
+
+| Id | Title | Wave |
+|---|---|---|
+| R4-08 | Shared table-window chrome (A6) | 0 |
+| R1-16 | Lift the load-and-start route beside P10's... | 1 |
+| R5-07 | The look table's visual half (RaceCore) | 3 |
+| R1-14 | Main menu entry, setup dialog shell and Con... | 9 |
+| R1-15 | The Create page | 10 |
+| R1-17 | The Join page and "start over in my seat" | 10 |
+| R1-18 | The Multiplayer section in Settings | 10 |
+| T-43 | Lane RACE-19-setup-screens: setup screens through the seam | 11 |
+| R4-05 | The replay is the proof: claim checks and t... | 14 |
+| R4-07 | Holder-change events, message text and posting | 14 |
+| R4-09 | The Space Race window: skeleton and registr... | 14 |
+| R4-06 | Rows this install cannot fully read | 15 |
+| T-32 | Lane RACE-7-holder-change-folder-update | 15 |
+| R4-10 | The row model and the drawn board | 16 |
+| R4-11 | Click to watch | 17 |
+| R4-12 | Gallery mock states and the census | 17 |
+| R4-13 | In-game checks: the ladder against stock, t... | 18 |
+
+### F.9 MS-6 Scoring rules (13 tasks, waves 0 to 18)
+
+DO / SEE: the board marks what it should: tool use and debug completions (except the test-tools
+mark in a test game), save marks, parts outside the counted sets, a content table or
+fingerprint that differs, locked difficulty settings, and "not scored" play; the window names
+the differences; a differing content table warns at launch.
+
+Exit proof: `ToolUseDecisionTests` and in-game `RaceFacts` on RACE-10, its single-player half on
+RACE-20 (R3E-08); the `CheatOptionsWatch.Diff` tests (R3E-09); `GameplayFingerprintTests`
+(R1-19); `RaceContentCheckTests` (R1-20); `RaceDifficultyHoldTests` and
+`RaceModeTests.ProgressionSettingsHeld` (R1-21); `UncountedPartsTests` (R1-22); lane
+RACE-15-content-check-launch-warning (T-41); `ClaimChecksToolTests` with the test-game cells
+(R6-01); `RaceDisclosureTests` (R6-05); `RaceNotesTests` (R6-06); `ClaimChecksPartsTests`, rows
+T15 and T16 (R6-12).
+
+| Id | Title | Wave |
+|---|---|---|
+| R3E-07 | The tool-use fact on a recording (A3 data) | 0 |
+| R3E-08 | Capture the tools Parsek already detects (A3) | 6 |
+| R1-21 | The progression settings are held | 8 |
+| R1-22 | The launch warning | 9 |
+| T-41 | Lane RACE-15-content-check-launch-warning (stock-minimal) | 10 |
+| R3E-10 | Tools in the standing | 11 |
+| R3E-15 | Disclosure facts | 11 |
+| R3E-09 | Stock cheat switches and debug actions (A3) | 12 |
+| R3E-25 | Uncounted parts, save marks and `contentDi... | 14 |
+| R6-01 | Tool marks | 15 |
+| R6-05 | Disclosure facts | 17 |
+| R6-06 | Missing-parts, newer-version and cannot-be-... | 17 |
+| R6-12 | The parts mark, the save marks and "not sco... | 18 |
+
+### F.10 MS-7 Looks (7 tasks, waves 1 to 19)
+
+DO / SEE: each player's kerbals wear their look's suit at the Space Center and on EVA ghosts; a
+rival's EVA ghost wears the rival's look even without Making History; the stock suit picker is
+blocked in a race save and free in a single-player one.
+
+Exit proof: `RaceLooks` on RACE-9, including `SuitChoiceBlockedInRaceSave` and
+`ReplacementSetsResolve` (R5-11, R5-14, R5-12); `RaceLooksFlight` `RivalEvaGhostInRivalLook` on
+RACE-10 (R5-09); the `GhostVisuals` cells on H15 (R5-02, R5-08); `RaceLookDresserDecideTests`
+and `RaceLookDressTests`; R5-12's zip-listing cell; the single-player halves on RACE-20
+(R5-11's log contract, R5-14's `SuitChoiceFreeInSinglePlayer`).
+
+| Id | Title | Wave |
+|---|---|---|
+| R5-02 | Ghost build: a material override at the clo... | 1 |
+| R5-12 | The replacement suit sets | 2 |
+| R5-08 | The rival ghost dresser (RaceWorld) | 3 |
+| R5-10 | The dress rules (RaceCore, pure) | 6 |
+| R5-11 | `RaceLooks`: own roster dressing | 6 |
+| R5-14 | Block the suit choice of the stock suit picker in a race save | 7 |
+| R5-09 | The rival lane wears the looks and colors | 19 |
+
+### F.11 MS-8 End date and no retakes (10 tasks, waves 13 to 19)
+
+DO / SEE: the board applies no retakes, closes at the end date with a final board and joint
+winners, handles a late standing inside and past the grace, and keeps old files by the keep
+rule after the end; a scripted player retakes by rewind and flies a Re-Fly against a rival.
+
+Exit proof: `NoRetakesTests` (R6-02); `RaceFinalTests` (R6-03, R6-04); `KeepRuleTests`
+(R3E-21); R6-11's generator-built tests; the changed-file scenario with the keep rule after the
+end date (T-37); `RaceMessagesTests` end rows (R6-08); lane RACE-14-scoring-marks with the
+header rows of R6-07 through `UiAction op=state` (T-40); lanes RCA-3r to RCA-3f and RCB-3r to
+RCB-3f (T-56, stage S4).
+
+| Id | Title | Wave |
+|---|---|---|
+| R3E-21 | Keep and prune | 13 |
+| R6-02 | No retakes | 16 |
+| R6-03 | The end date and the final board | 17 |
+| T-56 | Retake, no retakes, Re-Fly against a rival (stage S4) | 17 |
+| R6-04 | Arrived late | 18 |
+| R6-07 | The window at the end and its header | 18 |
+| R6-08 | End-of-race messages | 18 |
+| R6-11 | No retakes and the end date on generator-bu... | 18 |
+| T-37 | The changed-file scenario and the keep rule after the end date (late half of T-31) | 18 |
+| T-40 | Lane RACE-14-scoring-marks; `kind=board` and `RaceCommand status` show every mark | 19 |
+
+### F.12 MS-9 Sync tuning (S8, last) (4 tasks, waves 17 to 19)
+
+DO / SEE: the poll numbers are tuned from a measurement on the common sync clients; the copy
+worker exists only with the owner's yes (Q-18).
+
+Exit proof: the S8a and S8b reports; `RacePollPolicyTests` and the diagnostics-line budget on a
+lane (R6-10), which also writes the 1.1.0 CHANGELOG warning; R3E-23's worker tests over an
+injected slow file layer. The rerun on real sync clients is on the owner list
+(test-and-harness section 1).
+
+| Id | Title | Wave |
+|---|---|---|
+| S8a | File access cost on sync clients (no game) | 17 |
+| S8b | A blocking read in KSP versus a worker thread | 18 |
+| R3E-23 | The copy worker (only with the owner's yes) | 19 |
+| R6-10 | Poll tuning | 19 |
+
+### F.13 MS-10 Two scripted careers to the Mun (capstone) (2 tasks, waves 16 to 18)
+
+DO / SEE: both scripted players fly their whole careers to the Mun in one race, from two sites,
+and the board oracle agrees at every stage.
+
+Exit proof: lanes RCA-1 to RCA-5 and RCB-1 to RCB-5 flown by T-49's runner on two slots with the
+board oracle armed (T-57, stage S5); lanes RCA-0 and RCB-0 when T-58 is taken (optional).
+
+| Id | Title | Wave |
+|---|---|---|
+| T-58 | True new race from the seam and an accept-by-type selector (optional) | 16 |
+| T-57 | Both careers to the Mun (stage S5) | 18 |
+
+### F.14 Unanchored (8 tasks)
+
+No exit proof needs these. P3b-01 to P3b-04, R3W-26 and R5-06 wait for the deferred Watch
+camera (map 10.2: later); attach them to a new milestone if the owner schedules it. R2-10
+lands only if spike S2 asks for it (then MS-2). R5-05 lands only on r3w question 2 = (b),
+assumed not built.
+
+| Id | Title | Wave |
+|---|---|---|
+| R5-05 | Parsek-drawn map overlays take the style (c... | 4 |
+| R2-10 | (conditional on S2) Biome override around t... | 10 |
+| P3b-02 | A lane adapter between the watch camera and... | 11 |
+| P3b-01 | A watch target value | 12 |
+| P3b-03 | Enter and follow by target | 12 |
+| P3b-04 | Lane-qualified watch query for the playback... | 13 |
+| R3W-26 | Watching a live rival ghost (optional) | 18 |
+| R5-06 | Watch overlay title carries the prefix (con... | 19 |

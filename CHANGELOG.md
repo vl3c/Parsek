@@ -4,6 +4,37 @@ All notable changes to Parsek are documented here.
 
 ---
 
+## 1.1.0
+
+Not released yet. A line marked (in progress) is work that has not landed on main; it is
+rewritten when its change merges. Multiplayer is built on a separate `multiplayer` branch and
+joins main in one merge, so its lines arrive then.
+
+### Added
+
+- **Multiplayer: the Space Race (in progress).** Up to four players race each other in their
+  own saves, sharing progress through a shared folder. This line is a placeholder until the
+  `multiplayer` branch merges.
+- **Dev: five automated lanes for asteroids and comets (in progress).** AST-1 to AST-4 and COM-1
+  fly a real grab, a release, rock mining, a Re-Fly across a grab and a comet.
+
+### Changed
+
+- **A rock you let go of never becomes a Re-Fly slot (in progress).** Releasing a grabbed
+  asteroid or comet makes no rewind point of its own. The rock still gets its own replay from
+  the release and becomes real at its end, like any other vessel.
+- **Mining an asteroid on a supply route works like mining the ground (in progress).** A route
+  that mines a rock never drains the real rock.
+
+### Fixed
+
+- **Rock-mining trips carry no more ore than the drills produce (in progress).** A trip with a
+  grabbed asteroid or comet aboard had no ore limit.
+- **A grabbed rock's ghost has the rock's own shape and size (in progress).** Replays showed one
+  stock rock model at a fixed size for every asteroid; comets get their own look too.
+- **Spawning next to a large rock checks the rock's real size (in progress).** The clear-space
+  check before a vessel becomes real counted a big asteroid as one small part.
+
 ## 1.0.2
 
 ### Changed
