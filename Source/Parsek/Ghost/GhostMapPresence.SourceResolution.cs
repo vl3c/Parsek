@@ -352,15 +352,6 @@ namespace Parsek
                 || terminal.Value == TerminalState.Docked;
         }
 
-        internal static bool StartsInOrbit(IPlaybackTrajectory traj, double ut)
-        {
-            if (!traj.HasOrbitSegments)
-                return false;
-            if (traj.Points == null || traj.Points.Count == 0)
-                return true;
-            return TrajectoryMath.FindOrbitSegment(traj.OrbitSegments, ut) != null;
-        }
-
         /// <summary>
         /// Emit the structured "source-resolve" decision line. Pulled out of
         /// <see cref="ResolveMapPresenceGhostSource"/>'s inner local function

@@ -205,33 +205,9 @@ namespace Parsek
             return vesselSpawned && spawnedPid != 0 && !spawnAbandoned;
         }
 
-        internal static bool ShouldPauseTimelineResourceReplay(bool isRecording)
-        {
-            return isRecording;
-        }
-
-        internal static bool ShouldLoopPlayback(bool recordingLoopPlayback)
-        {
-            return recordingLoopPlayback;
-        }
-
         internal static bool IsAnyWarpActive(int currentRateIndex, float currentRate)
         {
             return currentRateIndex > 0 || currentRate > 1f;
-        }
-
-        internal static int ComputeTargetResourceIndex(
-            List<TrajectoryPoint> points, int lastAppliedResourceIndex, double currentUT)
-        {
-            int targetIndex = lastAppliedResourceIndex;
-            for (int j = lastAppliedResourceIndex + 1; j < points.Count; j++)
-            {
-                if (points[j].ut <= currentUT)
-                    targetIndex = j;
-                else
-                    break;
-            }
-            return targetIndex;
         }
 
         /// <summary>
@@ -406,23 +382,6 @@ namespace Parsek
 
             loopUT = startUT + phase;
             return true;
-        }
-
-        /// <summary>
-        /// Determines the new watchedOverlapCycleIndex when a watched loop cycle
-        /// ends and the ghost is about to be rebuilt. Returns -2 (explosion hold),
-        /// -1 (ready for immediate re-target), or unchanged if not watching.
-        /// </summary>
-        internal static long ComputeWatchCycleOnLoopRebuild(
-            long currentWatchCycle, bool isWatching, bool needsExplosion, bool inPauseWindow)
-        {
-            if (!isWatching) return currentWatchCycle;
-            // Already in a hold — don't start another one, let the current hold
-            // expire naturally. Otherwise the timer keeps resetting during time warp
-            // and the camera never re-targets.
-            if (currentWatchCycle == -2) return currentWatchCycle;
-            if (needsExplosion && !inPauseWindow) return -2; // hold at explosion site
-            return -1; // ready for immediate re-target
         }
 
         /// <summary>
@@ -639,33 +598,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Validates that a loop anchor vessel exists. Returns true if the anchor PID
-        /// corresponds to a real vessel in the game world. Returns false if the anchor
-        /// vessel is missing (loop should be broken / fall back to absolute positioning).
-        /// Pure-static decision method using the existing vesselExistsOverride mechanism
-        /// for testability.
-        /// </summary>
-        internal static bool ValidateLoopAnchor(uint anchorPid)
-        {
-            if (anchorPid == 0)
-            {
-                ParsekLog.Verbose("Loop", "ValidateLoopAnchor: anchorPid=0, no anchor configured");
-                return false;
-            }
-
-            bool exists = RealVesselExists(anchorPid);
-            if (exists)
-            {
-                ParsekLog.Verbose("Loop", $"ValidateLoopAnchor: anchor pid={anchorPid} found");
-            }
-            else
-            {
-                ParsekLog.Warn("Loop", $"ValidateLoopAnchor: anchor pid={anchorPid} NOT found — loop anchor broken");
-            }
-            return exists;
-        }
-
-        /// <summary>
         /// Determines whether a looping recording should use anchor-relative positioning.
         /// Returns true if the recording has a LoopAnchorVesselId set AND has RELATIVE
         /// TrackSections that contain the offset data needed for relative playback.
@@ -812,29 +744,6 @@ namespace Parsek
 
             ParsekLog.Verbose("Loop", $"ShouldSpawnLoopedGhost: rec '{rec.VesselName}' anchor pid={rec.LoopAnchorVesselId} valid, returning true");
             return true;
-        }
-
-        /// <summary>
-        /// Pure-static gating check: determines whether a looped recording with an anchor
-        /// should have its ghost active right now. Returns true if:
-        /// - The recording has no anchor (anchorPid == 0) — unanchored loops always run
-        /// - The anchor vessel PID is in the loadedAnchors set
-        /// Returns false if the recording has an anchor and it is not loaded.
-        /// </summary>
-        internal static bool IsAnchorLoaded(uint anchorPid, HashSet<uint> loadedAnchors)
-        {
-            if (anchorPid == 0)
-                return true; // No anchor configured — always allow
-
-            if (loadedAnchors == null)
-            {
-                ParsekLog.Verbose("Loop", $"IsAnchorLoaded: loadedAnchors set is null, anchorPid={anchorPid} — returning false");
-                return false;
-            }
-
-            bool loaded = loadedAnchors.Contains(anchorPid);
-            ParsekLog.Verbose("Loop", $"IsAnchorLoaded: anchorPid={anchorPid}, loaded={loaded}");
-            return loaded;
         }
 
         #endregion

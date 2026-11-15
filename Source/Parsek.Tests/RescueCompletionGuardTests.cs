@@ -980,8 +980,8 @@ namespace Parsek.Tests
 
         /// <summary>
         /// Death + revive re-mark cycle: a kerbal can be marked, then a bulk
-        /// lifecycle path (e.g. <see cref="CrewReservationManager.ClearReplacements"/>
-        /// at session boundary) wipes the marker, then a subsequent rescue
+        /// lifecycle path (e.g. <see cref="CrewReservationManager.RestoreReplacements"/>
+        /// at a rewind boundary) wipes the marker, then a subsequent rescue
         /// marks the kerbal again and the guard fires fresh. This pins the
         /// idempotent re-mark contract — important for repeated Re-Fly cycles
         /// on the same kerbal across save/load or scene transitions.
@@ -992,9 +992,8 @@ namespace Parsek.Tests
             CrewReservationManager.MarkRescuePlaced("Jebediah Kerman", RescuedVesselPid);
             Assert.True(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
 
-            // Bulk lifecycle path wipes the marker (mirrors ClearReplacements
-            // / LoadCrewReplacements / RestoreReplacements / Reset on session
-            // / rewind / wipe-all boundaries).
+            // Bulk lifecycle path wipes the marker (mirrors LoadCrewReplacements
+            // / RestoreReplacements / Reset on session / rewind boundaries).
             CrewReservationManager.ClearRescuePlaced("Jebediah Kerman");
             Assert.False(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
 
@@ -1283,8 +1282,8 @@ namespace Parsek.Tests
         /// <para>
         /// Two ApplyToRoster passes on the rescued-on-live-vessel state
         /// (both fire the guard; both leave the marker set). Then a bulk
-        /// lifecycle path (<see cref="CrewReservationManager.ClearReplacements"/>
-        /// — mirrors a session boundary / scene transition wipe-all) wipes
+        /// lifecycle path (<see cref="CrewReservationManager.RestoreReplacements"/>
+        /// - mirrors a rewind / session boundary) wipes
         /// the marker set. The third pass must fall through to the legitimate
         /// recreate path because the marker is gone, exactly the same way a
         /// fresh post-load session would.
@@ -1323,8 +1322,8 @@ namespace Parsek.Tests
             Assert.True(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
 
             // Bulk wipe — mirrors session boundary path. Use the per-name
-            // clear directly here because ClearReplacements requires a live
-            // KSP roster which xUnit cannot stand up; the per-name clear
+            // clear directly here because the bulk paths need a live KSP
+            // roster which xUnit cannot stand up; the per-name clear
             // exercises the same marker-set mutation.
             CrewReservationManager.ClearRescuePlaced("Jebediah Kerman");
             CrewReservationManager.ClearRescuePlaced("Bill Kerman");
@@ -1611,28 +1610,6 @@ namespace Parsek.Tests
         }
 
         // ---------- Test-only roster facade --------------------------------
-
-        // ClearReplacements is the Wipe All path. Headless xUnit has no
-        // HighLogic.CurrentGame.CrewRoster, so the call takes the NULL-ROSTER arm - the
-        // only arm reachable from a unit test, and the one no committed cell drove. It
-        // must empty BOTH surfaces: the per-name marker set is deliberately NOT cleared by
-        // CleanUpReplacement (the cell above pins that), so if the wipe-all arm leaves it
-        // standing the markers outlive every recording they belonged to and the rescue
-        // guard keeps firing for kerbals that no longer have a rescue.
-        [Fact]
-        public void ClearReplacements_NullRoster_ClearsRescuePlacedMarkerSet()
-        {
-            CrewReservationManager.SeedReplacementForTesting("Jebediah Kerman", "Erilan Kerman");
-            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman", RescuedVesselPid);
-
-            Assert.True(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
-            Assert.True(CrewReservationManager.CrewReplacements.ContainsKey("Jebediah Kerman"));
-
-            CrewReservationManager.ClearReplacements();
-
-            Assert.False(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
-            Assert.Empty(CrewReservationManager.CrewReplacements);
-        }
 
         /// <summary>
         /// In-process facade mirroring the production

@@ -60,41 +60,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Remove all Available replacement kerbals and clear the mapping.
-        /// Called when wiping all recordings.
-        /// </summary>
-        public static void ClearReplacements()
-        {
-            var roster = HighLogic.CurrentGame?.CrewRoster;
-            if (roster == null)
-            {
-                crewReplacements.Clear();
-                rescuePlacedKerbals.Clear();
-                return;
-            }
-
-            using (SuppressionGuard.Crew())
-            {
-                foreach (var kvp in new Dictionary<string, string>(crewReplacements))
-                {
-                    CleanUpReplacement(kvp.Key, roster);
-                }
-
-                crewReplacements.Clear();
-                // #615 P1 review (third pass): load-bearing — neither the
-                // per-name CleanUpReplacement nor the ApplyToRoster guard
-                // clears per-name rescue markers (the spawn pipeline depends
-                // on the marker surviving UnreserveCrewInSnapshot, and the
-                // marker must persist across multiple recalc walks because
-                // the slot is rebuilt every walk while slot.Chain survives).
-                // ClearReplacements is a bulk wipe-all path, so we wipe the
-                // marker set here too.
-                rescuePlacedKerbals.Clear();
-                CrewLog("Cleared all crew replacements (and rescue-placed marker set)");
-            }
-        }
-
-        /// <summary>
         /// Swap reserved crew out of the active flight vessel, replacing them
         /// with their hired replacements. Prevents the player from recording
         /// with a reserved kerbal again after revert.

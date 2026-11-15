@@ -207,7 +207,6 @@ namespace Parsek.Tests
                 RenderParityOracle.ParityMode.Synthesized, intended, rendered, toleranceMeters: 50.0);
 
             Assert.Equal(RenderParityOracle.ParityMode.Synthesized, r.Mode);
-            Assert.Equal("synthesized", RenderParityOracle.ParityModeToken(r.Mode));
             Assert.False(r.OverTolerance);
         }
 
@@ -634,7 +633,7 @@ namespace Parsek.Tests
             MapRenderTrace.EmitAnomaly(
                 MapRenderTrace.RenderSurface.ProtoOrbitLine, "7", currentUT: 100.0, effUT: 100.0,
                 reason: MapRenderTrace.AnomalyParityDrift,
-                details: "mode=" + RenderParityOracle.ParityModeToken(r.Mode)
+                details: "mode=faithful"
                     + " maxDev=" + MapRenderTrace.FormatDouble(r.MaxDeviationMeters, "F1")
                     + " tol=" + MapRenderTrace.FormatDouble(r.ToleranceMeters, "F1"));
 

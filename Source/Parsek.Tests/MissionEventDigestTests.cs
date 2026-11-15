@@ -184,23 +184,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Digest_ControllerTree_NamesThePartnerAndItsMission()
-        {
-            // The left column of the worked example: "B docked with CD (mission 'CD Freighter')"
-            // with a GoTo. Fails if the digest loses the partner half (back to today's silent
-            // composition label) or wires the GoTo to its own side of the dock.
-            var row = Row(Digest("ta"), "dockbp", MissionEventDigest.VerbDockedWith);
-
-            Assert.Equal(CrossTreeDockFixture.DockUT, row.UT);
-            Assert.Equal("Vessel A0", row.SubjectName);
-            Assert.Equal("Vessel B0 (mission 'CD Freighter')", row.PartnerText);
-            Assert.Equal("B0", row.GoToRecordingId);
-            Assert.Equal("mission-tb", row.GoToMissionId);
-            Assert.Equal("Vessel A0 docked with Vessel B0 (mission 'CD Freighter')",
-                MissionEventDigest.FormatRowText(row));
-        }
-
-        [Fact]
         public void Digest_ControllerTree_UndockRowNamesTheDepartingVessel()
         {
             // The story of an undock is the piece that LEFT, not the stack that continued
@@ -325,21 +308,6 @@ namespace Parsek.Tests
         // ------------------------------------------------------------------
 
         [Fact]
-        public void Digest_NoMatch_UsesTheGenericUnrecordedText()
-        {
-            // Design Q4: the generic text lives in the DIGEST only (the tables stay silent). A
-            // stamped dock whose partner was never recorded is still a real event, and saying so
-            // is honest; fails if the row goes silent (an unexplained composition jump) or if the
-            // text leaks into TryDescribePartner's contract.
-            var row = Row(Digest("tc"), "nomatchbp", MissionEventDigest.VerbDockedWith);
-
-            Assert.Equal(MissionEventDigest.UnrecordedPartnerText, row.PartnerText);
-            Assert.Null(row.GoToRecordingId);
-            Assert.Equal("Vessel PQ2 docked with an unrecorded vessel",
-                MissionEventDigest.FormatRowText(row));
-        }
-
-        [Fact]
         public void Digest_UnstampedZero_EmitsAVerbOnlyRow()
         {
             // The degrade-to-today path (old recordings, EVA grabs, v1 Board merges): the dock
@@ -433,38 +401,6 @@ namespace Parsek.Tests
         // R5 gap rows (design 7.1 step 3 / 7.4)
         // ------------------------------------------------------------------
 
-        [Fact]
-        public void Digest_GapRow_AppearsOnlyForAnIncludedLinkPastTheThreshold()
-        {
-            // R5: the partner journey a player just switched on begins with unrecorded loiter, and
-            // the digest STATES that rather than letting the ghost teleport across it. Fails if
-            // the gap is stated for a link the mission never included (noise on every partner
-            // mission) or interpolated over.
-            Mission linked = MissionFor("tb");
-            linked.IncludedForeignDockLinkIds.Add("dockbp");
-
-            // Claimed line ends at 80, dock at 150 -> 70s gap, past the 60s threshold.
-            var withGap = Digest("tb", b0End: 80, mission: linked);
-            MissionEventRow gap = Row(withGap, "dockbp", MissionEventDigest.VerbGap);
-            Assert.Equal(80.0, gap.UT);
-            Assert.Equal(70.0, gap.GapSeconds);
-            Assert.Equal("Vessel B0", gap.SubjectName);
-            Assert.Equal("(loiter, 1m 10s - not recorded)",
-                MissionEventDigest.FormatRowText(gap));
-            // Stated BEFORE the dock it explains (UT = the claimed line's end).
-            Assert.True(withGap.IndexOf(gap)
-                < withGap.FindIndex(r => r.Verb == MissionEventDigest.VerbDockedBy));
-
-            // Same link, 50s gap: under the threshold, so nothing is stated.
-            Assert.DoesNotContain(Digest("tb", b0End: 100, mission: linked),
-                r => r.Verb == MissionEventDigest.VerbGap);
-
-            // Past the threshold but the link is NOT included: still nothing (the gap statement
-            // is an explanation of a journey the mission opted into).
-            Assert.DoesNotContain(Digest("tb", b0End: 80, mission: MissionFor("tb")),
-                r => r.Verb == MissionEventDigest.VerbGap);
-        }
-
         // ------------------------------------------------------------------
         // Terminal rows (design 7.1 step 4)
         // ------------------------------------------------------------------
@@ -526,32 +462,5 @@ namespace Parsek.Tests
         // ------------------------------------------------------------------
         // Row phrasing
         // ------------------------------------------------------------------
-
-        [Fact]
-        public void FormatRowText_PhrasesEveryRowShape()
-        {
-            // The renderer's words are pure and testable, so a phrasing regression (a doubled
-            // verb, a dangling partner clause, a culture-formatted duration) fails here rather
-            // than in a screenshot.
-            Assert.Equal("Vessel A0 launched", MissionEventDigest.FormatRowText(
-                new MissionEventRow { Verb = MissionEventDigest.VerbLaunched, SubjectName = "Vessel A0" }));
-            Assert.Equal("Vessel B1 undocked", MissionEventDigest.FormatRowText(
-                new MissionEventRow { Verb = MissionEventDigest.VerbUndocked, SubjectName = "Vessel B1", PartnerText = "" }));
-            Assert.Equal("Vessel B0 docked by Stack AB (mission 'AB')",
-                MissionEventDigest.FormatRowText(new MissionEventRow
-                {
-                    Verb = MissionEventDigest.VerbDockedBy,
-                    SubjectName = "Vessel B0",
-                    PartnerText = "Stack AB (mission 'AB')",
-                }));
-            Assert.Equal("Stack AD landed", MissionEventDigest.FormatRowText(
-                new MissionEventRow { Verb = "Landed", SubjectName = "Stack AD" }));
-            Assert.Equal("(loiter, 2m 0s - not recorded)", MissionEventDigest.FormatRowText(
-                new MissionEventRow { Verb = MissionEventDigest.VerbGap, GapSeconds = 120 }));
-            // A row whose subject the tree cannot name still renders as one line, not as a
-            // NullReferenceException inside a draw pass.
-            Assert.Equal("? undocked", MissionEventDigest.FormatRowText(
-                new MissionEventRow { Verb = MissionEventDigest.VerbUndocked }));
-        }
     }
 }

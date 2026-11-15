@@ -198,21 +198,6 @@ namespace Parsek
             }
         }
 
-        /// <summary>
-        /// Pure: the index in <paramref name="orderedCandidatePids"/> (the stock cycle order)
-        /// of the first candidate the gate allows, or -1 when none is allowed.
-        /// </summary>
-        internal static int FirstAllowedIndex(IList<uint> orderedCandidatePids, ICollection<uint> allowedPids)
-        {
-            if (orderedCandidatePids == null || allowedPids == null) return -1;
-            for (int i = 0; i < orderedCandidatePids.Count; i++)
-            {
-                if (orderedCandidatePids[i] != 0u && allowedPids.Contains(orderedCandidatePids[i]))
-                    return i;
-            }
-            return -1;
-        }
-
         /// <summary>The refusal line, design section 2.12 Rule 3 format.</summary>
         internal static string FormatRefusal(string sessionId, string path, uint targetPid, string reason)
         {

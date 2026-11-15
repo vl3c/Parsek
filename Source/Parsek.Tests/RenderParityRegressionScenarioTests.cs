@@ -61,7 +61,7 @@ namespace Parsek.Tests
         // headless analogue of OrbitRelativePositionYup on a circular orbit. The mean anomaly at UT `t` is
         // omega * (t - epoch), so a loop-shifted ghost whose epoch is baked with +shift evaluated at the
         // live clock lands on the SAME angle as the raw-epoch recorded orbit evaluated at (t - shift). This
-        // lets the loop-shift row ACTUALLY apply a shift (via RenderGeometrySampler.ShiftSampleUTs) and
+        // lets the loop-shift row ACTUALLY apply a shift (recorded UT = rendered UT - shift) and
         // prove the "shift the clock, not the shape" invariant headlessly, rather than diffing a circle
         // against an identical copy of itself.
         private static double[] CircleAtUTs(double radius, double omega, double epoch, double[] uts)
@@ -269,8 +269,8 @@ namespace Parsek.Tests
             // is ~0. This ACTUALLY applies the shift (it does not diff a circle against an identical copy):
             // the RENDERED orbit's epoch is baked with +shift and sampled at the LIVE-clock UTs (mirroring
             // StockConicTreatment.SeedAndDriveLive: epoch = seg.epoch + loopShift), and the RECORDED
-            // reference is the raw-epoch orbit sampled at the recorded-clock UTs (liveUT - shift, via
-            // RenderGeometrySampler.ShiftSampleUTs). Both therefore land on the SAME mean-anomaly angle, so
+            // reference is the raw-epoch orbit sampled at the recorded-clock UTs (liveUT - shift).
+            // Both therefore land on the SAME mean-anomaly angle, so
             // a correct "shift the clock, not the shape" pipeline reads zero drift. (This is the headless
             // analogue of the production probe's BuildPhaseMatchedReferenceOrbit + same-UT sampling; the
             // in-game RenderParityBaselineTest loop-shifted variant proves the live path.)
@@ -282,7 +282,7 @@ namespace Parsek.Tests
             double[] renderedUTs = RenderGeometrySampler.BuildSampleUTs(
                 liveCenterUT, 5400.0 * 0.25, SampleCount);
             // Recorded reference sampled at the recorded-clock UTs (liveUT - shift), raw epoch.
-            double[] recordedUTs = RenderGeometrySampler.ShiftSampleUTs(renderedUTs, shift);
+            double[] recordedUTs = Array.ConvertAll(renderedUTs, u => u - shift);
             // Rendered orbit epoch baked with +shift, sampled at the live-clock UTs.
             double[] rendered = CircleAtUTs(LkoRadius, omega, epoch + shift, renderedUTs);
             double[] recorded = CircleAtUTs(LkoRadius, omega, epoch, recordedUTs);

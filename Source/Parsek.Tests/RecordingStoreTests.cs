@@ -764,40 +764,6 @@ namespace Parsek.Tests
             Assert.Empty(CrewReservationManager.RescuePlacedKerbals);
         }
 
-        // --- Reservation decision logic (extracted for testability) ---
-
-        [Fact]
-        public void ShouldProcessCrew_Available_ReturnsTrue()
-        {
-            Assert.True(CrewReservationManager.ShouldProcessCrewForReservation(
-                ProtoCrewMember.RosterStatus.Available));
-        }
-
-        [Fact]
-        public void ShouldProcessCrew_Assigned_ReturnsTrue()
-        {
-            // Key scenario: crew already Assigned (on pad vessel after revert)
-            // must still be processed so a replacement is hired and swap can happen
-            Assert.True(CrewReservationManager.ShouldProcessCrewForReservation(
-                ProtoCrewMember.RosterStatus.Assigned));
-        }
-
-        [Fact]
-        public void ShouldProcessCrew_Dead_ReturnsFalse()
-        {
-            Assert.False(CrewReservationManager.ShouldProcessCrewForReservation(
-                ProtoCrewMember.RosterStatus.Dead));
-        }
-
-        [Fact]
-        public void ShouldProcessCrew_Missing_ReturnsTrue()
-        {
-            // Missing crew are processed: they may be alive but orphaned from
-            // a removed vessel (e.g. --clean-start). The rescue paths rescue them.
-            Assert.True(CrewReservationManager.ShouldProcessCrewForReservation(
-                ProtoCrewMember.RosterStatus.Missing));
-        }
-
         // --- Snapshot crew extraction ---
 
         [Fact]

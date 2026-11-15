@@ -118,58 +118,10 @@ namespace Parsek.Tests
 
     public class ShouldRenderPartEventsTests
     {
-        #region ShouldRenderPartEvents
-
-        [Fact]
-        public void ShouldRenderPartEvents_InsideFullFidelityRange_ReturnsTrue()
-        {
-            Assert.True(RenderingZoneManager.ShouldRenderPartEvents(0));
-            Assert.True(RenderingZoneManager.ShouldRenderPartEvents(1000));
-            Assert.True(RenderingZoneManager.ShouldRenderPartEvents(RenderingZoneManager.FullFidelityRadius - 1));
-        }
-
-        [Fact]
-        public void ShouldRenderPartEvents_AtFullFidelityBoundary_ReturnsFalse()
-        {
-            Assert.False(RenderingZoneManager.ShouldRenderPartEvents(RenderingZoneManager.FullFidelityRadius));
-        }
-
-        [Fact]
-        public void ShouldRenderPartEvents_BeyondPhysicsBubble_ReturnsFalse()
-        {
-            Assert.False(RenderingZoneManager.ShouldRenderPartEvents(50000));
-            Assert.False(RenderingZoneManager.ShouldRenderPartEvents(120000));
-        }
-
-        #endregion
     }
 
     public class ShouldRenderMeshTests
     {
-        #region ShouldRenderMesh
-
-        [Fact]
-        public void ShouldRenderMesh_InsideVisualRange_ReturnsTrue()
-        {
-            Assert.True(RenderingZoneManager.ShouldRenderMesh(0));
-            Assert.True(RenderingZoneManager.ShouldRenderMesh(2300));
-            Assert.True(RenderingZoneManager.ShouldRenderMesh(50000));
-            Assert.True(RenderingZoneManager.ShouldRenderMesh(119999));
-        }
-
-        [Fact]
-        public void ShouldRenderMesh_AtVisualBoundary_ReturnsFalse()
-        {
-            Assert.False(RenderingZoneManager.ShouldRenderMesh(RenderingZoneManager.VisualRangeRadius));
-        }
-
-        [Fact]
-        public void ShouldRenderMesh_BeyondVisualRange_ReturnsFalse()
-        {
-            Assert.False(RenderingZoneManager.ShouldRenderMesh(RenderingZoneManager.VisualRangeRadius + 100000));
-        }
-
-        #endregion
     }
 
     public class RenderingZoneConstantsTests
@@ -279,47 +231,5 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region LogLoopedGhostSpawnDecision
-
-        [Fact]
-        public void LogLoopedGhostSpawn_FullFidelity_LogsCorrectly()
-        {
-            RenderingZoneManager.LogLoopedGhostSpawnDecision("loop-1", 500.0, true, false);
-
-            Assert.Single(logLines);
-            string line = logLines[0];
-            Assert.Contains("[Zone]", line);
-            Assert.Contains("full fidelity", line);
-            Assert.Contains("ghost=loop-1", line);
-            Assert.Contains("dist=500m", line);
-        }
-
-        [Fact]
-        public void LogLoopedGhostSpawn_Simplified_LogsCorrectly()
-        {
-            RenderingZoneManager.LogLoopedGhostSpawnDecision("loop-2", 10000.0, true, true);
-
-            Assert.Single(logLines);
-            string line = logLines[0];
-            Assert.Contains("[Zone]", line);
-            Assert.Contains("simplified", line);
-            Assert.Contains("no part events", line);
-            Assert.Contains("ghost=loop-2", line);
-        }
-
-        [Fact]
-        public void LogLoopedGhostSpawn_Suppressed_LogsCorrectly()
-        {
-            RenderingZoneManager.LogLoopedGhostSpawnDecision("loop-3", 60000.0, false, false);
-
-            Assert.Single(logLines);
-            string line = logLines[0];
-            Assert.Contains("[Zone]", line);
-            Assert.Contains("suppressed", line);
-            Assert.Contains("ghost=loop-3", line);
-            Assert.Contains("50000m threshold", line);
-        }
-
-        #endregion
     }
 }

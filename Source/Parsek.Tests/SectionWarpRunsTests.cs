@@ -49,7 +49,6 @@ namespace Parsek.Tests
             Assert.Equal(2f, runs[1].MaxRate);
             Assert.Equal(SectionWarpRuns.KindNormal, runs[2].Kind);
             Assert.Equal(SectionWarpRuns.KindRails, runs[3].Kind);
-            Assert.Equal(2, SectionWarpRuns.PhysicsFrameCount(runs));
         }
 
         [Fact]

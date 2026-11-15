@@ -12,25 +12,6 @@ namespace Parsek
     /// </summary>
     internal static partial class RewindSpawnScope
     {
-        /// <summary>
-        /// Returns true if the given vessel situation (as int) represents a stable state
-        /// suitable for Commit Flight or rewind save capture.
-        /// Stable: PRELAUNCH(4), LANDED(1), SPLASHED(2), ORBITING(32).
-        /// Unstable: FLYING(8), SUB_ORBITAL(16), ESCAPING(64).
-        /// </summary>
-        internal static bool IsStableState(int situation)
-        {
-            switch (situation)
-            {
-                case 1:  // LANDED
-                case 2:  // SPLASHED
-                case 4:  // PRELAUNCH
-                case 32: // ORBITING
-                    return true;
-                default:
-                    return false;
-            }
-        }
 
         /// <summary>
         /// Result of scoping a plain rewind's spawned-vessel PID strip.

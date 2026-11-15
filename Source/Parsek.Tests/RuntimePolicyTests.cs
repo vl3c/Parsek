@@ -106,41 +106,6 @@ namespace Parsek.Tests
             Assert.Equal(expected, GhostPlaybackLogic.ShouldSuppressGhosts(warpRate));
         }
 
-        [Theory]
-        [InlineData(true, true)]
-        [InlineData(false, false)]
-        public void ShouldPauseTimelineResourceReplay_ReflectsRecordingState(bool isRecording, bool expected)
-        {
-            bool actual = GhostPlaybackLogic.ShouldPauseTimelineResourceReplay(isRecording);
-            Assert.Equal(expected, actual);
-        }
-
-        [Theory]
-        [InlineData(true, true)]
-        [InlineData(false, false)]
-        public void ShouldLoopPlayback_RespectsRecordingFlag(
-            bool recordingLoopPlayback, bool expected)
-        {
-            bool actual = GhostPlaybackLogic.ShouldLoopPlayback(recordingLoopPlayback);
-            Assert.Equal(expected, actual);
-        }
-
-        [Fact]
-        public void ComputeTargetResourceIndex_FindsHighestPassedPoint()
-        {
-            var points = MakePoints(10, 20, 30, 40);
-            int target = GhostPlaybackLogic.ComputeTargetResourceIndex(points, lastAppliedResourceIndex: -1, currentUT: 29);
-            Assert.Equal(1, target);
-        }
-
-        [Fact]
-        public void ComputeTargetResourceIndex_NoAdvanceWhenBeforeNextPoint()
-        {
-            var points = MakePoints(10, 20, 30, 40);
-            int target = GhostPlaybackLogic.ComputeTargetResourceIndex(points, lastAppliedResourceIndex: 1, currentUT: 25);
-            Assert.Equal(1, target);
-        }
-
         // Phase F: ComputeStandaloneDelta region removed alongside the standalone
         // resource applier (ApplyResourceDeltas in ParsekFlight). The ledger drives
         // funds/science/reputation now; per-recording delta replay is gone.
@@ -274,24 +239,6 @@ namespace Parsek.Tests
             Assert.Equal(expectedInPlayback, inPlayback);
             Assert.Equal(expectedCycle, cycleIndex);
             Assert.Equal(expectedLoopUT, loopUT, 6);
-        }
-
-        [Theory]
-        [InlineData(true, -10.0, true, 50.0, true, -10.0)]
-        [InlineData(true, 0.0, false, 50.0, true, 50.0)]
-        [InlineData(false, 0.0, false, 123.0, true, 123.0)]
-        [InlineData(false, 0.0, false, 0.0, false, 0.0)]
-        public void SelectRelocatedAltitude_PrefersTerrainThenSnapshot(
-            bool landedLike,
-            double terrainAltitude,
-            bool terrainValid,
-            double snapshotAltitude,
-            bool hasSnapshotAltitude,
-            double expected)
-        {
-            double actual = VesselSpawner.SelectRelocatedAltitude(
-                landedLike, terrainAltitude, terrainValid, snapshotAltitude, hasSnapshotAltitude);
-            Assert.Equal(expected, actual);
         }
 
         // --- GetActiveCycles tests (#381 launch-to-launch semantics) ---

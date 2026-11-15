@@ -872,22 +872,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ScrollToCareerSubject_OpensTheWindowOnTheCategoryView()
-        {
-            var window = new TimelineWindowUI(null);
-            Assert.False(window.IsOpen);
-            window.ScrollToCareerSubject(TimelineCareerCategory.Strategies, "AggressiveNeg",
-                Game.Modes.CAREER);
-            Assert.True(window.IsOpen);
-            Assert.Equal((int)TimelineWindowUI.TimelineTierFilterMode.Strategies,
-                window.TierFilterModeIndexForTesting);
-            Assert.Equal(TimelineCareerCategory.Strategies, window.LastCareerCategoryForTesting);
-            Assert.Contains(logLines, l => l.Contains("[Timeline]")
-                && l.Contains("Cross-link: scroll requested for category=Strategies subject=AggressiveNeg")
-                && l.Contains("viewSwitched=True"));
-        }
-
-        [Fact]
         public void ScrollToRecording_LeavesACareerViewForOverview()
         {
             var window = new TimelineWindowUI(null);
@@ -919,20 +903,6 @@ namespace Parsek.Tests
                 TimelineCareerCategory.Facilities,
                 FacilityDisplayNames.FacilityIdForBuilding("SpaceCenter/LaunchPad/Facility/LaunchPadMedium"));
             Assert.Equal(folded.Describe(), target.Describe());
-        }
-
-        [Fact]
-        public void ScrollToCareerSubject_HiddenCategoryKeepsTheView()
-        {
-            var window = new TimelineWindowUI(null);
-            window.TierFilterModeIndexForTesting = (int)TimelineWindowUI.TimelineTierFilterMode.Details;
-            window.ScrollToCareerSubject(TimelineCareerCategory.Contracts, "c1",
-                Game.Modes.SCIENCE_SANDBOX);
-            Assert.True(window.IsOpen);
-            Assert.Equal((int)TimelineWindowUI.TimelineTierFilterMode.Details,
-                window.TierFilterModeIndexForTesting);
-            Assert.Contains(logLines, l => l.Contains("[Timeline]")
-                && l.Contains("viewSwitched=False") && l.Contains("gameMode=science"));
         }
 
         // ------------------------------------------------------------------

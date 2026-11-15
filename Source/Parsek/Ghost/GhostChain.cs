@@ -80,21 +80,6 @@ namespace Parsek
             ClaimedVessels = new List<ChainClaimedVessel>();
         }
 
-        /// <summary>True when <paramref name="pid"/> is one of the vessels this chain holds back.</summary>
-        public bool ClaimsPid(uint pid)
-        {
-            if (pid == 0)
-                return false;
-            if (pid == OriginalVesselPid)
-                return true;
-            for (int i = 0; i < ClaimedVessels.Count; i++)
-            {
-                if (ClaimedVessels[i].Pid == pid)
-                    return true;
-            }
-            return false;
-        }
-
         /// <summary>
         /// Adds a held-back vessel unless the chain already claims that pid. Returns true when added.
         /// </summary>

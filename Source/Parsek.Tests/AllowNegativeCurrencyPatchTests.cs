@@ -85,10 +85,13 @@ namespace Parsek.Tests
             Assert.Equal(-50000.0, funds.GetProjectionMinBalance());
             Assert.Equal(0.0, funds.GetAvailableFunds());
 
-            double target = KspStatePatcher.ResolveFundsPatchTarget(funds, currentLive: 10000.0,
-                allowNegativeCurrency: true);
+            // The write target PatchFunds computes (no stock-pool adjustment).
+            double target = StockPoolReference.ResolveCurrencyWriteTarget(
+                funds.GetProjectionMinBalance(), funds.GetRunningBalance(), currentLive: 10000.0,
+                allowNegativeCurrency: true, adjustment: 0.0);
             Assert.Equal(0.0, target);
-            Assert.Equal(target, KspStatePatcher.ResolveFundsPatchTarget(funds, 10000.0, false));
+            Assert.Equal(target, StockPoolReference.ResolveCurrencyWriteTarget(
+                funds.GetProjectionMinBalance(), funds.GetRunningBalance(), 10000.0, false, 0.0));
         }
 
         // Same repro for science: a committed tech unlock the pool cannot cover yet.
@@ -107,7 +110,9 @@ namespace Parsek.Tests
             Assert.Equal(100.0, science.GetRunningScience(), 3);
             Assert.Equal(-200.0, science.GetProjectionMinBalance(), 3);
 
-            Assert.Equal(0.0, KspStatePatcher.ResolveSciencePatchBaseTarget(science, 50.0, true));
+            // The write target PatchScience starts from (no stock-pool adjustment).
+            Assert.Equal(0.0, StockPoolReference.ResolveCurrencyWriteTarget(
+                science.GetProjectionMinBalance(), science.GetRunningScience(), 50.0, true, 0.0));
         }
 
         // A real past penalty made the running balance negative: the pool stays negative (no
@@ -128,8 +133,9 @@ namespace Parsek.Tests
             FundsModule funds = LedgerOrchestrator.Funds;
             Assert.Equal(-3000.0, funds.GetRunningBalance());
 
-            double target = KspStatePatcher.ResolveFundsPatchTarget(funds, currentLive: -3000.0,
-                allowNegativeCurrency: true);
+            double target = StockPoolReference.ResolveCurrencyWriteTarget(
+                funds.GetProjectionMinBalance(), funds.GetRunningBalance(), currentLive: -3000.0,
+                allowNegativeCurrency: true, adjustment: 0.0);
             Assert.Equal(-3000.0, target);
 
             logLines.Clear();

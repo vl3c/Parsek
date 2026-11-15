@@ -1215,17 +1215,6 @@ namespace Parsek
                 baseline.ArgumentOfPeriapsis) >= PostSwitchOrbitAngleThresholdDegrees;
         }
 
-        internal static bool HasMeaningfulCrewDelta(Dictionary<string, int> delta)
-        {
-            if (delta == null) return false;
-            foreach (var entry in delta)
-            {
-                if (entry.Value != 0)
-                    return true;
-            }
-            return false;
-        }
-
         internal static int CountMeaningfulCrewDelta(Dictionary<string, int> delta)
         {
             if (delta == null) return 0;
@@ -1236,19 +1225,6 @@ namespace Parsek
                     count++;
             }
             return count;
-        }
-
-        internal static bool HasMeaningfulResourceDelta(
-            Dictionary<string, double> delta,
-            double epsilon = PostSwitchResourceDeltaEpsilon)
-        {
-            if (delta == null) return false;
-            foreach (var entry in delta)
-            {
-                if (Math.Abs(entry.Value) > epsilon)
-                    return true;
-            }
-            return false;
         }
 
         internal static int CountMeaningfulResourceDelta(
@@ -1265,17 +1241,6 @@ namespace Parsek
             return count;
         }
 
-        internal static bool HasMeaningfulInventoryDelta(Dictionary<string, InventoryItem> delta)
-        {
-            if (delta == null) return false;
-            foreach (var entry in delta)
-            {
-                if (entry.Value.count != 0 || entry.Value.slotsTaken != 0)
-                    return true;
-            }
-            return false;
-        }
-
         internal static int CountMeaningfulInventoryDelta(Dictionary<string, InventoryItem> delta)
         {
             if (delta == null) return 0;
@@ -1286,26 +1251,6 @@ namespace Parsek
                     count++;
             }
             return count;
-        }
-
-        internal static bool HasMeaningfulPartStateTokenChange(
-            ICollection<string> baselineTokens,
-            ICollection<string> currentTokens)
-        {
-            int baselineCount = baselineTokens != null ? baselineTokens.Count : 0;
-            int currentCount = currentTokens != null ? currentTokens.Count : 0;
-            if (baselineCount != currentCount)
-                return true;
-            if (baselineCount == 0)
-                return false;
-
-            var baselineSet = baselineTokens as HashSet<string> ?? new HashSet<string>(baselineTokens);
-            foreach (string token in currentTokens)
-            {
-                if (!baselineSet.Contains(token))
-                    return true;
-            }
-            return false;
         }
 
         internal static int CountPartStateTokenDelta(
@@ -1375,17 +1320,6 @@ namespace Parsek
                 sourcePid,
                 targetPid,
                 pendingSplitInProgress);
-        }
-
-        internal static bool HasMeaningfulPartStateChange(IEnumerable<PartEventType> changedTypes)
-        {
-            if (changedTypes == null) return false;
-            foreach (PartEventType type in changedTypes)
-            {
-                if (GhostingTriggerClassifier.IsGhostingTrigger(type))
-                    return true;
-            }
-            return false;
         }
 
         internal static ParsekFlight.PostSwitchAutoRecordTrigger EvaluatePostSwitchAutoRecordTrigger(

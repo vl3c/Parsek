@@ -52,24 +52,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure: find recording IDs that are superseded by a later recording in the same chain.
-        /// A recording is superseded if another recording's ParentRecordingId points to it.
-        /// Chain-tip recordings are NOT in the returned set.
-        /// </summary>
-        internal static HashSet<string> FindSupersededRecordingIds(IReadOnlyList<Recording> recordings)
-        {
-            var superseded = new HashSet<string>();
-            if (recordings == null) return superseded;
-            for (int i = 0; i < recordings.Count; i++)
-            {
-                string parentId = recordings[i].ParentRecordingId;
-                if (!string.IsNullOrEmpty(parentId))
-                    superseded.Add(parentId);
-            }
-            return superseded;
-        }
-
-        /// <summary>
         /// Tracking Station visibility suppression is time-aware: a recording is hidden only
         /// after one of its child recordings has actually started by the current UT. This keeps
         /// the current atmospheric continuation visible even when a later future leg already

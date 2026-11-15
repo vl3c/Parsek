@@ -94,8 +94,8 @@ namespace Parsek
         public TimelineCareerCategory CareerCategory;
         /// <summary>
         /// The row's subject inside <see cref="CareerCategory"/> (contract id, strategy id,
-        /// facility id, milestone id or tech node id), the key
-        /// <c>TimelineWindowUI.ScrollToCareerSubject</c> scrolls to. Null when None.
+        /// facility id, milestone id or tech node id), the key a career scroll target in
+        /// <c>TimelineWindowUI</c> matches. Null when None.
         /// </summary>
         public string CareerSubjectId;
         /// <summary>

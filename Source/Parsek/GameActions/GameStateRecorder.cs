@@ -15,7 +15,7 @@ namespace Parsek
     {
         /// <summary>
         /// Set to true by ParsekScenario during its own crew mutations
-        /// (UnreserveCrewInSnapshot, CleanUpReplacement, ClearReplacements)
+        /// (UnreserveCrewInSnapshot, CleanUpReplacement)
         /// to prevent recording Parsek's internal bookkeeping as real game state events.
         /// </summary>
         internal static bool SuppressCrewEvents = false;
@@ -1955,30 +1955,6 @@ namespace Parsek
             string facilityId, float beforeNorm, float afterNorm, double ut)
         {
             return facilityRecorder.RecordEventDrivenLevelChange(facilityId, beforeNorm, afterNorm, ut);
-        }
-
-        #endregion
-
-        #region Testing Support
-
-        /// <summary>
-        /// Checks the facility transition logic without Unity dependencies.
-        /// Returns events that would be emitted for the given state change.
-        /// </summary>
-        internal static List<GameStateEvent> CheckFacilityTransitions(
-            Dictionary<string, float> cached, Dictionary<string, float> current, double ut)
-        {
-            return GameStateFacilityRecorder.CheckFacilityTransitions(cached, current, ut);
-        }
-
-        /// <summary>
-        /// Checks the building transition logic without Unity dependencies.
-        /// Returns events that would be emitted for the given state change.
-        /// </summary>
-        internal static List<GameStateEvent> CheckBuildingTransitions(
-            Dictionary<string, bool> cached, Dictionary<string, bool> current, double ut)
-        {
-            return GameStateFacilityRecorder.CheckBuildingTransitions(cached, current, ut);
         }
 
         #endregion

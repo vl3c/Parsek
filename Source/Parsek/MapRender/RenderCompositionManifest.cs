@@ -444,14 +444,6 @@ namespace Parsek.MapRender
             return closed;
         }
 
-        /// <summary>Closes any dwell still open for <paramref name="pid"/> (ghost retired / scene exit).</summary>
-        internal void CloseOpenDwell(uint pid, double closeUT)
-        {
-            if (!openDwellByPid.TryGetValue(pid, out DwellRecord open) || open == null)
-                return;
-            CloseDwell(pid, open, closeUT);
-        }
-
         /// <summary>Closes EVERY open dwell, marking each as open-at-export.
         /// <para>NOT on the export path any more: <c>BuildFileNode</c> snapshots open dwells
         /// non-destructively (a build or write that fails must not have already retired them).

@@ -719,27 +719,5 @@ namespace Parsek
         }
 
         #endregion
-
-        /// <summary>
-        /// Counts non-resource events across all committed milestones that are still visible
-        /// in the current timeline.
-        /// Used for the Actions button badge in the main window.
-        /// </summary>
-        internal static int GetPendingEventCount()
-        {
-            int count = 0;
-            for (int i = 0; i < milestones.Count; i++)
-            {
-                var m = milestones[i];
-                if (!m.Committed) continue;
-                for (int j = 0; j < m.Events.Count; j++)
-                {
-                    if (!GameStateStore.IsEventVisibleToCurrentTimeline(m.Events[j])) continue;
-                    if (!GameStateStore.IsMilestoneFilteredEvent(m.Events[j].eventType))
-                        count++;
-                }
-            }
-            return count;
-        }
     }
 }

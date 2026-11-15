@@ -704,27 +704,6 @@ namespace Parsek
             return string.CompareOrdinal(a.RecordingId, b.RecordingId);
         }
 
-        internal List<uint> FindDuplicateBackgroundMapPids()
-        {
-            var counts = new Dictionary<uint, int>();
-            var duplicates = new List<uint>();
-
-            foreach (var rec in Recordings.Values)
-            {
-                if (!IsBackgroundMapEligible(rec))
-                    continue;
-
-                int nextCount = 1;
-                if (counts.TryGetValue(rec.VesselPersistentId, out int existing))
-                    nextCount = existing + 1;
-
-                counts[rec.VesselPersistentId] = nextCount;
-                if (nextCount == 2)
-                    duplicates.Add(rec.VesselPersistentId);
-            }
-
-            return duplicates;
-        }
         // --- Recording serialization helpers ---
 
         internal static void SaveRecordingInto(ConfigNode recNode, Recording rec)

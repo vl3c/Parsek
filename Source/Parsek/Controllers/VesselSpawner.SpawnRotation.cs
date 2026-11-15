@@ -92,30 +92,6 @@ namespace Parsek
             return true;
         }
 
-        internal static bool TryApplyPreferredSpawnRotation(
-            ConfigNode vesselNode,
-            Recording rec,
-            TrajectoryPoint? fallbackPoint,
-            string context)
-        {
-            if (!TryResolvePreferredSpawnRotation(
-                rec, fallbackPoint,
-                out string bodyName,
-                out Quaternion? bodyRotation,
-                out Quaternion surfaceRelativeRotation,
-                out string source))
-            {
-                return false;
-            }
-
-            return VesselSnapshotOps.TryApplySpawnRotationFromSurfaceRelative(
-                vesselNode,
-                bodyName,
-                bodyRotation,
-                surfaceRelativeRotation,
-                $"{context}, source={source}");
-        }
-
         internal static CelestialBody ResolveSpawnRotationBody(
             Recording rec,
             TrajectoryPoint? point = null)

@@ -28,15 +28,5 @@ namespace Parsek
             if (distanceMeters < PhysicsBubble) return FarInterval;
             return OutOfRangeInterval;
         }
-
-        /// <summary>
-        /// Returns the approximate sample rate in Hz for diagnostics/logging.
-        /// </summary>
-        internal static float GetSampleRateHz(double distanceMeters)
-        {
-            double interval = GetSampleInterval(distanceMeters);
-            if (interval <= 0 || interval >= OutOfRangeInterval || double.IsInfinity(interval)) return 0f;
-            return (float)(1.0 / interval);
-        }
     }
 }

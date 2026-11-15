@@ -296,30 +296,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void GameStateStore_ClearEvents_RemovesAll()
-        {
-            GameStateStore.ResetForTesting();
-
-            var evt = new GameStateEvent
-            {
-                ut = 100,
-                eventType = GameStateEventType.TechResearched,
-                key = "basicRocketry"
-            };
-            GameStateStore.AddEvent(ref evt);
-
-            GameStateStore.AddContractSnapshot("guid-1", new ConfigNode("CONTRACT"));
-
-            Assert.Equal(1, GameStateStore.EventCount);
-            Assert.Equal(1, GameStateStore.ContractSnapshots.Count);
-
-            GameStateStore.ClearEvents();
-
-            Assert.Equal(0, GameStateStore.EventCount);
-            Assert.Equal(0, GameStateStore.ContractSnapshots.Count);
-        }
-
-        [Fact]
         public void GameStateStore_ResetForTesting_ClearsEverything()
         {
             var evt = new GameStateEvent { ut = 100 };
@@ -634,67 +610,6 @@ namespace Parsek.Tests
 
         #region Facility Transition Detection
 
-        [Fact]
-        public void FacilityTransition_Upgraded_DetectedCorrectly()
-        {
-            var cached = new Dictionary<string, float>
-            {
-                ["SpaceCenter/LaunchPad"] = 0.0f,
-                ["SpaceCenter/VehicleAssemblyBuilding"] = 0.5f
-            };
-            var current = new Dictionary<string, float>
-            {
-                ["SpaceCenter/LaunchPad"] = 0.5f,  // upgraded
-                ["SpaceCenter/VehicleAssemblyBuilding"] = 0.5f  // unchanged
-            };
-
-            var events = GameStateRecorder.CheckFacilityTransitions(cached, current, 17000);
-
-            Assert.Single(events);
-            Assert.Equal(GameStateEventType.FacilityUpgraded, events[0].eventType);
-            Assert.Equal("SpaceCenter/LaunchPad", events[0].key);
-            Assert.Equal(0.0, events[0].valueBefore);
-            Assert.Equal(0.5, events[0].valueAfter);
-        }
-
-        [Fact]
-        public void FacilityTransition_Downgraded_DetectedCorrectly()
-        {
-            var cached = new Dictionary<string, float>
-            {
-                ["SpaceCenter/LaunchPad"] = 1.0f
-            };
-            var current = new Dictionary<string, float>
-            {
-                ["SpaceCenter/LaunchPad"] = 0.5f  // downgraded
-            };
-
-            var events = GameStateRecorder.CheckFacilityTransitions(cached, current, 17000);
-
-            Assert.Single(events);
-            Assert.Equal(GameStateEventType.FacilityDowngraded, events[0].eventType);
-        }
-
-        [Fact]
-        public void FacilityTransition_NoChange_NoEvents()
-        {
-            var cached = new Dictionary<string, float>
-            {
-                ["SpaceCenter/LaunchPad"] = 0.5f,
-                ["SpaceCenter/VehicleAssemblyBuilding"] = 0.5f
-            };
-            // Same state — small float difference within tolerance
-            var current = new Dictionary<string, float>
-            {
-                ["SpaceCenter/LaunchPad"] = 0.5001f,
-                ["SpaceCenter/VehicleAssemblyBuilding"] = 0.4999f
-            };
-
-            var events = GameStateRecorder.CheckFacilityTransitions(cached, current, 17000);
-
-            Assert.Empty(events);
-        }
-
         // ---- Event-driven OnKSCFacilityUpgrading classification (RED 2 fix) ----
 
         [Fact]
@@ -737,66 +652,6 @@ namespace Parsek.Tests
             float after = GameStateFacilityRecorder.NormalizedLevel(1, 2);
             Assert.Equal(GameStateEventType.FacilityUpgraded,
                 GameStateFacilityRecorder.ClassifyFacilityLevelChange(before, after));
-        }
-
-        #endregion
-
-        #region Building Transition Detection
-
-        [Fact]
-        public void BuildingTransition_Destroyed_DetectedCorrectly()
-        {
-            var cached = new Dictionary<string, bool>
-            {
-                ["SpaceCenter/LaunchPad"] = true // was intact
-            };
-            var current = new Dictionary<string, bool>
-            {
-                ["SpaceCenter/LaunchPad"] = false // now destroyed
-            };
-
-            var events = GameStateRecorder.CheckBuildingTransitions(cached, current, 17000);
-
-            Assert.Single(events);
-            Assert.Equal(GameStateEventType.BuildingDestroyed, events[0].eventType);
-            Assert.Equal("SpaceCenter/LaunchPad", events[0].key);
-        }
-
-        [Fact]
-        public void BuildingTransition_Repaired_DetectedCorrectly()
-        {
-            var cached = new Dictionary<string, bool>
-            {
-                ["SpaceCenter/LaunchPad"] = false // was destroyed
-            };
-            var current = new Dictionary<string, bool>
-            {
-                ["SpaceCenter/LaunchPad"] = true // now intact
-            };
-
-            var events = GameStateRecorder.CheckBuildingTransitions(cached, current, 17000);
-
-            Assert.Single(events);
-            Assert.Equal(GameStateEventType.BuildingRepaired, events[0].eventType);
-        }
-
-        [Fact]
-        public void BuildingTransition_NoChange_NoEvents()
-        {
-            var cached = new Dictionary<string, bool>
-            {
-                ["SpaceCenter/LaunchPad"] = true,
-                ["SpaceCenter/Administration"] = false
-            };
-            var current = new Dictionary<string, bool>
-            {
-                ["SpaceCenter/LaunchPad"] = true,
-                ["SpaceCenter/Administration"] = false
-            };
-
-            var events = GameStateRecorder.CheckBuildingTransitions(cached, current, 17000);
-
-            Assert.Empty(events);
         }
 
         #endregion
@@ -892,51 +747,6 @@ namespace Parsek.Tests
 
             GameStateStore.AddBaseline(null);
 
-            Assert.Equal(0, GameStateStore.BaselineCount);
-        }
-
-        [Fact]
-        public void ClearBaselines_RemovesAll()
-        {
-            GameStateStore.ResetForTesting();
-
-            GameStateStore.AddBaseline(new GameStateBaseline { ut = 17000 });
-            GameStateStore.AddBaseline(new GameStateBaseline { ut = 18000 });
-            Assert.Equal(2, GameStateStore.BaselineCount);
-
-            GameStateStore.ClearBaselines();
-            Assert.Equal(0, GameStateStore.BaselineCount);
-        }
-
-        [Fact]
-        public void ClearBaselines_IndependentFromClearEvents()
-        {
-            GameStateStore.ResetForTesting();
-
-            GameStateStore.AddBaseline(new GameStateBaseline { ut = 17000 });
-            var evt1 = new GameStateEvent
-            {
-                ut = 100,
-                eventType = GameStateEventType.TechResearched,
-                key = "test"
-            };
-            GameStateStore.AddEvent(ref evt1);
-
-            // ClearEvents should not touch baselines
-            GameStateStore.ClearEvents();
-            Assert.Equal(0, GameStateStore.EventCount);
-            Assert.Equal(1, GameStateStore.BaselineCount);
-
-            // ClearBaselines should not touch events (already cleared, just verify isolation)
-            var evt2 = new GameStateEvent
-            {
-                ut = 200,
-                eventType = GameStateEventType.PartPurchased,
-                key = "mk1pod.v2"
-            };
-            GameStateStore.AddEvent(ref evt2);
-            GameStateStore.ClearBaselines();
-            Assert.Equal(1, GameStateStore.EventCount);
             Assert.Equal(0, GameStateStore.BaselineCount);
         }
 
@@ -1436,115 +1246,6 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region GetUncommittedEventCount
-
-        [Fact]
-        public void GetUncommittedEventCount_CountsEventsAfterLastMilestone()
-        {
-            // Add events and create a milestone covering ut 0-100
-            var techEvt = new GameStateEvent
-            {
-                ut = 50,
-                eventType = GameStateEventType.TechResearched,
-                key = "basicRocketry"
-            };
-            GameStateStore.AddEvent(ref techEvt);
-            MilestoneStore.CreateMilestone("rec1", 100);
-
-            // Add events after the milestone
-            var contractEvt = new GameStateEvent
-            {
-                ut = 150,
-                eventType = GameStateEventType.ContractAccepted,
-                key = "guid-1"
-            };
-            GameStateStore.AddEvent(ref contractEvt);
-            var crewEvt = new GameStateEvent
-            {
-                ut = 200,
-                eventType = GameStateEventType.CrewHired,
-                key = "Val Kerman"
-            };
-            GameStateStore.AddEvent(ref crewEvt);
-            // Resource event — should be filtered
-            var fundsEvt = new GameStateEvent
-            {
-                ut = 160,
-                eventType = GameStateEventType.FundsChanged,
-                valueBefore = 1000, valueAfter = 900
-            };
-            GameStateStore.AddEvent(ref fundsEvt);
-
-            Assert.Equal(2, GameStateStore.GetUncommittedEventCount());
-        }
-
-        [Fact]
-        public void GetUncommittedEventCount_ZeroWhenAllCommitted()
-        {
-            var techEvt = new GameStateEvent
-            {
-                ut = 50,
-                eventType = GameStateEventType.TechResearched,
-                key = "basicRocketry"
-            };
-            GameStateStore.AddEvent(ref techEvt);
-            MilestoneStore.CreateMilestone("rec1", 100);
-
-            Assert.Equal(0, GameStateStore.GetUncommittedEventCount());
-        }
-
-        [Fact]
-        public void GetUncommittedEventCount_AllUncommittedWhenNoMilestones()
-        {
-            var contractEvt = new GameStateEvent
-            {
-                ut = 50,
-                eventType = GameStateEventType.ContractAccepted,
-                key = "guid-1"
-            };
-            GameStateStore.AddEvent(ref contractEvt);
-            var partEvt = new GameStateEvent
-            {
-                ut = 60,
-                eventType = GameStateEventType.PartPurchased,
-                key = "mk1pod.v2"
-            };
-            GameStateStore.AddEvent(ref partEvt);
-
-            Assert.Equal(2, GameStateStore.GetUncommittedEventCount());
-        }
-
-        [Fact]
-        public void GetUncommittedEventCount_IgnoresHiddenTaggedEvents()
-        {
-            RecordingStore.AddCommittedInternal(new Recording
-            {
-                RecordingId = "live-rec",
-                VesselName = "Visible"
-            });
-
-            var hiddenEvt = new GameStateEvent
-            {
-                ut = 150,
-                eventType = GameStateEventType.ContractAccepted,
-                key = "hidden-guid",
-                recordingId = "old-rec"
-            };
-            GameStateStore.AddEvent(ref hiddenEvt);
-            var visibleEvt = new GameStateEvent
-            {
-                ut = 160,
-                eventType = GameStateEventType.ContractAccepted,
-                key = "visible-guid",
-                recordingId = "live-rec"
-            };
-            GameStateStore.AddEvent(ref visibleEvt);
-
-            Assert.Equal(1, GameStateStore.GetUncommittedEventCount());
-        }
-
-        #endregion
-
         #region Committed Science Subjects
 
         [Fact]
@@ -1634,22 +1335,6 @@ namespace Parsek.Tests
 
             float sci;
             Assert.False(GameStateStore.TryGetCommittedSubjectScience("nonexistent", out sci));
-        }
-
-        [Fact]
-        public void ClearScienceSubjects_RemovesAll()
-        {
-            GameStateStore.ResetForTesting();
-
-            ScienceTestHelpers.CommitScienceSubjects(new List<PendingScienceSubject>
-            {
-                new PendingScienceSubject { subjectId = "test1", science = 1.0f },
-                new PendingScienceSubject { subjectId = "test2", science = 2.0f }
-            });
-            Assert.Equal(2, GameStateStore.CommittedScienceSubjectCount);
-
-            GameStateStore.ClearScienceSubjects();
-            Assert.Equal(0, GameStateStore.CommittedScienceSubjectCount);
         }
 
         [Fact]
@@ -1831,8 +1516,8 @@ namespace Parsek.Tests
 
             // Second call for the same subject: the count staying at 1 is NOT the contract -
             // a store that overwrote in place would hold the count too, and the overwritten
-            // baseline is what ClearScienceSubjects then hands RestoreScienceInRnD. The
-            // retained VALUE is the contract, so the value is what is asserted.
+            // baseline is what the saved ORIGINALS node would then carry. The retained VALUE
+            // is the contract, so the value is what is asserted.
             GameStateStore.RecordOriginalScience("crewReport@Kerbin", 2.0f);
             Assert.Equal(1, GameStateStore.OriginalScienceValueCount);
             float first;
@@ -1847,26 +1532,6 @@ namespace Parsek.Tests
             Assert.Equal(1.5f, second);
             Assert.True(GameStateStore.TryGetOriginalScience("crewReport@Kerbin", out first));
             Assert.Equal(0.0f, first);
-        }
-
-        [Fact]
-        public void ClearScienceSubjects_ClearsOriginalsAndCommitted()
-        {
-            GameStateStore.ResetForTesting();
-
-            ScienceTestHelpers.CommitScienceSubjects(new List<PendingScienceSubject>
-            {
-                new PendingScienceSubject { subjectId = "crewReport@Kerbin", science = 5.0f }
-            });
-            GameStateStore.RecordOriginalScience("crewReport@Kerbin", 0.0f);
-
-            Assert.Equal(1, GameStateStore.CommittedScienceSubjectCount);
-            Assert.Equal(1, GameStateStore.OriginalScienceValueCount);
-
-            GameStateStore.ClearScienceSubjects();
-
-            Assert.Equal(0, GameStateStore.CommittedScienceSubjectCount);
-            Assert.Equal(0, GameStateStore.OriginalScienceValueCount);
         }
 
         [Fact]
@@ -1957,32 +1622,19 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region Milestone Capture (CreateMilestoneEvent)
-
-        [Fact]
-        public void CreateMilestoneEvent_PopulatesFieldsCorrectly()
-        {
-            var evt = GameStateRecorder.CreateMilestoneEvent("FirstOrbitKerbin", 12345.0);
-
-            Assert.Equal(GameStateEventType.MilestoneAchieved, evt.eventType);
-            Assert.Equal("FirstOrbitKerbin", evt.key);
-            Assert.Equal(12345.0, evt.ut);
-            Assert.Equal("", evt.detail);
-        }
-
-        [Fact]
-        public void CreateMilestoneEvent_NullId_DefaultsToEmpty()
-        {
-            var evt = GameStateRecorder.CreateMilestoneEvent(null, 100.0);
-
-            Assert.Equal(GameStateEventType.MilestoneAchieved, evt.eventType);
-            Assert.Equal("", evt.key);
-        }
+        #region Milestone Capture
 
         [Fact]
         public void CreateMilestoneEvent_ConvertsToMilestoneAchievement()
         {
-            var evt = GameStateRecorder.CreateMilestoneEvent("ReachSpace", 5000.0);
+            // The MilestoneAchieved shape the milestone handler records.
+            var evt = new GameStateEvent
+            {
+                ut = 5000.0,
+                eventType = GameStateEventType.MilestoneAchieved,
+                key = "ReachSpace",
+                detail = ""
+            };
             var action = GameStateEventConverter.ConvertEvent(evt, "rec-abc");
 
             Assert.NotNull(action);

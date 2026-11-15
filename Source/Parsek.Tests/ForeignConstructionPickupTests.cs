@@ -337,7 +337,7 @@ namespace Parsek.Tests
             var all = new List<Recording> { drop };
             all.AddRange(tree.Recordings.Values);
             var scope = RewindSpawnScope.ResolveRewindSpawnStripScope(
-                all, LaunchUT, ForeignInventoryTransfer.CollectTransferMemberRecordingIds(trees));
+                all, LaunchUT, ForeignInventoryTransfer.CollectForeignAdoptedVesselMemberRecordingIds(trees));
 
             Assert.DoesNotContain(LoosePid, scope.StripPids);
             Assert.Contains(LoosePid, scope.KeptPids);

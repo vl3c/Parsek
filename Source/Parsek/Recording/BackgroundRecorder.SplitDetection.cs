@@ -1280,26 +1280,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure static method: determines whether a debris vessel's TTL has expired,
-        /// or whether it should stop recording for another reason.
-        /// Returns the reason string if should stop, null if should continue.
-        /// </summary>
-        internal static string ShouldStopDebrisRecording(
-            double currentUT, double ttlExpiry, bool vesselExists, bool vesselLoaded)
-        {
-            if (!vesselExists)
-                return "destroyed";
-
-            if (!double.IsNaN(ttlExpiry) && currentUT >= ttlExpiry)
-                return "ttl_expired";
-
-            if (!vesselLoaded)
-                return "out_of_bubble";
-
-            return null;
-        }
-
-        /// <summary>
         /// Phase 7 (review pass 3): pure gate predicate for the background
         /// surface-clearance computation. Mirrors the foreground gate in
         /// <see cref="FlightRecorder.ShouldEmitSurfaceClearance"/> so xUnit can

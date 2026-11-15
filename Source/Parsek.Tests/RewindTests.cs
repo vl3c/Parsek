@@ -24,25 +24,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsStableState_StableStates()
-        {
-            Assert.True(RewindSpawnScope.IsStableState(1));   // LANDED
-            Assert.True(RewindSpawnScope.IsStableState(2));   // SPLASHED
-            Assert.True(RewindSpawnScope.IsStableState(4));   // PRELAUNCH
-            Assert.True(RewindSpawnScope.IsStableState(32));  // ORBITING
-        }
-
-        [Fact]
-        public void IsStableState_UnstableStates()
-        {
-            Assert.False(RewindSpawnScope.IsStableState(8));   // FLYING
-            Assert.False(RewindSpawnScope.IsStableState(16));  // SUB_ORBITAL
-            Assert.False(RewindSpawnScope.IsStableState(64));  // ESCAPING
-            Assert.False(RewindSpawnScope.IsStableState(128)); // DOCKED
-            Assert.False(RewindSpawnScope.IsStableState(0));   // unknown
-        }
-
-        [Fact]
         public void ResetAllPlaybackState_ResetsRecordings()
         {
             var rec = new Recording

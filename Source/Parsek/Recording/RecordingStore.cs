@@ -765,64 +765,6 @@ namespace Parsek
         /// </summary>
         internal static System.Func<string, string, SaveMode, string> SaveGameForTesting;
 
-        /// <summary>
-        /// No longer called (design-load-restores-the-save.md 4.6: a merge keeps the
-        /// player's F5 point); kept until the Phase 3 deletion.
-        /// Bug #292: refresh quicksave.sfs after a user-initiated tree merge so subsequent
-        /// F9 quickloads see the merge result. Without this, F9 loads a stale quicksave
-        /// from before the merge and silently drops the new recording IDs the merge added.
-        ///
-        /// MUST be called only from user-initiated merge entry points (currently:
-        /// MergeDialog.cs "Merge to Timeline" button handler), NEVER from inside
-        /// RunOptimizationPass or any OnLoad path — KSP's SaveGame triggers OnSave on
-        /// every ScenarioModule, which would re-enter Parsek's OnSave during OnLoad and
-        /// risk corrupting scenario state.
-        ///
-        /// Failure modes are non-fatal: if SaveGame returns null or throws, log a warning
-        /// and continue. The merge still completes; the player loses only the quicksave
-        /// refresh benefit until they manually F5 again.
-        /// </summary>
-        internal static void RefreshQuicksaveAfterMerge(string reason, int recordingCount)
-        {
-            var saveFn = SaveGameForTesting ?? GamePersistence.SaveGame;
-
-            // Defense-in-depth: skip during loading scenes (no game state to save).
-            // Tests bypass these guards by setting SaveGameForTesting.
-            if (SaveGameForTesting == null)
-            {
-                if (HighLogic.LoadedScene == GameScenes.LOADING)
-                {
-                    ParsekLog.Verbose("Quicksave",
-                        $"Refresh skipped (LOADING scene): reason={reason}");
-                    return;
-                }
-                if (HighLogic.CurrentGame == null)
-                {
-                    ParsekLog.Verbose("Quicksave",
-                        $"Refresh skipped (CurrentGame is null): reason={reason}");
-                    return;
-                }
-            }
-
-            try
-            {
-                string result = saveFn("quicksave", HighLogic.SaveFolder, SaveMode.OVERWRITE);
-                if (string.IsNullOrEmpty(result))
-                {
-                    ParsekLog.Warn("Quicksave",
-                        $"GamePersistence.SaveGame returned null after {reason} — quicksave NOT refreshed");
-                    return;
-                }
-                ParsekLog.Info("Quicksave",
-                    $"Refreshed quicksave.sfs after {reason} (tree has {recordingCount} recording IDs)");
-            }
-            catch (System.Exception ex)
-            {
-                ParsekLog.Warn("Quicksave",
-                    $"Exception refreshing quicksave after {reason}: {ex.GetType().Name}: {ex.Message}");
-            }
-        }
-
         // Test seam: lets unit tests simulate the live-Unity-runtime context that
         // <see cref="ResetForTesting"/>'s data-loss guard checks. Production code never
         // sets this; xUnit tests in <c>RecordingStoreResetGuardTests</c> use it to verify

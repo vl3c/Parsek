@@ -454,24 +454,6 @@ namespace Parsek.Tests
                 "surface-relative rotation survives an unresolvable body");
         }
 
-        [Fact]
-        public void TryApplyPreferredSpawnRotation_NonSurfaceTerminal_LeavesSnapshotRotUntouched()
-        {
-            Quaternion preExisting = new Quaternion(0f, 0f, 0.38268343f, 0.92387953f);
-            ConfigNode node = new VesselSnapshotBuilder()
-                .AsOrbiting(700000.0, 0.01, 0.0)
-                .WithSurfaceRelativeRotation(preExisting)
-                .Build();
-
-            Recording rec = LandedRecordingWithTerminalPose(RecordedSurfaceRelative);
-            rec.TerminalStateValue = TerminalState.Orbiting;
-
-            Assert.False(VesselSpawner.TryApplyPreferredSpawnRotation(
-                node, rec, null, "unit-test orbiting"));
-            AssertSameRotation(preExisting, ReadRot(node),
-                "no preferred surface frame means the snapshot keeps its recorded rot");
-        }
-
         #endregion
 
         #region ApplyResolvedSpawnStateToSnapshot / PrepareSpawnNodeAtPosition

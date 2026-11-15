@@ -218,25 +218,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The ghost chain whose tip is <paramref name="tipRecordingId"/>, or null. The chain's
-        /// key is the CLAIMED vessel's pid, which the tip does not carry when the claimed vessel
-        /// lost its pid in a dock it did not dominate.
-        /// </summary>
-        internal static GhostChain FindChainForTip(Dictionary<uint, GhostChain> chains, string tipRecordingId)
-        {
-            if (chains == null || string.IsNullOrEmpty(tipRecordingId))
-                return null;
-            foreach (var kvp in chains)
-            {
-                GhostChain chain = kvp.Value;
-                if (chain != null
-                    && string.Equals(chain.TipRecordingId, tipRecordingId, StringComparison.Ordinal))
-                    return chain;
-            }
-            return null;
-        }
-
-        /// <summary>
         /// Every ghost chain whose tip is <paramref name="tipRecordingId"/> (two claims on one
         /// vessel under two pids can leave two chains ending at the same tip).
         /// </summary>

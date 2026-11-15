@@ -484,22 +484,6 @@ namespace Parsek
             }
         }
 
-        internal static BranchPoint FindBranchPointById(RecordingTree tree, string branchPointId)
-        {
-            if (tree == null || string.IsNullOrEmpty(branchPointId) || tree.BranchPoints == null)
-                return null;
-
-            for (int i = 0; i < tree.BranchPoints.Count; i++)
-            {
-                var bp = tree.BranchPoints[i];
-                if (bp == null) continue;
-                if (string.Equals(bp.Id, branchPointId, StringComparison.Ordinal))
-                    return bp;
-            }
-
-            return null;
-        }
-
         /// <summary>
         /// Rewind Points captured during ordinary staging are born
         /// SessionProvisional with no CreatingSessionId. They must survive the

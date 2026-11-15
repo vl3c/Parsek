@@ -19,12 +19,11 @@ namespace Parsek.Tests
         // ---- Factories ----
 
         [Fact]
-        public void RigidFactory_IsRigidG1_RequiresTangentMatch()
+        public void RigidFactory_IsRigidG1_OnCamera()
         {
             var seam = PhaseSeam.Rigid();
             Assert.Equal(PhaseSeamKind.Rigid, seam.Kind);
             Assert.Equal(ContinuityOrder.G1, seam.Continuity);
-            Assert.True(seam.RequiresTangentMatch);
             Assert.True(seam.OnCamera);
             Assert.Null(seam.Crossing);
         }
@@ -36,7 +35,6 @@ namespace Parsek.Tests
             var seam = PhaseSeam.FlexibleSoi(crossing);
             Assert.Equal(PhaseSeamKind.FlexibleSoi, seam.Kind);
             Assert.Equal(ContinuityOrder.G0, seam.Continuity);
-            Assert.False(seam.RequiresTangentMatch);
             Assert.Same(crossing, seam.Crossing);
         }
 
@@ -46,7 +44,6 @@ namespace Parsek.Tests
             var seam = PhaseSeam.SwitchContinuation();
             Assert.Equal(PhaseSeamKind.SwitchContinuation, seam.Kind);
             Assert.Equal(ContinuityOrder.G0, seam.Continuity);
-            Assert.False(seam.RequiresTangentMatch);
         }
 
         // ---- Kind classification ----

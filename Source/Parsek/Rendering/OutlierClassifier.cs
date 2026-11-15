@@ -110,7 +110,7 @@ namespace Parsek.Rendering
 
         /// <summary>
         /// Classify one section's samples. Returns
-        /// <c>OutlierFlags.Empty(...)</c> for ineligible sections (RELATIVE /
+        /// all-false <c>OutlierFlags</c> for ineligible sections (RELATIVE /
         /// OrbitalCheckpoint / null frames). Always emits a Pipeline-Outlier
         /// per-section summary Info line so HR-9 visibility holds even when
         /// no rejections fire.

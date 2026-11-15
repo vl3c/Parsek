@@ -898,8 +898,7 @@ namespace Parsek.Tests
         [Fact]
         public void GroupWatchUsesRotationCursor_PinnedBySourceInspection()
         {
-            // Bug #382: group W button no longer routes through a single
-            // ResolveEffectiveWatchTargetIndex call — it builds a per-press
+            // Bug #382: group W button builds a per-press
             // rotation via GhostPlaybackLogic.AdvanceGroupWatchCursor and
             // stores the cursor in groupWatchCursorByGroupName. Pin that
             // contract so a future refactor can't silently fall back to the
@@ -920,7 +919,6 @@ namespace Parsek.Tests
             int rowWatchEnd = rowsSrc.IndexOf("// Rewind / Forward button", rowWatchStart, StringComparison.Ordinal);
             string rowWatchBlock = rowsSrc.Substring(rowWatchStart, rowWatchEnd - rowWatchStart);
 
-            Assert.DoesNotContain("ResolveEffectiveWatchTargetIndex", rowWatchBlock);
             Assert.Contains("flight.WatchedRecordingIndex == ri", rowWatchBlock);
 
             int groupWatchStart = groupSrc.IndexOf("// Watch button (flight only) — Bug #382", StringComparison.Ordinal);
@@ -940,7 +938,6 @@ namespace Parsek.Tests
             Assert.Contains("GhostPlaybackLogic.AdvanceGroupWatchCursor", groupWatchBlock);
             Assert.Contains("groupWatchCursorByGroupName", groupWatchBlock);
             Assert.Contains("rotation.NextRecordingId", groupWatchBlock);
-            Assert.DoesNotContain("ResolveEffectiveWatchTargetIndex", groupWatchBlock);
         }
 
         // ── GetRecordingSortKey ──

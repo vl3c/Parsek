@@ -334,29 +334,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Ids of every InventoryTransfer member recording in <paramref name="trees"/>. A
-        /// member's vessel existed before its tree did, so a rewind of that tree finds the
-        /// real vessel in the rewind save, where its chain claims and ghosts it.
-        /// </summary>
-        internal static HashSet<string> CollectTransferMemberRecordingIds(
-            IEnumerable<RecordingTree> trees)
-        {
-            var ids = new HashSet<string>(StringComparer.Ordinal);
-            if (trees == null) return ids;
-            foreach (RecordingTree tree in trees)
-            {
-                if (tree?.Recordings == null) continue;
-                foreach (Recording rec in tree.Recordings.Values)
-                {
-                    if (rec != null && !string.IsNullOrEmpty(rec.RecordingId)
-                        && IsTransferMember(tree, rec))
-                        ids.Add(rec.RecordingId);
-                }
-            }
-            return ids;
-        }
-
-        /// <summary>
         /// True when <paramref name="rec"/> is the merged child of a Dock or Board onto a vessel
         /// from outside its tree: a kerbal boarding a foreign vessel's hatch or taking its seat,
         /// or a docking that the foreign vessel survives. The branch point names the partner
@@ -408,8 +385,7 @@ namespace Parsek
 
         /// <summary>
         /// Ids of every recording in <paramref name="trees"/> that flies a vessel its tree
-        /// adopted from outside: the InventoryTransfer members
-        /// (<see cref="CollectTransferMemberRecordingIds"/>) and the merged children of a Dock
+        /// adopted from outside: the InventoryTransfer members and the merged children of a Dock
         /// or Board onto a foreign vessel (<see cref="IsForeignMergeAdoptionChild"/>). The
         /// rewind's strip scope and its OnLoad launch-identity strip treat every one of them
         /// alike: the rewind save holds the adopted vessel's pre-adoption self, which the chain

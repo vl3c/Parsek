@@ -13,17 +13,6 @@ namespace Parsek
     // recorder.
     public partial class ParsekFlight
     {
-        /// <summary>
-        /// Checks whether a vessel type alone qualifies as trackable.
-        /// SpaceObject (asteroids, comets) and EVA kerbals are always trackable
-        /// purely from the type. Other types require a module check
-        /// (see <see cref="IsTrackableVessel"/>).
-        /// </summary>
-        internal static bool IsTrackableVesselType(VesselType vesselType)
-        {
-            return vesselType == VesselType.SpaceObject
-                || vesselType == VesselType.EVA;
-        }
 
         /// <summary>
         /// Determines whether a vessel is trackable (should get its own tree branch).
@@ -1182,20 +1171,6 @@ namespace Parsek
             // merged vessel, so its terminal spawn is owned by the live continuation.
             if (branchStampPid == 0u || branchStampPid == mergedVesselPid) return 0u;
             return branchStampPid;
-        }
-
-        internal static uint ResolveDockRouteTargetPid(
-            bool activeWasDockTarget,
-            uint mergedVesselPid,
-            uint absorbedVesselPid)
-        {
-            // Returns the docking partner's persistentId -- the OTHER vessel from the
-            // active recording's point of view. When the active recording survived as
-            // the dock target (active.pid == mergedVesselPid), the partner is the
-            // absorbed vessel; when the active recording was absorbed, the partner is
-            // the surviving merged vessel. Runtime coverage must verify both paths
-            // before route creation consumes this as endpoint proof.
-            return activeWasDockTarget ? absorbedVesselPid : mergedVesselPid;
         }
 
         internal static bool TryBuildRouteEndpointFromSnapshot(

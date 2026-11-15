@@ -487,20 +487,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Returns true when the watched ghost should ignore distance-based LOD suppression
-        /// and stay at full fidelity for the current frame.
-        /// </summary>
-        internal static bool ShouldForceWatchedFullFidelity(
-            bool isWatchedGhost, double ghostDistanceMeters, float cutoffKm)
-        {
-            return isWatchedGhost
-                && !double.IsNaN(ghostDistanceMeters)
-                && !double.IsInfinity(ghostDistanceMeters)
-                && ghostDistanceMeters >= 0.0
-                && !ShouldExitWatchForCutoff(ghostDistanceMeters, cutoffKm);
-        }
-
-        /// <summary>
         /// Applies the watched-ghost full-fidelity override to a zone policy tuple.
         /// Distance-based LOD should not suppress a watched ghost that is still within cutoff.
         /// </summary>

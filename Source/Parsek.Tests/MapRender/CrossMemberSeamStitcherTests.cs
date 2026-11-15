@@ -319,7 +319,6 @@ namespace Parsek.Tests
             PhaseSeam seam = CrossMemberSeamStitcher.BuildOrbitLandingSeam();
             Assert.Equal(PhaseSeamKind.Rigid, seam.Kind);
             Assert.Equal(ContinuityOrder.G1, seam.Continuity);
-            Assert.True(seam.RequiresTangentMatch);
             Assert.True(seam.OnCamera);
         }
 

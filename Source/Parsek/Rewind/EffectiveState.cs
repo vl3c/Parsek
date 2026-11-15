@@ -922,27 +922,6 @@ namespace Parsek
             return result;
         }
 
-        internal static bool IsRewindRetired(
-            Recording rec,
-            IReadOnlyList<RecordingRewindRetirement> retirements)
-        {
-            if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
-                return false;
-            if (retirements == null || retirements.Count == 0)
-                return false;
-
-            for (int i = 0; i < retirements.Count; i++)
-            {
-                var retirement = retirements[i];
-                if (retirement == null || string.IsNullOrEmpty(retirement.RecordingId))
-                    continue;
-                if (string.Equals(retirement.RecordingId, rec.RecordingId, StringComparison.Ordinal))
-                    return true;
-            }
-
-            return false;
-        }
-
         /// <summary>
         /// Cascade overload: true when <paramref name="rec"/> is directly
         /// retired OR is a parent-anchored descendant of a retired recording.

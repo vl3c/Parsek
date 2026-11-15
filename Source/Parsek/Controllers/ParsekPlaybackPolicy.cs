@@ -1806,15 +1806,6 @@ namespace Parsek
             return true;
         }
 
-        /// <summary>
-        /// Returns true if the trajectory is in an orbital segment at the given UT
-        /// (i.e., recording starts in orbit, no atmospheric ascent phase before first segment).
-        /// </summary>
-        internal static bool StartsInOrbit(IPlaybackTrajectory traj, double ut)
-        {
-            return GhostMapPresence.StartsInOrbit(traj, ut);
-        }
-
         private void HandleGhostDestroyed(GhostLifecycleEvent evt)
         {
             string name = evt.State?.vesselName ?? evt.Trajectory?.VesselName ?? "Unknown";

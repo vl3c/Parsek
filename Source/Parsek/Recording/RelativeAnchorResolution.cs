@@ -30,21 +30,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Decides whether the anchor referenced by a relative track section
-        /// is resolvable. Returns <see cref="Outcome.Resolved"/> when the
-        /// resolver reports a live vessel; <see cref="Outcome.Retired"/>
-        /// otherwise (including when <paramref name="anchorPid"/> is 0).
-        /// </summary>
-        /// <param name="anchorPid">The recorded anchor pid (TrackSection.anchorVesselId or LoopAnchorVesselId).</param>
-        /// <param name="resolver">Resolver returning true iff the pid maps to a live vessel; null = always unresolved.</param>
-        internal static Outcome Decide(uint anchorPid, Func<uint, bool> resolver)
-        {
-            if (anchorPid == 0u) return Outcome.Retired;
-            if (resolver == null) return Outcome.Retired;
-            return resolver(anchorPid) ? Outcome.Resolved : Outcome.Retired;
-        }
-
-        /// <summary>
         /// Per-(recordingIndex, anchorPid) dedupe key used by the in-flight
         /// retirement WARN. Lets multiple recordings share an anchor pid
         /// without sharing the dedupe slot, and lets a single recording's

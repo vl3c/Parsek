@@ -247,56 +247,6 @@ namespace Parsek.Tests
             Assert.False(ParsekFlightPostSwitchAutoRecord.HasMeaningfulOrbitChange(baseline, current));
         }
 
-        [Fact]
-        public void ManifestDeltaHelpers_ClassifyCrewResourceAndInventoryChanges()
-        {
-            var crewDelta = new Dictionary<string, int> { ["Pilot"] = 1 };
-            var resourceDelta = new Dictionary<string, double> { ["LiquidFuel"] = -5.0 };
-            var inventoryDelta = new Dictionary<string, InventoryItem>
-            {
-                ["evaJetpack"] = new InventoryItem { count = -1, slotsTaken = -1 }
-            };
-
-            Assert.True(ParsekFlightPostSwitchAutoRecord.HasMeaningfulCrewDelta(crewDelta));
-            Assert.True(ParsekFlightPostSwitchAutoRecord.HasMeaningfulResourceDelta(resourceDelta));
-            Assert.True(ParsekFlightPostSwitchAutoRecord.HasMeaningfulInventoryDelta(inventoryDelta));
-        }
-
-        [Fact]
-        public void HasMeaningfulResourceDelta_IgnoresNearZeroNoise()
-        {
-            var resourceDelta = new Dictionary<string, double> { ["LiquidFuel"] = 0.001 };
-
-            Assert.False(ParsekFlightPostSwitchAutoRecord.HasMeaningfulResourceDelta(resourceDelta));
-        }
-
-        [Fact]
-        public void HasMeaningfulPartStateTokenChange_DetectsDigestDifferences()
-        {
-            var baseline = new HashSet<string> { "gear:1:0" };
-            var current = new HashSet<string>();
-
-            Assert.True(ParsekFlightPostSwitchAutoRecord.HasMeaningfulPartStateTokenChange(baseline, current));
-        }
-
-        [Fact]
-        public void HasMeaningfulPartStateChange_NonCosmeticTrigger_ReturnsTrue()
-        {
-            bool result = ParsekFlightPostSwitchAutoRecord.HasMeaningfulPartStateChange(
-                new[] { PartEventType.GearDeployed });
-
-            Assert.True(result);
-        }
-
-        [Fact]
-        public void HasMeaningfulPartStateChange_CosmeticOnly_ReturnsFalse()
-        {
-            bool result = ParsekFlightPostSwitchAutoRecord.HasMeaningfulPartStateChange(
-                new[] { PartEventType.LightOn, PartEventType.LightBlinkRate });
-
-            Assert.False(result);
-        }
-
         [Theory]
         [InlineData(false, false, false, false, false, false, false, false, (int)ParsekFlight.PostSwitchAutoRecordTrigger.None)]
         [InlineData(true, true, true, true, true, true, true, true, (int)ParsekFlight.PostSwitchAutoRecordTrigger.EngineActivity)]

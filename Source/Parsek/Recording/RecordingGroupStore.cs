@@ -12,7 +12,7 @@ namespace Parsek
         // The dict exists so test recordings without a persisted field (built via
         // RecordingBuilder / direct .Add calls) still resolve through
         // TryGetAutoAssignedStandaloneGroup. Invariant: every mutation goes through
-        // MarkAutoAssignedStandaloneGroup / ClearAutoAssignedStandaloneGroup so the
+        // ClearAutoAssignedStandaloneGroup so the
         // field and dict stay aligned. Do NOT write to either directly from outside
         // these helpers (Recording.cs field deserialization is the one exception
         // and is reconciled by TryGet's first branch).
@@ -674,15 +674,6 @@ namespace Parsek
             }
 
             return false;
-        }
-
-        internal static void MarkAutoAssignedStandaloneGroup(Recording rec, string groupName)
-        {
-            if (rec == null || string.IsNullOrEmpty(rec.RecordingId) || IsInvalidGroupName(groupName))
-                return;
-
-            rec.AutoAssignedStandaloneGroupName = groupName;
-            autoAssignedStandaloneGroupsByRecordingId[rec.RecordingId] = groupName;
         }
 
         /// <summary>

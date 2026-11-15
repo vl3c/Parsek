@@ -414,9 +414,6 @@ namespace Parsek
         internal static string FormatSpeed(double mps)
             => RecordingsTableFormatters.FormatSpeed(mps);
 
-        internal static string FormatDistance(double meters)
-            => RecordingsTableFormatters.FormatDistance(meters);
-
         /// <summary>
         /// Resolves the parent vessel name for EVA recordings by looking up ParentRecordingId.
         /// Returns null if not an EVA or parent not found.

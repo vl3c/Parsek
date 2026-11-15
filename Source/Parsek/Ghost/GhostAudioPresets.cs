@@ -284,22 +284,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Resolve the audio clip path for a one-shot event (decouple, explosion). For
-        /// destroyed events the caller should prefer <see cref="ResolveDestroyedClipByPower"/>
-        /// so the chosen clip matches stock FXMonger's size-bucketed selection. This overload
-        /// always returns the large explosion clip for legacy callers and as a safe fallback.
-        /// Returns null for event types that have no associated sound.
-        /// </summary>
-        internal static string ResolveOneShotClip(PartEventType eventType)
-        {
-            switch (eventType)
-            {
-                case PartEventType.Destroyed: return "sound_explosion_large";
-                default: return null;
-            }
-        }
-
-        /// <summary>
         /// Pick a stock destroyed-event clip path that mirrors FXMonger's size-bucketed slot
         /// selection: small parts / vessels get `sound_explosion_debris1`, mid-size get
         /// `sound_explosion_debris2`, large stacks get `sound_explosion_large`. Bucket

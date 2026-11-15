@@ -1530,17 +1530,6 @@ namespace Parsek
                 && Math.Abs(segment.startUT - ut) <= UTEpsilon;
         }
 
-        /// <summary>
-        /// Pure static method for determining whether an orbital checkpoint should be
-        /// captured for a given vessel situation.
-        /// </summary>
-        internal static bool IsOrbitalCheckpointSituation(Vessel.Situations situation)
-        {
-            return situation == Vessel.Situations.ORBITING
-                || situation == Vessel.Situations.SUB_ORBITAL
-                || situation == Vessel.Situations.ESCAPING;
-        }
-
         internal static bool ShouldPersistNoPayloadOnRailsBoundaryTrackSection(
             SegmentEnvironment previousEnv,
             SegmentEnvironment nextEnv,

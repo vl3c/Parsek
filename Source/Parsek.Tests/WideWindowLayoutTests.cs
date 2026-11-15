@@ -232,32 +232,6 @@ namespace Parsek.Tests
             Assert.Equal(expected, WideWindowLayout.NeedsHorizontalScroll(window, natural));
         }
 
-        // ----- scroll offset clamp -----
-
-        [Fact]
-        public void MaxScrollX_IsTheOverflowOrZero()
-        {
-            Assert.Equal(95f, WideWindowLayout.MaxScrollX(1355f, 1260f));
-            Assert.Equal(0f, WideWindowLayout.MaxScrollX(1355f, 1400f));
-        }
-
-        [Theory]
-        [InlineData(50f, 1355f, 1260f, 50f)]
-        [InlineData(500f, 1355f, 1260f, 95f)]  // past the content: the far edge
-        [InlineData(-5f, 1355f, 1260f, 0f)]
-        [InlineData(80f, 1355f, 1400f, 0f)]    // the window grew to fit: back to zero
-        public void ClampScrollX_StaysInsideTheContent(float x, float content, float view,
-            float expected)
-        {
-            Assert.Equal(expected, WideWindowLayout.ClampScrollX(x, content, view));
-        }
-
-        [Fact]
-        public void ClampScrollX_NaNIsZero()
-        {
-            Assert.Equal(0f, WideWindowLayout.ClampScrollX(float.NaN, 1355f, 1260f));
-        }
-
         // ----- the latch -----
 
         [Fact]

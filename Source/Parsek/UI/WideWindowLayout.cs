@@ -113,28 +113,6 @@ namespace Parsek
             return windowWidth < naturalWidth - FitTolerancePx;
         }
 
-        /// <summary>
-        /// The largest horizontal scroll offset a view of <paramref name="viewWidth"/> over
-        /// content of <paramref name="contentWidth"/> can take (zero when the content fits).
-        /// </summary>
-        internal static float MaxScrollX(float contentWidth, float viewWidth)
-        {
-            float max = contentWidth - viewWidth;
-            return max > 0f ? max : 0f;
-        }
-
-        /// <summary>
-        /// Clamps a horizontal scroll offset into [0, <see cref="MaxScrollX"/>]. Used when
-        /// the window grows (the old offset may now point past the content) and on the
-        /// automation seam's read-back. NaN clamps to zero.
-        /// </summary>
-        internal static float ClampScrollX(float scrollX, float contentWidth, float viewWidth)
-        {
-            if (float.IsNaN(scrollX) || scrollX < 0f) return 0f;
-            float max = MaxScrollX(contentWidth, viewWidth);
-            return scrollX > max ? max : scrollX;
-        }
-
         /// <summary>The log line for a window rect moved or narrowed onto the screen.
         /// Invariant-culture, since a test reads it.</summary>
         internal static string FormatFitLog(string windowName, Rect before, Rect after,

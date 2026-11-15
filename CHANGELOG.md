@@ -31,6 +31,8 @@ All notable changes to Parsek are documented here.
   `Source/Parsek/<Module>/`, the folder named after the part of the code it belongs to, so the
   folder tells you the module. The game plays the same; a few of Parsek's start-up log lines now
   print in a different order. (ARCH-MODULE-FOLDERS)
+- **Dev: 117 methods the game never ran are deleted, with the tests that only tested them.**
+  Nothing calls them in play, so the game is unchanged. (DEAD-CODE-TEST-ONLY-METHODS-PARKED)
 
 ### Fixed
 

@@ -58,35 +58,6 @@ namespace Parsek.Rendering
             return (PackedBitmap[byteIndex] & (1 << bitIndex)) != 0;
         }
 
-        /// <summary>Enumerates rejected sample indices in ascending order.</summary>
-        internal IEnumerable<int> RejectedSampleIndices
-        {
-            get
-            {
-                if (PackedBitmap == null || SampleCount <= 0) yield break;
-                for (int s = 0; s < SampleCount; s++)
-                {
-                    if (IsRejected(s)) yield return s;
-                }
-            }
-        }
-
-        /// <summary>Builds an "all kept" placeholder for a section the
-        /// classifier inspected but found clean. Stores nothing per-sample
-        /// (zero-byte bitmap) so writers can drop empty entries without
-        /// losing signal.</summary>
-        internal static OutlierFlags Empty(int sectionIndex, int sampleCount)
-        {
-            return new OutlierFlags
-            {
-                SectionIndex = sectionIndex,
-                ClassifierMask = 0,
-                PackedBitmap = new byte[(sampleCount + 7) / 8],
-                RejectedCount = 0,
-                SampleCount = sampleCount,
-            };
-        }
-
         /// <summary>Pack a per-sample boolean into the LSB-first byte layout.</summary>
         internal static byte[] BuildPackedBitmap(bool[] perSample)
         {
@@ -99,25 +70,6 @@ namespace Parsek.Rendering
                 int byteIndex = s >> 3;
                 int bitIndex = s & 0x7;
                 result[byteIndex] |= (byte)(1 << bitIndex);
-            }
-            return result;
-        }
-
-        /// <summary>Unpack a packed bitmap into a per-sample boolean array of
-        /// length <paramref name="sampleCount"/>. Bits beyond the bitmap's
-        /// byte length are returned as false; bits beyond
-        /// <paramref name="sampleCount"/> in the bitmap are ignored.</summary>
-        internal static bool[] UnpackBitmap(byte[] packed, int sampleCount)
-        {
-            if (sampleCount < 0) sampleCount = 0;
-            bool[] result = new bool[sampleCount];
-            if (packed == null) return result;
-            for (int s = 0; s < sampleCount; s++)
-            {
-                int byteIndex = s >> 3;
-                if (byteIndex >= packed.Length) break;
-                int bitIndex = s & 0x7;
-                result[s] = (packed[byteIndex] & (1 << bitIndex)) != 0;
             }
             return result;
         }

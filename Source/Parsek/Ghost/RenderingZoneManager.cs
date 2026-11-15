@@ -70,24 +70,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Determines whether a full-timeline ghost should render part events
-        /// at the given distance. Part events only fire inside the full-fidelity range.
-        /// </summary>
-        internal static bool ShouldRenderPartEvents(double distanceMeters)
-        {
-            return distanceMeters < FullFidelityRadius;
-        }
-
-        /// <summary>
-        /// Determines whether a ghost mesh should be visible at the given distance.
-        /// Meshes visible in Physics and Visual zones, hidden Beyond.
-        /// </summary>
-        internal static bool ShouldRenderMesh(double distanceMeters)
-        {
-            return distanceMeters < VisualRangeRadius;
-        }
-
-        /// <summary>
         /// Logs a zone transition for a ghost. Called when a ghost's zone changes.
         /// </summary>
         internal static void LogZoneTransition(string ghostId, RenderingZone oldZone, RenderingZone newZone, double distanceMeters)
@@ -108,30 +90,6 @@ namespace Parsek
             }
 
             return distanceMeters.ToString("F0", CultureInfo.InvariantCulture) + "m";
-        }
-
-        /// <summary>
-        /// Logs a looped ghost spawn/suppress decision.
-        /// </summary>
-        internal static void LogLoopedGhostSpawnDecision(string ghostId, double distanceMeters, bool shouldSpawn, bool simplified)
-        {
-            string distStr = FormatDistanceForLog(distanceMeters);
-            string rateLimitKey = "loop-suppress-" + ghostId;
-            if (!shouldSpawn)
-            {
-                ParsekLog.VerboseRateLimited("Zone", rateLimitKey,
-                    $"Looped ghost suppressed: ghost={ghostId} dist={distStr} (beyond {LoopSimplifiedRadius.ToString("F0", CultureInfo.InvariantCulture)}m threshold)", 30.0);
-            }
-            else if (simplified)
-            {
-                ParsekLog.VerboseRateLimited("Zone", rateLimitKey,
-                    $"Looped ghost spawned simplified: ghost={ghostId} dist={distStr} (no part events)", 30.0);
-            }
-            else
-            {
-                ParsekLog.VerboseRateLimited("Zone", rateLimitKey,
-                    $"Looped ghost spawned full fidelity: ghost={ghostId} dist={distStr}", 30.0);
-            }
         }
     }
 }

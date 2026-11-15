@@ -75,22 +75,6 @@ namespace Parsek.Reaim
         }
 
         /// <summary>
-        /// The ideal Hohmann departure phase angle (degrees, in [0,360)): how far the target must LEAD
-        /// the origin at burn time so a Hohmann transfer arrives where the target will be.
-        /// <c>180 * (1 - ((a_origin + a_target) / (2*a_target))^1.5)</c>. For an outbound transfer
-        /// (a_target &gt; a_origin) this is a positive lead; for inbound it is negative (target trails),
-        /// wrapped into [0,360). Pure. NaN/non-positive SMAs -&gt; NaN.
-        /// </summary>
-        internal static double HohmannPhaseAngleTargetDegrees(double aOriginMeters, double aTargetMeters)
-        {
-            if (double.IsNaN(aOriginMeters) || double.IsNaN(aTargetMeters)
-                || aOriginMeters <= 0.0 || aTargetMeters <= 0.0)
-                return double.NaN;
-            double ratio = (aOriginMeters + aTargetMeters) / (2.0 * aTargetMeters);
-            return ClampDegrees360(180.0 * (1.0 - Math.Pow(ratio, 1.5)));
-        }
-
-        /// <summary>
         /// Hohmann transfer time (seconds): half the period of the transfer ellipse whose semi-major
         /// axis is <c>(a_origin + a_target) / 2</c>, i.e. <c>pi * sqrt(a_t^3 / mu)</c> where mu is the
         /// COMMON-PARENT (Sun) gravitational parameter. Pure. NaN/non-positive inputs -&gt; NaN.
@@ -103,53 +87,6 @@ namespace Parsek.Reaim
                 return double.NaN;
             double aTransfer = 0.5 * (aOriginMeters + aTargetMeters);
             return Math.PI * Math.Sqrt(aTransfer * aTransfer * aTransfer / muParent);
-        }
-
-        /// <summary>
-        /// Seconds until the next departure window: the time for the relative phase to drift from
-        /// <paramref name="currentPhaseDegrees"/> to <paramref name="targetPhaseDegrees"/>, given each
-        /// body's orbital period. The relative angular rate is <c>360/P_target - 360/P_origin</c>
-        /// (deg/s); the angle to make up is wrapped to the correct sign for that rate so the result is
-        /// always the NEXT future alignment (>= 0). Returns +Infinity when the bodies never realign
-        /// (equal/degenerate periods). Pure. (KAC AlignmentTime.)
-        /// </summary>
-        internal static double TimeToNextWindowSeconds(
-            double currentPhaseDegrees, double targetPhaseDegrees,
-            double originPeriodSeconds, double targetPeriodSeconds)
-        {
-            if (double.IsNaN(currentPhaseDegrees) || double.IsNaN(targetPhaseDegrees)
-                || originPeriodSeconds <= 0.0 || targetPeriodSeconds <= 0.0
-                || double.IsNaN(originPeriodSeconds) || double.IsNaN(targetPeriodSeconds))
-                return double.PositiveInfinity;
-
-            double anglePerSec = 360.0 / targetPeriodSeconds - 360.0 / originPeriodSeconds;
-            if (anglePerSec == 0.0 || double.IsNaN(anglePerSec))
-                return double.PositiveInfinity; // no relative drift -> never realigns
-
-            double angleToMakeUp = ClampDegrees360(currentPhaseDegrees) - ClampDegrees360(targetPhaseDegrees);
-            // Wrap so the angle and the drift rate have consistent sign -> always a future window.
-            if (angleToMakeUp > 0.0 && anglePerSec > 0.0)
-                angleToMakeUp -= 360.0;
-            if (angleToMakeUp < 0.0 && anglePerSec < 0.0)
-                angleToMakeUp += 360.0;
-
-            return Math.Abs(angleToMakeUp / anglePerSec);
-        }
-
-        /// <summary>
-        /// The next departure UT at or after <paramref name="afterUT"/>: the live phase + the time to
-        /// the next window. Convenience composition of <see cref="TimeToNextWindowSeconds"/> for the
-        /// scheduler. Returns NaN when no window exists (degenerate periods). Pure.
-        /// </summary>
-        internal static double NextDepartureUT(
-            double afterUT, double currentPhaseDegrees, double targetPhaseDegrees,
-            double originPeriodSeconds, double targetPeriodSeconds)
-        {
-            double dt = TimeToNextWindowSeconds(
-                currentPhaseDegrees, targetPhaseDegrees, originPeriodSeconds, targetPeriodSeconds);
-            if (double.IsNaN(afterUT) || double.IsInfinity(dt) || double.IsNaN(dt))
-                return double.NaN;
-            return afterUT + dt;
         }
     }
 }
