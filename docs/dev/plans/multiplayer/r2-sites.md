@@ -739,14 +739,19 @@ Logging (tag `RaceSites`, design section 10):
   free in order), each a new save. Per save: Space Center settles; `ListHandles kind=sites` (T-07)
   gives the working space center, the pad and runway spawn points, the recovery reference point and
   the patch heights, each compared with that slot's `kerbin-equator-1` row (values pinned in the
-  spec, tolerances as in R2-03 and R2-04); `GoToEditor` VAB; `LaunchFromEditor` a small craft to the
-  pad; `ListHandles kind=sites` again in flight; `Recover`; back at the Space Center the recovery is
-  logged with full value; `ExitToSpaceCenter` visit. One save also runs `RevertToLaunch` (a load
-  inside a race save must reconcile to Nothing). No `RunTests` step: a spec has at most one, and the
-  per-site values come from `ListHandles` (OV-03); the `RaceSites`, `RaceSitesFlight` and
-  `RaceSitesTrackingStation` cells run on the hosts RACE-9 (T-29), RACE-10 (T-35) and RACE-11 (T-36)
-  (OV-09). logContract pins `Sites applied: table=kerbin-equator-1 home=<slot>` once per save and no
-  `Sites apply failed`.
+  spec, tolerances as in R2-03 and R2-04, read through T-46's `tolerance=` comparator);
+  `GoToEditor` VAB; `LaunchFromEditor` a small craft to the pad; `ListHandles kind=sites` again in
+  flight; `Recover`; back at the Space Center the recovery is logged with full value;
+  `ExitToSpaceCenter` visit. One save also runs `RevertToLaunch` (a load inside a race save must
+  reconcile to Nothing). No `RunTests` step: the per-site values come from `ListHandles` (OV-03);
+  the `RaceSites`, `RaceSitesFlight` and `RaceSitesTrackingStation` cells run on the hosts RACE-9
+  (T-29), RACE-10 (T-35) and RACE-11 (T-36) (OV-09). logContract pins `Sites applied:
+  table=kerbin-equator-1 home=<slot>` once per save and no `Sites apply failed`.
+- **Tier and tag:** `tier = "operator"`, tag `race` (every race lane; test-and-harness section 4).
+- **The schedule row:** this task and T-50 (the race campaign generator) each name the other:
+  whichever lands second adds the row of T-50's schedule table that puts player B at slot 2,
+  so from MS-2 on the campaign's player B flies from a moved site (stage S3,
+  test-and-harness section 4b). The generated specs do not change.
 - **Sample points:** this task extends T-07's sample-point table of `ListHandles kind=sites`
   with the four patches of `SiteTable` (T-07 ships only the KSC pad and runway ends), and
   re-pins RACE-0's expected lines for the added points.
@@ -758,7 +763,7 @@ Logging (tag `RaceSites`, design section 10):
   dimension value is used; check open PR branches for the `SITES-` prefix before taking it
   (`RS-1` is taken by `RS-1-relay-route-endpoint-lost-rescan`).
 - **Size:** M. **Depends on:** R2-04, R2-05, R2-07, R2-08, R2-09, R2-11, R1-10, R1-11, T-03,
-  T-07.
+  T-07; soft: T-46 (the tolerance comparator).
 - **PC:** yes (a flight).
 - **Risk:** medium; a long lane (four saves); tier by measured p50 after the first flight.
 
@@ -791,7 +796,7 @@ Logging (tag `RaceSites`, design section 10):
   in `IngameBatchWiringGroupTests.INTERIM_PIN_IDS` until the first flight.
 - **Registers:** as SITES-1, plus `CommittedBatchTallySourceSyncTests` pins for
   `RaceSitesStock` and the new category in the lane catalog.
-- **Size:** M. **Depends on:** R2-12, T-07, R1-20.
+- **Size:** M. **Depends on:** R2-12, T-07, R1-20; soft: T-46 (the tolerance comparator).
 - **PC:** yes.
 - **Risk:** low.
 
@@ -900,9 +905,11 @@ a second machine is a cross-check, not a gate.
 
 Harness lanes: SITES-1 (four sites, no batch), SITES-2 (restore, race to race, compared with
 T-07's RACE-0 stock baseline, both load routes; hosts `RaceSitesStock`), SITES-3 (launch
-rules; hosts `RaceSitesEditor`). Each spec has at most one `RunTests` step; per-site values
-come from `ListHandles kind=sites` (T-07). All need the owner's PC (flights). Unit tests run
-anywhere.
+rules; hosts `RaceSitesEditor`). Each spec here runs at most one `RunTests` step (a spec may
+run several only when each names one category and the spec sets `batchVacuityOptOut = true`
+with a reason, `hlib.py:8321-8343`; none here needs it); per-site values come from `ListHandles
+kind=sites` (T-07). The three lanes are tier operator with the tag `race`. All need the owner's
+PC (flights). Unit tests run anywhere.
 
 ## 7. Gates and registrations
 
@@ -947,7 +954,8 @@ anywhere.
   `lane_catalog.py`; `RaceSites`, `RaceSitesFlight` and `RaceSitesTrackingStation` hosted by
   RACE-9 (T-29), RACE-10 (T-35) and RACE-11 (T-36) (every new test re-pins that host's `total=`,
   `CommittedBatchTallySourceSyncTests`), `RaceSitesStock` by SITES-2, `RaceSitesEditor` by
-  SITES-3; one `RunTests` step per spec at most; never-flown SITES-2 and SITES-3 in
+  SITES-3; one `RunTests` step per spec here (several need the vacuity opt-out); never-flown
+  SITES-2 and SITES-3 in
   `INTERIM_PIN_IDS` (SITES-1 runs no batch); `autotest-status.md` rows; lane ids `SITES-1`,
   `SITES-2`, `SITES-3` unique across open PRs.
 - **Docs per commit:** CLAUDE.md "Key source files" entry for `RaceSites` (R2-03, extended

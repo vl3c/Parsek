@@ -222,9 +222,10 @@ Not built here:
   and `KerbalType` are, `facts.toml:27`). So a style value with a `Color` may sit on the
   floor, and RaceCore cannot name the stock suit enum.
 - In-game category `GhostVisuals` is pinned by `harness/scenarios/H15-corpus-ghost-visuals.toml:90`
-  (`total=4`); a test added there reds `CommittedBatchTallySourceSyncTests`. This plan uses
-  two new categories, one scene each (OV-09): `RaceLooksFlight` (FLIGHT) and `RaceLooks`
-  (SPACECENTER).
+  (`total=4`); a test added there reds `CommittedBatchTallySourceSyncTests`, so the R5 cells
+  moved into it (R5-01, R5-02, R5-08) re-pin H15 in their own change. This plan adds two new
+  categories, one scene each (OV-09), for cells that need a race save: `RaceLooksFlight`
+  (FLIGHT) and `RaceLooks` (SPACECENTER).
 
 ## 4. Tasks
 
@@ -247,15 +248,16 @@ change it.
   `Ghost part substituted: recorded=<a> used=<b>`. The `Ghost built:` line is not reworded.
 - **Proof:** xUnit `GhostBuildOptionsTests`: null options and a null dresser return the
   name unchanged and log nothing; a substitute is used and logged; an empty substitute keeps
-  the recorded name. In-game `[InGameTest(Category = "RaceLooksFlight", Scene = FLIGHT)]`
-  `EvaGhostWithUnknownPartBuildsWithSubstitute`: a synthetic one-part snapshot named
+  the recorded name. In-game `[InGameTest(Category = "GhostVisuals", Scene = FLIGHT)]`
+  `EvaGhostWithUnknownPartBuildsWithSubstitute` (the existing category, hosted by H15: the
+  cell needs no race save, so it flies on the day it lands): a synthetic one-part snapshot named
   `kerbalEVAParsekMissing` returns null without options and a ghost with visuals when a
   test dresser maps it to `kerbalEVA`.
 - **Uncalled-method check (A1):** reached by an existing production path. The old entry
   points gain an optional `options = null`, so every existing caller reaches the new code
   with the neutral default; `ResolveBuildPartName` is called from `AdvanceTimelineGhostBuild`
   and calls `SubstitutePartName` through the interface. No member waits for a later caller.
-- **Registers:** `python harness/tools/lane_catalog.py` (new category `RaceLooksFlight`); no
+- **Registers:** H15's `total=` re-pinned (`CommittedBatchTallySourceSyncTests`); no
   CHANGELOG (no player-visible change).
 - **Size:** S. **Depends on:** none. **PC:** yes, one in-game run; the xUnit cells prove
   the null path. **S3:** none.
@@ -278,14 +280,14 @@ change it.
 - **Proof:** xUnit: none possible beyond a source gate (Unity types).
   `GhostBuildDresserSourceGateTests` pins that the override sits after both
   `sharedMaterials` assignments and nowhere adds to `state.materials`. In-game
-  `RaceLooksFlight` `DresserMaterialReachesEvaBodyRenderer`: a test dresser returns a tinted
-  clone for the renderer that equals the prefab's `KerbalEVA.bodyMesh`; assert the ghost's
+  `GhostVisuals` `DresserMaterialReachesEvaBodyRenderer` (H15, no race save): a test dresser returns
+  a tinted clone for the renderer that equals the prefab's `KerbalEVA.bodyMesh`; assert the ghost's
   body renderer holds it, and that destroying the ghost leaves the dresser's material alive.
 - **Uncalled-method check (A1):** reached by an existing production path. The options reach
   the two existing clone methods through R5-01's chain with the null default, and
   `DressMaterials` is declared in the same change as its two call sites.
-- **Registers:** `scripts/arch/facts_pins.toml` re-pin only if the two methods cross the
-  complexity watch band.
+- **Registers:** H15's `total=` re-pinned; `scripts/arch/facts_pins.toml` re-pin only if the
+  two methods cross the complexity watch band.
 - **Size:** S. **Depends on:** R5-01. **PC:** yes, one in-game run. **S3:** S3d (if the
   prefab material is not per-renderer as expected, or the Future suit's color changer
   clones before this point, the hook moves to a post-pass over the part's renderers).
@@ -351,8 +353,9 @@ change it.
   rival map vessel is set by `RivalMapPresence`'s tick (R3W-18) through this helper (OV-44);
   the orbit-line patch is not touched.
 - **Proof:** xUnit on `ComposeGhostVesselName` (null style byte-equal to today; a style gives
-  `Ghost: Ana - Kerbal X`) and on `NeedsOrbitColor`. In-game `RaceLooksFlight`
-  `StyledGhostMapVesselKeepsColor` (FLIGHT, map view): build an orbit ghost through the
+  `Ghost: Ana - Kerbal X`) and on `NeedsOrbitColor`. In-game `GhostMap`
+  `StyledGhostMapVesselKeepsColor` (FLIGHT, map view; the existing category, hosted by S1.6,
+  since the cell needs no race save): build an orbit ghost through the
   service with a composed name, call the helper each frame as a tick would, assert after
   three frames and after a map toggle that `orbitRenderer.nodeColor` equals the style and the
   vessel name starts with `Ghost: `; an unstyled one keeps the stock color.
@@ -360,8 +363,8 @@ change it.
   path (null style) in this change. `ApplyOrbitStyle` and `NeedsOrbitColor` land with their
   first production caller: R3W-18's pull request adds them, with their xUnit cells and the
   in-game cell, as specified here.
-- **Registers:** none beyond the lane catalog; `LineBlinkWindowExitExemptionTests` stays
-  untouched (no new stamp site).
+- **Registers:** S1.6's `total=` re-pinned with the cell (`CommittedBatchTallySourceSyncTests`);
+  `LineBlinkWindowExitExemptionTests` stays untouched (no new stamp site).
 - **Size:** S. **Depends on:** P3-04, R5-03; the helper half lands in R3W-18. Order in
   `GhostMapVessels.cs`: P3-02 to P3-05, R3W-17, R5-04, R3W-19 (OV-48). **PC:** yes.
   **S3:** S3a (colors only).
@@ -419,7 +422,8 @@ Lands only with R3W-26 (watching a live rival ghost).
 - **Uncalled-method check (A1):** lands with its first caller. Its only callers in its own
   change would be xUnit cells (`Parsek.Tests`), which do not count. This task is written and
   reviewed as specified here, but `RaceLookTable.cs` is created in the pull request of the
-  first task that calls it from production or from an in-game cell. That host is R5-08
+  first task that calls it from production or from an in-game cell: it lands with its first
+  caller, R5-08 or R4-10, whichever merges first. Normally that host is R5-08
   (it lands before R5-11, which already carries R5-10, and a pull request holds at most
   two tasks), with only the members R5-08 calls; each later
   caller adds the members it reads, with their `RaceLookTableTests` cells (the UI colors
@@ -445,7 +449,8 @@ Lands only with R3W-26 (watching a live rival ghost).
   `[RaceLooks] Ghost dresser ready: look=N resolution=stock|replacement part=<name>` once
   per scene per look; `[RaceLooks] Ghost dresser materials destroyed: count=N`.
 - **Proof:** xUnit `RaceLookDresserDecideTests` (8 recorded parts x 4 looks x installed or
-  not). In-game `RaceLooksFlight` `EvaGhostDressedForEachLook` (FLIGHT): for each look and each
+  not). In-game `GhostVisuals` `EvaGhostDressedForEachLook` (FLIGHT, H15; synthetic snapshots,
+  no race save): for each look and each
   recorded part name, build a ghost from a synthetic snapshot with the dresser; assert a
   ghost (never the sphere), the substituted part, and the body material's main texture
   name (prefab's for a stock look, Parsek's for a replacement).
@@ -453,7 +458,8 @@ Lands only with R3W-26 (watching a live rival ghost).
   constructs the dresser, calls `DestroyMaterials`, and the build reaches `SubstitutePartName`
   and `DressMaterials` through the interface; InGameTests is a root). Its first production
   caller is R5-09. It carries R5-07's members it calls.
-- **Registers:** writer gate untouched (no save write); lifetimes none (instance state).
+- **Registers:** H15's `total=` re-pinned; writer gate untouched (no save write); lifetimes
+  none (instance state).
 - **Size:** M. **Depends on:** R5-02, R5-07, R5-12, S3. **PC:** yes. **S3:** S3b, S3c, S3d
   (all three set the material path; S3d may show no material work is needed for an
   installed suit).
@@ -485,8 +491,9 @@ Lands only with R3W-26 (watching a live rival ghost).
 - **Registers:** `CHANGELOG.md` (rival kerbals and rival objects show the rival's look and
   color); todo entry; `docs/dev/design-gui-inventory.md` (rival objects are tinted).
 - **Size:** M. **Depends on:** R3W-09, R3W-15, R3W-18, R3W-20, R3W-21, R5-03, R5-04, R5-08.
-  **PC:** yes (both machine kinds; the owner's PC has the DLCs, so the no-DLC case is
-  forced by a test dresser that reports the part as absent). **S3:** S3c.
+  **PC:** yes. The no-DLC case needs no second machine: the cell forces it with a test
+  dresser that reports the part as absent, and a lane on a no-DLC install profile, if one is
+  added later, reads the same cell; neither is on the owner list. **S3:** S3c.
 - **Risk:** medium; the first time a rival kerbal is drawn, with two slices' code meeting.
 
 ### R5-10 The dress rules (RaceCore, pure)
@@ -542,7 +549,8 @@ Lands only with R3W-26 (watching a live rival ghost).
   reload: the look again; replaces `PickedSuitSurvivesReload`, since the race suit is
   locked, owner, 2026-11-15); `LookChangeRedressesOnce` (edit the look in `local.cfg`,
   reload, every Crew kerbal re-dressed, a second reload writes nothing). Log contract in a
-  single-player save: no `[RaceLooks]` line at all.
+  single-player save: no `[RaceLooks]` line at all, pinned on T-44's RACE-20 (the
+  single-player host) in this pull request.
 - **Uncalled-method check (A1):** reached by production: `RaceSession` constructs it, the
   `GameEvents` handlers are delegate members, `ParsekRaceScenario.OnLoad` calls
   `RunLoadPass`. R5-10's rules, and R5-07's members
@@ -578,9 +586,10 @@ Shape depends on question 10.2 (art source) and 10.1 (combo entry or not).
   `GameDatabase` under Parsek URLs so `KerbalEVA.SetNewTextures` finds them. Lifetime
   `process` in `scripts/arch/lifetimes.toml`.
 - **Proof:** in-game `RaceLooks` (SPACECENTER) `ReplacementSetsResolve` (each URL resolves
-  to a texture of the base suit's size). Shipped art: a release-bundle check that the zip
-  carries the folder (`python scripts/release.py` on the owner's PC) and the provision unit
-  cell.
+  to a texture of the base suit's size). Shipped art: a zip-listing cell, a Python unit test
+  beside `scripts/release.py` that reads its packaged file map (`release.py:84-97`) and
+  asserts every replacement set file is in it, so no hand check of the zip is needed (it
+  runs in CI with no build); and the provision unit cell.
 - **Uncalled-method check (A1):** `RaceSuitSets` is live through `ReplacementSetsResolve`
   (an in-game cell, a root) in the same change; its production callers are R5-08 and R5-11.
 - **Registers:** packaging files above; `CHANGELOG.md` only through R5-09 / R5-11.
@@ -633,7 +642,8 @@ Added 2026-11-15: the race suit is locked (owner, 2026-11-15).
   Astronaut Complex's window; hosted by RACE-9): `SuitChoiceBlockedInRaceSave` (the suit
   buttons disabled with the reason; a forced `onSuitComboSelection` leaves the kerbal's
   suit and combo unchanged; the helmet and neck ring toggle and the suit light color still
-  change) and `SuitChoiceFreeInSinglePlayer` (skips with a stated reason in a race save).
+  change) and `SuitChoiceFreeInSinglePlayer` (skips with a stated reason in a race save; it
+  runs on T-44's RACE-20, the single-player host, which this pull request re-pins).
   The editor crew dialog opens the same window through the same opener, so it needs no cell
   of its own.
 - **Uncalled-method check (A1):** the patch's prefixes are Harmony roots; the predicate is
@@ -686,17 +696,23 @@ Added 2026-11-15: the race suit is locked (owner, 2026-11-15).
   R5-11's pull request). Each null-input cell
   proves the single-player path is today's. Log assertions through
   `ParsekLog.TestSinkForTesting`, `[Collection("Sequential")]`.
-- **In-game, two categories, one scene each (OV-09; owner's PC):** `RaceLooksFlight`
-  (FLIGHT): R5-01, R5-02 and R5-04 cells run in any save (they build with test dressers and
-  styles, no race), R5-08 any save, R5-09 skips with a stated reason unless the save is a
-  race save with the rival fixture. `RaceLooks` (SPACECENTER): R5-11 cells skip unless the
-  save is a race save; R5-12's `ReplacementSetsResolve` runs in any save.
-- **Harness:** R5 adds no lane (R5-13 dropped, OV-06). The host lanes of T-29 and T-35 run the two
-  categories: RACE-9 (SPACECENTER) runs `RaceLooks`, RACE-10 (FLIGHT) runs
-  `RaceLooksFlight`. The existing lanes, with no race save loaded, must stay green and
-  unchanged (H15 `GhostVisuals`, FGV-1's `Ghost built:` regex, the map lanes behind P3).
-- **What needs the owner's PC:** every in-game cell, spike S3, the R5-09 check on a
-  no-DLC machine (or a forced absent part), and `release.py` for the zip.
+- **In-game, existing categories first (owner's PC runs them through lanes):** a cell that
+  needs no race save goes into an existing category, so it flies on the day its task lands:
+  R5-01, R5-02 and R5-08 cells into `GhostVisuals` (FLIGHT, hosted by H15), R5-04's into
+  `GhostMap` (FLIGHT map view, hosted by S1.6), each re-pinning that host's `total=`.
+- **In-game, two race categories, one scene each (OV-09):** `RaceLooksFlight` (FLIGHT):
+  R5-09 skips with a stated reason unless the save is a race save with the rival fixture.
+  `RaceLooks` (SPACECENTER): R5-11 and R5-14 cells skip unless the save is a race save;
+  R5-12's `ReplacementSetsResolve` runs in any save. The single-player halves (R5-11's log
+  contract, R5-14's `SuitChoiceFreeInSinglePlayer`) run on T-44's RACE-20.
+- **Harness:** R5 adds no lane (R5-13 dropped, OV-06). The host lanes of T-29 and T-35 run the
+  two race categories: RACE-9 (SPACECENTER) runs `RaceLooks`, RACE-10 (FLIGHT) runs
+  `RaceLooksFlight`; H15 and S1.6 run the moved cells. The existing lanes, with no race save
+  loaded, must stay green (H15 `GhostVisuals` with its re-pinned tally, FGV-1's `Ghost
+  built:` regex, the map lanes behind P3).
+- **What needs the owner's PC:** the lane flights above and spike S3. Nothing in R5 is on the
+  owner list (test-and-harness section 1): the no-DLC case is forced by a test dresser that
+  reports the part absent, and the zip is checked by the zip-listing cell (R5-12).
 
 ## 7. Gates and registrations
 
@@ -732,7 +748,7 @@ Added 2026-11-15: the race suit is locked (owner, 2026-11-15).
   blocked with a stock-control annotation (R5-14; owner, 2026-11-15); in a single-player save it is
   untouched unless question 10.1 is (a).
 - **Docs:** CHANGELOG at R5-09, R5-11 and R5-14; todo entries per task; lane catalog regen with the
-  first in-game cell of each category (R5-01 for `RaceLooksFlight`, R5-11 for `RaceLooks`);
+  first in-game cell of each category (R5-09 for `RaceLooksFlight`, R5-11 for `RaceLooks`);
   once T-29 pins RACE-9 and T-35 pins RACE-10, a cell added to either category re-pins its host's
   tally in the same change (`CommittedBatchTallySourceSyncTests`); `autotest-status.md` is
   T-29's; `scripts/arch/log_tags.json` refresh (report-only) when the `RaceLooks` tag first

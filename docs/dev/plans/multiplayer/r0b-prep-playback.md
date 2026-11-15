@@ -666,11 +666,18 @@ after P2b-10.
 - **Proof:** not foldable (a parameter replaces a field read). Proof is `il_compare --show
   ApplyGhostPosEntries` (and each helper) showing only `ldarg` in place of the host-and-accessor
   pair; `PlaybackHostUnitTests`, `Rendering/LateUpdateSplineDispatchTests` green. In-game
-  `GhostReapplyFrame` and `ChainTipBlockedGhost` (run by hand, no spec) and `GhostPlayback`;
-  daily tier.
-- **Registers:** none.
+  `GhostReapplyFrame` and `ChainTipBlockedGhost` stop being hand runs: this task adds one
+  `RunTests` step per category to H15 (`H15-corpus-ghost-visuals.toml`, a FLIGHT host with a
+  ghost corpus, nightly), beside its `GhostVisuals` step, with `batchVacuityOptOut = true` and
+  a `batchVacuityOptOutReason` in `[expectations.logContracts]` (`hlib.py:8321-8343`); a cell
+  that needs a context the corpus lacks (a surface ghost, a spawn-blocked chain tip) moves its
+  step to GS-8 (`GS-8-kerbalx-zone-round-trip.toml`) instead, and a step whose cells all skip
+  is a red, not a pass. Plus `GhostPlayback` and the daily tier.
+- **Registers:** the new step pins (`CommittedBatchTallySourceSyncTests`; the two test files'
+  comments that no spec pins them are rewritten), an `INTERIM_PIN_IDS` entry until the step's
+  first flight, and the H15 row in `autotest-status.md`.
 - **Size:** S. **Depends on:** P2b-06.
-- **PC:** yes: the two hand-run categories plus the daily tier (about 0.4 h).
+- **PC:** yes: the H15 lane plus the daily tier (about 0.4 h).
 - **Risk:** medium; this is the per-frame re-apply path, and a wrong lane argument would only show
   in a flight.
 
@@ -847,7 +854,7 @@ in-game test, so no batch tally (`CommittedBatchTallySourceSyncTests`) and no la
 | GhostMap, MapRender | map state vectors and render anchors | H44, S1.6, S1.7 |
 | StandaloneLoopMap | loop units through the lane | SLM-1, SLM-1T, SLM-2 (operator) |
 | Watch | watch query seam | LT-1, V*M lanes |
-| GhostReapplyFrame, ChainTipBlockedGhost | late-update re-apply through the lane | none; run by hand |
+| GhostReapplyFrame, ChainTipBlockedGhost | late-update re-apply through the lane | H15 (nightly), steps added by P2b-07; GS-8 for a cell H15 cannot host |
 
 ### 6.4 The P2b flight proof
 
@@ -903,17 +910,17 @@ half): about 13 minutes plus the two unmeasured lanes, and never less than the l
 (GS-12, 432 s). The daily tier added to the same run is about 25 minutes one lane at a time
 and 12 min 35 s on three copies (measured), less the three lanes it shares with the set.
 
-Paths with no lane, said rather than stretched: the ghost position re-apply in late update
-(`GhostReapplyFrame`, `ChainTipBlockedGhost`; no lane runs either category, so they stay hand
-runs); a non-loop Relative section placed by the FLIGHT positioner (LT-2 covers the same
-recorded-anchor resolver at the KSC only); a Re-Fly ghost placed through an anchor (RF-8 shows
-the sibling ghost during a Re-Fly, H11 the anchor resolver without playback; RW-5, RW-6 and
-RW-7 are ledger lanes on another install with no measured p50).
+Paths with no lane before P2b-07, said rather than stretched: the ghost position re-apply in
+late update (`GhostReapplyFrame`, `ChainTipBlockedGhost`; P2b-07 adds their steps to H15, which
+flies beside the set, below); a non-loop Relative section placed by the FLIGHT positioner (LT-2
+covers the same recorded-anchor resolver at the KSC only); a Re-Fly ghost placed through an anchor
+(RF-8 shows the sibling ghost during a Re-Fly, H11 the anchor resolver without playback; RW-5, RW-6
+and RW-7 are ledger lanes on another install with no measured p50).
 
 Per-task checks that stay: the daily tier (about 0.4 h one lane at a time) after P2b-07 and
-P2b-08, and after P2b-10 inside the set's run as above; the two hand-run categories
-(`GhostReapplyFrame`, `ChainTipBlockedGhost`) after P2b-07 and again after P2b-10, since no
-lane covers them.
+P2b-08, and after P2b-10 inside the set's run as above; H15 with the two late-update
+categories (`GhostReapplyFrame`, `ChainTipBlockedGhost`) after P2b-07 and again after
+P2b-10.
 
 P2c and P2a need no full run either: their in-game categories and the lanes named per task,
 flown once after Track A, C and D merge (nightly tier, about 9.5 h one lane at a time, covers

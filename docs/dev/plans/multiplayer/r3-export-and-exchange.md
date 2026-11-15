@@ -574,9 +574,20 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
     `testTooling` maps to, OV-28) and `NoteTestTooling(string what)`, which sets it while
     armed and logs `[FactCapture]` only for the first mark, reading `TestToolingUsed` (R3E-06
     specified both; this is their first caller, A1). The save-scoped reset clears it.
-- **Proof:** `ToolUseDecisionTests`, log assertions per site helper; in-game test category
-  `RaceFacts` (FLIGHT only, OV-09): toggle hack gravity during a recording in a race-armed
-  save and read `ToolUses`; the same in a single-player save reads empty.
+  - When a recording carries the test-tools mark (rule pinned 2026-11-15, so a harness flight
+    scores exactly as the board rules say): a recording started while `TestToolingUsed` is
+    set, which is every recording in a save where the seam was armed from boot, carries
+    `ToolUse(TestTooling)` from its start (`NoteToolUse` at the recording's start, UT = its
+    start UT); a recording already running when a tool is first used carries it from that
+    UT. So a normal game flown by the harness scores 0 (R6-01), and a test game (R1-23)
+    scores, because R6-01 skips only the test-tools mark there; every other mark of this
+    task applies in both.
+- **Proof:** `ToolUseDecisionTests` (including a recording started with `TestToolingUsed` set
+  carries the mark from its start, and one started before the first use carries it from
+  that UT), log assertions per site helper; in-game test category `RaceFacts` (FLIGHT only,
+  OV-09): toggle hack gravity during a recording in a race-armed save and read `ToolUses`;
+  the single-player half (the same in a single-player save reads empty) runs on T-44's
+  RACE-20.
 - **Registers:** a new in-game category (regenerate the lane catalog,
   `python harness/tools/lane_catalog.py`), hosted by T-35's FLIGHT host lane RACE-10
   (OV-09); once T-35's spec is committed, each later test in it re-pins that spec's
@@ -668,7 +679,9 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
   and the later one is listed though not effective; repeatable records excluded; a
   tombstoned row is absent through ELS); `MilestoneTableTests` (since carried, a new date
   gets the new seq, covering resolution, unverified, the lowest-recording-id tie-break, a
-  milestone on no ladder still exported); export test.
+  milestone on no ladder still exported); export test; T-52's real-ledger cells (the career
+  campaign's flown ledgers through this table, T-16 and R4-04) prove it on real milestone
+  rows, not only synthetic ones.
 - **Registers:** none beyond log tags.
 - **Size:** M. **Depends on:** R3E-04 (no R4 task). **PC:** no. **Risk:** low.
 
@@ -971,7 +984,9 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
   disagreement); `RaceSyncLoopbackTests`: two players export and import each other for
   twenty ticks with edits injected, run on T-18's two-machine simulator (one shared
   `FakeSyncedStore`; OV-19: no second machine fake here). They test the feature's message
-  flow; T-31 tests the board as a property on the same simulator.
+  flow; T-31 tests the board as a property on the same simulator. This pull request also
+  adds the witness-log facet to T-21's `raceparse.py` (T-21 no longer waits for it), and T-37
+  (the changed-file scenario) follows it.
 - **Registers:** none. **Size:** M. **Depends on:** R3E-18, T-18. **PC:** no.
   **Risk:** medium.
 
