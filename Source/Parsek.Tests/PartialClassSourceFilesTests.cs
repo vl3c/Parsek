@@ -90,6 +90,12 @@ namespace Parsek.Tests
                 LogisticsWindowUISourceFiles.Paths(Path.Combine(parsek, "UI")).Count);
             Assert.Equal(1 + RewindInvokerSourceFiles.SplitFileNames.Length,
                 RewindInvokerSourceFiles.Paths(parsek).Count);
+            Assert.Equal(1 + ParsekFlightGhostPositionerSourceFiles.SplitFileNames.Length,
+                ParsekFlightGhostPositionerSourceFiles.Paths(parsek).Count);
+            // ParsekFlight's services read the positioner whole: its main file plus every group file.
+            Assert.Equal(ParsekFlightSourceFiles.ServiceFileNames.Length
+                    + ParsekFlightGhostPositionerSourceFiles.SplitFileNames.Length,
+                ParsekFlightSourceFiles.ServicePaths(parsek).Count);
         }
     }
 }

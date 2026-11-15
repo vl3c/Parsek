@@ -2612,7 +2612,7 @@ Leave this parked for multiplayer's sake. If it is done anyway: make P3-01..P3-0
 so the primitive is not extracted twice, land P3-02 after P2a-07 (both touch
 `GhostMapPresence.StateVectors.cs`), and never run it concurrently with P3.
 
-## ARCH-GHOST-POSITIONING-FILE: ParsekFlightGhostPositioner.cs is the one production file above 5,000 lines [FILED 2026-11-14 from the Atlas opportunity row 10 ("the single-file giants") and its "Largest files and types" finding. PARKED by the owner 2026-11-14 as later work, not part of the current refactor pass (which closes after the folder move, the cold load leftovers, the six-edge ledger cut and the really-dead removal); re-measure mid-December. Architecture debt, no behavior defect]
+## ARCH-GHOST-POSITIONING-FILE: ParsekFlightGhostPositioner.cs is the one production file above 5,000 lines [FILED 2026-11-14 from the Atlas opportunity row 10 ("the single-file giants") and its "Largest files and types" finding. PARKED by the owner 2026-11-14 as later work, not part of the current refactor pass (which closes after the folder move, the cold load leftovers, the six-edge ledger cut and the really-dead removal); re-measure mid-December. ~~FILE-ONLY CUT DONE~~ 2026-11-15 as the last change of that pass (item 26, branch `item26-positioner-file-cut`): twelve partial files, IL identical; the CLASS split stays PARKED until after multiplayer P2b-10. Architecture debt, no behavior defect]
 
 Measured at main 24abf0dba (2026-11-14): `Source/Parsek/ParsekFlightGhostPositioner.cs` is
 5,567 lines (6,017 when PF2 created it; B7 and later commits removed code since), one file
@@ -2649,6 +2649,29 @@ P2b-10: P2b moves the orbit cache, the position entries, the reapply stamps and 
 (the state that tangles this file) into `ParsekFlightPlaybackLane`, so a class split before it
 would invalidate P2b's member tables and need the 18-lane flight proof twice. Never during the
 P2b window.
+
+File-only cut, 2026-11-15 (item 26, branch `item26-positioner-file-cut`): the same class made
+`partial`, bodies verbatim, written by `scripts/refactor/split_ghostpositioner.py` from the
+multiplayer plan's grouping (`positioner-split-groups.md`, measured on main e66f97d28). The main
+file `Source/Parsek/Controllers/ParsekFlightGhostPositioner.cs` keeps the class comment, `host`,
+the constructor, every field, constant and static readonly delegate in today's order, the thin
+IGhostPositioner entry points, the body lookups and the engine distance queries (36 of the 133
+class-level members: 17 methods, the constructor, 9 fields, 9 constants); eleven files beside
+it carry the other 97: `.Points` (9),
+`.Orbit` (12), `.OrbitTailContinuity` (5), `.Checkpoint` (7), `.WorldPosition` (12),
+`.RecordedRelative` (10), `.RelativeAnchor` (4), `.BodyFixedPrimary` (2), `.Trace` (11),
+`.Loop` (12) and `.TailLift` (13). Four members the grouping named for `.WorldPosition`
+(`CountDensebodyFixedFramesForSection`, `TryGetDenseSectionBracketWidthSeconds`,
+`TryGetBracketWidthSeconds`, `PointBelongsToSection`) were already deleted by the really-dead
+removal (item 25). Each file carries only the usings it needs (the build confirms each kept one
+is needed). Proof: `scripts/refactor/il_compare.py` over Debug builds before and after in the
+same worktree path, 4009 types, 24755 fields, 26709 methods on both sides, 0 differences. Source
+gates read the family whole through `ParsekFlightGhostPositionerSourceFiles` (and
+`ParsekFlightSourceFiles` reads it wherever it read the one file); the non-loop live-PID audit
+repeats its row per group file and reads the loop-only flag in `.Loop.cs`; the ERS / ELS
+exemption names `.TailLift.cs`, the one file with the raw committed-list read. The largest
+positioner file is now `.Loop.cs` at about 725 lines. The class split into several types stays
+parked until after P2b-10, as above; the multiplayer plan re-anchors its own file:line facts.
 
 ## ARCH-STOCK-UI-RESERVATION-CYCLES-2026-09-25: the stock-UI reservation layer added eight types to the kernel knot and a new 7-type knot [FILED 2026-09-25 when `scripts/arch/modules.toml` classified the layer; OPEN, low; architecture debt, no behavior defect. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 

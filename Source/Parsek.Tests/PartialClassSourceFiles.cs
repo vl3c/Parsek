@@ -10,7 +10,7 @@ namespace Parsek.Tests
     /// files (<see cref="BackgroundRecorderSourceFiles"/>,
     /// <see cref="GhostTrajectoryPolylineRendererSourceFiles"/>,
     /// <see cref="RecordingsTableUISourceFiles"/>, <see cref="ParsekFlightSourceFiles"/>,
-    /// <see cref="ParsekScenarioSourceFiles"/>). It enumerates every
+    /// <see cref="ParsekScenarioSourceFiles"/>, <see cref="ParsekFlightGhostPositionerSourceFiles"/>). It enumerates every
     /// <c>&lt;Class&gt;.*.cs</c> on disk and refuses when that set differs from the reader's
     /// declared lists, so a new partial file cannot be skipped silently by a gate that reads
     /// "the whole class": the failure names the file and tells the author which list to add it

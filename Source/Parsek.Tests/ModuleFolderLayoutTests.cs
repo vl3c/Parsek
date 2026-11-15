@@ -55,6 +55,7 @@ namespace Parsek.Tests
         // file and a floor on the partial files beside it (the count on 2026-11-14).
         [Theory]
         [InlineData("ParsekFlight", "Controllers", 17)]
+        [InlineData("ParsekFlightGhostPositioner", "Controllers", 11)]
         [InlineData("ParsekScenario", "Controllers", 26)]
         [InlineData("VesselSpawner", "Controllers", 8)]
         [InlineData("BackgroundRecorder", "Recording", 13)]
