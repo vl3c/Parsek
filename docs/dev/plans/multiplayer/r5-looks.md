@@ -88,11 +88,11 @@ Not built here:
   in `AdvanceTimelineGhostBuild` (`GhostVisualBuilder.cs:173`).
 - The part name is read from the snapshot `PART` node (`name`, else `part`) and cleaned by
   `TryExtractPartName` (`GhostVisualBuilder.cs:185-186`, `GhostVisualBuilder.Parsing.cs:63`),
-  then looked up by `ResolveAvailablePart(partName)` (`GhostVisualBuilder.cs:196`), which
+  then looked up by `ResolveAvailablePart(partName)` (`GhostVisualBuilder.cs:200`), which
   tries the direct, dotted, underscored and brute-force forms
   (`GhostVisualBuilder.Parsing.cs:74-130`) and warns `ResolveAvailablePart failed`
   (`GhostVisualBuilder.Parsing.cs:121`). A miss counts `skippedPrefab`
-  (`GhostVisualBuilder.cs:197-199`); a hit calls `AddPartVisuals`
+  (`GhostVisualBuilder.cs:201-203`); a hit calls `AddPartVisuals`
   (`GhostVisualBuilder.cs:216`, declared at `:968`).
 - **The sphere fallback.** `CompleteTimelineGhostBuild` (`GhostVisualBuilder.cs:334`) logs
   `Ghost built:` (`:340-344`, VerboseRateLimited; harness spec
@@ -186,7 +186,7 @@ Not built here:
   text is `"Ghost: " + label` (`:364`). Callers: `ParsekFlightMapMarkers.cs:1001`, `:1011`,
   `:1034`; `ParsekTrackingStation.cs:983/986`, `:1406/1409`.
 - The trajectory polyline is styled by `ApplyStockOrbitLineStyle`
-  (`Display/GhostTrajectoryPolylineRenderer.LegDraw.cs:400`) in the stock grey
+  (`Display/GhostTrajectoryPolylineRenderer.LegDraw.cs:402`) in the stock grey
   (`:417-423`).
 - Ghost map vessels: the name is `GhostVesselNamePrefix + vessel name`
   (`GhostMapPresence.cs:756`, `GhostMapPresence.ProtoVesselLifecycle.cs:1922`); the orbit

@@ -182,7 +182,7 @@ The positioner is one partial class in 12 files under `Source/Parsek/Controllers
 `ParsekFlightGhostPositioner.cs` holds the `host` field, the constructor `(ParsekFlight host)` at
 :16 and every other field and const; the 11 `ParsekFlightGhostPositioner.<Group>.cs` partials hold
 methods only. Together they have 54 `host.` references to the 14 members above (counted with
-`\bhost\.`; Orbit 28, Points 7, Loop 7, main 4, RecordedRelative 4, Trace 2, Checkpoint 1, the
+`\bhost\.`; Orbit 28, Points 7, Loop 8, main 4, RecordedRelative 4, Trace 2, Checkpoint 1, the
 other five none). Its own per-instance
 fields (`reaimLastGhostFrame`, `loopSeamLastGhostFrame`, `predictedOrbitTailContinuityCache`,
 `recordedRelativeAnchorVisited`, `activeBodyFixedShiftSeconds`) are already per positioner, so a

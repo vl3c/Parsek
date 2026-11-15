@@ -285,7 +285,7 @@ Tracking Station, `ParsekTrackingStation.cs`: no engine. `Start` (:250) runs the
   Relative, OrbitalCheckpoint), `anchorVesselId`, `anchorRecordingId`, `frames`,
   `bodyFixedFrames` (:59), `isBoundarySeam` (:72).
 - Missing part prefabs: the ghost build skips them (`GhostVisualBuilder.cs:200-203`) and
-  warns once per part (`GhostVisualBuilder.Parsing.cs:120`, "ResolveAvailablePart failed").
+  warns once per part (`GhostVisualBuilder.Parsing.cs:121`, "ResolveAvailablePart failed").
   The build node is `GhostVisualSnapshot ?? VesselSnapshot` (`GhostVisualBuilder.cs:460`).
 - Test-only loaders today: `RecordingSidecarStore.LoadRecordingFilesFromPathsForTesting`
   (`RecordingSidecarStore.cs:190`), `LoadTrajectorySidecarForTesting` (:2092). P6 gives

@@ -14,10 +14,10 @@ signatures only); code checks against this worktree.
 
 | Class | Items |
 |-------|-------|
-| WRONG | 19 |
+| WRONG | 20 |
 | SILENT | 38 |
 | CONTRADICTION | 16 |
-| DETAIL | 54 |
+| DETAIL | 53 |
 | OWNER | 9 |
 | REJECTED | 2 |
 | Total | 138 |
