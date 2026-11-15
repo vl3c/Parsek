@@ -628,11 +628,6 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
-        /// Counts renderers under the ghost part node named by the part's
-        /// persistentId (AddPartVisuals names part roots "ghost_part_{pid}").
-        /// Returns 0 when the part contributed no node or no renderers.
-        /// </summary>
-        /// <summary>
         /// The ghost's renderer names a live rock no longer carries: every renderer under the
         /// ghost part other than the generated rock object must be a prefab clone whose name
         /// the live part still renders. Pure.
@@ -674,6 +669,11 @@ namespace Parsek.InGameTests
             return RendererNames(part);
         }
 
+        /// <summary>
+        /// Counts renderers under the ghost part node named by the part's
+        /// persistentId (AddPartVisuals names part roots "ghost_part_{pid}").
+        /// Returns 0 when the part contributed no node or no renderers.
+        /// </summary>
         internal static int CountRenderersUnderGhostPart(GameObject ghostRoot, uint partPid)
         {
             if (ghostRoot == null)

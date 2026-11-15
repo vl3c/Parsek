@@ -64,6 +64,8 @@ INVENTED, NOT SOURCED FROM ANY STOCK OUTPUT (no committed save or craft carries 
     `pid` as a hyphenated Guid), which stock restores on the active vessel at load. kRPC's
     `SpaceCenter.vessels` omits SpaceObject vessels, so the mission reaches the rock only
     through `sc.target_vessel`;
+  * the comet's `CometVessel` `hasName = True` (the donor's `False` makes stock generate a
+    random name at every load);
   * the rock DISCOVERY edits: `state = 29` (fully discovered, unowned), `lifetime` and
     `refTime` = Infinity (the owned-vessel spelling stock writes), `size = 0` (class A) for
     the asteroid; the comet keeps its donor `size = 5` and nucleus radius (no small-class
@@ -535,6 +537,13 @@ def build_rock(lines_or_donor: List[str], name: str, labx: List[str], ahead_m: f
         i = out.index(_P + key + " = " + _value(out[d:_block_end(out, d)], _P, key), d)
         out[i] = _P + key + " = " + value
     assert [l for l in out if l.startswith(_P + "name = Potato")], "no rock PART"
+    # A discovered comet with `hasName = False` is renamed at load (decompiled
+    # CometVessel: DiscoverableObjectsUtil.GenerateCometName, a fresh random name per load;
+    # COM-1's first flights saw 'Gerwise 1' then 'Lisdock 1'), so the lanes could never name it.
+    named = [i for i, l in enumerate(out) if l == _P + "\thasName = False"]
+    assert len(named) <= 1, named
+    for i in named:
+        out[i] = _P + "\thasName = True"
     return out
 
 

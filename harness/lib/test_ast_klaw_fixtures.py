@@ -202,6 +202,12 @@ class AstKlawFixtureTests(unittest.TestCase):
             self.assertIn(P + "\tname = ModuleGrappleNode", klaws[0], fixture)
             self.assertIn(P + "\tstate = Disabled", klaws[0], fixture)
 
+    def test_the_comet_keeps_its_name(self):
+        # hasName = False makes stock's CometVessel rename a discovered comet at every load.
+        comet = self._vessel(self.b.COM_KLAW, self.b.COMET_NAME)
+        self.assertIn(P + "\thasName = True", comet)
+        self.assertNotIn(P + "\thasName = False", comet)
+
     def test_the_klaw_vessel_targets_its_rock(self):
         # kRPC's SpaceCenter.vessels omits SpaceObject vessels, so the mission reaches the
         # rock only through the target stock restores from this node at load.
