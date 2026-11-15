@@ -20,6 +20,35 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~RESTORE-ATTEMPT-RECORD-FOLDS-INTO-HISTORY~~: a world-record award made while a committed flight is resumed folds into that recording's stored history event and is lost on discard [FILED 2026-11-15 from SE-1's nightly red, run `2026-11-15_0704_SE-1-editor-round-trip` (build b548a42c1, PARSEK-FAIL(expectation) attempt 1, ledger actions=17 where the spec pins 15), against the last pass `2026-11-10_1631` (e5b47f33). FIXED 2026-11-15, branch `item27-se1-records`; xUnit; SE-1 re-flight owed; medium (career ledger rows and stock's record band, every record node)]
+
+What the player sees: fly a recorded ship again (the committed-spawned-vessel restore), break a
+distance / altitude / speed / depth record threshold, then discard the new flight. The award is
+dropped with the discard, stock's record is patched back below the thresholds, and stock pays them
+again a frame later as fresh untagged career rows (SE-1: one repay row and two completion rows).
+
+Cause. `GameStateRecorder.TryCoalesceWorldRecordReward` picked its seed by (milestone id,
+recording id) only. The SE-1 host's `events.pgse` holds two stored RecordsDistance events at UT
+1276.4236 tagged to the resumed recording (an award and stock's completion at the splashdown, with
+no ledger row). The load-time optimizer split moves them onto the chain tail, and since PR #2588
+(053eb7cd8, COMMITTED-RESTORE-APPENDS-TO-ROOT, intended) the restore attempt resumes on that tail,
+so the live threshold 4 / 5 awards folded into the stored history event (rewriting its detail to
+`thresholds=N;band=-`) instead of starting the attempt's own seed.
+`LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard` re-homes only events past
+the attempt's cutoff, so it found only the completion (`re-homed 1`, PASS read `re-homed 2`), and
+the recalc left `RecordsDistance hits=3 complete=False`. A defect older than #2588: any resumed
+recording that already carries a stored event of the same record node hits it; #2588 moved the
+SE-1 events onto the recording the attempt now resumes. Not timing: both runs had the same vessel
+state and the same splits.
+
+Fix: under an armed committed-tree restore attempt the coalescer skips a candidate seed at or
+before the attempt's cutoff for that recording (`CommittedTreeRestoreAttempt.TryGetEventCutoff`,
+the same boundary as the persistence suppression, the tail purge and the re-home), so the first
+live award starts the attempt's own seed and later awards fold into it. Log:
+`TryCoalesceWorldRecordReward: ... skipped N restore-attempt history event(s)`. Tests:
+`RestoreAttemptRecordCoalesceTests` (red on the old code: history detail rewritten, re-homed 1).
+Not covered by a test: the merge (commit) of such an attempt.
+
 ## ~~FAR-SWITCH-INTENT-TTL-RACE~~: a fast far Switch-To starts a switch segment on the target, which the design says it must not [FILED 2026-11-14 from S0.14's third flight (PC, head a3624e48f, PARSEK-FAIL on its pre-registered P6), branch `item20-switch-pending-merge-lane`; code and decompile reading. FIXED 2026-11-14 on the same branch (PR #2609): no intent is armed for an unloaded target; xUnit + mutation; FLOWN GREEN 2026-11-15: S0.14 `2026-11-15_0011_S0.14-far-switch-merges-before-reload` PASS attempt 1; low (a recording the player did not ask for, on a rare path)]
 
 What the player sees: with Parsek recording, a Switch-To (map menu, or the stock alarm's Jump in

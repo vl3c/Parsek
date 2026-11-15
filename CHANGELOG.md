@@ -43,6 +43,11 @@ All notable changes to Parsek are documented here.
 
 ### Fixed
 
+- **A world record set while flying an earlier recorded ship again is kept when you discard.**
+  Breaking a distance, altitude, speed or depth record on a resumed recorded ship could be filed
+  with that ship's old flight, so discarding the new flight lost it and the game awarded the
+  record again as extra career log rows. It now stays with the new flight.
+  (RESTORE-ATTEMPT-RECORD-FOLDS-INTO-HISTORY)
 - **A flight that ends parked on the launch pad or runway is always recognized.** Some recorded
   positions store the longitude wound past the date line (-434.5 instead of -74.5); such a flight
   spawned a vessel on the pad instead of ending there. It now ends there like any other.

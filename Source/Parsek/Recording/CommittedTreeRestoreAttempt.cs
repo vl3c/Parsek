@@ -236,6 +236,25 @@ namespace Parsek
             return committedTreeRestoreAttemptRecordingIds.Contains(recordingId);
         }
 
+        /// <summary>
+        /// The armed attempt's event cutoff for <paramref name="recordingId"/> (the recording's
+        /// committed end UT at arm time): an event of that recording at or before it is
+        /// committed history, one after it is the clone's own. False when no attempt is armed
+        /// or the recording has no cutoff.
+        /// </summary>
+        internal static bool TryGetEventCutoff(string recordingId, out double cutoffUT)
+        {
+            cutoffUT = double.NaN;
+            if (string.IsNullOrEmpty(recordingId)
+                || string.IsNullOrEmpty(committedTreeRestoreAttemptTreeId)
+                || committedTreeRestoreAttemptEventCutoffs == null)
+            {
+                return false;
+            }
+
+            return committedTreeRestoreAttemptEventCutoffs.TryGetValue(recordingId, out cutoffUT);
+        }
+
         internal static bool ShouldSuppressCommittedTreeRestoreAttemptEventPersistence(
             GameStateEvent evt)
         {
