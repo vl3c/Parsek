@@ -1857,6 +1857,10 @@ namespace Parsek
                     if (a.Type != GameActionType.MilestoneAchievement) continue;
                     if (a.MilestoneId != milestoneId) continue;
                     if ((a.RecordingId ?? "") != recordingId) continue;
+                    // A committed history row near a restore attempt's seed is not its row
+                    // (same boundary as the seed search above): the seed event already holds
+                    // the award, and folding it here too would book it twice.
+                    if (hasAttemptCutoff && !(LedgerHeldWindow.CaptureMomentUT(a) > attemptCutoffUT)) continue;
                     if (Math.Abs(LedgerHeldWindow.CaptureMomentUT(a) - seed.ut) > 0.1) continue;
                     a.MilestoneFundsAwarded += (float)funds;
                     a.MilestoneRepAwarded += rep;

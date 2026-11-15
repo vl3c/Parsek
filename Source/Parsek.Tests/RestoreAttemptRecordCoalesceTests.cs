@@ -183,6 +183,167 @@ namespace Parsek.Tests
                 e => Assert.Equal(HistoryUT, e.ut));
         }
 
+        private const double HistoryRowUT = 1276.68;
+
+        // A committed history event AND its committed ledger row of the same scope, 0.02 s
+        // before the cutoff: inside the 0.1 s row-match window of a live seed just after it.
+        private static GameAction AddHistoryEventAndRow()
+        {
+            var evt = new GameStateEvent
+            {
+                ut = HistoryRowUT,
+                eventType = GameStateEventType.MilestoneAchieved,
+                key = "RecordsDistance",
+                detail = GameStateRecorder.BuildMilestoneDetail(100.0, 0f, 0.0, 1, "3:100:0:0"),
+                recordingId = TailId,
+            };
+            GameStateStore.AddEvent(ref evt);
+            var row = new GameAction
+            {
+                UT = HistoryRowUT,
+                Type = GameActionType.MilestoneAchievement,
+                RecordingId = TailId,
+                MilestoneId = "RecordsDistance",
+                MilestoneFundsAwarded = 100f,
+                MilestoneRecordThresholds = 1,
+                MilestoneRecordBand = new List<RecordThresholdCredit> { new RecordThresholdCredit(3, 100f, 0f, 0f) },
+                // The row its event was filed as: same capture number, so a commit's dedup
+                // recognises the event as already booked.
+                CaptureSequence = evt.captureSequence,
+            };
+            Ledger.AddAction(row);
+            return row;
+        }
+
+        // Stock pays threshold 4 (200) and 5 (300) on the resumed vessel just after the cutoff.
+        private static void FirePayingAwards()
+        {
+            var node = new KSPAchievements.RecordsDistance();
+            SetField(node, "rewardInterval", 4);
+            GameStateRecorder.EmitStandaloneProgressReward(node, 200.0, 0f, 0.0, ut: 1276.72);
+            SetField(node, "rewardInterval", 5);
+            GameStateRecorder.EmitStandaloneProgressReward(node, 300.0, 0f, 0.0, ut: 1276.74);
+        }
+
+        private static float BookedRecordsDistanceFunds()
+        {
+            return Ledger.Actions
+                .Where(a => a.Type == GameActionType.MilestoneAchievement && a.MilestoneId == "RecordsDistance")
+                .Sum(a => a.MilestoneFundsAwarded);
+        }
+
+        // catches: the coalescer adding a live attempt award to a committed HISTORY ledger row
+        // of the same scope inside the 0.1 s row window, while the attempt's own seed event
+        // also holds it: the discard re-homes the seed and the inflated history row keeps the
+        // same money (900 booked for 600 paid).
+        [Fact]
+        public void Discard_APayingAttemptNextToAHistoryRow_BooksWhatStockPaidOnce()
+        {
+            LedgerOrchestrator.Initialize();
+            ArmAttemptOnTail();
+            GameAction history = AddHistoryEventAndRow();
+            GameStateRecorder.TagResolverForTesting = () => TailId;
+            FirePayingAwards();
+            GameStateRecorder.TagResolverForTesting = null;
+
+            Assert.Equal(100f, history.MilestoneFundsAwarded);
+            Assert.Equal(1, history.MilestoneRecordThresholds);
+
+            RecordingStore.DiscardCommittedTreeRestoreAttempt("test-discard",
+                LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard);
+
+            Assert.Equal(100f, history.MilestoneFundsAwarded);
+            Assert.Equal(1, history.MilestoneRecordThresholds);
+            var rehomed = Ledger.Actions.Single(a => a.Type == GameActionType.MilestoneAchievement
+                && a.MilestoneId == "RecordsDistance" && !ReferenceEquals(a, history));
+            Assert.Equal(500f, rehomed.MilestoneFundsAwarded);
+            Assert.Equal(2, rehomed.MilestoneRecordThresholds);
+            Assert.Equal(600f, BookedRecordsDistanceFunds());
+        }
+
+        // catches: the same double booking on the other end of the attempt: committing it
+        // files the seed event as its own row beside the history row.
+        [Fact]
+        public void Commit_APayingAttemptNextToAHistoryRow_BooksWhatStockPaidOnce()
+        {
+            LedgerOrchestrator.Initialize();
+            ArmAttemptOnTail();
+            GameAction history = AddHistoryEventAndRow();
+            GameStateRecorder.TagResolverForTesting = () => TailId;
+            FirePayingAwards();
+            GameStateRecorder.TagResolverForTesting = null;
+
+            bool scienceAdded = false;
+            LedgerOrchestrator.OnRecordingCommitted(
+                TailId, 1000.0, 1276.8, new List<PendingScienceSubject>(), ref scienceAdded);
+
+            Assert.Equal(100f, history.MilestoneFundsAwarded);
+            Assert.Equal(1, history.MilestoneRecordThresholds);
+            var attemptRow = Ledger.Actions.Single(a => a.Type == GameActionType.MilestoneAchievement
+                && a.MilestoneId == "RecordsDistance" && !ReferenceEquals(a, history));
+            Assert.Equal(500f, attemptRow.MilestoneFundsAwarded);
+            Assert.Equal(600f, BookedRecordsDistanceFunds());
+        }
+
+        // catches: an off-by-one on the history boundary (a `>=` in either loop): an event or
+        // row exactly AT the cutoff is history, one just after it is the attempt's own.
+        [Fact]
+        public void Boundary_AnEventAtTheCutoffIsHistory_OneJustAfterIsTheAttemptsOwn()
+        {
+            LedgerOrchestrator.Initialize();
+            ArmAttemptOnTail();
+            GameStateRecorder.TagResolverForTesting = () => TailId;
+            var atCutoff = new GameStateEvent
+            {
+                ut = CutoffUT,
+                eventType = GameStateEventType.MilestoneAchieved,
+                key = "RecordsDistance",
+                detail = "funds=0;rep=0;sci=0",
+                recordingId = TailId,
+            };
+            GameStateStore.AddEvent(ref atCutoff);
+            Assert.False(GameStateRecorder.TryCoalesceWorldRecordReward("RecordsDistance", 100.0, 0f, 0.0, 4));
+            Assert.Equal("funds=0;rep=0;sci=0",
+                GameStateStore.Events.Single(e => e.key == "RecordsDistance").detail);
+
+            var justAfter = new GameStateEvent
+            {
+                ut = CutoffUT + 0.001,
+                eventType = GameStateEventType.MilestoneAchieved,
+                key = "RecordsDistance",
+                detail = "funds=0;rep=0;sci=0",
+                recordingId = TailId,
+            };
+            GameStateStore.AddEvent(ref justAfter);
+            // A committed row AT the cutoff sits inside the 0.1 s window of that seed: history.
+            var rowAtCutoff = new GameAction
+            {
+                UT = CutoffUT,
+                Type = GameActionType.MilestoneAchievement,
+                RecordingId = TailId,
+                MilestoneId = "RecordsDistance",
+                MilestoneFundsAwarded = 7f,
+            };
+            Ledger.AddAction(rowAtCutoff);
+            Assert.True(GameStateRecorder.TryCoalesceWorldRecordReward("RecordsDistance", 100.0, 0f, 0.0, 4));
+            Assert.Contains("funds=100", GameStateStore.Events.Single(e => e.ut > CutoffUT).detail);
+            Assert.Equal(7f, rowAtCutoff.MilestoneFundsAwarded);
+
+            // The attempt's OWN row (after the cutoff) is still found and folded.
+            var ownRow = new GameAction
+            {
+                UT = CutoffUT + 0.001,
+                Type = GameActionType.MilestoneAchievement,
+                RecordingId = TailId,
+                MilestoneId = "RecordsDistance",
+                MilestoneFundsAwarded = 100f,
+            };
+            Ledger.AddAction(ownRow);
+            Assert.True(GameStateRecorder.TryCoalesceWorldRecordReward("RecordsDistance", 50.0, 0f, 0.0, 5));
+            Assert.Equal(150f, ownRow.MilestoneFundsAwarded);
+            Assert.Equal(7f, rowAtCutoff.MilestoneFundsAwarded);
+        }
+
         // catches: the history guard over-reaching: a second award inside the attempt still
         // folds into the attempt's OWN post-cutoff seed (bounded rows), and with no attempt
         // armed the scope rule is unchanged.
