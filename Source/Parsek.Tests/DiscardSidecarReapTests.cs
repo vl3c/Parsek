@@ -535,7 +535,7 @@ namespace Parsek.Tests
             // Hard contract: the fix lives at the discard sites and deletes only ids
             // that were IN the discarded set. If this class ever grows a directory
             // walk it becomes a second, unguarded sweeper next to ParsekFileCollector.
-            string source = ReadProjectSource("DiscardSidecarReap.cs");
+            string source = ReadProjectSource("Recording/DiscardSidecarReap.cs");
             Assert.DoesNotContain("Directory.GetFiles", source);
             Assert.DoesNotContain("Directory.EnumerateFiles", source);
             Assert.DoesNotContain("CollectSidecarIdsOnDisk", source);
@@ -552,7 +552,7 @@ namespace Parsek.Tests
             // cell pins that the guard text still exists after the discard-site fix.)
             // The guard reads the union of every referrer's ids and memory's, so a load of a
             // save made before any flight was recorded (memory empty) is not refused.
-            string source = ReadProjectSource("ParsekFileCollector.cs");
+            string source = ReadProjectSource("Recording/ParsekFileCollector.cs");
             Assert.Matches(new Regex(
                 @"references\.RecordingIds\.Count\s*==\s*0", RegexOptions.Multiline), source);
         }
@@ -565,14 +565,14 @@ namespace Parsek.Tests
             // (TreeDiscardService, SwitchSegmentAttempts), so this fix deliberately adds
             // nothing there. If either loses its delete the gap reopens somewhere this
             // fix does not cover.
-            string source = ReadProjectSource("TreeDiscardService.cs");
+            string source = ReadProjectSource("Recording/TreeDiscardService.cs");
             int discardPending = source.IndexOf("public static void DiscardPendingTree(",
                 StringComparison.Ordinal);
             Assert.True(discardPending > 0, "DiscardPendingTree not found");
             Assert.Contains("DeleteRecordingFiles(rec)",
                 source.Substring(discardPending, Math.Min(12000, source.Length - discardPending)));
 
-            string scopedSource = ReadProjectSource("SwitchSegmentAttempts.cs");
+            string scopedSource = ReadProjectSource("SwitchIntent/SwitchSegmentAttempts.cs");
             int scoped = scopedSource.IndexOf(
                 "internal static RecordingStore.SwitchSegmentDiscardDisposition TryDiscardActiveSwitchSegmentAttempt(",
                 StringComparison.Ordinal);
@@ -601,7 +601,7 @@ namespace Parsek.Tests
 
         private static string ReadAutoDiscardCoreBody()
         {
-            string source = ReadProjectSource("ParsekFlight.cs");
+            string source = ReadProjectSource("Controllers/ParsekFlight.cs");
             int coreStart = source.IndexOf("internal void AutoDiscardActiveTreeCore(",
                 StringComparison.Ordinal);
             Assert.True(coreStart > 0, "AutoDiscardActiveTreeCore not found");
@@ -764,7 +764,7 @@ namespace Parsek.Tests
             }
             Assert.Equal(new[] { "ParsekTestCommandAddon.cs" }, optOutFiles.ToArray());
 
-            string flight = ReadProjectSource("ParsekFlight.cs");
+            string flight = ReadProjectSource("Controllers/ParsekFlight.cs");
             // Exactly two ParsekFlight entry points arm it explicitly
             // (AutoDiscardIdleActiveTree, AutoDiscardNoOpStandaloneSwitchSegment); the
             // third (AutoDiscardActiveTreeWithMessage) forwards its own parameter, which

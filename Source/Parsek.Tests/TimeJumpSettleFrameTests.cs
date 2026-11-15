@@ -39,7 +39,7 @@ namespace Parsek.Tests
         [Fact]
         public void BothJumpPaths_StampTheClockSetFrameRightAfterSettingTheClock()
         {
-            string source = SourceScanText.StripCSharpComments(ReadParsekSource("TimeJumpManager.cs"));
+            string source = SourceScanText.StripCSharpComments(ReadParsekSource("Controllers/TimeJumpManager.cs"));
             const string arm = "ArmTimeJumpLaunchAutoRecordSuppression(";
 
             string helper = MethodBody(source, "private static void ArmTimeJumpLaunchAutoRecordSuppression(");
@@ -63,7 +63,7 @@ namespace Parsek.Tests
         [Fact]
         public void Probe_GatesIconOffOrbitOnTheSettleWindow()
         {
-            string source = SourceScanText.StripCSharpComments(ReadParsekSource("MapRenderProbe.cs"));
+            string source = SourceScanText.StripCSharpComments(ReadParsekSource("MapRender/MapRenderProbe.cs"));
             int settle = source.IndexOf(
                 "MapRenderTrace.IsTimeJumpSettleFrame(frame, MapRenderTrace.LastTimeJumpFrame())",
                 StringComparison.Ordinal);

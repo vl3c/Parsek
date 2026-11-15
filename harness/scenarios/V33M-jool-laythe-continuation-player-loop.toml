@@ -21,7 +21,7 @@ id = "V33M-jool-laythe-continuation-player-loop"
 # resumes that tree, so the id is unchanged). One tree that crosses Jool's SOI and
 # Laythe's is exactly the shape PR #2468's lone-moon arrival hold engages on.
 #
-# WHAT THE LOG MUST SHOW (literals from Source/Parsek/MissionLoopUnitBuilder.cs):
+# WHAT THE LOG MUST SHOW (literals from Source/Parsek/Missions/MissionLoopUnitBuilder.cs):
 #   `MissionLoopUnit: ... ENGAGED re-aim Kerbin->Jool via Sun` - the re-aim
 #       engages on the Kerbin -> Jool member, as on the source fixture's own lanes.
 #   `ARRIVAL HOLD dest=Jool kind=config Talign=<P_Laythe>s moons=1 ...

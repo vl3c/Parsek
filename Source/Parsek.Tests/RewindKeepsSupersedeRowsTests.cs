@@ -352,7 +352,7 @@ namespace Parsek.Tests
                 string rel = path.Substring(root.Length + 1).Replace('\\', '/');
                 if (rel.StartsWith("InGameTests/", StringComparison.Ordinal)) continue;
                 if (rel.StartsWith("obj/", StringComparison.Ordinal) || rel.StartsWith("bin/", StringComparison.Ordinal)) continue;
-                if (rel == "RecordingRewindRetirement.cs") continue;
+                if (rel == "Recording/RecordingRewindRetirement.cs") continue;
                 if (StripLineComments(File.ReadAllText(path)).Contains("new RecordingRewindRetirement"))
                     offenders.Add(rel);
             }

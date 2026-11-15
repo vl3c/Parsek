@@ -497,7 +497,7 @@ namespace Parsek.Tests
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
             string storePath = Path.Combine(projectRoot,
-                "Source", "Parsek", "SwitchSegmentAttempts.cs");
+                "Source", "Parsek", "SwitchIntent", "SwitchSegmentAttempts.cs");
             string source = File.ReadAllText(storePath);
             Assert.Contains(
                 "SwitchSegmentRecordingTreeWalkMaxIterations",
@@ -686,7 +686,7 @@ namespace Parsek.Tests
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
             string path = Path.Combine(projectRoot,
-                "Source", "Parsek", "SwitchSegmentAttempts.cs");
+                "Source", "Parsek", "SwitchIntent", "SwitchSegmentAttempts.cs");
             Assert.True(File.Exists(path));
             string source = File.ReadAllText(path);
 
@@ -1039,7 +1039,7 @@ namespace Parsek.Tests
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
             string path = Path.Combine(projectRoot,
-                "Source", "Parsek", "SwitchSegmentAttempts.cs");
+                "Source", "Parsek", "SwitchIntent", "SwitchSegmentAttempts.cs");
             string source = File.ReadAllText(path);
 
             int helperStart = source.IndexOf(
@@ -1116,7 +1116,7 @@ namespace Parsek.Tests
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
             string path = Path.Combine(projectRoot,
-                "Source", "Parsek", "MergeDialog.Commit.cs");
+                "Source", "Parsek", "Rewind", "MergeDialog.Commit.cs");
             string source = File.ReadAllText(path);
 
             int markApplied = source.IndexOf("RecordingStore.MarkTreeAsApplied(tree);");
@@ -1180,7 +1180,7 @@ namespace Parsek.Tests
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
             string path = Path.Combine(projectRoot,
-                "Source", "Parsek", "MergeDialog.ReFlyDiscard.cs");
+                "Source", "Parsek", "Rewind", "MergeDialog.ReFlyDiscard.cs");
             string source = File.ReadAllText(path);
 
             int methodStart = source.IndexOf(
@@ -1214,7 +1214,7 @@ namespace Parsek.Tests
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
             string path = Path.Combine(projectRoot,
-                "Source", "Parsek", "MergeDialog.cs");
+                "Source", "Parsek", "Rewind", "MergeDialog.cs");
             string source = File.ReadAllText(path);
 
             // The deleted symbols must not reappear.

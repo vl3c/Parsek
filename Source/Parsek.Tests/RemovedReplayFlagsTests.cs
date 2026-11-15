@@ -612,8 +612,8 @@ namespace Parsek.Tests
         {
             string root = System.IO.Path.GetFullPath(System.IO.Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
-            string ksc = System.IO.File.ReadAllText(System.IO.Path.Combine(root, "Source", "Parsek", "ParsekKSC.cs"));
-            string engine = System.IO.File.ReadAllText(System.IO.Path.Combine(root, "Source", "Parsek", "GhostPlaybackEngine.Completion.cs"));
+            string ksc = System.IO.File.ReadAllText(System.IO.Path.Combine(root, "Source", "Parsek", "Controllers", "ParsekKSC.cs"));
+            string engine = System.IO.File.ReadAllText(System.IO.Path.Combine(root, "Source", "Parsek", "Ghost", "GhostPlaybackEngine.Completion.cs"));
             int kscCall = ksc.IndexOf("GhostPlaybackLogic.ApplyFlagEventsAtTimelineEnd(state, rec, currentUT, \"ksc\")", StringComparison.Ordinal);
             int kscSpawn = ksc.IndexOf("TrySpawnAtRecordingEnd(recIdx, rec);", kscCall < 0 ? 0 : kscCall, StringComparison.Ordinal);
             Assert.True(kscCall > 0 && kscSpawn > kscCall, "KSC timeline-complete exit must walk the flags before the end spawn");

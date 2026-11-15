@@ -89,7 +89,7 @@ RATE_WINDOW_SECONDS = 60.0
 # partial class's main file and read it with its split files (see each constant).
 # ---------------------------------------------------------------------------
 
-SRC_LEDGER_TRACE = "Source/Parsek/LedgerTrace.cs"
+SRC_LEDGER_TRACE = "Source/Parsek/GameActions/LedgerTrace.cs"
 SRC_MILESTONES = "Source/Parsek/GameActions/MilestonesModule.cs"
 SRC_SCIENCE = "Source/Parsek/GameActions/ScienceModule.cs"
 SRC_FUNDS = "Source/Parsek/GameActions/FundsModule.cs"
@@ -102,14 +102,14 @@ SRC_LEDGER = "Source/Parsek/GameActions/Ledger.cs"
 SRC_ORCHESTRATOR = "Source/Parsek/GameActions/LedgerOrchestrator*.cs"
 # The candidate half of the orchestrator's recovery-owner pick (the path and guid filter lines).
 SRC_RECOVERY_PICKER = "Source/Parsek/GameActions/RecoveryRecordingPicker.cs"
-SRC_LOAD_POLICY = "Source/Parsek/LoadReconcilePolicy.cs"
+SRC_LOAD_POLICY = "Source/Parsek/Controllers/LoadReconcilePolicy.cs"
 # A partial class: the text that was ParsekScenario.cs is this main file plus the files
 # scripts/refactor/split_parsekscenario.py split out of it (SRC_SCENARIO_SPLIT), read by the
 # SourceSyncTests as one text, the main file first and the split files in name order. The
 # older ParsekScenario.*.cs siblings (SRC_SCENARIO_OTHER) were never part of it and are not
 # read. Every ParsekScenario.*.cs on disk is named in one of the two (a SourceSyncTests cell).
 # Same lists as Source/Parsek.Tests/ParsekScenarioSourceFiles.cs.
-SRC_SCENARIO = "Source/Parsek/ParsekScenario.cs"
+SRC_SCENARIO = "Source/Parsek/Controllers/ParsekScenario.cs"
 SRC_SCENARIO_SPLIT = (
     "ParsekScenario.AutoCommit.cs",
     "ParsekScenario.CommittedTreeCarry.cs",
@@ -140,19 +140,19 @@ SRC_SCENARIO_OTHER = (
     "ParsekScenario.SessionReset.cs",
     "ParsekScenario.Trim.cs",
 )
-SRC_TERMINAL_ORBIT = "Source/Parsek/ParsekFlight.TerminalOrbit.cs"
-SRC_FLIGHT_TREE_RESTORE = "Source/Parsek/ParsekFlight.TreeRestore.cs"
-SRC_CONCLUSION = "Source/Parsek/ReFlyConclusionRoute.cs"
-SRC_DOMINANCE = "Source/Parsek/ReFlyMergeDominance.cs"
-SRC_CHAIN_WALKER = "Source/Parsek/GhostChainWalker.cs"
-SRC_FINALIZER_CACHE = "Source/Parsek/RecordingFinalizationCacheProducer.cs"
-SRC_EXTRAPOLATOR = "Source/Parsek/IncompleteBallisticSceneExitFinalizer.cs"
+SRC_TERMINAL_ORBIT = "Source/Parsek/Controllers/ParsekFlight.TerminalOrbit.cs"
+SRC_FLIGHT_TREE_RESTORE = "Source/Parsek/Controllers/ParsekFlight.TreeRestore.cs"
+SRC_CONCLUSION = "Source/Parsek/Rewind/ReFlyConclusionRoute.cs"
+SRC_DOMINANCE = "Source/Parsek/Rewind/ReFlyMergeDominance.cs"
+SRC_CHAIN_WALKER = "Source/Parsek/Ghost/GhostChainWalker.cs"
+SRC_FINALIZER_CACHE = "Source/Parsek/Recording/RecordingFinalizationCacheProducer.cs"
+SRC_EXTRAPOLATOR = "Source/Parsek/Recording/IncompleteBallisticSceneExitFinalizer.cs"
 SRC_GT_HARNESS = "Source/Parsek/InGameTests/LedgerGroundTruthHarness.cs"
-SRC_GT_REPORT = "Source/Parsek/LedgerGroundTruth.cs"
-SRC_LOG = "Source/Parsek/ParsekLog.cs"
+SRC_GT_REPORT = "Source/Parsek/Harness/LedgerGroundTruth.cs"
+SRC_LOG = "Source/Parsek/LogIO/ParsekLog.cs"
 # RewindInvoker is a partial class (scripts/refactor/split_rewindinvoker.py); the horizon walk
 # this names is in RunStripActivateMarker, which lives in the StripActivate file.
-SRC_REWIND_INVOKER = "Source/Parsek/RewindInvoker.StripActivate.cs"
+SRC_REWIND_INVOKER = "Source/Parsek/Rewind/RewindInvoker.StripActivate.cs"
 SRC_POOL_REF = "Source/Parsek/GameActions/StockPoolReference.cs"
 
 LIT_TRACE_TAG = "LedgerTrace"

@@ -19,6 +19,9 @@ namespace Parsek.Tests
     /// </summary>
     internal static class BackgroundRecorderSourceFiles
     {
+        /// <summary>The module folder under Source/Parsek that holds the class's files.</summary>
+        internal const string ModuleFolder = "Recording";
+
         internal static readonly string[] SplitFileNames =
         {
             "BackgroundRecorder.Finalization.cs",
@@ -47,7 +50,7 @@ namespace Parsek.Tests
         internal static IReadOnlyList<string> Paths(string parsekSourceDir)
         {
             return PartialClassSourceFiles.Paths(
-                parsekSourceDir,
+                PartialClassSourceFiles.FamilyDir(parsekSourceDir, "BackgroundRecorder.cs", ModuleFolder),
                 "BackgroundRecorder.cs",
                 SplitFileNames,
                 OtherPartialFileNames,

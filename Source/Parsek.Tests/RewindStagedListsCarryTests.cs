@@ -467,7 +467,7 @@ namespace Parsek.Tests
         public void ExecuteRewindSaveLoad_CapturesTheStagedLists_AfterTheSupersedeAudit_BeforeTheSceneLoad()
         {
             string body = RewindPointSurvivesRewindTests.MethodBody(
-                RewindPointSurvivesRewindTests.ReadSource("RewindLauncher.cs"),
+                RewindPointSurvivesRewindTests.ReadSource("Rewind/RewindLauncher.cs"),
                 "private static bool ExecuteRewindSaveLoad(");
             int audit = body.IndexOf("LogSupersedesKeptAcrossRewind(supersedeAuditOwner", StringComparison.Ordinal);
             int capture = body.IndexOf("CaptureRewindStagedListsForRewind(ParsekScenario.Instance", StringComparison.Ordinal);
@@ -483,7 +483,7 @@ namespace Parsek.Tests
         public void OnLoad_ReinstallsTheStagedLists_AfterTheStagingLoad_BeforeTheRewindBranch()
         {
             string body = RewindPointSurvivesRewindTests.MethodBody(
-                RewindPointSurvivesRewindTests.ReadSource("ParsekScenario.cs"),
+                RewindPointSurvivesRewindTests.ReadSource("Controllers/ParsekScenario.cs"),
                 "public override void OnLoad(ConfigNode node)");
             int staging = body.IndexOf("LoadRewindStagingState(node);", StringComparison.Ordinal);
             int reinstall = body.IndexOf("RewindCarry.ReinstallRewindCarriedStagedListsAfterLoad(this);", StringComparison.Ordinal);
@@ -497,7 +497,7 @@ namespace Parsek.Tests
         public void ResetRewindFlags_DropsTheStagedCapture()
         {
             string body = RewindPointSurvivesRewindTests.MethodBody(
-                RewindPointSurvivesRewindTests.ReadSource("RewindLauncher.cs"),
+                RewindPointSurvivesRewindTests.ReadSource("Rewind/RewindLauncher.cs"),
                 "internal static void ResetRewindFlags()");
             Assert.Contains("ClearRewindCarriedStagedLists(\"rewind-flags-reset\");", body);
         }

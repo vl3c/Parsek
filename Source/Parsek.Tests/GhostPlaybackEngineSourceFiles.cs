@@ -15,8 +15,12 @@ namespace Parsek.Tests
     /// </summary>
     internal static class GhostPlaybackEngineSourceFiles
     {
+        /// <summary>The module folder under Source/Parsek that holds the class's files.</summary>
+        internal const string ModuleFolder = "Ghost";
+
         internal static IReadOnlyList<string> Paths(string parsekSourceDir)
         {
+            parsekSourceDir = PartialClassSourceFiles.FamilyDir(parsekSourceDir, "GhostPlaybackEngine.cs", ModuleFolder);
             string main = Path.Combine(parsekSourceDir, "GhostPlaybackEngine.cs");
             if (!File.Exists(main))
                 throw new FileNotFoundException("GhostPlaybackEngine.cs not found", main);

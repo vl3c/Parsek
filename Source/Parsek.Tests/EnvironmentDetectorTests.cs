@@ -674,7 +674,7 @@ namespace Parsek.Tests
         public void SettleForPackedVessel_IsCalledAtBothRailsTransitionsBeforeTheSectionOpens()
         {
             string path = System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
-                "..", "..", "..", "..", "..", "Source", "Parsek", "FlightRecorder.cs");
+                "..", "..", "..", "..", "..", "Source", "Parsek", "Recording", "FlightRecorder.cs");
             string src = System.IO.File.ReadAllText(path);
             foreach (var pair in new[] {
                 new[] { "public void OnVesselGoOnRails(", "SettleForPackedVessel(onRailsUT, \"go-on-rails\")",

@@ -716,7 +716,7 @@ namespace Parsek.Tests
             // Comments blanked (literals left intact - the jump-kind arguments ARE the needles):
             // a raw substring scan reads a commented-out call as a live one.
             string source = SourceScanText.StripCSharpComments(System.IO.File.ReadAllText(
-                FindParsekSourceFile("TimeJumpManager.cs")));
+                FindParsekSourceFile("Controllers/TimeJumpManager.cs")));
 
             Assert.Contains(
                 "RecalculateLedgerAfterTimeJump(\"epoch-shift\", targetUT);",

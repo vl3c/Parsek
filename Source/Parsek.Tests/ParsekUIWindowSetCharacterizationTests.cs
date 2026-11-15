@@ -235,7 +235,7 @@ namespace Parsek.Tests
         [Fact]
         public void Flight_DrawsTheMainWindowThenEightWindows_InOrder()
         {
-            string text = Body("ParsekFlight.cs", "private void DrawFlightWindows()");
+            string text = Body("Controllers/ParsekFlight.cs", "private void DrawFlightWindows()");
             var flight = new List<string>(SpaceCenterDrawSequence);
             flight.Insert(1, "ui.LogMainWindowPosition(windowRect);");
             flight.Insert(flight.Count - 1, "ui.DrawSpawnControlWindowIfOpen(windowRect);");
@@ -246,7 +246,7 @@ namespace Parsek.Tests
         [Fact]
         public void SpaceCenter_DrawsTheSameWindowsWithoutRealSpawnControl_InOrder()
         {
-            string text = Body("ParsekKSC.cs", "private void DrawKscWindows()");
+            string text = Body("Controllers/ParsekKSC.cs", "private void DrawKscWindows()");
             AssertCallsInOrder("ParsekKSC.DrawKscWindows", text, SpaceCenterDrawSequence);
             Assert.DoesNotContain("DrawSpawnControlWindowIfOpen", text);
             Assert.Equal(7, CountDrawEntryCalls(text));
@@ -290,7 +290,7 @@ namespace Parsek.Tests
         [MemberData(nameof(DrawEntryBodies))]
         public void EachDrawEntryPoint_DrawsOnlyItsOwnWindow(string signature, string[] calls)
         {
-            string body = Body("ParsekUI.cs", signature);
+            string body = Body("UI/ParsekUI.cs", signature);
             string expected = "{" + string.Concat(calls) + "}";
             Assert.Equal(string.Concat(expected.Where(c => !char.IsWhiteSpace(c))),
                 string.Concat(body.Where(c => !char.IsWhiteSpace(c))));
@@ -332,13 +332,13 @@ namespace Parsek.Tests
         public void TheThreeToggles_FlipTheirOwnField()
         {
             AssertCallsInOrder("ParsekUI.ToggleRecordingsWindow",
-                Body("ParsekUI.cs", "internal void ToggleRecordingsWindow()"),
+                Body("UI/ParsekUI.cs", "internal void ToggleRecordingsWindow()"),
                 new[] { "recordingsTableUI.IsOpen = !recordingsTableUI.IsOpen;" });
             AssertCallsInOrder("ParsekUI.ToggleSettingsWindow",
-                Body("ParsekUI.cs", "internal void ToggleSettingsWindow()"),
+                Body("UI/ParsekUI.cs", "internal void ToggleSettingsWindow()"),
                 new[] { "settingsUI.IsOpen = !settingsUI.IsOpen;" });
             AssertCallsInOrder("ParsekUI.ToggleTestRunner",
-                Body("ParsekUI.cs", "internal void ToggleTestRunner()"),
+                Body("UI/ParsekUI.cs", "internal void ToggleTestRunner()"),
                 new[] { "testRunnerUI.IsOpen = !testRunnerUI.IsOpen;" });
         }
 
@@ -346,7 +346,7 @@ namespace Parsek.Tests
         [Fact]
         public void HoverCheck_ReadsTheTableThenSettingsThenTheTestRunner()
         {
-            string body = Body("ParsekUI.cs",
+            string body = Body("UI/ParsekUI.cs",
                 "internal bool IsMouseOverOpenAuxiliaryWindows(Vector2 mousePosition)");
             Assert.Equal(
                 "{returnrecordingsTableUI.IsMouseOverOpenWindow(mousePosition)"
@@ -361,7 +361,7 @@ namespace Parsek.Tests
         [Fact]
         public void Cleanup_UnhooksThenReleasesTheLocksInOrder()
         {
-            string body = Body("ParsekUI.cs", "public void Cleanup()");
+            string body = Body("UI/ParsekUI.cs", "public void Cleanup()");
             AssertCallsInOrder("ParsekUI.Cleanup", body, new[]
             {
                 "timelineUI.UnsubscribeTimelineDataChanged();",
@@ -389,7 +389,7 @@ namespace Parsek.Tests
         [InlineData("internal ParsekUI(UIMode mode, Func<ParsekUI, IParsekUIWindows> buildWindows)")]
         public void Constructor_BuildsTheWindowsFirst_BeforeGoingLive(string signature)
         {
-            string body = Body("ParsekUI.cs", signature);
+            string body = Body("UI/ParsekUI.cs", signature);
             AssertCallsInOrder("ParsekUI " + signature, body, new[]
             {
                 "this.mode = ",

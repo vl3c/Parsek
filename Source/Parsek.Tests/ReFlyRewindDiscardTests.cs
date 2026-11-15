@@ -446,7 +446,7 @@ namespace Parsek.Tests
         public void InitiateRewind_EndsTheLiveSessionAfterTheJournalGate_BeforeTheRewindIsArmed()
         {
             string body = RewindPointSurvivesRewindTests.MethodBody(
-                RewindPointSurvivesRewindTests.ReadSource("RewindLauncher.cs"),
+                RewindPointSurvivesRewindTests.ReadSource("Rewind/RewindLauncher.cs"),
                 "internal static bool InitiateRewind(Recording rec)");
             int journal = body.IndexOf("IsMergeJournalUnfinished(scenarioForJournalCheck?.ActiveMergeJournal)", StringComparison.Ordinal);
             int end = body.IndexOf("MergeDialog.TryDiscardLiveReFlySessionForRewind(", StringComparison.Ordinal);
@@ -463,7 +463,7 @@ namespace Parsek.Tests
         public void InitiateRewindToCareerStart_EndsTheLiveSessionBeforeTheRewindIsArmed()
         {
             string body = RewindPointSurvivesRewindTests.MethodBody(
-                RewindPointSurvivesRewindTests.ReadSource("RewindLauncher.cs"),
+                RewindPointSurvivesRewindTests.ReadSource("Rewind/RewindLauncher.cs"),
                 "internal static bool InitiateRewindToCareerStart(string saveFileName)");
             int refusal = body.IndexOf("InitiateRewindToCareerStart refused", StringComparison.Ordinal);
             int end = body.IndexOf("MergeDialog.TryDiscardLiveReFlySessionForRewind(", StringComparison.Ordinal);

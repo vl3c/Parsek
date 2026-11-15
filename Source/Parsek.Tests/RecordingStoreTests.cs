@@ -1663,9 +1663,9 @@ namespace Parsek.Tests
                 System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
             string sceneExitPath = System.IO.Path.Combine(
-                projectRoot, "Source", "Parsek", "SceneExitInterceptor.cs");
+                projectRoot, "Source", "Parsek", "Rewind", "SceneExitInterceptor.cs");
             string mergeDialogPath = System.IO.Path.Combine(
-                projectRoot, "Source", "Parsek", "MergeDialog.cs");
+                projectRoot, "Source", "Parsek", "Rewind", "MergeDialog.cs");
 
             string sceneExitSrc = System.IO.File.ReadAllText(sceneExitPath);
             string mergeDialogSrc = System.IO.File.ReadAllText(mergeDialogPath);

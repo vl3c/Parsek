@@ -1747,7 +1747,8 @@ namespace Parsek.Tests
                 $"Parsek source dir not found at {parsekDir}");
 
             string source = "";
-            foreach (string scenarioFile in Directory.GetFiles(parsekDir, "ParsekScenario*.cs"))
+            foreach (string scenarioFile in Directory.GetFiles(
+                Path.Combine(parsekDir, ParsekScenarioSourceFiles.ModuleFolder), "ParsekScenario*.cs"))
                 source += File.ReadAllText(scenarioFile);
 
             // Both refresh functions must snapshot the field (declare a local)

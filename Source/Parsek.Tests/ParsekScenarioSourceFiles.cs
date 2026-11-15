@@ -24,6 +24,9 @@ namespace Parsek.Tests
     /// </summary>
     internal static class ParsekScenarioSourceFiles
     {
+        /// <summary>The module folder under Source/Parsek that holds the class's files.</summary>
+        internal const string ModuleFolder = "Controllers";
+
         internal const string MainFileName = "ParsekScenario.cs";
 
         internal static readonly string[] SplitFileNames =
@@ -67,7 +70,7 @@ namespace Parsek.Tests
         internal static IReadOnlyList<string> Paths(string parsekSourceDir)
         {
             return PartialClassSourceFiles.Paths(
-                parsekSourceDir,
+                PartialClassSourceFiles.FamilyDir(parsekSourceDir, MainFileName, ModuleFolder),
                 MainFileName,
                 SplitFileNames,
                 OtherPartialFileNames,

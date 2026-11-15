@@ -19,7 +19,7 @@ namespace Parsek.Tests
         #region RELATIVE position contract: captured-log regression
 
         // Regression: pins the format-v6 RELATIVE-frame position contract that
-        // FlightRecorder.ApplyRelativeOffset implements (Source/Parsek/FlightRecorder.cs:5502-5543).
+        // FlightRecorder.ApplyRelativeOffset implements (Source/Parsek/Recording/FlightRecorder.cs:5502-5543).
         //
         // The recorder calls ComputeRelativeLocalOffset(focusWorld, anchorWorld, anchorRotation)
         // and stores the resulting (dx, dy, dz) in TrajectoryPoint.latitude/longitude/altitude.

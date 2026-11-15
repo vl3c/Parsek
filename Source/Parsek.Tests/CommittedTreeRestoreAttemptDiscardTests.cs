@@ -188,7 +188,7 @@ namespace Parsek.Tests
         public void ConsumePostLoad_DiscardsTheAttempt_AfterTheBundleRestore_BeforeTheStrip()
         {
             string body = ExtractMethodBody(
-                ReadStrippedParsekSource(RewindInvokerSourceFiles.PostLoad),
+                ReadStrippedParsekSource(RewindInvokerSourceFiles.ModuleFolder + "/" + RewindInvokerSourceFiles.PostLoad),
                 "internal static void ConsumePostLoad(");
             int restore = body.IndexOf("ReconciliationBundle.Restore(", StringComparison.Ordinal);
             int discard = body.IndexOf("DiscardRestoreAttemptOfAbandonedFlight(", StringComparison.Ordinal);
@@ -215,7 +215,7 @@ namespace Parsek.Tests
         public void AutoDiscardNoOpNoSessionCommittedResume_DiscardsTheAttempt_NotBareClear()
         {
             string body = ExtractMethodBody(
-                ReadStrippedParsekSource("ParsekFlightSwitchContinuation.cs"),
+                ReadStrippedParsekSource("Controllers/ParsekFlightSwitchContinuation.cs"),
                 "void AutoDiscardNoOpNoSessionCommittedResume(");
             AssertDiscardHelperNotBareClear(body,
                 "AutoDiscardNoOpNoSessionCommittedResume",
@@ -230,7 +230,7 @@ namespace Parsek.Tests
         public void SwitchSegmentScopedDiscard_CommittedRestoreCloneBranch_DiscardsTheAttempt()
         {
             string body = ExtractMethodBody(
-                ReadStrippedParsekSource("SwitchSegmentAttempts.cs"),
+                ReadStrippedParsekSource("SwitchIntent/SwitchSegmentAttempts.cs"),
                 "internal static RecordingStore.SwitchSegmentDiscardDisposition " +
                 "TryDiscardActiveSwitchSegmentAttempt(");
             AssertDiscardHelperNotBareClear(body,

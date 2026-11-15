@@ -4498,6 +4498,7 @@ class StockPairingTests(unittest.TestCase):
         # otherwise turn its exemption silently into a reported problem.
         src_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "..", "..", "Source", "Parsek",
+                                "UI",
                                 "StockUiDecorationQuery.cs")
         with open(src_path, encoding="utf-8") as fh:
             src = fh.read()

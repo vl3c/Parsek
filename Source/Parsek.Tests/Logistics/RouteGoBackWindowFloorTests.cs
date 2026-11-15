@@ -463,7 +463,7 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void RevertPruneAndReFlyStart_ReadTheLoadedSavesFloor()
         {
-            string scenario = ReadSource("ParsekScenario.cs");
+            string scenario = ReadSource("Controllers/ParsekScenario.cs");
             // The revert prune is ledger-only; the in-session route reconcile reads the loaded
             // save's floor itself.
             Assert.Contains("PruneRevertedFlightLedgerRows( pruneCutoffUT, pruneInclusive, revertKind);", scenario);
@@ -471,7 +471,7 @@ namespace Parsek.Tests.Logistics
             string reconcile = ReadSource("Logistics/RouteLoadReconcile.cs");
             Assert.Contains("RouteStore.ReadSavedRouteStateFloorUT(loadedNode)", reconcile);
 
-            string invoker = ReadSource("RewindInvoker.cs");
+            string invoker = ReadSource("Rewind/RewindInvoker.cs");
             Assert.Contains("loadedFloorUT = Logistics.RouteStore.ReadSavedRouteStateFloorUT(loadedScenarioNode);", invoker);
             Assert.Contains("loadedSaveUT = Logistics.RouteLoadReconcile.ApplyRouteStateFloor(loadedClockUT, loadedFloorUT);", invoker);
             Assert.Contains("Logistics.RouteLoadReconcile.InstallFloorAfterLoad( loadedClockUT, loadedFloorUT, InvokeTag, \"ConsumePostLoad\");", invoker);

@@ -63,8 +63,8 @@ namespace Parsek.Tests
         // ================================================================
 
         [Theory]
-        [InlineData("ParsekFlight.cs", 2)]
-        [InlineData("VesselSpawner.cs", 1)]
+        [InlineData("Controllers/ParsekFlight.cs", 2)]
+        [InlineData("Controllers/VesselSpawner.cs", 1)]
         public void EveryProductionRecoverVesselFromFlightCallIsCrewSuppressed(
             string relPath, int expectedCallSites)
         {
@@ -122,7 +122,7 @@ namespace Parsek.Tests
         [Fact]
         public void VesselRecoveredRowWriter_IsCalledOnlyOnTheUnsuppressedBranch()
         {
-            string src = ReadParsekSource("ParsekScenario.cs");
+            string src = ReadParsekSource("Controllers/ParsekScenario.cs");
             var lines = src.Replace("\r\n", "\n").Split('\n');
 
             int callLine = -1;
@@ -172,9 +172,9 @@ namespace Parsek.Tests
             Assert.True(File.Exists(path), "Source file not found at " + path);
             // VesselSpawner, ParsekFlight and ParsekScenario are partial classes; each gate reads
             // every split file as one text.
-            if (relPath == "VesselSpawner.cs")
+            if (relPath == "Controllers/VesselSpawner.cs")
                 return VesselSpawnerSourceFiles.ReadAll(Path.GetDirectoryName(path));
-            if (relPath == "ParsekFlight.cs")
+            if (relPath == "Controllers/ParsekFlight.cs")
                 return ParsekFlightSourceFiles.ReadAll(Path.GetDirectoryName(path));
             return ParsekScenarioSourceFiles.ReadText(path);
         }

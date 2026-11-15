@@ -360,11 +360,11 @@ namespace Parsek.Tests
         /// together.</para>
         /// </summary>
         [Theory]
-        [InlineData("actionblocked", "CommittedActionDialog.cs")]
-        [InlineData("savefailed", "SceneExitInterceptor.cs")]
+        [InlineData("actionblocked", "UI/CommittedActionDialog.cs")]
+        [InlineData("savefailed", "Rewind/SceneExitInterceptor.cs")]
         [InlineData("rewind", "UI/RecordingsTableUI.RewindColumns.cs")]
         [InlineData("fastforward", "UI/RecordingsTableUI.RewindColumns.cs")]
-        [InlineData("seal", "UnfinishedFlightSealHandler.cs")]
+        [InlineData("seal", "Rewind/UnfinishedFlightSealHandler.cs")]
         [InlineData("deleteroute", "UI/LogisticsWindowUI.Actions.cs")]
         [InlineData("deletedormantroute", "UI/LogisticsWindowUI.Actions.cs")]
         [InlineData("createroute", "UI/LogisticsWindowUI.Actions.cs")]
@@ -398,7 +398,7 @@ namespace Parsek.Tests
         [Fact]
         public void TheSourceGateIsNotVacuous()
         {
-            string src = ReadParsekSource("CommittedActionDialog.cs");
+            string src = ReadParsekSource("UI/CommittedActionDialog.cs");
             Assert.Contains("SpawnPopupDialog", src);
             Assert.DoesNotContain("\"ParsekThisNameDoesNotExist\"", src);
         }

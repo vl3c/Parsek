@@ -27,7 +27,7 @@ Per shots directory (`results/<runId>_shots`, where run.py's run id is
   automation-only `DumpMapGeometry label=<label>` seam verb. The input contract
   (every key, its frame and its units) is owned by
   `docs/dev/design-map-geometry-dump.md`; the writer is
-  `Source/Parsek/MapGeometryJson.cs`.
+  `Source/Parsek/TestCommands/MapGeometryJson.cs`.
 * `<label>.png` - the `CaptureScreenshot label=<label>` frame with the SAME
   label, when the lane took one. A capture with no PNG still renders.
 
@@ -287,7 +287,7 @@ of the page, and the page script parsing under `node --check` when node is on
 PATH.
 
 `CSharpWriterSourceSyncTests` (strict; it reads outside `harness/` on purpose)
-checks that `Source/Parsek/MapGeometryJson.cs` declares `SchemaId =
+checks that `Source/Parsek/TestCommands/MapGeometryJson.cs` declares `SchemaId =
 "parsek-map-geometry/1"` and still writes every key the tool reads, that its
 `dropped` block names the five kinds the header shows, that its `Kind*` line
 kinds equal `map_mirror.LINE_KINDS` and each has a stroke style, that every

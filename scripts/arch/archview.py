@@ -2150,6 +2150,15 @@ def load_rules(path):
     return rules, tooling, forbidden, allowed
 
 
+def root_level_files(source_root):
+    """Sorted names of the .cs files directly in `source_root`, not in a module folder.
+
+    The folder is the module (modules.toml), so each name returned is an error: the
+    real-tree suite reds while this is non-empty, and main() prints an ERROR line.
+    """
+    return sorted(p.name for p in Path(source_root).glob("*.cs") if p.is_file())
+
+
 def iter_source_files(source_root):
     """Return sorted source-relative paths of every .cs file to scan."""
     source_root = Path(source_root)
@@ -7176,8 +7185,8 @@ def main(argv=None):
                     print("WARN unclassified file: %s (add a rule to modules.toml)" % rel_path)
                 else:
                     print(
-                        "WARN unplaced root file: %s (add a rule to modules.toml;"
-                        " Core is the kernel, not a catch-all)" % rel_path
+                        "ERROR root-level source file: %s (move it into its module's folder,"
+                        " Source/Parsek/<Module>/; the folder is the module)" % rel_path
                     )
 
             out_dir = Path(args.out)

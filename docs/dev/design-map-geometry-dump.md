@@ -34,8 +34,8 @@ UI, and neither needs `mapRenderTracing`.
 
 | File | Role |
 | --- | --- |
-| `Source/Parsek/MapGeometryJson.cs` | Pure: the model, `MapGeometryDecisions` (per-ghost / per-line decisions), `MapGeometryJson` (`SchemaId`, caps, decimation, `ApplyCaps`, the hand-rolled writer). |
-| `Source/Parsek/MapGeometryRecorder.cs` | Unity-side capture: reads one frame into the model; `OutputSuffix = ".map.json"`; writes through `FileIOUtils.SafeWriteBytes`. |
+| `Source/Parsek/TestCommands/MapGeometryJson.cs` | Pure: the model, `MapGeometryDecisions` (per-ghost / per-line decisions), `MapGeometryJson` (`SchemaId`, caps, decimation, `ApplyCaps`, the hand-rolled writer). |
+| `Source/Parsek/TestCommands/MapGeometryRecorder.cs` | Unity-side capture: reads one frame into the model; `OutputSuffix = ".map.json"`; writes through `FileIOUtils.SafeWriteBytes`. |
 | `Source/Parsek/TestCommands/TestCommandDumpMapGeometry.cs` | Pure half of the dump verb: label parse (delegates to `CaptureScreenshot`), scene admission, poll decision, payload, log lines, reason tables. |
 | `Source/Parsek/TestCommands/TestCommandMapCamera.cs` | Pure half of the camera verb: body resolution, arg parse and ranges, unit conversions, clamp report, settle decision, payload, log line, reason tables. |
 | `Source/Parsek/TestCommands/ParsekTestCommandAddon.DumpMapGeometry.cs` / `.MapCamera.cs` | Thin appliers. |

@@ -51,7 +51,7 @@ namespace Parsek.Tests
 
         [Theory]
         [InlineData("Patches/GhostOrbitLinePatch.cs")]
-        [InlineData("GhostMapPresence.cs")]
+        [InlineData("Ghost/GhostMapPresence.cs")]
         public void DeletedCascadeSymbols_StayDeleted(string relPath)
         {
             string src = StripComments(ReadParsekSourceWithPartials(relPath));

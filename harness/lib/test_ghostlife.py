@@ -742,10 +742,13 @@ class EmitterSourceGuardTests(unittest.TestCase):
         """GhostPlaybackEngine is one partial class over GhostPlaybackEngine.cs and
         its GhostPlaybackEngine.<Area>.cs files: read them as one text, the main
         file first, then the rest in ordinal file-name order, each file whole."""
-        parts = sorted(n for n in os.listdir(PARSEK_SOURCE_DIR)
+        parts = sorted(n for n in os.listdir(os.path.join(PARSEK_SOURCE_DIR, "Ghost"))
                        if n.startswith("GhostPlaybackEngine.") and n.endswith(".cs")
                        and n != "GhostPlaybackEngine.cs")
-        return "\n".join(EmitterSourceGuardTests._read(n)
+        if not parts:
+            # A floor: a listing of the wrong folder would read the main file alone.
+            raise AssertionError("no GhostPlaybackEngine.<Area>.cs beside Ghost/GhostPlaybackEngine.cs")
+        return "\n".join(EmitterSourceGuardTests._read("Ghost/" + n)
                          for n in ["GhostPlaybackEngine.cs"] + parts)
 
     @staticmethod
@@ -795,7 +798,7 @@ class EmitterSourceGuardTests(unittest.TestCase):
         raise AssertionError("unbalanced braces after %r" % (signature,))
 
     def test_build_prefix_emits_the_fields_in_the_parsed_order(self):
-        src = self._read("GhostRenderTrace.cs")
+        src = self._read("Ghost/GhostRenderTrace.cs")
         expr = self._return_expression(src, "private static string BuildPrefix(")
         fields = re.findall(r'"\s*(\w+)=', expr)
         self.assertEqual(list(ghostlife.PREFIX_FIELDS), fields,
@@ -809,7 +812,7 @@ class EmitterSourceGuardTests(unittest.TestCase):
         # `_LINE_RE`'s `\s+rec=` reports every line malformed. Pin the joiner:
         # the first field opens its literal bare, every later field's literal
         # opens with exactly one space.
-        src = self._read("GhostRenderTrace.cs")
+        src = self._read("Ghost/GhostRenderTrace.cs")
         expr = self._return_expression(src, "private static string BuildPrefix(")
         first = ghostlife.PREFIX_FIELDS[0]
         self.assertIn('"%s=' % first, expr,
@@ -852,7 +855,7 @@ class EmitterSourceGuardTests(unittest.TestCase):
         # ParsekLog.Write renders "[Parsek][{level}][{subsystem}] {message}", and
         # the tracer routes through ParsekLog.Info("GhostRenderTrace", ...). The
         # ANCHOR depends on that spelling, so pin it at the emit site.
-        src = self._strip_comments(self._read("GhostRenderTrace.cs"))
+        src = self._strip_comments(self._read("Ghost/GhostRenderTrace.cs"))
         self.assertIn('ParsekLog.Info("GhostRenderTrace"', src)
         self.assertEqual("[GhostRenderTrace]", ghostlife.TRACE_SUBSYSTEM_TAG)
 
@@ -1322,7 +1325,7 @@ class GhostlifeV3EmitterSourceGuardTests(unittest.TestCase):
             raise unittest.SkipTest("Source/Parsek absent (harness-only checkout)")
 
     def _trace(self):
-        return EmitterSourceGuardTests._read("GhostRenderTrace.cs")
+        return EmitterSourceGuardTests._read("Ghost/GhostRenderTrace.cs")
 
     def test_the_formatter_writes_drotdeg_then_rotref(self):
         body = EmitterSourceGuardTests._method_body(

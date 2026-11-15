@@ -83,7 +83,7 @@ namespace Parsek.Tests
             string repoRoot = ResolveRepoRoot();
             // OnLoad lives in the main file of the ParsekScenario partial class; the slice runs
             // from its declaration to its closing brace (the first class-member-level brace).
-            string sourcePath = Path.Combine(repoRoot, "Source", "Parsek", "ParsekScenario.cs");
+            string sourcePath = Path.Combine(repoRoot, "Source", "Parsek", "Controllers", "ParsekScenario.cs");
             string source = File.ReadAllText(sourcePath).Replace("\r\n", "\n");
             int onLoadStart = source.IndexOf("public override void OnLoad", StringComparison.Ordinal);
             int nextMethod = source.IndexOf("\n        }\n", onLoadStart, StringComparison.Ordinal);

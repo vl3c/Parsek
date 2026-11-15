@@ -267,13 +267,13 @@ namespace Parsek.Tests.Logistics
             string dir = AppDomain.CurrentDomain.BaseDirectory;
             while (!string.IsNullOrEmpty(dir))
             {
-                string candidate = Path.Combine(dir, "Source", "Parsek", "ParsekFlight.cs");
+                string candidate = Path.Combine(dir, "Source", "Parsek", "Controllers", "ParsekFlight.cs");
                 if (File.Exists(candidate)) return candidate;
                 dir = Path.GetDirectoryName(dir);
             }
             return Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory,
-                "..", "..", "..", "..", "Parsek", "ParsekFlight.cs"));
+                "..", "..", "..", "..", "Parsek", "Controllers", "ParsekFlight.cs"));
         }
     }
 }

@@ -200,7 +200,7 @@ nine modules):
 | hire-kerbal script | `KscAction action=hire-kerbal` -> `Funding.AddFunds(-hireCost, CrewRecruited)` + `KerbalRoster.HireApplicant` (the debit mirror is `TestCommandKscAction.cs:517-519`; `KerbalHirePatch.cs:19-22` is the committed-hire BLOCK prefix, not the debit); ledger via `FundsModule` + `KerbalsModule` |
 | dismiss-kerbal script | `KscAction action=dismiss-kerbal` -> `KerbalRoster.Remove` (`KerbalDismissalPatch`); ledger via `KerbalsModule` |
 | the ledger cross-check | `oracle.compute_expected` + `oracle.diff_expected_vs_parsed` + `hlib.unmatched_captured_awards` |
-| the nine modules | `Source/Parsek/GameActions/{Funds,Science,Reputation,Milestones,Facilities,Contracts,Strategies,Route}Module.cs` + `Source/Parsek/KerbalsModule.cs` |
+| the nine modules | `Source/Parsek/GameActions/{Funds,Science,Reputation,Milestones,Facilities,Contracts,Strategies,Route}Module.cs` + `Source/Parsek/Crew/KerbalsModule.cs` |
 
 ---
 
@@ -304,7 +304,7 @@ whether the M-C1 verb set can drive it TODAY and in which mode a delta is assert
 | 6 | `ContractsModule` | `ContractSystem` accept/complete/fail | no (no headless verb) | deferred | deferred | n/a |
 | 7 | `StrategiesModule` | `StrategySystem` activate; conversion as byproduct | no (no verb) | deferred | deferred | n/a |
 | 8 | (`RouteModule`, deleted 0.10.6) | none: route events left the ledger for the route event log (todo LOGISTICS-WITHOUT-MONEY) | no (RouteCommand reserved) | n/a | n/a | n/a |
-| 9 | `KerbalsModule` (`Source/Parsek/KerbalsModule.cs`) | hire/dismiss, tombstones | yes (M-C1 hire/dismiss) | yes | verb defers (CAREER-only, Funding null) | verb defers (CAREER-only) |
+| 9 | `KerbalsModule` (`Source/Parsek/Crew/KerbalsModule.cs`) | hire/dismiss, tombstones | yes (M-C1 hire/dismiss) | yes | verb defers (CAREER-only, Funding null) | verb defers (CAREER-only) |
 
 The drivable-today L1 surface (the "yes" cells) is exactly the four M-C1 sub-actions.
 Everything else is Deferred with its blocking verb or its flown-scenario route named.

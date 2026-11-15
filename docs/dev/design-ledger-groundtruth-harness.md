@@ -90,7 +90,7 @@ orchestration shell that needs live KSP only for the quicksave and the module re
 
 ## Data Model
 
-New file `Source/Parsek/LedgerGroundTruth.cs` (one cohesive module; the implementer may split
+New file `Source/Parsek/Harness/LedgerGroundTruth.cs` (one cohesive module; the implementer may split
 into 2-3 files if preferred), containing these `internal` types:
 
 ```

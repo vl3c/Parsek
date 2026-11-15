@@ -354,7 +354,7 @@ namespace Parsek.Tests
         [Fact]
         public void OnLoad_TreeMutableStatePhase_CallsTheResetHelper()
         {
-            string src = StripComments(ReadParsekSource("ParsekScenario.cs"));
+            string src = StripComments(ReadParsekSource("Controllers/ParsekScenario.cs"));
             string onLoad = Flatten(BraceBody(src, "public override void OnLoad(ConfigNode node)"));
 
             Assert.Contains(
@@ -366,10 +366,10 @@ namespace Parsek.Tests
         [Fact]
         public void NeitherResetTouchesTheTerminalVerdict()
         {
-            string scenario = StripComments(ReadParsekSource("ParsekScenario.cs"));
+            string scenario = StripComments(ReadParsekSource("Controllers/ParsekScenario.cs"));
             string helper = BraceBody(scenario,
                 "internal static int ResetTreeRecordingMutableStateForLoad(");
-            string launcher = StripComments(ReadParsekSource("RewindLauncher.cs"));
+            string launcher = StripComments(ReadParsekSource("Rewind/RewindLauncher.cs"));
             string rewindReset = BraceBody(launcher,
                 "internal static void ResetRecordingPlaybackFields(");
             Assert.Contains("ClearSpawnState(rec);", rewindReset);

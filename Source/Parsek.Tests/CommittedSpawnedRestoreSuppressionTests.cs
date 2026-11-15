@@ -228,7 +228,7 @@ namespace Parsek.Tests
         [Fact]
         public void TryRestore_ChecksSuppressionBeforeTakingTheCommittedTree()
         {
-            string src = ReadStripped("Source", "Parsek", "ParsekFlight.cs");
+            string src = ReadStripped("Source", "Parsek", "Controllers", "ParsekFlight.cs");
             string body = ExtractMethodBody(src, "internal bool TryRestoreCommittedTreeForSpawnedActiveVessel(bool callerBuildsOwnSegment = false)");
 
             int checkIdx = body.IndexOf("IsCommittedSpawnedRestoreSuppressedForVessel(", StringComparison.Ordinal);
@@ -245,7 +245,7 @@ namespace Parsek.Tests
         [Fact]
         public void HandleMissedVesselSwitchRecovery_TicksSuppressionBeforeTheRetry()
         {
-            string src = ReadStripped("Source", "Parsek", "ParsekFlight.cs");
+            string src = ReadStripped("Source", "Parsek", "Controllers", "ParsekFlight.cs");
             string body = ExtractMethodBody(src, "internal void HandleMissedVesselSwitchRecovery()");
 
             int tickIdx = body.IndexOf("TickCommittedSpawnedRestoreSuppression(", StringComparison.Ordinal);
@@ -301,7 +301,7 @@ namespace Parsek.Tests
             string dir = AppDomain.CurrentDomain.BaseDirectory;
             for (int i = 0; i < 10 && !string.IsNullOrEmpty(dir); i++)
             {
-                if (File.Exists(Path.Combine(dir, "Source", "Parsek", "ParsekFlight.cs")))
+                if (File.Exists(Path.Combine(dir, "Source", "Parsek", "Controllers", "ParsekFlight.cs")))
                     return dir;
                 dir = Path.GetDirectoryName(dir);
             }

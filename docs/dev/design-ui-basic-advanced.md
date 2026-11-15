@@ -398,11 +398,11 @@ ResolveMode(int? storedValue, bool installHasParsekFootprint) : UiComplexityMode
 
 ### 6.2 Changes to existing types
 
-**`ParsekSettings`** (`Source/Parsek/ParsekSettings.cs`):
+**`ParsekSettings`** (`Source/Parsek/Config/ParsekSettings.cs`):
 - `uiComplexityMode: int` - stored as int to match the existing `samplingDensity` / `autoLoopTimeUnit` convention rather than introducing an enum-typed persisted field. The RAW field default is `Advanced` (fail-open): the default is nearly irrelevant because `ApplyTo` always resolves the effective value (stored key, else first-run resolution), and if any path reads the field before a restore, showing everything is the safe wrong answer. No `CustomParameterUI` attribute: the stock difficulty screen would be a second writer bypassing the setter seam.
 - A clamping typed accessor following the `SamplingDensity` precedent (`ParsekSettings.cs:108-114`): an out-of-range stored int resolves to **Advanced** (fail-open: showing everything is the safe wrong answer; hiding windows is not).
 
-**`ParsekSettingsPersistence`** (`Source/Parsek/ParsekSettingsPersistence.cs`), following the full bool-setting-analog wiring (the stored `ghostRenderTracing` family), adjusted for int (those are bool via `TryLoadBool`; the int path is `ParseStoredInt` `:173-180`):
+**`ParsekSettingsPersistence`** (`Source/Parsek/Config/ParsekSettingsPersistence.cs`), following the full bool-setting-analog wiring (the stored `ghostRenderTracing` family), adjusted for int (those are bool via `TryLoadBool`; the int path is `ParseStoredInt` `:173-180`):
 - `UiComplexityModeKey` const (`:45` area) and `RecordUiComplexityMode(int)`.
 - The `LoadIfNeeded` parse call, the stored-value restore branch in `ApplyTo` (`:246-253` shape), the `Save()` AddValue branch (`:382-383` shape), and BOTH diagnostic lines (load-side `:142` shape, save-side `:406` shape).
 - `ResetForTesting` (`:426`) and the `GetStored...` / `SetStored...ForTesting` seams (`:447`, `:494`) that every other persisted setting carries; section 13.1's tests need them.
@@ -410,7 +410,7 @@ ResolveMode(int? storedValue, bool installHasParsekFootprint) : UiComplexityMode
 
 **Single setter seam (from review).** ALL mode writes route through one entry point, `ParsekUI.SetUiComplexityMode(UiComplexityMode next)` (or an equivalent static seam reachable from SettingsWindowUI and tests), which performs: settings write + `RecordUiComplexityMode` + scheduling the deferred apply of section 7.2 (close handler + clamp). Rationale: window BODIES are deliberately not gated, so any writer that bypasses the seam (an in-game test writing `ParsekSettings.Current.uiComplexityMode` directly, or a future Settings "Defaults" button) would leave hidden windows open in Basic. The 13.3 in-game tests MUST call the seam, not the field, or they test nothing.
 
-**`ParsekUI`** (`Source/Parsek/ParsekUI.cs`):
+**`ParsekUI`** (`Source/Parsek/UI/ParsekUI.cs`):
 - `SetUiComplexityMode` (the setter seam), `ApplyPendingUiComplexityModeIfAny` (the deferred apply) and `CloseGatedWindowsForBasic` over `BuildGatedWindowCloseSet` (the close handler of section 7.2), run from the deferred apply, never mid-OnGUI.
 - The main-window button label is the constant `"Missions"` in both modes (section 4.1).
 

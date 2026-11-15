@@ -294,11 +294,11 @@ namespace Parsek.Tests
         }
 
         [Theory]
-        [InlineData("ParsekFlight.cs", "BeginHost(\"Flight\")")]
-        [InlineData("ParsekKSC.cs", "BeginHost(\"KSC\")")]
+        [InlineData("Controllers/ParsekFlight.cs", "BeginHost(\"Flight\")")]
+        [InlineData("Controllers/ParsekKSC.cs", "BeginHost(\"KSC\")")]
         [InlineData("InGameTests/TestRunnerShortcut.cs", "BeginHost(\"TestRunnerShortcut\")")]
-        [InlineData("CurrencyReservationOverlay.cs", "BeginHost(\"CurrencyOverlay\")")]
-        [InlineData("ParsekFlight.cs", "BeginHost(\"WatchOverlay\")")]
+        [InlineData("UI/CurrencyReservationOverlay.cs", "BeginHost(\"CurrencyOverlay\")")]
+        [InlineData("Controllers/ParsekFlight.cs", "BeginHost(\"WatchOverlay\")")]
         public void EachDrawHostOpensAScaleScope(string file, string needle)
         {
             string raw = ParsekFlightSourceFiles.ReadText(Path.Combine(SourceRoot(), file));
@@ -306,8 +306,8 @@ namespace Parsek.Tests
         }
 
         [Theory]
-        [InlineData("ParsekFlight.cs")]
-        [InlineData("ParsekKSC.cs")]
+        [InlineData("Controllers/ParsekFlight.cs")]
+        [InlineData("Controllers/ParsekKSC.cs")]
         public void WindowHostsSweepStaleScaledLocksBeforeTheirEarlyReturns(string file)
         {
             string src = SourceScanText.StripCommentsAndMaskLiterals(

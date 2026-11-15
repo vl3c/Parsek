@@ -869,10 +869,10 @@ namespace Parsek.Tests
         [Fact]
         public void Wiring_NoVesselNameCheckWhereTreeLegsClose()
         {
-            string append = MethodBody("ParsekFlight.cs",
+            string append = MethodBody("Controllers/ParsekFlight.cs",
                 "internal static void AppendCapturedDataToRecording(Recording target, Recording source, double endUT)");
             Assert.DoesNotContain("VesselNameLiveSync.", append);
-            string close = MethodBody("BackgroundRecorder.SplitDetection.cs", "private void CloseParentRecording(");
+            string close = MethodBody("Recording/BackgroundRecorder.SplitDetection.cs", "private void CloseParentRecording(");
             Assert.DoesNotContain("VesselNameLiveSync.", close);
         }
 
@@ -966,7 +966,7 @@ namespace Parsek.Tests
         [Fact]
         public void Wiring_OnLoadUndoesAfterTheRevertDetectorAndBeforeTheTailReapply()
         {
-            string body = MethodBody("ParsekScenario.cs", "public override void OnLoad(ConfigNode node)");
+            string body = MethodBody("Controllers/ParsekScenario.cs", "public override void OnLoad(ConfigNode node)");
             int refined = IndexOrFail(body, "LoadReconcilePolicy.ClassifyRefined(");
             int undo = IndexOrFail(body, "VesselNameStore.UndoCurrentFlightEpoch(");
             Assert.Equal(1, Occurrences(body, "VesselNameStore.UndoCurrentFlightEpoch("));
@@ -984,23 +984,23 @@ namespace Parsek.Tests
         [Fact]
         public void Wiring_RetryUndoesBeforeReinvoking_StripAndFlightReadyRunThePass()
         {
-            string retry = MethodBody("RevertInterceptor.cs", "internal static void RetryHandler(");
+            string retry = MethodBody("Rewind/RevertInterceptor.cs", "internal static void RetryHandler(");
             int future = IndexOrFail(retry, "RewindInvoker.IsRewindPointInFutureNow(");
             int undo = IndexOrFail(retry, "VesselNameStore.UndoCurrentFlightEpoch(");
             int invoke = IndexOrFail(retry, "RewindInvoker.StartInvoke(");
             Assert.True(future < undo && undo < invoke,
                 "Retry undoes after its last refusal and before it re-invokes the Re-Fly");
 
-            string strip = MethodBody(RewindInvokerSourceFiles.StripActivate, "private static void RunStripActivateMarker(");
+            string strip = MethodBody(RewindInvokerSourceFiles.ModuleFolder + "/" + RewindInvokerSourceFiles.StripActivate, "private static void RunStripActivateMarker(");
             int marker = IndexOrFail(strip, "AtomicMarkerWrite(");
             int pass = IndexOrFail(strip, "VesselNameLiveSync.OnReFlyStripComplete(");
             Assert.True(marker < pass, "the post-strip pass follows the strip and the marker write");
 
-            string ready = MethodBody("ParsekFlight.cs", "void OnFlightReady()");
+            string ready = MethodBody("Controllers/ParsekFlight.cs", "void OnFlightReady()");
             int hook = IndexOrFail(ready, "VesselNameLiveSync.OnFlightReady(FlightDriver.PostInitState");
             Assert.True(hook < ready.IndexOf("return;", StringComparison.Ordinal),
                 "the epoch / pass hook runs before any early return");
-            string update = MethodBody("ParsekFlight.cs", "void Update()");
+            string update = MethodBody("Controllers/ParsekFlight.cs", "void Update()");
             IndexOrFail(update, "VesselNameLiveSync.FlightHostTick(");
         }
 

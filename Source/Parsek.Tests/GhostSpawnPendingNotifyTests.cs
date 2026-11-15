@@ -24,8 +24,8 @@ namespace Parsek.Tests
     /// </summary>
     public class GhostSpawnPendingNotifyTests
     {
-        private const string EnginePath = "GhostPlaybackEngine.cs";
-        private const string PolicyPath = "ParsekPlaybackPolicy.cs";
+        private const string EnginePath = "Ghost/GhostPlaybackEngine.cs";
+        private const string PolicyPath = "Controllers/ParsekPlaybackPolicy.cs";
 
         [Fact]
         public void Engine_DeclaresSpawnPendingEvent_AndDeferredList()

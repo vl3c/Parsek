@@ -36,7 +36,7 @@ namespace Parsek.Tests
         [Fact]
         public void P11_MergeAndSealFailure_BothFailurePathsUseTheSharedMessage()
         {
-            string source = File.ReadAllText(Path.Combine(RepoRoot(), "Source", "Parsek", "MergeDialog.Commit.cs"));
+            string source = File.ReadAllText(Path.Combine(RepoRoot(), "Source", "Parsek", "Rewind", "MergeDialog.Commit.cs"));
 
             Assert.DoesNotContain("seal it from the Timeline window", source);
             Assert.Equal(3, CountOccurrences(source, "MergeAndSealFailedMessage"));

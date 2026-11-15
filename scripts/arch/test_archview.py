@@ -2447,7 +2447,7 @@ class HistoryMetricsTests(unittest.TestCase):
 
 
 class KernelGuardTests(unittest.TestCase):
-    def test_unplaced_root_file_is_warned_about_and_skipped(self):
+    def test_unplaced_root_file_is_reported_as_an_error_and_skipped(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
             src = root / "src"
@@ -2476,8 +2476,8 @@ class KernelGuardTests(unittest.TestCase):
             self.assertEqual(rc, 0)
             output = captured.getvalue()
             self.assertIn(
-                "WARN unplaced root file: MysteryFile.cs (add a rule to modules.toml;"
-                " Core is the kernel, not a catch-all)",
+                "ERROR root-level source file: MysteryFile.cs (move it into its module's folder,"
+                " Source/Parsek/<Module>/; the folder is the module)",
                 output,
             )
             self.assertIn(
@@ -3980,6 +3980,37 @@ class RealTreeSmokeTests(unittest.TestCase):
         # 2026-09-25 and 2026-11-01 while nothing ran this suite in CI.
         self.assertEqual(self.model["unclassified"], [])
 
+    def test_no_source_file_sits_in_the_root_of_source_parsek(self):
+        # The folder is the module: a .cs file in the root of Source/Parsek belongs to no
+        # module folder, so it reds here by name (scripts/refactor/move_to_module_folders.py
+        # --check reports the same list).
+        root_files = archview.root_level_files(REAL_SOURCE)
+        self.assertEqual(
+            root_files,
+            [],
+            "move each file into its module's folder, Source/Parsek/<Module>/"
+            " (the folder is the module; scripts/arch/modules.toml)",
+        )
+
+    def test_modules_toml_places_every_module_by_its_folder(self):
+        # One folder rule per module, the folder named after the module, and no
+        # prefix rule: a file's path is its module.
+        rules, _tooling, _forbidden, _allowed = archview.load_rules(archview.DEFAULT_MODULES)
+        self.assertEqual([r for r in rules if r.get("prefix") or r.get("folder") != r["name"]], [])
+        self.assertEqual(len({r["name"] for r in rules}), len(rules))
+        folders = sorted(p.name for p in REAL_SOURCE.iterdir()
+                         if p.is_dir() and p.name not in archview.SKIP_DIR_NAMES)
+        self.assertEqual(sorted(r["folder"] for r in rules), folders)
+
+    def test_the_walk_sees_every_source_file(self):
+        # A floor against a walk that silently stops descending: every module folder
+        # holds files, and the model covers every .cs under Source/Parsek outside
+        # bin / obj / Properties (1,249 at the 2026-11-14 folder move).
+        on_disk = len(archview.iter_source_files(REAL_SOURCE))
+        self.assertGreaterEqual(on_disk, 1200)
+        self.assertEqual(sum(m["files"] for m in self.model["modules"]), on_disk)
+        self.assertTrue(all(m["files"] > 0 for m in self.model["modules"]))
+
     def test_logio_is_a_pure_sink(self):
         self.assertIn("LogIO", self.by_name)
         self.assertLess(self.by_name["LogIO"]["instability"], 0.1)
@@ -4106,14 +4137,14 @@ class RealTreeSmokeTests(unittest.TestCase):
 
     def test_kernel_files_resolve_to_core(self):
         kernel = [
-            "BranchPoint.cs",
-            "IPlaybackTrajectory.cs",
-            "VesselLaunchIdentity.cs",
-            "VesselSnapshotOps.cs",
-            "MilestoneStore.cs",
-            "GroupHierarchyStore.cs",
-            "InventoryManifest.cs",
-            "PlaybackTrajectoryBoundsResolver.cs",
+            "Core/BranchPoint.cs",
+            "Core/IPlaybackTrajectory.cs",
+            "Core/VesselLaunchIdentity.cs",
+            "Core/VesselSnapshotOps.cs",
+            "Core/MilestoneStore.cs",
+            "Core/GroupHierarchyStore.cs",
+            "Core/InventoryManifest.cs",
+            "Core/PlaybackTrajectoryBoundsResolver.cs",
         ]
         for name in kernel:
             self.assertEqual(self.model["fileModules"][name], "Core")
@@ -4124,11 +4155,11 @@ class RealTreeSmokeTests(unittest.TestCase):
 
     def test_phase_two_placements(self):
         modules = self.model["fileModules"]
-        self.assertEqual(modules["RouteProofMetadata.cs"], "Logistics")
-        self.assertEqual(modules["GuiTreeFunnels.cs"], "GuiTree")
-        self.assertEqual(modules["GameStateEvent.cs"], "GameActions")
-        self.assertEqual(modules["ResourceManifest.cs"], "Logistics")
-        self.assertEqual(modules["RecoveryPayoutContext.cs"], "GameActions")
+        self.assertEqual(modules["Logistics/RouteProofMetadata.cs"], "Logistics")
+        self.assertEqual(modules["GuiTree/GuiTreeFunnels.cs"], "GuiTree")
+        self.assertEqual(modules["GameActions/GameStateEvent.cs"], "GameActions")
+        self.assertEqual(modules["Logistics/ResourceManifest.cs"], "Logistics")
+        self.assertEqual(modules["GameActions/RecoveryPayoutContext.cs"], "GameActions")
 
     def test_committed_placement_report_matches_a_fresh_render(self):
         rules, tooling, _forbidden, _allowed = archview.load_rules(archview.DEFAULT_MODULES)
@@ -4157,26 +4188,12 @@ class RealTreeSmokeTests(unittest.TestCase):
         # The report is generated, gitignored output; pin determinism and the
         # facts a reader relies on rather than a committed copy.
         self.assertEqual(fresh, again)
-        self.assertIn("| Core |", fresh)
-        # 216: the historical before-state collects every root file the narrowed
-        # family rules leave behind (138 on 2026-09-25, 126 before the stock-UI
-        # reservation files landed at the root; the 2026-11-01 refresh placed
-        # 50 more by hand, the first 2026-11-04 merge of main three more, the
-        # second two more while main deleted one, and the RecordingStore
-        # services plan's SceneEntryVesselScope, CommittedListOptimizer,
-        # CommittedTreeRestoreAttempt and PendingTreeSlot, which no family prefix
-        # names, four more (PR11's SwitchSegmentAttempts takes the SwitchIntent
-        # family prefix and adds none; PR12 K's TreeDiscardService one more and
-        # PR12 L's TreeCommitService with its two partial files three more),
-        # file-placement PR 8's LiveVesselSnapshot one more, and PR 10's eight
-        # VesselSpawner.<Area>.cs partial files eight more; PR 8's follow-up
-        # FlightRecorder.LiveSnapshot.cs matches a family prefix and adds none;
-        # the map-geometry dump's MapGeometryJson.cs and MapGeometryRecorder.cs,
-        # placed in TestCommands by an explicit rule, two more; B3's PartStatePoller.cs,
-        # placed in Recording by an explicit rule, one more);
-        # 8 after, the kernel list as it stands today (9 until
-        # file-placement PR 9 placed VesselSpawner.cs in Controllers).
-        self.assertIn("| Core | 216 | 8 |", fresh)
+        # The historical before-state scored the root files a catch-all prefix rule
+        # collected ("| Core | 216 | 8 |" before the folder move). Every file now
+        # sits in its module's folder, so the rebuilt catch-all is empty and the
+        # report records no placement; the phase's evidence is in git history.
+        self.assertIn("Catch-all (%s): 0 files before" % rules[-1]["name"], fresh)
+        self.assertIn("## Files moved\n\n- none", fresh)
 
     def test_atlas_prose_matches_the_tree(self):
         prose = archview.load_prose(archview.DEFAULT_ATLAS)

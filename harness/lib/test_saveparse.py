@@ -4316,7 +4316,7 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                 # lives in exactly one file and this is it.
                 schema_cs = os.path.join(
                     os.path.dirname(os.path.abspath(__file__)), "..", "..",
-                    "Source", "Parsek", "RecordingSchema.cs")
+                    "Source", "Parsek", "Recording", "RecordingSchema.cs")
                 with open(schema_cs, encoding="utf-8") as fh:
                     src = fh.read()
                 m = re.search(
@@ -5994,10 +5994,10 @@ class StockLoadabilityTests(unittest.TestCase):
 
     def test_ghost_signature_tracks_the_csharp_writer(self):
         src_dir = os.path.join(HARNESS_ROOT, "..", "Source", "Parsek")
-        presence = _read(os.path.join(src_dir, "GhostMapPresence.cs"))
+        presence = _read(os.path.join(src_dir, "Ghost", "GhostMapPresence.cs"))
         self.assertIn('GhostVesselNamePrefix = "%s";'
                       % saveparse.GHOST_MAP_VESSEL_NAME_PREFIX, presence)
-        lifecycle = _read(os.path.join(src_dir, "GhostMapPresence.ProtoVesselLifecycle.cs"))
+        lifecycle = _read(os.path.join(src_dir, "Ghost", "GhostMapPresence.ProtoVesselLifecycle.cs"))
         self.assertIn('ProtoVessel.CreatePartNode("%s", 0)'
                       % saveparse.GHOST_MAP_VESSEL_PART_NAME, lifecycle)
 

@@ -42,9 +42,9 @@ namespace Parsek.Tests
         // GhostPlaybackEngine.<Area>.cs files; the gates read all of them as one text.
         private static string ReadEngineSource()
         {
-            string path = Path.Combine(ProjectRoot, "Source", "Parsek", "GhostPlaybackEngine.cs");
+            string path = Path.Combine(ProjectRoot, "Source", "Parsek", "Ghost", "GhostPlaybackEngine.cs");
             if (!File.Exists(path))
-                path = Path.Combine(ProjectRoot, "Parsek", "GhostPlaybackEngine.cs");
+                path = Path.Combine(ProjectRoot, "Parsek", "Ghost", "GhostPlaybackEngine.cs");
             Assert.True(File.Exists(path), $"Source file not found at {path}");
             return GhostPlaybackEngineSourceFiles.ReadAll(Path.GetDirectoryName(path));
         }
@@ -106,7 +106,7 @@ namespace Parsek.Tests
         {
             // Both the map/TS resolver and the FLIGHT engine consume the ONE pure handoff decision, so
             // the icon handoff and the 3D-ghost handoff can never disagree.
-            string spanClock = ReadSource("Source", "Parsek", "GhostPlaybackLogic.SpanClock.cs");
+            string spanClock = ReadSource("Source", "Parsek", "Ghost", "GhostPlaybackLogic.SpanClock.cs");
             Assert.Contains("internal static bool ShouldHideNonDescentMemberForDescentHandoff(", spanClock);
             Assert.Contains("bool hideForDescentHandoff = ShouldHideNonDescentMemberForDescentHandoff(", spanClock);
 

@@ -175,7 +175,7 @@ namespace Parsek.Tests
         [Fact]
         public void OnLoad_ChecksTheHoldBeforeTheGameModeGate_AndHoldsOnAFailedBackup()
         {
-            string path = Path.Combine(RepoRoot(), "Source", "Parsek", "ParsekScenario.cs");
+            string path = Path.Combine(RepoRoot(), "Source", "Parsek", "Controllers", "ParsekScenario.cs");
             Assert.True(File.Exists(path), "Source file not found at " + path);
             string prepared = SourceScanText.StripCommentsAndMaskLiterals(ParsekScenarioSourceFiles.ReadText(path));
             int sig = prepared.IndexOf("public override void OnLoad(ConfigNode node)", StringComparison.Ordinal);
@@ -223,7 +223,7 @@ namespace Parsek.Tests
         [Fact]
         public void OnLoad_DropsAnUnusedFault_OnTheInertAndInSessionPaths()
         {
-            string path = Path.Combine(RepoRoot(), "Source", "Parsek", "ParsekScenario.cs");
+            string path = Path.Combine(RepoRoot(), "Source", "Parsek", "Controllers", "ParsekScenario.cs");
             string prepared = SourceScanText.StripCommentsAndMaskLiterals(ParsekScenarioSourceFiles.ReadText(path));
             int sig = prepared.IndexOf("public override void OnLoad(ConfigNode node)", StringComparison.Ordinal);
             string body = SourceScanText.BraceMatchedBlock(prepared, prepared.IndexOf('{', sig));

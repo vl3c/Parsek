@@ -17,7 +17,7 @@
 # THE WITNESS is the saveParse row's [expectations.recordings.sampling] block
 # (harness/lib/samplingq.py), measured off the produced save's `.prec.txt` sidecar
 # mirrors and classified per sample pair by the recorder's own `warpRuns=` token on
-# `TrackSection closed:` (Source/Parsek/SectionWarpRuns.cs). It holds every gap of the
+# `TrackSection closed:` (Source/Parsek/Recording/SectionWarpRuns.cs). It holds every gap of the
 # focused vessel's absolute per-frame sections to the density's bounds with a one-frame
 # allowance of 0.02 * rate (KSP physics warp sets fixedDeltaTime = 0.02 * rate, so the
 # recorder - which spaces by GAME time - can only land on those frames):

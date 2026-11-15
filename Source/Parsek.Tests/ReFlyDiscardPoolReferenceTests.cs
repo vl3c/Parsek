@@ -485,7 +485,7 @@ namespace Parsek.Tests
         {
             string path = Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..",
-                "Source", "Parsek", "ParsekScenario.cs");
+                "Source", "Parsek", "Controllers", "ParsekScenario.cs");
             string src = string.Join(" ", ParsekScenarioSourceFiles.ReadText(path)
                 .Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries));
 

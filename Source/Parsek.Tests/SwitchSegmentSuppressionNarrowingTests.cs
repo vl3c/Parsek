@@ -496,7 +496,7 @@ namespace Parsek.Tests
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
             string scenarioPath = Path.Combine(projectRoot,
-                "Source", "Parsek", "ParsekScenario.cs");
+                "Source", "Parsek", "Controllers", "ParsekScenario.cs");
             Assert.True(File.Exists(scenarioPath),
                 $"ParsekScenario.cs not found at {scenarioPath}");
 
@@ -570,9 +570,9 @@ namespace Parsek.Tests
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
             string parsekFlightPath = Path.Combine(projectRoot,
-                "Source", "Parsek", "ParsekFlight.cs");
+                "Source", "Parsek", "Controllers", "ParsekFlight.cs");
             string parsekScenarioPath = Path.Combine(projectRoot,
-                "Source", "Parsek", "ParsekScenario.cs");
+                "Source", "Parsek", "Controllers", "ParsekScenario.cs");
             Assert.True(File.Exists(parsekFlightPath),
                 $"ParsekFlight.cs not found at {parsekFlightPath}");
             Assert.True(File.Exists(parsekScenarioPath),

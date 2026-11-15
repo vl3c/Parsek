@@ -408,7 +408,7 @@ namespace Parsek.Tests
         public void FlightHandlers_StayOnParsekFlight_InOrder_AndNoServiceListensOrWrites()
         {
             string dir = FindParsekSourceDir();
-            string host = StripComments(File.ReadAllText(Path.Combine(dir, "ParsekFlight.cs")));
+            string host = StripComments(File.ReadAllText(Path.Combine(dir, "Controllers/ParsekFlight.cs")));
             foreach (string evt in new[] { "Removing", "Removed", "Inserted" })
             {
                 Assert.Contains($"RecordingStore.CommittedRecording{evt} += OnCommittedRecording{evt};", host);
@@ -445,7 +445,7 @@ namespace Parsek.Tests
             var writes = new Regex(@"CommittedRecordings\s*\.\s*(RemoveAt|RemoveAll|Remove|Insert|Add|AddRange|Clear|Sort|Reverse)\s*\(");
             foreach (string name in ParsekFlightSourceFiles.ServiceFileNames)
             {
-                string service = StripComments(File.ReadAllText(Path.Combine(dir, name)));
+                string service = StripComments(File.ReadAllText(Path.Combine(dir, ParsekFlightSourceFiles.ModuleFolder, name)));
                 Assert.False(listens.IsMatch(service), name + " subscribes to the committed-list seam");
                 Assert.False(writes.IsMatch(service), name + " writes the committed list");
             }
@@ -485,7 +485,7 @@ namespace Parsek.Tests
             while (!string.IsNullOrEmpty(dir))
             {
                 string candidate = Path.Combine(dir, "Source", "Parsek");
-                if (File.Exists(Path.Combine(candidate, "ParsekFlight.cs"))) return candidate;
+                if (File.Exists(Path.Combine(candidate, "Controllers/ParsekFlight.cs"))) return candidate;
                 dir = Path.GetDirectoryName(dir);
             }
             throw new InvalidOperationException("Source/Parsek not found above " + AppDomain.CurrentDomain.BaseDirectory);

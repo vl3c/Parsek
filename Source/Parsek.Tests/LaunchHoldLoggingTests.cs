@@ -102,9 +102,9 @@ namespace Parsek.Tests
         {
             string projectRoot = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
-            string path = Path.Combine(projectRoot, "Source", "Parsek", "MissionLoopUnitBuilder.cs");
+            string path = Path.Combine(projectRoot, "Source", "Parsek", "Missions", "MissionLoopUnitBuilder.cs");
             if (!File.Exists(path))
-                path = Path.Combine(projectRoot, "Parsek", "MissionLoopUnitBuilder.cs");
+                path = Path.Combine(projectRoot, "Parsek", "Missions", "MissionLoopUnitBuilder.cs");
             Assert.True(File.Exists(path), $"MissionLoopUnitBuilder.cs not found at {path}");
             return File.ReadAllText(path);
         }
