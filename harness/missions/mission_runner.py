@@ -458,7 +458,8 @@ class KrpcMissionControl(MissionControl):
                  read_landing: bool = False,
                  read_camera: bool = False,
                  read_science: bool = False,
-                 read_vessel_name: bool = False) -> None:
+                 read_vessel_name: bool = False,
+                 read_klaw: bool = False) -> None:
         self._use_mechjeb = use_mechjeb
         self._client_name = client_name
         # OPT-IN B-DOCK docking/rendezvous/transfer telemetry (design section 5.2).
@@ -543,6 +544,14 @@ class KrpcMissionControl(MissionControl):
         # field's note in mlib.TelemetrySnapshot.
         self._read_vessel_name = bool(read_vessel_name)
         self._warned_vessel_name_read = False
+        # OPT-IN Klaw approach telemetry (ast_klaw_grab only): the captured target's
+        # position in the active vessel's frame and its relative velocity in the
+        # body's non-rotating frame rotated into the vessel's axes (_read_klaw_target).
+        # OFF everywhere else so every other mission's read_snapshot stays
+        # byte-identical (both triples keep their NaN UNREAD sentinel, which zeroes
+        # every translation the machine would command). Five RPCs per poll.
+        self._read_klaw = bool(read_klaw)
+        self._warned_klaw_read = False
         # Dark-channel Warn latches for the two families (same discipline as the
         # executor / periapsis / landing / camera latches): both degrade to
         # sentinels that stand real machinery down, so each must NAME itself once
@@ -889,6 +898,14 @@ class KrpcMissionControl(MissionControl):
             # a drifted kRPC camera surface must name itself once instead of
             # producing a mute camera_mode-never-read give-up 40 frames later.
             camera_mode = ""
+            # Klaw approach channel (opt-in): NaN triples unless read_klaw. Own
+            # try/except inside the helper, so a dead target handle (the rock merged
+            # into the probe at the capture) degrades to the sentinel and NEVER counts
+            # toward the vessel-lost read-fail streak.
+            klaw_rel_position = mlib.NAN3
+            klaw_rel_velocity = mlib.NAN3
+            if self._read_klaw:
+                klaw_rel_position, klaw_rel_velocity = self._read_klaw_target(sc, v, body)
             # "" = UNREAD, the fail-closed sentinel: it matches no declared craft
             # name, so an unread channel can never satisfy a launch-identity gate.
             vessel_name = ""
@@ -1107,6 +1124,9 @@ class KrpcMissionControl(MissionControl):
                 # OBSERVED active-vessel name ("" = not read / read failed; fails
                 # every launch-identity gate closed).
                 vessel_name=vessel_name,
+                # Klaw approach channel (NaN triples unless read_klaw).
+                klaw_target_rel_position=klaw_rel_position,
+                klaw_target_rel_velocity=klaw_rel_velocity,
                 # Career science / recovery (all six at their UNREAD sentinels
                 # unless read_science; each fails its own gate closed).
                 science_experiment_count=science_experiments,
@@ -2449,6 +2469,25 @@ class KrpcMissionControl(MissionControl):
                 _stdout_sink(mlib.format_mission_log_line(
                     "Warn", "Attitude",
                     "set sas_mode=stability_assist failed: %s" % (exc,)))
+        elif kind == mlib.ACTION_SET_TRANSLATION:
+            self._perform_set_translation(control, action.translation)
+        elif kind == mlib.ACTION_SAS_TARGET:
+            # SAS on, then Target mode (a fixture's full-SAS-in-sandbox switch makes
+            # every mode available to a probe core). Each half best-effort and logged.
+            try:
+                control.sas = True
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Attitude", "set sas=True failed: %s" % (exc,)))
+            try:
+                control.sas_mode = sc.SASMode.target
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Info", "Attitude", "sas_mode=target"))
+            except Exception as exc:
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Warn", "Attitude", "set sas_mode=target failed: %s" % (exc,)))
+        elif kind == mlib.ACTION_TRIGGER_PART_EVENT:
+            self._trigger_part_event(v, str(action.text or ""))
         elif kind == mlib.ACTION_SET_RCS:
             on = bool(action.value) if action.value is not None else True
             try:
@@ -2506,6 +2545,108 @@ class KrpcMissionControl(MissionControl):
                     "Warn", "Undock", "undock: no docked port resolved"))
         else:
             raise ValueError("unknown action kind: %r" % (kind,))
+
+    # ---- Klaw lanes (ast_klaw_grab) ----
+
+    def _read_klaw_target(self, sc, v, body):
+        """(rel_position, rel_velocity) of the captured target (``_station_vessel``,
+        set by ACTION_TARGET_NEAREST_NAMED_VESSEL) for mlib.klaw_translation: the
+        position in the active vessel's reference frame, and the target's velocity
+        minus the vessel's, both read in the body's NON-ROTATING frame and rotated
+        into the vessel's axes (transform_direction keeps the length). NaN triples
+        when no target is captured or a read raises (the rock's own vessel is gone
+        once the Klaw merges it); a raise is named once per run."""
+        tv = self._station_vessel
+        if tv is None:
+            return mlib.NAN3, mlib.NAN3
+        try:
+            pos = tuple(float(c) for c in tv.position(v.reference_frame))
+            nrf = body.non_rotating_reference_frame
+            tvel = tv.velocity(nrf)
+            vvel = v.velocity(nrf)
+            rel = (tvel[0] - vvel[0], tvel[1] - vvel[1], tvel[2] - vvel[2])
+            relv = tuple(float(c) for c in sc.transform_direction(rel, nrf,
+                                                                  v.reference_frame))
+            return pos, relv
+        except Exception as exc:  # noqa: BLE001
+            if not self._warned_klaw_read:
+                self._warned_klaw_read = True
+                _stdout_sink(mlib.format_mission_log_line(
+                    "Info", "Klaw",
+                    "target relative state unreadable (%s: %s); NaN until a target "
+                    "reads again (expected once the rock merges into the probe). "
+                    "Logged once per run." % (type(exc).__name__, str(exc)[:120])))
+            return mlib.NAN3, mlib.NAN3
+
+    @staticmethod
+    def _perform_set_translation(control, translation) -> None:
+        """control.right / forward / up = the (right, forward, up) triple, each
+        clamped to [-1, 1]; None or a malformed triple zeroes all three."""
+        r = f = u = 0.0
+        try:
+            if translation is not None and len(translation) == 3:
+                r, f, u = (max(-1.0, min(1.0, float(c))) for c in translation)
+        except (TypeError, ValueError):
+            r = f = u = 0.0
+        try:
+            control.right = r
+            control.forward = f
+            control.up = u
+        except Exception as exc:  # noqa: BLE001
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Klaw", "set translation (%.2f, %.2f, %.2f) failed: %s"
+                % (r, f, u, exc)))
+
+    def _trigger_part_event(self, v, spec_text: str) -> None:
+        """Fire one part-module event on the ACTIVE vessel by GUI name
+        (mlib.parse_part_event_spec / pick_part_event). Never raises: a miss is a
+        Warn listing every module's events on the named parts, and the machine's
+        own give-up (no capture / no release observed) names the consequence."""
+        spec = mlib.parse_part_event_spec(spec_text)
+        if spec is None:
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "PartEvent", "malformed part-event spec %r" % (spec_text,)))
+            return
+        part_name, module_name, wanted = spec
+        offered = []
+        try:
+            parts = list(v.parts.with_name(part_name))
+        except Exception as exc:  # noqa: BLE001
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "PartEvent", "parts.with_name(%r) failed: %s" % (part_name, exc)))
+            return
+        for p in parts:
+            try:
+                modules = list(p.modules)
+            except Exception:  # noqa: BLE001
+                continue
+            for m in modules:
+                try:
+                    mname = str(m.name)
+                    if module_name and mname != module_name:
+                        continue
+                    events = list(m.events)
+                except Exception:  # noqa: BLE001
+                    continue
+                offered.append("%s:[%s]" % (mname, ", ".join(str(e) for e in events)))
+                pick = mlib.pick_part_event(events, wanted)
+                if pick is None:
+                    continue
+                try:
+                    m.trigger_event(pick)
+                    _stdout_sink(mlib.format_mission_log_line(
+                        "Info", "PartEvent", "fired %r on %s/%s (asked %r)"
+                        % (pick, part_name, mname, wanted)))
+                except Exception as exc:  # noqa: BLE001
+                    _stdout_sink(mlib.format_mission_log_line(
+                        "Warn", "PartEvent", "trigger_event(%r) on %s/%s failed: %s"
+                        % (pick, part_name, mname, exc)))
+                return
+        _stdout_sink(mlib.format_mission_log_line(
+            "Warn", "PartEvent", "no event matching %r on %d part(s) named %r%s; offered: %s"
+            % (wanted, len(parts), part_name,
+               (" module %r" % module_name) if module_name else "",
+               "; ".join(offered) or "(none)")))
 
     # ---- Career science / recovery helpers (science_bench_recover lane) ----
     #

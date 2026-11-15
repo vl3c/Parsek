@@ -18,7 +18,8 @@ namespace Parsek
         /// Determines whether a vessel is trackable (should get its own tree branch).
         /// Trackable = SpaceObject, EVA kerbal, OR has ModuleCommand
         /// (covers crewed pods and probe cores). Debris, spent boosters, fairings,
-        /// etc. are NOT trackable.
+        /// etc. are NOT trackable. Re-Fly slots and Rewind Points read
+        /// <see cref="IsReFlyControllableVessel"/> instead, which leaves the SpaceObject out.
         ///
         /// <para>
         /// EVA kerbals carry <c>KerbalEVA</c> rather than <c>ModuleCommand</c>, but
@@ -51,6 +52,93 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Can a vessel produced by a split be a Re-Fly slot: does it count toward a
+        /// multi-controllable split (which authors a <see cref="RewindPoint"/>) and get a
+        /// slot of its own? Same as <see cref="IsTrackableVessel"/> except that an asteroid
+        /// or comet never qualifies (owner ruling 2026-11-15, "No Re-Fly for rocks"): a
+        /// released rock still records as its own branch and spawns real at its tip, but
+        /// releasing one creates no Rewind Point. A ship that carries a grabbed rock keeps
+        /// its command module and stays controllable.
+        /// </summary>
+        internal static bool IsReFlyControllableVessel(Vessel v)
+        {
+            if (v == null) return false;
+            bool isEva = v.isEVA || v.vesselType == VesselType.EVA;
+            int partCount = v.parts != null ? v.parts.Count : 0;
+            int commandParts = 0;
+            int rockParts = 0;
+            for (int i = 0; i < partCount; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+                if (p.FindModuleImplementing<ModuleCommand>() != null) commandParts++;
+                if (IsRockPart(p)) rockParts++;
+            }
+
+            string reason;
+            bool controllable = IsReFlyControllable(
+                v.vesselType, isEva, partCount, commandParts, rockParts, out reason);
+            string line =
+                $"Re-Fly controllability: pid={v.persistentId} name='{v.vesselName ?? "<unnamed>"}' " +
+                $"type={v.vesselType} parts={partCount.ToString(CultureInfo.InvariantCulture)} " +
+                $"command={commandParts.ToString(CultureInfo.InvariantCulture)} " +
+                $"rock={rockParts.ToString(CultureInfo.InvariantCulture)} " +
+                $"controllable={controllable} reason={reason}";
+            if (!controllable && (v.vesselType == VesselType.SpaceObject || rockParts > 0))
+                ParsekLog.Info("Rewind", line + " (asteroid / comet: no Re-Fly slot)");
+            else
+                ParsekLog.Verbose("Rewind", line);
+            return controllable;
+        }
+
+        private static bool IsRockPart(Part p)
+        {
+            string name = p.partInfo != null && !string.IsNullOrEmpty(p.partInfo.name)
+                ? p.partInfo.name
+                : p.partName;
+            if (VesselSnapshotOps.IsRockPartName(name)) return true;
+            return p.FindModuleImplementing<ModuleAsteroid>() != null
+                || p.FindModuleImplementing<ModuleComet>() != null;
+        }
+
+        /// <summary>
+        /// Pure half of <see cref="IsReFlyControllableVessel"/>, checked in this order: an
+        /// EVA kerbal is controllable (<c>eva</c>; the Rewind Point author refuses an EVA
+        /// split on its own); a SpaceObject vessel is not (<c>space-object</c>), whatever it
+        /// carries; a vessel whose every part is an asteroid or comet is not
+        /// (<c>space-object-parts</c>, a rock whose type was changed); a vessel with a
+        /// command module is (<c>command</c>, or <c>command-carrying-space-object</c> for a
+        /// ship holding a grabbed rock); anything else is not (<c>no-command</c>).
+        /// </summary>
+        internal static bool IsReFlyControllable(
+            VesselType vesselType, bool isEva, int partCount, int commandPartCount, int rockPartCount,
+            out string reason)
+        {
+            if (isEva || vesselType == VesselType.EVA)
+            {
+                reason = "eva";
+                return true;
+            }
+            if (vesselType == VesselType.SpaceObject)
+            {
+                reason = "space-object";
+                return false;
+            }
+            if (partCount > 0 && rockPartCount >= partCount)
+            {
+                reason = "space-object-parts";
+                return false;
+            }
+            if (commandPartCount > 0)
+            {
+                reason = rockPartCount > 0 ? "command-carrying-space-object" : "command";
+                return true;
+            }
+            reason = "no-command";
+            return false;
+        }
+
+        /// <summary>
         /// Does a vessel that separated from a recorded vessel get its own recorded branch (a
         /// child recording with no debris lifetime that spawns at its end), rather than being
         /// treated as debris? Every trackable vessel does (<see cref="IsTrackableVessel"/>), and so
@@ -58,7 +146,8 @@ namespace Parsek
         /// Hitchhiker, a Mk1 crew cabin) cannot be flown, but its kerbal is alive in a real
         /// vessel and must not read as lost (SPLIT-OF-A-CREWED-COMMANDLESS-PART-READS-AS-DEBRIS).
         /// Recording only: Rewind Points and Re-Fly slots still need a controllable vessel and
-        /// keep reading <see cref="IsTrackableVessel"/>.
+        /// read <see cref="IsReFlyControllableVessel"/>, which also leaves out a released
+        /// asteroid or comet (it records as its own branch here).
         /// </summary>
         internal static bool ShouldRecordAsOwnBranch(Vessel v)
         {

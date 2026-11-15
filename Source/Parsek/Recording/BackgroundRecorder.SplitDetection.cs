@@ -402,7 +402,7 @@ namespace Parsek
             var candidatePids = new List<uint>();
 
             if (parentVessel != null && parentContRec != null
-                && ParsekFlight.IsTrackableVessel(parentVessel))
+                && ParsekFlight.IsReFlyControllableVessel(parentVessel))
             {
                 pairs.Add((parentVessel, parentContRec));
                 candidatePids.Add(parentVessel.persistentId);
@@ -427,11 +427,11 @@ namespace Parsek
                         $"FlightGlobals.Vessels at RP-hook time; skipping slot");
                     continue;
                 }
-                if (!ParsekFlight.IsTrackableVessel(childVessel))
+                if (!ParsekFlight.IsReFlyControllableVessel(childVessel))
                 {
                     ParsekLog.Verbose("Rewind",
-                        $"Background split: child pid={info.pid} is recorded (crew aboard) but not " +
-                        "controllable; not a Re-Fly slot");
+                        $"Background split: child pid={info.pid} is recorded (crew aboard, or a released " +
+                        "asteroid / comet) but not controllable; not a Re-Fly slot");
                     continue;
                 }
                 pairs.Add((childVessel, childRecordings[i]));

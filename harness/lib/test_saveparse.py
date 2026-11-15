@@ -1009,6 +1009,13 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # tanks on the probe tender (harness/tools/build_lab_lko_tender_rcs.py, the LAB-13b
         # host), so it carries the same node.
         "lab-lko-tender-rcs": True,
+        # The four Klaw / asteroid hosts are lab-lko-sandbox with every vessel replaced
+        # (a Klaw probe beside a rock; harness/tools/build_ast_klaw_fixtures.py), so they
+        # carry the base's node.
+        "ast-klaw-lko": True,
+        "com-klaw-lko": True,
+        "ast-miner-lko": True,
+        "ast-mothership-lko": True,
         # lab-lko-relay is lab-lko-seeded's orbit with lab-pad-seeded's lab and CommNet
         # ground stations off (same builder, the LAB-11 host), so it carries the node too.
         "lab-lko-relay": True,
@@ -4390,7 +4397,9 @@ class CommittedFixtureSweepTests(unittest.TestCase):
              # The vessel census is NOT a Parsek surface: the host save's own craft
              # counts, and no committed recording means no spawned vessel.
              "spawnedVessels": 0, "vesselNames": {"mk1-capsule": 1},
-             "recordingNames": {}},
+             "recordingNames": {},
+             # The host save's own untracked asteroid, parked around the Sun.
+             "spaceObjectParts": {"Ast. VPA-167": 1}},
             obs["recordings"]["structure"])
 
     def test_no_committed_fixture_persists_ghost_chain_state(self):
@@ -4556,6 +4565,96 @@ class RecordingNameCensusFacetTests(unittest.TestCase):
             {"recordingNames": {"VN": "one"}}))
         self.assertEqual([], saveparse.validate_structure_expectations(
             {"recordingNames": {"VN1 Alpha Probe": {"min": 1}}}))
+
+
+class SpaceObjectPartCensusFacetTests(unittest.TestCase):
+    """The one-rock census: `spaceObjectParts` counts asteroid / comet PARTs across
+    FLIGHTSTATE per rock name, wherever the part sits (a free rock or a ship that
+    grabbed it). The module's name field wins; a module-less rock is named by its
+    SpaceObject vessel; a module-less rock inside a ship reads `<unnamed>`."""
+
+    @staticmethod
+    def _save(vessels):
+        lines = ["GAME", "{", "\tFLIGHTSTATE", "\t{"]
+        for name, vtype, parts in vessels:
+            lines += ["\t\tVESSEL", "\t\t{", "\t\t\tname = %s" % name,
+                      "\t\t\ttype = %s" % vtype, "\t\t\tpersistentId = 1"]
+            for part, module in parts:
+                lines += ["\t\t\tPART", "\t\t\t{", "\t\t\t\tname = %s" % part]
+                if module is not None:
+                    lines += ["\t\t\t\tMODULE", "\t\t\t\t{",
+                              "\t\t\t\t\tname = %s" % module[0],
+                              "\t\t\t\t\t%s = %s" % (module[1], module[2]),
+                              "\t\t\t\t}"]
+                lines.append("\t\t\t}")
+            lines.append("\t\t}")
+        lines += ["\t}", "\tSCENARIO", "\t{", "\t\tname = ParsekScenario", "\t}",
+                  "}", ""]
+        return "\n".join(lines)
+
+    def _obs(self, vessels):
+        snap = saveparse.parse_parsek_scenario(self._save(vessels))
+        self.assertTrue(snap.parsed, snap.error)
+        obs = saveparse.observed_structure_facets(snap)["recordings"]["structure"]
+        self.assertEqual(obs["spaceObjectParts"], saveparse.space_object_part_counts(snap))
+        return snap, obs["spaceObjectParts"]
+
+    def test_free_module_less_rocks_are_named_by_their_vessel(self):
+        _snap, obs = self._obs([
+            ("Ast. VPA-167", "SpaceObject", [("PotatoRoid", None)]),
+            ("UnknownComet", "SpaceObject", [("PotatoComet", None)]),
+            ("AST Klaw", "Probe", [("probeCoreOcto.v2", None), ("GrapplingDevice", None)])])
+        self.assertEqual({"Ast. VPA-167": 1, "UnknownComet": 1}, obs)
+
+    def test_a_grabbed_rock_counts_inside_the_ship_by_its_module_name(self):
+        _snap, obs = self._obs([
+            ("AST Klaw", "Probe", [("probeCoreOcto.v2", None), ("GrapplingDevice", None),
+                                   ("PotatoRoid", ("ModuleAsteroid", "AsteroidName",
+                                                   "Ast. VPA-167"))]),
+            ("UnknownComet", "SpaceObject",
+             [("PotatoComet", ("ModuleComet", "CometName", "C-2026 X"))])])
+        self.assertEqual({"Ast. VPA-167": 1, "C-2026 X": 1}, obs)
+
+    def test_a_second_copy_reds_the_one_rock_window(self):
+        # The rock held by the ship AND left free as its own vessel: two copies.
+        snap, obs = self._obs([
+            ("AST Klaw", "Probe", [("PotatoRoid", ("ModuleAsteroid", "AsteroidName",
+                                                   "Ast. VPA-167"))]),
+            ("Ast. VPA-167", "SpaceObject", [("PotatoRoid", None)]),
+            ("Ast. NEW-001", "SpaceObject", [("PotatoRoid", None)])])
+        self.assertEqual({"Ast. VPA-167": 2, "Ast. NEW-001": 1}, obs)
+        exp = {"recordings": {"structure": {
+            "gating": True, "spaceObjectParts": {"Ast. VPA-167": 1}}}}
+        self.assertEqual([], saveparse.validate_structure_expectations(
+            exp["recordings"]["structure"]))
+        r = saveparse.evaluate_save_structure(exp, snap)
+        self.assertEqual(saveparse.STATUS_FAIL, r.status)
+        self.assertEqual(("recordings.structure.spaceObjectParts.Ast. VPA-167 2 != 1",),
+                         r.mismatches)
+
+    def test_a_module_less_rock_inside_a_ship_reads_unnamed(self):
+        _snap, obs = self._obs([
+            ("AST Klaw", "Probe", [("PotatoRoid", None)]),
+            ("AST Klaw 2", "Probe", [("PotatoRoid", ("ModuleAsteroid", "AsteroidName", ""))])])
+        self.assertEqual({saveparse.UNNAMED_ROCK_PART: 2}, obs)
+
+    def test_shape_validation_and_names_only_block(self):
+        self.assertTrue(saveparse.validate_structure_expectations({"spaceObjectParts": 1}))
+        self.assertTrue(saveparse.validate_structure_expectations(
+            {"spaceObjectParts": {"Ast. VPA-167": "one"}}))
+        self.assertEqual([], saveparse.validate_structure_expectations(
+            {"spaceObjectParts": {"Ast. VPA-167": {"min": 1, "max": 1}}}))
+        self.assertEqual([], saveparse.save_structure_expectation_warnings(
+            {"recordings": {"structure": {"gating": False,
+                                          "spaceObjectParts": {"Ast. VPA-167": 1}}}}))
+
+    def test_every_klaw_fixture_reads_one_rock(self):
+        for fixture, rock in (("ast-klaw-lko", "Ast. VPA-167"), ("com-klaw-lko", "UnknownComet"),
+                              ("ast-miner-lko", "Ast. VPA-167"),
+                              ("ast-mothership-lko", "Ast. VPA-167")):
+            snap = saveparse.parse_parsek_scenario(
+                _read(os.path.join(FIXTURE_SAVES_DIR, fixture, "persistent.sfs")))
+            self.assertEqual({rock: 1}, saveparse.space_object_part_counts(snap), fixture)
 
 
 class SpecSurfaceValidationTests(unittest.TestCase):

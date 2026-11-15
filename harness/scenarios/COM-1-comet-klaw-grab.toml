@@ -1,0 +1,158 @@
+schema = 1
+id = "COM-1-comet-klaw-grab"
+tier = "operator"
+# =====================================================================================
+# COM-1 (owner rulings V 2026-11-15, the Klaw lanes). AUTHORED 2026-11-15 on branch
+# `ast-lanes`, NEVER FLOWN. AST-1 with a COMET: every window below is a reading-run guess;
+# the lane is re-pinned off its first flight and the tier promoted by its measured p50.
+#
+# THE RULINGS UNDER TEST: AST-1's (not recorded before the grab, a Dock merge of couple kind
+# Grapple, claimed and held after a rewind with no second copy, real at the tip), for a
+# `PotatoComet` rather than a `PotatoRoid`. A comet is the large case: its nucleus radius is
+# about 44 m, so a hold ghost drawn at a fixed asteroid size is visibly wrong.
+#
+# HOST: `com-klaw-lko` (harness/tools/build_ast_klaw_fixtures.py): `AST Klaw` (active, pid
+# 2710401000) at UT 355.83, the comet `UnknownComet` of `depot-route-recorded` (pid 3656867723,
+# nucleus radius 44.47 m, size 5 kept) 150 m ahead on the same orbit, `AST Watcher` (pid
+# 2710403000) 300 m behind, the post-rewind flight focus.
+#
+# THE FLIGHT: AST-1's, with the standoff at the nucleus radius (44 m) and a longer approach
+# give-up (the comet is 150 m out, 106 m of it above the standoff).
+#
+# THE MISSION'S GAME-TIME BOUND: UT 370 + settle 5 + arm 5 + target <= 30 + approach <= 400 +
+# hold 15 + settle 5 = UT 830 on OK; the post-rewind warp to UT 1100 is past it and the tip.
+#
+# SIBLING-FIX DEPENDENCIES: `RockGhost built: path=` (the comet's hold ghost at its own size;
+# PROVISIONAL literal, the sibling fix owns it).
+#
+# UNKNOWNS THE FIRST (READING) RUN ANSWERS: AST-1's, plus whether the Klaw captures a comet
+# nucleus at all at this approach speed, whether a 44 m standoff measured to the comet's
+# vessel position is the contact distance, whether the comet's own coma / tail FX survive the
+# hold ghost, and the probe's handling with a comet held (no burn follows the capture).
+#
+# FAST-LANE CHECKLIST: as AST-1; the approach give-up is 400 s (the longest 1x span); count 2..2.
+# =====================================================================================
+description = "COM-1: AST-1 with a comet. A probe grabs the comet UnknownComet (a PotatoComet, nucleus about 44 m) with the Klaw in low Kerbin orbit, commits, and after Rewind-to-Launch the ghost chain claims the comet, the rewind holds it out of the world with a hold ghost at the comet's own size until the ghost probe grabs it, and at the tip the probe and the comet spawn real as one vessel with no second copy."
+instanceProfile = "stock-minimal"
+tags = ["comet", "asteroid", "klaw", "grapple", "dock", "ghost-chain", "rewind-to-launch",
+        "rewind-hold", "rcs", "COM-1", "reading-run", "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/com-klaw-lko"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "autopilot"
+mission = "ast_klaw_grab"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "DiscardTree",                                                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "StartRecording",                                                          expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "370", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "com1-grab" },                          expect = "OK" },
+  { phase = "mission",      expect = "MISSION-OK", budget = 1000 },
+  { cmd = "MissionMark",    args = { label = "com1-held" },                          expect = "OK" },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "CommitTree",                                                              expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c0",             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "com1-committed-${c0.count}" },         expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                        expect = "OK", budget = 300 },
+  { cmd = "SaveGame",       args = { name = "com1-rewound" },                        expect = "OK", budget = 120 },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "com1-rewound", focusPid = "2710403000" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "DiscardTree",                                                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "chains" }, label = "ch",                expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "com1-reloaded-chains-${ch.count}" },   expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "1100", maxRate = "50" },                  expect = "OK", budget = 300 },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c2",             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "com1-ended-a-${c2.rec0spawned}-${c2.rec0spawnedPid}-b-${c2.rec1spawned}-${c2.rec1spawnedPid}-end" }, expect = "OK" },
+  { cmd = "SaveGame",                                                                expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                            expect = "OK" },
+]
+
+[driver.missionParams]
+rockName               = "UnknownComet"
+startSettleSeconds     = 5
+armSeconds             = 5
+targetTimeoutSeconds   = 30
+# The nucleus radius (44.47 m): the slowdown ends at the surface, not at the centre.
+standoffMeters         = 44
+approachTimeoutSeconds = 400
+holdSeconds            = 15
+settleSeconds          = 5
+
+[dimensionsCovered]
+D5  = ["cross-tree-foreign-dock"]
+D9  = ["rewind-to-launch"]
+D10 = ["claw-producer"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "warp-1x", "warp-rails"]
+D18 = ["committed-interaction-claiming"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 2, max = 2 }
+
+[expectations.recordings.structure]
+# REPORT-ONLY until the reading run (AST-1's shape).
+gating            = false
+trees             = { min = 1, max = 1 }
+committedTrees    = { min = 1, max = 1 }
+branchPoints      = { Dock = { min = 1, max = 1 } }
+spaceObjectParts  = { "UnknownComet" = { min = 1, max = 1 } }
+vesselNames       = { "AST Klaw" = { min = 1, max = 1 }, "AST Watcher" = { min = 1, max = 1 } }
+recordingNames    = { "AST Klaw" = { min = 2, max = 2 }, "UnknownComet" = { min = 0, max = 0 } }
+
+[expectations.logContracts]
+required = [
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  "MISSIONMARK label=com1-grab [\\s\\S]*OnPartCouple producer classified: kind=Grapple (?:fromPart=PotatoComet toPart=GrapplingDevice|fromPart=GrapplingDevice toPart=PotatoComet) involvesEva=False",
+  "startrecording recordingId=([0-9a-f]+) already=false[\\s\\S]*Tree merge created: type=Dock, bp=[^,\\r\\n]+, parents=\\[\\1\\], child=[0-9a-f]+ \\(pid=2710401000\\)",
+  "Route proof dock window captured: child=[0-9a-f]+ window=[^ \\r\\n]+ targetPid=3656867723 kind=Grapple ",
+  "Captured rewind save at UT [0-9.]+: vessel \"AST Klaw\" in [A-Z_]+ \\(save: (parsek_rw_[0-9a-f]+)\\)[\\s\\S]*CreateMergeBranch: copied rewind save '\\1' to root recording '[0-9a-f]+'",
+  "MISSIONMARK label=com1-committed-2 ",
+  "committree committed=true",
+  "Vessel PID=3656867723 claimed by tree=[0-9a-f]{32} via MERGE at UT=[0-9.]+",
+  "Tree merge created: type=Dock, [^\\r\\n]*child=([0-9a-f]+) \\(pid=2710401000\\)[\\s\\S]*Chain built: vessel=3656867723 links=1 tip=\\1 ",
+  "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest committedTrees=1",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*\\[RewindHold\\] Rewind held vessel for its committed future: pid=3656867723 name='UnknownComet' [^\\r\\n]*evidence=(?:chain|changes|flies) [^\\r\\n]*snapshot=yes",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*\\[RewindHold\\] Rewind vessel hold: survivors=[0-9]+ held=1 ",
+  "invokerewindtolaunch complete [\\s\\S]*loadgame focus pid=2710403000 ",
+  "invokerewindtolaunch complete [\\s\\S]*\\[ClaimedHoldGhost\\] Rewind vessel holds restored on flight load: saved=1 restored=1 ",
+  "invokerewindtolaunch complete [\\s\\S]*Claimed vessel hold ghost shown: pid=3656867723 name='UnknownComet' chain=3656867723 source=snapshot-orbit body=Kerbin parts=1 firstClaimUT=[0-9.]+ UT=[0-9.]+ from=rewind-save",
+  # SIBLING FIX (provisional literal): the comet's hold ghost at the comet's own size.
+  "invokerewindtolaunch complete [\\s\\S]*RockGhost built: path=",
+  "Claimed vessel hold ghost shown: pid=3656867723 [\\s\\S]*Claimed vessel hold ghost released: pid=3656867723 name='UnknownComet' reason=(?:claimed|covered-by-recording) ",
+  "invokerewindtolaunch complete [\\s\\S]*(?:Chain tip spawn complete: #[0-9]+ \"AST Klaw\" pid=[0-9]+|Vessel respawned \\(sit=ORBITING, pid=[0-9]+|SpawnAtPosition: vessel spawned \\(sit=ORBITING, pid=[0-9]+)",
+  "MISSIONMARK label=com1-ended-",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "invokerewindtolaunch refused",
+  "warptout refused",
+  "Rewind strip scope: strip spawned pid=3656867723 ",
+  "\\[Ghoster\\] Vessel ghosted: pid=3656867723 ",
+  "Claimed vessel hold ghost not drawn",
+  "Chain tip spawn blocked by collision",
+  "Spawn ABANDONED",
+  "Spawn FAILED",
+]
+
+[runtime]
+# AST-1's shape with a longer approach.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"

@@ -456,8 +456,9 @@ namespace Parsek.Tests
             Assert.Equal(3, rates.Count);
         }
 
-        // catches: an asteroid drill (unmodeled) silently bounding Ore at 0 -
-        // one unmodeled converter must leave the whole window unbounded.
+        // catches: an unmodeled converter (an atmospheric harvester, a modded subclass)
+        // silently bounding Ore at 0 - one unmodeled converter must leave the whole
+        // window unbounded.
         [Fact]
         public void ComputePlausibleRates_UnmodeledConverter_Unbounded()
         {
@@ -489,6 +490,140 @@ namespace Parsek.Tests
                 });
             Assert.NotNull(rates);
             Assert.Empty(rates);
+        }
+
+        // ---------- Asteroid / comet drill (ROCK-DRILL-HARVEST-UNCAPPED) ----------
+
+        private static List<KeyValuePair<string, double>> Rock(params (string name, double abundance)[] pairs)
+        {
+            var list = new List<KeyValuePair<string, double>>();
+            foreach (var (name, abundance) in pairs)
+                list.Add(new KeyValuePair<string, double>(name, abundance));
+            return list;
+        }
+
+        // catches: a rock drill on a vessel with a rock aboard leaving the window
+        // unbounded - the stock rate is abundance x Efficiency x multiplier per rock resource.
+        [Fact]
+        public void SpaceObjectDrill_WithRockAboard_IsBoundedAtAbundanceTimesEfficiency()
+        {
+            HarvestConverterRate drill = RouteHarvestCapture.BuildSpaceObjectDrillRate(
+                efficiency: 1.5, multiplier: 0.5, Rock(("Ore", 0.8)), out int substituted);
+
+            Assert.Equal(HarvestConverterKind.SpaceObjectDrill, drill.Kind);
+            Assert.Equal(0, substituted);
+            Dictionary<string, double> rates = RouteHarvestCapture.ComputePlausibleRates(
+                new List<HarvestConverterRate> { drill, Drill(1.0, 0.1, 1.0) });
+            Assert.NotNull(rates);
+            // 0.8 x 1.5 x 0.5 = 0.6 from the rock, plus the surface drill's 0.1.
+            Assert.Equal(0.7, rates["Ore"], 9);
+            Assert.Single(rates);
+        }
+
+        [Fact]
+        public void SpaceObjectDrill_NoRockOfItsKind_ProducesNothingButStaysBounded()
+        {
+            HarvestConverterRate drill = RouteHarvestCapture.BuildSpaceObjectDrillRate(
+                1.5, 1.0, null, out int substituted);
+
+            Assert.Equal(HarvestConverterKind.NoResourceOutput, drill.Kind);
+            Assert.Equal(0, substituted);
+            Dictionary<string, double> rates = RouteHarvestCapture.ComputePlausibleRates(
+                new List<HarvestConverterRate> { drill });
+            Assert.NotNull(rates);
+            Assert.Empty(rates);
+        }
+
+        // catches: two rocks aboard summed - the drill mines one rock, so the bound is the
+        // per-resource maximum, and every resource of the rock gets its own rate.
+        [Fact]
+        public void SpaceObjectDrill_TwoRocks_TakesPerResourceMaximum()
+        {
+            HarvestConverterRate drill = RouteHarvestCapture.BuildSpaceObjectDrillRate(
+                1.0, 1.0, Rock(("Ore", 0.3), ("Ore", 0.6), ("XenonGas", 0.05)), out int substituted);
+
+            Assert.Equal(0, substituted);
+            Dictionary<string, double> rates = RouteHarvestCapture.ComputePlausibleRates(
+                new List<HarvestConverterRate> { drill });
+            Assert.Equal(0.6, rates["Ore"], 9);
+            Assert.Equal(0.05, rates["XenonGas"], 9);
+            Assert.Equal(2, rates.Count);
+        }
+
+        // catches: an unreadable abundance unbounding the window - it is credited the
+        // conservative fallback (at or above any stock abundance) instead.
+        [Fact]
+        public void SpaceObjectDrill_UnreadableAbundance_CreditsTheConservativeFallback()
+        {
+            HarvestConverterRate drill = RouteHarvestCapture.BuildSpaceObjectDrillRate(
+                2.0, 1.0, Rock(("Ore", double.NaN), ("", 0.4)), out int substituted);
+
+            Assert.Equal(1, substituted);
+            Assert.Single(drill.Outputs);
+            Dictionary<string, double> rates = RouteHarvestCapture.ComputePlausibleRates(
+                new List<HarvestConverterRate> { drill });
+            Assert.NotNull(rates);
+            Assert.Equal(RouteHarvestCapture.RockAbundanceFallback * 2.0, rates["Ore"], 9);
+        }
+
+        [Fact]
+        public void SpaceObjectDrill_RockWithNoResourceModule_ProducesNothing()
+        {
+            HarvestConverterRate drill = RouteHarvestCapture.BuildSpaceObjectDrillRate(
+                1.0, 1.0, Rock(), out int substituted);
+
+            Assert.Equal(HarvestConverterKind.SpaceObjectDrill, drill.Kind);
+            Dictionary<string, double> rates = RouteHarvestCapture.ComputePlausibleRates(
+                new List<HarvestConverterRate> { drill });
+            Assert.NotNull(rates);
+            Assert.Empty(rates);
+        }
+
+        [Fact]
+        public void SpaceObjectDrill_UnusableEfficiency_Unbounded()
+        {
+            HarvestConverterRate drill = RouteHarvestCapture.BuildSpaceObjectDrillRate(
+                double.NaN, 1.0, Rock(("Ore", 0.5)), out _);
+            Assert.Null(RouteHarvestCapture.ComputePlausibleRates(
+                new List<HarvestConverterRate> { drill }));
+        }
+
+        // A catch-up burst from a rock drill is now capped like a surface drill's.
+        [Fact]
+        public void SpaceObjectDrill_CatchUpBurst_IsCappedToRateTimesWindow()
+        {
+            HarvestConverterRate drill = RouteHarvestCapture.BuildSpaceObjectDrillRate(
+                1.0, 1.0, Rock(("Ore", 0.5)), out _);
+            Dictionary<string, double> rates = RouteHarvestCapture.ComputePlausibleRates(
+                new List<HarvestConverterRate> { drill });
+            double limit = RouteHarvestCapture.ComputePlausibleLimit(rates, "Ore", 60.0);
+            Assert.Equal(0.5 * 60.0 * RouteHarvestCapture.PlausibilityMargin, limit, 9);
+            Assert.True(limit < 0.5 * 6.0 * 3600.0);
+        }
+
+        [Fact]
+        public void DescribeSpaceObjectDrillRate_IsInvariantAndNamesTheRock()
+        {
+            var prior = System.Threading.Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture =
+                    System.Globalization.CultureInfo.GetCultureInfo("de-DE");
+                var raw = Rock(("Ore", 0.25), ("Ore", double.NaN));
+                HarvestConverterRate drill = RouteHarvestCapture.BuildSpaceObjectDrillRate(
+                    1.5, 0.5, raw, out int substituted);
+                string text = RouteHarvestCapture.DescribeSpaceObjectDrillRate(drill, raw, substituted);
+                Assert.Equal(
+                    "kind=SpaceObjectDrill efficiency=1.5 multiplier=0.5 rock=[Ore:1] rockModules=2 substituted=1",
+                    text);
+                Assert.Contains("rock=none rockModules=0",
+                    RouteHarvestCapture.DescribeSpaceObjectDrillRate(
+                        RouteHarvestCapture.BuildSpaceObjectDrillRate(1.0, 1.0, null, out int none), null, none));
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = prior;
+            }
         }
 
         [Fact]

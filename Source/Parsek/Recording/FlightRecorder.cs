@@ -1222,10 +1222,10 @@ namespace Parsek
         /// only: a surface / ocean <c>ModuleResourceHarvester</c> (abundance at the
         /// vessel's location, as the drill itself asks <c>ResourceMap</c>), a
         /// <c>ModuleResourceConverter</c> (its recipe outputs, already in units), the
-        /// science lab (no resource), an asteroid / comet drill on a vessel with no
-        /// asteroid or comet part (no resource). Any other converter - atmospheric or
-        /// exospheric harvesters, an asteroid / comet drill with a space object aboard,
-        /// modded subclasses - makes the window unbounded (null), as does any exception.
+        /// science lab (no resource), an asteroid / comet drill (the abundances of the
+        /// rocks of its kind aboard, ROCK-DRILL-HARVEST-UNCAPPED; no resource with none).
+        /// Any other converter - atmospheric or exospheric harvesters, modded subclasses -
+        /// makes the window unbounded (null), as does any exception.
         /// </summary>
         private Dictionary<string, double> BuildPlausibleHarvestRates(Vessel v)
         {
@@ -1233,7 +1233,8 @@ namespace Parsek
                 return null;
             try
             {
-                bool carriesSpaceObject = VesselCarriesSpaceObject(v);
+                List<KeyValuePair<string, double>> asteroidAbundances = ReadRockAbundances(v, comet: false);
+                List<KeyValuePair<string, double>> cometAbundances = ReadRockAbundances(v, comet: true);
                 var inputs = new List<HarvestConverterRate>(cachedConverters.Count);
                 for (int i = 0; i < cachedConverters.Count; i++)
                 {
@@ -1242,7 +1243,7 @@ namespace Parsek
                         continue; // Unity-null: destroyed/staged-away module
                     inputs.Add(ReadHarvestConverterRate(
                         c, c.GetCrewEfficiencyBonus(), v.mainBody, v.latitude, v.longitude, v.altitude,
-                        carriesSpaceObject));
+                        asteroidAbundances, cometAbundances));
                 }
                 return RouteHarvestCapture.ComputePlausibleRates(inputs);
             }
@@ -1265,17 +1266,23 @@ namespace Parsek
         /// <c>GetCrewEfficiencyBonus</c> reads the part's vessel, which a part prefab (the
         /// in-game check of this reader) does not have.
         ///
-        /// <para>Both stock surface drills also carry a <c>ModuleAsteroidDrill</c>, which mines
-        /// only an asteroid part on its own vessel (decompiled: it looks for a
-        /// <c>ModuleAsteroid</c> among <c>vessel.parts</c>); <c>ModuleCometDrill</c> is the
-        /// comet twin. On a vessel with no asteroid or comet part
-        /// (<paramref name="hostCarriesSpaceObject"/> false) they produce nothing and read as
-        /// <see cref="HarvestConverterKind.NoResourceOutput"/>, so a stock drill keeps its
-        /// bound; with one they stay unmodeled and the window uncapped.</para>
+        /// <para>Both stock surface drills also carry a <c>ModuleAsteroidDrill</c> and a
+        /// <c>ModuleCometDrill</c>, which mine only a rock of their kind on their own vessel
+        /// (decompiled: <c>GetAttachedPotato</c> looks for a <c>ModuleAsteroid</c> /
+        /// <c>ModuleComet</c> among <c>vessel.parts</c>). The rocks' resources come in as
+        /// <paramref name="asteroidAbundances"/> / <paramref name="cometAbundances"/> (one
+        /// (resource, abundance) pair per rock resource module, null when no rock of that
+        /// kind is aboard, see <see cref="ReadRockAbundances"/>): with none the drill reads as
+        /// <see cref="HarvestConverterKind.NoResourceOutput"/>, with one as
+        /// <see cref="HarvestConverterKind.SpaceObjectDrill"/>
+        /// (<see cref="RouteHarvestCapture.BuildSpaceObjectDrillRate"/>), so a mining window
+        /// with a rock aboard is capped too (ROCK-DRILL-HARVEST-UNCAPPED).</para>
         /// </summary>
         internal static HarvestConverterRate ReadHarvestConverterRate(
             BaseConverter c, double crewBonus, CelestialBody body,
-            double latitude, double longitude, double altitude, bool hostCarriesSpaceObject)
+            double latitude, double longitude, double altitude,
+            IList<KeyValuePair<string, double>> asteroidAbundances,
+            IList<KeyValuePair<string, double>> cometAbundances)
         {
             var input = new HarvestConverterRate
             {
@@ -1320,33 +1327,71 @@ namespace Parsek
             {
                 input.Kind = HarvestConverterKind.NoResourceOutput;
             }
-            else if ((type == typeof(ModuleAsteroidDrill) || type == typeof(ModuleCometDrill))
-                && !hostCarriesSpaceObject)
+            else if (type == typeof(ModuleAsteroidDrill) || type == typeof(ModuleCometDrill))
             {
-                input.Kind = HarvestConverterKind.NoResourceOutput;
+                bool comet = type == typeof(ModuleCometDrill);
+                IList<KeyValuePair<string, double>> rock = comet ? cometAbundances : asteroidAbundances;
+                int substituted;
+                input = RouteHarvestCapture.BuildSpaceObjectDrillRate(
+                    ((BaseDrill)c).Efficiency, input.Multiplier, rock, out substituted);
+                string line =
+                    $"Harvest rate: {type.Name} part='{c.part?.partInfo?.name ?? "<none>"}' " +
+                    RouteHarvestCapture.DescribeSpaceObjectDrillRate(input, rock, substituted);
+                if (substituted > 0)
+                    ParsekLog.Warn("Recorder", line +
+                        $" (unreadable rock abundance credited {RouteHarvestCapture.RockAbundanceFallback.ToString("R", CultureInfo.InvariantCulture)})");
+                else
+                    ParsekLog.Verbose("Recorder", line);
             }
             return input;
         }
 
         /// <summary>
-        /// True when any part of <paramref name="v"/> is an asteroid or a comet, the only
-        /// thing a stock asteroid / comet drill can mine (see
-        /// <see cref="ReadHarvestConverterRate"/>).
+        /// The (resource, abundance) pairs of every asteroid (or, with
+        /// <paramref name="comet"/>, comet) part of <paramref name="v"/>: one pair per
+        /// <c>ModuleAsteroidResource</c> / <c>ModuleCometResource</c> on a part carrying
+        /// <c>ModuleAsteroid</c> / <c>ModuleComet</c>, the modules a stock asteroid / comet
+        /// drill reads (decompiled <c>PrepareRecipe</c>). Null when no rock of that kind is
+        /// aboard; empty when the rock carries no resource module.
         /// </summary>
-        private static bool VesselCarriesSpaceObject(Vessel v)
+        internal static List<KeyValuePair<string, double>> ReadRockAbundances(Vessel v, bool comet)
         {
             if (v == null || v.parts == null)
-                return false;
+                return null;
+            List<KeyValuePair<string, double>> pairs = null;
             for (int i = 0; i < v.parts.Count; i++)
             {
                 Part p = v.parts[i];
                 if (p == null)
                     continue;
-                if (p.FindModuleImplementing<ModuleAsteroid>() != null
-                    || p.FindModuleImplementing<ModuleComet>() != null)
-                    return true;
+                if (comet)
+                {
+                    if (p.FindModuleImplementing<ModuleComet>() == null)
+                        continue;
+                    if (pairs == null) pairs = new List<KeyValuePair<string, double>>();
+                    List<ModuleCometResource> resources = p.FindModulesImplementing<ModuleCometResource>();
+                    for (int r = 0; resources != null && r < resources.Count; r++)
+                    {
+                        if (resources[r] == null) continue;
+                        pairs.Add(new KeyValuePair<string, double>(
+                            resources[r].resourceName, resources[r].abundance));
+                    }
+                }
+                else
+                {
+                    if (p.FindModuleImplementing<ModuleAsteroid>() == null)
+                        continue;
+                    if (pairs == null) pairs = new List<KeyValuePair<string, double>>();
+                    List<ModuleAsteroidResource> resources = p.FindModulesImplementing<ModuleAsteroidResource>();
+                    for (int r = 0; resources != null && r < resources.Count; r++)
+                    {
+                        if (resources[r] == null) continue;
+                        pairs.Add(new KeyValuePair<string, double>(
+                            resources[r].resourceName, resources[r].abundance));
+                    }
+                }
             }
-            return false;
+            return pairs;
         }
 
         internal static string FormatPlausibleRates(Dictionary<string, double> rates)

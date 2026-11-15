@@ -15,25 +15,29 @@ joins main in one merge, so its lines arrive then.
 - **Multiplayer: the Space Race (in progress).** Up to four players race each other in their
   own saves, sharing progress through a shared folder. This line is a placeholder until the
   `multiplayer` branch merges.
-- **Dev: five automated lanes for asteroids and comets (in progress).** AST-1 to AST-4 and COM-1
-  fly a real grab, a release, rock mining, a Re-Fly across a grab and a comet.
+- **Dev: five automated lanes for asteroids and comets.** AST-1 to AST-4 and COM-1 fly a real
+  Klaw grab with a rewind, a release, rock mining onto a supply route, a Re-Fly across a grab and
+  a comet grab. Written and checked offline; their first flights are owed.
 
 ### Changed
 
-- **A rock you let go of never becomes a Re-Fly slot (in progress).** Releasing a grabbed
-  asteroid or comet makes no rewind point of its own. The rock still gets its own replay from
-  the release and becomes real at its end, like any other vessel.
-- **Mining an asteroid on a supply route works like mining the ground (in progress).** A route
-  that mines a rock never drains the real rock.
+- **A rock you let go of never becomes a Re-Fly slot.** Releasing a grabbed asteroid or comet
+  makes no rewind point of its own and never shows it in Unfinished Flights. The rock still gets
+  its own replay from the release and becomes real at its end. (ROCK-RELEASE-REFLY-SLOT)
+- **Mining an asteroid on a supply route works like mining the ground.** A route that mines a
+  rock never drains the real rock (owner ruling 2026-11-15).
 
 ### Fixed
 
-- **Rock-mining trips carry no more ore than the drills produce (in progress).** A trip with a
-  grabbed asteroid or comet aboard had no ore limit.
-- **A grabbed rock's ghost has the rock's own shape and size (in progress).** Replays showed one
-  stock rock model at a fixed size for every asteroid; comets get their own look too.
-- **Spawning next to a large rock checks the rock's real size (in progress).** The clear-space
-  check before a vessel becomes real counted a big asteroid as one small part.
+- **Rock-mining trips carry no more ore than the drills produce.** A route whose ship drilled a
+  grabbed asteroid or comet had no ore limit; it now credits at most what the drill could mine
+  from that rock in the recorded time. (ROCK-DRILL-HARVEST-UNCAPPED)
+- **A grabbed rock's ghost has the rock's own shape and size.** A ghost ship carrying a rock, a
+  released rock's replay and the stand-in for a claimed rock after a rewind now show the real
+  rock instead of a small default lump. Comets get their rock but no tail. (ROCK-GHOST-PREFAB-MESH)
+- **A ship holding a rock checks for room at the rock's real size.** The clear-space check
+  before a vessel becomes real counted a big asteroid as one small part, so it could appear
+  inside a nearby vessel. (ROCK-SPAWN-BOUNDS-TOO-SMALL)
 
 ## 1.0.2
 

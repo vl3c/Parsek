@@ -30,6 +30,31 @@ namespace Parsek
         internal const string EvaCrewJoinedForeignVesselReason = "evaCrewJoinedForeignVessel";
 
         /// <summary>
+        /// Non-qualifying verdict for an asteroid or comet's own recording (a released
+        /// rock). A released rock is never a Re-Fly slot (owner ruling 2026-11-15, "No
+        /// Re-Fly for rocks"); the split author no longer gives it a slot, and this refuses
+        /// one held by a Rewind Point authored before that ruling.
+        /// </summary>
+        internal const string SpaceObjectNotFlyableReason = "spaceObjectNotFlyable";
+
+        /// <summary>
+        /// True when <paramref name="rec"/> is an asteroid or comet's own recording: its
+        /// vessel snapshot (the ghost snapshot when the vessel snapshot is gone) is a
+        /// SpaceObject or carries only rock parts. A ship holding a grabbed rock is not one.
+        /// Pure over the recording's snapshots.
+        /// </summary>
+        internal static bool IsSpaceObjectRecording(Recording rec, out string rule)
+        {
+            if (rec == null)
+            {
+                rule = "null-recording";
+                return false;
+            }
+            ConfigNode snapshot = rec.VesselSnapshot ?? rec.GhostVisualSnapshot;
+            return VesselSnapshotOps.IsSpaceObjectOnlySnapshot(snapshot, out rule);
+        }
+
+        /// <summary>
         /// Resolves the type of the branch point <paramref name="rp"/> was
         /// authored at, through the tree that owns <paramref name="rec"/>
         /// (the pending <paramref name="treeContext"/> first, then the committed
@@ -152,6 +177,17 @@ namespace Parsek
                 LogVerdict(false, recId, reason,
                     WithBranchSide(
                         $"rp={rp.RewindPointId ?? "<no-rp>"} rpBp={rp.BranchPointId ?? "<none>"} rpBpType={rpBranchType.Value}",
+                        branchSide));
+                return false;
+            }
+
+            string spaceObjectRule;
+            if (IsSpaceObjectRecording(rec, out spaceObjectRule))
+            {
+                reason = SpaceObjectNotFlyableReason;
+                LogVerdict(false, recId, reason,
+                    WithBranchSide(
+                        $"rule={spaceObjectRule} rp={rp.RewindPointId ?? "<no-rp>"} slotControllable={slot.Controllable}",
                         branchSide));
                 return false;
             }
