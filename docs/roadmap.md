@@ -27,7 +27,8 @@ numbers become the 1.0 baseline, every later build loads every 1.0+ save, and th
 repair code is gone (older test saves load best effort). Policy:
 [`docs/dev/design-save-format-policy.md`](dev/design-save-format-policy.md).
 
-The latest release is **v1.0.2**; main is labelled **1.1.0**, the next release. Both are on
+The latest release is **v1.0.2**; main is labelled **1.0.3**, the next release (fixes only;
+1.1.0 is kept for multiplayer). Both are on
 the 0.10.7 save format baseline. Parsek depends on Harmony,
 ClickThroughBlocker and ToolbarControl; Module Manager is no longer listed, since Parsek ships no
 Module Manager patches.
