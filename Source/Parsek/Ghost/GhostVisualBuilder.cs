@@ -1126,6 +1126,11 @@ namespace Parsek
             HashSet<string> depthMaskNames = GetDepthMaskTransformNames(partConfig);
             LogPartRendererExclusionNames(depthMaskNames, partName, persistentId, damagedWheelNames);
 
+            // Asteroids and comets: stock builds the rock at runtime from the persisted seed and
+            // destroys the prefab's placeholder lump, so the ghost does the same (null for any
+            // other part).
+            RockGhostPlan rockPlan = SpaceObjectGhostVisual.TryPlan(prefab, partNode, partName);
+
             int variantSkipped = 0;
             int variantRuleSkipped = 0;
             int damagedSkipped = 0;
@@ -1162,6 +1167,9 @@ namespace Parsek
                     depthMaskSkipped++;
                     continue;
                 }
+                if (rockPlan != null && rockPlan.ReplacesPlaceholder
+                    && SpaceObjectGhostVisual.IsUnderPlaceholder(mr.transform, modelRoot))
+                    continue;
                 var mf = mr.GetComponent<MeshFilter>();
                 if (mf == null || mf.sharedMesh == null) continue;
 
@@ -1184,6 +1192,14 @@ namespace Parsek
 
             LogPartCloneSummary(meshCount, skinnedCloned, partName, persistentId,
                 nullMeshSkipped, damagedSkipped, depthMaskSkipped);
+
+            if (rockPlan != null
+                && SpaceObjectGhostVisual.Attach(rockPlan, partRoot.transform, modelNode.transform,
+                    partName, persistentId))
+            {
+                meshCount++;
+                added = true;
+            }
 
             if (hasPartVariants)
             {

@@ -20,6 +20,59 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~ROCK-GHOST-PREFAB-MESH~~: a grabbed asteroid or comet replays as the part prefab's small placeholder lump [FILED 2026-11-15 from the H42 flight log of 2026-10-12. FIXED 2026-11-15, branch `ast-ghost-visual`; xUnit + in-game `ClawCouple`; H42 / H41 re-flight owed; low (visual only)]
+
+What the player sees: a 40 m asteroid on a ghost ship's claw, a released asteroid's own replay and
+the hold ghost of a claimed rock after a rewind (`ClaimedVesselHoldGhost`, built from the despawn
+snapshot) all showed the PotatoRoid prefab's default lump at scale 1; a comet likewise, with no
+tail. The H42 log read `Part 'PotatoRoid' pid=102222: modelRoot='model' modelScale=(1.0, 1.0, 1.0)
+... 1 MeshRenderers` and `potatoRoidMesh=yes`: the ghost cloned the placeholder.
+
+Cause (decompiled, KSP 1.12.5). Stock builds the rock at runtime. `ModuleAsteroid.OnStart` runs
+`Random.InitState(seed)`, `radius = paPrefab.radius * Random.Range(minRadiusMultiplier,
+maxRadiusMultiplier)` (config 0.75 / 1.25 by default), `paPrefab = Resources.Load<ProceduralAsteroid>
+(prefabBaseURL)` (`"Procedural/PA_" + DiscoveryInfo.objectSize` when empty), `paPrefab.Generate(seed,
+radius, part.transform, Rangefinder, OnGenComplete, currentState == 2)`, then destroys
+`FindModelTransform("potatoroid")`. Persisted MODULE fields: `seed`, `AsteroidName`,
+`prefabBaseURL`, `currentState` (comet: `seed`, `CometName`, `CometType`, `prefabBaseURL`,
+`currentState`, `utFragmentSpawned`). The radius is not persisted; it is a function of the seed.
+`ModuleComet.OnStart` is the same with `ProceduralComet.Generate(..., optimizeCollider, isSecondary)`
+for a `Procedural/PC_` URL and an instantiated hand-made prefab otherwise (its
+`radius = cometVessel.radius` is overwritten by the same draw on the next line). `Generate` only
+creates Unity objects (a `Visual` child with MeshFilter + MeshRenderer, a `Collider` child whose
+`SpaceObjectCollider.Setup` starts a coroutine that first yields a frame), so it runs on a detached
+object; `SetupPartParameters`, which needs a live Part, is a separate call. The comet tail / coma
+(`CometVFXController`) live in scaled space and read `hostVessel`, its orbit driver, `CometVessel`
+and the sun, so they cannot run without a live vessel.
+
+Fix: `SpaceObjectGhostVisual.TryPlan` (pure half `SpaceObjectGhostModel`) repeats stock's draw from
+the snapshot MODULE node with Unity's Random state saved and restored, calls the prefab's public
+`Generate` with parent null, copies the visual mesh, deactivates and destroys the generated object
+(no collider is ever built) and caches the mesh per (part, URL, seed, state) for the process
+(a failed generation is cached too, so a rebuilt ghost goes straight to its fallback).
+`GhostVisualBuilder.AddPartVisuals` skips the cloned `potatoroid` renderer and adds the rock at the
+part origin, as stock does. Fallbacks: `scaled-prefab` (generator failed; placeholder scaled to the
+drawn radius), `prefab-lump` (no seed, `seed = -1`, non-procedural comet URL or no procedural
+prefab). `ProceduralComet.Generate` sorts its mod list after using it, so one throwaway generation
+per comet prefab per session puts the ghost on the order stock's own comets use. Log:
+`RockGhost built: path=stock-generator|scaled-prefab|prefab-lump kind=... seed=... url=...
+radius=... cache=hit|miss|hit-failed [reason=...] [cometVfx=skipped-needs-live-comet-vessel]`. Tests:
+`SpaceObjectGhostModelTests` (MODULE parse, URL default, path choice, multiplier source, placeholder
+scale, cache key, culture-invariant line); the generator `VesselSnapshotBuilder.ClawedAsteroidShip`
+now writes the ModuleAsteroid fields and `LoneComet` the ModuleComet ones; the in-game
+`ClawedAsteroidSnapshot_SurvivesGhostVisualBuild` now asserts the asteroid and a lone comet ghost
+carry the generated rock (no placeholder, no collider) with bounds within 1% per axis of the rock
+stock's own `Generate` builds for the seed. ClawCouple keeps 2 cells; H41's `roidGhostRenderers=1`
+pin is unchanged (one renderer either way).
+
+Residue: (a) fly H42 (and H41) on a build with this fix; neither cell has run against the stock
+generator yet. (b) Not reproduced: the comet tail, coma, geysers and near dust; map /
+Tracking Station ghosts (ProtoVessel stand-ins, unchanged). (c) Unverified: a secondary
+(`currentState = 2`) comet's glow colour is drawn after the collider meshes; the ghost passes
+`optimizeCollider = false` (the persisted value lives on the `CometVessel` vessel module, not the
+part), so if stock built that comet with the optimized collider and the collider build consumes
+Random draws, the ghost's glow colour can differ. The mesh does not depend on it.
+
 ## ~~RESTORE-ATTEMPT-RECORD-FOLDS-INTO-HISTORY~~: a world-record award made while a committed flight is resumed folds into that recording's stored history event and is lost on discard [FILED 2026-11-15 from SE-1's nightly red, run `2026-11-15_0704_SE-1-editor-round-trip` (build b548a42c1, PARSEK-FAIL(expectation) attempt 1, ledger actions=17 where the spec pins 15), against the last pass `2026-11-10_1631` (e5b47f33). FIXED 2026-11-15, branch `claude/project-thread-lkzj01-item27`; xUnit; SE-1 re-flight owed; medium (career ledger rows and stock's record band, every record node)]
 
 What the player sees: fly a recorded ship again (the committed-spawned-vessel restore), break a
@@ -7411,7 +7464,7 @@ A 2026-06-10 online sweep of what KSP players actually fly (stock career contrac
 
 - **Claw couple routing CONFIRMED shared with dock (no defect):** KSP's claw (`ModuleGrappleNode`, via `Part.Couple`) fires the same `GameEvents.onPartCouple` Parsek subscribes to (`ParsekFlight.cs:1200`), and `ParsekFlight.OnPartCouple` has no docking-port / module-type filter, so a claw grab takes the identical tree dock-merge path (`HandleTreeDockMerge` -> `CreateMergeBranch(BranchPointType.Dock, ...)` -> `BuildMergeBranchData`). The sweep's "records as a Dock-equivalent branch point" claim holds by construction; now pinned in `ClawCoupleRecordingTests`.
 - **Cosmetic gap, filed for awareness (not fixed):** `BranchPoint.cs:49` lists `"CLAW"` as an intended `MergeCause` value, but `ParsekFlight.GetMergeCauseForBranchType` (`ParsekFlight.cs:5143`) only ever emits `"DOCK"` / `"BOARD"` - a claw grab records `MergeCause="DOCK"`. Purely cosmetic today (nothing branches on a CLAW cause); differentiating it later is a conscious contract change against the pins in `ClawCoupleRecordingTests`. (Update, claw-producer merge: the CONNECTION KIND half of this finding is superseded - the live path now stamps `RouteConnectionKind.Grapple` via `ConnectionProducerClassifier`; the `ClawCoupleRecordingTests` DockingPort pin exercises the `BuildMergeBranchData` default-parameter fallback, which is unchanged. The `MergeCause="DOCK"` half still holds.)
-- **PotatoRoid ghost MESH contribution is prefab-dependent (reported, not asserted):** stock asteroids build their procedural mesh at runtime via `ModuleAsteroid`, so the PotatoRoid prefab may contribute no static mesh to a ghost. `ClawCoupleInGameTest.ClawedAsteroidSnapshot_SurvivesGhostVisualBuild` hard-asserts the part RESOLVES (`skippedPrefab == 0`) and the build survives, and logs whether the asteroid contributed a mesh - the operator run should eyeball whether a grabbed-asteroid ghost looks acceptable without the rock.
+- **PotatoRoid ghost MESH contribution is prefab-dependent (reported, not asserted):** stock asteroids build their procedural mesh at runtime via `ModuleAsteroid`, so the PotatoRoid prefab may contribute no static mesh to a ghost. `ClawCoupleInGameTest.ClawedAsteroidSnapshot_SurvivesGhostVisualBuild` hard-asserts the part RESOLVES (`skippedPrefab == 0`) and the build survives, and logs whether the asteroid contributed a mesh - the operator run should eyeball whether a grabbed-asteroid ghost looks acceptable without the rock. (Update 2026-11-15, ROCK-GHOST-PREFAB-MESH: the ghost now builds the rock stock's own generator makes from the recorded seed, and the cell asserts its bounds against stock's rock.)
 - **Periodicity/scheduler Kerbin-assumption audit came back clean:** the extraction + zero-drift scheduler production path has NO home-body hardcoding - `LaunchBodyName` derives purely from the earliest recorded surface/orbit body (`MissionPeriodicity.cs:414`), `FlightGlobalsBodyInfo` reads all periods live off `CelestialBody`, and every `"Kerbin"` literal in production is a codec/deserialization fallback, a UI day-length constant, or a KSC-specific classifier. One deliberate design-scoped gate noted: logistics route origin proof requires a NAMED Kerbin launch site (`RouteAnalysisEngine.IsKscOriginRecording`, `RouteAnalysisEngine.cs:835-840`, mirrored in `RouteBuilder`), so an off-Kerbin PAD-origin supply route classifies as undocked-start (M1 workflow gate) rather than KSC-origin - logistics-roadmap territory, not a missions-path bug.
 
 **Operator runbook** (each archetype: fly-or-reuse -> commit -> configure looped Mission in the Missions tab -> observe a few cycles in FLIGHT + Space Center + Tracking Station; `python scripts/collect-logs.py <label>` immediately after each run; then grep the collected `KSP.log`):

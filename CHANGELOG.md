@@ -43,6 +43,10 @@ All notable changes to Parsek are documented here.
 
 ### Fixed
 
+- **Grabbed asteroids and comets look like themselves in replays.** A ghost ship carrying a
+  grabbed rock, a released rock's own replay and the stand-in shown for a claimed rock after a
+  rewind now show the real rock at its real size and shape, instead of a small default lump.
+  Comets get their real rock too, without the tail and glow. (ROCK-GHOST-PREFAB-MESH)
 - **A world record set while flying an earlier recorded ship again is kept when you discard.**
   Breaking a distance, altitude, speed or depth record on a resumed recorded ship could be filed
   with that ship's old flight, so discarding the new flight lost it and the game awarded the
