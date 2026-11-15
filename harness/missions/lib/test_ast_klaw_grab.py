@@ -612,12 +612,21 @@ class KlawSpecSyncTests(unittest.TestCase):
                         self.assertGreater(float(s["args"]["ut"]), bound + 30.0, lane)
                         break
 
-    def test_every_lane_is_operator_tier_and_retries_once(self):
+    # Promoted to nightly 2026-11-15 off their green reading runs (walls 259 to 332 s); a
+    # lane not listed stays operator until its own green flight.
+    NIGHTLY_LANES = ("AST-1-klaw-grab-rewind", "AST-2-klaw-release",
+                     "COM-1-comet-klaw-grab", "AST-4-klaw-refly")
+
+    def test_every_lane_is_on_its_recorded_tier_and_retries_once(self):
         for lane in LANES:
             with self.subTest(lane=lane):
                 spec = _load_spec(lane)
-                self.assertEqual(spec["tier"], "operator")
+                expected = "nightly" if lane in self.NIGHTLY_LANES else "operator"
+                self.assertEqual(spec["tier"], expected)
                 self.assertEqual(spec["retry"]["policy"], "once")
+
+    def test_the_nightly_list_names_only_known_lanes(self):
+        self.assertEqual(set(), set(self.NIGHTLY_LANES) - set(LANES))
 
 
 class _TgVessel(object):

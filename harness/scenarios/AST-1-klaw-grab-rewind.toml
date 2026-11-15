@@ -1,10 +1,13 @@
 schema = 1
 id = "AST-1-klaw-grab-rewind"
-tier = "operator"
+tier = "nightly"
 # =====================================================================================
 # AST-1 (owner rulings V 2026-11-15, the Klaw lanes AST-1 / AST-2 / AST-3 / AST-4 / COM-1).
-# AUTHORED 2026-11-15 on branch `ast-lanes`, NEVER FLOWN. Every window below is a reading-run
-# guess; the lane is re-pinned off its first flight and the tier promoted by its measured p50.
+# AUTHORED 2026-11-15 on branch `ast-lanes`. FLOWN GREEN 2026-11-15: reading run
+# `2026-11-15_1932_AST-1-klaw-grab-rewind` (PR #2633 at fcceccd, PASS attempt 1, wall 259 s,
+# mission 157 s; results on branch `ast-flights-2026-11-15`, folder `ast-klaw-2026-11-15b`).
+# Every window below is re-pinned off that run and the tier promoted operator -> nightly by
+# its measured wall (far under the 1,800 s longhaul bar).
 #
 # THE RULINGS UNDER TEST. A rock (SpaceObject, `PotatoRoid`) is not recorded before a Klaw
 # grabs it; the grab is a Dock merge whose couple kind is Grapple; after a rewind the rock is
@@ -30,32 +33,29 @@ tier = "operator"
 # commit follows within seconds. The post-rewind warp to UT 1000 is past both.
 #
 # SIBLING-FIX DEPENDENCIES (these pins red on main until the fix lands):
-#   - `RockGhost built: path=` (the rock's hold ghost built at the rock's own size; the literal
-#     is PROVISIONAL, the sibling fix owns it).
+#   - `RockGhost built: path=` (the rock's hold ghost built at the rock's own size). The run
+#     read `path=stock-generator kind=asteroid part='PotatoRoid' ... radius=3.11`.
 #
-# UNKNOWNS THE FIRST (READING) RUN ANSWERS:
-#   - whether KSP loads the module-less Klaw (an invented PART body, fixture README) and fires
-#     its `Arm` event by that GUI name (the runner logs every offered event on a miss);
-#   - whether the RCS approach captures at all: kRPC's `up` sign, orbital drift over the
-#     approach, the Klaw's capture cone and stock's 0.3 m/s capture speed;
-#   - the couple's from / to order (both orders pinned), the merged pid (predicted the probe:
-#     a Probe outranks a SpaceObject), and the merged vessel's name (predicted `AST Klaw`);
-#   - whether the rewind save's rock holds by the chain feed or the future hold (either
-#     evidence word), and the hold ghost's part count (1, the rock alone);
-#   - whether the rock's ModuleAsteroid keeps `AsteroidName` once it is part of the probe (the
-#     `spaceObjectParts` census reads it; the structure block is report-only).
+# WHAT THE READING RUN ANSWERED: the Klaw armed and the RCS approach captured (the stock
+# target at 59.8 m); the couple read `fromPart=PotatoRoid toPart=GrapplingDevice`; the merge
+# child kept the probe's pid and name; the rewind held the rock by `evidence=chain` with a
+# one-part `snapshot-orbit` hold ghost, released `reason=claimed` at the ghost grab (UT
+# 507.9); the tip took `Chain tip spawn complete: #1 "AST Klaw" pid=2710401000`; the
+# produced save reads one `Ast. VPA-167` part (AsteroidName kept on the held rock).
 #
 # FAST-LANE CHECKLIST: (1) no committed lane grabs a real rock (H41 couples one in an in-game
 # cell), so no prefix is reusable; (2) every wait is an explicit-UT WarpToUT; (3) the 1x waits
 # are the root's samples and the approach itself; (4) the approach is 1x by mission policy, the
 # post-rewind wait is a rails warp; (5) no burns; (6) the approach give-up (300 s) and the target
-# give-up (30 s) fail a doomed flight fast, retry once; (7) count 2..2; (8) operator until
-# green; (9) flight_efficiency.py after the first green flight.
+# give-up (30 s) fail a doomed flight fast, retry once; (7) count 2..2 and every structure
+# window pinned to the reading run; (8) nightly, 259 s measured; (9) flight_efficiency.py on
+# the reading run: 157 s of mission wall, 126 s of it the 1x RCS approach; the 47 s it ranks
+# recoverable as a coast is the drift between RCS corrections, which cannot warp.
 # =====================================================================================
 description = "AST-1: a probe grabs a real asteroid with the Klaw in low Kerbin orbit (the rock unrecorded before the grab, the grab a Dock merge of couple kind Grapple), commits, and after Rewind-to-Launch the ghost chain claims the rock, the rewind holds it out of the world with a hold ghost until the ghost probe grabs it, and at the tip the probe and the rock spawn real as one vessel with no second copy of the rock."
 instanceProfile = "stock-minimal"
 tags = ["asteroid", "klaw", "grapple", "dock", "ghost-chain", "rewind-to-launch", "rewind-hold",
-        "rcs", "AST-1", "reading-run", "pending-flight"]
+        "rcs", "AST-1", "reading-run", "flown"]
 
 [fixture]
 saveTemplate = "fixtures/saves/ast-klaw-lko"
@@ -129,17 +129,20 @@ D18 = ["committed-interaction-claiming"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# The root (ends in the Dock merge) and the merge child (the probe holding the rock).
+# The root (ends in the Dock merge) and the merge child (the probe holding the rock); the
+# reading run read 2.
 count = { min = 2, max = 2 }
 
 [expectations.recordings.structure]
-# REPORT-ONLY until the reading run. One rock part in the produced save (no second copy), held
-# by the spawned probe; the rock never a recording of its own.
+# REPORT-ONLY. The reading run of 2026-11-15 (`2026-11-15_1932_AST-1-klaw-grab-rewind`)
+# matched every window below; arming is the operator's call. One rock part in the produced
+# save (no second copy), held by the one spawned probe; the rock never a recording of its own.
 gating            = false
 trees             = { min = 1, max = 1 }
 committedTrees    = { min = 1, max = 1 }
 branchPoints      = { Dock = { min = 1, max = 1 } }
 spaceObjectParts  = { "Ast. VPA-167" = { min = 1, max = 1 } }
+spawnedVessels    = { min = 1, max = 1 }
 vesselNames       = { "AST Klaw" = { min = 1, max = 1 }, "AST Watcher" = { min = 1, max = 1 } }
 recordingNames    = { "AST Klaw" = { min = 2, max = 2 }, "Ast. VPA-167" = { min = 0, max = 0 } }
 
@@ -191,6 +194,8 @@ forbidden = [
 [runtime]
 # Two LoadGames (300 s each), the mission (up to 900 s wall: about 4 min of 1x on OK), the
 # rewind (300), two saves and a commit (120 each), the rails warp (about 650 game s at 50x).
+# The reading run took 259 s; the budget stays the step-budget envelope, so a slow approach
+# (300 s give-up) and a retried load still fit.
 budgetSeconds = 2400
 
 [retry]

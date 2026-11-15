@@ -1,10 +1,13 @@
 schema = 1
 id = "AST-4-klaw-refly"
-tier = "operator"
+tier = "nightly"
 # =====================================================================================
 # AST-4 (owner rulings V 2026-11-15, the Klaw lanes). AUTHORED 2026-11-15 on branch
-# `ast-lanes`, NEVER FLOWN. Re-Fly across a Klaw grab: every window below is a reading-run
-# guess; the lane is re-pinned off its first flight and the tier promoted by its measured p50.
+# `ast-lanes`. Re-Fly across a Klaw grab. FLOWN GREEN 2026-11-15: reading run
+# `2026-11-15_1941_AST-4-klaw-refly` (PR #2633 at fcceccd, PASS attempt 1, wall 305 s, mission
+# 197 s; results on branch `ast-flights-2026-11-15`, folder `ast-klaw-2026-11-15b`). Every
+# window below is re-pinned off that run and the tier promoted operator -> nightly by its
+# measured wall.
 #
 # THE RULING UNDER TEST. A rock a committed flight grabs is claimed in a Re-Fly too: the
 # rewind point's quicksave brings the rock back as it was at the split, the Re-Fly holds it out
@@ -32,25 +35,30 @@ tier = "operator"
 # 15 + settle 5 = UT 835 on OK; nothing after the mission warps before the reload re-bases the
 # clock, and the Re-Fly's warp to UT 1100 is past the bound.
 #
-# SIBLING-FIX DEPENDENCIES: `RockGhost built: path=` (PROVISIONAL literal, as AST-1).
+# SIBLING-FIX DEPENDENCIES: `RockGhost built: path=` (the run read `path=stock-generator
+# kind=asteroid`).
 #
-# UNKNOWNS THE FIRST (READING) RUN ANSWERS: AST-1's, plus: the slot order (predicted slot 0 the
-# active Klaw half, slot 1 the mothership, the candidate order (active, background)); whether
-# the rock is held by the invoke hold (`Strip heldForCommittedFuture v=1490391000`, the change
-# claim of the grab's Dock merge, POSITIVE launch identity: the rock's pid and launch guid
-# both match the quicksave's) or by the ghost-chain feed (`Claimed vessel hold ghost shown`
-# with `from=despawn`); both shapes are pinned as one alternation; the merge's conclusion.
+# WHAT THE READING RUN ANSWERED: AST-1's, plus: the slot order is as predicted (slot 0 the
+# active Klaw half, which keeps the root recording, slot 1 the mothership `AST Klaw Probe`);
+# the rock is held by BOTH: the invoke hold (`Strip heldForCommittedFuture v=1490391000 ...
+# evidence=changes`) and the ghost-chain feed's `from=despawn` hold ghost, released
+# `reason=claimed` at the ghost grab (UT 551.5); the merge commits (`result=committed`) with
+# one supersede row, and the next load reaps the rewind point (both slots now Immutable), so
+# the produced save holds none. Committed before the Re-Fly: 3 (the root, the mothership
+# child, the grab child); the attempt is the 4th.
 #
 # FAST-LANE CHECKLIST: (1) no committed lane re-flies across a grab; (2) explicit-UT waits
 # only; (3) the 1x waits are the split's separation (to UT 375) and the approach; (4) the
 # Re-Fly's wait is a rails warp; (5) none; (6) the approach give-up (400 s) fails a doomed
-# grab fast, retry once; (7) count 4..5; (8) operator until green; (9) flight_efficiency.py
-# after the first green flight.
+# grab fast, retry once; (7) count 4..4 and the rewind / structure windows pinned to the
+# reading run; (8) nightly, 305 s measured; (9) flight_efficiency.py on the reading run: 197 s
+# of mission wall, 165 s the 1x RCS approach to the rock 100 m out; the 42 s it ranks
+# recoverable as a coast is the drift between RCS corrections, which cannot warp.
 # =====================================================================================
 description = "AST-4: a probe carrying a mothership separates from it (a two-slot rewind point), grabs a real asteroid with the Klaw and commits; a Re-Fly of the mothership's slot holds the rock its committed sibling grabs out of the world with a hold ghost until the ghost probe grabs it, the attempt merges, and there is never a second copy of the rock."
 instanceProfile = "stock-minimal"
 tags = ["asteroid", "klaw", "grapple", "dock", "separation", "rewind-to-separation", "refly",
-        "rewind-hold", "ghost-chain", "rcs", "AST-4", "reading-run", "pending-flight"]
+        "rewind-hold", "ghost-chain", "rcs", "AST-4", "reading-run", "flown"]
 
 [fixture]
 saveTemplate = "fixtures/saves/ast-mothership-lko"
@@ -131,20 +139,34 @@ D18 = ["committed-interaction-claiming"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# Predicted 4 before the Re-Fly (the root, the Klaw half, the grab child, the mothership) plus
-# the attempt's own recording; {4,6} until the reading run pins it.
-count = { min = 4, max = 6 }
+# 3 before the Re-Fly (the root, which the Klaw half keeps, the mothership child, the grab
+# child) plus the attempt's own recording; the reading run read 4.
+count = { min = 4, max = 4 }
 
 [expectations.recordings.structure]
-# REPORT-ONLY until the reading run: one rock part in the produced save (no second copy).
+# REPORT-ONLY. The reading run of 2026-11-15 (`2026-11-15_1941_AST-4-klaw-refly`) matched
+# every window below; arming is the operator's call. One tree, the separation and the grab,
+# two spawned vessels (the probe holding the rock, the mothership the attempt flew), one rock
+# part in the produced save (no second copy), the rock never a recording of its own.
 gating            = false
+trees             = { min = 1, max = 1 }
+committedTrees    = { min = 1, max = 1 }
+branchPoints      = { Dock = { min = 1, max = 1 }, JointBreak = { min = 1, max = 1 } }
+spawnedVessels    = { min = 2, max = 2 }
 spaceObjectParts  = { "Ast. VPA-167" = { min = 1, max = 1 } }
-recordingNames    = { "Ast. VPA-167" = { min = 0, max = 0 } }
+vesselNames       = { "AST Klaw" = { min = 1, max = 1 }, "AST Klaw Probe" = { min = 1, max = 1 } }
+recordingNames    = { "AST Klaw" = { min = 2, max = 2 }, "AST Klaw Probe" = { min = 2, max = 2 }, "Ast. VPA-167" = { min = 0, max = 0 } }
 
 [expectations.rewind]
-# REPORT-ONLY: the split's one point.
+# REPORT-ONLY. The split authors one point (the `RewindPoint begin: ... slots=2` token), but
+# the produced save is read after the merge: the merge leaves both slots Immutable and the
+# next load reaps the point (`Reaped rp=... slots=2`). The reading run of 2026-11-15
+# (`2026-11-15_1941_AST-4-klaw-refly`) read 0 points (the authored guess, 1, did not see the
+# reap), one supersede row (the attempt over the mothership's slot) and no tombstone.
 gating        = false
-rewindPoints  = { min = 1, max = 1 }
+rewindPoints  = { max = 0 }
+supersedeRows = { min = 1, max = 1 }
+tombstones    = { max = 0 }
 
 [expectations.logContracts]
 required = [
@@ -187,7 +209,7 @@ forbidden = [
 [runtime]
 # Two LoadGames (300 s each), the mission (up to 1,000 s wall), the invoke (300), a scene exit,
 # three saves and a commit (120 each), the Re-Fly's rails warp (about 1,000 game s at 50x), the
-# merge.
+# merge. The reading run took 305 s; the budget stays the step-budget envelope.
 budgetSeconds = 3000
 
 [retry]

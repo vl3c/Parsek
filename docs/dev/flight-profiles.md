@@ -10,8 +10,8 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 |---|---|
 | lanes | 600 |
 | tier daily | 29 |
-| tier nightly | 284 |
-| tier operator | 276 |
+| tier nightly | 288 |
+| tier operator | 272 |
 | tier longhaul | 5 |
 | tier (other) | 6 |
 | profile stock-minimal | 556 |
@@ -37,7 +37,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | AH | 1 | - | 1 | - | - | - | 1 |
 | AJ | 1 | - | - | 1 | - | - | 1 |
 | AP | 1 | - | 1 | - | - | - | 1 |
-| AST | 4 | - | - | 4 | - | 4 | - |
+| AST | 4 | - | 3 | 1 | - | 4 | - |
 | AT | 1 | - | 1 | - | - | - | 1 |
 | B | 41 | 1 | 12 | 23 | 5 | 40 | 25 |
 | BAY | 1 | - | - | 1 | - | 1 | 1 |
@@ -47,7 +47,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | CL | 2 | - | 1 | 1 | - | 2 | 2 |
 | CLK | 1 | - | 1 | - | - | - | 1 |
 | CN | 6 | - | 4 | 2 | - | - | 6 |
-| COM | 1 | - | - | 1 | - | 1 | - |
+| COM | 1 | - | 1 | - | - | 1 | - |
 | CS | 13 | - | - | 13 | - | 8 | 13 |
 | CT | 1 | - | - | 1 | - | - | 1 |
 | CTW | 1 | - | - | 1 | - | - | 1 |
@@ -812,10 +812,10 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| AST-1-klaw-grab-rewind | operator | ast-klaw-lko | ast_klaw_grab | Kerbin | rewind-to-launch, reload, save, warp | - | PASS 2026-11-15, wall 259 s |
-| AST-2-klaw-release | operator | ast-klaw-lko | ast_klaw_grab | Kerbin | rewind-to-launch, reload, save, warp | - | PASS 2026-11-15, wall 310 s |
+| AST-1-klaw-grab-rewind | nightly | ast-klaw-lko | ast_klaw_grab | Kerbin | rewind-to-launch, reload, save, warp | - | PASS 2026-11-15, wall 259 s, re-pinned |
+| AST-2-klaw-release | nightly | ast-klaw-lko | ast_klaw_grab | Kerbin | rewind-to-launch, reload, save, warp | - | PASS 2026-11-15, wall 310 s, re-pinned |
 | AST-3-klaw-mine-route | operator | ast-miner-lko | ast_klaw_grab | Kerbin | save, warp, time-jump | - | third flight INVALID 2026-11-15 |
-| AST-4-klaw-refly | operator | ast-mothership-lko | ast_klaw_grab | Kerbin | re-fly, reload, save, warp, scene-change | - | PASS 2026-11-15, wall 305 s |
+| AST-4-klaw-refly | nightly | ast-mothership-lko | ast_klaw_grab | Kerbin | re-fly, reload, save, warp, scene-change | - | PASS 2026-11-15, wall 305 s, re-pinned |
 
 ### AT (1)
 
@@ -932,7 +932,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| COM-1-comet-klaw-grab | operator | com-klaw-lko | ast_klaw_grab | Kerbin | rewind-to-launch, reload, save, warp | - | PASS 2026-11-15 |
+| COM-1-comet-klaw-grab | nightly | com-klaw-lko | ast_klaw_grab | Kerbin | rewind-to-launch, reload, save, warp | - | PASS 2026-11-15, wall 332 s, re-pinned |
 
 ### CS (13)
 

@@ -1695,7 +1695,9 @@ uncovered by the reviewer; the four cheap ones first):
   four fixtures from `harness/tools/build_ast_klaw_fixtures.py` and the mission `ast_klaw_grab`.
   Second and third flights 2026-11-15 (PR #2633): AST-1, AST-2, AST-4 and COM-1 PASS; AST-3
   drills Ore but ran out of monopropellant on the dock (a second mono pair added).
-  Open until they fly green; several pins wait on the SpaceObject-controllability, asteroid
+  AST-1, AST-2, AST-4 and COM-1 are re-pinned off those green reading runs and promoted to
+  nightly (save-structure blocks still report-only; arming is the operator's call).
+  Open until AST-3 flies green; several pins wait on the SpaceObject-controllability, asteroid
   plausible-rate and rock-ghost sibling fixes. A derelict (a dead vessel, not a rock) is still
   unflown.
 - [ ] A launch abort: escape system fired on ascent, capsule lands, booster destroyed, merge.

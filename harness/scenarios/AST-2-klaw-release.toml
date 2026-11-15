@@ -1,10 +1,12 @@
 schema = 1
 id = "AST-2-klaw-release"
-tier = "operator"
+tier = "nightly"
 # =====================================================================================
 # AST-2 (owner rulings V 2026-11-15, the Klaw lanes). AUTHORED 2026-11-15 on branch
-# `ast-lanes`, NEVER FLOWN. Every window below is a reading-run guess; the lane is re-pinned
-# off its first flight and the tier promoted by its measured p50.
+# `ast-lanes`. FLOWN GREEN 2026-11-15: reading run `2026-11-15_1932_AST-2-klaw-release` (PR
+# #2633 at fcceccd, PASS attempt 1, wall 310 s, mission 197 s; results on branch
+# `ast-flights-2026-11-15`, folder `ast-klaw-2026-11-15b`). Every window below is re-pinned
+# off that run and the tier promoted operator -> nightly by its measured wall.
 #
 # THE RULING UNDER TEST. A rock the Klaw releases gets a recording of its own and becomes real
 # at its tip; it never gets a Re-Fly slot and never creates a rewind point (a rock is not
@@ -16,8 +18,8 @@ tier = "operator"
 # THE FLIGHT. AST-1's grab (the same mission, the same params), then the mission goes on:
 # the Klaw's own ModuleGrappleNode `Release` event (through kRPC; stock `Part.Undock`, so the
 # rock leaves under a NEW pid and `onVesselsUndocking` fires), a 10 s RCS back-off and a 20 s
-# coast. Commit in flight (predicted 4 recordings: the root, the grab child, and the release's
-# two children, the probe and the rock), Rewind-to-Launch, a Space Center save reloaded into
+# coast. Commit in flight (4 recordings: the root, the grab child, and the release's two
+# children, the probe and the rock), Rewind-to-Launch, a Space Center save reloaded into
 # FLIGHT on the watcher, a rails warp past every tip.
 #
 # THE MISSION'S GAME-TIME BOUND: UT 370 + AST-1's 360 + release <= 30 + back-off 10 + coast 20
@@ -29,22 +31,25 @@ tier = "operator"
 #   - `Controllable split children: [2710401000] (orig=2710401000, checked=2, unresolved=0)`;
 #   - `Single-controllable split: no RP (bp=... type=Undock controllable=1)`;
 #   - no `RewindPoint begin:` (forbidden) and rewindPoints 0 in the produced save;
-#   - `RockGhost built: path=` (PROVISIONAL literal, as AST-1).
+#   - `RockGhost built: path=` (the run read `path=stock-generator kind=asteroid`).
 #
-# UNKNOWNS THE FIRST (READING) RUN ANSWERS: everything AST-1 lists, plus the `Release` event's
-# GUI name; the released rock's name and vessel type (predicted `Ast. VPA-167`, SpaceObject,
-# from the grapple node's stored vessel info); whether the release is one Undock branch with
-# the probe the active child; whether the rock's chain hold (claimed through the grab) and its
-# own released recording hand over without a gap or a double; that the rock spawns real at
-# its own tip (the census reads one rock part, report-only).
+# WHAT THE READING RUN ANSWERED: AST-1's answers, plus: the release is one Undock branch,
+# the probe the active child and the rock (pid 3410635429) a background child recorded as
+# `Ast. VPA-167`; `Controllable split children: [2710401000]` and `Single-controllable split:
+# no RP`, zero rewind points; the rock's hold (`evidence=chain`) released `reason=claimed` at
+# the ghost grab (UT 516.0) with no second copy; the rock's tip took `Chain tip spawn
+# complete: #3 "Ast. VPA-167" pid=3410635429` and the probe's leaf a `SpawnAtPosition`; no
+# optimizer split.
 #
 # FAST-LANE CHECKLIST: as AST-1; the release, back-off and coast are 1x inside the mission
-# (30 s of game time). Count 4..5 (an optimizer split tolerated until the reading run pins it).
+# (30 s of game time). Count 4..4 off the reading run. flight_efficiency.py on the reading
+# run: 197 s of mission wall, 134 s the 1x RCS approach, 12 s ranked recoverable (the coast
+# and the hold, both part of the claim).
 # =====================================================================================
 description = "AST-2: a probe grabs a real asteroid with the Klaw in low Kerbin orbit and releases it; the release is an Undock split whose only controllable child is the probe, so no rewind point is authored and the rock gets no Re-Fly slot, the rock gets a recording of its own, and after Rewind-to-Launch the rock is held until the ghost grab, replays held and released, and becomes real at its own tip with no second copy."
 instanceProfile = "stock-minimal"
 tags = ["asteroid", "klaw", "grapple", "dock", "undock", "release", "ghost-chain",
-        "rewind-to-launch", "rewind-hold", "rcs", "AST-2", "reading-run", "pending-flight"]
+        "rewind-to-launch", "rewind-hold", "rcs", "AST-2", "reading-run", "flown"]
 
 [fixture]
 saveTemplate = "fixtures/saves/ast-klaw-lko"
@@ -119,21 +124,26 @@ D18 = ["committed-interaction-claiming"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# The root, the grab child, the release's probe and rock children.
-count = { min = 4, max = 5 }
+# The root, the grab child, the release's probe and rock children; the reading run read 4.
+count = { min = 4, max = 4 }
 
 [expectations.recordings.structure]
-# REPORT-ONLY until the reading run: one Dock (the grab), one Undock (the release), the rock a
-# recording of its own, one rock part in the produced save.
+# REPORT-ONLY. The reading run of 2026-11-15 (`2026-11-15_1932_AST-2-klaw-release`) matched
+# every window below; arming is the operator's call. One Dock (the grab), one Undock (the
+# release), the rock a recording of its own, two spawned tips (the probe and the rock), one
+# rock part in the produced save.
 gating            = false
 trees             = { min = 1, max = 1 }
 committedTrees    = { min = 1, max = 1 }
 branchPoints      = { Dock = { min = 1, max = 1 }, Undock = { min = 1, max = 1 } }
+spawnedVessels    = { min = 2, max = 2 }
 spaceObjectParts  = { "Ast. VPA-167" = { min = 1, max = 1 } }
-recordingNames    = { "Ast. VPA-167" = { min = 1, max = 1 } }
+vesselNames       = { "AST Klaw" = { min = 1, max = 1 }, "AST Watcher" = { min = 1, max = 1 } }
+recordingNames    = { "AST Klaw" = { min = 3, max = 3 }, "Ast. VPA-167" = { min = 1, max = 1 } }
 
 [expectations.rewind]
-# REPORT-ONLY until the reading run (SIBLING FIX: main authors one at the release).
+# REPORT-ONLY (SIBLING FIX: main authors one at the release). The reading run of 2026-11-15
+# (`2026-11-15_1932_AST-2-klaw-release`) matched: no point, no supersede, no tombstone.
 gating        = false
 rewindPoints  = { max = 0 }
 supersedeRows = { max = 0 }
@@ -185,7 +195,8 @@ forbidden = [
 ]
 
 [runtime]
-# AST-1's shape plus about 40 s of 1x game time and a longer rails warp.
+# AST-1's shape plus about 40 s of 1x game time and a longer rails warp. The reading run
+# took 310 s; the budget stays the step-budget envelope.
 budgetSeconds = 2400
 
 [retry]
