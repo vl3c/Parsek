@@ -528,9 +528,10 @@ Revised 2026-10-05 (owner rulings; full design in `docs/dev/gloops-recorder-desi
 
 ## Phase 15: Multiplayer - the Space Race
 
-**Status: DESIGN v2 (2026-11-14), not implemented.** Binding design:
-`docs/dev/design-competitive-multiplayer.md`. No implementation starts before the owner says so
-(see "Current focus"). Planned to ship as version 1.1.0.
+**Status: DESIGN v3 (2026-11-15), not implemented.** Binding design:
+`docs/dev/design-competitive-multiplayer.md`; implementation plan: `docs/dev/plans/multiplayer/`.
+No implementation starts before the owner says so (see "Current focus"). Planned to ship as
+version 1.1.0.
 
 Up to four players race each other, each in their own save and at their own pace, exchanging
 their public state through a shared folder. Nobody needs to be online at the same time.
@@ -616,7 +617,7 @@ Phase 14: Cooperative Async Multiplayer (DEPRECATED 2026-11-14, not planned)
     │  (archived design: docs/dev/done/design-coop-async-multiplayer.md)
     │
     ▼
-Phase 15: Multiplayer - the Space Race (design v2; after the public release)
+Phase 15: Multiplayer - the Space Race (design v3; after the public release)
     │  New game mode, four KSC sites, rivals as ghosts only, shared folder,
     │  milestone board with a points ladder
     │  (design: docs/dev/design-competitive-multiplayer.md)
