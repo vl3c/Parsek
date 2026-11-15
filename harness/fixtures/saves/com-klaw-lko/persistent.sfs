@@ -1471,6 +1471,23 @@ GAME
 				PARTDATA
 				{
 				}
+				MODULE
+				{
+					name = ModuleGrappleNode
+					isEnabled = True
+					state = Disabled
+					dockUId = 0
+					stagingEnabled = True
+					EVENTS
+					{
+					}
+					ACTIONS
+					{
+					}
+					UPGRADESAPPLIED
+					{
+					}
+				}
 			}
 			PART
 			{
@@ -2778,6 +2795,11 @@ GAME
 			}
 			FLIGHTPLAN
 			{
+			}
+			TARGET
+			{
+				type = Vessel
+				vesselID = 7219e70d-f88c-4803-9463-315e1c79ccf8
 			}
 			CTRLSTATE
 			{

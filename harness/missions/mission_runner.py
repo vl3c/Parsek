@@ -3196,10 +3196,13 @@ class KrpcMissionControl(MissionControl):
         handles, candidates = self._scan_named_vessels(sc, active, name, "Target")
         idx = mlib.pick_nearest_named(candidates, name)
         if idx is None:
+            if self._capture_stock_target_named(sc, active, name, candidates):
+                return
             _stdout_sink(mlib.format_mission_log_line(
                 "Warn", "Target", "target_nearest_named_vessel: no loaded vessel "
-                "named %r beside the active one (%d vessel(s) scanned)"
-                % (name, len(candidates))))
+                "named %r beside the active one (%d vessel(s) scanned: %s; the stock target "
+                "is not it either)"
+                % (name, len(candidates), mlib.format_scan_names(candidates))))
             return
         try:
             self._station_vessel = handles[idx]
@@ -3211,6 +3214,45 @@ class KrpcMissionControl(MissionControl):
             _stdout_sink(mlib.format_mission_log_line(
                 "Warn", "Target", "target_nearest_named_vessel failed: %s: %s"
                 % (type(exc).__name__, str(exc)[:160])))
+
+    def _capture_stock_target_named(self, sc, active, name: str, candidates) -> bool:
+        """The scan's fallback: kRPC's sc.vessels omits SpaceObject vessels, so a rock the
+        save restored as the active vessel's stock target is captured from
+        sc.target_vessel when its name is ``name`` (`mlib.stock_target_matches`).
+        Logged either way it decides."""
+        try:
+            target = sc.target_vessel
+        except Exception as exc:  # noqa: BLE001
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Target", "stock target read failed: %s: %s"
+                % (type(exc).__name__, str(exc)[:160])))
+            return False
+        if target is None:
+            return False
+        try:
+            target_name = str(target.name)
+            is_active = target == active
+        except Exception as exc:  # noqa: BLE001
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Target", "stock target name read failed: %s: %s"
+                % (type(exc).__name__, str(exc)[:160])))
+            return False
+        if not mlib.stock_target_matches(target_name, is_active, name):
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "Target", "stock target %r is not %r" % (target_name, name)))
+            return False
+        dist = float("nan")
+        try:
+            x, y, z = target.position(active.reference_frame)
+            dist = (x * x + y * y + z * z) ** 0.5
+        except Exception:  # noqa: BLE001
+            pass
+        self._station_vessel = target
+        _stdout_sink(mlib.format_mission_log_line(
+            "Info", "Target", "targeted %r through the stock target at %.1f m (not among "
+            "the %d listed vessel(s): kRPC lists no SpaceObject)"
+            % (name, dist, len(candidates))))
+        return True
 
     def _scan_named_vessels(self, sc, active, name: str, tag: str):
         """(handles, candidates) over sc.vessels for `mlib.pick_nearest_named`:

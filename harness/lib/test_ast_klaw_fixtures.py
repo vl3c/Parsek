@@ -196,8 +196,32 @@ class AstKlawFixtureTests(unittest.TestCase):
             others = [float(self._hv(p, "position").split(",")[1]) for p in parts
                       if p is not klaws[0]]
             self.assertGreater(klaw_y, max(others) + 0.2, fixture)
-            # Module-less by design (prefab defaults: disarmed).
-            self.assertNotIn(P + "MODULE", klaws[0], fixture)
+            # Exactly one saved module, ModuleGrappleNode, disarmed: its OnLoad is what builds
+            # the grapple AttachNode (a module-less Klaw throws every frame and never grabs).
+            self.assertEqual(1, klaws[0].count(P + "MODULE"), fixture)
+            self.assertIn(P + "\tname = ModuleGrappleNode", klaws[0], fixture)
+            self.assertIn(P + "\tstate = Disabled", klaws[0], fixture)
+
+    def test_the_klaw_vessel_targets_its_rock(self):
+        # kRPC's SpaceCenter.vessels omits SpaceObject vessels, so the mission reaches the
+        # rock only through the target stock restores from this node at load.
+        b = self.b
+        for fixture, vessel, rock in ((b.AST_KLAW, b.KLAW_NAME, b.ROCK_NAME),
+                                      (b.COM_KLAW, b.KLAW_NAME, b.COMET_NAME),
+                                      (b.AST_MINER, b.MINER_NAME, b.ROCK_NAME),
+                                      (b.AST_MOTHERSHIP, b.KLAW_NAME, b.ROCK_NAME)):
+            v = self._vessel(fixture, vessel)
+            at = v.index(VK + "TARGET")
+            self.assertEqual(v[at + 2], P + "type = Vessel", fixture)
+            guid = self.b._value(self._vessel(fixture, rock), VK, "pid")
+            dashed = v[at + 3][len(P + "vesselID = "):]
+            self.assertEqual(guid, dashed.replace("-", ""), fixture)
+            self.assertEqual([8, 4, 4, 4, 12], [len(x) for x in dashed.split("-")], fixture)
+            self.assertLess(v.index(VK + "FLIGHTPLAN"), at, fixture)
+            self.assertEqual(v[at + 5], VK + "CTRLSTATE", fixture)
+        for fixture in b.FIXTURES:
+            targets = [n for n, v in self.saves[fixture][1].items() if VK + "TARGET" in v]
+            self.assertEqual(1, len(targets), fixture)
 
     def test_jr_port_states(self):
         b = self.b

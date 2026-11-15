@@ -812,10 +812,10 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| AST-1-klaw-grab-rewind | operator | ast-klaw-lko | ast_klaw_grab | Kerbin | rewind-to-launch, reload, save, warp | - | NEVER FLOWN, authored 2026-11-15 |
-| AST-2-klaw-release | operator | ast-klaw-lko | ast_klaw_grab | Kerbin | rewind-to-launch, reload, save, warp | - | NEVER FLOWN, authored 2026-11-15 |
-| AST-3-klaw-mine-route | operator | ast-miner-lko | ast_klaw_grab | Kerbin | save, warp, time-jump | - | NEVER FLOWN, authored 2026-11-15 |
-| AST-4-klaw-refly | operator | ast-mothership-lko | ast_klaw_grab | Kerbin | re-fly, reload, save, warp, scene-change | - | NEVER FLOWN, authored 2026-11-15 |
+| AST-1-klaw-grab-rewind | operator | ast-klaw-lko | ast_klaw_grab | Kerbin | rewind-to-launch, reload, save, warp | - | first flight INVALID 2026-11-15 |
+| AST-2-klaw-release | operator | ast-klaw-lko | ast_klaw_grab | Kerbin | rewind-to-launch, reload, save, warp | - | first flight INVALID 2026-11-15 |
+| AST-3-klaw-mine-route | operator | ast-miner-lko | ast_klaw_grab | Kerbin | save, warp, time-jump | - | first flight INVALID 2026-11-15 |
+| AST-4-klaw-refly | operator | ast-mothership-lko | ast_klaw_grab | Kerbin | re-fly, reload, save, warp, scene-change | - | first flight INVALID 2026-11-15 |
 
 ### AT (1)
 
@@ -932,7 +932,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| COM-1-comet-klaw-grab | operator | com-klaw-lko | ast_klaw_grab | Kerbin | rewind-to-launch, reload, save, warp | - | NEVER FLOWN, authored 2026-11-15 |
+| COM-1-comet-klaw-grab | operator | com-klaw-lko | ast_klaw_grab | Kerbin | rewind-to-launch, reload, save, warp | - | first flight INVALID 2026-11-15 |
 
 ### CS (13)
 
@@ -1129,7 +1129,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | H38-logistics-isolated | nightly | logi-cargo-pad | seam | - | - | Logistics | RE-FLOWN 2026-10-16 2026-10-16_2155 PASS... |
 | H39-logistics-isolated-bdock | nightly | bdock-recorded | seam | - | - | Logistics | RE-FLOWN 2026-10-16 2026-10-16_2158 PASS... |
 | H40-logistics-isolated-depot-route | nightly | depot-route-recorded | seam | - | - | Logistics | RE-FLOWN 2026-10-16 2026-10-16_2201 PASS... |
-| H41-logistics-grapple-isolated | nightly | logi-cargo-pad | seam | - | - | LogisticsGrapple | FLOWN 2026-08-28_2216, PASS attempt 1, 57... |
+| H41-logistics-grapple-isolated | nightly | logi-cargo-pad | seam | - | - | LogisticsGrapple | RE-PINNED 2026-11-15 (ROCK-GHOST-PREFAB-M... |
 | H42-claw-couple | nightly | gloops-airshow | seam | - | - | ClawCouple | LIVE-PROVEN 2026-08-28 |
 | H43-terrain-clearance | nightly | gloops-airshow | seam | - | - | TerrainClearance | FLOWN 2026-08-28_2218, PASS attempt 1, 51... |
 | H44-ghost-map-trackstation | nightly | gloops-airshow +inj all-synthetic | seam | Kerbin | - | GhostMap | FLOWN 2026-08-28_2218, PASS attempt 1, 68... |

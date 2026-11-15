@@ -62,11 +62,14 @@ scale, cache key, culture-invariant line); the generator `VesselSnapshotBuilder.
 now writes the ModuleAsteroid fields and `LoneComet` the ModuleComet ones; the in-game
 `ClawedAsteroidSnapshot_SurvivesGhostVisualBuild` now asserts the asteroid and a lone comet ghost
 carry the generated rock (no placeholder, no collider) with bounds within 1% per axis of the rock
-stock's own `Generate` builds for the seed. ClawCouple keeps 2 cells; H41's `roidGhostRenderers=1`
-pin is unchanged (one renderer either way).
+stock's own `Generate` builds for the seed. ClawCouple keeps 2 cells. H41 flown 2026-11-15 printed
+`roidGhostRenderers=2` (the generated rock beside the one prefab renderer the ghost still clones, which
+is not under a `potatoroid` transform), so its pin is `[12]` and the cell now checks every kept prefab
+renderer against the live rock part (`droppedByStock=0`): if stock destroyed it, the ghost shows a lump
+stock does not, and the cell fails.
 
-Residue: (a) fly H42 (and H41) on a build with this fix; neither cell has run against the stock
-generator yet. (b) Not reproduced: the comet tail, coma, geysers and near dust; map /
+Residue: (a) H42 flew green on this fix 2026-11-15 (`2026-11-15_1904`); H41 re-flies with the live-rock
+check. (b) Not reproduced: the comet tail, coma, geysers and near dust; map /
 Tracking Station ghosts (ProtoVessel stand-ins, unchanged). (c) Unverified: a secondary
 (`currentState = 2`) comet's glow colour is drawn after the collider meshes; the ghost passes
 `optimizeCollider = false` (the persisted value lives on the `CometVessel` vessel module, not the

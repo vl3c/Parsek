@@ -30,6 +30,7 @@ if _MISSIONS not in sys.path:
     sys.path.insert(0, _MISSIONS)
 
 import mlib                        # noqa: E402
+import mission_runner              # noqa: E402
 import ast_klaw_grab               # noqa: E402
 from test_shells import FakeMissionControl, run, snap  # noqa: E402
 
@@ -617,6 +618,77 @@ class KlawSpecSyncTests(unittest.TestCase):
                 spec = _load_spec(lane)
                 self.assertEqual(spec["tier"], "operator")
                 self.assertEqual(spec["retry"]["policy"], "once")
+
+
+class _TgVessel(object):
+    def __init__(self, name, pos=(30.0, 40.0, 0.0)):
+        self.name = name
+        self._pos = pos
+        self.reference_frame = object()
+
+    def position(self, frame):
+        return self._pos
+
+
+class _TgSc(object):
+    """kRPC's SpaceCenter as the Klaw lanes see it: ``vessels`` leaves the rock out (kRPC
+    filters SpaceObject vessels), ``target_vessel`` returns the target the save restored."""
+
+    def __init__(self, vessels, target):
+        self.vessels = vessels
+        self.target_vessel = target
+
+
+class StockTargetFallbackTests(unittest.TestCase):
+    def setUp(self):
+        self.lines = []
+        self._sink = mission_runner._stdout_sink
+        mission_runner._stdout_sink = self.lines.append
+
+    def tearDown(self):
+        mission_runner._stdout_sink = self._sink
+
+    def _target(self, sc, active, name):
+        ctrl = mission_runner.KrpcMissionControl(client_name="t", read_klaw=True)
+        ctrl._target_nearest_named_vessel(sc, active, name)
+        return ctrl
+
+    def test_the_pure_match(self):
+        self.assertTrue(mlib.stock_target_matches("Ast. VPA-167", False, "Ast. VPA-167"))
+        self.assertFalse(mlib.stock_target_matches("Ast. VPA-167", True, "Ast. VPA-167"))
+        self.assertFalse(mlib.stock_target_matches("AST Watcher", False, "Ast. VPA-167"))
+        self.assertFalse(mlib.stock_target_matches(None, False, "Ast. VPA-167"))
+
+    def test_scan_names_are_listed_with_the_active_marked_and_capped(self):
+        c = [("AST Klaw", float("nan"), True), ("AST Watcher", float("nan"), False)]
+        self.assertEqual("'AST Klaw'*, 'AST Watcher'", mlib.format_scan_names(c))
+        many = [("v%d" % i, 0.0, False) for i in range(10)]
+        self.assertTrue(mlib.format_scan_names(many, limit=3).endswith("'v2' +7 more"))
+        self.assertEqual("none", mlib.format_scan_names([]))
+
+    def test_a_rock_kRPC_does_not_list_is_captured_from_the_stock_target(self):
+        probe, watcher, rock = _TgVessel("AST Klaw"), _TgVessel("AST Watcher"), \
+            _TgVessel("Ast. VPA-167")
+        ctrl = self._target(_TgSc([probe, watcher], rock), probe, "Ast. VPA-167")
+        self.assertIs(rock, ctrl._station_vessel)
+        log = "\n".join(self.lines)
+        self.assertIn("targeted 'Ast. VPA-167' through the stock target at 50.0 m", log)
+        self.assertNotIn("no loaded vessel", log)
+
+    def test_a_listed_vessel_still_wins_over_the_stock_target(self):
+        probe, rock_listed, other = _TgVessel("AST Klaw"), _TgVessel("Ast. VPA-167"), \
+            _TgVessel("AST Watcher")
+        ctrl = self._target(_TgSc([probe, rock_listed], other), probe, "Ast. VPA-167")
+        self.assertIs(rock_listed, ctrl._station_vessel)
+
+    def test_a_wrong_stock_target_is_a_logged_miss_naming_the_scan(self):
+        probe, watcher = _TgVessel("AST Klaw"), _TgVessel("AST Watcher")
+        ctrl = self._target(_TgSc([probe, watcher], watcher), probe, "Ast. VPA-167")
+        self.assertIsNone(ctrl._station_vessel)
+        log = "\n".join(self.lines)
+        self.assertIn("stock target 'AST Watcher' is not 'Ast. VPA-167'", log)
+        self.assertIn("(2 vessel(s) scanned: 'AST Klaw'*, 'AST Watcher'; the stock target "
+                      "is not it either)", log)
 
 
 if __name__ == "__main__":

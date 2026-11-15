@@ -316,6 +316,19 @@ namespace Parsek.InGameTests
                     $"the PotatoRoid part (pid={roidPartPid.ToString(IC)}) must contribute non-empty ghost " +
                     "geometry (M-MIS-10 cell #4 risk: procedural asteroid mesh vs prefab renderer clone) - " +
                     "a zero here means asteroid-run ghosts render without the asteroid");
+                // Stock is the oracle for which prefab renderers a live rock keeps: ModuleAsteroid
+                // generates the rock and destroys its placeholder, so a prefab renderer the
+                // ghost clones beside its generated rock must still exist on the live part.
+                List<string> ghostRendererNames = RendererNamesUnderGhostPart(ghostBuild.root, roidPartPid);
+                List<string> liveRendererNames = RendererNames(roidPart != null ? roidPart.transform : null);
+                List<string> droppedByStock = PrefabClonesStockDropped(
+                    ghostRendererNames, liveRendererNames, SpaceObjectGhostVisual.RockObjectName);
+                ParsekLog.Info("TestRunner",
+                    $"GrappleCapture rock renderers: ghost=[{string.Join(",", ghostRendererNames)}] " +
+                    $"live=[{string.Join(",", liveRendererNames)}] droppedByStock={droppedByStock.Count.ToString(IC)}");
+                InGameAssert.IsTrue(droppedByStock.Count == 0,
+                    "the PotatoRoid ghost clones prefab renderer(s) the live rock no longer has " +
+                    $"(stock destroyed them when it generated the rock): [{string.Join(",", droppedByStock)}]");
                 UnityEngine.Object.Destroy(ghostBuild.root);
                 ghostBuild = null;
 
@@ -619,6 +632,48 @@ namespace Parsek.InGameTests
         /// persistentId (AddPartVisuals names part roots "ghost_part_{pid}").
         /// Returns 0 when the part contributed no node or no renderers.
         /// </summary>
+        /// <summary>
+        /// The ghost's renderer names a live rock no longer carries: every renderer under the
+        /// ghost part other than the generated rock object must be a prefab clone whose name
+        /// the live part still renders. Pure.
+        /// </summary>
+        internal static List<string> PrefabClonesStockDropped(
+            IList<string> ghostRendererNames, IList<string> liveRendererNames, string rockObjectName)
+        {
+            var dropped = new List<string>();
+            if (ghostRendererNames == null)
+                return dropped;
+            var live = new HashSet<string>(liveRendererNames ?? new List<string>(), StringComparer.Ordinal);
+            for (int i = 0; i < ghostRendererNames.Count; i++)
+            {
+                string name = ghostRendererNames[i];
+                if (string.Equals(name, rockObjectName, StringComparison.Ordinal))
+                    continue;
+                if (!live.Contains(name))
+                    dropped.Add(name);
+            }
+            return dropped;
+        }
+
+        private static List<string> RendererNames(Transform root)
+        {
+            var names = new List<string>();
+            if (root == null)
+                return names;
+            Renderer[] renderers = root.GetComponentsInChildren<Renderer>(true);
+            for (int i = 0; i < renderers.Length; i++)
+                if (renderers[i] != null)
+                    names.Add(renderers[i].gameObject.name);
+            return names;
+        }
+
+        private static List<string> RendererNamesUnderGhostPart(GameObject ghostRoot, uint partPid)
+        {
+            Transform part = ghostRoot != null
+                ? GhostVisualBuilder.FindGhostPartTransform(ghostRoot, partPid) : null;
+            return RendererNames(part);
+        }
+
         internal static int CountRenderersUnderGhostPart(GameObject ghostRoot, uint partPid)
         {
             if (ghostRoot == null)

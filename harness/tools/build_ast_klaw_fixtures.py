@@ -54,10 +54,16 @@ INVENTED, NOT SOURCED FROM ANY STOCK OUTPUT (no committed save or craft carries 
     remembered, unverified), expt 0.5, rTrf GrapplingDevice, surface attachment
     (`attm = 1`, `srfN = srfAttach, <battery>`) because the Klaw's stack node names are
     unknown here, and its position (0.29 m above the battery's centre);
-  * the Klaw's body: EVENTS / ACTIONS / PARTDATA empty and NO MODULE node, so every module
-    (ModuleGrappleNode, the arm animation) loads with its prefab defaults: disarmed.
-    Stock accepts a module-less PART (the unloaded-asteroid shape above); whether KSP then
-    saves the Klaw's modules normally is a first-flight observation;
+  * the Klaw's body: EVENTS / ACTIONS / PARTDATA empty and ONE MODULE node,
+    ModuleGrappleNode with `state = Disabled` (the arm animation keeps its prefab default:
+    disarmed). The node is required: ModuleGrappleNode creates its grapple AttachNode only
+    in OnLoad, which stock calls only for a saved module, and the first flight (2026-11-15,
+    a module-less Klaw) threw a NullReferenceException from its FSM every frame and could
+    never grab;
+  * a TARGET node on the Klaw-carrying vessel naming the rock (type Vessel, the rock's
+    `pid` as a hyphenated Guid), which stock restores on the active vessel at load. kRPC's
+    `SpaceCenter.vessels` omits SpaceObject vessels, so the mission reaches the rock only
+    through `sc.target_vessel`;
   * the rock DISCOVERY edits: `state = 29` (fully discovered, unowned), `lifetime` and
     `refTime` = Infinity (the owned-vessel spelling stock writes), `size = 0` (class A) for
     the asteroid; the comet keeps its donor `size = 5` and nucleus radius (no small-class
@@ -370,8 +376,16 @@ HEADER_KEYS = ("name", "cid", "uid", "mid", "persistentId", "launchID", "parent"
                "modMass", "moduleVariantName", "moduleCargoStackableQuantity")
 KLAW_HEADER = {"mass": "0.150000006", "expt": "0.5", "rTrf": KLAW, "moduleVariantName": "",
                "srfN": "srfAttach, -1"}
+_M = _P + "\t"
 KLAW_BODY = [_P + "EVENTS", _P + "{", _P + "}", _P + "ACTIONS", _P + "{", _P + "}",
-             _P + "PARTDATA", _P + "{", _P + "}"]
+             _P + "PARTDATA", _P + "{", _P + "}",
+             # ModuleGrappleNode builds its grapple AttachNode only in OnLoad, which stock
+             # calls only for a module with a saved MODULE node: without one every frame of
+             # the FSM's Disable event throws (grappleNode null) and the Klaw cannot grab.
+             _P + "MODULE", _P + "{", _M + "name = ModuleGrappleNode", _M + "isEnabled = True",
+             _M + "state = Disabled", _M + "dockUId = 0", _M + "stagingEnabled = True",
+             _M + "EVENTS", _M + "{", _M + "}", _M + "ACTIONS", _M + "{", _M + "}",
+             _M + "UPGRADESAPPLIED", _M + "{", _M + "}", _P + "}"]
 TEMP = "290"
 
 
@@ -458,8 +472,23 @@ def _labx_tail(labx: List[str]) -> List[str]:
     return out
 
 
+def _target_block(target_guid: str) -> List[str]:
+    """The TARGET node stock writes for a vessel targeting another vessel (decompiled
+    ProtoVessel.Save / ProtoTargetInfo.Save: type, then vesselID as Guid.ToString(), the
+    hyphenated form). Stock's Vessel.ResumeTarget restores it on the active vessel at load."""
+    g = target_guid.replace("-", "")
+    assert len(g) == 32, target_guid
+    dashed = "%s-%s-%s-%s-%s" % (g[:8], g[8:12], g[12:16], g[16:20], g[20:])
+    return [_VK + "TARGET", _VK + "{", _P + "type = Vessel", _P + "vesselID = " + dashed,
+            _VK + "}"]
+
+
+def rock_guid(rock: List[str]) -> str:
+    return _value(rock, _VK, "pid")
+
+
 def build_ship(labx: List[str], name: str, vtype: str, slot: int, specs: List[PartSpec],
-               ahead_m: float, used: set) -> List[str]:
+               ahead_m: float, used: set, target_guid: Optional[str] = None) -> List[str]:
     mid = str(1610000000 + slot)
     launch_id = str(100 + slot)
     parts: List[str] = []
@@ -480,8 +509,15 @@ def build_ship(labx: List[str], name: str, vtype: str, slot: int, specs: List[Pa
         if key in repl:
             l = _VK + key + " = " + repl[key]
         header.append(l)
+    tail = _labx_tail(labx)
+    if target_guid is not None:
+        # kRPC's SpaceCenter.vessels leaves SpaceObject vessels out, so the mission reaches
+        # the rock only as sc.target_vessel: the probe saves the rock as its target, in
+        # stock's own place (after FLIGHTPLAN, before CTRLSTATE).
+        at = tail.index(_VK + "CTRLSTATE")
+        tail = tail[:at] + _target_block(target_guid) + tail[at:]
     return ([_V + "VESSEL", _V + "{"] + header + _orbit(labx, ahead_m) + parts
-            + _labx_tail(labx) + [_V + "}"])
+            + tail + [_V + "}"])
 
 
 def build_rock(lines_or_donor: List[str], name: str, labx: List[str], ahead_m: float,
@@ -518,19 +554,22 @@ def build_fixture(name: str) -> Dict[str, bytes]:
         else:
             vessels.append(build_rock(_lines(COMET_DONOR[0]), COMET_NAME, labx, COMET_AHEAD_M,
                                       None))
-        vessels.append(build_ship(labx, KLAW_NAME, "Probe", 1, klaw_probe(), 0.0, used))
+        vessels.append(build_ship(labx, KLAW_NAME, "Probe", 1, klaw_probe(), 0.0, used,
+                                  rock_guid(vessels[0])))
         vessels.append(build_ship(labx, WATCHER_NAME, "Probe", 3, watcher_parts(),
                                   -WATCHER_BEHIND_M, used))
         active = 1
     elif name == AST_MINER:
         vessels.append(build_rock(lines, ROCK_NAME, labx, ROCK_AHEAD_M, "0"))
-        vessels.append(build_ship(labx, MINER_NAME, "Probe", 2, miner_parts(), 0.0, used))
+        vessels.append(build_ship(labx, MINER_NAME, "Probe", 2, miner_parts(), 0.0, used,
+                                  rock_guid(vessels[0])))
         vessels.append(build_ship(labx, DEPOT_NAME, "Station", 4, depot_parts(),
                                   -DEPOT_BEHIND_M, used))
         active = 1
     elif name == AST_MOTHERSHIP:
         vessels.append(build_rock(lines, ROCK_NAME, labx, MOTHERSHIP_ROCK_AHEAD_M, "0"))
-        vessels.append(build_ship(labx, KLAW_NAME, "Probe", 1, mothership_parts(), 0.0, used))
+        vessels.append(build_ship(labx, KLAW_NAME, "Probe", 1, mothership_parts(), 0.0, used,
+                                  rock_guid(vessels[0])))
         active = 1
     else:
         raise ValueError(name)

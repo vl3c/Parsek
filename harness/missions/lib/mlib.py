@@ -26861,6 +26861,29 @@ def pick_nearest_named(candidates: Sequence[Tuple[str, float, bool]],
     return best
 
 
+def stock_target_matches(target_name: Optional[str], target_is_active: bool,
+                         name: str) -> bool:
+    """Whether the stock target (``sc.target_vessel``) is the vessel named ``name`` that
+    ACTION_TARGET_NEAREST_NAMED_VESSEL wants, read when the ``sc.vessels`` scan misses.
+    kRPC's SpaceCenter.vessels leaves out SpaceObject vessels (asteroids, comets) while its
+    target_vessel getter does not, so a rock is reachable only as a target the save
+    restored. The name must match exactly, and the active vessel is never its own target."""
+    if target_name is None or target_is_active:
+        return False
+    return str(target_name) == str(name)
+
+
+def format_scan_names(candidates: Sequence[Tuple[str, float, bool]], limit: int = 8) -> str:
+    """The scanned vessel names for a miss line: ``'A'*, 'B'`` (``*`` marks the active
+    vessel), at most ``limit`` names then ``+N more``."""
+    names = ["%r%s" % (str(n), "*" if is_active else "")
+             for n, _d, is_active in (candidates or ())]
+    head = ", ".join(names[:limit])
+    if len(names) > limit:
+        head += " +%d more" % (len(names) - limit)
+    return head or "none"
+
+
 SWITCH_BACK_BY_NAME = "name"
 SWITCH_BACK_BY_NAME_UNPLACED = "name-unplaced"
 SWITCH_BACK_BY_EVA_TYPE = "eva-type"
