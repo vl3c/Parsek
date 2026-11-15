@@ -45,19 +45,6 @@ namespace Parsek.MapRender
         internal const int DefaultOrbitSampleCount = 9;
 
         /// <summary>
-        /// Pure: reframe an ABSOLUTE world position into the orbit's reference-body frame
-        /// (<c>worldPos - bodyWorldPos</c>). A non-finite component on EITHER operand yields a NaN-filled
-        /// result so the oracle skips the point (no false anomaly) rather than projecting onto a
-        /// body-motion-contaminated delta.
-        /// </summary>
-        internal static Vector3d ToBodyRelative(Vector3d worldPos, Vector3d bodyWorldPos)
-        {
-            if (!IsFinite(worldPos) || !IsFinite(bodyWorldPos))
-                return new Vector3d(double.NaN, double.NaN, double.NaN);
-            return worldPos - bodyWorldPos;
-        }
-
-        /// <summary>
         /// Pure: recover the body-relative world offset (metres) of a DRAWN polyline scaled-space vertex
         /// by inverting the EXACT scaled-space build the renderer used, IN THE SAME FRAME the draw built
         /// it. This is the parity-capture inverse of the strobe-free draw path
@@ -151,20 +138,11 @@ namespace Parsek.MapRender
         }
 
         /// <summary>
-        /// Pure convenience: flatten a single sample into a one-point flat array (the icon point case,
-        /// where the oracle's count==1 reference / rendered path applies).
-        /// </summary>
-        internal static double[] FlattenSingle(Vector3d point)
-        {
-            return new[] { point.x, point.y, point.z };
-        }
-
-        /// <summary>
         /// Pure: build the EVEN spread of <paramref name="count"/> sample UTs across
         /// <c>[centerUT - halfSpanSeconds, centerUT + halfSpanSeconds]</c> the rendered orbit is sampled
         /// at. With <c>count == 1</c> the single sample is the centre clock. The recorded reference is
-        /// sampled at <c>renderedUT - loopShiftSeconds</c> for each of these (see
-        /// <see cref="ShiftSampleUTs"/>); the rendered orbit at these UTs directly. A non-finite
+        /// sampled at <c>renderedUT - loopShiftSeconds</c> for each of these; the rendered orbit
+        /// at these UTs directly. A non-finite
         /// <paramref name="centerUT"/> / <paramref name="halfSpanSeconds"/>, or a non-positive
         /// <paramref name="count"/>, returns an empty array (caller treats it as "cannot sample").
         /// </summary>
@@ -183,25 +161,6 @@ namespace Parsek.MapRender
             for (int i = 0; i < count; i++)
                 uts[i] = centerUT - half + i * step;
             return uts;
-        }
-
-        /// <summary>
-        /// Pure: produce a NEW array of <c>ut - shiftSeconds</c> (the recorded-clock UTs matching a set of
-        /// rendered live-clock sample UTs). The loop-epoch shift is <c>liveUT - effUT</c>, so the recorded
-        /// reference is sampled at <c>renderedUT - shift</c>. A null source returns an empty array; a
-        /// non-finite shift returns the source UTs unchanged (the caller's downstream finite-guard handles
-        /// the resulting samples).
-        /// </summary>
-        internal static double[] ShiftSampleUTs(double[] renderedUTs, double shiftSeconds)
-        {
-            if (renderedUTs == null)
-                return Array.Empty<double>();
-            if (!IsFiniteScalar(shiftSeconds))
-                return (double[])renderedUTs.Clone();
-            var shifted = new double[renderedUTs.Length];
-            for (int i = 0; i < renderedUTs.Length; i++)
-                shifted[i] = renderedUTs[i] - shiftSeconds;
-            return shifted;
         }
 
         private static bool IsFinite(Vector3d v)

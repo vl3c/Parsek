@@ -268,8 +268,8 @@
 #     dependent site in the live re-aim path - the window model is congruent
 #     D0 + k*synodic with abs() everywhere, the Lambert branch rides
 #     launch-plane handedness, and the one signed phase-angle helper
-#     (TransferWindowMath.HohmannPhaseAngleTargetDegrees) has no production
-#     caller - so the EXPECTED reading is that engagement looks exactly like
+#     (TransferWindowMath.HohmannPhaseAngleTargetDegrees, since deleted) had
+#     no production caller - so the EXPECTED reading is that engagement looks exactly like
 #     Duna's. This run is the measurement that claim stands on.
 #   * The Eve-SPECIFIC unknown is the plane-tilt achievability gate
 #     (ReaimTransferSynthesizer, [ReaimSeam] `tilt-correction` VERBOSE

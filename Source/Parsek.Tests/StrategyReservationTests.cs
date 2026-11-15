@@ -975,7 +975,9 @@ namespace Parsek.Tests
                 Assert.True(strategies.TryGetActiveStrategy(id, out state));
                 ledger[id] = state.ActivateUT;
             }
-            return StrategyStatePatcher.ComputePlan(ledger, strategies.IsManagedStrategy, stock,
+            // The managed set the live patch snapshots (StrategiesModule.GetManagedStrategyIds).
+            var managed = new HashSet<string>(strategies.GetManagedStrategyIds(), StringComparer.Ordinal);
+            return StrategyStatePatcher.ComputePlan(ledger, managed.Contains, stock,
                 new HashSet<string> { "A", "B", "C" }, now);
         }
 

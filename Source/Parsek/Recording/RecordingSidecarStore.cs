@@ -2114,33 +2114,6 @@ namespace Parsek
             public string FailureReason;
         }
 
-        internal static bool TryProbeSnapshotSidecar(string path, out SnapshotSidecarProbe probe)
-        {
-            probe = default(SnapshotSidecarProbe);
-            bool probeOk = SnapshotSidecarCodec.TryProbe(path, out probe);
-            if (probeOk && !RecordingStore.SuppressLogging)
-            {
-                ParsekLog.Verbose("RecordingStore",
-                    $"TryProbeSnapshotSidecar: path='{FormatPathForSidecarLog(path)}' " +
-                    SnapshotSidecarCodec.DescribeProbe(probe));
-                if (!probe.Supported)
-                {
-                    ParsekLog.Warn("RecordingStore",
-                        $"TryProbeSnapshotSidecar: unsupported snapshot sidecar " +
-                        $"path='{FormatPathForSidecarLog(path)}' " +
-                        SnapshotSidecarCodec.DescribeProbe(probe));
-                }
-            }
-            else if (!probeOk && !RecordingStore.SuppressLogging)
-            {
-                ParsekLog.Warn("RecordingStore",
-                    $"TryProbeSnapshotSidecar: failed path='{FormatPathForSidecarLog(path)}' " +
-                    SnapshotSidecarCodec.DescribeProbe(probe));
-            }
-
-            return probeOk;
-        }
-
         internal static bool LoadSnapshotSidecarForTesting(string path, out ConfigNode node)
         {
             SnapshotSidecarProbe probe;

@@ -31,58 +31,6 @@ namespace Parsek
             public string TailFrameSource;
         }
 
-        /// <summary>
-        /// Pure: compute display info for tracking station / map view.
-        /// Returns vessel name, status string, and spawn UT for the chain.
-        /// </summary>
-        internal static (string name, string status, double spawnUT)
-            ComputeGhostDisplayInfo(GhostChain chain, string vesselName)
-        {
-            string safeName = vesselName ?? "(unnamed)";
-
-            if (chain == null)
-            {
-                ParsekLog.Verbose(Tag,
-                    string.Format(ic,
-                        "ComputeGhostDisplayInfo: null chain for vessel '{0}' — returning defaults",
-                        safeName));
-                return (safeName, "Ghost — no chain data", 0);
-            }
-
-            if (chain.IsTerminated)
-            {
-                ParsekLog.Verbose(Tag,
-                    string.Format(ic,
-                        "ComputeGhostDisplayInfo: terminated chain for vessel '{0}' pid={1}",
-                        safeName, chain.OriginalVesselPid));
-                return (safeName, "Ghost — terminated", chain.SpawnUT);
-            }
-
-            if (chain.SpawnBlocked)
-            {
-                string blockedStatus = string.Format(ic,
-                    "Ghost — spawn blocked (since UT={0:F1})",
-                    chain.BlockedSinceUT);
-                ParsekLog.Verbose(Tag,
-                    string.Format(ic,
-                        "ComputeGhostDisplayInfo: spawn blocked for vessel '{0}' pid={1} since UT={2:F1}",
-                        safeName, chain.OriginalVesselPid, chain.BlockedSinceUT));
-                return (safeName, blockedStatus, chain.SpawnUT);
-            }
-
-            string activeStatus = string.Format(ic,
-                "Ghost — spawns at UT={0:F1}",
-                chain.SpawnUT);
-
-            ParsekLog.Verbose(Tag,
-                string.Format(ic,
-                    "ComputeGhostDisplayInfo: active chain for vessel '{0}' pid={1} spawnUT={2:F1} tip={3}",
-                    safeName, chain.OriginalVesselPid, chain.SpawnUT,
-                    chain.TipRecordingId ?? "(null)"));
-
-            return (safeName, activeStatus, chain.SpawnUT);
-        }
-
         // ------------------------------------------------------------------
         // ProtoVessel lifecycle
         // ------------------------------------------------------------------

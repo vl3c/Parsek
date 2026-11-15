@@ -391,7 +391,7 @@ namespace Parsek.Tests
 
             // Sanity: probe still passes (header is intact).
             SnapshotSidecarProbe probe;
-            bool probeOk = RecordingSidecarStore.TryProbeSnapshotSidecar(vesselPath, out probe);
+            bool probeOk = SnapshotSidecarCodec.TryProbe(vesselPath, out probe);
             Assert.True(probeOk && probe.Supported,
                 "header probe must still pass on a payload-only bit flip; this is the bug surface");
 

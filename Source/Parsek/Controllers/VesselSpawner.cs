@@ -467,16 +467,6 @@ namespace Parsek
         #region Extracted helpers
 
         /// <summary>
-        /// Pure decision: should vessel identity be regenerated?
-        /// Returns true for normal spawns (new GUID), false for chain-tip spawns
-        /// that must preserve the original vessel's PID for continuity.
-        /// </summary>
-        internal static bool ShouldRegenerateIdentity(bool preserveIdentity)
-        {
-            return !preserveIdentity;
-        }
-
-        /// <summary>
         /// Pure decision: should post-spawn velocity zeroing be applied? (#239)
         /// Only surface situations need stabilization — orbital/flying vessels must keep velocity.
         /// </summary>

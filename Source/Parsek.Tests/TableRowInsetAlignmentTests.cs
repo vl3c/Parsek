@@ -422,22 +422,6 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// The text delta, on the numbers the 2026-09-24 census measured: header and body
-        /// cells both at x=284 (0px rect delta), the boxed header padding L4. A bare label
-        /// (L0) reads 4px left; the Structure window's old hand-set indent (L5) read 1px
-        /// right; the header-derived padding reads 0.
-        /// </summary>
-        [Fact]
-        public void HeaderToCellTextDelta_CensusNumbers()
-        {
-            const int cellX = 284, headerPad = 4;
-            Assert.Equal(-4, ParsekUI.HeaderToCellTextDeltaPx(cellX, headerPad, cellX, 0));
-            Assert.Equal(1, ParsekUI.HeaderToCellTextDeltaPx(cellX, headerPad, cellX, 5));
-            int derived = ParsekUI.ComposeTableCellPadding(headerPad, headerPad, 0, 0)[0];
-            Assert.Equal(0, ParsekUI.HeaderToCellTextDeltaPx(cellX, headerPad, cellX, derived));
-        }
-
-        /// <summary>
         /// A header pinned OUTSIDE its body scroll view reserves the vertical-scrollbar
         /// gutter as its own right padding. That reservation is only correct if the bar
         /// is always actually there, so those scroll views must FORCE it

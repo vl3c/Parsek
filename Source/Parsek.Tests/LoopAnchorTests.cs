@@ -213,45 +213,6 @@ namespace Parsek.Tests
             Assert.Equal(99999u, target.LoopAnchorVesselId);
         }
 
-        // --- ValidateLoopAnchor ---
-
-        [Fact]
-        public void ValidateLoopAnchor_ZeroPid_ReturnsFalse()
-        {
-            bool result = GhostPlaybackLogic.ValidateLoopAnchor(0);
-            Assert.False(result);
-            Assert.Contains(logLines, l => l.Contains("[Loop]") && l.Contains("anchorPid=0"));
-        }
-
-        [Fact]
-        public void ValidateLoopAnchor_VesselExists_ReturnsTrue()
-        {
-            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == 42);
-
-            bool result = GhostPlaybackLogic.ValidateLoopAnchor(42);
-            Assert.True(result);
-            Assert.Contains(logLines, l => l.Contains("[Loop]") && l.Contains("anchor pid=42 found"));
-        }
-
-        [Fact]
-        public void ValidateLoopAnchor_VesselMissing_ReturnsFalse()
-        {
-            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => false);
-
-            bool result = GhostPlaybackLogic.ValidateLoopAnchor(777);
-            Assert.False(result);
-            Assert.Contains(logLines, l => l.Contains("[Loop]") && l.Contains("anchor pid=777 NOT found"));
-        }
-
-        [Fact]
-        public void ValidateLoopAnchor_VesselMissing_LogsWarning()
-        {
-            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => false);
-
-            GhostPlaybackLogic.ValidateLoopAnchor(555);
-            Assert.Contains(logLines, l => l.Contains("[WARN]") && l.Contains("loop anchor broken"));
-        }
-
         // --- ShouldUseLoopAnchor ---
 
         [Fact]

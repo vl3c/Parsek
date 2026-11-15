@@ -421,7 +421,7 @@ one registry key shared by every KSP on the PC.
   and the Unity screen prefs matched the pre-run values afterwards.
 - Reports: `logs/console/2026-11-14/parallel-daily-check*.txt` on the owner's PC.
 
-## DEAD-CODE-TEST-ONLY-METHODS-PARKED: 773 methods the game never runs, 117 of them really dead and kept alive only by their own tests [FILED 2026-11-14 for refactor plan item 21, branch `item21-test-only-methods`, measured at main 24abf0dba (Debug). PARKED (owner 2026-11-14 21:07Z); the really-dead subset APPROVED FOR REMOVAL as the final change of this refactor pass (owner 2026-11-14 21:16Z); dead code, no product change]
+## DEAD-CODE-TEST-ONLY-METHODS-PARKED: 773 methods the game never runs, 117 of them really dead and kept alive only by their own tests [FILED 2026-11-14 for refactor plan item 21, branch `item21-test-only-methods`, measured at main 24abf0dba (Debug). PARKED (owner 2026-11-14 21:07Z); the really-dead subset APPROVED FOR REMOVAL as the final change of this refactor pass (owner 2026-11-14 21:16Z); ~~really-dead subset REMOVED~~ 2026-11-15 (item 25, branch `item25-remove-dead-methods`); the rest stays PARKED; dead code, no product change]
 
 The uncalled-code fixpoint (`scripts/arch/ilanalysis.py`, README "Code facts") leaves 773
 methods the roots do not reach (17,333 instructions): 282 hook-named, and 491 others, which is
@@ -447,10 +447,19 @@ regenerate commands, counts, the ready-to-delete list by module).
   `MapRenderTrace` second-cut scaffolding and `GuiMockSession.NoteScopeBroken`; none is a
   root-rule gap), `unsure` 4.
 
-Fix (when the time comes): after the folder move, one vetted PR deletes the really-dead set and
-its `[only-dead]` tests, edits the `[edit]` tests, the two negative assertions and the docs the
-list names, and re-pins `[uncalledInAssembly]` (bound and key list) and `headless_pins.toml`. The
-rest of the list stays parked.
+Fix: ~~the really-dead set~~ DONE 2026-11-15 (item 25): the 117 methods (5,721 instructions
+folded) are deleted with their `[only-dead]` tests; the `[edit]` tests drop the dead call, or go
+whole when the dead method was their only subject; the negative assertions naming
+`ResolveEffectiveWatchTargetIndex` and `Refreshed quicksave.sfs` are removed; the docs the list
+names are edited; `[uncalledInAssembly]` (bound 491 -> 374, key list), `headless_pins.toml`
+(276 -> 275 leaks) and `layer_pins.toml` (Missions -> UI 15 -> 14) are re-pinned.
+`coverage_snapshot.json` still lists the deleted methods: only a coverlet run on the owner's
+Windows machine refreshes it, and a stale entry reds no gate. `scripts/refactor/il_compare.py` before vs after: only the
+removed methods (and their compiler-generated helpers) differ, no surviving body changed. The
+uncalled fixpoint after is the 773 minus exactly the 117 (no cascade); the list now holds 656 rows.
+Left for a later look (not dead by the fixpoint, but its only consumer went):
+`GameStateStore.originalScienceValues` is still recorded, saved and loaded, but no game code
+reads it since `RestoreScienceInRnD` (already dead) went. The rest of the list stays parked.
 
 ## ARCH-COLD-RESET-HOLDERS: save-scoped statics are reset field by field, so a new field can be forgotten [FILED 2026-11-14 for refactor plan item 15 ("B1", as corrected by the 2026-11-11 architecture review), branch `item15-cold-reset-holders`. IN PROGRESS; refactor, no product change]
 

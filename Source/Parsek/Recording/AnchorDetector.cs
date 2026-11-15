@@ -61,51 +61,6 @@ namespace Parsek
         internal const double RelativeExitDistance = DistanceThresholds.RelativeFrame.ExitMeters;
         internal const double DockingApproachDistance = DistanceThresholds.RelativeFrame.DockingApproachMeters;
 
-        /// <summary>
-        /// Scans for the nearest pre-existing vessel within RELATIVE range.
-        /// Returns the anchor vessel PID and distance, or (0, MaxValue) if none found.
-        ///
-        /// Pure static method -- vessel list and tree membership injected for testability.
-        /// </summary>
-        /// <param name="focusedVesselPid">PID of the focused vessel</param>
-        /// <param name="focusedPosition">World position of focused vessel</param>
-        /// <param name="vesselInfos">List of (pid, worldPosition) for all loaded vessels</param>
-        /// <param name="treeVesselPids">Set of PIDs that are part of the current recording tree (excluded from anchor candidates)</param>
-        /// <returns>(anchorPid, distance) -- anchorPid=0 if no anchor found</returns>
-        internal static (uint anchorPid, double distance) FindNearestAnchor(
-            uint focusedVesselPid,
-            Vector3d focusedPosition,
-            List<(uint pid, Vector3d position)> vesselInfos,
-            HashSet<uint> treeVesselPids)
-        {
-            uint bestPid = 0;
-            double bestDistance = double.MaxValue;
-
-            for (int i = 0; i < vesselInfos.Count; i++)
-            {
-                uint pid = vesselInfos[i].pid;
-                if (pid == focusedVesselPid) continue;
-                if (treeVesselPids != null && treeVesselPids.Contains(pid)) continue;
-
-                double dist = Vector3d.Distance(focusedPosition, vesselInfos[i].position);
-                if (dist < bestDistance)
-                {
-                    bestDistance = dist;
-                    bestPid = pid;
-                }
-            }
-
-            if (bestPid != 0)
-            {
-                var ic = CultureInfo.InvariantCulture;
-                ParsekLog.VerboseRateLimited("Anchor", "find-nearest",
-                    $"FindNearestAnchor: anchorPid={bestPid} dist={bestDistance.ToString("F1", ic)}m " +
-                    $"focusedPid={focusedVesselPid} candidates={vesselInfos.Count}");
-            }
-
-            return (bestPid, bestDistance);
-        }
-
         internal static (RecordingAnchorCandidate candidate, double distance, bool found) FindNearestRecordingAnchor(
             string focusedRecordingId,
             uint focusedVesselPid,
@@ -474,23 +429,6 @@ namespace Parsek
                 }
                 return stay;
             }
-        }
-
-        /// <summary>
-        /// Returns true if the anchor is within docking approach range (&lt;200m).
-        /// Used for logging/diagnostics -- the sample rate is already handled
-        /// by ProximityRateSelector.
-        /// </summary>
-        internal static bool IsInDockingApproach(double anchorDistance)
-        {
-            bool inRange = anchorDistance < DockingApproachDistance;
-            if (inRange)
-            {
-                var ic = CultureInfo.InvariantCulture;
-                ParsekLog.VerboseRateLimited("Anchor", "dock-approach",
-                    $"Docking approach detected: dist={anchorDistance.ToString("F1", ic)}m < {DockingApproachDistance.ToString("F0", ic)}m");
-            }
-            return inRange;
         }
     }
 }

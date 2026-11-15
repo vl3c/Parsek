@@ -302,34 +302,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Returns all descendant group names (recursive).
-        /// </summary>
-        public static List<string> GetDescendantGroups(string groupName)
-        {
-            var descendants = new List<string>();
-            if (string.IsNullOrEmpty(groupName)) return descendants;
-            CollectDescendants(groupName, descendants, 0);
-            return descendants;
-        }
-
-        private static void CollectDescendants(string groupName, List<string> result, int depth)
-        {
-            if (depth > 100)
-            {
-                ParsekLog.Warn("GroupHierarchy", $"CollectDescendants: max depth reached for group '{groupName}' — possible cycle, result truncated");
-                return;
-            }
-            foreach (var kvp in groupParents)
-            {
-                if (kvp.Value == groupName)
-                {
-                    result.Add(kvp.Key);
-                    CollectDescendants(kvp.Key, result, depth + 1);
-                }
-            }
-        }
-
-        /// <summary>
         /// Renames a group in the hierarchy (updates both keys and values).
         /// </summary>
         public static void RenameGroupInHierarchy(string oldName, string newName)

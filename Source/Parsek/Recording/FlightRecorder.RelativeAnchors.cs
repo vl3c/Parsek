@@ -34,8 +34,8 @@ namespace Parsek
             {
                 pids.Add(pid);
             }
-            // Include the focused vessel itself (FindNearestAnchor already skips it,
-            // but this makes the set complete for diagnostics)
+            // Include the focused vessel itself (the anchor search skips it, but this
+            // makes the set complete for diagnostics)
             if (RecordingVesselId != 0)
                 pids.Add(RecordingVesselId);
 

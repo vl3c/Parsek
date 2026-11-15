@@ -169,17 +169,5 @@ namespace Parsek
             }
             return sb.ToString();
         }
-
-        /// <summary>Count of frames in physics-warp runs.</summary>
-        internal static int PhysicsFrameCount(IList<Run> runs)
-        {
-            int n = 0;
-            if (runs == null)
-                return 0;
-            foreach (Run r in runs)
-                if (r.Kind == KindPhysics)
-                    n += r.Count;
-            return n;
-        }
     }
 }

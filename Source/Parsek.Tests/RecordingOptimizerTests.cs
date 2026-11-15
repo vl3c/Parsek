@@ -5000,15 +5000,10 @@ namespace Parsek.Tests
                 // Optimizer must agree: non-spawnable terminals always refuse trim.
                 if (!spawnable)
                 {
-                    Assert.True(RecordingOptimizer.IsUnstableTerminalState(ts));
                     Assert.False(
                         RecordingOptimizer.TailPreservesTerminalSpawnState(rec, trimUT: 0.0),
                         "IsSpawnableTerminal(" + ts + ")=false but TailPreservesTerminalSpawnState " +
                         "allowed trim.");
-                }
-                else
-                {
-                    Assert.False(RecordingOptimizer.IsUnstableTerminalState(ts));
                 }
             }
         }

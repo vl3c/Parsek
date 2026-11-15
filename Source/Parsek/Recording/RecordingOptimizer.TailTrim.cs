@@ -357,13 +357,6 @@ namespace Parsek
             }
         }
 
-        internal static bool IsUnstableTerminalState(TerminalState? terminal)
-        {
-            if (!terminal.HasValue)
-                return false;
-            return !GhostPlaybackLogic.IsSpawnableTerminal(terminal.Value);
-        }
-
         private static void LogUnstableTerminalTrimRefusal(Recording rec, double trimUT)
         {
             ParsekLog.Verbose("Optimizer",

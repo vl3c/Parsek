@@ -4654,46 +4654,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsGhostWithinVisualRange_BeyondZone_ReturnsFalse()
-        {
-            var engine = new GhostPlaybackEngine(null);
-            engine.ghostStates[0] = new GhostPlaybackState
-            {
-                currentZone = RenderingZone.Beyond
-            };
-            Assert.False(engine.IsGhostWithinVisualRange(0));
-        }
-
-        [Fact]
-        public void IsGhostWithinVisualRange_PhysicsZone_ReturnsTrue()
-        {
-            var engine = new GhostPlaybackEngine(null);
-            engine.ghostStates[0] = new GhostPlaybackState
-            {
-                currentZone = RenderingZone.Physics
-            };
-            Assert.True(engine.IsGhostWithinVisualRange(0));
-        }
-
-        [Fact]
-        public void IsGhostWithinVisualRange_VisualZone_ReturnsTrue()
-        {
-            var engine = new GhostPlaybackEngine(null);
-            engine.ghostStates[0] = new GhostPlaybackState
-            {
-                currentZone = RenderingZone.Visual
-            };
-            Assert.True(engine.IsGhostWithinVisualRange(0));
-        }
-
-        [Fact]
-        public void IsGhostWithinVisualRange_NoState_ReturnsFalse()
-        {
-            var engine = new GhostPlaybackEngine(null);
-            Assert.False(engine.IsGhostWithinVisualRange(99));
-        }
-
-        [Fact]
         public void GhostCount_ReflectsLoadedGhostVisualCount()
         {
             var engine = new GhostPlaybackEngine(null);
@@ -6454,39 +6414,6 @@ namespace Parsek.Tests
 
             Assert.Equal(18600.0, state.lastDistance);
             Assert.Equal(50.0, state.lastRenderDistance);
-        }
-
-        #endregion
-
-        // ===================================================================
-        // Anchor vessel lifecycle
-        // ===================================================================
-
-        #region AnchorVesselLifecycle
-
-        [Fact]
-        public void OnAnchorVesselLoaded_AddsToSet()
-        {
-            var engine = new GhostPlaybackEngine(null);
-            engine.OnAnchorVesselLoaded(12345);
-            Assert.Contains(12345u, engine.loadedAnchorVessels);
-        }
-
-        [Fact]
-        public void OnAnchorVesselUnloaded_RemovesFromSet()
-        {
-            var engine = new GhostPlaybackEngine(null);
-            engine.OnAnchorVesselLoaded(12345);
-            engine.OnAnchorVesselUnloaded(12345);
-            Assert.DoesNotContain(12345u, engine.loadedAnchorVessels);
-        }
-
-        [Fact]
-        public void OnAnchorVesselUnloaded_NonexistentId_NoError()
-        {
-            var engine = new GhostPlaybackEngine(null);
-            engine.OnAnchorVesselUnloaded(99999); // should not throw
-            Assert.Empty(engine.loadedAnchorVessels);
         }
 
         #endregion

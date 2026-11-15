@@ -2000,55 +2000,6 @@ namespace Parsek.Tests
         #region 13.1 Orbital Checkpoint Capture
 
         [Fact]
-        public void IsOrbitalCheckpointSituation_Orbiting_ReturnsTrue()
-        {
-            Assert.True(BackgroundRecorder.IsOrbitalCheckpointSituation(
-                Vessel.Situations.ORBITING));
-        }
-
-        [Fact]
-        public void IsOrbitalCheckpointSituation_SubOrbital_ReturnsTrue()
-        {
-            Assert.True(BackgroundRecorder.IsOrbitalCheckpointSituation(
-                Vessel.Situations.SUB_ORBITAL));
-        }
-
-        [Fact]
-        public void IsOrbitalCheckpointSituation_Escaping_ReturnsTrue()
-        {
-            Assert.True(BackgroundRecorder.IsOrbitalCheckpointSituation(
-                Vessel.Situations.ESCAPING));
-        }
-
-        [Fact]
-        public void IsOrbitalCheckpointSituation_Landed_ReturnsFalse()
-        {
-            Assert.False(BackgroundRecorder.IsOrbitalCheckpointSituation(
-                Vessel.Situations.LANDED));
-        }
-
-        [Fact]
-        public void IsOrbitalCheckpointSituation_Splashed_ReturnsFalse()
-        {
-            Assert.False(BackgroundRecorder.IsOrbitalCheckpointSituation(
-                Vessel.Situations.SPLASHED));
-        }
-
-        [Fact]
-        public void IsOrbitalCheckpointSituation_Flying_ReturnsFalse()
-        {
-            Assert.False(BackgroundRecorder.IsOrbitalCheckpointSituation(
-                Vessel.Situations.FLYING));
-        }
-
-        [Fact]
-        public void IsOrbitalCheckpointSituation_PreLaunch_ReturnsFalse()
-        {
-            Assert.False(BackgroundRecorder.IsOrbitalCheckpointSituation(
-                Vessel.Situations.PRELAUNCH));
-        }
-
-        [Fact]
         public void ShouldPersistNoPayloadOnRailsBoundaryTrackSection_AtmoToSurfaceWithoutPayload_ReturnsTrue()
         {
             Assert.True(BackgroundRecorder.ShouldPersistNoPayloadOnRailsBoundaryTrackSection(

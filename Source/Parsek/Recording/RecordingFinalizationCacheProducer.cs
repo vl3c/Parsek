@@ -446,29 +446,6 @@ namespace Parsek
                 0);
         }
 
-        internal static bool TryBuildAtmosphericDeletionCache(
-            string recordingId,
-            uint vesselPid,
-            string bodyName,
-            double observedUT,
-            FinalizationCacheOwner owner,
-            string reason,
-            out RecordingFinalizationCache cache)
-        {
-            cache = CreateBase(recordingId, vesselPid, owner, observedUT, reason);
-            int recordingsExamined = string.IsNullOrEmpty(recordingId) ? 0 : 1;
-            cache.LastObservedBodyName = bodyName;
-            cache.LastSituation = Vessel.Situations.FLYING;
-            cache.LastWasInAtmosphere = true;
-            cache.LastObservedOrbitDigest = BuildStateDigest(bodyName, Vessel.Situations.FLYING, inAtmosphere: true, hasMeaningfulThrust: false);
-            return CompleteRefresh(
-                cache,
-                PopulateAtmosphericDeletionCache(cache, observedUT),
-                recordingsExamined,
-                0,
-                0);
-        }
-
         internal static bool TryBuildAlreadyClassifiedDestroyedSkip(
             Recording recording,
             uint vesselPid,

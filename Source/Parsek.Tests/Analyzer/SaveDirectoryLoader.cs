@@ -432,7 +432,7 @@ namespace Parsek.Tests.Analyzer
 
                 string reason = "snapshot-load-failed";
                 SnapshotSidecarProbe probe;
-                if (RecordingSidecarStore.TryProbeSnapshotSidecar(path, out probe)
+                if (SnapshotSidecarCodec.TryProbe(path, out probe)
                     && !string.IsNullOrEmpty(probe.FailureReason))
                 {
                     reason = probe.FailureReason;

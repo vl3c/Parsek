@@ -1769,26 +1769,6 @@ namespace Parsek.Tests
             Assert.Equal(120.0, cache.TailStartsAtUT);
         }
 
-        [Fact]
-        public void TryBuildAtmosphericDeletionCache_CachesDestroyedTerminal()
-        {
-            bool built = RecordingFinalizationCacheProducer.TryBuildAtmosphericDeletionCache(
-                "rec-atmo",
-                43u,
-                "Kerbin",
-                250.0,
-                FinalizationCacheOwner.BackgroundOnRails,
-                "unit",
-                out RecordingFinalizationCache cache);
-
-            Assert.True(built);
-            Assert.Equal(FinalizationCacheStatus.Fresh, cache.Status);
-            Assert.Equal(TerminalState.Destroyed, cache.TerminalState);
-            Assert.Equal(250.0, cache.TerminalUT);
-            Assert.True(cache.LastWasInAtmosphere);
-            Assert.Equal("Kerbin", cache.TerminalBodyName);
-        }
-
         private static void LogStableRefresh(Recording recording)
         {
             RecordingFinalizationCacheProducer.LogRefreshSummary(

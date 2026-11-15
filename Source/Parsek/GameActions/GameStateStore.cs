@@ -229,26 +229,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Counts events in the store that haven't been swept into any milestone yet.
-        /// Used for the Actions button badge alongside GetPendingEventCount.
-        /// </summary>
-        internal static int GetUncommittedEventCount()
-        {
-            double lastMilestoneEndUT = MilestoneStore.GetLatestCommittedEndUT();
-
-            int count = 0;
-            for (int i = 0; i < events.Count; i++)
-            {
-                var e = events[i];
-                if (!IsEventVisibleToCurrentTimeline(e)) continue;
-                if (e.ut <= lastMilestoneEndUT) continue;
-                if (IsMilestoneFilteredEvent(e.eventType)) continue;
-                count++;
-            }
-            return count;
-        }
-
-        /// <summary>
         /// Stores the ACCEPT-TIME snapshot for a contract (the zero-progress shape the
         /// contract had when the player took it). Exactly one accept-time row exists per
         /// guid; re-accepting after a failure replaces it. Rewind-point snapshots are a
@@ -639,15 +619,6 @@ namespace Parsek
             return pruned;
         }
 
-        internal static void ClearEvents()
-        {
-            int eventCount = events.Count;
-            int snapCount = contractSnapshots.Count;
-            events.Clear();
-            contractSnapshots.Clear();
-            ParsekLog.Info("GameStateStore", $"Cleared {eventCount} events and {snapCount} contract snapshots");
-        }
-
         /// <summary>
         /// #431: removes every tagged event whose <see cref="GameStateEvent.recordingId"/>
         /// is in the given id set. Walks both the live events list AND every milestone's
@@ -899,55 +870,6 @@ namespace Parsek
                 $"Recorded original science for {subjectId}: {originalScience:F1}");
         }
 
-        internal static void ClearScienceSubjects()
-        {
-            int count = committedScienceSubjects.Count;
-
-            // Clear committed first so the Harmony patch becomes a no-op
-            committedScienceSubjects.Clear();
-
-            // Restore KSP R&D state to pre-mutation values
-            RestoreScienceInRnD();
-
-            originalScienceValues.Clear();
-            ParsekLog.Info("GameStateStore",
-                $"Cleared {count} committed science subjects and restored R&D state");
-        }
-
-        /// <summary>
-        /// Restores ScienceSubject.science values in KSP's R&D to their
-        /// pre-mutation originals. Must be called AFTER clearing committedScienceSubjects
-        /// so the Harmony postfix is a no-op during subject lookup.
-        /// </summary>
-        private static void RestoreScienceInRnD()
-        {
-            if (originalScienceValues.Count == 0) return;
-
-            // ResearchAndDevelopment is only available in career/science mode during gameplay
-            if (ResearchAndDevelopment.Instance == null)
-            {
-                ParsekLog.Verbose("GameStateStore",
-                    "R&D instance unavailable — skipping science restore (values will persist in save)");
-                return;
-            }
-
-            int restored = 0;
-            foreach (var kvp in originalScienceValues)
-            {
-                ScienceSubject subject = ResearchAndDevelopment.GetSubjectByID(kvp.Key);
-                if (subject != null && subject.science != kvp.Value)
-                {
-                    ParsekLog.Verbose("GameStateStore",
-                        $"Restoring R&D science: {kvp.Key} {subject.science:F1} → {kvp.Value:F1}");
-                    subject.science = kvp.Value;
-                    restored++;
-                }
-            }
-
-            if (restored > 0)
-                ParsekLog.Info("GameStateStore", $"Restored {restored} science subjects in R&D");
-        }
-
         /// <summary>
         /// Serializes committed science subjects into a SCIENCE_SUBJECTS ConfigNode on the parent.
         /// </summary>
@@ -1053,13 +975,6 @@ namespace Parsek
             {
                 ParsekLog.Warn("GameStateStore", $"Failed to capture baseline: {ex.Message}");
             }
-        }
-
-        internal static void ClearBaselines()
-        {
-            int count = baselines.Count;
-            baselines.Clear();
-            ParsekLog.Verbose("GameStateStore", $"Cleared {count} baselines");
         }
 
         internal static int PruneBaselinesAfterUT(

@@ -144,16 +144,6 @@ namespace Parsek.Tests
             Assert.Empty(ReFlySwitchGate.ComputeAllowedPids(SessionTree(), null));
         }
 
-        [Fact]
-        public void FirstAllowedIndex_SkipsRefusedCandidates()
-        {
-            var allowed = new HashSet<uint> { 100u, 300u };
-
-            Assert.Equal(1, ReFlySwitchGate.FirstAllowedIndex(new List<uint> { 200u, 300u, 100u }, allowed));
-            Assert.Equal(-1, ReFlySwitchGate.FirstAllowedIndex(new List<uint> { 200u, 400u }, allowed));
-            Assert.Equal(-1, ReFlySwitchGate.FirstAllowedIndex(new List<uint>(), allowed));
-        }
-
         private void InstallSession()
         {
             var marker = new ReFlySessionMarker

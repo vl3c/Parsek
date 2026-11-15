@@ -429,17 +429,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Returns true if a crew member with the given roster status should be
-        /// processed for reservation (i.e. not dead). Missing crew are processed
-        /// because they may be alive but orphaned from a removed vessel.
-        /// Extracted for testability.
-        /// </summary>
-        internal static bool ShouldProcessCrewForReservation(ProtoCrewMember.RosterStatus status)
-        {
-            return status != ProtoCrewMember.RosterStatus.Dead;
-        }
-
-        /// <summary>
         /// Pure decision: should this crew member be rescued from Missing status?
         /// A Missing crew member is rescued if they are reserved (in the replacements dict),
         /// indicating they were orphaned by RemoveReservedEvaVessels calling vessel.Unload().

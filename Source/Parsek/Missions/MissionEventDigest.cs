@@ -169,26 +169,6 @@ namespace Parsek
             return rows;
         }
 
-        /// <summary>
-        /// The renderer's one-line phrasing of a row: "B0 docked with CD (mission 'CD
-        /// Freighter')", "Vessel B1 undocked", "(loiter, 2d - not recorded)". Pure and
-        /// InvariantCulture (the duration goes through the house formatter), so the words are
-        /// unit-testable without a GUI.
-        /// </summary>
-        internal static string FormatRowText(MissionEventRow row)
-        {
-            if (string.Equals(row.Verb, VerbGap, StringComparison.Ordinal))
-                return "(loiter, " + ParsekTimeFormat.FormatDuration(row.GapSeconds)
-                    + " - not recorded)";
-
-            string verb = LowerFirst(row.Verb);
-            string subject = string.IsNullOrEmpty(row.SubjectName) ? "?" : row.SubjectName;
-            string text = subject + " " + verb;
-            if (!string.IsNullOrEmpty(row.PartnerText))
-                text += " " + row.PartnerText;
-            return text;
-        }
-
         // ---- launch rows (design 7.1 step 1 + edge case 13) ----
 
         // One row per ROOT: a recording with no incoming branch-point edge. Membership is decided
@@ -473,15 +453,6 @@ namespace Parsek
             if (string.IsNullOrEmpty(recordingId))
                 return null;
             return tree.Recordings.TryGetValue(recordingId, out Recording rec) ? rec : null;
-        }
-
-        private static string LowerFirst(string verb)
-        {
-            if (string.IsNullOrEmpty(verb))
-                return "";
-            if (!char.IsUpper(verb[0]))
-                return verb;
-            return char.ToLowerInvariant(verb[0]) + verb.Substring(1);
         }
 
         // Total, deterministic order. UT first (the story is chronological); then the source

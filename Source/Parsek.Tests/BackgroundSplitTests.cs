@@ -478,67 +478,6 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region ShouldStopDebrisRecording — Pure Logic
-
-        [Fact]
-        public void ShouldStopDebrisRecording_VesselNotExists_ReturnsDestroyed()
-        {
-            string reason = BackgroundRecorder.ShouldStopDebrisRecording(
-                currentUT: 100.0, ttlExpiry: 130.0, vesselExists: false, vesselLoaded: false);
-            Assert.Equal("destroyed", reason);
-        }
-
-        [Fact]
-        public void ShouldStopDebrisRecording_TTLExpired_ReturnsTtlExpired()
-        {
-            string reason = BackgroundRecorder.ShouldStopDebrisRecording(
-                currentUT: 131.0, ttlExpiry: 130.0, vesselExists: true, vesselLoaded: true);
-            Assert.Equal("ttl_expired", reason);
-        }
-
-        [Fact]
-        public void ShouldStopDebrisRecording_TTLExactlyAtExpiry_ReturnsTtlExpired()
-        {
-            string reason = BackgroundRecorder.ShouldStopDebrisRecording(
-                currentUT: 130.0, ttlExpiry: 130.0, vesselExists: true, vesselLoaded: true);
-            Assert.Equal("ttl_expired", reason);
-        }
-
-        [Fact]
-        public void ShouldStopDebrisRecording_VesselNotLoaded_ReturnsOutOfBubble()
-        {
-            string reason = BackgroundRecorder.ShouldStopDebrisRecording(
-                currentUT: 100.0, ttlExpiry: 130.0, vesselExists: true, vesselLoaded: false);
-            Assert.Equal("out_of_bubble", reason);
-        }
-
-        [Fact]
-        public void ShouldStopDebrisRecording_VesselAlive_BeforeTTL_ReturnsNull()
-        {
-            string reason = BackgroundRecorder.ShouldStopDebrisRecording(
-                currentUT: 100.0, ttlExpiry: 130.0, vesselExists: true, vesselLoaded: true);
-            Assert.Null(reason);
-        }
-
-        [Fact]
-        public void ShouldStopDebrisRecording_NoTTL_VesselAlive_ReturnsNull()
-        {
-            string reason = BackgroundRecorder.ShouldStopDebrisRecording(
-                currentUT: 100.0, ttlExpiry: double.NaN, vesselExists: true, vesselLoaded: true);
-            Assert.Null(reason);
-        }
-
-        [Fact]
-        public void ShouldStopDebrisRecording_DestroyedTakesPriorityOverTTL()
-        {
-            // Even if TTL hasn't expired, destroyed takes priority
-            string reason = BackgroundRecorder.ShouldStopDebrisRecording(
-                currentUT: 100.0, ttlExpiry: 130.0, vesselExists: false, vesselLoaded: false);
-            Assert.Equal("destroyed", reason);
-        }
-
-        #endregion
-
         #region TTL Constant
 
         [Fact]
@@ -718,35 +657,6 @@ namespace Parsek.Tests
 
             bgRecorder.InjectDebrisTTLForTesting(200, 160.0);
             Assert.Equal(2, bgRecorder.DebrisTTLCount);
-        }
-
-        #endregion
-
-        #region ShouldStopDebrisRecording — Edge Cases
-
-        [Fact]
-        public void ShouldStopDebrisRecording_NaN_TTL_VesselNotLoaded_ReturnsOutOfBubble()
-        {
-            // Even with NaN TTL, out-of-bubble still triggers
-            string reason = BackgroundRecorder.ShouldStopDebrisRecording(
-                currentUT: 100.0, ttlExpiry: double.NaN, vesselExists: true, vesselLoaded: false);
-            Assert.Equal("out_of_bubble", reason);
-        }
-
-        [Fact]
-        public void ShouldStopDebrisRecording_NaN_TTL_VesselDestroyed_ReturnsDestroyed()
-        {
-            string reason = BackgroundRecorder.ShouldStopDebrisRecording(
-                currentUT: 100.0, ttlExpiry: double.NaN, vesselExists: false, vesselLoaded: false);
-            Assert.Equal("destroyed", reason);
-        }
-
-        [Fact]
-        public void ShouldStopDebrisRecording_VeryLargeTTL_VesselAlive_ReturnsNull()
-        {
-            string reason = BackgroundRecorder.ShouldStopDebrisRecording(
-                currentUT: 100.0, ttlExpiry: 1e12, vesselExists: true, vesselLoaded: true);
-            Assert.Null(reason);
         }
 
         #endregion

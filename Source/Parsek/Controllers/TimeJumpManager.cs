@@ -240,44 +240,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure: compute the minimum jump target UT for a selected chain tip.
-        /// Returns the SpawnUT of the chain owning the given vessel PID.
-        /// Must also include all independent chain tips chronologically before the selected one,
-        /// so all earlier tips are also spawned (a ghost cannot remain past its tip).
-        /// If the PID is not found, returns 0 (invalid).
-        /// </summary>
-        internal static double ComputeJumpTargetUT(
-            Dictionary<uint, GhostChain> chains,
-            uint selectedVesselPid)
-        {
-            if (chains == null || chains.Count == 0)
-            {
-                ParsekLog.Verbose(Tag,
-                    "ComputeJumpTargetUT: empty/null chains, returning 0");
-                return 0;
-            }
-
-            GhostChain selected;
-            if (!chains.TryGetValue(selectedVesselPid, out selected))
-            {
-                ParsekLog.Warn(Tag,
-                    string.Format(ic,
-                        "ComputeJumpTargetUT: pid={0} not found in chains, returning 0",
-                        selectedVesselPid));
-                return 0;
-            }
-
-            double targetUT = selected.SpawnUT;
-
-            ParsekLog.Verbose(Tag,
-                string.Format(ic,
-                    "ComputeJumpTargetUT: selected pid={0} spawnUT={1:F1}",
-                    selectedVesselPid, targetUT));
-
-            return targetUT;
-        }
-
-        /// <summary>
         /// Pure: validate that a time jump is valid (targetUT strictly greater than currentUT).
         /// </summary>
         internal static bool IsValidJump(double currentUT, double targetUT)

@@ -35,6 +35,8 @@ All notable changes to Parsek are documented here.
   lookup moved to the recording store and the timeline-changed signal to a small type of its
   own, the discard paths are handed the ledger step they run, and two groups of reconcile
   checks moved next to the code that uses them. Nothing in the game changes.
+- **Dev: 117 methods the game never ran are deleted, with the tests that only tested them.**
+  Nothing calls them in play, so the game is unchanged. (DEAD-CODE-TEST-ONLY-METHODS-PARKED)
 
 ### Fixed
 

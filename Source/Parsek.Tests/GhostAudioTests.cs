@@ -713,27 +713,6 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region One-Shot Clip Resolution
-
-        [Theory]
-        [InlineData(PartEventType.Destroyed, "sound_explosion_large")]
-        public void ResolveOneShotClip_KnownTypes(PartEventType eventType, string expectedClip)
-        {
-            Assert.Equal(expectedClip, GhostAudioPresets.ResolveOneShotClip(eventType));
-        }
-
-        [Theory]
-        [InlineData(PartEventType.Decoupled)]
-        [InlineData(PartEventType.EngineIgnited)]
-        [InlineData(PartEventType.ParachuteDeployed)]
-        [InlineData(PartEventType.LightOn)]
-        public void ResolveOneShotClip_UnknownTypesReturnNull(PartEventType eventType)
-        {
-            Assert.Null(GhostAudioPresets.ResolveOneShotClip(eventType));
-        }
-
-        #endregion
-
         // Volume/pitch curve tests skipped — FloatCurve requires Unity runtime.
 
         #region Engine Clip Resolution (without prefab — fallback)

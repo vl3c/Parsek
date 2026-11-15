@@ -438,31 +438,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Checks whether a part provides command authority (has ModuleCommand).
-        /// ModuleCommand is the KSP module for command pods and probe cores.
-        /// </summary>
-        /// <param name="partName">Name of the part (for logging).</param>
-        /// <param name="moduleNames">List of module class names on the part.</param>
-        /// <returns>True if the part has ModuleCommand.</returns>
-        internal static bool IsControllerPart(string partName, List<string> moduleNames)
-        {
-            if (moduleNames == null)
-            {
-                ParsekLog.Verbose("Boundary",
-                    $"IsControllerPart: null module list for part={partName ?? "(null)"} => false");
-                return false;
-            }
-
-            bool hasCommand = moduleNames.Contains("ModuleCommand");
-
-            ParsekLog.Verbose("Boundary",
-                $"IsControllerPart: part={partName ?? "(null)"} " +
-                $"moduleCount={moduleNames.Count} hasModuleCommand={hasCommand}");
-
-            return hasCommand;
-        }
-
-        /// <summary>
         /// Rewind-to-Staging (Phase 4, design §5.1 + §7.19): filters
         /// <paramref name="postBreakVesselPids"/> to the subset whose live
         /// <c>Vessel</c> passes the <c>IsTrackableVessel</c> predicate

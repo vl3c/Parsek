@@ -613,32 +613,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The career cross-link target: opens the window, switches to the category's
-        /// Career view (so the row is not filtered out by the tier or source toggles) and
-        /// scrolls to the first visible row of that subject - for a contract, its accept
-        /// row, with the outcome row beneath it. The time range still applies: a subject
-        /// outside it logs as not found, the same as a stale recording id.
-        /// <para>A category <paramref name="gameMode"/> does not show (Contracts in Science
-        /// mode, anything in Sandbox) keeps the current view and logs why. The game mode is
-        /// supplied so a headless test never reads <c>HighLogic</c>.</para>
-        /// </summary>
-        internal void ScrollToCareerSubject(TimelineCareerCategory category, string subjectId,
-            Game.Modes? gameMode)
-        {
-            bool windowWasOpen = showTimelineWindow;
-            if (!windowWasOpen)
-                showTimelineWindow = true;
-            bool available = TimelineCareerCategories.IsAvailableInMode(category, gameMode);
-            if (available)
-                SelectView(ViewOfCategory(category));
-            pendingScrollTarget = TimelineScrollTarget.ForCareerSubject(category, subjectId);
-            ParsekLog.Verbose("Timeline",
-                $"Cross-link: scroll requested for category={category} subject={subjectId} "
-                + $"(windowWasOpen={windowWasOpen} viewSwitched={available} "
-                + $"gameMode={TimelineCareerCategories.ModeToken(gameMode)})");
-        }
-
-        /// <summary>
         /// Resets the time-range filter slider positions to full bounds.
         /// Called when the filter is cleared from another window (e.g. Recordings table).
         /// </summary>

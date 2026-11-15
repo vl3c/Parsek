@@ -79,56 +79,5 @@ namespace Parsek.Tests
             Assert.False(GhostPlaybackEngine.TryResolveCheckpointBackedOrbitEndpointUT(
                 segments, Section(500, 600), 550.0, out _));
         }
-
-        // ---------- TryConvertLegacyGapToLoopPeriodSeconds -----------------------
-
-        private static Recording Span(double start, double end)
-        {
-            var rec = new Recording { RecordingId = "loop" };
-            rec.Points.Add(new TrajectoryPoint { ut = start, bodyName = "Kerbin" });
-            rec.Points.Add(new TrajectoryPoint { ut = end, bodyName = "Kerbin" });
-            return rec;
-        }
-
-        [Fact]
-        public void TryConvertLegacyGapToLoopPeriodSeconds_PeriodIsDurationPlusGap()
-        {
-            Assert.True(GhostPlaybackEngine.TryConvertLegacyGapToLoopPeriodSeconds(
-                Span(1000.0, 1100.0), 30.0, out double period, out double duration));
-            Assert.Equal(100.0, duration);
-            Assert.Equal(130.0, period);
-        }
-
-        [Fact]
-        public void TryConvertLegacyGapToLoopPeriodSeconds_UnderflowClampsToMinCycle()
-        {
-            Assert.True(GhostPlaybackEngine.TryConvertLegacyGapToLoopPeriodSeconds(
-                Span(0.0, 100.0), -98.0, out double period, out _));
-            Assert.Equal(LoopTiming.MinCycleDuration, period);
-            // Exactly the minimum is kept as is.
-            Assert.True(GhostPlaybackEngine.TryConvertLegacyGapToLoopPeriodSeconds(
-                Span(0.0, 100.0), LoopTiming.MinCycleDuration - 100.0, out period, out _));
-            Assert.Equal(LoopTiming.MinCycleDuration, period);
-        }
-
-        [Fact]
-        public void TryConvertLegacyGapToLoopPeriodSeconds_NonFiniteGap_FalseAndGapEchoed()
-        {
-            Assert.False(GhostPlaybackEngine.TryConvertLegacyGapToLoopPeriodSeconds(
-                Span(0.0, 100.0), double.NaN, out double period, out double duration));
-            Assert.True(double.IsNaN(period));
-            Assert.Equal(100.0, duration);
-            Assert.False(GhostPlaybackEngine.TryConvertLegacyGapToLoopPeriodSeconds(
-                Span(0.0, 100.0), double.PositiveInfinity, out _, out _));
-        }
-
-        [Fact]
-        public void TryConvertLegacyGapToLoopPeriodSeconds_NoDuration_False()
-        {
-            Assert.False(GhostPlaybackEngine.TryConvertLegacyGapToLoopPeriodSeconds(
-                new Recording { RecordingId = "empty" }, 10.0, out double period, out double duration));
-            Assert.Equal(10.0, period);
-            Assert.Equal(0.0, duration);
-        }
     }
 }

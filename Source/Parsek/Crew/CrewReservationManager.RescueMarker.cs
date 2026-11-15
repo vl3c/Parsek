@@ -38,8 +38,8 @@ namespace Parsek
         //   - Saved with the crew replacements (RESCUE_PLACED_KERBALS) and
         //     replaced by the save's own set in LoadCrewReplacements, so a
         //     save and load keeps the guard firing. Bulk-cleared by
-        //     RestoreReplacements / ClearReplacements /
-        //     ResetReplacementsForTesting on rewind / wipe-all boundaries.
+        //     RestoreReplacements / ResetReplacementsForTesting on rewind /
+        //     reset boundaries.
         //   - Pid-scoped (P1 review fourth pass): the previous design keyed
         //     the marker by name only and combined it with a generic
         //     IsKerbalOnLiveVessel check. That regressed when a stale marker
@@ -246,7 +246,7 @@ namespace Parsek
         /// <summary>
         /// Remove <paramref name="kerbalName"/> from the rescue-placed set.
         /// Used by bulk lifecycle paths (<see cref="LoadCrewReplacements"/>,
-        /// <see cref="RestoreReplacements"/>, <see cref="ClearReplacements"/>,
+        /// <see cref="RestoreReplacements"/>,
         /// <see cref="ResetReplacementsForTesting"/>) and by the test fixture.
         ///
         /// <para>

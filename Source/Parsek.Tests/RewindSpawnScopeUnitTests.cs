@@ -409,22 +409,6 @@ namespace Parsek.Tests
             Assert.Null(RewindSpawnScope.ResolveRewindClaimedVesselPids(AdjustedUT));
         }
 
-        // ---------- IsStableState ----------
-
-        [Theory]
-        [InlineData(1, true)]
-        [InlineData(2, true)]
-        [InlineData(4, true)]
-        [InlineData(32, true)]
-        [InlineData(8, false)]
-        [InlineData(16, false)]
-        [InlineData(64, false)]
-        [InlineData(0, false)]
-        public void IsStableState_LandedSplashedPrelaunchOrbiting(int situation, bool expected)
-        {
-            Assert.Equal(expected, RewindSpawnScope.IsStableState(situation));
-        }
-
         // ---------- Extracted units ----------
 
         [Fact]

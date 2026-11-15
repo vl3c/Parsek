@@ -18,47 +18,6 @@ namespace Parsek.Tests
     {
         private const double Eps = 1e-9;
 
-        // ---- ToBodyRelative ----
-
-        [Fact]
-        public void ToBodyRelative_SubtractsBodyPosition()
-        {
-            var world = new Vector3d(1000.0, 2000.0, 3000.0);
-            var body = new Vector3d(100.0, 200.0, 300.0);
-
-            Vector3d rel = RenderGeometrySampler.ToBodyRelative(world, body);
-
-            Assert.Equal(900.0, rel.x, 6);
-            Assert.Equal(1800.0, rel.y, 6);
-            Assert.Equal(2700.0, rel.z, 6);
-        }
-
-        [Fact]
-        public void ToBodyRelative_NonFiniteWorld_ReturnsNaN()
-        {
-            var world = new Vector3d(double.NaN, 0.0, 0.0);
-            var body = new Vector3d(1.0, 2.0, 3.0);
-
-            Vector3d rel = RenderGeometrySampler.ToBodyRelative(world, body);
-
-            Assert.True(double.IsNaN(rel.x));
-            Assert.True(double.IsNaN(rel.y));
-            Assert.True(double.IsNaN(rel.z));
-        }
-
-        [Fact]
-        public void ToBodyRelative_NonFiniteBody_ReturnsNaN()
-        {
-            var world = new Vector3d(1.0, 2.0, 3.0);
-            var body = new Vector3d(0.0, double.PositiveInfinity, 0.0);
-
-            Vector3d rel = RenderGeometrySampler.ToBodyRelative(world, body);
-
-            Assert.True(double.IsNaN(rel.x));
-            Assert.True(double.IsNaN(rel.y));
-            Assert.True(double.IsNaN(rel.z));
-        }
-
         // ---- RenderedScaledVertexToBodyRelative (the polyline parity-capture inverse) ----
         //
         // FP CLASS 3 ROOT CAUSE (live: 37 mode=polyline parity-drift emits on visually-correct Duna legs,
@@ -395,13 +354,6 @@ namespace Parsek.Tests
             Assert.Equal(5.0, flat[2], 6);
         }
 
-        [Fact]
-        public void FlattenSingle_OnePoint()
-        {
-            double[] flat = RenderGeometrySampler.FlattenSingle(new Vector3d(7.0, 8.0, 9.0));
-            Assert.Equal(new[] { 7.0, 8.0, 9.0 }, flat);
-        }
-
         // ---- BuildSampleUTs ----
 
         [Fact]
@@ -441,41 +393,6 @@ namespace Parsek.Tests
             Assert.Equal(b, a);
         }
 
-        // ---- ShiftSampleUTs ----
-
-        [Fact]
-        public void ShiftSampleUTs_SubtractsShift()
-        {
-            var rendered = new[] { 1000.0, 1100.0, 1200.0 };
-
-            double[] recorded = RenderGeometrySampler.ShiftSampleUTs(rendered, 240000.0);
-
-            Assert.Equal(new[] { 1000.0 - 240000.0, 1100.0 - 240000.0, 1200.0 - 240000.0 }, recorded);
-        }
-
-        [Fact]
-        public void ShiftSampleUTs_ZeroShift_Unchanged()
-        {
-            var rendered = new[] { 1.0, 2.0, 3.0 };
-            double[] recorded = RenderGeometrySampler.ShiftSampleUTs(rendered, 0.0);
-            Assert.Equal(rendered, recorded);
-        }
-
-        [Fact]
-        public void ShiftSampleUTs_NonFiniteShift_ReturnsCopyUnchanged()
-        {
-            var rendered = new[] { 1.0, 2.0 };
-            double[] recorded = RenderGeometrySampler.ShiftSampleUTs(rendered, double.NaN);
-            Assert.Equal(rendered, recorded);
-            Assert.NotSame(rendered, recorded); // a NEW array, never the recorded source aliased
-        }
-
-        [Fact]
-        public void ShiftSampleUTs_Null_ReturnsEmpty()
-        {
-            Assert.Empty(RenderGeometrySampler.ShiftSampleUTs(null, 10.0));
-        }
-
         // ---- End-to-end with the oracle: a loop-shifted faithful pair reads ~0 drift ----
 
         [Fact]
@@ -486,7 +403,7 @@ namespace Parsek.Tests
             // shift invariant the probe relies on: a faithful loop ghost is NOT flagged.
             const double shift = 240000.0;
             double[] renderedUTs = RenderGeometrySampler.BuildSampleUTs(1000.0, 100.0, 5);
-            double[] recordedUTs = RenderGeometrySampler.ShiftSampleUTs(renderedUTs, shift);
+            double[] recordedUTs = Array.ConvertAll(renderedUTs, u => u - shift);
 
             // Model "the same orbit" as a deterministic function of the orbit PHASE (clock minus its own
             // epoch). Rendered phase uses the live epoch; recorded phase uses the shifted epoch; both land on

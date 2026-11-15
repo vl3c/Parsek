@@ -879,9 +879,9 @@ complete / fail / cancel, Strategies = activate / deactivate, Facilities = upgra
 destruction / repair, Milestones = milestone credits, Tech = a `ScienceSpending` that names a
 node. The strategy currency-exchange science legs share the `ScienceSpending` display bucket
 and are in no category. Recording, legacy and other ledger rows (earnings, hires, builds,
-recoveries, seeds) are in none either. `ScrollToCareerSubject(category, subjectId, gameMode)` opens the
-window on the category's view and scrolls to the subject's first visible row (for a contract,
-its accept row), the career twin of `ScrollToRecording`; it has no production caller today.
+recoveries, seeds) are in none either. Nothing scrolls the window to a career subject: the
+career twin of `ScrollToRecording` had no production caller and was deleted with the other dead
+methods (2026-11).
 
 Row actions, each one Missions Interact pair button wide (`MissionsWindowUI.InteractPairButtonWidth`,
 48 px): `W` / `W*` (flight only), `FF` (future rows), `R` (past rows), `Fly` + `Seal` on
@@ -2236,8 +2236,8 @@ and the expanding column comes out equal on both halves.
 header style is a box (padding L4/R4), so its text starts 4 px inside its rect, while a bare
 `GUI.skin.label` starts at its rect's edge. A body cell under a boxed header therefore uses
 `ParsekUI.GetTableCellStyle()` - a label whose horizontal padding is copied from the header
-style by the pure `ComposeTableCellPadding` (vertical padding stays the label's) - and the
-text delta is `ParsekUI.HeaderToCellTextDeltaPx` = 0. Built once per skin with a
+style by the pure `ComposeTableCellPadding` (vertical padding stays the label's) - so the
+header-to-cell text delta is 0. Built once per skin with a
 `Table cell style built: colHdr.padding=... cell.padding=...` Verbose line, which is the
 number a dump measurement adds to each rect's x. The Recordings tab, Kerbals, Real Spawn
 Control and the Log window use it (pinned by `TableRowInsetAlignmentTests`), and so do the

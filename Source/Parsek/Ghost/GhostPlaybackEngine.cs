@@ -1232,14 +1232,6 @@ namespace Parsek
             return true;
         }
 
-        /// <summary>Whether the ghost is within visual rendering range (not in Beyond zone).</summary>
-        internal bool IsGhostWithinVisualRange(int index)
-        {
-            return ghostStates.TryGetValue(index, out var state)
-                && state != null
-                && state.currentZone != RenderingZone.Beyond;
-        }
-
         /// <summary>Whether the ghost is on the specified celestial body.</summary>
         internal bool IsGhostOnBody(int index, string bodyName)
         {
@@ -1308,22 +1300,6 @@ namespace Parsek
                 if (kv.Value?.ghost != null && kv.Value.ghost.activeSelf)
                     yield return (kv.Key, kv.Value.ghost.transform.position);
             }
-        }
-
-        #endregion
-
-        #region Anchor vessel lifecycle
-
-        /// <summary>Notify the engine that an anchor vessel was loaded.</summary>
-        internal void OnAnchorVesselLoaded(uint vesselPid)
-        {
-            loadedAnchorVessels.Add(vesselPid);
-        }
-
-        /// <summary>Notify the engine that an anchor vessel was unloaded.</summary>
-        internal void OnAnchorVesselUnloaded(uint vesselPid)
-        {
-            loadedAnchorVessels.Remove(vesselPid);
         }
 
         #endregion

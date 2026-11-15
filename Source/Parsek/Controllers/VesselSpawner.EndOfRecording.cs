@@ -1391,30 +1391,6 @@ namespace Parsek
                 $"{logContext ?? "(unknown)"} durable snapshot (spawn resolved)");
         }
 
-        internal static double ResolveRelocatedAltitude(
-            Recording rec, CelestialBody body, double latitude, double longitude)
-        {
-            bool landedLike = VesselSnapshotOps.IsLandedLikeSnapshot(rec?.VesselSnapshot);
-            bool hasSnapshotAlt = VesselSnapshotOps.TryGetSnapshotDouble(rec?.VesselSnapshot, "alt", out double snapshotAlt);
-            double selectedAltitude;
-            if (landedLike)
-            {
-                double terrainAlt = body.TerrainAltitude(latitude, longitude);
-                bool terrainValid = !double.IsNaN(terrainAlt) && !double.IsInfinity(terrainAlt);
-                selectedAltitude = SelectRelocatedAltitude(landedLike, terrainAlt, terrainValid, snapshotAlt, hasSnapshotAlt);
-                ParsekLog.Verbose("Spawner",
-                    $"Relocation altitude selected={selectedAltitude:F1} source={(terrainValid ? "terrain" : hasSnapshotAlt ? "snapshot" : "fallback")} " +
-                    $"landedLike={landedLike} terrainValid={terrainValid} snapshotAltSet={hasSnapshotAlt}");
-                return selectedAltitude;
-            }
-
-            selectedAltitude = SelectRelocatedAltitude(landedLike, 0.0, false, snapshotAlt, hasSnapshotAlt);
-            ParsekLog.Verbose("Spawner",
-                $"Relocation altitude selected={selectedAltitude:F1} source={(hasSnapshotAlt ? "snapshot" : "fallback")} " +
-                $"landedLike={landedLike}");
-            return selectedAltitude;
-        }
-
         internal static bool TryResolveEndpointStateVector(
             Recording rec,
             string endpointBodyName,
@@ -1533,16 +1509,6 @@ namespace Parsek
                     v)
                 + " context=" + (logContext ?? "(null)"));
             return v.VelocityYup;
-        }
-
-        internal static double SelectRelocatedAltitude(
-            bool landedLike, double terrainAltitude, bool terrainValid, double snapshotAltitude, bool hasSnapshotAltitude)
-        {
-            if (landedLike && terrainValid)
-                return terrainAltitude;
-            if (hasSnapshotAltitude)
-                return snapshotAltitude;
-            return 0.0;
         }
     }
 }

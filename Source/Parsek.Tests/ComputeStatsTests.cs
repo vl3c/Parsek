@@ -327,17 +327,5 @@ namespace Parsek.Tests
 
     public class FormatDistanceTests
     {
-        [Theory]
-        [InlineData(0, "0m")]
-        [InlineData(500, "500m")]
-        [InlineData(999, "999m")]
-        [InlineData(1000, "1.0km")]
-        [InlineData(8200, "8.2km")]
-        [InlineData(1000000, "1.0Mm")]
-        [InlineData(18000000, "18.0Mm")]
-        public void FormatDistance_CorrectOutput(double meters, string expected)
-        {
-            Assert.Equal(expected, RecordingsTableUI.FormatDistance(meters));
-        }
     }
 }

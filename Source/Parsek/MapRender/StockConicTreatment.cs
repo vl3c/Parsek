@@ -24,7 +24,6 @@ namespace Parsek.MapRender
     /// </summary>
     internal sealed class StockConicTreatment
     {
-        public Treatment Kind => Treatment.StockConic;
 
         /// <summary>
         /// PURE applicability predicate: this treatment draws only a visible StockConic intent that

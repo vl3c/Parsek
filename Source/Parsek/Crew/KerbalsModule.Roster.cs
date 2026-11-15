@@ -696,8 +696,8 @@ namespace Parsek
                             // saved with the crew replacements, replaced by
                             // the save's own set on load (LoadCrewReplacements),
                             // and cleared by RestoreReplacements /
-                            // ClearReplacements / ResetReplacementsForTesting
-                            // at rewind / wipe-all boundaries.
+                            // ResetReplacementsForTesting at rewind / reset
+                            // boundaries.
                             //
                             // P1 review (fourth pass): the marker is now
                             // pid-scoped, so a stale-true name marker that

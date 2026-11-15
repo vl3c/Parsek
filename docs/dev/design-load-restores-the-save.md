@@ -581,7 +581,7 @@ sealed points now live as long as some save lists them.
 ### 4.6 Parsek stops writing the player's quicksave
 
 `RecordingStore.RefreshQuicksaveAfterMerge` (the merge dialog's Merge,
-MergeDialog.Commit.cs:151) and the quicksave half of `RefreshSaveAndQuicksaveAfterDiscard` (the
+MergeDialog.Commit.cs:151; since deleted as dead code) and the quicksave half of `RefreshSaveAndQuicksaveAfterDiscard` (the
 dialog's Discard, MergeDialog.ReFlyDiscard.cs:122) overwrite `quicksave.sfs` so an F9 could not
 bring the merged or discarded flight back. Under the rule they move the player's F9 point to the
 merge or discard moment. With exact restore an F9 to the real F5 moment is consistent, so both

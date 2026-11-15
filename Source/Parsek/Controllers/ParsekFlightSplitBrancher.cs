@@ -3163,9 +3163,9 @@ namespace Parsek
             var stoppedRecorder = host.recorder;
             host.recorder = null;
             // Route target was already resolved from the couple event in OnPartCouple
-            // and persisted on pendingDockRouteTargetPid. Falling back to the legacy
-            // BackgroundMap-derived ResolveDockRouteTargetPid would drop the partner
-            // for cross-tree dock partners (committed-recording case). The ungated
+            // and persisted on pendingDockRouteTargetPid. A BackgroundMap-derived
+            // fallback would drop the partner for cross-tree dock partners
+            // (committed-recording case). The ungated
             // partner stamp rides alongside and feeds ONLY the branch point.
             uint routeTargetPid = host.pendingDockRouteTargetPid;
             uint branchPartnerPid = host.pendingDockPartnerPid;

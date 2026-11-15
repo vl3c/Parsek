@@ -100,38 +100,6 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region GetSampleRateHz
-
-        [Fact]
-        public void GetSampleRateHz_DockingRange_Returns5Hz()
-        {
-            float hz = ProximityRateSelector.GetSampleRateHz(100);
-            Assert.Equal(5f, hz);
-        }
-
-        [Fact]
-        public void GetSampleRateHz_MidRange_Returns2Hz()
-        {
-            float hz = ProximityRateSelector.GetSampleRateHz(500);
-            Assert.Equal(2f, hz);
-        }
-
-        [Fact]
-        public void GetSampleRateHz_FarRange_ReturnsHalfHz()
-        {
-            float hz = ProximityRateSelector.GetSampleRateHz(2000);
-            Assert.Equal(0.5f, hz);
-        }
-
-        [Fact]
-        public void GetSampleRateHz_OutOfRange_ReturnsZero()
-        {
-            float hz = ProximityRateSelector.GetSampleRateHz(5000);
-            Assert.Equal(0f, hz);
-        }
-
-        #endregion
-
         #region Constants Consistency
 
         [Fact]

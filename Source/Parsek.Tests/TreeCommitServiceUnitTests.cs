@@ -480,21 +480,8 @@ namespace Parsek.Tests
         }
 
         // =====================================================================
-        // FindBranchPointById / FindCommittedRecordingIndex / GetTreeStartUT
+        // FindCommittedRecordingIndex / GetTreeStartUT
         // =====================================================================
-
-        [Fact]
-        public void FindBranchPointById_MatchesOrdinalAndSkipsNulls()
-        {
-            var bp = Bp("bp1");
-            var tree = Tree("a", null, new[] { Rec("a") }, new[] { null, Bp("BP1"), bp });
-            Assert.Same(bp, TreeCommitService.FindBranchPointById(tree, "bp1"));
-            Assert.Null(TreeCommitService.FindBranchPointById(tree, "bp2"));
-            Assert.Null(TreeCommitService.FindBranchPointById(tree, ""));
-            Assert.Null(TreeCommitService.FindBranchPointById(tree, null));
-            Assert.Null(TreeCommitService.FindBranchPointById(null, "bp1"));
-            Assert.Null(TreeCommitService.FindBranchPointById(new RecordingTree { BranchPoints = null }, "bp1"));
-        }
 
         [Fact]
         public void FindCommittedRecordingIndex_IdMatchWinsOverReference()

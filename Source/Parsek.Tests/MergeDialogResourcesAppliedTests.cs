@@ -321,7 +321,6 @@ namespace Parsek.Tests
                 l.Contains("[Quicksave]")
                 && l.Contains("Refreshed persistent.sfs after merge dialog Tree Discard")
                 && l.Contains("discarded tree had 1 recording IDs"));
-            Assert.DoesNotContain(logLines, l => l.Contains("Refreshed quicksave.sfs"));
             Assert.Contains(logLines, l =>
                 l.Contains("[Quicksave]")
                 && l.Contains("Quicksave not refreshed after discard (the player's F5 point is kept)")

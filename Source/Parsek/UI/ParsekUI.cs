@@ -1551,17 +1551,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Horizontal distance from a column header's text to the text of the body cell
-        /// under it: each text starts at its cell's x plus its style's left padding (both
-        /// left-aligned). Zero is aligned; negative is body text left of the header text.
-        /// </summary>
-        internal static int HeaderToCellTextDeltaPx(int headerCellX, int headerPaddingLeft,
-            int bodyCellX, int bodyPaddingLeft)
-        {
-            return (bodyCellX + bodyPaddingLeft) - (headerCellX + headerPaddingLeft);
-        }
-
-        /// <summary>
         /// Section bar for a bar drawn directly above a table: like
         /// <see cref="GetSectionHeaderStyle"/> but with the same zeroed horizontal
         /// margin the table row and body box carry, so the bar spans exactly the

@@ -219,11 +219,12 @@ namespace Parsek.Tests
         [Fact]
         public void Control_TransferMembersOnly_StripsTheBoardedVessel()
         {
-            // The pre-fix member set: the board child replays, so its adopted pid is stripped.
+            // The pre-fix member set (InventoryTransfer members only, none in this shape): the
+            // board child replays, so its adopted pid is stripped.
             BuildBoardShape();
             var scope = RewindSpawnScope.ResolveRewindSpawnStripScope(
                 RecordingStore.CollectAllCommittedRecordings(), AdjustedUT,
-                ForeignInventoryTransfer.CollectTransferMemberRecordingIds(RecordingStore.CommittedTrees));
+                new HashSet<string>(StringComparer.Ordinal));
             Assert.Contains(KerbalXPid, scope.StripPids);
             Assert.Contains(logLines, l => l.Contains("strip spawned pid=" + KerbalXPid) && l.Contains("via holder-replays"));
         }

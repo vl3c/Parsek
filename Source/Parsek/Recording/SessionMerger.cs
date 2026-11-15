@@ -1307,25 +1307,6 @@ namespace Parsek
             return ratio.ToString("F2", CultureInfo.InvariantCulture);
         }
 
-        /// <summary>
-        /// Returns an anchor identity for Relative sections, or empty when the section
-        /// has no usable anchor identity. Missing anchors are intentionally not reported
-        /// as pid:0 because two malformed sections must not compare as same-anchor.
-        /// </summary>
-        internal static string AnchorIdentityKey(TrackSection section)
-        {
-            if (section.referenceFrame != ReferenceFrame.Relative)
-                return string.Empty;
-
-            if (!string.IsNullOrEmpty(section.anchorRecordingId))
-                return "recording:" + section.anchorRecordingId;
-
-            if (section.anchorVesselId == 0u)
-                return string.Empty;
-
-            return "pid:" + section.anchorVesselId.ToString(CultureInfo.InvariantCulture);
-        }
-
         private static int HealBackgroundActiveUnrecordedGapBoundaries(
             string recId, string vesselName, List<TrackSection> sections,
             int recordingFormatVersion, out List<TrackSection> preHealSections)

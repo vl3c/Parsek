@@ -787,20 +787,6 @@ namespace Parsek.Tests
 
     public class WatchCutoffTests
     {
-        [Theory]
-        [InlineData(299000, 300, false)]  // just inside 300km cutoff
-        [InlineData(300000, 300, true)]   // at boundary → exit
-        [InlineData(301000, 300, true)]   // just outside
-        [InlineData(0, 300, false)]       // on the pad
-        [InlineData(1500000, 300, true)]  // way beyond
-        [InlineData(99000, 100, false)]   // custom 100km cutoff, inside
-        [InlineData(100000, 100, true)]   // custom 100km cutoff, at boundary
-        [InlineData(4999999, 5000, false)] // 5000km cutoff, just inside
-        [InlineData(5000000, 5000, true)]  // exactly at boundary
-        public void ShouldExitWatchForCutoff(double distMeters, float cutoffKm, bool expected)
-        {
-            Assert.Equal(expected, GhostPlaybackLogic.ShouldExitWatchForCutoff(distMeters, cutoffKm));
-        }
 
         [Fact]
         public void IsWithinWatchRange_WithinCutoff_True()
@@ -910,15 +896,6 @@ namespace Parsek.Tests
                 RecordingStore.ResetForTesting();
             }
         }
-
-        [Theory]
-        [InlineData(500000, 300, true)]    // orbital ghost 500km away — exit
-        [InlineData(100000, 300, false)]   // orbital ghost within cutoff — no exit
-        [InlineData(300000, 300, true)]    // orbital at exact boundary — exit
-        public void ShouldExitWatchForCutoff_AppliesUniformly(double distMeters, float cutoffKm, bool expected)
-        {
-            Assert.Equal(expected, GhostPlaybackLogic.ShouldExitWatchForCutoff(distMeters, cutoffKm));
-        }
     }
 
     #endregion
@@ -1025,52 +1002,6 @@ namespace Parsek.Tests
             Assert.Equal(-1, result);
         }
 
-        [Fact]
-        public void ResolveEffectiveWatchTargetIndex_SourceGhostStillActive_ReturnsSource()
-        {
-            var recs = new List<Recording>
-            {
-                MakeRec("r0", chainId: "c1", chainIndex: 0),
-                MakeRec("r1", chainId: "c1", chainIndex: 1),
-            };
-
-            int result = GhostPlaybackLogic.ResolveEffectiveWatchTargetIndex(
-                0, recs, new List<RecordingTree>(), idx => idx == 0 || idx == 1);
-
-            Assert.Equal(0, result);
-        }
-
-        [Fact]
-        public void ResolveEffectiveWatchTargetIndex_ChainSingleHop_ReturnsActiveContinuation()
-        {
-            var recs = new List<Recording>
-            {
-                MakeRec("r0", chainId: "c1", chainIndex: 0),
-                MakeRec("r1", chainId: "c1", chainIndex: 1),
-            };
-
-            int result = GhostPlaybackLogic.ResolveEffectiveWatchTargetIndex(
-                0, recs, new List<RecordingTree>(), idx => idx == 1);
-
-            Assert.Equal(1, result);
-        }
-
-        [Fact]
-        public void ResolveEffectiveWatchTargetIndex_ChainMultiHopThroughInactiveIntermediate_ReturnsDeepActiveSegment()
-        {
-            var recs = new List<Recording>
-            {
-                MakeRec("r0", chainId: "c1", chainIndex: 0),
-                MakeRec("r1", chainId: "c1", chainIndex: 1),
-                MakeRec("r2", chainId: "c1", chainIndex: 2),
-            };
-
-            int result = GhostPlaybackLogic.ResolveEffectiveWatchTargetIndex(
-                0, recs, new List<RecordingTree>(), idx => idx == 2);
-
-            Assert.Equal(2, result);
-        }
-
         // --- Tree branching ---
 
         [Fact]
@@ -1098,46 +1029,6 @@ namespace Parsek.Tests
             int result = GhostPlaybackLogic.FindNextWatchTarget(
                 recs[0], recs, new List<RecordingTree> { tree }, idx => true);
             Assert.Equal(2, result); // same vessel PID preferred over debris
-        }
-
-        [Fact]
-        public void ResolveEffectiveWatchTargetIndex_TreeMultiHopThroughInactiveIntermediates_ReturnsDeepActiveDescendant()
-        {
-            var bp1 = new BranchPoint
-            {
-                Id = "bp1",
-                ChildRecordingIds = new List<string> { "child-1", "other-vessel" }
-            };
-            var bp2 = new BranchPoint
-            {
-                Id = "bp2",
-                ChildRecordingIds = new List<string> { "child-2" }
-            };
-            var bp3 = new BranchPoint
-            {
-                Id = "bp3",
-                ChildRecordingIds = new List<string> { "child-3" }
-            };
-            var tree = new RecordingTree
-            {
-                Id = "t1",
-                TreeName = "Test",
-                BranchPoints = new List<BranchPoint> { bp1, bp2, bp3 }
-            };
-
-            var recs = new List<Recording>
-            {
-                MakeRec("root", vesselPid: 100, treeId: "t1", childBpId: "bp1"),
-                MakeRec("child-1", vesselPid: 100, treeId: "t1", childBpId: "bp2"),
-                MakeRec("other-vessel", vesselPid: 200, treeId: "t1"),
-                MakeRec("child-2", vesselPid: 100, treeId: "t1", childBpId: "bp3"),
-                MakeRec("child-3", vesselPid: 100, treeId: "t1"),
-            };
-
-            int result = GhostPlaybackLogic.ResolveEffectiveWatchTargetIndex(
-                0, recs, new List<RecordingTree> { tree }, idx => idx == 4);
-
-            Assert.Equal(4, result);
         }
 
         [Fact]
@@ -1171,40 +1062,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResolveEffectiveWatchTargetIndex_NonBreakupInactiveFallbackChild_DoesNotDescendIntoActiveGrandchild()
-        {
-            var bp1 = new BranchPoint
-            {
-                Id = "bp1",
-                Type = BranchPointType.Undock,
-                ChildRecordingIds = new List<string> { "fallback-main" }
-            };
-            var bp2 = new BranchPoint
-            {
-                Id = "bp2",
-                ChildRecordingIds = new List<string> { "fallback-grandchild" }
-            };
-            var tree = new RecordingTree
-            {
-                Id = "t1",
-                TreeName = "Test",
-                BranchPoints = new List<BranchPoint> { bp1, bp2 }
-            };
-
-            var recs = new List<Recording>
-            {
-                MakeRec("root", vesselPid: 100, treeId: "t1", childBpId: "bp1"),
-                MakeRec("fallback-main", vesselPid: 300, treeId: "t1", childBpId: "bp2"),
-                MakeRec("fallback-grandchild", vesselPid: 300, treeId: "t1"),
-            };
-
-            int result = GhostPlaybackLogic.ResolveEffectiveWatchTargetIndex(
-                0, recs, new List<RecordingTree> { tree }, idx => idx == 2);
-
-            Assert.Equal(-1, result);
-        }
-
-        [Fact]
         public void TreeBranch_BreakupDifferentPid_DoesNotFallbackToActiveChild()
         {
             var bp = new BranchPoint
@@ -1228,34 +1085,6 @@ namespace Parsek.Tests
 
             int result = GhostPlaybackLogic.FindNextWatchTarget(
                 recs[0], recs, new List<RecordingTree> { tree }, idx => true);
-            Assert.Equal(-1, result);
-        }
-
-        [Fact]
-        public void ResolveEffectiveWatchTargetIndex_BreakupDifferentPid_DoesNotFallbackToActiveChild()
-        {
-            var bp = new BranchPoint
-            {
-                Id = "bp1",
-                Type = BranchPointType.Breakup,
-                ChildRecordingIds = new List<string> { "child-main" }
-            };
-            var tree = new RecordingTree
-            {
-                Id = "t1",
-                TreeName = "Test",
-                BranchPoints = new List<BranchPoint> { bp }
-            };
-
-            var recs = new List<Recording>
-            {
-                MakeRec("root", vesselPid: 100, treeId: "t1", childBpId: "bp1"),
-                MakeRec("child-main", vesselName: "Ship", vesselPid: 300, treeId: "t1"),
-            };
-
-            int result = GhostPlaybackLogic.ResolveEffectiveWatchTargetIndex(
-                0, recs, new List<RecordingTree> { tree }, idx => idx == 1);
-
             Assert.Equal(-1, result);
         }
 
@@ -2095,7 +1924,7 @@ namespace Parsek.Tests
             orphanEva.EvaCrewName = "Bob Kerman";
             orphanEva.RecordingGroups = new List<string> { "Bob Kerman" };
             RecordingStore.AddRecordingWithTreeForTesting(orphanEva);
-            RecordingGroupStore.MarkAutoAssignedStandaloneGroup(orphanEva, "Bob Kerman");
+            orphanEva.AutoAssignedStandaloneGroupName = "Bob Kerman"; // the marker as a loaded save carries it
 
             var tree = new RecordingTree
             {
@@ -2146,7 +1975,7 @@ namespace Parsek.Tests
         {
             var rec = MakeRec("roundtrip", "Bob Kerman", pid: 300, startUT: 120, endUT: 180);
             rec.RecordingGroups = new List<string> { "Bob Kerman" };
-            RecordingGroupStore.MarkAutoAssignedStandaloneGroup(rec, "Bob Kerman");
+            rec.AutoAssignedStandaloneGroupName = "Bob Kerman"; // the marker as a loaded save carries it
 
             var node = new ConfigNode("RECORDING");
             RecordingTree.SaveRecordingResourceAndState(node, rec);
@@ -2163,7 +1992,7 @@ namespace Parsek.Tests
             var renameRec = MakeRec("rename", "Bob Kerman", pid: 300, startUT: 120, endUT: 180);
             renameRec.RecordingGroups = new List<string> { "Bob Kerman" };
             RecordingStore.AddRecordingWithTreeForTesting(renameRec);
-            RecordingGroupStore.MarkAutoAssignedStandaloneGroup(renameRec, "Bob Kerman");
+            renameRec.AutoAssignedStandaloneGroupName = "Bob Kerman"; // the marker as a loaded save carries it
 
             Assert.True(RecordingGroupStore.RenameGroup("Bob Kerman", "Crew A", RecordingStore.CommittedRecordings, RecordingStore.CommittedTrees));
             Assert.Null(renameRec.AutoAssignedStandaloneGroupName);
@@ -2171,7 +2000,7 @@ namespace Parsek.Tests
             var replaceRec = MakeRec("replace", "Bill Kerman", pid: 301, startUT: 120, endUT: 180);
             replaceRec.RecordingGroups = new List<string> { "Bill Kerman" };
             RecordingStore.AddRecordingWithTreeForTesting(replaceRec);
-            RecordingGroupStore.MarkAutoAssignedStandaloneGroup(replaceRec, "Bill Kerman");
+            replaceRec.AutoAssignedStandaloneGroupName = "Bill Kerman"; // the marker as a loaded save carries it
 
             Assert.Equal(1, RecordingGroupStore.ReplaceGroupOnAll("Bill Kerman", null, RecordingStore.CommittedRecordings));
             Assert.Null(replaceRec.AutoAssignedStandaloneGroupName);

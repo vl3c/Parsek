@@ -1869,21 +1869,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure: creates a MilestoneAchieved GameStateEvent from the given parameters.
-        /// Extracted for testability.
-        /// </summary>
-        internal static GameStateEvent CreateMilestoneEvent(string milestoneId, double ut)
-        {
-            return new GameStateEvent
-            {
-                ut = ut,
-                eventType = GameStateEventType.MilestoneAchieved,
-                key = milestoneId ?? "",
-                detail = ""
-            };
-        }
-
-        /// <summary>
         /// Path-qualifies body-specific milestone IDs to avoid ambiguity.
         /// Body-specific achievement classes (CelestialBodyLanding, CelestialBodyOrbit, etc.)
         /// all have a private CelestialBody body field. The bare node.Id (e.g. "Landing")

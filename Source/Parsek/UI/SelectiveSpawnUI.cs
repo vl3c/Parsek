@@ -78,24 +78,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure: determine whether a ghost qualifies as a spawn candidate.
-        /// True when endUT is in the future, spawn is needed, not suppressed,
-        /// within range, and the surface-frame relative speed is within tolerance.
-        /// </summary>
-        internal static bool IsSpawnCandidate(
-            double endUT, double currentUT,
-            bool needsSpawn, bool chainSuppressed,
-            double distance, double proximityRadius,
-            double relativeSpeed, double maxRelativeSpeed)
-        {
-            return endUT > currentUT
-                && needsSpawn
-                && !chainSuppressed
-                && distance <= proximityRadius
-                && relativeSpeed <= maxRelativeSpeed;
-        }
-
-        /// <summary>
         /// Pure: derive the relative speed (m/s) between active vessel and ghost from two
         /// position samples taken `dt` seconds apart. Frame-agnostic: any uniform shift
         /// (floating-origin, krakensbane) cancels in the per-sample relative vector.
