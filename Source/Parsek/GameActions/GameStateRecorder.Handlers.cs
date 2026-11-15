@@ -1751,7 +1751,9 @@ namespace Parsek
         /// Returns true when an existing seed event was found and accumulated — the caller
         /// must NOT emit a new event, forward to the ledger, or recalc. Returns false on the
         /// first break for a given (milestoneId, recordingId) scope, so the caller creates the
-        /// single seed event/action (and its one-time recalc) as usual.
+        /// single seed event/action (and its one-time recalc) as usual. Under an armed
+        /// committed-tree restore attempt, an event of the scope at or before the attempt's
+        /// cutoff for the recording is history and never a seed.
         ///
         /// Stateless across save/reload: it reads the persisted store + ledger, so a record
         /// break after a load accumulates into the reloaded seed rather than starting a new
@@ -1766,7 +1768,14 @@ namespace Parsek
 
             string recordingId = ResolveCurrentRecordingTag() ?? "";
 
-            // Find the existing seed event for this (milestoneId, recordingId) scope.
+            // Find the existing seed event for this (milestoneId, recordingId) scope. While a
+            // committed-tree restore attempt resumes this recording, its events at or before
+            // the attempt's cutoff are committed history, never this attempt's seed: folding
+            // into one would rewrite history and hide the award from the discard re-home and
+            // the commit, which read only the post-cutoff events.
+            bool hasAttemptCutoff = CommittedTreeRestoreAttempt.TryGetEventCutoff(
+                recordingId, out double attemptCutoffUT);
+            int skippedHistory = 0;
             var storeEvents = GameStateStore.Events;
             GameStateEvent seed = default;
             bool found = false;
@@ -1776,9 +1785,22 @@ namespace Parsek
                 if (e.eventType != GameStateEventType.MilestoneAchieved) continue;
                 if (e.key != milestoneId) continue;
                 if ((e.recordingId ?? "") != recordingId) continue;
+                if (hasAttemptCutoff && !(e.ut > attemptCutoffUT))
+                {
+                    skippedHistory++;
+                    continue;
+                }
                 seed = e;
                 found = true;
                 break;
+            }
+            if (skippedHistory > 0 && !found)
+            {
+                var icSkip = System.Globalization.CultureInfo.InvariantCulture;
+                ParsekLog.Verbose("GameStateRecorder",
+                    $"TryCoalesceWorldRecordReward: '{milestoneId}' (scope='{recordingId}') skipped " +
+                    $"{skippedHistory.ToString(icSkip)} restore-attempt history event(s) at or before " +
+                    $"cutoff={attemptCutoffUT.ToString("R", icSkip)} - the attempt starts its own seed");
             }
             if (!found)
                 return false; // first break in this scope — caller creates the seed
@@ -1835,6 +1857,10 @@ namespace Parsek
                     if (a.Type != GameActionType.MilestoneAchievement) continue;
                     if (a.MilestoneId != milestoneId) continue;
                     if ((a.RecordingId ?? "") != recordingId) continue;
+                    // A committed history row near a restore attempt's seed is not its row
+                    // (same boundary as the seed search above): the seed event already holds
+                    // the award, and folding it here too would book it twice.
+                    if (hasAttemptCutoff && !(LedgerHeldWindow.CaptureMomentUT(a) > attemptCutoffUT)) continue;
                     if (Math.Abs(LedgerHeldWindow.CaptureMomentUT(a) - seed.ut) > 0.1) continue;
                     a.MilestoneFundsAwarded += (float)funds;
                     a.MilestoneRepAwarded += rep;
