@@ -110,7 +110,9 @@ namespace Parsek.Logistics
     /// transport+endpoint stack) and extends EARLIER across a seam only while
     /// the earlier leg's run-manifest pid scope MATCHES the window scope, or
     /// is a superset AND the seam is a chain/continuation boundary - never
-    /// across an Undock/Dock/Board branch point, and never across a Launch /
+    /// across an Undock/Dock/Board branch point (save the grab and release of
+    /// a structural grapple hold, where only the grabbed object's parts come and
+    /// go), and never across a Launch /
     /// Terminal boundary (a Launch BP means a NEW flight started; craft-baked
     /// pids would otherwise extend the anchor into the previous launch). In
     /// practice: a start-docked depot run anchors at the undock-split child
@@ -818,7 +820,9 @@ namespace Parsek.Logistics
         /// the arrival leg and extends earlier across a seam only while the
         /// earlier leg's scope MATCHES the window scope, or is a SUPERSET and
         /// the seam is a chain/continuation boundary. Never across
-        /// Undock/Dock/Board (vessel-composition changes), never across
+        /// Undock/Dock/Board (vessel-composition changes) except the grab and
+        /// release of a structural grapple hold
+        /// (<see cref="IsStructuralGrappleSeam"/>), never across
         /// Launch/Terminal (new-flight boundaries; craft-baked pids would
         /// otherwise extend into a previous launch of the same craft).
         /// </summary>
@@ -828,6 +832,7 @@ namespace Parsek.Logistics
             HashSet<uint> windowScope)
         {
             int anchorIdx = arrivalIdx;
+            bool releaseCrossed = false;
             while (anchorIdx > 0)
             {
                 LineageLeg child = lineage[anchorIdx];
@@ -836,6 +841,26 @@ namespace Parsek.Logistics
 
                 bool seamIsChainOrContinuation = child.ChainSeam
                     || child.SeamType == BranchPointType.VesselSwitchContinuation;
+                HashSet<uint> earlierScope = ToScopeSet(
+                    lineage[anchorIdx - 1].Rec?.RouteRunManifest?.TransportPartPersistentIds);
+
+                // A structural grapple hold (grab -> drill -> release) is not a
+                // composition change of the transport: the held leg's scope is the
+                // transport plus exactly the grabbed object's parts, so the walk
+                // crosses the release (Undock into a held leg) and then that hold's
+                // grab (Dock out of the held leg onto the bare transport). Ore drilled
+                // while the rock was held then counts as harvest instead of riding
+                // into the anchor's start manifest unwitnessed. A grab is crossed
+                // only after its release: a transport that never let go arrives
+                // holding the object, and its anchor stays on the hold.
+                if (!child.ChainSeam
+                    && IsStructuralGrappleSeam(lineage, anchorIdx, earlierScope, windowScope, releaseCrossed))
+                {
+                    releaseCrossed = child.SeamType == BranchPointType.Undock;
+                    anchorIdx--;
+                    continue;
+                }
+
                 bool seamBlocksExtension = !child.ChainSeam
                     && (child.SeamType == BranchPointType.Undock
                         || child.SeamType == BranchPointType.Dock
@@ -845,8 +870,6 @@ namespace Parsek.Logistics
                 if (seamBlocksExtension)
                     break;
 
-                HashSet<uint> earlierScope = ToScopeSet(
-                    lineage[anchorIdx - 1].Rec?.RouteRunManifest?.TransportPartPersistentIds);
                 if (ScopeEquals(earlierScope, windowScope))
                 {
                     anchorIdx--;
@@ -860,6 +883,96 @@ namespace Parsek.Logistics
                 break;
             }
             return anchorIdx;
+        }
+
+        /// <summary>
+        /// True when the parent seam of <c>lineage[childIdx]</c> enters or leaves a
+        /// structural grapple hold of the transport: an Undock whose earlier leg is
+        /// the hold and whose child is the bare transport (only when the hold's own
+        /// Dock is crossable too, so the walk crosses both or neither), or, once that release was
+        /// crossed (<paramref name="releaseCrossed"/>), a Dock whose child is the
+        /// hold and whose earlier leg is the bare transport. A hold is a leg
+        /// whose run-manifest scope is the window scope plus exactly the endpoint
+        /// parts of one of its own Grapple connection windows whose endpoint holds
+        /// no resource storage at either corner, so the composition change is a
+        /// grabbed rock alone (a vessel with tanks keeps the old anchor).
+        /// </summary>
+        internal static bool IsStructuralGrappleSeam(
+            List<LineageLeg> lineage,
+            int childIdx,
+            HashSet<uint> earlierScope,
+            HashSet<uint> windowScope,
+            bool releaseCrossed)
+        {
+            if (lineage == null || childIdx <= 0 || childIdx >= lineage.Count)
+                return false;
+            LineageLeg child = lineage[childIdx];
+            if (!child.HasParentSeam || child.ChainSeam)
+                return false;
+            HashSet<uint> childScope = ToScopeSet(child.Rec?.RouteRunManifest?.TransportPartPersistentIds);
+            if (child.SeamType == BranchPointType.Undock)
+            {
+                // The release is crossed only together with the hold's own grab: an
+                // anchor left on the hold would take the grabbed object's tanks as
+                // baseline and could mask a gain the post-release anchor catches.
+                if (childIdx < 2)
+                    return false;
+                LineageLeg hold = lineage[childIdx - 1];
+                HashSet<uint> preGrabScope = ToScopeSet(
+                    lineage[childIdx - 2].Rec?.RouteRunManifest?.TransportPartPersistentIds);
+                return ScopeEquals(childScope, windowScope)
+                    && hold.HasParentSeam && !hold.ChainSeam
+                    && hold.SeamType == BranchPointType.Dock
+                    && ScopeEquals(preGrabScope, windowScope)
+                    && IsStructuralGrappleHold(hold.Rec, earlierScope, windowScope);
+            }
+            if (child.SeamType == BranchPointType.Dock)
+                return releaseCrossed
+                    && ScopeEquals(earlierScope, windowScope)
+                    && IsStructuralGrappleHold(child.Rec, childScope, windowScope);
+            return false;
+        }
+
+        private static bool IsStructuralGrappleHold(
+            Recording held,
+            HashSet<uint> heldScope,
+            HashSet<uint> windowScope)
+        {
+            if (held?.RouteConnectionWindows == null
+                || !ScopeCovers(heldScope, windowScope)
+                || heldScope.Count <= windowScope.Count)
+                return false;
+            var extra = new HashSet<uint>(heldScope);
+            extra.ExceptWith(windowScope);
+            for (int i = 0; i < held.RouteConnectionWindows.Count; i++)
+            {
+                RouteConnectionWindow w = held.RouteConnectionWindows[i];
+                if (w == null || w.TransferKind != RouteConnectionKind.Grapple)
+                    continue;
+                // Only an object with no resource storage (an asteroid or comet:
+                // stock rocks carry no PartResources). A grabbed vessel with tanks
+                // (a derelict, a producing colony) keeps the old anchor, or its own
+                // converters' output on the hold leg would read as transport harvest.
+                if (HasResourceStorage(w.DockEndpointResources)
+                    || HasResourceStorage(w.UndockEndpointResources))
+                    continue;
+                HashSet<uint> endpoint = ToScopeSet(w.EndpointPartPersistentIds);
+                if (endpoint != null && endpoint.Count > 0 && extra.SetEquals(endpoint))
+                    return true;
+            }
+            return false;
+        }
+
+        private static bool HasResourceStorage(Dictionary<string, ResourceAmount> resources)
+        {
+            if (resources == null)
+                return false;
+            foreach (KeyValuePair<string, ResourceAmount> kvp in resources)
+            {
+                if (kvp.Value.amount > GainEpsilon || kvp.Value.maxAmount > GainEpsilon)
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>

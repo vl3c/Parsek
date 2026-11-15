@@ -11831,15 +11831,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # is the armed confirmation re-flight and then the operator -> nightly PROMOTION
         # call, a cadence decision and not a review debt.
         "V26T-interbody-route-ts-arrival.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). V18T's tracking-station grammar on the inter-body subject. It carries ONE genuinely open question the reading run must answer rather than pass: V18T's front-door tokens (`ghostDriving=[1-9]`, `routeMissions=[1-9]`) are deliberately NOT required, because this subject's Duna route has `loopAnchorUT = -1` and has never run a cycle, so whether a never-dispatched route enters the GhostDriving selection is unmeasured - and RUN 1 ANSWERED IT: `ghostDriving=1` and `routeMissions=1` both printed, so dispatch history is NOT a precondition for a route driving a tracking-station ghost, and both tokens are REQUIRED from the armed re-flight onward. The renderComposition arming pass this lane owed was TAKEN 2026-09-07 (package P16, after reading run 3 `2026-09-06_2115` PASS attempt 1): armed on `routeLineBuilds = {min = 2}` + `routeCoDrawViolations = {max = 0}`, deliberately symmetric with V26M and with no `unevaluable` ceiling on either. The armed re-flight and the negative control are OWED.",
-        # THE KLAW LANES, 2026-11-15 (owner rulings V 2026-11-15). Operator-tier by the
-        # reading-run discipline: five never-flown autopilot lanes on four new fixtures
-        # (build_ast_klaw_fixtures.py) with an invented, module-less Klaw part and a new
-        # mission (`ast_klaw_grab`); some pins wait on sibling fixes named in each header.
-        "AST-1-klaw-grab-rewind.toml": "operator by the reading-run discipline; AUTHORED 2026-11-15, NEVER FLOWN (a Klaw probe grabs the real asteroid `Ast. VPA-167` under RCS on ast-klaw-lko, the grab a cross-tree Dock merge of couple kind Grapple, commit, Rewind-to-Launch, the rock claimed and held with a hold ghost until the ghost grab, the probe and rock real at the tip); the Klaw's event names, the approach itself, the hold's evidence and the tip spawn line are re-pinned off the first flight, then the tier is promoted by its measured p50",
-        "AST-2-klaw-release.toml": "operator by the reading-run discipline; AUTHORED 2026-11-15, NEVER FLOWN (AST-1's grab, then the Klaw releases the rock: an Undock split whose only controllable child is the probe, no rewind point, the rock a recording of its own, real at its own tip after Rewind-to-Launch); the no-RP pins wait on the IsTrackableVessel sibling fix; the release event, the rock's post-release name and the recordings count are re-pinned off the first flight, then the tier is promoted by its measured p50",
-        "COM-1-comet-klaw-grab.toml": "operator by the reading-run discipline; AUTHORED 2026-11-15, NEVER FLOWN (AST-1 with the comet `UnknownComet` on com-klaw-lko, a 44 m nucleus: the grab, the claim, the rewind hold ghost at the comet's own size, the tip); whether the Klaw captures a comet at this approach and the 44 m standoff are re-pinned off the first flight, then the tier is promoted by its measured p50",
-        "AST-3-klaw-mine-route.toml": "operator by the reading-run discipline; AUTHORED 2026-11-15, NEVER FLOWN (a mining Klaw probe grabs and drills the asteroid for 30 s through mid-mission seam PartActions, releases it, MechJeb-docks with a depot, moves the Ore in, undocks; a route from the recording is a harvest origin whose empty grapple window is no stop, one cycle delivers); the capped plausible-rate pin waits on its sibling fix; the asteroid drill's yield, the dominant vessel after the dock and the route's stop count are re-pinned off the first flight, then the tier is promoted by its measured p50",
-        "AST-4-klaw-refly.toml": "operator by the reading-run discipline; AUTHORED 2026-11-15, NEVER FLOWN (a Klaw probe separates from its mothership, a two-slot rewind point, grabs the asteroid and commits; a Re-Fly of the mothership's slot holds the rock with a hold ghost until the ghost grab, the attempt merges, no second rock); the slot order, which holder takes the rock and the recordings count are re-pinned off the first flight, then the tier is promoted by its measured p50",
+        # THE KLAW LANES, 2026-11-15 (owner rulings V 2026-11-15): all five flew green and
+        # left for nightly (see TIER_PROMOTED_2026_11_15).
     }
 
     def _specs(self):
@@ -11986,6 +11979,20 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "GS-9-kerbalx-repeat-rewind.toml",
     )
 
+    # 2026-11-15: the five Klaw lanes flew their reading runs green (AST-1
+    # `2026-11-15_1932`, AST-2 `_1932`, AST-4 `_1941`, each PASS attempt 1 on fcceccd;
+    # COM-1 `_2010` PASS attempt 1 on 4c6915a7; AST-3 `_2130` PASS attempt 1 on
+    # 61e36bd8, its fifth flight), were re-pinned off them, and moved to nightly by
+    # their measured wall (259 / 310 / 305 / 332 / 658 s, under the 1,800 s longhaul
+    # bar). Their save-structure blocks stay report-only (arming is a separate call).
+    TIER_PROMOTED_2026_11_15 = (
+        "AST-1-klaw-grab-rewind.toml",
+        "AST-2-klaw-release.toml",
+        "AST-3-klaw-mine-route.toml",
+        "AST-4-klaw-refly.toml",
+        "COM-1-comet-klaw-grab.toml",
+    )
+
     def test_the_tier_promoted_specs_left_both_inventories(self):
         """The promotion is an OPERATOR DECISION, so it is pinned rather than
         trusted. Three ways it could rot, and each reds here:
@@ -11999,7 +12006,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             outstanding human work against a call that has been made."""
         promoted = ([(n, "2026-08-29") for n in self.TIER_PROMOTED_2026_08_29] +
                     [(n, "2026-09-08") for n in self.TIER_PROMOTED_2026_09_08] +
-                    [(n, "2026-09-15") for n in self.TIER_PROMOTED_2026_09_15])
+                    [(n, "2026-09-15") for n in self.TIER_PROMOTED_2026_09_15] +
+                    [(n, "2026-11-15") for n in self.TIER_PROMOTED_2026_11_15])
         for name, when in promoted:
             with self.subTest(spec=name):
                 spec = load_spec(name)

@@ -20,7 +20,41 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~ROCK-GHOST-PREFAB-MESH~~: a grabbed asteroid or comet replays as the part prefab's small placeholder lump [FILED 2026-11-15 from the H42 flight log of 2026-10-12. FIXED 2026-11-15, branch `ast-ghost-visual`; xUnit + in-game `ClawCouple`; H42 / H41 re-flight owed; low (visual only)]
+## ~~ROUTE-HELD-ROCK-HARVEST-UNCOUNTED~~: Ore drilled from a Klaw-held rock was not counted as harvest, so the route was refused [FILED 2026-11-15 from the AST-3 flight `2026-11-15_2035_AST-3-klaw-mine-route` (PR #2633; results branch `ast-flights-2026-11-15`, folder `ast-klaw-2026-11-15d`). FIXED 2026-11-15, same PR; xUnit; AST-3 re-flown green 2026-11-15 (folder ast-klaw-2026-11-15e); medium (a rock-mining route could never be made)]
+
+What the player saw: launch a miner, grab a rock with the Klaw, drill it, release it, dock at a
+station and move the Ore across. Creating a route from that flight was refused: `RouteAnalysis
+rejected: undocked-start origin (harvest-refined) ... reason=delivered-exceeds-harvested
+resource=Ore delivered=0.7994 harvested=0`, although the hold leg carried the harvest window.
+
+Cause: the harvest gain check anchors its backward walk at the arrival leg and never crossed an
+Undock / Dock branch point, so the anchor was the leg after the release. The drilled Ore was
+already aboard at that leg's start (zero gain), and the hold leg's harvest window sat before the
+anchor and was excluded, so the harvested total was 0 and the undocked-start gate refused.
+
+Fix: `RouteHarvestAnalysis.FindGainAnchorIndex` crosses the grab and the release of a structural
+grapple hold (`IsStructuralGrappleSeam`): an Undock out of a leg, and then that leg's own Dock,
+whose run manifest scope is the window scope plus exactly the endpoint parts of one of its own
+Grapple connection windows whose endpoint has no resource storage at either corner (a rock;
+a derelict or colony with tanks keeps the old anchor, or its own converters' output would read
+as transport harvest), with the bare transport on the other side. Both seams are crossed or
+neither: a transport that arrives still holding the object keeps its anchor on the hold, and a
+grab from a larger vessel keeps the post-release anchor. In AST-3 the anchor becomes the launch
+leg and the drill window counts. A docking-port hold, or a hold that also carries other parts,
+still stops the walk. Tests: `RouteHarvestAnalysisComputeTests` (six anchor-walk cells) and
+`RouteHarvestAnalysisTests.CheckTransportGains_OreDrilledOnAHeldRock_CountsAsHarvest`.
+
+## REFLY-ATTEMPT-STALE-END-UT: a flown Re-Fly attempt can be saved with its end UT at its start [FILED 2026-11-15 from the AST-4 reading run `2026-11-15_1941_AST-4-klaw-refly` (PR #2633, fcceccd; results branch `ast-flights-2026-11-15`, folder `ast-klaw-2026-11-15b`); not investigated; severity unknown]
+
+What was seen (report-only, the lane passed): in the produced save the Re-Fly attempt recording
+reads `explicitEndUT = 358.01` (its start UT) and `pointCount = 1`, while its `.prec` sidecar
+holds an orbit segment from UT 358.0 to 1097.5 plus one point at 1097.5. The log carries the
+observation-only `outcome=unbound-refly-provisional reason=refly-provisional-has-no-trajectory-at-save`
+at the invoke's save. Open question: is the end UT written once at that early save and never
+refreshed after the attempt flies, and does anything (playback end, spawn, Missions duration)
+read the stale value? Fix: none yet; first decide whether the metadata or the sidecar is right.
+
+## ~~ROCK-GHOST-PREFAB-MESH~~: a grabbed asteroid or comet replays as the part prefab's small placeholder lump [FILED 2026-11-15 from the H42 flight log of 2026-10-12. FIXED 2026-11-15, branch `ast-ghost-visual`; xUnit + in-game `ClawCouple`; H42 and H41 re-flown green 2026-11-15; low (visual only)]
 
 What the player sees: a 40 m asteroid on a ghost ship's claw, a released asteroid's own replay and
 the hold ghost of a claimed rock after a rewind (`ClaimedVesselHoldGhost`, built from the despawn
@@ -62,11 +96,14 @@ scale, cache key, culture-invariant line); the generator `VesselSnapshotBuilder.
 now writes the ModuleAsteroid fields and `LoneComet` the ModuleComet ones; the in-game
 `ClawedAsteroidSnapshot_SurvivesGhostVisualBuild` now asserts the asteroid and a lone comet ghost
 carry the generated rock (no placeholder, no collider) with bounds within 1% per axis of the rock
-stock's own `Generate` builds for the seed. ClawCouple keeps 2 cells; H41's `roidGhostRenderers=1`
-pin is unchanged (one renderer either way).
+stock's own `Generate` builds for the seed. ClawCouple keeps 2 cells. H41 flown 2026-11-15 printed
+`roidGhostRenderers=2` (the generated rock beside the one prefab renderer the ghost still clones, which
+is not under a `potatoroid` transform), so its pin is `[12]` and the cell now checks every kept prefab
+renderer against the live rock part (`droppedByStock=0`): if stock destroyed it, the ghost shows a lump
+stock does not, and the cell fails.
 
-Residue: (a) fly H42 (and H41) on a build with this fix; neither cell has run against the stock
-generator yet. (b) Not reproduced: the comet tail, coma, geysers and near dust; map /
+Residue: (a) H42 flew green on this fix 2026-11-15 (`2026-11-15_1904`); H41 re-flies with the live-rock
+check. (b) Not reproduced: the comet tail, coma, geysers and near dust; map /
 Tracking Station ghosts (ProtoVessel stand-ins, unchanged). (c) Unverified: a secondary
 (`currentState = 2`) comet's glow colour is drawn after the collider meshes; the ghost passes
 `optimizeCollider = false` (the persisted value lives on the `CometVessel` vessel module, not the
@@ -1710,9 +1747,16 @@ uncovered by the reviewer; the four cheap ones first):
   rewind point, the rock's own recording), COM-1 (a comet), AST-3 (drill a held rock, release,
   dock with a depot, a harvest-origin route that delivers) and AST-4 (Re-Fly across a grab), on
   four fixtures from `harness/tools/build_ast_klaw_fixtures.py` and the mission `ast_klaw_grab`.
-  Open until they fly green; several pins wait on the SpaceObject-controllability, asteroid
-  plausible-rate and rock-ghost sibling fixes. A derelict (a dead vessel, not a rock) is still
-  unflown.
+  Second and third flights 2026-11-15 (PR #2633): AST-1, AST-2, AST-4 and COM-1 PASS; AST-3
+  drills Ore but ran out of monopropellant on the dock (a second mono pair added).
+  AST-1, AST-2, AST-4 and COM-1 are re-pinned off those green reading runs and promoted to
+  nightly (save-structure blocks still report-only; arming is the operator's call).
+  ~~Open until AST-3 flies green~~ DONE for the rock lanes: AST-3 flew green on its fifth flight
+  (`2026-11-15_2130`, 61e36bd8, folder `ast-klaw-2026-11-15e`, after the drill-facing and
+  second-mono-pair fixture changes and ROUTE-HELD-ROCK-HARVEST-UNCOUNTED), was re-pinned and
+  promoted to nightly; the SpaceObject-controllability, asteroid plausible-rate and rock-ghost
+  sibling-fix pins all read in the green runs. Still open: a derelict (a dead vessel, not a
+  rock) is unflown.
 - [ ] A launch abort: escape system fired on ascent, capsule lands, booster destroyed, merge.
 - [ ] Cheat menu Set Orbit / Set Position while recording (xUnit only today).
 

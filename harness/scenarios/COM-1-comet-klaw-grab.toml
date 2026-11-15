@@ -1,10 +1,13 @@
 schema = 1
 id = "COM-1-comet-klaw-grab"
-tier = "operator"
+tier = "nightly"
 # =====================================================================================
 # COM-1 (owner rulings V 2026-11-15, the Klaw lanes). AUTHORED 2026-11-15 on branch
-# `ast-lanes`, NEVER FLOWN. AST-1 with a COMET: every window below is a reading-run guess;
-# the lane is re-pinned off its first flight and the tier promoted by its measured p50.
+# `ast-lanes`. AST-1 with a COMET. FLOWN GREEN 2026-11-15: reading run
+# `2026-11-15_2010_COM-1-comet-klaw-grab` (branch claude/project-thread-7yabo0 at 4c6915a7, the
+# fcceccd DLL, PASS attempt 1, wall 332 s, mission 227 s; results on branch
+# `ast-flights-2026-11-15`, folder `ast-klaw-2026-11-15c`). Every window below is re-pinned off
+# that run and the tier promoted operator -> nightly by its measured wall.
 #
 # THE RULINGS UNDER TEST: AST-1's (not recorded before the grab, a Dock merge of couple kind
 # Grapple, claimed and held after a rewind with no second copy, real at the tip), for a
@@ -23,19 +26,24 @@ tier = "operator"
 # hold 15 + settle 5 = UT 830 on OK; the post-rewind warp to UT 1100 is past it and the tip.
 #
 # SIBLING-FIX DEPENDENCIES: `RockGhost built: path=` (the comet's hold ghost at its own size;
-# PROVISIONAL literal, the sibling fix owns it).
+# the run read `path=stock-generator kind=comet part='PotatoComet' ... radius=44.47`).
 #
-# UNKNOWNS THE FIRST (READING) RUN ANSWERS: AST-1's, plus whether the Klaw captures a comet
-# nucleus at all at this approach speed, whether a 44 m standoff measured to the comet's
-# vessel position is the contact distance, whether the comet's own coma / tail FX survive the
-# hold ghost, and the probe's handling with a comet held (no burn follows the capture).
+# WHAT THE READING RUN ANSWERED: AST-1's, plus: the Klaw captures the nucleus at this approach
+# (the stock target at 149.5 m, the couple `fromPart=PotatoComet toPart=GrapplingDevice`), so
+# the 44 m standoff is a working contact distance; the comet's coma / tail FX are NOT on the
+# hold ghost (`cometVfx=skipped-needs-live-comet-vessel`); the hold (`evidence=chain`) is
+# released `reason=claimed` at the ghost grab (UT 577.3) and the tip takes `Chain tip spawn
+# complete: #1 "AST Klaw" pid=2710401000`, one `UnknownComet` part in the produced save.
 #
-# FAST-LANE CHECKLIST: as AST-1; the approach give-up is 400 s (the longest 1x span); count 2..2.
+# FAST-LANE CHECKLIST: as AST-1; the approach give-up is 400 s (the longest 1x span); count
+# 2..2 and every structure window pinned to the reading run; nightly, 332 s measured.
+# flight_efficiency.py on the reading run: 227 s of mission wall, 195 s the 1x RCS approach;
+# the 30 s it ranks recoverable as a coast is the drift between RCS corrections.
 # =====================================================================================
 description = "COM-1: AST-1 with a comet. A probe grabs the comet UnknownComet (a PotatoComet, nucleus about 44 m) with the Klaw in low Kerbin orbit, commits, and after Rewind-to-Launch the ghost chain claims the comet, the rewind holds it out of the world with a hold ghost at the comet's own size until the ghost probe grabs it, and at the tip the probe and the comet spawn real as one vessel with no second copy."
 instanceProfile = "stock-minimal"
 tags = ["comet", "asteroid", "klaw", "grapple", "dock", "ghost-chain", "rewind-to-launch",
-        "rewind-hold", "rcs", "COM-1", "reading-run", "pending-flight"]
+        "rewind-hold", "rcs", "COM-1", "reading-run", "flown"]
 
 [fixture]
 saveTemplate = "fixtures/saves/com-klaw-lko"
@@ -102,15 +110,19 @@ D18 = ["committed-interaction-claiming"]
 allowedAnomalies = []
 
 [expectations.recordings]
+# The root (ends in the Dock merge) and the merge child; the reading run read 2.
 count = { min = 2, max = 2 }
 
 [expectations.recordings.structure]
-# REPORT-ONLY until the reading run (AST-1's shape).
+# REPORT-ONLY, AST-1's shape. The reading run of 2026-11-15
+# (`2026-11-15_2010_COM-1-comet-klaw-grab`) matched every window below; arming is the
+# operator's call.
 gating            = false
 trees             = { min = 1, max = 1 }
 committedTrees    = { min = 1, max = 1 }
 branchPoints      = { Dock = { min = 1, max = 1 } }
 spaceObjectParts  = { "UnknownComet" = { min = 1, max = 1 } }
+spawnedVessels    = { min = 1, max = 1 }
 vesselNames       = { "AST Klaw" = { min = 1, max = 1 }, "AST Watcher" = { min = 1, max = 1 } }
 recordingNames    = { "AST Klaw" = { min = 2, max = 2 }, "UnknownComet" = { min = 0, max = 0 } }
 
@@ -151,7 +163,8 @@ forbidden = [
 ]
 
 [runtime]
-# AST-1's shape with a longer approach.
+# AST-1's shape with a longer approach. The reading run took 332 s; the budget stays the
+# step-budget envelope.
 budgetSeconds = 2400
 
 [retry]

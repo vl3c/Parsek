@@ -854,6 +854,123 @@ namespace Parsek.Tests.Logistics
             Assert.Contains("manifest-incomplete", result.LegacyReason);
         }
 
+        // AST-3 (2026-11-15): launch -> Klaw grab of a rock (Dock BP) -> drill the
+        // held rock -> release (Undock BP) -> fly to the colony and deliver. The
+        // drilled Ore is aboard when the released transport's leg starts, so an
+        // anchor on that leg read it as zero gain and zero harvest, and the
+        // undocked-start gate then refused the route (delivered 0.8, harvested 0).
+        // The structural grapple hold is crossed: the anchor is the launch leg and
+        // the hold's harvest window counts.
+        private const uint RockPid = 400;
+
+        private static RecordingTree BuildGrabDrillReleaseTree(
+            out Recording launch, out Recording hold, out Recording released, out Recording merge,
+            RouteConnectionKind holdKind = RouteConnectionKind.Grapple)
+        {
+            launch = new Recording
+            {
+                RecordingId = "launch", TreeId = "tree-rock",
+                ExplicitStartUT = 0.0, ExplicitEndUT = 100.0,
+                RouteRunManifest = CompleteManifest(new[] { TransportPid }, Ore(0.0), Ore(0.0))
+            };
+            hold = new Recording
+            {
+                RecordingId = "hold", TreeId = "tree-rock",
+                ExplicitStartUT = 100.0, ExplicitEndUT = 200.0,
+                ParentBranchPointId = "bp-grab",
+                RouteRunManifest = CompleteManifest(
+                    new[] { TransportPid, RockPid }, Ore(0.0), Ore(0.8)),
+                RouteHarvestWindows = new List<RouteHarvestWindow>
+                {
+                    HarvestWindow(120.0, 150.0, Ore(0.0), Ore(0.8), body: "Kerbin", situation: 32)
+                },
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    new RouteConnectionWindow
+                    {
+                        WindowId = "rock-grab", DockUT = 100.0, UndockUT = 200.0,
+                        TransferKind = holdKind,
+                        TransportPartPersistentIds = new List<uint> { TransportPid },
+                        EndpointPartPersistentIds = new List<uint> { RockPid },
+                        DockTransportResources = Ore(0.0),
+                        UndockTransportResources = Ore(0.8),
+                    }
+                }
+            };
+            released = new Recording
+            {
+                RecordingId = "released", TreeId = "tree-rock",
+                ExplicitStartUT = 200.0, ExplicitEndUT = DockUT,
+                ParentBranchPointId = "bp-release",
+                RouteRunManifest = CompleteManifest(new[] { TransportPid }, Ore(0.8), Ore(0.8))
+            };
+            merge = new Recording
+            {
+                RecordingId = "merge", TreeId = "tree-rock",
+                ExplicitStartUT = DockUT, ExplicitEndUT = UndockUT,
+                ParentBranchPointId = "bp-dock",
+                RouteRunManifest = CompleteManifest(
+                    new[] { TransportPid, ColonyPid }, Ore(0.8), Ore(0.0))
+            };
+            var tree = new RecordingTree
+            {
+                Id = "tree-rock", RootRecordingId = launch.RecordingId,
+                ActiveRecordingId = merge.RecordingId
+            };
+            tree.AddOrReplaceRecording(launch);
+            tree.AddOrReplaceRecording(hold);
+            tree.AddOrReplaceRecording(released);
+            tree.AddOrReplaceRecording(merge);
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-grab", UT = 100.0, Type = BranchPointType.Dock,
+                ParentRecordingIds = new List<string> { launch.RecordingId },
+                ChildRecordingIds = new List<string> { hold.RecordingId }
+            });
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-release", UT = 200.0, Type = BranchPointType.Undock,
+                ParentRecordingIds = new List<string> { hold.RecordingId },
+                ChildRecordingIds = new List<string> { released.RecordingId }
+            });
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "bp-dock", UT = DockUT, Type = BranchPointType.Dock,
+                ParentRecordingIds = new List<string> { released.RecordingId },
+                ChildRecordingIds = new List<string> { merge.RecordingId }
+            });
+            return tree;
+        }
+
+        [Fact]
+        public void CheckTransportGains_OreDrilledOnAHeldRock_CountsAsHarvest()
+        {
+            RecordingTree tree = BuildGrabDrillReleaseTree(out _, out _, out _, out Recording merge);
+
+            HarvestGainCheckResult result = RouteHarvestAnalysis.CheckTransportGains(
+                tree, merge, ColonyWindow(0.8, 0.0), RouteAnalysisLogMode.Diagnostic);
+
+            Assert.Equal(HarvestGainOutcome.Covered, result.Outcome);
+            Assert.Equal("launch", result.AnchorLeg.RecordingId);
+            Assert.Equal(0.8, result.HarvestedManifest["Ore"], 6);
+        }
+
+        [Fact]
+        public void CheckTransportGains_DockedHoldNotAGrapple_KeepsTheReleaseAsAnchor()
+        {
+            // The same shape with a docking-port hold is a real composition
+            // change: the anchor stays after the Undock, as before.
+            RecordingTree tree = BuildGrabDrillReleaseTree(
+                out _, out _, out _, out Recording merge, RouteConnectionKind.DockingPort);
+
+            HarvestGainCheckResult result = RouteHarvestAnalysis.CheckTransportGains(
+                tree, merge, ColonyWindow(0.8, 0.0), RouteAnalysisLogMode.Diagnostic);
+
+            Assert.Equal("released", result.AnchorLeg.RecordingId);
+            Assert.False(result.HarvestedManifest.ContainsKey("Ore")
+                && result.HarvestedManifest["Ore"] > 0.0);
+        }
+
         // round-2 correction 2b pin: pre-anchor windows (drilling while still
         // docked at the origin depot) must not inflate the harvested total.
         [Fact]

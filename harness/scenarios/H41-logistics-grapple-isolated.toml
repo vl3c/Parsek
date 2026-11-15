@@ -334,9 +334,15 @@ count = { min = 0, max = 0 }
 #       kind=Grapple targetPid=3350841882 complete=True roidGhostRenderers=1
 #       analysis=NoDeliveryManifest dockUT=30.00 undockUT=30.08
 #     `complete=True` is the load-bearing field - the window CLOSED on release, so this
-#     is the couple/release CYCLE and not merely a couple. `roidGhostRenderers=1` is
+#     is the couple/release CYCLE and not merely a couple. `roidGhostRenderers` is
 #     pinned with it because it is the anti-vacuity half: a run where the asteroid ghost
-#     never built would still stamp a window.
+#     never built would still stamp a window. Since ROCK-GHOST-PREFAB-MESH the ghost adds
+#     the rock stock generates from the seed beside any prefab renderer it keeps, so the
+#     count is 1 or 2 (flown 2026-11-15: 2). Which prefab renderers it may keep is
+#     stock's call, checked by the cell against the LIVE rock part:
+#       GrappleCapture rock renderers: ghost=[...] live=[...] droppedByStock=0
+#     a prefab clone the live rock no longer renders (stock destroyed it when it
+#     generated the rock) fails the cell.
 #
 # NOT PINNED, though measured: the plain `PASSED: GrappleCaptureInGameTest...` echo.
 # Token 3 IS that cell's pass line and carries its values, so pinning the bare name too
@@ -348,7 +354,8 @@ required  = [
   "BATCH_COMPLETE v1 total=4 passed=3 failed=0 skipped=1 category=LogisticsGrapple scene=FLIGHT",
   "OnPartCouple producer classified: kind=Grapple fromPart=PotatoRoid toPart=GrapplingDevice involvesEva=False",
   "Route proof dock window captured: child=\\S+ window=\\S+ targetPid=[0-9]+ kind=Grapple",
-  "GrappleCapture PASS: run=\\S+ window=\\S+ kind=Grapple targetPid=[0-9]+ complete=True roidGhostRenderers=1",
+  "GrappleCapture PASS: run=\\S+ window=\\S+ kind=Grapple targetPid=[0-9]+ complete=True roidGhostRenderers=[12]",
+  "GrappleCapture rock renderers: ghost=\\[.*\\] live=\\[.*\\] droppedByStock=0",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 

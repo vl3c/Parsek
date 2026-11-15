@@ -184,6 +184,108 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(1, RouteHarvestAnalysis.FindGainAnchorIndex(lineage, 1, WindowScope()));
         }
 
+        // A grabbed rock's part and the hold leg that carries it: launch (bare
+        // transport) -> Dock (the grab) -> hold (transport + rock) -> Undock (the
+        // release) -> bare transport arriving at the depot. AST-3 2026-11-15.
+        private const uint RockPid = 300;
+
+        private static Recording HoldLeg(string id, uint[] scope, RouteConnectionKind kind, params uint[] endpoint)
+        {
+            Recording rec = ScopeLeg(id, scope);
+            rec.RouteConnectionWindows = new List<RouteConnectionWindow>
+            {
+                new RouteConnectionWindow
+                {
+                    WindowId = "grab-" + id,
+                    DockUT = 0.0,
+                    UndockUT = 1.0,
+                    TransferKind = kind,
+                    TransportPartPersistentIds = new List<uint> { TransportPid },
+                    EndpointPartPersistentIds = new List<uint>(endpoint),
+                }
+            };
+            return rec;
+        }
+
+        private static List<RouteHarvestAnalysis.LineageLeg> GrabReleaseLineage(Recording hold)
+        {
+            return new List<RouteHarvestAnalysis.LineageLeg>
+            {
+                Root(ScopeLeg("launch", TransportPid)),
+                Seam(hold, BranchPointType.Dock),
+                Seam(ScopeLeg("released", TransportPid), BranchPointType.Undock),
+            };
+        }
+
+        [Fact]
+        public void FindGainAnchorIndex_StructuralGrappleHold_WalksAcrossTheReleaseAndTheGrab()
+        {
+            var lineage = GrabReleaseLineage(
+                HoldLeg("hold", new[] { TransportPid, RockPid }, RouteConnectionKind.Grapple, RockPid));
+            Assert.Equal(0, RouteHarvestAnalysis.FindGainAnchorIndex(lineage, 2, WindowScope()));
+        }
+
+        [Fact]
+        public void FindGainAnchorIndex_DockedHoldNotAGrapple_StillBlocksAtTheUndock()
+        {
+            var lineage = GrabReleaseLineage(
+                HoldLeg("hold", new[] { TransportPid, RockPid }, RouteConnectionKind.DockingPort, RockPid));
+            Assert.Equal(2, RouteHarvestAnalysis.FindGainAnchorIndex(lineage, 2, WindowScope()));
+        }
+
+        [Fact]
+        public void FindGainAnchorIndex_HoldCarryingMoreThanTheGrabbedParts_StillBlocks()
+        {
+            // The hold leg also carries a part that is neither the transport nor
+            // the grabbed object (a second vessel docked meanwhile): a real
+            // composition change, so the walk stops at the release.
+            var lineage = GrabReleaseLineage(
+                HoldLeg("hold", new[] { TransportPid, RockPid, DepotPid }, RouteConnectionKind.Grapple, RockPid));
+            Assert.Equal(2, RouteHarvestAnalysis.FindGainAnchorIndex(lineage, 2, WindowScope()));
+        }
+
+        [Fact]
+        public void FindGainAnchorIndex_GrabbedVesselWithTanks_KeepsTheReleasedLeg()
+        {
+            // A grabbed derelict or colony with tanks: its own converters could fill
+            // them on the hold leg, which must not read as transport harvest.
+            Recording hold = HoldLeg("hold", new[] { TransportPid, RockPid }, RouteConnectionKind.Grapple, RockPid);
+            hold.RouteConnectionWindows[0].UndockEndpointResources = Res(("Ore", 40.0));
+            var lineage = GrabReleaseLineage(hold);
+            Assert.Equal(2, RouteHarvestAnalysis.FindGainAnchorIndex(lineage, 2, WindowScope()));
+        }
+
+        [Fact]
+        public void FindGainAnchorIndex_GrabWithoutARelease_StaysOnTheHold()
+        {
+            // The transport arrives still holding the object: the grab is crossed
+            // only after its release, so the anchor stays on the hold leg.
+            var lineage = new List<RouteHarvestAnalysis.LineageLeg>
+            {
+                Root(ScopeLeg("launch", TransportPid)),
+                Seam(HoldLeg("hold", new[] { TransportPid, RockPid }, RouteConnectionKind.Grapple, RockPid),
+                    BranchPointType.Dock),
+            };
+            Assert.Equal(1, RouteHarvestAnalysis.FindGainAnchorIndex(lineage, 1, WindowScope()));
+        }
+
+        [Fact]
+        public void FindGainAnchorIndex_GrabFromALargerVessel_KeepsTheReleasedLeg()
+        {
+            // Before the grab the vessel carried a depot part the window scope
+            // lacks: the Dock seam is not a bare-transport grab, so neither seam is
+            // crossed (an anchor on the hold would take the grabbed object's tanks
+            // as baseline) and the anchor stays on the released leg.
+            var lineage = new List<RouteHarvestAnalysis.LineageLeg>
+            {
+                Root(ScopeLeg("launch", TransportPid, DepotPid)),
+                Seam(HoldLeg("hold", new[] { TransportPid, RockPid }, RouteConnectionKind.Grapple, RockPid),
+                    BranchPointType.Dock),
+                Seam(ScopeLeg("released", TransportPid), BranchPointType.Undock),
+            };
+            Assert.Equal(2, RouteHarvestAnalysis.FindGainAnchorIndex(lineage, 2, WindowScope()));
+        }
+
         [Fact]
         public void FindGainAnchorIndex_ChainSeamIgnoresItsSeamType()
         {

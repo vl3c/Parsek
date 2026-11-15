@@ -196,8 +196,38 @@ class AstKlawFixtureTests(unittest.TestCase):
             others = [float(self._hv(p, "position").split(",")[1]) for p in parts
                       if p is not klaws[0]]
             self.assertGreater(klaw_y, max(others) + 0.2, fixture)
-            # Module-less by design (prefab defaults: disarmed).
-            self.assertNotIn(P + "MODULE", klaws[0], fixture)
+            # Exactly one saved module, ModuleGrappleNode, disarmed: its OnLoad is what builds
+            # the grapple AttachNode (a module-less Klaw throws every frame and never grabs).
+            self.assertEqual(1, klaws[0].count(P + "MODULE"), fixture)
+            self.assertIn(P + "\tname = ModuleGrappleNode", klaws[0], fixture)
+            self.assertIn(P + "\tstate = Disabled", klaws[0], fixture)
+
+    def test_the_comet_keeps_its_name(self):
+        # hasName = False makes stock's CometVessel rename a discovered comet at every load.
+        comet = self._vessel(self.b.COM_KLAW, self.b.COMET_NAME)
+        self.assertIn(P + "\thasName = True", comet)
+        self.assertNotIn(P + "\thasName = False", comet)
+
+    def test_the_klaw_vessel_targets_its_rock(self):
+        # kRPC's SpaceCenter.vessels omits SpaceObject vessels, so the mission reaches the
+        # rock only through the target stock restores from this node at load.
+        b = self.b
+        for fixture, vessel, rock in ((b.AST_KLAW, b.KLAW_NAME, b.ROCK_NAME),
+                                      (b.COM_KLAW, b.KLAW_NAME, b.COMET_NAME),
+                                      (b.AST_MINER, b.MINER_NAME, b.ROCK_NAME),
+                                      (b.AST_MOTHERSHIP, b.KLAW_NAME, b.ROCK_NAME)):
+            v = self._vessel(fixture, vessel)
+            at = v.index(VK + "TARGET")
+            self.assertEqual(v[at + 2], P + "type = Vessel", fixture)
+            guid = self.b._value(self._vessel(fixture, rock), VK, "pid")
+            dashed = v[at + 3][len(P + "vesselID = "):]
+            self.assertEqual(guid, dashed.replace("-", ""), fixture)
+            self.assertEqual([8, 4, 4, 4, 12], [len(x) for x in dashed.split("-")], fixture)
+            self.assertLess(v.index(VK + "FLIGHTPLAN"), at, fixture)
+            self.assertEqual(v[at + 5], VK + "CTRLSTATE", fixture)
+        for fixture in b.FIXTURES:
+            targets = [n for n, v in self.saves[fixture][1].items() if VK + "TARGET" in v]
+            self.assertEqual(1, len(targets), fixture)
 
     def test_jr_port_states(self):
         b = self.b
@@ -216,10 +246,44 @@ class AstKlawFixtureTests(unittest.TestCase):
         b = self.b
         miner = self._vessel(b.AST_MINER, b.MINER_NAME)
         self.assertIn(P + "name = MiniDrill", miner)
+        # Two mono pairs: one pair ran dry on the depot dock (third flight, 2026-11-15).
+        self.assertEqual(4, miner.count(P + "name = radialRCSTank"))
         depot = self._vessel(b.AST_MINER, b.DEPOT_NAME)
         for v in (miner, depot):
             at = v.index(P + "\tname = Ore")
             self.assertEqual(P + "\tamount = 0", v[at + 1])
+
+    def test_the_miner_drill_points_its_bit_at_the_held_rock(self):
+        # MiniDrill's impact ray runs along the part's -y (MiniDrill.mu); the Klaw holds the
+        # rock on +y. The drill hangs on the Z-200 with its +x attach normal toward the axis.
+        b = self.b
+        miner = self._vessel(b.AST_MINER, b.MINER_NAME)
+        at = miner.index(P + "name = MiniDrill")
+        part = miner[at:at + 30]
+        self.assertIn(P + "parent = 1", part)
+        self.assertIn(P + "srfN = srfAttach, 1", part)
+        pos = [float(x) for x in next(l for l in part if l.startswith(P + "position = "))
+               .split(" = ")[1].split(",")]
+        q = [float(x) for x in next(l for l in part if l.startswith(P + "rotation = "))
+             .split(" = ")[1].split(",")]
+
+        def rot(v):
+            x, y, z, w = q
+            ux, uy, uz = v
+            # v' = v + 2w (u x v) + 2 u x (u x v), u = (x, y, z)
+            cx, cy, cz = y * uz - z * uy, z * ux - x * uz, x * uy - y * ux
+            dx, dy, dz = y * cz - z * cy, z * cx - x * cz, x * cy - y * cx
+            return (ux + 2 * (w * cx + dx), uy + 2 * (w * cy + dy), uz + 2 * (w * cz + dz))
+
+        bit = rot((0.0, -1.0, 0.0))
+        for got, want in zip(bit, (0.0, 1.0, 0.0)):
+            self.assertAlmostEqual(want, got, places=5)
+        normal = rot((1.0, 0.0, 0.0))
+        inward = (-pos[0], 0.0, -pos[2])
+        norm = (inward[0] ** 2 + inward[2] ** 2) ** 0.5
+        for got, want in zip(normal, (inward[0] / norm, 0.0, inward[2] / norm)):
+            self.assertAlmostEqual(want, got, places=5)
+        self.assertAlmostEqual(b.OKTO_TO_Z200, pos[1], places=6)
 
     def test_save_edits_commnet_off_full_sas_crew_free(self):
         b = self.b

@@ -32,6 +32,9 @@ joins main in one merge, so its lines arrive then.
 - **Rock-mining trips carry no more ore than the drills produce.** A route whose ship drilled a
   grabbed asteroid or comet had no ore limit; it now credits at most what the drill could mine
   from that rock in the recorded time. (ROCK-DRILL-HARVEST-UNCAPPED)
+- **Ore drilled from a held rock now counts for a supply route.** Grabbing a rock, drilling it,
+  letting it go and flying the Ore to a station used to be refused as "delivered more than
+  harvested". The drilling now counts, so the route is made. (ROUTE-HELD-ROCK-HARVEST-UNCOUNTED)
 - **A grabbed rock's ghost has the rock's own shape and size.** A ghost ship carrying a rock, a
   released rock's replay and the stand-in for a claimed rock after a rewind now show the real
   rock instead of a small default lump. Comets get their rock but no tail. (ROCK-GHOST-PREFAB-MESH)
