@@ -1,0 +1,27 @@
+version = 1
+GAME_STATE_EVENT
+{
+	ut = 355.87153320304429
+	type = 18
+	key = Kerbin/Rendezvous
+	detail = funds=0;rep=0;sci=0
+	cseq = 1
+}
+GAME_STATE_EVENT
+{
+	ut = 505.711533202908
+	type = 18
+	key = Kerbin/StationConstruction
+	detail = funds=0;rep=0;sci=0
+	recordingId = b57b392c8f224e019d2815cf2c0c5631
+	cseq = 2
+}
+GAME_STATE_EVENT
+{
+	ut = 505.711533202908
+	type = 18
+	key = Kerbin/Docking
+	detail = funds=0;rep=0;sci=0
+	recordingId = b57b392c8f224e019d2815cf2c0c5631
+	cseq = 3
+}

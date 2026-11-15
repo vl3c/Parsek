@@ -1,0 +1,95 @@
+{
+  "analyzerVersion": "5",
+  "saveName": "com-klaw-lko",
+  "subjectSchemaGeneration": 4,
+  "counts": {
+    "fail": 0,
+    "warn": 0,
+    "info": 0,
+    "staleFixture": 0,
+    "baselined": 0,
+    "failNonBaselined": 0,
+    "staleNonBaselined": 0
+  },
+  "findings": [],
+  "careerSave": {
+    "parsed": true,
+    "hasFunds": false,
+    "funds": 0,
+    "hasScience": false,
+    "sciencePool": 0,
+    "hasRep": false,
+    "reputation": 0,
+    "hasUniversalTime": true,
+    "universalTime": 1100.0696386717916,
+    "subjectScience": {},
+    "facilityLevelFrac": {},
+    "activeContractGuids": [],
+    "completedMilestoneIds": [
+      "Docking",
+      "FirstLaunch",
+      "Kerbin/Docking",
+      "Kerbin/Orbit",
+      "Kerbin/Rendezvous",
+      "Kerbin/StationConstruction",
+      "Orbit",
+      "ReachedSpace",
+      "RecordsAltitude",
+      "RecordsDistance",
+      "Rendezvous",
+      "StationConstruction"
+    ],
+    "vessels": [
+      {
+        "pid": "2c5a9fb7778a59d25e657c6280f55e1d",
+        "persistentId": 2710401000,
+        "name": "AST Klaw",
+        "type": "Probe",
+        "resourceTotals": {
+          "ElectricCharge": 235.01605455830736,
+          "MonoPropellant": 36.80618687379296
+        }
+      },
+      {
+        "pid": "6adf62d18096aa15178cf039edfd3098",
+        "persistentId": 2710403000,
+        "name": "AST Watcher",
+        "type": "Probe",
+        "resourceTotals": {
+          "ElectricCharge": 234.79803804972153
+        }
+      }
+    ],
+    "hasRoster": true,
+    "roster": [
+      {
+        "name": "Bill Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Engineer",
+        "state": "Available"
+      },
+      {
+        "name": "Bob Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Scientist",
+        "state": "Available"
+      },
+      {
+        "name": "Jebediah Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Missing"
+      },
+      {
+        "name": "Valentina Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Available"
+      }
+    ]
+  }
+}

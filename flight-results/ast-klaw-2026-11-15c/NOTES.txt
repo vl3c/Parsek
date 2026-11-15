@@ -1,0 +1,22 @@
+ast-klaw-2026-11-15c: re-flight of COM-1 and AST-3 on claude/project-thread-7yabo0
+at 4c6915a7 (harness-only on top of fcceccd; the one C# diff since fcceccd moves a
+doc comment). Slot copies not re-provisioned: all three still carried the fcceccd
+DLL (sha256 410946844dcf..., has "GrappleCapture rock renderers:").
+PASS=1 INVALID=1 of 2. Layout as 11-15b (save/ from harness/results/<runId>_save).
+
+COM-1-comet-klaw-grab: PASS. "targeted 'UnknownComet' through the stock target at
+149.5 m (not among the 2 listed vessel(s): kRPC lists no SpaceObject)"; grabbed;
+reached KG-TERMINAL.
+
+AST-3-klaw-mine-route (both attempts): INVALID autopilot-flake at phase DOCK:
+"docking aborted, monopropellant exhausted". Asserts: grabbed, drilled, released
+met; docked unmet. Furthest phase DOCK (KG-DRILL, KG-RELEASE, KG-BACKOFF, KG-COAST,
+KG-DOCK-TGT, DOCK). Depot targeted at 188.1 m / 191.2 m.
+Drill: active for the full 30 s. Status lines (state=part:converter flags):
+  deploy  ut=521.05 state='1710002010:Surface Harvester:active=0;:active=0;:active=0;deployed=1'
+  start   ut=527.33 state='...:active=0;:active=1;:active=0;deployed=1'  (asteroid harvester on)
+  stop    ut=557.49 OK (StopResourceConverter accepted, harvester still running) -> all active=0
+  (a2: deploy 518.57, start 524.79, stop 555.27, same states)
+Ore mined (AST Miner, produced save): 0.7578 / 75 (a1), 0.8043 / 75 (a2); Depot 0.
+No post-drill ReadVesselResources ran (tail skipped after the mission flake).
+AST Miner MonoPropellant at the end: 0.166 + 0.166 of 2 x 20 (a1), 0.145 + 0.145 (a2).
