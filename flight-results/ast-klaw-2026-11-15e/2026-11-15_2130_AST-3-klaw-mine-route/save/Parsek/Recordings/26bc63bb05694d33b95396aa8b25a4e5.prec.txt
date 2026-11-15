@@ -1,0 +1,124 @@
+version = 1
+recordingSchemaGeneration = 4
+recordingId = 26bc63bb05694d33b95396aa8b25a4e5
+sidecarEpoch = 3
+sectionAuthoritative = True
+TRACK_SECTION
+{
+	env = 2
+	ref = 0
+	startUT = 928.83153320252325
+	endUT = 928.85153320252323
+	sampleRate = 0
+	minAlt = 106209.75
+	maxAlt = 106209.75
+	POINT
+	{
+		ut = 928.85153320252323
+		lat = 0.037198313505754935
+		lon = 55.778251267256671
+		alt = 106209.75005470193
+		rotX = 0.343396932
+		rotY = -0.1890542
+		rotZ = -0.7143972
+		rotW = 0.579632461
+		body = Kerbin
+		velX = 2070.76318
+		velY = 2.84040856
+		velZ = 817.4613
+		funds = 0
+		science = 0
+		rep = 0
+	}
+}
+TRACK_SECTION
+{
+	env = 2
+	ref = 0
+	startUT = 928.85153320252323
+	endUT = 929.25153320252286
+	sampleRate = 7.5
+	minAlt = 106205.922
+	maxAlt = 106209.75
+	POINT
+	{
+		ut = 928.85153320252323
+		lat = 0.037198313505754935
+		lon = 55.778251267256671
+		alt = 106209.75005470193
+		rotX = 0.343396932
+		rotY = -0.1890542
+		rotZ = -0.7143972
+		rotW = 0.579632461
+		body = Kerbin
+		velX = 2070.76318
+		velY = 2.84040856
+		velZ = 817.4613
+		funds = 0
+		science = 0
+		rep = 0
+	}
+	POINT
+	{
+		ut = 929.071533202523
+		lat = 0.037249291908711832
+		lon = 55.814312671527908
+		alt = 106207.64741652471
+		rotX = 0.360910654
+		rotY = -0.18053183
+		rotZ = -0.7152031
+		rotW = 0.5706456
+		body = Kerbin
+		velX = 2070.19678
+		velY = 2.83939672
+		velZ = 818.9126
+		funds = 0
+		science = 0
+		rep = 0
+	}
+	POINT
+	{
+		ut = 929.25153320252286
+		lat = 0.037290975319700846
+		lon = 55.843817637611345
+		alt = 106205.92476526147
+		rotX = 0.3768437
+		rotY = -0.1728072
+		rotZ = -0.715666056
+		rotW = 0.5620931
+		body = Kerbin
+		velX = 2069.73267
+		velY = 2.838568
+		velZ = 820.099731
+		funds = 0
+		science = 0
+		rep = 0
+	}
+}
+TRACK_SECTION
+{
+	env = 2
+	ref = 2
+	startUT = 929.25153320252286
+	endUT = 939.071533202523
+	sampleRate = 0
+	src = 2
+	ORBIT_SEGMENT
+	{
+		startUT = 929.25153320252286
+		endUT = 939.071533202523
+		inc = 0.082158206307673981
+		ecc = 0.0098807043360318262
+		sma = 699985.08111545257
+		lan = 134.38549179094656
+		argPe = 181.31267238255361
+		mna = 3.5982287602505831
+		epoch = 929.25153320252286
+		body = Kerbin
+		isPredicted = False
+		ofrX = 0.08186534
+		ofrY = -0.07692798
+		ofrZ = 0.163944915
+		ofrW = -0.980052054
+	}
+}

@@ -1,0 +1,2 @@
+2026-11-15T21:41:22Z PASS AST-3-klaw-mine-route attempts=1 wall=660s slot=stock-minimal runIds=2026-11-15_2130_AST-3-klaw-mine-route
+# totals PASS=1 pending=0 of 1

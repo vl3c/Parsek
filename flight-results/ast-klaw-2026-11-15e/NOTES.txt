@@ -1,0 +1,25 @@
+ast-klaw-2026-11-15e: AST-3-klaw-mine-route alone on claude/project-thread-7yabo0 at
+61e36bd8 (route-analysis fix, todo ROUTE-HELD-ROCK-HARVEST-UNCOUNTED). Built in the
+worktree; copies 1-3 re-provisioned (sha256 275f09d55d5c..., carry
+IsStructuralGrappleSeam UTF-8 and "GrappleCapture rock renderers:" UTF-16). 1 slot.
+Verdict: PASS, 1 attempt, wall 660 s.
+
+Mission MISSION-OK: grabbed, drilled, released, docked all met.
+Drill: harvest window ut=527.79 -> 557.81 (30 s), converter ModuleAsteroidDrill,
+plausibleRates Ore 0.0457/s. Ore mined 0.7477.
+Transfer (0016): moved=0.7477, Depot 0 -> 0.7477.
+RouteAnalysis harvest: gain within window edge slack ... gained=0.7477 covered=0.74685
+  uncovered=0.00086 edgeSlack=0.01097
+RouteAnalysis harvest: gains covered source=81ed8b14... anchor=78c8c57763724b13b9879251b5d9d1d3
+  lineage=4 resources=1 harvestedTotal=0.74684543576451523 edgeSlackUsed=1
+RouteAnalysis: undocked start fully harvest-covered -> harvest origin
+RouteAnalysis eligible: ... stops=1 resources=1 harvestData=1 harvestOrigin=1 midTreeOrigin=0
+Route created: 'AST3 Ore Run' status=Paused stops=1 interval=transit=565.84 s cadence=1.
+send-once -> Active. TimeJump to 9000.
+Delivery write: dest=AST Depot resource=Ore requested=written=0.74685 tankBefore=0.7477
+  tankAfter=1.4945 path=loaded parts=whole.
+After the jump (ListHandles routes): dispatched=1 debited=1 delivered=1 completed=1, paused=1.
+Depot Ore 1.4945 (0034).
+
+No unmet step, no red verifier. Report-only rows: saveParse "rewind.rewindPoints 0 < min 1";
+unityExceptions 1 NullReferenceException after quit (parsekFrames=0, non-gating).

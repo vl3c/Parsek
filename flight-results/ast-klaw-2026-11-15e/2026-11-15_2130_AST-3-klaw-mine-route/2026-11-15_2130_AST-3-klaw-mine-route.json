@@ -1,0 +1,1027 @@
+{
+  "admission": {
+    "admitted": true,
+    "diff": [],
+    "subkind": ""
+  },
+  "artifacts": {
+    "kspLog": true,
+    "kspLogTruncated": false,
+    "ran": true,
+    "renderManifest": false,
+    "screenshots": 0,
+    "screenshotsSkipped": 0,
+    "shotsDir": "2026-11-15_2130_AST-3-klaw-mine-route_shots"
+  },
+  "attempt": 1,
+  "attemptsWallSeconds": 658,
+  "collectLogs": {
+    "path": null,
+    "ran": false
+  },
+  "driver": {
+    "allExpectedMet": true,
+    "midMissionSeamWrites": {
+      "exposedAfterUnmetMission": false,
+      "total": 3,
+      "verbs": [
+        "PartAction"
+      ],
+      "worldMutating": 3
+    },
+    "steps": [
+      {
+        "captured": {
+          "save": "ast-miner-lko",
+          "scene": "FLIGHT",
+          "ut": "356.8515332030434"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0001",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "idle": "true",
+          "stopped": "false",
+          "ut": "357.11153320304317"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0002",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "nothing": "true",
+          "ut": "357.13153320304315"
+        },
+        "cmd": "DiscardTree",
+        "expect": "OK",
+        "id": "0003",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnLaunch",
+          "ut": "357.15153320304313",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0004",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "verboseLogging",
+          "ut": "357.17153320304311",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0005",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "Ore": "0.0000",
+          "OreMax": "150.0000",
+          "loaded": "true,true",
+          "match": "true",
+          "mismatches": "",
+          "missing": "0",
+          "names": "AST Miner,AST Depot",
+          "parts": "16,4",
+          "pids": "2710402000,2710404000",
+          "resources": "Ore",
+          "snapshotMatch": "none",
+          "snapshotMismatches": "",
+          "uidCollisions": "0",
+          "uidDigest": "499444fd",
+          "ut": "357.21153320304307",
+          "vessels": "2"
+        },
+        "cmd": "ReadVesselResources",
+        "expect": "OK",
+        "id": "0006",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "recordingId": "78c8c57763724b13b9879251b5d9d1d3",
+          "ut": "357.23153320304306"
+        },
+        "cmd": "StartRecording",
+        "expect": "OK",
+        "id": "0007",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "points": "1",
+          "recording": "true",
+          "scene": "FLIGHT",
+          "tree": "f2ace13a127648f290f0c54d2323c109",
+          "ut": "357.25153320304304"
+        },
+        "cmd": "RecordingState",
+        "expect": "OK",
+        "id": "0008",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "12.708466796956998",
+          "maxRate": "1",
+          "target": "370",
+          "ut": "369.79153320303163"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0009",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "ast3-grab",
+          "ut": "369.81153320303162"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0010",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "expect": "MISSION-OK",
+        "id": "0011",
+        "met": true,
+        "missionVerdict": "MISSION-OK",
+        "phase": "mission",
+        "subkind": null,
+        "verdict": "MISSION-OK"
+      },
+      {
+        "captured": {
+          "label": "ast3-docked",
+          "ut": "928.65153320252341"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0012",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "activePid": "2710404000",
+          "activeRec": "81ed8b14f3d54893b4f06be6c72fcc08",
+          "bg": "1",
+          "bg0pid": "964232981",
+          "bg0rec": "540821c9b0f34d76977152e1e55737c4",
+          "kind": "active",
+          "tree": "f2ace13a127648f290f0c54d2323c109",
+          "truncated": "false",
+          "ut": "928.67153320252339"
+        },
+        "cmd": "ListHandles",
+        "expect": "OK",
+        "id": "0013",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "ast3-merged-2710404000",
+          "ut": "928.69153320252337"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0014",
+        "met": true,
+        "substitutions": [
+          {
+            "arg": "label",
+            "ref": "${dk.activePid}",
+            "value": "2710404000"
+          }
+        ],
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "ElectricCharge": "1267.7859",
+          "ElectricChargeMax": "1300.0000",
+          "Ore": "0.7477",
+          "OreMax": "150.0000",
+          "loaded": "true",
+          "match": "none",
+          "mismatches": "",
+          "missing": "0",
+          "names": "AST Depot",
+          "parts": "20",
+          "pids": "2710404000",
+          "resources": "Ore,ElectricCharge",
+          "snapshotMatch": "none",
+          "snapshotMismatches": "",
+          "uidCollisions": "0",
+          "uidDigest": "499444fd",
+          "ut": "928.71153320252336",
+          "vessels": "1"
+        },
+        "cmd": "ReadVesselResources",
+        "expect": "OK",
+        "id": "0015",
+        "met": true,
+        "substitutions": [
+          {
+            "arg": "pid",
+            "ref": "${dk.activePid}",
+            "value": "2710404000"
+          }
+        ],
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "activeName": "AST Depot",
+          "activePid": "2710404000",
+          "button": "transfer",
+          "converter": "",
+          "count": "1",
+          "destAfter": "0.7477",
+          "destBefore": "0.0000",
+          "destMax": "75.0000",
+          "event": "resourceTransfer",
+          "moved": "0.7477",
+          "newName": "",
+          "newPid": "0",
+          "packed": "0",
+          "part": "RadialOreTank",
+          "partId": "1710004003",
+          "pid": "2710404000",
+          "resource": "Ore",
+          "sources": "1",
+          "state": "",
+          "ut": "928.75153320252332",
+          "vesselsAfter": "2",
+          "vesselsBefore": "2",
+          "warpIndex": "0",
+          "warpRate": "1"
+        },
+        "cmd": "PartAction",
+        "expect": "OK",
+        "id": "0016",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "Ore": "0.7477",
+          "OreMax": "150.0000",
+          "loaded": "true",
+          "match": "true",
+          "mismatches": "",
+          "missing": "0",
+          "names": "AST Depot",
+          "parts": "20",
+          "pids": "2710404000",
+          "resources": "Ore",
+          "snapshotMatch": "none",
+          "snapshotMismatches": "",
+          "uidCollisions": "0",
+          "uidDigest": "499444fd",
+          "ut": "928.7715332025233",
+          "vessels": "1"
+        },
+        "cmd": "ReadVesselResources",
+        "expect": "OK",
+        "id": "0017",
+        "met": true,
+        "substitutions": [
+          {
+            "arg": "pid",
+            "ref": "${dk.activePid}",
+            "value": "2710404000"
+          },
+          {
+            "arg": "expect",
+            "ref": "${rm.Ore}",
+            "value": "0.7477"
+          }
+        ],
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "ast3-undock",
+          "ut": "928.79153320252328"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0018",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "activeName": "AST Depot",
+          "activePid": "2710404000",
+          "button": "undock",
+          "converter": "",
+          "count": "1",
+          "event": "Undock",
+          "newName": "AST Miner",
+          "newPid": "1465541813",
+          "packed": "0",
+          "part": "dockingPort3",
+          "partId": "1710002003",
+          "pid": "2710404000",
+          "state": "",
+          "ut": "928.81153320252326",
+          "vesselsAfter": "3",
+          "vesselsBefore": "2",
+          "warpIndex": "0",
+          "warpRate": "1"
+        },
+        "cmd": "PartAction",
+        "expect": "OK",
+        "id": "0019",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "1071.1484667974769",
+          "maxRate": "50",
+          "target": "2000",
+          "ut": "1999.7947802728359"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0020",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "Ore": "0.7477",
+          "OreMax": "150.0000",
+          "loaded": "true,true",
+          "match": "true",
+          "mismatches": "",
+          "missing": "0",
+          "names": "AST Depot,AST Miner",
+          "parts": "4,16",
+          "pids": "2710404000,1465541813",
+          "resources": "Ore",
+          "snapshotMatch": "none",
+          "snapshotMismatches": "",
+          "uidCollisions": "0",
+          "uidDigest": "499444fd",
+          "ut": "1999.9947802728357",
+          "vessels": "2"
+        },
+        "cmd": "ReadVesselResources",
+        "expect": "OK",
+        "id": "0021",
+        "met": true,
+        "substitutions": [
+          {
+            "arg": "pid",
+            "ref": "${dk.activePid}",
+            "value": "2710404000"
+          },
+          {
+            "arg": "pid",
+            "ref": "${und.newPid}",
+            "value": "1465541813"
+          },
+          {
+            "arg": "expect",
+            "ref": "${rm.Ore}",
+            "value": "0.7477"
+          }
+        ],
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "stopped": "true",
+          "ut": "2000.0147802728357"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0022",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "committed": "true",
+          "ut": "2000.0347802728356"
+        },
+        "cmd": "CommitTree",
+        "expect": "OK",
+        "id": "0023",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "stopped": "true",
+          "ut": "2000.0747802728356"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0024",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "discarded": "true",
+          "ut": "2000.0947802728356"
+        },
+        "cmd": "DiscardTree",
+        "expect": "OK",
+        "id": "0025",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "count": "7",
+          "kind": "committed",
+          "rec0": "26bc63bb05694d33b95396aa8b25a4e5",
+          "rec0name": "AST Depot",
+          "rec0pid": "2710404000",
+          "rec0spawned": "true",
+          "rec0spawnedPid": "2710404000",
+          "rec0state": "Immutable",
+          "rec0tree": "f2ace13a127648f290f0c54d2323c109",
+          "rec1": "341c3cdfde6e4108a69953b073a9ab90",
+          "rec1name": "AST Miner",
+          "rec1pid": "2710402000",
+          "rec1spawned": "false",
+          "rec1spawnedPid": "0",
+          "rec1state": "Immutable",
+          "rec1tree": "f2ace13a127648f290f0c54d2323c109",
+          "rec2": "540821c9b0f34d76977152e1e55737c4",
+          "rec2name": "Ast. VPA-167",
+          "rec2pid": "964232981",
+          "rec2spawned": "true",
+          "rec2spawnedPid": "964232981",
+          "rec2state": "Immutable",
+          "rec2tree": "f2ace13a127648f290f0c54d2323c109",
+          "rec3": "5f0b03e46f2f40eca06e7fc76578bf03",
+          "rec3name": "AST Miner",
+          "rec3pid": "1465541813",
+          "rec3spawned": "true",
+          "rec3spawnedPid": "1465541813",
+          "rec3state": "CommittedProvisional",
+          "rec3tree": "f2ace13a127648f290f0c54d2323c109",
+          "rec4": "78c8c57763724b13b9879251b5d9d1d3",
+          "rec4name": "AST Miner",
+          "rec4pid": "2710402000",
+          "rec4spawned": "false",
+          "rec4spawnedPid": "0",
+          "rec4state": "Immutable",
+          "rec4tree": "f2ace13a127648f290f0c54d2323c109",
+          "rec5": "81ed8b14f3d54893b4f06be6c72fcc08",
+          "rec5name": "AST Depot",
+          "rec5pid": "2710404000",
+          "rec5spawned": "false",
+          "rec5spawnedPid": "0",
+          "rec5state": "Immutable",
+          "rec5tree": "f2ace13a127648f290f0c54d2323c109",
+          "rec6": "b83f957cab4a4c21933425347af9d594",
+          "rec6name": "AST Miner",
+          "rec6pid": "2710402000",
+          "rec6spawned": "false",
+          "rec6spawnedPid": "0",
+          "rec6state": "Immutable",
+          "rec6tree": "f2ace13a127648f290f0c54d2323c109",
+          "truncated": "false",
+          "ut": "2000.1547802728355"
+        },
+        "cmd": "ListHandles",
+        "expect": "OK",
+        "id": "0026",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "ast3-committed-7",
+          "ut": "2000.1747802728355"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0027",
+        "met": true,
+        "substitutions": [
+          {
+            "arg": "label",
+            "ref": "${c0.count}",
+            "value": "7"
+          }
+        ],
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "alreadySealed": "false",
+          "failed": "0",
+          "fullySealed": "true",
+          "mode": "tree",
+          "remaining": "0",
+          "sealed": "1",
+          "total": "7",
+          "tree": "f2ace13a127648f290f0c54d2323c109",
+          "ut": "2000.1947802728355"
+        },
+        "cmd": "SealSlot",
+        "expect": "OK",
+        "id": "0028",
+        "met": true,
+        "substitutions": [
+          {
+            "arg": "tree",
+            "ref": "${c0.rec0tree}",
+            "value": "f2ace13a127648f290f0c54d2323c109"
+          }
+        ],
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "action": "create",
+          "cadence": "1",
+          "created": "true",
+          "intervalSeconds": "565.83999999948537",
+          "manualLoopsCleared": "0",
+          "name": "AST3 Ore Run",
+          "route": "8898c0686d1645d6b67914887ab21df8",
+          "status": "Paused",
+          "stops": "1",
+          "transitSeconds": "565.83999999948537",
+          "tree": "f2ace13a127648f290f0c54d2323c109",
+          "ut": "2000.2547802728354"
+        },
+        "cmd": "RouteCommand",
+        "expect": "OK",
+        "id": "0029",
+        "met": true,
+        "substitutions": [
+          {
+            "arg": "tree",
+            "ref": "${c0.rec0tree}",
+            "value": "f2ace13a127648f290f0c54d2323c109"
+          }
+        ],
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "action": "send-once",
+          "applied": "true",
+          "match": "name",
+          "name": "AST3 Ore Run",
+          "route": "8898c0686d1645d6b67914887ab21df8",
+          "status": "Active",
+          "statusBefore": "Paused",
+          "ut": "2000.2747802728354"
+        },
+        "cmd": "RouteCommand",
+        "expect": "OK",
+        "id": "0030",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "6999.6852197271646",
+          "target": "9000",
+          "ut": "9000.0600000000013"
+        },
+        "cmd": "TimeJump",
+        "expect": "OK",
+        "id": "0031",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "count": "1",
+          "dormant": "0",
+          "kind": "routes",
+          "route0": "8898c0686d1645d6b67914887ab21df8",
+          "route0completed": "1",
+          "route0cursor": "13",
+          "route0cycleStartUT": "none",
+          "route0debited": "1",
+          "route0delivered": "1",
+          "route0dispatched": "1",
+          "route0held": "0",
+          "route0loopAnchorUT": "-1",
+          "route0name": "AST3 Ore Run",
+          "route0origin": "0",
+          "route0pauseAfter": "false",
+          "route0paused": "1",
+          "route0pendingDeliveryUT": "none",
+          "route0pendingStop": "-1",
+          "route0pickedUp": "0",
+          "route0resumed": "0",
+          "route0segment": "-1",
+          "route0sendOnce": "false",
+          "route0skipped": "0",
+          "route0status": "Paused",
+          "route0stopFired": "-1",
+          "route0stopPids": "2710404000",
+          "route0stops": "1",
+          "route0windowAnchor": "-1",
+          "truncated": "false",
+          "ut": "9000.1000000000022"
+        },
+        "cmd": "ListHandles",
+        "expect": "OK",
+        "id": "0032",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "ast3-delivered",
+          "ut": "9000.1200000000026"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0033",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "Ore": "1.4945",
+          "OreMax": "150.0000",
+          "loaded": "true,false",
+          "match": "none",
+          "mismatches": "",
+          "missing": "0",
+          "names": "AST Depot,AST Miner",
+          "parts": "4,16",
+          "pids": "2710404000,1465541813",
+          "resources": "Ore",
+          "snapshotMatch": "none",
+          "snapshotMismatches": "",
+          "uidCollisions": "0",
+          "uidDigest": "499444fd",
+          "ut": "9000.1400000000031",
+          "vessels": "2"
+        },
+        "cmd": "ReadVesselResources",
+        "expect": "OK",
+        "id": "0034",
+        "met": true,
+        "substitutions": [
+          {
+            "arg": "pid",
+            "ref": "${dk.activePid}",
+            "value": "2710404000"
+          },
+          {
+            "arg": "pid",
+            "ref": "${und.newPid}",
+            "value": "1465541813"
+          }
+        ],
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "persistent",
+          "ut": "9000.1800000000039"
+        },
+        "cmd": "SaveGame",
+        "expect": "OK",
+        "id": "0035",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "true",
+          "ut": "9000.2400000000052"
+        },
+        "cmd": "FlushAndQuit",
+        "expect": "OK",
+        "id": "0036",
+        "met": true,
+        "verdict": "OK"
+      }
+    ]
+  },
+  "endedUtc": "2026-11-15T21:41:22Z",
+  "expectedFail": {
+    "bugId": "",
+    "matched": false
+  },
+  "instanceProfile": "stock-minimal",
+  "kspExit": {
+    "code": 0,
+    "killed": false
+  },
+  "missionWallSeconds": 558,
+  "note": "",
+  "runId": "2026-11-15_2130_AST-3-klaw-mine-route",
+  "scenarioId": "AST-3-klaw-mine-route",
+  "schema": 1,
+  "snapshot": {
+    "bytes": 2415791,
+    "files": 76,
+    "path": "2026-11-15_2130_AST-3-klaw-mine-route_save",
+    "ran": true,
+    "reason": "every-verdict-default verdict=PASS"
+  },
+  "startedUtc": "2026-11-15T21:30:23Z",
+  "subkind": "",
+  "tier": "operator",
+  "verdict": "PASS",
+  "verifiers": {
+    "analyzer": {
+      "failNonBaselined": 0,
+      "gating": true,
+      "red": 0,
+      "reportJson": "C:\\Users\\vlad3\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\ast-miner-lko\\analysis\\ast-miner-lko.analysis.json",
+      "reportTxt": "C:\\Users\\vlad3\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\ast-miner-lko\\analysis\\ast-miner-lko.analysis.txt",
+      "staleNonBaselined": 0,
+      "status": "PASS",
+      "subkind": "",
+      "topRule": null,
+      "triageOnly": false
+    },
+    "anomalySweep": {
+      "allowed": [],
+      "hitCounts": {},
+      "hits": [],
+      "status": "PASS",
+      "unlistedReasons": []
+    },
+    "batchComplete": {
+      "aggregateMissing": false,
+      "category": null,
+      "categoryCountMismatch": false,
+      "duplicateAggregate": false,
+      "expectedCategoryCount": null,
+      "expectedRuns": 1,
+      "failed": null,
+      "found": false,
+      "matchedRuns": 0,
+      "multi": false,
+      "perCategoryCount": 0,
+      "runsShort": false,
+      "status": "SKIPPED"
+    },
+    "driverValidity": {
+      "allExpectedMet": true,
+      "status": "PASS",
+      "subkind": ""
+    },
+    "expectations": {
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "count": 7
+        }
+      },
+      "reserved": [],
+      "status": "PASS"
+    },
+    "ghostLifecycle": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "ghostLifecycle": {
+          "attitude": {
+            "afterUpdateLines": 0,
+            "legacyLines": 0,
+            "maxRotDeg": null,
+            "maxRotDegAt": null,
+            "perRef": {},
+            "resolvedLines": 0,
+            "sweepDeg": 0.0,
+            "sweepRec": "",
+            "unresolvedLines": 0,
+            "unresolvedRefs": {}
+          },
+          "cycleCensus": {},
+          "cycleLines": 0,
+          "cycleModes": {},
+          "cycleRecordings": 0,
+          "destroyLines": 0,
+          "destroyedReasons": {},
+          "destroyedRecordings": 0,
+          "malformed": 0,
+          "peakLive": 0,
+          "peakLiveFrame": -1,
+          "peakLiveRecording": "",
+          "perVessel": {},
+          "spawnLines": 0,
+          "spawnReasons": {},
+          "spawned": 0,
+          "spawnedRecordingIds": [],
+          "unbalanced": [],
+          "vessels": []
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "status": "REPORT"
+    },
+    "ledgerOracle": {
+      "reason": "no-ledger-block-declared",
+      "status": "SKIPPED"
+    },
+    "logValidate": {
+      "killedRunMode": false,
+      "recRulesSuppressed": false,
+      "status": "PASS"
+    },
+    "mission": {
+      "missionVerdict": "MISSION-OK",
+      "status": "PASS",
+      "subkind": ""
+    },
+    "missionOutcome": {
+      "firstUnmet": null,
+      "gatingVerbs": [],
+      "reason": "no-gating-verbs",
+      "status": "SKIPPED"
+    },
+    "renderCompose": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "findings": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {},
+      "parseError": "missing parsek-render-manifest.txt",
+      "parsed": null,
+      "reason": "",
+      "status": "REPORT",
+      "unevaluable": {}
+    },
+    "saveParse": {
+      "armedBlocks": [],
+      "armedMismatches": [],
+      "blocks": [
+        "rewind",
+        "recordings.structure",
+        "routes"
+      ],
+      "gating": false,
+      "mismatches": [
+        "rewind.rewindPoints 0 < min 1"
+      ],
+      "observed": {
+        "recordings": {
+          "points": {
+            "largest": 232,
+            "recordings": 7,
+            "smallest": 3,
+            "total": 375,
+            "trivialRecordings": 0,
+            "unparsed": 0
+          },
+          "structure": {
+            "branchPoints": {
+              "Dock": 2,
+              "Undock": 2
+            },
+            "committedTrees": 1,
+            "duplicateRecordingIds": [],
+            "ghostChainNodes": 0,
+            "inFlightCopyTrees": 0,
+            "recordingNames": {
+              "AST Depot": 2,
+              "AST Miner": 4,
+              "Ast. VPA-167": 1
+            },
+            "recordings": 7,
+            "spaceObjectParts": {
+              "Ast. VPA-167": 1
+            },
+            "spawnedVessels": 3,
+            "terminalStates": {
+              "Docked": 2,
+              "Orbiting": 3
+            },
+            "treeNodes": 1,
+            "trees": 1,
+            "vesselNames": {
+              "AST Depot": 1,
+              "AST Miner": 1
+            }
+          }
+        },
+        "rewind": {
+          "rewindPoints": 0,
+          "rewindRetirements": 0,
+          "supersedeRows": 0,
+          "tombstones": 0
+        },
+        "routes": {
+          "codecRejects": 0,
+          "completedCycles": 1,
+          "connectionKinds": {
+            "DockingPort": 1
+          },
+          "count": 1,
+          "destinationBodies": {
+            "Kerbin": 1
+          },
+          "destinationVesselPids": [
+            "2710404000"
+          ],
+          "dismissedCandidates": 0,
+          "dormant": 0,
+          "holdKinds": {},
+          "ids": [
+            "8898c0686d1645d6b67914887ab21df8"
+          ],
+          "originBodies": {
+            "Kerbin": 1
+          },
+          "promptedCandidates": 0,
+          "skippedCycles": 0,
+          "sourceRefs": 3,
+          "statuses": {
+            "Paused": 1
+          },
+          "stops": 1,
+          "unknownConnectionKinds": 0,
+          "unknownStatuses": 0,
+          "unparsed": 0
+        },
+        "stockLoad": {
+          "findings": 0,
+          "first": [],
+          "kinds": {}
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "scenarioFound": true,
+      "status": "REPORT"
+    },
+    "subprocessRetry": [],
+    "testResults": {
+      "batchFailed": null,
+      "failures": 0,
+      "status": "PASS"
+    },
+    "unityExceptions": {
+      "afterQuit": 1,
+      "afterQuitFrameless": 1,
+      "counts": {
+        "ArgumentException: GUILayout": 0,
+        "IndexOutOfRangeException": 0,
+        "MissingReferenceException": 0,
+        "NullReferenceException": 1
+      },
+      "gating": false,
+      "maxParsekFrames": null,
+      "maxParsekThrowSite": null,
+      "maxTotal": null,
+      "mismatches": [],
+      "parsekCaller": 0,
+      "parsekFrameSites": {},
+      "parsekFrames": 0,
+      "parsekThrowSite": 0,
+      "parsekThrowSiteSites": {},
+      "quitMarkerSeen": true,
+      "status": "REPORT",
+      "total": 1,
+      "uncountedExceptions": 1
+    }
+  },
+  "wallSeconds": 658
+}
