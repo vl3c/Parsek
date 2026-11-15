@@ -453,7 +453,7 @@ Where a fix would go (a choice for whoever takes it; no code changed):
      asserts, so it is an owner call.
 Option 1 is the smallest. Done when B7 flies attempt 1 green across several nightlies.
 
-## B43-VALL-TYLO-FLYBY-SUBSURFACE: B43's first flight reaches Tylo on an impact course and never arms the capture [FILED 2026-11-15 from B43's first flights; FIX AUTHORED 2026-11-15 (spec only, never flown with it); low (the forge cannot harvest `vall-tylo-recorded`, so V43M stays unflyable; not a Parsek defect)]
+## B43-VALL-TYLO-FLYBY-SUBSURFACE: B43's first flight reaches Tylo on an impact course and never arms the capture [FILED 2026-11-15 from B43's first flights; FIX 1 (cap 120) FLOWN 2026-11-16, still INVALID; FIX 2 AUTHORED 2026-11-16 (cap 250, spec only, not flown); low (the forge cannot harvest `vall-tylo-recorded`, so V43M stays unflyable; not a Parsek defect)]
 
 `B43-vall-tylo-transfer` flew twice on 2026-11-15 (runs `2026-11-15_1617` and `2026-11-15_1632_a2`)
 and read INVALID(mission) both times: TARGET-FLYBY logged `flyby impact certain,
@@ -463,7 +463,13 @@ Cause (the two `_mission.stdout.log`s): every mid-course correction round was pr
 raw stage-2 aim reached Tylo below the surface. Fix: the cap is 120 m/s (the first round's 85.6
 m/s with 25% margin; 130.5 LF, about 683 m/s, was left after stage 2, enough for one round plus
 the 161-201 m/s elliptical capture). Pinned by `test_moon_forge_fixes.B43CorrectionCapTests`.
-Closes when B43 flies green and `vall-tylo-recorded` is harvested.
+Re-flown 2026-11-16 (runs `2026-11-15_2243`, `2026-11-15_2300_a2`), INVALID(mission) both, one
+step further: round 0 flew its 85.6 m/s node in full, but the Tylo periapsis moved only from
+-580 km to -323 km (the MechJeb node under-delivered; the burn's own telemetry shows the node
+consumed to 1.4 m/s), and every later round priced 200.6-265.5 m/s and was refused at 120.
+Fix 2: the cap is 250, so round 1's 200.6 m/s flies; 114.1 LF (~600 m/s) was left after round
+0, enough for it plus the capture, while a 265 m/s round stays refused. Closes when B43 flies
+green and `vall-tylo-recorded` is harvested.
 
 ## ~~B44-LAYTHE-TYLO-NODE-EDIT-UNAVAILABLE~~: B44's second transfer burn cannot edit its maneuver node and the craft is lost [CLOSED 2026-11-15: B44 flew green on its first flight with the fix, `2026-11-15_2243` PASS attempt 1 (888 s, origin/main c522ea549), and `laythe-tylo-recorded` is harvested and committed, V44M handed over. FILED 2026-11-15 from B44's first flights; FIX AUTHORED 2026-11-15 (mission library + spec); low (not a Parsek defect)]
 
@@ -481,7 +487,7 @@ A patched-conic model that reproduces flight 1 pins the choice in
 `test_moon_forge_fixes.B44EscapePassGeometryTests`. Closed by the green flight
 `2026-11-15_2243` (PASS attempt 1) and the `laythe-tylo-recorded` harvest from its own snapshot.
 
-## B46-MINMUS-MUN-COAST-TIMEOUT: B46's Minmus -> Mun transfer never reaches the Mun before its coast phase times out [FILED 2026-11-15 from B46's first flights; FIX AUTHORED 2026-11-15 (mission library, never flown with it); low (the forge cannot harvest `minmus-mun-recorded`, so V46M stays unflyable; not a Parsek defect)]
+## B46-MINMUS-MUN-COAST-TIMEOUT: B46's Minmus -> Mun transfer never reaches the Mun before its coast phase times out [FILED 2026-11-15 from B46's first flights; FIX 1 (relative burn floor) FLOWN 2026-11-16 and worked, still INVALID one step later; FIX 2 AUTHORED 2026-11-16 (spec floor 20 Mm, not flown); low (the forge cannot harvest `minmus-mun-recorded`, so V46M stays unflyable; not a Parsek defect)]
 
 `B46-minmus-mun-transfer` flew twice on 2026-11-15 in the analysis thread's `final-operator` run
 (runs `2026-11-15_1638` and `2026-11-15_1743_a2`) and read INVALID(autopilot-flake) both times:
@@ -492,8 +498,14 @@ TRANSFER-BURN exited 478 s BEFORE its node, so the transfer was never flown and 
 for a Mun encounter that could not come. Fix: `mlib._burn_apsis_changed` takes the larger of the
 old absolute floor and 0.5% of the entry apsis (used by the burn stagnation tracker and the
 correction-burn timeout); small orbits keep the absolute floor. Pinned by
-`test_moon_forge_fixes.BurnChangedFloorTests` with B46's own frames. Closes when B46 flies green
-and `minmus-mun-recorded` is harvested.
+`test_moon_forge_fixes.BurnChangedFloorTests` with B46's own frames. Re-flown 2026-11-16 (runs
+`2026-11-15_2243`, `2026-11-15_2308_a2`), INVALID(autopilot-flake) both: stage 2 now burned at its
+node and did the transfer (Kerbin pe 28.8 -> 10.76 Mm, a Mun encounter), but MechJeb's burn sat
+mid-orbit at 29.9 Mm altitude, so it lowered the apoapsis too (45.55 -> 30.16 Mm) and the spec's
+40 Mm `transferMinApoapsisMeters` read the finished transfer as an under-burn. Fix 2: the floor
+is 20 Mm, under the burn-point bound (the new apoapsis is at least the old periapsis, ~29 Mm)
+and above the Mun's orbit plus SOI (13.8 Mm); pinned by `test_moon_forge_fixes.B46InwardFloorTests`.
+Closes when B46 flies green and `minmus-mun-recorded` is harvested.
 
 ## ~~FAR-SWITCH-CASE-B-UNFLOWN~~: no lane flew a far vessel switch while recording, so the commit before stock's reload was never checked in game [CLOSED 2026-11-15: S0.14 LIVE-PROVEN on its fourth flight, `2026-11-15_0011_S0.14-far-switch-merges-before-reload` PASS attempt 1, tier daily; the residue below is the #266 stash, still unreached. FILED 2026-11-14 from a lane gap audit (the vessel-switch stash family). LANE AUTHORED 2026-11-14, branch `item20-switch-pending-merge-lane`: `S0.14-far-switch-merges-before-reload`, operator (flight 1 INVALID on its host, re-hosted on `jool-park-nerv`; flight 2 red on a spec error, fixed; flight 3 PARSEK-FAIL on a product defect, FAR-SWITCH-INTENT-TTL-RACE, now fixed and the lane re-pinned to it); the two-switch reading lane S0.15 flew once and was WITHDRAWN (no committed host). Closes when S0.14 flies green with the fix; the #266 stash stays unreached by any flown lane until a host is harvested; test gap]
 
