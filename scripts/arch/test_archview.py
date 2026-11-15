@@ -4116,13 +4116,15 @@ class RealTreeSmokeTests(unittest.TestCase):
         # B3's shared part-state poller adds three: PartStatePoller, which calls the
         # recorders' transition statics and which both recorders call, and the two nested
         # sinks (FlightRecorder's and BackgroundRecorder's), each reaching its owner and
-        # reached from it: 438.
+        # reached from it: 438. The dead-method removal (item 25) deleted
+        # RouteOriginCargoCheck.RequiresInventoryDebit, the type's only reference into the
+        # knot, so RouteOriginCargoCheck leaves it: 437.
         # It was [301, 7, 4, 2, 2] on 2026-09-25,
         # [286, 4, 2, 2] on 2026-09-22 and [391, 4, 2] before the 2026-09-14
         # arch PRs shrank the kernel.
         # It is a canary: when it reds, re-derive it and the README numbers
         # from a fresh run in the same commit as whatever moved them.
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [438, 9, 4, 3, 2])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [437, 9, 4, 3, 2])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
@@ -4294,11 +4296,14 @@ class RealTreeSmokeTests(unittest.TestCase):
         # Plan item 17's IMergeFlowHost joins the knot on the cut side (435 before, the cut still
         # lands on 403). B3's three poller types (see the knot sizes above) stay on the uncut
         # side until the recorder cut, so each of the first three lands three higher
-        # (438 -> 406, 406 -> 384, 384 -> 365).
+        # (438 -> 406, 406 -> 384, 384 -> 365). Item 25's RouteOriginCargoCheck (out of the
+        # knot, see above) sat on the uncut side until the route cut, so the first two land one
+        # lower and the route cut starts one lower and lands where it did (437 -> 405,
+        # 405 -> 383, 383 -> 365).
         first, second, third = self.model["knots"][0]["cuts"][:3]
         self.assertEqual(first["sink"], "ParsekFlight")
-        self.assertEqual(first["sizeBefore"], 438)
-        self.assertEqual(first["sizeAfter"], 406)
+        self.assertEqual(first["sizeBefore"], 437)
+        self.assertEqual(first["sizeAfter"], 405)
         for service in ("ParsekFlightGhostPositioner", "ParsekFlightMapMarkers", "ParsekWindowSet",
                         "ParsekFlightMergeFlow",
                         "ParsekFlightPlaybackHost", "ParsekFlightPostSwitchAutoRecord",
@@ -4306,8 +4311,8 @@ class RealTreeSmokeTests(unittest.TestCase):
                         "ParsekFlightSurfaceCapture", "ParsekFlightSwitchContinuation"):
             self.assertIn(service, first["droppedReferences"])
         self.assertEqual(second["sink"], "GhostPlaybackLogic")
-        self.assertEqual(second["sizeBefore"], 406)
-        self.assertEqual(second["sizeAfter"], 384)
+        self.assertEqual(second["sizeBefore"], 405)
+        self.assertEqual(second["sizeAfter"], 383)
         for dropped in ("LoopUnit", "MissionPeriodicity", "MissionRelaunchSchedule"):
             self.assertIn(dropped, second["droppedReferences"])
         # File-placement PR 4 (2026-11-07) deleted OrbitReseed -> GhostMapPresence;
@@ -4327,9 +4332,9 @@ class RealTreeSmokeTests(unittest.TestCase):
         # (436 -> 419). Wave 2 W1a made launch identity a sink (installed rules), so it is
         # no longer a cut; the third cut was the scenario module (419 -> 404 then, 410 -> 395
         # after W1b). Since W1c the third cut is the route (406 -> 387; 388 -> 369 after W3b;
-        # 383 -> 364 after W6's window set).
+        # 383 -> 364 after W6's window set; 383 -> 365 after item 25).
         self.assertEqual(third["sink"], "Route")
-        self.assertEqual(third["sizeBefore"], 384)
+        self.assertEqual(third["sizeBefore"], 383)
         self.assertEqual(third["sizeAfter"], 365)
         self.assertEqual(
             third["droppedReferences"], ["RouteCodec", "RouteDispatchEvaluator", "RouteIds"])
