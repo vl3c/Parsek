@@ -732,21 +732,20 @@ Logging (tag `RaceSites`, design section 10):
 
 #### R2-12 Harness lane SITES-1: a launch, a recovery and a Space Center visit at each site
 
-- **Change:** `harness/scenarios/SITES-1-four-sites.toml` on `stock-minimal` (Making History
-  present): with `RaceSetup action=create` (R1-10) create a race (slot 0) in the temporary
-  shared folder `${raceShared}` (T-03), then `RaceSetup action=join` (R1-11) three times
-  (slots 1, 2, 3, first free in order), each a new save. Per save: Space Center settles;
-  `ListHandles kind=sites` (T-07) gives the working space center, the pad and runway spawn
-  points, the recovery reference point and the patch heights, each compared with that slot's
-  `kerbin-equator-1` row (values pinned in the spec, tolerances as in R2-03 and R2-04);
-  `GoToEditor` VAB; `LaunchFromEditor` a small craft to the pad; `ListHandles kind=sites`
-  again in flight; `Recover`; back at the Space Center the recovery is logged with full
-  value; `ExitToSpaceCenter` visit. One save also runs `RevertToLaunch` (a load inside a race
-  save must reconcile to Nothing). No `RunTests` step: a spec has at most one, and the
+- **Change:** `harness/scenarios/SITES-1-four-sites.toml` on `stock-tree` (Making History present;
+  the stock tree, so R1-20's content check passes and no warning is asked; test-and-harness section
+  4): with `RaceSetup action=create` (R1-10) create a race (slot 0) in the temporary shared folder
+  `${raceShared}` (T-03), then `RaceSetup action=join` (R1-11) three times (slots 1, 2, 3, first
+  free in order), each a new save. Per save: Space Center settles; `ListHandles kind=sites` (T-07)
+  gives the working space center, the pad and runway spawn points, the recovery reference point and
+  the patch heights, each compared with that slot's `kerbin-equator-1` row (values pinned in the
+  spec, tolerances as in R2-03 and R2-04); `GoToEditor` VAB; `LaunchFromEditor` a small craft to the
+  pad; `ListHandles kind=sites` again in flight; `Recover`; back at the Space Center the recovery is
+  logged with full value; `ExitToSpaceCenter` visit. One save also runs `RevertToLaunch` (a load
+  inside a race save must reconcile to Nothing). No `RunTests` step: a spec has at most one, and the
   per-site values come from `ListHandles` (OV-03); the `RaceSites`, `RaceSitesFlight` and
-  `RaceSitesTrackingStation` cells run on the hosts RACE-9 (T-29), RACE-10 (T-35) and
-  RACE-11 (T-36) (OV-09).
-  logContract pins `Sites applied: table=kerbin-equator-1 home=<slot>` once per save and no
+  `RaceSitesTrackingStation` cells run on the hosts RACE-9 (T-29), RACE-10 (T-35) and RACE-11 (T-36)
+  (OV-09). logContract pins `Sites applied: table=kerbin-equator-1 home=<slot>` once per save and no
   `Sites apply failed`.
 - **Sample points:** this task extends T-07's sample-point table of `ListHandles kind=sites`
   with the four patches of `SiteTable` (T-07 ships only the KSC pad and runway ends), and
@@ -778,18 +777,27 @@ Logging (tag `RaceSites`, design section 10):
   values again. Last, the spec's one `RunTests category=RaceSitesStock` in that
   single-player save (`StockRestored`, `NoPatchesWhenStock`, `NoCopiesWhenStock`,
   `KerbinIsStock`). Design cases 23 and 31.
+  - The warning path, on purpose: this lane runs on `stock-minimal`, whose CommunityTechTree
+    and ProbesBeforeCrew make the tree differ from the race content table (R1-20; design
+    7.2). The create and joins pass `unscoredConfirm=continue` and each race `LoadGame` the
+    same; logContract pins `[Race] Content check: result=warn` and `Content warning:
+    choice=continue source=seam` at each, and no second warning inside one save in one
+    process. One extra `LoadGame` of the slot 1 save with `unscoredConfirm=cancel` stays at
+    the main menu with `persistent.sfs` unchanged (hash before and after), and a create with
+    `unscored=off` is refused `content-differs` with nothing written. The rest of the lane
+    is unchanged by the warning (the sites do not depend on the tree).
 - **Proof:** the lane, with logContract on the restore and apply lines in order and the
   `ListHandles` comparisons against RACE-0; never-flown pins (`total=` exact) and an entry
   in `IngameBatchWiringGroupTests.INTERIM_PIN_IDS` until the first flight.
 - **Registers:** as SITES-1, plus `CommittedBatchTallySourceSyncTests` pins for
   `RaceSitesStock` and the new category in the lane catalog.
-- **Size:** M. **Depends on:** R2-12, T-07.
+- **Size:** M. **Depends on:** R2-12, T-07, R1-20.
 - **PC:** yes.
 - **Risk:** low.
 
 #### R2-14 Harness lane SITES-3: launch rules and the alternate sites setting
 
-- **Change:** `harness/scenarios/SITES-3-launch-rules.toml` on `stock-minimal`: one race
+- **Change:** `harness/scenarios/SITES-3-launch-rules.toml` on `stock-tree` (as SITES-1): one race
   created with the alternate sites on (a launch from the Desert pad works, as MC-4 does it)
   and one with them off (the spec's one `RunTests category=RaceSitesEditor` in the editor:
   `LaunchRules`, the picker offers no other site; a forced launch to "Desert_Launch_Site"

@@ -197,9 +197,9 @@ earliest wave (section B). A dropped task keeps its heading and says where its w
 | R1-12 | Register the race formats with a golden folder | S | R1-03, R1-10, T-01 | - | - | - | no | - | 7 |
 | R1-13 | Harness lanes MP-1 and MP-2 | - | dropped: work moved to T-13 | - | - | - | - | - | - |
 | R1-14 | Main menu entry, setup dialog shell and Con... | M | R1-12, T-13, R1-16 | S6 | - | r1 Q1 (answered: never hidden) | in-game | - | 9 |
-| R1-15 | The Create page | M | R1-14, R1-19 | - | - | r1 Q2, Q3 (answered) | in-game | - | 10 |
+| R1-15 | The Create page | M | R1-14, R1-19, R1-20 | - | - | r1 Q2, Q3 (answered) | in-game | - | 10 |
 | R1-16 | Lift the load-and-start route beside P10's... | S | P10-01 | - | - | - | tier run | - | 1 |
-| R1-17 | The Join page and "start over in my seat" | M | R1-14 | - | - | - | in-game | - | 10 |
+| R1-17 | The Join page and "start over in my seat" | M | R1-14, R1-20 | - | - | - | in-game | - | 10 |
 | R1-18 | The Multiplayer section in Settings | M | R1-08, R1-09, R1-10, R1-14 | - | - | - | in-game | - | 10 |
 | R1-19 | The race content table and its generator | M | R1-10 | S6 | - | - | in-game | - | 7 |
 | R1-20 | The tree and part-value check at create,... | M | R1-19, R1-11, R2-02 | S4a, S6 | - | - | in-game | - | 8 |
@@ -222,7 +222,7 @@ earliest wave (section B). A dropped task keeps its heading and says where its w
 | R2-10 | (conditional on S2) Biome override around t... | S-M | R2-09 | S2 | - | S2 result | in-game | - | 10 |
 | R2-11 | Every stock "home" surface at the home site | S-M | R2-04 | S4b | - | - | in-game | - | 7 |
 | R2-12 | Harness lane SITES-1: a launch, a recovery... | M | R2-04, R2-05, R2-07, R2-08, R2-09, R2-11, R1-10, R1-11, T-03, T-07 | - | - | - | flight | - | 10 |
-| R2-13 | Harness lane SITES-2: back to stock Kerbin,... | M | R2-12, T-07 | - | - | - | flight | - | 11 |
+| R2-13 | Harness lane SITES-2: back to stock Kerbin,... | M | R2-12, T-07, R1-20 | - | - | - | flight | - | 11 |
 | R2-14 | Harness lane SITES-3: launch rules and the... | S-M | R2-08, R2-12 | - | - | - | flight | - | 11 |
 | R2-15 | Fold the findings into the design and the p... | S | R2-04, R2-09 | S2, S4b, S5 | - | - | no | - | 10 |
 
@@ -664,7 +664,7 @@ PRs at the same time unless the row says the edits are disjoint.
 | `ParsekRaceScenario.cs` | R1-03, R1-08, R3E-15, R5-11 (the load pass call) | r5 :651 |
 | `LoadReconcilePolicy.cs` | R1-05, R1-16 (either order), R3E-15 | r1 :834-835; r3e :961 |
 | `SaveFormat.cs`, `Fixtures/FormatGolden/` | R1-12 (both rows, golden expected today `v2`), then R3E-04 (expected today `v3`); each takes the next free folder when it lands (README rules 5, 10) | r1 :852-854; r3e :956 |
-| `TestCommandVerbs.cs`, hlib verb tables, `design-autotest-command-seam.md` | P11-01 (seam doc), T-07, R1-08, R1-10, R1-11, T-12, T-19, T-20, T-30 | small :736-737; r1 :836-838; T :713-716 |
+| `TestCommandVerbs.cs`, hlib verb tables, `design-autotest-command-seam.md` | P11-01 (seam doc), T-07, R1-08, R1-10, R1-11, R1-19 (`parts=`, `unscored=`), R1-20 (`unscoredConfirm` on `RaceSetup` and `LoadGame`), T-12, T-19, T-20, T-30 | small :736-737; r1 :836-838; T :713-716 |
 | `harness/lib/test_hlib.py`, `hlib.py` | P10-01, P11-01, T-03, T-04, T-07, then every lane and verb task | small :733-735; T :707-709 |
 | `.claude/CLAUDE.md`, `AGENTS.md` | P10-01, R1-07, P2a-02, P2b-02, P3-04, R1-14, R2-03, R2-04, R2-07, R2-08, R3E-23, R5-14, R3W-25 (only if S7 fails), the R3W key-file line | small :738-740; playback :885-887; map :720; r1 :963; r2 :829-830; r3e :926; r3w :1145; one mirror copy per PR |
 | generated `docs/dev/flight-profiles.md`, `harness/coverage/registry.toml`, `docs/dev/autotest-status.md` | every task that adds an in-game category or a lane (R5-01 and T-07 in wave 0); P3-01 does not change the catalog (map :269-273) | T :717-721; regenerate after merging `origin/multiplayer`, never by hand |

@@ -1,4 +1,4 @@
-# Parsek Multiplayer: the Space Race - Design Document
+# Async Multiplayer & Space Races - Design Document
 
 *Design specification for competitive async multiplayer: up to four players race each other
 to the milestones of the Kerbal system, each in their own game, sharing through a synced folder.*
@@ -167,7 +167,8 @@ These are binding. Quotes are the owner's words.
   after creation, and from then on the creator is a player like the others (decision cards;
   7.2).
 - A player may change their own difficulty settings mid-game; nothing is blocked, and a mark
-  next to their name tells everyone which settings changed (7.12).
+  next to their name tells everyone which settings changed (7.12). (Replaced for the
+  progression settings, below: those are locked.)
 - A cheat or debug tool marks every milestone the flight reaches after the tool was used, also
   after it is switched off (7.12).
 - Rival ghosts can be targeted like the player's own, are never CommNet relays or control
@@ -690,8 +691,8 @@ Standing (players/<id>/standings/<seq>.pstd, immutable, written LAST)
                               to one key list: what the tree reader needs; per
                               recording id, vesselName, startUT, endUT,
                               parentAnchorRecordingId, chainId, chainIndex,
-                              vesselPersistentId (the vessel that continues
-                              through a merge, 7.12) and
+                              recordedVesselGuid and vesselPersistentId (which
+                              vessel continues through a merge, 7.12) and
                               sidecarEpoch (the trajectory reader checks it); and
                               the terminal and endpoint keys (terminal state,
                               terminal orbit, end position, endpoint body,
@@ -1128,12 +1129,12 @@ nodes, so there's no cheating". It holds:
 - the science value of every experiment (base value, cap, data scale) and each body's
   science multipliers, because they set how fast science buys the tree (13.B).
 
-A dev tool generates the table on the owner's PC from a clean 1.12.5 install with both
-expansions, ReStock and ReStock+, reading the part configs as ModuleManager left them and the
-tree at the main menu. The manifest names the table (`contentTableId`), so a table is frozen
-once a game uses it: a newer build adds a new id and keeps every older one, and a Parsek
-update never changes what counts in a game that exists. A build that does not know a game's
-table refuses the join, like an unknown ladder (`content-table-unknown`).
+A dev tool generates the table on the owner's PC from a clean 1.12.5 install with both expansions,
+ReStock and ReStock+ and no mod that changes the tech tree (so the stock tree loads), reading the
+part configs as ModuleManager left them and the tree at the main menu. The manifest names the table
+(`contentTableId`), so a table is frozen once a game uses it: a newer build adds a new id and keeps
+every older one, and a Parsek update never changes what counts in a game that exists. A build that
+does not know a game's table refuses the join, like an unknown ladder (`content-table-unknown`).
 
 **Gameplay values.** The fingerprint covers a fixed list of the values that change how a
 part flies: mass, cost, crew capacity, resource capacities, engine thrust and Isp curves,
@@ -1159,15 +1160,15 @@ mod's extra branch), and a counted part this install lacks (13.B). What a differ
 the creator's setting "Allow play without scoring" (owner, 2026-11-15: "we should have an
 option 'allow play without scoring'"):
 
-- **Off:** the game does not join and the race save does not load. One
-  message names what differs, the first three differences and a count ("Stayputnik unlocks
-  in Basic Science here, in Start in the race's tree; 4 more differences"); the save is
-  untouched, and the player fixes their mods and plays on.
+- **Off:** no race is created from the game, the game does not join, and the race save does not
+  load. One message names what differs, the first three differences and a count ("Stayputnik unlocks
+  in Basic Science here, in Start in the race's tree; 4 more differences"); the save is untouched,
+  and the player fixes their mods and plays on.
 - **On**, the default (owner, 2026-11-15): nothing is blocked ("without scoring, i think everyone
-  can use whatever they want, right?"). Before the join or the load one warning says what differs,
-  and that from now on this game's flights do not score while it differs and a tech node bought
-  meanwhile stops the save scoring for good; Continue or Cancel, and Cancel leaves the save
-  untouched. While the tree differs, every flight the game records carries a mark like a tool's
+  can use whatever they want, right?"). Before the create, the join or the load one warning says
+  what differs, and that from now on this game's flights do not score while it differs and a tech
+  node bought meanwhile stops the save scoring for good; Continue or Cancel, and Cancel leaves the
+  save untouched. While the tree differs, every flight the game records carries a mark like a tool's
   (7.12), so none scores. A flight carrying a counted part with changed values scores 0, like a
   flight with an uncounted part (7.12). A tech node bought while the tree differs marks the save
   from that game date on, for good, even if the mod is removed later, because the research stays
@@ -1177,7 +1178,7 @@ option 'allow play without scoring'"):
 In both states a part outside the ticked sets may always be installed and flown, and its
 flights score 0 by what flew (7.12). The setting governs only the tree and the changed values
 of counted parts. In the first build no launch, research or other stock button is blocked in
-either state: Off refuses only the join and the load.
+either state: Off refuses only the create, the join and the load.
 
 **Joining later** (owner ruling 2026-11-14). A race always has four seats and there is no
 player count to set. Join works at any time while a seat is free: an hour after the race was
@@ -2059,8 +2060,9 @@ when they differ from the race's:
   sites" is (7.3): set back to the race's values at every load and whenever the stock difficulty
   window applies, greyed in that window with the reason (the stock-control annotation exception),
   and, if a toggle cannot be reached after the window is built, set back with one screen message
-  that says why. The other thirty-one stay free and are shown by the mark. The starting funds,
-  science and reputation act only when a save is created, so they need no lock.
+  that says why. The other thirty-one stay free and are shown by the mark, apart from "allow other
+  launch sites", which is held the same way in a race created without the shared launch sites (7.3).
+  The starting funds, science and reputation act only when a save is created, so they need no lock.
 - **Cheat and debug tools, per flight.** Each recording entry of a standing says whether a
   tool from a fixed list was on or was used while that flight was recorded. The list is
   explicit, because "a cheat" is not one switch:
@@ -2127,10 +2129,12 @@ when they differ from the race's:
   is the vessel's own history (the designer's reading of "carries", 13.B):
   - the recording the milestone entry names, the recordings before it in its chain, and its
     ancestors through every split up to the launch;
-  - at a dock or a boarding, the merged vessel's own recording counts every part it holds
-    from the moment of the merge; the walk goes on up the vessel that continues through the
-    merge, not up the partner it absorbed, so a station holding a mod part marks a flight
-    from the dock on, and the station's own launch never reaches back;
+  - at a dock or a boarding, the merged vessel's own recording counts every part it holds from the
+    moment of the merge; the walk goes on up the vessel that continues through the merge (told apart
+    by its launch identity: the launch guid, the craft's persistent id only where a guid is unknown,
+    since two vessels built from one craft file share that id), not up the partner it absorbed, so a
+    station holding a mod part marks a flight from the dock on, and the station's own launch never
+    reaches back;
   - a part an engineer attaches counts from the attach event, and stowed cargo (a part in
     an inventory) from the first recording whose ghost snapshot shows it;
   - an unrelated sibling vessel of the same launch is not on the path and marks nothing. (The tool
@@ -2779,7 +2783,7 @@ S8 is about to run (listed again at the end of 13.C).
 | Branch | Where does the work land? | DECIDED 2026-11-15: on one long-lived `multiplayer` branch with sub-branches; main stays clean until one final merge (14) |
 | Tech tree | How is the tech tree locked? | DECIDED 2026-11-15: every player scores under one tree; in the first build it is always the stock tree of the race content table Parsek ships (decision card "Always the stock tree"); a tree the creator defines, captured at creation as everyone's reference, is later. The card "Refuse to join or load" answered earlier the same day is now the Off state of the row Play without scoring (7.2, 14) |
 | Content table | What is the tree and part list compared with? | DECIDED 2026-11-15: one versioned reference table shipped with Parsek: the stock tree, and for every part of the base game, both expansions and ReStock+, its name, node, entry cost and a fingerprint of its gameplay values ("a reference list ... that locks part names and their stock values, same as for the tech tree nodes, so there's no cheating"); generated by a dev tool from a clean install; frozen per game (7.2) |
-| Play without scoring | What does a game that differs from the table do? | DECIDED 2026-11-15: a creator setting, "allow play without scoring", ticked by default (decision card), fixed after creation. On: nothing is blocked; one warning, Continue or Cancel, before the join or load; flights recorded while the tree differs, and flights carrying a counted part with changed values, score 0; a node bought while the tree differs stops the save scoring from that date for good; the player shows as not scoring. Off: the game does not join and the save does not load, with one message naming what differs. Parts outside the ticked sets score 0 by what flew in both states, and no launch or research button is blocked in either (7.2) |
+| Play without scoring | What does a game that differs from the table do? | DECIDED 2026-11-15: a creator setting, "allow play without scoring", ticked by default (decision card), fixed after creation. On: nothing is blocked; one warning, Continue or Cancel, before the create, join or load; flights recorded while the tree differs, and flights carrying a counted part with changed values, score 0; a node bought while the tree differs stops the save scoring from that date for good; the player shows as not scoring. Off: no race is created from the game, it does not join and the save does not load, with one message naming what differs. Parts outside the ticked sets score 0 by what flew in both states, and no launch or research button is blocked in either (7.2) |
 | Part sets | Which parts count? | DECIDED 2026-11-15: the base game's parts always; the creator ticks Making History, Breaking Ground and ReStock+ separately at creation, fixed afterwards; a player without a ticked set has fewer parts (decision card "One checkbox per set", replacing the single "allow extra supported parts" toggle). The default, nothing ticked, is assumed until the owner answers; the expansions are no longer always counted (7.2) |
 | Parts by what flew | How is the part rule enforced? | DECIDED 2026-11-15: by what flew; a flight that carries a part outside the counted sets is marked and does not score, like a tool-marked flight; no mod part is refused for being installed (decision card "By what flew"); the window lists such a milestone at its date with 0 points and names the parts in its hover (7.12, 7.13) |
 | Later clean flight | Does a later clean flight score a milestone a marked flight reached? | DECIDED 2026-11-15: no, as for cheat tools; only a rewind and an earlier clean arrival does; the warning at launch is the protection (decision card "No, the launch warning is enough") (7.12) |
@@ -3364,8 +3368,8 @@ Choices made now so later ideas need no restructuring:
 
 - **N players in the data, four in the world.** Standings, the rival store and the board take
   any number of players. Four is a property of the site table and the looks only.
-- **Tables are data with ids** (`siteTableId`, `ladderId`): a new ladder or site table is a
-  new id, and old races keep theirs.
+- **Tables are data with ids** (`siteTableId`, `ladderId`, `contentTableId`): a new ladder,
+  site table or race content table is a new id, never an edited one, and old races keep theirs.
 - **A rival does not have to be a person** (owner note 2026-11-14: AI or recorded flights
   playing as another player, later). Nothing in the import, the rival store, the ghost lane
   or the board asks who wrote a player folder, so this needs no restructuring, but four

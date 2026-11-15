@@ -374,19 +374,19 @@ task adds it to the earlier task's file. Fields and enum members are not methods
     trees through `EffectiveState.ResolveOwningTree(rec, null)`; names through
     `MissionStore.DisplayNameForTree` and `Recording.VesselName`; frontier = max `EndUT`.
     Its `ChangeToken()` (R3E-17) returns the ERS and ELS list instances as a pair.
-  - `RaceExport/RaceTreeProjection.cs`: the public tree file in the production
-    `RecordingTree` node shape (OV-35): a filtered copy of the tree holding only its ERS
-    recordings and the branch points whose endpoints are all in ERS, written through the
-    production writer (`RecordingTree.Save`, `RecordingTree.cs:148`, and
-    `RecordingTreeRecordCodec.SaveRecordingInto`), then cut to one agreed key list so no
-    private key leaves the save. The list keeps what `RecordingTree.Load` needs plus the
-    terminal and endpoint keys R3W-03 reads (terminal state, terminal orbit, end position,
-    endpoint body, isDebris; r3w section 9.2), and id, vesselName, startUT, endUT,
-    parentAnchorRecordingId, chainId, chainIndex, sidecarEpoch (the rival loader's epoch
-    check, `RecordingSidecarStore.cs:180-185`). R3E-02 and R3W-03 agree the one key list in
-    R3E-02's pull request, so R3W-03 loads the file with the production reader. R3E-25 adds
-    `vesselPersistentId` (codec key of `Recording.VesselPersistentId`) to the list, so an
-    importer can redo the part path walk through a merge (design 6.1, 7.12).
+  - `RaceExport/RaceTreeProjection.cs`: the public tree file in the production `RecordingTree` node
+    shape (OV-35): a filtered copy of the tree holding only its ERS recordings and the branch points
+    whose endpoints are all in ERS, written through the production writer (`RecordingTree.Save`,
+    `RecordingTree.cs:148`, and `RecordingTreeRecordCodec.SaveRecordingInto`), then cut to one
+    agreed key list so no private key leaves the save. The list keeps what `RecordingTree.Load`
+    needs plus the terminal and endpoint keys R3W-03 reads (terminal state, terminal orbit, end
+    position, endpoint body, isDebris; r3w section 9.2), and id, vesselName, startUT, endUT,
+    parentAnchorRecordingId, chainId, chainIndex, sidecarEpoch (the rival loader's epoch check,
+    `RecordingSidecarStore.cs:180-185`). R3E-02 and R3W-03 agree the one key list in R3E-02's pull
+    request, so R3W-03 loads the file with the production reader. R3E-25 adds `recordedVesselGuid`
+    and `vesselPersistentId` (codec keys of `Recording.RecordedVesselGuid` and
+    `Recording.VesselPersistentId`) to the list, so an importer can redo the part path walk through
+    a merge (design 6.1, 7.12).
   - Composition: R1-08's Controllers composer builds `RaceExportSource` and hands it to the
     driver as `IPublicStateSource` (`RaceWorld` never names `RaceExport`). The driver's
     `OnSessionStart` logs `[RaceExport] public state: recordings=N trees=M frontierUT=X
@@ -780,7 +780,8 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
   the same digest R1-10 writes as `race.cfg`'s `difficultyDigest`, so a rival can be told
   which settings changed (owner, 2026-11-15: a
   player may change their own difficulty mid-game; nothing is blocked and a mark names the
-  changed settings, R6-05);
+  changed settings, R6-05; apart from the progression settings, which are locked, R1-21 /
+  design 7.12);
   `testTooling` from `FactCapture.TestToolingUsed` (key `testTooling`, member
   `TestToolingUsed`, OV-28 / OV-32; R4 adds nothing to the wire). Persistence: a race facts
   child (`RACE_FACTS { testTooling }`, later R3E-09's `DEBUG_COMPLETION` rows), an
@@ -1083,26 +1084,34 @@ made while it differs; a node bought while it differs marks the save from its da
     "research-under-other-tree", techId, ut)` (R3E-09's member), so the mark is dated and
     kept for good in the race facts child.
   - The walk. `RaceCore/UncountedPathWalk.cs` (pure, over a neutral node shape `PathNode { Id,
-    ChainId, ChainIndex, VesselPid, ParentIds, Parts (name, fromUT, isClamp) }`, so the exporter and
-    the import check run the same code): for each recording, its path (design 7.12): itself, its
-    chain predecessors (`ChainId`, `ChainIndex`), and its ancestors through each `BranchPoint` up to
-    the launch; at a merge (`ParentRecordingIds` with two or more ids) only the parent whose
-    `VesselPersistentId` equals the child's, both when both or neither match. A node's `Parts` come
-    from its ghost snapshot (from the recording's start; a merged child's snapshot is taken at the
-    merge, `Controllers/ParsekFlightSplitBrancher.cs:1078-1083`) and from each `InventoryPartPlaced`
-    part event at its UT (the attach, `Controllers/ConstructionGhostShape.cs:58-91`). Names through
-    R1-22's `UncountedParts.Classify` against the race's content table and part sets; a part whose
-    snapshot `PART` holds a `MODULE` named `LaunchClamp` is never counted (`isClamp`). Output per
-    recording: one `UNCOUNTED { name ut why }` child per name, `why` = `outside` or `changed` (the
-    second from the path's `ContentDiffers` uses with a `part:` detail, which R3E-10 leaves out of
-    the `TOOL` children), `ut` = the earliest date on the path.
+    ChainId, ChainIndex, VesselGuid, VesselPid, ParentIds, Parts (name, fromUT, isClamp) }`, so the
+    exporter and the import check run the same code): for each recording, its path (design 7.12):
+    itself, its chain predecessors (`ChainId`, `ChainIndex`), and its ancestors through each
+    `BranchPoint` up to the launch; at a merge (`ParentRecordingIds` with two or more ids) only the
+    parent whose vessel is the child's by launch identity, both when both or neither match. Launch
+    identity is the rule of `VesselLaunchIdentity.RecordingsShareLaunch`
+    (`Core/VesselLaunchIdentity.cs:101`): the same persistent id and launch guids that do not
+    conclusively differ, so two vessels built from one craft file (which share the craft-baked
+    persistent id) are told apart by their launch guids, and the persistent id alone decides only
+    when a guid is unknown. `RaceCore` cannot name Core's recording type, so the rule is copied over
+    the `PathNode` fields and a cell pins it equal to the original on the same inputs. A node's
+    `Parts` come from its ghost snapshot (from the recording's start; a merged child's snapshot is
+    taken at the merge, `Controllers/ParsekFlightSplitBrancher.cs:1078-1083`) and from each
+    `InventoryPartPlaced` part event at its UT (the attach,
+    `Controllers/ConstructionGhostShape.cs:58-91`). Names through R1-22's `UncountedParts.Classify`
+    against the race's content table and part sets; a part whose snapshot `PART` holds a `MODULE`
+    named `LaunchClamp` is never counted (`isClamp`). Output per recording: one `UNCOUNTED { name ut
+    why }` child per name, `why` = `outside` or `changed` (the second from the path's
+    `ContentDiffers` uses with a `part:` detail, which R3E-10 leaves out of the `TOOL` children),
+    `ut` = the earliest date on the path.
   - Export. `RaceExportSource.Uncounted.cs` builds the nodes from the ERS recordings (the
     snapshot through R3E-03's projection cache) and writes the children;
     `RaceExportSource.Disclosure.cs` (R3E-15's file) writes `contentDiffers` from the
     composer's `RaceContentDiff` value (R1-20's RaceCore type, handed in by R1-08's
     composer, so `RaceExport` names no `RaceWorld` type) and the research `SAVE_MARK` rows
     through R3E-09's writer. The digest includes all three.
-  - Tree file key list: `vesselPersistentId` added (R3E-02's list; design 6.1).
+  - Tree file key list: `recordedVesselGuid` and `vesselPersistentId` added (R3E-02's list;
+    design 6.1).
   - Import check (`RaceSync.Import.cs`, R3E-18's file, before applying a complete standing):
     `RaceExport/PayloadPathNodes.cs` builds the nodes from the copied payload bytes (the tree file's
     keys, the ghost snapshots through `SnapshotSidecarCodec.TryLoad`, the part events through the
@@ -1118,15 +1127,18 @@ made while it differs; a node bought while it differs marks the save from its da
     all additive, no bump.
 - **Proof:** xUnit `UncountedPathWalkTests` over `PathNode` lists and over `RecordingBuilder` trees:
   a part on the named recording, a chain predecessor and a split ancestor marks; a sibling does not;
-  a dock marks the merged vessel from the merge and never the absorbed partner's launch; both or
-  neither parent matching walks both; an attach counts from its event; a clamp never; dot names with
-  the suffix removed. `FlightRecorderToolUseTests` gains the tree and part cells (none while
-  disarmed or with no difference); a `GameStateRecorder` cell for the research save mark (only while
-  the tree differs). `RaceSyncImportTests` gains: a standing missing an `UNCOUNTED` name, and one
-  naming a part its payload lacks, are not applied and carry the mark; a `changed` child is not
-  checked. Codec round trips; a single-player save and a race without differences serialize
-  byte-identical to today. Logs: `[RaceExport] uncounted: recordings=N parts=M`, `[RaceSync]
-  uncounted check failed player=.. name=..`.
+  a dock marks the merged vessel from the merge and never the absorbed partner's launch; a dock
+  between two vessels of one craft file (same persistent id, different launch guids) follows only
+  the continuing one; a guid unknown on one side falls back to the persistent id; both or neither
+  parent matching walks both; the copied launch-identity rule equals
+  `VesselLaunchIdentity.RecordingsShareLaunch` on a table of inputs; an attach counts from its
+  event; a clamp never; dot names with the suffix removed. `FlightRecorderToolUseTests` gains the
+  tree and part cells (none while disarmed or with no difference); a `GameStateRecorder` cell for
+  the research save mark (only while the tree differs). `RaceSyncImportTests` gains: a standing
+  missing an `UNCOUNTED` name, and one naming a part its payload lacks, are not applied and carry
+  the mark; a `changed` child is not checked. Codec round trips; a single-player save and a race
+  without differences serialize byte-identical to today. Logs: `[RaceExport] uncounted: recordings=N
+  parts=M`, `[RaceSync] uncounted check failed player=.. name=..`.
 - **Registers:** the post-change checklist for the new `ToolKind` member (R3E-07's codec,
   generators); `headless_pins.toml` (`UncountedPathWalk`); `log_tags.json`.
 - **Size:** M. **Depends on:** R3E-03, R3E-04, R3E-08, R3E-09, R3E-10, R3E-15, R3E-18,
@@ -1236,10 +1248,10 @@ and the reset allowlist (R3E-06); the threads allowlist (R3E-23).
 - **Save format:** no row and no bump here: R1-12 registers `race-link` and `race-exchange` and
   writes `v2`; R3E-04 adds golden `v3` at `race-exchange = 1` and cells in R1-03's
   `RaceFormatPinTests` (OV-15, OV-16); the `FLAGS` block, `vtype`, `TOOL` and `DEBUG_COMPLETION`,
-  `SAVE_MARK` and `UNCOUNTED` rows, `contentDiffers`, the `vesselPersistentId` tree key and
-  `ToolKind.ContentDiffers` are additive keys; A2 and A3 are additive (no bump); the post-change
-  checklist for R3E-07 and R3E-12; R3E-15's `LoadReconcilePolicy` row for the race facts child
-  (OV-28).
+  `SAVE_MARK` and `UNCOUNTED` rows, `contentDiffers`, the `recordedVesselGuid` and
+  `vesselPersistentId` tree keys and `ToolKind.ContentDiffers` are additive keys; A2 and A3 are
+  additive (no bump); the post-change checklist for R3E-07 and R3E-12; R3E-15's
+  `LoadReconcilePolicy` row for the race facts child (OV-28).
 - **GUI gates:** no new surface. Screen messages: one site, the driver's (R3E-22), the one
   producer of race messages (OV-38); the heal and two-computers messages (R3E-20), the "left
   the race" message (R3E-22), the clash note and the "joined the race" message (R3E-18),

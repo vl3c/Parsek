@@ -101,21 +101,20 @@ wrong.
    SITES-3, R2-14). A category no committed spec pins yet needs no re-pin when a test is
    added (R5-14's `RaceLooks` cell lands in wave 7, before RACE-9); once a spec pins it, a
    test added to it re-pins that spec's tally in the same pull request.
-8. **New player-facing surfaces** (the kinds `.claude/CLAUDE.md` forbids: windows, popups,
-   badge counters, panels) are only the ones the owner asked for, the same list as design
-   section 0: the main menu Multiplayer entry, the race setup dialog, the Space Race window,
-   and, only if spike S7 shows the stock plaque window cannot show a rival's text, one small
-   popup for reading a rival's flag (question Q-21, owner, 2026-11-15). That is four, the
-   last one conditional. R1-14 writes the first three into `.claude/CLAUDE.md` as one new
-   exception bullet; R3W-25 adds the popup to that bullet only if S7 fails. The Route
-   History window is an older single-player exception of `.claude/CLAUDE.md`, not one of
-   these. Not new surfaces: the Multiplayer section of the existing Settings window, hover
-   text inside the Space Race window, one-shot screen messages for events, the blocks on
-   stock controls (the greyed "allow other launch sites" option, R2-08; the nine greyed
-   progression settings, R1-21; the blocked suit choice, R5-14), which use the existing
-   stock-control annotation exception, and the stock confirmation dialog that warns before a
-   join or load of a game whose tree or part values differ (R1-20), the same stock dialog the
-   setup already uses for confirmations. Anything else needs a new ruling.
+8. **New player-facing surfaces** (the kinds `.claude/CLAUDE.md` forbids: windows, popups, badge
+   counters, panels) are only the ones the owner asked for, the same list as design section 0: the
+   main menu Multiplayer entry, the race setup dialog, the Space Race window, and, only if spike S7
+   shows the stock plaque window cannot show a rival's text, one small popup for reading a rival's
+   flag (question Q-21, owner, 2026-11-15). That is four, the last one conditional. R1-14 writes the
+   first three into `.claude/CLAUDE.md` as one new exception bullet; R3W-25 adds the popup to that
+   bullet only if S7 fails. The Route History window is an older single-player exception of
+   `.claude/CLAUDE.md`, not one of these. Not new surfaces: the Multiplayer section of the existing
+   Settings window, hover text inside the Space Race window, one-shot screen messages for events,
+   the blocks on stock controls (the greyed "allow other launch sites" option, R2-08; the nine
+   greyed progression settings, R1-21; the blocked suit choice, R5-14), which use the existing
+   stock-control annotation exception, and the stock confirmation dialog that warns before a create,
+   join or load of a game whose tree or part values differ (R1-20), the same stock dialog the setup
+   already uses for confirmations. Anything else needs a new ruling.
 9. **The folder is the module** (pull request #2611, on main ab1cc9478). A new source file is
    created in its module's folder, `Source/Parsek/<Module>/<Name>.cs`; a new module needs its
    rule, layer and atlas line in the same commit as its first file. A `.cs` file in the root
@@ -197,6 +196,7 @@ wrong.
 | Empty catalog for the rival lane | `RecordingPlaybackCatalog.None` (R3W-09); there is no `RivalCatalog` |
 | Race screen messages | Every race screen message, by task. Through one posting site, the sync driver's, landed by R3E-22, which logs `[RaceSync] Message posted:` for each: R3E-22's "<n> shared flights left the race"; R3E-18's clash note (a look or site taken by a later joiner, R1-09's rule) and "<name> joined the race"; R3E-20's heal message (files put back) and its two-computers message (the folder is being written from two computers); R4-07's holder changes; R6-08's two end-of-race messages. Outside the driver, each from its own task: R2-02's refused load (with R1-20's second reason, a tree or part values that differ); R2-08's refused launch, and its snap-back message ("Other launch sites stay off: ...") only if the stock toggle cannot be greyed; R1-21's snap-back message ("Progression settings stay as this race was created") for a setting it cannot grey; R1-22's launch warning ("This flight will not score: <part names>"); R3W-19's refused switch to a rival ghost. There are no others (R1-20's warning before a join or load is the stock confirmation dialog, not a screen message) |
 | Log tags | plain: `RaceSync`, `RivalLane`, `RaceBoard`, listed in R1-06 |
+| Race lane install | the `stock-tree` profile (the stock tech tree, so R1-20's check passes); `stock-minimal` loads CommunityTechTree and ProbesBeforeCrew, and only SITES-2 (R2-13) runs there, on purpose, to prove the warning path; a lane answers a warning with the seam arg `unscoredConfirm=continue|cancel` (default `cancel`) on `RaceSetup action=create|join` and `LoadGame` (R1-20) |
 
 ### In-game test categories
 
@@ -259,19 +259,19 @@ The owner's rulings of 2026-11-15 changed these plan points (each plan cites the
   default, the part sets (none ticked by default, assumed) and "allow play without scoring"
   (ticked by default), always four seats, no password, settings fixed after creation (R1-15,
   R1-17, R1-18). A player may change their own difficulty mid-game and a mark names the changed
-  settings (R3E-15, R6-05). A player who stops keeps the seat and points; nobody can be
+  settings (R3E-15, R6-05), apart from the progression settings, which are locked (R1-21,
+  design 7.12). A player who stops keeps the seat and points; nobody can be
   removed (R1-09).
-- One reference table shipped with Parsek (`race-content-1`) holds the stock tech tree and
-  the parts of the base game, Making History, Breaking Ground and ReStock+ with their
-  gameplay values; the tree is always the stock tree in the first build (other trees come
-  later). The creator setting "allow play without scoring", ticked by default and fixed
-  after creation, decides what a game whose tree or counted-part values differ does: off,
-  it does not join or load; on, one warning, and its flights and the nodes it buys do not
-  score. Nothing else is blocked. One checkbox per part set (base always counted; none
-  ticked by default, assumed until the owner answers, stated 2026-11-15); a flight with a
-  part outside the counted sets on its path scores 0, shown at 0 points with the parts in
-  the hover; a later clean flight does not score it; the nine progression settings are
-  locked (R1-19 to R1-22, R2-02 and R2-08 by edit, R3E-09, R3E-25, R6-02, R6-12).
+- One reference table shipped with Parsek (`race-content-1`) holds the stock tech tree and the parts
+  of the base game, Making History, Breaking Ground and ReStock+ with their gameplay values; the
+  tree is always the stock tree in the first build (other trees come later). The creator setting
+  "allow play without scoring", ticked by default and fixed after creation, decides what a game
+  whose tree or counted-part values differ does: off, it does not create, join or load; on, one
+  warning, and its flights and the nodes it buys do not score. Nothing else is blocked. One checkbox
+  per part set (base always counted; none ticked by default, assumed until the owner answers, stated
+  2026-11-15); a flight with a part outside the counted sets on its path scores 0, shown at 0 points
+  with the parts in the hover; a later clean flight does not score it; the nine progression settings
+  are locked (R1-19 to R1-22, R2-02 and R2-08 by edit, R3E-09, R3E-25, R6-02, R6-12).
 - Messages only when a rival is involved (Q-14, R4-07); after the end only final results
   (Q-16, R6-08); two computers: put back twice, then stop and say so (Q-12, R3E-20).
 - A cheat tool marks everything after it, also after it is switched off (R3E-09, R6-01).

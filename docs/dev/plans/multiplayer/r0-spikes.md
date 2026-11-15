@@ -302,6 +302,9 @@ Common to every spike task below:
   invariant culture. Add `harness/provision/profiles/spike-r0.toml` on the branch: a copy of
   `stock-minimal.toml` with `instanceDir = "automation/spike-r0"` and no graphics overrides
   in `[settings]` (frame-cost spikes need the owner's normal graphics). Add
+  `harness/provision/profiles/spike-r0-content.toml` too: a copy of `stock-tree.toml` (the
+  profile without CommunityTechTree and ProbesBeforeCrew, so the stock tech tree loads) with
+  `instanceDir = "automation/spike-r0-content"`, for S6 step (f) only. Add
   `spikes/r0/README.md` naming each spike's entry point and env var.
 - **Instances** (the owner runs these; never provisioned autonomously):
   `python provision/provision.py --profile spike-r0 --parsek-dll <spike bin/Debug DLL>`
@@ -616,38 +619,45 @@ Common to every spike task below:
   Ctrl+V) and a Create button that calls `GamePersistence.CreateNewGame`, adds a
   `ProtoScenarioModule` for the mark before `HighLogic.CurrentGame.Start()`, and starts the game
   (reusing the `NewGame` verb's sequence, 3.1). Logs the earliest hook at which the mark is readable
-  from `HighLogic.CurrentGame.scenarios`. (d) In the same dialog a "Difficulty" button that
-  opens the stock difficulty panel over it with `DifficultyOptionsMenu.Create(mode,
-  initialParams, newGame: true, onDismiss)` (public static, `il/acs.il` 530080-530102 of the
-  spike decompile) on a copy of the mode's default `GameParameters`; `onDismiss` logs
-  `[Spike.S6] difficulty accepted=<bool>` and all forty values of R1-10's difficulty list
-  (`RaceDifficulty.Keys`: the `DifficultyParams` fields, the `CareerParams` values and the
-  named fields of the two stock custom nodes, read with `CustomParams<AdvancedParams>()`
-  and `CustomParams<CommNetParams>()`) from the `GameParameters` the callback hands back,
-  one `key=value` per line, and the Create button passes that object to `CreateNewGame`;
-  the same forty are logged again from `HighLogic.CurrentGame.Parameters` once the created
-  game reaches the Space Center. The decompile says the panel edits the very object it is
-  given (`Create` keeps it as `gPars`, il/acs.il:530151, with a backup copy at :530160)
-  and builds its Advanced and CommNet sections from `GameParameters.ParameterTypes` and
-  `CustomParams(Type)` on it (:531408-531419), so all four parts should come back in that
-  one object; the step proves it. (e) At the main menu, log
-  `FlightGlobals.Bodies` count and the home body's radius (the Kerbin check of R2-02 runs
-  there). (f) The race content table (design 7.2, owner, 2026-11-15). At the main menu,
-  write a dump of: the game database's `TechTree` nodes (the read stock's
-  `RDTechTree.LoadTechTree` makes when `loadFromDatabase` is true, through the private
-  `GetTechNodesFromDB`, il/acs.il:2287593, :2287995; the file at `TechTreeUrl` only when
-  there are none); every `PartLoader.LoadedPartsList` entry (public, il/acs.il:449033) with
-  `name`, `partUrl`, `TechRequired`, its entry cost and its `partConfig` text as
-  ModuleManager left it; every `PARTUPGRADE` node; every `EXPERIMENT_DEFINITION` node; each
-  body's `scienceValues`. Then, in the Space Center of a created Career game, open the R&D
-  building and log `AssetBase.RnDTechTree.GetTreeNodes()` in the same canonical form; it
-  must equal the main-menu read. Run it on the clean install with both expansions, then
-  with ReStock, then with ReStock and ReStock+, then with a copy holding one `@TechTree`
-  patch (one node's cost) and one stat patch (one stock engine's thrust): the two patches
-  must each show as a difference, and the ReStock run must change no gameplay value of a
-  stock part and move no node (if it does, the report lists what, and the owner decides
-  before the table is frozen). Record which ReStock+ parts have variants that change
-  gameplay values, and whether stock ships any `PARTUPGRADE` node.
+  from `HighLogic.CurrentGame.scenarios`. (d) In the same dialog a "Difficulty" button that opens
+  the stock difficulty panel over it with `DifficultyOptionsMenu.Create(mode, initialParams,
+  newGame: true, onDismiss)` (public static, `il/acs.il` 530080-530102 of the spike decompile) on a
+  copy of the mode's default `GameParameters`; `onDismiss` logs `[Spike.S6] difficulty
+  accepted=<bool>` and all forty values of R1-10's difficulty list (`RaceDifficulty.Keys`: the
+  `DifficultyParams` fields, the `CareerParams` values and the named fields of the two stock custom
+  nodes, read with `CustomParams<AdvancedParams>()` and `CustomParams<CommNetParams>()`) from the
+  `GameParameters` the callback hands back, one `key=value` per line, and the Create button passes
+  that object to `CreateNewGame`; the same forty are logged again from
+  `HighLogic.CurrentGame.Parameters` once the created game reaches the Space Center. The decompile
+  says the panel edits the very object it is given (`Create` keeps it as `gPars`, il/acs.il:530151,
+  with a backup copy at :530160) and builds its Advanced and CommNet sections from
+  `GameParameters.ParameterTypes` and `CustomParams(Type)` on it (:531408-531419), so all four parts
+  should come back in that one object; the step proves it. (e) At the main menu, log
+  `FlightGlobals.Bodies` count and the home body's radius (the Kerbin check of R2-02 runs there).
+  (f) The race content table (design 7.2, owner, 2026-11-15). At the main menu, write a dump of: the
+  game database's `TechTree` nodes (the read stock's `RDTechTree.LoadTechTree` makes when
+  `loadFromDatabase` is true, through the private `GetTechNodesFromDB`, il/acs.il:2287593, :2287995;
+  the file at `TechTreeUrl` only when there are none) and the stock file
+  `GameData/Squad/Resources/TechTree.cfg` read raw (the default `TechTreeUrl`,
+  GameParameters.cs:230); the top-level folders of `GameData`; every `PartLoader.LoadedPartsList`
+  entry (public, il/acs.il:449033) with `name`, `partUrl`, `TechRequired`, its entry cost and its
+  `partConfig` text as ModuleManager left it; every `PARTUPGRADE` node; every
+  `EXPERIMENT_DEFINITION` node; each body's `scienceValues`. Then, in the Space Center of a created
+  Career game, open the R&D building and log `AssetBase.RnDTechTree.GetTreeNodes()` in the same
+  canonical form; it must equal the main-menu read. Step (f) does NOT run on `spike-r0`: that
+  instance is a copy of `stock-minimal`, which loads CommunityTechTree and ProbesBeforeCrew and so a
+  different tree. It runs on `automation/spike-r0-content`, provisioned with `python
+  provision/provision.py --profile spike-r0-content --parsek-dll <spike DLL>` (from `stock-tree`:
+  `Squad` and `SquadExpansion` junctioned from the dev install, so both expansions are present;
+  check that `GameData` holds no `CommunityTechTree` and no `ProbesBeforeCrew` folder before each
+  run). Run it there clean (base game and both expansions), then with ReStock copied into that
+  instance's `GameData` by hand, then with ReStock and ReStock+ (with the dependencies their own
+  install notes name), then with one `@TechTree` patch (one node's cost) and one stat patch (one
+  stock engine's thrust) added to its `GameData` and removed again after the run: the two patches
+  must each show as a difference, and the ReStock run must change no gameplay value of a stock part
+  and move no node (if it does, the report lists what, and the owner decides before the table is
+  frozen). Record which ReStock+ parts have variants that change gameplay values, and whether stock
+  ships any `PARTUPGRADE` node.
 - **Procedure:** run the lane once with Parsek's normal DLL path and once with
   KSPCommunityFixes removed from a copy of the instance (KSPCF patches save code and the
   dev install runs it). Then by hand: Discard Re-fly (`RevertInterceptor` writes
@@ -995,7 +1005,7 @@ Sessions (one KSP process each, on the spike instance unless named):
 | A | S10a (fixtures), S1b tooling PR, KSCSwitcher source read | none | agent work |
 | B | S1b scan | spike-r0, kRPC | needs one kRPC port pair (default 50000 / 50001) |
 | C1 | S4a, then S4b, S2, S5 | spike-r0 | one process, Space Center and flight |
-| C2 | S6, S7, S9 | second copy (spike-r0-nodlc is fine; S6 lane can use any) | no kRPC needed; seam only |
+| C2 | S6, S7, S9 | second copy (spike-r0-nodlc is fine; S6 lane can use any, except step (f), which runs on spike-r0-content, a `stock-tree` copy) | no kRPC needed; seam only |
 | C3 | S3 | spike-r0 then spike-r0-nodlc | needs both instances |
 | C4 | S10b with S12, S11 | spike-r0 | frame-cost sessions run with nothing else open |
 | D (last) | S8a, then S8b | none for S8a (the owner's PC and its sync clients); spike-r0 for S8b | after the end-to-end race on a plain folder; S8b is a frame-cost session |

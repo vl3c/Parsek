@@ -755,7 +755,8 @@ Dropped: replaced by T-28 and T-32 (OV-07).
   (owner,
   2026-11-15: a player may change their own difficulty mid-game; nothing is blocked, and a
   mark next to the name says which settings changed; the values are R3E-15's `DIFFICULTY`
-  copy),
+  copy; apart from the progression settings, which are locked, R1-21 / design 7.12, so
+  they never differ from the manifest's),
   `TestToolingUsed` (R3E-15's key `testTooling`, OV-32), the count of tool-marked dates,
   and R6-01's debug-completion mark with its count (OV-34). Exposed to the row model's
   player block.
