@@ -841,8 +841,8 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | B40-jool-tylo-continuation | operator | jool-orbit-recorded | b25_laythe_orbit | Jool, Laythe, Tylo | - | - | LIVE-PROVEN 2026-11-14 |
 | B41-jool-bop-continuation | operator | jool-orbit-recorded | b25_laythe_orbit | Jool, Laythe, Bop | - | - | LIVE-PROVEN 2026-11-14 |
 | B42-jool-pol-continuation | operator | jool-orbit-recorded | b25_laythe_orbit | Jool, Laythe, Pol | - | - | LIVE-PROVEN 2026-11-14 |
-| B43-vall-tylo-transfer | operator | vall-park-nerv | b29_jool_kerbin | Kerbin, Jool, Vall, Tylo | - | - | NEVER FLOWN |
-| B44-laythe-tylo-transfer | operator | laythe-park-nerv | b29_jool_kerbin | Kerbin, Jool, Laythe, Tylo | - | - | NEVER FLOWN |
+| B43-vall-tylo-transfer | operator | vall-park-nerv | b29_jool_kerbin | Kerbin, Jool, Vall, Tylo | - | - | FLOWN, INVALID(mission) |
+| B44-laythe-tylo-transfer | operator | laythe-park-nerv | b29_jool_kerbin | Kerbin, Jool, Laythe, Tylo | - | - | FLOWN, INVALID(mission) |
 | B45-tylo-bop-transfer | operator | tylo-park-nerv | b29_jool_kerbin | Kerbin, Jool, Tylo, Bop | - | - | NEVER FLOWN |
 | B46-minmus-mun-transfer | operator | minmus-park-kerbalx | b30_mun_minmus | Kerbin, Mun, Minmus | - | - | NEVER FLOWN |
 | B47-jool-moon-tour | operator | jool-orbit-recorded | b47_jool_moon_tour | Jool, Laythe, Vall, Tylo | - | - | NEVER FLOWN, authored 2026-11-14 |
