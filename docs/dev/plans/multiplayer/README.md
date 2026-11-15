@@ -1,6 +1,7 @@
 # Multiplayer implementation - master plan
 
-PLAN (2026-11-14), not started. Work starts after 1.0.2 is released, on the owner's go.
+PLAN (2026-11-14; the owner's answers of 2026-11-15 folded in), not started. Work starts after
+1.0.2 is released, on the owner's go.
 All of it lands on the branch `multiplayer`, not on main (section 3, rule 10).
 (The refactored build this plan and the design call "1.1" ships as version 1.0.2, by the
 owner's decision of 2026-11-14; "1.1" in these documents names that code structure.)
@@ -22,7 +23,7 @@ code. Every task below is one pull request with its own tests, docs and one clea
 |------|------------|--------------|
 | `README.md` | this file: the rules, the decisions, what starts first, the owner's questions | first |
 | `task-index.md` | every task once, with its dependencies, its wave, the shared files, the PC use | picking the next task |
-| `design-corrections.md` | 138 corrections to the design found while planning, and 26 questions for the owner | before the design is touched |
+| `design-corrections.md` | 138 corrections to the design found while planning, folded into design v3 on 2026-11-15 (kept as the record; its design line numbers are v2's), and 26 questions for the owner with their answers | to see why the design changed, or which questions are still open |
 | `r0-spikes.md` | 17 spikes on the owner's PC that settle the open feasibility questions | before R1 and R2 |
 | `r0b-prep-small.md` | prerefactors P12, P11, P7, P1, P10 | day one |
 | `r0b-prep-playback.md` | prerefactors P2c, P2a, P2b (the second playback lane) | day one |
@@ -72,7 +73,8 @@ wrong.
    Where two tasks must share a pull request the plans say so; never more than two.
 3. **Dropped tasks keep their ids.** R1-13, T-08, T-09, T-11, T-14, T-15, T-22, T-23, R3E-05,
    R3W-31, R4-14, R6-09, R5-13, P1-04, P12-02 and R1-01 are dropped; each keeps a heading that
-   says what replaced it. No task is renumbered. P2a-01 is a specification, not a pull request.
+   says what replaced it. No task is renumbered; a new task takes the next free id of its plan
+   (R5-14, added 2026-11-15). P2a-01 is a specification, not a pull request.
 4. **Race code is inert outside a race save.** A single-player save gains no node, no file, no
    window and no cost from any task. The isolation gates (R1-06, R3W-27) and the "rivals change
    nothing" lanes prove it.
@@ -89,7 +91,13 @@ wrong.
    a hosted category re-pins that spec's tally in the same pull request.
 8. **New player-facing surfaces** are only the ones the owner asked for: the Multiplayer menu
    entry, the setup dialog, the Space Race window, the race section in Settings. R1-14 writes
-   the exception into `.claude/CLAUDE.md`. Anything else needs a new ruling (question Q-21).
+   the exception into `.claude/CLAUDE.md`. One more is allowed only on a condition: if spike
+   S7 shows the stock plaque window cannot show a rival's text, one small popup for reading a
+   rival's flag (question Q-21, owner, 2026-11-15), the fourth new-window exception after the
+   Route History window, the setup dialog and the Space Race window; R3W-25 then adds it to
+   R1-14's exception. Blocks on stock controls (the greyed "allow other launch sites"
+   option, R2-08; the blocked suit picker, R5-14) use the existing stock-control annotation
+   exception and are not new surfaces. Anything else needs a new ruling.
 9. **The folder is the module** (pull request #2611, on main ab1cc9478). A new source file is
    created in its module's folder, `Source/Parsek/<Module>/<Name>.cs`; a new module needs its
    rule, layer and atlas line in the same commit as its first file. A `.cs` file in the root
@@ -136,7 +144,7 @@ wrong.
 | Harness lanes | `RACE-0` to `RACE-13` (test-and-harness), `SITES-1` to `SITES-3` (r2) |
 | Scene request handler | `ParsekRaceBoot.OnSceneRequest`, the only one; it calls `RaceSites.Reconcile` on every request |
 | Race scenario child hook | `IRaceScenarioChild` |
-| Date rule | `RaceCore/RaceCalendar.cs`, `TryAcceptDateRule`, reason `date-unit-not-day` |
+| Date rule | `RaceCore/RaceCalendar.cs`, `TryAcceptDateRule`, reason `date-unit-not-second`; dates compare to the exact second, the calendar only formats them (owner, 2026-11-15) |
 | Import verdict | `RivalStandingVerdict`, declared by R3E-04, filled by R3E-18 |
 | Milestone table | `RaceCore/MilestoneTable.cs`, owned by R3E-11; R4-03 is only the ladder filter |
 | Debug completions | wire rows `DISCLOSURE` / `DEBUG_COMPLETION`, codec member `Standing.DebugCompletions`, player mark `DebugCompleted` |
@@ -144,7 +152,7 @@ wrong.
 | Line and label style | `PlaybackTrajectoryStyle` (R5-03); label prefix `"<display name> - "` |
 | Ghost map name | `GhostMapPresence.ComposeGhostVesselName`: `Ghost: Ana - Kerbal X` |
 | Empty catalog for the rival lane | `RecordingPlaybackCatalog.None` (R3W-09); there is no `RivalCatalog` |
-| Race sync screen messages | one posting site, the sync driver's, landed by R3E-22, which also logs `[RaceSync] Message posted:`. The only other race screen messages are R2-08's refused launch and R3W-19's refused switch to a rival ghost |
+| Race sync screen messages | one posting site, the sync driver's, landed by R3E-22, which also logs `[RaceSync] Message posted:`. It also posts R3E-20's two-computers message. The only other race screen messages are R2-02's refused load, R2-08's refused launch and R3W-19's refused switch to a rival ghost |
 | Log tags | plain: `RaceSync`, `RivalLane`, `RaceBoard`, listed in R1-06 |
 
 ### In-game test categories
@@ -175,8 +183,9 @@ ones that change the design are in `design-corrections.md`.
 - The groundwork for the Watch camera on a rival flight (P3b) is not in the first build. Rivals
   are seen on the map, in the Tracking Station and as ghosts nearby (question Q-07, answered
   2026-11-14 by the owner: later).
-- The Multiplayer entry stays behind a developer switch until rivals and the board exist
-  (question Q-08).
+- The Multiplayer entry is never hidden (question Q-08, owner, 2026-11-15): it is visible on
+  the `multiplayer` branch, which no player sees before the final merge, and each R1 task a
+  player can see writes its CHANGELOG entry under the branch's `1.1.0` heading (rule 10).
 - A milestone completed from the debug menu does not score, by the owner's decision D3. R3E-09
   records what spike S9 shows a mod can see; R6-01 drops those rows and marks the player.
 - Races flown by the harness stay marked as tool-flown and never score. Scoring, holder
@@ -187,9 +196,35 @@ ones that change the design are in `design-corrections.md`.
 - The race world is reconciled at every scene load request against the loaded game's mark, not
   only on the way to the main menu (DC-027).
 
+The owner's rulings of 2026-11-15 changed these plan points (each plan cites them as
+"owner, 2026-11-15"):
+
+- Dates compare to the exact second of game time, replacing whole days; only the very same second is
+  shared (points counted in twelfths, design 7.8), and players level on total points at the end are
+  joint winners. The calendar (the creator's day length, Q-09) only formats dates; cells and
+  messages add the time of day when two dates fall on one day. R1-10, R4-01, R4-04, R4-07, R6-03,
+  and the rows of r4 section 6.
+- The race suit is locked to the player's race color, and the stock suit picker is blocked
+  in a race save: R5-10 and R5-11 change (no suit state is kept, so the `RACE_LOOK_DRESS`
+  marker and its load-policy row are gone), and new task R5-14 blocks the picker.
+- A race save whose space center cannot be built refuses to load (Q-10, R2-02); stock's
+  "allow other launch sites" is greyed in a race created without them (Q-11, R2-08).
+- The creator's choices: game name, mode, the full stock difficulty panel (presets as the
+  fallback, Q-17), an optional end date, "no retakes" and shared launch sites both off by
+  default, always four seats, no password, settings fixed after creation (R1-15, R1-17,
+  R1-18). A player may change their own difficulty mid-game and a mark names the changed
+  settings (R3E-15, R6-05). A player who stops keeps the seat and points; nobody can be
+  removed (R1-09).
+- Messages only when a rival is involved (Q-14, R4-07); after the end only final results
+  (Q-16, R6-08); two computers: put back twice, then stop and say so (Q-12, R3E-20).
+- A cheat tool marks everything after it, also after it is switched off (R3E-09, R6-01).
+  Rival ghosts are no CommNet relays and can be targeted; leftovers are flyable vessels only;
+  no rival ghosts in the Space Center view; the Space Race window opens in Flight and the
+  Space Center only (R3W, R4-09, R4-11).
+
 ## 5. What starts first
 
-`task-index.md` puts the 203 pull requests of the plan (208 live tasks) into 21 waves: a task
+`task-index.md` puts the 204 pull requests of the plan (209 live tasks) into 21 waves: a task
 is in wave 0 when it needs nothing but the owner's go, and in wave N when everything it needs
 is in a lower wave. A wave is not a week; it only says what can run side by side.
 
@@ -263,39 +298,48 @@ S11), which need an otherwise idle PC, and the in-game test batches run by hand.
 
 `design-corrections.md` part 2 lists 26 questions (Q-01 to Q-26), each with options and a
 recommendation. Part 2 orders them by when the answer is needed; the groups below order them
-by what the owner has to do, so Q-06 and Q-08 sit under "assumed" here.
+by what the owner has to do, so Q-06 sits under "assumed" here. Eleven were answered on
+2026-11-15; 11 remain open.
 
 **Needed before work starts (2).** Q-01 a separate game copy for the spikes; Q-02 keep the
 spike branch on GitHub.
 
-**Assumed as recommended, the plans already follow them (6).** Q-06 P6 in parallel; Q-08 menu
-entry hidden until R3 and R4; Q-22 rival ghosts show their owner's name; Q-23 no atmosphere
-marker for rivals in R3; Q-24 harness races never score; Q-25 two copies racing on one PC as an
-optional lane.
+**Assumed as recommended, the plans already follow them (4).** Q-06 P6 in parallel; Q-23 no
+atmosphere marker for rivals in R3; Q-24 harness races never score; Q-25 two copies racing on
+one PC as an optional lane.
 
-**Asked when their phase comes (8).** Q-09 who sets the length of a race day; Q-10 a race save
-whose space center cannot be set up; Q-11 "allow other launch sites" turned on against the race
-setting; Q-12 one player on two computers at once; Q-13 how the two saves of the "rivals change
-nothing" test are compared; Q-14 announce a first no rival had reached; Q-15 no retakes and a
-flight that does not count itself; Q-16 messages after the end date. Until answered, each plan
-follows its recommendation.
+**Asked when its phase comes (1).** Q-13 how the two saves of the "rivals change nothing" test
+are compared. Until answered, the plan follows its recommendation.
 
-**Asked after a spike (5).** Q-17 difficulty presets only (S6); Q-18 the copy worker (S8); Q-19
-and Q-20 the replacement suits (S3); Q-21 a small dialog for a rival's plaque (S7).
+**Asked after a spike (3).** Q-18 the copy worker (S8); Q-19 and Q-20 the replacement suits
+(S3).
 
 **Asked at the end, before S8 runs (1).** Q-03 which sync programs the file-speed test covers.
 The owner (2026-11-14): "leave this at the end, its an external dependency". S8 is the last
 piece of the plan, run after the race works end to end on a plain shared folder.
 
-**Answered (4).** Q-04 (2026-11-14): fix both, in a separate work item outside this plan (the
+**Answered (15).** Q-04 (2026-11-14): fix both, in a separate work item outside this plan (the
 launch pad fixes work); P1-04 is dropped and P1-02 is behavior-neutral. Q-05 (2026-11-14): no
 run of every lane for P2b; a representative set of lanes rechecks the ghost system, and the full
 run happens at release. Q-07 (2026-11-14): the Watch camera on rival flights comes later, not
-in the first build. Q-26 by the owner's decision D3.
+in the first build. Q-26 by the owner's decision D3. On 2026-11-15 the owner answered: Q-08 the
+menu entry is never hidden; Q-09 the day length is the creator's game setting (it now only
+formats dates); Q-10 a race save whose space center cannot be built refuses to load; Q-11 the
+race setting wins and the stock option is greyed; Q-12 put files back twice, then stop and say
+so; Q-14 messages only when a rival is involved; Q-15 any real, clean rival flight you had seen
+blocks you; Q-16 after the end only final results; Q-17 the full stock difficulty panel, with
+the presets as the fallback; Q-21 one small plaque popup, only if S7 fails; Q-22 rival ghosts
+show their owner's name and color.
 
 ## 8. The design after this plan
 
-The design is not edited by this plan. The first docs task of the implementation folds
-`design-corrections.md` and the owner's answers into the design as v3, in one pull request with
-two reviews, and regenerates its PDF. Until then, where the design and a plan disagree, the
-correction named in the plan is the reading the task follows.
+Done on 2026-11-15: the design is v3. It folds in `design-corrections.md` (all but DC-037 and
+DC-062, which were rejected) and the owner's answers of 2026-11-14 and 2026-11-15. The
+corrections to the analysis document (DC-126 to DC-132) went into that document's addendum;
+DC-133 and DC-134 are `.claude/CLAUDE.md` items that wait for the first code pull request
+touching those areas. The design has no PDF (`scripts/build-design-pdfs.py` does not list it),
+so none was regenerated. `design-corrections.md` stays as the record of what changed and why;
+its design line numbers are v2's. Later findings reach the design through the tasks that
+already say so (S13 and R2-15 fold spike findings into it); where a plan file and the design
+still disagree, the plan file names the correction the task follows. Like the rest of this
+folder, that work lands on the `multiplayer` branch (rule 10).

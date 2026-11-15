@@ -366,7 +366,8 @@ task adds it to the earlier task's file. Fields and enum members are not methods
     reading the marker the way `ComputeERS` does (`EffectiveState.cs:2102`), so `RaceExport`
     needs no edge to Controllers.
   - `RaceExport/RaceExportSource.cs`: reads `EffectiveState.ComputeERS()`; `NotReady` when a
-    Re-Fly session is open (7.5), when any ERS recording has `FilesDirty` or
+    Re-Fly session is open (7.5; owner, 2026-11-15: nothing is sent to rivals while a Re-Fly
+    is in progress, sharing waits until it ends), when any ERS recording has `FilesDirty` or
     `SidecarEpochAdvancePending`, or a malformed `PrecHash` (each reason logged with the
     count); otherwise one `PublicRecording` per ERS recording with `PrecName = PrecHash`;
     trees through `EffectiveState.ResolveOwningTree(rec, null)`; names through
@@ -586,7 +587,9 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
 - **Change:** `FlightRecorder.CheatOptions.cs`: reads the stock `CheatOptions` switches of
   the 7.12 list (exact field names from a decompile) at record start and once per second of
   real time while recording; notes the first "on" of each as `CheatOption` with the field
-  name as detail. The debug actions S9 finds observable become `DebugAction` sites; the
+  name as detail. A tool marks everything its flight reaches after it was first used, also
+  after it is switched off (owner, 2026-11-15), so only the first "on" is kept and a later
+  "off" is not recorded. The debug actions S9 finds observable become `DebugAction` sites; the
   ones it finds unobservable are named in the design's 7.12 out-of-reach list in the same
   change.
   - The save-level debug-completion fact (OV-34; owner decision D3, design 13.A: a debug
@@ -714,7 +717,9 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
 - **Change:**
   - `EffectiveState.StandWindows.cs` (Rewind module): pure `StandWindowQuery.Compute(ers,
     trees, elsRows, sameVesselNextLeg)` returns, per spawnable non-debris leaf
-    (`RecordingTree.IsSpawnableLeaf`), `{ recordingId, fromUT = EndUT, untilUT? }`, where
+    (`RecordingTree.IsSpawnableLeaf`; leftovers are flyable vessels only, landers,
+    stations, rovers and bases, and rival debris is neither shared nor shown, owner,
+    2026-11-15), `{ recordingId, fromUT = EndUT, untilUT? }`, where
     `untilUT` = the earliest of: the start of the next ERS leg of the same vessel
     (`VesselIdentity.Resolve`), the first recovery row of its owner recording, the first
     `VesselEnded` row, and a later committed claim of the vessel
@@ -747,7 +752,10 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
 
 - **Change:** `RaceExportSource.Disclosure.cs`: the loaded assemblies' names and versions,
   sorted, and their digest; the digest of the save's difficulty parameters through the same
-  `RaceCore` canonical digest R1-10 uses for `race.cfg`'s `difficultyDigest`;
+  `RaceCore` canonical digest R1-10 uses for `race.cfg`'s `difficultyDigest`, and a copy of
+  those parameters, so a rival can be told which settings changed (owner, 2026-11-15: a
+  player may change their own difficulty mid-game; nothing is blocked and a mark names the
+  changed settings, R6-05);
   `testTooling` from `FactCapture.TestToolingUsed` (key `testTooling`, member
   `TestToolingUsed`, OV-28 / OV-32; R4 adds nothing to the wire). Persistence: a race facts
   child (`RACE_FACTS { testTooling }`, later R3E-09's `DEBUG_COMPLETION` rows), an
@@ -756,9 +764,12 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
   caller) and whose `Save` writes it, so the fact holds across scene changes; its row in
   `LoadReconcilePolicy` (every load takes the loaded save's copy, section 9 item 8) lands
   here. Codec `DISCLOSURE { modDigest difficultyDigest
-  testTooling MOD { name version } }`. Showing it is R6.
-- **Proof:** digest stability tests; export block test; the facts child round trips through
-  the hooks; `LoadReconcilePolicyTests` cover the new row.
+  testTooling MOD { name version } DIFFICULTY { <the stock parameter keys and values> } }`;
+  the `DIFFICULTY` child is additive (an older standing without it reads as digest only).
+  Showing it is R6.
+- **Proof:** digest stability tests; export block test, the `DIFFICULTY` child included and
+  read back key for key; a standing without the child reads; the facts child round trips
+  through the hooks; `LoadReconcilePolicyTests` cover the new row.
 - **Registers:** `LoadReconcilePolicy` row. **Size:** S. **Depends on:** R3E-04, R3E-06,
   R1-03, R1-10. **PC:** no. **Risk:** low.
 
@@ -871,7 +882,9 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
     chain broken; `prevSeq` absent -> "history incomplete" and applied; the highest witnessed
     seq gone with no higher complete standing -> went backwards; two proofs seen for one seq
     -> the two-machine warning of edge case 3. On changed, broken or backwards: not applied,
-    the last good standing stays, mark `FilesChanged(playerId, reason)`.
+    the last good standing stays, mark `FilesChanged(playerId, reason)`: a neutral mark,
+    "files in <player>'s folder were changed", that every player sees, and no points move
+    (owner, 2026-11-15).
   - Receipts: export writes `SEEN { RIVAL { playerId seq hash } }` from the witness maxima
     taken before this tick's import; import checks a rival's `SEEN` against the own witness
     for third players and against the own mirror for this player, and records
@@ -896,12 +909,15 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
   fresh standing after it at once with `note = "replaces <a>..<b>"`; unpublished own
   standings that collide with an unknown file of the same seq are renumbered after it (they
   were never seen). One screen message per heal event through `SyncResult.Messages`. A file
-  put back twice within three ticks is not put back again; the driver warns naming the
-  two-machine cause (question 1).
-- **Proof:** `RaceSyncHealTests` (each case; the fight stop); `RaceSyncLoopbackTests` gains
-  its self-heal case on T-18's simulator (section 6).
-- **Registers:** `docs/dev/design-gui-inventory.md`: the heal message is listed under the
-  driver's one screen-message site (R3E-22; no new site, OV-38).
+  put back twice within three ticks is not put back again, and one screen message says that
+  the race folder is being written from two computers (question 1, owner, 2026-11-15:
+  restore twice, then stop and say so on screen), through `SyncResult.Messages` like the
+  heal message.
+- **Proof:** `RaceSyncHealTests` (each case; the fight stop and its one message);
+  `RaceSyncLoopbackTests` gains its self-heal case on T-18's simulator (section 6).
+- **Registers:** `docs/dev/design-gui-inventory.md`: the heal message and the two-computers
+  message are listed under the driver's one screen-message site (R3E-22; no new site,
+  OV-38).
 - **Size:** M. **Depends on:** R3E-16, R3E-19, R3E-22, T-18. **PC:** no. **Risk:** medium.
 
 ### R3E-21 Keep and prune
@@ -1161,7 +1177,8 @@ R1 task; `Config/FactCapture.cs` (R3E-06, 09, 15); `LoadReconcilePolicy.cs` (R3E
     (`FileIOUtils.cs:256-627`); the worker keeps its own small copy routine.
 15. **Edge case 3 versus self-heal.** Two machines writing one player would heal over each
     other forever; 7.15 says put back, edge case 3 says only warn. The plan stops after the
-    second put-back of one file and warns (question 1).
+    second put-back of one file and says so on screen. Settled: question 1, answered
+    (owner, 2026-11-15).
 16. **Unpublished standings colliding with an unknown same-seq file** (an own standing written
     offline while another machine published that number) is not covered. The plan renumbers
     the unpublished tail; it was never seen, so no receipt names it.
@@ -1192,6 +1209,7 @@ R1 task; `Config/FactCapture.cs` (R3E-06, 09, 15); `LoadReconcilePolicy.cs` (R3E
    every time (as 7.15 says); (b) put back twice, then stop and say on screen "your race
    folder is being written from two computers". Recommendation: (b); it ends the fight and
    tells the player the cause.
+   Answered (owner, 2026-11-15): (b).
 2. **The background copy worker (15.9).** Shared folders on cloud drives can freeze the game
    for seconds when a file is opened the first time. Options: (a) allow one background
    worker that copies files and checks them, an exception to the "no threads" rule;

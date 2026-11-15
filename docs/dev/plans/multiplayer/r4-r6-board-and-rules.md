@@ -11,19 +11,20 @@ addition A6. Inputs captured by other slices: A1, A3. Phases: R4 "have a race" a
 
 Built here:
 
-- **R4.** In `RaceCore` (headless, model layer): the race calendar and whole-day comparison
-  (extending R1-10's day-unit check); the ladder table `standard-1`; the ladder filter that
-  maps the stock ids of R3E-11's milestone table onto ladder rows when the board is built;
-  the claim-check pipeline with its first check ("the replay is the proof"); the board
-  (holders, co-holders, exact unrounded shares, scores, every date kept with its status) and
-  the per-player records it reads, built from R3E-18's verdicts and R1-08's manifests; the
-  holder-change events and their message text, appended to `SyncResult.Messages`; the
-  window's row model. In `UI`: the shared table-window chrome (A6) and `SpaceRaceWindowUI`
-  (Flight and Space Center), its launcher in the main window (race saves only), its hover
-  text, click-to-watch (the hover half; the camera half waits with P3b), its gallery mock
-  states and every GUI registration a new window trips; the Sync now button and sync status
-  text in R1-18's Settings section. On R1-08's `RaceRuntime` facade: `CurrentBoard`, the
-  SHOW setter, the watch stub (if R3W-26 has not landed), `KnownParts` / `KnownBodies`.
+- **R4.** In `RaceCore` (headless, model layer): the race calendar (display only) and the
+  exact-second comparison of dates (extending R1-10's date-unit check; owner, 2026-11-15: dates
+  compare to the exact second, replacing ruling D1's whole days); the ladder table `standard-1`; the
+  ladder filter that maps the stock ids of R3E-11's milestone table onto ladder rows when the board
+  is built; the claim-check pipeline with its first check ("the replay is the proof"); the board
+  (holders, co-holders, shares counted in twelfths, scores, every date kept with its status) and the
+  per-player records it reads, built from R3E-18's verdicts and R1-08's manifests; the holder-change
+  events and their message text, appended to `SyncResult.Messages`; the window's row model. In `UI`:
+  the shared table-window chrome (A6) and `SpaceRaceWindowUI` (Flight and Space Center), its
+  launcher in the main window (race saves only), its hover text, click-to-watch (the hover half; the
+  camera half waits with P3b), its gallery mock states and every GUI registration a new window
+  trips; the Sync now button and sync status text in R1-18's Settings section. On R1-08's
+  `RaceRuntime` facade: `CurrentBoard`, the SHOW setter, the watch stub (if R3W-26 has not landed),
+  `KnownParts` / `KnownBodies`.
 - **R6.** The tool-mark check (a tool marks every milestone its flight reaches afterwards,
   across the recordings of its tree) and the debug-completion drop (OV-34); the "no
   retakes" house rule over `SEEN` receipts and `since`; the end date (last complete standing
@@ -63,7 +64,7 @@ which writes `local.cfg` through the `RaceLocal` codec (read side R1-08, write s
   - R1: `RaceCore` module, `RaceLink` and the race scenario (R1-03);
     `RaceGate.IsRaceSave` (R1-04); `RaceManifest`, `PlayerManifest`, `RaceLocal`,
     `RaceSession` and the `RaceRuntime` facade with its one static (R1-08, OV-26);
-    `RaceInstallCheck`, its refusal list and the minimal `date-unit-not-day` check created
+    `RaceInstallCheck`, its refusal list and the minimal `date-unit-not-second` check created
     under R4-01's name and reason (R1-10, OV-30); the Join dialog (R1-17); the Settings
     section (R1-18); the CLAUDE.md UI exception naming the Space Race window (R1-14,
     OV-42); `RaceFormat.Current` (R1-03, OV-16);
@@ -253,13 +254,14 @@ LocalFacts                        (from the shell, once per board build)
 ```
 
 The board's output (`RaceBoardResult`): `Present` and, once an end date is set, `Final`;
-each a `RaceBoard` with per ladder milestone a `BoardRow` (holders, holder day, share each
+each a `RaceBoard` with per ladder milestone a `BoardRow` (holders, holder time, share each
 as `RacePoints`, one `BoardCell` per player holding every entry earliest first with a
 `ClaimStatus` flag set and its proof, and the index of the date that counts), per player
 `RacePoints` total, held count and marks (R6-01's debug-completion mark), and for `Final`
-the winners and the cut-off seq per player. `RacePoints` is an exact fraction (two
-`long`s, reduced), so shares are unrounded and "level on points" is exact (section 9,
-item 13).
+the winners and the cut-off seq per player. `RacePoints` counts points in twelfths (one
+`long`; design 7.8): at most four players can share a second and 12 divides by 2, 3 and 4,
+so every share is a whole number of twelfths, nothing is rounded and "level on points" is
+exact (section 9, item 13). Totals are shown with two decimals.
 
 `ClaimStatus` flags: `Unverified`, `ToolMarked`, `SeenFirst`, `NotCheckedHere`,
 `CannotWatchHere`, `AfterTheEnd`, `ArrivedLate`, `HistoryIncomplete`, `BadDate`. A date
@@ -267,26 +269,31 @@ scores when it has none of `Unverified`, `ToolMarked`, `SeenFirst`, `BadDate`.
 
 ### R4-01 The race calendar and the date rule
 
-- **Change:** R1-10 creates `RaceCore/RaceCalendar.cs` first, under this task's name and
+- **Change:** dates compare to the exact second of game time (owner, 2026-11-15, replacing
+  ruling D1's whole days and ties split by day); the calendar only formats dates for
+  display. R1-10 creates `RaceCore/RaceCalendar.cs` first, under this task's name and
   reason (OV-30, A4): `TryAcceptDateRule(dateUnit, calendar, out reason)` refuses any
-  `dateUnit` other than `DAY` with reason `date-unit-not-day` and does not check
-  `calendar`; `RaceInstallCheck` calls it. This task's pull request extends the rule only:
+  `dateUnit` other than `SECOND` with reason `date-unit-not-second` and does not check
+  `calendar`; `RaceInstallCheck` calls it. The `dateUnit` key stays so a later format could
+  add a unit. This task's pull request extends the rule only:
   `RaceCalendarKind { Kerbin, Earth }` and a refusal of any calendar other than `KERBIN` /
-  `EARTH` with reason `calendar-unknown`; the `date-unit-not-day` rule and its reason
-  string stay as R1-10 wrote them (one rule, one reason). The day arithmetic is specified
+  `EARTH` with reason `calendar-unknown`; the `date-unit-not-second` rule and its reason
+  string stay as R1-10 wrote them (one rule, one reason). The arithmetic is specified
   here and lands with its first production caller (A1, uncalled-method ratchet), each as
-  an edit to this file: `SecondsPerDay(kind)` (21600, 86400), `DayIndex(ut, kind)` =
-  floor(ut / day) (day 1 is index 0), `SameDay(a, b, kind)` and `IsValidDate(ut)` (finite,
-  not negative) with R4-04's board; `DayNumber` = index + 1 with R4-07's message text;
-  `TimeOfDay(ut, kind, out h, out m, out s)` with R4-10's date hover. No game type, no
-  culture-sensitive formatting.
+  an edit to this file: `SameSecond(a, b)` (floor(a) == floor(b): two dates are the same
+  when they fall in the same whole second) and `IsValidDate(ut)` (finite, not negative)
+  with R4-04's board; for display only, `SecondsPerDay(kind)` (21600, 86400),
+  `DayIndex(ut, kind)` = floor(ut / day) (day 1 is index 0) and `DayNumber` = index + 1
+  with R4-07's message text; `TimeOfDay(ut, kind, out h, out m, out s)` with R4-07's
+  message text and R4-10's cells and date hover. No game type, no culture-sensitive formatting.
 - **Proof:** `RaceCalendarTests`: the `calendar-unknown` refusal (R1-10's cell for
-  `date-unit-not-day` stays); each arithmetic member's cells land with it: day boundaries
+  `date-unit-not-second` stays); each arithmetic member's cells land with it: 43300.2 and
+  43300.7 are the same second, 43300.9 and 43301.0 are not; day boundaries for display
   (21599.999 and 21600 are different Kerbin days, the same Earth day), day 1 at UT 0, NaN
   and negative refused, `de-DE` culture does not move anything.
 - **Registers:** caller: R1-10's `RaceInstallCheck` already calls `TryAcceptDateRule` (the
-  11 section's "a manifest whose dateUnit is not DAY is refused"); the new refusal needs no
-  new call. No new static.
+  11 section's "a manifest whose dateUnit is not the supported one is refused"); the new
+  refusal needs no new call. No new static.
 - **Size:** S. **Depends on:** R1-08, R1-10. **PC:** no. **Risk:** low; arithmetic
   only.
 
@@ -352,8 +359,9 @@ scores when it has none of `Unverified`, `ToolMarked`, `SeenFirst`, `BadDate`.
 
 ### R4-04 The board: shapes, exact points and the base rule
 
-- **Change:** `RaceCore/RacePoints.cs` (exact fraction; `Add`, `DivideBy(int)`, `CompareTo`,
-  `ToDisplay()` with two decimals, invariant culture); `RaceCore/RaceBoard.cs`
+- **Change:** `RaceCore/RacePoints.cs` (a whole number of twelfths, one `long`, design 7.8;
+  `FromWhole(int)`, `Add`, `Share(int holders)` for 1 to 4 holders, refusing any other
+  count, `CompareTo`, `ToDisplay()` with two decimals, invariant culture); `RaceCore/RaceBoard.cs`
   (`RaceBoardResult`, `RaceBoard`, `BoardRow`, `BoardCell`, `BoardEntry`, `ClaimStatus`;
   `RaceBoard.Compute(BoardRules, players, LocalFacts)`); `RaceCore/RacePlayerRecords.cs`:
   `Build(verdicts, manifests, ownStanding, kept, firstSeen)` makes one `RacePlayerRecord`
@@ -364,20 +372,23 @@ scores when it has none of `Unverified`, `ToolMarked`, `SeenFirst`, `BadDate`.
   standing; `Kept` comes from R3E-21's kept standings and `FirstSeenLocalUtc` from R3E-19's
   witness log, empty and null until those land. The base rule: per ladder row and player,
   the entries R4-03's filter gives for `Applied.Milestones`, earliest first; a `BadDate`
-  entry is kept and marked; the date that counts is the earliest scoring one; the holder day
-  is the smallest day index among the players' dates that count; the holders are every
-  player with that day; each gets `Points / holders`. A player's score is the sum of their
+  entry is kept and marked; the date that counts is the earliest scoring one; the holder
+  time is the earliest of the players' dates that count, compared to the exact second
+  (owner, 2026-11-15); the holders are every player whose date that counts falls in that
+  same second (`RaceCalendar.SameSecond`, expected almost never); each gets
+  `RacePoints.FromWhole(Points).Share(holders)`. A player's score is the sum of their
   shares. Players are processed in player id order, so the result does not depend on input
   order. Rules are a fixed pipeline: claim checks (R4-05, R6-01), install notes (R4-06),
   house rules (R6-02), the end-date stage (R6-03), each a function the pipeline calls in
   order.
-- **Proof:** `RaceBoardBaseTests`: rows T1 and T6 of section 6; a milestone nobody reached
-  has no holder; a player's two dates count once (the earliest); shuffled player and entry
-  order give an equal board; the board for one folder is the same under either local
-  calendar setting (the manifest's calendar is the only one read); `RacePointsTests`: three
-  thirds add to exactly 1, display `0.33`, comparison is exact; `RacePlayerRecordsTests`:
-  each verdict status (Applied, KeptPrevious, NewerFormat, Refused) maps to the record as
-  stated above, a manifest with no verdict gives a player with no dates. Log:
+- **Proof:** `RaceBoardBaseTests`: rows T1 and T6 of section 6; a milestone nobody reached has no
+  holder; a player's two dates count once (the earliest); shuffled player and entry order give an
+  equal board; the board for one folder is the same under either local calendar setting and either
+  manifest calendar (the calendar only formats dates); `RacePointsTests`: three thirds of 1 point
+  are 4 twelfths each and add to exactly 12 (1 point), display `0.33`; halves and quarters are whole
+  twelfths (6 and 3); a share among 5 holders is refused; comparison is exact;
+  `RacePlayerRecordsTests`: each verdict status (Applied, KeptPrevious, NewerFormat, Refused) maps
+  to the record as stated above, a manifest with no verdict gives a player with no dates. Log:
   `[RaceBoard]` Info `Board computed: players=N rows=M held=K` once per build (Verbose when
   unchanged); T-28 RACE-6 and T-32 RACE-7 read this line in their `logContract` (OV-07).
 - **Registers:** caller: `RaceSync.Run` (R3E-04), after R3E-18's import step, builds the
@@ -421,23 +432,27 @@ scores when it has none of `Unverified`, `ToolMarked`, `SeenFirst`, `BadDate`.
 
 ### R4-07 Holder-change events, message text and posting
 
-- **Change:** `RaceCore/RaceMessages.cs`: `Diff(previous, next, localPlayerId,
-  displayNames, calendar)` returns ordered `RaceMessage { Kind, Text, MilestoneId }`.
-  Rules: no message when `previous` is null (the board built from the cache at load is the
-  baseline); a row is considered only when the local player is a holder before or after
-  AND a rival is a holder before or after; kinds `Taken` ("Bogdan took Mun Landing: day 30
-  beats your day 42"), `Regained` ("Mun Landing is yours again: day 42"), `Won` ("Mun
-  Landing is yours: day 31 beats Bogdan's day 40"), `Shared` ("Bogdan matched your day 42
-  on Mun Landing: you share its points"), `LostShare`; at most 2 messages, more becomes one
-  `Summary` ("Space Race: 5 firsts changed hands - see the Space Race window"). Day text
-  is `"day " + DayNumber` (invariant). `RaceSession` (R1-08) keeps the previous
-  `RaceBoardResult` on its instance; `RaceSync.Run` (R3E-04), after R4-04's board call in
-  each tick (an own export and an import share one tick), diffs against it, appends each
-  message to `SyncResult.Messages` (OV-38) and logs `[RaceBoard] Holder changed:
-  milestone=Mun/Landing from=<ids> to=<ids> day=30` (Info, one per change up to 20, then a
-  summary line). It posts nothing itself: the driver shows `SyncResult.Messages` with
-  `ParsekLog.ScreenMessage`, the one producer site R3E-22 lands and R3E-18 / R3E-20 also use.
-- **Proof:** `RaceMessagesTests`, rows M1 to M9 of section 6, asserting the
+- **Change:** `RaceCore/RaceMessages.cs`: `Diff(previous, next, localPlayerId, displayNames,
+  calendar)` returns ordered `RaceMessage { Kind, Text, MilestoneId }`. Rules: no message when
+  `previous` is null (the board built from the cache at load is the baseline); a row is considered
+  only when the local player is a holder before or after AND a rival is a holder before or after;
+  kinds `Taken` ("Bogdan took Mun Landing: day 30 beats your day 42"), `Regained` ("Mun Landing is
+  yours again: day 42"), `Won` ("Mun Landing is yours: day 31 beats Bogdan's day 40"), `Shared`
+  ("Bogdan matched your day 42 on Mun Landing: you share its points"), `LostShare`; at most 2
+  messages, more becomes one `Summary` ("Space Race: 5 firsts changed hands - see the Space Race
+  window"). Day text is `"day " + DayNumber` (invariant); when the two dates a message compares fall
+  on the same race day, each also carries its time of day to the second (`day 42, 1:00:05`, hours
+  without a leading zero, as design 7.8 and 7.13 write it), since dates compare to the second.
+  `Shared` now means the very same second. `RaceSession` (R1-08) keeps the previous
+  `RaceBoardResult` on its instance; `RaceSync.Run` (R3E-04), after R4-04's board call in each tick
+  (an own export and an import share one tick), diffs against it, appends each message to
+  `SyncResult.Messages` (OV-38) and logs `[RaceBoard] Holder changed: milestone=Mun/Landing
+  from=<ids> to=<ids> ut=..` (Info, one per change up to 20, then a summary line). It posts nothing
+  itself: the driver shows `SyncResult.Messages` with `ParsekLog.ScreenMessage`, the one producer
+  site R3E-22 lands and R3E-18 / R3E-20 also use.
+- **Rule:** messages only when a rival is involved (question Q2, owner, 2026-11-15); a first
+  no rival had reached shows only on the board.
+- **Proof:** `RaceMessagesTests`, rows M1 to M10 of section 6, asserting the
   `SyncResult.Messages` content and the log sink for the Info lines (the posting is the
   driver's, tested by R3E's driver tests).
 - **Registers:** no new screen message producer site (design-gui-inventory 3.14: a "Space
@@ -475,7 +490,9 @@ scores when it has none of `Unverified`, `ToolMarked`, `SeenFirst`, `BadDate`.
 
 - **Change:** `UI/SpaceRaceWindowUI.cs` on `TableWindowChrome`: title `Parsek - Space Race`,
   window id key `ParsekSpaceRace`, lock id `Parsek_SpaceRaceWindow`, first-open 760 x 420,
-  minimum 480 x 200, Flight and Space Center. Body: the race name line and an empty table
+  minimum 480 x 200, Flight and Space Center only, not the Tracking Station (owner,
+  2026-11-15). Body: the game name line (owner, 2026-11-15: the creator names the game) and
+  an empty table
   (milestone column, one column per player, points column) with the empty-state row "No
   milestone reached yet." Registration, every site in one change: `ISpaceRaceWindow` in
   `ParsekUIWindowContracts.cs` and in `IParsekUIWindows`; the field, constructor line and
@@ -515,31 +532,33 @@ scores when it has none of `Unverified`, `ToolMarked`, `SeenFirst`, `BadDate`.
 ### R4-10 The row model and the drawn board
 
 - **Change:** `RaceCore/RaceBoardPresentation.cs` (no text, numbers and codes only):
-  `Build(RaceBoardResult, players, rules, LocalFacts, view)` gives a `SpaceRaceView`:
-  player blocks (name, look index, points, held count, frontier day, last shared UTC, site
-  slot, kind, is-local, show state from the facade), ladder rows grouped by body (row name,
-  points, per player a `CellView`: day number of the date that counts, or of the earliest
-  date when none counts, count of other dates, holder or co-holder, the status flags, the
-  watch target `(playerId, recordingId, ut)`), and the chronological list (every entry of
-  every player by UT, then player id). `UI/SpaceRaceText.cs` (pure, invariant): `day 31`,
-  the hover sentences per flag (unverified, flown with a tool, seen first with its proof,
-  not checked here, cannot be watched here, after the end, arrived late, history
-  incomplete, co-holders and their share, every date of the cell), the date hover `day
-  31, 03:12 (a race day is 6 hours)`, a real-time duration formatter (24-hour days). The
-  window draws: holder cell in the look's color, co-holder cells in the same color dimmed,
-  a non-scoring date in the house muted grey with a one-character mark (`?` unverified,
-  `!` tool, `s` seen first, `~` not checked here) and `+N` for more dates, every meaning in
-  the hover; the points column; a two-button view switch `By milestone` / `By date`.
-  Colors come from R5-07's `RaceLookTable` (look index to UI color, OV-41), whose colors
-  are placeholders until S3a. Each rival's player block carries a show / hide toggle; this
-  task adds the SHOW setter on R1-08's facade, its first caller (OV-39): it writes the
-  rival's entry of `RaceLocal`'s `SHOW` block (R1-08's codec key, OV-27) to `local.cfg`
-  through the `RaceLocal` writer (R1-10); R3W-13's reader applies it at the next scene.
-- **Proof:** `RaceBoardPresentationTests` (grouping, cell choice, chronological order, the
-  watch target, the show state), `SpaceRaceTextTests` (every sentence under `de-DE`), the
-  `TooltipEchoBudgetTests` direct assertions for the longest built sentences; a setter
-  test over R1-08's in-memory `IRaceFolder` (hide then show round-trips `SHOW` through the
-  codec). Log: `UI` Verbose `Rival shown: player=.. shown=..`.
+  `Build(RaceBoardResult, players, rules, LocalFacts, view)` gives a `SpaceRaceView`: player blocks
+  (name, look index, points, held count, frontier day, last shared UTC, site slot, kind, is-local,
+  show state from the facade), ladder rows grouped by body (row name, points, per player a
+  `CellView`: day number of the date that counts, or of the earliest date when none counts, its UT,
+  `ShowTimeOfDay` (true when another player's shown date in the same row falls on the same race day,
+  design 7.13), count of other dates, holder or co-holder, the status flags, the watch target
+  `(playerId, recordingId, ut)`), and the chronological list (every entry of every player by UT,
+  then player id). `UI/SpaceRaceText.cs` (pure, invariant): `day 31`, the hover sentences per flag
+  (unverified, flown with a tool, seen first with its proof, not checked here, cannot be watched
+  here, after the end, arrived late, history incomplete, co-holders and their share, every date of
+  the cell), the cell text `day 31`, or `day 31, 2:14:05` when `ShowTimeOfDay` is set, the date
+  hover, which always gives the time of day to the second (`day 31, 3:12:05 (a race day is 6
+  hours)`), a real-time duration formatter (24-hour days). The window draws: holder cell in the
+  look's color, co-holder cells in the same color dimmed, a non-scoring date in the house muted grey
+  with a one-character mark (`?` unverified, `!` tool, `s` seen first, `~` not checked here) and
+  `+N` for more dates, every meaning in the hover; the points column; a two-button view switch `By
+  milestone` / `By date`. Colors come from R5-07's `RaceLookTable` (look index to UI color, OV-41),
+  whose colors are placeholders until S3a. Each rival's player block carries a show / hide toggle;
+  this task adds the SHOW setter on R1-08's facade, its first caller (OV-39): it writes the rival's
+  entry of `RaceLocal`'s `SHOW` block (R1-08's codec key, OV-27) to `local.cfg` through the
+  `RaceLocal` writer (R1-10); R3W-13's reader applies it at the next scene.
+- **Proof:** `RaceBoardPresentationTests` (grouping, cell choice, chronological order, the watch
+  target, the show state, `ShowTimeOfDay` set on both cells when two players' dates in a row fall on
+  one race day and on neither when they do not, under both calendars), `SpaceRaceTextTests` (every
+  sentence under `de-DE`), the `TooltipEchoBudgetTests` direct assertions for the longest built
+  sentences; a setter test over R1-08's in-memory `IRaceFolder` (hide then show round-trips `SHOW`
+  through the codec). Log: `UI` Verbose `Rival shown: player=.. shown=..`.
 - **Registers:** caller: `SpaceRaceWindowUI`. hlib `UIACTION_WINDOW_TABS` gains
   `spacerace: ("milestones", "dates")` with the C# tab handling, so a census can photograph
   both views.
@@ -552,7 +571,8 @@ scores when it has none of `Unverified`, `ToolMarked`, `SeenFirst`, `BadDate`.
 - **Change:** `RaceCore/WatchCellDecision.cs` (pure): from the cell's target, the scene,
   whether the facade reports the ghost live, and `NowUT`: `Watch`, `FliesLater(dayNumber)`,
   `FlewBefore(dayNumber)` ("rewind to before day 30 to watch it"), `NotInThisScene` (the
-  Space Center shows no rival ghosts, 15.6), `CannotWatchHere`. The window turns a cell into
+  Space Center shows no rival ghosts in the first build, owner, 2026-11-15; rival buildings
+  show there), `CannotWatchHere`. The window turns a cell into
   a click target; `Watch` calls `RaceRuntime.TryWatchRivalFlight(playerId, recordingId)`;
   every other outcome is the hover sentence. `TryWatchRivalFlight` on R1-08's facade is
   added by whichever of this task and R3W-26 lands first (A1): if this task is first it adds
@@ -574,7 +594,7 @@ scores when it has none of `Unverified`, `ToolMarked`, `SeenFirst`, `BadDate`.
 - **Change:** `UI/Gallery/GuiMockSpaceRaceStates.cs`: hand-written `Standing` and
   `RacePlayerRecord` values fed through the real `RaceBoard.Compute` and
   `RaceBoardPresentation.Build` (the gallery rule), states: empty race, opening day with a
-  three-way tie, mid-race with every mark, final board with joint winners. A mock
+  three-way tie in one second, mid-race with every mark, final board with joint winners. A mock
   injection seam on the window (the `StructureListWindowUI` shape: capture, restore, open
   with a supplied view). `GuiMockSession.SpaceRaceWindow` token, `SupportedWindows`, hlib
   `UIACTION_MOCKABLE_WINDOWS`. A mock is allowed outside a race save (it is synthetic);
@@ -611,7 +631,9 @@ Dropped: replaced by T-28 and T-32 (OV-07).
 - **Change:** second claim check `ToolMarked` in `ClaimChecks.cs`: for an entry, take the
   `TreeId` of the recording it names; the entry is `ToolMarked` when any listed recording of
   that tree has `ToolsFromUT <= entry.UT` (so a tool in an earlier recording of the same
-  flight marks it, a tool used later does not reach back); the proof carries the recording
+  flight marks it, a tool used later does not reach back). Every milestone the flight
+  reaches after the tool was used is marked, also after the tool is switched off (owner,
+  2026-11-15): `ToolsFromUT` is the first use and nothing clears it; the proof carries the recording
   id and tool ids. Applied also when `CheckedHere` is false if the recordings block was
   read. `ToolsFromUT` and `ToolIds` are the codec's derived view of R3E-10's `TOOL` children
   (OV-32). Debug completions (OV-34, owner decision D3: a debug tool means no score): before
@@ -643,9 +665,11 @@ Dropped: replaced by T-28 and T-32 (OV-07).
   seq `e.Since` (Applied or Kept); missing: mark `HistoryIncomplete`, not blocked. Else for
   every rival R of kind `Human` in R's standing in effect (Applied, or the pre-end one on
   the final board): every entry f of R for m that passes the claim checks (blockers are
-  judged by 7.8's scoring, not by their own block status, section 10 Q1) blocks e when
+  judged by 7.8's scoring, not by their own block status: any real, clean rival flight the
+  player's game had seen blocks, even one that won nothing; section 10 Q1, owner,
+  2026-11-15) blocks e when
   `f.Since <= seen(P@e.Since, R).Seq`. A blocked entry is `SeenFirst` with the proof
-  (P's seq, R's seq, R's day). Entries of a `Recorded` or `Ai` player are never blocked and
+  (P's seq, R's seq, R's date). Entries of a `Recorded` or `Ai` player are never blocked and
   never block (7.11, 15.10). The holder is then recomputed from the dates that still score.
 - **Proof:** `NoRetakesTests`, rows T2, T5, T7, T10, T11, T12, T13 of section 6; a rival
   standing with no `Seen` entry for P; a pure cycle in forged receipts cannot loop (the
@@ -659,17 +683,17 @@ Dropped: replaced by T-28 and T-32 (OV-07).
 
 ### R6-03 The end date and the final board
 
-- **Change:** `RaceCore/RaceFinal.cs`: when `EndRealTimeUtc` is set, per player the
-  standing with the highest seq whose `ExportedRealTimeUtc < End` among Applied and Kept;
-  a player with none is left out of the final board. The final board runs the same
-  pipeline over those standings (blockers from the pre-end standings). Winners: the
-  players with the highest exact total, every one of them when level ("joint winners"); no
-  winner when nobody holds anything. `IsFinal` when `NowRealUtc >= End`. The present board
-  marks an entry `AfterTheEnd` when it first appears in a standing stamped at or after the
-  end (its `Since` standing's stamp).
-- **Proof:** `RaceFinalTests`: row T9 (before and after the late standing arrives); a
-  player who joined after the end; joint winners from exact thirds; stamps equal to the end
-  are after it; no end date gives no final board.
+- **Change:** `RaceCore/RaceFinal.cs`: when `EndRealTimeUtc` is set, per player the standing with
+  the highest seq whose `ExportedRealTimeUtc < End` among Applied and Kept; a player with none is
+  left out of the final board. The final board runs the same pipeline over those standings (blockers
+  from the pre-end standings). Winners: the players with the highest exact total, every one of them
+  when level ("joint winners"; no tiebreak step, owner, 2026-11-15: with dates compared to the
+  second there is nothing left to break); no winner when nobody holds anything. `IsFinal` when
+  `NowRealUtc >= End`. The present board marks an entry `AfterTheEnd` when it first appears in a
+  standing stamped at or after the end (its `Since` standing's stamp).
+- **Proof:** `RaceFinalTests`: row T9 (before and after the late standing arrives); a player who
+  joined after the end; joint winners from shares in twelfths (thirds); stamps equal to the end are
+  after it; no end date gives no final board.
 - **Registers:** called by `RaceBoard.Compute` (the stage call lands in this pull
   request); log `[RaceBoard]` Info `Final board:
   winners=.. cutoffs=p_a:7,p_b:9`.
@@ -692,12 +716,17 @@ Dropped: replaced by T-28 and T-32 (OV-07).
 ### R6-05 Disclosure facts
 
 - **Change:** `RaceCore/RaceDisclosure.cs`: per player `ModsDiffer` (digest differs from
-  the manifest's) with the added and missing mod ids and versions, `DifficultyDiffers`,
+  the manifest's) with the added and missing mod ids and versions, `DifficultyDiffers` with
+  the names of the settings that differ from the manifest's `DIFFICULTY` node (owner,
+  2026-11-15: a player may change their own difficulty mid-game; nothing is blocked, and a
+  mark next to the name says which settings changed; the values are R3E-15's `DIFFICULTY`
+  copy),
   `TestToolingUsed` (R3E-15's key `testTooling`, OV-32), the count of tool-marked dates,
   and R6-01's debug-completion mark with its count (OV-34). Exposed to the row model's
   player block.
 - **Proof:** `RaceDisclosureTests`: equal digests, differing lists, a version change only,
-  test tooling.
+  test tooling, one and three changed difficulty settings named, a standing with no
+  `DIFFICULTY` copy (digest only: the mark without names).
 - **Registers:** called by `RaceBoardPresentation.Build` (the call lands in this pull
   request).
 - **Size:** S. **Depends on:** R4-10, R6-01, R3E-15 (the `DISCLOSURE` block). **PC:** no.
@@ -733,10 +762,12 @@ Dropped: replaced by T-28 and T-32 (OV-07).
 
 ### R6-08 End-of-race messages
 
-- **Change:** `RaceMessages`: when `Final` first becomes final in a session, one message
+- **Change:** after the end only final results are announced (question Q3, owner,
+  2026-11-15). `RaceMessages`: when `Final` first becomes final in a session, one message
   "The race is over: Ana wins" (or joint winners); when a later sync changes the final
-  board's winners (a late standing), one message "A late standing changed the final
-  board: Bogdan now wins". After the end, holder changes on the present board send nothing.
+  board (a late standing), one message: "A late standing changed the final board: Bogdan
+  now wins" when the winners changed, else "A late standing changed the final board". After
+  the end, holder changes on the present board show in the window and send nothing.
 - **Proof:** `RaceMessagesTests` end rows.
 - **Registers:** appended to `SyncResult.Messages` like R4-07's; the driver's (R3E-22)
   one producer site posts them (no new site, OV-38).
@@ -834,9 +865,10 @@ receipts; every entry is covered by a clean recording of its tree unless stated.
 
 | Row | Case | Input | Expected (no retakes off) | Expected (no retakes on) |
 |-----|------|-------|---------------------------|--------------------------|
-| T1 | Same milestone, same game day | `Kerbin/Orbit`: A UT 43300, B UT 63000 (both day 3) | A and B hold, 0.50 each | same |
-| T1b | Day boundary | A UT 21599.9 (day 1), B UT 21600 (day 2) | A holds alone | same |
-| T1c | Earth calendar | A UT 50000, B UT 80000 (Earth day 1; Kerbin days 3 and 4) | Earth: A and B share; Kerbin: A alone | same |
+| T1 | Same milestone, same game day, different seconds | `Kerbin/Orbit`: A UT 43300, B UT 63000 (both day 3) | A holds alone (exact second, owner 2026-11-15) | same |
+| T1b | Same second | A UT 43300.2, B UT 43300.7 | A and B hold, 0.50 each | same |
+| T1d | Second boundary | A UT 43300.9, B UT 43301.0 | A holds alone | same |
+| T1c | The calendar does not score | A UT 50000, B UT 80000 (Earth day 1; Kerbin days 3 and 4) | A holds alone under both calendars | same |
 | T2 | Rewind and an earlier re-earn | `Mun/Landing`: A [day 31 since A6, day 55 since A3], A6 Seen C2, A3 Seen none; C [day 40 since C2] | A holds with day 31, 3 points | A's day 31 "seen first" (C2 <= 2); A's 55 counts but is later; C holds with 40 |
 | T2b | Improving never hurts | as T2 but A's older date is day 38 since A3 (blind) | A holds with 31 | A holds with 38 |
 | T3 | Tool-marked earliest, no later clean one | `Mun/Orbit`: B [day 12, tree recording with tools from day 11]; A [day 20] | A holds; B's 12 marked, scores 0 | same |
@@ -845,7 +877,7 @@ receipts; every entry is covered by a clean recording of its tree unless stated.
 | T4 | Unverified date | `Minmus/Flyby`: C [day 8, recording ""]; A [day 9] | A holds; C's 8 "unverified" | same; A had seen C's 8: not blocked |
 | T4b | Cover tolerance | C's date 0.9 s after its recording's end / 1.1 s after | verified / unverified | same |
 | T5 | A rival who lists two dates | `Mun/Landing`: B [day 20 since B5, day 35 since B2], B5 Seen A3; A [day 25 since A3] | B holds with 20 | B's 20 seen first; B's 35 is later than A's 25; A holds |
-| T6 | Three-way tie on a 1-point milestone | `ReachedSpace`: A, B, C all day 1, nothing else | each 1/3 (shown 0.33); totals equal exactly; joint winners at the end | same |
+| T6 | Three-way tie on a 1-point milestone | `ReachedSpace`: A, B, C all day 1 (the same second), nothing else | each 1/3, 4 twelfths (shown 0.33); totals equal exactly; joint winners at the end | same |
 | T7 | Late joiner | D joined last; D2 Seen A9, B7, C5; D [`Mun/Landing` day 20 since D2, `Duna/Orbit` day 300 since D2]; C [`Mun/Landing` day 40 since C2]; later A [`Duna/Orbit` day 280 since A10], A10 Seen D2 | D holds both; then A takes `Duna/Orbit` | D's 20 seen first, C holds `Mun/Landing`; D holds `Duna/Orbit`; A's 280 seen first, D keeps it |
 | T8 | Standing from a newer build | A Applied raceFormat 2 (local 1), `CheckedHere` false; A [`Mun/Landing` day 31, named recording not listed]; C [day 40] | A holds, cell "not checked here"; header "Ana runs a newer Parsek" | same; A's entries never blocked when its receipts did not parse |
 | T8b | Same with a readable standing | as T8 but `CheckedHere` true | A's 31 unverified; C holds | same |
@@ -862,13 +894,14 @@ Messages (local player A):
 |-----|--------|-------|---------|
 | M1 | A holds `Mun/Landing` day 42 | B holds day 30 | "Bogdan took Mun Landing: day 30 beats your day 42" |
 | M2 | B holds day 30, A has day 42 | B's date left; A holds 42 | "Mun Landing is yours again: day 42" |
-| M3 | A holds day 42 | A and B hold day 42 | "Bogdan matched your day 42 on Mun Landing: you share its points" |
+| M3 | A holds day 42 | A and B hold day 42 (the same second) | "Bogdan matched your day 42 on Mun Landing: you share its points" |
 | M4 | B holds day 40 | A holds day 31 (own export) | "Mun Landing is yours: day 31 beats Bogdan's day 40" |
 | M5 | B holds | C holds, A never involved | none |
 | M6 | no previous board (load) | any | none |
 | M7 | 5 rows change for A | | one summary |
 | M8 | nobody holds | A holds, no rival has a date | none |
 | M9 | B holds day 30, A has 42 | B holds day 29 | none (A did not hold before or after) |
+| M10 | A holds day 42 at 2:00:00 | B holds day 42 at 1:00:05 | "Bogdan took Mun Landing: day 42, 1:00:05 beats your day 42, 2:00:00" |
 
 Other proof:
 
@@ -943,7 +976,7 @@ Other proof:
   standing from the mirror or, failing that, the shared folder copy.
 - **Noise.** Too many messages early in a race. Bounded by the rival-involved rule and the
   cap of two; T-28 RACE-6 and T-32 RACE-7 read the log.
-- **Float creep.** Avoided by exact fractions; `RacePointsTests` pin it.
+- **Float creep.** Avoided by counting in twelfths (design 7.8); `RacePointsTests` pin it.
 - **The hover corpus outgrows the strip.** The tooltip budget gate reds the PR.
 - **Stock id spelling** (`ReachedSpace`, `ReturnFromFlyBy`): R4-13 checks against the live
   tree.
@@ -993,7 +1026,8 @@ Other proof:
    only stop the ghosts.
 9. **Can a "seen first" date block?** 7.11 says only a scoring date blocks; whether a date
    that is itself blocked still blocks is open. The plan says yes (judged by 7.8's scoring
-   alone), which is not recursive and cannot loop on forged receipts. Question Q1.
+   alone), which is not recursive and cannot loop on forged receipts. Settled: question Q1,
+   answered (owner, 2026-11-15).
 10. **A date whose status changes while it stands.** 7.11 says a date that becomes scoring
     later blocks "from the standing in which the scoring date first appeared". The kept
     standings (6.3) do not hold enough history to find that standing, so the plan uses the
@@ -1003,15 +1037,21 @@ Other proof:
     compares against, nor whether an uncontested own first is announced. The plan: the
     board built from the rival cache at load is the baseline (no persistence), and only a
     change with a rival involved is announced (Q2). After the end only final-board changes
-    are announced (Q3).
+    are announced (Q3). Settled: both answered (owner, 2026-11-15).
 12. **A missing `since` standing.** If P's standing named by `since` is not available, the
     receipts cannot be read. The plan does not block and marks "history incomplete".
 13. **Unrounded shares need exact arithmetic.** With doubles, three thirds do not add to 1
-    and "level on points" can fail. The plan uses exact fractions.
+    and "level on points" can fail. The plan counts points in twelfths (one `long`), as
+    design 7.8 does: at most four holders, and 12 divides by 2, 3 and 4.
 14. **"Arrived late" has no threshold.** 7.10 says "long after". The plan: first seen
     locally more than 1 hour after the end date (a tunable constant).
 15. **Day display.** The design writes "day 30" and never a year. The plan counts days from
-    day 1 with no year, in both calendars, with the time of day in the hover.
+    day 1 with no year, in both calendars, with the time of day to the second in the hover,
+    and in the cells and messages when two compared dates fall on one day (design 7.8,
+    7.13). Since dates
+    compare to the second (owner, 2026-11-15), the calendar (the creator's 6-hour or
+    24-hour setting, question Q-09) only formats dates, so the board reads the same for
+    everyone.
 16. **A player with no pre-end standing** (joined after the end, 7.2) is left out of the
     final board; the design is silent.
 17. **The race calendar cannot use the house formatters.** `ParsekTimeFormat` and
@@ -1032,12 +1072,18 @@ Other proof:
   itself; (b) no, only a date that counts can block. Recommendation: (a). It matches "you
   cannot take a first you already knew about", it never depends on a chain of other
   players' receipts, and it cannot loop on edited files.
+  Answered (owner, 2026-11-15): (a). Any real, clean rival flight (in the shared folder,
+  tool-free) that your game had already seen blocks you, even one that won nothing.
 - **Q2. Should the game announce a first you take that no rival had reached ("Mun Landing
   is yours: day 31") with an on-screen message?** Options: (a) only when a rival is
   involved (you beat, lost to, or tied with someone); (b) every first you take. Recommendation:
   (a): the opening hour would otherwise post a message for every new first, and the window
   already shows it.
+  Answered (owner, 2026-11-15): (a), only when a rival is involved.
 - **Q3. After the end date, should holder changes on the "now" board still send messages?**
   Options: (a) no, only a change to the final board (a late standing) and the one "race is
   over" message; (b) yes, as before the end. Recommendation: (a): after the end the race is
   decided, and the window shows the "now" board for anyone who keeps playing.
+  Answered (owner, 2026-11-15): (a). After the end, one "race is over" message and a
+  message when a late file changes the final board; present-board changes show in the
+  window only.

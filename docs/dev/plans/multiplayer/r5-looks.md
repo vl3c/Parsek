@@ -22,9 +22,12 @@ Built here:
   EVA part per gender, the replacement set, and the four UI colors (S3 picks the values).
 - **Own roster dressing (`RaceLooks`).** A kerbal that joins the roster of a race save (the
   starting crew, a hire, a rescue, a Parsek stand-in) is dressed in the player's look. The
-  stock suit picker stays the player's own: a suit the player picked is never forced back. A
-  look changed in Settings or by the clash rule re-dresses, once, at the next load, only the
-  kerbals that still wear the old look's dress.
+  race suit is locked (owner, 2026-11-15, against the plan's recommendation to leave the
+  picker free): kerbals always wear the player's race color, and in a race save the stock
+  suit picker is blocked (R5-14, a stock-control annotation). A look changed in Settings or
+  by the clash rule re-dresses every Crew kerbal at the next load, and a load pass dresses
+  any Crew kerbal found in another suit. No suit state is kept in the save: every load
+  dresses every Crew kerbal not in the look (design 7.4, 15.7).
 - **The two replacement suit sets** for a machine without Making History or Breaking Ground,
   and their packaging (or a runtime recolor; question 10.2).
 
@@ -56,7 +59,7 @@ Not built here:
   file; R1-01 is dropped) for R5-07 and every later task, and R3W-02 (the RaceWorld module rule,
   registered with `RivalFlight.cs`) for R5-12, R5-08 and R5-11; R1-06 (the `race-no-writer` gate
   whose allowlist reserves the `RaceLooks` entry) before R5-11 fills it; for R5-11: R1-03
-  (`ParsekRaceScenario` and its child Save / Load hooks, OV-28), R1-08 (`RaceSession`, the look
+  (`ParsekRaceScenario`, whose `OnLoad` calls the load pass), R1-08 (`RaceSession`, the look
   field of `RaceLocal` / `player.cfg`) and R1-09 (look assignment and the clash rule). R5-11 does
   not wait for R1-10 or R1-11 (task index E.3.7).
 - **After R3:** R3W-09 (flight composition), R3W-15 (rival style source; see 9.2), R3W-18
@@ -489,19 +492,21 @@ Lands only with R3W-26 (watching a live rival ghost).
 
 - **Change:** `Source/Parsek/RaceCore/RaceLookDress.cs`. Plain values: `KerbalDress`
   (suit style, suit texture path, normal texture path, sprite path, combo id),
-  `KerbalDressRow` (name, type, gender, dress), `DressMarker` (look, resolution). Rules:
+  `KerbalDressRow` (name, type, gender, dress). Rules:
   `DressFor(look, female, resolution, stockDefaultCombo)`; `IsStockDefault(dress)`;
   `Wears(dress, lookDress)`; `DecideOnAdded(type)` (Crew: dress; Applicant, Tourist,
-  Unowned: no); `DecideOnTypeChange(from, to, dress)` (to Crew and wearing the stock
-  default: dress; anything else: keep, so a player's pick and Parsek's re-hire after a
-  rewind keep their suit); `PlanLoadPass(marker, currentLook, currentResolution, rows)`:
-  marker missing (new race save): dress every Crew kerbal wearing the stock default;
-  marker look or resolution differs: re-dress every Crew kerbal wearing the marker's dress;
-  equal: nothing. Returns the rows to write and the new marker.
-- **Proof:** xUnit `RaceLookDressTests` truth tables: starting crew dressed once; a picked
-  suit kept across a look change; tourists and applicants skipped; look 0 to 2 re-dresses
-  only old-look wearers; a resolution change (replacement to stock, after the DLC is
-  installed) re-dresses; identical marker writes nothing.
+  Unowned: no); `DecideOnTypeChange(from, to, dress)` (to Crew: dress, whatever the kerbal
+  wears, since the race suit is locked, owner, 2026-11-15; anything else: keep);
+  `PlanLoadPass(currentLook, currentResolution, rows)`: dress every Crew kerbal not wearing
+  the dress of the current look at the current resolution, and nothing else. No state is
+  kept (design 7.4, 15.7): a new save's starting crew, a look change, a resolution change
+  (the DLC installed or removed) and a suit set by another path (a save edit, another mod)
+  all show as Crew kerbals not in the look. Returns the rows to write.
+- **Proof:** xUnit `RaceLookDressTests` truth tables: starting crew dressed once; a foreign
+  suit re-dressed at the next load; tourists and applicants skipped; look 0 to 2 re-dresses
+  every Crew kerbal; a resolution change (replacement to stock, after the DLC is installed,
+  and stock default to replacement, after stock reset a suit whose DLC is missing)
+  re-dresses; every Crew kerbal already in the look writes nothing.
 - **Uncalled-method check (A1):** lands with its first caller. Only xUnit calls these rules
   in their own change, so `RaceLookDress.cs` is created in R5-11's pull request (its first
   production caller), as specified here, with the truth-table cells.
@@ -520,40 +525,36 @@ Lands only with R3W-26 (watching a live rival ghost).
   the stock fields the picker writes (`suit`, `SuitTexturePath`, `NormalTexturePath`,
   `SpritePath`, `ComboId`, `UseStockTexture`), nothing else. `RunLoadPass()` is called by
   `ParsekRaceScenario.OnLoad` (R1-03) once the roster exists; it runs `PlanLoadPass` and
-  writes. The starting crew is dressed by this first load pass (marker missing), not by a
-  before-start step of R1-10 (OV-54). The marker is a `RACE_LOOK_DRESS { look = N
-  resolution = stock|replacement }` child of the race scenario node, added through R1-03's
-  child hook (the scenario keeps unknown children verbatim; OV-28): a handler implementing
-  `IRaceScenarioChild` (child node name `RACE_LOOK_DRESS`, `Load(ConfigNode)`,
-  `Save(ConfigNode)`) added to `ParsekRaceScenario`'s handler list (9.5). Logs:
-  `[RaceLooks] Dress pass: look=N resolution=R reason=
-  new-save|look-changed|resolution-changed|none dressed=N kept=N skipped=N` (Info, once per
-  load); `[RaceLooks] Dressed <name> look=N on=added|hired|rescued` (Verbose, bounded by the
-  hires of a session).
+  writes. The starting crew is dressed by the first load pass of a new race save (every
+  Crew kerbal is still in the stock default suit), not by a before-start step of R1-10
+  (OV-54). No suit state is kept in the save and the task adds no child to the race
+  scenario node (design 7.4, 15.7; the suit lock of 2026-11-15 removed the
+  `RACE_LOOK_DRESS` marker, 9.5). Logs: `[RaceLooks] Dress pass: look=N resolution=R
+  dressed=N kept=N skipped=N` (Info, once per load); `[RaceLooks] Dressed <name> look=N
+  on=added|hired|rescued` (Verbose, bounded by the hires of a session).
 - **Proof:** xUnit through R5-10. In-game `RaceLooks` (SPACECENTER; each cell skips with a
   stated reason through `RaceGate` unless the save is a race save; hosted by T-29's RACE-9,
   which stages a race): `NewRaceSaveStartingCrewDressed`; `HiredApplicantDressed`;
-  `PickedSuitSurvivesReload` (set a suit through the picker's fields, save, reload, still
-  there); `LookChangeRedressesOnce` (edit the look in `local.cfg`, reload, old-look wearers
-  re-dressed, a picked suit kept, a second reload writes nothing). Log contract in a
+  `ForeignSuitRedressedAtLoad` (set another suit through the picker's fields, save,
+  reload: the look again; replaces `PickedSuitSurvivesReload`, since the race suit is
+  locked, owner, 2026-11-15); `LookChangeRedressesOnce` (edit the look in `local.cfg`,
+  reload, every Crew kerbal re-dressed, a second reload writes nothing). Log contract in a
   single-player save: no `[RaceLooks]` line at all.
 - **Uncalled-method check (A1):** reached by production: `RaceSession` constructs it, the
   `GameEvents` handlers are delegate members, `ParsekRaceScenario.OnLoad` calls
-  `RunLoadPass` and the scenario calls the child handler. R5-10's rules, and R5-07's members
+  `RunLoadPass`. R5-10's rules, and R5-07's members
   they read, land in this pull request.
 - **Registers:** R1-06's `race-no-writer` allowlist: the reserved `RaceLooks` entry names
-  `RaceLooks.cs` for the stock roster suit fields (15.4); `LoadReconcilePolicy` gets the
-  `RACE_LOOK_DRESS` child's row in this task (OV-28: "from the loaded save" for every load
-  kind, like `RaceLink`'s row from R1-05); `docs/dev/design-competitive-multiplayer.md` 15.7
-  gains the marker row; `CHANGELOG.md` (kerbals in a race save wear the player's look); todo
-  entry; lane catalog (new category `RaceLooks`); RACE-9's pinned tally re-pinned in the same
-  change if T-29 has already pinned `RaceLooks`.
+  `RaceLooks.cs` for the stock roster suit fields (15.4); no `LoadReconcilePolicy` row and no 15.7
+  row (no state is kept); `CHANGELOG.md` (kerbals in a race save wear the player's look); todo
+  entry; lane catalog (new category `RaceLooks`); RACE-9's pinned tally re-pinned in the same change
+  if T-29 has already pinned `RaceLooks`.
 - **Size:** M. **Depends on:** R1-03, R1-08, R1-09, R5-08, R5-10, R5-12, S3 (not R1-10 or R1-11,
   task index E.3.7). **PC:** yes. **S3:** S3a, S3b (the replacement dress writes texture
   paths; if S3b shows IVA or the portrait ignore them, the dress also writes a combo id and
   needs question 10.1 answered (a)), S3c.
-- **Risk:** medium; a wrong predicate overwrites a suit the player chose, which the
-  `PickedSuitSurvivesReload` test and the truth tables guard.
+- **Risk:** medium; a wrong predicate dresses a tourist or applicant, or misses a Crew
+  kerbal, which the truth tables and `ForeignSuitRedressedAtLoad` guard.
 
 ### R5-12 The replacement suit sets
 
@@ -590,6 +591,40 @@ Shape depends on question 10.2 (art source) and 10.1 (combo entry or not).
 
 Dropped: replaced by T-29 (OV-06).
 
+### R5-14 Block the stock suit picker in a race save
+
+Added 2026-11-15: the race suit is locked (owner, 2026-11-15).
+
+- **Change:** first step: find by decompile every stock control that opens the suit picker
+  (`HelmetSuitPickerWindow`, section 3.2; its opening controls, for example in the
+  Astronaut Complex and the editor crew dialog, are not established) and the member a
+  prefix can stop. Then `Source/Parsek/Patches/RaceSuitPickerPatch.cs`: in a race save each
+  such control is shown disabled, with the reason ("Race suits are locked to your race
+  color") on that same control through stock's own mechanism (its disabled state and its
+  stock tooltip or label text), and a click-block on the same control's handler refuses the
+  open. The mark and the block read one predicate, `RaceLooks.SuitPickerBlocked` (true in a
+  race save, from `RaceGate.IsRaceSave`). This is the stock-control annotation exception of
+  `.claude/CLAUDE.md`; nothing is drawn by Parsek. No change outside a race save. Log:
+  Verbose `[RaceLooks] Suit picker blocked: control=..`. If a control cannot be shown
+  disabled, its click-block stays and the plan names the control as block-only.
+- **Proof:** xUnit: the predicate (race save, single-player save) and a source gate that
+  the mark and the block of each control call the same predicate. In-game `RaceLooks`
+  (SPACECENTER, RACE-9): `SuitPickerBlockedInRaceSave` (the control disabled with the reason;
+  a forced click opens nothing) and `SuitPickerFreeInSinglePlayer` (skips with a stated
+  reason in a race save). A control found in the editor gets its cell in the existing
+  EDITOR category `RaceSitesEditor` (SITES-3), not a new category.
+- **Uncalled-method check (A1):** the patch's prefixes are Harmony roots; the predicate is
+  called by both in this pull request.
+- **Registers:** `design-gui-inventory.md` (a stock-control annotation per blocked control);
+  the Harmony patch list in `.claude/CLAUDE.md` ("ParsekHarmony.cs + Patches/" entry), then
+  `cp .claude/CLAUDE.md AGENTS.md`; `CHANGELOG.md` under `1.1.0` (with R5-11's entry);
+  todo entry; RACE-9's (and, for an editor cell, SITES-3's) pinned tally re-pinned in the
+  same change if already pinned.
+- **Size:** M. **Depends on:** R5-11 (the `RaceLooks` session and category), R1-04.
+  **PC:** yes.
+- **Risk:** medium; the picker's entry points are not known until the decompile; a control
+  left open lets a player change a suit until the next load pass re-dresses it.
+
 ## 5. Parallel tracks
 
 | Track | Tasks | Files |
@@ -613,8 +648,8 @@ Dropped: replaced by T-29 (OV-06).
   `test_archview.py`'s Core count and kernel list (R5-03, then R3W-14, after P7-01, P1-01 and
   P1-02: one file each, rebase-trivial; no R5 task edits `modules.toml`);
   R3W-09's `ParsekFlightRivalLane.cs` (R3W-09 onward, R5-09: R5-09 after R3W-18);
-  `ParsekRaceScenario.cs` (R1-03, R1-08, R3E-15, R5-11) and `LoadReconcilePolicy.cs` (R1-05,
-  R1-16, R5-11).
+  `ParsekRaceScenario.cs` (R1-03, R1-08, R3E-15, R5-11: the load pass call only;
+  R5-11 adds no row to `LoadReconcilePolicy.cs`).
 
 ## 6. Tests and proof
 
@@ -663,13 +698,15 @@ Dropped: replaced by T-29 (OV-06).
   the runtime recolor variant of R5-12 is one `process` static, tagged.
 - **Grep gates:** the `RaceLooks.cs` entry in R1-06's `race-no-writer` allowlist (R5-11); no
   ERS / ELS read; no thread.
-- **Save format:** no bump. The marker is an additive child node of the race scenario node;
-  single-player saves never carry it. Stock roster fields are stock's format.
-- **Load policy:** one `LoadReconcilePolicy` row for the marker, added by R5-11 with the
-  child it adds through R1-03's `IRaceScenarioChild` hook (OV-28).
+- **Save format:** no bump and no new node: no suit state is kept (design 7.4, 15.7). Stock
+  roster fields are stock's format.
+- **Load policy:** no row. R5-11 adds no child to the race scenario node; every load kind
+  dresses the roster it loaded.
 - **GUI:** no new surface. `design-gui-inventory.md` notes the tint on rival objects (R5-09)
-  and on markers if R5-05 lands. Stock picker untouched unless question 10.1 is (a).
-- **Docs:** CHANGELOG at R5-09 and R5-11; todo entries per task; lane catalog regen with the
+  and on markers if R5-05 lands. In a race save the stock suit picker is blocked with a
+  stock-control annotation (R5-14; owner, 2026-11-15); in a single-player save it is
+  untouched unless question 10.1 is (a).
+- **Docs:** CHANGELOG at R5-09, R5-11 and R5-14; todo entries per task; lane catalog regen with the
   first in-game cell of each category (R5-01 for `RaceLooksFlight`, R5-11 for `RaceLooks`);
   once T-29 pins RACE-9 and RACE-10, a cell added to either category re-pins its host's
   tally in the same change (`CommittedBatchTallySourceSyncTests`); `autotest-status.md` is
@@ -678,8 +715,8 @@ Dropped: replaced by T-29 (OV-06).
 
 ## 8. Risks
 
-- **A player's chosen suit is overwritten.** Guarded by the "stock default only" rule on
-  joins, the marker rule on loads, the truth tables and `PickedSuitSurvivesReload`.
+- **A suit escapes the lock.** A picker entry point R5-14 did not find, or another mod,
+  changes a suit. The next load pass re-dresses it (R5-10, `ForeignSuitRedressedAtLoad`).
 - **A cached look material is destroyed by the engine, or leaks.** The source gate in R5-02
   and the in-game check that the dresser's material survives a ghost's destruction; the
   dresser logs the count it destroys at scene exit.
@@ -691,9 +728,10 @@ Dropped: replaced by T-29 (OV-06).
   material override too, using the stock default combo texture; R5-08 grows, the seam does
   not change.
 - **A save moved to a machine without the DLC.** Stock resets the suit to Default at load;
-  R5-10 re-dresses through the resolution in the marker only if S3c shows the dress is
-  still recognisable (combo id). Otherwise those kerbals show the base suit until the
-  player picks one; the color still marks the player.
+  The same load pass finds those kerbals out of the look and dresses them in the
+  replacement (design 7.4); S3 checks what stock does at that load. If stock leaves a
+  state the pass cannot write over, those kerbals show the base suit (the picker is
+  blocked in a race save, R5-14); the color still marks the player.
 - **Two simultaneous joiners share a look** until the later one's game applies the clash
   rule and exports; their ghosts share a color for that time. R1's rule ends it; nothing
   here can.
@@ -726,9 +764,11 @@ Dropped: replaced by T-29 (OV-06).
    scenario node, save lifetime, one load-policy row.
    Settled: R1-03 adds the `IRaceScenarioChild` hook and keeps unknown children verbatim;
    R5-11 adds the child through it with its LoadReconcilePolicy row (OV-28).
+   Superseded 2026-11-15: with the suit locked no marker is needed; every load dresses
+   every Crew kerbal not in the look, and R5-11 adds no child (design 7.4, 15.7).
 6. **The starting crew cannot be caught by a hook.** `onKerbalAdded` fires for it in
    `GenerateInitialCrewRoster` before any scenario exists. Assumed: the first load pass of
-   a race save dresses it (marker missing).
+   a race save dresses it (every Crew kerbal is still in the stock default suit).
    Settled: this reading stands; R1's "before-start step" waiter row is fixed, and R5-11
    waits for R1-03, R1-08, R1-09 only (OV-54, task index E.3.7).
 7. **`SUITCOMBOS` is not inert.** A `SUITCOMBOS` node under `GameData` is listed by the stock
@@ -743,7 +783,8 @@ Dropped: replaced by T-29 (OV-06).
     dev deploy and the harness deploy carry explicit lists (`release.py:82-88`,
     `Parsek.csproj:112-117`, `provlib.py:257`); all three change in R5-12.
 11. **Rivals at the KSC scene.** `ParsekKSC.cs:1607` builds ghosts through its own call. If
-    R3 shows rival ghosts there, it needs the same options source. The design is silent.
+    R3 shows rival ghosts there, it needs the same options source. Settled: the first build
+    shows no rival ghosts in the Space Center view (owner, 2026-11-15), so no task here.
 12. **"At their next sync" (8.29) is really "at the next scene after the sync".** The rival
     list is replaced only at scene load (7.6), so a rival's new look and color appear then.
 13. **A focused rival map vessel shows stock lime**, not the rival's color, like any focused
@@ -751,15 +792,15 @@ Dropped: replaced by T-29 (OV-06).
 
 ## 10. Questions for the owner
 
-1. **Should the two replacement suit sets appear in the stock suit picker?** (a) Yes, as
-   stock `SUITCOMBOS`: every save, single player too, lists two extra suits in the
-   Astronaut Complex picker, and a race player can pick the replacement back after trying
-   another suit. (b) No: Parsek applies them only to race kerbals and rival ghosts, and
-   single-player saves see nothing new. Recommendation: (b), if S3b shows the texture-path
-   dress shows in EVA, IVA and the portrait; else (a).
-   Note: (a) puts a race item into every single-player save, which design section 0 (and
-   15.8) rule out unless the owner allows it; (a) is therefore open only with the owner's
-   explicit permission, not as a fallback the plan can take by itself.
+1. **Should the two replacement suit sets appear in the stock suit picker?** (a) Yes, as stock
+   `SUITCOMBOS`: every save, single player too, lists two extra suits in the Astronaut Complex
+   picker (since the race suit is locked, owner, 2026-11-15, a race player no longer picks a suit,
+   so this option only lists them). (b) No: Parsek applies them only to race kerbals and rival
+   ghosts, and single-player saves see nothing new. Recommendation: (b), if S3b shows the
+   texture-path dress shows in EVA, IVA and the portrait; else (a). Note: (a) puts a race item into
+   every single-player save, which design section 0 (and 15.8) rule out unless the owner allows it;
+   (a) is therefore open only with the owner's explicit permission, not as a fallback the plan can
+   take by itself.
 2. **Where does the replacement art come from?** Squad's DLC textures cannot be shipped.
    (a) Original stock-like art drawn for Parsek (needs an artist; ships files). (b) Parsek
    recolors the player's own base suit at load, in memory (nothing shipped, no licence
@@ -769,6 +810,6 @@ Dropped: replaced by T-29 (OV-06).
    (a) `Ghost: Ana - Kerbal X` (the display name as prefix). (b) `Ghost: Kerbal X`, color
    only. Recommendation: (a): colors are hard to tell apart for some players, and the
    Tracking Station list has no color.
-   Assumed until the owner says otherwise: (a), as a designer choice merged with r3w's label
-   question (OV-45, OV-58): one prefix format `LabelPrefix = "<display name> - "`; map and
-   Tracking Station name `Ghost: Ana - Kerbal X`; floating label in flight `Ana - Kerbal X`.
+   Answered (owner, 2026-11-15): (a), merged with r3w's label question (OV-45, OV-58): one
+   prefix format `LabelPrefix = "<display name> - "`; map and Tracking Station name
+   `Ghost: Ana - Kerbal X`; floating label in flight `Ana - Kerbal X`, in the rival's color.

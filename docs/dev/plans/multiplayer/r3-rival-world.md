@@ -20,8 +20,10 @@ Built here:
   (OV-47).
 - The rival ghost lane in the flight scene (flight view and map view) and in the Tracking
   Station: a second `GhostPlaybackEngine` in flight, `RecordingPlaybackCatalog.None`,
-  `RivalPlaybackPolicy` (no spawn, no resource delta, no chain, no CommNet),
-  `RivalMapPresence` on the P3 primitive (P3-04, P3-05).
+  `RivalPlaybackPolicy` (no spawn, no resource delta, no chain, no CommNet: only the
+  player's own ghosts relay or act as control points, owner, 2026-11-15),
+  `RivalMapPresence` on the P3 primitive (P3-04, P3-05); a rival ghost can be targeted like
+  an own ghost (owner, 2026-11-15).
 - Leftovers as entries of the rival engine held at their last moment, inside the window the
   owner's standing declares; the launch-area filter on leftovers and flags.
 - Rival flags as plaque replicas with a click target that opens the stock plaque dialog
@@ -47,7 +49,8 @@ Explicitly not built here:
   (R4 / R6); this slice only records the facts they read.
 - The whole-save harness lane (T-27 RACE-4) and the host lanes of this slice's in-game
   categories (T-29 RACE-10, RACE-11).
-- Anything in the Space Center scene (7.7: rivals show there as scenery only).
+- Anything in the Space Center scene (7.7: rivals show there as scenery only; no rival
+  ghosts there in the first build, rival buildings show, owner, 2026-11-15).
 - Any change to the own lane's behavior. Every task is inert in a single-player save.
 
 ## 2. Starts after
@@ -658,7 +661,8 @@ cells and stay their own pull requests; the one member that waits for a later ta
   the header's leftover (`LeftoverVesselType`, empty when unknown), which R3W-18 uses for the
   map icon. An empty `untilUT` maps to the named constant
   `RivalFlight.OpenLeftoverEndUT` (a large finite UT, never infinity). Debris and terminal
-  states Recovered / Destroyed never get one. With a leftover:
+  states Recovered / Destroyed never get one: leftovers are flyable vessels only, and rival
+  debris is not shown (owner, 2026-11-15). With a leftover:
   - the display end becomes `untilUT` and `EndUT` widens to it (allowed by the envelope rule,
     `IPlaybackTrajectory.cs:29-33`);
   - an orbit leftover appends one orbit segment built from the terminal orbit, from the last
@@ -761,8 +765,8 @@ cells and stay their own pull requests; the one member that waits for a later ta
   `SpawnHost.DrawGhostLabels` (`ParsekFlight.cs:1444`): the existing label drawing of
   `ParsekFlightSpawnHost.cs:688` lifted into a shared helper that takes a position, text and
   color; rival text is `<style.LabelPrefix><vessel name>`, for example `Ana - Kerbal X`
-  (OV-45). Drawn only for live rival ghosts inside the label range. Question 10.3 is
-  assumed answered yes (see section 10).
+  (OV-45). Drawn only for live rival ghosts inside the label range, in the rival's color.
+  Question 10.3 is answered yes (owner, 2026-11-15; see section 10).
 - **Proof:** xUnit on the helper's text and culling decision; in-game screenshot check on
   the owner's PC.
 - **Registers:** `design-gui-inventory.md` (label kinds); UI-scale gate if the helper moves.
@@ -814,7 +818,8 @@ cells and stay their own pull requests; the one member that waits for a later ta
 - **Proof:** xUnit `RivalMapPresenceDecideTests` (truth table) and a throttle case (more
   creates than the per-tick budget spread over ticks). In-game
   `RaceRivalLane.RivalMapVesselIsGuarded`: `IsGhostMapVessel` true; not in the saved
-  `FLIGHTSTATE` after a quicksave; not a CommNet node; targetable.
+  `FLIGHTSTATE` after a quicksave; not a CommNet node; targetable (both owner,
+  2026-11-15).
 - **Registers:** todo entry; CHANGELOG entry updated.
 - **Size:** M. **Depends on:** R3W-09, R3W-11, R3W-15, R3W-17, P3-04, P3-05, R5-04.
   **PC:** yes.
@@ -939,12 +944,19 @@ cells and stay their own pull requests; the one member that waits for a later ta
 
 - **Change:** a click on the replica's trigger (within the click range S7 decides) opens
   the stock plaque dialog with the rival's site name, placer and text, through the entry
-  point S7 finds. Logged once per open.
+  point S7 finds. Logged once per open. If S7 shows the stock plaque window cannot show a
+  rival's text, the same click opens one small stock-styled `PopupDialog` with the plaque
+  text instead (question 10.1, owner, 2026-11-15). That popup is the fourth new-window
+  exception (README rule 8), so this task then also adds it to R1-14's `.claude/CLAUDE.md`
+  exception bullet (then `cp .claude/CLAUDE.md AGENTS.md`); when S7 passes, no popup is
+  built and nothing is added.
 - **Proof:** in-game `RaceRivalLane.RivalPlaqueOpensStockDialog` (the dialog's GameObject
   exists with the supplied text), plus the owner's look.
-- **Registers:** `design-gui-inventory.md` (a stock dialog reused, no new surface).
-- **Size:** S. **Depends on:** R3W-24, spike S7. **PC:** yes.
-- **Risk:** medium; if S7 fails, question 10.1 decides.
+- **Registers:** `design-gui-inventory.md` (a stock dialog reused, no new surface; or, if
+  S7 fails, the popup as a new dialog); with the popup only, `.claude/CLAUDE.md` +
+  `AGENTS.md`.
+- **Size:** S (S to M with the popup). **Depends on:** R3W-24, spike S7. **PC:** yes.
+- **Risk:** medium; S7 decides which of the two is built.
 
 ### R3W-26 Watching a live rival ghost (optional)
 
@@ -1283,6 +1295,8 @@ with and without rivals), which this slice's acceptance names (OV-05).
    opened by the same click (a new dialog, needs a ruling like the Route History one);
    (b) the flag stands but cannot be read; (c) no rival flags in the first build.
    Recommendation: (a), sized as one stock-styled `PopupDialog`.
+   Answered (owner, 2026-11-15): (a), one small popup, only if S7 shows the stock plaque
+   window cannot show the text; it is the fourth new-window exception (README rule 8).
 2. **Should a rival ghost flying inside an atmosphere show anything in the flight map
    view?** Own ghosts get a Parsek-drawn marker there; the design says none for rivals in
    the Tracking Station and is silent about flight. Options: (a) nothing, as in the TS;
@@ -1297,3 +1311,5 @@ with and without rivals), which this slice's acceptance names (OV-05).
    choice, to be listed in design 13.B): `LabelPrefix = "<display name> - "`, so the
    floating label in flight reads `Ana - Kerbal X` and the map and Tracking Station name
    `Ghost: Ana - Kerbal X`. Merged with r5's label question (OV-45, OV-58).
+   Answered (owner, 2026-11-15): (a), the owner's name and color on the label and the
+   `Ghost: Ana - Kerbal X` name on the map and in the Tracking Station.

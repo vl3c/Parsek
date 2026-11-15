@@ -390,17 +390,32 @@ Logging (tag `RaceSites`, design section 10):
   (OV-31); `Reconcile` returns `Refuse` before any change when it fails. Ratchet: the slot
   call and `Reconcile` are the production callers of `CheckKerbinStock`,
   `KerbinFingerprint.Evaluate` and `KerbinProbe`, all in this PR.
+  - The refused load (question 10.1, owner, 2026-11-15: refuse to load). When `Refuse` is
+    the decision for a race save being loaded, or R2-04's apply fails and restores stock,
+    the load stops: Parsek goes back to the main menu, shows one screen message naming the
+    reason (an event: the load did not happen), and nothing writes the save. First step:
+    find by decompile the earliest point on the load path where the scene change can be
+    turned back before stock or Parsek writes `persistent.sfs` (stock writes it on several
+    scene paths, for example `FlightDriver.PostInit`); the turn-back is a scene request to
+    the main menu from `ParsekRaceBoot.OnSceneRequest`, with Parsek's own save of that
+    session suppressed. R2-04's "restored to stock" outcome becomes this refusal, as an
+    edit to R2-04's file in this PR. Log: Warn `Race load refused: reason=..`.
 - **Proof:** xUnit `KerbinFingerprintTests` (stock values pass; each changed value, a
   missing city or decal and a planet-pack assembly each fail with their own reason; culture
-  invariant reason text). In-game test `RaceSitesStock.KerbinIsStock` (SPACECENTER of a
+  invariant reason text); a pure decision cell that `Refuse` and an apply failure both give
+  the refused load; an in-game check on the owner's PC that a refused race save goes back
+  to the main menu with the message and an unchanged `persistent.sfs` (file hash before and
+  after). In-game test `RaceSitesStock.KerbinIsStock` (SPACECENTER of a
   single-player save, hosted by SITES-2) records the eight heights it reads, so the table of
   expected heights is taken from a real game once (S5 compares them across two processes on
   one PC; a second machine is a cross-check).
 - **Registers:** the one call in R1-10's refusal slot; headless pins;
-  `design-gui-inventory.md` only if R1's dialog wording changes.
-- **Size:** S to M. **Depends on:** R2-01, R1-10. **Spike:** S5 (heights equal in two
-  processes on one PC; if not, the terrain check is dropped and only bodies and assemblies
-  remain).
+  `design-gui-inventory.md` (one screen message added, the refused load; and R1's dialog
+  wording if it changes); `LoadReconcilePolicy` only if the turn-back needs a new load kind
+  (expected: none, it is a scene request); CHANGELOG under `1.1.0`.
+- **Size:** M (was S to M; the refused load is added). **Depends on:** R2-01, R1-10. **Spike:** S5
+  (heights equal in two processes on one PC; if not, the terrain check is dropped and only bodies
+  and assemblies remain).
 - **PC:** yes (expected heights, one in-game run).
 - **Risk:** medium; a too-tight tolerance refuses honest installs, which the two-process
   sample settles (a second machine cross-checks it).
@@ -562,15 +577,28 @@ Logging (tag `RaceSites`, design section 10):
   screen message (an event: the launch did not happen), and a postfix on
   `EditorDriver.OtherLaunchSitesValid` returns false when the race does not use the
   alternate sites, so the stock picker shows them greyed (the stock-control annotation
-  exception: the mark and the block read the same predicate). No change outside a race save.
+  exception: the mark and the block read the same predicate). The race setting wins over a
+  mid-game difficulty change (question 10.2, owner, 2026-11-15): in a race created without
+  the alternate sites, the stock difficulty option "allow other launch sites"
+  (`GameParameters.AllowOtherLaunchSites`, GameParameters.cs:223) is shown greyed, with its
+  reason appended to that option's own stock description, and a click-block keeps it off;
+  the mark, the block and the launch guard read one predicate,
+  `RaceLaunchRules.AlternateSitesBlocked(link)`. First step: find by decompile the stock
+  control that draws and sets that option in the difficulty window (its class and the
+  member a prefix can stop); if stock offers no disabled state for it, the click-block
+  stands alone with the reason text, and the plan says so. No change outside a race save.
 - **Proof:** xUnit `RaceLaunchRulesTests` (matrix of setting x expansion x name, unknown
   names, empty name); log-capture test of the refusal line. In-game
   `RaceSitesEditor.LaunchRules` (EDITOR; hosted by SITES-3's one `RunTests` step):
-  `OtherLaunchSitesValid()` follows the race setting. Harness SITES-3 (R2-14).
-- **Registers:** `design-gui-inventory.md` (one screen message added, count 88 -> 89);
+  `OtherLaunchSitesValid()` follows the race setting; the difficulty option is greyed with
+  its reason and a set attempt leaves it off (SPACECENTER, `RaceSites` on RACE-9). Harness
+  SITES-3 (R2-14).
+- **Registers:** `design-gui-inventory.md` (one screen message added; the greyed
+  difficulty option as a stock-control annotation);
   `TooltipEchoBudgetTests` untouched (no tooltip text); Harmony patch list in CLAUDE.md
   ("ParsekHarmony.cs + Patches/" entry).
-- **Size:** S to M. **Depends on:** R2-01, R1-03 (`RaceLink.alternateSites`), R1-10 (the
+- **Size:** M (was S to M; the greyed difficulty option is added). **Depends on:** R2-01,
+  R1-03 (`RaceLink.alternateSites`), R1-10 (the
   manifest's `AllowOtherLaunchSites`). **Spike:** S4b (that the Space Center picker path
   also reaches `StartWithNewLaunch`; if not, a second prefix on that path).
 - **PC:** yes.
@@ -828,9 +856,10 @@ anywhere.
   `RaceLink`. A new site table is a new id, never an edited row (design 15.10).
 - **LoadReconcilePolicy:** no new load and no new state category; the reconcile reads the
   mark, writes nothing to the save.
-- **GUI:** one screen message (R2-08) and, depending on question 10.1, one more
-  (`design-gui-inventory.md` counts); no window, no tooltip, the greyed alternate sites use
-  the stock-control annotation exception.
+- **GUI:** two screen messages, R2-08's refused launch and R2-02's refused load (question
+  10.1, owner, 2026-11-15) (`design-gui-inventory.md` counts); no window, no tooltip; the
+  greyed alternate sites in the editor and the greyed difficulty option use the
+  stock-control annotation exception (question 10.2, owner, 2026-11-15).
 - **In-game tests and harness:** five categories, one per scene (section 6) ->
   `lane_catalog.py`; `RaceSites`, `RaceSitesFlight` and `RaceSitesTrackingStation` hosted by
   T-29's RACE-9, RACE-10 and RACE-11 (every new test re-pins that host's `total=`,
@@ -859,8 +888,11 @@ anywhere.
 - **Restore incomplete** (all): a single-player save on a changed Kerbin. Noticed by
   `StockRestored`, `NoPatchesWhenStock`, `NoCopiesWhenStock` and SITES-2, and by the baseline
   drift Warn.
-- **Apply fails halfway**: the sequence rolls back to stock and logs the step. The race
-  save then would load on stock Kerbin; question 10.1.
+- **Apply fails halfway**: the sequence rolls back to stock and logs the step, and the load
+  is refused (R2-02; question 10.1, owner, 2026-11-15).
+- **The refused load cannot turn back in time** (R2-02): stock may write `persistent.sfs`
+  before Parsek's scene request runs. The decompile step finds the earliest point; if no
+  point is early enough, R2-02 says so and the owner is asked again.
 - **Cost** (R2-07): three building sets. S5 measures; the lazy build is the fallback.
 - **Another mod moves the KSC** (KSCSwitcher, Kopernicus, Kerbal Konstructs edits): the
   fingerprint refuses (R2-02); SITES lanes run on stock installs only.
@@ -903,7 +935,8 @@ anywhere.
 6. **"Alternate sites off" and a mid-race difficulty change.** The race setting maps onto
    stock `AllowOtherLaunchSites` (GameParameters.cs:223, EditorDriver.cs:1528), which a
    player can change; case 21 allows and discloses difficulty changes. The plan's guard
-   enforces `RaceLink.alternateSites` whatever the difficulty says (question 10.2).
+   enforces `RaceLink.alternateSites` whatever the difficulty says. Settled: question 10.2,
+   answered (owner, 2026-11-15); the option is greyed (R2-08).
 7. **The launch-site circle cache does not need resetting for the move.** Design 7.3 lists
    it among what must follow the move; the cached circles are the Making History sites,
    which do not move (LaunchSiteExclusionZones.cs:236-275). P1's reset still fixes the
@@ -937,9 +970,12 @@ anywhere.
    them. Options: (a) stop the load, go back to the main menu with one message naming the
    reason, the save untouched; (b) load it anyway on stock Kerbin with one warning.
    Recommendation: (a), because (b) can destroy vessels and the save would be written.
+   Answered (owner, 2026-11-15): (a), refuse to load (R2-02).
 2. **Alternate launch sites turned on mid-race.** In a race created without the alternate
    sites, a player can switch stock's "allow other launch sites" difficulty option on later.
    Options: (a) the race setting wins: launches from the alternate sites stay refused, and
    the option shows greyed; (b) allow it and only disclose it next to the player's name, like
    other difficulty changes. Recommendation: (a), because the setting decides how far every
    player has to travel, which is the point of the creator's choice.
+   Answered (owner, 2026-11-15): (a). The race setting wins and the stock option is greyed
+   (R2-08).

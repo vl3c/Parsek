@@ -45,17 +45,18 @@ Built here:
   look; the simultaneous-join clash rules; the fifth folder ignored; the unique display name;
   late join; "start over in my seat".
 - The shared folder checks of design 7.2 and 6.3 (exists, writable, empty or same race, path
-  budget) and the install checks (newer `raceFormat`, `dateUnit` other than DAY under
-  R4-01's rule name and reason (OV-30), missing Making History for `alternateSites`, and an
+  budget) and the install checks (newer `raceFormat`, `dateUnit` other than SECOND under
+  R4-01's rule name and reason (OV-30; dates compare to the exact second, owner,
+  2026-11-15), missing Making History for `alternateSites`, and an
   empty modified-Kerbin slot that R2-02 fills (OV-31)).
 - Create, Join, Start over and Continue as one production setup core; Create and Join are
   reachable from the seam verb `RaceSetup action=create|join` and the session from
   `RaceCommand action=status` before any UI exists (the uncalled-method ratchet, design
   15.14; verb names and argument names are the test-and-harness ones, OV-01).
-- The main menu Multiplayer entry `ParsekRaceMenu`, hidden behind a developer switch until
-  R3's rivals and R4's board exist (question 1, assumed (a)), the setup dialog
-  `RaceSetupDialog`, and the Multiplayer section of the Settings window (design 7.1, 7.2,
-  15.14).
+- The main menu Multiplayer entry `ParsekRaceMenu`, always visible on the `multiplayer`
+  branch, with nothing that hides it (question 1, owner, 2026-11-15; no player sees the branch
+  before the final merge), the setup dialog `RaceSetupDialog`, and the Multiplayer section of
+  the Settings window (design 7.1, 7.2, 15.14).
 - Addition A7 (design 15.11): the shared "find a scenario node" helper, the log bundle and
   the test-batch reconcile leaving `Parsek/Race/` alone.
 - The `.claude/CLAUDE.md` edit (and its `AGENTS.md` copy) recording the three owner UI
@@ -266,10 +267,10 @@ The scenario name literal is repeated at `SaveReferenceScanner.cs:84` and
 
 ## 4. Tasks
 
-Every task: CHANGELOG and todo are touched only when it changes what a player sees. While
-the Multiplayer entry is hidden behind the developer switch (question 1, assumed (a)), no
-R1 task changes what a player sees, so R1 writes todo entries only; the CHANGELOG entry
-lands with the change that turns the switch on. Log lines use the subsystem tag `Race`
+Every task: CHANGELOG and todo are touched only when it changes what a player sees. The
+Multiplayer entry is never hidden (question 1, owner, 2026-11-15), so the R1 tasks a player can
+see (R1-14, R1-15, R1-17, R1-18) each write a CHANGELOG entry under the branch's `1.1.0` heading
+(README rule 10); the others write todo entries only. Log lines use the subsystem tag `Race`
 (`[Parsek][INFO][Race] ...`), one of the race tags fixed in R1-06's tag list (OV-57); the
 report-only tag map `scripts/arch/log_tags.json` is refreshed in the task that first logs.
 
@@ -330,7 +331,7 @@ other). R3E-02 lands after both: it waits for R1-03 and R3W-02 through R3E-01 an
     (A1, the uncalled-method ratchet).
   - `RaceCore/RaceFormat.cs`: constants `LinkCurrent = 1` (the mark's `raceLinkFormat`) and
     `Current = 1` (the exchange `raceFormat`) (OV-16), `ScenarioModuleName =
-    "ParsekRaceScenario"`, `DateUnitDay = "DAY"`, the table ids `"kerbin-equator-1"` and
+    "ParsekRaceScenario"`, `DateUnitSecond = "SECOND"`, the table ids `"kerbin-equator-1"` and
     `"standard-1"`; a `Classify(int?)` returning the same five classes as
     `SaveFormat.Classify` (RaceCore may not name `SaveFormat`). R3E-01 and R3E-04 use this
     file; they add no second constant or classifier.
@@ -344,8 +345,9 @@ other). R3E-02 lands after both: it waits for R1-03 and R3W-02 through R3E-01 an
     link, logs one line; when Parsek is inert (`ParsekGameModeGate.CheckInert`) it stashes
     and stops. `OnSave` writes the kept node back verbatim (newer or unknown keys and every
     child without a handler survive) and lets each handler write its own child. R3E-15
-    (disclosure, `testTooling`) and R5-11 (`RACE_LOOK_DRESS`) add their children through the
-    hooks, each with its `LoadReconcilePolicy` row in the task that adds it (OV-28). No code
+    (disclosure, `testTooling`) adds its child through the hooks, with its
+    `LoadReconcilePolicy` row (OV-28). R5-11 adds no child: no suit state is kept (design
+    7.4, 15.7). No code
     path in single player creates the module: only a proto in `game.scenarios`
     instantiates it.
 - **Proof:** xUnit `RaceLinkCodecTests` (read cells here, the round trip with R1-10's `Write`; every
@@ -578,7 +580,9 @@ other). R3E-02 lands after both: it waits for R1-03 and R3W-02 through R3E-01 an
   the local player, `SameSiteAs` (both keep it; told once) and a changed look when this
   player is the later joiner with a taken look; `IsNameTaken` (trimmed, case-insensitive,
   invariant). `StartOverSeat(playerId)` (keeps id, slot and look) is specified here and
-  lands with its first caller, R1-11's `StartOver` (A1).
+  lands with its first caller, R1-11's `StartOver` (A1). Seats are always four, with no
+  setting, and there is no member that removes a player: a player who stops playing keeps
+  the seat, the space center, flights, flags and points (owner, 2026-11-15).
   - First caller (A1): `RaceCommand action=status` gains the session's shared folder: the
     seats (`OrderPlayers`, `RacePlayers`, a fifth folder reported), the free slot and free
     looks, the local player's clash outcome (`ResolveClashes`) and whether its display
@@ -617,8 +621,9 @@ other). R3E-02 lands after both: it waits for R1-03 and R3W-02 through R3E-01 an
     PR (OV-25).
   - `RaceCore/RaceCalendar.cs`: the minimal date rule under R4-01's name and reason
     (OV-30): `TryAcceptDateRule(dateUnit, calendar, out reason)` refuses a `dateUnit`
-    other than `DAY` with `date-unit-not-day`; R1 does not check `calendar`. R4-01 extends
-    this file (calendar rules, `calendar-unknown`, day arithmetic) and adds no second rule.
+    other than `SECOND` with `date-unit-not-second`; R1 does not check `calendar`. R4-01
+    extends this file (calendar rules, `calendar-unknown`, the second comparison and the
+    display arithmetic) and adds no second rule.
   - `RaceCore/RaceInstallCheck.cs`: newer `raceFormat`, the date rule above, Making History
     missing with `alternateSites`, and an empty modified-Kerbin slot (a check that always
     passes in R1; R2-02 fills it with `RaceSites.CheckKerbinStock`, OV-31). Each refusal has
@@ -650,7 +655,7 @@ other). R3E-02 lands after both: it waits for R1-03 and R3W-02 through R3E-01 an
     lane names it in advance). Refusal reasons are the setup dialog's (design 7.2) verbatim,
     so a lane can drive each. Budget 300 s. The verb marks nothing itself: R3E-08 marks the
     save as tool-used at seam arming (OV-33).
-- **Proof:** xUnit `RaceFolderCheckTests`, `RaceCalendarTests` (the `date-unit-not-day`
+- **Proof:** xUnit `RaceFolderCheckTests`, `RaceCalendarTests` (the `date-unit-not-second`
   refusal; R4-01 adds its cells) and `RaceInstallCheckTests` (every refusal reason, path
   budget edges, the Kerbin slot passing), `RaceManifestWriteTests` (write then read gives
   the same value, the four optional `local.cfg` keys included; byte pin of a canonical
@@ -672,20 +677,20 @@ other). R3E-02 lands after both: it waits for R1-03 and R3W-02 through R3E-01 an
 
 ### R1-11 Join a race and start over in my seat
 
-- **Change:** `ParsekRaceSetup.Join(RaceJoinRequest)`: reads `race.cfg` and the player
-  folders through `IRaceSharedFolder`, runs the install checks, refuses a full race or a
-  taken name, takes `FirstFreeSlot` and the chosen free look, writes the new
-  `players/<p_id>/player.cfg` with `joinedRealTime`, creates the save from the manifest's
-  `gameMode` and `DIFFICULTY` node (`GameParameters` from the node, S6) through the same
-  P10-01 sequence as Create (`CreateGame`, its own before-start step, `StartGame`; no
-  callback parameter); the `local.cfg` it writes carries `firstImportDone = false`
-  (OV-27; R3E-18 sets it true). `StartOver(playerId)`: same, with the existing id, slot and
-  look, and a fresh save name; it does not touch the shared folder's player files except
-  `player.cfg`'s cosmetic fields. Seam verb `RaceSetup`, action `join` (OV-01), in the files
-  R1-10 created: T-11's argument names `folder`, `name`, `look`, `as`, plus
-  `startOverPlayerId` for start over (accepted departure, A3). First callers landing here
-  (A1): `RaceSlots.StartOverSeat` (R1-09's file) and `RaceCore/RaceModDiff.cs` (the mod
-  differences, listed as information).
+- **Change:** `ParsekRaceSetup.Join(RaceJoinRequest)`: anyone with the folder may join at any time
+  while a seat is free, with no password (owner, 2026-11-15). It reads `race.cfg` and the player
+  folders through `IRaceSharedFolder`, runs the install checks (Making History when the race shares
+  launch sites), refuses a full race or a taken name, takes `FirstFreeSlot` and the chosen free
+  look, writes the new `players/<p_id>/player.cfg` with `joinedRealTime`, creates the save from the
+  manifest's `gameMode` and `DIFFICULTY` node (`GameParameters` from the node, S6) through the same
+  P10-01 sequence as Create (`CreateGame`, its own before-start step, `StartGame`; no callback
+  parameter); the `local.cfg` it writes carries `firstImportDone = false` (OV-27; R3E-18 sets it
+  true). `StartOver(playerId)`: same, with the existing id, slot and look, and a fresh save name; it
+  does not touch the shared folder's player files except `player.cfg`'s cosmetic fields. Seam verb
+  `RaceSetup`, action `join` (OV-01), in the files R1-10 created: T-11's argument names `folder`,
+  `name`, `look`, `as`, plus `startOverPlayerId` for start over (accepted departure, A3). First
+  callers landing here (A1): `RaceSlots.StartOverSeat` (R1-09's file) and `RaceCore/RaceModDiff.cs`
+  (the mod differences, listed as information).
 - **Proof:** xUnit `RaceJoinPlanTests` (late join takes slot 1 then 2; the "no retakes"
   late-join note flag is set when the race has standings; full race; taken name; start
   over keeps the seat; mod differences listed; `firstImportDone = false` written);
@@ -746,12 +751,11 @@ Dropped: replaced by T-13 (OV-02).
     window; race saves only; owner rulings 2026-11-14, design section 0), then `cp
     .claude/CLAUDE.md AGENTS.md`. This task owns the edit (OV-42); R4-09 only checks that
     its window is named. `docs/dev/design-gui-inventory.md`: the entry and the dialog. A
-    todo entry, no CHANGELOG entry while the entry is hidden (question 1, assumed (a)).
-  - The developer switch of question 1 (assumed (a)): the entry is added only when the
-    switch is on; it is off by default and stays off until R3's rivals and R4's board
-    exist. Turning it on for players is a later change with its CHANGELOG entry.
+    todo entry and a CHANGELOG entry under `1.1.0` (README rule 10).
+  - Nothing hides the entry (question 1, owner, 2026-11-15): it is added at every main
+    menu; there is no later change that turns it on.
 - **Proof:** xUnit `RaceSaveListingTests`, `RaceSetupDialogModelTests` (pure page state);
-  `AgentInstructionMirrorTests`; the menu entry (with the switch on) is a manual check on
+  `AgentInstructionMirrorTests`; the menu entry is a manual check on
   the owner's PC: no in-game category runs at the main menu, since every race category has
   one scene and one host lane (A2); RACE-1 (T-13)
   gains a "continue from the dialog" step through a `UiAction`-style seam only if one
@@ -768,19 +772,27 @@ Dropped: replaced by T-13 (OV-02).
 
 ### R1-15 The Create page
 
-- **Change:** `RaceSetupDialog` Create page: race name, game mode (three toggles), the stock
-  difficulty panel (S6; fallback per question 2), the shared folder path field
-  (`DialogGUITextInput`) with a Validate button and its result line, shared launch sites
-  toggle (greyed with the reason when Making History is missing), optional end date, "no
-  retakes", display name, look (four toggles), calendar line (question 3). The form state
-  is a pure `RaceCore/RaceSetupForm.cs` (field values to a `RaceCreateRequest` plus the
-  first refusal); Create calls `IRaceSetupHost.Create`, which calls `ParsekRaceSetup.Create`.
-  Confirmations use the stock confirmation dialog (design section 0).
+- **Change:** `RaceSetupDialog` Create page, with the creator's choices of the owner's rulings
+  (owner, 2026-11-15): the game name (shown later in the Join page, the Space Race window and each
+  player's save name, `<race name> - <display name>`); game mode (three toggles, picked once for
+  everyone); the full stock difficulty panel, with the four stock presets as the fallback if S6
+  shows the panel cannot be opened (question 2); the shared folder path, typed or pasted into a text
+  field (`DialogGUITextInput`, no browse button and no folder picker) with a Validate button and its
+  result line; the shared launch sites toggle, off by default (greyed with the reason when Making
+  History is missing; on means joining needs the expansion); an optional end date (a real date and
+  time; none means the game never ends); "no retakes", off by default; display name; look (four
+  toggles); the calendar line, read-only (question 3: the day length is the creator's own game
+  setting, shown, with no field; it only formats dates, since dates compare to the exact second).
+  There is no seat-count field (always four) and no password field (anyone with the folder may
+  join). The page says once that mode, end date, "no retakes" and shared launch sites never change
+  after Create. The form state is a pure `RaceCore/RaceSetupForm.cs` (field values to a
+  `RaceCreateRequest` plus the first refusal); Create calls `IRaceSetupHost.Create`, which calls
+  `ParsekRaceSetup.Create`. Confirmations use the stock confirmation dialog (design section 0).
 - **Proof:** xUnit `RaceSetupFormTests` (every field's refusal, the request built from a
   valid form); manual create on the owner's PC; RACE-1 (T-13) keeps proving the core.
   Adds `IRaceSetupHost.Create`, its first caller (A1).
-- **Registers:** `design-gui-inventory.md` (the page); todo wording (no CHANGELOG while the
-  entry is hidden).
+- **Registers:** `design-gui-inventory.md` (the page); todo and a CHANGELOG entry under
+  `1.1.0`.
 - **Size:** M. **Depends on:** R1-14. **PC:** yes.
 - **Risk:** medium; a text field in a stock dialog at the main menu is new to the mod (S6).
 
@@ -806,11 +818,11 @@ Dropped: replaced by T-13 (OV-02).
   `noRetakes` is set; no list of rows, R6-09 is dropped); a "start over as" choice per existing
   player with the warning text of design 7.2, confirmed through the stock confirmation
   dialog. Calls `IRaceSetupHost.Join` / `StartOver`, which this task adds (their first
-  caller, A1).
+  caller, A1). The page has no password field: anyone with the folder may join while a seat
+  is free (owner, 2026-11-15). The race summary shows the game name and the fixed settings.
 - **Proof:** xUnit `RaceJoinFormTests`; manual join on the owner's PC (a second install or
   a second save on one install, folder shared on disk).
-- **Registers:** `design-gui-inventory.md`; todo wording (no CHANGELOG while the entry is
-  hidden).
+- **Registers:** `design-gui-inventory.md`; todo and a CHANGELOG entry under `1.1.0`.
 - **Size:** M. **Depends on:** R1-14. **PC:** yes.
 - **Risk:** medium; the page shows other players' text, so names are length-capped and
   rendered as plain text.
@@ -825,16 +837,20 @@ Dropped: replaced by T-13 (OV-02).
   (folder reachable or the reason). The rules live in `RaceWorld/RacePlayerSettings.cs` over
   `RaceCore` checks: same race id accepted; empty folder accepted after the stock
   confirmation, writing `race.cfg` and `players/<id>/player.cfg` from the local copies
-  (design 7.2 "move the race here"); another race or not writable refused. A name or look
-  change rewrites `player.cfg` (shared) and `local.cfg`. R4-09 adds the Sync now button
+  (design 7.2 "move the race here"); another race or not writable refused. The folder is
+  typed or pasted into the same text field as the Create page and checked on Validate (no
+  browse button; owner, 2026-11-15). A name or look change rewrites `player.cfg` (shared)
+  and `local.cfg`. Nothing else is offered: mode, end date, "no retakes" and shared launch
+  sites are fixed for good after Create, and the creator is a player like the others
+  (owner, 2026-11-15). R4-09 adds the Sync now button
   (calling `RequestSyncNow`) and the sync status text to this section (OV-40); rivals'
   times are R4.
 - **Proof:** xUnit `RacePlayerSettingsTests` (the three folder cases, name clash, look
   taken); `TooltipEchoBudgetTests` (hover text within 71 characters); manual check in
   FLIGHT and SPACECENTER on the owner's PC. Logs: `[Race] Folder changed: from=.. to=..
   case=..`, `[Race] Look changed: ..`.
-- **Registers:** `design-gui-inventory.md` (Settings section); todo (no CHANGELOG while the
-  entry is hidden).
+- **Registers:** `design-gui-inventory.md` (Settings section); todo and a CHANGELOG entry
+  under `1.1.0`.
 - **Size:** M. **Depends on:** R1-08, R1-09, R1-10, R1-14. **PC:** yes.
 - **Risk:** medium; `SettingsWindowUI.cs` is shared by every Settings change, so this task
   keeps its additions in one draw method and one partial-free block.
@@ -882,7 +898,7 @@ What other phases wait for (final ids; R3 per task, task index E.3.5):
 | R3E (export, exchange) | R3E-01: R1-03, R1-06, R1-07, R1-08, R1-10; R3E-04: R1-03, R1-08, R1-12; R3E-06: R1-04, R1-08; R3E-15: R1-03, R1-10; R3E-16: R1-08, R1-10; R3E-18: R1-08, R1-09 | modules and gates; `RaceFormat.Current` and the one pin class (OV-16); `IRaceFolder`, `RaceFolder`, `RaceTimestamp`, `RaceIds` to extend (OV-22, OV-24; no P7-02; R3E-01 adds the members R1 has no caller for, `List`, `Move`, `Exists`, `Delete` and the short id, A1); R1-10's path-budget constant, which R3E-01 replaces with the computed longest path; `RaceSession`; the `RaceLocal` keys it writes (OV-27); golden `v3` after `v2` (OV-15); the child hooks of the race scenario (OV-28); `IRaceSharedFolder` folded into `IRaceTransport` (OV-25); the clash rules re-run after import |
 | R3W (rival world) | R3W-02: none of R1 (it registers RaceWorld); R3W-06: R3W-02; R3W-08, R3W-13: R1-08; R3W-09: R1-10; R3W-27: R1-06 | modules; R3W-08 extends R1's `RaceSession` / `RaceRuntime` (OV-26); the SHOW block in `RaceLocal` (OV-27); the shared scanner and the loader allowlist file R3W-27 adds entries to (OV-12, OV-13) |
 | R4, R6 (board, window) | R4-01: R1-08, R1-10; R4-02: R1-08, R1-10; R4-07: R1-08; R4-09: R1-04, R1-08, R1-14, R1-18; R4-10: R1-10 | modules; R4-01 extends R1-10's `TryAcceptDateRule` (OV-30); `RaceSession` (R4-07); the CLAUDE.md exception R1-14 owns (OV-42); the Settings section where R4-09 adds Sync now (OV-40); the SHOW setter on R1-08's codec key; facade members added on R1's `RaceRuntime` (OV-39) |
-| R5 (looks) | R5-07: R1-03; R5-11: R1-03, R1-08, R1-09 | look assignment; `local.cfg`'s look; the child hook for `RACE_LOOK_DRESS` (OV-28). The starting crew is dressed at R5-11's first load pass, not in R1-10's before-start step (OV-54), so R5 does not wait for R1-10 or R1-11 |
+| R5 (looks) | R5-07: R1-03; R5-11: R1-03, R1-08, R1-09 | look assignment; `local.cfg`'s look; `ParsekRaceScenario.OnLoad`, which calls R5-11's load pass (no child of its own; design 7.4, 15.7). The starting crew is dressed at R5-11's first load pass, not in R1-10's before-start step (OV-54), so R5 does not wait for R1-10 or R1-11 |
 | T&H | T-10: R1-04; T-12: R1-08; T-13: R1-10, R1-11; T-16: R1-10 | `RaceGate`; T-12 adds `set-folder` to R1-08's `RaceCommand`; RACE-1 drives R1's `RaceSetup` actions and carries the dropped R1-13's assertions (OV-02) |
 
 ## 6. Tests and proof
@@ -899,7 +915,7 @@ Unit (xUnit, headless, `Source/Parsek.Tests/`):
 | `RaceManifestCodecTests`, `PlayerManifestCodecTests`, `RaceLocalCodecTests`, `RaceManifestWriteTests` | the exchange and local files read and write, invariant, with exact refusal reasons; the four optional `local.cfg` keys |
 | `RaceTimestampTests`, `RaceIdsTests` | design 6.5 stamps; ids safe on Windows and Linux alike (the short id and its clash cells land with it in R3E-01) |
 | `RaceSlotsTests` | design 7.3 and 7.4 assignment, simultaneous join, fifth folder, names, the `status` seat lines (R1-09); start over (R1-11) |
-| `RaceFolderCheckTests`, `RaceCalendarTests`, `RaceInstallCheckTests` | every refusal of design 7.2; `date-unit-not-day` under R4-01's rule; the empty Kerbin slot; the 250-character budget |
+| `RaceFolderCheckTests`, `RaceCalendarTests`, `RaceInstallCheckTests` | every refusal of design 7.2; `date-unit-not-second` under R4-01's rule; the empty Kerbin slot; the 250-character budget |
 | `RaceSetupPlanTests`, `RaceJoinPlanTests`, `RaceModDiffTests` | the files and save a create or join will write, before any I/O; the joiner's mod differences |
 | `TestCommandRaceCommandTests`, `TestCommandRaceSetupTests` | the `status`, `create` and `join` actions parse with T-11 / T-12's argument names; every refusal |
 | `RaceSaveListingTests`, `RaceSetupDialogModelTests`, `RaceSetupFormTests`, `RaceJoinFormTests`, `RacePlayerSettingsTests` | the dialog and Settings logic without drawing |
@@ -977,7 +993,7 @@ R1-14 to R1-18.
   (R1-12); R3E-04 adds `v3` without a bump (OV-15); `local.cfg` is a machine file with no
   row (like `settings.cfg`), additive keys only.
 - **Load policy:** `LoadStateCategory.RaceLink` (R1-05); each child of the race scenario
-  node gets its own row in the task that adds it (R3E-15, R5-11; OV-28);
+  node gets its own row in the task that adds it (R3E-15; OV-28);
   `KnownLoadInitiators` follows R1-16 and R1-14.
 - **Seam:** `RaceCommand action=status` (R1-08), `RaceSetup action=create` (R1-10) and
   `action=join` (R1-11) in `TestCommandVerbs.ImplementedVerbs`, the hlib tables, their
@@ -988,9 +1004,9 @@ R1-14 to R1-18.
   `GuiCensusSeamVerbTests` vocabularies unchanged (no new Parsek window unless a fallback
   is used, then P11-01).
 - **Docs:** `.claude/CLAUDE.md` + `AGENTS.md` (R1-14: the UI exceptions; R1-07: the
-  collect-logs line); todo entries per task, no CHANGELOG while the Multiplayer entry is
-  hidden (question 1, assumed (a)); FormatGolden README (R1-12); arch README (R1-03,
-  R1-06).
+  collect-logs line); todo entries per task, and a CHANGELOG entry under the branch's
+  `1.1.0` heading for R1-14, R1-15, R1-17 and R1-18 (question 1, owner, 2026-11-15: the
+  entry is never hidden); FormatGolden README (R1-12); arch README (R1-03, R1-06).
 
 ## 8. Risks
 
@@ -1045,7 +1061,8 @@ R1-14 to R1-18.
    `lastSyncRealTime`, `lastStandingDigest`, `firstImportDone` and `SHOW` as optional keys;
    R3E-17, R3E-04, R1-11 / R3E-18 and R4-10 write them (OV-27).
 7. **Calendar.** 7.2's Create list has no calendar, yet the manifest carries one (6.6). The
-   plan takes the creator's stock setting; question 3.
+   plan takes the creator's stock setting. Settled: question 3, answered (owner,
+   2026-11-15).
 8. **Who creates a save.** 15.4 has UI call the `RaceWorld` facade for create and join.
    Creating a save needs P10's core and `GamePersistence`, which are entry-layer work; a
    `RaceWorld` (features) call into Controllers is a backward edge. The plan puts the setup
@@ -1089,13 +1106,18 @@ R1-14 to R1-18.
    no rivals, no board. Options: (a) the menu entry stays hidden behind a developer switch
    until R3's rivals and R4's board land; (b) it is visible from R1. Recommendation: (a), so
    no player creates a race that shows nothing yet.
-   Assumed until the owner says otherwise: (a), the entry hidden behind a developer switch
-   until R3 and R4 land (supervisor decision); R1-14 builds the switch.
+   Answered (owner, 2026-11-15): (b). The entry is always visible on the `multiplayer`
+   branch, which no player sees before the final merge; the hiding and the later change
+   that would show it are dropped. R1-14 adds the entry with no switch.
 2. **If the stock difficulty panel cannot be opened from the Multiplayer dialog** (S6),
    what does the creator get? Options: (a) the four stock presets (Easy, Normal, Moderate,
    Hard) only, with custom settings later; (b) wait for a custom panel before Create ships.
    Recommendation: (a); the manifest stores the full settings either way.
+   Answered (owner, 2026-11-15): the creator gets the full stock difficulty panel, and the
+   four stock presets are the fallback if S6 shows the panel cannot be opened.
 3. **Who chooses the length of a race day?** Options: (a) the creator's own stock calendar
    setting (Kerbin or Earth time) is used and shown in the dialog; (b) the dialog has a
    Kerbin day / Earth day choice. Recommendation: (a); it is one less field and the
    creator already chose it in stock settings.
+   Answered (owner, 2026-11-15): (a), the creator's own game setting, shown in the setup
+   window; no field.

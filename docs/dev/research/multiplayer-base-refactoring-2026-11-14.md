@@ -304,3 +304,58 @@ Not verified as defects; candidates for the todo list if the owner wants them fi
   committed first).
 - `.claude/CLAUDE.md` says the engine has zero `Recording` references (4 lines do) and that
   specs pin 106 of 112 in-game test categories (there are 141 now).
+
+## Corrections found while planning (2026-11-14)
+
+The implementation plans in `docs/dev/plans/multiplayer/` re-measured the code this analysis
+reads. Where they differ from the text above, these are the facts. Line numbers are those of
+main `ab1cc9478` (2026-11-15).
+
+- **The tree lookups are variants, not copies.** Section 3.1 (after the table) counts "five
+  copies" of "find the tree that holds this recording". They search differently: pending
+  first with a non-null value match; committed first with containment; two that also
+  accept a tree-id match; two that add a flat-list fallback; two that read the committed
+  list only. The catalog port of P2a names each variant, and every caller keeps its own
+  (`docs/dev/plans/multiplayer/r0b-prep-playback.md`, section 3.2 and section 9, item 3).
+- **One listed store lookup is a watch read, and three pending-tree reads are missing.**
+  The positioner row of section 3.1 lists the watch-protection check in
+  `ParsekFlight.GhostPositioner.cs:323` among the four store lookups. It is the index-keyed
+  read over the own list (`GhostPlaybackLogic.cs:691-721`) that belongs to the watch query,
+  not to the catalog. The three pending-tree reads in the anchor context builders are not
+  listed; they also go through the catalog port (r0b-prep-playback.md, section 3.2, P1 to
+  P3, and section 9, item 4).
+- **The positioner's host references, measured.** "About 60 references to 14 members" is,
+  counted: 54 `host.` references to 14 members in the positioner, 52 sites in
+  `ParsekFlight.cs` and `ParsekFlightPlaybackHost.cs`, and 14 references to the
+  `GhostPosEntry` type. Four of the 14 members (`watchMode`, `engine`,
+  `ApplyZoneRenderingImpl`, `Log`) stay on `ParsekFlight`; the positioner reaches the first
+  three through lane queries (r0b-prep-playback.md, section 3.3 and section 9, item 13).
+- **The KSC zone has one live reader.** `SpawnCollisionDetector.IsWithinKscExclusionZone`
+  has no production caller; it is called only from xUnit tests and from the in-game tests in
+  `Source/Parsek/InGameTests/RuntimeTests.cs`. The live reader is `ClassifyKscExclusionZone`
+  (`Source/Parsek/Ghost/SpawnCollisionDetector.cs`; r0b-prep-small.md, section 9, item 7).
+- **Counts.** The four KSC position constants have 98 test references in five files (a grep
+  for their four names over `Source/Parsek.Tests` and `Source/Parsek/InGameTests`), not 64
+  (section 3.2 and the P1 row of section 4). The recording-id check has 28 production calls
+  in 13 files (a grep for `ValidateRecordingId(` over `Source/Parsek`, its declaration and
+  comment lines left out) plus 13 calls in `Source/Parsek.Tests`, where the name appears 25
+  times, not 32 callers (the P7 row). `Core` holds eight files
+  (`test_phase_two_catch_all_count` pins 8); the nine of the old `modules.toml` header was
+  wrong, and since the folder move of pull request #2611 that file states no count.
+  `IsGhostMapVessel(` appears 166 times in 75 files under `Source/` (tests included), not at
+  120 sites in 61 files (the `GhostMapPresence` row of section 3.1 and section 7). No
+  planned task changes because of these numbers (r0b-prep-small.md and
+  r0b-prep-map-watch-codec.md, section 9).
+- **The trajectory readers are not side-effect free.** The binary codec's `Read` is more
+  than a decode: it updates `Recording` caches and writes log lines keyed by the recording's
+  id before stamping it; only its private readers are list-based. P6 keeps those side
+  effects in the `Recording` consumer. The analyzer rule `Inv10CodecRoundtrip`
+  (`Source/Parsek/Analyzer/Rules/Inv10CodecRoundtrip.cs:110-125`) compares decoded lists, not
+  bytes, so an analyzer pass in every lane proves decode stability, not byte identity; P6's
+  write digest is the byte proof (r0b-prep-map-watch-codec.md, section 9).
+- **A space is a valid id character.** The comments at
+  `Source/Parsek.Tests/Bug278SnapshotPersistenceTests.cs:57` and
+  `Source/Parsek.Tests/Bug280PersistFinalizedRecordingTests.cs:112` say an id with a space is
+  refused. A space is valid on every operating system; those tests fail for the missing
+  save context, not for the id. P7's first change corrects the comments (r0b-prep-small.md,
+  task P7-01).
