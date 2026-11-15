@@ -1,7 +1,7 @@
 schema = 1
 id = "B43-vall-tylo-transfer"
 # =====================================================================================
-# B43: Vall -> Tylo, a moon-to-moon forge. AUTHORED 2026-11-14, NEVER FLOWN.
+# B43: Vall -> Tylo, a moon-to-moon forge. AUTHORED 2026-11-14, FLOWN TWICE (INVALID), FIXED.
 # Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 2 / MOON-FLIGHT-TEST-PROGRAM Group B.
 #
 # WHAT IT IS FOR. Rule 4a (`MissionPeriodicity.ResolveMoonRootedFrameParent`, #2554)
@@ -34,12 +34,15 @@ id = "B43-vall-tylo-transfer"
 #            its Hohmann (415.46 / 347.2), so ~330 nominal, ~550 if unlucky.
 #   capture  ELLIPTICAL to a 6,000 km apoapsis: 161-201 m/s at a 500 km periapsis
 #            for v_inf 245-491 (a circular capture is 840-890 and does not fit).
-#   corr     <= 4 x 50.
-#   nominal ~830 m/s (two correction rounds), worst ~1,130 (stage 2 at 1.8x the
-#   Hohmann, capture at twice the arrival excess, four full rounds): THE WORST CASE
-#   DOES NOT FIT (the tank holds ~1,116) and that is the risk
-#   this lane carries. An out-of-fuel capture reads as a mission failure
-#   (driver-INVALID), never PARSEK-FAIL.
+#   corr     one round of ~86 m/s measured (cap 120 per round, see FLOWN below).
+#   Flown: 130.5 LF (~683 m/s) was left after stage 2, so one correction round plus
+#   the capture fits with margin; a second full round would not. An out-of-fuel
+#   capture reads as a mission failure (driver-INVALID), never PARSEK-FAIL.
+#
+# FLOWN 2026-11-15 twice (runs 2026-11-15_1617, _1632_a2), INVALID(mission) both:
+# every correction round priced 85.6-169 m/s was refused by the old 50 m/s cap, so the
+# raw stage-2 aim reached Tylo with periapsis -580 km (todo
+# B43-VALL-TYLO-FLYBY-SUBSURFACE). maxCorrectionDvMps is now 120.
 #
 # TIMING: Hohmann transfer 77,960 s, Vall-Tylo synodic 211,922 s; Tylo SOI entry to
 # periapsis 10,000-11,500 s. Correction triggers [70000, 15000] s to SOI.
@@ -55,7 +58,7 @@ id = "B43-vall-tylo-transfer"
 # and drop V43M from test_hlib PENDING_FIXTURE_LANES (both in the same commit).
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-11-14, NEVER FLOWN. Moon-to-moon forge Vall -> Tylo: B26's parent-relay from the Parsek-stripped `vall-park-nerv` (B26's harvest), B29's elliptical capture at Tylo (6,000 km apoapsis), tree committed in the Tylo orbit. A fresh Vall-rooted tree that never leaves Jool's SOI, so rule 4a should phase-lock its loop at P = P_Tylo. Produces `vall-tylo-recorded` for V43M. Delta-v is tight: ~830 m/s nominal, ~1,130 worst, against ~1,116 available."
+description = "AUTHORED 2026-11-14; flown twice 2026-11-15 INVALID(mission), fixed, not yet re-flown. Moon-to-moon forge Vall -> Tylo: B26's parent-relay from the Parsek-stripped `vall-park-nerv` (B26's harvest), B29's elliptical capture at Tylo (6,000 km apoapsis), tree committed in the Tylo orbit. A fresh Vall-rooted tree that never leaves Jool's SOI, so rule 4a should phase-lock its loop at P = P_Tylo. Produces `vall-tylo-recorded` for V43M. Delta-v is tight: ~1,116 m/s available, ~683 left after stage 2 when flown."
 instanceProfile = "stock-minimal"
 tags = ["B43", "vall", "tylo", "jool", "moon-to-moon", "parent-relay", "elliptical-capture",
         "orbit", "mechjeb", "cross-soi", "capture", "commit-in-foreign-soi", "orbit-start",
@@ -144,7 +147,7 @@ correctionCutDvMps         = 2.0
 correctionSettleSeconds    = 10
 maxAttitudeErrorDeg        = 30
 frozenTelemetrySamples     = 10
-maxCorrectionDvMps         = 50
+maxCorrectionDvMps         = 120
 
 [dimensionsCovered]
 D1  = ["commit-in-foreign-soi"]

@@ -5124,6 +5124,21 @@ class B5Params:
                                            # planner adds ONE park period and
                                            # takes the following one. Spec key
                                            # escapeNodeMinLeadSeconds.
+    escape_extra_park_orbits: int = 0      # Whole park periods added to the
+                                           # escape node's lead AFTER the
+                                           # min-lead rule picked the next
+                                           # usable periapsis. The node is not
+                                           # aimed, so which periapsis pass it
+                                           # burns at sets the direction the
+                                           # craft leaves the home SOI in the
+                                           # parent frame; waiting k passes
+                                           # turns the home body k * P_park /
+                                           # P_home of an orbit. A spec sizes k
+                                           # offline from its fixture's own
+                                           # orbit (B44: k=0 left Laythe almost
+                                           # radially and fell back into it).
+                                           # 0 = the next pass. Spec key
+                                           # escapeExtraParkOrbits.
     escape_timeout: float = 600.0          # ESCAPE phase budget (GAME s). It
                                            # bounds PLANNING only (the burn is
                                            # TRANSFER-BURN's), so it needs to
@@ -5798,6 +5813,14 @@ def b5_params_from_dict(params: Dict) -> B5Params:
                 "boundary, which is where KSP's patched conic hands the vessel "
                 "to the parent frame, and at 0 there is nothing to size the "
                 "node against")
+        extra_orbits = params.get("escapeExtraParkOrbits", 0)
+        if (isinstance(extra_orbits, bool) or not isinstance(extra_orbits, int)
+                or extra_orbits < 0):
+            raise ValueError(
+                "escapeExtraParkOrbits must be a whole number >= 0 (got %r): it "
+                "counts park periods to wait before the escape burn, and a "
+                "fraction would place the node off the periapsis it is sized at"
+                % (extra_orbits,))
         if bool(params.get("relayParkAtParent", False)):
             # PARK-AT-PARENT INVERTS THE STAGE-2 GATE BELOW, so the two arms are
             # written as explicit branches rather than one predicate that
@@ -5937,6 +5960,7 @@ def b5_params_from_dict(params: Dict) -> B5Params:
         escape_soi_speed=float(params.get("escapeSoiSpeedMps", 0.0)),
         escape_max_dv=float(params.get("escapeMaxDeltaVMps", 0.0)),
         escape_node_min_lead=float(params.get("escapeNodeMinLeadSeconds", 300.0)),
+        escape_extra_park_orbits=int(params.get("escapeExtraParkOrbits", 0)),
         escape_timeout=float(params.get("escapeTimeoutSeconds", 600.0)),
         pad_align_ejection=bool(params.get("padAlignEjection", False)),
         pad_align_margin=float(params.get("padAlignMarginSeconds", 1500.0)),
@@ -13521,6 +13545,17 @@ def escape_node_plan(params: B5Params,
     i.e. a new multi-channel telemetry surface and an asymptote solve, and the
     stop rule for v1 was to not build an ephemeris solver.
 
+    THE ONE AIMING KNOB IS WHICH PASS. The band is not always affordable: an
+    asymptote that leaves mostly RADIALLY gives a parent-frame orbit that
+    straddles the home body's own orbit, and the craft meets the home body
+    again before stage 2's window (B44 flights 1-2, 2026-11-15: Laythe ->
+    Tylo, the stage-2 node sat 54,350 s out and the coast fell back into
+    Laythe's atmosphere at 28,500 s). The park's orientation is fixed while
+    the home body's velocity turns k * P_park / P_home of a revolution per
+    pass, so `escape_extra_park_orbits` = k picks the pass whose exit points
+    along the home body's velocity. The spec derives k OFFLINE from its
+    fixture's own orbit elements; the machine only adds the periods.
+
     EVERY READING FAILS CLOSED. A non-finite UT / apsis / periapsis clock, a
     non-positive apoapsis (already escaping), a degenerate vis-viva term, a
     non-positive dv (already fast enough) and an over-cap dv each REFUSE the
@@ -13605,6 +13640,11 @@ def escape_node_plan(params: B5Params,
         # FOLLOWING periapsis. One park period, computed from the same a and mu
         # the burn is sized with, so no new constant enters here.
         lead += 2.0 * math.pi * math.sqrt(sma ** 3 / mu)
+    if params.escape_extra_park_orbits > 0:
+        # The spec's chosen periapsis pass (escapeExtraParkOrbits): the same
+        # period, from the same a and mu, so the node stays ON a periapsis.
+        lead += (params.escape_extra_park_orbits
+                 * 2.0 * math.pi * math.sqrt(sma ** 3 / mu))
     return EscapeNodePlan(node_ut=float(snapshot.ut) + lead, dv=float(dv))
 
 
@@ -13950,6 +13990,22 @@ def _b5_correction_round_ready(state: B5State, snapshot: TelemetrySnapshot) -> b
 # thrust moves the apsides at km/s-class rates).
 _BURN_CHANGED_EPS = 10_000.0
 _BURN_STATIC_EPS = 50.0
+# RELATIVE floor on "the burn happened": dropping out of rails warp re-derives
+# the orbit from the physics state and moves a large apsis without any thrust
+# (B46 flight 1, 2026-11-15: a 45,550,006 m Kerbin apoapsis read 45,510,549 m
+# the moment the executor came off rails, 39.5 km, 0.087 %, > the 10 km floor),
+# which read as a finished burn, and the stage-2 TRANSFER-BURN exited 478 s
+# BEFORE its node. 0.5 % is 5.7x that jitter; any real burn moves an apsis of
+# a transfer orbit by far more.
+_BURN_CHANGED_REL = 0.005
+
+
+def _burn_apsis_changed(now: float, entry: float) -> bool:
+    """True when an apsis moved more than the burn-changed floor since entry:
+    the larger of the absolute ``_BURN_CHANGED_EPS`` and ``_BURN_CHANGED_REL`` of
+    the entry value's magnitude. Pure."""
+    return abs(now - entry) > max(_BURN_CHANGED_EPS,
+                                  _BURN_CHANGED_REL * abs(entry))
 
 
 def _b5_track_burn_stagnation(
@@ -13988,8 +14044,8 @@ def _b5_track_burn_stagnation(
     else:
         since = None
     burned = (state.burn_entry_ap is not None and state.burn_entry_pe is not None
-              and (abs(ap - state.burn_entry_ap) > _BURN_CHANGED_EPS
-                   or abs(pe - state.burn_entry_pe) > _BURN_CHANGED_EPS))
+              and (_burn_apsis_changed(ap, state.burn_entry_ap)
+                   or _burn_apsis_changed(pe, state.burn_entry_pe)))
     static_span = (ut - since) if since is not None else 0.0
     stuck_after_burn = burned and since is not None \
         and static_span >= state.params.burn_stagnant_seconds
@@ -16254,8 +16310,8 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
                 return replace(st, peak_apoapsis=peak)
             orbit_changed = (st.burn_entry_ap is not None
                              and _is_finite(snapshot.apoapsis)
-                             and abs(snapshot.apoapsis - st.burn_entry_ap)
-                             > _BURN_CHANGED_EPS)
+                             and _burn_apsis_changed(snapshot.apoapsis,
+                                                     st.burn_entry_ap))
             name = classify_correction_timeout(
                 st.corr_burn_started, snapshot.node_count, orbit_changed)
             return _b5_named_flake(

@@ -383,8 +383,28 @@ class DeltaVLedgerTests(unittest.TestCase):
 
     def test_every_nominal_hop_fits_with_margin(self):
         for name in FORGES:
+            if name == "B43-vall-tylo-transfer.toml":
+                continue  # priced from its flight below
             with self.subTest(spec=name):
                 self.assertLess(1.3 * self._nominal(name), _dv_available(name))
+
+    # B43 flights 1 and 2 (2026-11-15) left 130.5 LF after stage 2, ~683 m/s at
+    # the NERV's 800 s over the 7.18 t dry stack; its correction cap rose 50 -> 120
+    # once both flights showed every round refused at 50 (todo
+    # B43-VALL-TYLO-FLYBY-SUBSURFACE). The 1.20x stage-2 model above prices B43
+    # ~110 m/s above what it flew, so B43's margin is read from the flight.
+    B43_DV_LEFT_AFTER_STAGE2 = 800.0 * G0 * math.log((7.18 + 130.5 * 0.005) / 7.18)
+
+    def test_b43_flown_remainder_covers_capture_and_two_full_rounds(self):
+        name = "B43-vall-tylo-transfer.toml"
+        _m, home, target, _p, _f, _h, _l, ell = FORGES[name]
+        p = mlib.b5_params_from_dict(_spec(name)["driver"]["missionParams"])
+        _vd, va, _tof = _hohmann(home, target)
+        capture = _capture_dv(target, va, p.course_correct_periapsis,
+                              p.capture_elliptical_apoapsis if ell else None)
+        self.assertAlmostEqual(683.0, self.B43_DV_LEFT_AFTER_STAGE2, delta=5.0)
+        self.assertLess(1.3 * (capture + 2.0 * p.max_correction_dv),
+                        self.B43_DV_LEFT_AFTER_STAGE2)
 
     def _worst(self, name, elliptical):
         """Escape at the fixture park + stage 2 at 1.8x the Hohmann departure +
