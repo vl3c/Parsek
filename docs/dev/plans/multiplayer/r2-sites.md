@@ -459,6 +459,9 @@ Logging (tag `RaceSites`, design section 10):
   and assemblies remain); S4a (its turn-back step proves the `Game.Start()` prefix, or this task
   takes the fallback above).
 - **PC:** yes (expected heights, one in-game run).
+- **Later edit:** R1-20 adds the tech tree and part-value check to this prefix, after the
+  Kerbin check (a refusal with its own reason, or a warning with Continue or Cancel; owner
+  rulings of 2026-11-15).
 - **Risk:** medium; a too-tight tolerance refuses honest installs, which the two-process
   sample settles (a second machine cross-checks it).
 
@@ -668,6 +671,8 @@ Logging (tag `RaceSites`, design section 10):
   manifest's `AllowOtherLaunchSites`). **Spike:** S4b (that the Space Center picker path
   also reaches `StartWithNewLaunch`; if not, a second prefix on that path).
 - **PC:** yes.
+- **Later edit:** R1-21 widens the hold and the greying from this one key to the nine
+  progression settings of design 7.12 plus this key (owner, 2026-11-15).
 - **Risk:** low; there is no stock path to a copy's pad, so the guard is a backstop.
 
 #### R2-09 Science parity: the KSC mini-biomes at home, none at a copy

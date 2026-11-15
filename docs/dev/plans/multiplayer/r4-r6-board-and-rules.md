@@ -4,7 +4,8 @@ Status: PLAN (2026-11-14), not started. Design sections covered: 6.5, 6.6, 7.8, 
 7.11, 7.12 (the scoring and display half), 7.13, 7.14, section 8 cases 7, 10, 11, 12, 14, 19,
 20, 21, 28, section 11 (board, verification, no retakes, end date, two dates), 15.10 (checks
 pipeline, house rules as functions), 15.12, 15.14 (the GUI gates and the uncalled ratchet),
-addition A6. Inputs captured by other slices: A1, A3. Phases: R4 "have a race" and R6
+addition A6, and the 2026-11-15 rulings on counted parts and save marks (R6-12). Inputs
+captured by other slices: A1, A3. Phases: R4 "have a race" and R6
 (end date, disclosure, no retakes, notes, poll tuning).
 
 ## 1. Goal and scope
@@ -189,7 +190,9 @@ definition, no parallel view types); member names are binding, type names follow
 R4 adds nothing to the wire (OV-32): `ToolsFromUT` and `ToolIds` are a view the codec
 derives from R3E-10's `TOOL { kind detail ut }` children (the view lands with R6-01, its
 first caller), `TestToolingUsed` is R3E-15's key `testTooling`, and `DebugCompletions` reads
-R3E-09's `DISCLOSURE` rows `DEBUG_COMPLETION`.
+R3E-09's `DISCLOSURE` rows `DEBUG_COMPLETION`. `SaveMarks` reads R3E-09's `SAVE_MARK` rows,
+`Uncounted` R3E-25's `UNCOUNTED` children and `ContentDiffers` R3E-25's `contentDiffers`
+key (owner rulings of 2026-11-15; R6-12 is their first reader).
 
 ```
 Standing                         (one parsed, complete standing; immutable)
@@ -207,8 +210,13 @@ Standing                         (one parsed, complete standing; immutable)
                             (R3E-09's save-level debug-completion fact; empty if none;
                              wire form: `DISCLOSURE` rows `DEBUG_COMPLETION { id ut
                              action }`)
+  IReadOnlyList<StandingSaveMark> SaveMarks
+                            (save-wide dated marks, R3E-09 and R3E-25; empty if none;
+                             wire form: `DISCLOSURE` rows `SAVE_MARK { kind detail ut }`)
 
 StandingDebugCompletion     string MilestoneId; double UT   (the row's `action` is not read)
+StandingSaveMark            string Kind; string Detail; double UT
+                            (Kind: `debug-progression` or `research-under-other-tree`)
 
 StandingRecording
   string RecordingId, TreeId
@@ -217,6 +225,12 @@ StandingRecording
                              least `ut` of its TOOL children, R3E-10; section 9 item 4)
   IReadOnlyList<string> ToolIds   (derived: the sorted `kind`s of its TOOL children, from
                                    the fixed list of 7.12; empty if none)
+  IReadOnlyList<StandingUncounted> Uncounted
+                            (R3E-25's UNCOUNTED children: every part outside the counted
+                             sets, or counted with changed values, on the path to this
+                             recording's vessel; empty if none)
+
+StandingUncounted  string Name; double UT; string Why   (Why: `outside` or `changed`)
 
 StandingMilestone
   string MilestoneId        (the stock qualified id: "Mun/Landing", "ReachedSpace")
@@ -235,6 +249,8 @@ StandingDisclosure
                              only, the stock Advanced and CommNet settings included; empty
                              for an older standing without the copy)
   bool TestToolingUsed      (key `testTooling`, R3E-15)
+  string ContentDiffers     (key `contentDiffers`, R3E-25: what the player's tree and
+                             counted parts differ in; "" when nothing does)
 
 RacePlayerRecord                 (one per player, own included; built by R4-04 from the
                                   `RivalStandingVerdict` values (type R3E-04, filled by
@@ -258,6 +274,8 @@ BoardRules                        (from RaceLink and the manifest)
 LocalFacts                        (from the shell, once per board build)
   string LocalPlayerId; DateTime NowRealUtc; double NowUT;
   IReadOnlyCollection<string> KnownBodies; IReadOnlyCollection<string> KnownParts
+  IReadOnlyCollection<string> UncountedInstalledParts   (R6-12: installed parts outside
+                                                         the race's counted sets)
 ```
 
 The board's output (`RaceBoardResult`): `Present` and, once an end date is set, `Final`;
@@ -271,8 +289,10 @@ so every share is a whole number of twelfths, nothing is rounded and "level on p
 exact (section 9, item 13). Totals are shown with two decimals.
 
 `ClaimStatus` flags: `Unverified`, `ToolMarked`, `SeenFirst`, `NotCheckedHere`,
-`CannotWatchHere`, `AfterTheEnd`, `ArrivedLate`, `HistoryIncomplete`, `BadDate`. A date
-scores when it has none of `Unverified`, `ToolMarked`, `SeenFirst`, `BadDate`.
+`CannotWatchHere`, `AfterTheEnd`, `ArrivedLate`, `HistoryIncomplete`, `BadDate`,
+`UncountedParts`, `SaveMarked` (the last two land with R6-12). A date scores when it has
+none of `Unverified`, `ToolMarked`, `SeenFirst`, `BadDate`, `UncountedParts`, `SaveMarked`:
+the one test of design 7.8.
 
 ### R4-01 The race calendar and the date rule
 
@@ -677,7 +697,8 @@ Dropped: replaced by T-28 and T-32 (OV-07).
   the final board): every entry f of R for m that passes the claim checks (blockers are
   judged by 7.8's scoring, not by their own block status: any real, clean rival flight the
   player's game had seen blocks, even one that won nothing; section 10 Q1, owner,
-  2026-11-15) blocks e when
+  2026-11-15; the claim checks include R6-12's two, so a date flown with uncounted parts or
+  after a save mark never blocks) blocks e when
   `f.Since <= seen(P@e.Since, R).Seq`. A blocked entry is `SeenFirst` with the proof
   (P's seq, R's seq, R's date). Entries of a `Recorded` or `Ai` player are never blocked and
   never block (7.11, 15.10). The holder is then recomputed from the dates that still score.
@@ -840,13 +861,56 @@ from the Join button.
   **Risk:** low; the rules' truth tables are R6-02's and R6-03's, this task proves them on
   folders the production reader accepts.
 
+### R6-12 The parts mark, the save marks and "not scoring"
+
+Owner rulings of 2026-11-15 (design 7.8, 7.12, 7.13): a date with a part outside the
+counted sets (or a counted part with changed values) on its path, or at or after a
+save-wide mark, does not score and is shown at 0 points with every reason; a player whose
+game differs shows "not scoring"; the header counts the installed parts that do not count.
+
+- **Change:**
+  - Two claim checks in `ClaimChecks.cs` after R6-01's: `UncountedParts`, when the
+    recording the entry names lists an `Uncounted` child with `UT <= entry.UT` (the proof
+    carries the names and the why); `SaveMarked`, when the standing lists a `SaveMarks` row
+    with `UT <= entry.UT` (the proof carries the kind and date). Both are applied also when
+    `CheckedHere` is false if the block was read. Both are in the non-scoring set, so such
+    a date holds nothing and, under no retakes, blocks nothing (R6-02).
+  - `RaceBoardPresentation`: the cell marks `p` (parts) and `m` (save mark); a cell failing
+    several checks shows the first mark and lists every reason in its hover. The player
+    block gains `NotScoring` (`Disclosure.ContentDiffers` not empty) and the header gains
+    the count of `LocalFacts.UncountedInstalledParts`.
+  - `SpaceRaceText`: "0 points: flown with parts outside this game's list: <names>" (owner,
+    2026-11-15), "0 points: <names> with changed values", "0 points: after a save mark on
+    day N (debug progression outside a flight | research under another tree)", "not
+    scoring" with the content difference in its hover, and "12 installed parts do not
+    count" with the first ten names and a count in its hover; all invariant.
+  - This task adds `UncountedInstalledParts` on R1-08's `RaceRuntime` facade (its first
+    caller, OV-39): `RaceWorld` fills it once per scene from `PartLoader.LoadedPartsList`
+    through R1-22's `UncountedParts.Classify`, in the `NoInlining` core R6-06 added, and the
+    board build reads it into `LocalFacts`.
+  - T-16's `RaceFolderBuilder` gains the `UNCOUNTED`, `SAVE_MARK` and `contentDiffers`
+    writers (an edit to T-16's file), so the cells below run on built folders.
+- **Proof:** rows T15 and T16 of section 6; `ClaimChecksPartsTests`: an `outside` child before the
+  date marks it, one after does not; a `changed` child marks it; a save mark before the date marks
+  every later date of that player and none earlier; a marked date holds nothing and the next player
+  holds; a date failing a tool and a parts check lists both. `RaceBoardPresentationTests` and
+  `SpaceRaceTextTests` (every new sentence under `de-DE`, the longest in the tooltip budget). A
+  gallery state with each mark (R4-12's builder). Log: `[RaceBoard]` Verbose `Parts and save marks:
+  player=.. uncounted=.. saveMarked=..`.
+- **Registers:** the stage calls land in `RaceBoard.Compute` and
+  `RaceBoardPresentation.Build` in this pull request (A1); `TooltipEchoBudgetTests`
+  assertions; design-gui-inventory's window section (the marks and the header line).
+- **Size:** S-M. **Depends on:** R4-05, R4-10, R6-01, R6-06, R3E-25, R1-19, T-16. **PC:** no.
+- **Risk:** low; each check compares two dates, and the path itself is the exporter's
+  (R3E-25).
+
 ## 5. Parallel tracks
 
 - **Track A, rules (RaceCore, headless):** R4-01 and R4-02 first (after R1-10; R3E-11
   depends on no R4 task, so nothing here lands inside R3); then R4-03 with R4-04 (one pull
   request, after R3E-11 and R3E-18); then R4-05 and R4-07 in parallel; then R4-06, R6-01,
-  R6-05, R6-06 in parallel; then R6-02, R6-03, R6-04, R6-08 in that order; R6-10 runs last,
-  after S8.
+  R6-05, R6-06 in parallel; then R6-02, R6-03, R6-04, R6-08 in that order; R6-12 after
+  R6-06 and R3E-25; R6-10 runs last, after S8.
 - **Track B, window (UI):** R4-08 can start at once (base Parsek only). R4-09 needs R4-04,
   P11-01, P11-02, R1-14, R1-18 and R3E-17; then R4-10, then R4-11 (hover half), R4-12,
   R6-07 in parallel; R4-13 last. The camera half of R4-11 waits with P3b and R3W-26.
@@ -857,7 +921,7 @@ Hot files (one task at a time):
 
 - `RaceCore/RaceBoard.cs` (the pipeline): every rule task adds one stage call. Conflicts
   are one-line; land in the order of track A.
-- `RaceCore/ClaimChecks.cs`: R4-05, R6-01.
+- `RaceCore/ClaimChecks.cs`: R4-05, R6-01, R6-12.
 - `ParsekUI.cs`, `UI/ParsekWindowSet.cs`, `UI/ParsekUIWindowContracts.cs`,
   `ParsekFlight.cs`, `ParsekKSC.cs`, `TestCommands/TestCommandUiAction.cs`,
   `harness/lib/hlib.py`, `docs/dev/design-gui-inventory.md`: R4-09 (and anything else that
@@ -866,7 +930,8 @@ Hot files (one task at a time):
   button and status text.
 - `RaceWorld/RaceRuntime.cs` (R1-08's facade): R4-09 (`CurrentBoard`), R4-10 (SHOW
   setter), R4-11 or R3W-26, whichever lands first (`TryWatchRivalFlight`), R6-06
-  (`KnownParts` / `KnownBodies`), beside R3W-08's scene calls.
+  (`KnownParts` / `KnownBodies`), R6-12 (`UncountedInstalledParts`), beside R3W-08's scene
+  calls.
 - Other plans' files this plan edits (A1: a member lands with its first production
   caller): `RaceCalendar.cs` (R1-10; R4-01, then R4-04, R4-07, R4-10 for the arithmetic),
   `RaceInstallCheck` (R1-10; R4-02), `RaceSync.cs` (R3E-04; R4-04, R4-07), the standing
@@ -906,6 +971,8 @@ receipts; every entry is covered by a clean recording of its tree unless stated.
 | T12 | Recorded opponent | R (`Recorded`) [`Mun/Landing` day 10]; A saw it, A [day 9] | A holds | A holds; R never blocked and blocks nobody |
 | T13 | Missing since standing | A's entry since A4; A4 neither Applied nor Kept | normal | not blocked, cell "history incomplete" |
 | T14 | Same files, same board | T2 to T9 with player order, entry order and local calendar setting permuted | identical boards | identical boards |
+| T15 | Uncounted part on the path | `Mun/Landing`: B [day 12, named recording lists `UNCOUNTED` outside from day 10]; A [day 20] | A holds; B's 12 at 0 points, mark `p`, hover names the part | same; B's 12 never blocks |
+| T16 | Save mark | B lists `SAVE_MARK` research-under-other-tree at day 15; B [`Mun/Orbit` day 12, `Mun/Landing` day 18]; A [`Mun/Landing` day 25] | B holds `Mun/Orbit`; A holds `Mun/Landing`; B's 18 mark `m` | same |
 
 Messages (local player A):
 
@@ -969,6 +1036,7 @@ Other proof:
   `local.cfg`, a key R1-08's codec already carries (OV-27). R4 adds nothing to the wire
   (OV-32): `ToolsFromUT` and `ToolIds` are the codec's derived view of R3E-10's `TOOL`
   children, `TestToolingUsed` is R3E-15's `testTooling`, the debug-completion fact is
+  R3E-09's, and the `UNCOUNTED`, `SAVE_MARK` and `contentDiffers` keys are R3E-25's and
   R3E-09's; their golden coverage is R3E-04's `v3` folder (OV-15).
 - **GUI gates:** R4-09 list (window count, draw calls, census applier row, seam token,
   hlib mirrors, tooltip budget, UI-scale, the `Sync now` hover); R4-10 tab vocabulary;

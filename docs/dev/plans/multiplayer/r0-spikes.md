@@ -38,7 +38,7 @@ The spikes and what waits on them:
 | S3 | The four looks, the colors, replacement sets, a DLC suit on a no-DLC game, a suit on a ghost kerbal | 7.4 look table and colors; A4 shape | R5-08, R5-10, R5-11, R5-12; soft: R5-02 (A4), R5-04, R5-07, R5-09; R4-10 (colors) |
 | S4 | Can the working KSC move (launch, recovery, Space Center, camera) and when | 7.3 moving checklist, the reconcile hook | S4a: R1-04, R2-01, R2-05, P1-03 VERIFY; S4b: R2-03, R2-04, R2-08, R2-11, R2-15; `SiteRow.LaunchAreas` of R2-01 |
 | S5 | Can stripped KSC copies stand as inert scenery, at what cost; same heights in two processes | 7.3 scenery, 15.13 scenery row | R2-02, R2-03, R2-06, R2-07, R2-15 |
-| S6 | Does an unknown scenario node survive; main menu entry; create a save from code | 6.2 race mark, 7.2 menu and setup | R1-03 (mark), R1-10 (create), R1-14 (menu, dialog) |
+| S6 | Does an unknown scenario node survive; main menu entry; create a save from code; where the loaded tech tree and the part values are readable | 6.2 race mark, 7.2 menu and setup, 7.2 race content table | R1-03 (mark), R1-10 (create), R1-14 (menu, dialog), R1-19 (content table), R1-20 (content check) |
 | S7 | Flag replica built the way the code builds a flag, with the stock plaque dialog and supplied text; click range | 7.7 readable rival flags | R3W-24, R3W-25 |
 | S8 (runs last) | What a sync client costs a file open; is a copy worker thread needed | 15.9 worker thread (owner yes or no) | R6-10, R3E-23 (both run last too); R3E-16 and T-02 proceed without it |
 | S9 | Which debug actions a mod can observe, with no false positives, including milestones completed outside a flight | 7.12 tool list and disclosure | R3E-09, R6-01 |
@@ -598,7 +598,9 @@ Common to every spike task below:
   a save is rewritten (stock and Parsek), what is the earliest hook that can read it, can
   a main menu entry be cloned with keyboard navigation, can a race save be created and
   started from a typed dialog, can the stock difficulty panel be opened over that dialog and
-  its values read back. Settles 6.2 and 7.2; waits: R1-03, R1-10, R1-14, R1-15. It also
+  its values read back, and where the tech tree the game loads and each part's gameplay
+  values can be read. Settles 6.2 and 7.2; waits: R1-03, R1-10, R1-14, R1-15, R1-19,
+  R1-20. It also
   answers the in-game VERIFY items of `r1-mode-and-setup.md` section 3.8 (the decompile
   answered the others there).
 - **Change:** (a) a template save: `spikes/r0/S6/template/` holding a career `persistent.sfs` with
@@ -630,7 +632,22 @@ Common to every spike task below:
   `CustomParams(Type)` on it (:531408-531419), so all four parts should come back in that
   one object; the step proves it. (e) At the main menu, log
   `FlightGlobals.Bodies` count and the home body's radius (the Kerbin check of R2-02 runs
-  there).
+  there). (f) The race content table (design 7.2, owner, 2026-11-15). At the main menu,
+  write a dump of: the game database's `TechTree` nodes (the read stock's
+  `RDTechTree.LoadTechTree` makes when `loadFromDatabase` is true, through the private
+  `GetTechNodesFromDB`, il/acs.il:2287593, :2287995; the file at `TechTreeUrl` only when
+  there are none); every `PartLoader.LoadedPartsList` entry (public, il/acs.il:449033) with
+  `name`, `partUrl`, `TechRequired`, its entry cost and its `partConfig` text as
+  ModuleManager left it; every `PARTUPGRADE` node; every `EXPERIMENT_DEFINITION` node; each
+  body's `scienceValues`. Then, in the Space Center of a created Career game, open the R&D
+  building and log `AssetBase.RnDTechTree.GetTreeNodes()` in the same canonical form; it
+  must equal the main-menu read. Run it on the clean install with both expansions, then
+  with ReStock, then with ReStock and ReStock+, then with a copy holding one `@TechTree`
+  patch (one node's cost) and one stat patch (one stock engine's thrust): the two patches
+  must each show as a difference, and the ReStock run must change no gameplay value of a
+  stock part and move no node (if it does, the report lists what, and the owner decides
+  before the table is frozen). Record which ReStock+ parts have variants that change
+  gameplay values, and whether stock ships any `PARTUPGRADE` node.
 - **Procedure:** run the lane once with Parsek's normal DLL path and once with
   KSPCommunityFixes removed from a copy of the instance (KSPCF patches save code and the
   dev install runs it). Then by hand: Discard Re-fly (`RevertInterceptor` writes
@@ -652,7 +669,9 @@ Common to every spike task below:
   dialog; all four changed values, one per part, come back in the `onDismiss` lines, the
   other thirty-six keep their defaults, and all four are the values of the created game's
   parameters at the Space Center; Cancel leaves the defaults; and the panel and the dialog
-  follow the stock UI scale; `FlightGlobals.Bodies` is populated at the main menu.
+  follow the stock UI scale; `FlightGlobals.Bodies` is populated at the main menu; the
+  tree read at the main menu equals the one the R&D building shows, both patches show as
+  differences, and the dump holds every part of the four sets.
 - **Fallback:** the node is dropped by a path: the mark moves to a side file in the save
   folder or into Parsek's own scenario node (raise to the owner, since 6.2 chose a
   separate module so older builds keep it). Menu clone fails: an IMGUI button on the main
@@ -665,10 +684,14 @@ Common to every spike task below:
   `GameParameters`, which the decompile shows is the object the panel edits; the spike
   re-runs the step with that read. If they still do not come back, or do not reach the
   created game, the presets replace the panel, because a race cannot leave part of its
-  difficulty unrecorded; the spike report says which case holds.
-- **Artifacts:** checker diff output, lane result JSON, screenshots of the menu and dialog.
-- **Duration:** 1 day of agent work, 2.5 hours on the PC (the difficulty panel step adds
-  half an hour; four values instead of two take minutes, so the hours stay).
+  difficulty unrecorded; the spike report says which case holds. Tree read (f) differs from
+  the R&D building's: the check of R1-20 moves to the first Space Center entry, before any
+  save is written, and reads `AssetBase.RnDTechTree.GetTreeNodes()` there.
+- **Artifacts:** checker diff output, lane result JSON, screenshots of the menu and dialog,
+  the content dump of each run of step (f) (the input of R1-19's generator).
+- **Duration:** 1.5 days of agent work, 3.5 hours on the PC (the difficulty panel step adds
+  half an hour; four values instead of two take minutes, so the hours stay; step (f) adds
+  an hour for its four runs, 2026-11-15).
 - **Proof:** report; lane result.
 - **Registers:** report folder only (the lane exists only on the spike branch).
 - **Size:** M. **Depends on:** S0. **PC:** yes.
@@ -997,14 +1020,15 @@ registers its patches through one list there, so S0 lands first and each spike a
 
 Order that unblocks the most downstream planning:
 
-1. Day 1: S0; S4a; S6; S9; S10a; S1b scan (raw grids). About 8 hours on the PC.
+1. Day 1: S0; S4a; S6; S9; S10a; S1b scan (raw grids). About 9 hours on the PC.
 2. Day 2: S4b; S1b scoring with S4a's radius; S2 steps 1 to 3. About 5.5 hours.
 3. Day 3: S5; S7; S2 step 4 (it needs S5's copy). About 5 hours.
 4. Day 4: S3; S10b with S12; S11. About 5 hours.
 5. Then S13.
 
-About 24 hours on the PC over four days (the Duration lines of the day-plan spikes sum to
-23.7 h; S4a's turn-back step and S6's difficulty panel step added an hour on 2026-11-15).
+About 25 hours on the PC over four days (the Duration lines of the day-plan spikes sum to
+24.7 h; S4a's turn-back step and S6's difficulty panel step added an hour on 2026-11-15, and
+S6's content table step another hour).
 
 **S8 runs last.** The owner's instruction (2026-11-14, on question 10.1 / Q-03): "leave this
 at the end, its an external dependency". S8a and S8b leave the day plan and become the last

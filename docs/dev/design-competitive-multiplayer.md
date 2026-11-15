@@ -198,6 +198,49 @@ These are binding. Quotes are the owner's words.
 - The shared folder location is typed or pasted into a text field in the setup dialog and in
   Settings, checked on Validate; there is no browse button and no folder picker (7.2).
 - Nothing is sent to rivals while a Re-Fly is in progress; sharing waits until it ends (7.5).
+- In Science and Career every player scores under one tech tree: "how do we lock in the
+  tech tree? we can't have one player using a certain progression and others using a
+  different one based on research mods". In the first build it is always the stock tree:
+  "for the first implementation lets go with the stock tree, but later we can add support
+  for other trees" (decision card: "Always the stock tree"); a tree the creator defines is
+  later (7.2, 14).
+- Parsek ships one versioned reference table of the stock tree and of every part of the base
+  game, both expansions and ReStock+, with its node, entry cost and gameplay values: "we
+  should have a reference list based on stock and dlcs and restock and restock+ that locks
+  part names and their stock values, same as for the tech tree nodes, so there's no
+  cheating" (7.2).
+- What a game whose tree or counted parts differ from that table does is a creator setting,
+  "allow play without scoring" ("we should have an option 'allow play without scoring'"),
+  ticked by default (decision card) and fixed after creation. Ticked, nothing is blocked
+  ("without scoring, i think everyone can use whatever they want, right?"): one warning
+  before the load, no flight scores while the tree differs, a flight with a changed counted
+  part scores 0, and a node bought under the other tree stops the save scoring for good.
+  Unticked, the game does not join and the save does not load, with one message that says
+  what differs (the earlier card "Refuse to join or load"). No launch or research button is
+  blocked in either state (7.2).
+- Which parts count is a creator setting, fixed after creation: "we should have a setup
+  toggle when the game is created to allow extra supported parts or not". The base game's
+  parts always count; the creator ticks Making History, Breaking Ground and ReStock+
+  separately, one checkbox per set, and a player without a ticked set simply has fewer parts
+  (decision card: "One checkbox per set", replacing the single toggle) (7.2).
+- The part rule is enforced by what flew, never by what is installed: "we can just control
+  scoring and in practice allow other supported parts to be used and shown in game, it just
+  does not score; this way we preserve correctness but we're also flexible". A flight that
+  carries a part outside the counted sets is marked and does not score, like a flight flown
+  with a cheat tool; nobody is refused for an installed mod part (decision card: "By what
+  flew"; 7.12).
+- Such a milestone stays visible: "in the competitive timeline we can show that a player had
+  a milestone but mark it with score 0 and explainer that it had extra parts, if the case".
+  The Space Race window lists it at its date with 0 points, and its hover names the parts
+  (7.13).
+- A later clean flight does not score a milestone that a non-scoring flight already reached;
+  only a rewind and an earlier clean arrival scores it, as for cheat tools. The warning at
+  launch is the protection (decision card: "No, the launch warning is enough"; 7.12).
+- The progression difficulty settings are locked once a game is created: the science, funds
+  and reputation rewards, the entry purchase bypass, part upgrades, resource abundance and
+  kerbal experience are greyed in a race save. The other difficulty settings stay free and
+  shown. For those settings this replaces the ruling above that a player may change their
+  difficulty mid-game (decision card: "Lock them"; 7.12).
 
 **UI exception.** The standing rule "no new player-facing UI surfaces" gets four owner
 exceptions from the rulings above, all of them absent from single-player saves: the main menu
@@ -207,8 +250,10 @@ flag (7.7). `.claude/CLAUDE.md` records them when the first one is built. That i
 list. Everything else the feature shows uses a surface that exists: a Multiplayer section in
 the existing Settings window, hover text inside the Space Race window, one-shot screen
 messages for events, and the stock confirmation dialog for the setup dialog's own
-confirmations. Two race blocks sit on stock controls (the "allow other launch sites"
-option, 7.3, and the suit choice in the stock suit picker, 7.4); both use the standing
+confirmations and for the one warning before a game that differs from the race content
+table joins or loads (7.2). Three race blocks sit on stock controls (the "allow other launch
+sites" option, 7.3, the nine progression settings of the stock difficulty window, 7.12, and the
+suit choice in the stock suit picker, 7.4); all three use the standing
 stock-control annotation exception: the control's own disabled state and reason text on that
 same control, with a click-block that reads the same predicate (for the launch sites option,
 7.3 says what happens if stock's window does not let the toggle be greyed). There is no
@@ -248,6 +293,7 @@ most points wins.
 | Friend joins | They point at the shared folder, see the race and who is in it, pick a name and a free look, and get a fresh save at their own space center, on the far side of Kerbin |
 | A friend joins weeks later | The same Join. A race always has four seats; any free one can be taken at any time. The newcomer starts at day 1, sees everything the others already did as ghosts and board dates, and can still take any first by reaching it at an earlier game date |
 | Player launches | From their own KSC (only they can), or, when the race uses them, from any stock alternate launch site (anyone can; they need the Making History expansion, 7.3) |
+| Player launches with a part outside the game's counted part sets | It flies as usual; one message says the flight will not score and names the part; its milestones show on the board at 0 points (7.12) |
 | Player commits a flight | Their public state is written to their own subfolder of the shared folder |
 | A rival's state arrives | Their flights appear as ghosts at the game dates they were flown, in their color; their milestones appear on the board |
 | Player looks at a rival's site | An exact copy of the KSC stands there as scenery. Rival rockets lift off from it as ghosts when the player's clock reaches each launch |
@@ -344,9 +390,13 @@ board is a comparison, not an economy.
    where a build without race code keeps it untouched (6.2).
 10. **Disclose, do not block.** A race is played among friends. Different mods, changed
     difficulty settings and cheat or debug tool use are shown next to the player's name.
-    Nothing is refused for them (the one difficulty option a race holds is stock's "allow
-    other launch sites", 7.3), and nothing is taken from the player's own game. The one
-    thing that costs points is a flight flown with such a tool (7.12, owner ruling).
+    Nothing is refused for them, and nothing is taken from the player's own game. Two
+    things are held instead of shown, by owner ruling: stock's "allow other launch sites"
+    (7.3) and the progression difficulty settings (7.12); and a race created without "allow
+    play without scoring" refuses a game whose tech tree or counted parts differ from the
+    race content table (7.2). What costs points is one test, stated once in 7.8: a date
+    scores only when it is verified, no listed tool or mark reached it, and no part outside
+    the counted sets, or with changed values, was on the way to it (7.12, owner rulings).
 11. **Reuse before invention.** Ghost playback, map presence, the milestone rows and their
     once-ever walk, the shared window chrome and styles and the safe-write file helpers
     already exist. This feature adds the exchange, the sites, the looks, the board and its
@@ -561,8 +611,35 @@ RaceManifest (race.cfg, written once by the creator)
   endRealTime: string       - optional; empty = no limit
   noRetakes: bool           - house rule (7.11); false unless the creator turns it on
   siteTableId: string       - which site table applies ("kerbin-equator-1", 7.3)
+  contentTableId: string    - which race content table applies ("race-content-1",
+                              7.2): the stock tree and the parts with their values,
+                              shipped with the mod, frozen per game
+  PART_SETS { SET ... }     - the part sets the creator ticked: any of
+                              making-history, breaking-ground, restock-plus; empty
+                              by default. The base set always counts and is not
+                              listed (7.2)
+  allowUnscoredPlay: bool   - "allow play without scoring" (7.2); true unless the
+                              creator unticks it
   parsekVersion: string     - informational
   MOD_LIST { MOD id version ... } - the creator's mods, informational
+
+RaceContentTable (shipped with the mod, named by contentTableId; never in the folder)
+  NODE { id cost anyToUnlock hideEmpty PARENT ... }
+                            - every node of the stock tech tree: id, science cost,
+                              the any-or-all flag, the hidden-when-empty flag
+                              (stock's own key names) and the ids it needs first
+  PART { name set node entryCost VALUES VARIANT ... }
+                            - every part of the base game, Making History, Breaking
+                              Ground and ReStock+: runtime dot-form name, its set,
+                              its node, its entry cost and the fingerprint of its
+                              gameplay values, one per variant that changes them
+  UPGRADE { name node entryCost }
+                            - every stock part upgrade (`PARTUPGRADE`) a part names
+  EXPERIMENT { id baseValue scienceCap dataScale }
+                            - every stock science experiment definition
+  BODY { name landed splashed flyingLow flyingHigh spaceLow spaceHigh recovery }
+                            - each stock body's science multipliers
+  (what is compared, and what a difference does, are in 7.2)
 
 PlayerManifest (players/<id>/player.cfg, single writer = that player)
   playerId: string          - "p_" + Guid("N"), generated when the player joins
@@ -589,7 +666,8 @@ Standing (players/<id>/standings/<seq>.pstd, immutable, written LAST)
                               public state did not change (a heal, 7.15)
   frontierUT: double        - latest committed game date
   raceFormat, recordingFormat, recordingSchemaGeneration: int
-  RECORDINGS { REC id treeId startUT endUT prec precProof ghost ghostProof TOOL ... }
+  RECORDINGS { REC id treeId startUT endUT prec precProof ghost ghostProof TOOL ...
+                UNCOUNTED ... }
                             - every effective committed recording, its game-date
                               range and its two payload files: prec and ghost are
                               their 16-character hash names, precProof and
@@ -597,7 +675,13 @@ Standing (players/<id>/standings/<seq>.pstd, immutable, written LAST)
                               (kind, detail, ut) per cheat or debug tool used while
                               it was flown, ut = the game date it was first used
                               (7.12); the codec derives ToolsFromUT, the least of
-                              those dates, and the tool ids
+                              those dates, and the tool ids. One UNCOUNTED child
+                              (name, ut, why) per part outside the game's counted
+                              part sets, or counted with changed values, that was
+                              on the path to this recording's vessel, ut = the
+                              earliest game date it was on that path (7.12); every
+                              game checks the names against the payload when it
+                              imports it
   TREES { TREE id hash proof ... }
                             - their trees: each tree file's 16-character hash name
                               and SHA-256 proof. A tree file is the production
@@ -605,7 +689,9 @@ Standing (players/<id>/standings/<seq>.pstd, immutable, written LAST)
                               recordings, written by the production writer and cut
                               to one key list: what the tree reader needs; per
                               recording id, vesselName, startUT, endUT,
-                              parentAnchorRecordingId, chainId, chainIndex and
+                              parentAnchorRecordingId, chainId, chainIndex,
+                              vesselPersistentId (the vessel that continues
+                              through a merge, 7.12) and
                               sidecarEpoch (the trajectory reader checks it); and
                               the terminal and endpoint keys (terminal state,
                               terminal orbit, end position, endpoint body,
@@ -636,15 +722,23 @@ Standing (players/<id>/standings/<seq>.pstd, immutable, written LAST)
                               while it stands; 7.7)
   NAMES { }                                  - mission and vessel names
   DISCLOSURE { modDigest, MOD ..., difficultyDigest, DIFFICULTY { }, testTooling,
-               DEBUG_COMPLETION ... }
+               DEBUG_COMPLETION ..., SAVE_MARK ..., contentDiffers }
                             - DIFFICULTY: the save's current values of the same
                               ordered list of stock settings, so the window can name
                               which settings differ from the manifest's (7.12);
                               testTooling: Parsek's test tooling ran in this save
                               (7.12); one DEBUG_COMPLETION row (milestone id, ut)
                               per milestone completed with a debug action a mod
-                              can observe (spike S9; 7.12). Both are kept on the
-                              race scenario node (RaceLink below)
+                              can observe (spike S9; 7.12); one SAVE_MARK row
+                              (kind, detail, ut) per save-wide dated mark: a debug
+                              action that adds science, funds or reputation or
+                              unlocks technology used while no flight was recorded,
+                              or a tech node bought while the tree differed from the
+                              race content table (7.2, 7.12). All three are kept on
+                              the race scenario node (RaceLink below).
+                              contentDiffers: what the game's tree and counted parts
+                              differ in at its last load, empty when nothing does,
+                              so the window can show the player as not scoring (7.13)
   SEEN { RIVAL playerId seq hash ... }       - highest standing of each rival applied
                                                BEFORE this one was written, with its
                                                content hash: a receipt (7.11, 7.15)
@@ -656,6 +750,7 @@ RaceLink (the race mark; in the save, in a scenario node of its own, 7.1)
                               SaveFormat.cs as the race-link row (15.7)
   raceId, playerId, siteSlot
   siteTableId, ladderId, dateUnit, calendar, alternateSites
+  contentTableId, partSets, allowUnscoredPlay
   gameMode, difficultyDigest
   (identity and choices that never change after the save is created, so every
    kind of load can take it from the loaded save as is. The display name and the
@@ -663,8 +758,9 @@ RaceLink (the race mark; in the save, in a scenario node of its own, 7.1)
    in local.cfg)
   The same scenario node carries one child with the lifetime of the save, which
   every kind of load also takes from the loaded save: RACE_FACTS (test tooling ran,
-  the debug completions; 7.12). No suit state is kept: the suit is locked to the
-  look, and every load dresses the roster in it (7.4).
+  the debug completions, the save marks; 7.12). No suit state is
+  kept: the suit is locked to the look, and every load dresses the roster in it
+  (7.4).
 
 RaceLocal (saves/<save>/Parsek/Race/local.cfg; this machine only, not in the save)
   sharedFolderPath: string  - chosen in the setup dialog, editable in Settings (7.2)
@@ -976,6 +1072,13 @@ One dialog in the stock dialog style, with three actions.
   empty of any race, short enough for the longest paths in the folder and in the local
   copy, 6.3); no browse button and no folder picker (owner, 2026-11-15);
 - whether the shared launch sites are in use (7.3): off unless the creator turns it on;
+- which part sets count, one checkbox per set: Making History, Breaking Ground and ReStock+
+  (owner, 2026-11-15). The base game's parts always count. A player whose game lacks a
+  ticked set simply has fewer parts to build with. None is ticked by default (assumed until
+  the owner answers, stated 2026-11-15);
+- "allow play without scoring" (below), ticked by default (owner, 2026-11-15): whether a
+  game whose tech tree or counted parts differ from the race content table may still play,
+  without scoring;
 - an optional end date: a real-world date and time; without one the race never ends (7.10);
 - house rules: "no retakes" (7.11), off unless the creator turns it on;
 - their own display name and look;
@@ -983,12 +1086,13 @@ One dialog in the stock dialog style, with three actions.
   shown in the dialog and written into the manifest, with no field of its own; it only sets
   how dates are displayed (6.6).
 
-There is no player count to set: a race always has four seats. Everything above except the
-creator's own name and look is fixed for good once the race is created: the mode, the
-difficulty the saves start from, the end date, "no retakes" and the shared launch sites
-never change, and nothing can change them later. After creating, the creator is a player like
-the others. The one setting that can change later is each player's own difficulty, in their
-own game, which is disclosed (7.12).
+There is no player count to set: a race always has four seats. Everything above except the creator's
+own name and look is fixed for good once the race is created: the mode, the difficulty the saves
+start from, the end date, "no retakes", the shared launch sites, the counted part sets and "allow
+play without scoring" never change, and nothing can change them later. After creating, the creator
+is a player like the others. The one setting that can change later is each player's own difficulty,
+in their own game, which is disclosed (7.12), apart from the progression settings, which are locked
+(7.12, owner, 2026-11-15).
 
 Then Parsek writes `race.cfg`, the creator's `player.cfg`, creates the save, adds the race
 mark to it and writes it to disk before the game starts (the Space Center scene reads the
@@ -1003,7 +1107,77 @@ show two players alike), picks one of the free looks (taken ones are greyed), an
 site they will get. Joining creates the player's id; it is stored in the new save. Join
 writes their `player.cfg`, creates their save from the manifest with the race mark written
 in before the start (as for Create), and starts it at their home site. A joiner who finds
-differences between their mods and the creator's list sees them named, as information.
+differences between their mods and the creator's list sees them named, as information. The
+summary also names the ticked part sets and whether play without scoring is allowed, and a
+set this install lacks is named as
+information ("Breaking Ground counts in this game; you do not have it: you can still join,
+with fewer parts"); a rival's craft built with it shows with those parts missing (7.7).
+
+**The race content table** (owner, 2026-11-15). Parsek ships one versioned reference table,
+the way it ships the ladder (7.9): "we should have a reference list based on stock and dlcs and
+restock and restock+ that locks part names and their stock values, same as for the tech tree
+nodes, so there's no cheating". It holds:
+
+- the stock tech tree: each node's id, science cost, the nodes it needs first, whether any
+  or all of them are needed, whether it hides while empty, and the node of each part and of
+  each stock part upgrade;
+- every part of the base game, Making History, Breaking Ground and ReStock+: its runtime name
+  (dots, not underscores), its set, its node, its entry cost and a fingerprint of its
+  gameplay values (below). The base set also holds the kerbal EVA parts in every suit, the
+  flag and the stock asteroid and comet parts;
+- the science value of every experiment (base value, cap, data scale) and each body's
+  science multipliers, because they set how fast science buys the tree (13.B).
+
+A dev tool generates the table on the owner's PC from a clean 1.12.5 install with both
+expansions, ReStock and ReStock+, reading the part configs as ModuleManager left them and the
+tree at the main menu. The manifest names the table (`contentTableId`), so a table is frozen
+once a game uses it: a newer build adds a new id and keeps every older one, and a Parsek
+update never changes what counts in a game that exists. A build that does not know a game's
+table refuses the join, like an unknown ladder (`content-table-unknown`).
+
+**Gameplay values.** The fingerprint covers a fixed list of the values that change how a
+part flies: mass, cost, crew capacity, resource capacities, engine thrust and Isp curves,
+reaction wheel torque, antenna power, generator and converter rates, heat limits, crash
+tolerance, the fields drag is computed from, and the list of its modules by type. Cosmetic
+fields (model, textures, effects, sounds, a variant that only changes looks) are never part
+of it, so a visual mod such as ReStock or Waterfall does not change it. A variant that changes
+gameplay values (a ReStock+ tank switch) has a fingerprint of its own, and a flight is judged
+by the variant it flew. A rescaled part reads as changed values. A module another mod adds to
+a counted part (an autopilot module, a plume module) is not part of it; the mod list shows it
+(7.12, 7.15).
+
+**One tree for everyone** (owner, 2026-11-15). In Science and Career every player scores under
+one tech tree. In the first build it is always the stock tree of the content table: "for the
+first implementation lets go with the stock tree, but later we can add support for other
+trees". A tree the creator defines, captured at creation as everyone's reference, is later
+(14). Sandbox has no tree, so only the parts are checked there (13.B). At Create, at every
+join and at every load of a race save, before its first scene (the same check point as a
+modified Kerbin, 7.3), Parsek compares the game's loaded tree, and the gameplay values of its
+counted parts (the base set and the ticked sets), with the table. Not a difference: an extra
+node that holds no counted part and no upgrade of one and that no node of the table needs (a
+mod's extra branch), and a counted part this install lacks (13.B). What a difference does is
+the creator's setting "Allow play without scoring" (owner, 2026-11-15: "we should have an
+option 'allow play without scoring'"):
+
+- **Off:** the game does not join and the race save does not load. One
+  message names what differs, the first three differences and a count ("Stayputnik unlocks
+  in Basic Science here, in Start in the race's tree; 4 more differences"); the save is
+  untouched, and the player fixes their mods and plays on.
+- **On**, the default (owner, 2026-11-15): nothing is blocked ("without scoring, i think everyone
+  can use whatever they want, right?"). Before the join or the load one warning says what differs,
+  and that from now on this game's flights do not score while it differs and a tech node bought
+  meanwhile stops the save scoring for good; Continue or Cancel, and Cancel leaves the save
+  untouched. While the tree differs, every flight the game records carries a mark like a tool's
+  (7.12), so none scores. A flight carrying a counted part with changed values scores 0, like a
+  flight with an uncounted part (7.12). A tech node bought while the tree differs marks the save
+  from that game date on, for good, even if the mod is removed later, because the research stays
+  bought (the dated save mark of 7.12; dates before it keep their scores). The Space Race window
+  shows the player as "not scoring", with the reason in the hover (7.13).
+
+In both states a part outside the ticked sets may always be installed and flown, and its
+flights score 0 by what flew (7.12). The setting governs only the tree and the changed values
+of counted parts. In the first build no launch, research or other stock button is blocked in
+either state: Off refuses only the join and the load.
 
 **Joining later** (owner ruling 2026-11-14). A race always has four seats and there is no
 player count to set. Join works at any time while a seat is free: an hour after the race was
@@ -1036,7 +1210,10 @@ chosen one.
 Refusals, each with its exact reason: the folder is missing or not writable; the folder has no
 race (Join) or already has one (Create); the race is full; the race's `raceFormat` is newer
 than the build; the display name is taken; the race uses the shared launch sites and this
-install lacks the expansion they need (7.3); Kerbin is modified (edge case 24).
+install lacks the expansion they need (7.3); Kerbin is modified (edge case 24); the tech
+tree or a counted part's values differ from the race content table and the race does not
+allow play without scoring (above; edge case 32); the build does not know the race's ladder
+or content table.
 
 **Who may join.** Anyone who can write to the shared folder can take a free seat. Sharing the
 folder is the invitation, and the folder's own sharing settings are the guest list. Parsek
@@ -1313,7 +1490,10 @@ the request event and then loads the scene anyway. Stock itself rewrites `persis
 from the game it has just read before `Game.Start()` (the load dialog and the quickload), so
 "untouched" means no scene ran and no Parsek code wrote; spike S4a checks the file's bytes.
 If the prefix cannot be used, the load finishes at the stock space center with the save
-copied aside first and copied back after the return to the main menu.
+copied aside first and copied back after the return to the main menu. The same prefix, with
+the same fallback, compares the save's tech tree and counted parts with the race content
+table (7.2): it refuses the load when the race does not allow play without scoring, and
+otherwise shows the one warning, Continue or Cancel, before the scene loads.
 
 ### 7.4 Looks
 
@@ -1651,10 +1831,24 @@ A deeper check of the trajectory against the claim (on the Mun's surface and at 
 landing) is a later hardening (open question 13.C.4).
 
 **The board.** For every ladder milestone m and every player p, the date d(p, m) or nothing.
-Only a date that scores can hold a first. A date that is unverified (above), or that comes from
-a flight flown with a listed tool (7.12), is shown on the board with its mark and is skipped
-when the holder is decided: it takes no points and it keeps none from the next player, and the
-player's own next date, if they have one, is read instead. A date the player's game completed
+Only a date that scores can hold a first. **A date scores** when all of these hold, and this
+one test is what the board, the "no retakes" rule (7.11), the final board (7.10) and the
+window's hover (7.13) read:
+
+- it is verified (above);
+- no listed tool was used on its flight before it (any recording of its tree, 7.12); a
+  flight recorded while the game's tech tree differed from the race content table carries
+  such a mark from its start (7.2);
+- no save-wide mark of that game is at or before it: a debug action that adds science,
+  funds or reputation or unlocks technology used outside a flight, or a tech node bought
+  while the tree differed (7.2, 7.12);
+- no part outside the game's counted part sets, and no counted part with changed values,
+  was on the path to the vessel that reached it at or before it (7.12).
+
+A date that fails the test is shown on the board with its mark and every reason in its
+hover, at 0 points, and is skipped when the holder is decided: it takes no points and it
+keeps none from the next player, and the player's own next date, if they have one, is read
+instead. A date the player's game completed
 from the debug menu, outside any flight, is not on the board at all (7.12). The first is the
 earliest scoring date, compared to the exact second of game time (6.6), and its holder takes
 the milestone's full points (owner, 2026-11-15). Being one second earlier is enough; a
@@ -1803,15 +1997,15 @@ Details the reviews asked for:
 - **A block lasts only while the rival's claim stands.** If the rival's flight leaves the
   race (they loaded an older save), their claim is gone and the milestone is open again for
   everyone who had seen it.
-- **Only a date that scores can block.** A rival's date that is unverified or tool-marked
-  holds nothing (7.8), so having seen it blocks nobody. "Scores" here means the checks of
-  7.8 alone: any real, clean rival flight your game had seen blocks you, even one that itself
-  won nothing because it was "seen first" under this rule (owner, 2026-11-15). So the rule
-  never depends on a chain of other players' receipts and cannot loop on edited files. A
-  date that becomes a scoring date later blocks from the standing its entry names as
-  `since`. The standings kept for good cannot say in which
-  standing it first scored; the two differ only when a flight added later covers an older
-  unverified date, which the exporter does not produce.
+- **Only a date that scores can block.** A rival's date that fails the test of 7.8 (unverified,
+  tool-marked, after a save-wide mark, or reached with a part outside the counted sets or with
+  changed values) holds nothing, so having seen it blocks nobody. "Scores" here means the test of
+  7.8 alone: any real, clean rival flight your game had seen blocks you, even one that itself won
+  nothing because it was "seen first" under this rule (owner, 2026-11-15). So the rule never depends
+  on a chain of other players' receipts and cannot loop on edited files. A date that becomes a
+  scoring date later blocks from the standing its entry names as `since`. The standings kept for
+  good cannot say in which standing it first scored; the two differ only when a flight added later
+  covers an older unverified date, which the exporter does not produce.
 - **A missing `since` standing blocks nothing.** If the standing a player's entry names as
   `since` is neither applied nor kept, the receipts it carried cannot be read: the date is
   not blocked, and its cell is marked "history incomplete".
@@ -1836,26 +2030,37 @@ Each standing carries facts that are shown next to the player's name in the Spac
 when they differ from the race's:
 
 - **Mods:** a digest of the mod list, with the list.
-- **Difficulty:** a player may change their own difficulty settings mid-game, and nothing is
-  blocked (owner, 2026-11-15), apart from the one option a race holds (stock's "allow other
-  launch sites", 7.3). The standing carries a digest of the save's difficulty settings and
-  the settings themselves (`DIFFICULTY` in `DISCLOSURE`, 6.1); the digest differs from the
-  manifest's when the player changed them in game, and the mark next to the player's name
-  names which settings changed. "The difficulty settings" are an explicit, ordered list of
-  STOCK difficulty settings only, named field by field, every one a gameplay setting of the
-  stock difficulty panel: the eleven fields of stock's difficulty block
-  (`GameParameters.DifficultyParams`); the nine career values of
-  `GameParameters.CareerParams` (starting funds, science and reputation, the five gain and
-  loss multipliers, and the reputation lost for a declined contract); thirteen settings of
-  stock's Advanced section (`GameParameters.AdvancedParams`: negative funds, the G-force
-  and pressure limits, kerbal experience and immediate level-up, part upgrades, building
-  impact damage and the rest; its two Mission-only settings are left out, since a race is
-  never a Mission game); and the seven CommNet settings (`CommNet.CommNetParams`: require
-  signal for control, plasma blackout, range and DSN modifiers, the two occlusion
-  multipliers, extra ground stations). That is forty settings. Never the whole
-  `GameParameters` node: a `CustomParameterNode` is included only when it is one of those
-  two stock types, named by exact type, never Parsek's own settings and never another
-  mod's, so changing one of those never marks a player and never leaves the save.
+- **Difficulty:** a player may change their own difficulty settings mid-game, and nothing is blocked
+  (owner, 2026-11-15), apart from the options a race holds: stock's "allow other launch sites" (7.3)
+  and the progression settings below. The standing carries a digest of the save's difficulty
+  settings and the settings themselves (`DIFFICULTY` in `DISCLOSURE`, 6.1); the digest differs from
+  the manifest's when the player changed them in game, and the mark next to the player's name names
+  which settings changed. "The difficulty settings" are an explicit, ordered list of STOCK
+  difficulty settings only, named field by field, every one a gameplay setting of the stock
+  difficulty panel: the eleven fields of stock's difficulty block
+  (`GameParameters.DifficultyParams`); the nine career values of `GameParameters.CareerParams`
+  (starting funds, science and reputation, the five gain and loss multipliers, and the reputation
+  lost for a declined contract); thirteen settings of stock's Advanced section
+  (`GameParameters.AdvancedParams`: negative funds, the G-force and pressure limits, kerbal
+  experience and immediate level-up, part upgrades, building impact damage and the rest; its two
+  Mission-only settings are left out, since a race is never a Mission game); and the seven CommNet
+  settings (`CommNet.CommNetParams`: require signal for control, plasma blackout, range and DSN
+  modifiers, the two occlusion multipliers, extra ground stations). That is forty settings. Never
+  the whole `GameParameters` node: a `CustomParameterNode` is included only when it is one of those
+  two stock types, named by exact type, never Parsek's own settings and never another mod's, so
+  changing one of those never marks a player and never leaves the save. **The progression settings
+  are locked** (owner, 2026-11-15): nine of the forty, the ones that change how fast a player earns
+  and spends their way up the tree, keep the values the race was created with. They are the three
+  reward multipliers of `CareerParams` (`ScienceGainMultiplier`, `FundsGainMultiplier`,
+  `RepGainMultiplier`), the entry purchase bypass and resource abundance of `DifficultyParams`
+  (`BypassEntryPurchaseAfterResearch`, `ResourceAbundance`), the two part upgrade switches of
+  `AdvancedParams` (`PartUpgradesInSandbox`, `PartUpgradesInCareer`) and its two kerbal experience
+  settings (`EnableKerbalExperience`, `ImmediateLevelUp`). They are held the way "allow other launch
+  sites" is (7.3): set back to the race's values at every load and whenever the stock difficulty
+  window applies, greyed in that window with the reason (the stock-control annotation exception),
+  and, if a toggle cannot be reached after the window is built, set back with one screen message
+  that says why. The other thirty-one stay free and are shown by the mark. The starting funds,
+  science and reputation act only when a save is created, so they need no lock.
 - **Cheat and debug tools, per flight.** Each recording entry of a standing says whether a
   tool from a fixed list was on or was used while that flight was recorded. The list is
   explicit, because "a cheat" is not one switch:
@@ -1880,6 +2085,16 @@ when they differ from the race's:
     injector either stamps the mark or refuses a race save. Every race the harness flies is
     therefore tool-marked, and its own flights never score (open: question Q-24,
     section 13).
+  - the debug actions that add science, funds or reputation or unlock technology, used
+    while no flight is being recorded (in the Space Center, the Tracking Station or the
+    editor): such a use marks the whole SAVE from that game date, like the test tooling
+    mark but dated. Every milestone at or after it fails the test of 7.8, whatever flight
+    reached it. The standing lists each use as a `SAVE_MARK` row of its `DISCLOSURE`
+    block, the same row a tech node bought under a different tree writes (7.2). Which of
+    these actions a mod can observe is spike S9's, as for the rest of the list;
+  - a tech tree that differs from the race content table, in a race that allows play
+    without scoring (7.2): every recording made while it differs carries it like a tool
+    used from the recording's start.
   Not on the list, because they change nothing a rival could not also do: part clipping,
   non-strict part attachment, and the biome overlay.
   A flight flown with a listed tool **does not score** (owner ruling 2026-11-14): its
@@ -1903,6 +2118,45 @@ when they differ from the race's:
   `Set` call raises no change event and is not seen). The per-flight fact is new capture in
   base Parsek, kept on the recording so it follows optimizer splits and merges (addition A3
   of 15.11).
+- **Parts outside the counted sets, per flight** (owner, 2026-11-15). A milestone date does
+  not score when a part outside the game's counted part sets (7.2) was on the path to the
+  vessel that reached it, at or before its second, or, in a race that allows play without
+  scoring, a counted part whose gameplay values differ from the race content table (7.2;
+  the hover says "changed values"). Nothing is blocked: any mod can stay
+  installed and its parts can fly, and the flight is shown, marked, at 0 points. The path
+  is the vessel's own history (the designer's reading of "carries", 13.B):
+  - the recording the milestone entry names, the recordings before it in its chain, and its
+    ancestors through every split up to the launch;
+  - at a dock or a boarding, the merged vessel's own recording counts every part it holds
+    from the moment of the merge; the walk goes on up the vessel that continues through the
+    merge, not up the partner it absorbed, so a station holding a mod part marks a flight
+    from the dock on, and the station's own launch never reaches back;
+  - a part an engineer attaches counts from the attach event, and stowed cargo (a part in
+    an inventory) from the first recording whose ghost snapshot shows it;
+  - an unrelated sibling vessel of the same launch is not on the path and marks nothing. (The tool
+    mark keeps its own, tree-wide reach, as ruled.)
+  Parts left standing on the ground at liftoff, those carrying stock's launch clamp module, never
+  count against a flight (`LaunchClamp`). Part names are compared in the game's runtime form (dots,
+  not underscores), with the snapshot's numeric suffix removed, the way the ghost builder reads
+  them. A part of a mod that is not a tickable set does not count whatever it does (a readout chip,
+  an autopilot box); the same tool installed without a part is a mod difference, shown by the mod
+  list as today (13.B).
+  The exporter writes the result into the standing: per recording, one `UNCOUNTED` child per such
+  part on its path, with the earliest game date it was there and why (outside the sets, or changed
+  values). The board reads only the standing. Every game that imports the standing checks the part
+  names against the payload it copied (the ghost snapshots, the attach events and the tree file); a
+  part's values are not in the payload, so a "changed values" child is the writer's own finding. A
+  mismatch is treated like a changed file (7.15): that standing is not applied, the last good state
+  stays, and the folder gets the neutral mark. A standing this build cannot read (a newer race
+  format, 7.8 "not checked here") counts as its children state.
+  As with a tool, a later clean flight does not score a milestone a marked flight already reached,
+  because stock records a milestone once; only a rewind and an earlier clean arrival scores it
+  (owner, 2026-11-15). The protection is a warning while Revert still works: when a flight starts
+  with such a part on board, and again when one arrives later (a dock, an engineer's attach), one
+  screen message names the parts ("This flight will not score: <part names>"). It is an event that
+  changed the flight's status. Nothing marks the parts in the editor; an editor mark would need a
+  new owner exception, and the owner can ask for it later (13.C). The Space Race window lists which
+  installed parts do not count in this game (7.13).
 - **Milestones completed from the debug menu.** Max Progression, the debug console and the
   legacy cheat window complete a stock milestone outside any flight (they all reach
   `ProgressNode.CheatComplete()`), so no flight carries a mark and the completion could be
@@ -1932,7 +2186,16 @@ Tracking Station (owner, 2026-11-15).
   the game date that player reached the milestone, or nothing. The holder's cell is
   highlighted in their color; an unverified, tool-marked, "seen first", "history
   incomplete", "cannot be watched here" or "not checked here" cell is marked, and its hover
-  says why. A points column shows what the row is worth.
+  says why. A date reached with parts outside the counted sets is listed at its date with
+  0 points and its own mark, and its hover names the parts ("0 points: flown with parts
+  outside this game's list: <part names>"; owner, 2026-11-15), or says "changed values"
+  for a counted part whose values differ. A date that fails the test of 7.8 for several
+  reasons lists every one. A player whose game differs from the race content table, in a
+  race that allows play without scoring, shows "not scoring" in their header block, with
+  what differs in its hover (7.2). A points column shows what the row is worth.
+- **Parts that do not count here:** the header says how many installed parts do not count
+  in this game ("12 installed parts do not count"), and its hover names them (the first
+  ten and a count), so a player can see them before building with them.
 - **Dates** read "day 31": days counted from day 1 with no year, in both calendars, with
   the time of day to the second in the hover. Dates are compared to the second (6.6), so
   when two dates in one row fall on the same day, both cells show the time of day too
@@ -1960,7 +2223,9 @@ Nothing is pooled, so the three modes differ only in what each player's own game
   the ruling "never reduce what a player earned" holds by construction.
 
 All players of a race play the same mode with the same starting difficulty settings, because
-their saves are created from the same manifest.
+their saves are created from the same manifest. In Science and Career they also score under
+the same stock tech tree with the same progression settings (7.2, 7.12), and in every mode
+the same parts count, with the same values (7.2).
 
 ### 7.15 Fair play: what stops someone editing the shared files
 
@@ -2017,7 +2282,9 @@ version; the hardening steps are listed so the formats leave room for them.
 5. **The replay is the proof** (7.8). A date on the board counts only when the flight behind
    it is shared and covers that date, and anyone can watch it happen at that date.
 6. **Disclosure** (7.12): mods and changed difficulty settings are shown next to the
-   player's name, and a flight flown with a cheat or debug tool is marked.
+   player's name, and a flight flown with a cheat or debug tool, or with a part outside the
+   counted sets, is marked. Every game checks the parts a standing states against the
+   payload it copied, and a mismatch is treated as a changed file (item 3).
 
 What the simple version catches: a typo-level or text-editor change to any shared file,
 anybody writing into somebody else's subfolder while that player still plays, a claimed date
@@ -2061,16 +2328,30 @@ with no flight behind it, a quietly replaced history. What it does not catch, sa
   only if another player's standing, itself stamped before the end, lists it as seen. That
   needs the others' games to run near the end, so it is a house rule, not the default.
 - **C. Parts against the clock** (Science and Career). Each standing could list the game
-  date at which each tech node was unlocked; a flight using a part before its node's date is
-  marked. It only checks the player's story against itself, and it publishes tech progress,
-  so it is the weakest step and optional.
-- **D. A sealed race** as a house rule: only stock plus an agreed mod list, no cheat menu,
-  fixed difficulty. With the checks above this turns disclosure marks into "does not score".
+  date at which each tech node was unlocked; a flight using a part before its node's date
+  would then fail the test of 7.8. It only checks the player's story against itself, and it
+  publishes tech progress, so it is the weakest step and optional.
+- **D. A sealed race** as a house rule: an agreed mod list, no cheat menu, all difficulty
+  settings fixed. The part sets and the progression settings already are (7.2, 7.12); with
+  the checks above the rule would add a differing mod list and changed difficulty
+  settings to the test of 7.8, turning those marks into "does not score".
 
 **What stays out of reach, said plainly:** a changed build of the mod, a player's own save
-edited so that everything agrees with itself, and help from tools outside the game. Against
-those the answer is the same as at a table of friends: the board shows every flight, and
-anyone can watch it.
+edited so that everything agrees with itself, and help from tools outside the game. The part
+and progression rules have their own known limits, each a candidate for later hardening:
+
+- a module another mod adds to a counted part (an autopilot module, a plume module) is not
+  in the part's gameplay values; the mod list shows the mod (7.2, 7.12);
+- a counted part's changed values are found by the writer's own game, against the shipped
+  table; the payload does not carry them, so other games cannot check that finding;
+- facility costs and limits, contract packs and strategy mods are not in the race content
+  table;
+- a planet pack that changes a ladder body other than Kerbin is not caught (only Kerbin is
+  checked, 7.3);
+- science earned by a flight that does not score still buys research in that player's game.
+
+Against all of those the answer is the same as at a table of friends: the board shows every
+flight, and anyone can watch it.
 
 **On detection** the rule follows principle 10: mark and explain, keep the last good state,
 never delete anything of a rival's, never touch the local player's game. A mark changes no
@@ -2220,6 +2501,35 @@ is the one place where what a machine remembers decides what it scores (principl
     sites are reconciled at every scene load request against the loaded game's mark, so
     going from one race save straight to another with a different home site moves them
     (7.1).
+32. **I install a research mod in the middle of a Science or Career race.** A mod that only
+    adds a branch holding none of the counted parts changes nothing. One that changes the
+    stock tree: if the race allows play without scoring (the default), a warning names the
+    first differences before my save loads; if I continue, my flights do not score while
+    the mod is in, and a node I buy meanwhile stops my save scoring from that date for good,
+    even after I remove the mod. If the race does not allow it, my save does not load, one
+    message names the differences, and the save is untouched until I remove the mod (7.2).
+33. **I fly a mod part that is not in the counted sets.** The flight flies, records and
+    shows as a ghost like any other. At launch one message says it will not score and names
+    the part. Its milestones are on the board at 0 points with the part named in the hover;
+    a later clean flight does not win them back, only a rewind and an earlier clean arrival
+    does (7.12).
+34. **The mod part was on a booster I dropped before orbit, or on a station I docked with.** The
+    booster was on the path up, so the orbit and everything after it on that vessel do not score.
+    The station's part counts from the dock on, so what my vessel reached before the dock scores and
+    what the docked vessel reaches after it does not. A sibling probe that separated from the same
+    launch without the part scores (7.12).
+35. **A rival's standing says no mod part, but the craft files show one.** My game does not
+    apply that standing; the last good one stays and the folder is marked as changed, as
+    for any edited file (7.12, 7.15).
+36. **A mod changes the stats of a stock engine.** Its values no longer match the race
+    content table. If the race allows play without scoring, the engine counts as changed:
+    flights carrying it score 0, their hover says "changed values", and the launch warning
+    names it. If the race does not allow it, my save does not load until I remove the mod
+    (7.2, 7.12). A mod that only adds a module to the engine (an autopilot) is not caught by
+    this; the mod list shows it (7.15).
+37. **I use the debug menu in the Space Center to add science.** Every milestone my game
+    reaches from that date on does not score, on every flight; the board shows them marked
+    (7.12).
 
 ---
 
@@ -2276,7 +2586,24 @@ per-rival poll results at Verbose, rate-limited where they repeat.
   displayed dates and no holder; the end date cut; level total points name joint winners; a
   manifest whose `dateUnit` is not `SECOND` is refused.
 - Difficulty disclosure: a changed setting is named by the mark; an unchanged save carries
-  no mark.
+  no mark. The nine progression settings are set back to the race's values on load and when
+  the stock window applies.
+- The race content table: the shipped table reads back the same under any culture; each
+  kind of difference (a node's cost, a parent, the any-or-all flag, a counted part's node,
+  an entry cost in Career with the bypass off and not in Science, an upgrade, an experiment
+  value, a body multiplier, a gameplay value, a variant's value) is found and named; a
+  cosmetic change, an extra branch holding no counted part, and a counted part this install
+  lacks are not differences. With "allow play without scoring" off a difference refuses the
+  join and the load and the save is untouched; with it on the warning shows, the flights
+  recorded while it differs fail the test of 7.8, a changed counted part on a flight scores
+  0, and a node bought meanwhile marks the save from its date for good.
+- Counted parts: every name in the shipped table is in dot form; the path walk marks a date
+  for a part on the named recording, on a chain predecessor, on a split ancestor, on a
+  merged vessel from the merge on, and for an attach event from its time; a sibling, an
+  absorbed partner's earlier history and a launch clamp mark nothing; a standing whose
+  `UNCOUNTED` children disagree with its payload is not applied.
+- The one scoring test: each reason alone makes a date fail, the reasons combine in the
+  hover, and a failing date neither holds nor blocks under "no retakes".
 - Verification: a date inside the named recording, inside a sibling recording of the same
   tree, on a boundary within the tolerance, outside every range.
 - The no-retakes rule over standing histories: blind dates, a date improved after seeing, a
@@ -2370,7 +2697,8 @@ analyzer never reads the rival cache.
 
 ## 12. Feasibility in KSP 1.12.5
 
-Checked against the decompiled stock assembly on 2026-11-14. Signatures and field names are
+Checked against the decompiled stock assembly on 2026-11-14 (the tech tree row on
+2026-11-15). Signatures and field names are
 reliable; bodies are obfuscation-noisy, so each item ends in what must still be proven in the
 running game.
 
@@ -2394,6 +2722,7 @@ running game.
 | Readable rival flags | `FlagSite` exposes Read Plaque, Take Down and Pick Up as separate part events, but a real flag is a saved vessel whose placed state re-enables taking it down, and the plaque is readable only from within 2 m on EVA. A replica (flag model, click target, the stock plaque dialog) avoids all of that. The flag part has no mesh file to clone; the dialog's entry `FlagPlaqueDialog.Spawn(string, string, Callback)` is public and static | S7: how to build the replica's model; open the stock plaque dialog with supplied text (if it cannot, one small Parsek popup, owner 2026-11-15, 7.7); decide the click range |
 | Launch areas stay clear | Parsek already retires a flight that ends parked on the KSC pad, the runway threshold or a stock alternate site (50 m circles: the KSC pad and runway threshold are constants in `SpawnCollisionDetector`, the other launch sites are read from `PSystemSetup` by `LaunchSiteExclusionZones`, whose read admits the names `LaunchPad` and `Runway`, so its cache possibly holds the stock KSC's own pad and runway too); a rival end state is only a ghost, so not showing it is a filter at the rival store | S4: measure the pad and full runway footprints at the moved sites and the alternate sites |
 | Cheat disclosure | `CheatOptions` holds the stock cheat switches as public static fields; hack gravity is not one of them but the state of the `HackGravity` debug widget, which Parsek already reads. The debug menu's ACTIONS (set orbit, set position, add science, unlock technology, max tech, max facilities, the console's currency sets) are not switches, no "fill resources" action is among the 1.12.5 cheat types (S9 confirms it in game), and Max Progression and the console complete milestones through `ProgressNode.CheatComplete()` | S9: which of those actions and completions a mod can observe |
+| One tree and one set of part values in every game | `GameParameters.CareerParams.TechTreeUrl` names the tree file (default `GameData/Squad/Resources/TechTree.cfg`), but stock's `RDTechTree.LoadTechTree(path, list, loadFromDatabase)` reads the game database's `TechTree` nodes first (`GetTechNodesFromDB`, which takes every such node) and the file only when there are none, so a tree mod that patches the database wins. A node's keys are `id`, `cost`, `anyToUnlock`, `hideEmpty` and `Parent { parentID }`; a part's are `AvailablePart.TechRequired` and its entry cost (`entryCost`, through the public static `AvailablePart.EntryCostGetter`). Part upgrades are `PARTUPGRADE` nodes (`PartUpgradeHandler.Upgrade`: `techRequired`, `entryCost`), named from a part module's `UPGRADES`. Experiments are `EXPERIMENT_DEFINITION` nodes (`ScienceExperiment.baseValue`, `scienceCap`, `dataScale`); a body's multipliers are `CelestialBody.scienceValues` (`CelestialBodyScienceParams`). `PartLoader.LoadedPartsList` is public and holds every part at the main menu, its name already in dot form and its `partUrl` naming its folder (`SquadExpansion/MakingHistory`, `SquadExpansion/Serenity`) | S6: read the tree at the main menu and in the Space Center of a created game, and check both agree with what the R&D building shows; read every part's config as ModuleManager left it (`AvailablePart.partConfig`, public) and turn its gameplay values into the fingerprint; measure what plain ReStock changes on stock parts (it must change no gameplay value and move no node, or the owner decides before the table is frozen); list the ReStock+ parts, their nodes and the variants that change values; check a tree patch and a stat patch are both found; whether stock ships any part upgrade. Then the dev tool that writes the race content table from that clean install (a plan task). If the main-menu read cannot be trusted, the check moves to the first Space Center entry, before any save is written |
 | Joining later | Nothing game-side: a join writes one new subfolder; all four sites exist in every game from the start | None |
 | Noticing edited files | Hashes, a chain and a local witness log need only file reads and a hash function, which the recording sidecars already use | None for the simple version; for signed standings, spike S12 (optional) proves the runtime's signing classes work inside KSP |
 
@@ -2435,7 +2764,7 @@ S8 is about to run (listed again at the end of 13.C).
 | Q-21 | If the stock plaque window cannot show a rival flag's text, may Parsek show its own popup? | DECIDED 2026-11-15: yes, one small popup, the fourth new-window exception, only if spike S7 shows the stock window cannot (0, 7.7) |
 | Q-22 | How is a rival's ghost labeled? | DECIDED 2026-11-15: owner name and color, such as "Ghost: Ana - Kerbal X", in the ghost label and the map and Tracking Station lists (7.4) |
 | Setup | What does the creator choose? | DECIDED 2026-11-15: the mode, once, for everyone; the difficulty with the full stock panel (the four stock presets if the panel cannot be opened there); an optional end date; "no retakes", off by default; the shared launch sites, off by default; the game's name; always four seats, no setting. None of it changes after creation, and the creator is then a player like the others (7.2, 7.3, 7.10, 7.11) |
-| Difficulty | May a player change their own difficulty mid-game? | DECIDED 2026-11-15: yes, nothing is blocked (apart from the launch sites option, Q-11); a mark next to the player's name names the settings that changed (7.12) |
+| Difficulty | May a player change their own difficulty mid-game? | DECIDED 2026-11-15: yes, nothing is blocked (apart from the launch sites option, Q-11); a mark next to the player's name names the settings that changed (7.12). REPLACED for the nine progression settings by the row Progression settings below |
 | Tools | How far does a cheat or debug tool mark its flight? | DECIDED 2026-11-15: every milestone the flight reaches after the tool was first used, also after it is switched off (7.12) |
 | Rival ghosts | Targeting, CommNet, the Space Center view | DECIDED 2026-11-15: a rival ghost can be targeted like an own ghost; it is never a CommNet relay or control point; it does not show in the Space Center view in the first build, where rival buildings do (6.4, 7.7) |
 | Leftovers | Which rival vessels stay as scenery? | DECIDED 2026-11-15: flyable vessels only (landers, stations, rovers, bases); rival debris is not shown or listed as a leftover (7.7) |
@@ -2448,6 +2777,13 @@ S8 is about to run (listed again at the end of 13.C).
 | Re-Fly | Is anything sent to rivals while a Re-Fly is in progress? | DECIDED 2026-11-15: no; sharing waits until it ends (7.5) |
 | Versions | Which versions ship what? | DECIDED 2026-11-14: the refactored base build ships as version 1.0.2 ("1.1" in this document names that code structure, not a version); the multiplayer mode ships as version 1.1.0 (14) |
 | Branch | Where does the work land? | DECIDED 2026-11-15: on one long-lived `multiplayer` branch with sub-branches; main stays clean until one final merge (14) |
+| Tech tree | How is the tech tree locked? | DECIDED 2026-11-15: every player scores under one tree; in the first build it is always the stock tree of the race content table Parsek ships (decision card "Always the stock tree"); a tree the creator defines, captured at creation as everyone's reference, is later. The card "Refuse to join or load" answered earlier the same day is now the Off state of the row Play without scoring (7.2, 14) |
+| Content table | What is the tree and part list compared with? | DECIDED 2026-11-15: one versioned reference table shipped with Parsek: the stock tree, and for every part of the base game, both expansions and ReStock+, its name, node, entry cost and a fingerprint of its gameplay values ("a reference list ... that locks part names and their stock values, same as for the tech tree nodes, so there's no cheating"); generated by a dev tool from a clean install; frozen per game (7.2) |
+| Play without scoring | What does a game that differs from the table do? | DECIDED 2026-11-15: a creator setting, "allow play without scoring", ticked by default (decision card), fixed after creation. On: nothing is blocked; one warning, Continue or Cancel, before the join or load; flights recorded while the tree differs, and flights carrying a counted part with changed values, score 0; a node bought while the tree differs stops the save scoring from that date for good; the player shows as not scoring. Off: the game does not join and the save does not load, with one message naming what differs. Parts outside the ticked sets score 0 by what flew in both states, and no launch or research button is blocked in either (7.2) |
+| Part sets | Which parts count? | DECIDED 2026-11-15: the base game's parts always; the creator ticks Making History, Breaking Ground and ReStock+ separately at creation, fixed afterwards; a player without a ticked set has fewer parts (decision card "One checkbox per set", replacing the single "allow extra supported parts" toggle). The default, nothing ticked, is assumed until the owner answers; the expansions are no longer always counted (7.2) |
+| Parts by what flew | How is the part rule enforced? | DECIDED 2026-11-15: by what flew; a flight that carries a part outside the counted sets is marked and does not score, like a tool-marked flight; no mod part is refused for being installed (decision card "By what flew"); the window lists such a milestone at its date with 0 points and names the parts in its hover (7.12, 7.13) |
+| Later clean flight | Does a later clean flight score a milestone a marked flight reached? | DECIDED 2026-11-15: no, as for cheat tools; only a rewind and an earlier clean arrival does; the warning at launch is the protection (decision card "No, the launch warning is enough") (7.12) |
+| Progression settings | May the settings that speed up progression change mid-game? | DECIDED 2026-11-15: no; the reward multipliers, the entry purchase bypass, part upgrades, resource abundance and kerbal experience are greyed once the game is created; the other difficulty settings stay free and shown (decision card "Lock them") (7.12) |
 
 ### 13.B Chosen by the designer, for the owner to overrule
 
@@ -2482,6 +2818,17 @@ also put to the owner, and the design follows it until the owner answers (13.C).
 | The whole-save isolation lane compares the two saves under a canonical comparison in which only listed time values may differ, each with a written reason; byte identity is proven headless (question Q-13) | 6.4, 11 |
 | The replacement suit sets are applied only to race kerbals and rival ghosts, not listed in the stock suit picker, if spike S3 shows the applied texture in EVA, IVA and the portrait (question Q-19; with the race picker blocked, what is open is only a listing in single-player saves) | 7.4 |
 | The first board of a session is compared against the one built at load, so a load posts no message (which changes are announced is the owner's, Q-14 and Q-16, 13.A) | 7.8 |
+| What the race content table compares: the tree nodes (id, cost, parents, any-or-all, hidden when empty), each counted part's node and, in Career with the entry purchase bypass off, its entry cost, the part upgrades a part names, the experiment values and the body science multipliers, and each counted part's gameplay values; an extra branch with no counted part and a counted part this install lacks are not differences | 7.2 |
+| The gameplay values are a fixed list (mass, cost, crew, resource capacities, engine curves, torque, antenna power, generator and converter rates, heat limits, crash tolerance, drag fields, module types); cosmetic fields never count; a variant that changes values has its own fingerprint; a module another mod adds is not in it | 7.2 |
+| Sandbox has no tree check, but the counted part sets and their values still apply | 7.2 |
+| An unknown content table id refuses the join like an unknown ladder | 7.2 |
+| With play without scoring on, a flight recorded while the tree differs carries a mark like a tool's from its start, and a node bought meanwhile writes a dated save mark | 7.2, 7.12 |
+| "Carries a part" is the vessel's path: the named recording, its chain and split ancestors, a merged vessel from the merge on (not the absorbed partner's history), attached parts from the attach, cargo from the first snapshot showing it; not a sibling vessel; launch clamps never count; names in dot form | 7.12 |
+| The standing carries the uncounted parts per recording with their dates, the board reads only the standing, and each importer checks them against the payload, treating a mismatch as a changed file | 6.1, 7.12 |
+| One test says whether a date scores, and the board, "no retakes", the final board and the hover all read it | 7.8 |
+| A debug action that adds science, funds or reputation or unlocks technology, used outside a flight, marks the whole save from its date | 7.12 |
+| A flight that starts carrying an uncounted part, or gains one later, gets one screen message naming the parts; the window counts the installed parts that do not count; nothing is marked in the editor | 7.12, 7.13 |
+| A part of a mod that is not a tickable set does not count whatever it does (a readout chip, an autopilot box); the part-free form of the same tool is a mod difference, shown as today | 7.12 |
 
 ### 13.C For the play test and the phase plans
 
@@ -2514,6 +2861,10 @@ also put to the owner, and the design follows it until the owner answers (13.C).
     different home site is covered by reconciling the sites at every scene load request
     against the loaded game's mark (7.1, 15.7); a harness lane drives it.
 
+11. **A mark on uncounted parts in the editor.** Nothing marks them there today, because a
+    mark would need a new owner exception to the UI rule; the owner can ask for one later
+    (7.12).
+
 **Owner questions still open.** Numbered as in
 `docs/dev/plans/multiplayer/design-corrections.md`, part 2, which gives each its options.
 Until the owner answers, the design and the plans follow the recommendation given here.
@@ -2525,6 +2876,8 @@ The questions the owner answered on 2026-11-15 are in 13.A.
   - Q-02: is the spike branch kept on GitHub as a record, never merged? Recommended: yes;
     the spike reports cite its commits.
 - *Assumed as recommended; the plans already follow them.*
+  - The part sets ticked by default: none (stated to the owner 2026-11-15; assumed until the
+    owner answers) (7.2).
   - Q-06: the trajectory decode change (P6) is built in parallel with the other
     prerefactors and merged when green (14).
   - Q-23: a rival ghost inside an atmosphere gets no map marker in flight in R3, as in the
@@ -2564,12 +2917,12 @@ version).
 |-------|-------|-------|
 | R0 | Spikes on the owner's PC: S1b (the exact spots of the three new sites, by a finer scan), S2 to S7 of section 12, S9 and S10 of 15.11, S11 (what one ghost costs per frame at race scale), S12 (hashing and signing inside the game's runtime; optional, for R7) and S13 (the results folded into this document). S8, the sync program speed test, runs last, after the race works end to end on a plain shared folder (owner answer to Q-03, 13.A). S1, the terrain survey, and the code inventory that sizes the prerefactors (`docs/dev/research/multiplayer-base-refactoring-2026-11-14.md`) are done | Answers, not code: site positions, scenery copies, suits, the difficulty panel, the plaque window, what a mod can see of debug tools. Retires the feasibility risks before any feature code |
 | R0b | The prerefactors of 15.11, each its own change with no behavior change. The ghost positioner change (P2b) is one uninterrupted run of changes, proven at its end by a representative set of 18 lanes plus the daily tier, not by every lane (owner answer to Q-05, 13.A). The trajectory decode change (P6) is built in parallel and merged when green, outside that window (open: question Q-06, section 13). The groundwork for the Watch camera on rival flights (P3b) is not in the first build (owner answer to Q-07). The two single-player launch pad fixes landed on main outside this feature (owner answer to Q-04), so every prerefactor stays behavior-neutral | Base Parsek ready for a second ghost lane; no player-visible change. Single player keeps passing every suite and lane; the feature then lands on prepared ground. P2b is the largest. The additions of 15.11 land with the phase that first uses them; A1 and the capture halves of A2 and A3 land in R3 with export, because a fact that was not recorded cannot be rebuilt later. The line and label style seam (A5) is base Parsek and lands right after P2c and P2a, before the ghost positioner change (P2b) begins, ahead of its race users |
-| R1 | The race mark and gate, the main menu entry (visible from this phase on; there is no developer switch, owner 2026-11-15), the setup dialog (create, join, continue), `race.cfg` and `player.cfg`, slot and look assignment. `RaceCore` is registered (rule, layer, headless line, the forbidden edges whose two ends exist) in the commit that creates its first file, not ahead of it; `RaceWorld` and `RaceExport` register the same way with their own first files (the rival flight type, which can start on day one, and export in R3) | A race save can be created and joined; it plays like single player |
+| R1 | The race mark and gate, the main menu entry (visible from this phase on; there is no developer switch, owner 2026-11-15), the setup dialog (create, join, continue), `race.cfg` and `player.cfg`, slot and look assignment, the race content table (with the dev tool that generates it), the part set checkboxes and "allow play without scoring", the tree and part-value check at create, join and load with its refusal or warning, the locked progression settings and the launch warning. Trees other than stock (the creator's tree as everyone's reference) are later, not in the first build (owner, 2026-11-15). `RaceCore` is registered (rule, layer, headless line, the forbidden edges whose two ends exist) in the commit that creates its first file, not ahead of it; `RaceWorld` and `RaceExport` register the same way with their own first files (the rival flight type, which can start on day one, and export in R3) | A race save can be created and joined; it plays like single player |
 | R2 | The four sites: moving the working space center, the four terrain patches, the scenery copies, launch rules (with the greyed "allow other launch sites" option), removal on leaving the save, refusing to load a race save whose sites cannot be set up, science parity | Each player starts at their own copy of the KSC; single-player saves are untouched. The world of the race, still without rivals |
-| R3 | Export (standings, payload, digest) and import (the copy step, rival cache, rival store), with the race calendar, the ladder and the milestone tables the standing's milestones need; rival ghosts in flight, map view and the Tracking Station, in a neutral color until R5; leftovers, readable flags, launch areas kept clear, the isolation gates including the whole-save lane, and the simple tamper evidence of 7.15 (chain, witness log, receipts, self-heal). The Watch camera on rival flights is not part of it | "See your rivals": a player's flights reach the shared folder and show up for rivals as ghosts, leftovers and flags. Every file access is on the main thread |
+| R3 | Export (standings, payload, digest) and import (the copy step, rival cache, rival store), with the race calendar, the ladder and the milestone tables the standing's milestones need; rival ghosts in flight, map view and the Tracking Station, in a neutral color until R5; leftovers, readable flags, launch areas kept clear, the isolation gates including the whole-save lane, and the simple tamper evidence of 7.15 (chain, witness log, receipts, self-heal), with the uncounted parts per recording in the standing and their check at import. The Watch camera on rival flights is not part of it | "See your rivals": a player's flights reach the shared folder and show up for rivals as ghosts, leftovers and flags. Every file access is on the main thread |
 | R4 | The board (dates compared to the exact second, 6.6), the Space Race window, holder-change messages | "Have a race" |
 | R5 | Looks: own roster, the locked race suit and the blocked suit choice of the stock suit picker, ghost kerbals, the player colors on labels, icons and orbit lines (replacing R3's neutral color); the replacement suit sets | |
-| R6 | End date and final board (level total points name joint winners), disclosure marks (naming the changed difficulty settings), the no-retakes house rule, missing-parts and newer-version notes. The copy worker (if the owner allows it, open: question Q-18, section 13) and the poll tuning wait for spike S8 and are the last pieces | |
+| R6 | End date and final board (level total points name joint winners), disclosure marks (naming the changed difficulty settings), the no-retakes house rule, missing-parts and newer-version notes, the uncounted-parts mark with its 0-point hover, the "not scoring" player mark and the count of installed parts that do not count. The copy worker (if the owner allows it, open: question Q-18, section 13) and the poll tuning wait for spike S8 and are the last pieces | |
 | R7 | Hardening of 7.15, as far as the owner wants it: signed standings, the flight check (claim, teleport, sky, launch), the any-time replay viewer, the sealed-race house rule | Optional and not planned for the first build; the formats reserve room from R3 |
 | R8 | Recorded opponents and the solo race (15.10): the `Opponents` folder, the third setup choice, a harness campaign that produces opponents | Optional and not planned for the first build. After R4, independent of R7; needs no change to R1 to R6 beyond the `kind` field and seat reservation they already carry |
 
@@ -3021,13 +3374,14 @@ Choices made now so later ideas need no restructuring:
     it, and rules can treat it differently: a recorded opponent never "sees" anything, so
     the no-retakes rule and the receipts skip it, and it does not count as a player for
     "everyone has joined".
-  - *A recorded opponent is a finished player folder*: one manifest, one final standing and
-    its payload, copied into `players/` by the race creator (or shipped as a pack). Its
-    flights were launched from one site, so it carries its site slot and takes that seat;
-    slot assignment already allows a seat taken out of order (7.3). A pack records the mode,
-    the difficulty, the mod list and the site table it was flown with, and a race refuses a
-    pack whose site table differs. Its dates are all known from day 1, which fits the ruling
-    that rival dates are always shown: it is a pace car.
+  - *A recorded opponent is a finished player folder*: one manifest, one final standing and its
+    payload, copied into `players/` by the race creator (or shipped as a pack). Its flights were
+    launched from one site, so it carries its site slot and takes that seat; slot assignment already
+    allows a seat taken out of order (7.3). A pack records the mode, the difficulty, the mod list,
+    the site table and the race content table it was flown with, and a race refuses a pack whose
+    site table or content table differs. Its flights are judged by the race's counted part sets like
+    any other. Its dates are all known from day 1, which fits the ruling that rival dates are always
+    shown: it is a pace car.
   - *An AI is a writer of a player folder.* Whatever produces the flights (a script flying a
     second game, a planner that picks from a library of recorded flights as the race goes
     on), it joins by writing standings into its own subfolder, exactly as a player's game

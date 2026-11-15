@@ -1,9 +1,10 @@
 # Race export and exchange - implementation plan
 
-Status: PLAN (2026-11-14), not started. Design sections covered: 4 (4.1 to 4.4), 6.1 (the
-standing, `RaceLocal`, the own mirror and the rival cache files), 6.2 (the two new facts),
-6.3, 6.5, 7.5, 7.15 (the simple version), 9, 15.3, 15.9, and additions A1, A2 and A3 of 15.11.
-Phase R3, the export and exchange half (the rival world half is a sibling plan).
+Status: PLAN (2026-11-14), not started. Design sections covered: 4 (4.1 to 4.4), 6.1 (the standing,
+`RaceLocal`, the own mirror and the rival cache files), 6.2 (the two new facts), 6.3, 6.5, 7.5, 7.15
+(the simple version), 9, 15.3, 15.9, and additions A1, A2 and A3 of 15.11; 7.12's counted parts and
+save marks (R3E-25, owner rulings of 2026-11-15). Phase R3, the export and exchange half (the rival
+world half is a sibling plan).
 
 ## 1. Goal and scope
 
@@ -383,7 +384,9 @@ task adds it to the earlier task's file. Fields and enum members are not methods
     endpoint body, isDebris; r3w section 9.2), and id, vesselName, startUT, endUT,
     parentAnchorRecordingId, chainId, chainIndex, sidecarEpoch (the rival loader's epoch
     check, `RecordingSidecarStore.cs:180-185`). R3E-02 and R3W-03 agree the one key list in
-    R3E-02's pull request, so R3W-03 loads the file with the production reader.
+    R3E-02's pull request, so R3W-03 loads the file with the production reader. R3E-25 adds
+    `vesselPersistentId` (codec key of `Recording.VesselPersistentId`) to the list, so an
+    importer can redo the part path walk through a merge (design 6.1, 7.12).
   - Composition: R1-08's Controllers composer builds `RaceExportSource` and hands it to the
     driver as `IPublicStateSource` (`RaceWorld` never names `RaceExport`). The driver's
     `OnSessionStart` logs `[RaceExport] public state: recordings=N trees=M frontierUT=X
@@ -606,13 +609,24 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
     drops the milestone rows that match one by id and UT from the board and gives the player
     the mark `DebugCompleted`. A completion S9 cannot observe is listed as out of reach in
     design 7.12. Every member here is reached from a capture site or the export (A1).
+  - The save marks (design 7.12, owner, 2026-11-15). Each debug action S9 shows a mod can
+    observe that adds science, funds or reputation or unlocks technology, used while no
+    flight is being recorded (Space Center, Tracking Station, editor), calls
+    `FactCapture.NoteSaveMark(kind, detail, ut)` with kind `debug-progression` and the
+    action as detail; one Info line each. The list is kept in the same race facts child and
+    written as `DISCLOSURE` rows `SAVE_MARK { kind detail ut }`, read into the codec member
+    `Standing.SaveMarks` (a list of `{ Kind, Detail, UT }`). R3E-25 adds the second kind,
+    `research-under-other-tree`. A use during a recording stays a `DebugAction` tool use on
+    that recording (R3E-08's sites).
 - **Proof:** a pure `CheatOptionsWatch.Diff(previous, current)` test; codec round trip of
-  `DEBUG_COMPLETION` rows into `Standing.DebugCompletions`; the list survives a save and a
+  `DEBUG_COMPLETION` and `SAVE_MARK` rows into `Standing.DebugCompletions` and
+  `Standing.SaveMarks`; a debug action outside a recording writes a save mark and one inside
+  writes a tool use; the list survives a save and a
   load through the race facts child; a disarmed save records none; in-game test in `RaceFacts` that
   switches one option on during a recording, and one that completes a milestone through an
   observable debug action and reads the fact.
 - **Registers:** design doc 7.12 wording (the out-of-reach list); log tags.
-- **Size:** S. **Depends on:** R3E-08, R3E-15, S9. **PC:** yes. **Risk:** low.
+- **Size:** S-M. **Depends on:** R3E-08, R3E-15, S9. **PC:** yes. **Risk:** low.
 
 ### R3E-10 Tools in the standing
 
@@ -623,7 +637,9 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
   landing with R6-01 as an edit to the standing codec's file (its first caller, second-pass
   A1): the codec's derived view per recording for R4, `ToolsFromUT` = the least `ut` of its
   `TOOL` children (NaN when none) and `ToolIds` = their kinds, sorted (E.1.11). The `TOOL`
-  read and write branches are live here (reached from the scan and the export).
+  read and write branches are live here (reached from the scan and the export). R3E-25 adds
+  one rule here: a `ContentDiffers` use with a `part:` detail is not written as a `TOOL`
+  child (it becomes an `UNCOUNTED` child); one with the detail `tree` is.
 - **Proof:** export test with a builder recording carrying two uses; codec round trip. The
   view's tests (two uses, none) land with R6-01.
 - **Registers:** none. **Size:** S. **Depends on:** R3E-04, R3E-07. **PC:** no.
@@ -1043,6 +1059,82 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
   test in it re-pins that spec's `total=` in the same pull request.
 - **Size:** S. **Depends on:** R3E-18, R3E-20. **PC:** yes. **Risk:** low.
 
+### R3E-25 Uncounted parts, save marks and `contentDiffers` in the standing
+
+Owner rulings of 2026-11-15 (design 7.2, 7.12): a part outside the game's counted sets, or a
+counted part with changed values in a race that allows play without scoring, on the path to
+a milestone's vessel makes that date score 0; a tree that differs marks every recording
+made while it differs; a node bought while it differs marks the save from its date.
+
+- **Change:**
+  - Base capture (neutral names, 15.4). `FactCapture` gains `ContentTreeDiffers` and
+    `ChangedPartNames` (private setters) and `NoteContentDiffers(bool treeDiffers,
+    IEnumerable<string> changedNames)`, which R1-08's race session build calls after R1-20's
+    check, from `RaceSession.ContentDiff` (an edit to R1-08's file; empty in a race that
+    refuses differences, since such a save never loads). R3E-07's `ToolKind` gains
+    `ContentDiffers = 7` (additive; an older build skips the unknown kind, R3E-07).
+    `FlightRecorder.ToolUse.cs`: at record start, when `ContentTreeDiffers`,
+    `NoteToolUse(ContentDiffers, "tree", startUT)`; at record start and at each
+    `GameEvents.onVesselWasModified` of the recorded vessel, one
+    `NoteToolUse(ContentDiffers, "part:<name>", ut)` per vessel part named in
+    `ChangedPartNames` (the dot form, R1-22's rule). `GameStateRecorder.OnTechResearched`
+    (`GameActions/GameStateRecorder.Handlers.cs:637`), on a successful research while
+    `FactCapture.Armed` and `ContentTreeDiffers`, calls `FactCapture.NoteSaveMark(
+    "research-under-other-tree", techId, ut)` (R3E-09's member), so the mark is dated and
+    kept for good in the race facts child.
+  - The walk. `RaceCore/UncountedPathWalk.cs` (pure, over a neutral node shape `PathNode { Id,
+    ChainId, ChainIndex, VesselPid, ParentIds, Parts (name, fromUT, isClamp) }`, so the exporter and
+    the import check run the same code): for each recording, its path (design 7.12): itself, its
+    chain predecessors (`ChainId`, `ChainIndex`), and its ancestors through each `BranchPoint` up to
+    the launch; at a merge (`ParentRecordingIds` with two or more ids) only the parent whose
+    `VesselPersistentId` equals the child's, both when both or neither match. A node's `Parts` come
+    from its ghost snapshot (from the recording's start; a merged child's snapshot is taken at the
+    merge, `Controllers/ParsekFlightSplitBrancher.cs:1078-1083`) and from each `InventoryPartPlaced`
+    part event at its UT (the attach, `Controllers/ConstructionGhostShape.cs:58-91`). Names through
+    R1-22's `UncountedParts.Classify` against the race's content table and part sets; a part whose
+    snapshot `PART` holds a `MODULE` named `LaunchClamp` is never counted (`isClamp`). Output per
+    recording: one `UNCOUNTED { name ut why }` child per name, `why` = `outside` or `changed` (the
+    second from the path's `ContentDiffers` uses with a `part:` detail, which R3E-10 leaves out of
+    the `TOOL` children), `ut` = the earliest date on the path.
+  - Export. `RaceExportSource.Uncounted.cs` builds the nodes from the ERS recordings (the
+    snapshot through R3E-03's projection cache) and writes the children;
+    `RaceExportSource.Disclosure.cs` (R3E-15's file) writes `contentDiffers` from the
+    composer's `RaceContentDiff` value (R1-20's RaceCore type, handed in by R1-08's
+    composer, so `RaceExport` names no `RaceWorld` type) and the research `SAVE_MARK` rows
+    through R3E-09's writer. The digest includes all three.
+  - Tree file key list: `vesselPersistentId` added (R3E-02's list; design 6.1).
+  - Import check (`RaceSync.Import.cs`, R3E-18's file, before applying a complete standing):
+    `RaceExport/PayloadPathNodes.cs` builds the nodes from the copied payload bytes (the tree file's
+    keys, the ghost snapshots through `SnapshotSidecarCodec.TryLoad`, the part events through the
+    production trajectory reader), reached as a port `IPayloadPathNodes` that R1-08's composer puts
+    in `SyncPorts` (`RaceCore` names no Recording type); the walk is rerun for the `outside`
+    children only; a name the payload shows on a path but the standing does not list, or one it
+    lists that the payload does not show, is treated like a changed file: not applied, the last good
+    standing stays, and R3E-19's neutral mark `FilesChanged(playerId, "uncounted-parts-disagree")`.
+    `changed` children are the writer's own finding and are not checked (design 7.12). A standing at
+    a newer race format is taken as its children state (design 7.8).
+  - Codec: `REC { ... UNCOUNTED { name ut why } }` read into `StandingRecording.Uncounted`
+    (R4's input shape), `DISCLOSURE { ... SAVE_MARK { kind detail ut } contentDiffers }`;
+    all additive, no bump.
+- **Proof:** xUnit `UncountedPathWalkTests` over `PathNode` lists and over `RecordingBuilder` trees:
+  a part on the named recording, a chain predecessor and a split ancestor marks; a sibling does not;
+  a dock marks the merged vessel from the merge and never the absorbed partner's launch; both or
+  neither parent matching walks both; an attach counts from its event; a clamp never; dot names with
+  the suffix removed. `FlightRecorderToolUseTests` gains the tree and part cells (none while
+  disarmed or with no difference); a `GameStateRecorder` cell for the research save mark (only while
+  the tree differs). `RaceSyncImportTests` gains: a standing missing an `UNCOUNTED` name, and one
+  naming a part its payload lacks, are not applied and carry the mark; a `changed` child is not
+  checked. Codec round trips; a single-player save and a race without differences serialize
+  byte-identical to today. Logs: `[RaceExport] uncounted: recordings=N parts=M`, `[RaceSync]
+  uncounted check failed player=.. name=..`.
+- **Registers:** the post-change checklist for the new `ToolKind` member (R3E-07's codec,
+  generators); `headless_pins.toml` (`UncountedPathWalk`); `log_tags.json`.
+- **Size:** M. **Depends on:** R3E-03, R3E-04, R3E-08, R3E-09, R3E-10, R3E-15, R3E-18,
+  R3E-19, R1-20, R1-22. **PC:** no.
+- **Risk:** medium; the walk must give the same answer on both sides of the exchange, so
+  both build the same `PathNode`s and call the one `UncountedPathWalk`; a cell builds the
+  nodes both ways from one exported folder and compares them.
+
 ## 5. Parallel tracks
 
 | Track | Tasks | Notes |
@@ -1051,17 +1143,18 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
 | Base facts | R3E-07 and R3E-12 at once (no dependency); R3E-06 when R1-04 and R1-08 land; then R3E-08 (needs 06, 07), R3E-13 (needs 06, 12), R3E-09 (needs 08, 15, S9) | run beside the core track from day one |
 | Blocks | after 04: R3E-10, 11, 14, 15, 22 together | each adds a `RaceExportSource.<Block>.cs` partial and one codec block (R3E-14 two: `LEFTOVERS` and `FLAGS`); they touch `PublicState.cs`, `Standing.cs` and `StandingCodec.cs` with small additive edits, so merge them one at a time |
 | Exchange | after 04 (with T-02 and R1-10): R3E-16 -> 17; 16 -> 18 (with T-16) -> 19 (with T-18) -> 20; 21 after 11 and 18; 23 after 16; 24 after 20 | R3E-17 and R3E-18 can run together |
+| Counted parts | R3E-25 after 09, 10, 15, 19 and R1-20, R1-22 | edits `FactCapture.cs`, `FlightRecorder.ToolUse.cs`, `GameStateRecorder.Handlers.cs`, the standing codec, `RaceExportSource.Disclosure.cs` and `RaceSync.Import.cs`; lands after the block tasks and R3E-19 |
 
-Hot files that force an order: `RaceSync.cs` and `RaceSyncDriver.cs` (01, 02, 04, 16, 17, 18,
-20, 22); `PublicState.cs`, `Standing.cs`, `StandingCodec.cs` (the block tasks and R3E-09);
-`Recording.cs`, `RecordingTreeRecordCodec.cs`, `RecordingOptimizer.cs` (R3E-07, and any other
-slice that adds recording fields); `GameAction.cs` and the ledger switch files (R3E-12);
-`ParsekScenario.VesselLifecycle.cs` (R3E-13); `Fixtures/FormatGolden/` (R3E-04's `v3` after
-R1-12's `v2`); R1-08's `RacePorts.cs`, `RaceFolder.cs`, `RaceTimestamp.cs`, `RaceIds.cs`
-(R3E-01) and R1-10's `RaceSharedFolder.cs` (R3E-16), `RaceFolderCheck.cs` (R3E-01, R3E-16),
-`RaceExchangeTests.cs` (R3E-01, R3E-24), each after its
-R1 task; `Config/FactCapture.cs` (R3E-06, 09, 15); `LoadReconcilePolicy.cs` (R3E-15);
-`lifetimes.toml` and the reset allowlist (R3E-06); the threads allowlist (R3E-23).
+Hot files that force an order: `RaceSync.cs` and `RaceSyncDriver.cs` (01, 02, 04, 16, 17, 18, 20,
+22); `PublicState.cs`, `Standing.cs`, `StandingCodec.cs` (the block tasks and R3E-09);
+`Recording.cs`, `RecordingTreeRecordCodec.cs`, `RecordingOptimizer.cs` (R3E-07, and any other slice
+that adds recording fields); `GameAction.cs` and the ledger switch files (R3E-12);
+`ParsekScenario.VesselLifecycle.cs` (R3E-13); `Fixtures/FormatGolden/` (R3E-04's `v3` after R1-12's
+`v2`); R1-08's `RacePorts.cs`, `RaceFolder.cs`, `RaceTimestamp.cs`, `RaceIds.cs` (R3E-01) and
+R1-10's `RaceSharedFolder.cs` (R3E-16), `RaceFolderCheck.cs` (R3E-01, R3E-16),
+`RaceExchangeTests.cs` (R3E-01, R3E-24), each after its R1 task; `Config/FactCapture.cs` (R3E-06,
+09, 15, 25); `RaceSync.Import.cs` (R3E-18, 25); `LoadReconcilePolicy.cs` (R3E-15); `lifetimes.toml`
+and the reset allowlist (R3E-06); the threads allowlist (R3E-23).
 
 ## 6. Tests and proof
 
@@ -1083,7 +1176,8 @@ R1 task; `Config/FactCapture.cs` (R3E-06, 09, 15); `LoadReconcilePolicy.cs` (R3E
   `RecordingStore` and the ledger (`[Collection("Sequential")]`, reset calls). They prove
   ERS / ELS are the only reads and the not-ready rules.
 - **xUnit, base additions:** A1 collector, A2 row type switches and capture decision, stand
-  query table, A3 codec / merge / split / clone, the debug-completion fact; plus
+  query table, A3 codec / merge / split / clone, the debug-completion fact, the save marks
+  (R3E-09, R3E-25), the `ContentDiffers` tool use and the part path walk (R3E-25); plus
   byte-identity of a single-player tree and ledger with the feature compiled in.
 - **Golden:** the `v3` folder through `FormatGoldenV3Tests` and the three gate tests;
   R3E-04's cells in R1-03's `RaceFormatPinTests`.
@@ -1128,7 +1222,9 @@ R1 task; `Config/FactCapture.cs` (R3E-06, 09, 15); `LoadReconcilePolicy.cs` (R3E
   and the shared layout (R3E-16); `ChangeToken` (R3E-17); the rival cache paths (R3E-18);
   `witness.cfg` (R3E-19); `RequestProof` (R3E-20); the driver's posting of
   `SyncResult.Messages` (R3E-22); the codec's `ToolsFromUT` / `ToolIds` view (R6-01);
-  `RequestSyncNow` and `TickKind.SyncNow` (R4-09); the `VesselEnded` row builder (R3E-13).
+  `RequestSyncNow` and `TickKind.SyncNow` (R4-09); the `VesselEnded` row builder (R3E-13);
+  `FactCapture.NoteSaveMark` (R3E-09, its first caller); `NoteContentDiffers` and
+  `IPayloadPathNodes` (R3E-25).
   `RivalStandingVerdict` and `Standing` are fields only. R3E-01's `List`, `Exists`, `Move`,
   `Delete` and short id are live through its `RaceExchange` cell (ruling A5), and
   `RacePaths.LongestExpected*` through R1-10's `RaceFolderCheck` call site it updates.
@@ -1137,12 +1233,13 @@ R1 task; `Config/FactCapture.cs` (R3E-06, 09, 15); `LoadReconcilePolicy.cs` (R3E
   Everything else is instance state held by the session.
 - **Background threads:** one allowlist entry in R3E-23, only with the owner's yes.
 - **ERS / ELS gate:** no allowlist entry.
-- **Save format:** no row and no bump here: R1-12 registers `race-link` and
-  `race-exchange` and writes `v2`; R3E-04 adds golden `v3` at `race-exchange = 1` and cells
-  in R1-03's `RaceFormatPinTests` (OV-15, OV-16); the `FLAGS` block, `vtype`, `TOOL` and
-  `DEBUG_COMPLETION` rows are additive keys; A2 and A3 are additive (no bump); the
-  post-change checklist for R3E-07 and R3E-12; R3E-15's `LoadReconcilePolicy` row for the
-  race facts child (OV-28).
+- **Save format:** no row and no bump here: R1-12 registers `race-link` and `race-exchange` and
+  writes `v2`; R3E-04 adds golden `v3` at `race-exchange = 1` and cells in R1-03's
+  `RaceFormatPinTests` (OV-15, OV-16); the `FLAGS` block, `vtype`, `TOOL` and `DEBUG_COMPLETION`,
+  `SAVE_MARK` and `UNCOUNTED` rows, `contentDiffers`, the `vesselPersistentId` tree key and
+  `ToolKind.ContentDiffers` are additive keys; A2 and A3 are additive (no bump); the post-change
+  checklist for R3E-07 and R3E-12; R3E-15's `LoadReconcilePolicy` row for the race facts child
+  (OV-28).
 - **GUI gates:** no new surface. Screen messages: one site, the driver's (R3E-22), the one
   producer of race messages (OV-38); the heal and two-computers messages (R3E-20), the "left
   the race" message (R3E-22), the clash note and the "joined the race" message (R3E-18),
