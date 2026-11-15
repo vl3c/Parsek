@@ -151,13 +151,13 @@ typed or pasted), no marker drawn at a rival's site, and no panel on a stock scr
 
 ## 1. Introduction
 
-A race is one whole multiplayer game: up to four players who each play a full Sandbox,
-Science or Career game from day 1, compared across every milestone of the Kerbal system for as
-long as they play (owner, 2026-11-15). It is not a contest to reach one chosen goal first, and
-there are no race types or presets: every race has the same milestones and the same points
-(7.9). Each player plays their own save, at their own pace, on their own game clock. Nobody needs to be online at the same time. A folder synced by any file-sharing
-service (Dropbox, Google Drive, a network share) carries each player's public state to the
-others. Correspondence chess, not real-time multiplayer.
+A race is one whole multiplayer game: up to four players who each play a full Sandbox, Science or
+Career game from day 1, compared across every milestone of the Kerbal system for as long as they
+play (owner, 2026-11-15). It is not a contest to reach one chosen goal first, and there are no
+race types or presets: every race has the same milestones and the same points (7.9). Each player
+plays their own save, at their own pace, on their own game clock. Nobody needs to be online at the
+same time. A folder synced by any file-sharing service (Dropbox, Google Drive, a network share)
+carries each player's public state to the others. Correspondence chess, not real-time multiplayer.
 
 What a player shares is what a spectator could see: their flights (as recordings), their flags,
 their space center, and the game date at which they reached each milestone. What a player keeps
