@@ -2121,8 +2121,8 @@ is the one place where what a machine remembers decides what it scores (principl
    better. Under the no-retakes house rule a first lost this way may be gone for good,
    because by now the rivals' claims have been seen (7.11).
 10. **A Re-Fly of a flight the rivals already have.** A flight that can still be re-flown is
-    shared like any other. Only a flight that earned nothing after its separation can be re-
-    flown, so a Re-Fly never removes the date the ledger credits; at most it removes a later
+    shared like any other. Only a flight that earned nothing after its separation can be
+    re-flown, so a Re-Fly never removes the date the ledger credits; at most it removes a later
     repeat of a milestone held earlier. The merged attempt replaces the old flight for the
     rivals at the next sync (their ghost of it changes). If the attempt reaches a milestone, its
     date is the game date of the re-flown flight and follows the usual rules, the no-retakes
