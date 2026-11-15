@@ -204,8 +204,16 @@ is retired by composition of things that have shipped since:
 - Harvest windows already close/reopen at the boundary (M2) and the flow-closure harvested
   term is window-interval based, not recording based.
 
-What this design ADDS for the mid-run case is only what 2.2 already adds: the empty grab
-window must be skippable rather than run-rejecting. A fixture test (section 6) pins the
+What this design ADDS for the mid-run case is what 2.2 already adds: the empty grab
+window must be skippable rather than run-rejecting. One more piece followed from the first
+live flight (AST-3, 2026-11-15, todo ROUTE-HELD-ROCK-HARVEST-UNCOUNTED): in "grab -> drill ->
+release -> dock", the harvest gain anchor must cross the grab and the release, or the drilled
+Ore rides into the post-release leg's start manifest and its harvest window is pre-anchor.
+`RouteHarvestAnalysis.IsStructuralGrappleSeam` lets the backward anchor walk cross an Undock
+out of a leg whose run-manifest scope is the window scope plus exactly the endpoint parts of one
+of that leg's own Grapple windows whose endpoint has no resource storage (a rock), with the
+bare transport on the other side, and then that
+leg's own Dock (both seams or neither); every other Dock / Undock still stops the walk. A fixture test (section 6) pins the
 full mid-run shape end to end. No new merge machinery, no M4 remnant.
 
 ### 4.3 Ambiguous cases and their named outcomes

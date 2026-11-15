@@ -20,6 +20,30 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~ROUTE-HELD-ROCK-HARVEST-UNCOUNTED~~: Ore drilled from a Klaw-held rock was not counted as harvest, so the route was refused [FILED 2026-11-15 from the AST-3 flight `2026-11-15_2035_AST-3-klaw-mine-route` (PR #2633; results branch `ast-flights-2026-11-15`, folder `ast-klaw-2026-11-15d`). FIXED 2026-11-15, same PR; xUnit; AST-3 re-flight owed; medium (a rock-mining route could never be made)]
+
+What the player saw: launch a miner, grab a rock with the Klaw, drill it, release it, dock at a
+station and move the Ore across. Creating a route from that flight was refused: `RouteAnalysis
+rejected: undocked-start origin (harvest-refined) ... reason=delivered-exceeds-harvested
+resource=Ore delivered=0.7994 harvested=0`, although the hold leg carried the harvest window.
+
+Cause: the harvest gain check anchors its backward walk at the arrival leg and never crossed an
+Undock / Dock branch point, so the anchor was the leg after the release. The drilled Ore was
+already aboard at that leg's start (zero gain), and the hold leg's harvest window sat before the
+anchor and was excluded, so the harvested total was 0 and the undocked-start gate refused.
+
+Fix: `RouteHarvestAnalysis.FindGainAnchorIndex` crosses the grab and the release of a structural
+grapple hold (`IsStructuralGrappleSeam`): an Undock out of a leg, and then that leg's own Dock,
+whose run manifest scope is the window scope plus exactly the endpoint parts of one of its own
+Grapple connection windows whose endpoint has no resource storage at either corner (a rock;
+a derelict or colony with tanks keeps the old anchor, or its own converters' output would read
+as transport harvest), with the bare transport on the other side. Both seams are crossed or
+neither: a transport that arrives still holding the object keeps its anchor on the hold, and a
+grab from a larger vessel keeps the post-release anchor. In AST-3 the anchor becomes the launch
+leg and the drill window counts. A docking-port hold, or a hold that also carries other parts,
+still stops the walk. Tests: `RouteHarvestAnalysisComputeTests` (six anchor-walk cells) and
+`RouteHarvestAnalysisTests.CheckTransportGains_OreDrilledOnAHeldRock_CountsAsHarvest`.
+
 ## REFLY-ATTEMPT-STALE-END-UT: a flown Re-Fly attempt can be saved with its end UT at its start [FILED 2026-11-15 from the AST-4 reading run `2026-11-15_1941_AST-4-klaw-refly` (PR #2633, fcceccd; results branch `ast-flights-2026-11-15`, folder `ast-klaw-2026-11-15b`); not investigated; severity unknown]
 
 What was seen (report-only, the lane passed): in the produced save the Re-Fly attempt recording
