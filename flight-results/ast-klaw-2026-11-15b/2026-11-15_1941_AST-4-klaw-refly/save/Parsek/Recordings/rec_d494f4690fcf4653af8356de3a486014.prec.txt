@@ -1,0 +1,60 @@
+version = 1
+recordingSchemaGeneration = 4
+recordingId = rec_d494f4690fcf4653af8356de3a486014
+sidecarEpoch = 3
+sectionAuthoritative = True
+TRACK_SECTION
+{
+	env = 2
+	ref = 2
+	startUT = 358.01153320304235
+	endUT = 1097.5333926390797
+	sampleRate = 0
+	src = 2
+	ORBIT_SEGMENT
+	{
+		startUT = 358.01153320304235
+		endUT = 1097.5333926390797
+		inc = 0.089525451943695322
+		ecc = 0.010451159295204166
+		sma = 699278.49374851375
+		lan = 136.74573534721321
+		argPe = 174.18581110895298
+		mna = 1.8476201379358286
+		epoch = 357.71153320304262
+		body = Kerbin
+		isPredicted = False
+		ofrX = 0.6274743
+		ofrY = 0.002614879
+		ofrZ = 0.00193309493
+		ofrW = 0.7786305
+	}
+}
+TRACK_SECTION
+{
+	env = 2
+	ref = 0
+	startUT = 1097.5333926390797
+	endUT = 1100.0333926390774
+	sampleRate = 0
+	minAlt = 102759.031
+	maxAlt = 102759.031
+	POINT
+	{
+		ut = 1097.5333926390797
+		lat = 0.073532404440563123
+		lon = 83.631484266647632
+		alt = 102759.02740163903
+		rotX = 0.165679634
+		rotY = -0.162232757
+		rotZ = -0.687537432
+		rotW = 0.68813026
+		body = Kerbin
+		velX = 1361.55627
+		velY = 1.96656585
+		velZ = 1773.83337
+		funds = 0
+		science = 0
+		rep = 0
+	}
+}

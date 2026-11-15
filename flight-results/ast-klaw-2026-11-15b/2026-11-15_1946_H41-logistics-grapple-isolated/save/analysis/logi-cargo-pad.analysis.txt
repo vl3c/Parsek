@@ -1,0 +1,1 @@
+[Analyzer] save=logi-cargo-pad generation=0 FAIL=0 WARN=0 INFO=0 STALE=0 BASELINED=0 RED=0

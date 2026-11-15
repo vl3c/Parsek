@@ -1,0 +1,7 @@
+2026-11-15T19:36:58Z PASS AST-1-klaw-grab-rewind attempts=1 wall=259s slot=stock-minimal runIds=2026-11-15_1932_AST-1-klaw-grab-rewind
+2026-11-15T19:38:05Z PASS AST-2-klaw-release attempts=1 wall=310s slot=stock-minimal-2 runIds=2026-11-15_1932_AST-2-klaw-release
+2026-11-15T19:41:38Z INVALID COM-1-comet-klaw-grab attempts=2 wall=280s slot=stock-minimal runIds=2026-11-15_1936_COM-1-comet-klaw-grab,2026-11-15_1939_COM-1-comet-klaw-grab_a2
+2026-11-15T19:46:44Z PASS AST-4-klaw-refly attempts=1 wall=305s slot=stock-minimal runIds=2026-11-15_1941_AST-4-klaw-refly
+2026-11-15T19:47:44Z PASS H41-logistics-grapple-isolated attempts=1 wall=60s slot=stock-minimal runIds=2026-11-15_1946_H41-logistics-grapple-isolated
+2026-11-15T19:58:30Z INVALID AST-3-klaw-mine-route attempts=2 wall=1225s slot=stock-minimal-2 runIds=2026-11-15_1938_AST-3-klaw-mine-route,2026-11-15_1948_AST-3-klaw-mine-route_a2
+# totals PASS=4 INVALID=2 pending=0 of 6

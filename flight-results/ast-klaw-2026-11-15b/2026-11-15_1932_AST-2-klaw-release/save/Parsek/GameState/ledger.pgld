@@ -1,0 +1,68 @@
+version = 0
+recordingSchemaGeneration = 4
+takeBackFromCseq = 1
+timelineBreak = 3 357.17153320304311 PlainRewind
+allowNegativeLocked = 0
+GAME_ACTION
+{
+	ut = 355.87153320304429
+	type = 4
+	actionId = act_d6f9f212e77d41e892c3534ef44fea29
+	seq = 1
+	cseq = 1
+	insideRepSeed = True
+	milestoneId = Kerbin/Rendezvous
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 515.61153320289907
+	type = 4
+	actionId = act_e6ad6d16baed40328c6fc06fae2d3aea
+	recordingId = ea7c93df750c4b0c872419dcaeaba0ed
+	seq = 1
+	cseq = 2
+	insideRepSeed = True
+	milestoneId = Kerbin/StationConstruction
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 515.61153320289907
+	type = 4
+	actionId = act_cd61cdc9d9ed4826b7cf50ed8152924c
+	recordingId = ea7c93df750c4b0c872419dcaeaba0ed
+	seq = 2
+	cseq = 3
+	insideRepSeed = True
+	milestoneId = Kerbin/Docking
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+PROGRESS_SEED
+{
+	captured = True
+	node = FirstLaunch
+	node = Kerbin/Orbit
+	node = ReachedSpace
+	RECORD
+	{
+		id = RecordsAltitude
+		paidCount = 5
+	}
+	RECORD
+	{
+		id = RecordsDistance
+		paidCount = 5
+	}
+	RECORD
+	{
+		id = RecordsSpeed
+		paidCount = 4
+	}
+}

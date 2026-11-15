@@ -1,0 +1,846 @@
+{
+  "admission": {
+    "admitted": true,
+    "diff": [],
+    "subkind": ""
+  },
+  "artifacts": {
+    "kspLog": true,
+    "kspLogTruncated": false,
+    "ran": true,
+    "renderManifest": false,
+    "screenshots": 0,
+    "screenshotsSkipped": 0,
+    "shotsDir": "2026-11-15_1941_AST-4-klaw-refly_shots"
+  },
+  "attempt": 1,
+  "attemptsWallSeconds": 303,
+  "collectLogs": {
+    "path": null,
+    "ran": false
+  },
+  "driver": {
+    "allExpectedMet": true,
+    "steps": [
+      {
+        "captured": {
+          "save": "ast-mothership-lko",
+          "scene": "FLIGHT",
+          "ut": "356.8515332030434"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0001",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "idle": "true",
+          "stopped": "false",
+          "ut": "356.95153320304331"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0002",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "nothing": "true",
+          "ut": "356.97153320304329"
+        },
+        "cmd": "DiscardTree",
+        "expect": "OK",
+        "id": "0003",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnLaunch",
+          "ut": "357.01153320304326",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0004",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "verboseLogging",
+          "ut": "357.03153320304324",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0005",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "recordingId": "b30873cc37e447b5bc8127a793425825",
+          "ut": "357.0715332030432"
+        },
+        "cmd": "StartRecording",
+        "expect": "OK",
+        "id": "0006",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "points": "1",
+          "recording": "true",
+          "scene": "FLIGHT",
+          "tree": "1cd2abea23414b70b5d0be5169fa9436",
+          "ut": "357.09153320304318"
+        },
+        "cmd": "RecordingState",
+        "expect": "OK",
+        "id": "0007",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "ast4-undock",
+          "ut": "357.13153320304315"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0008",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "activeName": "AST Klaw",
+          "activePid": "2710401000",
+          "button": "undock",
+          "converter": "",
+          "count": "1",
+          "event": "Undock",
+          "newName": "AST Klaw Probe",
+          "newPid": "1637664549",
+          "packed": "0",
+          "part": "dockingPort3",
+          "partId": "1710001003",
+          "pid": "2710401000",
+          "state": "",
+          "ut": "357.15153320304313",
+          "vesselsAfter": "3",
+          "vesselsBefore": "2",
+          "warpIndex": "0",
+          "warpRate": "1"
+        },
+        "cmd": "PartAction",
+        "expect": "OK",
+        "id": "0009",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "17.808466796956907",
+          "maxRate": "1",
+          "target": "375",
+          "ut": "374.79153320302709"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0010",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "ast4-grab",
+          "ut": "374.911533203027"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0011",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "expect": "MISSION-OK",
+        "id": "0012",
+        "met": true,
+        "missionVerdict": "MISSION-OK",
+        "phase": "mission",
+        "subkind": null,
+        "verdict": "MISSION-OK"
+      },
+      {
+        "captured": {
+          "label": "ast4-held",
+          "ut": "572.17153320284763"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0013",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "stopped": "true",
+          "ut": "572.19153320284761"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0014",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "committed": "true",
+          "ut": "572.21153320284759"
+        },
+        "cmd": "CommitTree",
+        "expect": "OK",
+        "id": "0015",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "stopped": "true",
+          "ut": "572.25153320284755"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0016",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "discarded": "true",
+          "ut": "572.29153320284752"
+        },
+        "cmd": "DiscardTree",
+        "expect": "OK",
+        "id": "0017",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "count": "3",
+          "kind": "committed",
+          "rec0": "7a2b488cc6bf4c67a1069b23cd50e519",
+          "rec0name": "AST Klaw",
+          "rec0pid": "2710401000",
+          "rec0spawned": "true",
+          "rec0spawnedPid": "2710401000",
+          "rec0state": "Immutable",
+          "rec0tree": "1cd2abea23414b70b5d0be5169fa9436",
+          "rec1": "b30873cc37e447b5bc8127a793425825",
+          "rec1name": "AST Klaw",
+          "rec1pid": "2710401000",
+          "rec1spawned": "false",
+          "rec1spawnedPid": "0",
+          "rec1state": "Immutable",
+          "rec1tree": "1cd2abea23414b70b5d0be5169fa9436",
+          "rec2": "f2447763d02c49e3a84300a6ad353309",
+          "rec2name": "AST Klaw Probe",
+          "rec2pid": "1637664549",
+          "rec2spawned": "true",
+          "rec2spawnedPid": "1637664549",
+          "rec2state": "CommittedProvisional",
+          "rec2tree": "1cd2abea23414b70b5d0be5169fa9436",
+          "truncated": "false",
+          "ut": "572.3115332028475"
+        },
+        "cmd": "ListHandles",
+        "expect": "OK",
+        "id": "0018",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "ast4-committed-3",
+          "ut": "572.35153320284746"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0019",
+        "met": true,
+        "substitutions": [
+          {
+            "arg": "label",
+            "ref": "${c0.count}",
+            "value": "3"
+          }
+        ],
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "scene": "SPACECENTER",
+          "ut": "572.47153320284735"
+        },
+        "cmd": "ExitToSpaceCenter",
+        "expect": "OK",
+        "id": "0020",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "persistent",
+          "ut": "572.49153320284734"
+        },
+        "cmd": "SaveGame",
+        "expect": "OK",
+        "id": "0021",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "save": "ast-mothership-lko",
+          "scene": "FLIGHT",
+          "ut": "573.4115332028465"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0022",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnLaunch",
+          "ut": "573.45153320284646",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0023",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "verboseLogging",
+          "ut": "573.47153320284644",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0024",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "stopped": "true",
+          "ut": "573.49153320284643"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0025",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "count": "1",
+          "kind": "rewindpoints",
+          "rp0": "rp_5b750095cf6a407481ef66934dfc9d6f",
+          "rp0corrupted": "false",
+          "rp0provisional": "false",
+          "rp0slot0": "b30873cc37e447b5bc8127a793425825",
+          "rp0slot0open": "false",
+          "rp0slot1": "f2447763d02c49e3a84300a6ad353309",
+          "rp0slot1open": "true",
+          "rp0slots": "2",
+          "rp0ut": "357.67153320304266",
+          "truncated": "false",
+          "ut": "573.53153320284639"
+        },
+        "cmd": "ListHandles",
+        "expect": "OK",
+        "id": "0026",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "activePid": "2710001010",
+          "rewound": "true",
+          "rp": "rp_5b750095cf6a407481ef66934dfc9d6f",
+          "session": "sess_344d653065ee42a2853ce88dbbc68568",
+          "slot": "1",
+          "ut": "357.79153320304255"
+        },
+        "cmd": "InvokeRewind",
+        "expect": "OK",
+        "id": "0027",
+        "met": true,
+        "substitutions": [
+          {
+            "arg": "rp",
+            "ref": "${handles.rp0}",
+            "value": "rp_5b750095cf6a407481ef66934dfc9d6f"
+          }
+        ],
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "chain0links": "1",
+          "chain0pid": "1490391000",
+          "chain0spawnUT": "572.19153320284761",
+          "chain0terminated": "false",
+          "chain0tip": "7a2b488cc6bf4c67a1069b23cd50e519",
+          "chain0treeIds": "1cd2abea23414b70b5d0be5169fa9436",
+          "chain0trees": "1",
+          "count": "1",
+          "digest": "a3ae5f37",
+          "evaluated": "true",
+          "kind": "chains",
+          "truncated": "false",
+          "ut": "358.05153320304231"
+        },
+        "cmd": "ListHandles",
+        "expect": "OK",
+        "id": "0028",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "points": "1",
+          "recording": "true",
+          "scene": "FLIGHT",
+          "tree": "1cd2abea23414b70b5d0be5169fa9436",
+          "ut": "358.07153320304229"
+        },
+        "cmd": "RecordingState",
+        "expect": "OK",
+        "id": "0029",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "ast4-refly-start-chains-1",
+          "ut": "358.09153320304227"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0030",
+        "met": true,
+        "substitutions": [
+          {
+            "arg": "label",
+            "ref": "${chains.count}",
+            "value": "1"
+          }
+        ],
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "741.8884667969578",
+          "maxRate": "50",
+          "target": "1100",
+          "ut": "1099.7733926390777"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0031",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "count": "3",
+          "kind": "committed",
+          "rec0": "7a2b488cc6bf4c67a1069b23cd50e519",
+          "rec0name": "AST Klaw",
+          "rec0pid": "2710401000",
+          "rec0spawned": "true",
+          "rec0spawnedPid": "2710401000",
+          "rec0state": "Immutable",
+          "rec0tree": "1cd2abea23414b70b5d0be5169fa9436",
+          "rec1": "b30873cc37e447b5bc8127a793425825",
+          "rec1name": "AST Klaw",
+          "rec1pid": "2710401000",
+          "rec1spawned": "false",
+          "rec1spawnedPid": "0",
+          "rec1state": "Immutable",
+          "rec1tree": "1cd2abea23414b70b5d0be5169fa9436",
+          "rec2": "f2447763d02c49e3a84300a6ad353309",
+          "rec2name": "AST Klaw Probe",
+          "rec2pid": "1637664549",
+          "rec2spawned": "true",
+          "rec2spawnedPid": "1637664549",
+          "rec2state": "CommittedProvisional",
+          "rec2tree": "1cd2abea23414b70b5d0be5169fa9436",
+          "truncated": "false",
+          "ut": "1099.9733926390775"
+        },
+        "cmd": "ListHandles",
+        "expect": "OK",
+        "id": "0032",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "ast4-refly-end-3",
+          "ut": "1099.9933926390775"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0033",
+        "met": true,
+        "substitutions": [
+          {
+            "arg": "label",
+            "ref": "${post.count}",
+            "value": "3"
+          }
+        ],
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "choice": "merge",
+          "result": "committed",
+          "ut": "1100.1133926390773"
+        },
+        "cmd": "AnswerMergeDialog",
+        "expect": "OK",
+        "id": "0034",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "points": "0",
+          "recording": "false",
+          "scene": "SPACECENTER",
+          "tree": "",
+          "ut": "1100.1333926390773"
+        },
+        "cmd": "RecordingState",
+        "expect": "OK",
+        "id": "0035",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "persistent",
+          "ut": "1100.1733926390773"
+        },
+        "cmd": "SaveGame",
+        "expect": "OK",
+        "id": "0036",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "true",
+          "ut": "1100.1933926390773"
+        },
+        "cmd": "FlushAndQuit",
+        "expect": "OK",
+        "id": "0037",
+        "met": true,
+        "verdict": "OK"
+      }
+    ]
+  },
+  "endedUtc": "2026-11-15T19:46:43Z",
+  "expectedFail": {
+    "bugId": "",
+    "matched": false
+  },
+  "instanceProfile": "stock-minimal",
+  "kspExit": {
+    "code": 0,
+    "killed": false
+  },
+  "missionWallSeconds": 197,
+  "note": "",
+  "runId": "2026-11-15_1941_AST-4-klaw-refly",
+  "scenarioId": "AST-4-klaw-refly",
+  "schema": 1,
+  "snapshot": {
+    "bytes": 2124976,
+    "files": 61,
+    "path": "2026-11-15_1941_AST-4-klaw-refly_save",
+    "ran": true,
+    "reason": "every-verdict-default verdict=PASS"
+  },
+  "startedUtc": "2026-11-15T19:41:39Z",
+  "subkind": "",
+  "tier": "operator",
+  "verdict": "PASS",
+  "verifiers": {
+    "analyzer": {
+      "failNonBaselined": 0,
+      "gating": true,
+      "red": 0,
+      "reportJson": "C:\\Users\\vlad3\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\ast-mothership-lko\\analysis\\ast-mothership-lko.analysis.json",
+      "reportTxt": "C:\\Users\\vlad3\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\ast-mothership-lko\\analysis\\ast-mothership-lko.analysis.txt",
+      "staleNonBaselined": 0,
+      "status": "PASS",
+      "subkind": "",
+      "topRule": null,
+      "triageOnly": false
+    },
+    "anomalySweep": {
+      "allowed": [],
+      "hitCounts": {},
+      "hits": [],
+      "status": "PASS",
+      "unlistedReasons": []
+    },
+    "batchComplete": {
+      "aggregateMissing": false,
+      "category": null,
+      "categoryCountMismatch": false,
+      "duplicateAggregate": false,
+      "expectedCategoryCount": null,
+      "expectedRuns": 1,
+      "failed": null,
+      "found": false,
+      "matchedRuns": 0,
+      "multi": false,
+      "perCategoryCount": 0,
+      "runsShort": false,
+      "status": "SKIPPED"
+    },
+    "driverValidity": {
+      "allExpectedMet": true,
+      "status": "PASS",
+      "subkind": ""
+    },
+    "expectations": {
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "count": 4
+        }
+      },
+      "reserved": [],
+      "status": "PASS"
+    },
+    "ghostLifecycle": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "ghostLifecycle": {
+          "attitude": {
+            "afterUpdateLines": 0,
+            "legacyLines": 0,
+            "maxRotDeg": null,
+            "maxRotDegAt": null,
+            "perRef": {},
+            "resolvedLines": 0,
+            "sweepDeg": 0.0,
+            "sweepRec": "",
+            "unresolvedLines": 0,
+            "unresolvedRefs": {}
+          },
+          "cycleCensus": {},
+          "cycleLines": 0,
+          "cycleModes": {},
+          "cycleRecordings": 0,
+          "destroyLines": 0,
+          "destroyedReasons": {},
+          "destroyedRecordings": 0,
+          "malformed": 0,
+          "peakLive": 0,
+          "peakLiveFrame": -1,
+          "peakLiveRecording": "",
+          "perVessel": {},
+          "spawnLines": 0,
+          "spawnReasons": {},
+          "spawned": 0,
+          "spawnedRecordingIds": [],
+          "unbalanced": [],
+          "vessels": []
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "status": "REPORT"
+    },
+    "ledgerOracle": {
+      "reason": "no-ledger-block-declared",
+      "status": "SKIPPED"
+    },
+    "logValidate": {
+      "killedRunMode": false,
+      "recRulesSuppressed": false,
+      "status": "PASS"
+    },
+    "mission": {
+      "missionVerdict": "MISSION-OK",
+      "status": "PASS",
+      "subkind": ""
+    },
+    "missionOutcome": {
+      "firstUnmet": null,
+      "gatingVerbs": [],
+      "reason": "no-gating-verbs",
+      "status": "SKIPPED"
+    },
+    "renderCompose": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "findings": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {},
+      "parseError": "missing parsek-render-manifest.txt",
+      "parsed": null,
+      "reason": "",
+      "status": "REPORT",
+      "unevaluable": {}
+    },
+    "saveParse": {
+      "armedBlocks": [],
+      "armedMismatches": [],
+      "blocks": [
+        "rewind",
+        "recordings.structure"
+      ],
+      "gating": false,
+      "mismatches": [
+        "rewind.rewindPoints 0 < min 1"
+      ],
+      "observed": {
+        "recordings": {
+          "points": {
+            "largest": 976,
+            "recordings": 4,
+            "smallest": 1,
+            "total": 1958,
+            "trivialRecordings": 1,
+            "unparsed": 0
+          },
+          "structure": {
+            "branchPoints": {
+              "Dock": 1,
+              "JointBreak": 1
+            },
+            "committedTrees": 1,
+            "duplicateRecordingIds": [],
+            "ghostChainNodes": 0,
+            "inFlightCopyTrees": 0,
+            "recordingNames": {
+              "AST Klaw": 2,
+              "AST Klaw Probe": 2
+            },
+            "recordings": 4,
+            "spaceObjectParts": {
+              "Ast. VPA-167": 1
+            },
+            "spawnedVessels": 2,
+            "terminalStates": {
+              "Docked": 1,
+              "Orbiting": 3
+            },
+            "treeNodes": 1,
+            "trees": 1,
+            "vesselNames": {
+              "AST Klaw": 1,
+              "AST Klaw Probe": 1
+            }
+          }
+        },
+        "rewind": {
+          "rewindPoints": 0,
+          "rewindRetirements": 0,
+          "supersedeRows": 1,
+          "tombstones": 0
+        },
+        "routes": {
+          "codecRejects": 0,
+          "completedCycles": 0,
+          "connectionKinds": {},
+          "count": 0,
+          "destinationBodies": {},
+          "destinationVesselPids": [],
+          "dismissedCandidates": 0,
+          "dormant": 0,
+          "holdKinds": {},
+          "ids": [],
+          "originBodies": {},
+          "promptedCandidates": 0,
+          "skippedCycles": 0,
+          "sourceRefs": 0,
+          "statuses": {},
+          "stops": 0,
+          "unknownConnectionKinds": 0,
+          "unknownStatuses": 0,
+          "unparsed": 0
+        },
+        "stockLoad": {
+          "findings": 0,
+          "first": [],
+          "kinds": {}
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "",
+      "scenarioFound": true,
+      "status": "REPORT"
+    },
+    "subprocessRetry": [],
+    "testResults": {
+      "batchFailed": null,
+      "failures": 0,
+      "status": "PASS"
+    },
+    "unityExceptions": {
+      "afterQuit": 0,
+      "afterQuitFrameless": 0,
+      "counts": {
+        "ArgumentException: GUILayout": 0,
+        "IndexOutOfRangeException": 0,
+        "MissingReferenceException": 0,
+        "NullReferenceException": 0
+      },
+      "gating": false,
+      "maxParsekFrames": null,
+      "maxParsekThrowSite": null,
+      "maxTotal": null,
+      "mismatches": [],
+      "parsekCaller": 0,
+      "parsekFrameSites": {},
+      "parsekFrames": 0,
+      "parsekThrowSite": 0,
+      "parsekThrowSiteSites": {},
+      "quitMarkerSeen": true,
+      "status": "REPORT",
+      "total": 0,
+      "uncountedExceptions": 1
+    }
+  },
+  "wallSeconds": 303
+}

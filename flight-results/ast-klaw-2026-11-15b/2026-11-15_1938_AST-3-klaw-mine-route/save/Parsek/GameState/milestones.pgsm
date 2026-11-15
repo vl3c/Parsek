@@ -1,0 +1,45 @@
+version = 1
+MILESTONE
+{
+	id = 2723e269bbf84ca886c3e4e04821ab75
+	startUT = 0
+	endUT = 356.171533203044
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 355.87153320304429
+		type = 18
+		key = Kerbin/Rendezvous
+		detail = funds=0;rep=0;sci=0
+		cseq = 1
+	}
+}
+MILESTONE
+{
+	id = 8f6b5df419ee49e5a5a1706e15157bfe
+	startUT = 356.171533203044
+	endUT = 655.8715332027715
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 1
+	GAME_STATE_EVENT
+	{
+		ut = 510.61153320290356
+		type = 18
+		key = Kerbin/StationConstruction
+		detail = funds=0;rep=0;sci=0
+		recordingId = 547d152f2e884196907192f8796dea35
+		cseq = 2
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 510.61153320290356
+		type = 18
+		key = Kerbin/Docking
+		detail = funds=0;rep=0;sci=0
+		recordingId = 547d152f2e884196907192f8796dea35
+		cseq = 3
+	}
+}

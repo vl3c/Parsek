@@ -1,0 +1,9 @@
+version = 1
+GAME_STATE_EVENT
+{
+	ut = 355.85153320304431
+	type = 18
+	key = Kerbin/Rendezvous
+	detail = funds=0;rep=0;sci=0
+	cseq = 1
+}

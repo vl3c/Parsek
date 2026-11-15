@@ -1,0 +1,18 @@
+version = 1
+MILESTONE
+{
+	id = 506988dafb65453789db94e384d71e55
+	startUT = 0
+	endUT = 356.211533203044
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 355.85153320304431
+		type = 18
+		key = Kerbin/Rendezvous
+		detail = funds=0;rep=0;sci=0
+		cseq = 1
+	}
+}
