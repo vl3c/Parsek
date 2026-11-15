@@ -1,0 +1,167 @@
+# Declared param schema for mission ast_klaw_grab (the Klaw lanes AST-1 / AST-2 / AST-3 /
+# AST-4 / COM-1: a probe grabs a real rock with the Advanced Grabbing Unit). run.py parses
+# this with tomllib and injects it as validate_spec's `mission_schemas` argument. Only
+# DECLARED params are checked. The dock keys are bdock_dock_transfer's own (the optional
+# DOCK phase delegates to mlib.bdock_decide). Every budget is GAME seconds at 1x.
+
+# The rock to target: the nearest loaded vessel of this name beside the probe.
+[params.rockName]
+required = true
+type = "string"
+
+# "<part>|<module>|<event>" specs fired on the active vessel by GUI name (exact, then
+# prefix, then substring, case-insensitive; an empty module = any module of the part).
+[params.armEvent]
+required = false
+type = "string"
+
+[params.releaseEvent]
+required = false
+type = "string"
+
+[params.startSettleSeconds]
+required = false
+type = "number"
+min = 0.0
+
+# The arm animation's dwell before the approach.
+[params.armSeconds]
+required = false
+type = "number"
+min = 0.0
+
+[params.targetTimeoutSeconds]
+required = false
+type = "number"
+min = 0.0
+
+# KG-APPROACH: desired closing speed = clamp(approachGain * (distance - standoffMeters),
+# minClosingSpeed, maxClosingSpeed). standoffMeters is about the rock's radius.
+[params.standoffMeters]
+required = false
+type = "number"
+min = 0.0
+
+[params.approachGain]
+required = false
+type = "number"
+min = 0.0
+
+[params.minClosingSpeed]
+required = false
+type = "number"
+min = 0.0
+
+[params.maxClosingSpeed]
+required = false
+type = "number"
+min = 0.0
+
+[params.velocityGain]
+required = false
+type = "number"
+min = 0.0
+
+[params.lateralGain]
+required = false
+type = "number"
+min = 0.0
+
+[params.maxTranslation]
+required = false
+type = "number"
+min = 0.0
+max = 1.0
+
+[params.translationDeadband]
+required = false
+type = "number"
+min = 0.0
+
+# The approach give-up (fail fast: a missed approach is a FLAKE, the retry flies again).
+[params.approachTimeoutSeconds]
+required = true
+type = "number"
+min = 0.0
+
+[params.approachAbortExtraMeters]
+required = false
+type = "number"
+min = 0.0
+
+# KG-HOLD: 1x seconds with the rock held.
+[params.holdSeconds]
+required = true
+type = "number"
+min = 0.0
+
+# KG-DRILL (0 = none): deploy, start every harvester, dwell drillSeconds, stop.
+[params.drillSeconds]
+required = false
+type = "number"
+min = 0.0
+
+[params.drillPart]
+required = false
+type = "string"
+
+[params.drillDeploySeconds]
+required = false
+type = "number"
+min = 0.0
+
+[params.seamTimeoutSeconds]
+required = false
+type = "number"
+min = 0.0
+
+# KG-RELEASE / KG-BACKOFF / KG-COAST.
+[params.release]
+required = false
+type = "bool"
+
+[params.releaseTimeoutSeconds]
+required = false
+type = "number"
+min = 0.0
+
+[params.backoffSeconds]
+required = false
+type = "number"
+min = 0.0
+
+[params.backoffTranslation]
+required = false
+type = "number"
+min = 0.0
+max = 1.0
+
+[params.coastSeconds]
+required = false
+type = "number"
+min = 0.0
+
+# KG-DOCK-TGT: "" or absent = no dock; else the vessel the probe docks with.
+[params.dockTargetName]
+required = false
+type = "string"
+
+[params.dockSpeedMetersPerSec]
+required = false
+type = "number"
+min = 0.0
+
+[params.dockTimeoutSeconds]
+required = false
+type = "number"
+min = 0.0
+
+[params.dockNoProgressSeconds]
+required = false
+type = "number"
+min = 0.0
+
+[params.settleSeconds]
+required = false
+type = "number"
+min = 0.0

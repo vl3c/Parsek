@@ -8,19 +8,19 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 
 | what | lanes |
 |---|---|
-| lanes | 595 |
+| lanes | 600 |
 | tier daily | 29 |
 | tier nightly | 284 |
-| tier operator | 271 |
+| tier operator | 276 |
 | tier longhaul | 5 |
 | tier (other) | 6 |
-| profile stock-minimal | 551 |
+| profile stock-minimal | 556 |
 | profile stock-tree | 40 |
 | profile modded-compat | 4 |
-| autopilot (mission) lanes | 140 |
+| autopilot (mission) lanes | 145 |
 | seam-only lanes | 455 |
 | LIVE-PROVEN date in status row | 466 |
-| no LIVE-PROVEN date | 129 |
+| no LIVE-PROVEN date | 134 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -37,6 +37,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | AH | 1 | - | 1 | - | - | - | 1 |
 | AJ | 1 | - | - | 1 | - | - | 1 |
 | AP | 1 | - | 1 | - | - | - | 1 |
+| AST | 4 | - | - | 4 | - | 4 | - |
 | AT | 1 | - | 1 | - | - | - | 1 |
 | B | 41 | 1 | 12 | 23 | 5 | 40 | 25 |
 | BAY | 1 | - | - | 1 | - | 1 | 1 |
@@ -46,6 +47,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | CL | 2 | - | 1 | 1 | - | 2 | 2 |
 | CLK | 1 | - | 1 | - | - | - | 1 |
 | CN | 6 | - | 4 | 2 | - | - | 6 |
+| COM | 1 | - | - | 1 | - | 1 | - |
 | CS | 13 | - | - | 13 | - | 8 | 13 |
 | CT | 1 | - | - | 1 | - | - | 1 |
 | CTW | 1 | - | - | 1 | - | - | 1 |
@@ -124,7 +126,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 
 ## Lanes per host save
 
-The host is the leaf of `fixture.saveTemplate`. 134 hosts serve 595 lanes.
+The host is the leaf of `fixture.saveTemplate`. 138 hosts serve 600 lanes.
 
 | host save | lanes | families |
 |---|---|---|
@@ -181,6 +183,7 @@ The host is the leaf of `fixture.saveTemplate`. 134 hosts serve 595 lanes.
 | laythe-park-nerv | 3 | B 3 |
 | stock-screen-census | 3 | KB 2, GUI 1 |
 | vall-transfer-recorded | 3 | V 2, TP 1 |
+| ast-klaw-lko | 2 | AST 2 |
 | b17-duna-pad | 2 | B 1, V 1 |
 | career-contract-pad | 2 | GUI 1, L 1 |
 | career-gs1-leadership-pad | 2 | QL 1, STR 1 |
@@ -207,6 +210,8 @@ The host is the leaf of `fixture.saveTemplate`. 134 hosts serve 595 lanes.
 | refly-split-crewed-recorded | 2 | RF 2 |
 | rover-relay-c-recorded-career | 2 | H 2 |
 | rover-relay-recorded | 2 | RVR 2 |
+| ast-miner-lko | 1 | AST 1 |
+| ast-mothership-lko | 1 | AST 1 |
 | bdock-recorded-career | 1 | H 1 |
 | bdock-station-pad | 1 | BDOCK 1 |
 | bop-orbit-recorded | 1 | V 1 |
@@ -218,6 +223,7 @@ The host is the leaf of `fixture.saveTemplate`. 134 hosts serve 595 lanes.
 | career-requirements-loss-pad | 1 | L 1 |
 | career-science-pad-hard | 1 | HC 1 |
 | coalescer-pad | 1 | H 1 |
+| com-klaw-lko | 1 | COM 1 |
 | cs-career-contracts | 1 | CS 1 |
 | cs-career-mc1 | 1 | CS 1 |
 | cs-career-mun3 | 1 | CS 1 |
@@ -299,7 +305,7 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 
 | body | lanes | autopilot | live-proven | families |
 |---|---|---|---|---|
-| Kerbin | 356 | 109 | 281 | RF 29, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +63 |
+| Kerbin | 361 | 114 | 281 | RF 29, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +65 |
 | Mun | 55 | 13 | 43 | RW 22, V 8, B 5, CS 5, TP 4, MC 2, EVA 1, GUI 1, H 1 +6 |
 | Minmus | 13 | 5 | 7 | V 6, B 5, AP 1, TP 1 |
 | Moho | 3 | 1 | 2 | V 2, B 1 |
@@ -324,15 +330,15 @@ Derived from seam verbs: rewind-to-launch `InvokeRewindToLaunch`; re-fly `Invoke
 
 | operation | lanes | families |
 |---|---|---|
-| rewind-to-launch | 87 | RW 24, EVA 10, MINE 10, L 4, FAR 2, H 2, HC 2, IR 2, LF 2, QL 2 +22 |
-| re-fly | 56 | RF 24, RB 5, RW 5, S 5, QL 4, CI 3, LAB 2, VN 2, AJ 1, IR 1, L 1 +3 |
+| rewind-to-launch | 90 | RW 24, EVA 10, MINE 10, L 4, AST 2, FAR 2, H 2, HC 2, IR 2, LF 2 +24 |
+| re-fly | 57 | RF 24, RB 5, RW 5, S 5, QL 4, CI 3, LAB 2, VN 2, AJ 1, AST 1, IR 1 +4 |
 | revert | 19 | RW 4, IR 3, QL 3, VN 3, LAB 2, FAR 1, REV 1, RF 1, STR 1 |
-| reload | 145 | V 30, QL 19, RF 17, LAB 10, EVA 8, MINE 7, RW 6, RB 5, VN 5, CX 3 +22 |
-| save | 238 | RW 25, V 21, QL 20, RVR 15, LAB 14, RF 14, CS 13, MINE 12, EVA 11 +41 |
-| warp | 206 | RW 25, V 21, LAB 18, MINE 14, EVA 11, QL 11, CI 8, VN 8, RF 7 +41 |
+| reload | 149 | V 30, QL 19, RF 17, LAB 10, EVA 8, MINE 7, RW 6, RB 5, VN 5, AST 3 +24 |
+| save | 243 | RW 25, V 21, QL 20, RVR 15, LAB 14, RF 14, CS 13, MINE 12, EVA 11 +43 |
+| warp | 211 | RW 25, V 21, LAB 18, MINE 14, EVA 11, QL 11, CI 8, VN 8, RF 7 +43 |
 | physics-warp | 15 | QL 5, PWR 3, RF 2, CA 1, FAR 1, L 1, STR 1, V 1 |
-| time-jump | 121 | V 44, RVR 14, RF 9, TP 8, S 6, GUI 5, H 5, QL 5, IR 4, MINE 4 +15 |
-| scene-change | 165 | V 30, RW 25, QL 14, RF 13, CS 11, LAB 8, CI 4, CX 4, IR 4, S 4 +35 |
+| time-jump | 122 | V 44, RVR 14, RF 9, TP 8, S 6, GUI 5, H 5, QL 5, IR 4, MINE 4 +16 |
+| scene-change | 166 | V 30, RW 25, QL 14, RF 13, CS 11, LAB 8, CI 4, CX 4, IR 4, S 4 +36 |
 | vessel-switch | 17 | S 4, CI 2, EVA 2, MINE 2, AJ 1, FAR 1, GC 1, GS 1, KB 1, RF 1, SEAT 1 |
 | new-game | 3 | CS 2, SWS 1 |
 | (none) | 216 | H 70, B 36, GUI 22, L 16, V 13, GS 7, S 7, EVA 4, LT 4, MC 4 +18 |
@@ -343,7 +349,7 @@ Lanes per body (rows) per timeline operation (columns). `-` is zero: a body neve
 
 | body | lanes | rewind-to-launch | re-fly | revert | reload | save | warp | physics-warp | time-jump | scene-change | vessel-switch | new-game |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Kerbin | 356 | 78 | 46 | 14 | 119 | 174 | 163 | 13 | 45 | 132 | 12 | - |
+| Kerbin | 361 | 81 | 47 | 14 | 123 | 179 | 168 | 13 | 46 | 133 | 12 | - |
 | Mun | 55 | 24 | 6 | 5 | 10 | 36 | 35 | - | 10 | 34 | - | 1 |
 | Minmus | 13 | - | - | - | 2 | 2 | 5 | 1 | 7 | 2 | - | - |
 | Moho | 3 | - | - | - | - | 1 | - | - | 1 | - | - | - |
@@ -371,6 +377,7 @@ Lanes per family (rows) per timeline operation (columns).
 | AH | 1 | - | - | - | - | - | - | - | - | - | - | - |
 | AJ | 1 | - | 1 | - | - | - | - | - | 1 | - | 1 | - |
 | AP | 1 | - | - | - | - | - | 1 | - | 1 | - | - | - |
+| AST | 4 | 2 | 1 | - | 3 | 4 | 4 | - | 1 | 1 | - | - |
 | AT | 1 | - | - | - | - | - | - | - | 1 | - | - | - |
 | B | 41 | - | - | - | - | 5 | - | - | - | - | - | - |
 | BAY | 1 | 1 | - | - | - | - | 1 | - | - | - | - | - |
@@ -380,6 +387,7 @@ Lanes per family (rows) per timeline operation (columns).
 | CL | 2 | - | - | - | - | - | - | - | 1 | 1 | - | - |
 | CLK | 1 | - | - | - | - | - | - | - | - | - | - | - |
 | CN | 6 | 1 | - | - | 1 | 1 | 6 | - | - | 1 | - | - |
+| COM | 1 | 1 | - | - | 1 | 1 | 1 | - | - | - | - | - |
 | CS | 13 | - | - | - | - | 13 | - | - | - | 11 | - | 2 |
 | CT | 1 | - | - | - | - | - | - | - | - | - | - | - |
 | CTW | 1 | 1 | - | - | - | 1 | 1 | - | - | 1 | - | - |
@@ -458,7 +466,7 @@ Lanes per family (rows) per timeline operation (columns).
 
 ## Lanes per mission machine
 
-140 autopilot lanes fly 53 mission machines.
+145 autopilot lanes fly 54 mission machines.
 
 | mission | lanes | lane ids |
 |---|---|---|
@@ -468,6 +476,7 @@ Lanes per family (rows) per timeline operation (columns).
 | b25_laythe_orbit | 9 | B25-laythe-orbit, B33-tylo-orbit, B34-bop-orbit, B35-pol-orbit +5 |
 | gs1_auto_chute_booster_career | 7 | L13-career-ground-truth-after-refly-and-f9 +6 |
 | forge_station | 6 | FORGE-b17-duna-pad, FORGE-b18-dres-pad, FORGE-bdock-station, FORGE-eva3-pad +2 |
+| ast_klaw_grab | 5 | AST-1-klaw-grab-rewind, AST-2-klaw-release, AST-3-klaw-mine-route +2 |
 | gs2_orbital_probe_deploy | 5 | GS-2-orbital-probe-deploy, GS-3-switch-nudge-deployed +3 |
 | b29_jool_kerbin | 4 | B29-jool-kerbin-return, B43-vall-tylo-transfer, B44-laythe-tylo-transfer +1 |
 | b2_lko_ascent | 4 | B18-dres-lko-ascent, PWR-1-physwarp-ascent-low, PWR-2-physwarp-ascent-medium +1 |
@@ -520,39 +529,39 @@ Lanes per family (rows) per timeline operation (columns).
 
 | verb | lanes | families |
 |---|---|---|
-| FlushAndQuit | 595 | H 75, V 67, B 41, RF 32, GUI 28, RW 25, L 22, QL 21, RVR 19, S 19 +77 |
-| LoadGame | 595 | H 75, V 67, B 41, RF 32, GUI 28, RW 25, L 22, QL 21, RVR 19, S 19 +77 |
-| SetSetting | 587 | H 75, V 67, B 41, RF 31, GUI 28, RW 25, L 22, QL 21, RVR 19, S 19 +77 |
-| StopRecording | 323 | V 65, RF 25, RW 24, RVR 19, LAB 17, EVA 16, H 15, B 14, MINE 14 +43 |
-| SaveGame | 238 | RW 25, V 21, QL 20, RVR 15, LAB 14, RF 14, CS 13, MINE 12, EVA 11 +41 |
-| DiscardTree | 225 | V 65, RVR 19, LAB 17, H 15, B 14, MINE 14, EVA 11, TP 9, GUI 7 +29 |
-| RecordingState | 221 | RF 27, V 21, LAB 14, QL 14, MINE 12, CS 11, EVA 11, L 11, VN 11 +37 |
-| WarpToUT | 206 | RW 25, V 21, LAB 18, MINE 14, EVA 11, QL 11, CI 8, VN 8, RF 7 +41 |
+| FlushAndQuit | 600 | H 75, V 67, B 41, RF 32, GUI 28, RW 25, L 22, QL 21, RVR 19, S 19 +79 |
+| LoadGame | 600 | H 75, V 67, B 41, RF 32, GUI 28, RW 25, L 22, QL 21, RVR 19, S 19 +79 |
+| SetSetting | 592 | H 75, V 67, B 41, RF 31, GUI 28, RW 25, L 22, QL 21, RVR 19, S 19 +79 |
+| StopRecording | 328 | V 65, RF 25, RW 24, RVR 19, LAB 17, EVA 16, H 15, B 14, MINE 14 +45 |
+| SaveGame | 243 | RW 25, V 21, QL 20, RVR 15, LAB 14, RF 14, CS 13, MINE 12, EVA 11 +43 |
+| DiscardTree | 230 | V 65, RVR 19, LAB 17, H 15, B 14, MINE 14, EVA 11, TP 9, GUI 7 +31 |
+| RecordingState | 226 | RF 27, V 21, LAB 14, QL 14, MINE 12, CS 11, EVA 11, L 11, VN 11 +39 |
+| WarpToUT | 211 | RW 25, V 21, LAB 18, MINE 14, EVA 11, QL 11, CI 8, VN 8, RF 7 +43 |
 | RunTests | 197 | H 70, RW 25, V 12, CS 10, L 8, CN 6, LT 5, S 5, FAR 4, RF 4, STR 4 +29 |
-| StartRecording | 164 | B 23, RW 23, EVA 14, LAB 14, MINE 12, VN 8, FAR 6, S 6, QL 5, RF 5 +31 |
-| MissionMark | 150 | RW 25, LAB 17, EVA 13, MINE 12, CS 10, IR 6, L 6, QL 6, RF 6 +29 |
-| CommitTree | 147 | RW 24, EVA 14, MINE 11, QL 9, VN 9, CS 8, L 8, LAB 8, B 7, FAR 4 +31 |
-| ListHandles | 141 | RF 23, QL 14, EVA 12, MINE 12, CI 11, LAB 9, VN 9, IR 6, RW 5 +27 |
-| TimeJump | 121 | V 44, RVR 14, RF 9, TP 8, S 6, GUI 5, H 5, QL 5, IR 4, MINE 4 +15 |
-| InvokeRewindToLaunch | 87 | RW 24, EVA 10, MINE 10, L 4, FAR 2, H 2, HC 2, IR 2, LF 2, QL 2 +22 |
+| StartRecording | 169 | B 23, RW 23, EVA 14, LAB 14, MINE 12, VN 8, FAR 6, S 6, QL 5, RF 5 +33 |
+| MissionMark | 155 | RW 25, LAB 17, EVA 13, MINE 12, CS 10, IR 6, L 6, QL 6, RF 6 +31 |
+| CommitTree | 152 | RW 24, EVA 14, MINE 11, QL 9, VN 9, CS 8, L 8, LAB 8, B 7, AST 4 +33 |
+| ListHandles | 146 | RF 23, QL 14, EVA 12, MINE 12, CI 11, LAB 9, VN 9, IR 6, RW 5 +29 |
+| TimeJump | 122 | V 44, RVR 14, RF 9, TP 8, S 6, GUI 5, H 5, QL 5, IR 4, MINE 4 +16 |
+| InvokeRewindToLaunch | 90 | RW 24, EVA 10, MINE 10, L 4, AST 2, FAR 2, H 2, HC 2, IR 2, LF 2 +24 |
 | MissionConfig | 79 | V 59, TP 7, GUI 3, LF 2, AP 1, AT 1, EVA 1, FAR 1, MC 1, MS 1, SE 1 +1 |
-| ExitToSpaceCenter | 77 | RW 16, QL 10, RF 10, LAB 7, S 4, GS 3, IR 3, CI 2, EVA 2, LF 2 +14 |
+| ExitToSpaceCenter | 78 | RW 16, QL 10, RF 10, LAB 7, S 4, GS 3, IR 3, CI 2, EVA 2, LF 2 +15 |
 | StartLoopPlayback | 74 | V 58, TP 7, LF 2, AP 1, AT 1, EVA 1, FAR 1, MC 1, SE 1, W 1 |
 | GoToEditor | 72 | RW 25, CS 11, CI 4, IR 3, LAB 3, STR 3, FAR 2, L 2, CN 1, CTW 1 +17 |
 | LaunchFromEditor | 70 | RW 25, CS 11, CI 4, IR 3, LAB 3, STR 3, FAR 2, L 2, CN 1, CTW 1 +15 |
 | UiAction | 63 | GUI 28, VN 9, RW 7, KB 4, L 3, RSC 3, LF 2, EVA 1, KD 1, MS 1, QL 1 +3 |
-| PartAction | 58 | LAB 17, MINE 14, RW 9, VN 5, RF 4, CX 3, IR 1, L 1, RC 1, S 1 +2 |
-| InvokeRewind | 56 | RF 24, RB 5, RW 5, S 5, QL 4, CI 3, LAB 2, VN 2, AJ 1, IR 1, L 1 +3 |
+| PartAction | 60 | LAB 17, MINE 14, RW 9, VN 5, RF 4, CX 3, AST 2, IR 1, L 1, RC 1 +3 |
+| InvokeRewind | 57 | RF 24, RB 5, RW 5, S 5, QL 4, CI 3, LAB 2, VN 2, AJ 1, AST 1, IR 1 +4 |
 | KscAction | 56 | RW 18, L 10, CS 7, KB 4, QL 3, STR 3, GUI 2, RF 2, CTW 1, KD 1 +5 |
 | CaptureScreenshot | 52 | GUI 28, TP 9, KB 4, RSC 3, L 2, RW 2, KD 1, LAB 1, SH 1, UIS 1 |
-| AnswerMergeDialog | 42 | RF 17, S 5, RW 4, CI 3, QL 2, RB 2, AJ 1, CL 1, IR 1, L 1, R 1 +4 |
+| AnswerMergeDialog | 43 | RF 17, S 5, RW 4, CI 3, QL 2, RB 2, AJ 1, AST 1, CL 1, IR 1, L 1 +5 |
 | ExportRenderManifest | 42 | V 39, B 1, FAR 1, H 1 |
 | EvaExit | 41 | EVA 16, CX 4, RW 4, RF 3, SEAT 3, QL 2, CI 1, FAR 1, FLG 1, GUI 1 +5 |
+| SealSlot | 40 | RVR 15, IR 6, H 5, GUI 3, RF 3, MINE 2, AST 1, QL 1, RB 1, RCN 1 +2 |
 | Recover | 39 | RW 11, CS 10, L 4, QL 3, CX 2, CI 1, LAB 1, REV 1, SCI 1, SH 1 +4 |
-| SealSlot | 39 | RVR 15, IR 6, H 5, GUI 3, RF 3, MINE 2, QL 1, RB 1, RCN 1, RS 1, V 1 |
-| RouteCommand | 36 | RVR 15, IR 7, H 5, GUI 4, MINE 2, RCN 1, RS 1, V 1 |
+| RouteCommand | 37 | RVR 15, IR 7, H 5, GUI 4, MINE 2, AST 1, RCN 1, RS 1, V 1 |
 | DumpGuiTree | 27 | GUI 26, RSC 1 |
-| ReadVesselResources | 22 | MINE 13, IR 4, LAB 3, RC 1, RCN 1 |
+| ReadVesselResources | 23 | MINE 13, IR 4, LAB 3, AST 1, RC 1, RCN 1 |
 | KscMarkerRecover | 20 | RW 16, CI 1, EVA 1, RS 1, STR 1 |
 | EnterWatchMode | 18 | V 11, AP 1, FAR 1, GUI 1, MC 1, MINE 1, RF 1, W 1 |
 | EnterMapView | 17 | TP 7, V 3, GUI 2, RF 2, SLM 2, H 1 |
@@ -731,12 +740,12 @@ Categories named by `RunTests` steps (`(all)`: a step with no category). 197 lan
 
 | block | lanes present |
 |---|---|
-| logContracts | 594 |
-| recordings | 581 |
-| rewind | 141 |
+| logContracts | 599 |
+| recordings | 586 |
+| rewind | 144 |
 | renderComposition | 42 |
+| routes | 28 |
 | unityExceptions | 28 |
-| routes | 27 |
 | ledger | 23 |
 | ghostLifecycle | 10 |
 | analyzer | 4 |
@@ -767,7 +776,7 @@ Per registry dimension: values claimed by at least one lane, then the claimed va
 | D7 | 16/16 | bays 1, chute-cut 1, engine-fx-effects 1, engine-fx-legacy 1 +12 |
 | D8 | 18/18 | epoch-isolation 1, recalc-from-ut0 1, ers-els-routing 2, route 2, tombstones 3 +13 |
 | D9 | 18/18 | rewind-to-launch-repeat 1, world-preservation 1, seal-stash-fly 2 +15 |
-| D10 | 22/22 | candidate-detection 1, claw-producer 1, docked-depot-origin 1, inter-body-nth-window 1 +18 |
+| D10 | 22/22 | candidate-detection 1, docked-depot-origin 1, inter-body-nth-window 1 +19 |
 | D11 | 18/18 | clone 1, default-mission 1, eccentric-inclined-targets 1, land-dock-dual-constraint 1 +14 |
 | D12 | 9/9 | crew-swap 1, dead-crew-strip 1, missed-endut-auto-free 1, rescue-marker 1 +5 |
 | D13 | 10/10 | bbox-block 1, ksc-exclusion 1, pid-dedup 1, situation-correction 1 +6 |
@@ -798,6 +807,15 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
 | AP-1-minmus-attitude-residual | nightly | minmus-orbit-recorded | seam | Minmus | warp, time-jump | - | LIVE-PROVEN 2026-09-26 |
+
+### AST (4)
+
+| lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
+|---|---|---|---|---|---|---|---|
+| AST-1-klaw-grab-rewind | operator | ast-klaw-lko | ast_klaw_grab | Kerbin | rewind-to-launch, reload, save, warp | - | NEVER FLOWN, authored 2026-11-15 |
+| AST-2-klaw-release | operator | ast-klaw-lko | ast_klaw_grab | Kerbin | rewind-to-launch, reload, save, warp | - | NEVER FLOWN, authored 2026-11-15 |
+| AST-3-klaw-mine-route | operator | ast-miner-lko | ast_klaw_grab | Kerbin | save, warp, time-jump | - | NEVER FLOWN, authored 2026-11-15 |
+| AST-4-klaw-refly | operator | ast-mothership-lko | ast_klaw_grab | Kerbin | re-fly, reload, save, warp, scene-change | - | NEVER FLOWN, authored 2026-11-15 |
 
 ### AT (1)
 
@@ -909,6 +927,12 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | CN-3-ghost-commnet-timeline-warp | nightly | gloops-airshow +inj ghost-commn... | seam | - | warp | GhostCommNetTimeline | LIVE-PROVEN 2026-09-26 |
 | CN-4-ghost-commnet-relay-across-rewind | operator | gloops-airshow +inj ghost-commn... | seam | - | rewind-to-launch, warp, scene-change | GhostCommNet | LIVE-PROVEN 2026-11-01 |
 | CN-5-ghost-relay-after-mid-replay-save-load | operator | gloops-airshow +inj ghost-commn... | seam | - | reload, save, warp | GhostCommNet | LIVE-PROVEN 2026-11-01 |
+
+### COM (1)
+
+| lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
+|---|---|---|---|---|---|---|---|
+| COM-1-comet-klaw-grab | operator | com-klaw-lko | ast_klaw_grab | Kerbin | rewind-to-launch, reload, save, warp | - | NEVER FLOWN, authored 2026-11-15 |
 
 ### CS (13)
 

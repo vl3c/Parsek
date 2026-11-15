@@ -1524,6 +1524,14 @@ uncovered by the reviewer; the four cheap ones first):
 - [ ] Constellation deploy: 4+ satellites released in one frame (CHILD-BRANCH-SINGLE-SLOT-OVERWRITE
   says simultaneous children can share one branch slot).
 - [ ] A live claw grab of a derelict, and a route through it (only the synthetic H41 / H42 cells).
+  AUTHORED 2026-11-15 (branch `ast-lanes`, owner rulings V 2026-11-15), NEVER FLOWN, for a rock
+  rather than a derelict: AST-1 (grab, Rewind-to-Launch, hold ghost, tip), AST-2 (release: no
+  rewind point, the rock's own recording), COM-1 (a comet), AST-3 (drill a held rock, release,
+  dock with a depot, a harvest-origin route that delivers) and AST-4 (Re-Fly across a grab), on
+  four fixtures from `harness/tools/build_ast_klaw_fixtures.py` and the mission `ast_klaw_grab`.
+  Open until they fly green; several pins wait on the SpaceObject-controllability, asteroid
+  plausible-rate and rock-ghost sibling fixes. A derelict (a dead vessel, not a rock) is still
+  unflown.
 - [ ] A launch abort: escape system fired on ascent, capsule lands, booster destroyed, merge.
 - [ ] Cheat menu Set Orbit / Set Position while recording (xUnit only today).
 

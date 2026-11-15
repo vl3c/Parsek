@@ -1359,6 +1359,20 @@ ACTION_SWITCH_TO_EVA_KERBAL = "switch_to_eva_kerbal"          # text = kerbal na
 # whose only command part faces AWAY from its port (the LABX probe tender: an OKTO
 # above a downward Jr port) must be controlled from the port to dock at all.
 ACTION_CONTROL_FROM_DOCKING_PORT = "control_from_docking_port"  # value = None
+# ast_klaw_grab's approach (the Klaw lanes): the RCS translation controls
+# `control.right` / `control.forward` / `control.up` = Action.translation, each in
+# [-1, 1]. The machine re-emits it every approach frame and zeroes it on capture, so
+# a dropped frame cannot leave a stale push on for long.
+ACTION_SET_TRANSLATION = "set_translation"     # translation = (right, forward, up)
+# ast_klaw_grab's attitude: `control.sas = True` and `control.sas_mode = target`, so
+# the probe's nose (the Klaw) tracks the targeted rock while RCS translates.
+ACTION_SAS_TARGET = "sas_target"               # value = None
+# ast_klaw_grab's Klaw arm / release: trigger one part-module event by its GUI name
+# on the ACTIVE vessel. text = "<part name>|<module name>|<event>" (parse_part_event_
+# spec; an empty module means any module of the part); the event is picked by
+# pick_part_event (exact, then prefix, then substring, case-insensitive). The runner
+# logs the event it fired, or every event the part's modules offer on a miss.
+ACTION_TRIGGER_PART_EVENT = "trigger_part_event"  # text = "part|module|event"
 
 # THE ACTIONS THAT NEED NO ACTIVE VESSEL, and the SINGLE authority on which those
 # are. `KrpcMissionControl.perform` resolves `sc.active_vessel` for the whole
@@ -3715,6 +3729,15 @@ class TelemetrySnapshot:
     # periapsis ALTITUDE (m) of the orbit after the first maneuver node (kRPC
     # Node.orbit). NaN when unread, which never trips the guard.
     node_next_pe: float = float("nan")
+    # KLAW-GRAB approach inputs (read only by ast_klaw_grab, the read_klaw channel):
+    # the targeted rock's position in the ACTIVE vessel's reference frame (kRPC: x
+    # right, y forward, z down; metres) and its velocity relative to the vessel in
+    # the same axes, measured in the body's NON-ROTATING frame (m/s). NaN triples
+    # when unread or when no target is captured, which zeroes every translation.
+    klaw_target_rel_position: Tuple[float, float, float] = (
+        float("nan"), float("nan"), float("nan"))
+    klaw_target_rel_velocity: Tuple[float, float, float] = (
+        float("nan"), float("nan"), float("nan"))
 
 
 # ---------------------------------------------------------------------------
@@ -4168,6 +4191,13 @@ class Action:
     # number no reader could tell from a bound. Defaults None, so every
     # pre-existing Action is constructed and compared exactly as before.
     pitch_heading: Optional[Tuple[float, float]] = None
+    # ACTION_SET_TRANSLATION payload: ``(right, forward, up)`` RCS translation
+    # commands, each in [-1, 1]. A dedicated tuple field on the ``camera_pose``
+    # precedent; defaults None, so every pre-existing Action is constructed and
+    # compared exactly as before. Left out of repr so the frame-for-frame action
+    # digests other machines pin (test_b11_* / test_b13_*) stay byte-identical; it
+    # still takes part in equality.
+    translation: Optional[Tuple[float, float, float]] = field(default=None, repr=False)
 
 
 def seam_command_id(reserved_id: str, tag: str) -> str:
@@ -20071,6 +20101,518 @@ def evaluate_rdock_assertions(frames, params: RDockParams, phases_reached=(),
         AssertionOutcome("redocked", (RDOCK_SETTLE in phases) and redocked, redocked,
                          {"required": RDOCK_SETTLE}),
     ]
+
+
+# ---------------------------------------------------------------------------
+# KLAW-GRAB phase state machine (mission ast_klaw_grab: AST-1 / AST-2 / AST-3 /
+# AST-4 / COM-1, a probe grabs a real rock with the Advanced Grabbing Unit). Pure.
+# The fixture parks the Klaw probe on the rock's own orbit a few tens of metres
+# behind it (harness/tools/build_ast_klaw_fixtures.py), so the approach starts
+# from rest relative to the rock:
+#
+#   KG-START    -> dwell start_settle_seconds (the recorder the spec started
+#                  settles), then trigger the Klaw's arm event
+#   KG-ARM      -> dwell arm_seconds (the arm animation), then target the
+#                  nearest vessel named rock_name
+#   KG-TARGET   -> wait for a finite relative position of the target (the
+#                  read_klaw channel); stamp the part-count baseline; SAS on,
+#                  SAS Target mode, RCS on
+#   KG-APPROACH -> every frame, RCS translation from `klaw_translation` (closing
+#                  speed proportional to the distance left above the standoff,
+#                  clamped; lateral drift nulled); the active part count rising
+#                  above the baseline is the capture (stock merges the rock's
+#                  part into the probe); translation zeroed
+#   KG-HOLD     -> dwell hold_seconds at 1x with the rock held
+#   KG-DRILL    -> (drill_seconds > 0) three mid-mission seam PartActions on the
+#                  drill (deploy, startconverter all, stopconverter all) around a
+#                  1x dwell of drill_seconds, each gated on its own tagged reply
+#   KG-RELEASE  -> (release) trigger the Klaw's release event; the part count
+#                  falling below the held count is the release
+#   KG-BACKOFF  -> translate backward for backoff_seconds, then zero
+#   KG-COAST    -> dwell coast_seconds
+#   KG-DOCK-TGT -> (dock_target_name) control from the docking port, target the
+#                  nearest vessel named dock_target_name, then hand the pair to
+#                  B-DOCK's DOCK phase (MechJeb's docking autopilot), exactly as
+#                  REDOCK does
+#   KG-SETTLE   -> dwell settle_seconds
+#   KG-TERMINAL -> done; the assertions judge
+#
+# The machine never reads what Parsek recorded; the spec's log contract and save
+# facets do. Every phase with a wait has its own give-up (fail fast: a missed
+# approach is a FLAKE the retry policy flies again, never a long hang).
+# ---------------------------------------------------------------------------
+
+KLAW_START = "KG-START"
+KLAW_ARM = "KG-ARM"
+KLAW_TARGET = "KG-TARGET"
+KLAW_APPROACH = "KG-APPROACH"
+KLAW_HOLD = "KG-HOLD"
+KLAW_DRILL = "KG-DRILL"
+KLAW_RELEASE = "KG-RELEASE"
+KLAW_BACKOFF = "KG-BACKOFF"
+KLAW_COAST = "KG-COAST"
+KLAW_DOCK_TARGET = "KG-DOCK-TGT"
+KLAW_SETTLE = "KG-SETTLE"
+KLAW_TERMINAL = "KG-TERMINAL"
+# The delegated phase keeps B-DOCK's own name, so its flake reasons read the same.
+KLAW_PHASES: Tuple[str, ...] = (
+    KLAW_START, KLAW_ARM, KLAW_TARGET, KLAW_APPROACH, KLAW_HOLD, KLAW_DRILL,
+    KLAW_RELEASE, KLAW_BACKOFF, KLAW_COAST, KLAW_DOCK_TARGET, BDOCK_DOCK, KLAW_SETTLE,
+    KLAW_TERMINAL)
+
+# The three KG-DRILL seam commands, in order: (tag, PartAction button). Each carries
+# part=<drill_part> and all=true; the converter presses carry no converter= so every
+# harvester on the drill (surface, asteroid, comet) is pressed and the one the rock
+# feeds runs.
+KLAW_DRILL_STEPS: Tuple[Tuple[str, str], ...] = (
+    ("kg-drill-deploy", "deploy"),
+    ("kg-drill-start", "startconverter"),
+    ("kg-drill-stop", "stopconverter"),
+)
+
+# The part-event spec separator: "<part name>|<module name>|<event>" (module may be
+# empty: any module of the part).
+PART_EVENT_SEPARATOR = "|"
+
+NAN3: Tuple[float, float, float] = (float("nan"), float("nan"), float("nan"))
+
+
+def parse_part_event_spec(text: str) -> Optional[Tuple[str, str, str]]:
+    """``"<part>|<module>|<event>"`` -> (part, module, event), stripped; None when the
+    spec is not exactly three fields or the part or event is empty. An empty module
+    means any module of the part."""
+    if not isinstance(text, str):
+        return None
+    fields_ = [f.strip() for f in text.split(PART_EVENT_SEPARATOR)]
+    if len(fields_) != 3 or not fields_[0] or not fields_[2]:
+        return None
+    return fields_[0], fields_[1], fields_[2]
+
+
+def pick_part_event(events, wanted: str) -> Optional[str]:
+    """The event name to trigger out of a module's visible ``events`` for the spec's
+    ``wanted`` name: an exact case-insensitive match first, then a case-insensitive
+    prefix, then a case-insensitive substring; None when nothing matches. kRPC's
+    Module.events lists the GUI names, which a localized install may decorate."""
+    if not wanted:
+        return None
+    names = [str(e) for e in (events or ()) if e is not None]
+    w = wanted.strip().lower()
+    for test in (lambda n: n.strip().lower() == w,
+                 lambda n: n.strip().lower().startswith(w),
+                 lambda n: w in n.strip().lower()):
+        for n in names:
+            if test(n):
+                return n
+    return None
+
+
+def _finite3(v) -> bool:
+    try:
+        return v is not None and len(v) == 3 and all(_is_finite(float(x)) for x in v)
+    except (TypeError, ValueError):
+        return False
+
+
+def _clamp(x: float, lo: float, hi: float) -> float:
+    return lo if x < lo else hi if x > hi else x
+
+
+@dataclass(frozen=True)
+class KlawParams:
+    """KLAW-GRAB tuning (spec [driver.missionParams] for ast_klaw_grab). Budgets are
+    GAME seconds at 1x (the mission never warps)."""
+    rock_name: str = "Ast. VPA-167"
+    # "<part>|<module>|<event>" specs the runner resolves on the ACTIVE vessel.
+    arm_event: str = "GrapplingDevice|ModuleAnimateGeneric|Arm"
+    release_event: str = "GrapplingDevice|ModuleGrappleNode|Release"
+    start_settle_seconds: float = 5.0
+    arm_seconds: float = 5.0
+    target_timeout: float = 30.0
+    # KG-APPROACH. Desired closing speed = clamp(approach_gain * (distance -
+    # standoff), min_closing, max_closing); the standoff is the rock's radius (the
+    # distance to its centre at contact, about), so the last metres close at
+    # min_closing, under stock's captureMaxRvel 0.3 m/s.
+    standoff_meters: float = 2.0
+    approach_gain: float = 0.02
+    min_closing_speed: float = 0.15
+    max_closing_speed: float = 0.8
+    # Velocity-error gain (translation command per m/s), the lateral position gain
+    # (desired lateral m/s per m off the axis), the command clamp and the deadband.
+    velocity_gain: float = 0.6
+    lateral_gain: float = 0.05
+    max_translation: float = 0.4
+    translation_deadband: float = 0.02
+    approach_timeout: float = 300.0
+    # Give up when the target is this many metres FARTHER than at KG-TARGET (the
+    # probe is flying away, never closing).
+    approach_abort_extra_meters: float = 30.0
+    hold_seconds: float = 15.0
+    # KG-DRILL (0 = no drill phase).
+    drill_seconds: float = 0.0
+    drill_part: str = "MiniDrill"
+    drill_deploy_seconds: float = 6.0
+    seam_timeout: float = 60.0
+    # KG-RELEASE / KG-BACKOFF / KG-COAST.
+    release: bool = False
+    release_timeout: float = 30.0
+    backoff_seconds: float = 10.0
+    backoff_translation: float = 0.3
+    coast_seconds: float = 10.0
+    # KG-DOCK-TGT: "" = no dock; else the vessel to dock with (B-DOCK's DOCK).
+    dock_target_name: str = ""
+    bdock: BDockParams = field(default_factory=BDockParams)
+    settle_seconds: float = 5.0
+
+
+def klaw_params_from_dict(params: Dict) -> KlawParams:
+    params = params or {}
+    return KlawParams(
+        rock_name=str(params.get("rockName", "Ast. VPA-167")),
+        arm_event=str(params.get("armEvent", "GrapplingDevice|ModuleAnimateGeneric|Arm")),
+        release_event=str(params.get("releaseEvent",
+                                     "GrapplingDevice|ModuleGrappleNode|Release")),
+        start_settle_seconds=float(params.get("startSettleSeconds", 5)),
+        arm_seconds=float(params.get("armSeconds", 5)),
+        target_timeout=float(params.get("targetTimeoutSeconds", 30)),
+        standoff_meters=float(params.get("standoffMeters", 2)),
+        approach_gain=float(params.get("approachGain", 0.02)),
+        min_closing_speed=float(params.get("minClosingSpeed", 0.15)),
+        max_closing_speed=float(params.get("maxClosingSpeed", 0.8)),
+        velocity_gain=float(params.get("velocityGain", 0.6)),
+        lateral_gain=float(params.get("lateralGain", 0.05)),
+        max_translation=float(params.get("maxTranslation", 0.4)),
+        translation_deadband=float(params.get("translationDeadband", 0.02)),
+        approach_timeout=float(params.get("approachTimeoutSeconds", 300)),
+        approach_abort_extra_meters=float(params.get("approachAbortExtraMeters", 30)),
+        hold_seconds=float(params.get("holdSeconds", 15)),
+        drill_seconds=float(params.get("drillSeconds", 0)),
+        drill_part=str(params.get("drillPart", "MiniDrill")),
+        drill_deploy_seconds=float(params.get("drillDeploySeconds", 6)),
+        seam_timeout=float(params.get("seamTimeoutSeconds", 60)),
+        release=bool(params.get("release", False)),
+        release_timeout=float(params.get("releaseTimeoutSeconds", 30)),
+        backoff_seconds=float(params.get("backoffSeconds", 10)),
+        backoff_translation=float(params.get("backoffTranslation", 0.3)),
+        coast_seconds=float(params.get("coastSeconds", 10)),
+        dock_target_name=str(params.get("dockTargetName", "")),
+        bdock=bdock_params_from_dict(params),
+        settle_seconds=float(params.get("settleSeconds", 5)),
+    )
+
+
+def klaw_translation(rel_position, rel_velocity,
+                     params: KlawParams) -> Tuple[float, float, float]:
+    """The RCS translation (right, forward, up) that closes on the target. Pure.
+
+    ``rel_position`` is the target's position in the ACTIVE vessel's reference
+    frame (kRPC: x right, y forward = where the vessel points, z down);
+    ``rel_velocity`` is the target's velocity relative to the vessel, in the same
+    axes, measured in a NON-ROTATING frame (so the vessel's own turning adds no
+    phantom velocity). Forward: the closing speed (``-vy``) is driven toward
+    clamp(approach_gain * (distance - standoff), min, max). Lateral: the target's
+    sideways velocity is driven toward ``-lateral_gain * offset`` (back onto the
+    axis), which the vessel achieves by translating WITH the target's drift.
+    kRPC's ``up`` is the -z direction. Each command is clamped to
+    ``max_translation`` and zeroed inside the deadband; a non-finite input returns
+    (0, 0, 0)."""
+    if not _finite3(rel_position) or not _finite3(rel_velocity):
+        return 0.0, 0.0, 0.0
+    x, y, z = (float(c) for c in rel_position)
+    vx, vy, vz = (float(c) for c in rel_velocity)
+    p = params
+    dist = math.sqrt(x * x + y * y + z * z)
+    desired_closing = _clamp(p.approach_gain * max(0.0, dist - p.standoff_meters),
+                             p.min_closing_speed, p.max_closing_speed)
+    closing = -vy
+    forward = p.velocity_gain * (desired_closing - closing)
+    right = p.velocity_gain * (vx + p.lateral_gain * x)
+    up = -p.velocity_gain * (vz + p.lateral_gain * z)
+    out = []
+    for c in (right, forward, up):
+        c = _clamp(c, -p.max_translation, p.max_translation)
+        out.append(0.0 if abs(c) < p.translation_deadband else c)
+    return out[0], out[1], out[2]
+
+
+def _klaw_distance(rel_position) -> float:
+    if not _finite3(rel_position):
+        return float("nan")
+    x, y, z = (float(c) for c in rel_position)
+    return math.sqrt(x * x + y * y + z * z)
+
+
+@dataclass(frozen=True)
+class KlawState:
+    """KLAW-GRAB machine state. ``inner`` is the delegated B-DOCK state, live only
+    in DOCK."""
+    params: KlawParams
+    inner: BDockState
+    phase: str = KLAW_START
+    phase_entry_ut: float = float("nan")
+    phases_reached: Tuple[str, ...] = (KLAW_START,)
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    flake_reason: Optional[str] = None
+    loss_reason: Optional[str] = None
+    done: bool = False
+    # Evidence for the assertions.
+    approach_start_distance: float = float("nan")
+    closest_distance: float = float("nan")
+    baseline_part_count: int = 0
+    held_part_count: int = 0
+    grabbed: bool = False
+    grab_ut: float = float("nan")
+    drill_step: int = 0
+    drilled: bool = False
+    released: bool = False
+    release_ut: float = float("nan")
+    docked: bool = False
+
+
+def klaw_initial_state(params: KlawParams) -> KlawState:
+    return KlawState(params=params, inner=bdock_initial_state(params.bdock))
+
+
+def _klaw_enter(state: KlawState, new_phase: str, ut: float, **fields_) -> KlawState:
+    entry = ut if _is_finite(ut) else state.phase_entry_ut
+    return replace(state, phase=new_phase, phase_entry_ut=entry,
+                   phases_reached=state.phases_reached + (new_phase,),
+                   done=(new_phase == KLAW_TERMINAL), **fields_)
+
+
+def _klaw_elapsed(state: KlawState, snapshot: TelemetrySnapshot) -> float:
+    if not _is_finite(snapshot.ut) or not _is_finite(state.phase_entry_ut):
+        return 0.0
+    return snapshot.ut - state.phase_entry_ut
+
+
+def _klaw_flake(state: KlawState, reason: str) -> KlawState:
+    return replace(state, verdict=MISSION_FLAKE, flake_phase=state.phase,
+                   flake_reason="phase %s: %s" % (state.phase, reason), done=True)
+
+
+ZERO_TRANSLATION: Tuple[float, float, float] = (0.0, 0.0, 0.0)
+
+
+def _klaw_stop_translation() -> Action:
+    return Action(ACTION_SET_TRANSLATION, translation=ZERO_TRANSLATION)
+
+
+def _klaw_drill_action(params: KlawParams, step: int) -> Action:
+    tag, button = KLAW_DRILL_STEPS[step]
+    return Action(ACTION_PARSEK_SEAM_COMMAND, seam_verb="PartAction",
+                  seam_args=(("button", button), ("part", params.drill_part),
+                             ("all", "true")),
+                  seam_tag=tag)
+
+
+def _klaw_after_hold(state: KlawState, ut: float) -> Tuple[KlawState, List[Action]]:
+    p = state.params
+    if p.drill_seconds > 0:
+        return (_klaw_enter(state, KLAW_DRILL, ut, drill_step=0),
+                [_klaw_drill_action(p, 0)])
+    return _klaw_after_drill(state, ut)
+
+
+def _klaw_after_drill(state: KlawState, ut: float) -> Tuple[KlawState, List[Action]]:
+    p = state.params
+    if p.release:
+        return (_klaw_enter(state, KLAW_RELEASE, ut),
+                [Action(ACTION_TRIGGER_PART_EVENT, text=p.release_event)])
+    return _klaw_enter(state, KLAW_SETTLE, ut), []
+
+
+def klaw_decide(state: KlawState,
+                snapshot: TelemetrySnapshot) -> Tuple[KlawState, List[Action]]:
+    """Advance the KLAW-GRAB machine one frame; return (new_state, actions)."""
+    if state.done:
+        return state, []
+    p = state.params
+
+    if state.phase == KLAW_START:
+        if not _is_finite(state.phase_entry_ut) and _is_finite(snapshot.ut):
+            state = replace(state, phase_entry_ut=snapshot.ut)
+        if _klaw_elapsed(state, snapshot) < p.start_settle_seconds:
+            return state, []
+        return (_klaw_enter(state, KLAW_ARM, snapshot.ut),
+                [Action(ACTION_TRIGGER_PART_EVENT, text=p.arm_event)])
+
+    if state.phase == KLAW_ARM:
+        if _klaw_elapsed(state, snapshot) < p.arm_seconds:
+            return state, []
+        return (_klaw_enter(state, KLAW_TARGET, snapshot.ut),
+                [Action(ACTION_TARGET_NEAREST_NAMED_VESSEL, text=p.rock_name)])
+
+    if state.phase == KLAW_TARGET:
+        dist = _klaw_distance(snapshot.klaw_target_rel_position)
+        if _is_finite(dist) and snapshot.part_count > 0:
+            return (_klaw_enter(state, KLAW_APPROACH, snapshot.ut,
+                                approach_start_distance=dist, closest_distance=dist,
+                                baseline_part_count=snapshot.part_count),
+                    [Action(ACTION_SAS_TARGET), Action(ACTION_SET_RCS, value=1.0)])
+        if _klaw_elapsed(state, snapshot) > p.target_timeout:
+            return _klaw_flake(state, (
+                "no relative position for a target named %r (part_count=%d); the "
+                "rock is not loaded beside the probe, or the target did not take"
+                % (p.rock_name, snapshot.part_count))), []
+        return state, []
+
+    if state.phase == KLAW_APPROACH:
+        if (snapshot.part_count > state.baseline_part_count > 0):
+            return (_klaw_enter(state, KLAW_HOLD, snapshot.ut, grabbed=True,
+                                grab_ut=snapshot.ut,
+                                held_part_count=snapshot.part_count),
+                    [_klaw_stop_translation()])
+        dist = _klaw_distance(snapshot.klaw_target_rel_position)
+        closest = state.closest_distance
+        if _is_finite(dist) and (not _is_finite(closest) or dist < closest):
+            state = replace(state, closest_distance=dist)
+        if _klaw_elapsed(state, snapshot) > p.approach_timeout:
+            return _klaw_flake(state, (
+                "no capture within %.0f s (distance=%s closest=%s start=%s "
+                "part_count=%d baseline=%d)"
+                % (p.approach_timeout, _obs_fmt(dist), _obs_fmt(state.closest_distance),
+                   _obs_fmt(state.approach_start_distance), snapshot.part_count,
+                   state.baseline_part_count))), [_klaw_stop_translation()]
+        if (_is_finite(dist) and _is_finite(state.approach_start_distance)
+                and dist > state.approach_start_distance + p.approach_abort_extra_meters):
+            return _klaw_flake(state, (
+                "the target is receding (distance=%s, start=%s, abort beyond +%.0f m)"
+                % (_obs_fmt(dist), _obs_fmt(state.approach_start_distance),
+                   p.approach_abort_extra_meters))), [_klaw_stop_translation()]
+        cmd = klaw_translation(snapshot.klaw_target_rel_position,
+                               snapshot.klaw_target_rel_velocity, p)
+        return state, [Action(ACTION_SET_TRANSLATION, translation=cmd)]
+
+    if state.phase == KLAW_HOLD:
+        if _klaw_elapsed(state, snapshot) < p.hold_seconds:
+            return state, []
+        return _klaw_after_hold(state, snapshot.ut)
+
+    if state.phase == KLAW_DRILL:
+        step = state.drill_step
+        last = step == len(KLAW_DRILL_STEPS) - 1
+        tag = KLAW_DRILL_STEPS[step][0]
+        result = _seam_result(snapshot, tag)
+        if last and result in ("OK", "ERROR"):
+            # The stop press is housekeeping: a harvester that stopped by itself
+            # (storage full, power out) leaves no Stop button and the press answers
+            # ERROR event-unavailable. Either answer ends the drill; only OK on all
+            # three steps reads as drilled.
+            return _klaw_after_drill(replace(state, drilled=(result == "OK")), snapshot.ut)
+        if result in ("ERROR", "TIMEOUT"):
+            return _klaw_flake(state, "drill seam command %s returned %s" % (tag, result)), []
+        if result != "OK":
+            if _klaw_elapsed(state, snapshot) > p.seam_timeout:
+                return _klaw_flake(state, "drill seam command %s never answered" % tag), []
+            return state, []
+        # This step answered OK. The dwell after it is measured from the step's own
+        # issue (the phase is re-entered per step), then the next step.
+        dwell = p.drill_deploy_seconds if step == 0 else p.drill_seconds
+        if _klaw_elapsed(state, snapshot) < dwell:
+            return state, []
+        nxt = step + 1
+        return (_klaw_enter(state, KLAW_DRILL, snapshot.ut, drill_step=nxt),
+                [_klaw_drill_action(p, nxt)])
+
+    if state.phase == KLAW_RELEASE:
+        held = state.held_part_count
+        if held > 0 and 0 < snapshot.part_count < held:
+            return (_klaw_enter(state, KLAW_BACKOFF, snapshot.ut, released=True,
+                                release_ut=snapshot.ut),
+                    [Action(ACTION_SET_TRANSLATION,
+                            translation=(0.0, -abs(p.backoff_translation), 0.0))])
+        if _klaw_elapsed(state, snapshot) > p.release_timeout:
+            return _klaw_flake(state, (
+                "no release observed (part_count=%d held=%d); the release event "
+                "did not fire, see the runner's PartEvent lines"
+                % (snapshot.part_count, held))), []
+        return state, []
+
+    if state.phase == KLAW_BACKOFF:
+        if _klaw_elapsed(state, snapshot) < p.backoff_seconds:
+            return state, []
+        return _klaw_enter(state, KLAW_COAST, snapshot.ut), [_klaw_stop_translation()]
+
+    if state.phase == KLAW_COAST:
+        if _klaw_elapsed(state, snapshot) < p.coast_seconds:
+            return state, []
+        if p.dock_target_name:
+            return (_klaw_enter(state, KLAW_DOCK_TARGET, snapshot.ut),
+                    [Action(ACTION_SET_SAS), Action(ACTION_CONTROL_FROM_DOCKING_PORT),
+                     Action(ACTION_TARGET_NEAREST_NAMED_VESSEL, text=p.dock_target_name)])
+        return _klaw_enter(state, KLAW_SETTLE, snapshot.ut), []
+
+    if state.phase == KLAW_DOCK_TARGET:
+        if snapshot.target_set and _is_finite(snapshot.target_distance):
+            # REDOCK's hand-off verbatim: port target now, AP enable deferred a poll.
+            inner = _bdock_enter(
+                replace(state.inner, dock_enable_pending=True), BDOCK_DOCK,
+                snapshot.ut, dock_last_progress_ut=snapshot.ut,
+                dock_entry_docked=(snapshot.docking_state == DOCKING_STATE_DOCKED))
+            st = _klaw_enter(state, BDOCK_DOCK, snapshot.ut, inner=inner)
+            return st, [Action(ACTION_SET_SAS), Action(ACTION_SET_RCS, value=1.0),
+                        Action(ACTION_SET_TARGET_DOCKING_PORT)]
+        if _klaw_elapsed(state, snapshot) > p.target_timeout:
+            return _klaw_flake(state, (
+                "no dock target %r acquired (target_set=%s target_distance=%s)"
+                % (p.dock_target_name, snapshot.target_set,
+                   _obs_fmt(snapshot.target_distance)))), []
+        return state, []
+
+    if state.phase == BDOCK_DOCK:
+        inner, actions = bdock_decide(state.inner, snapshot)
+        if inner.phase == BDOCK_TRANSFER and inner.docked_confirmed:
+            st = replace(state, inner=inner)
+            return (_klaw_enter(st, KLAW_SETTLE, snapshot.ut, docked=True),
+                    [Action(ACTION_MJ_DISABLE_DOCKING)])
+        if inner.done:
+            return replace(state, inner=inner, verdict=inner.verdict,
+                           flake_phase=inner.flake_phase,
+                           flake_reason=inner.flake_reason,
+                           loss_reason=inner.loss_reason, done=True), actions
+        return replace(state, inner=inner), actions
+
+    if state.phase == KLAW_SETTLE:
+        if _klaw_elapsed(state, snapshot) < p.settle_seconds:
+            return state, []
+        return _klaw_enter(state, KLAW_TERMINAL, snapshot.ut), [_klaw_stop_translation()]
+
+    return _klaw_flake(state, "unknown phase"), []
+
+
+def evaluate_klaw_assertions(frames, params: KlawParams, phases_reached=(),
+                             state=None) -> List[AssertionOutcome]:
+    """KLAW-GRAB driver-validity assertions:
+
+    - ``grabbed``   the part count rose above the KG-TARGET baseline (the capture).
+    - ``drilled``   (drill_seconds > 0) all three drill seam commands answered OK.
+    - ``released``  (release) the part count fell below the held count.
+    - ``docked``    (dock_target_name) DOCK completed on B-DOCK's corroborated read.
+    """
+    del frames
+    phases = tuple(phases_reached or ())
+    grabbed = bool(getattr(state, "grabbed", False))
+    out = [AssertionOutcome(
+        "grabbed", (KLAW_HOLD in phases) and grabbed, getattr(state, "grab_ut", None),
+        {"required": KLAW_HOLD,
+         "closestDistance": getattr(state, "closest_distance", None),
+         "startDistance": getattr(state, "approach_start_distance", None)})]
+    if params is not None and params.drill_seconds > 0:
+        drilled = bool(getattr(state, "drilled", False))
+        out.append(AssertionOutcome("drilled", drilled, drilled,
+                                    {"required": KLAW_DRILL}))
+    if params is not None and params.release:
+        released = bool(getattr(state, "released", False))
+        out.append(AssertionOutcome("released", (KLAW_BACKOFF in phases) and released,
+                                    getattr(state, "release_ut", None),
+                                    {"required": KLAW_BACKOFF}))
+    if params is not None and params.dock_target_name:
+        docked = bool(getattr(state, "docked", False))
+        out.append(AssertionOutcome("docked", (KLAW_SETTLE in phases) and docked, docked,
+                                    {"required": KLAW_SETTLE}))
+    return out
 
 
 # ---------------------------------------------------------------------------

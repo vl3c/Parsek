@@ -1021,6 +1021,37 @@ Hosts LAB-13b (separate, re-dock, process while docked, true undock, transmit). 
 is the base's (about UT 2105 to 2480). Drift-gated by `--check` and
 `harness/lib/test_lab_lko_tender_rcs.py`.
 
+## The Klaw / asteroid hosts: ast-klaw-lko, com-klaw-lko, ast-miner-lko, ast-mothership-lko (GAME Mode = SANDBOX, ORBITING, derived from lab-lko-sandbox)
+
+`harness/tools/build_ast_klaw_fixtures.py`: `lab-lko-sandbox` with every vessel replaced, so a
+lane starts already parked beside a rock in low Kerbin orbit instead of flying an ascent and a
+rendezvous. Every vessel rides the LABX's own orbit (about 100 km, the base's UT 355.83) with
+only MNA moved by its along-track offset, so the set stays together to within the orbit's 1
+percent eccentricity over a lane.
+
+- `ast-klaw-lko` (AST-1, AST-2): `AST Klaw` (active, pid 2710401000) at 0 m, the base asteroid
+  `Ast. VPA-167` (pid 1490391000, class A) 60 m ahead, `AST Watcher` (an OKTO and a Z-200, pid
+  2710403000, the post-rewind focus) 300 m behind.
+- `com-klaw-lko` (COM-1): the same with the comet `UnknownComet` of `depot-route-recorded`
+  (pid 3656867723, nucleus radius 44.47 m, size 5 kept) 150 m ahead.
+- `ast-miner-lko` (AST-3): `AST Miner` (the Klaw probe plus a MiniDrill, an empty RadialOreTank
+  and two Z-400 packs, pid 2710402000) at 0 m, the rock 60 m ahead, `AST Depot` (an OKTO, a Ready
+  Jr port, an empty RadialOreTank of part pid 2710004003, pid 2710404000) 150 m behind.
+- `ast-mothership-lko` (AST-4): `AST Klaw` with a mothership (Jr port of part pid 2710001010,
+  OKTO, Z-200) PreAttached under the probe's own Jr port, the rock 100 m ahead.
+
+The Klaw probe: an OKTO root, a Z-200 above it, the Klaw (`GrapplingDevice`) forward-most on
++Y, a Jr port under the OKTO, four RV-105 blocks and two Stratus-V tanks on the OKTO ring. Part
+bodies are donor text byte for byte (`lab-lko-sandbox`, `bdock-recorded`, `miner-rover-full`).
+INVENTED, since no committed save carries a Klaw: the Klaw PART header (mass, surface
+attachment, position) and a body with NO MODULE node (prefab defaults, disarmed; the shape stock
+writes for an unloaded asteroid), the rock DISCOVERY (`state = 29`, `lifetime` / `refTime` =
+Infinity, asteroid `size = 0`), every non-donor position, and the identities. Save edits:
+CommNet off (an OKTO cannot translate on RCS without a link), full SAS in sandbox on (the
+approach holds SAS Target), Bob and Valentina freed. Whether KSP loads and saves the module-less
+Klaw normally is a first-flight observation. Drift-gated by `--check` and
+`harness/lib/test_ast_klaw_fixtures.py`.
+
 ## lab-pad-career (GAME Mode = CAREER, 1 VESSEL PRELAUNCH, derived from strategy-career + lab-pad-seeded)
 
 The LAB-12 host (a lab transmit under a science-taking strategy). `harness/tools/build_lab_pad_career.py`

@@ -1,0 +1,197 @@
+schema = 1
+id = "AST-1-klaw-grab-rewind"
+tier = "operator"
+# =====================================================================================
+# AST-1 (owner rulings V 2026-11-15, the Klaw lanes AST-1 / AST-2 / AST-3 / AST-4 / COM-1).
+# AUTHORED 2026-11-15 on branch `ast-lanes`, NEVER FLOWN. Every window below is a reading-run
+# guess; the lane is re-pinned off its first flight and the tier promoted by its measured p50.
+#
+# THE RULINGS UNDER TEST. A rock (SpaceObject, `PotatoRoid`) is not recorded before a Klaw
+# grabs it; the grab is a Dock merge whose couple kind is Grapple; after a rewind the rock is
+# claimed by the ghost chain walker, held out of the world and drawn as a hold ghost, so there
+# is never a second copy; at the tip the probe and the rock spawn real as one vessel.
+#
+# HOST: `ast-klaw-lko` (harness/tools/build_ast_klaw_fixtures.py): `AST Klaw` (active, pid
+# 2710401000; OKTO, Z-200, the Klaw `GrapplingDevice` forward-most, a Jr port, four RV-105, two
+# Stratus-V) on the LABX orbit at UT 355.83, the class-A asteroid `Ast. VPA-167` (pid
+# 1490391000) 60 m ahead on the same orbit, `AST Watcher` (pid 2710403000) 300 m behind, the
+# post-rewind flight focus (the Klaw is a replayed recording's vessel and the rock is held).
+#
+# THE FLIGHT. Recording on the Klaw alone (the rock and the watcher are outside the tree), a 1x
+# wait to UT 370 so the root has samples, then the mission `ast_klaw_grab`: arm the Klaw (its
+# ModuleAnimateGeneric `Arm` event through kRPC), target the rock, SAS Target, close under RCS
+# (a P-controller on the rock's relative position / velocity) until stock merges the rock's part
+# into the probe (the part count rises), hold 15 s. Commit in flight (2 recordings: the root,
+# ending in the Dock merge, and the merge child, the probe holding the rock), Rewind-to-Launch,
+# a Space Center save reloaded into FLIGHT on the watcher, then a rails warp past the tip.
+#
+# THE MISSION'S GAME-TIME BOUND (it never warps): start <= UT 370 + seam overhead, then
+# settle 5 + arm 5 + target <= 30 + approach <= 300 + hold 15 + settle 5 = UT 730 on OK. The
+# commit follows within seconds. The post-rewind warp to UT 1000 is past both.
+#
+# SIBLING-FIX DEPENDENCIES (these pins red on main until the fix lands):
+#   - `RockGhost built: path=` (the rock's hold ghost built at the rock's own size; the literal
+#     is PROVISIONAL, the sibling fix owns it).
+#
+# UNKNOWNS THE FIRST (READING) RUN ANSWERS:
+#   - whether KSP loads the module-less Klaw (an invented PART body, fixture README) and fires
+#     its `Arm` event by that GUI name (the runner logs every offered event on a miss);
+#   - whether the RCS approach captures at all: kRPC's `up` sign, orbital drift over the
+#     approach, the Klaw's capture cone and stock's 0.3 m/s capture speed;
+#   - the couple's from / to order (both orders pinned), the merged pid (predicted the probe:
+#     a Probe outranks a SpaceObject), and the merged vessel's name (predicted `AST Klaw`);
+#   - whether the rewind save's rock holds by the chain feed or the future hold (either
+#     evidence word), and the hold ghost's part count (1, the rock alone);
+#   - whether the rock's ModuleAsteroid keeps `AsteroidName` once it is part of the probe (the
+#     `spaceObjectParts` census reads it; the structure block is report-only).
+#
+# FAST-LANE CHECKLIST: (1) no committed lane grabs a real rock (H41 couples one in an in-game
+# cell), so no prefix is reusable; (2) every wait is an explicit-UT WarpToUT; (3) the 1x waits
+# are the root's samples and the approach itself; (4) the approach is 1x by mission policy, the
+# post-rewind wait is a rails warp; (5) no burns; (6) the approach give-up (300 s) and the target
+# give-up (30 s) fail a doomed flight fast, retry once; (7) count 2..2; (8) operator until
+# green; (9) flight_efficiency.py after the first green flight.
+# =====================================================================================
+description = "AST-1: a probe grabs a real asteroid with the Klaw in low Kerbin orbit (the rock unrecorded before the grab, the grab a Dock merge of couple kind Grapple), commits, and after Rewind-to-Launch the ghost chain claims the rock, the rewind holds it out of the world with a hold ghost until the ghost probe grabs it, and at the tip the probe and the rock spawn real as one vessel with no second copy of the rock."
+instanceProfile = "stock-minimal"
+tags = ["asteroid", "klaw", "grapple", "dock", "ghost-chain", "rewind-to-launch", "rewind-hold",
+        "rcs", "AST-1", "reading-run", "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/ast-klaw-lko"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "autopilot"
+mission = "ast_klaw_grab"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "DiscardTree",                                                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "StartRecording",                                                          expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "370", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "ast1-grab" },                          expect = "OK" },
+  { phase = "mission",      expect = "MISSION-OK", budget = 900 },
+  { cmd = "MissionMark",    args = { label = "ast1-held" },                          expect = "OK" },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "CommitTree",                                                              expect = "OK", budget = 120 },
+  # CommitTree re-takes the committed tree for the still-active probe; stop it (RC-6).
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c0",             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "ast1-committed-${c0.count}" },         expect = "OK" },
+  # Rewind-to-Launch, then a Space Center save reloaded into FLIGHT on the watcher.
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                        expect = "OK", budget = 300 },
+  { cmd = "SaveGame",       args = { name = "ast1-rewound" },                        expect = "OK", budget = 120 },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "ast1-rewound", focusPid = "2710403000" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "DiscardTree",                                                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "chains" }, label = "ch",                expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "ast1-reloaded-chains-${ch.count}" },   expect = "OK" },
+  # Past the ghost grab (about UT 560) and the tip (the commit, before UT 760).
+  { cmd = "WarpToUT",       args = { ut = "1000", maxRate = "50" },                  expect = "OK", budget = 300 },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c2",             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "ast1-ended-a-${c2.rec0spawned}-${c2.rec0spawnedPid}-b-${c2.rec1spawned}-${c2.rec1spawnedPid}-end" }, expect = "OK" },
+  { cmd = "SaveGame",                                                                expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                            expect = "OK" },
+]
+
+[driver.missionParams]
+rockName               = "Ast. VPA-167"
+startSettleSeconds     = 5
+armSeconds             = 5
+targetTimeoutSeconds   = 30
+# A class-A rock: a few metres to its centre at contact; the last metres close at the 0.15 m/s
+# floor, under stock's 0.3 m/s capture limit.
+standoffMeters         = 2
+approachTimeoutSeconds = 300
+holdSeconds            = 15
+settleSeconds          = 5
+
+[dimensionsCovered]
+# cross-tree-foreign-dock        <- `Tree merge created: type=Dock, ... parents=[<root>], ...`
+# claw-producer                  <- `OnPartCouple producer classified: kind=Grapple`
+# committed-interaction-claiming <- `Vessel PID=1490391000 claimed by tree=... via MERGE`
+D5  = ["cross-tree-foreign-dock"]
+D9  = ["rewind-to-launch"]
+D10 = ["claw-producer"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "warp-1x", "warp-rails"]
+D18 = ["committed-interaction-claiming"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The root (ends in the Dock merge) and the merge child (the probe holding the rock).
+count = { min = 2, max = 2 }
+
+[expectations.recordings.structure]
+# REPORT-ONLY until the reading run. One rock part in the produced save (no second copy), held
+# by the spawned probe; the rock never a recording of its own.
+gating            = false
+trees             = { min = 1, max = 1 }
+committedTrees    = { min = 1, max = 1 }
+branchPoints      = { Dock = { min = 1, max = 1 } }
+spaceObjectParts  = { "Ast. VPA-167" = { min = 1, max = 1 } }
+vesselNames       = { "AST Klaw" = { min = 1, max = 1 }, "AST Watcher" = { min = 1, max = 1 } }
+recordingNames    = { "AST Klaw" = { min = 2, max = 2 }, "Ast. VPA-167" = { min = 0, max = 0 } }
+
+[expectations.logContracts]
+required = [
+  "startrecording recordingId=[0-9a-f]+ already=false",
+  # THE GRAB: stock's couple is a Grapple, Parsek's branch a cross-tree Dock merge onto the
+  # probe, the route window stamped with the rock's pid.
+  "MISSIONMARK label=ast1-grab [\\s\\S]*OnPartCouple producer classified: kind=Grapple (?:fromPart=PotatoRoid toPart=GrapplingDevice|fromPart=GrapplingDevice toPart=PotatoRoid) involvesEva=False",
+  "startrecording recordingId=([0-9a-f]+) already=false[\\s\\S]*Tree merge created: type=Dock, bp=[^,\\r\\n]+, parents=\\[\\1\\], child=[0-9a-f]+ \\(pid=2710401000\\)",
+  "Route proof dock window captured: child=[0-9a-f]+ window=[^ \\r\\n]+ targetPid=1490391000 kind=Grapple ",
+  # The merge is the root's first boundary: it copies the rewind save to the root.
+  "Captured rewind save at UT [0-9.]+: vessel \"AST Klaw\" in [A-Z_]+ \\(save: (parsek_rw_[0-9a-f]+)\\)[\\s\\S]*CreateMergeBranch: copied rewind save '\\1' to root recording '[0-9a-f]+'",
+  "MISSIONMARK label=ast1-committed-2 ",
+  "committree committed=true",
+  # THE CLAIM: the walker claims the rock through the merge; its chain's tip is the child.
+  "Vessel PID=1490391000 claimed by tree=[0-9a-f]{32} via MERGE at UT=[0-9.]+",
+  "Tree merge created: type=Dock, [^\\r\\n]*child=([0-9a-f]+) \\(pid=2710401000\\)[\\s\\S]*Chain built: vessel=1490391000 links=1 tip=\\1 ",
+  # THE REWIND and THE HOLD: the rock stays in the rewind save, is held for its committed
+  # future and drawn as a hold ghost until the ghost probe grabs it.
+  "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest committedTrees=1",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*\\[RewindHold\\] Rewind held vessel for its committed future: pid=1490391000 name='Ast\\. VPA-167' [^\\r\\n]*evidence=(?:chain|changes|flies) [^\\r\\n]*snapshot=yes",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*\\[RewindHold\\] Rewind vessel hold: survivors=[0-9]+ held=1 ",
+  "invokerewindtolaunch complete [\\s\\S]*loadgame focus pid=2710403000 ",
+  "invokerewindtolaunch complete [\\s\\S]*\\[ClaimedHoldGhost\\] Rewind vessel holds restored on flight load: saved=1 restored=1 ",
+  "invokerewindtolaunch complete [\\s\\S]*Claimed vessel hold ghost shown: pid=1490391000 name='Ast\\. VPA-167' chain=1490391000 source=snapshot-orbit body=Kerbin parts=1 firstClaimUT=[0-9.]+ UT=[0-9.]+ from=rewind-save",
+  # SIBLING FIX (provisional literal): the rock's hold ghost is built at the rock's own size.
+  "invokerewindtolaunch complete [\\s\\S]*RockGhost built: path=",
+  "Claimed vessel hold ghost shown: pid=1490391000 [\\s\\S]*Claimed vessel hold ghost released: pid=1490391000 name='Ast\\. VPA-167' reason=(?:claimed|covered-by-recording) ",
+  "Tree merge created: type=Dock, [^\\r\\n]*child=([0-9a-f]+) \\(pid=2710401000\\)[\\s\\S]*invokerewindtolaunch complete [\\s\\S]*listhandles chain index=[0-9]+ pid=1490391000 links=1 trees=1 treeIds=[0-9a-f]{32} tip=\\1",
+  # THE TIP: the probe holding the rock spawns real (predicted through the chain tip).
+  "invokerewindtolaunch complete [\\s\\S]*(?:Chain tip spawn complete: #[0-9]+ \"AST Klaw\" pid=[0-9]+|Vessel respawned \\(sit=ORBITING, pid=[0-9]+|SpawnAtPosition: vessel spawned \\(sit=ORBITING, pid=[0-9]+)",
+  "MISSIONMARK label=ast1-ended-",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "invokerewindtolaunch refused",
+  "warptout refused",
+  # The rock recorded before the grab, or stripped / ghosted as if a recording produced it.
+  "Rewind strip scope: strip spawned pid=1490391000 ",
+  "\\[Ghoster\\] Vessel ghosted: pid=1490391000 ",
+  "Claimed vessel hold ghost not drawn",
+  "Chain tip spawn blocked by collision",
+  "Spawn ABANDONED",
+  "Spawn FAILED",
+]
+
+[runtime]
+# Two LoadGames (300 s each), the mission (up to 900 s wall: about 4 min of 1x on OK), the
+# rewind (300), two saves and a commit (120 each), the rails warp (about 650 game s at 50x).
+budgetSeconds = 2400
+
+[retry]
+policy = "once"

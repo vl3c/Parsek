@@ -1181,6 +1181,7 @@ MISSION_MACHINES = {
     "bay1_runway_bays": "bay1_decide", "bdock_dock_transfer": "bdock_decide",
     "bdock_second_dock": "sdock_decide", "cl1_pod_impact": "cl1_decide",
     "cl3_refly_crew_tombstone": "cl3_decide", "d5_redock": "rdock_decide",
+    "ast_klaw_grab": "klaw_decide",
     "ci9_tip_dock": "tdock_decide",
     "ci11_krpc_recover": "krec_decide",
     "eva4_atmo_chute": "eva4_decide", "forge_lko": "forge_lko_decide",
