@@ -35,7 +35,8 @@ ghost-map-vessel primitive (P3), the trajectory codec change (P6), the ghost-cou
 ## 2. Starts after
 
 - Version 1.0.2 is released and the owner says go (brief).
-- P12 (P12-01 `[forbidden]` list form, P12-02 `ParsekRace*` placement) and P11 (P11-01,
+- P12 (P12-01 `[forbidden]` list form; P12-02 is dropped, since the folder places a file) and
+  P11 (P11-01,
   P11-02, derived window counts) per the 15.11 order. Nothing in this slice needs their
   content; the order only keeps the arch tooling and harness specs stable while these
   refactors re-pin canaries.
@@ -65,18 +66,18 @@ ghost-map-vessel primitive (P3), the trajectory codec change (P6), the ghost-cou
 
 - `IPlaybackTrajectory.cs:82` declares `int LoopSyncParentIdx { get; set; }`.
   - Readers: `GhostPlaybackEngine.LoopPlayback.cs:54-59` (`trajectories[traj.LoopSyncParentIdx]`,
-    `currentLoopUnits.OwnerByIndex.ContainsKey`) and `GhostPlaybackLogic.cs:772`
+    `currentLoopUnits.OwnerByIndex.ContainsKey`) and `GhostPlaybackLogic.cs:758`
     (`IsLoopSyncedDebrisOfWatchedLineage`, on concrete `Recording`).
-  - Writers: only `CommittedListOptimizer.cs:724,745` (`PopulateLoopSyncParentIndices`, typed
+  - Writers: only `CommittedListOptimizer.cs:728, 749` (`PopulateLoopSyncParentIndices`, typed
     `IReadOnlyList<Recording>`), so no production write goes through the interface.
   - Implementers: `Recording.cs:49` (auto-property, default -1; cloned at :1139),
     `Reaim/ReaimedTrajectory.cs:117` (get and set forward to the inner trajectory),
     `Source/Parsek.Tests/MockTrajectory.cs:43`, six test trajectories in
     `InGameTests/RuntimeTests.cs` (27179, 27276, 27377, 27427, 27510, 27578).
-  - Test setters: `ZoneRenderingTests.cs` 663-885, `Issue316WatchProtectionTests.cs` 155, 165.
+  - Test setters: `ZoneRenderingTests.cs` 629-851, `Issue316WatchProtectionTests.cs` 155, 165.
   - Runtime-only: `SaveRoundTrip/RecordingSaveRoundTripTests.cs:41` excludes it from round trip.
 - Engine diagnostics writes into the static `Diagnostics/DiagnosticsState.cs`:
-  - `GhostPlaybackEngine.cs:388,393,398` reset `playbackBudget = default` on early returns;
+  - `GhostPlaybackEngine.cs:388, 393, 398` reset `playbackBudget = default` on early returns;
   - `GhostPlaybackEngine.cs:882-887` set six `playbackBudget` fields;
   - `GhostPlaybackEngine.cs:889` appends to `playbackFrameHistory`;
   - `GhostPlaybackEngine.cs:928` calls
@@ -92,7 +93,7 @@ ghost-map-vessel primitive (P3), the trajectory codec change (P6), the ghost-cou
     `GhostPlaybackLogic.ShouldThrottleSpawn(frameSpawnCount, GhostPlayback.MaxSpawnsPerFrame)`;
     the cap is 2 (`ParsekConfig.cs:179`);
   - also read for logs at `GhostPlaybackEngine.cs:911` and `GhostPlaybackEngine.Diagnostics.cs:297`;
-  - test hooks at `GhostPlaybackEngine.cs:1338-1361` (`TryReserveSpawnSlotForTesting`,
+  - test hooks at `GhostPlaybackEngine.cs:1314-1337` (`TryReserveSpawnSlotForTesting`,
     `IncrementFrameSpawnCountForTesting`, `FrameSpawnCountForTesting`,
     `ResetPerFrameCountersForTesting`).
 - `FrameContext` (`GhostPlaybackEvents.cs:207-245`) carries no frame number, so a shared budget
@@ -108,13 +109,13 @@ ghost-map-vessel primitive (P3), the trajectory codec change (P6), the ghost-cou
 | Id | Site | Search order and match | Fallback / failure |
 |---|---|---|---|
 | L1 | `GhostPlaybackEngine.SectionPositioning.cs:354-382` `TryFindPlaybackRecordingTree` (match helper :386-396) | pending tree first (:365-367), then `RecordingStore.CommittedTrees` in list order; match is `tree.Recordings.TryGetValue(id, out rec) && rec != null` | false, null tree |
-| L2 | `ParsekFlightGhostPositioner.cs:4551-4584` `TryFindRelativeAnchorFocusTree` (caller :4439) | committed trees in order, match `tree.Recordings.ContainsKey(id)`; then pending tree (:4575), same match | false |
+| L2 | `ParsekFlightGhostPositioner.RelativeAnchor.cs:200-233` `TryFindRelativeAnchorFocusTree` (caller :88) | committed trees in order, match `tree.Recordings.ContainsKey(id)`; then pending tree (:224), same match | false |
 | L3 | `RecordedRelativeAnchorPoseResolver.cs:165-200` `TryFindFocusTree` | committed trees in order, match `(TreeId nonempty && tree.Id == TreeId) || Recordings.ContainsKey(id)` (a null `Recordings` is skipped); then pending (:189), same match | false |
 | L4 | `Rendering/ProductionAnchorWorldFrameResolver.cs:411-445` `TryFindFocusTree(Recording)` | identical to L3 (pending at :433) | false |
 | L5 | `RecordedRelativeAnchorPoseResolver.cs:203-258` `TryFindRecordingById` | committed trees (`TryGetValue`, non-null), then pending (:227, same), then the flat `RecordingStore.CommittedRecordings` list | false |
 | L6 | `GhostMapPresence.StateVectors.cs:735-785` `TryFindRecordingByIdForBodyFixedAnchorPid` | identical to L5 (pending at :765) | false |
-| L7 | `ParsekFlightGhostPositioner.cs:1677` `ResolveRecordingById` | committed list only, inside try/catch | null; `ResolveRecordingForTailLift` (:5306) then falls back to `ParsekFlight.s_previewRecordingForTailLift` |
-| L8 | `ParsekFlightGhostPositioner.cs:509` (diagnostic) | `RecordingStore.TryFindCommittedRecordingById` = committed list only (`RecordingStore.cs:1269-1280`) | no diagnostic distance |
+| L7 | `ParsekFlightGhostPositioner.TailLift.cs:16` `ResolveRecordingById` | committed list only, inside try/catch | null; `ResolveRecordingForTailLift` (:40) then falls back to `ParsekFlight.s_previewRecordingForTailLift` |
+| L8 | `ParsekFlightGhostPositioner.Trace.cs:134` (diagnostic) | `RecordingStore.TryFindCommittedRecordingById` = committed list only (`RecordingStore.cs:1211-1222`) | no diagnostic distance |
 | L9 | `RecordedRelativeAnchorPoseResolver.cs:120-133` `TryFindFocusRecording` | `trajectory as Recording` cast first, else L5 | false |
 | P1 | `ParsekFlight.TimelinePlayback.cs:563` `BuildFlightRelativeAnchorResolverContext` | `pendingTree: PendingTreeSlot.HasPendingTree ? PendingTreeSlot.PendingTree : null` | null |
 | P2 | `RecordedRelativeAnchorPoseResolver.cs:151` `TryBuildContext` | same pending read | null |
@@ -130,9 +131,9 @@ Callers that thread a catalog:
   `GhostPlaybackEngine.LoopPlayback.cs:1321`, `ParsekKSC.Playback.cs:247` and
   `GhostMapPresence.StateVectors.cs:712`. Tests call the 2-argument form statically
   (`GhostPlaybackEngineTests.cs` 1171-1269).
-- L7 is reached through static `ResolveTailLiftPlan` (`ParsekFlightGhostPositioner.cs:5323`) and
-  `ParsekFlight.ResolveEffectiveAltitudeWithTailLift` (`ParsekFlight.TailLift.cs:29`), which the
-  positioner calls at :1163, :1167, :1766.
+- L7 is reached through static `ResolveTailLiftPlan` (`ParsekFlightGhostPositioner.TailLift.cs:55`)
+  and `ParsekFlight.ResolveEffectiveAltitudeWithTailLift` (`ParsekFlight.TailLift.cs:29`), which the
+  positioner calls at `ParsekFlightGhostPositioner.Points.cs:88`, :92, :465.
 - `RecordedRelativeAnchorPoseResolver` is a static class
   (`RecordedRelativeAnchorPoseResolver.cs:29`) entered through `TryResolveSectionAnchorPose`
   (:49, :63), called from `ParsekKSC.Playback.cs:549`
@@ -141,11 +142,15 @@ Callers that thread a catalog:
   `Rendering/AnchorPropagator.cs:169` and `Rendering/RenderSessionState.cs:1129`.
 - `ParsekFlight.GhostPositioner.cs:321-333` (`ResolveZoneWatchState`) reads
   `RecordingStore.CommittedRecordings` / `CommittedTrees` by index through
-  `GhostPlaybackLogic.IsWatchProtectedRecording` (`GhostPlaybackLogic.cs:705-735`). That is a
+  `GhostPlaybackLogic.IsWatchProtectedRecording` (`GhostPlaybackLogic.cs:691-721`). That is a
   watch-protection query over the own list, not a by-id lookup; P2b-08 handles it.
-- `scripts/ers-els-audit-allowlist.txt` already lists `GhostMapPresence.StateVectors.cs`,
-  `ParsekFlightGhostPositioner.cs`, `ParsekFlight.GhostPositioner.cs`,
-  `RecordedRelativeAnchorPoseResolver.cs` and `ParsekFlightPlaybackHost.cs`. The gate has no
+- `scripts/ers-els-audit-allowlist.txt` lists `GhostMapPresence.StateVectors.cs`,
+  `ParsekFlight.GhostPositioner.cs`, `RecordedRelativeAnchorPoseResolver.cs`,
+  `ParsekFlightPlaybackHost.cs` and, of the twelve positioner files, only
+  `ParsekFlightGhostPositioner.TailLift.cs` (L7's raw read); the allowlist says the other
+  positioner files read none. L2 reads `CommittedTrees`, which the gate's pattern
+  (`.CommittedRecordings`, `Ledger.Actions`) does not match. A P2a or P2b edit that writes
+  `.CommittedRecordings` in any other positioner file reds `GrepAuditTests`. The gate has no
   stale-entry check.
 
 ### 3.3 P2b facts: every member and every reference site
@@ -154,31 +159,36 @@ Members on `ParsekFlight` (declaration line first):
 
 | Member | Declared | Reference sites outside the declaration |
 |---|---|---|
-| `orbitCache` (`Dictionary<long, Orbit>`, not readonly) | `ParsekFlight.cs:2503` | positioner 936, 937, 1415, 1818, 1892, 1912, 2830, 2849, 3494, 3512; `ParsekFlightPlaybackHost.cs:202, 318` |
+| `orbitCache` (`Dictionary<long, Orbit>`, not readonly) | `ParsekFlight.cs:2503` | `ParsekFlightGhostPositioner.Orbit.cs` 91, 92, 141, 167, 189, 209, 468, 487, 562, 580; `ParsekFlightPlaybackHost.cs:202, 318` |
 | `ghostPosEntries` (`internal readonly List<GhostPosEntry>`) | `ParsekFlight.cs:477` | `ParsekFlight.cs` 487, 489, 492, 509, 1288, 1289, 1374, 1389, 1401, 1415; `ParsekFlightPlaybackHost.cs` 72, 74, 618, 620 |
-| `GhostPosEntry` (nested struct) | `ParsekFlight.cs:401-475` | positioner 216, 1717, 2078; `ParsekFlightPlaybackHost.cs` 111, 187, 199, 292, 386, 398, 483, 495, 504; tests `PlaybackHostUnitTests.cs:723`, `Rendering/LateUpdateSplineDispatchTests.cs:15` |
+| `GhostPosEntry` (nested struct) | `ParsekFlight.cs:401-475` | `ParsekFlightGhostPositioner.BodyFixedPrimary.cs` 12; `ParsekFlightGhostPositioner.Points.cs` 416; `ParsekFlightGhostPositioner.Orbit.cs` 375; `ParsekFlightPlaybackHost.cs` 111, 187, 199, 292, 386, 398, 483, 495, 504; tests `PlaybackHostUnitTests.cs:723`, `Rendering/LateUpdateSplineDispatchTests.cs:15` |
 | `ghostPreCullReapplyFrame` | `ParsekFlight.cs:478` | `ParsekFlight.cs` 1374, 1398 |
 | `ghostLateUpdateReapplyFrame` | `ParsekFlight.cs:479` | `ParsekFlight.cs` 1360, 1374 |
-| `AddOrReplaceGhostPosEntry` | `ParsekFlight.cs:481-510` | positioner 1346, 1804, 2057, 2438, 2766, 4201, 4340, 4839, 4968; `ParsekFlightPlaybackHost.cs` 3166, 3440 |
-| `loggedOrbitSegments` | `ParsekFlight.cs:873` | positioner 1398, 1409, 2386; `ParsekFlight.cs` 1592, 2357, 2384; `ParsekFlightPlaybackHost.cs` 738, 2597 |
-| `loggedOrbitRotationSegments` | `ParsekFlight.cs:874` | positioner 2045, 2047; `ParsekFlight.cs` 1593, 2358, 2385; `ParsekFlightPlaybackHost.cs` 739, 2598 |
-| `loggedRelativeStart` | `ParsekFlight.cs:2506` | positioner 3847; `ParsekFlight.cs:1597`; `ParsekFlightPlaybackHost.cs:2602` |
-| `loggedRecordedRelativeStart` | `ParsekFlight.cs:2507` | positioner 183; `ParsekFlight.cs:1598`; `ParsekFlightPlaybackHost.cs:2603` |
-| `loggedRelativeBodyFixedPrimaryStart` (Ordinal) | `ParsekFlight.cs:2509` | positioner 4650; `ParsekFlight.cs:1599`; `ParsekFlightPlaybackHost.cs:2604` |
-| `loggedAnchorNotFound` | `ParsekFlight.cs:2512` | positioner 3869, 4884, 5008; `ParsekFlight.cs:1600`; `ParsekFlightPlaybackHost.cs:2605` |
-| `unknownFrameTagWarned` | `ParsekFlight.cs:2516` | positioner 1239, 1730; `ParsekFlight.cs:1601`; `ParsekFlightPlaybackHost.cs` 126, 2606 |
-| `cachedLoopUnits` | `ParsekFlight.cs:1102` | `ParsekFlight.cs:1109` (`CurrentCachedLoopUnits`); positioner 1021; `ParsekFlightPlaybackHost.cs` 1582, 2024, 2202, 2206, 2308, 2309, 2310, 2324 |
-| `watchMode` (stays on ParsekFlight) | `ParsekFlight.cs:892` | positioner 2483-2485 (`ResolveCameraAnchorWorldPosition`); `ParsekFlight.GhostPositioner.cs` 84, 91, 325, 328 |
-| `engine` (stays on ParsekFlight) | `ParsekFlight.cs:942` | positioner 451-452 (`TryGetGhostWorldByRecordingId`, diagnostic) |
-| `ApplyZoneRenderingImpl` (stays) | `ParsekFlight.GhostPositioner.cs:23` | positioner 1082 (`IGhostPositioner.ApplyZoneRendering`) |
-| `Log` (stays, stateless) | `ParsekFlight.cs:2549` | positioner 1141, 1195, 1399, 1410, 1879, 1887, 1908, 1922, 1928, 1951, 1967, 1979, 1988, 2387 |
+| `AddOrReplaceGhostPosEntry` | `ParsekFlight.cs:481-510` | `ParsekFlightGhostPositioner.Points.cs` 271, 503, 554; `ParsekFlightGhostPositioner.Orbit.cs` 354; `ParsekFlightGhostPositioner.Checkpoint.cs` 218; `ParsekFlightGhostPositioner.RecordedRelative.cs` 403, 542; `ParsekFlightGhostPositioner.Loop.cs` 546, 675; `ParsekFlightPlaybackHost.cs` 3166, 3440 |
+| `loggedOrbitSegments` | `ParsekFlight.cs:873` | `ParsekFlightGhostPositioner.Orbit.cs` 124, 135, 440; `ParsekFlight.cs` 1592, 2357, 2384; `ParsekFlightPlaybackHost.cs` 738, 2597 |
+| `loggedOrbitRotationSegments` | `ParsekFlight.cs:874` | `ParsekFlightGhostPositioner.Orbit.cs` 342, 344; `ParsekFlight.cs` 1593, 2358, 2385; `ParsekFlightPlaybackHost.cs` 739, 2598 |
+| `loggedRelativeStart` | `ParsekFlight.cs:2506` | `ParsekFlightGhostPositioner.Loop.cs` 333; `ParsekFlight.cs:1597`; `ParsekFlightPlaybackHost.cs:2602` |
+| `loggedRecordedRelativeStart` | `ParsekFlight.cs:2507` | `ParsekFlightGhostPositioner.RecordedRelative.cs` 32; `ParsekFlight.cs:1598`; `ParsekFlightPlaybackHost.cs:2603` |
+| `loggedRelativeBodyFixedPrimaryStart` (Ordinal) | `ParsekFlight.cs:2509` | `ParsekFlightGhostPositioner.RecordedRelative.cs` 627; `ParsekFlight.cs:1599`; `ParsekFlightPlaybackHost.cs:2604` |
+| `loggedAnchorNotFound` | `ParsekFlight.cs:2512` | `ParsekFlightGhostPositioner.Loop.cs` 355, 591, 715; `ParsekFlight.cs:1600`; `ParsekFlightPlaybackHost.cs:2605` |
+| `unknownFrameTagWarned` | `ParsekFlight.cs:2516` | `ParsekFlightGhostPositioner.Points.cs` 164, 429; `ParsekFlight.cs:1601`; `ParsekFlightPlaybackHost.cs` 126, 2606 |
+| `cachedLoopUnits` | `ParsekFlight.cs:1102` | `ParsekFlight.cs:1109` (`CurrentCachedLoopUnits`); `ParsekFlightGhostPositioner.Loop.cs` 79; `ParsekFlightPlaybackHost.cs` 1582, 2024, 2202, 2206, 2308, 2309, 2310, 2324 |
+| `watchMode` (stays on ParsekFlight) | `ParsekFlight.cs:892` | `ParsekFlightGhostPositioner.cs` 469-471 (`ResolveCameraAnchorWorldPosition`); `ParsekFlight.GhostPositioner.cs` 84, 91, 325, 328 |
+| `engine` (stays on ParsekFlight) | `ParsekFlight.cs:942` | `ParsekFlightGhostPositioner.Trace.cs` 76-77 (`TryGetGhostWorldByRecordingId`, diagnostic) |
+| `ApplyZoneRenderingImpl` (stays) | `ParsekFlight.GhostPositioner.cs:23` | `ParsekFlightGhostPositioner.cs` 372 (`IGhostPositioner.ApplyZoneRendering`) |
+| `Log` (stays, stateless) | `ParsekFlight.cs:2549` | `ParsekFlightGhostPositioner.Points.cs` 66, 120; `ParsekFlightGhostPositioner.Orbit.cs` 125, 136, 176, 184, 205, 219, 225, 248, 264, 276, 285, 441 |
 
-The positioner (`ParsekFlightGhostPositioner.cs`, constructor `(ParsekFlight host)` at :16) has 54
-`host.` references to the 14 members above (counted with `\bhost\.`). Its own per-instance
+The positioner is one partial class in 12 files under `Source/Parsek/Controllers/`: the main
+`ParsekFlightGhostPositioner.cs` holds the `host` field, the constructor `(ParsekFlight host)` at
+:16 and every other field and const; the 11 `ParsekFlightGhostPositioner.<Group>.cs` partials hold
+methods only. Together they have 54 `host.` references to the 14 members above (counted with
+`\bhost\.`; Orbit 28, Points 7, Loop 8, main 4, RecordedRelative 4, Trace 2, Checkpoint 1, the
+other five none). Its own per-instance
 fields (`reaimLastGhostFrame`, `loopSeamLastGhostFrame`, `predictedOrbitTailContinuityCache`,
 `recordedRelativeAnchorVisited`, `activeBodyFixedShiftSeconds`) are already per positioner, so a
-second positioner instance gets its own. `ClearOrbitPlaybackCaches` (:1816-1820) clears
-`host.orbitCache` and its own `predictedOrbitTailContinuityCache`.
+second positioner instance gets its own. `ClearOrbitPlaybackCaches`
+(`ParsekFlightGhostPositioner.Orbit.cs:165-169`) clears `host.orbitCache` and its own
+`predictedOrbitTailContinuityCache`.
 
 Other readers and owners:
 
@@ -209,7 +219,8 @@ Lifetime and resets:
 - Committed-list index shifts: `OnCommittedRecordingRemoved` (`ParsekFlight.cs:2345-2366`) and
   `OnCommittedRecordingInserted` (:2375-2389) call `Positioner.ClearOrbitPlaybackCaches()`,
   `Positioner.ShiftLoopSeamTraces*`, `mapMarkers?.ClearMapMarkerCache()` and clear the two orbit
-  log sets. The orbit cache keys are index-derived (`index * 10000` at positioner :1077).
+  log sets. The orbit cache keys are index-derived (`index * 10000` at positioner
+  `ParsekFlightGhostPositioner.Loop.cs:125`).
 
 Tests and gates that pin these names:
 
@@ -220,10 +231,16 @@ Tests and gates that pin these names:
   `"host.engine.SetLoopUnits(host.cachedLoopUnits);"`,
   `"internal GhostPlaybackLogic.LoopUnitSet CurrentCachedLoopUnits => cachedLoopUnits;"` and
   `"loopUnits = flCtl.CurrentCachedLoopUnits;"`.
-- `RelativeAnchorResolutionTests.cs:758` pins the substring `"loggedAnchorNotFound.Add("` (3 sites).
+- `RelativeAnchorResolutionTests.cs:465` pins the substring `"loggedAnchorNotFound.Add("` (3 sites).
 - `LoopSeamTraceIndexShiftTests.cs:14` builds `new ParsekFlightGhostPositioner(null)`.
-- `GrepAuditNonLoopLivePidTests.cs:105-130` runs regexes over the positioner and host files.
-- `ParsekFlightSourceFiles.cs:64-73` lists the service files `ReadAll` appends.
+- `GrepAuditNonLoopLivePidTests.cs:105-141` and `scripts/grep-audit-non-loop-live-pid.ps1`
+  repeat the recorded-relative row once per positioner file; the loop-only flag row reads
+  `.Loop.cs`. A new positioner partial gets its row in both arms.
+- Source gates read the positioner as one text through
+  `ParsekFlightGhostPositionerSourceFiles` (the main file plus its eleven `SplitFileNames`;
+  `OtherPartialFileNames` is empty, so a new `ParsekFlightGhostPositioner.*.cs` fails `Paths`
+  until it is declared there). `ParsekFlightSourceFiles.cs:69-78` lists the service files
+  `ReadAll` appends and reads that set wherever it read the one positioner file.
 - 22 xUnit files build `ParsekFlight` with `FormatterServices.GetUninitializedObject`, so field
   initializers do not run there (for example `Issue316WatchProtectionTests.cs:64`, which then sets
   `watchMode` by reflection at :244).
@@ -243,14 +260,18 @@ Tests and gates that pin these names:
 - Its tests are `scripts/refactor/test_parsekflight_tools.py` (fold cells at :119-446). CI does not
   run them: `.github/workflows/tests.yml` runs `harness/lib`, `missions/lib`, `provision` (:89-91)
   and `scripts/arch` (:100, :191) only.
-- Module placement (`scripts/arch/modules.toml`): `^Parsek(Flight|...|Playback)|^WatchMode` goes to
-  Controllers (:320-322); `^Ghost` goes to Ghost (:297-298); `^Recording` goes to Recording
-  (:308-310); `IPlaybackTrajectory.cs` is in the Core kernel list of eight files (:476-478). A new
-  root file named otherwise needs a rule.
-- Layers (`modules.toml:516-520`): floor = LogIO, Config, Core, Trajectory; model = Recording,
+- Module placement: the folder is the module (pull request #2611). `scripts/arch/modules.toml`
+  holds one `[[module]] name / folder` rule per module and no name rules; a `.cs` file in the
+  root of `Source/Parsek` reds the arch suite. A new file is created in its module's folder
+  (`Source/Parsek/<Module>/<Name>.cs`) and `modules.toml` is not edited for it.
+  `IPlaybackTrajectory.cs` is one of the 8 files in `Core/` (`test_archview.py`
+  `test_phase_two_catch_all_count` and `test_kernel_files_resolve_to_core` pin the count and the
+  list).
+- Layers (`modules.toml:167-171`): floor = LogIO, Config, Core, Trajectory; model = Recording,
   GameActions, Crew; features include Ghost and Rendering; entry = Controllers, Patches.
   `scripts/arch/layer_pins.toml:125` pins `Ghost -> Controllers`.
-- Knot canary `scripts/arch/test_archview.py:4031` asserts `[435, 9, 4, 3, 2]`.
+- Knot canary: `scripts/arch/test_archview.py` asserts the knot sizes `[437, 9, 4, 3, 2]` on main
+  ab1cc9478; re-derive it before relying on it.
 
 ## 4. Tasks
 
@@ -277,7 +298,7 @@ differences, with the leftovers (accessor, host field, constructor) named in the
 
 **P2c-02 Engine diagnostics sink: health counters**
 
-- **Change:** new `Source/Parsek/GhostPlaybackDiagnosticsSink.cs` (module Ghost by `^Ghost`):
+- **Change:** new `Source/Parsek/Ghost/GhostPlaybackDiagnosticsSink.cs` (module Ghost):
   `internal interface IGhostPlaybackDiagnosticsSink` with `CountGhostBuild()`,
   `CountReentryFxDeferred()`, `CountReentryFxSkipped()`, `CountReentryFxBuild()`,
   `CountGhostReusedAcrossCycle()`, `CountGhostDestroy()`; and
@@ -317,7 +338,7 @@ differences, with the leftovers (accessor, host field, constructor) named in the
 
 **P2c-04 Spawn budget object an engine can share**
 
-- **Change:** new `Source/Parsek/GhostSpawnFrameBudget.cs` (module Ghost): a class with
+- **Change:** new `Source/Parsek/Ghost/GhostSpawnFrameBudget.cs` (module Ghost): a class with
   `int Used`, `int MaxPerFrame` (from `GhostPlayback.MaxSpawnsPerFrame`), `bool IsExhausted`
   (through `GhostPlaybackLogic.ShouldThrottleSpawn(Used, MaxPerFrame)`), `void Consume()`,
   `void ResetForFrame()`. The engine gets `spawnBudget` and `ownsSpawnBudget`: a constructor
@@ -327,7 +348,7 @@ differences, with the leftovers (accessor, host field, constructor) named in the
   `ResetPerFramePlaybackCounters` calls `spawnBudget.ResetForFrame()`
   only when it owns the budget. `TryReserveSpawnSlot` checks `spawnBudget.IsExhausted`; the
   increment at `GhostPlaybackEngine.GhostVisuals.cs:25` also calls `spawnBudget.Consume()`.
-  `frameSpawnCount` stays as the engine's own count for its log lines (:911,
+  `frameSpawnCount` stays as the engine's own count for its log lines (`GhostPlaybackEngine.cs:911`,
   `Diagnostics.cs:297`) and the throttle log at `SpawnDestroy.cs:444` keeps its text, printing
   the budget's `Used`. The test hooks keep their names and drive both counters. With one engine
   the two counters are always equal, so behavior is identical. Owners outside this task
@@ -374,7 +395,8 @@ No P2a member lands without its production caller (the uncalled-method ratchet, 
 The port as specified:
 
 - **Change:**
-  - New `Source/Parsek/IPlaybackCatalog.cs`: `internal interface IPlaybackCatalog` with
+  - New `Source/Parsek/Recording/IPlaybackCatalog.cs` (module Recording, Corrections 2):
+    `internal interface IPlaybackCatalog` with
     - `RecordingTree PendingTree { get; }` (null when none);
     - `bool TryFindTreeHolding(string id, CatalogTreeOrder order, out RecordingTree tree)` with
       `CatalogTreeOrder { PendingFirstNonNull, CommittedFirstContainsKey }`;
@@ -383,7 +405,7 @@ The port as specified:
     - `bool TryFindRecording(string id, CatalogRecordingScope scope, out Recording rec)` with
       `CatalogRecordingScope { CommittedListOnly, TreesThenPendingThenList }`.
     The enum members name the orders of section 3.2 so each call site states its own order.
-  - New `Source/Parsek/RecordingPlaybackCatalog.cs` (module Recording by `^Recording`):
+  - New `Source/Parsek/Recording/RecordingPlaybackCatalog.cs` (module Recording):
     `internal sealed class RecordingPlaybackCatalog : IPlaybackCatalog` over `RecordingStore`
     and `PendingTreeSlot`, each variant a verbatim copy of the site it will replace, and
     `internal static readonly RecordingPlaybackCatalog Own` (stateless).
@@ -398,12 +420,11 @@ The port as specified:
   (L1 rejects, L2 accepts), a tree with a null `Recordings` dictionary, a tree-id match without
   containment (L3 accepts, L2 rejects), an id only in the flat committed list (L5 finds, L1 does
   not), null and empty ids.
-- **Registers (land with the first P2a task, expected P2a-05):** `scripts/arch/modules.toml`:
-  add `^IPlaybackCatalog[.]cs$` to the Recording services rule at :266-267 (see Corrections 2).
-  `scripts/ers-els-audit-allowlist.txt`: add `RecordingPlaybackCatalog.cs` with `[ERS-exempt]`
-  (id lookup for anchor and loop resolution, the same reason the sites it replaces carry).
-  Lifetimes: `Own` holds no state; if `test_static_lifetimes` flags it, tag it `process` in
-  `scripts/arch/lifetimes.toml`.
+- **Registers (land with the first P2a task, expected P2a-05):** none for placement (both files sit
+  in `Recording/`; `modules.toml` is not edited). `scripts/ers-els-audit-allowlist.txt`: add
+  `RecordingPlaybackCatalog.cs` with `[ERS-exempt]` (id lookup for anchor and loop resolution, the
+  same reason the sites it replaces carry). Lifetimes: `Own` holds no state; if
+  `test_static_lifetimes` flags it, tag it `process` in `scripts/arch/lifetimes.toml`.
 - **Size:** none (no pull request). **Depends on:** none. **PC:** no.
 - **Risk:** a member landed ahead of its caller reds `uncalledInAssembly`; the rule above
   prevents it.
@@ -446,12 +467,13 @@ The port as specified:
   test-only overload). The catalog gains `TryFindTreeHolding` with
   `CatalogTreeOrder.CommittedFirstContainsKey` and `CatalogRecordingScope.CommittedListOnly`,
   with their `RecordingPlaybackCatalogTests` rows (P2a-01). `TryFindRelativeAnchorFocusTree`
-  (:4551) becomes an instance
-  call of `catalog.TryFindTreeHolding(id, CommittedFirstContainsKey, ...)`; the diagnostic at :509
-  uses `TryFindRecording(id, CommittedListOnly, ...)`. `BuildFlightRelativeAnchorResolverContext`
-  (`ParsekFlight.TimelinePlayback.cs:553`) takes an `IPlaybackCatalog` parameter and reads
-  `PendingTree` from it; its two callers (positioner :4474, `ParsekFlightPlaybackHost.cs:2367`)
-  pass the own catalog. L7 is P2a-04.
+  (`ParsekFlightGhostPositioner.RelativeAnchor.cs:200`) becomes an instance
+  call of `catalog.TryFindTreeHolding(id, CommittedFirstContainsKey, ...)`; the diagnostic at
+  `ParsekFlightGhostPositioner.Trace.cs:134` uses `TryFindRecording(id, CommittedListOnly, ...)`.
+  `BuildFlightRelativeAnchorResolverContext` (`ParsekFlight.TimelinePlayback.cs:553`) takes an
+  `IPlaybackCatalog` parameter and reads `PendingTree` from it; its two callers (positioner
+  `ParsekFlightGhostPositioner.RelativeAnchor.cs:123`, `ParsekFlightPlaybackHost.cs:2367`) pass the
+  own catalog. L7 is P2a-04.
 - **Proof:** `RelativeAnchorResolutionTests`, `RecordedRelativeAnchorResolver*` tests,
   `GrepAuditNonLoopLivePidTests` green; a test that `TryFindRelativeAnchorFocusTree` sees a tree
   only the fake catalog holds. In-game `Pipeline-Anchor`, `PlaybackFidelity`; lanes H11, LT-1,
@@ -462,14 +484,14 @@ The port as specified:
 
 **P2a-04 Tail-lift recording lookup through the catalog (L7)**
 
-- **Change:** `ResolveRecordingById` (:1677) becomes
+- **Change:** `ResolveRecordingById` (`ParsekFlightGhostPositioner.TailLift.cs:16`) becomes
   `catalog.TryFindRecording(id, CommittedListOnly, ...)` inside the same try/catch;
-  `ResolveRecordingForTailLift` (:5306), `ResolveTailLiftPlan` (:5323) and
+  `ResolveRecordingForTailLift` (:40), `ResolveTailLiftPlan` (:55) and
   `ParsekFlight.ResolveEffectiveAltitudeWithTailLift` (`ParsekFlight.TailLift.cs:29`) gain a
-  trailing optional catalog parameter (null reads `Own`); the positioner's three calls (:1163,
-  :1167, :1766) pass its catalog. The `s_previewRecordingForTailLift` fallback and the static
-  plan caches stay (Corrections 6). No catalog member is added (P2a-03 added
-  `CommittedListOnly`).
+  trailing optional catalog parameter (null reads `Own`); the positioner's three calls
+  (`ParsekFlightGhostPositioner.Points.cs:88`, :92, :465) pass its catalog. The
+  `s_previewRecordingForTailLift` fallback and the static plan caches stay (Corrections 6). No
+  catalog member is added (P2a-03 added `CommittedListOnly`).
 - **Proof:** existing tail-lift tests (`*TailLift*` in `Source/Parsek.Tests`) green; a cell proving
   a fake catalog's recording drives the plan. In-game `GhostPlayback`; lane S1.4.
 - **Registers:** none.
@@ -478,7 +500,8 @@ The port as specified:
 
 **P2a-05 RecordedRelativeAnchorPoseResolver through the catalog (L3, L5, L9, P2)**
 
-- **Change:** both `TryResolveSectionAnchorPose` overloads (:49, :63) gain a trailing optional
+- **Change:** both `TryResolveSectionAnchorPose` overloads
+  (`RecordedRelativeAnchorPoseResolver.cs:49`, :63) gain a trailing optional
   `IPlaybackCatalog catalog = null` (null reads `Own`) that flows to `TryFindFocusRecording`,
   `TryBuildContext` (`pendingTree: catalog.PendingTree`), `TryFindFocusTree`
   (`catalog.TryFindFocusTree`) and `TryFindRecordingById`
@@ -494,9 +517,9 @@ The port as specified:
   a fake-catalog cell; new `RecordingPlaybackCatalogTests` with the P2a-01 truth-table rows of
   its three members (L3 / L4 focus tree, L5 / L6 trees-then-pending-then-list, pending read).
   In-game `Pipeline-Anchor`, `GhostMap`; lanes H11, H44.
-- **Registers:** P2a-01's list: the `modules.toml` rule for `IPlaybackCatalog.cs`, the ERS
-  allowlist entry for `RecordingPlaybackCatalog.cs`, and the `process` lifetime tag for `Own` if
-  `test_static_lifetimes` flags it.
+- **Registers:** P2a-01's list: the ERS allowlist entry for `RecordingPlaybackCatalog.cs` and the
+  `process` lifetime tag for `Own` if `test_static_lifetimes` flags it (no `modules.toml` edit:
+  the folder places both files).
 - **Size:** M (two new files, the registrations and the first test class beside the resolver
   change). **Depends on:** none. **PC:** in-game, lanes H11, H44.
 - **Risk:** low.
@@ -551,8 +574,8 @@ after P2b-10.
 
 **P2b-02 The lane type and the seven log-once sets (fold)**
 
-- **Change:** new `Source/Parsek/ParsekFlightPlaybackLane.cs` (Controllers by the `^ParsekFlight`
-  rule): `internal sealed class ParsekFlightPlaybackLane` holding the seven sets with the same
+- **Change:** new `Source/Parsek/Controllers/ParsekFlightPlaybackLane.cs` (module Controllers):
+  `internal sealed class ParsekFlightPlaybackLane` holding the seven sets with the same
   names, types, comparers, modifiers and initializers as `ParsekFlight.cs:873-874, 2506-2516`.
   `ParsekFlight` gains `private ParsekFlightPlaybackLane lane;` and
   `internal ParsekFlightPlaybackLane Lane => lane ?? (lane = new ParsekFlightPlaybackLane());`
@@ -575,8 +598,9 @@ after P2b-10.
 
 **P2b-03 Orbit cache on the lane (fold)**
 
-- **Change:** `orbitCache` moves to the lane (same declaration). Sites: positioner 936, 937, 1415,
-  1818, 1892, 1912, 2830, 2849, 3494, 3512; `ParsekFlightPlaybackHost.cs:202, 318`.
+- **Change:** `orbitCache` moves to the lane (same declaration). Sites:
+  `ParsekFlightGhostPositioner.Orbit.cs` 91, 92, 141, 167, 189, 209, 468, 487, 562, 580;
+  `ParsekFlightPlaybackHost.cs:202, 318`.
 - **Proof:** the same fold, 0 moved-body differences. `FlightGhostSkipCacheCleanupTests` reads
   `orbitCache` from the lane. `complexityWatch` in `scripts/arch/facts_pins.toml` lists
   `ParsekFlightGhostPositioner::InterpolateAndPosition`, whose body changes only by the accessor
@@ -604,8 +628,9 @@ after P2b-10.
 **P2b-05 Loop-unit lookup on the lane (fold)**
 
 - **Change:** `cachedLoopUnits` moves to the lane. `CurrentCachedLoopUnits` stays on ParsekFlight
-  as `=> Lane.cachedLoopUnits`. Sites: positioner 1021; `ParsekFlightPlaybackHost.cs` 1582, 2024,
-  2202, 2206, 2308-2310, 2324. `builtLoopUnits` stays on the playback host.
+  as `=> Lane.cachedLoopUnits`. Sites: `ParsekFlightGhostPositioner.Loop.cs` 79;
+  `ParsekFlightPlaybackHost.cs` 1582, 2024, 2202, 2206, 2308-2310, 2324. `builtLoopUnits` stays on
+  the playback host.
 - **Proof:** the same fold, 0 moved-body differences. `LoopUnitSetCoherenceTests` :59 and :61
   re-pin to `"host.engine.SetLoopUnits(host.Lane.cachedLoopUnits);"` and
   `"... CurrentCachedLoopUnits => Lane.cachedLoopUnits;"` (the test still proves one reference
@@ -622,7 +647,7 @@ after P2b-10.
   P2b-09). No one-argument form is kept: only `LoopSeamTraceIndexShiftTests.cs:14` would call
   it, and a test-only constructor moves the uncalled-method ratchet (section 8); that test
   passes `(null, null)`. Every `host.Lane.` in the positioner reads `lane.`. ParsekFlight's
-  lazy `Positioner` (:948-950) passes `Lane`.
+  lazy `Positioner` (`ParsekFlight.cs:948-950`) passes `Lane`.
 - **Proof:** `il_compare --fold Parsek.ParsekFlight=Parsek.ParsekFlightPlaybackLane
   --alias-field Parsek.ParsekFlightGhostPositioner::lane=host` reports 0 moved-body differences;
   leftovers: the field and the changed constructor. Full xUnit.
@@ -632,11 +657,12 @@ after P2b-10.
 
 **P2b-07 The late-update helpers take the lane**
 
-- **Change:** `ParsekFlightPlaybackHost.ApplyGhostPosEntries` (:69), the `Reapply*` helpers
-  (:111-480) and `ClampGhostsToTerrain` (:611) take a `ParsekFlightPlaybackLane lane` parameter in
-  place of reading `host.Lane` (sites :72, :74, :126, :202, :318, :618, :620) and reach the
-  positioner through `host.Positioner` as today. `ParsekFlight.LateUpdate` (:1352-1366) and
-  `OnCameraPreCull` (:1368-1402) pass `Lane`.
+- **Change:** `ParsekFlightPlaybackHost.ApplyGhostPosEntries` (`ParsekFlightPlaybackHost.cs:69`),
+  the `Reapply*` helpers (:111-480) and `ClampGhostsToTerrain` (:611) take a
+  `ParsekFlightPlaybackLane lane` parameter in place of reading `host.Lane` (sites :72, :74, :126,
+  :202, :318, :618, :620) and reach the positioner through `host.Positioner` as today.
+  `ParsekFlight.LateUpdate` (`ParsekFlight.cs:1352-1366`) and `OnCameraPreCull` (:1368-1402) pass
+  `Lane`.
 - **Proof:** not foldable (a parameter replaces a field read). Proof is `il_compare --show
   ApplyGhostPosEntries` (and each helper) showing only `ldarg` in place of the host-and-accessor
   pair; `PlaybackHostUnitTests`, `Rendering/LateUpdateSplineDispatchTests` green. In-game
@@ -651,13 +677,13 @@ after P2b-10.
 **P2b-08 Watch and ghost-world queries on the lane**
 
 - **Change:**
-  - New `Source/Parsek/ParsekFlightLaneQueries.cs` (Controllers): `internal interface
+  - New `Source/Parsek/Controllers/ParsekFlightLaneQueries.cs` (Controllers): `internal interface
     IGhostLaneWatch` with `bool IsWatchingGhost { get; }`,
     `bool TryGetWatchedGhostAnchorWorldPosition(out Vector3d)` and
     `ZoneRenderingResult ApplyZoneRendering(...)` with the parameter list of
     `ParsekFlight.ApplyZoneRenderingImpl` (`ParsekFlight.GhostPositioner.cs:23`).
-  - New `Source/Parsek/GhostWorldLookup.cs` (Ghost): `internal interface IGhostWorldLookup` with
-    `bool TryGetGhostWorldByRecordingId(string, out Vector3d)`.
+  - New `Source/Parsek/Ghost/GhostWorldLookup.cs` (Ghost): `internal interface IGhostWorldLookup`
+    with `bool TryGetGhostWorldByRecordingId(string, out Vector3d)`.
   - ParsekFlight implements both explicitly. The bodies are today's expressions:
     `watchMode != null && watchMode.IsWatchingGhost`, the anchor read, `ApplyZoneRenderingImpl(...)`
     (which keeps `ResolveZoneWatchState` and its index-keyed watch-protection read), and
@@ -740,7 +766,12 @@ Hot files (two tasks touching one of them must land in order):
   and R3W-14 come after P2b-10.
 - `GhostPlaybackEngine.Diagnostics.cs`, `GhostPlaybackEvents.cs`: P2c-02, P2c-03, then R3W-01
   (written against P2c-03's source gate, E.5.4).
-- `ParsekFlightGhostPositioner.cs`: P2a-03, P2a-04, P2b-02 to P2b-09.
+- `ParsekFlightGhostPositioner.cs` and its partials: P2a-03, P2a-04, P2b-02 to P2b-09. By
+  partial: P2a-03 main (constructor, field), RelativeAnchor, Trace; P2a-04 TailLift, Points;
+  P2b-02 Points, Orbit, RecordedRelative, Loop; P2b-03 Orbit; P2b-04 Points, Orbit, Checkpoint,
+  RecordedRelative, Loop; P2b-05 Loop; P2b-06 main, Points, Orbit, Checkpoint,
+  RecordedRelative, Loop; P2b-08 main, Trace; P2b-09 main, RelativeAnchor, Trace, Points.
+  WorldPosition, OrbitTailContinuity and BodyFixedPrimary are in no task.
 - `ParsekFlight.cs` (fields, wiring :1207-1219, teardown :1590-1601, handlers :2345-2389):
   P2b-02 to P2b-10.
 - `ParsekFlightPlaybackHost.cs`: P2a-03 (:2367), P2b-02 to P2b-10.
@@ -766,12 +797,10 @@ Against other prerefactors:
 
 - In parallel with P1 (P1-01 to P1-03: `SpawnCollisionDetector`, `HomeSpaceCenter` in Core),
   P7 (P7-01, P7-02: `RecordingPaths`), P10 (P10-01: `TestCommands` save core), P11 (P11-01,
-  P11-02: harness specs, `ParsekUI` constructors) and P12 (P12-01, P12-02: `scripts/arch`
-  parsers, a Controllers placement rule): every P2c and P2a task touches none of their files.
-  Shared registration files are `scripts/arch/modules.toml` (P2a-05 adds the
-  P2a-01 rule; P12 edits `[forbidden]` and the Controllers rule) and the knot canary in
-  `scripts/arch/test_archview.py:4031`: these merge as text conflicts that the later PR re-derives
-  mechanically.
+  P11-02: harness specs, `ParsekUI` constructors) and P12 (P12-01: the `scripts/arch`
+  parsers): every P2c and P2a task touches none of their files. The shared registration file
+  is the knot canary in `scripts/arch/test_archview.py` (no task of this slice edits
+  `modules.toml`): it merges as a text conflict that the later PR re-derives mechanically.
 - P2a-02 to P2a-07 and P2c-02 to P2c-04 must not run beside P2b (shared positioner and engine
   files); the 15.11 order already puts them first.
 - P3 collides with P2a-07 (`GhostMapPresence.StateVectors.cs`); P3-02 lands after P2a-07
@@ -898,12 +927,13 @@ the release run's picture lanes).
 
 ## 7. Gates and registrations
 
-- Architecture map: `IPlaybackCatalog.cs` needs a placement rule (P2a-01, landed by P2a-05).
-  All other new files
-  place by existing prefix rules: `GhostPlaybackDiagnosticsSink.cs`, `GhostSpawnFrameBudget.cs`,
-  `GhostWorldLookup.cs` (Ghost); `RecordingPlaybackCatalog.cs` (Recording);
-  `ParsekFlightPlaybackLane.cs`, `ParsekFlightLaneQueries.cs` (Controllers).
-- Knot canary `scripts/arch/test_archview.py:4031` and the README numbers: re-pinned in the commit
+- Architecture map: a new file's module is the folder it is created in
+  (`Source/Parsek/<Module>/<Name>.cs`); no `modules.toml` edit places it, and a file in the root
+  of `Source/Parsek` reds the arch suite. The new files: `Ghost/GhostPlaybackDiagnosticsSink.cs`,
+  `Ghost/GhostSpawnFrameBudget.cs`, `Ghost/GhostWorldLookup.cs`; `Recording/IPlaybackCatalog.cs`,
+  `Recording/RecordingPlaybackCatalog.cs`; `Controllers/ParsekFlightPlaybackLane.cs`,
+  `Controllers/ParsekFlightLaneQueries.cs`.
+- Knot canary in `scripts/arch/test_archview.py` and the README numbers: re-pinned in the commit
   of any task whose new type joins a cycle (most likely P2b-05 and P2b-08). The semantic knot
   residue ratchet re-pins the same way.
 - Layers: P2a edges go from Ghost, Rendering and Controllers down to Recording (forward). No
@@ -958,7 +988,7 @@ the release run's picture lanes).
 - The shared spawn budget is reset twice or never. With one engine it is owned and reset as today;
   the two-engine case is only unit-tested until the rival lane exists (R3W-09 owns that reset,
   OV-46).
-- Knot and pin churn conflicts with P12 and other slices. Each PR re-derives the canary from a
+- Knot and pin churn conflicts with P12-01 and other slices. Each PR re-derives the canary from a
   fresh run rather than hand-editing numbers.
 - The P2b series is interrupted by another playback PR. The window rule in section 4 and the hot
   file list in section 5 make the order explicit; the supervisor holds other playback PRs.
@@ -985,7 +1015,7 @@ the release run's picture lanes).
    also accept a tree-id match; L5 and L6 add a flat-list fallback; L7 and L8 read the list only.
    The port carries named variants.
 4. The analysis lists `ParsekFlight.GhostPositioner.cs:323` among store lookups. It is the
-   index-keyed watch-protection read over the own list (`GhostPlaybackLogic.cs:705-735`), part of
+   index-keyed watch-protection read over the own list (`GhostPlaybackLogic.cs:691-721`), part of
    the watch query (P2b-08), not the catalog. The analysis also misses the three pending-tree reads
    in the anchor context builders (P1 to P3 in 3.2); the plan routes them through the port.
 5. CLAUDE.md says `GhostPlaybackEngine` has zero `Recording` references.
