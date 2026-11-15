@@ -244,7 +244,8 @@ seam-only lane); R7c 52 s; RW-1 146 s; B2-lko-ascent 272 s; B1-pad-hop 389 s.
     the writer's view at once and reaches other views through a delivery queue.
   - Per-delivery controls: delay, reorder, drop until reconnect (offline machine), partial
     content (a truncated file visible before the rest arrives), placeholder files (name
-    present, length zero or unreadable), conflict copies (two writers of one path become
+    present and marked as a placeholder until the file is opened; the open delivers the
+    content, as an on-demand sync client does), conflict copies (two writers of one path become
     `name (conflict <machine> <n>).ext`, the naming S8 will confirm), foreign edits and
     renames, deletes.
   - `FakeClock` per machine (real time and game UT independently settable, skew allowed).
@@ -490,7 +491,8 @@ Dropped: replaced by R1-06 (OV-11).
   on it (OV-19). It adds no production member: `RaceSync.Run` and the port interfaces have
   R3E-04's driver as their production caller (A1).
   `RaceSyncSimulatorTests`: arrival order permutations; one machine offline for days then
-  back (seq continuity, own mirror copy-out); partial files and placeholders never imported;
+  back (seq continuity, own mirror copy-out); partial files never imported; a placeholder
+  imported only after it was opened, one per poll;
   conflict copies ignored with a note; a foreign edit to the own subfolder healed
   (R3E-20); a late joiner; export-before-import in one tick.
 - **Proof:** the tests; each seed printed on failure.
@@ -779,7 +781,7 @@ has race categories instead of all three waiting for the last rival task.
   `docs/dev/flight-profiles.md` (regenerated), `harness/coverage/registry.toml`,
   `docs/dev/autotest-status.md` and, for batch lanes, `INTERIM_PIN_IDS` and `GROUP` in
   `test_hlib.py`. Two lane PRs at once will conflict in those files; regenerate the catalog
-  after merging `main`, never splice it.
+  after merging `origin/multiplayer` into the sub-branch (README rule 10), never splice it.
 - Day one, four agents can run T-01, T-02, T-03 and T-05 at once; T-04, T-06 and T-07 follow.
 
 ## 6. Tests and proof

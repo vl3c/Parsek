@@ -755,7 +755,8 @@ the wave-0 notes of E.5):
 - `docs/dev/design-autotest-command-seam.md`: P11-01 before T-07 and the race verb tasks
   (C.1).
 - `.claude/CLAUDE.md` and `AGENTS.md`: P10-01, then R1-07 (E.5.2) and the later rows of C.1;
-  one mirror copy per PR, so re-check `AGENTS.md` equality after merging `origin/main`.
+  one mirror copy per PR, so re-check `AGENTS.md` equality after merging `origin/multiplayer`
+  into the sub-branch (README rule 10).
 - `ParsekUI.cs`: P11-02, then R4-08 and R4-09.
 - `scripts/arch/lifetimes.toml` and `lifetime_pins.toml`: P1-03 first of C.1's row; every
   later task re-pins after merging.

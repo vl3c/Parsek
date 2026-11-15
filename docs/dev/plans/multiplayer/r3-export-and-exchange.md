@@ -808,16 +808,21 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
     measurement; section 8 names the three risks). (1) A time budget per poll: the transport
     times every operation it starts and starts no further one in a poll once 50 ms of real
     time are spent (default number; R6-10 tunes it after S8); what is left waits for the
-    next poll. (2) Skip a read that would block: before it opens a shared file, the
-    transport reads the file's attributes and skips, until the next poll, a file marked
-    offline or recall-on-open / recall-on-access (Windows `FILE_ATTRIBUTE_OFFLINE` 0x1000,
+    next poll. (2) A placeholder is opened, never skipped for good: before it opens a
+    shared file, the transport reads the file's attributes; a file marked offline or
+    recall-on-open / recall-on-access (Windows `FILE_ATTRIBUTE_OFFLINE` 0x1000,
     `RECALL_ON_OPEN` 0x40000, `RECALL_ON_DATA_ACCESS` 0x400000, the on-demand placeholder
-    marks S8a reads), with one rate-limited Info line per file. (3) An operation that took
-    over 250 ms is logged with its path and that file is skipped on the next poll once. A
-    budget can stop the transport from starting the next read; it cannot bound one open
-    the operating system blocks (design 15.9). A blocking open whose attributes did not
-    warn is the accepted risk until S8 measures it and the owner decides on the worker
-    (R3E-23, question Q-18).
+    marks S8a reads) is a placeholder, and only opening it makes the sync client download
+    it, so skipping it at every poll would leave the rival "still arriving" for ever. The
+    transport opens at most one placeholder per poll, and only at an import tick, which is
+    always outside flight (the import never runs in flight, R3E-17; design 15.9); it logs
+    that open with its path and how long it took (Info), copies the file into the local
+    race directory, and leaves any further placeholder for the next poll. (3) An operation
+    that took over 250 ms is logged with its path and that file is skipped on the next poll
+    once. A budget can stop the transport from starting the next read; it cannot bound one
+    open the operating system blocks (design 15.9). The stall of the one placeholder open
+    per poll, and of a blocking open whose attributes did not warn, is the accepted risk
+    until S8 measures it and the owner decides on the worker (R3E-23, question Q-18).
   - `RaceSync.CopyOut.cs`: seq = max(shared listing, own mirror) + 1 (6.3); every own
     standing not yet copied out goes oldest first, each after every payload file it names is
     confirmed in the shared folder; `copiedOut` marked in the own index. While the transport
@@ -831,8 +836,11 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
   first, payload before standing; partial arrival; a higher seq in the shared folder);
   `RaceMainThreadTransportTests` on temp dirs (a destination held open with `FileShare.None`
   retries, then succeeds after release; with an injected slow file layer, no operation
-  starts after the poll budget is spent, a file reported as a placeholder is skipped and
-  retried next poll, and an operation over 250 ms is skipped once); R1-10's
+  starts after the poll budget is spent; a placeholder, which the fake file layer keeps
+  reporting as one until the file is opened, as the sync clients do, is opened once at the
+  first import poll with its open time logged and arrives in the local race directory after
+  that one open, while a second placeholder in the same poll waits for the next poll; and
+  an operation over 250 ms is skipped once); R1-10's
   `RaceFolderCheckTests` pass over the transport.
 - **Registers:** none beyond log tags.
 - **Size:** M. **Depends on:** R3E-04, R1-08 (`sharedFolderPath`, the in-memory folder),
@@ -860,8 +868,9 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
   from a FLIGHT path.
 - **Registers:** none. **Size:** S. **Depends on:** R3E-16. **PC:** no. **Risk:** low.
   The 60 s poll runs through R3E-16's transport, so each poll is held to its time budget and
-  skips files marked as placeholders (R3E-16's guards); a poll cut short by the budget
-  carries on at the next poll, not at the next frame.
+  opens at most one placeholder (R3E-16's guards); every tick that imports (load, scene
+  entry, the poll, Sync now) runs outside flight, so the stall of that open never hits a
+  flight; a poll cut short by the budget carries on at the next poll, not at the next frame.
 
 ### R3E-18 Import: copy-in, completeness and the verdict
 
@@ -879,7 +888,9 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
     is ignored with a rate-limited Warn. That covers every sync program's conflict copies,
     whatever their naming (`name (1).cfg`, `name-conflict-...`, "conflicted copy"; edge
     case 2), without a list of their patterns. Every read goes through R3E-16's transport,
-    so the poll budget and the placeholder skip apply to the import too.
+    so the poll budget and the one-placeholder-per-poll rule apply to the import too: a
+    standing whose files are placeholders stays "still arriving" until each has been opened,
+    one per poll, and then applies.
   - First production callers of R3E-01's `IRaceFolder.Move` (out of `incoming/`) and the
     `RaceIds` short id; the rival cache paths of `RacePaths`, which R3E-01 specified, land
     here with their tests (A1).
@@ -909,7 +920,8 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
   - Order inside one tick: export, then import.
 - **Proof:** `RaceSyncImportTests` with folders built by T-16's `RaceFolderBuilder`:
   half-synced, proof mismatch, unsafe id, newer format, conflict copies in three sync
-  programs' namings (each ignored, never parsed), late joiner, export
+  programs' namings (each ignored, never parsed), a standing and two payload files that are
+  placeholders (applied after three polls, one open each), late joiner, export
   before import, a later joiner taking a seen look gets the clash outcome once, a joiner
   seen by an older player gives one "joined the race" message and the next tick none, and
   a newcomer's own first import gives none.
@@ -992,8 +1004,9 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
     `SyncResult.Messages` with `ParsekLog.ScreenMessage` and logs one Info line per message,
     `[RaceSync] Message posted: <text>` (a screen message writes no log line of its own;
     T-32's `logContract` reads this one). Every later race message
-    (R3E-18's clash note and "<name> joined the race", R3E-20's heal, R4-07's holder
-    changes) is appended to that list and uses this site; no other task adds one.
+    (R3E-18's clash note and "<name> joined the race", R3E-20's heal and two-computers
+    messages, R4-07's holder changes, R6-08's end-of-race messages) is appended to that list
+    and uses this site; no other task adds one.
 - **Proof:** tests for quickload-shaped and Re-Fly-shaped differences; a driver test that
   each message of a result is posted once.
 - **Registers:** `design-gui-inventory.md` gains the driver's one screen-message site with
@@ -1131,9 +1144,10 @@ R1 task; `Config/FactCapture.cs` (R3E-06, 09, 15); `LoadReconcilePolicy.cs` (R3E
   post-change checklist for R3E-07 and R3E-12; R3E-15's `LoadReconcilePolicy` row for the
   race facts child (OV-28).
 - **GUI gates:** no new surface. Screen messages: one site, the driver's (R3E-22), the one
-  producer of race messages (OV-38); the heal message (R3E-20), the "left the race" message
-  (R3E-22), the clash note (R3E-18) and R4's board messages are listed under it in
-  `design-gui-inventory.md`.
+  producer of race messages (OV-38); the heal and two-computers messages (R3E-20), the "left
+  the race" message (R3E-22), the clash note and the "joined the race" message (R3E-18),
+  R4-07's holder changes and R6-08's end-of-race messages are listed under it in
+  `design-gui-inventory.md` (README, "Race screen messages", lists every race message).
 - **Logs:** tags entered in R1-06's tag list (OV-57); `scripts/arch/log_tags.json` refreshed
   (report-only) when a task adds a tag.
 - **Docs per commit:** `docs/dev/todo-and-known-bugs.md` entries for the gaps of section 9
@@ -1153,9 +1167,10 @@ R1 task; `Config/FactCapture.cs` (R3E-06, 09, 15); `LoadReconcilePolicy.cs` (R3E
   question list too:
   - on-demand placeholders: a cloud-only file whose first open blocks while the client
     downloads it, or an offline share that hangs an open for seconds (15.9). Mitigation:
-    no shared-folder access in flight without the worker; R3E-16's attribute check skips a
-    file marked as a placeholder; a per-poll time budget; the rest is the accepted risk
-    until S8 and R3E-23;
+    no import in flight; R3E-16's attribute check finds a file marked as a placeholder,
+    which is opened (so it downloads) at most one per poll, only at an import tick outside
+    flight, with its open time logged, and is never skipped for good; a per-poll time
+    budget; the stall of that one open is the accepted risk until S8 and R3E-23;
   - conflict copies: a client writes a renamed copy beside a file two machines changed.
     Mitigation: the import reads exact names only (R3E-18), so a conflict copy is never
     parsed;

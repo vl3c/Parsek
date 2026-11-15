@@ -189,7 +189,7 @@ wrong.
 | Line and label style | `PlaybackTrajectoryStyle` (R5-03); label prefix `"<display name> - "` |
 | Ghost map name | `GhostMapPresence.ComposeGhostVesselName`: `Ghost: Ana - Kerbal X` |
 | Empty catalog for the rival lane | `RecordingPlaybackCatalog.None` (R3W-09); there is no `RivalCatalog` |
-| Race sync screen messages | one posting site, the sync driver's, landed by R3E-22, which also logs `[RaceSync] Message posted:`. It also posts R3E-18's clash note and "<name> joined the race" and R3E-20's two-computers message. The only other race screen messages are R2-02's refused load, R2-08's refused launch and R3W-19's refused switch to a rival ghost |
+| Race screen messages | Every race screen message, by task. Through one posting site, the sync driver's, landed by R3E-22, which logs `[RaceSync] Message posted:` for each: R3E-22's "<n> shared flights left the race"; R3E-18's clash note (a look or site taken by a later joiner, R1-09's rule) and "<name> joined the race"; R3E-20's heal message (files put back) and its two-computers message (the folder is being written from two computers); R4-07's holder changes; R6-08's two end-of-race messages. Outside the driver, each from its own task: R2-02's refused load; R2-08's refused launch, and its snap-back message ("Other launch sites stay off: ...") only if the stock toggle cannot be greyed; R3W-19's refused switch to a rival ghost. There are no others |
 | Log tags | plain: `RaceSync`, `RivalLane`, `RaceBoard`, listed in R1-06 |
 
 ### In-game test categories

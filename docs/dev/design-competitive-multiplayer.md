@@ -2212,7 +2212,7 @@ is the one place where what a machine remembers decides what it scores (principl
 | Export interrupted (crash, folder offline) | Payload without a standing is inert. After a crash the next tick writes a fresh standing; a standing already in the own mirror is copied out, with its payload, when the folder returns (6.3) | None |
 | Shared-folder write hits a sync-client lock | Safe-write retries with backoff, then waits for the next tick | None |
 | Corrupt or unsafe standing (bad hash, bad id, bad stamp, truncated) | Refused whole with the file and reason logged; the previous applied standing stays | None locally |
-| Cloud placeholder payload (not downloaded) | The copy step brings it into the local race directory, and the game reads only that copy. With the copy worker the download happens outside the game's frame loop; in the main-thread form, which is built first, copying waits while a flight is in progress and a first open can stall the Space Center (15.9; the worker is open: question Q-18, section 13). The status text says what is still arriving | None; slow |
+| Cloud placeholder payload (not downloaded) | The copy step brings it into the local race directory, and the game reads only that copy. With the copy worker the download happens outside the game's frame loop. In the main-thread form, which is built first, no import runs during a flight; outside flight at most one placeholder is opened per poll (opening is what makes the sync program download it), with its open time logged, so a standing with several placeholder files arrives over several polls, and that first open can stall the Space Center or the Tracking Station (15.9; the worker is open: question Q-18, section 13). The status text says what is still arriving | None; slow |
 | Rival cache deleted or damaged | Rebuilt from the folder at the next sync | None; the witness log restarts, so earlier changes to a rival's history can no longer be noticed by this machine |
 | A rival standing changed after it was seen, or its chain does not connect | Not applied; the last good state stays and keeps scoring; the window says files in that player's folder were changed, with the reason; that player's own game repairs it at its next sync | None |
 | The local player's subfolder was changed by someone else | Files this game wrote are put back; a standing it did not write is superseded by a fresh one with a note (7.15); one on-screen message. The same files changed again after two put-backs: the game stops putting them back and says the folder is being written from two computers (8 case 3; owner, 2026-11-15) | None |
@@ -2967,12 +2967,25 @@ This is an exception to a standing repository rule, so it needs the owner's yes 
 question Q-18, section 13). Spike S8 (15.11) measures the stall on the common sync programs
 first, so the decision is taken on numbers, and S8 runs last, after the race works end to
 end on a plain shared folder. Until then the race is built in the fallback form, the first
-draft's budgeted main-thread steps: one operation per frame with a byte budget, retries
-across frames, no copying during a flight (an export in flight writes the own mirror only
-and copies out after the flight), and the known risk of a multi-second freeze on a
-placeholder file. The copy worker and the tuning of the poll numbers wait on S8; until then
-the design's default poll numbers hold. `IRaceTransport` is the seam that makes either form
-a local change.
+draft's budgeted main-thread steps:
+
+- one operation per frame with a byte budget, and retries across frames;
+- a time budget per poll: once it is spent, no further operation starts in that poll, and
+  what is left waits for the next poll;
+- no import and no copying during a flight (an export in flight writes the own mirror only
+  and copies out after the flight), so every read of the shared folder happens outside
+  flight;
+- only files whose names are exactly the ones the race expects are read; anything else in a
+  player's folder, a sync program's conflict copies included, is ignored;
+- a file the sync program marks as a cloud placeholder is never skipped for good, because
+  only opening it makes the program download it: at most one placeholder is opened per
+  poll, at an import outside flight, with the time the open took logged, and the rest wait
+  for the next poll.
+
+The known risk of this form is the freeze of that one placeholder open, which can last
+seconds, at the Space Center or in the Tracking Station. The copy worker and the tuning of
+the poll numbers wait on S8; until then the design's default poll numbers hold.
+`IRaceTransport` is the seam that makes either form a local change.
 
 ### 15.10 Built to extend
 

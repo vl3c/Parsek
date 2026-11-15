@@ -924,9 +924,12 @@ anywhere.
 - **LoadReconcilePolicy:** no new load and no new state category; the reconcile reads the
   mark, writes nothing to the save.
 - **GUI:** two screen messages, R2-08's refused launch and R2-02's refused load (question
-  10.1, owner, 2026-11-15) (`design-gui-inventory.md` counts); no window, no tooltip; the
-  greyed alternate sites in the editor and the greyed difficulty option use the
-  stock-control annotation exception (question 10.2, owner, 2026-11-15).
+  10.1, owner, 2026-11-15), and a third, R2-08's snap-back message, only if the stock
+  toggle cannot be greyed (R2-08's fallback; design 7.3) (`design-gui-inventory.md`
+  counts); no window, no tooltip. The editor's site picker leaves the alternate sites out,
+  as stock does with the option off (no annotation), and the greyed difficulty option,
+  when it ships, uses the stock-control annotation exception (question 10.2, owner,
+  2026-11-15).
 - **In-game tests and harness:** five categories, one per scene (section 6) ->
   `lane_catalog.py`; `RaceSites`, `RaceSitesFlight` and `RaceSitesTrackingStation` hosted by
   RACE-9 (T-29), RACE-10 (T-35) and RACE-11 (T-36) (every new test re-pins that host's `total=`,

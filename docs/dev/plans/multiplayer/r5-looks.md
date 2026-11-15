@@ -752,11 +752,12 @@ Added 2026-11-15: the race suit is locked (owner, 2026-11-15).
 - **The prefab material does not show the suit (S3d).** Then an installed look needs the
   material override too, using the stock default combo texture; R5-08 grows, the seam does
   not change.
-- **A save moved to a machine without the DLC.** Stock resets the suit to Default at load;
-  The same load pass finds those kerbals out of the look and dresses them in the
-  replacement (design 7.4); S3 checks what stock does at that load. If stock leaves a
-  state the pass cannot write over, those kerbals show the base suit (the picker is
-  suit choice is blocked in a race save, R5-14); the color still marks the player.
+- **A save moved to a machine without the DLC.** Stock resets the suit to Default at load.
+  The same load pass that dresses the roster finds those kerbals out of the look and
+  re-dresses them in the replacement suit (design 7.4); S3 checks what stock does at that
+  load. If stock leaves a state the pass cannot write over, those kerbals show the base
+  suit, and the player cannot pick another, since the suit choice is blocked in a race save
+  (R5-14); the color still marks the player.
 - **Two simultaneous joiners share a look** until the later one's game applies the clash
   rule and exports; their ghosts share a color for that time. R1's rule ends it; nothing
   here can.

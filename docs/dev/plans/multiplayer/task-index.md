@@ -127,8 +127,8 @@ earliest wave (section B). A dropped task keeps its heading and says where its w
 | P7-01 | The id check on the floor with a fixed char... | S | go | - | - | - | no | - | 0 |
 | P7-02 | A save-root accessor on `RecordingPaths` | S | P7-01 | - | - | - | no | - | 1 |
 | P1-01 | `HomeSpaceCenter` in `Core`, read by the KS... | S | go | - | rebases on P7-01 if it landed | - | no | - | 0 |
-| P1-02 | One launch-area shape test, called by the 5... | S-M | P1-01 | - | starts after the launch pad fixes are on main (outside this plan) | small Q1 (answered 2026-11-14) | lanes | - | 1 |
-| P1-03 | The launch-site circle cache follows the ho... | S | P1-01 | S4a | starts after the launch pad fixes are on main (outside this plan) | - | lanes | - | 2 |
+| P1-02 | One launch-area shape test, called by the 5... | S-M | P1-01 | - | starts after the launch pad fixes are on `multiplayer` (on main before the cut, outside this plan) | small Q1 (answered 2026-11-14) | lanes | - | 1 |
+| P1-03 | The launch-site circle cache follows the ho... | S | P1-01 | S4a | starts after the launch pad fixes are on `multiplayer` (on main before the cut, outside this plan) | - | lanes | - | 2 |
 | P1-04 | Do not keep a partial first read for the pr... | - | dropped: landed outside this plan by the launch pad fixes work | - | - | - | - | - | - |
 | P10-01 | The create-and-start core in production | S-M | go | - | - | - | lanes | - | 0 |
 
@@ -395,8 +395,8 @@ run in parallel unless section C names a shared file. Two windows sit across the
   dependency"). S8a sits one wave after T-28 (wave 16), the lane RACE-6 that proves a real
   export, sync and board cycle between two players' saves on a plain shared folder; S8b
   follows in wave 18, and R3E-23 and R6-10 in wave 19. Nothing depends on R3E-23 or R6-10,
-  so the wave count stays 21; until S8 the race runs the main-thread form with the design's
-  default poll numbers.
+  so S8 adds no wave: the plan has 20 waves, 0 to 19; until S8 the race runs the main-thread
+  form with the design's default poll numbers.
 
 ### B.1 Waves by plan
 
@@ -658,7 +658,7 @@ PRs at the same time unless the row says the edits are disjoint.
 | `TestCommandVerbs.cs`, hlib verb tables, `design-autotest-command-seam.md` | P11-01 (seam doc), T-07, R1-08, R1-10, R1-11, T-12, T-19, T-20, T-30 | small :736-737; r1 :836-838; T :713-716 |
 | `harness/lib/test_hlib.py`, `hlib.py` | P10-01, P11-01, T-03, T-04, T-07, then every lane and verb task | small :733-735; T :707-709 |
 | `.claude/CLAUDE.md`, `AGENTS.md` | P10-01, R1-07, P2a-02, P2b-02, P3-04, R1-14, R2-03, R2-04, R2-07, R2-08, R3E-23, R5-14, R3W-25 (only if S7 fails), the R3W key-file line | small :738-740; playback :885-887; map :720; r1 :963; r2 :829-830; r3e :926; r3w :1145; one mirror copy per PR |
-| generated `docs/dev/flight-profiles.md`, `harness/coverage/registry.toml`, `docs/dev/autotest-status.md` | every task that adds an in-game category or a lane (R5-01 and T-07 in wave 0); P3-01 does not change the catalog (map :269-273) | T :717-721; regenerate after merging `main`, never by hand |
+| generated `docs/dev/flight-profiles.md`, `harness/coverage/registry.toml`, `docs/dev/autotest-status.md` | every task that adds an in-game category or a lane (R5-01 and T-07 in wave 0); P3-01 does not change the catalog (map :269-273) | T :717-721; regenerate after merging `origin/multiplayer`, never by hand |
 | the RACE-9, RACE-10, RACE-11 spec tallies (T-29, T-35, T-36) | every task that adds a test in a hosted category re-pins its host's `total=` | r2 :738-740; T :632 |
 | `GrepAuditTests.Race.cs`, `scripts/race-loader-files-allowlist.txt`, `RaceLogTags` | R1-06 (creates the test file and `RaceLogTags`, seeded with `Race` and R3W-06's `RivalLane`); the allowlist file is created by R3W-02 or R1-06, whichever lands first (a data file with no reader breaks no rule); then R3W-03, R3W-04, R3W-27 | r1 R1-06; r3w R3W-02, R3W-06 |
 | `scripts/ers-els-audit-allowlist.txt` | P2a-05, P3b-02 | append-only |
@@ -678,7 +678,7 @@ runs SPIKES on the PC in parallel (S6 on day 1 ties ARCH for R1-03).
 
 | Track | Tasks in order | PC | Notes |
 |---|---|---|---|
-| ARCH | P12-01, P7-01, P1-01, P7-02, P1-02 | P1-02: four lanes | P12-02 and R1-01 are dropped (2026-11-15); P7-01 before P1-01 / P1-02 (each adds a `Core/` file and moves the Core count in `test_archview.py`); P1-02 starts after the launch pad fixes are on main (Q-04 answered 2026-11-14) |
+| ARCH | P12-01, P7-01, P1-01, P7-02, P1-02 | P1-02: four lanes | P12-02 and R1-01 are dropped (2026-11-15); P7-01 before P1-01 / P1-02 (each adds a `Core/` file and moves the Core count in `test_archview.py`); P1-02 starts after the launch pad fixes are on `multiplayer` (on main before the cut; Q-04 answered 2026-11-14) |
 | SETUP | P10-01, R1-02, R1-16, R1-07 | P10-01: three lanes; R1-16: one tier | R1-02 no longer orders after P10-01 (both only add a `LogIO/` file); R1-07 after P10-01 (CLAUDE.md) |
 | ENGINE | P2c-02, P2c-03, P2c-04, P2c-01, R3W-02 | P2c-02 to P2c-04: lanes; R3W-02: one in-game run | R3W-01 follows in wave 2, after P2c-03; R3W-02 after P2c-01 and ARCH's P12-01 (it registers the `RaceWorld` module) |
 | CATALOG | P2a-05, P2a-03, P2a-06, P2a-07, P2b-01 | P2a: lanes | P2a-05 creates the catalog files in `Recording/` (no `modules.toml` edit); P2a-07 before P3-02 |
@@ -843,7 +843,8 @@ A fact check against main ab1cc9478 (2026-11-15) dropped P12-02 and R1-01 (the f
 module since pull request #2611; each race module registers with its first file) and the
 P10-01 -> R1-02 order (both only add a `LogIO/` file). Two tasks moved: R3W-02 from wave 2 to
 wave 1 (its needs are now P2c-01 and P12-01) and R1-02 from wave 1 to wave 0. No other wave
-moved; the wave count stays 21.
+moved; the wave count stayed 21 then. The split of T-29 (2026-11-15) later moved T-29 from wave 20
+to wave 14, which emptied wave 20: the plan now has 20 waves, 0 to 19.
 
 ### E.3 Still open
 

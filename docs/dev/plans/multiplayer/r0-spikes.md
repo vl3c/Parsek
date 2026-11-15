@@ -618,39 +618,57 @@ Common to every spike task below:
   opens the stock difficulty panel over it with `DifficultyOptionsMenu.Create(mode,
   initialParams, newGame: true, onDismiss)` (public static, `il/acs.il` 530080-530102 of the
   spike decompile) on a copy of the mode's default `GameParameters`; `onDismiss` logs
-  `[Spike.S6] difficulty accepted=<bool>` and every stock difficulty value of the returned
-  `GameParameters` (`Difficulty.*` and the career starting funds, science and reputation),
-  and the Create button passes that object to `CreateNewGame`. (e) At the main menu, log
+  `[Spike.S6] difficulty accepted=<bool>` and all forty values of R1-10's difficulty list
+  (`RaceDifficulty.Keys`: the `DifficultyParams` fields, the `CareerParams` values and the
+  named fields of the two stock custom nodes, read with `CustomParams<AdvancedParams>()`
+  and `CustomParams<CommNetParams>()`) from the `GameParameters` the callback hands back,
+  one `key=value` per line, and the Create button passes that object to `CreateNewGame`;
+  the same forty are logged again from `HighLogic.CurrentGame.Parameters` once the created
+  game reaches the Space Center. The decompile says the panel edits the very object it is
+  given (`Create` keeps it as `gPars`, il/acs.il:530151, with a backup copy at :530160)
+  and builds its Advanced and CommNet sections from `GameParameters.ParameterTypes` and
+  `CustomParams(Type)` on it (:531408-531419), so all four parts should come back in that
+  one object; the step proves it. (e) At the main menu, log
   `FlightGlobals.Bodies` count and the home body's radius (the Kerbin check of R2-02 runs
   there).
 - **Procedure:** run the lane once with Parsek's normal DLL path and once with
   KSPCommunityFixes removed from a copy of the instance (KSPCF patches save code and the
   dev install runs it). Then by hand: Discard Re-fly (`RevertInterceptor` writes
   persistent.sfs), main menu -> Multiplayer -> create -> quit -> Resume Saved. Difficulty
-  panel, by hand: main menu -> Multiplayer -> Difficulty; change two values (for example
-  "allow other launch sites" off and the funds reward percentage to 80); accept; read the
-  logged values; Create; in the created save open the stock difficulty window from the
-  Space Center and read the same two values. Repeat once with Cancel (the values must stay
-  the defaults). Look at the dialog and the panel at UI scale 1.0 and 1.5.
+  panel, by hand: main menu -> Multiplayer -> Difficulty; change one value in each of the
+  four parts: a `DifficultyParams` field ("allow other launch sites" off), a `CareerParams`
+  value (the funds reward percentage to 80), an `AdvancedParams` value (the G limits for
+  kerbals on) and a `CommNetParams` value (plasma blackout on); accept; read the forty
+  logged values; Create; read the forty logged again at the Space Center, and in the
+  created save open the stock difficulty window and look at the same four values. Repeat
+  once with Cancel (the values must stay the defaults). Look at the dialog and the panel at
+  UI scale 1.0 and 1.5.
 - **Pass:** the node is byte-identical (after whitespace normalisation) in every file
   written by every path, with and without KSPCF; the menu entry shows, takes a mouse click
   and arrow keys plus Enter; the dialog's text field takes a pasted 200-character path;
 
   the created save loads with the mark present at the reported hook (a proto added before
   `Game.Start` is instantiated in its target scenes); the difficulty panel opens over the
-  dialog, the two changed values come back in the `onDismiss` log line and are the values
-  of the created save, Cancel leaves the defaults, and the panel and the dialog follow the
-  stock UI scale; `FlightGlobals.Bodies` is populated at the main menu.
+  dialog; all four changed values, one per part, come back in the `onDismiss` lines, the
+  other thirty-six keep their defaults, and all four are the values of the created game's
+  parameters at the Space Center; Cancel leaves the defaults; and the panel and the dialog
+  follow the stock UI scale; `FlightGlobals.Bodies` is populated at the main menu.
 - **Fallback:** the node is dropped by a path: the mark moves to a side file in the save
   folder or into Parsek's own scenario node (raise to the owner, since 6.2 chose a
   separate module so older builds keep it). Menu clone fails: an IMGUI button on the main
   menu, drawn through the UI-scale host. Difficulty panel fails (it does not open over a mod
-  dialog, or its values do not come back): the setup dialog offers the four stock presets
-  instead (Easy, Normal, Moderate, Hard; owner, 2026-11-15, question Q-17), and R1-15 takes
-  that shape.
+  dialog, or its `DifficultyParams` and `CareerParams` values do not come back): the setup
+  dialog offers the four stock presets instead (Easy, Normal, Moderate, Hard; owner,
+  2026-11-15, question Q-17), and R1-15 takes that shape. If only the two custom nodes do
+  not come back in the callback's object, the panel stays (it covers the first two parts)
+  and R1-10 reads the two nodes with `CustomParams<T>()` from the callback's
+  `GameParameters`, which the decompile shows is the object the panel edits; the spike
+  re-runs the step with that read. If they still do not come back, or do not reach the
+  created game, the presets replace the panel, because a race cannot leave part of its
+  difficulty unrecorded; the spike report says which case holds.
 - **Artifacts:** checker diff output, lane result JSON, screenshots of the menu and dialog.
 - **Duration:** 1 day of agent work, 2.5 hours on the PC (the difficulty panel step adds
-  half an hour).
+  half an hour; four values instead of two take minutes, so the hours stay).
 - **Proof:** report; lane result.
 - **Registers:** report folder only (the lane exists only on the spike branch).
 - **Size:** M. **Depends on:** S0. **PC:** yes.
@@ -712,10 +730,12 @@ Common to every spike task below:
   by a sync client, for files that are local, cloud-only (placeholder) and being synced,
   and on an unreachable network share. It answers the three risks R3E's main-thread guards
   are built against before S8 runs (r3e section 8): an on-demand placeholder whose first
-  open blocks while the client downloads it; conflict copies the client writes beside a
-  file with a changed name; and small-file throttling, where a client uploads a burst of
-  many small files slowly or in a different order. Settles 15.9: is a copy worker thread needed (the
-  owner's yes), and the poll numbers. Waits: R6-10, R3E-23 (the copy worker), which run
+  open blocks while the client downloads it (R3E-16 opens one per poll, outside flight:
+  how long does that open stall the Space Center, and does the attribute clear once the
+  open is done?); conflict copies the client writes beside a file with a changed name;
+  and small-file throttling, where a client uploads a burst of many small files slowly or
+  in a different order. Settles 15.9: is a copy worker thread needed (the owner's yes), and
+  the poll numbers. Waits: R6-10, R3E-23 (the copy worker), which run
   last with it. R3E-16 (the copy-out) and T-02 proceed without it.
 - **Change:** `spikes/r0/S8/fileaccess.py` (stdlib, Windows): for sizes 10 KB, 1 MB,
   10 MB creates files, waits for upload, sets them cloud-only (the client's own "free up

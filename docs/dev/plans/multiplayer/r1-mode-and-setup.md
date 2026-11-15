@@ -273,10 +273,11 @@ The scenario name literal is repeated at `SaveReferenceScanner.cs:84` and
 - VERIFY in game, each on a step of spike S6: that a proto added to `game.scenarios`
   before `Game.Start` is instantiated in its target scenes (step (c), the created save);
   `DialogGUITextInput` behavior in a `MultiOptionDialog` at the main menu (step (c), the
-  pasted path); that the stock difficulty panel opens over the setup dialog and hands its
-  values back (step (d)); the `TextProButton3D` clone of the main menu entry (step (c));
-  whether `FlightGlobals.Bodies` is populated at the main menu, for R2-02's Kerbin check
-  (step (e)).
+  pasted path); that the stock difficulty panel opens over the setup dialog and hands back
+  all forty `RaceDifficulty.Keys` values, the Advanced and CommNet ones included, and that
+  they reach the created game (step (d)); the `TextProButton3D` clone of the main menu
+  entry (step (c)); whether `FlightGlobals.Bodies` is populated at the main menu, for
+  R2-02's Kerbin check (step (e)).
 
 ## 4. Tasks
 
@@ -831,7 +832,8 @@ Dropped: replaced by T-13 (OV-02).
   exists for stock dialogs; otherwise a manual check. Logs: `[Race] Menu entry added`,
   `[Race] Continue: save=.. raceId=..`.
 - **Registers:** `CLAUDE.md` + `AGENTS.md` (and the umbrella copies by hand after merge, a
-  docs change); `design-gui-inventory.md` (dialog count, screen messages);
+  docs change); `design-gui-inventory.md` (dialog count; R1 posts no screen message: the
+  clash note is posted by R3E-18 through the sync driver);
   `ParsekUiScaleTests` only if the IMGUI fallback is used (a `"RaceMenu"` host in the
   `EachDrawHostOpensAScaleScope` list); `KnownLoadInitiators` and
   `LoadReconcileWiringGateTests` if a new file calls `LoadGame(`.
