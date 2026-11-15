@@ -65,7 +65,7 @@ id = "B47-jool-moon-tour"
 tier = "operator"
 description = "AUTHORED 2026-11-14, NEVER FLOWN. The Jool multi-moon tour forge (M-MIS-6): from the UNSTRIPPED `jool-orbit-recorded`, one composed machine (b47_jool_moon_tour) parks at Laythe (B25's leg), Vall (B26's parent relay with an elliptical capture) and Tylo (the relay again), dropping the mid-mission commit on the first two parks and committing once at Tylo. No StopRecording/DiscardTree, so all three hops join the Kerbin->Jool tree 6ec68e87. Produces `jool-tour-recorded`, the multi-moon configuration hold's first subject, for V38M."
 instanceProfile = "stock-minimal"
-tags = ["B47", "laythe", "vall", "tylo", "jool", "moon", "jool-moon", "moon-tour", "moon-to-moon", "orbit", "mechjeb", "cross-soi", "capture", "commit-in-foreign-soi", "orbit-start", "tree-continuation", "multi-moon-hold", "pending-flight"]
+tags = ["B47", "laythe", "vall", "tylo", "jool", "moon", "jool-moon", "moon-tour", "moon-to-moon", "orbit", "mechjeb", "cross-soi", "capture", "commit-in-foreign-soi", "orbit-start", "tree-continuation", "multi-moon-hold", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/jool-orbit-recorded"

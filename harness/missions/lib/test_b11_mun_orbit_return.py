@@ -73,7 +73,9 @@ PARAMS = dict(PLAIN_PARAMS, **CAREER_PARAMS)
 # landed_speed_window, landed_surface_class, landed_class_min_speed,
 # landed_class_max_speed, surface_class_mark_result): the trace with those fields'
 # default reprs removed hashes to the previous pin 02e6fcb9...dee36.
-MFR_TRACE_DIGEST = "eb4ffe29575572aa92fab5161a30efd27a8e6aeb7e5eec0eb9d9df6863b760ff"
+# Re-pinned 2026-11-15 for one new field only (B5Params escape_extra_park_orbits): with
+# its default repr removed the trace hashes to the previous pin eb4ffe29...60ff.
+MFR_TRACE_DIGEST = "7d8d6abff1f5e77443014c73c358059866b77bec80bcdf6c532259c554fb2e70"
 
 _PARK_EXIT_UT = 48_200.0
 
