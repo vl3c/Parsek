@@ -122,9 +122,12 @@ Tasks in other slices that depend on this one (final ids, `task-index.md` sectio
   and ProbesBeforeCrew from the dev install, adds kRPC, TestingTools, MechJeb2 and Parsek
   (`stock-minimal.toml:14-29`) and pins low graphics (`:34-40`). `Squad` and `SquadExpansion`
   are junctioned to the dev install at CLONE (`harness/provision/provlib.py:47-48`), so a
-  provisioned instance has the DLCs exactly when the dev install has them. kRPC binds the
-  fixed ports 50000 / 50001 (`harness/run.py:108-113`), so two kRPC instances cannot run at
-  once on default settings.
+  provisioned instance has the DLCs exactly when the dev install has them. kRPC's default
+  ports are 50000 / 50001. Before every launch `run.py` stamps the instance's kRPC
+  `settings.cfg` with its install slot's own pair (stock-minimal 50000, stock-tree 50020,
+  modded-compat 50040, `+2` per extra copy; `harness/README.md`, "Install slots"), but a
+  spike instance launched by hand keeps whatever its `settings.cfg` holds, so two of them on
+  default settings cannot run kRPC at once.
 - Output rule (`.claude/CLAUDE.md` hard rules): nothing is written into the repo tree or
   the umbrella root; captures go under `<umbrella>/logs/<kind>/`. Curated results go to
   `docs/dev/research/` through a docs pull request (the survey folder is the precedent).
@@ -239,7 +242,8 @@ what the spike still proves in game.
 Common to every spike task below:
 
 - **Code lives** on branch `spike/mp-r0` in worktree `../Parsek-spike-mp-r0`, under
-  `Source/Parsek/Spikes/<Sx>/` (C#) or `spikes/r0/<Sx>/` (scripts), never merged.
+  `Source/Parsek/InGameTests/Spikes/<Sx>/` (C#, module InGameTests by its first folder) or
+  `spikes/r0/<Sx>/` (scripts), never merged.
 - **Armed** only when the env var `PARSEK_SPIKE` names the spike (S0); unarmed, the spike
   DLL behaves as `main`.
 - **Logs** use the tag `Spike.<Sx>` (`[Parsek][INFO][Spike.S4] ...`); every measurement is
@@ -257,7 +261,7 @@ Common to every spike task below:
 ### S0 Spike branch and spike instances
 
 - **Change:** worktree `../Parsek-spike-mp-r0`, branch `spike/mp-r0` from `origin/main` at
-  the go commit. Add `Source/Parsek/Spikes/SpikeArming.cs`: reads `PARSEK_SPIKE` once (a
+  the go commit. Add `Source/Parsek/InGameTests/Spikes/SpikeArming.cs`: reads `PARSEK_SPIKE` once (a
   comma list, `S4,S5`) in a `[KSPAddon(Startup.Instantly, true)]` `SpikeHost` that calls
   `DontDestroyOnLoad`, logs `[Spike] armed: <list> build=PARSEK-SPIKE-R0`, and owns a
   Harmony instance `com.parsek.spike` that applies a spike's patches by hand
@@ -336,7 +340,7 @@ Common to every spike task below:
   KSC-area biome follow the working KSC when it moves (S4b), what biome a moved site
   reports from the biome map, and does a stripped copy (S5) give none. Settles 7.3 science
   parity and whether a biome override is built. Waits: R2-09, R2-10, R2-15.
-- **Change:** `Source/Parsek/Spikes/S2/SpikeS2Science.cs` with in-game tests of category
+- **Change:** `Source/Parsek/InGameTests/Spikes/S2/SpikeS2Science.cs` with in-game tests of category
   `SpikeS2`, `Scene = FLIGHT` or `SPACECENTER`, `AllowBatchExecution = false`:
   `DumpTaggedColliders` (every collider under the KSC transform whose tag is not
   "Untagged": tag, path, world position converted to lat/lon/alt); `SampleBiomeGrid`
@@ -374,7 +378,7 @@ Common to every spike task below:
   DLC loads a kerbal saved with that DLC's suit; how to put a suit's texture on a ghost
   kerbal without editing shared materials. Settles 7.4 (table, colors) and A4's shape.
   Waits: R5-08, R5-10, R5-11, R5-12, R4-10; soft: R5-02 (A4), R5-04, R5-07, R5-09.
-- **Change:** `Source/Parsek/Spikes/S3/SpikeS3Looks.cs`: tests `ApplySuitToRoster`
+- **Change:** `Source/Parsek/InGameTests/Spikes/S3/SpikeS3Looks.cs`: tests `ApplySuitToRoster`
   (sets `KerbalSuit` and `comboId` per crew member and saves), `ListSuitCombos` (logs every
   combo: suit type, gender, texture path, from which config), `BuildGhostKerbal` (builds
   the EVA ghost through the existing builder for each of the eight EVA parts and logs part
@@ -414,7 +418,7 @@ Common to every spike task below:
   P1-01 (offsets), R2-01's `SiteRow.LaunchAreas` (7.7, OV-41) and the P1-03
   VERIFY. Waits: R1-04 and R2-01 (is the new `Game` set at the scene load request, OV-51),
   R2-05 and P1-03 (does the circle cache hold the KSC pad and runway, OV-52).
-- **Change:** `Source/Parsek/Spikes/S4/SpikeS4Probe.cs`, test `DumpKscState`
+- **Change:** `Source/Parsek/InGameTests/Spikes/S4/SpikeS4Probe.cs`, test `DumpKscState`
   (SPACECENTER): logs every `PQSCity` and `PQSMod_MapDecalTangent` on Kerbin (name, all
   public fields of 3.3), `SpaceCenter.Instance` latitude / longitude (by reflection),
   `SpaceCenterCamera2` fields, every `PSystemSetup.SpaceCenterFacilities` entry and every
@@ -458,7 +462,7 @@ Common to every spike task below:
   the survey until S1b lands) and give a working launch, recovery and Space Center visit,
   with Parsek's own readers behaving, and can it move back. Settles the 7.3 moving
   checklist and the hook; waits: R2-03, R2-04, R2-08, R2-11, R2-15.
-- **Change:** `Source/Parsek/Spikes/S4/SpikeS4Move.cs`, armed by `PARSEK_SPIKE=S4b` with
+- **Change:** `Source/Parsek/InGameTests/Spikes/S4/SpikeS4Move.cs`, armed by `PARSEK_SPIKE=S4b` with
   `PARSEK_SPIKE_SITE=<lat>,<lon>`. Order (to check against KSCSwitcher's source on the PC,
   which the report cites): set the KSC `PQSCity` reposition fields so its origin is the
   site; `OnSetup` and `Orientate`; move the decal (`position`, `absoluteOffset` from S4a's
@@ -502,7 +506,7 @@ Common to every spike task below:
   processes on one PC (that is the gate; a second machine is a cross-check when a second
   tester exists, DC-091). Settles 7.3 scenery and the 15.13 scenery row; waits: R2-02,
   R2-03, R2-06, R2-07, R2-15.
-- **Change:** `Source/Parsek/Spikes/S5/SpikeS5Scenery.cs`: `CloneKsc(siteLat, siteLon)`
+- **Change:** `Source/Parsek/InGameTests/Spikes/S5/SpikeS5Scenery.cs`: `CloneKsc(siteLat, siteLon)`
   instantiates the KSC hierarchy at the max-level prefabs; strips `UpgradeableFacility`,
   `DestructibleBuilding`, click handlers, `SpaceCenter` and its area trigger; sets every
   collider tag to "Untagged"; clones the decal mod at the site. Tests `MeasureClone`
@@ -540,21 +544,20 @@ Common to every spike task below:
   a save is rewritten (stock and Parsek), what is the earliest hook that can read it, can
   a main menu entry be cloned with keyboard navigation, can a race save be created and
   started from a typed dialog. Settles 6.2 and 7.2; waits: R1-03, R1-10, R1-14.
-- **Change:** (a) a template save: `spikes/r0/S6/template/` holding a career
-  `persistent.sfs` with an extra `SCENARIO { name = ParsekRaceSpikeMark  scene = 5, 7, 8
-  race { id = spike-1  slot = 2 } }`, staged by hand into the spike instance's `saves/`.
-  (b) A seam lane on the spike branch `harness/scenarios/SPIKE-S6-mark-survives.toml`
-  (driver seam: `LoadGame`, `SaveGame`, quicksave and quickload, a launch and a Revert,
-  `InvokeRewindToLaunch`, `FlushAndQuit`; tier operator), plus a Python checker
-  `spikes/r0/S6/check_mark.py` that diffs the node in every written file
+- **Change:** (a) a template save: `spikes/r0/S6/template/` holding a career `persistent.sfs` with
+  an extra `SCENARIO { name = ParsekRaceSpikeMark  scene = 5, 7, 8 race { id = spike-1  slot = 2 }
+  }`, staged by hand into the spike instance's `saves/`. (b) A seam lane on the spike branch
+  `harness/scenarios/SPIKE-S6-mark-survives.toml` (driver seam: `LoadGame`, `SaveGame`, quicksave
+  and quickload, a launch and a Revert, `InvokeRewindToLaunch`, `FlushAndQuit`; tier operator), plus
+  a Python checker `spikes/r0/S6/check_mark.py` that diffs the node in every written file
   (`persistent.sfs`, `quicksave.sfs`, rewind-point `.sfs`). (c)
-  `Source/Parsek/Spikes/S6/SpikeS6Menu.cs`: a `MAINMENU` addon that clones `scenariosBtn`
-  into a "Multiplayer" entry, inserts it into the private `stageTwoBtn` list by reflection,
-  and opens a `MultiOptionDialog` with a `DialogGUITextInput` (folder path, paste with
+  `Source/Parsek/InGameTests/Spikes/S6/SpikeS6Menu.cs`: a `MAINMENU` addon that clones
+  `scenariosBtn` into a "Multiplayer" entry, inserts it into the private `stageTwoBtn` list by
+  reflection, and opens a `MultiOptionDialog` with a `DialogGUITextInput` (folder path, paste with
   Ctrl+V) and a Create button that calls `GamePersistence.CreateNewGame`, adds a
-  `ProtoScenarioModule` for the mark before `HighLogic.CurrentGame.Start()`, and starts
-  the game (reusing the `NewGame` verb's sequence, 3.1). Logs the earliest hook at which
-  the mark is readable from `HighLogic.CurrentGame.scenarios`.
+  `ProtoScenarioModule` for the mark before `HighLogic.CurrentGame.Start()`, and starts the game
+  (reusing the `NewGame` verb's sequence, 3.1). Logs the earliest hook at which the mark is readable
+  from `HighLogic.CurrentGame.scenarios`.
 - **Procedure:** run the lane once with Parsek's normal DLL path and once with
   KSPCommunityFixes removed from a copy of the instance (KSPCF patches save code and the
   dev install runs it). Then by hand: Discard Re-fly (`RevertInterceptor` writes
@@ -581,7 +584,7 @@ Common to every spike task below:
   target) that is not a vessel, built the way the code builds a flag, and open the stock
   plaque dialog with supplied text; what click range feels right. Settles 7.7 readable
   flags and how R3W-24 builds the model; waits: R3W-24, R3W-25.
-- **Change:** `Source/Parsek/Spikes/S7/SpikeS7FlagReplica.cs`. The `flag` part has no
+- **Change:** `Source/Parsek/InGameTests/Spikes/S7/SpikeS7FlagReplica.cs`. The `flag` part has no
   `.mu` mesh to clone: its meshes are generated at runtime by the part's
   `FlagDecalBackground`, which is why `GhostVisualBuilder.SpawnFlagVessel`
   (`GhostVisualBuilder.cs:1797-1803`) spawns a real flag vessel instead of cloning a model
@@ -665,11 +668,11 @@ Common to every spike task below:
 - **Question:** what a blocking file read does to KSP's frame time, and whether a worker
   thread with a main-thread queue keeps frames smooth under Unity's Mono. Confirms S8a's
   decision in the game.
-- **Change:** `Source/Parsek/Spikes/S8/SpikeS8Io.cs`: test `MainThreadRead` (reads a list
-  of files with `File.ReadAllBytes` in `Update`, one per frame) and `WorkerRead` (a
-  `Thread` reads into a `ConcurrentQueue` that `Update` drains; the thread only reads files
-  and touches no Unity or KSP object). The background-thread gate does not run on the spike
-  branch; S13 notes that the real worker needs the allowlist entry.
+- **Change:** `Source/Parsek/InGameTests/Spikes/S8/SpikeS8Io.cs`: test `MainThreadRead` (reads a
+  list of files with `File.ReadAllBytes` in `Update`, one per frame) and `WorkerRead` (a `Thread`
+  reads into a `ConcurrentQueue` that `Update` drains; the thread only reads files and touches no
+  Unity or KSP object). The background-thread gate does not run on the spike branch; S13 notes that
+  the real worker needs the allowlist entry.
 - **Procedure:** in flight with the owner's normal graphics, point at a sync folder with
   cloud-only files and at the unreachable share; 600 frames each.
 - **Pass:** worker variant p99 frame time within 5 ms of the idle baseline in every case;
@@ -696,18 +699,17 @@ Common to every spike task below:
   `Standing.DebugCompletions`), and R6-01 drops those rows from the board and gives the
   player the `DebugCompleted` mark. A completion S9 cannot observe is listed as out of
   reach in design 7.12.
-- **Change:** `Source/Parsek/Spikes/S9/SpikeS9Cheats.cs`: hand-applied postfixes, one log
-  line each (`[Spike.S9] observed: <entry> args=...`), on `ResearchAndDevelopment.
+- **Change:** `Source/Parsek/InGameTests/Spikes/S9/SpikeS9Cheats.cs`: hand-applied postfixes, one
+  log line each (`[Spike.S9] observed: <entry> args=...`), on `ResearchAndDevelopment.
   CheatTechnology`, `CheatAddScience`, `ScenarioUpgradeableFacilities.CheatFacilities`,
-  `KerbalRoster.CheatExperience`, `ProgressTracking.CheatProgression`,
-  `CheatEarlyProgression`, `ProgressNode.CheatComplete`, `ModuleDeployablePart.CheatRepair`,
-  `FlightGlobals.PostOrbitSet` (already observed by `CheatTeleportPatch.cs:16`), the
-  console's `funds` / `science` / `reputation` commands (patch the `ConsoleCommands`
-  handlers), the contract tools buttons, `ScreenPhysics` load, the difficulty screen's
-  apply, `CheatsComets` and `CheatsObjectThrower` actions; a 1 Hz poll that logs any change
-  of the `CheatOptions` statics (3.3) and of `HackGravity.gravityFactor` (as
-  `GravityHackDetector.cs:81` reads it). Plus a normal-play control: the same patches stay
-  armed through a scripted ordinary career session.
+  `KerbalRoster.CheatExperience`, `ProgressTracking.CheatProgression`, `CheatEarlyProgression`,
+  `ProgressNode.CheatComplete`, `ModuleDeployablePart.CheatRepair`, `FlightGlobals.PostOrbitSet`
+  (already observed by `CheatTeleportPatch.cs:16`), the console's `funds` / `science` / `reputation`
+  commands (patch the `ConsoleCommands` handlers), the contract tools buttons, `ScreenPhysics` load,
+  the difficulty screen's apply, `CheatsComets` and `CheatsObjectThrower` actions; a 1 Hz poll that
+  logs any change of the `CheatOptions` statics (3.3) and of `HackGravity.gravityFactor` (as
+  `GravityHackDetector.cs:81` reads it). Plus a normal-play control: the same patches stay armed
+  through a scripted ordinary career session.
 - **Procedure:** (1) Press each debug action N = 3 times; toggle each switch on and off.
   (2) Run the control session: a launch, a contract accept and complete, a science
   transmit, a facility upgrade bought normally, a tech bought normally, a recovery, a
@@ -770,7 +772,7 @@ Common to every spike task below:
 - **Question:** when a docking or an EVA beside a lander plays from body-fixed copies
   instead of the anchor, how far apart do the two ghosts drift at contact. Settles 15.5's
   accepted error; waits: R3W-04.
-- **Change:** `Source/Parsek/Spikes/S10/SpikeS10Flatten.cs`: under
+- **Change:** `Source/Parsek/InGameTests/Spikes/S10/SpikeS10Flatten.cs`: under
   `PARSEK_SPIKE=S10b`, a hand-applied patch forces the candidate check at
   `GhostPlaybackEngine.SectionPositioning.cs:118` to true for every recording (so each
   relative section plays from its body-fixed copy when it has one); a test logs, every
@@ -801,7 +803,7 @@ Common to every spike task below:
   the cap of its ghost budget for "up to three more players' worth of ghosts" (15.13
   per-frame row). Rivals are seen on the map, in the Tracking Station and as ghosts nearby;
   watching a rival flight is deferred with P3b, so no step here uses the Watch camera.
-- **Change:** test `GhostCostSweep` in `Source/Parsek/Spikes/S11/SpikeS11Cost.cs`: with
+- **Change:** test `GhostCostSweep` in `Source/Parsek/InGameTests/Spikes/S11/SpikeS11Cost.cs`: with
   synthetic recordings injected into a copy save (`InjectAllRecordings` pattern, into the
   spike instance's save only), measures mean and p99 frame time with 0, 8, 16, 32 and 64
   ghosts visible near the camera and in map view, plus the first-open time of one
@@ -821,9 +823,9 @@ Common to every spike task below:
 - **Question:** does `System.Security.Cryptography` SHA-256, `RSACryptoServiceProvider`
   and `ECDsa` work in KSP 1.12.5's Mono, how fast, and is the key container writable.
   Only R7 (signed standings) waits on it.
-- **Change:** test `CryptoProbe` in `Source/Parsek/Spikes/S12/SpikeS12Crypto.cs`: SHA-256
-  of 1 MB and 10 MB buffers; RSA 2048 and ECDsa P-256 key creation, sign and verify of a
-  1 KB blob; export and import of the key as XML / parameters; each wrapped so a
+- **Change:** test `CryptoProbe` in `Source/Parsek/InGameTests/Spikes/S12/SpikeS12Crypto.cs`:
+  SHA-256 of 1 MB and 10 MB buffers; RSA 2048 and ECDsa P-256 key creation, sign and verify of a 1
+  KB blob; export and import of the key as XML / parameters; each wrapped so a
   `PlatformNotSupportedException` is logged, not thrown.
 - **Procedure:** rides in the S10b session on day 4 (session C4), after S10b's runs; it is a
   10 minute check and needs no file or sync setup, so it no longer waits for S8b, which
@@ -861,7 +863,7 @@ Sessions (one KSP process each, on the spike instance unless named):
 | Session | Spikes | Game | Notes |
 |---------|--------|------|-------|
 | A | S10a (fixtures), S1b tooling PR, KSCSwitcher source read | none | agent work |
-| B | S1b scan | spike-r0, kRPC | needs kRPC ports 50000 / 50001 |
+| B | S1b scan | spike-r0, kRPC | needs one kRPC port pair (default 50000 / 50001) |
 | C1 | S4a, then S4b, S2, S5 | spike-r0 | one process, Space Center and flight |
 | C2 | S6, S7, S9 | second copy (spike-r0-nodlc is fine; S6 lane can use any) | no kRPC needed; seam only |
 | C3 | S3 | spike-r0 then spike-r0-nodlc | needs both instances |
@@ -871,17 +873,19 @@ Sessions (one KSP process each, on the spike instance unless named):
 Which run at the same time on two or three game copies:
 
 - B (kRPC) on one copy while C2 (seam, no kRPC) runs on another. Two kRPC sessions cannot
-  share the fixed ports, so at most one kRPC session at a time.
+  share one port pair, so at most one kRPC session at a time unless the second copy's
+  `settings.cfg` is stamped with its own pair, the way `run.py` stamps a slot.
 - C1 and C2 on two copies once S4a is done.
 - Never in parallel: S5's frame cost, S8b and S11. Their numbers need an otherwise idle PC.
-- The harness machine lock covers `run.py` and `provision.py` only; spike sessions launched
-  by hand do not take it, so the owner does not run a harness tier while a spike session
-  runs (the zombie preflight would refuse it anyway while a KSP process is alive).
+- The harness machine lock covers `run.py`, `provision.py` and `harness/tools/parallel_runner.py`,
+  and slot children hold slot locks (`automation/.ksp-slot-<slot>.lock`); spike sessions launched by
+  hand take neither, so the owner does not run a harness tier while a spike session runs (the zombie
+  preflight would refuse it anyway while a KSP process is alive).
 
 Agent work in parallel (different files on the spike branch, so no conflicts):
-`Spikes/S2`, `S3`, `S4`, `S5`, `S6`, `S7`, `S8`, `S9`, `S10`, `S11`, `S12` are separate
-folders. Hot files: `Source/Parsek/Spikes/SpikeArming.cs` (S0 only; every spike registers
-its patches through one list there, so S0 lands first and each spike adds one line);
+`InGameTests/Spikes/S2`, `S3`, `S4`, `S5`, `S6`, `S7`, `S8`, `S9`, `S10`, `S11`, `S12` are separate
+folders. Hot files: `Source/Parsek/InGameTests/Spikes/SpikeArming.cs` (S0 only; every spike
+registers its patches through one list there, so S0 lands first and each spike adds one line);
 `harness/tools/kerbin_equator_scan.py` (S1b alone, on `main`).
 
 Order that unblocks the most downstream planning:
@@ -975,8 +979,9 @@ KSP 1.12.5, DLCs <yes/no>, mods <list from the instance manifest>
 ## 7. Gates and registrations
 
 - Architecture map, layers, forbidden edges, lifetimes, headless pins: not touched on
-  `main`. On the spike branch the arch suite would red on the new `Spikes/` files (no
-  `modules.toml` rule) and the lifetime gate on `SpikeArming`'s statics; the branch never
+  `main`. On the spike branch the `InGameTests/Spikes/` files are placed in the InGameTests
+  module by their first folder (no `modules.toml` edit), but the lifetime gate would red on
+  `SpikeArming`'s statics; the branch never
   opens a pull request, so CI never runs on it. Nothing from it is merged.
 - Grep-audit gates: the background-thread gate (`scripts/grep-audit-background-threads.ps1`)
   would red on S8b's thread; it is a spike-branch-only fact, recorded in the S8 report as

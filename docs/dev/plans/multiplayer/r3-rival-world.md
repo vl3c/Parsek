@@ -73,18 +73,18 @@ Prerefactors (15.11), all landed and green with no behavior change:
   "whose ghost is this" query). Needed by R3W-17 to R3W-20.
 - **P3b**: P3b-04 (lane-qualified watch query). Needed only by R3W-26. P3b is deferred out of
   R0b until watching a rival flight is scheduled, so R3W-26 is deferred with it.
-- **P12**: P12-01, P12-02 (the list form of `[forbidden]`). Needed by R1-01, which this
-  slice builds on.
+- **P12**: P12-01 (the list form of `[forbidden]`). Needed by R3W-02, which registers the
+  `RaceWorld` module and writes its edges in that form. (P12-02 is dropped: the folder is the
+  module since pull request #2611.)
 
 Other slices:
 
-- **R1**: R1-01 (the three race modules with their layers, forbidden edges and headless
-  entry); R1-04 (the race gate); R1-06 (the race grep gates, its shared scanner and the
+- **R1**: R1-03 (the `RaceCore` registration; R1-01 is dropped, and this slice registers `RaceWorld`
+  itself in R3W-02); R1-04 (the race gate); R1-06 (the race grep gates, its shared scanner and the
   "`Recording` types only in the loader" arch cell with its allowlist file
   `scripts/race-loader-files-allowlist.txt`); R1-08 (`RaceSession` with the one static,
-  `RaceRuntime`, the `RaceLocal` codec for `Race/local.cfg` including the `SHOW` key);
-  R1-10 (a way to create a race save on the dev install: the P10 core and
-  `RaceSetup action=create`).
+  `RaceRuntime`, the `RaceLocal` codec for `Race/local.cfg` including the `SHOW` key); R1-10 (a way
+  to create a race save on the dev install: the P10 core and `RaceSetup action=create`).
 - **R3E**: R3E-01 (`StandingCodec` read side: `RECORDINGS`, `TREES`); R3E-02 (the tree
   payload exported in the production `RecordingTree` node shape, one key list agreed with
   R3W-03); R3E-04 (the rival cache layout, the standing format, the value type
@@ -293,9 +293,11 @@ Tracking Station, `ParsekTrackingStation.cs`: no engine. `Start` (:250) runs the
 
 ### 3.6 Gates the slice touches
 
-- Module placement: `^Parsek(Flight|KSC|TrackingStation|Scenario|Harmony|Playback)` is
-  Controllers (`scripts/arch/modules.toml:36`); a new `^Ghost` root file is Ghost (:56);
-  the Core kernel list is explicit (:130). Layers at :162-170; `[forbidden]` at :213-217;
+- Module placement: the folder is the module (pull request #2611); `scripts/arch/modules.toml`
+  has one `[[module]] name / folder` rule per module and no name rules, and a `.cs` file in
+  the root of `Source/Parsek` reds the arch suite. `Core` is the folder `Core/` (8 files, pinned
+  by `test_archview.py` `test_phase_two_catch_all_count` and `test_kernel_files_resolve_to_core`).
+  Layers at :162-170; `[forbidden]` at :213-217;
   `[headless.modules]` at :182.
 - Grep gates: `Source/Parsek.Tests/GrepAuditTests.cs:47-212`, each a
   `scripts/grep-audit-*.ps1` with allowlist and managed fallback.
@@ -368,12 +370,20 @@ cells and stay their own pull requests; the one member that waits for a later ta
 - **Proof:** xUnit `RivalFlightTests`: each fixed answer, empty lists before attach, attach
   twice refused (logged), `StartUT` / `EndUT` an outer envelope of the payload, and a
   reflection check that `RivalFlight` does not derive from `Recording`.
-- **Registers:** none (the RaceWorld folder rule comes with R1-01).
+- **Registers:** the `RaceWorld` module, in this commit because `RaceWorld/RivalFlight.cs` is its
+  first file (R1-01 is dropped; each race module registers with its first file): in
+  `scripts/arch/modules.toml` the `[[module]] name = "RaceWorld" folder = "RaceWorld"` rule
+  before the Core rule, `RaceWorld` in `[layers.modules]` features and in
+  `[size].runtimeCoupled`, and the `[forbidden]` edges whose two ends exist now, in P12-01's
+  list form (21: RaceWorld added to the 13 lower modules' lists, RaceWorld -> GameActions, Crew,
+  Rewind, Missions, Logistics, SwitchIntent, Reaim, Timeline; 22 with RaceCore -> RaceWorld if
+  R1-03 landed first); its `scripts/arch/atlas.toml` summary and its row in the module table of
+  `docs/dev/arch/README.md`.
 - **Live:** in-game cell `RaceRivalLane.RivalFlightFromOwnRecording` (ratchet, section 4
   intro): builds a `RivalFlight` through the constructor and `AttachPayload` from the
   current save's first committed recording (fields and lists copied in the cell), asserts
   the fixed answers and that a second attach is refused.
-- **Size:** S. **Depends on:** P2c-01, R1-01. **PC:** yes (one run of the cell). Its own
+- **Size:** S. **Depends on:** P2c-01, P12-01. **PC:** yes (one run of the cell). Its own
   pull request; the category `RaceRivalLane` first appears here (lane catalog regen).
 - **Risk:** low; a value type with no callers yet beyond its tests and R3W-03.
 
@@ -503,7 +513,8 @@ cells and stay their own pull requests; the one member that waits for a later ta
 - **Live:** in-game cell `RaceRivalLane.RivalPolicyOnTestEngine`: builds the policy over an
   engine on an in-game test positioner, asserts `ResolveChainNextIndex` null and `IsGhostHeld`
   false, then `Dispose` (the handlers are bound when it subscribes).
-- **Size:** S. **Depends on:** P2c-03 (engine diagnostics sink), R1-01. **PC:** yes (one
+- **Size:** S. **Depends on:** P2c-03 (engine diagnostics sink), R3W-02 (the `RaceWorld`
+  module rule). **PC:** yes (one
   run of the cell). Its own pull request; its Verbose lines are the first under `RivalLane`,
   so it adds that plain tag to `RaceLogTags` and refreshes `log_tags.json`.
 - **Risk:** low; it subscribes to existing events and does less than the own policy.
@@ -555,8 +566,8 @@ cells and stay their own pull requests; the one member that waits for a later ta
 
 ### R3W-09 Flight composition (milestone M1)
 
-- **Change:** new `Source/Parsek/ParsekFlightRivalLane.cs` (module Controllers through
-  `modules.toml:36`), `internal sealed class ParsekFlightRivalLane`, constructed with the
+- **Change:** new `Source/Parsek/Controllers/ParsekFlightRivalLane.cs` (module Controllers, by
+  its folder), `internal sealed class ParsekFlightRivalLane`, constructed with the
   `ParsekFlight` host and the `RaceRuntime`. It owns: a P2b lane-state object, `new
   ParsekFlightGhostPositioner(host, laneState)`, `new GhostPlaybackEngine(positioner, ...)`
   in the constructor form that the earlier constructor changes leave (P2c-02, P2c-04,
@@ -697,8 +708,8 @@ cells and stay their own pull requests; the one member that waits for a later ta
 
 ### R3W-14 A5: one ghost budget for both engines
 
-- **Change:** new floor type `Source/Parsek/PlaybackGhostBudget.cs` with an explicit Core
-  placement (beside `IPlaybackTrajectory` in `modules.toml:130`). Three priority classes
+- **Change:** new floor type `Source/Parsek/Core/PlaybackGhostBudget.cs` (module Core, beside
+  `IPlaybackTrajectory.cs`). Three priority classes
   (own, rival flight, leftover), a per-frame `Begin(frame)`, `TryTake(class)` and a cap.
   The own engine takes from it without a limit, so single player is unchanged; the rival
   engine gets `max(0, cap - ownInRange)`, flights before leftovers. The engine is handed
@@ -711,8 +722,11 @@ cells and stay their own pull requests; the one member that waits for a later ta
   and is a different object with a different job (OV-46).
 - **Proof:** xUnit `PlaybackGhostBudgetTests`: own never refused; leftovers refused before
   flights; reset per frame. Existing engine suites unchanged (default instance).
-- **Registers:** `modules.toml` Core rule; headless pins re-pinned if the type moves a
-  count; `lifetimes.toml` none (instance).
+- **Registers:** the Core count and kernel list in `test_archview.py`
+  (`test_phase_two_catch_all_count`, `test_kernel_files_resolve_to_core`, adding
+  `Core/PlaybackGhostBudget.cs`) and README's Core count (`docs/dev/arch/README.md:1492`);
+  `modules.toml` is not edited; headless pins re-pinned if the type moves a count;
+  `lifetimes.toml` none (instance).
 - **Size:** S. **Depends on:** P2c-04 (the spawn-slot check it extends), R5-03 (the
   constructor form before it), R3W-09, spike S11 (ghost cost per frame at race scale; its
   measurement sets the cap). **PC:** no.
@@ -736,8 +750,8 @@ cells and stay their own pull requests; the one member that waits for a later ta
   display name `Ana`, the placeholder color while no look color is supplied, the same
   instance for two flights of one player.
 - **Registers:** `design-gui-inventory.md` note that rival objects carry the prefix and are
-  tinted (the tint when R5 fills the color). No `modules.toml` change (R5-03 adds the Core
-  rule; the source file is under `RaceWorld/`).
+  tinted (the tint when R5 fills the color). No placement change (R5-03 creates
+  `Core/PlaybackTrajectoryStyle.cs`; this task's file is under `RaceWorld/`).
 - **Size:** S. **Depends on:** R3W-09, R5-03 (lands first). **PC:** no.
 - **Risk:** low; the own lane has no source.
 
@@ -830,7 +844,7 @@ cells and stay their own pull requests; the one member that waits for a later ta
 
 ### R3W-20 Tracking Station composition
 
-- **Change:** new `Source/Parsek/ParsekTrackingStationRivalLane.cs` (Controllers). In
+- **Change:** new `Source/Parsek/Controllers/ParsekTrackingStationRivalLane.cs` (Controllers). In
   `ParsekTrackingStation.Start` (`ParsekTrackingStation.cs:250`) after the own creation (:262):
   `rivalLane = RaceRuntime.Current == null ? null : new ...(race)`, which calls
   `SceneReady(TRACKSTATION)` and builds a `RivalMapPresence`. In `Update` (:286) at the existing
@@ -1093,7 +1107,9 @@ Hot files that force an order:
   specification, in R3W-18's pull request), then R3W-19.
 - `ParsekTrackingStation.cs`: R3W-20 only.
 - `GhostPlaybackEvents.cs`: R3W-01 only, after P2c-03.
-- `scripts/arch/modules.toml`: R3W-14 (one Core rule); R5-03 adds the style rule.
+- `scripts/arch/modules.toml`: R3W-02 (the `RaceWorld` registration) only. `test_archview.py`
+  (the Core count and kernel list): R5-03 (`Core/PlaybackTrajectoryStyle.cs`), then R3W-14
+  (`Core/PlaybackGhostBudget.cs`), after P7-01, P1-01 and P1-02.
 - `GrepAuditTests.cs`: R3W-27 (one change).
 - `scripts/race-loader-files-allowlist.txt`: R3W-03, R3W-04 add their entries; R3W-27 owns
   them.
@@ -1126,14 +1142,17 @@ with and without rivals), which this slice's acceptance names (OV-05).
 
 ## 7. Gates and registrations
 
-- **Architecture map:** files under `RaceWorld/` take R1-01's folder rule;
-  `ParsekFlightRivalLane.cs` and `ParsekTrackingStationRivalLane.cs` match the Controllers
-  prefix (`modules.toml:36`); `PlaybackGhostBudget.cs` gets an explicit Core placement
-  (update the kernel comment at :74-79 and its count); `PlaybackTrajectoryStyle.cs` is
-  R5-03's. `RecordingPlaybackCatalog.None` stays in P2a-05's `Recording` file; the rival
-  lane names it only from Controllers, so no RaceWorld file names it. The landed primitive
-  and the rival provider slot live in P3's Ghost file `GhostMapVessels.cs`.
-- **Forbidden edges:** R1 adds 15.4's lists. This slice must not add a `RaceWorld ->`
+- **Architecture map:** a new file's module is the folder it is created in
+  (`Source/Parsek/<Module>/<Name>.cs`); no `modules.toml` edit places it, and a file in the root of
+  `Source/Parsek` reds the arch suite. `RaceWorld/` files take the rule R3W-02 adds with the
+  module's first file (`RivalFlight.cs`); `Controllers/ParsekFlightRivalLane.cs` and
+  `Controllers/ParsekTrackingStationRivalLane.cs` need nothing; `Core/PlaybackGhostBudget.cs` moves
+  the Core count and kernel list in `test_archview.py` and the README count;
+  `Core/PlaybackTrajectoryStyle.cs` is R5-03's. `RecordingPlaybackCatalog.None` stays in P2a-05's
+  `Recording` file; the rival lane names it only from Controllers, so no RaceWorld file names it.
+  The landed primitive and the rival provider slot live in P3's Ghost file `GhostMapVessels.cs`.
+- **Forbidden edges:** the three race module registrations (R1-03, R3W-02, R3E-02) add 15.4's
+  lists. This slice must not add a `RaceWorld ->`
   edge to GameActions, Crew, Rewind, Missions, Logistics, SwitchIntent, Reaim, Timeline or
   RaceExport; the `Ghost` and `Controllers` edges it adds are allowed (Controllers ->
   RaceWorld is downward; RaceWorld -> Ghost is same layer). Layer pins re-pinned where a

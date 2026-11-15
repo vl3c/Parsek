@@ -14,13 +14,13 @@ signatures only); code checks against this worktree.
 
 | Class | Items |
 |-------|-------|
-| WRONG | 17 |
+| WRONG | 19 |
 | SILENT | 38 |
 | CONTRADICTION | 16 |
-| DETAIL | 52 |
+| DETAIL | 54 |
 | OWNER | 9 |
 | REJECTED | 2 |
-| Total | 134 |
+| Total | 138 |
 
 The plans raised about 170 points; merging duplicates gives the items below. Every WRONG and
 REJECTED item carries its check.
@@ -590,8 +590,8 @@ Found: r3-export-and-exchange.md:873-876. Edit: the own half is in `RaceExport`,
 in `RaceWorld`.
 
 **DC-095 DETAIL.** Design 15.2 (line 1952) calls `RaceWorld` runtime-coupled; 15.14 (lines
-2410-2414) does not list `[size].runtimeCoupled`. Found: r1-mode-and-setup.md:836-837. R1-01
-adds it.
+2410-2414) does not list `[size].runtimeCoupled`. Found: r1-mode-and-setup.md:836-837. R3W-02
+adds it with the `RaceWorld` module registration (R1-01 is dropped, DC-137).
 
 **DC-096 CONTRADICTION.** Design 15.11 P7 (line 2333): a save-root accessor on `RecordingPaths`
 for the local race directory; 15.4 (lines 1999-2000): `RaceWorld` names `Recording` types only
@@ -804,9 +804,10 @@ references in the positioner, 52 sites in `ParsekFlight.cs` and `ParsekFlightPla
 
 **DC-130 DETAIL.** Analysis counts. Found: r0b-prep-small.md:803-805 and
 r0b-prep-map-watch-codec.md:674-676. 99 test references to the KSC constants (not 64); 28
-production calls of the id check plus about 25 in tests (not 32); `scripts/arch/modules.toml:127`
-says Core has nine files, it has eight; `IsGhostMapVessel` has 164 uses in 77 files (not 120 in
-61). No task changes.
+production calls of the id check plus about 25 in tests (not 32); the analysis says Core has
+nine files, it has eight (on main ab1cc9478 `modules.toml` names no count since the folder move
+of pull request #2611; `test_phase_two_catch_all_count` pins 8); `IsGhostMapVessel` has 164
+uses in 77 files (not 120 in 61). No task changes.
 
 **DC-131 DETAIL.** Analysis (the trajectory readers are "already list-based"). Found:
 r0b-prep-map-watch-codec.md:698-704. `Read` also changes `Recording` caches and logs; and
@@ -827,6 +828,47 @@ when it removes the reads.
 
 **DC-134 DETAIL.** CLAUDE.md names `/workspace/ksp-refs`. Found: r0-spikes.md:964-965. This
 session's references are at `/home/user/ksp-refs`.
+
+### Module placement since the folder move (pull request #2611)
+
+Added 2026-11-15, after main ab1cc9478 made the folder the module. The design still describes
+the earlier map, where root files were placed by file-name rules.
+
+**DC-135 WRONG.** Design 15.2 (line 1958): the `Controllers` row's folder is "root files", and
+`ParsekRaceMenu.cs` "needs its own placement rule in `modules.toml`, a root file with no rule
+reds the map suite"; 15.12 (lines 2378, 2391) names `ParsekRaceScenario.cs` and
+`ParsekRaceMenu.cs` with no folder. Check (code): every `.cs` file sits in its module's folder
+(`scripts/arch/modules.toml:7-17`, `[[module]] name = "Controllers"`, `folder = "Controllers"`),
+and a file in the root reds `test_no_source_file_sits_in_the_root_of_source_parsek`. Found:
+r1-mode-and-setup.md:339, 729. Edit: the row's folder is `Source/Parsek/Controllers/`; the
+files are `Controllers/ParsekRaceScenario.cs` and `Controllers/ParsekRaceMenu.cs`, placed by
+the existing folder rule with no new rule.
+
+**DC-136 WRONG.** Design 15.11 P12 (line 2342): "the Controllers placement rule covers
+`ParsekRace*` files"; 15.14 (lines 2414-2416): "a placement rule for every new root file ...
+the Controllers rule is a file-name pattern that does not match them today, P12". Check (code):
+`scripts/arch/modules.toml:22-24`, the prefix rule form "is still read by archview.py for test
+fixtures and historical reconstructions; this file uses none". Found: r0b-prep-small.md:329-331.
+Edit: P12 keeps only the list form on the right side of `[forbidden]` (task P12-01; the
+sentence at 15.4 line 2013 stays right); its placement half is dropped (task P12-02 dropped).
+
+**DC-137 WRONG.** Design 15.14 (lines 2414-2419): the three modules' rules, layers, the 71
+edges of 15.4 and the `RaceCore` headless entry read as one registration, re-pinned "in the
+change that adds them". Check (code): a rule whose folder is not on disk reds
+`test_modules_toml_places_every_module_by_its_folder`, a module with no file reds
+`test_the_walk_sees_every_source_file`, and a `[forbidden]` edge naming an undeclared module
+reds (`layers.forbidden_problems`). Found: r1-mode-and-setup.md:276-278. Edit: each module
+registers in the commit that creates its first file (rule, layer, atlas line, headless or
+`runtimeCoupled` line, the 15.4 edges whose two ends exist, the headless re-pin): `RaceCore` in
+R1-03 (29 edges), `RaceWorld` in R3W-02 (21), `RaceExport` in R3E-02 (20), and the edge
+`RaceCore -> RaceWorld` with whichever of R1-03 and R3W-02 lands second; task R1-01 is dropped.
+
+**DC-138 DETAIL.** Design 15.12 and 15.11 name new files in existing modules without a folder
+(for example `HomeSpaceCenter` "in `Core`", P1, line 2328). Found: the plans' Change lines.
+Edit: every new file in an existing module is named `Source/Parsek/<Module>/<Name>.cs`; a new
+module needs its rule, layer and atlas line in the same commit as its first file (README rule
+9). A new `Core` file also moves `test_phase_two_catch_all_count` and the kernel list of
+`test_kernel_files_resolve_to_core`.
 
 ## Part 2. Questions for the owner
 

@@ -93,7 +93,15 @@ instance (the harness may not touch one, section 9 item 11).
 - `Source/Parsek/Controllers/ParsekScenario.cs:484` is `OnSave`. Its token stream is pinned by
   `ParsekScenarioOnSaveCharacterizationTests` against
   `Source/Parsek.Tests/Fixtures/SourceCharacterization/ParsekScenario.OnSave.tokens.txt`; the
-  OnLoad twin is `ParsekScenarioOnLoadCharacterizationTests`.
+  OnLoad twin is `ParsekScenarioOnLoadCharacterizationTests`. Since pull request #2598
+  `ParsekScenario.OnLoad` is a skeleton over `OnLoadFlowPrologue`, one flow per branch
+  (`PlainRewind`, `InSession`, `Cold`) and the tail parts, threading an `OnLoadContext`;
+  `ParsekScenarioOnLoadStepOrderTests` runs the real OnLoad headless per load kind and pins
+  the executed step table `Fixtures/SourceCharacterization/ParsekScenario.OnLoad.steps.txt`
+  (every call into Parsek code from an `OnLoad*` method is a step). The R1 hooks (R1-03,
+  R1-04, R1-08) live in `ParsekRaceScenario` / `ParsekRaceBoot`, not in
+  `ParsekScenario.OnLoad`, so no current task moves the step table; a task that adds a call
+  inside an `OnLoad*` method does.
 - `Source/Parsek.Tests/SaveFormatGoldenGateTests.cs:43-73` `FindCoverageProblems`: every
   registered format version from baseline to current must be carried by a golden folder's
   `formats.txt`; `SaveFormatGoldenGateTests.cs:133` every golden folder needs a manifest and a
@@ -159,7 +167,10 @@ instance (the harness may not touch one, section 9 item 11).
   `NewGame` (`harness/scenarios/CS-0-new-career-game.toml:32`).
 - No spec id starts with `RACE`, `MP` or `ISO` on `main` or on the 15 remote branches read
   with `git ls-tree -r --name-only <branch> -- harness/scenarios`.
-- `docs/dev/autotest-roadmap.md:6685`: runs are strictly serial; no parallel lane today.
+- Runs: one harness owner holds the machine lock (`run.py`, `provision.py` or
+  `harness/tools/parallel_runner.py`); the parallel runner flies two or three slot copies
+  at once (pull request #2592; `harness/README.md`, "Parallel runs").
+  (`docs/dev/autotest-roadmap.md:6685` still says runs are serial; that line is stale.)
 
 ### Grep-audit gates
 
@@ -174,8 +185,8 @@ instance (the harness may not touch one, section 9 item 11).
 
 - `scripts/arch/modules.toml:162` `[layers]`, `:182` `[headless.modules]`, `:213-214`
   `[forbidden]` edges.
-- `scripts/arch/test_archview.py:4127` the knot canary `[435, 9, 4, 3, 2]`, re-derived by
-  hand.
+- `scripts/arch/test_archview.py:4127` the knot canary `[437, 9, 4, 3, 2]` on main
+  ab1cc9478, re-derived by hand.
 - `scripts/arch/test_semantic.py:623` the semantic residue ratchet (a hand-set bound).
 - `Source/Parsek/Controllers/LoadReconcilePolicy.cs:242` `KnownLoadInitiators`.
 - `Source/Parsek.Tests/SaveScopedSessionResetTests.cs:25` `InventoryTypes`.
@@ -196,6 +207,12 @@ instance (the harness may not touch one, section 9 item 11).
 | nightly | 289 | 12.5 h |
 | operator | 258 | 14.4 h |
 | longhaul | 5 | 3.4 h |
+
+The table counts lanes with a PASS in the index, under the tier they had then. The specs on
+main ab1cc9478 (`docs/dev/flight-profiles.md`): 595 lanes, daily 29 (S0.14 joined on
+2026-11-14), nightly 284, operator 271, longhaul 5, pending-fixture 6; a full run flies 589
+(`tier_runner.py` leaves out pending-fixture). The daily 0.42 h is the sum over the 28 daily
+lanes with a PASS.
 
 Reference p50s: SWS-1 73 s; CS-0 new career 48 s; PPB lanes 45 to 51 s (the boot floor of a
 seam-only lane); R7c 52 s; RW-1 146 s; B2-lko-ascent 272 s; B1-pad-hop 389 s.
@@ -821,12 +838,13 @@ before any block is armed. Nothing headless does.
 
 ## 7. Gates and registrations
 
-In the order the first feature commit meets them (the R1 module commit, R1-01, meets 1 to 11; this
-plan's own tasks meet 12 to 16):
+In the order the first feature commit meets them (the first race module commit, R1-03, which
+registers `RaceCore` with its first file, meets 1 to 11, as do R3W-02 and R3E-02 for
+`RaceWorld` and `RaceExport`; this plan's own tasks meet 12 to 16):
 
 | # | Gate | Where it reds | File to edit | Re-pin |
 |---|---|---|---|---|
-| 1 | Placement of every production file | `scripts/arch` DLL-free suite | `scripts/arch/modules.toml` rules (P12 for the Controllers name pattern) | by hand |
+| 1 | Placement of every production file | `scripts/arch` DLL-free suite: a `.cs` file in the root of `Source/Parsek`, a module rule with no folder, or a module with no files reds it | the file's folder (the folder is the module); a new module's `[[module]] name / folder` rule in `scripts/arch/modules.toml`, in the commit of its first file | by hand |
 | 2 | Every module has a layer | DLL-free suite | `modules.toml:162` `[layers]` | by hand |
 | 3 | Forbidden edges of 15.4 | DLL-free text scan and `test_semantic_layers.py` | `modules.toml:213` | by hand |
 | 4 | Headless modules (`RaceCore`) | `test_ilheadless.py` | `modules.toml:182`, `scripts/arch/headless_pins.toml` | `python3 scripts/arch/headless.py Source/Parsek/bin/Debug/Parsek.dll --write-pins` |
@@ -836,7 +854,7 @@ plan's own tasks meet 12 to 16):
 | 8 | Statics written by another type; uncalled methods; complexity | `test_ilanalysis.py` | `scripts/arch/facts_pins.toml` | `python3 scripts/arch/ilanalysis.py Source/Parsek/bin/Debug/Parsek.dll --write-pins` |
 | 9 | Static lifetimes | `test_static_lifetimes.py`, `SaveScopedSessionResetTests` | `scripts/arch/lifetimes.toml`, `lifetime_pins.toml`, `SaveScopedSessionResetTests.cs:25`, `scripts/session-reset-allowlist.txt` | `python3 scripts/arch/lifetimes.py Source/Parsek/bin/Debug/Parsek.dll --write-pins` |
 | 10 | Log tag map (report-only; lane health) | `test_iltags.py` | `scripts/arch/log_tags.json` | `python3 scripts/arch/logtags.py Source/Parsek/bin/Debug/Parsek.dll --write` |
-| 11 | OnSave / OnLoad characterization | `ParsekScenarioOnSaveCharacterizationTests`, `...OnLoad...` | `Fixtures/SourceCharacterization/ParsekScenario.*.tokens.txt` | regenerate per the test's message, reviewed |
+| 11 | OnSave / OnLoad characterization and OnLoad step order | `ParsekScenarioOnSaveCharacterizationTests`, `ParsekScenarioOnLoadCharacterizationTests`, `ParsekScenarioOnLoadStepOrderTests` | `Fixtures/SourceCharacterization/ParsekScenario.*.tokens.txt`, `ParsekScenario.OnLoad.steps.txt` | regenerate per the test's message, reviewed |
 | 12 | Load policy | `LoadReconcilePolicyTests`, `LoadReconcileWiringGateTests` | `LoadReconcilePolicy.cs:242` and the decision table | by hand |
 | 13 | Background threads (copy worker, 15.9) | `GrepAuditTests` | `scripts/background-threads-audit-allowlist.txt` | by hand |
 | 14 | Save formats (`race-link`, `race-exchange`) | `SaveFormatTests`, `SaveFormatGoldenGateTests` | `SaveFormat.cs` (R1-12 registers both rows at 1); frozen `Fixtures/FormatGolden/v2/` (R1-12: the race save, `race.cfg`, `player.cfg`, `local.cfg`; `formats.txt` names both rows at 1) and `v3/` (R3E-04: a standing, its payload and an own mirror, no new row or bump) | each written once by its generator through the T-01 driver, env-gated (OV-15) |

@@ -49,18 +49,18 @@ which writes `local.cfg` through the `RaceLocal` codec (read side R1-08, write s
 
 ## 2. Starts after
 
-- **Prerefactors:** P11-01, P11-02 (harness specs derive the window count; the two
-  `ParsekUI` constructors share one helper) before R4-09. P12 and R1-01 (the `RaceCore`
-  module with its layer, headless entry and forbidden edges) before any `RaceCore` file
-  here. P3b (lane-qualified watch target, P3b-04) is deferred out of R0b and built when
-  watching a rival flight is scheduled; the camera half of R4-11 waits with it (and with
-  R3W-26), and R4-11 ships the hover half only.
+- **Prerefactors:** P11-01, P11-02 (harness specs derive the window count; the two `ParsekUI`
+  constructors share one helper) before R4-09. P12-01 and R1-03 (which registers the `RaceCore`
+  module with its first file: its rule, layer, headless entry and forbidden edges; R1-01 is dropped)
+  before any `RaceCore` file here. P3b (lane-qualified watch target, P3b-04) is deferred out of R0b
+  and built when watching a rival flight is scheduled; the camera half of R4-11 waits with it (and
+  with R3W-26), and R4-11 ships the hover half only.
 - **Additions:** A1 (reach rows over the effective ledger, every row, earliest first, and
   the milestone table with covering resolution and `since`) is R3E-11; A3 (per-flight tool
   fact) is R3E-07, R3E-08, R3E-09, R3E-10. R4-03 and R6-01 read what they produce through
   the standing codec. A6 is R4-08 of this plan.
 - **Other plans' artifacts:**
-  - R1: `RaceCore` module (R1-01); `RaceLink` and the race scenario (R1-03);
+  - R1: `RaceCore` module, `RaceLink` and the race scenario (R1-03);
     `RaceGate.IsRaceSave` (R1-04); `RaceManifest`, `PlayerManifest`, `RaceLocal`,
     `RaceSession` and the `RaceRuntime` facade with its one static (R1-08, OV-26);
     `RaceInstallCheck`, its refusal list and the minimal `date-unit-not-day` check created
@@ -115,9 +115,9 @@ Milestones and stock ids:
 Dates:
 
 - `ParsekTimeFormat` reads the player's own `GameSettings.KERBIN_TIME` and gives 21600 or
-  86400 seconds a day (`Source/Parsek/UI/ParsekTimeFormat.cs:19-22`); it is placed in `UI`
-  (`scripts/arch/modules.toml:123-124`). Every window formats a date with
-  `KSPUtil.PrintDateCompact(ut, true)`, which follows the same per-player setting (for
+  86400 seconds a day (`Source/Parsek/UI/ParsekTimeFormat.cs:19-22`); it sits in `UI/`, the
+  `UI` module. Every window formats a date with `KSPUtil.PrintDateCompact(ut, true)`, which
+  follows the same per-player setting (for
   example `Source/Parsek/UI/StructureListWindowUI.cs:675-678`). Neither can serve a race,
   whose calendar is the manifest's (6.6), and `RaceCore` may not name `UI`.
 - `ParsekTimeFormat.FormatDuration` is a game-time formatter (`ParsekTimeFormat.cs:43-70`);
@@ -167,11 +167,13 @@ Messages:
 Gates the rules must satisfy:
 
 - Layers and headless modules: `scripts/arch/modules.toml:162-170` and `:182-187`;
-  forbidden edges `:213-217` (two today; P12 and R1 add the race ones).
-- The uncalled-method ratchet: `[uncalledInAssembly] bound = 491`
-  (`scripts/arch/facts_pins.toml:74-75`). Tooling modules (`InGameTests`, `TestCommands`)
-  are roots, so their calls make a method live (`docs/dev/arch/README.md:292-296`); a
-  method only the unit tests call counts as uncalled (`:513-516`).
+  forbidden edges `:213-217` (two today; the race module registrations R1-03, R3W-02 and
+  R3E-02 add the race ones in P12-01's list form).
+- The uncalled-method ratchet: `[uncalledInAssembly] bound = 374`
+  (`scripts/arch/facts_pins.toml:74-75`; quote the pin file, since `docs/dev/arch/README.md` still
+  prints the older 491). Tooling modules (`InGameTests`, `TestCommands`) are roots, so their calls
+  make a method live (`docs/dev/arch/README.md:292-296`); a method only the unit tests call counts
+  as uncalled (`:513-516`).
 - Static lifetimes count reassignable statics and static readonly collections mutated
   outside a static constructor (`docs/dev/arch/README.md:536-540`). This plan adds none:
   the ladder is built in a static initializer and exposed read-only; the previous board for
@@ -285,7 +287,7 @@ scores when it has none of `Unverified`, `ToolMarked`, `SeenFirst`, `BadDate`.
 - **Registers:** caller: R1-10's `RaceInstallCheck` already calls `TryAcceptDateRule` (the
   11 section's "a manifest whose dateUnit is not DAY is refused"); the new refusal needs no
   new call. No new static.
-- **Size:** S. **Depends on:** R1-01, R1-08, R1-10. **PC:** no. **Risk:** low; arithmetic
+- **Size:** S. **Depends on:** R1-08, R1-10. **PC:** no. **Risk:** low; arithmetic
   only.
 
 ### R4-02 The ladder table standard-1
@@ -324,7 +326,7 @@ scores when it has none of `Unverified`, `ToolMarked`, `SeenFirst`, `BadDate`.
   `IsKnown` does not already read it (`Points`, `MemberStockIds`, `Order` with R4-04;
   `DisplayName` with R4-07; `Body`, `Step` with R4-10); `LadderStandard1Tests` cells move
   with them.
-- **Size:** S. **Depends on:** R1-01, R1-08, R1-10. **PC:** no.
+- **Size:** S. **Depends on:** R1-08, R1-10. **PC:** no.
   **Risk:** low; a misspelt stock id would score nothing, caught by R4-13.
 
 ### R4-03 The ladder filter at board time
@@ -886,7 +888,8 @@ Other proof:
 
 ## 7. Gates and registrations
 
-- **Architecture map:** no new module, no root file (all files go under `RaceCore/`, `UI/`,
+- **Architecture map:** no new module and no file in the root of `Source/Parsek` (a new file's
+  module is the folder it is created in; all files go under `RaceCore/`, `UI/`,
   `UI/Gallery/`, `InGameTests/`, plus members on R1-08's `RaceWorld/RaceRuntime.cs`).
   `RaceCore` stays headless: no game type in any file of this plan except the shell halves
   that live in `RaceWorld` (the facade members of R4-09, R4-10, R4-11; R6-06 part and body

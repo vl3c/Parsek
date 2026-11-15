@@ -18,7 +18,7 @@ code. Every task below is one pull request with its own tests, docs and one clea
 |------|------------|--------------|
 | `README.md` | this file: the rules, the decisions, what starts first, the owner's questions | first |
 | `task-index.md` | every task once, with its dependencies, its wave, the shared files, the PC use | picking the next task |
-| `design-corrections.md` | 134 corrections to the design found while planning, and 26 questions for the owner | before the design is touched |
+| `design-corrections.md` | 138 corrections to the design found while planning, and 26 questions for the owner | before the design is touched |
 | `r0-spikes.md` | 17 spikes on the owner's PC that settle the open feasibility questions | before R1 and R2 |
 | `r0b-prep-small.md` | prerefactors P12, P11, P7, P1, P10 | day one |
 | `r0b-prep-playback.md` | prerefactors P2c, P2a, P2b (the second playback lane) | day one |
@@ -67,8 +67,8 @@ wrong.
    in the same pull request is a valid first caller, and is preferred over joining two tasks.
    Where two tasks must share a pull request the plans say so; never more than two.
 3. **Dropped tasks keep their ids.** R1-13, T-08, T-09, T-11, T-14, T-15, T-22, T-23, R3E-05,
-   R3W-31, R4-14, R6-09, R5-13 and P1-04 are dropped; each keeps a heading that says what
-   replaced it. No task is renumbered. P2a-01 is a specification, not a pull request.
+   R3W-31, R4-14, R6-09, R5-13, P1-04, P12-02 and R1-01 are dropped; each keeps a heading that
+   says what replaced it. No task is renumbered. P2a-01 is a specification, not a pull request.
 4. **Race code is inert outside a race save.** A single-player save gains no node, no file, no
    window and no cost from any task. The isolation gates (R1-06, R3W-27) and the "rivals change
    nothing" lanes prove it.
@@ -86,6 +86,13 @@ wrong.
 8. **New player-facing surfaces** are only the ones the owner asked for: the Multiplayer menu
    entry, the setup dialog, the Space Race window, the race section in Settings. R1-14 writes
    the exception into `.claude/CLAUDE.md`. Anything else needs a new ruling (question Q-21).
+9. **The folder is the module** (pull request #2611, on main ab1cc9478). A new source file is
+   created in its module's folder, `Source/Parsek/<Module>/<Name>.cs`; a new module needs its
+   rule, layer and atlas line in the same commit as its first file. A `.cs` file in the root
+   of `Source/Parsek`, a rule whose folder is not on disk and a module with no file each red
+   the architecture suite. The race modules register in R1-03 (`RaceCore`), R3W-02
+   (`RaceWorld`) and R3E-02 (`RaceExport`), each with the design 15.4 `[forbidden]` edges whose
+   two ends exist (design-corrections DC-135 to DC-138).
 
 ### Names fixed across the plans
 
@@ -148,12 +155,12 @@ ones that change the design are in `design-corrections.md`.
 
 ## 5. What starts first
 
-`task-index.md` puts the 205 pull requests of the plan (210 live tasks) into 21 waves: a task
+`task-index.md` puts the 203 pull requests of the plan (208 live tasks) into 21 waves: a task
 is in wave 0 when it needs nothing but the owner's go, and in wave N when everything it needs
 is in a lower wave. A wave is not a week; it only says what can run side by side.
 
-**Day one (wave 0, 25 tasks).** S0 (the spike setup on the owner's PC), P12-01, P12-02,
-P11-01, P11-02, P7-01, P1-01, P10-01, P2c-01, P2c-02, P2a-05, P2b-01, P3-01, P6-01, R1-07,
+**Day one (wave 0, 25 tasks).** S0 (the spike setup on the owner's PC), P12-01, P11-01,
+P11-02, P7-01, P1-01, P10-01, P2c-01, P2c-02, P2a-05, P2b-01, P3-01, P6-01, R1-02, R1-07,
 R3E-07, R3E-12, R4-08, R5-01, T-01 to T-05 and T-07. None of them is visible to a player.
 All are written and unit-tested in the cloud; eight also need a lane or an in-game batch on
 the PC before they merge (P10-01, P11-02, P2c-02, P2a-05, P3-01, R5-01, T-07, and R4-08 as an
@@ -162,9 +169,9 @@ option). They run as tracks, one agent per track, tasks of a track in order
 
 | Track | Tasks | Why first |
 |-------|-------|-----------|
-| ARCH | P12-01, P12-02, R1-01, P7-01, P1-01, P7-02, P1-02 | heads every critical path: the module rules R1 builds on |
+| ARCH | P12-01, P7-01, P1-01, P7-02, P1-02 | heads every critical path: the `[forbidden]` list form R1-03 writes its edges in, and the floor files R1 builds on |
 | SETUP | P10-01, R1-02, R1-16, R1-07 | create-and-start-a-save, which R1-10 calls |
-| ENGINE | P2c-02, P2c-03, P2c-04, P2c-01 | the engine seams the second lane needs |
+| ENGINE | P2c-02, P2c-03, P2c-04, P2c-01, R3W-02 | the engine seams the second lane needs; R3W-02 registers `RaceWorld` |
 | CATALOG | P2a-05, P2a-03, P2a-06, P2a-07, P2b-01 | the playback catalog port |
 | MAP / CODEC | P3-01, P6-01, P6-02 | map primitive and trajectory decode |
 | GUI | P11-01, P11-02, R4-08 | harness window pins derive; shared window chrome |
@@ -175,7 +182,7 @@ option). They run as tracks, one agent per track, tasks of a track in order
 | SPIKES | S0, then the day plan of `r0-spikes.md` | the owner's PC, about four days |
 
 Tracks that edit the same file do not run side by side; C.2 lists the files
-(`modules.toml`, `test_archview.py`, `hlib.py`, `GhostPlaybackEngine.cs`, `.claude/CLAUDE.md`).
+(`test_archview.py`, `hlib.py`, `GhostPlaybackEngine.cs`, `.claude/CLAUDE.md`).
 
 **What bounds the milestones** (`task-index.md` B.2):
 

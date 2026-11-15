@@ -52,12 +52,13 @@ Not built here:
   R3W-19 (OV-44, OV-48, ruling A1). R5-05 only if R3 question 2
   is answered (b). R5-06 after P3b-03 and only if watching a rival (R3W-26) is built; P3b is
   deferred out of R0b, so R5-06 waits with P3b and R3W-26.
-- **After R1:** R1-01 (the RaceCore / RaceWorld module rules, layers, headless list) for
-  R5-07 and every later task; R1-06 (the `race-no-writer` gate whose allowlist reserves the
-  `RaceLooks` entry) before R5-11 fills it; for R5-11: R1-03 (`ParsekRaceScenario` and its
-  child Save / Load hooks, OV-28), R1-08 (`RaceSession`, the look field of `RaceLocal` /
-  `player.cfg`) and R1-09 (look assignment and the clash rule). R5-11 does not wait for
-  R1-10 or R1-11 (task index E.3.7).
+- **After R1:** R1-03 (the RaceCore module rule, layer and headless entry, registered with its first
+  file; R1-01 is dropped) for R5-07 and every later task, and R3W-02 (the RaceWorld module rule,
+  registered with `RivalFlight.cs`) for R5-12, R5-08 and R5-11; R1-06 (the `race-no-writer` gate
+  whose allowlist reserves the `RaceLooks` entry) before R5-11 fills it; for R5-11: R1-03
+  (`ParsekRaceScenario` and its child Save / Load hooks, OV-28), R1-08 (`RaceSession`, the look
+  field of `RaceLocal` / `player.cfg`) and R1-09 (look assignment and the clash rule). R5-11 does
+  not wait for R1-10 or R1-11 (task index E.3.7).
 - **After R3:** R3W-09 (flight composition), R3W-15 (rival style source; see 9.2), R3W-18
   (`RivalMapPresence`), R3W-20 (Tracking Station composition), R3W-21 (missing-part strip;
   see 9.3) for R5-09.
@@ -178,7 +179,7 @@ Not built here:
 
 ### 3.4 Where a ghost's color and label are set today
 
-- Map markers: `MapMarkerRenderer` (module Controllers, `scripts/arch/modules.toml:36`).
+- Map markers: `MapMarkerRenderer` (module Controllers: it sits in `Controllers/`).
   The stock icon is drawn in the fixed `StockVesselIconColor`
   (`MapMarkerRenderer.cs:106`, used at `:350`); the color argument only tints the fallback
   diamond (`:355`). The label color is `GetLabelColor()` (`:222`, used at `:362`) and the
@@ -206,10 +207,11 @@ Not built here:
   file and textures (`resolve_parsek_aux_payload`, `harness/provision/provlib.py:257`). The
   repository's `GameData/Parsek/` holds only `Parsek.version`. A new `Suits/` folder ships
   nowhere until all three learn it.
-- Module rules are first-match (`scripts/arch/modules.toml:7`); a root file starting with
-  `Ghost` lands in Ghost (`:55-56`); Core is an explicit list and must stay last
-  (`:125-130`). Layers: floor LogIO / Config / Core / Trajectory, model, features (Ghost,
-  Display, MapRender, ...), presentation, entry (Controllers, Patches)
+- The folder is the module (pull request #2611): `scripts/arch/modules.toml` has one `[[module]]
+  name / folder` rule per module and no name rules, a `.cs` file in the root of `Source/Parsek` reds
+  the arch suite, and the Core rule stays last (`:125-130`; Core is the `Core/` folder, 8 files
+  pinned by `test_archview.py`). Layers: floor LogIO / Config / Core / Trajectory, model, features
+  (Ghost, Display, MapRender, ...), presentation, entry (Controllers, Patches)
   (`modules.toml:162-169`). Core and Trajectory are headless (`modules.toml:182-188`).
 - `UnityEngine.Color` and `Color32` are inert types for the headless check
   (`scripts/arch/facts.toml:22`); `ProtoCrewMember/KerbalSuit` is not (only `RosterStatus`
@@ -227,8 +229,8 @@ change it.
 
 ### R5-01 Ghost build: a part-name substitute before the part lookup (A4, first half)
 
-- **Change:** new `Source/Parsek/GhostBuildOptions.cs` (module Ghost through the `^Ghost`
-  prefix rule): `internal interface IGhostPartDresser` with
+- **Change:** new `Source/Parsek/Ghost/GhostBuildOptions.cs` (module Ghost, by its folder):
+  `internal interface IGhostPartDresser` with
   `string SubstitutePartName(string recordedPartName)` (null or empty = keep; R5-02 adds
   `DressMaterials` with its call site); `internal sealed class GhostBuildOptions {
   IGhostPartDresser Dresser; }`. `TryBeginTimelineGhostBuild` and
@@ -288,8 +290,8 @@ change it.
 
 ### R5-03 Engine: per-trajectory build options and style (A4 wiring, A5 type)
 
-- **Change:** new `Source/Parsek/PlaybackTrajectoryStyle.cs` placed in Core by a new
-  explicit rule before the final Core rule (beside `IPlaybackTrajectory`): an immutable
+- **Change:** new `Source/Parsek/Core/PlaybackTrajectoryStyle.cs` (module Core, beside
+  `IPlaybackTrajectory.cs`): an immutable
   `internal sealed class PlaybackTrajectoryStyle { readonly Color Color; readonly string
   LabelPrefix; }` (readonly fields set by its constructor, no accessor methods) and
   `internal interface IPlaybackStyleSource { PlaybackTrajectoryStyle StyleFor(int index,
@@ -314,9 +316,11 @@ change it.
   calls `StyleFor` and `OptionsFor` where a source is set and `ResolveSphereColor` at the
   sphere build; the style's constructor is kept because other types name the type (its
   first production construction is R3W-15's source). No member waits for a later caller.
-- **Registers:** `modules.toml` (Core rule for `PlaybackTrajectoryStyle.cs`);
-  `headless_pins.toml` re-pin if the check counts the new file (no leak expected:
-  `Color` is inert); `docs/dev/arch/README.md` only if the Core list text is quoted there.
+- **Registers:** the Core count and kernel list in `test_archview.py`
+  (`test_phase_two_catch_all_count`, `test_kernel_files_resolve_to_core`, adding
+  `Core/PlaybackTrajectoryStyle.cs`) and README's Core count and list
+  (`docs/dev/arch/README.md:1492`); `modules.toml` is not edited; `headless_pins.toml` re-pin if
+  the check counts the new file (no leak expected: `Color` is inert).
 - **Size:** S. **Depends on:** R5-01, P2c-04 (the same constructor); order: after P2a-02.
   Constructor order P2c-02, P2c-04, P2a-02, R5-03, R3W-09, R3W-14 (A3); R5-03 lands before
   R3W-15 (OV-43) and before P2b-02 opens its window. **PC:** no. **S3:** none.
@@ -418,7 +422,8 @@ Lands only with R3W-26 (watching a live rival ghost).
   with their first reader, R5-09's style source or R4-10; `IsKerbalEvaPartName` with R5-08,
   or with R3W-21 if that lands later).
 - **Registers:** RaceCore headless pins (expect none); no lifetimes (constants).
-- **Size:** S. **Depends on:** R1-01. **PC:** no. **S3:** S3a (colors), S3b
+- **Size:** S. **Depends on:** R1-03 (the RaceCore module rule). **PC:** no. **S3:** S3a
+  (colors), S3b
   (which base suit a replacement uses).
 - **Risk:** low.
 
@@ -575,7 +580,7 @@ Shape depends on question 10.2 (art source) and 10.1 (combo entry or not).
 - **Uncalled-method check (A1):** `RaceSuitSets` is live through `ReplacementSetsResolve`
   (an in-game cell, a root) in the same change; its production callers are R5-08 and R5-11.
 - **Registers:** packaging files above; `CHANGELOG.md` only through R5-09 / R5-11.
-- **Size:** M (either shape). **Depends on:** R1-01 (the `RaceWorld` module rule), S3b,
+- **Size:** M (either shape). **Depends on:** R3W-02 (the `RaceWorld` module rule), S3b,
   questions 10.1 and 10.2. **PC:** yes.
   **S3:** S3b decides the shape; S3d the property names.
 - **Risk:** medium; a packaging miss ships a zip whose replacement shows the base suit,
@@ -589,15 +594,15 @@ Dropped: replaced by T-29 (OV-06).
 
 | Track | Tasks | Files |
 |-------|-------|-------|
-| Ghost build seam (day one) | R5-01 -> R5-02 | `GhostVisualBuilder.cs`, `GhostVisualBuilder.PartInfoBuilders.cs`, new `GhostBuildOptions.cs` |
-| Engine and style (after P2c-04, P2a-02) | R5-03 | `GhostPlaybackEngine.cs`, `GhostPlaybackEngine.GhostVisuals.cs`, new `PlaybackTrajectoryStyle.cs`, `modules.toml` |
+| Ghost build seam (day one) | R5-01 -> R5-02 | `GhostVisualBuilder.cs`, `GhostVisualBuilder.PartInfoBuilders.cs`, new `Ghost/GhostBuildOptions.cs` |
+| Engine and style (after P2c-04, P2a-02) | R5-03 | `GhostPlaybackEngine.cs`, `GhostPlaybackEngine.GhostVisuals.cs`, new `Core/PlaybackTrajectoryStyle.cs`, `test_archview.py` (Core count and list) |
 | Map vessel style (after P3-04; helper lands in R3W-18) | R5-04 | `GhostMapPresence.cs` (name composer beside the prefix), `GhostMapVessels.cs` (orbit color helper) |
 | Conditional overlays | R5-05, R5-06 (with P3b, R3W-26) | `MapMarkerRenderer.cs`, `LegDraw.cs`, `WatchModeController.cs` |
-| Race rules (after R1-01; R5-07 merges in R5-08's pull request, R5-10 in R5-11's) | R5-07 -> R5-10 | `RaceCore/RaceLookTable.cs`, `RaceCore/RaceLookDress.cs` |
+| Race rules (after R1-03; R5-07 merges in R5-08's pull request, R5-10 in R5-11's) | R5-07 -> R5-10 | `RaceCore/RaceLookTable.cs`, `RaceCore/RaceLookDress.cs` |
 | Content (after S3) | R5-12 | `GameData/Parsek/Suits/`, `release.py`, `Parsek.csproj`, `provlib.py` |
 | Race runtime | R5-08, then R5-11 (after R1-03, R1-08, R1-09) and R5-09 | `RaceWorld/RaceLookDresser.cs`, `RaceWorld/RaceLooks.cs`, R3W-09's `ParsekFlightRivalLane.cs`, R3W-20's `ParsekTrackingStationRivalLane.cs`, R3W-15's rival style source |
 
-- R5-01, R5-07 (once R1-01 is in; merged with its first caller) and R5-12's art work can
+- R5-01, R5-07 (once R1-03 is in; merged with its first caller) and R5-12's art work can
   run at the same time. R5-03 can be built beside R5-02 once R5-01 is in (different files),
   but lands after P2c-04 and P2a-02.
 - **Hot files.** `GhostVisualBuilder.cs` (R5-01, R5-02; also any ghost-visual fix in
@@ -605,7 +610,8 @@ Dropped: replaced by T-29 (OV-06).
   R5-03, R3W-09, R3W-14 (ruling A3; R3W-14 updates both construction sites): R5-03 lands
   after P2a-02 and before R3W-15 (OV-43), or folds the constructor arguments into one
   options object; `GhostMapVessels.cs` in the order P3-02 to P3-05, R3W-17, R5-04, R3W-19 (OV-48);
-  `modules.toml` (R5-03, R3W-14, R1-01: a rule each, rebase-trivial);
+  `test_archview.py`'s Core count and kernel list (R5-03, then R3W-14, after P7-01, P1-01 and
+  P1-02: one file each, rebase-trivial; no R5 task edits `modules.toml`);
   R3W-09's `ParsekFlightRivalLane.cs` (R3W-09 onward, R5-09: R5-09 after R3W-18);
   `ParsekRaceScenario.cs` (R1-03, R1-08, R3E-15, R5-11) and `LoadReconcilePolicy.cs` (R1-05,
   R1-16, R5-11).
@@ -634,9 +640,12 @@ Dropped: replaced by T-29 (OV-06).
 
 ## 7. Gates and registrations
 
-- **Module map:** new `GhostBuildOptions.cs` lands in Ghost by the existing prefix rule;
-  `PlaybackTrajectoryStyle.cs` needs a Core rule placed before the final Core rule; RaceCore
-  and RaceWorld files by R1-01's folder rules.
+- **Module map:** a new file's module is the folder it is created in
+  (`Source/Parsek/<Module>/<Name>.cs`); no `modules.toml` edit places it, and a file in the root
+  of `Source/Parsek` reds the arch suite. `Ghost/GhostBuildOptions.cs` needs nothing;
+  `Core/PlaybackTrajectoryStyle.cs` moves the Core count and kernel list in `test_archview.py`;
+  RaceCore and RaceWorld files take the rules R1-03 and R3W-02 add with each module's first
+  file.
 - **Layers and forbidden edges:** RaceWorld -> Ghost is lateral (features) and allowed;
   RaceWorld names no Parsek `Crew` type (`RaceLooks` uses only stock roster types);
   Ghost, Display and MapRender name no race type (the seams are neutral). A rival marker
@@ -709,7 +718,7 @@ Dropped: replaced by T-29 (OV-06).
    `RaceLookTable.IsKerbalEvaPartName` accepts (R5-09), and R3W-21 should say so.
    Settled: R3W-21 keeps those names; if it lands first, R5-09 adds the exception (OV-56).
 4. **Colors on markers need the entry layer.** `MapMarkerRenderer` is in Controllers
-   (`modules.toml:36`), so `RaceWorld` cannot call it without a backward pair. Any rival
+   (it sits in `Controllers/`), so `RaceWorld` cannot call it without a backward pair. Any rival
    marker is drawn by a scene controller with a style RaceWorld hands it.
 5. **No slot for the "dressed with look N" marker.** 15.7 keeps `RaceLink` to never-changing
    facts and `RaceLocal` outside the save. The marker must roll back with the roster on

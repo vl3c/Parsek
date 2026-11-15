@@ -35,7 +35,8 @@ ghost-map-vessel primitive (P3), the trajectory codec change (P6), the ghost-cou
 ## 2. Starts after
 
 - Version 1.0.2 is released and the owner says go (brief).
-- P12 (P12-01 `[forbidden]` list form, P12-02 `ParsekRace*` placement) and P11 (P11-01,
+- P12 (P12-01 `[forbidden]` list form; P12-02 is dropped, since the folder places a file) and
+  P11 (P11-01,
   P11-02, derived window counts) per the 15.11 order. Nothing in this slice needs their
   content; the order only keeps the arch tooling and harness specs stable while these
   refactors re-pin canaries.
@@ -143,9 +144,13 @@ Callers that thread a catalog:
   `RecordingStore.CommittedRecordings` / `CommittedTrees` by index through
   `GhostPlaybackLogic.IsWatchProtectedRecording` (`GhostPlaybackLogic.cs:691-721`). That is a
   watch-protection query over the own list, not a by-id lookup; P2b-08 handles it.
-- `scripts/ers-els-audit-allowlist.txt` already lists `GhostMapPresence.StateVectors.cs`,
-  `ParsekFlightGhostPositioner.cs`, `ParsekFlight.GhostPositioner.cs`,
-  `RecordedRelativeAnchorPoseResolver.cs` and `ParsekFlightPlaybackHost.cs`. The gate has no
+- `scripts/ers-els-audit-allowlist.txt` lists `GhostMapPresence.StateVectors.cs`,
+  `ParsekFlight.GhostPositioner.cs`, `RecordedRelativeAnchorPoseResolver.cs`,
+  `ParsekFlightPlaybackHost.cs` and, of the twelve positioner files, only
+  `ParsekFlightGhostPositioner.TailLift.cs` (L7's raw read); the allowlist says the other
+  positioner files read none. L2 reads `CommittedTrees`, which the gate's pattern
+  (`.CommittedRecordings`, `Ledger.Actions`) does not match. A P2a or P2b edit that writes
+  `.CommittedRecordings` in any other positioner file reds `GrepAuditTests`. The gate has no
   stale-entry check.
 
 ### 3.3 P2b facts: every member and every reference site
@@ -228,8 +233,14 @@ Tests and gates that pin these names:
   `"loopUnits = flCtl.CurrentCachedLoopUnits;"`.
 - `RelativeAnchorResolutionTests.cs:465` pins the substring `"loggedAnchorNotFound.Add("` (3 sites).
 - `LoopSeamTraceIndexShiftTests.cs:14` builds `new ParsekFlightGhostPositioner(null)`.
-- `GrepAuditNonLoopLivePidTests.cs:105-141` runs regexes over the positioner and host files.
-- `ParsekFlightSourceFiles.cs:69-78` lists the service files `ReadAll` appends.
+- `GrepAuditNonLoopLivePidTests.cs:105-141` and `scripts/grep-audit-non-loop-live-pid.ps1`
+  repeat the recorded-relative row once per positioner file; the loop-only flag row reads
+  `.Loop.cs`. A new positioner partial gets its row in both arms.
+- Source gates read the positioner as one text through
+  `ParsekFlightGhostPositionerSourceFiles` (the main file plus its eleven `SplitFileNames`;
+  `OtherPartialFileNames` is empty, so a new `ParsekFlightGhostPositioner.*.cs` fails `Paths`
+  until it is declared there). `ParsekFlightSourceFiles.cs:69-78` lists the service files
+  `ReadAll` appends and reads that set wherever it read the one positioner file.
 - 22 xUnit files build `ParsekFlight` with `FormatterServices.GetUninitializedObject`, so field
   initializers do not run there (for example `Issue316WatchProtectionTests.cs:64`, which then sets
   `watchMode` by reflection at :244).
@@ -249,14 +260,18 @@ Tests and gates that pin these names:
 - Its tests are `scripts/refactor/test_parsekflight_tools.py` (fold cells at :119-446). CI does not
   run them: `.github/workflows/tests.yml` runs `harness/lib`, `missions/lib`, `provision` (:89-91)
   and `scripts/arch` (:100, :191) only.
-- Module placement (`scripts/arch/modules.toml`): `^Parsek(Flight|...|Playback)|^WatchMode` goes to
-  Controllers (:34-36); `^Ghost` goes to Ghost (:55-56); `^Recording` goes to Recording
-  (:94-96); `IPlaybackTrajectory.cs` is in the Core kernel list of eight files
-  (`modules.toml:127-129`). A new root file named otherwise needs a rule.
+- Module placement: the folder is the module (pull request #2611). `scripts/arch/modules.toml`
+  holds one `[[module]] name / folder` rule per module and no name rules; a `.cs` file in the
+  root of `Source/Parsek` reds the arch suite. A new file is created in its module's folder
+  (`Source/Parsek/<Module>/<Name>.cs`) and `modules.toml` is not edited for it.
+  `IPlaybackTrajectory.cs` is one of the 8 files in `Core/` (`test_archview.py`
+  `test_phase_two_catch_all_count` and `test_kernel_files_resolve_to_core` pin the count and the
+  list).
 - Layers (`modules.toml:167-171`): floor = LogIO, Config, Core, Trajectory; model = Recording,
   GameActions, Crew; features include Ghost and Rendering; entry = Controllers, Patches.
   `scripts/arch/layer_pins.toml:125` pins `Ghost -> Controllers`.
-- Knot canary `scripts/arch/test_archview.py:4062` asserts `[435, 9, 4, 3, 2]`.
+- Knot canary: `scripts/arch/test_archview.py` asserts the knot sizes `[437, 9, 4, 3, 2]` on main
+  ab1cc9478; re-derive it before relying on it.
 
 ## 4. Tasks
 
@@ -283,7 +298,7 @@ differences, with the leftovers (accessor, host field, constructor) named in the
 
 **P2c-02 Engine diagnostics sink: health counters**
 
-- **Change:** new `Source/Parsek/GhostPlaybackDiagnosticsSink.cs` (module Ghost by `^Ghost`):
+- **Change:** new `Source/Parsek/Ghost/GhostPlaybackDiagnosticsSink.cs` (module Ghost):
   `internal interface IGhostPlaybackDiagnosticsSink` with `CountGhostBuild()`,
   `CountReentryFxDeferred()`, `CountReentryFxSkipped()`, `CountReentryFxBuild()`,
   `CountGhostReusedAcrossCycle()`, `CountGhostDestroy()`; and
@@ -323,7 +338,7 @@ differences, with the leftovers (accessor, host field, constructor) named in the
 
 **P2c-04 Spawn budget object an engine can share**
 
-- **Change:** new `Source/Parsek/GhostSpawnFrameBudget.cs` (module Ghost): a class with
+- **Change:** new `Source/Parsek/Ghost/GhostSpawnFrameBudget.cs` (module Ghost): a class with
   `int Used`, `int MaxPerFrame` (from `GhostPlayback.MaxSpawnsPerFrame`), `bool IsExhausted`
   (through `GhostPlaybackLogic.ShouldThrottleSpawn(Used, MaxPerFrame)`), `void Consume()`,
   `void ResetForFrame()`. The engine gets `spawnBudget` and `ownsSpawnBudget`: a constructor
@@ -380,7 +395,8 @@ No P2a member lands without its production caller (the uncalled-method ratchet, 
 The port as specified:
 
 - **Change:**
-  - New `Source/Parsek/IPlaybackCatalog.cs`: `internal interface IPlaybackCatalog` with
+  - New `Source/Parsek/Recording/IPlaybackCatalog.cs` (module Recording, Corrections 2):
+    `internal interface IPlaybackCatalog` with
     - `RecordingTree PendingTree { get; }` (null when none);
     - `bool TryFindTreeHolding(string id, CatalogTreeOrder order, out RecordingTree tree)` with
       `CatalogTreeOrder { PendingFirstNonNull, CommittedFirstContainsKey }`;
@@ -389,7 +405,7 @@ The port as specified:
     - `bool TryFindRecording(string id, CatalogRecordingScope scope, out Recording rec)` with
       `CatalogRecordingScope { CommittedListOnly, TreesThenPendingThenList }`.
     The enum members name the orders of section 3.2 so each call site states its own order.
-  - New `Source/Parsek/RecordingPlaybackCatalog.cs` (module Recording by `^Recording`):
+  - New `Source/Parsek/Recording/RecordingPlaybackCatalog.cs` (module Recording):
     `internal sealed class RecordingPlaybackCatalog : IPlaybackCatalog` over `RecordingStore`
     and `PendingTreeSlot`, each variant a verbatim copy of the site it will replace, and
     `internal static readonly RecordingPlaybackCatalog Own` (stateless).
@@ -404,12 +420,11 @@ The port as specified:
   (L1 rejects, L2 accepts), a tree with a null `Recordings` dictionary, a tree-id match without
   containment (L3 accepts, L2 rejects), an id only in the flat committed list (L5 finds, L1 does
   not), null and empty ids.
-- **Registers (land with the first P2a task, expected P2a-05):** `scripts/arch/modules.toml`:
-  add `^IPlaybackCatalog[.]cs$` to the Recording services rule at :95-96 (see Corrections 2).
-  `scripts/ers-els-audit-allowlist.txt`: add `RecordingPlaybackCatalog.cs` with `[ERS-exempt]`
-  (id lookup for anchor and loop resolution, the same reason the sites it replaces carry).
-  Lifetimes: `Own` holds no state; if `test_static_lifetimes` flags it, tag it `process` in
-  `scripts/arch/lifetimes.toml`.
+- **Registers (land with the first P2a task, expected P2a-05):** none for placement (both files sit
+  in `Recording/`; `modules.toml` is not edited). `scripts/ers-els-audit-allowlist.txt`: add
+  `RecordingPlaybackCatalog.cs` with `[ERS-exempt]` (id lookup for anchor and loop resolution, the
+  same reason the sites it replaces carry). Lifetimes: `Own` holds no state; if
+  `test_static_lifetimes` flags it, tag it `process` in `scripts/arch/lifetimes.toml`.
 - **Size:** none (no pull request). **Depends on:** none. **PC:** no.
 - **Risk:** a member landed ahead of its caller reds `uncalledInAssembly`; the rule above
   prevents it.
@@ -502,9 +517,9 @@ The port as specified:
   a fake-catalog cell; new `RecordingPlaybackCatalogTests` with the P2a-01 truth-table rows of
   its three members (L3 / L4 focus tree, L5 / L6 trees-then-pending-then-list, pending read).
   In-game `Pipeline-Anchor`, `GhostMap`; lanes H11, H44.
-- **Registers:** P2a-01's list: the `modules.toml` rule for `IPlaybackCatalog.cs`, the ERS
-  allowlist entry for `RecordingPlaybackCatalog.cs`, and the `process` lifetime tag for `Own` if
-  `test_static_lifetimes` flags it.
+- **Registers:** P2a-01's list: the ERS allowlist entry for `RecordingPlaybackCatalog.cs` and the
+  `process` lifetime tag for `Own` if `test_static_lifetimes` flags it (no `modules.toml` edit:
+  the folder places both files).
 - **Size:** M (two new files, the registrations and the first test class beside the resolver
   change). **Depends on:** none. **PC:** in-game, lanes H11, H44.
 - **Risk:** low.
@@ -559,8 +574,8 @@ after P2b-10.
 
 **P2b-02 The lane type and the seven log-once sets (fold)**
 
-- **Change:** new `Source/Parsek/ParsekFlightPlaybackLane.cs` (Controllers by the `^ParsekFlight`
-  rule): `internal sealed class ParsekFlightPlaybackLane` holding the seven sets with the same
+- **Change:** new `Source/Parsek/Controllers/ParsekFlightPlaybackLane.cs` (module Controllers):
+  `internal sealed class ParsekFlightPlaybackLane` holding the seven sets with the same
   names, types, comparers, modifiers and initializers as `ParsekFlight.cs:873-874, 2506-2516`.
   `ParsekFlight` gains `private ParsekFlightPlaybackLane lane;` and
   `internal ParsekFlightPlaybackLane Lane => lane ?? (lane = new ParsekFlightPlaybackLane());`
@@ -662,13 +677,13 @@ after P2b-10.
 **P2b-08 Watch and ghost-world queries on the lane**
 
 - **Change:**
-  - New `Source/Parsek/ParsekFlightLaneQueries.cs` (Controllers): `internal interface
+  - New `Source/Parsek/Controllers/ParsekFlightLaneQueries.cs` (Controllers): `internal interface
     IGhostLaneWatch` with `bool IsWatchingGhost { get; }`,
     `bool TryGetWatchedGhostAnchorWorldPosition(out Vector3d)` and
     `ZoneRenderingResult ApplyZoneRendering(...)` with the parameter list of
     `ParsekFlight.ApplyZoneRenderingImpl` (`ParsekFlight.GhostPositioner.cs:23`).
-  - New `Source/Parsek/GhostWorldLookup.cs` (Ghost): `internal interface IGhostWorldLookup` with
-    `bool TryGetGhostWorldByRecordingId(string, out Vector3d)`.
+  - New `Source/Parsek/Ghost/GhostWorldLookup.cs` (Ghost): `internal interface IGhostWorldLookup`
+    with `bool TryGetGhostWorldByRecordingId(string, out Vector3d)`.
   - ParsekFlight implements both explicitly. The bodies are today's expressions:
     `watchMode != null && watchMode.IsWatchingGhost`, the anchor read, `ApplyZoneRenderingImpl(...)`
     (which keeps `ResolveZoneWatchState` and its index-keyed watch-protection read), and
@@ -782,12 +797,10 @@ Against other prerefactors:
 
 - In parallel with P1 (P1-01 to P1-03: `SpawnCollisionDetector`, `HomeSpaceCenter` in Core),
   P7 (P7-01, P7-02: `RecordingPaths`), P10 (P10-01: `TestCommands` save core), P11 (P11-01,
-  P11-02: harness specs, `ParsekUI` constructors) and P12 (P12-01, P12-02: `scripts/arch`
-  parsers, a Controllers placement rule): every P2c and P2a task touches none of their files.
-  Shared registration files are `scripts/arch/modules.toml` (P2a-05 adds the
-  P2a-01 rule; P12 edits `[forbidden]` and the Controllers rule) and the knot canary in
-  `scripts/arch/test_archview.py:4062`: these merge as text conflicts that the later PR re-derives
-  mechanically.
+  P11-02: harness specs, `ParsekUI` constructors) and P12 (P12-01: the `scripts/arch`
+  parsers): every P2c and P2a task touches none of their files. The shared registration file
+  is the knot canary in `scripts/arch/test_archview.py` (no task of this slice edits
+  `modules.toml`): it merges as a text conflict that the later PR re-derives mechanically.
 - P2a-02 to P2a-07 and P2c-02 to P2c-04 must not run beside P2b (shared positioner and engine
   files); the 15.11 order already puts them first.
 - P3 collides with P2a-07 (`GhostMapPresence.StateVectors.cs`); P3-02 lands after P2a-07
@@ -914,12 +927,13 @@ the release run's picture lanes).
 
 ## 7. Gates and registrations
 
-- Architecture map: `IPlaybackCatalog.cs` needs a placement rule (P2a-01, landed by P2a-05).
-  All other new files
-  place by existing prefix rules: `GhostPlaybackDiagnosticsSink.cs`, `GhostSpawnFrameBudget.cs`,
-  `GhostWorldLookup.cs` (Ghost); `RecordingPlaybackCatalog.cs` (Recording);
-  `ParsekFlightPlaybackLane.cs`, `ParsekFlightLaneQueries.cs` (Controllers).
-- Knot canary `scripts/arch/test_archview.py:4062` and the README numbers: re-pinned in the commit
+- Architecture map: a new file's module is the folder it is created in
+  (`Source/Parsek/<Module>/<Name>.cs`); no `modules.toml` edit places it, and a file in the root
+  of `Source/Parsek` reds the arch suite. The new files: `Ghost/GhostPlaybackDiagnosticsSink.cs`,
+  `Ghost/GhostSpawnFrameBudget.cs`, `Ghost/GhostWorldLookup.cs`; `Recording/IPlaybackCatalog.cs`,
+  `Recording/RecordingPlaybackCatalog.cs`; `Controllers/ParsekFlightPlaybackLane.cs`,
+  `Controllers/ParsekFlightLaneQueries.cs`.
+- Knot canary in `scripts/arch/test_archview.py` and the README numbers: re-pinned in the commit
   of any task whose new type joins a cycle (most likely P2b-05 and P2b-08). The semantic knot
   residue ratchet re-pins the same way.
 - Layers: P2a edges go from Ghost, Rendering and Controllers down to Recording (forward). No
@@ -974,7 +988,7 @@ the release run's picture lanes).
 - The shared spawn budget is reset twice or never. With one engine it is owned and reset as today;
   the two-engine case is only unit-tested until the rival lane exists (R3W-09 owns that reset,
   OV-46).
-- Knot and pin churn conflicts with P12 and other slices. Each PR re-derives the canary from a
+- Knot and pin churn conflicts with P12-01 and other slices. Each PR re-derives the canary from a
   fresh run rather than hand-editing numbers.
 - The P2b series is interrupted by another playback PR. The window rule in section 4 and the hot
   file list in section 5 make the order explicit; the supervisor holds other playback PRs.

@@ -56,8 +56,8 @@ Prerefactors and additions (design 15.11):
   `Core`). The site table's launch areas are `LaunchArea` values (R2-01).
 - **P1-03** (the launch-site circle cache keyed on `HomeSpaceCenter`'s version and dropped at
   the main menu). Hard dependency for R2-05.
-- **P12-02** (the Controllers rule covers `ParsekRace*` files). R1-04's `ParsekRaceBoot.cs`,
-  which R2-01 edits, relies on it.
+- **P12-02** is dropped (pull request #2611: the folder is the module). R1-04's
+  `Controllers/ParsekRaceBoot.cs`, which R2-01 edits, is in Controllers by its folder.
 - **P10-01** (create-and-start core) only indirectly, through R1-10's and R1-11's
   `RaceSetup` actions that the harness lanes use.
 - **A7** (one "find a game's scenario node before its scenarios load" helper, R1-02 and
@@ -65,8 +65,9 @@ Prerefactors and additions (design 15.11):
 
 R1 tasks:
 
-- R1-01: the three module scaffolds `RaceCore` / `RaceWorld` / `RaceExport` with layers,
-  headless and forbidden rules (every R2 file lands in one of them);
+- R1-03 and R3W-02: the `RaceCore` and `RaceWorld` registrations (each race module registers
+  with its first file; R1-01 is dropped), with layers, headless and forbidden rules (every R2
+  file lands in one of them);
 - R1-03: `RaceLink` (fields `siteSlot`, `siteTableId`, `alternateSites`);
 - R1-04: `RaceGate`, including a read of the mark from a `Game` whose scenario modules have
   not loaded yet, and `ParsekRaceBoot`, the one process-lifetime addon whose
@@ -215,7 +216,7 @@ Readers of the space center position or of launch-site names:
 | `RecordingOptimizer.IsLaunchSiteStart` (RecordingOptimizer.cs:647) and `IsLaunchSiteDepartureBoundary` (:724) | `LaunchSiteName` and `StartSituation` only, no position | no change |
 | `RouteAnalysisEngine.IsKscOriginRecording` (Logistics/RouteAnalysisEngine.cs:1453) | a non-empty `LaunchSiteName` on Kerbin | a copy must never give a launch-site name, or a route from a rival's pad reads as a KSC origin |
 | `ParsekKSC.IsGhostInCullRange` (ParsekKSC.cs:1779) and the KSC-scene playback (ParsekKSC.Playback.cs) | distance to the scene camera; recorded positions | follows the moved camera; no position constant |
-| `GameStateFacilityRecorder` (GameStateFacilityRecorder.cs:47, :422), `GameStateBaseline` (GameStateBaseline.cs:128), `FacilityStatePatcher.PatchDestructionState` (GameActions/FacilityStatePatcher.cs:452) | `FindObjectsOfType<DestructibleBuilding>()` | a copy that kept the component would add buildings with the stock ids |
+| `GameStateFacilityRecorder` (GameStateFacilityRecorder.cs:47, :422), `GameStateBaseline` (GameStateBaseline.cs:128), `FacilityStatePatcher.PatchDestructionState` (GameActions/FacilityStatePatcher.cs:452) | `FindObjectsOfType<DestructibleBuilding>()`; the recorder's two reads go through its core `FindDestructibleBuildingsCore` (GameStateFacilityRecorder.cs:26-27) | a copy that kept the component would add buildings with the stock ids |
 | `StockUiFacilityDecoration.HostOf` (StockUiFacilityDecoration.cs:263) | the `SpaceCenterBuilding` of a stock context menu | copies hold none, so no menu opens on them |
 | `LiveVesselSnapshot.TryResolveBiome` (LiveVesselSnapshot.cs:720) | biome map at a lat / lon | the home site's own map biome; accepted as "the neighbourhood" (design 7.3) |
 | in-game test `RuntimeTests` (InGameTests/RuntimeTests.cs:16444) | `IsWithinKscExclusionZone` | test only |
@@ -233,9 +234,9 @@ Hooks and patterns R2 reuses:
   `LaunchFromEditor`, `LaunchSiteProbe`, `Recover`, `ExitToSpaceCenter`, `RevertToLaunch`,
   `RunTests` exist (TestCommands/TestCommandVerbs.cs).
 
-Module placement today: `SpawnCollisionDetector.cs` is Ghost (scripts/arch/modules.toml:56),
-`LaunchSiteExclusionZones.cs` is Controllers (:177), `LaunchSiteOnlyGhost.cs` is Ghost (:180),
-`ParsekScenario*` is Controllers (`modules.toml:36`). `RaceWorld` (features) therefore must not call
+Module placement today (the folder is the module): `SpawnCollisionDetector.cs` sits in `Ghost/`,
+`LaunchSiteExclusionZones.cs` in `Controllers/`, `LaunchSiteOnlyGhost.cs` in `Ghost/`, and the
+`ParsekScenario*.cs` files in `Controllers/`. `RaceWorld` (features) therefore must not call
 `LaunchSiteExclusionZones` (a backward edge into entry); it only sets `HomeSpaceCenter` (Core)
 and the Parsek readers follow that value.
 
@@ -361,11 +362,12 @@ Logging (tag `RaceSites`, design section 10):
   race(slot) pairs, including same save, other slot, unknown table -> `Refuse`);
   log-capture test of the `Reconcile:` line. Live: one `Reconcile:` line per scene change
   in a race save, none in a single-player save.
-- **Registers:** nothing new in `scripts/arch/modules.toml` (RaceCore / RaceWorld folders
-  are R1-01's, `ParsekRaceBoot.cs` is placed by P12-02's rule in R1-04); headless pins for
+- **Registers:** nothing new in `scripts/arch/modules.toml` (the RaceCore rule is R1-03's, the
+  RaceWorld rule R3W-02's; `ParsekRaceBoot.cs` sits in `Controllers/`); headless pins for
   the RaceCore files; `scripts/arch/log_tags.json` (`RaceSites` -> RaceWorld) via
   `logtags.py --write`; facts pins if a method crosses the complexity watch band.
-- **Size:** M. **Depends on:** R1-01, R1-03, R1-04, P12-02, P1-02.
+- **Size:** M. **Depends on:** R1-03, R1-04, P1-02, R3W-02 (the RaceWorld module registration;
+  `RaceWorld/RaceSites.cs` needs the rule).
   **Spike:** S1b changes the three rows' numbers and launch-area rows only (S4a measures
   the footprints); S4a changes the hook if the new
   `Game` is not yet in `HighLogic.CurrentGame` at the scene request (then R1-04 moves the
@@ -796,10 +798,12 @@ anywhere.
 
 ## 7. Gates and registrations
 
-- **Architecture map** (`scripts/arch/modules.toml`): no new root file (the reconcile call
-  sits in R1-04's `ParsekRaceBoot.cs`, placed by P12-02's `ParsekRace*` rule);
-  `Patches/RaceLaunchGuardPatch.cs` by the Patches folder rule; RaceCore / RaceWorld files
-  by R1-01's folder rules. Re-pin module counts if the suite asks.
+- **Architecture map:** a new file's module is the folder it is created in
+  (`Source/Parsek/<Module>/<Name>.cs`); no `modules.toml` edit places it, and a file in the root
+  of `Source/Parsek` reds the arch suite. The reconcile call sits in R1-04's
+  `Controllers/ParsekRaceBoot.cs`; `Patches/RaceLaunchGuardPatch.cs` is in Patches;
+  RaceCore / RaceWorld files are placed by the rules R1-03 and R3W-02 add with their first
+  files. Re-pin module counts if the suite asks.
 - **Layers and forbidden edges:** RaceCore files name only the floor (LogIO, Core); RaceWorld
   files name RaceCore, Core (`HomeSpaceCenter`) and stock types, never `Controllers`,
   `GameActions`, `Recording` or `Ghost` (none needed). `ParsekRaceBoot` (Controllers) and
@@ -807,7 +811,7 @@ anywhere.
   `LaunchSiteExclusionZones` (Controllers) reads only `HomeSpaceCenter` (Core).
   `layer_pins.toml` must not move; if it does, a file is in the wrong module.
 - **Headless:** every RaceCore file stays leak-free (`headless_pins.toml` unchanged except
-  for R1-01's module entry). Live reads live only in `RaceWorld`.
+  for R1-03's module entry). Live reads live only in `RaceWorld`.
 - **Static lifetimes:** every `RaceSites` static tagged `process` in
   `scripts/arch/lifetimes.toml` with the reason "Kerbin's objects outlive a save; reconciled
   at every scene request"; `HomeSpaceCenter`'s static (R2-05) tagged `process` the same
@@ -894,7 +898,8 @@ anywhere.
    last `UpgradeLevel.facilityPrefab` and strip before `Awake`, because
    `DestructibleBuilding` and `UpgradeableFacility` register by id
    (DestructibleBuilding.cs:774, Upgradeables.UpgradeableFacility.cs:61) and Parsek's
-   facility code scans `FindObjectsOfType<DestructibleBuilding>()` at four sites (3.2).
+   facility code scans `FindObjectsOfType<DestructibleBuilding>()` at four production sites
+   (3.2; the recorder's two go through `FindDestructibleBuildingsCore`).
 6. **"Alternate sites off" and a mid-race difficulty change.** The race setting maps onto
    stock `AllowOtherLaunchSites` (GameParameters.cs:223, EditorDriver.cs:1528), which a
    player can change; case 21 allows and discloses difficulty changes. The plan's guard

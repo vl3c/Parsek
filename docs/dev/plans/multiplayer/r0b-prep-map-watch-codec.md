@@ -40,9 +40,9 @@ section 9), and any change to what is written to disk.
 
 ## 2. Starts after
 
-- P12-01, P12-02 (tooling: `[forbidden]` list form, placement rules). None of these tasks
-  adds a forbidden edge, so they are a soft prerequisite; listed because 15.11 orders P12
-  first.
+- P12-01 (tooling: `[forbidden]` list form; P12-02 is dropped, since the folder places a file).
+  None of these tasks adds a forbidden edge, so it is a soft prerequisite; listed because 15.11
+  orders P12 first.
 - P3-01 to P3-05: P3-01 can start as soon as the owner says go. P3-02 lands after P2a-07
   (order fix E.3.8): P2a-07 edits `GhostMapPresence.StateVectors.cs`, a file of the same
   partial class. No other P2a, P2b or P2c task touches the map files (section 5).
@@ -160,8 +160,9 @@ section 9), and any change to what is written to disk.
     `GhostOrbitLineCascadeDeleteGateTests.cs:54-58` (forbidden cascade symbols);
     `GrepAuditNonLoopLivePidTests.cs:126-131` lists each `GhostMapPresence` file by name.
   - `scripts/ers-els-audit-allowlist.txt:138-147` lists the `GhostMapPresence` files.
-- Architecture: a root file starting with `Ghost` lands in module Ghost
-  (`scripts/arch/modules.toml:54-56`), layer features (`modules.toml:168`). Lifetimes:
+- Architecture: the folder is the module (pull request #2611); a new file in `Ghost/` is in
+  module Ghost, layer features (`modules.toml:168`), and a file in the root of
+  `Source/Parsek` reds the arch suite. Lifetimes:
   `GhostMapPresence::ghostMapVesselPids` and `::ghostTeardownDepth` are in the untagged set
   (`scripts/arch/lifetime_pins.toml:80`, `:88`); the type's tagged fields are at
   `scripts/arch/lifetimes.toml:548-559`.
@@ -174,8 +175,8 @@ section 9), and any change to what is written to disk.
 ### 3.2 WatchModeController (P3b)
 
 - `Source/Parsek/Controllers/WatchModeController.cs` (3791 lines, plus `.Cycle`, `.Diagnostics`,
-  `.ExitCameraProbe`, `.Math`, `.Runtime` partials) is module Controllers by
-  `^WatchMode` (`modules.toml:34-36`) and is ERS-exempt (`WatchModeController.cs:45-51`,
+  `.ExitCameraProbe`, `.Math`, `.Runtime` partials) is module Controllers by its folder
+  and is ERS-exempt (`WatchModeController.cs:45-51`,
   `scripts/ers-els-audit-allowlist.txt:148`). It holds `private readonly ParsekFlight host`
   (`WatchModeController.cs:52`).
 - Identity is an index into the own committed list: `watchedRecordingIndex` (`:95`, 118
@@ -205,8 +206,8 @@ section 9), and any change to what is written to disk.
 
 ### 3.3 Trajectory codec (P6)
 
-- `Source/Parsek/Recording/TrajectorySidecarBinary.cs` (module Recording by the R0 rule,
-  `modules.toml:94-96`): `TryProbe` (`TrajectorySidecarBinary.cs:91-158`), `TryValidatePayload`
+- `Source/Parsek/Recording/TrajectorySidecarBinary.cs` (module Recording, by its folder):
+  `TryProbe` (`TrajectorySidecarBinary.cs:91-158`), `TryValidatePayload`
   (`:180-200`, builds `new Recording()` and calls `Read`), `Write(path, Recording, sidecarEpoch)`
   (`:225-288`), `Read(path, Recording, probe)` (`:290-384`). `Read` clears the six `Recording` lists
   in place and fills them through private readers that take plain lists (`ReadPointList` `:540`,
@@ -235,10 +236,10 @@ section 9), and any change to what is written to disk.
 - The snapshot side already has a production path entry:
   `SnapshotSidecarCodec.TryLoad(path, out ConfigNode, out probe)` (`SnapshotSidecarCodec.cs:123`),
   called in production at `RecordingSidecarStore.cs:752`, `:830`, `:1152`, `:1837`.
-- Data types: `TrackSection` is module Trajectory (`modules.toml:120`); `PartEvent`,
-  `FlagEvent`, `SegmentEvent` are module Recording (`modules.toml:94-96`). A payload that
-  holds all six lists therefore belongs in Recording; in the Trajectory floor it would add
-  backward edges. `^Recording` places a root file in Recording (`modules.toml:94-96`).
+- Data types: `TrackSection` is module Trajectory (`Trajectory/`); `PartEvent`, `FlagEvent`,
+  `SegmentEvent` are module Recording (`Recording/`). A payload that holds all six lists
+  therefore belongs in Recording; in the Trajectory floor it would add backward edges. A new
+  file in `Recording/` is in Recording.
 - Proof material: `Source/Parsek.Tests/Fixtures/FormatGolden/v1/` holds 7 `.prec` files
   (frozen, gated by `SaveFormatGoldenGateTests`); 9 `.prec` under
   `Source/Parsek.Tests/Fixtures/` in all and 501 under `harness/fixtures/`. The analyzer rule
@@ -275,7 +276,7 @@ section 9), and any change to what is written to disk.
 - **Risk:** low; a test-only change whose only coupling is the tally pins.
 
 **P3-02 Move the guard set and the teardown depth into `GhostMapVessels`**
-- **Change:** new `Source/Parsek/GhostMapVessels.cs` (module Ghost), `internal static class
+- **Change:** new `Source/Parsek/Ghost/GhostMapVessels.cs` (module Ghost), `internal static class
   GhostMapVessels` with `internal static readonly HashSet<uint> Pids`, `teardownDepth`,
   `IsGhostMapVessel(uint)`, `BeginTeardown()`, `EndTeardown()`, `IsTeardownInProgress`,
   `RegisteredCount`, `ResetForTesting()`. In `GhostMapPresence`, the field
@@ -425,7 +426,7 @@ build): planned work, built when watching a rival flight is scheduled. What wait
 R3W-26 and the camera half of R4-11 (on P3b-04), and R5-06 (on P3b-03 and R3W-26).
 
 **P3b-01 A watch target value**
-- **Change:** new `Source/Parsek/WatchModeTarget.cs` (module Controllers by `^WatchMode`):
+- **Change:** new `Source/Parsek/Controllers/WatchModeTarget.cs` (module Controllers):
   `internal readonly struct WatchModeTarget` (`LaneId` string, null for own; `RecordingIndex`
   int; `RecordingId` string; `IsOwnLane`; `None`; `Own(int, string)`). `WatchModeController`
   gets a private `watchedLaneId` field (null) and an `internal WatchModeTarget CurrentTarget`
@@ -442,7 +443,7 @@ R3W-26 and the camera half of R4-11 (on P3b-04), and R5-06 (on P3b-03 and R3W-26
 - **Risk:** low; additive.
 
 **P3b-02 A lane adapter between the watch camera and the engine**
-- **Change:** new `Source/Parsek/WatchModeLane.cs` (Controllers): `internal interface
+- **Change:** new `Source/Parsek/Controllers/WatchModeLane.cs` (Controllers): `internal interface
   IWatchLane` with exactly what the follow path uses: `TryGetGhostState(int, out
   GhostPlaybackState)`, overlap ghost enumeration, `EnsureGhostVisualsLoadedForWatch`,
   `DestroyGhost`, `TryGetTrajectory(int, out IPlaybackTrajectory)`, `Count`, the loop
@@ -544,8 +545,8 @@ R3W-26 and the camera half of R4-11 (on P3b-04), and R5-06 (on P3b-03 and R3W-26
   covers.
 
 **P6-03 The payload type; `Read` becomes its first consumer**
-- **Change:** new `Source/Parsek/RecordingTrajectoryPayload.cs` (module Recording by
-  `^Recording`): `internal sealed class RecordingTrajectoryPayload` with `Points`,
+- **Change:** new `Source/Parsek/Recording/RecordingTrajectoryPayload.cs` (module Recording):
+  `internal sealed class RecordingTrajectoryPayload` with `Points`,
   `OrbitSegments`, `PartEvents`, `FlagEvents`, `SegmentEvents`, `TrackSections` (lists),
   `FormatVersion`, `SchemaGeneration`, `SidecarEpoch`, `ProbeRecordingId`,
   `SectionAuthoritative`, and a `RecordingTrajectoryDecodeStats` struct (sparse-point stats,
@@ -688,11 +689,13 @@ Three tracks that share no file:
 
 ## 7. Gates and registrations
 
-- **Architecture map:** new root files `GhostMapVessels.cs` (Ghost by `^Ghost`),
-  `WatchModeTarget.cs` and `WatchModeLane.cs` (Controllers by `^WatchMode`),
-  `RecordingTrajectoryPayload.cs` (Recording by `^Recording`). No new module, no rule
-  edit. No forbidden edge: Patches and Controllers (entry) may reference Ghost (features);
-  the payload references only Recording and Trajectory types.
+- **Architecture map:** a new file's module is the folder it is created in
+  (`Source/Parsek/<Module>/<Name>.cs`); no `modules.toml` edit places it, and a file in the root of
+  `Source/Parsek` reds the arch suite. New files: `Ghost/GhostMapVessels.cs`,
+  `Controllers/WatchModeTarget.cs`, `Controllers/WatchModeLane.cs`,
+  `Recording/RecordingTrajectoryPayload.cs`. No new module, no rule edit. No forbidden edge: Patches
+  and Controllers (entry) may reference Ghost (features); the payload references only Recording and
+  Trajectory types.
 - **Layers:** no backward pair added; re-pin `layer_pins.toml` only if a type-pair count
   moves inside an existing backward pair.
 - **Lifetimes:** P3-02 and P3-03 tag `GhostMapVessels::Pids` (scene), `::teardownDepth`
