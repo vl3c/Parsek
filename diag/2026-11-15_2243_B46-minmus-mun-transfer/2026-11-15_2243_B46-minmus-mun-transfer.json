@@ -1,0 +1,353 @@
+{
+  "admission": {
+    "admitted": true,
+    "diff": [],
+    "subkind": ""
+  },
+  "artifacts": {
+    "kspLog": true,
+    "kspLogTruncated": false,
+    "ran": true,
+    "renderManifest": false,
+    "screenshots": 0,
+    "screenshotsSkipped": 0,
+    "shotsDir": "2026-11-15_2243_B46-minmus-mun-transfer_shots"
+  },
+  "attempt": 1,
+  "collectLogs": {
+    "path": "Collecting logs into: 2026-11-16_0107_B46-minmus-mun-transfer/",
+    "ran": true
+  },
+  "driver": {
+    "allExpectedMet": false,
+    "steps": [
+      {
+        "captured": {
+          "save": "minmus-park-kerbalx",
+          "scene": "FLIGHT",
+          "ut": "277206.17410161241"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0001",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "idle": "true",
+          "stopped": "false",
+          "ut": "277206.45410161268"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0002",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "nothing": "true",
+          "ut": "277206.47410161269"
+        },
+        "cmd": "DiscardTree",
+        "expect": "OK",
+        "id": "0003",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnLaunch",
+          "ut": "277206.49410161271",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0004",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "verboseLogging",
+          "ut": "277206.53410161275",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0005",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "recordingId": "02702d827a1b48ddab4704b4daca3b60",
+          "ut": "277206.57410161279"
+        },
+        "cmd": "StartRecording",
+        "expect": "OK",
+        "id": "0006",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "expect": "MISSION-OK",
+        "id": "0007",
+        "met": false,
+        "missionVerdict": "MISSION-FLAKE",
+        "phase": "mission",
+        "subkind": "autopilot-flake",
+        "verdict": "INVALID"
+      },
+      {
+        "captured": {
+          "saved": "true",
+          "ut": "597922.95626050665"
+        },
+        "cmd": "FlushAndQuit",
+        "expect": "OK",
+        "id": "0008",
+        "met": true,
+        "verdict": "OK"
+      }
+    ]
+  },
+  "endedUtc": "2026-11-15T23:07:55Z",
+  "expectedFail": {
+    "bugId": "",
+    "matched": false
+  },
+  "instanceProfile": "stock-minimal",
+  "kspExit": {
+    "code": 0,
+    "killed": false
+  },
+  "missionWallSeconds": 1425,
+  "note": "",
+  "runId": "2026-11-15_2243_B46-minmus-mun-transfer",
+  "scenarioId": "B46-minmus-mun-transfer",
+  "schema": 1,
+  "snapshot": {
+    "bytes": 1748282,
+    "files": 24,
+    "path": "2026-11-15_2243_B46-minmus-mun-transfer_save",
+    "ran": true,
+    "reason": "every-verdict-default verdict=INVALID"
+  },
+  "startedUtc": "2026-11-15T22:43:20Z",
+  "subkind": "autopilot-flake",
+  "tier": "operator",
+  "verdict": "INVALID",
+  "verifiers": {
+    "analyzer": {
+      "failNonBaselined": 0,
+      "gating": true,
+      "red": 0,
+      "reportJson": "<HOME>\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\minmus-park-kerbalx\\analysis\\minmus-park-kerbalx.analysis.json",
+      "reportTxt": "<HOME>\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\minmus-park-kerbalx\\analysis\\minmus-park-kerbalx.analysis.txt",
+      "staleNonBaselined": 0,
+      "status": "PASS",
+      "subkind": "",
+      "topRule": null,
+      "triageOnly": true
+    },
+    "anomalySweep": {
+      "reason": "short-circuit",
+      "status": "SKIPPED"
+    },
+    "batchComplete": {
+      "aggregateMissing": false,
+      "category": null,
+      "categoryCountMismatch": false,
+      "duplicateAggregate": false,
+      "expectedCategoryCount": null,
+      "expectedRuns": 1,
+      "failed": null,
+      "found": false,
+      "matchedRuns": 0,
+      "multi": false,
+      "perCategoryCount": 0,
+      "runsShort": false,
+      "status": "SKIPPED"
+    },
+    "driverValidity": {
+      "allExpectedMet": true,
+      "status": "FAIL",
+      "subkind": "autopilot-flake"
+    },
+    "expectations": {
+      "observed": {
+        "recordings": {
+          "count": 1
+        }
+      },
+      "reason": "short-circuit",
+      "status": "SKIPPED"
+    },
+    "ghostLifecycle": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "ghostLifecycle": {
+          "attitude": {
+            "afterUpdateLines": 0,
+            "legacyLines": 0,
+            "maxRotDeg": null,
+            "maxRotDegAt": null,
+            "perRef": {},
+            "resolvedLines": 0,
+            "sweepDeg": 0.0,
+            "sweepRec": "",
+            "unresolvedLines": 0,
+            "unresolvedRefs": {}
+          },
+          "cycleCensus": {},
+          "cycleLines": 0,
+          "cycleModes": {},
+          "cycleRecordings": 0,
+          "destroyLines": 0,
+          "destroyedReasons": {},
+          "destroyedRecordings": 0,
+          "malformed": 0,
+          "peakLive": 0,
+          "peakLiveFrame": -1,
+          "peakLiveRecording": "",
+          "perVessel": {},
+          "spawnLines": 0,
+          "spawnReasons": {},
+          "spawned": 0,
+          "spawnedRecordingIds": [],
+          "unbalanced": [],
+          "vessels": []
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "driver-invalid",
+      "status": "SKIPPED"
+    },
+    "ledgerOracle": {
+      "reason": "no-ledger-block-declared",
+      "status": "SKIPPED"
+    },
+    "logValidate": {
+      "reason": "short-circuit",
+      "status": "SKIPPED"
+    },
+    "mission": {
+      "missionVerdict": "MISSION-FLAKE",
+      "status": "FAIL",
+      "subkind": "autopilot-flake"
+    },
+    "missionOutcome": {
+      "firstUnmet": null,
+      "gatingVerbs": [],
+      "reason": "no-gating-verbs",
+      "status": "SKIPPED"
+    },
+    "renderCompose": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "findings": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {},
+      "parseError": "missing parsek-render-manifest.txt",
+      "parsed": null,
+      "reason": "driver-invalid",
+      "status": "SKIPPED",
+      "unevaluable": {}
+    },
+    "saveParse": {
+      "armedBlocks": [],
+      "blocks": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "points": {
+            "largest": 597,
+            "recordings": 1,
+            "smallest": 597,
+            "total": 597,
+            "trivialRecordings": 0,
+            "unparsed": 0
+          },
+          "structure": {
+            "branchPoints": {},
+            "committedTrees": 0,
+            "duplicateRecordingIds": [],
+            "ghostChainNodes": 0,
+            "inFlightCopyTrees": 0,
+            "recordingNames": {},
+            "recordings": 1,
+            "spaceObjectParts": {
+              "Ast. MII-526": 1
+            },
+            "spawnedVessels": 0,
+            "terminalStates": {},
+            "treeNodes": 1,
+            "trees": 1,
+            "vesselNames": {
+              "#autoLOC_501232": 1,
+              "Kerbal X Debris": 1
+            }
+          }
+        },
+        "rewind": {
+          "rewindPoints": 0,
+          "rewindRetirements": 0,
+          "supersedeRows": 0,
+          "tombstones": 0
+        },
+        "routes": {
+          "codecRejects": 0,
+          "completedCycles": 0,
+          "connectionKinds": {},
+          "count": 0,
+          "destinationBodies": {},
+          "destinationVesselPids": [],
+          "dismissedCandidates": 0,
+          "dormant": 0,
+          "holdKinds": {},
+          "ids": [],
+          "originBodies": {},
+          "promptedCandidates": 0,
+          "skippedCycles": 0,
+          "sourceRefs": 0,
+          "statuses": {},
+          "stops": 0,
+          "unknownConnectionKinds": 0,
+          "unknownStatuses": 0,
+          "unparsed": 0
+        },
+        "stockLoad": {
+          "findings": 0,
+          "first": [],
+          "kinds": {}
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "driver-invalid",
+      "scenarioFound": true,
+      "status": "SKIPPED"
+    },
+    "subprocessRetry": [],
+    "testResults": {
+      "failures": 0,
+      "reason": "short-circuit-or-invalid-driver",
+      "status": "SKIPPED"
+    },
+    "unityExceptions": {
+      "reason": "short-circuit",
+      "status": "SKIPPED"
+    }
+  },
+  "wallSeconds": 1474
+}
