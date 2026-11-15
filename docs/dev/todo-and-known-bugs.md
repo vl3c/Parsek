@@ -54,6 +54,19 @@ paid, on a discard and on a commit). Log:
 red without the row guard: history row 400 instead of 100; the cutoff boundary pinned in both
 loops), covering the discard and the commit (`OnRecordingCommitted`) of the attempt.
 
+Known residue, not built (from the fix's second review; neither reproduced):
+  (a) `GameStateRecorder.EnrichPendingMilestoneRewards`
+      (`Source/Parsek/GameActions/GameStateRecorder.Handlers.cs`, the ledger loop at lines
+      1599-1619) picks a MilestoneAchievement row by milestone id and capture moment within 0.1 s
+      (line 1608) with no recording-id or cutoff check, and SETS that row's rewards. No concrete
+      failing sequence was found: `Complete()` is terminal for the node and the pending event is
+      tagged, so it has no direct row.
+  (b) An award at exactly the restore attempt's cutoff UT is history to every consumer (not
+      re-homed, not purged), so repeated awards at that identical UT would each start their own
+      seed. Bounded and not seen in a flight; pinned only as a boundary in
+      `RestoreAttemptRecordCoalesceTests`
+      (`Boundary_AnEventAtTheCutoffIsHistory_OneJustAfterIsTheAttemptsOwn`).
+
 ## ~~FAR-SWITCH-INTENT-TTL-RACE~~: a fast far Switch-To starts a switch segment on the target, which the design says it must not [FILED 2026-11-14 from S0.14's third flight (PC, head a3624e48f, PARSEK-FAIL on its pre-registered P6), branch `item20-switch-pending-merge-lane`; code and decompile reading. FIXED 2026-11-14 on the same branch (PR #2609): no intent is armed for an unloaded target; xUnit + mutation; FLOWN GREEN 2026-11-15: S0.14 `2026-11-15_0011_S0.14-far-switch-merges-before-reload` PASS attempt 1; low (a recording the player did not ask for, on a rare path)]
 
 What the player sees: with Parsek recording, a Switch-To (map menu, or the stock alarm's Jump in
@@ -166,6 +179,32 @@ What a fix needs, either of:
      crash path must keep.
 The first is smaller and needs no new state.
 
+Seen again 2026-11-15 (1.0.2 release check; noted there as PARALLEL-RUNNER-BUSY-PROBE-RACE and
+folded in here): parallel run `fix-check` (2 to 3 slots, PC), lane `RVR-3-route-lifecycle` on slot
+`stock-minimal-2`, run `2026-11-15_1047_RVR-3-route-lifecycle`, `INVALID(instance-busy)` before boot,
+wall 2 s: `[Harness][Warn][Preflight] instance-busy: a live KSP_x64.exe (pid=16640) is running on
+this machine; the probe cannot tell which install it belongs to, so refusing before
+...\automation\stock-minimal-2 (INVALID instance-busy).` pid 16640 was the run's own sibling, the KSP
+of lane `S0.7-exit-auto-commit` on slot `stock-minimal` (its lane log: `launch
+exe=...\automation\stock-minimal\KSP_x64.exe pid=16640`), the same sibling lane as on 2026-11-14.
+RVR-3 passed on the runner's own resume (`2026-11-15_1050_RVR-3-route-lifecycle`, 52 s). Not a
+Parsek defect. Evidence on the PC: `logs\console\2026-11-15\RVR-3-route-lifecycle.65.log` and
+`S0.7-exit-auto-commit.64.log`. Not investigated on the PC: whether that KSP was exiting at the
+probe moment, so this second case is not shown to be the exiting shape above.
+
+What the code says (main 76d3f23c5): the line is printed by `run_attempt` (`harness/run.py`, the
+zombie preflight, Warn at line 4831) when `Runtime.ksp_running` (line 390) returns a pid. A slot
+child runs with `scope_ksp_to_instance` set (line 6446), so `slotrun.blocking_ksp_pid`
+(`harness/lib/slotrun.py`, line 167) already treats a KSP whose exe path lies in another slot's
+install as not busy, through `slots.exe_belongs_to_instance` (`harness/lib/slots.py`, line 173).
+The only way a sibling slot's KSP refuses is a path that reads as None:
+`_windows_image_path` (`run.py`, line 684) failing `OpenProcess` or `QueryFullProcessImageNameW`,
+or the Toolhelp snapshot failing so `_tasklist_ksp_processes` (line 411) lists every KSP with no
+path. Which of those happened here is unknown. So the fix is the one above (a bounded re-probe of
+unreadable-path blockers, or slot pid files), not new path mapping. Small addition for the next
+occurrence: the Warn should say whether the blocker's path was unreadable or in this instance; its
+wording ("the probe cannot tell which install it belongs to") is the serial-run wording.
+
 ## PARALLEL-RUNNER-SUMMARY-RENAME-ABORT: on Windows the parallel runner aborts when another process holds summary.txt open, and kills the lanes still flying [FILED 2026-11-15 from two parallel runs on the PC the same day, each with a `tail -F` watcher on the run's `summary.txt`; harness, no fix yet; medium (a run dies mid-way and its in-flight lanes re-fly on resume)]
 
 Seen twice on 2026-11-15: `harness/tools/parallel_runner.py run` stopped with `runner internal
@@ -190,6 +229,53 @@ and retries on the next lane end; the end-of-run write failing still returns the
 code. Until then, the operator rule: watch a run through `parallel_runner.py status --name <run>`
 or `events.jsonl`, never through an open handle on `summary.txt` (no `tail -F`, no editor that
 keeps it open).
+
+## B7-DUNA-FLYBY-IKE-EJECTION: B7's Duna flyby enters Ike's SOI and ends its first attempt, costing a retry of a long lane [FILED 2026-11-15 from the 1.0.2 release check (v1.0.2 released from main 76d3f23c5); mission library, no fix yet; low (one extra B7 flight per occurrence, not a Parsek defect)]
+
+`B7-duna-flyby` needed a second attempt in three separate runs on 2026-11-15 and passed on
+attempt 2 each time:
+  - `main-early-nightly`: attempt 1 INVALID(mission) (loss reason not recorded here).
+  - `final-nightly`: attempt 1 run `2026-11-15_0407`, INVALID(mission): `flyby ejected the craft
+    off-course: body='Ike'`.
+  - `fix-check`: attempt 1 run `2026-11-15_0926`, INVALID(boot-hang), a harness boot stall, a
+    different cause.
+The Ike case is a mission-autopilot issue, not a Parsek defect. It is the finding first filed
+2026-07-25 ("B7 AT HEAD FAILS: the 300 km Duna approach gets captured by IKE",
+`done/todo-and-known-bugs-v8.md`; the `autotest-status.md` B7 row says the lane is intermittent and
+needs a spec decision); it was archived open with v8, has had no entry in this file since, and
+was never fixed. Its
+evidence then: the 300 km target was hit (`pe=310089`), the inbound leg crossed Ike's orbit and the
+next window read `body=Ike` (`window[19] body=Duna alt=3,687,346` -> `window[20] body=Ike
+alt=897,085`); whether Ike is close enough depends on its phase at arrival.
+
+Where it ends, by code (main 76d3f23c5): B7 runs `mlib.b5_decide`
+(`harness/missions/lib/mlib.py`, line 15657) through the alias `harness/missions/b7_duna_flyby.py`.
+In the `B5_TARGET_FLYBY` branch (line 16852), any telemetry frame whose body is not blank, the
+target (`Duna`) or the return body (`Sun`) ends the mission `MISSION_ASSERT_FAIL` with that loss
+reason (line 16915). So the terminal fires on entering Ike's SOI, before anything shows whether
+Ike would have thrown the craft off course. ASSERT-FAIL maps to subkind `mission`, which the
+harness retries.
+
+The aim: the correction rounds (`_b5_enter_plan_correction`, line 14303, and the
+`B5_PLAN_CORRECTION` branch, line 16162) emit `ACTION_MJ_PLAN_COURSE_CORRECT` with
+`courseCorrectPeriapsisMeters` (`harness/scenarios/B7-duna-flyby.toml`, line 134, 300000). The
+runner (`harness/missions/mission_runner.py`, line 1819) passes it to MechJeb's
+`operation_course_correction` as `course_correct_final_pe_a`, the Duna periapsis altitude only;
+nothing in the plan looks at Ike or the arrival time.
+
+Where a fix would go (a choice for whoever takes it; no code changed):
+  1. Spec only, the V3C precedent (V3C-CAPTURE-AIMS-INTO-IKE, `done/todo-and-known-bugs-v11.md`):
+     raise B7's `courseCorrectPeriapsisMeters` so the arrival periapsis clears Ike's orbital shell
+     (about 1,734 - 4,026 km altitude per that entry; V3C moved 300 km -> 10,000 km and its next flight was MISSION-OK with no Ike encounter).
+     A hyperbola whose periapsis is above the shell never enters it. B7's flyby floor
+     (`targetPeriapsisFloorMeters`, 15 km, a minimum sampled altitude) still passes; the header's
+     300 km rationale (finding 16d, the corrector under-delivers low targets) would need rewording.
+  2. Machine: before the last correction round, read the patched conics and re-plan when the
+     arrival reports `nextBody=Ike` (V3C named this option and did not take it: no flown precedent).
+  3. Spec contract: accept an Ike transit as part of a Duna-system flyby (the B5_TARGET_FLYBY check
+     would need a tolerated-moon list, like `viaBodyNames` for the coast). This changes what B7
+     asserts, so it is an owner call.
+Option 1 is the smallest. Done when B7 flies attempt 1 green across several nightlies.
 
 ## ~~FAR-SWITCH-CASE-B-UNFLOWN~~: no lane flew a far vessel switch while recording, so the commit before stock's reload was never checked in game [CLOSED 2026-11-15: S0.14 LIVE-PROVEN on its fourth flight, `2026-11-15_0011_S0.14-far-switch-merges-before-reload` PASS attempt 1, tier daily; the residue below is the #266 stash, still unreached. FILED 2026-11-14 from a lane gap audit (the vessel-switch stash family). LANE AUTHORED 2026-11-14, branch `item20-switch-pending-merge-lane`: `S0.14-far-switch-merges-before-reload`, operator (flight 1 INVALID on its host, re-hosted on `jool-park-nerv`; flight 2 red on a spec error, fixed; flight 3 PARSEK-FAIL on a product defect, FAR-SWITCH-INTENT-TTL-RACE, now fixed and the lane re-pinned to it); the two-switch reading lane S0.15 flew once and was WITHDRAWN (no committed host). Closes when S0.14 flies green with the fix; the #266 stash stays unreached by any flown lane until a host is harvested; test gap]
 
