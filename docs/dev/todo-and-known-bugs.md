@@ -20,6 +20,253 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~FAR-SWITCH-INTENT-TTL-RACE~~: a fast far Switch-To starts a switch segment on the target, which the design says it must not [FILED 2026-11-14 from S0.14's third flight (PC, head a3624e48f, PARSEK-FAIL on its pre-registered P6), branch `item20-switch-pending-merge-lane`; code and decompile reading. FIXED 2026-11-14 on the same branch (PR #2609): no intent is armed for an unloaded target; xUnit + mutation; FLOWN GREEN 2026-11-15: S0.14 `2026-11-15_0011_S0.14-far-switch-merges-before-reload` PASS attempt 1; low (a recording the player did not ask for, on a rare path)]
+
+What the player sees: with Parsek recording, a Switch-To (map menu, or the stock alarm's Jump in
+FLIGHT) to a vessel outside the physics bubble reloads the flight scene, and on a fast machine the
+new scene starts recording the target at once, as if the player had used Fly on it. On a slower
+load it does not. The design says it never should.
+
+The designed outcome. `docs/dev/done/plans/segment-scoped-switch-fly-autorecord.md`, "Unloaded-vessel
+branch outcome": "The deliberate outcome for this case is that Map Switch-To to an unloaded vessel
+does NOT immediate-start a segment; the player falls back to the first-modification watcher ... do
+not write code that pretends to 'rearm fresh' in the new scene." The TTL line in the same plan sizes
+the Map marker for the in-scene consume only: "2 seconds wall-clock for Map Switch-To (consume
+happens same-frame in stock; anything longer is a stuck marker)", and "Marker lifetime: cross-scene
+vs in-scene asymmetry" ends "Do not treat the Map-source marker as durable cross-scene state."
+`StockActionIntentMarker.MapSwitchToTtlSeconds` carries the same comment. Round 3 (the no-session
+Case B handlers) kept that outcome ("the new vessel got the first-modification watcher").
+
+Why it records anyway. The plan assumed the map Postfix's `refused-no-switch` clear removes the
+marker before the reload. Decompiled `FlightGlobals.setActiveVessel` (Assembly-CSharp 1.12.5,
+ikdasm): the unloaded branch (`Vessel.loaded` false at IL_021d) fires
+`onVesselSwitchingToUnloaded`, then `GamePersistence.SaveGame("persistent", ...)` (IL_0248) and
+`HighLogic.CurrentGame.Updated()` (IL_0257, which calls `ScenarioRunner.GetUpdatedProtoModules`),
+then `FlightDriver.StartAndFocusVessel` with that updated Game (IL_026c), all before it returns. Both
+serializations run `ParsekScenario.OnSave`, which writes the still-armed intent
+(`SaveRewindStagingState`), so the far scene's OnLoad reads it back from the node
+(`LoadRewindStagingState` -> `ValidateLoadedStockActionIntentFreshness`). Any clear after
+`SetActiveVessel` returns (the map Postfix, `AlarmJumpSwitchPatch.Postfix`) only clears the old
+scene's copy, and `ArmIntentAndSwitchTo` (the Case A / B / C dialog and auto-resolve finisher, which
+S0.14 drives through `AlarmJump`) has no clear at all. What stops a segment today is only the wall
+clock: OnLoad clears `stale-intent` past 2 s, and the OnFlightReady consume clears
+`stale-intent-ttl` past 2 s; a target on the surface is declined `on-surface-defer-to-trigger`. A
+far scene that reaches OnFlightReady within 2 s of the click passes every check
+(`StockActionIntentConsumeDecision.Evaluate`: same process, inside the TTL, target matches the new
+active vessel) and gets a standalone segment.
+
+The flight. S0.14 on `jool-park-nerv`: `pre-switch auto-resolve: resolution=Merge case=B-unloaded`
+at 12.292, `CommitTreeFlight` 12.293, `[SwitchIntent] armed: intentId=30a51d77... action=MapSwitchTo
+targetPid=4267147709 ... capturedRealtime=56.52705` 12.404, `Scene change requested: FLIGHT` 12.527,
+`intent kept-armed on OnLoad` 12.983, `[OnFlightReady]` 13.741 (1.34 s after the arm), `[SwitchSegment]
+created ... parentRecId=<standalone> ... focusedPid=4267147709 focusedName='Duna Rocket Debris'
+reason=MapSwitchTo` 13.744, `cleared ... reason=consumed-into-segment` 13.754, then `recordingstate
+recording=true ... points=1` (recordings 2 > max 1). The second flight of the same lane reached OnLoad
+0.7 s after the arm and quit before OnFlightReady, so it does not say which way that run would have
+gone; this host reloads well inside 2 s, so before the fix S0.14 would red on every flight.
+
+Fix: a MapSwitchTo intent is armed only for a LOADED target, so nothing crosses the reload. The
+pure predicate `MapFocusObjectOnSelectPatch.ShouldArmIntentForSwitchTarget(targetLoaded)` is read
+through `DeclineArmForUnloadedTarget` by both FLIGHT arm sites, `PrepareOwnedVesselSwitch` (the map
+Prefix, also reached from the alarm Jump in FLIGHT) and `ArmIntentAndSwitchTo` (the Case A / B / C
+dialog and auto-resolve finisher). An unloaded target logs one Info line, `[SwitchIntentPatch]
+<label> intent not armed: reason=far-switch-target-unloaded targetPid=<pid> ...`, arms nothing and
+still switches; the map and alarm Postfix refunds see an empty intent id and log nothing. The third
+arm site, the automation seam `SimulateStockSwitchClick`, already refused an unloaded target
+(`target-unloaded`); its gate now reads the same predicate. A loaded target arms exactly as before
+(2 s TTL, same-frame consume), so S0.8 / S0.12 / S0.13 / CI-1 / GS-3 / FAR-4 keep their pins. No
+OnLoad clear was added, and the TS / KSC Fly markers and every TTL are unchanged. Tests:
+`FarSwitchIntentArmTests` (predicate truth table, the log line through the sink, the empty refund,
+the seam gate, source gates on both sites read comment-stripped, and the set of every
+`ArmStockActionIntent` call site in production). Mutation: the predicate forced to always arm reds
+five cells (the truth-table row, the decline cell, the seam-gate cell and the two existing
+`Gate_UnloadedTarget_*` cells); removing either site's call reds that site's source gate. S0.14 now
+requires the not-armed line before the reload and forbids every MapSwitchTo intent line for the
+debris, `intent kept-armed on OnLoad` and the segment, with recordings {1,1}. The 10 s scene-load TTL
+alternative was rejected: it contradicts the plan's stated outcome.
+
+Flown green 2026-11-15: `2026-11-15_0011_S0.14-far-switch-merges-before-reload` PASS attempt 1 (PC,
+head 94f5b8df9, DLL sha256 aa34bc87...3d22 carrying the fix's literals, wall 56 s). KSP.log order:
+`CommitTreeFlight` at UT=27787328.0, `[SwitchIntentPatch] pre-switch-dialog intent not armed:
+reason=far-switch-target-unloaded targetPid=4267147709` (line 12263), `Scene change requested: FLIGHT
+at UT=27787328.00` (line 12375), the far scene flight-ready; zero `action=MapSwitchTo`, `intent
+kept-armed on OnLoad` and `[SwitchSegment] created` lines; one recording in one committed tree.
+
+Known residue, not built (from the fix's review):
+  (a) A decline neither clears nor supersedes a still-armed EARLIER MapSwitchTo marker (before the
+      fix the new arm superseded it), and `ArmIntentAndSwitchTo` has no Postfix refund when stock
+      refuses its switch (a pre-existing gap). So in a contrived sequence a marker for another target
+      could survive up to 2 s, be saved by the far branch and be consumed on the far side. The
+      optional OnLoad clear of any loaded MapSwitchTo marker (no Map marker has a designed
+      cross-scene consume) would close it.
+  (b) When `FlightGlobals.ActiveVessel == null`, stock skips the ClearToSave and loaded checks and
+      switches in-scene even to an unloaded target (decompiled `setActiveVessel`: IL_0089 branches
+      to the in-scene IL_02be), so Parsek now declines where it used to arm. Degenerate: a FLIGHT
+      Switch-To with no active vessel.
+
+## PARALLEL-RUNNER-INSTANCE-BUSY-ON-EXITING-SIBLING: a slot's preflight refuses instance-busy on a sibling slot's KSP that is still exiting [FILED 2026-11-14 from a parallel daily run on the PC (2 slots); harness, no fix yet; low (one lane INVALID per occurrence, passes when re-flown)]
+
+`RVR-3` was dispatched on slot 1 9 ms after slot 1's previous lane finished, and its zombie preflight
+refused `INVALID(instance-busy)`: "a live KSP_x64.exe (pid=12408) is running on this machine; the
+probe cannot tell which install it belongs to". pid 12408 was slot 2's KSP (launched for `S0.7`),
+which had logged `Application.Quit` 0.4 s earlier and was mid-exit, so
+`QueryFullProcessImageNameW` could not read its image path. The lane passed when flown alone.
+
+Why: a slot child scopes the probe to its own instance (`Runtime.ksp_running` ->
+`slotrun.blocking_ksp_pid`), but `slots.exe_belongs_to_instance` treats an unreadable path as busy
+(fail-closed, deliberately), and an exiting process is exactly the one whose path stops being
+readable. The only wait in front of the refusal, `_wait_for_prior_ksp_exit`, runs only after a lane
+whose KSP this run killed on the same slot (`defer_post_quit and wait_for_prior_ksp`), so a sibling
+slot's exiting KSP refuses at once.
+
+What a fix needs, either of:
+  1. A short bounded re-probe when every blocker has an unreadable path (a few seconds, polling
+     `ksp_running`): an exiting process vanishes, and a live one reads its path again, so the
+     verdict then attributes it. Keep the fail-closed reading at the end of the bound. Pure
+     decision in `slotrun` (blockers all unknown-path -> wait), unit cells for: unknown path that
+     vanishes (clear), unknown path that becomes another slot's exe (clear), unknown path that stays
+     unknown (refuse), a known own-instance exe (refuse at once, no wait).
+  2. Attribution by slot pid files: each `run.py --slot` child writes the pid of the KSP it launched
+     (and removes it after the exit wait), and the probe treats an unreadable-path pid listed by
+     ANOTHER slot as that slot's, not busy. Exact, but adds a file contract every launch path and
+     crash path must keep.
+The first is smaller and needs no new state.
+
+## ~~FAR-SWITCH-CASE-B-UNFLOWN~~: no lane flew a far vessel switch while recording, so the commit before stock's reload was never checked in game [CLOSED 2026-11-15: S0.14 LIVE-PROVEN on its fourth flight, `2026-11-15_0011_S0.14-far-switch-merges-before-reload` PASS attempt 1, tier daily; the residue below is the #266 stash, still unreached. FILED 2026-11-14 from a lane gap audit (the vessel-switch stash family). LANE AUTHORED 2026-11-14, branch `item20-switch-pending-merge-lane`: `S0.14-far-switch-merges-before-reload`, operator (flight 1 INVALID on its host, re-hosted on `jool-park-nerv`; flight 2 red on a spec error, fixed; flight 3 PARSEK-FAIL on a product defect, FAR-SWITCH-INTENT-TTL-RACE, now fixed and the lane re-pinned to it); the two-switch reading lane S0.15 flew once and was WITHDRAWN (no committed host). Closes when S0.14 flies green with the fix; the #266 stash stays unreached by any flown lane until a host is harvested; test gap]
+
+Shape: the player records a vessel, then switches to a vessel OUTSIDE the physics bubble (map
+Switch-To, or the stock alarm's Jump in FLIGHT). Stock's `setActiveVessel` fires
+`onVesselSwitchingToUnloaded`, saves `persistent` and reloads FLIGHT through
+`FlightDriver.StartAndFocusVessel`; it never fires `onVesselSwitching`, so the #266 pre-transition
+stash (`StashActiveTreeForVesselSwitch`) cannot see it. Parsek decides first: pre-switch Case B
+(no session, a live recording, `target.loaded == false`) in
+`MapFocusObjectOnSelectPatch.PrepareOwnedVesselSwitch`, then `TryAutoResolvePreSwitch` ->
+`MergeActiveTreeAndSwitchTo` (`CommitTreeFlight`) or `DiscardActiveRecordingAndSwitchTo`, then
+`ArmIntentAndSwitchTo`.
+
+Gap, by grep on 2026-11-14 over every `harness/scenarios/*.toml` and
+`docs/dev/flight-profiles.md`: zero hits for `B-unloaded`,
+`pre-switch-dialog-merge-chosen-no-session`, `pre-switch-dialog-discard-chosen-no-session` and
+`StashActiveTreeForVesselSwitch`. `SimulateStockSwitchClick` refuses an unloaded target
+(`target-unloaded`), and AJ-1 drives `AlarmJump` only inside a Re-Fly session, where the switch
+is refused before Case B. The xUnit cells (`MergeFlowDecisionTests`, the
+`DecidePreSwitchAutoResolution` truth table) fake the host.
+
+Lane: S0.14 on `jool-park-nerv` records the Duna Rocket in Jool orbit and presses `AlarmJump
+pid=4267147709` (a `Duna Rocket Debris` in Kerbin orbit, unloaded). It requires the Merge auto-resolve with
+`case=B-unloaded`, the commit of a one-recording tree before `Scene change requested: FLIGHT`,
+an OnLoad with no pending or Limbo tree, the MapSwitchTo intent cleared stale, no recording after
+the reload and one committed tree in the save; every Limbo / #266 stash and restore line and the
+dialog are forbidden. Pre-registered outcomes P1-P6 are in the spec header. Not covered: the
+Discard half of Case B (a no-op or idle-on-pad prior recording) and the #266 stash itself, which
+needs an in-scene switch followed within 60 frames by a FLIGHT -> FLIGHT reload that no seam verb
+drives.
+
+The #266 stash (`StashActiveTreeForVesselSwitch`) stays unreached by every lane, S0.14
+included: it runs only when `onVesselSwitching` armed the switch flag less than 60 frames before
+a FLIGHT -> FLIGHT scene request with the tree still live, and stock's far switch fires
+`onVesselSwitchingToUnloaded` instead. Decompile evidence (Assembly-CSharp 1.12.5, ikdasm, IL
+of `FlightGlobals.setActiveVessel`): the ONLY `onVesselSwitching.Fire` in the assembly is that
+method's loaded branch (IL_02be, then `onVesselChange`, no reload); its unloaded branch fires
+`onVesselSwitchingToUnloaded` (IL_022e), `GamePersistence.SaveGame("persistent")` and
+`FlightDriver.StartAndFocusVessel` (IL_026c); the other eight uses of the event are Add / Remove.
+So no single stock action reaches it. One two-action sequence might, read from the source only
+and NOT proven: an in-scene switch to a loaded vessel (fires `onVesselSwitching`), then within
+about one second a switch to an UNLOADED vessel whose Case A auto-resolve is Discard of a
+background-member no-op segment; `DiscardPriorAndSwitchTo` keeps the live tree, and its
+`SetActiveVessel` starts the far reload with the tree live and the flag fresh. After a longer
+dwell the same sequence takes `StashActiveTreeAsPendingLimbo` instead (stale flag), which is
+also unflown on a switch. What would prove either: a seam lane that runs
+`SimulateStockSwitchClick` on the probe and then, with no dwell, `AlarmJump` on an unloaded
+debris (S0.13 + S0.14 hosts), reading `stashed tree '...' as LimboVesselSwitch (` or
+`as Limbo`; if the no-op check needs more than 60 frames of data (`insufficient-data` keeps the
+segment, so Case A merges and commits), the #266 stash is unreachable from stock.
+
+S0.14 first flight, 2026-11-14 on the PC, INVALID(driver-arg) on both attempts (its
+pre-registered P2): the first host `eva2-lko-crewed` targeted pid 2325190904, one of four
+`Kerbal X Debris` LANDED at KSC, and stock removed all four about 1.5 s after the Cold load
+("it was debris cluttering up KSC"), so the jump read `alarmjump rejected
+reason=alarmjump-target-not-found ... matches=0 vesselsScanned=3`; steps 1-8 were OK. Stock's
+rule, decompiled from `FlightState..ctor` (Assembly-CSharp 1.12.5): with
+`GameSettings.DECLUTTER_KSC` on, a vessel that is not `isCommandable`, not `isPersistent`, in
+situation LANDED and `LandedInKSC` (else `LandedInStockLaunchSite`, "cluttering up a
+LaunchSite") gets `SetAutoClean`. A fixture sweep of `harness/fixtures/saves` found no host
+with a recordable vessel, a loaded neighbour, an unloaded owned non-debris-at-KSC target and
+nothing committed except `miner-rover-depot`, whose active vessel is LANDED (a stationary landed
+recording reads idle-on-pad, so Case B would Discard there). So S0.14 moved to `jool-park-nerv`
+(nothing committed; the asteroid aside, its only other vessels are two owned debris ORBITING
+Kerbin, which the rule never touches), and the two-switch lane went to `miner-rover-depot`.
+
+S0.14 second flight, 2026-11-14 on the PC (head ace27412f, wall 70 s, every seam step OK),
+PARSEK-FAIL(log) on one spec error: the Case B merge before the reload worked
+(`pre-switch auto-resolve: resolution=Merge case=B-unloaded ... targetPid=4267147709`,
+`CommitTreeFlight: starting tree commit at UT=27787327.9`, then `Scene change requested: FLIGHT
+at UT=27787327.88`). The miss was `cleared: ... reason=stale-intent`: the MapSwitchTo intent
+`ArmIntentAndSwitchTo` arms has a 2 s wall-clock TTL, OnLoad ran 0.7 s after the arm and kept it
+(`intent kept-armed on OnLoad`), and the spec's last RecordingState and FlushAndQuit ran before
+the far scene's onFlightReady, whose `DispatchConsumeIntentIfArmed` is the other clear site. The
+spec now waits with `ListHandles kind=chains` (the seam defers it `ghost-chains-pending` until
+`ParsekFlight.FlightReadyObserved`, set in the same OnFlightReady call that runs the consume) and
+pins the clear to `stale-intent` (OnLoad) or `stale-intent-ttl` (the consume) exactly. From the
+code, a far scene that reached OnFlightReady within 2 s of the click would have the consume
+Authorized and start a standalone segment on the target (no live tree, no committed match); the
+lane forbids that `[SwitchSegment] created`, since a far switch is meant to start nothing.
+
+S0.14 third flight, 2026-11-14 on the PC (head a3624e48f): the far scene reached OnFlightReady
+1.34 s after the arm, the consume was Authorized and a standalone segment started on the debris,
+the P6 outcome above (recordings 2 > max 1, `recording=true` after the reload). The Case B merge
+before the reload matched again. That is a product defect, not a spec error: FAR-SWITCH-INTENT-TTL-RACE
+(above) has the design evidence and the decompile. It is fixed on this branch (no intent is armed
+for an unloaded target), and the spec now requires `pre-switch-dialog intent not armed:
+reason=far-switch-target-unloaded targetPid=4267147709` before the reload and forbids any MapSwitchTo
+intent line for the debris in place of the old stale-clear pin. Its fourth flight, with the fix, was
+green (2026-11-15_0011, wall 56 s): commit at UT 27787328.0, the not-armed line before the FLIGHT
+scene change, no MapSwitchTo intent or segment after it, one recording in one committed tree. The
+lane is daily. What stays open is the #266 stash reading below, which needs a harvested host.
+
+The two-switch sequence above flew once as the reading lane S0.15 on `miner-rover-depot` (PC,
+head ace27412f, wall 78 s), was PARSEK-FAIL(log) on its own premise and is WITHDRAWN from the
+branch. The flight: `Vessel switch detected: 'Mining Rover RC' -> 'Ore Depot' (frame=10327)` at
+00:06:46.467; the click's consume refused (`SwitchIntent refused:
+reason=on-surface-defer-to-trigger`, the intent cleared with the same reason) and armed no
+session, only `Post-switch auto-record armed: vessel='Ore Depot'`; the jump (`alarmjump start`
+at 46.528, about 61 ms after the switch, so the 60-frame window was not the issue) then took
+Case B, not A: `pre-switch auto-resolve: resolution=Discard case=B-unloaded ... idleOnPad=True
+reason=not-committed-restore-clone priorSessionId=<no-session> targetPid=2109271953` and
+`AutoDiscardActiveTreeCore: discarding live tree reason='pre-switch-dialog discard
+(no-session)'`. No stash line of either kind, no `committed-prior-segment`, no `case=A-session`.
+
+What a host needs, read from the code:
+  1. The first switch target LOADED and NOT on the surface. The consume
+     (`StockActionIntentConsumeDecision.Evaluate`) declines a PRELAUNCH, LANDED or SPLASHED
+     target with `on-surface-defer-to-trigger` and arms no `SwitchSegmentSession`, so the
+     jump is Case B, never Case A.
+  2. The recorded vessel and that target NOT committed spawned vessels. On a plain load,
+     OnFlightReady's `TryRestoreCommittedTreeForSpawnedActiveVessel` makes a committed match
+     of the active vessel the live tree as a committed clone, and a loaded target matching
+     another committed tree opens Case C at the click (the live tree is decided before the
+     switch, the target then restores through the clone path). Either way the session
+     segment's disposition is `CommittedRestoreClone`, whose no-op discard tears the clone
+     down WHOLE (`SwitchSegmentAttempts`), so no live tree crosses the reload; only a
+     `BgMemberOrMixed` discard keeps the tree live (S0.13's shape: the segment joins a live,
+     uncommitted tree).
+  3. A far target that is unloaded, Owned and survives the load (not a non-commandable vessel
+     LANDED at KSC or a stock launch site).
+Committed fixtures against that: `eva2-lko-crewed` has 1 and 2 (Kerbal X and the Kerbal X Probe
+orbiting about 3 m apart, nothing committed) and fails 3. `miner-rover-depot` fails 1 (both
+landed). `bdock-recorded` and `depot-route-recorded` have an orbiting loaded neighbour and a
+far target but fail 2: their active vessel and neighbour are the `spawnedPid`s of committed
+recordings (bdock: Kerbal X 3620499050 and Kerbal X 1223410921; depot-route: Depot 3620499050
+and Transporter 788309716), so Case C and the committed clone pre-empt the question and the
+spec could not read it cleanly. The closest is `eva2-lko-crewed`: harvesting it with one owned
+vessel added out of the bubble (any orbit, or anything commandable) would host the lane as
+designed (record Kerbal X, click the probe, jump at once). Nothing was harvested. So the #266
+stash (`StashActiveTreeForVesselSwitch`) stays unreached by any flown lane, and the open
+question stays open: whether the switch path still takes it, as the closed todo
+VESSEL-SWITCH-266-UNREACHABLE-FOR-FAR-SWITCH (`docs/dev/done/todo-and-known-bugs-v11.md`)
+says, or a Case A merge on a too-young segment (`insufficient-data`) always decides the tree
+first.
+
 ## ~~LAUNCH-SITE-WOUND-LONGITUDE~~: a flight parked on the pad or runway spawned there when its stored longitude was wound past the date line [FILED 2026-11-14 by the multiplayer implementation plan (`docs/dev/plans/multiplayer/r0b-prep-small.md`, P1-02, question 10.1; owner answer "Fix both"), by code reading and the committed fixtures. FIXED 2026-11-14, branch `claude/project-thread-xgsu2i` (PR #2605); xUnit; FLOWN GREEN 2026-11-14 on the PR DLL: EX-1 (`2026-11-14_2025`, pad retirement), PADG-1 (`_2030`), LF-1 (`_2027`), LF-2 (`_2028`), MC-4 (`_2020`), all first attempt; no committed lane stores a wound longitude, so the wrap itself is proven by xUnit only; low]
 
 Recorded longitudes are not always in [-180, 180]: 2,686 of 118,819 `lon =` values in the committed
@@ -227,8 +474,9 @@ construction.
   `lifetimes.py` does: field entry, pattern, type default), runs the helper and then the
   store's own Cold-path call with a save that holds nothing (`VesselNameStore.Load`,
   `RouteStore.LoadRoutesFrom`, `LedgerOrchestrator.OnLoad`, `SaveFileLoadIntent.TryConsume`,
-  ...), and reads each back. What it leaves set today is pinned in `ColdLoaderKnownGaps`
-  (COLD-RESET-LEFTOVERS below), and a pinned gap that closes reds until its entry goes.
+  ...), and reads each back. What it leaves set is pinned in `ColdLoaderKnownGaps`, and a
+  pinned gap that closes reds until its entry goes; the list is empty since
+  COLD-RESET-LEFTOVERS (below) closed its four.
 - Both reset cells read through a `ColdResetState` holder: each field of the holder the reset
   leaves current is a slot keyed `Store.field`, so a field moved into the holder keeps its
   allowlist key and a field added to it is covered with no test edit.
@@ -244,7 +492,7 @@ construction.
 - `RewindInvokeContext`: the Re-Fly invoke context (11 fields, now properties); `Clear` swaps to a holder naming no slot (-1). The arch IL cells that named `::Pending` and `::CapturedBundle` re-anchor (no save static is cleared by `ldsflda` + `initobj` any more; the fixture cells keep that rule covered).
 - Re-pin: `facts_pins.toml` `crossTypeStaticWrites` stays at 55 with the same keys. The extractor now counts another type's call to a static property setter that reads a `ColdResetState` holder as a cross-type static write keyed by the property, so the 14 keys the holders moved (`RewindInvokeContext` x11, `SceneEntryVesselScope` x3) are still seen (a first re-pin to 41 had let the gate go blind to them). A call to a holder type's method that assigns holder fields is not counted. The lifetime gate still reads every holder field as save-scoped (7 holders, 51 fields), findings 0, `lifetime_pins.toml` unchanged.
 
-## COLD-RESET-LEFTOVERS: four save / load-transition statics a Cold load leaves set [FILED 2026-11-14 from the ARCH-COLD-RESET-HOLDERS cold-loader cells, by a headless test. OPEN; none reproduced in play, low; pinned in `SaveScopedSessionResetTests.ColdLoaderKnownGaps`, not fixed]
+## ~~COLD-RESET-LEFTOVERS~~: four save / load-transition statics a Cold load leaves set [FILED 2026-11-14 from the ARCH-COLD-RESET-HOLDERS cold-loader cells, by a headless test; none reproduced in play, low. FIXED 2026-11-14 on branch `item23-cold-reset-leftovers`, headless only]
 
 - `RevertDetector.pending` and `revertTargetVesselPids`: consumed only by `OnLoad`'s
   in-session branch (`RevertDetector.Consume`, `ConsumeRevertTargetVesselPids`); the Cold
@@ -261,8 +509,34 @@ construction.
   with the flight epoch on purpose (`ClearRevertUndoState(resetEpoch: false)`); the tag is the
   thing to fix (a `process` field entry, beside `FlightEpoch`), not the code.
 
-**Fix.** Clear the two `RevertDetector` fields in the Cold reset and `armedTarget` in
-`DiscardReFlyLoadIntent.Clear`, retag `lastPostInitState`, and drop the four entries.
+**Fix.** All four closed through the existing paths; `ColdLoaderKnownGaps` is empty.
+
+- `RevertDetector.DropForColdLoad(reason)`, called by `ResetSaveScopedSessionState` after the
+  load is classified, clears both fields and logs one line (Warn
+  `Cold load dropped a stale pending revert: kind=.. targetPids=.. reason=..` when either was
+  set, Verbose otherwise). Only a Cold load drops it: a load from the main menu or of another
+  save folder. A load of the same save that finds `initialLoadDone` true (F9, the pause-menu
+  Load into the same folder) with a revert pending still classifies in session by design
+  (`ClassifyEarly` treats it as the revert's own load) and consumes the revert there. No race
+  with the consumer: `ClassifyEarly` reads the kind before the reset, and `Consume` runs only in
+  the in-session branch, which a Cold load never enters. The pending kind
+  is also read at scene exit (`SceneExitInterceptor` persistent-write skip, the merge flow's
+  save-file stash), so a stale one would have misled those too.
+- `DiscardReFlyLoadIntent`: `TryConsume` and `Clear` (both paths) now reset every field, the
+  target included, through one `Disarm`. Every OnLoad consumes the intent while it classifies, so
+  the target was left by the consume, not only by `Clear`. Inert before (every reader checks
+  `armed`); hygiene only.
+- `VesselNameStore.lastPostInitState`: retagged `process` in `scripts/arch/lifetimes.toml`
+  beside `FlightEpoch`; no code change. Stock rebuilds `FlightDriver.PostInitState` on every
+  flight start, so the first flight ready after any load bumps the epoch whether the field is
+  kept or cleared.
+- Cells: `SaveScopedSessionResetTests` (`ColdLoader_ResetsEverySaveScopedStatic` rows for the
+  three stores with no known gaps, `StaleRevert_IsDroppedByTheColdReset_WithAWarn`,
+  `DiscardIntent_ConsumeAndClear_DropTheTarget`,
+  `VesselNames_FlightEpochAndItsRevertTarget_SurviveTheColdLoad`) and, over the real OnLoad,
+  `ParsekScenarioOnLoadStepOrderTests.AColdLoad_DropsAStaleRevertAndTheDiscardIntentTarget` and
+  `TheRevertAndDiscardReFlyLoads_StillConsumeTheirMarkers`. Each fix reverted alone reds its
+  cells; a clear moved before the classification reds the in-session cell.
 
 ## ~~ROUTE-LINE-DETACHED-SEGMENTS~~: the supply route overview line drew route segments far from the ship's icon; the line is retired [FILED 2026-11-12 from the TP-7 pictures; RULED 2026-11-12 by the owner; REMOVED 2026-11-12 on branch `claude/project-thread-zfo2hk` (PR #2586); FLOWN GREEN 2026-11-12, seven lanes on the first attempt]
 

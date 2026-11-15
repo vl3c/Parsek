@@ -86,9 +86,12 @@ namespace Parsek
             storesReset++;
 
             DiscardReFlyLoadIntent.Clear("save-scoped-reset");
+            // Read by ClassifyEarly above and consumed only by the in-session branch, so a
+            // revert still armed here belongs to another load (COLD-RESET-LEFTOVERS).
+            RevertDetector.DropForColdLoad(reason);
             PlaybackScopeTracker.Reset();
             RouteStore.ClearAllEscrow("save-scoped-reset");
-            storesReset += 3;
+            storesReset += 4;
 
             // GC1-SAVE-SCOPED-STATE-LEFTOVERS. A Cold load is never a rewind's or a Re-Fly
             // invoke's own load (ClassifyEarly ranks both ahead of a save-file load, and neither

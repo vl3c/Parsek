@@ -49,6 +49,10 @@ All notable changes to Parsek are documented here.
   the ship was also the end of an earlier recorded flight, the map's Switch To quietly merged the
   recording you were making and loaded that earlier flight instead. The switch now just continues
   the current recording. (PRESWITCH-CASE-C-LIVE-TREE-MEMBER)
+- **Switching to a far-away vessel no longer starts a recording by itself.** After a map Switch To
+  (or an alarm's Jump) to a vessel outside the loaded area, the game reloads the flight, and on a
+  fast load Parsek could start recording the new vessel at once, depending on load speed. It now
+  never does. (FAR-SWITCH-INTENT-TTL-RACE)
 - **Supply routes no longer break after a save is loaded.** Parsek's clean-up of saved recordings
   could merge, split or trim the recordings a route was built from, and the route then stopped
   with "source changed", often right after you created it. Those recordings are now left as they
@@ -61,6 +65,10 @@ All notable changes to Parsek are documented here.
   to the Space Center, or another save loaded in the same session, used to jump forward to the
   date you had picked. Loading a save or quitting to the main menu now also cancels a Warp to
   time still waiting to finish. (WARP-REQUEST-SURVIVES-A-FAILED-REWIND)
+- **Loading another save forgets a revert that never finished.** If a Revert to Launch or to the
+  editor was cut short before the game reloaded, the next save you loaded could treat its first
+  scene change as that revert and remove vessels Parsek had placed. Loading another save, or any
+  save from the main menu, now drops the unfinished revert. (COLD-RESET-LEFTOVERS)
 - **A looped ship that landed on another planet no longer shows in orbit there afterwards.**
   After a looped trip to another planet ends in a landing, the ship's ghost, map icon and orbit
   line stay gone until the next loop. They used to come back in the parking orbit about a month

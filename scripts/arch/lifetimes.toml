@@ -276,6 +276,7 @@ default = "save"
 reason = "Load clears the state (ClearState) and decodes the VESSEL_NAMES node"
 [type.fields]
 FlightEpoch = "process: the flight epoch survives Load on purpose (ClearRevertUndoState(resetEpoch: false))"
+lastPostInitState = "process: the revert target the flight epoch was last compared with, kept with FlightEpoch; stock rebuilds FlightDriver.PostInitState on every flight start, so the first flight ready after any load bumps the epoch either way"
 Version = "process: change counter that name caches key on"
 
 [[type]]

@@ -185,6 +185,32 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Cold load: forgets an armed revert and its target pids
+        /// (<c>ParsekScenario.ResetSaveScopedSessionState</c>, after the load is classified). A
+        /// Cold load is never the revert's own load (<c>ClassifyEarly</c> keeps a save-file load
+        /// with a revert pending in session; a revert's own load finds <c>initialLoadDone</c>
+        /// true), and the Cold branch never consumes the revert, so an armed one here is stale
+        /// and would make the next in-session load of this save classify as a revert.
+        /// </summary>
+        internal static void DropForColdLoad(string reason)
+        {
+            RevertKind kind = pending;
+            HashSet<uint> pids = revertTargetVesselPids;
+            pending = RevertKind.None;
+            revertTargetVesselPids = null;
+            if (kind == RevertKind.None && pids == null)
+            {
+                ParsekLog.Verbose("RevertDetector",
+                    $"Cold load: no pending revert to drop (reason={reason ?? "unspecified"})");
+                return;
+            }
+            ParsekLog.Warn("RevertDetector",
+                $"Cold load dropped a stale pending revert: kind={kind} " +
+                $"targetPids={(pids == null ? "none" : pids.Count.ToString(CultureInfo.InvariantCulture))} " +
+                $"reason={reason ?? "unspecified"}");
+        }
+
+        /// <summary>
         /// Directly set the pending kind (tests only). Production callers must use
         /// <see cref="Subscribe"/> + the GameEvents path.
         /// </summary>
