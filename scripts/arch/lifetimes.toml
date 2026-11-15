@@ -434,6 +434,11 @@ name = "Parsek.DisplayNames"
 default = "process"
 reason = "name change counter and its change event"
 
+[[type]]
+name = "Parsek.SpaceObjectGhostVisual"
+default = "process"
+reason = "generated asteroid / comet ghost meshes keyed on part, prefab URL, seed and state (a pure function of the key), and the comet prefabs already warmed"
+
 # --- Scene objects ---------------------------------------------------------------------
 
 [[type]]

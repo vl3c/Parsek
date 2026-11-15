@@ -106,9 +106,15 @@ namespace Parsek.Tests.Generators
         /// A post-claw-grab merged vessel (M-MIS-10 archetype 4): crewed pod + Advanced
         /// Grabbing Unit + the grabbed PotatoRoid asteroid coupled through the claw.
         /// Part names are the stock RUNTIME names ("GrapplingDevice" is the AGU cfg name;
-        /// "PotatoRoid" has no underscore so cfg and runtime names coincide).
+        /// "PotatoRoid" has no underscore so cfg and runtime names coincide). The asteroid part
+        /// carries its <c>ModuleAsteroid</c> MODULE node with the persisted fields stock writes
+        /// (<c>seed</c>, <c>AsteroidName</c>, <c>prefabBaseURL</c> = <c>Procedural/PA_&lt;class&gt;</c>,
+        /// <c>currentState</c>, then the base <c>stagingEnabled</c>): the inputs the ghost builder
+        /// rebuilds the rock's shape and size from.
         /// </summary>
-        public static VesselSnapshotBuilder ClawedAsteroidShip(string name, string crew, uint pid)
+        public static VesselSnapshotBuilder ClawedAsteroidShip(string name, string crew, uint pid,
+            int asteroidSeed = 27182818, string sizeClass = "E", int currentState = 1,
+            string asteroidName = "Ast. HSJ-227")
         {
             var b = new VesselSnapshotBuilder();
             b.name = name;
@@ -116,6 +122,11 @@ namespace Parsek.Tests.Generators
             b.AddPart("mk1pod.v2", crew);                                      // index 0: root
             b.AddPart("GrapplingDevice", position: "0,-1.0,0");                // index 1: the claw
             b.AddPart("PotatoRoid", position: "0,-3.2,0", parentIndex: 1);     // index 2: grabbed asteroid
+            b.AddSpaceObjectModule(2, "ModuleAsteroid",
+                ("seed", asteroidSeed.ToString(IC)),
+                ("AsteroidName", asteroidName),
+                ("prefabBaseURL", "Procedural/PA_" + sizeClass),
+                ("currentState", currentState.ToString(IC)));
 
             var parts = b.partsContainer.GetNodes("PART");
             parts[0].AddValue("attN", "bottom, 1");
@@ -124,6 +135,47 @@ namespace Parsek.Tests.Generators
             // joint, so only the parent index (1 = the claw) models the coupling here.
 
             return b;
+        }
+
+        /// <summary>
+        /// A lone comet vessel (a released comet's own recording, or a claimed comet's hold
+        /// ghost): one <c>PotatoComet</c> part with the <c>ModuleComet</c> persisted fields stock
+        /// writes (<c>seed</c>, <c>CometName</c>, <c>CometType</c>,
+        /// <c>prefabBaseURL</c> = <c>Procedural/PC_&lt;class&gt;</c>, <c>currentState</c>,
+        /// <c>utFragmentSpawned</c>, then <c>stagingEnabled</c>).
+        /// </summary>
+        public static VesselSnapshotBuilder LoneComet(string name, uint pid,
+            int cometSeed = 16180339, string sizeClass = "C", int currentState = 1,
+            string cometType = "intermediate")
+        {
+            var b = new VesselSnapshotBuilder();
+            b.name = name;
+            b.persistentId = pid;
+            b.type = "SpaceObject";
+            b.AddPart("PotatoComet");
+            b.AddSpaceObjectModule(0, "ModuleComet",
+                ("seed", cometSeed.ToString(IC)),
+                ("CometName", name),
+                ("CometType", cometType),
+                ("prefabBaseURL", "Procedural/PC_" + sizeClass),
+                ("currentState", currentState.ToString(IC)),
+                ("utFragmentSpawned", "0"));
+            return b;
+        }
+
+        // A PartModule MODULE node as PartModule.Save writes it: name, isEnabled, the
+        // isPersistant KSPFields, stagingEnabled, then the EVENTS / ACTIONS / UPGRADESAPPLIED nodes.
+        private VesselSnapshotBuilder AddSpaceObjectModule(int partIndex, string moduleName,
+            params (string key, string value)[] values)
+        {
+            AddModuleToPart(partIndex, moduleName, values);
+            ConfigNode[] modules = partsContainer.GetNodes("PART")[partIndex].GetNodes("MODULE");
+            ConfigNode module = modules[modules.Length - 1];
+            module.AddValue("stagingEnabled", "True");
+            module.AddNode("EVENTS");
+            module.AddNode("ACTIONS");
+            module.AddNode("UPGRADESAPPLIED");
+            return this;
         }
 
         public static VesselSnapshotBuilder ReentryCapsule(string name, string crew, uint pid)
