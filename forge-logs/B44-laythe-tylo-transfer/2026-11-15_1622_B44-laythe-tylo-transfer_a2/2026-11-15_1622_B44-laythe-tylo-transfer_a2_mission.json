@@ -1,0 +1,158 @@
+{
+  "assertions": [
+    {
+      "met": true,
+      "name": "reachedOrbit",
+      "required": "ORBIT",
+      "value": "TRANSFER-BURN"
+    },
+    {
+      "met": false,
+      "name": "reachedTargetSoi",
+      "required": "TARGET-FLYBY",
+      "target": "Tylo",
+      "value": null
+    },
+    {
+      "floor": 40000.0,
+      "met": false,
+      "name": "flybyPeriapsisFloor",
+      "value": null
+    },
+    {
+      "apoapsis": null,
+      "body": "Tylo",
+      "maxApoapsis": 8000000.0,
+      "maxEccentricity": 0.85,
+      "met": false,
+      "minPeriapsis": 20000.0,
+      "name": "capturedInTargetOrbit",
+      "periapsis": null,
+      "required": "PARK",
+      "value": null
+    },
+    {
+      "debounceFrames": 3,
+      "dwellSeconds": 60.0,
+      "everStable": false,
+      "met": false,
+      "name": "parkedStable",
+      "required": "ORBIT-COMMIT",
+      "value": "TRANSFER-BURN"
+    },
+    {
+      "body": "Tylo",
+      "met": false,
+      "name": "treeCommitted",
+      "required": "ORBIT-COMMITTED",
+      "value": null
+    },
+    {
+      "apoapsis": 87931.28164687683,
+      "body": "Laythe",
+      "entryUt": 28817027.9970515,
+      "lastGateReason": null,
+      "maxApoapsis": 300000.0,
+      "maxEccentricity": 0.1,
+      "met": true,
+      "minPeriapsis": 52000.0,
+      "name": "startedInHomeOrbit",
+      "periapsis": 56240.318713821354,
+      "required": "ORBIT",
+      "value": 0.027697736006613818
+    },
+    {
+      "escapeNodeDvMps": 596.2098088088608,
+      "escapeNodeUt": 28818204.509321764,
+      "homeBody": "Laythe",
+      "lastRefusal": null,
+      "met": true,
+      "name": "escapedHomeSoi",
+      "parentBody": "Jool",
+      "relayStage": 1,
+      "required": "ESCAPE",
+      "targetSoiSpeedMps": 500.0,
+      "value": 1
+    }
+  ],
+  "connect": {
+    "attempts": 1,
+    "connectedSeconds": 0.1488969000056386,
+    "rpcPort": 50000
+  },
+  "error": null,
+  "krpcClientVersion": "0.5.4",
+  "krpcServerVersion": "0.5.4",
+  "mission": "b29_jool_kerbin",
+  "phasesReached": [
+    "PRELAUNCH",
+    "ORBIT",
+    "ESCAPE",
+    "TRANSFER-BURN",
+    "COAST-TO-TARGET",
+    "PLAN-TRANSFER",
+    "TRANSFER-BURN"
+  ],
+  "reason": "vessel-lost (unreadable after repeated telemetry failures)",
+  "schema": 1,
+  "verdict": "MISSION-ASSERT-FAIL",
+  "wallSeconds": 208.472,
+  "warpUtilisation": [
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 1.06,
+      "gameSecondsPerWallSecond": 0.976,
+      "phase": "PRELAUNCH",
+      "wallSeconds": 1.086,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 0.54,
+      "gameSecondsPerWallSecond": 1.003,
+      "phase": "ORBIT",
+      "wallSeconds": 0.538,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 1,
+      "gameSeconds": 2.441,
+      "gameSecondsPerWallSecond": 2.235,
+      "phase": "ESCAPE",
+      "wallSeconds": 1.092,
+      "warpCommands": 1
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 1239.159,
+      "gameSecondsPerWallSecond": 8.154,
+      "phase": "TRANSFER-BURN",
+      "wallSeconds": 151.962,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 4,
+      "gameSeconds": 4711.755,
+      "gameSecondsPerWallSecond": 155.195,
+      "phase": "COAST-TO-TARGET",
+      "wallSeconds": 30.36,
+      "warpCommands": 4
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 5.6,
+      "gameSecondsPerWallSecond": 10.269,
+      "phase": "PLAN-TRANSFER",
+      "wallSeconds": 0.545,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 30843.428,
+      "gameSecondsPerWallSecond": 1356.968,
+      "phase": "TRANSFER-BURN",
+      "wallSeconds": 22.73,
+      "warpCommands": 0
+    }
+  ]
+}

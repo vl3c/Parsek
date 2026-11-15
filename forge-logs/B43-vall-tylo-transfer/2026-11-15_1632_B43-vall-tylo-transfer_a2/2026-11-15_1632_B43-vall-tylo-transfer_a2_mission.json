@@ -1,0 +1,248 @@
+{
+  "assertions": [
+    {
+      "met": true,
+      "name": "reachedOrbit",
+      "required": "ORBIT",
+      "value": "TARGET-FLYBY"
+    },
+    {
+      "met": true,
+      "name": "reachedTargetSoi",
+      "required": "TARGET-FLYBY",
+      "target": "Tylo",
+      "value": "Tylo"
+    },
+    {
+      "floor": 40000.0,
+      "met": true,
+      "name": "flybyPeriapsisFloor",
+      "value": 1608791.6891961596
+    },
+    {
+      "apoapsis": null,
+      "body": "Tylo",
+      "maxApoapsis": 8000000.0,
+      "maxEccentricity": 0.85,
+      "met": false,
+      "minPeriapsis": 20000.0,
+      "name": "capturedInTargetOrbit",
+      "periapsis": null,
+      "required": "PARK",
+      "value": null
+    },
+    {
+      "debounceFrames": 3,
+      "dwellSeconds": 60.0,
+      "everStable": false,
+      "met": false,
+      "name": "parkedStable",
+      "required": "ORBIT-COMMIT",
+      "value": "TARGET-FLYBY"
+    },
+    {
+      "body": "Tylo",
+      "met": false,
+      "name": "treeCommitted",
+      "required": "ORBIT-COMMITTED",
+      "value": null
+    },
+    {
+      "apoapsis": 170416.82463237445,
+      "body": "Vall",
+      "entryUt": 28896851.482240148,
+      "lastGateReason": null,
+      "maxApoapsis": 300000.0,
+      "maxEccentricity": 0.05,
+      "met": true,
+      "minPeriapsis": 100000.0,
+      "name": "startedInHomeOrbit",
+      "periapsis": 167157.5309220947,
+      "required": "ORBIT",
+      "value": 0.0034763042429335135
+    },
+    {
+      "escapeNodeDvMps": 214.6378866092232,
+      "escapeNodeUt": 28899954.756004397,
+      "homeBody": "Vall",
+      "lastRefusal": null,
+      "met": true,
+      "name": "escapedHomeSoi",
+      "parentBody": "Jool",
+      "relayStage": 1,
+      "required": "ESCAPE",
+      "targetSoiSpeedMps": 250.0,
+      "value": 1
+    }
+  ],
+  "connect": {
+    "attempts": 1,
+    "connectedSeconds": 0.18005019996780902,
+    "rpcPort": 50002
+  },
+  "error": null,
+  "krpcClientVersion": "0.5.4",
+  "krpcServerVersion": "0.5.4",
+  "mission": "b29_jool_kerbin",
+  "phasesReached": [
+    "PRELAUNCH",
+    "ORBIT",
+    "ESCAPE",
+    "TRANSFER-BURN",
+    "COAST-TO-TARGET",
+    "PLAN-TRANSFER",
+    "TRANSFER-BURN",
+    "COAST-TO-TARGET",
+    "PLAN-CORRECTION",
+    "COAST-TO-TARGET",
+    "PLAN-CORRECTION",
+    "COAST-TO-TARGET",
+    "PLAN-CORRECTION",
+    "COAST-TO-TARGET",
+    "PLAN-CORRECTION",
+    "COAST-TO-TARGET",
+    "TARGET-FLYBY"
+  ],
+  "reason": "phase TARGET-FLYBY: flyby impact certain, capture-never-armed (periapsis-subsurface) -- 30 consecutive in-Tylo-SOI frames could not arm PLAN-CAPTURE (cap 30; pe=-579788.022 ttPe=997.426 alt=1608791.689 vspd=-1424.599 ut=29185235.445). The arrival periapsis is BELOW THE SURFACE: the course corrections under-performed and this is an impact trajectory.",
+  "schema": 1,
+  "verdict": "MISSION-ASSERT-FAIL",
+  "wallSeconds": 868.753,
+  "warpUtilisation": [
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 1.04,
+      "gameSecondsPerWallSecond": 0.962,
+      "phase": "PRELAUNCH",
+      "wallSeconds": 1.082,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 0.52,
+      "gameSecondsPerWallSecond": 1.0,
+      "phase": "ORBIT",
+      "wallSeconds": 0.52,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 1,
+      "gameSeconds": 2.324,
+      "gameSecondsPerWallSecond": 2.181,
+      "phase": "ESCAPE",
+      "wallSeconds": 1.066,
+      "warpCommands": 1
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 3127.417,
+      "gameSecondsPerWallSecond": 38.168,
+      "phase": "TRANSFER-BURN",
+      "wallSeconds": 81.939,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 4,
+      "gameSeconds": 7060.371,
+      "gameSecondsPerWallSecond": 228.531,
+      "phase": "COAST-TO-TARGET",
+      "wallSeconds": 30.895,
+      "warpCommands": 4
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 5.6,
+      "gameSecondsPerWallSecond": 9.873,
+      "phase": "PLAN-TRANSFER",
+      "wallSeconds": 0.567,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 209771.814,
+      "gameSecondsPerWallSecond": 316.228,
+      "phase": "TRANSFER-BURN",
+      "wallSeconds": 663.356,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 0.52,
+      "gameSecondsPerWallSecond": 0.993,
+      "phase": "COAST-TO-TARGET",
+      "wallSeconds": 0.524,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 1,
+      "gameSeconds": 33.15,
+      "gameSecondsPerWallSecond": 7.799,
+      "phase": "PLAN-CORRECTION",
+      "wallSeconds": 4.25,
+      "warpCommands": 1
+    },
+    {
+      "armedWarpCommands": 2,
+      "gameSeconds": 35211.334,
+      "gameSecondsPerWallSecond": 1761.266,
+      "phase": "COAST-TO-TARGET",
+      "wallSeconds": 19.992,
+      "warpCommands": 3
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 32.0,
+      "gameSecondsPerWallSecond": 10.002,
+      "phase": "PLAN-CORRECTION",
+      "wallSeconds": 3.199,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 1,
+      "gameSeconds": 11625.801,
+      "gameSecondsPerWallSecond": 1109.2,
+      "phase": "COAST-TO-TARGET",
+      "wallSeconds": 10.481,
+      "warpCommands": 1
+    },
+    {
+      "armedWarpCommands": 1,
+      "gameSeconds": 34.73,
+      "gameSecondsPerWallSecond": 8.23,
+      "phase": "PLAN-CORRECTION",
+      "wallSeconds": 4.22,
+      "warpCommands": 2
+    },
+    {
+      "armedWarpCommands": 1,
+      "gameSeconds": 34.047,
+      "gameSecondsPerWallSecond": 21.246,
+      "phase": "COAST-TO-TARGET",
+      "wallSeconds": 1.603,
+      "warpCommands": 1
+    },
+    {
+      "armedWarpCommands": 1,
+      "gameSeconds": 34.502,
+      "gameSecondsPerWallSecond": 8.137,
+      "phase": "PLAN-CORRECTION",
+      "wallSeconds": 4.24,
+      "warpCommands": 2
+    },
+    {
+      "armedWarpCommands": 4,
+      "gameSeconds": 3235.857,
+      "gameSecondsPerWallSecond": 131.589,
+      "phase": "COAST-TO-TARGET",
+      "wallSeconds": 24.591,
+      "warpCommands": 4
+    },
+    {
+      "armedWarpCommands": 1,
+      "gameSeconds": 18173.975,
+      "gameSecondsPerWallSecond": 1133.378,
+      "phase": "TARGET-FLYBY",
+      "wallSeconds": 16.035,
+      "warpCommands": 3
+    }
+  ]
+}
