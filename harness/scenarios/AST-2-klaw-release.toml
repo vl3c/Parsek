@@ -1,0 +1,192 @@
+schema = 1
+id = "AST-2-klaw-release"
+tier = "operator"
+# =====================================================================================
+# AST-2 (owner rulings V 2026-11-15, the Klaw lanes). AUTHORED 2026-11-15 on branch
+# `ast-lanes`, NEVER FLOWN. Every window below is a reading-run guess; the lane is re-pinned
+# off its first flight and the tier promoted by its measured p50.
+#
+# THE RULING UNDER TEST. A rock the Klaw releases gets a recording of its own and becomes real
+# at its tip; it never gets a Re-Fly slot and never creates a rewind point (a rock is not
+# controllable, so the release is a single-controllable split).
+#
+# HOST: `ast-klaw-lko`, as AST-1 (the probe pid 2710401000, the rock pid 1490391000 60 m
+# ahead, the watcher pid 2710403000 300 m behind).
+#
+# THE FLIGHT. AST-1's grab (the same mission, the same params), then the mission goes on:
+# the Klaw's own ModuleGrappleNode `Release` event (through kRPC; stock `Part.Undock`, so the
+# rock leaves under a NEW pid and `onVesselsUndocking` fires), a 10 s RCS back-off and a 20 s
+# coast. Commit in flight (predicted 4 recordings: the root, the grab child, and the release's
+# two children, the probe and the rock), Rewind-to-Launch, a Space Center save reloaded into
+# FLIGHT on the watcher, a rails warp past every tip.
+#
+# THE MISSION'S GAME-TIME BOUND: UT 370 + AST-1's 360 + release <= 30 + back-off 10 + coast 20
+# = UT 790 on OK; the post-rewind warp to UT 1100 is past it.
+#
+# SIBLING-FIX DEPENDENCIES (these pins red on main until the fix lands): on main
+# `ParsekFlight.IsTrackableVessel` answers true for a SpaceObject, so the release reads as a
+# two-controllable split and authors a rewind point. With the fix:
+#   - `Controllable split children: [2710401000] (orig=2710401000, checked=2, unresolved=0)`;
+#   - `Single-controllable split: no RP (bp=... type=Undock controllable=1)`;
+#   - no `RewindPoint begin:` (forbidden) and rewindPoints 0 in the produced save;
+#   - `RockGhost built: path=` (PROVISIONAL literal, as AST-1).
+#
+# UNKNOWNS THE FIRST (READING) RUN ANSWERS: everything AST-1 lists, plus the `Release` event's
+# GUI name; the released rock's name and vessel type (predicted `Ast. VPA-167`, SpaceObject,
+# from the grapple node's stored vessel info); whether the release is one Undock branch with
+# the probe the active child; whether the rock's chain hold (claimed through the grab) and its
+# own released recording hand over without a gap or a double; that the rock spawns real at
+# its own tip (the census reads one rock part, report-only).
+#
+# FAST-LANE CHECKLIST: as AST-1; the release, back-off and coast are 1x inside the mission
+# (30 s of game time). Count 4..5 (an optimizer split tolerated until the reading run pins it).
+# =====================================================================================
+description = "AST-2: a probe grabs a real asteroid with the Klaw in low Kerbin orbit and releases it; the release is an Undock split whose only controllable child is the probe, so no rewind point is authored and the rock gets no Re-Fly slot, the rock gets a recording of its own, and after Rewind-to-Launch the rock is held until the ghost grab, replays held and released, and becomes real at its own tip with no second copy."
+instanceProfile = "stock-minimal"
+tags = ["asteroid", "klaw", "grapple", "dock", "undock", "release", "ghost-chain",
+        "rewind-to-launch", "rewind-hold", "rcs", "AST-2", "reading-run", "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/ast-klaw-lko"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "autopilot"
+mission = "ast_klaw_grab"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "DiscardTree",                                                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "StartRecording",                                                          expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "WarpToUT",       args = { ut = "370", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "MissionMark",    args = { label = "ast2-grab" },                          expect = "OK" },
+  { phase = "mission",      expect = "MISSION-OK", budget = 1000 },
+  { cmd = "MissionMark",    args = { label = "ast2-released" },                      expect = "OK" },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "CommitTree",                                                              expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c0",             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "ast2-committed-${c0.count}" },         expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" }, label = "rp",          expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "ast2-rewindpoints-${rp.count}" },      expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                        expect = "OK", budget = 300 },
+  { cmd = "SaveGame",       args = { name = "ast2-rewound" },                        expect = "OK", budget = 120 },
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "ast2-rewound", focusPid = "2710403000" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                           expect = "OK" },
+  { cmd = "DiscardTree",                                                             expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "chains" }, label = "ch",                expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "ast2-reloaded-chains-${ch.count}" },   expect = "OK" },
+  # Past the ghost grab, the release and every tip (the commit, before UT 820).
+  { cmd = "WarpToUT",       args = { ut = "1100", maxRate = "50" },                  expect = "OK", budget = 300 },
+  { cmd = "ListHandles",    args = { kind = "committed" }, label = "c2",             expect = "OK" },
+  { cmd = "MissionMark",    args = { label = "ast2-ended-${c2.count}" },             expect = "OK" },
+  { cmd = "SaveGame",                                                                expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                            expect = "OK" },
+]
+
+[driver.missionParams]
+rockName               = "Ast. VPA-167"
+startSettleSeconds     = 5
+armSeconds             = 5
+targetTimeoutSeconds   = 30
+standoffMeters         = 2
+approachTimeoutSeconds = 300
+holdSeconds            = 15
+release                = true
+releaseTimeoutSeconds  = 30
+backoffSeconds         = 10
+backoffTranslation     = 0.3
+coastSeconds           = 20
+settleSeconds          = 5
+
+[dimensionsCovered]
+# undock-split <- `Tree branch created: type=Undock, ...` (the release)
+D5  = ["cross-tree-foreign-dock", "undock-split"]
+D9  = ["rewind-to-launch"]
+D10 = ["claw-producer"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "warp-1x", "warp-rails"]
+D18 = ["committed-interaction-claiming"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The root, the grab child, the release's probe and rock children.
+count = { min = 4, max = 5 }
+
+[expectations.recordings.structure]
+# REPORT-ONLY until the reading run: one Dock (the grab), one Undock (the release), the rock a
+# recording of its own, one rock part in the produced save.
+gating            = false
+trees             = { min = 1, max = 1 }
+committedTrees    = { min = 1, max = 1 }
+branchPoints      = { Dock = { min = 1, max = 1 }, Undock = { min = 1, max = 1 } }
+spaceObjectParts  = { "Ast. VPA-167" = { min = 1, max = 1 } }
+recordingNames    = { "Ast. VPA-167" = { min = 1, max = 1 } }
+
+[expectations.rewind]
+# REPORT-ONLY until the reading run (SIBLING FIX: main authors one at the release).
+gating        = false
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[expectations.logContracts]
+required = [
+  # THE GRAB (AST-1's tokens).
+  "MISSIONMARK label=ast2-grab [\\s\\S]*OnPartCouple producer classified: kind=Grapple (?:fromPart=PotatoRoid toPart=GrapplingDevice|fromPart=GrapplingDevice toPart=PotatoRoid) involvesEva=False",
+  "startrecording recordingId=([0-9a-f]+) already=false[\\s\\S]*Tree merge created: type=Dock, bp=[^,\\r\\n]+, parents=\\[\\1\\], child=[0-9a-f]+ \\(pid=2710401000\\)",
+  "Route proof dock window captured: child=[0-9a-f]+ window=[^ \\r\\n]+ targetPid=1490391000 kind=Grapple ",
+  # THE RELEASE: a true undock, the probe the active child, the rock a background child of
+  # its own, the grapple window closed by it.
+  "OnVesselsUndocking:entry",
+  "Tree merge created: type=Dock, [^\\r\\n]*child=([0-9a-f]+) \\(pid=2710401000\\)[\\s\\S]*Tree branch created: type=Undock, bp=[0-9a-f]+, activeChild=[0-9a-f]+ \\(pid=2710401000\\), bgChild=[0-9a-f]+ \\(pid=[1-9][0-9]*\\)",
+  "Route proof dock window completed on undock: parent=[0-9a-f]+ ut=",
+  # SIBLING FIX: the rock is not controllable, so the release authors no rewind point.
+  "Controllable split children: \\[2710401000\\] \\(orig=2710401000, checked=2, unresolved=0\\)",
+  "Single-controllable split: no RP \\(bp=[0-9a-f]+ type=Undock controllable=1\\)",
+  "MISSIONMARK label=ast2-rewindpoints-0 ",
+  "committree committed=true",
+  # THE CLAIM and THE HOLD (AST-1's tokens).
+  "Vessel PID=1490391000 claimed by tree=[0-9a-f]{32} via MERGE at UT=[0-9.]+",
+  "invokerewindtolaunch target resolved tree=[0-9a-f]{32} resolvedBy=LatestKeyword arg=latest committedTrees=1",
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  "Rewind-to-Launch initiated to UT [\\s\\S]*\\[RewindHold\\] Rewind held vessel for its committed future: pid=1490391000 name='Ast\\. VPA-167' [^\\r\\n]*snapshot=yes",
+  "invokerewindtolaunch complete [\\s\\S]*loadgame focus pid=2710403000 ",
+  "invokerewindtolaunch complete [\\s\\S]*Claimed vessel hold ghost shown: pid=1490391000 name='Ast\\. VPA-167' [^\\r\\n]*source=snapshot-orbit body=Kerbin parts=1 ",
+  # SIBLING FIX (provisional literal).
+  "invokerewindtolaunch complete [\\s\\S]*RockGhost built: path=",
+  "Claimed vessel hold ghost shown: pid=1490391000 [\\s\\S]*Claimed vessel hold ghost released: pid=1490391000 name='Ast\\. VPA-167' reason=(?:claimed|covered-by-recording) ",
+  # THE TIPS: at least one spawn after the rewind (the probe and the rock, report-only below
+  # through the census; the reading run pins which line each takes).
+  "invokerewindtolaunch complete [\\s\\S]*(?:Chain tip spawn complete: #[0-9]+ |Vessel respawned \\(sit=ORBITING, |SpawnAtPosition: vessel spawned \\(sit=ORBITING, )",
+  "MISSIONMARK label=ast2-ended-",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "invokerewindtolaunch refused",
+  "warptout refused",
+  # SIBLING FIX: a released rock never authors a rewind point.
+  "RewindPoint begin: ",
+  "Rewind strip scope: strip spawned pid=1490391000 ",
+  "\\[Ghoster\\] Vessel ghosted: pid=1490391000 ",
+  "Claimed vessel hold ghost not drawn",
+  "Chain tip spawn blocked by collision",
+  "Spawn ABANDONED",
+  "Spawn FAILED",
+]
+
+[runtime]
+# AST-1's shape plus about 40 s of 1x game time and a longer rails warp.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"

@@ -454,6 +454,10 @@ class FlightVesselRow:
     name: str
     vessel_type: str
     persistent_id: Optional[int]
+    # One rock name per asteroid / comet PART the vessel carries (see
+    # SPACE_OBJECT_PART_NAMES / _rock_part_name): a free rock carries its own, and a
+    # ship that grabbed one carries it among its parts.
+    rock_parts: Tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -828,15 +832,49 @@ def _parse_recording(node: SfsNode) -> RecordingRow:
 VESSEL_NAME_CENSUS_EXCLUDED_TYPES: Tuple[str, ...] = ("SpaceObject",)
 
 
+# The stock rock PART names (asteroid, comet) and the persisted name field of each
+# one's module, for the `spaceObjectParts` census.
+SPACE_OBJECT_PART_NAMES: Dict[str, Tuple[str, str]] = {
+    "PotatoRoid": ("ModuleAsteroid", "AsteroidName"),
+    "PotatoComet": ("ModuleComet", "CometName"),
+}
+# The census key of a rock PART that carries no name module and sits in a vessel that
+# is not a SpaceObject (a grabbed rock whose module did not persist a name).
+UNNAMED_ROCK_PART = "<unnamed>"
+
+
+def _rock_part_name(part: SfsNode, vessel_name: str, vessel_type: str) -> Optional[str]:
+    """The rock name of one PART, None for a part that is not a rock. The module's own
+    name field wins (a loaded rock persists it, also inside a ship that grabbed it);
+    a module-less rock (the stock shape of a never-loaded rock) is named by its
+    SpaceObject vessel."""
+    pair = SPACE_OBJECT_PART_NAMES.get(part.value("name") or "")
+    if pair is None:
+        return None
+    module_name, field = pair
+    for module in part.nodes_named("MODULE"):
+        if module.value("name") == module_name and module.value(field):
+            return module.value(field)
+    if vessel_type == "SpaceObject" and vessel_name:
+        return vessel_name
+    return UNNAMED_ROCK_PART
+
+
 def _parse_flight_vessels(root: SfsNode) -> Tuple[FlightVesselRow, ...]:
     game = root.first("GAME")
     fs = game.first("FLIGHTSTATE") if game is not None else None
     if fs is None:
         return ()
-    return tuple(FlightVesselRow(name=v.value("name") or "",
-                                 vessel_type=v.value("type") or "",
-                                 persistent_id=_parse_int(v.value("persistentId")))
-                 for v in fs.nodes_named("VESSEL"))
+    rows = []
+    for v in fs.nodes_named("VESSEL"):
+        name = v.value("name") or ""
+        vtype = v.value("type") or ""
+        rocks = tuple(n for n in (_rock_part_name(p, name, vtype)
+                                  for p in v.nodes_named("PART")) if n is not None)
+        rows.append(FlightVesselRow(name=name, vessel_type=vtype,
+                                    persistent_id=_parse_int(v.value("persistentId")),
+                                    rock_parts=rocks))
+    return tuple(rows)
 
 
 def _parse_branch_point(node: SfsNode) -> BranchPointRow:
@@ -1050,6 +1088,20 @@ def vessel_name_counts(snapshot: ParsekSaveSnapshot) -> Dict[str, int]:
         if v.vessel_type in VESSEL_NAME_CENSUS_EXCLUDED_TYPES:
             continue
         counts[v.name] = counts.get(v.name, 0) + 1
+    return counts
+
+
+def space_object_part_counts(snapshot: ParsekSaveSnapshot) -> Dict[str, int]:
+    """Asteroid / comet PARTs across FLIGHTSTATE per rock name, wherever the part sits:
+    a free rock vessel, or a ship that grabbed it. The one-copy census the
+    `vesselNames` census cannot give (it leaves SpaceObjects out, and a grabbed rock is
+    no vessel of its own): a rock held by a ship AND left free as its own vessel, or
+    spawned twice, counts 2 under its name. A rock the sandbox spawns during a run
+    counts under its own fresh name, so a window on a named rock is not moved by it."""
+    counts: Dict[str, int] = {}
+    for v in snapshot.flight_vessels:
+        for rock in v.rock_parts:
+            counts[rock] = counts.get(rock, 0) + 1
     return counts
 
 
@@ -1527,6 +1579,8 @@ def observed_structure_facets(snapshot: Optional[ParsekSaveSnapshot]) -> Dict[st
                 "vesselNames": vessel_name_counts(snapshot),
                 # The vessel-names census of the committed legs (recording_name_counts).
                 "recordingNames": recording_name_counts(snapshot),
+                # Rock PARTs per rock name, free or grabbed (space_object_part_counts).
+                "spaceObjectParts": space_object_part_counts(snapshot),
             },
             # Gate 12: the recorded-POINTS distribution, sibling of `structure`
             # and independently armable. Recorded UNCONDITIONALLY, which is how
@@ -1561,10 +1615,13 @@ STRUCTURE_BLOCK = "structure"  # nested under [expectations.recordings]
 STRUCTURE_BLOCK_KEYS: Tuple[str, ...] = (
     GATING_KEY, "trees", "committedTrees", "recordings",
     "terminalStates", "branchPoints", "ghostChainNodes", "spawnedVessels",
-    "vesselNames", "recordingNames")
+    "vesselNames", "recordingNames", "spaceObjectParts")
 # The structure block's scalar (single-window) facets.
 STRUCTURE_SCALAR_KEYS: Tuple[str, ...] = (
     "trees", "committedTrees", "recordings", "ghostChainNodes", "spawnedVessels")
+# The structure block's free-form name censuses ({ "<name>" = <window> }).
+STRUCTURE_NAME_CENSUS_KEYS: Tuple[str, ...] = (
+    "vesselNames", "recordingNames", "spaceObjectParts")
 
 # Gate 12. A SIBLING of `structure`, not a key inside it, and deliberately so:
 # gating is PER-BLOCK (see SaveStructureResult / adversarial-review finding 3),
@@ -1735,8 +1792,8 @@ def validate_structure_expectations(block: Any) -> List[str]:
     errs.extend(_validate_gating("expectations.recordings.structure", block))
     errs.extend(_validate_armed_empty(
         "expectations.recordings.structure", block,
-        STRUCTURE_SCALAR_KEYS + ("terminalStates", "branchPoints", "vesselNames",
-                                 "recordingNames")))
+        STRUCTURE_SCALAR_KEYS + ("terminalStates", "branchPoints")
+        + STRUCTURE_NAME_CENSUS_KEYS))
     errs.extend(_validate_armed_unreddable(
         "expectations.recordings.structure", block, STRUCTURE_SCALAR_KEYS))
     for key in STRUCTURE_SCALAR_KEYS:
@@ -1759,7 +1816,7 @@ def validate_structure_expectations(block: Any) -> List[str]:
         for name, window in sub.items():
             if name in names:
                 errs.extend(_validate_window("%s.%s" % (prefix, name), window))
-    for key in ("vesselNames", "recordingNames"):
+    for key in STRUCTURE_NAME_CENSUS_KEYS:
         if key not in block:
             continue
         # Free-form names (a vessel name is not an enum), the routes body-group shape.
@@ -1883,7 +1940,7 @@ def save_structure_expectation_warnings(expectations: Optional[Dict]) -> List[st
                  if isinstance(recordings, dict) else None)
     if isinstance(structure, dict) and not any(
             k in structure for k in STRUCTURE_SCALAR_KEYS + (
-                "terminalStates", "branchPoints", "vesselNames", "recordingNames")):
+                "terminalStates", "branchPoints") + STRUCTURE_NAME_CENSUS_KEYS):
         warns.append("expectations.recordings.structure: declared with no assertion "
                      "key - the block reports nothing and gates nothing")
     points = (recordings.get(POINTS_BLOCK)
@@ -2123,8 +2180,7 @@ def evaluate_save_structure(
                 if key in structure_spec:
                     _check_window("recordings.structure.%s" % key,
                                   structure_spec[key], measured[key], out)
-            for group in ("terminalStates", "branchPoints", "vesselNames",
-                          "recordingNames"):
+            for group in ("terminalStates", "branchPoints") + STRUCTURE_NAME_CENSUS_KEYS:
                 sub = structure_spec.get(group)
                 if not isinstance(sub, dict):
                     continue

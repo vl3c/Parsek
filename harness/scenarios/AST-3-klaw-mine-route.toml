@@ -1,0 +1,239 @@
+schema = 1
+id = "AST-3-klaw-mine-route"
+tier = "operator"
+# =====================================================================================
+# AST-3 (owner rulings V 2026-11-15, the Klaw lanes). AUTHORED 2026-11-15 on branch
+# `ast-lanes`, NEVER FLOWN. MINE-5b's route shape with an asteroid for the ground: every window
+# below is a reading-run guess; the lane is re-pinned off its first flight and the tier
+# promoted by its measured p50.
+#
+# THE RULING UNDER TEST. A route that mines a rock treats the rock's ore like ground ore: the
+# drill on a held rock opens a harvest window, the grab itself is an empty grapple window (a
+# structural grab, never a route stop), the recording's start is a harvest origin, and the
+# harvest window's plausible rate is capped by the drill, not unbounded.
+#
+# HOST: `ast-miner-lko` (harness/tools/build_ast_klaw_fixtures.py): `AST Miner` (active, pid
+# 2710402000: the Klaw probe plus a MiniDrill, an EMPTY RadialOreTank and two Z-400 packs) at UT
+# 355.83, the rock `Ast. VPA-167` (pid 1490391000) 60 m ahead, `AST Depot` (pid 2710404000: an
+# OKTO, a Ready Jr port, an EMPTY RadialOreTank of part pid 2710004003, a Z-200) 150 m behind.
+#
+# THE FLIGHT, while recording on the miner alone:
+#   1. GRAB (mission): AST-1's grab of the rock.
+#   2. DRILL (mission, three mid-mission seam PartActions on the MiniDrill, all=true): deploy,
+#      a 6 s dwell, `startconverter` with NO converter= (every harvester on the drill is pressed;
+#      the asteroid one is the one a held rock feeds), 30 s of 1x mining, `stopconverter`.
+#   3. RELEASE (mission): the Klaw's `Release`, a 10 s back-off toward the depot, a 10 s coast.
+#   4. DOCK (mission): control from the miner's Jr port, target `AST Depot`, MechJeb's docking
+#      autopilot (B-DOCK's DOCK phase, as LAB-13b's re-dock).
+#   5. TRANSFER (seam): the mined Ore into the depot's tank (part pid 2710004003); Ore conserved
+#      (ReadVesselResources before and after).
+#   6. UNDOCK (seam) and a rails warp past the mission's bound; Ore still conserved over both
+#      halves.
+#   7. COMMIT, SEAL, a route created from the recording (a HARVEST-origin route), one cycle sent
+#      and a TimeJump past its delivery.
+#
+# THE MISSION'S GAME-TIME BOUND: UT 370 + settle 5 + arm 5 + target 30 + approach 300 + hold 15
+# + drill (3 x seam 60 + deploy 6 + drill 30) + release 30 + back-off 10 + coast 10 + dock
+# target 30 + dock 900 + settle 5 = UT 1926 on OK. The first post-mission wait (WarpToUT 2000 at
+# 50x) is past it, so it can never be a backward warp.
+#
+# SIBLING-FIX DEPENDENCIES (these pins red on main until the fix lands):
+#   - `Harvest window opened: ... plausibleRates=[Ore:...` (main prints `unbounded` for the
+#     asteroid harvester);
+#   - the release's `Single-controllable split: no RP (... type=Undock controllable=1)` and a
+#     single rewind point in the produced save (the depot undock's), as AST-2.
+#
+# UNKNOWNS THE FIRST (READING) RUN ANSWERS: AST-1's and AST-2's, plus: whether the MiniDrill's
+# asteroid harvester runs on a Klaw-held rock without touching it, and how much Ore 30 s of it
+# yields (the transfer ERRORs `partaction-transfer-nothing-moved` on zero: a FLAKE-shaped red
+# the reading run must see before any window is pinned); how many harvester modules a
+# converter-less `startconverter` presses; whether MechJeb docks the miner from 150 m with the
+# released rock near the path (the dock give-up 900 s and B-DOCK's no-progress watchdog bound
+# it); which vessel is DOMINANT after the depot dock (predicted the depot: a Station outranks a
+# Probe, so the merged pid is 2710404000; every post-dock step reads the active pid through
+# `ListHandles kind=active` instead of naming one); the route's stop count and its delivery.
+#
+# FAST-LANE CHECKLIST: (1) MINE-5b flies the route half on a landed rover; no committed flight
+# mines a rock, so no prefix is reusable; (2) explicit-UT waits only; (3) 30 s of mining, the
+# dock's own minimum back-off and coast; (4) the long waits are rails (the post-undock warp)
+# or a TimeJump; (5) none; (6) every mission phase has a named give-up, retry once; (7) count
+# 6..8; (8) operator until green; (9) flight_efficiency.py after the first green flight.
+# =====================================================================================
+description = "AST-3: a mining probe grabs a real asteroid with the Klaw, drills it for 30 s (a harvest window on the held rock, its plausible rate capped by the drill), releases it, docks with a depot under MechJeb, moves the Ore into the depot, undocks and commits; a supply route created from the recording is a HARVEST-origin route whose empty grapple window is no stop, and its one dispatched cycle delivers Ore into the depot. Ore is conserved through the dock, the transfer and the undock."
+instanceProfile = "stock-minimal"
+tags = ["asteroid", "klaw", "grapple", "mining", "harvest", "logistics", "route", "dock",
+        "undock", "mechjeb", "rcs", "AST-3", "reading-run", "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/ast-miner-lko"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "autopilot"
+mission = "ast_klaw_grab"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+steps = [
+  { cmd = "LoadGame",            args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "DiscardTree",                                                                  expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  # Miner and depot start with no Ore.
+  { cmd = "ReadVesselResources", args = { pid = "2710402000,2710404000", resources = "Ore", expect = "Ore:0", tolerance = "0.01" }, label = "r0", expect = "OK" },
+  { cmd = "StartRecording",                                                               expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                               expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "370", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "MissionMark",         args = { label = "ast3-grab" },                          expect = "OK" },
+  # 1-4: grab, drill, release, dock with the depot.
+  { phase = "mission",           expect = "MISSION-OK", budget = 2400 },
+  { cmd = "MissionMark",         args = { label = "ast3-docked" },                        expect = "OK" },
+  { cmd = "ListHandles",         args = { kind = "active" }, label = "dk",                expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "ast3-merged-${dk.activePid}" },        expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "${dk.activePid}", resources = "Ore,ElectricCharge" }, label = "rm", expect = "OK" },
+  # 5: the mined Ore into the depot's tank, conserved.
+  { cmd = "PartAction",          args = { button = "transfer", part = "RadialOreTank", partPid = "2710004003", resource = "Ore" }, label = "tr", expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "${dk.activePid}", resources = "Ore", expect = "Ore:${rm.Ore}", tolerance = "0.01" }, expect = "OK" },
+  # 6: undock, then a rails warp past the mission's game-time bound.
+  { cmd = "MissionMark",         args = { label = "ast3-undock" },                        expect = "OK" },
+  { cmd = "PartAction",          args = { button = "undock" }, label = "und",             expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "2000", maxRate = "50" },                  expect = "OK", budget = 300 },
+  { cmd = "ReadVesselResources", args = { pid = "${dk.activePid},${und.newPid}", resources = "Ore", expect = "Ore:${rm.Ore}", tolerance = "0.01" }, label = "rsum", expect = "OK" },
+  # 7: commit; CommitTree on the still-active vessel re-takes the committed tree (a
+  # copy-on-write clone); stop and discard the clone, the committed original stays.
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "CommitTree",                                                                   expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "DiscardTree",                                                                  expect = "OK" },
+  { cmd = "ListHandles",         args = { kind = "committed" }, label = "c0",             expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "ast3-committed-${c0.count}" },         expect = "OK" },
+  { cmd = "SealSlot",            args = { tree = "${c0.rec0tree}" },                      expect = "OK", budget = 120 },
+  { cmd = "RouteCommand",        args = { action = "create", tree = "${c0.rec0tree}", name = "AST3 Ore Run" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand",        args = { action = "send-once", route = "AST3 Ore Run" }, expect = "OK", budget = 120 },
+  { cmd = "TimeJump",            args = { ut = "9000" },                                  expect = "OK", budget = 300 },
+  { cmd = "ListHandles",         args = { kind = "routes" },                              expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "ast3-delivered" },                     expect = "OK" },
+  { cmd = "ReadVesselResources", args = { pid = "${dk.activePid},${und.newPid}", resources = "Ore" }, label = "rdel", expect = "OK" },
+  { cmd = "SaveGame",                                                                     expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                 expect = "OK" },
+]
+
+[driver.missionParams]
+rockName               = "Ast. VPA-167"
+startSettleSeconds     = 5
+armSeconds             = 5
+targetTimeoutSeconds   = 30
+standoffMeters         = 2
+approachTimeoutSeconds = 300
+holdSeconds            = 15
+drillSeconds           = 30
+drillPart              = "MiniDrill"
+drillDeploySeconds     = 6
+seamTimeoutSeconds     = 60
+release                = true
+releaseTimeoutSeconds  = 30
+backoffSeconds         = 10
+backoffTranslation     = 0.3
+coastSeconds           = 10
+dockTargetName         = "AST Depot"
+# bdock_dock_transfer's DOCK keys (as LAB-13b's re-dock).
+dockSpeedMetersPerSec  = 0.5
+dockTimeoutSeconds     = 900
+dockNoProgressSeconds  = 120
+settleSeconds          = 5
+
+[dimensionsCovered]
+# claw-producer       <- `OnPartCouple producer classified: kind=Grapple`
+# harvest-provenance  <- `Harvest window opened:` + `harvest origin`
+# dock-producer       <- `OnPartCouple producer classified: kind=DockingPort` (the depot)
+D5  = ["cross-tree-foreign-dock", "undock-split"]
+D7  = ["dock-undock"]
+D10 = ["claw-producer", "harvest-provenance", "dock-producer", "delivery", "resource-cargo"]
+D14 = ["kerbin", "sandbox", "scene-flight", "warp-1x", "warp-rails"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Predicted 7: the root, the grab child, the release's miner and rock children, the depot dock
+# child, the depot undock's two children.
+count = { min = 6, max = 8 }
+
+[expectations.recordings.structure]
+# REPORT-ONLY until the reading run: two docks (the grab, the depot), two undocks (the release,
+# the depot), the rock a recording of its own, one rock part in the produced save.
+gating            = false
+trees             = { min = 1, max = 1 }
+committedTrees    = { min = 1, max = 1 }
+branchPoints      = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
+spaceObjectParts  = { "Ast. VPA-167" = { min = 1, max = 1 } }
+recordingNames    = { "Ast. VPA-167" = { min = 1, max = 1 } }
+
+[expectations.rewind]
+# REPORT-ONLY: the depot undock's point only (SIBLING FIX: main adds one at the release).
+gating        = false
+rewindPoints  = { min = 1, max = 1 }
+
+[expectations.routes]
+# REPORT-ONLY until the reading run: one route, one completed cycle, paused after it.
+gating          = false
+count           = { min = 1, max = 1 }
+completedCycles = { min = 1, max = 1 }
+statuses        = { Paused = { min = 1, max = 1 } }
+
+[expectations.logContracts]
+required = [
+  "readvesselresources complete vessels=2 missing=0 uidCollisions=0 [^\\r\\n]*match=true",
+  # 1. THE GRAB.
+  "MISSIONMARK label=ast3-grab [\\s\\S]*OnPartCouple producer classified: kind=Grapple (?:fromPart=PotatoRoid toPart=GrapplingDevice|fromPart=GrapplingDevice toPart=PotatoRoid) involvesEva=False",
+  "Route proof dock window captured: child=[0-9a-f]+ window=[^ \\r\\n]+ targetPid=1490391000 kind=Grapple ",
+  # 2. THE DRILL on the held rock (the mission's mid-mission seam presses).
+  "partaction applied button=deploy pid=2710402000 part='MiniDrill' [^\\r\\n]*count=[1-9]",
+  "partaction applied button=startconverter pid=2710402000 part='MiniDrill' [^\\r\\n]*count=[1-9]",
+  # SIBLING FIX: the asteroid harvester's window carries a capped Ore rate, not `unbounded`.
+  "Harvest window opened: window=[^ \\r\\n]+ ut=[0-9.]+ converters=\\[[^\\]\\r\\n]+\\] res=[0-9]+ atStart=0 trigger=[a-z]+ plausibleRates=\\[Ore:[0-9]",
+  # 3. THE RELEASE: an Undock split authoring no rewind point (SIBLING FIX, as AST-2).
+  "Tree branch created: type=Undock, bp=[0-9a-f]+, activeChild=[0-9a-f]+ \\(pid=2710402000\\), bgChild=[0-9a-f]+ \\(pid=[1-9][0-9]*\\)",
+  "Single-controllable split: no RP \\(bp=[0-9a-f]+ type=Undock controllable=1\\)",
+  # 4. THE DOCK with the depot: a docking-port couple, a cross-tree single-parent merge.
+  "OnPartCouple producer classified: kind=DockingPort ",
+  "Route proof dock window captured: child=[0-9a-f]+ window=[^ \\r\\n]+ targetPid=2710404000 kind=DockingPort ",
+  # 5. THE TRANSFER into the depot's tank, and Ore conserved through it.
+  "partaction applied button=transfer pid=[0-9]+ part='RadialOreTank' [^\\r\\n]* resource=Ore moved=[0-9]+\\.[0-9]{4} sources=1 destBefore=0\\.0000 destAfter=[0-9]+\\.[0-9]{4} destMax=75\\.0000",
+  "(?s)MISSIONMARK label=ast3-docked (?:(?!MISSIONMARK label=ast3-undock).)*?readvesselresources expect resource=Ore expected=[0-9]+\\.[0-9]{4} actual=[0-9]+\\.[0-9]{4} diff=-?0\\.00[0-9]{2} tolerance=0\\.0100 match=true",
+  # 6. THE UNDOCK, and Ore conserved over both halves.
+  "(?s)MISSIONMARK label=ast3-undock (?:(?!partaction applied button=).)*?partaction applied button=undock pid=[0-9]+ part='dockingPort3' partId=[0-9]+ event=Undock newPid=[1-9][0-9]* ",
+  "(?s)MISSIONMARK label=ast3-undock (?:(?!MISSIONMARK label=ast3-committed).)*?readvesselresources complete vessels=2 missing=0 uidCollisions=0 [^\\r\\n]*match=true",
+  "committree committed=true",
+  # 7. THE ROUTE: a harvest origin, the grab an empty grapple window (no stop), one cycle
+  # delivering into the depot.
+  "sealslot complete mode=tree tree=[0-9a-f]{32} ",
+  "routecommand create gate tree=[0-9a-f]{32} treeFound=True dismissed=False sealed=True eligible=True status=Eligible alreadyPromoted=False refusal=None",
+  "RouteAnalysis: skipped 1 empty grapple window\\(s\\) as non-stops ",
+  "RouteAnalysis: undocked start fully harvest-covered -> harvest origin originRec=[0-9a-f]{32} resources=1",
+  "RouteAnalysis eligible: source=[0-9a-f]{32} window=[^ \\r\\n]+ stops=1 resources=1 [^\\r\\n]*harvestData=1 harvestOrigin=1 midTreeOrigin=0",
+  "routecommand complete action=create tree=[0-9a-f]{32} route=[^ \\r\\n]+ name='AST3 Ore Run' status=Paused ",
+  "Delivery write: route=[^ \\r\\n]+ dest=[^\\r\\n]+ pid=[0-9]+ resource=Ore requested=[0-9][0-9.E+-]* written=[0-9][0-9.E+-]* [^\\r\\n]*path=[a-z-]+",
+  "MISSIONMARK label=ast3-delivered ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "partaction rejected",
+  "routecommand rejected",
+  "warptout refused",
+  "BLOCKED kind=DestinationFull",
+  "Built route .* mode=CAREER",
+  # The harvest window's plausible rate must bound the delivery, never be reported as a cap
+  # on an honest harvest (MINE-5b's mirror pin).
+  "harvest-origin delivery capped to plausible harvest",
+]
+
+[runtime]
+# One LoadGame (300 s), the mission (up to 2,400 s wall: grab, 30 s of mining and a MechJeb dock
+# at 1x), a rails warp (up to about 1,600 game s at 50x), a commit, a seal, a route create, a
+# TimeJump and a save.
+budgetSeconds = 4200
+
+[retry]
+policy = "once"

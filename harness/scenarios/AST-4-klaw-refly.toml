@@ -1,0 +1,194 @@
+schema = 1
+id = "AST-4-klaw-refly"
+tier = "operator"
+# =====================================================================================
+# AST-4 (owner rulings V 2026-11-15, the Klaw lanes). AUTHORED 2026-11-15 on branch
+# `ast-lanes`, NEVER FLOWN. Re-Fly across a Klaw grab: every window below is a reading-run
+# guess; the lane is re-pinned off its first flight and the tier promoted by its measured p50.
+#
+# THE RULING UNDER TEST. A rock a committed flight grabs is claimed in a Re-Fly too: the
+# rewind point's quicksave brings the rock back as it was at the split, the Re-Fly holds it out
+# of the world (the invoke hold or the chain feed) and draws it as a hold ghost until the ghost
+# probe grabs it, and there is never a second copy of the rock.
+#
+# HOST: `ast-mothership-lko` (harness/tools/build_ast_klaw_fixtures.py): `AST Klaw` (active,
+# pid 2710401000) carrying a mothership (Jr port of part pid 2710001010, OKTO, Z-200)
+# PreAttached under the probe's own Jr port, at UT 355.83; the rock `Ast. VPA-167` (pid
+# 1490391000) 100 m ahead.
+#
+# THE FLIGHT, while recording:
+#   1. SEPARATE (seam): `PartAction button=undock` on the PreAttached pair (LAB-13b's first
+#      press): one JointBreak split with cause UNDOCK, TWO controllable children (both carry an
+#      OKTO), a rewind point with two slots. The Klaw half keeps the root, so it stays active
+#      under pid 2710401000 (slot 0, the focus); the mothership leaves under a new pid (slot 1).
+#   2. GRAB (mission): AST-1's grab of the rock, on the Klaw half.
+#   3. COMMIT in flight; the mothership's slot is a stable unconcluded leaf, promoted to
+#      CommittedProvisional (LAB-10b's shape), so it is re-flyable.
+#   4. A Space Center save reloaded into FLIGHT on the probe (LAB-10b's path to the invoke),
+#      then INVOKE Re-Fly on slot 1 (the mothership) and a rails warp past the ghost grab and
+#      every tip, then MERGE the attempt.
+#
+# THE MISSION'S GAME-TIME BOUND: UT 375 + settle 5 + arm 5 + target 30 + approach 400 + hold
+# 15 + settle 5 = UT 835 on OK; nothing after the mission warps before the reload re-bases the
+# clock, and the Re-Fly's warp to UT 1100 is past the bound.
+#
+# SIBLING-FIX DEPENDENCIES: `RockGhost built: path=` (PROVISIONAL literal, as AST-1).
+#
+# UNKNOWNS THE FIRST (READING) RUN ANSWERS: AST-1's, plus: the slot order (predicted slot 0 the
+# active Klaw half, slot 1 the mothership, the candidate order (active, background)); whether
+# the rock is held by the invoke hold (`Strip heldForCommittedFuture v=1490391000`, the change
+# claim of the grab's Dock merge, POSITIVE launch identity: the rock's pid and launch guid
+# both match the quicksave's) or by the ghost-chain feed (`Claimed vessel hold ghost shown`
+# with `from=despawn`); both shapes are pinned as one alternation; the merge's conclusion.
+#
+# FAST-LANE CHECKLIST: (1) no committed lane re-flies across a grab; (2) explicit-UT waits
+# only; (3) the 1x waits are the split's separation (to UT 375) and the approach; (4) the
+# Re-Fly's wait is a rails warp; (5) none; (6) the approach give-up (400 s) fails a doomed
+# grab fast, retry once; (7) count 4..5; (8) operator until green; (9) flight_efficiency.py
+# after the first green flight.
+# =====================================================================================
+description = "AST-4: a probe carrying a mothership separates from it (a two-slot rewind point), grabs a real asteroid with the Klaw and commits; a Re-Fly of the mothership's slot holds the rock its committed sibling grabs out of the world with a hold ghost until the ghost probe grabs it, the attempt merges, and there is never a second copy of the rock."
+instanceProfile = "stock-minimal"
+tags = ["asteroid", "klaw", "grapple", "dock", "separation", "rewind-to-separation", "refly",
+        "rewind-hold", "ghost-chain", "rcs", "AST-4", "reading-run", "pending-flight"]
+
+[fixture]
+saveTemplate = "fixtures/saves/ast-mothership-lko"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "autopilot"
+mission = "ast_klaw_grab"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                              expect = "OK" },
+  { cmd = "DiscardTree",                                                                expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "StartRecording",                                                             expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                             expect = "OK" },
+  # 1. SEPARATE the mothership (the PreAttached pair's Decouple), then let it drift clear.
+  { cmd = "MissionMark",       args = { label = "ast4-undock" },                        expect = "OK" },
+  { cmd = "PartAction",        args = { button = "undock" }, label = "und",             expect = "OK" },
+  { cmd = "WarpToUT",          args = { ut = "375", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "MissionMark",       args = { label = "ast4-grab" },                          expect = "OK" },
+  # 2. GRAB.
+  { phase = "mission",         expect = "MISSION-OK", budget = 1000 },
+  { cmd = "MissionMark",       args = { label = "ast4-held" },                          expect = "OK" },
+  # 3. COMMIT in flight; stop and discard the re-taken clone.
+  { cmd = "StopRecording",                                                              expect = "OK" },
+  { cmd = "CommitTree",                                                                 expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                              expect = "OK" },
+  { cmd = "DiscardTree",                                                                expect = "OK" },
+  { cmd = "ListHandles",       args = { kind = "committed" }, label = "c0",             expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "ast4-committed-${c0.count}" },         expect = "OK" },
+  # 4. Back into FLIGHT on the probe, then Re-Fly the mothership's slot.
+  { cmd = "ExitToSpaceCenter",                                                          expect = "OK", budget = 120 },
+  { cmd = "SaveGame",          args = { name = "persistent" },                          expect = "OK", budget = 120 },
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent", focusPid = "2710401000" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "StopRecording",                                                              expect = "OK" },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles",     expect = "OK" },
+  { cmd = "InvokeRewind",      args = { rp = "${handles.rp0}", slot = "1" },            expect = "OK", budget = 300 },
+  { cmd = "ListHandles",       args = { kind = "chains" }, label = "chains",            expect = "OK" },
+  { cmd = "RecordingState",    args = { awaitRecorderLive = "refly" },                  expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "ast4-refly-start-chains-${chains.count}" }, expect = "OK" },
+  # Past the ghost grab (about UT 650) and every tip.
+  { cmd = "WarpToUT",          args = { ut = "1100", maxRate = "50" },                  expect = "OK", budget = 300 },
+  { cmd = "ListHandles",       args = { kind = "committed" }, label = "post",           expect = "OK" },
+  { cmd = "MissionMark",       args = { label = "ast4-refly-end-${post.count}" },       expect = "OK" },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                             expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                             expect = "OK" },
+  { cmd = "SaveGame",                                                                   expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                               expect = "OK" },
+]
+
+[driver.missionParams]
+rockName               = "Ast. VPA-167"
+startSettleSeconds     = 5
+armSeconds             = 5
+targetTimeoutSeconds   = 30
+standoffMeters         = 2
+# The rock is 100 m out here (60 m in AST-1).
+approachTimeoutSeconds = 400
+holdSeconds            = 15
+settleSeconds          = 5
+
+[dimensionsCovered]
+# controlled-decoupled-child <- `ProcessBreakupEvent: controlled child created`
+# rewind-to-separation       <- StartInvoke + Invocation complete
+D5  = ["controlled-decoupled-child", "cross-tree-foreign-dock"]
+D9  = ["rewind-to-separation"]
+D10 = ["claw-producer"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "warp-1x", "warp-rails"]
+D18 = ["committed-interaction-claiming"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# Predicted 4 before the Re-Fly (the root, the Klaw half, the grab child, the mothership) plus
+# the attempt's own recording; {4,6} until the reading run pins it.
+count = { min = 4, max = 6 }
+
+[expectations.recordings.structure]
+# REPORT-ONLY until the reading run: one rock part in the produced save (no second copy).
+gating            = false
+spaceObjectParts  = { "Ast. VPA-167" = { min = 1, max = 1 } }
+recordingNames    = { "Ast. VPA-167" = { min = 0, max = 0 } }
+
+[expectations.rewind]
+# REPORT-ONLY: the split's one point.
+gating        = false
+rewindPoints  = { min = 1, max = 1 }
+
+[expectations.logContracts]
+required = [
+  # 1. THE SEPARATION: LAB-13b's tokens, a two-slot rewind point.
+  "(?s)MISSIONMARK label=ast4-undock (?:(?!partaction applied button=).)*?partaction applied button=undock pid=2710401000 part='dockingPort3' partId=[0-9]+ event=Undock newPid=[1-9][0-9]* newName='[^'\\r\\n]*' vessels=[0-9]+->[0-9]+ activePid=2710401000 ",
+  "SEPARATION emitted: ut=[0-9.]+ type=JointBreak splitCause=UNDOCK decouplerPartId=[0-9]+ controlledChildren=1 debris=0 ",
+  "(?s)Controllable split children: \\[[0-9,]+\\] \\(orig=2710401000, .*?RewindPoint begin: rp=(rp_[0-9a-f]{32}) bp=[0-9a-f]{32} slots=2 controllablePids=2 focusSlot=0 ut=[0-9.]+.*?RewindPoint slot capture: rp=\\1 populated=2/2 disabled=0",
+  # 2. THE GRAB on the Klaw half.
+  "MISSIONMARK label=ast4-grab [\\s\\S]*OnPartCouple producer classified: kind=Grapple (?:fromPart=PotatoRoid toPart=GrapplingDevice|fromPart=GrapplingDevice toPart=PotatoRoid) involvesEva=False",
+  "MISSIONMARK label=ast4-grab [\\s\\S]*Tree merge created: type=Dock, bp=[^,\\r\\n]+, parents=\\[[0-9a-f]+\\], child=[0-9a-f]+ \\(pid=2710401000\\)",
+  "Route proof dock window captured: child=[0-9a-f]+ window=[^ \\r\\n]+ targetPid=1490391000 kind=Grapple ",
+  # 3. THE COMMIT: the mothership's slot is re-flyable.
+  "committree committed=true",
+  "CommitTree promoted rec=[0-9a-f]{32} vessel='[^'\\r\\n]*' slot=1 rp=rp_[0-9a-f]{32} reason=stableLeafUnconcluded to CommittedProvisional",
+  "Vessel PID=1490391000 claimed by tree=[0-9a-f]{32} via MERGE at UT=[0-9.]+",
+  # 4. THE RE-FLY of slot 1, and THE HOLD of the rock (either holder; both shapes pinned).
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_[0-9a-f]{32} slot=1",
+  "Invocation complete: sess=\\S+ rp=rp_[0-9a-f]{32} slot=1 ",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: [\\s\\S]*(?:Strip heldForCommittedFuture v=1490391000 |Claimed vessel hold ghost shown: pid=1490391000 )",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: [\\s\\S]*Claimed vessel hold ghost shown: pid=1490391000 name='Ast\\. VPA-167' [^\\r\\n]*source=snapshot-orbit body=Kerbin parts=1 ",
+  # SIBLING FIX (provisional literal).
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: [\\s\\S]*RockGhost built: path=",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: [\\s\\S]*Claimed vessel hold ghost released: pid=1490391000 name='Ast\\. VPA-167' reason=(?:claimed|covered-by-recording) ",
+  "answermergedialog choice=merge result=committed",
+  "MISSIONMARK label=ast4-refly-end-",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "partaction rejected",
+  "warptout refused",
+  "invokerewind refused",
+  # Two controllable sides at the separation.
+  "Single-controllable split: no RP",
+  "Claimed vessel hold ghost not drawn",
+  "Chain tip spawn blocked by collision",
+  "Spawn ABANDONED",
+  "Spawn FAILED",
+]
+
+[runtime]
+# Two LoadGames (300 s each), the mission (up to 1,000 s wall), the invoke (300), a scene exit,
+# three saves and a commit (120 each), the Re-Fly's rails warp (about 1,000 game s at 50x), the
+# merge.
+budgetSeconds = 3000
+
+[retry]
+policy = "once"
