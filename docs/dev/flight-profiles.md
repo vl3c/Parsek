@@ -814,7 +814,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 |---|---|---|---|---|---|---|---|
 | AST-1-klaw-grab-rewind | operator | ast-klaw-lko | ast_klaw_grab | Kerbin | rewind-to-launch, reload, save, warp | - | PASS 2026-11-15, wall 259 s |
 | AST-2-klaw-release | operator | ast-klaw-lko | ast_klaw_grab | Kerbin | rewind-to-launch, reload, save, warp | - | PASS 2026-11-15, wall 310 s |
-| AST-3-klaw-mine-route | operator | ast-miner-lko | ast_klaw_grab | Kerbin | save, warp, time-jump | - | second flight INVALID 2026-11-15 |
+| AST-3-klaw-mine-route | operator | ast-miner-lko | ast_klaw_grab | Kerbin | save, warp, time-jump | - | third flight INVALID 2026-11-15 |
 | AST-4-klaw-refly | operator | ast-mothership-lko | ast_klaw_grab | Kerbin | re-fly, reload, save, warp, scene-change | - | PASS 2026-11-15, wall 305 s |
 
 ### AT (1)
@@ -932,7 +932,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| COM-1-comet-klaw-grab | operator | com-klaw-lko | ast_klaw_grab | Kerbin | rewind-to-launch, reload, save, warp | - | second flight INVALID 2026-11-15 |
+| COM-1-comet-klaw-grab | operator | com-klaw-lko | ast_klaw_grab | Kerbin | rewind-to-launch, reload, save, warp | - | PASS 2026-11-15 |
 
 ### CS (13)
 

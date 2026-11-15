@@ -1693,8 +1693,8 @@ uncovered by the reviewer; the four cheap ones first):
   rewind point, the rock's own recording), COM-1 (a comet), AST-3 (drill a held rock, release,
   dock with a depot, a harvest-origin route that delivers) and AST-4 (Re-Fly across a grab), on
   four fixtures from `harness/tools/build_ast_klaw_fixtures.py` and the mission `ast_klaw_grab`.
-  Second flight 2026-11-15 (PR #2633): AST-1, AST-2 and AST-4 PASS; COM-1 (the comet renamed
-  itself at load) and AST-3 (the drill's bit faced sideways) INVALID, both fixtures fixed.
+  Second and third flights 2026-11-15 (PR #2633): AST-1, AST-2, AST-4 and COM-1 PASS; AST-3
+  drills Ore but ran out of monopropellant on the dock (a second mono pair added).
   Open until they fly green; several pins wait on the SpaceObject-controllability, asteroid
   plausible-rate and rock-ghost sibling fixes. A derelict (a dead vessel, not a rock) is still
   unflown.

@@ -246,6 +246,8 @@ class AstKlawFixtureTests(unittest.TestCase):
         b = self.b
         miner = self._vessel(b.AST_MINER, b.MINER_NAME)
         self.assertIn(P + "name = MiniDrill", miner)
+        # Two mono pairs: one pair ran dry on the depot dock (third flight, 2026-11-15).
+        self.assertEqual(4, miner.count(P + "name = radialRCSTank"))
         depot = self._vessel(b.AST_MINER, b.DEPOT_NAME)
         for v in (miner, depot):
             at = v.index(P + "\tname = Ore")

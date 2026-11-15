@@ -24,9 +24,10 @@ relative to each other to within the orbit's 1 percent eccentricity):
                       `AST Watcher` 300 m behind (the post-rewind FLIGHT focus).  AST-1, AST-2
   com-klaw-lko        the same with the base comet `UnknownComet` of
                       `depot-route-recorded` 150 m ahead (its nucleus radius is 44.47 m).  COM-1
-  ast-miner-lko       `AST Miner` (the Klaw probe plus a MiniDrill, a RadialOreTank and two
-                      Z-400 packs) at 0 m, the rock 60 m ahead, `AST Depot` (an OKTO, a
-                      Jr port facing the miner track, an empty RadialOreTank) 150 m behind. AST-3
+  ast-miner-lko       `AST Miner` (the Klaw probe plus a MiniDrill, a RadialOreTank, two
+                      Z-400 packs and a second mono pair) at 0 m, the rock 60 m ahead,
+                      `AST Depot` (an OKTO, a Jr port facing the miner track, an empty
+                      RadialOreTank) 150 m behind. AST-3
   ast-mothership-lko  `AST Klaw` = the Klaw probe with a mothership (Jr port, OKTO, Z-200)
                       PreAttached under its bottom Jr port, the rock 100 m ahead.          AST-4
 
@@ -251,6 +252,13 @@ def miner_parts() -> List[PartSpec]:
                  sym=(13,)),
         PartSpec(D_Z400, 0, "-0.45,-0.05,0", "0,0.707106829,0,0.707106829", srf_parent=0,
                  sym=(12,)),
+        # A second monopropellant pair on the Z-200, above the ring's pair: the third flight
+        # spent all 40 units of the ring's pair on the grab, the back-off and MechJeb's
+        # ~190 m approach to the depot and aborted the dock.
+        PartSpec(D_MONO, 1, "-%s,%s,%s" % (TANK_D, _fmt(OKTO_TO_Z200), TANK_D),
+                 "0,0.923879504,0,0.382683456", srf_parent=1, sym=(15,)),
+        PartSpec(D_MONO, 1, "%s,%s,-%s" % (TANK_D, _fmt(OKTO_TO_Z200), TANK_D),
+                 "0,0.382683456,0,-0.923879504", srf_parent=1, sym=(14,)),
     ]
     return parts
 
