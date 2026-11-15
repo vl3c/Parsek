@@ -20,6 +20,32 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~ROCK-RELEASE-REFLY-SLOT~~: a released asteroid or comet counted as a controllable split child, so releasing one authored a Rewind Point and offered the rock as a Re-Fly slot [FILED 2026-11-15 from the owner rulings of 2026-11-15 ("No Re-Fly for rocks"), by code reading. FIXED 2026-11-15, branch `ast-fixes`; xUnit; no lane flies a Klaw release yet; low (a Re-Fly that cannot be flown, on a rare path)]
+
+What the player saw: grab an asteroid with the Klaw, then release it. The split had two
+"controllable" children (the ship and the rock), so Parsek wrote a Rewind Point, and the rock's
+recording could show in Unfinished Flights as a slot to re-fly, which a rock cannot be.
+
+Cause. `ParsekFlight.IsTrackableVessel` returns true for a SpaceObject (right for recording: the
+released rock gets its own branch and spawns real at its tip), and the same predicate fed the
+controllable-children classifier behind every Rewind Point (`SegmentBoundaryLogic.
+IdentifyControllableChildren`'s default predicate) and the background split RP hook
+(`BackgroundRecorder.SplitDetection`, parent and child checks).
+
+Fix: a second predicate, `ParsekFlight.IsReFlyControllableVessel` (pure core
+`IsReFlyControllable`): EVA kerbal yes; SpaceObject type no (`space-object`); a vessel whose every
+part is a rock no (`space-object-parts`); a command module yes (`command`, or
+`command-carrying-space-object` for a ship holding a grabbed rock); else no. The RP classifier and
+the background RP hook read it; `ShouldRecordAsOwnBranch`, the breakup / decouple capture and
+`IdentityLossClassifier` keep `IsTrackableVessel` (recording identity, not Re-Fly). Releasing a
+rock alone is therefore a single-controllable split (no RP). `UnfinishedFlightClassifier.TryQualify`
+also refuses a rock's own recording (snapshot `type = SpaceObject`, or rock parts only) held by a
+legacy RP with `spaceObjectNotFlyable`, before the `notControllable` check. Logs:
+`[Rewind] Re-Fly controllability: ... controllable=False reason=space-object (asteroid / comet: no
+Re-Fly slot)`, `[UnfinishedFlights] IsUnfinishedFlight=false ... reason=spaceObjectNotFlyable
+rule=...`. Rock identification is shared in `VesselSnapshotOps` (`IsRockPartName`,
+`IsSpaceObjectOnlySnapshot`, ...). Tests: `RockReleaseReFlySlotTests`.
+
 ## ~~RESTORE-ATTEMPT-RECORD-FOLDS-INTO-HISTORY~~: a world-record award made while a committed flight is resumed folds into that recording's stored history event and is lost on discard [FILED 2026-11-15 from SE-1's nightly red, run `2026-11-15_0704_SE-1-editor-round-trip` (build b548a42c1, PARSEK-FAIL(expectation) attempt 1, ledger actions=17 where the spec pins 15), against the last pass `2026-11-10_1631` (e5b47f33). FIXED 2026-11-15, branch `claude/project-thread-lkzj01-item27`; xUnit; SE-1 re-flight owed; medium (career ledger rows and stock's record band, every record node)]
 
 What the player sees: fly a recorded ship again (the committed-spawned-vessel restore), break a

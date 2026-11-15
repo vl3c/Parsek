@@ -15,7 +15,8 @@ namespace Parsek
     /// the situation family (classify, correct an unsafe sit, write it), and the
     /// spawn-node writers and checks: the deliberate position-override stamp,
     /// the surface-relative rotation node, finite-metadata validation, the
-    /// canonical surface orbit and the spawn-readiness / orbital normalization.
+    /// canonical surface orbit and the spawn-readiness / orbital normalization,
+    /// and the asteroid / comet ("rock") part identification.
     ///
     /// <para>Nothing here touches live KSP state (no FlightGlobals, no live
     /// Vessel, no roster; a CelestialBody argument is read for its name and
@@ -1741,6 +1742,114 @@ namespace Parsek
         {
             return !(double.IsNaN(value.x) || double.IsNaN(value.y) || double.IsNaN(value.z)
                 || double.IsInfinity(value.x) || double.IsInfinity(value.y) || double.IsInfinity(value.z));
+        }
+
+        // ---- Asteroids and comets ("rocks": stock part names PotatoRoid / PotatoComet,
+        // modules ModuleAsteroid / ModuleComet). Owner rulings 2026-11-15: a rock is
+        // recorded only from the Klaw grab on; a released rock records as its own branch
+        // and becomes real at its tip, but it is never a Re-Fly slot. Callers: the Re-Fly
+        // controllability predicate and the Unfinished Flights classifier's legacy guard.
+
+        /// <summary>Stock asteroid part name (cfg and runtime name coincide).</summary>
+        internal const string RockAsteroidPartName = "PotatoRoid";
+
+        /// <summary>Stock comet part name (cfg and runtime name coincide).</summary>
+        internal const string RockCometPartName = "PotatoComet";
+
+        internal const string RockAsteroidModuleName = "ModuleAsteroid";
+        internal const string RockCometModuleName = "ModuleComet";
+
+        /// <summary>
+        /// True when <paramref name="partName"/> names an asteroid or comet part. Part
+        /// cfg / runtime names can carry expansion or variant suffixes, so this is a
+        /// case-insensitive substring match.
+        /// </summary>
+        internal static bool IsRockPartName(string partName)
+        {
+            if (string.IsNullOrEmpty(partName))
+                return false;
+            return partName.IndexOf(RockAsteroidPartName, StringComparison.OrdinalIgnoreCase) >= 0
+                || partName.IndexOf(RockCometPartName, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        /// <summary>
+        /// True when <paramref name="moduleName"/> is the asteroid or comet module (stable
+        /// C# class identifiers, exact match).
+        /// </summary>
+        internal static bool IsRockModuleName(string moduleName)
+        {
+            if (string.IsNullOrEmpty(moduleName))
+                return false;
+            return string.Equals(moduleName, RockAsteroidModuleName, StringComparison.Ordinal)
+                || string.Equals(moduleName, RockCometModuleName, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// True when a snapshot PART node is an asteroid or comet: its name is a rock part
+        /// name, or one of its MODULE nodes is ModuleAsteroid / ModuleComet.
+        /// </summary>
+        internal static bool IsRockPartNode(ConfigNode partNode)
+        {
+            if (partNode == null)
+                return false;
+            if (IsRockPartName(partNode.GetValue("name")))
+                return true;
+            return FindRockModuleNode(partNode) != null;
+        }
+
+        /// <summary>The PART node's ModuleAsteroid / ModuleComet MODULE node, or null.</summary>
+        internal static ConfigNode FindRockModuleNode(ConfigNode partNode)
+        {
+            if (partNode == null)
+                return null;
+            ConfigNode[] modules = partNode.GetNodes("MODULE");
+            if (modules == null)
+                return null;
+            for (int i = 0; i < modules.Length; i++)
+            {
+                if (modules[i] != null && IsRockModuleName(modules[i].GetValue("name")))
+                    return modules[i];
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// True when the vessel snapshot is a bare asteroid or comet: its VESSEL
+        /// <c>type</c> is SpaceObject, or it has at least one PART and every PART is a
+        /// rock. A ship carrying a grabbed rock is neither (its type is the ship's, and it
+        /// has other parts). <paramref name="why"/> names the matched rule
+        /// (<c>type-space-object</c> / <c>rock-parts-only</c>) or the miss.
+        /// </summary>
+        internal static bool IsSpaceObjectOnlySnapshot(ConfigNode vesselSnapshot, out string why)
+        {
+            if (vesselSnapshot == null)
+            {
+                why = "no-snapshot";
+                return false;
+            }
+            string type = vesselSnapshot.GetValue("type");
+            if (!string.IsNullOrEmpty(type)
+                && string.Equals(type.Trim(), "SpaceObject", StringComparison.OrdinalIgnoreCase))
+            {
+                why = "type-space-object";
+                return true;
+            }
+            ConfigNode[] parts = vesselSnapshot.GetNodes("PART");
+            if (parts == null || parts.Length == 0)
+            {
+                why = "no-parts";
+                return false;
+            }
+            for (int i = 0; i < parts.Length; i++)
+            {
+                if (!IsRockPartNode(parts[i]))
+                {
+                    why = "has-non-rock-part";
+                    return false;
+                }
+            }
+            why = "rock-parts-only";
+            return true;
         }
     }
 }

@@ -440,15 +440,16 @@ namespace Parsek
         /// <summary>
         /// Rewind-to-Staging (Phase 4, design §5.1 + §7.19): filters
         /// <paramref name="postBreakVesselPids"/> to the subset whose live
-        /// <c>Vessel</c> passes the <c>IsTrackableVessel</c> predicate
-        /// (SpaceObject OR has <c>ModuleCommand</c>). The result is the list of
+        /// <c>Vessel</c> passes the <c>IsReFlyControllableVessel</c> predicate
+        /// (EVA kerbal OR has <c>ModuleCommand</c>; never an asteroid or comet,
+        /// owner ruling 2026-11-15). The result is the list of
         /// controllable children of a split event; a list of length >= 2 means
         /// the split is multi-controllable (see <see cref="IsMultiControllableSplit"/>)
         /// and requires a <see cref="RewindPoint"/>.
         ///
         /// <para>
-        /// The <paramref name="isTrackable"/> delegate defaults to
-        /// <see cref="ParsekFlight.IsTrackableVessel"/> but is injected so
+        /// The <paramref name="isControllable"/> delegate defaults to
+        /// <see cref="ParsekFlight.IsReFlyControllableVessel"/> but is injected so
         /// unit tests can exercise the classifier without a live
         /// <c>FlightGlobals</c>. Vessels that cannot be resolved from
         /// <c>FlightGlobals.Vessels</c> are logged and skipped (they are treated
@@ -457,7 +458,7 @@ namespace Parsek
         /// </summary>
         /// <param name="originalVesselPid">The parent vessel's PID (for logging).</param>
         /// <param name="postBreakVesselPids">PIDs of vessels produced by the split (children only; do NOT include the parent).</param>
-        /// <param name="isControllable">Predicate mapping vessel PID -> controllable. Null uses the default that reads <c>FlightGlobals.Vessels</c> + <see cref="ParsekFlight.IsTrackableVessel"/>.</param>
+        /// <param name="isControllable">Predicate mapping vessel PID -> controllable. Null uses the default that reads <c>FlightGlobals.Vessels</c> + <see cref="ParsekFlight.IsReFlyControllableVessel"/>.</param>
         /// <returns>List of controllable child PIDs (subset of <paramref name="postBreakVesselPids"/>).</returns>
         internal static List<uint> IdentifyControllableChildren(
             uint originalVesselPid,
@@ -500,7 +501,7 @@ namespace Parsek
         {
             Vessel v = FlightRecorder.FindVesselByPid(pid);
             if (v == null) return null;
-            return ParsekFlight.IsTrackableVessel(v);
+            return ParsekFlight.IsReFlyControllableVessel(v);
         };
 
         private static string[] ListToStrings(List<uint> pids)

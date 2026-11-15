@@ -43,6 +43,10 @@ All notable changes to Parsek are documented here.
 
 ### Fixed
 
+- **Letting go of an asteroid or comet no longer offers a Re-Fly.** A rock you release from the
+  Klaw still gets its own recording and becomes real where that recording ends, but releasing it
+  no longer creates a rewind point, and it never shows up in Unfinished Flights.
+  (ROCK-RELEASE-REFLY-SLOT)
 - **A world record set while flying an earlier recorded ship again is kept when you discard.**
   Breaking a distance, altitude, speed or depth record on a resumed recorded ship could be filed
   with that ship's old flight, so discarding the new flight lost it and the game awarded the
