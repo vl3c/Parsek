@@ -100,14 +100,15 @@ and accepts only `kind = HUMAN`.
 - `ParsekScenario` is registered for every game:
   `[KSPScenario(ScenarioCreationOptions.AddToAllGames, GameScenes.FLIGHT,
   GameScenes.SPACECENTER, GameScenes.TRACKSTATION, GameScenes.EDITOR)]`
-  (`Source/Parsek/ParsekScenario.cs:30-32`). `OnSave` is at `ParsekScenario.cs:483`, `OnLoad`
-  at `:1007`, `OnDestroy` at `:2410`.
+  (`Source/Parsek/Controllers/ParsekScenario.cs:31-33`). `OnSave` is at `ParsekScenario.cs:484`,
+  `OnLoad` at `:1008`, `OnDestroy` at `:2531`.
 - In an inert game mode or under the backup hold, `OnLoad` stashes the node verbatim and
-  returns (`ParsekScenario.cs:1018-1020`, `ParsekGameModeGate.CheckInert` and
+  returns (`ParsekScenario.cs:1019-1021`, `ParsekGameModeGate.CheckInert` and
   `StashInertGameModeNode`); the stash copies the node as is
-  (`ParsekScenario.InertPassthrough.cs:49`). `OnSave` checks the same gate (`:488`).
-- `ParsekGameModeGate` (`Source/Parsek/ParsekGameModeGate.cs:35`) is placed in `Patches` by
-  a name rule (`scripts/arch/modules.toml:186`). `IsActiveMode` (`:54`),
+  (`ParsekScenario.InertPassthrough.cs:49`). `OnSave` checks the same gate
+  (`ParsekScenario.cs:489`).
+- `ParsekGameModeGate` (`Source/Parsek/Patches/ParsekGameModeGate.cs:35`) is placed in `Patches` by
+  a name rule (`scripts/arch/modules.toml:88`). `IsActiveMode` (`ParsekGameModeGate.cs:54`),
   `IsInertForCurrentGame` (`:123`), log-once `CheckInert` (`:156`), live read kept in a
   `NoInlining` core (`:239-252`), the backup hold (`:141`). This is the pattern the race gate
   copies: a pure decision plus a live read in a no-inline core.
@@ -128,20 +129,20 @@ and accepts only `kind = HUMAN`.
   `GameEvents.onGameNewStart` (`:289`) and `HighLogic.CurrentGame.Start()` (`:296`). P10
   lifts this core into a production file.
 - The seam's load route calls `GamePersistence.LoadGame(name, save, true, false)`
-  (`ParsekTestCommandAddon.cs:2256`), fires `onGameStatePostLoad` like the stock load dialog
-  (`:2310-2320`), and for SPACECENTER sets `HighLogic.CurrentGame`, runs
+  (`ParsekTestCommandAddon.cs:2260`), fires `onGameStatePostLoad` like the stock load dialog
+  (`:2314-2324`), and for SPACECENTER sets `HighLogic.CurrentGame`, runs
   `GamePersistence.UpdateScenarioModules`, `SaveGame(..., "persistent", ...)` and
-  `game.Start()` (`:2380-2426`). Its comment states that `SpaceCenterMain.Start` re-reads
+  `game.Start()` (`:2384-2430`). Its comment states that `SpaceCenterMain.Start` re-reads
   `persistent.sfs` from disk, which is why the save is written before `Start`.
-- `LoadReconcilePolicy.KnownLoadInitiators` (`Source/Parsek/LoadReconcilePolicy.cs:242-280`)
-  lists the files allowed to call `GamePersistence.LoadGame(`; `ParsekTestCommandAddon.cs`
-  is one of them.
+- `LoadReconcilePolicy.KnownLoadInitiators`
+  (`Source/Parsek/Controllers/LoadReconcilePolicy.cs:242-280`) lists the files allowed to call
+  `GamePersistence.LoadGame(`; `ParsekTestCommandAddon.cs` is one of them.
 
 ### 3.3 The copies of "find the Parsek scenario node" (A7)
 
 Over a `ProtoScenarioModule` list (six):
 
-- `PlaybackScopeTracker.UnionFromScenarios` (`Source/Parsek/PlaybackScopeTracker.cs:229`)
+- `PlaybackScopeTracker.UnionFromScenarios` (`Source/Parsek/Ghost/PlaybackScopeTracker.cs:229`)
 - `RouteLoadReconcile.ReadSavedEventsFromScenarios` (`Logistics/RouteLoadReconcile.cs:738`)
 - `RouteStore.ReadSavedRouteStateFloorUTFromScenarios` (`Logistics/RouteStore.cs:1205`)
 - `RouteStore.ReadSavedCommittedRoutesFromScenarios` (`Logistics/RouteStore.cs:1253`)
@@ -170,7 +171,7 @@ The scenario name literal is repeated at `SaveReferenceScanner.cs:84` and
 - `InGameTests/InGameTestRunner.cs:1965-1995` (`CaptureBatchFlightParsekSaveSnapshot`)
   copies the whole `Parsek/` folder at batch start, and `:2579`
   (`RestoreParsekSidecarsFromSnapshot`) swaps it back.
-- The C# file collector does NOT sweep it: `ParsekFileCollector.cs:203,235,236` walk only
+- The C# file collector does NOT sweep it: `ParsekFileCollector.cs:203, 235, 236` walk only
   `Recordings`, `RewindPoints` and `Saves`.
 - `PreParsekBackup.MaybeBackupOnFirstColdContact` (`PreParsekBackup.cs:470`) takes no backup
   of a save that has a footprint (`:529`) or is brand new (`:535`); a race save created by
@@ -183,7 +184,7 @@ The scenario name literal is repeated at `SaveReferenceScanner.cs:84` and
   `ParsekUiScale` and `TestRunnerShortcut` call `GUILayout.Window`; every draw host opens a
   scale scope (`EachDrawHostOpensAScaleScope` list `:297-301`). Hosts: `ParsekKSC.cs:259`
   (`"KSC"`), `ParsekFlight.cs:1448` (`"Flight"`).
-- `ParsekWindowSet` builds and holds the windows (`UI/ParsekWindowSet.cs:20,36,78`).
+- `ParsekWindowSet` builds and holds the windows (`UI/ParsekWindowSet.cs:20, 36, 78`).
 - Settings: `UI/SettingsWindowUI.cs` window key `:58`, tooltip budget comment (71
   characters, `TooltipEchoBudgetTests`) `:60`, `DrawIfOpen` `:94`, 280 x 600 window `:112`,
   `DrawSettingsWindow` `:349`, sections Interface, Ghosts, Looping, Sample density,
@@ -199,17 +200,17 @@ The scenario name literal is repeated at `SaveReferenceScanner.cs:84` and
 
 ### 3.6 Architecture map and ratchets
 
-- `scripts/arch/modules.toml`: folder rules `:17-67`; Controllers prefix
-  `^Parsek(Flight|KSC|TrackingStation|Scenario|Harmony|Playback)|^WatchMode` (`:322`), which
+- `scripts/arch/modules.toml`: folder rules `:26-124`; Controllers prefix
+  `^Parsek(Flight|KSC|TrackingStation|Scenario|Harmony|Playback)|^WatchMode` (`:36`), which
   does not match `ParsekRace*` (P12 fixes it); LogIO prefix
-  `^ParsekLog|^FileIO|^ParsekProcess|^Suppression|^PreParsek` (`:326`); the Core kernel rule
-  must stay last (`:477-479`); layers `:511-519`; `[headless.modules]` `:531-536` (Core,
-  Trajectory, Missions, Timeline, Reaim); `[size].runtimeCoupled` `:560`; `[forbidden]` holds
-  two edges (`:562-566`); `[allowed]` is empty.
+  `^ParsekLog|^FileIO|^ParsekProcess|^Suppression|^PreParsek` (`:72`); the Core kernel rule
+  must stay last (`:128-130`); layers `:162-170`; `[headless.modules]` `:182-187` (Core,
+  Trajectory, Missions, Timeline, Reaim); `[size].runtimeCoupled` `:211`; `[forbidden]` holds
+  two edges (`:213-217`); `[allowed]` is empty.
 - `scripts/arch/layers.py:71-77` declares a module from its rule name, so a module with no
   files exists; `:225-254` reds a forbidden spec naming an undeclared module.
-- `scripts/arch/test_archview.py:4031-4091` pins the knot sizes `[435, 9, 4, 3, 2]`; `:4097`
-  pins the Core kernel at 8 files; `:4179` requires an atlas summary for every module
+- `scripts/arch/test_archview.py:4062-4128` pins the knot sizes `[435, 9, 4, 3, 2]`; `:4134`
+  pins the Core kernel at 8 files; `:4203` requires an atlas summary for every module
   (`missingSummaries == []`, summaries in `scripts/arch/atlas.toml:51-110`).
 - `scripts/arch/facts.toml:18-31` lists inert types (`ConfigNode`, `Game/Modes`, `KSPAddon`,
   `KSPScenario`, `ScenarioCreationOptions`, `GameScenes`); `:49` does not follow calls into
@@ -224,23 +225,23 @@ The scenario name literal is repeated at `SaveReferenceScanner.cs:84` and
 
 ### 3.7 Save format and paths
 
-- `Source/Parsek/SaveFormat.cs`: `CurrentSaveFormat` `:89`, rows `:92-117`, `All`
+- `Source/Parsek/Recording/SaveFormat.cs`: `CurrentSaveFormat` `:89`, rows `:92-117`, `All`
   `:118-122`, upgrade steps `:129`. `machine` files such as `settings.cfg`
   (`ParsekSettingsPersistence.cs:39`) have no row.
 - `Fixtures/FormatGolden/README.md`: a `vN` folder is frozen; `v1/formats.txt` lists ten
   rows. `SaveFormatGoldenGateTests.cs:42-70` (`FindCoverageProblems`) reds when no golden
   folder carries each version from a row's baseline to its current.
-- `RecordingPaths.SaveRootOverrideForTesting` `:65`, `ResolveSaveScopedPath` `:67`,
+- `RecordingPaths.SaveRootOverrideForTesting` `RecordingPaths.cs:65`, `ResolveSaveScopedPath` `:67`,
   `ValidateRecordingId` (asks the OS for invalid characters) `:302`, private
-  `TryGetSaveContext` `:329`. `PreParsekBackup.SanitizeSaveName` `:181` uses
+  `TryGetSaveContext` `:329`. `PreParsekBackup.SanitizeSaveName` `PreParsekBackup.cs:181` uses
   `Path.GetInvalidFileNameChars` too.
-- `LaunchSiteExclusionZones.cs:118` checks Making History with
+- `LaunchSiteExclusionZones.cs:121` checks Making History with
   `Expansions.ExpansionsLoader.IsExpansionInstalled("MakingHistory")`.
 
 ### 3.8 Grep gates and seam verbs
 
 - `GrepAuditTests.cs:46-70` runs the pwsh gates with the managed fallback;
-  `:99-158` holds the NotVacuous proofs. `scripts/grep-audit-gui-mock-writeset.ps1` is the
+  `:153-212` holds the NotVacuous proofs. `scripts/grep-audit-gui-mock-writeset.ps1` is the
   shape of the "no writer of the own model" gate (type allowlist, comment-stripped, alias
   ban).
 - `scripts/grep-audit-parsek-file-deletes.ps1` with its allowlist pins every `File.Delete`
@@ -288,7 +289,7 @@ report-only tag map `scripts/arch/log_tags.json` is refreshed in the task that f
 ### R1-02 One helper to find a scenario node (A7, part 3)
 
 - **Change:** new root file `Source/Parsek/ScenarioNodeLookup.cs` (module LogIO: add
-  `^ScenarioNode` to the LogIO prefix at `modules.toml:326`). Three internal static methods:
+  `^ScenarioNode` to the LogIO prefix at `modules.toml:72`). Three internal static methods:
   `FindInProtoList(IList<ProtoScenarioModule>, string moduleName)` returning the module's
   data node or null; `FindInGameNode(ConfigNode game, string moduleName)` over `SCENARIO`
   children; `EnumerateScenarioNodes(ConfigNode game)`. One constant
@@ -765,8 +766,8 @@ Dropped: replaced by T-13 (OV-02).
 
 ### R1-16 Lift the load-and-start route beside P10's core
 
-- **Change:** move the seam's SPACECENTER load route (`ParsekTestCommandAddon.cs:2256`,
-  `:2310-2320`, `:2380-2426`) into the production file P10-01 created, as
+- **Change:** move the seam's SPACECENTER load route (`ParsekTestCommandAddon.cs:2260`,
+  `:2314-2324`, `:2384-2430`) into the production file P10-01 created, as
   `LoadAndStart(saveFolder)`; the seam verb calls it, logging unchanged.
   `KnownLoadInitiators` moves the `LoadGame(` count from `TestCommands/
   ParsekTestCommandAddon.cs` to that file.
@@ -997,11 +998,11 @@ R1-14 to R1-18.
    plus `CareerSaveParser` in tooling (section 3.3). The plan replaces nine and keeps the
    tooling copy.
 2. **"File collector".** `ParsekFileCollector` never copies `Parsek/Race/`
-   (`ParsekFileCollector.cs:203,235,236`). The sweeps that do are `collect-logs.py`, the
+   (`ParsekFileCollector.cs:203, 235, 236`). The sweeps that do are `collect-logs.py`, the
    test-batch reconcile, and the in-game runner's batch snapshot and restore
    (`InGameTestRunner.cs:1965-1995`, `:2579`), which A7 does not name. R1-07 covers all three.
 3. **Before-start step.** The design does not say when the mark is written for a new save.
-   `SpaceCenterMain` re-reads `persistent.sfs` (`ParsekTestCommandAddon.cs:2380-2426`), so the
+   `SpaceCenterMain` re-reads `persistent.sfs` (`ParsekTestCommandAddon.cs:2384-2430`), so the
    proto must be added and the save written before `Game.Start`. P10's core must offer that
    step; the plan assumes it does. Settled: the overlaps audit found that P10-01's three
    steps leave room for it, and it stays for other uses now that the starting crew is

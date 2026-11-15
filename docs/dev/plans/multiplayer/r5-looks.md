@@ -97,7 +97,7 @@ Not built here:
   `Ghost built:` (`:340-344`, VerboseRateLimited; harness spec
   `harness/scenarios/FGV-1-fairing-ghost-visual.toml:131` regexes it) and, when no part
   produced a visual, warns `Ghost build produced zero visuals` and returns null
-  (`:346-351`). The engine then builds `GhostVisualBuilder.CreateGhostSphere`
+  (`GhostVisualBuilder.cs:346-351`). The engine then builds `GhostVisualBuilder.CreateGhostSphere`
   (`GhostPlaybackEngine.GhostVisuals.cs:163-167`) in the fixed `ghostColor`
   (`GhostPlaybackEngine.GhostVisuals.cs:84`), a 12 m sphere
   (`GhostVisualBuilder.cs:1896-1900`). An EVA kerbal is a one-part vessel, so a missing
@@ -122,7 +122,7 @@ Not built here:
 - The canopy logic keys on `partName.StartsWith("kerbalEVA")`
   (`GhostVisualBuilder.PartInfoBuilders.cs:186`); every suit part name starts that way.
 - **The eight kerbal parts** (`docs/dev/research/stock-tech-tree-part-unlocks.md:925-939`,
-  `docs/dev/research/part-coverage-catalog.md:611-618`): `kerbalEVA`, `kerbalEVAfemale`,
+  `docs/dev/done/part-coverage-catalog.md:611-618`): `kerbalEVA`, `kerbalEVAfemale`,
   `kerbalEVASlimSuit`, `kerbalEVASlimSuitFemale` (base game); `kerbalEVAVintage`,
   `kerbalEVAfemaleVintage` (Making History); `kerbalEVAFuture`, `kerbalEVAfemaleFuture`
   (Breaking Ground, with `ModuleColorChanger` and `ModuleEvaChute`). Gender is the
@@ -178,7 +178,7 @@ Not built here:
 
 ### 3.4 Where a ghost's color and label are set today
 
-- Map markers: `MapMarkerRenderer` (module Controllers, `scripts/arch/modules.toml:102`).
+- Map markers: `MapMarkerRenderer` (module Controllers, `scripts/arch/modules.toml:36`).
   The stock icon is drawn in the fixed `StockVesselIconColor`
   (`MapMarkerRenderer.cs:106`, used at `:350`); the color argument only tints the fallback
   diamond (`:355`). The label color is `GetLabelColor()` (`:222`, used at `:362`) and the
@@ -188,8 +188,8 @@ Not built here:
   (`Display/GhostTrajectoryPolylineRenderer.LegDraw.cs:400`) in the stock grey
   (`:417-423`).
 - Ghost map vessels: the name is `GhostVesselNamePrefix + vessel name`
-  (`GhostMapPresence.cs:756`, `GhostMapPresence.ProtoVesselLifecycle.cs:1974`); the orbit
-  renderer's draw mode and icons are set at `GhostMapPresence.ProtoVesselLifecycle.cs:1868-1880`;
+  (`GhostMapPresence.cs:756`, `GhostMapPresence.ProtoVesselLifecycle.cs:1922`); the orbit
+  renderer's draw mode and icons are set at `GhostMapPresence.ProtoVesselLifecycle.cs:1816-1828`;
   no color is ever set. P3 moves this into `GhostMapVessels` (r0b plan, P3-02 to P3-04).
   The orbit-line patch is `Patches/GhostOrbitLinePatch.cs:600-601`; its stamp sites are
   pinned by `LineBlinkWindowExitExemptionTests` and get no new sites here.
@@ -207,10 +207,10 @@ Not built here:
   repository's `GameData/Parsek/` holds only `Parsek.version`. A new `Suits/` folder ships
   nowhere until all three learn it.
 - Module rules are first-match (`scripts/arch/modules.toml:7`); a root file starting with
-  `Ghost` lands in Ghost (`:297-298`); Core is an explicit list and must stay last
-  (`:470-479`). Layers: floor LogIO / Config / Core / Trajectory, model, features (Ghost,
+  `Ghost` lands in Ghost (`:55-56`); Core is an explicit list and must stay last
+  (`:125-130`). Layers: floor LogIO / Config / Core / Trajectory, model, features (Ghost,
   Display, MapRender, ...), presentation, entry (Controllers, Patches)
-  (`modules.toml:511-518`). Core and Trajectory are headless (`modules.toml:531-537`).
+  (`modules.toml:162-169`). Core and Trajectory are headless (`modules.toml:182-188`).
 - `UnityEngine.Color` and `Color32` are inert types for the headless check
   (`scripts/arch/facts.toml:22`); `ProtoCrewMember/KerbalSuit` is not (only `RosterStatus`
   and `KerbalType` are, `facts.toml:27`). So a style value with a `Color` may sit on the
@@ -261,7 +261,7 @@ change it.
   (`GhostVisualBuilder.PartInfoBuilders.cs:685`) take the build's options, and
   `IGhostPartDresser` gains `Material[] DressMaterials(string partName, Part prefab,
   Renderer source, Material[] materials)`. Right after each
-  clone assigns `sharedMaterials` (`GhostVisualBuilder.cs:1171`,
+  clone assigns `sharedMaterials` (`GhostVisualBuilder.cs:1170`,
   `GhostVisualBuilder.PartInfoBuilders.cs:766`), when a dresser is set:
   `var dressed = dresser.DressMaterials(partName, prefab, sourceRenderer,
   clone.sharedMaterials); if (dressed != null) clone.sharedMaterials = dressed;`. The
@@ -330,7 +330,7 @@ change it.
   beside `GhostVesselNamePrefix` (the harness `test_saveparse` reads the prefix there), giving
   `GhostVesselNamePrefix + style.LabelPrefix + name` (the `Ghost: ` prefix stays first;
   saveparse and the save strip key on it). The own composition sites
-  (`GhostMapPresence.cs:756`, `GhostMapPresence.ProtoVesselLifecycle.cs:1974`, wherever P3-04
+  (`GhostMapPresence.cs:756`, `GhostMapPresence.ProtoVesselLifecycle.cs:1922`, wherever P3-04
   leaves them) call it with a null style, byte-equal to today, so it has a production caller
   in this change; the rival caller (`RivalMapPresence`, R3W-18) passes its style. Color:
   `GhostMapVessels` has no per-tick pass and this task adds none; it specifies a helper the
@@ -366,10 +366,10 @@ Lands only if R3 question 2 is answered (b) (a Parsek marker for a rival inside 
 atmosphere) or a rival lane draws trajectory polylines.
 
 - **Change:** `MapMarkerRenderer.DrawMarker` / `DrawMarkerAtScreen` take an optional
-  `PlaybackTrajectoryStyle style = null`: icon tint (`:350`), label color (`:362`) and label
-  text (`:364`) through three `internal static` resolvers that return today's constants for
-  null. `ApplyStockOrbitLineStyle` (`LegDraw.cs:400`) takes the same optional style for the
-  vertex color (`:417-423`). Own callers unchanged. The rival call site is in the entry
+  `PlaybackTrajectoryStyle style = null`: icon tint (`MapMarkerRenderer.cs:350`), label color
+  (`:362`) and label text (`:364`) through three `internal static` resolvers that return today's
+  constants for null. `ApplyStockOrbitLineStyle` (`LegDraw.cs:402`) takes the same optional style
+  for the vertex color (`:417-423`). Own callers unchanged. The rival call site is in the entry
   layer (9.4).
 - **Proof:** xUnit `MapMarkerStyleTests`, `LegLineStyleTests`: null style returns the exact
   current colors and text; a style gives its color with the marker opacity.
@@ -709,7 +709,7 @@ Dropped: replaced by T-29 (OV-06).
    `RaceLookTable.IsKerbalEvaPartName` accepts (R5-09), and R3W-21 should say so.
    Settled: R3W-21 keeps those names; if it lands first, R5-09 adds the exception (OV-56).
 4. **Colors on markers need the entry layer.** `MapMarkerRenderer` is in Controllers
-   (`modules.toml:102`), so `RaceWorld` cannot call it without a backward pair. Any rival
+   (`modules.toml:36`), so `RaceWorld` cannot call it without a backward pair. Any rival
    marker is drawn by a scene controller with a style RaceWorld hands it.
 5. **No slot for the "dressed with look N" marker.** 15.7 keeps `RaceLink` to never-changing
    facts and `RaceLocal` outside the save. The marker must roll back with the roster on

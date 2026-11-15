@@ -4,6 +4,8 @@ PLAN (2026-11-14), not started. Work starts after 1.0.2 is released, on the owne
 (The refactored build this plan and the design call "1.1" ships as version 1.0.2, by the
 owner's decision of 2026-11-14; "1.1" in these documents names that code structure.)
 The multiplayer mode itself ships as version 1.1.0 (owner, 2026-11-14).
+Source paths and line numbers were re-measured at main `ab1cc9478` (2026-11-15) after #2611,
+#2619 and #2620 moved them; whoever picks up a task re-reads the code first.
 
 This folder holds the implementation plan for the competitive multiplayer mode ("the space
 race"). The design is `docs/dev/design-competitive-multiplayer.md` (v2); the measured list of

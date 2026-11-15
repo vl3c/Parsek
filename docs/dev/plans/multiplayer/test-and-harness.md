@@ -90,24 +90,24 @@ instance (the harness may not touch one, section 9 item 11).
   writers in OnSave's phase order and returns the PARSEK node; `:87` `ResetAllStores()`.
   The writer is skipped unless `PARSEK_WRITE_FORMAT_GOLDEN=v1` (`:20`, `:117`). This is the
   base of the byte-identity tests; today it is private to one test class.
-- `Source/Parsek/ParsekScenario.cs:483` is `OnSave`. Its token stream is pinned by
+- `Source/Parsek/Controllers/ParsekScenario.cs:484` is `OnSave`. Its token stream is pinned by
   `ParsekScenarioOnSaveCharacterizationTests` against
   `Source/Parsek.Tests/Fixtures/SourceCharacterization/ParsekScenario.OnSave.tokens.txt`; the
   OnLoad twin is `ParsekScenarioOnLoadCharacterizationTests`.
 - `Source/Parsek.Tests/SaveFormatGoldenGateTests.cs:43-73` `FindCoverageProblems`: every
   registered format version from baseline to current must be carried by a golden folder's
-  `formats.txt`; `:133` every golden folder needs a manifest and a `persistent.sfs`; `:149`
-  committed golden files are frozen by checksum.
+  `formats.txt`; `SaveFormatGoldenGateTests.cs:133` every golden folder needs a manifest and a
+  `persistent.sfs`; `:149` committed golden files are frozen by checksum.
 
 ### Generators
 
 - `Source/Parsek.Tests/Generators/ScenarioWriter.cs:81` `AddRecordingAsTree`, `:575`
   `InjectIntoSaveFile`, `:585` and `:679` call `WriteSidecarFiles(saveDir)`, which writes
   `Parsek/Recordings/<id>.prec`, `_vessel.craft`, `_ghost.craft`.
-- `Source/Parsek/SidecarVersions.cs:26-30` `SidecarContentHash.Compute(byte[])`: the hash the
-  payload file names of 6.1 carry.
-- `Source/Parsek/RecordingPaths.cs:302` validates ids with `Path.GetInvalidFileNameChars()`,
-  which differs per OS (P7 moves it).
+- `Source/Parsek/Recording/SidecarVersions.cs:26-30` `SidecarContentHash.Compute(byte[])`: the hash
+  the payload file names of 6.1 carry.
+- `Source/Parsek/Recording/RecordingPaths.cs:302` validates ids with
+  `Path.GetInvalidFileNameChars()`, which differs per OS (P7 moves it).
 
 ### The command seam
 
@@ -127,13 +127,13 @@ instance (the harness may not touch one, section 9 item 11).
 - `harness/lib/hlib.py` keeps a per-verb row in several tables, for NewGame at `:887`
   (implemented), `:1286` (budget 300.0), `:1544` (tail role), `:1782` (post-mission role),
   `:4571` (`NEWGAME_VERB`); `harness/lib/lanecatalog.py:75` maps the verb to a timeline
-  operation; `harness/lib/test_hlib.py:18778` `NewGameSourceSyncTests`.
+  operation; `harness/lib/test_hlib.py:18826` `NewGameSourceSyncTests`.
 
 ### The harness
 
-- `harness/run.py:1341` `stage_fixture`: template copy, shared ships, injection, liveState
-  patches; `:1450-1451` "The seam's LoadGame bypasses the Main Menu"; `:542` `run_inject`
-  runs `inject-recordings.ps1` offline before boot; `:192` `INJECTION_PRESETS`.
+- `harness/run.py:1869` `stage_fixture`: template copy, shared ships, injection, liveState
+  patches; `:1978-1979` "The seam's LoadGame bypasses the Main Menu"; `:615` `run_inject`
+  runs `inject-recordings.ps1` offline before boot; `run.py:197` `INJECTION_PRESETS`.
 - `harness/README.md:110`: no new reads or writes outside `harness/`, `automation/`, the
   target instance, the read-only dev install. A shared folder must therefore sit inside the
   target instance.
@@ -142,14 +142,14 @@ instance (the harness may not touch one, section 9 item 11).
 - `harness/README.md:366-414`: "Authoring a fast lane" (reuse a host's flight, explicit-UT
   `WarpToUT`, minimal dwells, fail fast, tight windows, tier by measured p50,
   `flight_efficiency.py` after the first green flight).
-- `harness/README.md:1573-1579`: tiers daily / nightly / operator / longhaul / full.
+- `harness/README.md:1737-1743`: tiers daily / nightly / operator / longhaul / full.
 - `harness/lib/saveparse.py:165` `parse_sfs`, `:419-534` the row types: the model for a
   pure evaluator. Its gating is armed per spec through `ARMED_ALLOWLIST`
-  (`harness/lib/test_hlib.py:12255`).
+  (`harness/lib/test_hlib.py:12303`).
 - `harness/lib/test_hlib.py:3902` `CommittedBatchTallySourceSyncTests` (a spec's pinned batch
-  tally must equal the C# attributes), `:4955` `INTERIM_PIN_IDS` (never-flown specs),
+  tally must equal the C# attributes), `:4958` `INTERIM_PIN_IDS` (never-flown specs),
   `:7807` the multi-category `GROUP`.
-- `harness/lib/test_saveparse.py:4111` `test_fixture_set_is_exactly_the_committed_set` pins
+- `harness/lib/test_saveparse.py:4188` `test_fixture_set_is_exactly_the_committed_set` pins
   the directories under `harness/fixtures/saves/`.
 - `harness/lib/test_lanecatalog.py:217` `test_the_committed_catalog_is_current`: a new spec
   regenerates `docs/dev/flight-profiles.md` in the same commit.
@@ -163,21 +163,21 @@ instance (the harness may not touch one, section 9 item 11).
 
 ### Grep-audit gates
 
-- `Source/Parsek.Tests/GrepAuditTests.cs:180` `RunGrepAuditScript(scriptFileName,
+- `Source/Parsek.Tests/GrepAuditTests.cs:234` `RunGrepAuditScript(scriptFileName,
   managedFallback)` probes for pwsh and falls back to a managed scan. The gallery write-set
-  gate is the model for an allowlist-of-types gate: `:539` `GuiMockAllowedTypes`, `:99` the
-  gate, `:105` anti-vacuity, `:125` the cases a denylist missed, `:158` mirror equality with
+  gate is the model for an allowlist-of-types gate: `:616` `GuiMockAllowedTypes`, `:153` the
+  gate, `:159` anti-vacuity, `:179` the cases a denylist missed, `:212` mirror equality with
   the script. `:71` `ParsekFileDeletes_PlantedDeleteUnderRecordings_IsRed` is the
   planted-red pattern.
 
 ### Architecture
 
-- `scripts/arch/modules.toml:511` `[layers]`, `:531` `[headless.modules]`, `:562-563`
+- `scripts/arch/modules.toml:162` `[layers]`, `:182` `[headless.modules]`, `:213-214`
   `[forbidden]` edges.
-- `scripts/arch/test_archview.py:4090` the knot canary `[435, 9, 4, 3, 2]`, re-derived by
+- `scripts/arch/test_archview.py:4127` the knot canary `[435, 9, 4, 3, 2]`, re-derived by
   hand.
 - `scripts/arch/test_semantic.py:623` the semantic residue ratchet (a hand-set bound).
-- `Source/Parsek/LoadReconcilePolicy.cs:242` `KnownLoadInitiators`.
+- `Source/Parsek/Controllers/LoadReconcilePolicy.cs:242` `KnownLoadInitiators`.
 - `Source/Parsek.Tests/SaveScopedSessionResetTests.cs:25` `InventoryTypes`.
 
 ### Things that read fixture folders by glob
@@ -827,11 +827,11 @@ plan's own tasks meet 12 to 16):
 | # | Gate | Where it reds | File to edit | Re-pin |
 |---|---|---|---|---|
 | 1 | Placement of every production file | `scripts/arch` DLL-free suite | `scripts/arch/modules.toml` rules (P12 for the Controllers name pattern) | by hand |
-| 2 | Every module has a layer | DLL-free suite | `modules.toml:511` `[layers]` | by hand |
-| 3 | Forbidden edges of 15.4 | DLL-free text scan and `test_semantic_layers.py` | `modules.toml:562` | by hand |
-| 4 | Headless modules (`RaceCore`) | `test_ilheadless.py` | `modules.toml:531`, `scripts/arch/headless_pins.toml` | `python3 scripts/arch/headless.py Source/Parsek/bin/Debug/Parsek.dll --write-pins` |
+| 2 | Every module has a layer | DLL-free suite | `modules.toml:162` `[layers]` | by hand |
+| 3 | Forbidden edges of 15.4 | DLL-free text scan and `test_semantic_layers.py` | `modules.toml:213` | by hand |
+| 4 | Headless modules (`RaceCore`) | `test_ilheadless.py` | `modules.toml:182`, `scripts/arch/headless_pins.toml` | `python3 scripts/arch/headless.py Source/Parsek/bin/Debug/Parsek.dll --write-pins` |
 | 5 | Backward layer pairs | `test_semantic_layers.py` | `scripts/arch/layer_pins.toml` | `python3 scripts/arch/layers.py Source/Parsek/bin/Debug/Parsek.dll --write-pins` |
-| 6 | Knot canary | `scripts/arch/test_archview.py:4090` | that line | re-derive by hand |
+| 6 | Knot canary | `scripts/arch/test_archview.py:4127` | that line | re-derive by hand |
 | 7 | Semantic residue ratchet | `scripts/arch/test_semantic.py:623` | the bound (may not rise) | by hand, per `docs/dev/arch/README.md` |
 | 8 | Statics written by another type; uncalled methods; complexity | `test_ilanalysis.py` | `scripts/arch/facts_pins.toml` | `python3 scripts/arch/ilanalysis.py Source/Parsek/bin/Debug/Parsek.dll --write-pins` |
 | 9 | Static lifetimes | `test_static_lifetimes.py`, `SaveScopedSessionResetTests` | `scripts/arch/lifetimes.toml`, `lifetime_pins.toml`, `SaveScopedSessionResetTests.cs:25`, `scripts/session-reset-allowlist.txt` | `python3 scripts/arch/lifetimes.py Source/Parsek/bin/Debug/Parsek.dll --write-pins` |
@@ -841,7 +841,7 @@ plan's own tasks meet 12 to 16):
 | 13 | Background threads (copy worker, 15.9) | `GrepAuditTests` | `scripts/background-threads-audit-allowlist.txt` | by hand |
 | 14 | Save formats (`race-link`, `race-exchange`) | `SaveFormatTests`, `SaveFormatGoldenGateTests` | `SaveFormat.cs` (R1-12 registers both rows at 1); frozen `Fixtures/FormatGolden/v2/` (R1-12: the race save, `race.cfg`, `player.cfg`, `local.cfg`; `formats.txt` names both rows at 1) and `v3/` (R3E-04: a standing, its payload and an own mirror, no new row or bump) | each written once by its generator through the T-01 driver, env-gated (OV-15) |
 | 15 | GUI gates | GUI census and scale gates | the GUI slice's list (P11) | other slice |
-| 16 | Harness: verbs, kinds, lanes | `test_hlib`, `test_lanecatalog`, `IngameBatchWiringGroupTests`, `CommittedBatchTallySourceSyncTests` | `TestCommandVerbs.cs:56` (R1-08, R1-10, R1-11), hlib tables (`:887`, `:1286`, `:1544`, `:1782`; `set-folder` rows by T-12), `lanecatalog.py:75`, `docs/dev/flight-profiles.md`, `registry.toml`, `INTERIM_PIN_IDS`, `GROUP` | `python harness/tools/lane_catalog.py` |
+| 16 | Harness: verbs, kinds, lanes | `test_hlib`, `test_lanecatalog`, `IngameBatchWiringGroupTests`, `CommittedBatchTallySourceSyncTests` | `TestCommandVerbs.cs:56` (R1-08, R1-10, R1-11), hlib tables (`hlib.py:887`, `:1286`, `:1544`, `:1782`; `set-folder` rows by T-12), `lanecatalog.py:75`, `docs/dev/flight-profiles.md`, `registry.toml`, `INTERIM_PIN_IDS`, `GROUP` | `python harness/tools/lane_catalog.py` |
 
 The ERS / ELS gate needs nothing (`RaceExportSource` reads through `EffectiveState`).
 `StockLoadabilityTests` red only if a slice adds a `PartModule` or `VesselModule`.
@@ -907,7 +907,7 @@ AGENTS.md`); `design-gui-inventory.md` is untouched.
    marked, non-scoring rows in RACE-6. Settled: harness-flown race saves stay tool-marked,
    with no "test race" flag; scoring, holder changes, no retakes and the end date are
    proven headless and on T-16 / T-17 folders, R6-11's proofs included (OV-08).
-2. **Injected recordings are written offline** (`run.py:542` runs `inject-recordings.ps1`
+2. **Injected recordings are written offline** (`run.py:615` runs `inject-recordings.ps1`
    before boot; `ScenarioWriter.cs:575`), so Parsek cannot see that injection "ran". The
    design does not say how such a save is marked. The plan never injects into a race save;
    the disclosure slice decides whether the injector stamps the mark or refuses race saves.
@@ -920,7 +920,7 @@ AGENTS.md`); `design-gui-inventory.md` is untouched.
    plan uses a canonical diff with a pinned, reasoned mask (T-05, T-27); byte identity is
    headless only (T-23). Settled: the masked comparison is assumed (question 2), RACE-4 is
    the one whole-save lane (OV-05), and the headless byte-identity test is R3W-29's (OV-20).
-5. **The seam's `LoadGame` bypasses the main menu** (`run.py:1450-1451`), as other mods
+5. **The seam's `LoadGame` bypasses the main menu** (`run.py:1978-1979`), as other mods
    can. A site restore tied to the main menu would miss it. RACE-5 drives both routes; the
    plan assumes R2 restores on the loaded save's gate, not on MAINMENU. Settled: SITES-2
    (R2-13) drives both routes against RACE-0's values, and `ParsekRaceBoot.OnSceneRequest`

@@ -90,7 +90,7 @@ Tasks in other slices that depend on this one (final ids, `task-index.md` sectio
 - The command seam is armed by `PARSEK_TEST_COMMANDS=1`, read once in Awake
   (`Source/Parsek/TestCommands/ParsekTestCommandAddon.cs:39`, `:55`). Verbs a spike can
   reuse: `RunTests` (`Source/Parsek/TestCommands/TestCommandVerbs.cs:64`, dispatched at
-  `ParsekTestCommandAddon.cs:1795`, any scene per `TestCommandDispatcher.cs:518`),
+  `ParsekTestCommandAddon.cs:1799`, any scene per `TestCommandDispatcher.cs:518`),
   `LoadGame` (`TestCommandVerbs.cs:65`), `PlantFlag` (`:75`), `CaptureScreenshot` (`:207`),
   `GoToEditor` (`:247`), `LaunchFromEditor` (`:248`), `DriveVessel` (`:352`),
   `LaunchSiteProbe` (`:396`), `NewGame` (`:405`). So a spike drives its actions as an
@@ -104,13 +104,13 @@ Tasks in other slices that depend on this one (final ids, `task-index.md` sectio
   CS-0-new-career-game.toml` (steps `LoadGame`, `SetSetting`, `NewGame`, `SaveGame`,
   `FlushAndQuit`; tier operator).
 - Harmony: `ParsekHarmony` applies every type in the assembly that carries `[HarmonyPatch]`
-  (`Source/Parsek/ParsekHarmony.cs:51-57`). A spike patch must therefore NOT carry the
+  (`Source/Parsek/Controllers/ParsekHarmony.cs:51-57`). A spike patch must therefore NOT carry the
   attribute; it is applied by hand from a separate Harmony id only when its spike is armed,
   or it would run in every session of the spike DLL.
 - The terrain scan tool `harness/tools/kerbin_equator_scan.py` (kRPC `surface_height`,
   `biome_at`; arguments at `:393-402`: `--coarse-step 0.1`, `--fine-step 0.025`,
   `--search-deg 30`, `--shortlist 4`, `--selftest`) writes to `<umbrella>/logs/terrain/
-  <date>/` (`:385`), documented at `harness/README.md:2817`. It is not a lane and has no
+  <date>/` (`:385`), documented at `harness/README.md:3087`. It is not a lane and has no
   test file; its only self-check is `--selftest` (`:343`). It defines the KSC centre as the
   midpoint of pad and runway, not the KSC `PQSCity` origin.
 - The survey's fine grids exist only for the tool's shortlist: `fine_opposite_1` spans lon
@@ -123,7 +123,7 @@ Tasks in other slices that depend on this one (final ids, `task-index.md` sectio
   (`stock-minimal.toml:14-29`) and pins low graphics (`:34-40`). `Squad` and `SquadExpansion`
   are junctioned to the dev install at CLONE (`harness/provision/provlib.py:47-48`), so a
   provisioned instance has the DLCs exactly when the dev install has them. kRPC binds the
-  fixed ports 50000 / 50001 (`harness/run.py:106-110`), so two kRPC instances cannot run at
+  fixed ports 50000 / 50001 (`harness/run.py:108-113`), so two kRPC instances cannot run at
   once on default settings.
 - Output rule (`.claude/CLAUDE.md` hard rules): nothing is written into the repo tree or
   the umbrella root; captures go under `<umbrella>/logs/<kind>/`. Curated results go to
@@ -134,8 +134,8 @@ Tasks in other slices that depend on this one (final ids, `task-index.md` sectio
 - KSC constants: `SpawnCollisionDetector.cs:216` `KscPadLatitude = -0.0972`, `:219`
   `KscPadLongitude = -74.5575`, `:222` `KscRunwayLatitude = -0.0502`, `:225`
   `KscRunwayLongitude = -74.7300`, `:232` `DefaultKscExclusionRadiusMeters = 50.0`.
-- Alternate sites: `LaunchSiteExclusionZones.cs:130` declares `cachedRuntimeCircles`, read at
-  `:224`, set at `:247`, cleared only by a test hook at `:325`; the cache survives a move.
+- Alternate sites: `LaunchSiteExclusionZones.cs:133` declares `cachedRuntimeCircles`, read at
+  `:240`, set at `:275`, cleared only by a test hook at `:359`; the cache survives a move.
 - Cheat observation already in place: `Patches/CheatTeleportPatch.cs:16` postfixes
   `FlightGlobals.PostOrbitSet`; `GravityHackDetector.cs:81` reads `HackGravity` widgets via
   `Resources.FindObjectsOfTypeAll<HackGravity>()` (`Patches/HackGravityPatch.cs:14`);
@@ -147,7 +147,7 @@ Tasks in other slices that depend on this one (final ids, `task-index.md` sectio
 - Flattening: `GhostPlaybackEngine.SectionPositioning.cs:103`
   `TryPositionRelativeSectionAtPlaybackUT`, `:118` `bool parentAnchored =
   IsParentAnchoredBodyFixedPrimaryCandidate(traj);` is the one switch that sends a relative
-  section to its body-fixed copy; `ParsekFlightGhostPositioner.cs:228`
+  section to its body-fixed copy; `ParsekFlightGhostPositioner.BodyFixedPrimary.cs:24`
   `TryPositionFromBodyFixedPrimary`. The body-fixed copy is written only when the caller
   passes one: `FlightRecorder.PointCommit.cs:236-243`; `TrackSection.cs:59`
   `bodyFixedFrames`; `TrajectoryTextSidecarCodec.cs:676` treats a relative section with
@@ -303,7 +303,7 @@ Common to every spike task below:
   ground on the ring R to R + 500 m: max, mean, p95), and `best_on_row`. The scoring works
   offline on saved CSVs (`--rescore <dir>`), so S4a's radius can change without a new
   scan. `--selftest` grows cells for the new functions on a synthetic height field.
-  `harness/README.md:2817` section gains the new flags.
+  `harness/README.md:3087` section gains the new flags.
 - **Procedure:** spike instance at the Space Center with kRPC up, machine lock held by
   the owner (no `run.py` / `provision.py` in flight). One degree of Kerbin is about
   10.5 km. (1) Stock KSC grid: `--spot -0.0737,-74.6438 --spot-radius-km 6 --spot-step
@@ -421,7 +421,7 @@ Common to every spike task below:
   `LaunchSite` with each spawn point's lat / lon / alt and `requiresPOIVisit`; samples the
   pad and runway collider bounds (world corners to lat / lon) for the KSC and each Making
   History site; after `LaunchSiteExclusionZones.GetAltSiteCircles` has run once, reads
-  `cachedRuntimeCircles` (`LaunchSiteExclusionZones.cs:130`) by reflection and logs each
+  `cachedRuntimeCircles` (`LaunchSiteExclusionZones.cs:133`) by reflection and logs each
   circle's site name, centre and radius. `SpikeS4EventOrder` (armed by `PARSEK_SPIKE=S4a`):
   logs, with frame number and `HighLogic.CurrentGame` title, `onGameSceneLoadRequested`,
   `onGameStateLoad`, `onGameStatePostLoad`, `onLevelWasLoaded`, `SpaceCenter.Start` (a

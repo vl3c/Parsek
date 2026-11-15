@@ -81,8 +81,8 @@ No other spike gates this plan. No task needs a flight before R3E-08.
 ### 3.1 Sidecar files and their hashes
 
 - A recording's hashed sidecars are `.prec`, `_vessel.craft`, `_ghost.craft`
-  (`Source/Parsek/SidecarVersions.cs:14-20`, suffixes `:90-99`). The hash is the first 64 bits
-  of SHA-1 as 16 lower-hex characters, "identity, not security"
+  (`Source/Parsek/Recording/SidecarVersions.cs:14-20`, suffixes `:90-99`). The hash is the first 64
+  bits of SHA-1 as 16 lower-hex characters, "identity, not security"
   (`SidecarVersions.cs:22-47`); `IsWellFormed` at `:55-68`.
 - A head lives at `Parsek/Recordings/<id><suffix>`; a retained version at
   `Parsek/Recordings/_versions/<id>.<hash><suffix>` (`SidecarVersions.cs:71-81`,
@@ -111,10 +111,10 @@ No other spike gates this plan. No task needs a flight before R3E-08.
   `BuildGhostSnapshotRelativePath` (`:38`), `ResolveSaveScopedPath` (`:67`).
 - Id check: `RecordingPaths.ValidateRecordingId` (`RecordingPaths.cs:284-312`) refuses null,
   separators and `..`, then asks the OS for invalid characters at `:302` (P7 replaces that).
-- Tree metadata codec: `RecordingTreeRecordCodec.SaveRecordingInto` (`:11`; hashes written at
-  `:118`, `:122`) and `LoadRecordingFrom` (`:543`; hashes parsed at `:796-798`).
-  `RecordingTree` has `Id`, `TreeName`, `RootRecordingId`, `BranchPoints`
-  (`RecordingTree.cs:13-29`) and `Save(ConfigNode)` (`:148`).
+- Tree metadata codec: `RecordingTreeRecordCodec.SaveRecordingInto`
+  (`RecordingTreeRecordCodec.cs:11`; hashes written at `:118`, `:122`) and `LoadRecordingFrom`
+  (`:543`; hashes parsed at `:796-798`). `RecordingTree` has `Id`, `TreeName`, `RootRecordingId`,
+  `BranchPoints` (`RecordingTree.cs:13-29`) and `Save(ConfigNode)` (`:148`).
 
 ### 3.2 Safe writes
 
@@ -128,18 +128,18 @@ No other spike gates this plan. No task needs a flight before R3E-08.
 
 ### 3.3 The effective sets and the Re-Fly session
 
-- `EffectiveState.ComputeERS` (`EffectiveState.cs:2117-2190`) keeps committed recordings that
+- `EffectiveState.ComputeERS` (`EffectiveState.cs:2096-2169`) keeps committed recordings that
   are not `NotCommitted`, visible (not superseded), not rewind-retired, and not in the active
   Re-Fly marker's suppressed subtree. A `CommittedProvisional` recording stays in ERS. The
-  marker is read from `ParsekScenario.Instance.ActiveReFlySessionMarker` (`:2123`). The result
+  marker is read from `ParsekScenario.Instance.ActiveReFlySessionMarker` (`:2102`). The result
   is cached and the same list instance is returned until a version or the marker changes
-  (`:2129-2135`).
-- `EffectiveState.ComputeELS` (`EffectiveState.cs:2202-2263`) drops only tombstoned
-  `ActionId`s (`:2240-2250`).
-- `EffectiveState.ResolveOwningTree(rec, treeContext)` (`EffectiveState.cs:1280-1315`) scans
+  (`:2108-2114`).
+- `EffectiveState.ComputeELS` (`EffectiveState.cs:2181-2242`) drops only tombstoned
+  `ActionId`s (`:2219-2229`).
+- `EffectiveState.ResolveOwningTree(rec, treeContext)` (`EffectiveState.cs:1259-1294`) scans
   `RecordingStore.CommittedTrees`, so `RaceExport` reaches trees without naming the store.
 - `SessionSuppressionState.ActiveMarker` (`SessionSuppressionState.cs:50`) is in the
-  Controllers module (`scripts/arch/modules.toml:454-457`), the entry layer, so `RaceExport`
+  Controllers module (`scripts/arch/modules.toml:34-36`), the entry layer, so `RaceExport`
   (features) must not call it.
 - `MissionStore.DisplayNameForTree(RecordingTree)` (`MissionStore.cs:825`) gives the mission
   name.
@@ -161,7 +161,7 @@ No other spike gates this plan. No task needs a flight before R3E-08.
 - **VERIFY 7.8 (1), answered: yes.** After a rewind and an earlier re-earn, the later row
   stays in the effective ledger: `MilestonesModule` only flips it to not-effective
   (`MilestonesModule.cs:157-158`) and `ComputeELS` filters nothing but tombstones
-  (`EffectiveState.cs:2240-2250`). So both dates are on record, as 6.1 expects.
+  (`EffectiveState.cs:2219-2229`). So both dates are on record, as 6.1 expects.
 - **VERIFY 7.8 (2), answered.** A Re-Fly merge tombstones the eligible milestone rows tagged
   to the superseded subtree and nothing else. What it leaves: the attempt's own row (new
   date), any row of the same milestone tagged to a flight in another tree (it becomes the
@@ -195,7 +195,7 @@ No other spike gates this plan. No task needs a flight before R3E-08.
   `Vessel.Die()` (`GhostMapPresence.cs:203`) and also from `Vessel.OnDestroy` at quit
   (`Patches/GhostTrackingStationPatch.cs:225`), so a destroy event alone is not proof of a
   real destruction.
-- Inputs of the stand query: `RecordingTree.IsSpawnableLeaf` (`RecordingTree.cs:971`),
+- Inputs of the stand query: `RecordingTree.IsSpawnableLeaf` (`RecordingTree.cs:950`),
   `VesselIdentity.Resolve` (`VesselIdentity.cs:467`, Missions module),
   `GhostChainWalker.ComputeAllGhostChains` (`GhostChainWalker.cs:34`, Ghost module).
 
@@ -217,8 +217,8 @@ No other spike gates this plan. No task needs a flight before R3E-08.
   command, `TestCommands/ParsekTestCommandAddon.EvaGroundScience.cs:741`).
 - Test tooling entry points: `InGameTestRunner.RunAll` (`InGameTests/InGameTestRunner.cs:
   383`), `RunBatchSelector` (`:494`).
-- Recordings change shape in `RecordingOptimizer.MergeInto` (`RecordingOptimizer.cs:934`),
-  `SplitAtUT` (`:1711`), the clone (`Recording.cs:1130`) and `SessionMerger` (`:13`).
+- Recordings change shape in `RecordingOptimizer.MergeInto` (`RecordingOptimizer.cs:1059`),
+  `SplitAtUT` (`:1843`), the clone (`Recording.cs:1130`) and `SessionMerger` (`:13`).
 
 ### 3.7 Save format and golden folders
 
@@ -227,10 +227,10 @@ No other spike gates this plan. No task needs a flight before R3E-08.
   module, which may not name `RaceCore` (15.4), so `raceFormat` needs its own literal there.
 - `SaveFormatGoldenGateTests.FindCoverageProblems` (`Source/Parsek.Tests/
   SaveFormatGoldenGateTests.cs:42-71`) reds until some `vN/formats.txt` carries every version
-  of every `All` row; every `vN` needs `formats.txt` and `persistent.sfs` (`:133-145`); every
-  file is pinned in `checksums.txt` (`:149-157`). Today only `v1` exists; its manifest lists
-  ten rows (`Fixtures/FormatGolden/v1/formats.txt`). Folders are frozen
-  (`Fixtures/FormatGolden/README.md`).
+  of every `All` row; every `vN` needs `formats.txt` and `persistent.sfs`
+  (`SaveFormatGoldenGateTests.cs:133-145`); every file is pinned in `checksums.txt`
+  (`SaveFormatGoldenGateTests.cs:149-157`). Today only `v1` exists; its manifest lists ten rows
+  (`Fixtures/FormatGolden/v1/formats.txt`). Folders are frozen (`Fixtures/FormatGolden/README.md`).
 
 ### 3.8 Gates the plan touches
 
@@ -241,12 +241,12 @@ No other spike gates this plan. No task needs a flight before R3E-08.
   (`Source/Parsek.Tests/GrepAuditTests.cs:59`).
 - ERS/ELS routing: `scripts/grep-audit-ers-els.ps1` matches `.CommittedRecordings` and
   `Ledger.Actions`; `RaceExport` reads only through `EffectiveState` and needs no entry.
-- Layers (`modules.toml:505-519`): floor = LogIO, Config, Core, Trajectory; model =
+- Layers (`modules.toml:156-170`): floor = LogIO, Config, Core, Trajectory; model =
   Recording, GameActions, Crew; features = Ghost, Rewind, Missions, ...; entry = Controllers,
-  Patches. Headless modules (`:531-536`). Forbidden edges today: two (`:562-566`).
+  Patches. Headless modules (`:182-187`). Forbidden edges today: two (`:213-217`).
   `ConfigNode` is an inert type for the headless gate (`scripts/arch/facts.toml:18-19`).
 - Placement: the Config rule is `^ParsekConfig|^ParsekSettings|^SettingWhitelist`
-  (`modules.toml:345-347`).
+  (`modules.toml:31-32`).
 - Lifetimes: categories and the Cold-load roots (`scripts/arch/lifetimes.toml:20-40`).
 
 ## 4. Tasks
@@ -260,7 +260,7 @@ partial class split by stage (`RaceSync.cs`, `.Export.cs`, `.CopyOut.cs`, `.Impo
 log under `RaceSync`, never `RaceImport`), and follows the batch counting convention.
 
 The uncalled-method ratchet (second-pass ruling A1; `uncalledInAssembly`,
-`docs/dev/arch/README.md:509-512`) counts every production method the roots do not reach,
+`docs/dev/arch/README.md:513-516`) counts every production method the roots do not reach,
 so a member lands in the pull request of its first production caller. A task below that
 names a member with a later first caller specifies it ("lands with R3E-NN"); that later
 task adds it to the earlier task's file. Fields and enum members are not methods.
@@ -363,7 +363,7 @@ task adds it to the earlier task's file. Fields and enum members are not methods
   - `RaceCore/PublicStateDigest.cs`: SHA-256 over a canonical text (records sorted by id,
     doubles `"R"` invariant), excluding `seq`, stamps, `prevSeq`, `prevHash`, `note`, `SEEN`.
   - `EffectiveState.ExportReads.cs` (new partial, Rewind module): `HasActiveReFlySession()`,
-    reading the marker the way `ComputeERS` does (`EffectiveState.cs:2123`), so `RaceExport`
+    reading the marker the way `ComputeERS` does (`EffectiveState.cs:2102`), so `RaceExport`
     needs no edge to Controllers.
   - `RaceExport/RaceExportSource.cs`: reads `EffectiveState.ComputeERS()`; `NotReady` when a
     Re-Fly session is open (7.5), when any ERS recording has `FilesDirty` or
@@ -711,7 +711,7 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
   - `RaceExportSource.Leftovers.cs` -> `PublicState.Leftovers`; codec
     `LEFTOVERS { L { recordingId fromUT untilUT vtype } }`, `untilUT` empty while standing.
     `vtype` (additive, OV-36) is the vessel type of the leftover's own vessel snapshot (the
-    value `ResolveVesselType` reads, `GhostMapPresence.ProtoVesselLifecycle.cs:2090`), so
+    value `ResolveVesselType` reads, `GhostMapPresence.ProtoVesselLifecycle.cs:2038`), so
     R3W can draw the right map icon at scene load (r3w section 9.3); empty when unknown.
   - `RaceExportSource.Flags.cs` -> `PublicState.Flags`; additive codec block
     `FLAGS { F { recordingId site placedBy plaque flagUrl body lat lon alt rot ut pickupUT } }`

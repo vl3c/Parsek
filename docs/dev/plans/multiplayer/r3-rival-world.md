@@ -117,7 +117,7 @@ Spikes:
 
 ### 3.1 The playback interface and the engine
 
-- `IPlaybackTrajectory` is declared at `Source/Parsek/IPlaybackTrajectory.cs:22`. It carries
+- `IPlaybackTrajectory` is declared at `Source/Parsek/Core/IPlaybackTrajectory.cs:22`. It carries
   `Points`, `OrbitSegments`, `TrackSections` (:25-28), `StartUT` / `EndUT` (:34-35, an outer
   envelope that may be wider than the payload, comment :29-33), `PartEvents` and
   `FlagEvents` (:39-40), `GhostVisualSnapshot` and `VesselSnapshot` (:43-44), the loop
@@ -136,7 +136,7 @@ Spikes:
   `Func<int,int> ResolveChainNextIndex` (:303, null means no chain),
   `IsWatchedGhostStateResolver` (:331).
 - `UpdatePlaybackEntry` (:449): a set `skipGhost` goes to `HandleSkippedPlaybackEntry`
-  (:466); the entry's `Points` and `HasRenderableGhostData` are read at :472-476, BEFORE the
+  (:468); the entry's `Points` and `HasRenderableGhostData` are read at :472-476, BEFORE the
   activation check at :542. So an entry that has not loaded its payload must be skipped by
   the host, not left to the engine's own before-activation path.
 - `HandleSkippedPlaybackEntry` (:751) counts the skip, destroys a live ghost, and fires the
@@ -164,7 +164,7 @@ Spikes:
   explicit end extends past it (:515-517). These two facts make the leftover hold a matter
   of data, not of a new engine mode.
 - The one store read in the engine: `TryFindPlaybackRecordingTree`
-  (`GhostPlaybackEngine.SectionPositioning.cs:354`, reads `PendingTreeSlot` at :363 and
+  (`GhostPlaybackEngine.SectionPositioning.cs:354`, reads `PendingTreeSlot` at :364 and
   `RecordingStore.CommittedTrees` at :371), reached only from
   `ShouldUseLoopAnchoredDebrisChain` (:268), which returns early when
   `ParentAnchorRecordingId` is empty (:272-276).
@@ -178,9 +178,10 @@ Spikes:
   `ApplyFlagPickUps`, returns when `FlagEvents` is empty, else walks a cursor to
   `TrySpawnFlagVessel` (:1498), which calls `GhostVisualBuilder.SpawnFlagVessel` (:1525). That
   builds a real ProtoVessel in `flightState` (`GhostVisualBuilder.cs:1803`), which is saved.
-- `ApplyFlagPickUps` (:1371) reads segment events through `(rec as Recording)?.SegmentEvents`
-  (:1373; also :1320) and writes `RemovedReplayFlags.RecordRemoval` plus a live removal. A
-  trajectory that is not a `Recording` reaches neither.
+- `ApplyFlagPickUps` (`GhostPlaybackLogic.PartEvents.cs:1371`) reads segment events through
+  `(rec as Recording)?.SegmentEvents` (:1373; also :1320) and writes
+  `RemovedReplayFlags.RecordRemoval` plus a live removal. A trajectory that is not a `Recording`
+  reaches neither.
 - Test seams: `SetSpawnFlagOverrideForTesting` (`GhostPlaybackLogic.cs:28`, used at :105) and
   `SetRemoveStandingFlagOverrideForTesting` (`GhostPlaybackLogic.PartEvents.cs:1359`).
 - `FlagEvent` (`FlagEvent.cs`) holds ut, site name, placed by, plaque text, `flagURL` (a
@@ -202,7 +203,7 @@ Policy, `ParsekPlaybackPolicy.cs`:
   (`DeferredActivateVesselFromPolicy`, :916), counts failures
   (`DiagnosticsState.health.spawnFailures++`, :933), and finally destroys the ghost (:1038).
 - Also `RunSpawnDeathChecks` (:165), `FlushDeferredSpawns` (:447), `RetryHeldGhostSpawns`
-  (:1047), `HandleGhostCreated` (:1504), `Dispose` (:1973).
+  (:1047), `HandleGhostCreated` (:1504), `Dispose` (:1964).
 
 Host, `ParsekFlightPlaybackHost.cs` (`class` at :14):
 
@@ -235,9 +236,9 @@ Composition, `ParsekFlight.cs`:
 - `OnCameraPreCull` (:1367): re-apply and clamp (:1399-1401).
 - `OnGUI` (:1417): map markers (:1435), watch overlay, `SpawnHost.DrawGhostLabels` (:1444),
   which draws labels for chain ghosts only (`ParsekFlightSpawnHost.cs:688`).
-- `OnDestroy` (:1489): CommNet shutdown (:1532), `GhostMapPresence.RemoveAllGhostVessels(
-  "scene-cleanup", sceneTeardown: true)` (:1577), `policy?.Dispose(); engine?.Dispose();`
-  (:1587-1588), positioner cache clear (:1591).
+- `OnDestroy` (`ParsekFlight.cs:1489`): CommNet shutdown (:1532),
+  `GhostMapPresence.RemoveAllGhostVessels( "scene-cleanup", sceneTeardown: true)` (:1577),
+  `policy?.Dispose(); engine?.Dispose();` (:1587-1588), positioner cache clear (:1591).
 
 Tracking Station, `ParsekTrackingStation.cs`: no engine. `Start` (:250) runs the inert gate
 (:254) and `GhostMapPresence.CreateGhostVesselsFromCommittedRecordings()` (:262); `Update`
@@ -250,15 +251,15 @@ Tracking Station, `ParsekTrackingStation.cs`: no engine. `Start` (:250) runs the
 - `GhostMapPresence.ghostMapVesselPids` (`GhostMapPresence.cs:196`) and
   `IsGhostMapVessel(pid)` (:733); test hook `RegisterGhostMapVesselPidForTesting` (:739).
 - `BuildAndLoadGhostProtoVesselCore`
-  (`GhostMapPresence.ProtoVesselLifecycle.cs:1800`) registers the pid (:1822) before
-  `pv.Load`, then hardens physics. `BuildGhostProtoVesselNode` (:1955) builds a one-part
+  (`GhostMapPresence.ProtoVesselLifecycle.cs:1748`) registers the pid (:1770) before
+  `pv.Load`, then hardens physics. `BuildGhostProtoVesselNode` (:1903) builds a one-part
   (`sensorBarometer`), `Ghost: `-named, ORBITING node; the vessel type comes from
-  `traj.VesselSnapshot` through `ResolveVesselType` (:2090; `Ship` when null). There is no
-  landed variant. `StripFromSave` (:1345, called from `ParsekScenario.Save.cs:37`) drops
+  `traj.VesselSnapshot` through `ResolveVesselType` (:2038; `Ship` when null). There is no
+  landed variant. `StripFromSave` (:1293, called from `ParsekScenario.Save.cs:37`) drops
   every guarded pid from the saved flight state.
-- Index-keyed own presence: `CreateGhostVesselForRecording(int recordingIndex, ...)` (:596),
-  `TrackRecordingGhostVessel` (:1365). P3 extracts the build / register / remove / strip
-  primitive from this.
+- Index-keyed own presence: `CreateGhostVesselForRecording(int recordingIndex, ...)`
+  (`GhostMapPresence.ProtoVesselLifecycle.cs:544`), `TrackRecordingGhostVessel` (:1313). P3 extracts
+  the build / register / remove / strip primitive from this.
 - Patches that read the guard set: `GhostVesselLoadPatch.cs` refuses orbit casts
   (:197-208), routes icon clicks by own index (:256-266), refuses `GoOffRails` (:414-424),
   and on `SetActiveVessel` posts "will materialize when its timeline reaches the spawn
@@ -293,10 +294,10 @@ Tracking Station, `ParsekTrackingStation.cs`: no engine. `Start` (:250) runs the
 ### 3.6 Gates the slice touches
 
 - Module placement: `^Parsek(Flight|KSC|TrackingStation|Scenario|Harmony|Playback)` is
-  Controllers (`scripts/arch/modules.toml:322`); a new `^Ghost` root file is Ghost (:298);
-  the Core kernel list is explicit (:479). Layers at :511-519; `[forbidden]` at :562-566;
-  `[headless.modules]` at :531.
-- Grep gates: `Source/Parsek.Tests/GrepAuditTests.cs:47-158`, each a
+  Controllers (`scripts/arch/modules.toml:36`); a new `^Ghost` root file is Ghost (:56);
+  the Core kernel list is explicit (:130). Layers at :162-170; `[forbidden]` at :213-217;
+  `[headless.modules]` at :182.
+- Grep gates: `Source/Parsek.Tests/GrepAuditTests.cs:47-212`, each a
   `scripts/grep-audit-*.ps1` with allowlist and managed fallback.
 - In-game test tallies: `CommittedBatchTallySourceSyncTests` and the lane catalog (a new
   in-game category needs `python harness/tools/lane_catalog.py`).
@@ -334,7 +335,7 @@ cells and stay their own pull requests; the one member that waits for a later ta
 
 - **Change:** `GhostPlaybackEvents.cs`: add `HostFiltered = 17` to `GhostPlaybackSkipReason`
   (additive, runtime-only enum, never persisted), its `ToLogToken` token `host-filtered`,
-  and a counter case in `CountFrameSkip` (`GhostPlaybackEngine.Diagnostics.cs:173`). The
+  and a counter case in `CountFrameSkip` (`GhostPlaybackEngine.Diagnostics.cs:171`). The
   host puts the cause in `skipReasonDetail` as a constant string (`window`, `hidden`,
   `pending`, `not-drawn`, `unplayable`). The own host never sets it.
 - **Proof:** xUnit `GhostPlaybackSkipReasonTests.HostFiltered_*`: token, counter, and that
@@ -555,7 +556,7 @@ cells and stay their own pull requests; the one member that waits for a later ta
 ### R3W-09 Flight composition (milestone M1)
 
 - **Change:** new `Source/Parsek/ParsekFlightRivalLane.cs` (module Controllers through
-  `modules.toml:322`), `internal sealed class ParsekFlightRivalLane`, constructed with the
+  `modules.toml:36`), `internal sealed class ParsekFlightRivalLane`, constructed with the
   `ParsekFlight` host and the `RaceRuntime`. It owns: a P2b lane-state object, `new
   ParsekFlightGhostPositioner(host, laneState)`, `new GhostPlaybackEngine(positioner, ...)`
   in the constructor form that the earlier constructor changes leave (P2c-02, P2c-04,
@@ -697,7 +698,7 @@ cells and stay their own pull requests; the one member that waits for a later ta
 ### R3W-14 A5: one ghost budget for both engines
 
 - **Change:** new floor type `Source/Parsek/PlaybackGhostBudget.cs` with an explicit Core
-  placement (beside `IPlaybackTrajectory` in `modules.toml:479`). Three priority classes
+  placement (beside `IPlaybackTrajectory` in `modules.toml:130`). Three priority classes
   (own, rival flight, leftover), a per-frame `Begin(frame)`, `TryTake(class)` and a cap.
   The own engine takes from it without a limit, so single player is unchanged; the rival
   engine gets `max(0, cap - ownInRange)`, flights before leftovers. The engine is handed
@@ -743,7 +744,7 @@ cells and stay their own pull requests; the one member that waits for a later ta
 ### R3W-16 Labels on rival ghosts in flight
 
 - **Change:** `ParsekFlightRivalLane.DrawLabels()` called from `ParsekFlight.OnGUI` beside
-  `SpawnHost.DrawGhostLabels` (:1444): the existing label drawing of
+  `SpawnHost.DrawGhostLabels` (`ParsekFlight.cs:1444`): the existing label drawing of
   `ParsekFlightSpawnHost.cs:688` lifted into a shared helper that takes a position, text and
   color; rival text is `<style.LabelPrefix><vessel name>`, for example `Ana - Kerbal X`
   (OV-45). Drawn only for live rival ghosts inside the label range. Question 10.3 is
@@ -830,10 +831,10 @@ cells and stay their own pull requests; the one member that waits for a later ta
 ### R3W-20 Tracking Station composition
 
 - **Change:** new `Source/Parsek/ParsekTrackingStationRivalLane.cs` (Controllers). In
-  `ParsekTrackingStation.Start` (:250) after the own creation (:262): `rivalLane =
-  RaceRuntime.Current == null ? null : new ...(race)`, which calls `SceneReady(TRACKSTATION)`
-  and builds a `RivalMapPresence`. In `Update` (:286) at the existing 0.25 s tick (:360):
-  `rivalLane?.Tick(ut)`. In `OnDestroy` (:1285) before the own removal (:1301):
+  `ParsekTrackingStation.Start` (`ParsekTrackingStation.cs:250`) after the own creation (:262):
+  `rivalLane = RaceRuntime.Current == null ? null : new ...(race)`, which calls
+  `SceneReady(TRACKSTATION)` and builds a `RivalMapPresence`. In `Update` (:286) at the existing
+  0.25 s tick (:360): `rivalLane?.Tick(ut)`. In `OnDestroy` (:1285) before the own removal (:1301):
   `rivalLane?.Dispose()`. No engine, no marker for a rival inside an atmosphere, no CommNet
   drive.
 - **Proof:** in-game `RaceRivalLaneTrackingStation.TrackingStationListsRivalOrbit` (a
@@ -1127,7 +1128,7 @@ with and without rivals), which this slice's acceptance names (OV-05).
 
 - **Architecture map:** files under `RaceWorld/` take R1-01's folder rule;
   `ParsekFlightRivalLane.cs` and `ParsekTrackingStationRivalLane.cs` match the Controllers
-  prefix (`modules.toml:322`); `PlaybackGhostBudget.cs` gets an explicit Core placement
+  prefix (`modules.toml:36`); `PlaybackGhostBudget.cs` gets an explicit Core placement
   (update the kernel comment at :74-79 and its count); `PlaybackTrajectoryStyle.cs` is
   R5-03's. `RecordingPlaybackCatalog.None` stays in P2a-05's `Recording` file; the rival
   lane names it only from Controllers, so no RaceWorld file names it. The landed primitive
@@ -1209,12 +1210,12 @@ with and without rivals), which this slice's acceptance names (OV-05).
    production `RecordingTree` node shape with the terminal and endpoint keys, and R3W-03
    loads it with the production reader; one key list is agreed in R3E-02's PR (OV-35).
 3. **No vessel type for map icons.** The tree file has none and `ResolveVesselType` reads
-   `VesselSnapshot` (`GhostMapPresence.ProtoVesselLifecycle.cs:2090`), which a rival never
+   `VesselSnapshot` (`GhostMapPresence.ProtoVesselLifecycle.cs:2038`), which a rival never
    shares. The plan reads it from the ghost snapshot once opened and uses `Ship` before;
    an additive `vtype` on `LEFTOVERS` rows would make leftover icons right at scene load.
    Settled: R3E-14 adds `vtype` to `LEFTOVERS` rows; R3W-11 reads it onto the header and
    R3W-18 uses it (OV-36).
-4. **The P3 primitive is orbit-only** (`BuildGhostProtoVesselNode`, :1955). Landed
+4. **The P3 primitive is orbit-only** (`BuildGhostProtoVesselNode`, :1903). Landed
    leftovers in map view and the TS need a landed variant; the design is silent. R3W-17.
 5. **The flag part has no mesh file** (comment in `GhostVisualBuilder.cs` near
    `SpawnFlagVessel`, :1803), so "the stock flag model" is not a prefab clone. S7 must

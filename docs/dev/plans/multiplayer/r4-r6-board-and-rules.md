@@ -90,8 +90,8 @@ Milestones and stock ids:
 
 - The ledger keys a milestone by a body-qualified id: `GameStateRecorder.QualifyMilestoneId`
   returns `body.name + "/" + node.Id` for a node class with a `body` field and the bare id
-  otherwise (`Source/Parsek/GameStateRecorder.Handlers.cs:1897-1919`); the body field may
-  be public or private (`:1928-1936`).
+  otherwise (`Source/Parsek/GameActions/GameStateRecorder.Handlers.cs:1882-1904`); the body field
+  may be public or private (`:1913-1921`).
 - `GameAction` carries `RecordingId` (`Source/Parsek/GameActions/GameAction.cs:537`) and
   `MilestoneId` (`:899`). No query returns every reach row of a milestone with its date and
   flight: the nearest is `CommittedMilestoneReach.CollectRowsAtOrBefore`
@@ -115,13 +115,13 @@ Milestones and stock ids:
 Dates:
 
 - `ParsekTimeFormat` reads the player's own `GameSettings.KERBIN_TIME` and gives 21600 or
-  86400 seconds a day (`Source/Parsek/ParsekTimeFormat.cs:19-22`); it is placed in `UI`
-  (`scripts/arch/modules.toml:419-421`). Every window formats a date with
+  86400 seconds a day (`Source/Parsek/UI/ParsekTimeFormat.cs:19-22`); it is placed in `UI`
+  (`scripts/arch/modules.toml:123-124`). Every window formats a date with
   `KSPUtil.PrintDateCompact(ut, true)`, which follows the same per-player setting (for
   example `Source/Parsek/UI/StructureListWindowUI.cs:675-678`). Neither can serve a race,
   whose calendar is the manifest's (6.6), and `RaceCore` may not name `UI`.
-- `ParsekTimeFormat.FormatDuration` is a game-time formatter (`:43-70`); real-time "left
-  until the end" needs its own 24-hour formatter.
+- `ParsekTimeFormat.FormatDuration` is a game-time formatter (`ParsekTimeFormat.cs:43-70`);
+  real-time "left until the end" needs its own 24-hour formatter.
 
 Windows:
 
@@ -135,13 +135,13 @@ Windows:
   and hands typed getters out (`:70-81`); `ParsekUI` reaches each window only through the
   interfaces of `Source/Parsek/UI/ParsekUIWindowContracts.cs` (`IParsekUIWindows`,
   `:90-101`). Both `ParsekUI` constructors copy every window field
-  (`Source/Parsek/ParsekUI.cs:127-147`, `:149-169`; P11 merges them).
+  (`Source/Parsek/UI/ParsekUI.cs:127-147`, `:149-169`; P11 merges them).
 - The main window's launchers are drawn in `ParsekUI.DrawWindow` (`ParsekUI.cs:672`), each
   gated by a `UiSurface` key (Kerbals at `:751-767`). The sub-windows are drawn by
-  `ParsekFlight.DrawFlightWindows` (`Source/Parsek/ParsekFlight.cs:1456-1487`) and
-  `ParsekKSC.DrawKscWindows` (`Source/Parsek/ParsekKSC.cs:266-292`), both inside a
+  `ParsekFlight.DrawFlightWindows` (`Source/Parsek/Controllers/ParsekFlight.cs:1456-1487`) and
+  `ParsekKSC.DrawKscWindows` (`Source/Parsek/Controllers/ParsekKSC.cs:266-292`), both inside a
   `ParsekUiScale.BeginHost` scope. `ParsekUI.Cleanup` releases every window's lock
-  (`ParsekUI.cs:1849-1873`).
+  (`ParsekUI.cs:1838-1862`).
 - Source gates: every window draws through `ParsekUiScale.Window`
   (`Source/Parsek.Tests/ParsekUiScaleTests.cs:258-268`); the number of draw calls in each
   host is pinned (`Source/Parsek.Tests/ParsekUIWindowSetCharacterizationTests.cs:243`, 8 in
@@ -160,20 +160,20 @@ Windows:
 
 Messages:
 
-- `ParsekLog.ScreenMessage` (`Source/Parsek/ParsekLog.cs:605`) forwards to
+- `ParsekLog.ScreenMessage` (`Source/Parsek/LogIO/ParsekLog.cs:605`) forwards to
   `TryScreenMessage` (`:615`), which tests capture through `ScreenMessageSinkForTesting`
   (`:82`). There is no count gate on producers; the census is the inventory doc.
 
 Gates the rules must satisfy:
 
-- Layers and headless modules: `scripts/arch/modules.toml:511-519` and `:531-536`;
-  forbidden edges `:562-566` (two today; P12 and R1 add the race ones).
+- Layers and headless modules: `scripts/arch/modules.toml:162-170` and `:182-187`;
+  forbidden edges `:213-217` (two today; P12 and R1 add the race ones).
 - The uncalled-method ratchet: `[uncalledInAssembly] bound = 491`
   (`scripts/arch/facts_pins.toml:74-75`). Tooling modules (`InGameTests`, `TestCommands`)
   are roots, so their calls make a method live (`docs/dev/arch/README.md:292-296`); a
-  method only the unit tests call counts as uncalled (`:509-512`).
+  method only the unit tests call counts as uncalled (`:513-516`).
 - Static lifetimes count reassignable statics and static readonly collections mutated
-  outside a static constructor (`docs/dev/arch/README.md:532-536`). This plan adds none:
+  outside a static constructor (`docs/dev/arch/README.md:536-540`). This plan adds none:
   the ladder is built in a static initializer and exposed read-only; the previous board for
   messages lives on the session instance.
 

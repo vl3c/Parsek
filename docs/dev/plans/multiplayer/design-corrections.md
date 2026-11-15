@@ -44,13 +44,13 @@ REJECTED item carries its check.
 
 | Topic | Plans | Item | Recommended reading |
 |-------|-------|------|---------------------|
-| Shape and home of `IPlaybackCatalog` | r0b-prep-playback.md:793-798 vs r3-rival-world.md:951-954 | DC-111 | The playback plan's: port in `Recording`; the rival lane uses an empty catalog of the `Recording` module (`RecordingPlaybackCatalog.None`, added by R3W-09 with its first caller); no `RivalCatalog` type, R3W-05 keeps `RivalStore` only |
-| Who registers `raceFormat` and writes golden `v2` | r1-mode-and-setup.md:521-534 vs r3-export-and-exchange.md:917-919 vs test-and-harness.md:879-882 | DC-122 | R1's: R1-12 registers both rows and writes `v2` (the race save and the three manifests); R3E-04 registers nothing and adds `v3` with a standing and its payload at the same format number |
-| Where P10's core lives and who calls it | r0b-prep-small.md:792-794 vs r1-mode-and-setup.md:815-818 | DC-102 | R1's: setup composes in Controllers, so the "RaceWorld calls it" reason for LogIO falls away |
-| Who builds the A5 style seam | r3-rival-world.md:562-578 vs r5-looks.md:604-607 | DC-118 | R5-03 owns the type and the engine arguments, R5-04 and R5-05 the sites (base Parsek, lands right after P2c); R3W-15 shrinks to the rival lane's style source |
-| The missing-part strip and DLC suits | r3-rival-world.md:658-664 vs r5-looks.md:608-611 | DC-048 | R5's: R3W-21 keeps kerbal EVA part names for the dresser |
-| The launch-site circle cache | r0b-prep-small.md:783-791 vs r2-sites.md:779-782 | DC-036, DC-037 | The small plan's: the code admits `LaunchPad` and `Runway` names, so the cache can hold the stock KSC |
-| Which task fixes the CLAUDE.md "zero Recording references" sentence | r0b-prep-playback.md:807-809 vs r3-rival-world.md:960-963 | DC-133 | P2a-02, the change that removes the reads |
+| Shape and home of `IPlaybackCatalog` | r0b-prep-playback.md:809-814 vs r3-rival-world.md:952-955 | DC-111 | The playback plan's: port in `Recording`; the rival lane uses an empty catalog of the `Recording` module (`RecordingPlaybackCatalog.None`, added by R3W-09 with its first caller); no `RivalCatalog` type, R3W-05 keeps `RivalStore` only |
+| Who registers `raceFormat` and writes golden `v2` | r1-mode-and-setup.md:522-535 vs r3-export-and-exchange.md:917-919 vs test-and-harness.md:879-882 | DC-122 | R1's: R1-12 registers both rows and writes `v2` (the race save and the three manifests); R3E-04 registers nothing and adds `v3` with a standing and its payload at the same format number |
+| Where P10's core lives and who calls it | r0b-prep-small.md:793-795 vs r1-mode-and-setup.md:816-819 | DC-102 | R1's: setup composes in Controllers, so the "RaceWorld calls it" reason for LogIO falls away |
+| Who builds the A5 style seam | r3-rival-world.md:563-579 vs r5-looks.md:604-607 | DC-118 | R5-03 owns the type and the engine arguments, R5-04 and R5-05 the sites (base Parsek, lands right after P2c); R3W-15 shrinks to the rival lane's style source |
+| The missing-part strip and DLC suits | r3-rival-world.md:659-665 vs r5-looks.md:608-611 | DC-048 | R5's: R3W-21 keeps kerbal EVA part names for the dresser |
+| The launch-site circle cache | r0b-prep-small.md:784-792 vs r2-sites.md:779-782 | DC-036, DC-037 | The small plan's: the code admits `LaunchPad` and `Runway` names, so the cache can hold the stock KSC |
+| Which task fixes the CLAUDE.md "zero Recording references" sentence | r0b-prep-playback.md:823-825 vs r3-rival-world.md:961-964 | DC-133 | P2a-02, the change that removes the reads |
 | Where "test tooling ran" lives | r3-export-and-exchange.md:881-883 vs r4-r6-board-and-rules.md:815-818 | DC-008 | Both: persisted on the race scenario node, exported as `DISCLOSURE testTooling` |
 | Tool time per recording or per tool | r3-export-and-exchange.md:877-880 vs r4-r6-board-and-rules.md:809-814 | DC-079 | Both: the recording keeps a first-use UT per tool; the standing carries `TOOL` children with `ut`, and the codec derives `ToolsFromUT` (their minimum) |
 | Terrain heights "on two machines" | r0-spikes.md:941-943 vs r2-sites.md (R2-02 depends on S5 "heights equal on two machines") | DC-091 | The spike plan's: two processes on one PC gate it; a second machine is a cross-check |
@@ -66,13 +66,13 @@ export and `since` stays per exact stock date. Edit: 6.1 says `M id` is the stoc
 **DC-002 CONTRADICTION.** Design 6.1 (line 497): "Flags are inside the recordings (flag
 events), not listed separately"; 7.6 (lines 1100-1102) and 15.13 (line 2398): the store is
 built from the standing alone and opens no payload; 7.7 (lines 1142-1144) shows a flag from its
-plant date. Found: r3-rival-world.md:930-936; flag events are read only from the `.prec`
-(`Source/Parsek/TrajectorySidecarBinary.cs:316`). Plan assumes an additive `FLAGS` block in
-the standing (site, placer, text, URL, body, position, rotation, UT, pick-up UT). Edit: add it
+plant date. Found: r3-rival-world.md:931-937; flag events are read only from the `.prec`
+(`Source/Parsek/Recording/TrajectorySidecarBinary.cs:316`). Plan assumes an additive `FLAGS` block
+in the standing (site, placer, text, URL, body, position, rotation, UT, pick-up UT). Edit: add it
 to 6.1 and drop the sentence at line 497.
 
 **DC-003 SILENT.** Design 6.1 (line 487): `LEFTOVERS { L recordingId fromUT untilUT }` has no
-vessel type. Found: r3-rival-world.md:942-945; the tree file has none and today's resolver reads
+vessel type. Found: r3-rival-world.md:943-946; the tree file has none and today's resolver reads
 the vessel snapshot, which is never shared. Plan uses `Ship` until the ghost snapshot is opened;
 an additive `vtype` on `L` rows gives the right icon at scene load. Edit: add `vtype`.
 
@@ -91,7 +91,7 @@ by the `.prec` reader), must be agreed between export (R3E-02) and the rival loa
 Edit: name the tree payload keys in 6.1.
 
 **DC-007 SILENT.** Design 6.1 (lines 499-506): `RaceLink` has no version key; 15.7 (line 2207)
-registers only `raceFormat`. Found: r1-mode-and-setup.md:804-805. Plan adds `raceLinkFormat`
+registers only `raceFormat`. Found: r1-mode-and-setup.md:805-806. Plan adds `raceLinkFormat`
 and a `race-link` row in `SaveFormat.cs`. Edit: add the key and the row.
 
 **DC-008 SILENT.** Design 7.12 (lines 1395-1396): a save where test tooling ran "says so for
@@ -101,7 +101,7 @@ r4-r6-board-and-rules.md:815-818 (a `testTooling` disclosure key). The two agree
 `testTooling` to `DISCLOSURE` and say it lives on the race scenario node.
 
 **DC-009 SILENT.** Design 6.1 (lines 508-512): `RaceLocal` holds folder, name, look, digest,
-show toggles. Found: r1-mode-and-setup.md:809-812. Continue shows "last sync" (7.2, line 790)
+show toggles. Found: r1-mode-and-setup.md:810-813. Continue shows "last sync" (7.2, line 790)
 and Settings rebuilds the shared files "from its local copies" (lines 828-829), but no key or
 copy is listed. Plan adds `lastSyncRealTime`, `Race/race.cfg` and `Race/own/player.cfg`.
 
@@ -114,7 +114,7 @@ marker must roll back with the roster on every load, so it belongs in the save. 
 
 **DC-011 SILENT.** Design 6.2 (lines 555-557) and 7.1 (lines 721-722): the gate reads the mark
 as the save is read; nothing says when a new save gets the mark. Found:
-r1-mode-and-setup.md:800-803. `SpaceCenterMain` re-reads `persistent.sfs`, so the mark must be
+r1-mode-and-setup.md:801-804. `SpaceCenterMain` re-reads `persistent.sfs`, so the mark must be
 added and the save written before `Game.Start`; P10's core offers that step. Edit: 7.2 Create.
 
 **DC-012 CONTRADICTION.** Design 6.2 (line 533): "The tree and ledger types gain nothing";
@@ -141,10 +141,10 @@ sidecar version the save already recorded, so no file is re-hashed"; 15.13 (line
 it. Found: r3-export-and-exchange.md:858-861 and :80-84. A ghost snapshot node keeps `crew`
 values on its parts, so every ghost payload is a stripped copy with its own hash; and the
 `.prec` carries the sidecar epoch, so a commit flush and the next save write different bytes
-for the same trajectory. Check: `Source/Parsek/Recording.cs:433` (ghost snapshot is a full
-`ConfigNode`), `Source/Parsek/CrewReservationManager.cs:53` (reads `crew` from part nodes),
-`Source/Parsek/TrajectorySidecarBinary.cs:251` (epoch written into the file). Edit: the hash
-comes from the sidecar version for `.prec` only, epoch-pending recordings wait, and ghost files
+for the same trajectory. Check: `Source/Parsek/Recording/Recording.cs:433` (ghost snapshot is a full
+`ConfigNode`), `Source/Parsek/Crew/CrewReservationManager.cs:53` (reads `crew` from part nodes),
+`Source/Parsek/Recording/TrajectorySidecarBinary.cs:251` (epoch written into the file). Edit: the
+hash comes from the sidecar version for `.prec` only, epoch-pending recordings wait, and ghost files
 are hashed once at export.
 
 **DC-017 SILENT.** Design 6.3 (lines 591-592): "a ghost snapshot derived from it (parts only)".
@@ -166,10 +166,10 @@ plan marks rows only for a newer `raceFormat`; newer recordings only stop the gh
 Recommended: the plan's reading. Edit: 6.3.
 
 **DC-021 SILENT.** Design 6.3 (lines 612-615): "a fixed character set", not named. Found:
-r0b-prep-small.md:781-782. Plan uses today's Windows set (no change on Windows).
+r0b-prep-small.md:782-783. Plan uses today's Windows set (no change on Windows).
 
 **DC-022 SILENT.** Design 6.3 (lines 616-620) fixes the local cache layout, not the shared
-folder's layout under `players/<id>/`. Found: r1-mode-and-setup.md:841-843. R1's validator
+folder's layout under `players/<id>/`. Found: r1-mode-and-setup.md:842-844. R1's validator
 uses a longest-path constant that R3 owns.
 
 **DC-023 SILENT.** Design 6.3 (lines 621-623): shared-folder safe-writes. Found:
@@ -201,28 +201,28 @@ formatter (r4-r6-board-and-rules.md:853-855).
 2206): the sites are removed "on every return to the main menu". Found: r2-sites.md:746-750 and
 test-and-harness.md:872-874. Stock loads another save from inside a game, and the harness
 `LoadGame` does too, without the main menu. Plan reconciles at every scene load request against
-the loaded game's mark, which also covers race to race (case 31). Check: `harness/run.py:1450`
+the loaded game's mark, which also covers race to race (case 31). Check: `harness/run.py:1978`
 states that the seam's LoadGame bypasses the Main Menu; the stock `HighLogic.cs:795` cite was
 not reopened (no decompile here). Edit: 7.1, 7.3 and 15.7.
 
 **DC-028 SILENT.** Design 7.1 (lines 720-722) and 15.8 (line 2211): one predicate, the race
-gate. Found: r1-mode-and-setup.md:837-840. Nothing says how it composes with
+gate. Found: r1-mode-and-setup.md:838-841. Nothing says how it composes with
 `ParsekGameModeGate` (in Patches). Plan: the Controllers host passes the inert flag in; an inert
 Parsek means no race, mark kept verbatim.
 
 ### 7.2 The race setup dialog
 
 **DC-029 OWNER.** Design 7.2 (lines 739-751): the Create list has no calendar; 6.1 (line 446)
-and 6.6 (lines 703-705): the manifest carries one. Found: r1-mode-and-setup.md:813-814. Plan
+and 6.6 (lines 703-705): the manifest carries one. Found: r1-mode-and-setup.md:814-815. Plan
 takes the creator's stock setting. See Q-09.
 
 **DC-030 DETAIL.** Design 15.14 (lines 2426-2430): Continue is a load through a declared
-initiator. Found: r1-mode-and-setup.md:830-832. The only production-quality load-and-start
+initiator. Found: r1-mode-and-setup.md:831-833. The only production-quality load-and-start
 sequence is in the seam; R1-16 lifts it beside P10's core.
 
 **DC-031 CONTRADICTION.** Design 7.2 (lines 745-747, 823-833): Validate, Create, Join and the
 Settings change read and write the shared folder; 15.9 (lines 2230-2232): "the game never
-touches the shared folder from a Unity callback". Found: r1-mode-and-setup.md:819-822. R1 has
+touches the shared folder from a Unity callback". Found: r1-mode-and-setup.md:820-823. R1 has
 no copy worker; the plan uses a port with 15.9's main-thread fallback adapter, replaced in R3.
 Edit: 15.9 names the setup dialog as the one place that touches the folder directly, through
 the port.
@@ -256,18 +256,18 @@ A copy of the live KSC shows the local levels and registers duplicate ids; the r
 last `UpgradeLevel.facilityPrefab` and strips before `Awake`.
 
 **DC-036 WRONG, checked.** Design 7.3 (lines 988-990): Parsek "caches the circles of the other
-stock launch sites"; 15.11 P1 (line 2324). Found: r0b-prep-small.md:783-791. The runtime read
+stock launch sites"; 15.11 P1 (line 2324). Found: r0b-prep-small.md:784-792. The runtime read
 admits the names `LaunchPad` and `Runway`, so the cache probably also holds the stock KSC's own
 pad and runway, which in a race save at another site would retire flights parked at the stock
-KSC. Check: `Source/Parsek/LaunchSiteExclusionZones.cs:79-83` (the name list) and `:269-270`
-(the filter that admits them). Edit: "the stock launch sites, possibly the KSC's own"; the
-`runtime=N` log line settles it.
+KSC. Check: `Source/Parsek/Controllers/LaunchSiteExclusionZones.cs:79-83` (the name list) and
+`:302-303` (the filter that admits them). Edit: "the stock launch sites, possibly the KSC's own";
+the `runtime=N` log line settles it.
 
 **DC-037 REJECTED.** Design 7.3 (lines 988-990). Found: r2-sites.md:779-782 says the cache
 needs no reset for the move because "the cached circles are the Making History sites, which do
 not move". Reason: the same read admits `LaunchPad` and `Runway`
-(`Source/Parsek/LaunchSiteExclusionZones.cs:269-270`), so that claim is not established; keep
-P1-03's version key until the log check of DC-036 says otherwise.
+(`Source/Parsek/Controllers/LaunchSiteExclusionZones.cs:302-303`), so that claim is not established;
+keep P1-03's version key until the log check of DC-036 says otherwise.
 
 **DC-038 OWNER.** Design 7.3 (lines 948-951) and 8 case 21 (line 1640). Found:
 r2-sites.md:775-778. The race's "alternate sites off" maps onto stock `AllowOtherLaunchSites`,
@@ -275,11 +275,11 @@ which a player can change mid-race, and case 21 allows difficulty changes. See Q
 
 **DC-039 DETAIL.** Design 12 (line 1792) lists the optimizer's launch-site rule as a reader of
 the space center position. Found: r2-sites.md:783-784; it reads no position
-(`Source/Parsek/RecordingOptimizer.cs:647-650` reads only `LaunchSiteName`). No work.
+(`Source/Parsek/Recording/RecordingOptimizer.cs:647-650` reads only `LaunchSiteName`). No work.
 
 **DC-040 DETAIL.** Design 15.11 P1 (line 2324): "a version for caches to key on". Found:
 r2-sites.md:785-787. `LaunchSiteOnlyGhost` caches on `RecordingStore.StateVersion` only
-(`Source/Parsek/LaunchSiteOnlyGhost.cs:36-39`); the version must reach it (R2-05 if P1 does
+(`Source/Parsek/Ghost/LaunchSiteOnlyGhost.cs:36-39`); the version must reach it (R2-05 if P1 does
 not).
 
 **DC-041 SILENT.** Design 7.3 (lines 934-935): Parsek's readers of launch-site names must not
@@ -305,7 +305,7 @@ its own README; biomes come from the stock function in game (S2).
 **DC-045 WRONG, partly checked.** Design 7.4 (lines 1028-1031): a missing kerbal part makes the
 "whole ghost fall back to the plain placeholder sphere". Found: r5-looks.md:600-603. True for an
 EVA kerbal (a one-part vessel); a kerbal in an external seat of a larger vessel just drops out.
-Check: `Source/Parsek/GhostVisualBuilder.cs:346-351` returns no visual when nothing was built;
+Check: `Source/Parsek/Ghost/GhostVisualBuilder.cs:346-351` returns no visual when nothing was built;
 the engine's sphere fallback (`GhostPlaybackEngine.GhostVisuals.cs:163-167`) was not reopened.
 Edit: the substitution of A4 covers both cases.
 
@@ -319,7 +319,7 @@ r5-looks.md:622-624. A `SUITCOMBOS` node under `GameData` shows in the stock sui
 every save. See Q-19.
 
 **DC-048 DETAIL.** Design 7.6 (lines 1103-1105): missing parts are skipped. Found:
-r5-looks.md:608-611 against r3-rival-world.md:658-664 (R3W-21). The strip removes every part
+r5-looks.md:608-611 against r3-rival-world.md:659-665 (R3W-21). The strip removes every part
 with no `PartLoader` entry, so a rival EVA kerbal in a DLC suit part becomes unplayable before
 the dresser sees it. Recommended: R3W-21 keeps the kerbal EVA part names R5-09 accepts.
 
@@ -333,11 +333,11 @@ own suit enum because the stock one is not inert (r5-looks.md:628-629).
 ### 7.5 Export
 
 **DC-050 WRONG, checked.** Design 7.6 (lines 1100-1101) and 15.13 (line 2398): "The rival store
-is built from the standing alone". Found: r3-rival-world.md:937-941. End position, terminal
+is built from the standing alone". Found: r3-rival-world.md:938-942. End position, terminal
 orbit, endpoint body, terminal state and the debris flag are not in `RECORDINGS`; they are in
 the tree file. The plan reads the rival trees' small cfg files at store build and never a
-`.prec` or `.craft`. Check: `Source/Parsek/RecordingTreeRecordCodec.cs:386` writes `isDebris`
-in the tree record. Edit: "from the standing and the tree files"; the no-payload test is
+`.prec` or `.craft`. Check: `Source/Parsek/Recording/RecordingTreeRecordCodec.cs:386` writes
+`isDebris` in the tree record. Edit: "from the standing and the tree files"; the no-payload test is
 scoped to `.prec` and `.craft`.
 
 (DC-050 sits here because it changes what export must ship; its design text is in 7.6.)
@@ -348,21 +348,21 @@ the own mirror only and copies out after the flight.
 
 **DC-052 DETAIL.** Design 7.5 (lines 1069-1070): a tick "after a tree commit". Found:
 r3-export-and-exchange.md:912-914. `MergeDialog.OnTreeCommitted` is a static delegate field
-(`Source/Parsek/MergeDialog.cs:73`); a second adder would be a static written by another type,
-so the plan polls the cached ERS / ELS instances.
+(`Source/Parsek/Rewind/MergeDialog.cs:73`); a second adder would be a static written by another
+type, so the plan polls the cached ERS / ELS instances.
 
 **DC-053 DETAIL.** Design 7.5 (lines 1057-1060): nothing is exported during a Re-Fly. Found:
 r3-export-and-exchange.md:915-916. The marker accessor is in Controllers
-(`Source/Parsek/SessionSuppressionState.cs:50`); the plan adds
+(`Source/Parsek/Controllers/SessionSuppressionState.cs:50`); the plan adds
 `EffectiveState.HasActiveReFlySession`.
 
 ### 7.6 Import and the rival store
 
 **DC-054 DETAIL.** Design 7.6 (lines 1100-1102): flights load lazily. Found:
-r3-rival-world.md:964-967. The engine reads `Points` before activation; unopened entries are
+r3-rival-world.md:965-968. The engine reads `Points` before activation; unopened entries are
 skipped by the host with a new neutral skip reason (R3W-01).
 
-**DC-055 DETAIL.** Design 7.6 (lines 1103-1105). Found: r3-rival-world.md:968-969. Today one
+**DC-055 DETAIL.** Design 7.6 (lines 1103-1105). Found: r3-rival-world.md:969-970. Today one
 warning per missing part floods the log; the loader strips them first and logs once.
 
 **DC-056 CONTRADICTION.** Design 7.6 (line 1107), 8 case 28 (lines 1663-1664) and 7.13 (line
@@ -373,27 +373,27 @@ be watched here" everywhere.
 ### 7.7 What a rival's world looks like
 
 **DC-057 DETAIL.** Design 7.7 (lines 1137-1139) and 15.6 (lines 2167-2171): leftovers are
-entries "in a cheap hold mode". Found: r3-rival-world.md:955-959. No engine mode is needed: the
+entries "in a cheap hold mode". Found: r3-rival-world.md:956-960. No engine mode is needed: the
 engine holds the last pose when the end extends and plays an orbit tail after the last point;
 the loader widens `EndUT` and appends a tail. An empty `untilUT` maps to a finite horizon.
 
 **DC-058 SILENT.** Design 15.6 (lines 2172-2177) and 15.11 P3 (line 2328): rivals use the
-extracted map-vessel primitive. Found: r3-rival-world.md:946-947. The primitive builds orbiting
+extracted map-vessel primitive. Found: r3-rival-world.md:947-948. The primitive builds orbiting
 vessels only; landed leftovers in map view and the Tracking Station need a landed variant
 (R3W-17).
 
 **DC-059 DETAIL.** Design 7.7 (lines 1143-1151) and 12 (line 1806): the replica is "the stock
-flag model" and S7 must prove the dialog takes supplied text. Found: r3-rival-world.md:948-950
+flag model" and S7 must prove the dialog takes supplied text. Found: r3-rival-world.md:949-951
 and r0-spikes.md:950-952. The flag part has no mesh file to clone, so S7 also says how to build
 the model; the dialog entry `FlagPlaqueDialog.Spawn(string, string, Callback)` is public
 static, so S7's dialog half is small.
 
 **DC-060 SILENT.** Design 7.7 (lines 1143-1144): "the rival's flag texture". Found:
-r3-rival-world.md:975-976. `flagURL` is a path in the writer's install and is not shared; the
+r3-rival-world.md:976-977. `flagURL` is a path in the writer's install and is not shared; the
 plan falls back to the default flag.
 
 **DC-061 DETAIL.** Design 7.7 (lines 1192-1193): the show toggle. Found:
-r3-rival-world.md:973-974. Its setter has no caller before the R4 window, so R3 reads `SHOW`
+r3-rival-world.md:974-975. Its setter has no caller before the R4 window, so R3 reads `SHOW`
 only (uncalled-method ratchet).
 
 **DC-062 REJECTED.** Found: r5-looks.md:633-634 says the design is silent on rival ghosts in the
@@ -471,7 +471,7 @@ cannot be read; the plan does not block and marks "history incomplete".
 **DC-075 WRONG, checked.** Design 7.12 (line 1389): "hack gravity" among the stock cheat
 options. Found: r0-spikes.md:916-919. `CheatOptions` has no gravity field; it is the
 `HackGravity` widget's state, which Parsek already reads. Check: ksp-refs `CheatOptions` fields
-(no gravity field); `Source/Parsek/GravityHackDetector.cs:81`. Edit: move it to the debug
+(no gravity field); `Source/Parsek/Recording/GravityHackDetector.cs:81`. Edit: move it to the debug
 widgets.
 
 **DC-076 WRONG, partly checked.** Design 7.12 (line 1392): debug actions include "fill
@@ -590,49 +590,49 @@ Found: r3-export-and-exchange.md:873-876. Edit: the own half is in `RaceExport`,
 in `RaceWorld`.
 
 **DC-095 DETAIL.** Design 15.2 (line 1952) calls `RaceWorld` runtime-coupled; 15.14 (lines
-2410-2414) does not list `[size].runtimeCoupled`. Found: r1-mode-and-setup.md:835-836. R1-01
+2410-2414) does not list `[size].runtimeCoupled`. Found: r1-mode-and-setup.md:836-837. R1-01
 adds it.
 
 **DC-096 CONTRADICTION.** Design 15.11 P7 (line 2333): a save-root accessor on `RecordingPaths`
 for the local race directory; 15.4 (lines 1999-2000): `RaceWorld` names `Recording` types only
-in its loader. Found: r1-mode-and-setup.md:826-829. Plan computes the path in `RaceWorld` from
+in its loader. Found: r1-mode-and-setup.md:827-830. Plan computes the path in `RaceWorld` from
 `KSPUtil.ApplicationRootPath` and `HighLogic.SaveFolder`. Edit: P7 drops the accessor or says
 who uses it.
 
 **DC-097 DETAIL.** Design 15.4 (lines 2067-2072) and 6.4 (lines 661-663): "Recording types only
-in the loader" as a grep-audit gate. Found: r1-mode-and-setup.md:833-834. A grep cannot know a
+in the loader" as a grep-audit gate. Found: r1-mode-and-setup.md:834-835. A grep cannot know a
 type's module; it becomes an arch-suite cell over the text scan's map (T-09).
 
 **DC-098 DETAIL.** Design 15.4 (lines 2007-2009): P12 teaches both parsers the list form.
-Found: r0b-prep-small.md:805-808. Today `parse_edge_spec("A -> B | C")` returns `("A", "B | C")`
+Found: r0b-prep-small.md:806-809. Today `parse_edge_spec("A -> B | C")` returns `("A", "B | C")`
 and the report skips it silently; P12-01 makes it refuse `|`.
 
 **DC-099 SILENT.** Design 15.11 P10 (line 2336) does not name the module of the
-create-and-start core. Found: r0b-prep-small.md:792-794 puts it on the floor (`LogIO`) "so that
+create-and-start core. Found: r0b-prep-small.md:793-795 puts it on the floor (`LogIO`) "so that
 `RaceWorld` can call it". See DC-102 for the disagreement.
 
 **DC-100 DETAIL.** Design 15.6 (line 2131): one engine reads one store. Found:
-r0b-prep-playback.md:815-816. In-game tests (`RuntimeTests.cs:11787`, `:22974`) build a
+r0b-prep-playback.md:831-832. In-game tests (`RuntimeTests.cs:11787`, `:22974`) build a
 second engine on the own positioner, so two engines share one lane there; they are not a model
 for the rival lane.
 
 **DC-101 DETAIL.** Design 15.6 (line 2131): a spawn budget shared by both engines. Found:
-r0b-prep-playback.md:819-820. `FrameContext` has no frame number, so the race host resets the
+r0b-prep-playback.md:835-836. `FrameContext` has no frame number, so the race host resets the
 shared budget once per frame before the first engine runs.
 
 **DC-102 WRONG, checked.** Design 15.4 (lines 2002-2003): "`UI` references ... the `RaceWorld`
-facade (commands: ... create, join)". Found: r1-mode-and-setup.md:815-818. Creating a save
+facade (commands: ... create, join)". Found: r1-mode-and-setup.md:816-819. Creating a save
 needs P10's core and `GamePersistence`, entry-layer work, so a `RaceWorld` (features) call into
 it is a backward edge. Plan: `ParsekRaceSetup` in Controllers, behind an interface declared in
 `UI`. Check: against 15.2 (lines 1952 and 1954: `RaceWorld` features, Controllers entry). The
-small plan (r0b-prep-small.md:792-794) instead places P10 in `LogIO` so `RaceWorld` can call
+small plan (r0b-prep-small.md:793-795) instead places P10 in `LogIO` so `RaceWorld` can call
 it. Recommended: R1's reading; with setup in Controllers, P10's placement no longer depends on
 a `RaceWorld` caller.
 
 ### 15.5 Rival data is its own type
 
 **DC-103 SILENT.** Design 15.5 (lines 2113-2114): every key held for a rival ghost is the pair
-(player id, recording id). Found: r0b-prep-playback.md:810-814. Static caches keyed by a bare
+(player id, recording id). Found: r0b-prep-playback.md:826-830. Static caches keyed by a bare
 recording id stay shared across lanes (tail-lift plan caches, `s_previewRecordingForTailLift`,
 `SectionAnnotationStore`, `RenderSessionState`). Safe while a rival trajectory never reaches
 them (flattened, no tail lift); R3W-28's gate pins that. Edit: state the exception.
@@ -641,26 +641,26 @@ them (flattened, no tail lift); R3W-28's gate pins that. Edit: state the excepti
 
 **DC-104 CONTRADICTION.** Design 15.11 P2c (line 2327): `LoopSyncParentIdx` "leaves
 `IPlaybackTrajectory`"; 15.6 (line 2132): "the setter leaves the interface". Found:
-r0b-prep-playback.md:789-792. Two engine readers need the getter. Check:
-`Source/Parsek/IPlaybackTrajectory.cs:82` is `{ get; set; }`. Recommended: remove the setter only;
-`RivalFlight` returns -1. Edit: 15.11's row.
+r0b-prep-playback.md:805-808. Two engine readers need the getter. Check:
+`Source/Parsek/Core/IPlaybackTrajectory.cs:82` is `{ get; set; }`. Recommended: remove the setter
+only; `RivalFlight` returns -1. Edit: 15.11's row.
 
 **DC-105 SILENT.** Design 15.6 (line 2131) and A5 (line 2354). Found:
-r0b-prep-playback.md:817-818. `GhostMapPresence` has its own spawn throttle, outside P2c's
+r0b-prep-playback.md:833-834. `GhostMapPresence` has its own spawn throttle, outside P2c's
 shared budget; the P3 slice owns it.
 
 **DC-106 DETAIL.** Design 15.11 A5 (line 2354): "one ghost budget object". Found:
-r0b-prep-playback.md:825-826. P2c-04's object is a per-frame spawn count; it is named
+r0b-prep-playback.md:841-842. P2c-04's object is a per-frame spawn count; it is named
 `GhostSpawnFrameBudget` so the two do not collide.
 
 **DC-107 DETAIL.** Design 15.6 (line 2133): loop units are host state. Found:
-r0b-prep-playback.md:832-833. `builtLoopUnits` stays on the playback host; a rival lane has no
+r0b-prep-playback.md:848-849. `builtLoopUnits` stays on the playback host; a rival lane has no
 loop units.
 
 **DC-108 SILENT.** Design 15.6 (lines 2172-2177): rivals register in the same guard set. Found:
 r0b-prep-map-watch-codec.md:677-680. `RemoveAllGhostVessels` clears the whole guard set, so
 an own cleanup or rewind would unregister live rival pids. Check (code):
-`Source/Parsek/GhostMapPresence.ProtoVesselLifecycle.cs:405` (`ghostMapVesselPids.Clear()`).
+`Source/Parsek/Ghost/GhostMapPresence.ProtoVesselLifecycle.cs:353` (`ghostMapVesselPids.Clear()`).
 P3-03 adds an owner record. Edit: 15.6 says teardown is per owner.
 
 **DC-109 SILENT.** Design 15.11 P3 (line 2328): extract "about 400 lines". Found:
@@ -674,15 +674,15 @@ whatever its lane (`SavePathHardeningTests.cs:163` pins one production call); th
 one strip.
 
 **DC-111 WRONG, checked.** Design 15.6 (line 2143) and 15.11 P2a (line 2325): `IPlaybackCatalog`
-"on the floor". Found: r0b-prep-playback.md:793-798. Its answers are `Recording` and
+"on the floor". Found: r0b-prep-playback.md:809-814. Its answers are `Recording` and
 `RecordingTree` (model layer), so a floor placement adds Core-to-Recording backward pairs; the
 plan puts it in the `Recording` module, below every consumer, and a rival catalog that answers
-"none" to every lookup. r3-rival-world.md:951-954 asks for a neutral return instead, or for
+"none" to every lookup. r3-rival-world.md:952-955 asks for a neutral return instead, or for
 `RivalCatalog.cs` to join the loader allowlist. Check: the engine's lookup returns
-`out RecordingTree tree` (`Source/Parsek/GhostPlaybackEngine.SectionPositioning.cs:355-372`).
+`out RecordingTree tree` (`Source/Parsek/Ghost/GhostPlaybackEngine.SectionPositioning.cs:355-372`).
 Decided: the playback plan's placement. The rival lane is given an empty catalog that lives in
 the `Recording` module (`RecordingPlaybackCatalog.None`, added by R3W-09 with its first caller),
-since the engine asks only for a debris parent a rival never has (r3-rival-world.md:369-371).
+since the engine asks only for a debris parent a rival never has (r3-rival-world.md:370-372).
 There is no `RivalCatalog` type in `RaceWorld`, so the loader rule holds without an allowlist
 entry. Edit: 15.6 (the rival store is not a catalog) and P2a's row.
 
@@ -693,15 +693,15 @@ about 40 outside reads in 15 files; P3b keeps the outside reads but one.
 ### 15.7 State and lifetimes
 
 **DC-113 WRONG, checked.** Design A7 (line 2356) and 15.7 (line 2205): "the file collector and
-the test-batch crash reconcile do sweep the whole folder". Found: r1-mode-and-setup.md:796-799.
+the test-batch crash reconcile do sweep the whole folder". Found: r1-mode-and-setup.md:797-800.
 `ParsekFileCollector` never copies `Parsek/Race/`; the sweeps that do are `collect-logs.py`
 (15.14 line 2446 names it), the test-batch reconcile and the in-game runner's batch snapshot and
 restore (`InGameTestRunner.cs:1965-1995`, `:2579`), which A7 does not name. Check:
-`Source/Parsek/ParsekFileCollector.cs:203` and `:235-236` walk only `Recordings`,
+`Source/Parsek/Recording/ParsekFileCollector.cs:203` and `:235-236` walk only `Recordings`,
 `RewindPoints` and `Saves`. Edit: A7 names `collect-logs.py` and the runner's snapshot.
 
 **DC-114 DETAIL.** Design A7 (line 2356): "seven copies" of the scenario-node lookup. Found:
-r1-mode-and-setup.md:792-795. Measured: six over a proto list and three over a GAME node in
+r1-mode-and-setup.md:793-796. Measured: six over a proto list and three over a GAME node in
 production, plus one in tooling; the plan replaces nine.
 
 ### 15.9 File access and the main thread
@@ -712,7 +712,7 @@ The owner's yes for the copy worker (15.9, lines 2239-2243; 13.B line 1849) is Q
 
 **DC-115 OWNER.** Design 15.11 (lines 2319-2320) and 14 (line 1900): every prerefactor has no
 behavior change; lines 2342-2343: the longitude wrap is "worth doing for single player alone".
-Found: r0b-prep-small.md:772-775. Committed fixtures hold longitudes outside [-180, 180],
+Found: r0b-prep-small.md:773-776. Committed fixtures hold longitudes outside [-180, 180],
 including about -434.5 over the KSC, so the wrap changes single-player results. Check (code):
 `harness/fixtures/saves/eve-gilly-recorded/` and `bdock-recorded-career/` hold `-434.`
 values. See Q-04, answered 2026-11-14: the wrap lands on main in a separate work item outside
@@ -720,25 +720,25 @@ this plan, so P1 itself stays behavior-neutral.
 
 **DC-116 CONTRADICTION.** Design 15.11 P1 (line 2324): `HomeSpaceCenter` carries the runway end,
 the strip half-width and a setter; 15.14 (lines 2418-2420): no method may land with test
-callers only. Found: r0b-prep-small.md:776-780. The code has only the west threshold
-(`Source/Parsek/SpawnCollisionDetector.cs:219-225`) and a setter has no production caller in
+callers only. Found: r0b-prep-small.md:777-781. The code has only the west threshold
+(`Source/Parsek/Ghost/SpawnCollisionDetector.cs:219-225`) and a setter has no production caller in
 R0b; R2 adds the three with S4's numbers. Edit: P1's row.
 
 **DC-117 DETAIL.** Design 15.11 P11 (line 2337): specs "derive" the window count. Found:
-r0b-prep-small.md:767-771. Spec files are read raw by at least five loaders, so specs write
+r0b-prep-small.md:768-772. Spec files are read raw by at least five loaders, so specs write
 `windows=\d+` and the hlib cells hold the derivation.
 
 **DC-118 DETAIL.** Design 15.11 A5 (line 2354) and 14 (lines 1903, 1905): colors are R5, the
-style seam lands with its first user. Found: r3-rival-world.md:970-972 (a grey placeholder in
+style seam lands with its first user. Found: r3-rival-world.md:971-973 (a grey placeholder in
 R3, R5 fills colors) and r5-looks.md:604-607 (R5 builds the type and sites). Decided: R5-03
 owns the type (a sealed class, null means no style) and the engine arguments, and R5-04 and
 R5-05 own the sites; they are base Parsek changes that land right after P2c. R3W-15 shrinks to
 the rival lane's style source with a neutral placeholder color until R5-07. Also DETAIL:
-`MapMarkerRenderer` is in Controllers (`scripts/arch/modules.toml:102`), so a rival marker's
+`MapMarkerRenderer` is in Controllers (`scripts/arch/modules.toml:36`), so a rival marker's
 color is handed in by a scene controller (r5-looks.md:612-614).
 
 **DC-119 DETAIL.** Design 15.11 (line 2341): P2b "on its own". Found:
-r0b-prep-playback.md:821-824. P2b is nine code PRs and a tooling PR in one uninterrupted window
+r0b-prep-playback.md:837-840. P2b is nine code PRs and a tooling PR in one uninterrupted window
 with one flight proof at the end; `il_compare` cannot fold a renamed field or a new parameter,
 and CI does not run `scripts/refactor` tests.
 
@@ -749,13 +749,14 @@ differently. See Q-06.
 **DC-121 WRONG, checked.** Design 15.11 P6 (line 2332): the load from a given path "exists only
 under test-hook names". Found: r0b-prep-map-watch-codec.md:693-697. For snapshots a production
 entry exists; only the trajectory needs one, and the whole-recording loader needs no twin.
-Check: `Source/Parsek/SnapshotSidecarCodec.cs:123` (`internal static bool TryLoad(string path,
-...)`). Edit: "today the trajectory load exists only under test-hook names".
+Check: `Source/Parsek/Recording/SnapshotSidecarCodec.cs:123`
+(`internal static bool TryLoad(string path, ...)`). Edit: "today the trajectory load exists only
+under test-hook names".
 
 ### 15.12 to 15.14 Layout, cost and gates
 
 **DC-122 DETAIL.** Design 15.7 (line 2207) and 15.14 (lines 2431-2432): `raceFormat` registered
-with a golden folder "although it is not a save format". Found: r1-mode-and-setup.md:806-808
+with a golden folder "although it is not a save format". Found: r1-mode-and-setup.md:807-809
 (a frozen folder is a save, so `v2` is a race save with the mark and local files),
 r3-export-and-exchange.md:917-919 (one row and one folder, registered in R3E-04, not R1) and
 test-and-harness.md:879-882 (a full `v2` with `persistent.sfs` and `formats.txt`; R3 writes it).
@@ -771,7 +772,7 @@ r5-looks.md:630-632. The zip, the dev deploy and the harness deploy carry explic
 (`release.py:82-88`, `Parsek.csproj:112-117`, `provlib.py:257`); R5-12 changes all three.
 
 **DC-124 WRONG, not checked (needs S6).** Design 15.14 (lines 2441-2442): the menu entry and the
-dialog need their own UI-scale host. Found: r1-mode-and-setup.md:823-825. Built from stock uGUI
+dialog need their own UI-scale host. Found: r1-mode-and-setup.md:824-826. Built from stock uGUI
 (a cloned button, `PopupDialog`) they follow the stock scale; a host is needed only for IMGUI
 fallbacks. Not checked: the claim is about stock behavior under the UI-scale setting, which S6
 shows. Edit after S6.
@@ -784,26 +785,26 @@ the batch tally pins, `INTERIM_PIN_IDS` and the multi-category `GROUP`.
 ### Analysis document
 
 **DC-126 DETAIL.** Analysis line 72 and design 15.6 (line 2144): "five copies" of the tree
-lookup. Found: r0b-prep-playback.md:799-802. They are not copies (pending-first, committed-first,
+lookup. Found: r0b-prep-playback.md:815-818. They are not copies (pending-first, committed-first,
 tree-id match, flat-list fallback, list only); the port carries named variants. Design 15.6
 already says "two different search orders"; "copies" should become "variants".
 
-**DC-127 DETAIL.** Analysis section 3.1. Found: r0b-prep-playback.md:803-806.
+**DC-127 DETAIL.** Analysis section 3.1. Found: r0b-prep-playback.md:819-822.
 `ParsekFlight.GhostPositioner.cs:323` is a watch-protection read, not a store lookup, and the
 three pending-tree reads in the anchor context builders are missing.
 
 **DC-128 DETAIL.** Analysis and design 15.6 (line 2133) / 15.11 P2b (line 2326): "about 60
-references to 14 members". Found: r0b-prep-playback.md:827-831. Measured: 54 `host.`
+references to 14 members". Found: r0b-prep-playback.md:843-847. Measured: 54 `host.`
 references in the positioner, 52 sites in `ParsekFlight.cs` and `ParsekFlightPlaybackHost.cs`,
 14 `GhostPosEntry` references; four of the 14 members stay on `ParsekFlight`.
 
-**DC-129 DETAIL.** Analysis (readers of the KSC zone). Found: r0b-prep-small.md:795-797.
+**DC-129 DETAIL.** Analysis (readers of the KSC zone). Found: r0b-prep-small.md:796-798.
 `IsWithinKscExclusionZone` has no production caller; the live reader is
 `ClassifyKscExclusionZone`. Checked: the only callers are in `InGameTests/RuntimeTests.cs`.
 
-**DC-130 DETAIL.** Analysis counts. Found: r0b-prep-small.md:802-804 and
+**DC-130 DETAIL.** Analysis counts. Found: r0b-prep-small.md:803-805 and
 r0b-prep-map-watch-codec.md:674-676. 99 test references to the KSC constants (not 64); 28
-production calls of the id check plus about 25 in tests (not 32); `scripts/arch/modules.toml:12`
+production calls of the id check plus about 25 in tests (not 32); `scripts/arch/modules.toml:127`
 says Core has nine files, it has eight; `IsGhostMapVessel` has 164 uses in 77 files (not 120 in
 61). No task changes.
 
@@ -812,15 +813,15 @@ r0b-prep-map-watch-codec.md:698-704. `Read` also changes `Recording` caches and 
 `Inv10CodecRoundtrip` compares decoded lists, not bytes, so an analyzer pass proves decode
 stability, not byte identity (P6-01's digest is the byte proof).
 
-**DC-132 DETAIL.** Code comments. Found: r0b-prep-small.md:798-801.
+**DC-132 DETAIL.** Code comments. Found: r0b-prep-small.md:799-802.
 `Bug278SnapshotPersistenceTests.cs:57` and `Bug280PersistFinalizedRecordingTests.cs:112` say an
 id with spaces is refused; a space is valid on every OS. P7-01 fixes the comments.
 
 ### Outside the design: `.claude/CLAUDE.md`
 
 **DC-133 DETAIL.** CLAUDE.md "Key source files": `GhostPlaybackEngine.cs` has "Zero `Recording`
-references". Found: r0b-prep-playback.md:807-809 and r3-rival-world.md:960-963. Check (code):
-`Source/Parsek/GhostPlaybackEngine.SectionPositioning.cs:355-372` reads `PendingTreeSlot`,
+references". Found: r0b-prep-playback.md:823-825 and r3-rival-world.md:961-964. Check (code):
+`Source/Parsek/Ghost/GhostPlaybackEngine.SectionPositioning.cs:355-372` reads `PendingTreeSlot`,
 `RecordingStore.CommittedTrees` and `RecordingTree`. Recommended: P2a-02 rewrites the sentence
 when it removes the reads.
 
@@ -866,7 +867,7 @@ were read before they were built, approximate positions are kept until KSP resta
 - Options: land both (each with a changelog line); land (a) only; land neither (the
   prerefactor stays strictly behavior-neutral).
 - Recommended: land both.
-- Source: r0b-prep-small.md:812-819; correction DC-115. Waits: nothing in this plan now (P1-04
+- Source: r0b-prep-small.md:813-820; correction DC-115. Waits: nothing in this plan now (P1-04
   is dropped; P1-02 and P1-03 start after the fixes are on main). Spike first: none.
 - Class: ANSWERED 2026-11-14 by the owner: fix both, in a separate work item outside this plan
   (the launch pad fixes work, which lands each fix on main with a unit test, a CHANGELOG line
@@ -875,7 +876,7 @@ were read before they were built, approximate positions are kept until KSP resta
 
 **Q-05 How long should your PC fly to prove the ghost-position change before the next step?**
 The change touches where every ghost is drawn every frame.
-- Source: r0b-prep-playback.md:837-843. Waits: P2b-10, and every prerefactor after it. Spike
+- Source: r0b-prep-playback.md:853-859. Waits: P2b-10, and every prerefactor after it. Spike
   first: none.
 - Class: ANSWERED 2026-11-14 by the owner: "there's no point in running every single test for
   that, we can do it later at release; pick the most representative tests to run to recheck
@@ -911,14 +912,14 @@ save plays like single player: no rivals, no board.
 - Options: (a) hidden behind a developer switch until rivals and the board exist; (b) visible
   from the first phase.
 - Recommended: (a), so nobody creates a race that shows nothing yet.
-- Source: r1-mode-and-setup.md:847-850. Waits: R1-14. Spike first: none.
+- Source: r1-mode-and-setup.md:848-851. Waits: R1-14. Spike first: none.
   Class: BEFORE-PHASE R1.
 
 **Q-09 Who chooses how long a race day is (6 hours Kerbin or 24 hours Earth)?**
 - Options: (a) the creator's own game calendar setting, shown in the dialog; (b) a choice in
   the setup dialog.
 - Recommended: (a); one less field, and the creator already chose it.
-- Source: r1-mode-and-setup.md:855-858; correction DC-029. Waits: R1-10, R1-15, R4-01. Spike
+- Source: r1-mode-and-setup.md:856-859; correction DC-029. Waits: R1-10, R1-15, R4-01. Spike
   first: none. Class: BEFORE-PHASE R1 (the choice is written into the race file at creation).
 
 **Q-10 What happens when a race save's space center cannot be set up?** For example Kerbin was
@@ -987,7 +988,7 @@ creator get?**
 - Options: (a) the four stock presets (Easy, Normal, Moderate, Hard) only, custom settings
   later; (b) wait for a custom panel before Create ships.
 - Recommended: (a); the race file stores the full settings either way.
-- Source: r1-mode-and-setup.md:851-854. Waits: R1-15. Spike first: S6. Class: AFTER-SPIKE S6.
+- Source: r1-mode-and-setup.md:852-855. Waits: R1-15. Spike first: S6. Class: AFTER-SPIKE S6.
 
 **Q-18 May the race copy files on one background worker?** Shared folders on cloud drives can
 freeze the game for seconds when a file is opened the first time. The worker would be the one
@@ -1023,7 +1024,7 @@ plaque?**
   window, which needs a ruling like the Route History one); (b) the flag stands but cannot be
   read; (c) no rival flags in the first build.
 - Recommended: (a), as one stock-styled popup.
-- Source: r3-rival-world.md:980-984. Waits: R3W-25 (and R3W-24). Spike first: S7.
+- Source: r3-rival-world.md:981-985. Waits: R3W-25 (and R3W-24). Spike first: S7.
   Class: AFTER-SPIKE S7. Note: your ruling that rival flags are readable (design 0, line 67)
   already rules out (b) and (c), and the UI exception (lines 112-119) does not list (a); so
   the real question is whether (a) may be a fourth exception.
@@ -1036,7 +1037,7 @@ the map and in the Tracking Station (`Ghost: Ana - Kerbal X` or `Ghost: Kerbal X
 - Options: (a) yes on both, inside the existing label range; (b) color only.
 - Recommended: (a) by both plans; colors are hard to tell apart for some players, and the
   Tracking Station list has no color.
-- Source: r3-rival-world.md:990-992 and r5-looks.md:653-656 (merged). Waits: R3W-15, R3W-16,
+- Source: r3-rival-world.md:991-993 and r5-looks.md:653-656 (merged). Waits: R3W-15, R3W-16,
   R5-04. Spike first: none. Class: DESIGNER; assume (a). It uses existing surfaces and follows
   your ruling that each player has a name and a color (design 0, lines 59-61).
 
@@ -1045,7 +1046,7 @@ Own ghosts get a Parsek-drawn marker there; the design gives rivals none in the 
 and says nothing about flight.
 - Options: (a) nothing, as in the Tracking Station; (b) the own-ghost marker, tinted later.
 - Recommended: (a) in R3, revisit with the looks phase.
-- Source: r3-rival-world.md:985-989. Waits: R5-05 (conditional), R3W-18. Spike first: none.
+- Source: r3-rival-world.md:986-990. Waits: R5-05 (conditional), R3W-18. Spike first: none.
   Class: DESIGNER; assume (a), which matches design 15.6 (line 2138).
 
 **Q-24 Do the test races the automated flights play score anything?** Every race the harness

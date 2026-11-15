@@ -64,8 +64,8 @@ Citations read `plan :line`, using the short names above. "go" means the owner's
 | Named in a `Depends on` line | Resolved to |
 |---|---|
 | "every spike report" (S13, r0 :840) | S0 to S12 except S8a, S8b |
-| "P2a-02 to P2a-07" (P2b-02, playback :564) | P2a-02, P2a-03, P2a-04, P2a-05, P2a-06, P2a-07 |
-| "P6-05 (or its fallback)" (R3W-04, r3w :431) | P6-05; the fallback (r3w :67-70) is soft |
+| "P2a-02 to P2a-07" (P2b-02, playback :572) | P2a-02, P2a-03, P2a-04, P2a-05, P2a-06, P2a-07 |
+| "P6-05 (or its fallback)" (R3W-04, r3w :432) | P6-05; the fallback (r3w :67-70) is soft |
 | "owner's yes (question 2)" (R3E-23, r3e :928) | owner gate r3e Q2, not a task |
 | "R3 question 2" (R5-05, r5 :379) | owner gate r3w Q2, not a task |
 | "questions 10.1 and 10.2" (R5-12, r5 :577) | owner gates r5 Q1, Q2, not tasks |
@@ -75,8 +75,8 @@ Citations read `plan :line`, using the short names above. "go" means the owner's
 
 | Task | The `Depends on` line says | Other text says | Taken |
 |---|---|---|---|
-| P2b-02 | P2a-02 to P2a-07, P2c-03 (playback :564) | R5-03 merges before P2b-02 opens the window (playback :57, :731; r5 :47-50) | R5-03 added |
-| T-12 | R1-08 (T :375) | verb PRs land one at a time: R1-08, R1-10, R1-11, T-12, T-19 (T :715-716; r1 :835-837) | R1-11 added |
+| P2b-02 | P2a-02 to P2a-07, P2c-03 (playback :572) | R5-03 merges before P2b-02 opens the window (playback :57, :731; r5 :47-50) | R5-03 added |
+| T-12 | R1-08 (T :375) | verb PRs land one at a time: R1-08, R1-10, R1-11, T-12, T-19 (T :715-716; r1 :836-838) | R1-11 added |
 
 ## A. Task table
 
@@ -374,7 +374,7 @@ run in parallel unless section C names a shared file. Two windows sit across the
 
 - The P2b window (P2b-02 merge to the P2b-10 flight proof, waves 4 to 10): no P6 pull request
   merges inside it (playback :50-52, map :56-57), and no other task edits its hot files
-  (`ParsekFlight.cs`, the positioner, the playback host; playback :736-739).
+  (`ParsekFlight.cs`, the positioner, the playback host; playback :747-750).
 - P6 (P6-01 to P6-05) is built in parallel and merged when green, outside that window (map 10.1,
   assumed A). Its waves 0 to 4 are a floor; P6-05 is needed only by R3W-04 (wave 5).
 - P3b (waves 11 to 13 here) is deferred out of the preparation phase (map 10.2, answered
@@ -592,7 +592,7 @@ The paths (the first two steps tie with P12-01 -> R1-01):
 - Exchange: the first-save path to R1-10, then R3E-01 -> R3E-02 -> R3E-03 -> R3E-04 ->
   R3E-16 -> R3E-18.
 - M1: the first-save path to R3E-04, then T-16 -> R3W-05 -> R3W-08 -> R3W-09. R3W-08 now waits
-  for R3W-05 (r3w :528) and R3W-05 for T-16's builder (r3w :467), so M1 sits four waves after the
+  for R3W-05 (r3w :529) and R3W-05 for T-16's builder (r3w :468), so M1 sits four waves after the
   first standing. The playback side (P2c-02 -> P2c-04 -> P2a-02 -> R5-03 -> P2b-02 ... P2b-10)
   ends at wave 10.
 - Rivals on the map and in the TS: M1, then R3W-11 -> R3W-18 -> R3W-19 -> R3W-20. M5's R5-09
@@ -617,44 +617,44 @@ PRs at the same time unless the row says the edits are disjoint.
 
 | File or set | Tasks, in order | Source of the order |
 |---|---|---|
-| `scripts/arch/modules.toml` | P12-01, P12-02, R1-01, P7-01, P1-01, P1-02, P10-01, R1-02, P2a-05, R5-03, R3W-14 | P10-01 and R1-02 share LogIO :326 (small :724-726; r1 :831-832); P7-01, P1-01, P1-02 share the Core list :478 (small :726-728); R1-01 rebases (E, item 3); R5-03, R3W-14 a rule each (r5 :605; r3w :1072) |
-| `scripts/arch/test_archview.py` | P12-01, P12-02, P7-01, P1-01, P1-02, P2a-05, R1-06 | small :730-731 (which says P2a-01; E, item 2) |
-| `GhostPlaybackEngine.cs` constructor | P2c-02, P2c-04, P2a-02, R5-03, R3W-09, R3W-14 | playback :729-732; r5 :602-604; r3w :1064-1066 |
-| `GhostPlaybackEngine.Diagnostics.cs`, `GhostPlaybackEvents.cs` | P2c-02, P2c-03, R3W-01 | playback :733-734; R3W-01 is written against P2c-03's source gate |
-| `GhostMapPresence.StateVectors.cs` (the `GhostMapPresence` partial) | P2a-07, P3-02 | playback :740-741; map :643-645 |
-| `GhostMapVessels.cs` | P3-02 to P3-05, R3W-17, R5-04 (`ApplyOrbitStyle` in R3W-18's PR), R3W-19 | map :635-637; r3w :1068-1069; r5 :357-358 |
+| `scripts/arch/modules.toml` | P12-01, P12-02, R1-01, P7-01, P1-01, P1-02, P10-01, R1-02, P2a-05, R5-03, R3W-14 | P10-01 and R1-02 share LogIO :72 (small :725-727; r1 :832-833); P7-01, P1-01, P1-02 share the Core list :129 (small :727-729); R1-01 rebases (E, item 3); R5-03, R3W-14 a rule each (r5 :605; r3w :1073) |
+| `scripts/arch/test_archview.py` | P12-01, P12-02, P7-01, P1-01, P1-02, P2a-05, R1-06 | small :731-732 (which says P2a-01; E, item 2) |
+| `GhostPlaybackEngine.cs` constructor | P2c-02, P2c-04, P2a-02, R5-03, R3W-09, R3W-14 | playback :740-743; r5 :602-604; r3w :1065-1067 |
+| `GhostPlaybackEngine.Diagnostics.cs`, `GhostPlaybackEvents.cs` | P2c-02, P2c-03, R3W-01 | playback :744-745; R3W-01 is written against P2c-03's source gate |
+| `GhostMapPresence.StateVectors.cs` (the `GhostMapPresence` partial) | P2a-07, P3-02 | playback :751-752; map :643-645 |
+| `GhostMapVessels.cs` | P3-02 to P3-05, R3W-17, R5-04 (`ApplyOrbitStyle` in R3W-18's PR), R3W-19 | map :635-637; r3w :1069-1070; r5 :357-358 |
 | `GhostMapPresence.cs` (name composer beside the prefix) | P3-04, R5-04 | map :649-654 |
-| `RecordingPlaybackCatalog.cs` and its tests | P2a-05 (creates), P2a-03, P2a-02, R3W-09 (adds `None`) | playback :742-745; r3w :1067 |
-| `ParsekFlight.cs` and partials | P2b-02 to P2b-10, then R3W-09, R3W-16; P3b when scheduled | playback :736-737; r3w :1060-1061 |
-| `WatchModeController.cs` | P2b-08, then P3b-01 to P3b-04, R3W-26, R5-06 (all deferred) | playback :752-755; map :638 |
-| `ParsekFlightRivalLane.cs` | R3W-09, R3W-10, R3W-13, R3W-16, R3W-18, R3W-24, R3W-26, R3W-32, then R5-09 | r3w :1062-1063; r5 :606 |
-| `HomeSpaceCenter.cs`, `LaunchSiteExclusionZones.cs` | the launch pad fixes (outside this plan, on main first), then P1-01, P1-02, P1-03, then R2-05 | small :744-745; r2 :742-743 |
-| `LaunchArea.cs` | P1-02, then R2-01 (adds `LaunchArea.Strip`) | small :522-526; r2 :350-351 |
-| `ParsekRaceBoot.cs` | R1-04 (creates), R2-01, R2-07 | r1 :843-844 |
+| `RecordingPlaybackCatalog.cs` and its tests | P2a-05 (creates), P2a-03, P2a-02, R3W-09 (adds `None`) | playback :753-761; r3w :1068 |
+| `ParsekFlight.cs` and partials | P2b-02 to P2b-10, then R3W-09, R3W-16; P3b when scheduled | playback :747-748; r3w :1061-1062 |
+| `WatchModeController.cs` | P2b-08, then P3b-01 to P3b-04, R3W-26, R5-06 (all deferred) | playback :768-771; map :638 |
+| `ParsekFlightRivalLane.cs` | R3W-09, R3W-10, R3W-13, R3W-16, R3W-18, R3W-24, R3W-26, R3W-32, then R5-09 | r3w :1063-1064; r5 :606 |
+| `HomeSpaceCenter.cs`, `LaunchSiteExclusionZones.cs` | the launch pad fixes (outside this plan, on main first), then P1-01, P1-02, P1-03, then R2-05 | small :745-746; r2 :742-743 |
+| `LaunchArea.cs` | P1-02, then R2-01 (adds `LaunchArea.Strip`) | small :523-527; r2 :350-351 |
+| `ParsekRaceBoot.cs` | R1-04 (creates), R2-01, R2-07 | r1 :844-845 |
 | `RaceInstallCheck` (refusal list) | R1-10, then R2-02, R4-02 | r2 :386; r4 :817 |
 | `RaceCore/RaceCalendar.cs` | R1-10, R4-01, then R4-04, R4-07, R4-10 | r4 :816 |
-| `RacePorts.cs`, `RaceFolder.cs`, `RaceIds.cs`, `RaceTimestamp.cs`, `RaceManifest.cs` | R1-08, R1-09, R1-10, R1-11, then R3E-01 | r1 :845-847; r3e :957-958 |
+| `RacePorts.cs`, `RaceFolder.cs`, `RaceIds.cs`, `RaceTimestamp.cs`, `RaceManifest.cs` | R1-08, R1-09, R1-10, R1-11, then R3E-01 | r1 :846-848; r3e :957-958 |
 | `RaceFolderCheck.cs`, `RaceSharedFolder.cs` | R1-10, R3E-01, R3E-16 | r3e :958-959 |
 | `RaceWorld/RaceRuntime.cs` | R1-08, R3W-08, R4-09, R4-10, R4-11 or R3W-26 (first to land), R6-06 | r4 :812-814 |
 | `RaceSync.cs`, `RaceSyncDriver.cs` | R3E-01, R3E-02, R3E-04, R3E-16, R3E-17, R3E-18, R3E-20, R3E-22, then R4-04, R4-07, R4-09, R6-10 | r3e :955-956; r4 :817-819 |
 | the standing codec (`StandingCodec.cs`, `Standing.cs`, `PublicState.cs`) | R3E-01, R3E-04, the block tasks R3E-10, R3E-11, R3E-14, R3E-15, R3E-22 one at a time, R3E-09, then R6-01 (the tool view) | r3e :951-952, :957; r4 :818 |
 | `ParsekRaceScenario.cs` | R1-03, R1-08, R3E-15, R5-11 | r5 :607 |
-| `LoadReconcilePolicy.cs` | R1-05, R1-16 (either order), R3E-15, R5-11 | r1 :833-834; r3e :961; r5 :608 |
-| `SaveFormat.cs`, `Fixtures/FormatGolden/` | R1-12 (both rows, `v2`), then R3E-04 (`v3`) | r1 :851-853; r3e :956 |
-| `TestCommandVerbs.cs`, hlib verb tables, `design-autotest-command-seam.md` | P11-01 (seam doc), T-07, R1-08, R1-10, R1-11, T-12, T-19, T-20, T-30 | small :735-736; r1 :835-837; T :713-716 |
-| `harness/lib/test_hlib.py`, `hlib.py` | P10-01, P11-01, T-03, T-04, T-07, then every lane and verb task | small :732-734; T :707-709 |
-| `.claude/CLAUDE.md`, `AGENTS.md` | P10-01, R1-07, P2a-02, P2b-02, P3-04, R1-14, R2-03, R2-04, R2-07, R2-08, R3E-23, the R3W key-file line | small :737-739; playback :869-871; map :720; r1 :962; r2 :829-830; r3e :926; r3w :1144; one mirror copy per PR |
+| `LoadReconcilePolicy.cs` | R1-05, R1-16 (either order), R3E-15, R5-11 | r1 :834-835; r3e :961; r5 :608 |
+| `SaveFormat.cs`, `Fixtures/FormatGolden/` | R1-12 (both rows, `v2`), then R3E-04 (`v3`) | r1 :852-854; r3e :956 |
+| `TestCommandVerbs.cs`, hlib verb tables, `design-autotest-command-seam.md` | P11-01 (seam doc), T-07, R1-08, R1-10, R1-11, T-12, T-19, T-20, T-30 | small :736-737; r1 :836-838; T :713-716 |
+| `harness/lib/test_hlib.py`, `hlib.py` | P10-01, P11-01, T-03, T-04, T-07, then every lane and verb task | small :733-735; T :707-709 |
+| `.claude/CLAUDE.md`, `AGENTS.md` | P10-01, R1-07, P2a-02, P2b-02, P3-04, R1-14, R2-03, R2-04, R2-07, R2-08, R3E-23, the R3W key-file line | small :738-740; playback :885-887; map :720; r1 :963; r2 :829-830; r3e :926; r3w :1145; one mirror copy per PR |
 | generated `docs/dev/flight-profiles.md`, `harness/coverage/registry.toml`, `docs/dev/autotest-status.md` | every task that adds an in-game category or a lane (R5-01 and T-07 in wave 0); P3-01 does not change the catalog (map :269-273) | T :717-721; regenerate after merging `main`, never by hand |
 | the RACE-9, RACE-10, RACE-11 spec tallies (T-29) | every task that adds a test in a hosted category re-pins its host's `total=` | r2 :738-740; T :632 |
-| `GrepAuditTests.Race.cs`, `scripts/race-loader-files-allowlist.txt`, `RaceLogTags` | R1-06 (creates), R3W-03, R3W-04, R3W-06 (tag), R3W-27 | r1 :826; r3w :1074-1075 |
+| `GrepAuditTests.Race.cs`, `scripts/race-loader-files-allowlist.txt`, `RaceLogTags` | R1-06 (creates), R3W-03, R3W-04, R3W-06 (tag), R3W-27 | r1 :827; r3w :1075-1076 |
 | `scripts/ers-els-audit-allowlist.txt` | P2a-05, P3b-02 | append-only |
-| `scripts/arch/lifetimes.toml`, `lifetime_pins.toml`, the reset allowlist | P1-03 first, then P3-02, P3-03, R1-03, R1-04, R1-08, R1-10, R2-03, R2-05, R3E-06, R3E-08, R3W-08, R3W-14, R3W-19, R5-12 | small :742-743; re-pin after each merge |
+| `scripts/arch/lifetimes.toml`, `lifetime_pins.toml`, the reset allowlist | P1-03 first, then P3-02, P3-03, R1-03, R1-04, R1-08, R1-10, R2-03, R2-05, R3E-06, R3E-08, R3W-08, R3W-14, R3W-19, R5-12 | small :743-744; re-pin after each merge |
 | `docs/dev/design-gui-inventory.md` | R1-14, R1-15, R1-17, R1-18, R2-02, R2-08, R4-08, R4-09, then the R3E, R3W, R4, R5 tasks that add a surface | counts are re-derived, never hand-summed |
 | `UI/SettingsWindowUI.cs` | R1-18, then R4-09 (Sync now, `RequestSyncNow`) | r4 :810-811 |
-| `ParsekUI.cs`, `UI/ParsekWindowSet.cs` | P11-02, R4-08, R4-09 | small :741 |
+| `ParsekUI.cs`, `UI/ParsekWindowSet.cs` | P11-02, R4-08, R4-09 | small :742 |
 | `ParsekKSC.cs` | R3E-17 (poll at scene entry), R4-09 (draw call), R5-09 only if rivals show at the KSC | r3e :785-786; r4 :807; r5 :733 |
-| `InGameTestRunner.cs` | R1-07, R3E-08 (tool mark at the runner) | r1 :823; r3e R3E-08 |
-| `Source/Parsek.Tests/Generators/` | T-01, T-16 (the one folder builder), R3W-05 (`RivalCacheBuilder` through T-16) | T :709-711; T :422-425; r3w :1043 |
+| `InGameTestRunner.cs` | R1-07, R3E-08 (tool mark at the runner) | r1 :824; r3e R3E-08 |
+| `Source/Parsek.Tests/Generators/` | T-01, T-16 (the one folder builder), R3W-05 (`RivalCacheBuilder` through T-16) | T :709-711; T :422-425; r3w :1044 |
 
 ### C.2 Tracks for waves 0 and 1
 
@@ -782,13 +782,13 @@ that use them (T-13, T-24, T-26, T-32).
 
 | When | Run | Hours | Source |
 |---|---|---|---|
-| after playback tracks A, C, D (P2c, P2a) | nightly tier | about 9.5 | playback :831-833 |
-| after P2b-07, P2b-08, P2b-10 | daily tier | about 0.4 | playback :821-822 |
+| after playback tracks A, C, D (P2c, P2a) | nightly tier | about 9.5 | playback :847-849 |
+| after P2b-07, P2b-08, P2b-10 | daily tier | about 0.4 | playback :837-838 |
 | after P2b-10 | the representative set (18 lanes) plus the daily tier, through the parallel runner | set about 0.43 measured p50 one lane at a time (two lanes not measured), daily about 0.4; about half on three copies (estimate) | playback 6.4, Q-05 |
 | at release, outside this plan | full tier, 523 lanes | about 21.5 p50 one lane at a time; not yet measured on the parallel runner | owner's answer to Q-05 |
 | after P3-01, P3-04 | named lanes (H44, S1.6; then 11 lanes) | small | map :677-679 |
 | after P6-03 | any daily tier run | about 0.4 | map :680-681 |
-| after R1-16 | one tier run | one tier | r1 :774 |
+| after R1-16 | one tier run | one tier | r1 :775 |
 | once RACE lanes exist | added capacity: daily about +45 s, nightly about +1800 s, operator about +400 s | small | T :799-800 |
 
 The plans ask for no full run. The owner's answer to Q-05 (2026-11-14) replaced the one after

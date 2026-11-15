@@ -62,7 +62,7 @@ section 9), and any change to what is written to disk.
 
 ### 3.1 GhostMapPresence (P3)
 
-- One static partial class, tag `"GhostMap"` (`Source/Parsek/GhostMapPresence.cs:33`). It
+- One static partial class, tag `"GhostMap"` (`Source/Parsek/Ghost/GhostMapPresence.cs:33`). It
   holds 36 static collections; the guard set is
   `internal static readonly HashSet<uint> ghostMapVesselPids` (`GhostMapPresence.cs:196`),
   read by `IsGhostMapVessel` (`GhostMapPresence.cs:733-736`). A teardown depth counter
@@ -72,7 +72,7 @@ section 9), and any change to what is written to disk.
   (`:739-742`). `GhostVesselNamePrefix = "Ghost: "` (`:756`).
 - The 36 collections split as follows. The primitive needs exactly one: the guard set.
   Everything else stays in `GhostMapPresence` and is own-lane state:
-  - per recording index or id, own committed list: `lastKnownByRecordingIndex` (`:69`),
+  - per recording index or id, own committed list: `lastKnownByRecordingIndex` (`:70`),
     `vesselsByRecordingIndex` (`:419`), `vesselPidToRecordingIndex` (`:425`),
     `vesselPidToRecordingId` (`:474`), `overlapInstanceVessels` (`:444`),
     `boundaryOverlapSecondaryPids` (`:458`), the TS and flight state-vector caches (`:460`,
@@ -80,7 +80,7 @@ section 9), and any change to what is written to disk.
     `flightPendingMapVessels` (`:1588`), `flightSoiGapStateVectorExpectedBodies` (`:1591`),
     `flightLastMapOrbitByIndex` (`:1604`), `flightTerminalMapRetentionLoggedIds` (`:1607`),
     `flightChainMapOwner` (`:1615`), `chainTipSegmentsCache` (`:1048`);
-  - per chain: `lastKnownByChainPid` (`:72`), `vesselsByChainPid` (`:413`);
+  - per chain: `lastKnownByChainPid` (`:73`), `vesselsByChainPid` (`:413`);
   - per-frame draw bookkeeping: `drawnRecordingIdsThisFrame` (`:493`),
     `protoLessCoverageRecordingIdsThisFrame` (`:507`), `paintedRecordingIdsThisFrame`
     (`:538`), `protoBearingRecordingIdScratch` (`:544`), `lastPolylineOwningRealTimePerPid`
@@ -90,14 +90,14 @@ section 9), and any change to what is written to disk.
     `ghostOrbitBounds` (`:552`), `ghostBodyFrameOrbitBounds` (`:565`),
     `ghostOrbitLoopShiftedPids` (`:578`), `ghostOrbitEpochShift` (`:595`),
     `ghostIconDrivePropagation` (`:635`), `ghostLastAppliedOrbitBody` (`:691`),
-    `ghostLastAppliedOrbitElements` (`:703`), `ghostNoBoundsSuppressLastFrame` (`:866`).
+    `ghostLastAppliedOrbitElements` (`:704`), `ghostNoBoundsSuppressLastFrame` (`:866`).
   A rival map presence needs its own equivalents of the per-pid render state; whether it
   reuses these maps is R3W-18's decision, not this plan's.
-- Writers of the guard set: `Add` at `GhostMapPresence.ProtoVesselLifecycle.cs:1822` (the
+- Writers of the guard set: `Add` at `GhostMapPresence.ProtoVesselLifecycle.cs:1770` (the
   pre-registration inside `BuildAndLoadGhostProtoVesselCore`), at
   `GhostMapPresence.OverlapInstances.cs:691` and in the test seam (`GhostMapPresence.cs:741`);
-  `Remove` at `ProtoVesselLifecycle.cs:277`, `:831`, `:2079`, `OverlapInstances.cs:767`,
-  `GhostMapPresence.cs:1483`; `Clear` at `ProtoVesselLifecycle.cs:405` (inside
+  `Remove` at `ProtoVesselLifecycle.cs:225`, `:779`, `:2027`, `OverlapInstances.cs:767`,
+  `GhostMapPresence.cs:1483`; `Clear` at `ProtoVesselLifecycle.cs:353` (inside
   `RemoveAllGhostVessels`, production), `GhostMapPresence.cs:1252` (`ResetForTesting`) and
   `:1552` (`ResetBetweenTestRuns`, the in-game runner's safety net, called at
   `InGameTests/InGameTestRunner.cs:665`).
@@ -105,27 +105,27 @@ section 9), and any change to what is written to disk.
   (`scene-cleanup`), `ParsekTrackingStation.cs:1301` (`tracking-station-cleanup`),
   `ParsekFlightPlaybackHost.cs:2589` (`rewind`) and `GhostMapPresence.cs:1487`.
 - The load core `BuildAndLoadGhostProtoVesselCore(IPlaybackTrajectory, Orbit, CelestialBody,
-  string logContext, ...)` (`ProtoVesselLifecycle.cs:1800`) already takes an
-  `IPlaybackTrajectory`. Callers: `ProtoVesselLifecycle.cs:1486`, `:1545`,
+  string logContext, ...)` (`ProtoVesselLifecycle.cs:1748`) already takes an
+  `IPlaybackTrajectory`. Callers: `ProtoVesselLifecycle.cs:1434`, `:1493`,
   `GhostMapPresence.FlightMapLifecycle.cs:134`, `GhostMapPresence.StateVectors.cs:1357`. Its
-  sequence: `BuildGhostProtoVesselNode` (`:1955-1988`: one `sensorBarometer` part, Owned
-  discovery, `ResolveVesselType(traj.VesselSnapshot)`, name
+  sequence: `BuildGhostProtoVesselNode` (`GhostMapPresence.ProtoVesselLifecycle.cs:1903-1936`: one
+  `sensorBarometer` part, Owned discovery, `ResolveVesselType(traj.VesselSnapshot)`, name
   `GhostVesselNamePrefix + (traj.VesselName ?? "Unknown")`, `vesselSpawning` False, `prst`
-  True, `cln` False, `EnsureDefensiveVesselNodes`), `new ProtoVessel`, pre-register (`:1822`),
+  True, `cln` False, `EnsureDefensiveVesselNodes`), `new ProtoVessel`, pre-register (`:1770`),
   add to `flightState.protoVessels`, `pv.Load`, an Error and `RemoveGhostProtoVessel` when
-  `vesselRef` is null (`:1830-1838`), `HardenGhostVesselPartPhysics` and
-  `NormalizeGhostOrbitDriverTargetIdentity` (`:1847-1848`), a driver-state string built from
+  `vesselRef` is null (`:1778-1786`), `HardenGhostVesselPartPhysics` and
+  `NormalizeGhostOrbitDriverTargetIdentity` (`:1795-1796`), a driver-state string built from
   `BuildGhostOrbitDriverIdentity` and `IsVesselRegistered`, the OrbitRenderer force-enable,
   vessel type restore, then the "Created ghost vessel" Info line (its visibility part from
   `BuildGhostProtoVesselVisibilityState`, `GhostMapPresence.Observability.cs:156`, which reads
   `ghostsWithSuppressedIcon`) and `MapRenderTrace.EmitStructural("GhostCreated", ...)`.
-- `RemoveGhostProtoVessel(ProtoVessel, bool)` (`ProtoVesselLifecycle.cs:2077-2084`) unregisters
-  the pid. `StripFromSave(FlightState)` (`ProtoVesselLifecycle.cs:1345-1359`) removes every
+- `RemoveGhostProtoVessel(ProtoVessel, bool)` (`ProtoVesselLifecycle.cs:2025-2032`) unregisters
+  the pid. `StripFromSave(FlightState)` (`ProtoVesselLifecycle.cs:1293-1307`) removes every
   ProtoVessel whose pid is in the guard set and logs "Stripped {0} ghost ProtoVessel(s) from
   save"; its one production caller is `ParsekScenario.Save.cs:37`
   (`StripGhostMapVesselsFailClosed`, which first reads the set's `Count` at `:33`).
 - Helper callers outside the primitive: `ResolveVesselType` from `ParsekFlightMapMarkers.cs`
-  (3) and `ParsekTrackingStation.cs` (2); `FindBodyByName` (`ProtoVesselLifecycle.cs:1423`)
+  (3) and `ParsekTrackingStation.cs` (2); `FindBodyByName` (`ProtoVesselLifecycle.cs:1371`)
   from four `GhostMapPresence` partials and `ParsekFlightGhostPositioner.cs` (4);
   `HardenGhostVesselPartPhysics` from `GhostVisualBuilder.cs` (1);
   `MakeLoadedGhostVesselPhysicsInert` from `Patches/GhostVesselLoadPatch.cs` (1);
@@ -135,7 +135,7 @@ section 9), and any change to what is written to disk.
   `MapRenderProbe.cs:311`, `:500-501`, `MapRender/GhostMapSceneBase.cs:35`,
   `Logistics/RouteEndpointResolver.cs:234`, `:253`, `:353`, `:434`,
   `MapGeometryRecorder.cs:328`, `Patches/GhostOrbitDominantBodyPatch.cs:50`, several in-game
-  tests, and 40 xUnit references (e.g. `GhostMapPresenceTests.cs:290-327`). `IsGhostMapVessel`
+  tests, and 40 xUnit references (e.g. `GhostMapPresenceTests.cs:160-197`). `IsGhostMapVessel`
   appears 164 times in 77 files under `Source/`.
 - The three patch sites:
   - `Patches/GhostVesselLoadPatch.cs:253` `GhostIconClickPatch` Prefix resolves the index at
@@ -147,9 +147,9 @@ section 9), and any change to what is written to disk.
   - `Patches/GhostTrackingStationPatch.cs:1007-1040` `SelectGhost` resolves index and id at
     `:1012-1013` and builds `TrackingStationGhostSelectionInfo`.
 - Source gates on this code:
-  - `harness/lib/test_saveparse.py:5918-5925` reads `GhostMapPresence.cs` for
+  - `harness/lib/test_saveparse.py:5995-6002` reads `GhostMapPresence.cs` for
     `GhostVesselNamePrefix = "Ghost: ";` and `GhostMapPresence.ProtoVesselLifecycle.cs` for
-    `ProtoVessel.CreatePartNode("sensorBarometer", 0)`; `.claude/CLAUDE.md:257` describes it.
+    `ProtoVessel.CreatePartNode("sensorBarometer", 0)`; `.claude/CLAUDE.md:258` describes it.
   - `Source/Parsek.Tests/SavePathHardeningTests.cs:136-164` pins exactly one occurrence of
     `GhostMapPresence.StripFromSave(` in production source.
   - `Source/Parsek.Tests/MapRenderTracerCoverageTests.cs:224-249` reads `GhostMapPresence.cs`
@@ -158,13 +158,13 @@ section 9), and any change to what is written to disk.
   - The same glob is read by `MapRender/MapPresenceSeamTests.cs:44-62`,
     `MapRender/ShadowRenderDriverTests.cs:600-610` and
     `GhostOrbitLineCascadeDeleteGateTests.cs:54-58` (forbidden cascade symbols);
-    `GrepAuditNonLoopLivePidTests.cs:115-120` lists each `GhostMapPresence` file by name.
+    `GrepAuditNonLoopLivePidTests.cs:126-131` lists each `GhostMapPresence` file by name.
   - `scripts/ers-els-audit-allowlist.txt:138-147` lists the `GhostMapPresence` files.
 - Architecture: a root file starting with `Ghost` lands in module Ghost
-  (`scripts/arch/modules.toml:296-298`), layer features (`modules.toml:517`). Lifetimes:
+  (`scripts/arch/modules.toml:54-56`), layer features (`modules.toml:168`). Lifetimes:
   `GhostMapPresence::ghostMapVesselPids` and `::ghostTeardownDepth` are in the untagged set
   (`scripts/arch/lifetime_pins.toml:80`, `:88`); the type's tagged fields are at
-  `scripts/arch/lifetimes.toml:537-548`.
+  `scripts/arch/lifetimes.toml:548-559`.
 - Map contracts that must not move: the marker decision `ShouldDrawNonProtoMarkerForGhost`,
   the icon floor and `ghostsWithSuppressedIcon` (kept permanent), the Tier-A
   `GhostCreated` / `GhostDestroyed` events and the line-blink stamp sites
@@ -173,11 +173,11 @@ section 9), and any change to what is written to disk.
 
 ### 3.2 WatchModeController (P3b)
 
-- `Source/Parsek/WatchModeController.cs` (3791 lines, plus `.Cycle`, `.Diagnostics`,
+- `Source/Parsek/Controllers/WatchModeController.cs` (3791 lines, plus `.Cycle`, `.Diagnostics`,
   `.ExitCameraProbe`, `.Math`, `.Runtime` partials) is module Controllers by
-  `^WatchMode` (`modules.toml:320-322`) and is ERS-exempt (`WatchModeController.cs:45-51`,
+  `^WatchMode` (`modules.toml:34-36`) and is ERS-exempt (`WatchModeController.cs:45-51`,
   `scripts/ers-els-audit-allowlist.txt:148`). It holds `private readonly ParsekFlight host`
-  (`:52`).
+  (`WatchModeController.cs:52`).
 - Identity is an index into the own committed list: `watchedRecordingIndex` (`:95`, 118
   uses in the main file, 2 in `.Diagnostics`), `watchedRecordingId` (`:96`),
   `watchedOverlapCycleIndex`, lineage protection index / id / until (`:112-114`).
@@ -199,17 +199,17 @@ section 9), and any change to what is written to disk.
   (`:3660`, `:3674`, `:3683`).
 - Outside readers: `ParsekPlaybackPolicy.cs` (12 `WatchedRecordingIndex`), `ParsekFlight.cs`
   (`:1437`, `:1668`, `:2269-2285`, `:2577-2584`), `ParsekFlightPlaybackHost.cs` (`:1921`,
-  `:1975`, `:2322-2327`), `ParsekFlightSpawnHost.cs`, `ParsekFlightGhostPositioner.cs:2484`,
+  `:1975`, `:2322-2327`), `ParsekFlightSpawnHost.cs`, `ParsekFlightGhostPositioner.cs:470`,
   `ParsekFlight.GhostPositioner.cs:328`, the UI tables and timeline, the test-command
   addon and `Patches/GhostVesselLoadPatch.cs` (`GhostMapWatchHelper.EnterWatchMode`, `:173`).
 
 ### 3.3 Trajectory codec (P6)
 
-- `Source/Parsek/TrajectorySidecarBinary.cs` (module Recording by the R0 rule,
-  `modules.toml:88-91`): `TryProbe` (`:91-158`), `TryValidatePayload` (`:180-200`, builds
-  `new Recording()` and calls `Read`), `Write(path, Recording, sidecarEpoch)` (`:225-288`),
-  `Read(path, Recording, probe)` (`:290-384`). `Read` clears the six `Recording` lists in
-  place and fills them through private readers that take plain lists (`ReadPointList` `:540`,
+- `Source/Parsek/Recording/TrajectorySidecarBinary.cs` (module Recording by the R0 rule,
+  `modules.toml:94-96`): `TryProbe` (`TrajectorySidecarBinary.cs:91-158`), `TryValidatePayload`
+  (`:180-200`, builds `new Recording()` and calls `Read`), `Write(path, Recording, sidecarEpoch)`
+  (`:225-288`), `Read(path, Recording, probe)` (`:290-384`). `Read` clears the six `Recording` lists
+  in place and fills them through private readers that take plain lists (`ReadPointList` `:540`,
   `ReadOrbitSegmentList` `:612`, `ReadPartEventList` `:699`, `ReadFlagEventList` `:741`,
   `ReadSegmentEventList` `:780`, `ReadTrackSections` `:824`). Then: the flat-fallback heal
   when not section-authoritative (`:316-332`), version / generation / id stamped on the
@@ -228,17 +228,17 @@ section 9), and any change to what is written to disk.
   `DeserializeTrajectorySidecar(path, probe, rec)` (`:2080-2090`, BinaryV0 only),
   `LoadTrajectorySidecarForTesting(path, rec)` (`:2092-2100`, test-hook name; callers:
   7 xUnit files including `Analyzer/SaveDirectoryLoader.cs`, the analyzer every lane runs).
-  The production load reaches `DeserializeTrajectorySidecar` from `:429` (cold load) and
-  `:1335` (`TrySummarizeExistingTrajectorySidecar`, `:1300-1352`, which builds a scratch
-  `Recording` to count points and sections, calling
+  The production load reaches `DeserializeTrajectorySidecar` from `RecordingSidecarStore.cs:429`
+  (cold load) and `:1335` (`TrySummarizeExistingTrajectorySidecar`, `:1300-1352`, which builds a
+  scratch `Recording` to count points and sections, calling
   `ShouldWriteSectionAuthoritativeTrajectory(existing)`, `TrajectoryTextSidecarCodec.cs:397`).
 - The snapshot side already has a production path entry:
   `SnapshotSidecarCodec.TryLoad(path, out ConfigNode, out probe)` (`SnapshotSidecarCodec.cs:123`),
   called in production at `RecordingSidecarStore.cs:752`, `:830`, `:1152`, `:1837`.
-- Data types: `TrackSection` is module Trajectory (`modules.toml:255`); `PartEvent`,
-  `FlagEvent`, `SegmentEvent` are module Recording (`modules.toml:364-367`). A payload that
+- Data types: `TrackSection` is module Trajectory (`modules.toml:120`); `PartEvent`,
+  `FlagEvent`, `SegmentEvent` are module Recording (`modules.toml:94-96`). A payload that
   holds all six lists therefore belongs in Recording; in the Trajectory floor it would add
-  backward edges. `^Recording` places a root file in Recording (`modules.toml:308-310`).
+  backward edges. `^Recording` places a root file in Recording (`modules.toml:94-96`).
 - Proof material: `Source/Parsek.Tests/Fixtures/FormatGolden/v1/` holds 7 `.prec` files
   (frozen, gated by `SaveFormatGoldenGateTests`); 9 `.prec` under
   `Source/Parsek.Tests/Fixtures/` in all and 501 under `harness/fixtures/`. The analyzer rule
@@ -313,10 +313,10 @@ section 9), and any change to what is written to disk.
   GhostMapVesselOwner(null, null)`. `Register(uint pid, GhostMapVesselOwner owner)` adds to `Pids`
   and, only when the owner is not the own timeline, to a `foreignOwners` dictionary.
   `Unregister(uint)` removes from both. `UnregisterAllOwnTimeline()` removes every pid that has no
-  foreign owner. Re-point the own writers: `ProtoVesselLifecycle.cs:1822` and
+  foreign owner. Re-point the own writers: `ProtoVesselLifecycle.cs:1770` and
   `OverlapInstances.cs:691` call `Register(pid, GhostMapVesselOwner.OwnTimeline)`; the five `Remove`
   sites call `Unregister`; the production `Clear()` in `RemoveAllGhostVessels`
-  (`ProtoVesselLifecycle.cs:405`) calls `UnregisterAllOwnTimeline()`. The two test-reset clears
+  (`ProtoVesselLifecycle.cs:353`) calls `UnregisterAllOwnTimeline()`. The two test-reset clears
   (`GhostMapPresence.cs:1252`, `:1552`) stay whole clears. `ResetForTesting` also clears
   `foreignOwners`. Uncalled-method ratchet (A1): every new member has a production caller in this
   pull request. The constructor is reached from the type's static constructor (the `OwnTimeline`
@@ -343,8 +343,8 @@ section 9), and any change to what is written to disk.
   `MakeLoadedGhostVesselPhysicsInert`, `LogGhostVesselMadeInert`,
   `NormalizeGhostOrbitDriverTargetIdentity`, `BuildGhostOrbitDriverIdentity`,
   `IsVesselRegistered`, `RemoveGhostProtoVessel`, `StripFromSave`, `FindBodyByName`. Split
-  `BuildAndLoadGhostProtoVesselCore` (`:1800-1953`): the service gets
-  `TryLoadGhostProtoVessel(IPlaybackTrajectory traj, Orbit orbit, string vesselName,
+  `BuildAndLoadGhostProtoVesselCore` (`GhostMapPresence.ProtoVesselLifecycle.cs:1748-1901`): the
+  service gets `TryLoadGhostProtoVessel(IPlaybackTrajectory traj, Orbit orbit, string vesselName,
   GhostMapVesselOwner owner, string logContext, out GhostMapVesselLoad load)` covering node
   build, `new ProtoVessel`, pre-registration, `protoVessels.Add`, `Load`, the null
   `vesselRef` Error and removal, hardening, driver normalization, the driver-state string,
@@ -378,9 +378,9 @@ section 9), and any change to what is written to disk.
   last green run of the same lane for the count of "Created ghost vessel", "Stripped",
   `GhostCreated` and `GhostDestroyed` lines. Log lines are byte-identical by construction
   (same tag, same format strings, same order).
-- **Registers:** `harness/lib/test_saveparse.py:5918-5925` reads the `CreatePartNode`
+- **Registers:** `harness/lib/test_saveparse.py:5995-6002` reads the `CreatePartNode`
   literal from `GhostMapVessels.cs` (the prefix literal stays in `GhostMapPresence.cs`);
-  `.claude/CLAUDE.md:257` names the new file (then `cp .claude/CLAUDE.md AGENTS.md`);
+  `.claude/CLAUDE.md:258` names the new file (then `cp .claude/CLAUDE.md AGENTS.md`);
   `harness/lib/saveparse.py:664-696` comment names it; `SavePathHardeningTests.cs:163` also
   pins one occurrence of `GhostMapVessels.StripFromSave(` (inside the forwarder);
   `GrepAuditNonLoopLivePidTests.cs` gains an `AuditCheck` for `GhostMapVessels.cs`;
@@ -402,10 +402,10 @@ section 9), and any change to what is written to disk.
   `GhostIconClickPatch` Prefix (before `GhostVesselLoadPatch.cs:266`) shows no Parsek menu;
   `GhostVesselSwitchPatch` Prefix (before `:526`) blocks the switch with no ScreenMessage
   (the "will materialize" text is false for a rival flight);
-  `GhostTrackingStationPatch.SelectGhost` (before `:1012`) selects nothing. R3W-19 adds the
-  rival provider registration method on `GhostMapVessels` (lifetime scene) and replaces
-  these refusals with its own behavior (OV-49); this task only makes the query and the branch,
-  and adds no register method. Uncalled-method ratchet (A1): `TryGetForeignOwner` and the
+  `GhostTrackingStationPatch.SelectGhost` (before `GhostTrackingStationPatch.cs:1012`) selects
+  nothing. R3W-19 adds the rival provider registration method on `GhostMapVessels` (lifetime scene)
+  and replaces these refusals with its own behavior (OV-49); this task only makes the query and the
+  branch, and adds no register method. Uncalled-method ratchet (A1): `TryGetForeignOwner` and the
   extracted deciders have production callers in this pull request, the three Harmony
   Prefixes (roots by the patch rule), so the query does not wait for R3W-19.
 - **Proof:** xUnit in `GhostVesselLoadPatchTests` / `GhostTrackingStationPatchTests` over the
@@ -490,7 +490,7 @@ R3W-26 and the camera half of R4-11 (on P3b-04), and R5-06 (on P3b-03 and R3W-26
 - **Change:** `WatchedRecordingIndex` and `WatchProtectionRecordingIndex` return -1 when the
   target is foreign (so own playback never protects an unrelated own index); add
   `WatchedTarget`. The lane-state watch query P2b introduces for the positioner
-  (`ParsekFlightGhostPositioner.cs:2484`, `ParsekFlight.GhostPositioner.cs:328`) and the
+  (`ParsekFlightGhostPositioner.cs:470`, `ParsekFlight.GhostPositioner.cs:328`) and the
   playback host (`ParsekFlightPlaybackHost.cs:1921`, `:1975`, `:2322-2327`) answers "is this
   lane's index watched" from `WatchedTarget`.
 - **Proof:** xUnit on the query with own and foreign targets; whole suite; the watch lanes.
@@ -581,9 +581,9 @@ R3W-26 and the camera half of R4-11 (on P3b-04), and R5-06 (on P3b-03 and R3W-26
   both.
 
 **P6-04 `TryValidatePayload` decodes without a `Recording`**
-- **Change:** `TrajectorySidecarBinary.TryValidatePayload` (`:180-200`) decodes into a
-  scratch payload instead of `new Recording()`. It keeps the unconditional Warn for dropped
-  non-monotonic points (today `Read` emits it with the probe's id because the scratch
+- **Change:** `TrajectorySidecarBinary.TryValidatePayload` (`TrajectorySidecarBinary.cs:180-200`)
+  decodes into a scratch payload instead of `new Recording()`. It keeps the unconditional Warn for
+  dropped non-monotonic points (today `Read` emits it with the probe's id because the scratch
   recording's id is empty) through one shared `LogDroppedNonMonotonic(string id, int n)`
   helper that `Read` uses too. Uncalled-method ratchet (A1): both new call paths are
   production (`LogDroppedNonMonotonic` from `Read` and `TryValidatePayload`; `Decode`'s
@@ -710,7 +710,7 @@ Three tracks that share no file:
 - **Headless pins:** none of the touched modules is headless.
 - **Grep-audit gates:** ERS allowlist entry for `WatchModeLane.cs` (P3b-02, deferred with
   P3b). No new thread, no new store read in `GhostMapVessels.cs`.
-- **Source gates moved:** `harness/lib/test_saveparse.py:5918-5925` (P3-04),
+- **Source gates moved:** `harness/lib/test_saveparse.py:5995-6002` (P3-04),
   `SavePathHardeningTests` (P3-04), `GrepAuditNonLoopLivePidTests` and
   `GhostOrbitLineCascadeDeleteGateTests` extended (P3-04). `MapRenderTracerCoverageTests`
   stays as it is because the `GhostCreated` emission stays in `GhostMapPresence`.
@@ -751,7 +751,7 @@ Three tracks that share no file:
   `Source/` finds 164 occurrences in 77 files (tests included). The plan keeps every call
   site through a forwarder, so the count does not change any task.
 - Neither document mentions that `RemoveAllGhostVessels` clears the whole guard set
-  (`GhostMapPresence.ProtoVesselLifecycle.cs:405`). With a rival lane registered in the same
+  (`GhostMapPresence.ProtoVesselLifecycle.cs:353`). With a rival lane registered in the same
   set, any own scene cleanup or rewind would unregister rival pids still alive. The plan
   adds P3-03 for it.
 - The "about 400 lines" primitive is not cleanly separable as a whole: the load core also
