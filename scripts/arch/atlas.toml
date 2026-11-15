@@ -384,7 +384,7 @@ rank = 8
 item = "LedgerOrchestrator back-edges: the six-edge cut"
 evidence = "On 2026-11-14, 30 residue types called back into the orchestrator; with the moved code's own edges counted, cutting six of them (moves and delegate parameters only) measured the semantic ratchet 140 to 124, and any three of the four load-bearing edges alone gain nothing (<code>docs/dev/research/ledger-orchestrator-back-edges-2026-11-14.md</code>)."
 size = "one PR"
-status = "Built 2026-11-14 as one PR, one commit per edge: semantic ratchet 140 to 124 (bound 124), back-edges 30 to 22, knot members unchanged. The remaining edges buy 3 more and need installed hooks proven in flight, so the note recommends leaving them."
+status = "Done: built 2026-11-14 as one PR, one commit per edge, merged 2026-11-15 (#2618): semantic ratchet 140 to 124 (bound 124), back-edges 30 to 22, knot members unchanged. The remaining edges buy 3 more and need installed hooks proven in flight, so the note recommends leaving them."
 types = ["LedgerOrchestrator", "Ledger", "RecordingTreeSplitter", "CommittedTreeRestoreAttempt", "SwitchSegmentAttempts", "PostWalkActionReconciler"]
 
 [[opportunities]]
@@ -392,7 +392,7 @@ rank = 9
 item = "Cold reset: the leftovers"
 evidence = "On 2026-11-14 a headless cell pins four save or load-transition statics a Cold load leaves set: the two <span class=\"id\">RevertDetector</span> fields, <code>DiscardReFlyLoadIntent.armedTarget</code> and a mistagged <code>VesselNameStore.lastPostInitState</code> (todo COLD-RESET-LEFTOVERS; <em>Static lifetimes</em>)."
 size = "small"
-status = "Done 2026-11-14 (todo COLD-RESET-LEFTOVERS, headless only): the Cold reset drops a stale revert, the Discard Re-fly intent drops its target on every consume and clear, <code>lastPostInitState</code> is tagged process beside <code>FlightEpoch</code>, and the pinned gaps are gone. The holders landed 2026-11-14 (#2590, seven stores, todo ARCH-COLD-RESET-HOLDERS)."
+status = "Done 2026-11-14, merged 2026-11-15 (#2617; todo COLD-RESET-LEFTOVERS, headless only): the Cold reset drops a stale revert, the Discard Re-fly intent drops its target on every consume and clear, <code>lastPostInitState</code> is tagged process beside <code>FlightEpoch</code>, and the pinned gaps are gone. The holders landed 2026-11-14 (#2590, seven stores, todo ARCH-COLD-RESET-HOLDERS)."
 types = ["RevertDetector", "DiscardReFlyLoadIntent", "VesselNameStore"]
 
 [[opportunities]]
@@ -400,7 +400,7 @@ rank = 10
 item = "Tidy the split: TreeRestore, the stub partials, the single-file giants"
 evidence = "On 2026-11-07 ParsekFlight was 23 partial files plus 8 services, ten partials were under 200 lines, <code>RestoreActiveTreeFromPending</code> was its longest method, and five single-file types were near or above 5,000 lines (<em>Largest files and types</em>)."
 size = "per file"
-status = "Mostly done 2026-11-10 and on main since 1.0.2: small ParsekFlight partials folded into the root file (W8a), the long ParsekFlight methods extracted (W8b), RouteOrchestrator, KerbalsModule, MissionsWindowUI, LogisticsWindowUI and RewindInvoker split into partial files (W8c). ParsekFlightGhostPositioner is the one single-file giant left."
+status = "Done: small ParsekFlight partials folded into the root file (W8a), the long ParsekFlight methods extracted (W8b), RouteOrchestrator, KerbalsModule, MissionsWindowUI, LogisticsWindowUI and RewindInvoker split into partial files (W8c), on main since 1.0.2; on 2026-11-15 ParsekFlightGhostPositioner, the last single-file giant, was cut into twelve partial files (file only, IL identical, todo ARCH-GHOST-POSITIONING-FILE). Its split into several classes waits until after multiplayer step P2b-10."
 types = ["ParsekFlightGhostPositioner", "KerbalsModule", "RouteOrchestrator"]
 
 [[opportunities]]
@@ -447,4 +447,4 @@ rank = 16
 item = "Folders that match the module map"
 evidence = "On 2026-11-14, 528 of 898 production files sat at the root of <code>Source/Parsek</code>; <code>scripts/arch/modules.toml</code>, not the folders, says which module each belongs to (plan item 18)."
 size = "mechanical, large"
-status = "Approved by the owner on 2026-11-14; in progress."
+status = "Done: approved by the owner on 2026-11-14, merged 2026-11-15 (#2611); every production file sits in the folder of its module, and <code>scripts/refactor/move_to_module_folders.py --check</code> reds on a file left in the root."
