@@ -234,6 +234,127 @@ namespace Parsek.Tests
             Assert.DoesNotContain("preserveIrreversibleTails: " + other, body);
         }
 
+        // catches: a caller of the scoped switch-segment discard that hands it anything but the
+        // ledger's two preservations (a no-op lambda, null, another method), which would drop
+        // the contracts, milestones and science earned inside the discarded segment while KSP
+        // keeps them. Every production call site is found by walking the comment-stripped,
+        // literal-masked source of Source/Parsek, so a new caller is held to the same rule.
+        private const string ScopedDiscardMethod = "TryDiscardActiveSwitchSegmentAttempt";
+        private const string LiveGameplayPreserve = "LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard";
+
+        [Fact]
+        public void ScopedSwitchSegmentDiscardCallers_PassTheLedgerPreservations()
+        {
+            string root = Path.GetDirectoryName(LocateParsekSourceFile("Parsek.csproj"));
+            var callsByFile = new Dictionary<string, int>(StringComparer.Ordinal);
+            int declarations = 0;
+            foreach (string path in Directory.GetFiles(root, "*.cs", SearchOption.AllDirectories))
+            {
+                string rel = path.Substring(root.Length + 1).Replace('\\', '/');
+                if (rel.StartsWith("bin/", StringComparison.Ordinal)
+                    || rel.StartsWith("obj/", StringComparison.Ordinal))
+                    continue;
+                string prepared = SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(path));
+                foreach (int at in IdentifierOccurrences(prepared, ScopedDiscardMethod))
+                {
+                    int open = SkipWhitespace(prepared, at + ScopedDiscardMethod.Length);
+                    Assert.True(open < prepared.Length && prepared[open] == '(',
+                        rel + ": " + ScopedDiscardMethod + " used other than as a call");
+                    if (!PrecededByMemberAccess(prepared, at))
+                    {
+                        Assert.Equal("SwitchIntent/SwitchSegmentAttempts.cs", rel);
+                        declarations++;
+                        continue;
+                    }
+                    List<string> args = TopLevelArguments(prepared, open);
+                    string site = rel + " line " + (prepared.Take(at).Count(c => c == '\n') + 1);
+                    Assert.True(args.Count == 3, site + ": expected 3 arguments, got " + args.Count);
+                    Assert.True(LiveGameplayPreserve == args[0],
+                        site + ": first argument is '" + args[0] + "'");
+                    Assert.True(LivePreserve == args[1],
+                        site + ": second argument is '" + args[1] + "'");
+                    Assert.StartsWith("out", args[2]);
+                    callsByFile[rel] = callsByFile.TryGetValue(rel, out int n) ? n + 1 : 1;
+                }
+            }
+            Assert.Equal(1, declarations);
+            Assert.Equal(
+                new[]
+                {
+                    "Controllers/ParsekFlightSwitchContinuation.cs=1",
+                    "Patches/MapFocusObjectOnSelectPatch.cs=1",
+                    "Rewind/MergeDialog.ReFlyDiscard.cs=1",
+                },
+                callsByFile.OrderBy(kv => kv.Key, StringComparer.Ordinal)
+                    .Select(kv => kv.Key + "=" + kv.Value).ToArray());
+        }
+
+        private static IEnumerable<int> IdentifierOccurrences(string prepared, string identifier)
+        {
+            for (int i = prepared.IndexOf(identifier, StringComparison.Ordinal); i >= 0;
+                 i = prepared.IndexOf(identifier, i + identifier.Length, StringComparison.Ordinal))
+            {
+                bool startOk = i == 0 || !IsIdentifierChar(prepared[i - 1]);
+                int end = i + identifier.Length;
+                bool endOk = end >= prepared.Length || !IsIdentifierChar(prepared[end]);
+                if (startOk && endOk)
+                    yield return i;
+            }
+        }
+
+        private static bool IsIdentifierChar(char c)
+        {
+            return char.IsLetterOrDigit(c) || c == '_';
+        }
+
+        private static int SkipWhitespace(string text, int i)
+        {
+            while (i < text.Length && char.IsWhiteSpace(text[i])) i++;
+            return i;
+        }
+
+        private static bool PrecededByMemberAccess(string text, int i)
+        {
+            int k = i - 1;
+            while (k >= 0 && char.IsWhiteSpace(text[k])) k--;
+            return k >= 0 && text[k] == '.';
+        }
+
+        // The argument list that opens at openParen, split at its top-level commas, each
+        // argument with its whitespace removed. Parentheses, brackets and braces nest, so a
+        // lambda's own parameter list or body never splits an argument.
+        private static List<string> TopLevelArguments(string prepared, int openParen)
+        {
+            var args = new List<string>();
+            var current = new System.Text.StringBuilder();
+            int depth = 0;
+            for (int i = openParen; i < prepared.Length; i++)
+            {
+                char c = prepared[i];
+                if (c == '(' || c == '[' || c == '{')
+                {
+                    if (depth++ == 0) continue;
+                }
+                else if (c == ')' || c == ']' || c == '}')
+                {
+                    if (--depth == 0)
+                    {
+                        args.Add(current.ToString());
+                        return args;
+                    }
+                }
+                else if (c == ',' && depth == 1)
+                {
+                    args.Add(current.ToString());
+                    current.Clear();
+                    continue;
+                }
+                if (!char.IsWhiteSpace(c))
+                    current.Append(c);
+            }
+            throw new InvalidOperationException("unbalanced argument list at " + openParen);
+        }
+
         private static string ExtractMethodBody(string src, string signature)
         {
             int start = src.IndexOf(signature, StringComparison.Ordinal);

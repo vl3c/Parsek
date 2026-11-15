@@ -3815,7 +3815,11 @@ compare).
   overrides, moved verbatim to `PostWalkActionReconciler` (log tag unchanged; lifetime tags and
   the reset allowlist moved with the fields): ratchet 124, 22 back-edges, bound 124. Whole cut:
   ratchet 140 -> 124, knot unchanged (394, same members), 20 types left the residue and none
-  joined. Measured per step in the note's "as built" table.
+  joined. Measured per step in the note's "as built" table. Review follow-up: a source gate
+  (`RestoreAttemptIrreversibleTailsTests.ScopedSwitchSegmentDiscardCallers_PassTheLedgerPreservations`)
+  walks the comment-stripped production source and requires each of the three scoped-discard
+  callers to pass both orchestrator preservations; a no-op at any one caller, or a no-op with
+  the expected name left in a comment, reds it.
 - 2026-11-14 (B6 second half, split `AnchorPropagator.Run`): the DAG walk (about 490 lines,
   complexity 104) is now an orchestrator (complexity 8) over 13 private static steps in the same
   file, in walk order: `IndexRecordingsById`, `EmitSeedAnchors` with `EmitSeedCandidate`,
