@@ -47,6 +47,18 @@ All notable changes to Parsek are documented here.
   grabbed rock, a released rock's own replay and the stand-in shown for a claimed rock after a
   rewind now show the real rock at its real size and shape, instead of a small default lump.
   Comets get their real rock too, without the tail and glow. (ROCK-GHOST-PREFAB-MESH)
+- **Letting go of an asteroid or comet no longer offers a Re-Fly.** A rock you release from the
+  Klaw still gets its own recording and becomes real where that recording ends, but releasing it
+  no longer creates a rewind point, and it never shows up in Unfinished Flights.
+  (ROCK-RELEASE-REFLY-SLOT)
+- **Mining an asteroid or comet on a supply route is capped like surface mining.** A route
+  whose ship drilled a grabbed rock could promise, every run, ore that piled up while you were
+  away. The route now credits at most what the drill could mine from that rock in the recorded
+  time. (ROCK-DRILL-HARVEST-UNCAPPED)
+- **A ship holding an asteroid or comet checks for room at its real size.** Before a recorded
+  ship carrying a rock became real again, Parsek checked a few metres of space around it, so a
+  big rock could appear inside a nearby vessel. It now checks the rock's own size.
+  (ROCK-SPAWN-BOUNDS-TOO-SMALL)
 - **A world record set while flying an earlier recorded ship again is kept when you discard.**
   Breaking a distance, altitude, speed or depth record on a resumed recorded ship could be filed
   with that ship's old flight, so discarding the new flight lost it and the game awarded the

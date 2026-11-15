@@ -27,8 +27,9 @@ namespace Parsek.InGameTests
     /// rate cell runs <see cref="FlightRecorder.ReadHarvestConverterRate"/> over the real stock
     /// drill and ISRU part prefabs at the richest Minmus ore sample it finds, and requires every
     /// one to be modeled with usable figures. Both stock drills also carry a
-    /// <c>ModuleAsteroidDrill</c>; on a vessel with no asteroid aboard it must read as no output,
-    /// or no stock drill would ever be capped.</para>
+    /// <c>ModuleAsteroidDrill</c> and a <c>ModuleCometDrill</c>; on a vessel with no rock aboard
+    /// each must read as no output, or no stock drill would ever be capped, and with a rock of its
+    /// kind aboard each must be modeled at the rock's abundance (ROCK-DRILL-HARVEST-UNCAPPED).</para>
     /// </summary>
     public class HarvestCapScanLedgerInGameTests
     {
@@ -38,6 +39,9 @@ namespace Parsek.InGameTests
 
         private static readonly string[] DrillPartNames = { "MiniDrill", "RadialDrill" };
         private static readonly string[] IsruPartNames = { "MiniISRU", "ISRU" };
+
+        /// <summary>A synthetic rock Ore abundance for the asteroid / comet drill cells.</summary>
+        private const double RockAbundanceProbe = 0.75;
 
         [InGameTest(Category = Category, Scene = GameScenes.SPACECENTER,
             Description = "A stock biome scan is ledgered, stays locked before its UT after a relock, and is re-applied at the live clock")]
@@ -91,18 +95,40 @@ namespace Parsek.InGameTests
                 foreach (BaseConverter c in converters)
                 {
                     HarvestConverterRate rate = FlightRecorder.ReadHarvestConverterRate(
-                        c, 1.0, minmus, lat, lon, 0.0, hostCarriesSpaceObject: false);
+                        c, 1.0, minmus, lat, lon, 0.0, null, null);
                     if (c is ModuleAsteroidDrill || c is ModuleCometDrill)
                     {
-                        // Stock drills also carry an asteroid drill. With no asteroid or comet
-                        // aboard it mines nothing and must not unbound the window; with one it
-                        // stays unmodeled.
+                        // Stock drills also carry an asteroid and a comet drill. With no rock of
+                        // their kind aboard they mine nothing and must not unbound the window;
+                        // with one they are modeled at the rock's abundance.
                         InGameAssert.AreEqual(HarvestConverterKind.NoResourceOutput, rate.Kind,
                             name + ": a " + c.GetType().Name + " with no space object aboard must read as no output");
+                        var rockAboard = new List<KeyValuePair<string, double>>
+                        {
+                            new KeyValuePair<string, double>("Ore", RockAbundanceProbe)
+                        };
+                        bool comet = c is ModuleCometDrill;
                         HarvestConverterRate aboard = FlightRecorder.ReadHarvestConverterRate(
-                            c, 1.0, minmus, lat, lon, 0.0, hostCarriesSpaceObject: true);
-                        InGameAssert.AreEqual(HarvestConverterKind.Unmodeled, aboard.Kind,
-                            name + ": a " + c.GetType().Name + " with a space object aboard must stay unmodeled");
+                            c, 1.0, minmus, lat, lon, 0.0,
+                            comet ? null : rockAboard, comet ? rockAboard : null);
+                        InGameAssert.AreEqual(HarvestConverterKind.SpaceObjectDrill, aboard.Kind,
+                            name + ": a " + c.GetType().Name + " with a space object aboard must be modeled");
+                        InGameAssert.IsTrue(aboard.Efficiency > 0.0,
+                            name + ": " + c.GetType().Name + " Efficiency must be positive");
+                        Dictionary<string, double> aboardRates = RouteHarvestCapture.ComputePlausibleRates(
+                            new List<HarvestConverterRate> { aboard });
+                        InGameAssert.IsNotNull(aboardRates,
+                            name + ": a " + c.GetType().Name + " with a space object aboard must be bounded");
+                        double aboardOre;
+                        InGameAssert.IsTrue(aboardRates.TryGetValue("Ore", out aboardOre)
+                            && Math.Abs(aboardOre - RockAbundanceProbe * aboard.Efficiency * aboard.Multiplier) < 1e-9,
+                            name + ": " + c.GetType().Name + " rock Ore rate must be abundance x Efficiency x multiplier");
+                        // The other kind's rock does not feed this drill.
+                        HarvestConverterRate otherKind = FlightRecorder.ReadHarvestConverterRate(
+                            c, 1.0, minmus, lat, lon, 0.0,
+                            comet ? rockAboard : null, comet ? null : rockAboard);
+                        InGameAssert.AreEqual(HarvestConverterKind.NoResourceOutput, otherKind.Kind,
+                            name + ": a " + c.GetType().Name + " must not mine the other kind of rock");
                         inputs.Add(rate);
                         spaceObjectDrillModules++;
                         continue;
@@ -131,7 +157,7 @@ namespace Parsek.InGameTests
                 foreach (BaseConverter c in converters)
                 {
                     HarvestConverterRate rate = FlightRecorder.ReadHarvestConverterRate(
-                        c, 1.0, minmus, lat, lon, 0.0, hostCarriesSpaceObject: false);
+                        c, 1.0, minmus, lat, lon, 0.0, null, null);
                     InGameAssert.AreEqual(HarvestConverterKind.Recipe, rate.Kind,
                         name + ": a " + c.GetType().Name + " converter is not modeled as a recipe");
                     InGameAssert.IsTrue(rate.Outputs != null && rate.Outputs.Count > 0,

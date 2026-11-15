@@ -101,12 +101,7 @@ namespace Parsek
 
             foreach (string partName in partNames)
             {
-                if (string.IsNullOrEmpty(partName))
-                    continue;
-                // Part cfg/runtime names can carry expansion or variant suffixes,
-                // while module names below are stable C# class identifiers.
-                if (partName.IndexOf("PotatoRoid", StringComparison.OrdinalIgnoreCase) >= 0
-                    || partName.IndexOf("PotatoComet", StringComparison.OrdinalIgnoreCase) >= 0)
+                if (VesselSnapshotOps.IsRockPartName(partName))
                     return true;
             }
 
@@ -120,10 +115,7 @@ namespace Parsek
 
             foreach (string moduleName in moduleNames)
             {
-                if (string.IsNullOrEmpty(moduleName))
-                    continue;
-                if (string.Equals(moduleName, "ModuleAsteroid", StringComparison.Ordinal)
-                    || string.Equals(moduleName, "ModuleComet", StringComparison.Ordinal))
+                if (VesselSnapshotOps.IsRockModuleName(moduleName))
                     return true;
             }
 
@@ -473,7 +465,8 @@ namespace Parsek
 
             // Phase 4 (Rewind-to-Staging): Undock + EVA paths call CreateSplitBranch
             // directly. Both are multi-controllable when both outputs carry command
-            // authority (EVA kerbals and probe-cored vessels pass IsTrackableVessel).
+            // authority (EVA kerbals and probe-cored vessels pass
+            // IsReFlyControllableVessel; a released asteroid or comet does not).
             // JointBreak flows through ProcessBreakupEvent; its RP hook lives there.
             if (branchType == BranchPointType.Undock || branchType == BranchPointType.EVA)
             {

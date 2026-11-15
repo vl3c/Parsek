@@ -73,6 +73,92 @@ Tracking Station ghosts (ProtoVessel stand-ins, unchanged). (c) Unverified: a se
 part), so if stock built that comet with the optimized collider and the collider build consumes
 Random draws, the ghost's glow colour can differ. The mesh does not depend on it.
 
+## ~~ROCK-SPAWN-BOUNDS-TOO-SMALL~~: the spawn space check sized a grabbed asteroid or comet like any 2.5 m part [FILED 2026-11-15 by the asteroid / comet review (owner rulings 2026-11-15), by code reading. FIXED 2026-11-15, branch `ast-fixes`; xUnit; no lane spawns a rock-carrying ship; low (a big rock could materialize inside a nearby vessel)]
+
+What the player saw: a recorded ship holding a grabbed rock becomes real at its tip (and a
+released rock at its own tip). `SpawnCollisionDetector.ComputeVesselBounds` gives every snapshot
+part the same 1.25 m half extent, so a ship carrying a 40 m class E asteroid was checked for
+room as a few metres and could spawn into a loaded vessel inside the rock. The same bounds feed
+the Real Spawn Control time-jump placement.
+
+Decompile (KSP 1.12.5). No rock radius is persisted. `ModuleAsteroid` / `ModuleComet` persist
+`prefabBaseURL`, set on first start to `"Procedural/PA_" + objectSize` (comet `"Procedural/PC_"`),
+and build the rock at `prefab.radius x Random(minRadiusMultiplier 0.75, maxRadiusMultiplier
+1.25)`, then a procedural mesh whose PQS mods add relief scaled by the radius. The class radii
+are `DiscoveryInfo.GetClassRadius`: A 3.24, B 5.4, C 9, D 15, E 25, F 41.7, G 69.5, H 115.8,
+I 193 m. The VESSEL's `DISCOVERY size` is the int class (`DiscoveryInfo.Save`), the rock's own
+only on a bare rock vessel (a ship keeps its own discovery info).
+
+Fix: `SpawnCollisionDetector.ResolvePartHalfExtent` sizes a rock part (part name PotatoRoid /
+PotatoComet or a ModuleAsteroid / ModuleComet MODULE, `VesselSnapshotOps.IsRockPartNode`) at
+`class radius x 1.25 (max multiplier) x 1.25 (relief margin)` (class E: 39.1 m), the class from
+the part's `prefabBaseURL` (`source=prefab:E`), else, for a bare rock vessel, its `DISCOVERY
+size` (`source=discovery:C`), else the largest class I (301.6 m, `source=fallback-largest`,
+logged at Info). Ordinary parts keep 1.25 m. Logs: `[SpawnCollision] ParsePartPositions: rock
+part 'PotatoRoid' half extent 39.1m source=prefab:E` (rate-limited). Tests:
+`RockSpawnBoundsTests`. Not covered: the 1.25 relief margin is a judgment (the PQS mod ranges
+live in the prefab assets, not the code), and a comet built from a custom prefab URL has no class
+letter, so it reads as the largest class.
+
+## ~~ROCK-DRILL-HARVEST-UNCAPPED~~: a mining window with an asteroid or comet aboard had no plausibility cap [FILED 2026-11-15 by the asteroid / comet review (owner rulings 2026-11-15), by code reading; the gap was known since HV-2 (2026-10-16) and left open there. FIXED 2026-11-15, branch `ast-fixes`; xUnit + the HV-2 rate cell flipped to "modeled"; HV-2 re-flight owed; low (a route built on rock mining could credit a catch-up burst every run)]
+
+What the player saw: a supply route whose recorded ship drilled a grabbed asteroid or comet
+credited the whole witnessed harvest every run, including a stock catch-up burst (hours of
+mining landing in one frame on load), because `FlightRecorder.ReadHarvestConverterRate` left
+`ModuleAsteroidDrill` / `ModuleCometDrill` with a rock aboard `Unmodeled`, which makes the whole
+window unbounded (HARVEST-ROUTE-PLAUSIBILITY-CAP).
+
+Decompile (KSP 1.12.5). `ModuleAsteroidDrill.PrepareRecipe` (`ModuleCometDrill` is identical modulo names and strings):
+the rock is the LAST part of the drill's own vessel carrying `ModuleAsteroid` (`ModuleComet`)
+(`GetAttachedPotato`); per `ModuleAsteroidResource` (`ModuleCometResource`) on it, the output
+ratio is `abundance x Efficiency x GetEfficiencyMultiplier()` units/s, `min`'d against the
+rock's remaining minable mass (`(currentMass - massThreshold) / density`, only lowers it); the
+drill sets `_preCalculateEfficiency`, so `BaseConverter` applies no second multiplier.
+`GetEfficiencyMultiplier = EfficiencyBonus x heat throttle x _totalEfficiencyModifiers x crew
+bonus`, the same factors the surface drill model reads (heat only lowers it; the margin covers
+the modifiers). The persisted `abundance` is `max(0.01, mass share) x purity`, purity from the
+resource's `lowRange..highRange` percent (`ModuleSpaceObjectInfo.SetupSpaceObjectResources`).
+
+Fix: a new `HarvestConverterKind.SpaceObjectDrill` folded in `RouteHarvestCapture.
+ComputePlausibleRates` as `abundance x Efficiency x multiplier` per rock resource. The live reader
+gets the rocks' (resource, abundance) pairs per kind (`FlightRecorder.ReadRockAbundances`, every
+`ModuleAsteroidResource` / `ModuleCometResource` on a part with `ModuleAsteroid` /
+`ModuleComet`); the pure `RouteHarvestCapture.BuildSpaceObjectDrillRate` takes the per-resource
+maximum over the rocks aboard (the drill mines one), credits an unreadable abundance
+`RockAbundanceFallback = 1.0` (at or above any stock value) and logs it as a Warn, and reads no
+rock of the drill's kind as `NoResourceOutput` (an asteroid drill no longer reads a comet as
+aboard, or the reverse). Log: `[Recorder] Harvest rate: ModuleAsteroidDrill part=... kind=...
+rock=[Ore:...] substituted=N`. Tests: `RouteHarvestCaptureTests` (`SpaceObjectDrill_*`); the
+HV-2 rate cell `StockDrillAndIsruRatesAreModeled` now requires each stock rock drill modeled at a
+synthetic abundance with a rock of its kind aboard and no output for the other kind (tally
+`total=3` unchanged). Open: HV-2 must re-fly to prove the flipped cell; no lane mines a real rock.
+
+## ~~ROCK-RELEASE-REFLY-SLOT~~: a released asteroid or comet counted as a controllable split child, so releasing one authored a Rewind Point and offered the rock as a Re-Fly slot [FILED 2026-11-15 from the owner rulings of 2026-11-15 ("No Re-Fly for rocks"), by code reading. FIXED 2026-11-15, branch `ast-fixes`; xUnit; no lane flies a Klaw release yet; low (a Re-Fly that cannot be flown, on a rare path)]
+
+What the player saw: grab an asteroid with the Klaw, then release it. The split had two
+"controllable" children (the ship and the rock), so Parsek wrote a Rewind Point, and the rock's
+recording could show in Unfinished Flights as a slot to re-fly, which a rock cannot be.
+
+Cause. `ParsekFlight.IsTrackableVessel` returns true for a SpaceObject (right for recording: the
+released rock gets its own branch and spawns real at its tip), and the same predicate fed the
+controllable-children classifier behind every Rewind Point (`SegmentBoundaryLogic.
+IdentifyControllableChildren`'s default predicate) and the background split RP hook
+(`BackgroundRecorder.SplitDetection`, parent and child checks).
+
+Fix: a second predicate, `ParsekFlight.IsReFlyControllableVessel` (pure core
+`IsReFlyControllable`): EVA kerbal yes; SpaceObject type no (`space-object`); a vessel whose every
+part is a rock no (`space-object-parts`); a command module yes (`command`, or
+`command-carrying-space-object` for a ship holding a grabbed rock); else no. The RP classifier and
+the background RP hook read it; `ShouldRecordAsOwnBranch`, the breakup / decouple capture and
+`IdentityLossClassifier` keep `IsTrackableVessel` (recording identity, not Re-Fly). Releasing a
+rock alone is therefore a single-controllable split (no RP). `UnfinishedFlightClassifier.TryQualify`
+also refuses a rock's own recording (snapshot `type = SpaceObject`, or rock parts only) held by a
+legacy RP with `spaceObjectNotFlyable`, before the `notControllable` check. Logs:
+`[Rewind] Re-Fly controllability: ... controllable=False reason=space-object (asteroid / comet: no
+Re-Fly slot)`, `[UnfinishedFlights] IsUnfinishedFlight=false ... reason=spaceObjectNotFlyable
+rule=...`. Rock identification is shared in `VesselSnapshotOps` (`IsRockPartName`,
+`IsSpaceObjectOnlySnapshot`, ...). Tests: `RockReleaseReFlySlotTests`.
+
 ## ~~RESTORE-ATTEMPT-RECORD-FOLDS-INTO-HISTORY~~: a world-record award made while a committed flight is resumed folds into that recording's stored history event and is lost on discard [FILED 2026-11-15 from SE-1's nightly red, run `2026-11-15_0704_SE-1-editor-round-trip` (build b548a42c1, PARSEK-FAIL(expectation) attempt 1, ledger actions=17 where the spec pins 15), against the last pass `2026-11-10_1631` (e5b47f33). FIXED 2026-11-15, branch `claude/project-thread-lkzj01-item27`; xUnit; SE-1 re-flight owed; medium (career ledger rows and stock's record band, every record node)]
 
 What the player sees: fly a recorded ship again (the committed-spawned-vessel restore), break a

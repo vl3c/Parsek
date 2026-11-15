@@ -107,7 +107,8 @@ namespace Parsek
         /// <summary>
         /// Reads PART subnodes from a vessel snapshot ConfigNode and computes
         /// an enclosing bounding box. Each PART must have a pos=x,y,z value.
-        /// Uses <see cref="DefaultPartHalfExtent"/> per part. Returns a 2m
+        /// Uses <see cref="DefaultPartHalfExtent"/> per part, and an asteroid or comet part's
+        /// own size (<see cref="ResolvePartHalfExtent"/>). Returns a 2m
         /// fallback bounds if snapshot is null or has no parseable parts.
         /// </summary>
         internal static Bounds ComputeVesselBounds(ConfigNode vesselSnapshot)
@@ -125,7 +126,7 @@ namespace Parsek
                 return new Bounds(Vector3.zero, Vector3.one * FallbackBoundsSize);
             }
 
-            var parts = ParsePartPositions(partNodes);
+            var parts = ParsePartPositions(partNodes, vesselSnapshot);
 
             if (parts.Count == 0)
             {
@@ -143,12 +144,16 @@ namespace Parsek
 
         /// <summary>
         /// Parses PART ConfigNodes to extract local positions. Each PART must have a
-        /// pos=x,y,z value. Returns a list of (localPos, halfExtent) tuples.
-        /// Parts with missing or unparseable positions are skipped.
+        /// pos=x,y,z value. Returns a list of (localPos, halfExtent) tuples, the half
+        /// extent from <see cref="ResolvePartHalfExtent"/>. Parts with missing or
+        /// unparseable positions are skipped. <paramref name="vesselSnapshot"/> (optional)
+        /// lets a bare rock fall back to its vessel's discovery size class.
         /// </summary>
-        internal static List<(Vector3 localPos, float halfExtent)> ParsePartPositions(ConfigNode[] partNodes)
+        internal static List<(Vector3 localPos, float halfExtent)> ParsePartPositions(
+            ConfigNode[] partNodes, ConfigNode vesselSnapshot = null)
         {
             var parts = new List<(Vector3 localPos, float halfExtent)>();
+            int rockParts = 0;
             for (int i = 0; i < partNodes.Length; i++)
             {
                 string posStr = partNodes[i].GetValue("pos")
@@ -167,13 +172,98 @@ namespace Parsek
                 if (!float.TryParse(components[2].Trim(), NumberStyles.Float, IC, out float z))
                     continue;
 
-                parts.Add((new Vector3(x, y, z), DefaultPartHalfExtent));
+                string source;
+                float halfExtent = ResolvePartHalfExtent(partNodes[i], vesselSnapshot, out source);
+                if (source != PartExtentSourceDefault)
+                {
+                    rockParts++;
+                    string partName = partNodes[i].GetValue("name") ?? "<unnamed>";
+                    string line =
+                        $"ParsePartPositions: rock part '{partName}' half extent " +
+                        $"{halfExtent.ToString("F1", IC)}m source={source}";
+                    // Runs on every 1 s retry of a spawn-blocked chain tip: rate-limited, keyed
+                    // by the part and the source so a different rock still prints at once.
+                    if (source == PartExtentSourceFallbackLargest)
+                        ParsekLog.InfoRateLimited(Tag, "rock-extent|" + partName + "|" + source,
+                            line + " (size class unreadable: largest stock class assumed)");
+                    else
+                        ParsekLog.VerboseRateLimited(Tag, "rock-extent|" + partName + "|" + source, line);
+                }
+                parts.Add((new Vector3(x, y, z), halfExtent));
             }
 
             ParsekLog.VerboseRateLimited(Tag,
                 "part-positions|" + parts.Count.ToString(IC) + "|" + partNodes.Length.ToString(IC),
-                $"ParsePartPositions: parsed {parts.Count}/{partNodes.Length} parts from snapshot");
+                $"ParsePartPositions: parsed {parts.Count}/{partNodes.Length} parts from snapshot" +
+                (rockParts > 0 ? $" ({rockParts.ToString(IC)} asteroid / comet)" : ""));
             return parts;
+        }
+
+        internal const string PartExtentSourceDefault = "default";
+        internal const string PartExtentSourcePrefab = "prefab";
+        internal const string PartExtentSourceDiscovery = "discovery";
+        internal const string PartExtentSourceFallbackLargest = "fallback-largest";
+
+        /// <summary>
+        /// Margin over a rock's nominal sphere for the procedural surface relief stock adds
+        /// (PQS mods scaled by the radius, so the highest point sits above the sphere).
+        /// </summary>
+        internal const float RockSurfaceReliefFactor = 1.25f;
+
+        /// <summary>
+        /// Stock's largest random factor on a rock's prefab radius (decompiled
+        /// ModuleAsteroid / ModuleComet <c>maxRadiusMultiplier</c> default 1.25).
+        /// </summary>
+        internal const float RockMaxRadiusMultiplier = 1.25f;
+
+        /// <summary>
+        /// Half extent (metres) of an asteroid or comet of a size class: the class's nominal
+        /// radius (<see cref="VesselSnapshotOps.NominalRadiusForClass"/>) times the largest
+        /// radius multiplier times the relief margin. An out-of-range class reads as the
+        /// largest. Pure.
+        /// </summary>
+        internal static float RockHalfExtentForClass(int sizeClass)
+        {
+            return VesselSnapshotOps.NominalRadiusForClass(sizeClass)
+                * RockMaxRadiusMultiplier * RockSurfaceReliefFactor;
+        }
+
+        /// <summary>
+        /// Half extent of one snapshot PART for the spawn bounds (ROCK-SPAWN-BOUNDS-TOO-SMALL).
+        /// An ordinary part is <see cref="DefaultPartHalfExtent"/>. An asteroid or comet part
+        /// (<see cref="VesselSnapshotOps.IsRockPartNode"/>) uses its size class: from its rock
+        /// module's persisted <c>prefabBaseURL</c> (<c>source=prefab</c>); else, for a bare
+        /// rock vessel, the VESSEL's <c>DISCOVERY size</c> (<c>source=discovery</c>); else the
+        /// largest stock class (<c>source=fallback-largest</c>). Never below the default. Pure.
+        /// </summary>
+        internal static float ResolvePartHalfExtent(
+            ConfigNode partNode, ConfigNode vesselSnapshot, out string source)
+        {
+            if (!VesselSnapshotOps.IsRockPartNode(partNode))
+            {
+                source = PartExtentSourceDefault;
+                return DefaultPartHalfExtent;
+            }
+
+            int sizeClass;
+            string url;
+            string why;
+            if (VesselSnapshotOps.TryReadPartSizeClass(partNode, out sizeClass, out url))
+            {
+                source = PartExtentSourcePrefab + ":" + VesselSnapshotOps.SizeClassLetter(sizeClass);
+            }
+            else if (vesselSnapshot != null
+                && VesselSnapshotOps.IsSpaceObjectOnlySnapshot(vesselSnapshot, out why)
+                && VesselSnapshotOps.TryReadDiscoverySizeClass(vesselSnapshot, out sizeClass))
+            {
+                source = PartExtentSourceDiscovery + ":" + VesselSnapshotOps.SizeClassLetter(sizeClass);
+            }
+            else
+            {
+                sizeClass = VesselSnapshotOps.RockLargestSizeClass;
+                source = PartExtentSourceFallbackLargest;
+            }
+            return Math.Max(DefaultPartHalfExtent, RockHalfExtentForClass(sizeClass));
         }
 
         /// <summary>
