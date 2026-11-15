@@ -268,7 +268,7 @@ reviewed = "2026-11-14"
 
 [[findings.items]]
 title = "The refactor shrank the core, and it is on main."
-body = "The first wave (2026-11-07) only moved code, while wave 2 cut references: on 2026-11-10 the knot was 41 types smaller than on 2026-11-07 and the semantic residue the ratchet bounds had fallen from 258 to 141; the program merged as 1.1.0 (#2561, 2026-11-11) after its overnight batches flew 174 of 175 lanes green, and the services it extracted are still knot members that hang off the hubs they came from (<em>The knot</em>)."
+body = "The first wave (2026-11-07) only moved code, while wave 2 cut references: on 2026-11-10 the knot was 41 types smaller than on 2026-11-07 and the semantic residue the ratchet bounds had fallen from 258 to 141; the program merged as 1.0.2 (#2561, 2026-11-11) after its overnight batches flew 174 of 175 lanes green, and the services it extracted are still knot members that hang off the hubs they came from (<em>The knot</em>)."
 
 [[findings.items]]
 title = "What is left is a ledger and stock-UI reservation core."
@@ -292,7 +292,7 @@ body = "Since 2026-11-14 (#2597) <span class=\"id\">FlightRecorder</span> and <s
 
 [[findings.items]]
 title = "History lags the split."
-body = "The hotspot and co-change tables count commits over each type's current files, and the commits a base file had before it was split stay with it, so on 2026-11-14 they still lead with <code>ParsekFlight</code>, <code>RecordingStore</code> and <code>ParsekScenario</code>, raised by the refactor's own commits; read <em>What changes together</em> as where the pain was, and re-measure once the 30-day window holds only commits after the 1.1.0 merge (mid-December)."
+body = "The hotspot and co-change tables count commits over each type's current files, and the commits a base file had before it was split stay with it, so on 2026-11-14 they still lead with <code>ParsekFlight</code>, <code>RecordingStore</code> and <code>ParsekScenario</code>, raised by the refactor's own commits; read <em>What changes together</em> as where the pain was, and re-measure once the 30-day window holds only commits after the 1.0.2 merge (mid-December)."
 
 [[findings.items]]
 title = "The services still call their host; the metric forwarders are gone."
@@ -360,7 +360,7 @@ rank = 5
 item = "GhostMapPresence: source-resolver type, then the static state"
 evidence = "The largest hub inside the residue after the ledger and the type with the most static fields (<em>Largest files and types</em>, <em>Static state by owner</em>)."
 size = "3 to 5 PRs"
-status = "Static map done 2026-11-07 (W5a, <code>docs/dev/research/ghostmappresence-static-state-map-2026-11-07.md</code>); the source resolver, the flight-map passes, the tracking-station refresh and the state-vector orbit update were split into named units in place (W5c, W5d), not into a new type; on main since 1.1.0. A new type, and the static state, are still open."
+status = "Static map done 2026-11-07 (W5a, <code>docs/dev/research/ghostmappresence-static-state-map-2026-11-07.md</code>); the source resolver, the flight-map passes, the tracking-station refresh and the state-vector orbit update were split into named units in place (W5c, W5d), not into a new type; on main since 1.0.2. A new type, and the static state, are still open."
 types = ["GhostMapPresence"]
 
 [[opportunities]]
@@ -400,7 +400,7 @@ rank = 10
 item = "Tidy the split: TreeRestore, the stub partials, the single-file giants"
 evidence = "On 2026-11-07 ParsekFlight was 23 partial files plus 8 services, ten partials were under 200 lines, <code>RestoreActiveTreeFromPending</code> was its longest method, and five single-file types were near or above 5,000 lines (<em>Largest files and types</em>)."
 size = "per file"
-status = "Mostly done 2026-11-10 and on main since 1.1.0: small ParsekFlight partials folded into the root file (W8a), the long ParsekFlight methods extracted (W8b), RouteOrchestrator, KerbalsModule, MissionsWindowUI, LogisticsWindowUI and RewindInvoker split into partial files (W8c). ParsekFlightGhostPositioner is the one single-file giant left."
+status = "Mostly done 2026-11-10 and on main since 1.0.2: small ParsekFlight partials folded into the root file (W8a), the long ParsekFlight methods extracted (W8b), RouteOrchestrator, KerbalsModule, MissionsWindowUI, LogisticsWindowUI and RewindInvoker split into partial files (W8c). ParsekFlightGhostPositioner is the one single-file giant left."
 types = ["ParsekFlightGhostPositioner", "KerbalsModule", "RouteOrchestrator"]
 
 [[opportunities]]
@@ -408,7 +408,7 @@ rank = 11
 item = "ParsekFlight seams: recorder hookup, playback hosting, spawning, merge flow"
 evidence = "On 2026-11-07 <code>ParsekFlight.cs</code> was 2,567 lines (30,387 on main then); the type was under half its old size."
 size = "large"
-status = "Done (PF0 to PF10, IL-proven moves); flown in the refactor's overnight batches (2026-11-10, 174 of 175 lanes green) and on main since 1.1.0 (#2561). 2026-11-14 (#2595): the merge flow reaches its host only through <span class=\"id\">IMergeFlowHost</span>, driven by a fake host in its tests; the daily tier flew green on main with it on 2026-11-14 (28 of 28 lanes)."
+status = "Done (PF0 to PF10, IL-proven moves); flown in the refactor's overnight batches (2026-11-10, 174 of 175 lanes green) and on main since 1.0.2 (#2561). 2026-11-14 (#2595): the merge flow reaches its host only through <span class=\"id\">IMergeFlowHost</span>, driven by a fake host in its tests; the daily tier flew green on main with it on 2026-11-14 (28 of 28 lanes)."
 types = ["ParsekFlight", "IMergeFlowHost"]
 
 [[opportunities]]
@@ -416,7 +416,7 @@ rank = 12
 item = "RecordingStore: the list plus services"
 evidence = "On 2026-11-07 the type was 1,934 lines over 5 files (10,000 on main then), 13 reassignable statics (42 on main then)."
 size = "medium-high"
-status = "Done (services PRs 1 to 14, IL-proven moves); flown in the refactor's overnight batches and on main since 1.1.0 (#2561)."
+status = "Done (services PRs 1 to 14, IL-proven moves); flown in the refactor's overnight batches and on main since 1.0.2 (#2561)."
 types = ["RecordingStore"]
 
 [[opportunities]]
@@ -424,7 +424,7 @@ rank = 13
 item = "VesselSpawner split and file placement"
 evidence = "Placement PRs 1 to 10; the spawner is in Controllers in 9 partial files."
 size = "10 PRs"
-status = "Done; on main since 1.1.0 (#2561)."
+status = "Done; on main since 1.0.2 (#2561)."
 types = ["VesselSpawner"]
 
 [[opportunities]]
@@ -432,7 +432,7 @@ rank = 14
 item = "Recording and GameAction as sinks; ParsekLog as a sink"
 evidence = "Cheap cuts of 2026-09-14 and 2026-11-01 (<em>The knot</em>)."
 size = "afternoon"
-status = "Done: ParsekLog in PR #1683, Recording and GameAction on the refactor branch, on main since 1.1.0; neither is a cut in <em>The knot</em> any more."
+status = "Done: ParsekLog in PR #1683, Recording and GameAction on the refactor branch, on main since 1.0.2; neither is a cut in <em>The knot</em> any more."
 types = ["Recording", "GameAction"]
 
 [[opportunities]]
