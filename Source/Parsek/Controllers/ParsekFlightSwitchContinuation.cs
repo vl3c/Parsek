@@ -178,6 +178,8 @@ namespace Parsek
                     : null;
 
             var disposition = SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(
+                LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard,
+                LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard,
                 out discardReason);
 
             // In-flight (pre-stash) the committed clone is the live activeTree, not
@@ -356,7 +358,7 @@ namespace Parsek
         {
             CommittedTreeRestoreAttempt.DiscardCommittedTreeRestoreAttempt(
                 "noop-no-session-committed-resume-revert",
-                preserveIrreversibleTails: true);
+                preserveIrreversibleTails: LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard);
             host.AutoDiscardActiveTreeWithMessage(
                 reason: reason,
                 screenMessage: "Recording discarded - vessel unchanged after switch",

@@ -2172,7 +2172,7 @@ namespace Parsek
             // The flight scene was just loaded from a save, which KSP's career came from too.
             CommittedTreeRestoreAttempt.ClearCommittedTreeRestoreAttemptForDroppedTree(
                 activeTree?.Id, "flight-ready reset dropped the restore clone",
-                preserveIrreversibleTails: false);
+                preserveIrreversibleTails: null);
             activeTree = null;
 
             // Clear split event detection state

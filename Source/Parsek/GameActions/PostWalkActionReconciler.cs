@@ -16,6 +16,20 @@ namespace Parsek
         // Preserve the original LedgerOrchestrator subsystem tag so log lines stay byte-stable.
         private const string Tag = "LedgerOrchestrator";
 
+        [ThreadStatic]
+        private static bool? fundsTrackedOverrideForTesting;
+        [ThreadStatic]
+        private static bool? scienceTrackedOverrideForTesting;
+        [ThreadStatic]
+        private static bool? repTrackedOverrideForTesting;
+        // Effectively "once per play session" for the rate-limited skip diagnostics.
+        private static readonly double OneShotReconcileSkipLogIntervalSeconds =
+            TimeSpan.FromDays(365).TotalSeconds;
+        private static readonly HashSet<string> emittedReconcileWarnKeys =
+            new HashSet<string>(StringComparer.Ordinal);
+        private static readonly HashSet<string> emittedScienceReconcileDumpKeys =
+            new HashSet<string>(StringComparer.Ordinal);
+
         // ================================================================
         // #440 Phase E2 -- Post-walk reconciliation (transformed reward types)
         //
@@ -350,7 +364,7 @@ namespace Parsek
                     {
                         Applies = true,
                         Expected = action.EffectiveScience,
-                        ReasonKey = LedgerOrchestrator.GetScienceChangedReasonKey(action),
+                        ReasonKey = GetScienceChangedReasonKey(action),
                         EventType = GameStateEventType.ScienceChanged
                     };
                     return exp;
@@ -376,7 +390,7 @@ namespace Parsek
                     {
                         Applies = true,
                         Expected = action.ScienceAwarded,
-                        ReasonKey = LedgerOrchestrator.GetScienceChangedReasonKey(action),
+                        ReasonKey = GetScienceChangedReasonKey(action),
                         EventType = GameStateEventType.ScienceChanged
                     };
                     return exp;
@@ -416,13 +430,13 @@ namespace Parsek
         {
             if (actions == null || actions.Count == 0) return;
 
-            LedgerOrchestrator.GetResourceTrackingAvailability(
+            GetResourceTrackingAvailability(
                 out bool fundsTracked,
                 out bool scienceTracked,
                 out bool repTracked);
             if (!fundsTracked && !scienceTracked && !repTracked)
             {
-                LedgerOrchestrator.LogReconcileSkippedOnce("post-walk", "Post-walk reconcile",
+                LogReconcileSkippedOnce("post-walk", "Post-walk reconcile",
                     fundsTracked, scienceTracked, repTracked);
                 return;
             }
@@ -471,7 +485,7 @@ namespace Parsek
                     labCovered++;
                     ParsekLog.VerboseRateLimited(Tag,
                         $"post-walk-lab-covered:{action.RecordingId ?? ""}:{action.UT.ToString("R", CultureInfo.InvariantCulture)}",
-                        $"Post-walk lab credit ut={LedgerOrchestrator.FormatFixed1(action.UT)} " +
+                        $"Post-walk lab credit ut={FormatFixed1(action.UT)} " +
                         $"method={action.Method} reconciled inside a covering science comparison - skipped");
                     continue;
                 }
@@ -1214,7 +1228,7 @@ namespace Parsek
                     $"{aggregate.ContributorLabel} expected={expectedLabel} but no matching {leg.EventType} event " +
                     $"keyed '{leg.ReasonKey}' {observedWindowLabel} -- missing earning channel or stale event?";
                 string warnKey = warnKeyPrefix + ":missing:" + expectedLabel;
-                if (LedgerOrchestrator.LogReconcileWarnOnce(warnKey, message))
+                if (LogReconcileWarnOnce(warnKey, message))
                 {
                     LogSciencePostWalkReconcileDumpOnce(
                         warnKey,
@@ -1236,7 +1250,7 @@ namespace Parsek
                     $"{observedCount} event(s) keyed '{leg.ReasonKey}' {observedWindowLabel} " +
                     $"-- post-walk delta mismatch";
                 string warnKey = warnKeyPrefix + ":mismatch:" + expectedLabel + ":" + observedLabel;
-                if (LedgerOrchestrator.LogReconcileWarnOnce(warnKey, message))
+                if (LogReconcileWarnOnce(warnKey, message))
                 {
                     LogSciencePostWalkReconcileDumpOnce(
                         warnKey,
@@ -1335,13 +1349,13 @@ namespace Parsek
             if (action == null)
                 return false;
 
-            if (!LedgerOrchestrator.TryGetPersistedScienceActionWindow(
+            if (!TryGetPersistedScienceActionWindow(
                     action,
                     out startUt,
                     out endUt,
                     out collapsedPersistedSpan))
             {
-                var rec = LedgerOrchestrator.FindRecordingById(action.RecordingId);
+                var rec = RecordingStore.FindRecordingById(action.RecordingId);
                 if (rec == null)
                     return false;
 
@@ -1354,7 +1368,7 @@ namespace Parsek
                     $"post-walk-science-window-fallback:{action.RecordingId}:{ActionIdForPostWalk(action)}",
                     $"Post-walk science window: {ActionIdForPostWalk(action)} missing persisted span; " +
                     $"falling back to recording {action.RecordingId ?? "(null)"} " +
-                    $"[{LedgerOrchestrator.FormatFixed1(startUt)},{LedgerOrchestrator.FormatFixed1(endUt)}]");
+                    $"[{FormatFixed1(startUt)},{FormatFixed1(endUt)}]");
             }
             else if (collapsedPersistedSpan)
             {
@@ -1364,7 +1378,7 @@ namespace Parsek
                     $"recording={action.RecordingId ?? "(null)"} " +
                     $"start={action.StartUT.ToString("R", CultureInfo.InvariantCulture)} " +
                     $"end={action.EndUT.ToString("R", CultureInfo.InvariantCulture)} -> " +
-                    $"reconstructed [{LedgerOrchestrator.FormatFixed3(startUt)},{LedgerOrchestrator.FormatFixed3(endUt)}]");
+                    $"reconstructed [{FormatFixed3(startUt)},{FormatFixed3(endUt)}]");
             }
 
             // Only widen the observed-side window for the end-anchored shape (older rows,
@@ -1645,7 +1659,7 @@ namespace Parsek
                 labCredits.Add(lab);
                 summedExpected += labExp.Sci.Expected;
                 expectedCount++;
-                contributorIds.Add("lab@" + LedgerOrchestrator.FormatFixed1(lab.UT));
+                contributorIds.Add("lab@" + FormatFixed1(lab.UT));
                 absorbed++;
             }
 
@@ -1655,7 +1669,7 @@ namespace Parsek
                     $"post-walk-lab-absorb:{owner.RecordingId ?? ""}:{ownerLeg.ReasonKey ?? ""}:{owner.UT.ToString("R", CultureInfo.InvariantCulture)}",
                     $"Post-walk science window: absorbed {absorbed} lab credit(s) keyed '{ownerLeg.ReasonKey}' " +
                     $"into {owner.Type} id={ActionIdForPostWalk(owner)} " +
-                    $"window=[{LedgerOrchestrator.FormatFixed1(windowStartUt)},{LedgerOrchestrator.FormatFixed1(windowEndUt)}]");
+                    $"window=[{FormatFixed1(windowStartUt)},{FormatFixed1(windowEndUt)}]");
             }
         }
 
@@ -1808,7 +1822,7 @@ namespace Parsek
                     actionEndUt = reconstructedEndUt;
                 }
 
-                return LedgerOrchestrator.DoesScienceEventMatchActionScope(
+                return DoesScienceEventMatchActionScope(
                     evt,
                     action,
                     actionStartUt,
@@ -1833,10 +1847,10 @@ namespace Parsek
                 leg.EventType == GameStateEventType.ScienceChanged &&
                 !string.IsNullOrEmpty(action.SubjectId))
             {
-                return $"within science window [{LedgerOrchestrator.FormatFixed1(startUt)},{LedgerOrchestrator.FormatFixed1(endUt)}] for action ut={LedgerOrchestrator.FormatFixed1(action.UT)}";
+                return $"within science window [{FormatFixed1(startUt)},{FormatFixed1(endUt)}] for action ut={FormatFixed1(action.UT)}";
             }
 
-            return $"within {LedgerOrchestrator.FormatFixed1(PostWalkReconcileEpsilonSeconds)}s of ut={LedgerOrchestrator.FormatFixed1(action.UT)}";
+            return $"within {FormatFixed1(PostWalkReconcileEpsilonSeconds)}s of ut={FormatFixed1(action.UT)}";
         }
 
         private static void LogSciencePostWalkReconcileDumpOnce(
@@ -1852,7 +1866,7 @@ namespace Parsek
                 return;
             if (leg.EventType != GameStateEventType.ScienceChanged)
                 return;
-            if (!LedgerOrchestrator.TryRegisterPostWalkDumpKey(dumpKey))
+            if (!TryRegisterPostWalkDumpKey(dumpKey))
                 return;
 
             double dumpStartUt = observedWindowStartUt - 5.0;
@@ -1868,7 +1882,7 @@ namespace Parsek
 
                 bool scopeMatch = PostWalkEventMatchesAction(evt, action);
                 bool liveMatch = IsLivePostWalkObservedEvent(evt, livePruneThreshold);
-                lines.Add(LedgerOrchestrator.FormatScienceEventForReconcileDump(evt, scopeMatch && liveMatch, scopeMatch && string.IsNullOrEmpty(evt.recordingId ?? "")));
+                lines.Add(FormatScienceEventForReconcileDump(evt, scopeMatch && liveMatch, scopeMatch && string.IsNullOrEmpty(evt.recordingId ?? "")));
             }
 
             string detail = lines.Count == 0
@@ -1876,7 +1890,7 @@ namespace Parsek
                 : string.Join(" | ", lines.ToArray());
             ParsekLog.Error(Tag,
                 $"Science reconcile dump (post-walk): action={ActionIdForPostWalk(action)} " +
-                $"reason='{leg.ReasonKey}' window=[{LedgerOrchestrator.FormatFixed1(observedWindowStartUt)},{LedgerOrchestrator.FormatFixed1(observedWindowEndUt)}] " +
+                $"reason='{leg.ReasonKey}' window=[{FormatFixed1(observedWindowStartUt)},{FormatFixed1(observedWindowEndUt)}] " +
                 $"events={detail}");
         }
         private static bool PostWalkActionsShareScope(GameAction anchorAction, GameAction other)
@@ -1947,6 +1961,214 @@ namespace Parsek
             if (!string.IsNullOrEmpty(action.SubjectId)) return action.SubjectId;
             if (!string.IsNullOrEmpty(action.RecordingId)) return action.RecordingId;
             return "(none)";
+        }
+
+        /// <summary>
+        /// Test-only override for resource tracker availability checks used by the
+        /// earnings reconciliation diagnostics. Null falls back to the live KSP
+        /// singleton availability.
+        /// </summary>
+        internal static void SetResourceTrackingAvailabilityForTesting(
+            bool? fundsTracked,
+            bool? scienceTracked,
+            bool? reputationTracked)
+        {
+            fundsTrackedOverrideForTesting = fundsTracked;
+            scienceTrackedOverrideForTesting = scienceTracked;
+            repTrackedOverrideForTesting = reputationTracked;
+        }
+
+        /// <summary>Clears the tracker-availability overrides and the once-per-session log sets
+        /// (the orchestrator's <see cref="LedgerOrchestrator.ResetForTesting"/> runs it).</summary>
+        internal static void ResetForTesting()
+        {
+            fundsTrackedOverrideForTesting = null;
+            scienceTrackedOverrideForTesting = null;
+            repTrackedOverrideForTesting = null;
+            emittedReconcileWarnKeys.Clear();
+            emittedScienceReconcileDumpKeys.Clear();
+        }
+
+        internal static bool LogReconcileWarnOnce(string warnKey, string message)
+        {
+            if (string.IsNullOrEmpty(warnKey) || emittedReconcileWarnKeys.Add(warnKey))
+            {
+                ParsekLog.Warn(Tag, message);
+                return true;
+            }
+
+            return false;
+        }
+
+        internal static bool TryGetPersistedScienceActionWindow(
+            GameAction action,
+            out double startUt,
+            out double endUt,
+            out bool collapsedPersistedSpan)
+        {
+            startUt = 0.0;
+            endUt = 0.0;
+            collapsedPersistedSpan = false;
+
+            if (action == null)
+                return false;
+            if (float.IsNaN(action.StartUT) || float.IsNaN(action.EndUT))
+                return false;
+
+            if (action.EndUT > action.StartUT)
+            {
+                startUt = action.StartUT;
+                endUt = action.EndUT;
+                return true;
+            }
+
+            if (action.EndUT == action.StartUT && action.EndUT > 0f)
+            {
+                collapsedPersistedSpan = true;
+                startUt = GetCollapsedScienceWindowStart(action.StartUT, action.UT);
+                endUt = action.UT;
+                if (endUt < startUt)
+                    endUt = startUt;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static double GetCollapsedScienceWindowStart(float collapsedStartUt, double actionUt)
+        {
+            double halfWidth = GetScienceReconcileCollapsedHalfWidth(collapsedStartUt);
+            double startUt = collapsedStartUt - halfWidth;
+            if (double.IsNaN(startUt) || double.IsInfinity(startUt))
+                startUt = collapsedStartUt;
+            if (actionUt < startUt)
+                startUt = actionUt;
+            return startUt;
+        }
+
+        private static double GetScienceReconcileCollapsedHalfWidth(float value)
+        {
+            if (float.IsNaN(value) || float.IsInfinity(value))
+                return 0.0;
+
+            int bits = BitConverter.ToInt32(BitConverter.GetBytes(value), 0);
+            float previous = BitConverter.ToSingle(BitConverter.GetBytes(bits - 1), 0);
+            float next = BitConverter.ToSingle(BitConverter.GetBytes(bits + 1), 0);
+            double lower = float.IsNaN(previous) || float.IsInfinity(previous)
+                ? 0.0
+                : Math.Abs((double)value - previous);
+            double upper = float.IsNaN(next) || float.IsInfinity(next)
+                ? 0.0
+                : Math.Abs(next - (double)value);
+
+            double width = 0.0;
+            if (lower > 0.0 && upper > 0.0)
+                width = Math.Min(lower, upper);
+            else
+                width = Math.Max(lower, upper);
+
+            return width * 0.5;
+        }
+
+        internal static bool DoesScienceEventMatchActionScope(
+            GameStateEvent evt,
+            GameAction action,
+            double actionStartUt,
+            double actionEndUt,
+            out bool matchedViaUntaggedWindow)
+        {
+            matchedViaUntaggedWindow = false;
+
+            string actionRecordingId = action?.RecordingId ?? "";
+            if (string.IsNullOrEmpty(actionRecordingId))
+                return true;
+
+            string eventRecordingId = evt.recordingId ?? "";
+            if (string.Equals(eventRecordingId, actionRecordingId, StringComparison.Ordinal))
+                return true;
+
+            if (!string.IsNullOrEmpty(eventRecordingId))
+                return false;
+
+            if (evt.ut < actionStartUt || evt.ut > actionEndUt)
+                return false;
+
+            matchedViaUntaggedWindow = true;
+            return true;
+        }
+
+        internal static string GetScienceChangedReasonKey(GameAction action)
+        {
+            if (action != null && action.Method == ScienceMethod.Recovered)
+                return LedgerOrchestrator.VesselRecoveryReasonKey;
+
+            return "ScienceTransmission";
+        }
+
+        internal static string FormatScienceEventForReconcileDump(
+            GameStateEvent evt,
+            bool matchedScope,
+            bool matchedViaUntaggedWindow)
+        {
+            string tag = evt.recordingId ?? "";
+            string matchLabel = matchedScope ? "match" : "skip";
+            string untaggedLabel = matchedViaUntaggedWindow ? ", untagged-window" : "";
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "ut={0:F1} key='{1}' delta={2:F1} tag='{3}' [{4}{5}]",
+                evt.ut,
+                evt.key ?? "",
+                evt.valueAfter - evt.valueBefore,
+                tag,
+                matchLabel,
+                untaggedLabel);
+        }
+        internal static void GetResourceTrackingAvailability(
+            out bool fundsTracked,
+            out bool scienceTracked,
+            out bool repTracked)
+        {
+            fundsTracked = fundsTrackedOverrideForTesting ?? Funding.Instance != null;
+            scienceTracked = scienceTrackedOverrideForTesting
+                ?? ResearchAndDevelopment.Instance != null;
+            repTracked = repTrackedOverrideForTesting ?? global::Reputation.Instance != null;
+        }
+
+        internal static void LogReconcileSkippedOnce(
+            string scopeKey,
+            string scopeLabel,
+            bool fundsTracked,
+            bool scienceTracked,
+            bool repTracked)
+        {
+            ParsekLog.VerboseRateLimited(
+                Tag,
+                $"reconcile-skip:{scopeKey}:{fundsTracked}:{scienceTracked}:{repTracked}",
+                $"{scopeLabel} skipped: sandbox / tracker unavailable " +
+                $"(funds={fundsTracked.ToString().ToLowerInvariant()} " +
+                $"sci={scienceTracked.ToString().ToLowerInvariant()} " +
+                $"rep={repTracked.ToString().ToLowerInvariant()})",
+                OneShotReconcileSkipLogIntervalSeconds);
+        }
+
+        internal static bool TryRegisterPostWalkDumpKey(string dumpKey)
+        {
+            return emittedScienceReconcileDumpKeys.Add("postwalk-dump:" + (dumpKey ?? ""));
+        }
+
+        internal static bool TryRegisterCommitDumpKey(string dumpKey)
+        {
+            return emittedScienceReconcileDumpKeys.Add("commit-dump:" + (dumpKey ?? ""));
+        }
+
+        internal static string FormatFixed1(double value)
+        {
+            return value.ToString("F1", CultureInfo.InvariantCulture);
+        }
+
+        internal static string FormatFixed3(double value)
+        {
+            return value.ToString("F3", CultureInfo.InvariantCulture);
         }
     }
 }

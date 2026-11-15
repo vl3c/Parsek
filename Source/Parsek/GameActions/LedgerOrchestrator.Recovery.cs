@@ -612,7 +612,7 @@ namespace Parsek
         {
             Initialize();
 
-            GetResourceTrackingAvailability(out bool fundsTracked, out _, out _);
+            PostWalkActionReconciler.GetResourceTrackingAvailability(out bool fundsTracked, out _, out _);
             LedgerRecoveryFundsPairing.OnVesselRecoveryFunds(
                 ut,
                 identity,

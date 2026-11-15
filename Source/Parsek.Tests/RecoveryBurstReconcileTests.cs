@@ -28,12 +28,12 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             ParsekLog.VerboseOverrideForTesting = true;
-            LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(true, true, true);
+            PostWalkActionReconciler.SetResourceTrackingAvailabilityForTesting(true, true, true);
         }
 
         public void Dispose()
         {
-            LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(null, null, null);
+            PostWalkActionReconciler.SetResourceTrackingAvailabilityForTesting(null, null, null);
             LedgerOrchestrator.ResetForTesting();
             RecordingStore.ResetForTesting();
             MilestoneStore.ResetForTesting();

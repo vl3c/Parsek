@@ -35,12 +35,12 @@ namespace Parsek.Tests
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
 
             GameStateStore.SuppressLogging = true;
-            LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(true, true, true);
+            PostWalkActionReconciler.SetResourceTrackingAvailabilityForTesting(true, true, true);
         }
 
         public void Dispose()
         {
-            LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(null, null, null);
+            PostWalkActionReconciler.SetResourceTrackingAvailabilityForTesting(null, null, null);
             LedgerOrchestrator.ResetForTesting();
             RecordingStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
@@ -190,7 +190,7 @@ namespace Parsek.Tests
         [Fact]
         public void Reconcile_AllTrackersUnavailable_SkipsWarns_AndLogsOnce()
         {
-            LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(false, false, false);
+            PostWalkActionReconciler.SetResourceTrackingAvailabilityForTesting(false, false, false);
 
             var events = new List<GameStateEvent>
             {
@@ -217,7 +217,7 @@ namespace Parsek.Tests
         [Fact]
         public void Reconcile_FundsTrackerUnavailable_OnlyTrackedLegsWarn()
         {
-            LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(false, true, true);
+            PostWalkActionReconciler.SetResourceTrackingAvailabilityForTesting(false, true, true);
 
             var events = new List<GameStateEvent>
             {

@@ -54,7 +54,7 @@ namespace Parsek.Tests
 
         private static void ResetState()
         {
-            LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(null, null, null);
+            PostWalkActionReconciler.SetResourceTrackingAvailabilityForTesting(null, null, null);
             RecoveryDispatchScope.ResetForTesting();
             GameStateStore.ResetForTesting();
             GameStateRecorder.ResetForTesting();
@@ -194,7 +194,7 @@ namespace Parsek.Tests
 
         private void ReconcileWithTracking(List<GameStateEvent> events, List<GameAction> actions)
         {
-            LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(true, true, true);
+            PostWalkActionReconciler.SetResourceTrackingAvailabilityForTesting(true, true, true);
             logLines.Clear();
             PostWalkActionReconciler.ReconcilePostWalk(events, actions, null);
         }
@@ -251,7 +251,7 @@ namespace Parsek.Tests
             var row = SubjectRow();
             Assert.Equal(ScienceMethod.Recovered, row.Method);
             Assert.Equal(LedgerOrchestrator.VesselRecoveryReasonKey,
-                LedgerOrchestrator.GetScienceChangedReasonKey(row));
+                PostWalkActionReconciler.GetScienceChangedReasonKey(row));
             Assert.Contains(logLines, l => l.Contains("[GameStateRecorder]")
                 && l.Contains("subject 'recovery@KerbinOrbited' amount=10 matched no ScienceChanged capture")
                 && l.Contains("key='VesselRecovery' delta=9.5")

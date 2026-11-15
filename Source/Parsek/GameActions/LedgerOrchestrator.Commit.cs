@@ -104,7 +104,7 @@ namespace Parsek
             // persisted with it), and the reputation seed is ensured before any row of this
             // commit exists, so the death-penalty producer knows where the seed came from
             // and the seed's refusal branch cannot see this commit's own fresh rows.
-            var rec = FindRecordingById(recordingId);
+            var rec = RecordingStore.FindRecordingById(recordingId);
             if (NeedsCrewEndStatePopulation(rec))
                 KerbalsModule.PopulateCrewEndStates(rec);
             ReputationSeedOrigin repSeedOrigin =
@@ -1044,7 +1044,7 @@ namespace Parsek
                 return startUT;
             }
 
-            var predecessor = FindRecordingById(rec.ParentRecordingId);
+            var predecessor = RecordingStore.FindRecordingById(rec.ParentRecordingId);
             if (predecessor == null ||
                 !string.Equals(predecessor.ChainId ?? "", rec.ChainId ?? "", StringComparison.Ordinal) ||
                 predecessor.ChainIndex != rec.ChainIndex - 1)

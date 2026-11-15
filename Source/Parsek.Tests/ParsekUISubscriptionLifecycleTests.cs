@@ -8,7 +8,7 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// Pins how a scene's <see cref="ParsekUI"/> hooks its windows to the two cache
-    /// invalidation signals: <see cref="LedgerOrchestrator.OnTimelineDataChanged"/> (every
+    /// invalidation signals: <see cref="LedgerTimelineSignal.OnTimelineDataChanged"/> (every
     /// ledger-side change) and <see cref="DisplayNames.DisplayNamesChanged"/> (a vessel or
     /// mission rename). Both drop the Timeline cache and then the Kerbals cache, from the
     /// moment the ParsekUI is constructed until its <see cref="ParsekUI.Cleanup"/>. A scene
@@ -38,8 +38,8 @@ namespace Parsek.Tests
             ParsekLog.VerboseOverrideForTesting = true;
             ParsekSettings.CurrentOverrideForTesting = null;
             ParsekUI.ResetUiComplexityModeForTesting();
-            savedTimelineHook = LedgerOrchestrator.OnTimelineDataChanged;
-            LedgerOrchestrator.OnTimelineDataChanged = null;
+            savedTimelineHook = LedgerTimelineSignal.OnTimelineDataChanged;
+            LedgerTimelineSignal.OnTimelineDataChanged = null;
             DisplayNames.ResetSubscribersForTesting();
         }
 
@@ -47,7 +47,7 @@ namespace Parsek.Tests
         {
             foreach (ParsekUI ui in built)
                 CleanupIgnoringUnityTeardown(ui);
-            LedgerOrchestrator.OnTimelineDataChanged = savedTimelineHook;
+            LedgerTimelineSignal.OnTimelineDataChanged = savedTimelineHook;
             DisplayNames.ResetSubscribersForTesting();
             ParsekUI.ResetUiComplexityModeForTesting();
             ParsekSettings.CurrentOverrideForTesting = null;
@@ -83,7 +83,7 @@ namespace Parsek.Tests
                 .Select(l => l.Contains(TimelineLine) ? "T" : "K"));
         }
 
-        private static void RaiseTimeline() => LedgerOrchestrator.OnTimelineDataChanged?.Invoke();
+        private static void RaiseTimeline() => LedgerTimelineSignal.OnTimelineDataChanged?.Invoke();
 
         private static void RaiseRename() => DisplayNames.NoteChanged("test", "lifecycle");
 
@@ -148,7 +148,7 @@ namespace Parsek.Tests
         public void Cleanup_LeavesAnotherSubscriberOnTheTimelineSignal()
         {
             int outside = 0;
-            LedgerOrchestrator.OnTimelineDataChanged += () => outside++;
+            LedgerTimelineSignal.OnTimelineDataChanged += () => outside++;
             ParsekUI ui = Build();
             CleanupIgnoringUnityTeardown(ui);
 

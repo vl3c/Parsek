@@ -36,19 +36,6 @@ namespace Parsek
         private static bool fundsSeedDone;
         private static bool scienceSeedDone;
         private static bool repSeedDone;
-        [ThreadStatic]
-        private static bool? fundsTrackedOverrideForTesting;
-        [ThreadStatic]
-        private static bool? scienceTrackedOverrideForTesting;
-        [ThreadStatic]
-        private static bool? repTrackedOverrideForTesting;
-        // Effectively "once per play session" for the rate-limited skip diagnostics.
-        private static readonly double OneShotReconcileSkipLogIntervalSeconds =
-            TimeSpan.FromDays(365).TotalSeconds;
-        private static readonly HashSet<string> emittedReconcileWarnKeys =
-            new HashSet<string>(StringComparer.Ordinal);
-        private static readonly HashSet<string> emittedScienceReconcileDumpKeys =
-            new HashSet<string>(StringComparer.Ordinal);
 
         /// <summary>
         /// Monotonically increasing sequence counter for KSC events added individually
@@ -67,20 +54,6 @@ namespace Parsek
         // Shared with GameActionDisplay.IsUnclaimedRolloutAction (#452) so the
         // label-side predicate and the adoption-side producer/scan cannot drift.
         internal const string RolloutDedupPrefix = "rollout:";
-
-        /// <summary>
-        /// Fired after RecalculateAndPatch completes — signals that timeline data
-        /// (recordings, ledger actions, milestone replay cursors, or event
-        /// visibility) may have changed. Subscribed by ParsekUI to invalidate the
-        /// TimelineWindowUI cache and by StockUiOverlayController to refresh open
-        /// stock-screen badges.
-        ///
-        /// Future code that mutates MilestoneStore.LastReplayedEventIndex or
-        /// GameStateStore event visibility must end with RecalculateAndPatch()
-        /// or invoke this signal directly, otherwise open stock overlays can stay
-        /// stale until their building is reopened.
-        /// </summary>
-        internal static Action OnTimelineDataChanged;
 
         /// <summary>
         /// Initialize modules and register with engine. Call once on game start.
@@ -426,12 +399,8 @@ namespace Parsek
             fundsSeedDone = false;
             scienceSeedDone = false;
             repSeedDone = false;
-            fundsTrackedOverrideForTesting = null;
-            scienceTrackedOverrideForTesting = null;
-            repTrackedOverrideForTesting = null;
+            PostWalkActionReconciler.ResetForTesting();
             kscSequenceCounter = 0;
-            emittedReconcileWarnKeys.Clear();
-            emittedScienceReconcileDumpKeys.Clear();
             LedgerRecoveryFundsPairing.ResetForTesting();
             scienceModule = null;
             milestonesModule = null;
@@ -444,7 +413,7 @@ namespace Parsek
             ReplaceModuleSet();
             Ledger.ResetForTesting();
             LedgerHeldWindow.ResetForTesting();
-            OnTimelineDataChanged = null;
+            LedgerTimelineSignal.OnTimelineDataChanged = null;
             OnRecordingCommittedFaultInjector = null;
             OnRecordingCommittedPostSciencePersistFaultInjector = null;
             NowUtProviderForTesting = null;

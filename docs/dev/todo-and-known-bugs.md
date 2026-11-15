@@ -4063,6 +4063,37 @@ compare).
   `CommittedTreeRestoreAttempt`, `SwitchSegmentAttempts`, `ConversionLegBinding`,
   `PostWalkActionReconciler`; moves and delegate parameters only, headless), ratchet
   140 -> 124; the other 24 edges buy 3 more and need installed hooks proven in flight.
+- 2026-11-14 (item 24, the six-edge cut, approved by the owner the same day): one commit per
+  edge, each a move or a delegate parameter. `FindRecordingById` moved verbatim from the
+  orchestrator to `RecordingStore` and every caller names it there (`Ledger` and
+  `CommittedFutureIndexCache` leave the back-edge list: 30 -> 28; ratchet 140 unchanged, as
+  the note predicts for this step alone). `OnTimelineDataChanged` moved to a new leaf,
+  `LedgerTimelineSignal` (its lifetime tag moved with it; the reset allowlist line went, the
+  field having left `LedgerOrchestrator`); the orchestrator raises and resets it there, the
+  splitter and the windows name it there (28 -> 26: `RecordingTreeSplitter`,
+  `TimelineWindowUI`; ratchet 140). The `StockUiOverlay: initialised` log line still names
+  `LedgerOrchestrator.OnTimelineDataChanged`, kept byte-stable. The committed-tree restore
+  attempt's `bool preserveIrreversibleTails` became a delegate parameter of the same name
+  (the ledger's `PreserveIrreversibleRestoreAttemptTailsOnDiscard` on a live drop, null on a
+  rollback, so null is the old `false` and no new path exists); every caller passes it, and
+  the drop-site source gate now pins the delegate or `null` per site (25 back-edges, ratchet
+  140). Two mutants red the existing cells: the attempt ignoring the delegate
+  (`RestoreAttemptIrreversibleTailsTests`, 2 cells) and the pending discard passing null
+  (1 cell). The switch-segment scoped discard takes the ledger's two preservations (live
+  gameplay, restore-attempt tails) as required parameters, null throwing before the session
+  is touched (one new theory pins that); with the first four edges in place 18 types leave
+  the residue and none joins: ratchet 140 -> 126 (greedy 126, replayed 126), 24 back-edges,
+  bound re-pinned to 126. `IsStrategyConversionRow` moved verbatim to `ConversionLegBinding`
+  (its one outside caller; the orchestrator now calls it there): ratchet 125, 23 back-edges.
+  The reconcile helpers the post-walk reconciler called, with their log-once sets and tracker
+  overrides, moved verbatim to `PostWalkActionReconciler` (log tag unchanged; lifetime tags and
+  the reset allowlist moved with the fields): ratchet 124, 22 back-edges, bound 124. Whole cut:
+  ratchet 140 -> 124, knot unchanged (394, same members), 20 types left the residue and none
+  joined. Measured per step in the note's "as built" table. Review follow-up: a source gate
+  (`RestoreAttemptIrreversibleTailsTests.ScopedSwitchSegmentDiscardCallers_PassTheLedgerPreservations`)
+  walks the comment-stripped production source and requires each of the three scoped-discard
+  callers to pass both orchestrator preservations; a no-op at any one caller, or a no-op with
+  the expected name left in a comment, reds it.
 - 2026-11-14 (B6 second half, split `AnchorPropagator.Run`): the DAG walk (about 490 lines,
   complexity 104) is now an orchestrator (complexity 8) over 13 private static steps in the same
   file, in walk order: `IndexRecordingsById`, `EmitSeedAnchors` with `EmitSeedCandidate`,

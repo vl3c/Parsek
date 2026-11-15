@@ -176,6 +176,34 @@ namespace Parsek.Tests
         // discarded segment is re-homed to the ledger as a direct action.
         // -----------------------------------------------------------------
 
+        // catches: a caller passing null for either ledger preservation. The scoped discard
+        // always runs both, so a null one would silently skip the re-home (the restore-tail
+        // purge reads null as a rollback) or fail mid-discard; it refuses before anything
+        // is touched instead.
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void Discard_NullPreservation_ThrowsBeforeTouchingTheSession(bool nullLiveGameplay)
+        {
+            var (scenario, session, tree, parent, segment, bp) =
+                BuildPendingTreeWithSegment();
+            PendingTreeSlot.StashPendingTree(tree);
+
+            string reason = "unset";
+            Assert.Throws<ArgumentNullException>(() =>
+                SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(
+                    nullLiveGameplay ? null : (Action<ICollection<string>, string>)
+                        LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard,
+                    nullLiveGameplay ? (Action<IReadOnlyDictionary<string, double>, string>)
+                        LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard : null,
+                    out reason));
+
+            Assert.Same(session, scenario.ActiveSwitchSegmentSession);
+            Assert.Same(tree, PendingTreeSlot.PendingTree);
+            Assert.True(tree.Recordings.ContainsKey(segment.RecordingId));
+            Assert.Contains(bp, tree.BranchPoints);
+        }
+
         [Fact]
         public void Discard_RehomesSegmentContractCompletion_ToLedgerAsDirectAction()
         {
@@ -195,7 +223,10 @@ namespace Parsek.Tests
             PendingTreeSlot.StashPendingTree(tree);
 
             string reason;
-            SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(out reason);
+            SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(
+                LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard,
+                LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard,
+                out reason);
 
             // The tagged store event is purged, but the completion survives as a DIRECT
             // ledger action so the contract stays resolved (not re-listed active).
@@ -285,7 +316,10 @@ namespace Parsek.Tests
 
                 string reason;
                 var disposition =
-                    SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(out reason);
+                    SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(
+                        LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard,
+                        LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard,
+                        out reason);
 
                 Assert.Equal(
                     RecordingStore.SwitchSegmentDiscardDisposition.CommittedRestoreClone,
@@ -324,7 +358,10 @@ namespace Parsek.Tests
 
             string reason;
             var disposition =
-                SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(out reason);
+                SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(
+                    LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard,
+                    LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard,
+                    out reason);
 
             Assert.Equal(
                 RecordingStore.SwitchSegmentDiscardDisposition.NoActiveSession,
@@ -372,7 +409,10 @@ namespace Parsek.Tests
 
             string reason;
             var disposition =
-                SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(out reason);
+                SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(
+                    LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard,
+                    LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard,
+                    out reason);
 
             Assert.Equal(
                 RecordingStore.SwitchSegmentDiscardDisposition.PendingTreePrune,
@@ -410,7 +450,10 @@ namespace Parsek.Tests
 
             string reason;
             var disposition =
-                SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(out reason);
+                SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(
+                    LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard,
+                    LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard,
+                    out reason);
 
             Assert.Equal(
                 RecordingStore.SwitchSegmentDiscardDisposition.PendingTreePrune,
@@ -597,7 +640,10 @@ namespace Parsek.Tests
             PendingTreeSlot.StashPendingTree(tree);
 
             string reason;
-            SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(out reason);
+            SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(
+                LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard,
+                LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard,
+                out reason);
 
             Assert.False(tree.Recordings.ContainsKey(segment.RecordingId));
             Assert.False(tree.Recordings.ContainsKey(grandchild.RecordingId));
@@ -618,7 +664,10 @@ namespace Parsek.Tests
             PendingTreeSlot.StashPendingTree(tree);
 
             string reason;
-            SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(out reason);
+            SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(
+                LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard,
+                LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard,
+                out reason);
 
             Assert.False(tree.Recordings.ContainsKey("rec_seg"));
             // BP referencing the removed segment id is gone too.
@@ -664,7 +713,10 @@ namespace Parsek.Tests
             Assert.Equal(2, beforeCount);
 
             string reason;
-            SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(out reason);
+            SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(
+                LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard,
+                LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard,
+                out reason);
 
             int afterCount = GameStateStore.EventCount;
             Assert.Equal(1, afterCount);
@@ -726,7 +778,10 @@ namespace Parsek.Tests
             PendingTreeSlot.StashPendingTree(tree);
 
             string reason;
-            SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(out reason);
+            SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(
+                LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard,
+                LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard,
+                out reason);
 
             Assert.Null(scenario.ActiveSwitchSegmentSession);
             // Log line records the clear reason.
@@ -797,7 +852,10 @@ namespace Parsek.Tests
 
             string reason;
             var disposition =
-                SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(out reason);
+                SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(
+                    LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard,
+                    LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard,
+                    out reason);
 
             Assert.Equal(
                 RecordingStore.SwitchSegmentDiscardDisposition.CommittedRestoreClone,
@@ -900,7 +958,10 @@ namespace Parsek.Tests
 
             string reason;
             var disposition =
-                SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(out reason);
+                SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(
+                    LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard,
+                    LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard,
+                    out reason);
 
             Assert.Equal(
                 RecordingStore.SwitchSegmentDiscardDisposition.CommittedRestoreClone,
@@ -1004,7 +1065,10 @@ namespace Parsek.Tests
             }
 
             string reason;
-            SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(out reason);
+            SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(
+                LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard,
+                LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard,
+                out reason);
 
             // All three committed ids still present.
             Assert.True(RecordingStore.IsCommittedRecordingId("rec_c_1"));

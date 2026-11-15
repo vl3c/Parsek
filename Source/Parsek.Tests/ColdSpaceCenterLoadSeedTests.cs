@@ -43,7 +43,7 @@ namespace Parsek.Tests
 
         public void Dispose()
         {
-            LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(null, null, null);
+            PostWalkActionReconciler.SetResourceTrackingAvailabilityForTesting(null, null, null);
             CurrencyScenarioReadiness.ResetForTesting();
             GameStateRecorder.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
@@ -234,7 +234,7 @@ namespace Parsek.Tests
         [Fact]
         public void ColdSpaceCenterLoad_Lab12Career_WalksTo148_625Science_And25Reputation_WithNoReconcileNoise()
         {
-            LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(true, true, true);
+            PostWalkActionReconciler.SetResourceTrackingAvailabilityForTesting(true, true, true);
             GameStateStore.AddBaseline(ColdSpaceCenterBaseline());
 
             LedgerOrchestrator.CurrencyPoolProbeForTesting = OnLoadProbe;

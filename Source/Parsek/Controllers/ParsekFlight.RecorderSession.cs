@@ -1006,7 +1006,7 @@ namespace Parsek
                     // before the null.
                     CommittedTreeRestoreAttempt.ClearCommittedTreeRestoreAttemptForDroppedTree(
                         activeTree?.Id, "start-recording cleanup dropped the restore clone",
-                        preserveIrreversibleTails: true);
+                        preserveIrreversibleTails: LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard);
                     activeTree = null;
                     ParsekLog.Info("Flight", "Cleaned up single-node tree after StartRecording failure");
                 }

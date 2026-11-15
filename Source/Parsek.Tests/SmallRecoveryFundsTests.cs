@@ -40,7 +40,7 @@ namespace Parsek.Tests
             GameStateStore.SuppressLogging = true;
             GameStateStore.ResetForTesting();
             LedgerOrchestrator.ResetForTesting();
-            LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(
+            PostWalkActionReconciler.SetResourceTrackingAvailabilityForTesting(
                 fundsTracked: true, scienceTracked: null, reputationTracked: null);
             RecordingStore.ResetForTesting();
             ParsekScenario.ResetInstanceForTesting();
@@ -503,7 +503,7 @@ namespace Parsek.Tests
         [Fact]
         public void Recovery_InACareerWithNoFundsPool_QueuesNoRequest_AndFlushStaysQuiet()
         {
-            LedgerOrchestrator.SetResourceTrackingAvailabilityForTesting(
+            PostWalkActionReconciler.SetResourceTrackingAvailabilityForTesting(
                 fundsTracked: false, scienceTracked: null, reputationTracked: null);
 
             LedgerOrchestrator.OnVesselRecoveryFunds(

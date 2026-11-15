@@ -291,11 +291,40 @@ namespace Parsek
 
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
+        /// <summary>
+        /// Pure: true for every row shape <see cref="LedgerOrchestrator.BuildStrategyConversionAction"/>
+        /// writes. <c>FundsEarning</c> / <c>FundsEarningSource.Strategy</c> is shared on
+        /// purpose with the exchanger family's funds output (Bail-Out Grant), so that row
+        /// matches too; nothing on disk tells the two apart.
+        /// </summary>
+        internal static bool IsStrategyConversionRow(GameAction action)
+        {
+            if (action == null)
+                return false;
+            switch (action.Type)
+            {
+                case GameActionType.StrategyScienceDebit:
+                    return action.ConversionSource == StrategyConversionSource.Converter;
+                case GameActionType.StrategyScienceCredit:
+                    return true;
+                case GameActionType.FundsSpending:
+                    return action.FundsSpendingSource == FundsSpendingSource.StrategyConverter;
+                case GameActionType.FundsEarning:
+                    return action.FundsSource == FundsEarningSource.Strategy;
+                case GameActionType.ReputationEarning:
+                    return action.RepSource == ReputationSource.Strategy;
+                case GameActionType.ReputationPenalty:
+                    return action.RepPenaltySource == ReputationPenaltySource.StrategyConverter;
+                default:
+                    return false;
+            }
+        }
+
         /// <summary>Pure: a strategy conversion leg that names a cause.</summary>
         internal static bool IsCausedLeg(GameAction row)
         {
             return row != null && !string.IsNullOrEmpty(row.ConversionCause)
-                && LedgerOrchestrator.IsStrategyConversionRow(row);
+                && IsStrategyConversionRow(row);
         }
 
         /// <summary>Pure: any row of <paramref name="actions"/> is a caused leg.</summary>

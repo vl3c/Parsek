@@ -127,10 +127,23 @@ namespace Parsek
         /// <see cref="MergeDialog.CollectReFlyAttemptOwnedRecordingIds"/>;
         /// the surviving committed timeline is reconstructed via the normal
         /// <see cref="EffectiveState"/> pipeline after the helper returns.</para>
+        ///
+        /// <para>The ledger's two discard preservations come in as parameters, so this
+        /// type does not reference the orchestrator: every caller passes
+        /// <c>LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard</c> and
+        /// <c>LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard</c>. Both
+        /// always run on this path, so neither may be null: a null one throws before
+        /// anything is discarded.</para>
         /// </summary>
         internal static RecordingStore.SwitchSegmentDiscardDisposition TryDiscardActiveSwitchSegmentAttempt(
+            Action<ICollection<string>, string> preserveIrreversibleLiveGameplay,
+            Action<IReadOnlyDictionary<string, double>, string> preserveIrreversibleTails,
             out string reason)
         {
+            if (preserveIrreversibleLiveGameplay == null)
+                throw new ArgumentNullException(nameof(preserveIrreversibleLiveGameplay));
+            if (preserveIrreversibleTails == null)
+                throw new ArgumentNullException(nameof(preserveIrreversibleTails));
             reason = null;
             var scenario = ParsekScenario.Instance;
             var session = scenario?.ActiveSwitchSegmentSession;
@@ -197,7 +210,7 @@ namespace Parsek
                 // for the discarded segment subtree before the purge drops it — KSP applied
                 // it live and the ledger must keep it. Runs once here, before the disposition
                 // branch split below, so both the clone and prune branches are covered.
-                LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard(
+                preserveIrreversibleLiveGameplay(
                     ownedIds, $"SwitchSegment scoped discard sess={sessionIdStr}");
                 purgedEvents = GameStateStore.PurgeEventsForRecordings(
                     ownedIds,
@@ -270,7 +283,7 @@ namespace Parsek
 
                 CommittedTreeRestoreAttempt.DiscardCommittedTreeRestoreAttempt(
                     "switch-segment-scoped-discard committed-restore-clone",
-                    preserveIrreversibleTails: true);
+                    preserveIrreversibleTails: preserveIrreversibleTails);
                 // Pending science was already scoped-removed for this segment subtree by
                 // PreserveIrreversibleLiveGameplayOnDiscard(ownedIds) above. Do NOT
                 // blanket-Clear() here: that would silently drop a DIFFERENT live

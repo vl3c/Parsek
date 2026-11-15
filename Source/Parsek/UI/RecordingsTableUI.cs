@@ -770,7 +770,7 @@ namespace Parsek
         /// <see cref="Recording.Hidden"/>, so a Timeline open alongside this window picks
         /// the change up on its next draw.
         /// <para>Needed because timeline invalidation otherwise fires only from
-        /// <c>LedgerOrchestrator.OnTimelineDataChanged</c> and an archive is not a ledger
+        /// <c>LedgerTimelineSignal.OnTimelineDataChanged</c> and an archive is not a ledger
         /// event: without this, archiving a row while both windows are open leaves the
         /// flight on the Timeline until some unrelated recalc. Called only
         /// from the three change branches that actually write the flag (the per-row
