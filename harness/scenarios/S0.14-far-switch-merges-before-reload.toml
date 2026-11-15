@@ -77,7 +77,7 @@ id = "S0.14-far-switch-merges-before-reload"
 # target: its only other vessel is an asteroid at DISCOVERY state 1, not Owned, which stock
 # refuses to switch to. Any vessel ORBITING, or any commandable one, survives the rule.
 #
-# PRE-REGISTERED OUTCOMES (the first flight is the reading run; tier operator):
+# PRE-REGISTERED OUTCOMES (P1 read on the fourth flight, 2026-11-15):
 #   (P1) Every required token below matches: auto-resolve `resolution=Merge
 #        case=B-unloaded reason=not-committed-restore-clone`, the commit, the merge-chosen
 #        line and the not-armed intent line before the FLIGHT scene change, the reload
@@ -129,13 +129,28 @@ id = "S0.14-far-switch-merges-before-reload"
 # host reaches OnFlightReady well inside 2 s.
 # FIXED on the same branch (todo FAR-SWITCH-INTENT-TTL-RACE): no intent is armed for an
 # unloaded target, so the spec now requires the not-armed line and forbids any MapSwitchTo
-# intent for the debris instead of pinning its stale clear. Not yet flown with the fix.
+# intent for the debris instead of pinning its stale clear.
+#
+# FOURTH FLIGHT 2026-11-15 on the PC, the first with the fix: LIVE-PROVEN,
+# `2026-11-15_0011_S0.14-far-switch-merges-before-reload` PASS attempt 1 (branch head
+# 94f5b8df9, install copy 1 provisioned from the worktree build, DLL sha256 aa34bc87...3d22),
+# wall 56 s, every gating verifier green, unityExceptions 0. Read in KSP.log order:
+# `CommitTreeFlight` at UT=27787328.0, `Committed tree 'Duna Rocket' (1 recordings)`,
+# `[SwitchIntentPatch] pre-switch-dialog intent not armed: reason=far-switch-target-unloaded
+# targetPid=4267147709` (line 12263), `Scene change requested: FLIGHT at UT=27787328.00`
+# (line 12375), the far scene flight-ready; ZERO `action=MapSwitchTo`, `intent kept-armed on
+# OnLoad` and `[SwitchSegment] created`; saveParse 1 recording in 1 committed tree, 2 points,
+# supersedeRows=0, rewindPoints=0. The pins already sit at the reading (recordings {1,1}, the
+# structure block's 1-tree / 1-recording windows; it stays report-only until an operator arms
+# it). Tier daily by the measured wall (S0.13, the in-bubble sibling, is daily at 69 s).
+# `flight_efficiency.py` was not run here (the results archive is on the PC); the lane has no
+# warp-sized or coast wait to cut: two 1x dwells of 4.6 s and 4 s game time.
 # =====================================================================================
-tier = "operator"
+tier = "daily"
 description = "A far map-style Switch-To with a live recording (Case B, no session) commits the tree BEFORE stock's FLIGHT reload (todo FAR-SWITCH-CASE-B-UNFLOWN): on jool-park-nerv, record the Duna Rocket in Jool orbit, then a stock Alarm Clock Jump to an unloaded debris in Kerbin orbit auto-resolves Merge case=B-unloaded, CommitTreeFlight runs, the reload carries no pending or Limbo tree, no switch intent is armed for the unloaded target (todo FAR-SWITCH-INTENT-TTL-RACE), no recording starts on it, and the save holds one committed tree of one recording."
 instanceProfile = "stock-minimal"
 tags = ["switch-segment", "alarm-jump", "S0.14", "pre-switch-auto-resolve", "far-switch",
-        "D1", "pending-flight"]
+        "D1"]
 
 [fixture]
 saveTemplate = "fixtures/saves/jool-park-nerv"
@@ -179,10 +194,11 @@ allowedAnomalies = []
 
 [expectations.recordings]
 # The Duna Rocket's tree only: one recording, committed before the switch; the debris
-# after the reload records nothing (pre-registered, not yet measured).
+# after the reload records nothing (measured on the fourth flight: 1).
 count = { min = 1, max = 1 }
 
-# REPORT-ONLY (no `gating`): read on the first flight, armed only by an operator call.
+# REPORT-ONLY (no `gating`): the fourth flight read 1 recording in 1 committed tree;
+# arming it is an operator call.
 [expectations.recordings.structure]
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
@@ -193,7 +209,7 @@ vesselNames    = { "Duna Rocket" = { min = 1, max = 1 }, "Duna Rocket Debris" = 
 
 [expectations.logContracts]
 # In the order the mechanism runs. Every literal is read from the source at the line
-# named; none is measured yet.
+# named; all matched on the fourth flight (2026-11-15_0011).
 required  = [
   # The recording is live before the Jump (TestCommands, ParsekTestCommandAddon.cs).
   "recordingstate recording=true tree=\\S+ points=[1-9][0-9]* scene=FLIGHT",
@@ -250,7 +266,7 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]",
 
 [runtime]
 # 300 LoadGame + 120 + 60 WarpToUT + 120 AlarmJump + 240 post-reload ListHandles + the
-# fast verbs + boot and margin. S0.13 (one more act, on eva2-lko-crewed) flies at ~69 s;
+# fast verbs + boot and margin. Measured 56 s on the fourth flight (S0.13 flies at ~69 s);
 # 1200 is a kill backstop.
 budgetSeconds = 1200
 

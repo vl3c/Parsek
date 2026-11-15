@@ -9,9 +9,9 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | what | lanes |
 |---|---|
 | lanes | 595 |
-| tier daily | 28 |
+| tier daily | 29 |
 | tier nightly | 284 |
-| tier operator | 272 |
+| tier operator | 271 |
 | tier longhaul | 5 |
 | tier (other) | 6 |
 | profile stock-minimal | 551 |
@@ -19,8 +19,8 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | profile modded-compat | 4 |
 | autopilot (mission) lanes | 140 |
 | seam-only lanes | 455 |
-| LIVE-PROVEN date in status row | 462 |
-| no LIVE-PROVEN date | 133 |
+| LIVE-PROVEN date in status row | 463 |
+| no LIVE-PROVEN date | 132 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -96,7 +96,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | RSC | 3 | - | 3 | - | - | - | 3 |
 | RVR | 19 | 1 | 18 | - | - | - | 18 |
 | RW | 25 | - | - | 25 | - | 1 | 25 |
-| S | 19 | 10 | 3 | 6 | - | - | 12 |
+| S | 19 | 11 | 3 | 5 | - | - | 13 |
 | SB | 1 | - | 1 | - | - | - | 1 |
 | SCI | 1 | - | - | 1 | - | 1 | 1 |
 | SD | 1 | - | - | 1 | - | 1 | 1 |
@@ -308,7 +308,7 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 | Duna | 29 | 10 | 18 | V 13, B 4, FAR 4, TP 3, AT 1, CN 1, FORGE 1, GUI 1, H 1 |
 | Ike | 10 | 3 | 9 | V 4, FAR 3, B 2, RF 1 |
 | Dres | 8 | 6 | 2 | B 5, V 2, FORGE 1 |
-| Jool | 46 | 18 | 28 | V 25, B 18, FAR 1, S 1, TP 1 |
+| Jool | 46 | 18 | 29 | V 25, B 18, FAR 1, S 1, TP 1 |
 | Laythe | 27 | 14 | 21 | B 14, V 11, FAR 1, TP 1 |
 | Vall | 11 | 5 | 6 | B 5, V 5, TP 1 |
 | Tylo | 12 | 6 | 4 | B 6, V 6 |
@@ -1554,7 +1554,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | S0.10-automerge-limbo-warm-exit | operator | eva2-lko-crewed +inj pending-li... | seam | Kerbin | scene-change | - | LIVE-PROVEN 2026-08-29 |
 | S0.12-switch-noop-discard | daily | eva2-lko-crewed | seam | Kerbin | warp, scene-change, vessel-switch | - | LIVE-PROVEN 2026-09-11 |
 | S0.13-switch-auto-resolve | daily | eva2-lko-crewed | seam | Kerbin | warp, scene-change, vessel-switch | - | LIVE-PROVEN 2026-10-24 |
-| S0.14-far-switch-merges-before-reload | operator | jool-park-nerv | seam | Jool | warp, vessel-switch | - | AUTHORED 2026-11-14; FIRST FLIGHT INVALID... |
+| S0.14-far-switch-merges-before-reload | daily | jool-park-nerv | seam | Jool | warp, vessel-switch | - | LIVE-PROVEN 2026-11-15 |
 | S0.5-live-record-discard | daily | gloops-airshow | seam | Kerbin | - | - | Live record start/stop marker pairing + ... |
 | S0.6-live-record-commit | daily | gloops-airshow +inj all-synthetic | seam | Kerbin | - | - | Commit on top of the injected ... |
 | S0.7-exit-auto-commit | daily | eva2-lko-crewed | seam | Kerbin | scene-change | - | LIVE-PROVEN 2026-07-30 |
