@@ -1,9 +1,10 @@
 schema = 1
 id = "V37M-jool-pol-continuation-player-loop"
 # =====================================================================================
-# AUTHORED 2026-11-14, NEVER FLOWN. Fixture `jool-pol-recorded` harvested --keep-parsek
-# from B42-jool-pol-continuation run `2026-11-14_1926` (PASS, 8d4e8b01c); the count window
-# is re-pinned to {6, 7} off the fixture's 6 sidecars. Order and commands:
+# AUTHORED 2026-11-14. Fixture `jool-pol-recorded` harvested --keep-parsek from
+# B42-jool-pol-continuation run `2026-11-14_1926` (PASS, 8d4e8b01c); this lane flew green
+# on its first flight `2026-11-14_2320` and its count window is re-pinned to {6, 7} off
+# the fixture's 6 sidecars (the flight read 6). Order and commands:
 # docs/dev/plans/moon-lane-drafts/README.md.
 #
 # THE PLAYER-LOOP HALF, V33M's shape exactly (live-proven 2026-11-07 on Laythe):
@@ -31,9 +32,9 @@ id = "V37M-jool-pol-continuation-player-loop"
 # of 'Jool'` with the reason the reading names, and forbid the ARRIVAL HOLD line.
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-11-14, NEVER FLOWN. On `jool-pol-recorded` (harvested from B42-jool-pol-continuation). The player loop on the Kerbin->Jool->Pol tree, V33M's shape: re-aim Kerbin->Jool engages and the lone-moon arrival hold aligns Pol's orbital phase on its period at the Jool SOI entry; the live MoonArrivalHold cell runs at the Space Center."
+description = "AUTHORED 2026-11-14. On `jool-pol-recorded` (harvested from B42-jool-pol-continuation). The player loop on the Kerbin->Jool->Pol tree, V33M's shape: re-aim Kerbin->Jool engages and the lone-moon arrival hold aligns Pol's orbital phase on its period at the Jool SOI entry; the live MoonArrivalHold cell runs at the Space Center."
 instanceProfile = "stock-minimal"
-tags = ["V37", "player-loop", "loop-playback", "reaim", "arrival-hold", "lone-moon-hold", "jool", "pol", "moon", "ingame-batch", "pending-flight"]
+tags = ["V37", "player-loop", "loop-playback", "reaim", "arrival-hold", "lone-moon-hold", "jool", "pol", "moon", "ingame-batch"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/jool-pol-recorded"

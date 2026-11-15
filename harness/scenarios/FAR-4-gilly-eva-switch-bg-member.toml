@@ -50,7 +50,7 @@ tier = "operator"
 description = "Far-body vessel switch: in Gilly orbit on eve-gilly-recorded the committed Kerbal X lander is recorded, Jebediah goes EVA (release, 10 s settle) and the map Switch-To returns to the lander, which is both the live tree's background member and a committed tree's spawned leaf; the switch must take the bg-member-continuation route with no Case C dialog and no committed-clone restore."
 instanceProfile = "stock-minimal"
 tags = ["FAR-4", "far-body", "gilly", "eve", "sandbox", "switch-segment", "bg-member", "eva",
-        "timeline-ops", "runtime-handles", "recorded-fixture", "pending-flight", "reading-run"]
+        "timeline-ops", "runtime-handles", "recorded-fixture", "flown", "reading-run"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/eve-gilly-recorded"
