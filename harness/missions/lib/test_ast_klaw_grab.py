@@ -612,10 +612,11 @@ class KlawSpecSyncTests(unittest.TestCase):
                         self.assertGreater(float(s["args"]["ut"]), bound + 30.0, lane)
                         break
 
-    # Promoted to nightly 2026-11-15 off their green reading runs (walls 259 to 332 s); a
+    # Promoted to nightly 2026-11-15 off their green reading runs (walls 259 to 658 s); a
     # lane not listed stays operator until its own green flight.
     NIGHTLY_LANES = ("AST-1-klaw-grab-rewind", "AST-2-klaw-release",
-                     "COM-1-comet-klaw-grab", "AST-4-klaw-refly")
+                     "COM-1-comet-klaw-grab", "AST-3-klaw-mine-route",
+                     "AST-4-klaw-refly")
 
     def test_every_lane_is_on_its_recorded_tier_and_retries_once(self):
         for lane in LANES:

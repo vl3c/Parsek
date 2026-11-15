@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~ROUTE-HELD-ROCK-HARVEST-UNCOUNTED~~: Ore drilled from a Klaw-held rock was not counted as harvest, so the route was refused [FILED 2026-11-15 from the AST-3 flight `2026-11-15_2035_AST-3-klaw-mine-route` (PR #2633; results branch `ast-flights-2026-11-15`, folder `ast-klaw-2026-11-15d`). FIXED 2026-11-15, same PR; xUnit; AST-3 re-flight owed; medium (a rock-mining route could never be made)]
+## ~~ROUTE-HELD-ROCK-HARVEST-UNCOUNTED~~: Ore drilled from a Klaw-held rock was not counted as harvest, so the route was refused [FILED 2026-11-15 from the AST-3 flight `2026-11-15_2035_AST-3-klaw-mine-route` (PR #2633; results branch `ast-flights-2026-11-15`, folder `ast-klaw-2026-11-15d`). FIXED 2026-11-15, same PR; xUnit; AST-3 re-flown green 2026-11-15 (folder ast-klaw-2026-11-15e); medium (a rock-mining route could never be made)]
 
 What the player saw: launch a miner, grab a rock with the Klaw, drill it, release it, dock at a
 station and move the Ore across. Creating a route from that flight was refused: `RouteAnalysis
@@ -1731,9 +1731,12 @@ uncovered by the reviewer; the four cheap ones first):
   drills Ore but ran out of monopropellant on the dock (a second mono pair added).
   AST-1, AST-2, AST-4 and COM-1 are re-pinned off those green reading runs and promoted to
   nightly (save-structure blocks still report-only; arming is the operator's call).
-  Open until AST-3 flies green; several pins wait on the SpaceObject-controllability, asteroid
-  plausible-rate and rock-ghost sibling fixes. A derelict (a dead vessel, not a rock) is still
-  unflown.
+  ~~Open until AST-3 flies green~~ DONE for the rock lanes: AST-3 flew green on its fifth flight
+  (`2026-11-15_2130`, 61e36bd8, folder `ast-klaw-2026-11-15e`, after the drill-facing and
+  second-mono-pair fixture changes and ROUTE-HELD-ROCK-HARVEST-UNCOUNTED), was re-pinned and
+  promoted to nightly; the SpaceObject-controllability, asteroid plausible-rate and rock-ghost
+  sibling-fix pins all read in the green runs. Still open: a derelict (a dead vessel, not a
+  rock) is unflown.
 - [ ] A launch abort: escape system fired on ascent, capsule lands, booster destroyed, merge.
 - [ ] Cheat menu Set Orbit / Set Position while recording (xUnit only today).
 

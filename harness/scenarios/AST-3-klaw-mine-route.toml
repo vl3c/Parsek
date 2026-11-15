@@ -1,11 +1,23 @@
 schema = 1
 id = "AST-3-klaw-mine-route"
-tier = "operator"
+tier = "nightly"
 # =====================================================================================
 # AST-3 (owner rulings V 2026-11-15, the Klaw lanes). AUTHORED 2026-11-15 on branch
-# `ast-lanes`, NEVER FLOWN. MINE-5b's route shape with an asteroid for the ground: every window
-# below is a reading-run guess; the lane is re-pinned off its first flight and the tier
-# promoted by its measured p50.
+# `ast-lanes`. MINE-5b's route shape with an asteroid for the ground. FLOWN GREEN 2026-11-15 on
+# its fifth flight: reading run `2026-11-15_2130_AST-3-klaw-mine-route` (61e36bd8, PASS attempt
+# 1, wall 658 s, mission 558 s; results on branch `ast-flights-2026-11-15`, folder
+# `ast-klaw-2026-11-15e`). Every window below is re-pinned off that run and the tier promoted
+# operator -> nightly by its measured wall (under the 1,800 s longhaul bar).
+#
+# WHAT IT TOOK TO FLY. First flight (main 63b5759): kRPC never listed the rock (fixture and
+# mission fixes shared with AST-1). Second (fcceccd, folder `ast-klaw-2026-11-15b`): the drill
+# mined nothing, its bit pointed sideways; the fixture builder now hangs the MiniDrill on the
+# Z-200 with the bit facing the held rock. Third (4c6915a7, folder `ast-klaw-2026-11-15c`):
+# monopropellant ran out on MechJeb's dock; the builder adds a second mono pair. Fourth
+# (8fb6d08d, folder `ast-klaw-2026-11-15d`): MISSION-OK, but `RouteCommand create` was refused
+# `delivered-exceeds-harvested ... harvested=0`, a Parsek defect (todo
+# ROUTE-HELD-ROCK-HARVEST-UNCOUNTED: the harvest anchor never crossed the grab and release),
+# fixed in 61e36bd8. Fifth: green.
 #
 # THE RULING UNDER TEST. A route that mines a rock treats the rock's ore like ground ore: the
 # drill on a held rock opens a harvest window, the grab itself is an empty grapple window (a
@@ -13,9 +25,10 @@ tier = "operator"
 # harvest window's plausible rate is capped by the drill, not unbounded.
 #
 # HOST: `ast-miner-lko` (harness/tools/build_ast_klaw_fixtures.py): `AST Miner` (active, pid
-# 2710402000: the Klaw probe plus a MiniDrill, an EMPTY RadialOreTank and two Z-400 packs) at UT
-# 355.83, the rock `Ast. VPA-167` (pid 1490391000) 60 m ahead, `AST Depot` (pid 2710404000: an
-# OKTO, a Ready Jr port, an EMPTY RadialOreTank of part pid 2710004003, a Z-200) 150 m behind.
+# 2710402000: the Klaw probe plus a MiniDrill hung on the Z-200 with its bit facing the held
+# rock, an EMPTY RadialOreTank, two Z-400 packs and a second mono pair) at UT 355.83, the rock
+# `Ast. VPA-167` (pid 1490391000) 60 m ahead, `AST Depot` (pid 2710404000: an OKTO, a Ready Jr
+# port, an EMPTY RadialOreTank of part pid 2710004003, a Z-200) 150 m behind.
 #
 # THE FLIGHT, while recording on the miner alone:
 #   1. GRAB (mission): AST-1's grab of the rock.
@@ -37,32 +50,43 @@ tier = "operator"
 # target 30 + dock 900 + settle 5 = UT 1926 on OK. The first post-mission wait (WarpToUT 2000 at
 # 50x) is past it, so it can never be a backward warp.
 #
-# SIBLING-FIX DEPENDENCIES (these pins red on main until the fix lands):
-#   - `Harvest window opened: ... plausibleRates=[Ore:...` (main prints `unbounded` for the
-#     asteroid harvester);
-#   - the release's `Single-controllable split: no RP (... type=Undock controllable=1)` and a
-#     single rewind point in the produced save (the depot undock's), as AST-2.
+# SIBLING FIXES, both read in the green run: the harvest window carries a capped rate
+# (`Harvest window opened: ... converters=[2710002010:ModuleAsteroidDrill:] ... trigger=toggle
+# plausibleRates=[Ore:0.0457...]`, not `unbounded`), and the release is a single-controllable
+# split (`Controllable split children: [2710402000]`, `Single-controllable split: no RP (...
+# type=Undock controllable=1)`).
 #
-# UNKNOWNS THE FIRST (READING) RUN ANSWERS: AST-1's and AST-2's, plus: whether the MiniDrill's
-# asteroid harvester runs on a Klaw-held rock without touching it, and how much Ore 30 s of it
-# yields (the transfer ERRORs `partaction-transfer-nothing-moved` on zero: a FLAKE-shaped red
-# the reading run must see before any window is pinned); how many harvester modules a
-# converter-less `startconverter` presses; whether MechJeb docks the miner from 150 m with the
-# released rock near the path (the dock give-up 900 s and B-DOCK's no-progress watchdog bound
-# it); which vessel is DOMINANT after the depot dock (predicted the depot: a Station outranks a
-# Probe, so the merged pid is 2710404000; every post-dock step reads the active pid through
-# `ListHandles kind=active` instead of naming one); the route's stop count and its delivery.
+# WHAT THE READING RUN ANSWERED: AST-1's and AST-2's, plus: the converter-less
+# `startconverter` presses the MiniDrill once (count=1) and of its three harvester modules only
+# the asteroid one (`ModuleAsteroidDrill`) goes active; it runs on the Klaw-held rock and 30 s
+# of it yields 0.7477 Ore (window UT 527.79 -> 557.81); the released rock leaves under pid
+# 964232981 as a recording of its own named `Ast. VPA-167`; MechJeb docks the miner in 343 s
+# of game time (DOCK UT 580.6 -> 923.2); the depot is DOMINANT after the dock
+# (`ast3-merged-2710404000`) and the undock gives the miner the new pid 1465541813; the
+# transfer moved 0.7477 Ore into the depot's tank. The route: 2 dock windows ordered, the
+# grab's skipped as an empty grapple window, `RouteAnalysis harvest: gains covered ...
+# lineage=4 resources=1 harvestedTotal=0.74685 edgeSlackUsed=1` (0.00086 Ore of the gain fell
+# in the window's edge slack), a harvest origin, `stops=1`, the route `AST3 Ore Run` Paused,
+# transit 565.84 s; one send-once cycle delivered 0.74685 Ore (`path=loaded parts=whole`,
+# depot 0.7477 -> 1.4945).
+# The depot undock authors a two-slot rewind point (`RewindPoint begin: ... slots=2`), and
+# the SealSlot step the route needs reaps it (`Reaped rp=... slots=2`), so the produced save
+# holds none.
 #
 # FAST-LANE CHECKLIST: (1) MINE-5b flies the route half on a landed rover; no committed flight
 # mines a rock, so no prefix is reusable; (2) explicit-UT waits only; (3) 30 s of mining, the
 # dock's own minimum back-off and coast; (4) the long waits are rails (the post-undock warp)
 # or a TimeJump; (5) none; (6) every mission phase has a named give-up, retry once; (7) count
-# 6..8; (8) operator until green; (9) flight_efficiency.py after the first green flight.
+# 7..7 and the structure / rewind / routes windows pinned to the reading run; (8) nightly,
+# 658 s measured; (9) flight_efficiency.py on the reading run: 558 s of mission wall, 343 s
+# MechJeb's 1x dock at 0.5 m/s, 125 s the RCS approach to the rock, 39 s the drill; the 76 s
+# it ranks recoverable are 1x coasts inside the approach, the drill and the dock, none of
+# which can warp.
 # =====================================================================================
 description = "AST-3: a mining probe grabs a real asteroid with the Klaw, drills it for 30 s (a harvest window on the held rock, its plausible rate capped by the drill), releases it, docks with a depot under MechJeb, moves the Ore into the depot, undocks and commits; a supply route created from the recording is a HARVEST-origin route whose empty grapple window is no stop, and its one dispatched cycle delivers Ore into the depot. Ore is conserved through the dock, the transfer and the undock."
 instanceProfile = "stock-minimal"
 tags = ["asteroid", "klaw", "grapple", "mining", "harvest", "logistics", "route", "dock",
-        "undock", "mechjeb", "rcs", "AST-3", "reading-run", "pending-flight"]
+        "undock", "mechjeb", "rcs", "AST-3", "reading-run", "flown"]
 
 [fixture]
 saveTemplate = "fixtures/saves/ast-miner-lko"
@@ -156,31 +180,49 @@ D14 = ["kerbin", "sandbox", "scene-flight", "warp-1x", "warp-rails"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# Predicted 7: the root, the grab child, the release's miner and rock children, the depot dock
-# child, the depot undock's two children.
-count = { min = 6, max = 8 }
+# The root, the grab child, the release's miner and rock children, the depot dock child, the
+# depot undock's two children (the depot and the miner); the reading run read 7.
+count = { min = 7, max = 7 }
 
 [expectations.recordings.structure]
-# REPORT-ONLY until the reading run: two docks (the grab, the depot), two undocks (the release,
-# the depot), the rock a recording of its own, one rock part in the produced save.
+# REPORT-ONLY. The reading run of 2026-11-15 (`2026-11-15_2130_AST-3-klaw-mine-route`) matched
+# every window below; arming is the operator's call. Two docks (the grab, the depot), two
+# undocks (the release, the depot), the rock a recording of its own, three spawned tips (the
+# depot, the miner, the rock), one rock part in the produced save.
 gating            = false
 trees             = { min = 1, max = 1 }
 committedTrees    = { min = 1, max = 1 }
 branchPoints      = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
+spawnedVessels    = { min = 3, max = 3 }
 spaceObjectParts  = { "Ast. VPA-167" = { min = 1, max = 1 } }
-recordingNames    = { "Ast. VPA-167" = { min = 1, max = 1 } }
+vesselNames       = { "AST Depot" = { min = 1, max = 1 }, "AST Miner" = { min = 1, max = 1 } }
+recordingNames    = { "AST Depot" = { min = 2, max = 2 }, "AST Miner" = { min = 4, max = 4 }, "Ast. VPA-167" = { min = 1, max = 1 } }
 
 [expectations.rewind]
-# REPORT-ONLY: the depot undock's point only (SIBLING FIX: main adds one at the release).
+# REPORT-ONLY. The release authors no point (the rock is not controllable). The depot undock
+# authors one (`RewindPoint begin: rp=... slots=2`, UT 928.83), but the produced save is read
+# after the SealSlot step the route needs: sealing the last open slot makes both Immutable and
+# the reaper takes the point (`Sealed slot=1 ... reaperImpact=willReap reaped=1`, `Reaped rp=...
+# slots=2`). The reading run of 2026-11-15 (`2026-11-15_2130_AST-3-klaw-mine-route`) read 0
+# points (the authored guess, 1, did not see the reap), no supersede row and no tombstone.
 gating        = false
-rewindPoints  = { min = 1, max = 1 }
+rewindPoints  = { max = 0 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
 
 [expectations.routes]
-# REPORT-ONLY until the reading run: one route, one completed cycle, paused after it.
-gating          = false
-count           = { min = 1, max = 1 }
-completedCycles = { min = 1, max = 1 }
-statuses        = { Paused = { min = 1, max = 1 } }
+# REPORT-ONLY. The reading run of 2026-11-15 (`2026-11-15_2130_AST-3-klaw-mine-route`) matched:
+# one route of one DockingPort stop at the depot, one completed cycle, none skipped, paused
+# after it.
+gating                = false
+count                 = { min = 1, max = 1 }
+dormant               = { max = 0 }
+stops                 = { min = 1, max = 1 }
+completedCycles       = { min = 1, max = 1 }
+skippedCycles         = { max = 0 }
+statuses              = { Paused = { min = 1, max = 1 } }
+connectionKinds       = { DockingPort = { min = 1, max = 1 } }
+destinationVesselPids = ["2710404000"]
 
 [expectations.logContracts]
 required = [
@@ -191,9 +233,11 @@ required = [
   # 2. THE DRILL on the held rock (the mission's mid-mission seam presses).
   "partaction applied button=deploy pid=2710402000 part='MiniDrill' [^\\r\\n]*count=[1-9]",
   "partaction applied button=startconverter pid=2710402000 part='MiniDrill' [^\\r\\n]*count=[1-9]",
-  # SIBLING FIX: the asteroid harvester's window carries a capped Ore rate, not `unbounded`.
+  # The asteroid harvester's window carries a capped Ore rate, not `unbounded` (sibling fix,
+  # read in the green run as `plausibleRates=[Ore:0.0457...]`).
   "Harvest window opened: window=[^ \\r\\n]+ ut=[0-9.]+ converters=\\[[^\\]\\r\\n]+\\] res=[0-9]+ atStart=0 trigger=[a-z]+ plausibleRates=\\[Ore:[0-9]",
-  # 3. THE RELEASE: an Undock split authoring no rewind point (SIBLING FIX, as AST-2).
+  # 3. THE RELEASE: an Undock split authoring no rewind point (sibling fix, as AST-2; read in
+  # the green run).
   "Tree branch created: type=Undock, bp=[0-9a-f]+, activeChild=[0-9a-f]+ \\(pid=2710402000\\), bgChild=[0-9a-f]+ \\(pid=[1-9][0-9]*\\)",
   "Single-controllable split: no RP \\(bp=[0-9a-f]+ type=Undock controllable=1\\)",
   # 4. THE DOCK with the depot: a docking-port couple, a cross-tree single-parent merge.
@@ -232,7 +276,7 @@ forbidden = [
 [runtime]
 # One LoadGame (300 s), the mission (up to 2,400 s wall: grab, 30 s of mining and a MechJeb dock
 # at 1x), a rails warp (up to about 1,600 game s at 50x), a commit, a seal, a route create, a
-# TimeJump and a save.
+# TimeJump and a save. The reading run took 658 s; the budget stays the step-budget envelope.
 budgetSeconds = 4200
 
 [retry]

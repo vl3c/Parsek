@@ -11831,13 +11831,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # is the armed confirmation re-flight and then the operator -> nightly PROMOTION
         # call, a cadence decision and not a review debt.
         "V26T-interbody-route-ts-arrival.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). V18T's tracking-station grammar on the inter-body subject. It carries ONE genuinely open question the reading run must answer rather than pass: V18T's front-door tokens (`ghostDriving=[1-9]`, `routeMissions=[1-9]`) are deliberately NOT required, because this subject's Duna route has `loopAnchorUT = -1` and has never run a cycle, so whether a never-dispatched route enters the GhostDriving selection is unmeasured - and RUN 1 ANSWERED IT: `ghostDriving=1` and `routeMissions=1` both printed, so dispatch history is NOT a precondition for a route driving a tracking-station ghost, and both tokens are REQUIRED from the armed re-flight onward. The renderComposition arming pass this lane owed was TAKEN 2026-09-07 (package P16, after reading run 3 `2026-09-06_2115` PASS attempt 1): armed on `routeLineBuilds = {min = 2}` + `routeCoDrawViolations = {max = 0}`, deliberately symmetric with V26M and with no `unevaluable` ceiling on either. The armed re-flight and the negative control are OWED.",
-        # THE KLAW LANES, 2026-11-15 (owner rulings V 2026-11-15). Operator-tier by the
-        # reading-run discipline: five never-flown autopilot lanes on four new fixtures
-        # (build_ast_klaw_fixtures.py) with an invented, module-less Klaw part and a new
-        # mission (`ast_klaw_grab`); some pins wait on sibling fixes named in each header.
-        # AST-1, AST-2, AST-4 and COM-1 flew green and left for nightly (see
-        # TIER_PROMOTED_2026_11_15); AST-3 stays until its own green flight.
-        "AST-3-klaw-mine-route.toml": "operator by the reading-run discipline; AUTHORED 2026-11-15, NEVER FLOWN (a mining Klaw probe grabs and drills the asteroid for 30 s through mid-mission seam PartActions, releases it, MechJeb-docks with a depot, moves the Ore in, undocks; a route from the recording is a harvest origin whose empty grapple window is no stop, one cycle delivers); the capped plausible-rate pin waits on its sibling fix; the asteroid drill's yield, the dominant vessel after the dock and the route's stop count are re-pinned off the first flight, then the tier is promoted by its measured p50",
+        # THE KLAW LANES, 2026-11-15 (owner rulings V 2026-11-15): all five flew green and
+        # left for nightly (see TIER_PROMOTED_2026_11_15).
     }
 
     def _specs(self):
@@ -11984,14 +11979,16 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "GS-9-kerbalx-repeat-rewind.toml",
     )
 
-    # 2026-11-15: four of the five Klaw lanes flew their reading runs green (AST-1
+    # 2026-11-15: the five Klaw lanes flew their reading runs green (AST-1
     # `2026-11-15_1932`, AST-2 `_1932`, AST-4 `_1941`, each PASS attempt 1 on fcceccd;
-    # COM-1 `_2010` PASS attempt 1 on 4c6915a7), were re-pinned off them, and moved to
-    # nightly by their measured wall (259 / 310 / 305 / 332 s, far under the longhaul
+    # COM-1 `_2010` PASS attempt 1 on 4c6915a7; AST-3 `_2130` PASS attempt 1 on
+    # 61e36bd8, its fifth flight), were re-pinned off them, and moved to nightly by
+    # their measured wall (259 / 310 / 305 / 332 / 658 s, under the 1,800 s longhaul
     # bar). Their save-structure blocks stay report-only (arming is a separate call).
     TIER_PROMOTED_2026_11_15 = (
         "AST-1-klaw-grab-rewind.toml",
         "AST-2-klaw-release.toml",
+        "AST-3-klaw-mine-route.toml",
         "AST-4-klaw-refly.toml",
         "COM-1-comet-klaw-grab.toml",
     )

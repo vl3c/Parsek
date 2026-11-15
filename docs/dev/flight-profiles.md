@@ -10,8 +10,8 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 |---|---|
 | lanes | 600 |
 | tier daily | 29 |
-| tier nightly | 288 |
-| tier operator | 272 |
+| tier nightly | 289 |
+| tier operator | 271 |
 | tier longhaul | 5 |
 | tier (other) | 6 |
 | profile stock-minimal | 556 |
@@ -19,8 +19,8 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | profile modded-compat | 4 |
 | autopilot (mission) lanes | 145 |
 | seam-only lanes | 455 |
-| LIVE-PROVEN date in status row | 466 |
-| no LIVE-PROVEN date | 134 |
+| LIVE-PROVEN date in status row | 471 |
+| no LIVE-PROVEN date | 129 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -37,7 +37,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | AH | 1 | - | 1 | - | - | - | 1 |
 | AJ | 1 | - | - | 1 | - | - | 1 |
 | AP | 1 | - | 1 | - | - | - | 1 |
-| AST | 4 | - | 3 | 1 | - | 4 | - |
+| AST | 4 | - | 4 | - | - | 4 | 4 |
 | AT | 1 | - | 1 | - | - | - | 1 |
 | B | 41 | 1 | 12 | 23 | 5 | 40 | 25 |
 | BAY | 1 | - | - | 1 | - | 1 | 1 |
@@ -47,7 +47,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | CL | 2 | - | 1 | 1 | - | 2 | 2 |
 | CLK | 1 | - | 1 | - | - | - | 1 |
 | CN | 6 | - | 4 | 2 | - | - | 6 |
-| COM | 1 | - | 1 | - | - | 1 | - |
+| COM | 1 | - | 1 | - | - | 1 | 1 |
 | CS | 13 | - | - | 13 | - | 8 | 13 |
 | CT | 1 | - | - | 1 | - | - | 1 |
 | CTW | 1 | - | - | 1 | - | - | 1 |
@@ -305,7 +305,7 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 
 | body | lanes | autopilot | live-proven | families |
 |---|---|---|---|---|
-| Kerbin | 361 | 114 | 281 | RF 29, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +65 |
+| Kerbin | 361 | 114 | 286 | RF 29, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +65 |
 | Mun | 55 | 13 | 43 | RW 22, V 8, B 5, CS 5, TP 4, MC 2, EVA 1, GUI 1, H 1 +6 |
 | Minmus | 13 | 5 | 7 | V 6, B 5, AP 1, TP 1 |
 | Moho | 3 | 1 | 2 | V 2, B 1 |
@@ -812,10 +812,10 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| AST-1-klaw-grab-rewind | nightly | ast-klaw-lko | ast_klaw_grab | Kerbin | rewind-to-launch, reload, save, warp | - | PASS 2026-11-15, wall 259 s, re-pinned |
-| AST-2-klaw-release | nightly | ast-klaw-lko | ast_klaw_grab | Kerbin | rewind-to-launch, reload, save, warp | - | PASS 2026-11-15, wall 310 s, re-pinned |
-| AST-3-klaw-mine-route | operator | ast-miner-lko | ast_klaw_grab | Kerbin | save, warp, time-jump | - | third flight INVALID 2026-11-15 |
-| AST-4-klaw-refly | nightly | ast-mothership-lko | ast_klaw_grab | Kerbin | re-fly, reload, save, warp, scene-change | - | PASS 2026-11-15, wall 305 s, re-pinned |
+| AST-1-klaw-grab-rewind | nightly | ast-klaw-lko | ast_klaw_grab | Kerbin | rewind-to-launch, reload, save, warp | - | LIVE-PROVEN 2026-11-15 |
+| AST-2-klaw-release | nightly | ast-klaw-lko | ast_klaw_grab | Kerbin | rewind-to-launch, reload, save, warp | - | LIVE-PROVEN 2026-11-15 |
+| AST-3-klaw-mine-route | nightly | ast-miner-lko | ast_klaw_grab | Kerbin | save, warp, time-jump | - | LIVE-PROVEN 2026-11-15 |
+| AST-4-klaw-refly | nightly | ast-mothership-lko | ast_klaw_grab | Kerbin | re-fly, reload, save, warp, scene-change | - | LIVE-PROVEN 2026-11-15 |
 
 ### AT (1)
 
@@ -932,7 +932,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| COM-1-comet-klaw-grab | nightly | com-klaw-lko | ast_klaw_grab | Kerbin | rewind-to-launch, reload, save, warp | - | PASS 2026-11-15, wall 332 s, re-pinned |
+| COM-1-comet-klaw-grab | nightly | com-klaw-lko | ast_klaw_grab | Kerbin | rewind-to-launch, reload, save, warp | - | LIVE-PROVEN 2026-11-15 |
 
 ### CS (13)
 
