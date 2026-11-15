@@ -135,10 +135,12 @@ namespace Parsek
         /// attempt's same-id post-cutoff game-state event tails FIRST (see
         /// <see cref="PurgeCommittedTreeRestoreAttemptEventTails"/> - the clear nulls
         /// the cutoff map), then clears it. No-op when no attempt is armed.
-        /// <paramref name="preserveIrreversibleTails"/> is true on a LIVE discard (KSP keeps
-        /// what the player did in the attempt, so its irreversible tail events and science
-        /// become direct ledger rows before the purge) and false on a rollback (a rewind or a
-        /// load reverts KSP with the save).
+        /// <paramref name="preserveIrreversibleTails"/> is the ledger's re-home step
+        /// (<c>LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard</c>) on a LIVE
+        /// discard (KSP keeps what the player did in the attempt, so its irreversible tail events
+        /// and science become direct ledger rows before the purge) and null on a rollback (a
+        /// rewind or a load reverts KSP with the save). The caller passes it, so this type does
+        /// not reference the orchestrator.
         /// Discard paths whose caller drops the attempt's clone tree before any
         /// drop-site id match can run (the no-op no-session resume revert, the
         /// switch-segment scoped discard, the pre-switch dialog discard) must call
@@ -146,7 +148,7 @@ namespace Parsek
         /// suppressed post-cutoff events to become durable on the next save.
         /// </summary>
         internal static void DiscardCommittedTreeRestoreAttempt(
-            string reason, bool preserveIrreversibleTails)
+            string reason, Action<IReadOnlyDictionary<string, double>, string> preserveIrreversibleTails)
         {
             if (string.IsNullOrEmpty(committedTreeRestoreAttemptTreeId))
                 return;
@@ -190,12 +192,13 @@ namespace Parsek
         /// map and the clone's abandoned post-restore events must not become durable on the
         /// next save. An attempt for another tree id, or no attempt at all, is left untouched.
         /// <paramref name="preserveIrreversibleTails"/> as in
-        /// <see cref="DiscardCommittedTreeRestoreAttempt"/>: true when the drop is a live discard,
-        /// false when a load or rewind already reverted KSP. Returns true when an attempt was
-        /// cleared.
+        /// <see cref="DiscardCommittedTreeRestoreAttempt"/>: the re-home step when the drop is a
+        /// live discard, null when a load or rewind already reverted KSP. Returns true when an
+        /// attempt was cleared.
         /// </summary>
         internal static bool ClearCommittedTreeRestoreAttemptForDroppedTree(
-            string droppedTreeId, string reason, bool preserveIrreversibleTails)
+            string droppedTreeId, string reason,
+            Action<IReadOnlyDictionary<string, double>, string> preserveIrreversibleTails)
         {
             if (!DroppedTreeMatchesArmedRestoreAttempt(
                     committedTreeRestoreAttemptTreeId, droppedTreeId))
@@ -204,7 +207,7 @@ namespace Parsek
             ParsekLog.Info("RecordingStore",
                 $"ClearCommittedTreeRestoreAttemptForDroppedTree: dropped tree={droppedTreeId} " +
                 $"matches the armed restore attempt; clearing it reason={reason ?? "<none>"} " +
-                $"preserveIrreversibleTails={preserveIrreversibleTails}");
+                $"preserveIrreversibleTails={preserveIrreversibleTails != null}");
             DiscardCommittedTreeRestoreAttempt(reason, preserveIrreversibleTails);
             return true;
         }
@@ -368,13 +371,16 @@ namespace Parsek
         /// BEFORE <see cref="ClearCommittedTreeRestoreAttempt"/>: the clear nulls that map.
         /// <paramref name="contextLabel"/> is the per-recording reason GameStateStore logs,
         /// <paramref name="warnLabel"/> prefixes the summary line (emitted only when
-        /// something was purged). When <paramref name="preserveIrreversibleTails"/> (a live
-        /// discard), the tails' irreversible events and science subjects are re-homed to the
-        /// direct ledger first (<see cref="LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard"/>).
+        /// something was purged). When <paramref name="preserveIrreversibleTails"/> is set (a
+        /// live discard), the tails' irreversible events and science subjects are re-homed to the
+        /// direct ledger first through it (the caller passes
+        /// <c>LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard</c>).
         /// Returns the number of events purged.
         /// </summary>
         private static int PurgeCommittedTreeRestoreAttemptEventTails(
-            string contextLabel, bool preserveIrreversibleTails, string warnLabel = null)
+            string contextLabel,
+            Action<IReadOnlyDictionary<string, double>, string> preserveIrreversibleTails,
+            string warnLabel = null)
         {
             if (committedTreeRestoreAttemptEventCutoffs == null
                 || committedTreeRestoreAttemptEventCutoffs.Count == 0)
@@ -382,8 +388,8 @@ namespace Parsek
                 return 0;
             }
 
-            if (preserveIrreversibleTails)
-                LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard(
+            if (preserveIrreversibleTails != null)
+                preserveIrreversibleTails(
                     committedTreeRestoreAttemptEventCutoffs, contextLabel);
 
             int purged = 0;
@@ -407,7 +413,7 @@ namespace Parsek
         }
 
         internal static int PurgeCommittedTreeRestoreAttemptEventTailsForPendingDiscard(
-            bool preserveIrreversibleTails)
+            Action<IReadOnlyDictionary<string, double>, string> preserveIrreversibleTails)
         {
             if (!PendingTreeMatchesCommittedTreeRestoreAttempt()
                 || committedTreeRestoreAttemptEventCutoffs == null

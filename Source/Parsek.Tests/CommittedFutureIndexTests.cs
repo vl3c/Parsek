@@ -299,7 +299,7 @@ namespace Parsek.Tests
             Assert.True(CommittedFutureIndexCache.Current.HasFuture(CommittedFutureKind.KerbalHire, "Old Kerman", 0));
 
             LedgerOrchestrator.ResetForTesting();
-            Assert.Null(LedgerOrchestrator.OnTimelineDataChanged);
+            Assert.Null(LedgerTimelineSignal.OnTimelineDataChanged);
             Ledger.AddAction(new GameAction { UT = 500, Type = GameActionType.KerbalHire, KerbalName = "New Kerman" });
 
             var index = CommittedFutureIndexCache.Current;

@@ -682,7 +682,7 @@ namespace Parsek
         /// and a fresh unadopted row lands beside it. The adopted row carries
         /// no DedupKey so its rollout context must be sourced from the
         /// associated recording — that lookup is delegated to
-        /// <see cref="LedgerOrchestrator.FindRecordingById"/> via the resolver
+        /// <see cref="RecordingStore.FindRecordingById"/> via the resolver
         /// below. The adopted row always wins the cluster.</para>
         /// </summary>
         internal static int RepairDuplicateRolloutActions()
@@ -712,7 +712,7 @@ namespace Parsek
         /// </summary>
         private static LedgerRolloutAdoption.RolloutAdoptionContext ResolveAdoptedRolloutContext(string recordingId)
         {
-            var rec = LedgerOrchestrator.FindRecordingById(recordingId);
+            var rec = RecordingStore.FindRecordingById(recordingId);
             if (rec == null)
                 return default(LedgerRolloutAdoption.RolloutAdoptionContext);
             return LedgerRolloutAdoption.CreateRolloutAdoptionContext(rec);

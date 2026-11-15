@@ -31,6 +31,10 @@ All notable changes to Parsek are documented here.
   `Source/Parsek/<Module>/`, the folder named after the part of the code it belongs to, so the
   folder tells you the module. The game plays the same; a few of Parsek's start-up log lines now
   print in a different order. (ARCH-MODULE-FOLDERS)
+- **Dev: fewer parts of the code call back into the career ledger's entry point.** A recording
+  lookup moved to the recording store and the timeline-changed signal to a small type of its
+  own, the discard paths are handed the ledger step they run, and two groups of reconcile
+  checks moved next to the code that uses them. Nothing in the game changes.
 - **Dev: 117 methods the game never ran are deleted, with the tests that only tested them.**
   Nothing calls them in play, so the game is unchanged. (DEAD-CODE-TEST-ONLY-METHODS-PARKED)
 
@@ -47,6 +51,10 @@ All notable changes to Parsek are documented here.
   the ship was also the end of an earlier recorded flight, the map's Switch To quietly merged the
   recording you were making and loaded that earlier flight instead. The switch now just continues
   the current recording. (PRESWITCH-CASE-C-LIVE-TREE-MEMBER)
+- **Switching to a far-away vessel no longer starts a recording by itself.** After a map Switch To
+  (or an alarm's Jump) to a vessel outside the loaded area, the game reloads the flight, and on a
+  fast load Parsek could start recording the new vessel at once, depending on load speed. It now
+  never does. (FAR-SWITCH-INTENT-TTL-RACE)
 - **Supply routes no longer break after a save is loaded.** Parsek's clean-up of saved recordings
   could merge, split or trim the recordings a route was built from, and the route then stopped
   with "source changed", often right after you created it. Those recordings are now left as they

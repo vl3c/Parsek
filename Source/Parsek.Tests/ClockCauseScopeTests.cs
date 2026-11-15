@@ -178,7 +178,7 @@ namespace Parsek.Tests
             var row = Ledger.Actions.Single(a => a.Type == GameActionType.ScienceEarning
                 && a.SubjectId == "deployedSeismicSensor@KerbinSrfLanded");
             Assert.Equal(ScienceMethod.Recovered, row.Method);
-            Assert.Equal("VesselRecovery", LedgerOrchestrator.GetScienceChangedReasonKey(row));
+            Assert.Equal("VesselRecovery", PostWalkActionReconciler.GetScienceChangedReasonKey(row));
         }
 
         // catches: a vessel's own transmission or recovery losing its flight's tag.

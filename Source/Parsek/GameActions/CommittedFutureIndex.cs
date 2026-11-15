@@ -766,7 +766,7 @@ namespace Parsek
     /// marker change), plus <c>DisplayNames.Version</c> (entries bake a flight's display name, and a rename moves
     /// none of the other keys) and an explicit generation that <see cref="Invalidate"/> bumps. The stock overlay
     /// controller calls <see cref="Invalidate"/> from
-    /// <c>LedgerOrchestrator.OnTimelineDataChanged</c>; the version keys make the cache
+    /// <c>LedgerTimelineSignal.OnTimelineDataChanged</c>; the version keys make the cache
     /// correct even when that delegate was reset (its <c>ResetForTesting</c> nulls it) or
     /// no subscriber exists, so it cannot go stale across a reset.</para>
     /// </summary>
@@ -890,7 +890,7 @@ namespace Parsek
         internal static string ResolveRecordingDisplayName(string recordingId)
         {
             if (string.IsNullOrEmpty(recordingId)) return null;
-            Recording rec = LedgerOrchestrator.FindRecordingById(recordingId);
+            Recording rec = RecordingStore.FindRecordingById(recordingId);
             if (rec == null) return null;
             Mission mission = !string.IsNullOrEmpty(rec.TreeId)
                 ? MissionStore.FindOriginalMission(rec.TreeId)

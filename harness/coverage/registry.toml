@@ -95,9 +95,22 @@ schema = 1
 #   An EVA kerbal is a non-debris leaf too, in either direction.
 #   In gameplay terms: the vessel you are flying is destroyed but another controlled
 #   vessel of the flight survives, so Parsek does not end the mission.
+#
+# "commit-far-switch" (added 2026-11-14 with S0.14, per the growth rule): committing the
+# live tree because the player switches to a vessel OUTSIDE the physics bubble while
+# recording with no switch session (pre-switch Case B). Stock's far switch is a FLIGHT ->
+# FLIGHT scene reload that never fires onVesselSwitching, so the tree must be decided
+# before stock switches: `MapFocusObjectOnSelectPatch.TryAutoResolvePreSwitch` ->
+# `MergeActiveTreeAndSwitchTo` -> `CommitTreeFlight`, in the OLD scene. A TRIGGER,
+# distinct from `commit-scene-exit` (the scene-exit finalize, which this path must NOT
+# reach: the tree is gone before `OnSceneChangeRequested`) and from `switch-segment`
+# (Case A, a live session). THE WITNESS is the auto-resolve line
+# "pre-switch auto-resolve: resolution=Merge case=B-unloaded" together with
+# "pre-switch-dialog-merge-chosen-no-session" ahead of "Scene change requested: FLIGHT".
 values = ["auto-record-launch", "auto-record-eva", "auto-record-first-mod-switch",
           "switch-backgrounds-recording", "commit-revert-merge", "commit-scene-exit",
           "commit-abort", "commit-in-foreign-soi", "commit-landed-foreign-body",
+          "commit-far-switch",
           "discard-rollback", "auto-merge",
           "sub-2-point-drop", "switch-segment", "switch-segment-noop-discard",
           "scene-exit-finalization", "ballistic-extrapolation", "finalization-cache"]

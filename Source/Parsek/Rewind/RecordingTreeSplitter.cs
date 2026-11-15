@@ -1113,7 +1113,7 @@ namespace Parsek
             }
             if (result.MilestonesRetagged > 0)
             {
-                LedgerOrchestrator.OnTimelineDataChanged?.Invoke();
+                LedgerTimelineSignal.OnTimelineDataChanged?.Invoke();
             }
             ParsekLog.Verbose(Tag,
                 $"Step9b: milestone retag — milestonesRetagged={result.MilestonesRetagged.ToString(ic)} " +
@@ -1322,7 +1322,7 @@ namespace Parsek
                 // surfaces a loud Warn but rollback completes its own work.
                 try
                 {
-                    LedgerOrchestrator.OnTimelineDataChanged?.Invoke();
+                    LedgerTimelineSignal.OnTimelineDataChanged?.Invoke();
                 }
                 catch (Exception invokeEx)
                 {

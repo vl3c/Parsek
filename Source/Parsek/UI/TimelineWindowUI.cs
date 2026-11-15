@@ -641,19 +641,19 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Hooks <see cref="InvalidateCache"/> to <c>LedgerOrchestrator.OnTimelineDataChanged</c>
+        /// Hooks <see cref="InvalidateCache"/> to <c>LedgerTimelineSignal.OnTimelineDataChanged</c>
         /// (every ledger-side change). Called from both <see cref="ParsekUI"/> constructors,
         /// before the Kerbals window's hook so a ledger change drops this cache first, and undone by <see cref="UnsubscribeTimelineDataChanged"/> from
         /// <c>ParsekUI.Cleanup</c>, so the hook lives and dies with the scene's ParsekUI.
         /// </summary>
         public void SubscribeTimelineDataChanged()
         {
-            LedgerOrchestrator.OnTimelineDataChanged += InvalidateCache;
+            LedgerTimelineSignal.OnTimelineDataChanged += InvalidateCache;
         }
 
         public void UnsubscribeTimelineDataChanged()
         {
-            LedgerOrchestrator.OnTimelineDataChanged -= InvalidateCache;
+            LedgerTimelineSignal.OnTimelineDataChanged -= InvalidateCache;
         }
 
         private void EnsureStyles()

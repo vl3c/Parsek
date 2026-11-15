@@ -74,6 +74,8 @@ namespace Parsek
             string switchSegmentReason;
             var switchSegmentDisposition =
                 SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(
+                    LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard,
+                    LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard,
                     out switchSegmentReason);
             if (switchSegmentDisposition
                 != RecordingStore.SwitchSegmentDiscardDisposition.NoActiveSession)

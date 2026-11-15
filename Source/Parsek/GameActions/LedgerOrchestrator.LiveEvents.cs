@@ -794,35 +794,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure: true for every row shape <see cref="BuildStrategyConversionAction"/>
-        /// writes. <c>FundsEarning</c> / <c>FundsEarningSource.Strategy</c> is shared on
-        /// purpose with the exchanger family's funds output (Bail-Out Grant), so that row
-        /// matches too; nothing on disk tells the two apart.
-        /// </summary>
-        internal static bool IsStrategyConversionRow(GameAction action)
-        {
-            if (action == null)
-                return false;
-            switch (action.Type)
-            {
-                case GameActionType.StrategyScienceDebit:
-                    return action.ConversionSource == StrategyConversionSource.Converter;
-                case GameActionType.StrategyScienceCredit:
-                    return true;
-                case GameActionType.FundsSpending:
-                    return action.FundsSpendingSource == FundsSpendingSource.StrategyConverter;
-                case GameActionType.FundsEarning:
-                    return action.FundsSource == FundsEarningSource.Strategy;
-                case GameActionType.ReputationEarning:
-                    return action.RepSource == ReputationSource.Strategy;
-                case GameActionType.ReputationPenalty:
-                    return action.RepPenaltySource == ReputationPenaltySource.StrategyConverter;
-                default:
-                    return false;
-            }
-        }
-
-        /// <summary>
         /// True for the irreversible live-gameplay terminal events that KSP applies the
         /// moment they happen and cannot be cleanly undone without a quicksave reload:
         /// contract terminal outcomes, world-record / progress milestone achievements, and
@@ -1233,7 +1204,7 @@ namespace Parsek
 
         /// <summary>
         /// Clears the recording tag on every strategy conversion row
-        /// (<see cref="IsStrategyConversionRow"/>) tagged to a discarded, never-committed
+        /// (<see cref="ConversionLegBinding.IsStrategyConversionRow"/>) tagged to a discarded, never-committed
         /// recording, keeping the row. Committed ids are skipped for the same reason
         /// <see cref="PreserveIrreversibleLiveGameplayOnDiscard"/> skips their events: their
         /// rows are committed history. Returns the number untagged.
@@ -1253,7 +1224,7 @@ namespace Parsek
                     continue;
                 if (!discardedRecordingIds.Contains(a.RecordingId))
                     continue;
-                if (!IsStrategyConversionRow(a))
+                if (!ConversionLegBinding.IsStrategyConversionRow(a))
                     continue;
                 if (RecordingStore.IsCommittedRecordingId(a.RecordingId))
                     continue;
@@ -1284,7 +1255,7 @@ namespace Parsek
         {
             if (action == null || string.IsNullOrEmpty(action.RecordingId))
                 return false;
-            if (!IsStrategyConversionRow(action))
+            if (!ConversionLegBinding.IsStrategyConversionRow(action))
                 return false;
             if (isCommittedRecordingId != null && isCommittedRecordingId(action.RecordingId))
                 return false;

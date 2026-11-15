@@ -1127,7 +1127,7 @@ namespace Parsek.Tests
             MilestoneStore.AddMilestoneForTesting(msPost);
 
             bool timelineSignalFired = false;
-            LedgerOrchestrator.OnTimelineDataChanged = () => timelineSignalFired = true;
+            LedgerTimelineSignal.OnTimelineDataChanged = () => timelineSignalFired = true;
 
             try
             {
@@ -1141,11 +1141,11 @@ namespace Parsek.Tests
                 Assert.Equal(result.TipRecordingId, msPost.RecordingId);
 
                 Assert.True(timelineSignalFired,
-                    "Expected LedgerOrchestrator.OnTimelineDataChanged invocation after milestone retag");
+                    "Expected LedgerTimelineSignal.OnTimelineDataChanged invocation after milestone retag");
             }
             finally
             {
-                LedgerOrchestrator.OnTimelineDataChanged = null;
+                LedgerTimelineSignal.OnTimelineDataChanged = null;
             }
         }
 
@@ -1291,7 +1291,7 @@ namespace Parsek.Tests
             // production catch at SplitOriginAtRewindUT (rollback + re-throw) and
             // the snapshot the orchestrator itself populated are both unpinned:
             // a dropped ledger entry in RunPostSplitSteps leaves the suite green.
-            // LedgerOrchestrator.OnTimelineDataChanged is fired exactly once on
+            // LedgerTimelineSignal.OnTimelineDataChanged is fired exactly once on
             // the forward path (step 9b, after the milestone retag), which makes
             // it a headless mid-split throw seam. A one-shot delegate is used so
             // rollback's own guarded invoke is clean.
@@ -1332,7 +1332,7 @@ namespace Parsek.Tests
             string markerTargetBefore = marker.SupersedeTargetId;
 
             int invocations = 0;
-            LedgerOrchestrator.OnTimelineDataChanged = () =>
+            LedgerTimelineSignal.OnTimelineDataChanged = () =>
             {
                 invocations++;
                 if (invocations == 1)
@@ -1347,7 +1347,7 @@ namespace Parsek.Tests
             }
             finally
             {
-                LedgerOrchestrator.OnTimelineDataChanged = null;
+                LedgerTimelineSignal.OnTimelineDataChanged = null;
             }
 
             // TIP removed from both the flat list and the tree dictionary.
