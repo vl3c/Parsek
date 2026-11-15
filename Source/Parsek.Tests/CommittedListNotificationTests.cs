@@ -443,9 +443,10 @@ namespace Parsek.Tests
 
             var listens = new Regex(@"CommittedRecording(Removing|Removed|Inserted)\s*[+-]=");
             var writes = new Regex(@"CommittedRecordings\s*\.\s*(RemoveAt|RemoveAll|Remove|Insert|Add|AddRange|Clear|Sort|Reverse)\s*\(");
-            foreach (string name in ParsekFlightSourceFiles.ServiceFileNames)
+            foreach (string servicePath in ParsekFlightSourceFiles.ServicePaths(dir))
             {
-                string service = StripComments(File.ReadAllText(Path.Combine(dir, ParsekFlightSourceFiles.ModuleFolder, name)));
+                string name = Path.GetFileName(servicePath);
+                string service = StripComments(File.ReadAllText(servicePath));
                 Assert.False(listens.IsMatch(service), name + " subscribes to the committed-list seam");
                 Assert.False(writes.IsMatch(service), name + " writes the committed list");
             }

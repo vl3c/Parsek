@@ -37,6 +37,9 @@ All notable changes to Parsek are documented here.
   checks moved next to the code that uses them. Nothing in the game changes.
 - **Dev: 117 methods the game never ran are deleted, with the tests that only tested them.**
   Nothing calls them in play, so the game is unchanged. (DEAD-CODE-TEST-ONLY-METHODS-PARKED)
+- **Dev: the ghost positioner's one 5,500-line source file is cut into twelve files.** The same
+  class, the same code, grouped by what it places (points, orbits, checkpoints, relative
+  sections, loops, traces and more); the built mod is identical. (ARCH-GHOST-POSITIONING-FILE)
 
 ### Fixed
 

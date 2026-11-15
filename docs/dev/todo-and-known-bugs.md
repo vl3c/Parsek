@@ -132,6 +132,31 @@ What a fix needs, either of:
      crash path must keep.
 The first is smaller and needs no new state.
 
+## PARALLEL-RUNNER-SUMMARY-RENAME-ABORT: on Windows the parallel runner aborts when another process holds summary.txt open, and kills the lanes still flying [FILED 2026-11-15 from two parallel runs on the PC the same day, each with a `tail -F` watcher on the run's `summary.txt`; harness, no fix yet; medium (a run dies mid-way and its in-flight lanes re-fly on resume)]
+
+Seen twice on 2026-11-15: `harness/tools/parallel_runner.py run` stopped with `runner internal
+error: ... PermissionError: [WinError 5] Access is denied` from the rename that writes
+`summary.txt`, while a `tail -F` held that file open, and the lanes then in flight were killed and
+flew again on `resume`.
+
+Why, by code reading: `RunFolder.write_summary` (`parallel_runner.py`, line 651) writes through
+`write_text_atomic` (line 159), whose `os.replace(tmp, path)` (line 164) cannot replace a file
+another process holds open on Windows without delete sharing. `_dispatch` calls it after every lane
+end (line 885) and once at the end (line 940), outside any try, so the `PermissionError` leaves
+`_dispatch`; `dispatch_loop`'s `except BaseException` (line 847) then runs `_kill_running` (line
+1150) on every running child, logs an `abandon` event for each and re-raises, and `main` (line
+1274) reports `runner internal error`. A summary write is bookkeeping, yet it takes the run and its
+live lanes down with it.
+
+Fix: retry the rename with a short backoff (a few tries over about a second); if it still fails,
+log one Warn, keep the run alive and write the summary again on the next lane end (and at the end
+of the run). Never kill in-flight lanes for a summary write. Unit cells: a replace that fails once
+then succeeds writes the summary; one that always fails leaves the run and its children running
+and retries on the next lane end; the end-of-run write failing still returns the run's real exit
+code. Until then, the operator rule: watch a run through `parallel_runner.py status --name <run>`
+or `events.jsonl`, never through an open handle on `summary.txt` (no `tail -F`, no editor that
+keeps it open).
+
 ## ~~FAR-SWITCH-CASE-B-UNFLOWN~~: no lane flew a far vessel switch while recording, so the commit before stock's reload was never checked in game [CLOSED 2026-11-15: S0.14 LIVE-PROVEN on its fourth flight, `2026-11-15_0011_S0.14-far-switch-merges-before-reload` PASS attempt 1, tier daily; the residue below is the #266 stash, still unreached. FILED 2026-11-14 from a lane gap audit (the vessel-switch stash family). LANE AUTHORED 2026-11-14, branch `item20-switch-pending-merge-lane`: `S0.14-far-switch-merges-before-reload`, operator (flight 1 INVALID on its host, re-hosted on `jool-park-nerv`; flight 2 red on a spec error, fixed; flight 3 PARSEK-FAIL on a product defect, FAR-SWITCH-INTENT-TTL-RACE, now fixed and the lane re-pinned to it); the two-switch reading lane S0.15 flew once and was WITHDRAWN (no committed host). Closes when S0.14 flies green with the fix; the #266 stash stays unreached by any flown lane until a host is harvested; test gap]
 
 Shape: the player records a vessel, then switches to a vessel OUTSIDE the physics bubble (map
@@ -460,6 +485,10 @@ uncalled fixpoint after is the 773 minus exactly the 117 (no cascade); the list 
 Left for a later look (not dead by the fixpoint, but its only consumer went):
 `GameStateStore.originalScienceValues` is still recorded, saved and loaded, but no game code
 reads it since `RestoreScienceInRnD` (already dead) went. The rest of the list stays parked.
+Follow-ups for the mid-December 2026 re-measure (do not delete before it): the unused private
+const `ParsekFlight.RecordedAnchorFallbackGapWarnThresholdSeconds` (`ParsekFlight.cs`, about line
+2520), and `GameStateStore.originalScienceValues` (written, saved and loaded, never read by game
+code; only the test accessors `OriginalScienceValueCount` / `TryGetOriginalScience` read it).
 
 ## ARCH-COLD-RESET-HOLDERS: save-scoped statics are reset field by field, so a new field can be forgotten [FILED 2026-11-14 for refactor plan item 15 ("B1", as corrected by the 2026-11-11 architecture review), branch `item15-cold-reset-holders`. IN PROGRESS; refactor, no product change]
 
@@ -2563,7 +2592,7 @@ Leave the fixtures and document that Jeb reads held on them. No migration or loa
 ledgers: the recording schema policy (CLAUDE.md, "Recording schema") is one current contract, and a
 missing capture row is not something load code should synthesize.
 
-## ARCH-GHOSTMAPPRESENCE-SPLIT: GhostMapPresence is the biggest type left, one static class over 16 files with 63 static fields [FILED 2026-11-14 from the Atlas opportunity row 5 ("GhostMapPresence: source-resolver type, then the static state"). PARKED by the owner 2026-11-14 as later work, not part of the current refactor pass (which closes after the folder move, the cold load leftovers, the six-edge ledger cut and the really-dead removal); re-measure mid-December. Architecture debt, no behavior defect]
+## ARCH-GHOSTMAPPRESENCE-SPLIT: GhostMapPresence is the biggest type left, one static class over 16 files with 63 static fields [FILED 2026-11-14 from the Atlas opportunity row 5 ("GhostMapPresence: source-resolver type, then the static state"). PARKED by the owner 2026-11-14 as later work, not part of the refactor pass (closed 2026-11-15 after the folder move, the cold load leftovers, the six-edge ledger cut, the really-dead removal and the positioner file cut); re-measure planned mid-December 2026. Architecture debt, no behavior defect]
 
 Measured at main 24abf0dba (2026-11-14, Debug): `GhostMapPresence` is 16 files, 16,575 lines,
 408 methods, 34,331 IL instructions, and 63 static fields that are not constants (27
@@ -2612,7 +2641,7 @@ Leave this parked for multiplayer's sake. If it is done anyway: make P3-01..P3-0
 so the primitive is not extracted twice, land P3-02 after P2a-07 (both touch
 `GhostMapPresence.StateVectors.cs`), and never run it concurrently with P3.
 
-## ARCH-GHOST-POSITIONING-FILE: ParsekFlightGhostPositioner.cs is the one production file above 5,000 lines [FILED 2026-11-14 from the Atlas opportunity row 10 ("the single-file giants") and its "Largest files and types" finding. PARKED by the owner 2026-11-14 as later work, not part of the current refactor pass (which closes after the folder move, the cold load leftovers, the six-edge ledger cut and the really-dead removal); re-measure mid-December. Architecture debt, no behavior defect]
+## ARCH-GHOST-POSITIONING-FILE: ParsekFlightGhostPositioner.cs is the one production file above 5,000 lines [FILED 2026-11-14 from the Atlas opportunity row 10 ("the single-file giants") and its "Largest files and types" finding. PARKED by the owner 2026-11-14 as later work, not part of the refactor pass (closed 2026-11-15 after the folder move, the cold load leftovers, the six-edge ledger cut, the really-dead removal and the positioner file cut); re-measure planned mid-December 2026. ~~FILE-ONLY CUT DONE~~ 2026-11-15 as the last change of that pass (item 26, branch `item26-positioner-file-cut`): twelve partial files, IL identical; the CLASS split stays PARKED until after multiplayer P2b-10. Architecture debt, no behavior defect]
 
 Measured at main 24abf0dba (2026-11-14): `Source/Parsek/ParsekFlightGhostPositioner.cs` is
 5,567 lines (6,017 when PF2 created it; B7 and later commits removed code since), one file
@@ -2649,6 +2678,29 @@ P2b-10: P2b moves the orbit cache, the position entries, the reapply stamps and 
 (the state that tangles this file) into `ParsekFlightPlaybackLane`, so a class split before it
 would invalidate P2b's member tables and need the 18-lane flight proof twice. Never during the
 P2b window.
+
+File-only cut, 2026-11-15 (item 26, branch `item26-positioner-file-cut`): the same class made
+`partial`, bodies verbatim, written by `scripts/refactor/split_ghostpositioner.py` from the
+multiplayer plan's grouping (`positioner-split-groups.md`, measured on main e66f97d28). The main
+file `Source/Parsek/Controllers/ParsekFlightGhostPositioner.cs` keeps the class comment, `host`,
+the constructor, every field, constant and static readonly delegate in today's order, the thin
+IGhostPositioner entry points, the body lookups and the engine distance queries (36 of the 133
+class-level members: 17 methods, the constructor, 9 fields, 9 constants); eleven files beside
+it carry the other 97: `.Points` (9),
+`.Orbit` (12), `.OrbitTailContinuity` (5), `.Checkpoint` (7), `.WorldPosition` (12),
+`.RecordedRelative` (10), `.RelativeAnchor` (4), `.BodyFixedPrimary` (2), `.Trace` (11),
+`.Loop` (12) and `.TailLift` (13). Four members the grouping named for `.WorldPosition`
+(`CountDensebodyFixedFramesForSection`, `TryGetDenseSectionBracketWidthSeconds`,
+`TryGetBracketWidthSeconds`, `PointBelongsToSection`) were already deleted by the really-dead
+removal (item 25). Each file carries only the usings it needs (the build confirms each kept one
+is needed). Proof: `scripts/refactor/il_compare.py` over Debug builds before and after in the
+same worktree path, 4009 types, 24755 fields, 26709 methods on both sides, 0 differences. Source
+gates read the family whole through `ParsekFlightGhostPositionerSourceFiles` (and
+`ParsekFlightSourceFiles` reads it wherever it read the one file); the non-loop live-PID audit
+repeats its row per group file and reads the loop-only flag in `.Loop.cs`; the ERS / ELS
+exemption names `.TailLift.cs`, the one file with the raw committed-list read. The largest
+positioner file is now `.Loop.cs` at about 725 lines. The class split into several types stays
+parked until after P2b-10, as above; the multiplayer plan re-anchors its own file:line facts.
 
 ## ARCH-STOCK-UI-RESERVATION-CYCLES-2026-09-25: the stock-UI reservation layer added eight types to the kernel knot and a new 7-type knot [FILED 2026-09-25 when `scripts/arch/modules.toml` classified the layer; OPEN, low; architecture debt, no behavior defect. POSTPONED 2026-10-25 (owner): architecture and refactor work comes after the full test rerun]
 

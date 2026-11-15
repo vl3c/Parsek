@@ -22,7 +22,9 @@ namespace Parsek.Tests
     /// body in "ParsekFlight.cs" still reads it. The split files under 200 lines (Accessors, Flags,
     /// PostSwitchAutoRecord, Spawning, SplitEvents) were folded back into <c>ParsekFlight.cs</c>
     /// by <c>scripts/refactor/fold_parsekflight_partials.py</c>; a whole-class read covers the
-    /// same code.
+    /// same code. A service that is itself a partial class is read whole: the positioner's
+    /// files are <see cref="ParsekFlightGhostPositionerSourceFiles"/>, so <see cref="ReadAll"/>,
+    /// <see cref="ServicePaths"/> and <see cref="ReadText"/> of its main file read all of them.
     /// </summary>
     internal static class ParsekFlightSourceFiles
     {
@@ -84,23 +86,46 @@ namespace Parsek.Tests
                 nameof(ParsekFlightSourceFiles));
         }
 
+        /// <summary>
+        /// Every file of the services in <see cref="ServiceFileNames"/>, in that order; a
+        /// service that is a partial class contributes all of its files, main file first.
+        /// </summary>
+        internal static IReadOnlyList<string> ServicePaths(string parsekSourceDir)
+        {
+            string dir = PartialClassSourceFiles.FamilyDir(parsekSourceDir, "ParsekFlight.cs", ModuleFolder);
+            var paths = new List<string>();
+            foreach (string name in ServiceFileNames)
+            {
+                if (string.Equals(name, ParsekFlightGhostPositionerSourceFiles.MainFileName, StringComparison.Ordinal))
+                    paths.AddRange(ParsekFlightGhostPositionerSourceFiles.Paths(dir));
+                else
+                    paths.Add(Path.Combine(dir, name));
+            }
+            return paths;
+        }
+
         internal static string ReadAll(string parsekSourceDir)
         {
             string dir = PartialClassSourceFiles.FamilyDir(parsekSourceDir, "ParsekFlight.cs", ModuleFolder);
             return string.Join("\n", Paths(dir)
-                .Concat(ServiceFileNames.Select(n => Path.Combine(dir, n)))
+                .Concat(ServicePaths(dir))
                 .Select(File.ReadAllText));
         }
 
         /// <summary>
         /// <see cref="File.ReadAllText(string)"/> for a source reader that takes a path: the
         /// path of <c>ParsekFlight.cs</c> reads <see cref="ReadAll"/> (the text that was
-        /// ParsekFlight.cs), any other path reads that one file.
+        /// ParsekFlight.cs), the path of <c>ParsekFlightGhostPositioner.cs</c> reads
+        /// <see cref="ParsekFlightGhostPositionerSourceFiles.ReadAll"/> (the text that was that
+        /// file), any other path reads that one file.
         /// </summary>
         internal static string ReadText(string path)
         {
-            if (string.Equals(Path.GetFileName(path), "ParsekFlight.cs", StringComparison.Ordinal))
+            string name = Path.GetFileName(path);
+            if (string.Equals(name, "ParsekFlight.cs", StringComparison.Ordinal))
                 return ReadAll(Path.GetDirectoryName(path));
+            if (string.Equals(name, ParsekFlightGhostPositionerSourceFiles.MainFileName, StringComparison.Ordinal))
+                return ParsekFlightGhostPositionerSourceFiles.ReadAll(Path.GetDirectoryName(path));
             return File.ReadAllText(path);
         }
     }
