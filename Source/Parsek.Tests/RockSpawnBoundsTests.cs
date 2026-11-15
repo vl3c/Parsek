@@ -32,10 +32,19 @@ namespace Parsek.Tests
 
         private static ConfigNode ClawedShip(string prefabUrl)
         {
-            var b = VesselSnapshotBuilder.ClawedAsteroidShip("Grabber", "Jebediah Kerman", 500u);
-            if (prefabUrl != null)
-                b.AddModuleToPart(2, "ModuleAsteroid", ("seed", "12345"), ("prefabBaseURL", prefabUrl));
-            return b.Build();
+            // The generator writes stock's ModuleAsteroid fields (a class-E prefabBaseURL); each
+            // case here sets or removes that one value so the class source is the case's own.
+            ConfigNode ship = VesselSnapshotBuilder.ClawedAsteroidShip("Grabber", "Jebediah Kerman", 500u).Build();
+            ConfigNode rock = ship.GetNodes("PART")[2];
+            foreach (ConfigNode module in rock.GetNodes("MODULE"))
+            {
+                if (module.GetValue("name") != "ModuleAsteroid")
+                    continue;
+                module.RemoveValues("prefabBaseURL");
+                if (prefabUrl != null)
+                    module.AddValue("prefabBaseURL", prefabUrl);
+            }
+            return ship;
         }
 
         // ---- size class parsing ----
