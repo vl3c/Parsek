@@ -1336,11 +1336,7 @@ namespace Parsek
                     ((BaseDrill)c).Efficiency, input.Multiplier, rock, out substituted);
                 string line =
                     $"Harvest rate: {type.Name} part='{c.part?.partInfo?.name ?? "<none>"}' " +
-                    $"kind={input.Kind} efficiency={input.Efficiency.ToString("R", CultureInfo.InvariantCulture)} " +
-                    $"multiplier={input.Multiplier.ToString("R", CultureInfo.InvariantCulture)} " +
-                    $"rock={FormatRockAbundances(input.Outputs)} " +
-                    $"rockModules={(rock != null ? rock.Count : 0).ToString(CultureInfo.InvariantCulture)} " +
-                    $"substituted={substituted.ToString(CultureInfo.InvariantCulture)}";
+                    RouteHarvestCapture.DescribeSpaceObjectDrillRate(input, rock, substituted);
                 if (substituted > 0)
                     ParsekLog.Warn("Recorder", line +
                         $" (unreadable rock abundance credited {RouteHarvestCapture.RockAbundanceFallback.ToString("R", CultureInfo.InvariantCulture)})");
@@ -1396,16 +1392,6 @@ namespace Parsek
                 }
             }
             return pairs;
-        }
-
-        internal static string FormatRockAbundances(IList<KeyValuePair<string, double>> pairs)
-        {
-            if (pairs == null)
-                return "none";
-            var parts = new List<string>(pairs.Count);
-            for (int i = 0; i < pairs.Count; i++)
-                parts.Add((pairs[i].Key ?? "") + ":" + pairs[i].Value.ToString("R", CultureInfo.InvariantCulture));
-            return "[" + string.Join(",", parts.ToArray()) + "]";
         }
 
         internal static string FormatPlausibleRates(Dictionary<string, double> rates)

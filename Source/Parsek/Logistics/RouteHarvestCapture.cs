@@ -419,6 +419,30 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The log tail for one asteroid / comet drill read
+        /// (<see cref="BuildSpaceObjectDrillRate"/>): kind, efficiency, multiplier, the rock
+        /// abundances credited, the raw rock module count and the substitution count.
+        /// Invariant culture. Pure.
+        /// </summary>
+        internal static string DescribeSpaceObjectDrillRate(
+            HarvestConverterRate rate, IList<KeyValuePair<string, double>> rockAbundances, int substituted)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            string rock = "none";
+            if (rate.Outputs != null)
+            {
+                var parts = new List<string>(rate.Outputs.Count);
+                for (int i = 0; i < rate.Outputs.Count; i++)
+                    parts.Add((rate.Outputs[i].Key ?? "") + ":" + rate.Outputs[i].Value.ToString("R", ic));
+                rock = "[" + string.Join(",", parts.ToArray()) + "]";
+            }
+            return $"kind={rate.Kind} efficiency={rate.Efficiency.ToString("R", ic)} " +
+                $"multiplier={rate.Multiplier.ToString("R", ic)} rock={rock} " +
+                $"rockModules={(rockAbundances != null ? rockAbundances.Count : 0).ToString(ic)} " +
+                $"substituted={substituted.ToString(ic)}";
+        }
+
+        /// <summary>
         /// Combines two rate samples of one window (open and close) by taking the
         /// larger rate per resource, so a crew bonus that rose inside the window
         /// still counts. Null (unbounded) when either sample is null. Pure.

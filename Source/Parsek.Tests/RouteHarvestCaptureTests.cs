@@ -602,6 +602,31 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DescribeSpaceObjectDrillRate_IsInvariantAndNamesTheRock()
+        {
+            var prior = System.Threading.Thread.CurrentThread.CurrentCulture;
+            try
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture =
+                    System.Globalization.CultureInfo.GetCultureInfo("de-DE");
+                var raw = Rock(("Ore", 0.25), ("Ore", double.NaN));
+                HarvestConverterRate drill = RouteHarvestCapture.BuildSpaceObjectDrillRate(
+                    1.5, 0.5, raw, out int substituted);
+                string text = RouteHarvestCapture.DescribeSpaceObjectDrillRate(drill, raw, substituted);
+                Assert.Equal(
+                    "kind=SpaceObjectDrill efficiency=1.5 multiplier=0.5 rock=[Ore:1] rockModules=2 substituted=1",
+                    text);
+                Assert.Contains("rock=none rockModules=0",
+                    RouteHarvestCapture.DescribeSpaceObjectDrillRate(
+                        RouteHarvestCapture.BuildSpaceObjectDrillRate(1.0, 1.0, null, out int none), null, none));
+            }
+            finally
+            {
+                System.Threading.Thread.CurrentThread.CurrentCulture = prior;
+            }
+        }
+
+        [Fact]
         public void MergePlausibleRates_TakesLargerPerResource_NullWins()
         {
             var open = new Dictionary<string, double> { ["Ore"] = 0.01, ["LiquidFuel"] = 0.5 };
