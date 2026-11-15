@@ -6,7 +6,11 @@ started. Work starts after
 All of it lands on the branch `multiplayer`, not on main (section 3, rule 10).
 (The refactored build this plan and the design call "1.1" ships as version 1.0.2, by the
 owner's decision of 2026-11-14; "1.1" in these documents names that code structure.)
-The multiplayer mode itself ships as version 1.1.0 (owner, 2026-11-14).
+The multiplayer mode itself ships as version 1.1.0 (owner, 2026-11-14), and 1.1.0 holds
+multiplayer only (owner, 2026-11-15): the smaller single-player fixes made after 1.0.2 ship
+from main as version 1.0.3, once the remaining test runs and test work are done and the
+owner says go, so that 1.0.3 is the stable release the race is built on. Main carries the
+1.0.3 label for that line, never 1.1.0.
 Source paths and line numbers were re-measured at main `ab1cc9478` (2026-11-15) after #2611,
 #2619 and #2620 moved them; whoever picks up a task re-reads the code first.
 
@@ -203,8 +207,13 @@ wrong.
       renumber). A first small pull request on main that reserves the ledger row id (as
       `GameAction.cs` reserves ids today) is an option the owner can choose later; it is mod
       code on main, which needs the owner's go, and it is not part of this plan.
-    - **Version and changelog.** The branch carries main's version. Entries for race changes
-      go under a `1.1.0` heading that exists only on the branch. No task bumps the version.
+    - **Version and changelog.** The branch carries main's version (the 1.0.3 line, and
+      any later 1.0.x main takes). Entries for race changes go under a `1.1.0` heading that
+      exists only on the branch, above main's sections, and nothing but race changes goes
+      under it: 1.1.0 is multiplayer only (owner, 2026-11-15), and a single-player fix goes
+      to main under main's own heading ("Fixes players need now", above). Main's CHANGELOG
+      carries no multiplayer line until the final merge. No task bumps the version; the
+      number becomes 1.1.0 only when the owner orders that release.
       The 1.1.0 section also carries the warning "do not open a race save with an older
       Parsek" (design 8, case 22), written by R6-10, the poll tuning, which runs after S8 (the
       owner put S8 last), in wave 19, the plan's last wave.
