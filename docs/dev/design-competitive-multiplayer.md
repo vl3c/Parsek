@@ -97,7 +97,8 @@ These are binding. Quotes are the owner's words.
 - Scoring: a points ladder (decision card, 2026-11-14). Each first is worth points by
   difficulty; the most points held when time runs out wins.
 - Game dates are compared in whole days, and players tied on a day split the points
-  (decision card, 2026-11-14; 6.6, 7.8).
+  (decision card, 2026-11-14, decision D1). REPLACED on 2026-11-15: dates are compared to
+  the exact second (below).
 - Holding flights back and sharing them just before the end date is allowed (decision card,
   2026-11-14; 7.10).
 - A flight flown with the cheat menu or a debug tool does not score: it is shown on the
@@ -137,15 +138,78 @@ These are binding. Quotes are the owner's words.
 - All multiplayer work lands on one long-lived `multiplayer` branch. Each piece of work is a
   sub-branch that merges into it. Main stays clean until one final merge of `multiplayer`
   into main.
+- The Multiplayer menu entry is not hidden behind a developer switch: it is always visible on
+  the `multiplayer` branch, which no player sees before the final merge (answer to question
+  Q-08; 7.1, 14).
+- The race's calendar (6-hour or 24-hour days) is the creator's own calendar setting at
+  creation, shown in the setup dialog, with no field of its own; after the exact-second
+  ruling below it only sets how dates are displayed (Q-09; 6.6, 7.2).
+- A race save whose space center cannot be built (a planet mod changed Kerbin mid-game) is not
+  loaded: one message, back to the main menu, the save untouched (Q-10; 7.3).
+- Stock's "allow other launch sites" switched on mid-game in a race created without the shared
+  launch sites: the race setting wins, launches from those sites stay refused and the stock
+  option is greyed (Q-11; 7.3).
+- One player writing the race folder from two computers at once: the game puts its files back
+  twice, then stops putting them back and says so on screen (Q-12; 7.15).
+- A first is announced on screen only when a rival is involved (beaten, lost to, or tied with
+  in the very same second); a first no rival had reached shows only on the board (Q-14; 7.8).
+- After the end date only final results are announced: one "the race is over" message, and a
+  message when a late file changes the final board (Q-16; 7.8, 7.10).
+- If the stock plaque window cannot show a rival flag's text (spike S7), one small Parsek popup
+  may show it: a fourth new-window exception, below (Q-21; 7.7).
+- A rival's ghost is labeled with its owner's name and color, such as "Ghost: Ana - Kerbal X",
+  in the ghost label and in the map and Tracking Station lists (Q-22; 7.4).
+- What the creator chooses, once, for everyone: the game mode; the difficulty, with the full
+  stock difficulty panel (the four stock presets if the panel cannot be opened there); an
+  optional end date (a real-world date and time; without one the race never ends); "no
+  retakes", off by default; the shared launch sites, off by default (on means joining needs
+  Making History); and the game's name. A race always has four seats. None of these changes
+  after creation, and from then on the creator is a player like the others (decision cards;
+  7.2).
+- A player may change their own difficulty settings mid-game; nothing is blocked, and a mark
+  next to their name tells everyone which settings changed (7.12).
+- A cheat or debug tool marks every milestone the flight reaches after the tool was used, also
+  after it is switched off (7.12).
+- Rival ghosts can be targeted like the player's own, are never CommNet relays or control
+  points, and do not show in the Space Center view in the first build (6.4, 7.7).
+- Only flyable vessels a rival left behind (landers, stations, rovers, bases) stay as scenery;
+  rival debris is not shown (7.7).
+- Anyone with the shared folder may join; there is no join password. A player who stops
+  playing keeps their seat and points, and nobody can remove a player (7.2; 8, cases 6, 7a).
+- The Space Race window opens in the Flight and Space Center scenes, not in the Tracking
+  Station (7.13).
+- The race suit is locked: kerbals always wear the player's race look, and the stock suit
+  picker is blocked in a race save (the owner chose this against the recommendation to leave
+  the picker free; 7.4).
+- Milestone dates are compared to the exact second of game time, replacing the whole days
+  of 2026-11-14 (decision D1): "we should just compare exact second when the milestone is
+  achieved instead of using this tie mechanism; it's simpler and more realistic". The
+  earliest second holds the first with full points. There are no same-day ties; only the
+  very same second is shared, its points split exactly among those players. Players level on
+  total points on the final board are joint winners, with no tiebreak step. The day length
+  now only sets how dates are displayed. The owner accepted the costs knowingly (6.6).
+- With "no retakes" on, any real, clean rival flight to a milestone that your game had
+  already seen blocks you from taking that first earlier, even if that flight itself won
+  nothing (answer to question Q-15; 7.11).
+- A shared file changed after it was seen gets a neutral mark, "files in <player>'s folder
+  were changed", visible to all; no points move and the last good state stays (7.15).
+- The shared folder location is typed or pasted into a text field in the setup dialog and in
+  Settings, checked on Validate; there is no browse button and no folder picker (7.2).
+- Nothing is sent to rivals while a Re-Fly is in progress; sharing waits until it ends (7.5).
 
-**UI exception.** The standing rule "no new player-facing UI surfaces" gets three owner
+**UI exception.** The standing rule "no new player-facing UI surfaces" gets four owner
 exceptions from the rulings above, all of them absent from single-player saves: the main menu
-Multiplayer entry, the race setup dialog, and the Space Race window. `.claude/CLAUDE.md` records
-them when the first one is built. That is the whole list. Everything else the feature shows
-uses a surface that exists: a Multiplayer section in the existing Settings window, hover text
-inside the Space Race window, one-shot screen messages for events, and the stock confirmation
-dialog for the setup dialog's own confirmations. There is no folder picker (the location is
-typed or pasted), no marker drawn at a rival's site, and no panel on a stock screen.
+Multiplayer entry, the race setup dialog, the Space Race window, and, only if spike S7 shows
+the stock plaque window cannot show a rival's text, one small popup for reading a rival's
+flag (7.7). `.claude/CLAUDE.md` records them when the first one is built. That is the whole
+list. Everything else the feature shows uses a surface that exists: a Multiplayer section in
+the existing Settings window, hover text inside the Space Race window, one-shot screen
+messages for events, and the stock confirmation dialog for the setup dialog's own
+confirmations. Two race blocks sit on stock controls (the "allow other launch sites" option,
+7.3, and the stock suit picker, 7.4); both use the standing stock-control annotation
+exception: the control's own disabled state and reason text on that same control, with a
+click-block that reads the same predicate. There is no folder picker (the location is typed
+or pasted), no marker drawn at a rival's site, and no panel on a stock screen.
 
 ---
 
@@ -276,7 +340,8 @@ board is a comparison, not an economy.
    where a build without race code keeps it untouched (6.2).
 10. **Disclose, do not block.** A race is played among friends. Different mods, changed
     difficulty settings and cheat or debug tool use are shown next to the player's name.
-    Nothing is refused for them, and nothing is taken from the player's own game. The one
+    Nothing is refused for them (the one difficulty option a race holds is stock's "allow
+    other launch sites", 7.3), and nothing is taken from the player's own game. The one
     thing that costs points is a flight flown with such a tool (7.12, owner ruling).
 11. **Reuse before invention.** Ghost playback, map presence, the milestone rows and their
     once-ever walk, the shared window chrome and styles and the safe-write file helpers
@@ -303,7 +368,7 @@ board is a comparison, not an economy.
 | Standing | One immutable export file: a player's complete public state at one moment (section 6.1). |
 | Payload | The recording files a standing refers to, stored under the player's subtree, each named by recording id and content hash so a file never changes. |
 | Leftover | What a finished rival flight left in the world: a vessel in orbit or on a surface, shown as a ghost for as long as its owner's game says it is there (7.7). |
-| Game date | The game's own clock. Stored exactly; compared in whole game days (6.6). |
+| Game date | The game's own clock. Stored and compared to the exact second of game time; shown as a day and a time of day in the race's calendar (6.6). |
 | Rival store | The in-memory, read-only set of rivals' recordings, flags and milestones built from the latest complete standing of each rival and the small tree files it names (never a trajectory or a craft file). Not part of the save. |
 | Ladder | The fixed list of milestones that count in a race, each with a point value (section 7.9). |
 | First / holder | For a ladder milestone, the earliest game date any player reached it, and the player or players who did. |
@@ -388,7 +453,7 @@ saves/<save>/Parsek/Race/
 | Milestone table: ladder milestone id, game date reached, the recording that reached it | Vessel snapshots used for spawning (rivals never spawn) |
 | Leftovers: which flights left a vessel in the world, from when until when | Rewind points, quicksaves, unmerged flights, an open Re-Fly session |
 | Look, display name, site slot | Supply routes and their cargo |
-| Disclosure facts: mod list, difficulty settings digest, cheat and debug tool use per flight, whether test tooling ran in the save | Facility levels, tech, anything else of the career |
+| Disclosure facts: mod list, difficulty settings and their digest, cheat and debug tool use per flight, whether test tooling ran in the save | Facility levels, tech, anything else of the career |
 | Frontier (latest committed game date) | Anything from a save that is not a race save |
 
 ### 4.4 Read from the shared folder, or copy?
@@ -478,13 +543,16 @@ RaceManifest (race.cfg, written once by the creator)
   DIFFICULTY { }            - the stock GameParameters node every save is created from
   difficultyDigest: string  - hash of that node, for disclosure
   ladderId: string          - which ladder table applies ("standard-1")
-  dateUnit: string          - how game dates are compared; always DAY in this format (6.6)
-  calendar: string          - KERBIN or EARTH: what "a day" is, for every player (6.6);
-                              taken from the creator's own calendar setting at
-                              creation (open: question Q-09, section 13)
-  alternateSites: bool      - the stock alternate launch sites are in use (7.3)
+  dateUnit: string          - how game dates are compared; always SECOND in this
+                              format (6.6)
+  calendar: string          - KERBIN or EARTH: how long a displayed day is, the same
+                              for every player (6.6); display only, it never affects
+                              scoring; taken from the creator's own calendar setting
+                              at creation (owner, 2026-11-15)
+  alternateSites: bool      - the stock alternate launch sites are in use (7.3);
+                              false unless the creator turns it on
   endRealTime: string       - optional; empty = no limit
-  noRetakes: bool           - house rule (7.11)
+  noRetakes: bool           - house rule (7.11); false unless the creator turns it on
   siteTableId: string       - which site table applies ("kerbin-equator-1", 7.3)
   parsekVersion: string     - informational
   MOD_LIST { MOD id version ... } - the creator's mods, informational
@@ -541,7 +609,9 @@ Standing (players/<id>/standings/<seq>.pstd, immutable, written LAST)
                               stock milestone, by its stock qualified id
                               (Mun/Landing, ReachedSpace); the board maps the ids
                               to ladder rows (7.9), so a ladder retune needs no
-                              new export. One entry per date on record, so
+                              new export. ut is the exact game time in seconds,
+                              which the board compares (6.6).
+                              One entry per date on record, so
                               usually one per milestone and two after a rewind
                               and an earlier re-earn; since = the seq of this
                               player's standing in which this exact date first
@@ -558,8 +628,12 @@ Standing (players/<id>/standings/<seq>.pstd, immutable, written LAST)
                               text, from when (ut) and until when (pickupUT, empty
                               while it stands; 7.7)
   NAMES { }                                  - mission and vessel names
-  DISCLOSURE { modDigest, MOD ..., difficultyDigest, testTooling, DEBUG_COMPLETION ... }
-                            - testTooling: Parsek's test tooling ran in this save
+  DISCLOSURE { modDigest, MOD ..., difficultyDigest, DIFFICULTY { }, testTooling,
+               DEBUG_COMPLETION ... }
+                            - DIFFICULTY: the save's current stock GameParameters
+                              node, so the window can name which settings differ
+                              from the manifest's (7.12);
+                              testTooling: Parsek's test tooling ran in this save
                               (7.12); one DEBUG_COMPLETION row (milestone id, ut)
                               per milestone completed with a debug action a mod
                               can observe (spike S9; 7.12). Both are kept on the
@@ -580,10 +654,10 @@ RaceLink (the race mark; in the save, in a scenario node of its own, 7.1)
    kind of load can take it from the loaded save as is. The display name and the
    look are NOT here: they are cosmetic, may change, and live in player.cfg and
    in local.cfg)
-  The same scenario node carries two children with the lifetime of the save, which
+  The same scenario node carries one child with the lifetime of the save, which
   every kind of load also takes from the loaded save: RACE_FACTS (test tooling ran,
-  the debug completions; 7.12) and RACE_LOOK_DRESS (the look this player's kerbals
-  were last dressed with, so a load rolls it back with the roster; 7.4).
+  the debug completions; 7.12). No suit state is kept: the suit is locked to the
+  look, and every load dresses the roster in it (7.4).
 
 RaceLocal (saves/<save>/Parsek/Race/local.cfg; this machine only, not in the save)
   sharedFolderPath: string  - chosen in the setup dialog, editable in Settings (7.2)
@@ -809,27 +883,35 @@ rule does not use real time at all; it uses the receipts (7.11).
 
 ### 6.6 Game dates
 
-A milestone's date is stored exactly, as the game's universal time in seconds. Two dates
-are COMPARED as whole game days (owner ruling 2026-11-14): two players who reach a milestone
-on the same game day are tied. This is a rule of the race, not a setting. The manifest
-still carries it, as `dateUnit = DAY`, so that every machine reads the rule from the file
-and a later format could add another unit; this build writes `DAY` and refuses to join a
-race whose manifest says anything else. Comparing exact seconds is not offered.
+A milestone's date is stored exactly, as the game's universal time in seconds, and two dates
+are compared to the exact second of game time (owner, 2026-11-15, replacing the whole game
+days of ruling D1): the date is cut to its whole second, and the earlier second holds the
+first with full points. There are no same-day ties. Only the very same second is shared,
+which is expected almost never (7.8). This is a rule of the race, not a setting. The manifest
+still carries it, as `dateUnit = SECOND`, so that every machine reads the rule from the file
+and a later format could add another unit; this build writes `SECOND` and refuses to join a
+race whose manifest says anything else.
 
-Why whole days: (a) the sites are spread around Kerbin, so the Mun and the
-launch windows to it come up to three hours apart for different players, a difference that
-is nobody's skill and that a whole-day comparison mostly absorbs; (b) with exact seconds the
-opening firsts become a clicking race and a rival's date can be beaten by one second, which
-makes "wait, look, then beat it by a hair" the best strategy; with whole days a first is
-taken only by being a full day earlier, and matching the day is a tie (7.8).
+What exact seconds cost, accepted knowingly by the owner:
 
-`calendar` fixes what a day is (a Kerbin day of 6 hours or an Earth day of 24), because the
-stock setting is per player and the comparison must not depend on it. The race takes it
-from the creator's own calendar setting when the race is created (open: question Q-09,
-section 13). The window shows dates in that calendar, with the time of day on hover. Days
-are counted from day 1 at game time 0, with no year, in both calendars ("day 30"). The
-window formats them itself: Parsek's own time formatter and stock `KSPUtil.PrintDateCompact`
-follow the player's own calendar setting.
+- *Seat luck.* The sites are spread around Kerbin, so the Mun faces them up to about three
+  hours apart. On the first direct Mun and Minmus flights that difference can decide the
+  first, and it is nobody's skill.
+- *The opening firsts go to the quickest launch.* The easy early milestones (reaching space,
+  orbit) go to whoever flies them first in game time.
+- *A seen date can be beaten by one second.* A player who sees a rival's date can take the
+  first by flying one second earlier. Groups that dislike this switch on the "no retakes"
+  house rule (7.11).
+
+`calendar` fixes how long a displayed day is (a Kerbin day of 6 hours or an Earth day of 24),
+because the stock setting is per player and the board must read the same for everyone. It is
+for display only and never affects scoring. The race takes it from the creator's own
+calendar setting when the race is created, and the setup dialog shows it; it has no field of
+its own (owner, 2026-11-15). The window shows dates in that calendar. Days are counted from
+day 1 at game time 0, with no year, in both calendars ("day 30"), with the time of day to
+the second where two dates would otherwise read alike (7.13). The window formats them
+itself: Parsek's own time formatter and stock `KSPUtil.PrintDateCompact` follow the player's
+own calendar setting.
 
 
 ---
@@ -840,9 +922,9 @@ follow the player's own calendar setting.
 
 The stock main menu shows, after Start Game, a list of entries (Start New, Resume Saved,
 Training, Scenarios). Parsek adds one more, **Multiplayer**. It opens the race setup dialog
-(7.2). Until rivals and the board exist (R3 and R4, section 14) the entry stays behind a
-developer switch, so nobody creates a race that shows nothing yet (open: question Q-08,
-section 13).
+(7.2). The entry is always visible on the `multiplayer` branch, from the phase that builds it
+on; there is no developer switch, because no player sees that branch before its one final
+merge into main (owner, 2026-11-15; section 14).
 
 A race save is a normal KSP save of mode Sandbox, Science or Career, created by Parsek from the
 race manifest. KSP's game-mode list is fixed, so "Multiplayer" is not a fourth KSP mode: it is
@@ -872,26 +954,35 @@ mark is kept as it is and written back unchanged.
 
 One dialog in the stock dialog style, with three actions.
 
-**Create a race.** The creator sets:
+**Create a race.** The creator sets (owner, 2026-11-15):
 
-- race name;
-- game mode: Sandbox, Science or Career;
+- the race's name, which shows in the Join dialog, in the Space Race window and in each
+  player's save name;
+- game mode: Sandbox, Science or Career, once, for every player;
 - difficulty, through the stock difficulty options panel (the same one Start New uses); the
   resulting settings go into the manifest and every player's save is created from them. If
   spike S6 shows the panel cannot be opened from this dialog, the creator picks one of the
-  four stock presets (Easy, Normal, Moderate, Hard) and custom settings come later; the
-  manifest stores the full settings either way (open: question Q-17, section 13);
+  four stock presets (Easy, Normal, Moderate, Hard); the manifest stores the full settings
+  either way. Whether custom settings come later in that case is still to be asked
+  (open: question Q-17, section 13);
 - the shared folder's location, in the same dialog as the name and the look: a path field
   (typed or pasted; there is no folder picker) and a Validate button (exists, writable,
   empty of any race, short enough for the longest paths in the folder and in the local
-  copy, 6.3);
-- whether the shared launch sites are in use (7.3);
-- optional end date (real time);
-- house rules: "no retakes" (7.11);
+  copy, 6.3); no browse button and no folder picker (owner, 2026-11-15);
+- whether the shared launch sites are in use (7.3): off unless the creator turns it on;
+- an optional end date: a real-world date and time; without one the race never ends (7.10);
+- house rules: "no retakes" (7.11), off unless the creator turns it on;
 - their own display name and look;
-- the length of a race day: the creator's own stock calendar setting (Kerbin or Earth days),
-  shown in the dialog and written into the manifest, with no field of its own (open: question
-  Q-09, section 13).
+- the race's calendar: the creator's own stock calendar setting (Kerbin or Earth days),
+  shown in the dialog and written into the manifest, with no field of its own; it only sets
+  how dates are displayed (6.6).
+
+There is no player count to set: a race always has four seats. Everything above except the
+creator's own name and look is fixed for good once the race is created: the mode, the
+difficulty the saves start from, the end date, "no retakes" and the shared launch sites
+never change, and nothing can change them later. After creating, the creator is a player like
+the others. The one setting that can change later is each player's own difficulty, in their
+own game, which is disclosed (7.12).
 
 Then Parsek writes `race.cfg`, the creator's `player.cfg`, creates the save, adds the race
 mark to it and writes it to disk before the game starts (the Space Center scene reads the
@@ -943,8 +1034,11 @@ install lacks the expansion they need (7.3); Kerbin is modified (edge case 24).
 
 **Who may join.** Anyone who can write to the shared folder can take a free seat. Sharing the
 folder is the invitation, and the folder's own sharing settings are the guest list. Parsek
-adds no approval step on top (a group that wants one gets it from the signed standings of
-7.15).
+adds no approval step and no join password on top (owner, 2026-11-15).
+
+**Who may leave.** Nobody can remove a player, the creator included. A player who stops
+playing keeps their seat and their points: their space center, flights, flags and board
+dates stay in the race (owner, 2026-11-15; 8, cases 6 and 7a).
 
 **Moving machines, and a lost save.** A player is their save, so:
 
@@ -1113,14 +1207,19 @@ in every game.
   Island airfield): common. Any player can launch from them, exactly as stock offers them.
   The review found the catch: all of them come with the Making History expansion, and a game
   without it has none. So whether a race uses them is a race setting the creator chooses
-  (owner ruling 2026-11-14). When it is on, joining needs the expansion, and the race's
+  (owner ruling 2026-11-14). It is off unless the creator turns it on, so a friend without
+  the expansion can join by default (owner, 2026-11-15). When it is on, joining needs the
+  expansion, and the race's
   difficulty settings enable the sites from the start, so nobody has to travel farther than a
   rival to unlock one. When it is off, every player launches only from their own site. (The
   sites stock hides until a player has visited them are not part of this: they would favor
   whoever lives nearest.) The race setting maps onto stock's "allow other launch sites"
-  difficulty option, which a player can switch mid-race. The race setting wins: in a race
-  created without the sites, launches from them stay refused and the stock option shows
-  greyed, whatever the difficulty settings say (open: question Q-11, section 13).
+  difficulty option, which a player can switch mid-race. The race setting wins (owner,
+  2026-11-15): in a race created without the sites, launches from them stay refused and the
+  stock option shows greyed, whatever the difficulty settings say. This is a stock-control
+  annotation under the standing exception: the option's own disabled state with the reason
+  (the race was created without these sites) on that same option, and the launch refusal
+  reads the same predicate as the greyed option.
 
 **Launch areas.** The site table also lists the launch areas: for each of the four sites the
 pad (a circle around the pad's spawn point) and the runway (the whole strip, not only its
@@ -1153,9 +1252,9 @@ same for everyone. Three things differ and are accepted:
   window shows it. The biomes in that list come from the game's own biome function (spike
   S2), not from the terrain survey's biome data, which the survey itself calls unreliable.
 - *The time of day and the Mun.* When a race starts it is morning at one site and night at
-  another, and the Mun comes overhead up to three hours apart. Compared to the second, that
-  would decide the first Mun flights in a Sandbox race; it is the main reason dates are
-  compared in whole days (6.6).
+  another, and the Mun comes overhead up to three hours apart. Dates are compared to the
+  second, so this can decide the first direct Mun and Minmus flights; the owner accepted
+  that seat luck knowingly (6.6).
 
 **Moving the space center cleanly.** The review listed what holds the stock position and
 must follow the move, so the spike (S4) and the implementation reset each one and nothing is
@@ -1194,7 +1293,7 @@ an in-game test on both. A failed step rolls the whole set back to stock and log
 step. A race save whose sites cannot be set up (a step fails, or Kerbin was changed by a mod
 after the race started) is not loaded: the game goes back to the main menu with one message
 naming the reason, and the save is not touched, because loading it on stock Kerbin could
-destroy the vessels at its home site (open: question Q-10, section 13).
+destroy the vessels at its home site (owner, 2026-11-15).
 
 ### 7.4 Looks
 
@@ -1235,24 +1334,31 @@ Q-19 and Q-20, section 13):
   shows in the stock suit picker of every save, single player included. This holds if S3
   shows the applied texture in EVA, IVA and the portrait; if it does not, the sets have to
   become stock suit entries, which puts a race item into every save and needs the owner's
-  permission.
+  permission. With the suit locked, a race player never picks a suit, so what stays open
+  under Q-19 is only whether single-player saves may list the two sets in their picker.
 
 **Applying the look.**
 
-- Own kerbals: a kerbal gets the player's look when it joins the roster (the starting crew
-  of a new save, later hires and rescues). After that the stock suit picker is the
-  player's own business; Parsek does not force the suit back at every load. What marks a
-  player to the others is the color on labels, icons and orbit lines, which they cannot
-  change. The starting crew is created before any scenario exists, so no hook sees it join;
-  the first load of a new race save dresses it. Which look the roster was last dressed with
-  is kept in the save, in the race scenario node, so it rolls back with the roster on every
-  load; a changed look re-dresses, once, only the kerbals still wearing the old one, and a
-  suit the player picked is kept. Stock resets a suit whose DLC is not installed to the
-  default suit when it loads the save, before Parsek runs, so on a machine without the DLC
-  Parsek re-dresses the player's own kerbals of that look in the replacement at load (spike
-  S3 checks what stock does).
-- Rival ghost kerbals (EVA ghosts) are drawn with the rival's look, whatever suit the rival's
-  kerbal actually wore. Today's EVA ghost is built from the kerbal part named in the
+- Own kerbals: the race suit is locked (owner, 2026-11-15; the owner chose this against the
+  recommendation to leave the picker free). Every kerbal of a race save wears the player's
+  look, always. A kerbal is dressed when it joins the roster (the starting crew of a new
+  save, later hires and rescues), and at every load Parsek dresses every own kerbal that is
+  not in the look, so no suit state is kept in the save. The starting crew is created before
+  any scenario exists, so no hook sees it join; the first load of a new race save dresses
+  it. A look changed in Settings or by the clash rule (7.3) re-dresses the whole roster at
+  the next load. Stock resets a suit whose DLC is not installed to the default suit when it
+  loads the save, before Parsek runs, so on a machine without the DLC the same load dresses
+  the player's own kerbals in the replacement (spike S3 checks what stock does).
+- The stock suit picker is blocked in a race save, wherever stock offers it (at least in the
+  Astronaut Complex; spike S3 lists every place by decompile, the VAB and SPH crew dialog
+  included if it has one). The block is a stock-control annotation under the standing
+  exception: the picker's own disabled state, with the reason on that same control (kerbals
+  wear the race suit), and a click-block on the picker's action that reads the same
+  predicate, so a click that reaches it anyway changes nothing. In a single-player save the
+  picker is untouched.
+- Rival ghost kerbals (EVA ghosts) are drawn with the rival's look, the suit every race
+  kerbal wears; the ghost build does not read the suit from the recording. Today's EVA
+  ghost is built from the kerbal part named in the
   recording, and the suit styles may be separate parts: on a machine that lacks the
   expansion a recorded suit's part would be missing. An EVA kerbal is a vessel of a single
   part, so its whole ghost would fall back to the plain placeholder sphere; a kerbal in an
@@ -1266,7 +1372,7 @@ Q-19 and Q-20, section 13):
   focused vessel. The label and the map name also carry the rival's display name, because
   colors are hard to tell apart for some players and the Tracking Station list has no color:
   `Ana - Kerbal X` beside a ghost in flight, `Ghost: Ana - Kerbal X` on the map and in the
-  Tracking Station (open: question Q-22, section 13).
+  Tracking Station (owner, 2026-11-15).
 
 Rosters are private. Each player has their own Jebediah; a rival's kerbals exist in the local
 game only as names on ghost labels, so equal names never collide.
@@ -1286,7 +1392,8 @@ flight that was merged and is not superseded, retired or discarded. So:
 
 - An unmerged flight, a flight awaiting its merge dialog and an open Re-Fly attempt are never
   shared.
-- Nothing is exported while a Re-Fly session is open. The effective set hides the flights
+- Nothing is exported while a Re-Fly session is open; sharing waits until it ends (owner,
+  2026-11-15). The effective set hides the flights
   the open attempt would replace, so a standing written then would withdraw flights the
   rivals already have. The standing stays as it was until the attempt is merged or
   discarded. The exporter asks the effective state whether a Re-Fly session is open (a read
@@ -1368,9 +1475,11 @@ Rival ghosts play at the game dates they were recorded, against the local player
   future flight of the player's own.
 - **Rival ghosts are only seen.** They have no collision, cannot be docked to, boarded,
   grabbed, transferred to, recovered or terminated, and no stock action reaches them (the
-  existing ghost guards). They are never CommNet relays or control points (6.4). They never
-  loop: a rival flight plays once, at its date. They can be targeted for navigation, as
-  ghosts can today (open question 13.C.3).
+  existing ghost guards). They are never CommNet relays or control points: only the player's
+  own ghosts relay, and a rival's network never changes the player's game (owner,
+  2026-11-15; 6.4). They never loop: a rival flight plays once, at its date. They can be
+  targeted for navigation, like the player's own ghosts, for example to fly alongside one or
+  measure a distance (owner, 2026-11-15).
 - **Leftovers.** After a flight ends, what it left stays visible from that game date on: a
   vessel left in orbit stays on its orbit with an orbit line and a map icon in the rival's
   color; a vessel left on a surface stays where it stood. A recovered or destroyed vessel
@@ -1390,8 +1499,10 @@ Rival ghosts play at the game dates they were recorded, against the local player
   leftover's end (an empty end becomes a finite horizon) and, for a vessel left in orbit,
   appends an orbit tail; the engine already holds the last pose past the last point and
   plays an orbit tail. So it obeys the same distance rules and the same ghost budget as any
-  ghost (15.6, 15.13), with the lowest priority. Debris is not kept: only vessels the rival
-  could still fly leave a leftover, so a rival's spent stages do not clutter the sky.
+  ghost (15.6, 15.13), with the lowest priority. Debris is not kept (owner, 2026-11-15):
+  only flyable vessels a rival left behind (landers, stations, rovers, bases) leave a
+  leftover, and the exporter lists no debris in `LEFTOVERS`, so a rival's spent stages do
+  not clutter the sky. Debris still plays with its parent while the flight itself replays.
 - **Flags** are the exception the owner asked for: a rival's flag can be walked up to and read.
   A rival's planted flag, listed in the standing's `FLAGS` block, appears from the game date it
   was planted as a **plaque replica**: a flag model with the default flag texture (a flag's
@@ -1404,8 +1515,9 @@ Rival ghosts play at the game dates they were recorded, against the local player
   stock action can find, and no collider to trip over. Spike S7 settles how the model is built
   (the stock flag part has no mesh file to clone) and opens the stock plaque dialog, whose entry
   `FlagPlaqueDialog.Spawn(string, string, Callback)` is public, with text the mod supplies. If
-  it cannot, a rival's plaque is read in a small stock-styled popup opened by the same click,
-  which needs an owner exception for a new surface (open: question Q-21, section 13).
+  it cannot, a rival's plaque is read in one small stock-styled Parsek popup opened by the
+  same click: the fourth new-window exception the owner allows, and only in that case
+  (owner, 2026-11-15; section 0).
 - **Launch areas stay clear** (owner ruling 2026-11-14). Whatever a rival left inside a launch
   area (section 7.3) is not shown to other players: no leftover, no map icon, no orbit or
   surface marker, no flag. The rule is: a rival leftover whose position is inside a launch
@@ -1437,7 +1549,8 @@ Rival ghosts play at the game dates they were recorded, against the local player
   committed, and the rule had loopholes of its own (a slowly creeping rover). It stays as an
   option if play shows a need (13.B).
 - **Where rival ghosts show.** In flight, in map view and in the Tracking Station. The Space
-  Center scene shows a rival's scenery and nothing that moves in the first build: that scene
+  Center scene shows a rival's buildings and no rival ghost in the first build (owner,
+  2026-11-15): that scene
   has its own playback code, separate from the flight scene's engine (15.6), and the sites
   are a quarter of the planet apart.
 - **Watching.** The Watch camera does not follow a rival ghost in the first build (owner
@@ -1503,14 +1616,15 @@ a flight flown with a listed tool (7.12), is shown on the board with its mark an
 when the holder is decided: it takes no points and it keeps none from the next player, and the
 player's own next date, if they have one, is read instead. A date the player's game completed
 from the debug menu, outside any flight, is not on the board at all (7.12). The first is the
-earliest scoring date, compared in whole game days (6.6); its holders are every player with that
-date. With whole-day comparison, two players who reached the milestone on the same game day are
-co-holders and **split the points** (owner ruling 2026-11-14): a milestone worth 6 gives each of
-two co-holders 3. Shares are not rounded (a 1-point milestone held by three players gives each a
-third): the board adds them as exact fractions, so three thirds make exactly 1 and "level on
-points" is exact; the window shows totals to two decimals. Matching a rival's day therefore
-takes half of the points from them, and only being a full day earlier takes them all. A player's
-score is the sum over the milestones they hold.
+earliest scoring date, compared to the exact second of game time (6.6), and its holder takes
+the milestone's full points (owner, 2026-11-15). Being one second earlier is enough; a
+player on the same game day but later holds nothing. Only players who reached it in the very
+same second are co-holders, which is expected almost never; they share its points exactly.
+That share is the one place a fraction can appear, so the smallest exact form does: the
+board counts points in twelfths internally (at most four players can share a second, and 12
+divides by 2, 3 and 4), so a share is a whole number of twelfths, "level on points" is exact,
+and nothing is rounded. The window shows totals to two decimals. A player's score is the sum
+over the milestones they hold.
 
 The board is recomputed from the applied standings at every sync and whenever the local
 player's own table changes. Nothing about it is stored.
@@ -1540,15 +1654,17 @@ holds, one on-screen message says so ("Bogdan took Mun Landing: day 30 beats you
 "Mun Landing is yours again"). A sync that brings many changes sends one summary message; the
 window has the detail. These are events that changed something, which is what a screen message
 is for. Messages name a player in words; names are unique within a race (7.2), so a name
-cannot be confused with another player's.
+cannot be confused with another player's. When both dates fall on one game day, the message
+gives the time of day to the second ("day 31, 2:14:05 beats your day 31, 3:01:44").
 
 The first board of a session is compared against the board built from the rival cache at
 load; nothing about the board is persisted, so a load itself posts no message. A first the
-local player takes is announced only when a rival is involved (beaten, lost to or tied
-with); one that no rival had reached posts nothing, and the window shows it (open: question
-Q-14, section 13). After the end date only a change to the final board (a late standing)
-and the one "race is over" message are posted, not changes to the board of the present
-(open: question Q-16, section 13).
+local player takes is announced only when a rival is involved (beaten, lost to, or tied
+with in the very same second); one that no rival had reached posts nothing, and the window
+shows it (owner, 2026-11-15). After the end date only final results are posted: the one
+"the race is over" message, and a message when a late standing changes the final board.
+Changes to the board of the present after the end show in the window and are not announced
+(owner, 2026-11-15).
 
 ### 7.9 The ladder
 
@@ -1570,7 +1686,7 @@ Proposed shape, to be tuned by play (open question 13.C.1):
   Moho, Dres, Jool (flyby, orbit, return from orbit) and the Jool moons 3; Eeloo 4; the Eve
   surface return 6. The Sun is not on the ladder.
 - **Left out:** the stock altitude, speed, distance and depth records (continuous values that
-  reward grinding and tie constantly); first launch (everyone has it in the first minute);
+  reward grinding); first launch (everyone has it in the first minute);
   and, by choice, a landing, splashdown or surface return on Jool and every step at the Sun,
   although stock defines landing, splashdown and the returns for every body.
 
@@ -1593,10 +1709,12 @@ flights; the setup dialog says so next to the mode.
 
 ### 7.10 The end date
 
-A race may have a real-time end date. When it has passed, the board is final: for each player
+A race may have a real-time end date, a real-world date and time the creator sets or leaves
+empty (owner, 2026-11-15). When it has passed, the board is final: for each player
 it counts their last complete standing stamped before the end date (a standing whose
-payload is not all in the folder never counts, 6.3). The Space Race window names the winner,
-or the joint winners when players are level on points, and shows the final board. Everyone
+payload is not all in the folder never counts, 6.3). The Space Race window names the winner
+and shows the final board. Players level on total points are joint winners; there is no
+tiebreak step (owner, 2026-11-15). Everyone
 can keep playing and sharing; later standings still drive ghosts and are shown as "after the end".
 A player with no standing stamped before the end (one who joined after it, 7.2) is not on
 the final board.
@@ -1618,9 +1736,13 @@ the final board.
 
 ### 7.11 House rule: no retakes
 
-The owner's optional rule: "first to get there wins, no one-upping". With no server and no
-trusted clock, the rule is stated so that every machine computes it from the files alone,
-without any real-time stamp:
+The owner's optional rule: "first to get there wins, no one-upping". It is the creator's
+choice at creation and off by default; normally a first can be retaken by reaching it at an
+earlier game date, and one second earlier is enough (owner, 2026-11-15; 6.6). Under the
+rule, a flight your game had seen blocks you however much earlier you fly. It is the answer
+for groups that dislike a seen date being beaten by one second. With no server and no
+trusted clock, the rule is
+stated so that every machine computes it from the files alone, without any real-time stamp:
 
 **You cannot take a first you already knew about.** Each standing records, in its SEEN block,
 the highest standing of each rival its writer's game had applied before writing it, and each
@@ -1629,8 +1751,8 @@ date for a milestone is **blocked by a rival** when a scoring entry of that riva
 milestone (any of them, if the rival lists two, 7.8) had already been seen by the player's game
 when the player's date first appeared. Under this rule the holder is the earliest date that is
 not blocked. Two players who each reached the Mun before seeing the other's claim compare by
-game date as usual; once a player's game has seen a rival's Mun landing, flying an earlier one
-no longer takes it.
+game date as usual, to the second; once a player's game has seen a rival's Mun landing,
+flying an earlier one no longer takes it.
 
 Details the reviews asked for:
 
@@ -1643,10 +1765,11 @@ Details the reviews asked for:
   everyone who had seen it.
 - **Only a date that scores can block.** A rival's date that is unverified or tool-marked
   holds nothing (7.8), so having seen it blocks nobody. "Scores" here means the checks of
-  7.8 alone: a rival's date that is itself "seen first" under this rule still blocks, so the
-  rule never depends on a chain of other players' receipts and cannot loop on edited files
-  (open: question Q-15, section 13). A date that becomes a scoring date later blocks from
-  the standing its entry names as `since`. The standings kept for good cannot say in which
+  7.8 alone: any real, clean rival flight your game had seen blocks you, even one that itself
+  won nothing because it was "seen first" under this rule (owner, 2026-11-15). So the rule
+  never depends on a chain of other players' receipts and cannot loop on edited files. A
+  date that becomes a scoring date later blocks from the standing its entry names as
+  `since`. The standings kept for good cannot say in which
   standing it first scored; the two differ only when a flight added later covers an older
   unverified date, which the exporter does not produce.
 - **A missing `since` standing blocks nothing.** If the standing a player's entry names as
@@ -1673,8 +1796,12 @@ Each standing carries facts that are shown next to the player's name in the Spac
 when they differ from the race's:
 
 - **Mods:** a digest of the mod list, with the list.
-- **Difficulty:** a digest of the save's difficulty settings; it differs from the manifest's
-  when the player changed them in game.
+- **Difficulty:** a player may change their own difficulty settings mid-game, and nothing is
+  blocked (owner, 2026-11-15), apart from the one option a race holds (stock's "allow other
+  launch sites", 7.3). The standing carries a digest of the save's difficulty settings and
+  the settings themselves (`DIFFICULTY` in `DISCLOSURE`, 6.1); the digest differs from the
+  manifest's when the player changed them in game, and the mark next to the player's name
+  names which settings changed.
 - **Cheat and debug tools, per flight.** Each recording entry of a standing says whether a
   tool from a fixed list was on or was used while that flight was recorded. The list is
   explicit, because "a cheat" is not one switch:
@@ -1707,8 +1834,10 @@ when they differ from the race's:
   per listed tool, the game date the tool was first on or used; its standing entry carries
   one `TOOL` child per tool with that date, and the earliest of them is the recording's
   tools-from date. A milestone date is marked when any recording of its tree has a
-  tools-from date at or before it. A tool first used after the date, in the same recording
-  or a later one, does not reach back.
+  tools-from date at or before it. So every milestone the flight reaches after a tool was
+  first used is marked and does not score, also after the tool is switched off, because a
+  tool's effect lasts (owner, 2026-11-15). A tool first used after the date, in the same
+  recording or a later one, does not reach back.
   To score such a milestone the player has to reach it again without the tool at an EARLIER
   game date, after a rewind to before the marked flight, or in a save loaded from before
   it. A clean flight flown after the marked one adds no date, because stock records a
@@ -1739,7 +1868,8 @@ A new Parsek window, present only in race saves, opened from a button in the mai
 window. It follows KSP's UI scale like every Parsek window and shares their window chrome
 and styles; the board itself is new drawing (the existing log-table window has four fixed
 text columns and cannot draw a column per player). Like every Parsek window it exists in the
-Flight and Space Center scenes, the two scenes that host the Parsek UI.
+Flight and Space Center scenes, the two scenes that host the Parsek UI, and not in the
+Tracking Station (owner, 2026-11-15).
 
 - **Header:** race name; time left or "final"; one block per player in their color: name,
   points, frontier ("at day 61"), last shared time, their site and its height, disclosure
@@ -1750,8 +1880,10 @@ Flight and Space Center scenes, the two scenes that host the Parsek UI.
   incomplete", "cannot be watched here" or "not checked here" cell is marked, and its hover
   says why. A points column shows what the row is worth.
 - **Dates** read "day 31": days counted from day 1 with no year, in both calendars, with
-  the time of day in the hover. The window formats them itself, because the existing date
-  formatters follow the player's own calendar setting.
+  the time of day to the second in the hover. Dates are compared to the second (6.6), so
+  when two dates in one row fall on the same day, both cells show the time of day too
+  ("day 31, 2:14:05"). The window formats them itself, because the existing date formatters
+  follow the player's own calendar setting.
 - **A cell's hover** says at which game date that flight flies, which is where to rewind to
   see it. Sending the Watch camera to the flight's ghost from the cell comes with the camera
   groundwork for rival flights, not in the first build (7.7).
@@ -1800,7 +1932,8 @@ version; the hardening steps are listed so the formats leave room for them.
    had seen, with its hash: a receipt the other players hold for you. A rival standing that
    changed after it was seen, a chain that does not connect, or a number that went backwards
    is not applied: that rival's last good state stays, and the Space Race window says
-   "files in Ana's folder were changed", with the reason. The wording is deliberate. Without
+   "files in Ana's folder were changed", with the reason, visible to every player; no
+   points move (owner, 2026-11-15). The wording is deliberate. Without
    signatures nobody can tell WHO changed a file in Ana's folder, and the likeliest victim of
    an edit is Ana herself, so the mark describes the folder and accuses nobody. An older
    standing that is simply gone is "history incomplete", not a change: owners prune (6.3),
@@ -1825,7 +1958,7 @@ version; the hardening steps are listed so the formats leave room for them.
    - The same files changed back again and again means two games write this subfolder (the
      same player playing the race on two computers at once, 8 case 3). The game puts its
      files back twice, then stops putting them back and says on screen that the race
-     folder is being written from two computers (open: question Q-12, section 13).
+     folder is being written from two computers (owner, 2026-11-15).
    Either way the player is told once on screen.
 5. **The replay is the proof** (7.8). A date on the board counts only when the flight behind
    it is shared and covers that date, and anyone can watch it happen at that date.
@@ -1903,20 +2036,23 @@ is the one place where what a machine remembers decides what it scores (principl
    keeps the last good one. Each of the two games also puts back the files it wrote (7.15),
    which would undo the other's files forever; so a game puts the same files back twice,
    then stops and says on screen that the race folder is being written from two computers
-   (open: question Q-12, section 13). The supported way to move machines is to copy the save
-   and play it in one place at a time (7.2).
+   (owner, 2026-11-15). The supported way to move machines is to copy the save and play it
+   in one place at a time (7.2).
 4. **Two joiners claim one slot or one look.** Section 7.3: a shared site is kept by both; a
    clashing look is changed for the later joiner.
 5. **The shared folder is offline or gone.** The save plays on with the cached rivals. If the
    folder is deleted for good, every player's save is still a complete game; relinking a new
    folder under the same race id restarts sharing from each player's next standing.
-6. **A player quits the race.** Their last standing stays: their ghosts, flags and board dates
-   remain, their slot and look stay taken. The window shows their last shared time.
+6. **A player quits the race.** They keep their seat and their points (owner, 2026-11-15):
+   their last standing stays, so their space center, ghosts, flags and board dates remain,
+   and their slot and look stay taken. Nobody can remove a player. The window shows their
+   last shared time.
 7. **A player joins late.** They start at day 1 like everyone and are behind only in real
    time. Game dates are comparable because every save starts at day 1. Nobody else's save
    changes (7.2).
 7a. **A fifth friend wants in.** Refused: four seats, four sites, four looks. A seat is not
-   freed when a player stops playing, because their flights and dates stay in the race.
+   freed when a player stops playing, because their flights and dates stay in the race
+   (owner, 2026-11-15).
 7b. **Somebody edits a rival's standing in the shared folder to give them a worse date.**
    Every game that had already seen the real file refuses the changed one; the rival's own
    game puts the real file back at its next sync (7.15).
@@ -1933,9 +2069,12 @@ is the one place where what a machine remembers decides what it scores (principl
 10. **A Re-Fly of a flight that held a first.** The merged attempt replaces the flight. If the
     milestone now falls on a different date, the table and the board follow. An open attempt
     is never shared.
-11. **Equal dates.** Co-holders, who split the points (7.8). With whole-day comparison ties
-    are common for the opening firsts and happen later too; with exact comparison they
-    practically never happen (6.6).
+11. **Two players reach a milestone on the same game day.** The earlier second holds the
+    first with full points; the later player holds nothing for it, even two minutes later
+    across midnight or on the same morning (6.6, 7.8).
+11a. **Two players reach a milestone in the very same second.** Both hold it and share its
+    points exactly (7.8). Expected almost never. Players level on total points on the final
+    board are joint winners; there is no tiebreak (7.10).
 12. **A milestone reached with no recording behind it** (a row the ledger holds without a
     flight): the exporter names the flight whose range covers the date; if there is none it
     is listed as unverified and scores nothing (7.8). A row tagged to a flight that is no
@@ -1972,10 +2111,14 @@ is the one place where what a machine remembers decides what it scores (principl
 20. **My PC clock is wrong.** A standing stamped in the future still orders after the player's
     previous ones. Rivals see "arrived late" or a last-shared time in the future, and can say
     so.
-21. **I change difficulty settings mid-race.** Allowed; disclosed (7.12). The one exception
-    is stock's "allow other launch sites" in a race created without the alternate sites:
-    the race setting wins, launches from those sites stay refused and the option is greyed
-    (open: question Q-11, section 13).
+21. **I change difficulty settings mid-race.** Allowed; the others see which settings I
+    changed (owner, 2026-11-15; 7.12). The one exception is stock's "allow other launch
+    sites" in a race created without the alternate sites: the race setting wins, launches
+    from those sites stay refused and the option is greyed with the reason (owner,
+    2026-11-15; 7.3).
+21a. **I want to give a kerbal a different suit.** Not in a race save: the stock suit picker
+    is greyed there with the reason, and every kerbal wears my race look (owner, 2026-11-15;
+    7.4). Changing my look in Settings re-dresses the whole roster at the next load.
 22. **I open the race save with multiplayer code missing** (an older Parsek build, or Parsek
     removed). The race mark is a scenario node of its own, which the game keeps and writes
     back even when no installed code knows it (6.2; spike S6 checks it, through Parsek's own
@@ -1995,8 +2138,8 @@ is the one place where what a machine remembers decides what it scores (principl
     expansion the race needs, because terrain parity is not a matter of taste). A race save
     already under way whose space center cannot be set up (Kerbin changed after the race
     started) is not loaded: the game returns to the main menu with one message and the save
-    is left untouched, since loading it on stock Kerbin could destroy its vessels (open:
-    question Q-10, section 13).
+    is left untouched, since loading it on stock Kerbin could destroy its vessels (owner,
+    2026-11-15).
 25. **Three players; site 3 is empty.** Its buildings stand, fully built like every site, and
     nobody launches from them.
 26. **My site starts at night and my rival's in daylight.** Yes: the sites are spread around
@@ -2008,7 +2151,8 @@ is the one place where what a machine remembers decides what it scores (principl
     board row shows, marked "cannot be watched here", and still scores (7.6, 7.8).
 29. **I want to change my name or my look mid-race.** Both are cosmetic and live outside the
     save: the Multiplayer section of Settings changes them if the new name or look is free,
-    and the others see it at the next scene after their next sync.
+    and the others see it at the next scene after their next sync. My kerbals wear the new
+    look from my next load (7.4).
 30. **I rewind to retake a first in Science or Career and cannot afford the parts I used
     later.** The single-player rule holds: science my committed future spends is reserved.
     A retake is flown with what I really had at that date. That is the price of a retake.
@@ -2029,7 +2173,7 @@ is the one place where what a machine remembers decides what it scores (principl
 | Cloud placeholder payload (not downloaded) | The copy step brings it into the local race directory, and the game reads only that copy. With the copy worker the download happens outside the game's frame loop; in the main-thread form, which is built first, copying waits while a flight is in progress and a first open can stall the Space Center (15.9; the worker is open: question Q-18, section 13). The status text says what is still arriving | None; slow |
 | Rival cache deleted or damaged | Rebuilt from the folder at the next sync | None; the witness log restarts, so earlier changes to a rival's history can no longer be noticed by this machine |
 | A rival standing changed after it was seen, or its chain does not connect | Not applied; the last good state stays and keeps scoring; the window says files in that player's folder were changed, with the reason; that player's own game repairs it at its next sync | None |
-| The local player's subfolder was changed by someone else | Files this game wrote are put back; a standing it did not write is superseded by a fresh one with a note (7.15); one on-screen message. The same files changed again after two put-backs: the game stops putting them back and says the folder is being written from two computers (8 case 3; open: question Q-12, section 13) | None |
+| The local player's subfolder was changed by someone else | Files this game wrote are put back; a standing it did not write is superseded by a fresh one with a note (7.15); one on-screen message. The same files changed again after two put-backs: the game stops putting them back and says the folder is being written from two computers (8 case 3; owner, 2026-11-15) | None |
 | A load rolls the save back | The rival store is unaffected; the next export is a fresh snapshot of the rolled-back state; one message says how many shared flights left the race | The dropped flights leave the race, as they left the save |
 | The local race directory beside the save is gone | Settings asks for the shared folder again; the own mirror and the rival cache are rebuilt from it at the next sync | None; the witness log restarts |
 | The save was restored from an older backup | Plays on; numbering continues from the folder; the next export is a snapshot of the restored state | Flights made after the backup leave the race |
@@ -2065,14 +2209,19 @@ per-rival poll results at Verbose, rate-limited where they repeat.
 - Latest-complete-standing selection, including incomplete newest and seq gaps.
 - Slot and look assignment, and the simultaneous-join rule.
 - Milestone table derivation from a ledger with rewinds, Re-Fly supersedes and discards.
-- Board derivation: holders, co-holders and the split of points; an unverified or
-  tool-marked date earlier than a scoring one is shown, holds nothing, and under no retakes
-  blocks nobody; both calendars; the end date cut; a manifest whose `dateUnit` is not `DAY`
-  is refused.
+- Board derivation: holders ordered to the exact second, including two dates on one game
+  day and two dates either side of midnight; one share test of the very same second (exact
+  twelfths, nothing rounded); an unverified or tool-marked date earlier than a scoring one
+  is shown, holds nothing, and under no retakes blocks nobody; the calendar changes the
+  displayed dates and no holder; the end date cut; level total points name joint winners; a
+  manifest whose `dateUnit` is not `SECOND` is refused.
+- Difficulty disclosure: a changed setting is named by the mark; an unchanged save carries
+  no mark.
 - Verification: a date inside the named recording, inside a sibling recording of the same
   tree, on a boundary within the tolerance, outside every range.
 - The no-retakes rule over standing histories: blind dates, a date improved after seeing, a
-  rival's claim that later disappears, a late joiner, export-before-import in one tick.
+  rival's claim that later disappears, a seen rival date that itself won nothing still
+  blocking, a late joiner, export-before-import in one tick.
 - What is kept: the pruning rule never drops a standing the final board or the no-retakes
   rule still needs, nor payload such a standing names.
 - Leftover windows: a vessel flown again, recovered, deleted; a debris end state.
@@ -2113,7 +2262,10 @@ Tracking Station ones, SITES-3 the editor one, SITES-2 the one for a single-play
 loaded after a race save): the working space center at each of the four sites (pad and
 runway spawn, Space Center scene, recovery distance); terrain height at fixed sample points
 of all four patches equals the site table; scenery present and inert; sites removed on
-leaving the race save; looks applied to own roster and to an EVA ghost; a rival flag is
+leaving the race save; looks applied to own roster and to an EVA ghost; the stock suit picker
+greyed with its reason and its action refused in a race save, and untouched in a
+single-player save; stock's "allow other launch sites" option greyed with its reason in a
+race created without the shared sites; a rival flag is
 readable and it is not a vessel; a rival leftover has no colliders; a rival ghost crossing a
 sphere of influence and landing leaves the local progress and ledger unchanged; a rival relay
 is not a CommNet node; a vessel standing on a scenery pad is not "at the launch pad" and
@@ -2172,13 +2324,13 @@ running game.
 | KSC science at every site | Building mini-biomes are tag-based (`MiniBiome`), so they should follow the buildings. Stock names the landed-at place from collider and trigger tags (`Part.SetLandedAt`), and the experiment biome reads that name first (`ScienceUtil.GetExperimentBiome`), so the KSC area is probably named by tags too; the survey's biome read finds no KSC biome at the KSC's longitudes | S2: prove both at a moved site; a biome override is designed only if S2 shows the KSC area is read from the biome map; prove the scenery copies give none |
 | The shared launch sites | All stock alternate launch sites belong to Making History; a game without it has none (`LaunchSiteExclusionZones` already checks for the expansion) | None; it is a race setting (7.3) |
 | The race mark survives an older build | Stock holds each scenario node as data and writes it back; a node whose module type is not installed should be kept the same way | S6: save a game holding a scenario node of an unknown type and read it back, through stock and through Parsek's own save rewrites (rewind copies, the Discard Re-fly write of `persistent.sfs`, the crash reconcile) |
-| Four stock looks | `ProtoCrewMember.KerbalSuit` has Default, Vintage, Future, Slim; Vintage and Future belong to the DLCs; per kerbal the suit, the combo id and the light color are saved | S3: confirm each look in game and pick the four UI colors |
-| Stock-like replacements | Mods add suit sets with `SUITCOMBOS` config nodes (suit type, gender, textures, sprite); stock supports this since 1.10 | S3: two replacement texture sets; how a missing-DLC machine resolves a DLC suit. A `SUITCOMBOS` node under `GameData` shows in the stock suit picker of every save, single player included; whether the sets are listed there or applied only to race kerbals and rival ghosts, and where their art comes from, is open: questions Q-19 and Q-20, section 13 |
+| Four stock looks | `ProtoCrewMember.KerbalSuit` has Default, Vintage, Future, Slim; Vintage and Future belong to the DLCs; per kerbal the suit, the combo id and the light color are saved | S3: confirm each look in game and pick the four UI colors; find by decompile every place stock offers the suit picker (the Astronaut Complex at least) and how to grey it with a reason and refuse its action (7.4) |
+| Stock-like replacements | Mods add suit sets with `SUITCOMBOS` config nodes (suit type, gender, textures, sprite); stock supports this since 1.10 | S3: two replacement texture sets; how a missing-DLC machine resolves a DLC suit. A `SUITCOMBOS` node under `GameData` shows in the stock suit picker of every save, single player included; whether the sets are listed there (only single-player saves would see them, since the race picker is blocked) or applied only to race kerbals and rival ghosts, and where their art comes from, is open: questions Q-19 and Q-20, section 13 |
 | Look on ghost kerbals | Parsek builds EVA ghosts from the stock EVA part model | S3: apply a suit texture to the ghost |
 | Multiplayer in the main menu | `MainMenu` holds its entries as public `TextProButton3D` fields with a public tap callback; the entry lists used for keyboard navigation are private | S6: clone an entry, place it, wire keyboard navigation |
-| Create a save from code | `GamePersistence.CreateNewGame(name, mode, parameters, flag, scene, facility)` is public and is what the stock New Game dialog calls | S6: create and start a race save from the dialog; open the stock difficulty panel from it (if it cannot, the creator gets the four stock presets: open: question Q-17, section 13) |
+| Create a save from code | `GamePersistence.CreateNewGame(name, mode, parameters, flag, scene, facility)` is public and is what the stock New Game dialog calls | S6: create and start a race save from the dialog; open the stock difficulty panel from it (if it cannot, the creator gets the four stock presets, owner 2026-11-15; whether custom settings follow later is open: question Q-17, section 13) |
 | Milestones in every mode | `ProgressTracking` is added to every new game, Sandbox included; Parsek's recorder writes a milestone event in every mode | None |
-| Readable rival flags | `FlagSite` exposes Read Plaque, Take Down and Pick Up as separate part events, but a real flag is a saved vessel whose placed state re-enables taking it down, and the plaque is readable only from within 2 m on EVA. A replica (flag model, click target, the stock plaque dialog) avoids all of that. The flag part has no mesh file to clone; the dialog's entry `FlagPlaqueDialog.Spawn(string, string, Callback)` is public and static | S7: how to build the replica's model; open the stock plaque dialog with supplied text; decide the click range |
+| Readable rival flags | `FlagSite` exposes Read Plaque, Take Down and Pick Up as separate part events, but a real flag is a saved vessel whose placed state re-enables taking it down, and the plaque is readable only from within 2 m on EVA. A replica (flag model, click target, the stock plaque dialog) avoids all of that. The flag part has no mesh file to clone; the dialog's entry `FlagPlaqueDialog.Spawn(string, string, Callback)` is public and static | S7: how to build the replica's model; open the stock plaque dialog with supplied text (if it cannot, one small Parsek popup, owner 2026-11-15, 7.7); decide the click range |
 | Launch areas stay clear | Parsek already retires a flight that ends parked on the KSC pad, the runway threshold or a stock alternate site (50 m circles: the KSC pad and runway threshold are constants in `SpawnCollisionDetector`, the other launch sites are read from `PSystemSetup` by `LaunchSiteExclusionZones`, whose read admits the names `LaunchPad` and `Runway`, so its cache possibly holds the stock KSC's own pad and runway too); a rival end state is only a ghost, so not showing it is a filter at the rival store | S4: measure the pad and full runway footprints at the moved sites and the alternate sites |
 | Cheat disclosure | `CheatOptions` holds the stock cheat switches as public static fields; hack gravity is not one of them but the state of the `HackGravity` debug widget, which Parsek already reads. The debug menu's ACTIONS (set orbit, set position, add science, unlock technology, max tech, max facilities, the console's currency sets) are not switches, no "fill resources" action is among the 1.12.5 cheat types (S9 confirms it in game), and Max Progression and the console complete milestones through `ProgressNode.CheatComplete()` | S9: which of those actions and completions a mod can observe |
 | Joining later | Nothing game-side: a join writes one new subfolder; all four sites exist in every game from the start | None |
@@ -2191,15 +2343,17 @@ running game.
 ### 13.A Decided by the owner after the reviews
 
 D1 to D5 were asked as decision cards on 2026-11-14 and all answered the same day; section 0
-records them as rulings. The rows after them are the owner's answers to questions the
-implementation plan raised (`docs/dev/plans/multiplayer/design-corrections.md`, part 2,
-where the numbers come from) and the owner's rulings on versions and on the branch. Only
-Q-03 still waits for the owner: its timing is decided, and it is asked when spike S8 is about
-to run (listed again at the end of 13.C).
+records them as rulings; D1 was replaced on 2026-11-15 (row Dates). The rows after them
+are the owner's answers to questions the implementation plan raised
+(`docs/dev/plans/multiplayer/design-corrections.md`, part 2, where the numbers come from),
+the owner's rulings on versions and on the branch, and the decision cards of 2026-11-15
+(the setup choices and the smaller choices that were designer choices before). Of these
+rows only Q-03 still waits for the owner: its timing is decided, and it is asked when spike
+S8 is about to run (listed again at the end of 13.C).
 
 | Id | Question | Proposal in this document |
 |----|----------|---------------------------|
-| D1 | How finely are game dates compared, and what does a tie give? | DECIDED 2026-11-14: whole game days; players tied on a day split the points (6.6, 7.8) |
+| D1 | How finely are game dates compared, and what does a tie give? | DECIDED 2026-11-14: whole game days; players tied on a day split the points. REPLACED 2026-11-15 by the row Dates below |
 | D2 | May a player hold flights back and share them at the last moment before the end date? | DECIDED 2026-11-14: yes; the last standing stamped before the end counts (7.10) |
 | D3 | Does a flight flown with cheat or debug tools score? | DECIDED 2026-11-14: no; shown, marked, worth nothing (7.12). A milestone completed from the debug menu outside any flight does not score either: it is dropped from the board and the player is marked (question Q-26, answered by this decision; 7.12) |
 | D4 | The shared launch sites exist only with the Making History expansion. What does a race do? | DECIDED 2026-11-14: a race setting chosen by the creator; when it is on, joining needs the expansion (7.3) |
@@ -2208,6 +2362,28 @@ to run (listed again at the end of 13.C).
 | Q-04 | Do the two single-player launch pad fixes (a stored longitude wound past the date line; alternate sites read before they were built) land with the launch-area rule? | DECIDED 2026-11-14: fix both on main as their own work, outside this feature; they are on main, and every prerefactor stays behavior-neutral (14) |
 | Q-05 | How long does the owner's PC fly to prove the ghost positioner change? | DECIDED 2026-11-14: a representative set of 18 lanes, one per way the positioner places a ghost, plus the daily tier; the full run of every lane happens once, at release (14) |
 | Q-07 | Is the groundwork for the Watch camera on a rival flight built now or later? | DECIDED 2026-11-14: later; the Watch camera on rival flights is not in the first build (7.7, 14) |
+| Q-08 | Does the Multiplayer menu entry stay hidden during development? | DECIDED 2026-11-15: no; it is always visible on the `multiplayer` branch, which no player sees before the final merge; there is no developer switch and no later change to turn it on (7.1, 14) |
+| Q-09 | Who sets how long a race day is? | DECIDED 2026-11-15: the creator's own calendar setting at creation, shown in the setup dialog, with no field of its own. Since the row Dates it sets only how dates are displayed (6.6, 7.2) |
+| Q-10 | What happens to a race save whose space center cannot be built? | DECIDED 2026-11-15: it is not loaded; one message, back to the main menu, the save untouched (7.3, 8 case 24) |
+| Q-11 | A player turns on stock's "allow other launch sites" in a race created without them | DECIDED 2026-11-15: the race setting wins; launches from those sites stay refused and the option is greyed with the reason (7.3, 8 case 21) |
+| Q-12 | One player writes the race folder from two computers at once | DECIDED 2026-11-15: the game puts its files back twice, then stops and says so on screen (7.15, 8 case 3) |
+| Q-14 | Which firsts are announced on screen? | DECIDED 2026-11-15: only those where a rival is involved (beaten, lost to, or tied with in the very same second); a first no rival had reached shows only on the board (7.8) |
+| Q-15 | Under "no retakes", does a rival date that is itself "seen first" still block? | DECIDED 2026-11-15: yes; any real, clean rival flight your game had seen blocks you, even one that won nothing itself (7.11) |
+| Q-16 | Which messages appear after the end date? | DECIDED 2026-11-15: only final results: one "the race is over" message, and one when a late file changes the final board; later changes to the board of the present show in the window only (7.8, 7.10) |
+| Q-21 | If the stock plaque window cannot show a rival flag's text, may Parsek show its own popup? | DECIDED 2026-11-15: yes, one small popup, the fourth new-window exception, only if spike S7 shows the stock window cannot (0, 7.7) |
+| Q-22 | How is a rival's ghost labeled? | DECIDED 2026-11-15: owner name and color, such as "Ghost: Ana - Kerbal X", in the ghost label and the map and Tracking Station lists (7.4) |
+| Setup | What does the creator choose? | DECIDED 2026-11-15: the mode, once, for everyone; the difficulty with the full stock panel (the four stock presets if the panel cannot be opened there); an optional end date; "no retakes", off by default; the shared launch sites, off by default; the game's name; always four seats, no setting. None of it changes after creation, and the creator is then a player like the others (7.2, 7.3, 7.10, 7.11) |
+| Difficulty | May a player change their own difficulty mid-game? | DECIDED 2026-11-15: yes, nothing is blocked (apart from the launch sites option, Q-11); a mark next to the player's name names the settings that changed (7.12) |
+| Tools | How far does a cheat or debug tool mark its flight? | DECIDED 2026-11-15: every milestone the flight reaches after the tool was first used, also after it is switched off (7.12) |
+| Rival ghosts | Targeting, CommNet, the Space Center view | DECIDED 2026-11-15: a rival ghost can be targeted like an own ghost; it is never a CommNet relay or control point; it does not show in the Space Center view in the first build, where rival buildings do (6.4, 7.7) |
+| Leftovers | Which rival vessels stay as scenery? | DECIDED 2026-11-15: flyable vessels only (landers, stations, rovers, bases); rival debris is not shown or listed as a leftover (7.7) |
+| Seats | Who may join, and what happens to a player who stops? | DECIDED 2026-11-15: anyone with the folder; no join password. A player who stops keeps seat and points, and nobody can remove a player (7.2, 8 cases 6, 7a) |
+| Window | Where does the Space Race window open? | DECIDED 2026-11-15: in the Flight and Space Center scenes, like every Parsek window; not in the Tracking Station (7.13) |
+| Suit | May players change a kerbal's suit in a race? | DECIDED 2026-11-15, against the recommendation: no; the race suit is locked, kerbals always wear the player's look, and the stock suit picker is greyed with its reason and blocked in a race save (7.4) |
+| Dates | How finely are game dates compared, and what does a tie give? | DECIDED 2026-11-15, replacing D1: to the exact second of game time ("we should just compare exact second when the milestone is achieved instead of using this tie mechanism; it's simpler and more realistic"). The earliest second holds the first with full points; only the very same second is shared, its points split exactly; players level on total points on the final board are joint winners, with no tiebreak. A tiebreak by the second for same-day ties, ruled earlier the same day, is moot. The owner accepted the costs: seat luck on the first Mun and Minmus flights, the opening firsts to the quickest launch, a seen date beaten by one second (6.6, 7.8, 7.10) |
+| Changed files | What does a hand-edited shared file do to its player? | DECIDED 2026-11-15: a neutral mark, "files in <player>'s folder were changed", visible to all; no points move; the last good state stays (7.15) |
+| Folder entry | How is the shared folder location entered? | DECIDED 2026-11-15: typed or pasted into a text field in the setup dialog and in Settings, checked on Validate; no browse button, no folder picker (7.2) |
+| Re-Fly | Is anything sent to rivals while a Re-Fly is in progress? | DECIDED 2026-11-15: no; sharing waits until it ends (7.5) |
 | Versions | Which versions ship what? | DECIDED 2026-11-14: the refactored base build ships as version 1.0.2 ("1.1" in this document names that code structure, not a version); the multiplayer mode ships as version 1.1.0 (14) |
 | Branch | Where does the work land? | DECIDED 2026-11-15: on one long-lived `multiplayer` branch with sub-branches; main stays clean until one final merge (14) |
 
@@ -2221,43 +2397,29 @@ also put to the owner, and the design follows it until the owner answers (13.C).
 | Choice | Where |
 |--------|-------|
 | Rival flags are plaque replicas (flag model plus a click target that opens the stock plaque dialog), not real flag vessels | 7.7 |
-| Rival ghosts are never CommNet relays | 6.4, 7.7 |
-| Only vessels a rival could still fly are kept as leftovers; debris is not | 7.7 |
 | An any-time replay viewer of rival flights is later; in the first build a rival flight is seen while the local clock is inside it, without the Watch camera (owner answer Q-07, 13.A) | 7.7, 7.13 |
 | Under "no retakes": a block lasts only while the rival's claim stands, and improving your own date never costs you the date you had | 7.11 |
 | Moving to a new PC is copying the save folder; "start over in my seat" exists only for a lost save and says what it costs | 7.2 |
-| Anyone who has the shared folder may take a free seat; sharing the folder is the invitation | 7.2 |
 | Two players who claimed one site at the same moment both keep it; only a clashing look is changed | 7.3 |
-| A kerbal gets the player's look when hired; the stock suit picker stays the player's own | 7.4 |
-| A detected file change marks the player with neutral wording and changes no score | 7.15 |
-| A departed player's seat is kept | 8, case 7a |
 | The 60-second standing-still rule is not in the first build | 7.7 |
-| The shared folder location is typed or pasted, with no folder picker; rival sites get no map marker | 0, 7.2 |
+| Rival sites get no map marker (how the folder location is entered is the owner's, 13.A) | 0, 7.2 |
 | Every file access is on the main thread first; one background worker that only copies files comes only with the owner's yes, as an exception to the no-threads rule, after spike S8, which runs last (question Q-18) | 15.9 |
-| Rival ghosts show in flight, in map view and in the Tracking Station; the Space Center scene shows rival scenery only in the first build | 7.7, 15.6 |
 | A rival's docking approach, or a kerbal beside its lander, is played from the stored body-fixed positions, not relative to the other vessel | 15.5 |
-| The Space Race window and the Multiplayer settings exist in the Flight and Space Center scenes, like every Parsek window | 7.13 |
-| Nothing is exported while a Re-Fly session is open | 7.5 |
-| A date that scores nothing (unverified, or flown with a listed tool) cannot hold a first and, under "no retakes", cannot block one; the next scoring date holds it. A date that is itself "seen first" still blocks, since scoring is judged by 7.8's checks alone (question Q-15) | 7.8, 7.11 |
+| A date that scores nothing (unverified, or flown with a listed tool) cannot hold a first and, under "no retakes", cannot block one; the next scoring date holds it (that a "seen first" date still blocks is the owner's, Q-15, 13.A) | 7.8, 7.11 |
 | A standing in a race format newer than the local build reads counts as it states, marked "not checked here"; newer recordings in a standing the build can read only keep their ghosts from playing | 6.3, 7.8 |
-| Whole game days is the only way dates are compared; exact seconds is not offered as a race setting | 6.6 |
 | A changed file is refused only by the games that saw the real one; until its writer's game restores it, a game that never saw it can show a different board | 2, 7.15 |
-| A tool marks a milestone date when any recording of the flight's tree first used it at or before that date (a first-use date per tool, carried in the standing), across the cuts into recordings; a tool first used later does not reach back; scoring such a milestone takes an earlier clean flight after a rewind | 7.12 |
-| Split points are not rounded and are added as exact fractions; players level on points at the end are joint winners | 7.8, 7.10 |
+| The tool mark (how far it reaches is the owner's, 13.A) is carried as a first-use date per tool on each recording and follows the flight across its cuts into recordings; a tool first used after a date does not reach back to it; scoring such a milestone takes an earlier clean flight after a rewind | 7.12 |
 | A game that has just joined exports nothing until its first import is complete | 7.5 |
 | The own mirror keeps payload until it is in the shared folder, and the last pre-end standing's payload for good | 6.3 |
 | The playback catalog port stays in the `Recording` module; the rival lane is given an empty catalog (`RecordingPlaybackCatalog.None`), and there is no rival catalog type | 15.6, 15.11 |
 | The line and label style (`PlaybackTrajectoryStyle`) and its engine arguments are base Parsek, built with the looks work and landed right after the engine prerefactors, before the rival lane's style source; rivals show in a neutral color until the player colors exist | 15.11, 14 |
 | The trajectory decode change (P6) is built in parallel with the other prerefactors and merged when green, outside the window in which the ghost positioner change is proven by flights (question Q-06) | 14, 15.11 |
-| The Multiplayer menu entry stays behind a developer switch until rivals and the board exist (question Q-08) | 7.1, 14 |
 | Races flown by the harness stay marked as tool-flown and never score; scoring, holder changes, no retakes and the end date are proven without the game and with generated rival folders (question Q-24) | 7.12, 11 |
 | Setup lives in Controllers (`ParsekRaceSetup`) behind an interface the UI declares; the UI does not create a save through the `RaceWorld` facade | 7.2, 15.4 |
 | The race world is reconciled at every scene load request against the loaded game's mark, not only on the way to the main menu | 7.1, 15.7 |
 | The whole-save isolation lane compares the two saves under a canonical comparison in which only listed time values may differ, each with a written reason; byte identity is proven headless (question Q-13) | 6.4, 11 |
-| A race day's length comes from the creator's own game calendar setting, shown in the setup dialog (question Q-09) | 6.6, 7.2 |
-| In a race created without the alternate sites, the race setting wins over stock's "allow other launch sites": launches from them stay refused and the option is greyed (question Q-11) | 7.3, 8 |
-| The replacement suit sets are applied only to race kerbals and rival ghosts, not listed in the stock suit picker, if spike S3 shows the applied texture in EVA, IVA and the portrait (question Q-19) | 7.4 |
-| A holder change is announced only when a rival is involved, the first board of a session is compared against the one built at load, and after the end date only final-board changes are announced (questions Q-14, Q-16) | 7.8 |
+| The replacement suit sets are applied only to race kerbals and rival ghosts, not listed in the stock suit picker, if spike S3 shows the applied texture in EVA, IVA and the portrait (question Q-19; with the race picker blocked, what is open is only a listing in single-player saves) | 7.4 |
+| The first board of a session is compared against the one built at load, so a load posts no message (which changes are announced is the owner's, Q-14 and Q-16, 13.A) | 7.8 |
 
 ### 13.C For the play test and the phase plans
 
@@ -2270,8 +2432,8 @@ also put to the owner, and the design follows it until the owner answers (13.C).
    106.7 E, 18.8 E and 162.3 W to pick the exact spot where the whole footprint is dry at
    the KSC's orientation, and a look at what water lies near each. Biomes near each spot
    come from the stock biome function in the game (spike S2), not from the survey's data.
-3. **Targeting rival ghosts.** Allowed as for any ghost (proposed), or blocked so that nothing
-   about a rival is selectable?
+3. **Targeting rival ghosts.** Decided: allowed, like the player's own ghosts (owner,
+   2026-11-15; 13.A).
 4. **How deep verification goes.** The flight exists and covers the date (the first build),
    or also a check of the trajectory against the claim (7.15, step B).
 5. **One-goal races.** Not planned (owner, 2026-11-15): a race is a whole game scored across
@@ -2293,6 +2455,7 @@ also put to the owner, and the design follows it until the owner answers (13.C).
 **Owner questions still open.** Numbered as in
 `docs/dev/plans/multiplayer/design-corrections.md`, part 2, which gives each its options.
 Until the owner answers, the design and the plans follow the recommendation given here.
+The questions the owner answered on 2026-11-15 are in 13.A.
 
 - *Needed before work starts.*
   - Q-01: do the spikes run on their own copy of the game (a test copy and one without the
@@ -2302,49 +2465,30 @@ Until the owner answers, the design and the plans follow the recommendation give
 - *Assumed as recommended; the plans already follow them.*
   - Q-06: the trajectory decode change (P6) is built in parallel with the other
     prerefactors and merged when green (14).
-  - Q-08: the Multiplayer menu entry stays behind a developer switch until rivals and the
-    board exist (7.1, 14).
-  - Q-22: rival ghosts show their owner's name, beside the ghost in flight and in the map
-    and Tracking Station name (7.4).
   - Q-23: a rival ghost inside an atmosphere gets no map marker in flight in R3, as in the
     Tracking Station; revisited with the looks (15.6).
   - Q-24: races the harness flies stay tool-marked and never score; scoring is proven with
     generated rival folders (7.12, 11).
   - Q-25: two game copies racing on one PC is an optional operator lane (11).
 - *Asked when their phase comes.*
-  - Q-09 (R1): who sets the length of a race day? Recommended: the creator's own game
-    calendar setting, shown in the setup dialog (6.6, 7.2).
-  - Q-10 (R2): what happens to a race save whose space center cannot be set up? Recommended:
-    the load stops and returns to the main menu with one message, the save untouched (7.3,
-    8 case 24).
-  - Q-11 (R2): a player turns on stock's "allow other launch sites" in a race created
-    without them. Recommended: the race setting wins and the option is greyed (7.3, 8 case
-    21).
-  - Q-12 (R3): one player plays one race on two computers at once. Recommended: each game
-    puts its files back twice, then stops and says so on screen (7.15, 8 case 3).
   - Q-13 (R3): how the two saves of the "rivals change nothing" lane must match.
     Recommended: a canonical comparison where only listed time values may differ, each with
     a written reason (6.4, 11).
-  - Q-14 (R4): is a first that no rival had reached announced? Recommended: only when a
-    rival is involved (7.8).
-  - Q-15 (R6): under "no retakes", does a rival date that is itself "seen first" still block?
-    Recommended: yes (7.11).
-  - Q-16 (R6): do board changes after the end date still send messages? Recommended: only a
-    change to the final board and the one "race is over" message (7.8).
 - *Asked after a spike.*
   - Q-17 (S6): what the creator gets if the stock difficulty panel cannot be opened from
-    the setup dialog. Recommended: the four stock presets, custom settings later (7.2, 12).
+    the setup dialog. The four stock presets are the fallback (owner, 2026-11-15, 13.A), so
+    what is still open is only whether custom settings come later in that case. Recommended:
+    yes (7.2, 12).
   - Q-18 (S8): may the race copy files on one background worker? Recommended: yes if S8
     shows freezes over one second on a common sync program, otherwise no; the main-thread
     form is built first either way (15.9).
-  - Q-19 (S3): do the two replacement suit sets appear in the stock suit picker?
-    Recommended: no, they are applied only to race kerbals and rival ghosts, if S3 shows the
-    applied texture in EVA, IVA and the portrait; otherwise yes (7.4, 12).
+  - Q-19 (S3): do the two replacement suit sets appear in the stock suit picker? Since the
+    race suit is locked (13.A), the picker is blocked in a race save, so what is still open
+    is only whether every single-player save may list the two sets. Recommended: no, they
+    are applied only to race kerbals and rival ghosts, if S3 shows the applied texture in
+    EVA, IVA and the portrait; otherwise yes (7.4, 12).
   - Q-20 (S3): where does the replacement suit art come from? Recommended: Parsek recolors
     the player's own base suit in memory at load; drawn art only if that looks wrong (7.4).
-  - Q-21 (S7): if the stock plaque window cannot show a rival's text, may a small
-    stock-styled Parsek popup show it, opened by the same click, as a fourth UI exception?
-    Recommended: yes (7.7).
 - *Asked at the end.*
   - Q-03 (before S8 runs): which sync programs does the file-speed test cover? Recommended:
     OneDrive plus Dropbox or Google Drive, plus an offline network share (13.A, 14).
@@ -2362,12 +2506,12 @@ version).
 |-------|-------|-------|
 | R0 | Spikes on the owner's PC: S1b (the exact spots of the three new sites, by a finer scan), S2 to S7 of section 12, S9 and S10 of 15.11, S11 (what one ghost costs per frame at race scale), S12 (hashing and signing inside the game's runtime; optional, for R7) and S13 (the results folded into this document). S8, the sync program speed test, runs last, after the race works end to end on a plain shared folder (owner answer to Q-03, 13.A). S1, the terrain survey, and the code inventory that sizes the prerefactors (`docs/dev/research/multiplayer-base-refactoring-2026-11-14.md`) are done | Answers, not code: site positions, scenery copies, suits, the difficulty panel, the plaque window, what a mod can see of debug tools. Retires the feasibility risks before any feature code |
 | R0b | The prerefactors of 15.11, each its own change with no behavior change. The ghost positioner change (P2b) is one uninterrupted run of changes, proven at its end by a representative set of 18 lanes plus the daily tier, not by every lane (owner answer to Q-05, 13.A). The trajectory decode change (P6) is built in parallel and merged when green, outside that window (open: question Q-06, section 13). The groundwork for the Watch camera on rival flights (P3b) is not in the first build (owner answer to Q-07). The two single-player launch pad fixes landed on main outside this feature (owner answer to Q-04), so every prerefactor stays behavior-neutral | Base Parsek ready for a second ghost lane; no player-visible change. Single player keeps passing every suite and lane; the feature then lands on prepared ground. P2b is the largest. The additions of 15.11 land with the phase that first uses them; A1 and the capture halves of A2 and A3 land in R3 with export, because a fact that was not recorded cannot be rebuilt later. The line and label style seam (A5) is base Parsek and lands right after P2c and P2a, before the ghost positioner change (P2b) begins, ahead of its race users |
-| R1 | The race mark and gate, the main menu entry (behind a developer switch until rivals and the board exist; open: question Q-08, section 13), the setup dialog (create, join, continue), `race.cfg` and `player.cfg`, slot and look assignment. `RaceCore` is registered (rule, layer, headless line, the forbidden edges whose two ends exist) in the commit that creates its first file, not ahead of it; `RaceWorld` and `RaceExport` register the same way with their own first files (the rival flight type, which can start on day one, and export in R3) | A race save can be created and joined; it plays like single player |
-| R2 | The four sites: moving the working space center, the four terrain patches, the scenery copies, launch rules, removal on leaving the save, science parity | Each player starts at their own copy of the KSC; single-player saves are untouched. The world of the race, still without rivals |
+| R1 | The race mark and gate, the main menu entry (visible from this phase on; there is no developer switch, owner 2026-11-15), the setup dialog (create, join, continue), `race.cfg` and `player.cfg`, slot and look assignment. `RaceCore` is registered (rule, layer, headless line, the forbidden edges whose two ends exist) in the commit that creates its first file, not ahead of it; `RaceWorld` and `RaceExport` register the same way with their own first files (the rival flight type, which can start on day one, and export in R3) | A race save can be created and joined; it plays like single player |
+| R2 | The four sites: moving the working space center, the four terrain patches, the scenery copies, launch rules (with the greyed "allow other launch sites" option), removal on leaving the save, refusing to load a race save whose sites cannot be set up, science parity | Each player starts at their own copy of the KSC; single-player saves are untouched. The world of the race, still without rivals |
 | R3 | Export (standings, payload, digest) and import (the copy step, rival cache, rival store), with the race calendar, the ladder and the milestone tables the standing's milestones need; rival ghosts in flight, map view and the Tracking Station, in a neutral color until R5; leftovers, readable flags, launch areas kept clear, the isolation gates including the whole-save lane, and the simple tamper evidence of 7.15 (chain, witness log, receipts, self-heal). The Watch camera on rival flights is not part of it | "See your rivals": a player's flights reach the shared folder and show up for rivals as ghosts, leftovers and flags. Every file access is on the main thread |
-| R4 | The board, the Space Race window, holder-change messages | "Have a race" |
-| R5 | Looks: own roster, ghost kerbals, the player colors on labels, icons and orbit lines (replacing R3's neutral color); the replacement suit sets | |
-| R6 | End date and final board, disclosure marks, the no-retakes house rule, missing-parts and newer-version notes. The copy worker (if the owner allows it, open: question Q-18, section 13) and the poll tuning wait for spike S8 and are the last pieces | |
+| R4 | The board (dates compared to the exact second, 6.6), the Space Race window, holder-change messages | "Have a race" |
+| R5 | Looks: own roster, the locked race suit and the blocked stock suit picker, ghost kerbals, the player colors on labels, icons and orbit lines (replacing R3's neutral color); the replacement suit sets | |
+| R6 | End date and final board (level total points name joint winners), disclosure marks (naming the changed difficulty settings), the no-retakes house rule, missing-parts and newer-version notes. The copy worker (if the owner allows it, open: question Q-18, section 13) and the poll tuning wait for spike S8 and are the last pieces | |
 | R7 | Hardening of 7.15, as far as the owner wants it: signed standings, the flight check (claim, teleport, sky, launch), the any-time replay viewer, the sealed-race house rule | Optional and not planned for the first build; the formats reserve room from R3 |
 | R8 | Recorded opponents and the solo race (15.10): the `Opponents` folder, the third setup choice, a harness campaign that produces opponents | Optional and not planned for the first build. After R4, independent of R7; needs no change to R1 to R6 beyond the `kind` field and seat reservation they already carry |
 
@@ -2430,7 +2574,7 @@ of `Source/Parsek` reds the architecture suite.
 | `RaceWorld` | `Source/Parsek/RaceWorld/` | features | no (runtime-coupled) | Everything live that is not a read of the own model: the race session for the loaded save, its facade and the sync driver, the adapters behind the folder, transport and clock ports and the rival-cache half of the payload port, the rival store, the rival side of the ghost lane (loader, policy, leftovers, flags, map presence), the four sites (space center move, terrain patches, scenery), looks |
 | (existing) `UI` | `Source/Parsek/UI/` | presentation | no | `SpaceRaceWindowUI`, `RaceSetupDialog`, the Settings section; drawn from `RaceCore` row models |
 | (existing) `Controllers` | `Source/Parsek/Controllers/` | entry | no | `ParsekRaceMenu.cs` (the main menu entry point), `ParsekRaceScenario.cs` (the race mark's scenario module), `ParsekRaceBoot.cs` (the one handler of scene load requests, 15.7), `ParsekRaceSetup.cs` (create, join and continue a race save, behind an interface `UI` declares, 15.4), and the composition of the rival lane in each scene controller (15.6). The folder places them; no `modules.toml` edit is needed |
-| (existing) `Patches` | `Source/Parsek/Patches/` | entry | no | Guards that must sit on stock entry points (for example a launch from a rival's site) |
+| (existing) `Patches` | `Source/Parsek/Patches/` | entry | no | Guards that must sit on stock entry points (for example a launch from a rival's site, the stock suit picker and the "allow other launch sites" option, 7.3, 7.4) |
 | (tooling) `TestCommands`, `InGameTests`, `UI/Gallery` | | | | Seam verbs for the harness lanes (`RaceSetup action=create\|join`, `RaceCommand action=status\|set-folder\|sync\|offline\|online`, `ListHandles kind=sites\|rivals\|board`, and one harness step that stages the shared folder), the in-game test categories, the window's gallery mock states |
 
 Why three modules and not one: the 1.1 map assigns a module to exactly one layer, and
@@ -2726,7 +2870,7 @@ The sizes and the order of the prerefactors are in 15.11.
 |-------|-------|----------|------|
 | `RaceLink` | Its own scenario node in the save (6.2) | the save | Holds only identity and choices that never change (race id, player id, site, table ids, date unit), and its own format number `raceLinkFormat` (the `race-link` row of `SaveFormat.cs`). So every load kind (cold, quickload, rewind, Re-Fly, revert) can take it from the loaded save with no special case; `LoadReconcilePolicy` gets one row saying so. The gate reads it from the game's scenario node list, which exists before any scene is built |
 | `RaceSession` | memory | one scene of the loaded save | Built by the race scenario module's load in each scene, from `RaceLink` and `local.cfg`, and dropped in its `OnDestroy`; its one static, `RaceSession.Current`, is tagged `scene` in `scripts/arch/lifetimes.toml` |
-| Children of the race scenario node: `RACE_FACTS` (whether test tooling ran, `testTooling`, and the debug-menu completions, `DEBUG_COMPLETION` rows) and `RACE_LOOK_DRESS` (the "dressed with look N" marker) | the race scenario node, each child through the `IRaceScenarioChild` hook | the save | They roll back with the save on every load, the marker together with the roster it describes; each child has its own `LoadReconcilePolicy` row (every load kind takes the loaded save's copy), and a child the build does not know is kept verbatim |
+| The child of the race scenario node: `RACE_FACTS` (whether test tooling ran, `testTooling`, and the debug-menu completions, `DEBUG_COMPLETION` rows) | the race scenario node, through the `IRaceScenarioChild` hook | the save | It rolls back with the save on every load; it has its own `LoadReconcilePolicy` row (every load kind takes the loaded save's copy), and a child the build does not know is kept verbatim. No suit state is kept: the suit is locked to the look and every load dresses the roster (7.4) |
 | Rival store | memory | the loaded save, rebuilt each scene | Replaced whole, never edited in place |
 | `RaceLocal`: folder location, display name and look, show toggles, last export digest, time of the last sync, whether the first import after joining is done; local copies of `race.cfg` and of the own `player.cfg` | `Race/local.cfg`, `Race/race.cfg` and `Race/own/player.cfg` beside the save | the machine | Not in the save, so no load rolls a setting back; missing file means "ask for the folder again" and the name and look are read back from `Race/own/player.cfg`; the Settings folder change rebuilds the shared `race.cfg` and `player.cfg` from the local copies |
 | Rival cache, witness log, own mirror | `Race/` beside the save | until deleted | Never named by the save, never synced. Checked in the inventory: no save-folder sweep walks unknown children of `Parsek/`, Parsek's own file collector walks only its recordings, rewind points and saves folders, and a race save has a footprint from birth so no pre-Parsek backup is taken. Three sweeps do take the whole folder and get the change of addition A7: `collect-logs.py`, the test-batch crash reconcile, and the in-game test runner's batch snapshot and restore |
@@ -2742,8 +2886,10 @@ no poll runs and no file is touched. The predicate composes with Parsek's own in
 Controllers host passes the inert flag in, and an inert Parsek means no race, with the race
 mark kept verbatim. The replacement suit sets of 7.4 follow the same rule as working
 reading: Parsek applies them only to race kerbals and rival ghosts, and they are not listed
-in the stock suit picker, which would show them in every save (open: question Q-19,
-section 13; it depends on spike S3 showing the applied suit in EVA, IVA and the portrait).
+in the stock suit picker, which would show them in every single-player save (the race
+picker is blocked, 7.4); whether that listing is allowed is still to be asked
+(open: question Q-19, section 13; it depends on spike S3 showing the applied suit in EVA,
+IVA and the portrait).
 The proof is mechanical: the existing unit suite, the
 harness lanes and the architecture ratchets must be unchanged by the multiplayer code while
 no race save is loaded, and one test pins that a single-player save's output is byte-identical
@@ -2954,7 +3100,7 @@ existing module needs no registration; a new module registers with its first fil
 | Adapters | `Source/Parsek/RaceWorld/RaceFolder.cs`, `Source/Parsek/RaceWorld/RaceMainThreadTransport.cs` (the copy step on the main thread, built first), `Source/Parsek/RaceWorld/RaceCopyWorker.cs` (the copy worker, if the owner allows it, 15.9), and the rival-cache half of the payload port, in `RaceWorld` (its file name is a proposal: `Source/Parsek/RaceWorld/RacePayloadFiles.cs`) |
 | Rival store, flights, lane | `Source/Parsek/RaceWorld/RivalStore.cs`, `Source/Parsek/RaceWorld/RivalFlight.cs`, `Source/Parsek/RaceWorld/RivalFlightLoader.cs` (the loader), `Source/Parsek/RaceWorld/RivalPlaybackPolicy.cs`, `Source/Parsek/RaceWorld/RivalMapPresence.cs`, `Source/Parsek/RaceWorld/RivalFlags.cs`; the rival lane's empty catalog is `RecordingPlaybackCatalog.None` in `Source/Parsek/Recording/RecordingPlaybackCatalog.cs`; the composition in the scene controllers is `Source/Parsek/Controllers/ParsekFlightRivalLane.cs` and `Source/Parsek/Controllers/ParsekTrackingStationRivalLane.cs` |
 | Sites | `Source/Parsek/RaceWorld/RaceSites.cs` (space center move, patches), `Source/Parsek/RaceWorld/RaceScenery.cs` |
-| Looks | `Source/Parsek/RaceWorld/RaceLooks.cs`. The replacement suits are recolored in memory from the player's own base suit, so no suit files ship (open: question Q-20, section 13), applied only to race kerbals and rival ghosts and not listed in the stock suit picker (open: question Q-19, section 13). Only if shipped art is needed instead: suit sets under `GameData/Parsek/Suits/`, which the release zip, the dev deploy and the harness deploy each list by name, so all three lists gain them |
+| Looks | `Source/Parsek/RaceWorld/RaceLooks.cs` (dressing the roster); the stock suit picker block in `Patches`, reading one predicate for its greyed state and its click-block (7.4). The replacement suits are recolored in memory from the player's own base suit, so no suit files ship (open: question Q-20, section 13), applied only to race kerbals and rival ghosts and not listed in the stock suit picker of single-player saves (open: question Q-19, section 13). Only if shipped art is needed instead: suit sets under `GameData/Parsek/Suits/`, which the release zip, the dev deploy and the harness deploy each list by name, so all three lists gain them |
 | Setup | `Source/Parsek/Controllers/ParsekRaceSetup.cs` (create, join, continue), behind `IRaceSetupHost`, declared in `Source/Parsek/UI/RaceSetupDialog.cs`; it calls the create-and-start core `Source/Parsek/LogIO/NewSaveStarter.cs` (P10) |
 | Menu entry, setup dialog, window | `Source/Parsek/Controllers/ParsekRaceMenu.cs`, `Source/Parsek/UI/RaceSetupDialog.cs`, `Source/Parsek/UI/SpaceRaceWindowUI.cs` (new drawing on the shared window chrome of A6, registered in `ParsekWindowSet`) |
 | Flight checks (later) | `ClaimChecks` entries; where the analyzer's rules run is decided with step B (15.4) |
@@ -3037,6 +3183,11 @@ itself. Named here so the phase plans carry them, not discover them:
   window opens 280 wide, too narrow for a folder path, so its Multiplayer section shows the
   path shortened, with the whole path in the hover and a button that opens the setup
   dialog's field to change it.
+- The stock-control annotation rules: the two race blocks on stock controls (the suit picker,
+  7.4, and the "allow other launch sites" option, 7.3) are clickable kinds, so each ships its
+  greyed state, its reason text and its click-block together, reading one predicate, as the
+  existing stock-screen blocks do (`StockUiDecorationQuery`), and the GUI mirror's pairing
+  check covers them.
 - The save-folder sweeps, `collect-logs.py` (it copies every `Parsek/<dir>` beside a save;
   `Race/` holds other players' files and should be listed, not copied whole), the
   test-batch crash reconcile (it deletes and restores a save's whole `Parsek/` folder), the
