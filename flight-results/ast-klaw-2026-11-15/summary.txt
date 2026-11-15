@@ -1,0 +1,9 @@
+2026-11-15T18:55:20Z INVALID AST-1-klaw-grab-rewind attempts=2 wall=231s slot=stock-minimal runIds=2026-11-15_1851_AST-1-klaw-grab-rewind,2026-11-15_1853_AST-1-klaw-grab-rewind_a2
+2026-11-15T18:56:05Z INVALID AST-2-klaw-release attempts=2 wall=233s slot=stock-minimal-2 runIds=2026-11-15_1852_AST-2-klaw-release,2026-11-15_1854_AST-2-klaw-release_a2
+2026-11-15T18:59:08Z INVALID COM-1-comet-klaw-grab attempts=2 wall=227s slot=stock-minimal runIds=2026-11-15_1855_COM-1-comet-klaw-grab,2026-11-15_1857_COM-1-comet-klaw-grab_a2
+2026-11-15T18:59:56Z INVALID AST-3-klaw-mine-route attempts=2 wall=231s slot=stock-minimal-2 runIds=2026-11-15_1856_AST-3-klaw-mine-route,2026-11-15_1857_AST-3-klaw-mine-route_a2
+2026-11-15T19:02:33Z PARSEK-FAIL H41-logistics-grapple-isolated attempts=1 wall=95s slot=stock-minimal-2 runIds=2026-11-15_1900_H41-logistics-grapple-isolated
+2026-11-15T19:03:29Z INVALID AST-4-klaw-refly attempts=2 wall=261s slot=stock-minimal runIds=2026-11-15_1859_AST-4-klaw-refly,2026-11-15_1901_AST-4-klaw-refly_a2
+2026-11-15T19:04:46Z PASS HV-2-scan-ledger-drill-rates attempts=1 wall=76s slot=stock-minimal runIds=2026-11-15_1903_HV-2-scan-ledger-drill-rates
+2026-11-15T19:05:46Z PASS H42-claw-couple attempts=1 wall=76s slot=stock-minimal-2 runIds=2026-11-15_1904_H42-claw-couple
+# totals PASS=2 PARSEK-FAIL=1 INVALID=5 pending=0 of 8

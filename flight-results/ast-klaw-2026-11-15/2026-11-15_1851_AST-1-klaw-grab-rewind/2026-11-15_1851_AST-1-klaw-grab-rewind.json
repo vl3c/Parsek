@@ -1,0 +1,626 @@
+{
+  "admission": {
+    "admitted": true,
+    "diff": [],
+    "subkind": ""
+  },
+  "artifacts": {
+    "kspLog": true,
+    "kspLogTruncated": false,
+    "ran": true,
+    "renderManifest": false,
+    "screenshots": 0,
+    "screenshotsSkipped": 0,
+    "shotsDir": "2026-11-15_1851_AST-1-klaw-grab-rewind_shots"
+  },
+  "attempt": 1,
+  "collectLogs": {
+    "path": "Collecting logs into: 2026-11-15_2053_AST-1-klaw-grab-rewind/",
+    "ran": true
+  },
+  "driver": {
+    "allExpectedMet": false,
+    "skippedTailSteps": [
+      {
+        "cmd": "MissionMark",
+        "id": "0011",
+        "reason": "mission-unmet",
+        "role": "inert"
+      },
+      {
+        "cmd": "CommitTree",
+        "id": "0013",
+        "reason": "mission-unmet",
+        "role": "world-mutating"
+      },
+      {
+        "cmd": "ListHandles",
+        "id": "0015",
+        "reason": "mission-unmet",
+        "role": "inert"
+      },
+      {
+        "cmd": "MissionMark",
+        "id": "0016",
+        "reason": "mission-unmet",
+        "role": "inert"
+      },
+      {
+        "cmd": "InvokeRewindToLaunch",
+        "id": "0017",
+        "reason": "mission-unmet",
+        "role": "world-mutating"
+      },
+      {
+        "cmd": "SaveGame",
+        "id": "0018",
+        "reason": "mission-unmet",
+        "role": "world-mutating"
+      },
+      {
+        "cmd": "LoadGame",
+        "id": "0019",
+        "reason": "mission-unmet",
+        "role": "world-mutating"
+      },
+      {
+        "cmd": "DiscardTree",
+        "id": "0021",
+        "reason": "mission-unmet",
+        "role": "world-mutating"
+      },
+      {
+        "cmd": "SetSetting",
+        "id": "0022",
+        "reason": "mission-unmet",
+        "role": "world-mutating"
+      },
+      {
+        "cmd": "SetSetting",
+        "id": "0023",
+        "reason": "mission-unmet",
+        "role": "world-mutating"
+      },
+      {
+        "cmd": "ListHandles",
+        "id": "0024",
+        "reason": "mission-unmet",
+        "role": "inert"
+      },
+      {
+        "cmd": "MissionMark",
+        "id": "0025",
+        "reason": "mission-unmet",
+        "role": "inert"
+      },
+      {
+        "cmd": "WarpToUT",
+        "id": "0026",
+        "reason": "mission-unmet",
+        "role": "world-mutating"
+      },
+      {
+        "cmd": "ListHandles",
+        "id": "0027",
+        "reason": "mission-unmet",
+        "role": "inert"
+      },
+      {
+        "cmd": "MissionMark",
+        "id": "0028",
+        "reason": "mission-unmet",
+        "role": "inert"
+      },
+      {
+        "cmd": "SaveGame",
+        "id": "0029",
+        "reason": "mission-unmet",
+        "role": "world-mutating"
+      }
+    ],
+    "steps": [
+      {
+        "captured": {
+          "save": "ast-klaw-lko",
+          "scene": "FLIGHT",
+          "ut": "356.8515332030434"
+        },
+        "cmd": "LoadGame",
+        "expect": "OK",
+        "id": "0001",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "idle": "true",
+          "stopped": "false",
+          "ut": "356.87153320304338"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0002",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "nothing": "true",
+          "ut": "356.91153320304335"
+        },
+        "cmd": "DiscardTree",
+        "expect": "OK",
+        "id": "0003",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "autoRecordOnLaunch",
+          "ut": "356.93153320304333",
+          "value": "false"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0004",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "name": "verboseLogging",
+          "ut": "356.95153320304331",
+          "value": "true"
+        },
+        "cmd": "SetSetting",
+        "expect": "OK",
+        "id": "0005",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "recordingId": "d8738fd9ca3b4d1ab7f6415ce8dd4f1d",
+          "ut": "356.99153320304328"
+        },
+        "cmd": "StartRecording",
+        "expect": "OK",
+        "id": "0006",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "points": "1",
+          "recording": "true",
+          "scene": "FLIGHT",
+          "tree": "48cdbd249eba4ee6bac1180ef392da31",
+          "ut": "357.01153320304326"
+        },
+        "cmd": "RecordingState",
+        "expect": "OK",
+        "id": "0007",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "delta": "12.948466796956779",
+          "maxRate": "1",
+          "target": "370",
+          "ut": "369.79153320303163"
+        },
+        "cmd": "WarpToUT",
+        "expect": "OK",
+        "id": "0008",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "label": "ast1-grab",
+          "ut": "369.85153320303158"
+        },
+        "cmd": "MissionMark",
+        "expect": "OK",
+        "id": "0009",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "expect": "MISSION-OK",
+        "id": "0010",
+        "met": false,
+        "missionVerdict": "MISSION-FLAKE",
+        "phase": "mission",
+        "subkind": "autopilot-flake",
+        "verdict": "INVALID"
+      },
+      {
+        "captured": {
+          "stopped": "true",
+          "ut": "410.9515332029942"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0012",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "idle": "true",
+          "stopped": "false",
+          "ut": "410.97153320299418"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0014",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "idle": "true",
+          "stopped": "false",
+          "ut": "410.99153320299416"
+        },
+        "cmd": "StopRecording",
+        "expect": "OK",
+        "id": "0020",
+        "met": true,
+        "verdict": "OK"
+      },
+      {
+        "captured": {
+          "saved": "true",
+          "ut": "411.03153320299413"
+        },
+        "cmd": "FlushAndQuit",
+        "expect": "OK",
+        "id": "0030",
+        "met": true,
+        "verdict": "OK"
+      }
+    ]
+  },
+  "endedUtc": "2026-11-15T18:53:16Z",
+  "expectedFail": {
+    "bugId": "",
+    "matched": false
+  },
+  "instanceProfile": "stock-minimal",
+  "kspExit": {
+    "code": 0,
+    "killed": false
+  },
+  "missionWallSeconds": 41,
+  "note": "",
+  "runId": "2026-11-15_1851_AST-1-klaw-grab-rewind",
+  "scenarioId": "AST-1-klaw-grab-rewind",
+  "schema": 1,
+  "snapshot": {
+    "bytes": 333511,
+    "files": 16,
+    "path": "2026-11-15_1851_AST-1-klaw-grab-rewind_save",
+    "ran": true,
+    "reason": "every-verdict-default verdict=INVALID"
+  },
+  "startedUtc": "2026-11-15T18:51:30Z",
+  "subkind": "autopilot-flake",
+  "tier": "operator",
+  "verdict": "INVALID",
+  "verifiers": {
+    "analyzer": {
+      "failNonBaselined": 0,
+      "gating": true,
+      "red": 0,
+      "reportJson": "C:\\Users\\vlad3\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\ast-klaw-lko\\analysis\\ast-klaw-lko.analysis.json",
+      "reportTxt": "C:\\Users\\vlad3\\Documents\\Code\\Parsek\\automation\\stock-minimal\\saves\\ast-klaw-lko\\analysis\\ast-klaw-lko.analysis.txt",
+      "staleNonBaselined": 0,
+      "status": "PASS",
+      "subkind": "",
+      "topRule": null,
+      "triageOnly": true
+    },
+    "anomalySweep": {
+      "reason": "short-circuit",
+      "status": "SKIPPED"
+    },
+    "batchComplete": {
+      "aggregateMissing": false,
+      "category": null,
+      "categoryCountMismatch": false,
+      "duplicateAggregate": false,
+      "expectedCategoryCount": null,
+      "expectedRuns": 1,
+      "failed": null,
+      "found": false,
+      "matchedRuns": 0,
+      "multi": false,
+      "perCategoryCount": 0,
+      "runsShort": false,
+      "status": "SKIPPED"
+    },
+    "driverValidity": {
+      "allExpectedMet": true,
+      "status": "FAIL",
+      "subkind": "autopilot-flake"
+    },
+    "expectations": {
+      "observed": {
+        "recordings": {
+          "count": 1
+        }
+      },
+      "reason": "short-circuit",
+      "status": "SKIPPED"
+    },
+    "ghostLifecycle": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "ghostLifecycle": {
+          "attitude": {
+            "afterUpdateLines": 0,
+            "legacyLines": 0,
+            "maxRotDeg": null,
+            "maxRotDegAt": null,
+            "perRef": {},
+            "resolvedLines": 0,
+            "sweepDeg": 0.0,
+            "sweepRec": "",
+            "unresolvedLines": 0,
+            "unresolvedRefs": {}
+          },
+          "cycleCensus": {},
+          "cycleLines": 0,
+          "cycleModes": {},
+          "cycleRecordings": 0,
+          "destroyLines": 0,
+          "destroyedReasons": {},
+          "destroyedRecordings": 0,
+          "malformed": 0,
+          "peakLive": 0,
+          "peakLiveFrame": -1,
+          "peakLiveRecording": "",
+          "perVessel": {},
+          "spawnLines": 0,
+          "spawnReasons": {},
+          "spawned": 0,
+          "spawnedRecordingIds": [],
+          "unbalanced": [],
+          "vessels": []
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "driver-invalid",
+      "status": "SKIPPED"
+    },
+    "ledgerOracle": {
+      "reason": "no-ledger-block-declared",
+      "status": "SKIPPED"
+    },
+    "logValidate": {
+      "reason": "short-circuit",
+      "status": "SKIPPED"
+    },
+    "mission": {
+      "missionVerdict": "MISSION-FLAKE",
+      "status": "FAIL",
+      "subkind": "autopilot-flake"
+    },
+    "missionOutcome": {
+      "firstUnmet": null,
+      "gatingVerbs": [],
+      "reason": "no-gating-verbs",
+      "status": "SKIPPED"
+    },
+    "renderCompose": {
+      "armedBlocks": [],
+      "blocks": [],
+      "declared": null,
+      "findings": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {},
+      "parseError": "missing parsek-render-manifest.txt",
+      "parsed": null,
+      "reason": "driver-invalid",
+      "status": "SKIPPED",
+      "unevaluable": {}
+    },
+    "saveParse": {
+      "armedBlocks": [],
+      "blocks": [],
+      "gating": false,
+      "mismatches": [],
+      "observed": {
+        "recordings": {
+          "points": {
+            "largest": 18,
+            "recordings": 1,
+            "smallest": 18,
+            "total": 18,
+            "trivialRecordings": 0,
+            "unparsed": 0
+          },
+          "structure": {
+            "branchPoints": {},
+            "committedTrees": 0,
+            "duplicateRecordingIds": [],
+            "ghostChainNodes": 0,
+            "inFlightCopyTrees": 0,
+            "recordingNames": {},
+            "recordings": 1,
+            "spaceObjectParts": {
+              "Ast. VPA-167": 1
+            },
+            "spawnedVessels": 0,
+            "terminalStates": {},
+            "treeNodes": 1,
+            "trees": 1,
+            "vesselNames": {
+              "AST Klaw": 1,
+              "AST Watcher": 1
+            }
+          }
+        },
+        "rewind": {
+          "rewindPoints": 0,
+          "rewindRetirements": 0,
+          "supersedeRows": 0,
+          "tombstones": 0
+        },
+        "routes": {
+          "codecRejects": 0,
+          "completedCycles": 0,
+          "connectionKinds": {},
+          "count": 0,
+          "destinationBodies": {},
+          "destinationVesselPids": [],
+          "dismissedCandidates": 0,
+          "dormant": 0,
+          "holdKinds": {},
+          "ids": [],
+          "originBodies": {},
+          "promptedCandidates": 0,
+          "skippedCycles": 0,
+          "sourceRefs": 0,
+          "statuses": {},
+          "stops": 0,
+          "unknownConnectionKinds": 0,
+          "unknownStatuses": 0,
+          "unparsed": 0
+        },
+        "stockLoad": {
+          "findings": 0,
+          "first": [],
+          "kinds": {}
+        }
+      },
+      "parseError": "",
+      "parsed": true,
+      "reason": "driver-invalid",
+      "scenarioFound": true,
+      "status": "SKIPPED"
+    },
+    "subprocessRetry": [],
+    "testResults": {
+      "failures": 0,
+      "reason": "short-circuit-or-invalid-driver",
+      "status": "SKIPPED"
+    },
+    "unityExceptions": {
+      "reason": "short-circuit",
+      "status": "SKIPPED"
+    },
+    "unmetMissionTail": {
+      "reason": "mission-unmet",
+      "skippedSteps": [
+        {
+          "cmd": "MissionMark",
+          "id": "0011",
+          "reason": "mission-unmet",
+          "role": "inert"
+        },
+        {
+          "cmd": "CommitTree",
+          "id": "0013",
+          "reason": "mission-unmet",
+          "role": "world-mutating"
+        },
+        {
+          "cmd": "ListHandles",
+          "id": "0015",
+          "reason": "mission-unmet",
+          "role": "inert"
+        },
+        {
+          "cmd": "MissionMark",
+          "id": "0016",
+          "reason": "mission-unmet",
+          "role": "inert"
+        },
+        {
+          "cmd": "InvokeRewindToLaunch",
+          "id": "0017",
+          "reason": "mission-unmet",
+          "role": "world-mutating"
+        },
+        {
+          "cmd": "SaveGame",
+          "id": "0018",
+          "reason": "mission-unmet",
+          "role": "world-mutating"
+        },
+        {
+          "cmd": "LoadGame",
+          "id": "0019",
+          "reason": "mission-unmet",
+          "role": "world-mutating"
+        },
+        {
+          "cmd": "DiscardTree",
+          "id": "0021",
+          "reason": "mission-unmet",
+          "role": "world-mutating"
+        },
+        {
+          "cmd": "SetSetting",
+          "id": "0022",
+          "reason": "mission-unmet",
+          "role": "world-mutating"
+        },
+        {
+          "cmd": "SetSetting",
+          "id": "0023",
+          "reason": "mission-unmet",
+          "role": "world-mutating"
+        },
+        {
+          "cmd": "ListHandles",
+          "id": "0024",
+          "reason": "mission-unmet",
+          "role": "inert"
+        },
+        {
+          "cmd": "MissionMark",
+          "id": "0025",
+          "reason": "mission-unmet",
+          "role": "inert"
+        },
+        {
+          "cmd": "WarpToUT",
+          "id": "0026",
+          "reason": "mission-unmet",
+          "role": "world-mutating"
+        },
+        {
+          "cmd": "ListHandles",
+          "id": "0027",
+          "reason": "mission-unmet",
+          "role": "inert"
+        },
+        {
+          "cmd": "MissionMark",
+          "id": "0028",
+          "reason": "mission-unmet",
+          "role": "inert"
+        },
+        {
+          "cmd": "SaveGame",
+          "id": "0029",
+          "reason": "mission-unmet",
+          "role": "world-mutating"
+        }
+      ],
+      "status": "SKIPPED"
+    }
+  },
+  "wallSeconds": 106
+}
