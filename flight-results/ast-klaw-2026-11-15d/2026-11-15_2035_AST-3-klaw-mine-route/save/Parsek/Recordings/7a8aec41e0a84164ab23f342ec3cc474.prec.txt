@@ -1,0 +1,115 @@
+version = 1
+recordingSchemaGeneration = 4
+recordingId = 7a8aec41e0a84164ab23f342ec3cc474
+sidecarEpoch = 3
+sectionAuthoritative = True
+TRACK_SECTION
+{
+	env = 2
+	ref = 0
+	startUT = 931.65153320252068
+	endUT = 931.67153320252066
+	sampleRate = 0
+	minAlt = 106163.266
+	maxAlt = 106163.266
+	POINT
+	{
+		ut = 931.67153320252066
+		lat = 0.0381473550643283
+		lon = 56.238161731545588
+		alt = 106163.26469745149
+		rotX = -0.471829742
+		rotY = 0.282506466
+		rotZ = 0.4903888
+		rotW = -0.676081061
+		body = Kerbin
+		velX = 2059.18945
+		velY = 3.21210957
+		velZ = 835.85144
+		funds = 0
+		science = 0
+		rep = 0
+	}
+}
+TRACK_SECTION
+{
+	env = 2
+	ref = 2
+	startUT = 931.67153320252066
+	endUT = 1928.8715332025326
+	sampleRate = 0
+	src = 2
+	ORBIT_SEGMENT
+	{
+		startUT = 931.67153320252066
+		endUT = 1928.8715332025326
+		inc = 0.091346049767647375
+		ecc = 0.013428076039324974
+		sma = 697489.70408523676
+		lan = 137.13014298903323
+		argPe = 182.7917911877168
+		mna = 3.5335833759922819
+		epoch = 931.67153320252066
+		body = Kerbin
+		isPredicted = False
+		ofrX = 0.0883512944
+		ofrY = 0.1785953
+		ofrZ = 0.0488166
+		ofrW = 0.978731155
+	}
+}
+TRACK_SECTION
+{
+	env = 2
+	ref = 2
+	startUT = 1928.8715332025326
+	endUT = 1997.5715332025227
+	sampleRate = 0
+	src = 2
+	ORBIT_SEGMENT
+	{
+		startUT = 931.67153320252066
+		endUT = 1997.5715332025227
+		inc = 0.091346049767647375
+		ecc = 0.013428076039324974
+		sma = 697489.70408523676
+		lan = 137.13014298903323
+		argPe = 182.7917911877168
+		mna = 3.5335833759922819
+		epoch = 931.67153320252066
+		body = Kerbin
+		isPredicted = False
+		ofrX = 0.0883512944
+		ofrY = 0.1785953
+		ofrZ = 0.0488166
+		ofrW = 0.978731155
+	}
+}
+TRACK_SECTION
+{
+	env = 2
+	ref = 0
+	startUT = 1997.5715332025227
+	endUT = 1999.9315332025205
+	sampleRate = 0
+	minAlt = 90312.59
+	maxAlt = 90312.59
+	POINT
+	{
+		ut = 1997.5715332025227
+		lat = -0.062589974547576616
+		lon = -122.97492938905556
+		alt = 90312.594280706369
+		rotX = 0.456221223
+		rotY = -0.260204434
+		rotZ = -0.5093092
+		rotW = 0.6817331
+		body = Kerbin
+		velX = -1849.19531
+		velY = -2.66065264
+		velZ = -935.1063
+		funds = 0
+		science = 0
+		rep = 0
+	}
+}

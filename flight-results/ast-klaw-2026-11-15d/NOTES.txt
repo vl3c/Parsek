@@ -1,0 +1,32 @@
+ast-klaw-2026-11-15d: AST-3-klaw-mine-route alone on claude/project-thread-7yabo0 at
+8fb6d08d (harness-only on 4c6915a7). Slot copy not re-provisioned (fcceccd DLL,
+sha256 410946844dcf..., carries "GrappleCapture rock renderers:"). 1 slot.
+Verdict: INVALID after 2 attempts. Layout as 11-15b/c.
+
+Attempt 1 (2026-11-15_2035): INVALID driver-gate. Mission MISSION-OK: grabbed, drilled,
+released, docked all met (phases through DOCK, KG-SETTLE, KG-TERMINAL; Depot at 174.7 m).
+  Drill: harvest window opened ut=525.47 converters=[2710002010:ModuleAsteroidDrill:],
+  closed ut=555.53 (full 30 s), plausibleRates Ore 0.0487/s;
+  "Harvest rate: ModuleAsteroidDrill ... kind=SpaceObjectDrill ... rock=[Ore:0.93]".
+  Ore mined 0.7994. Transfer (0016): moved=0.7994 destBefore=0 destAfter=0.7994 into
+  the Depot's RadialOreTank. Undock (0019) OK newPid=959837658. CommitTree, SealSlot OK
+  (7 recordings, sealed=1).
+  Monoprop left on the Miner after the dock (produced save): 4 x 18.21 of 20 = 72.8/80.
+  Unmet row: 0029 RouteCommand create -> REJECTED:
+    RouteAnalysis windows accepted+ordered count=2 dockOrder=[504.11,925.65]
+    RouteAnalysis: skipped 1 empty grapple window(s) as non-stops; 1 stop-bearing window remain
+    RouteAnalysis harvest: gains covered source=baa43cb2... anchor=a6c6341a... lineage=4
+      resources=0 harvestedTotal=0
+    RouteAnalysis rejected: undocked-start origin (harvest-refined) originRec=f749dc52...
+      reason=delivered-exceeds-harvested resource=Ore delivered=0.7994 harvested=0
+    routecommand create gate ... eligible=False status=UndockedStartOrigin refusal=CandidateIneligible
+  The harvest window was recorded, but on recording e614eb53... (kind=Grapple,
+  harvestWindows=1); the lineage walk from the dock source to the origin credits
+  harvestedTotal=0. So the route was never created: no stops/delivery, send-once,
+  TimeJump, final ReadVesselResources and SaveGame were skipped (step-unmet).
+  Every verifier other than driverValidity read PASS or SKIPPED (analyzer PASS,
+  mission PASS; expectations/logContracts not evaluated after the driver gate).
+
+Attempt 2 (2026-11-15_2047): INVALID autopilot-flake, phase DOCK: "docking AP
+disabled without docking (benched/NRE?)". grabbed, drilled, released met; docked unmet.
+Ore 0.7052 left on the Miner, monoprop 4 x 15.25 of 20.

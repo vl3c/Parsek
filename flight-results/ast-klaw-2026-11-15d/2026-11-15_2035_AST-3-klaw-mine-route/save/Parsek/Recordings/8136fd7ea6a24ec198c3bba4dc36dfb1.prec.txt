@@ -1,0 +1,115 @@
+version = 1
+recordingSchemaGeneration = 4
+recordingId = 8136fd7ea6a24ec198c3bba4dc36dfb1
+sidecarEpoch = 3
+sectionAuthoritative = True
+PART_EVENT
+{
+	ut = 931.65153320252068
+	pid = 2710002010
+	type = 9
+	part = MiniDrill
+	value = 0
+	midx = 4
+}
+PART_EVENT
+{
+	ut = 931.65153320252068
+	pid = 2710002002
+	type = 9
+	part = GrapplingDevice
+	value = 0
+	midx = 1
+}
+TRACK_SECTION
+{
+	env = 2
+	ref = 2
+	startUT = 931.67153320252066
+	endUT = 1875.6715332025205
+	sampleRate = 0
+	src = 2
+	ORBIT_SEGMENT
+	{
+		startUT = 931.67153320252066
+		endUT = 1875.6715332025205
+		inc = 0.094787374929084969
+		ecc = 0.013225214204739037
+		sma = 697605.65390242753
+		lan = 138.07067571404923
+		argPe = 182.08337845945431
+		mna = 3.5292778765385613
+		epoch = 931.67153320252066
+		body = Kerbin
+		isPredicted = False
+	}
+}
+TRACK_SECTION
+{
+	env = 2
+	ref = 2
+	startUT = 1875.6715332025205
+	endUT = 1975.0715332025432
+	sampleRate = 0
+	src = 2
+	ORBIT_SEGMENT
+	{
+		startUT = 1875.6715332025205
+		endUT = 1975.0715332025432
+		inc = 0.094787374929084969
+		ecc = 0.013225214204739037
+		sma = 697605.65390242753
+		lan = 138.07067571404923
+		argPe = 182.08337845945431
+		mna = 3.5292778765385613
+		epoch = 931.67153320252066
+		body = Kerbin
+		isPredicted = False
+	}
+}
+TRACK_SECTION
+{
+	env = 2
+	ref = 2
+	startUT = 1975.0715332025432
+	endUT = 1997.5715332025227
+	sampleRate = 0
+	src = 2
+	ORBIT_SEGMENT
+	{
+		startUT = 1975.0715332025432
+		endUT = 1997.5715332025227
+		inc = 0.094787374929084969
+		ecc = 0.013225214204739037
+		sma = 697605.65390242753
+		lan = 138.07067571404923
+		argPe = 182.08337845945431
+		mna = 3.5292778765385613
+		epoch = 931.67153320252066
+		body = Kerbin
+		isPredicted = False
+	}
+}
+TRACK_SECTION
+{
+	env = 2
+	ref = 2
+	startUT = 1997.5715332025227
+	endUT = 1999.9515332025205
+	sampleRate = 0
+	src = 2
+	ORBIT_SEGMENT
+	{
+		startUT = 1997.5715332025227
+		endUT = 1999.9515332025205
+		inc = 0.094787374929084969
+		ecc = 0.013225214204739037
+		sma = 697605.65390242753
+		lan = 138.07067571404923
+		argPe = 182.08337845945431
+		mna = 3.5292778765385613
+		epoch = 931.67153320252066
+		body = Kerbin
+		isPredicted = False
+	}
+}

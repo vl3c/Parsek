@@ -1,0 +1,104 @@
+{
+  "analyzerVersion": "5",
+  "saveName": "ast-miner-lko",
+  "subjectSchemaGeneration": 4,
+  "counts": {
+    "fail": 0,
+    "warn": 0,
+    "info": 0,
+    "staleFixture": 0,
+    "baselined": 0,
+    "failNonBaselined": 0,
+    "staleNonBaselined": 0
+  },
+  "findings": [],
+  "careerSave": {
+    "parsed": true,
+    "hasFunds": false,
+    "funds": 0,
+    "hasScience": false,
+    "sciencePool": 0,
+    "hasRep": false,
+    "reputation": 0,
+    "hasUniversalTime": true,
+    "universalTime": 2000.1715332025203,
+    "subjectScience": {},
+    "facilityLevelFrac": {},
+    "activeContractGuids": [],
+    "completedMilestoneIds": [
+      "Docking",
+      "FirstLaunch",
+      "Kerbin/Docking",
+      "Kerbin/Orbit",
+      "Kerbin/Rendezvous",
+      "Kerbin/StationConstruction",
+      "Orbit",
+      "ReachedSpace",
+      "RecordsAltitude",
+      "RecordsDistance",
+      "Rendezvous",
+      "StationConstruction"
+    ],
+    "vessels": [
+      {
+        "pid": "0777bb0fe0ff40648527de9959966a01",
+        "persistentId": 86573055,
+        "name": "Ast. VPA-167",
+        "type": "SpaceObject",
+        "resourceTotals": {}
+      },
+      {
+        "pid": "3ca19860ef6e819ac6733952bca255ec",
+        "persistentId": 2710404000,
+        "name": "AST Depot",
+        "type": "Station",
+        "resourceTotals": {
+          "ElectricCharge": 217.18883262858597,
+          "Ore": 0.79940047985949281
+        }
+      },
+      {
+        "pid": "7afb3f95967f405ab00699c34959f9da",
+        "persistentId": 959837658,
+        "name": "AST Miner",
+        "type": "Probe",
+        "resourceTotals": {
+          "ElectricCharge": 1007.6603212991764,
+          "MonoPropellant": 72.857357089085639,
+          "Ore": 0
+        }
+      }
+    ],
+    "hasRoster": true,
+    "roster": [
+      {
+        "name": "Bill Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Engineer",
+        "state": "Available"
+      },
+      {
+        "name": "Bob Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Scientist",
+        "state": "Available"
+      },
+      {
+        "name": "Jebediah Kerman",
+        "gender": "Male",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Missing"
+      },
+      {
+        "name": "Valentina Kerman",
+        "gender": "Female",
+        "type": "Crew",
+        "trait": "Pilot",
+        "state": "Available"
+      }
+    ]
+  }
+}

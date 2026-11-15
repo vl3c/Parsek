@@ -1,0 +1,430 @@
+version = 1
+recordingSchemaGeneration = 4
+recordingId = e614eb533d2044a091f68803c56f942c
+sidecarEpoch = 2
+sectionAuthoritative = True
+PART_EVENT
+{
+	ut = 519.27153320289574
+	pid = 2710002010
+	type = 9
+	part = MiniDrill
+	value = 0
+	midx = 4
+}
+PART_EVENT
+{
+	ut = 525.4715332028901
+	pid = 2710002010
+	type = 37
+	part = MiniDrill
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 555.53153320286276
+	pid = 2710002010
+	type = 38
+	part = MiniDrill
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 556.53153320286185
+	pid = 660576410
+	type = 0
+	part = PotatoRoid
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 556.53153320286185
+	pid = 2710002004
+	type = 19
+	part = unknown
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 556.53153320286185
+	pid = 2710002005
+	type = 19
+	part = unknown
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 556.53153320286185
+	pid = 2710002006
+	type = 19
+	part = unknown
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 556.53153320286185
+	pid = 2710002007
+	type = 19
+	part = unknown
+	value = 0
+	midx = 0
+}
+TRACK_SECTION
+{
+	env = 2
+	ref = 0
+	startUT = 504.11153320290947
+	endUT = 556.53153320286185
+	sampleRate = 0.362457067
+	minAlt = 104358.805
+	maxAlt = 105224.383
+	POINT
+	{
+		ut = 504.13153320290945
+		lat = -0.070663465435936337
+		lon = -13.786589958587481
+		alt = 104358.8032319831
+		rotX = 0.224772334
+		rotY = -0.22152853
+		rotZ = -0.671380341
+		rotW = 0.670560241
+		body = Kerbin
+		velX = 1253.73267
+		velY = 2.11960125
+		velZ = -1846.38
+		funds = 0
+		science = 0
+		rep = 0
+	}
+	POINT
+	{
+		ut = 507.15153320290671
+		lat = -0.070134081469860679
+		lon = -13.288831849429791
+		alt = 104412.43437480775
+		rotX = 0.222144008
+		rotY = -0.219247267
+		rotZ = -0.671720743
+		rotW = 0.671843767
+		body = Kerbin
+		velX = 1271.3551
+		velY = 2.14654541
+		velZ = -1834.07813
+		funds = 0
+		science = 0
+		rep = 0
+	}
+	POINT
+	{
+		ut = 510.17153320290396
+		lat = -0.06959821015258269
+		lon = -12.791159878148607
+		alt = 104465.66830365616
+		rotX = 0.2235665
+		rotY = -0.220266864
+		rotZ = -0.671426058
+		rotW = 0.6713328
+		body = Kerbin
+		velX = 1288.86169
+		velY = 2.172751
+		velZ = -1821.61023
+		funds = 0
+		science = 0
+		rep = 0
+	}
+	POINT
+	{
+		ut = 513.19153320290127
+		lat = -0.069056145505129368
+		lon = -12.29357041275216
+		alt = 104518.46184188488
+		rotX = 0.224902883
+		rotY = -0.22136803
+		rotZ = -0.6710291
+		rotW = 0.670920968
+		body = Kerbin
+		velX = 1306.24561
+		velY = 2.19875026
+		velZ = -1808.97742
+		funds = 0
+		science = 0
+		rep = 0
+	}
+	POINT
+	{
+		ut = 516.21153320289852
+		lat = -0.068507988181998408
+		lon = -11.796061627486949
+		alt = 104570.79952520714
+		rotX = 0.224511415
+		rotY = -0.221035689
+		rotZ = -0.670982242
+		rotW = 0.671208441
+		body = Kerbin
+		velX = 1323.5061
+		velY = 2.22453761
+		velZ = -1796.18091
+		funds = 0
+		science = 0
+		rep = 0
+	}
+	POINT
+	{
+		ut = 519.23153320289578
+		lat = -0.067953367130893824
+		lon = -11.298633042811652
+		alt = 104622.6794693938
+		rotX = 0.22296387
+		rotY = -0.219243467
+		rotZ = -0.671729743
+		rotW = 0.671564341
+		body = Kerbin
+		velX = 1340.64
+		velY = 2.25011826
+		velZ = -1783.22168
+		funds = 0
+		science = 0
+		rep = 0
+	}
+	POINT
+	{
+		ut = 522.251533202893
+		lat = -0.067392924208770411
+		lon = -10.801284833498773
+		alt = 104674.10575930204
+		rotX = 0.2210707
+		rotY = -0.217897534
+		rotZ = -0.6720932
+		rotW = 0.672264159
+		body = Kerbin
+		velX = 1357.64685
+		velY = 2.275486
+		velZ = -1770.10132
+		funds = 0
+		science = 0
+		rep = 0
+	}
+	POINT
+	{
+		ut = 525.27153320289028
+		lat = -0.06682607410020204
+		lon = -10.304017016443645
+		alt = 104725.0797519366
+		rotX = 0.220504567
+		rotY = -0.217523381
+		rotZ = -0.6724875
+		rotW = 0.6721771
+		body = Kerbin
+		velX = 1374.5249
+		velY = 2.30063868
+		velZ = -1756.8208
+		funds = 0
+		science = 0
+		rep = 0
+	}
+	POINT
+	{
+		ut = 528.29153320288754
+		lat = -0.066253431828253426
+		lon = -9.80682893890291
+		alt = 104775.59733122378
+		rotX = 0.221100241
+		rotY = -0.218531668
+		rotZ = -0.672176063
+		rotW = 0.671965837
+		body = Kerbin
+		velX = 1391.273
+		velY = 2.3255744
+		velZ = -1743.38147
+		funds = 0
+		science = 0
+		rep = 0
+	}
+	POINT
+	{
+		ut = 531.31153320288479
+		lat = -0.065674736773334325
+		lon = -9.3097192127126931
+		alt = 104825.64819918969
+		rotX = 0.222278714
+		rotY = -0.219512582
+		rotZ = -0.671843
+		rotW = 0.6715902
+		body = Kerbin
+		velX = 1407.8894
+		velY = 2.35029078
+		velZ = -1729.78467
+		funds = 0
+		science = 0
+		rep = 0
+	}
+	POINT
+	{
+		ut = 534.331533202882
+		lat = -0.065090185490652222
+		lon = -8.812686301743458
+		alt = 104875.22146044695
+		rotX = 0.22275883
+		rotY = -0.219401389
+		rotZ = -0.671711743
+		rotW = 0.6715988
+		body = Kerbin
+		velX = 1424.3728
+		velY = 2.37478566
+		velZ = -1716.03162
+		funds = 0
+		science = 0
+		rep = 0
+	}
+	POINT
+	{
+		ut = 537.3515332028793
+		lat = -0.064499854462370651
+		lon = -8.3157291940684139
+		alt = 104924.31087931199
+		rotX = 0.2219376
+		rotY = -0.218064681
+		rotZ = -0.671894968
+		rotW = 0.672122538
+		body = Kerbin
+		velX = 1440.72168
+		velY = 2.39905715
+		velZ = -1702.12366
+		funds = 0
+		science = 0
+		rep = 0
+	}
+	POINT
+	{
+		ut = 540.37153320287655
+		lat = -0.06390356989146205
+		lon = -7.8188475999272207
+		alt = 104972.91606931482
+		rotX = 0.220430076
+		rotY = -0.216304034
+		rotZ = -0.6724727
+		rotW = 0.672609568
+		body = Kerbin
+		velX = 1456.93481
+		velY = 2.42310286
+		velZ = -1688.06213
+		funds = 0
+		science = 0
+		rep = 0
+	}
+	POINT
+	{
+		ut = 543.3915332028738
+		lat = -0.063301602022844863
+		lon = -7.3220415390873788
+		alt = 105021.03883194795
+		rotX = 0.219103679
+		rotY = -0.215585977
+		rotZ = -0.672807932
+		rotW = 0.672938168
+		body = Kerbin
+		velX = 1473.01062
+		velY = 2.446921
+		velZ = -1673.84827
+		funds = 0
+		science = 0
+		rep = 0
+	}
+	POINT
+	{
+		ut = 546.411533202871
+		lat = -0.062693787580016327
+		lon = -6.8253106522672953
+		alt = 105068.67754502548
+		rotX = 0.218898535
+		rotY = -0.216134176
+		rotZ = -0.672963738
+		rotW = 0.6726733
+		body = Kerbin
+		velX = 1488.94788
+		velY = 2.47050953
+		velZ = -1659.48352
+		funds = 0
+		science = 0
+		rep = 0
+	}
+	POINT
+	{
+		ut = 549.43153320286831
+		lat = -0.062080443192193045
+		lon = -6.3286538627323239
+		alt = 105115.82554362656
+		rotX = 0.219533041
+		rotY = -0.217348471
+		rotZ = -0.6727293
+		rotW = 0.672309637
+		body = Kerbin
+		velX = 1504.745
+		velY = 2.49386621
+		velZ = -1644.96912
+		funds = 0
+		science = 0
+		rep = 0
+	}
+	POINT
+	{
+		ut = 552.45153320286556
+		lat = -0.0614615565428022
+		lon = -5.8320696509364911
+		alt = 105162.47317817027
+		rotX = 0.22026439
+		rotY = -0.2178276
+		rotZ = -0.6725057
+		rotW = 0.6721391
+		body = Kerbin
+		velX = 1520.40076
+		velY = 2.51698923
+		velZ = -1630.30664
+		funds = 0
+		science = 0
+		rep = 0
+	}
+	POINT
+	{
+		ut = 555.47153320286282
+		lat = -0.060837212456537004
+		lon = -5.3355566999765891
+		alt = 105208.61269525043
+		rotX = 0.220259279
+		rotY = -0.21690473
+		rotZ = -0.6725163
+		rotW = 0.672428548
+		body = Kerbin
+		velX = 1535.91382
+		velY = 2.53987646
+		velZ = -1615.49719
+		funds = 0
+		science = 0
+		rep = 0
+	}
+	POINT
+	{
+		ut = 556.53153320286185
+		lat = -0.060620963700730633
+		lon = -5.1649225766700795
+		alt = 105224.38351088611
+		rotX = 0.220014974
+		rotY = -0.216330037
+		rotZ = -0.6725674
+		rotW = 0.672642469
+		body = Kerbin
+		velX = 1541.22278
+		velY = 2.547703
+		velZ = -1610.36353
+		funds = 0
+		science = 0
+		rep = 0
+		flags = 1
+	}
+}

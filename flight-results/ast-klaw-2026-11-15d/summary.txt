@@ -1,0 +1,2 @@
+2026-11-15T20:58:04Z INVALID AST-3-klaw-mine-route attempts=2 wall=1334s slot=stock-minimal runIds=2026-11-15_2035_AST-3-klaw-mine-route,2026-11-15_2047_AST-3-klaw-mine-route_a2
+# totals INVALID=1 pending=0 of 1
