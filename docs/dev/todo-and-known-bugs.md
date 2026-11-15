@@ -474,8 +474,9 @@ construction.
   `lifetimes.py` does: field entry, pattern, type default), runs the helper and then the
   store's own Cold-path call with a save that holds nothing (`VesselNameStore.Load`,
   `RouteStore.LoadRoutesFrom`, `LedgerOrchestrator.OnLoad`, `SaveFileLoadIntent.TryConsume`,
-  ...), and reads each back. What it leaves set today is pinned in `ColdLoaderKnownGaps`
-  (COLD-RESET-LEFTOVERS below), and a pinned gap that closes reds until its entry goes.
+  ...), and reads each back. What it leaves set is pinned in `ColdLoaderKnownGaps`, and a
+  pinned gap that closes reds until its entry goes; the list is empty since
+  COLD-RESET-LEFTOVERS (below) closed its four.
 - Both reset cells read through a `ColdResetState` holder: each field of the holder the reset
   leaves current is a slot keyed `Store.field`, so a field moved into the holder keeps its
   allowlist key and a field added to it is covered with no test edit.
@@ -491,7 +492,7 @@ construction.
 - `RewindInvokeContext`: the Re-Fly invoke context (11 fields, now properties); `Clear` swaps to a holder naming no slot (-1). The arch IL cells that named `::Pending` and `::CapturedBundle` re-anchor (no save static is cleared by `ldsflda` + `initobj` any more; the fixture cells keep that rule covered).
 - Re-pin: `facts_pins.toml` `crossTypeStaticWrites` stays at 55 with the same keys. The extractor now counts another type's call to a static property setter that reads a `ColdResetState` holder as a cross-type static write keyed by the property, so the 14 keys the holders moved (`RewindInvokeContext` x11, `SceneEntryVesselScope` x3) are still seen (a first re-pin to 41 had let the gate go blind to them). A call to a holder type's method that assigns holder fields is not counted. The lifetime gate still reads every holder field as save-scoped (7 holders, 51 fields), findings 0, `lifetime_pins.toml` unchanged.
 
-## COLD-RESET-LEFTOVERS: four save / load-transition statics a Cold load leaves set [FILED 2026-11-14 from the ARCH-COLD-RESET-HOLDERS cold-loader cells, by a headless test. OPEN; none reproduced in play, low; pinned in `SaveScopedSessionResetTests.ColdLoaderKnownGaps`, not fixed]
+## ~~COLD-RESET-LEFTOVERS~~: four save / load-transition statics a Cold load leaves set [FILED 2026-11-14 from the ARCH-COLD-RESET-HOLDERS cold-loader cells, by a headless test; none reproduced in play, low. FIXED 2026-11-14 on branch `item23-cold-reset-leftovers`, headless only]
 
 - `RevertDetector.pending` and `revertTargetVesselPids`: consumed only by `OnLoad`'s
   in-session branch (`RevertDetector.Consume`, `ConsumeRevertTargetVesselPids`); the Cold
@@ -508,8 +509,34 @@ construction.
   with the flight epoch on purpose (`ClearRevertUndoState(resetEpoch: false)`); the tag is the
   thing to fix (a `process` field entry, beside `FlightEpoch`), not the code.
 
-**Fix.** Clear the two `RevertDetector` fields in the Cold reset and `armedTarget` in
-`DiscardReFlyLoadIntent.Clear`, retag `lastPostInitState`, and drop the four entries.
+**Fix.** All four closed through the existing paths; `ColdLoaderKnownGaps` is empty.
+
+- `RevertDetector.DropForColdLoad(reason)`, called by `ResetSaveScopedSessionState` after the
+  load is classified, clears both fields and logs one line (Warn
+  `Cold load dropped a stale pending revert: kind=.. targetPids=.. reason=..` when either was
+  set, Verbose otherwise). Only a Cold load drops it: a load from the main menu or of another
+  save folder. A load of the same save that finds `initialLoadDone` true (F9, the pause-menu
+  Load into the same folder) with a revert pending still classifies in session by design
+  (`ClassifyEarly` treats it as the revert's own load) and consumes the revert there. No race
+  with the consumer: `ClassifyEarly` reads the kind before the reset, and `Consume` runs only in
+  the in-session branch, which a Cold load never enters. The pending kind
+  is also read at scene exit (`SceneExitInterceptor` persistent-write skip, the merge flow's
+  save-file stash), so a stale one would have misled those too.
+- `DiscardReFlyLoadIntent`: `TryConsume` and `Clear` (both paths) now reset every field, the
+  target included, through one `Disarm`. Every OnLoad consumes the intent while it classifies, so
+  the target was left by the consume, not only by `Clear`. Inert before (every reader checks
+  `armed`); hygiene only.
+- `VesselNameStore.lastPostInitState`: retagged `process` in `scripts/arch/lifetimes.toml`
+  beside `FlightEpoch`; no code change. Stock rebuilds `FlightDriver.PostInitState` on every
+  flight start, so the first flight ready after any load bumps the epoch whether the field is
+  kept or cleared.
+- Cells: `SaveScopedSessionResetTests` (`ColdLoader_ResetsEverySaveScopedStatic` rows for the
+  three stores with no known gaps, `StaleRevert_IsDroppedByTheColdReset_WithAWarn`,
+  `DiscardIntent_ConsumeAndClear_DropTheTarget`,
+  `VesselNames_FlightEpochAndItsRevertTarget_SurviveTheColdLoad`) and, over the real OnLoad,
+  `ParsekScenarioOnLoadStepOrderTests.AColdLoad_DropsAStaleRevertAndTheDiscardIntentTarget` and
+  `TheRevertAndDiscardReFlyLoads_StillConsumeTheirMarkers`. Each fix reverted alone reds its
+  cells; a clear moved before the classification reds the in-session cell.
 
 ## ~~ROUTE-LINE-DETACHED-SEGMENTS~~: the supply route overview line drew route segments far from the ship's icon; the line is retired [FILED 2026-11-12 from the TP-7 pictures; RULED 2026-11-12 by the owner; REMOVED 2026-11-12 on branch `claude/project-thread-zfo2hk` (PR #2586); FLOWN GREEN 2026-11-12, seven lanes on the first attempt]
 

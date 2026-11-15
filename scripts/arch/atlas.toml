@@ -284,7 +284,7 @@ body = "Since 2026-11-14 (#2598) <code>OnLoad</code> threads one <span class=\"i
 
 [[findings.items]]
 title = "Three seams can now be tested without the game."
-body = "On 2026-11-14 the merge flow reaches its host instance only through <span class=\"id\">IMergeFlowHost</span> (a fake host drives it in <code>MergeFlowDecisionTests</code>), the recalculation walk takes a <span class=\"id\">RecalculationModuleSet</span> instead of engine statics, and seven stores keep their save-scoped fields in one <code>ColdResetState</code> holder the Cold reset swaps whole (reassignable statics 860 to 819 at that merge); none of the three moved the semantic residue, and the four statics a Cold load still leaves set are pinned as todo COLD-RESET-LEFTOVERS (<em>Static lifetimes</em>)."
+body = "On 2026-11-14 the merge flow reaches its host instance only through <span class=\"id\">IMergeFlowHost</span> (a fake host drives it in <code>MergeFlowDecisionTests</code>), the recalculation walk takes a <span class=\"id\">RecalculationModuleSet</span> instead of engine statics, and seven stores keep their save-scoped fields in one <code>ColdResetState</code> holder the Cold reset swaps whole (reassignable statics 860 to 819 at that merge); none of the three moved the semantic residue, and the four statics a Cold load still left set (todo COLD-RESET-LEFTOVERS) were cleared or retagged the same day (<em>Static lifetimes</em>)."
 
 [[findings.items]]
 title = "The two recorders share one part poller."
@@ -392,7 +392,7 @@ rank = 9
 item = "Cold reset: the leftovers"
 evidence = "On 2026-11-14 a headless cell pins four save or load-transition statics a Cold load leaves set: the two <span class=\"id\">RevertDetector</span> fields, <code>DiscardReFlyLoadIntent.armedTarget</code> and a mistagged <code>VesselNameStore.lastPostInitState</code> (todo COLD-RESET-LEFTOVERS; <em>Static lifetimes</em>)."
 size = "small"
-status = "Open; none reproduced in play. The holders landed 2026-11-14 (#2590, seven stores, todo ARCH-COLD-RESET-HOLDERS); the fix is named in the todo: clear the three fields, retag the fourth, drop the pinned gaps."
+status = "Done 2026-11-14 (todo COLD-RESET-LEFTOVERS, headless only): the Cold reset drops a stale revert, the Discard Re-fly intent drops its target on every consume and clear, <code>lastPostInitState</code> is tagged process beside <code>FlightEpoch</code>, and the pinned gaps are gone. The holders landed 2026-11-14 (#2590, seven stores, todo ARCH-COLD-RESET-HOLDERS)."
 types = ["RevertDetector", "DiscardReFlyLoadIntent", "VesselNameStore"]
 
 [[opportunities]]

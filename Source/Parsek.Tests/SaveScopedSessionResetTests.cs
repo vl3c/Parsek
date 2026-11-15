@@ -511,29 +511,22 @@ namespace Parsek.Tests
             // Every OnLoad consumes the intent while it classifies, before the helper runs.
             [typeof(SaveFileLoadIntent)] = () => SaveFileLoadIntent.TryConsume(
                 0.0, 0, "test-cold", out double _, out int _),
-            // The helper clears it (DiscardReFlyLoadIntent.Clear("save-scoped-reset")).
+            // The helper clears it, the target included (DiscardReFlyLoadIntent.Clear("save-scoped-reset")).
             [typeof(DiscardReFlyLoadIntent)] = () => { },
             // Handoff step A takes the captured handoff on every load and drops it on a Cold one.
             [typeof(InSessionStagedStateHandoff)] = () => InSessionStagedStateHandoff.Take(),
             // OnLoad clears a leftover recovery request before it classifies.
             [typeof(InFlightRecoveryRequest)] = () => InFlightRecoveryRequest.Clear("OnLoad"),
-            // RevertDetector is consumed only by the in-session branch: see ColdLoaderKnownGaps.
+            // The helper drops a stale revert (RevertDetector.DropForColdLoad); only the
+            // in-session branch consumes one.
             [typeof(RevertDetector)] = () => { },
         };
 
         // Save / load-transition statics a Cold load does not reset today. Each is pinned so
         // the cell stays green on the code as it is and goes red the day the gap closes (drop
-        // the entry then). Value: the todo id and why.
+        // the entry then). Value: the todo id and why. Empty since COLD-RESET-LEFTOVERS.
         private static readonly Dictionary<string, string> ColdLoaderKnownGaps = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["DiscardReFlyLoadIntent.armedTarget"] = "COLD-RESET-LEFTOVERS: Clear and TryConsume drop armed, the "
-                + "session and the UT but keep the target; inert while armed is false (every reader checks it)",
-            ["VesselNameStore.lastPostInitState"] = "COLD-RESET-LEFTOVERS: tagged save by the type default, but "
-                + "Load keeps it with FlightEpoch on purpose (ClearRevertUndoState(resetEpoch: false))",
-            ["RevertDetector.pending"] = "COLD-RESET-LEFTOVERS: consumed only by OnLoad's in-session branch; a "
-                + "revert armed with no load of its own would classify a later load of another save",
-            ["RevertDetector.revertTargetVesselPids"] = "COLD-RESET-LEFTOVERS: consumed with pending, only by "
-                + "OnLoad's in-session branch",
         };
 
         private static ConfigNode EmptyScenarioNode() => new ConfigNode("SCENARIO");
@@ -794,13 +787,79 @@ namespace Parsek.Tests
                 && l.Contains("Deferred flight warp dropped: Y3 D12 6:30 reason=cold-load:save-file"));
         }
 
+        // ---- COLD-RESET-LEFTOVERS ----
+
+        // catches: a stock revert armed in one save (its LoadScene swallowed, or its own load
+        // gone Cold) surviving the Cold load of the next, which would classify that save's first
+        // in-session load as a revert and strip vessels against the old target pids.
+        [Fact]
+        public void StaleRevert_IsDroppedByTheColdReset_WithAWarn()
+        {
+            RevertDetector.SetPendingForTesting(RevertKind.Launch);
+            typeof(RevertDetector)
+                .GetField("revertTargetVesselPids", BindingFlags.NonPublic | BindingFlags.Static)
+                .SetValue(null, new HashSet<uint> { 11u, 12u, 13u });
+            logLines.Clear();
+
+            ParsekScenario.ResetSaveScopedSessionState("main-menu");
+
+            Assert.Equal(RevertKind.None, RevertDetector.PendingKind);
+            Assert.Null(RevertDetector.ConsumeRevertTargetVesselPids());
+            Assert.Contains(logLines, l => l.Contains("[WARN][RevertDetector]")
+                && l.Contains("Cold load dropped a stale pending revert: kind=Launch targetPids=3 reason=main-menu"));
+        }
+
+        // catches: the Discard Re-fly intent keeping the previous discard's target after its
+        // consume (every OnLoad consumes it while classifying) or a clear.
+        [Fact]
+        public void DiscardIntent_ConsumeAndClear_DropTheTarget()
+        {
+            DiscardReFlyLoadIntent.Arm(RevertTarget.Prelaunch, "sess-a");
+            Assert.True(DiscardReFlyLoadIntent.TryConsume(GameScenes.EDITOR, "test", out RevertTarget consumed));
+            Assert.Equal(RevertTarget.Prelaunch, consumed);
+            Assert.Equal(RevertTarget.Launch, DiscardReFlyLoadIntent.ArmedTarget);
+
+            DiscardReFlyLoadIntent.Arm(RevertTarget.Prelaunch, "sess-b");
+            Assert.False(DiscardReFlyLoadIntent.TryConsume(GameScenes.FLIGHT, "test", out _));
+            Assert.Equal(RevertTarget.Launch, DiscardReFlyLoadIntent.ArmedTarget);
+
+            DiscardReFlyLoadIntent.Arm(RevertTarget.Prelaunch, "sess-c");
+            logLines.Clear();
+            ParsekScenario.ResetSaveScopedSessionState("save-file");
+            Assert.False(DiscardReFlyLoadIntent.IsArmed);
+            Assert.Equal(RevertTarget.Launch, DiscardReFlyLoadIntent.ArmedTarget);
+            Assert.Contains(logLines, l => l.Contains("DiscardReFly load intent cleared reason=save-scoped-reset "
+                + "target=Prelaunch sess=sess-c"));
+        }
+
+        // The flight epoch and the revert target it was last compared with are process state
+        // (scripts/arch/lifetimes.toml): the Cold path's VesselNameStore.Load keeps both, the
+        // same revert target keeps the epoch and a new one (stock rebuilds it on every flight
+        // start) moves it.
+        [Fact]
+        public void VesselNames_FlightEpochAndItsRevertTarget_SurviveTheColdLoad()
+        {
+            object launch = new object();
+            Assert.True(VesselNameStore.NoteFlightReady(launch));
+            int epoch = VesselNameStore.FlightEpoch;
+
+            VesselNameStore.Load(EmptyScenarioNode());
+
+            Assert.Equal(epoch, VesselNameStore.FlightEpoch);
+            Assert.False(VesselNameStore.NoteFlightReady(launch));
+            Assert.Equal(epoch, VesselNameStore.FlightEpoch);
+            Assert.True(VesselNameStore.NoteFlightReady(new object()));
+            Assert.Equal(epoch + 1, VesselNameStore.FlightEpoch);
+        }
+
         // A reset with nothing stale logs no Warn for either.
         [Fact]
         public void ColdReset_WithNothingStale_LogsNoStaleWarn()
         {
             logLines.Clear();
             ParsekScenario.ResetSaveScopedSessionState("boot");
-            Assert.DoesNotContain(logLines, l => l.Contains("stale rewind state") || l.Contains("stale Re-Fly invoke"));
+            Assert.DoesNotContain(logLines, l => l.Contains("stale rewind state") || l.Contains("stale Re-Fly invoke")
+                || l.Contains("stale pending revert"));
         }
 
         // ---- the reset line and the reason ----
@@ -822,7 +881,7 @@ namespace Parsek.Tests
             ParsekScenario.ResetSaveScopedSessionState("main-menu");
 
             Assert.Contains(logLines, l => l.Contains("[Scenario]")
-                && l.Contains("Save-scoped session state reset: reason=main-menu pendingTreeDropped=false storesReset=14"));
+                && l.Contains("Save-scoped session state reset: reason=main-menu pendingTreeDropped=false storesReset=15"));
             Assert.Equal(1, ParsekScenario.ColdLoadsThisProcessForTesting);
         }
 
