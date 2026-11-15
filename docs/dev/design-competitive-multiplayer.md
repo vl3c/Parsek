@@ -151,8 +151,11 @@ typed or pasted), no marker drawn at a rival's site, and no panel on a stock scr
 
 ## 1. Introduction
 
-A race is a group of up to four players. Each plays their own save, at their own pace, on their
-own game clock. Nobody needs to be online at the same time. A folder synced by any file-sharing
+A race is one whole multiplayer game: up to four players who each play a full Sandbox,
+Science or Career game from day 1, compared across every milestone of the Kerbal system for as
+long as they play (owner, 2026-11-15). It is not a contest to reach one chosen goal first, and
+there are no race types or presets: every race has the same milestones and the same points
+(7.9). Each player plays their own save, at their own pace, on their own game clock. Nobody needs to be online at the same time. A folder synced by any file-sharing
 service (Dropbox, Google Drive, a network share) carries each player's public state to the
 others. Correspondence chess, not real-time multiplayer.
 
@@ -286,7 +289,7 @@ board is a comparison, not an economy.
 
 | Term | Definition |
 |------|------------|
-| Race | One competition: a manifest, a set of players, a ladder, optional end date and house rules, rooted in one shared folder. |
+| Race | One whole multiplayer game, played by up to four players as full Sandbox, Science or Career games and scored across every milestone; not a contest for one goal. On disk: a manifest, a set of players, the ladder, an optional end date and house rules, rooted in one shared folder. |
 | Creator | The player who created the race. They write the race manifest once. They have no other special role. |
 | Player id | Stable GUID identifying a player, generated at first setup. The display name is separate. |
 | Rival | Any other player in the race, as seen from the local player. |
@@ -2271,8 +2274,8 @@ also put to the owner, and the design follows it until the owner answers (13.C).
    about a rival is selectable?
 4. **How deep verification goes.** The flight exists and covers the date (the first build),
    or also a check of the trajectory against the claim (7.15, step B).
-5. **One-goal races.** A preset where a single milestone decides the race; a small addition on
-   top of the ladder once the ladder exists.
+5. **One-goal races.** Not planned (owner, 2026-11-15): a race is a whole game scored across
+   every milestone (section 1), never a contest for a single one.
 6. **Looks beyond four players.** Not planned: four sites, four looks.
 7. **Launch area sizes.** 100 m around a pad, 50 m around a runway strip: measured with the
    sites.

@@ -9,7 +9,10 @@ Source paths and line numbers were re-measured at main `ab1cc9478` (2026-11-15) 
 #2619 and #2620 moved them; whoever picks up a task re-reads the code first.
 
 This folder holds the implementation plan for the competitive multiplayer mode ("the space
-race"). The design is `docs/dev/design-competitive-multiplayer.md` (v2); the measured list of
+race"). A race is one whole multiplayer game: a full Sandbox, Science or Career playthrough by
+up to four players, scored across every milestone. It is not a contest for one chosen goal, and
+there are no race types or presets (owner, 2026-11-15). The design is
+`docs/dev/design-competitive-multiplayer.md` (v3); the measured list of
 prerefactors is `docs/dev/research/multiplayer-base-refactoring-2026-11-14.md`. Nothing here is
 code. Every task below is one pull request with its own tests, docs and one clean review.
 
