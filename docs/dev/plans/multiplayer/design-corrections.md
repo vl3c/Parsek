@@ -518,7 +518,8 @@ syncs; the lane asserts the holder change"; 7.12 (lines 1395-1399): a save where
 the test runner ran is marked for good and a marked flight scores nothing. Found:
 test-and-harness.md:857-861. A harness-flown B never takes a milestone. Plan proves the holder
 change with generator-built rival folders (RACE-7) and asserts the marked rows (RACE-6). Edit:
-11's second lane. See Q-24.
+11's second lane. See Q-24. Settled 2026-11-15 by Q-24 (b): in a test game (R1-23) a harness
+flight scores, and T-53 flies the holder change live.
 
 **DC-081 SILENT.** Design 7.12 (lines 1395-1396): "injected recordings" mark the save. Found:
 test-and-harness.md:862-865. Injection runs offline before boot, so Parsek cannot see it ran;
@@ -886,7 +887,7 @@ module needs its rule, layer and atlas line in the same commit as its first file
 Ordered by class: NOW, BEFORE-PHASE, AFTER-SPIKE, DESIGNER, ANSWERED. "Waits" names the tasks
 that need the answer. A question answered or re-timed after this list was written keeps its
 place and its number; its Class line says what changed (Q-03, Q-04, Q-05, Q-07, and the
-answers of 2026-11-15: Q-08 to Q-12, Q-14 to Q-17, Q-21, Q-22).
+answers of 2026-11-15: Q-08 to Q-12, Q-14 to Q-17, Q-21, Q-22, Q-24).
 
 ### NOW
 
@@ -1135,6 +1136,10 @@ plays is marked by the test tooling, so its own flights never score.
 - Source: test-and-harness.md:903-907; correction DC-080. Waits: T-28, T-32, R6-01. Spike
   first: none. Class: DESIGNER; assume (a), which keeps your ruling that a flight flown with a
   debug tool does not score (design 0, lines 102-103).
+- Class: ANSWERED 2026-11-15 by the owner, overturning the assumption: (b), as labelled test
+  games ("Yes, as labelled test games"). A game the test tools create carries `testGame = True`
+  (R1-23), is named "Test game" to every player, and the test-tools mark alone does not stop its
+  flights from scoring; a normal game is unchanged (R3E-08, R6-01; README section 4).
 
 **Q-25 Test two game copies racing on one PC at the same moment?**
 - Options: (a) an optional operator lane on the parallel runner's copies; (b) leave it to the

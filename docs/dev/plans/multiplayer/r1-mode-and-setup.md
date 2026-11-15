@@ -808,10 +808,12 @@ Dropped: replaced by T-13 (OV-02).
     wires its tap to open the dialog; implements `IRaceSetupHost`.
   - `UI/RaceSetupDialog.cs`: a stock `PopupDialog` / `MultiOptionDialog` with three
     buttons (Create, Join, Continue) and the Continue page: one row per local race save
-    (race name, own look, last sync). `IRaceSetupHost` is declared in the same file (the
-    `IMergeFlowHost` precedent) so UI never names Controllers. Its members land with their
-    first callers (A1): `Continue` here, `Create` with R1-15's page, `Join` and
-    `StartOver` with R1-17's page, the folder-only mode with R1-18's Change button.
+    (race name, own look, last sync; the words "Test game" after the race name when the
+    manifest says `testGame = True`, read from R1-23's key, which lands before this task
+    through T-13). `IRaceSetupHost` is
+    declared in the same file (the `IMergeFlowHost` precedent) so UI never names Controllers. Its
+    members land with their first callers (A1): `Continue` here, `Create` with R1-15's page, `Join`
+    and `StartOver` with R1-17's page, the folder-only mode with R1-18's Change button.
   - `RaceCore/RaceSaveListing.cs`: pure listing over directory facts (save folder name,
     parsed `local.cfg`, parsed local `race.cfg`); `RaceWorld/RaceSaveScanner.cs` reads
     `saves/*/Parsek/Race/` (the LOCAL directories only).
@@ -829,12 +831,12 @@ Dropped: replaced by T-13 (OV-02).
     todo entry and a CHANGELOG entry under `1.1.0` (README rule 10).
   - Nothing hides the entry (question 1, owner, 2026-11-15): it is added at every main
     menu; there is no later change that turns it on.
-- **Proof:** xUnit `RaceSaveListingTests`, `RaceSetupDialogModelTests` (pure page state);
-  `AgentInstructionMirrorTests`; the menu entry is a manual check on
-  the owner's PC: no in-game category runs at the main menu, since every race category has
-  one scene and one host lane (A2); RACE-1 (T-13)
-  gains a "continue from the dialog" step through a `UiAction`-style seam only if one
-  exists for stock dialogs; otherwise a manual check. Logs: `[Race] Menu entry added`,
+- **Proof:** xUnit `RaceSaveListingTests`, `RaceSetupDialogModelTests` (pure page state; a
+  cell pins a test game's row as the race name followed by "Test game");
+  `AgentInstructionMirrorTests`; the menu entry and the dialog are driven by T-43's lane
+  RACE-19 (`UiAction op=raise` / `op=state` from a MAINMENU seam step, then `op=dialog` per
+  page; 2026-11-15, replacing the manual check); the keyboard feel stays on the owner list
+  (test-and-harness section 1). Logs: `[Race] Menu entry added`,
   `[Race] Continue: save=.. raceId=..`.
 - **Registers:** `CLAUDE.md` + `AGENTS.md` (and the umbrella copies by hand after merge, a
   docs change); `design-gui-inventory.md` (dialog count; R1 posts no screen message: the
@@ -859,25 +861,27 @@ Dropped: replaced by T-13 (OV-02).
   time; none means the game never ends); "no retakes", off by default; display name; look (four
   toggles); the calendar line, read-only (question 3: the day length is the creator's own game
   setting, shown, with no field; it only formats dates, since dates compare to the exact second).
-  There is no seat-count field (always four) and no password field (anyone with the folder may
-  join). Three part set checkboxes (Making History, Breaking Ground, ReStock+), none ticked by
-  default (assumed until the owner answers, stated 2026-11-15), with one line saying the base game's
-  parts always count; and "Allow play without scoring", ticked by default (owner, 2026-11-15), with
-  its hover saying what each state does (design 7.2). The page says once that mode, end date, "no
-  retakes", shared launch sites, the part sets and "allow play without scoring" never change after
-  Create. The form state is a pure `RaceCore/RaceSetupForm.cs` (field values to a
-  `RaceCreateRequest` plus the first refusal); Create calls `IRaceSetupHost.Create`, which calls
-  `ParsekRaceSetup.Create`. Confirmations use the stock confirmation dialog (design section 0).
-  R1-20's check: `ParsekRaceSetup.Create` runs `RaceContentCheck.Decide` and takes the answer to a
-  warning as an argument; this page passes `IRaceSetupHost.ConfirmUnscored(text)`, which shows the
-  warning (what differs, and that this game's flights will not score while it differs) in the stock
-  confirmation dialog with Continue and Cancel, and shows a refusal (`content-differs`, with
-  `Describe`'s text) in the page's refusal line.
+  There is no seat-count field (always four), no password field (anyone with the folder may
+  join) and no test game field (only the test tools make a test game, R1-23). Three part set
+  checkboxes (Making History, Breaking Ground, ReStock+), none ticked by default (assumed until the
+  owner answers, stated 2026-11-15), with one line saying the base game's parts always count; and
+  "Allow play without scoring", ticked by default (owner, 2026-11-15), with its hover saying what
+  each state does (design 7.2). The page says once that mode, end date, "no retakes", shared launch
+  sites, the part sets and "allow play without scoring" never change after Create. The form state is
+  a pure `RaceCore/RaceSetupForm.cs` (field values to a `RaceCreateRequest` plus the first refusal);
+  Create calls `IRaceSetupHost.Create`, which calls `ParsekRaceSetup.Create`. Confirmations use the
+  stock confirmation dialog (design section 0). R1-20's check: `ParsekRaceSetup.Create` runs
+  `RaceContentCheck.Decide` and takes the answer to a warning as an argument; this page passes
+  `IRaceSetupHost.ConfirmUnscored(text)`, which shows the warning (what differs, and that this
+  game's flights will not score while it differs) in the stock confirmation dialog with Continue and
+  Cancel, and shows a refusal (`content-differs`, with `Describe`'s text) in the page's refusal
+  line.
 - **Proof:** xUnit `RaceSetupFormTests` (every field's refusal, the request built from a
   valid form, the part sets and "allow play without scoring" carried into the request with
-  their defaults: no set ticked, play without scoring on); manual create on the owner's PC,
-  once on a stock-tree install (no warning) and once with a tree mod (the warning, then the
-  refusal with the setting off); RACE-1 (T-13) keeps proving the core.
+  their defaults: no set ticked, play without scoring on); the page driven through the seam
+  by T-43's RACE-19 (create through the dialog path, the warning dialog answered), and the
+  warning and refusal on a tree mod by SITES-2 (R2-13) and T-42's RACE-17; RACE-1 (T-13)
+  keeps proving the core.
   Adds `IRaceSetupHost.Create` and `IRaceSetupHost.ConfirmUnscored`, their first caller
   (A1); R1-17 reuses `ConfirmUnscored`.
 - **Registers:** `design-gui-inventory.md` (the page); todo and a CHANGELOG entry under
@@ -912,9 +916,11 @@ Dropped: replaced by T-13 (OV-02).
   design 7.2) and whether play without scoring is allowed. R1-20's check runs in
   `ParsekRaceSetup.Join`: its refusal shows in the page's refusal line, and its warning (play
   without scoring on) through R1-15's `IRaceSetupHost.ConfirmUnscored`, which this page passes as
-  the answer.
-- **Proof:** xUnit `RaceJoinFormTests`; manual join on the owner's PC (a second install or
-  a second save on one install, folder shared on disk).
+  the answer. When the manifest says `testGame = True` (R1-23), the summary's first line reads
+  the game name followed by the words "Test game" ("<name> - Test game").
+- **Proof:** xUnit `RaceJoinFormTests` (a cell pins a test game's first summary line as
+  "<name> - Test game"); the page driven by T-43's RACE-19 (a join through
+  the dialog into the race RACE-19 created, a second save on one install).
 - **Registers:** `design-gui-inventory.md`; todo and a CHANGELOG entry under `1.1.0`.
 - **Size:** M. **Depends on:** R1-14, R1-20. **PC:** yes.
 - **Risk:** medium; the page shows other players' text, so names are length-capped and
@@ -944,9 +950,9 @@ Dropped: replaced by T-13 (OV-02).
   (calling `RequestSyncNow`) and the sync status text to this section (OV-40); rivals'
   times are R4.
 - **Proof:** xUnit `RacePlayerSettingsTests` (the three folder cases, name clash, look
-  taken); `TooltipEchoBudgetTests` (hover text within 71 characters); manual check in
-  FLIGHT and SPACECENTER on the owner's PC. Logs: `[Race] Folder changed: from=.. to=..
-  case=..`, `[Race] Look changed: ..`.
+  taken); `TooltipEchoBudgetTests` (hover text within 71 characters); the section's state
+  read through `UiAction op=state` in SPACECENTER by T-43's RACE-19. Logs: `[Race] Folder changed:
+  from=.. to=.. case=..`, `[Race] Look changed: ..`.
 - **Registers:** `design-gui-inventory.md` (Settings section); todo and a CHANGELOG entry
   under `1.1.0`.
 - **Size:** M. **Depends on:** R1-08, R1-09, R1-10, R1-14. **PC:** yes.
@@ -1084,9 +1090,9 @@ the stock tree only in the first build, one checkbox per part set, and the creat
   stays on `stock-minimal`, whose CommunityTechTree and ProbesBeforeCrew make the tree differ, and
   proves the Warn path (create, join and load answered with `unscoredConfirm=continue`, one load
   with `cancel` leaving the save unchanged, and a create with `unscored=off` refused
-  `content-differs`). A manual run on the owner's PC with a tree patch and a stat patch, once with
-  the setting on and once off. Logs: `[Race] Content check: result=.. differences=.. first=..`,
-  `[Race] Content warning: choice=continue|cancel source=dialog|seam`.
+  `content-differs`). T-41's RACE-15 and T-42's RACE-17 add the launch with an uncounted part
+  and the refused load with the setting off. Logs: `[Race] Content check: result=.. differences=..
+  first=..`, `[Race] Content warning: choice=continue|cancel source=dialog|seam`.
 - **Registers:** `design-gui-inventory.md` (the warning dialog; the refusal is R2-02's
   message with a second reason); the README's race screen message row; `headless_pins.toml`
   (`RaceContentCheck`); `log_tags.json`; the seam contract (`design-autotest-command-seam.md`)
@@ -1140,14 +1146,53 @@ the stock tree only in the first build, one checkbox per part set, and the creat
   suffix and underscore forms; a cell pinning the copied rule against
   `GhostVisualBuilder.TryExtractPartName` on the same inputs) and
   `UncountedPartsWarningTests` over a fake vessel source (a launch warns, a dock adding a
-  new name warns again, the same name twice warns once, a clean vessel never). Manual on the
-  owner's PC: a launch with a mod part. Log: `[Race] Unscored flight warned: vessel=..
-  parts=..`.
+  new name warns again, the same name twice warns once, a clean vessel never). Live: T-41's
+  RACE-15 launches a craft with an uncounted part and pins the warning line. Log: `[Race] Unscored
+  flight warned: vessel=.. parts=..`.
 - **Registers:** `design-gui-inventory.md` (one screen message); the README's race screen
   message row; `log_tags.json`.
 - **Size:** S. **Depends on:** R1-19, R1-20. **PC:** yes.
 - **Risk:** low; `onVesselWasModified` fires often, so the warned set keeps the message to one
   per new name.
+
+### R1-23 The test game key in the race manifest
+
+Added 2026-11-15 (owner ruling: games the test tools create score as labelled test games;
+design 7.12).
+
+- **Change:** an additive manifest key `testGame` (bool, default `False`) in `race.cfg`,
+  read by R1-08's manifest codec and written by R1-10's write codec, fixed at creation like
+  every other setting (no reader changes it after Create). Only the test tools set it, and
+  two of them can: the seam's create step in a running game (`RaceSetup action=create`), and
+  the harness's fixture writer that stages a race save before the game starts (T-48's
+  overlay writer in the test project, which calls the same manifest write codec). Both go
+  through one member: `RaceCreateRequest.TestGame`, whose setter is `internal` (the test
+  project reaches it as a friend assembly; in `Source/Parsek` only the seam's applier
+  assigns it). The setup dialog's `RaceSetupForm` has no such field, so the dialog path
+  cannot set it by construction; a join copies the manifest and never sets it; no
+  player-reachable code path sets the key. `RaceCommand action=status` reports
+  `testGame=True|False`. The words "Test game" are shown by the surfaces that already show
+  the race, after the race name ("<name> - Test game" in the Space Race window header,
+  R4-09 / R4-10; after the name in the Join page's race summary, R1-17, and the Continue
+  listing, R1-14); no new window, badge or message. The rule that uses it is R6-01's: in a
+  test game the test-tools mark does not stop a flight from scoring. No format bump (an
+  additive key, design save-format policy).
+- **Proof:** `RaceManifestWriteTests` gains a round trip with the key and a cell that a
+  manifest without it reads as `False`; `RaceSetupPlanTests`: a request from
+  `RaceSetupForm` never carries `testGame`, a seam request does; `TestCommandRaceSetupTests`
+  and the `RaceCommand status` formatter cells; RACE-1 (T-13) asserts `testGame=True` for
+  the created race and each join. Log: the `[Race] Create:` line gains `testGame=..`. A
+  grep cell in R1-06's `GrepAuditTests.Race.cs` (its shared `RaceSourceScan`, extended to
+  `UI/` for this cell): in `Source/Parsek` the assignment of `TestGame` (a statement or an
+  object initializer) appears in exactly one file, the seam's applier
+  `ParsekTestCommandAddon.RaceSetup.cs`, and no file of `UI/` or of the setup dialog names
+  the setter; the window header and the summaries only read `RaceManifest.TestGame`.
+- **Registers:** the seam contract (`#### RaceSetup`, `#### RaceCommand`), hlib rows,
+  `Fixtures/FormatGolden/` untouched (a v2 manifest without the key still loads).
+- **Size:** S. **Depends on:** R1-10, R1-06 (the scanner the grep cell extends). **PC:** no
+  (rides T-13).
+- **Risk:** low; the one thing to keep true is that no player path can set the key, which
+  `RaceSetupPlanTests` and the grep cell pin.
 
 ## 5. Parallel tracks
 
@@ -1240,7 +1285,8 @@ green):
 
 - `MarkSurvivesSaveLoad` (R1-03), gate on and off across scenes (R1-04),
   `ContentProbeMatchesRnD` (R1-20), `ProgressionSettingsHeld` (R1-21). The menu entry (R1-14)
-  is a manual check, since no race category runs at the main menu (A2). The one other R1
+  is driven through the seam by T-43 (RACE-19), since no race category runs at the main menu
+  (A2). The one other R1
   in-game test is R1-19's dev tool `RaceDevTests.DumpRaceContent` (category `RaceDev`,
   MAINMENU, single run only), which no lane runs.
 
@@ -1250,15 +1296,15 @@ the new save's Space Center, gate cleared at the main menu, a single-player fixt
 race mark (`reason=no-mark`), reloading the race save keeps the race (same `raceId`), and a
 late join gets slot 1 and the first free look. One flight tier for R1-16.
 
-Manual checks on the owner's PC: the cloned menu entry and keyboard navigation (R1-14); the
-Create and Join pages including the difficulty panel (R1-15, R1-17); Settings in FLIGHT and
-SPACECENTER (R1-18); a race save opened from the stock Resume list behaves like Continue;
-the content dump on a clean install with both expansions, ReStock and ReStock+ (R1-19); a
-tree patch and a stat patch, with "allow play without scoring" on and off, at create, join
-and load (R1-20); the nine settings greyed (R1-21); a launch with a mod part (R1-22).
+Proofs that were manual (2026-11-15 audit, test-and-harness section 6): the menu entry, the
+Create and Join pages and the Settings section are driven through the seam by T-43
+(RACE-19); the content warning and refusal by SITES-2, T-41 (RACE-15) and T-42 (RACE-17); the
+launch warning by T-41; the greyed settings by R1-21's cell on RACE-9; the content dump's
+probe by `ContentProbeMatchesRnD` on RACE-9. What stays with the owner is on the one owner
+list (test-and-harness section 1): keyboard navigation and the feel of the pages.
 
-What needs the owner's PC: R1-03, R1-04 (in-game tests), R1-10, R1-11 (through RACE-1),
-R1-14 to R1-22.
+What needs the owner's PC: R1-03, R1-04 (in-game tests), R1-10, R1-11, R1-23 (through
+RACE-1), R1-14 to R1-22 (through RACE-9, RACE-15, RACE-17, RACE-19 and SITES-2).
 
 ## 7. Gates and registrations
 
