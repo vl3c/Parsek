@@ -277,6 +277,28 @@ Where a fix would go (a choice for whoever takes it; no code changed):
      asserts, so it is an owner call.
 Option 1 is the smallest. Done when B7 flies attempt 1 green across several nightlies.
 
+## B43-VALL-TYLO-FLYBY-SUBSURFACE: B43's first flight reaches Tylo on an impact course and never arms the capture [FILED 2026-11-15 from B43's first flights; mission library, no fix yet; low (the forge cannot harvest `vall-tylo-recorded`, so V43M stays unflyable; not a Parsek defect)]
+
+`B43-vall-tylo-transfer` flew twice on 2026-11-15 (runs `2026-11-15_1617` and `2026-11-15_1632_a2`)
+and read INVALID(mission) both times at the same place: TARGET-FLYBY logged `flyby impact certain,
+capture-never-armed (periapsis-subsurface)`, periapsis about -579,788 m inside Tylo's SOI on both
+attempts. The identical periapsis says the plan is deterministic: the last mid-course correction
+(spec `correctionTriggerTimeToSoiSeconds = [70000, 15000]`) leaves the Tylo periapsis below the
+surface and nothing after it raises it. Next look: read the two runs' `_mission.stdout.log` for the
+correction burns' target periapsis, then either add a later correction window or aim the Tylo
+periapsis higher. Parsek recorded the flight normally up to the abort.
+
+## B44-LAYTHE-TYLO-NODE-EDIT-UNAVAILABLE: B44's second transfer burn cannot edit its maneuver node and the craft is lost [FILED 2026-11-15 from B44's first flights; mission library, no fix yet; low (the forge cannot harvest `laythe-tylo-recorded`, so V44M stays unflyable; not a Parsek defect)]
+
+`B44-laythe-tylo-transfer` flew twice on 2026-11-15 (runs `2026-11-15_1617` and
+`2026-11-15_1622_a2`) and read INVALID(mission) both times. The second TRANSFER-BURN logged
+`telemetry read failed (RuntimeError: Maneuver node editing is not available ...)` from kRPC, the
+burn did not fly as planned, and the mission ended vessel-lost and MISSION-ASSERT-FAIL. Both
+attempts failed at the same step, so this is the machine's plan (fixture `laythe-park-nerv`,
+mission `b29_jool_kerbin`, the B26 relay re-pointed at Tylo), not chance. Next look: the
+`_mission.stdout.log` of both runs around the second burn, to see what state (scene, active
+vessel, patched-conics availability) the node edit was refused in.
+
 ## ~~FAR-SWITCH-CASE-B-UNFLOWN~~: no lane flew a far vessel switch while recording, so the commit before stock's reload was never checked in game [CLOSED 2026-11-15: S0.14 LIVE-PROVEN on its fourth flight, `2026-11-15_0011_S0.14-far-switch-merges-before-reload` PASS attempt 1, tier daily; the residue below is the #266 stash, still unreached. FILED 2026-11-14 from a lane gap audit (the vessel-switch stash family). LANE AUTHORED 2026-11-14, branch `item20-switch-pending-merge-lane`: `S0.14-far-switch-merges-before-reload`, operator (flight 1 INVALID on its host, re-hosted on `jool-park-nerv`; flight 2 red on a spec error, fixed; flight 3 PARSEK-FAIL on a product defect, FAR-SWITCH-INTENT-TTL-RACE, now fixed and the lane re-pinned to it); the two-switch reading lane S0.15 flew once and was WITHDRAWN (no committed host). Closes when S0.14 flies green with the fix; the #266 stash stays unreached by any flown lane until a host is harvested; test gap]
 
 Shape: the player records a vessel, then switches to a vessel OUTSIDE the physics bubble (map
