@@ -47,6 +47,7 @@ for _p in (LIB_DIR, PROVISION_DIR):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+import campaign  # noqa: E402  (the campaign-chain decisions behind --stage-from)
 import ghostlife  # noqa: E402  (the pure sibling behind the ghostLifecycle row)
 import hlib  # noqa: E402
 import ledgerverify  # noqa: E402  (the ledger-oracle verifier's decision core, shared with mutledger)
@@ -1241,6 +1242,9 @@ class SelectionContext:
         self.window_mode = window_mode
         self.desktop_id = desktop_id
         self.umbrella_root = umbrella_root
+        # --stage-from: the save stage_fixture copies instead of the template
+        # (a campaign runner's chained stage), checked by _stage_from_refusal.
+        self.stage_from: Optional[str] = None
         # slot name -> held lock path
         self.slot_locks: Dict[str, str] = {}
         self.report_results: List[Tuple[Dict, str]] = []
@@ -2078,6 +2082,12 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
 
     # (1) remove any prior staged save, (2) copy the template verbatim.
     template_abs = os.path.join(HARNESS_ROOT, save_template)
+    if _CTX.stage_from:
+        # A campaign runner's chained stage: the previous stage's harvested save,
+        # staged under this spec's own leaf (the shared-ship overlay keys on it).
+        template_abs = _CTX.stage_from
+        logger.info("Stage", "campaign handover: staging %s instead of %s as save=%s"
+                    % (template_abs, save_template, run_save_name))
     if not os.path.isdir(template_abs):
         # Fixtures may not be committed (heavy); a missing template is a staging
         # failure, surfaced by the caller as INVALID(admission-adjacent staging).
@@ -6844,6 +6854,11 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
     parser.add_argument("--desktop-id",
                         help="virtual desktop GUID handed to KSP as %s"
                              % slotrun.DESKTOP_ID_ENV)
+    parser.add_argument("--stage-from",
+                        help="stage this save instead of the spec's saveTemplate: a "
+                             "tools/campaign_runner.py chained stage (<run>/<chain>/<stage>/in "
+                             "under results/campaign/, with the runner's handover marker); "
+                             "--slot only, one lane")
     parser.add_argument("--sweep-results", action="store_true",
                         help="maintenance: run the results retention sweeps (old _shots, old "
                              "and orphaned _save / _save-<suffix> / _race snapshots, stale "
@@ -6863,6 +6878,8 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
             parser.error("--slot and --instance-dir are mutually exclusive")
     if args.tests_prebuilt and slot is None:
         parser.error("--tests-prebuilt is accepted only with --slot")
+    if args.stage_from and slot is None:
+        parser.error("--stage-from is accepted only with --slot (a campaign runner's child)")
 
     runtime = runtime or Runtime()
     umbrella_root = os.path.abspath(args.umbrella_root) if args.umbrella_root else DEFAULT_UMBRELLA_ROOT
@@ -6974,6 +6991,14 @@ def _run_invocation(args, runtime, umbrella_root: str, logger, selected_ids: Lis
     if getattr(args, "admit_only", False):
         return admit_only(selected, umbrella_root, args, runtime, logger)
 
+    if _arg_str(args, "stage_from"):
+        refusal, real = _stage_from_refusal(args.stage_from, selected_ids)
+        if refusal:
+            logger.error("Select", "refusing --stage-from: %s" % refusal)
+            return 2
+        _CTX.stage_from = real
+        logger.info("Select", "campaign handover accepted: --stage-from %s" % real)
+
     if _CTX.slot_mode:
         return _run_slot_child(selected, specs, registry, umbrella_root, args, runtime,
                                logger, expr)
@@ -7007,6 +7032,31 @@ def _run_invocation(args, runtime, umbrella_root: str, logger, selected_ids: Lis
         _unity_prefs_step(runtime, umbrella_root, logger, begin=False)
         release_slot_locks(logger)
         release_run_lock(lock_path, logger)
+
+
+def _stage_from_refusal(stage_from: str, selected_ids: Sequence[str],
+                        env: Optional[Dict[str, str]] = None) -> Tuple[Optional[str], str]:
+    """(refusal or None, resolved path) for ``--stage-from``: the file reads
+    around ``campaign.stage_from_refusal`` (the handover marker beside the
+    folder, the save's persistent.sfs)."""
+    env = os.environ if env is None else env
+    real = os.path.realpath(stage_from)
+    root = os.path.realpath(os.path.join(RESULTS_DIR, campaign.CAMPAIGN_RESULTS_DIRNAME))
+    try:
+        with open(os.path.join(os.path.dirname(real), campaign.HANDOVER_FILE), "r",
+                  encoding="utf-8") as fh:
+            marker = json.load(fh)
+    except (OSError, ValueError):
+        marker = None
+
+    def norm(p: str) -> str:
+        return os.path.normcase(p).replace(os.sep, "/")
+
+    refusal = campaign.stage_from_refusal(
+        norm(real), norm(root), list(selected_ids), _CTX.slot_mode,
+        env.get(slotrun.RUNNER_TOKEN_ENV), marker,
+        os.path.isfile(os.path.join(real, "persistent.sfs")))
+    return refusal, real
 
 
 def _unity_prefs_step(runtime, umbrella_root: str, logger, begin: bool) -> None:
