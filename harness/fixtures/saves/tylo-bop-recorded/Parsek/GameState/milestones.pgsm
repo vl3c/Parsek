@@ -1,0 +1,55 @@
+version = 1
+MILESTONE
+{
+	id = 5f96acb1397e4888815fa8cbd94bc31d
+	startUT = 0
+	endUT = 29157522.551856194
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 1
+	GAME_STATE_EVENT
+	{
+		ut = 29037369.655193575
+		type = 18
+		key = Tylo/Escape
+		detail = funds=0;rep=0;sci=0
+		recordingId = 357fb51afec64cda803550341fe9375f
+		cseq = 1
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 29037369.655193575
+		type = 18
+		key = Jool/Flyby
+		detail = funds=0;rep=0;sci=0
+		recordingId = 357fb51afec64cda803550341fe9375f
+		cseq = 2
+	}
+}
+MILESTONE
+{
+	id = 3761f5d793ac4c09b9899a32734e37f3
+	startUT = 29157522.551856194
+	endUT = 29298349.291538358
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 1
+	GAME_STATE_EVENT
+	{
+		ut = 29296273.815105148
+		type = 18
+		key = Bop/Flyby
+		detail = funds=0;rep=0;sci=0
+		recordingId = 357fb51afec64cda803550341fe9375f
+		cseq = 3
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 29298330.675186213
+		type = 18
+		key = Bop/Orbit
+		detail = funds=0;rep=0;sci=0
+		recordingId = 357fb51afec64cda803550341fe9375f
+		cseq = 4
+	}
+}

@@ -1,7 +1,9 @@
 schema = 1
 id = "B45-tylo-bop-transfer"
 # =====================================================================================
-# B45: Tylo -> Bop, a moon-to-moon forge. AUTHORED 2026-11-14, NEVER FLOWN.
+# B45: Tylo -> Bop, a moon-to-moon forge. AUTHORED 2026-11-14.
+# LIVE-PROVEN 2026-11-16 on its first flight (run 2026-11-16_1638, PASS attempt 1, 687 s),
+# harvested as `tylo-bop-recorded`.
 # Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 2 / MOON-FLIGHT-TEST-PROGRAM Group B.
 #
 # WHAT IT IS FOR. The hard case of the moon-rooted rule: Bop (P 544,507 s, e 0.235,
@@ -48,11 +50,11 @@ id = "B45-tylo-bop-transfer"
 # and drop V45M from test_hlib PENDING_FIXTURE_LANES (both in the same commit).
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-11-14, NEVER FLOWN. Moon-to-moon forge Tylo -> Bop: B26's parent-relay from the Parsek-stripped `tylo-park-nerv` (B33's harvest) out to the inclined, eccentric Bop, a circular capture with B34's Bop values, and the tree committed in the Bop orbit. A fresh Tylo-rooted tree that never leaves Jool's SOI; the matrix expected the loop to decline, the offline solver predicts a joint-best-fit lock at 7 x P_Bop. Produces `tylo-bop-recorded` for V45M."
+description = "AUTHORED 2026-11-14, LIVE-PROVEN 2026-11-16 (run 2026-11-16_1638). Moon-to-moon forge Tylo -> Bop: B26's parent-relay from the Parsek-stripped `tylo-park-nerv` (B33's harvest) out to the inclined, eccentric Bop, a circular capture with B34's Bop values, and the tree committed in the Bop orbit. A fresh Tylo-rooted tree that never leaves Jool's SOI; the matrix expected the loop to decline, the offline solver predicts a joint-best-fit lock at 7 x P_Bop. Produces `tylo-bop-recorded` for V45M."
 instanceProfile = "stock-minimal"
 tags = ["B45", "tylo", "bop", "jool", "moon-to-moon", "parent-relay", "inclined-target",
         "orbit", "mechjeb", "cross-soi", "capture", "commit-in-foreign-soi", "orbit-start",
-        "crewed", "pending-flight"]
+        "crewed", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/tylo-park-nerv"

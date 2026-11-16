@@ -1,0 +1,85 @@
+version = 0
+recordingSchemaGeneration = 4
+takeBackFromCseq = 1
+allowNegativeLocked = 0
+GAME_ACTION
+{
+	ut = 29037369.655193575
+	type = 4
+	actionId = act_2f44b10b158f405b9adae0205f723fad
+	recordingId = 357fb51afec64cda803550341fe9375f
+	seq = 1
+	cseq = 1
+	insideRepSeed = True
+	milestoneId = Tylo/Escape
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 29037369.655193575
+	type = 4
+	actionId = act_dbd3ce1f5ec94cbea51554732a5e9fc1
+	recordingId = 357fb51afec64cda803550341fe9375f
+	seq = 2
+	cseq = 2
+	insideRepSeed = True
+	milestoneId = Jool/Flyby
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 29296273.815105148
+	type = 4
+	actionId = act_10911385b55946758062bcaa9c624cc0
+	recordingId = 357fb51afec64cda803550341fe9375f
+	seq = 3
+	cseq = 3
+	insideRepSeed = True
+	milestoneId = Bop/Flyby
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 29298330.675186213
+	type = 4
+	actionId = act_6eb2aaca2341465d80e7d392d82c05b7
+	recordingId = 357fb51afec64cda803550341fe9375f
+	seq = 4
+	cseq = 4
+	insideRepSeed = True
+	milestoneId = Bop/Orbit
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 29017601.252880629
+	type = 11
+	actionId = act_db166bb6fec048ee8f5e68286dc37b62
+	recordingId = 357fb51afec64cda803550341fe9375f
+	seq = 1
+	cseq = 5
+	kerbalName = Valentina Kerman
+	kerbalRole = Pilot
+	startUT = 29017602
+	endUT = 29298404
+	endState = 0
+	xpGained = 0
+}
+PROGRESS_SEED
+{
+	captured = True
+	node = Jool/Escape
+	node = Jool/Orbit
+	node = Kerbin/Orbit
+	node = Sun/Orbit
+	node = Tylo/Flyby
+	node = Tylo/Orbit
+}

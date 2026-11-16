@@ -1,7 +1,8 @@
 schema = 1
 id = "B43-vall-tylo-transfer"
 # =====================================================================================
-# B43: Vall -> Tylo, a moon-to-moon forge. AUTHORED 2026-11-14, FLOWN THREE TIMES (INVALID), FIXED.
+# B43: Vall -> Tylo, a moon-to-moon forge. AUTHORED 2026-11-14, FLOWN THREE TIMES (INVALID), FIXED THRICE,
+# LIVE-PROVEN 2026-11-16 (run 2026-11-16_1638, PASS attempt 1, 1,097 s), harvested as `vall-tylo-recorded`.
 # Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 2 / MOON-FLIGHT-TEST-PROGRAM Group B.
 #
 # WHAT IT IS FOR. Rule 4a (`MissionPeriodicity.ResolveMoonRootedFrameParent`, #2554)
@@ -83,11 +84,11 @@ id = "B43-vall-tylo-transfer"
 # and drop V43M from test_hlib PENDING_FIXTURE_LANES (both in the same commit).
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-11-14; flown 2026-11-15 and twice on 2026-11-16, INVALID(mission) each time; fixed (course-correction node search), not yet re-flown. Moon-to-moon forge Vall -> Tylo: B26's parent-relay from the Parsek-stripped `vall-park-nerv` (B26's harvest), B29's elliptical capture at Tylo (6,000 km apoapsis), tree committed in the Tylo orbit. A fresh Vall-rooted tree that never leaves Jool's SOI, so rule 4a should phase-lock its loop at P = P_Tylo. Produces `vall-tylo-recorded` for V43M. Delta-v is tight: ~1,116 m/s available, ~683 left after stage 2 when flown."
+description = "AUTHORED 2026-11-14; flown 2026-11-15 and twice on 2026-11-16, INVALID(mission) each time; fixed (course-correction node search), LIVE-PROVEN 2026-11-16 (run 2026-11-16_1638). Moon-to-moon forge Vall -> Tylo: B26's parent-relay from the Parsek-stripped `vall-park-nerv` (B26's harvest), B29's elliptical capture at Tylo (6,000 km apoapsis), tree committed in the Tylo orbit. A fresh Vall-rooted tree that never leaves Jool's SOI, so rule 4a should phase-lock its loop at P = P_Tylo. Produces `vall-tylo-recorded` for V43M. Delta-v is tight: ~1,116 m/s available, ~683 left after stage 2 when flown."
 instanceProfile = "stock-minimal"
 tags = ["B43", "vall", "tylo", "jool", "moon-to-moon", "parent-relay", "elliptical-capture",
         "orbit", "mechjeb", "cross-soi", "capture", "commit-in-foreign-soi", "orbit-start",
-        "crewed", "pending-flight"]
+        "crewed", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/vall-park-nerv"

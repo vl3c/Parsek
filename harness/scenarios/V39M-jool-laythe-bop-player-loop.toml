@@ -1,11 +1,14 @@
 schema = 1
 id = "V39M-jool-laythe-bop-player-loop"
 # =====================================================================================
-# AUTHORED 2026-11-14, NEVER FLOWN, WAITING ON ITS FIXTURE: `jool-laythe-bop-recorded`
-# does not exist until B48-jool-laythe-bop-continuation flies green and is harvested
-# --keep-parsek. Until then this lane is listed in harness/lib/test_hlib.py
-# PENDING_FIXTURE_LANES, which keeps every committed suite green without the
-# fixture; a run refuses at staging.
+# AUTHORED 2026-11-14, NEVER FLOWN. Fixture `jool-laythe-bop-recorded` harvested
+# --keep-parsek from B48-jool-laythe-bop-continuation run `2026-11-16_1650` (PASS
+# attempt 1, wall 1,340 s): B22's tree 6ec68e87 with the Laythe -> Bop hop appended
+# as the main chain's tip recording bf6f3a49 (chainIndex 3, startBodyName Laythe,
+# endpoint Bop, terminal Orbiting), 8 recordings in all (jool-laythe-recorded's
+# seven plus the hop). HANDED OVER in the harvest commit: tier "operator" (was
+# "pending-fixture"), the "pending-fixture" tag dropped, the PENDING_FIXTURE_LANES
+# entry deleted, and the count window re-pinned to {8, 9} off those 8 recordings.
 #
 # THE M-MIS-6 DECLINE (design-mission-multimoon-alignment.md D1 / D4, test plan
 # item 2 live). B48's tree enters Laythe and Bop; P_Bop / P_Laythe = 10.277 is
@@ -17,10 +20,10 @@ id = "V39M-jool-laythe-bop-player-loop"
 # or the slack-clamp budget) is left loose until the reading names it; then pin it.
 # The engage line must NOT print. V33M's shape otherwise.
 # =====================================================================================
-tier = "pending-fixture"
-description = "AUTHORED 2026-11-14, NEVER FLOWN, WAITING ON ITS FIXTURE `jool-laythe-bop-recorded` (harvested from B48-jool-laythe-bop-continuation). The player loop on the Kerbin->Jool->Laythe->Bop tree: re-aim Kerbin->Jool engages and the multi-moon configuration hold DECLINES with an amber naming 2 constrained moons of Jool (Bop is incommensurate), never a silent faithful; the live MoonArrivalHold cell runs at the Space Center."
+tier = "operator"
+description = "AUTHORED 2026-11-14, NEVER FLOWN. On `jool-laythe-bop-recorded` (harvested from B48-jool-laythe-bop-continuation). The player loop on the Kerbin->Jool->Laythe->Bop tree: re-aim Kerbin->Jool engages and the multi-moon configuration hold DECLINES with an amber naming 2 constrained moons of Jool (Bop is incommensurate), never a silent faithful; the live MoonArrivalHold cell runs at the Space Center."
 instanceProfile = "stock-minimal"
-tags = ["V39", "player-loop", "loop-playback", "reaim", "arrival-hold", "multi-moon-hold", "decline", "jool", "laythe", "bop", "moon", "ingame-batch", "pending-fixture", "pending-flight"]
+tags = ["V39", "player-loop", "loop-playback", "reaim", "arrival-hold", "multi-moon-hold", "decline", "jool", "laythe", "bop", "moon", "ingame-batch", "pending-flight"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/jool-laythe-bop-recorded"
@@ -57,8 +60,8 @@ D14 = ["jool", "laythe", "bop", "scene-flight", "scene-ksc", "sandbox"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# DERIVED (B48's own window): re-pin to {N, N + 1} from the harvested sidecar count.
-count = { min = 7, max = 11 }
+# {N, N + 1} off the harvested fixture's 8 recordings.
+count = { min = 8, max = 9 }
 
 [expectations.logContracts]
 required  = [

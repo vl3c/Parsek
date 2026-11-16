@@ -7,7 +7,8 @@ elliptical capture key; `b30_mun_minmus` for Minmus -> Mun). Nothing here is new
 mission code, so these cells pin what the lanes add: the cited gravity rows, the
 coupling of each spec to its own fixture's bytes (entry gate, escape node, delta-v),
 the escape sizing arguments written in the spec headers, and the hand-over contract
-of the pending-fixture loop lanes.
+of the loop lanes (pending-fixture until their forge's harvest; all four handed over
+by 2026-11-16).
 
 Every fixture number is read from the committed save, never typed: a re-cut fixture
 that moves the park reds the cell that depends on it before a KSP boot is spent.
