@@ -124,7 +124,8 @@ expansions, for R5-09), the older-build check of edge 22 (an older DLL through `
   `ParsekScenario` headlessly; `:189` `RunSaveWriters(scenario)` runs the production save
   writers in OnSave's phase order and returns the PARSEK node; `:87` `ResetAllStores()`.
   The writer is skipped unless `PARSEK_WRITE_FORMAT_GOLDEN=v1` (`:20`, `:117`). This is the
-  base of the byte-identity tests; today it is private to one test class.
+  base of the byte-identity tests; today it is private to one test class. (T-01 moved the three
+  into `Source/Parsek.Tests/Generators/SaveWriterDriver.cs`.)
 - `Source/Parsek/Controllers/ParsekScenario.cs:484` is `OnSave`. Its token stream is pinned by
   `ParsekScenarioOnSaveCharacterizationTests` against
   `Source/Parsek.Tests/Fixtures/SourceCharacterization/ParsekScenario.OnSave.tokens.txt`; the
@@ -298,6 +299,24 @@ writes `testGame = False`.
 - **Proof:** `SaveWriterDriverDeterminismTests`: two runs with an empty hook are
   byte-identical; the same under `de-DE` and `ro-RO` thread cultures; the v1 golden writer
   still produces its checksums when armed (env-gated, run by hand once).
+- **As built (2026-11-16):** `Run(between, saveRoot = null)` builds the state into an empty
+  save folder, writes twice into that folder and returns `(First, Second)`: each the
+  `WriteToText` form of the node (`\n` line ends; the `saveStamp` value, a fresh GUID on every
+  save by design, masked) followed by `SaveFolderText`, one `sha256  relative/path` line per
+  written file. The pin compares a rebuilt state's write, the `de-DE` and `ro-RO` writes against
+  the invariant write (not only each culture with itself), and writes in two save folders of
+  different depth; three anti-vacuity cells change one saved value through the hook, flip one
+  byte of a written file, and change one node value. Two corrections to the text above: the
+  armed v1 writer cannot reproduce every v1 checksum, because `persistent.sfs` (and its rewind
+  point copy) carries the per-save stamp and the build's `parsekWrittenBy`, and the v1 state
+  had random mission ids, a random milestone id (also in `milestones.pgsm`) and random
+  held-vessel pids; run after the verbatim move it reproduced the other 46 of 49 files byte for
+  byte and differed only in those values. And "bodies verbatim" held for the move commit only:
+  to make two builds byte-equal, `BuildState` then fixes the mission and milestone ids and
+  resets the two process-wide counters of the save round-trip specs
+  (`RouteSaveRoundTripTests.guidCounter`, `StoreSaveRoundTripTests.heldVesselCounter`, which
+  replaced a `Guid.NewGuid` pid). A later golden generator built on the driver therefore
+  writes reproducible files apart from `saveStamp` and `parsekWrittenBy`.
 - **Registers:** none (test-only).
 - **Size:** S. **Depends on:** nothing. **PC:** no.
 - **Risk:** low; a non-deterministic writer (dictionary order) would show here first, which

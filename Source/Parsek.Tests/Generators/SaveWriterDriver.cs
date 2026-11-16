@@ -213,6 +213,9 @@ namespace Parsek.Tests.Generators
             roverMission.LoopPlayback = true;
             roverMission.LoopIntervalSeconds = 600.0;
             roverMission.LoopAnchorUT = 500.0;
+            // Production mints mission ids from Guid.NewGuid; fixed ids keep two builds byte-equal.
+            for (int i = 0; i < MissionStore.Missions.Count; i++)
+                MissionStore.Missions[i].Id = FixedId("f90a", i);
 
             // Vessel names: a player rename of the rover, a spawn link, a dock-absorb row.
             Assert.True(VesselNameStore.RecordParsekRename(
@@ -633,6 +636,9 @@ namespace Parsek.Tests.Generators
 
             // The milestone OnSave's flush would cut at the save clock (headless the clock reads 0).
             MilestoneStore.FlushPendingEvents(SaveUT);
+            // Production mints milestone ids from Guid.NewGuid; fixed ids keep two builds byte-equal.
+            for (int i = 0; i < MilestoneStore.Milestones.Count; i++)
+                MilestoneStore.Milestones[i].MilestoneId = FixedId("fa0b", i);
         }
 
         private static GameAction Row(double ut, GameActionType type, string recordingId = null)
@@ -683,6 +689,8 @@ namespace Parsek.Tests.Generators
 
         private static void BuildRoutes()
         {
+            // The route specs number their launch guids from a process-wide counter.
+            RouteSaveRoundTripTests.guidCounter = 0;
             var rt = new FieldRoundTrip(RouteSaveRoundTripTests.Specs(), seed: 63000);
             var committed = StaticFieldValue<List<Route>>(typeof(RouteStore), "committedRoutes");
             var dormant = StaticFieldValue<List<Route>>(typeof(RouteStore), "dormantRoutes");
@@ -709,6 +717,13 @@ namespace Parsek.Tests.Generators
             RetiredRouteCargoSaveRoundTripTests.Populate(cargoRt, RouteEventType.RouteCargoDelivered);
         }
 
+        /// <summary>A 32-hex-digit id: the prefix, then the index zero-padded.</summary>
+        private static string FixedId(string prefix, int index)
+        {
+            return prefix + index.ToString("D" + (32 - prefix.Length).ToString(CultureInfo.InvariantCulture),
+                CultureInfo.InvariantCulture);
+        }
+
         private static T StaticFieldValue<T>(Type type, string name)
         {
             FieldInfo f = StaticFieldRule.StateFields(type).Single(x => FieldRoundTrip.LogicalName(x) == name);
@@ -728,6 +743,8 @@ namespace Parsek.Tests.Generators
                 "StockShadowTakeBack", "CareerSettingsLock", "StockPoolReference",
                 "RemovedReplayFlags",
             };
+            // The held-vessel snapshots number their pids from a process-wide counter.
+            StoreSaveRoundTripTests.heldVesselCounter = 0;
             int seed = 65000;
             foreach (string name in wanted)
             {

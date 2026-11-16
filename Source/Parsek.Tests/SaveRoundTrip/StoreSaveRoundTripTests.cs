@@ -282,11 +282,14 @@ namespace Parsek.Tests.SaveRoundTrip
             return null;
         }
 
+        // Process-wide; SaveWriterDriver resets it so two builds of its state are byte-equal.
+        internal static int heldVesselCounter;
+
         /// <summary>A held vessel's snapshot is saved as a VESSEL child and read back by that name.</summary>
         private static ConfigNode VesselNode()
         {
             var n = new ConfigNode(RewindVesselHold.SnapshotNodeName);
-            n.AddValue("pid", Guid.NewGuid().ToString("N"));
+            n.AddValue("pid", new Guid(++heldVesselCounter, 0x0d0e, 0x0f10, 1, 2, 3, 4, 5, 6, 7, 8).ToString("N"));
             n.AddValue("name", "Held Ship");
             return n;
         }

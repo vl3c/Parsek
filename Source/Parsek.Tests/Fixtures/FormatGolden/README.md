@@ -23,7 +23,11 @@ every build loads every save any 1.0+ build wrote). They are test inputs that ne
 `v1/` was written once by `FormatGoldenV1GeneratorTests.WriteV1` (skipped unless
 `PARSEK_WRITE_FORMAT_GOLDEN=v1`), which runs the production save writers in
 `ParsekScenario.OnSave`'s phase order over generator-built state and wraps the PARSEK node in
-the stock `fresh-career` harness save. It holds:
+the stock `fresh-career` harness save. The state and the writers now live in
+`Generators/SaveWriterDriver.cs`, which a later `vN` generator reuses; its state has since
+been made deterministic (fixed mission and milestone ids, counter-numbered guids), so a
+re-armed v1 writer differs from the frozen files in those ids, the save stamp and the
+`parsekWrittenBy` version. That is expected: the frozen files are never rewritten. It holds:
 
 - `persistent.sfs`: two committed trees (a lander with a separation branch point,
   parent-anchored debris with a Relative section, a Re-Fly fork in CommittedProvisional; a
