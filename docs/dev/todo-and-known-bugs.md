@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~RECORDER-GEAR-SUSPENSION-AS-ROBOTICS~~: a plane rolling on its landing gear records the suspension as robotics motion, about 22 start / stop events a second [FILED 2026-11-16 from AIR-1's first flight, runs `2026-11-16_1955` and `_1956_a2` (diagnostics on branch `forge-logs-2026-11-16-air1`, `diag/<runId>/KSP.log.parsek-lines.txt`), by log and code reading. FIXED 2026-11-16, branch `gear-suspension-fix`, landed on `claude/project-thread-vpr29t`; xUnit; GS-6 re-pinned (two suspension-fed applier tokens out, the skip line in), re-flight owed; low (recording size and log volume, plus a wrong ghost gear pose on replay)]
+## ~~RECORDER-GEAR-SUSPENSION-AS-ROBOTICS~~: a plane rolling on its landing gear records the suspension as robotics motion, about 22 start / stop events a second [FILED 2026-11-16 from AIR-1's first flight, runs `2026-11-16_1955` and `_1956_a2` (diagnostics on branch `forge-logs-2026-11-16-air1`, `diag/<runId>/KSP.log.parsek-lines.txt`), by log and code reading. FIXED 2026-11-16, branch `gear-suspension-fix`, landed on `claude/project-thread-vpr29t`; xUnit; GS-6 re-pinned (two suspension-fed applier tokens out, the skip line in) and re-flown green 2026-11-16 `2026-11-16_2130`; low (recording size and log volume, plus a wrong ghost gear pose on replay)]
 
 What the log shows: while the stock Mallard rolled on the Runway, the active recorder wrote
 `Part event: RoboticMotionStarted` / `RoboticMotionStopped` for its three gear parts
@@ -86,7 +86,14 @@ Gear Fixed` row drives moduleIndex 0 (the suspension) and now holds still at pla
 craft carries no Breaking Ground servo (stock-minimal does link SquadExpansion; H32 flies
 `hinge.01`), so those two tokens could no longer match. GS-6 was re-pinned in the same change:
 both tokens deleted and the regression guard `\[Recorder\] Robotics: wheel suspension not recorded
-for 'landingLeg1'` added as an UNFLOWN required token (38 required); a GS-6 re-flight is owed.
+for 'landingLeg1'` added as a required token (38 required). GS-6 RE-FLOWN 2026-11-16:
+`2026-11-16_2130_GS-6-part-event-applier-sweep` PASS attempt 1 (543 s, automation DLL sha256
+81a33bc9, main after #2653), expectations 0 mismatches, armed rewind save-structure, ghostLifecycle
+8/8 balanced, logValidate / analyzer / anomaly sweep green; the guard matched (three skip lines, one
+per `landingLeg1`, zero `RoboticMotion` lines). One report-only stock NullReferenceException in
+`FlightCamera.Startup`. AIR-1's third flight (runs `2026-11-16_2126` and `_2128_a2`, diagnostics on
+branch `forge-logs-2026-11-16-air1c`) read the same on the Mallard: zero `RoboticMotion` lines for
+its gear and the three expected skip lines (`SmallGearBay`, `GearMedium` x2) on each attempt.
 The background recorder formats its `(bg vessel N)` suffix only inside the once-per-key log
 branch (`ShouldEmitRoboticEvents` takes the vessel pid), so the per-frame poll allocates nothing.
 
