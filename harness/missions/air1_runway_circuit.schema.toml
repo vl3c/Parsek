@@ -1,0 +1,196 @@
+# Declared param schema for mission air1_runway_circuit (the AIR-1 lane: roll the stock
+# Mallard out onto the Runway, stage it in place so Parsek's first-staging auto-record
+# trigger starts the recording, take off, fly a circuit, glide to a splashdown in the sea
+# east of the Space Center and come to rest).
+#
+# Consumed exactly like every sibling schema: run.py parses it into the
+# { mission -> schema } registry and hlib's pure _validate_mission_params reads the
+# `params` table and nothing else. min/max are consulted only on numeric types.
+# Every default lives in `mlib.air_params_from_dict`.
+
+# The craft FILE launched (`<save>/Ships/VAB/<craftName>.craft`). Required: the machine
+# refuses to roll out an empty name.
+[params.craftName]
+required = true
+type = "string"
+
+# What the ACTIVE VESSEL must read back before the machine stages anything: the
+# `ship = ` line inside the craft file. Defaults to craftName.
+[params.expectedVesselName]
+required = false
+type = "string"
+
+# kRPC launch site. Defaults to "Runway".
+[params.launchSite]
+required = false
+type = "string"
+
+# Frame bound on the rollout's read-back gate before the machine gives up by name.
+[params.rolloutFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
+# Frames between the stage click (the auto-record trigger) and the brake release, so
+# the recorder's first samples are the plane standing on the runway.
+[params.recordSettleFrames]
+required = false
+type = "int"
+min = 1
+max = 600
+
+# Surface speed (m/s) at which the nose is raised to rotatePitch and the AutoPilot
+# engages (the ground roll before it steers the nose wheel with the AutoPilot off).
+# Default 45: the first flight's Mallard was already lifting at 0.5 deg of pitch by
+# 43-47 m/s (2026-11-16_1955).
+[params.rotateSpeed]
+required = false
+type = "float"
+min = 20.0
+max = 200.0
+
+# Pitch (deg above the horizon) held from rotation until airborne.
+[params.rotatePitch]
+required = false
+type = "float"
+min = 0.0
+max = 20.0
+
+# Ground roll (m from the brake release) after which a plane still on the runway is a
+# named give-up: throttle cut, brakes on, MISSION-FLAKE. The runway is ~2.4 km long.
+[params.takeoffMaxDistance]
+required = false
+type = "float"
+min = 300.0
+max = 2400.0
+
+# Pitch (deg) held in the straight climb-out up to turnAltitude.
+[params.climbPitch]
+required = false
+type = "float"
+min = 2.0
+max = 25.0
+
+# Altitude (m above the surface) where the straight climb-out ends and the circuit begins.
+[params.turnAltitude]
+required = false
+type = "float"
+min = 60.0
+max = 5000.0
+
+# Altitude (m above the surface) the circuit climbs to and holds.
+[params.cruiseAltitude]
+required = false
+type = "float"
+min = 200.0
+max = 8000.0
+
+# Airspeed (m/s) target on the circuit.
+[params.cruiseSpeed]
+required = false
+type = "float"
+min = 40.0
+max = 300.0
+
+# The circuit, "lat,lon;lat,lon;..." in degrees, flown in order. Empty = straight to the
+# final. A malformed entry is a named give-up before anything is launched.
+[params.waypoints]
+required = false
+type = "string"
+
+# Ground distance (m) inside which a waypoint counts as reached (or three times that,
+# flown abeam).
+[params.captureRadius]
+required = false
+type = "float"
+min = 100.0
+max = 5000.0
+
+# Seconds each circuit leg may take before the lane gives up by name.
+[params.legTimeoutSeconds]
+required = false
+type = "float"
+min = 30.0
+max = 1200.0
+
+# The touchdown point, "lat,lon" in degrees. The final glides toward it.
+[params.touchdownPoint]
+required = false
+type = "string"
+
+# The glide path's angle (deg) down to the touchdown point.
+[params.glideSlopeDeg]
+required = false
+type = "float"
+min = 0.5
+max = 20.0
+
+# Airspeed (m/s) target once the final is aligned.
+[params.approachSpeed]
+required = false
+type = "float"
+min = 30.0
+max = 200.0
+
+# Altitude (m) below which the aligned final flares: wings level, current heading,
+# throttle zero, a slow sink.
+[params.flareAltitude]
+required = false
+type = "float"
+min = 2.0
+max = 200.0
+
+# Largest bank (deg) commanded in a turn (limited further below 150 m).
+[params.maxBank]
+required = false
+type = "float"
+min = 5.0
+max = 60.0
+
+# +1 = a positive kRPC roll target banks right; -1 = the opposite. Unverified offline;
+# the machine flips it once in flight if a turn's heading error grows under a bank.
+[params.bankSign]
+required = false
+type = "float"
+min = -1.0
+max = 1.0
+
+# Ground roll nose-wheel steering: kRPC wheel_steering per deg of heading error to the
+# runway heading (plus a fixed damping term), clamped to 0.5 either way.
+[params.groundSteerGain]
+required = false
+type = "float"
+min = 0.0
+max = 1.0
+
+# +1 = kRPC's documented wheel_steering sign (+1 steers left, so a right turn is a
+# negative value); -1 = the opposite. The machine flips it once on the roll if the
+# heading error keeps growing under a corrective command.
+[params.groundSteerSign]
+required = false
+type = "float"
+min = -1.0
+max = 1.0
+
+# Heading error (deg) to the runway heading at which a plane still on the ground gives
+# up by name: throttle cut, brakes on, MISSION-FLAKE naming the drift.
+[params.groundHeadingAbortDeg]
+required = false
+type = "float"
+min = 0.5
+max = 45.0
+
+# Surface speed (m/s) under which the plane counts as at rest after the touchdown.
+[params.stopSpeed]
+required = false
+type = "float"
+min = 0.1
+max = 10.0
+
+# Seconds after the touchdown the plane may take to come to rest.
+[params.stopTimeoutSeconds]
+required = false
+type = "float"
+min = 10.0
+max = 1200.0
