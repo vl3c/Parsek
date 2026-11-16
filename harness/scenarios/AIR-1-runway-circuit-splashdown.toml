@@ -1,0 +1,175 @@
+schema = 1
+id = "AIR-1-runway-circuit-splashdown"
+# =====================================================================================
+# AIR-1: THE FIRST LANE THAT FLIES A PLANE. AUTHORED 2026-11-16, NEVER FLOWN.
+# Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 3 ("no lane flies a plane; BAY-1's never
+# moves"). This lane is the forge half: it records and commits a real atmospheric
+# flight from the Runway, and its harvest is the fixture `air-circuit-recorded` that
+# AIR-2-runway-circuit-ksc-ghost replays at the Space Center.
+#
+# THE ROAD.
+#   1. MISSION `air1_runway_circuit` (kRPC, raw, native AutoPilot): roll the stock KSP
+#      1.12 `Mallard` out onto the Runway (the craft BAY-1 already proved there, in this
+#      fixture's Ships/VAB), stage it where it stands with brakes on and throttle zero
+#      (Parsek's first-staging-on-the-pad trigger: a runway rollout IS PRELAUNCH, so
+#      `Auto-record started (first staging on pad` opens the recording, exactly BAY-1's
+#      path), wait recordSettleFrames, release the brakes at full throttle on the runway
+#      heading (090), rotate at rotateSpeed, climb straight out at climbPitch, raise the
+#      gear at 60 m, and at turnAltitude start a circuit: waypoint A ~6 km out east over
+#      the sea, B north of it, C back west north of the Space Center, climbing to and
+#      holding cruiseAltitude. After C it turns back east and glides down a 6 deg slope
+#      toward the touchdown point in the sea east of KSC, flares at flareAltitude (wings
+#      level, throttle zero), splashes down, brakes, and waits until the surface speed
+#      stays under 1 m/s.
+#   2. SEAM: StopRecording, CommitTree, StopRecording (CommitTree re-adopts a recorder on
+#      the still-active vessel, H58 flight 1), FlushAndQuit. The produced save holds the
+#      committed tree and the Mallard at rest in the sea: the harvest.
+#
+# WHY A SPLASHDOWN, NOT A RUNWAY LANDING. A runway landing needs a precise lateral
+# line-up on a 70 m wide strip from a poll-rate (0.5 s) outer loop, with a 2.4 km
+# runway and an overrun into buildings or the slope beyond; a miss reads as a crash
+# that proves nothing about Parsek. The Mallard is a seaplane (hull, float-capable),
+# and the sea east of KSC is open water: the final is flown EASTBOUND, away from land,
+# so an overshoot only lands further out at sea, and a short landing still lands in
+# water past the coastline (the touchdown point is ~7 km east of the pad; EVA-4's
+# splash at lat 0.342 lon -74.201 is the nearest water a committed lane has proven).
+# The gear stays UP for the touchdown (raised at 60 m on the climb-out): the hull
+# lands. A sea landing also exercises the recorder's Splashed terminal, which no plane
+# has ever produced. The terminal gate accepts Landed too (a touchdown on a beach or a
+# sandbar), so the lane stays valid if the coastline is not where it is assumed.
+#
+# WHAT IT GATES (logContracts; every line is from a FRESH recording, not a promotion):
+#   - `Auto-record started (first staging on pad`: the recording opened on the stage
+#     click on the Runway;
+#   - `Start location captured: ... situation=Prelaunch, launchSite=Runway`: the
+#     recording names the Runway as its launch site (Verbose, Recorder);
+#   - `TrackSection started: env=Atmospheric`: the recording has Atmospheric sections
+#     (no committed lane has recorded powered atmospheric flight that did not come
+#     from a rocket);
+#   - `FinalizeTreeRecordings: ... vessel='Mallard' ... terminal=Splashed|Landed`: the
+#     committed recording ends on the surface (Verbose, Flight);
+#   - `committree committed=true`.
+# FORBIDDEN: a Mallard recording finalized Destroyed, and any Parsek ERROR.
+#
+# THE OPTIMIZER. A Runway start is a launch-site start, so rule 5b keeps the takeoff
+# roll inside the first recording; the surface arrival at the splashdown may split off
+# a short Surface tail. The count window {1, 3} allows that; the report-only structure
+# block records what actually happened, for the hand-over to pin.
+#
+# NOT VERIFIED OFFLINE (the first flight is the calibration reading):
+#   - kRPC's roll sign. `bankSign` defaults to +1 (a positive roll target banks right);
+#     the machine flips it once in flight if a turn's heading error grows for six
+#     seconds under a commanded bank (evidence: circuitFlown.bankSignFlipped). If the
+#     reading run flips, set bankSign = -1 here.
+#   - AutoPilot.roll_threshold: the runner widens it to 180 so the roll target applies
+#     while banked; a kRPC without the property leaves the default 5 deg (turns then
+#     come from yaw alone, slowly; the leg timeouts name it).
+#   - The Mallard's rotate speed (60 m/s) and its climb at 10 deg on two Wheesleys.
+#   - The coastline: whether (0.05, -73.85) is open water.
+#
+# THE HOST FIXTURE. gs1-two-stage-pad (BAY-1's host): its GS1 booster sits on the
+# LAUNCH PAD, so a Runway rollout recovers nothing, and Bill / Bob are Available for
+# the Mallard's default crew.
+#
+# HARVEST (after the first PASS; the run's own snapshot, never the live save):
+#   cd harness
+#   python tools/harvest_bdock_station.py --save-dir results/<runId>_save
+#       --target-name air-circuit-recorded --expect-situation SPLASHED,LANDED --keep-parsek
+# then register `air-circuit-recorded` in test_saveparse.RECORDED_FIXTURES and make
+# AIR-2 flyable in the same commit (its header lists the hand-over).
+# =====================================================================================
+tier = "operator"  # calibration discipline: authored 2026-11-16, never flown; the first flight is the reading run
+description = "AUTHORED 2026-11-16, NEVER FLOWN. The first lane that flies a plane: the stock Mallard rolls out on the Runway, stages in place (Parsek's first-staging auto-record trigger), takes off east, flies a three-waypoint circuit at 1000 m within 10 km of KSC, glides east to a splashdown in the sea, comes to rest, and the tree is committed. Gates a fresh recording with launchSite=Runway, Atmospheric sections and a Splashed (or Landed) terminal. Its harvest `air-circuit-recorded` feeds AIR-2's Space Center replay."
+instanceProfile = "stock-minimal"
+tags = ["AIR1", "aircraft", "runway", "atmospheric", "splashdown", "fixture-forge", "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "air1_runway_circuit"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+# verboseLogging=true is load-bearing: Start location captured, TrackSection and
+# FinalizeTreeRecordings are VERBOSE.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },      expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" },   expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },       expect = "OK" },
+  # Every machine timeout fires inside this budget on a typical flight (~10 min wall);
+  # the sum of the worst cases is longer, so a stuck leg names itself first.
+  { phase = "mission",                                                            expect = "MISSION-OK", budget = 1800 },
+  { cmd = "StopRecording",                                                        expect = "OK" },
+  { cmd = "CommitTree",                                                           expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                        expect = "OK" },
+  { cmd = "MissionMark",  args = { label = "air1-committed" },                    expect = "OK" },
+  { cmd = "FlushAndQuit",                                                         expect = "OK" },
+]
+
+[driver.missionParams]
+craftName          = "Mallard"
+expectedVesselName = "Mallard"
+launchSite         = "Runway"
+recordSettleFrames = 8
+rotateSpeed        = 60.0
+rotatePitch        = 8.0
+takeoffMaxDistance = 1500.0
+climbPitch         = 10.0
+turnAltitude       = 300.0
+cruiseAltitude     = 1000.0
+cruiseSpeed        = 90.0
+waypoints          = "-0.05,-74.05;0.30,-74.05;0.30,-74.55"
+captureRadius      = 800.0
+legTimeoutSeconds  = 240.0
+touchdownPoint     = "0.05,-73.85"
+glideSlopeDeg      = 6.0
+approachSpeed      = 60.0
+flareAltitude      = 25.0
+maxBank            = 25.0
+bankSign           = 1.0
+stopSpeed          = 1.0
+stopTimeoutSeconds = 240.0
+
+[dimensionsCovered]
+D1  = ["auto-record-launch"]
+D4  = ["atmospheric"]
+D14 = ["kerbin", "atmosphere", "warp-1x", "scene-flight", "sandbox"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 3 }
+
+[expectations.recordings.structure]
+# REPORT-ONLY until a reading run matches it; the first flight is that reading.
+gating         = false
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 1, max = 3 }
+terminalStates = { Destroyed = { max = 0 } }
+vesselNames    = { "Mallard" = { min = 1, max = 1 } }
+recordingNames = { "Mallard" = { min = 1, max = 3 } }
+
+[expectations.logContracts]
+required  = ["Auto-record started \\(first staging on pad",
+             "Start location captured: body=Kerbin, [^\\r\\n]*situation=Prelaunch, launchSite=Runway, ",
+             "TrackSection started: env=Atmospheric ",
+             "FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='Mallard' points=[1-9][0-9]* orbitSegs=0 terminal=(?:Splashed|Landed) ",
+             "committree committed=true",
+             "MISSIONMARK label=air1-committed "]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]",
+             "FinalizeTreeRecordings: rec='[0-9a-f]{32}' vessel='Mallard' [^\\r\\n]*terminal=Destroyed"]
+
+[runtime]
+# Boot ~300 + LoadGame 300 + mission 1800 + commit 120 + quit.
+budgetSeconds = 2700
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

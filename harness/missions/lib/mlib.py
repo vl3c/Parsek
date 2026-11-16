@@ -926,6 +926,12 @@ ACTION_AP_POINT_PROGRADE = "ap_point_prograde"             # value = None
 # cap. COMMANDED only: nothing gates on this action having been emitted; the
 # OBSERVED channels are altitude / apoapsis / available_thrust exactly as in GS-1.
 ACTION_AP_SET_PITCH_HEADING = "ap_set_pitch_heading"       # pitch_heading = (deg, deg)
+# AIR-1 aircraft steering: the same native AutoPilot in the SURFACE frame with a
+# ROLL target as well (``Action.value`` = roll degrees, ``Action.pitch_heading`` as
+# above). The runner also widens ``AutoPilot.roll_threshold`` to 180 deg, because
+# kRPC applies the roll target only while the pointing error is under that
+# threshold (default 5 deg), and a banked turn is exactly the case where it is not.
+ACTION_AP_SET_PITCH_HEADING_ROLL = "ap_set_pitch_heading_roll"  # value = roll deg
 ACTION_WARP_TO = "warp_to"                                 # value = target UT (s)
 # B5 transfer-planning actions (KRPC.MechJeb ManeuverPlanner + NodeExecutor;
 # surfaces verified against the darchambault KRPC.MechJeb 0.8.1 source at the
@@ -4002,6 +4008,18 @@ class TelemetrySnapshot:
         float("nan"), float("nan"), float("nan"))
     klaw_target_rel_velocity: Tuple[float, float, float] = (
         float("nan"), float("nan"), float("nan"))
+    # AIRCRAFT channel (read only by the AIR missions, the ``read_aircraft`` opt-in;
+    # NaN when unread, and every aircraft gate fails CLOSED on a NaN): the compass
+    # heading and the roll in the vessel's SURFACE frame (kRPC Flight.Heading /
+    # Flight.Roll, degrees), the position (Flight.Latitude / Flight.Longitude,
+    # degrees) and the SURFACE speed (Flight.Speed in the body's rotating frame,
+    # m/s). The aircraft channel also fills ``surface_pitch``. NOT in snapshot_dict /
+    # MACHINE_STATE_FIELDS, on the science-channel precedent.
+    heading: float = float("nan")
+    roll: float = float("nan")
+    latitude: float = float("nan")
+    longitude: float = float("nan")
+    surface_speed: float = float("nan")
 
 
 # ---------------------------------------------------------------------------
@@ -36640,3 +36658,825 @@ def evaluate_mtour_assertions(frames, params: MtourParams,
          "legExitUts": list(getattr(state, "leg_exit_uts", ()) or ()),
          "finalCommitted": committed}))
     return rows
+
+
+# ---------------------------------------------------------------------------
+# AIR-1 aircraft circuit (mission air1_runway_circuit). Pure.
+# ---------------------------------------------------------------------------
+#
+# THE FLIGHT. Roll a stock plane out onto the Runway, stage it where it stands
+# (brakes on, throttle zero: the engines light and Parsek's first-staging-on-the-pad
+# auto-record trigger starts the recording, exactly as BAY-1 does), release the
+# brakes at full throttle, rotate at a set speed, climb straight out on the runway
+# heading to a turn altitude, then fly a circuit of waypoints climbing to and
+# holding a cruise altitude, and finish with a
+# glide toward a touchdown point, a flare, a touchdown and a stop. The scenario's
+# seam steps then commit the tree.
+#
+# THE STEERING. kRPC's native AutoPilot in the vessel's SURFACE frame holds a
+# pitch, a heading and a roll target at physics rate inside KSP; this machine runs
+# the slow outer loop at the runner's poll rate (0.5 s wall): a bank angle and a
+# limited heading step toward the bearing of the next point, a pitch from a
+# vertical-speed target, and a throttle from an airspeed target. Every guidance
+# helper below is a pure function of the snapshot and the params, so a later lane
+# (the two-aircraft collision lane, owner request 2026-11-16) can fly a "toward this
+# position" leg at a point that moves every frame by calling ``air_steer_toward``.
+#
+# THE BANK SIGN IS NOT VERIFIED OFFLINE. kRPC's roll sign convention could not be
+# read in this environment, so ``bankSign`` is a param (default +1 = a positive
+# roll target for a right turn) and the machine checks it in flight: when a turn's
+# heading error GROWS for ``AIR_TURN_CHECK_FRAMES`` frames under a commanded bank,
+# the sign is flipped once and the flip is carried as evidence (``bank_sign_flipped``).
+#
+# NOTHING HERE READS PARSEK. Whether the recording has Atmospheric sections, a
+# Runway launch site and a Splashed terminal is read off KSP.log and the save by
+# the scenario (mission-vs-Parsek orthogonality).
+
+AIR_ROLLOUT = "ROLLOUT"
+AIR_ARM = "ARM"
+AIR_RECORD_SETTLE = "RECORD-SETTLE"
+AIR_TAKEOFF = "TAKEOFF-ROLL"
+AIR_CLIMB = "CLIMB"
+AIR_CIRCUIT = "CIRCUIT"
+AIR_FINAL = "FINAL"
+AIR_STOP = "STOP"
+AIR_DONE = "DONE"
+AIR_PHASES: Tuple[str, ...] = (AIR_ROLLOUT, AIR_ARM, AIR_RECORD_SETTLE, AIR_TAKEOFF,
+                               AIR_CLIMB, AIR_CIRCUIT, AIR_FINAL, AIR_STOP, AIR_DONE)
+
+AIR_PRELAUNCH_SITUATIONS: Tuple[str, ...] = ("PRE_LAUNCH",)
+AIR_SURFACE_SITUATIONS: Tuple[str, ...] = ("LANDED", "SPLASHED")
+
+# Mean radius of Kerbin (m). The ground distances here are short (tens of km), so a
+# sphere is exact enough for a capture radius and a glide path.
+KERBIN_RADIUS_M = 600000.0
+
+# Fixed tuning that no lane has needed to change. Kept as constants so the schema
+# stays the list of knobs an operator actually turns.
+AIR_AIRBORNE_ALTITUDE = 10.0      # m above the surface, with situation FLYING
+AIR_TAKEOFF_TIMEOUT_SECONDS = 60.0
+AIR_CLIMB_TIMEOUT_SECONDS = 240.0
+AIR_GEAR_UP_ALTITUDE = 60.0
+AIR_ALTITUDE_BAND = 60.0          # the climb is done within this of cruiseAltitude
+AIR_FINAL_TIMEOUT_SECONDS = 420.0
+AIR_FINAL_ALIGN_DEG = 30.0        # the glide starts once the touchdown point is this close to the nose
+AIR_LOW_ALTITUDE = 150.0          # below this the bank is limited to AIR_LOW_MAX_BANK
+AIR_LOW_MAX_BANK = 10.0
+AIR_FLARE_VS = -1.5               # m/s, held below flareAltitude
+AIR_MAX_SINK = 12.0               # m/s, the steepest vertical-speed target
+AIR_MAX_CLIMB_RATE = 8.0          # m/s, the steepest climb target in level flight
+AIR_ALTITUDE_GAIN = 0.1           # (m/s of vertical speed) per m of altitude error
+AIR_AOA_TRIM_DEG = 3.0            # nose above the flight path in level flight
+AIR_PITCH_GAIN = 0.5              # deg of pitch per m/s of vertical-speed error
+AIR_MIN_PITCH = -10.0
+AIR_MAX_PITCH = 15.0
+AIR_THROTTLE_BASE = 0.6
+AIR_THROTTLE_GAIN = 0.05          # per m/s of airspeed error
+AIR_CRUISE_MIN_THROTTLE = 0.1
+AIR_AIRBRAKE_MARGIN = 15.0        # m/s over approachSpeed before the brakes group goes on
+AIR_STALL_GUARD_SPEED = 45.0
+AIR_BANK_GAIN = 1.0               # deg of bank per deg of heading error
+AIR_HEADING_LEAD = 20.0           # largest heading step handed to the autopilot
+AIR_TURN_CHECK_FRAMES = 12
+AIR_TURN_CHECK_MIN_ERR = 30.0
+# Above this a wrong-way turn can carry the error through 180 deg, where its
+# magnitude wraps and starts to shrink, which would CONFIRM a wrong sign.
+AIR_TURN_CHECK_MAX_ERR = 120.0
+AIR_TURN_CHECK_GROWTH = 10.0
+AIR_TURN_CHECK_SHRINK = 5.0
+AIR_STOP_DEBOUNCE_FRAMES = 6
+AIR_BOUNCE_FRAMES = 20
+AIR_CHANNEL_FRAMES = 20
+# Command dead bands: a target is re-sent only when it moved by more than these, so
+# the runner (which logs every action) is not asked for an AutoPilot call per poll.
+AIR_PITCH_DEADBAND = 0.5
+AIR_HEADING_DEADBAND = 1.0
+AIR_ROLL_DEADBAND = 1.0
+AIR_THROTTLE_DEADBAND = 0.05
+
+# Defaults for the stock Mallard out of the Runway (BAY-1's craft): A out east over
+# the sea (~6 km past the runway's east end), B north of A, C back west north of the
+# Space Center, then a turn back east and a glide to a touchdown point in the sea
+# east of KSC. At 25 deg of bank and 90 m/s the turn radius is ~1.8 km, so each leg
+# is longer than a turn. Every point is within about 10 km of the KSC, inside the
+# Space Center scene's 25 km ghost cull range. Unverified offline: the coastline
+# (the touchdown point is ~7 km east of the pad; EVA-4 splashed at lat 0.342 lon
+# -74.201, the nearest water a committed lane has proven).
+AIR_DEFAULT_WAYPOINTS = "-0.05,-74.05;0.30,-74.05;0.30,-74.55"
+AIR_DEFAULT_TOUCHDOWN = "0.05,-73.85"
+
+
+def air_wrap_heading(deg: float) -> float:
+    """``deg`` folded into [0, 360)."""
+    out = math.fmod(float(deg), 360.0)
+    if out < 0.0:
+        out += 360.0
+    return 0.0 if out >= 360.0 else out
+
+
+def air_heading_error(current: float, target: float) -> float:
+    """Signed shortest turn from ``current`` to ``target`` heading, degrees, in
+    (-180, 180]: positive = the target lies clockwise (a right turn)."""
+    err = math.fmod(float(target) - float(current), 360.0)
+    if err <= -180.0:
+        err += 360.0
+    elif err > 180.0:
+        err -= 360.0
+    return err
+
+
+def air_ground_distance(lat1: float, lon1: float, lat2: float, lon2: float,
+                        radius: float = KERBIN_RADIUS_M) -> float:
+    """Great-circle distance (m) between two points in degrees (haversine). NaN in,
+    NaN out."""
+    vals = (lat1, lon1, lat2, lon2)
+    if not all(_is_finite(v) for v in vals):
+        return float("nan")
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = p2 - p1
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dp / 2.0) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2.0) ** 2
+    return 2.0 * radius * math.asin(min(1.0, math.sqrt(max(0.0, a))))
+
+
+def air_bearing(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Initial compass bearing (deg, 0 = north, 90 = east) from point 1 to point 2.
+    NaN when any input is not finite."""
+    vals = (lat1, lon1, lat2, lon2)
+    if not all(_is_finite(v) for v in vals):
+        return float("nan")
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dl = math.radians(lon2 - lon1)
+    y = math.sin(dl) * math.cos(p2)
+    x = math.cos(p1) * math.sin(p2) - math.sin(p1) * math.cos(p2) * math.cos(dl)
+    return air_wrap_heading(math.degrees(math.atan2(y, x)))
+
+
+def _air_clamp(x: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, x))
+
+
+def air_parse_point(text: str) -> Optional[Tuple[float, float]]:
+    """``"lat,lon"`` -> (lat, lon), or None when malformed or out of range."""
+    parts = [p.strip() for p in str(text or "").split(",")]
+    if len(parts) != 2:
+        return None
+    try:
+        lat, lon = float(parts[0]), float(parts[1])
+    except ValueError:
+        return None
+    if not (_is_finite(lat) and _is_finite(lon)) or abs(lat) > 90.0 or abs(lon) > 180.0:
+        return None
+    return (lat, lon)
+
+
+def air_parse_points(text: str) -> Optional[Tuple[Tuple[float, float], ...]]:
+    """``"lat,lon;lat,lon;..."`` -> a tuple of points, or None when ANY entry is
+    malformed (a half-parsed circuit would fly a different route than declared). An
+    empty string is an empty circuit, which is legal (straight to the final)."""
+    text = str(text or "").strip()
+    if not text:
+        return ()
+    out = []
+    for chunk in text.split(";"):
+        pt = air_parse_point(chunk)
+        if pt is None:
+            return None
+        out.append(pt)
+    return tuple(out)
+
+
+def air_bank_command(heading_err: float, max_bank: float, bank_sign: float,
+                     gain: float = AIR_BANK_GAIN) -> float:
+    """The roll target for a heading error: proportional, clamped to +/-max_bank,
+    times the bank sign. Zero on a NaN error (wings level is the safe default)."""
+    if not _is_finite(heading_err):
+        return 0.0
+    bank = _air_clamp(gain * heading_err, -abs(max_bank), abs(max_bank))
+    return (1.0 if bank_sign >= 0.0 else -1.0) * bank
+
+
+def air_heading_command(current: float, target: float,
+                        lead: float = AIR_HEADING_LEAD) -> float:
+    """The heading handed to the autopilot: at most ``lead`` degrees off the current
+    heading toward ``target``, so the autopilot's own pointing error stays small and
+    the turn comes from the bank. An unread current heading hands the target over."""
+    if not _is_finite(target):
+        return current if _is_finite(current) else 0.0
+    if not _is_finite(current):
+        return air_wrap_heading(target)
+    step = _air_clamp(air_heading_error(current, target), -abs(lead), abs(lead))
+    return air_wrap_heading(current + step)
+
+
+def air_vs_target(altitude_target: float, altitude: float,
+                  feed_forward: float = 0.0, gain: float = AIR_ALTITUDE_GAIN,
+                  max_sink: float = AIR_MAX_SINK,
+                  max_climb: float = AIR_MAX_CLIMB_RATE) -> float:
+    """Vertical-speed target (m/s) toward an altitude target, plus a feed-forward
+    (the glide path's own sink rate), clamped. A NaN altitude asks for level flight."""
+    if not (_is_finite(altitude_target) and _is_finite(altitude)):
+        return 0.0
+    return _air_clamp(feed_forward + gain * (altitude_target - altitude),
+                      -abs(max_sink), abs(max_climb))
+
+
+def air_pitch_command(vs_target: float, vertical_speed: float, speed: float,
+                      trim: float = AIR_AOA_TRIM_DEG, gain: float = AIR_PITCH_GAIN,
+                      lo: float = AIR_MIN_PITCH, hi: float = AIR_MAX_PITCH) -> float:
+    """Nose pitch (deg above the horizon) for a vertical-speed target: the flight
+    path angle the target needs at this speed, the angle-of-attack trim, and a
+    proportional correction on the vertical-speed error. Clamped."""
+    fpa = 0.0
+    if _is_finite(speed) and speed > 1.0 and _is_finite(vs_target):
+        fpa = math.degrees(math.asin(_air_clamp(vs_target / speed, -1.0, 1.0)))
+    corr = 0.0
+    if _is_finite(vs_target) and _is_finite(vertical_speed):
+        corr = gain * (vs_target - vertical_speed)
+    return _air_clamp(trim + fpa + corr, lo, hi)
+
+
+def air_throttle_command(speed_target: float, speed: float, lo: float, hi: float = 1.0,
+                         base: float = AIR_THROTTLE_BASE,
+                         gain: float = AIR_THROTTLE_GAIN) -> float:
+    """Throttle for an airspeed target. An unread speed holds ``base``."""
+    if not (_is_finite(speed_target) and _is_finite(speed)):
+        return _air_clamp(base, lo, hi)
+    return _air_clamp(base + gain * (speed_target - speed), lo, hi)
+
+
+def air_glide_altitude(distance: float, glide_deg: float, cap: float) -> float:
+    """Altitude (m) of a straight glide path ``distance`` metres from its touchdown
+    point, capped at ``cap``."""
+    if not _is_finite(distance):
+        return cap
+    return min(cap, max(0.0, distance) * math.tan(math.radians(glide_deg)))
+
+
+@dataclass(frozen=True)
+class AirSteer:
+    """One frame of guidance toward a point: the three autopilot targets, the
+    throttle, and the two numbers the machine gates on."""
+    pitch: float
+    heading: float
+    roll: float
+    throttle: float
+    distance: float
+    heading_err: float
+    vs_target: float
+
+
+def air_steer_toward(snapshot: TelemetrySnapshot, lat: float, lon: float,
+                     altitude_target: float, speed_target: float, max_bank: float,
+                     bank_sign: float, min_throttle: float = AIR_CRUISE_MIN_THROTTLE,
+                     vs_feed_forward: float = 0.0) -> AirSteer:
+    """THE REUSABLE LEG: fly toward (lat, lon) at ``altitude_target`` and
+    ``speed_target``. Pure; the point may move every frame (a chase leg passes the
+    other vessel's position). Below AIR_LOW_ALTITUDE the bank is limited, and under
+    the stall guard the pitch is capped at the trim (nose down to gain speed)."""
+    dist = air_ground_distance(snapshot.latitude, snapshot.longitude, lat, lon)
+    brg = air_bearing(snapshot.latitude, snapshot.longitude, lat, lon)
+    err = (air_heading_error(snapshot.heading, brg)
+           if _is_finite(brg) and _is_finite(snapshot.heading) else float("nan"))
+    bank_limit = max_bank
+    if _is_finite(snapshot.altitude) and snapshot.altitude < AIR_LOW_ALTITUDE:
+        bank_limit = min(bank_limit, AIR_LOW_MAX_BANK)
+    roll = air_bank_command(err, bank_limit, bank_sign)
+    heading = air_heading_command(snapshot.heading, brg)
+    vs_t = air_vs_target(altitude_target, snapshot.altitude, vs_feed_forward)
+    pitch = air_pitch_command(vs_t, snapshot.vertical_speed, snapshot.surface_speed)
+    if _is_finite(snapshot.surface_speed) and snapshot.surface_speed < AIR_STALL_GUARD_SPEED:
+        pitch = min(pitch, AIR_AOA_TRIM_DEG)
+    throttle = air_throttle_command(speed_target, snapshot.surface_speed, min_throttle)
+    return AirSteer(pitch=pitch, heading=heading, roll=roll, throttle=throttle,
+                    distance=dist, heading_err=err, vs_target=vs_t)
+
+
+def air_waypoint_captured(distance: float, heading_err: float,
+                          capture_radius: float) -> bool:
+    """A waypoint counts as reached inside its capture radius, or when it lies more
+    than 100 deg off the nose within three capture radii (flown abeam: turning back
+    for it would orbit it). NaN reads as not captured."""
+    if not _is_finite(distance):
+        return False
+    if distance <= capture_radius:
+        return True
+    return (distance <= 3.0 * capture_radius and _is_finite(heading_err)
+            and abs(heading_err) > 100.0)
+
+
+@dataclass(frozen=True)
+class AirParams:
+    craft_name: str
+    expected_vessel_name: str
+    launch_site: str = "Runway"
+    rollout_frames: int = 240
+    record_settle_frames: int = 6
+    rotate_speed: float = 60.0
+    rotate_pitch: float = 8.0
+    takeoff_max_distance: float = 1500.0
+    climb_pitch: float = 10.0
+    turn_altitude: float = 300.0
+    cruise_altitude: float = 1000.0
+    cruise_speed: float = 90.0
+    waypoints: Optional[Tuple[Tuple[float, float], ...]] = ()
+    capture_radius: float = 800.0
+    leg_timeout_seconds: float = 240.0
+    touchdown: Optional[Tuple[float, float]] = None
+    glide_slope_deg: float = 6.0
+    approach_speed: float = 60.0
+    flare_altitude: float = 25.0
+    max_bank: float = 25.0
+    bank_sign: float = 1.0
+    stop_speed: float = 1.0
+    stop_timeout_seconds: float = 240.0
+
+
+def air_params_from_dict(params: Dict) -> AirParams:
+    craft = str(params.get("craftName", "") or "")
+    return AirParams(
+        craft_name=craft,
+        expected_vessel_name=str(params.get("expectedVesselName", craft) or craft),
+        launch_site=str(params.get("launchSite", "Runway") or "Runway"),
+        rollout_frames=int(params.get("rolloutFrames", 240)),
+        record_settle_frames=int(params.get("recordSettleFrames", 6)),
+        rotate_speed=float(params.get("rotateSpeed", 60.0)),
+        rotate_pitch=float(params.get("rotatePitch", 8.0)),
+        takeoff_max_distance=float(params.get("takeoffMaxDistance", 1500.0)),
+        climb_pitch=float(params.get("climbPitch", 10.0)),
+        turn_altitude=float(params.get("turnAltitude", 300.0)),
+        cruise_altitude=float(params.get("cruiseAltitude", 1000.0)),
+        cruise_speed=float(params.get("cruiseSpeed", 90.0)),
+        waypoints=air_parse_points(params.get("waypoints", AIR_DEFAULT_WAYPOINTS)),
+        capture_radius=float(params.get("captureRadius", 800.0)),
+        leg_timeout_seconds=float(params.get("legTimeoutSeconds", 240.0)),
+        touchdown=air_parse_point(params.get("touchdownPoint", AIR_DEFAULT_TOUCHDOWN)),
+        glide_slope_deg=float(params.get("glideSlopeDeg", 6.0)),
+        approach_speed=float(params.get("approachSpeed", 60.0)),
+        flare_altitude=float(params.get("flareAltitude", 25.0)),
+        max_bank=float(params.get("maxBank", 25.0)),
+        bank_sign=float(params.get("bankSign", 1.0)),
+        stop_speed=float(params.get("stopSpeed", 1.0)),
+        stop_timeout_seconds=float(params.get("stopTimeoutSeconds", 240.0)),
+    )
+
+
+def air_params_problem(p: AirParams) -> Optional[str]:
+    """Why the params cannot fly, or None. Checked before anything is launched."""
+    if not p.craft_name:
+        return "missionParams.craftName is empty"
+    if p.waypoints is None:
+        return "missionParams.waypoints is malformed (want \"lat,lon;lat,lon\")"
+    if p.touchdown is None:
+        return "missionParams.touchdownPoint is malformed (want \"lat,lon\")"
+    if not (0.5 <= p.glide_slope_deg <= 20.0):
+        return "missionParams.glideSlopeDeg %r is outside [0.5, 20]" % (p.glide_slope_deg,)
+    if p.flare_altitude >= p.cruise_altitude:
+        return "missionParams.flareAltitude must be below cruiseAltitude"
+    if not (AIR_GEAR_UP_ALTITUDE <= p.turn_altitude <= p.cruise_altitude):
+        return ("missionParams.turnAltitude %r is outside [%.0f, cruiseAltitude]"
+                % (p.turn_altitude, AIR_GEAR_UP_ALTITUDE))
+    return None
+
+
+@dataclass(frozen=True)
+class AirState:
+    params: AirParams
+    phase: str = AIR_ROLLOUT
+    phase_frames: int = 0
+    phase_entry_ut: Optional[float] = None
+    phases_reached: Tuple[str, ...] = (AIR_ROLLOUT,)
+    launch_commanded: bool = False
+    rollout_ready_streak: int = 0
+    rollout_ready_observed: bool = False
+    last_vessel_name: str = ""
+    stage_situation: Optional[str] = None
+    stage_ut: Optional[float] = None
+    runway_heading: Optional[float] = None
+    ground_pitch: float = 0.0
+    release_ut: Optional[float] = None
+    release_lat: Optional[float] = None
+    release_lon: Optional[float] = None
+    rotated: bool = False
+    takeoff_ut: Optional[float] = None
+    takeoff_distance: Optional[float] = None
+    takeoff_speed: Optional[float] = None
+    gear_up: bool = False
+    max_altitude: float = 0.0
+    leg_index: int = 0
+    leg_start_ut: Optional[float] = None
+    leg_capture_uts: Tuple[float, ...] = ()
+    final_aligned: bool = False
+    flare_ut: Optional[float] = None
+    airbrakes_on: bool = False
+    bank_sign: float = 1.0
+    bank_sign_flipped: bool = False
+    bank_sign_confirmed: bool = False
+    turn_check_frames: int = 0
+    turn_check_start_err: Optional[float] = None
+    touchdown_ut: Optional[float] = None
+    touchdown_situation: Optional[str] = None
+    touchdown_vs: Optional[float] = None
+    touchdown_speed: Optional[float] = None
+    touchdown_lat: Optional[float] = None
+    touchdown_lon: Optional[float] = None
+    touchdown_miss: Optional[float] = None
+    stop_streak: int = 0
+    airborne_streak: int = 0
+    rest_ut: Optional[float] = None
+    # The last targets actually sent, for the command dead bands.
+    cmd_pitch: Optional[float] = None
+    cmd_heading: Optional[float] = None
+    cmd_roll: Optional[float] = None
+    cmd_throttle: Optional[float] = None
+    verdict: Optional[str] = None
+    flake_phase: Optional[str] = None
+    flake_reason: Optional[str] = None
+    loss_reason: Optional[str] = None
+    done: bool = False
+
+
+def air_initial_state(params: AirParams) -> AirState:
+    return AirState(params=params, bank_sign=1.0 if params.bank_sign >= 0.0 else -1.0)
+
+
+def _air_enter(state: AirState, phase: str, ut: Optional[float] = None,
+               **changes) -> AirState:
+    reached = state.phases_reached
+    if phase not in reached:
+        reached = reached + (phase,)
+    return replace(state, phase=phase, phase_frames=0, phases_reached=reached,
+                   phase_entry_ut=ut, **changes)
+
+
+def _air_flake(state: AirState, reason: str) -> AirState:
+    return replace(state, done=True, verdict=MISSION_FLAKE, flake_phase=state.phase,
+                   flake_reason="phase %s: %s" % (state.phase, reason))
+
+
+def _air_elapsed(state: AirState, ut: float, since: Optional[float]) -> float:
+    if since is None or not _is_finite(ut):
+        return 0.0
+    return float(ut) - float(since)
+
+
+def air_channel_ready(snapshot: TelemetrySnapshot) -> bool:
+    """The aircraft channel was read on this frame: heading and position finite."""
+    return all(_is_finite(v) for v in (snapshot.heading, snapshot.latitude,
+                                       snapshot.longitude, snapshot.surface_speed))
+
+
+def _air_command(state: AirState, pitch: float, heading: float, roll: float,
+                 throttle: Optional[float]) -> Tuple[AirState, List[Action]]:
+    """The autopilot and throttle actions for this frame, each sent only when it
+    moved past its dead band since the last one sent."""
+    actions: List[Action] = []
+    send_ap = (state.cmd_pitch is None or state.cmd_heading is None or state.cmd_roll is None
+               or abs(pitch - state.cmd_pitch) > AIR_PITCH_DEADBAND
+               or abs(air_heading_error(state.cmd_heading, heading)) > AIR_HEADING_DEADBAND
+               or abs(roll - state.cmd_roll) > AIR_ROLL_DEADBAND)
+    if send_ap:
+        actions.append(Action(ACTION_AP_SET_PITCH_HEADING_ROLL, value=float(roll),
+                              pitch_heading=(float(pitch), float(heading))))
+        state = replace(state, cmd_pitch=pitch, cmd_heading=heading, cmd_roll=roll)
+    if throttle is not None and (state.cmd_throttle is None
+                                 or abs(throttle - state.cmd_throttle) > AIR_THROTTLE_DEADBAND
+                                 or (throttle in (0.0, 1.0) and throttle != state.cmd_throttle)):
+        actions.append(Action(ACTION_SET_THROTTLE, float(throttle)))
+        state = replace(state, cmd_throttle=throttle)
+    return state, actions
+
+
+def air_turn_check(state: AirState, heading_err: float,
+                   commanded_bank: float) -> AirState:
+    """The in-flight bank-sign check. A window opens when a turn needs between
+    AIR_TURN_CHECK_MIN_ERR and AIR_TURN_CHECK_MAX_ERR deg under a real bank; after
+    AIR_TURN_CHECK_FRAMES frames a heading error that GREW by AIR_TURN_CHECK_GROWTH
+    flips the sign (once), one that shrank by AIR_TURN_CHECK_SHRINK confirms it, and
+    anything else re-opens the window at the current error. Confirmed or flipped,
+    the check stops."""
+    if state.bank_sign_flipped or state.bank_sign_confirmed:
+        return state
+    if not _is_finite(heading_err) or abs(heading_err) < AIR_TURN_CHECK_MIN_ERR \
+            or abs(commanded_bank) < 5.0:
+        return replace(state, turn_check_frames=0, turn_check_start_err=None)
+    if state.turn_check_start_err is None and abs(heading_err) > AIR_TURN_CHECK_MAX_ERR:
+        return replace(state, turn_check_frames=0, turn_check_start_err=None)
+    if state.turn_check_start_err is None:
+        return replace(state, turn_check_frames=1, turn_check_start_err=abs(heading_err))
+    frames = state.turn_check_frames + 1
+    if frames < AIR_TURN_CHECK_FRAMES:
+        return replace(state, turn_check_frames=frames)
+    grown = abs(heading_err) - state.turn_check_start_err
+    if grown >= AIR_TURN_CHECK_GROWTH:
+        return replace(state, bank_sign=-state.bank_sign, bank_sign_flipped=True,
+                       turn_check_frames=0, turn_check_start_err=None)
+    if -grown >= AIR_TURN_CHECK_SHRINK:
+        return replace(state, bank_sign_confirmed=True, turn_check_frames=0,
+                       turn_check_start_err=None)
+    if abs(heading_err) > AIR_TURN_CHECK_MAX_ERR:
+        return replace(state, turn_check_frames=0, turn_check_start_err=None)
+    return replace(state, turn_check_frames=1, turn_check_start_err=abs(heading_err))
+
+
+def air_decide(state: AirState, snapshot: TelemetrySnapshot) -> Tuple[AirState, List[Action]]:
+    """Advance the AIR-1 machine one frame; return (new_state, actions).
+
+    ROLLOUT -> ARM -> RECORD-SETTLE -> TAKEOFF-ROLL -> CLIMB -> CIRCUIT -> FINAL ->
+    STOP -> DONE. Fail-fast give-ups are named MISSION-FLAKEs (the plane did not
+    fly the profile: driver-INVALID, never a Parsek verdict); a lost vessel after
+    the stage click is a MISSION-ASSERT-FAIL."""
+    if state.done:
+        return state, []
+    p = state.params
+    ut = snapshot.ut
+    state = replace(state, phase_frames=state.phase_frames + 1)
+
+    if state.phase == AIR_ROLLOUT:
+        if not state.launch_commanded:
+            problem = air_params_problem(p)
+            if problem is not None:
+                return _air_flake(state, problem), []
+            return (replace(state, launch_commanded=True),
+                    [Action(ACTION_LAUNCH_VESSEL, text=p.craft_name,
+                            launch_site=p.launch_site)])
+        settled = kxrw_launch_settled(snapshot.vessel_lost, snapshot.vessel_name,
+                                      snapshot.situation, p.expected_vessel_name,
+                                      AIR_PRELAUNCH_SITUATIONS)
+        streak = state.rollout_ready_streak + 1 if settled else 0
+        name = state.last_vessel_name
+        if not snapshot.vessel_lost and snapshot.vessel_name:
+            name = snapshot.vessel_name
+        state = replace(state, rollout_ready_streak=streak, last_vessel_name=name)
+        if streak >= 2:
+            return _air_enter(state, AIR_ARM, ut, rollout_ready_observed=True), []
+        if state.phase_frames > p.rollout_frames:
+            return _air_flake(
+                state, "%r never read back as the active vessel on the %s within %d "
+                "frames (last name read %r, last situation %s)"
+                % (p.expected_vessel_name, p.launch_site, p.rollout_frames, name,
+                   snapshot.situation or "UNREAD")), []
+        return state, []
+
+    if snapshot.vessel_lost:
+        return replace(state, done=True, verdict=MISSION_ASSERT_FAIL,
+                       loss_reason="vessel-lost in phase %s" % state.phase), []
+
+    if state.phase == AIR_ARM:
+        # The channel must read before anything is staged: a dark heading or position
+        # would fly the runway blind, so the lane gives up here, on the ground.
+        if not air_channel_ready(snapshot):
+            if state.phase_frames > AIR_CHANNEL_FRAMES:
+                return _air_flake(
+                    state, "the aircraft telemetry channel (heading / latitude / "
+                    "longitude / surface speed) never read finite within %d frames; "
+                    "is the shell built with read_aircraft=True?"
+                    % AIR_CHANNEL_FRAMES), []
+            return state, []
+        ground_pitch = (snapshot.surface_pitch if _is_finite(snapshot.surface_pitch)
+                        else 0.0)
+        # Brakes first, throttle zero, then the click: the click lights the engines
+        # and is Parsek's first-staging-on-the-pad auto-record trigger.
+        actions = [Action(ACTION_SET_BRAKES, 1.0), Action(ACTION_SET_THROTTLE, 0.0),
+                   Action(ACTION_ACTIVATE_STAGE)]
+        return _air_enter(state, AIR_RECORD_SETTLE, ut,
+                          stage_situation=snapshot.situation or "", stage_ut=ut,
+                          runway_heading=air_wrap_heading(snapshot.heading),
+                          ground_pitch=ground_pitch, cmd_throttle=0.0), actions
+
+    if state.phase == AIR_RECORD_SETTLE:
+        if state.phase_frames < max(1, p.record_settle_frames):
+            return state, []
+        state = _air_enter(state, AIR_TAKEOFF, ut, release_ut=ut,
+                           release_lat=snapshot.latitude, release_lon=snapshot.longitude)
+        state, actions = _air_command(state, state.ground_pitch, state.runway_heading,
+                                      0.0, 1.0)
+        return state, [Action(ACTION_SET_BRAKES, 0.0)] + actions
+
+    alt = snapshot.altitude
+    if _is_finite(alt) and alt > state.max_altitude:
+        state = replace(state, max_altitude=float(alt))
+    airborne = (snapshot.situation == "FLYING" and _is_finite(alt)
+                and alt >= AIR_AIRBORNE_ALTITUDE)
+
+    if state.phase == AIR_TAKEOFF:
+        rolled = air_ground_distance(state.release_lat, state.release_lon,
+                                     snapshot.latitude, snapshot.longitude)
+        if airborne:
+            state = _air_enter(state, AIR_CLIMB, ut, takeoff_ut=ut,
+                               takeoff_distance=rolled,
+                               takeoff_speed=snapshot.surface_speed)
+            state, actions = _air_command(state, p.climb_pitch, state.runway_heading,
+                                          0.0, 1.0)
+            return state, actions
+        elapsed = _air_elapsed(state, ut, state.release_ut)
+        if ((_is_finite(rolled) and rolled > p.takeoff_max_distance)
+                or elapsed > AIR_TAKEOFF_TIMEOUT_SECONDS):
+            state = _air_flake(
+                state, "not airborne %.0f m / %.1f s after brake release (limit %.0f m / "
+                "%.0f s; speed %.1f m/s, rotate at %.1f m/s); throttle cut and brakes on"
+                % (rolled if _is_finite(rolled) else float("nan"), elapsed,
+                   p.takeoff_max_distance, AIR_TAKEOFF_TIMEOUT_SECONDS,
+                   snapshot.surface_speed, p.rotate_speed))
+            return state, [Action(ACTION_SET_THROTTLE, 0.0), Action(ACTION_SET_BRAKES, 1.0)]
+        if (not state.rotated and _is_finite(snapshot.surface_speed)
+                and snapshot.surface_speed >= p.rotate_speed):
+            state = replace(state, rotated=True)
+            return _air_command(state, p.rotate_pitch, state.runway_heading, 0.0, 1.0)
+        return state, []
+
+    if state.phase in (AIR_CLIMB, AIR_CIRCUIT) and snapshot.situation in AIR_SURFACE_SITUATIONS:
+        return _air_flake(state, "touched the surface (%s) before the final, at alt %s"
+                          % (snapshot.situation, alt)), []
+
+    if state.phase == AIR_CLIMB:
+        actions: List[Action] = []
+        if not state.gear_up and _is_finite(alt) and alt >= AIR_GEAR_UP_ALTITUDE:
+            state = replace(state, gear_up=True)
+            actions.append(Action(ACTION_SET_GEAR, 0.0))
+        # The circuit starts at the turn altitude and climbs on to cruise inside its
+        # first leg (a straight climb all the way to cruise would carry a slow plane
+        # ~10 km out, past the first waypoint).
+        if _is_finite(alt) and alt >= p.turn_altitude:
+            state = _air_enter(state, AIR_CIRCUIT if p.waypoints else AIR_FINAL, ut,
+                               leg_index=0, leg_start_ut=ut)
+            return state, actions
+        if _is_finite(ut) and _air_elapsed(state, ut, state.takeoff_ut) > AIR_CLIMB_TIMEOUT_SECONDS:
+            return _air_flake(state, "still at %s m %.0f s after takeoff (turn altitude "
+                              "%.0f m)" % (alt, AIR_CLIMB_TIMEOUT_SECONDS,
+                                           p.turn_altitude)), actions
+        pitch = p.climb_pitch
+        if (_is_finite(snapshot.surface_speed)
+                and snapshot.surface_speed < AIR_STALL_GUARD_SPEED):
+            pitch = min(pitch, AIR_AOA_TRIM_DEG)
+        state, cmd = _air_command(state, pitch, state.runway_heading, 0.0, 1.0)
+        return state, actions + cmd
+
+    if state.phase == AIR_CIRCUIT:
+        lat, lon = p.waypoints[state.leg_index]
+        steer = air_steer_toward(snapshot, lat, lon, p.cruise_altitude, p.cruise_speed,
+                                 p.max_bank, state.bank_sign)
+        if air_waypoint_captured(steer.distance, steer.heading_err, p.capture_radius):
+            nxt = state.leg_index + 1
+            state = replace(state, leg_capture_uts=state.leg_capture_uts + (float(ut),),
+                            turn_check_frames=0, turn_check_start_err=None)
+            if nxt >= len(p.waypoints):
+                return _air_enter(state, AIR_FINAL, ut, leg_index=nxt), []
+            return replace(state, leg_index=nxt, leg_start_ut=ut), []
+        if _air_elapsed(state, ut, state.leg_start_ut) > p.leg_timeout_seconds:
+            return _air_flake(
+                state, "waypoint %d (%.4f, %.4f) not reached within %.0f s (distance %s m, "
+                "heading error %s deg)" % (state.leg_index, lat, lon, p.leg_timeout_seconds,
+                                           steer.distance, steer.heading_err)), []
+        sign = state.bank_sign
+        state = air_turn_check(state, steer.heading_err, steer.roll)
+        if state.bank_sign != sign:
+            # Flipped on this frame: steer with the new sign at once.
+            steer = air_steer_toward(snapshot, lat, lon, p.cruise_altitude, p.cruise_speed,
+                                     p.max_bank, state.bank_sign)
+        return _air_command(state, steer.pitch, steer.heading, steer.roll, steer.throttle)
+
+    if state.phase == AIR_FINAL:
+        tlat, tlon = p.touchdown
+        if snapshot.situation in AIR_SURFACE_SITUATIONS:
+            miss = air_ground_distance(snapshot.latitude, snapshot.longitude, tlat, tlon)
+            state = _air_enter(state, AIR_STOP, ut, touchdown_ut=ut,
+                               touchdown_situation=snapshot.situation,
+                               touchdown_vs=snapshot.vertical_speed,
+                               touchdown_speed=snapshot.surface_speed,
+                               touchdown_lat=snapshot.latitude,
+                               touchdown_lon=snapshot.longitude, touchdown_miss=miss,
+                               cmd_throttle=0.0)
+            return state, [Action(ACTION_SET_THROTTLE, 0.0), Action(ACTION_SET_BRAKES, 1.0),
+                           Action(ACTION_AP_DISENGAGE)]
+        if _air_elapsed(state, ut, state.phase_entry_ut) > AIR_FINAL_TIMEOUT_SECONDS:
+            return _air_flake(state, "no touchdown within %.0f s (alt %s m, %s m from the "
+                              "touchdown point)" % (AIR_FINAL_TIMEOUT_SECONDS, alt,
+                                                    air_ground_distance(
+                                                        snapshot.latitude, snapshot.longitude,
+                                                        tlat, tlon))), []
+        dist = air_ground_distance(snapshot.latitude, snapshot.longitude, tlat, tlon)
+        flaring = state.flare_ut is not None or (
+            state.final_aligned and _is_finite(alt) and alt <= p.flare_altitude)
+        if flaring:
+            if state.flare_ut is None:
+                state = replace(state, flare_ut=float(ut))
+            # Wings level, the current heading, a slow sink: the touchdown point no
+            # longer steers (chasing it this low would bank into the surface).
+            heading = snapshot.heading if _is_finite(snapshot.heading) else state.cmd_heading
+            pitch = air_pitch_command(AIR_FLARE_VS, snapshot.vertical_speed,
+                                      snapshot.surface_speed)
+            state, actions = _air_command(state, pitch, air_wrap_heading(heading or 0.0),
+                                          0.0, 0.0)
+            return state, actions
+        cap = p.cruise_altitude
+        ff = 0.0
+        alt_target = cap
+        steer0 = air_steer_toward(snapshot, tlat, tlon, cap, p.approach_speed,
+                                  p.max_bank, state.bank_sign, min_throttle=0.0)
+        aligned = state.final_aligned or (_is_finite(steer0.heading_err)
+                                          and abs(steer0.heading_err) <= AIR_FINAL_ALIGN_DEG)
+        if aligned:
+            alt_target = air_glide_altitude(dist, p.glide_slope_deg, cap)
+            if alt_target < cap and _is_finite(snapshot.surface_speed):
+                ff = -snapshot.surface_speed * math.tan(math.radians(p.glide_slope_deg))
+        speed_target = p.approach_speed if aligned else p.cruise_speed
+        steer = air_steer_toward(snapshot, tlat, tlon, alt_target, speed_target,
+                                 p.max_bank, state.bank_sign,
+                                 min_throttle=0.0 if aligned else AIR_CRUISE_MIN_THROTTLE,
+                                 vs_feed_forward=ff)
+        state = replace(state, final_aligned=aligned)
+        sign = state.bank_sign
+        state = air_turn_check(state, steer.heading_err, steer.roll)
+        if state.bank_sign != sign:
+            steer = air_steer_toward(snapshot, tlat, tlon, alt_target, speed_target,
+                                     p.max_bank, state.bank_sign,
+                                     min_throttle=0.0 if aligned else AIR_CRUISE_MIN_THROTTLE,
+                                     vs_feed_forward=ff)
+        actions = []
+        want_brakes = bool(aligned and _is_finite(snapshot.surface_speed)
+                           and snapshot.surface_speed > p.approach_speed + AIR_AIRBRAKE_MARGIN)
+        if want_brakes != state.airbrakes_on:
+            state = replace(state, airbrakes_on=want_brakes)
+            actions.append(Action(ACTION_SET_BRAKES, 1.0 if want_brakes else 0.0))
+        state, cmd = _air_command(state, steer.pitch, steer.heading, steer.roll,
+                                  steer.throttle)
+        return state, actions + cmd
+
+    if state.phase == AIR_STOP:
+        if snapshot.situation == "FLYING":
+            streak = state.airborne_streak + 1
+            if streak >= AIR_BOUNCE_FRAMES:
+                return _air_flake(state, "airborne again for %d frames after the touchdown"
+                                  % streak), []
+            return replace(state, airborne_streak=streak, stop_streak=0), []
+        state = replace(state, airborne_streak=0)
+        resting = (_is_finite(snapshot.surface_speed)
+                   and snapshot.surface_speed < p.stop_speed)
+        streak = state.stop_streak + 1 if resting else 0
+        state = replace(state, stop_streak=streak)
+        if streak >= AIR_STOP_DEBOUNCE_FRAMES:
+            return replace(_air_enter(state, AIR_DONE, ut), rest_ut=ut, done=True), []
+        if _air_elapsed(state, ut, state.touchdown_ut) > p.stop_timeout_seconds:
+            return _air_flake(state, "still moving at %s m/s %.0f s after the touchdown "
+                              "(rest below %.1f m/s)" % (snapshot.surface_speed,
+                                                         p.stop_timeout_seconds,
+                                                         p.stop_speed)), []
+        return state, []
+
+    return state, []
+
+
+def evaluate_air_assertions(frames, params: AirParams,
+                            state: Optional[AirState] = None) -> List[AssertionOutcome]:
+    """Machine-carried evidence only; the frames are not read."""
+    st = state
+    wps = len(params.waypoints or ())
+    return [
+        AssertionOutcome(
+            "rolloutObserved", bool(st is not None and st.rollout_ready_observed),
+            st.last_vessel_name if st is not None else None,
+            {"expectedVesselName": params.expected_vessel_name,
+             "launchSite": params.launch_site}),
+        AssertionOutcome(
+            "stagedAtPrelaunch",
+            bool(st is not None and st.stage_situation in AIR_PRELAUNCH_SITUATIONS),
+            st.stage_situation if st is not None else None,
+            {"note": "Parsek's first-staging auto-record trigger requires PRELAUNCH",
+             "stageUT": st.stage_ut if st is not None else None}),
+        AssertionOutcome(
+            "airborne", bool(st is not None and st.takeoff_ut is not None),
+            st.takeoff_distance if st is not None else None,
+            {"takeoffUT": st.takeoff_ut if st is not None else None,
+             "takeoffSpeed": st.takeoff_speed if st is not None else None,
+             "limitMeters": params.takeoff_max_distance}),
+        AssertionOutcome(
+            "cruiseAltitudeReached",
+            bool(st is not None
+                 and st.max_altitude >= params.cruise_altitude - AIR_ALTITUDE_BAND),
+            st.max_altitude if st is not None else None,
+            {"cruiseAltitude": params.cruise_altitude, "band": AIR_ALTITUDE_BAND}),
+        AssertionOutcome(
+            "circuitFlown", bool(st is not None and len(st.leg_capture_uts) >= wps
+                                 and AIR_FINAL in st.phases_reached),
+            len(st.leg_capture_uts) if st is not None else None,
+            {"waypoints": wps,
+             "captureUTs": list(st.leg_capture_uts) if st is not None else [],
+             "bankSignFlipped": st.bank_sign_flipped if st is not None else None,
+             "bankSignConfirmed": st.bank_sign_confirmed if st is not None else None}),
+        AssertionOutcome(
+            "touchedDown",
+            bool(st is not None and st.touchdown_situation in AIR_SURFACE_SITUATIONS),
+            st.touchdown_situation if st is not None else None,
+            {"touchdownUT": st.touchdown_ut if st is not None else None,
+             "verticalSpeed": st.touchdown_vs if st is not None else None,
+             "speed": st.touchdown_speed if st is not None else None,
+             "lat": st.touchdown_lat if st is not None else None,
+             "lon": st.touchdown_lon if st is not None else None,
+             "missMeters": st.touchdown_miss if st is not None else None}),
+        AssertionOutcome(
+            "cameToRest", bool(st is not None and st.phase == AIR_DONE),
+            st.rest_ut if st is not None else None,
+            {"stopSpeed": params.stop_speed,
+             "phasesReached": list(st.phases_reached) if st is not None else []}),
+    ]

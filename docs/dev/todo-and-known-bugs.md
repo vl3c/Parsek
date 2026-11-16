@@ -1761,8 +1761,20 @@ in parallel in the cloud):
    B46 Minmus -> Mun (about 200 Kerbin days between loops), B45 Tylo -> Bop (expected honest
    decline), each a forge plus a loop lane. Before this group only Laythe -> Vall, Mun -> Minmus and
    Laythe -> Jool had flown on the new rule.
-3. [ ] Aircraft: no lane flies a plane (BAY-1's never moves). A runway takeoff, a circuit and a
-   landing, then its ghost replays at the Space Center.
+3. [ ] (AUTHORED 2026-11-16 as `AIR-1-runway-circuit-splashdown` / `AIR-2-runway-circuit-ksc-ghost`,
+   never flown: mission `air1_runway_circuit`, the stock Mallard from the Runway around a circuit to
+   a splashdown east of KSC; AIR-2 is pending-fixture until AIR-1's `air-circuit-recorded` harvest.)
+   Aircraft: no lane flies a plane (BAY-1's never moves). A runway takeoff, a circuit and a
+   landing, then its ghost replays at the Space Center. Open after AIR-2: no in-game check reads a
+   KSC ghost's position DURING its replay (AIR-2 reads the KSC log lines and, by position, only the
+   end spawn through `LeafVesselPlacement`); it needs a new Space Center category that samples each
+   live KSC ghost's world position against the recording's interpolated lat / lon / alt.
+3a. [ ] Two rovers driving into each other (owner request 2026-11-16): two recorded rovers collide
+   on the ground; checks both recordings end at the impact (Destroyed or a stopped Landed terminal)
+   and both ghosts replay the collision at the same place and time.
+3b. [ ] Two airplanes flying into each other (owner request 2026-11-16): one plane chases the
+   other's live position (`mlib.air_steer_toward`) until they collide; checks both recordings end
+   Destroyed at the same UT and both ghosts meet at the recorded impact point.
 4. [ ] (AUTHORED 2026-11-14 as `B39`-`B42` / `V34M`-`V37M` and `V33T`. FLOWN 2026-11-14: V33T green;
    B39-B42 green on 8d4e8b01c and their four fixtures harvested; V34M-V36M green; V37M green
    `2026-11-14_2320` on 2d8c25442.)
