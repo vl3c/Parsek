@@ -4118,13 +4118,16 @@ class RealTreeSmokeTests(unittest.TestCase):
         # sinks (FlightRecorder's and BackgroundRecorder's), each reaching its owner and
         # reached from it: 438. The dead-method removal (item 25) deleted
         # RouteOriginCargoCheck.RequiresInventoryDebit, the type's only reference into the
-        # knot, so RouteOriginCargoCheck leaves it: 437.
+        # knot, so RouteOriginCargoCheck leaves it: 437. Multiplayer P2a-05 adds the playback
+        # catalog port and its own-timeline class: RecordingPlaybackCatalog reads RecordingStore
+        # and PendingTreeSlot, IPlaybackCatalog names Recording and RecordingTree, and the
+        # recorded-anchor pose resolver (a knot member) calls both: 439.
         # It was [301, 7, 4, 2, 2] on 2026-09-25,
         # [286, 4, 2, 2] on 2026-09-22 and [391, 4, 2] before the 2026-09-14
         # arch PRs shrank the kernel.
         # It is a canary: when it reds, re-derive it and the README numbers
         # from a fresh run in the same commit as whatever moved them.
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [437, 9, 4, 3, 2])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [439, 9, 4, 3, 2])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
@@ -4299,11 +4302,13 @@ class RealTreeSmokeTests(unittest.TestCase):
         # (438 -> 406, 406 -> 384, 384 -> 365). Item 25's RouteOriginCargoCheck (out of the
         # knot, see above) sat on the uncut side until the route cut, so the first two land one
         # lower and the route cut starts one lower and lands where it did (437 -> 405,
-        # 405 -> 383, 383 -> 365).
+        # 405 -> 383, 383 -> 365). P2a-05's two catalog types (see the knot sizes above) stay
+        # on the uncut side through the first three cuts, so each lands two higher (439 -> 407,
+        # 407 -> 385, 385 -> 367).
         first, second, third = self.model["knots"][0]["cuts"][:3]
         self.assertEqual(first["sink"], "ParsekFlight")
-        self.assertEqual(first["sizeBefore"], 437)
-        self.assertEqual(first["sizeAfter"], 405)
+        self.assertEqual(first["sizeBefore"], 439)
+        self.assertEqual(first["sizeAfter"], 407)
         for service in ("ParsekFlightGhostPositioner", "ParsekFlightMapMarkers", "ParsekWindowSet",
                         "ParsekFlightMergeFlow",
                         "ParsekFlightPlaybackHost", "ParsekFlightPostSwitchAutoRecord",
@@ -4311,8 +4316,8 @@ class RealTreeSmokeTests(unittest.TestCase):
                         "ParsekFlightSurfaceCapture", "ParsekFlightSwitchContinuation"):
             self.assertIn(service, first["droppedReferences"])
         self.assertEqual(second["sink"], "GhostPlaybackLogic")
-        self.assertEqual(second["sizeBefore"], 405)
-        self.assertEqual(second["sizeAfter"], 383)
+        self.assertEqual(second["sizeBefore"], 407)
+        self.assertEqual(second["sizeAfter"], 385)
         for dropped in ("LoopUnit", "MissionPeriodicity", "MissionRelaunchSchedule"):
             self.assertIn(dropped, second["droppedReferences"])
         # File-placement PR 4 (2026-11-07) deleted OrbitReseed -> GhostMapPresence;
@@ -4332,10 +4337,11 @@ class RealTreeSmokeTests(unittest.TestCase):
         # (436 -> 419). Wave 2 W1a made launch identity a sink (installed rules), so it is
         # no longer a cut; the third cut was the scenario module (419 -> 404 then, 410 -> 395
         # after W1b). Since W1c the third cut is the route (406 -> 387; 388 -> 369 after W3b;
-        # 383 -> 364 after W6's window set; 383 -> 365 after item 25).
+        # 383 -> 364 after W6's window set; 383 -> 365 after item 25; 385 -> 367 after
+        # multiplayer P2a-05's catalog types).
         self.assertEqual(third["sink"], "Route")
-        self.assertEqual(third["sizeBefore"], 383)
-        self.assertEqual(third["sizeAfter"], 365)
+        self.assertEqual(third["sizeBefore"], 385)
+        self.assertEqual(third["sizeAfter"], 367)
         self.assertEqual(
             third["droppedReferences"], ["RouteCodec", "RouteDispatchEvaluator", "RouteIds"])
 
