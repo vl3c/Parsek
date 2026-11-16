@@ -169,12 +169,41 @@ namespace Parsek.Logistics
             EndpointPartScope originScope = RouteEndpointPartScope.ForEndpoint(
                 route, route.Origin, originVessel, originIsLoaded, "origin-gate");
             var probe = new LiveOriginCargoProbe(originVessel, originIsLoaded, originScope);
-            bool covered = RouteOriginCargoCheck.HasRequired(
+            // The origin is a physical store like any pickup source: net what OTHER
+            // in-flight routes reserved on it for a later pickup window, the same net
+            // PickupSourcesHaveCargo applies (ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW).
+            // Without it this route's dispatch debit could drain cargo a competing
+            // multi-stop route reserved here, leaving that route's pickup short.
+            uint originPid = originVessel.persistentId;
+            string routeId = route.Id;
+            bool covered = RoutePickupSourceGate.OriginCoversNetOfOtherRoutes(
                 route.CostManifest, probe.ProbeResourceStored,
-                out string shortResource, out double resourceShortfall);
+                name => RouteStore.OtherRoutesReservedFor(routeId, originPid, name),
+                out string shortResource, out double resourceShortfall,
+                out bool escrowCausedShort, out double rawStored, out double nettedStored);
             if (!covered)
             {
                 lackingResource = shortResource;
+                string reservingRouteId = null;
+                double reservedByRoute = 0.0;
+                if (escrowCausedShort
+                    && RouteStore.TryGetReservingRoute(originPid, shortResource, routeId,
+                        out reservingRouteId, out reservedByRoute))
+                {
+                    string reservingName = RouteStore.TryGetRoute(reservingRouteId, out Route reservingRoute)
+                            && !string.IsNullOrEmpty(reservingRoute.Name)
+                        ? reservingRoute.Name
+                        : RouteIds.Short(reservingRouteId);
+                    lackingResource = RoutePickupSourceGate.BuildReservedHoldToken(
+                        originPid, originVessel.vesselName, shortResource, reservingName);
+                }
+                ParsekLog.VerboseRateLimited(Tag, "origin-short-cause-" + route.Id,
+                    $"OriginHasCargo: route {ShortIdForRoute(route)} " +
+                    $"short-cause={(escrowCausedShort ? "escrow" : "physical")} " +
+                    $"pid={originPid.ToString(IC)} resource={shortResource} " +
+                    $"raw={rawStored.ToString("R", IC)} netted={nettedStored.ToString("R", IC)} " +
+                    $"reservingRouteId={(reservingRouteId != null ? RouteIds.Short(reservingRouteId) : "<none>")} " +
+                    $"reservedByRoute={reservedByRoute.ToString("R", IC)}");
                 // The missing AMOUNT is the only channel the number has (the
                 // hold token is a legibility string, never parsed for a
                 // magnitude), so thread it out to the caller alongside the name.

@@ -230,7 +230,20 @@ namespace Parsek.Logistics
             // STEP 4: planner. Pure decision over the resource + inventory
             // manifest, capacity-clamped per resource and slot-aware for
             // inventory. The planner is unit-tested in isolation (Phase A).
-            DeliveryPlan plan = RouteDeliveryPlanner.PrepareDelivery(route, stopIndex, probe);
+            // The supply cap: a delivery never writes more than this cycle's origin
+            // debit and pickups actually put on board (ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW).
+            // Read from the persisted route event log, so it holds across a mid-cycle
+            // save / reload. Empty in the common case (no short supply this cycle).
+            Dictionary<string, double> supplyDeficit = ComputeCycleSupplyDeficit(
+                route, cycleId, stopIndex * SeqStride + 3, RouteEventLog.Events);
+            if (supplyDeficit.Count > 0)
+            {
+                ParsekLog.Warn(Tag,
+                    $"Delivery: route {ShortIdForLog(route)} cycle={cycleId} stop={stopIndex.ToString(IC)} " +
+                    $"supply short this cycle - capping delivery to what was picked up: " +
+                    FormatSupplyDeficit(supplyDeficit));
+            }
+            DeliveryPlan plan = RouteDeliveryPlanner.PrepareDelivery(route, stopIndex, probe, supplyDeficit);
 
             // Delivery verification (playtest follow-up): log the resolved
             // destination vessel + which branch (loaded/unloaded) + the planned
@@ -515,6 +528,24 @@ namespace Parsek.Logistics
                 $"inventoryUnitsSkipped={inventoryUnitsSkipped.ToString(IC)} " +
                 $"partial={(plan.IsPartial ? "1" : "0")} " +
                 $"ut={ctx.CurrentUT.ToString("R", IC)}");
+        }
+
+        /// <summary>
+        /// Plain-ASCII "Name=amount" list of a supply deficit, ordinal by name, for
+        /// the delivery's supply-cap log line. Pure.
+        /// </summary>
+        internal static string FormatSupplyDeficit(Dictionary<string, double> deficit)
+        {
+            if (deficit == null || deficit.Count == 0) return "<none>";
+            var names = new List<string>(deficit.Keys);
+            names.Sort(StringComparer.Ordinal);
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < names.Count; i++)
+            {
+                if (i > 0) sb.Append(' ');
+                sb.Append(names[i]).Append('=').Append(deficit[names[i]].ToString("R", IC));
+            }
+            return sb.ToString();
         }
 
         /// <summary>

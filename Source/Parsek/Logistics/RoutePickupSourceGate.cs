@@ -641,6 +641,66 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
+        /// The docked-origin gate NET of other routes' cargo escrow: the origin vessel
+        /// is a physical store like any pickup source, so a route may rely only on
+        /// what it stores MINUS what OTHER in-flight routes reserved on the same
+        /// vessel for a later pickup window (<paramref name="reservedByOthersReader"/>,
+        /// in production <see cref="RouteStore.OtherRoutesReservedFor"/> for the
+        /// origin pid). Without the net, a docked-origin cycle could drain cargo a
+        /// competing multi-stop route reserved there at its own dispatch, leaving
+        /// that route's pickup short. Same all-or-nothing contract and first-short
+        /// naming as <see cref="RouteOriginCargoCheck.HasRequired"/> over the netted reader
+        /// (<see cref="NettedAvailable"/>, the pickup gate's
+        /// own net). On failure, <paramref name="rawStored"/> /
+        /// <paramref name="nettedStored"/> carry the short resource's raw and netted
+        /// amounts and <paramref name="escrowCausedShort"/> is true when the vessel
+        /// physically holds the requirement and only the reservations explain the
+        /// short (<see cref="IsEscrowCausedShort"/>). A null
+        /// <paramref name="reservedByOthersReader"/> nets nothing.
+        /// </summary>
+        internal static bool OriginCoversNetOfOtherRoutes(
+            Dictionary<string, double> costManifest,
+            Func<string, double> rawStoredReader,
+            Func<string, double> reservedByOthersReader,
+            out string lackingResource,
+            out double shortfall,
+            out bool escrowCausedShort,
+            out double rawStored,
+            out double nettedStored)
+        {
+            escrowCausedShort = false;
+            rawStored = 0.0;
+            nettedStored = 0.0;
+
+            Func<string, double> nettedReader = null;
+            if (rawStoredReader != null)
+            {
+                nettedReader = name =>
+                {
+                    double reserved = reservedByOthersReader != null
+                        ? reservedByOthersReader(name)
+                        : 0.0;
+                    return NettedAvailable(rawStoredReader(name), reserved);
+                };
+            }
+
+            if (RouteOriginCargoCheck.HasRequired(costManifest, nettedReader, out lackingResource, out shortfall))
+                return true;
+
+            if (rawStoredReader != null
+                && costManifest != null
+                && !string.IsNullOrEmpty(lackingResource)
+                && costManifest.TryGetValue(lackingResource, out double need))
+            {
+                rawStored = rawStoredReader(lackingResource);
+                nettedStored = nettedReader(lackingResource);
+                escrowCausedShort = IsEscrowCausedShort(
+                    need, rawStored, nettedStored);
+            }
+            return false;
+        }
+
+        /// <summary>
         /// M6 escrow-hold legibility: the <c>OriginLacksCargo</c> detail token for
         /// an ESCROW-caused pickup-source short, consumed by
         /// <see cref="Parsek.LogisticsHoldPresentation"/>. Shape:
