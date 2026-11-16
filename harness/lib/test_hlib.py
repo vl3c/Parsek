@@ -4303,7 +4303,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # boot, never a guard count.
         "H42-claw-couple":           ("ClawCouple", 2, "FLIGHT"),
         "H43-terrain-clearance":     ("TerrainClearance", 6, "FLIGHT"),
-        "H44-ghost-map-trackstation": ("GhostMap", 25, "TRACKSTATION"),
+        # H44 25 -> 27 on 2026-11-16 (P3-01, the two GhostMapPrimitiveRuntimeTest cells).
+        "H44-ghost-map-trackstation": ("GhostMap", 27, "TRACKSTATION"),
         "H45-stock-ui-overlay":      ("StockUiOverlay", 12, "SPACECENTER"),
         "H46-settings":              ("Settings", 5, "FLIGHT"),
         "H71-resource-topbar-ksc":   ("ResourceTopBar", 2, "SPACECENTER"),
@@ -23611,14 +23612,30 @@ MEASURED_LOOP_SHIFT_LINE = (
     " SynthesizedParity_LoopShiftedGhost_PhaseMatched_ZeroDrift:"
     " pid=2279670454 loopShift=1100.0 matchedDev=0m mismatchedDev=1049421m"
     " tol=1927m")
-MEASURED_BATCH_LINE = (
+# The flown pin (runs 2026-07-26_0950 and _1207), kept as the record of what the
+# 25-cell category measured.
+FLOWN_BATCH_LINE_2026_07_26 = (
     "[Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=25 passed=14 failed=0"
     " skipped=11 category=GhostMap scene=FLIGHT")
-# The runner's own accounting for 9 of the 11 skips (the other 2 are documented
-# self-skips from the loop-icon warp cluster; see the spec header).
-MEASURED_SCENE_SKIP_LINE = (
+FLOWN_SCENE_SKIP_LINE_2026_07_26 = (
     "[Parsek][INFO][TestRunner] Scene eligibility skip summary: skipped=9"
     " currentScene=FLIGHT byRequiredScene=TRACKSTATION:9")
+# EXPECTED 2026-11-16, NOT YET FLOWN: P3-01 added the two GhostMapPrimitiveRuntimeTest
+# cells (one FLIGHT, one TRACKSTATION), so the source derives total=27 with a tenth
+# TRACKSTATION scene skip. The FLIGHT cell skips only without a game flight state or
+# without Kerbin, neither possible on S1.6's fixture, so it is a fifteenth pass and the
+# two documented loop-icon self-skips stay the only run-time skips. A shape, not a
+# measurement, until the next green flight of S1.6 reads it.
+EXPECTED_BATCH_LINE_2026_11_16 = (
+    "[Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=27 passed=15 failed=0"
+    " skipped=12 category=GhostMap scene=FLIGHT")
+EXPECTED_SCENE_SKIP_LINE_2026_11_16 = (
+    "[Parsek][INFO][TestRunner] Scene eligibility skip summary: skipped=10"
+    " currentScene=FLIGHT byRequiredScene=TRACKSTATION:10")
+MEASURED_BATCH_LINE = EXPECTED_BATCH_LINE_2026_11_16
+# The runner's own accounting for 10 of the 12 skips (the other 2 are documented
+# self-skips from the loop-icon warp cluster; see the spec header).
+MEASURED_SCENE_SKIP_LINE = EXPECTED_SCENE_SKIP_LINE_2026_11_16
 
 
 class RenderParityScenarioTests(unittest.TestCase):
@@ -23668,13 +23685,16 @@ class RenderParityScenarioTests(unittest.TestCase):
         self.assertIsNotNone(re.search(pat, MEASURED_BATCH_LINE),
                              "the pinned tally must match the flown line")
         for bad, why in (
-                ("BATCH_COMPLETE v1 total=25 passed=0 failed=0 skipped=25 "
+                ("BATCH_COMPLETE v1 total=27 passed=0 failed=0 skipped=27 "
                  "category=GhostMap scene=FLIGHT", "an all-skip batch"),
-                ("BATCH_COMPLETE v1 total=25 passed=13 failed=0 skipped=12 "
+                ("BATCH_COMPLETE v1 total=27 passed=14 failed=0 skipped=13 "
                  "category=GhostMap scene=FLIGHT", "a test that flipped to Skip"),
-                ("BATCH_COMPLETE v1 total=26 passed=15 failed=0 skipped=11 "
+                ("BATCH_COMPLETE v1 total=28 passed=16 failed=0 skipped=12 "
                  "category=GhostMap scene=FLIGHT", "a newly added GhostMap test"),
                 ("BATCH_COMPLETE v1 total=25 passed=14 failed=0 skipped=11 "
+                 "category=GhostMap scene=FLIGHT",
+                 "the pre-2026-11-16 tally, i.e. the primitive cells removed"),
+                ("BATCH_COMPLETE v1 total=27 passed=15 failed=0 skipped=12 "
                  "category=GhostMap scene=TRACKSTATION", "a FLIGHT/TS host change")):
             self.assertIsNone(re.search(pat, bad), "%s must NOT match" % (why,))
 
@@ -23715,13 +23735,15 @@ class RenderParityScenarioTests(unittest.TestCase):
         self.assertIn("tol=1927m", MEASURED_LOOP_SHIFT_LINE)
 
     def test_the_skipped_count_is_fully_accounted_for(self):
-        # 11 skips = 9 scene-eligibility (TRACKSTATION tests filtered out of a
-        # FLIGHT batch) + 2 documented loop-icon self-skips. If a future flight
-        # moves `skipped`, the pinned tally reds and this accounting is the thing
-        # that has to be re-derived alongside it.
-        self.assertIn("skipped=11", MEASURED_BATCH_LINE)
-        self.assertIn("skipped=9", MEASURED_SCENE_SKIP_LINE)
-        self.assertIn("byRequiredScene=TRACKSTATION:9", MEASURED_SCENE_SKIP_LINE)
+        # 12 skips = 10 scene-eligibility (TRACKSTATION tests filtered out of a
+        # FLIGHT batch) + 2 documented loop-icon self-skips (11 = 9 + 2 on the
+        # 25-cell flights). If a future flight moves `skipped`, the pinned tally reds
+        # and this accounting is the thing that has to be re-derived alongside it.
+        self.assertIn("skipped=12", MEASURED_BATCH_LINE)
+        self.assertIn("skipped=10", MEASURED_SCENE_SKIP_LINE)
+        self.assertIn("byRequiredScene=TRACKSTATION:10", MEASURED_SCENE_SKIP_LINE)
+        self.assertIn("skipped=11", FLOWN_BATCH_LINE_2026_07_26)
+        self.assertIn("byRequiredScene=TRACKSTATION:9", FLOWN_SCENE_SKIP_LINE_2026_07_26)
         header = open(os.path.join(SCENARIOS_DIR, "S1.6-render-parity.toml"),
                       encoding="utf-8").read()
         for name in ("StateVectorReseed_CalculatePhysicsStatsResnapsIconOntoConic",
