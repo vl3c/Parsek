@@ -77,8 +77,11 @@ class FakeRuntime(run.Runtime):
                  career_funds=25000.0, career_science=0.0, career_rep=0.0,
                  analyzer_fail_calls=0, produced_parsed=True, inject_noop=False,
                  render_manifest_text=None, ghost_lifecycle_log_text=None,
-                 analyzer_red=False):
+                 analyzer_red=False, launch_files=None):
         self.mode = mode
+        # Files the "game" writes at launch, {instance-relative path: text}: the race
+        # shared-folder cells use it to stand for the game writing into ${raceShared}.
+        self.launch_files = dict(launch_files or {})
         # The GhostRenderTrace mesh-lifecycle lines the fake KSP "writes" into its
         # KSP.log, APPENDED at launch for the render-manifest reason below (after
         # staging, which is where a real run's lines land). Append, never write:
@@ -174,6 +177,11 @@ class FakeRuntime(run.Runtime):
         self.launch_count += 1
         self.last_launch_env = dict(env)
         self.last_launch_args = list(args)
+        for rel, text in self.launch_files.items():
+            path = os.path.join(cwd, *rel.split("/"))
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(text)
         if self.render_manifest_text is not None:
             with open(os.path.join(cwd, run.RENDER_MANIFEST_FILENAME),
                       "w", encoding="utf-8") as fh:
@@ -8506,3 +8514,197 @@ class AdmitOnlyAndIdsFileTests(unittest.TestCase):
         with contextlib.redirect_stdout(out):
             code = run.main(["--ids-file", os.path.join(self.box, "missing.ids"), "--dry-run"])
         self.assertEqual(2, code)
+
+
+class RaceSharedFolderStagingSmokeTests(unittest.TestCase):
+    """Multiplayer T-03: `[fixture.race]` stages `<instance>/rs/0` (empty or a copy of
+    a committed fixture), `${raceShared}` reaches the wire as that folder, the folder
+    is copied to `results/<runId>_race/` with a listing as soon as the KSP exits, the
+    next race lane wipes it, and a spec without the block touches none of it."""
+
+    FIXTURE = "rival-a"
+    FIXTURE_FILES = {"players/p1/standing.cfg": "seq = 1\n",
+                     "players/p1/look file.txt": "look = 2\n"}
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek harness race ")  # a space, as on Windows
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, "fresh-career")
+        os.makedirs(self.template)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self.fixtures = os.path.join(self.tmp, "fixtures", "race")
+        src = os.path.join(self.fixtures, self.FIXTURE)
+        for rel, text in self.FIXTURE_FILES.items():
+            path = os.path.join(src, *rel.split("/"))
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(text)
+        self._orig = (run.RESULTS_DIR, run.RACE_FIXTURES_DIR)
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        run.RACE_FIXTURES_DIR = self.fixtures
+        self.logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "race_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR, run.RACE_FIXTURES_DIR = self._orig
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _spec(self, shared=None, folder_step=True):
+        spec = _make_spec(self.template, 30, 600)
+        spec["id"] = "SMOKE-race"
+        if shared is not None:
+            spec["fixture"]["race"] = {"sharedFolder": shared}
+        if folder_step:
+            spec["driver"]["steps"].insert(1, {
+                "cmd": "SetSetting", "args": {"name": "x", "value": hlib.RACE_SHARED_TOKEN},
+                "expect": "OK"})
+        return spec
+
+    def _tree(self, root):
+        out = {}
+        for dirpath, dirs, files in os.walk(root):
+            rel_dir = os.path.relpath(dirpath, root).replace(os.sep, "/")
+            for d in dirs:
+                out[(rel_dir + "/" + d).lstrip("./")] = "<dir>"
+            for f in files:
+                with open(os.path.join(dirpath, f), "rb") as fh:
+                    out[(rel_dir + "/" + f).lstrip("./")] = hashlib.sha256(fh.read()).hexdigest()
+        return out
+
+    def _plant(self, rel, text="stale\n"):
+        path = os.path.join(self.instance, *rel.split("/"))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        return path
+
+    def _commands(self):
+        with open(os.path.join(self.instance, "parsek-test-commands.txt"), encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_a_fixture_folder_is_staged_substituted_and_snapshotted(self):
+        before = self._tree(self.fixtures)
+        rt = FakeRuntime("pass", launch_files={"rs/0/players/p2/joined.cfg": "slot = 1\n"})
+        result = run.run_attempt(self._spec("fixtures/race/" + self.FIXTURE), self.instance,
+                                 self.tmp, rt, attempt=1, prior_boot_crashed=False,
+                                 logger=self.logger)
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("note"))
+        shared = os.path.abspath(os.path.join(self.instance, "rs", "0"))
+        self.assertIn("value=%s" % run.encode_value(shared), self._commands())
+        self.assertNotIn("raceShared", self._commands())
+        snap = result["raceSnapshot"]
+        self.assertTrue(snap["ran"], snap)
+        self.assertEqual(result["runId"] + "_race", snap["path"])
+        self.assertEqual(3, snap["files"])
+        copied = self._tree(os.path.join(run.RESULTS_DIR, snap["path"]))
+        for rel in list(self.FIXTURE_FILES) + ["players/p2/joined.cfg"]:
+            self.assertIn(rel, copied)
+        with open(os.path.join(run.RESULTS_DIR, snap["listing"]), encoding="utf-8") as fh:
+            listing = fh.read()
+        self.assertTrue(listing.startswith(hlib.RACE_LISTING_HEADER))
+        self.assertIn("files=3", listing)
+        self.assertIn("%s 9 players/p1/look file.txt"
+                      % hashlib.sha256(b"look = 2\n").hexdigest(), listing)
+        # The committed fixture is never written: the game's file landed in the copy only.
+        self.assertEqual(before, self._tree(self.fixtures))
+        with open(os.path.join(run.RESULTS_DIR, result["runId"] + ".json"), encoding="utf-8") as fh:
+            self.assertEqual(snap, json.load(fh)["raceSnapshot"])
+
+    def test_an_empty_folder_wipes_every_prior_race_folder(self):
+        self._plant("rs/0/stale.cfg")
+        self._plant("rs/7/old/other.cfg")
+        ok, _, subkind = run.stage_fixture(self._spec("empty"), self.instance, run.Runtime(),
+                                           self.logger)
+        self.assertTrue(ok, subkind)
+        self.assertEqual({"0": "<dir>"}, self._tree(os.path.join(self.instance, "rs")))
+
+    def test_the_next_lane_wipes_the_folder_after_the_snapshot_was_taken(self):
+        rt = FakeRuntime("pass", launch_files={"rs/0/players/p2/joined.cfg": "slot = 1\n"})
+        deferred = run.run_attempt(self._spec("fixtures/race/" + self.FIXTURE), self.instance,
+                                   self.tmp, rt, attempt=1, prior_boot_crashed=False,
+                                   logger=self.logger, defer_post_quit=True)
+        # The next lane stages over the instance before lane 1's verification lands.
+        ok, _, _ = run.stage_fixture(self._spec("empty"), self.instance, run.Runtime(),
+                                     self.logger)
+        self.assertTrue(ok)
+        self.assertEqual({}, self._tree(os.path.join(self.instance, "rs", "0")))
+        result = deferred.finish(self.logger)
+        self.assertTrue(result["raceSnapshot"]["ran"])
+        copied = self._tree(os.path.join(run.RESULTS_DIR, result["raceSnapshot"]["path"]))
+        self.assertIn("players/p2/joined.cfg", copied)
+        self.assertIn("players/p1/standing.cfg", copied)
+
+    def test_an_unknown_fixture_refuses_staging_before_any_wipe(self):
+        prior = self._plant("rs/0/keep.cfg")
+        ok, _, subkind = run.stage_fixture(self._spec("fixtures/race/nope"), self.instance,
+                                           run.Runtime(), self.logger)
+        self.assertFalse(ok)
+        self.assertEqual("staging", subkind)
+        self.assertTrue(os.path.isfile(prior))
+
+    @unittest.skipIf(os.name == "nt", "symlink creation needs privileges on Windows")
+    def test_a_linked_race_root_is_refused_and_nothing_behind_it_is_deleted(self):
+        sentinel = self._plant("GameData/keep.txt", "keep\n")
+        os.symlink(os.path.join(self.instance, "GameData"), os.path.join(self.instance, "rs"))
+        ok, _, subkind = run.stage_fixture(self._spec("empty"), self.instance, run.Runtime(),
+                                           self.logger)
+        self.assertFalse(ok)
+        self.assertEqual("staging", subkind)
+        self.assertTrue(os.path.isfile(sentinel))
+        self.assertFalse(run._rmtree_contained(os.path.join(self.instance, "rs"), self.instance))
+        self.assertTrue(os.path.isfile(sentinel))
+
+    def test_a_spec_without_the_block_touches_no_race_folder(self):
+        prior = self._plant("rs/0/keep.cfg", "keep\n")
+        result = run.run_attempt(self._spec(folder_step=False), self.instance, self.tmp,
+                                 FakeRuntime("pass"), attempt=1, prior_boot_crashed=False,
+                                 logger=self.logger)
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        self.assertNotIn("raceSnapshot", result)
+        self.assertTrue(os.path.isfile(prior))
+        self.assertEqual({"0": "<dir>", "0/keep.cfg": hashlib.sha256(b"keep\n").hexdigest()},
+                         self._tree(os.path.join(self.instance, "rs")))
+        self.assertFalse([n for n in os.listdir(run.RESULTS_DIR) if "_race" in n])
+
+    def test_every_committed_spec_is_inert(self):
+        sentinel = self._plant("rs/0/keep.cfg", "keep\n")
+        before = self._tree(self.instance)
+        specs = run.load_all_specs()
+        self.assertGreater(len(specs), 500)
+        for spec in specs:
+            with self.subTest(spec=spec.get("id")):
+                self.assertIsNone(hlib.spec_race_fixture(spec))
+                self.assertTrue(run.stage_race_shared(spec, self.instance, self.logger))
+                self.assertIsNone(run._snapshot_race_shared("r", spec, self.instance,
+                                                            self.logger))
+        self.assertEqual(before, self._tree(self.instance))
+        self.assertTrue(os.path.isfile(sentinel))
+
+    def test_a_committed_spec_stages_the_same_tree_with_the_race_step_removed(self):
+        spec = next(s for s in run.load_all_specs() if s.get("id") == "CS-0-new-career-game")
+        trees = []
+        for patched in (False, True):
+            instance = os.path.join(self.tmp, "inst-%s" % patched)
+            os.makedirs(instance)
+            ctx = (mock.patch.object(run, "stage_race_shared", lambda *a: True)
+                   if patched else contextlib.nullcontext())
+            with ctx:
+                ok, _, subkind = run.stage_fixture(spec, instance, run.Runtime(), self.logger)
+            self.assertTrue(ok, subkind)
+            trees.append(self._tree(instance))
+        self.assertEqual(trees[0], trees[1])
+        self.assertFalse(any(k == "rs" or k.startswith("rs/") for k in trees[0]))
+
+    def test_the_results_archive_keeps_the_listing(self):
+        rt = FakeRuntime("pass")
+        result = run.run_attempt(self._spec("empty"), self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        archive = os.path.join(self.tmp, "archive")
+        done = run.archive_run_results(result["runId"], run.RESULTS_DIR, archive, None,
+                                       self.logger, instance_dir=None, worktree=None)
+        self.assertTrue(done)
+        self.assertIn(result["runId"] + hlib.RACE_LISTING_SUFFIX, os.listdir(done))
+        self.assertNotIn(result["runId"] + hlib.RACE_SNAPSHOT_DIR_SUFFIX, os.listdir(done))

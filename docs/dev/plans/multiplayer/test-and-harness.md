@@ -340,9 +340,25 @@ writes `testGame = False`.
   - Post-run: copy `${raceShared}` to `results/<runId>_race/` next to `_save/`, and archive
     a listing (names, sizes, hashes; not the payload) with the run's small artifacts.
   - Pure helpers in hlib: `race_shared_dir(instance, n)`, `is_race_fixture_path`.
+  - As built (2026-11-16, corrected here): `<n>` is always `"0"` today
+    (`hlib.RACE_SHARED_DEFAULT_LEAF`); each install slot is its own instance, so the folder
+    is per slot without a slot number, and stage wipes the whole `<instance>/rs/` for every
+    race lane. `${raceShared}` is a WHOLE-value token (like `${runSave}`), substituted in
+    seam step args only (a `missionParams` value carrying it is refused). The race verbs'
+    folder args are named in `hlib.RACE_FOLDER_ARG_BY_VERB` (`RaceSetup folder`,
+    `RaceCommand path`) ahead of the verbs (T-07, T-08). `validate_spec` takes the
+    committed fixture names as `race_fixtures=` (run.py passes `list_race_fixtures()`,
+    the folders under `harness/fixtures/race/`). The copy to `results/<runId>_race/` is
+    taken at KSP exit in the main thread (before the next lane can stage and wipe), not in
+    the post-quit verify worker; the listing is `results/<runId>_race.listing.txt` (an
+    optional entry of the results archive) and the result JSON carries `raceSnapshot`.
+    No harness path-length validator exists yet; the short leaf is the only mitigation
+    (section 8, path length). T-54 adds `sharedFolder = "pair"` by extending
+    `hlib.validate_race_fixture` and `run.stage_race_shared`; T-06 and T-48 resolve their
+    targets through `hlib.race_shared_dir`.
 - **Proof:** `test_hlib` cells for the validator (accepts, refuses outside paths, refuses an
   unknown fixture), `test_run_smoke` with `_fake_ksp` (staged, snapshotted, wiped before the
-  next lane).
+  next lane). As built: `RaceSharedFolderSpecTests`, `RaceSharedFolderStagingSmokeTests`.
 - **Registers:** `harness/README.md` (fixtures section, snapshot section);
   `docs/dev/autotest-status.md` row for the harness capability.
 - **Size:** M. **Depends on:** nothing. **PC:** no.

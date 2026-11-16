@@ -28142,3 +28142,166 @@ class RaceTagConventionTests(unittest.TestCase):
         specs = [self._spec("RACE-1", ["race"]), self._spec("H1"), self._spec("SITES-1", ["race"])]
         self.assertEqual([s["id"] for s in hlib.select_scenarios(specs, "--tag %s" % hlib.RACE_TAG)],
                          ["RACE-1", "SITES-1"])
+
+
+class RaceSharedFolderSpecTests(unittest.TestCase):
+    """Multiplayer T-03: the `[fixture.race]` spec surface, the `${raceShared}`
+    token, the race verbs' folder argument, the listing and its archive entry.
+    The staging, substitution and snapshot themselves are driven end to end in
+    test_run_smoke.RaceSharedFolderStagingSmokeTests."""
+
+    def _spec(self, race=None, steps=None):
+        spec = {
+            "schema": hlib.SCHEMA_VERSION, "id": "RACE-x", "tier": "operator",
+            "tags": ["race"], "instanceProfile": "stock-minimal",
+            "fixture": {"saveTemplate": "fixtures/saves/fresh-career",
+                        "injectedRecordings": "none", "craft": []},
+            "driver": {"kind": "seam", "steps": [
+                {"cmd": "LoadGame", "args": {"save": "${runSave}", "name": "persistent"},
+                 "expect": "OK", "budget": 30}] + list(steps or []) + [
+                {"cmd": "FlushAndQuit", "expect": "OK"}]},
+            "expectations": {"recordings": {"count": {"min": 0, "max": 0}},
+                             "logContracts": {"required": [], "forbidden": []},
+                             "allowedAnomalies": []},
+            "runtime": {"budgetSeconds": 600},
+            "retry": {"policy": "once"},
+            "expectedFail": {"bugId": ""},
+        }
+        if race is not None:
+            spec["fixture"]["race"] = race
+        return spec
+
+    def _errors(self, spec, race_fixtures=None):
+        return hlib.validate_spec(spec, {"schema": 1}, bug_ids=[],
+                                  race_fixtures=race_fixtures).errors
+
+    def _race_errors(self, spec, race_fixtures=None):
+        return [e for e in self._errors(spec, race_fixtures)
+                if "race" in e.lower() or hlib.RACE_SHARED_TOKEN in e]
+
+    def test_the_two_accepted_forms_validate(self):
+        base = self._errors(self._spec())
+        self.assertEqual(base, self._errors(self._spec({"sharedFolder": "empty"})))
+        self.assertEqual(base, self._errors(self._spec({"sharedFolder": "fixtures/race/holder-gen1"}),
+                                            race_fixtures=["holder-gen1", "other"]))
+        # No listing injected: the existence check is staging's (fail closed there).
+        self.assertEqual(base, self._errors(self._spec({"sharedFolder": "fixtures/race/x_1"})))
+
+    def test_a_path_outside_the_race_fixtures_is_refused(self):
+        for value in ("../x", "/abs/rs", "C:/race/x", "C:\\race\\x", "\\\\server\\share",
+                      "fixtures/race/../saves/fresh-career", "fixtures/race/a/b",
+                      "fixtures/race/", "fixtures/race/x/", "fixtures\\race\\x",
+                      "fixtures/saves/fresh-career", "fixtures/race/.hidden",
+                      "fixtures/race/with space", "Empty", "", 3, True):
+            with self.subTest(value=value):
+                errs = self._race_errors(self._spec({"sharedFolder": value}), ["x"])
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("fixture.race.sharedFolder", errs[0])
+
+    def test_an_unknown_fixture_is_refused(self):
+        errs = self._race_errors(self._spec({"sharedFolder": "fixtures/race/nope"}),
+                                 race_fixtures=["holder-gen1"])
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("names no committed race fixture", errs[0])
+        errs = self._race_errors(self._spec({"sharedFolder": "fixtures/race/nope"}),
+                                 race_fixtures=[])
+        self.assertEqual(1, len(errs), errs)
+
+    def test_a_malformed_block_is_refused(self):
+        for race, needle in (("empty", "must be a table"),
+                             ({}, "required"),
+                             ({"sharedFolder": "empty", "sharedfolder": "empty"}, "unknown key"),
+                             ({"folder": "empty"}, "unknown key")):
+            with self.subTest(race=race):
+                self.assertTrue(any(needle in e for e in self._race_errors(self._spec(race))),
+                                self._race_errors(self._spec(race)))
+
+    def test_the_token_needs_the_block(self):
+        step = {"cmd": "SetSetting", "args": {"name": "x", "value": hlib.RACE_SHARED_TOKEN},
+                "expect": "OK"}
+        errs = self._race_errors(self._spec(steps=[step]))
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("needs a [fixture.race] block", errs[0])
+        self.assertEqual([], self._race_errors(self._spec({"sharedFolder": "empty"}, [step])))
+
+    def test_the_token_is_a_whole_value_only(self):
+        step = {"cmd": "SetSetting",
+                "args": {"name": "x", "value": hlib.RACE_SHARED_TOKEN + "/players"},
+                "expect": "OK"}
+        errs = [e for e in self._errors(self._spec({"sharedFolder": "empty"}, [step]))
+                if "malformed" in e]
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("WHOLE value", errs[0])
+        self.assertEqual([], hlib.find_malformed_handle_tokens(hlib.RACE_SHARED_TOKEN))
+        self.assertEqual([], hlib.find_malformed_handle_tokens(hlib.RUN_SAVE_TOKEN))
+        self.assertTrue(hlib.find_malformed_handle_tokens("${raceshared}"))
+
+    def test_a_race_verb_folder_takes_only_the_token(self):
+        for verb, key in sorted(hlib.RACE_FOLDER_ARG_BY_VERB.items()):
+            for value in ("C:/Dropbox/race", "../rs/0", "${runSave}", ""):
+                with self.subTest(verb=verb, value=value):
+                    step = {"cmd": verb, "args": {key: value}, "expect": "OK"}
+                    errs = [e for e in self._errors(self._spec({"sharedFolder": "empty"}, [step]))
+                            if "folder must be" in e]
+                    self.assertEqual(1, len(errs), errs)
+            step = {"cmd": verb, "args": {key: hlib.RACE_SHARED_TOKEN}, "expect": "OK"}
+            self.assertFalse([e for e in self._errors(self._spec({"sharedFolder": "empty"}, [step]))
+                              if "folder must be" in e or "needs a [fixture.race]" in e])
+            # A race verb step without the folder argument (RaceCommand action=status).
+            step = {"cmd": verb, "args": {"action": "status"}, "expect": "OK"}
+            self.assertFalse([e for e in self._errors(self._spec({"sharedFolder": "empty"}, [step]))
+                              if "folder must be" in e])
+
+    def test_the_token_is_refused_in_mission_params(self):
+        spec = self._spec({"sharedFolder": "empty"})
+        spec["driver"]["kind"] = "autopilot"
+        spec["driver"]["mission"] = "b1_pad_hop"
+        spec["driver"]["missionParams"] = {"folder": hlib.RACE_SHARED_TOKEN}
+        spec["driver"]["steps"].insert(1, {"phase": "mission", "expect": "MISSION-OK"})
+        errs = [e for e in self._errors(spec) if "missionParams.folder" in e]
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("seam step args only", errs[0])
+
+    def test_no_committed_spec_declares_the_block_or_names_the_token(self):
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                raw = fh.read()
+            with self.subTest(spec=name):
+                self.assertIsNone(hlib.spec_race_fixture(tomllib.loads(raw.decode("utf-8"))))
+                self.assertNotIn(hlib.RACE_SHARED_TOKEN.encode("ascii"), raw)
+
+    def test_the_folder_path_is_short_and_inside_the_instance(self):
+        inst = os.path.join("C:", os.sep, "Users", "v", "automation", "stock-tree-2")
+        self.assertEqual(os.path.join(inst, "rs", "0"), hlib.race_shared_dir(inst))
+        self.assertEqual(os.path.join(inst, "rs", "3"), hlib.race_shared_dir(inst, "3"))
+        self.assertEqual(5, len(os.path.join("rs", "0")) + 1)
+
+    def test_the_listing_is_sorted_with_forward_slashes(self):
+        text = hlib.format_race_listing("run1", [("players\\p2\\b.cfg", 4, "bb"),
+                                                 ("players/p1/a b.cfg", 3, "aa")])
+        self.assertEqual([hlib.RACE_LISTING_HEADER,
+                          "# run=run1 files=2 bytes=7",
+                          "aa 3 players/p1/a b.cfg",
+                          "bb 4 players/p2/b.cfg"], text.splitlines())
+        self.assertEqual([hlib.RACE_LISTING_HEADER, "# run=r files=0 bytes=0"],
+                         hlib.format_race_listing("r", []).splitlines())
+
+    def test_the_archive_keeps_a_listing_and_misses_none_without_one(self):
+        rid = "2026-11-16_2000_RACE-1"
+        names = [rid + ".json", rid + "_race", rid + hlib.RACE_LISTING_SUFFIX]
+        plan = hlib.plan_results_archive(rid, names, False, None)
+        self.assertIn(rid + hlib.RACE_LISTING_SUFFIX, [e.dest_name for e in plan.entries])
+        self.assertNotIn(rid + "_race", [e.dest_name for e in plan.entries])
+        bare = hlib.plan_results_archive(rid, [rid + ".json"], False, None)
+        self.assertNotIn(rid + hlib.RACE_LISTING_SUFFIX, " ".join(bare.missing))
+        self.assertEqual(len(plan.entries), len(bare.entries) + 1)
+
+    def test_the_race_snapshot_tmp_sweep_reads_only_its_own_shape(self):
+        names = ["a_race.harness-tmp", "a_save.harness-tmp", "_race.harness-tmp",
+                 "b_race", "c_race.harness-tmp"]
+        self.assertEqual(["a_race.harness-tmp"],
+                         hlib.select_stale_save_snapshot_tmp_dirs_to_sweep(
+                             names, protect_name="c_race.harness-tmp",
+                             dir_suffix=hlib.RACE_SNAPSHOT_DIR_SUFFIX))
+        self.assertEqual(["a_save.harness-tmp"],
+                         hlib.select_stale_save_snapshot_tmp_dirs_to_sweep(names))
