@@ -1943,8 +1943,18 @@ in parallel in the cloud):
    (V33T). Later: Mun / Minmus continuations and the optional Ike / Gilly landing continuations.
    The three Group A fixtures carry the stray root tail of COMMITTED-RESTORE-APPENDS-TO-ROOT
    (fixed 2026-11-14) and are re-harvested with a build carrying the fix.
-5. [ ] Supply-route ghosts checked by position: route render lanes (H59, V26M, V26T, V27M, V18T)
+5. [ ] (AUTHORED 2026-11-16, never flown: FLIGHT in-game category `RouteGhostPlacement`, wired
+   as a `RunTests` step into H59 and V27M on interim pins; one reading run of each owed.)
+   Supply-route ghosts checked by position: route render lanes (H59, V26M, V26T, V27M, V18T)
    still pin counts and log lines, so a route ghost drawn in the wrong place passes (audit B3).
+   The category reads the route's delivery clock, interpolates the member recording's own
+   Absolute frames (or a Relative section's body-fixed shadow) at that loopUT, applies the
+   unit's body-fixed phase shift and compares the ghost transform's lat/lon/alt (horizontal
+   3 m + float grid + one frame of travel; altitude inside the recorded / terrain+clearance
+   window +-10 m) and the engine's render loopUT against the delivery loopUT. Not covered: the
+   Tracking Station lanes V18T / V26T (proto-vessel map ghosts placed by orbit propagation, a
+   different comparison); V26M was deleted 2026-11-12. Unsupported unit shapes (re-aim,
+   descent trigger, overlapping members, orbital checkpoint sections) are counted, not judged.
 6. [ ] Loops meeting a Re-Fly, a career save and a scene change in watch mode (audit B7; LF-1 and
    LF-2 cover only a plain Rewind-to-Launch with a loop armed).
 7. [ ] Ghost engine and FX effects across a Re-Fly or a revert (audit B8; the FX fingerprint A/B,

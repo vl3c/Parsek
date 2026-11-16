@@ -28,7 +28,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 
 - Seam verbs (of 62 implemented): none
 - Dimension values (1 of 251 registry values): D1 `sub-2-point-drop`
-- In-game test categories (1 of 142 declared; a lane running `RunTests` with no category runs them all, see `(all)` below): `GuiMock`
+- In-game test categories (1 of 143 declared; a lane running `RunTests` with no category runs them all, see `(all)` below): `GuiMock`
 
 ## Lanes per family
 
@@ -541,7 +541,7 @@ Lanes per family (rows) per timeline operation (columns).
 | DiscardTree | 231 | V 65, RVR 19, LAB 17, H 15, B 14, MINE 14, EVA 11, TP 9, GUI 7 +32 |
 | RecordingState | 226 | RF 27, V 21, LAB 14, QL 14, MINE 12, CS 11, EVA 11, L 11, VN 11 +39 |
 | WarpToUT | 212 | RW 25, V 21, LAB 18, MINE 14, EVA 11, QL 11, CI 8, VN 8, RF 7 +44 |
-| RunTests | 198 | H 70, RW 25, V 12, CS 10, L 8, CN 6, LT 5, S 5, FAR 4, RF 4, STR 4 +30 |
+| RunTests | 200 | H 71, RW 25, V 13, CS 10, L 8, CN 6, LT 5, S 5, FAR 4, RF 4, STR 4 +30 |
 | StartRecording | 169 | B 23, RW 23, EVA 14, LAB 14, MINE 12, VN 8, FAR 6, S 6, QL 5, RF 5 +33 |
 | MissionMark | 157 | RW 25, LAB 17, EVA 13, MINE 12, CS 10, IR 6, L 6, QL 6, RF 6 +32 |
 | CommitTree | 153 | RW 24, EVA 14, MINE 11, QL 9, VN 9, CS 8, L 8, LAB 8, B 7, AST 4 +34 |
@@ -598,7 +598,7 @@ Lanes per family (rows) per timeline operation (columns).
 
 ## Lanes per in-game test category
 
-Categories named by `RunTests` steps (`(all)`: a step with no category). 198 lanes run at least one batch.
+Categories named by `RunTests` steps (`(all)`: a step with no category). 200 lanes run at least one batch.
 
 | category | lanes | lane ids |
 |---|---|---|
@@ -617,6 +617,7 @@ Categories named by `RunTests` steps (`(all)`: a step with no category). 198 lan
 | MissionPhasing | 2 | LT-1-long-tail-flight, M3-mission-phasing-airborne-anchor |
 | PreParsekBackup | 2 | PPB-1-untouched-career-backup, PPB-2-brandnew-career-skip |
 | RouteDockCapture | 2 | H55-route-dock-capture-isolated, H56-route-dock-capture-landed |
+| RouteGhostPlacement | 2 | H59-surface-route-map-lines, V27M-rover-route-endpoint-substituted-map-lines |
 | SceneAndPatch | 2 | H53-scene-and-patch, LT-2-long-tail-spacecenter |
 | Storage | 2 | ST-1-storage-timeline-ingame, ST-2-rewind-point-quicksave |
 | StrategyLifecycle | 2 | L3-strategy-currency-conversion, L3-strategy-exchanger-floor |
@@ -1165,7 +1166,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | H56-route-dock-capture-landed | nightly | rover-route-recorded | seam | - | - | RouteDockCapture | LIVE-PROVEN 2026-09-02 |
 | H57-route-start-docked-origin-landed | nightly | rover-route-recorded | seam | - | - | RouteStartDockedOrigin | LIVE-PROVEN 2026-09-02 |
 | H58-route-rewind-to-launch | nightly | rover-route-recorded | seam | - | rewind-to-launch, save, time-jump | - | LIVE-PROVEN 2026-09-02 |
-| H59-surface-route-map-lines | operator | rover-route-recorded | seam | - | reload, save, warp, time-jump, scene-change | - | SPEC CHANGED 2026-11-12, RE-FLOWN GREEN 2... |
+| H59-surface-route-map-lines | operator | rover-route-recorded | seam | - | reload, save, warp, time-jump, scene-change | RouteGhostPlacement | SPEC CHANGED 2026-11-16, NOT RE-FLOWN: RO... |
 | H6-route-rewind-timeline | daily | gloops-airshow | seam | - | - | RouteRewindTimeline | LIVE-PROVEN 2026-07-24 |
 | H60-route-escrow-contention | nightly | logi-cargo-pad | seam | - | - | RouteEscrowContention | LIVE-PROVEN 2026-10-16 |
 | H61-autorecord-isolated | nightly | gs1-two-stage-pad | seam | - | - | AutoRecord | LIVE-PROVEN 2026-09-06 |
@@ -1769,7 +1770,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | V24W-duna-one-warp-stair | operator | duna-one-recorded | m3_loop_arrival_dwell | Kerbin, Duna | - | - | DISCIPLINE-COMPLETE 2026-08-25 ACROSS SIX... |
 | V25M-duna-park-player-loop | nightly | duna-park-recorded | seam | Kerbin, Duna, Sun | time-jump | - | RE-FLOWN 2026-11-12 on the REAIM-PARKING-... |
 | V26T-interbody-route-ts-arrival | operator | interbody-route-recorded | seam | Kerbin, Duna | reload, save, scene-change | - | SPEC CHANGED 2026-11-12, RE-FLOWN GREEN 2... |
-| V27M-rover-route-endpoint-substituted-map-lines | operator | rover-route-recorded | seam | - | reload, save, warp, time-jump, scene-change | - | SPEC CHANGED 2026-11-12, RE-FLOWN GREEN 2... |
+| V27M-rover-route-endpoint-substituted-map-lines | operator | rover-route-recorded | seam | - | reload, save, warp, time-jump, scene-change | RouteGhostPlacement | SPEC CHANGED 2026-11-16, NOT RE-FLOWN: RO... |
 | V28M-tylo-player-loop | operator | tylo-orbit-recorded | seam | Jool, Tylo | warp, time-jump | - | LIVE-PROVEN 2026-09-26 |
 | V29M-bop-player-loop | operator | bop-orbit-recorded | seam | Jool, Bop | warp, time-jump | - | LIVE-PROVEN 2026-09-26 |
 | V30M-pol-player-loop | operator | pol-orbit-recorded | seam | Jool, Pol | warp, time-jump | - | LIVE-PROVEN 2026-09-26 |
