@@ -2103,7 +2103,7 @@ and a load (#2348, #2352, #2354). Still open, each found by grep on main 2622fd5
 main b5877e51f (1.0.2) on 2026-11-11, when every item below was still open; the ranked list that
 merges this residue with the moon program is NEXT-TESTS-TO-BUILD-2026-11-11 at the top of this file:
 
-- [x] ~~C4~~ Done 2026-11-16 (branch `item10-unit-residue`): both handlers now take one pure
+- [x] ~~C4~~ Done 2026-11-16 (branch `claude/project-thread-vpr29t`): both handlers now take one pure
   route (`BackgroundRecorder.ClassifyBackgroundRailsEvent`: unmapped, destroyed-skip, on-rails
   wins over loaded, loaded, no state) through a vessel-free head (`RouteBackgroundRailsEvent`,
   the destroyed guard and its log line) and vessel-free on-rails halves
@@ -2117,7 +2117,7 @@ merges this residue with the moon program is NEXT-TESTS-TO-BUILD-2026-11-11 at t
   SOI (the RECORDER-PHYSICS-SOI formation flight of NEXT-TESTS item 9).
 - [x] ~~C8~~ Done 2026-11-14: `RouteSourceOptimizerTests` (10 facts) found and pins
   ROUTE-SOURCE-OPTIMIZER-REWRITE.
-- [x] ~~C9~~ Done 2026-11-16 (branch `item10-unit-residue`): the live shell's decisions are
+- [x] ~~C9~~ Done 2026-11-16 (branch `claude/project-thread-vpr29t`): the live shell's decisions are
   pure statics on `GhostCommNetManager` (registration row identity, removal reason, timeline
   sample UT, derivation snapshot and cache key, the per-tick prune, the held-source flags, the
   chain-snapshot surface read, `CurveOf`, `IsFinite`), behavior-identical, pinned by
