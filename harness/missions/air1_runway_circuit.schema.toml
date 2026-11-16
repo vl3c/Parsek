@@ -40,8 +40,8 @@ type = "int"
 min = 1
 max = 600
 
-# Surface speed (m/s) at which the nose is raised to rotatePitch and the AutoPilot
-# engages (the ground roll before it steers the nose wheel with the AutoPilot off).
+# Surface speed (m/s) at which the elevator starts raising the nose to rotatePitch (the
+# AutoPilot stays off and the nose wheel keeps steering until airborne is sustained).
 # Default 45: the first flight's Mallard was already lifting at 0.5 deg of pitch by
 # 43-47 m/s (2026-11-16_1955).
 [params.rotateSpeed]
@@ -50,12 +50,22 @@ type = "float"
 min = 20.0
 max = 200.0
 
-# Pitch (deg above the horizon) held from rotation until airborne.
+# Pitch (deg above the horizon) the elevator holds from rotation until airborne is
+# sustained (control.pitch from the pitch error, AutoPilot off).
 [params.rotatePitch]
 required = false
 type = "float"
 min = 0.0
 max = 20.0
+
+# +1 = a positive kRPC control.pitch raises the nose; -1 = the opposite. Unverified
+# offline; the machine flips it once on the rotation if the pitch keeps falling under a
+# nose-up command.
+[params.rotatePitchSign]
+required = false
+type = "float"
+min = -1.0
+max = 1.0
 
 # Ground roll (m from the brake release) after which a plane still on the runway is a
 # named give-up: throttle cut, brakes on, MISSION-FLAKE. The runway is ~2.4 km long.

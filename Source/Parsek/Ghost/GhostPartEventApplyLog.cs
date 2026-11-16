@@ -55,6 +55,10 @@ namespace Parsek
         /// The applier switch has no arm for this event type (Docked / Undocked, and
         /// any forward-compat member an older build materialises off a newer sidecar).
         UnhandledEventType,
+
+        /// The event carries a signal playback deliberately does not replay (the wheel
+        /// suspension position legacy recordings still hold); the ghost is left as it was.
+        IgnoredRecordedSignal,
     }
 
     /// <summary>
@@ -148,6 +152,7 @@ namespace Parsek
                 case GhostPartEventOutcome.NoResolvedVisual: return "no-resolved-visual";
                 case GhostPartEventOutcome.PoseNotSampled: return "pose-not-sampled";
                 case GhostPartEventOutcome.UnhandledEventType: return "unhandled-event-type";
+                case GhostPartEventOutcome.IgnoredRecordedSignal: return "ignored-recorded-signal";
                 default: return "unknown";
             }
         }
