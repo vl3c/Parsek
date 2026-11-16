@@ -1,0 +1,374 @@
+[LOG 19:27:35.062] [Parsek][INFO][TestCommands] loadgame flight-ready wait: waited frames=53 seconds=1.24 after the FLIGHT scene settled (onFlightReady observed, active vessel unpacked) save=vall-tylo-recorded vessel='Duna Rocket'
+[LOG 19:27:35.062] [Parsek][INFO][TestCommands] loadgame complete scene=FLIGHT save=vall-tylo-recorded game-loaded=true expected=Flight
+[LOG 19:27:35.062] [Parsek][VERBOSE][TestCommands] journal id=0001 phase=EXECUTED
+[LOG 19:27:35.063] [Parsek][INFO][TestCommands] exec id=0001 verdict=OK
+[LOG 19:27:35.063] [Parsek][VERBOSE][TestCommands] response appended id=0001 verdict=OK
+[LOG 19:27:35.064] [Parsek][VERBOSE][TestCommands] journal id=0001 phase=DONE
+[LOG 19:27:35.065] [UIMasterController]: ShowUI
+[LOG 19:27:35.075] [Parsek][INFO][TestCommands] recv id=0002 cmd=StopRecording args=0
+[LOG 19:27:35.075] [Parsek][VERBOSE][TestCommands] poll: read=1 lines, parsed=1, deferred-head=StopRecording
+[LOG 19:27:35.075] [Parsek][INFO][TestCommands] dispatch id=0002 -> EXECUTE
+[LOG 19:27:35.075] [Parsek][VERBOSE][TestCommands] journal id=0002 phase=CLAIMED
+[LOG 19:27:35.075] [Parsek][INFO][TestCommands] exec id=0002 cmd=StopRecording start
+[LOG 19:27:35.075] [Parsek][INFO][Flight] StopRecording called
+[LOG 19:27:35.076] [Parsek][INFO][Recorder] TrackSection closed: env=ExoBallistic ref=Absolute frames=1 checkpoints=0 duration=0.04s avgGap=0.000s maxGap=0.000s largeGaps=0 warpRuns=1x:1:29178825.714-29178825.714
+[LOG 19:27:35.076] [Parsek][VERBOSE][Recorder] Unsubscribed part event hooks
+[LOG 19:27:35.076] [Parsek][VERBOSE][Diagnostics] Recording growth rate at stop: 2 points, 0 events, 0.7s elapsed, 2.94 pts/s, 0.00 evts/s, est 168 bytes
+[LOG 19:27:35.079] [Parsek][VERBOSE][Spawner] SnapshotVessel: using active vessel, vesselDestroyed=False, points=2
+[LOG 19:27:35.082] [Parsek][INFO][Spawner] Vessel snapshot taken. Distance from launch: 1961m, Max distance: 1849m, Situation: Orbiting Tylo, EndBiome: Midlands
+[LOG 19:27:35.082] [Parsek][VERBOSE][Spawner] ExtractResourceManifest: 3 resource type(s) from 40 part(s)
+[LOG 19:27:35.082] [Parsek][VERBOSE][Recorder] BuildCaptureRecording: captured 3 end resource type(s)
+[LOG 19:27:35.082] [Parsek][VERBOSE][Recorder] BuildCaptureRecording: captured 0 end inventory item type(s), 0 slot(s)
+[LOG 19:27:35.083] [Parsek][VERBOSE][Spawner] ExtractCrewManifest: 1 crew across 1 trait(s) from 40 part(s)
+[LOG 19:27:35.083] [Parsek][VERBOSE][Recorder] BuildCaptureRecording: captured 1 end crew trait(s)
+[LOG 19:27:35.083] [Parsek][VERBOSE][Recorder] BuildCaptureRecording: forwarded 1 start controller part(s)
+[LOG 19:27:35.085] [Parsek][INFO][Recorder] OrbitalCheckpoint densified: rec=393bb623c810478c83ae0a541b66cf97 section[1] UT=29178825.0-29178825.7 addedPoints=0 density=trueAnomalyStep=5deg minDuration=600s maxAdded=360 endpoints=true segments=1 existingPoints=0 finalPoints=0 anomalySpanDeg=0.0 reason=below-duration-threshold capped=False
+[LOG 19:27:35.085] [Parsek][VERBOSE][Recorder] Built capture recording: vessel="Duna Rocket", points=2, orbits=1, partEvents=0, checkpointDensifiedPoints=0, hasSnapshot=True
+[LOG 19:27:35.085] [Parsek][INFO][Recorder] Recording stopped. 2 points, 1 orbit segments over 0.7s
+[LOG 19:27:35.086] [Parsek][VERBOSE][Flight] Final segment tagged (StopRecording): Tylo approach
+[LOG 19:27:35.086] [Parsek][INFO][TestCommands] stoprecording stopped=true idle=false
+[LOG 19:27:35.087] [Parsek][VERBOSE][TestCommands] journal id=0002 phase=EXECUTED
+[LOG 19:27:35.087] [Parsek][INFO][TestCommands] exec id=0002 verdict=OK
+[LOG 19:27:35.087] [Parsek][VERBOSE][TestCommands] response appended id=0002 verdict=OK
+[LOG 19:27:35.087] [Parsek][VERBOSE][TestCommands] journal id=0002 phase=DONE
+[LOG 19:27:35.095] [Parsek][INFO][PhysicsPatch] Active recorder cleared
+[LOG 19:27:35.102] [Parsek][INFO][TestCommands] recv id=0003 cmd=DiscardTree args=0
+[LOG 19:27:35.102] [Parsek][INFO][TestCommands] dispatch id=0003 -> EXECUTE
+[LOG 19:27:35.102] [Parsek][VERBOSE][TestCommands] journal id=0003 phase=CLAIMED
+[LOG 19:27:35.102] [Parsek][INFO][TestCommands] exec id=0003 cmd=DiscardTree start
+[LOG 19:27:35.104] [Parsek][INFO][Flight] AutoDiscardActiveTreeCore: discarding live tree reason='test-command-discard' ledgerRecalcReason='test-command-discard'
+[LOG 19:27:35.106] [Parsek][VERBOSE][LedgerOrchestrator] PreserveIrreversibleLiveGameplayOnDiscard (AutoDiscardActiveTreeCore: test-command-discard): nothing to re-home for 3 discarded id(s) (strategyConversionRowsUntagged=0)
+[LOG 19:27:35.107] [Parsek][VERBOSE][BgRecorder] Unsubscribed from onPartDie, onPartJointBreak, onPartUndock and onPartDeCouple
+[LOG 19:27:35.107] [Parsek][INFO][BgRecorder] DiscardWithoutPersist: cleared background states without flushing onRails=0 loaded=0 caches=0 reason='test-command-discard'
+[LOG 19:27:35.107] [Parsek][INFO][RecordingStore] ClearCommittedTreeRestoreAttemptForDroppedTree: dropped tree=91205f57dc164ab1b74caf5b574a5a43 matches the armed restore attempt; clearing it reason=auto-discard dropped the restore clone preserveIrreversibleTails=True
+[LOG 19:27:35.108] [Parsek][VERBOSE][LedgerOrchestrator] PreserveIrreversibleRestoreAttemptTailsOnDiscard (auto-discard dropped the restore clone): nothing to re-home after the cutoffs of 3 committed recording(s)
+[LOG 19:27:35.109] [Parsek][INFO][MilestoneStore] PurgeTaggedEventsAfterUT (auto-discard dropped the restore clone): 1 events removed, 0 milestones dropped, 1 LastReplayedEventIndex adjustments, rec=ef182ffd723f42b591ed029794f551dd cutoffUT=29178745.62594378
+[LOG 19:27:35.109] [Parsek][INFO][GameStateStore] PurgeEventsForRecordingAfterUT (auto-discard dropped the restore clone): rec=ef182ffd723f42b591ed029794f551dd cutoffUT=29178745.62594378 live=0, milestone=1, snapshots=0
+[LOG 19:27:35.109] [Parsek][VERBOSE][MilestoneStore] PurgeTaggedEventsAfterUT (auto-discard dropped the restore clone): no matches, 2 milestones untouched, rec=a0ba73e497014c88a5af8630ea130388 cutoffUT=29178823.7341452
+[LOG 19:27:35.109] [Parsek][INFO][GameStateStore] PurgeEventsForRecordingAfterUT (auto-discard dropped the restore clone): rec=a0ba73e497014c88a5af8630ea130388 cutoffUT=29178823.7341452 live=0, milestone=0, snapshots=0
+[LOG 19:27:35.109] [Parsek][VERBOSE][MilestoneStore] PurgeTaggedEventsAfterUT (auto-discard dropped the restore clone): no matches, 2 milestones untouched, rec=6a000db202ee4a1d9b52a378fcf611c0 cutoffUT=29178751.025943659
+[LOG 19:27:35.109] [Parsek][INFO][GameStateStore] PurgeEventsForRecordingAfterUT (auto-discard dropped the restore clone): rec=6a000db202ee4a1d9b52a378fcf611c0 cutoffUT=29178751.025943659 live=0, milestone=0, snapshots=0
+[LOG 19:27:35.109] [Parsek][WARN][RecordingStore] auto-discard dropped the restore clone: purged 1 same-id game-state event tail(s) for committed-tree restore attempt tree=91205f57dc164ab1b74caf5b574a5a43 armedReason=cold load re-armed it from the save; armed by: TryTakeCommittedTreeForSpawnedVesselRestore copy-on-write
+[LOG 19:27:35.109] [Parsek][VERBOSE][RecordingStore] Cleared committed-tree restore attempt tree=91205f57dc164ab1b74caf5b574a5a43 reason=auto-discard dropped the restore clone armedReason=cold load re-armed it from the save; armed by: TryTakeCommittedTreeForSpawnedVesselRestore copy-on-write
+[LOG 19:27:35.109] [Parsek][VERBOSE][SwitchSegment] clear no-op: no session armed (reason=active-tree-auto-discard: test-command-discard)
+[LOG 19:27:35.110] [Parsek][VERBOSE][LedgerOrchestrator] Current-timeline recalc: full replay (cutoffUT=null) — reason=test-command-discard currentUT=29178825.794145156 currentUtReady=True
+[LOG 19:27:35.110] [Parsek][VERBOSE][LedgerOrchestrator] SeedInitialFunds: deferring - Funding.Instance null
+[LOG 19:27:35.110] [Parsek][VERBOSE][LedgerOrchestrator] EnsureInitialReputationSeed: deferring the reputation seed - 3 milestone row(s) still carry zero rewards, so stock has not applied the award yet and the live pool is the PRE-award figure
+[LOG 19:27:35.110] [Parsek][VERBOSE][Milestones] Reset: cleared 12 credited milestones; pre-ledger seed credits 9 node(s) and 0 record band(s)
+[LOG 19:27:35.110] [Parsek][VERBOSE][Contracts] Reset: cleared 0 active contracts, 0 credited contracts, 0 credited parameters, 0 terminal contracts, 0 terminal actions, 0 terminal outcomes, 0 deadline-expired contracts, 0 explicitly resolved contracts, 0 prepass explicit resolutions
+[LOG 19:27:35.110] [Parsek][VERBOSE][ScienceModule] Reset: cleared 0 subjects, runningScience=0, totalCommittedSpendings=0, totalEffectiveEarnings=0
+[LOG 19:27:35.110] [Parsek][VERBOSE][Strategies] Reset: cleared 0 active strategies
+[LOG 19:27:35.110] [Parsek][VERBOSE][Funds] Reset: prevSeed=0, prevBalance=0, prevSpendings=0, prevEarnings=0
+[LOG 19:27:35.110] [Parsek][VERBOSE][Reputation] Reset: runningRep 0.00 -> 0
+[LOG 19:27:35.110] [Parsek][VERBOSE][Facilities] Reset: cleared 0 tracked facilities
+[LOG 19:27:35.110] [Parsek][VERBOSE][Contracts] PrePass: no expired deadline contracts found (tracked=0, nowUT=29178751.0259437, source=lastActionUT)
+[LOG 19:27:35.110] [Parsek][VERBOSE][ScienceModule] ComputeTotalSpendings: spendingCount=0, strategySetupCount=0, strategyExchangeCount=0, totalCommittedSpendings=0
+[LOG 19:27:35.110] [Parsek][VERBOSE][KerbalsModule] PrePass summary: examined=3 cached=3 nullRecordings=0 missingIds=0 rawCrewRecordings=3 rawCrewMembers=3 loopingChains=0 walkClockUT=29178825.8
+[LOG 19:27:35.110] [Parsek][VERBOSE][KerbalsModule] PrePass: 3 crewed recording(s) of a vessel that joined its tree can end another tree's open-ended hold on that vessel (uncrewed skipped=0)
+[LOG 19:27:35.110] [Parsek][VERBOSE][Funds] ComputeTotalSpendings: spendings=0, penalties=0, facilityCosts=0, hireCosts=0, setupCosts=0, totalCommittedSpendings=0
+[LOG 19:27:35.110] [Parsek][VERBOSE][RecalcEngine] PrePass stable action list; skipped second sort
+[LOG 19:27:35.110] [Parsek][VERBOSE][KerbalsModule] Reservation: 'Valentina Kerman' endUT=29178745.6 (Recovered), recording 'ef182ffd723f42b591ed029794f551dd'
+[LOG 19:27:35.110] [Parsek][VERBOSE][Milestones] Credited milestone 'Vall/Escape' at UT=28907041.3 (recording=ef182ffd723f42b591ed029794f551dd, funds=0, rep=0, sci=0.0), total credited=10
+[LOG 19:27:35.110] [Parsek][VERBOSE][Reputation] Reputation row is inside the reputation seed (type=MilestoneAchievement, recording=ef182ffd723f42b591ed029794f551dd, ut=28907041.339236677) - not re-applied
+[LOG 19:27:35.110] [Parsek][VERBOSE][Milestones] Credited milestone 'Tylo/Flyby' at UT=29158571.4 (recording=ef182ffd723f42b591ed029794f551dd, funds=0, rep=0, sci=0.0), total credited=11
+[LOG 19:27:35.110] [Parsek][VERBOSE][Reputation] Reputation row is inside the reputation seed (type=MilestoneAchievement, recording=ef182ffd723f42b591ed029794f551dd, ut=29158571.426788919) - not re-applied
+[LOG 19:27:35.110] [Parsek][VERBOSE][KerbalsModule] Reservation extended: 'Valentina Kerman' endUT->29178751.0 (permanent=False)
+[LOG 19:27:35.110] [Parsek][VERBOSE][Milestones] Credited milestone 'Tylo/Orbit' at UT=29178748.0 (recording=6a000db202ee4a1d9b52a378fcf611c0, funds=0, rep=0, sci=0.0), total credited=12
+[LOG 19:27:35.110] [Parsek][VERBOSE][Reputation] Reputation row is inside the reputation seed (type=MilestoneAchievement, recording=6a000db202ee4a1d9b52a378fcf611c0, ut=29178747.985943727) - not re-applied
+[LOG 19:27:35.110] [Parsek][VERBOSE][KerbalsModule] Reservation extended: 'Valentina Kerman' endUT->Infinity (permanent=False)
+[LOG 19:27:35.110] [Parsek][INFO][KerbalsModule] PostWalk summary: reservations=1 permanent=0 temporary=1 slots=1 retired=0 slotsCreated=0 released=0 respawnPending=0 walkClockUT=29178825.8 nextReleaseUT=INDEFINITE
+[LOG 19:27:35.110] [Parsek][VERBOSE][Contracts] SetMaxSlots: maxSlots=2
+[LOG 19:27:35.110] [Parsek][VERBOSE][Strategies] SetMaxSlots: maxSlots=1
+[LOG 19:27:35.110] [Parsek][VERBOSE][LedgerOrchestrator] UpdateSlotLimits: MissionControl level=1 -> 2 contract slots, Administration level=1 -> 1 strategy slots
+[LOG 19:27:35.111] [Parsek][VERBOSE][LedgerOrchestrator] RecalculateAndPatch: drawdown-guard authoritativeReduction=False (rewinding=False, reFlyMarker=False, mergeJournal=False, tombstone=False, rewindResAdjust=False, reFlyDiscard=False)
+[LOG 19:27:35.114] [Parsek][VERBOSE][KerbalsModule] Rescue-completion guard declined: kerbal 'Valentina Kerman' on a live vessel but no rescue marker — proceeding with stand-in for slot 'Valentina Kerman' depth 0 (legitimate fresh reservation)
+[LOG 19:27:35.114] [Parsek][VERBOSE][KerbalsModule] Stand-in recreate: 'Helry Kerman' missing from roster, replaced='Valentina Kerman' rescuePlaced=False onLiveVessel=True onRescuedVessel=False rescuedVesselPid=0 — proceeding to recreate for slot 'Valentina Kerman' depth 0
+[LOG 19:27:35.117] [Parsek][VERBOSE][Flight] Foreign inventory transfer not recorded: reason=NoActiveTree changedVesselPid=0 activePid=807470910 part='evaChute' slot=0
+[LOG 19:27:35.117] [Parsek][VERBOSE][Flight] Foreign inventory transfer not recorded: reason=NoActiveTree changedVesselPid=0 activePid=807470910 part='evaJetpack' slot=1
+[LOG 19:27:35.118] [Parsek][VERBOSE][UI] KerbalsWindow: live crew state changed (onKerbalStatusChange) - cache already empty
+[LOG 19:27:35.118] [Parsek][VERBOSE][GameStateRecorder] Suppressed CrewStatusChanged event while Parsek mutates crew state
+[LOG 19:27:35.119] [Parsek][VERBOSE][UI] KerbalsWindow: live crew state changed (onKerbalAdded/Removed) - cache already empty
+[LOG 19:27:35.119] [Parsek][INFO][KerbalsModule] Recreated stand-in 'Helry Kerman' (Pilot) for slot 'Valentina Kerman' depth 0
+[LOG 19:27:35.119] [Parsek][INFO][KerbalsModule] Rescue-completion guard summary: fired=0 (marker persistent — preserved across walks; pid-scoped) declinedLiveButNoMarker=1 declinedMarkerButNotLive=0 declinedMarkerStalePid=0 retiredForNewReservation=0
+[LOG 19:27:35.120] [Parsek][INFO][KerbalsModule] ApplyToRoster complete: 1 slots, 0 retired, 1 reserved, 0 released, 0 created, 1 recreated, 0 deleted, 0 displaced, 0 retained-live
+[LOG 19:27:35.120] [Parsek][VERBOSE][LedgerOrchestrator] RecalculateAndPatch: no cutoff supplied — skipping tech-tree patch to preserve live unlocks; committed tech unlocks add-only at liveUT=29178825.794145156 (count=0, ids=[])
+[LOG 19:27:35.122] [Parsek][VERBOSE][KspStatePatcher] PatchScience: ResearchAndDevelopment.Instance is null (sandbox mode) — skipping
+[LOG 19:27:35.122] [Parsek][VERBOSE][KspStatePatcher] PatchTechTree: no target tech set supplied — skipping
+[LOG 19:27:35.122] [Parsek][VERBOSE][KspStatePatcher] PatchCommittedTechUnlocks: no committed tech unlock at or before the live clock
+[LOG 19:27:35.124] [Parsek][VERBOSE][KspStatePatcher] PatchResourceScans: no committed resource scan at or before the cutoff
+[LOG 19:27:35.125] [Parsek][VERBOSE][KspStatePatcher] PatchFunds: Funding.Instance is null (sandbox mode) — skipping
+[LOG 19:27:35.125] [Parsek][VERBOSE][KspStatePatcher] PatchPurchasedParts: ResearchAndDevelopment.Instance is null - skipping (the next recalc with R&D loaded applies it)
+[LOG 19:27:35.125] [Parsek][VERBOSE][KspStatePatcher] PatchUnlockedUpgrades: no committed part upgrade purchase at or before the cutoff
+[LOG 19:27:35.126] [Parsek][VERBOSE][KspStatePatcher] PatchReputation: Reputation.Instance is null (sandbox mode) — skipping
+[LOG 19:27:35.127] [Parsek][VERBOSE][KspStatePatcher] PatchFacilities: nothing to patch (total=0)
+[LOG 19:27:35.127] [Parsek][VERBOSE][KspStatePatcher] PatchDestructionState: gate open
+[LOG 19:27:35.130] [Parsek][VERBOSE][KspStatePatcher] PatchDestructionState: no DestructibleBuilding objects found (not in KSC scene?) — skipping
+[LOG 19:27:35.133] [Parsek][INFO][KspStatePatcher] PatchMilestones: credited=0, unreached=0, skipped=396, moduleCredited=12
+[LOG 19:27:35.133] [Parsek][VERBOSE][KspStatePatcher] PatchMilestones: pre-ledger progress seed kept 9 node(s) and 0 record band(s) (seed holds 9 node(s), 0 record(s))
+[LOG 19:27:35.133] [Parsek][VERBOSE][KspStatePatcher] PatchContracts: ContractSystem.Instance is null — skipping
+[LOG 19:27:35.134] [Parsek][VERBOSE][KspStatePatcher] PatchStrategies: stock strategy list NoSystem, not a Career game - skipping
+[LOG 19:27:35.134] [Parsek][VERBOSE][KspStatePatcher] PatchAll complete
+[LOG 19:27:35.134] [Parsek][INFO][GameStateStore] RebuildCommittedScienceSubjects: before=0, rebuilt with 0 subjects
+[LOG 19:27:35.134] [Parsek][VERBOSE][LedgerOrchestrator] RebuildCommittedScienceFromSurvivingLedger: rebuilt committedScienceSubjects from surviving ledger (subjects=0, scienceActions=0, actions=6)
+[LOG 19:27:35.134] [Parsek][VERBOSE][LedgerOrchestrator] RecalculateAndPatch complete: 6 actions walked
+[LOG 19:27:35.134] [Parsek][VERBOSE][Timeline] Cache invalidated
+[LOG 19:27:35.134] [Parsek][VERBOSE][UI] KerbalsWindow: cache invalidated
+[LOG 19:27:35.134] [Parsek][INFO][Flight] CommittedSpawnedRestoreSuppression: armed pid=807470910 vessel='Duna Rocket' reason=test-command-discard previousPid=0 - committed-tree restore skips this vessel until a live tree or recorder exists, the active vessel changes, or the scene ends
+[LOG 19:27:35.134] [Parsek][INFO][TestCommands] discardtree sidecar-reap: treeRecordings=3 knownAfterDiscard=3 reaped=0 failed=0
+[LOG 19:27:35.134] [Parsek][INFO][TestCommands] discardtree discarded=true
+[LOG 19:27:35.135] [Parsek][VERBOSE][TestCommands] journal id=0003 phase=EXECUTED
+[LOG 19:27:35.135] [Parsek][INFO][TestCommands] exec id=0003 verdict=OK
+[LOG 19:27:35.135] [Parsek][VERBOSE][TestCommands] response appended id=0003 verdict=OK
+[LOG 19:27:35.135] [Parsek][VERBOSE][TestCommands] journal id=0003 phase=DONE
+[LOG 19:27:35.136] [Parsek][VERBOSE][Flight] TryRestoreCommittedTreeForSpawnedActiveVessel: skipping vessel 'Duna Rocket' pid=807470910 - committed-tree restore suppressed (a test-command DiscardTree, or its committed recording runs past the live clock)
+[LOG 19:27:35.139] [Parsek][INFO][PhysicsPatch] Background recorder cleared
+[LOG 19:27:35.162] [Parsek][INFO][TestCommands] recv id=0004 cmd=SetSetting args=2
+[LOG 19:27:35.162] [Parsek][INFO][TestCommands] dispatch id=0004 -> EXECUTE
+[LOG 19:27:35.162] [Parsek][VERBOSE][TestCommands] journal id=0004 phase=CLAIMED
+[LOG 19:27:35.162] [Parsek][INFO][TestCommands] exec id=0004 cmd=SetSetting start
+[LOG 19:27:35.164] [Parsek][INFO][TestCommands] setting name=autoRecordOnLaunch old=false new=false
+[LOG 19:27:35.164] [Parsek][VERBOSE][TestCommands] journal id=0004 phase=EXECUTED
+[LOG 19:27:35.164] [Parsek][INFO][TestCommands] exec id=0004 verdict=OK
+[LOG 19:27:35.165] [Parsek][VERBOSE][TestCommands] response appended id=0004 verdict=OK
+[LOG 19:27:35.165] [Parsek][VERBOSE][TestCommands] journal id=0004 phase=DONE
+[LOG 19:27:35.177] [Parsek][INFO][TestCommands] recv id=0005 cmd=SetSetting args=2
+[LOG 19:27:35.177] [Parsek][INFO][TestCommands] dispatch id=0005 -> EXECUTE
+[LOG 19:27:35.177] [Parsek][VERBOSE][TestCommands] journal id=0005 phase=CLAIMED
+[LOG 19:27:35.177] [Parsek][INFO][TestCommands] exec id=0005 cmd=SetSetting start
+[LOG 19:27:35.185] [Parsek][VERBOSE][SettingsStore] Saved settings to '<HOME>/Documents/Code/Parsek/automation/stock-minimal/KSP_x64_Data/../GameData\Parsek\PluginData\settings.cfg': writeReadableSidecarMirrors=True ghostRenderTracing=False mapRenderTracing=False ledgerTracing=False verboseLogging=True samplingDensity=<null> ghostAudioVolume=<null> uiComplexityMode=1
+[LOG 19:27:35.185] [Parsek][INFO][TestCommands] setting name=verboseLogging old=true new=true
+[LOG 19:27:35.185] [Parsek][VERBOSE][TestCommands] journal id=0005 phase=EXECUTED
+[LOG 19:27:35.186] [Parsek][INFO][TestCommands] exec id=0005 verdict=OK
+[LOG 19:27:35.186] [Parsek][VERBOSE][TestCommands] response appended id=0005 verdict=OK
+[LOG 19:27:35.186] [Parsek][VERBOSE][TestCommands] journal id=0005 phase=DONE
+[LOG 19:27:35.211] [Parsek][INFO][TestCommands] recv id=0006 cmd=MissionConfig args=2
+[LOG 19:27:35.211] [Parsek][INFO][TestCommands] dispatch id=0006 -> EXECUTE
+[LOG 19:27:35.211] [Parsek][VERBOSE][TestCommands] journal id=0006 phase=CLAIMED
+[LOG 19:27:35.211] [Parsek][INFO][TestCommands] exec id=0006 cmd=MissionConfig start
+[LOG 19:27:35.212] [Parsek][INFO][Mission] SetLoopEnabled: loop ON for 'Duna Rocket' (tree=91205f57dc164ab1b74caf5b574a5a43); anchorUT=29178825.894145153; cleared 0 other looping mission(s) on the same tree (one loop per tree)
+[LOG 19:27:35.216] [Parsek][VERBOSE][Mission] BuildMissionStructure: tree=91205f57dc164ab1b74caf5b574a5a43 legs=3 debrisExcluded=0 sequenceEdges=2 branchEdges=0 merges=0 roots=1
+[LOG 19:27:35.221] [Parsek][VERBOSE][Mission] BuildComposition: tree=91205f57dc164ab1b74caf5b574a5a43 intervals=1 structuralEdges=0 mergeEdges=0 rebases=0 additiveFallbacks=0 joinedEdges=0
+[LOG 19:27:35.226] [Parsek][VERBOSE][MissionPeriodicity] ExtractConstraints: moon-rooted frame launchMoon=Tylo planet=Jool launchMoonPeriod=211926.35802123015s (loops spaced so the launch moon and every sibling moon recur)
+[LOG 19:27:35.226] [Parsek][VERBOSE][MissionPeriodicity] ExtractConstraints: tree=91205f57dc164ab1b74caf5b574a5a43 members=3 launchBody=Tylo ut0=28896849.902240183 support=Supported constraints=3 [Rotation(Tylo) P=211926.35802123015 off=281895.72370359674; Orbital(Vall) same-parent P=105962.08889392365 off=2.6199999414384365; Orbital(Tylo) same-parent P=211926.35802123015 off=2.6199999414384365]
+[LOG 19:27:35.227] [Parsek][VERBOSE][MissionPeriodicity] Solve: dominant=Tylo method=dominant-intercept P=211926.35802123015 ut0=28896849.902240183 now=29178825.894145153 nextWindow=29320702.618282642 residual=2.180233382852748 withinTol=yes lock=yes support=Supported missed=Orbital(Vall) same-parent P=105962.08889392365 off=2.6199999414384365
+[LOG 19:27:35.229] [Parsek][VERBOSE][Mission] phasing knob disengaged: mission='Duna Rocket' runs=1 none lie in-span before guardUT=28896853 on body 'Tylo' (rule 2; spanStart=28896850)
+[LOG 19:27:35.232] [Parsek][VERBOSE][Mission] MissionLoopUnit: mission='Duna Rocket' tree=91205f57dc164ab1b74caf5b574a5a43 members=3 foreignMembers=0 skipped=0 span=[28896849.902240183,29178823.7341452] spanDur=281973.83190501854 unit=Sec cadence=423852.716042459 overlapCadence=423852.716042459 overlaps=no owner=0 scheduled=yes phaseAnchor=29320702.618282642
+[LOG 19:27:35.232] [Parsek][INFO][MissionPeriodicity] PhaseLock APPLIED: mission='Duna Rocket' tree=91205f57dc164ab1b74caf5b574a5a43 anchor 29178825.894145153->29320702.618282642 P=211926.35802123015 method=dominant-intercept cadence 281973.83190501854->423852.716042459 fixedCadenceResidual=2.180233382852748 fixedCadenceWithinTol=yes zeroDrift=yes firstLaunch=29320702.618282642 minInterval=423852.716042459 scheduleWithinTol=yes scheduleWorstResidual=39.24420089146588
+[LOG 19:27:35.232] [Parsek][INFO][TestCommands] missionconfig applied: mission='Duna Rocket' tree=91205f57dc164ab1b74caf5b574a5a43 loop=True intervalSeconds=10 anchorUt=29178825.894145153 unitBuilt=True phaseAnchorUt=29320702.618282642 spanSeconds=281973.83190501854 compressedSpanSeconds=281973.83190501854 loiterCutCount=0 loiterCuts= unit=sec overlapCadenceSeconds=423852.716042459 autoLoopIntervalSeconds=30
+[LOG 19:27:35.232] [Parsek][VERBOSE][TestCommands] journal id=0006 phase=EXECUTED
+[LOG 19:27:35.232] [Parsek][INFO][TestCommands] exec id=0006 verdict=OK
+[LOG 19:27:35.233] [Parsek][VERBOSE][TestCommands] response appended id=0006 verdict=OK
+[LOG 19:27:35.233] [Parsek][VERBOSE][TestCommands] journal id=0006 phase=DONE
+[LOG 19:27:35.234] [Parsek][VERBOSE][Mission] BuildMissionStructure: tree=91205f57dc164ab1b74caf5b574a5a43 legs=3 debrisExcluded=0 sequenceEdges=2 branchEdges=0 merges=0 roots=1
+[LOG 19:27:35.234] [Parsek][VERBOSE][Mission] BuildComposition: tree=91205f57dc164ab1b74caf5b574a5a43 intervals=1 structuralEdges=0 mergeEdges=0 rebases=0 additiveFallbacks=0 joinedEdges=0
+[LOG 19:27:35.234] [Parsek][VERBOSE][MissionPeriodicity] ExtractConstraints: moon-rooted frame launchMoon=Tylo planet=Jool launchMoonPeriod=211926.35802123015s (loops spaced so the launch moon and every sibling moon recur)
+[LOG 19:27:35.234] [Parsek][VERBOSE][MissionPeriodicity] ExtractConstraints: tree=91205f57dc164ab1b74caf5b574a5a43 members=3 launchBody=Tylo ut0=28896849.902240183 support=Supported constraints=3 [Rotation(Tylo) P=211926.35802123015 off=281895.72370359674; Orbital(Vall) same-parent P=105962.08889392365 off=2.6199999414384365; Orbital(Tylo) same-parent P=211926.35802123015 off=2.6199999414384365]
+[LOG 19:27:35.234] [Parsek][VERBOSE][MissionPeriodicity] Solve: dominant=Tylo method=dominant-intercept P=211926.35802123015 ut0=28896849.902240183 now=29178825.894145153 nextWindow=29320702.618282642 residual=2.180233382852748 withinTol=yes lock=yes support=Supported missed=Orbital(Vall) same-parent P=105962.08889392365 off=2.6199999414384365
+[LOG 19:27:35.234] [Parsek][VERBOSE][Mission] phasing knob disengaged: mission='Duna Rocket' runs=1 none lie in-span before guardUT=28896853 on body 'Tylo' (rule 2; spanStart=28896850)
+[LOG 19:27:35.234] [Parsek][VERBOSE][SeamMarker] unit tree=91205f57dc164ab1b74caf5b574a5a43 markers=0 r2=0 r3=0
+[LOG 19:27:35.234] [Parsek][VERBOSE][Mission] MissionLoopUnit: mission='Duna Rocket' tree=91205f57dc164ab1b74caf5b574a5a43 members=3 foreignMembers=0 skipped=0 span=[28896849.902240183,29178823.7341452] spanDur=281973.83190501854 unit=Sec cadence=423852.716042459 overlapCadence=423852.716042459 overlaps=no owner=0 scheduled=yes phaseAnchor=29320702.618282642
+[LOG 19:27:35.234] [Parsek][INFO][MissionPeriodicity] PhaseLock APPLIED: mission='Duna Rocket' tree=91205f57dc164ab1b74caf5b574a5a43 anchor 29178825.894145153->29320702.618282642 P=211926.35802123015 method=dominant-intercept cadence 281973.83190501854->423852.716042459 fixedCadenceResidual=2.180233382852748 fixedCadenceWithinTol=yes zeroDrift=yes firstLaunch=29320702.618282642 minInterval=423852.716042459 scheduleWithinTol=yes scheduleWorstResidual=39.24420089146588
+[LOG 19:27:35.235] [Parsek][VERBOSE][Mission] Mission loop units rebuilt (signature changed): committed=3 routeMissions=0
+[LOG 19:27:35.235] [Parsek][INFO][MissionLoopFirstRun] Loop units live at UT=29178825.89 scene=Flight: live=0 beforeFirstInstance=1 [owner=#0 members=3 span=[28896849.90,29178823.73] anchor=29320702.62] (first run plays as an ordinary recording until the anchor)
+[LOG 19:27:35.260] [Parsek][INFO][TestCommands] recv id=0007 cmd=StartLoopPlayback args=1
+[LOG 19:27:35.260] [Parsek][INFO][TestCommands] dispatch id=0007 -> EXECUTE
+[LOG 19:27:35.260] [Parsek][VERBOSE][TestCommands] journal id=0007 phase=CLAIMED
+[LOG 19:27:35.260] [Parsek][INFO][TestCommands] exec id=0007 cmd=StartLoopPlayback start
+[LOG 19:27:35.261] [Parsek][VERBOSE][Mission] BuildMissionStructure: tree=91205f57dc164ab1b74caf5b574a5a43 legs=3 debrisExcluded=0 sequenceEdges=2 branchEdges=0 merges=0 roots=1
+[LOG 19:27:35.261] [Parsek][VERBOSE][Mission] BuildComposition: tree=91205f57dc164ab1b74caf5b574a5a43 intervals=1 structuralEdges=0 mergeEdges=0 rebases=0 additiveFallbacks=0 joinedEdges=0
+[LOG 19:27:35.261] [Parsek][VERBOSE][MissionPeriodicity] ExtractConstraints: moon-rooted frame launchMoon=Tylo planet=Jool launchMoonPeriod=211926.35802123015s (loops spaced so the launch moon and every sibling moon recur)
+[LOG 19:27:35.261] [Parsek][VERBOSE][MissionPeriodicity] ExtractConstraints: tree=91205f57dc164ab1b74caf5b574a5a43 members=3 launchBody=Tylo ut0=28896849.902240183 support=Supported constraints=3 [Rotation(Tylo) P=211926.35802123015 off=281895.72370359674; Orbital(Vall) same-parent P=105962.08889392365 off=2.6199999414384365; Orbital(Tylo) same-parent P=211926.35802123015 off=2.6199999414384365]
+[LOG 19:27:35.261] [Parsek][VERBOSE][MissionPeriodicity] Solve: dominant=Tylo method=dominant-intercept P=211926.35802123015 ut0=28896849.902240183 now=29178825.894145153 nextWindow=29320702.618282642 residual=2.180233382852748 withinTol=yes lock=yes support=Supported missed=Orbital(Vall) same-parent P=105962.08889392365 off=2.6199999414384365
+[LOG 19:27:35.261] [Parsek][VERBOSE][Mission] phasing knob disengaged: mission='Duna Rocket' runs=1 none lie in-span before guardUT=28896853 on body 'Tylo' (rule 2; spanStart=28896850)
+[LOG 19:27:35.261] [Parsek][VERBOSE][Mission] MissionLoopUnit: mission='Duna Rocket' tree=91205f57dc164ab1b74caf5b574a5a43 members=3 foreignMembers=0 skipped=0 span=[28896849.902240183,29178823.7341452] spanDur=281973.83190501854 unit=Sec cadence=423852.716042459 overlapCadence=423852.716042459 overlaps=no owner=0 scheduled=yes phaseAnchor=29320702.618282642
+[LOG 19:27:35.261] [Parsek][INFO][MissionPeriodicity] PhaseLock APPLIED: mission='Duna Rocket' tree=91205f57dc164ab1b74caf5b574a5a43 anchor 29178825.894145153->29320702.618282642 P=211926.35802123015 method=dominant-intercept cadence 281973.83190501854->423852.716042459 fixedCadenceResidual=2.180233382852748 fixedCadenceWithinTol=yes zeroDrift=yes firstLaunch=29320702.618282642 minInterval=423852.716042459 scheduleWithinTol=yes scheduleWorstResidual=39.24420089146588
+[LOG 19:27:35.261] [Parsek][VERBOSE][TimeJump] ApplyJumpLead: event=29320702.6 current=29178825.9 lead=15s target=29320687.6 clamped=False
+[LOG 19:27:35.262] [Parsek][VERBOSE][TimeJump] IsValidJump: current=29178825.9 target=29320687.6 valid=True
+[LOG 19:27:35.262] [Parsek][INFO][TestCommands] startloopplayback initiated: mission='Duna Rocket' tree=91205f57dc164ab1b74caf5b574a5a43 relaunchUt=29320702.618282642 nowUt=29178825.934145153
+[LOG 19:27:35.262] [Parsek][VERBOSE][TimeJump] ApplyJumpLead: event=29320702.6 current=29178825.9 lead=15s target=29320687.6 clamped=False
+[LOG 19:27:35.262] [Parsek][VERBOSE][TimeJump] IsValidJump: current=29178825.9 target=29320687.6 valid=True
+[LOG 19:27:35.262] [Parsek][INFO][Flight] FastForwardToEventUT: jumping to UT=29320687.6 for next launch of "Duna Rocket" (delta=141861.7s, eventUT=29320702.6)
+[LOG 19:27:35.262] [Parsek][VERBOSE][TimeJump] NotifyRecorder: no active recording, skipping TIME_JUMP event
+[LOG 19:27:35.262] [Parsek][VERBOSE][TimeJump] IsValidJump: current=29178825.9 target=29320687.6 valid=True
+[LOG 19:27:35.262] [Parsek][INFO][TimeJump] Forward jump initiated: T0=29178825.9 target=29320687.6 delta=141861.7s objects=1
+[LOG 19:27:35.262] [Parsek][VERBOSE][TimeJump] NotePlayheadSweepBeforeJump: preJumpUT=29178825.9 examined=3 newlyLatched=0 nullRecs=0 missingIds=0
+[LOG 19:27:35.263] Packing Duna Rocket for orbit
+[LOG 19:27:35.264] [Parsek][VERBOSE][TimeJump] Put vessel on rails: pid=807470910 name=Duna Rocket
+[LOG 19:27:35.264] [Parsek][VERBOSE][TimeJump] PutLoadedVesselsOnRails: 1 vessel(s) put on rails
+[LOG 19:27:35.264] [Parsek][INFO][TimeJump] Time-jump launch auto-record suppression armed: jump=forward currentFrame=9582 untilFrame=9590 durationFrames=8
+[LOG 19:27:35.264] [Parsek][VERBOSE][TimeJump] Forward jump: UT set to 29320687.6
+[LOG 19:27:35.265] [Parsek][INFO][TimeJump] Converter jump policy (forward): pre=29178825.9 post=29320687.6 loadedShifted=0 unloadedShifted=0 unloadedVessels=0 neverRan=0 unreadable=0
+[LOG 19:27:35.265] Unpacking Duna Rocket
+[LOG 19:27:35.265] [Parsek][VERBOSE][TimeJump] Took vessel off rails: pid=807470910 name=Duna Rocket
+[LOG 19:27:35.266] [Parsek][INFO][TimeJump] Time jump ledger recalculation started: jump=forward cutoffUT=29320687.618282642
+[LOG 19:27:35.266] [Parsek][INFO][LedgerOrchestrator] Current-UT ledger recalculation: reason=time-jump cutoffUT=29320687.618282642
+[LOG 19:27:35.266] [Parsek][VERBOSE][LedgerOrchestrator] SeedInitialFunds: deferring - Funding.Instance null
+[LOG 19:27:35.266] [Parsek][VERBOSE][LedgerOrchestrator] EnsureInitialReputationSeed: deferring the reputation seed - 3 milestone row(s) still carry zero rewards, so stock has not applied the award yet and the live pool is the PRE-award figure
+[LOG 19:27:35.266] [Parsek][VERBOSE][LedgerOrchestrator] RecalculateAndPatch: actionsTotal=6, actionsAfterCutoff=6, cutoffUT=29320687.618282642
+[LOG 19:27:35.267] [Parsek][VERBOSE][Milestones] Reset: cleared 12 credited milestones; pre-ledger seed credits 9 node(s) and 0 record band(s)
+[LOG 19:27:35.267] [Parsek][VERBOSE][Contracts] Reset: cleared 0 active contracts, 0 credited contracts, 0 credited parameters, 0 terminal contracts, 0 terminal actions, 0 terminal outcomes, 0 deadline-expired contracts, 0 explicitly resolved contracts, 0 prepass explicit resolutions
+[LOG 19:27:35.267] [Parsek][VERBOSE][ScienceModule] Reset: cleared 0 subjects, runningScience=0, totalCommittedSpendings=0, totalEffectiveEarnings=0
+[LOG 19:27:35.267] [Parsek][VERBOSE][Strategies] Reset: cleared 0 active strategies
+[LOG 19:27:35.267] [Parsek][VERBOSE][Funds] Reset: prevSeed=0, prevBalance=0, prevSpendings=0, prevEarnings=0
+[LOG 19:27:35.267] [Parsek][VERBOSE][Reputation] Reset: runningRep 0.00 -> 0
+[LOG 19:27:35.267] [Parsek][VERBOSE][Facilities] Reset: cleared 0 tracked facilities
+[LOG 19:27:35.267] [Parsek][VERBOSE][Contracts] PrePass: no expired deadline contracts found (tracked=0, nowUT=29320687.6182826, source=cutoff)
+[LOG 19:27:35.267] [Parsek][VERBOSE][ScienceModule] ComputeTotalSpendings: spendingCount=0, strategySetupCount=0, strategyExchangeCount=0, totalCommittedSpendings=0
+[LOG 19:27:35.267] [Parsek][VERBOSE][KerbalsModule] PrePass summary: examined=3 cached=3 nullRecordings=0 missingIds=0 rawCrewRecordings=3 rawCrewMembers=3 loopingChains=0 walkClockUT=29320687.6
+[LOG 19:27:35.267] [Parsek][VERBOSE][KerbalsModule] PrePass: 3 crewed recording(s) of a vessel that joined its tree can end another tree's open-ended hold on that vessel (uncrewed skipped=0)
+[LOG 19:27:35.267] [Parsek][VERBOSE][Funds] ComputeTotalSpendings: spendings=0, penalties=0, facilityCosts=0, hireCosts=0, setupCosts=0, totalCommittedSpendings=0
+[LOG 19:27:35.267] [Parsek][VERBOSE][RecalcEngine] PrePass stable action list; skipped second sort
+[LOG 19:27:35.267] [Parsek][VERBOSE][KerbalsModule] Reservation: 'Valentina Kerman' endUT=29178745.6 (Recovered), recording 'ef182ffd723f42b591ed029794f551dd'
+[LOG 19:27:35.267] [Parsek][VERBOSE][Milestones] Credited milestone 'Vall/Escape' at UT=28907041.3 (recording=ef182ffd723f42b591ed029794f551dd, funds=0, rep=0, sci=0.0), total credited=10
+[LOG 19:27:35.267] [Parsek][VERBOSE][Reputation] Reputation row is inside the reputation seed (type=MilestoneAchievement, recording=ef182ffd723f42b591ed029794f551dd, ut=28907041.339236677) - not re-applied
+[LOG 19:27:35.267] [Parsek][VERBOSE][Milestones] Credited milestone 'Tylo/Flyby' at UT=29158571.4 (recording=ef182ffd723f42b591ed029794f551dd, funds=0, rep=0, sci=0.0), total credited=11
+[LOG 19:27:35.267] [Parsek][VERBOSE][Reputation] Reputation row is inside the reputation seed (type=MilestoneAchievement, recording=ef182ffd723f42b591ed029794f551dd, ut=29158571.426788919) - not re-applied
+[LOG 19:27:35.267] [Parsek][VERBOSE][KerbalsModule] Reservation extended: 'Valentina Kerman' endUT->29178751.0 (permanent=False)
+[LOG 19:27:35.267] [Parsek][VERBOSE][Milestones] Credited milestone 'Tylo/Orbit' at UT=29178748.0 (recording=6a000db202ee4a1d9b52a378fcf611c0, funds=0, rep=0, sci=0.0), total credited=12
+[LOG 19:27:35.267] [Parsek][VERBOSE][Reputation] Reputation row is inside the reputation seed (type=MilestoneAchievement, recording=6a000db202ee4a1d9b52a378fcf611c0, ut=29178747.985943727) - not re-applied
+[LOG 19:27:35.267] [Parsek][VERBOSE][KerbalsModule] Reservation extended: 'Valentina Kerman' endUT->Infinity (permanent=False)
+[LOG 19:27:35.267] [Parsek][INFO][KerbalsModule] PostWalk summary: reservations=1 permanent=0 temporary=1 slots=1 retired=0 slotsCreated=0 released=0 respawnPending=0 provisional=True walkClockUT=29320687.6 nextReleaseUT=INDEFINITE
+[LOG 19:27:35.268] [Parsek][VERBOSE][RecalcEngine] Projection reserve for ScienceModule: cutoff=29320687.618282642 excludedSyntheticRows=0 excludedSyntheticDelta=0 minBalance=0 (an open contract's synthetic deadline fail is not held in the pool)
+[LOG 19:27:35.268] [Parsek][VERBOSE][ScienceModule] Projected availability: current=0, minProjected=0, finalProjected=0, available=0, futureActions=0, deltaActions=0
+[LOG 19:27:35.268] [Parsek][VERBOSE][RecalcEngine] Projection reserve for FundsModule: cutoff=29320687.618282642 excludedSyntheticRows=0 excludedSyntheticDelta=0 minBalance=0 (an open contract's synthetic deadline fail is not held in the pool)
+[LOG 19:27:35.268] [Parsek][VERBOSE][Funds] Projected availability: current=0, minProjected=0, finalProjected=0, available=0, futureActions=0, deltaActions=0
+[LOG 19:27:35.268] [Parsek][VERBOSE][RecalcEngine] Recalculate complete: actionsTotal=6, actionsAfterCutoff=6, cutoffUT=29320687.618282642, filteredOut=0, walkedSorted=6, firstTier=4 modules (24 dispatches), strategy=6 dispatches, secondTier=2 modules (12 dispatches), facilities=6 dispatches
+[LOG 19:27:35.268] [Parsek][VERBOSE][Contracts] SetMaxSlots: maxSlots=2
+[LOG 19:27:35.268] [Parsek][VERBOSE][Strategies] SetMaxSlots: maxSlots=1
+[LOG 19:27:35.268] [Parsek][VERBOSE][LedgerOrchestrator] UpdateSlotLimits: MissionControl level=1 -> 2 contract slots, Administration level=1 -> 1 strategy slots
+[LOG 19:27:35.269] [Parsek][VERBOSE][KerbalsModule] PrePass summary: examined=3 cached=3 nullRecordings=0 missingIds=0 rawCrewRecordings=3 rawCrewMembers=3 loopingChains=0 walkClockUT=29320687.6
+[LOG 19:27:35.269] [Parsek][VERBOSE][KerbalsModule] PrePass: 3 crewed recording(s) of a vessel that joined its tree can end another tree's open-ended hold on that vessel (uncrewed skipped=0)
+[LOG 19:27:35.269] [Parsek][VERBOSE][KerbalsModule] Reservation: 'Valentina Kerman' endUT=29178745.6 (Recovered), recording 'ef182ffd723f42b591ed029794f551dd'
+[LOG 19:27:35.269] [Parsek][VERBOSE][KerbalsModule] Reservation extended: 'Valentina Kerman' endUT->Infinity (permanent=False)
+[LOG 19:27:35.269] [Parsek][VERBOSE][KerbalsModule] Reservation extended: 'Valentina Kerman' endUT->Infinity (permanent=False)
+[LOG 19:27:35.269] [Parsek][INFO][KerbalsModule] PostWalk summary: reservations=1 permanent=0 temporary=1 slots=1 retired=0 slotsCreated=0 released=0 respawnPending=0 walkClockUT=29320687.6 nextReleaseUT=INDEFINITE
+[LOG 19:27:35.269] [Parsek][INFO][CrewReservations] Recomputed after cutoff walk: 1 reservations remain (permanent=0 temporary=1) (cutoffUT=29320687.618282642).
+[LOG 19:27:35.269] [Parsek][VERBOSE][LedgerOrchestrator] RecalculateAndPatch: drawdown-guard authoritativeReduction=False (rewinding=False, reFlyMarker=False, mergeJournal=False, tombstone=False, rewindResAdjust=False, reFlyDiscard=False)
+[LOG 19:27:35.269] [Parsek][VERBOSE][KerbalsModule] Rescue-completion guard declined: kerbal 'Valentina Kerman' on a live vessel but no rescue marker — proceeding with stand-in for slot 'Valentina Kerman' depth 0 (legitimate fresh reservation)
+[LOG 19:27:35.269] [Parsek][INFO][KerbalsModule] Rescue-completion guard summary: fired=0 (marker persistent — preserved across walks; pid-scoped) declinedLiveButNoMarker=1 declinedMarkerButNotLive=0 declinedMarkerStalePid=0 retiredForNewReservation=0
+[LOG 19:27:35.269] [Parsek][INFO][KerbalsModule] ApplyToRoster complete: 1 slots, 0 retired, 1 reserved, 0 released, 0 created, 0 recreated, 0 deleted, 0 displaced, 0 retained-live
+[LOG 19:27:35.270] [Parsek][VERBOSE][LedgerOrchestrator] RecalculateAndPatch: tech-tree patch enabled (walkCutoff=29320687.618282642, techCutoff=29320687.618282642, baselineUt=29178823.7341452, baselineTechExclusions=0, targetCount=null, unaffordableTechDrops=null)
+[LOG 19:27:35.272] [Parsek][INFO][KspStatePatcher] PatchMilestones: credited=0, unreached=0, skipped=396, moduleCredited=12
+[LOG 19:27:35.272] [Parsek][VERBOSE][KspStatePatcher] PatchContracts: ContractSystem.Instance is null — skipping
+[LOG 19:27:35.272] [Parsek][INFO][GameStateStore] RebuildCommittedScienceSubjects: before=0, rebuilt with 0 subjects
+[LOG 19:27:35.272] [Parsek][VERBOSE][LedgerOrchestrator] RebuildCommittedScienceFromSurvivingLedger: rebuilt committedScienceSubjects from surviving ledger (subjects=0, scienceActions=0, actions=6)
+[LOG 19:27:35.272] [Parsek][VERBOSE][LedgerOrchestrator] RecalculateAndPatch complete: 6 actions walked
+[LOG 19:27:35.272] [Parsek][VERBOSE][Timeline] Cache invalidated
+[LOG 19:27:35.272] [Parsek][VERBOSE][UI] KerbalsWindow: cache invalidated
+[LOG 19:27:35.272] [Parsek][INFO][TimeJump] Time jump ledger recalculation complete: jump=forward cutoffUT=29320687.618282642
+[LOG 19:27:35.272] [Parsek][INFO][TimeJump] Forward jump complete: delta=141861.7s, 1 vessels temporarily on-railed
+[LOG 19:27:35.272] [Parsek][INFO][TestCommands] exec id=0007 verdict=PENDING (two-phase awaiting completion)
+[LOG 19:27:35.274] [Parsek][VERBOSE][Policy] Map orbit reseed forced by a clock jump: 29178825.91 -> 29320687.62 (warp=1.0)
+[LOG 19:27:35.278] [FlightIntegrator]: Vessel Duna Rocket has been unloaded 141861.704137489, applying analytic temperature 107.949565380196
+[LOG 19:27:35.420] [Parsek][INFO][TestCommands] startloopplayback complete: mission='Duna Rocket' tree=91205f57dc164ab1b74caf5b574a5a43 relaunchUt=29320702.618282642 reachedUt=29320687.69828264
+[LOG 19:27:35.420] [Parsek][VERBOSE][TestCommands] journal id=0007 phase=EXECUTED
+[LOG 19:27:35.420] [Parsek][INFO][TestCommands] exec id=0007 verdict=OK
+[LOG 19:27:35.420] [Parsek][VERBOSE][TestCommands] response appended id=0007 verdict=OK
+[LOG 19:27:35.420] [Parsek][VERBOSE][TestCommands] journal id=0007 phase=DONE
+[LOG 19:27:35.515] [Parsek][INFO][TestCommands] recv id=0008 cmd=FlushAndQuit args=0
+[LOG 19:27:35.515] [Parsek][INFO][TestCommands] dispatch id=0008 -> EXECUTE
+[LOG 19:27:35.515] [Parsek][VERBOSE][TestCommands] journal id=0008 phase=CLAIMED
+[LOG 19:27:35.515] [Parsek][INFO][TestCommands] exec id=0008 cmd=FlushAndQuit start
+[LOG 19:27:35.517] Flight State Captured
+[LOG 19:27:35.517] Saving Achievements Tree...
+[LOG 19:27:35.517] Saving Achievements Tree...
+[LOG 19:27:35.517] Saving Achievements Tree...
+[LOG 19:27:35.517] Saving Achievements Tree...
+[LOG 19:27:35.517] Saving Achievements Tree...
+[LOG 19:27:35.517] Saving Achievements Tree...
+[LOG 19:27:35.517] Saving Achievements Tree...
+[LOG 19:27:35.518] [Parsek][INFO][RecState] [#10][OnSave:pre] mode=none tree=- rec=- rec.prev=a0ba73e4 rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=29320687.7 scene=FLIGHT
+[LOG 19:27:35.518] [Parsek][INFO][Scenario] OnSave: saving 3 committed recordings
+[LOG 19:27:35.518] [Parsek][INFO][Scenario] OnSave: saving 1 committed tree(s)
+[LOG 19:27:35.518] [Parsek][VERBOSE][RecordingStore] TryProbeTrajectorySidecar: encoding=BinaryV0 magic=PSK0 version=1 generation=4 recording=ef182ffd723f42b591ed029794f551dd sidecarEpoch=6
+[LOG 19:27:35.518] [Parsek][VERBOSE][RecordingStore] ReadBinaryTrajectoryFile: recording=dbca29f38e4d45e79494c7059685ee1c version=1 using section-authoritative path sections=38 rebuiltPoints=533 dedupedPointCopies=8 rebuiltOrbitSegments=16 dedupedOrbitCopies=0 sparsePointLists=22 defaultedBody=541 defaultedFunds=541 defaultedScience=541 defaultedRep=541
+[LOG 19:27:35.525] [Parsek][VERBOSE][RecordingStore] TryProbeTrajectorySidecar: encoding=BinaryV0 magic=PSK0 version=1 generation=4 recording=ef182ffd723f42b591ed029794f551dd sidecarEpoch=6
+[LOG 19:27:35.526] [Parsek][VERBOSE][RecordingStore] ReadBinaryTrajectoryFile: recording=c1a82e33c73840cdada442f1dffececf version=1 using section-authoritative path sections=38 rebuiltPoints=533 dedupedPointCopies=8 rebuiltOrbitSegments=16 dedupedOrbitCopies=0 sparsePointLists=22 defaultedBody=541 defaultedFunds=541 defaultedScience=541 defaultedRep=541
+[LOG 19:27:35.532] [Parsek][VERBOSE][RecordingStore] TryProbeTrajectorySidecar: encoding=BinaryV0 magic=PSK0 version=1 generation=4 recording=a0ba73e497014c88a5af8630ea130388 sidecarEpoch=2
+[LOG 19:27:35.533] [Parsek][VERBOSE][RecordingStore] TryProbeTrajectorySidecar: encoding=BinaryV0 magic=PSK0 version=1 generation=4 recording=a0ba73e497014c88a5af8630ea130388 sidecarEpoch=1
+[LOG 19:27:35.533] [Parsek][VERBOSE][RecordingStore] ReadBinaryTrajectoryFile: recording=fc86368d5e8c4738b63b3565730a7b12 version=1 using section-authoritative path sections=2 rebuiltPoints=25 dedupedPointCopies=1 rebuiltOrbitSegments=0 dedupedOrbitCopies=0 sparsePointLists=2 defaultedBody=26 defaultedFunds=26 defaultedScience=26 defaultedRep=26
+[LOG 19:27:35.542] [Parsek][VERBOSE][Scenario] OnSave: committed recording 'Duna Rocket' id=a0ba73e497014c88a5af8630ea130388 is current through its named sidecar version(s) (head: trajectory-epoch-mismatch); not rewritten
+[LOG 19:27:35.542] [Parsek][VERBOSE][RecordingStore] TryProbeTrajectorySidecar: encoding=BinaryV0 magic=PSK0 version=1 generation=4 recording=6a000db202ee4a1d9b52a378fcf611c0 sidecarEpoch=1
+[LOG 19:27:35.542] [Parsek][VERBOSE][RecordingStore] ReadBinaryTrajectoryFile: recording=5914b049cf7c43d695348160dbc6d95b version=1 using section-authoritative path sections=1 rebuiltPoints=3 dedupedPointCopies=0 rebuiltOrbitSegments=0 dedupedOrbitCopies=0 sparsePointLists=1 defaultedBody=3 defaultedFunds=3 defaultedScience=3 defaultedRep=3
+[LOG 19:27:35.547] [Parsek][VERBOSE][RecordingStore] TryProbeTrajectorySidecar: encoding=BinaryV0 magic=PSK0 version=1 generation=4 recording=6a000db202ee4a1d9b52a378fcf611c0 sidecarEpoch=1
+[LOG 19:27:35.547] [Parsek][VERBOSE][RecordingStore] ReadBinaryTrajectoryFile: recording=dfef69faaa6341fd9af9b485d579c3ac version=1 using section-authoritative path sections=1 rebuiltPoints=3 dedupedPointCopies=0 rebuiltOrbitSegments=0 dedupedOrbitCopies=0 sparsePointLists=1 defaultedBody=3 defaultedFunds=3 defaultedScience=3 defaultedRep=3
+[LOG 19:27:35.565] [Parsek][VERBOSE][RecordingTree] SaveRecordingResourceAndState: saved 1 controller(s) for recording=ef182ffd723f42b591ed029794f551dd
+[LOG 19:27:35.565] [Parsek][VERBOSE][RecordingStore] SerializeCrewEndStates: wrote 1 entries for recording=ef182ffd723f42b591ed029794f551dd
+[LOG 19:27:35.565] [Parsek][VERBOSE][RecordingStore] SerializeCrewManifest: wrote 1 trait(s) for recording=ef182ffd723f42b591ed029794f551dd
+[LOG 19:27:35.565] [Parsek][VERBOSE][RecordingTree] SaveRecordingResourceAndState: saved 1 controller(s) for recording=a0ba73e497014c88a5af8630ea130388
+[LOG 19:27:35.565] [Parsek][VERBOSE][RecordingStore] SerializeCrewEndStates: wrote 1 entries for recording=a0ba73e497014c88a5af8630ea130388
+[LOG 19:27:35.565] [Parsek][VERBOSE][RecordingTree] SaveRecordingResourceAndState: saved 1 controller(s) for recording=6a000db202ee4a1d9b52a378fcf611c0
+[LOG 19:27:35.565] [Parsek][VERBOSE][RecordingStore] SerializeCrewEndStates: wrote 1 entries for recording=6a000db202ee4a1d9b52a378fcf611c0
+[LOG 19:27:35.565] [Parsek][VERBOSE][Scenario] Saved 1 trees (3 recordings): 561 points, 16 orbit segments, 67 part events, 3 with track sections, 1 with snapshots, 0 branch points
+[LOG 19:27:35.565] [Parsek][VERBOSE][Mission] Saved 1 mission(s)
+[LOG 19:27:35.565] [Parsek][INFO][KerbalsModule] Saved 1 kerbal slot(s) with 1 chain entries
+[LOG 19:27:35.565] [Parsek][INFO][CrewReservation] Saved 1 crew replacement(s)
+[LOG 19:27:35.567] [Parsek][INFO][GameStateStore] Saved 0/0 game state events, 0/0 contract snapshots, 0 science subjects to <HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\vall-tylo-recorded\Parsek\GameState\events.pgse
+[LOG 19:27:35.574] [Parsek][VERBOSE][GameStateStore] Saved baseline at UT 28896849 to <HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\vall-tylo-recorded\Parsek\GameState\baseline_28896848.582240213.pgsb
+[LOG 19:27:35.576] [Parsek][VERBOSE][GameStateStore] Saved baseline at UT 29178824 to <HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\vall-tylo-recorded\Parsek\GameState\baseline_29178823.7341452.pgsb
+[LOG 19:27:35.576] [Parsek][VERBOSE][Scenario] OnSave: flushing pending events at UT 29320688
+[LOG 19:27:35.576] [Parsek][VERBOSE][MilestoneStore] FlushPendingEvents: currentUT=29320688
+[LOG 19:27:35.577] [Parsek][VERBOSE][MilestoneStore] CreateMilestone: scanning visible events in window UT 29178824-29320688, recordingId=(flush)
+[LOG 19:27:35.577] [Parsek][VERBOSE][MilestoneStore] CreateMilestone: 0 total events, 0 matched, skipped: hidden=0, window=0, resource=0
+[LOG 19:27:35.577] [Parsek][VERBOSE][MilestoneStore] No visible game state events for milestone (UT 29178824-29320688) — skipped
+[LOG 19:27:35.582] [Parsek][INFO][MilestoneStore] Saved 2 milestones to <HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\vall-tylo-recorded\Parsek\GameState\milestones.pgsm
+[LOG 19:27:35.582] [Parsek][VERBOSE][MilestoneStore] SaveMutableState: wrote 2 MILESTONE_STATE nodes
+[LOG 19:27:35.585] [Parsek][VERBOSE][Ledger] Saved ledger to '<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\vall-tylo-recorded\Parsek\GameState\ledger.pgld': version=0, actions=6
+[LOG 19:27:35.585] [Parsek][VERBOSE][LedgerOrchestrator] OnSave: ledger saved to '<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\vall-tylo-recorded\Parsek\GameState\ledger.pgld'
+[LOG 19:27:35.585] [Parsek][VERBOSE][Scenario] OnSave: wrote external game-state files and the GAME_STATE node (events=0, milestones=2, baselines=2, ledgerRows=6, pendingScience=0, attemptEvents=0, attemptTree=<none>)
+[LOG 19:27:35.585] [Parsek][INFO][TestBatch] marker saved: none
+[LOG 19:27:35.585] [Parsek][INFO][Rewind] RewindPoints saved: 0
+[LOG 19:27:35.585] [Parsek][INFO][Supersede] RecordingSupersedes saved: 0
+[LOG 19:27:35.585] [Parsek][INFO][Rewind] RecordingRewindRetirements saved: 0
+[LOG 19:27:35.585] [Parsek][INFO][LedgerSwap] LedgerTombstones saved: 0
+[LOG 19:27:35.585] [Parsek][INFO][ReFlySession] Marker saved: none
+[LOG 19:27:35.585] [Parsek][INFO][MergeJournal] Journal saved: none
+[LOG 19:27:35.585] [Parsek][INFO][SwitchIntent] intent saved: none
+[LOG 19:27:35.585] [Parsek][INFO][SwitchSegment] session saved: none
+[LOG 19:27:35.585] [Parsek][INFO][Scenario] OnSave: Re-Fly subsystem state persisted (saved collections, not a rewind action; reFlyInProgress=False): rewindPoints=0 supersedes=0 rewindRetirements=0 tombstones=0 marker=False journal=False switchIntent=False switchSegment=False
+[LOG 19:27:35.585] [Parsek][VERBOSE][RouteEventLog] Save: no route events to write
+[LOG 19:27:35.585] [Parsek][VERBOSE][Route] SaveRoutesTo: no routes to save
+[LOG 19:27:35.585] [Parsek][VERBOSE][StockPoolReference] Saved: pools=0 rows=0 takenBackRows=0 funds=unset science=unset reputation=unset
+[LOG 19:27:35.585] [Parsek][INFO][RecState] [#11][OnSave:post] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=29320687.7 scene=FLIGHT
+[LOG 19:27:35.585] [Parsek][VERBOSE][Diagnostics] OnSave: 66ms (0 dirty of 3)
+[LOG 19:27:35.585] [MessageSystem] Save Messages
+[LOG 19:27:35.594] Game State Saved to saves/vall-tylo-recorded/persistent
+[LOG 19:27:35.599] [Parsek][INFO][TestCommands] flushandquit: saved=true game-loaded=true; quitting
+[LOG 19:27:35.601] [Parsek][VERBOSE][TestCommands] journal id=0008 phase=EXECUTED
+[LOG 19:27:35.601] [Parsek][INFO][TestCommands] exec id=0008 verdict=OK
+[LOG 19:27:35.601] [Parsek][VERBOSE][TestCommands] response appended id=0008 verdict=OK
+[LOG 19:27:35.601] [Parsek][VERBOSE][TestCommands] journal id=0008 phase=DONE
+[LOG 19:27:35.601] [Parsek][INFO][TestCommands] flushandquit: scheduling Application.Quit (deferred one frame) id=0008
+[LOG 19:27:35.692] [Parsek][VERBOSE][Spawner] Spawn suppressed: 3 recording(s) | historical-never-replayed=3 | suppressed=69
+[LOG 19:27:35.692] [Parsek][INFO][TestCommands] flushandquit: Application.Quit
+[LOG 19:27:35.714] [Parsek][INFO][Init] Application quitting latched source=OnApplicationQuit - teardown-time repair paths stand down from here
+[LOG 19:27:35.714] [Parsek][VERBOSE][GhostMap] Planetarium camera retarget skipped before application-quit: no ghost map vessels
+[LOG 19:27:36.332] [UIApp] OnDestroy: ActionGroupsApp
+[LOG 19:27:36.332] ScaleModList: listSize 246 maxListSize 175
+[LOG 19:27:36.345] ScaleModList: listSize 246 maxListSize 175
+[LOG 19:27:36.345] ScaleModList: listSize 246 maxListSize 175
+[LOG 19:27:36.345] ScaleModList: listSize 246 maxListSize 175
+[LOG 19:27:36.345] ScaleModList: listSize 246 maxListSize 175
+[LOG 19:27:36.345] ScaleModList: listSize 246 maxListSize 175
+[LOG 19:27:36.345] [UIApp] OnDestroy: 
+[LOG 19:27:36.359] KbApp.OnDestroy Planet Parameters
+[LOG 19:27:36.360] [UIApp] OnDestroy: KSPedia
+[LOG 19:27:36.369] [Parsek][INFO][GameStateRecorder] GameStateRecorder unsubscribed
+[LOG 19:27:36.369] [Parsek][INFO][RevertDetector] Unsubscribed from GameEvents.OnRevertTo*FlightState
+[LOG 19:27:36.369] [Parsek][VERBOSE][ReFlySession] ReFlyRevertButtonGate: unsubscribed from GameEvents.onFlightReady
+[LOG 19:27:36.369] [Parsek][INFO][Pipeline-Session] Clear: reason=scenario-destroyed previousSessionId=<none> clearedCount=0
+[LOG 19:27:36.370] [Parsek][INFO][Rewind] Staged-list handoff captured reason=OnDestroy rps=0 supersedes=0 retirements=0 tombstones=0 journal=none marker=none saveFolder=vall-tylo-recorded
+[LOG 19:27:36.379] KbApp.OnDestroy Planet Info
+[LOG 19:27:36.379] [Parsek][VERBOSE][GhostMap] GhostTrajectoryPolylineRenderer.Driver destroyed
+[LOG 19:27:36.380] [UIApp] OnDestroy: Cargo
+[LOG 19:27:36.384] KbApp.OnDestroy Unowned Info
+[LOG 19:27:36.385] [UIApp] OnDestroy: DeltaVApp
+[LOG 19:27:36.388] [Parsek][INFO][Flight] OnDestroy: cleaning up ParsekFlight
+[LOG 19:27:36.388] [Parsek][INFO][Flight] OnDestroy: destroying toolbar control
+[LOG 19:27:36.390] [Parsek][INFO][GhostCommNet] Ghost CommNet manager shut down for scene FLIGHT: ParsekFlight destroyed
+[LOG 19:27:36.391] [Parsek][VERBOSE][GhostMap] RemoveAllGhostVessels: no ghost vessels to remove (reason=scene-cleanup)
+[LOG 19:27:36.392] [Parsek][INFO][Policy] ParsekPlaybackPolicy disposed and unsubscribed from 8 engine events
+[LOG 19:27:36.393] [Parsek][INFO][Engine] DestroyAllGhosts: clearing 0 primary + 0 overlap entries
+[LOG 19:27:36.393] [Parsek][INFO][Engine] GhostPlaybackEngine disposed
+[LOG 19:27:36.394] [Parsek][VERBOSE][UI] KerbalsWindow: unsubscribed from 8 live-crew GameEvents
+[LOG 19:27:36.394] [UIApp] OnDestroy: ResourceDisplay
