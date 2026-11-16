@@ -328,8 +328,18 @@ other). R3E-02 lands after both: it waits for R1-03 and R3W-02 through R3E-01 an
   first as today, a node with no `name`); the existing tests of every replaced method stay
   green unchanged (`RouteLoadReconcile*`, `LedgerHeldWindow*`, `PlaybackScopeTracker*`,
   `PreParsekBackup*`, `RevertInterceptor*`, `CommittedTreeCarry*`). No new log line.
-- **Registers:** none for placement; atlas unchanged; re-pin the knot canary only if the
-  text scan moves it (it should not: LogIO is below every caller).
+- **Registers:** none for placement; atlas unchanged. The knot canary DID move (measured at
+  implementation, 2026-11-16): `nameof(ParsekScenario)` was the only knot reference of
+  `LedgerHeldWindow` and `PlaybackScopeTracker`, so the text-scan knot fell 437 -> 435 and the
+  first three cuts each land two lower; `test_archview` re-pinned in the same change.
+- **As built:** the two pure finder wrappers (`RevertInterceptor.FindParsekScenarioProtoNode`,
+  `ParsekScenario.FindParsekScenarioNodeInGame`) are deleted and their four call sites call the
+  helper; the other copies keep their method and log text and call it.
+  `SaveReferenceScanner.ParsekScenarioName` (a line scanner, not a lookup) and
+  `PreParsekBackup`'s private literal now read the shared constant. Not replaced: the in-game
+  test helpers in `Logistics*RuntimeTests` (test-side readers, like `CareerSaveParser`) and
+  `CurrencyScenarioReadiness.IsScenarioModuleLoaded` (a different shape: it scans every match
+  for a `moduleRef`).
 - **Size:** S. **Depends on:** none (it no longer orders after P10-01: both only create a file in
   `LogIO/`). **PC:** no.
 - **Risk:** low; a behavior-neutral replacement, but a caller that relied on "last match"

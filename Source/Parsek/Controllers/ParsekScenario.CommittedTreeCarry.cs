@@ -184,7 +184,8 @@ namespace Parsek
                 ConfigNode root = ConfigNode.Load(sourcePath);
                 if (root == null)
                     return null;
-                return FindParsekScenarioNodeInGame(root.GetNode("GAME") ?? root);
+                return ScenarioNodeLookup.FindInGameNode(
+                    root.GetNode("GAME") ?? root, ScenarioNodeLookup.ParsekScenarioName);
             }
             catch (Exception ex)
             {
@@ -407,7 +408,8 @@ namespace Parsek
                 if (root == null)
                     return 0;
                 ConfigNode gameNode = root.GetNode("GAME") ?? root;
-                ConfigNode parsekNode = FindParsekScenarioNodeInGame(gameNode);
+                ConfigNode parsekNode = ScenarioNodeLookup.FindInGameNode(
+                    gameNode, ScenarioNodeLookup.ParsekScenarioName);
                 if (parsekNode == null)
                     return 0;
 
@@ -461,20 +463,6 @@ namespace Parsek
                     + $"'{persistentSavePath}': {ex.Message}");
                 return 0;
             }
-        }
-
-        /// <summary>Finds the ParsekScenario SCENARIO node inside a loaded GAME node, or null.</summary>
-        private static ConfigNode FindParsekScenarioNodeInGame(ConfigNode gameNode)
-        {
-            if (gameNode == null)
-                return null;
-            ConfigNode[] scenarios = gameNode.GetNodes("SCENARIO");
-            for (int i = 0; i < scenarios.Length; i++)
-            {
-                if (string.Equals(scenarios[i].GetValue("name"), nameof(ParsekScenario), StringComparison.Ordinal))
-                    return scenarios[i];
-            }
-            return null;
         }
     }
 }
