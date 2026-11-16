@@ -1,6 +1,7 @@
 """Fly harness lanes on several provisioned KSP copies at once (the thin shell).
 
     cd harness && python tools/parallel_runner.py run --name nightly-1 --tier nightly --slots 2
+    cd harness && python tools/parallel_runner.py run --name race-1 --tag race --slots 2
     cd harness && python tools/parallel_runner.py status --name nightly-1
     cd harness && python tools/parallel_runner.py set-slots --name nightly-1 3
     cd harness && python tools/parallel_runner.py stop --name nightly-1
@@ -21,7 +22,8 @@ EXIT CODES (tier_runner's vocabulary, run.py's selection rule for 0 / 1):
   1  RED              a PARSEK-FAIL / INVALID / KILLED / XPASS, a lane that left
                       no report, lanes left unflown, or the tests build failed
   2  NEEDS-PROVISION  no slot for a lane's profile, slots on different DLLs;
-                      also a refused selection (unknown id or tier, bad name)
+                      also a refused selection (unknown id or tier, a tag no
+                      spec carries, bad name)
   3  SKIPPED/STOPPED  the machine lock is held, or a stop left lanes unflown
   4  ERROR            the runner itself broke
 
@@ -951,7 +953,7 @@ def _refuse(log: RunnerLog, code: int, step: str, message: str) -> int:
     return code
 
 
-def _read_selection(ctx: Context, args) -> Tuple[List[str], List[str]]:
+def _read_selection(ctx: Context, args) -> Tuple[List[str], List[str], List[str]]:
     ids: List[str] = []
     for path in args.ids_file or []:
         if path != "-" and not os.path.isfile(path):
@@ -960,7 +962,7 @@ def _read_selection(ctx: Context, args) -> Tuple[List[str], List[str]]:
         ids.extend(parallel.parse_id_lines(text))
     for value in args.ids or []:
         ids.extend(parallel.split_ids_arg(value))
-    return ids, list(args.tier or [])
+    return ids, list(args.tier or []), list(args.tag or [])
 
 
 def cmd_run(ctx: Context, args, log: RunnerLog) -> int:
@@ -977,13 +979,13 @@ def cmd_run(ctx: Context, args, log: RunnerLog) -> int:
                        % (parallel.MIN_SLOTS, parallel.MAX_SLOTS))
     specs = load_specs(ctx)
     try:
-        ids, tiers = _read_selection(ctx, args)
-        selected = parallel.resolve_selection(specs, ids, tiers)
+        ids, tiers, tags = _read_selection(ctx, args)
+        selected = parallel.resolve_selection(specs, ids, tiers, tags)
     except parallel.SelectionError as exc:
         return _refuse(log, parallel.EXIT_USAGE, "Select", "refused: %s" % exc)
     if not selected:
         return _refuse(log, parallel.EXIT_USAGE, "Select",
-                       "no lane selected (use --ids-file / --ids / --tier)")
+                       "no lane selected (use --ids-file / --ids / --tier / --tag)")
     lanes, skipped = parallel.build_lanes(
         selected, load_durations(ctx), load_index_medians(ctx),
         lambda t: os.path.isdir(os.path.join(ctx.harness_root, t.replace("/", os.sep))))
@@ -1232,6 +1234,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="lane ids, one per line, # comments; '-' reads stdin (repeatable)")
     p.add_argument("--ids", action="append", metavar="A,B,C", help="comma-separated lane ids")
     p.add_argument("--tier", action="append", metavar="T", help="every lane of a tier (repeatable)")
+    p.add_argument("--tag", action="append", metavar="G",
+                   help="every lane carrying a tag, as run.py --tag (repeatable; e.g. race)")
     p.add_argument("--slots", default=str(parallel.DEFAULT_SLOTS),
                    help="lanes at once (default %d; change mid-run with set-slots)"
                    % parallel.DEFAULT_SLOTS)

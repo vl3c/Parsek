@@ -158,12 +158,16 @@ def split_ids_arg(value: Optional[str]) -> List[str]:
 
 
 def resolve_selection(specs: Sequence[Dict], ids: Sequence[str],
-                      tiers: Sequence[str]) -> List[Dict]:
+                      tiers: Sequence[str], tags: Sequence[str] = ()) -> List[Dict]:
     """The selected specs: the named ids first, in the order given, then every
-    spec of each ``tiers`` entry in spec file order; a lane selected twice runs
-    once. Raises SelectionError naming every unknown id and tier, so nothing
+    spec of each ``tiers`` entry, then every spec of each ``tags`` entry, both in
+    spec file order; a lane selected twice runs once. A tag matches exactly as
+    ``run.py --tag`` does (``hlib.select_scenarios``). Raises SelectionError
+    naming every unknown id and tier and every tag no spec carries, so nothing
     flies on a typo."""
     bad_tiers = [t for t in tiers if t not in hlib.TIERS]
+    by_tag = [(tag, hlib.select_scenarios(specs, "--tag %s" % tag)) for tag in tags]
+    bad_tags = [tag for tag, matched in by_tag if not matched]
     selected, unknown = hlib.select_scenarios_by_ids(specs, list(ids))
     problems = []
     if unknown:
@@ -171,13 +175,17 @@ def resolve_selection(specs: Sequence[Dict], ids: Sequence[str],
     if bad_tiers:
         problems.append("unknown tier(s): %s (known: %s)"
                         % (", ".join(bad_tiers), ", ".join(hlib.TIERS)))
+    if bad_tags:
+        problems.append("no spec carries tag(s): %s" % ", ".join(bad_tags))
     if problems:
         raise SelectionError("; ".join(problems))
     seen = {s.get("id") for s in selected}
-    for tier in tiers:
-        for spec in specs:
+    groups = [[s for s in specs if s.get("tier") == tier] for tier in tiers]
+    groups.extend(matched for _tag, matched in by_tag)
+    for group in groups:
+        for spec in group:
             sid = spec.get("id")
-            if spec.get("tier") == tier and isinstance(sid, str) and sid not in seen:
+            if isinstance(sid, str) and sid not in seen:
                 seen.add(sid)
                 selected.append(spec)
     return selected

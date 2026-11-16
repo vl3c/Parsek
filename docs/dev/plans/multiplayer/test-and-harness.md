@@ -363,9 +363,25 @@ writes `testGame = False`.
   - Post-run: copy `${raceShared}` to `results/<runId>_race/` next to `_save/`, and archive
     a listing (names, sizes, hashes; not the payload) with the run's small artifacts.
   - Pure helpers in hlib: `race_shared_dir(instance, n)`, `is_race_fixture_path`.
+  - As built (2026-11-16, corrected here): `<n>` is always `"0"` today
+    (`hlib.RACE_SHARED_DEFAULT_LEAF`); each install slot is its own instance, so the folder
+    is per slot without a slot number, and stage wipes the whole `<instance>/rs/` for every
+    race lane. `${raceShared}` is a WHOLE-value token (like `${runSave}`), substituted in
+    seam step args only (a `missionParams` value carrying it is refused). The race verbs'
+    folder args are named in `hlib.RACE_FOLDER_ARG_BY_VERB` (`RaceSetup folder`,
+    `RaceCommand path`) ahead of the verbs (T-07, T-08). `validate_spec` takes the
+    committed fixture names as `race_fixtures=` (run.py passes `list_race_fixtures()`,
+    the folders under `harness/fixtures/race/`). The copy to `results/<runId>_race/` is
+    taken at KSP exit in the main thread (before the next lane can stage and wipe), not in
+    the post-quit verify worker; the listing is `results/<runId>_race.listing.txt` (an
+    optional entry of the results archive) and the result JSON carries `raceSnapshot`.
+    No harness path-length validator exists yet; the short leaf is the only mitigation
+    (section 8, path length). T-54 adds `sharedFolder = "pair"` by extending
+    `hlib.validate_race_fixture` and `run.stage_race_shared`; T-06 and T-48 resolve their
+    targets through `hlib.race_shared_dir`.
 - **Proof:** `test_hlib` cells for the validator (accepts, refuses outside paths, refuses an
   unknown fixture), `test_run_smoke` with `_fake_ksp` (staged, snapshotted, wiped before the
-  next lane).
+  next lane). As built: `RaceSharedFolderSpecTests`, `RaceSharedFolderStagingSmokeTests`.
 - **Registers:** `harness/README.md` (fixtures section, snapshot section);
   `docs/dev/autotest-status.md` row for the harness capability.
 - **Size:** M. **Depends on:** nothing. **PC:** no.
@@ -376,7 +392,21 @@ writes `testGame = False`.
 - **Change:** `[fixture] snapshotSaves = ["${runSave}-b", ...]`: `run.py` copies each named
   save folder of the instance into `results/<runId>_save-<suffix>/` the same way it copies
   the run save. The `as=` saves a lane creates are named in advance, so the list is static.
+  - As built (2026-11-16): an entry is `${runSave}-<suffix>` or the literal
+    `<runSaveName>-<suffix>`, suffix `[A-Za-z0-9_]+` (the `NewGame as=` rule); the
+    validator (`hlib.validate_snapshot_saves`) refuses the run save itself, a duplicate,
+    any other name, and a suffix whose dir name would end in a name another results pass
+    keys on (`hlib.RESULTS_NAME_SUFFIXES`), and warns when no step arg names the save.
+    Staging removes each named save first (fail closed), the pipelined post-quit copy
+    holds it, the copy runs in the post-quit step right after the run save's (size and
+    disk refusals, tmp-and-rename), and retention keeps the newest 3 per scenario and
+    suffix. A declared save absent after a valid driver stage reds
+    `PARSEK-FAIL(snapshot-save-missing)`, the last red. The result JSON carries
+    `snapshotSaves`. The run save's `_save` name and the passes keyed on it are
+    unchanged, so a reader that requires a name ending in `_save` (T-49) never sees a
+    named-save copy.
 - **Proof:** `test_hlib` validator cells; `test_run_smoke` cell that two saves are snapshotted.
+  As built: `SnapshotSavesSpecTests`, `SnapshotSavesSmokeTests`.
 - **Registers:** `harness/README.md` snapshot section.
 - **Size:** S. **Depends on:** nothing. **PC:** no.
 - **Risk:** low.
@@ -385,14 +415,27 @@ writes `testGame = False`.
 
 - **Change:** new `harness/lib/raceparse.py` (stdlib only):
   - `collect_rival_ids(folder_listing, own_player_dir)`: player ids from player subfolder
-    names, recording ids from payload names `<recordingId>.<hash><suffix>` (6.1).
+    names, recording ids from payload names `<recordingId>.<hash><suffix>` (6.1), and tree
+    ids from `payload/trees/<treeId>.<hash>.cfg`; safe-write leftovers are ignored and
+    names that fit no part of the grammar are reported, not guessed at.
   - `leak_scan(save_dir, rival_ids)`: every file of the produced save except
     `Parsek/Race/` is searched for every rival id; any hit is a finding with file and line.
+    Four leak classes: a file or directory name, a text line (with its ConfigNode path, so
+    a race node or a race key in `persistent.sfs` is named), raw binary bytes (`PSK0`
+    writes its strings uncompressed), and the inflated text of a `PSN0` snapshot (deflated,
+    so a byte scan cannot see inside it). No rival id reads `VACUOUS`, and a save that
+    cannot be read whole (no `persistent.sfs`, an undecodable snapshot) reads `ERROR`,
+    never clean.
   - `save_equivalence(save_a, save_b, mask)`: a canonical diff of two produced saves
     (`persistent.sfs` through `saveparse.parse_sfs`, plus every `Parsek/` file except
-    `Parsek/Race/`), with a mask of keys whose values are compared within a tolerance
-    instead of exactly (UT and UT-derived values). The mask is a module constant pinned by
-    a test, never a spec key.
+    `Parsek/Race/`; `PSN0` snapshots inflated and compared as trees, other binaries byte
+    for byte), with a mask of keys whose values are compared within a tolerance
+    instead of exactly (UT and UT-derived values), or not at all (values that differ by
+    nature; the first is `ParsekScenario`'s `saveStamp`, a fresh GUID on every save). The
+    mask is a module constant pinned by a test, never a spec key. Two things T-27's reading
+    runs will meet that a key mask cannot absorb: recording ids (and so sidecar file names)
+    are fresh per flown session, and `Parsek/GameState/baseline_<UT>.pgsb` carries a UT in
+    its file name.
 - **Proof:** `harness/lib/test_raceparse.py`: a planted id in a sidecar reds; an id under
   `Parsek/Race/` does not; two copies of one committed fixture are equivalent; a one-byte
   change outside the mask reds; a UT change inside tolerance passes and outside reds.
@@ -1063,10 +1106,14 @@ Made smaller on 2026-11-15: the pairing machinery is T-54's; this task is its fi
 ### T-45 Race lane plumbing: `race` tag, `parallel_runner --tag`, CI push on `multiplayer`
 
 - **Change:** the tag convention (every race spec carries `race`; an hlib cell reds a spec
-  whose id starts with `RACE`, `SITES`, `RCA`, `RCB` or `RCI` without it, and a non-race spec
-  with it); `parallel_runner.py run --tag <t>` (it has no tag filter today,
-  `parallel_runner.py:1230-1243`; `run.py` has `--tag`, `run.py:6374-6380`); the `push:`
-  trigger for the `multiplayer` branch in `.github/workflows/tests.yml` (README rule 10).
+  whose id prefix, the part before the first `-`, is `RACE`, `SITES`, `RCA`, `RCB` or `RCI`
+  without it, and a non-race spec with it; the whole prefix, so a `SITESCAN-1` is not a race
+  lane: `hlib.race_tag_problem`, `test_hlib.RaceTagConventionTests`); `parallel_runner.py
+  run --tag <t>` (the `run` subparser, `parallel_runner.py:1231-1247`, had no tag filter;
+  `run.py --tag`, `run.py:6377`, matches through `hlib.select_scenarios`, which
+  `parallel.resolve_selection` reuses; a tag no spec carries refuses like an unknown tier);
+  the `push:` trigger for the `multiplayer` branch in `.github/workflows/tests.yml` (README
+  rule 10; the metrics step and job keep their own `refs/heads/main` conditions).
 - **Proof:** hlib and `parallel` cells; the CI run on the first push to the branch.
 - **Registers:** `harness/README.md` parallel runs.
 - **Size:** S. **Depends on:** the owner's go. **PC:** no.

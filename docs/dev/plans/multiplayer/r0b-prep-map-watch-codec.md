@@ -252,27 +252,42 @@ section 9), and any change to what is written to disk.
 
 **P3-01 Pin the primitive's runtime contract with an in-game test**
 - **Change:** new `Source/Parsek/InGameTests/GhostMapPrimitiveRuntimeTest.cs`, category
-  `GhostMap`, scenes FLIGHT and TRACKSTATION. Builds a minimal `IPlaybackTrajectory` stub on
-  a Kerbin orbit, creates a ghost map vessel through today's
-  `GhostMapPresence.BuildAndLoadGhostProtoVessel` path, and asserts: the pid is in the guard
-  set at the moment `onVesselCreate` fires (subscribe for the test), the vessel is inert
-  (`HardenGhostVesselPartPhysics` effect on the part), its name starts with `Ghost: `, a
-  `StripFromSave` over a test-built `FlightState` holding its ProtoVessel and one ordinary
-  ProtoVessel removes exactly it, and removal unregisters the pid. Cleans up through
-  `RemoveAllGhostVessels`.
+  `GhostMap`, two cells (one `Scene = FLIGHT`, one `Scene = TRACKSTATION`, one shared
+  synchronous body). Builds a minimal `IPlaybackTrajectory` stub (not a `Recording`) with a
+  terminal Kerbin orbit, creates ghost map vessels through today's path
+  (`GhostMapPresence.CreateGhostVessel(GhostChain, IPlaybackTrajectory)`, the internal entry
+  over the private `BuildAndLoadGhostProtoVessel` and `BuildAndLoadGhostProtoVesselCore`),
+  and asserts: the pid is in the guard set at the moment `onVesselCreate` fires (subscribed
+  for the test); the name is `"Ghost: " + VesselName` and the ProtoVessel has one
+  `sensorBarometer` part, `prst` True and `cln` False; the create sequence runs
+  `HardenGhostVesselPartPhysics` on the vessel (its Verbose line, read under a verbose
+  override, with a part count equal to the vessel's) and every part present is hardened (an
+  unloaded map ghost has no Part objects; when loaded, no enabled collider); the save strip over
+  a test-built `FlightState` holding its ProtoVessel and one ordinary unloaded ProtoVessel
+  removes exactly it and leaves the live registration alone; a single removal
+  (`RemoveGhostVessel`) keeps the pid registered with the teardown flag raised while
+  `onVesselWillDestroy` fires, then unregisters it; a second ghost removed by
+  `RemoveAllGhostVessels` does the same inside the remove-all scope and leaves the guard set
+  empty. The strip goes through `ParsekScenario.StripGhostMapVesselsFailClosed`, the save
+  path's own entry, because `SavePathHardeningTests` pins exactly one source occurrence of
+  `GhostMapPresence.StripFromSave(` (that helper).
 - **Proof:** the test passes on today's code; it is then the runtime witness for P3-02 to
   P3-04. No production change.
 - **Registers:** the `GhostMap` category is pinned by committed specs
   (`H44-ghost-map-trackstation` and `S1.6-render-parity` run it), so the pinned
   `BATCH_COMPLETE` totals move: run `CommittedBatchTallySourceSyncTests` and
   `MultiCategoryBatchWiringGroupTests` locally and re-pin the specs they name in the same
-  change. This task changes only those pinned `BATCH_COMPLETE` tallies in the two spec
-  files. It does not change the generated lane catalog `docs/dev/flight-profiles.md`: the
-  catalog takes the category NAMES a lane's `RunTests` steps name, not the tallies
-  (`harness/lib/lanecatalog.py:1-30`, `:154-161`), and `GhostMap` is an existing category,
-  so `test_lanecatalog` stays green with no regeneration. (Index C.1 / E.5.5 list P3-01 as a
-  writer of that file; they should drop it.)
-- **Size:** S. **Depends on:** none. **PC:** yes, one in-game run (Ctrl+Shift+T, both scenes).
+  change (H44 `total=27 passed=10 skipped=17`, the attribute floor; S1.6 `total=27
+  passed=15 skipped=12`; both flown green on 2026-11-16, runs
+  `2026-11-16_2115_H44-ghost-map-trackstation` and `2026-11-16_2116_S1.6-render-parity`), with a note on the two lanes' rows in `docs/dev/autotest-status.md`
+  and the derived `GhostMap` row of `docs/dev/autotest-ingame-category-inventory.md`. It does
+  not change the generated lane catalog `docs/dev/flight-profiles.md`: the catalog takes the
+  category NAMES a lane's `RunTests` steps name and the status phrase of its row, not the
+  tallies (`harness/lib/lanecatalog.py`, module docstring and `derive_status`), and `GhostMap`
+  is an existing category, so `test_lanecatalog` stays green with no regeneration.
+- **Size:** S. **Depends on:** none. **PC:** yes, one in-game run (Ctrl+Shift+T, both scenes),
+  or the two lanes, which run the new cells inside their pinned batches. Done 2026-11-16: both
+  lanes PASS on attempt 1 with both new cells passing.
 - **Risk:** low; a test-only change whose only coupling is the tally pins.
 
 **P3-02 Move the guard set and the teardown depth into `GhostMapVessels`**

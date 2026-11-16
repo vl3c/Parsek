@@ -194,6 +194,11 @@ Reaim = "re-aiming a recorded mission: descent triggers, loiter compression and 
 #            crossed: the DLL-free suite on the text scan's module edges
 #            (test_archview), CI's compiled-IL step on the semantic graph
 #            (test_semantic_layers). A spec naming no module reds too.
+#            The right side may be a list: "From -> A | B | C" expands to
+#            one edge per element (From -> A, From -> B, From -> C), and
+#            every element must name a module. A malformed list ("A -> B |",
+#            "A | B -> C") reds as a malformed spec. The left side is one
+#            module; [allowed] has no list form.
 # allowed:   while this list is EMPTY the checker skips the allowlist section
 #            entirely. Once any edge is listed, every production edge not
 #            listed here is reported.

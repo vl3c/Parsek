@@ -101,7 +101,7 @@ namespace Parsek.Tests
             return stripped.Substring(open, block.Length);
         }
 
-        private static string SourcePath(string file)
+        internal static string SourcePath(string file)
         {
             string dir = AppDomain.CurrentDomain.BaseDirectory;
             for (int i = 0; i < 8 && dir != null; i++)
