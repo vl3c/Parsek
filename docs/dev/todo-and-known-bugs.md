@@ -1790,12 +1790,14 @@ Left open: (a) a route whose OWN docked origin and OWN later pickup are the same
 per provenance (cost and pickup each against the full tank, not their sum); the delivery cap now
 keeps that conservation-safe, but the gate can still dispatch a cycle that comes up short.
 (b) Inventory: no delivery row carries its stored-part actuals, so the cap covers resources only;
-a short stored-part pickup still delivers the recorded parts. (c) Live proof: no in-game or
-harness lane drives two routes contending for one depot through the origin gate; the right home
-is the `RouteEscrowContention` in-game category (a docked-origin route A at the depot B reserves
-at, asserting A holds with `source-reserved:` and that B's pickup and delivery both read full),
-plus a lane-level conservation read like RCN-1's on a host where a pickup comes up short
-(delivered == picked up).
+a short stored-part pickup still delivers the recorded parts. (c) Live proof: AUTHORED 2026-11-16 (branch route-escrow-ingame), NOT YET FLOWN. Two
+`RouteEscrowContention` FLIGHT cells gated by H60: `docked-origin-holds` (a docked-origin
+competitor on the depot the multi-stop holder reserved at holds with `source-reserved:` from the
+ORIGIN gate and debits nothing; the holder's second pickup and its delivery both read full,
+delivered == picked up == 10) and `short-pickup-caps-delivery` (the depot drained to 2 LF between
+the holder's windows; the delivery is capped at 6 == picked up, with the supply-cap Warn). H60's
+pin is interim (`total=5`) until the reading run. Still open: a lane-level conservation read like
+RCN-1's on a recorded host.
 
 Side question (sidecar flush -> SourceChanged): the mechanism is real and by design (section
 10.16 lists a sidecar epoch change): `RouteStore.FirstDifferingField` compares
