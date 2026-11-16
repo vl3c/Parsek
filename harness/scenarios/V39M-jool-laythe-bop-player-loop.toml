@@ -1,7 +1,9 @@
 schema = 1
 id = "V39M-jool-laythe-bop-player-loop"
 # =====================================================================================
-# AUTHORED 2026-11-14, NEVER FLOWN. Fixture `jool-laythe-bop-recorded` harvested
+# AUTHORED 2026-11-14.
+# LIVE-PROVEN 2026-11-16 on its first flight (run 2026-11-16_1727, PASS attempt 1, 52 s).
+# Fixture `jool-laythe-bop-recorded` harvested
 # --keep-parsek from B48-jool-laythe-bop-continuation run `2026-11-16_1650` (PASS
 # attempt 1, wall 1,340 s): B22's tree 6ec68e87 with the Laythe -> Bop hop appended
 # as the main chain's tip recording bf6f3a49 (chainIndex 3, startBodyName Laythe,
@@ -21,9 +23,9 @@ id = "V39M-jool-laythe-bop-player-loop"
 # The engage line must NOT print. V33M's shape otherwise.
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-11-14, NEVER FLOWN. On `jool-laythe-bop-recorded` (harvested from B48-jool-laythe-bop-continuation). The player loop on the Kerbin->Jool->Laythe->Bop tree: re-aim Kerbin->Jool engages and the multi-moon configuration hold DECLINES with an amber naming 2 constrained moons of Jool (Bop is incommensurate), never a silent faithful; the live MoonArrivalHold cell runs at the Space Center."
+description = "AUTHORED 2026-11-14, LIVE-PROVEN 2026-11-16 (run 2026-11-16_1727). On `jool-laythe-bop-recorded` (harvested from B48-jool-laythe-bop-continuation). The player loop on the Kerbin->Jool->Laythe->Bop tree: re-aim Kerbin->Jool engages and the multi-moon configuration hold DECLINES with an amber naming 2 constrained moons of Jool (Bop is incommensurate), never a silent faithful; the live MoonArrivalHold cell runs at the Space Center."
 instanceProfile = "stock-minimal"
-tags = ["V39", "player-loop", "loop-playback", "reaim", "arrival-hold", "multi-moon-hold", "decline", "jool", "laythe", "bop", "moon", "ingame-batch", "pending-flight"]
+tags = ["V39", "player-loop", "loop-playback", "reaim", "arrival-hold", "multi-moon-hold", "decline", "jool", "laythe", "bop", "moon", "ingame-batch", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/jool-laythe-bop-recorded"

@@ -1,7 +1,8 @@
 schema = 1
 id = "V45M-tylo-bop-player-loop"
 # =====================================================================================
-# V45M: the Tylo -> Bop moon-to-moon loop. AUTHORED 2026-11-14, NEVER FLOWN.
+# V45M: the Tylo -> Bop moon-to-moon loop. AUTHORED 2026-11-14.
+# LIVE-PROVEN 2026-11-16 on its first flight (run 2026-11-16_1727, PASS attempt 1, 48 s).
 # Fixture `tylo-bop-recorded` harvested --keep-parsek from B45-tylo-bop-transfer
 # run `2026-11-16_1638` (PASS attempt 1, wall 687 s): the fresh Tylo-rooted tree
 # e949decf348445768b14cf6053c2d192 with ONE recording (startBodyName Tylo, terminal
@@ -50,10 +51,10 @@ id = "V45M-tylo-bop-player-loop"
 # logging is on because both ExtractConstraints lines are Verbose.
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-11-14, NEVER FLOWN. On `tylo-bop-recorded` (harvested from B45-tylo-bop-transfer). Loops the Tylo-rooted Tylo -> Bop tree and reads the moon-rooted phase lock: rule 4a's Orbital(Bop) + Orbital(Tylo) constraint set, Supported, and the solver's decision."
+description = "AUTHORED 2026-11-14, LIVE-PROVEN 2026-11-16 (run 2026-11-16_1727). On `tylo-bop-recorded` (harvested from B45-tylo-bop-transfer). Loops the Tylo-rooted Tylo -> Bop tree and reads the moon-rooted phase lock: rule 4a's Orbital(Bop) + Orbital(Tylo) constraint set, Supported, and the solver's decision."
 instanceProfile = "stock-minimal"
 tags = ["V45M", "player-loop", "loop-playback", "moon-to-moon", "moon-rooted-phase-lock",
-        "tylo", "bop", "jool", "pending-flight"]
+        "tylo", "bop", "jool", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/tylo-bop-recorded"

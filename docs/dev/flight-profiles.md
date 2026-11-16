@@ -18,8 +18,8 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | profile modded-compat | 4 |
 | autopilot (mission) lanes | 145 |
 | seam-only lanes | 455 |
-| LIVE-PROVEN date in status row | 480 |
-| no LIVE-PROVEN date | 120 |
+| LIVE-PROVEN date in status row | 482 |
+| no LIVE-PROVEN date | 118 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -115,7 +115,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | TOUR | 1 | - | 1 | - | - | - | 1 |
 | TP | 9 | - | - | 9 | - | - | 9 |
 | UIS | 1 | - | 1 | - | - | - | 1 |
-| V | 67 | - | 7 | 60 | - | 6 | 31 |
+| V | 67 | - | 7 | 60 | - | 6 | 33 |
 | VB | 1 | - | 1 | - | - | - | 1 |
 | VN | 13 | - | 13 | - | - | 5 | 13 |
 | W | 1 | - | - | 1 | - | - | - |
@@ -304,7 +304,7 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 
 | body | lanes | autopilot | live-proven | families |
 |---|---|---|---|---|
-| Kerbin | 361 | 114 | 292 | RF 29, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +65 |
+| Kerbin | 361 | 114 | 293 | RF 29, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +65 |
 | Mun | 55 | 13 | 45 | RW 22, V 8, B 5, CS 5, TP 4, MC 2, EVA 1, GUI 1, H 1 +6 |
 | Minmus | 13 | 5 | 9 | V 6, B 5, AP 1, TP 1 |
 | Moho | 3 | 1 | 2 | V 2, B 1 |
@@ -313,11 +313,11 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 | Duna | 29 | 10 | 19 | V 13, B 4, FAR 4, TP 3, AT 1, CN 1, FORGE 1, GUI 1, H 1 |
 | Ike | 10 | 3 | 10 | V 4, FAR 3, B 2, RF 1 |
 | Dres | 8 | 6 | 2 | B 5, V 2, FORGE 1 |
-| Jool | 46 | 18 | 37 | V 25, B 18, FAR 1, S 1, TP 1 |
-| Laythe | 27 | 14 | 26 | B 14, V 11, FAR 1, TP 1 |
+| Jool | 46 | 18 | 39 | V 25, B 18, FAR 1, S 1, TP 1 |
+| Laythe | 27 | 14 | 27 | B 14, V 11, FAR 1, TP 1 |
 | Vall | 11 | 5 | 10 | B 5, V 5, TP 1 |
-| Tylo | 12 | 6 | 10 | B 6, V 6 |
-| Bop | 8 | 4 | 6 | B 4, V 4 |
+| Tylo | 12 | 6 | 11 | B 6, V 6 |
+| Bop | 8 | 4 | 8 | B 4, V 4 |
 | Pol | 4 | 2 | 4 | B 2, V 2 |
 | Eeloo | 3 | 1 | - | V 2, B 1 |
 | Sun | 10 | - | 6 | TP 6, V 4 |
@@ -1766,14 +1766,14 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | V36M-jool-bop-continuation-player-loop | operator | jool-bop-recorded | seam | Kerbin, Jool, Bop | reload, scene-change | MoonArrivalHold | LIVE-PROVEN 2026-11-14 |
 | V37M-jool-pol-continuation-player-loop | operator | jool-pol-recorded | seam | Kerbin, Jool, Pol | reload, scene-change | MoonArrivalHold | LIVE-PROVEN 2026-11-14 |
 | V38M-jool-moon-tour-player-loop | operator | jool-tour-recorded | seam | Kerbin, Jool, Laythe, Vall +1 | reload, scene-change | MoonArrivalHold | LIVE-PROVEN 2026-11-16 |
-| V39M-jool-laythe-bop-player-loop | operator | jool-laythe-bop-recorded | seam | Kerbin, Jool, Laythe, Bop | reload, scene-change | MoonArrivalHold | NEVER FLOWN; fixture jool-laythe-bop-reco... |
+| V39M-jool-laythe-bop-player-loop | operator | jool-laythe-bop-recorded | seam | Kerbin, Jool, Laythe, Bop | reload, scene-change | MoonArrivalHold | LIVE-PROVEN 2026-11-16 |
 | V3C-flight-arrival-companion | nightly | b17-duna-pad +inj looped-interp... | b17_duna_direct | Duna | time-jump | - | LIVE-PROVEN 2026-09-07 |
 | V3F-flight-arrival-faithful | operator | duna-direct-recorded | m3_loop_arrival_dwell | Duna | - | - | LIVE-PROVEN 2026-08-07 |
 | V3R-flight-arrival-reaim | operator | duna-direct-recorded | m3_loop_arrival_dwell | Duna | - | - | LIVE-PROVEN 2026-08-07 |
 | V4-player-loop-workflow | operator | duna-direct-recorded | seam | Duna | time-jump | - | FLOWN 2026-08-08, run 2026-08-08_1135, PA... |
-| V43M-vall-tylo-player-loop | operator | vall-tylo-recorded | seam | Jool, Vall, Tylo | - | - | NEVER FLOWN; fixture vall-tylo-recorded h... |
+| V43M-vall-tylo-player-loop | operator | vall-tylo-recorded | seam | Jool, Vall, Tylo | - | - | FLOWN, PARSEK-FAIL(expectation); fixture... |
 | V44M-laythe-tylo-player-loop | operator | laythe-tylo-recorded | seam | Jool, Laythe, Tylo | - | - | LIVE-PROVEN 2026-11-16 |
-| V45M-tylo-bop-player-loop | operator | tylo-bop-recorded | seam | Jool, Tylo, Bop | - | - | NEVER FLOWN; fixture tylo-bop-recorded ha... |
+| V45M-tylo-bop-player-loop | operator | tylo-bop-recorded | seam | Jool, Tylo, Bop | - | - | LIVE-PROVEN 2026-11-16 |
 | V46M-minmus-mun-player-loop | operator | minmus-mun-recorded | seam | Kerbin, Mun, Minmus | - | - | LIVE-PROVEN 2026-11-16 |
 | V5-ts-loop-arrival | operator | duna-direct-recorded | seam | Duna | reload, save, time-jump, scene-change | - | CRITERION (b) RENDER-TOKEN CONTROL FLOWN... |
 | V6M-mun-player-loop | operator | mun-orbit-recorded | seam | Mun | time-jump | - | CRITERION (b) RENDER-TOKEN CONTROL FLOWN... |
