@@ -687,6 +687,107 @@ class IlCompareTests(unittest.TestCase):
         finally:
             shutil.rmtree(d)
 
+    def run_main(self, before, after, args):
+        d = tempfile.mkdtemp()
+        try:
+            paths = []
+            for name, text in (("a.il", before), ("b.il", after)):
+                paths.append(os.path.join(d, name))
+                with open(paths[-1], "w", encoding="utf-8") as fh:
+                    fh.write(text)
+            out, err = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                try:
+                    rc = il_compare.main(paths + ["--il"] + list(args))
+                except SystemExit as exc:
+                    rc = exc.code
+            return rc, out.getvalue() + err.getvalue()
+        finally:
+            shutil.rmtree(d)
+
+    def test_two_aliases_onto_one_old_field_are_refused(self):
+        # A read redirected to a second lane instance must not fold through a second alias.
+        body2 = self.LANE_AFTER_BODY.replace("Parsek.Pos::lane", "Parsek.Pos::lane2")
+        after = self.lane_after(body=body2, fields=[self.HOST_DECL, self.LANE_DECL, "class Parsek.Lane lane2"])
+        fold = ["--fold", "Parsek.Host=Parsek.Lane"]
+        for aliases in (["Parsek.Pos::lane=host", "Parsek.Pos::lane2=host"],     # shared OLD
+                        ["Parsek.Pos::lane=host", "Parsek.Pos::lane=other"],     # shared TYPE::NEW
+                        ["Parsek.Pos::lane2=lane", "Parsek.Pos::lane=host"]):    # a chain
+            args = fold + sum((["--alias-field", a] for a in aliases), [])
+            rc, out = self.run_main(self.lane_before(), after, args)
+            self.assertEqual(2, rc, (aliases, out))
+            self.assertIn("not a pure renaming", out)
+        # The same alias on two different types is a renaming per type, so it is allowed.
+        rc, out = self.run_main(self.lane_before(), self.lane_after(),
+                                fold + ["--alias-field", "Parsek.Pos::lane=host",
+                                        "--alias-field", "Parsek.Other::lane=host"])
+        self.assertNotIn("not a pure renaming", out)
+
+    @staticmethod
+    def _host_and_lane(host_members, lane_members, read):
+        body = "    IL_0000:  ldarg.0\n" + read + "    IL_000b:  pop\n    IL_000c:  ret\n"
+        return (".class public auto ansi beforefieldinit Parsek.Host\n  extends [mscorlib]System.Object\n{\n"
+                "  .field private class Parsek.Lane lane\n" + host_members
+                + IlCompareTests._method("assembly", "Read", body) + "} // end of class Parsek.Host\n"
+                ".class assembly auto ansi sealed beforefieldinit Parsek.Lane\n  extends [mscorlib]System.Object\n{\n"
+                + lane_members + "} // end of class Parsek.Lane\n")
+
+    TO_LANE = "    IL_0001:  call       instance class Parsek.Lane Parsek.Host::get_Lane()\n"
+
+    def test_a_read_moved_between_same_named_fields_of_old_and_new_is_reported(self):
+        # Both builds already hold Lane; Host and Lane each own a `count` (two storages).
+        for decl, op, ref in (
+                ("int32 count", "ldfld", "int32 Parsek.{0}::count"),
+                ("static int32 count", "ldsfld", "int32 Parsek.{0}::count"),
+                ("int32 '<Count>k__BackingField'", "ldfld", "int32 Parsek.{0}::'<Count>k__BackingField'"),
+                ("class [mscorlib]System.Action Changed", "ldfld", "class [mscorlib]System.Action Parsek.{0}::Changed")):
+            members = "  .field assembly %s\n" % decl
+            def build(owner):
+                hop = self.TO_LANE if owner == "Lane" else ""
+                return self._host_and_lane(members, members, hop + "    IL_0006:  %s      %s\n"
+                                           % (op, ref.format(owner)))
+            rc, out = self.run_main(build("Host"), build("Lane"), ["--fold", "Parsek.Host=Parsek.Lane"])
+            self.assertEqual(1, rc, (decl, out))
+            self.assertIn("fold-collision", out, decl)
+        # A literal constant has no storage (its reads are inlined): not a collision.
+        lit = "  .field assembly static literal int32 Max = int32(0x00000005)\n"
+        same = self._host_and_lane(lit, lit, "    IL_0006:  ldc.i4.5\n")
+        rc, out = self.run_main(same, same, ["--fold", "Parsek.Host=Parsek.Lane"])
+        self.assertEqual((0, False), (rc, "fold-collision" in out), out)
+
+    GETTER = ("  .method assembly hidebysig specialname instance int32 get_Count() cil managed\n  {{\n"
+              "    IL_0000:  ldarg.0\n{0}    IL_0006:  ret\n  }} // end of method X::get_Count\n\n")
+
+    def test_a_call_moved_between_same_named_methods_of_old_and_new_is_reported(self):
+        host_get = self.GETTER.format("    IL_0001:  ldfld      int32 Parsek.Host::a\n")
+        lane_get = self.GETTER.format("    IL_0001:  ldfld      int32 Parsek.Lane::b\n")
+        def build(owner):
+            hop = self.TO_LANE if owner == "Lane" else ""
+            return self._host_and_lane("  .field assembly int32 a\n" + host_get,
+                                       "  .field assembly int32 b\n" + lane_get,
+                                       hop + "    IL_0006:  callvirt   instance int32 Parsek.%s::get_Count()\n" % owner)
+        rc, out = self.run_main(build("Host"), build("Lane"), ["--fold", "Parsek.Host=Parsek.Lane"])
+        self.assertEqual(1, rc, out)
+        self.assertIn("neither forwards", out)
+        # A forwarder pair (Host.Count => Lane.Count) is the normal shape: no collision.
+        fwd = self.GETTER.format(self.TO_LANE.replace("IL_0001", "IL_0001") +
+                                 "    IL_0002:  callvirt   instance int32 Parsek.Lane::get_Count()\n")
+        def build_fwd(owner):
+            hop = self.TO_LANE if owner == "Lane" else ""
+            return self._host_and_lane(fwd, "  .field assembly int32 b\n" + lane_get,
+                                       hop + "    IL_0006:  callvirt   instance int32 Parsek.%s::get_Count()\n" % owner)
+        rc, out = self.run_main(build_fwd("Host"), build_fwd("Lane"), ["--fold", "Parsek.Host=Parsek.Lane"])
+        self.assertNotIn("fold-collision", out)
+
+    def test_a_same_named_nested_type_on_old_and_new_is_reported(self):
+        nested = ("  .class nested assembly sequential ansi sealed beforefieldinit Entry\n"
+                  "    extends [mscorlib]System.ValueType\n  {\n    .field public int32 x\n"
+                  "  } // end of class Entry\n\n")
+        both = self._host_and_lane(nested, nested, "    IL_0006:  ldc.i4.0\n")
+        rc, out = self.run_main(both, both, ["--fold", "Parsek.Host=Parsek.Lane"])
+        self.assertEqual(1, rc, out)
+        self.assertIn("nested type Entry", out)
+
 
 SRC = """\
 using System;

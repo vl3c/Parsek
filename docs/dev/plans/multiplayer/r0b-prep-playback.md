@@ -260,8 +260,8 @@ Tests and gates that pin these names:
   main: only the after build's types were re-keyed (`fold_types`), so a step whose before
   build already holds NEW (P2b-03 to P2b-06) reported NEW as `type-only-before`; P2b-01 folds
   both builds.
-- Its tests are `scripts/refactor/test_parsekflight_tools.py` (fold cells at :119-446). CI does not
-  run them: `.github/workflows/tests.yml` runs `harness/lib`, `missions/lib`, `provision` (:89-91)
+- Its tests are `scripts/refactor/test_parsekflight_tools.py` (fold cells at :119-446). CI did not
+  run them before P2b-01 (which adds the step): `.github/workflows/tests.yml` runs `harness/lib`, `missions/lib`, `provision` (:89-91)
   and `scripts/arch` (:100, :191) only.
 - Module placement: the folder is the module (pull request #2611). `scripts/arch/modules.toml`
   holds one `[[module]] name / folder` rule per module and no name rules; a `.cs` file in the
@@ -569,15 +569,23 @@ after P2b-10.
   name are not aliased, so NEW's declaration and the constructor that stores it are the
   expected leftovers. Each alias is checked against the declarations (kind `alias-field`, a
   difference): OLD declared once on TYPE before, NEW once after and not before, NEW's folded
-  type equal to OLD's. The run prints `aliased TYPE::NEW onto OLD: N reads`. Both builds are
-  now folded (3.4), so P2b-03 to P2b-06, whose before build already holds the lane, fold.
-  Docstring updated.
+  type equal to OLD's. An alias set that is not a pure renaming per type (two aliases share a
+  NEW or an OLD, or a chain) is refused (exit 2). The run prints
+  `aliased TYPE::NEW onto OLD: N reads`. Both builds are now folded (3.4), so P2b-03 to
+  P2b-06, whose before build already holds the lane, fold; because a fold then merges what
+  both builds hold, each build is first checked (kind `fold-collision`) for a field name
+  (instance, static, auto-property or event backing field; literals skipped) declared on both
+  OLD and NEW, a method signature on both whose bodies differ and neither forwards to the
+  other, and a same-named user nested type on both. None of the nine ParsekFlight seams on
+  main trips it. CI now runs the suite (step "Refactor tool tests"). Docstring updated.
 - **Proof:** new cells in `scripts/refactor/test_parsekflight_tools.py`: an alias folds a
   `lane.x` body onto a `host.Lane.x` body; without the alias the difference is reported; an alias
   on another type does not apply; and still reported: a renamed field whose type differs, a read
   redirected to another field of the same type (a second lane field, or another lane member),
-  and a body change beside the rename. Run locally with
-  `python3 -m unittest discover -s scripts/refactor -q` (not in CI, Corrections 11). Real IL
+  and a body change beside the rename; two aliases onto one OLD are refused; a read or call
+  moved between same-named members of OLD and NEW is a `fold-collision`. Run with
+  `python3 -m unittest discover -s scripts/refactor -q` (CI runs it since P2b-01; Corrections
+  11 predates that). Real IL
   (2026-11-16, scratch Debug builds of main with two log-once sets moved onto a lane, then the
   positioner given a `lane` field): 4 reads aliased and the leftovers are exactly the field, the
   constructor pair and `ParsekFlight::get_Positioner`; each mutation above is reported in its

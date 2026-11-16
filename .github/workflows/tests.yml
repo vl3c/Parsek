@@ -99,6 +99,11 @@ jobs:
       - name: Architecture map tests
         run: python3 -m unittest discover -s scripts/arch -q
 
+      # The refactor tools' suite: il_compare.py's fold and alias cells are the
+      # proof every fold-proven move PR rests on. Synthetic IL only, no build.
+      - name: Refactor tool tests
+        run: python3 -m unittest discover -s scripts/refactor -q
+
       # Ubuntu's apt-built .NET SDK ships no net472 testhost, so the suite
       # runs under mono + the xunit console runner via scripts/cloud-test.sh
       # (same path cloud agent sessions use). dotnet SDK is preinstalled;

@@ -60,7 +60,19 @@ name stay as they are, so the constructor that stores NEW and NEW's own ``.field
 declaration are the expected leftovers. Each alias is also checked against the declarations
 (kind ``alias-field``, a difference): OLD declared on TYPE before, NEW declared on TYPE after
 and not before, and NEW's folded field type equal to OLD's. TYPE is named as in the after
-build; a folded NEW type reads as its OLD type.
+build; a folded NEW type reads as its OLD type. Aliases must be a pure renaming: on one TYPE no
+two aliases share a NEW or an OLD, and no name is both a NEW and an OLD (aliases apply in
+order, so a chain would fold twice); a set that breaks this is refused (exit 2).
+
+A fold merges OLD's and NEW's members under one key, so it may only merge what IS one thing.
+Before folding, each build is checked (kind ``fold-collision``, a difference) for:
+- a field name (instance or static, an auto-property or field-like event backing field
+  included) declared on both OLD and NEW: two storages that would read as one; a ``literal``
+  constant has no storage (its reads are inlined) and is skipped;
+- a method signature on both OLD and NEW whose folded bodies differ and neither of which calls
+  the other (a forwarder pair is allowed): a call moved from one to the other would read the
+  same. Constructors are skipped (never called by name across the two);
+- a nested type of the same, not compiler-generated, name on both OLD and NEW.
 
 Exit code 0 when nothing differs, 1 otherwise, 2 on a usage or tool error.
 Plain stdlib.
@@ -261,9 +273,72 @@ def _field_decls(info, name):
     return found
 
 
+def alias_conflicts(aliases, folds):
+    """Messages for an alias set that is not a pure renaming per type (see the docstring)."""
+    out = []
+    by_type = collections.defaultdict(list)
+    for typ, new, old in aliases:
+        by_type[fold_type_name(typ, folds)].append((new, old))
+    for path, pairs in sorted(by_type.items()):
+        news = collections.Counter(n for n, _ in pairs)
+        olds = collections.Counter(o for _, o in pairs)
+        for name in sorted(n for n, c in news.items() if c > 1):
+            out.append("%s::%s is aliased more than once" % (path, name))
+        for name in sorted(o for o, c in olds.items() if c > 1):
+            out.append("%s: two aliases fold onto %s" % (path, name))
+        for name in sorted(set(news) & set(olds)):
+            out.append("%s::%s is both an alias NEW and an alias OLD" % (path, name))
+    return out
+
+
+def _field_name(decl):
+    """The declared name of a `.field` line (None for a literal constant, which has no storage)."""
+    head = decl.split(" = ", 1)[0].split()
+    if "literal" in head or len(head) < 3:
+        return None
+    return head[-1].strip("'")
+
+
+_GENERATED_NESTED = re.compile(r"^'?<")
+
+
+def fold_collisions(types, folds, label):
+    """(kind, path, detail) for every member a fold would merge although it is two things.
+    `types` is a build parsed after apply_folds but before fold_types."""
+    out = []
+    for old, new in folds:
+        to, tn = types.get(old), types.get(new)
+        if to is None or tn is None:
+            continue
+        fo = {_field_name(f) for f in to.fields} - {None}
+        fn = {_field_name(f) for f in tn.fields} - {None}
+        for name in sorted(fo & fn):
+            out.append(("fold-collision", old, "%s build: field %s declared on both %s and %s"
+                        % (label, name, old, new)))
+        for sig in sorted(set(to.methods) & set(tn.methods)):
+            if " .ctor(" in sig or " .cctor(" in sig:
+                continue
+            bo, bn = to.methods[sig], tn.methods[sig]
+            if sorted(set(bo)) == sorted(set(bn)):
+                continue
+            m = re.search(r"([^\s(]+)\(", sig)
+            call = re.compile(r"\bcall(?:virt)?\s[^\n]*\s%s::%s\(" % (re.escape(old), re.escape(m.group(1))))
+            if any(call.search(BODIES[h]) for h in list(bo) + list(bn)):
+                continue
+            out.append(("fold-collision", old, "%s build: method on both %s and %s, neither forwards: %s"
+                        % (label, old, new, sig)))
+        for path in types:
+            if path.startswith(new + "/") and "/" not in path[len(new) + 1:]:
+                nested = path[len(new) + 1:]
+                if not _GENERATED_NESTED.match(nested) and (old + "/" + nested) in types:
+                    out.append(("fold-collision", old, "%s build: nested type %s on both %s and %s"
+                                % (label, nested, old, new)))
+    return out
+
+
 def alias_checks(a, b, aliases, folds):
     """(kind, path, detail) for every alias whose declarations do not make it a pure rename."""
-    out = []
+    out = [("alias-field", "", m) for m in alias_conflicts(aliases, folds)]
     for typ, new, old in aliases:
         path = fold_type_name(typ, folds)
         label = "%s::%s=%s" % (typ, new, old)
@@ -548,6 +623,9 @@ def main(argv=None):
         if alias is None:
             ap.error("--alias-field takes TYPE::NEW=OLD with two different field names")
         aliases.append(alias)
+    conflicts = alias_conflicts(aliases, folds)
+    if conflicts:
+        ap.error("--alias-field set is not a pure renaming: " + "; ".join(conflicts))
     texts = []
     for p in (args.before, args.after):
         if args.il:
@@ -557,12 +635,14 @@ def main(argv=None):
             texts.append(disassemble(p))
     # The before build is folded too: in a series of moves into one NEW type, the before build
     # of every step after the first already holds NEW.
-    a = fold_types(parse_il(apply_folds(texts[0], folds, args.host_field)), folds)
+    a_raw = parse_il(apply_folds(texts[0], folds, args.host_field))
+    a = fold_types(a_raw, folds)
     after_text, alias_reads = apply_aliases(apply_folds(texts[1], folds, args.host_field), aliases, folds)
     b_raw = parse_il(after_text)
     b = fold_types(b_raw, folds)
     widened = widenings(a, b, [old for old, _ in folds]) if folds else []
-    diffs = alias_checks(a, b, aliases, folds) + compare(a, b, widened)
+    diffs = (fold_collisions(a_raw, folds, "before") + fold_collisions(b_raw, folds, "after")
+             + alias_checks(a, b, aliases, folds) + compare(a, b, widened))
     for label, types in (("before", a), ("after", b)):
         print("%-6s types %d  fields %d  methods %d" % ((label,) + summarize(types)))
     for old, new in folds:
