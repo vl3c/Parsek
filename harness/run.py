@@ -2122,6 +2122,18 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
                 if os.path.isdir(backup_dir) and _is_strictly_inside(backup_dir, saves_dir):
                     shutil.rmtree(backup_dir, ignore_errors=True)
                     logger.verbose("Stage", "reaped prior pre-Parsek backup: %s" % entry)
+    # (1c) multiplayer T-04: remove every `snapshotSaves` save a prior run left, so a
+    # folder present after this flight is this run's and an absent one reads as absent.
+    # Fail closed: a stale folder that cannot be removed would be snapshotted as ours.
+    for snapshot_save_name, _suffix in hlib.spec_snapshot_saves(spec, run_save_name):
+        stale = os.path.join(saves_dir, snapshot_save_name)
+        if not os.path.lexists(stale):
+            continue
+        if not _rmtree_contained(stale, saves_dir):
+            logger.error("Stage", "snapshotSaves: could not remove prior save %s; aborting "
+                                  "pre-boot (INVALID staging)" % stale)
+            return False, run_save_name, "staging"
+        logger.info("Stage", "snapshotSaves: removed prior save %s" % snapshot_save_name)
     os.makedirs(saves_dir, exist_ok=True)
     shutil.copytree(template_abs, target_save)
 
@@ -3723,6 +3735,21 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                 % (detail["batchComplete"]["status"], batch_present, batch_failed,
                    sel.multi, sel.per_category_count, sel.matched_runs, sel.expected_runs))
 
+    # Multiplayer T-04: every declared snapshotSaves save must exist after the run.
+    # Only a valid driver stage reds it (an invalid one already explains the absence).
+    snapshot_saves_missing = []
+    for snapshot_save_name, _suffix in hlib.spec_snapshot_saves(spec, run_save_name):
+        if not os.path.isdir(os.path.join(instance_dir, "saves", snapshot_save_name)):
+            snapshot_saves_missing.append(snapshot_save_name)
+    if hlib.spec_snapshot_saves(spec, run_save_name):
+        detail["snapshotSaves"] = {
+            "status": "FAIL" if snapshot_saves_missing else "PASS",
+            "missing": snapshot_saves_missing}
+        logger.info("Verify", "verify snapshotSaves status=%s declared=%d missing=%s"
+                    % (detail["snapshotSaves"]["status"],
+                       len(hlib.spec_snapshot_saves(spec, run_save_name)),
+                       ",".join(snapshot_saves_missing) or "-"))
+
     verifiers: Dict = {
         "killed": drive.killed,
         "batch_expected": requires_batch,
@@ -3735,6 +3762,7 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
         # that missed its expect (a post-mission recording verb's own ERROR) is never
         # a PASS; classify_verdict reds it last, after every richer verifier.
         "unmet_step": dv.unmet_step and driver_valid,
+        "snapshot_save_missing": bool(snapshot_saves_missing) and driver_valid,
     }
     driver_facts: Dict = {
         "spec_valid": True,
@@ -4669,6 +4697,7 @@ def _run_log_validate_retrying(runtime, log_path, no_rec, logger):
 #                              count_recordings, read_save_structure,
 #                              read_sampling_input, the careerSave read, the
 #                              produced-save snapshot, collect-logs
+#   saves/<snapshotSave>/      the snapshotSaves presence check and snapshots (T-04)
 #   Screenshots/ (this run's)  the artifact copy; selected at copy time
 #   Player.log (machine-wide)  collect-logs; the next boot rewrites it
 # plus the deployed Parsek.dll's sha256, taken in the main loop for the archive.
@@ -4684,9 +4713,11 @@ POST_QUIT_ROOT_FILES: Tuple[str, ...] = (
 )
 POST_QUIT_PLAYER_LOG_NAME = "Player.log"
 # The directories _take_post_quit_copy copies whole (relative to the instance;
-# "<runSave>" is the lane's run save leaf). Screenshots/ holds only this run's
-# selected files, which are the only ones the artifact step reads.
-POST_QUIT_COPIED_DIRS: Tuple[Tuple[str, ...], ...] = (("saves", "<runSave>"), ("Screenshots",))
+# "<runSave>" is the lane's run save leaf, "<snapshotSave>" each `snapshotSaves` save
+# of the spec). Screenshots/ holds only this run's selected files, which are the only
+# ones the artifact step reads.
+POST_QUIT_COPIED_DIRS: Tuple[Tuple[str, ...], ...] = (
+    ("saves", "<runSave>"), ("saves", "<snapshotSave>"), ("Screenshots",))
 
 
 class _PostQuitCopy:
@@ -4725,7 +4756,8 @@ class _DeferredAttempt:
 
 def _take_post_quit_copy(run_id: str, instance_dir: str, run_save_name: Optional[str],
                          run_start_epoch: float, runtime: Runtime,
-                         logger) -> Optional[_PostQuitCopy]:
+                         logger, snapshot_save_names: Sequence[str] = ()
+                         ) -> Optional[_PostQuitCopy]:
     """Copy the lane's post-quit inputs out of the instance (see the section
     comment). Plain copies, never links: KSP truncates KSP.log and rewrites the
     root files in place at the next boot. Returns None (Warn) when any copy fails;
@@ -4750,6 +4782,13 @@ def _take_post_quit_copy(run_id: str, instance_dir: str, run_save_name: Optional
             save_src = os.path.join(instance_dir, "saves", run_save_name)
             if os.path.isdir(save_src):
                 save_dst = os.path.join(root, "saves", run_save_name)
+                shutil.copytree(save_src, save_dst)
+                files += _dir_file_count(save_dst)
+                total += _dir_size_bytes(save_dst)
+        for snapshot_save_name in snapshot_save_names:
+            save_src = os.path.join(instance_dir, "saves", snapshot_save_name)
+            if os.path.isdir(save_src):
+                save_dst = os.path.join(root, "saves", snapshot_save_name)
                 shutil.copytree(save_src, save_dst)
                 files += _dir_file_count(save_dst)
                 total += _dir_size_bytes(save_dst)
@@ -5187,8 +5226,10 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
         # out of the shared instance, then hand them to the caller's worker; the
         # next lane may stage over the instance as soon as this returns.
         if defer_post_quit:
-            post_quit_copy = _take_post_quit_copy(run_id, instance_dir, run_save_name,
-                                                  start_wall, runtime, logger)
+            post_quit_copy = _take_post_quit_copy(
+                run_id, instance_dir, run_save_name, start_wall, runtime, logger,
+                snapshot_save_names=[n for n, _ in hlib.spec_snapshot_saves(spec,
+                                                                            run_save_name)])
             if post_quit_copy is not None:
                 def _finish_on_copy(lg):
                     try:
@@ -5652,6 +5693,118 @@ def _snapshot_produced_save(run_id: str, spec: Dict, verdict: str,
         logger.warn("Snapshot", "save-snapshot retention FAILED run=%s (%s: %s); "
                                 "verdict unaffected" % (run_id, type(exc).__name__, exc))
     return snap
+
+
+def _snapshot_named_saves(run_id: str, spec: Dict, verdict: str,
+                          instance_dir: Optional[str], run_save_name: Optional[str],
+                          logger: HarnessLogger) -> Optional[List[Dict]]:
+    """Copy each ``[fixture] snapshotSaves`` save into ``results/<runId>_save-<suffix>/``
+    (multiplayer T-04) the way _snapshot_produced_save copies the run save: same
+    place in the post-quit step (so the pipelined path reads the private copy), the
+    same size / free-disk decision, tmp-and-rename, a Warn and ``ran=False`` on a
+    failure, then retention. None for a spec without the key (the result keeps no
+    ``snapshotSaves`` field); otherwise one record per declared save, in order."""
+    declared = hlib.spec_snapshot_saves(spec, run_save_name)
+    if not declared:
+        return None
+    records: List[Dict] = []
+    protect: List[str] = []
+    for snapshot_save_name, suffix in declared:
+        snap = dict(_EMPTY_SNAPSHOT)
+        snap["save"] = snapshot_save_name
+        dst = os.path.join(RESULTS_DIR, hlib.snapshot_save_dir_name(run_id, suffix))
+        tmp = dst + SAVE_SNAPSHOT_TMP_SUFFIX
+        protect.extend([os.path.basename(dst), os.path.basename(tmp)])
+        try:
+            src = None
+            if instance_dir:
+                src = os.path.join(instance_dir, "saves", snapshot_save_name)
+            present = bool(src) and os.path.isdir(src)
+            save_bytes = None
+            free_bytes = None
+            if present:
+                try:
+                    save_bytes = _dir_size_bytes(src)
+                except OSError:
+                    save_bytes = None
+                try:
+                    os.makedirs(RESULTS_DIR, exist_ok=True)
+                    free_bytes = shutil.disk_usage(RESULTS_DIR).free
+                except OSError:
+                    free_bytes = None
+            # spec=None: [harvest] snapshotProducedSave names the run save only; a
+            # declared save is the spec asking for this copy.
+            decision = hlib.decide_save_snapshot(verdict, None, save_bytes, free_bytes,
+                                                 save_present=present)
+            snap["reason"] = decision.reason
+            if not decision.snapshot:
+                logger.info("Snapshot", "named-save snapshot run=%s save=%s result=skipped "
+                                        "reason=%s" % (run_id, snapshot_save_name,
+                                                       decision.reason))
+                records.append(snap)
+                continue
+            for stale in (tmp, dst):
+                if os.path.lexists(stale) and not _rmtree_contained(stale, RESULTS_DIR):
+                    raise OSError("could not clear %s" % stale)
+            shutil.copytree(src, tmp)
+            os.rename(tmp, dst)
+            snap.update({"ran": True, "path": os.path.basename(dst),
+                         "bytes": _dir_size_bytes(dst), "files": _dir_file_count(dst)})
+            logger.info("Snapshot", "named-save snapshot run=%s save=%s result=copied bytes=%d "
+                                    "files=%d reason=%s path=%s"
+                        % (run_id, snapshot_save_name, snap["bytes"], snap["files"],
+                           snap["reason"], dst))
+        except Exception as exc:  # noqa: BLE001 - failure isolation by design
+            snap.update({"ran": False, "path": None, "bytes": 0, "files": 0,
+                         "reason": "copy-failed %s" % type(exc).__name__})
+            logger.warn("Snapshot", "named-save snapshot FAILED run=%s save=%s (%s: %s); "
+                                    "verdict unaffected" % (run_id, snapshot_save_name,
+                                                            type(exc).__name__, exc))
+            if os.path.lexists(tmp):
+                _rmtree_contained(tmp, RESULTS_DIR)
+        records.append(snap)
+    try:
+        _prune_named_save_snapshot_dirs(protect, logger)
+    except Exception as exc:  # noqa: BLE001 - failure isolation by design
+        logger.warn("Snapshot", "named-save snapshot retention FAILED run=%s (%s: %s); "
+                                "verdict unaffected" % (run_id, type(exc).__name__, exc))
+    return records
+
+
+def _prune_named_save_snapshot_dirs(protect_names: Sequence[str],
+                                    logger: HarnessLogger) -> None:
+    """Retention for ``results/<runId>_save-<suffix>`` dirs (multiplayer T-04): the
+    run save's window per scenario and suffix (hlib.select_snapshot_save_dirs_to_prune)
+    and the stale ``.harness-tmp`` sweep (hlib.select_stale_snapshot_save_tmp_dirs).
+    Touches no other name under results/. Skipped in a ``--slot`` child."""
+    if _CTX.slot_mode or not os.path.isdir(RESULTS_DIR):
+        return
+    entries = []
+    names = []
+    for name in os.listdir(RESULTS_DIR):
+        path = os.path.join(RESULTS_DIR, name)
+        if not os.path.isdir(path):
+            continue
+        names.append(name)
+        parsed = hlib.parse_snapshot_save_dir_name(name)
+        if parsed is None:
+            continue
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            continue
+        entries.append((name, _scenario_id_of_snapshot_dir(
+            name, hlib.SNAPSHOT_SAVE_DIR_INFIX + parsed[1]), mtime))
+    removed = []
+    for name in (hlib.select_snapshot_save_dirs_to_prune(entries, protect_names)
+                 + hlib.select_stale_snapshot_save_tmp_dirs(names, protect_names)):
+        if _rmtree_contained(os.path.join(RESULTS_DIR, name), RESULTS_DIR):
+            removed.append(name)
+    if removed:
+        logger.info("Snapshot", "retention removed %d old named-save snapshot(s) "
+                                "(keep newest %d per scenario and save): %s"
+                    % (len(removed), hlib.SAVE_SNAPSHOT_KEEP_PER_SCENARIO,
+                       ", ".join(removed[:5]) + (" ..." if len(removed) > 5 else "")))
 
 
 def _scenario_id_of_snapshot_dir(name: str, suffix: str = SAVE_SNAPSHOT_DIR_SUFFIX) -> str:
@@ -6194,11 +6347,17 @@ def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict
         "artifacts": dict(_EMPTY_ARTIFACTS),
     }
     _add_race_snapshot_field(result, spec, drive)
+    _add_snapshot_saves_field(result, spec)
     write_result(result, logger)
     # HARNESS-PRODUCED-SAVE-CLOBBERED-BY-SIBLING-RUN: take the run's own copy of
     # the produced save while the machine lock is still held. Verdict-neutral.
     result["snapshot"] = _snapshot_produced_save(run_id, spec, verdict.verdict,
                                                  instance_dir, run_save_name, logger)
+    # Multiplayer T-04: the lane's other declared saves, the same way.
+    named = _snapshot_named_saves(run_id, spec, verdict.verdict, instance_dir,
+                                  run_save_name, logger)
+    if named is not None:
+        result["snapshotSaves"] = named
     # V3 always-collect: the light UNCONDITIONAL artifact snapshot (KSP.log +
     # run-window screenshots into results/<runId>_shots/), verdict-neutral.
     result["artifacts"] = _collect_run_artifacts(
@@ -6217,6 +6376,16 @@ def _add_race_snapshot_field(result: Dict, spec: Dict, drive) -> None:
     if hlib.spec_race_fixture(spec) is not None:
         snap = drive.race_snapshot if drive is not None else None
         result["raceSnapshot"] = dict(snap or _EMPTY_RACE_SNAPSHOT)
+
+
+def _add_snapshot_saves_field(result: Dict, spec: Dict) -> None:
+    """Multiplayer T-04: a spec with ``[fixture] snapshotSaves`` carries one
+    not-attempted ``snapshotSaves`` record per declared save until the post-quit
+    step fills them in; every other run's record is unchanged."""
+    run_save_name = hlib._leaf_of(((spec or {}).get("fixture") or {}).get("saveTemplate", ""))
+    declared = hlib.spec_snapshot_saves(spec, run_save_name)
+    if declared:
+        result["snapshotSaves"] = [dict(_EMPTY_SNAPSHOT, save=name) for name, _ in declared]
 
 
 def _extract_collect_path(stdout: str) -> Optional[str]:
@@ -6612,6 +6781,13 @@ def print_dry_run_plan(selected: Sequence[Dict], instance_root_fn, logger: Harne
             verify_line += ", ghostLifecycle(facets only, no block declared)"
         if ledger_block is not None or world_block is not None:
             verify_line += (", ledgerOracle(manifest-capture + oracle diff -> PARSEK-FAIL(ledger) on hard drift)")
+        named_saves = hlib.spec_snapshot_saves(
+            spec, hlib._leaf_of(fixture.get("saveTemplate", "") or ""))
+        if named_saves:
+            verify_line += (", snapshotSaves(%s -> PARSEK-FAIL(%s) when one is absent; "
+                            "copied to results/<runId>_save-<suffix>/)"
+                            % (", ".join(n for n, _ in named_saves),
+                               hlib.SNAPSHOT_SAVE_MISSING_SUBKIND))
         print(verify_line)
         print("")
     print("=== end plan ===")
@@ -6685,7 +6861,8 @@ def run(argv: Optional[Sequence[str]] = None, runtime: Optional[Runtime] = None)
                              "--slot only, one lane")
     parser.add_argument("--sweep-results", action="store_true",
                         help="maintenance: run the results retention sweeps (old _shots, old "
-                             "and orphaned _save snapshots, stale .verify-private) and exit; "
+                             "and orphaned _save / _save-<suffix> / _race snapshots, stale "
+                             ".verify-private) and exit; "
                              "what the parallel runner calls once after its slots drained")
     parser.add_argument("--refresh-coverage", action="store_true",
                         help="maintenance: refresh coverage/duration/flake from results/ and "
@@ -6947,13 +7124,15 @@ def _run_maintenance(args, runtime, umbrella_root: str, logger) -> int:
 
 def sweep_results_dir(logger) -> None:
     """The results retention passes a slot child skips, once: old ``_shots`` dirs,
-    old / orphaned ``_save`` snapshots and leftover ``.verify-private`` copies.
+    old / orphaned ``_save``, ``_save-<suffix>`` and ``_race`` snapshots and leftover
+    ``.verify-private`` copies.
     Run only while no lane is flying (the runner calls it after its slots drained)."""
     if not os.path.isdir(RESULTS_DIR):
         logger.info("Artifacts", "sweep: no results dir at %s" % RESULTS_DIR)
         return
     _prune_shots_dirs("", logger)
     _prune_save_snapshot_dirs("", logger)
+    _prune_named_save_snapshot_dirs((), logger)
     _prune_race_snapshot_dirs("", logger)
     stale_copies = os.path.join(RESULTS_DIR, POST_QUIT_COPY_DIRNAME)
     if os.path.isdir(stale_copies):
@@ -7702,6 +7881,7 @@ def _write_selection_refusal_result(spec, subkind, note, logger) -> None:
         "artifacts": dict(_EMPTY_ARTIFACTS),
     }
     _add_race_snapshot_field(result, spec, None)
+    _add_snapshot_saves_field(result, spec)
     write_result(result, logger)
     _generate_contact_sheet(result["runId"], logger)
 
@@ -7752,6 +7932,7 @@ def _write_invalid_spec_result(spec, errors, runtime, logger) -> None:
         "artifacts": dict(_EMPTY_ARTIFACTS),
     }
     _add_race_snapshot_field(result, spec, None)
+    _add_snapshot_saves_field(result, spec)
     write_result(result, logger)
     _generate_contact_sheet(result["runId"], logger)
 
