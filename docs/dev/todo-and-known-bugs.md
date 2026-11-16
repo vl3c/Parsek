@@ -2002,8 +2002,19 @@ in parallel in the cloud):
    Tracking Station lanes V18T / V26T (proto-vessel map ghosts placed by orbit propagation, a
    different comparison); V26M was deleted 2026-11-12. Unsupported unit shapes (re-aim,
    descent trigger, overlapping members, orbital checkpoint sections) are counted, not judged.
-6. [ ] Loops meeting a Re-Fly, a career save and a scene change in watch mode (audit B7; LF-1 and
-   LF-2 cover only a plain Rewind-to-Launch with a loop armed).
+6. [ ] (AUTHORED 2026-11-16, never flown: lanes `LX-1-loop-armed-refly-discard-merge` and
+   `LX-2-career-loop-watch-scene-change-reload`, operator, tag `pending-flight`, branch
+   `loop-crossings`, harness only.) Loops meeting a Re-Fly, a career save and a scene change in
+   watch mode (audit B7; LF-1 and LF-2 cover only a plain Rewind-to-Launch with a loop armed).
+   LX-1 loops tree A of `rover-route-recorded` while IR-3's Flea flight is Re-Flown, discarded,
+   re-entered and Re-Flown again and merged: every scene publishes the unit live with the
+   arm-time phase anchor and launch cadence, and the loop ghost replays in each flight and after
+   the merge. A loop on the Re-Fly's OWN tree cannot be playing during that Re-Fly (its anchor is
+   the arm UT, after the span, so the rewind point lies before it: LF-2's first-run case). LX-2
+   arms the loop in `rover-route-recorded-career`, watches it, exits to the Space Center, opens
+   the Tracking Station, returns to flight and F5 / F9s while watching: each scene change ends
+   the watch, each scene and the Cold reload rebuild the unit with the arm-time phase, and the
+   ledger oracle reads the template pools unchanged. Close the item after both fly green.
 7. [ ] Ghost engine and FX effects across a Re-Fly or a revert (audit B8; the FX fingerprint A/B,
    T48, has never been re-run).
 8. [x] ~~A load-time optimizer pass over a route WITH source recording refs, asserting the route
@@ -2410,7 +2421,8 @@ merges this residue with the moon program is NEXT-TESTS-TO-BUILD-2026-11-11 at t
   `rover-relay-recorded` would show the 73.2 residual, but its endpoints are post-relay, B empty).
 - [ ] B3 / item 3: route render lanes still pin counts and log lines, not where the route ghost or
   its line is (only the SLM lanes read a loop ghost's position).
-- [ ] B7: loops never meet a Re-Fly, a career save or a scene change in watch mode.
+- [ ] B7: loops never meet a Re-Fly, a career save or a scene change in watch mode (LX-1 / LX-2
+  authored 2026-11-16, never flown; NEXT-TESTS-TO-BUILD-2026-11-11 item 6).
 - [ ] B8: ghost FX across a Re-Fly or a revert has no lane.
 - [ ] B11: in-game categories no lane runs (ChainTipBlockedGhost, DeployedScienceGhost,
   GhostReapplyFrame, GuiMock, JointBreakCheckCoroutine and TreeRestoreCoroutine: no committed spec
