@@ -87,6 +87,20 @@ namespace Parsek.Tests
             return rec;
         }
 
+        /// <summary>
+        /// The vessel-switch stop shape (EVA board, ChainToVessel): the recorder builds the
+        /// capture without closing its section, so the capture's deep-copied TrackSections
+        /// hold only the CLOSED Absolute section while the Relative one is still the
+        /// recorder's open <c>currentTrackSection</c>. The flat list mirrors both.
+        /// </summary>
+        private static Recording SwitchStopCapture(out TrackSection openRelative)
+        {
+            Recording full = PromotedBoosterCapture();
+            openRelative = full.TrackSections[1];
+            full.TrackSections.RemoveAt(1);
+            return full;
+        }
+
         private static double FlatChord(Recording rec)
         {
             Vector3d first = FlatSurfaceResolver(rec.Points[0]).Value;
@@ -125,6 +139,95 @@ namespace Parsek.Tests
                 LiveVesselSnapshot.ClassifySnapshotDistanceRoute(sectionless));
             Assert.Equal(LiveVesselSnapshot.SnapshotDistanceRoute.FlatPoints,
                 LiveVesselSnapshot.ClassifySnapshotDistanceRoute(null));
+        }
+
+        // D5 residual: the vessel-switch stop (EVA board, ChainToVessel) builds the capture
+        // with the Relative section still open. Without the open section the capture routes
+        // through the flat list (the defect); with it, through the body-fixed surfaces.
+        [Fact]
+        public void SwitchStop_OpenRelativeSection_TakesBodyFixedSections_NotTheFlatAnchorMetres()
+        {
+            Recording rec = SwitchStopCapture(out TrackSection open);
+            Assert.Equal(ReferenceFrame.Relative, open.referenceFrame);
+            // The defect: the closed sections alone route through the flat list, which
+            // reads the open section's anchor-local metres as lat/lon.
+            Assert.Equal(LiveVesselSnapshot.SnapshotDistanceRoute.FlatPoints,
+                LiveVesselSnapshot.ClassifySnapshotDistanceRoute(rec));
+            Assert.True(FlatChord(rec) > 1000000.0);
+
+            Assert.Equal(LiveVesselSnapshot.SnapshotDistanceRoute.BodyFixedSections,
+                LiveVesselSnapshot.ClassifySnapshotDistanceRoute(rec, open));
+            Assert.True(LiveVesselSnapshot.TryComputeSnapshotDistancesFromBodyFixedSurfaces(
+                rec, FlatSurfaceResolver, null,
+                out double distanceFromLaunch,
+                out double maxDist,
+                out LiveVesselSnapshot.MaxDistanceReferenceSurface referenceSurface,
+                out int sampleCount,
+                out bool endResolved,
+                open));
+            Assert.Equal(5000.0, maxDist, 6);
+            Assert.Equal(5000.0, distanceFromLaunch, 6);
+            Assert.True(endResolved);
+            Assert.Equal(LiveVesselSnapshot.MaxDistanceReferenceSurface.AbsoluteFrames, referenceSurface);
+            Assert.Equal(5, sampleCount);
+
+            Assert.True(LiveVesselSnapshot.TryGetEndBiomeSamplePoint(rec, true, out TrajectoryPoint end, open));
+            Assert.Equal(120.0, end.ut);
+            Assert.Equal(5.0, end.latitude);
+
+            // The capture's own sections are not changed by the distance walk.
+            Assert.Single(rec.TrackSections);
+        }
+
+        // The open section has no body-fixed sample (Relative frames only) and nothing else
+        // authors one: the distances stay 0, so the finalize backfill still runs later.
+        [Fact]
+        public void SwitchStop_OpenRelativeWithoutBodyFixedFrames_LeavesDistancesZero()
+        {
+            var rec = new Recording { RecordingId = "eva-board" };
+            var open = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 80.0,
+                frames = new List<TrajectoryPoint> { P(80.0, 1200.0, -850.0, 300.0), P(90.0, 1100.0, -800.0, 200.0) },
+            };
+            rec.Points.AddRange(open.frames);
+
+            Assert.Equal(LiveVesselSnapshot.SnapshotDistanceRoute.BodyFixedSections,
+                LiveVesselSnapshot.ClassifySnapshotDistanceRoute(rec, open));
+            Assert.False(LiveVesselSnapshot.TryComputeSnapshotDistancesFromBodyFixedSurfaces(
+                rec, FlatSurfaceResolver, new Vector3d(1.0, 0.0, 0.0),
+                out double distanceFromLaunch, out double maxDist,
+                out LiveVesselSnapshot.MaxDistanceReferenceSurface _, out int _, out bool endResolved, open));
+            Assert.Equal(0.0, distanceFromLaunch);
+            Assert.Equal(0.0, maxDist);
+            Assert.False(endResolved);
+        }
+
+        [Fact]
+        public void BuildDistanceRouteSections_AddsTheSuppliedOpenSection_NeverMutatesClosed()
+        {
+            var closed = new List<TrackSection>
+            {
+                new TrackSection { referenceFrame = ReferenceFrame.Absolute, frames = new List<TrajectoryPoint> { P(1.0, 0.0, 0.0, 0.0) } },
+            };
+            var withPayload = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                bodyFixedFrames = new List<TrajectoryPoint> { P(2.0, 1.0, 0.0, 0.0) },
+            };
+
+            Assert.Same(closed, LiveVesselSnapshot.BuildDistanceRouteSections(closed, null));
+            var combined = LiveVesselSnapshot.BuildDistanceRouteSections(closed, withPayload);
+            Assert.Equal(2, combined.Count);
+            Assert.Equal(ReferenceFrame.Relative, combined[1].referenceFrame);
+            Assert.Single(closed);
+            Assert.Single(LiveVesselSnapshot.BuildDistanceRouteSections(null, withPayload));
+            Assert.Null(LiveVesselSnapshot.BuildDistanceRouteSections(null, null));
+            Assert.Equal(LiveVesselSnapshot.SnapshotDistanceRoute.FlatPoints,
+                LiveVesselSnapshot.ClassifySnapshotDistanceRouteForSections(closed));
+            Assert.Equal(LiveVesselSnapshot.SnapshotDistanceRoute.BodyFixedSections,
+                LiveVesselSnapshot.ClassifySnapshotDistanceRouteForSections(combined));
         }
 
         // The destroyed-vessel path: no live position, so the distance runs from the

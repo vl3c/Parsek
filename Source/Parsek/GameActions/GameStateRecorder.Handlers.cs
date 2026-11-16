@@ -1537,6 +1537,26 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: is a MilestoneAchievement ledger row (already matched by milestone id and
+        /// capture moment) the row of the pending event being enriched? The row must carry the
+        /// event's own scope: both untagged (the KSC row), or both tagged to the same
+        /// recording (the recovery-owned row of a committed recording). While a committed-tree
+        /// restore attempt resumes that recording, a row at or before the attempt's cutoff is
+        /// committed history, never the live event's row (the boundary
+        /// <see cref="TryCoalesceWorldRecordReward"/> uses).
+        /// </summary>
+        internal static bool IsMilestoneEnrichLedgerRowMatch(
+            string rowRecordingId, double rowCaptureUT, string eventRecordingId,
+            bool hasAttemptCutoff, double attemptCutoffUT)
+        {
+            if (!string.Equals(rowRecordingId ?? "", eventRecordingId ?? "", StringComparison.Ordinal))
+                return false;
+            if (hasAttemptCutoff && !(rowCaptureUT > attemptCutoffUT))
+                return false;
+            return true;
+        }
+
+        /// <summary>
         /// Called from the Harmony postfix on <c>ProgressNode.AwardProgress</c>. Looks
         /// up the pending MilestoneAchieved event for the given node (by its qualified
         /// id) and updates its detail string with the real funds/rep/sci values. If no
@@ -1593,21 +1613,37 @@ namespace Parsek
             evt.detail = newDetail;
             PendingMilestoneEventById.Remove(milestoneId);
 
-            // If the event was already forwarded to the ledger via OnKscSpending, the
-            // ledger has a zero-reward MilestoneAchievement action we need to update.
-            // Find it by matching type + UT + milestoneId.
+            // If the event was already forwarded to the ledger, the ledger has a
+            // zero-reward MilestoneAchievement action we need to update: the untagged KSC
+            // row (OnKscSpending) or the recovery-owned row tagged to the committed
+            // recording the recovery completed it for (WriteRecoveryOwnedMilestoneIfAny).
+            // Either way the row carries the event's own tag; a row of another scope is
+            // never this event's (IsMilestoneEnrichLedgerRowMatch).
             if (LedgerOrchestrator.IsInitialized)
             {
+                string eventScope = evt.recordingId ?? "";
+                bool hasAttemptCutoff = CommittedTreeRestoreAttempt.TryGetEventCutoff(
+                    eventScope, out double attemptCutoffUT);
+                int otherScopeRows = 0;
+                bool rowUpdated = false;
                 var ledgerActions = Ledger.Actions;
                 for (int i = ledgerActions.Count - 1; i >= 0; i--)
                 {
                     var a = ledgerActions[i];
                     if (a.Type != GameActionType.MilestoneAchievement) continue;
+                    if (a.MilestoneId != evt.key) continue;
                     // Capture moment: a row dated at the ledger held-through UT
                     // (LedgerHeldWindow.StampKscOriginRow) still pairs at its event's clock.
-                    if (System.Math.Abs(LedgerHeldWindow.CaptureMomentUT(a) - evt.ut) > 0.1) continue;
-                    if (a.MilestoneId != evt.key) continue;
+                    double rowCaptureUT = LedgerHeldWindow.CaptureMomentUT(a);
+                    if (System.Math.Abs(rowCaptureUT - evt.ut) > 0.1) continue;
+                    if (!IsMilestoneEnrichLedgerRowMatch(
+                            a.RecordingId, rowCaptureUT, eventScope, hasAttemptCutoff, attemptCutoffUT))
+                    {
+                        otherScopeRows++;
+                        continue;
+                    }
 
+                    rowUpdated = true;
                     a.MilestoneFundsAwarded = (float)funds;
                     a.MilestoneRepAwarded = rep;
                     a.MilestoneScienceAwarded = (float)sci;
@@ -1615,6 +1651,14 @@ namespace Parsek
                         $"EnrichPendingMilestoneRewards: updated ledger action for '{evt.key}' " +
                         $"funds={funds:F0} rep={rep:F1} sci={sci:F1}");
                     break;
+                }
+                if (otherScopeRows > 0)
+                {
+                    ParsekLog.Verbose("GameStateRecorder",
+                        $"EnrichPendingMilestoneRewards: '{evt.key}' (scope='{eventScope}') left " +
+                        $"{otherScopeRows.ToString(CultureInfo.InvariantCulture)} ledger row(s) of " +
+                        "another scope or of restore-attempt history unchanged " +
+                        $"(own row {(rowUpdated ? "updated" : "not found")})");
                 }
             }
 

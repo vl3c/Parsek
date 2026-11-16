@@ -284,6 +284,218 @@ namespace Parsek.Tests
             Assert.DoesNotContain(finished, f => f.Id == g);
         }
 
+        // CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE residual: a contract a
+        // no-clock patch took off the active list unfiled was never filed later.
+        private static List<KspStatePatcher.LateContractFiling> PlanLate(
+            Dictionary<Guid, ContractTerminalOutcome> outcomes, Dictionary<Guid, double> uts,
+            HashSet<Guid> inStock, double clockUT,
+            out int noClock, out int outcomeLater, out int noSnapshot,
+            HashSet<Guid> active = null, HashSet<Guid> tombstoned = null, Func<string, bool> hasSnapshot = null)
+        {
+            var o = new Dictionary<string, ContractTerminalOutcome>();
+            foreach (var kv in outcomes) o[kv.Key.ToString()] = kv.Value;
+            var u = new Dictionary<string, double>();
+            if (uts != null) foreach (var kv in uts) u[kv.Key.ToString()] = kv.Value;
+            return KspStatePatcher.PlanMissingTerminalContractFilings(o, u, active ?? new HashSet<Guid>(),
+                inStock, tombstoned, hasSnapshot, clockUT, out noClock, out outcomeLater, out noSnapshot);
+        }
+
+        private static KspStatePatcher.ContractFilterEntry[] ToEntries(List<Contract> list)
+        {
+            var r = new KspStatePatcher.ContractFilterEntry[list.Count];
+            for (int i = 0; i < list.Count; i++) r[i] = Entry(list[i].ContractGuid, list[i].ContractState);
+            return r;
+        }
+
+        [Fact]
+        public void NoClockPatchRemoves_RealClockPatchFilesItOnce_AndARepeatAddsNoDuplicate()
+        {
+            // Patch 1 (no real clock): the walk holds the Active contract terminal at an
+            // outcome already behind the save's clock. It leaves the active list unfiled.
+            var g = Guid.NewGuid();
+            var outcomes = new Dictionary<Guid, ContractTerminalOutcome> { { g, ContractTerminalOutcome.Failed } };
+            var uts = new Dictionary<Guid, double> { { g, 800.0 } };
+            var current = new List<KspStatePatcher.ContractFilterEntry> { Entry(g, Contract.State.Active) };
+            var finished = new List<Contract>();
+            var moves1 = Plan(current, new List<KspStatePatcher.ContractFilterEntry>(), new HashSet<Guid>(),
+                outcomes, uts, out _, out _, out int noClock, null, double.NaN);
+            Assert.Empty(moves1);
+            Assert.Equal(1, noClock);
+            Assert.Contains(CurrentKeys(current, new HashSet<Guid>(), new HashSet<Guid>(outcomes.Keys), outcomes),
+                k => k.Id == g);
+            current.Clear();
+            // ...and the late planner, also without a clock, files nothing either.
+            Assert.Empty(PlanLate(outcomes, uts, new HashSet<Guid>(), double.NaN,
+                out int lateNoClock, out _, out _));
+            Assert.Equal(1, lateNoClock);
+
+            // Patch 2 (real clock 1000, past the outcome): the contract is in neither list, so
+            // the retire planner (which reads the active list) cannot see it ...
+            var moves2 = Plan(current, new List<KspStatePatcher.ContractFilterEntry>(ToEntries(finished)),
+                new HashSet<Guid>(), outcomes, uts, out _, out _, out int noClock2, null, 1000.0);
+            Assert.Empty(moves2);
+            Assert.Equal(0, noClock2);
+
+            // ... and the late planner files it, once, in the outcome state, silently.
+            var plan = PlanLate(outcomes, uts, new HashSet<Guid>(), 1000.0, out _, out _, out _);
+            Assert.Single(plan);
+            Assert.Equal(g, plan[0].Id);
+            Assert.Equal(Contract.State.Failed, plan[0].FinishedState);
+            Assert.Equal(800.0, plan[0].FinishedUT);
+            int fired = 0;
+            int filed = 0, failed = 0;
+            KspStatePatcher.FileMissingTerminalContracts(plan, f =>
+            {
+                var c = new FakeContract(f.Id, Contract.State.Active);
+                c.OnStateChange.Add(st => fired++);
+                return c;
+            }, finished, ref filed, ref failed);
+            Assert.Equal(1, filed);
+            Assert.Equal(0, failed);
+            Assert.Single(finished);
+            Assert.Equal(g, finished[0].ContractGuid);
+            Assert.Equal(Contract.State.Failed, finished[0].ContractState);
+            Assert.Equal(800.0, finished[0].DateFinished);
+            Assert.Equal(0, fired);
+            Assert.Contains(logLines, l => l.Contains("[KspStatePatcher]")
+                && l.Contains("late-filed ended contract " + g)
+                && l.Contains("as Failed (outcome=Failed, finishedUT=800)")
+                && l.Contains("no reward or penalty"));
+
+            // Patch 3 (repeat): the filed copy is in stock's finished list, so nothing again,
+            // and the ordinary partition keeps it as a surviving terminal entry.
+            var inStock = new HashSet<Guid> { g };
+            Assert.Empty(PlanLate(outcomes, uts, inStock, 1100.0, out _, out _, out _));
+            KspStatePatcher.PartitionContractsForPatch(new List<KspStatePatcher.ContractFilterEntry>(),
+                new List<KspStatePatcher.ContractFilterEntry>(ToEntries(finished)), new HashSet<Guid>(),
+                new HashSet<Guid>(outcomes.Keys), outcomes, null, out var toRemoveCurrent, out var toRemoveFinished,
+                out _, out var survivingTerminal);
+            Assert.Empty(toRemoveCurrent);
+            Assert.Empty(toRemoveFinished);
+            Assert.Contains(g, survivingTerminal);
+        }
+
+        [Fact]
+        public void LateFiling_TwoSpellingsOfOneGuid_PlanOneFiling()
+        {
+            var g = Guid.NewGuid();
+            string lower = g.ToString();
+            string upper = g.ToString().ToUpperInvariant();
+            string braced = g.ToString("B");
+            var outcomes = new Dictionary<string, ContractTerminalOutcome>
+            {
+                [lower] = ContractTerminalOutcome.Failed,
+                [upper] = ContractTerminalOutcome.Failed,
+                [braced] = ContractTerminalOutcome.Failed,
+            };
+            var uts = new Dictionary<string, double> { [lower] = 800.0, [upper] = 800.0, [braced] = 800.0 };
+
+            var plan = KspStatePatcher.PlanMissingTerminalContractFilings(outcomes, uts, new HashSet<Guid>(),
+                new HashSet<Guid>(), null, null, 1000.0, out _, out _, out _);
+
+            Assert.Single(plan);
+            Assert.Equal(g, plan[0].Id);
+        }
+
+        [Fact]
+        public void LateFiling_SkippedSpellingDoesNotHideALaterQualifyingOne()
+        {
+            var g = Guid.NewGuid();
+            string lower = g.ToString();
+            string upper = g.ToString().ToUpperInvariant();
+            var outcomes = new Dictionary<string, ContractTerminalOutcome>
+            {
+                [lower] = ContractTerminalOutcome.Failed,
+                [upper] = ContractTerminalOutcome.Failed,
+            };
+            // One spelling carries an outcome after the clock, the other one before it.
+            var uts = new Dictionary<string, double> { [lower] = 5000.0, [upper] = 800.0 };
+
+            var plan = KspStatePatcher.PlanMissingTerminalContractFilings(outcomes, uts, new HashSet<Guid>(),
+                new HashSet<Guid>(), null, null, 1000.0, out _, out int later, out _);
+
+            Assert.Single(plan);
+            Assert.Equal(800.0, plan[0].FinishedUT);
+            Assert.Equal(1, later);
+        }
+
+        [Fact]
+        public void LateFiling_OutcomeAfterTheClockOrUnknown_StaysUnfiled()
+        {
+            var later = Guid.NewGuid();
+            var unknown = Guid.NewGuid();
+            var outcomes = new Dictionary<Guid, ContractTerminalOutcome>
+            {
+                { later, ContractTerminalOutcome.Completed },
+                { unknown, ContractTerminalOutcome.Completed },
+            };
+            var plan = PlanLate(outcomes, new Dictionary<Guid, double> { { later, 5000.0 } },
+                new HashSet<Guid>(), 1000.0, out int noClock, out int outcomeLater, out _);
+
+            Assert.Empty(plan);
+            Assert.Equal(2, outcomeLater);
+            Assert.Equal(0, noClock);
+
+            // At the tolerance edge it files (the accept filter's slack).
+            Assert.Single(PlanLate(new Dictionary<Guid, ContractTerminalOutcome> { { later, ContractTerminalOutcome.Completed } },
+                new Dictionary<Guid, double> { { later, 1000.5 } }, new HashSet<Guid>(), 1000.0, out _, out _, out _));
+        }
+
+        [Fact]
+        public void LateFiling_SkipsActiveTombstonedPresentRequirementsLostAndSnapshotless()
+        {
+            var active = Guid.NewGuid();
+            var tomb = Guid.NewGuid();
+            var present = Guid.NewGuid();
+            var lost = Guid.NewGuid();
+            var noSnap = Guid.NewGuid();
+            var ok = Guid.NewGuid();
+            var outcomes = new Dictionary<Guid, ContractTerminalOutcome>
+            {
+                { active, ContractTerminalOutcome.Completed },
+                { tomb, ContractTerminalOutcome.Completed },
+                { present, ContractTerminalOutcome.Completed },
+                { lost, ContractTerminalOutcome.RequirementsLost },
+                { noSnap, ContractTerminalOutcome.Cancelled },
+                { ok, ContractTerminalOutcome.DeadlineExpired },
+            };
+            var uts = new Dictionary<Guid, double>();
+            foreach (var k in outcomes.Keys) uts[k] = 100.0;
+
+            var plan = PlanLate(outcomes, uts, new HashSet<Guid> { present }, 1000.0,
+                out _, out _, out int noSnapshot,
+                active: new HashSet<Guid> { active }, tombstoned: new HashSet<Guid> { tomb },
+                hasSnapshot: id => id != noSnap.ToString());
+
+            Assert.Single(plan);
+            Assert.Equal(ok, plan[0].Id);
+            Assert.Equal(Contract.State.DeadlineExpired, plan[0].FinishedState);
+            Assert.Equal(1, noSnapshot);
+        }
+
+        [Fact]
+        public void LateFiling_LoadFailure_CountsAndWarns_AddsNothing()
+        {
+            var g = Guid.NewGuid();
+            var plan = new List<KspStatePatcher.LateContractFiling>
+            {
+                new KspStatePatcher.LateContractFiling
+                {
+                    Id = g, ContractId = g.ToString(), Outcome = ContractTerminalOutcome.Completed,
+                    FinishedState = Contract.State.Completed, FinishedUT = 10.0
+                }
+            };
+            var finished = new List<Contract>();
+            int filed = 0, failed = 0;
+
+            KspStatePatcher.FileMissingTerminalContracts(plan, f => null, finished, ref filed, ref failed);
+
+            Assert.Empty(finished);
+            Assert.Equal(0, filed);
+            Assert.Equal(1, failed);
+            Assert.Contains(logLines, l => l.Contains("[WARN]") && l.Contains("could not file ended contract " + g + " late"));
+        }
+
         [Fact]
         public void UnknownEndUT_IsNaN()
         {

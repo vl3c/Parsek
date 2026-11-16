@@ -85,7 +85,8 @@ namespace Parsek
             Recording pending,
             bool vesselDestroyed,
             Vessel vesselOverride = null,
-            ConfigNode destroyedFallbackSnapshot = null)
+            ConfigNode destroyedFallbackSnapshot = null,
+            TrackSection? openSection = null)
         {
             if (pending == null || pending.Points.Count == 0)
             {
@@ -97,8 +98,10 @@ namespace Parsek
             // cannot use the flat Points list: its Relative frames hold anchor-local
             // Cartesian metres in latitude/longitude/altitude, so it measures over the
             // sections' body-fixed surfaces instead (see ClassifySnapshotDistanceRoute).
+            // openSection is the recorder's still-open section on a stop that did not
+            // close it (the vessel-switch stop); it counts like a closed one.
             bool bodyFixedRoute =
-                LiveVesselSnapshot.ClassifySnapshotDistanceRoute(pending) == LiveVesselSnapshot.SnapshotDistanceRoute.BodyFixedSections;
+                LiveVesselSnapshot.ClassifySnapshotDistanceRoute(pending, openSection) == LiveVesselSnapshot.SnapshotDistanceRoute.BodyFixedSections;
             var firstPoint = pending.Points[0];
             CelestialBody bodyFirst = null;
             if (!bodyFixedRoute)
@@ -117,7 +120,7 @@ namespace Parsek
                 if (bodyFixedRoute)
                 {
                     // End position is the latest body-fixed sample (vessel already gone).
-                    LiveVesselSnapshot.ApplySnapshotDistancesFromBodyFixedSurfaces(pending, null, "destroyed");
+                    LiveVesselSnapshot.ApplySnapshotDistancesFromBodyFixedSurfaces(pending, null, "destroyed", openSection);
                 }
                 else
                 {
@@ -142,7 +145,7 @@ namespace Parsek
                 // End biome from the last body-fixed position (vessel already destroyed).
                 // The flat tail may be a Relative frame, whose lat/lon are anchor-local metres.
                 TrajectoryPoint endBiomePoint;
-                if (LiveVesselSnapshot.TryGetEndBiomeSamplePoint(pending, bodyFixedRoute, out endBiomePoint))
+                if (LiveVesselSnapshot.TryGetEndBiomeSamplePoint(pending, bodyFixedRoute, out endBiomePoint, openSection))
                     pending.EndBiome = LiveVesselSnapshot.TryResolveBiome(endBiomePoint.bodyName, endBiomePoint.latitude, endBiomePoint.longitude);
 
                 ParsekLog.Info("Spawner", $"Vessel was destroyed during recording. Distance from launch: {pending.DistanceFromLaunch:F0}m, " +
@@ -166,7 +169,7 @@ namespace Parsek
             // Compute distance from launch position
             if (bodyFixedRoute)
             {
-                LiveVesselSnapshot.ApplySnapshotDistancesFromBodyFixedSurfaces(pending, vessel.GetWorldPos3D(), "live");
+                LiveVesselSnapshot.ApplySnapshotDistancesFromBodyFixedSurfaces(pending, vessel.GetWorldPos3D(), "live", openSection);
             }
             else if (bodyFirst != null)
             {

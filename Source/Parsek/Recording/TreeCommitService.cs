@@ -1168,11 +1168,23 @@ namespace Parsek
         /// <summary>
         /// The diagnostic peaks and final-state metadata (situation, distances, destroyed flag)
         /// of <see cref="PreserveLiveRuntimeFieldsOnReplace"/>. A Destroyed replacement never
-        /// takes back a cleared situation.
+        /// takes back a cleared situation. The destroyed flag copies only onto a replacement
+        /// that has no terminal yet or ends Destroyed itself: a replacement whose own terminal
+        /// says the vessel survived (or was recovered, docked, ...) keeps its own verdict. The
+        /// destroyed state the replacement ends with is decided once, before any copy, so both
+        /// situation guards read the same answer.
         /// </summary>
         internal static void PreserveFinalStateDiagnosticsOnReplace(
             Recording existing, Recording incoming, ref int otherPreserved)
         {
+            bool copyDestroyed = ShouldCopyDestroyedFlagOnReplace(existing, incoming);
+            if (!incoming.VesselDestroyed && existing.VesselDestroyed && !copyDestroyed)
+                ParsekLog.Info("RecordingStore",
+                    $"PreserveLiveRuntimeFieldsOnReplace: destroyed flag not copied onto recording " +
+                    $"\"{incoming.VesselName}\" id={incoming.RecordingId ?? "<none>"}: its own terminal " +
+                    $"{incoming.TerminalStateValue} is not Destroyed");
+            bool endsDestroyed = incoming.VesselDestroyed || copyDestroyed;
+
             // Diagnostic peaks / final-state metadata.
             // SceneExitSituation: do not resurrect a stale pre-destruction value when
             // the incoming recording carries a Destroyed terminal. MarkDestroyedAtTerminal
@@ -1181,7 +1193,7 @@ namespace Parsek
             // sealed Destroyed verdict on every commit/replace cycle.
             if (incoming.SceneExitSituation == -1
                 && existing.SceneExitSituation != -1
-                && !incoming.VesselDestroyed)
+                && !endsDestroyed)
             {
                 incoming.SceneExitSituation = existing.SceneExitSituation;
                 otherPreserved++;
@@ -1197,7 +1209,7 @@ namespace Parsek
                 incoming.DistanceFromLaunch = existing.DistanceFromLaunch;
                 otherPreserved++;
             }
-            if (!incoming.VesselDestroyed && existing.VesselDestroyed)
+            if (copyDestroyed)
             {
                 incoming.VesselDestroyed = true;
                 otherPreserved++;
@@ -1208,11 +1220,25 @@ namespace Parsek
             // pre-destruction recording.
             if (string.IsNullOrEmpty(incoming.VesselSituation)
                 && !string.IsNullOrEmpty(existing.VesselSituation)
-                && !incoming.VesselDestroyed)
+                && !endsDestroyed)
             {
                 incoming.VesselSituation = existing.VesselSituation;
                 otherPreserved++;
             }
+        }
+
+        /// <summary>
+        /// Whether a replace commit copies <c>VesselDestroyed</c> from the committed recording
+        /// onto its replacement: only when the replacement does not carry it, the committed
+        /// copy does, and the replacement's own terminal is unset or Destroyed. A set terminal
+        /// that is not Destroyed is the replacement's own verdict that the vessel did not die.
+        /// </summary>
+        internal static bool ShouldCopyDestroyedFlagOnReplace(Recording existing, Recording incoming)
+        {
+            if (existing == null || incoming == null) return false;
+            if (incoming.VesselDestroyed || !existing.VesselDestroyed) return false;
+            return !incoming.TerminalStateValue.HasValue
+                || incoming.TerminalStateValue.Value == TerminalState.Destroyed;
         }
 
         /// <summary>

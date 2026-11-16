@@ -211,7 +211,7 @@ namespace Parsek
                     // after the dock UT is a post-dock continuation of the merged stack.
                     if (!(rec.StartUT < bp.UT - WindowEpsilon))
                         continue;
-                    if (VesselLaunchIdentity.GuidsConclusivelyDiffer(
+                    if (VesselLaunchIdentity.GuidsConclusivelyDifferAllowingLinks(
                             rec.RecordedVesselGuid, expectedGuid))
                     {
                         rejectedByGuid = true;
@@ -641,7 +641,9 @@ namespace Parsek
         }
 
         // My tree's recording claimed by the foreign branch point: pid match, launch guids not
-        // conclusively differing (walker parity). Prefers the EARLIEST-starting match so the
+        // conclusively differing through the identity link rows (walker parity: a resumed
+        // spawned vessel's recording keeps its original guid while a dock stamps the live one).
+        // Prefers the EARLIEST-starting match so the
         // claim pins the vessel's own line, not a later continuation segment. Debris never
         // matches: pids are craft-baked (not launch-unique), so a guid-less debris recording
         // carrying a colliding pid would otherwise mint a false partner-journey affordance for
@@ -657,7 +659,7 @@ namespace Parsek
             {
                 if (rec == null || rec.IsDebris || rec.VesselPersistentId != pid)
                     continue;
-                if (VesselLaunchIdentity.GuidsConclusivelyDiffer(
+                if (VesselLaunchIdentity.GuidsConclusivelyDifferAllowingLinks(
                         rec.RecordedVesselGuid, foreignLaunchGuid))
                 {
                     rejectedByGuid = true;
@@ -765,7 +767,7 @@ namespace Parsek
 
                 // Partner departure (or partner-surviving continuation): pid + guid gate.
                 if (child.VesselPersistentId == link.PartnerPid
-                    && !VesselLaunchIdentity.GuidsConclusivelyDiffer(
+                    && !VesselLaunchIdentity.GuidsConclusivelyDifferAllowingLinks(
                         child.RecordedVesselGuid, link.PartnerLaunchGuid))
                     return child;
 

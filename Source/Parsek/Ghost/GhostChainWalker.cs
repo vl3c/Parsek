@@ -149,9 +149,11 @@ namespace Parsek
                 // (the launch of the last/tip-most link); a conclusive guid mismatch drops the stale
                 // launch's links, which then simply spawn normally instead of being suppressed. When
                 // all links share a launch (or the guid is unknown) nothing is dropped (unchanged).
+                // Guids joined by an identity link row (a spawned or resumed vessel docked under
+                // its live guid while its recordings keep the original) are one vessel, not two.
                 string launchGuid = links[links.Count - 1].recordedVesselGuid;
                 int droppedStaleLaunchLinks = links.RemoveAll(
-                    l => VesselLaunchIdentity.GuidsConclusivelyDiffer(l.recordedVesselGuid, launchGuid));
+                    l => VesselLaunchIdentity.GuidsConclusivelyDifferAllowingLinks(l.recordedVesselGuid, launchGuid));
                 if (droppedStaleLaunchLinks > 0)
                     ParsekLog.VerboseOnChange(Tag,
                         identity: string.Format(ic, "launch-split|{0}", pid),
@@ -240,11 +242,13 @@ namespace Parsek
                 // #976-class: the chain's OriginalVesselPid is the craft-baked pid; require the chain
                 // to be the SAME launch as rec (its LaunchGuid), so a relaunch's chain does not
                 // suppress a prior launch's recording. Null/unknown guid falls back to pid-only.
+                // A link row joins a resumed spawned vessel's recording (original guid) to the
+                // live guid a later dock stamped on the claim.
                 if (rec.VesselPersistentId != 0
                     && rec.VesselPersistentId == chain.OriginalVesselPid
                     && chain.SpawnUT > rec.EndUT
                     && chain.TipRecordingId != rec.RecordingId
-                    && !VesselLaunchIdentity.GuidsConclusivelyDiffer(chain.LaunchGuid, rec.RecordedVesselGuid))
+                    && !VesselLaunchIdentity.GuidsConclusivelyDifferAllowingLinks(chain.LaunchGuid, rec.RecordedVesselGuid))
                     return chain;
             }
 
@@ -649,11 +653,12 @@ namespace Parsek
                     // The pid is craft-baked: the linked chain may claim a DIFFERENT launch of
                     // the same craft that reused the tip vessel's pid (an absorbed partner frees
                     // its pid while its parts still fly). Merge only when the linked chain's
-                    // launch and the tip recording's launch do not conclusively differ; an
-                    // unknown guid on either side keeps the pid-only merge.
+                    // launch and the tip recording's launch do not conclusively differ (identity
+                    // link rows join a re-keyed vessel's guids); an unknown guid on either side
+                    // keeps the pid-only merge.
                     string tipGuid = FindRecording(
                         current.TipRecordingId, current.TipTreeId, committedTrees)?.RecordedVesselGuid;
-                    if (VesselLaunchIdentity.GuidsConclusivelyDiffer(linkedChain.LaunchGuid, tipGuid))
+                    if (VesselLaunchIdentity.GuidsConclusivelyDifferAllowingLinks(linkedChain.LaunchGuid, tipGuid))
                     {
                         ParsekLog.VerboseOnChange(Tag,
                             identity: string.Format(ic,
@@ -1027,7 +1032,7 @@ namespace Parsek
 
             return candidate.VesselPersistentId != 0
                 && candidate.VesselPersistentId == fork.VesselPersistentId
-                && !VesselLaunchIdentity.GuidsConclusivelyDiffer(
+                && !VesselLaunchIdentity.GuidsConclusivelyDifferAllowingLinks(
                     candidate.RecordedVesselGuid, fork.RecordedVesselGuid);
         }
 

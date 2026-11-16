@@ -1524,9 +1524,14 @@ namespace Parsek
             // 4. Existing CaptureAtStop + IsRecording=false block
             Vessel recordedVessel = FindVesselByPid(RecordingVesselId);
 
+            // The capture copies only CLOSED TrackSections while the flat Points carry the open
+            // section's samples, so the open section is closed first, as every other stop does.
+            CloseOpenTrackSectionForVesselSwitchStop(Planetarium.GetUniversalTime());
+
             // A vessel-switch / pid-change stop is a CHAIN BOUNDARY too: the pair may be
             // separating right now (the dock/undock pid change), so it must not conclude
-            // "stopped while docked".
+            // "stopped while docked". The section closed above is in the capture, so the
+            // distance capture reads it as a closed section.
             CaptureAtStop = BuildCaptureRecording(
                 recordedVessel != null ? recordedVessel.vesselName : v.vesselName,
                 VesselDestroyedDuringRecording || recordedVessel == null,

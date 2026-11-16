@@ -24,6 +24,10 @@ Not released yet.
 
 ### Fixed
 
+- **A kerbal's walk back to a hatch replays correctly after a save.** When an EVA ended by
+  boarding a vessel, the last stretch of the walk or jetpack flight could replay far from where
+  the kerbal went once the game was saved and loaded. It now replays on the kerbal's real path.
+  (EVA-SWITCH-STOP-DROPS-OPEN-SECTION)
 - **Recordings of planes and rovers no longer fill up with landing-gear wobble.** Rolling on gear
   wrote about 22 suspension events a second; suspension is no longer recorded, and replays of
   older recordings keep the gear at rest instead of shifting the wheels out of place.
@@ -51,6 +55,27 @@ Not released yet.
   picked up again after a quickload, kept the moment it resumed as its saved end even after it
   flew on. Replays already used the real end; now the save says so too, and a ship that sheds a
   part later in that flight is still treated as the ship that flew on. (REFLY-ATTEMPT-STALE-END-UT)
+- **A replaced flight that survived is no longer at risk of being marked destroyed.** Saving
+  a new version of a recorded flight could carry the old version's "destroyed" mark onto a
+  vessel that flew on. Not seen in play. (REPLACE-COPIES-DESTROYED-FLAG-ONTO-LIVE-REPLACEMENT)
+- **An empty recording no longer makes a later flight look like it started at time zero.** That
+  could let an unrelated later flight of the same vessel name stop an earlier flight's vessel
+  from appearing. Not seen in play. (TREE-START-UT-EMPTY-RECORDING-READS-ZERO)
+- **Discarding a switched-to vessel's flight segment leaves the rest of the flight tidy.** The
+  discarded segment's vessels, a dangling split and a stale starting point no longer linger in
+  the kept part of the flight, and splits from before the segment stay as they were. Not seen in
+  play. (SWITCH-SEGMENT-DISCARD-TOPOLOGY-RESIDUE)
+- **Docking to a ship Parsek placed and you flew again no longer doubles it after a rewind.** That
+  ship's replay now waits for the docked stack instead of also becoming real on its own, and the
+  Missions window names it as the dock partner. (DOCK-CHAIN-ABSORBED-PARTNER-PID-ONLY)
+- **A Fly from the Tracking Station records after an unfinished flight is committed.** When the
+  Space Center committed an unfinished flight on load (leaving right after a quickload, or loading
+  a save that held one), the next Fly from the Tracking Station or a KSC marker started no
+  recording of that vessel. (AUTOMERGE-ON-BY-DEFAULT)
+- **Ended contracts no longer go missing from the Mission Control Archive.** A contract whose
+  committed outcome had passed could leave the active list after a load without ever showing up
+  as finished. It is now listed once the clock reaches its outcome; nothing is paid or charged
+  again. (CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE)
 
 ## 1.0.2
 
