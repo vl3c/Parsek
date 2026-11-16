@@ -54,6 +54,7 @@ import missionverify  # noqa: E402  (the mission-verdict decision core, shared w
 import machinelock  # noqa: E402  (shared lock I/O; pure decisions live in provlib)
 import oracle  # noqa: E402
 import provlib  # noqa: E402
+import raceparse  # noqa: E402  (the race evaluator behind the raceParse row, multiplayer T-38)
 import rendercompose  # noqa: E402  (the M-A7 pure sibling behind the renderCompose row)
 import savepatch  # noqa: E402  (the pure FLIGHTSTATE patcher behind [[fixture.liveState]])
 import slotrun  # noqa: E402  (install-slot decisions: ports, runner token, launch args, report)
@@ -3724,6 +3725,77 @@ def _run_ledger_oracle(ledger_block: Optional[Dict], world_block: Optional[Dict]
     return verdict.result, verdict.drift, verdict.tooling
 
 
+def _race_parse_skipped_row(expectations: Dict, reason: str) -> Dict:
+    """The raceParse row when the scan does not run (same keys as a run row)."""
+    return {"status": "SKIPPED", "reason": reason,
+            "gating": raceparse.race_gating_armed(expectations), "leaked": False,
+            "unevaluable": False, "raceSnapshot": None, "folderFiles": 0,
+            "folderErrors": [], "unrecognised": [], "saves": [], "mismatches": []}
+
+
+def _race_parse_row(rp: "raceparse.RaceParseResult", drive: DriveResult) -> Dict:
+    snap = drive.race_snapshot or {}
+    return {"status": rp.status, "reason": "", "gating": rp.gating, "leaked": rp.leaked,
+            "unevaluable": rp.unevaluable, "raceSnapshot": snap.get("path"),
+            "folderFiles": rp.folder_files, "folderErrors": list(rp.folder_errors),
+            "unrecognised": list(rp.unrecognised[:raceparse.ROW_FINDINGS_CAP]),
+            "saves": [r.to_dict() for r in rp.saves],
+            "mismatches": rp.mismatches[:raceparse.ROW_FINDINGS_CAP]}
+
+
+def _run_race_parse(spec: Dict, save_dir: str, run_save_name: str, instance_dir: str,
+                    drive: DriveResult, run_id: Optional[str],
+                    logger: HarnessLogger) -> "raceparse.RaceParseResult":
+    """Read the lane's race snapshot and produced saves and evaluate the raceParse
+    row (thin I/O; every decision is raceparse.evaluate_race_parse)."""
+    expectations = spec.get("expectations", {}) or {}
+    snap = drive.race_snapshot or {}
+    listing: Optional[List[str]] = None
+    folder_errors: List[str] = []
+    if not snap.get("ran") or not run_id:
+        folder_errors.append("race shared-folder snapshot not taken (%s)"
+                             % (snap.get("reason") or "no record"))
+    else:
+        listing, problems = raceparse.walk_folder(
+            os.path.join(RESULTS_DIR, run_id + hlib.RACE_SNAPSHOT_DIR_SUFFIX))
+        if problems:
+            folder_errors.extend(problems)
+            listing = None
+    saves: List[raceparse.RaceSaveInput] = []
+    if os.path.isdir(save_dir):
+        files, problems = raceparse.read_save_tree(save_dir)
+        saves.append(raceparse.RaceSaveInput(run_save_name, files, problems))
+    else:
+        saves.append(raceparse.RaceSaveInput(run_save_name, None, ("no produced save",)))
+    for snapshot_save_name, _suffix in hlib.spec_snapshot_saves(spec, run_save_name):
+        named_dir = os.path.join(instance_dir, "saves", snapshot_save_name)
+        if os.path.isdir(named_dir):
+            files, problems = raceparse.read_save_tree(named_dir)
+            saves.append(raceparse.RaceSaveInput(snapshot_save_name, files, problems))
+        else:
+            saves.append(raceparse.RaceSaveInput(snapshot_save_name, None,
+                                                 ("no produced save",)))
+    rp = raceparse.evaluate_race_parse(expectations, listing, folder_errors, saves)
+    logger.info("Verify", "verify raceParse status=%s gating=%s leaked=%s folderFiles=%d "
+                          "saves=%s unrecognised=%d"
+                % (rp.status, rp.gating, rp.leaked, rp.folder_files,
+                   ",".join("%s:%s:own=%s:ids=%d:files=%d:findings=%d"
+                            % (r.label, r.status, r.own_player or "-", r.ids_scanned,
+                               r.files_scanned, len(r.findings)) for r in rp.saves) or "-",
+                   len(rp.unrecognised)))
+    mismatches = rp.mismatches
+    if mismatches and not rp.gating:
+        logger.warn("Verify", "raceParse recorded %d report-only finding(s) (not gating; "
+                              "arm with [expectations.race] gating = true): %s"
+                    % (len(mismatches), mismatches[:raceparse.ROW_FINDINGS_CAP]))
+    elif mismatches:
+        logger.warn("Verify", "raceParse (armed) %s: %s"
+                    % ("LEAK -> PARSEK-FAIL(%s)" % hlib.RACE_ISOLATION_SUBKIND if rp.leaked
+                       else "proved nothing -> INVALID(%s)" % hlib.RACE_PARSE_INVALID_SUBKIND,
+                       mismatches[:raceparse.ROW_FINDINGS_CAP]))
+    return rp
+
+
 def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                   drive: DriveResult, runtime: Runtime, logger: HarnessLogger,
                   seed_capture: Optional["SeedCapture"] = None,
@@ -4078,6 +4150,10 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                                 or expectations.get("world") is not None)
         detail["ledgerOracle"] = {"status": "SKIPPED",
                                   "reason": "killed" if ledger_active_killed else "no-ledger-block-declared"}
+        # Multiplayer T-38: a torn save is never ground truth, so the leak scan is
+        # SKIPPED on a killed attempt (KILLED precedes every verifier flag anyway).
+        if hlib.spec_race_fixture(spec) is not None:
+            detail["raceParse"] = _race_parse_skipped_row(expectations, "killed")
         detail["subprocessRetry"] = subprocess_retries
         return {"driver": driver_facts, "verifiers": verifiers, "detail": detail,
                 "recordingCount": None}
@@ -4599,6 +4675,24 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                                   "(not gating; arm with gating = true inside the "
                                   "declared block after reading report-only runs): %s"
                         % (len(gl_report_only), gl_report_only))
+
+    # 7e. raceParse (multiplayer T-38): the leak scan over every save a race lane
+    # produced. Runs only for a spec with [fixture.race] (no row, no flag, no log line
+    # otherwise, so no other lane's result JSON changes). Reads the race shared-folder
+    # snapshot results/<runId>_race/ (taken at KSP exit, before the next lane stages)
+    # and the run save plus each snapshotSaves save under verify_root (the post-quit
+    # private copy on the pipelined path), never the live shared folder. Report-only
+    # unless [expectations.race] gating = true; armed, a leak reds
+    # PARSEK-FAIL(race-isolation) and a scan that proved nothing is INVALID(race-parse).
+    if hlib.spec_race_fixture(spec) is not None:
+        if not driver_valid:
+            detail["raceParse"] = _race_parse_skipped_row(expectations, "driver-invalid")
+            logger.info("Verify", "verify raceParse status=SKIPPED reason=driver-invalid")
+        else:
+            rp = _run_race_parse(spec, save_dir, run_save_name, instance_dir, drive, run_id,
+                                 logger)
+            detail["raceParse"] = _race_parse_row(rp, drive)
+            verifiers.update(raceparse.verdict_flags(rp))
 
     # 8. Ledger oracle (M-B2). Active iff the scenario declares [expectations.ledger]
     # OR [expectations.world]; else SKIPPED(no-ledger-block-declared), the reserved
@@ -6997,6 +7091,13 @@ def print_dry_run_plan(selected: Sequence[Dict], instance_root_fn, logger: Harne
                             "copied to results/<runId>_save-<suffix>/)"
                             % (", ".join(n for n, _ in named_saves),
                                hlib.SNAPSHOT_SAVE_MISSING_SUBKIND))
+        if hlib.spec_race_fixture(spec) is not None:
+            if raceparse.race_gating_armed(exp):
+                verify_line += (", raceParse(armed: leak scan -> PARSEK-FAIL(%s) on a leak, "
+                                "INVALID(%s) when it proves nothing)"
+                                % (hlib.RACE_ISOLATION_SUBKIND, hlib.RACE_PARSE_INVALID_SUBKIND))
+            else:
+                verify_line += ", raceParse(report-only leak scan)"
         print(verify_line)
         print("")
     print("=== end plan ===")

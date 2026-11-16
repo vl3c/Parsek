@@ -52,6 +52,7 @@ for _p in (HARNESS_ROOT, HERE):
 
 import ghostlife  # noqa: E402
 import hlib  # noqa: E402
+import raceparse  # noqa: E402
 import oracle  # noqa: E402
 import rendercompose  # noqa: E402
 import run  # noqa: E402
@@ -8015,7 +8016,7 @@ class _InstanceReadWalker:
     READERS = {"os.path.isfile", "os.path.isdir", "os.path.exists", "os.path.getsize",
                "os.path.getmtime", "os.listdir", "os.scandir", "os.stat", "os.walk",
                "shutil.copy", "shutil.copy2", "shutil.copyfile", "shutil.copytree",
-               "gzip.open", "open"}
+               "gzip.open", "open", "raceparse.read_save_tree"}
     SUBPROCESS_READERS = {"runtime.run_analyzer", "runtime.run_log_validate",
                           "runtime.run_seed_analyzer"}
     NON_READS = {"bool", "os.path.basename"}
@@ -9272,3 +9273,157 @@ class RaceFolderHarnessStepAfterAnUnmetStepSmokeTests(unittest.TestCase):
         self.assertTrue(result["driver"]["harnessSteps"][0]["met"])
         self.assertFalse(os.path.exists(
             os.path.join(self.instance, "rs", "0", "players", "p1", "standing.cfg")))
+
+
+class RaceParseRowSmokeTests(unittest.TestCase):
+    """Multiplayer T-38: the raceParse row in a full fake run. It reads the race
+    shared-folder snapshot and the lane's produced saves (the private post-quit copy on
+    the pipelined path), so a next lane that wipes the instance first changes nothing;
+    armed, a rival id in a produced save reds PARSEK-FAIL(race-isolation) and a scan
+    that proves nothing reads INVALID(race-parse); unarmed, it reports only; a spec
+    without [fixture.race] gets no row."""
+
+    FIXTURE = "two-players"
+    PLAYER_A = "p_" + "a" * 32
+    PLAYER_B = "p_" + "b" * 32
+    REC_B = "b" * 8 + "0" * 24
+    HASH = "0123456789abcdef"
+    RUN_SAVE = "fresh-career"
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek harness raceparse ")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, self.RUN_SAVE)
+        os.makedirs(self.template)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write(self._sfs(self.PLAYER_A))
+        self.fixtures = os.path.join(self.tmp, "fixtures", "race")
+        for rel, text in {
+                "race.cfg": "raceId = race_1\n",
+                "players/%s/player.cfg" % self.PLAYER_A: "slot = 0\n",
+                "players/%s/player.cfg" % self.PLAYER_B: "slot = 1\n",
+                "players/%s/payload/%s.%s.prec" % (self.PLAYER_B, self.REC_B, self.HASH): "x\n",
+        }.items():
+            path = os.path.join(self.fixtures, self.FIXTURE, *rel.split("/"))
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(text)
+        self._orig = (run.RESULTS_DIR, run.RACE_FIXTURES_DIR)
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        run.RACE_FIXTURES_DIR = self.fixtures
+        self.logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "raceparse_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR, run.RACE_FIXTURES_DIR = self._orig
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _sfs(self, player):
+        return ("GAME\n{\n\tSCENARIO\n\t{\n\t\tname = %s\n\t\t%s = %s\n\t}\n}\n"
+                % (raceparse.RACE_MARK_SCENARIO, raceparse.RACE_MARK_PLAYER_KEY, player))
+
+    def _spec(self, gating=True, shared=None, saves=None, race=True):
+        spec = _make_spec(self.template, 30, 600)
+        spec["id"] = "SMOKE-raceparse"
+        if race:
+            spec["fixture"]["race"] = {"sharedFolder": shared or "fixtures/race/" + self.FIXTURE}
+        if gating is not None:
+            spec["expectations"]["race"] = {"gating": gating}
+        if saves:
+            spec["fixture"]["snapshotSaves"] = list(saves)
+        return spec
+
+    def _leak(self, save=None, rival=None):
+        return {"saves/%s/Parsek/Recordings/own.prec.txt" % (save or self.RUN_SAVE):
+                "parent = %s\n" % (rival or self.REC_B)}
+
+    def _attempt(self, spec, launch_files=None, **kw):
+        return run.run_attempt(spec, self.instance, self.tmp,
+                               FakeRuntime("pass", launch_files=launch_files), attempt=1,
+                               prior_boot_crashed=False, logger=self.logger, **kw)
+
+    def test_an_armed_leak_reds_race_isolation(self):
+        result = self._attempt(self._spec(), self._leak())
+        self.assertEqual((hlib.VERDICT_PARSEK_FAIL, hlib.RACE_ISOLATION_SUBKIND),
+                         (result["verdict"], result["subkind"]), result.get("note"))
+        row = result["verifiers"]["raceParse"]
+        self.assertEqual((raceparse.STATUS_FAIL, True, True),
+                         (row["status"], row["gating"], row["leaked"]))
+        self.assertEqual(result["runId"] + "_race", row["raceSnapshot"])
+        (save,) = row["saves"]
+        self.assertEqual((self.RUN_SAVE, self.PLAYER_A, 1), (save["save"], save["ownPlayer"],
+                                                             save["findingCount"]))
+        self.assertIn("Parsek/Recordings/own.prec.txt", save["findings"][0])
+        self.assertIn(self.REC_B, save["findings"][0])
+
+    def test_an_armed_clean_run_passes(self):
+        result = self._attempt(self._spec())
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("note"))
+        row = result["verifiers"]["raceParse"]
+        self.assertEqual((raceparse.STATUS_PASS, False, False),
+                         (row["status"], row["leaked"], row["unevaluable"]))
+        # Not vacuous: B's player id and B's recording id were looked for.
+        self.assertEqual(2, row["saves"][0]["idsScanned"])
+
+    def test_an_unarmed_leak_is_reported_and_moves_no_verdict(self):
+        for gating in (None, False):
+            with self.subTest(gating=gating):
+                result = self._attempt(self._spec(gating=gating), self._leak())
+                self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("note"))
+                row = result["verifiers"]["raceParse"]
+                self.assertEqual((raceparse.STATUS_FAIL, False, True),
+                                 (row["status"], row["gating"], row["leaked"]))
+
+    def test_the_row_reads_the_snapshots_after_the_next_lane_wiped_the_instance(self):
+        deferred = self._attempt(self._spec(), self._leak(), defer_post_quit=True)
+        self.assertIsNotNone(deferred.post_quit_copy)
+        # The next race lane stages over the instance before lane 1's verification:
+        # the shared folder is wiped and the run save is re-staged without the leak.
+        ok, _, _ = run.stage_fixture(self._spec(shared="empty"), self.instance,
+                                     run.Runtime(), self.logger)
+        self.assertTrue(ok)
+        self.assertEqual([], os.listdir(os.path.join(self.instance, "rs", "0")))
+        self.assertFalse(os.path.exists(os.path.join(self.instance, "saves", self.RUN_SAVE,
+                                                     "Parsek")))
+        result = deferred.finish(self.logger)
+        self.assertEqual((hlib.VERDICT_PARSEK_FAIL, hlib.RACE_ISOLATION_SUBKIND),
+                         (result["verdict"], result["subkind"]), result.get("note"))
+        row = result["verifiers"]["raceParse"]
+        self.assertEqual(4, row["folderFiles"])
+        self.assertEqual(1, row["saves"][0]["findingCount"])
+
+    def test_a_named_save_is_scanned_against_its_own_player(self):
+        # B's save names B in its mark, so A's player id is the rival there.
+        b_save = self.RUN_SAVE + "-b"
+        files = {"saves/%s/persistent.sfs" % b_save: self._sfs(self.PLAYER_B)}
+        files.update(self._leak(save=b_save, rival=self.PLAYER_A))
+        result = self._attempt(self._spec(saves=["${runSave}-b"]), files)
+        self.assertEqual((hlib.VERDICT_PARSEK_FAIL, hlib.RACE_ISOLATION_SUBKIND),
+                         (result["verdict"], result["subkind"]), result.get("note"))
+        run_row, b_row = result["verifiers"]["raceParse"]["saves"]
+        self.assertEqual((self.RUN_SAVE, 0), (run_row["save"], run_row["findingCount"]))
+        self.assertEqual((b_save, self.PLAYER_B, 1),
+                         (b_row["save"], b_row["ownPlayer"], b_row["findingCount"]))
+        self.assertIn(self.PLAYER_A, b_row["findings"][0])
+
+    def test_an_armed_scan_with_no_rival_reads_invalid(self):
+        result = self._attempt(self._spec(shared="empty"))
+        self.assertEqual((hlib.VERDICT_INVALID, hlib.RACE_PARSE_INVALID_SUBKIND),
+                         (result["verdict"], result["subkind"]), result.get("note"))
+        row = result["verifiers"]["raceParse"]
+        self.assertEqual((raceparse.STATUS_VACUOUS, True), (row["status"], row["unevaluable"]))
+
+    def test_a_missing_named_save_names_its_own_cause(self):
+        result = self._attempt(self._spec(saves=["${runSave}-b"]))
+        self.assertEqual((hlib.VERDICT_PARSEK_FAIL, hlib.SNAPSHOT_SAVE_MISSING_SUBKIND),
+                         (result["verdict"], result["subkind"]), result.get("note"))
+        row = result["verifiers"]["raceParse"]
+        self.assertEqual((raceparse.STATUS_ERROR, True), (row["status"], row["unevaluable"]))
+
+    def test_a_spec_without_the_race_fixture_has_no_row(self):
+        result = self._attempt(self._spec(gating=None, race=False))
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("note"))
+        self.assertNotIn("raceParse", result["verifiers"])
+        self.assertNotIn("raceSnapshot", result)

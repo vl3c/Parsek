@@ -973,13 +973,35 @@ Made smaller on 2026-11-15: the pairing machinery is T-54's; this task is its fi
 ### T-38 `raceParse` verifier row with the gated leak scan (early half of T-21)
 
 - **Change:** the `raceParse` verifier row in `run.py` with spec block `[expectations.race]`,
-  running T-05's leak scan over every race lane's produced save, GATED from the first lane
-  (`PARSEK-FAIL(race-isolation)`); the structure facets join it later (T-21). A
+  running T-05's leak scan over every race lane's produced save, gated from the first lane
+  (`PARSEK-FAIL(race-isolation)`; armed per spec, see "As built"); the structure facets
+  join it later (T-21). A
   `mutation_check.py` mutator, `race-leak`, plants a rival id in a sidecar of an archived race
   run's save (through `mutsave`) and must turn the verdict red.
+  - As built (2026-11-16, corrected here): "gated" is the saveParse discipline, not an
+    always-on gate. The row runs for every spec with `[fixture.race]` (no row, flag or log
+    line otherwise) and reports by default; `[expectations.race] gating = true` (its only
+    key; the block needs `[fixture.race]`, and an unarmed race lane validates with a
+    warning) arms it, and the armed set is pinned by `RACEPARSE_ARMED_SPECS` in
+    `test_hlib.py`. "From the first lane" holds because no reading run is owed (a rival
+    id in the own save is never legitimate): each race lane arms the scan in its own
+    pull request and names itself there. The row reads `results/<runId>_race/` and the
+    run save plus each T-04 `snapshotSaves` save from the post-quit copy, never the live
+    instance, and scans each save for the ids of every player other than the save's own,
+    read from its race mark (`SCENARIO` `ParsekRaceScenario`, key `playerId`, R1-03; no
+    mark means every player is a rival; R1-03's pull request owes the source-sync cell for
+    those two literals). Armed, a leak reds `PARSEK-FAIL(race-isolation)`, checked first
+    among the verifier reds (the cause the analyzer, expectation and ledger rows would see
+    a symptom of), and a scan that proves nothing (unreadable snapshot or save, unknown own
+    player, a save with no rival id) is the terminal `INVALID(race-parse)`, checked after
+    every red including `snapshot-save-missing`, so it only replaces a PASS. The mutator is
+    `mutation_check.py --race-only` (`mutsave.mutate_race_leak`); it appends the rival id
+    to a sidecar of each archived save and asks `hlib.classify_verdict` for the red.
 - **Proof:** a `_fake_ksp` smoke cell with a planted rival id in the produced save (red) and
   one without (green); the mutator's own cell; a cell that `race-isolation` is in hlib's
-  verdict table.
+  verdict table. As built: `RaceParseRowTests` (test_raceparse), `RaceParseRowSpecTests`
+  (test_hlib), `RaceParseRowSmokeTests` (test_run_smoke), `RaceLeakMutatorTests`
+  (test_mutsave).
 - **Registers:** `harness/README.md` verifier list; `design-autotest-harness-core.md`
   verdict subkinds; `mutation_check.py`'s mutator list.
 - **Size:** S. **Depends on:** T-03, T-05. **PC:** no.

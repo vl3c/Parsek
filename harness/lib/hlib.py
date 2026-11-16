@@ -8776,6 +8776,23 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     warnings.extend(ghostlife.ghost_lifecycle_expectation_warnings(
         expectations, steps))
 
+    # [expectations.race] (multiplayer T-38): the raceParse row's spec block. The row
+    # reads the lane's race shared-folder snapshot, so the block needs [fixture.race];
+    # a race lane that leaves the leak scan unarmed is legal (the report-only reading)
+    # but warned, because a rival id in the own save is never legitimate.
+    if raceparse.race_block_declared(expectations):
+        errors.extend(raceparse.validate_race_expectations(
+            expectations.get(raceparse.RACE_BLOCK)))
+        if not race_declared:
+            errors.append("expectations.%s needs [fixture.%s]: the raceParse row reads the "
+                          "lane's race shared folder" % (raceparse.RACE_BLOCK,
+                                                         RACE_FIXTURE_TABLE))
+    if race_declared and not raceparse.race_gating_armed(expectations):
+        warnings.append("[fixture.%s] without [expectations.%s] %s = true: the raceParse "
+                        "leak scan runs report-only and a rival id in the produced save "
+                        "cannot red the run" % (RACE_FIXTURE_TABLE, raceparse.RACE_BLOCK,
+                                                raceparse.GATING_KEY))
+
     # VERB / BLOCK COUPLING. `PARSEK_RENDER_MANIFEST` is armed at launch by the
     # DECLARATION of [expectations.renderComposition] and by nothing else, so a
     # spec that drives ExportRenderManifest expecting OK without declaring the
@@ -9002,6 +9019,14 @@ RACE_SHARED_DEFAULT_LEAF = "0"
 RACE_FOLDER_ARG_BY_VERB: Dict[str, str] = {"RaceSetup": "folder", "RaceCommand": "path"}
 # The run's copy of the folder and its listing, both directly under results/.
 RACE_SNAPSHOT_DIR_SUFFIX = "_race"
+# The raceParse row (multiplayer T-38) reads that snapshot and the lane's produced
+# saves. An ARMED scan (`[expectations.race] gating = true`) that finds a rival id in
+# a save reds PARSEK-FAIL(RACE_ISOLATION_SUBKIND); an armed scan that cannot prove
+# anything (a snapshot or save it cannot read whole, a save whose own player it cannot
+# tell, a save with no rival id to look for) is the terminal
+# INVALID(RACE_PARSE_INVALID_SUBKIND), never PASS and never a Parsek failure.
+RACE_ISOLATION_SUBKIND = "race-isolation"
+RACE_PARSE_INVALID_SUBKIND = "race-parse"
 RACE_LISTING_SUFFIX = "_race.listing.txt"
 RACE_LISTING_HEADER = "# parsek race shared-folder listing v1"
 
@@ -9421,6 +9446,7 @@ import savepatch  # noqa: E402  (the pure FLIGHTSTATE patcher behind [[fixture.l
 import rendercompose  # noqa: E402  (the M-A7 pure sibling; same reason - the render-composition spec surface is validated by the module that evaluates it)
 import ghostlife  # noqa: E402  (the ghost-lifecycle pure sibling; same reason - the [expectations.ghostLifecycle] surface is validated by the module that evaluates it)
 import samplingq  # noqa: E402  (the recording-sampling pure sibling; same reason - the [expectations.recordings.sampling] surface is validated by the module that evaluates it)
+import raceparse  # noqa: E402  (the race evaluator, multiplayer T-05 / T-38; same reason - the [expectations.race] surface is validated by the module that evaluates it)
 
 
 def build_expected_admission(
@@ -12547,6 +12573,11 @@ PARSEK_FAIL_SUBKINDS: Tuple[str, ...] = (
     # Multiplayer T-04: a `[fixture] snapshotSaves` save absent after a run whose driver
     # stage stayed valid. After unmet-step, which names a richer cause.
     "snapshot-save-missing",
+    # Multiplayer T-38: the ARMED raceParse leak scan found a rival id in a save the
+    # race lane produced (design 6.4: no rival data is written into the save). Only a
+    # spec with [expectations.race] gating = true can raise it (RACEPARSE_ARMED_SPECS
+    # in test_hlib.py pins that set).
+    RACE_ISOLATION_SUBKIND,
 )
 
 # Subkinds a bugId-ONLY expectedFail key may NOT demote to EXPECTED-FAIL. An
@@ -13719,7 +13750,11 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
           save-structure / render-composition / ghost-lifecycle / ledger
           -> PARSEK-FAIL
       unmet step, then a missing snapshotSaves save -> PARSEK-FAIL
+      an armed raceParse scan that proved nothing -> INVALID(race-parse) (terminal)
       else -> PASS
+    An armed raceParse leak (PARSEK-FAIL(race-isolation)) is checked first among
+    the verifier reds, ahead of the analyzer: a rival file in the save is the
+    cause the analyzer, the expectations and the ledger would each see a symptom of.
     ``retryable`` is a recommendation; ``should_retry`` is the authority
     combining attempt + policy.
     """
@@ -13776,6 +13811,14 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
     elif verifiers.get("tooling_invalid", False):
         base = V(VERDICT_INVALID, verifiers.get("tooling_subkind", "tooling"),
                  "verifier subprocess tooling failure", retryable=True)
+    elif verifiers.get("race_isolation_leak", False):
+        # Multiplayer T-38. Only an ARMED leak scan sets it (inert for every spec
+        # without [expectations.race] gating = true). First among the verifier reds:
+        # the scan reads the produced save's files directly, a leaked rival recording
+        # is what the analyzer / expectations / ledger rows below would each red on as
+        # a symptom, and the subkind that names the cause is the one a reader needs.
+        base = V(VERDICT_PARSEK_FAIL, RACE_ISOLATION_SUBKIND,
+                 "the armed raceParse leak scan found a rival id in a produced save")
     else:
         analyzer = verifiers.get("analyzer")
         if analyzer is not None:
@@ -13858,6 +13901,15 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
                 # the step that names a declared save answered OK without leaving it.
                 base = V(VERDICT_PARSEK_FAIL, SNAPSHOT_SAVE_MISSING_SUBKIND,
                          "a declared snapshotSaves save is absent after the run")
+            elif verifiers.get("race_parse_unevaluable", False):
+                # Multiplayer T-38: an ARMED leak scan that proved nothing. Last, so it
+                # only ever turns a would-be PASS: every red above is evidence about
+                # Parsek whether or not this row could run, and a missing named save
+                # (the line above) already names why its scan could not. Terminal: an
+                # unreadable snapshot or an unknown own player does not change on a
+                # second flight.
+                base = V(VERDICT_INVALID, RACE_PARSE_INVALID_SUBKIND,
+                         "the armed raceParse leak scan could not prove the saves clean")
             else:
                 base = V(VERDICT_PASS, "", "driver valid, every verifier PASS/SKIPPED")
 

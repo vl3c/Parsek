@@ -1,8 +1,8 @@
 """Pure race evaluator, part 1: the rival-id leak scan and the save-equivalence diff.
 
 Multiplayer plan task T-05 (``docs/dev/plans/multiplayer/test-and-harness.md``). The
-``raceParse`` verifier row (T-38) and the structure facets (T-21) build on this module; it
-has no caller in ``run.py`` until T-38 lands.
+``raceParse`` verifier row (T-38, ``evaluate_race_parse`` at the end of this file, called by
+``run.py``) and the structure facets (T-21) build on this module.
 
 Two questions about a produced race save, both answered from what is on disk:
 
@@ -783,3 +783,218 @@ def save_equivalence(save_a: str, save_b: str,
     files_b, problems_b = read_save_tree(save_b)
     problems = (["save a: " + p for p in problems_a] + ["save b: " + p for p in problems_b])
     return save_equivalence_files(files_a, files_b, mask, read_errors=problems)
+
+
+# ---------------------------------------------------------------------------
+# The raceParse verifier row (T-38): the spec block, the save's own player, and the
+# leak scan of every save a race lane produced.
+# ---------------------------------------------------------------------------
+
+# `[expectations.race]`. `gating = true` arms the leak scan (PARSEK-FAIL(race-isolation)
+# on a leak, INVALID(race-parse) when the scan cannot prove anything); without it the
+# row reports and never moves the verdict. T-21 adds the structure facet keys here.
+RACE_BLOCK = "race"
+GATING_KEY = "gating"
+RACE_BLOCK_KEYS: Tuple[str, ...] = (GATING_KEY,)
+
+# The race mark (multiplayer R1-03): one SCENARIO node of this name in the save's
+# persistent.sfs, carrying the save's own player id. Literals from the R1 plan; the
+# R1-03 pull request owes a source-sync cell against RaceFormat.ScenarioModuleName
+# and RaceLinkCodec's key.
+RACE_MARK_SCENARIO = "ParsekRaceScenario"
+RACE_MARK_PLAYER_KEY = "playerId"
+
+# Save-relative directories the HARNESS writes into a produced save (the offline
+# analyzer's analysis/ folder). Never the game's output, so the scan skips them; a
+# rival id there could only be an echo of one the scan already finds in the save.
+HARNESS_WRITTEN_DIRS: Tuple[str, ...] = ("analysis/",)
+
+# Findings listed per save in the row (the count is always whole).
+ROW_FINDINGS_CAP = 20
+
+
+def race_block_declared(expectations: Optional[Mapping]) -> bool:
+    return isinstance(expectations, Mapping) and RACE_BLOCK in expectations
+
+
+def race_gating_armed(expectations: Optional[Mapping]) -> bool:
+    """True when ``[expectations.race]`` sets ``gating = true`` (the literal bool)."""
+    if not isinstance(expectations, Mapping):
+        return False
+    block = expectations.get(RACE_BLOCK)
+    return isinstance(block, Mapping) and block.get(GATING_KEY) is True
+
+
+def validate_race_expectations(block) -> List[str]:
+    """Errors for an ``[expectations.race]`` table (spec validation, pre-launch)."""
+    where = "expectations.%s" % RACE_BLOCK
+    if not isinstance(block, Mapping):
+        return ["%s must be a table, got %s" % (where, type(block).__name__)]
+    errors: List[str] = []
+    for key in sorted(str(k) for k in block if k not in RACE_BLOCK_KEYS):
+        errors.append("%s: unknown key %r (known: %s)"
+                      % (where, key, ", ".join(RACE_BLOCK_KEYS)))
+    if GATING_KEY in block and not isinstance(block[GATING_KEY], bool):
+        errors.append("%s.%s must be true or false (true arms the leak scan), got %r"
+                      % (where, GATING_KEY, block[GATING_KEY]))
+    return errors
+
+
+def own_player_id(save_text: Optional[str]) -> Tuple[Optional[str], str]:
+    """``(own player id, problem)`` from a produced save's persistent.sfs text.
+
+    No race mark: ``(None, "")``, a save that is in no race, so every player of the
+    shared folder is a rival to it. One mark with one non-empty ``playerId``: that
+    id. Anything else (no file, a file that does not parse, two marks, a mark with no
+    or two ids) is a problem: the scan cannot tell own ids from rival ids."""
+    if save_text is None:
+        return None, "no %s" % SAVE_FILE
+    parsed = saveparse.parse_sfs(save_text)
+    if not parsed.ok:
+        return None, "%s does not parse (%s)" % (SAVE_FILE, parsed.error)
+    marks = [scenario for game in parsed.root.nodes_named("GAME")
+             for scenario in game.nodes_named("SCENARIO")
+             if scenario.value("name") == RACE_MARK_SCENARIO]
+    if not marks:
+        return None, ""
+    if len(marks) > 1:
+        return None, "%d SCENARIO nodes named %s" % (len(marks), RACE_MARK_SCENARIO)
+    ids = [v for v in marks[0].values_named(RACE_MARK_PLAYER_KEY) if v]
+    if len(ids) != 1:
+        return None, ("the %s node carries %d non-empty %s values"
+                      % (RACE_MARK_SCENARIO, len(ids), RACE_MARK_PLAYER_KEY))
+    return ids[0], ""
+
+
+def is_harness_written_path(rel_path: str) -> bool:
+    path = _norm_path(rel_path)
+    return any(path.startswith(prefix) for prefix in HARNESS_WRITTEN_DIRS)
+
+
+@dataclass(frozen=True)
+class RaceSaveInput:
+    """One produced save as the shell read it: ``files`` from ``read_save_tree``
+    (None when the save could not be read at all) and every read problem."""
+
+    label: str
+    files: Optional[Mapping[str, bytes]]
+    problems: Tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class RaceSaveReport:
+    label: str
+    status: str
+    own_player: Optional[str] = None
+    ids_scanned: int = 0
+    files_scanned: int = 0
+    files_skipped_race: int = 0
+    files_skipped_harness: int = 0
+    findings: Tuple[LeakFinding, ...] = ()
+    errors: Tuple[str, ...] = ()
+
+    def to_dict(self) -> Dict:
+        return {"save": self.label, "status": self.status, "ownPlayer": self.own_player,
+                "idsScanned": self.ids_scanned, "filesScanned": self.files_scanned,
+                "filesSkippedRace": self.files_skipped_race,
+                "filesSkippedHarness": self.files_skipped_harness,
+                "findingCount": len(self.findings),
+                "findings": [f.describe() for f in self.findings[:ROW_FINDINGS_CAP]],
+                "errors": list(self.errors)}
+
+
+@dataclass(frozen=True)
+class RaceParseResult:
+    """The row's evaluation. ``status``: FAIL when any save carries a rival id
+    (whatever else failed: a leak found is a leak), else ERROR when the folder or a
+    save could not be read whole or a save's own player is unknown, else VACUOUS when
+    a save had no rival id to look for, else PASS."""
+
+    status: str
+    gating: bool
+    folder_files: int = 0
+    folder_errors: Tuple[str, ...] = ()
+    unrecognised: Tuple[str, ...] = ()
+    saves: Tuple[RaceSaveReport, ...] = ()
+
+    @property
+    def leaked(self) -> bool:
+        return any(s.findings for s in self.saves)
+
+    @property
+    def unevaluable(self) -> bool:
+        """No leak found and the scan proved nothing whole (ERROR or VACUOUS)."""
+        return not self.leaked and self.status in (STATUS_ERROR, STATUS_VACUOUS)
+
+    @property
+    def mismatches(self) -> List[str]:
+        out: List[str] = ["race folder: %s" % e for e in self.folder_errors]
+        for s in self.saves:
+            out.extend("leak in save %s: %s" % (s.label, f.describe()) for f in s.findings)
+            out.extend("save %s unreadable: %s" % (s.label, e) for e in s.errors)
+            if s.status == STATUS_VACUOUS:
+                out.append("save %s: no rival id to scan for" % s.label)
+        return out
+
+
+def _scan_one_save(save: RaceSaveInput, folder_listing: Sequence[str]) -> RaceSaveReport:
+    if save.files is None:
+        return RaceSaveReport(save.label, STATUS_ERROR,
+                              errors=tuple(save.problems) or ("save not read",))
+    files = {_norm_path(p): data for p, data in save.files.items()}
+    sfs = files.get(SAVE_FILE)
+    own, problem = own_player_id(None if sfs is None
+                                 else sfs.decode("utf-8", errors="replace"))
+    if problem:
+        return RaceSaveReport(save.label, STATUS_ERROR,
+                              errors=tuple(save.problems) + ("own player: " + problem,))
+    scanned = {p: d for p, d in files.items() if not is_harness_written_path(p)}
+    rivals = collect_rival_ids(folder_listing, own)
+    res = leak_scan_files(scanned, rivals, read_errors=save.problems)
+    return RaceSaveReport(save.label, res.status, own_player=own,
+                          ids_scanned=res.ids_scanned, files_scanned=res.files_scanned,
+                          files_skipped_race=res.files_skipped_race,
+                          files_skipped_harness=len(files) - len(scanned),
+                          findings=res.findings, errors=res.errors)
+
+
+def evaluate_race_parse(expectations: Optional[Mapping],
+                        folder_listing: Optional[Sequence[str]],
+                        folder_errors: Sequence[str],
+                        saves: Sequence[RaceSaveInput]) -> RaceParseResult:
+    """The raceParse row over a race lane's snapshots: ``folder_listing`` is the
+    shared-folder snapshot's file list (None when it could not be listed whole, with
+    ``folder_errors`` saying why); each save is scanned for the ids of every player
+    other than its own (``own_player_id``), so two saves of one lane each see the
+    other's player as a rival."""
+    gating = race_gating_armed(expectations)
+    errors = tuple(folder_errors)
+    if folder_listing is None:
+        return RaceParseResult(STATUS_ERROR, gating,
+                               folder_errors=errors or ("race folder snapshot not listed",))
+    reports = tuple(_scan_one_save(s, folder_listing) for s in saves)
+    unrecognised = tuple(collect_rival_ids(folder_listing, None).unrecognised)
+    if not reports:
+        errors = errors + ("no produced save to scan",)
+    if any(r.findings for r in reports):
+        status = STATUS_FAIL
+    elif errors or any(r.status == STATUS_ERROR for r in reports):
+        status = STATUS_ERROR
+    elif any(r.status == STATUS_VACUOUS for r in reports):
+        status = STATUS_VACUOUS
+    else:
+        status = STATUS_PASS
+    return RaceParseResult(status, gating, folder_files=len(folder_listing),
+                           folder_errors=errors, unrecognised=unrecognised, saves=reports)
+
+
+# The classify_verdict flags the row raises (hlib.classify_verdict reads them), shared by
+# run.py and the race-leak mutation check so both judge a result the same way.
+FLAG_LEAK = "race_isolation_leak"
+FLAG_UNEVALUABLE = "race_parse_unevaluable"
+
+
+def verdict_flags(result: RaceParseResult) -> Dict[str, bool]:
+    """Both flags are False unless the scan is armed: unarmed, the row only reports."""
+    return {FLAG_LEAK: result.gating and result.leaked,
+            FLAG_UNEVALUABLE: result.gating and result.unevaluable}
