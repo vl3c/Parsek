@@ -3950,7 +3950,7 @@ class KrpcMissionControl(MissionControl):
         _stdout_sink(mlib.format_mission_log_line(
             "Info", "Plan",
             "course-correction node search: refining (%s); node at ut=%.3f "
-            "(now + %.0f s)" % (why, node_ut, lead)))
+            "(now + %.0f s)" % (why, node_ut, node_ut - ut)))
         # The node is written component by component, and only the components
         # that change, because every write re-solves the patched conics. A
         # setter fault falls back to re-adding the node with all three.

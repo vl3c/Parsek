@@ -152,7 +152,18 @@ class SearchCorrectionNodeTests(unittest.TestCase):
         r = _search(fake)
         later = [dv for d, dv in fake.calls if d != RADIAL]
         self.assertTrue(later)
-        self.assertTrue(all(dv < r.dv + STEP for dv in later))
+        self.assertTrue(all(dv <= r.dv for dv in later))
+
+    def test_a_later_direction_cheaper_by_under_one_step_wins(self):
+        up, down = (0.0, 0.0, 1.0), (0.0, 0.0, -1.0)
+
+        def pe(direction, dv):
+            entry = 25.0 if direction == up else 21.0
+            return 200000.0 if dv >= entry else -500000.0
+
+        r = mlib.search_correction_node(pe, (up, down), CAP, STEP, WINDOW)
+        self.assertEqual(r.direction, down)
+        self.assertLess(r.dv, 22.0)
 
     def test_it_is_deterministic_and_ties_go_to_the_earlier_direction(self):
         # Aimed dead centre, +radial and -radial are symmetric.
@@ -227,8 +238,12 @@ class NodeUtTests(unittest.TestCase):
         self.assertEqual(mlib.correction_search_node_ut(1000.0, 900.0, float("nan"))[0],
                          1900.0)
 
+    def test_near_the_soi_the_lead_shrinks_to_a_quarter(self):
+        self.assertEqual(mlib.correction_search_node_ut(1000.0, 900.0, 1700.0),
+                         (1425.0, ""))
+
     def test_too_close_to_the_soi_or_an_unread_clock_refuses(self):
-        self.assertIsNone(mlib.correction_search_node_ut(1000.0, 900.0, 1700.0)[0])
+        self.assertIsNone(mlib.correction_search_node_ut(1000.0, 900.0, 400.0)[0])
         self.assertIsNone(mlib.correction_search_node_ut(float("nan"), 900.0, 70000.0)[0])
         self.assertIsNone(mlib.correction_search_node_ut(1000.0, 0.0, 70000.0)[0])
 

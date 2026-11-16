@@ -3185,9 +3185,10 @@ def search_correction_node(eval_pe, directions: Sequence[Tuple[float, float, flo
         prev_dv = 0.0
         k = 1
         while True:
-            dv = min(k * step_mps, cap_mps)
-            if dv >= limit and best is not None:
-                break
+            # The last step is clamped to the bound, so a later direction that
+            # enters the window between its last grid point and the best dv so
+            # far is still seen.
+            dv = min(k * step_mps, cap_mps, limit)
             if evals >= max_evals:
                 budget_spent = True
                 break
@@ -3209,7 +3210,7 @@ def search_correction_node(eval_pe, directions: Sequence[Tuple[float, float, flo
                 if best is None or hi_dv < best[1]:
                     best = (tuple(direction), hi_dv, hit_pe)
                 break
-            if dv >= cap_mps:
+            if dv >= limit:
                 break
             prev_dv = dv
             k += 1
@@ -3272,19 +3273,28 @@ def correction_search_decision(raw_body: str, raw_pe: float, mj_dv: float,
         % (mj_body, _obs_fmt(mj_pe), pe_window[0], pe_window[1]))
 
 
+CORRECTION_SEARCH_MIN_LEAD_SECONDS = 120.0
+
+
 def correction_search_node_ut(ut: float, lead: float, time_to_soi: float
                               ) -> Tuple[Optional[float], str]:
     """PURE. The UT the refined node is placed at: ``ut + lead``, the earliest
     the burner can point and ignite, because the lever (node to encounter) is
-    what makes a correction cheap. None with a reason when the clock or lead is
-    unread, or when the node would sit less than ``lead`` before the predicted
-    SOI change (a NaN SOI clock does not refuse: the target's SOI clock is
+    what makes a correction cheap. Under ``2 * lead`` to the predicted SOI
+    change the lead shrinks to a quarter of that time. None with a reason when
+    the clock or lead is unread, or when even that lead is under
+    ``CORRECTION_SEARCH_MIN_LEAD_SECONDS`` (a NaN SOI clock does not refuse: the target's SOI clock is
     read separately by the encounter evaluation)."""
     if not (_is_finite(ut) and _is_finite(lead) and lead > 0.0):
         return None, "ut %s / lead %s unread" % (_obs_fmt(ut), _obs_fmt(lead))
     if _is_finite(time_to_soi) and time_to_soi < 2.0 * lead:
-        return None, ("time to SOI %.0f s is under twice the %.0f s node lead"
-                      % (time_to_soi, lead))
+        # Close to the SOI a shorter lead keeps a late round useful: a quarter
+        # of the remaining time, never under the burner's minimum lead.
+        short = 0.25 * time_to_soi
+        if short < CORRECTION_SEARCH_MIN_LEAD_SECONDS:
+            return None, ("time to SOI %.0f s leaves under %.0f s of node lead"
+                          % (time_to_soi, CORRECTION_SEARCH_MIN_LEAD_SECONDS))
+        return float(ut) + short, ""
     return float(ut) + float(lead), ""
 
 
