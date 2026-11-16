@@ -80,6 +80,22 @@ namespace Parsek
         }
 
         /// <summary>
+        /// <see cref="GuidsConclusivelyDiffer"/> with the identity link rows read: two known,
+        /// different guids still do not differ when either continues the other through a link
+        /// (a Parsek spawn, a resumed spawned vessel or an undock re-keys a ship that stays the
+        /// same vessel). Checked in both directions because a link points from the fresh guid to
+        /// the identity it continues, and a caller may hold either side. Two guids that only
+        /// share an ancestor (two respawns of one recording) are not joined. For the dock-claim
+        /// readers, where the stamped partner guid is the live vessel's and the claimed
+        /// recording may carry the guid its vessel had before a spawn or a resume.
+        /// </summary>
+        internal static bool GuidsConclusivelyDifferAllowingLinks(string a, string b)
+        {
+            if (!GuidsConclusivelyDiffer(a, b)) return false;
+            return !GuidContinuesThroughLink(a, b) && !GuidContinuesThroughLink(b, a);
+        }
+
+        /// <summary>
         /// True when a live vessel (its <c>persistentId</c> and <c>Vessel.id</c> Guid) is the same
         /// launch the recording captured: the persistentId must match AND the launch Guids must not
         /// conclusively differ. Used at the live-vessel-vs-recording sites (spawn adoption, crew-swap
