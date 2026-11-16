@@ -317,6 +317,10 @@ writes `testGame = False`.
   (`RouteSaveRoundTripTests.guidCounter`, `StoreSaveRoundTripTests.heldVesselCounter`, which
   replaced a `Guid.NewGuid` pid). A later golden generator built on the driver therefore
   writes reproducible files apart from `saveStamp` and `parsekWrittenBy`.
+  `ResetAllStores` also restores the three stock pool identities, which the small-store fill
+  overwrites (`StaticRoundTrip.Fill` copies the readonly `Pool` field); a caller that builds
+  the state must reset through it, or later funds and reputation pool tests read the wrong
+  node.
 - **Registers:** none (test-only).
 - **Size:** S. **Depends on:** nothing. **PC:** no.
 - **Risk:** low; a non-deterministic writer (dictionary order) would show here first, which
