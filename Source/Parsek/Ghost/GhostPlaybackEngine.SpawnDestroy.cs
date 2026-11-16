@@ -436,12 +436,12 @@ namespace Parsek
         private bool TryReserveSpawnSlot(int index, string site)
         {
             spawnReserveAttemptCountForTesting++;
-            if (GhostPlaybackLogic.ShouldThrottleSpawn(frameSpawnCount, GhostPlayback.MaxSpawnsPerFrame))
+            if (GhostPlaybackLogic.ShouldThrottleSpawn(spawnBudget.Used, spawnBudget.MaxPerFrame))
             {
                 frameSpawnDeferred++;
                 ParsekLog.VerboseRateLimited("Engine", "spawn-throttle",
                     $"Spawn throttled ({site}): #{index} deferred to next frame " +
-                    $"(used {frameSpawnCount}/{GhostPlayback.MaxSpawnsPerFrame})", 1.0);
+                    $"(used {spawnBudget.Used}/{spawnBudget.MaxPerFrame})", 1.0);
                 return false;
             }
             return true;

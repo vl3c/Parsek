@@ -24,7 +24,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 So a second `GhostPlaybackEngine` can later run beside the player's own, the engine stops
 writing the static `DiagnosticsState` and its spawn throttle reads a budget object two engines
-can share. Close this entry when P2c-04 lands.
+can share. Close this entry when P2c-01 and P2c-04 have both landed.
 
 - P2c-01 (`LoopSyncParentIdx` read-only on `IPlaybackTrajectory`): open.
 - ~~P2c-02~~ (health counters through `IGhostPlaybackDiagnosticsSink`): done 2026-11-16, branch
@@ -41,7 +41,15 @@ can share. Close this entry when P2c-04 lands.
   `DiagnosticsComputation.` token in `GhostPlaybackEngine*.cs` and pins the publish, append,
   check order. The two P2c-02 destroy tests now stub the Unity resource teardown (they threw
   `SecurityException` on the Windows test host). Owed: in-game `Diagnostics` on lane H27.
-- P2c-04 (`GhostSpawnFrameBudget`): open.
+- ~~P2c-04~~ (`GhostSpawnFrameBudget`): done 2026-11-16, branch `mp/p2c-04-spawn-budget`. The
+  per-frame spawn cap is now a `GhostSpawnFrameBudget` object (`Used`, `MaxPerFrame`, `Consume`,
+  `ResetForFrame`). A third engine constructor takes an optional shared budget; the existing two
+  chain to it with null, so the single-player engine builds and owns its budget and resets it in
+  `ResetPerFramePlaybackCounters` as before, while a budget passed in is never reset by an engine
+  (its owner, R3W-09, resets it once per frame). `frameSpawnCount` stays the engine's own count for
+  its frame log lines; the throttle line prints the budget's numbers with unchanged text. Tests:
+  `GhostSpawnFrameBudgetTests`. Owed: in-game `GhostPlayback` (lane S1.4) and `GhostLifecycle`
+  (LT-5).
 
 ## ~~MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH~~: a looped mission that starts in orbit is timed around a later moon it passes low over [CLOSED 2026-11-16: V43M flew green on its first flight with the fix, `2026-11-16_1803_V43M-vall-tylo-player-loop` PASS attempt 1 (46 s, automation DLL built from 866ac123, sha256 prefix 8dfcbc5e; every verifier green), KSP.log reading launch moon Vall, constraints=3, `Solve: dominant=Tylo method=dominant-intercept residual=2.18 withinTol=yes` and `PhaseLock APPLIED ... P=211926.36 ... zeroDrift=yes scheduleWithinTol=yes`. FILED 2026-11-16 from V43M's first flight `2026-11-16_1726_V43M-vall-tylo-player-loop` (PC, parallel run `moon-loops-2026-11-16d`, DLL unchanged since PR #2638, PARSEK-FAIL(expectation) attempt 1, 58 s; diagnostics on branch `forge-logs-2026-11-16d`, folder `diag/2026-11-16_1726_V43M-vall-tylo-player-loop/`). FIXED 2026-11-16, branch `claude/project-thread-vpr29t`; xUnit; V43M re-pinned, awaiting PC flight; low (the loop still phase-locks, on the wrong launch moon)]
 

@@ -341,15 +341,25 @@ differences, with the leftovers (accessor, host field, constructor) named in the
 **P2c-04 Spawn budget object an engine can share**
 
 - **Change:** new `Source/Parsek/Ghost/GhostSpawnFrameBudget.cs` (module Ghost): a class with
-  `int Used`, `int MaxPerFrame` (from `GhostPlayback.MaxSpawnsPerFrame`), `bool IsExhausted`
-  (through `GhostPlaybackLogic.ShouldThrottleSpawn(Used, MaxPerFrame)`), `void Consume()`,
-  `void ResetForFrame()`. The engine gets `spawnBudget` and `ownsSpawnBudget`: a constructor
+  `int Used`, `int MaxPerFrame` (from `GhostPlayback.MaxSpawnsPerFrame`), `void Consume()`,
+  `void ResetForFrame()`. (Corrected when built: no `bool IsExhausted` member. Calling
+  `GhostPlaybackLogic.ShouldThrottleSpawn` from the budget put the budget in the 437-type knot,
+  since `GhostPlaybackLogic` and the engine are both in it; the engine keeps the decision at its
+  one site as `GhostPlaybackLogic.ShouldThrottleSpawn(spawnBudget.Used, spawnBudget.MaxPerFrame)`,
+  so the budget references no knot type and no canary moves.) The engine gets `spawnBudget` and `ownsSpawnBudget`: a constructor
   overload takes an optional external budget; null creates a private budget and owns it, a
   budget passed in is not owned. The existing constructors chain to it with null, so the
   overload has a production caller before R3W-09 (section 8).
   `ResetPerFramePlaybackCounters` calls `spawnBudget.ResetForFrame()`
-  only when it owns the budget. `TryReserveSpawnSlot` checks `spawnBudget.IsExhausted`; the
+  only when it owns the budget. `TryReserveSpawnSlot` checks the budget's `Used` against its
+  `MaxPerFrame`; the
   increment at `GhostPlaybackEngine.GhostVisuals.cs:25` also calls `spawnBudget.Consume()`.
+  (Re-anchored on the P2c-03 base: the constructors are `GhostPlaybackEngine.cs:364` (one
+  argument) and :369 (positioner and sink, P2c-02); the overload is a third constructor
+  `(IGhostPositioner, IGhostPlaybackDiagnosticsSink, GhostSpawnFrameBudget)` that the two-argument
+  one chains to with null, so `ParsekFlight.cs:1210` is unchanged; the reset is :1071, the frame
+  log :922, the test hooks :1327-1348. A shared budget also logs one extra `[Engine]` line at
+  construction naming it; the owned case logs only the existing `GhostPlaybackEngine created`.)
   `frameSpawnCount` stays as the engine's own count for its log lines (`GhostPlaybackEngine.cs:911`,
   `Diagnostics.cs:297`) and the throttle log at `SpawnDestroy.cs:444` keeps its text, printing
   the budget's `Used`. The test hooks keep their names and drive both counters. With one engine
@@ -365,8 +375,8 @@ differences, with the leftovers (accessor, host field, constructor) named in the
   `LoopFirstRunSpawnTests`, `ChainLoopFirstRunSpawnTests`, `Bug406GhostReuseLoopCycleTests` and
   `StalePastEndCleanupDeferralTests` stay green. In-game `GhostPlayback` (lane S1.4, daily) and
   `GhostLifecycle` (LT-5, nightly).
-- **Registers:** knot canary if the budget class joins the knot (it references only
-  `GhostPlaybackLogic`; re-pin if it moves). No static, so no lifetime entry.
+- **Registers:** none: the budget references only the `GhostPlayback` constants and stays out of
+  the knot (measured: knots `[437, 9, 4, 3, 2]` unchanged). No static, so no lifetime entry.
 - **Size:** S. **Depends on:** P2c-02 (both edit the engine constructor at :362).
 - **PC:** in-game `GhostPlayback`, lanes S1.4, LT-5.
 - **Risk:** low; one engine sees one budget whose count equals today's field.

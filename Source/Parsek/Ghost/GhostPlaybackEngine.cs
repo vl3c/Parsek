@@ -35,6 +35,11 @@ namespace Parsek
         private readonly IGhostPositioner positioner;
         // Where the ghost health counts and the frame budget go; never DiagnosticsState directly.
         private readonly IGhostPlaybackDiagnosticsSink diagnostics;
+        // The per-frame spawn cap this engine draws on. An owned budget is reset with the
+        // engine's own per-frame counters; a budget passed in is shared with another engine
+        // and reset once per frame by whoever passed it in, never by an engine.
+        private readonly GhostSpawnFrameBudget spawnBudget;
+        private readonly bool ownsSpawnBudget;
         private bool ghostAudioPaused;
 
         #region Ghost state
@@ -367,12 +372,32 @@ namespace Parsek
         }
 
         internal GhostPlaybackEngine(IGhostPositioner positioner, IGhostPlaybackDiagnosticsSink diagnostics)
+            : this(positioner, diagnostics, null)
+        {
+        }
+
+        /// <summary>
+        /// <paramref name="sharedSpawnBudget"/> null: the engine builds a private spawn budget,
+        /// owns it and resets it every frame (the single-player engine). Non-null: the engine
+        /// draws on a budget it shares with another engine and never resets it; the caller
+        /// resets it once per frame before the first engine runs.
+        /// </summary>
+        internal GhostPlaybackEngine(
+            IGhostPositioner positioner,
+            IGhostPlaybackDiagnosticsSink diagnostics,
+            GhostSpawnFrameBudget sharedSpawnBudget)
         {
             if (diagnostics == null)
                 throw new ArgumentNullException(nameof(diagnostics));
             this.positioner = positioner;
             this.diagnostics = diagnostics;
+            ownsSpawnBudget = sharedSpawnBudget == null;
+            spawnBudget = sharedSpawnBudget ?? new GhostSpawnFrameBudget();
             ParsekLog.Info("Engine", "GhostPlaybackEngine created");
+            if (!ownsSpawnBudget)
+                ParsekLog.Info("Engine",
+                    $"GhostPlaybackEngine draws on a shared spawn budget " +
+                    $"(used {spawnBudget.Used}/{spawnBudget.MaxPerFrame}); the caller resets it each frame");
         }
 
         internal static bool HasLoadedGhostVisuals(GhostPlaybackState state)
@@ -1069,6 +1094,8 @@ namespace Parsek
             deferredSpawnPendingEvents.Clear();
             staleCleanupsAwaitingCompletionDelivery.Clear();
             frameSpawnCount = 0;
+            if (ownsSpawnBudget)
+                spawnBudget.ResetForFrame();
             frameDestroyCount = 0;
             frameSpawnDeferred = 0;
             frameSkipBeforeActivation = 0;
@@ -1325,7 +1352,10 @@ namespace Parsek
         internal bool TryReserveSpawnSlotForTesting(int index, string site)
             => TryReserveSpawnSlot(index, site);
         internal void IncrementFrameSpawnCountForTesting()
-            => frameSpawnCount++;
+        {
+            frameSpawnCount++;
+            spawnBudget.Consume();
+        }
         internal int FrameSpawnCountForTesting => frameSpawnCount;
         internal int FrameSpawnDeferredForTesting => frameSpawnDeferred;
         internal int SpawnReserveAttemptCountForTesting => spawnReserveAttemptCountForTesting;
@@ -1346,6 +1376,8 @@ namespace Parsek
         {
             ClearPrimaryGhostPositionedThisFrame();
             frameSpawnCount = 0;
+            if (ownsSpawnBudget)
+                spawnBudget.ResetForFrame();
             frameDestroyCount = 0;
             frameSpawnDeferred = 0;
             spawnReserveAttemptCountForTesting = 0;
