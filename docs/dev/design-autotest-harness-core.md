@@ -246,6 +246,11 @@ craft = []
 # "${raceShared}" (whole value only) becomes its absolute path, and run.py copies
 # it to results/<runId>_race/ at KSP exit. Contract: harness/README.md
 # "The race shared folder".
+# Optional snapshotSaves = ["${runSave}-b", ...] (multiplayer T-04): the other
+# saves the lane creates, removed at staging and copied after the run like the run
+# save to results/<runId>_save-<suffix>/; one absent after a valid driver stage reds
+# PARSEK-FAIL(snapshot-save-missing). Contract: harness/README.md "Named-save
+# snapshots".
 
 [driver]
 kind = "seam"                        # v1 ONLY. "autopilot" is RESERVED (M-B1) -> spec-validation reject.
@@ -2257,7 +2262,11 @@ retry_policy)` maps to the taxonomy:
   nonbaselined FAIL, log-contract, results FAIL, anomaly, expectation, ledger
   drift), OR a post-boot self-exit aborted the batch (batch-crashed), OR a
   post-mission OUTCOME step failed on a MISSION-OK run (mission-outcome; added
-  2026-07-26, see the `missionOutcome` verifier row). NOT retried (a defect is a
+  2026-07-26, see the `missionOutcome` verifier row), OR a driven step missed its
+  expect on a valid stage (unmet-step), OR a declared `[fixture] snapshotSaves` save
+  is absent after a valid stage (snapshot-save-missing, multiplayer T-04, the last
+  red: every step met its expect, so the step that names the save answered OK
+  without leaving it). NOT retried (a defect is a
   defect). Wording note on `mission-outcome`: it is the one subkind that is not
   strictly "a Parsek defect" - a kerbal killed by stock physics is a FLIGHT failure -
   but it is classified here rather than as a driver-INVALID because a driver-stage

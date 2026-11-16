@@ -369,7 +369,21 @@ writes `testGame = False`.
 - **Change:** `[fixture] snapshotSaves = ["${runSave}-b", ...]`: `run.py` copies each named
   save folder of the instance into `results/<runId>_save-<suffix>/` the same way it copies
   the run save. The `as=` saves a lane creates are named in advance, so the list is static.
+  - As built (2026-11-16): an entry is `${runSave}-<suffix>` or the literal
+    `<runSaveName>-<suffix>`, suffix `[A-Za-z0-9_]+` (the `NewGame as=` rule); the
+    validator (`hlib.validate_snapshot_saves`) refuses the run save itself, a duplicate,
+    any other name, and a suffix whose dir name would end in a name another results pass
+    keys on (`hlib.RESULTS_NAME_SUFFIXES`), and warns when no step arg names the save.
+    Staging removes each named save first (fail closed), the pipelined post-quit copy
+    holds it, the copy runs in the post-quit step right after the run save's (size and
+    disk refusals, tmp-and-rename), and retention keeps the newest 3 per scenario and
+    suffix. A declared save absent after a valid driver stage reds
+    `PARSEK-FAIL(snapshot-save-missing)`, the last red. The result JSON carries
+    `snapshotSaves`. The run save's `_save` name and the passes keyed on it are
+    unchanged, so a reader that requires a name ending in `_save` (T-49) never sees a
+    named-save copy.
 - **Proof:** `test_hlib` validator cells; `test_run_smoke` cell that two saves are snapshotted.
+  As built: `SnapshotSavesSpecTests`, `SnapshotSavesSmokeTests`.
 - **Registers:** `harness/README.md` snapshot section.
 - **Size:** S. **Depends on:** nothing. **PC:** no.
 - **Risk:** low.

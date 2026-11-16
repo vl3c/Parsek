@@ -7886,6 +7886,13 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     # `[fixture.race]` - the race shared folder run.py stages (multiplayer T-03).
     errors.extend(validate_race_fixture(fixture, race_fixtures))
     race_declared = spec_race_fixture(spec) is not None
+    # `[fixture] snapshotSaves` - the second saves a lane creates, snapshotted like
+    # the run save (multiplayer T-04).
+    _snap_errors, _snap_warnings = validate_snapshot_saves(
+        fixture, run_save_name, ((spec.get("driver") or {}).get("steps")
+                                 if isinstance(spec.get("driver"), dict) else None))
+    errors.extend(_snap_errors)
+    warnings.extend(_snap_warnings)
 
     driver = spec.get("driver", {}) or {}
     kind = driver.get("kind")
@@ -12285,6 +12292,9 @@ PARSEK_FAIL_SUBKINDS: Tuple[str, ...] = (
     # driven seam step missed its expect (a post-mission recording verb answered
     # ERROR). The last red before PASS, so a run never reads green over an unmet step.
     UNMET_STEP_SUBKIND,
+    # Multiplayer T-04: a `[fixture] snapshotSaves` save absent after a run whose driver
+    # stage stayed valid. After unmet-step, which names a richer cause.
+    "snapshot-save-missing",
 )
 
 # Subkinds a bugId-ONLY expectedFail key may NOT demote to EXPECTED-FAIL. An
@@ -13456,6 +13466,7 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
       log-contract / results / anomaly / unity-exception / expectation /
           save-structure / render-composition / ghost-lifecycle / ledger
           -> PARSEK-FAIL
+      unmet step, then a missing snapshotSaves save -> PARSEK-FAIL
       else -> PASS
     ``retryable`` is a recommendation; ``should_retry`` is the authority
     combining attempt + policy.
@@ -13589,6 +13600,11 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
                 # acted and failed, a Parsek claim) but a driven step missed its expect.
                 base = V(VERDICT_PARSEK_FAIL, UNMET_STEP_SUBKIND,
                          "a driven seam step missed its expected verdict")
+            elif verifiers.get("snapshot_save_missing", False):
+                # Multiplayer T-04, the true last red: every step met its expect, so
+                # the step that names a declared save answered OK without leaving it.
+                base = V(VERDICT_PARSEK_FAIL, SNAPSHOT_SAVE_MISSING_SUBKIND,
+                         "a declared snapshotSaves save is absent after the run")
             else:
                 base = V(VERDICT_PASS, "", "driver valid, every verifier PASS/SKIPPED")
 
@@ -15505,7 +15521,8 @@ def decide_save_snapshot(verdict: str,
 def select_save_snapshot_dirs_to_prune(
         entries: Sequence[Tuple[str, str, float]],
         protect_name: Optional[str] = None,
-        keep_per_scenario: Optional[int] = None) -> List[str]:
+        keep_per_scenario: Optional[int] = None,
+        protect_names: Optional[Iterable[str]] = None) -> List[str]:
     """Which ``results/*_save`` dirs the retention pass removes.
 
     ``entries`` are ``(dir_name, scenario_id, mtime_epoch)`` rows for every
@@ -15517,7 +15534,8 @@ def select_save_snapshot_dirs_to_prune(
     for ITS scenario, and a global window would let one busy scenario evict
     every other scenario's only copy. Within a scenario, newest-first;
     everything past ``keep_per_scenario`` is pruned. ``protect_name`` (the
-    CURRENT run's dir) is always kept and counts toward its scenario's window.
+    CURRENT run's dir) is always kept and counts toward its scenario's window;
+    ``protect_names`` adds more such names (a run's named-save snapshots).
 
     A row whose ``scenario_id`` is empty (no result JSON to read it from, and a
     run id the caller could not parse) buckets under its OWN dir name, so an
@@ -15527,6 +15545,9 @@ def select_save_snapshot_dirs_to_prune(
     """
     if keep_per_scenario is None:
         keep_per_scenario = SAVE_SNAPSHOT_KEEP_PER_SCENARIO
+    protected = set(protect_names or ())
+    if protect_name is not None:
+        protected.add(protect_name)
     buckets: Dict[str, List[Tuple[str, float]]] = {}
     for name, scenario_id, mtime in entries:
         key = scenario_id or ("\x00unattributed\x00" + name)
@@ -15536,7 +15557,7 @@ def select_save_snapshot_dirs_to_prune(
         newest_first = sorted(rows, key=lambda r: (r[1], r[0]), reverse=True)
         kept = 0
         for name, mtime in newest_first:
-            if name == protect_name:
+            if name in protected:
                 kept += 1
                 continue
             if kept >= keep_per_scenario:
@@ -15585,6 +15606,171 @@ def select_stale_save_snapshot_tmp_dirs_to_sweep(
             continue
         out.append(name)
     return sorted(out)
+
+
+# ---------------------------------------------------------------------------
+# Named-save snapshots (multiplayer plan, test-and-harness T-04).
+#
+# A lane that creates a second save (a NewGame `as=<runSave>-<suffix>` step, the
+# race lanes' second career) declares it in advance:
+#   [fixture] snapshotSaves = ["${runSave}-b", ...]
+# and run.py treats each one like the run save: staging removes a prior copy so a
+# folder present after the flight is this run's, the pipelined post-quit copy holds
+# it, and the post-quit step copies it to ``results/<runId>_save-<suffix>/`` through
+# the same tmp-and-rename with its own per-scenario, per-suffix retention window.
+# Every entry is the lane's own run save name plus "-" and a [A-Za-z0-9_] suffix
+# (the NewGame `as=` rule), so a name can never leave saves/, never be the run save,
+# and never contain a "-" after the separator; the LAST "_save-" of a results dir
+# name therefore splits it into run id and suffix. A suffix whose dir name would end
+# in a name another results/ pass keys on (``_save``, ``_race``, ``_shots`` ...) is
+# refused, so no other sweep can mistake the copy for its own.
+# A declared save that is absent after a run whose driver stage stayed valid reds
+# PARSEK-FAIL(snapshot-save-missing): every step met its expect, so the step that
+# names the save answered OK without leaving it (or the spec declared a save no step
+# creates, which the validator warns about).
+# ---------------------------------------------------------------------------
+
+SNAPSHOT_SAVES_KEY = "snapshotSaves"
+SNAPSHOT_SAVE_DIR_INFIX = SAVE_SNAPSHOT_DIR_SUFFIX + "-"
+SNAPSHOT_SAVE_SUFFIX_RE = NEWGAME_AS_SUFFIX_RE
+SNAPSHOT_SAVE_MISSING_SUBKIND = "snapshot-save-missing"
+# Every results/ name ending another pass keys on with endswith (claims, retention
+# sweeps, the archive). A named-save dir name may end in none of them.
+RESULTS_NAME_SUFFIXES: Tuple[str, ...] = tuple(dict.fromkeys(
+    RUN_ID_ARTIFACT_SUFFIXES + (SAVE_SNAPSHOT_DIR_SUFFIX, SAVE_SNAPSHOT_TMP_SUFFIX,
+                                RACE_SNAPSHOT_DIR_SUFFIX, RACE_LISTING_SUFFIX,
+                                "_harness.log")))
+
+
+def snapshot_save_dir_clash(suffix: str) -> Optional[str]:
+    """The results/ name ending a ``<runId>_save-<suffix>`` dir would share with
+    another pass (``RESULTS_NAME_SUFFIXES``), or None."""
+    tail = SNAPSHOT_SAVE_DIR_INFIX + suffix
+    return next((s for s in RESULTS_NAME_SUFFIXES if tail.endswith(s)), None)
+
+
+def snapshot_save_suffix(entry: Any, run_save_name: Optional[str]) -> Optional[str]:
+    """The suffix of one ``snapshotSaves`` entry (``${runSave}-<suffix>`` or the
+    literal ``<runSaveName>-<suffix>``), or None when the entry has neither shape or
+    the suffix is not a plain ``[A-Za-z0-9_]+`` name."""
+    if not isinstance(entry, str):
+        return None
+    for prefix in (RUN_SAVE_TOKEN + "-", (run_save_name + "-") if run_save_name else None):
+        if prefix and entry.startswith(prefix):
+            suffix = entry[len(prefix):]
+            return suffix if SNAPSHOT_SAVE_SUFFIX_RE.match(suffix) else None
+    return None
+
+
+def validate_snapshot_saves(fixture: Any, run_save_name: Optional[str],
+                            steps: Optional[Sequence[Any]] = None) -> Tuple[List[str], List[str]]:
+    """(errors, warnings) for ``[fixture] snapshotSaves`` (nothing when absent)."""
+    if not isinstance(fixture, dict) or SNAPSHOT_SAVES_KEY not in fixture:
+        return [], []
+    where = "fixture.%s" % SNAPSHOT_SAVES_KEY
+    value = fixture.get(SNAPSHOT_SAVES_KEY)
+    if not isinstance(value, list):
+        return ["%s: must be a list of save names, got %s" % (where, type(value).__name__)], []
+    errors: List[str] = []
+    warnings: List[str] = []
+    seen: Dict[str, int] = {}
+    step_values = set()
+    for step in steps or ():
+        args = step.get("args") if isinstance(step, dict) else None
+        if isinstance(args, dict):
+            step_values.update(v for v in args.values() if isinstance(v, str))
+    for i, entry in enumerate(value):
+        at = "%s[%d]" % (where, i)
+        if entry == RUN_SAVE_TOKEN or (run_save_name and entry == run_save_name):
+            errors.append("%s: %r is the run save, which is always snapshotted to "
+                          "results/<runId>%s/" % (at, entry, SAVE_SNAPSHOT_DIR_SUFFIX))
+            continue
+        suffix = snapshot_save_suffix(entry, run_save_name)
+        if suffix is None:
+            errors.append("%s: %r must be '%s-<suffix>' (or runSaveName %r plus '-<suffix>') "
+                          "with a [A-Za-z0-9_] suffix: a lane snapshots only a folder of its "
+                          "own directly inside saves/" % (at, entry, RUN_SAVE_TOKEN,
+                                                          run_save_name))
+            continue
+        if suffix in seen:
+            errors.append("%s: %r names the same save as %s[%d]" % (at, entry, where,
+                                                                    seen[suffix]))
+            continue
+        seen[suffix] = i
+        clash = snapshot_save_dir_clash(suffix)
+        if clash is not None:
+            errors.append("%s: suffix %r makes results/<runId>%s%s end in %r, a name another "
+                          "results/ pass keys on" % (at, suffix, SNAPSHOT_SAVE_DIR_INFIX,
+                                                     suffix, clash))
+            continue
+        full = "%s-%s" % (run_save_name, suffix)
+        if entry not in step_values and full not in step_values:
+            warnings.append("%s: no driver step arg names %r; unless the lane creates it "
+                            "another way, the run reds PARSEK-FAIL(%s)"
+                            % (at, full, SNAPSHOT_SAVE_MISSING_SUBKIND))
+    return errors, warnings
+
+
+def spec_snapshot_saves(spec: Optional[Dict], run_save_name: Optional[str]) -> List[Tuple[str, str]]:
+    """``(save folder name, suffix)`` for each valid ``snapshotSaves`` entry, in order,
+    duplicates and results-name clashes dropped (validate_spec refuses both); [] for a
+    spec without the key. The shell's only reader."""
+    fixture = ((spec or {}).get("fixture") or {})
+    if not isinstance(fixture, dict) or not run_save_name:
+        return []
+    value = fixture.get(SNAPSHOT_SAVES_KEY)
+    out: List[Tuple[str, str]] = []
+    for entry in value if isinstance(value, list) else ():
+        suffix = snapshot_save_suffix(entry, run_save_name)
+        if suffix is not None and snapshot_save_dir_clash(suffix) is None \
+                and suffix not in (s for _, s in out):
+            out.append(("%s-%s" % (run_save_name, suffix), suffix))
+    return out
+
+
+def snapshot_save_dir_name(run_id: str, suffix: str) -> str:
+    """``<runId>_save-<suffix>``, the results/ dir of one named-save snapshot."""
+    return "%s%s%s" % (run_id, SNAPSHOT_SAVE_DIR_INFIX, suffix)
+
+
+def parse_snapshot_save_dir_name(name: str, tmp: bool = False) -> Optional[Tuple[str, str]]:
+    """``(runId, suffix)`` of a ``<runId>_save-<suffix>`` dir name (with ``tmp``, of
+    its ``.harness-tmp`` form), or None for any other name: the run save's
+    ``<runId>_save``, a ``_race`` / ``_shots`` dir, a result file."""
+    if tmp:
+        if not name.endswith(SAVE_SNAPSHOT_TMP_SUFFIX):
+            return None
+        name = name[:-len(SAVE_SNAPSHOT_TMP_SUFFIX)]
+    run_id, sep, suffix = name.rpartition(SNAPSHOT_SAVE_DIR_INFIX)
+    if not sep or not run_id or not SNAPSHOT_SAVE_SUFFIX_RE.match(suffix):
+        return None
+    return run_id, suffix
+
+
+def select_snapshot_save_dirs_to_prune(entries: Sequence[Tuple[str, str, float]],
+                                       protect_names: Iterable[str] = ()) -> List[str]:
+    """Which ``results/<runId>_save-<suffix>`` dirs retention removes. ``entries`` are
+    ``(dir_name, scenario_id, mtime)``; a name of any other shape is ignored. The run
+    save's rule (select_save_snapshot_dirs_to_prune, newest SAVE_SNAPSHOT_KEEP_PER_SCENARIO)
+    applies per scenario AND suffix, so a lane's second save keeps as many runs as its
+    run save; an unattributed row buckets alone; ``protect_names`` are kept."""
+    keyed = []
+    for name, scenario_id, mtime in entries:
+        parsed = parse_snapshot_save_dir_name(name)
+        if parsed is None:
+            continue
+        keyed.append((name, ("%s\x00%s" % (scenario_id, parsed[1])) if scenario_id else "",
+                      mtime))
+    return select_save_snapshot_dirs_to_prune(keyed, protect_names=protect_names)
+
+
+def select_stale_snapshot_save_tmp_dirs(names: Sequence[str],
+                                        protect_names: Iterable[str] = ()) -> List[str]:
+    """The ``<runId>_save-<suffix>.harness-tmp`` dirs a killed copy left behind (the
+    current run's own tmp names excepted), sorted."""
+    protected = set(protect_names)
+    return sorted(n for n in names
+                  if n not in protected and parse_snapshot_save_dir_name(n, tmp=True))
 
 
 # ---------------------------------------------------------------------------
