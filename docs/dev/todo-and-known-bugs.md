@@ -20,6 +20,21 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## MP-R0B-P2C: the playback engine writes its diagnostics through a sink and reads a shareable spawn budget [FILED 2026-11-16 by the multiplayer plan `docs/dev/plans/multiplayer/r0b-prep-playback.md`, prerefactor P2c (tasks P2c-01 to P2c-04); single-player behavior unchanged; architecture work, no defect]
+
+So a second `GhostPlaybackEngine` can later run beside the player's own, the engine stops
+writing the static `DiagnosticsState` and its spawn throttle reads a budget object two engines
+can share. Close this entry when P2c-04 lands.
+
+- P2c-01 (`LoopSyncParentIdx` read-only on `IPlaybackTrajectory`): open.
+- ~~P2c-02~~ (health counters through `IGhostPlaybackDiagnosticsSink`): done 2026-11-16, branch
+  `mp/p2c-02-engine-diagnostics-sink`. The six `DiagnosticsState.health` increments moved
+  verbatim into `GlobalGhostPlaybackDiagnosticsSink`, which the one-argument engine constructor
+  builds per engine; `GhostPlaybackEngineDiagnosticsSourceGateTests` keeps the counters out of
+  `GhostPlaybackEngine*.cs`. Owed: in-game `Diagnostics` category on lane H27 (nightly).
+- P2c-03 (frame budget, history and threshold through the sink): open.
+- P2c-04 (`GhostSpawnFrameBudget`): open.
+
 ## ~~MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH~~: a looped mission that starts in orbit is timed around a later moon it passes low over [CLOSED 2026-11-16: V43M flew green on its first flight with the fix, `2026-11-16_1803_V43M-vall-tylo-player-loop` PASS attempt 1 (46 s, automation DLL built from 866ac123, sha256 prefix 8dfcbc5e; every verifier green), KSP.log reading launch moon Vall, constraints=3, `Solve: dominant=Tylo method=dominant-intercept residual=2.18 withinTol=yes` and `PhaseLock APPLIED ... P=211926.36 ... zeroDrift=yes scheduleWithinTol=yes`. FILED 2026-11-16 from V43M's first flight `2026-11-16_1726_V43M-vall-tylo-player-loop` (PC, parallel run `moon-loops-2026-11-16d`, DLL unchanged since PR #2638, PARSEK-FAIL(expectation) attempt 1, 58 s; diagnostics on branch `forge-logs-2026-11-16d`, folder `diag/2026-11-16_1726_V43M-vall-tylo-player-loop/`). FIXED 2026-11-16, branch `claude/project-thread-vpr29t`; xUnit; V43M re-pinned, awaiting PC flight; low (the loop still phase-locks, on the wrong launch moon)]
 
 The `vall-tylo-recorded` tree 91205f57 is one vessel's chain: the root ef182ffd starts IN ORBIT

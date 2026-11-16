@@ -151,7 +151,7 @@ namespace Parsek
             // post-condition state.
             bool primeRetired = PrimeLoadedGhostForPlaybackUT(index, traj, state, playbackUT);
 
-            DiagnosticsState.health.ghostReusedAcrossCycleThisSession++;
+            diagnostics.CountGhostReusedAcrossCycle();
 
             // Distinctive UTF-16 string for the DLL verification recipe.
             ParsekLog.VerboseRateLimited("Engine", $"reuse-{index}",
@@ -625,7 +625,7 @@ namespace Parsek
             // the same index reopens its own bridge.
             chainBridgeOpenedUT.Remove(index);
             GhostVisualBuilder.ClearMissingAudioClipWarnings(ghostRootName);
-            DiagnosticsState.health.ghostDestroysThisSession++;
+            diagnostics.CountGhostDestroy();
         }
 
         /// <summary>

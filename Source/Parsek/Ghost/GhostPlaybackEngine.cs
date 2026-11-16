@@ -33,6 +33,8 @@ namespace Parsek
     internal partial class GhostPlaybackEngine
     {
         private readonly IGhostPositioner positioner;
+        // Where the ghost lifecycle health counts go; never DiagnosticsState directly.
+        private readonly IGhostPlaybackDiagnosticsSink diagnostics;
         private bool ghostAudioPaused;
 
         #region Ghost state
@@ -360,8 +362,16 @@ namespace Parsek
         internal const string EngineFrameIterMessagePrefix = "engine-frame-iter";
 
         internal GhostPlaybackEngine(IGhostPositioner positioner)
+            : this(positioner, new GlobalGhostPlaybackDiagnosticsSink())
         {
+        }
+
+        internal GhostPlaybackEngine(IGhostPositioner positioner, IGhostPlaybackDiagnosticsSink diagnostics)
+        {
+            if (diagnostics == null)
+                throw new ArgumentNullException(nameof(diagnostics));
             this.positioner = positioner;
+            this.diagnostics = diagnostics;
             ParsekLog.Info("Engine", "GhostPlaybackEngine created");
         }
 
