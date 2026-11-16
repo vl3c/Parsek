@@ -218,22 +218,28 @@ class SchemaTests(unittest.TestCase):
             os.path.basename(SCHEMA_PATH),
             os.path.basename(SHELL_PATH)[:-3] + ".schema.toml")
 
-    def test_the_schema_is_b28s_plus_three(self):
+    def test_the_schema_is_b28s_plus_six(self):
         """As authored this was 'B28's MINUS the six relay keys plus one'; the
         flight-2 re-scope restored the six (see the schema's bottom block for the
         re-argument), so the relation is a clean superset; the transfer node-wait
-        key joined captureEllipticalApoapsisMeters on 2026-11-06, and the escape
-        pass count escapeExtraParkOrbits (B44's fix) on 2026-11-15."""
+        key joined captureEllipticalApoapsisMeters on 2026-11-06, the escape
+        pass count escapeExtraParkOrbits (B44's fix) on 2026-11-15, and the three
+        course-correction node-search keys (B43's fix) on 2026-11-16."""
         mine = set(self.schema["params"])
         theirs = set(self.b28["params"])
         self.assertEqual(theirs - mine, set(),
                          "B29 now declares everything B28 does")
         self.assertEqual(mine - theirs, {"captureEllipticalApoapsisMeters",
                                          "transferNodeWaitWarp",
-                                         "escapeExtraParkOrbits"},
+                                         "escapeExtraParkOrbits",
+                                         "correctionNodeSearch",
+                                         "correctionNodeSearchPeWindowMeters",
+                                         "correctionNodeLeadSeconds"},
                          "B29 adds exactly these keys to the shared set (the second, "
                          "the transfer node-wait hold, by owner ruling 2026-11-06; "
-                         "the third, the escape pass count, B44's fix 2026-11-15)")
+                         "the third, the escape pass count, B44's fix 2026-11-15; "
+                         "the last three, the correction node search, B43's fix "
+                         "2026-11-16)")
 
     def test_all_six_relay_keys_are_declared_with_b28s_shapes(self):
         """The re-scope's declarations are B28's VERBATIM - same type, same

@@ -453,7 +453,7 @@ Where a fix would go (a choice for whoever takes it; no code changed):
      asserts, so it is an owner call.
 Option 1 is the smallest. Done when B7 flies attempt 1 green across several nightlies.
 
-## B43-VALL-TYLO-FLYBY-SUBSURFACE: B43's first flight reaches Tylo on an impact course and never arms the capture [FILED 2026-11-15 from B43's first flights; FIX 1 (cap 120) FLOWN 2026-11-16, still INVALID; FIX 2 AUTHORED 2026-11-16 (cap 250, spec only, not flown); low (the forge cannot harvest `vall-tylo-recorded`, so V43M stays unflyable; not a Parsek defect)]
+## B43-VALL-TYLO-FLYBY-SUBSURFACE: B43's first flight reaches Tylo on an impact course and never arms the capture [FILED 2026-11-15 from B43's first flights; FIX 1 (cap 120) FLOWN 2026-11-16, still INVALID; FIX 2 (cap 250) FLOWN 2026-11-16, still INVALID; FIX 3 AUTHORED 2026-11-16 (node search, mission library, not flown); low (the forge cannot harvest `vall-tylo-recorded`, so V43M stays unflyable; not a Parsek defect)]
 
 `B43-vall-tylo-transfer` flew twice on 2026-11-15 (runs `2026-11-15_1617` and `2026-11-15_1632_a2`)
 and read INVALID(mission) both times: TARGET-FLYBY logged `flyby impact certain,
@@ -468,8 +468,22 @@ step further: round 0 flew its 85.6 m/s node in full, but the Tylo periapsis mov
 -580 km to -323 km (the MechJeb node under-delivered; the burn's own telemetry shows the node
 consumed to 1.4 m/s), and every later round priced 200.6-265.5 m/s and was refused at 120.
 Fix 2: the cap is 250, so round 1's 200.6 m/s flies; 114.1 LF (~600 m/s) was left after round
-0, enough for it plus the capture, while a 265 m/s round stays refused. Closes when B43 flies
-green and `vall-tylo-recorded` is harvested.
+0, enough for it plus the capture, while a 265 m/s round stays refused. Re-flown 2026-11-16 with
+cap 250 (runs `2026-11-16_0002`, `2026-11-16_0022_a2`), INVALID(mission) both: every round flew to
+within 2 m/s of its node, but MechJeb's node did not deliver the asked 500 km periapsis; the Tylo
+periapsis went -580 -> -327 km (85.6 m/s), -326 -> -568 (199.5), -568 -> -483 (168.8), -483 -> -381
+(111.1), and the arrival was subsurface. At v_inf ~245 m/s Tylo focuses the approach hard (aim
+offsets under ~7.5 Mm hit the surface, 500 km needs ~10 Mm of the 10.86 Mm SOI), MechJeb's linear
+model misjudges it, and its nodes sat 1,700-10,450 s before the SOI where the lever is small.
+Fix 3: new opt-in mission param `correctionNodeSearch` (`b29_jool_kerbin` schema, with
+`correctionNodeSearchPeWindowMeters` and `correctionNodeLeadSeconds`; off by default, so no other
+lane changes). The runner logs the MechJeb node's predicted next body and periapsis; outside the
+window it moves the node to now + 900 s and `mlib.search_correction_node` steps dv along ten
+node-frame directions (crossing the V when the aim sweeps through Tylo's centre), bisects to the
+smallest in-window dv and keeps the cheapest under the cap; a node whose read-back prediction is
+outside the window or over the cap is removed, not flown. B43 now aims at 150 km with window
+[100, 1,000] km. Pinned by `test_correction_node_search`. Closes when B43 flies green and
+`vall-tylo-recorded` is harvested.
 
 ## ~~B44-LAYTHE-TYLO-NODE-EDIT-UNAVAILABLE~~: B44's second transfer burn cannot edit its maneuver node and the craft is lost [CLOSED 2026-11-15: B44 flew green on its first flight with the fix, `2026-11-15_2243` PASS attempt 1 (888 s, origin/main c522ea549), and `laythe-tylo-recorded` is harvested and committed, V44M handed over. FILED 2026-11-15 from B44's first flights; FIX AUTHORED 2026-11-15 (mission library + spec); low (not a Parsek defect)]
 

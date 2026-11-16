@@ -1848,6 +1848,26 @@ class KrpcMissionControl(MissionControl):
             # flaked). An over-cap plan's nodes are removed here, so the machine
             # sees node_count stay 0 and PLAN-CORRECTION's bounded fall-through
             # coasts on the raw Hohmann intercept instead.
+            search = getattr(action, "correction_search", None)
+            if search is not None:
+                # NODE SEARCH (correctionNodeSearch): MechJeb still plans first,
+                # then its node is judged by KSP's own patched-conic prediction
+                # and refined when it misses the periapsis window. Its own
+                # method so the unarmed branch below stays byte-identical.
+                # A fault mid-search removes every node: a half-written node
+                # is not a plan, and node_count 0 routes to the bounded re-plan.
+                try:
+                    self._plan_course_correction_with_search(sc, v, action, search)
+                except Exception as exc:
+                    try:
+                        v.control.remove_nodes()
+                    except Exception:
+                        pass
+                    _stdout_sink(mlib.format_mission_log_line(
+                        "Warn", "Plan",
+                        "course-correction node search raised (%s: %s); every "
+                        "node removed" % (type(exc).__name__, str(exc)[:160])))
+                return
             try:
                 op = self._mechjeb.maneuver_planner.operation_course_correction
                 op.course_correct_final_pe_a = float(action.value)
@@ -3824,6 +3844,193 @@ class KrpcMissionControl(MissionControl):
             except Exception:
                 pass
         return distance, rel_speed, target_set
+
+    def _read_raw_encounter(self, v) -> Tuple[str, float, float]:
+        """(next body, next periapsis altitude, time to SOI change) of the
+        vessel's own unburned trajectory, the telemetry read's shape; ("", NaN,
+        NaN) on any fault or with no SOI change predicted."""
+        try:
+            orbit = v.orbit
+            tts = float(orbit.time_to_soi_change)
+            if not math.isfinite(tts):
+                return "", float("nan"), float("nan")
+            nxt = orbit.next_orbit
+            if nxt is None:
+                return "", float("nan"), tts
+            return str(nxt.body.name), float(nxt.periapsis_altitude), tts
+        except Exception:
+            return "", float("nan"), float("nan")
+
+    @staticmethod
+    def _read_node_encounter(node) -> Tuple[str, float]:
+        """(body, periapsis altitude) of the patch after the node's own
+        post-burn orbit (kRPC Node.orbit.next_orbit); ("", NaN) when the
+        post-burn orbit predicts no SOI change or on any fault."""
+        try:
+            nxt = node.orbit.next_orbit
+            if nxt is None:
+                return "", float("nan")
+            return str(nxt.body.name), float(nxt.periapsis_altitude)
+        except Exception:
+            return "", float("nan")
+
+    def _plan_course_correction_with_search(self, sc, v, action: "mlib.Action",
+                                            search) -> None:
+        """ACTION_MJ_PLAN_COURSE_CORRECT with correctionNodeSearch armed.
+
+        MechJeb plans first. Its node's predicted target periapsis is read off
+        KSP's patched conics and LOGGED; mlib.correction_search_decision then
+        keeps it, removes it (the raw trajectory is already in the window, or
+        the node is negligible), or refines it: every node is removed, ONE node
+        is added at mlib.correction_search_node_ut, and
+        mlib.search_correction_node chooses its direction and magnitude by
+        writing the node's components and reading the prediction back. The
+        chosen node passes mlib.classify_refined_correction (the dv cap and the
+        window, on read-back values) or is removed, so CORRECTION-BURN only
+        ever flies a node whose own prediction is in the window. A removed
+        node leaves node_count 0, which the machine's bounded PLAN-CORRECTION
+        re-plan and fall-through already own."""
+        target, pe_lo, pe_hi = str(search[0]), float(search[1]), float(search[2])
+        lead = float(search[3])
+        window = (pe_lo, pe_hi)
+        cap = float(action.limit) if action.limit else 0.0
+        control = v.control
+        raw_body, raw_pe, raw_tts = self._read_raw_encounter(v)
+        nodes = None
+        try:
+            op = self._mechjeb.maneuver_planner.operation_course_correction
+            op.course_correct_final_pe_a = float(action.value)
+            nodes = op.make_nodes()
+        except Exception as exc:
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Plan",
+                "operation_course_correction.make_nodes failed: %s (node search "
+                "judges the raw trajectory)" % (exc,)))
+        mj_dv = float("nan")
+        mj_body, mj_pe = "", float("nan")
+        if nodes:
+            try:
+                mj_dv = sum(abs(float(n.delta_v)) for n in nodes)
+            except Exception:
+                mj_dv = float("nan")
+            mj_body, mj_pe = self._read_node_encounter(nodes[-1])
+        _stdout_sink(mlib.format_mission_log_line(
+            "Info", "Plan",
+            "course-correction node search: MechJeb nodes=%d dv=%s predicts "
+            "nextBody=%s nextPe=%s; raw nextBody=%s nextPe=%s tts=%s; window "
+            "[%.0f, %.0f] cap %.1f"
+            % (len(nodes or ()), _fmt(mj_dv), mj_body or "?", _fmt(mj_pe),
+               raw_body or "?", _fmt(raw_pe), _fmt(raw_tts), pe_lo, pe_hi, cap)))
+        verdict, why = mlib.correction_search_decision(
+            raw_body, raw_pe, mj_dv, mj_body, mj_pe, target, window, cap,
+            NEGLIGIBLE_CORRECTION_DV)
+        if verdict == mlib.CC_SEARCH_KEEP:
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "Plan",
+                "course-correction dv %.2f m/s classified fly (cap %.1f, floor "
+                "%.1f); plan accepted (%s)"
+                % (mj_dv, cap, NEGLIGIBLE_CORRECTION_DV, why)))
+            return
+        if verdict in (mlib.CC_SEARCH_ALREADY_GOOD, mlib.CC_SEARCH_NEGLIGIBLE):
+            control.remove_nodes()
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "Plan",
+                "course-correction plan removed (trajectory already good): %s"
+                % (why,)))
+            return
+        ut = float(sc.ut)
+        node_ut, why_not = mlib.correction_search_node_ut(ut, lead, raw_tts)
+        control.remove_nodes()
+        if node_ut is None:
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Plan",
+                "course-correction node search REFUSED (%s); %s; no node left "
+                "(correction disqualified this attempt)" % (why_not, why)))
+            return
+        _stdout_sink(mlib.format_mission_log_line(
+            "Info", "Plan",
+            "course-correction node search: refining (%s); node at ut=%.3f "
+            "(now + %.0f s)" % (why, node_ut, lead)))
+        # The node is written component by component, and only the components
+        # that change, because every write re-solves the patched conics. A
+        # setter fault falls back to re-adding the node with all three.
+        cell = {"node": control.add_node(node_ut, prograde=0.0, normal=0.0,
+                                         radial=0.0),
+                "vec": (0.0, 0.0, 0.0)}
+
+        def _write(vec) -> None:
+            node = cell["node"]
+            old = cell["vec"]
+            try:
+                if vec[0] != old[0]:
+                    node.prograde = float(vec[0])
+                if vec[1] != old[1]:
+                    node.normal = float(vec[1])
+                if vec[2] != old[2]:
+                    node.radial = float(vec[2])
+            except Exception:
+                try:
+                    node.remove()
+                except Exception:
+                    control.remove_nodes()
+                cell["node"] = control.add_node(
+                    node_ut, prograde=float(vec[0]), normal=float(vec[1]),
+                    radial=float(vec[2]))
+            cell["vec"] = (float(vec[0]), float(vec[1]), float(vec[2]))
+
+        def _eval_pe(direction, dv):
+            _write((dv * direction[0], dv * direction[1], dv * direction[2]))
+            body, pe = self._read_node_encounter(cell["node"])
+            if body != target:
+                return None
+            return pe
+
+        wall0 = time.monotonic()
+        result = mlib.search_correction_node(
+            _eval_pe, mlib.CORRECTION_SEARCH_DIRECTIONS, cap,
+            mlib.CORRECTION_SEARCH_STEP_MPS, window)
+        wall = time.monotonic() - wall0
+        if result.direction is None:
+            control.remove_nodes()
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Plan",
+                "course-correction node search found no node: %s (directions=%d "
+                "evals=%d wall=%.1fs); no node left (correction disqualified "
+                "this attempt)"
+                % (result.reason, result.directions_tried, result.evaluations, wall)))
+            return
+        d = result.direction
+        _write((result.dv * d[0], result.dv * d[1], result.dv * d[2]))
+        back_dv = float("nan")
+        back_ut = float("nan")
+        try:
+            back_dv = float(cell["node"].delta_v)
+            back_ut = float(cell["node"].ut)
+        except Exception:
+            pass
+        body, pe = self._read_node_encounter(cell["node"])
+        _stdout_sink(mlib.format_mission_log_line(
+            "Info", "Plan",
+            "course-correction node search: directions=%d evals=%d wall=%.1fs "
+            "chose (prograde %.3f, normal %.3f, radial %.3f) dv %.2f m/s "
+            "searchPe %.0f; read back dv=%s ut=%s nextBody=%s nextPe=%s%s"
+            % (result.directions_tried, result.evaluations, wall, d[0], d[1], d[2],
+               result.dv, result.pe, _fmt(back_dv), _fmt(back_ut), body or "?",
+               _fmt(pe), (" (%s)" % result.reason) if result.reason else "")))
+        verdict2, why2 = mlib.classify_refined_correction(
+            back_dv, body, pe, target, window, cap, NEGLIGIBLE_CORRECTION_DV)
+        if verdict2 != mlib.PLAN_FLY:
+            control.remove_nodes()
+            _stdout_sink(mlib.format_mission_log_line(
+                "Warn", "Plan",
+                "course-correction refined node removed (%s): %s; no node left "
+                "(correction disqualified this attempt)" % (verdict2, why2)))
+            return
+        _stdout_sink(mlib.format_mission_log_line(
+            "Info", "Plan",
+            "course-correction dv %.2f m/s classified fly (cap %.1f, floor %.1f); "
+            "refined plan accepted, node lead %s s"
+            % (back_dv, cap, NEGLIGIBLE_CORRECTION_DV, _fmt(node_ut - float(sc.ut)))))
 
     def _read_node_next_pe(self, nodes) -> float:
         """Periapsis altitude (m) of the orbit after the first maneuver node
