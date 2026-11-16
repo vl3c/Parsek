@@ -450,7 +450,12 @@ def check_game_mode(sfs_text: str, expected_mode: str):
 
 def harvest(save_dir: str, target_name: str, title: str, force: bool,
             expected_situations=(), keep_parsek: bool = False,
-            allow_no_vessel: bool = False, expected_mode: str = "") -> int:
+            allow_no_vessel: bool = False, expected_mode: str = "",
+            target_root: str = "") -> int:
+    """``target_root`` (default ``harness/fixtures/saves``) is where the
+    ``<target_name>`` directory is written; ``tools/campaign_runner.py`` passes
+    a stage folder under ``results/campaign/`` so a chained stage stages exactly
+    what a promoted fixture would hold."""
     if not os.path.isdir(save_dir):
         raise SystemExit("harvest: produced save dir not found: %s" % save_dir)
     src_sfs = os.path.join(save_dir, "persistent.sfs")
@@ -538,7 +543,7 @@ def harvest(save_dir: str, target_name: str, title: str, force: bool,
             raise SystemExit("harvest: " + msg + " (pass --force to write anyway)")
         log("warning: " + msg + " (writing anyway, --force)")
 
-    target = os.path.join(_FIXTURES_SAVES, target_name)
+    target = os.path.join(target_root or _FIXTURES_SAVES, target_name)
     if os.path.isdir(target):
         # The refusal belongs AT the destructive site: a default-mode
         # (Parsek-clean) harvest aimed at an existing RECORDED-state fixture
