@@ -507,6 +507,186 @@ class IlCompareTests(unittest.TestCase):
         w2 = il_compare.widenings(a2, b2, ["Parsek.Host"])
         self.assertEqual(["method-body"], [d[0] for d in il_compare.compare(a2, b2, w2)])
 
+    # --alias-field: the positioner reached lane state through `host.Lane.x` (before) and reaches
+    # it through its own `lane` field (after), under the fold Host=Lane.
+    LANE_FOLD = [("Parsek.Host", "Parsek.Lane")]
+    LANE_ALIAS = [("Parsek.Pos", "lane", "host")]
+
+    @staticmethod
+    def _lane_types(lane_fields):
+        return ("""\
+.class public auto ansi beforefieldinit Parsek.Host
+  extends [mscorlib]System.Object
+{
+  .field private class Parsek.Lane lane
+  .field assembly class Parsek.Other other
+  .method assembly hidebysig specialname instance class Parsek.Lane get_Lane() cil managed
+  {
+    IL_0000:  ldarg.0
+    IL_0001:  ldfld      class Parsek.Lane Parsek.Host::lane
+    IL_0006:  ret
+  } // end of method Host::get_Lane
+
+} // end of class Parsek.Host
+.class assembly auto ansi sealed beforefieldinit Parsek.Lane
+  extends [mscorlib]System.Object
+{
+%s} // end of class Parsek.Lane
+.class assembly auto ansi sealed beforefieldinit Parsek.Other
+  extends [mscorlib]System.Object
+{
+} // end of class Parsek.Other
+""" % "".join("  .field assembly int32 %s\n" % f for f in lane_fields))
+
+    @classmethod
+    def _pos(cls, fields, body, type_name="Parsek.Pos"):
+        decls = "".join("  .field private initonly %s\n" % f for f in fields)
+        return cls._cls(type_name, decls + cls._method("assembly", "Read", body))
+
+    LANE_BEFORE_BODY = ("    IL_0000:  ldarg.0\n"
+                        "    IL_0001:  ldfld      class Parsek.Host Parsek.Pos::host\n"
+                        "    IL_0006:  callvirt   instance class Parsek.Lane Parsek.Host::get_Lane()\n"
+                        "    IL_000b:  ldfld      int32 Parsek.Lane::count\n"
+                        "    IL_0010:  pop\n"
+                        "    IL_0011:  ret\n")
+    LANE_AFTER_BODY = ("    IL_0000:  ldarg.0\n"
+                       "    IL_0001:  ldfld      class Parsek.Lane Parsek.Pos::lane\n"
+                       "    IL_0006:  ldfld      int32 Parsek.Lane::count\n"
+                       "    IL_000b:  pop\n"
+                       "    IL_000c:  ret\n")
+    HOST_DECL = "class Parsek.Host host"
+    LANE_DECL = "class Parsek.Lane lane"
+
+    def lane_before(self):
+        return self._lane_types(["count", "total"]) + self._pos([self.HOST_DECL], self.LANE_BEFORE_BODY)
+
+    def lane_after(self, body=None, fields=None, pos_type="Parsek.Pos"):
+        return self._lane_types(["count", "total"]) + self._pos(
+            fields if fields is not None else [self.HOST_DECL, self.LANE_DECL],
+            body if body is not None else self.LANE_AFTER_BODY, pos_type)
+
+    def alias_diffs(self, before, after, aliases):
+        folds = self.LANE_FOLD
+        ta = il_compare.fold_types(il_compare.parse_il(il_compare.apply_folds(before, folds, "host")), folds)
+        text, _ = il_compare.apply_aliases(il_compare.apply_folds(after, folds, "host"), aliases, folds)
+        tb = il_compare.fold_types(il_compare.parse_il(text), folds)
+        return il_compare.alias_checks(ta, tb, aliases, folds) + il_compare.compare(ta, tb)
+
+    def test_alias_folds_a_lane_field_read_onto_the_host_lane_read(self):
+        diffs = self.alias_diffs(self.lane_before(), self.lane_after(), self.LANE_ALIAS)
+        # The one leftover is the new field's declaration; no body and no alias check differs.
+        self.assertEqual([("field", "Parsek.Pos")], [(d[0], d[1]) for d in diffs])
+        self.assertIn("lane (before 0, after 1)", diffs[0][2])
+
+    def test_alias_counts_the_reads_it_rewrote(self):
+        folded = il_compare.apply_folds(self.lane_after(), self.LANE_FOLD, "host")
+        _, counts = il_compare.apply_aliases(folded, self.LANE_ALIAS, self.LANE_FOLD)
+        self.assertEqual([1], counts)
+
+    def test_without_the_alias_the_renamed_read_is_a_difference(self):
+        kinds = [d[0] for d in self.alias_diffs(self.lane_before(), self.lane_after(), [])]
+        self.assertIn("method-body", kinds)
+
+    def test_an_alias_on_another_type_does_not_apply(self):
+        diffs = self.alias_diffs(self.lane_before(), self.lane_after(), [("Parsek.Other", "lane", "host")])
+        kinds = [d[0] for d in diffs]
+        self.assertIn("method-body", kinds)
+        self.assertIn("alias-field", kinds)  # Parsek.Other declares neither field
+        # A type whose name merely starts with TYPE, or a type nested in it, is not TYPE.
+        longer = self.lane_after().replace(
+            "Parsek.Pos::lane", "Parsek.PosX::lane")
+        text, counts = il_compare.apply_aliases(
+            il_compare.apply_folds(longer, self.LANE_FOLD, "host"), self.LANE_ALIAS, self.LANE_FOLD)
+        self.assertEqual([0], counts)
+        nested = self.lane_after().replace("Parsek.Pos::lane", "Parsek.Pos/'<>c__DisplayClass1_0'::lane")
+        _, counts = il_compare.apply_aliases(
+            il_compare.apply_folds(nested, self.LANE_FOLD, "host"), self.LANE_ALIAS, self.LANE_FOLD)
+        self.assertEqual([0], counts)
+
+    def test_an_alias_does_not_reach_a_longer_field_name_a_store_or_an_address(self):
+        for before_op, op in (("ldfld", "lanes"), ("stfld", "lane"), ("ldflda", "lane")):
+            line = "    IL_0001:  %s      class Parsek.Lane Parsek.Pos::%s\n" % (before_op, op)
+            text, counts = il_compare.apply_aliases(line, self.LANE_ALIAS, self.LANE_FOLD)
+            self.assertEqual(([0], line), (counts, text), line)
+
+    def test_a_renamed_field_whose_type_differs_is_reported(self):
+        # `lane` is a Parsek.Other: the fold does not make it the host's type, so the alias is
+        # not a rename. Both the declaration check and the read itself report it.
+        body = self.LANE_AFTER_BODY.replace("ldfld      class Parsek.Lane Parsek.Pos::lane",
+                                            "ldfld      class Parsek.Other Parsek.Pos::lane")
+        after = self.lane_after(body=body, fields=[self.HOST_DECL, "class Parsek.Other lane"])
+        diffs = self.alias_diffs(self.lane_before(), after, self.LANE_ALIAS)
+        kinds = [d[0] for d in diffs]
+        self.assertIn("method-body", kinds)
+        self.assertTrue(any(d[0] == "alias-field" and "type differs" in d[2] for d in diffs), diffs)
+
+    def test_alias_declaration_checks(self):
+        # NEW missing after, OLD missing before, NEW already declared before.
+        no_new = self.lane_after(fields=[self.HOST_DECL])
+        self.assertTrue(any("lane declared 0 times after" in d[2]
+                            for d in self.alias_diffs(self.lane_before(), no_new, self.LANE_ALIAS)))
+        wrong_old = [("Parsek.Pos", "lane", "hostX")]
+        self.assertTrue(any("hostX declared 0 times before" in d[2]
+                            for d in self.alias_diffs(self.lane_before(), self.lane_after(), wrong_old)))
+        had_lane = self._lane_types(["count", "total"]) + self._pos(
+            [self.HOST_DECL, self.LANE_DECL], self.LANE_BEFORE_BODY)
+        self.assertTrue(any("lane already declared before" in d[2]
+                            for d in self.alias_diffs(had_lane, self.lane_after(), self.LANE_ALIAS)))
+
+    def test_a_read_redirected_to_another_field_of_the_same_type_is_reported(self):
+        # Another positioner field of the lane's type (a second lane) read in place of `lane`.
+        spare = self.LANE_AFTER_BODY.replace("Parsek.Pos::lane", "Parsek.Pos::spare")
+        after = self.lane_after(body=spare, fields=[self.HOST_DECL, self.LANE_DECL, "class Parsek.Lane spare"])
+        self.assertIn("method-body", [d[0] for d in self.alias_diffs(self.lane_before(), after, self.LANE_ALIAS)])
+        # Another lane member of the same type read in place of `count`.
+        other_member = self.LANE_AFTER_BODY.replace("Parsek.Lane::count", "Parsek.Lane::total")
+        self.assertIn("method-body", [d[0] for d in self.alias_diffs(
+            self.lane_before(), self.lane_after(body=other_member), self.LANE_ALIAS)])
+
+    def test_a_body_change_beside_the_rename_is_reported(self):
+        changed = self.LANE_AFTER_BODY.replace("    IL_000b:  pop\n", "    IL_000b:  pop\n    IL_000c:  nop\n")
+        self.assertIn("method-body", [d[0] for d in self.alias_diffs(
+            self.lane_before(), self.lane_after(body=changed), self.LANE_ALIAS)])
+        # The real host is still read through `host` after: an alias never folds `host` reads.
+        host_read = self.LANE_AFTER_BODY.replace("ldfld      class Parsek.Lane Parsek.Pos::lane",
+                                                 "ldfld      class Parsek.Host Parsek.Pos::host\n"
+                                                 "    IL_0005:  ldfld      class Parsek.Other Parsek.Host::other")
+        self.assertIn("method-body", [d[0] for d in self.alias_diffs(
+            self.lane_before(), self.lane_after(body=host_read), self.LANE_ALIAS)])
+
+    def test_alias_is_applied_to_the_after_build_only(self):
+        # A before body that already read `lane` must not read `host` under the alias.
+        before = self._lane_types(["count", "total"]) + self._pos([self.HOST_DECL], self.LANE_AFTER_BODY)
+        kinds = [d[0] for d in self.alias_diffs(before, self.lane_after(), self.LANE_ALIAS)]
+        self.assertIn("method-body", kinds)
+
+    def test_parse_alias(self):
+        self.assertEqual(("Parsek.Pos", "lane", "host"), il_compare.parse_alias("Parsek.Pos::lane=host"))
+        for bad in ("Parsek.Pos::lane", "lane=host", "Parsek.Pos::lane=lane", "Parsek.Pos::la ne=host",
+                    "Parsek.Pos::lane=host=x"):
+            self.assertIsNone(il_compare.parse_alias(bad), bad)
+
+    def test_main_alias_flag_end_to_end(self):
+        d = tempfile.mkdtemp()
+        try:
+            paths = []
+            for name, text in (("a.il", self.lane_before()), ("b.il", self.lane_after())):
+                paths.append(os.path.join(d, name))
+                with open(paths[-1], "w", encoding="utf-8") as fh:
+                    fh.write(text)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                rc = il_compare.main(paths + ["--il", "--fold", "Parsek.Host=Parsek.Lane",
+                                              "--alias-field", "Parsek.Pos::lane=host"])
+            text = out.getvalue()
+            self.assertEqual(1, rc)  # the declaration leftover
+            self.assertIn("aliased Parsek.Pos::lane onto host: 1 reads", text)
+            self.assertIn("differences: 1 {'field': 1}", text)
+            with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+                il_compare.main(paths + ["--il", "--alias-field", "Parsek.Pos::lane"])
+        finally:
+            shutil.rmtree(d)
+
 
 SRC = """\
 using System;
