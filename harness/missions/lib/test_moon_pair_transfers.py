@@ -388,14 +388,15 @@ class DeltaVLedgerTests(unittest.TestCase):
             with self.subTest(spec=name):
                 self.assertLess(1.3 * self._nominal(name), _dv_available(name))
 
-    # B43 flights 1 and 2 (2026-11-15) left 130.5 LF after stage 2, ~683 m/s at
-    # the NERV's 800 s over the 7.18 t dry stack; its correction cap rose 50 -> 120
-    # once both flights showed every round refused at 50 (todo
+    # B43's flights (2026-11-15 and -16) left 130.5 LF after stage 2 (~683 m/s at
+    # the NERV's 800 s over the 7.18 t dry stack) and 114.1 LF (~600 m/s) after its
+    # 85.6 m/s round 0; round 1 then priced 200.6 m/s (todo
     # B43-VALL-TYLO-FLYBY-SUBSURFACE). The 1.20x stage-2 model above prices B43
     # ~110 m/s above what it flew, so B43's margin is read from the flight.
     B43_DV_LEFT_AFTER_STAGE2 = 800.0 * G0 * math.log((7.18 + 130.5 * 0.005) / 7.18)
+    B43_DV_LEFT_AFTER_ROUND0 = 800.0 * G0 * math.log((7.18 + 114.1 * 0.005) / 7.18)
 
-    def test_b43_flown_remainder_covers_capture_and_two_full_rounds(self):
+    def test_b43_flown_remainder_covers_one_full_round_and_the_capture(self):
         name = "B43-vall-tylo-transfer.toml"
         _m, home, target, _p, _f, _h, _l, ell = FORGES[name]
         p = mlib.b5_params_from_dict(_spec(name)["driver"]["missionParams"])
@@ -403,8 +404,9 @@ class DeltaVLedgerTests(unittest.TestCase):
         capture = _capture_dv(target, va, p.course_correct_periapsis,
                               p.capture_elliptical_apoapsis if ell else None)
         self.assertAlmostEqual(683.0, self.B43_DV_LEFT_AFTER_STAGE2, delta=5.0)
-        self.assertLess(1.3 * (capture + 2.0 * p.max_correction_dv),
-                        self.B43_DV_LEFT_AFTER_STAGE2)
+        self.assertAlmostEqual(600.0, self.B43_DV_LEFT_AFTER_ROUND0, delta=5.0)
+        self.assertLess(1.3 * (capture + p.max_correction_dv),
+                        self.B43_DV_LEFT_AFTER_ROUND0)
 
     def _worst(self, name, elliptical):
         """Escape at the fixture park + stage 2 at 1.8x the Hohmann departure +
@@ -467,19 +469,37 @@ class StrippedFixtureTests(unittest.TestCase):
 
 class PendingLoopLaneTests(unittest.TestCase):
 
+    @staticmethod
+    def _harvested_tree_ids(harvest):
+        ids = set()
+        with open(os.path.join(SAVES, harvest, "persistent.sfs"), encoding="utf-8") as fh:
+            lines = [l.strip() for l in fh]
+        for i, line in enumerate(lines):
+            if line == "RECORDING_TREE" and i + 2 < len(lines) \
+                    and lines[i + 2].startswith("id = "):
+                ids.add(lines[i + 2][len("id = "):])
+        return ids
+
     def test_each_loop_lane_names_its_forges_harvest_and_waits_on_it(self):
         for forge, (_m, home, target, parent, _f, harvest, lane, _e) in FORGES.items():
             with self.subTest(lane=lane):
                 spec = _spec(lane)
-                self.assertEqual("pending-fixture", spec["tier"])
-                self.assertIn("awaiting-fixture", spec["tags"])
                 self.assertEqual("fixtures/saves/" + harvest, spec["fixture"]["saveTemplate"])
-                self.assertFalse(os.path.exists(os.path.join(SAVES, harvest)),
-                                 "the harvest exists: hand the lane over (its header)")
                 with open(os.path.join(SCENARIOS, forge), encoding="utf-8") as fh:
                     self.assertIn("--target-name %s " % harvest, fh.read())
                 trees = {s["args"]["tree"] for s in spec["driver"]["steps"]
                          if s.get("cmd") in ("MissionConfig", "StartLoopPlayback")}
+                if os.path.exists(os.path.join(SAVES, harvest)):
+                    # HANDED OVER in the harvest commit (the lane's header): a
+                    # flyable tier, no awaiting tag, the harvested tree id.
+                    self.assertNotEqual("pending-fixture", spec["tier"])
+                    self.assertNotIn("awaiting-fixture", spec["tags"])
+                    harvested = self._harvested_tree_ids(harvest)
+                    self.assertEqual(1, len(harvested), harvested)
+                    self.assertEqual(harvested, trees)
+                    continue
+                self.assertEqual("pending-fixture", spec["tier"])
+                self.assertIn("awaiting-fixture", spec["tags"])
                 self.assertEqual({"0" * 32}, trees)
 
     def test_each_loop_lane_reads_the_moon_rooted_constraint_set(self):

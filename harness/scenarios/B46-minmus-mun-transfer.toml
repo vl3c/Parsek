@@ -6,7 +6,12 @@ id = "B46-minmus-mun-transfer"
 # dropping off rails warp moved the 45.55 Mm apoapsis 39.5 km with no thrust, which the
 # old absolute burn-changed floor read as a finished stage-2 burn, so TRANSFER-BURN left
 # 478 s before its node and the coast never met the Mun (todo
-# B46-MINMUS-MUN-COAST-TIMEOUT). Fixed in mlib (`_burn_apsis_changed`), no spec change.
+# B46-MINMUS-MUN-COAST-TIMEOUT). Fixed in mlib (`_burn_apsis_changed`).
+# FLOWN AGAIN 2026-11-16 twice (runs 2026-11-15_2243, _2308_a2), INVALID(autopilot-flake)
+# both: stage 2 now burned at its node and DID the transfer (Kerbin pe 28.8 -> 10.76 Mm,
+# a Mun encounter), but the burn sat mid-orbit at 29.9 Mm altitude, so it lowered the
+# apoapsis too (45.55 -> 30.16 Mm) and the old 40 Mm floor read the finished transfer
+# as an under-burn. The floor is now 20 Mm, see INWARD TRANSFER below.
 # Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 2 / MOON-FLIGHT-TEST-PROGRAM Group B.
 #
 # WHAT IT IS FOR. B30 (Mun -> Minmus) reversed: the INWARD hop of the one pair that
@@ -42,10 +47,14 @@ id = "B46-minmus-mun-transfer"
 # TIMING: Hohmann transfer 267,853 s (B30's leg, reversed), Mun-Minmus synodic
 # 159,571 s, Mun SOI entry to periapsis 5,800-7,600 s. B30's correction triggers.
 #
-# INWARD TRANSFER: the stage-2 evidence (Kerbin-altitude apoapsis >= 40 Mm) is
-# WEAK-BUT-STRUCTURAL, the B29 precedent: a retrograde transfer burn lowers the
-# periapsis, not the apoapsis, so the floor only proves the craft is still on a
-# Minmus-height orbit. `transferNodeWaitWarp` stays off for the first flight (owner
+# INWARD TRANSFER: the stage-2 evidence (Kerbin-altitude apoapsis >= 20 Mm) is
+# WEAK-BUT-STRUCTURAL, the B29 precedent. A retrograde burn at an apoapsis keeps the
+# apoapsis, but the unaimed escape leaves an eccentric Kerbin orbit and MechJeb burns
+# where the window falls, so the apoapsis drops too. What holds is geometric: the burn
+# point lies on both orbits, so the new apoapsis radius is at least the burn radius,
+# which is at least the old periapsis (28.8 Mm altitude flown; ~30 Mm for any +/-30
+# m/s escape). 20 Mm sits below that and above the Mun's orbit plus its SOI (13.8 Mm),
+# so it still proves the craft is on a Minmus-height orbit and not dropped to the Mun. `transferNodeWaitWarp` stays off for the first flight (owner
 # ruling 2026-11-06: opt in after a check flight), although B30 flies it on.
 #
 # HARVEST after a green flight, from the run's own snapshot, never `--force`:
@@ -101,7 +110,7 @@ escapeTimeoutSeconds       = 8000
 returnBodyName             = "Kerbin"
 viaBodyNames               = ["Kerbin"]
 ejectionEccFloor           = 0
-transferMinApoapsisMeters  = 40000000
+transferMinApoapsisMeters  = 20000000
 courseCorrectPeriapsisMeters = 250000
 correctionTriggerTimeToSoiSeconds = [240000, 30000]
 correctionTriggerAltsMeters       = []

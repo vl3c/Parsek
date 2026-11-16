@@ -1,0 +1,55 @@
+version = 1
+MILESTONE
+{
+	id = 11b8dee19503400785e01a15aeb66ca4
+	startUT = 0
+	endUT = 28998506.766004864
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 1
+	GAME_STATE_EVENT
+	{
+		ut = 28832686.151290633
+		type = 18
+		key = Laythe/Escape
+		detail = funds=0;rep=0;sci=0
+		recordingId = 68b9a4089f5644da94a4f8ddd88a0cda
+		cseq = 1
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 28832686.151290633
+		type = 18
+		key = Jool/Flyby
+		detail = funds=0;rep=0;sci=0
+		recordingId = 68b9a4089f5644da94a4f8ddd88a0cda
+		cseq = 2
+	}
+}
+MILESTONE
+{
+	id = 5adc772dd5d84f70bf8dfa086735fac6
+	startUT = 28998506.766004864
+	endUT = 29009315.214156978
+	recordingId = 31e761fd179a43d3a27d5d7282af5324
+	committed = True
+	lastReplayedIdx = 1
+	GAME_STATE_EVENT
+	{
+		ut = 29001273.749940325
+		type = 18
+		key = Tylo/Flyby
+		detail = funds=0;rep=0;sci=0
+		recordingId = 68b9a4089f5644da94a4f8ddd88a0cda
+		cseq = 3
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 29009236.405798104
+		type = 18
+		key = Tylo/Orbit
+		detail = funds=0;rep=0;sci=0
+		recordingId = 68b9a4089f5644da94a4f8ddd88a0cda
+		cseq = 4
+	}
+}

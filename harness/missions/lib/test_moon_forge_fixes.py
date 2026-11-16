@@ -12,6 +12,14 @@ _1638, _1743_a2) all ended on the mission side:
   B43  every course correction (85.6 .. 169 m/s) was refused by the spec's
        50 m/s cap; spec change only (cap 120), pinned here.
 
+The re-flights of 2026-11-16 (runs 2026-11-15_2243, _2300_a2, _2308_a2) moved
+B44 to PASS and the other two one step further:
+
+  B43  round 0 flew but under-delivered, round 1 priced 200.6 m/s and was refused
+       at 120. Fix: cap 250 (spec only).
+  B46  stage 2 flew the transfer, but its mid-orbit burn also lowered the
+       apoapsis below the 40 Mm floor. Fix: floor 20 Mm (spec only).
+
 Run:
     cd harness && python -m unittest discover -s missions/lib -q
 """
@@ -246,10 +254,49 @@ class BurnChangedFloorTests(unittest.TestCase):
 
 
 class B43CorrectionCapTests(unittest.TestCase):
-    def test_the_cap_admits_the_first_measured_round(self):
-        # Flights 1 and 2 both priced the first round at 85.6 m/s.
-        mp = _spec("B43-vall-tylo-transfer.toml")["driver"]["missionParams"]
-        self.assertGreaterEqual(mp["maxCorrectionDvMps"], 85.6 * 1.25)
+    """Every B43 flight priced round 0 at 85.6 m/s; after it flew (2026-11-16),
+    round 1 priced 200.6 m/s and the later rounds 264.6-265.5 m/s."""
+
+    def setUp(self):
+        self.cap = _spec("B43-vall-tylo-transfer.toml")["driver"]["missionParams"][
+            "maxCorrectionDvMps"]
+
+    def test_the_cap_admits_round_0_and_round_1(self):
+        self.assertGreaterEqual(self.cap, 85.6 * 1.2)
+        self.assertGreaterEqual(self.cap, 200.6 * 1.2)
+
+    def test_the_cap_still_refuses_the_rounds_that_would_starve_the_capture(self):
+        # ~600 m/s was left after round 0; 264.6 + a 201 m/s capture at 1.3x is 605.
+        self.assertLess(self.cap, 264.6)
+
+
+class B46InwardFloorTests(unittest.TestCase):
+    """B46's stage-2 apoapsis floor must sit below every finished inward transfer
+    and above the Mun's own region (flights of 2026-11-16, runs 2026-11-15_2243 and
+    _2308_a2: pre-burn Kerbin pe 28,808,046 m, post-burn ap 30,155,765 m)."""
+
+    MUN_ORBIT_ALT = 12_000_000.0 - 600_000.0
+    MUN_SOI = 2_429_559.1
+    PRE_BURN_PE = 28_808_045.769
+    POST_BURN_AP = 30_155_765.290
+
+    def setUp(self):
+        self.p = mlib.b5_params_from_dict(
+            _spec("B46-minmus-mun-transfer.toml")["driver"]["missionParams"])
+
+    def test_the_flown_transfer_meets_the_floor(self):
+        snap = mlib.TelemetrySnapshot(ut=597805.876, body="Kerbin", situation="ORBITING",
+                                      periapsis=10_761_481.988,
+                                      apoapsis=self.POST_BURN_AP, eccentricity=0.460)
+        self.assertTrue(mlib._b5_transfer_burn_done(self.p, snap,
+                                                    mlib.RELAY_STAGE_TRANSFER))
+
+    def test_the_floor_is_below_the_burn_point_bound_and_above_the_mun(self):
+        # The burn point lies on both orbits, so the new apoapsis is at least the
+        # old periapsis; the floor must sit under that with margin.
+        self.assertLess(self.p.transfer_min_apoapsis, 0.8 * self.PRE_BURN_PE)
+        self.assertGreater(self.p.transfer_min_apoapsis,
+                           self.MUN_ORBIT_ALT + self.MUN_SOI)
 
 
 if __name__ == "__main__":

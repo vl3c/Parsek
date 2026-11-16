@@ -34,15 +34,22 @@ id = "B43-vall-tylo-transfer"
 #            its Hohmann (415.46 / 347.2), so ~330 nominal, ~550 if unlucky.
 #   capture  ELLIPTICAL to a 6,000 km apoapsis: 161-201 m/s at a 500 km periapsis
 #            for v_inf 245-491 (a circular capture is 840-890 and does not fit).
-#   corr     one round of ~86 m/s measured (cap 120 per round, see FLOWN below).
-#   Flown: 130.5 LF (~683 m/s) was left after stage 2, so one correction round plus
+#   corr     round 0 priced 85.6 m/s, round 1 200.6 m/s (cap 250 per round, see FLOWN).
+#   Flown: 130.5 LF (~683 m/s) was left after stage 2 and 114.1 LF (~600 m/s) after
+#   round 0, so round 1 plus
 #   the capture fits with margin; a second full round would not. An out-of-fuel
 #   capture reads as a mission failure (driver-INVALID), never PARSEK-FAIL.
 #
 # FLOWN 2026-11-15 twice (runs 2026-11-15_1617, _1632_a2), INVALID(mission) both:
 # every correction round priced 85.6-169 m/s was refused by the old 50 m/s cap, so the
 # raw stage-2 aim reached Tylo with periapsis -580 km (todo
-# B43-VALL-TYLO-FLYBY-SUBSURFACE). maxCorrectionDvMps is now 120.
+# B43-VALL-TYLO-FLYBY-SUBSURFACE). The cap went to 120.
+# FLOWN AGAIN 2026-11-16 twice (runs 2026-11-15_2243, _2300_a2), INVALID(mission) both:
+# round 0 flew its 85.6 m/s node in full but moved the Tylo periapsis only from
+# -580 km to -323 km (MechJeb's node under-delivered), and every later round priced
+# 200.6-265.5 m/s and was refused at 120. The cap is now 250: round 1's 200.6 flies
+# and the ~400 m/s left still covers the 161-201 m/s capture; a 265 m/s round stays
+# refused, because it and the capture would not fit with margin.
 #
 # TIMING: Hohmann transfer 77,960 s, Vall-Tylo synodic 211,922 s; Tylo SOI entry to
 # periapsis 10,000-11,500 s. Correction triggers [70000, 15000] s to SOI.
@@ -147,7 +154,7 @@ correctionCutDvMps         = 2.0
 correctionSettleSeconds    = 10
 maxAttitudeErrorDeg        = 30
 frozenTelemetrySamples     = 10
-maxCorrectionDvMps         = 120
+maxCorrectionDvMps         = 250
 
 [dimensionsCovered]
 D1  = ["commit-in-foreign-soi"]
