@@ -20,6 +20,45 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## RECORDER-GEAR-SUSPENSION-AS-ROBOTICS: a plane rolling on its landing gear records the suspension as robotics motion, about 22 start / stop events a second [FILED 2026-11-16 from AIR-1's first flight, runs `2026-11-16_1955` and `_1956_a2` (diagnostics on branch `forge-logs-2026-11-16-air1`, `diag/<runId>/KSP.log.parsek-lines.txt`), by log and code reading. OPEN; no C# change yet; low (recording size and log volume; nothing renders wrong)]
+
+What the log shows: while the stock Mallard rolled on the Runway, the active recorder wrote
+`Part event: RoboticMotionStarted` / `RoboticMotionStopped` for its three gear parts
+(`GearMedium` x2, `SmallGearBay`), every one on `midx=0 module=ModuleWheelSuspension
+source=suspensionPos deadband=0.003 ... moving=inferred` (the `Robotics: tracking` lines).
+Counted from the Parsek lines: run `_1955` 484 events in 22.1 s (21:56:01.892 .. 21:56:24.004:
+GearMedium 207 started + 207 stopped, SmallGearBay 35 + 35), run `_1956_a2` 466 in 22.2 s
+(204 + 204, 29 + 29); about 22 a second, and zero `RoboticPositionSample` events. A Started is
+often followed by its Stopped on the next physics frame (`21:56:01.892` / `.895`), with values
+around 1.34 .. 1.51 (the `suspensionPos` magnitude). Each event is also one Verbose KSP.log line.
+
+Why: `FlightRecorder.CheckRoboticState` (and the background twin in
+`BackgroundRecorder.PartEventPolling.cs`) polls every module `IsRoboticModuleName` accepts, which
+includes the wheel modules; only the DERIVED wheel visuals (`ModuleWheelMotor*` spin and
+`ModuleWheelSteering`, `IsDerivedWheelVisualModuleName`) skip emission, so
+`ModuleWheelSuspension` still emits. Its position is the magnitude of the `suspensionPos` vector
+(`TryClassifyWheelRoboticPositionFromFieldValues`) with a 0.0025 deadband, and stock has no
+moving flag for it, so `CheckRoboticTransition` infers motion: moving when the value differs from
+the LAST EMITTED value by at least max(deadband * 0.25, 0.0001) = 0.6 mm. Each Started / Stopped
+stores the current value as the new reference, so gear suspension jittering by about a millimetre
+on a rolling plane crosses that threshold on one frame and not on the next: a Started, then a
+Stopped one frame later, then a Started again. The 0.25 * deadband motion test is the noise
+gate, and it sits below the suspension's own jitter. A rover's `ModuleWheelSuspension` goes
+through the same code (not counted here: no rover lane log was read for this entry).
+
+Against the recording design principle (record threshold crossings, debounce noise, nothing
+that is not visible at playback speed): millimetre suspension travel on a runway is not visible
+on a ghost, and the pairs carry no state a ghost needs. Likely fix, in order of preference:
+(1) treat `ModuleWheelSuspension` like the derived wheel visuals: keep it in
+`cachedRoboticModules` (so `moduleIndex` numbering stays in lockstep with the ghost builder) but
+skip its emission in both recorders, and let playback leave the suspension at rest or derive it
+(legacy recordings keep their events; playback stays tolerant); or (2) if suspension travel is
+wanted, debounce it: a Started only after the value has moved a full deadband (not 0.25 of it)
+from a HELD reference, a Stopped only after it stayed within the deadband for a dwell (say
+0.5 s), and a coarser suspension deadband (centimetres, not 2.5 mm). Either way: an xUnit cell
+over `CheckRoboticTransition` fed a 1 mm frame-to-frame jitter must emit no events, and the next
+AIR-1 flight's KSP.log should show zero `RoboticMotion*` lines for the gear parts.
+
 ## ~~MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH~~: a looped mission that starts in orbit is timed around a later moon it passes low over [CLOSED 2026-11-16: V43M flew green on its first flight with the fix, `2026-11-16_1803_V43M-vall-tylo-player-loop` PASS attempt 1 (46 s, automation DLL built from 866ac123, sha256 prefix 8dfcbc5e; every verifier green), KSP.log reading launch moon Vall, constraints=3, `Solve: dominant=Tylo method=dominant-intercept residual=2.18 withinTol=yes` and `PhaseLock APPLIED ... P=211926.36 ... zeroDrift=yes scheduleWithinTol=yes`. FILED 2026-11-16 from V43M's first flight `2026-11-16_1726_V43M-vall-tylo-player-loop` (PC, parallel run `moon-loops-2026-11-16d`, DLL unchanged since PR #2638, PARSEK-FAIL(expectation) attempt 1, 58 s; diagnostics on branch `forge-logs-2026-11-16d`, folder `diag/2026-11-16_1726_V43M-vall-tylo-player-loop/`). FIXED 2026-11-16, branch `claude/project-thread-vpr29t`; xUnit; V43M re-pinned, awaiting PC flight; low (the loop still phase-locks, on the wrong launch moon)]
 
 The `vall-tylo-recorded` tree 91205f57 is one vessel's chain: the root ef182ffd starts IN ORBIT
