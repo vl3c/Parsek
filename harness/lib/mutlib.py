@@ -1536,6 +1536,28 @@ def check_save_lane(spec: Dict, label: str, save_text: Optional[str]) -> LaneRep
     return lane
 
 
+def check_race_lane(spec: Dict, label: str, folder_listing, saves) -> LaneReport:
+    """The race lane (``mutation_check.py --race-only``, multiplayer T-38): the
+    baseline is the ARMED raceParse row over one archived race run (its
+    ``results/<runId>_race/`` listing and produced saves), then the ``race-leak``
+    edits (``mutsave.mutate_race_leak``)."""
+    import mutsave
+    import raceparse
+    spec_id = str(spec.get("id", "?"))
+    expectations = spec.get("expectations", {}) or {}
+    base = raceparse.evaluate_race_parse(expectations, folder_listing, (), saves)
+    if base.status != raceparse.STATUS_PASS:
+        return LaneReport(spec_id, label, BASELINE_NOT_GREEN,
+                          ["raceParse: %s" % m for m in base.mismatches]
+                          or ["raceParse status %s" % base.status])
+    lane = LaneReport(spec_id, label, BASELINE_GREEN)
+    check = mutsave.mutate_race_leak(expectations, folder_listing, saves)
+    lane.mutations.extend(check.mutations)
+    lane.save_gates.extend(check.gates)
+    lane.notes.extend(check.notes)
+    return lane
+
+
 # ---------------------------------------------------------------------------
 # Archive naming + selection (pure over names the shell listed).
 # ---------------------------------------------------------------------------

@@ -26,6 +26,7 @@ import unittest
 
 import ghostlife
 import hlib
+import raceparse
 import rendercompose
 import saveparse
 
@@ -28845,3 +28846,148 @@ class RaceFolderHarnessStepSpecTests(unittest.TestCase):
             steps = (spec.get("driver") or {}).get("steps") or []
             with self.subTest(spec=name):
                 self.assertFalse(any(hlib.is_harness_step(s) for s in steps))
+
+
+class RaceParseRowSpecTests(unittest.TestCase):
+    """Multiplayer T-38: the `[expectations.race]` spec block, the arming allowlist,
+    and where the raceParse row's two verdicts sit in classify_verdict. The row itself
+    is driven end to end in test_run_smoke.RaceParseRowSmokeTests; its evaluation is
+    test_raceparse.RaceParseRowTests."""
+
+    # The committed specs that arm the leak scan (`[expectations.race] gating = true`).
+    # A race lane arms it from its first flight (a rival id in the own save is never
+    # legitimate, so no report-only reading run is owed) and names itself here in the
+    # same commit, citing the run id. Empty until the first race lane lands (T-13).
+    # NAMING: the roster is deliberately NOT called `*ARMED_ALLOWLIST` (another cell
+    # reads that roster out of this file's source by name).
+    RACEPARSE_ARMED_SPECS = set()
+
+    def _spec(self, race_exp=None, race_fixture=True):
+        spec = {
+            "schema": hlib.SCHEMA_VERSION, "id": "RACE-x", "tier": "operator",
+            "tags": ["race"], "instanceProfile": "stock-minimal",
+            "fixture": {"saveTemplate": "fixtures/saves/fresh-career",
+                        "injectedRecordings": "none", "craft": []},
+            "driver": {"kind": "seam", "steps": [
+                {"cmd": "LoadGame", "args": {"save": "${runSave}", "name": "persistent"},
+                 "expect": "OK", "budget": 30},
+                {"cmd": "FlushAndQuit", "expect": "OK"}]},
+            "expectations": {"recordings": {"count": {"min": 0, "max": 0}},
+                             "logContracts": {"required": [], "forbidden": []},
+                             "allowedAnomalies": []},
+            "runtime": {"budgetSeconds": 600},
+            "retry": {"policy": "once"},
+            "expectedFail": {"bugId": ""},
+        }
+        if race_fixture:
+            spec["fixture"]["race"] = {"sharedFolder": "empty"}
+        if race_exp is not None:
+            spec["expectations"]["race"] = race_exp
+        return spec
+
+    def _validate(self, spec):
+        return hlib.validate_spec(spec, {"schema": 1}, bug_ids=[])
+
+    def _race_lines(self, lines):
+        return [e for e in lines if "expectations.race" in e or "raceParse" in e]
+
+    def test_an_armed_block_validates_clean(self):
+        v = self._validate(self._spec({"gating": True}))
+        self.assertEqual([], self._race_lines(v.errors))
+        self.assertEqual([], self._race_lines(v.warnings))
+
+    def test_a_malformed_block_is_refused_before_launch(self):
+        for block, needle in (({"gating": "yes"}, "must be true or false"),
+                              ({"leakScan": True}, "unknown key 'leakScan'"),
+                              ("on", "must be a table")):
+            with self.subTest(block=block):
+                errs = self._race_lines(self._validate(self._spec(block)).errors)
+                self.assertTrue(any(needle in e for e in errs), errs)
+
+    def test_the_block_needs_the_race_fixture(self):
+        errs = self._race_lines(self._validate(self._spec({"gating": True},
+                                                          race_fixture=False)).errors)
+        self.assertTrue(any("needs [fixture.race]" in e for e in errs), errs)
+
+    def test_an_unarmed_race_lane_is_warned_not_refused(self):
+        for block in (None, {}, {"gating": False}):
+            with self.subTest(block=block):
+                v = self._validate(self._spec(block))
+                self.assertEqual([], self._race_lines(v.errors))
+                warns = self._race_lines(v.warnings)
+                self.assertEqual(1, len(warns), warns)
+                self.assertIn("report-only", warns[0])
+        # A spec with no race fixture gets no race line at all.
+        v = self._validate(self._spec(race_fixture=False))
+        self.assertEqual([], self._race_lines(v.errors + v.warnings))
+
+    def test_the_two_subkinds_are_in_the_verdict_tables(self):
+        self.assertEqual("race-isolation", hlib.RACE_ISOLATION_SUBKIND)
+        self.assertIn(hlib.RACE_ISOLATION_SUBKIND, hlib.PARSEK_FAIL_SUBKINDS)
+        self.assertEqual("race-parse", hlib.RACE_PARSE_INVALID_SUBKIND)
+        self.assertNotIn(hlib.RACE_PARSE_INVALID_SUBKIND, hlib.PARSEK_FAIL_SUBKINDS)
+        self.assertNotIn(hlib.RACE_PARSE_INVALID_SUBKIND, hlib.RETRYABLE_INVALID_SUBKINDS)
+
+    def _classify(self, verifiers, driver=None):
+        return hlib.classify_verdict(driver or {}, verifiers, {}, 1, "once")
+
+    def test_an_armed_leak_reds_first_among_the_verifier_reds(self):
+        leak = {raceparse.FLAG_LEAK: True}
+        alone = self._classify(leak)
+        self.assertEqual((hlib.VERDICT_PARSEK_FAIL, hlib.RACE_ISOLATION_SUBKIND),
+                         (alone.verdict, alone.subkind))
+        self.assertFalse(hlib.should_retry(alone, 1, "once"))
+        red_analyzer = hlib.AnalyzerVerdict("PARSEK-FAIL", "analyzer", "R1")
+        for other in ({"analyzer": red_analyzer}, {"mission_outcome_unmet": True},
+                      {"log_validate_failed": True}, {"expectation_mismatch": True},
+                      {"save_structure_mismatch": True}, {"ledger_drift": True},
+                      {"unmet_step": True}, {"snapshot_save_missing": True},
+                      {raceparse.FLAG_UNEVALUABLE: True}):
+            with self.subTest(other=sorted(other)):
+                v = self._classify(dict(leak, **other))
+                self.assertEqual(hlib.RACE_ISOLATION_SUBKIND, v.subkind)
+        # The run-level faults still win: no verifier flag is evidence on those runs.
+        for driver, verifiers, verdict in (
+                ({"valid": False, "stage_subkind": "driver-stage"}, {}, hlib.VERDICT_INVALID),
+                ({}, {"killed": True}, hlib.VERDICT_KILLED),
+                ({}, {"tooling_invalid": True}, hlib.VERDICT_INVALID)):
+            with self.subTest(driver=driver, verifiers=verifiers):
+                self.assertEqual(verdict, self._classify(dict(leak, **verifiers),
+                                                         driver).verdict)
+
+    def test_an_unevaluable_armed_scan_only_turns_a_pass(self):
+        alone = self._classify({raceparse.FLAG_UNEVALUABLE: True})
+        self.assertEqual((hlib.VERDICT_INVALID, hlib.RACE_PARSE_INVALID_SUBKIND),
+                         (alone.verdict, alone.subkind))
+        self.assertFalse(hlib.should_retry(alone, 1, "once"))
+        for other, subkind in (({"snapshot_save_missing": True},
+                                hlib.SNAPSHOT_SAVE_MISSING_SUBKIND),
+                               ({"unmet_step": True}, hlib.UNMET_STEP_SUBKIND),
+                               ({"log_validate_failed": True}, "log-contract"),
+                               ({"ledger_drift": True}, "ledger")):
+            with self.subTest(other=subkind):
+                v = self._classify(dict({raceparse.FLAG_UNEVALUABLE: True}, **other))
+                self.assertEqual((hlib.VERDICT_PARSEK_FAIL, subkind), (v.verdict, v.subkind))
+        self.assertEqual(hlib.VERDICT_PASS, self._classify({}).verdict)
+
+    def test_no_committed_spec_arms_the_leak_scan_unlisted(self):
+        armed = []
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                spec = tomllib.load(fh)
+            if raceparse.race_gating_armed(spec.get("expectations") or {}):
+                armed.append(name)
+        self.assertEqual(sorted(self.RACEPARSE_ARMED_SPECS), armed,
+                         "the set of specs arming the raceParse leak scan changed: name "
+                         "the spec in RACEPARSE_ARMED_SPECS in the commit that arms it, "
+                         "citing its first armed flight")
+
+    def test_no_committed_spec_runs_the_row_today(self):
+        # The row runs only for a spec with [fixture.race]; none is committed, so no
+        # committed lane's verdict or result JSON can move with this row.
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                spec = tomllib.load(fh)
+            with self.subTest(spec=name):
+                self.assertIsNone(hlib.spec_race_fixture(spec))
+                self.assertFalse(raceparse.race_block_declared(spec.get("expectations")))

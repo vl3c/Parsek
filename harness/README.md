@@ -30,8 +30,9 @@ Everything the harness fetches or generates lives UNDER `harness/`:
   min / max / threshold bounds with a one-physics-frame allowance of
   `0.02 * rate`, the rate per gap read off the recorder's `warpRuns=` token on
   `TrackSection closed:` - see "Recording under physics warp" below),
-  + `raceparse.py`, the pure race evaluator (multiplayer plan T-05; its
-  `raceParse` verifier row lands with T-38): `collect_rival_ids` reads the
+  + `raceparse.py`, the pure race evaluator (multiplayer plan T-05) behind
+  the `raceParse` verifier row (T-38, see "The raceParse row" below):
+  `collect_rival_ids` reads the
   rival player, recording and tree ids off a shared-folder listing,
   `leak_scan` searches every file of a produced save outside `Parsek/Race/`
   for them (file names, text with the ConfigNode path of the line, raw binary
@@ -40,7 +41,8 @@ Everything the harness fetches or generates lives UNDER `harness/`:
   (UT values within a tolerance, values that differ by nature ignored, each
   entry with its written reason; owner question Q-13 option (a)); statuses
   PASS / FAIL / VACUOUS (no rival id) / ERROR (a save that cannot be read
-  whole never reads clean),
+  whole never reads clean); `evaluate_race_parse` is the row's evaluation over
+  every save a race lane produced,
   + `rendercompose.py`, the M-A7 pure render-composition parser / clock-math
   re-derivation / RC-* rule set behind the `renderCompose` verifier row
   (`[expectations.renderComposition]`, evaluated over the produced
@@ -1571,6 +1573,45 @@ newest 3 `*_race` dirs per scenario and sweeps orphaned `_race.harness-tmp` dirs
 (skipped under a parallel-runner slot, like the other results sweeps). The
 listing goes to the results archive; the payload does not.
 
+### The raceParse row (the gated leak scan)
+
+Every spec with a `[fixture.race]` block gets the `raceParse` verifier row
+(multiplayer T-38); no other spec gets a row, a flag or a log line. It reads
+only the run's snapshots: the shared folder from `results/<runId>_race/` and the
+run save plus each `snapshotSaves` save from the post-quit copy (the live
+instance on the serial path), so a next lane that has already wiped the shared
+folder and re-staged the saves changes nothing. For each save it takes the
+save's own player from the race mark in its `persistent.sfs` (one `SCENARIO`
+node named `ParsekRaceScenario` with one `playerId`; no mark means the save is
+in no race and every player of the folder is a rival), collects the ids of
+every OTHER player of the folder (`raceparse.collect_rival_ids`) and runs the
+leak scan over the save, skipping `Parsek/Race/` and the harness-written
+`analysis/` folder. So two saves of one lane each see the other's player as a
+rival. The row lands under `verifiers.raceParse` with `status` (PASS / FAIL /
+VACUOUS / ERROR / SKIPPED), `gating`, `leaked`, `unevaluable`, the folder's file
+count and problems, unrecognised folder names, and one entry per save (own
+player, ids scanned, files scanned and skipped, the first 20 findings with file
+and line, errors). SKIPPED on a killed attempt (torn save) and on a driver-INVALID
+one.
+
+Arming: `[expectations.race] gating = true` (the only key; `[expectations.race]`
+needs `[fixture.race]`, and a race lane that leaves it unarmed validates with a
+warning). Unarmed, the row reports and never moves the verdict. Armed, a rival
+id in any save reds `PARSEK-FAIL(race-isolation)`, checked first among the
+verifier reds (ahead of the analyzer: a leaked rival file is the cause the
+analyzer, expectation and ledger rows would each see a symptom of), and a scan
+that proves nothing (a snapshot or save it cannot read whole, a save whose own
+player it cannot tell, a save with no rival id to look for) is the terminal
+`INVALID(race-parse)`, checked last, so it only ever replaces a PASS (a missing
+`snapshotSaves` save keeps its own `snapshot-save-missing` red). Unlike the
+other armed rows no reading run is owed: a rival id in the own save is never
+legitimate, so a race lane arms the scan from its first flight. The armed set
+is pinned by `RACEPARSE_ARMED_SPECS` in `lib/test_hlib.py`
+(`test_no_committed_spec_arms_the_leak_scan_unlisted`): a spec names itself
+there in the commit that arms it. `tools/mutation_check.py --race-only` (the
+`race-leak` mutator) proves an armed lane's scan still bites over its archived
+runs.
+
 ## The machine lock (one PC owner at a time)
 
 The machine has ONE owner at a time: a serial `run.py`, a
@@ -2595,7 +2636,8 @@ machine. It launches nothing and never fails anything; survivors are listed for
 triage. Pure cores `lib/mutlib.py` (log, count, exception, anomaly and facet-level
 save mutations), `lib/mutsave.py` (save-level edits, phase 2), `lib/mutledger.py`
 (ledger-oracle edits, phase 2), `lib/mutmission.py` (mission-chain edits, phase 2) and
-`lib/mutforbid.py` (forbidden-token injection, phase 2), thin shell
+`lib/mutforbid.py` (forbidden-token injection, phase 2), plus the `race-leak`
+mutator in `lib/mutsave.py` (multiplayer T-38), thin shell
 `tools/mutation_check.py`, tests `lib/test_mutlib.py`, `lib/test_mutsave.py`,
 `lib/test_mutledger.py`, `lib/test_mutmission.py` and `lib/test_mutforbid.py`.
 
@@ -2608,7 +2650,18 @@ python tools/mutation_check.py --save-only        # save-level edits only, no KS
 python tools/mutation_check.py --ledger-only      # ledger-oracle edits only
 python tools/mutation_check.py --mission-only     # mission-chain edits only
 python tools/mutation_check.py --forbidden-only   # forbidden-token injection only
+python tools/mutation_check.py --race-only        # the race-leak mutator only (raceParse)
 ```
+
+`--race-only` serves every spec that arms the raceParse leak scan from the newest
+results archive whose row reads PASS over its `<runId>_race/` snapshot and its
+produced saves (`<runId>_save/` plus each `snapshotSaves` copy the run record
+names; collect-logs folders carry no race snapshot). Per save it appends the first
+rival id to a sidecar under `Parsek/Recordings/` (a fresh `mutcheck.prec.txt` when
+there is none) and asks the real evaluator and `hlib.classify_verdict` for
+PARSEK-FAIL(race-isolation); a save with its persistent.sfs removed must read
+INVALID(race-parse). Gates `race-leak:<save>` and `race-leak:no-persistent-sfs`:
+PROVEN, VACUOUS (the edit stayed green), UNCHECKED (no rival id to plant).
 
 Archives: every `<umbrella>/*/harness/results` (`<runId>.json` +
 `<runId>_shots/KSP.log` + `<runId>_save/`) and every `<umbrella>/logs/<stamp>_<specId>/`
