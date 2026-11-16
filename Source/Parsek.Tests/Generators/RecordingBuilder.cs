@@ -55,6 +55,7 @@ namespace Parsek.Tests.Generators
         private List<RouteHarvestWindow> routeHarvestWindows;
         private List<RouteConnectionWindow> routeConnectionWindows;
         private RouteOriginProof routeOriginProof;
+        private List<ToolUse> toolUses;
 
         // Default rotation for points that don't specify one explicitly
         private float defaultRotX, defaultRotY, defaultRotZ;
@@ -643,6 +644,24 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
+        /// <summary>
+        /// Appends one tool use (A3): <paramref name="kind"/> first used at
+        /// <paramref name="firstUT"/>, with an optional <paramref name="detail"/>. Multiple calls
+        /// append in call order. Serialized through the production <c>ToolUseFacts.SaveInto</c>
+        /// chokepoint, so a fixture node carries the codec's own <c>TOOL_USE</c> shape; a
+        /// builder that never calls this writes no <c>TOOL_USE</c> child.
+        /// </summary>
+        internal RecordingBuilder WithToolUse(ToolKind kind, string detail, double firstUT)
+        {
+            if (toolUses == null)
+                toolUses = new List<ToolUse>();
+            toolUses.Add(new ToolUse { Kind = kind, Detail = detail, FirstUT = firstUT });
+            return this;
+        }
+
+        /// <summary>Returns the tool uses (may be null).</summary>
+        internal List<ToolUse> GetToolUses() => toolUses;
+
         /// <summary>Returns the connection window list (may be null).</summary>
         internal List<RouteConnectionWindow> GetRouteConnectionWindows() => routeConnectionWindows;
 
@@ -1011,6 +1030,9 @@ namespace Parsek.Tests.Generators
             // fixtures exercise the production node shape.
             SerializeRouteProofMetadataInto(node);
 
+            // A3 tool uses (sparse, production codec)
+            SerializeToolUsesInto(node);
+
             return node;
         }
 
@@ -1192,6 +1214,9 @@ namespace Parsek.Tests.Generators
             // M2 route-proof metadata (sparse, same chokepoint as BuildV3Metadata)
             SerializeRouteProofMetadataInto(node);
 
+            // A3 tool uses (sparse, same chokepoint as BuildV3Metadata)
+            SerializeToolUsesInto(node);
+
             return node;
         }
 
@@ -1215,6 +1240,17 @@ namespace Parsek.Tests.Generators
                 RouteOriginProof = routeOriginProof
             };
             RouteProofCodec.SerializeRouteProofMetadata(node, proofCarrier);
+        }
+
+        /// <summary>
+        /// Writes the tool uses through the production <c>ToolUseFacts.SaveInto</c>; no-op when
+        /// none, so fixtures without tool uses stay byte-identical.
+        /// </summary>
+        private void SerializeToolUsesInto(ConfigNode node)
+        {
+            if (toolUses == null || toolUses.Count == 0)
+                return;
+            ToolUseFacts.SaveInto(node, new Recording { RecordingId = GetRecordingId(), ToolUses = toolUses });
         }
 
         /// <summary>Returns the rewind save file name (may be null).</summary>
