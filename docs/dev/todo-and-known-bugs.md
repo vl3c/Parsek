@@ -1797,8 +1797,9 @@ in parallel in the cloud):
    a Minmus or orbital miner, a boat, and the RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT formation
    flight through an SOI edge with a background wingman.
 10. [ ] The unit-test residue of the audit (C4 background off-rails handler and C9
-   GhostCommNetManager, both Unity-bound; C6 harvest totals, C5 rewind point slot ambiguity and the
-   headless half of C1 done 2026-11-14, see the residue entry) and
+   GhostCommNetManager done 2026-11-16: their decisions extracted pure and xUnit-pinned, the
+   live halves named in the residue entry; C6 harvest totals, C5 rewind point slot ambiguity and
+   the headless half of C1 done 2026-11-14) and
    B11 (in-game categories no lane runs). Fixes proven only by xUnit that a lane could show:
    ROUTE-DELIVERY-IGNORES-DESCENT-TRIGGER, the two rescue marker fixes, the drop path of
    TRIMMED-CHECKPOINT-SECTION-ENDS-BEFORE-IT-STARTS and the RW-9R reading variant. The three
@@ -2101,13 +2102,29 @@ and a load (#2348, #2352, #2354). Still open, each found by grep on main 2622fd5
 main b5877e51f (1.0.2) on 2026-11-11, when every item below was still open; the ranked list that
 merges this residue with the moon program is NEXT-TESTS-TO-BUILD-2026-11-11 at the top of this file:
 
-- [ ] C4: `BackgroundRecorder.OnBackgroundVesselGoOffRails` is named by no xUnit file, and
-  `OnBackgroundVesselSOIChanged` only by the source gate of
-  `BackgroundPhysicsSoiSectionSplitTests` (the loaded-state arming order); neither has a decision
-  test.
+- [x] ~~C4~~ Done 2026-11-16 (branch `item10-unit-residue`): both handlers now take one pure
+  route (`BackgroundRecorder.ClassifyBackgroundRailsEvent`: unmapped, destroyed-skip, on-rails
+  wins over loaded, loaded, no state) through a vessel-free head (`RouteBackgroundRailsEvent`,
+  the destroyed guard and its log line) and vessel-free on-rails halves
+  (`EndOnRailsStateForGoOffRails`, `CloseOnRailsSegmentForSoiChange`), behavior-identical.
+  `BackgroundRailsEventRouteTests` (29 cases) pins the route, the halves and the public
+  handlers over a packed alive vessel stub (destroyed guard, close at Planetarium UT, loaded SOI
+  arm); mutating the destroyed guard reds 5 of them. Not headless: the unpacked go-off-rails half
+  (`InitializeLoadedState`, the cache refresh, the boundary sample) and the on-rails SOI reopen
+  (`CreateOrbitSegmentFromVessel`) read the live vessel; `InitializeLoadedStateCharacterizationTests`
+  covers the first, and an in-game cell would need a real on-rails background vessel crossing an
+  SOI (the RECORDER-PHYSICS-SOI formation flight of NEXT-TESTS item 9).
 - [x] ~~C8~~ Done 2026-11-14: `RouteSourceOptimizerTests` (10 facts) found and pins
   ROUTE-SOURCE-OPTIMIZER-REWRITE.
-- [ ] C9: `GhostCommNetManager` is named by no xUnit file (see GHOSTCOMMNET-PASS3-DEDUPE-AND-SCAN-COST).
+- [x] ~~C9~~ Done 2026-11-16 (branch `item10-unit-residue`): the live shell's decisions are
+  pure statics on `GhostCommNetManager` (registration row identity, removal reason, timeline
+  sample UT, derivation snapshot and cache key, the per-tick prune, the held-source flags, the
+  chain-snapshot surface read, `CurveOf`, `IsFinite`), behavior-identical, pinned by
+  `GhostCommNetManagerDecisionTests` (38 cases; mutating the removal reason reds 2). The
+  pass-3 dedupe was already pure (`ResolveRegistrations_*`, GHOSTCOMMNET-PASS3-DEDUPE-AND-SCAN-COST,
+  closed 2026-11-07). Not headless: node objects and network add / remove, `DeriveSpec`
+  (PartLoader prefabs, roster) and world positions; those stay with the `GhostCommNet*` in-game
+  categories and lanes CN-1 .. CN-5.
 - [x] ~~C6~~ Done 2026-11-14: `RouteHarvestAnalysisComputeTests` (30 cases, all green on the
   existing code). Was: `RouteHarvestAnalysis.ComputeHarvestedTotals`, `ComputeFullRunGains` and
   `FindGainAnchorIndex` have no test (`HarvestCapture_CatchUpOnLoad` no longer skips: its body runs
