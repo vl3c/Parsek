@@ -28,7 +28,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 
 - Seam verbs (of 62 implemented): none
 - Dimension values (1 of 251 registry values): D1 `sub-2-point-drop`
-- In-game test categories (7 of 142 declared; a lane running `RunTests` with no category runs them all, see `(all)` below): `ChainTipBlockedGhost`, `DeployedScienceGhost`, `FreeTechUnlock`, `GhostReapplyFrame`, `GuiMock`, `JointBreakCheckCoroutine`, `TreeRestoreCoroutine`
+- In-game test categories (0 of 142 declared; a lane running `RunTests` with no category runs them all, see `(all)` below): none
 
 ## Lanes per family
 
@@ -626,6 +626,7 @@ Categories named by `RunTests` steps (`(all)`: a step with no category). 198 lan
 | AutoMergeCommit | 1 | H67-automerge-commit-isolated |
 | BackgroundSeeder | 1 | LT-1-long-tail-flight |
 | Bug289 | 1 | LT-1-long-tail-flight |
+| ChainTipBlockedGhost | 1 | LT-5-long-tail-playback-flight |
 | ClawCouple | 1 | H42-claw-couple |
 | ClockCauseScope | 1 | CLK-1-ground-station-contract-untagged |
 | Coalescer | 1 | H62-coalescer-isolated |
@@ -634,6 +635,7 @@ Categories named by `RunTests` steps (`(all)`: a step with no category). 198 lan
 | CrewReservation | 1 | H31-crew-reservation |
 | CrewReservationLive | 1 | LT-4-long-tail-route-flight |
 | DataHealth | 1 | H14-corpus-data-health |
+| DeployedScienceGhost | 1 | LT-5-long-tail-playback-flight |
 | Diagnostics | 1 | H27-diagnostics |
 | DisabledHoverEcho | 1 | LT-1-long-tail-flight |
 | EvaSpawnPosition | 1 | H20-eva-spawn-position |
@@ -643,6 +645,7 @@ Categories named by `RunTests` steps (`(all)`: a step with no category). 198 lan
 | Flight | 1 | LT-1-long-tail-flight |
 | FlightIntegration | 1 | H17-flight-integration |
 | ForwardRender | 1 | LT-1-long-tail-flight |
+| FreeTechUnlock | 1 | AH-1-auto-hire-reserved-applicant |
 | GhostAudio | 1 | H30-ghost-audio |
 | GhostChains | 1 | H50-ghost-chains |
 | GhostCommNetLive | 1 | CN-2-ghost-commnet-live-probe |
@@ -650,11 +653,14 @@ Categories named by `RunTests` steps (`(all)`: a step with no category). 198 lan
 | GhostLifecycle | 1 | LT-5-long-tail-playback-flight |
 | GhostMapOrbits | 1 | LT-1-long-tail-flight |
 | GhostPlayback | 1 | S1.4-injected-playback |
+| GhostReapplyFrame | 1 | LT-5-long-tail-playback-flight |
 | GhostVisuals | 1 | H15-corpus-ghost-visuals |
+| GuiMock | 1 | AH-1-auto-hire-reserved-applicant |
 | GuiTree | 1 | GUI-1-census-ksc |
 | HarvestCapScanLedger | 1 | HV-2-scan-ledger-drill-rates |
 | IdentityLoss | 1 | LT-1-long-tail-flight |
 | IncompleteBallistic | 1 | H9-incomplete-ballistic |
+| JointBreakCheckCoroutine | 1 | LT-5-long-tail-playback-flight |
 | KerbalInventorySpawn | 1 | H72-kerbal-inventory-spawn |
 | KSP | 1 | H13-ksp-api-smoke |
 | KspApiSanity | 1 | H24-ksp-api-sanity |
@@ -729,6 +735,7 @@ Categories named by `RunTests` steps (`(all)`: a step with no category). 198 lan
 | TrackingStation | 1 | H23-tracking-station |
 | TrajectoryMath | 1 | H7-trajectory-math |
 | TreeIntegrity | 1 | H49-tree-integrity |
+| TreeRestoreCoroutine | 1 | LT-5-long-tail-playback-flight |
 | UiComplexityMode | 1 | H22-ui-complexity-mode |
 | UiScale | 1 | UIS-1-ui-scale |
 | Unity | 1 | LT-1-long-tail-flight |
@@ -798,7 +805,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| AH-1-auto-hire-reserved-applicant | nightly | fresh-career | seam | Kerbin | - | AutoHireReservation | LIVE-PROVEN 2026-09-27 |
+| AH-1-auto-hire-reserved-applicant | nightly | fresh-career | seam | Kerbin | - | AutoHireReservation, FreeTechUnlock +1 | LIVE-PROVEN 2026-09-27 |
 
 ### AIR (2)
 
@@ -1304,7 +1311,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | LT-2-long-tail-spacecenter | nightly | fresh-sandbox | seam | Kerbin | - | Optimizer, Recording +5 | LIVE-PROVEN 2026-09-07 |
 | LT-3-long-tail-career-flight | nightly | career-earned-pad | seam | - | - | Contracts, TestCommands | LIVE-PROVEN 2026-09-07 |
 | LT-4-long-tail-route-flight | nightly | depot-route-recorded | seam | - | - | RouteLiveAnchor, Structure, Missions +1 | LIVE-PROVEN 2026-09-07 |
-| LT-5-long-tail-playback-flight | nightly | gloops-airshow +inj part-showcase | seam | - | time-jump | PartEventFX, GhostLifecycle | LIVE-PROVEN 2026-09-07 |
+| LT-5-long-tail-playback-flight | nightly | gloops-airshow +inj part-showcase | seam | - | time-jump | PartEventFX, GhostLifecycle +5 | LIVE-PROVEN 2026-09-07 |
 
 ### M (3)
 

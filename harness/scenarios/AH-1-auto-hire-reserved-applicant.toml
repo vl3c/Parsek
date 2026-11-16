@@ -42,9 +42,25 @@ tier = "nightly"
 # were predicted from the host and measured exactly as predicted (`pickLines=2 hired=2
 # seated=3 refusals=0`, `kept=Jebediah Kerman`, teardown `reverted=3 removed=2`), and the
 # pick line printed twice.
-description = "Stock auto-hire on a career host with a committed future hire for the first applicant (the rewound state, seeded in-process): DefaultCrewForVessel on a Mk1-3 pod two seats short skips that applicant, hires and seats two others, seats nobody twice and never reaches the KerbalHirePatch refusal."
+#
+# TWO CONSTITUENTS APPENDED 2026-11-16 (test gap audit B11, todo NEXT-TESTS-TO-BUILD-2026-11-11
+# item 10), which made this a multi-category lane: two SPACECENTER categories no committed spec
+# ran, after AutoHireReservation so its measured lines cannot move.
+#  - `FreeTechUnlock` (1): stock `UnlockProtoTechNode` on a locked node reaches the Parsek
+#    capture patch exactly once (probe subscriber, career recorder and ledger untouched, the
+#    node's proto entry restored). It needs the R&D singleton, so no sandbox lane can run it
+#    (LT-2's `fresh-sandbox` would skip it whole); this is the cheapest career SPACECENTER boot.
+#  - `GuiMock` (4): a catalogue state installed into the real Kerbals / Structure List windows is
+#    drawn (captured GUI tree), a SaveGame is refused while a mock scope is live, and every
+#    suppression site is inert with no scope. Mock-only, so the career host is as good as any;
+#    hosted here rather than on LT-2 so that lane's armed whole aggregate stays whole.
+# NEVER FLOWN in this lane: both pin `total=` literally and regex the split (passed >= 1), as does
+# the aggregate, through MultiCategoryBatchWiringGroupTests.INTERIM_CONSTITUENTS; the
+# AutoHireReservation line stays whole. The GuiMock cells fire `onVesselChange` with no active
+# vessel, and a cell whose window the UI complexity mode hides skips; the reading run measures both.
+description = "Stock auto-hire on a career host with a committed future hire for the first applicant (the rewound state, seeded in-process): DefaultCrewForVessel on a Mk1-3 pod two seats short skips that applicant, hires and seats two others, seats nobody twice and never reaches the KerbalHirePatch refusal. Plus two never-run SPACECENTER categories (FreeTechUnlock, GuiMock; audit B11) appended 2026-11-16 with interim pins until their reading run."
 instanceProfile = "stock-minimal"
-tags = ["ingame-batch", "kerbals", "action-blocking", "career", "AH-1"]
+tags = ["ingame-batch", "multi-category", "kerbals", "action-blocking", "career", "AH-1"]
 
 [fixture]
 # No active vessel, so LoadGame takes the Space Center route (H48's host).
@@ -57,7 +73,7 @@ kind = "seam"
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
-  { cmd = "RunTests",   args = { category = "AutoHireReservation" }, expect = "OK", budget = 540 },
+  { cmd = "RunTests",   args = { category = "AutoHireReservation,FreeTechUnlock,GuiMock" }, expect = "OK", budget = 540 },
   { cmd = "FlushAndQuit", expect = "OK" },
 ]
 
@@ -74,8 +90,13 @@ count = { min = 0, max = 0 }
 
 [expectations.logContracts]
 required = [
+  "runtests start category=AutoHireReservation,FreeTechUnlock,GuiMock isolated=false strict=false multi=3",
   # total=1 is attribute-exact (one SPACECENTER declaration); the split is the measured one.
   "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=AutoHireReservation scene=SPACECENTER",
+  # Interim until the reading run (see the header): totals attribute-exact, split regexed.
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=FreeTechUnlock scene=SPACECENTER",
+  "BATCH_COMPLETE v1 total=4 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=GuiMock scene=SPACECENTER",
+  "BATCH_COMPLETE v1 total=6 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=multi:3 scene=SPACECENTER",
   # The prefix skipped the reserved applicant, twice (one per short seat).
   "\\A(?:[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[KerbalHirePatch\\] auto-hire applicant pick: skipped=1 applicant\\(s\\) a committed future hires; picked=\\(none - stock generates a new applicant\\)){2}",
   "\\[Parsek\\]\\[INFO\\]\\[AutoHireReservation\\] auto-hire live check passed: reserved='Verhat Kerman' pod=mk1-3pod capacity=3 kept=[^ ]+ Kerman shortfall=2 pickLines=2 hired=2 seated=3 refusals=0",

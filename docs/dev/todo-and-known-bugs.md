@@ -1800,7 +1800,8 @@ in parallel in the cloud):
    GhostCommNetManager done 2026-11-16: their decisions extracted pure and xUnit-pinned, the
    live halves named in the residue entry; C6 harvest totals, C5 rewind point slot ambiguity and
    the headless half of C1 done 2026-11-14) and
-   B11 (in-game categories no lane runs). Fixes proven only by xUnit that a lane could show:
+   B11 (in-game categories no lane runs; wired 2026-11-16 into LT-5 and AH-1 on interim pins,
+   one reading run of each owed). Fixes proven only by xUnit that a lane could show:
    ROUTE-DELIVERY-IGNORES-DESCENT-TRIGGER, the two rescue marker fixes, the drop path of
    TRIMMED-CHECKPOINT-SECTION-ENDS-BEFORE-IT-STARTS and the RW-9R reading variant. The three
    2026-10-31 mod-only ledger fixes stay unit-test only by owner rule.
@@ -2149,9 +2150,13 @@ merges this residue with the moon program is NEXT-TESTS-TO-BUILD-2026-11-11 at t
   its line is (only the SLM lanes read a loop ghost's position).
 - [ ] B7: loops never meet a Re-Fly, a career save or a scene change in watch mode.
 - [ ] B8: ghost FX across a Re-Fly or a revert has no lane.
-- [ ] B11: in-game categories no lane runs (ChainTipBlockedGhost, DeployedScienceGhost,
+- [x] ~~B11: in-game categories no lane runs (ChainTipBlockedGhost, DeployedScienceGhost,
   GhostReapplyFrame, GuiMock, JointBreakCheckCoroutine and TreeRestoreCoroutine: no committed spec
-  names any of them).
+  names any of them).~~ Wired 2026-11-16 (no new lane): the five FLIGHT categories appended to
+  `LT-5-long-tail-playback-flight`'s multi-category RunTests (multi=7), FreeTechUnlock (needs a
+  career R&D) and GuiMock appended to `AH-1-auto-hire-reserved-applicant` (multi=3), each new
+  constituent on an interim `passed=[1-9][0-9]*` pin. Still owed: one reading run of each lane to
+  pin the measured passed / skipped counts (`INTERIM_PIN_IDS` / `INTERIM_CONSTITUENTS`).
 - [ ] B9: no lane flies an aircraft, a boat, a live atmospheric landing off Kerbin or a Minmus /
   orbital miner (the claw has only the synthetic H41 / H42 cells).
 - [ ] Fixes proven by xUnit only, never seen in game: ROUTE-DELIVERY-IGNORES-DESCENT-TRIGGER,
