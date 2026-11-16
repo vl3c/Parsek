@@ -45,8 +45,6 @@ tier = "operator"
 #     Destroyed` (FlightRecorder.PartEvents.cs OnPartDie) and the background recorder's
 #     `Part death on background vessel: Destroyed ... vesselPid=<the undock's bgChild pid>`
 #     (BackgroundRecorder.GameEventHandlers.cs), both between the crash marks;
-#   * the active side's split handling: `Deferred split classified: ... recordedPid=110406740`
-#     (ParsekFlight.SplitBranching.cs), WithinSegment or a split, whichever stock makes;
 #   * the scene-exit commit of the whole tree (GS-7's tokens: either an active or a pending
 #     tree reaches the Space Center under autoMerge) with at least three recordings.
 # (playback half, after Rewind-to-Launch and a reload onto the watcher):
@@ -58,7 +56,9 @@ tier = "operator"
 #   * [expectations.ghostLifecycle] (REPORT-ONLY): every MeshSpawned balanced by a
 #     MeshDestroyed by the end of the replay; [expectations.recordings.structure]
 #     (REPORT-ONLY): one tree, one Dock, one Undock.
-# READ ON FLIGHT 1, NOT GATED: whether a joint break reached the crash coalescer
+# READ ON FLIGHT 1, NOT GATED: the active side's split check (`Deferred split classified:
+# ... recordedPid=110406740`; it runs only after a joint break or decouple, which a lone
+# leaf-part death may not fire), whether a joint break reached the crash coalescer
 # (`Coalescing window opened`, `BREAKUP emitted`, `ProcessBreakupEvent: debris child
 # created`; a dead leaf part leaves one connected vessel, so WithinSegment is legal), the
 # background split check (`Scheduled deferred split check for background vessel:`),
@@ -221,21 +221,20 @@ required = [
   # --- 4. THE CRASH (crash-mode lines, TestCommandDriveVessel.cs) ---
   "drivevessel crash start: vessel=Mining Rover RC pid=110406740 wheelThrottle=1\\.00 seconds=30\\.0 wheelMotors=4 parts=28 ",
   "drivevessel crash hit: part='[^'\\r\\n]+' partPid=[0-9]+ vesselPid=[1-9][0-9]* vesselName='[^'\\r\\n]*' own=(?:true|false) impactSrfSpeed=[0-9.]+ ut=",
-  "drivevessel crash end: outcome=crashed vessel=Mining Rover RC pid=110406740 ",
+  # The miner may not survive the crash (then the line prints vessel= pid=0).
+  "drivevessel crash end: outcome=crashed vessel=",
   # Part loss on the ACTIVE miner while recording (FlightRecorder.PartEvents.cs OnPartDie).
   "(?s)MISSIONMARK label=rvc1-crash (?:(?!MISSIONMARK label=).)*?\\[Recorder\\] Part event: Destroyed '[^'\\r\\n]+' pid=[0-9]+(?:(?!MISSIONMARK label=).)*?MISSIONMARK label=rvc1-after-crash-",
   # Part loss on the BACKGROUND depot while recording, on the undock's bgChild pid
   # (BackgroundRecorder.GameEventHandlers.cs; the pid by back-reference).
   "Tree branch created: type=Undock, [^\\r\\n]*bgChild=[0-9a-f]+ \\(pid=([1-9][0-9]*)\\)[\\s\\S]*MISSIONMARK label=rvc1-crash (?:(?!MISSIONMARK label=)[\\s\\S])*?Part death on background vessel: Destroyed '[^'\\r\\n]+' pid=[0-9]+ vesselPid=\\1(?:(?!MISSIONMARK label=)[\\s\\S])*?MISSIONMARK label=rvc1-after-crash-",
-  # The active side's split check ran (ParsekFlight.SplitBranching.cs; WithinSegment when
-  # only a leaf died, a split when debris came off).
-  "(?s)MISSIONMARK label=rvc1-crash (?:(?!MISSIONMARK label=).)*?Deferred split classified: source=[^,\\r\\n]*, result=(?:WithinSegment|StructuralSplit|DebrisSplit), [^\\r\\n]*recordedPid=110406740",
   # --- 5. THE COMMIT (GS-7's tokens; ParsekTestCommandAddon.ExitToSpaceCenter.cs,
   # ParsekScenario.AutoCommit.cs Silent / Limbo-preserving full-fidelity) ---
   "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=(?:false hasPendingTree=true|true hasPendingTree=false)",
   "exittospacecenter complete scene=SPACECENTER game-loaded=true ",
   "full-fidelity auto-commit \\(scene-exit[^\\r\\n]*\\): tree='Mining Rover RC' recordings=(?:[3-9]|[1-9][0-9]+) ",
-  "MISSIONMARK label=rvc1-committed-1 ",
+  # ListHandles kind=committed counts committed RECORDINGS, not trees (AST-1 / COM-1 pin -2).
+  "MISSIONMARK label=rvc1-committed-(?:[3-9]|[1-9][0-9]+) ",
   # Both rovers' recordings end as leaves with a ground terminal (a wreck that kept its root
   # stays Landed; a vessel the crash removed is Destroyed), finalized after the crash
   # (ParsekFlight.Finalization.cs; the depot's name by back-reference to the undock's).
