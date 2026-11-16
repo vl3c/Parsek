@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH: a looped mission that starts in orbit is timed around a later moon it passes low over [FILED 2026-11-16 from V43M's first flight `2026-11-16_1726_V43M-vall-tylo-player-loop` (PC, parallel run `moon-loops-2026-11-16d`, DLL unchanged since PR #2638, PARSEK-FAIL(expectation) attempt 1, 58 s; diagnostics on branch `forge-logs-2026-11-16d`, folder `diag/2026-11-16_1726_V43M-vall-tylo-player-loop/`). OPEN; low (the loop still phase-locks, on the wrong launch moon)]
+## MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH: a looped mission that starts in orbit is timed around a later moon it passes low over [FILED 2026-11-16 from V43M's first flight `2026-11-16_1726_V43M-vall-tylo-player-loop` (PC, parallel run `moon-loops-2026-11-16d`, DLL unchanged since PR #2638, PARSEK-FAIL(expectation) attempt 1, 58 s; diagnostics on branch `forge-logs-2026-11-16d`, folder `diag/2026-11-16_1726_V43M-vall-tylo-player-loop/`). FIXED 2026-11-16, branch `claude/project-thread-vpr29t`; xUnit; V43M re-pinned, awaiting PC flight; low (the loop still phase-locks, on the wrong launch moon)]
 
 The `vall-tylo-recorded` tree 91205f57 is one vessel's chain: the root ef182ffd starts IN ORBIT
 around Vall (a 2.6 s Absolute coast, then Vall, Jool and Tylo orbit checkpoints from UT
@@ -38,6 +38,23 @@ earliestOrbitBody`, so ANY surface-class section (Atmospheric, Surface*, and App
 mission that starts in orbit and later dips into Approach over another body is read as launched
 from that body: here Tylo became the launch moon, Vall a sibling SOI entry, and the launch moon's
 phase was pinned at the Vall orbit start instead of the Vall SOI exit.
+Fix: the launch body is the body of the EARLIEST included segment
+(`MissionPeriodicity.ResolveLaunchBody`): the earliest surface-class start and the earliest orbit
+start are compared and the earlier one names it, a tie going to the surface (an ascent and its
+orbit can share a UT). A surface launch starts with its ascent, so no surface-launch answer moves
+(every existing extraction pin is unchanged). When the two bodies differ the extractor logs
+`ExtractConstraints: launch body <B> from the earliest segment (first orbit <B> off=..., first
+surface <C> off=...)`. On this tree it now reads launch moon Vall and `constraints=3
+[Rotation(Tylo) P=211926.358 off=281895.72; Orbital(Tylo) same-parent P=211926.358 off=261721.52;
+Orbital(Vall) same-parent P=105962.089 off=10191.44]`: Rotation(Tylo) stays under rule 2 (the
+Approach arc is body-fixed and Tylo has an inertial orbit in the set) and, Tylo being tidally
+locked, shares Orbital(Tylo)'s period; Vall is pinned at its SOI exit. Solve still reads
+`dominant-intercept` at P = P_Tylo within tolerance, and the zero-drift schedule anchors on
+Orbital(Vall). Pinned by `MissionPeriodicityTests.ResolveLaunchBody_TruthTable`,
+`Extract_VallOrbitStartThenTyloApproach_LaunchBodyStaysVall` (the fixture's shape at its real UTs)
+and `Build_VallOrbitStartThenTyloApproach_LocksOnTyloWithVallInTolerance`; all three red with the
+old rule. V43M now requires the launch-body line, `launchMoon=Vall` and the three-constraint
+summary, and forbids `launchMoon=Tylo`. Closes when V43M flies green on a DLL with the fix.
 
 ## ~~ROUTE-HELD-ROCK-HARVEST-UNCOUNTED~~: Ore drilled from a Klaw-held rock was not counted as harvest, so the route was refused [FILED 2026-11-15 from the AST-3 flight `2026-11-15_2035_AST-3-klaw-mine-route` (PR #2633; results branch `ast-flights-2026-11-15`, folder `ast-klaw-2026-11-15d`). FIXED 2026-11-15, same PR; xUnit; AST-3 re-flown green 2026-11-15 (folder ast-klaw-2026-11-15e); medium (a rock-mining route could never be made)]
 

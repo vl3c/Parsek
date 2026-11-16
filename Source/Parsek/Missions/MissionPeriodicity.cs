@@ -371,8 +371,12 @@ namespace Parsek
         /// A null <paramref name="memberWindows"/> reads as the empty set.
         ///
         /// Rules (design doc "What determines P" + Edge cases):
-        /// 1. launch body = body of the earliest INCLUDED surface/atmospheric segment, else the
-        ///    bodyName of the earliest included OrbitSegment.
+        /// 1. launch body = body of the EARLIEST included segment: the earliest surface /
+        ///    atmospheric / Approach segment and the earliest OrbitSegment are compared by start UT
+        ///    and the earlier one names it (surface wins a tie; see <see cref="ResolveLaunchBody"/>).
+        ///    A surface launch starts with its ascent, so it is unchanged; a mission that starts in
+        ///    orbit keeps that orbit's body even when it later dips into a low (Approach) pass over
+        ///    another body.
         /// 2. a surface/atmospheric segment on body B emits Rotation(B) ONLY when the included set
         ///    ALSO contains an inertial-orbit segment of B (the ascent->orbit / orbit->descent
         ///    hand-off). The phase offset = segment start UT - UT0. The rotation phase only matters
@@ -441,10 +445,9 @@ namespace Parsek
             }
             result.UT0 = ut0;
 
-            // 2. Earliest included surface/atmospheric segment (across all members) -> the launch
-            //    body + its rotation constraint. Track the earliest surface segment START per body
-            //    (rule 2) and the global earliest as the launch-body fallback chain.
-            //    Also collect the earliest included OrbitSegment START per body for the SOI rules.
+            // 2. Earliest included surface/atmospheric segment START per body (rule 2's rotation
+            //    source) and the earliest included OrbitSegment START per body (the SOI rules), each
+            //    with its global earliest; the earlier of the two globals names the launch body.
             var earliestSurfaceStartByBody = new Dictionary<string, double>();
             double earliestSurfaceStartGlobal = double.PositiveInfinity;
             string earliestSurfaceBody = null;
@@ -484,9 +487,20 @@ namespace Parsek
                     ref earliestOrbitStartGlobal, ref earliestOrbitBody);
             }
 
-            // Launch body: earliest surface body, else earliest orbit body.
-            string launchBody = earliestSurfaceBody ?? earliestOrbitBody;
+            // Launch body: the body of the EARLIEST included segment, surface or orbit (rule 1).
+            string launchBody = ResolveLaunchBody(
+                earliestSurfaceBody, earliestSurfaceStartGlobal,
+                earliestOrbitBody, earliestOrbitStartGlobal);
             result.LaunchBodyName = launchBody;
+            if (!SuppressLogging && earliestSurfaceBody != null && earliestOrbitBody != null
+                && earliestSurfaceBody != earliestOrbitBody)
+            {
+                var icLaunch = CultureInfo.InvariantCulture;
+                ParsekLog.Verbose("MissionPeriodicity",
+                    $"ExtractConstraints: launch body {launchBody ?? "<none>"} from the earliest segment " +
+                    $"(first orbit {earliestOrbitBody} off={(earliestOrbitStartGlobal - ut0).ToString("R", icLaunch)}, " +
+                    $"first surface {earliestSurfaceBody} off={(earliestSurfaceStartGlobal - ut0).ToString("R", icLaunch)})");
+            }
 
             // 3. Rotation constraints: ONE per surface body (earliest start), launch body first,
             //    emitted in recorded-UT (offset) order. A Rotation(B) constraint is emitted ONLY
@@ -1867,6 +1881,27 @@ namespace Parsek
             if (!string.IsNullOrEmpty(rec.StartBodyName))
                 return rec.StartBodyName;
             return null;
+        }
+
+        /// <summary>
+        /// The launch body (rule 1): the body of whichever included segment starts first, the
+        /// earliest surface / atmospheric / Approach segment or the earliest OrbitSegment. A tie
+        /// goes to the surface segment (an ascent and its orbit hand-off can share a UT). Either side
+        /// may be absent (null body); both absent returns null. A mission that starts in orbit and
+        /// later makes a low Approach pass over another body keeps its orbit's body as the launch
+        /// body. Pure.
+        /// </summary>
+        internal static string ResolveLaunchBody(
+            string earliestSurfaceBody, double earliestSurfaceStartUT,
+            string earliestOrbitBody, double earliestOrbitStartUT)
+        {
+            if (string.IsNullOrEmpty(earliestSurfaceBody))
+                return string.IsNullOrEmpty(earliestOrbitBody) ? null : earliestOrbitBody;
+            if (string.IsNullOrEmpty(earliestOrbitBody))
+                return earliestSurfaceBody;
+            return earliestOrbitStartUT < earliestSurfaceStartUT
+                ? earliestOrbitBody
+                : earliestSurfaceBody;
         }
 
         /// <summary>

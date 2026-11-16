@@ -36,6 +36,10 @@ Not released yet.
 - **A ship holding a rock checks for room at the rock's real size.** The clear-space check
   before a vessel becomes real counted a big asteroid as one small part, so it could appear
   inside a nearby vessel. (ROCK-SPAWN-BOUNDS-TOO-SMALL)
+- **A looped mission that starts in orbit keeps its own launch moon.** A loop that began in orbit
+  around one moon and later passed low over another was timed as if it had launched from the
+  second one. Its loops are now spaced around the moon it really started from.
+  (MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH)
 
 ## 1.0.2
 

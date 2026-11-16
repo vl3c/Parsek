@@ -1102,9 +1102,15 @@ Each INCLUDED segment contributes only the phase constraint its own frame impose
      planet's SOI (Laythe -> Jool -> Sun) keeps the cross-parent path unchanged. No new
      paths are drawn: the hop replays exactly as recorded, only the loop spacing changes
      (owner pick 2026-11-07, todo MOON-TO-MOON-LOOP-NOT-RETIMED).
-   The **launch body** is the body of the earliest INCLUDED surface/atmospheric
-   segment (or, if none, the `bodyName` of the earliest included `OrbitSegment`). The
-   transited bodies are read from the SOI changes (the `bodyName` field across the
+   The **launch body** is the body of the earliest INCLUDED segment: the earliest
+   surface / atmospheric / Approach segment and the earliest included `OrbitSegment`
+   are compared by start UT and the earlier one names it, a tie going to the surface
+   segment (`MissionPeriodicity.ResolveLaunchBody`). A surface launch begins with its
+   ascent, so it names the pad's body; a mission that starts in orbit keeps that
+   orbit's body even when it later makes a low Approach pass over another body (todo
+   MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH: before the fix any surface-class
+   section out-ranked the orbit, so a Vall-rooted hop with a Tylo Approach pass read
+   Tylo as its launch moon). The transited bodies are read from the SOI changes (the `bodyName` field across the
    included segments' `OrbitSegments`).
 
 `P` is the joint resonance (least common period) of just the constraints the

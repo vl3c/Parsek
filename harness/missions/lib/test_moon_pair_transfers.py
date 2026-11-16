@@ -503,6 +503,13 @@ class PendingLoopLaneTests(unittest.TestCase):
                 self.assertIn("awaiting-fixture", spec["tags"])
                 self.assertEqual({"0" * 32}, trees)
 
+    # Lanes whose harvested tree adds a constraint to the moon-rooted pair: V43M's
+    # tree makes a 5.4 s Approach pass at Tylo with a Tylo orbit in the set, so rule 2
+    # keeps the tidally locked Rotation(Tylo) (todo
+    # MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH, read off the fixture by
+    # MissionPeriodicityTests.Extract_VallOrbitStartThenTyloApproach_*).
+    EXTRA_CONSTRAINTS = {"V43M-vall-tylo-player-loop.toml": ["Rotation\\(Tylo\\)"]}
+
     def test_each_loop_lane_reads_the_moon_rooted_constraint_set(self):
         for _forge, (_m, home, target, parent, _f, _h, lane, _e) in FORGES.items():
             with self.subTest(lane=lane):
@@ -513,7 +520,10 @@ class PendingLoopLaneTests(unittest.TestCase):
                 summary = [r for r in req if r.startswith("ExtractConstraints: tree=")]
                 self.assertEqual(1, len(summary))
                 self.assertIn("launchBody=%s " % home, summary[0])
-                self.assertIn("support=Supported constraints=2", summary[0])
+                extra = self.EXTRA_CONSTRAINTS.get(lane, [])
+                self.assertIn("support=Supported constraints=%d" % (2 + len(extra)), summary[0])
+                for c in extra:
+                    self.assertIn(c, summary[0])
                 self.assertIn("Orbital\\(%s\\) same-parent" % target, summary[0])
                 self.assertIn("Orbital\\(%s\\) same-parent" % home, summary[0])
                 self.assertTrue(any(r.startswith("PhaseLock ") for r in req))

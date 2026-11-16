@@ -1,7 +1,10 @@
 schema = 1
 id = "V43M-vall-tylo-player-loop"
 # =====================================================================================
-# V43M: the Vall -> Tylo moon-to-moon loop. AUTHORED 2026-11-14, NEVER FLOWN.
+# V43M: the Vall -> Tylo moon-to-moon loop. AUTHORED 2026-11-14.
+# FIRST FLIGHT 2026-11-16 (run 2026-11-16_1726, 58 s) PARSEK-FAIL(expectation) on a product
+# defect, todo MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH; re-pinned to the fixed reading
+# below, the re-flight on a DLL with the fix is owed.
 # Fixture `vall-tylo-recorded` harvested --keep-parsek from B43-vall-tylo-transfer
 # run `2026-11-16_1638` (PASS attempt 1, wall 1,097 s): the fresh Vall-rooted tree
 # 91205f57dc164ab1b74caf5b574a5a43 with THREE recordings, one chain of the one vessel:
@@ -12,22 +15,40 @@ id = "V43M-vall-tylo-player-loop"
 #
 # WHAT IT READS. The subject is a Vall-rooted tree that never leaves
 # Jool's SOI, so rule 4a (`MissionPeriodicity.ResolveMoonRootedFrameParent`,
-# #2554) takes its phase constraints in the moon-rooted frame: Orbital(Tylo) and
-# Orbital(Vall), both same-parent, support Supported. The lane loops the tree
-# and reads three lines: the Verbose `ExtractConstraints: moon-rooted frame` line,
-# the Verbose ExtractConstraints summary, and the phase-lock decision.
+# #2554) takes its phase constraints in the moon-rooted frame. The lane loops the
+# tree and reads four lines: the Verbose launch-body line, the Verbose
+# `ExtractConstraints: moon-rooted frame` line, the Verbose ExtractConstraints
+# summary, and the phase-lock decision.
 #
-# THE PREDICTION (the real `MissionPeriodicity.Solve` driven offline 2026-11-14 over a
-# modelled Vall -> Tylo tree with stock periods: P_Vall 105,962.09 s, P_Tylo 211,926.36 s):
-#   ExtractConstraints  launchBody=Vall support=Supported constraints=2
-#                       [Orbital(Tylo) same-parent; Orbital(Vall) same-parent]
-#   Solve               dominant=Tylo (the longer period), method=dominant-intercept
-#                       (m=1: Vall is at 2:1 with Tylo in the Laplace chain, so the
-#                       dropped residual at m=1 is ~2 s), P = P_Tylo, withinTol=yes
-#   schedule            211,924 s intervals, worst residual ~20 s
+# THE FIRST FLIGHT (2026-11-16_1726) read `launchMoon=Tylo`: the tree STARTS IN ORBIT
+# around Vall (ef182ffd: a 2.6 s coast, then Vall / Jool / Tylo orbit checkpoints) but
+# its second segment 6a000db2 is one 5.4 s Approach section at Tylo (~87 km), and the
+# extractor let ANY surface-class section out-rank the orbit as the launch body. The
+# fix names the launch body by the earliest included segment (surface wins a tie), so
+# Vall is the launch moon again.
+#
+# THE PREDICTION (the real ExtractConstraints / Solve / Build over the fixture's own
+# shape at its real UTs with the KSP periods V43M logged, P_Vall 105,962.089 s and
+# P_Tylo 211,926.358 s: `MissionPeriodicityTests.Extract_VallOrbitStartThenTyloApproach_*`
+# and `Build_VallOrbitStartThenTyloApproach_*`):
+#   launch body         Vall (first orbit Vall off=2.62, first surface Tylo off=281,895.72)
+#   ExtractConstraints  launchBody=Vall support=Supported constraints=3
+#                       [Rotation(Tylo) P=211926.358 off=281895.72;
+#                        Orbital(Tylo) same-parent P=211926.358 off=261721.52;
+#                        Orbital(Vall) same-parent P=105962.089 off=10191.44]
+#     Rotation(Tylo) stays (rule 2): the Approach arc is body-fixed and Tylo has an
+#     inertial orbit in the set, so its hand-off needs Tylo's spin; Tylo is tidally
+#     locked, so it shares Orbital(Tylo)'s period and costs no extra window.
+#     Orbital(Vall) is pinned at the Jool SOI entry (the launch-moon exit, 10,191 s).
+#   Solve               dominant=Tylo (the longer orbit), method=dominant-intercept
+#                       (Rotation(Tylo) residual 0; Vall at 2:1 with Tylo leaves ~2.18 s),
+#                       P = P_Tylo, withinTol=yes
+#   schedule            zero-drift, anchored on Orbital(Vall) (the tightest duty cycle under
+#                       the shipped Loose landing alignment), within tolerance
 # P depends only on the two periods, never on the recorded span or offsets, so it is
 # pinned to the Tylo period's leading digits; the method is pinned exactly.
-# FORBIDDEN `UnsupportedCrossParent` is the pre-#2554 answer for this shape.
+# FORBIDDEN `UnsupportedCrossParent` is the pre-#2554 answer for this shape, and
+# `launchMoon=Tylo` is the first flight's defect.
 #
 # HANDED OVER in the harvest commit: the MissionConfig / StartLoopPlayback tree id is
 # the harvested RECORDING_TREE `id`, tier "operator" with tag "pending-flight" (was
@@ -44,7 +65,7 @@ id = "V43M-vall-tylo-player-loop"
 # logging is on because both ExtractConstraints lines are Verbose.
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-11-14, NEVER FLOWN. On `vall-tylo-recorded` (harvested from B43-vall-tylo-transfer). Loops the Vall-rooted Vall -> Tylo tree and reads the moon-rooted phase lock: rule 4a's Orbital(Tylo) + Orbital(Vall) constraint set, Supported, and the solver's decision."
+description = "AUTHORED 2026-11-14; first flight 2026-11-16 (run 2026-11-16_1726) PARSEK-FAIL on the launch-body defect, re-flight with the fix owed. On `vall-tylo-recorded` (harvested from B43-vall-tylo-transfer). Loops the Vall-rooted Vall -> Tylo tree and reads the moon-rooted phase lock: launch moon Vall, rule 4a's Orbital(Tylo) + Orbital(Vall) set plus the Tylo Approach pass's Rotation(Tylo), Supported, and the solver's decision."
 instanceProfile = "stock-minimal"
 tags = ["V43M", "player-loop", "loop-playback", "moon-to-moon", "moon-rooted-phase-lock",
         "vall", "tylo", "jool", "pending-flight"]
@@ -82,14 +103,16 @@ required  = [
   "missionconfig applied:",
   "SetLoopEnabled: loop ON",
   "startloopplayback initiated:",
+  "ExtractConstraints: launch body Vall from the earliest segment \\(first orbit Vall off=[^,\\r\\n]+, first surface Tylo off=",
   "ExtractConstraints: moon-rooted frame launchMoon=Vall planet=Jool launchMoonPeriod=",
-  "ExtractConstraints: tree=\\w+ members=[0-9]+ launchBody=Vall ut0=[^ \\r\\n]+ support=Supported constraints=2 \\[Orbital\\(Tylo\\) same-parent P=[^;\\r\\n]+; Orbital\\(Vall\\) same-parent P=",
+  "ExtractConstraints: tree=\\w+ members=3 launchBody=Vall ut0=[^ \\r\\n]+ support=Supported constraints=3 \\[Rotation\\(Tylo\\) P=2119[0-9]{2}\\.[0-9]+ off=[^;\\r\\n]+; Orbital\\(Tylo\\) same-parent P=2119[0-9]{2}\\.[0-9]+ off=[^;\\r\\n]+; Orbital\\(Vall\\) same-parent P=1059[0-9]{2}\\.[0-9]+ off=[^\\]\\r\\n]+\\]",
   "PhaseLock APPLIED: mission='[^'\\r\\n]*' tree=\\w+ anchor [^ \\r\\n]+ P=2119[0-9]{2}(\\.[0-9]+)? method=dominant-intercept cadence [^ \\r\\n]+ fixedCadenceResidual=[^ \\r\\n]+ fixedCadenceWithinTol=yes",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "UnsupportedCrossParent",
   "PhaseLock SKIPPED: mission=",
+  "launchMoon=Tylo",
 ]
 
 [expectations.rewind]
