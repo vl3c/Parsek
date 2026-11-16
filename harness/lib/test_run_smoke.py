@@ -8552,6 +8552,33 @@ class RaceSharedFolderStagingSmokeTests(unittest.TestCase):
         self.logger.close()
         shutil.rmtree(self.tmp, ignore_errors=True)
 
+    def test_rmtree_uses_the_error_keyword_this_interpreter_has(self):
+        # onexc is 3.12+, the harness floor is 3.11 (onerror only). Calling the wrong
+        # one raises TypeError on every race lane after the first.
+        victim = os.path.join(self.instance, "rs")
+        os.makedirs(os.path.join(victim, "0"))
+        seen = {}
+        real = shutil.rmtree
+
+        def fake(path, **kwargs):
+            seen.update(kwargs)
+            (cb,) = kwargs.values()
+            leftover = os.path.join(victim, "0", "stuck.txt")
+            with open(leftover, "w") as fh:
+                fh.write("x")
+            cb(os.remove, leftover, None)  # the retry deletes what the first try left
+            self.assertFalse(os.path.exists(leftover))
+            real(path)
+
+        orig = run.shutil.rmtree
+        run.shutil.rmtree = fake
+        try:
+            self.assertTrue(run._rmtree_contained(victim, self.instance))
+        finally:
+            run.shutil.rmtree = orig
+        expected = "onexc" if sys.version_info >= (3, 12) else "onerror"
+        self.assertEqual(list(seen), [expected])
+
     def _spec(self, shared=None, folder_step=True):
         spec = _make_spec(self.template, 30, 600)
         spec["id"] = "SMOKE-race"

@@ -1927,7 +1927,12 @@ def _rmtree_contained(path: str, parent: str) -> bool:
         except OSError:
             pass
 
-    shutil.rmtree(_io_path(path), onexc=_retry)
+    # onexc is 3.12+; the harness floor is 3.11, where only onerror exists (same
+    # (func, path, exc-or-exc_info) shape, and _retry ignores the third argument).
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(_io_path(path), onexc=_retry)
+    else:
+        shutil.rmtree(_io_path(path), onerror=_retry)
     return not os.path.lexists(path)
 
 
