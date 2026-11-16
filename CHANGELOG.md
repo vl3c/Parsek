@@ -35,7 +35,8 @@ Not released yet.
 - **Supply routes no longer make cargo out of nothing.** A route starting docked at a depot
   could take fuel another route had set aside there, and a route whose pickup came up short still
   delivered the full amount. It now waits until the depot has enough beyond what other routes
-  reserved, and delivers only what it picked up. (ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW)
+  reserved, and delivers only what it picked up, to the first stops first.
+  (ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW)
 - **Rock-mining trips carry no more ore than the drills produce.** A route whose ship drilled a
   grabbed asteroid or comet had no ore limit; it now credits at most what the drill could mine
   from that rock in the recorded time. (ROCK-DRILL-HARVEST-UNCAPPED)

@@ -38,6 +38,7 @@ namespace Parsek.Tests.Logistics
 
         public void Dispose()
         {
+            RouteEventLog.ResetForTesting();
             RouteStore.ResetForTesting();
             ParsekLog.ResetTestOverrides();
         }
@@ -231,8 +232,8 @@ namespace Parsek.Tests.Logistics
 
             Assert.Single(deficit);
             Assert.Equal(60.0, deficit[LF], 9);
-            Assert.Equal(40.0, RouteDeliveryPlanner.CapBySupplyDeficit(100.0, deficit, LF), 9);
-            Assert.Equal(100.0, RouteDeliveryPlanner.CapBySupplyDeficit(100.0, deficit, Ox), 9);
+            Assert.Equal(40.0, RouteDeliveryPlanner.CapBySupplyHoldback(100.0, deficit, LF), 9);
+            Assert.Equal(100.0, RouteDeliveryPlanner.CapBySupplyHoldback(100.0, deficit, Ox), 9);
         }
 
         // catches: the mirror - a short ORIGIN debit (the docked-origin dispatch row)
@@ -258,7 +259,7 @@ namespace Parsek.Tests.Logistics
             var deficit = RouteOrchestrator.ComputeCycleSupplyDeficit(route, "cycle-3", 3, events);
 
             Assert.Equal(expectedDelivered,
-                RouteDeliveryPlanner.CapBySupplyDeficit(50.0, deficit, LF), 9);
+                RouteDeliveryPlanner.CapBySupplyHoldback(50.0, deficit, LF), 9);
         }
 
         // catches: a full supply (no requested-on-shortfall manifest) capping anything;
@@ -295,10 +296,11 @@ namespace Parsek.Tests.Logistics
             Assert.Empty(RouteOrchestrator.ComputeCycleSupplyDeficit(route, "cycle-0", 1 * S + 3, events));
         }
 
-        // catches: a deficit charged twice. The pickup is 60 short (40 of 100), then
-        // two deliveries of 50 each: the first is capped to 0 (50 - 60), which keeps
-        // 50 on board, so the second sees a deficit of 10 and delivers 40. Total
-        // delivered 40 == total picked up 40.
+        // catches: a deficit charged twice, or the cargo aboard withheld from the first
+        // stop. The pickup is 60 short (40 of 100), then two deliveries of 50 each: the
+        // second can absorb 50 of the 60, so the first holds back 10 and delivers the 40
+        // aboard; the walk counts the 10 it kept, so the second sees a deficit of 50 and
+        // delivers nothing. Total delivered 40 == total picked up 40.
         [Fact]
         public void Deficit_EarlierCappedDelivery_AbsorbsItsShare()
         {
@@ -318,17 +320,16 @@ namespace Parsek.Tests.Logistics
                     M((LF, 40.0)), M((LF, 100.0))),
             };
 
-            var atFirst = RouteOrchestrator.ComputeCycleSupplyDeficit(route, "cycle-0", 1 * S + 3, events);
-            double firstDelivered = RouteDeliveryPlanner.CapBySupplyDeficit(50.0, atFirst, LF);
-            Assert.Equal(0.0, firstDelivered, 9);
+            double firstDelivered = CappedAt(route, 1, events, 50.0);
+            Assert.Equal(40.0, firstDelivered, 9);
 
             events.Add(Row(RouteEventType.RouteCargoDelivered, route.Id, "cycle-0", 1, 1 * S + 3,
                 firstDelivered > 0.0 ? M((LF, firstDelivered)) : null, M((LF, 50.0))));
             var atSecond = RouteOrchestrator.ComputeCycleSupplyDeficit(route, "cycle-0", 2 * S + 3, events);
-            double secondDelivered = RouteDeliveryPlanner.CapBySupplyDeficit(50.0, atSecond, LF);
+            double secondDelivered = CappedAt(route, 2, events, 50.0);
 
-            Assert.Equal(10.0, atSecond[LF], 9);
-            Assert.Equal(40.0, secondDelivered, 9);
+            Assert.Equal(50.0, atSecond[LF], 9);
+            Assert.Equal(0.0, secondDelivered, 9);
             Assert.Equal(40.0, firstDelivered + secondDelivered, 9);
         }
 
@@ -360,7 +361,261 @@ namespace Parsek.Tests.Logistics
             var atSecond = RouteOrchestrator.ComputeCycleSupplyDeficit(route, "cycle-0", 2 * S + 3, events);
 
             Assert.Empty(atSecond);
-            Assert.Equal(50.0, RouteDeliveryPlanner.CapBySupplyDeficit(50.0, atSecond, LF), 9);
+            Assert.Equal(50.0, RouteDeliveryPlanner.CapBySupplyHoldback(50.0, atSecond, LF), 9);
+        }
+
+        // ---- the cap is physical: the cargo aboard goes to the first stop ----------
+
+        /// <summary>
+        /// The amount the delivery at <paramref name="stopIndex"/> may write of its recorded
+        /// LF, through the production chain (deficit, then holdback, then cap).
+        /// </summary>
+        private static double CappedAt(Route route, int stopIndex, IReadOnlyList<RouteEvent> events,
+            double recorded, string cycleId = "cycle-0")
+        {
+            var deficit = RouteOrchestrator.ComputeCycleSupplyDeficit(
+                route, cycleId, stopIndex * S + 3, events);
+            var holdback = RouteOrchestrator.ComputeDeliveryHoldback(route, stopIndex, deficit);
+            return RouteDeliveryPlanner.CapBySupplyHoldback(recorded, holdback, LF);
+        }
+
+        /// <summary>
+        /// Docked origin (stop 0, debit row on its window) then two deliveries of 50 LF.
+        /// The origin debit took <paramref name="debited"/> of the 100 the route records.
+        /// </summary>
+        private static (Route route, List<RouteEvent> events) DebitThenTwoDeliveries(double debited)
+        {
+            var route = new Route
+            {
+                Id = "route-C",
+                CostManifest = M((LF, 100.0)),
+                Stops = new List<RouteStop>
+                {
+                    new RouteStop { DeliveryManifest = M((LF, 50.0)) },
+                    new RouteStop { DeliveryManifest = M((LF, 50.0)) },
+                },
+            };
+            var events = new List<RouteEvent>
+            {
+                Row(RouteEventType.RouteDispatched, route.Id, "cycle-0", 0, 0, null),
+                Row(RouteEventType.RouteCargoDebited, route.Id, "cycle-0", 0, 1,
+                    M((LF, debited)), debited < 100.0 ? M((LF, 100.0)) : null),
+            };
+            return (route, events);
+        }
+
+        private static RouteEvent Delivered(Route route, int stopIndex, double actual, double recorded)
+            => Row(RouteEventType.RouteCargoDelivered, route.Id, "cycle-0", stopIndex, stopIndex * S + 3,
+                actual > 0.0 ? M((LF, actual)) : null, actual < recorded ? M((LF, recorded)) : null);
+
+        // catches: the whole deficit landing on the FIRST delivery. The debit is 40
+        // short (60 of 100); stop 0 records 50 and stop 1 records 50. The 60 aboard
+        // gives stop 0 its full 50 and stop 1 the remaining 10.
+        [Fact]
+        public void Holdback_ShortDebit_FirstStopGetsWhatIsAboard()
+        {
+            var (route, events) = DebitThenTwoDeliveries(60.0);
+
+            var deficitAtFirst = RouteOrchestrator.ComputeCycleSupplyDeficit(route, "cycle-0", 3, events);
+            Assert.Equal(40.0, deficitAtFirst[LF], 9);
+            Assert.Empty(RouteOrchestrator.ComputeDeliveryHoldback(route, 0, deficitAtFirst));
+            double first = CappedAt(route, 0, events, 50.0);
+            Assert.Equal(50.0, first, 9);
+
+            events.Add(Delivered(route, 0, first, 50.0));
+            double second = CappedAt(route, 1, events, 50.0);
+
+            Assert.Equal(10.0, second, 9);
+            Assert.Equal(60.0, first + second, 9);
+        }
+
+        // catches: a full first destination costing the second stop cargo. Stop 0's
+        // destination takes nothing, so its 50 stays aboard and stop 1 gets its full 50;
+        // a partly full stop 0 (20 taken) leaves 40 aboard for stop 1. Never more in
+        // total than the 60 the debit took.
+        [Theory]
+        [InlineData(0.0, 50.0)]
+        [InlineData(20.0, 40.0)]
+        public void Holdback_FullFirstDestination_LeavesMoreAboardForTheSecond(
+            double firstTook, double expectedSecond)
+        {
+            var (route, events) = DebitThenTwoDeliveries(60.0);
+            Assert.Equal(50.0, CappedAt(route, 0, events, 50.0), 9);
+            events.Add(Delivered(route, 0, firstTook, 50.0));
+
+            double second = CappedAt(route, 1, events, 50.0);
+
+            Assert.Equal(expectedSecond, second, 9);
+            Assert.True(firstTook + second <= 60.0 + 1e-9);
+        }
+
+        // catches: cargo lost to a full SECOND destination that the first stop could
+        // have taken. With the whole deficit on the first stop, a full stop 1 would
+        // leave 40 of the 60 aboard undelivered; now stop 0 takes its 50.
+        [Fact]
+        public void Holdback_FullSecondDestination_FirstStopAlreadyTookItsShare()
+        {
+            var (route, events) = DebitThenTwoDeliveries(60.0);
+            double first = CappedAt(route, 0, events, 50.0);
+            events.Add(Delivered(route, 0, first, 50.0));
+            double secondAllowed = CappedAt(route, 1, events, 50.0);
+            // Stop 1's destination is full: the planner clamps to zero free capacity.
+            var plan = RouteDeliveryPlanner.PrepareDelivery(route, 1, new FixedCapacityProbe(0.0),
+                RouteOrchestrator.ComputeDeliveryHoldback(route, 1,
+                    RouteOrchestrator.ComputeCycleSupplyDeficit(route, "cycle-0", 1 * S + 3, events)));
+
+            Assert.Equal(50.0, first, 9);
+            Assert.Equal(10.0, secondAllowed, 9);
+            Assert.Equal(0.0, plan.Resources[0].Available, 9);
+        }
+
+        // catches: a later PICKUP counted as cargo already aboard. The debit is
+        // entirely short (0 of 100); stop 0 records 50, stop 1 picks up 100 and
+        // delivers 50. Stop 1's delivery comes out of its own pickup, so nothing can
+        // absorb the debit's deficit and stop 0 delivers nothing; when the stop 1
+        // pickup is short too, stop 1 delivers nothing either. Never more than taken on.
+        [Theory]
+        [InlineData(100.0, 50.0)]
+        [InlineData(0.0, 0.0)]
+        public void Holdback_LaterPickup_DoesNotAbsorbTheEarlierDeficit(
+            double laterPickedUp, double expectedSecond)
+        {
+            var route = new Route
+            {
+                Id = "route-D",
+                CostManifest = M((LF, 50.0)),
+                Stops = new List<RouteStop>
+                {
+                    new RouteStop { DeliveryManifest = M((LF, 50.0)) },
+                    new RouteStop { PickupManifest = M((LF, 100.0)), DeliveryManifest = M((LF, 50.0)) },
+                },
+            };
+            Assert.Equal(0.0, RouteOrchestrator.LaterDeliveriesAbsorbable(route, 0, LF), 9);
+            var events = new List<RouteEvent>
+            {
+                Row(RouteEventType.RouteCargoDebited, route.Id, "cycle-0", 0, 1, null, M((LF, 50.0))),
+            };
+
+            double first = CappedAt(route, 0, events, 50.0);
+            Assert.Equal(0.0, first, 9);
+            events.Add(Delivered(route, 0, first, 50.0));
+            events.Add(Row(RouteEventType.RouteCargoPickedUp, route.Id, "cycle-0", 1, 1 * S + 2,
+                laterPickedUp > 0.0 ? M((LF, laterPickedUp)) : null,
+                laterPickedUp < 100.0 ? M((LF, 100.0)) : null));
+            double second = CappedAt(route, 1, events, 50.0);
+
+            Assert.Equal(expectedSecond, second, 9);
+            Assert.True(first + second <= laterPickedUp + 1e-9);
+        }
+
+        // catches: the running total ignoring the window order: a later stop's pickup
+        // only offsets deliveries at or after it, so the absorbable amount is the
+        // largest running total read at each later delivery.
+        [Fact]
+        public void LaterDeliveriesAbsorbable_ReadsTheRunningTotalInWindowOrder()
+        {
+            var route = new Route
+            {
+                Id = "route-E",
+                Stops = new List<RouteStop>
+                {
+                    new RouteStop { DeliveryManifest = M((LF, 10.0)) },
+                    new RouteStop { DeliveryManifest = M((LF, 30.0)) },
+                    new RouteStop { PickupManifest = M((LF, 100.0)) },
+                    new RouteStop { DeliveryManifest = M((LF, 20.0)) },
+                    null,
+                },
+            };
+
+            Assert.Equal(30.0, RouteOrchestrator.LaterDeliveriesAbsorbable(route, 0, LF), 9);
+            Assert.Equal(0.0, RouteOrchestrator.LaterDeliveriesAbsorbable(route, 1, LF), 9);
+            Assert.Equal(20.0, RouteOrchestrator.LaterDeliveriesAbsorbable(route, 2, LF), 9);
+            Assert.Equal(0.0, RouteOrchestrator.LaterDeliveriesAbsorbable(route, 3, LF), 9);
+            Assert.Equal(0.0, RouteOrchestrator.LaterDeliveriesAbsorbable(route, 0, Ox), 9);
+            Assert.Equal(0.0, RouteOrchestrator.LaterDeliveriesAbsorbable(null, 0, LF), 9);
+            Assert.Empty(RouteOrchestrator.ComputeDeliveryHoldback(route, 0, null));
+        }
+
+        // catches: a harvest route capped. A harvest-origin route books an empty debit
+        // row, and a docked origin whose debit the harvest reduced books a debit below
+        // the deliveries; neither is a short supply, so neither delivery is held back.
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void Holdback_HarvestRoute_IsNeverCapped(bool harvestOrigin)
+        {
+            var route = new Route
+            {
+                Id = "route-H",
+                IsHarvestOrigin = harvestOrigin,
+                CostManifest = harvestOrigin ? M() : M((LF, 30.0)),
+                Stops = new List<RouteStop>
+                {
+                    new RouteStop { DeliveryManifest = M((LF, 50.0)) },
+                    new RouteStop { DeliveryManifest = M((LF, 50.0)) },
+                },
+            };
+            var events = new List<RouteEvent>
+            {
+                Row(RouteEventType.RouteDispatched, route.Id, "cycle-0", 0, 0, null),
+                Row(RouteEventType.RouteCargoDebited, route.Id, "cycle-0", 0, 1,
+                    harvestOrigin ? null : M((LF, 30.0))),
+            };
+
+            Assert.Equal(50.0, CappedAt(route, 0, events, 50.0), 9);
+            events.Add(Delivered(route, 0, 50.0, 50.0));
+            Assert.Equal(50.0, CappedAt(route, 1, events, 50.0), 9);
+        }
+
+        // catches: a single-delivery route behaving differently from before: with no
+        // later delivery the whole deficit is held back at its one stop.
+        [Fact]
+        public void Holdback_SingleDelivery_HoldsBackTheWholeDeficit()
+        {
+            var route = new Route
+            {
+                Id = "route-A",
+                Stops = new List<RouteStop> { new RouteStop { DeliveryManifest = M((LF, 50.0)) } },
+            };
+            var events = new List<RouteEvent>
+            {
+                Row(RouteEventType.RouteCargoDebited, route.Id, "cycle-3", -1, 1,
+                    M((LF, 30.0)), M((LF, 50.0))),
+            };
+
+            var deficit = RouteOrchestrator.ComputeCycleSupplyDeficit(route, "cycle-3", 3, events);
+            var holdback = RouteOrchestrator.ComputeDeliveryHoldback(route, 0, deficit);
+
+            Assert.Equal(20.0, holdback[LF], 9);
+            Assert.Equal(30.0, RouteDeliveryPlanner.CapBySupplyHoldback(50.0, holdback, LF), 9);
+        }
+
+        // catches: the cap changing across a save / reload between the two deliveries.
+        // Every input is the persisted route event log and the route's stops, so the
+        // second delivery reads the same 10 from the reloaded log and route.
+        [Fact]
+        public void Holdback_SaveReloadMidCycle_SecondDeliveryUnchanged()
+        {
+            var (route, events) = DebitThenTwoDeliveries(60.0);
+            double first = CappedAt(route, 0, events, 50.0);
+            events.Add(Delivered(route, 0, first, 50.0));
+            double before = CappedAt(route, 1, events, 50.0);
+
+            RouteEventLog.ResetForTesting();
+            RouteEventLog.AddRange(events);
+            var parsek = new ConfigNode("PARSEK");
+            RouteEventLog.SaveInto(parsek);
+            var routeNode = new ConfigNode("ROUTE");
+            RouteCodec.SerializeInto(route, routeNode);
+            RouteEventLog.ResetForTesting();
+            Assert.Empty(RouteEventLog.Events);
+
+            RouteEventLog.LoadFrom(parsek);
+            Route reloaded = RouteCodec.DeserializeFrom(routeNode);
+            double after = CappedAt(reloaded, 1, RouteEventLog.Events, 50.0);
+
+            Assert.Equal(10.0, before, 9);
+            Assert.Equal(before, after, 9);
         }
 
         // catches: the planner ignoring the deficit, or reporting a capped line as
@@ -404,7 +659,8 @@ namespace Parsek.Tests.Logistics
         {
             string src = ReadSource("Source/Parsek/Logistics/RouteOrchestrator.Delivery.cs");
             Assert.Contains("ComputeCycleSupplyDeficit(", src);
-            Assert.Contains("RouteDeliveryPlanner.PrepareDelivery(route, stopIndex, probe, supplyDeficit)", src);
+            Assert.Contains("ComputeDeliveryHoldback(", src);
+            Assert.Contains("RouteDeliveryPlanner.PrepareDelivery(route, stopIndex, probe, supplyHoldback)", src);
         }
 
         private sealed class FixedCapacityProbe : IDeliveryCapacityProbe

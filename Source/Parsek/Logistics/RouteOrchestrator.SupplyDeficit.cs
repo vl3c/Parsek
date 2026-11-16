@@ -25,6 +25,19 @@ namespace Parsek.Logistics
     // Every input is the persisted route event log, so the cap is the same after a
     // save / reload mid-cycle. Resources only: no delivery row carries its
     // stored-part actuals, so an inventory deficit cannot be walked the same way.
+    //
+    // The deficit is how much less is on board than the recorded run had at that
+    // window. A delivery holds back only the part of it the route's LATER recorded
+    // deliveries cannot absorb (ComputeDeliveryHoldback): the cargo that is aboard
+    // goes to the first stop that wants it, and the shortfall lands on the last
+    // ones, as it would for a real ship. A later pickup counts against that
+    // absorption, because the later delivery it feeds may come out of that pickup
+    // rather than out of the cargo aboard now (and a short later pickup adds its own
+    // deficit there), so the held-back amount never lets the cycle deliver more than
+    // it took on. No onboard balance is kept: a harvest-origin route, or a docked
+    // origin whose debit the harvest reduced, books no row for the harvested cargo,
+    // so a balance would read it as missing; the deficit only counts rows that came
+    // up short, and a fully met cycle holds nothing back.
     internal static partial class RouteOrchestrator
     {
         /// <summary>Below this a per-resource deficit is float noise, not a short supply.</summary>
@@ -109,6 +122,59 @@ namespace Parsek.Logistics
                 }
             }
             return deficit;
+        }
+
+        /// <summary>
+        /// The per-resource amount the delivery at <paramref name="stopIndex"/> must hold
+        /// back, given the outstanding <paramref name="deficit"/> there (from
+        /// <see cref="ComputeCycleSupplyDeficit"/>): the deficit less what the route's later
+        /// recorded deliveries of the resource can absorb
+        /// (<see cref="LaterDeliveriesAbsorbable"/>), never below zero. Returns an empty map
+        /// when this delivery may write its full recorded amount. Pure.
+        /// </summary>
+        internal static Dictionary<string, double> ComputeDeliveryHoldback(
+            Route route, int stopIndex, IReadOnlyDictionary<string, double> deficit)
+        {
+            var holdback = new Dictionary<string, double>(StringComparer.Ordinal);
+            if (route == null || deficit == null || deficit.Count == 0)
+                return holdback;
+            foreach (var kv in deficit)
+            {
+                if (string.IsNullOrEmpty(kv.Key) || !(kv.Value > SupplyDeficitEpsilon)) continue;
+                double absorbable = LaterDeliveriesAbsorbable(route, stopIndex, kv.Key);
+                double held = kv.Value - absorbable;
+                if (held > SupplyDeficitEpsilon)
+                    holdback[kv.Key] = held;
+            }
+            return holdback;
+        }
+
+        /// <summary>
+        /// How much of a deficit outstanding at the delivery of <paramref name="stopIndex"/>
+        /// the route's later windows of <paramref name="resourceName"/> can still take: the
+        /// largest running total, over the later stops in window order, of their recorded
+        /// deliveries less their recorded pickups (a stop's pickup comes before its
+        /// delivery), read at each later delivery and never below zero. That is the least
+        /// cargo the recorded run still carried after this stop, so withholding only the
+        /// rest keeps the transport from delivering cargo it does not have. Pure.
+        /// </summary>
+        internal static double LaterDeliveriesAbsorbable(Route route, int stopIndex, string resourceName)
+        {
+            if (route?.Stops == null || string.IsNullOrEmpty(resourceName)) return 0.0;
+            int first = (stopIndex >= 0 ? stopIndex : 0) + 1;
+            double running = 0.0;
+            double best = 0.0;
+            for (int j = first; j < route.Stops.Count; j++)
+            {
+                RouteStop stop = route.Stops[j];
+                if (stop == null) continue;
+                running -= ReadDeficitAmount(stop.PickupManifest, resourceName);
+                double delivered = ReadDeficitAmount(stop.DeliveryManifest, resourceName);
+                if (!(delivered > 0.0)) continue;
+                running += delivered;
+                if (running > best) best = running;
+            }
+            return best;
         }
 
         private static Dictionary<string, double> RecordedDeliveryFor(Route route, int stopIndex)

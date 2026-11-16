@@ -1774,16 +1774,32 @@ pickup gate does: the pure `RoutePickupSourceGate.OriginCoversNetOfOtherRoutes` 
 never writes more than the cycle put on board: `RouteOrchestrator.ComputeCycleSupplyDeficit`
 walks this route and cycle's persisted debit / pickup / delivery rows in Sequence order (a debit
 or pickup row adds `requested - actual`, an earlier delivery row subtracts what it kept on board,
-floored at zero) and `PrepareDelivery(..., supplyDeficit)` caps each resource at recorded minus
-deficit (the line keeps the recorded amount as Requested, so it reads as a partial delivery in
-the row and the existing last-partial-delivery line); `ApplyDelivery` computes it from
-`RouteEventLog.Events` and logs a `supply short this cycle - capping delivery` Warn. Both halves
+floored at zero); `RouteOrchestrator.ComputeDeliveryHoldback` turns that deficit into what THIS
+delivery holds back, the deficit less what the route's later deliveries of the resource can
+absorb (`LaterDeliveriesAbsorbable`: the largest running total, over the later stops in window
+order, of recorded deliveries minus recorded pickups, read at each later delivery; a later
+pickup feeds the delivery after it, so it cannot absorb a shortfall from before it), and
+`PrepareDelivery(..., supplyHoldback)` caps each resource at recorded minus holdback (the line
+keeps the recorded amount as Requested, so it reads as a partial delivery in the row and the
+existing last-partial-delivery line). So the cargo aboard goes to the first stop that wants it
+and the shortfall lands on the last ones (debit 40 short of 100, stops of 50 and 50: 50 then
+10), the cycle never delivers more than it took on, and a harvest route, which books no row
+for harvested cargo, is never capped while its debit and pickups are met. `ApplyDelivery`
+computes both from `RouteEventLog.Events` and the route's stops and logs a
+`supply short this cycle - capping delivery` Warn with the deficit and the part held back here
+(a review of the first cut, which put the whole deficit on the first delivery, found it starved
+the first stop and could lose cargo a full later destination refused). Both halves
 are pure and headless; the live origin resolve stays in `LiveRouteRuntimeEnvironment`. Tests:
 `RouteDockedOriginEscrowTests` (16: the netted origin gate incl. own-reservation, physical vs
 escrow cause, other pid / resource, ordinal first-short, null readers; the deficit walk for a
 short pickup, a short or unresolved origin debit, full supply, other cycle / route / later
 window, an earlier capped delivery absorbing its share, an earlier capacity clamp flooring at
-zero; the planner cap; two source pins for the live wiring). The first test asserts the pre-fix
+zero; the planner cap; two source pins for the live wiring) plus the holdback cells
+`Holdback_ShortDebit_FirstStopGetsWhatIsAboard`, `Holdback_FullFirstDestination_*`,
+`Holdback_FullSecondDestination_*`, `Holdback_LaterPickup_DoesNotAbsorbTheEarlierDeficit`,
+`LaterDeliveriesAbsorbable_ReadsTheRunningTotalInWindowOrder`, `Holdback_HarvestRoute_IsNeverCapped`,
+`Holdback_SingleDelivery_HoldsBackTheWholeDeficit` and `Holdback_SaveReloadMidCycle_*`
+(mutation-checked: no later absorption reds six, ignoring later pickups reds three). The first test asserts the pre-fix
 raw gate passes the scenario the netted gate holds.
 
 Left open: (a) a route whose OWN docked origin and OWN later pickup are the same vessel is gated

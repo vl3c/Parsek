@@ -233,17 +233,22 @@ namespace Parsek.Logistics
             // The supply cap: a delivery never writes more than this cycle's origin
             // debit and pickups actually put on board (ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW).
             // Read from the persisted route event log, so it holds across a mid-cycle
-            // save / reload. Empty in the common case (no short supply this cycle).
+            // save / reload. Empty in the common case (no short supply this cycle). The
+            // cargo aboard goes to this stop first; only the part of the shortfall the
+            // later deliveries cannot absorb is held back here.
             Dictionary<string, double> supplyDeficit = ComputeCycleSupplyDeficit(
                 route, cycleId, stopIndex * SeqStride + 3, RouteEventLog.Events);
+            Dictionary<string, double> supplyHoldback = ComputeDeliveryHoldback(
+                route, stopIndex, supplyDeficit);
             if (supplyDeficit.Count > 0)
             {
                 ParsekLog.Warn(Tag,
                     $"Delivery: route {ShortIdForLog(route)} cycle={cycleId} stop={stopIndex.ToString(IC)} " +
                     $"supply short this cycle - capping delivery to what was picked up: " +
-                    FormatSupplyDeficit(supplyDeficit));
+                    $"deficit {FormatSupplyDeficit(supplyDeficit)} " +
+                    $"heldBackHere {FormatSupplyDeficit(supplyHoldback)}");
             }
-            DeliveryPlan plan = RouteDeliveryPlanner.PrepareDelivery(route, stopIndex, probe, supplyDeficit);
+            DeliveryPlan plan = RouteDeliveryPlanner.PrepareDelivery(route, stopIndex, probe, supplyHoldback);
 
             // Delivery verification (playtest follow-up): log the resolved
             // destination vessel + which branch (loaded/unloaded) + the planned
