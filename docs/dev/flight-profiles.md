@@ -28,7 +28,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 
 - Seam verbs (of 62 implemented): none
 - Dimension values (1 of 251 registry values): D1 `sub-2-point-drop`
-- In-game test categories (0 of 142 declared; a lane running `RunTests` with no category runs them all, see `(all)` below): none
+- In-game test categories (1 of 142 declared; a lane running `RunTests` with no category runs them all, see `(all)` below): `GuiMock`
 
 ## Lanes per family
 
@@ -655,7 +655,6 @@ Categories named by `RunTests` steps (`(all)`: a step with no category). 198 lan
 | GhostPlayback | 1 | S1.4-injected-playback |
 | GhostReapplyFrame | 1 | LT-5-long-tail-playback-flight |
 | GhostVisuals | 1 | H15-corpus-ghost-visuals |
-| GuiMock | 1 | AH-1-auto-hire-reserved-applicant |
 | GuiTree | 1 | GUI-1-census-ksc |
 | HarvestCapScanLedger | 1 | HV-2-scan-ledger-drill-rates |
 | IdentityLoss | 1 | LT-1-long-tail-flight |
@@ -805,7 +804,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| AH-1-auto-hire-reserved-applicant | nightly | fresh-career | seam | Kerbin | - | AutoHireReservation, FreeTechUnlock +1 | LIVE-PROVEN 2026-09-27 |
+| AH-1-auto-hire-reserved-applicant | nightly | fresh-career | seam | Kerbin | - | AutoHireReservation, FreeTechUnlock | LIVE-PROVEN 2026-09-27 |
 
 ### AIR (2)
 

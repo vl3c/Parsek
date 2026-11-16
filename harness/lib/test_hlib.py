@@ -7878,13 +7878,14 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
             "JointBreakCheckCoroutine": 3,
             "TreeRestoreCoroutine": 3,
         }),
-        # Single-category until 2026-11-16, when audit B11 appended two SPACECENTER
-        # categories no spec ran (FreeTechUnlock needs a career R&D singleton);
+        # Single-category until 2026-11-16, when audit B11 appended a SPACECENTER
+        # category no spec ran (FreeTechUnlock needs a career R&D singleton);
         # AutoHireReservation stays pinned whole off reading run 2026-09-27_1341.
+        # GuiMock was appended and removed the same day: the KSC draws no Parsek
+        # window unless ParsekKSC.showUI is raised, so its cells would fail here.
         "AH-1-auto-hire-reserved-applicant": ("SPACECENTER", {
             "AutoHireReservation": 1,
             "FreeTechUnlock": 1,
-            "GuiMock": 4,
         }),
         # 2026-09-25 coverage wave 4: the D15 / D16 storage-and-timeline lane,
         # pinned whole off reading run 2026-09-25_2043.
@@ -7922,7 +7923,7 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
             "ChainTipBlockedGhost", "DeployedScienceGhost", "GhostReapplyFrame",
             "JointBreakCheckCoroutine", "TreeRestoreCoroutine",
         },
-        "AH-1-auto-hire-reserved-applicant": {"FreeTechUnlock", "GuiMock"},
+        "AH-1-auto-hire-reserved-applicant": {"FreeTechUnlock"},
     }
 
     def _constituent_is_interim(self, sid, category):
