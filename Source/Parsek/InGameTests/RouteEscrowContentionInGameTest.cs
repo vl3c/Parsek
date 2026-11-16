@@ -839,7 +839,7 @@ namespace Parsek.InGameTests
 
                     arrange.AssertLogged(
                         "Delivery: route " + arrange.ShortA + " cycle=cycle-0 stop=2 supply short this cycle - "
-                        + "capping delivery to what was picked up: LiquidFuel=",
+                        + "capping delivery to what was picked up: deficit LiquidFuel=",
                         "the delivery supply-cap warning");
                     InGameAssert.IsTrue(RouteStore.TryGetRoute(arrange.RouteAId, out Route aAfterTick3),
                         "Route A disappeared from the store during tick 3");

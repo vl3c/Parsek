@@ -380,7 +380,7 @@ required  = [
   #      `SHORT at apply` Warn, and A's delivery is capped by the 6-2=4 deficit under the
   #      supply-cap Warn, writing 4+2=6 rather than the recorded 10. ----
   "PickupDebit: route escrowA- cycle=cycle-0 SHORT at apply",
-  "Delivery: route escrowA- cycle=cycle-0 stop=2 supply short this cycle - capping delivery to what was picked up: LiquidFuel=4(?![0-9.])",
+  "Delivery: route escrowA- cycle=cycle-0 stop=2 supply short this cycle - capping delivery to what was picked up: deficit LiquidFuel=4 heldBackHere LiquidFuel=4(?![0-9.])",
   "EscrowContention: cell=short-pickup-caps-delivery reserved=1 shortPickup=1 deliveryCapped=1 routeA=escrowA- sourcePid=[0-9]+ stored=15 drainedTo=2 pickedUpWindow0=4 pickedUpWindow1=2 recordedDelivery=10 supplyDeficit=4 pickedUp=6 delivered=6",
 
   # ---- per-cell summaries: the four phase outcomes AND the measured invariant in one

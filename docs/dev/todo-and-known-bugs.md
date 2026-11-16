@@ -1901,6 +1901,10 @@ changed=0`), F5 / F9 again and runs the cycle; the route must stay Active with n
 flip. `ListHandles kind=routes` gained `sources` / `sourceIds` / `sourceEpochs` (captured/live) /
 `sourceDrift` (read-only `RouteStore.DescribeSourceState`) so the lane compares the source set
 taken at creation with the one after the merge, the F9 and the cycle by regex backreference.
+Known remaining case (review 2026-11-16, fails safe): `SessionMerger.MergeTree` still runs
+`EnsureCheckpointSectionsForTopLevelOrbitSegments(markDirty: true)` on every member after the
+unchanged set is collected, so an orbital source that lacks checkpoint sections would still be
+rewritten and pause its route. It errs toward pausing, never toward replaying changed data.
 
 ## ~~PRESWITCH-CASE-C-LIVE-TREE-MEMBER~~: switching back to the ship a kerbal just left ended the recording when that ship ended an earlier committed flight [FILED 2026-11-14 from lane FAR-4's first flight, runs `2026-11-14_1525` and `_1526_a2` (INVALID driver-gate, the seam refused `dialog-required case=C-loaded-separate-committed`). FIXED 2026-11-14, branch `pc-lanes-fix`; xUnit; FAR-4 green `2026-11-14_2324`; medium]
 
