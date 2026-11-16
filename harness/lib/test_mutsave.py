@@ -341,5 +341,116 @@ class UncheckedAndScopeTests(unittest.TestCase):
         self.assertIn("saveGates(proven=", mutlib.summary_line(with_text))
 
 
+
+class RaceLeakMutatorTests(unittest.TestCase):
+    """Multiplayer T-38: the `race-leak` mutator. A rival id planted in a sidecar of
+    an archived race run's save must turn the real verdict into
+    PARSEK-FAIL(race-isolation); a scan whose evaluator stopped reading names the gate
+    VACUOUS; the shell reads a results archive end to end."""
+
+    ARMED = {"race": {"gating": True}}
+
+    def _saves(self):
+        import raceparse
+        import test_raceparse as trp
+        return [raceparse.RaceSaveInput("a", trp._marked(trp._base_save(), trp.OWN)),
+                raceparse.RaceSaveInput("b", trp._marked(
+                    {"persistent.sfs": trp.BASE_SFS.replace(trp.OWN_REC, "x").encode("utf-8")},
+                    trp.RIVAL))]
+
+    def _listing(self):
+        import test_raceparse as trp
+        return trp.SHARED_LISTING
+
+    def test_a_planted_rival_id_reds_every_save_and_the_fault_is_invalid(self):
+        check = mutsave.mutate_race_leak(self.ARMED, self._listing(), self._saves())
+        self.assertEqual([], check.notes)
+        labels = {g.label: g.verdict for g in check.gates}
+        self.assertEqual({"race-leak:a": mutsave.PROVEN, "race-leak:b": mutsave.PROVEN,
+                          "race-leak:no-persistent-sfs": mutsave.PROVEN}, labels)
+        self.assertTrue(all(m.outcome == mutlib.KILLED for m in check.mutations))
+        # Save a has a binary sidecar there (PSK0), save b none: a fresh text one.
+        details = [m.detail for m in check.mutations]
+        self.assertTrue(any("Parsek/Recordings/" in d and ".prec" in d for d in details), details)
+        self.assertTrue(any(mutsave.RACE_PLANT_FILE in d for d in details), details)
+
+    def test_a_scan_that_never_reds_is_named_vacuous(self):
+        import raceparse
+        real = raceparse.leak_scan_files
+
+        def blind(files, rival_ids, read_errors=()):
+            res = real(files, rival_ids, read_errors)
+            return raceparse.LeakScanResult(raceparse.STATUS_PASS if not res.errors
+                                            else res.status, (), res.files_scanned,
+                                            res.files_skipped_race, res.ids_scanned,
+                                            res.errors)
+
+        with Patched(raceparse, "leak_scan_files", blind):
+            check = mutsave.mutate_race_leak(self.ARMED, self._listing(), self._saves())
+        verdicts = {g.label: g.verdict for g in check.gates}
+        self.assertEqual(mutsave.VACUOUS, verdicts["race-leak:a"])
+        self.assertEqual(mutsave.VACUOUS, verdicts["race-leak:b"])
+        self.assertTrue(any(m.outcome == mutlib.SURVIVED for m in check.mutations))
+
+    def test_an_unarmed_or_red_baseline_runs_no_edit(self):
+        unarmed = mutsave.mutate_race_leak({"race": {}}, self._listing(), self._saves())
+        self.assertEqual(([], []), (unarmed.gates, unarmed.mutations))
+        self.assertIn("not armed", unarmed.notes[0])
+        saves = self._saves()
+        saves[0].files["Parsek/x.txt"] = b"5e5e5e5e5e5e4e5e9e5e5e5e5e5e5e5e"
+        red = mutsave.mutate_race_leak(self.ARMED, self._listing(), saves)
+        self.assertEqual([], red.gates)
+        self.assertIn("does not read PASS", red.notes[0])
+        lane = mutlib.check_race_lane({"id": "RACE-x", "expectations": self.ARMED}, "t",
+                                      self._listing(), saves)
+        self.assertEqual(mutlib.BASELINE_NOT_GREEN, lane.baseline)
+
+    def test_the_shell_reads_a_race_run_from_a_results_archive(self):
+        import json
+        import shutil
+        import tempfile
+        tools = os.path.join(os.path.dirname(_HERE), "tools")
+        if tools not in sys.path:
+            sys.path.insert(0, tools)
+        import mutation_check  # noqa: E402
+        tmp = tempfile.mkdtemp(prefix="race leak ")
+        try:
+            rid = "2026-11-16_1200_RACE-x"
+            for rel in self._listing():
+                path = os.path.join(tmp, rid + "_race", *rel.split("/"))
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "wb") as fh:
+                    fh.write(b"x")
+            for suffix, save in (("_save", self._saves()[0]), ("_save-b", self._saves()[1])):
+                for rel, data in save.files.items():
+                    path = os.path.join(tmp, rid + suffix, *rel.split("/"))
+                    os.makedirs(os.path.dirname(path), exist_ok=True)
+                    with open(path, "wb") as fh:
+                        fh.write(data)
+            os.makedirs(os.path.join(tmp, rid + "_shots"))
+            with open(os.path.join(tmp, rid + "_shots", "KSP.log"), "w") as fh:
+                fh.write("log\n")
+            with open(os.path.join(tmp, rid + ".json"), "w") as fh:
+                json.dump({"runId": rid, "scenarioId": "RACE-x", "verdict": "PASS",
+                           "raceSnapshot": {"ran": True, "path": rid + "_race"},
+                           "snapshotSaves": [{"ran": True, "path": rid + "_save-b"}]}, fh)
+            spec = {"id": "RACE-x", "expectations": self.ARMED}
+            out = os.path.join(tmp, "report.md")
+            with Patched(mutation_check, "load_specs", lambda: {"RACE-x": spec}):
+                code = mutation_check.main(["--race-only", "--archive", tmp, "--out", out])
+            self.assertEqual(0, code)
+            with open(out, encoding="utf-8") as fh:
+                report = fh.read()
+            self.assertIn("RACE-x", report)
+            ref = mutation_check.discover([tmp])[0]
+            listing, saves = mutation_check.read_race_inputs(ref)
+            self.assertEqual([rid + "_save", rid + "_save-b"], [s.label for s in saves])
+            lane = mutlib.check_race_lane(spec, "t", listing, saves)
+            self.assertEqual(mutlib.BASELINE_GREEN, lane.baseline, lane.baseline_reasons)
+            self.assertEqual(3, sum(1 for g in lane.save_gates if g.verdict == mutsave.PROVEN))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main()

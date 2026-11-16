@@ -700,5 +700,140 @@ class SaveEquivalenceTests(unittest.TestCase):
         self.assertEqual(self.diff(_base_save(), b, mask).status, rp.STATUS_PASS)
 
 
+
+def _marked(files: dict, player: str) -> dict:
+    """``files`` with the race mark (R1-03) naming ``player`` in persistent.sfs."""
+    out = dict(files)
+    text = out["persistent.sfs"].decode("utf-8")
+    mark = ("\tSCENARIO\n\t{\n\t\tname = %s\n\t\traceId = race_1\n\t\t%s = %s\n\t}\n}\n"
+            % (rp.RACE_MARK_SCENARIO, rp.RACE_MARK_PLAYER_KEY, player))
+    out["persistent.sfs"] = (text[:text.rstrip().rfind("}")] + mark).encode("utf-8")
+    return out
+
+
+class RaceParseRowTests(unittest.TestCase):
+    """Multiplayer T-38: the raceParse row's spec block, the own-player rule and the
+    evaluation over every save a race lane produced."""
+
+    ARMED = {"race": {"gating": True}}
+
+    def evaluate(self, *saves, listing=SHARED_LISTING, expectations=None):
+        inputs = [rp.RaceSaveInput(label, files) for label, files in saves]
+        return rp.evaluate_race_parse(self.ARMED if expectations is None else expectations,
+                                      listing, (), inputs)
+
+    def test_the_block_validates_and_arms_only_on_the_literal_true(self):
+        self.assertEqual([], rp.validate_race_expectations({}))
+        self.assertEqual([], rp.validate_race_expectations({"gating": True}))
+        self.assertEqual([], rp.validate_race_expectations({"gating": False}))
+        for bad, needle in (([], "must be a table"), ({"gate": True}, "unknown key 'gate'"),
+                            ({"gating": "true"}, "must be true or false"),
+                            ({"gating": 1}, "must be true or false")):
+            with self.subTest(bad=bad):
+                errors = rp.validate_race_expectations(bad)
+                self.assertTrue(any(needle in e for e in errors), errors)
+        self.assertTrue(rp.race_gating_armed({"race": {"gating": True}}))
+        for unarmed in ({}, None, {"race": {}}, {"race": {"gating": 1}},
+                        {"race": {"gating": False}}, {"race": True}):
+            with self.subTest(unarmed=unarmed):
+                self.assertFalse(rp.race_gating_armed(unarmed))
+
+    def test_the_own_player_comes_from_the_race_mark(self):
+        text = _marked(_base_save(), OWN)["persistent.sfs"].decode("utf-8")
+        self.assertEqual((OWN, ""), rp.own_player_id(text))
+        self.assertEqual((None, ""), rp.own_player_id(BASE_SFS))  # in no race
+        two = text.replace("raceId = race_1", "raceId = race_1\n\t\tplayerId = %s" % RIVAL)
+        empty = text.replace("playerId = %s" % OWN, "playerId =")
+        twice = text.replace("\tSCENARIO\n\t{\n\t\tname = %s" % rp.RACE_MARK_SCENARIO,
+                             "\tSCENARIO\n\t{\n\t\tname = %s\n\t}\n\tSCENARIO\n\t{\n"
+                             "\t\tname = %s" % (rp.RACE_MARK_SCENARIO, rp.RACE_MARK_SCENARIO))
+        for bad, needle in ((None, "no persistent.sfs"), (text[:len(text) // 2], "does not parse"),
+                            (two, "2 non-empty playerId"), (empty, "0 non-empty playerId"),
+                            (twice, "2 SCENARIO nodes")):
+            with self.subTest(needle=needle):
+                own, problem = rp.own_player_id(bad)
+                self.assertIsNone(own)
+                self.assertIn(needle, problem)
+
+    def test_a_clean_save_passes_and_its_own_ids_are_not_rivals(self):
+        res = self.evaluate(("a", _marked(_base_save(), OWN)))
+        self.assertEqual(rp.STATUS_PASS, res.status, res.mismatches)
+        self.assertFalse(res.leaked or res.unevaluable)
+        (row,) = res.saves
+        self.assertEqual((OWN, 3), (row.own_player, row.ids_scanned))
+        self.assertEqual(2, row.files_skipped_race)  # the rival cache and local.cfg
+
+    def test_a_rival_id_in_a_sidecar_is_a_leak(self):
+        files = _marked(_base_save(), OWN)
+        files["Parsek/Recordings/%s.prec" % RIVAL_REC] = _psk0(RIVAL_REC)
+        res = self.evaluate(("a", files))
+        self.assertEqual(rp.STATUS_FAIL, res.status)
+        self.assertTrue(res.leaked)
+        self.assertFalse(res.unevaluable)
+        self.assertTrue(any("leak in save a" in m and RIVAL_REC in m for m in res.mismatches),
+                        res.mismatches)
+
+    def test_each_save_sees_the_other_players_as_rivals(self):
+        # Two saves of one lane: B's own recording id is a rival id in A's save.
+        b_files = _marked(_base_save(), RIVAL)
+        a_files = _marked(_base_save(), OWN)
+        a_files["Parsek/GameState/leak.txt"] = ("ref = %s\n" % RIVAL_REC).encode("utf-8")
+        res = self.evaluate(("a", a_files), ("b", b_files))
+        self.assertEqual(rp.STATUS_FAIL, res.status)
+        a_row, b_row = res.saves
+        self.assertEqual([RIVAL_REC], [f.rival_id for f in a_row.findings])
+        # B's save holds OWN_REC (the base save's recording), which is A's id.
+        self.assertEqual({OWN_REC}, {f.rival_id for f in b_row.findings})
+
+    def test_a_save_in_no_race_treats_every_player_as_a_rival(self):
+        res = self.evaluate(("boot", _base_save()))
+        (row,) = res.saves
+        self.assertIsNone(row.own_player)
+        self.assertEqual(rp.STATUS_FAIL, res.status)  # OWN_REC is in it, and it is foreign here
+        self.assertIn(OWN_REC, {f.rival_id for f in row.findings})
+
+    def test_the_harness_written_analysis_folder_is_skipped(self):
+        files = _marked(_base_save(), OWN)
+        files["analysis/run.analysis.json"] = ('{"id": "%s"}' % RIVAL_REC).encode("utf-8")
+        res = self.evaluate(("a", files))
+        self.assertEqual(rp.STATUS_PASS, res.status, res.mismatches)
+        self.assertEqual(1, res.saves[0].files_skipped_harness)
+
+    def test_a_scan_that_cannot_prove_anything_is_unevaluable(self):
+        own_only = tuple(p for p in SHARED_LISTING if RIVAL not in p)
+        cases = {
+            "folder": rp.evaluate_race_parse(self.ARMED, None, ("cannot list x",),
+                                             [rp.RaceSaveInput("a", _marked(_base_save(), OWN))]),
+            "no-save": self.evaluate(("a", None)),
+            "no-sfs": self.evaluate(("a", {"Parsek/x.txt": b"x"})),
+            "two-ids": self.evaluate(("a", _marked(_marked(_base_save(), OWN), RIVAL))),
+            "vacuous": self.evaluate(("a", _marked(_base_save(), OWN)), listing=own_only),
+            "nothing": rp.evaluate_race_parse(self.ARMED, SHARED_LISTING, (), []),
+        }
+        for name, res in cases.items():
+            with self.subTest(case=name):
+                self.assertIn(res.status, (rp.STATUS_ERROR, rp.STATUS_VACUOUS))
+                self.assertTrue(res.unevaluable)
+                self.assertFalse(res.leaked)
+                self.assertTrue(res.mismatches)
+        self.assertEqual(rp.STATUS_VACUOUS, cases["vacuous"].status)
+
+    def test_a_leak_wins_over_an_unreadable_part(self):
+        files = _marked(_base_save(), OWN)
+        files["Parsek/Recordings/%s.prec" % RIVAL_REC] = _psk0(RIVAL_REC)
+        res = self.evaluate(("a", files), ("b", None))
+        self.assertEqual(rp.STATUS_FAIL, res.status)
+        self.assertTrue(res.leaked)
+        self.assertFalse(res.unevaluable)
+
+    def test_the_row_dict_caps_findings_but_keeps_the_count(self):
+        files = _marked(_base_save(), OWN)
+        for i in range(rp.ROW_FINDINGS_CAP + 5):
+            files["Parsek/GameState/leak%02d.txt" % i] = RIVAL_REC.encode("utf-8")
+        row = self.evaluate(("a", files)).saves[0].to_dict()
+        self.assertEqual(rp.ROW_FINDINGS_CAP + 5, row["findingCount"])
+        self.assertEqual(rp.ROW_FINDINGS_CAP, len(row["findings"]))
+
+
 if __name__ == "__main__":
     unittest.main()

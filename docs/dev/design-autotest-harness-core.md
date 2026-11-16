@@ -259,6 +259,12 @@ craft = []
 # save to results/<runId>_save-<suffix>/; one absent after a valid driver stage reds
 # PARSEK-FAIL(snapshot-save-missing). Contract: harness/README.md "Named-save
 # snapshots".
+# A spec with [fixture.race] also gets the raceParse row (multiplayer T-38): the
+# leak scan of every save it produced for the ids of every other player of the
+# shared folder. Optional [expectations.race] gating = true arms it (pinned by
+# RACEPARSE_ARMED_SPECS in lib/test_hlib.py): a leak reds PARSEK-FAIL(race-isolation),
+# a scan that proves nothing is INVALID(race-parse). Contract: harness/README.md
+# "The raceParse row (the gated leak scan)".
 
 [driver]
 kind = "seam"                        # v1 ONLY. "autopilot" is RESERVED (M-B1) -> spec-validation reject.
@@ -2258,7 +2264,9 @@ retry_policy)` maps to the taxonomy:
   verifier flag; there is no repeated variant, a second boot-hang is terminal by the
   attempt cap), instance-locked (lock race) / instance-busy (zombie KSP), verifier tooling
   timeout, analyzer-error, spec invalid, or fixture STALE / fixture-authoring
-  (BASELINE-FORBIDDEN-only). Retryable-once for driver / tooling
+  (BASELINE-FORBIDDEN-only), or an armed raceParse leak scan that proved nothing
+  (race-parse, multiplayer T-38: terminal, and checked after every red, so it only
+  ever replaces a PASS). Retryable-once for driver / tooling
   stages (`retry.policy = once`): a first INVALID triggers one retry; a second
   INVALID is terminal and adds a flake-ledger entry (plan section 10 "two invalids
   => quarantine entry"). The one exception is a deterministic seam error, which is
@@ -2274,7 +2282,10 @@ retry_policy)` maps to the taxonomy:
   expect on a valid stage (unmet-step), OR a declared `[fixture] snapshotSaves` save
   is absent after a valid stage (snapshot-save-missing, multiplayer T-04, the last
   red: every step met its expect, so the step that names the save answered OK
-  without leaving it). NOT retried (a defect is a
+  without leaving it), OR an armed raceParse leak scan found a rival id in a save
+  the race lane produced (race-isolation, multiplayer T-38, design 6.4; checked
+  first among the verifier reds, ahead of the analyzer, because a leaked rival file
+  is the cause the later rows would each red on as a symptom). NOT retried (a defect is a
   defect). Wording note on `mission-outcome`: it is the one subkind that is not
   strictly "a Parsek defect" - a kerbal killed by stock physics is a FLIGHT failure -
   but it is classified here rather than as a driver-INVALID because a driver-stage
