@@ -18849,9 +18849,10 @@ class MapGeometrySeamVerbSourceSyncTests(unittest.TestCase):
 class NewGameSourceSyncTests(unittest.TestCase):
     """`NewGame`. Reads OUTSIDE harness/: the verb, the three arg keys, the mode and preset
     tokens, the kept save entry and the refusal / error reasons (IN ORDER) of the
-    comment-stripped TestCommands/TestCommandNewGame.cs, the applier's calls into stock's own
-    new-game path, and the C# budget, so the pre-launch validator and a spec's pinned reasons
-    cannot drift from what the seam answers."""
+    comment-stripped TestCommands/TestCommandNewGame.cs, the applier's calls
+    (TestCommands/ParsekTestCommandAddon.NewGame.cs) into stock's own new-game path through
+    LogIO/NewSaveStarter.cs, and the C# budget (TestCommands/TestCommandDispatcher.cs), so the
+    pre-launch validator and a spec's pinned reasons cannot drift from what the seam answers."""
 
     def _source(self, *parts):
         path = os.path.join(PARSEK_SOURCE_DIR, *parts)
@@ -18885,15 +18886,25 @@ class NewGameSourceSyncTests(unittest.TestCase):
         applier = self._source("TestCommands", "ParsekTestCommandAddon.NewGame.cs")
         for call in ('GamePersistence.SaveGame("persistent", HighLogic.SaveFolder, SaveMode.OVERWRITE);',
                      "HighLogic.LoadScene(GameScenes.MAINMENU);",
-                     "GameParameters.GetDefaultParameters(stockMode, ToStockPreset(p.Preset));",
-                     "HighLogic.CurrentGame = GamePersistence.CreateNewGame(",
-                     "GameEvents.onGameNewStart.Fire();",
-                     "HighLogic.CurrentGame.Start();"):
+                     "GameParameters.GetDefaultParameters(stockMode, ToStockPreset(p.Preset));"):
             self.assertIn(call, applier)
-        # The four new-game calls run in stock's order (MainMenu.CreateAndStartGame).
-        order = [applier.index(c) for c in ("GamePersistence.CreateNewGame(",
-                                            "GameEvents.onGameNewStart.Fire();",
-                                            "HighLogic.CurrentGame.Start();")]
+        # The stock new-game calls live in LogIO/NewSaveStarter.cs, in stock's order
+        # (MainMenu.CreateAndStartGame), and the applier runs its steps in order.
+        starter = self._source("LogIO", "NewSaveStarter.cs")
+        calls = ("HighLogic.CurrentGame = GamePersistence.CreateNewGame(",
+                 "GameEvents.onGameNewStart.Fire();",
+                 "game.Start();")
+        for call in calls:
+            self.assertIn(call, starter)
+        order = [starter.index(c) for c in calls]
+        self.assertEqual(sorted(order), order)
+        steps = ("NewSaveStarter.ResolveSaveDirectory(",
+                 "NewSaveStarter.DeleteSaveFolderLikeStockOverwrite(",
+                 "NewSaveStarter.CreateGame(",
+                 "NewSaveStarter.StartGame(")
+        for step in steps:
+            self.assertIn(step, applier)
+        order = [applier.index(c) for c in steps]
         self.assertEqual(sorted(order), order)
 
     def test_the_budget_mirrors_the_c_sharp(self):
