@@ -201,12 +201,13 @@ namespace Parsek.Tests
             Assert.DoesNotContain(logLines, l => l.Contains("Unknown GameActionType"));
         }
 
-        // catches: a row type with no display arm, which falls to the bare enum name.
+        // catches: a row type with no display arm, which falls to the bare enum name on the
+        // timeline's text path (which delegates to GameActionDisplay for most types).
         [Fact]
-        public void EveryRowType_HasADisplayDescription()
+        public void EveryRowType_HasADisplayText()
         {
             var bare = RowTypes()
-                .Where(t => GameActionDisplay.GetDescription(new GameAction { Type = t }, null) == t.ToString())
+                .Where(t => TimelineEntryDisplay.GetGameActionText(new GameAction { Type = t }, null, null) == t.ToString())
                 .ToList();
             Assert.True(bare.Count == 0,
                 "GameActionType(s) whose description is the bare enum name: " + string.Join(", ", bare));

@@ -705,8 +705,8 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
   spawn evidence (`TimelineBuilder.cs:1219`) and NOT read by `RecoveredRecordingEvidence`,
   so spawns, crew and every single-player decision stay as they are. It draws no timeline row
   (`TimelineBuilder.CollectGameActionEntries` skips it by type, with its own Verbose count,
-  and `TimelineEntryDisplay.MapGameActionType` maps it to `LegacyEvent` so the unknown-type
-  Warn never fires). Defaults it inherits, as `VesselRecovered` does: not a loss row
+  and `TimelineEntryDisplay.MapGameActionType` maps it, and `VesselRecovered`, which had no
+  arm, to `LegacyEvent` so the unknown-type Warn never fires). Defaults it inherits, as `VesselRecovered` does: not a loss row
   (`SupersedeCommit.IsLossRow`), so a retire set holding it seals a Re-Fly slot, and the
   auto-seal preview names it `ChangedCareer` (`ReFlyAutoSealPreview.CollectSealingRowReasons`);
   every pool helper (`AffectsFunds` / `AffectsScience` / `AffectsReputation`, earning /

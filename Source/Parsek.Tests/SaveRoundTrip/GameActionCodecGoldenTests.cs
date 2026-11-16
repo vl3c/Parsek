@@ -33,8 +33,8 @@ namespace Parsek.Tests.SaveRoundTrip
             ParsekLog.ResetTestOverrides();
         }
 
-        private const string PinnedSha256 = "1bf250ded5df0ae5d48f2d95f3f809fc046353a704e1c8932b9d182e9edede3f";
-        private const int PinnedRowCount = 69;
+        private const string PinnedSha256 = "d10cdc3a742deab072e598fc8117c8b71f6bc445b46b78ead49b1922d92aaa9f";
+        private const int PinnedRowCount = 71;
 
         private static IEnumerable<GameActionType> RowTypes() =>
             Enum.GetValues(typeof(GameActionType)).Cast<GameActionType>()
