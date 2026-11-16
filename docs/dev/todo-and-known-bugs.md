@@ -1861,8 +1861,20 @@ in parallel in the cloud):
    documented sign, self-flipped once if the error keeps growing), a named give-up past 8 deg of
    ground heading drift with throttle cut and brakes on, rotateSpeed 60 -> 45, airborne = 3
    consecutive climbing FLYING frames, a level-roll guard before staging, the bank-sign check
-   on the ground track, and a recording count window of {1, 40} for splashdown debris. Next: the
-   reading flight.)
+   on the ground track, and a recording count window of {1, 40} for splashdown debris.
+   SECOND FLIGHT 2026-11-16 DRIVER-INVALID: runs `2026-11-16_2033` and `_2034_a2` (PC, DLL sha256
+   54f8f221 from 3e0a0e5e, diagnostics on branch `forge-logs-2026-11-16-air1b`), MISSION-FLAKE both
+   times. The nose wheel held the runway perfectly (heading 090.3-090.5, roll 0.05, 25 -> 46.9 m/s);
+   at the 45 m/s rotate the AutoPilot engaged and the wheel was released, the pitch rose only
+   0.44 -> 2.5 deg in 1.5 s (8 deg target, the AutoPilot's ramp), the plane stayed LANDED, the
+   heading swung 90.5 -> 81.9 within a second and the ground guard gave up at 52.3 m/s, 355 m
+   out. The abort's "set_throttle 0.00 did not stick" was the runner's readback landing before
+   the next physics tick, not a second controller. Re-written the same day (harness only, not
+   re-flown): the rotation is flown on the elevator (`control.pitch` P loop on the pitch, sign
+   self-checked), the nose wheel steers and the ground guard measures until airborne is
+   sustained, the AutoPilot engages only then; a take-off give-up re-sends the throttle cut
+   until the telemetry reads it; the runner's readback waits a tick and re-asserts once before
+   warning. Next: the reading flight.)
    Aircraft: no lane flies a plane (BAY-1's never moves). A runway takeoff, a circuit and a
    landing, then its ghost replays at the Space Center. Open after AIR-2: no in-game check reads a
    KSC ghost's position DURING its replay (AIR-2 reads the KSC log lines and, by position, only the

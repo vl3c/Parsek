@@ -1384,6 +1384,59 @@ class KrpcMissionControl(MissionControl):
             "mlib.VESSEL_FREE_ACTION_KINDS declares %r but _perform_vessel_free "
             "has no branch for it" % (kind,))
 
+    # How long the throttle readback waits for the game's UT to advance (one
+    # physics tick applies a kRPC control set) before it reads the value back.
+    THROTTLE_TICK_WAIT_SECONDS = 0.25
+
+    def _wait_one_physics_tick(self, sc) -> None:
+        """Return once ``sc.ut`` advanced, or after THROTTLE_TICK_WAIT_SECONDS (a
+        paused game, or a client with no readable UT, waits the full bound)."""
+        deadline = time.monotonic() + self.THROTTLE_TICK_WAIT_SECONDS
+        try:
+            ut0 = float(sc.ut)
+        except Exception:
+            ut0 = None
+        while time.monotonic() < deadline:
+            time.sleep(0.02)
+            if ut0 is None:
+                continue
+            try:
+                if float(sc.ut) != ut0:
+                    return
+            except Exception:
+                ut0 = None
+
+    def _confirm_throttle(self, sc, control, want: float) -> None:
+        """Read the throttle back after a set: straight away, after one physics tick,
+        and after one re-assert and another tick. Silent when the immediate read
+        matches, Verbose when only the tick-delayed read does, Info when the re-assert
+        took, Warn naming all three readbacks when none did."""
+        first = float(control.throttle)
+        if abs(first - want) <= 0.01:
+            return
+        self._wait_one_physics_tick(sc)
+        second = float(control.throttle)
+        if abs(second - want) <= 0.01:
+            _stdout_sink(mlib.format_mission_log_line(
+                "Verbose", "Throttle",
+                "set_throttle %.2f read back %.2f at once and %.2f after a physics tick "
+                "(the readback lags the set by a tick)" % (want, first, second)))
+            return
+        control.throttle = want
+        self._wait_one_physics_tick(sc)
+        third = float(control.throttle)
+        if abs(third - want) <= 0.01:
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "Throttle",
+                "set_throttle %.2f took on the re-assert (readbacks %.2f at once, %.2f "
+                "after a tick, %.2f after the re-assert)" % (want, first, second, third)))
+            return
+        _stdout_sink(mlib.format_mission_log_line(
+            "Warn", "Throttle",
+            "set_throttle %.2f did not stick (readbacks %.2f at once, %.2f after a "
+            "physics tick, %.2f after a re-assert): another controller holds the "
+            "throttle" % (want, first, second, third)))
+
     def perform(self, action: "mlib.Action") -> None:
         # THE VESSEL-FREE SET IS DISPATCHED FIRST, and the set - not this line - is
         # where membership is decided (mlib.VESSEL_FREE_ACTION_KINDS). Everything
@@ -1399,17 +1452,18 @@ class KrpcMissionControl(MissionControl):
         control = v.control
         kind = action.kind
         if kind == mlib.ACTION_SET_THROTTLE:
-            control.throttle = float(action.value if action.value is not None else 0.0)
-            # Immediate readback (thirteenth flight diagnosability): a set that
-            # does not stick means another controller (MechJeb thrust module)
-            # is zeroing the throttle every frame -- name it loudly.
+            want = float(action.value if action.value is not None else 0.0)
+            control.throttle = want
+            # Readback (thirteenth flight diagnosability): a set that does not stick
+            # means another controller (MechJeb thrust module) is zeroing the
+            # throttle every frame -- name it loudly. But kRPC applies a control set
+            # at the next physics tick, so the read straight after the set returns
+            # the PREVIOUS tick's value (every AIR-1 flight read 0.00 after its 1.00
+            # brake-release set and 1.00 on the next frame, and the abort's 0.00 cut
+            # read 1.00): the check waits for a tick, re-asserts once, and warns
+            # only when the value still does not stick.
             try:
-                back = float(control.throttle)
-                if abs(back - float(action.value or 0.0)) > 0.01:
-                    _stdout_sink(mlib.format_mission_log_line(
-                        "Warn", "Throttle",
-                        "set_throttle %.2f did not stick (readback %.2f): another "
-                        "controller holds the throttle" % (float(action.value or 0.0), back)))
+                self._confirm_throttle(sc, control, want)
             except Exception:
                 pass
         elif kind == mlib.ACTION_CUT_THROTTLE:
@@ -1447,6 +1501,10 @@ class KrpcMissionControl(MissionControl):
             # error (sign per the pinned kRPC client: +1 steers left). Only the AIR
             # machine emits it, so no other mission sees a change.
             control.wheel_steering = max(-1.0, min(1.0, float(action.value or 0.0)))
+        elif kind == mlib.ACTION_SET_PITCH_INPUT:
+            # AIR-1 rotation: the elevator alone, AutoPilot off (the machine's
+            # rotatePitchSign carries the sign). Only the AIR machine emits it.
+            control.pitch = max(-1.0, min(1.0, float(action.value or 0.0)))
         elif kind == mlib.ACTION_TOGGLE_ACTION_GROUP:
             control.toggle_action_group(int(action.value))
         elif kind == mlib.ACTION_SET_DEPLOYABLES:
