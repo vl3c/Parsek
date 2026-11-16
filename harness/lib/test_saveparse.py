@@ -1350,7 +1350,7 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # --- A MOON-ROOTED MOON-TO-MOON SUBJECT IN KERBIN'S SOI (rule 4a) --
         # PROVENANCE: minmus-mun-recorded <- B46-minmus-mun-transfer, run
         # 2026-11-16_0001, PASS attempt 1 (wall 1,569 s), automation DLL sha256
-        # prefix 5bc76f4a, spec at 1f2a416cb, --keep-parsek, from the run's own
+        # prefix 5bc76f4a, spec as merged in 5fae3083, --keep-parsek, from the run's own
         # `_save` snapshot (situation gate ORBITING). B30's machine reversed from
         # the stripped `minmus-park-kerbalx`: a FRESH Minmus-rooted tree fa7c9d0c
         # with ONE recording (cbb8e087, startBodyName Minmus, terminal Orbiting

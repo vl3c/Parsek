@@ -1685,7 +1685,9 @@ in parallel in the cloud):
    (Laythe, Vall, Tylo in one tree from `jool-orbit-recorded`) and a loop lane reading
    `ARRIVAL HOLD dest=Jool kind=config moons=3`; a Bop variant must decline with the amber.
    The most expensive flight.
-2. [ ] (AUTHORED 2026-11-14, awaiting the PC batch: forges `B43`-`B46`, loop lanes `V43M`-`V46M`;
+2. [ ] (AUTHORED 2026-11-14. Flown 2026-11-15/16: B44, B46 and V44M green, `laythe-tylo-recorded` and
+   `minmus-mun-recorded` harvested; open: B43 (INVALID, todo B43-VALL-TYLO-FLYBY-SUBSURFACE), B45, V43M,
+   V45M, V46M;
    the offline solver reads Tylo -> Bop as `joint-best-fit` at 7 x P_Bop, so B45 is no longer
    expected to decline.) Moon-to-moon pairs on the new 1.0.2 loop spacing: B43 Vall -> Tylo, B44 Laythe -> Tylo,
    B46 Minmus -> Mun (about 200 Kerbin days between loops), B45 Tylo -> Bop (expected honest
