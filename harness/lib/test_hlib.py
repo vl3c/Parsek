@@ -21383,9 +21383,86 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         names = [w for w in hlib.UIACTION_WINDOW_VALUES if w in open_set]
         return ",".join(names) if names else "-"
 
+    # The describe line's grammar as a census pattern spells it once loaded from TOML.
+    # `windows=` is captured as a raw token so a digit literal can be named rather than
+    # silently matched: the count is the window TABLE's length, which no spec pins.
+    _DESCRIBE_PATTERN_RE = re.compile(
+        r"uiaction describe scene=(\w+) complexity=(\w+) windows=(\S+) open=(\d+) "
+        r"openWindows=(\S+)")
+    # What every census describe pattern writes for the count, as the loaded string.
+    _DESCRIBE_WINDOWS_TOKEN = r"\d+"
+    # The census lanes the step simulation below walks, with the scene each runs in.
+    _SIMULATED_CENSUS_SPECS = (("GUI-1-census-ksc.toml", "SPACECENTER"),
+                               ("GUI-2-census-flight.toml", "FLIGHT"))
+
+    def _simulate_census_describes(self, name, scene):
+        """Walks one census spec's UiAction steps and returns, per `describe` step in
+        order, the `(scene, mode, open, openWindows)` its echo carries.
+
+        AN `open` DECLARED `expect = "ERROR"` LEAVES THE WINDOW SHUT, and the simulation
+        has to read the declaration to know that. GUI-2 drives one - Real Spawn Control,
+        whose `DrawIfOpen` force-closes itself on its first draw with zero nearby spawn
+        candidates, measured `ERROR window-self-closed` on run `2026-09-10_2259` - and a
+        walk that counted it as open would demand `openWindows=main,spawncontrol` on every
+        later echo and red on a spec whose literals are right."""
+        spec = load_spec(name)
+        open_set = set()
+        mode = "advanced"
+        echoes = []
+        for i, step in enumerate(spec["driver"]["steps"]):
+            if step.get("cmd") != "UiAction":
+                continue
+            args = step.get("args", {}) or {}
+            op = args.get("op")
+            if op == "open":
+                # `expect` is the declaration of what the step ACHIEVES: an
+                # `open` the spec declares ERROR did not leave a window open.
+                if str(step.get("expect", "OK")) == "OK":
+                    open_set.add(args["window"])
+            elif op == "close":
+                open_set.discard(args["window"])
+            elif op == "complexity":
+                # A census must CLOSE what it opened rather than leaning on the
+                # Advanced -> Basic latch's own close set to tidy up: the latch
+                # closes only the GATED windows (career / kerbals / testrunner /
+                # spawncontrol), so a spec that left `logistics` open
+                # across the switch would carry it into every Basic capture. This
+                # assertion is also what lets the simulation above ignore the
+                # latch entirely.
+                self.assertTrue(
+                    open_set <= {"main"},
+                    "%s step %d switches to %s with %s still open; a census must "
+                    "close what it opened (the mode latch closes only the gated "
+                    "windows)" % (name, i, args.get("mode"),
+                                  sorted(open_set - {"main"})))
+                mode = args["mode"]
+            elif op == "describe":
+                echoes.append((scene, mode, len(open_set),
+                               self._open_window_list(open_set)))
+        return spec, echoes
+
+    @staticmethod
+    def _describe_patterns(spec):
+        required = ((spec["expectations"].get("logContracts") or {})
+                    .get("required") or [])
+        return [p for p in required if "uiaction describe" in p]
+
+    @staticmethod
+    def _spec_strings(node):
+        """Every string anywhere in a loaded spec, so a describe pattern placed outside
+        `logContracts.required` / `forbidden` is still read."""
+        if isinstance(node, str):
+            yield node
+        elif isinstance(node, dict):
+            for value in node.values():
+                yield from GuiCensusSeamVerbTests._spec_strings(value)
+        elif isinstance(node, list):
+            for value in node:
+                yield from GuiCensusSeamVerbTests._spec_strings(value)
+
     def test_the_census_specs_pinned_describe_echoes_match_their_own_steps(self):
-        """The two GUI-census lanes pin every `describe` echo as a LITERAL, including
-        `open=<n> openWindows=<names>`. That is what makes the echo an exact claim - a
+        """The two GUI-census lanes pin every `describe` echo's `open=<n>
+        openWindows=<names>` as a LITERAL. That is what makes the echo an exact claim - a
         third open window moves the count - and it is also the one thing about these
         specs that a later step edit silently invalidates: inserting an `open` without
         its matching `close` shifts every literal after it, and the lane would then red
@@ -21396,77 +21473,134 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         require the pinned set to contain exactly the echo this state produces. Both
         directions, so an orphaned literal reds too.
 
-        AN `open` DECLARED `expect = "ERROR"` LEAVES THE WINDOW SHUT, and the simulation
-        has to read the declaration to know that. GUI-2 drives one - Real Spawn Control,
-        whose `DrawIfOpen` force-closes itself on its first draw with zero nearby spawn
-        candidates, measured `ERROR window-self-closed` on run `2026-09-10_2259` - and a
-        walk that counted it as open would demand `openWindows=main,spawncontrol` on every
-        later echo and red on a spec whose literals are right."""
-        for name, scene in (("GUI-1-census-ksc.toml", "SPACECENTER"),
-                            ("GUI-2-census-flight.toml", "FLIGHT")):
+        `windows=` is NOT part of the claim: it prints the window TABLE's length, which
+        does not depend on the scene or the steps, so every census pattern regexes it as
+        `windows=\\d+` and a digit literal there reds here by name. The length itself is
+        held to the C# table by `test_no_census_pattern_pins_the_window_count`."""
+        for name, scene in self._SIMULATED_CENSUS_SPECS:
             with self.subTest(spec=name):
-                spec = load_spec(name)
-                required = ((spec["expectations"].get("logContracts") or {})
-                            .get("required") or [])
+                spec, echoes = self._simulate_census_describes(name, scene)
+                describe_patterns = self._describe_patterns(spec)
                 pinned = set()
-                for pattern in required:
-                    m = re.search(r"uiaction describe scene=(\w+) complexity=(\w+) "
-                                  r"windows=(\d+) open=(\d+) openWindows=(\S+)", pattern)
-                    if m:
-                        pinned.add((m.group(1), m.group(2), int(m.group(3)),
-                                    int(m.group(4)), m.group(5)))
+                for pattern in describe_patterns:
+                    m = self._DESCRIBE_PATTERN_RE.search(pattern)
+                    self.assertIsNotNone(m, "%s: a describe pattern this cell cannot "
+                                            "parse: %r" % (name, pattern))
+                    self.assertEqual(
+                        self._DESCRIBE_WINDOWS_TOKEN, m.group(3),
+                        "%s pins the window count (`windows=%s`); write `windows=\\\\d+` "
+                        "(the count is the window table's length): %r"
+                        % (name, m.group(3), pattern))
+                    pinned.add((m.group(1), m.group(2), int(m.group(4)), m.group(5)))
                 self.assertTrue(pinned, "%s pins no describe echo at all" % name)
-
-                open_set = set()
-                mode = "advanced"
-                observed = set()
-                describes = 0
-                for i, step in enumerate(spec["driver"]["steps"]):
-                    if step.get("cmd") != "UiAction":
-                        continue
-                    args = step.get("args", {}) or {}
-                    op = args.get("op")
-                    if op == "open":
-                        # `expect` is the declaration of what the step ACHIEVES: an
-                        # `open` the spec declares ERROR did not leave a window open.
-                        if str(step.get("expect", "OK")) == "OK":
-                            open_set.add(args["window"])
-                    elif op == "close":
-                        open_set.discard(args["window"])
-                    elif op == "complexity":
-                        # A census must CLOSE what it opened rather than leaning on the
-                        # Advanced -> Basic latch's own close set to tidy up: the latch
-                        # closes only the GATED windows (career / kerbals / testrunner /
-                        # spawncontrol), so a spec that left `logistics` open
-                        # across the switch would carry it into every Basic capture. This
-                        # assertion is also what lets the simulation above ignore the
-                        # latch entirely.
-                        self.assertTrue(
-                            open_set <= {"main"},
-                            "%s step %d switches to %s with %s still open; a census must "
-                            "close what it opened (the mode latch closes only the gated "
-                            "windows)" % (name, i, args.get("mode"),
-                                          sorted(open_set - {"main"})))
-                        mode = args["mode"]
-                    elif op == "describe":
-                        describes += 1
-                        observed.add((scene, mode, len(hlib.UIACTION_WINDOW_VALUES),
-                                      len(open_set),
-                                      self._open_window_list(open_set)))
                 # Counted against the describe patterns THEMSELVES rather than
                 # against `len(required) - 1`, which was the arithmetic while the only
                 # other pinned line was one capture. These lanes now also pin every
                 # dump's funnel reading (and GUI-1 its GuiTree batch tally), so an
                 # off-by-one here would have measured the wrong thing entirely. A LIST
                 # rather than the `pinned` set above, so a duplicated literal reds too.
-                describe_patterns = [p for p in required if "uiaction describe" in p]
-                self.assertEqual(describes, len(describe_patterns),
+                self.assertEqual(len(echoes), len(describe_patterns),
                                  "%s: %d describe steps against %d pinned describe "
-                                 "echoes" % (name, describes, len(describe_patterns)))
-                self.assertEqual(observed, pinned,
+                                 "echoes" % (name, len(echoes), len(describe_patterns)))
+                self.assertEqual(set(echoes), pinned,
                                  "%s: the pinned describe echoes and the states its own "
                                  "steps produce have drifted" % name)
 
+    def test_no_census_pattern_pins_the_window_count(self):
+        """Reads OUTSIDE harness/ (the C# window table). The describe echo's `windows=`
+        prints `rows.Count` over `TestCommandUiAction.Windows`, a static table that does
+        not depend on the scene or the save, so a spec that pins it as a digit literal
+        reds on every lane the day a window is added or removed, for no defect. Every
+        string in every committed spec that names `uiaction describe` must therefore
+        carry `windows=\\d+` and no digit window count.
+
+        The count is still derived, here rather than in the specs: hlib's window
+        vocabulary is as long as the C# table, row for row, so the number a live echo
+        prints is `len(hlib.UIACTION_WINDOW_VALUES)`."""
+        specs_with_describe = set()
+        for path in sorted(glob.glob(os.path.join(SCENARIOS_DIR, "*.toml"))):
+            name = os.path.basename(path)
+            with open(path, "rb") as fh:
+                spec = tomllib.load(fh)
+            for text in self._spec_strings(spec):
+                if "uiaction describe" not in text:
+                    continue
+                specs_with_describe.add(name)
+                with self.subTest(spec=name, pattern=text):
+                    self.assertIsNone(
+                        re.search(r"windows=[0-9]", text),
+                        "%s pins the window count; write `windows=\\\\d+`" % name)
+                    self.assertIn("windows=" + self._DESCRIBE_WINDOWS_TOKEN, text,
+                                  "%s: a describe pattern without `windows=\\\\d+`" % name)
+        # Not vacuous: both simulated lanes are among the specs read.
+        for name, _ in self._SIMULATED_CENSUS_SPECS:
+            self.assertIn(name, specs_with_describe,
+                          "%s carries no describe pattern; this cell read nothing it "
+                          "was written for" % name)
+
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", "TestCommandUiAction.cs")
+        self.assertTrue(os.path.isfile(path),
+                        "the C# UiAction table moved; this derivation is vacuous: %s"
+                        % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            rows = self._parse_cs_window_table(fh.read())
+        self.assertEqual(len(rows), len(hlib.UIACTION_WINDOW_VALUES),
+                         "the describe echo's `windows=` is the C# table's row count "
+                         "(%d) and must equal len(hlib.UIACTION_WINDOW_VALUES) (%d)"
+                         % (len(rows), len(hlib.UIACTION_WINDOW_VALUES)))
+
+    @staticmethod
+    def _render_describe_line(scene, mode, windows, open_n, open_list):
+        return ("[LOG 00:00:04] [Parsek][INFO][TestCommands] uiaction describe "
+                "scene=%s complexity=%s windows=%d open=%d openWindows=%s"
+                % (scene, mode, windows, open_n, open_list))
+
+    def test_a_line_the_old_pinned_count_matched_still_matches(self):
+        """Widening `windows=11` to `windows=\\d+` must lose no match. For the two
+        simulated census lanes, the log their own steps would write - rendered once with
+        the old pinned count and once with today's table length - satisfies every
+        describe pattern through the real evaluator, while the same log with one window
+        too many open does not, so the `open=` / `openWindows=` claim stays exact.
+
+        For every other census spec, each pattern is rendered back into the one line it
+        was written for (its escapes undone, the count written as 11) and must match
+        that line."""
+        old_count = 11
+        for name, scene in self._SIMULATED_CENSUS_SPECS:
+            with self.subTest(spec=name):
+                spec, echoes = self._simulate_census_describes(name, scene)
+                contracts = {"logContracts": {"required": self._describe_patterns(spec)}}
+                for count in (old_count, len(hlib.UIACTION_WINDOW_VALUES)):
+                    log = "\n".join(self._render_describe_line(s, m, count, n, w)
+                                     for s, m, n, w in echoes)
+                    result = hlib.evaluate_expectations(contracts, None, log)
+                    self.assertEqual("PASS", result.status,
+                                     "%s windows=%d: %r" % (name, count, result.mismatches))
+                wrong = "\n".join(self._render_describe_line(s, m, old_count, n + 1, w)
+                                   for s, m, n, w in echoes)
+                self.assertEqual("FAIL",
+                                 hlib.evaluate_expectations(contracts, None, wrong).status,
+                                 "%s: a log with one more window open satisfied every "
+                                 "describe pattern" % name)
+
+        rendered = 0
+        for path in sorted(glob.glob(os.path.join(SCENARIOS_DIR, "*.toml"))):
+            name = os.path.basename(path)
+            with open(path, "rb") as fh:
+                spec = tomllib.load(fh)
+            for pattern in self._describe_patterns(spec):
+                with self.subTest(spec=name, pattern=pattern):
+                    line = (pattern.replace(r"\[", "[").replace(r"\]", "]")
+                            .replace("windows=" + self._DESCRIBE_WINDOWS_TOKEN,
+                                     "windows=%d" % old_count))
+                    self.assertNotIn("\\", line,
+                                     "%s: a describe pattern with a regex construct this "
+                                     "rendering does not undo: %r" % (name, pattern))
+                    self.assertIsNotNone(re.search(pattern, line),
+                                         "%s: %r no longer matches the line it was "
+                                         "written for: %r" % (name, pattern, line))
+                    rendered += 1
+        self.assertTrue(rendered, "no census describe pattern was rendered")
 
 class LocalFixtureTemplateTests(unittest.TestCase):
     """The operator-local fixture prefix (`fixtures/local-saves/`).
