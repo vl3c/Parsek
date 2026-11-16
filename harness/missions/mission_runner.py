@@ -459,7 +459,8 @@ class KrpcMissionControl(MissionControl):
                  read_camera: bool = False,
                  read_science: bool = False,
                  read_vessel_name: bool = False,
-                 read_klaw: bool = False) -> None:
+                 read_klaw: bool = False,
+                 read_aircraft: bool = False) -> None:
         self._use_mechjeb = use_mechjeb
         self._client_name = client_name
         # OPT-IN B-DOCK docking/rendezvous/transfer telemetry (design section 5.2).
@@ -513,6 +514,15 @@ class KrpcMissionControl(MissionControl):
         # the B11 flight-1 NodeExecutor defect, the B1 chute latch and the
         # EVA-4 ladder release.
         self._read_landing = bool(read_landing)
+        # OPT-IN aircraft telemetry (AIR-1): heading / roll / pitch off the local
+        # horizon (the vessel's surface frame) and latitude / longitude / surface
+        # speed off the body frame. OFF everywhere else so every other mission's
+        # read_snapshot stays byte-identical (the five fields keep their NaN UNREAD
+        # sentinels; the AIR machine refuses to stage on a dark channel). SEVEN extra
+        # RPCs per poll: a surface-frame Flight handle plus heading / roll / pitch on
+        # it, and latitude / longitude / speed on the body-frame handle already read.
+        self._read_aircraft = bool(read_aircraft)
+        self._warned_aircraft_read = False
         # OPT-IN camera-mode telemetry (V1 map-dwell lane). OFF everywhere else
         # so every other mission's read_snapshot stays byte-identical
         # (camera_mode keeps its "" UNREAD sentinel, which fails the V1
@@ -984,6 +994,30 @@ class KrpcMissionControl(MissionControl):
                             "dwell and the phase flakes landed-never-stable. "
                             "Logged once per run."
                             % (type(exc).__name__, str(exc)[:160])))
+            # AIRCRAFT channel (opt-in, AIR-1). One try/except per surface; NaN on a
+            # fault, one Warn per run naming the surface that went dark.
+            heading = float("nan")
+            roll = float("nan")
+            latitude = float("nan")
+            longitude = float("nan")
+            surface_speed = float("nan")
+            if self._read_aircraft:
+                try:
+                    horizon = v.flight(v.surface_reference_frame)
+                    heading = float(horizon.heading)
+                    roll = float(horizon.roll)
+                    if not math.isfinite(surface_pitch):
+                        surface_pitch = float(horizon.pitch)
+                except Exception as exc:
+                    self._warn_aircraft_read("Flight(surface frame) heading/roll/pitch",
+                                             exc)
+                try:
+                    latitude = float(flight_srf.latitude)
+                    longitude = float(flight_srf.longitude)
+                    surface_speed = float(flight_srf.speed)
+                except Exception as exc:
+                    self._warn_aircraft_read("Flight(body frame) latitude/longitude/speed",
+                                             exc)
             # CAREER SCIENCE / RECOVERY channels (opt-in, science_bench_recover).
             # Two helpers, each with its own try/except and its own fail-closed
             # sentinels, because the two families answer different questions and
@@ -1121,6 +1155,13 @@ class KrpcMissionControl(MissionControl):
                 # OBSERVED camera mode ("" = not read / read failed; fails the
                 # V1 staged-map-camera gate closed).
                 camera_mode=camera_mode,
+                # Aircraft channel (NaN unless read_aircraft; the AIR machine
+                # refuses to stage on a dark channel).
+                heading=heading,
+                roll=roll,
+                latitude=latitude,
+                longitude=longitude,
+                surface_speed=surface_speed,
                 # OBSERVED active-vessel name ("" = not read / read failed; fails
                 # every launch-identity gate closed).
                 vessel_name=vessel_name,
@@ -1401,6 +1442,11 @@ class KrpcMissionControl(MissionControl):
             control.gear = bool(action.value)
         elif kind == mlib.ACTION_SET_BRAKES:
             control.brakes = bool(action.value)
+        elif kind == mlib.ACTION_SET_WHEEL_STEERING:
+            # AIR-1 ground roll: steer the nose wheel from the machine's heading
+            # error (sign per the pinned kRPC client: +1 steers left). Only the AIR
+            # machine emits it, so no other mission sees a change.
+            control.wheel_steering = max(-1.0, min(1.0, float(action.value or 0.0)))
         elif kind == mlib.ACTION_TOGGLE_ACTION_GROUP:
             control.toggle_action_group(int(action.value))
         elif kind == mlib.ACTION_SET_DEPLOYABLES:
@@ -1667,6 +1713,25 @@ class KrpcMissionControl(MissionControl):
             ap = v.auto_pilot
             ap.reference_frame = v.surface_reference_frame
             ap.target_pitch_and_heading(float(pitch), float(heading))
+            ap.engage()
+        elif kind == mlib.ACTION_AP_SET_PITCH_HEADING_ROLL:
+            # AIR-1 aircraft steering: the branch above plus a ROLL target. kRPC
+            # (0.5.x AutoPilot.target_roll / roll_threshold; NOT verified against
+            # the pinned client in the authoring environment, which had no venv)
+            # applies the roll target only while the pointing error is under
+            # roll_threshold (default 5 deg); a banked turn is exactly when it is
+            # not, so the threshold is widened to 180. Best-effort: a missing
+            # roll_threshold leaves the default and the machine's turn-sign check
+            # and leg timeouts name the outcome. COMMANDED ONLY.
+            pitch, heading = action.pitch_heading
+            ap = v.auto_pilot
+            ap.reference_frame = v.surface_reference_frame
+            ap.target_pitch_and_heading(float(pitch), float(heading))
+            ap.target_roll = float(action.value if action.value is not None else 0.0)
+            try:
+                ap.roll_threshold = 180.0
+            except Exception:
+                pass
             ap.engage()
         elif kind == mlib.ACTION_WARP_TO:
             # Blocking RAILS warp to the machine-chosen target UT (bounded hops;
@@ -4484,6 +4549,19 @@ class KrpcMissionControl(MissionControl):
             % (" ".join(applied) or "(none applied)", observed,
                status or "?")))
 
+    def _warn_aircraft_read(self, surface: str, exc: BaseException) -> None:
+        """One Warn per run for a dark aircraft channel (AIR-1): its NaN sentinels
+        keep the machine on the ground (a dark channel before the stage click) or
+        wings level (after it), so the fault must name itself."""
+        if self._warned_aircraft_read:
+            return
+        self._warned_aircraft_read = True
+        _stdout_sink(mlib.format_mission_log_line(
+            "Warn", "Telemetry",
+            "%s UNREADABLE (%s: %s); the aircraft channel degrades to its NaN "
+            "UNREAD sentinels. Logged once per run."
+            % (surface, type(exc).__name__, str(exc)[:160])))
+
     def _read_landing_autopilot(self) -> Tuple[int, str]:
         """OBSERVED MechJeb LandingAutopilot state as
         ``(enabled_tristate, status)``: enabled is 1 = armed, 0 = down,
@@ -5977,6 +6055,12 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
             opt_token += " landAP=%d" % snapshot.landing_ap_enabled
         if math.isfinite(snapshot.horizontal_speed):
             opt_token += " hspd=%s" % _fmt(snapshot.horizontal_speed)
+        # AIRCRAFT channel (AIR-1): the guidance inputs, each only when read.
+        for _key, _val in (("hdg", snapshot.heading), ("roll", snapshot.roll),
+                           ("lat", snapshot.latitude), ("lon", snapshot.longitude),
+                           ("srfSpd", snapshot.surface_speed)):
+            if math.isfinite(_val):
+                opt_token += " %s=%s" % (_key, _fmt(_val))
         opt_token += split_token
         log.verbose_rate_limited(
             "telemetry", state.phase,

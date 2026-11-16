@@ -28,6 +28,12 @@ namespace Parsek
             CloseParentRecording(parentRec, parentPid, branchPointId, branchUT, parentBoundaryPoint);
         }
 
+        /// <summary>For testing: the vessel-free half of an on-rails SOI change; false with no on-rails state.</summary>
+        internal bool CloseOnRailsSegmentForSoiChangeForTesting(uint pid, double ut)
+        {
+            return CloseOnRailsSegmentForSoiChange(pid, ut) != null;
+        }
+
         internal bool GetOnRailsHasOpenSegment(uint pid)
         {
             BackgroundOnRailsState state;

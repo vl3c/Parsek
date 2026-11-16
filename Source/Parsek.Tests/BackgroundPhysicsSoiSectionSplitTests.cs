@@ -350,7 +350,9 @@ namespace Parsek.Tests
         {
             string body = MethodBody("Recording/BackgroundRecorder.cs",
                 "public void OnBackgroundVesselSOIChanged(Vessel v, CelestialBody fromBody)");
-            int onRails = body.IndexOf("onRailsStates.TryGetValue(pid, out state)", StringComparison.Ordinal);
+            // The on-rails-wins order itself is the pure route
+            // (BackgroundRailsEventRouteTests); this pins that the handler reads it first.
+            int onRails = body.IndexOf("route == BackgroundRailsEventRoute.OnRails", StringComparison.Ordinal);
             int loaded = body.IndexOf("loadedStates.TryGetValue(pid, out loadedState)", StringComparison.Ordinal);
             int arm = body.IndexOf("ArmBackgroundPhysicsSoiSample(loadedState", StringComparison.Ordinal);
             Assert.True(onRails >= 0 && loaded > onRails && arm > loaded,

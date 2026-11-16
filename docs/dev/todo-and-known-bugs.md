@@ -20,6 +20,45 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## RECORDER-GEAR-SUSPENSION-AS-ROBOTICS: a plane rolling on its landing gear records the suspension as robotics motion, about 22 start / stop events a second [FILED 2026-11-16 from AIR-1's first flight, runs `2026-11-16_1955` and `_1956_a2` (diagnostics on branch `forge-logs-2026-11-16-air1`, `diag/<runId>/KSP.log.parsek-lines.txt`), by log and code reading. OPEN; no C# change yet; low (recording size and log volume; nothing renders wrong)]
+
+What the log shows: while the stock Mallard rolled on the Runway, the active recorder wrote
+`Part event: RoboticMotionStarted` / `RoboticMotionStopped` for its three gear parts
+(`GearMedium` x2, `SmallGearBay`), every one on `midx=0 module=ModuleWheelSuspension
+source=suspensionPos deadband=0.003 ... moving=inferred` (the `Robotics: tracking` lines).
+Counted from the Parsek lines: run `_1955` 484 events in 22.1 s (21:56:01.892 .. 21:56:24.004:
+GearMedium 207 started + 207 stopped, SmallGearBay 35 + 35), run `_1956_a2` 466 in 22.2 s
+(204 + 204, 29 + 29); about 22 a second, and zero `RoboticPositionSample` events. A Started is
+often followed by its Stopped on the next physics frame (`21:56:01.892` / `.895`), with values
+around 1.34 .. 1.51 (the `suspensionPos` magnitude). Each event is also one Verbose KSP.log line.
+
+Why: `FlightRecorder.CheckRoboticState` (and the background twin in
+`BackgroundRecorder.PartEventPolling.cs`) polls every module `IsRoboticModuleName` accepts, which
+includes the wheel modules; only the DERIVED wheel visuals (`ModuleWheelMotor*` spin and
+`ModuleWheelSteering`, `IsDerivedWheelVisualModuleName`) skip emission, so
+`ModuleWheelSuspension` still emits. Its position is the magnitude of the `suspensionPos` vector
+(`TryClassifyWheelRoboticPositionFromFieldValues`) with a 0.0025 deadband, and stock has no
+moving flag for it, so `CheckRoboticTransition` infers motion: moving when the value differs from
+the LAST EMITTED value by at least max(deadband * 0.25, 0.0001) = 0.6 mm. Each Started / Stopped
+stores the current value as the new reference, so gear suspension jittering by about a millimetre
+on a rolling plane crosses that threshold on one frame and not on the next: a Started, then a
+Stopped one frame later, then a Started again. The 0.25 * deadband motion test is the noise
+gate, and it sits below the suspension's own jitter. A rover's `ModuleWheelSuspension` goes
+through the same code (not counted here: no rover lane log was read for this entry).
+
+Against the recording design principle (record threshold crossings, debounce noise, nothing
+that is not visible at playback speed): millimetre suspension travel on a runway is not visible
+on a ghost, and the pairs carry no state a ghost needs. Likely fix, in order of preference:
+(1) treat `ModuleWheelSuspension` like the derived wheel visuals: keep it in
+`cachedRoboticModules` (so `moduleIndex` numbering stays in lockstep with the ghost builder) but
+skip its emission in both recorders, and let playback leave the suspension at rest or derive it
+(legacy recordings keep their events; playback stays tolerant); or (2) if suspension travel is
+wanted, debounce it: a Started only after the value has moved a full deadband (not 0.25 of it)
+from a HELD reference, a Stopped only after it stayed within the deadband for a dwell (say
+0.5 s), and a coarser suspension deadband (centimetres, not 2.5 mm). Either way: an xUnit cell
+over `CheckRoboticTransition` fed a 1 mm frame-to-frame jitter must emit no events, and the next
+AIR-1 flight's KSP.log should show zero `RoboticMotion*` lines for the gear parts.
+
 ## ~~MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH~~: a looped mission that starts in orbit is timed around a later moon it passes low over [CLOSED 2026-11-16: V43M flew green on its first flight with the fix, `2026-11-16_1803_V43M-vall-tylo-player-loop` PASS attempt 1 (46 s, automation DLL built from 866ac123, sha256 prefix 8dfcbc5e; every verifier green), KSP.log reading launch moon Vall, constraints=3, `Solve: dominant=Tylo method=dominant-intercept residual=2.18 withinTol=yes` and `PhaseLock APPLIED ... P=211926.36 ... zeroDrift=yes scheduleWithinTol=yes`. FILED 2026-11-16 from V43M's first flight `2026-11-16_1726_V43M-vall-tylo-player-loop` (PC, parallel run `moon-loops-2026-11-16d`, DLL unchanged since PR #2638, PARSEK-FAIL(expectation) attempt 1, 58 s; diagnostics on branch `forge-logs-2026-11-16d`, folder `diag/2026-11-16_1726_V43M-vall-tylo-player-loop/`). FIXED 2026-11-16, branch `claude/project-thread-vpr29t`; xUnit; V43M re-pinned, awaiting PC flight; low (the loop still phase-locks, on the wrong launch moon)]
 
 The `vall-tylo-recorded` tree 91205f57 is one vessel's chain: the root ef182ffd starts IN ORBIT
@@ -1806,8 +1845,35 @@ in parallel in the cloud):
    B46 Minmus -> Mun (about 200 Kerbin days between loops), B45 Tylo -> Bop (expected honest
    decline), each a forge plus a loop lane. Before this group only Laythe -> Vall, Mun -> Minmus and
    Laythe -> Jool had flown on the new rule.
-3. [ ] Aircraft: no lane flies a plane (BAY-1's never moves). A runway takeoff, a circuit and a
-   landing, then its ghost replays at the Space Center.
+3. [ ] (AUTHORED 2026-11-16 as `AIR-1-runway-circuit-splashdown` / `AIR-2-runway-circuit-ksc-ghost`,
+   never flown: mission `air1_runway_circuit`, the stock Mallard from the Runway around a circuit to
+   a splashdown east of KSC; AIR-2 is pending-fixture until AIR-1's `air-circuit-recorded` harvest.
+   FIRST FLIGHT 2026-11-16 DRIVER-INVALID: runs `2026-11-16_1955` and `_1956_a2` (PC,
+   `gs1-two-stage-pad`, diagnostics on branch `forge-logs-2026-11-16-air1`), MISSION-FLAKE both
+   times, no Parsek verdict. Rollout, staging and the auto-record start were fine. Under the
+   AutoPilot (pitch 0.5 / heading 090 / roll 0) the heading wandered LEFT from ~17 m/s with the
+   wings level (89.7 at 17 m/s, 86.4 at 29, 79.4 at 36, 62.2 at 43); the plane left the runway's
+   north edge at ~43 m/s, below the 60 m/s rotate, already lifting at 0.3-0.5 deg of pitch, hit
+   the ground and bounced, one FLYING frame at 10.6 m between two LANDED frames passed the
+   one-frame airborne check, and the climb's surface check gave up. The retry cartwheeled.
+   Re-written the same day (harness only, not re-flown): the AutoPilot is off on the ground roll
+   and the nose wheel steers from the heading error (`control.wheel_steering`, the kRPC client's
+   documented sign, self-flipped once if the error keeps growing), a named give-up past 8 deg of
+   ground heading drift with throttle cut and brakes on, rotateSpeed 60 -> 45, airborne = 3
+   consecutive climbing FLYING frames, a level-roll guard before staging, the bank-sign check
+   on the ground track, and a recording count window of {1, 40} for splashdown debris. Next: the
+   reading flight.)
+   Aircraft: no lane flies a plane (BAY-1's never moves). A runway takeoff, a circuit and a
+   landing, then its ghost replays at the Space Center. Open after AIR-2: no in-game check reads a
+   KSC ghost's position DURING its replay (AIR-2 reads the KSC log lines and, by position, only the
+   end spawn through `LeafVesselPlacement`); it needs a new Space Center category that samples each
+   live KSC ghost's world position against the recording's interpolated lat / lon / alt.
+3a. [ ] Two rovers driving into each other (owner request 2026-11-16): two recorded rovers collide
+   on the ground; checks both recordings end at the impact (Destroyed or a stopped Landed terminal)
+   and both ghosts replay the collision at the same place and time.
+3b. [ ] Two airplanes flying into each other (owner request 2026-11-16): one plane chases the
+   other's live position (`mlib.air_steer_toward`) until they collide; checks both recordings end
+   Destroyed at the same UT and both ghosts meet at the recorded impact point.
 4. [ ] (AUTHORED 2026-11-14 as `B39`-`B42` / `V34M`-`V37M` and `V33T`. FLOWN 2026-11-14: V33T green;
    B39-B42 green on 8d4e8b01c and their four fixtures harvested; V34M-V36M green; V37M green
    `2026-11-14_2320` on 2d8c25442.)
@@ -1830,9 +1896,12 @@ in parallel in the cloud):
    a Minmus or orbital miner, a boat, and the RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT formation
    flight through an SOI edge with a background wingman.
 10. [ ] The unit-test residue of the audit (C4 background off-rails handler and C9
-   GhostCommNetManager, both Unity-bound; C6 harvest totals, C5 rewind point slot ambiguity and the
-   headless half of C1 done 2026-11-14, see the residue entry) and
-   B11 (in-game categories no lane runs). Fixes proven only by xUnit that a lane could show:
+   GhostCommNetManager done 2026-11-16: their decisions extracted pure and xUnit-pinned, the
+   live halves named in the residue entry; C6 harvest totals, C5 rewind point slot ambiguity and
+   the headless half of C1 done 2026-11-14) and
+   B11 (in-game categories no lane runs; wired 2026-11-16 into LT-5 and AH-1 on interim pins,
+   one reading run of each owed; GuiMock was taken back out of AH-1 and still has no lane, see the
+   B11 line of TEST-GAP-AUDIT-2026-10-31-RESIDUE). Fixes proven only by xUnit that a lane could show:
    ROUTE-DELIVERY-IGNORES-DESCENT-TRIGGER, the two rescue marker fixes, the drop path of
    TRIMMED-CHECKPOINT-SECTION-ENDS-BEFORE-IT-STARTS and the RW-9R reading variant. The three
    2026-10-31 mod-only ledger fixes stay unit-test only by owner rule.
@@ -2134,13 +2203,29 @@ and a load (#2348, #2352, #2354). Still open, each found by grep on main 2622fd5
 main b5877e51f (1.0.2) on 2026-11-11, when every item below was still open; the ranked list that
 merges this residue with the moon program is NEXT-TESTS-TO-BUILD-2026-11-11 at the top of this file:
 
-- [ ] C4: `BackgroundRecorder.OnBackgroundVesselGoOffRails` is named by no xUnit file, and
-  `OnBackgroundVesselSOIChanged` only by the source gate of
-  `BackgroundPhysicsSoiSectionSplitTests` (the loaded-state arming order); neither has a decision
-  test.
+- [x] ~~C4~~ Done 2026-11-16 (branch `claude/project-thread-vpr29t`): both handlers now take one pure
+  route (`BackgroundRecorder.ClassifyBackgroundRailsEvent`: unmapped, destroyed-skip, on-rails
+  wins over loaded, loaded, no state) through a vessel-free head (`RouteBackgroundRailsEvent`,
+  the destroyed guard and its log line) and vessel-free on-rails halves
+  (`EndOnRailsStateForGoOffRails`, `CloseOnRailsSegmentForSoiChange`), behavior-identical.
+  `BackgroundRailsEventRouteTests` (29 cases) pins the route, the halves and the public
+  handlers over a packed alive vessel stub (destroyed guard, close at Planetarium UT, loaded SOI
+  arm); mutating the destroyed guard reds 5 of them. Not headless: the unpacked go-off-rails half
+  (`InitializeLoadedState`, the cache refresh, the boundary sample) and the on-rails SOI reopen
+  (`CreateOrbitSegmentFromVessel`) read the live vessel; `InitializeLoadedStateCharacterizationTests`
+  covers the first, and an in-game cell would need a real on-rails background vessel crossing an
+  SOI (the RECORDER-PHYSICS-SOI formation flight of NEXT-TESTS item 9).
 - [x] ~~C8~~ Done 2026-11-14: `RouteSourceOptimizerTests` (10 facts) found and pins
   ROUTE-SOURCE-OPTIMIZER-REWRITE.
-- [ ] C9: `GhostCommNetManager` is named by no xUnit file (see GHOSTCOMMNET-PASS3-DEDUPE-AND-SCAN-COST).
+- [x] ~~C9~~ Done 2026-11-16 (branch `claude/project-thread-vpr29t`): the live shell's decisions are
+  pure statics on `GhostCommNetManager` (registration row identity, removal reason, timeline
+  sample UT, derivation snapshot and cache key, the per-tick prune, the held-source flags, the
+  chain-snapshot surface read, `CurveOf`, `IsFinite`), behavior-identical, pinned by
+  `GhostCommNetManagerDecisionTests` (38 cases; mutating the removal reason reds 2). The
+  pass-3 dedupe was already pure (`ResolveRegistrations_*`, GHOSTCOMMNET-PASS3-DEDUPE-AND-SCAN-COST,
+  closed 2026-11-07). Not headless: node objects and network add / remove, `DeriveSpec`
+  (PartLoader prefabs, roster) and world positions; those stay with the `GhostCommNet*` in-game
+  categories and lanes CN-1 .. CN-5.
 - [x] ~~C6~~ Done 2026-11-14: `RouteHarvestAnalysisComputeTests` (30 cases, all green on the
   existing code). Was: `RouteHarvestAnalysis.ComputeHarvestedTotals`, `ComputeFullRunGains` and
   `FindGainAnchorIndex` have no test (`HarvestCapture_CatchUpOnLoad` no longer skips: its body runs
@@ -2167,7 +2252,18 @@ merges this residue with the moon program is NEXT-TESTS-TO-BUILD-2026-11-11 at t
 - [ ] B8: ghost FX across a Re-Fly or a revert has no lane.
 - [ ] B11: in-game categories no lane runs (ChainTipBlockedGhost, DeployedScienceGhost,
   GhostReapplyFrame, GuiMock, JointBreakCheckCoroutine and TreeRestoreCoroutine: no committed spec
-  names any of them).
+  names any of them). Wired 2026-11-16 (no new lane) except GuiMock: the five FLIGHT categories
+  appended to `LT-5-long-tail-playback-flight`'s multi-category RunTests (multi=7) and
+  FreeTechUnlock (needs a career R&D) appended to `AH-1-auto-hire-reserved-applicant` (multi=2),
+  each new constituent on an interim `passed=[1-9][0-9]*` pin. Still owed: one reading run of each
+  lane to pin the measured passed / skipped counts (`INTERIM_PIN_IDS` / `INTERIM_CONSTITUENTS`).
+  GuiMock STILL HAS NO LANE: it was appended to AH-1 the same day and removed on review, because
+  every Parsek window at the Space Center draws only behind `ParsekKSC.OnGUI`'s
+  `if (!showUI) return;` and nothing in AH-1 raises it, so its cells would FAIL there, not skip
+  (`EverySuppressionSiteIsInertWithNoScope` asserts a cache built only in the draw; the Structure
+  List apply cell finds no GUI tree). It needs either a host that opens the Parsek UI through the
+  UiAction seam before its RunTests step, or a C# change making its cells raise
+  `ParsekKSC.ShowUIForTesting` (restored in a finally).
 - [ ] B9: no lane flies an aircraft, a boat, a live atmospheric landing off Kerbin or a Minmus /
   orbital miner (the claw has only the synthetic H41 / H42 cells).
 - [ ] Fixes proven by xUnit only, never seen in game: ROUTE-DELIVERY-IGNORES-DESCENT-TRIGGER,

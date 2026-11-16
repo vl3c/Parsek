@@ -1099,6 +1099,105 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Where a background vessel's go-off-rails or SOI-change event goes, in the order
+        /// both handlers apply: a vessel the tree does not map is ignored; a destroyed
+        /// recording is never touched again (a post-terminal point or a later orbit-segment
+        /// close would shift its explosion timing in <see cref="GhostPlaybackLogic"/>); an
+        /// on-rails state wins over a loaded one, because only the on-rails branch owns an
+        /// open orbit segment; otherwise the loaded state, else none.
+        /// </summary>
+        internal enum BackgroundRailsEventRoute
+        {
+            Untracked,
+            DestroyedSkip,
+            OnRails,
+            Loaded,
+            NoState,
+        }
+
+        internal static BackgroundRailsEventRoute ClassifyBackgroundRailsEvent(
+            bool mapped, bool recordingDestroyed, bool hasOnRailsState, bool hasLoadedState)
+        {
+            if (!mapped) return BackgroundRailsEventRoute.Untracked;
+            if (recordingDestroyed) return BackgroundRailsEventRoute.DestroyedSkip;
+            if (hasOnRailsState) return BackgroundRailsEventRoute.OnRails;
+            if (hasLoadedState) return BackgroundRailsEventRoute.Loaded;
+            return BackgroundRailsEventRoute.NoState;
+        }
+
+        /// <summary>True when a handler goes on past the lookup and the destroyed guard.</summary>
+        internal static bool IsBackgroundRailsEventHandled(BackgroundRailsEventRoute route)
+        {
+            return route != BackgroundRailsEventRoute.Untracked
+                && route != BackgroundRailsEventRoute.DestroyedSkip;
+        }
+
+        /// <summary>
+        /// The vessel-free head of <see cref="OnBackgroundVesselGoOffRails"/> and
+        /// <see cref="OnBackgroundVesselSOIChanged"/>: resolves the vessel's recording,
+        /// logs the destroyed-recording skip, and classifies the event.
+        /// </summary>
+        internal BackgroundRailsEventRoute RouteBackgroundRailsEvent(
+            uint pid, string handlerName, string skipKey, out string recordingId)
+        {
+            recordingId = null;
+            bool mapped = tree != null
+                && tree.BackgroundMap.TryGetValue(pid, out recordingId)
+                && recordingId != null;
+            bool destroyed = mapped && IsBackgroundRecordingDestroyed(recordingId);
+            bool live = mapped && !destroyed;
+            BackgroundRailsEventRoute route = ClassifyBackgroundRailsEvent(
+                mapped,
+                destroyed,
+                live && onRailsStates.ContainsKey(pid),
+                live && loadedStates.ContainsKey(pid));
+            if (route == BackgroundRailsEventRoute.DestroyedSkip)
+            {
+                ParsekLog.VerboseRateLimited("BgRecorder",
+                    $"destroyed-skip.{skipKey}.{pid}",
+                    $"{handlerName}: skipping destroyed recording pid={pid} rec={recordingId}",
+                    60.0);
+            }
+            return route;
+        }
+
+        /// <summary>
+        /// The vessel-free on-rails half of a go-off-rails transition: closes any open orbit
+        /// segment at <paramref name="ut"/> (appending its checkpoint section to the
+        /// recording) and drops the on-rails state. False when the vessel had none.
+        /// </summary>
+        internal bool EndOnRailsStateForGoOffRails(uint pid, double ut)
+        {
+            BackgroundOnRailsState railsState;
+            if (!onRailsStates.TryGetValue(pid, out railsState))
+                return false;
+            if (railsState.hasOpenOrbitSegment)
+            {
+                CloseOrbitSegment(railsState, ut);
+            }
+            onRailsStates.Remove(pid);
+            ParsekLog.Info("BgRecorder", $"Mode transition on-rails→loaded: pid={pid}");
+            return true;
+        }
+
+        /// <summary>
+        /// The vessel-free half of an on-rails SOI change: closes the old body's orbit
+        /// segment at <paramref name="ut"/> and keeps the on-rails state for the new body's
+        /// segment. Null when the vessel has no on-rails state.
+        /// </summary>
+        private BackgroundOnRailsState CloseOnRailsSegmentForSoiChange(uint pid, double ut)
+        {
+            BackgroundOnRailsState state;
+            if (!onRailsStates.TryGetValue(pid, out state))
+                return null;
+            if (state.hasOpenOrbitSegment)
+            {
+                CloseOrbitSegment(state, ut);
+            }
+            return state;
+        }
+
+        /// <summary>
         /// Called when a background vessel goes off rails.
         /// Transitions from on-rails mode to loaded/physics mode.
         /// </summary>
@@ -1108,35 +1207,17 @@ namespace Parsek
 
             uint pid = v.persistentId;
             string recordingId;
-            if (!tree.BackgroundMap.TryGetValue(pid, out recordingId) || recordingId == null) return;
-
-            // Destroyed-recording guard: a destroyed remnant that later unpacks
-            // (player switches focus to it) must not get a loaded-state
-            // initialization or a boundary point sampled — that would append a
-            // post-terminal point to the sealed recording and shift the destroyed
-            // explosion timing in GhostPlaybackLogic.
-            if (IsBackgroundRecordingDestroyed(recordingId))
-            {
-                ParsekLog.VerboseRateLimited("BgRecorder",
-                    $"destroyed-skip.go_off_rails.{pid}",
-                    $"OnBackgroundVesselGoOffRails: skipping destroyed recording pid={pid} rec={recordingId}",
-                    60.0);
-                return;
-            }
+            // The destroyed-recording guard lives in the route: a destroyed remnant that
+            // later unpacks (player switches focus to it) must not get a loaded-state
+            // initialization or a boundary point sampled.
+            BackgroundRailsEventRoute route = RouteBackgroundRailsEvent(
+                pid, nameof(OnBackgroundVesselGoOffRails), "go_off_rails", out recordingId);
+            if (!IsBackgroundRailsEventHandled(route)) return;
 
             double ut = Planetarium.GetUniversalTime();
 
             // Close any open orbit segment
-            BackgroundOnRailsState railsState;
-            if (onRailsStates.TryGetValue(pid, out railsState))
-            {
-                if (railsState.hasOpenOrbitSegment)
-                {
-                    CloseOrbitSegment(railsState, ut);
-                }
-                onRailsStates.Remove(pid);
-                ParsekLog.Info("BgRecorder", $"Mode transition on-rails→loaded: pid={pid}");
-            }
+            EndOnRailsStateForGoOffRails(pid, ut);
 
             // Initialize loaded/physics state if vessel is unpacked
             if (!v.packed)
@@ -1166,29 +1247,19 @@ namespace Parsek
 
             uint pid = v.persistentId;
             string recordingId;
-            if (!tree.BackgroundMap.TryGetValue(pid, out recordingId) || recordingId == null) return;
-
-            // Destroyed-recording guard: a destroyed remnant's SOI change is moot —
-            // do not close / open orbit segments or refresh the finalization cache.
-            if (IsBackgroundRecordingDestroyed(recordingId))
-            {
-                ParsekLog.VerboseRateLimited("BgRecorder",
-                    $"destroyed-skip.soi_change.{pid}",
-                    $"OnBackgroundVesselSOIChanged: skipping destroyed recording pid={pid} rec={recordingId}",
-                    60.0);
-                return;
-            }
+            // The destroyed-recording guard lives in the route: a destroyed remnant's SOI
+            // change is moot, so no orbit segment is closed or opened and the
+            // finalization cache is not refreshed.
+            BackgroundRailsEventRoute route = RouteBackgroundRailsEvent(
+                pid, nameof(OnBackgroundVesselSOIChanged), "soi_change", out recordingId);
+            if (!IsBackgroundRailsEventHandled(route)) return;
 
             double ut = Planetarium.GetUniversalTime();
 
-            BackgroundOnRailsState state;
-            if (onRailsStates.TryGetValue(pid, out state))
+            if (route == BackgroundRailsEventRoute.OnRails)
             {
                 // Close the old orbit segment
-                if (state.hasOpenOrbitSegment)
-                {
-                    CloseOrbitSegment(state, ut);
-                }
+                BackgroundOnRailsState state = CloseOnRailsSegmentForSoiChange(pid, ut);
 
                 // Open a new orbit segment with the new body's orbit
                 if (v.orbit != null)
@@ -1213,7 +1284,8 @@ namespace Parsek
             // orbit segment to roll over; the sampler splits the section at the first sample
             // on the new body (SplitBackgroundSectionIfPhysicsBodyChanged).
             BackgroundVesselState loadedState;
-            if (loadedStates.TryGetValue(pid, out loadedState))
+            if (route == BackgroundRailsEventRoute.Loaded
+                && loadedStates.TryGetValue(pid, out loadedState))
                 ArmBackgroundPhysicsSoiSample(loadedState, fromBody?.name, v.mainBody?.name, ut);
         }
 
