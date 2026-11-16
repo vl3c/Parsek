@@ -737,18 +737,9 @@ namespace Parsek.Logistics
         /// </summary>
         internal static List<RouteEvent> ReadSavedEventsFromScenarios(IList<ProtoScenarioModule> scenarios)
         {
-            if (scenarios == null)
-                return null;
-            for (int i = 0; i < scenarios.Count; i++)
-            {
-                ProtoScenarioModule proto = scenarios[i];
-                if (proto != null
-                    && string.Equals(proto.moduleName, nameof(ParsekScenario), StringComparison.Ordinal))
-                {
-                    return RouteEventLog.ReadSavedEvents(proto.GetData());
-                }
-            }
-            return null;
+            ConfigNode parsekNode = ScenarioNodeLookup.FindInProtoList(
+                scenarios, ScenarioNodeLookup.ParsekScenarioName);
+            return parsekNode != null ? RouteEventLog.ReadSavedEvents(parsekNode) : null;
         }
 
         /// <summary>

@@ -81,7 +81,7 @@ namespace Parsek
     /// </summary>
     internal static class SaveReferenceScanner
     {
-        internal const string ParsekScenarioName = "ParsekScenario";
+        internal const string ParsekScenarioName = ScenarioNodeLookup.ParsekScenarioName;
 
         private sealed class Frame
         {

@@ -98,7 +98,8 @@ namespace Parsek
             try
             {
                 ConfigNode liveParsekNode = ParsekScenario.TryLoadCarryForwardSourceParsekNode(out string persistentPath);
-                ConfigNode targetParsekNode = RevertInterceptor.FindParsekScenarioProtoNode(game);
+                ConfigNode targetParsekNode = ScenarioNodeLookup.FindInProtoList(
+                    game?.scenarios, ScenarioNodeLookup.ParsekScenarioName);
                 string spliceRefusal = RevertInterceptor.SpliceLiveParsekScenarioNode(targetParsekNode, liveParsekNode);
                 if (spliceRefusal != null)
                 {
