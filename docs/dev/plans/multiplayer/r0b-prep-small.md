@@ -648,11 +648,13 @@ LAUNCH-SITE-PARTIAL-READ-CACHED).
     alternative to R1-08's own computation). `internal static class NewSaveStarter`, tag
     `NewSave`, three steps so the verb keeps its log order and a caller can run its own
     step between create and start:
-    - `DeleteResult DeleteSaveFolderLikeStockOverwrite(string saveDir, Func<string, bool>
-      preserveTopLevelEntry)`: the bodies of `DeleteSaveLikeStockOverwrite` and
-      `DeleteTreeLikeStock` (`NewGame.cs:308-348`) moved verbatim; returns files, dirs,
-      preserved. Pure file I/O, no KSP type, so xUnit can drive it on a temp folder.
-      Exceptions propagate (the verb maps them to `newgame-delete-failed` as today).
+    - `void DeleteSaveFolderLikeStockOverwrite(string saveDir, Func<string, bool>
+      preserveTopLevelEntry, DeleteResult counts)`: the bodies of `DeleteSaveLikeStockOverwrite`
+      and `DeleteTreeLikeStock` (`NewGame.cs:308-348`) moved verbatim; `counts` (files, dirs,
+      preserved) is caller-allocated, not returned, because the verb's `newgame delete failed`
+      line prints the counts reached before a throw (as built, 2026-11-16). Pure file I/O, no
+      KSP type, so xUnit can drive it on a temp folder. Exceptions propagate (the verb maps
+      them to `newgame-delete-failed` as today).
     - `Game CreateGame(string saveFolder, Game.Modes mode, GameParameters parameters, string
       flagUrl)`: `HighLogic.CurrentGame = GamePersistence.CreateNewGame(saveFolder, mode,
       parameters, flagUrl, GameScenes.SPACECENTER, EditorFacility.None)`; when non-null,
@@ -675,7 +677,9 @@ LAUNCH-SITE-PARTIAL-READ-CACHED).
     `Path.Combine` at `:255-256`) and calls the three steps in the same order with the same
     log lines between them (`newgame create ...` after the delete, `newgame created
     title=...` after create, then start); the two delete helpers are removed from the
-    applier. So every `NewSaveStarter` member is reached from the applier in this pull
+    applier, and `scripts/parsek-file-deletes-allowlist.txt` moves their pin of 4 to
+    `NewSaveStarter.cs` (section 7, grep-audit gates). The verb starts
+    `HighLogic.CurrentGame`, the game `CreateGame` stored there, as stock does. So every `NewSaveStarter` member is reached from the applier in this pull
     request (TestCommands tooling code is live for the uncalled-method ratchet, A1); R1-16's
     `LoadAndStart` lands in R1-16 with the verb that calls it. `GetDefaultParameters`, the
     flag lookup, `ToStockMode` / `ToStockPreset` and every pure decision stay in
@@ -686,7 +690,7 @@ LAUNCH-SITE-PARTIAL-READ-CACHED).
     order before `.Start()`.
   - `harness/lib/test_hlib.py`
     `NewGameSourceSyncTests.test_the_applier_runs_stocks_own_new_game_path`
-    (`:18860-18874`): read `SaveGame` / `LoadScene(GameScenes.MAINMENU)` /
+    (`:18884-18897` on 2026-11-16): read `SaveGame` / `LoadScene(GameScenes.MAINMENU)` /
     `GetDefaultParameters` from the applier, and `GamePersistence.CreateNewGame(` /
     `GameEvents.onGameNewStart.Fire();` / `game.Start();` with their order from
     `Source/Parsek/LogIO/NewSaveStarter.cs`; and require the applier to call the three steps in

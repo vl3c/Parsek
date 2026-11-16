@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.IO;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
@@ -248,22 +247,22 @@ namespace Parsek.TestCommands
         }
 
         // At the settled main menu: stock's overwrite (delete saves/<save>, keeping Ships/) and
-        // then MainMenu.CreateAndStartGame's four calls, with the menu's own default flag and
-        // GameParameters.GetDefaultParameters(mode, preset).
+        // then MainMenu.CreateAndStartGame's calls, with the menu's own default flag and
+        // GameParameters.GetDefaultParameters(mode, preset). The stock calls are
+        // NewSaveStarter's three steps; this verb runs nothing between create and start.
         private void CreateAndStartNewGame(NewGamePending p, double elapsed)
         {
-            string root = KSPUtil.ApplicationRootPath;
-            string saveDir = Path.Combine(Path.Combine(root, "saves"), p.Save);
-            int deletedFiles = 0, deletedDirs = 0;
-            bool preserved = false;
+            string saveDir = NewSaveStarter.ResolveSaveDirectory(p.Save);
+            var deleted = new NewSaveStarter.DeleteResult();
             try
             {
-                DeleteSaveLikeStockOverwrite(saveDir, ref deletedFiles, ref deletedDirs, ref preserved);
+                NewSaveStarter.DeleteSaveFolderLikeStockOverwrite(
+                    saveDir, TestCommandNewGame.ShouldPreserveSaveEntry, deleted);
             }
             catch (Exception ex)
             {
-                ParsekLog.Error(Tag, $"newgame delete failed path={saveDir} deletedFiles={Int(deletedFiles)} " +
-                    $"deletedDirs={Int(deletedDirs)}: {ex.GetType().Name}: {ex.Message}");
+                ParsekLog.Error(Tag, $"newgame delete failed path={saveDir} deletedFiles={Int(deleted.Files)} " +
+                    $"deletedDirs={Int(deleted.Dirs)}: {ex.GetType().Name}: {ex.Message}");
                 FinishNewGame("ERROR", p, TestCommandNewGame.DeleteFailedReason + " " + ex.GetType().Name, elapsed);
                 return;
             }
@@ -271,80 +270,33 @@ namespace Parsek.TestCommands
             MainMenu menu = Object.FindObjectOfType<MainMenu>();
             p.FlagUrl = TestCommandNewGame.ResolveFlagUrl(menu != null ? menu.DefaultFlagURL : null);
             ParsekLog.Info(Tag, TestCommandNewGame.FormatCreateLine(
-                p.Mode, p.Preset, p.Save, p.FlagUrl, deletedFiles, deletedDirs, preserved));
+                p.Mode, p.Preset, p.Save, p.FlagUrl, deleted.Files, deleted.Dirs, deleted.Preserved));
 
             try
             {
                 Game.Modes stockMode = ToStockMode(p.Mode);
                 GameParameters parameters = GameParameters.GetDefaultParameters(stockMode, ToStockPreset(p.Preset));
-                HighLogic.CurrentGame = GamePersistence.CreateNewGame(
-                    p.Save, stockMode, parameters, p.FlagUrl, GameScenes.SPACECENTER, EditorFacility.None);
-                if (HighLogic.CurrentGame == null)
+                // CreateNewGame, then onGameNewStart when a game came back, in stock's order.
+                Game game = NewSaveStarter.CreateGame(p.Save, stockMode, parameters, p.FlagUrl);
+                if (game == null)
                 {
                     FinishNewGame("ERROR", p, TestCommandNewGame.CreateFailedReason + " null-game", elapsed);
                     return;
                 }
-                // AnalyticsUtil.LogSaveGameCreated is internal to Assembly-CSharp (analytics
-                // only); the two gameplay calls follow in stock's order.
-                GameEvents.onGameNewStart.Fire();
                 ParsekLog.Info(Tag,
                     $"newgame created title='{HighLogic.CurrentGame.Title}' saveFolder={HighLogic.SaveFolder} " +
                     $"seed={HighLogic.CurrentGame.Seed.ToString(CultureInfo.InvariantCulture)} " +
                     "onGameNewStart=fired - starting the game (Game.Start -> SPACECENTER)");
                 p.Phase = NewGamePhase.Starting;
                 p.ReadyPolls = 0;
-                HighLogic.CurrentGame.Start();
+                // The game stock now holds (CreateGame stored it there), as stock starts it.
+                NewSaveStarter.StartGame(HighLogic.CurrentGame);
             }
             catch (Exception ex)
             {
                 ParsekLog.Error(Tag, $"newgame create failed save={p.Save}: {ex.GetType().Name}: {ex.Message}");
                 FinishNewGame("ERROR", p, TestCommandNewGame.CreateFailedReason + " " + ex.GetType().Name, elapsed);
             }
-        }
-
-        // MainMenu.DeleteDirectory's shape (clear attributes, delete files, recurse into
-        // directories, remove the directory), except that the top-level Ships/ folder is kept
-        // (TestCommandNewGame's class remarks say why).
-        private static void DeleteSaveLikeStockOverwrite(string saveDir, ref int files, ref int dirs,
-            ref bool preserved)
-        {
-            if (!Directory.Exists(saveDir)) return;
-            File.SetAttributes(saveDir, FileAttributes.Normal);
-            foreach (string file in Directory.GetFiles(saveDir))
-            {
-                File.SetAttributes(file, FileAttributes.Normal);
-                File.Delete(file);
-                files++;
-            }
-            foreach (string dir in Directory.GetDirectories(saveDir))
-            {
-                if (TestCommandNewGame.ShouldPreserveSaveEntry(Path.GetFileName(dir)))
-                {
-                    preserved = true;
-                    continue;
-                }
-                DeleteTreeLikeStock(dir, ref files, ref dirs);
-            }
-            if (!preserved)
-            {
-                Directory.Delete(saveDir, false);
-                dirs++;
-            }
-        }
-
-        private static void DeleteTreeLikeStock(string dir, ref int files, ref int dirs)
-        {
-            File.SetAttributes(dir, FileAttributes.Normal);
-            foreach (string file in Directory.GetFiles(dir))
-            {
-                File.SetAttributes(file, FileAttributes.Normal);
-                File.Delete(file);
-                files++;
-            }
-            foreach (string sub in Directory.GetDirectories(dir))
-                DeleteTreeLikeStock(sub, ref files, ref dirs);
-            Directory.Delete(dir, false);
-            dirs++;
         }
 
         private void FinishNewGame(string verdict, NewGamePending p, string msg, double elapsed)
