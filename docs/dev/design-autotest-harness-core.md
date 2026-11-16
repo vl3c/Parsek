@@ -240,6 +240,12 @@ injectedRecordings = "none"
 # craft: .craft files staged into the instance's Ships/ (rarely used by v1
 # seam-only scenarios; reserved for M-B1 flying).
 craft = []
+# Optional [fixture.race] (multiplayer race lanes only; no other spec has it):
+#   sharedFolder = "empty" | "fixtures/race/<name>"
+# stages <instance>/rs/0 (the whole rs/ wiped first), the seam-step arg value
+# "${raceShared}" (whole value only) becomes its absolute path, and run.py copies
+# it to results/<runId>_race/ at KSP exit. Contract: harness/README.md
+# "The race shared folder".
 
 [driver]
 kind = "seam"                        # v1 ONLY. "autopilot" is RESERVED (M-B1) -> spec-validation reject.
