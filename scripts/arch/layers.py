@@ -228,15 +228,18 @@ def forbidden_problems(forbidden, pairs, modules):
     `pairs` is {(from, to): {type pairs}} (or any container per key); `modules`
     the module names that exist. A malformed spec or one naming a module that
     does not exist reds too, so a typo or a renamed module cannot switch the
-    gate off.
+    gate off. A list spec "From -> A | B" is one edge per element (expanded
+    here too, so a direct caller gets the same gate as load_rules' callers).
     """
+    import archview  # noqa: PLC0415
+
     problems = []
-    for spec in forbidden:
-        parts = [part.strip() for part in spec.split("->")] if isinstance(spec, str) else []
-        if len(parts) != 2 or not parts[0] or not parts[1]:
-            problems.append("[forbidden] spec %r is not \"From -> To\"" % (spec,))
+    for spec in archview.expand_edge_specs(forbidden):
+        try:
+            frm, to = archview.parse_edge_spec(spec)
+        except ValueError:
+            problems.append("[forbidden] spec %r is not \"From -> To\" or \"From -> A | B\"" % (spec,))
             continue
-        frm, to = parts
         unknown = [name for name in (frm, to) if name not in modules]
         if unknown:
             problems.append("[forbidden] %s names no module: %s" % (spec, ", ".join(unknown)))
