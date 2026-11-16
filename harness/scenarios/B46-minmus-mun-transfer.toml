@@ -1,7 +1,8 @@
 schema = 1
 id = "B46-minmus-mun-transfer"
 # =====================================================================================
-# B46: Minmus -> Mun, a moon-to-moon forge. AUTHORED 2026-11-14, FLOWN TWICE (INVALID), FIXED.
+# B46: Minmus -> Mun, a moon-to-moon forge. AUTHORED 2026-11-14, FLOWN FOUR TIMES (INVALID), FIXED TWICE,
+# LIVE-PROVEN 2026-11-16 (run 2026-11-16_0001, PASS attempt 1, 1,569 s), harvested as `minmus-mun-recorded`.
 # FLOWN 2026-11-15 twice (runs 2026-11-15_1638, _1743_a2), INVALID(autopilot-flake) both:
 # dropping off rails warp moved the 45.55 Mm apoapsis 39.5 km with no thrust, which the
 # old absolute burn-changed floor read as a finished stage-2 burn, so TRANSFER-BURN left
@@ -64,11 +65,11 @@ id = "B46-minmus-mun-transfer"
 # and drop V46M from test_hlib PENDING_FIXTURE_LANES (both in the same commit).
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-11-14; flown twice 2026-11-15 INVALID(autopilot-flake), fixed, not yet re-flown. Moon-to-moon forge Minmus -> Mun, B30 reversed: the b30_mun_minmus relay from the Parsek-stripped `minmus-park-kerbalx` (B12's harvest), an escape deliberately sized at 30 m/s so the unaimed departure cannot leave Kerbin's SOI, an inward Hohmann, a circular Mun capture and the tree committed there. A fresh Minmus-rooted tree that never leaves Kerbin's SOI, so rule 4a should lock the loop at 4 x P_Minmus as V21M does. Produces `minmus-mun-recorded` for V46M."
+description = "AUTHORED 2026-11-14; flown four times 2026-11-15 INVALID(autopilot-flake), fixed twice, LIVE-PROVEN 2026-11-16 (run 2026-11-16_0001). Moon-to-moon forge Minmus -> Mun, B30 reversed: the b30_mun_minmus relay from the Parsek-stripped `minmus-park-kerbalx` (B12's harvest), an escape deliberately sized at 30 m/s so the unaimed departure cannot leave Kerbin's SOI, an inward Hohmann, a circular Mun capture and the tree committed there. A fresh Minmus-rooted tree that never leaves Kerbin's SOI, so rule 4a should lock the loop at 4 x P_Minmus as V21M does. Produces `minmus-mun-recorded` for V46M."
 instanceProfile = "stock-minimal"
 tags = ["B46", "minmus", "mun", "kerbin", "moon-to-moon", "parent-relay", "inward-transfer",
         "kerbin-moon", "orbit", "mechjeb", "cross-soi", "capture", "commit-in-foreign-soi",
-        "orbit-start", "crewed", "pending-flight"]
+        "orbit-start", "crewed", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/minmus-park-kerbalx"

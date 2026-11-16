@@ -1,0 +1,73 @@
+version = 1
+MILESTONE
+{
+	id = e21f33326ca44a189331eeefbd80f1ce
+	startUT = 0
+	endUT = 597396.90562910447
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 3
+	GAME_STATE_EVENT
+	{
+		ut = 327751.1516872588
+		type = 18
+		key = Minmus/Escape
+		detail = funds=0;rep=0;sci=0
+		recordingId = cbb8e08733f746afa9e367af18a5c2cf
+		cseq = 1
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 327751.1516872588
+		type = 18
+		key = RecordsAltitude
+		detail = funds=0;rep=0;sci=0;thresholds=3;band=3:0:0:0,4:0:0:0,5:0:0:0
+		recordingId = cbb8e08733f746afa9e367af18a5c2cf
+		cseq = 2
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 327751.1516872588
+		type = 18
+		key = RecordsAltitude
+		detail = funds=0;rep=0;sci=0;thresholds=0
+		recordingId = cbb8e08733f746afa9e367af18a5c2cf
+		cseq = 3
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 327902.85564233729
+		type = 18
+		key = RecordsSpeed
+		detail = funds=0;rep=0;sci=0;band=3:0:0:0
+		recordingId = cbb8e08733f746afa9e367af18a5c2cf
+		cseq = 4
+	}
+}
+MILESTONE
+{
+	id = 50f0240512cb4d12a2035e011219622b
+	startUT = 597396.90562910447
+	endUT = 745584.43791223888
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 1
+	GAME_STATE_EVENT
+	{
+		ut = 733268.67073936749
+		type = 18
+		key = Mun/Flyby
+		detail = funds=0;rep=0;sci=0
+		recordingId = cbb8e08733f746afa9e367af18a5c2cf
+		cseq = 5
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 745561.48172814469
+		type = 18
+		key = Mun/Orbit
+		detail = funds=0;rep=0;sci=0
+		recordingId = cbb8e08733f746afa9e367af18a5c2cf
+		cseq = 6
+	}
+}

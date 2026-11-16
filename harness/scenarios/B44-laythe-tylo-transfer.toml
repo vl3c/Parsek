@@ -1,7 +1,8 @@
 schema = 1
 id = "B44-laythe-tylo-transfer"
 # =====================================================================================
-# B44: Laythe -> Tylo, a moon-to-moon forge. AUTHORED 2026-11-14, FLOWN TWICE (INVALID), FIXED.
+# B44: Laythe -> Tylo, a moon-to-moon forge. AUTHORED 2026-11-14, FLOWN TWICE (INVALID), FIXED,
+# LIVE-PROVEN 2026-11-15 (run 2026-11-15_2243, PASS attempt 1, 888 s), harvested as `laythe-tylo-recorded`.
 # Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 2 / MOON-FLIGHT-TEST-PROGRAM Group B.
 #
 # WHAT IT IS FOR. The same rule-4a question as B43 from the innermost moon: a
@@ -49,11 +50,11 @@ id = "B44-laythe-tylo-transfer"
 # and drop V44M from test_hlib PENDING_FIXTURE_LANES (both in the same commit).
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-11-14; flown twice 2026-11-15 INVALID(mission), fixed, not yet re-flown. Moon-to-moon forge Laythe -> Tylo: B26's parent-relay from B26's own host `laythe-park-nerv`, crossing Vall's orbit outward, with B29's elliptical capture at Tylo (6,000 km apoapsis) and the tree committed there. A fresh Laythe-rooted tree that never leaves Jool's SOI, so rule 4a should phase-lock its loop at P = P_Tylo. Produces `laythe-tylo-recorded` for V44M."
+description = "AUTHORED 2026-11-14; flown twice 2026-11-15 INVALID(mission), fixed, LIVE-PROVEN 2026-11-15 (run 2026-11-15_2243). Moon-to-moon forge Laythe -> Tylo: B26's parent-relay from B26's own host `laythe-park-nerv`, crossing Vall's orbit outward, with B29's elliptical capture at Tylo (6,000 km apoapsis) and the tree committed there. A fresh Laythe-rooted tree that never leaves Jool's SOI, so rule 4a should phase-lock its loop at P = P_Tylo. Produces `laythe-tylo-recorded` for V44M."
 instanceProfile = "stock-minimal"
 tags = ["B44", "laythe", "tylo", "jool", "moon-to-moon", "parent-relay", "elliptical-capture",
         "orbit", "mechjeb", "cross-soi", "capture", "commit-in-foreign-soi", "orbit-start",
-        "crewed", "pending-flight"]
+        "crewed", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/laythe-park-nerv"

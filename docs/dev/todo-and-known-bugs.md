@@ -487,7 +487,7 @@ A patched-conic model that reproduces flight 1 pins the choice in
 `test_moon_forge_fixes.B44EscapePassGeometryTests`. Closed by the green flight
 `2026-11-15_2243` (PASS attempt 1) and the `laythe-tylo-recorded` harvest from its own snapshot.
 
-## B46-MINMUS-MUN-COAST-TIMEOUT: B46's Minmus -> Mun transfer never reaches the Mun before its coast phase times out [FILED 2026-11-15 from B46's first flights; FIX 1 (relative burn floor) FLOWN 2026-11-16 and worked, still INVALID one step later; FIX 2 AUTHORED 2026-11-16 (spec floor 20 Mm, not flown); low (the forge cannot harvest `minmus-mun-recorded`, so V46M stays unflyable; not a Parsek defect)]
+## ~~B46-MINMUS-MUN-COAST-TIMEOUT~~: B46's Minmus -> Mun transfer never reaches the Mun before its coast phase times out [CLOSED 2026-11-16: B46 flew green with fix 2, `2026-11-16_0001` PASS attempt 1 (1,569 s, automation DLL 5bc76f4a), and `minmus-mun-recorded` is harvested and committed, V46M handed over. FILED 2026-11-15 from B46's first flights; FIX 1 (relative burn floor) FLOWN 2026-11-16 and worked, still INVALID one step later; FIX 2 AUTHORED 2026-11-16 (spec floor 20 Mm, not flown); low (the forge cannot harvest `minmus-mun-recorded`, so V46M stays unflyable; not a Parsek defect)]
 
 `B46-minmus-mun-transfer` flew twice on 2026-11-15 in the analysis thread's `final-operator` run
 (runs `2026-11-15_1638` and `2026-11-15_1743_a2`) and read INVALID(autopilot-flake) both times:
@@ -505,7 +505,7 @@ mid-orbit at 29.9 Mm altitude, so it lowered the apoapsis too (45.55 -> 30.16 Mm
 40 Mm `transferMinApoapsisMeters` read the finished transfer as an under-burn. Fix 2: the floor
 is 20 Mm, under the burn-point bound (the new apoapsis is at least the old periapsis, ~29 Mm)
 and above the Mun's orbit plus SOI (13.8 Mm); pinned by `test_moon_forge_fixes.B46InwardFloorTests`.
-Closes when B46 flies green and `minmus-mun-recorded` is harvested.
+Closed 2026-11-16: fix 2 flew green (`2026-11-16_0001`), the fixture is harvested.
 
 ## ~~FAR-SWITCH-CASE-B-UNFLOWN~~: no lane flew a far vessel switch while recording, so the commit before stock's reload was never checked in game [CLOSED 2026-11-15: S0.14 LIVE-PROVEN on its fourth flight, `2026-11-15_0011_S0.14-far-switch-merges-before-reload` PASS attempt 1, tier daily; the residue below is the #266 stash, still unreached. FILED 2026-11-14 from a lane gap audit (the vessel-switch stash family). LANE AUTHORED 2026-11-14, branch `item20-switch-pending-merge-lane`: `S0.14-far-switch-merges-before-reload`, operator (flight 1 INVALID on its host, re-hosted on `jool-park-nerv`; flight 2 red on a spec error, fixed; flight 3 PARSEK-FAIL on a product defect, FAR-SWITCH-INTENT-TTL-RACE, now fixed and the lane re-pinned to it); the two-switch reading lane S0.15 flew once and was WITHDRAWN (no committed host). Closes when S0.14 flies green with the fix; the #266 stash stays unreached by any flown lane until a host is harvested; test gap]
 
@@ -1685,7 +1685,9 @@ in parallel in the cloud):
    (Laythe, Vall, Tylo in one tree from `jool-orbit-recorded`) and a loop lane reading
    `ARRIVAL HOLD dest=Jool kind=config moons=3`; a Bop variant must decline with the amber.
    The most expensive flight.
-2. [ ] (AUTHORED 2026-11-14, awaiting the PC batch: forges `B43`-`B46`, loop lanes `V43M`-`V46M`;
+2. [ ] (AUTHORED 2026-11-14. Flown 2026-11-15/16: B44, B46 and V44M green, `laythe-tylo-recorded` and
+   `minmus-mun-recorded` harvested; open: B43 (INVALID, todo B43-VALL-TYLO-FLYBY-SUBSURFACE), B45, V43M,
+   V45M, V46M;
    the offline solver reads Tylo -> Bop as `joint-best-fit` at 7 x P_Bop, so B45 is no longer
    expected to decline.) Moon-to-moon pairs on the new 1.0.2 loop spacing: B43 Vall -> Tylo, B44 Laythe -> Tylo,
    B46 Minmus -> Mun (about 200 Kerbin days between loops), B45 Tylo -> Bop (expected honest
