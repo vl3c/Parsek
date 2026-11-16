@@ -13,8 +13,9 @@
 #                   those three directories (the rationale follows each entry)
 #   <dir>/          prefix: every file underneath, any count (test-only code)
 #
-# One pinned file deletes a WHOLE save folder rather than a file inside it: the NewGame
-# seam verb (automation only) replaces saves/<save> the way stock's New Game overwrite does.
+# One pinned file deletes a WHOLE save folder rather than a file inside it: the new-save core
+# (LogIO/NewSaveStarter.cs, called by the NewGame seam verb and later by the race create)
+# replaces saves/<save> the way stock's New Game overwrite does.
 # Every save that could name a sidecar goes with the folder, so the collector's rule (a file
 # stays while a save names it) has nothing left to protect there.
 #
@@ -31,6 +32,10 @@ Source/Parsek/InGameTests/
 # Generic safe-write helpers (temp + rename of the caller's own target, and the
 # .loadmeta sidecar KSP writes next to a root save).
 Source/Parsek/LogIO/FileIOUtils.cs 12
+# New-save core: stock's New Game overwrite of saves/<save> (files, then directories, keeping
+# a top-level entry the caller names; the NewGame verb keeps Ships/), at the main menu with no
+# game loaded. Callers: the NewGame seam verb, later the race create.
+Source/Parsek/LogIO/NewSaveStarter.cs 4
 # Analyzer codec round trip: its own temp file.
 Source/Parsek/Analyzer/Rules/Inv10CodecRoundtrip.cs 1
 # Career-start snapshot: the root temp written by SaveGame, and its move INTO Parsek/Saves.
@@ -56,6 +61,3 @@ Source/Parsek/Rewind/RewindInvoker.cs 1
 Source/Parsek/Rewind/RewindLauncher.cs 2
 # Harness screenshot command: its own output file.
 Source/Parsek/TestCommands/ParsekTestCommandAddon.CaptureScreenshot.cs 1
-# Harness NewGame command: stock's New Game overwrite of the run's own saves/<save> folder
-# (files, then directories, keeping the top-level Ships/), at the main menu with no game loaded.
-Source/Parsek/TestCommands/ParsekTestCommandAddon.NewGame.cs 4
