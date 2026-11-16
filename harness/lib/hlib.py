@@ -12602,7 +12602,11 @@ PARSEK_FAIL_SUBKINDS: Tuple[str, ...] = (
 # compute_coverage and exits 0), so a scenario quarantined for one Parsek defect would
 # silently absorb an unrelated subject death too. A quarantine must never be able to
 # turn "the flight killed the kerbal it existed to save" green; demoting that requires
-# spelling the subkind out.
+# spelling the subkind out. The gated verifier subkinds (save-structure,
+# render-composition, ghost-lifecycle, race-isolation) are deliberately NOT members:
+# each names a Parsek defect its armed verifier found, the same kind of red a filed
+# bugId quarantines, while mission-outcome is a lost flight subject no single defect
+# id can claim.
 NEVER_BUGID_ONLY_SUBKINDS: Tuple[str, ...] = ("mission-outcome",)
 
 # The keys an `[expectedFail]` table may carry. Checked at validation because a
