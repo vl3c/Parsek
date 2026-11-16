@@ -22,7 +22,7 @@ namespace Parsek.Tests
         // difference between runtimes cannot move it). Recompute by reading the failure
         // message; a change here is a change to a ledger result.
         private const string WalkDigestPin =
-            "bab6e3a7266234d2daeefeb73416eb4685d8ce0aab662ac0e526863c3f15de22";
+            "e08012133d21f26f92fcfa1155b090c2d743bf38b7eef1da2f40e6ce5238f110";
         private const int DigestIterations = 120;
         private const int MirrorIterations = 40;
 

@@ -12,7 +12,7 @@ namespace Parsek.Tests
 
         // Keep this count in sync with CreateAction's switch below so a new
         // GameActionType cannot land without an explicit fuzzer payload.
-        private const int ExpectedGameActionTypeCount = 42;
+        private const int ExpectedGameActionTypeCount = 43;
         private readonly bool priorSuppressLogging;
 
         public RecalculationFuzzerTests()
@@ -354,6 +354,10 @@ namespace Parsek.Tests
                 case GameActionType.VesselRecovered:
                     action.RecoveredVesselName = "Jumping Flea " + iteration;
                     action.RecoveredVesselPid = 100000u + (uint)iteration;
+                    break;
+                case GameActionType.VesselEnded:
+                    action.EndedVesselName = "Jumping Flea " + iteration;
+                    action.EndCause = iteration % 2 == 0 ? VesselEndCause.Destroyed : VesselEndCause.Deleted;
                     break;
                 case GameActionType.ResourceScanUnlocked:
                     action.ScanBodyName = "Minmus";

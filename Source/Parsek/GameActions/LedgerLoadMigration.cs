@@ -97,6 +97,8 @@ namespace Parsek
                 case GameActionType.KerbalRecovered:
                 // VesselRecovered is spawn evidence only; no pool moves.
                 case GameActionType.VesselRecovered:
+                // VesselEnded records a vessel's end outside a recording; no pool moves.
+                case GameActionType.VesselEnded:
                 // ResourceScanUnlocked flips stock scan state; no pool moves.
                 case GameActionType.ResourceScanUnlocked:
                 case GameActionType.FacilityDestruction:
