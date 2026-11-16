@@ -455,7 +455,7 @@ namespace Parsek
                 // half is the one a rover-on-a-background-vessel report lands on.
                 if (!FlightRecorder.ShouldEmitRoboticEvents("BgRecorder", moduleName, key,
                         state.loggedRoboticModuleKeys, part.partInfo?.name, part.persistentId,
-                        moduleIndex, $" (bg vessel {state.vesselPid})"))
+                        moduleIndex, state.vesselPid))
                     continue;
 
                 bool hasPosition = FlightRecorder.TryGetRoboticPositionValue(

@@ -48,12 +48,12 @@ namespace Parsek.Tests
             private readonly Dictionary<ulong, double> lastSample = new Dictionary<ulong, double>();
             private readonly HashSet<ulong> loggedKeys = new HashSet<ulong>();
             private readonly string subsystem;
-            private readonly string ownerSuffix;
+            private readonly uint? backgroundVesselPid;
 
-            internal PollLoop(string subsystem, string ownerSuffix)
+            internal PollLoop(string subsystem, uint? backgroundVesselPid)
             {
                 this.subsystem = subsystem;
-                this.ownerSuffix = ownerSuffix;
+                this.backgroundVesselPid = backgroundVesselPid;
             }
 
             internal List<PartEvent> Run(
@@ -66,7 +66,7 @@ namespace Parsek.Tests
                 {
                     if (!FlightRecorder.ShouldEmitRoboticEvents(
                             subsystem, moduleName, key, loggedKeys, partName, pid, moduleIndex,
-                            ownerSuffix))
+                            backgroundVesselPid))
                         continue;
 
                     events.AddRange(FlightRecorder.CheckRoboticTransition(
@@ -119,7 +119,7 @@ namespace Parsek.Tests
         [Fact]
         public void ActiveRecorder_SuspensionJitterOnATakeoffRoll_EmitsNoEvents_AndLogsTheSkipOnce()
         {
-            var loop = new PollLoop("Recorder", "");
+            var loop = new PollLoop("Recorder", null);
 
             List<PartEvent> events = loop.Run(
                 "ModuleWheelSuspension", "GearMedium", 4001u, 0, SuspensionDeadband,
@@ -137,7 +137,7 @@ namespace Parsek.Tests
         [Fact]
         public void BackgroundRecorder_SuspensionJitter_EmitsNoEvents_AndNamesTheBackgroundVessel()
         {
-            var loop = new PollLoop("BgRecorder", " (bg vessel 77)");
+            var loop = new PollLoop("BgRecorder", 77u);
 
             List<PartEvent> events = loop.Run(
                 "ModuleWheelSuspension", "roverWheel1", 5002u, 1, SuspensionDeadband,
@@ -152,7 +152,7 @@ namespace Parsek.Tests
         [Fact]
         public void RealHinge_StillRecordsStartedSamplesAndStopped_AsBefore()
         {
-            var loop = new PollLoop("Recorder", "");
+            var loop = new PollLoop("Recorder", null);
             // Rest, a 2 deg/frame sweep from 0 to 40, then holding at 40.
             var values = new List<float> { 0f };
             for (int i = 1; i <= 20; i++) values.Add(i * 2f);
@@ -181,7 +181,7 @@ namespace Parsek.Tests
         {
             Assert.False(FlightRecorder.IsRoboticEmissionSkippedModuleName(moduleName));
             Assert.True(FlightRecorder.ShouldEmitRoboticEvents(
-                "Recorder", moduleName, 1UL, new HashSet<ulong>(), "p", 1u, 0, ""));
+                "Recorder", moduleName, 1UL, new HashSet<ulong>(), "p", 1u, 0, null));
             Assert.Empty(logLines);
         }
 
@@ -214,7 +214,7 @@ namespace Parsek.Tests
         public void DerivedWheelVisualSkipLine_KeepsItsWording()
         {
             Assert.False(FlightRecorder.ShouldEmitRoboticEvents(
-                "Recorder", "ModuleWheelMotor", 9UL, new HashSet<ulong>(), "roverWheel2", 9u, 2, ""));
+                "Recorder", "ModuleWheelMotor", 9UL, new HashSet<ulong>(), "roverWheel2", 9u, 2, null));
 
             Assert.Contains(logLines, l => l.Contains("[Recorder]")
                 && l.Contains("Robotics: derived wheel visual not recorded for 'roverWheel2' pid=9 "

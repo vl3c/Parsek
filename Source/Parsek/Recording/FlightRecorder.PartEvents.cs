@@ -1139,12 +1139,14 @@ namespace Parsek
         /// Shared head of both recorders' robotic poll loop: returns false when
         /// <paramref name="moduleName"/> is not recorded (<see cref="IsRoboticEmissionSkippedModuleName"/>),
         /// logging that once per <paramref name="key"/> through <paramref name="loggedKeys"/> so the
-        /// skip is visible in KSP.log without a per-frame line. <paramref name="ownerSuffix"/> is
-        /// empty for the active vessel and names the background vessel otherwise.
+        /// skip is visible in KSP.log without a per-frame line. <paramref name="backgroundVesselPid"/>
+        /// is null for the active vessel and names the background vessel otherwise; the owner
+        /// suffix is formatted only inside the once-per-key branch, so the per-frame poll of a
+        /// skipped module allocates nothing.
         /// </summary>
         internal static bool ShouldEmitRoboticEvents(
             string subsystem, string moduleName, ulong key, HashSet<ulong> loggedKeys,
-            string partName, uint pid, int moduleIndex, string ownerSuffix)
+            string partName, uint pid, int moduleIndex, uint? backgroundVesselPid)
         {
             if (!IsRoboticEmissionSkippedModuleName(moduleName))
                 return true;
@@ -1157,6 +1159,9 @@ namespace Parsek
                 string why = IsWheelSuspensionModuleName(moduleName)
                     ? "suspension travel is below playback visibility; the ghost holds the rest pose"
                     : "derived from ghost ground motion at playback";
+                string ownerSuffix = backgroundVesselPid.HasValue
+                    ? $" (bg vessel {backgroundVesselPid.Value})"
+                    : "";
                 ParsekLog.Verbose(subsystem, $"Robotics: {what} not recorded for " +
                     $"'{partName}' pid={pid} midx={moduleIndex} " +
                     $"module={moduleName}{ownerSuffix}; {why}");
@@ -1533,7 +1538,7 @@ namespace Parsek
                 // module stays in cachedRoboticModules so moduleIndex numbering matches the ghost
                 // builder's; only the emission is skipped. See IsRoboticEmissionSkippedModuleName.
                 if (!ShouldEmitRoboticEvents("Recorder", moduleName, key, loggedRoboticModuleKeys,
-                        part.partInfo?.name, part.persistentId, moduleIndex, ""))
+                        part.partInfo?.name, part.persistentId, moduleIndex, null))
                     continue;
 
                 bool hasMovingSignal = TryGetRoboticMovingState(module, out bool movingSignal);

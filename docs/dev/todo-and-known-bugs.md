@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~RECORDER-GEAR-SUSPENSION-AS-ROBOTICS~~: a plane rolling on its landing gear records the suspension as robotics motion, about 22 start / stop events a second [FILED 2026-11-16 from AIR-1's first flight, runs `2026-11-16_1955` and `_1956_a2` (diagnostics on branch `forge-logs-2026-11-16-air1`, `diag/<runId>/KSP.log.parsek-lines.txt`), by log and code reading. FIXED 2026-11-16, branch `gear-suspension-fix`; xUnit; GS-6 carries two suspension-fed applier tokens that this removes (see Fix), awaiting a PC flight; low (recording size and log volume, plus a wrong ghost gear pose on replay)]
+## ~~RECORDER-GEAR-SUSPENSION-AS-ROBOTICS~~: a plane rolling on its landing gear records the suspension as robotics motion, about 22 start / stop events a second [FILED 2026-11-16 from AIR-1's first flight, runs `2026-11-16_1955` and `_1956_a2` (diagnostics on branch `forge-logs-2026-11-16-air1`, `diag/<runId>/KSP.log.parsek-lines.txt`), by log and code reading. FIXED 2026-11-16, branch `gear-suspension-fix`, landed on `claude/project-thread-vpr29t`; xUnit; GS-6 re-pinned (two suspension-fed applier tokens out, the skip line in), re-flight owed; low (recording size and log volume, plus a wrong ghost gear pose on replay)]
 
 What the log shows: while the stock Mallard rolled on the Runway, the active recorder wrote
 `Part event: RoboticMotionStarted` / `RoboticMotionStopped` for its three gear parts
@@ -81,10 +81,14 @@ over 22 s emits zero events in both recorders' loop and logs the skip once; the 
 over 200; a hinge sweep still records Started / samples / Stopped; playback ignores a legacy
 suspension event and still applies a hinge event). The synthetic `Part Showcase - Wheel Dynamics
 Gear Fixed` row drives moduleIndex 0 (the suspension) and now holds still at playback. HARNESS:
-`GS-6-part-event-applier-sweep` REQUIRES `apply family=RoboticMotionStarted|Stopped surface=robotic
-... applied=[1-9]`, which only its landing legs' `ModuleWheelSuspension` fed (stock-minimal has no
-Breaking Ground part), so those two tokens can no longer match; they are left in place for the
-operator to retire on the next GS-6 flight, not re-pinned here.
+`GS-6-part-event-applier-sweep` required `apply family=RoboticMotionStarted|Stopped surface=robotic
+... applied=[1-9]`, which only its landing legs' `ModuleWheelSuspension` fed: the `Kerbal X Sweep`
+craft carries no Breaking Ground servo (stock-minimal does link SquadExpansion; H32 flies
+`hinge.01`), so those two tokens could no longer match. GS-6 was re-pinned in the same change:
+both tokens deleted and the regression guard `\[Recorder\] Robotics: wheel suspension not recorded
+for 'landingLeg1'` added as an UNFLOWN required token (38 required); a GS-6 re-flight is owed.
+The background recorder formats its `(bg vessel N)` suffix only inside the once-per-key log
+branch (`ShouldEmitRoboticEvents` takes the vessel pid), so the per-frame poll allocates nothing.
 
 ## ~~MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH~~: a looped mission that starts in orbit is timed around a later moon it passes low over [CLOSED 2026-11-16: V43M flew green on its first flight with the fix, `2026-11-16_1803_V43M-vall-tylo-player-loop` PASS attempt 1 (46 s, automation DLL built from 866ac123, sha256 prefix 8dfcbc5e; every verifier green), KSP.log reading launch moon Vall, constraints=3, `Solve: dominant=Tylo method=dominant-intercept residual=2.18 withinTol=yes` and `PhaseLock APPLIED ... P=211926.36 ... zeroDrift=yes scheduleWithinTol=yes`. FILED 2026-11-16 from V43M's first flight `2026-11-16_1726_V43M-vall-tylo-player-loop` (PC, parallel run `moon-loops-2026-11-16d`, DLL unchanged since PR #2638, PARSEK-FAIL(expectation) attempt 1, 58 s; diagnostics on branch `forge-logs-2026-11-16d`, folder `diag/2026-11-16_1726_V43M-vall-tylo-player-loop/`). FIXED 2026-11-16, branch `claude/project-thread-vpr29t`; xUnit; V43M re-pinned, awaiting PC flight; low (the loop still phase-locks, on the wrong launch moon)]
 
