@@ -35,6 +35,10 @@ PROFILE_PORT_BASE: Dict[str, int] = {
     "stock-minimal": 50000,
     "stock-tree": 50020,
     "modded-compat": 50040,
+    # Spike branch only (spike/mp-r0, never merged): the R0 spike instances, plan
+    # docs/dev/plans/multiplayer/r0-spikes.md S0. Hand-launched, never flown by a tier.
+    "spike-r0": 50060,
+    "spike-r0-content": 50080,
 }
 
 # Copies a profile may have (ports for copy k must fit the profile's block).

@@ -1,0 +1,72 @@
+# SPIKE BRANCH ONLY (spike/mp-r0, never merged). R0 spike instance, plan
+# docs/dev/plans/multiplayer/r0-spikes.md task S0: a copy of stock-minimal.toml with
+# its own instanceDir and NO graphics overrides in [settings] (the frame-cost spikes
+# S5 / S8b / S10b / S11 measure on the owner's normal graphics, which this instance
+# inherits from the dev settings.cfg). Dropped keys: FRAMERATE_LIMIT, QUALITY_PRESET,
+# TEXTURE_QUALITY, SHADOWS_QUALITY, AERO_FX_QUALITY, TERRAIN_SHADER_QUALITY,
+# UI_SCALE, FULLSCREEN, SCREEN_RESOLUTION_WIDTH, SCREEN_RESOLUTION_HEIGHT.
+# Provisioned by the owner only:
+#   python provision/provision.py --profile spike-r0 --parsek-dll <spike bin/Debug Parsek.dll>
+schema = 1
+name = "spike-r0"
+baseInstall = "Kerbal Space Program"       # dev install, relative to repo umbrella root
+instanceDir = "automation/spike-r0"        # created by CLONE
+
+# Mods copied verbatim from the dev install's GameData (content-hashed into the
+# manifest). stock-minimal keeps only what the stack needs plus stock.
+#
+# NOTE: Squad + SquadExpansion are NOT listed here -- they are stock asset
+# payloads, JUNCTIONED (not copied) by the CLONE step and recorded as junction
+# targets in the manifest (stock, negligible drift risk). Only non-stock mod
+# folders are dev-sourced copies so a dev-GameData change cannot silently drift
+# an instance.
+devSourcedMods = [
+  "000_Harmony", "ModuleManager.4.2.3.dll",
+  "000_ClickThroughBlocker", "001_ToolbarControl",
+  # KSPCommunityFixes: originally added on the (disproven) theory that it
+  # caused/masked the cold-boot Game.Load NRE (the real cause was the seam not
+  # setting HighLogic.CurrentGame; see LG1). Kept deliberately as stock-bugfix
+  # infrastructure: unattended runs have no operator to click past stock bugs
+  # (e.g. the Bug #4803 camera NRE class), and the dev install runs it too, so
+  # keeping it makes instance behavior match dev behavior.
+  "KSPCommunityFixes",
+  "CommunityDeltaVMaps", "CommunityTechTree", "ProbesBeforeCrew",
+]
+
+# Stack components installed by the script (not from dev GameData): kRPC,
+# TestingTools.dll, MechJeb2, KRPC.MechJeb, Parsek.
+stackComponents = ["krpc", "testingtools", "mechjeb2", "krpc_mechjeb", "parsek"]
+
+# GT-8 verified keys. Delta = key -> pinned value; everything else copied from
+# the dev settings.cfg then overwritten here.
+[settings]
+PHYSICS_FRAME_DT_LIMIT = "0.03"    # tighter physics cap for determinism
+SIMULATE_IN_BACKGROUND = "True"    # MUST stay True: unattended runs lose focus
+AUTOSTRUT_SYMMETRY = "False"       # pin autostrut policy (plan section 2/10)
+CONIC_PATCH_DRAW_MODE = "3"
+CHECK_FOR_UPDATES = "False"        # suppress the launcher/update nag for unattended boots
+# Volumes: unattended automation instance, no background audio
+# (operator request 2026-07-19). MASTER_VOLUME = "0" zeroes the AudioListener
+# and alone silences everything; the other per-channel keys are zeroed too so a
+# later master tweak stays silent.
+#
+# SHIP_VOLUME is the ONE deliberate exception (W2-SHIP-VOLUME-ZERO, 2026-08-05):
+# GhostPlaybackLogic.ComputeGhostAudioVolume multiplies per-source volume by
+# GameSettings.SHIP_VOLUME, and EnforceLoopedAudioPlaybackCap refuses to START a
+# source whose computed volume is 0 - so SHIP_VOLUME = "0" made the ghost-audio
+# start path structurally unreachable on every harness instance and hard-failed
+# GhostAudio's reanchor cell (H30). "1" keeps the instance audibly silent
+# (MASTER_VOLUME owns that) while letting per-source volume math run for real.
+MASTER_VOLUME = "0"
+SHIP_VOLUME = "1"
+AMBIENCE_VOLUME = "0"
+MUSIC_VOLUME = "0"
+UI_VOLUME = "0"
+VOICE_VOLUME = "0"
+# Stock vessel budget and KSC declutter at PLAYER defaults (owner ruling S6 / Q4,
+# 2026-09-26, KSP-SETTINGS-AUDIT-2026-09-26). The dev settings.cfg these deltas
+# overwrite carries 10000 / False, so without these two keys every lane ran with
+# no save-time debris prune and no KSC autoclean, and the ghost-map-vessel budget
+# defect (S5) was invisible to the harness.
+MAX_VESSELS_BUDGET = "250"
+DECLUTTER_KSC = "True"
