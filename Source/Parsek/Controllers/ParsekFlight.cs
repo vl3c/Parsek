@@ -708,6 +708,8 @@ namespace Parsek
             if (string.IsNullOrEmpty(treeRec.LaunchSiteName))
                 treeRec.LaunchSiteName = recorder.LaunchSiteName;
 
+            LiftStampedExplicitEndToTrajectoryEnd(treeRec, "FlushRecorderIntoActiveTreeForSerialization");
+
             // Mark tree recording dirty so the sidecar file is rewritten
             treeRec.FilesDirty = true;
 

@@ -340,9 +340,25 @@ writes `testGame = False`.
   - Post-run: copy `${raceShared}` to `results/<runId>_race/` next to `_save/`, and archive
     a listing (names, sizes, hashes; not the payload) with the run's small artifacts.
   - Pure helpers in hlib: `race_shared_dir(instance, n)`, `is_race_fixture_path`.
+  - As built (2026-11-16, corrected here): `<n>` is always `"0"` today
+    (`hlib.RACE_SHARED_DEFAULT_LEAF`); each install slot is its own instance, so the folder
+    is per slot without a slot number, and stage wipes the whole `<instance>/rs/` for every
+    race lane. `${raceShared}` is a WHOLE-value token (like `${runSave}`), substituted in
+    seam step args only (a `missionParams` value carrying it is refused). The race verbs'
+    folder args are named in `hlib.RACE_FOLDER_ARG_BY_VERB` (`RaceSetup folder`,
+    `RaceCommand path`) ahead of the verbs (T-07, T-08). `validate_spec` takes the
+    committed fixture names as `race_fixtures=` (run.py passes `list_race_fixtures()`,
+    the folders under `harness/fixtures/race/`). The copy to `results/<runId>_race/` is
+    taken at KSP exit in the main thread (before the next lane can stage and wipe), not in
+    the post-quit verify worker; the listing is `results/<runId>_race.listing.txt` (an
+    optional entry of the results archive) and the result JSON carries `raceSnapshot`.
+    No harness path-length validator exists yet; the short leaf is the only mitigation
+    (section 8, path length). T-54 adds `sharedFolder = "pair"` by extending
+    `hlib.validate_race_fixture` and `run.stage_race_shared`; T-06 and T-48 resolve their
+    targets through `hlib.race_shared_dir`.
 - **Proof:** `test_hlib` cells for the validator (accepts, refuses outside paths, refuses an
   unknown fixture), `test_run_smoke` with `_fake_ksp` (staged, snapshotted, wiped before the
-  next lane).
+  next lane). As built: `RaceSharedFolderSpecTests`, `RaceSharedFolderStagingSmokeTests`.
 - **Registers:** `harness/README.md` (fixtures section, snapshot section);
   `docs/dev/autotest-status.md` row for the harness capability.
 - **Size:** M. **Depends on:** nothing. **PC:** no.
@@ -362,14 +378,27 @@ writes `testGame = False`.
 
 - **Change:** new `harness/lib/raceparse.py` (stdlib only):
   - `collect_rival_ids(folder_listing, own_player_dir)`: player ids from player subfolder
-    names, recording ids from payload names `<recordingId>.<hash><suffix>` (6.1).
+    names, recording ids from payload names `<recordingId>.<hash><suffix>` (6.1), and tree
+    ids from `payload/trees/<treeId>.<hash>.cfg`; safe-write leftovers are ignored and
+    names that fit no part of the grammar are reported, not guessed at.
   - `leak_scan(save_dir, rival_ids)`: every file of the produced save except
     `Parsek/Race/` is searched for every rival id; any hit is a finding with file and line.
+    Four leak classes: a file or directory name, a text line (with its ConfigNode path, so
+    a race node or a race key in `persistent.sfs` is named), raw binary bytes (`PSK0`
+    writes its strings uncompressed), and the inflated text of a `PSN0` snapshot (deflated,
+    so a byte scan cannot see inside it). No rival id reads `VACUOUS`, and a save that
+    cannot be read whole (no `persistent.sfs`, an undecodable snapshot) reads `ERROR`,
+    never clean.
   - `save_equivalence(save_a, save_b, mask)`: a canonical diff of two produced saves
     (`persistent.sfs` through `saveparse.parse_sfs`, plus every `Parsek/` file except
-    `Parsek/Race/`), with a mask of keys whose values are compared within a tolerance
-    instead of exactly (UT and UT-derived values). The mask is a module constant pinned by
-    a test, never a spec key.
+    `Parsek/Race/`; `PSN0` snapshots inflated and compared as trees, other binaries byte
+    for byte), with a mask of keys whose values are compared within a tolerance
+    instead of exactly (UT and UT-derived values), or not at all (values that differ by
+    nature; the first is `ParsekScenario`'s `saveStamp`, a fresh GUID on every save). The
+    mask is a module constant pinned by a test, never a spec key. Two things T-27's reading
+    runs will meet that a key mask cannot absorb: recording ids (and so sidecar file names)
+    are fresh per flown session, and `Parsek/GameState/baseline_<UT>.pgsb` carries a UT in
+    its file name.
 - **Proof:** `harness/lib/test_raceparse.py`: a planted id in a sidecar reds; an id under
   `Parsek/Race/` does not; two copies of one committed fixture are equivalent; a one-byte
   change outside the mask reds; a UT change inside tolerance passes and outside reds.

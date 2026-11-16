@@ -81,6 +81,8 @@ FIXTURES_DIR = os.path.join(HARNESS_ROOT, "fixtures")
 # shared-ships.toml's header for why, and hlib.plan_shared_ship_overlay for the
 # pure resolution).
 SHIPS_DIR = os.path.join(FIXTURES_DIR, hlib.SHARED_SHIPS_DIRNAME)
+# Committed race shared folders (`[fixture.race] sharedFolder = "fixtures/race/<n>"`).
+RACE_FIXTURES_DIR = os.path.join(FIXTURES_DIR, "race")
 SHARED_SHIPS_PATH = os.path.join(FIXTURES_DIR, hlib.SHARED_SHIPS_MANIFEST_NAME)
 PROFILES_DIR = os.path.join(PROVISION_DIR, "profiles")
 TOOLS_DIR = os.path.join(HARNESS_ROOT, "tools")
@@ -1870,6 +1872,189 @@ def _inject_postcondition_missing(save_dir: str, preset: str) -> List[str]:
     return missing
 
 
+# ---------------------------------------------------------------------------
+# Race shared folder (multiplayer T-03; contract in hlib "Race shared-folder
+# staging"). Inert for every spec without `[fixture.race]`.
+# ---------------------------------------------------------------------------
+
+# Run-module aliases, so the folder's instance-relative path is spelled by string
+# constants (the pipelined-verify copy-set walk reads paths built from them).
+RACE_SHARED_ROOT_DIRNAME = hlib.RACE_SHARED_ROOT
+RACE_SHARED_LEAF = hlib.RACE_SHARED_DEFAULT_LEAF
+
+# The record a race lane's result carries when no copy was taken.
+_EMPTY_RACE_SNAPSHOT: Dict = {"ran": False, "path": None, "listing": None, "files": 0,
+                              "bytes": 0, "reason": "not-attempted"}
+
+
+def list_race_fixtures() -> List[str]:
+    """The committed race shared-folder fixtures (folder names under
+    fixtures/race/); [] when there are none."""
+    try:
+        return sorted(n for n in os.listdir(RACE_FIXTURES_DIR)
+                      if os.path.isdir(os.path.join(RACE_FIXTURES_DIR, n)))
+    except OSError:
+        return []
+
+
+def _io_path(path: str) -> str:
+    """``path`` for a file-system call. On Windows the extended-length form, so a
+    deep rival folder copies and deletes past MAX_PATH; containment checks always
+    run on the plain path."""
+    if os.name == "nt":
+        return provlib.to_extended_length_path(os.path.abspath(path))
+    return path
+
+
+def _is_plain_child(path: str, parent: str) -> bool:
+    """True when ``path`` is ``parent``/<leaf> on disk, reached through no link or
+    junction (its real path is the parent's real path plus its own name)."""
+    expected = os.path.join(os.path.realpath(parent), os.path.basename(path))
+    return (not os.path.islink(path)
+            and os.path.normcase(os.path.realpath(path)) == os.path.normcase(expected))
+
+
+def _rmtree_contained(path: str, parent: str) -> bool:
+    """Remove the directory ``path``, a plain child of ``parent``, and report
+    whether it is gone. Refuses (False, nothing removed) a path that resolves
+    anywhere else. rmtree never follows a link or junction inside the tree. A
+    read-only file is made writable and retried."""
+    if not os.path.lexists(path):
+        return True
+    if not _is_strictly_inside(path, parent) or not _is_plain_child(path, parent):
+        return False
+
+    def _retry(func, failed, _exc):
+        try:
+            os.chmod(failed, 0o700 if os.path.isdir(failed) else 0o600)
+            func(failed)
+        except OSError:
+            pass
+
+    # onexc is 3.12+; the harness floor is 3.11, where only onerror exists (same
+    # (func, path, exc-or-exc_info) shape, and _retry ignores the third argument).
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(_io_path(path), onexc=_retry)
+    else:
+        shutil.rmtree(_io_path(path), onerror=_retry)
+    return not os.path.lexists(path)
+
+
+def _tree_rows(root: str) -> List[Tuple[str, int, str]]:
+    """(forward-slash relative path, bytes, sha256) of every file under ``root``."""
+    rows: List[Tuple[str, int, str]] = []
+    base = _io_path(root)
+    for dirpath, _dirs, files in os.walk(base):
+        for name in files:
+            full = os.path.join(dirpath, name)
+            rel = os.path.relpath(full, base).replace(os.sep, "/")
+            rows.append((rel, os.path.getsize(full), _sha256_file(full) or ""))
+    return rows
+
+
+def stage_race_shared(spec: Dict, instance_dir: str, logger: HarnessLogger) -> bool:
+    """Stage the lane's race shared folder: wipe ``<instance>/rs/`` and create
+    ``<instance>/rs/<n>`` empty or as a copy of the committed fixture. True on
+    success and for a spec without ``[fixture.race]`` (nothing touched); False,
+    with the cause logged, when the run must stop pre-boot INVALID(staging)."""
+    race = hlib.spec_race_fixture(spec)
+    if race is None:
+        return True
+    source = race.get(hlib.RACE_SHARED_FOLDER_KEY)
+    root = os.path.join(instance_dir, RACE_SHARED_ROOT_DIRNAME)
+    target = os.path.join(root, RACE_SHARED_LEAF)
+    if not _is_strictly_inside(target, instance_dir) \
+            or _is_strictly_inside(target, FIXTURES_DIR):
+        logger.error("Stage", "race shared folder %s is not inside the instance %s, or is "
+                              "inside the committed fixtures; aborting pre-boot (INVALID "
+                              "staging)" % (os.path.realpath(target), instance_dir))
+        return False
+    src = None
+    if source != hlib.RACE_SHARED_EMPTY:
+        if not hlib.is_race_fixture_path(source):
+            logger.error("Stage", "race shared folder: sharedFolder=%r is not %r or %s<name>; "
+                                  "aborting pre-boot (INVALID staging)"
+                         % (source, hlib.RACE_SHARED_EMPTY, hlib.RACE_FIXTURE_PREFIX))
+            return False
+        src = os.path.join(RACE_FIXTURES_DIR, hlib.race_fixture_name(source))
+        if not os.path.isdir(src) or not _is_strictly_inside(src, RACE_FIXTURES_DIR):
+            logger.error("Stage", "race shared folder: fixture %s missing or outside %s; "
+                                  "aborting pre-boot (INVALID staging)" % (src, RACE_FIXTURES_DIR))
+            return False
+    had_prior = os.path.lexists(root)
+    if not _rmtree_contained(root, instance_dir):
+        logger.error("Stage", "race shared folder: could not wipe %s (still present, or it "
+                              "resolves outside the instance); aborting pre-boot (INVALID "
+                              "staging)" % root)
+        return False
+    try:
+        if src is not None:
+            os.makedirs(root)
+            shutil.copytree(_io_path(src), _io_path(target))
+        else:
+            os.makedirs(target)
+        rows = _tree_rows(target)
+    except OSError as exc:
+        logger.error("Stage", "race shared folder: staging %s failed (%s: %s); aborting "
+                              "pre-boot (INVALID staging)" % (target, type(exc).__name__, exc))
+        return False
+    logger.info("Stage", "race shared folder staged path=%s from=%s files=%d bytes=%d "
+                         "wiped-prior=%s"
+                % (os.path.abspath(target), source, len(rows), sum(r[1] for r in rows),
+                   had_prior))
+    return True
+
+
+def _snapshot_race_shared(run_id: str, spec: Dict, instance_dir: str,
+                          logger: HarnessLogger) -> Optional[Dict]:
+    """Copy the lane's race shared folder to ``results/<runId>_race/`` and write its
+    listing to ``results/<runId>_race.listing.txt``. Taken as soon as the lane's KSP
+    exits, before the next lane stages over the instance, in both the serial and
+    the pipelined loop. None for a spec without ``[fixture.race]``; otherwise the
+    record for the result's ``raceSnapshot`` key. Verdict-neutral: a failure is a
+    Warn with ``ran=False``."""
+    if hlib.spec_race_fixture(spec) is None:
+        return None
+    snap = dict(_EMPTY_RACE_SNAPSHOT)
+    dst = os.path.join(RESULTS_DIR, run_id + hlib.RACE_SNAPSHOT_DIR_SUFFIX)
+    tmp = dst + SAVE_SNAPSHOT_TMP_SUFFIX
+    try:
+        src = os.path.join(instance_dir, RACE_SHARED_ROOT_DIRNAME, RACE_SHARED_LEAF)
+        if not os.path.isdir(src):
+            snap["reason"] = "no-shared-folder"
+            logger.info("Snapshot", "race shared-folder snapshot run=%s result=skipped "
+                                    "reason=no-shared-folder" % run_id)
+            return snap
+        os.makedirs(RESULTS_DIR, exist_ok=True)
+        for stale in (tmp, dst):
+            if os.path.lexists(stale) and not _rmtree_contained(stale, RESULTS_DIR):
+                raise OSError("could not clear %s" % stale)
+        shutil.copytree(_io_path(src), _io_path(tmp))
+        os.rename(tmp, dst)
+        rows = _tree_rows(dst)
+        listing = os.path.join(RESULTS_DIR, run_id + hlib.RACE_LISTING_SUFFIX)
+        with open(listing, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(hlib.format_race_listing(run_id, rows))
+        snap.update({"ran": True, "path": os.path.basename(dst),
+                     "listing": os.path.basename(listing), "files": len(rows),
+                     "bytes": sum(r[1] for r in rows), "reason": "copied"})
+        logger.info("Snapshot", "race shared-folder snapshot run=%s result=copied files=%d "
+                                "bytes=%d path=%s" % (run_id, snap["files"], snap["bytes"], dst))
+    except Exception as exc:  # noqa: BLE001 - failure isolation by design
+        snap.update({"ran": False, "path": None, "listing": None, "files": 0, "bytes": 0,
+                     "reason": "copy-failed %s" % type(exc).__name__})
+        logger.warn("Snapshot", "race shared-folder snapshot FAILED run=%s (%s: %s); verdict "
+                                "unaffected" % (run_id, type(exc).__name__, exc))
+        if os.path.lexists(tmp):
+            _rmtree_contained(tmp, RESULTS_DIR)
+    try:
+        _prune_race_snapshot_dirs(os.path.basename(dst), logger)
+    except Exception as exc:  # noqa: BLE001 - failure isolation by design
+        logger.warn("Snapshot", "race-snapshot retention FAILED run=%s (%s: %s); verdict "
+                                "unaffected" % (run_id, type(exc).__name__, exc))
+    return snap
+
+
 def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
                   logger: HarnessLogger) -> Tuple[bool, str, str]:
     """Stage the scenario's fixture. Returns (ok, run_save_name, subkind); subkind
@@ -1993,6 +2178,12 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
     # drive root - an UnauthorizedAccessException no player can reach.
     for facility_dir in ("VAB", "SPH"):
         os.makedirs(os.path.join(target_save, "Ships", facility_dir), exist_ok=True)
+
+    # (2d) the race shared folder (`[fixture.race]`, multiplayer T-03). Before the
+    # injector, so a refused folder stops the run before the slow step. A spec
+    # without the block touches nothing here.
+    if not stage_race_shared(spec, instance_dir, logger):
+        return False, run_save_name, "staging"
 
     # (3) inject synthetic recordings when requested (recording OFF by construction).
     #
@@ -2469,6 +2660,9 @@ class DriveResult:
         # Set instead when the channel could not be read/parsed, so an unreadable channel
         # records a GAP rather than being indistinguishable from "the mission wrote nothing".
         self.mid_mission_seam_read_error: Optional[str] = None
+        # Multiplayer T-03: the race shared-folder snapshot record, taken right after
+        # the KSP exits (run_attempt); None for a spec without [fixture.race].
+        self.race_snapshot: Optional[Dict] = None
 
 
 def _read_mission_result(result_path: str) -> Optional[Dict]:
@@ -2856,6 +3050,9 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
     tail_plan: Optional[hlib.UnmetTailPlan] = None
     tail_reason = hlib.TAIL_SKIP_REASON_MISSION_UNMET
     response_tail = ResponseTail(responses_path)
+    # ${raceShared}: the lane's staged race folder, absolute (multiplayer T-03).
+    race_shared_value = (os.path.abspath(hlib.race_shared_dir(instance_dir))
+                         if hlib.spec_race_fixture(spec) is not None else None)
 
     for i, step in enumerate(steps):
         step_id = hlib.step_id_for_index(i)
@@ -2897,10 +3094,14 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
             continue
         verb = step.get("cmd", "")
         args = dict(step.get("args", {}) or {})
-        # Substitute ${runSave} before the line hits the channel (design [driver]).
+        # Substitute ${runSave} before the line hits the channel (design [driver]),
+        # and ${raceShared} with the lane's staged race folder (validate_spec admits
+        # it only in a spec that declares [fixture.race]).
         for k, v in list(args.items()):
             if v == hlib.RUN_SAVE_TOKEN:
                 args[k] = run_save_name
+            elif v == hlib.RACE_SHARED_TOKEN and race_shared_value is not None:
+                args[k] = race_shared_value
         record_step = {"id": step_id, "cmd": verb, "expect": step.get("expect", "OK")}
         result.steps_with_ids.append(record_step)
 
@@ -4977,6 +5178,9 @@ def run_attempt(spec: Dict, instance_dir: str, umbrella_root: str, runtime: Runt
         drive = drive_seam(spec, instance_dir, run_save_name, proc, runtime, logger,
                            run_budget, mission_ctx=mission_ctx, run_id=run_id,
                            boot_watch=boot_watch)
+        # The race shared folder, copied out before the next lane can stage over it
+        # (both loops; the pipelined copy set below does not carry it).
+        drive.race_snapshot = _snapshot_race_shared(run_id, spec, instance_dir, logger)
 
         # ---- POST-QUIT -----------------------------------------------------
         # The lane's KSP has exited. Pipelined: copy what the post-quit steps read
@@ -5450,12 +5654,12 @@ def _snapshot_produced_save(run_id: str, spec: Dict, verdict: str,
     return snap
 
 
-def _scenario_id_of_snapshot_dir(name: str) -> str:
-    """The scenario a ``<runId>_save`` dir belongs to, read from that run's own
-    result JSON. Authoritative rather than parsed out of the run-id grammar; an
-    unreadable / absent record returns "" and the retention pass then buckets
-    the dir alone, so it is never pruned by another scenario's budget."""
-    run_id = name[:-len(SAVE_SNAPSHOT_DIR_SUFFIX)]
+def _scenario_id_of_snapshot_dir(name: str, suffix: str = SAVE_SNAPSHOT_DIR_SUFFIX) -> str:
+    """The scenario a ``<runId>_save`` (or ``<runId><suffix>``) dir belongs to, read
+    from that run's own result JSON. Authoritative rather than parsed out of the
+    run-id grammar; an unreadable / absent record returns "" and the retention pass
+    then buckets the dir alone, so it is never pruned by another scenario's budget."""
+    run_id = name[:-len(suffix)]
     try:
         with open(os.path.join(RESULTS_DIR, "%s.json" % run_id), "r",
                   encoding="utf-8") as fh:
@@ -5530,6 +5734,43 @@ def _prune_save_snapshot_dirs(protect_name: str, logger: HarnessLogger) -> None:
                                 "(a run killed mid-copy leaves one): %s"
                     % (len(swept),
                        ", ".join(swept[:5]) + (" ..." if len(swept) > 5 else "")))
+
+
+def _prune_race_snapshot_dirs(protect_name: str, logger: HarnessLogger) -> None:
+    """Retention for ``results/<runId>_race`` dirs (multiplayer T-03): the produced-
+    save rules (hlib.select_save_snapshot_dirs_to_prune, newest 3 per scenario, the
+    current run's kept) and the stale ``_race.harness-tmp`` sweep. Touches nothing
+    under results/ but those two name shapes. Skipped in a ``--slot`` child."""
+    if _CTX.slot_mode or not os.path.isdir(RESULTS_DIR):
+        return
+    suffix = hlib.RACE_SNAPSHOT_DIR_SUFFIX
+    entries = []
+    names = []
+    for name in os.listdir(RESULTS_DIR):
+        path = os.path.join(RESULTS_DIR, name)
+        if not os.path.isdir(path):
+            continue
+        names.append(name)
+        if name.endswith(suffix) and len(name) > len(suffix):
+            try:
+                mtime = os.path.getmtime(path)
+            except OSError:
+                continue
+            entries.append((name, _scenario_id_of_snapshot_dir(name, suffix), mtime))
+    removed = []
+    for name in hlib.select_save_snapshot_dirs_to_prune(entries, protect_name=protect_name):
+        if name.endswith(suffix) and _rmtree_contained(os.path.join(RESULTS_DIR, name),
+                                                       RESULTS_DIR):
+            removed.append(name)
+    for name in hlib.select_stale_save_snapshot_tmp_dirs_to_sweep(
+            names, protect_name=protect_name + SAVE_SNAPSHOT_TMP_SUFFIX, dir_suffix=suffix):
+        if _rmtree_contained(os.path.join(RESULTS_DIR, name), RESULTS_DIR):
+            removed.append(name)
+    if removed:
+        logger.info("Snapshot", "retention removed %d old race shared-folder snapshot(s) "
+                                "(keep newest %d per scenario): %s"
+                    % (len(removed), hlib.SAVE_SNAPSHOT_KEEP_PER_SCENARIO,
+                       ", ".join(removed[:5]) + (" ..." if len(removed) > 5 else "")))
 
 
 _contact_sheet_module = None
@@ -5952,6 +6193,7 @@ def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict
         # attempt's result), then enriched and re-written below.
         "artifacts": dict(_EMPTY_ARTIFACTS),
     }
+    _add_race_snapshot_field(result, spec, drive)
     write_result(result, logger)
     # HARNESS-PRODUCED-SAVE-CLOBBERED-BY-SIBLING-RUN: take the run's own copy of
     # the produced save while the machine lock is still held. Verdict-neutral.
@@ -5967,6 +6209,14 @@ def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict
     # written record. Failure-isolated; never moves the verdict.
     _generate_contact_sheet(run_id, logger)
     return result
+
+
+def _add_race_snapshot_field(result: Dict, spec: Dict, drive) -> None:
+    """Multiplayer T-03: a spec with [fixture.race] carries ``raceSnapshot``; every
+    other run's record is unchanged."""
+    if hlib.spec_race_fixture(spec) is not None:
+        snap = drive.race_snapshot if drive is not None else None
+        result["raceSnapshot"] = dict(snap or _EMPTY_RACE_SNAPSHOT)
 
 
 def _extract_collect_path(stdout: str) -> Optional[str]:
@@ -6546,7 +6796,8 @@ def _run_invocation(args, runtime, umbrella_root: str, logger, selected_ids: Lis
         dry_errors = 0
         for spec in selected:
             schemas, schema_errors = resolve_mission_schemas(spec, logger)
-            validation = hlib.validate_spec(spec, registry, dry_bug_ids, schemas)
+            validation = hlib.validate_spec(spec, registry, dry_bug_ids, schemas,
+                                            race_fixtures=list_race_fixtures())
             for w in validation.warnings:
                 logger.warn("Select", "spec warning id=%s: %s" % (spec.get("id"), w))
             problems = list(validation.errors) + schema_errors
@@ -6703,6 +6954,7 @@ def sweep_results_dir(logger) -> None:
         return
     _prune_shots_dirs("", logger)
     _prune_save_snapshot_dirs("", logger)
+    _prune_race_snapshot_dirs("", logger)
     stale_copies = os.path.join(RESULTS_DIR, POST_QUIT_COPY_DIRNAME)
     if os.path.isdir(stale_copies):
         logger.info("Pipeline", "sweep: removing %d stale post-quit copy dir(s): %s"
@@ -6866,7 +7118,8 @@ def _run_selection(selected, specs, registry, umbrella_root, args, runtime, logg
         # mission .py is a spec-invalid INVALID (no KSP boot for a mission that
         # cannot run). Non-autopilot specs get (None, []) -- unchanged seam path.
         mission_schemas, mission_errors = resolve_mission_schemas(spec, logger)
-        validation = hlib.validate_spec(spec, registry, bug_ids, mission_schemas)
+        validation = hlib.validate_spec(spec, registry, bug_ids, mission_schemas,
+                                        race_fixtures=list_race_fixtures())
         for w in validation.warnings:
             logger.warn("Select", "spec warning id=%s: %s" % (spec.get("id"), w))
         all_errors = list(validation.errors) + mission_errors
@@ -7302,7 +7555,8 @@ def _run_selection_pipelined(selected, registry, bug_ids, umbrella_root, args, r
             if kind == "new":
                 spec = item
                 mission_schemas, mission_errors = resolve_mission_schemas(spec, logger)
-                validation = hlib.validate_spec(spec, registry, bug_ids, mission_schemas)
+                validation = hlib.validate_spec(spec, registry, bug_ids, mission_schemas,
+                                                race_fixtures=list_race_fixtures())
                 for w in validation.warnings:
                     logger.warn("Select", "spec warning id=%s: %s" % (spec.get("id"), w))
                 all_errors = list(validation.errors) + mission_errors
@@ -7447,6 +7701,7 @@ def _write_selection_refusal_result(spec, subkind, note, logger) -> None:
         "snapshot": dict(_EMPTY_SNAPSHOT),
         "artifacts": dict(_EMPTY_ARTIFACTS),
     }
+    _add_race_snapshot_field(result, spec, None)
     write_result(result, logger)
     _generate_contact_sheet(result["runId"], logger)
 
@@ -7496,6 +7751,7 @@ def _write_invalid_spec_result(spec, errors, runtime, logger) -> None:
         "snapshot": dict(_EMPTY_SNAPSHOT),
         "artifacts": dict(_EMPTY_ARTIFACTS),
     }
+    _add_race_snapshot_field(result, spec, None)
     write_result(result, logger)
     _generate_contact_sheet(result["runId"], logger)
 

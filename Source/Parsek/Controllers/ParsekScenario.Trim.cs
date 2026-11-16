@@ -33,7 +33,9 @@ namespace Parsek
                 mutated = true;
             }
 
-            // A recording still open at the cutoff continues from it, so its end is the cutoff.
+            // A recording still open at the cutoff continues from it, so its end is the cutoff
+            // (the recorder's flush lifts it as the flight goes on:
+            // ParsekFlight.LiftStampedExplicitEndToTrajectoryEnd).
             // One closed before the cutoff (a terminal, or a split it handed on at) keeps its own
             // end: stamping the cutoff would make it read as existing until the resume moment.
             if (rec.ExplicitEndUT > cutoffUT

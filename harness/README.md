@@ -30,6 +30,17 @@ Everything the harness fetches or generates lives UNDER `harness/`:
   min / max / threshold bounds with a one-physics-frame allowance of
   `0.02 * rate`, the rate per gap read off the recorder's `warpRuns=` token on
   `TrackSection closed:` - see "Recording under physics warp" below),
+  + `raceparse.py`, the pure race evaluator (multiplayer plan T-05; its
+  `raceParse` verifier row lands with T-38): `collect_rival_ids` reads the
+  rival player, recording and tree ids off a shared-folder listing,
+  `leak_scan` searches every file of a produced save outside `Parsek/Race/`
+  for them (file names, text with the ConfigNode path of the line, raw binary
+  bytes, and the inflated text of `PSN0` snapshots), and `save_equivalence`
+  diffs two produced saves canonically under the pinned `EQUIVALENCE_MASK`
+  (UT values within a tolerance, values that differ by nature ignored, each
+  entry with its written reason; owner question Q-13 option (a)); statuses
+  PASS / FAIL / VACUOUS (no rival id) / ERROR (a save that cannot be read
+  whole never reads clean),
   + `rendercompose.py`, the M-A7 pure render-composition parser / clock-math
   re-derivation / RC-* rule set behind the `renderCompose` verifier row
   (`[expectations.renderComposition]`, evaluated over the produced
@@ -75,7 +86,8 @@ Everything the harness fetches or generates lives UNDER `harness/`:
   exclusive-create, never reaped) so two CONCURRENT invocations cannot both take
   a free id: a second run of one scenario inside the same minute
   takes `_run2` and run.py Warns naming both ids -- it never overwrites an
-  earlier run's result JSON, `_shots` dir, `_save` snapshot or contact sheet.
+  earlier run's result JSON, `_shots` dir, `_save` snapshot, `_race` snapshot
+  or contact sheet.
   `_a<N>` is a
   different axis: the `[retry] policy` re-flying ONE run, which deliberately
   shares the stem and is distinguished by the attempt suffix.
@@ -1489,6 +1501,33 @@ spares the current run's own tmp name, since the pass can run while that copy is
 still being written. Between the two, the retention pass touches nothing under
 `results/` but `*_save/` and `*_save.harness-tmp/`.
 
+### The race shared-folder snapshot (`results/<runId>_race/`)
+
+A spec with a `[fixture.race]` block (see "The race shared folder" under the
+fixture section) also leaves the shared folder the lane's KSP wrote, copied to
+
+```
+results/<runId>_race/                 the folder verbatim (gitignored)
+results/<runId>_race.listing.txt      one line per file: sha256, bytes, path
+```
+
+The copy is taken in the MAIN thread as soon as the seam returns (KSP has quit),
+before the post-quit verify worker starts and before the next lane stages,
+because staging the next race lane wipes `<instance>/rs/` and a pipelined lane's
+verifiers run after that. A later evaluator (T-38 and on) reads
+`results/<runId>_race/`, never the instance. The listing's first line is
+`# parsek race shared-folder listing v1`, the second `# run=<runId> files=N
+bytes=M`, then `<sha256> <bytes> <path>` sorted by forward-slash path
+(`hlib.format_race_listing`). The result JSON carries `raceSnapshot: {ran, path,
+listing, files, bytes, reason}` with reason `copied`, `no-shared-folder` (the
+folder was gone at KSP exit), `copy-failed <Exception>` or `not-attempted`; a
+spec without the block has no `raceSnapshot` key at all. Like the save snapshot
+the copy lands in `<runId>_race.harness-tmp` and is renamed, a failure is one
+`[Warn][Snapshot]` line and never moves the verdict, and retention keeps the
+newest 3 `*_race` dirs per scenario and sweeps orphaned `_race.harness-tmp` dirs
+(skipped under a parallel-runner slot, like the other results sweeps). The
+listing goes to the results archive; the payload does not.
+
 ## The machine lock (one PC owner at a time)
 
 The machine has ONE owner at a time: a serial `run.py`, a
@@ -2234,7 +2273,10 @@ lifts out the `[Lane]`-bracketed flights, finds the Cost block, and puts back th
 flights whose run ids that block wrote, so the slice still holds the whole
 scenario and nothing of its neighbours. The DLL sha256 a pipelined run archives is
 the one hashed when that lane's KSP exited.
-Screenshots, saves and contact sheets are NOT archived. `manifest.json` records the worktree, its git
+A race lane (`[fixture.race]`) also archives `<runId>_race.listing.txt`
+(names, sizes and sha256 of the shared folder, not its payload); the entry is
+optional, so a lane without one lists nothing as missing.
+Screenshots, saves, race folders and contact sheets are NOT archived. `manifest.json` records the worktree, its git
 HEAD, the deployed Parsek.dll sha256 and every file's archived and source size.
 Missing optional files are listed there, not fatal. The copy runs after the
 scenario's `[Cost]` line (so the archived harness log holds its retry and cost
@@ -2727,6 +2769,40 @@ Two rules when adding or harvesting a fixture:
 - **Craft used by exactly one fixture?** It stays physically in that fixture and is
   NOT listed (`gloops-airshow/Ships/VAB/Auto-Saved Ship.craft` is the only one
   today). The same test reds a library craft that drops to one consumer.
+
+### The race shared folder (`[fixture.race]`)
+
+A multiplayer race lane exchanges files with its rival through one shared
+folder. The spec declares it, and the staged folder is the only one a race verb
+may name:
+
+```toml
+[fixture.race]
+sharedFolder = "empty"                  # or "fixtures/race/<name>"
+```
+
+- `"empty"` stages an empty folder; `"fixtures/race/<name>"` copies the committed
+  folder `harness/fixtures/race/<name>/` in (a bare name of letters, digits, `-`
+  and `_`; no `..`, no backslash, no absolute path, no nesting). An unknown name
+  is refused by the validator (`hlib.validate_race_fixture`, called from
+  `validate_spec` with the committed set `run.list_race_fixtures()`).
+- The placeholder `${raceShared}` is substituted as a WHOLE seam-step arg value
+  with the absolute path of `<instance>/rs/0` (`hlib.race_shared_dir`). It is
+  short on purpose (Windows path length), inside the target instance (the
+  ownership boundary above), and per instance, so every install slot has its own
+  and two parallel lanes never share one. The folder arg of a race verb
+  (`hlib.RACE_FOLDER_ARG_BY_VERB`: `RaceSetup folder=`, `RaceCommand path=`)
+  accepts only `${raceShared}`; the token needs the block, and a mission param
+  may not carry it (only seam step args are substituted).
+- `stage_fixture` (step 2d, after the save template) wipes the whole
+  `<instance>/rs/` and stages `rs/0` for EVERY race lane, so no lane reads an
+  earlier lane's folder. It validates and locates the fixture before it wipes,
+  refuses a target outside the instance or inside `harness/fixtures/`, refuses
+  to delete through a link or junction, uses extended-length paths on Windows,
+  and logs one `[Stage] race shared folder staged path=... from=... files=N
+  bytes=M wiped-prior=...` line. A spec without the block never touches `rs/`.
+- What KSP left in the folder is snapshotted at KSP exit: see "The race
+  shared-folder snapshot" under the produced-save snapshot section.
 
 ### Operator-local fixture saves (`fixtures/local-saves/`)
 
