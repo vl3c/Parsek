@@ -72,7 +72,7 @@ spike's author picks one and adds its `SpikeRegistry` line.
 | S8a | `spikes/r0/S8/fileaccess.py` (no game) | script | none | none |
 | S8b | `InGameTests/Spikes/S8/SpikeS8Io.cs` | `SpikeS8`: `MainThreadRead` | none named | `spike-r0` |
 | S9 | `InGameTests/Spikes/S9/SpikeS9Cheats.cs` | hand-applied postfixes, 1 Hz poll | plan names no id (`S9` is the natural one) | `spike-r0` |
-| S10a | `Source/Parsek.Tests/Spikes/RelativeCopyCensusTests.cs` (manual xUnit) | xUnit | `PARSEK_SPIKE_S10_SAVE`, `PARSEK_SPIKE_OUT` | none (cloud or PC) |
+| S10a | `Source/Parsek.Tests/Spikes/RelativeCopyCensusTests.cs` (manual xUnit; pure part in `RelativeCopyCensus.cs`), `spikes/r0/S10/summarize_census.py`, PC run sheet `spikes/r0/S10/PC-RUN.md` | xUnit `Manual_RelativeCopyCensus_WritesCsv` | `PARSEK_SPIKE_S10_SAVE` (one copy or several, `;`), `PARSEK_SPIKE_OUT` | none (cloud or PC) |
 | S10b | `InGameTests/Spikes/S10/SpikeS10Flatten.cs` | `SpikeS10` | `S10b` | `spike-r0` |
 | S11 | `InGameTests/Spikes/S11/SpikeS11Cost.cs` | `SpikeS11`: `GhostCostSweep` | none named | `spike-r0` |
 | S12 | `InGameTests/Spikes/S12/SpikeS12Crypto.cs` | `SpikeS12`: `CryptoProbe` | none named | `spike-r0` |
