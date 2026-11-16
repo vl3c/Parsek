@@ -179,8 +179,9 @@ wrong.
    two ends exist (design-corrections DC-135 to DC-138).
 
 10. **One long-lived branch** (owner, 2026-11-15). All work of this plan lands on the branch
-    `multiplayer`, cut from main 2d96af7a on 2026-11-16 at 20:45Z, when the owner confirmed
-    the branch and merging reviewed, green task pull requests into it. A task works on a
+    `multiplayer`, cut from main 2d96af7a on 2026-11-16 at 20:45Z, after the owner answered
+    the decision card "Yes, cut it and merge into it" at 20:41Z (the card's option: cut the
+    branch, and merge reviewed, green task pull requests into it). A task works on a
     sub-branch cut from `multiplayer` and opens its pull request against `multiplayer`.
     Nothing of this plan reaches main until one final pull request merges `multiplayer` into
     main. That holds for the prerefactors, the harness and tooling tasks and the spike tooling
