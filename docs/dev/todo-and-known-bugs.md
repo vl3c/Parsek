@@ -1912,7 +1912,18 @@ in parallel in the cloud):
    self-checked), the nose wheel steers and the ground guard measures until airborne is
    sustained, the AutoPilot engages only then; a take-off give-up re-sends the throttle cut
    until the telemetry reads it; the runner's readback waits a tick and re-asserts once before
-   warning. Next: the reading flight.)
+   warning. THIRD FLIGHT 2026-11-16 DRIVER-INVALID: runs `2026-11-16_2126` and `_2128_a2`
+   (diagnostics on branch `forge-logs-2026-11-16-air1c`), MISSION-ASSERT-FAIL vessel-lost in CLIMB
+   both times, no Parsek verdict. The takeoff worked (centreline held, elevator 0.6 tapering to
+   0.11, pitch 6-7 deg, lift-off at 64 m/s, airborne sustained at 16.9 m and 73 m/s, roll 0.03-0.08
+   deg hands off, SAS off). The AutoPilot engaged at the climb hand-over (pitch 10 / heading 090 /
+   roll 0) rolled the plane left at once: +0.5 s roll -2, +1.5 s roll -38 heading 072, +2.5 s roll
+   -100 pitch -18, +3.5 s inverted, lost at UT ~64 from a highest 38.7 m; the retry repeated it
+   within a degree. Re-written the same day (harness only, not re-flown): the AutoPilot is not
+   engaged anywhere in AIR-1; from lift-off the mission flies raw inputs, the elevator from a
+   pitch-error P-D loop (the rotation's gains), the ailerons from a bank-error P-D loop with a
+   self-checking sign (`rollInputSign`), heading changes by banking toward the bearing with the
+   nose a little higher in the bank, rudder neutral, SAS off. Next: the reading flight.)
    Aircraft: no lane flies a plane (BAY-1's never moves). A runway takeoff, a circuit and a
    landing, then its ghost replays at the Space Center. Open after AIR-2: no in-game check reads a
    KSC ghost's position DURING its replay (AIR-2 reads the KSC log lines and, by position, only the

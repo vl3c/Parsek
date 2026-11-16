@@ -810,7 +810,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| AIR-1-runway-circuit-splashdown | operator | gs1-two-stage-pad | air1_runway_circuit | Kerbin | - | - | first and second flights driver-INVALID;... |
+| AIR-1-runway-circuit-splashdown | operator | gs1-two-stage-pad | air1_runway_circuit | Kerbin | - | - | first three flights driver-INVALID; AutoP... |
 | AIR-2-runway-circuit-ksc-ghost | pending-fixture | air-circuit-recorded | seam | Kerbin | rewind-to-launch, warp | LeafVesselPlacement | NEVER FLOWN, waits on AIR-1's harvest |
 
 ### AJ (1)
