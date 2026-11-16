@@ -56,7 +56,8 @@ whole EVA in one section; the fix for each; the no-open-section no-op; and a sou
 that the close precedes `BuildCaptureRecording` in the switch stop). Lane that would prove it:
 EVA-2-orbital-board or EVA-1-pad-flag with a report-only check that the EVA leg's last section
 ends at its board UT and no flat point lies outside a section.
-## RECORDER-GEAR-SUSPENSION-AS-ROBOTICS: a plane rolling on its landing gear records the suspension as robotics motion, about 22 start / stop events a second [FILED 2026-11-16 from AIR-1's first flight, runs `2026-11-16_1955` and `_1956_a2` (diagnostics on branch `forge-logs-2026-11-16-air1`, `diag/<runId>/KSP.log.parsek-lines.txt`), by log and code reading. OPEN; no C# change yet; low (recording size and log volume; nothing renders wrong)]
+
+## ~~RECORDER-GEAR-SUSPENSION-AS-ROBOTICS~~: a plane rolling on its landing gear records the suspension as robotics motion, about 22 start / stop events a second [FILED 2026-11-16 from AIR-1's first flight, runs `2026-11-16_1955` and `_1956_a2` (diagnostics on branch `forge-logs-2026-11-16-air1`, `diag/<runId>/KSP.log.parsek-lines.txt`), by log and code reading. FIXED 2026-11-16, branch `gear-suspension-fix`, landed on `claude/project-thread-vpr29t`; xUnit; GS-6 re-pinned (two suspension-fed applier tokens out, the skip line in), re-flight owed; low (recording size and log volume, plus a wrong ghost gear pose on replay)]
 
 What the log shows: while the stock Mallard rolled on the Runway, the active recorder wrote
 `Part event: RoboticMotionStarted` / `RoboticMotionStopped` for its three gear parts
@@ -94,6 +95,37 @@ from a HELD reference, a Stopped only after it stayed within the deadband for a 
 0.5 s), and a coarser suspension deadband (centimetres, not 2.5 mm). Either way: an xUnit cell
 over `CheckRoboticTransition` fed a 1 mm frame-to-frame jitter must emit no events, and the next
 AIR-1 flight's KSP.log should show zero `RoboticMotion*` lines for the gear parts.
+
+Playback, read while fixing: the events were NOT harmless. The ghost builder gives
+`ModuleWheelSuspension` a `Linear` robotic info on the `suspensionTransformName` transform, and
+`GhostPlaybackLogic.ApplyRobotic*` posed it at `stowedPos + up * value`. Decompiled,
+`suspensionPos` is `suspensionTransform.localPosition` (sentinel `-Vector3.one` before the first
+update), so `value` is the length of an absolute position (1.34 .. 1.51 on the GearMedium, 1.73
+for the sentinel), not a travel: every replayed Started lifted the ghost's wheel by about its own
+position length. So a debounce (option 2) would have kept a wrong pose, and option (1) is the fix.
+
+Fix: option (1), recorder and playback. `FlightRecorder.IsWheelSuspensionModuleName` joins the
+derived wheel visuals in the shared emission gate `IsRoboticEmissionSkippedModuleName`, applied by
+both recorders through one `ShouldEmitRoboticEvents` head (one `Robotics: wheel suspension not
+recorded for ...` Verbose line per module key, `[Recorder]` or `[BgRecorder] ... (bg vessel N)`;
+the derived-visual line keeps its wording). The module stays in `CacheRoboticModules` /
+`TryBuildRoboticInfos`, so the robotic module index keeps its lockstep. Playback:
+`ApplyRoboticEvent` returns the new outcome `IgnoredRecordedSignal` (`reason=ignored-recorded-signal`
+on the applier line) for a suspension info, so legacy recordings keep their events on disk but the
+ghost gear stays at its rest pose. Breaking Ground hinges, pistons, rotation servos and rotors go
+through the unchanged path. Tests: `GearSuspensionRoboticGateTests` (an AIR-1-shaped 1 mm jitter
+over 22 s emits zero events in both recorders' loop and logs the skip once; the ungated core emits
+over 200; a hinge sweep still records Started / samples / Stopped; playback ignores a legacy
+suspension event and still applies a hinge event). The synthetic `Part Showcase - Wheel Dynamics
+Gear Fixed` row drives moduleIndex 0 (the suspension) and now holds still at playback. HARNESS:
+`GS-6-part-event-applier-sweep` required `apply family=RoboticMotionStarted|Stopped surface=robotic
+... applied=[1-9]`, which only its landing legs' `ModuleWheelSuspension` fed: the `Kerbal X Sweep`
+craft carries no Breaking Ground servo (stock-minimal does link SquadExpansion; H32 flies
+`hinge.01`), so those two tokens could no longer match. GS-6 was re-pinned in the same change:
+both tokens deleted and the regression guard `\[Recorder\] Robotics: wheel suspension not recorded
+for 'landingLeg1'` added as an UNFLOWN required token (38 required); a GS-6 re-flight is owed.
+The background recorder formats its `(bg vessel N)` suffix only inside the once-per-key log
+branch (`ShouldEmitRoboticEvents` takes the vessel pid), so the per-frame poll allocates nothing.
 
 ## ~~MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH~~: a looped mission that starts in orbit is timed around a later moon it passes low over [CLOSED 2026-11-16: V43M flew green on its first flight with the fix, `2026-11-16_1803_V43M-vall-tylo-player-loop` PASS attempt 1 (46 s, automation DLL built from 866ac123, sha256 prefix 8dfcbc5e; every verifier green), KSP.log reading launch moon Vall, constraints=3, `Solve: dominant=Tylo method=dominant-intercept residual=2.18 withinTol=yes` and `PhaseLock APPLIED ... P=211926.36 ... zeroDrift=yes scheduleWithinTol=yes`. FILED 2026-11-16 from V43M's first flight `2026-11-16_1726_V43M-vall-tylo-player-loop` (PC, parallel run `moon-loops-2026-11-16d`, DLL unchanged since PR #2638, PARSEK-FAIL(expectation) attempt 1, 58 s; diagnostics on branch `forge-logs-2026-11-16d`, folder `diag/2026-11-16_1726_V43M-vall-tylo-player-loop/`). FIXED 2026-11-16, branch `claude/project-thread-vpr29t`; xUnit; V43M re-pinned, awaiting PC flight; low (the loop still phase-locks, on the wrong launch moon)]
 
@@ -1907,8 +1939,20 @@ in parallel in the cloud):
    documented sign, self-flipped once if the error keeps growing), a named give-up past 8 deg of
    ground heading drift with throttle cut and brakes on, rotateSpeed 60 -> 45, airborne = 3
    consecutive climbing FLYING frames, a level-roll guard before staging, the bank-sign check
-   on the ground track, and a recording count window of {1, 40} for splashdown debris. Next: the
-   reading flight.)
+   on the ground track, and a recording count window of {1, 40} for splashdown debris.
+   SECOND FLIGHT 2026-11-16 DRIVER-INVALID: runs `2026-11-16_2033` and `_2034_a2` (PC, DLL sha256
+   54f8f221 from 3e0a0e5e, diagnostics on branch `forge-logs-2026-11-16-air1b`), MISSION-FLAKE both
+   times. The nose wheel held the runway perfectly (heading 090.3-090.5, roll 0.05, 25 -> 46.9 m/s);
+   at the 45 m/s rotate the AutoPilot engaged and the wheel was released, the pitch rose only
+   0.44 -> 2.5 deg in 1.5 s (8 deg target, the AutoPilot's ramp), the plane stayed LANDED, the
+   heading swung 90.5 -> 81.9 within a second and the ground guard gave up at 52.3 m/s, 355 m
+   out. The abort's "set_throttle 0.00 did not stick" was the runner's readback landing before
+   the next physics tick, not a second controller. Re-written the same day (harness only, not
+   re-flown): the rotation is flown on the elevator (`control.pitch` P loop on the pitch, sign
+   self-checked), the nose wheel steers and the ground guard measures until airborne is
+   sustained, the AutoPilot engages only then; a take-off give-up re-sends the throttle cut
+   until the telemetry reads it; the runner's readback waits a tick and re-asserts once before
+   warning. Next: the reading flight.)
    Aircraft: no lane flies a plane (BAY-1's never moves). A runway takeoff, a circuit and a
    landing, then its ghost replays at the Space Center. Open after AIR-2: no in-game check reads a
    KSC ghost's position DURING its replay (AIR-2 reads the KSC log lines and, by position, only the
@@ -1945,8 +1989,9 @@ in parallel in the cloud):
    GhostCommNetManager done 2026-11-16: their decisions extracted pure and xUnit-pinned, the
    live halves named in the residue entry; C6 harvest totals, C5 rewind point slot ambiguity and
    the headless half of C1 done 2026-11-14) and
-   B11 (in-game categories no lane runs; wired 2026-11-16 into LT-5 and AH-1 on interim pins,
-   one reading run of each owed; GuiMock was taken back out of AH-1 and still has no lane, see the
+   B11 (in-game categories no lane runs; wired 2026-11-16 into LT-5 and AH-1 and flown the same
+   evening, reading runs `2026-11-16_2036` / `_2038` PASS attempt 1, every appended cell ran and
+   passed, both specs pinned whole; GuiMock was taken back out of AH-1 and still has no lane, see the
    B11 line of TEST-GAP-AUDIT-2026-10-31-RESIDUE). Fixes proven only by xUnit that a lane could show:
    ROUTE-DELIVERY-IGNORES-DESCENT-TRIGGER, the two rescue marker fixes, the drop path of
    TRIMMED-CHECKPOINT-SECTION-ENDS-BEFORE-IT-STARTS and the RW-9R reading variant. The three
@@ -2344,8 +2389,11 @@ merges this residue with the moon program is NEXT-TESTS-TO-BUILD-2026-11-11 at t
   names any of them). Wired 2026-11-16 (no new lane) except GuiMock: the five FLIGHT categories
   appended to `LT-5-long-tail-playback-flight`'s multi-category RunTests (multi=7) and
   FreeTechUnlock (needs a career R&D) appended to `AH-1-auto-hire-reserved-applicant` (multi=2),
-  each new constituent on an interim `passed=[1-9][0-9]*` pin. Still owed: one reading run of each
-  lane to pin the measured passed / skipped counts (`INTERIM_PIN_IDS` / `INTERIM_CONSTITUENTS`).
+  each new constituent first on an interim `passed=[1-9][0-9]*` pin. Flown the same evening on V's
+  PC (automation DLL sha256 54f8f221 from 3e0a0e5e): LT-5 `2026-11-16_2036` (122 s) and AH-1
+  `2026-11-16_2038` (45 s), both PASS attempt 1, every cell of the six categories ran and passed
+  with zero skips (aggregates `total=33 passed=15 skipped=18 multi:7`, `total=2 passed=2 multi:2`);
+  both specs pin every line whole and the interim sets are empty again. Only GuiMock remains.
   GuiMock STILL HAS NO LANE: it was appended to AH-1 the same day and removed on review, because
   every Parsek window at the Space Center draws only behind `ParsekKSC.OnGUI`'s
   `if (!showUI) return;` and nothing in AH-1 raises it, so its cells would FAIL there, not skip

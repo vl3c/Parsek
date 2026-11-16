@@ -28,6 +28,10 @@ Not released yet.
   boarding a vessel, the last stretch of the walk or jetpack flight could replay far from where
   the kerbal went once the game was saved and loaded. It now replays on the kerbal's real path.
   (EVA-SWITCH-STOP-DROPS-OPEN-SECTION)
+- **Recordings of planes and rovers no longer fill up with landing-gear wobble.** Rolling on gear
+  wrote about 22 suspension events a second; suspension is no longer recorded, and replays of
+  older recordings keep the gear at rest instead of shifting the wheels out of place.
+  (RECORDER-GEAR-SUSPENSION-AS-ROBOTICS)
 - **Rock-mining trips carry no more ore than the drills produce.** A route whose ship drilled a
   grabbed asteroid or comet had no ore limit; it now credits at most what the drill could mine
   from that rock in the recorded time. (ROCK-DRILL-HARVEST-UNCAPPED)
