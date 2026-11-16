@@ -243,6 +243,9 @@ namespace Parsek
                     }
                 }
             }
+
+            // Tool uses (A3): optional children, none when the list is empty.
+            ToolUseFacts.SaveInto(recNode, rec);
         }
 
         #region SaveRecordingResourceAndState Block Helpers
@@ -1044,6 +1047,8 @@ namespace Parsek
                 }
             }
 
+            // Tool uses (A3)
+            ToolUseFacts.LoadFrom(recNode, rec);
         }
 
         #endregion
