@@ -2387,7 +2387,13 @@ payload reads down the same list a reviewer sees on screen): `main`, `missions`,
 `timeline`, `kerbals`, `logistics`, `structure`, `routehistory` (the Route History, the
 second instance of the log-table window `StructureListWindowUI`), `settings`,
 `spawncontrol`, `testrunner`, and LAST `testrunnerglobal` - eleven rows, so every
-`describe` reads `windows=11`. `testrunnerglobal` is last because it is the one window the
+`describe` reads `windows=11` today. The census specs do not pin that count: each describe
+pattern regexes it as `windows=\d+` (the TOML spelling is `windows=\\d+`) and pins only
+`scene=`, `complexity=`, `open=` and `openWindows=`, because the count is the table's length
+and does not depend on the scene or the save. The derivation lives in hlib's
+`GuiCensusSeamVerbTests`: `hlib.UIACTION_WINDOW_VALUES` is held equal to the C# table row
+for row, and `test_no_census_pattern_pins_the_window_count` reds on any digit window count
+in a committed spec. `testrunnerglobal` is last because it is the one window the
 main window has no button for at all. `main` is in it because every sub-window draw in both hosts sits
 inside the host's `showUI` gate, so a sub-window with `IsOpen = true` and the main window
 hidden is invisible - `op=open window=main` is the first step of any census, and the only
