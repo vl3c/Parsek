@@ -7871,7 +7871,7 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
             "PartEventFX": 6,
             "GhostLifecycle": 17,
             # Appended 2026-11-16 (test gap audit B11): five FLIGHT categories no spec
-            # ran; interim (INTERIM_CONSTITUENTS) until the reading run.
+            # ran, pinned whole off reading run 2026-11-16_2036.
             "ChainTipBlockedGhost": 2,
             "DeployedScienceGhost": 1,
             "GhostReapplyFrame": 1,
@@ -7880,7 +7880,8 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
         }),
         # Single-category until 2026-11-16, when audit B11 appended a SPACECENTER
         # category no spec ran (FreeTechUnlock needs a career R&D singleton);
-        # AutoHireReservation stays pinned whole off reading run 2026-09-27_1341.
+        # AutoHireReservation stays pinned whole off reading run 2026-09-27_1341 and
+        # FreeTechUnlock is pinned whole off reading run 2026-11-16_2038.
         # GuiMock was appended and removed the same day: the KSC draws no Parsek
         # window unless ParsekKSC.showUI is raised, so its cells would fail here.
         "AH-1-auto-hire-reserved-applicant": ("SPACECENTER", {
@@ -7902,11 +7903,10 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
     # empty, NEVER a `{}` literal, which would be an empty DICT and make every
     # membership read False).
     # LT-5 and AH-1 ENTERED 2026-11-16 (test gap audit B11), narrowed below to the
-    # constituents appended that day; each leaves on its reading run.
-    INTERIM_PIN_IDS: set = {
-        "LT-5-long-tail-playback-flight",
-        "AH-1-auto-hire-reserved-applicant",
-    }
+    # constituents appended that day, and LEFT the same day: reading runs
+    # 2026-11-16_2036 (LT-5) and 2026-11-16_2038 (AH-1), both PASS attempt 1, ran
+    # every appended cell with zero skips and both specs pinned every line whole.
+    INTERIM_PIN_IDS: set = set()
 
     # PER-CONSTITUENT NARROWING of INTERIM_PIN_IDS. A member listed here has only
     # the named constituents interim, and every OTHER constituent must stay pinned
@@ -7917,14 +7917,9 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
     # measured lines to fit the switch would un-gate them for no reason.
     # EMPTY IS ITS HEALTHY STATE (a dict literal, unlike INTERIM_PIN_IDS). First
     # used by LT-2's `SceneAndPatch`, appended 2026-09-10 (claim-gap wave A1-4) and
-    # converted to measured by reading run 2026-09-10_1734.
-    INTERIM_CONSTITUENTS: dict = {
-        "LT-5-long-tail-playback-flight": {
-            "ChainTipBlockedGhost", "DeployedScienceGhost", "GhostReapplyFrame",
-            "JointBreakCheckCoroutine", "TreeRestoreCoroutine",
-        },
-        "AH-1-auto-hire-reserved-applicant": {"FreeTechUnlock"},
-    }
+    # converted to measured by reading run 2026-09-10_1734; used again by the
+    # 2026-11-16 audit B11 appends to LT-5 and AH-1, measured the same day.
+    INTERIM_CONSTITUENTS: dict = {}
 
     def _constituent_is_interim(self, sid, category):
         if sid not in self.INTERIM_PIN_IDS:

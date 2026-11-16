@@ -1899,8 +1899,9 @@ in parallel in the cloud):
    GhostCommNetManager done 2026-11-16: their decisions extracted pure and xUnit-pinned, the
    live halves named in the residue entry; C6 harvest totals, C5 rewind point slot ambiguity and
    the headless half of C1 done 2026-11-14) and
-   B11 (in-game categories no lane runs; wired 2026-11-16 into LT-5 and AH-1 on interim pins,
-   one reading run of each owed; GuiMock was taken back out of AH-1 and still has no lane, see the
+   B11 (in-game categories no lane runs; wired 2026-11-16 into LT-5 and AH-1 and flown the same
+   evening, reading runs `2026-11-16_2036` / `_2038` PASS attempt 1, every appended cell ran and
+   passed, both specs pinned whole; GuiMock was taken back out of AH-1 and still has no lane, see the
    B11 line of TEST-GAP-AUDIT-2026-10-31-RESIDUE). Fixes proven only by xUnit that a lane could show:
    ROUTE-DELIVERY-IGNORES-DESCENT-TRIGGER, the two rescue marker fixes, the drop path of
    TRIMMED-CHECKPOINT-SECTION-ENDS-BEFORE-IT-STARTS and the RW-9R reading variant. The three
@@ -2255,8 +2256,11 @@ merges this residue with the moon program is NEXT-TESTS-TO-BUILD-2026-11-11 at t
   names any of them). Wired 2026-11-16 (no new lane) except GuiMock: the five FLIGHT categories
   appended to `LT-5-long-tail-playback-flight`'s multi-category RunTests (multi=7) and
   FreeTechUnlock (needs a career R&D) appended to `AH-1-auto-hire-reserved-applicant` (multi=2),
-  each new constituent on an interim `passed=[1-9][0-9]*` pin. Still owed: one reading run of each
-  lane to pin the measured passed / skipped counts (`INTERIM_PIN_IDS` / `INTERIM_CONSTITUENTS`).
+  each new constituent first on an interim `passed=[1-9][0-9]*` pin. Flown the same evening on V's
+  PC (automation DLL sha256 54f8f221 from 3e0a0e5e): LT-5 `2026-11-16_2036` (122 s) and AH-1
+  `2026-11-16_2038` (45 s), both PASS attempt 1, every cell of the six categories ran and passed
+  with zero skips (aggregates `total=33 passed=15 skipped=18 multi:7`, `total=2 passed=2 multi:2`);
+  both specs pin every line whole and the interim sets are empty again. Only GuiMock remains.
   GuiMock STILL HAS NO LANE: it was appended to AH-1 the same day and removed on review, because
   every Parsek window at the Space Center draws only behind `ParsekKSC.OnGUI`'s
   `if (!showUI) return;` and nothing in AH-1 raises it, so its cells would FAIL there, not skip
