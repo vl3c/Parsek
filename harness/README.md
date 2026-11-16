@@ -1906,6 +1906,7 @@ agent can drive it:
 ```
 cd harness && python tools/parallel_runner.py run --name nightly-1 --tier nightly --slots 2
 cd harness && python tools/parallel_runner.py run --name fix-1 --ids-file lanes.txt --ids A,B
+cd harness && python tools/parallel_runner.py run --name race-1 --tag race --slots 2
 cd harness && printf 'A\nB\n' | python tools/parallel_runner.py run --name x --ids-file -
 cd harness && python tools/parallel_runner.py status --name nightly-1
 cd harness && python tools/parallel_runner.py set-slots --name nightly-1 3   # 2 while you work, 3 when away
@@ -1914,9 +1915,15 @@ cd harness && python tools/parallel_runner.py resume --name nightly-1
 ```
 
 - **Selection.** `--ids-file F` (repeatable; `-` reads stdin; one id per line,
-  `#` comments and blank lines ignored), `--ids a,b,c` and `--tier T`
-  (repeatable) add up; a lane selected twice flies once. Any unknown id or tier
-  refuses the whole run up front, naming every one. A lane on an unstaged
+  `#` comments and blank lines ignored), `--ids a,b,c`, `--tier T` and `--tag G`
+  (both repeatable) add up; a lane selected twice flies once.
+  `--tag` matches exactly as `run.py --tag` does (`hlib.select_scenarios`: the
+  value is one entry of the spec's `tags`). Any unknown id or tier, and any tag no
+  spec carries, refuses the whole run up front, naming every one. The race lanes
+  of the multiplayer work (id prefix `RACE`, `SITES`, `RCA`, `RCB` or `RCI`, the
+  part before the first `-`) all carry the tag `race` and no other spec does
+  (`hlib.race_tag_problem`, held by `test_hlib.RaceTagConventionTests`), so
+  `--tag race` flies exactly those lanes. A lane on an unstaged
   operator-local fixture is not flown and is named. `--dry-run` prints the plan,
   the slots found and the window choice, and writes nothing.
 - **Order and slots.** Longest p50 first (`coverage/duration.json`, else the

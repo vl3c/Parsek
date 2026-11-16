@@ -28077,3 +28077,68 @@ class IdsFileSelectionTests(unittest.TestCase):
         self.assertTrue(line.startswith(hlib.STOP_HONOURED_MARKER))
         self.assertIn("after 3 scenario(s)", line)
         self.assertIn("dropped=9", line)
+
+
+class RaceTagConventionTests(unittest.TestCase):
+    """Multiplayer plan T-45 / README rule 7: a race lane (id prefix RACE, SITES,
+    RCA, RCB or RCI) carries the `race` tag and no other spec does, so
+    `--tag race` flies exactly the race lanes. No race spec is committed yet, so
+    the synthetic cells prove the committed cell can red."""
+
+    @staticmethod
+    def _spec(sid, tags=None):
+        out = {"id": sid, "tier": "operator"}
+        if tags is not None:
+            out["tags"] = tags
+        return out
+
+    def test_every_committed_spec_keeps_the_race_tag_convention(self):
+        problems = []
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                spec = tomllib.load(fh)
+            problem = hlib.race_tag_problem(spec)
+            if problem:
+                problems.append("%s: %s" % (name, problem))
+        self.assertEqual(problems, [], "a race lane carries the 'race' tag and no other spec "
+                                       "does (docs/dev/plans/multiplayer/test-and-harness.md, "
+                                       "T-45)")
+
+    def test_a_race_lane_without_the_tag_reds(self):
+        for sid in ("RACE-9-flight-batch", "SITES-1", "RCA-3f", "RCB-1", "RCI-9", "RACE"):
+            for tags in (None, [], ["ingame-batch"], ["Race"], ["racing"]):
+                problem = hlib.race_tag_problem(self._spec(sid, tags))
+                self.assertIsNotNone(problem, (sid, tags))
+                self.assertIn(sid, problem)
+                self.assertIn("without the 'race' tag", problem)
+
+    def test_a_non_race_spec_with_the_tag_reds(self):
+        for sid in ("H15-ghost-visuals", "S1.6-map", "RACEWAY-1", "SITESCAN-1", "RCAT-1",
+                    "RC-1", "XRACE-1", "race-1"):
+            problem = hlib.race_tag_problem(self._spec(sid, ["ingame-batch", "race"]))
+            self.assertIsNotNone(problem, sid)
+            self.assertIn("not a race family", problem)
+
+    def test_a_tagged_race_lane_and_an_untagged_other_spec_pass(self):
+        for sid in ("RACE-20-single-player-hosts", "SITES-2", "RCA-1", "RCB-3r", "RCI-1"):
+            self.assertIsNone(hlib.race_tag_problem(self._spec(sid, ["race", "ingame-batch"])))
+        for sid in ("RACEWAY-1", "H15-ghost-visuals", None, ""):
+            self.assertIsNone(hlib.race_tag_problem(self._spec(sid, ["ingame-batch"])))
+            self.assertIsNone(hlib.race_tag_problem(self._spec(sid)))
+
+    def test_the_committed_cell_reds_on_a_bad_spec_in_the_scenario_set(self):
+        # The committed cell's own loop, run over the committed set plus one bad
+        # spec of each kind, names exactly the bad ones.
+        specs = []
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                specs.append(tomllib.load(fh))
+        specs.append(self._spec("RACE-1-setup-create-join", ["ingame-batch"]))
+        specs.append(self._spec("H15-ghost-visuals-copy", ["race"]))
+        flagged = [s["id"] for s in specs if hlib.race_tag_problem(s)]
+        self.assertEqual(flagged, ["RACE-1-setup-create-join", "H15-ghost-visuals-copy"])
+
+    def test_the_race_tag_selects_through_run_py_selection(self):
+        specs = [self._spec("RACE-1", ["race"]), self._spec("H1"), self._spec("SITES-1", ["race"])]
+        self.assertEqual([s["id"] for s in hlib.select_scenarios(specs, "--tag %s" % hlib.RACE_TAG)],
+                         ["RACE-1", "SITES-1"])
