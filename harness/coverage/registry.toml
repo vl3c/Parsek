@@ -557,7 +557,8 @@ values = ["stand-ins", "seat-matching", "rescue-marker",
 #
 # `pid-dedup` - the TRACKING-STATION spawn handoff refusing a second copy of a vessel
 # whose real pid already exists (`Tracking-station handoff skipped duplicate spawn
-# for #N ... real vessel pid=P already exists`, GhostMapPresence.cs:7530). A SEPARATE
+# for #N ... real vessel pid=P already exists`, `RunTrackingStationSpawnHandoffForEligibleIndex`
+# in GhostMapPresence.TrackingStationLifecycle.cs). A SEPARATE
 # cell from D6 `spawn-at-end-pid-dedup` (operator-confirmed 2026-09-26). UNCOVERED since
 # 2026-11-16: its only declarer, V22T-kerbin-splashdown-ts-arrival, no longer reaches the
 # branch, because the load-time chain stamp move (todo LOAD-SPLIT-SPAWN-STAMP-ON-HEAD)

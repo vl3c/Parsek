@@ -1764,7 +1764,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | V21T-mun-minmus-ts-arrival | operator | mun-minmus-recorded | seam | Kerbin, Mun, Minmus | reload, save, warp, time-jump, scene-change | - | RE-FLOWN GREEN 2026-11-11 ON THE 1.0.2 MO... |
 | V22K-kerbin-splashdown-ksc-arrival | operator | kerbin-splashdown-recorded | seam | Kerbin | reload, save, warp, time-jump, scene-change | - | SPEC CHANGED 2026-10-07, RE-FLOWN PASS 20... |
 | V22M-kerbin-splashdown-player-loop | operator | kerbin-splashdown-recorded | seam | Kerbin | warp, time-jump | - | LIVE-PROVEN 2026-07-20 |
-| V22T-kerbin-splashdown-ts-arrival | operator | kerbin-splashdown-recorded | seam | Kerbin | reload, save, warp, time-jump, scene-change | - | SPEC CHANGED 2026-11-16, NOT RE-FLOWN |
+| V22T-kerbin-splashdown-ts-arrival | operator | kerbin-splashdown-recorded | seam | Kerbin | reload, save, warp, time-jump, scene-change | - | SPEC CHANGED 2026-11-16, RE-FLOWN PASS 20... |
 | V23M-mun-landing-player-loop | operator | mun-landing-recorded | seam | Mun | warp, time-jump | - | SPEC CHANGED 2026-10-07, RE-FLOWN PASS 20... |
 | V23T-mun-landing-ts-arrival | operator | mun-landing-recorded | seam | Mun | reload, save, warp, time-jump, scene-change | - | SPEC CHANGED 2026-10-07, RE-FLOWN PASS 20... |
 | V24W-duna-one-warp-stair | operator | duna-one-recorded | m3_loop_arrival_dwell | Kerbin, Duna | - | - | DISCIPLINE-COMPLETE 2026-08-25 ACROSS SIX... |

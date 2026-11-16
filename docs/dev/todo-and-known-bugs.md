@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## V22T-TS-ADOPTION-BRANCH-UNFLOWN: no committed lane flies the Tracking Station's adoption of an already-live vessel [FILED 2026-11-16 from V22T's red on the 1.0.2 release flight; V22T RE-PINNED, NOT RE-FLOWN, branch `item29-v22t-repin`. OPEN: the coverage gap]
+## V22T-TS-ADOPTION-BRANCH-UNFLOWN: no committed lane flies the Tracking Station's adoption of an already-live vessel [FILED 2026-11-16 from V22T's red on the 1.0.2 release flight; V22T RE-PINNED AND RE-FLOWN GREEN, branch `item29-v22t-repin`. OPEN: the coverage gap]
 
 What happened. `V22T-kerbin-splashdown-ts-arrival` red PARSEK-FAIL(expectation) on the v1.0.2
 release build (2026-11-16 23:12Z) on one required token, `Tracking-station handoff skipped
@@ -41,7 +41,9 @@ player promise (no second Kerbal X in the Tracking Station). Its D13 `pid-dedup`
 because the cell is the handoff's ADOPTION branch (`alreadyMaterialized` in
 `RunTrackingStationSpawnHandoffForEligibleIndex`: `RealVesselExistsForRecording` finds the
 recording's launch live, stamps `VesselSpawned` / `SpawnedVesselPersistentId`, removes the ghost
-presence) and V22T no longer reaches it. Coverage 250 of 251 -> 249 of 251. Not re-flown.
+presence) and V22T no longer reaches it. Coverage 250 of 251 -> 249 of 251. Re-flown PASS
+`2026-11-16_2343_V22T-kerbin-splashdown-ts-arrival` (attempt 1, 74 s, v1.0.2 release DLL sha256
+431dd6c5...): the stamp-move line once, zero `Tracking-station handoff spawned`, recordings 9.
 
 Still open. No committed lane flies the adoption branch. Its predicate is unit-tested
 (`TrackingStationSpawnTests.ShouldSkipTrackingStationDuplicateSpawn_*`); the branch body (the
