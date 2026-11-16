@@ -192,6 +192,108 @@ namespace Parsek.Tests
             Assert.Equal(0f, updated.MilestoneScienceAwarded);
         }
 
+        // catches: the ledger loop matching by milestone id and capture moment only, so the
+        // enrichment of an event tagged R2 sets the rewards of a committed row tagged R (a
+        // committed recording that kept its id, within 0.1 s of the live event).
+        [Fact]
+        public void EnrichPendingMilestoneRewards_TaggedEvent_LeavesAnotherRecordingsRowUnchanged()
+        {
+            var savedResolver = GameStateRecorder.TagResolverForTesting;
+            try
+            {
+                LedgerOrchestrator.Initialize();
+                var committedRow = new GameAction
+                {
+                    UT = 800.05,
+                    Type = GameActionType.MilestoneAchievement,
+                    MilestoneId = "Mun/Flyby",
+                    RecordingId = "rec-R",
+                    MilestoneFundsAwarded = 900f,
+                    MilestoneRepAwarded = 4f,
+                };
+                Ledger.AddAction(committedRow);
+
+                GameStateRecorder.TagResolverForTesting = () => "rec-R2";
+                GameStateRecorder.RegisterPendingMilestoneEvent("Mun/Flyby", 800.0);
+                logLines.Clear();
+                GameStateRecorder.EnrichPendingMilestoneRewards(
+                    new FakeProgressNode("Mun/Flyby"), 6000.0, 12f, 3.0);
+
+                Assert.Equal(900f, committedRow.MilestoneFundsAwarded);
+                Assert.Equal(4f, committedRow.MilestoneRepAwarded);
+                Assert.Equal(0f, committedRow.MilestoneScienceAwarded);
+                Assert.Single(Ledger.Actions, a => a.Type == GameActionType.MilestoneAchievement);
+                Assert.Contains(logLines, l => l.Contains("[GameStateRecorder]")
+                    && l.Contains("EnrichPendingMilestoneRewards: 'Mun/Flyby' (scope='rec-R2') left 1 ledger row(s)")
+                    && l.Contains("(own row not found)"));
+                // The tagged event itself still carries the award for its commit.
+                GameStateEvent stored = GameStateStore.Events.Single(e =>
+                    e.eventType == GameStateEventType.MilestoneAchieved && e.key == "Mun/Flyby");
+                Assert.Equal("rec-R2", stored.recordingId);
+                Assert.Contains("funds=6000", stored.detail);
+            }
+            finally
+            {
+                GameStateRecorder.TagResolverForTesting = savedResolver;
+            }
+        }
+
+        // catches: an untagged KSC event's enrichment landing on a newer tagged row of the
+        // same milestone inside the 0.1 s window instead of on its own untagged row.
+        [Fact]
+        public void EnrichPendingMilestoneRewards_KscEvent_SkipsATaggedRowAndEnrichesItsOwn()
+        {
+            LedgerOrchestrator.Initialize();
+
+            var node = new FakeProgressNode("RecordsSpeedKsc");
+            var evt = new GameStateEvent
+            {
+                ut = 900,
+                eventType = GameStateEventType.MilestoneAchieved,
+                key = "RecordsSpeedKsc",
+                detail = GameStateRecorder.BuildMilestoneDetail(0, 0f, 0)
+            };
+            GameStateStore.AddEvent(ref evt);
+            LedgerOrchestrator.OnKscSpending(evt); // the event's own untagged row
+            GameStateRecorder.PendingMilestoneEventById["RecordsSpeedKsc"] = evt;
+            var taggedRow = new GameAction
+            {
+                UT = 900.02,
+                Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "RecordsSpeedKsc",
+                RecordingId = "rec-R",
+                MilestoneFundsAwarded = 250f,
+            };
+            Ledger.AddAction(taggedRow); // newest: the loop reaches it first
+
+            GameStateRecorder.EnrichPendingMilestoneRewards(node, 4000.0, 2f, 0);
+
+            Assert.Equal(250f, taggedRow.MilestoneFundsAwarded);
+            GameAction own = Ledger.Actions.Single(a =>
+                a.Type == GameActionType.MilestoneAchievement
+                && a.MilestoneId == "RecordsSpeedKsc"
+                && string.IsNullOrEmpty(a.RecordingId));
+            Assert.Equal(4000f, own.MilestoneFundsAwarded);
+            Assert.Equal(2f, own.MilestoneRepAwarded);
+        }
+
+        [Theory]
+        [InlineData(null, "", false, 0.0, 10.0, true)]       // KSC row, KSC event
+        [InlineData("", null, false, 0.0, 10.0, true)]
+        [InlineData("rec-R", "rec-R", false, 0.0, 10.0, true)] // recovery-owned row
+        [InlineData("rec-R", "rec-R2", false, 0.0, 10.0, false)]
+        [InlineData("rec-R", "", false, 0.0, 10.0, false)]
+        [InlineData(null, "rec-R", false, 0.0, 10.0, false)]
+        [InlineData("rec-R", "rec-R", true, 10.0, 10.0, false)] // at the cutoff: history
+        [InlineData("rec-R", "rec-R", true, 10.0, 9.5, false)]
+        [InlineData("rec-R", "rec-R", true, 10.0, 10.05, true)] // past it: the attempt's own
+        public void IsMilestoneEnrichLedgerRowMatch_Table(
+            string rowTag, string eventTag, bool hasCutoff, double cutoff, double rowUT, bool expected)
+        {
+            Assert.Equal(expected, GameStateRecorder.IsMilestoneEnrichLedgerRowMatch(
+                rowTag, rowUT, eventTag, hasCutoff, cutoff));
+        }
+
         [Fact]
         public void EnrichPendingMilestoneRewards_WithScienceReward_UpdatesLedgerAction()
         {

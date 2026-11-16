@@ -376,5 +376,40 @@ namespace Parsek.Tests
             GameStateStore.AddEvent(ref old);
             Assert.True(GameStateRecorder.TryCoalesceWorldRecordReward("RecordsSpeed", 100.0, 0f, 0.0, 2));
         }
+
+        // catches: the milestone reward enrichment (residue (a)) setting the rewards of a
+        // committed history row of the resumed recording: same tag, same milestone, inside
+        // the 0.1 s window, but at or before the attempt's cutoff.
+        [Fact]
+        public void MilestoneEnrich_LeavesTheResumedRecordingsHistoryRowUnchanged()
+        {
+            LedgerOrchestrator.Initialize();
+            ArmAttemptOnTail();
+            var historyRow = new GameAction
+            {
+                UT = 1276.68,
+                Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "Kerbin/Splashdown",
+                RecordingId = TailId,
+                MilestoneFundsAwarded = 300f,
+            };
+            Ledger.AddAction(historyRow);
+
+            GameStateRecorder.TagResolverForTesting = () => TailId;
+            GameStateRecorder.RegisterPendingMilestoneEvent("Kerbin/Splashdown", 1276.75);
+            logLines.Clear();
+            GameStateRecorder.EnrichPendingMilestoneRewards(
+                new EnrichNode("Kerbin/Splashdown"), 5000.0, 3f, 0.0);
+
+            Assert.Equal(300f, historyRow.MilestoneFundsAwarded);
+            Assert.Equal(0f, historyRow.MilestoneRepAwarded);
+            Assert.Contains(logLines, l => l.Contains("[GameStateRecorder]")
+                && l.Contains("(scope='" + TailId + "') left 1 ledger row(s) of another scope or of restore-attempt history unchanged"));
+        }
+
+        private sealed class EnrichNode : ProgressNode
+        {
+            public EnrichNode(string id) : base(id, startReached: false) { }
+        }
     }
 }

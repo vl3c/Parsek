@@ -289,6 +289,16 @@ Known residue, not built (from the fix's second review; neither reproduced):
       (line 1608) with no recording-id or cutoff check, and SETS that row's rewards. No concrete
       failing sequence was found: `Complete()` is terminal for the node and the pending event is
       tagged, so it has no direct row.
+      FIXED 2026-11-16 (branch `fix-residuals-limbo-enrich`): the row must carry the event's own
+      scope (both untagged, or both tagged to the same recording) and, under an armed restore
+      attempt, lie past that recording's cutoff (`IsMilestoneEnrichLedgerRowMatch`). A tagged
+      event does have a direct row: a recovery-owned milestone is written TAGGED to the
+      committed recording before stock's AwardProgress (`WriteRecoveryOwnedMilestoneIfAny`), so
+      the loop is kept for tagged events. Tests: `MilestoneRewardCaptureTests` (other scope,
+      KSC event past a newer tagged row, table), `RestoreAttemptRecordCoalesceTests`
+      (`MilestoneEnrich_LeavesTheResumedRecordingsHistoryRowUnchanged`),
+      `RecoveryScopedMilestoneTagTests` (`..._RealEnrichmentSetsTheTaggedRowsRewards`, red under
+      a skip-tagged-events guard).
   (b) An award at exactly the restore attempt's cutoff UT is history to every consumer (not
       re-homed, not purged), so repeated awards at that identical UT would each start their own
       seed. Bounded and not seen in a flight; pinned only as a boundary in
@@ -1963,7 +1973,7 @@ lines and the key.
 
 ## RESIDUALS-OF-ENTRIES-ARCHIVED-2026-11-07: small follow-ups left inside 20 finished entries moved to the archive [FILED 2026-11-07 (owner: mark the finished entries done). OPEN; each line names its archived entry in `done/todo-and-known-bugs-v11.md` ("Moved out 2026-11-07 (finished entries still listed)"); none is a known player-hit bug]
 
-- AUTOMERGE-ON-BY-DEFAULT: four residuals at the end of that entry (frequency of the resume miss, step 1 still injected, entrance A undriven, the dangling limbo dispatch).
+- AUTOMERGE-ON-BY-DEFAULT: four residuals at the end of that entry (frequency of the resume miss, step 1 still injected, entrance A undriven, the dangling limbo dispatch). (d) FIXED 2026-11-16 (branch `fix-residuals-limbo-enrich`): the outside-flight auto-commit (and the OnSave safety net) drops the flight-ready restore it leaves with no pending tree to restore (`ShouldDropScheduledRestoreAfterOutsideFlightCommit`, Info `autocommit-outside-flight (<ctx>): dropped the flight-ready <mode> restore scheduled for the committed tree '<name>'`); left armed it made the next FLIGHT entry defer its Tracking Station / KSC marker Fly intent to a restore that exited at once, skip the committed-tree restore that frame and walk the ledger without the current-UT cutoff. A commit that threw with the tree still stashed keeps it. Headless OnLoad cells in `ParsekScenarioOnLoadStepOrderTests.LimboSchedule.cs` (in-session SPACECENTER Limbo, Cold SPACECENTER `isActive`, commit-throw, truth table; the first two red on the old code with the schedule left at Quickload). Live: S0.9 / S0.10 reach it, neither requires the new line yet.
 - REWIND-READBACK-GUARD-HAS-NO-LIVE-WITNESS-LANE: the A7 strategy / mod-grant follow-up.
 - KERBAL-ABOARD-RESERVATION-OUTLIVES-THE-REAL-VESSEL: the spawned-vessel recovery arm is unit-proven only (no lane flies it), and a legacy recording with no launch guid is never an owner.
 - ROUTE-ORIGIN-PROOF-TRANSPORT-MANIFESTS-INCLUDE-THE-DEPOT: `RouteRunCargoManifest` is still scoped to the whole merged vessel; re-scope it in its own pass with the delta measured.

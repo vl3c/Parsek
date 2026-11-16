@@ -40,6 +40,10 @@ Not released yet.
   around one moon and later passed low over another was timed as if it had launched from the
   second one. Its loops are now spaced around the moon it really started from.
   (MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH)
+- **A Fly from the Tracking Station records after an unfinished flight is committed.** When the
+  Space Center committed an unfinished flight on load (leaving right after a quickload, or loading
+  a save that held one), the next Fly from the Tracking Station or a KSC marker started no
+  recording of that vessel. (AUTOMERGE-ON-BY-DEFAULT)
 
 ## 1.0.2
 

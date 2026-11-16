@@ -52,7 +52,7 @@ namespace Parsek.Tests
     /// (<see cref="ParsekScenarioOnLoadCharacterizationTests"/>) pins their order in source.</para>
     /// </summary>
     [Collection("Sequential")]
-    public class ParsekScenarioOnLoadStepOrderTests : IDisposable
+    public partial class ParsekScenarioOnLoadStepOrderTests : IDisposable
     {
         private const string HarmonyId = "parsek.tests.onload-step-order";
         private const string GoldenFile = "ParsekScenario.OnLoad.steps.txt";
@@ -404,6 +404,8 @@ namespace Parsek.Tests
             internal Action Arm;
             // Runs right after the recorded load returns, before the scenario is destroyed.
             internal Action AfterLoad;
+            // The recorded load's save node (an empty SCENARIO node when null).
+            internal Func<ConfigNode> SaveNode;
         }
 
         private static IEnumerable<Scenario> Scenarios()
@@ -476,7 +478,7 @@ namespace Parsek.Tests
             StepRecorder.Steps = steps;
             try
             {
-                instance.OnLoad(new ConfigNode("SCENARIO"));
+                instance.OnLoad(scenario.SaveNode?.Invoke() ?? new ConfigNode("SCENARIO"));
                 scenario.AfterLoad?.Invoke();
             }
             catch (Exception ex)
@@ -594,6 +596,7 @@ namespace Parsek.Tests
             yield return AccessTools.Method(typeof(ParsekFileCollector), nameof(ParsekFileCollector.RunAtLoad));
             yield return AccessTools.Method(typeof(VesselNameStore), nameof(VesselNameStore.ApplyAll));
             yield return AccessTools.Method(typeof(VesselNameStore), nameof(VesselNameStore.RunSpawnLinkBackfill));
+            yield return AutoCommitTreeGhostOnlyMethod;
         }
 
         /// <summary>The non-system internalcall methods <paramref name="method"/>'s IL calls

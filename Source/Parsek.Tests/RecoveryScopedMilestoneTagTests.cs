@@ -131,6 +131,42 @@ namespace Parsek.Tests
                 && l.Contains("recordingId=" + rootId));
         }
 
+        // catches: an enrichment guard that skips tagged events or tagged rows, which leaves
+        // the recovery-owned row (written TAGGED before stock's AwardProgress) at zero rewards.
+        // Drives the real AwardProgress enrichment instead of the helper's direct row write.
+        [Fact]
+        public void RecoveryMilestone_CommittedOwner_RealEnrichmentSetsTheTaggedRowsRewards()
+        {
+            var committed = MakeFleaTree("enrich", 353.8, TerminalState.Recovered);
+            CommitInMemory(committed);
+            string rootId = committed.RootRecordingId;
+
+            RecoveryDispatchScope.Open(FleaIdentity(), FleaPid, "test");
+            try
+            {
+                GameStateRecorder.RegisterPendingMilestoneEvent(Milestone, 353.94);
+                GameStateRecorder.EnrichPendingMilestoneRewards(
+                    new EnrichNode(Milestone), 800.0, 2f, 0.0);
+            }
+            finally
+            {
+                RecoveryDispatchScope.Close("test");
+            }
+
+            GameAction row = Ledger.Actions.Single(a =>
+                a.Type == GameActionType.MilestoneAchievement && a.MilestoneId == Milestone);
+            Assert.Equal(rootId, row.RecordingId);
+            Assert.Equal(800f, row.MilestoneFundsAwarded);
+            Assert.Equal(2f, row.MilestoneRepAwarded);
+            Assert.Contains(logLines, l => l.Contains("[GameStateRecorder]")
+                && l.Contains("EnrichPendingMilestoneRewards: updated ledger action for '" + Milestone + "'"));
+        }
+
+        private sealed class EnrichNode : ProgressNode
+        {
+            public EnrichNode(string id) : base(id, startReached: false) { }
+        }
+
         [Fact]
         public void RecoveryMilestone_PendingOwner_TaggedThenBookedOnceAtCommit()
         {

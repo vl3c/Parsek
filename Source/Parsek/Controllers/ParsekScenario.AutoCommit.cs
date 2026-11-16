@@ -34,6 +34,8 @@ namespace Parsek
                     LedgerOrchestrator.NotifyLedgerTreeCommitted(treeToCommit);
                     ParsekLog.Warn("Scenario",
                         "Safety net: committed pending tree on save outside Flight");
+                    DropScheduledRestoreAfterOutsideFlightCommit(
+                        "safety-net", treeToCommit?.TreeName);
                 }
             }
         }
@@ -63,6 +65,47 @@ namespace Parsek
         {
             TreeCommitService.CommitPendingTree();
             RecordingStore.MarkTreeAsApplied(tree);
+        }
+
+        /// <summary>
+        /// Pure: does an outside-FLIGHT commit drop the flight-ready restore schedule? The
+        /// schedule exists only to resume the pending tree on the next onFlightReady
+        /// (<see cref="ScheduleActiveTreeRestoreOnFlightReady"/>, armed by the limbo dispatch
+        /// and the cold active-tree restore with no scene check), so once no pending tree is
+        /// left there is nothing for it to restore. Left armed it outlives the load: the next
+        /// FLIGHT entry defers its stock-action intent consume and skips the committed-tree
+        /// restore for a restore coroutine that exits at once, and the in-session ledger walk
+        /// refuses the current-UT cutoff. A pending tree still stashed (a commit that threw
+        /// before it emptied the slot) keeps the schedule.
+        /// </summary>
+        internal static bool ShouldDropScheduledRestoreAfterOutsideFlightCommit(
+            ActiveTreeRestoreMode mode, bool hasPendingTreeAfterCommit)
+        {
+            return mode != ActiveTreeRestoreMode.None && !hasPendingTreeAfterCommit;
+        }
+
+        private static void DropScheduledRestoreAfterOutsideFlightCommit(
+            string context, string committedTreeName)
+        {
+            ActiveTreeRestoreMode mode = ScheduleActiveTreeRestoreOnFlightReady;
+            bool hasPendingAfter = PendingTreeSlot.HasPendingTree;
+            if (!ShouldDropScheduledRestoreAfterOutsideFlightCommit(mode, hasPendingAfter))
+            {
+                if (mode != ActiveTreeRestoreMode.None)
+                {
+                    ParsekLog.Info("Scenario",
+                        $"autocommit-outside-flight ({context}): kept the flight-ready {mode} " +
+                        $"restore - pending tree '{PendingTreeSlot.PendingTree?.TreeName}' " +
+                        $"(state={PendingTreeSlot.PendingTreeStateValue}) is still stashed");
+                }
+                return;
+            }
+
+            ScheduleActiveTreeRestoreOnFlightReady = ActiveTreeRestoreMode.None;
+            ClearPendingQuickloadResumeContext();
+            ParsekLog.Info("Scenario",
+                $"autocommit-outside-flight ({context}): dropped the flight-ready {mode} " +
+                $"restore scheduled for the committed tree '{committedTreeName}'");
         }
 
         /// <summary>
@@ -371,6 +414,11 @@ namespace Parsek
                     "retries, but an OnSave outside FLIGHT reaches it first and commits it " +
                     "ghost-only via the safety net");
             }
+
+            // After the catch on purpose: a commit that threw with the tree still stashed
+            // keeps the schedule (the helper sees the pending tree), and one that threw after
+            // emptying the slot leaves nothing for the schedule to restore.
+            DropScheduledRestoreAfterOutsideFlightCommit(context, pt?.TreeName);
         }
 
         /// <summary>
