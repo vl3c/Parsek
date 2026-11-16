@@ -910,3 +910,26 @@ max = 100
 [params.transferNodeWaitWarp]
 required = false
 type = "bool"
+
+# Course-correction node search (B43's fix, 2026-11-16). True: after MechJeb plans a
+# course correction, the runner reads the node's predicted target periapsis from
+# KSP's patched conics; outside the window it re-places the node at now +
+# correctionNodeLeadSeconds and searches direction and dv against that prediction,
+# under maxCorrectionDvMps. Optional; false = MechJeb's node flies unchanged. The
+# window and lead are rejected at load without the flag.
+[params.correctionNodeSearch]
+required = false
+type = "bool"
+
+# Predicted target periapsis window (m) the search aims into. It lands on the low
+# edge (the smallest dv), so min is the arrival the spec wants; min >= the flyby floor.
+[params.correctionNodeSearchPeWindowMeters]
+required = false
+type = "window"
+
+# Lead (s) from the plan to the refined node: time to point and ignite. Default 900.
+[params.correctionNodeLeadSeconds]
+required = false
+type = "number"
+min = 1.0
+max = 100000.0

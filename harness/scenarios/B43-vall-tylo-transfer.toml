@@ -1,7 +1,7 @@
 schema = 1
 id = "B43-vall-tylo-transfer"
 # =====================================================================================
-# B43: Vall -> Tylo, a moon-to-moon forge. AUTHORED 2026-11-14, FLOWN TWICE (INVALID), FIXED.
+# B43: Vall -> Tylo, a moon-to-moon forge. AUTHORED 2026-11-14, FLOWN THREE TIMES (INVALID), FIXED.
 # Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 2 / MOON-FLIGHT-TEST-PROGRAM Group B.
 #
 # WHAT IT IS FOR. Rule 4a (`MissionPeriodicity.ResolveMoonRootedFrameParent`, #2554)
@@ -33,7 +33,8 @@ id = "B43-vall-tylo-transfer"
 #   stage 2  the Hohmann departure is 275.6 m/s; B26's measured stage 2 was 1.20x
 #            its Hohmann (415.46 / 347.2), so ~330 nominal, ~550 if unlucky.
 #   capture  ELLIPTICAL to a 6,000 km apoapsis: 161-201 m/s at a 500 km periapsis
-#            for v_inf 245-491 (a circular capture is 840-890 and does not fit).
+#            for v_inf 245-491, less at the 100-150 km the corrections now aim for
+#            (a circular capture is 840-890 and does not fit).
 #   corr     round 0 priced 85.6 m/s, round 1 200.6 m/s (cap 250 per round, see FLOWN).
 #   Flown: 130.5 LF (~683 m/s) was left after stage 2 and 114.1 LF (~600 m/s) after
 #   round 0, so round 1 plus
@@ -51,6 +52,23 @@ id = "B43-vall-tylo-transfer"
 # and the ~400 m/s left still covers the 161-201 m/s capture; a 265 m/s round stays
 # refused, because it and the capture would not fit with margin.
 #
+# FLOWN A THIRD TIME 2026-11-16 (runs 2026-11-16_0002, _0022_a2) with cap 250,
+# INVALID(mission) both. Every round now flew to within 2 m/s of its node, but
+# MechJeb's node did not deliver the periapsis it was asked for. Tylo pe per round:
+# 85.6 m/s -580 -> -327 km, 199.5 m/s -326 -> -568, 168.8 -568 -> -483, 111.1 -483 ->
+# -381, arrival subsurface. At v_inf ~245 m/s Tylo focuses the approach hard (aim
+# offsets under ~7.5 Mm hit the surface, a 500 km pe needs ~10 Mm of a 10.86 Mm SOI),
+# MechJeb's linear model misjudges that, and its late node times (1,700-10,450 s
+# before the SOI) leave little lever.
+# FIX 3 (mission library, `correctionNodeSearch`): MechJeb plans, the runner reads
+# its node's predicted Tylo periapsis off KSP's patched conics and, outside
+# `correctionNodeSearchPeWindowMeters`, moves the node to now + 900 s and searches
+# direction and dv against that prediction (mlib.search_correction_node) under the
+# 250 cap; a node whose read-back prediction is outside the window is removed, not
+# flown. The corrections aim at 150 km (was 500 km): a lower periapsis needs a
+# smaller aim offset at this v_inf, and the window's 100 km floor keeps 60 km over
+# the 40 km flyby floor while the capture arms on any periapsis above the surface.
+#
 # TIMING: Hohmann transfer 77,960 s, Vall-Tylo synodic 211,922 s; Tylo SOI entry to
 # periapsis 10,000-11,500 s. Correction triggers [70000, 15000] s to SOI.
 #
@@ -65,7 +83,7 @@ id = "B43-vall-tylo-transfer"
 # and drop V43M from test_hlib PENDING_FIXTURE_LANES (both in the same commit).
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-11-14; flown twice 2026-11-15 INVALID(mission), fixed, not yet re-flown. Moon-to-moon forge Vall -> Tylo: B26's parent-relay from the Parsek-stripped `vall-park-nerv` (B26's harvest), B29's elliptical capture at Tylo (6,000 km apoapsis), tree committed in the Tylo orbit. A fresh Vall-rooted tree that never leaves Jool's SOI, so rule 4a should phase-lock its loop at P = P_Tylo. Produces `vall-tylo-recorded` for V43M. Delta-v is tight: ~1,116 m/s available, ~683 left after stage 2 when flown."
+description = "AUTHORED 2026-11-14; flown 2026-11-15 and twice on 2026-11-16, INVALID(mission) each time; fixed (course-correction node search), not yet re-flown. Moon-to-moon forge Vall -> Tylo: B26's parent-relay from the Parsek-stripped `vall-park-nerv` (B26's harvest), B29's elliptical capture at Tylo (6,000 km apoapsis), tree committed in the Tylo orbit. A fresh Vall-rooted tree that never leaves Jool's SOI, so rule 4a should phase-lock its loop at P = P_Tylo. Produces `vall-tylo-recorded` for V43M. Delta-v is tight: ~1,116 m/s available, ~683 left after stage 2 when flown."
 instanceProfile = "stock-minimal"
 tags = ["B43", "vall", "tylo", "jool", "moon-to-moon", "parent-relay", "elliptical-capture",
         "orbit", "mechjeb", "cross-soi", "capture", "commit-in-foreign-soi", "orbit-start",
@@ -113,7 +131,10 @@ returnBodyName             = "Jool"
 viaBodyNames               = ["Jool"]
 transferMinApoapsisMeters  = 55000000
 ejectionEccFloor           = 0
-courseCorrectPeriapsisMeters = 500000
+courseCorrectPeriapsisMeters = 150000
+correctionNodeSearch       = true
+correctionNodeSearchPeWindowMeters = { min = 100000, max = 1000000 }
+correctionNodeLeadSeconds  = 900
 correctionTriggerTimeToSoiSeconds = [70000, 15000]
 correctionTriggerAltsMeters       = []
 planTimeoutSeconds         = 300

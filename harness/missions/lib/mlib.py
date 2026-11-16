@@ -3054,6 +3054,270 @@ def classify_correction_plan(total_dv: float, cap: float,
     return PLAN_FLY
 
 
+# ---------------------------------------------------------------------------
+# COURSE-CORRECTION NODE SEARCH (correctionNodeSearch; B43, 2026-11-16).
+#
+# MechJeb's OperationCourseCorrection sizes its node from a linear model of the
+# arrival periapsis and picks its own node time. On a slow moon-to-moon arrival
+# (Vall -> Tylo, v_inf ~245 m/s) the target's gravity focuses the approach so
+# hard that the model misjudges the node: aim offsets under ~7.5 Mm hit Tylo's
+# surface, a 500 km periapsis needs ~10 Mm of a 10.86 Mm SOI, and four B43
+# rounds that each flew to within 2 m/s of their node moved the Tylo periapsis
+# -580 -> -327 -> -568 -> -483 -> -381 km. Late node times made it worse: the
+# lever (time from node to encounter) was 1,700-10,450 s where 40,000+ s was
+# available.
+#
+# The refinement asks KSP's own patched-conic solver instead. The shell places
+# one node at the earliest sensible UT and hands ``search_correction_node`` an
+# ``eval_pe(direction, dv)`` that writes the node's prograde / normal / radial
+# components and reads the predicted target periapsis off the node's next
+# patch. Along one direction the periapsis is NOT monotone in dv: the aim point
+# can sweep through the target's centre, so the curve falls to a minimum near
+# -radius and rises again. The search therefore never stops at a local minimum;
+# it steps dv up from one step to the cap until the prediction enters the
+# window, then bisects inside the last step for the smallest in-window dv. The
+# cheapest direction wins. Every eval is a handful of kRPC calls, so the total
+# count is bounded.
+
+# Node-frame unit vectors (prograde, normal, radial). The radial / normal pairs
+# and their diagonals come first because a correction's lever arm is the
+# lateral aim shift; prograde moves the arrival time and only shifts the aim
+# through the target's motion. Order is the tie-break, so it is fixed.
+_CS_DIAG = 1.0 / math.sqrt(2.0)
+CORRECTION_SEARCH_DIRECTIONS: Tuple[Tuple[float, float, float], ...] = (
+    (0.0, 0.0, 1.0), (0.0, 0.0, -1.0), (0.0, 1.0, 0.0), (0.0, -1.0, 0.0),
+    (0.0, _CS_DIAG, _CS_DIAG), (0.0, -_CS_DIAG, _CS_DIAG),
+    (0.0, _CS_DIAG, -_CS_DIAG), (0.0, -_CS_DIAG, -_CS_DIAG),
+    (1.0, 0.0, 0.0), (-1.0, 0.0, 0.0),
+)
+# dv step (m/s). At a 40,000 s lever one step moves the aim point ~400 km, a
+# fraction of the 2-3 Mm wide in-window band of a slow arrival.
+CORRECTION_SEARCH_STEP_MPS = 10.0
+# Bisection rounds inside the step that first enters the window: 10 / 2^6 =
+# 0.16 m/s, a few km of periapsis at a 40,000 s lever.
+CORRECTION_SEARCH_BISECT_ITERS = 6
+# Hard bound on eval_pe calls for one search (each is ~7 kRPC calls). It covers
+# a full refusing sweep at the B43 cap (10 directions x 25 steps) plus slack.
+CORRECTION_SEARCH_MAX_EVALS = 300
+
+# correction_search_decision verdicts.
+CC_SEARCH_KEEP = "keep"              # MechJeb's node predicts an in-window pe
+CC_SEARCH_ALREADY_GOOD = "already-good"  # the raw trajectory is in the window
+CC_SEARCH_NEGLIGIBLE = "negligible"  # MechJeb's in-window node is below the floor
+CC_SEARCH_REFINE = "refine"          # run search_correction_node
+
+
+@dataclass(frozen=True)
+class CorrectionSearchResult:
+    """``direction`` is None when the search refused; ``reason`` then says why.
+    ``dv`` / ``pe`` are the chosen node's magnitude (m/s) and its predicted
+    target periapsis altitude (m). ``evaluations`` counts eval_pe calls and
+    ``directions_tried`` the directions the search stepped along."""
+    direction: Optional[Tuple[float, float, float]] = None
+    dv: float = float("nan")
+    pe: float = float("nan")
+    evaluations: int = 0
+    directions_tried: int = 0
+    reason: str = ""
+
+
+def correction_pe_in_window(body: str, pe: Optional[float], target_body: str,
+                            pe_window: Tuple[float, float]) -> bool:
+    """True iff ``body`` is the target and ``pe`` is a finite altitude inside
+    the inclusive window. A blank or other body, None or NaN fail closed."""
+    if not body or body != target_body:
+        return False
+    if pe is None or not _is_finite(pe):
+        return False
+    return float(pe_window[0]) <= float(pe) <= float(pe_window[1])
+
+
+def search_correction_node(eval_pe, directions: Sequence[Tuple[float, float, float]],
+                           cap_mps: float, step_mps: float,
+                           pe_window: Tuple[float, float],
+                           max_evals: int = CORRECTION_SEARCH_MAX_EVALS,
+                           bisect_iters: int = CORRECTION_SEARCH_BISECT_ITERS
+                           ) -> CorrectionSearchResult:
+    """PURE (given a pure ``eval_pe``). The cheapest node that puts the predicted
+    target periapsis inside ``pe_window``.
+
+    ``eval_pe(direction, dv)`` returns the predicted periapsis altitude (m) of
+    the target encounter for a node of magnitude ``dv`` along the unit vector
+    ``direction``, or None / NaN for a miss, another body, or no encounter
+    (all out of window). dv = 0 is taken as out of window: the caller only
+    searches when the unburned trajectory is.
+
+    Along each direction dv steps ``step``, ``2 step``, ... up to ``cap_mps``
+    (the last step clamped to the cap) and does NOT stop when the periapsis
+    starts to fall or rise again, because the curve is V-shaped when the aim
+    point crosses the target's centre. The first in-window step is bisected
+    against the previous one to the smallest in-window dv. Once a direction
+    has a candidate, later directions only step below its dv, which bounds
+    the work. Ties go to the earlier direction, so the result is
+    deterministic. Refuses (``direction`` None) when nothing reaches the window
+    under the cap, when the inputs are unusable, or when ``max_evals`` is
+    spent with no candidate; a candidate found before the budget ran out is
+    still returned."""
+    lo_pe, hi_pe = float(pe_window[0]), float(pe_window[1])
+    if not (_is_finite(lo_pe) and _is_finite(hi_pe) and lo_pe <= hi_pe):
+        return CorrectionSearchResult(reason="pe window %s is not a finite [lo, hi]"
+                                      % (pe_window,))
+    if not (_is_finite(cap_mps) and cap_mps > 0.0):
+        return CorrectionSearchResult(reason="dv cap %s is not positive" % (cap_mps,))
+    if not (_is_finite(step_mps) and step_mps > 0.0):
+        return CorrectionSearchResult(reason="dv step %s is not positive" % (step_mps,))
+    if not directions:
+        return CorrectionSearchResult(reason="no search directions")
+
+    evals = 0
+    tried = 0
+    best: Optional[Tuple[Tuple[float, float, float], float, float]] = None
+    budget_spent = False
+
+    def _in(pe) -> bool:
+        return pe is not None and _is_finite(pe) and lo_pe <= float(pe) <= hi_pe
+
+    for direction in directions:
+        if budget_spent:
+            break
+        limit = cap_mps if best is None else best[1]
+        tried += 1
+        prev_dv = 0.0
+        k = 1
+        while True:
+            # The last step is clamped to the bound, so a later direction that
+            # enters the window between its last grid point and the best dv so
+            # far is still seen.
+            dv = min(k * step_mps, cap_mps, limit)
+            if evals >= max_evals:
+                budget_spent = True
+                break
+            pe = eval_pe(direction, dv)
+            evals += 1
+            if _in(pe):
+                lo_dv, hi_dv, hit_pe = prev_dv, dv, float(pe)
+                for _ in range(max(0, int(bisect_iters))):
+                    if evals >= max_evals:
+                        budget_spent = True
+                        break
+                    mid = 0.5 * (lo_dv + hi_dv)
+                    mid_pe = eval_pe(direction, mid)
+                    evals += 1
+                    if _in(mid_pe):
+                        hi_dv, hit_pe = mid, float(mid_pe)
+                    else:
+                        lo_dv = mid
+                if best is None or hi_dv < best[1]:
+                    best = (tuple(direction), hi_dv, hit_pe)
+                break
+            if dv >= limit:
+                break
+            prev_dv = dv
+            k += 1
+
+    if best is None:
+        if budget_spent:
+            reason = ("evaluation budget %d spent over %d direction(s) with no "
+                      "in-window node" % (max_evals, tried))
+        else:
+            reason = ("no direction reaches pe [%.0f, %.0f] m under the %.1f m/s "
+                      "cap (%d direction(s), %d evaluations)"
+                      % (lo_pe, hi_pe, cap_mps, tried, evals))
+        return CorrectionSearchResult(evaluations=evals, directions_tried=tried,
+                                      reason=reason)
+    return CorrectionSearchResult(direction=best[0], dv=best[1], pe=best[2],
+                                  evaluations=evals, directions_tried=tried,
+                                  reason=("budget spent; best so far" if budget_spent
+                                          else ""))
+
+
+def correction_search_decision(raw_body: str, raw_pe: float, mj_dv: float,
+                               mj_body: str, mj_pe: float, target_body: str,
+                               pe_window: Tuple[float, float], cap: float,
+                               negligible_floor: float) -> Tuple[str, str]:
+    """PURE. What the shell does with MechJeb's course-correction plan when the
+    node search is armed. Returns ``(verdict, reason)``:
+
+      - ALREADY_GOOD  the unburned trajectory already predicts an in-window
+                      periapsis at the target: remove every node, burn nothing.
+      - KEEP          MechJeb's node predicts an in-window periapsis and its dv
+                      classifies fly (classify_correction_plan): leave it.
+      - NEGLIGIBLE    MechJeb's node is in the window but under the floor:
+                      remove it, as the unarmed path does.
+      - REFINE        anything else (out of window, another body, no encounter,
+                      no node, or an in-window node over the cap): search.
+
+    ``mj_dv`` NaN / ``mj_body`` blank mean MechJeb produced no node."""
+    if correction_pe_in_window(raw_body, raw_pe, target_body, pe_window):
+        return CC_SEARCH_ALREADY_GOOD, (
+            "raw trajectory predicts %s pe %.0f m inside [%.0f, %.0f]"
+            % (raw_body, raw_pe, pe_window[0], pe_window[1]))
+    if correction_pe_in_window(mj_body, mj_pe, target_body, pe_window):
+        verdict = classify_correction_plan(mj_dv, cap, negligible_floor)
+        if verdict == PLAN_FLY:
+            return CC_SEARCH_KEEP, (
+                "MechJeb node dv %.2f predicts %s pe %.0f m inside [%.0f, %.0f]"
+                % (mj_dv, mj_body, mj_pe, pe_window[0], pe_window[1]))
+        if verdict == PLAN_NEGLIGIBLE:
+            return CC_SEARCH_NEGLIGIBLE, (
+                "MechJeb node dv %.2f is under the %.1f floor" % (mj_dv, negligible_floor))
+        return CC_SEARCH_REFINE, (
+            "MechJeb node is in the window but dv %s exceeds the %.1f cap"
+            % (_obs_fmt(mj_dv), cap))
+    if not mj_body:
+        return CC_SEARCH_REFINE, "MechJeb node predicts no encounter (or no node)"
+    if mj_body != target_body:
+        return CC_SEARCH_REFINE, "MechJeb node predicts an encounter with %s" % (mj_body,)
+    return CC_SEARCH_REFINE, (
+        "MechJeb node predicts %s pe %s outside [%.0f, %.0f]"
+        % (mj_body, _obs_fmt(mj_pe), pe_window[0], pe_window[1]))
+
+
+CORRECTION_SEARCH_MIN_LEAD_SECONDS = 120.0
+
+
+def correction_search_node_ut(ut: float, lead: float, time_to_soi: float
+                              ) -> Tuple[Optional[float], str]:
+    """PURE. The UT the refined node is placed at: ``ut + lead``, the earliest
+    the burner can point and ignite, because the lever (node to encounter) is
+    what makes a correction cheap. Under ``2 * lead`` to the predicted SOI
+    change the lead shrinks to a quarter of that time. None with a reason when
+    the clock or lead is unread, or when even that lead is under
+    ``CORRECTION_SEARCH_MIN_LEAD_SECONDS`` (a NaN SOI clock does not refuse: the target's SOI clock is
+    read separately by the encounter evaluation)."""
+    if not (_is_finite(ut) and _is_finite(lead) and lead > 0.0):
+        return None, "ut %s / lead %s unread" % (_obs_fmt(ut), _obs_fmt(lead))
+    if _is_finite(time_to_soi) and time_to_soi < 2.0 * lead:
+        # Close to the SOI a shorter lead keeps a late round useful: a quarter
+        # of the remaining time, never under the burner's minimum lead.
+        short = 0.25 * time_to_soi
+        if short < CORRECTION_SEARCH_MIN_LEAD_SECONDS:
+            return None, ("time to SOI %.0f s leaves under %.0f s of node lead"
+                          % (time_to_soi, CORRECTION_SEARCH_MIN_LEAD_SECONDS))
+        return float(ut) + short, ""
+    return float(ut) + float(lead), ""
+
+
+def classify_refined_correction(dv: float, body: str, pe: float, target_body: str,
+                                pe_window: Tuple[float, float], cap: float,
+                                negligible_floor: float) -> Tuple[str, str]:
+    """PURE. The read-back gate on the refined node before CORRECTION-BURN may
+    fly it: ``classify_correction_plan`` on the node's own dv (so the cap bounds
+    what flies), then the predicted target periapsis must still be inside the
+    window. Returns ``(PLAN_FLY | PLAN_OVER_CAP | PLAN_NEGLIGIBLE |
+    "out-of-window", reason)``; every verdict but PLAN_FLY removes the node."""
+    verdict = classify_correction_plan(dv, cap, negligible_floor)
+    if verdict == PLAN_OVER_CAP:
+        return verdict, "refined dv %s exceeds cap %.1f" % (_obs_fmt(dv), cap)
+    if verdict == PLAN_NEGLIGIBLE:
+        return verdict, "refined dv %.2f is under the %.1f floor" % (dv, negligible_floor)
+    if not correction_pe_in_window(body, pe, target_body, pe_window):
+        return "out-of-window", (
+            "refined node reads %s pe %s, not %s inside [%.0f, %.0f]"
+            % (body or "?", _obs_fmt(pe), target_body, pe_window[0], pe_window[1]))
+    return PLAN_FLY, ""
+
+
 # Park round-out trim (park_trim_ecc_max). Bounded attempts: MechJeb's
 # DeltaVToCircularize is closed-form, so one node should do it and two is
 # already generous. A third would be evidence of something the machine cannot
@@ -4198,6 +4462,12 @@ class Action:
     # digests other machines pin (test_b11_* / test_b13_*) stay byte-identical; it
     # still takes part in equality.
     translation: Optional[Tuple[float, float, float]] = field(default=None, repr=False)
+    # ACTION_MJ_PLAN_COURSE_CORRECT node-search payload (correctionNodeSearch):
+    # ``(targetBodyName, peWindowMinMeters, peWindowMaxMeters, nodeLeadSeconds)``.
+    # None = the unarmed plan every other lane flies. Left out of repr on the
+    # ``translation`` precedent so pinned action digests do not move.
+    correction_search: Optional[Tuple[str, float, float, float]] = field(
+        default=None, repr=False)
 
 
 def seam_command_id(reserved_id: str, tag: str) -> str:
@@ -5628,6 +5898,87 @@ class B5Params:
     # not move, so the remembered UT stays valid. False = every lane flown to
     # date, byte for byte. Spec key approachLatchNativeWarp.
     approach_latch_native_warp: bool = False
+    # --- COURSE-CORRECTION NODE SEARCH (OFF by default) -----------------------
+    # True: after MechJeb plans a course correction the runner reads the node's
+    # predicted target periapsis, and when it is outside the window it moves
+    # the node to now + correction_node_lead and searches its direction and
+    # magnitude against KSP's own patched-conic prediction
+    # (search_correction_node). Spec keys correctionNodeSearch,
+    # correctionNodeSearchPeWindowMeters {min, max}, correctionNodeLeadSeconds.
+    # Out of repr so the pinned state-trace digests of every other machine
+    # stay byte-identical (the Action.translation precedent).
+    correction_node_search: bool = field(default=False, repr=False)
+    correction_node_search_pe_window: Tuple[float, float] = field(
+        default=(0.0, 0.0), repr=False)
+    correction_node_lead: float = field(default=900.0, repr=False)
+
+
+def _correction_node_search_params(params: Dict
+                                   ) -> Tuple[bool, Tuple[float, float], float]:
+    """The node-search keys, checked at load. Each refusal is a spec that would
+    fly but could not do what it reads as asking for."""
+    armed = params.get("correctionNodeSearch", False)
+    if not isinstance(armed, bool):
+        raise ValueError("correctionNodeSearch must be a bool (got %r)" % (armed,))
+    window = params.get("correctionNodeSearchPeWindowMeters")
+    lead = params.get("correctionNodeLeadSeconds")
+    if not armed:
+        if window is not None or lead is not None:
+            raise ValueError(
+                "correctionNodeSearchPeWindowMeters / correctionNodeLeadSeconds "
+                "require correctionNodeSearch = true: without it the runner "
+                "flies MechJeb's node unchanged and the keys are inert")
+        return False, (0.0, 0.0), 900.0
+    if float(params.get("courseCorrectPeriapsisMeters", 60000)) <= 0.0:
+        raise ValueError(
+            "correctionNodeSearch requires courseCorrectPeriapsisMeters > 0: with "
+            "it 0 no correction round is ever planned, so there is no node to "
+            "refine")
+    if not (isinstance(window, dict)
+            and isinstance(window.get("min"), (int, float))
+            and isinstance(window.get("max"), (int, float))
+            and not isinstance(window.get("min"), bool)
+            and not isinstance(window.get("max"), bool)):
+        raise ValueError(
+            "correctionNodeSearch requires correctionNodeSearchPeWindowMeters "
+            "{min, max} (got %r): the window is what the search aims into"
+            % (window,))
+    lo, hi = float(window["min"]), float(window["max"])
+    if not (_is_finite(lo) and _is_finite(hi) and 0.0 <= lo < hi):
+        raise ValueError(
+            "correctionNodeSearchPeWindowMeters needs 0 <= min < max (got %r)"
+            % (window,))
+    floor = float(params.get("targetPeriapsisFloorMeters", 10000))
+    if lo < floor:
+        raise ValueError(
+            "correctionNodeSearchPeWindowMeters min %.1f is under "
+            "targetPeriapsisFloorMeters %.1f: the search lands on the window's "
+            "low edge, so it would deliver an arrival the flyby floor then "
+            "re-corrects" % (lo, floor))
+    cap_ell = float(params.get("captureEllipticalApoapsisMeters", 0.0))
+    if cap_ell > 0.0:
+        if hi >= cap_ell:
+            raise ValueError(
+                "correctionNodeSearchPeWindowMeters max %.1f is at or above "
+                "captureEllipticalApoapsisMeters %.1f: an arrival periapsis "
+                "there leaves no ellipse to close" % (hi, cap_ell))
+        radius = _body_gravity(str(params.get("targetBodyName", "Mun")))[1]
+        ra, rp = radius + cap_ell, radius + lo
+        ecc = (ra - rp) / (ra + rp)
+        ecc_cap = float(params.get("parkMaxEccentricity", 0.5))
+        if ecc > ecc_cap:
+            raise ValueError(
+                "correctionNodeSearchPeWindowMeters min %.1f with "
+                "captureEllipticalApoapsisMeters %.1f delivers eccentricity "
+                "%.4f, above parkMaxEccentricity %.4f: the park gate would "
+                "reject the capture of an arrival the search accepted"
+                % (lo, cap_ell, ecc, ecc_cap))
+    lead_s = 900.0 if lead is None else lead
+    if isinstance(lead_s, bool) or not isinstance(lead_s, (int, float)) \
+            or not _is_finite(float(lead_s)) or float(lead_s) <= 0.0:
+        raise ValueError("correctionNodeLeadSeconds must be a positive number "
+                         "(got %r)" % (lead,))
+    return True, (lo, hi), float(lead_s)
 
 
 def b5_params_from_dict(params: Dict) -> B5Params:
@@ -5913,6 +6264,7 @@ def b5_params_from_dict(params: Dict) -> B5Params:
                    _soi_native_lead_ceiling_index(
                        int(params.get("approachMaxWarpFactor", 0)),
                        int(params.get("coastWarpFactor", 6)))))
+    _cc_search, _cc_search_window, _cc_search_lead = _correction_node_search_params(params)
     return B5Params(
         target_apoapsis=float(params.get("targetApoapsisMeters", 80000)),
         target_periapsis=float(params.get("targetPeriapsisMeters", 80000)),
@@ -6032,6 +6384,9 @@ def b5_params_from_dict(params: Dict) -> B5Params:
         transfer_node_wait_warp=bool(params.get("transferNodeWaitWarp", False)),
         # Approach-latch native warp: off unless a spec arms it.
         approach_latch_native_warp=bool(params.get("approachLatchNativeWarp", False)),
+        correction_node_search=_cc_search,
+        correction_node_search_pe_window=_cc_search_window,
+        correction_node_lead=_cc_search_lead,
     )
 
 
@@ -14411,9 +14766,21 @@ def _b5_enter_plan_correction(state: B5State, snapshot: TelemetrySnapshot,
                       last_plan_ut=snapshot.ut if _is_finite(snapshot.ut) else 0.0,
                       warp_cmd=entered_warp_cmd, warp_to_cmd=None,
                       body_blank_count=0, plan_attempts=1)
-    return entered, prelude + [Action(ACTION_MJ_PLAN_COURSE_CORRECT,
-                                      state.params.course_correct_periapsis,
-                                      limit=state.params.max_correction_dv)]
+    return entered, prelude + [_b5_course_correct_action(state.params)]
+
+
+def _b5_course_correct_action(params: B5Params) -> Action:
+    """The PLAN-CORRECTION plan action. The node-search payload rides along
+    only when correctionNodeSearch is armed, so every other lane's action is
+    the same value it always was."""
+    search = None
+    if params.correction_node_search:
+        search = (params.target_body,
+                  float(params.correction_node_search_pe_window[0]),
+                  float(params.correction_node_search_pe_window[1]),
+                  float(params.correction_node_lead))
+    return Action(ACTION_MJ_PLAN_COURSE_CORRECT, params.course_correct_periapsis,
+                  limit=params.max_correction_dv, correction_search=search)
 
 
 def _b5_enter_relay_transfer(state: B5State, snapshot: TelemetrySnapshot,
@@ -16248,9 +16615,7 @@ def b5_decide(state: B5State, snapshot: TelemetrySnapshot) -> Tuple[B5State, Lis
     if state.phase == B5_PLAN_CORRECTION:
         new_state, actions = _b5_plan_phase(
             state, snapshot, peak,
-            plan_action=Action(ACTION_MJ_PLAN_COURSE_CORRECT,
-                               state.params.course_correct_periapsis,
-                               limit=state.params.max_correction_dv),
+            plan_action=_b5_course_correct_action(state.params),
             burn_phase=B5_CORRECTION_BURN,
             on_timeout_phase=B5_COAST_TO_TARGET,
             # DIY burner handoff (live finding 8): point the native AP at the
