@@ -487,7 +487,7 @@ which places it in Controllers with no `modules.toml` edit. No task depends on P
     HomeSpaceCenter`, immutable, with `internal const double StockPadLatitude = -0.0972`,
     `StockPadLongitude = -74.5575`, `StockRunwayThresholdLatitude = -0.0502`,
     `StockRunwayThresholdLongitude = -74.7300` (the values of
-    `SpawnCollisionDetector.cs:216-225`), readonly fields `PadLatitude`, `PadLongitude`,
+    `SpawnCollisionDetector.cs:305-315`, re-anchored 2026-11-16), readonly fields `PadLatitude`, `PadLongitude`,
     `RunwayThresholdLatitude`, `RunwayThresholdLongitude`, `Version` (int), a
     `static readonly HomeSpaceCenter Stock` (version 0) and `internal static HomeSpaceCenter
     Current => Stock;`. No setter and no mutable static in this task: a setter with no
@@ -500,10 +500,10 @@ which places it in Controllers with no `modules.toml` edit. No task depends on P
     `ClassifyKscExclusionZone`, and the private constructor from `Stock`'s initializer.
     Confirm in the `ilanalysis.py` report before pushing that the type initializer counts as
     reached; if it does not, `Current` builds `Stock` lazily.
-  - `SpawnCollisionDetector.cs:216-225`: the four constants stay as aliases
+  - `SpawnCollisionDetector.cs:305-315`: the four constants stay as aliases
     (`internal const double KscPadLatitude = HomeSpaceCenter.StockPadLatitude;` and so on) so
     the 99 test references keep compiling and keep meaning "the stock position". The readers
-    in `IsWithinKscExclusionZone` (`:243-244`) and `ClassifyKscExclusionZone` (`:278-281`)
+    in `IsWithinKscExclusionZone` (`:333-335`) and `ClassifyKscExclusionZone` (`:369-373`)
     read `HomeSpaceCenter.Current` once per call into locals. Log text unchanged.
   - The file is created in `Core/` (no `modules.toml` edit); the Core count and kernel list in
     `test_archview.py` (`test_phase_two_catch_all_count`, `test_kernel_files_resolve_to_core`);

@@ -302,17 +302,17 @@ namespace Parsek
         //  KSC exclusion zone (pure, unit-testable)
         // ────────────────────────────────────────────────────────────
 
-        /// <summary>KSC launch pad latitude in degrees.</summary>
-        internal const double KscPadLatitude = -0.0972;
+        /// <summary>Stock KSC launch pad latitude in degrees (<see cref="HomeSpaceCenter.StockPadLatitude"/>).</summary>
+        internal const double KscPadLatitude = HomeSpaceCenter.StockPadLatitude;
 
-        /// <summary>KSC launch pad longitude in degrees.</summary>
-        internal const double KscPadLongitude = -74.5575;
+        /// <summary>Stock KSC launch pad longitude in degrees (<see cref="HomeSpaceCenter.StockPadLongitude"/>).</summary>
+        internal const double KscPadLongitude = HomeSpaceCenter.StockPadLongitude;
 
-        /// <summary>KSC runway start (west threshold) latitude in degrees.</summary>
-        internal const double KscRunwayLatitude = -0.0502;
+        /// <summary>Stock KSC runway start (west threshold) latitude in degrees (<see cref="HomeSpaceCenter.StockRunwayThresholdLatitude"/>).</summary>
+        internal const double KscRunwayLatitude = HomeSpaceCenter.StockRunwayThresholdLatitude;
 
-        /// <summary>KSC runway start (west threshold) longitude in degrees.</summary>
-        internal const double KscRunwayLongitude = -74.7300;
+        /// <summary>Stock KSC runway start (west threshold) longitude in degrees (<see cref="HomeSpaceCenter.StockRunwayThresholdLongitude"/>).</summary>
+        internal const double KscRunwayLongitude = HomeSpaceCenter.StockRunwayThresholdLongitude;
 
         /// <summary>
         /// Default exclusion radius in meters around KSC infrastructure points.
@@ -330,8 +330,9 @@ namespace Parsek
         internal static bool IsWithinKscExclusionZone(
             double latitude, double longitude, double bodyRadius, double exclusionRadiusMeters)
         {
-            double padDist = LaunchSiteSurfaceDistance(latitude, longitude, KscPadLatitude, KscPadLongitude, bodyRadius);
-            double runwayDist = LaunchSiteSurfaceDistance(latitude, longitude, KscRunwayLatitude, KscRunwayLongitude, bodyRadius);
+            HomeSpaceCenter home = HomeSpaceCenter.Current;
+            double padDist = LaunchSiteSurfaceDistance(latitude, longitude, home.PadLatitude, home.PadLongitude, bodyRadius);
+            double runwayDist = LaunchSiteSurfaceDistance(latitude, longitude, home.RunwayThresholdLatitude, home.RunwayThresholdLongitude, bodyRadius);
 
             bool withinPad = padDist < exclusionRadiusMeters;
             bool withinRunway = runwayDist < exclusionRadiusMeters;
@@ -365,10 +366,11 @@ namespace Parsek
                 || double.IsNaN(bodyRadius) || bodyRadius <= 0.0)
                 return KscExclusionZone.None;
 
-            double padDist = LaunchSiteSurfaceDistance(latitude, longitude, KscPadLatitude, KscPadLongitude, bodyRadius);
+            HomeSpaceCenter home = HomeSpaceCenter.Current;
+            double padDist = LaunchSiteSurfaceDistance(latitude, longitude, home.PadLatitude, home.PadLongitude, bodyRadius);
             if (padDist < exclusionRadiusMeters)
                 return KscExclusionZone.Pad;
-            double runwayDist = LaunchSiteSurfaceDistance(latitude, longitude, KscRunwayLatitude, KscRunwayLongitude, bodyRadius);
+            double runwayDist = LaunchSiteSurfaceDistance(latitude, longitude, home.RunwayThresholdLatitude, home.RunwayThresholdLongitude, bodyRadius);
             if (runwayDist < exclusionRadiusMeters)
                 return KscExclusionZone.Runway;
             return KscExclusionZone.None;
