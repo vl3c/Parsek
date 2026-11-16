@@ -590,6 +590,205 @@ namespace Parsek.Tests
             Assert.Empty(ex.Constraints);
         }
 
+        // === Launch body = the earliest included segment (todo
+        //     MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH) ===
+
+        [Theory]
+        [InlineData("Kerbin", 100.0, "Kerbin", 200.0, "Kerbin")]  // ascent then its orbit
+        [InlineData("Mun", 100.0, "Kerbin", 200.0, "Mun")]        // a pad launch elsewhere
+        [InlineData("Tylo", 900.0, "Vall", 100.0, "Vall")]        // orbit start, later low pass
+        [InlineData("Mun", 100.0, "Kerbin", 100.0, "Mun")]        // a tie goes to the surface
+        [InlineData(null, double.PositiveInfinity, "Vall", 100.0, "Vall")]
+        [InlineData("Mun", 100.0, null, double.PositiveInfinity, "Mun")]
+        [InlineData(null, double.PositiveInfinity, null, double.PositiveInfinity, null)]
+        public void ResolveLaunchBody_TruthTable(
+            string surfaceBody, double surfaceStart, string orbitBody, double orbitStart, string expected)
+        {
+            Assert.Equal(expected,
+                MissionPeriodicity.ResolveLaunchBody(surfaceBody, surfaceStart, orbitBody, orbitStart));
+        }
+
+        // The KSP 1.12.5 periods the V43M flight logged (rotation == orbit: both tidally locked).
+        private const double KspVallPeriod = 105962.08889392365;
+        private const double KspTyloPeriod = 211926.35802123015;
+
+        private static FakeBodyInfo VallTyloFake()
+        {
+            var f = StockFake();
+            f.Orbit["Jool"] = 104661432.0;
+            f.Rotation["Jool"] = 36000.0;
+            f.Parent["Jool"] = "Sun";
+            f.Soi["Jool"] = 2.4559852e9;
+            f.Velocity["Jool"] = 4129.0;
+            foreach (var (moon, period, soi, vel) in new[]
+            {
+                ("Vall", KspVallPeriod, 2406401.4, 2558.8),
+                ("Tylo", KspTyloPeriod, 10856518.0, 2030.9),
+            })
+            {
+                f.Orbit[moon] = period;
+                f.Rotation[moon] = period;
+                f.Parent[moon] = "Jool";
+                f.Soi[moon] = soi;
+                f.Velocity[moon] = vel;
+            }
+            return f;
+        }
+
+        private static TrackSection AbsoluteSection(
+            SegmentEnvironment env, double start, double end, string body)
+        {
+            return new TrackSection
+            {
+                environment = env,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = start,
+                endUT = end,
+                frames = new List<TrajectoryPoint> { Pt(start, body), Pt(end, body) },
+                checkpoints = new List<OrbitSegment>()
+            };
+        }
+
+        private static void AddCheckpoint(Recording rec, double start, double end, string body)
+        {
+            var seg = new OrbitSegment { startUT = start, endUT = end, bodyName = body, semiMajorAxis = 500000 };
+            rec.OrbitSegments.Add(seg);
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                source = TrackSectionSource.Checkpoint,
+                startUT = start,
+                endUT = end,
+                frames = new List<TrajectoryPoint>(),
+                checkpoints = new List<OrbitSegment> { seg }
+            });
+        }
+
+        // The `vall-tylo-recorded` fixture's tree (harvested from B43, flown by V43M), at its real
+        // UTs: the root starts IN ORBIT around Vall (a 2.6 s Absolute coast, then Vall / Jool / Tylo
+        // checkpoints), the second segment is one 5.4 s Approach section at Tylo (~87 km), and the
+        // tip is Tylo coast and burn sections with no orbit segment.
+        private static RecordingTree VallTyloFixtureTree()
+        {
+            const double Ut0 = 28896849.902240183;
+            const double VallCheckpoint = 28896852.522240125;
+            const double JoolCheckpoint = 28907041.339236677;
+            const double TyloCheckpoint = 29158571.426788919;
+            const double TyloCoast = 29178742.565943848;
+            const double ApproachStart = 29178745.62594378;
+            const double ApproachEnd = 29178751.025943659;
+            const double TipBurnEnd = 29178764.523526371;
+            const double TipEnd = 29178823.7341452;
+
+            var root = new Recording
+            {
+                RecordingId = "ef", VesselName = "V", IsDebris = false,
+                ExplicitStartUT = Ut0, ExplicitEndUT = ApproachStart,
+                StartBodyName = "Vall", SegmentBodyName = "Vall",
+                ChainId = "C", ChainIndex = 0
+            };
+            root.TrackSections.Add(AbsoluteSection(SegmentEnvironment.ExoBallistic, Ut0, VallCheckpoint, "Vall"));
+            AddCheckpoint(root, VallCheckpoint, JoolCheckpoint, "Vall");
+            AddCheckpoint(root, JoolCheckpoint, TyloCheckpoint, "Jool");
+            AddCheckpoint(root, TyloCheckpoint, TyloCoast, "Tylo");
+            root.TrackSections.Add(AbsoluteSection(SegmentEnvironment.ExoBallistic, TyloCoast, ApproachStart, "Tylo"));
+
+            var approach = new Recording
+            {
+                RecordingId = "6a", VesselName = "V", IsDebris = false,
+                ExplicitStartUT = ApproachStart, ExplicitEndUT = ApproachEnd,
+                StartBodyName = "Tylo", SegmentBodyName = "Tylo",
+                ChainId = "C", ChainIndex = 1
+            };
+            approach.TrackSections.Add(AbsoluteSection(SegmentEnvironment.Approach, ApproachStart, ApproachEnd, "Tylo"));
+
+            var tip = new Recording
+            {
+                RecordingId = "a0", VesselName = "V", IsDebris = false,
+                ExplicitStartUT = ApproachEnd, ExplicitEndUT = TipEnd,
+                StartBodyName = "Tylo", SegmentBodyName = "Tylo",
+                ChainId = "C", ChainIndex = 2
+            };
+            tip.TrackSections.Add(AbsoluteSection(SegmentEnvironment.ExoPropulsive, ApproachEnd, TipBurnEnd, "Tylo"));
+            tip.TrackSections.Add(AbsoluteSection(SegmentEnvironment.ExoBallistic, TipBurnEnd, TipEnd, "Tylo"));
+
+            return TreeOf("t", root, approach, tip);
+        }
+
+        [Fact]
+        public void Extract_VallOrbitStartThenTyloApproach_LaunchBodyStaysVall()
+        {
+            // Guards MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH (V43M flight 2026-11-16): the
+            // launch body used to be ANY surface-class body ahead of the orbit fallback, so the Tylo
+            // Approach pass at the end of a mission that starts in orbit around Vall made Tylo the
+            // "launch moon". The launch body is the earliest included segment's: Vall.
+            // Rule 2 still emits Rotation(Tylo): the Approach arc is body-fixed and Tylo has an
+            // inertial orbit segment in the set, so its hand-off needs Tylo's spin; Tylo is tidally
+            // locked, so that rotation shares Orbital(Tylo)'s period and costs no extra window.
+            var ex = Extract(VallTyloFixtureTree(), VallTyloFake());
+
+            Assert.Equal("Vall", ex.LaunchBodyName);
+            Assert.Equal(Support.Supported, ex.Support);
+            Assert.Equal(
+                "Rotation(Tylo) P=211926.35802123015 off=281895.72370359674; " +
+                "Orbital(Tylo) same-parent P=211926.35802123015 off=261721.52454873547; " +
+                "Orbital(Vall) same-parent P=105962.08889392365 off=10191.436996493489",
+                string.Join("; ", ex.Constraints.Select(c => c.ToString())));
+
+            // The exact lines the V43M spec pins.
+            Assert.Contains(logLines, l => l.Contains("[MissionPeriodicity]")
+                && l.Contains("ExtractConstraints: moon-rooted frame launchMoon=Vall planet=Jool " +
+                    "launchMoonPeriod=105962.08889392365s"));
+            Assert.Contains(logLines, l => l.Contains("[MissionPeriodicity]")
+                && l.Contains("ExtractConstraints: launch body Vall from the earliest segment " +
+                    "(first orbit Vall off=2.6199999414384365, first surface Tylo off=281895.72370359674)"));
+            Assert.Contains(logLines, l => l.Contains("[MissionPeriodicity]")
+                && l.Contains("ExtractConstraints: tree=t members=3 launchBody=Vall ut0=28896849.902240183 " +
+                    "support=Supported constraints=3 [Rotation(Tylo) P=211926.35802123015 off=281895.72370359674; " +
+                    "Orbital(Tylo) same-parent P=211926.35802123015 off=261721.52454873547; " +
+                    "Orbital(Vall) same-parent P=105962.08889392365 off=10191.436996493489]"));
+            Assert.DoesNotContain(logLines, l => l.Contains("launchMoon=Tylo"));
+        }
+
+        [Fact]
+        public void Build_VallOrbitStartThenTyloApproach_LocksOnTyloWithVallInTolerance()
+        {
+            // Guards the V43M phase-lock decision after the launch-body fix: Orbital(Tylo) dominates
+            // (the longer orbit), Rotation(Tylo) collapses with it (same period), and Vall sits at
+            // ~2 s of the 2:1 resonance, so the fixed cadence is one Tylo period within tolerance.
+            // Under the shipped Loose landing alignment the zero-drift schedule anchors on
+            // Orbital(Vall) (the tightest duty cycle) and still flies within tolerance.
+            var tree = VallTyloFixtureTree();
+            var fake = VallTyloFake();
+            var committed = new List<Recording>(tree.Recordings.Values);
+
+            var ex = Extract(tree, fake);
+            PeriodicitySolution sol = MissionPeriodicity.Solve(
+                ex.Constraints, ex.Support, ex.UT0, 29178825.894145153, fake);
+            Assert.True(sol.ShouldPhaseLock);
+            Assert.Equal("dominant-intercept", sol.Method);
+            Assert.Equal(KspTyloPeriod, sol.P, 6);
+            Assert.True(sol.WithinTolerance);
+            Assert.True(sol.ResidualSeconds < 3.0, $"residual {sol.ResidualSeconds}");
+
+            int anchorIdx = MissionPeriodicity.SelectAnchorConstraintIndex(
+                ex.Constraints, fake, ex.LaunchBodyName, TransitedBodyRotationMode.Loose);
+            Assert.Equal("Vall", ex.Constraints[anchorIdx].BodyName);
+
+            logLines.Clear();
+            var set = MissionLoopUnitBuilder.Build(
+                new[] { LoopMissionFor("t", 29178825.894145153) }, new[] { tree }, committed, 30.0, fake,
+                TransitedBodyRotationMode.Loose);
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            Assert.NotNull(unit.RelaunchSchedule);
+            Assert.Contains(logLines, l => l.Contains("[MissionPeriodicity]")
+                && l.Contains("PhaseLock APPLIED") && l.Contains("P=211926.35802123015 method=dominant-intercept")
+                && l.Contains("fixedCadenceWithinTol=yes") && l.Contains("zeroDrift=yes")
+                && l.Contains("scheduleWithinTol=yes"));
+        }
+
         [Theory]
         [InlineData("Mun", new[] { "Kerbin", "Minmus" }, "Kerbin")]
         [InlineData("Mun", new[] { "Kerbin" }, "Kerbin")]

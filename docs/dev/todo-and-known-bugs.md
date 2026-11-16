@@ -20,6 +20,58 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH~~: a looped mission that starts in orbit is timed around a later moon it passes low over [CLOSED 2026-11-16: V43M flew green on its first flight with the fix, `2026-11-16_1803_V43M-vall-tylo-player-loop` PASS attempt 1 (46 s, automation DLL built from 866ac123, sha256 prefix 8dfcbc5e; every verifier green), KSP.log reading launch moon Vall, constraints=3, `Solve: dominant=Tylo method=dominant-intercept residual=2.18 withinTol=yes` and `PhaseLock APPLIED ... P=211926.36 ... zeroDrift=yes scheduleWithinTol=yes`. FILED 2026-11-16 from V43M's first flight `2026-11-16_1726_V43M-vall-tylo-player-loop` (PC, parallel run `moon-loops-2026-11-16d`, DLL unchanged since PR #2638, PARSEK-FAIL(expectation) attempt 1, 58 s; diagnostics on branch `forge-logs-2026-11-16d`, folder `diag/2026-11-16_1726_V43M-vall-tylo-player-loop/`). FIXED 2026-11-16, branch `claude/project-thread-vpr29t`; xUnit; V43M re-pinned, awaiting PC flight; low (the loop still phase-locks, on the wrong launch moon)]
+
+The `vall-tylo-recorded` tree 91205f57 is one vessel's chain: the root ef182ffd starts IN ORBIT
+around Vall (a 2.6 s Absolute coast, then Vall, Jool and Tylo orbit checkpoints from UT
+28,896,852.5), the second segment 6a000db2 is one 5.4 s Approach section at Tylo (~87 km, UT
+29,178,745.6 - 29,178,751.0) and the tip a0ba73e4 is Tylo coast and burn sections. V43M expected
+`ExtractConstraints: moon-rooted frame launchMoon=Vall ...` and `launchBody=Vall ... constraints=2
+[Orbital(Tylo) same-parent ...; Orbital(Vall) same-parent ...`. KSP logged
+`launchMoon=Tylo planet=Jool` and `launchBody=Tylo ut0=28896849.902240183 support=Supported
+constraints=3 [Rotation(Tylo) P=211926.358 off=281895.72; Orbital(Vall) same-parent P=105962.09
+off=2.62; Orbital(Tylo) same-parent P=211926.358 off=2.62]`; the lock itself read `PhaseLock
+APPLIED ... P=211926.358 method=dominant-intercept ... fixedCadenceWithinTol=yes`.
+Cause: `MissionPeriodicity.ExtractConstraints` sets `launchBody = earliestSurfaceBody ??
+earliestOrbitBody`, so ANY surface-class section (Atmospheric, Surface*, and Approach, which
+`IsRotationConstrainingEnvironment` counts) out-ranks the orbit fallback whatever its time. A
+mission that starts in orbit and later dips into Approach over another body is read as launched
+from that body: here Tylo became the launch moon, Vall a sibling SOI entry, and the launch moon's
+phase was pinned at the Vall orbit start instead of the Vall SOI exit.
+Fix: the launch body is the body of the EARLIEST included segment
+(`MissionPeriodicity.ResolveLaunchBody`): the earliest surface-class start and the earliest orbit
+start are compared and the earlier one names it, a tie going to the surface (an ascent and its
+orbit can share a UT). A surface launch starts with its ascent, so no surface-launch answer moves
+(every existing extraction pin is unchanged). When the two bodies differ the extractor logs
+`ExtractConstraints: launch body <B> from the earliest segment (first orbit <B> off=..., first
+surface <C> off=...)`. On this tree it now reads launch moon Vall and `constraints=3
+[Rotation(Tylo) P=211926.358 off=281895.72; Orbital(Tylo) same-parent P=211926.358 off=261721.52;
+Orbital(Vall) same-parent P=105962.089 off=10191.44]`: Rotation(Tylo) stays under rule 2 (the
+Approach arc is body-fixed and Tylo has an inertial orbit in the set) and, Tylo being tidally
+locked, shares Orbital(Tylo)'s period; Vall is pinned at its SOI exit. Solve still reads
+`dominant-intercept` at P = P_Tylo within tolerance, and the zero-drift schedule anchors on
+Orbital(Vall). Pinned by `MissionPeriodicityTests.ResolveLaunchBody_TruthTable`,
+`Extract_VallOrbitStartThenTyloApproach_LaunchBodyStaysVall` (the fixture's shape at its real UTs)
+and `Build_VallOrbitStartThenTyloApproach_LocksOnTyloWithVallInTolerance`; all three red with the
+old rule. V43M now requires the launch-body line, `launchMoon=Vall` and the three-constraint
+summary, and forbids `launchMoon=Tylo`.
+Closed 2026-11-16: V43M flew green on the fix (`2026-11-16_1803`, PASS attempt 1, 46 s, DLL 8dfcbc5e),
+logging `ExtractConstraints: launch body Vall from the earliest segment (first orbit Vall off=2.62,
+first surface Tylo off=281895.72)`, `launchMoon=Vall planet=Jool`, `launchBody=Vall ... constraints=3
+[Rotation(Tylo) ...; Orbital(Tylo) same-parent ...; Orbital(Vall) same-parent ...]`, `Solve:
+dominant=Tylo method=dominant-intercept residual=2.18 withinTol=yes` and `PhaseLock APPLIED ...
+P=211926.36 ... fixedCadenceResidual=2.18 withinTol=yes zeroDrift=yes scheduleWithinTol=yes
+scheduleWorstResidual=39.24`, the xUnit prediction.
+
+## MISSION-LOOP-LAUNCH-BODY-PHYSICS-COAST-UNCOUNTED: a loop that starts in orbit off rails can still be timed around a later moon it passes low over [FILED 2026-11-16 from the review of PR #2640. OPEN; no lane covers it; low (needs a mission that never warps before its first Approach)]
+
+`MissionPeriodicity.ExtractConstraints`' orbit side of the launch-body comparison counts only
+`OrbitSegments` and `OrbitalCheckpoint` checkpoints, never physics-frame Absolute `ExoBallistic` /
+`ExoPropulsive` sections. A mission that starts in orbit, stays off rails (no time warp) and whose
+first surface-class section is an Approach over another body before any on-rails segment still
+names the Approach body as its launch body. V43M escaped this only because its root goes on rails
+2.6 s in. Fix: let the Exo sections' body feed the launch-body comparison (not the SOI rules).
+
 ## ~~ROUTE-HELD-ROCK-HARVEST-UNCOUNTED~~: Ore drilled from a Klaw-held rock was not counted as harvest, so the route was refused [FILED 2026-11-15 from the AST-3 flight `2026-11-15_2035_AST-3-klaw-mine-route` (PR #2633; results branch `ast-flights-2026-11-15`, folder `ast-klaw-2026-11-15d`). FIXED 2026-11-15, same PR; xUnit; AST-3 re-flown green 2026-11-15 (folder ast-klaw-2026-11-15e); medium (a rock-mining route could never be made)]
 
 What the player saw: launch a miner, grab a rock with the Klaw, drill it, release it, dock at a
@@ -1694,19 +1746,21 @@ the Mun, vessel switching and physics warp are thin and Kerbin-only, and seven i
 Still to build, most valuable to a player first (items 8 and 10 need no PC flight time and can run
 in parallel in the cloud):
 
-1. [ ] (AUTHORED 2026-11-14. Flown 2026-11-15/16: B47, V38M and B48 green, `jool-tour-recorded` and
-   `jool-laythe-bop-recorded` harvested; open: the Bop decline loop lane `V39M`.) The Jool multi-moon tour (Group C, M-MIS-6): built, never seen in game. One forge
+1. [x] ~~(AUTHORED 2026-11-14. Flown 2026-11-15/16: B47, V38M, B48 and V39M green (V39M `2026-11-16_1727`,
+   the Bop decline), `jool-tour-recorded` and `jool-laythe-bop-recorded` harvested.)~~ Done 2026-11-16.
+   The Jool multi-moon tour (Group C, M-MIS-6): built, never seen in game. One forge
    (Laythe, Vall, Tylo in one tree from `jool-orbit-recorded`) and a loop lane reading
    `ARRIVAL HOLD dest=Jool kind=config moons=3`; a Bop variant must decline with the amber.
    The most expensive flight.
-2. [ ] (AUTHORED 2026-11-14. Flown 2026-11-15/16: all four forges B43-B46 green and harvested
-   (`vall-tylo-recorded`, `laythe-tylo-recorded`, `tylo-bop-recorded`, `minmus-mun-recorded`), V44M and
-   V46M green; open: the loop lanes V43M, V45M (and V39M, item 1's Bop decline), handed over, never flown;
-   the offline solver reads Tylo -> Bop as `joint-best-fit` at 7 x P_Bop, so B45 is no longer
-   expected to decline.) Moon-to-moon pairs on the new 1.0.2 loop spacing: B43 Vall -> Tylo, B44 Laythe -> Tylo,
+2. [x] ~~(AUTHORED 2026-11-14. Flown 2026-11-15/16: all four forges B43-B46 green and harvested
+   (`vall-tylo-recorded`, `laythe-tylo-recorded`, `tylo-bop-recorded`, `minmus-mun-recorded`) and all
+   four loop lanes green: V44M, V46M, V45M (`2026-11-16_1727`) and V43M (`2026-11-16_1803`, on the
+   launch-body fix, todo MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH, closed); the offline solver
+   reads Tylo -> Bop as `joint-best-fit` at 7 x P_Bop, so B45 no longer declines.)~~ Done 2026-11-16;
+   nothing in the moon-to-moon group is open. Moon-to-moon pairs on the new 1.0.2 loop spacing: B43 Vall -> Tylo, B44 Laythe -> Tylo,
    B46 Minmus -> Mun (about 200 Kerbin days between loops), B45 Tylo -> Bop (expected honest
-   decline), each a forge plus a loop lane. Only Laythe -> Vall, Mun -> Minmus and Laythe -> Jool
-   have flown on the new rule.
+   decline), each a forge plus a loop lane. Before this group only Laythe -> Vall, Mun -> Minmus and
+   Laythe -> Jool had flown on the new rule.
 3. [ ] Aircraft: no lane flies a plane (BAY-1's never moves). A runway takeoff, a circuit and a
    landing, then its ghost replays at the Space Center.
 4. [ ] (AUTHORED 2026-11-14 as `B39`-`B42` / `V34M`-`V37M` and `V33T`. FLOWN 2026-11-14: V33T green;
