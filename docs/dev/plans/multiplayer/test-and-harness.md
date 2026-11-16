@@ -348,6 +348,25 @@ writes `testGame = False`.
 - **Size:** M. **Depends on:** nothing. **PC:** no.
 - **Risk:** low; the store models what sync clients do, and S8 may add a behaviour, which is
   one more control.
+- **As built (2026-11-16), what R3E-16 and T-18 build on:** namespace
+  `Parsek.Tests.Race.Sim`, all types `internal`, in memory only (no file system, no thread, no
+  wall clock). Paths are relative, `/`-separated and ordinal (a `\` reads as `/`). Time is the
+  store's own integer tick (`Advance`, `DeliverDue`, `RunUntilQuiet`); `FakeClock` is not
+  coupled to it, so a simulator advances both. Controls are a per-machine `FakeSyncPolicy`
+  (delay range in ticks; reorder, partial and placeholder chances in thousandths) plus
+  `SetOnline`, `ForeignEdit` / `ForeignRename` / `ForeignDelete` (straight to the cloud) and a
+  machine's `Write` / `Delete` / `Rename`. Rules: an upload is accepted only on the cloud's
+  current version, otherwise a write becomes `name (conflict <machine> <n>).ext` and a
+  delete is lost; a view never goes back to an older version of a path; an offline
+  machine's downloads are dropped and it is brought to the cloud's state on reconnect, while
+  its uploads wait; a placeholder opens only online; the rest of a partial file is due at
+  least one tick after its head, so the truncated file is readable between two ticks.
+  `SimSchedule` uses its own SplitMix64 (not `System.Random`), logs every draw and event,
+  `SimSchedule.Replay` reruns from the recorded draws and throws at the first draw or event
+  that differs (a run that stops short does not throw: check `ReplayComplete`), and
+  `SimSchedule.ControlKinds` names the event kind per control for T-18's anti-vacuity count
+  (`PartialLanded` carries the length a reader saw, `RestLanded` the full length). `FakeClock.UtcNow`
+  (`DateTime`, UTC only) is the member `IRaceClock` binds.
 
 ### T-03 Shared-folder staging in run.py
 
