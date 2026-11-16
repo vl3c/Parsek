@@ -86,8 +86,9 @@ namespace Parsek.Tests.Race.Sim
     /// same events on every host: the generator is SplitMix64 written out here (not
     /// <see cref="System.Random"/>, whose sequence is a runtime detail), nothing reads a
     /// clock, a culture or a thread, and nothing enumerates a hash-ordered collection.
-    /// <see cref="Replay"/> runs the same operations again from the recorded draws alone,
-    /// and throws at the first draw that asks for something else.
+    /// <see cref="Replay"/> runs the same operations again from the recorded draws, and
+    /// throws at the first draw or event that differs from the record; a run that stops
+    /// short does not throw, so a caller checks <see cref="ReplayComplete"/> at the end.
     /// </summary>
     internal sealed class SimSchedule
     {
@@ -109,13 +110,15 @@ namespace Parsek.Tests.Race.Sim
         private readonly List<SimDraw> draws = new List<SimDraw>();
         private readonly List<SimEvent> events = new List<SimEvent>();
         private readonly List<SimDraw> replaySource;
+        private readonly List<SimEvent> replayEvents;
         private int replayPosition;
 
-        private SimSchedule(long seed, List<SimDraw> replaySource)
+        private SimSchedule(long seed, List<SimDraw> replaySource, List<SimEvent> replayEvents)
         {
             Seed = seed;
             state = unchecked((ulong)seed);
             this.replaySource = replaySource;
+            this.replayEvents = replayEvents;
         }
 
         public long Seed { get; }
@@ -129,16 +132,20 @@ namespace Parsek.Tests.Race.Sim
         /// <summary>Draws a replay has not consumed yet (0 for a seeded schedule).</summary>
         public int ReplayRemaining => replaySource == null ? 0 : replaySource.Count - replayPosition;
 
+        /// <summary>True when a replay has consumed every recorded draw and event (always true for a seeded schedule).</summary>
+        public bool ReplayComplete => replaySource == null
+            || (replayPosition == replaySource.Count && events.Count == replayEvents.Count);
+
         public static SimSchedule FromSeed(long seed)
         {
-            return new SimSchedule(seed, null);
+            return new SimSchedule(seed, null, null);
         }
 
         public static SimSchedule Replay(SimSchedule recorded)
         {
             if (recorded == null)
                 throw new ArgumentNullException(nameof(recorded));
-            return new SimSchedule(recorded.Seed, new List<SimDraw>(recorded.draws));
+            return new SimSchedule(recorded.Seed, new List<SimDraw>(recorded.draws), new List<SimEvent>(recorded.events));
         }
 
         /// <summary>A value in [0, bound), recorded under its purpose.</summary>
@@ -189,7 +196,7 @@ namespace Parsek.Tests.Race.Sim
 
         internal void Record(long tick, SimEventKind kind, string machine, string path, long version, long detail)
         {
-            events.Add(new SimEvent
+            var e = new SimEvent
             {
                 Index = events.Count,
                 Tick = tick,
@@ -198,7 +205,20 @@ namespace Parsek.Tests.Race.Sim
                 Path = path,
                 Version = version,
                 Detail = detail,
-            });
+            };
+            if (replayEvents != null)
+            {
+                if (e.Index >= replayEvents.Count)
+                    throw new InvalidOperationException(string.Format(CultureInfo.InvariantCulture,
+                        "replay diverged at event {0}: the run recorded '{1}' after the recorded events ran out",
+                        e.Index, e.ToText()));
+                string expected = replayEvents[e.Index].ToText();
+                if (!string.Equals(expected, e.ToText(), StringComparison.Ordinal))
+                    throw new InvalidOperationException(string.Format(CultureInfo.InvariantCulture,
+                        "replay diverged at event {0}: the run recorded '{1}', the record holds '{2}'",
+                        e.Index, e.ToText(), expected));
+            }
+            events.Add(e);
         }
 
         public int Count(SimEventKind kind)

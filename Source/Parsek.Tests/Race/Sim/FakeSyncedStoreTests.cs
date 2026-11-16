@@ -239,6 +239,21 @@ namespace Parsek.Tests.Race.Sim
         }
 
         [Fact]
+        public void Partial_WithNoDelay_IsStillReadableTruncatedUntilTheNextTick()
+        {
+            var store = Store(b: new FakeSyncPolicy { PartialPerMille = 1000 });
+            store.Write("A", Payload, B("0123456789"));
+            store.DeliverDue();
+
+            string seen = Read(store, "B", Payload);
+            Assert.InRange(seen.Length, 1, 9);
+            Assert.StartsWith(seen, "0123456789", StringComparison.Ordinal);
+
+            store.Advance(1);
+            Assert.Equal("0123456789", Read(store, "B", Payload));
+        }
+
+        [Fact]
         public void Partial_WhoseRestWasDroppedOffline_CompletesOnReconnect()
         {
             var store = Store(b: new FakeSyncPolicy { MinDelayTicks = 1, MaxDelayTicks = 1, PartialPerMille = 1000 });
@@ -611,6 +626,7 @@ namespace Parsek.Tests.Race.Sim
 
                 Assert.True(replay.IsReplay);
                 Assert.Equal(0, replay.ReplayRemaining);
+                Assert.True(replay.ReplayComplete);
                 Assert.Equal(original.Schedule.Draws.Count, replay.Draws.Count);
                 Assert.Equal(original.Schedule.ToText(), replay.ToText());
                 Assert.Equal(Dump(original), Dump(again));
@@ -631,6 +647,60 @@ namespace Parsek.Tests.Race.Sim
             }
             foreach (SimEventKind kind in SimSchedule.ControlKinds)
                 Assert.True(counts[kind] > 0, kind + " never fired over seeds 1..20");
+        }
+
+        [Fact]
+        public void Workload_EveryPartialWithARest_WasReadableTruncatedAcrossATick()
+        {
+            int witnessed = 0;
+            for (long seed = 1; seed <= 20; seed++)
+            {
+                SimSchedule s = RunWorkload(SimSchedule.FromSeed(seed)).Schedule;
+                IReadOnlyList<SimEvent> events = s.Events;
+                for (int i = 0; i < events.Count; i++)
+                {
+                    SimEvent head = events[i];
+                    if (head.Kind != SimEventKind.PartialLanded)
+                        continue;
+                    for (int j = i + 1; j < events.Count; j++)
+                    {
+                        SimEvent rest = events[j];
+                        if (rest.Kind != SimEventKind.RestLanded || rest.Machine != head.Machine
+                            || rest.Path != head.Path || rest.Version != head.Version)
+                            continue;
+                        Assert.True(rest.Tick > head.Tick && head.Detail < rest.Detail,
+                            "seed " + seed + ": partial not readable truncated: '" + head.ToText()
+                            + "' then '" + rest.ToText() + "'");
+                        witnessed++;
+                        break;
+                    }
+                }
+            }
+            Assert.True(witnessed > 0, "no partial with a rest over seeds 1..20");
+        }
+
+        [Fact]
+        public void Replay_OfDifferentOperationsWithTheSameDraws_Throws_AndAShortRunIsIncomplete()
+        {
+            var original = new FakeSyncedStore(SimSchedule.FromSeed(5));
+            original.AddMachine("A");
+            original.Write("A", Standing1, B("x"));
+            original.DeliverDue();
+            Assert.Empty(original.Schedule.Draws);
+
+            var other = new FakeSyncedStore(SimSchedule.Replay(original.Schedule));
+            other.AddMachine("A");
+            var ex = Assert.Throws<InvalidOperationException>(() => other.Write("A", Standing2, B("x")));
+            Assert.Contains("replay diverged at event 0", ex.Message);
+
+            SimSchedule shortReplay = SimSchedule.Replay(original.Schedule);
+            var shorter = new FakeSyncedStore(shortReplay);
+            shorter.AddMachine("A");
+            shorter.Write("A", Standing1, B("x"));
+            Assert.Equal(0, shortReplay.ReplayRemaining);
+            Assert.False(shortReplay.ReplayComplete);
+            shorter.DeliverDue();
+            Assert.True(shortReplay.ReplayComplete);
         }
 
         [Fact]

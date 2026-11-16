@@ -359,10 +359,13 @@ writes `testGame = False`.
   current version, otherwise a write becomes `name (conflict <machine> <n>).ext` and a
   delete is lost; a view never goes back to an older version of a path; an offline
   machine's downloads are dropped and it is brought to the cloud's state on reconnect, while
-  its uploads wait; a placeholder opens only online. `SimSchedule` uses its own SplitMix64
-  (not `System.Random`), logs every draw and event, `SimSchedule.Replay` reruns from the
-  recorded draws alone and throws at the first divergence, and `SimSchedule.ControlKinds`
-  names the event kind per control for T-18's anti-vacuity count. `FakeClock.UtcNow`
+  its uploads wait; a placeholder opens only online; the rest of a partial file is due at
+  least one tick after its head, so the truncated file is readable between two ticks.
+  `SimSchedule` uses its own SplitMix64 (not `System.Random`), logs every draw and event,
+  `SimSchedule.Replay` reruns from the recorded draws and throws at the first draw or event
+  that differs (a run that stops short does not throw: check `ReplayComplete`), and
+  `SimSchedule.ControlKinds` names the event kind per control for T-18's anti-vacuity count
+  (`PartialLanded` carries the length a reader saw, `RestLanded` the full length). `FakeClock.UtcNow`
   (`DateTime`, UTC only) is the member `IRaceClock` binds.
 
 ### T-03 Shared-folder staging in run.py

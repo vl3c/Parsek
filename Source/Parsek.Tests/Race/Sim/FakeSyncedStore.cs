@@ -56,7 +56,8 @@ namespace Parsek.Tests.Race.Sim
     ///   on reconnect the machine is brought up to the cloud's current state.
     /// - Placeholder: the listing shows the name and full size, the content arrives at the
     ///   first <see cref="TryOpen"/>, which fails while the machine is offline.
-    /// - Partial: a prefix of the file lands first, the rest in a later delivery.
+    /// - Partial: a prefix of the file lands first, the rest in a later delivery due at
+    ///   least one tick later, so the truncated file is readable between two ticks.
     /// Single-threaded, no file system, no wall clock: nothing here touches the disk.
     /// </summary>
     internal sealed class FakeSyncedStore
@@ -562,7 +563,9 @@ namespace Parsek.Tests.Race.Sim
         {
             d.Seq = ++deliverySeq;
             int delay = Schedule.Between(SimDrawPurpose.Delay, policy.MinDelayTicks, policy.MaxDelayTicks);
-            d.DueTick = Tick + delay;
+            // The rest of a partial file is never due in the tick its head landed, so a reader
+            // between ticks always gets to see the truncated file the control claims to show.
+            d.DueTick = Tick + (d.IsRest ? Math.Max(1, delay) : delay);
             d.OrderKey = ++orderCounter;
             bool jumped = false;
             if (pending.Count > 0 && Schedule.Chance(SimDrawPurpose.Reorder, policy.ReorderPerMille))
@@ -694,7 +697,7 @@ namespace Parsek.Tests.Race.Sim
             {
                 e.Partial = true;
                 e.Content = Prefix(d.Content, d.PartialLength);
-                Schedule.Record(Tick, SimEventKind.PartialLanded, m.Id, d.Path, d.Version, d.PartialLength);
+                Schedule.Record(Tick, SimEventKind.PartialLanded, m.Id, d.Path, d.Version, e.Content.Length);
                 QueueDownload(m, d.Path, true, d.Content, d.Version);
                 return;
             }
