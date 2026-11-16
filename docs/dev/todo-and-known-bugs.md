@@ -118,7 +118,7 @@ holds an orbit segment from UT 358.0 to 1097.5 plus one point at 1097.5. The log
 observation-only `outcome=unbound-refly-provisional reason=refly-provisional-has-no-trajectory-at-save`
 at the invoke's save. Open question: is the end UT written once at that early save and never
 refreshed after the attempt flies, and does anything (playback end, spawn, Missions duration)
-read the stale value? 
+read the stale value?
 Cause. The sidecar is right and `pointCount = 1` is right (it counts flat points; the one point
 at 1097.53 is the only one, the coast is an orbit segment). The stale field is `explicitEndUT`,
 and it is not Re-Fly specific: the quickload-resume trim (`ParsekScenario.TrimRecordingPastUT`)
