@@ -4,7 +4,11 @@ id = "V43M-vall-tylo-player-loop"
 # V43M: the Vall -> Tylo moon-to-moon loop. AUTHORED 2026-11-14.
 # FIRST FLIGHT 2026-11-16 (run 2026-11-16_1726, 58 s) PARSEK-FAIL(expectation) on a product
 # defect, todo MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH; re-pinned to the fixed reading
-# below, the re-flight on a DLL with the fix is owed.
+# below.
+# LIVE-PROVEN 2026-11-16 on its first flight after the fix (run 2026-11-16_1803, PASS attempt 1,
+# 46 s, automation DLL built from 866ac123, sha256 prefix 8dfcbc5e): launch body Vall,
+# constraints=3, Solve dominant=Tylo dominant-intercept residual 2.18, PhaseLock APPLIED at
+# P=211926.36 zero-drift within tolerance, exactly the prediction below.
 # Fixture `vall-tylo-recorded` harvested --keep-parsek from B43-vall-tylo-transfer
 # run `2026-11-16_1638` (PASS attempt 1, wall 1,097 s): the fresh Vall-rooted tree
 # 91205f57dc164ab1b74caf5b574a5a43 with THREE recordings, one chain of the one vessel:
@@ -65,10 +69,10 @@ id = "V43M-vall-tylo-player-loop"
 # logging is on because both ExtractConstraints lines are Verbose.
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-11-14; first flight 2026-11-16 (run 2026-11-16_1726) PARSEK-FAIL on the launch-body defect, re-flight with the fix owed. On `vall-tylo-recorded` (harvested from B43-vall-tylo-transfer). Loops the Vall-rooted Vall -> Tylo tree and reads the moon-rooted phase lock: launch moon Vall, rule 4a's Orbital(Tylo) + Orbital(Vall) set plus the Tylo Approach pass's Rotation(Tylo), Supported, and the solver's decision."
+description = "AUTHORED 2026-11-14; first flight 2026-11-16 (run 2026-11-16_1726) PARSEK-FAIL on the launch-body defect; LIVE-PROVEN 2026-11-16 after the fix (run 2026-11-16_1803). On `vall-tylo-recorded` (harvested from B43-vall-tylo-transfer). Loops the Vall-rooted Vall -> Tylo tree and reads the moon-rooted phase lock: launch moon Vall, rule 4a's Orbital(Tylo) + Orbital(Vall) set plus the Tylo Approach pass's Rotation(Tylo), Supported, and the solver's decision."
 instanceProfile = "stock-minimal"
 tags = ["V43M", "player-loop", "loop-playback", "moon-to-moon", "moon-rooted-phase-lock",
-        "vall", "tylo", "jool", "pending-flight"]
+        "vall", "tylo", "jool", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/vall-tylo-recorded"

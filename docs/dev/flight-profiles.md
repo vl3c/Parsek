@@ -18,8 +18,8 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | profile modded-compat | 4 |
 | autopilot (mission) lanes | 145 |
 | seam-only lanes | 455 |
-| LIVE-PROVEN date in status row | 482 |
-| no LIVE-PROVEN date | 118 |
+| LIVE-PROVEN date in status row | 483 |
+| no LIVE-PROVEN date | 117 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -115,7 +115,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | TOUR | 1 | - | 1 | - | - | - | 1 |
 | TP | 9 | - | - | 9 | - | - | 9 |
 | UIS | 1 | - | 1 | - | - | - | 1 |
-| V | 67 | - | 7 | 60 | - | 6 | 33 |
+| V | 67 | - | 7 | 60 | - | 6 | 34 |
 | VB | 1 | - | 1 | - | - | - | 1 |
 | VN | 13 | - | 13 | - | - | 5 | 13 |
 | W | 1 | - | - | 1 | - | - | - |
@@ -313,10 +313,10 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 | Duna | 29 | 10 | 19 | V 13, B 4, FAR 4, TP 3, AT 1, CN 1, FORGE 1, GUI 1, H 1 |
 | Ike | 10 | 3 | 10 | V 4, FAR 3, B 2, RF 1 |
 | Dres | 8 | 6 | 2 | B 5, V 2, FORGE 1 |
-| Jool | 46 | 18 | 39 | V 25, B 18, FAR 1, S 1, TP 1 |
+| Jool | 46 | 18 | 40 | V 25, B 18, FAR 1, S 1, TP 1 |
 | Laythe | 27 | 14 | 27 | B 14, V 11, FAR 1, TP 1 |
-| Vall | 11 | 5 | 10 | B 5, V 5, TP 1 |
-| Tylo | 12 | 6 | 11 | B 6, V 6 |
+| Vall | 11 | 5 | 11 | B 5, V 5, TP 1 |
+| Tylo | 12 | 6 | 12 | B 6, V 6 |
 | Bop | 8 | 4 | 8 | B 4, V 4 |
 | Pol | 4 | 2 | 4 | B 2, V 2 |
 | Eeloo | 3 | 1 | - | V 2, B 1 |
@@ -1771,7 +1771,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | V3F-flight-arrival-faithful | operator | duna-direct-recorded | m3_loop_arrival_dwell | Duna | - | - | LIVE-PROVEN 2026-08-07 |
 | V3R-flight-arrival-reaim | operator | duna-direct-recorded | m3_loop_arrival_dwell | Duna | - | - | LIVE-PROVEN 2026-08-07 |
 | V4-player-loop-workflow | operator | duna-direct-recorded | seam | Duna | time-jump | - | FLOWN 2026-08-08, run 2026-08-08_1135, PA... |
-| V43M-vall-tylo-player-loop | operator | vall-tylo-recorded | seam | Jool, Vall, Tylo | - | - | FLOWN, PARSEK-FAIL(expectation); fixture... |
+| V43M-vall-tylo-player-loop | operator | vall-tylo-recorded | seam | Jool, Vall, Tylo | - | - | LIVE-PROVEN 2026-11-16 |
 | V44M-laythe-tylo-player-loop | operator | laythe-tylo-recorded | seam | Jool, Laythe, Tylo | - | - | LIVE-PROVEN 2026-11-16 |
 | V45M-tylo-bop-player-loop | operator | tylo-bop-recorded | seam | Jool, Tylo, Bop | - | - | LIVE-PROVEN 2026-11-16 |
 | V46M-minmus-mun-player-loop | operator | minmus-mun-recorded | seam | Kerbin, Mun, Minmus | - | - | LIVE-PROVEN 2026-11-16 |
