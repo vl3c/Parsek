@@ -2299,6 +2299,9 @@ def handle_ref_fault(ref: str, consumer_index: int, steps: Sequence[Dict],
                 "reference; a payload exists only once its step has answered"
                 % (ref, target))
     ref_step = steps[target] or {}
+    if is_harness_step(ref_step):
+        return ("%r names driver.steps[%d], a harness step: it writes nothing to the "
+                "seam channel and has no response payload" % (ref, target))
     if ref_step.get("phase") == "mission":
         return ("%r names driver.steps[%d], a mission-phase step: it writes "
                 "nothing to the seam channel and has no response payload"
@@ -7965,6 +7968,10 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
         if STEP_LABEL_KEY not in step:
             continue
         label = step.get(STEP_LABEL_KEY)
+        if is_harness_step(step):
+            # validate_harness_step reports the key; registering it would let a later
+            # ${label.field} name a step that has no response payload.
+            continue
         if step.get("phase") == "mission":
             errors.append(
                 "driver.steps[%d].%s: a mission-phase step writes nothing to the seam "
@@ -7999,6 +8006,12 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
     first_loadgame_index: Optional[int] = None
     for i, step in enumerate(steps):
         step = step or {}
+        # A harness step (multiplayer T-06) is run by run.py itself and writes nothing
+        # to the channel, so the seam-verb rules below do not apply to it; checked
+        # before the mission branch so a step carrying both keys is refused here.
+        if is_harness_step(step):
+            errors.extend(validate_harness_step(i, steps, race_declared, race_fixtures))
+            continue
         # A mission-kind step (design M-B1) is a HARNESS-SIDE handoff, NOT a seam
         # command: it writes nothing to the channel, so it is EXEMPT from the
         # seam-verb / reserved-verb / seam-expect checks (which apply only to
@@ -9084,6 +9097,245 @@ def format_race_listing(run_id: str, rows: Sequence[Tuple[str, int, str]]) -> st
              "# run=%s files=%d bytes=%d" % (run_id, len(norm), sum(b for _, b, _ in norm))]
     lines.extend("%s %d %s" % (h, b, p) for p, b, h in norm)
     return "\n".join(lines) + "\n"
+
+
+# ---------------------------------------------------------------------------
+# Harness-side steps (multiplayer plan, test-and-harness T-06).
+#
+# A driver step that carries `harness = "<kind>"` instead of `cmd` is executed by
+# run.py itself, between two seam steps, and is never written to the command
+# channel. The one kind is `raceFolder`, which changes the lane's staged race
+# shared folder (`${raceShared}`, `<instance>/rs/0`) the way a rival's sync client
+# or a tampering player would:
+#
+#   { harness = "raceFolder", args = { op = "replace", from = "fixtures/race/<name>" } }
+#   { harness = "raceFolder", args = { op = "replace", from = "fixtures/race/<name>", path = "<rel>" } }
+#   { harness = "raceFolder", args = { op = "edit",    path = "<rel>" } }
+#   { harness = "raceFolder", args = { op = "delete",  path = "<rel>" } }
+#
+#   replace  without `path`: the whole folder becomes a copy of the committed
+#            fixture `harness/fixtures/race/<name>/`. With `path`: the entry at
+#            `<rel>` (file or folder) becomes a copy of the fixture's entry at the
+#            same `<rel>`, whatever was there before.
+#   edit     appends RACE_FOLDER_EDIT_BYTES to the existing regular file `<rel>`,
+#            so its bytes (and any hash over them) change while a ConfigNode
+#            reader still parses it (the appended line is a comment).
+#   delete   removes the existing file or folder `<rel>`.
+#
+# `<rel>` is relative to the shared folder: forward slashes, no empty, `.` or `..`
+# segment, nothing absolute, no drive or stream colon, no backslash, no Windows
+# device name, each segment a plain name (race_folder_path_problem). The args are
+# literal: no `${...}` token is substituted in them. validate_spec refuses a bad
+# step before any boot; run.py re-checks the same args at run time and then refuses
+# any target or fixture entry whose path on disk passes through a link or junction
+# or resolves outside its folder. A refused or failed step is the HARNESS's fault:
+# the attempt stops driving (cleanup tail only) and classifies the terminal
+# INVALID(HARNESS_STEP_INVALID_SUBKIND), never PARSEK-FAIL. A harness step runs
+# only while every step driven before it is met (harness_step_skip_reason): after an
+# unmet step that did not stop the drive it is skipped, the drive goes on, and the
+# earlier step keeps its own verdict, so a harness step can neither hide a Parsek
+# fault nor turn a red run green.
+# ---------------------------------------------------------------------------
+
+HARNESS_STEP_KEY = "harness"
+RACE_FOLDER_STEP = "raceFolder"
+HARNESS_STEP_KINDS: Tuple[str, ...] = (RACE_FOLDER_STEP,)
+# The step-level keys a harness step may carry (no cmd / phase / expect / budget /
+# label: it writes nothing to the channel and has no response payload).
+HARNESS_STEP_ALLOWED_KEYS: Tuple[str, ...] = (HARNESS_STEP_KEY, "args")
+RACE_FOLDER_OP_KEY = "op"
+RACE_FOLDER_FROM_KEY = "from"
+RACE_FOLDER_PATH_KEY = "path"
+RACE_FOLDER_ARG_KEYS: Tuple[str, ...] = (RACE_FOLDER_OP_KEY, RACE_FOLDER_FROM_KEY,
+                                         RACE_FOLDER_PATH_KEY)
+RACE_FOLDER_OP_REPLACE = "replace"
+RACE_FOLDER_OP_EDIT = "edit"
+RACE_FOLDER_OP_DELETE = "delete"
+RACE_FOLDER_OPS: Tuple[str, ...] = (RACE_FOLDER_OP_REPLACE, RACE_FOLDER_OP_EDIT,
+                                    RACE_FOLDER_OP_DELETE)
+RACE_FOLDER_EDIT_BYTES = b"\n// parsek harness raceFolder edit\n"
+RACE_FOLDER_PATH_MAX_CHARS = 200
+RACE_FOLDER_PATH_MAX_SEGMENTS = 16
+# One path segment: starts with a letter, digit or underscore (so never `.`, `..`
+# or a hidden name), ends with one of those or a dash (Windows strips a trailing
+# dot or space, so `a.` and `a` would be one file), with dots, spaces and dashes
+# allowed inside.
+# Matched with fullmatch: a `$` anchor would also accept one trailing newline.
+_RACE_FOLDER_SEGMENT_RE = re.compile(r"[A-Za-z0-9_](?:[A-Za-z0-9_. -]*[A-Za-z0-9_-])?")
+_WINDOWS_DEVICE_NAMES = frozenset(
+    ["CON", "PRN", "AUX", "NUL"] + ["COM%d" % n for n in range(0, 10)]
+    + ["LPT%d" % n for n in range(0, 10)])
+# The terminal (non-retryable) INVALID subkind of a refused or failed harness step.
+# Absent from RETRYABLE_INVALID_SUBKINDS: a refusal is a property of the spec or of
+# the staged folder, not of the boot.
+HARNESS_STEP_INVALID_SUBKIND = "harness-step"
+
+
+def is_harness_step(step: Any) -> bool:
+    """True for a driver step run by run.py itself (it carries ``harness``)."""
+    return isinstance(step, dict) and HARNESS_STEP_KEY in step
+
+
+def harness_step_kind(step: Any) -> str:
+    """The step's ``harness`` value as a string ("" when it is not a harness step)."""
+    if not is_harness_step(step):
+        return ""
+    return str(step.get(HARNESS_STEP_KEY))
+
+
+def harness_step_display(step: Any) -> str:
+    """How a harness step is named in a log line or a tail summary."""
+    return "harness:%s" % harness_step_kind(step)
+
+
+def harness_step_skip_reason(ev: "ResponseEvaluation",
+                             mission: Optional[Dict]) -> Optional[str]:
+    """Why a harness step must NOT run, or None when it may. A harness step runs only
+    while every step driven before it is met: the mission (when one was driven) and
+    every seam step. A step that is already unmet has decided the verdict (a driver
+    INVALID, PARSEK-FAIL(mission-outcome) or PARSEK-FAIL(unmet-step)), and a harness
+    step premised on its work would otherwise fail in turn and replace that cause
+    with the terminal INVALID(HARNESS_STEP_INVALID_SUBKIND). Skipping it leaves the
+    run exactly as red as the same driver without the harness step."""
+    if mission is not None and not mission.get("met"):
+        return "skipped: the mission step %s is unmet" % (mission.get("id") or "?")
+    first = ev.first_unmet
+    if first is not None:
+        return ("skipped: the earlier step %s (%s) is unmet (verdict=%s)"
+                % (first.step_id, first.cmd, first.verdict or "<no-response>"))
+    return None
+
+
+def race_folder_path_problem(path: Any) -> Optional[str]:
+    """Why ``path`` is not a safe path relative to the race shared folder, or None."""
+    if not isinstance(path, str):
+        return "must be a string, got %s" % type(path).__name__
+    if not path:
+        return "is empty"
+    if len(path) > RACE_FOLDER_PATH_MAX_CHARS:
+        return "is longer than %d characters" % RACE_FOLDER_PATH_MAX_CHARS
+    if "\\" in path:
+        return "contains a backslash (use forward slashes)"
+    if ":" in path:
+        return "contains a colon (a drive or an alternate stream)"
+    if path.startswith("/"):
+        return "is absolute"
+    segments = path.split("/")
+    if len(segments) > RACE_FOLDER_PATH_MAX_SEGMENTS:
+        return "has more than %d segments" % RACE_FOLDER_PATH_MAX_SEGMENTS
+    for seg in segments:
+        if seg == "":
+            return "has an empty segment (a doubled or trailing slash)"
+        if seg in (".", ".."):
+            return "has a %r segment" % seg
+        if not _RACE_FOLDER_SEGMENT_RE.fullmatch(seg):
+            return ("segment %r is not a plain name (letters, digits, underscore first; "
+                    "dot, space, dash inside; no trailing dot or space)" % seg)
+        if seg.split(".", 1)[0].strip().upper() in _WINDOWS_DEVICE_NAMES:
+            return "segment %r is a Windows device name" % seg
+    return None
+
+
+def race_folder_path_parts(path: str) -> Tuple[str, ...]:
+    """The segments of a path race_folder_path_problem accepted."""
+    return tuple(path.split("/"))
+
+
+def race_folder_args_problems(where: str, args: Any, race_declared: bool,
+                              race_fixtures: Optional[Iterable[str]] = None) -> List[str]:
+    """Errors for one raceFolder step's ``args``. validate_spec calls it before any
+    boot and run.py again before it touches the folder. ``race_fixtures`` as in
+    validate_race_fixture (None defers the existence check to run time)."""
+    errors: List[str] = []
+    if not race_declared:
+        errors.append("%s: a %s step needs a [fixture.%s] block, which stages the folder "
+                      "it changes" % (where, RACE_FOLDER_STEP, RACE_FIXTURE_TABLE))
+    if not isinstance(args, dict):
+        errors.append("%s.args: must be a table { op = ..., ... }, got %s"
+                      % (where, type(args).__name__))
+        return errors
+    for key in sorted(str(k) for k in args if k not in RACE_FOLDER_ARG_KEYS):
+        errors.append("%s.args.%s: unknown key (accepted: %s)"
+                      % (where, key, ", ".join(RACE_FOLDER_ARG_KEYS)))
+    for key in RACE_FOLDER_ARG_KEYS:
+        value = args.get(key)
+        if key in args and not isinstance(value, str):
+            errors.append("%s.args.%s: must be a string, got %s"
+                          % (where, key, type(value).__name__))
+        elif isinstance(value, str) and "${" in value:
+            errors.append("%s.args.%s: %r carries a ${...} token; raceFolder args are "
+                          "literal (the target is always under %s)"
+                          % (where, key, value, RACE_SHARED_TOKEN))
+    op = args.get(RACE_FOLDER_OP_KEY)
+    if op not in RACE_FOLDER_OPS:
+        errors.append("%s.args.%s: %r must be one of %s"
+                      % (where, RACE_FOLDER_OP_KEY, op,
+                         " or ".join(repr(o) for o in RACE_FOLDER_OPS)))
+        return errors
+    source = args.get(RACE_FOLDER_FROM_KEY)
+    if op == RACE_FOLDER_OP_REPLACE:
+        if source is None:
+            errors.append("%s.args.%s: required for op=%s (%s<name>)"
+                          % (where, RACE_FOLDER_FROM_KEY, op, RACE_FIXTURE_PREFIX))
+        elif isinstance(source, str) and not is_race_fixture_path(source):
+            errors.append("%s.args.%s: %r must be %s<name> (a plain folder name of "
+                          "letters, digits, dash, underscore; nothing outside "
+                          "harness/fixtures/race/)"
+                          % (where, RACE_FOLDER_FROM_KEY, source, RACE_FIXTURE_PREFIX))
+        elif isinstance(source, str) and race_fixtures is not None \
+                and race_fixture_name(source) not in set(race_fixtures):
+            errors.append("%s.args.%s: %r names no committed race fixture under "
+                          "harness/fixtures/race/" % (where, RACE_FOLDER_FROM_KEY, source))
+    elif RACE_FOLDER_FROM_KEY in args:
+        errors.append("%s.args.%s: op=%s reads no fixture; drop the key"
+                      % (where, RACE_FOLDER_FROM_KEY, op))
+    if RACE_FOLDER_PATH_KEY in args:
+        problem = race_folder_path_problem(args.get(RACE_FOLDER_PATH_KEY))
+        if problem is not None:
+            errors.append("%s.args.%s: %r %s; it must name an entry inside the race "
+                          "shared folder" % (where, RACE_FOLDER_PATH_KEY,
+                                             args.get(RACE_FOLDER_PATH_KEY), problem))
+    elif op in (RACE_FOLDER_OP_EDIT, RACE_FOLDER_OP_DELETE):
+        errors.append("%s.args.%s: required for op=%s (a path relative to the race "
+                      "shared folder)" % (where, RACE_FOLDER_PATH_KEY, op))
+    return errors
+
+
+def validate_harness_step(index: int, steps: Sequence[Any], race_declared: bool,
+                          race_fixtures: Optional[Iterable[str]] = None) -> List[str]:
+    """Errors for the harness step ``steps[index]``: its kind, its step-level keys,
+    its place (after the boot, before a later seam step, not after the quit) and
+    its kind's args."""
+    where = "driver.steps[%d]" % index
+    step = steps[index]
+    errors: List[str] = []
+    kind = step.get(HARNESS_STEP_KEY)
+    if kind not in HARNESS_STEP_KINDS:
+        errors.append("%s.%s: %r is not a harness step kind (known: %s)"
+                      % (where, HARNESS_STEP_KEY, kind, ", ".join(HARNESS_STEP_KINDS)))
+    for key in sorted(str(k) for k in step if k not in HARNESS_STEP_ALLOWED_KEYS):
+        errors.append("%s.%s: not allowed on a harness step (it writes nothing to the "
+                      "command channel; accepted keys: %s)"
+                      % (where, key, ", ".join(HARNESS_STEP_ALLOWED_KEYS)))
+    earlier = [s for s in steps[:index] if isinstance(s, dict)]
+    later = [s for s in steps[index + 1:] if isinstance(s, dict)]
+    if any(s.get("cmd") == "FlushAndQuit" for s in earlier):
+        errors.append("%s: a harness step after FlushAndQuit runs once the game has "
+                      "quit; it must sit between two seam steps" % where)
+    elif not any(isinstance(s.get("cmd"), str) and not is_harness_step(s) for s in later):
+        errors.append("%s: no seam step follows this harness step; it must sit between "
+                      "two seam steps" % where)
+    if kind == RACE_FOLDER_STEP:
+        errors.extend(race_folder_args_problems(where, step.get("args"), race_declared,
+                                                race_fixtures))
+    return errors
+
+
+def format_race_folder_step_args(args: Any) -> str:
+    """``op=... from=... path=...`` for a harness log line ("-" for an absent key)."""
+    args = args if isinstance(args, dict) else {}
+    return " ".join("%s=%s" % (k, args.get(k) if args.get(k) is not None else "-")
+                    for k in RACE_FOLDER_ARG_KEYS)
 
 
 # An explicit ordered id list (`run.py --ids-file`): the selection a planned run
@@ -13517,7 +13769,8 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
         # second boot might clear; this one says the verb answered OK and does not emit
         # that field, which is a property of the build, not of the run.
         base = V(VERDICT_INVALID, subkind, "driver stage failed",
-                 retryable=(subkind != DRIVER_UNRESOLVED_HANDLE_SUBKIND))
+                 retryable=(subkind not in (DRIVER_UNRESOLVED_HANDLE_SUBKIND,
+                                            HARNESS_STEP_INVALID_SUBKIND)))
     elif verifiers.get("batch_expected", False) and not verifiers.get("batch_present", True):
         base = V(VERDICT_PARSEK_FAIL, "batch-crashed", "expected BATCH_COMPLETE absent")
     elif verifiers.get("tooling_invalid", False):
@@ -14051,7 +14304,8 @@ def spec_skips_tail_on_unmet_mission(spec: Dict) -> bool:
 class TailStepDisposition:
     index: int          # zero-based index into driver.steps
     step_id: str        # the id the drive loop assigns that index
-    cmd: str            # "" for a mission-kind step (never reachable in a tail)
+    cmd: str            # "" for a mission-kind step (never reachable in a tail);
+                        # "harness:<kind>" for a harness step
     role: str           # one of TAIL_ROLES
     run: bool           # True = still driven, False = skipped
 
@@ -14115,7 +14369,11 @@ def plan_unmet_mission_tail(steps: Sequence[Dict], mission_index: int,
     skipped_indices: List[int] = []
     for i in range(mission_index + 1, len(steps)):
         step = steps[i] or {}
-        if step.get("phase") == "mission":
+        if is_harness_step(step):
+            # A harness step changes files the run reads back (the race shared
+            # folder), so it is world-mutating and never driven in a tail.
+            cmd, role = harness_step_display(step), TAIL_ROLE_WORLD_MUTATING
+        elif step.get("phase") == "mission":
             # A second mission-kind step is rejected by validate_spec ("exactly one"),
             # so this is unreachable for an admitted spec; classify it world-mutating
             # (it flies a vessel) rather than silently treating it as runnable.
