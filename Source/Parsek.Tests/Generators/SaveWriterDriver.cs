@@ -83,12 +83,30 @@ namespace Parsek.Tests.Generators
             StockShadowTakeBack.ResetForTesting();
             CareerSettingsLock.ResetForTesting();
             StockPoolReference.ResetForTesting();
+            RestoreStockPoolIdentities();
             RouteStore.ResetForTesting();
             RouteEventLog.ResetForTesting();
             RetiredRouteCargoStore.ResetForTesting();
             ParsekScenario.ResetInstanceForTesting();
             EffectiveState.ResetCachesForTesting();
             SaveFormat.ResetForTesting();
+        }
+
+        /// <summary>
+        /// <see cref="FillSmallStores"/> fills each pool state through
+        /// <c>StaticRoundTrip.Fill</c>, which copies a filled state into the readonly static,
+        /// its readonly <c>Pool</c> included, and <see cref="StockPoolReference.ResetForTesting"/>
+        /// clears the rows but not the pool. Left as filled, every later test that saves or
+        /// loads the funds or reputation pool reads it under another pool's node.
+        /// </summary>
+        private static void RestoreStockPoolIdentities()
+        {
+            FieldInfo pool = typeof(StockPoolReferenceState).GetField(
+                "Pool", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            Assert.NotNull(pool);
+            pool.SetValue(StockPoolReference.Funds, StockPool.Funds);
+            pool.SetValue(StockPoolReference.Science, StockPool.Science);
+            pool.SetValue(StockPoolReference.Reputation, StockPool.Reputation);
         }
 
         // ---------------------------------------------------------------- the save writers

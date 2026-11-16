@@ -183,6 +183,18 @@ namespace Parsek.Tests
             Assert.Equal(one.ToString().Replace("\r\n", "\n").Replace(s1, SaveWriterDriver.SaveStampMask), t1);
         }
 
+        [Fact]
+        public void ResetAfterARun_LeavesEveryStockPoolItsOwnIdentity()
+        {
+            RunUnder(CultureInfo.InvariantCulture);
+            SaveWriterDriver.ResetAllStores();
+            // The small-store fill overwrites the pools' readonly identities; a reset that left
+            // them would make every later funds / reputation save-load test read the wrong node.
+            Assert.Equal(StockPool.Funds, StockPoolReference.Funds.Pool);
+            Assert.Equal(StockPool.Science, StockPoolReference.Science.Pool);
+            Assert.Equal(StockPool.Reputation, StockPoolReference.Reputation.Pool);
+        }
+
         // ---------------------------------------------------------------- anti-vacuity
 
         [Fact]
