@@ -71,6 +71,32 @@ namespace Parsek
             return match.Success ? match.Groups[1].Value : rawPart;
         }
 
+        /// <summary>
+        /// The part name a timeline ghost build looks up for one snapshot PART: the
+        /// dresser's substitute when it names a different part, else the recorded name.
+        /// A null options object or a null dresser keeps the recorded name and logs nothing.
+        /// </summary>
+        internal static string ResolveBuildPartName(
+            string recordedPartName, GhostBuildOptions options, out bool substituted)
+        {
+            substituted = false;
+            IGhostPartDresser dresser = options?.Dresser;
+            if (dresser == null || string.IsNullOrEmpty(recordedPartName))
+                return recordedPartName;
+
+            string substitute = dresser.SubstitutePartName(recordedPartName);
+            if (string.IsNullOrEmpty(substitute)
+                || string.Equals(substitute, recordedPartName, System.StringComparison.Ordinal))
+                return recordedPartName;
+
+            substituted = true;
+            ParsekLog.VerboseRateLimited("GhostVisual",
+                "ghost_part_substituted|" + recordedPartName + "|" + substitute,
+                "Ghost part substituted: recorded=" + recordedPartName + " used=" + substitute,
+                60.0);
+            return substitute;
+        }
+
         internal static AvailablePart ResolveAvailablePart(string partName)
         {
             if (string.IsNullOrEmpty(partName))

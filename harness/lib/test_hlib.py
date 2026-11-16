@@ -4248,7 +4248,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "H12-switch-segment":        ("SwitchSegment", 6, "FLIGHT"),
         "H13-ksp-api-smoke":         ("KSP", 6, "FLIGHT"),
         "H14-corpus-data-health":    ("DataHealth", 4, "FLIGHT"),
-        "H15-corpus-ghost-visuals":  ("GhostVisuals", 4, "FLIGHT"),
+        "H15-corpus-ghost-visuals":  ("GhostVisuals", 5, "FLIGHT"),
         "H16-corpus-spawn-health":   ("SpawnHealth", 3, "FLIGHT"),
         "H17-flight-integration":    ("FlightIntegration", 4, "FLIGHT"),
         "H18-pipeline-smoothing":    ("Pipeline-Smoothing", 4, "FLIGHT"),
