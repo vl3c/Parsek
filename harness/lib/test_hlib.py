@@ -23620,22 +23620,21 @@ FLOWN_BATCH_LINE_2026_07_26 = (
 FLOWN_SCENE_SKIP_LINE_2026_07_26 = (
     "[Parsek][INFO][TestRunner] Scene eligibility skip summary: skipped=9"
     " currentScene=FLIGHT byRequiredScene=TRACKSTATION:9")
-# EXPECTED 2026-11-16, NOT YET FLOWN: P3-01 added the two GhostMapPrimitiveRuntimeTest
-# cells (one FLIGHT, one TRACKSTATION), so the source derives total=27 with a tenth
-# TRACKSTATION scene skip. The FLIGHT cell skips only without a game flight state or
-# without Kerbin, neither possible on S1.6's fixture, so it is a fifteenth pass and the
-# two documented loop-icon self-skips stay the only run-time skips. A shape, not a
-# measurement, until the next green flight of S1.6 reads it.
-EXPECTED_BATCH_LINE_2026_11_16 = (
+# RE-MEASURED 2026-11-16: P3-01 added the two GhostMapPrimitiveRuntimeTest cells (one
+# FLIGHT, one TRACKSTATION), so the source derives total=27 with a tenth TRACKSTATION
+# scene skip. Run `2026-11-16_2116_S1.6-render-parity` (PASS attempt 1, 90 s) read the
+# line below token for token: the FLIGHT cell is the fifteenth pass and the two
+# documented loop-icon self-skips stay the only run-time skips.
+FLOWN_BATCH_LINE_2026_11_16 = (
     "[Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=27 passed=15 failed=0"
     " skipped=12 category=GhostMap scene=FLIGHT")
-EXPECTED_SCENE_SKIP_LINE_2026_11_16 = (
+FLOWN_SCENE_SKIP_LINE_2026_11_16 = (
     "[Parsek][INFO][TestRunner] Scene eligibility skip summary: skipped=10"
     " currentScene=FLIGHT byRequiredScene=TRACKSTATION:10")
-MEASURED_BATCH_LINE = EXPECTED_BATCH_LINE_2026_11_16
+MEASURED_BATCH_LINE = FLOWN_BATCH_LINE_2026_11_16
 # The runner's own accounting for 10 of the 12 skips (the other 2 are documented
 # self-skips from the loop-icon warp cluster; see the spec header).
-MEASURED_SCENE_SKIP_LINE = EXPECTED_SCENE_SKIP_LINE_2026_11_16
+MEASURED_SCENE_SKIP_LINE = FLOWN_SCENE_SKIP_LINE_2026_11_16
 
 
 class RenderParityScenarioTests(unittest.TestCase):

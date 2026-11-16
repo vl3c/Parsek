@@ -76,12 +76,13 @@ tier = "daily"
 # --------------------------------------------------------
 #   BATCH_COMPLETE v1 total=27 passed=15 failed=0 skipped=12 category=GhostMap scene=FLIGHT
 #
-# RE-PINNED 2026-11-16 from total=25 passed=14 skipped=11, NOT YET FLOWN: P3-01 added
-# the two GhostMapPrimitiveRuntimeTest cells (one FLIGHT, one TRACKSTATION). The
-# TRACKSTATION one is a tenth scene skip here; the FLIGHT one is synchronous and skips
-# only without a game flight state or without Kerbin, neither possible on this
-# fixture, so it is a fifteenth pass. The next green flight confirms the line; the
-# provenance below is for the 25-cell pin.
+# RE-PINNED 2026-11-16 from total=25 passed=14 skipped=11: P3-01 added the two
+# GhostMapPrimitiveRuntimeTest cells (one FLIGHT, one TRACKSTATION). The TRACKSTATION
+# one is a tenth scene skip here; the FLIGHT one is synchronous and a fifteenth pass.
+# Run `2026-11-16_2116_S1.6-render-parity` (PASS attempt 1, 90 s) read the line above
+# token for token, with
+# `PASSED: GhostMapPrimitiveRuntimeTest.GhostMapPrimitive_RuntimeContract_Flight`, so
+# the pin is literal and flown. The provenance below is for the 25-cell pin.
 #
 # PROVENANCE, because "measured" and "evaluated" are different claims:
 #   flight 1 - run 2026-07-26_0950_S1.6-render-parity, verdict PASS. This is where
@@ -104,7 +105,7 @@ tier = "daily"
 #
 # The 12 skips are fully accounted for; none of them is a parity test standing
 # down. Ten are SCENE ELIGIBILITY, logged by the runner as its own line (nine on the
-# 25-cell flights above, ten from the 27-cell pin):
+# 25-cell flights above, ten on the 27-cell flight of 2026-11-16):
 #   Scene eligibility skip summary: skipped=10 currentScene=FLIGHT byRequiredScene=TRACKSTATION:10
 # The GhostMap category spans both surfaces and this batch runs in FLIGHT (the
 # fixture's FOCUSABLE load route), so the 10 TRACKSTATION-scoped tests are filtered

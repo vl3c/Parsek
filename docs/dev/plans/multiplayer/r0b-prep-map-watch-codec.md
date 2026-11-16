@@ -278,14 +278,16 @@ section 9), and any change to what is written to disk.
   `BATCH_COMPLETE` totals move: run `CommittedBatchTallySourceSyncTests` and
   `MultiCategoryBatchWiringGroupTests` locally and re-pin the specs they name in the same
   change (H44 `total=27 passed=10 skipped=17`, the attribute floor; S1.6 `total=27
-  passed=15 skipped=12`), with a note on the two lanes' rows in `docs/dev/autotest-status.md`
+  passed=15 skipped=12`; both flown green on 2026-11-16, runs
+  `2026-11-16_2115_H44-ghost-map-trackstation` and `2026-11-16_2116_S1.6-render-parity`), with a note on the two lanes' rows in `docs/dev/autotest-status.md`
   and the derived `GhostMap` row of `docs/dev/autotest-ingame-category-inventory.md`. It does
   not change the generated lane catalog `docs/dev/flight-profiles.md`: the catalog takes the
   category NAMES a lane's `RunTests` steps name and the status phrase of its row, not the
   tallies (`harness/lib/lanecatalog.py`, module docstring and `derive_status`), and `GhostMap`
   is an existing category, so `test_lanecatalog` stays green with no regeneration.
 - **Size:** S. **Depends on:** none. **PC:** yes, one in-game run (Ctrl+Shift+T, both scenes),
-  or the two lanes, which run the new cells inside their pinned batches.
+  or the two lanes, which run the new cells inside their pinned batches. Done 2026-11-16: both
+  lanes PASS on attempt 1 with both new cells passing.
 - **Risk:** low; a test-only change whose only coupling is the tally pins.
 
 **P3-02 Move the guard set and the teardown depth into `GhostMapVessels`**
