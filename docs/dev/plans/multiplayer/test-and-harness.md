@@ -1345,6 +1345,15 @@ Made smaller on 2026-11-15: the pairing machinery is T-54's; this task is its fi
   payload with `raceparse` (T-21's facets when they exist). Its docstring already says a
   further forge reuses it rather than forking it. Replaces T-33's own tool. The harvested
   player folders are design 15.10's recorded opponents, R8's opponent source.
+  As built (2026-11-16): the `Parsek/Race/rivals/` prune runs on every `--keep-parsek`
+  harvest, with or without the flag (a race save harvested without it would otherwise put
+  the cache under `fixtures/saves/`; the default mode already drops `Parsek/` whole). The
+  folder is checked against its `_race.listing.txt` and the folder grammar
+  (`raceparse.collect_rival_ids`); the chain is logged `unchecked` by
+  `race_chain_facets` in the tool, the one place T-21's facets plug in. Committing a race
+  fixture regenerates the `TrajectoryCodecFixtureIdentityTests` manifest (its `.prec`
+  payload sits under `harness/fixtures/`), and T-17's `fixtures/race/README.md` list
+  when that lands.
 - **Proof:** cells of the flag (copy, prune, refuse a folder outside `results/`).
 - **Registers:** `harness/README.md` fixtures section.
 - **Size:** S. **Depends on:** T-03, T-05; soft: T-21 (chain facets). **PC:** no.
