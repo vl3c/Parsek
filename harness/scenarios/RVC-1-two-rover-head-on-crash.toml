@@ -1,0 +1,271 @@
+schema = 1
+id = "RVC-1-two-rover-head-on-crash"
+tier = "operator"
+# =============================================================================
+# RVC-1: TWO ROVERS OF ONE TREE CRASH HEAD-ON, RECORDED AND REPLAYED.
+#
+# Authored 2026-11-16 for todo NEXT-TESTS-TO-BUILD-2026-11-11 item 3a ("two rovers crash
+# into each other, to check the reliability of the recording system and playback
+# rendering"). NEVER FLOWN: its first flight is a READING run (tag `pending-flight`). Every
+# regex below matches a literal found in C# source (file cited); the windows that depend on
+# stock physics (how many parts die, which ones, the impact speed) are left open.
+#
+# HOST: `rover-crash-watched` (harness/tools/build_rover_crash_watched.py): V's
+# "Mining Rover RC" (pid 110406740, index 0, active, 28 parts, a Clamp-O-Tron Jr on its
+# front), the "Ore Depot" (pid 3950359723, index 2, 24 parts, a copy of the miner without
+# drills, its port facing the miner's 1.5 m ahead, so 2.3 m root to root) and the crewless
+# "Miner Watcher" (pid 3179797026, index 1) 120 m north, the FLIGHT host after the rewind.
+#
+# HOW TWO ROVERS GET INTO ONE TREE. The seam drives only the ACTIVE vessel, and a switch to
+# a vessel outside the tree does not add it (StartRecording refuses
+# `active-recording-id-missing`). So the depot joins the tree the way MINE-5b / MINE-4 made
+# it join, both LIVE-PROVEN: the miner drives forward into it until the ports couple
+# (`DriveVessel untilDocked=true`, a Dock merge with a foreign vessel,
+# ParsekFlightSplitBrancher.cs `Tree merge created: type=Dock`), then `PartAction
+# button=undock` splits it off again as a new vessel (`Tree branch created: type=Undock ...
+# bgChild=<depot rec> (pid=<new depot pid>)`). From then on the depot is a LOADED
+# background member of the miner's tree, recorded by BackgroundRecorder while the miner is
+# driven. `PartAction button=controlfrom` on the miner's own probe core first, or stock
+# moves the focus to the depot's half at the undock (MINE-4 flight 2026-11-07_0931).
+#
+# THE CRASH. The miner backs straight away from the depot at full reverse for 10 s (south,
+# downhill: the braked miner creeps that way, MINE-4 flight _1003), stops on its brakes,
+# then drives straight back at full throttle in the new crash mode of DriveVessel
+# (`untilCrash=true`, 2026-11-16, TestCommandDriveVessel.cs /
+# ParsekTestCommandAddon.DriveVessel.cs): it ends OK at the first part death on ANY vessel
+# (stock `GameEvents.onPartDie`), cuts the wheels from then on, and reports the first dead
+# part, its vessel and the speed just before. No steering is needed: the depot sits on the
+# line the miner backed out along. The 1x wait after it lets the wreck settle while both
+# recorders run.
+#
+# WHAT IT GATES (the reliability question, recording half):
+#   * both rovers recorded at once next to each other: the Dock merge and the Undock branch
+#     with the depot as the background child, by recording id and pid;
+#   * part loss on BOTH vessels while recording: the active recorder's `Part event:
+#     Destroyed` (FlightRecorder.PartEvents.cs OnPartDie) and the background recorder's
+#     `Part death on background vessel: Destroyed ... vesselPid=<the undock's bgChild pid>`
+#     (BackgroundRecorder.GameEventHandlers.cs), both between the crash marks;
+#   * the scene-exit commit of the whole tree (GS-7's tokens: either an active or a pending
+#     tree reaches the Space Center under autoMerge) with at least three recordings.
+# (playback half, after Rewind-to-Launch and a reload onto the watcher):
+#   * a ghost mesh for the miner and one for the depot's own recording, by its recording id
+#     (`[GhostRenderTrace] phase=MeshSpawned ... recId=<bgChild>`, GhostRenderTrace.cs);
+#   * the ghosts apply the recorded part deaths on TWO distinct recordings
+#     (`apply family=Destroyed surface=visibility rec=N ... applied=[1-9]`,
+#     GhostPartEventApplyLog.cs FormatLine; the second rec index differs by back-reference).
+#   * [expectations.ghostLifecycle] (REPORT-ONLY): every MeshSpawned balanced by a
+#     MeshDestroyed by the end of the replay; [expectations.recordings.structure]
+#     (REPORT-ONLY): one tree, one Dock, one Undock.
+# READ ON FLIGHT 1, NOT GATED: the active side's split check (`Deferred split classified:
+# ... recordedPid=110406740`; it runs only after a joint break or decouple, which a lone
+# leaf-part death may not fire), whether a joint break reached the crash coalescer
+# (`Coalescing window opened`, `BREAKUP emitted`, `ProcessBreakupEvent: debris child
+# created`; a dead leaf part leaves one connected vessel, so WithinSegment is legal), the
+# background split check (`Scheduled deferred split check for background vessel:`),
+# the ghost explosion FX (`FXMonger.Explode queued for destroyed part pid=`), the hold
+# ghost a chain may draw for the real depot before the replayed dock, and the end spawns
+# of two wrecks that may touch.
+#
+# FLIGHT RISKS (first-flight reading, each is a driver or physics outcome, never a Parsek
+# verdict):
+#   * a miss: with no steering the miner may not retrace its line exactly; the crash drive
+#     then answers ERROR `drivevessel-did-not-crash` after 30 s (driver INVALID). Read the
+#     crash end line's pathMeters / displacementMeters.
+#   * too soft an impact: both front parts are Clamp-O-Tron Jrs; if nothing dies, the same
+#     ERROR. Raise the reverse span (keep the miner well under 200 m from the depot so the
+#     depot stays unpacked).
+#   * part loss on one side only: the background or active `Destroyed` contract reds as an
+#     expectation; read which side lost what before re-tuning (stock decides it).
+#   * the miner's root probe core is behind its adapter and port; if it dies the tree goes
+#     pending, which ExitToSpaceCenter's alternation covers.
+#   * the undock leaves the miner FLYING for a few frames (MINE-4 _0945_a2), hence the wait
+#     to UT 95.6 before driving.
+#   * UT budget: the dock ends by UT 80, the drives and the settle by about UT 170, so every
+#     WarpToUT target is ahead of the clock (a target in the past is a driver refusal).
+#
+# FAST-LANE CHECKLIST (harness/README.md): (1) a shared flight considered: MINE-4 and MINE-5b
+# fly this dock and undock, but each keeps its wreck-free vessels for route gates after it,
+# so the crash cannot ride either; (2) every wait is an explicit-UT WarpToUT; (3) all of the
+# recording is 1x physics (the drives need it); the replay runs 5x on rails to the dock and
+# 1x through the crash; (4)-(5) no burns, no coast; (6) retry once (a missed or soft impact
+# is physics); (7) count is a floor; (8)/(9) after the first green flight.
+description = "RVC-1: V's mining rover docks the ore depot rover and undocks it so both are members of one recording tree, backs away and drives head-on into it at full throttle (DriveVessel crash mode); gates both recorders' part-death lines, the split handling and the scene-exit commit, then after Rewind-to-Launch replays both ghosts from a neighbouring rover through the impact and gates the ghost meshes and the destroyed-part visibility applied on both recordings."
+instanceProfile = "stock-minimal"
+tags = ["rover", "crash", "dock-undock", "part-destroyed", "background-recording", "rewind", "ghost-playback", "RVC-1", "pending-flight", "reading-run"]
+
+[fixture]
+saveTemplate = "fixtures/saves/rover-crash-watched"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",            args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "DiscardTree",                                                                  expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  # The scene-exit commit needs autoMerge (ExitToSpaceCenter refuses `dialog-required`).
+  { cmd = "SetSetting",          args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  # The control point on the miner's own probe core (2300437286): with no reference part
+  # aboard, stock moves the focus to the undocked half (MINE-4 flight 2026-11-07_0931).
+  { cmd = "PartAction",          args = { button = "controlfrom", part = "probeStackSmall", partPid = "2300437286" }, expect = "OK" },
+  { cmd = "StartRecording",                                                               expect = "OK", budget = 180 },
+  { cmd = "RecordingState",                                                               expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "60", maxRate = "1" },                     expect = "OK", budget = 120 },
+  # 1. Into the tree: forward into the depot until the ports couple (MINE-4's dock, <= 20 s).
+  { cmd = "MissionMark",         args = { label = "rvc1-dock" },                          expect = "OK" },
+  { cmd = "DriveVessel",         args = { wheelThrottle = "0.5", seconds = "20", untilDocked = "true", maxSpeed = "0.25" }, label = "dk", expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "95", maxRate = "1" },                     expect = "OK", budget = 120 },
+  # 2. Undock: stock offers the event on the absorbed half's port only, so no port is named;
+  # the control point keeps the focus on the miner and the depot becomes the bg child.
+  { cmd = "MissionMark",         args = { label = "rvc1-undock" },                        expect = "OK" },
+  { cmd = "PartAction",          args = { button = "undock" }, label = "und",             expect = "OK" },
+  # On the ground again within 0.4 s of the undock at about UT 94.9 (MINE-4 _1003).
+  { cmd = "WarpToUT",            args = { ut = "95.6", maxRate = "1" },                   expect = "OK", budget = 60 },
+  # 3. The run-up: straight back at full reverse, then stop on the brakes.
+  { cmd = "MissionMark",         args = { label = "rvc1-reverse" },                       expect = "OK" },
+  { cmd = "DriveVessel",         args = { wheelThrottle = "-1", seconds = "10" },         label = "rv", expect = "OK" },
+  { cmd = "DriveVessel",         args = { settleBelow = "0.05", seconds = "30" },         expect = "OK" },
+  # 4. THE CRASH: full throttle back along the same line until the first part dies.
+  { cmd = "MissionMark",         args = { label = "rvc1-crash" },                         expect = "OK" },
+  { cmd = "DriveVessel",         args = { wheelThrottle = "1", seconds = "30", untilCrash = "true" }, label = "cr", expect = "OK" },
+  # The wreck settles at 1x with both recorders running (the drives end by about UT 170).
+  { cmd = "WarpToUT",            args = { ut = "185", maxRate = "1" },                    expect = "OK", budget = 120 },
+  { cmd = "MissionMark",         args = { label = "rvc1-after-crash-${cr.firstPartVesselPid}-${cr.ownPartsLost}-${cr.otherPartsLost}" }, expect = "OK" },
+  { cmd = "RecordingState",                                                               expect = "OK" },
+  # 5. THE COMMIT: leave for the Space Center (an active OR a pending tree, GS-7's gate).
+  { cmd = "ExitToSpaceCenter",                                                            expect = "OK", budget = 120 },
+  # Back into FLIGHT for the rewind verb: a Space Center save focuses vessel 0.
+  { cmd = "SaveGame",            args = { name = "rvc1-committed" },                      expect = "OK", budget = 120 },
+  { cmd = "LoadGame",            args = { save = "${runSave}", name = "rvc1-committed" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "DiscardTree",                                                                  expect = "OK" },
+  { cmd = "ListHandles",         args = { kind = "committed" }, label = "c0",             expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "rvc1-committed-${c0.count}" },         expect = "OK" },
+  # EVA-9's preamble flake: a re-adopted recorder would refuse the rewind `recording-active`.
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  # 6. Rewind, then FLIGHT on the watcher (vessel 0 once the miner is stripped).
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                             expect = "OK", budget = 300 },
+  { cmd = "SaveGame",            args = { name = "rvc1-rewound" },                        expect = "OK", budget = 120 },
+  { cmd = "LoadGame",            args = { save = "${runSave}", name = "rvc1-rewound" },   expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "DiscardTree",                                                                  expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",          args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  # Every MeshSpawned / MeshDestroyed line (GhostRenderTrace is off unless set).
+  { cmd = "SetSetting",          args = { name = "ghostRenderTracing", value = "true" },  expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "rvc1-rewound-reloaded" },              expect = "OK" },
+  # 7. THE REPLAY: 5x on rails to just before the undock, then 1x through the reverse, the
+  # crash and the recordings' end (the exit at about UT 185).
+  { cmd = "WarpToUT",            args = { ut = "90", maxRate = "5" },                     expect = "OK", budget = 120 },
+  { cmd = "ListHandles",         args = { kind = "committed" }, label = "c1",             expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "rvc1-replay-before-undock" },          expect = "OK" },
+  { cmd = "WarpToUT",            args = { ut = "205", maxRate = "1" },                    expect = "OK", budget = 240 },
+  { cmd = "ListHandles",         args = { kind = "committed" }, label = "c2",             expect = "OK" },
+  { cmd = "MissionMark",         args = { label = "rvc1-replayed" },                      expect = "OK" },
+  { cmd = "SaveGame",                                                                     expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                 expect = "OK" },
+]
+
+[dimensionsCovered]
+# `cross-tree-foreign-dock` and `undock-split` <- the depot joins the miner's tree by a dock
+# with a vessel outside it and leaves as the Undock branch's background child (MINE-5b's
+# pair); `bg-recording` <- the depot is recorded as a loaded background member through the
+# crash (its `Part death on background vessel` line is gated).
+D5  = ["cross-tree-foreign-dock", "undock-split", "bg-recording"]
+# `decouple-stage-destroy` <- parts destroyed by impact, recorded as `Destroyed` part events
+# on both recorders and applied on both ghosts; `dock-undock` <- the dock and undock.
+D7  = ["decouple-stage-destroy", "dock-undock"]
+D1  = ["commit-scene-exit", "auto-merge"]
+D6  = ["basic-playback"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "warp-1x"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# A floor: the pre-dock recording, the docked one and the Undock branch's two children
+# (Dock merge + Undock split), plus whatever debris the impact makes. Pin after flight 1.
+count = { min = 3 }
+
+[expectations.recordings.structure]
+# REPORT-ONLY until a reading run: one tree, one dock and one undock.
+gating = false
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+branchPoints   = { Dock = { min = 1, max = 1 }, Undock = { min = 1, max = 1 } }
+
+[expectations.ghostLifecycle]
+# REPORT-ONLY until a reading run: at least the miner's and the depot's ghosts, every one
+# that spawned also destroyed by the end of the replay (the end spawn retires each ghost).
+gating = false
+spawned = { min = 2 }
+requireBalanced = true
+
+[expectations.logContracts]
+required = [
+  # --- 1. The dock (TestCommandDriveVessel.cs dock lines; MINE-5b's live-proven tokens) ---
+  "drivevessel dock start: vessel=Mining Rover RC pid=110406740 wheelThrottle=0\\.50 seconds=20\\.0 maxSpeed=0\\.25 readyPorts=1 ",
+  "drivevessel dock couple: port='dockingPort3' partnerPart='dockingPort3' partnerPid=3950359723 partnerName='Ore Depot' ut=",
+  "drivevessel dock end: outcome=docked vessel=Mining Rover RC pid=110406740 [^\\r\\n]*activePid=110406740 activeName='Mining Rover RC' activeParts=52",
+  # The foreign dock is a merge branch point (ParsekFlightSplitBrancher.cs CreateMergeBranch).
+  "(?s)MISSIONMARK label=rvc1-dock .*?Tree merge created: type=Dock, bp=[^,\\r\\n]+, parents=\\[[^\\]\\r\\n]*\\], child=[0-9a-f]+ \\(pid=110406740\\).*?MISSIONMARK label=rvc1-undock ",
+  # --- 2. The undock: the miner stays active, the depot is the background child ---
+  "(?s)MISSIONMARK label=rvc1-undock (?:(?!partaction applied button=).)*?partaction applied button=undock pid=110406740 part='dockingPort3' partId=[0-9]+ event=Undock newPid=[1-9][0-9]* newName='[^'\\r\\n]*' vessels=[0-9]+->[0-9]+ activePid=110406740 ",
+  "(?s)MISSIONMARK label=rvc1-undock .*?Tree branch created: type=Undock, bp=[^,\\r\\n]+, activeChild=[0-9a-f]+ \\(pid=110406740\\), bgChild=[0-9a-f]+ \\(pid=[1-9][0-9]*\\).*?MISSIONMARK label=rvc1-reverse ",
+  # --- 3. The run-up (TestCommandDriveVessel.cs FormatStartLine) ---
+  "drivevessel start: vessel=Mining Rover RC pid=110406740 situation=LANDED wheelThrottle=-1\\.00 seconds=10\\.0 wheelMotors=4 ",
+  # --- 4. THE CRASH (crash-mode lines, TestCommandDriveVessel.cs) ---
+  "drivevessel crash start: vessel=Mining Rover RC pid=110406740 wheelThrottle=1\\.00 seconds=30\\.0 wheelMotors=4 parts=28 ",
+  "drivevessel crash hit: part='[^'\\r\\n]+' partPid=[0-9]+ vesselPid=[1-9][0-9]* vesselName='[^'\\r\\n]*' own=(?:true|false) impactSrfSpeed=[0-9.]+ ut=",
+  # The miner may not survive the crash (then the line prints vessel= pid=0).
+  "drivevessel crash end: outcome=crashed vessel=",
+  # Part loss on the ACTIVE miner while recording (FlightRecorder.PartEvents.cs OnPartDie).
+  "(?s)MISSIONMARK label=rvc1-crash (?:(?!MISSIONMARK label=).)*?\\[Recorder\\] Part event: Destroyed '[^'\\r\\n]+' pid=[0-9]+(?:(?!MISSIONMARK label=).)*?MISSIONMARK label=rvc1-after-crash-",
+  # Part loss on the BACKGROUND depot while recording, on the undock's bgChild pid
+  # (BackgroundRecorder.GameEventHandlers.cs; the pid by back-reference).
+  "Tree branch created: type=Undock, [^\\r\\n]*bgChild=[0-9a-f]+ \\(pid=([1-9][0-9]*)\\)[\\s\\S]*MISSIONMARK label=rvc1-crash (?:(?!MISSIONMARK label=)[\\s\\S])*?Part death on background vessel: Destroyed '[^'\\r\\n]+' pid=[0-9]+ vesselPid=\\1(?:(?!MISSIONMARK label=)[\\s\\S])*?MISSIONMARK label=rvc1-after-crash-",
+  # --- 5. THE COMMIT (GS-7's tokens; ParsekTestCommandAddon.ExitToSpaceCenter.cs,
+  # ParsekScenario.AutoCommit.cs Silent / Limbo-preserving full-fidelity) ---
+  "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=(?:false hasPendingTree=true|true hasPendingTree=false)",
+  "exittospacecenter complete scene=SPACECENTER game-loaded=true ",
+  "full-fidelity auto-commit \\(scene-exit[^\\r\\n]*\\): tree='Mining Rover RC' recordings=(?:[3-9]|[1-9][0-9]+) ",
+  # ListHandles kind=committed counts committed RECORDINGS, not trees (AST-1 / COM-1 pin -2).
+  "MISSIONMARK label=rvc1-committed-(?:[3-9]|[1-9][0-9]+) ",
+  # Both rovers' recordings end as leaves with a ground terminal (a wreck that kept its root
+  # stays Landed; a vessel the crash removed is Destroyed), finalized after the crash
+  # (ParsekFlight.Finalization.cs; the depot's name by back-reference to the undock's).
+  "(?s)MISSIONMARK label=rvc1-crash .*?FinalizeTreeRecordings: rec='[0-9a-f]+' vessel='Mining Rover RC' points=[1-9][0-9]* orbitSegs=[0-9]+ terminal=(?:Landed|Destroyed) [^\\r\\n]*leaf=True.*?MISSIONMARK label=rvc1-committed-",
+  "partaction applied button=undock [^\\r\\n]*newName='([^'\\r\\n]+)'[\\s\\S]*MISSIONMARK label=rvc1-crash [\\s\\S]*?FinalizeTreeRecordings: rec='[0-9a-f]+' vessel='\\1' points=[1-9][0-9]* orbitSegs=[0-9]+ terminal=(?:Landed|Destroyed) [^\\r\\n]*leaf=True[\\s\\S]*?MISSIONMARK label=rvc1-committed-",
+  # --- 6. The rewind (ParsekTestCommandAddon.InvokeRewindToLaunch.cs) ---
+  "invokerewindtolaunch complete rec=[0-9a-f]{32} tree=[0-9a-f]{32} adjustedUT=",
+  # --- 7. THE REPLAY (GhostRenderTrace.cs MeshSpawned; GhostPartEventApplyLog.cs) ---
+  "(?s)MISSIONMARK label=rvc1-rewound-reloaded .*?\\[GhostRenderTrace\\] phase=MeshSpawned [^\\r\\n]*vessel=Mining Rover RC reason=",
+  # The depot's own recording (the undock's bgChild) built a ghost mesh.
+  "Tree branch created: type=Undock, [^\\r\\n]*bgChild=([0-9a-f]+) \\(pid=[0-9]+\\)[\\s\\S]*MISSIONMARK label=rvc1-rewound-reloaded [\\s\\S]*?\\[GhostRenderTrace\\] phase=MeshSpawned rec=\\S+ recId=\\1 ",
+  # The recorded deaths hidden on TWO distinct ghosts during the replay.
+  "(?s)MISSIONMARK label=rvc1-replay-before-undock .*?apply family=Destroyed surface=visibility rec=([0-9]+) pid=[0-9]+ applied=[1-9][0-9]* .*?apply family=Destroyed surface=visibility rec=(?!\\1 )[0-9]+ pid=[0-9]+ applied=[1-9][0-9]* .*?MISSIONMARK label=rvc1-replayed ",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "partaction rejected",
+  "drivevessel rejected",
+  "warptout refused",
+  "invokerewindtolaunch refused",
+  "Idle on pad at scene exit",
+]
+
+[runtime]
+# Three LoadGame steps and the rewind (up to 300 s each), the Space Center exit and three
+# saves (120 s each), about 155 s of 1x physics while recording (drives included), and the
+# replay: 5x to UT 90, 115 s of 1x through the crash and the end.
+budgetSeconds = 2100
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
