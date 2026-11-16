@@ -774,7 +774,10 @@ the declaration exists to show.
   (`test_archview.test_no_forbidden_edge_is_crossed_on_the_text_scan`), and
   the compiled-IL step when the semantic graph does; a spec that is malformed
   or names no module reds too, so a typo or a renamed module cannot switch the
-  gate off. Both are at none.
+  gate off. Both are at none. A spec's right side may be a list,
+  `"From -> A | B"`, which `archview.expand_edge_specs` expands to one edge per
+  element before either gate reads it; every element must name a module, and a
+  malformed list (`"A -> B |"`, `"A | B -> C"`) reds as a malformed spec.
 - **Compiler differences**: the edges come from the IL operands, locals and
   signatures of the Debug build CI makes. A Release build of the pinned tree
   reads the same 52 backward module pairs and 440 type pairs (only 3 lateral
@@ -2023,9 +2026,11 @@ The other sections:
 
 - `[tooling] modules = [...]`: modules hidden from the production views and
   the metrics table. `explore.html` can still reveal them.
-- `[forbidden] edges = ["A -> B", ...]`: declared boundaries that must not
-  exist. The checker reports each one it finds, and the arch suite reds on it
-  (see "Declared layers").
+- `[forbidden] edges = ["A -> B", "C -> D | E", ...]`: declared boundaries
+  that must not exist. A right side `"D | E"` is a list: the spec expands to
+  one edge per element (`C -> D`, `C -> E`), and every element must name a
+  module. The checker reports each one it finds, and the arch suite reds on it
+  (see "Declared layers"). `[allowed]` has no list form.
 - `[layers]`: `order` (lowest first) and `[layers.modules]`, one list of
   modules per layer. A new production module gets a layer in the same commit,
   or the suite reds (see "Declared layers").

@@ -2145,7 +2145,9 @@ def load_rules(path):
         data = tomllib.load(handle)
     rules = data.get("module", [])
     tooling = set(data.get("tooling", {}).get("modules", []))
-    forbidden = list(data.get("forbidden", {}).get("edges", []))
+    forbidden = expand_edge_specs(data.get("forbidden", {}).get("edges", []))
+    # [allowed] has no list form: one spec is one edge, so a "|" there is a
+    # malformed spec (parse_edge_spec refuses it).
     allowed = list(data.get("allowed", {}).get("edges", []))
     return rules, tooling, forbidden, allowed
 
@@ -6534,7 +6536,50 @@ def parse_edge_spec(spec):
     parts = [part.strip() for part in spec.split("->")]
     if len(parts) != 2 or not parts[0] or not parts[1]:
         raise ValueError("bad edge spec: %r" % spec)
+    # A "|" list reaching here was not expanded (or is malformed); it must
+    # never pass as a module named "B | C".
+    if "|" in parts[0] or "|" in parts[1]:
+        raise ValueError("bad edge spec: %r" % spec)
     return parts[0], parts[1]
+
+
+def expand_edge_specs(specs):
+    """The [forbidden] specs with each list form "From -> A | B" expanded to
+    one "From -> A", "From -> B" per element, in order, exact duplicates dropped.
+
+    A spec with no "|" is kept as written. Anything that is not exactly one
+    "->" with a non-empty left side free of "|" and a right side whose
+    "|"-separated elements are all non-empty is passed through unchanged, so
+    parse_edge_spec and the gates red on it with their usual messages instead
+    of an element being dropped silently. Idempotent.
+    """
+    out = []
+    seen = set()
+
+    def add(item, key):
+        if key is not None:
+            if key in seen:
+                return
+            seen.add(key)
+        out.append(item)
+
+    for spec in specs or []:
+        if not isinstance(spec, str):
+            add(spec, None)
+            continue
+        sides = spec.split("->")
+        if len(sides) != 2 or "|" not in sides[1]:
+            add(spec, spec)
+            continue
+        frm = sides[0].strip()
+        targets = [element.strip() for element in sides[1].split("|")]
+        if not frm or "|" in frm or not all(targets):
+            add(spec, spec)
+            continue
+        for target in targets:
+            expanded = "%s -> %s" % (frm, target)
+            add(expanded, expanded)
+    return out
 
 
 def format_metrics_table(model):

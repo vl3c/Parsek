@@ -30,6 +30,17 @@ Everything the harness fetches or generates lives UNDER `harness/`:
   min / max / threshold bounds with a one-physics-frame allowance of
   `0.02 * rate`, the rate per gap read off the recorder's `warpRuns=` token on
   `TrackSection closed:` - see "Recording under physics warp" below),
+  + `raceparse.py`, the pure race evaluator (multiplayer plan T-05; its
+  `raceParse` verifier row lands with T-38): `collect_rival_ids` reads the
+  rival player, recording and tree ids off a shared-folder listing,
+  `leak_scan` searches every file of a produced save outside `Parsek/Race/`
+  for them (file names, text with the ConfigNode path of the line, raw binary
+  bytes, and the inflated text of `PSN0` snapshots), and `save_equivalence`
+  diffs two produced saves canonically under the pinned `EQUIVALENCE_MASK`
+  (UT values within a tolerance, values that differ by nature ignored, each
+  entry with its written reason; owner question Q-13 option (a)); statuses
+  PASS / FAIL / VACUOUS (no rival id) / ERROR (a save that cannot be read
+  whole never reads clean),
   + `rendercompose.py`, the M-A7 pure render-composition parser / clock-math
   re-derivation / RC-* rule set behind the `renderCompose` verifier row
   (`[expectations.renderComposition]`, evaluated over the produced

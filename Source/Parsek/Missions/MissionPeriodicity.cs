@@ -372,11 +372,13 @@ namespace Parsek
         ///
         /// Rules (design doc "What determines P" + Edge cases):
         /// 1. launch body = body of the EARLIEST included segment: the earliest surface /
-        ///    atmospheric / Approach segment and the earliest OrbitSegment are compared by start UT
-        ///    and the earlier one names it (surface wins a tie; see <see cref="ResolveLaunchBody"/>).
+        ///    atmospheric / Approach segment and the earliest orbit start (an OrbitSegment, or an
+        ///    off-rails Absolute ExoBallistic / ExoPropulsive section) are compared by start UT and
+        ///    the earlier one names it (surface wins a tie; see <see cref="ResolveLaunchBody"/>).
         ///    A surface launch starts with its ascent, so it is unchanged; a mission that starts in
         ///    orbit keeps that orbit's body even when it later dips into a low (Approach) pass over
-        ///    another body.
+        ///    another body, whether or not it went on rails first. The off-rails Exo sections feed
+        ///    ONLY this comparison, never the SOI rules (rule 4) or the rotation hand-off (rule 2).
         /// 2. a surface/atmospheric segment on body B emits Rotation(B) ONLY when the included set
         ///    ALSO contains an inertial-orbit segment of B (the ascent->orbit / orbit->descent
         ///    hand-off). The phase offset = segment start UT - UT0. The rotation phase only matters
@@ -456,6 +458,12 @@ namespace Parsek
             double earliestOrbitStartGlobal = double.PositiveInfinity;
             string earliestOrbitBody = null;
 
+            // The earliest off-rails (physics-frame Absolute) ExoBallistic / ExoPropulsive section:
+            // an orbit start that never went on rails before the first surface-class section. It
+            // feeds the launch-body comparison only (rule 1), never the per-body SOI dictionaries.
+            double earliestExoStartGlobal = double.PositiveInfinity;
+            string earliestExoBody = null;
+
             var vesselAnchors = new Dictionary<string, VesselAnchorInfo>();
 
             foreach (var kv in memberWindows)
@@ -485,21 +493,36 @@ namespace Parsek
                 ScanOrbitSegmentsWithinWindow(
                     rec, win, earliestOrbitStartByBody,
                     ref earliestOrbitStartGlobal, ref earliestOrbitBody);
+
+                // Off-rails Exo sections within the trimmed window -> the launch-body comparison.
+                ScanOffRailsExoSectionsWithinWindow(
+                    rec, win, ref earliestExoStartGlobal, ref earliestExoBody);
             }
 
             // Launch body: the body of the EARLIEST included segment, surface or orbit (rule 1).
             string launchBody = ResolveLaunchBody(
                 earliestSurfaceBody, earliestSurfaceStartGlobal,
-                earliestOrbitBody, earliestOrbitStartGlobal);
+                earliestOrbitBody, earliestOrbitStartGlobal,
+                earliestExoBody, earliestExoStartGlobal);
             result.LaunchBodyName = launchBody;
-            if (!SuppressLogging && earliestSurfaceBody != null && earliestOrbitBody != null
-                && earliestSurfaceBody != earliestOrbitBody)
+            var launchCandidates = new HashSet<string>(StringComparer.Ordinal);
+            if (earliestSurfaceBody != null) launchCandidates.Add(earliestSurfaceBody);
+            if (earliestOrbitBody != null) launchCandidates.Add(earliestOrbitBody);
+            if (earliestExoBody != null) launchCandidates.Add(earliestExoBody);
+            if (!SuppressLogging && launchCandidates.Count > 1)
             {
-                var icLaunch = CultureInfo.InvariantCulture;
+                // The off-rails clause is printed only when it names a body the orbit side does
+                // not, so a mission whose off-rails start and first OrbitSegment share a body
+                // keeps the two-candidate line.
+                bool exoNamesOtherBody = earliestExoBody != null && earliestExoBody != earliestOrbitBody;
+                string exoClause = exoNamesOtherBody
+                    ? $", first off-rails coast {FormatLaunchCandidate(earliestExoBody, earliestExoStartGlobal, ut0)}"
+                    : "";
                 ParsekLog.Verbose("MissionPeriodicity",
                     $"ExtractConstraints: launch body {launchBody ?? "<none>"} from the earliest segment " +
-                    $"(first orbit {earliestOrbitBody} off={(earliestOrbitStartGlobal - ut0).ToString("R", icLaunch)}, " +
-                    $"first surface {earliestSurfaceBody} off={(earliestSurfaceStartGlobal - ut0).ToString("R", icLaunch)})");
+                    $"(first orbit {FormatLaunchCandidate(earliestOrbitBody, earliestOrbitStartGlobal, ut0)}, " +
+                    $"first surface {FormatLaunchCandidate(earliestSurfaceBody, earliestSurfaceStartGlobal, ut0)}" +
+                    $"{exoClause})");
             }
 
             // 3. Rotation constraints: ONE per surface body (earliest start), launch body first,
@@ -1804,6 +1827,52 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Scans a recording's physics-frame (Absolute) ExoBallistic / ExoPropulsive TrackSections
+        /// that intersect the trimmed window, keeping the single earliest start UT and its body.
+        /// An off-rails coast or burn in orbit writes no OrbitSegment until the vessel goes on
+        /// rails, so without this a mission that starts in orbit and never warps before its first
+        /// Approach would have no orbit side in the launch-body comparison. Relative sections are
+        /// anchor-local (a docking approach) and OrbitalCheckpoint sections are already read
+        /// through their checkpoints, so both are skipped. Feeds rule 1 only.
+        /// </summary>
+        private static void ScanOffRailsExoSectionsWithinWindow(
+            Recording rec,
+            GhostPlaybackLogic.LoopUnit.MemberWindow win,
+            ref double earliestExoStartGlobal,
+            ref string earliestExoBody)
+        {
+            if (rec.TrackSections == null)
+                return;
+            for (int i = 0; i < rec.TrackSections.Count; i++)
+            {
+                TrackSection sec = rec.TrackSections[i];
+                if (sec.referenceFrame != ReferenceFrame.Absolute)
+                    continue;
+                if (sec.environment != SegmentEnvironment.ExoBallistic
+                    && sec.environment != SegmentEnvironment.ExoPropulsive)
+                    continue;
+                double segStart = Math.Max(sec.startUT, win.StartUT);
+                double segEnd = Math.Min(sec.endUT, win.EndUT);
+                if (segEnd <= segStart)
+                    continue;
+                if (segStart >= earliestExoStartGlobal)
+                    continue;
+                string body = ResolveSectionBody(rec, sec);
+                if (string.IsNullOrEmpty(body))
+                    continue;
+                earliestExoStartGlobal = segStart;
+                earliestExoBody = body;
+            }
+        }
+
+        private static string FormatLaunchCandidate(string body, double startUT, double ut0)
+        {
+            if (string.IsNullOrEmpty(body))
+                return "<none>";
+            return body + " off=" + (startUT - ut0).ToString("R", CultureInfo.InvariantCulture);
+        }
+
         private static void AccumulateOrbitSegmentBody(
             OrbitSegment seg,
             GhostPlaybackLogic.LoopUnit.MemberWindow win,
@@ -1902,6 +1971,29 @@ namespace Parsek
             return earliestOrbitStartUT < earliestSurfaceStartUT
                 ? earliestOrbitBody
                 : earliestSurfaceBody;
+        }
+
+        /// <summary>
+        /// Rule 1 with the off-rails Exo candidate: the orbit side is whichever of the earliest
+        /// OrbitSegment and the earliest physics-frame Absolute ExoBallistic / ExoPropulsive
+        /// section starts first (a tie keeps the OrbitSegment), then it is compared against the
+        /// earliest surface-class segment as in the four-argument form (surface wins a tie). Pure.
+        /// </summary>
+        internal static string ResolveLaunchBody(
+            string earliestSurfaceBody, double earliestSurfaceStartUT,
+            string earliestOrbitBody, double earliestOrbitStartUT,
+            string earliestExoBody, double earliestExoStartUT)
+        {
+            string orbitSideBody = earliestOrbitBody;
+            double orbitSideStartUT = earliestOrbitStartUT;
+            if (!string.IsNullOrEmpty(earliestExoBody)
+                && (string.IsNullOrEmpty(earliestOrbitBody) || earliestExoStartUT < earliestOrbitStartUT))
+            {
+                orbitSideBody = earliestExoBody;
+                orbitSideStartUT = earliestExoStartUT;
+            }
+            return ResolveLaunchBody(
+                earliestSurfaceBody, earliestSurfaceStartUT, orbitSideBody, orbitSideStartUT);
         }
 
         /// <summary>
