@@ -76,14 +76,28 @@ dominant=Tylo method=dominant-intercept residual=2.18 withinTol=yes` and `PhaseL
 P=211926.36 ... fixedCadenceResidual=2.18 withinTol=yes zeroDrift=yes scheduleWithinTol=yes
 scheduleWorstResidual=39.24`, the xUnit prediction.
 
-## MISSION-LOOP-LAUNCH-BODY-PHYSICS-COAST-UNCOUNTED: a loop that starts in orbit off rails can still be timed around a later moon it passes low over [FILED 2026-11-16 from the review of PR #2640. OPEN; no lane covers it; low (needs a mission that never warps before its first Approach)]
+## ~~MISSION-LOOP-LAUNCH-BODY-PHYSICS-COAST-UNCOUNTED~~: a loop that starts in orbit off rails can still be timed around a later moon it passes low over [FILED 2026-11-16 from the review of PR #2640. FIXED 2026-11-16, branch fix-loop-launch-body-exo; xUnit; no lane covers it; low (needs a mission that never warps before its first Approach)]
 
 `MissionPeriodicity.ExtractConstraints`' orbit side of the launch-body comparison counts only
 `OrbitSegments` and `OrbitalCheckpoint` checkpoints, never physics-frame Absolute `ExoBallistic` /
 `ExoPropulsive` sections. A mission that starts in orbit, stays off rails (no time warp) and whose
 first surface-class section is an Approach over another body before any on-rails segment still
 names the Approach body as its launch body. V43M escaped this only because its root goes on rails
-2.6 s in. Fix: let the Exo sections' body feed the launch-body comparison (not the SOI rules).
+2.6 s in.
+Fix: `ExtractConstraints` also scans each member's physics-frame (Absolute) `ExoBallistic` /
+`ExoPropulsive` sections inside the trimmed window (`ScanOffRailsExoSectionsWithinWindow`) and
+keeps the single earliest start and its body. The six-argument `ResolveLaunchBody` takes the
+earlier of that and the earliest OrbitSegment as the orbit side (a tie keeps the OrbitSegment),
+then compares it with the earliest surface-class segment as before (surface wins a tie). The Exo
+sections never enter the per-body orbit dictionary, so the SOI rules and rule 2's hand-off are
+unchanged. Relative and OrbitalCheckpoint sections are skipped. When the off-rails start names a
+body the first OrbitSegment does not, the launch-body line gains `, first off-rails coast <B>
+off=...` (an absent side prints `<none>`); V43M's line is unchanged (its coast and first
+checkpoint are both Vall). A scan of every committed fixture's `.prec.txt` (whole save, untrimmed)
+finds no launch body that moves. Pinned by `MissionPeriodicityTests.ResolveLaunchBody_WithOffRailsCoast_TruthTable`,
+`Extract_OffRailsVallStartThenTyloApproach_LaunchBodyIsVall`,
+`Extract_OffRailsVallStartBeforeOnRailsJoolAndTylo_IsMoonRootedAtVall` (both red with the Exo
+feed removed) and the mirror `Extract_TyloApproachBeforeOffRailsVallCoast_LaunchBodyStaysTylo`.
 
 ## ~~ROUTE-HELD-ROCK-HARVEST-UNCOUNTED~~: Ore drilled from a Klaw-held rock was not counted as harvest, so the route was refused [FILED 2026-11-15 from the AST-3 flight `2026-11-15_2035_AST-3-klaw-mine-route` (PR #2633; results branch `ast-flights-2026-11-15`, folder `ast-klaw-2026-11-15d`). FIXED 2026-11-15, same PR; xUnit; AST-3 re-flown green 2026-11-15 (folder ast-klaw-2026-11-15e); medium (a rock-mining route could never be made)]
 
@@ -109,7 +123,7 @@ leg and the drill window counts. A docking-port hold, or a hold that also carrie
 still stops the walk. Tests: `RouteHarvestAnalysisComputeTests` (six anchor-walk cells) and
 `RouteHarvestAnalysisTests.CheckTransportGains_OreDrilledOnAHeldRock_CountsAsHarvest`.
 
-## REFLY-ATTEMPT-STALE-END-UT: a flown Re-Fly attempt can be saved with its end UT at its start [FILED 2026-11-15 from the AST-4 reading run `2026-11-15_1941_AST-4-klaw-refly` (PR #2633, fcceccd; results branch `ast-flights-2026-11-15`, folder `ast-klaw-2026-11-15b`); not investigated; severity unknown]
+## ~~REFLY-ATTEMPT-STALE-END-UT~~: a flown Re-Fly attempt can be saved with its end UT at its start [FILED 2026-11-15 from the AST-4 reading run `2026-11-15_1941_AST-4-klaw-refly` (PR #2633, fcceccd; results branch `ast-flights-2026-11-15`, folder `ast-klaw-2026-11-15b`). FIXED 2026-11-16, branch `fix-refly-stale-end-ut`; xUnit; low (saved metadata; one latent leaf misread)]
 
 What was seen (report-only, the lane passed): in the produced save the Re-Fly attempt recording
 reads `explicitEndUT = 358.01` (its start UT) and `pointCount = 1`, while its `.prec` sidecar
@@ -117,7 +131,38 @@ holds an orbit segment from UT 358.0 to 1097.5 plus one point at 1097.5. The log
 observation-only `outcome=unbound-refly-provisional reason=refly-provisional-has-no-trajectory-at-save`
 at the invoke's save. Open question: is the end UT written once at that early save and never
 refreshed after the attempt flies, and does anything (playback end, spawn, Missions duration)
-read the stale value? Fix: none yet; first decide whether the metadata or the sidecar is right.
+read the stale value?
+Cause. The sidecar is right and `pointCount = 1` is right (it counts flat points; the one point
+at 1097.53 is the only one, the coast is an orbit segment). The stale field is `explicitEndUT`,
+and it is not Re-Fly specific: the quickload-resume trim (`ParsekScenario.TrimRecordingPastUT`)
+stamps the cutoff as the explicit end of the open recording it resumes (log: `Quickload resume
+prep: activeRec='rec_d494...' cutoffUT=358.01 preTrimEndUT=0.00`, after the invoke's own save),
+and nothing lifted it as the recorder flew on: neither active flush
+(`FlushRecorderToTreeRecording`, `FlushRecorderIntoActiveTreeForSerialization`) touches
+`ExplicitEndUT` (the background recorder does), and finalization only fills an unset one. Every
+later save wrote 358.01. The `unbound-refly-provisional` Warn is unrelated: it fires on the
+invoke's save, 40 ms before `RestoreActiveTreeFromPending` binds the recorder.
+
+What read it. `Recording.EndUT` takes the later of the explicit end and the trajectory bounds, so
+playback end, ghost retire, spawn timing, Missions and merge-dialog duration and the ledger
+(`Committed recording 'rec_d494...' ... endUT=1100.0`) all read the real end; the player saw
+nothing in this run. The raw-field readers did not: `RecordingTree.ChildBranchLeavesVesselLineOpen`
+reads an explicit end at or before a Breakup / JointBreak / Launch branch as "closed at the
+split", so a resumed flight that shed debris after the resume and flew on was not its vessel's
+line end (spawnable-leaf, background-map and destruction-gate queries, Missions terminal rows),
+and `ParsekFlightMergeFlow.TryGetFinalTrackSection` picked the section at the cutoff instead of
+the last one (endpoint segment-phase fallback). Without a hydrated trajectory `EndUT` would also
+fall back to the cutoff.
+
+Fix: `ParsekFlight.LiftStampedExplicitEndToTrajectoryEnd`, called by both active flushes after
+they append, lifts an explicit end that is set, not terminal-stamped and not parent-anchored
+debris up to the recorded trajectory end (Verbose `Explicit end lifted to the recorded data:`).
+`EndUT` never moves (it already took the later value); an unset end stays unset. Tests:
+`ResumedRecordingExplicitEndTests` (the AST-4 shape through the trim, the real stop flush, the
+codec write, the final-section lookup, the breakup line-end case and the four guards). Live proof
+if wanted: AST-4 again, whose produced save should read `explicitEndUT = 1100.03...` on the
+attempt and whose KSP.log should carry `Explicit end lifted to the recorded data: rec=rec_...
+context=FlushRecorderIntoActiveTreeForSerialization oldExplicitEndUT=358.01`.
 
 ## ~~ROCK-GHOST-PREFAB-MESH~~: a grabbed asteroid or comet replays as the part prefab's small placeholder lump [FILED 2026-11-15 from the H42 flight log of 2026-10-12. FIXED 2026-11-15, branch `ast-ghost-visual`; xUnit + in-game `ClawCouple`; H42 and H41 re-flown green 2026-11-15; low (visual only)]
 

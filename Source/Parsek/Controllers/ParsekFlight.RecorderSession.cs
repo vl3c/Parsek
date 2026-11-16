@@ -66,6 +66,8 @@ namespace Parsek
             treeRec.SegmentEvents.Clear();
             treeRec.SegmentEvents.AddRange(sortedSegEventsFlush);
 
+            LiftStampedExplicitEndToTrajectoryEnd(treeRec, "FlushRecorderToTreeRecording");
+
             // Mark dirty so the next OnSave persists the flushed data to disk.
             // Without this, the in-memory points are lost on scene reload.
             treeRec.MarkFilesDirty();
@@ -116,6 +118,48 @@ namespace Parsek
             ParsekLog.Info("Flight", $"Flushed recorder to tree recording '{recId}': " +
                 $"{rec.Recording.Count} points, {rec.OrbitSegments.Count} orbit segments, " +
                 $"{rec.PartEvents.Count} part events");
+        }
+
+        /// <summary>
+        /// Lifts an explicit end already stamped on a recording that is still being recorded up
+        /// to the end of the data the recorder appended to it. The quickload-resume trim
+        /// (<c>ParsekScenario.TrimRecordingPastUT</c>) stamps the resume cutoff on the recording it
+        /// resumes, and the active recorder then flies it on; without the lift the stamp stays at
+        /// the cutoff, the save writes that as the recording's end, and the readers of the raw
+        /// field (<see cref="RecordingTree.ChildBranchLeavesVesselLineOpen"/>'s closed-at-split
+        /// test, <see cref="ParsekFlightMergeFlow.TryGetFinalTrackSection"/>) read the recording
+        /// as ended there. <see cref="Recording.EndUT"/> does not move: it already reads the later
+        /// of the explicit end and the trajectory bounds. Left alone: an unset end (finalization
+        /// fills it), an end stamped by a terminal (an authored end fact), and parent-anchored
+        /// debris, whose end follows its own coverage contract
+        /// (<see cref="DebrisRelativeRecorderPolicy"/>). Returns true when the end moved.
+        /// </summary>
+        internal static bool LiftStampedExplicitEndToTrajectoryEnd(Recording rec, string context)
+        {
+            if (rec == null || double.IsNaN(rec.ExplicitEndUT) || double.IsInfinity(rec.ExplicitEndUT))
+                return false;
+            if (rec.TerminalStateValue.HasValue)
+                return false;
+            if (DebrisRelativeRecorderPolicy.ShouldNormalizeParentAnchoredDebris(rec))
+                return false;
+            if (!rec.TryGetActualTrajectoryBounds(out _, out double trajectoryEndUT)
+                || double.IsNaN(trajectoryEndUT) || double.IsInfinity(trajectoryEndUT)
+                || trajectoryEndUT <= rec.ExplicitEndUT)
+            {
+                return false;
+            }
+
+            double oldEndUT = rec.ExplicitEndUT;
+            rec.ExplicitEndUT = trajectoryEndUT;
+            ParsekLog.Verbose("Flight",
+                string.Format(CultureInfo.InvariantCulture,
+                    "Explicit end lifted to the recorded data: rec={0} context={1} " +
+                    "oldExplicitEndUT={2:F2} newExplicitEndUT={3:F2}",
+                    rec.RecordingId ?? "(null)",
+                    context ?? "(none)",
+                    oldEndUT,
+                    trajectoryEndUT));
+            return true;
         }
 
         internal static string FormatRecorderDropDiagnostics(FlightRecorder rec, RecordingTree tree, string attemptedRecordingId)

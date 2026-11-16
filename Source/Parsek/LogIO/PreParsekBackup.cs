@@ -51,7 +51,6 @@ namespace Parsek
         private const string PersistentSfsName = "persistent.sfs";
         private const string PersistentLoadMetaName = "persistent.loadmeta";
         private const string ParsekSubdirName = "Parsek";
-        private const string ParsekScenarioNodeName = "ParsekScenario";
 
         /// <summary>Advisory done-marker (fast-path only; footprint is authoritative).</summary>
         internal static readonly string DoneMarkerRelative =
@@ -290,12 +289,11 @@ namespace Parsek
             if (onDiskPersistentRoot == null) return false;
 
             ConfigNode gameNode = onDiskPersistentRoot.GetNode("GAME") ?? onDiskPersistentRoot;
-            ConfigNode[] scenarios = gameNode.GetNodes("SCENARIO");
-            if (scenarios == null) return false;
+            ConfigNode[] scenarios = ScenarioNodeLookup.EnumerateScenarioNodes(gameNode);
             for (int i = 0; i < scenarios.Length; i++)
             {
                 ConfigNode scn = scenarios[i];
-                if (scn.GetValue("name") != ParsekScenarioNodeName) continue;
+                if (scn.GetValue("name") != ScenarioNodeLookup.ParsekScenarioName) continue;
                 // Populated == any child node, or any value beyond the stock name+scene pair.
                 if (scn.nodes.Count > 0) return true;
                 if (scn.values.Count > 2) return true;

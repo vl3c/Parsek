@@ -228,18 +228,10 @@ namespace Parsek
         /// </summary>
         internal static int UnionFromScenarios(IList<ProtoScenarioModule> scenarios, string source)
         {
-            if (scenarios != null)
-            {
-                for (int i = 0; i < scenarios.Count; i++)
-                {
-                    ProtoScenarioModule proto = scenarios[i];
-                    if (proto != null
-                        && string.Equals(proto.moduleName, nameof(ParsekScenario), StringComparison.Ordinal))
-                    {
-                        return UnionFromSave(proto.GetData(), source);
-                    }
-                }
-            }
+            ConfigNode parsekNode = ScenarioNodeLookup.FindInProtoList(
+                scenarios, ScenarioNodeLookup.ParsekScenarioName);
+            if (parsekNode != null)
+                return UnionFromSave(parsekNode, source);
             ParsekLog.Info(Tag, "Replay scope merged from the save (" + (source ?? "unspecified")
                 + "): no Parsek scenario in the parsed save, nothing to merge");
             return 0;
@@ -251,12 +243,10 @@ namespace Parsek
         /// </summary>
         internal static int UnionFromGameNode(ConfigNode gameNode, string source)
         {
-            ConfigNode[] scenarios = gameNode != null ? gameNode.GetNodes("SCENARIO") : new ConfigNode[0];
-            for (int i = 0; i < scenarios.Length; i++)
-            {
-                if (string.Equals(scenarios[i].GetValue("name"), nameof(ParsekScenario), StringComparison.Ordinal))
-                    return UnionFromSave(scenarios[i], source);
-            }
+            ConfigNode parsekNode = ScenarioNodeLookup.FindInGameNode(
+                gameNode, ScenarioNodeLookup.ParsekScenarioName);
+            if (parsekNode != null)
+                return UnionFromSave(parsekNode, source);
             ParsekLog.Info(Tag, "Replay scope merged from the save (" + (source ?? "unspecified")
                 + "): no Parsek scenario in the save, nothing to merge");
             return 0;

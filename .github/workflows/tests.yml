@@ -2,8 +2,11 @@ name: tests
 
 on:
   pull_request:
+  # `multiplayer` is the long-lived race branch (docs/dev/plans/multiplayer/README.md,
+  # rule 10): every merge into it is checked as a whole too. The metrics steps and
+  # job below stay main only through their own `refs/heads/main` conditions.
   push:
-    branches: [main]
+    branches: [main, multiplayer]
   workflow_dispatch:
 
 # The job executes PR-authored shell (scripts/cloud-test.sh); keep the ambient
@@ -13,9 +16,10 @@ permissions:
 
 concurrency:
   group: tests-${{ github.ref }}
-  # Cancel superseded runs on PR updates only. Main-branch pushes must each run
-  # to completion: back-to-back merges would otherwise leave the earlier merge
-  # commit with a cancelled (never verified) check and a cancelled README badge.
+  # Cancel superseded runs on PR updates only. Branch pushes (main, multiplayer)
+  # must each run to completion: back-to-back merges would otherwise leave the
+  # earlier merge commit with a cancelled (never verified) check and, on main, a
+  # cancelled README badge.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -98,6 +102,11 @@ jobs:
       # the co-change cells. Gate on the exit code.
       - name: Architecture map tests
         run: python3 -m unittest discover -s scripts/arch -q
+
+      # The refactor tools' suite: il_compare.py's fold and alias cells are the
+      # proof every fold-proven move PR rests on. Synthetic IL only, no build.
+      - name: Refactor tool tests
+        run: python3 -m unittest discover -s scripts/refactor -q
 
       # Ubuntu's apt-built .NET SDK ships no net472 testhost, so the suite
       # runs under mono + the xunit console runner via scripts/cloud-test.sh

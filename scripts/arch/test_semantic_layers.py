@@ -107,6 +107,17 @@ class CommittedDeclarationTests(unittest.TestCase):
         self.assertTrue(forbidden)
         self.assertEqual(layers.forbidden_problems(forbidden, {}, production | tooling), [])
 
+    def test_every_committed_forbidden_spec_expands_to_one_edge_per_element(self):
+        # Read raw (not through load_rules), so a list that lost an element in
+        # the expansion reds here.
+        with open(archview.DEFAULT_MODULES, "rb") as handle:
+            raw = tomllib.load(handle)["forbidden"]["edges"]
+        self.assertTrue(raw)
+        for spec in raw:
+            with self.subTest(spec=spec):
+                self.assertIsInstance(spec, str)
+                self.assertEqual(len(archview.expand_edge_specs([spec])), spec.count("|") + 1)
+
 
 class MeasureTests(unittest.TestCase):
     MODULES = {"LogThing": "Log", "StoreThing": "Store", "LedgerThing": "Ledger", "UiThing": "Ui",
@@ -292,11 +303,44 @@ class ForbiddenTests(unittest.TestCase):
 
     def test_a_spec_that_cannot_gate_reds(self):
         for spec, needle in (("Missions => Logistics", "is not"), ("Mission -> Logistics", "names no module"),
-                             (None, "is not")):
+                             (None, "is not"), ("Ghost -> GameActions |", "is not"),
+                             ("Ghost | Missions -> Logistics", "is not"), ("A -> B -> C", "is not")):
             with self.subTest(spec=spec):
                 problems = layers.forbidden_problems([spec], {}, self.MODULES)
                 self.assertEqual(len(problems), 1)
                 self.assertIn(needle, problems[0])
+        self.assertIn('"From -> A | B"', layers.forbidden_problems(["A -> B |"], {}, self.MODULES)[0])
+
+    def test_a_list_spec_reds_on_its_crossed_element_only(self):
+        pairs = {("Ghost", "GameActions"): {("GhostThing", "LedgerThing")}}
+        problems = layers.forbidden_problems(["Ghost -> Missions | GameActions | Logistics"], pairs, self.MODULES)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("forbidden edge Ghost -> GameActions is crossed (1): GhostThing -> LedgerThing", problems[0])
+        self.assertEqual(layers.forbidden_problems(["Ghost -> Missions | Logistics"], pairs, self.MODULES), [])
+
+    def test_a_list_spec_with_an_unknown_element_names_that_element(self):
+        problems = layers.forbidden_problems(["Ghost -> Missions | Mission | Logistics"], {}, self.MODULES)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("names no module: Mission", problems[0])
+        self.assertIn("Ghost -> Mission", problems[0])
+        self.assertNotIn("Logistics", problems[0])
+
+    def test_a_list_spec_reds_on_the_text_scan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            for rel, text in {
+                "Missions/M.cs": "class MissionThing { RouteThing r; }",
+                "Logistics/R.cs": "class RouteThing { }",
+                "Ghost/G.cs": "class GhostThing { }",
+            }.items():
+                (root / rel).parent.mkdir(parents=True, exist_ok=True)
+                (root / rel).write_text(text, encoding="utf-8")
+            rules = [{"name": name, "folder": name} for name in ("Missions", "Logistics", "Ghost")]
+            model = archview.build_model(root, rules, set(), measure_sizes=False)
+        problems = layers.forbidden_problems(["Missions -> Ghost | Logistics"], layers.text_module_edges(model),
+                                             self.MODULES)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("Missions -> Logistics is crossed (1): RouteThing", problems[0])
 
 
 class WorkflowTests(unittest.TestCase):

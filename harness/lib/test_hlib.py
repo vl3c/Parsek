@@ -4303,7 +4303,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # boot, never a guard count.
         "H42-claw-couple":           ("ClawCouple", 2, "FLIGHT"),
         "H43-terrain-clearance":     ("TerrainClearance", 6, "FLIGHT"),
-        "H44-ghost-map-trackstation": ("GhostMap", 25, "TRACKSTATION"),
+        # H44 25 -> 27 on 2026-11-16 (P3-01, the two GhostMapPrimitiveRuntimeTest cells).
+        "H44-ghost-map-trackstation": ("GhostMap", 27, "TRACKSTATION"),
         "H45-stock-ui-overlay":      ("StockUiOverlay", 12, "SPACECENTER"),
         "H46-settings":              ("Settings", 5, "FLIGHT"),
         "H71-resource-topbar-ksc":   ("ResourceTopBar", 2, "SPACECENTER"),
@@ -18849,9 +18850,10 @@ class MapGeometrySeamVerbSourceSyncTests(unittest.TestCase):
 class NewGameSourceSyncTests(unittest.TestCase):
     """`NewGame`. Reads OUTSIDE harness/: the verb, the three arg keys, the mode and preset
     tokens, the kept save entry and the refusal / error reasons (IN ORDER) of the
-    comment-stripped TestCommands/TestCommandNewGame.cs, the applier's calls into stock's own
-    new-game path, and the C# budget, so the pre-launch validator and a spec's pinned reasons
-    cannot drift from what the seam answers."""
+    comment-stripped TestCommands/TestCommandNewGame.cs, the applier's calls
+    (TestCommands/ParsekTestCommandAddon.NewGame.cs) into stock's own new-game path through
+    LogIO/NewSaveStarter.cs, and the C# budget (TestCommands/TestCommandDispatcher.cs), so the
+    pre-launch validator and a spec's pinned reasons cannot drift from what the seam answers."""
 
     def _source(self, *parts):
         path = os.path.join(PARSEK_SOURCE_DIR, *parts)
@@ -18885,15 +18887,25 @@ class NewGameSourceSyncTests(unittest.TestCase):
         applier = self._source("TestCommands", "ParsekTestCommandAddon.NewGame.cs")
         for call in ('GamePersistence.SaveGame("persistent", HighLogic.SaveFolder, SaveMode.OVERWRITE);',
                      "HighLogic.LoadScene(GameScenes.MAINMENU);",
-                     "GameParameters.GetDefaultParameters(stockMode, ToStockPreset(p.Preset));",
-                     "HighLogic.CurrentGame = GamePersistence.CreateNewGame(",
-                     "GameEvents.onGameNewStart.Fire();",
-                     "HighLogic.CurrentGame.Start();"):
+                     "GameParameters.GetDefaultParameters(stockMode, ToStockPreset(p.Preset));"):
             self.assertIn(call, applier)
-        # The four new-game calls run in stock's order (MainMenu.CreateAndStartGame).
-        order = [applier.index(c) for c in ("GamePersistence.CreateNewGame(",
-                                            "GameEvents.onGameNewStart.Fire();",
-                                            "HighLogic.CurrentGame.Start();")]
+        # The stock new-game calls live in LogIO/NewSaveStarter.cs, in stock's order
+        # (MainMenu.CreateAndStartGame), and the applier runs its steps in order.
+        starter = self._source("LogIO", "NewSaveStarter.cs")
+        calls = ("HighLogic.CurrentGame = GamePersistence.CreateNewGame(",
+                 "GameEvents.onGameNewStart.Fire();",
+                 "game.Start();")
+        for call in calls:
+            self.assertIn(call, starter)
+        order = [starter.index(c) for c in calls]
+        self.assertEqual(sorted(order), order)
+        steps = ("NewSaveStarter.ResolveSaveDirectory(",
+                 "NewSaveStarter.DeleteSaveFolderLikeStockOverwrite(",
+                 "NewSaveStarter.CreateGame(",
+                 "NewSaveStarter.StartGame(")
+        for step in steps:
+            self.assertIn(step, applier)
+        order = [applier.index(c) for c in steps]
         self.assertEqual(sorted(order), order)
 
     def test_the_budget_mirrors_the_c_sharp(self):
@@ -23600,14 +23612,29 @@ MEASURED_LOOP_SHIFT_LINE = (
     " SynthesizedParity_LoopShiftedGhost_PhaseMatched_ZeroDrift:"
     " pid=2279670454 loopShift=1100.0 matchedDev=0m mismatchedDev=1049421m"
     " tol=1927m")
-MEASURED_BATCH_LINE = (
+# The flown pin (runs 2026-07-26_0950 and _1207), kept as the record of what the
+# 25-cell category measured.
+FLOWN_BATCH_LINE_2026_07_26 = (
     "[Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=25 passed=14 failed=0"
     " skipped=11 category=GhostMap scene=FLIGHT")
-# The runner's own accounting for 9 of the 11 skips (the other 2 are documented
-# self-skips from the loop-icon warp cluster; see the spec header).
-MEASURED_SCENE_SKIP_LINE = (
+FLOWN_SCENE_SKIP_LINE_2026_07_26 = (
     "[Parsek][INFO][TestRunner] Scene eligibility skip summary: skipped=9"
     " currentScene=FLIGHT byRequiredScene=TRACKSTATION:9")
+# RE-MEASURED 2026-11-16: P3-01 added the two GhostMapPrimitiveRuntimeTest cells (one
+# FLIGHT, one TRACKSTATION), so the source derives total=27 with a tenth TRACKSTATION
+# scene skip. Run `2026-11-16_2116_S1.6-render-parity` (PASS attempt 1, 90 s) read the
+# line below token for token: the FLIGHT cell is the fifteenth pass and the two
+# documented loop-icon self-skips stay the only run-time skips.
+FLOWN_BATCH_LINE_2026_11_16 = (
+    "[Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=27 passed=15 failed=0"
+    " skipped=12 category=GhostMap scene=FLIGHT")
+FLOWN_SCENE_SKIP_LINE_2026_11_16 = (
+    "[Parsek][INFO][TestRunner] Scene eligibility skip summary: skipped=10"
+    " currentScene=FLIGHT byRequiredScene=TRACKSTATION:10")
+MEASURED_BATCH_LINE = FLOWN_BATCH_LINE_2026_11_16
+# The runner's own accounting for 10 of the 12 skips (the other 2 are documented
+# self-skips from the loop-icon warp cluster; see the spec header).
+MEASURED_SCENE_SKIP_LINE = FLOWN_SCENE_SKIP_LINE_2026_11_16
 
 
 class RenderParityScenarioTests(unittest.TestCase):
@@ -23657,13 +23684,16 @@ class RenderParityScenarioTests(unittest.TestCase):
         self.assertIsNotNone(re.search(pat, MEASURED_BATCH_LINE),
                              "the pinned tally must match the flown line")
         for bad, why in (
-                ("BATCH_COMPLETE v1 total=25 passed=0 failed=0 skipped=25 "
+                ("BATCH_COMPLETE v1 total=27 passed=0 failed=0 skipped=27 "
                  "category=GhostMap scene=FLIGHT", "an all-skip batch"),
-                ("BATCH_COMPLETE v1 total=25 passed=13 failed=0 skipped=12 "
+                ("BATCH_COMPLETE v1 total=27 passed=14 failed=0 skipped=13 "
                  "category=GhostMap scene=FLIGHT", "a test that flipped to Skip"),
-                ("BATCH_COMPLETE v1 total=26 passed=15 failed=0 skipped=11 "
+                ("BATCH_COMPLETE v1 total=28 passed=16 failed=0 skipped=12 "
                  "category=GhostMap scene=FLIGHT", "a newly added GhostMap test"),
                 ("BATCH_COMPLETE v1 total=25 passed=14 failed=0 skipped=11 "
+                 "category=GhostMap scene=FLIGHT",
+                 "the pre-2026-11-16 tally, i.e. the primitive cells removed"),
+                ("BATCH_COMPLETE v1 total=27 passed=15 failed=0 skipped=12 "
                  "category=GhostMap scene=TRACKSTATION", "a FLIGHT/TS host change")):
             self.assertIsNone(re.search(pat, bad), "%s must NOT match" % (why,))
 
@@ -23704,13 +23734,15 @@ class RenderParityScenarioTests(unittest.TestCase):
         self.assertIn("tol=1927m", MEASURED_LOOP_SHIFT_LINE)
 
     def test_the_skipped_count_is_fully_accounted_for(self):
-        # 11 skips = 9 scene-eligibility (TRACKSTATION tests filtered out of a
-        # FLIGHT batch) + 2 documented loop-icon self-skips. If a future flight
-        # moves `skipped`, the pinned tally reds and this accounting is the thing
-        # that has to be re-derived alongside it.
-        self.assertIn("skipped=11", MEASURED_BATCH_LINE)
-        self.assertIn("skipped=9", MEASURED_SCENE_SKIP_LINE)
-        self.assertIn("byRequiredScene=TRACKSTATION:9", MEASURED_SCENE_SKIP_LINE)
+        # 12 skips = 10 scene-eligibility (TRACKSTATION tests filtered out of a
+        # FLIGHT batch) + 2 documented loop-icon self-skips (11 = 9 + 2 on the
+        # 25-cell flights). If a future flight moves `skipped`, the pinned tally reds
+        # and this accounting is the thing that has to be re-derived alongside it.
+        self.assertIn("skipped=12", MEASURED_BATCH_LINE)
+        self.assertIn("skipped=10", MEASURED_SCENE_SKIP_LINE)
+        self.assertIn("byRequiredScene=TRACKSTATION:10", MEASURED_SCENE_SKIP_LINE)
+        self.assertIn("skipped=11", FLOWN_BATCH_LINE_2026_07_26)
+        self.assertIn("byRequiredScene=TRACKSTATION:9", FLOWN_SCENE_SKIP_LINE_2026_07_26)
         header = open(os.path.join(SCENARIOS_DIR, "S1.6-render-parity.toml"),
                       encoding="utf-8").read()
         for name in ("StateVectorReseed_CalculatePhysicsStatsResnapsIconOntoConic",
@@ -28077,3 +28109,413 @@ class IdsFileSelectionTests(unittest.TestCase):
         self.assertTrue(line.startswith(hlib.STOP_HONOURED_MARKER))
         self.assertIn("after 3 scenario(s)", line)
         self.assertIn("dropped=9", line)
+
+
+class RaceTagConventionTests(unittest.TestCase):
+    """Multiplayer plan T-45 / README rule 7: a race lane (id prefix RACE, SITES,
+    RCA, RCB or RCI) carries the `race` tag and no other spec does, so
+    `--tag race` flies exactly the race lanes. No race spec is committed yet, so
+    the synthetic cells prove the committed cell can red."""
+
+    @staticmethod
+    def _spec(sid, tags=None):
+        out = {"id": sid, "tier": "operator"}
+        if tags is not None:
+            out["tags"] = tags
+        return out
+
+    def test_every_committed_spec_keeps_the_race_tag_convention(self):
+        problems = []
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                spec = tomllib.load(fh)
+            problem = hlib.race_tag_problem(spec)
+            if problem:
+                problems.append("%s: %s" % (name, problem))
+        self.assertEqual(problems, [], "a race lane carries the 'race' tag and no other spec "
+                                       "does (docs/dev/plans/multiplayer/test-and-harness.md, "
+                                       "T-45)")
+
+    def test_a_race_lane_without_the_tag_reds(self):
+        for sid in ("RACE-9-flight-batch", "SITES-1", "RCA-3f", "RCB-1", "RCI-9", "RACE"):
+            for tags in (None, [], ["ingame-batch"], ["Race"], ["racing"]):
+                problem = hlib.race_tag_problem(self._spec(sid, tags))
+                self.assertIsNotNone(problem, (sid, tags))
+                self.assertIn(sid, problem)
+                self.assertIn("without the 'race' tag", problem)
+
+    def test_a_non_race_spec_with_the_tag_reds(self):
+        for sid in ("H15-ghost-visuals", "S1.6-map", "RACEWAY-1", "SITESCAN-1", "RCAT-1",
+                    "RC-1", "XRACE-1", "race-1"):
+            problem = hlib.race_tag_problem(self._spec(sid, ["ingame-batch", "race"]))
+            self.assertIsNotNone(problem, sid)
+            self.assertIn("not a race family", problem)
+
+    def test_a_tagged_race_lane_and_an_untagged_other_spec_pass(self):
+        for sid in ("RACE-20-single-player-hosts", "SITES-2", "RCA-1", "RCB-3r", "RCI-1"):
+            self.assertIsNone(hlib.race_tag_problem(self._spec(sid, ["race", "ingame-batch"])))
+        for sid in ("RACEWAY-1", "H15-ghost-visuals", None, ""):
+            self.assertIsNone(hlib.race_tag_problem(self._spec(sid, ["ingame-batch"])))
+            self.assertIsNone(hlib.race_tag_problem(self._spec(sid)))
+
+    def test_the_committed_cell_reds_on_a_bad_spec_in_the_scenario_set(self):
+        # The committed cell's own loop, run over the committed set plus one bad
+        # spec of each kind, names exactly the bad ones.
+        specs = []
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                specs.append(tomllib.load(fh))
+        specs.append(self._spec("RACE-1-setup-create-join", ["ingame-batch"]))
+        specs.append(self._spec("H15-ghost-visuals-copy", ["race"]))
+        flagged = [s["id"] for s in specs if hlib.race_tag_problem(s)]
+        self.assertEqual(flagged, ["RACE-1-setup-create-join", "H15-ghost-visuals-copy"])
+
+    def test_the_race_tag_selects_through_run_py_selection(self):
+        specs = [self._spec("RACE-1", ["race"]), self._spec("H1"), self._spec("SITES-1", ["race"])]
+        self.assertEqual([s["id"] for s in hlib.select_scenarios(specs, "--tag %s" % hlib.RACE_TAG)],
+                         ["RACE-1", "SITES-1"])
+
+
+class RaceSharedFolderSpecTests(unittest.TestCase):
+    """Multiplayer T-03: the `[fixture.race]` spec surface, the `${raceShared}`
+    token, the race verbs' folder argument, the listing and its archive entry.
+    The staging, substitution and snapshot themselves are driven end to end in
+    test_run_smoke.RaceSharedFolderStagingSmokeTests."""
+
+    def _spec(self, race=None, steps=None):
+        spec = {
+            "schema": hlib.SCHEMA_VERSION, "id": "RACE-x", "tier": "operator",
+            "tags": ["race"], "instanceProfile": "stock-minimal",
+            "fixture": {"saveTemplate": "fixtures/saves/fresh-career",
+                        "injectedRecordings": "none", "craft": []},
+            "driver": {"kind": "seam", "steps": [
+                {"cmd": "LoadGame", "args": {"save": "${runSave}", "name": "persistent"},
+                 "expect": "OK", "budget": 30}] + list(steps or []) + [
+                {"cmd": "FlushAndQuit", "expect": "OK"}]},
+            "expectations": {"recordings": {"count": {"min": 0, "max": 0}},
+                             "logContracts": {"required": [], "forbidden": []},
+                             "allowedAnomalies": []},
+            "runtime": {"budgetSeconds": 600},
+            "retry": {"policy": "once"},
+            "expectedFail": {"bugId": ""},
+        }
+        if race is not None:
+            spec["fixture"]["race"] = race
+        return spec
+
+    def _errors(self, spec, race_fixtures=None):
+        return hlib.validate_spec(spec, {"schema": 1}, bug_ids=[],
+                                  race_fixtures=race_fixtures).errors
+
+    def _race_errors(self, spec, race_fixtures=None):
+        return [e for e in self._errors(spec, race_fixtures)
+                if "race" in e.lower() or hlib.RACE_SHARED_TOKEN in e]
+
+    def test_the_two_accepted_forms_validate(self):
+        base = self._errors(self._spec())
+        self.assertEqual(base, self._errors(self._spec({"sharedFolder": "empty"})))
+        self.assertEqual(base, self._errors(self._spec({"sharedFolder": "fixtures/race/holder-gen1"}),
+                                            race_fixtures=["holder-gen1", "other"]))
+        # No listing injected: the existence check is staging's (fail closed there).
+        self.assertEqual(base, self._errors(self._spec({"sharedFolder": "fixtures/race/x_1"})))
+
+    def test_a_path_outside_the_race_fixtures_is_refused(self):
+        for value in ("../x", "/abs/rs", "C:/race/x", "C:\\race\\x", "\\\\server\\share",
+                      "fixtures/race/../saves/fresh-career", "fixtures/race/a/b",
+                      "fixtures/race/", "fixtures/race/x/", "fixtures\\race\\x",
+                      "fixtures/saves/fresh-career", "fixtures/race/.hidden",
+                      "fixtures/race/with space", "Empty", "", 3, True):
+            with self.subTest(value=value):
+                errs = self._race_errors(self._spec({"sharedFolder": value}), ["x"])
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("fixture.race.sharedFolder", errs[0])
+
+    def test_an_unknown_fixture_is_refused(self):
+        errs = self._race_errors(self._spec({"sharedFolder": "fixtures/race/nope"}),
+                                 race_fixtures=["holder-gen1"])
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("names no committed race fixture", errs[0])
+        errs = self._race_errors(self._spec({"sharedFolder": "fixtures/race/nope"}),
+                                 race_fixtures=[])
+        self.assertEqual(1, len(errs), errs)
+
+    def test_a_malformed_block_is_refused(self):
+        for race, needle in (("empty", "must be a table"),
+                             ({}, "required"),
+                             ({"sharedFolder": "empty", "sharedfolder": "empty"}, "unknown key"),
+                             ({"folder": "empty"}, "unknown key")):
+            with self.subTest(race=race):
+                self.assertTrue(any(needle in e for e in self._race_errors(self._spec(race))),
+                                self._race_errors(self._spec(race)))
+
+    def test_the_token_needs_the_block(self):
+        step = {"cmd": "SetSetting", "args": {"name": "x", "value": hlib.RACE_SHARED_TOKEN},
+                "expect": "OK"}
+        errs = self._race_errors(self._spec(steps=[step]))
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("needs a [fixture.race] block", errs[0])
+        self.assertEqual([], self._race_errors(self._spec({"sharedFolder": "empty"}, [step])))
+
+    def test_the_token_is_a_whole_value_only(self):
+        step = {"cmd": "SetSetting",
+                "args": {"name": "x", "value": hlib.RACE_SHARED_TOKEN + "/players"},
+                "expect": "OK"}
+        errs = [e for e in self._errors(self._spec({"sharedFolder": "empty"}, [step]))
+                if "malformed" in e]
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("WHOLE value", errs[0])
+        self.assertEqual([], hlib.find_malformed_handle_tokens(hlib.RACE_SHARED_TOKEN))
+        self.assertEqual([], hlib.find_malformed_handle_tokens(hlib.RUN_SAVE_TOKEN))
+        self.assertTrue(hlib.find_malformed_handle_tokens("${raceshared}"))
+
+    def test_a_race_verb_folder_takes_only_the_token(self):
+        for verb, key in sorted(hlib.RACE_FOLDER_ARG_BY_VERB.items()):
+            for value in ("C:/Dropbox/race", "../rs/0", "${runSave}", ""):
+                with self.subTest(verb=verb, value=value):
+                    step = {"cmd": verb, "args": {key: value}, "expect": "OK"}
+                    errs = [e for e in self._errors(self._spec({"sharedFolder": "empty"}, [step]))
+                            if "folder must be" in e]
+                    self.assertEqual(1, len(errs), errs)
+            step = {"cmd": verb, "args": {key: hlib.RACE_SHARED_TOKEN}, "expect": "OK"}
+            self.assertFalse([e for e in self._errors(self._spec({"sharedFolder": "empty"}, [step]))
+                              if "folder must be" in e or "needs a [fixture.race]" in e])
+            # A race verb step without the folder argument (RaceCommand action=status).
+            step = {"cmd": verb, "args": {"action": "status"}, "expect": "OK"}
+            self.assertFalse([e for e in self._errors(self._spec({"sharedFolder": "empty"}, [step]))
+                              if "folder must be" in e])
+
+    def test_the_token_is_refused_in_mission_params(self):
+        spec = self._spec({"sharedFolder": "empty"})
+        spec["driver"]["kind"] = "autopilot"
+        spec["driver"]["mission"] = "b1_pad_hop"
+        spec["driver"]["missionParams"] = {"folder": hlib.RACE_SHARED_TOKEN}
+        spec["driver"]["steps"].insert(1, {"phase": "mission", "expect": "MISSION-OK"})
+        errs = [e for e in self._errors(spec) if "missionParams.folder" in e]
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("seam step args only", errs[0])
+
+    def test_no_committed_spec_declares_the_block_or_names_the_token(self):
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                raw = fh.read()
+            with self.subTest(spec=name):
+                self.assertIsNone(hlib.spec_race_fixture(tomllib.loads(raw.decode("utf-8"))))
+                self.assertNotIn(hlib.RACE_SHARED_TOKEN.encode("ascii"), raw)
+
+    def test_the_folder_path_is_short_and_inside_the_instance(self):
+        inst = os.path.join("C:", os.sep, "Users", "v", "automation", "stock-tree-2")
+        self.assertEqual(os.path.join(inst, "rs", "0"), hlib.race_shared_dir(inst))
+        self.assertEqual(os.path.join(inst, "rs", "3"), hlib.race_shared_dir(inst, "3"))
+        self.assertEqual(5, len(os.path.join("rs", "0")) + 1)
+
+    def test_the_listing_is_sorted_with_forward_slashes(self):
+        text = hlib.format_race_listing("run1", [("players\\p2\\b.cfg", 4, "bb"),
+                                                 ("players/p1/a b.cfg", 3, "aa")])
+        self.assertEqual([hlib.RACE_LISTING_HEADER,
+                          "# run=run1 files=2 bytes=7",
+                          "aa 3 players/p1/a b.cfg",
+                          "bb 4 players/p2/b.cfg"], text.splitlines())
+        self.assertEqual([hlib.RACE_LISTING_HEADER, "# run=r files=0 bytes=0"],
+                         hlib.format_race_listing("r", []).splitlines())
+
+    def test_the_archive_keeps_a_listing_and_misses_none_without_one(self):
+        rid = "2026-11-16_2000_RACE-1"
+        names = [rid + ".json", rid + "_race", rid + hlib.RACE_LISTING_SUFFIX]
+        plan = hlib.plan_results_archive(rid, names, False, None)
+        self.assertIn(rid + hlib.RACE_LISTING_SUFFIX, [e.dest_name for e in plan.entries])
+        self.assertNotIn(rid + "_race", [e.dest_name for e in plan.entries])
+        bare = hlib.plan_results_archive(rid, [rid + ".json"], False, None)
+        self.assertNotIn(rid + hlib.RACE_LISTING_SUFFIX, " ".join(bare.missing))
+        self.assertEqual(len(plan.entries), len(bare.entries) + 1)
+
+    def test_the_race_snapshot_tmp_sweep_reads_only_its_own_shape(self):
+        names = ["a_race.harness-tmp", "a_save.harness-tmp", "_race.harness-tmp",
+                 "b_race", "c_race.harness-tmp"]
+        self.assertEqual(["a_race.harness-tmp"],
+                         hlib.select_stale_save_snapshot_tmp_dirs_to_sweep(
+                             names, protect_name="c_race.harness-tmp",
+                             dir_suffix=hlib.RACE_SNAPSHOT_DIR_SUFFIX))
+        self.assertEqual(["a_save.harness-tmp"],
+                         hlib.select_stale_save_snapshot_tmp_dirs_to_sweep(names))
+
+
+class SnapshotSavesSpecTests(unittest.TestCase):
+    """Multiplayer T-04: the `[fixture] snapshotSaves` spec surface, the results/ dir
+    name it produces, its retention and the PARSEK-FAIL(snapshot-save-missing) red.
+    The staging, copy and retention are driven end to end in
+    test_run_smoke.SnapshotSavesSmokeTests."""
+
+    RUN_SAVE = "fresh-career"
+
+    def _spec(self, saves=None, as_targets=("fresh-career-b",)):
+        spec = {
+            "schema": hlib.SCHEMA_VERSION, "id": "SNAP-x", "tier": "operator",
+            "instanceProfile": "stock-minimal",
+            "fixture": {"saveTemplate": "fixtures/saves/" + self.RUN_SAVE,
+                        "injectedRecordings": "none", "craft": []},
+            "driver": {"kind": "seam", "steps": [
+                {"cmd": "LoadGame", "args": {"save": "${runSave}", "name": "persistent"},
+                 "expect": "OK", "budget": 30}] + [
+                {"cmd": "NewGame", "args": {"mode": "SANDBOX", "preset": "Normal",
+                                            "save": "${runSave}", "as": target},
+                 "expect": "OK", "budget": 300} for target in as_targets] + [
+                {"cmd": "FlushAndQuit", "expect": "OK"}]},
+            "expectations": {"recordings": {"count": {"min": 0, "max": 0}},
+                             "logContracts": {"required": [], "forbidden": []},
+                             "allowedAnomalies": []},
+            "runtime": {"budgetSeconds": 600},
+            "retry": {"policy": "once"},
+            "expectedFail": {"bugId": ""},
+        }
+        if saves is not None:
+            spec["fixture"]["snapshotSaves"] = saves
+        return spec
+
+    def _validate(self, spec):
+        return hlib.validate_spec(spec, {"schema": 1}, bug_ids=[])
+
+    def _snap_errors(self, spec):
+        return [e for e in self._validate(spec).errors if "snapshotSaves" in e]
+
+    def test_both_accepted_forms_validate_and_resolve_to_the_same_folders(self):
+        base = self._validate(self._spec())
+        for saves in (["${runSave}-b"], ["fresh-career-b"], []):
+            with self.subTest(saves=saves):
+                got = self._validate(self._spec(saves))
+                self.assertEqual(base.errors, got.errors)
+                self.assertEqual(base.warnings, got.warnings)
+        spec = self._spec(["${runSave}-b", "fresh-career-c_2"], ("fresh-career-b",
+                                                                  "fresh-career-c_2"))
+        self.assertEqual([], self._snap_errors(spec))
+        self.assertEqual([("fresh-career-b", "b"), ("fresh-career-c_2", "c_2")],
+                         hlib.spec_snapshot_saves(spec, self.RUN_SAVE))
+        self.assertEqual([], hlib.spec_snapshot_saves(self._spec(), self.RUN_SAVE))
+
+    def test_a_name_outside_the_lanes_own_saves_is_refused(self):
+        for value in ("other-b", "../fresh-career-b", "/abs/x", "C:/saves/x",
+                      "${runSave}-../x", "${runSave}-a/b", "${runSave}-a\\b",
+                      "${runSave}-..", "${runSave}-", "${runSave}b", "${runSave}--b",
+                      "${runSave}-a-b", "${runSave}-a b", "${runSave}-a.b",
+                      "fresh-career-../x", "${RUNSAVE}-b", "${runSave }-b", "", 3, None):
+            with self.subTest(value=value):
+                errs = self._snap_errors(self._spec([value]))
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("directly inside saves/", errs[0])
+                self.assertEqual([], hlib.spec_snapshot_saves(self._spec([value]),
+                                                              self.RUN_SAVE))
+
+    def test_the_run_save_itself_is_refused(self):
+        for value in ("${runSave}", self.RUN_SAVE):
+            with self.subTest(value=value):
+                errs = self._snap_errors(self._spec([value]))
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("is the run save", errs[0])
+
+    def test_a_duplicate_is_refused_in_either_form(self):
+        for saves in (["${runSave}-b", "${runSave}-b"], ["${runSave}-b", "fresh-career-b"]):
+            with self.subTest(saves=saves):
+                errs = self._snap_errors(self._spec(saves))
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("names the same save as fixture.snapshotSaves[0]", errs[0])
+
+    def test_a_suffix_colliding_with_another_results_name_is_refused(self):
+        for suffix, clash in (("a_save", "_save"), ("x_race", "_race"),
+                              ("b_shots", "_shots")):
+            with self.subTest(suffix=suffix):
+                errs = self._snap_errors(self._spec(["${runSave}-" + suffix],
+                                                    ("fresh-career-" + suffix,)))
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("end in %r" % clash, errs[0])
+                # The shell's reader drops it too, should validation be bypassed.
+                self.assertEqual([], hlib.spec_snapshot_saves(
+                    self._spec(["${runSave}-" + suffix]), self.RUN_SAVE))
+        # A suffix that merely CONTAINS a name is fine: only the ending is keyed on.
+        self.assertEqual([], self._snap_errors(self._spec(["${runSave}-save"],
+                                                          ("fresh-career-save",))))
+        self.assertEqual([], self._snap_errors(self._spec(["${runSave}-race_b"],
+                                                          ("fresh-career-race_b",))))
+
+    def test_every_results_name_suffix_is_in_the_collision_table(self):
+        for suffix in hlib.RUN_ID_ARTIFACT_SUFFIXES + (
+                hlib.SAVE_SNAPSHOT_DIR_SUFFIX, hlib.SAVE_SNAPSHOT_TMP_SUFFIX,
+                hlib.RACE_SNAPSHOT_DIR_SUFFIX, hlib.RACE_LISTING_SUFFIX):
+            self.assertIn(suffix, hlib.RESULTS_NAME_SUFFIXES)
+
+    def test_a_non_list_is_refused(self):
+        for value in ("${runSave}-b", {"b": 1}, 3):
+            with self.subTest(value=value):
+                errs = self._snap_errors(self._spec(value))
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("must be a list", errs[0])
+
+    def test_a_save_no_step_names_is_a_warning_not_an_error(self):
+        got = self._validate(self._spec(["${runSave}-b", "${runSave}-c"]))
+        self.assertEqual([], [e for e in got.errors if "snapshotSaves" in e])
+        warns = [w for w in got.warnings if "snapshotSaves" in w]
+        self.assertEqual(1, len(warns), warns)
+        self.assertIn("'fresh-career-c'", warns[0])
+        self.assertIn(hlib.SNAPSHOT_SAVE_MISSING_SUBKIND, warns[0])
+
+    def test_the_dir_name_round_trips_and_no_other_sweep_reads_it(self):
+        rid = "2026-11-16_2000_SNAP-x_run2_a2"
+        name = hlib.snapshot_save_dir_name(rid, "b_1")
+        self.assertEqual(rid + "_save-b_1", name)
+        self.assertEqual((rid, "b_1"), hlib.parse_snapshot_save_dir_name(name))
+        self.assertEqual((rid, "b_1"), hlib.parse_snapshot_save_dir_name(
+            name + hlib.SAVE_SNAPSHOT_TMP_SUFFIX, tmp=True))
+        self.assertIsNone(hlib.parse_snapshot_save_dir_name(name, tmp=True))
+        for other in (rid + "_save", rid + "_race", rid + "_shots", rid + ".json",
+                      rid + "_save.harness-tmp", "_save-b", rid + "_save-",
+                      rid + "_save-a-b", rid + "_save-b.harness-tmp"):
+            with self.subTest(other=other):
+                self.assertIsNone(hlib.parse_snapshot_save_dir_name(other))
+        # The run save's and the race folder's passes never select the named copy.
+        self.assertFalse(name.endswith(hlib.SAVE_SNAPSHOT_DIR_SUFFIX))
+        self.assertEqual([], hlib.select_stale_save_snapshot_tmp_dirs_to_sweep(
+            [name + hlib.SAVE_SNAPSHOT_TMP_SUFFIX]))
+        self.assertEqual([], hlib.select_stale_save_snapshot_tmp_dirs_to_sweep(
+            [name + hlib.SAVE_SNAPSHOT_TMP_SUFFIX], dir_suffix=hlib.RACE_SNAPSHOT_DIR_SUFFIX))
+        self.assertEqual(set(), hlib.claimed_run_ids([name]))
+
+    def test_retention_keeps_the_newest_per_scenario_and_save(self):
+        keep = hlib.SAVE_SNAPSHOT_KEEP_PER_SCENARIO
+        entries = []
+        for i in range(keep + 2):
+            for suffix in ("b", "c"):
+                entries.append(("r%d_save-%s" % (i, suffix), "SNAP-x", float(i)))
+        entries.append(("r0_save", "SNAP-x", 0.0))           # the run save: not ours
+        entries.append(("orphan_save-b", "", -1.0))           # unattributed: never pruned
+        entries.append(("r0_save-b.harness-tmp", "SNAP-x", 0.0))
+        pruned = hlib.select_snapshot_save_dirs_to_prune(entries)
+        self.assertEqual(["r0_save-b", "r0_save-c", "r1_save-b", "r1_save-c"], pruned)
+        # The current run's names are never pruned, however old.
+        pruned = hlib.select_snapshot_save_dirs_to_prune(entries,
+                                                         ["r0_save-b", "r0_save-c"])
+        self.assertEqual(["r1_save-b", "r1_save-c"], pruned)
+
+    def test_the_tmp_sweep_takes_only_named_save_tmp_dirs(self):
+        names = ["a_save-b.harness-tmp", "a_save.harness-tmp", "a_race.harness-tmp",
+                 "a_save-b", "c_save-b.harness-tmp", "_save-b.harness-tmp"]
+        self.assertEqual(["a_save-b.harness-tmp"], hlib.select_stale_snapshot_save_tmp_dirs(
+            names, ["c_save-b.harness-tmp"]))
+
+    def test_a_missing_save_reds_last_and_only_turns_a_pass(self):
+        self.assertIn(hlib.SNAPSHOT_SAVE_MISSING_SUBKIND, hlib.PARSEK_FAIL_SUBKINDS)
+        missing = hlib.classify_verdict({}, {"snapshot_save_missing": True}, {}, 1, "once")
+        self.assertEqual((hlib.VERDICT_PARSEK_FAIL, hlib.SNAPSHOT_SAVE_MISSING_SUBKIND),
+                         (missing.verdict, missing.subkind))
+        self.assertFalse(hlib.should_retry(missing, 1, "once"))
+        richer = hlib.classify_verdict({}, {"snapshot_save_missing": True,
+                                            "unmet_step": True}, {}, 1, "once")
+        self.assertEqual(hlib.UNMET_STEP_SUBKIND, richer.subkind)
+        invalid = hlib.classify_verdict({"valid": False, "stage_subkind": "driver-stage"},
+                                        {"snapshot_save_missing": True}, {}, 1, "once")
+        self.assertEqual(hlib.VERDICT_INVALID, invalid.verdict)
+        self.assertEqual(hlib.VERDICT_PASS, hlib.classify_verdict({}, {}, {}, 1, "once").verdict)
+
+    def test_no_committed_spec_declares_snapshot_saves(self):
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                spec = tomllib.loads(fh.read().decode("utf-8"))
+            with self.subTest(spec=name):
+                self.assertNotIn(hlib.SNAPSHOT_SAVES_KEY, spec.get("fixture") or {})
