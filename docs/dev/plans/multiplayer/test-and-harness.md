@@ -450,8 +450,25 @@ writes `testGame = False`.
   sent to the game: `{ harness = "raceFolder", args = { op = "replace|edit|delete", from =
   "fixtures/race/<name>", path = "<relative>" } }`. Every target resolves under
   `${raceShared}`; anything else is refused at validation. Logged on the harness log.
+  - As built (2026-11-16, corrected here): `replace` takes `from` (a committed fixture) and
+    an optional `path` (without it the whole folder is swapped; with it that one entry);
+    `edit` takes only `path` and appends `hlib.RACE_FOLDER_EDIT_BYTES` (a ConfigNode comment
+    line) to an existing file, so no fixture has to predict a file the game names at run
+    time; `delete` takes only `path`. The args are literal: `${...}` is refused, so a target
+    whose name is known only at run time (T-25's own subfolder) needs a later extension
+    (a `${label.field}` path, which the run-time containment check already covers). The
+    step takes only `harness` and `args`, needs `[fixture.race]`, and must sit after the
+    boot and before a later seam step. A refused step is the terminal
+    `INVALID(harness-step)` with the cleanup tail only. It runs only while every step
+    driven before it is met; after an unmet step that did not stop the drive (a
+    post-mission ERROR on a MISSION-OK run) it is skipped and that step keeps its own
+    verdict. Rows land in the result JSON's `driver.harnessSteps`, outside `driver.steps`. The lane catalog and the timeline ops
+    needed no change (a harness step is no seam verb and no timeline operation); the tail
+    planner names it `harness:raceFolder`, world-mutating. T-54's `barrier` adds a kind to
+    `hlib.HARNESS_STEP_KINDS` and a branch to `run.run_harness_step`.
 - **Proof:** `test_hlib` validator cells; `test_run_smoke` cell that the step runs in order
-  and touches nothing outside the folder.
+  and touches nothing outside the folder. As built: `RaceFolderHarnessStepSpecTests`,
+  `RaceFolderHarnessStepSmokeTests`, `RaceFolderHarnessStepAfterAnUnmetStepSmokeTests`.
 - **Registers:** `design-autotest-harness-core.md` (step kinds); `harness/README.md`.
 - **Size:** S. **Depends on:** T-03. **PC:** no.
 - **Risk:** medium; it is the first non-seam step, so the step grammar, the lane catalog and

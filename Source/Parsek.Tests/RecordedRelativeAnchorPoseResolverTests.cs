@@ -510,6 +510,114 @@ namespace Parsek.Tests
         }
 
         // ==================================================================
+        // Catalog seam (IPlaybackCatalog)
+        // ==================================================================
+
+        [Fact]
+        public void Catalog_FocusTreeAndPendingTree_ComeFromTheGivenCatalog()
+        {
+            // Nothing is committed or pending in RecordingStore. The focus
+            // tree holds only the focus; the anchor sits in the catalog's
+            // pending tree, which shares the focus tree's id and so is in
+            // scope. Resolving proves both the focus-tree lookup and the
+            // pending read went to the catalog, not to the store.
+            var focusTree = new RecordingTree { Id = "tree" };
+            var pendingTree = new RecordingTree { Id = "tree" };
+            Recording anchor = MakeAbsoluteAnchor("anchor-rec", "tree", new[] { (0.0, 1000.0), (20.0, 9000.0) });
+            Recording focus = MakeRelativeFocus("focus-rec", "tree", anchor.RecordingId, Vector3d.zero);
+            focusTree.AddOrReplaceRecording(focus);
+            pendingTree.AddOrReplaceRecording(anchor);
+            var fake = new FakeCatalog { FocusTree = focusTree, Pending = pendingTree };
+
+            Assert.True(RecordedRelativeAnchorPoseResolver.TryResolveSectionAnchorPose(
+                focus, focus.TrackSections[0], 10.0, out AnchorPose pose, out RelativeAnchorResolveFailure failure, fake),
+                failure.Reason);
+            Assert.Equal(605000.0, pose.WorldPos.x, 3);
+            Assert.Equal(new[] { "focus-rec|tree" }, fake.FocusTreeQueries.ToArray());
+            Assert.Equal(1, fake.PendingReads);
+
+            // The same call on the own timeline (default argument) sees an empty store.
+            Assert.False(Resolve(focus, 10.0, out _, out RelativeAnchorResolveFailure ownFailure));
+            Assert.Equal("focus-tree-missing", ownFailure.Reason);
+
+            // Without the catalog's pending tree the anchor is not found.
+            var noPending = new FakeCatalog { FocusTree = focusTree };
+            Assert.False(RecordedRelativeAnchorPoseResolver.TryResolveSectionAnchorPose(
+                focus, focus.TrackSections[0], 10.0, out _, out RelativeAnchorResolveFailure missing, noPending));
+            Assert.True(missing.HasFailure);
+        }
+
+        [Fact]
+        public void Catalog_FocusTreeMissingInCatalog_FailsContextBuildEvenWhenTheStoreHasIt()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording anchor = MakeAbsoluteAnchor("anchor-rec", tree.Id, new[] { (0.0, 1000.0), (20.0, 9000.0) });
+            Recording focus = MakeRelativeFocus("focus-rec", tree.Id, anchor.RecordingId, Vector3d.zero);
+            Commit(tree, anchor, focus);
+            var empty = new FakeCatalog();
+
+            Assert.False(RecordedRelativeAnchorPoseResolver.TryResolveSectionAnchorPose(
+                focus, focus.TrackSections[0], 10.0, out _, out RelativeAnchorResolveFailure failure, empty));
+            Assert.Equal("focus-tree-missing", failure.Reason);
+            Assert.True(Resolve(focus, 10.0, out _, out RelativeAnchorResolveFailure own), own.Reason);
+        }
+
+        [Fact]
+        public void Catalog_TryFindFocusRecording_CastFirstThenTheCatalogsTreesPendingListScope()
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            Recording stored = MakeRelativeFocus("focus-rec", tree.Id, "anchor-rec", Vector3d.zero);
+            Commit(tree, stored);
+            Recording fromCatalog = MakeRelativeFocus("focus-rec", "other", "anchor-rec", Vector3d.zero);
+            var fake = new FakeCatalog { Recording = fromCatalog };
+
+            Assert.True(RecordedRelativeAnchorPoseResolver.TryFindFocusRecording(
+                new MockTrajectory { RecordingId = "focus-rec" }, out Recording found, fake));
+            Assert.Same(fromCatalog, found);
+            Assert.Equal(
+                new[] { "focus-rec|" + CatalogRecordingScope.TreesThenPendingThenList },
+                fake.RecordingQueries.ToArray());
+
+            // A Recording trajectory is returned as itself; the catalog is not asked.
+            Assert.True(RecordedRelativeAnchorPoseResolver.TryFindFocusRecording(stored, out Recording direct, fake));
+            Assert.Same(stored, direct);
+            Assert.Single(fake.RecordingQueries);
+        }
+
+        private sealed class FakeCatalog : IPlaybackCatalog
+        {
+            internal RecordingTree FocusTree;
+            internal RecordingTree Pending;
+            internal Recording Recording;
+            internal int PendingReads;
+            internal readonly List<string> FocusTreeQueries = new List<string>();
+            internal readonly List<string> RecordingQueries = new List<string>();
+
+            public RecordingTree PendingTree
+            {
+                get
+                {
+                    PendingReads++;
+                    return Pending;
+                }
+            }
+
+            public bool TryFindFocusTree(string recordingId, string treeId, out RecordingTree tree)
+            {
+                FocusTreeQueries.Add(recordingId + "|" + treeId);
+                tree = FocusTree;
+                return tree != null;
+            }
+
+            public bool TryFindRecording(string id, CatalogRecordingScope scope, out Recording rec)
+            {
+                RecordingQueries.Add(id + "|" + scope);
+                rec = Recording;
+                return rec != null;
+            }
+        }
+
+        // ==================================================================
         // Helpers
         // ==================================================================
 

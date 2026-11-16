@@ -2892,6 +2892,53 @@ python tools/harvest_bdock_station.py --save-dir results/<runId>_save \
   `TrajectoryCodecFixtureIdentityTests` pins: regenerate its manifest in the same
   commit (`PARSEK_WRITE_CODEC_MANIFEST=1` on its `RegenerateManifest` fact).
 
+#### The harness-side folder step (`harness = "raceFolder"`)
+
+A race lane changes the shared folder between two seam steps the way a rival's
+sync client or a tampering player would, with a driver step that run.py runs
+itself and never writes to the command channel (multiplayer T-06):
+
+```toml
+{ harness = "raceFolder", args = { op = "replace", from = "fixtures/race/holder-gen2" } }
+{ harness = "raceFolder", args = { op = "replace", from = "fixtures/race/holder-gen2", path = "players/p2" } }
+{ harness = "raceFolder", args = { op = "edit", path = "players/p1/standing.cfg" } }
+{ harness = "raceFolder", args = { op = "delete", path = "players/p1/payload" } }
+```
+
+- `replace` without `path` makes the whole folder a copy of the committed
+  fixture; with `path` it makes that entry (file or folder) a copy of the
+  fixture's entry at the same relative path. `edit` appends
+  `hlib.RACE_FOLDER_EDIT_BYTES` (a ConfigNode comment line) to an existing
+  file, so its bytes change while it still parses. `delete` removes an existing
+  file or folder.
+- `path` is relative to `${raceShared}`: forward slashes, plain segments, no
+  empty, `.` or `..` segment, nothing absolute, no colon or backslash, no
+  Windows device name (`hlib.race_folder_path_problem`). The args are literal
+  (a `${...}` token is refused). The step takes only `harness` and `args`, needs
+  the `[fixture.race]` block, and must sit after the boot and before a later
+  seam step (never after `FlushAndQuit`); validate_spec refuses anything else
+  before a boot.
+- At run time `run.apply_race_folder_step` re-checks the args, then refuses a
+  shared folder that is not the plain `<instance>/rs/0`, and a target or
+  fixture entry whose path passes through a link or junction or holds one. A
+  refused or failed step is the harness's fault: the drive stops with the
+  cleanup tail only and the attempt reads `INVALID(harness-step)`, terminal,
+  never PARSEK-FAIL.
+- A harness step runs only while every step driven before it is met (the
+  mission and every seam step; `hlib.harness_step_skip_reason`). After an unmet
+  step that did not stop the drive (a post-mission ERROR on a MISSION-OK run,
+  which reds `PARSEK-FAIL(mission-outcome)` or `PARSEK-FAIL(unmet-step)`) it is
+  skipped and the drive goes on, so that step keeps its own verdict: a harness
+  step premised on its work (a delete of a file it should have written) cannot
+  turn the Parsek fault into `INVALID(harness-step)`, and skipping it cannot
+  turn the red run green.
+- Each step logs one `[Drive] harness step=<i> id=<id> raceFolder op=... from=...
+  path=... result=done files=N bytes=M` line (or `... REFUSED: <why> ->
+  INVALID(harness-step)`, or `... SKIPPED (skipped: the earlier step <id> ...)`),
+  and the result JSON carries `driver.harnessSteps` (id, op, from, path, met,
+  reason, files, bytes, and `skipped: true` on a skipped step) outside
+  `driver.steps`.
+
 ### Operator-local fixture saves (`fixtures/local-saves/`)
 
 One lane family needs the opposite of a committed fixture. Every save under

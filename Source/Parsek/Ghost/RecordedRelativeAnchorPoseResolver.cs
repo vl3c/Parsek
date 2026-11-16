@@ -46,18 +46,26 @@ namespace Parsek
             BodyPoseSourceForTesting = null;
         }
 
+        /// <summary>
+        /// Resolves the recorded anchor's world pose for a RELATIVE section of
+        /// <paramref name="focusRecording"/>. The focus tree and the pending
+        /// tree come from <paramref name="catalog"/>; null reads the own
+        /// timeline (<see cref="RecordingPlaybackCatalog.Own"/>).
+        /// </summary>
         internal static bool TryResolveSectionAnchorPose(
             Recording focusRecording,
             TrackSection section,
             double ut,
-            out AnchorPose pose)
+            out AnchorPose pose,
+            IPlaybackCatalog catalog = null)
         {
             return TryResolveSectionAnchorPose(
                 focusRecording,
                 section,
                 ut,
                 out pose,
-                out _);
+                out _,
+                catalog);
         }
 
         internal static bool TryResolveSectionAnchorPose(
@@ -65,7 +73,8 @@ namespace Parsek
             TrackSection section,
             double ut,
             out AnchorPose pose,
-            out RelativeAnchorResolveFailure failure)
+            out RelativeAnchorResolveFailure failure,
+            IPlaybackCatalog catalog = null)
         {
             pose = default;
             failure = default;
@@ -99,7 +108,10 @@ namespace Parsek
                     ut);
                 return false;
             }
-            if (!TryBuildContext(focusRecording, out RelativeAnchorResolverContext context))
+            if (!TryBuildContext(
+                    focusRecording,
+                    catalog ?? RecordingPlaybackCatalog.Own,
+                    out RelativeAnchorResolverContext context))
             {
                 failure = RelativeAnchorResolveFailure.Create(
                     RelativeAnchorResolveOutcome.Other,
@@ -119,9 +131,16 @@ namespace Parsek
                 out failure);
         }
 
+        /// <summary>
+        /// The recording a trajectory plays: the trajectory itself when it is
+        /// a <see cref="Recording"/>, else the recording with its id in
+        /// <paramref name="catalog"/> (committed trees, then the pending tree,
+        /// then the flat committed list). Null reads the own timeline.
+        /// </summary>
         internal static bool TryFindFocusRecording(
             IPlaybackTrajectory trajectory,
-            out Recording recording)
+            out Recording recording,
+            IPlaybackCatalog catalog = null)
         {
             recording = null;
             if (trajectory is Recording direct)
@@ -130,17 +149,24 @@ namespace Parsek
                 return true;
             }
 
-            return TryFindRecordingById(trajectory?.RecordingId, out recording);
+            return (catalog ?? RecordingPlaybackCatalog.Own).TryFindRecording(
+                trajectory?.RecordingId,
+                CatalogRecordingScope.TreesThenPendingThenList,
+                out recording);
         }
 
         private static bool TryBuildContext(
             Recording focusRecording,
+            IPlaybackCatalog catalog,
             out RelativeAnchorResolverContext context)
         {
             context = default;
             if (focusRecording == null || string.IsNullOrEmpty(focusRecording.RecordingId))
                 return false;
-            if (!TryFindFocusTree(focusRecording, out RecordingTree focusTree))
+            if (!catalog.TryFindFocusTree(
+                    focusRecording.RecordingId,
+                    focusRecording.TreeId,
+                    out RecordingTree focusTree))
                 return false;
 
             context = new RelativeAnchorResolverContext(
@@ -148,7 +174,7 @@ namespace Parsek
                 focusRecordingId: focusRecording.RecordingId,
                 focusTreeId: focusTree?.Id,
                 activeReFlyMarker: ParsekScenario.Instance?.ActiveReFlySessionMarker,
-                pendingTree: PendingTreeSlot.HasPendingTree ? PendingTreeSlot.PendingTree : null,
+                pendingTree: catalog.PendingTree,
                 absoluteWorldPositionResolver: ResolveAbsoluteWorldPosition,
                 bodyWorldRotationResolver: ResolveBodyWorldRotation,
                 orbitalCheckpointPoseResolver: ParsekFlight.TryResolveOrbitalCheckpointAnchorPose,
@@ -160,99 +186,6 @@ namespace Parsek
                 tryResolveLiveLaunchMatchedAnchorPose:
                     ParsekFlight.TryResolveLiveLaunchMatchedAnchorPoseForResolver);
             return true;
-        }
-
-        private static bool TryFindFocusTree(
-            Recording focusRecording,
-            out RecordingTree focusTree)
-        {
-            focusTree = null;
-            List<RecordingTree> committedTrees = RecordingStore.CommittedTrees;
-            if (committedTrees != null)
-            {
-                for (int i = 0; i < committedTrees.Count; i++)
-                {
-                    RecordingTree tree = committedTrees[i];
-                    if (tree?.Recordings == null)
-                        continue;
-                    if ((!string.IsNullOrEmpty(focusRecording.TreeId)
-                            && string.Equals(tree.Id, focusRecording.TreeId, StringComparison.Ordinal))
-                        || tree.Recordings.ContainsKey(focusRecording.RecordingId))
-                    {
-                        focusTree = tree;
-                        return true;
-                    }
-                }
-            }
-
-            RecordingTree pending = PendingTreeSlot.HasPendingTree
-                ? PendingTreeSlot.PendingTree
-                : null;
-            if (pending?.Recordings != null
-                && (pending.Recordings.ContainsKey(focusRecording.RecordingId)
-                    || (!string.IsNullOrEmpty(focusRecording.TreeId)
-                        && string.Equals(pending.Id, focusRecording.TreeId, StringComparison.Ordinal))))
-            {
-                focusTree = pending;
-                return true;
-            }
-
-            return false;
-        }
-
-        private static bool TryFindRecordingById(
-            string recordingId,
-            out Recording recording)
-        {
-            recording = null;
-            if (string.IsNullOrEmpty(recordingId))
-                return false;
-
-            List<RecordingTree> committedTrees = RecordingStore.CommittedTrees;
-            if (committedTrees != null)
-            {
-                for (int i = 0; i < committedTrees.Count; i++)
-                {
-                    RecordingTree tree = committedTrees[i];
-                    if (tree?.Recordings != null
-                        && tree.Recordings.TryGetValue(recordingId, out recording)
-                        && recording != null)
-                    {
-                        return true;
-                    }
-                }
-            }
-
-            RecordingTree pending = PendingTreeSlot.HasPendingTree
-                ? PendingTreeSlot.PendingTree
-                : null;
-            if (pending?.Recordings != null
-                && pending.Recordings.TryGetValue(recordingId, out recording)
-                && recording != null)
-            {
-                return true;
-            }
-
-            // [ERS-exempt] Recorded-anchor playback resolves an exact
-            // recording id for map/KSC diagnostics. ERS filtering would hide
-            // NotCommitted active Re-Fly attempts, which are valid focus or
-            // anchor records during the session.
-            IReadOnlyList<Recording> committedRecordings = RecordingStore.CommittedRecordings;
-            if (committedRecordings != null)
-            {
-                for (int i = 0; i < committedRecordings.Count; i++)
-                {
-                    Recording candidate = committedRecordings[i];
-                    if (candidate != null
-                        && string.Equals(candidate.RecordingId, recordingId, StringComparison.Ordinal))
-                    {
-                        recording = candidate;
-                        return true;
-                    }
-                }
-            }
-
-            return false;
         }
 
         /// <summary>
