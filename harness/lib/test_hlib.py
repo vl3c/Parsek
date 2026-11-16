@@ -18211,8 +18211,9 @@ class LoadGamePlayerLoadSourceSyncTests(unittest.TestCase):
     """`LoadGame playerLoad=true` (design-load-restores-the-save.md 4.1). Reads OUTSIDE
     harness/: the key, the one value and the refusal reason of the comment-stripped
     TestCommands/TestCommandLoadGame.cs; the dispatcher's parse before the recorder term;
-    and the applier's guarded onGameStatePostLoad fire after the load and the failed-route
-    check, before every route's scene request."""
+    and the applier's guarded call of LogIO/NewSaveStarter.cs's FirePlayerLoad (the one
+    onGameStatePostLoad fire, read there too) after the load and the failed-route check,
+    before every route's scene request."""
 
     def _source(self, *parts):
         path = os.path.join(PARSEK_SOURCE_DIR, *parts)
@@ -18252,14 +18253,20 @@ class LoadGamePlayerLoadSourceSyncTests(unittest.TestCase):
         end = applier.index("FlightDriver.StartAndFocusVessel(game, idx);", start) + 1
         end = applier.index("SetExecResult(PendingVerdict, null, null);", end)
         body = applier[start:end]
-        fire = "GameEvents.onGameStatePostLoad.Fire(game.config);"
+        fire = "NewSaveStarter.FirePlayerLoad(game);"
         self.assertEqual(1, body.count(fire), "exactly one fire site in LoadGameImpl")
-        self.assertEqual(1, applier.count("onGameStatePostLoad.Fire("),
+        self.assertEqual(1, applier.count("NewSaveStarter.FirePlayerLoad("),
                          "no other fire site in the applier")
+        self.assertEqual(0, applier.count("onGameStatePostLoad.Fire("),
+                         "the applier fires through NewSaveStarter only")
+        starter = self._source("LogIO", "NewSaveStarter.cs")
+        self.assertEqual(1, starter.count("GameEvents.onGameStatePostLoad.Fire(game.config);"))
+        self.assertLess(starter.index("internal static void FirePlayerLoad(Game game)"),
+                        starter.index("GameEvents.onGameStatePostLoad.Fire(game.config);"))
         guard = body.rindex("if (playerLoad)", 0, body.index(fire))
         # The fire sits inside the guard's own block (no block close at the guard's depth).
         self.assertNotIn(chr(10) + "            }", body[guard:body.index(fire)])
-        self.assertLess(body.index("GamePersistence.LoadGame(name, save, true, false)"), guard)
+        self.assertLess(body.index("NewSaveStarter.LoadSave(save, name)"), guard)
         self.assertLess(body.index("if (route == LoadRoute.Failed)"), guard)
         self.assertLess(body.index("game.flightState.activeVesselIdx = focusIdx;"), guard)
         for request in ("game.Start();", "FlightDriver.StartAndFocusVessel(game, idx);"):

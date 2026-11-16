@@ -649,8 +649,8 @@ LAUNCH-SITE-PARTIAL-READ-CACHED).
   - New `Source/Parsek/LogIO/NewSaveStarter.cs`, module `LogIO` (floor; the folder places it,
     `modules.toml` is not edited). Its callers are the `NewGame` applier
     (`TestCommands`, tooling), R1-10 / R1-11's `ParsekRaceSetup` (Controllers, entry; the
-    setup composes there, not in `RaceWorld`, DC-102) and R1-16's `LoadAndStart`, which
-    joins this file. The floor is downward from every one of them, and it leaves
+    setup composes there, not in `RaceWorld`, DC-102) and R1-16's load-and-start steps,
+    which join this file. The floor is downward from every one of them, and it leaves
     `ResolveSaveDirectory` open to `RaceWorld` (features) without a backward pair (OV-23's
     alternative to R1-08's own computation). `internal static class NewSaveStarter`, tag
     `NewSave`, three steps so the verb keeps its log order and a caller can run its own
@@ -688,7 +688,7 @@ LAUNCH-SITE-PARTIAL-READ-CACHED).
     `NewSaveStarter.cs` (section 7, grep-audit gates). The verb starts
     `HighLogic.CurrentGame`, the game `CreateGame` stored there, as stock does. So every `NewSaveStarter` member is reached from the applier in this pull
     request (TestCommands tooling code is live for the uncalled-method ratchet, A1); R1-16's
-    `LoadAndStart` lands in R1-16 with the verb that calls it. `GetDefaultParameters`, the
+    load-and-start steps land in R1-16 with the verb that calls them. `GetDefaultParameters`, the
     flag lookup, `ToStockMode` / `ToStockPreset` and every pure decision stay in
     `TestCommands`.
   - Source gate (new xUnit `NewSaveStarterWiringTests`): over comment-stripped

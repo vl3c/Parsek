@@ -1043,6 +1043,14 @@ write just as LOAD-BEARING here: without it `SetProtoModules` instantiates a sce
 with no `ParsekScenario`, `OnLoad` never runs, and a TRACKSTATION batch runs against a
 Parsek that never woke up. **ZERO deltas from the SPACECENTER route were found.**
 
+**Where the steps live.** The load itself (`HighLogic.SaveFolder` + `GamePersistence.LoadGame`),
+the `playerLoad=true` fire of `onGameStatePostLoad` and the SPACECENTER boot preparation
+(adopt, `startScene`, `UpdateScenarioModules`, the `persistent.sfs` write) are the production
+steps `NewSaveStarter.LoadSave` / `FirePlayerLoad` / `PrepareSpaceCenterStart`
+(`Source/Parsek/LogIO/NewSaveStarter.cs`, the load-and-start route a player-facing load can
+reuse). They write no log line; the verb calls them in the order above and keeps every
+`loadgame` line, the `game.Start()` and the TRACKSTATION and FLIGHT routes itself.
+
 **Completion.** The pre-R12 two-valued `bool expectSpaceCenter` became an expected
 `TestCommandScene` (`TestCommandLoadGame.ExpectedSceneFor(route)`), so each route completes
 ONLY on its own settled scene; a MAINMENU settle and the budget expiry keep their meanings
