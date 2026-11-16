@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using ClickThroughFix;
 using UnityEngine;
 
 namespace Parsek
@@ -32,26 +31,27 @@ namespace Parsek
         private readonly ParsekUI parentUI;
 
         private bool isOpen;
-        private Rect windowRect;
         /// <summary>
         /// The live window rect, readable and writable from outside the draw pass.
         /// <para>Two consumers: an in-game test that needs the measured rect, and the
         /// automation-only <c>UiAction op=rect</c> seam op, which places and enlarges a
         /// window so one capture shows more rows than the default size fits. Writing it is
-        /// safe before the first draw as well as after: <c>DrawIfOpen</c> only seeds its
-        /// default when <c>width &lt; 1</c>, so a commanded rect suppresses the seed rather
-        /// than being overwritten by it.</para>
+        /// safe before the first draw as well as after: the chrome only seeds its default
+        /// when <c>width &lt; 1</c>, so a commanded rect suppresses the seed rather than
+        /// being overwritten by it.</para>
         /// </summary>
         internal Rect WindowRectForTesting
         {
-            get { return windowRect; }
-            set { windowRect = value; }
+            get { return chrome.WindowRect; }
+            set { chrome.WindowRect = value; }
         }
 
-        private bool hasInputLock;
-        private bool isResizing;
+        // The window frame: placement, resize, scaled window call, position log, input lock,
+        // hover strip, Close, resize handle and drag (UI/TableWindowChrome.cs).
+        private readonly TableWindowChrome chrome;
+        // The body drawer handed to the chrome each draw, built once.
+        private readonly Action drawBodyAction;
         private Vector2 scrollPos;
-        private Rect lastWindowRect;
 
         private const string InputLockId = "Parsek_StructureListWindow";
 
@@ -94,7 +94,8 @@ namespace Parsek
         private string[] timeCells = new string[0];
 
         // Bottom hover-help strip: the Event cell carries the FULL piece list as its
-        // tooltip when the cell had to shorten it. Single-line (see TooltipEchoBox).
+        // tooltip when the cell had to shorten it. Single-line (see TooltipEchoBox). The
+        // chrome draws it; it is constructed here so the strip height stays in this file.
         private readonly TooltipEchoBox tooltipEcho =
             new TooltipEchoBox(TooltipEchoBox.DefaultSpacing, TooltipEchoBox.SingleLine);
 
@@ -185,6 +186,18 @@ namespace Parsek
             instanceInputLockId = routeHistory ? RouteHistoryInputLockId : InputLockId;
             instanceTitlePrefix = routeHistory ? RouteHistoryTitlePrefix : WindowTitlePrefix;
             logName = routeHistory ? "Route History window" : "Structure window";
+            drawBodyAction = DrawWindowBody;
+            chrome = new TableWindowChrome(
+                parentUI,
+                instanceWindowIdKey,
+                instanceInputLockId,
+                routeHistory ? "RouteHistory" : "StructureList",
+                logName,
+                MinWindowWidth,
+                MinWindowHeight,
+                mainWindowRect => DefaultWindowRect(mainWindowRect, routeHistory),
+                tooltipEcho,
+                Close);
         }
 
         /// <summary>
@@ -514,56 +527,17 @@ namespace Parsek
             if (Event.current != null && Event.current.type == EventType.Layout)
                 RefreshIfChanged();
 
-            if (windowRect.width < 1f)
-                windowRect = DefaultWindowRect(mainWindowRect, isRouteHistory);
-
-            ParsekUI.HandleResizeDrag(ref windowRect, ref isResizing,
-                MinWindowWidth, MinWindowHeight, logName);
-
-            var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
-            if (opaqueWindowStyle == null)
-                return;
-            ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackgroundColor, out Color prevContentColor);
-            try
-            {
-                windowRect = ParsekUiScale.Window(
-                    instanceWindowIdKey.GetHashCode(),
-                    windowRect,
-                    DrawWindow,
-                    BuildWindowTitle(instanceTitlePrefix, title),
-                    opaqueWindowStyle,
-                    GUILayout.Width(windowRect.width),
-                    GUILayout.Height(windowRect.height)
-                );
-            }
-            finally
-            {
-                ParsekUI.RestoreWindowGuiColors(prevColor, prevBackgroundColor, prevContentColor);
-            }
-            parentUI.LogWindowPosition(isRouteHistory ? "RouteHistory" : "StructureList", ref lastWindowRect, windowRect);
-
-            if (windowRect.Contains(Event.current.mousePosition))
-            {
-                if (!hasInputLock)
-                {
-                    InputLockManager.SetControlLock(ControlTypes.CAMERACONTROLS, instanceInputLockId);
-                    hasInputLock = true;
-                }
-            }
-            else
-            {
-                ReleaseInputLock();
-            }
+            chrome.Draw(mainWindowRect, BuildWindowTitle(instanceTitlePrefix, title), drawBodyAction);
         }
 
         public void ReleaseInputLock()
         {
-            if (!hasInputLock) return;
-            InputLockManager.RemoveControlLock(instanceInputLockId);
-            hasInputLock = false;
+            chrome.ReleaseInputLock();
         }
 
-        private void DrawWindow(int windowID)
+        // The body inside the chrome; the chrome draws the hover strip, Close, the resize
+        // handle and the drag area after it.
+        private void DrawWindowBody()
         {
             GUIStyle sharedCell = parentUI.GetTableCellStyle();
             if (bodyCellLabel == null || !ReferenceEquals(bodyCellLabelSource, sharedCell))
@@ -586,17 +560,6 @@ namespace Parsek
             // column headers stay up, an empty list reads its one grey sentence as the
             // body row, and Close sits at the bottom.
             DrawStepTable();
-
-            // Hover-help strip, drawn after the rows so the live GUI.tooltip read sees a
-            // hovered Event cell, and directly above Close (the house ordering).
-            tooltipEcho.Draw();
-
-            // Full-width Close, matching the other Parsek windows.
-            if (GUILayout.Button("Close"))
-                Close();
-
-            ParsekUI.DrawResizeHandle(windowRect, ref isResizing, logName);
-            GUI.DragWindow();
         }
 
         /// <summary>
