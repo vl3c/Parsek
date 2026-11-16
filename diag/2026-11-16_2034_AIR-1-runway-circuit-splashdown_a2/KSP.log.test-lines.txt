@@ -1,0 +1,5 @@
+[LOG 22:34:50.694] [Parsek][INFO][TestRunner] autorun selector parsed: enabled=False selector='(unset)' categories=[] exit=False isolated=false
+[LOG 22:34:54.965] [Parsek][VERBOSE][TestRunner] TestRunnerShortcut active in LOADING
+[LOG 22:35:14.077] [Parsek][VERBOSE][TestRunner] Camera re-pin window armed (TestCommandLoadGame:gs1-two-stage-pad/persistent): any vessel switch before the next scene load lands re-pins the FlightCamera pivot onto the DDOL PSystemSetup root (stock Bug #4803 late-switch guard)
+[LOG 22:35:18.477] [Parsek][WARN][TestRunner] Late vessel switch to 'GS1 Auto-Chute Booster' inside the reload commit window (armedBy='TestCommandLoadGame:gs1-two-stage-pad/persistent'); re-pinned the FlightCamera pivot onto the DDOL PSystemSetup root so the camera survives the old scene's unload (stock Bug #4803 late-switch guard).
+[LOG 22:35:20.139] [Parsek][VERBOSE][TestRunner] Camera re-pin window disarmed (level-loaded:FLIGHT): armedBy='TestCommandLoadGame:gs1-two-stage-pad/persistent' rePins=1

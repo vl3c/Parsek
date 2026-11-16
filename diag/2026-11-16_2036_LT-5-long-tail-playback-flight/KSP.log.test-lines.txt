@@ -1,0 +1,259 @@
+[LOG 22:36:52.848] [Parsek][INFO][TestRunner] autorun selector parsed: enabled=False selector='(unset)' categories=[] exit=False isolated=false
+[LOG 22:36:57.073] [Parsek][VERBOSE][TestRunner] TestRunnerShortcut active in LOADING
+[LOG 22:37:16.139] [Parsek][VERBOSE][TestRunner] Camera re-pin window armed (TestCommandLoadGame:gloops-airshow/persistent): any vessel switch before the next scene load lands re-pins the FlightCamera pivot onto the DDOL PSystemSetup root (stock Bug #4803 late-switch guard)
+[LOG 22:37:21.063] [Parsek][WARN][TestRunner] Late vessel switch to 'mk1-capsule' inside the reload commit window (armedBy='TestCommandLoadGame:gloops-airshow/persistent'); re-pinned the FlightCamera pivot onto the DDOL PSystemSetup root so the camera survives the old scene's unload (stock Bug #4803 late-switch guard).
+[LOG 22:37:22.778] [Parsek][VERBOSE][TestRunner] Camera re-pin window disarmed (level-loaded:FLIGHT): armedBy='TestCommandLoadGame:gloops-airshow/persistent' rePins=1
+[LOG 22:37:25.028] [Parsek][INFO][TestRunner] Discovered 698 in-game tests
+[LOG 22:37:25.028] [Parsek][INFO][TestRunner] batch dispatch: entry=RunCategory category=PartEventFX isolated=false
+[LOG 22:37:25.028] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: begin reason=run-category:PartEventFX scene=FLIGHT
+[LOG 22:37:25.033] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: end reason=run-category:PartEventFX ghostsBefore=10 mapPidsBefore=0 mapPidsAfter=0 ghostVesselsRemoved=0
+[LOG 22:37:26.183] [Parsek][INFO][TestRunner] Batch baseline: backed up campaign persistent.sfs (407212 bytes) to 'ptb-f6f07f36-persistent.bak'
+[LOG 22:37:26.184] [Parsek][INFO][TestRunner] Batch isolation captured: mode=InMemoryAndDisk slot='ptb-f6f07f36' persistentBackup='<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gloops-airshow\ptb-f6f07f36-persistent.bak' batchInstanceId=e3ce34658d0d4dc5b7a32fd83661f4c3
+[LOG 22:37:26.654] [Parsek][INFO][TestRunner] Test batch crash marker written (mode=InMemoryAndDisk, backup='<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gloops-airshow\ptb-f6f07f36-persistent.bak')
+[LOG 22:37:26.655] [Parsek][INFO][TestRunner] Starting test run: 6 tests
+[LOG 22:37:26.656] [Parsek][VERBOSE][TestRunner] Running: PartEventPlaybackTests.DeployableInfosValid
+[LOG 22:37:26.657] [Parsek][VERBOSE][TestRunner] SKIPPED: PartEventPlaybackTests.DeployableInfosValid - No deployable infos on active ghosts
+[LOG 22:37:26.669] [Parsek][VERBOSE][TestRunner] Running: PartEventPlaybackTests.EngineInfosHaveParticleSystems
+[LOG 22:37:26.669] [Parsek][VERBOSE][TestRunner] SKIPPED: PartEventPlaybackTests.EngineInfosHaveParticleSystems - No engine FX infos on active ghosts
+[LOG 22:37:26.684] [Parsek][VERBOSE][TestRunner] Running: PartEventPlaybackTests.FairingInfosValid
+[LOG 22:37:26.685] [Parsek][VERBOSE][TestRunner] SKIPPED: PartEventPlaybackTests.FairingInfosValid - No fairing infos on active ghosts
+[LOG 22:37:26.700] [Parsek][VERBOSE][TestRunner] Running: PartEventPlaybackTests.LightInfosValid
+[LOG 22:37:26.701] [Parsek][INFO][TestRunner] Light infos: 8/8 have Light components
+[LOG 22:37:26.701] [Parsek][VERBOSE][TestRunner] PASSED: PartEventPlaybackTests.LightInfosValid (1.1ms)
+[LOG 22:37:26.716] [Parsek][VERBOSE][TestRunner] Running: PartEventPlaybackTests.ParachuteInfosValid
+[LOG 22:37:26.716] [Parsek][VERBOSE][TestRunner] SKIPPED: PartEventPlaybackTests.ParachuteInfosValid - No parachute infos on active ghosts
+[LOG 22:37:26.742] [Parsek][VERBOSE][TestRunner] Running: PartEventPlaybackTests.RcsInfosHaveParticleSystems
+[LOG 22:37:26.743] [Parsek][VERBOSE][TestRunner] SKIPPED: PartEventPlaybackTests.RcsInfosHaveParticleSystems - No RCS infos on active ghosts
+[LOG 22:37:26.754] [Parsek][INFO][TestRunner] Final batch baseline restore (batch-complete-final-restore) from slot 'ptb-f6f07f36' scene=FLIGHT
+[LOG 22:37:26.758] [Parsek][INFO][TestRunner] Pre-reload camera guard (batch-complete-final-restore:attempt1): forced Flight mode + re-homed the FlightCamera pivot onto 'mk1-capsule' so it survives the reload (stock Bug #4803 prevention).
+[LOG 22:37:27.788] [Parsek][VERBOSE][TestRunner] Camera re-pin window armed (CommitValidatedGameLoad:gloops-airshow/ptb-f6f07f36): any vessel switch before the next scene load lands re-pins the FlightCamera pivot onto the DDOL PSystemSetup root (stock Bug #4803 late-switch guard)
+[LOG 22:37:27.840] [Parsek][INFO][TestRunner] End-of-frame camera pin (batch-complete-final-restore:attempt1:post-commit): FlightCamera pivot pinned onto the DDOL PSystemSetup root before the old scene unloads (stock Bug #4803 same-frame guard)
+[LOG 22:37:30.894] [Parsek][WARN][TestRunner] Late vessel switch to 'mk1-capsule' inside the reload commit window (armedBy='CommitValidatedGameLoad:gloops-airshow/ptb-f6f07f36'); re-pinned the FlightCamera pivot onto the DDOL PSystemSetup root so the camera survives the old scene's unload (stock Bug #4803 late-switch guard).
+[LOG 22:37:32.260] [Parsek][VERBOSE][TestRunner] Camera re-pin window disarmed (level-loaded:FLIGHT): armedBy='CommitValidatedGameLoad:gloops-airshow/ptb-f6f07f36' rePins=2
+[LOG 22:37:33.037] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: begin reason=batch-complete-final-restore:attempt1 scene=FLIGHT
+[LOG 22:37:33.037] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: end reason=batch-complete-final-restore:attempt1 ghostsBefore=40 mapPidsBefore=0 mapPidsAfter=0 ghostVesselsRemoved=0
+[LOG 22:37:33.038] [Parsek][VERBOSE][TestRunner] WaitForStockStageManagerReady: vesselExpectsStages=False vessel=mk1-capsule timeout=10s
+[LOG 22:37:33.626] [Parsek][INFO][TestRunner] Batch baseline restore succeeded (batch-complete-final-restore)
+[LOG 22:37:33.809] [Parsek][VERBOSE][TestRunner] Batch-end corruption check: +0 exc/8f -> healthy (no bounce)
+[LOG 22:37:33.820] [Parsek][INFO][TestRunner] Batch baseline: restored campaign persistent.sfs (407212 bytes) from batch-start backup; later FlushAndQuit saves are suppressed so this restore stays the last write
+[LOG 22:37:33.857] [Parsek][INFO][TestRunner] Batch baseline: removed batch-created recording sidecars deleted=0 failed=0 keptReferenced=0 keptUnrecognized=0 baselineFiles=1215 currentFiles=1215
+[LOG 22:37:34.149] [Parsek][VERBOSE][TestRunner] Batch baseline: deleted persistent.sfs backup 'ptb-f6f07f36-persistent.bak'
+[LOG 22:37:34.152] [Parsek][INFO][TestRunner] Test batch crash marker cleared (batch-complete)
+[LOG 22:37:34.153] [Parsek][INFO][TestRunner] Test run complete: 1 passed, 0 failed, 5 skipped (of 6)
+[LOG 22:37:34.156] [Parsek][INFO][TestRunner] Test results written to <HOME>/Documents/Code/Parsek/automation/stock-minimal/KSP_x64_Data/../parsek-test-results.txt (auto after run)
+[LOG 22:37:34.156] [Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=6 passed=1 failed=0 skipped=5 category=PartEventFX scene=FLIGHT
+[LOG 22:37:34.161] [Parsek][INFO][TestRunner] batch dispatch: entry=RunCategory category=GhostLifecycle isolated=false
+[LOG 22:37:34.161] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: begin reason=run-category:GhostLifecycle scene=FLIGHT
+[LOG 22:37:34.161] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: end reason=run-category:GhostLifecycle ghostsBefore=72 mapPidsBefore=0 mapPidsAfter=0 ghostVesselsRemoved=0
+[LOG 22:37:34.163] [Parsek][INFO][TestRunner] Scene eligibility skip summary: skipped=2 currentScene=FLIGHT byRequiredScene=TRACKSTATION:2
+[LOG 22:37:35.321] [Parsek][INFO][TestRunner] Batch baseline: backed up campaign persistent.sfs (407212 bytes) to 'ptb-e401e808-persistent.bak'
+[LOG 22:37:35.321] [Parsek][INFO][TestRunner] Batch isolation captured: mode=InMemoryAndDisk slot='ptb-e401e808' persistentBackup='<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gloops-airshow\ptb-e401e808-persistent.bak' batchInstanceId=9e5eccbe84ba41f5884d0423d2da3e5b
+[LOG 22:37:35.791] [Parsek][INFO][TestRunner] Test batch crash marker written (mode=InMemoryAndDisk, backup='<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gloops-airshow\ptb-e401e808-persistent.bak')
+[LOG 22:37:35.791] [Parsek][INFO][TestRunner] Starting test run: 15 tests
+[LOG 22:37:35.791] [Parsek][VERBOSE][TestRunner] Running: GhostPlaybackLifecycleTests.AllGhostPositionsFinite
+[LOG 22:37:35.792] [Parsek][VERBOSE][TestRunner] SKIPPED: GhostPlaybackLifecycleTests.AllGhostPositionsFinite - No active ghost positions
+[LOG 22:37:35.805] [Parsek][VERBOSE][TestRunner] Running: GhostPlaybackLifecycleTests.AllGhostStatesHaveLiveGameObject
+[LOG 22:37:35.806] [Parsek][INFO][TestRunner] Ghost GameObjects: 4 valid, 0 orphaned (of 4)
+[LOG 22:37:35.806] [Parsek][VERBOSE][TestRunner] PASSED: GhostPlaybackLifecycleTests.AllGhostStatesHaveLiveGameObject (0.6ms)
+[LOG 22:37:35.821] [Parsek][VERBOSE][TestRunner] Running: GhostPlaybackLifecycleTests.BoundaryOverlapSecondary_AtMostOnePerRecording
+[LOG 22:37:35.821] [Parsek][VERBOSE][TestRunner] SKIPPED: GhostPlaybackLifecycleTests.BoundaryOverlapSecondary_AtMostOnePerRecording - No boundary-overlap secondary ghost active this frame
+[LOG 22:37:35.838] [Parsek][VERBOSE][TestRunner] Running: GhostPlaybackLifecycleTests.BoundaryOverlapSecondary_DoesNotShadowRecordingPid
+[LOG 22:37:35.838] [Parsek][VERBOSE][TestRunner] SKIPPED: GhostPlaybackLifecycleTests.BoundaryOverlapSecondary_DoesNotShadowRecordingPid - No Mission loop units active
+[LOG 22:37:35.855] [Parsek][VERBOSE][TestRunner] Running: GhostPlaybackLifecycleTests.BoundaryOverlapSecondary_EngineMeshSurvivesHiddenPrimary
+[LOG 22:37:35.855] [Parsek][VERBOSE][TestRunner] SKIPPED: GhostPlaybackLifecycleTests.BoundaryOverlapSecondary_EngineMeshSurvivesHiddenPrimary - No Mission loop units active
+[LOG 22:37:35.870] [Parsek][VERBOSE][TestRunner] Running: GhostPlaybackLifecycleTests.BoundaryOverlapSecondary_IsMutedFlaggedAndUnwatched
+[LOG 22:37:35.871] [Parsek][VERBOSE][TestRunner] SKIPPED: GhostPlaybackLifecycleTests.BoundaryOverlapSecondary_IsMutedFlaggedAndUnwatched - No Mission loop units active (load a zero-slack re-aim launch loop to exercise this)
+[LOG 22:37:35.888] [Parsek][VERBOSE][TestRunner] Running: GhostPlaybackLifecycleTests.BoundaryOverlapSecondary_MapInstanceMatchesSecondHead
+[LOG 22:37:35.889] [Parsek][VERBOSE][TestRunner] SKIPPED: GhostPlaybackLifecycleTests.BoundaryOverlapSecondary_MapInstanceMatchesSecondHead - No Mission loop units active
+[LOG 22:37:35.905] [Parsek][VERBOSE][TestRunner] Running: GhostPlaybackLifecycleTests.BoundaryOverlapSecondary_MarkerResolvesDuringAscentGap
+[LOG 22:37:35.905] [Parsek][VERBOSE][TestRunner] SKIPPED: GhostPlaybackLifecycleTests.BoundaryOverlapSecondary_MarkerResolvesDuringAscentGap - No Mission loop units active
+[LOG 22:37:35.920] [Parsek][VERBOSE][TestRunner] Running: GhostPlaybackLifecycleTests.GhostBodyNamesValid
+[LOG 22:37:35.922] [Parsek][VERBOSE][TestRunner] Ghost body names: 18/18 resolved
+[LOG 22:37:35.922] [Parsek][VERBOSE][TestRunner] PASSED: GhostPlaybackLifecycleTests.GhostBodyNamesValid (0.4ms)
+[LOG 22:37:35.938] [Parsek][VERBOSE][TestRunner] Running: GhostPlaybackLifecycleTests.GhostCountReasonable
+[LOG 22:37:35.938] [Parsek][VERBOSE][TestRunner] GhostPlaybackEngine.GhostCount = 20
+[LOG 22:37:35.938] [Parsek][VERBOSE][TestRunner] PASSED: GhostPlaybackLifecycleTests.GhostCountReasonable (0.2ms)
+[LOG 22:37:35.955] [Parsek][VERBOSE][TestRunner] Running: GhostPlaybackLifecycleTests.LoopPhaseOffsetsFinite
+[LOG 22:37:35.956] [Parsek][VERBOSE][TestRunner] SKIPPED: GhostPlaybackLifecycleTests.LoopPhaseOffsetsFinite - No loop phase offsets active
+[LOG 22:37:35.971] [Parsek][VERBOSE][TestRunner] Running: GhostPlaybackLifecycleTests.OverlapGhostCountWithinCap
+[LOG 22:37:35.972] [Parsek][VERBOSE][TestRunner] PASSED: GhostPlaybackLifecycleTests.OverlapGhostCountWithinCap (0.5ms)
+[LOG 22:37:35.989] [Parsek][VERBOSE][TestRunner] Running: GhostPlaybackLifecycleTests.OverlapMapInstanceCountMatchesFlight
+[LOG 22:37:35.989] [Parsek][VERBOSE][TestRunner] SKIPPED: GhostPlaybackLifecycleTests.OverlapMapInstanceCountMatchesFlight - No overlap recordings active
+[LOG 22:37:36.005] [Parsek][VERBOSE][TestRunner] Running: GhostPlaybackLifecycleTests.OverlapMapInstanceCountMatchesFlightMissionLoop
+[LOG 22:37:36.007] [Parsek][VERBOSE][TestRunner] SKIPPED: GhostPlaybackLifecycleTests.OverlapMapInstanceCountMatchesFlightMissionLoop - No Mission loop units active (load a looped Mission to exercise source b)
+[LOG 22:37:36.023] [Parsek][VERBOSE][TestRunner] Running: GhostPlaybackLifecycleTests.OverlapMarkerHeadCountMatchesFlight
+[LOG 22:37:36.023] [Parsek][VERBOSE][TestRunner] SKIPPED: GhostPlaybackLifecycleTests.OverlapMarkerHeadCountMatchesFlight - No overlap recordings active
+[LOG 22:37:36.040] [Parsek][INFO][TestRunner] Final batch baseline restore (batch-complete-final-restore) from slot 'ptb-e401e808' scene=FLIGHT
+[LOG 22:37:36.042] [Parsek][INFO][TestRunner] Pre-reload camera guard (batch-complete-final-restore:attempt1): forced Flight mode + re-homed the FlightCamera pivot onto 'mk1-capsule' so it survives the reload (stock Bug #4803 prevention).
+[LOG 22:37:37.114] [Parsek][VERBOSE][TestRunner] Camera re-pin window armed (CommitValidatedGameLoad:gloops-airshow/ptb-e401e808): any vessel switch before the next scene load lands re-pins the FlightCamera pivot onto the DDOL PSystemSetup root (stock Bug #4803 late-switch guard)
+[LOG 22:37:37.163] [Parsek][INFO][TestRunner] End-of-frame camera pin (batch-complete-final-restore:attempt1:post-commit): FlightCamera pivot pinned onto the DDOL PSystemSetup root before the old scene unloads (stock Bug #4803 same-frame guard)
+[LOG 22:37:37.613] [Parsek][INFO][TestRunner] Batch baseline: latch cleared, FlushAndQuit saves are live again (reason=game load (cold OnLoad) restoredSaveFolder='gloops-airshow') - the batch-start restore is no longer the intended final state of the save
+[LOG 22:37:38.741] [Parsek][WARN][TestRunner] Late vessel switch to 'mk1-capsule' inside the reload commit window (armedBy='CommitValidatedGameLoad:gloops-airshow/ptb-e401e808'); re-pinned the FlightCamera pivot onto the DDOL PSystemSetup root so the camera survives the old scene's unload (stock Bug #4803 late-switch guard).
+[LOG 22:37:40.100] [Parsek][VERBOSE][TestRunner] Camera re-pin window disarmed (level-loaded:FLIGHT): armedBy='CommitValidatedGameLoad:gloops-airshow/ptb-e401e808' rePins=2
+[LOG 22:37:40.881] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: begin reason=batch-complete-final-restore:attempt1 scene=FLIGHT
+[LOG 22:37:40.881] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: end reason=batch-complete-final-restore:attempt1 ghostsBefore=40 mapPidsBefore=0 mapPidsAfter=0 ghostVesselsRemoved=0
+[LOG 22:37:40.881] [Parsek][VERBOSE][TestRunner] WaitForStockStageManagerReady: vesselExpectsStages=False vessel=mk1-capsule timeout=10s
+[LOG 22:37:41.457] [Parsek][INFO][TestRunner] Batch baseline restore succeeded (batch-complete-final-restore)
+[LOG 22:37:41.588] [Parsek][VERBOSE][TestRunner] Batch-end corruption check: +0 exc/8f -> healthy (no bounce)
+[LOG 22:37:41.598] [Parsek][INFO][TestRunner] Batch baseline: restored campaign persistent.sfs (407212 bytes) from batch-start backup; later FlushAndQuit saves are suppressed so this restore stays the last write
+[LOG 22:37:41.624] [Parsek][INFO][TestRunner] Batch baseline: removed batch-created recording sidecars deleted=0 failed=0 keptReferenced=0 keptUnrecognized=0 baselineFiles=1215 currentFiles=1215
+[LOG 22:37:41.860] [Parsek][VERBOSE][TestRunner] Batch baseline: deleted persistent.sfs backup 'ptb-e401e808-persistent.bak'
+[LOG 22:37:41.862] [Parsek][INFO][TestRunner] Test batch crash marker cleared (batch-complete)
+[LOG 22:37:41.862] [Parsek][INFO][TestRunner] Test run complete: 4 passed, 0 failed, 13 skipped (of 17)
+[LOG 22:37:41.863] [Parsek][INFO][TestRunner] Test results written to <HOME>/Documents/Code/Parsek/automation/stock-minimal/KSP_x64_Data/../parsek-test-results.txt (auto after run)
+[LOG 22:37:41.863] [Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=17 passed=4 failed=0 skipped=13 category=GhostLifecycle scene=FLIGHT
+[LOG 22:37:41.867] [Parsek][INFO][TestRunner] batch dispatch: entry=RunCategory category=ChainTipBlockedGhost isolated=false
+[LOG 22:37:41.867] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: begin reason=run-category:ChainTipBlockedGhost scene=FLIGHT
+[LOG 22:37:41.868] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: end reason=run-category:ChainTipBlockedGhost ghostsBefore=72 mapPidsBefore=0 mapPidsAfter=0 ghostVesselsRemoved=0
+[LOG 22:37:43.031] [Parsek][INFO][TestRunner] Batch baseline: backed up campaign persistent.sfs (407212 bytes) to 'ptb-54b1f12a-persistent.bak'
+[LOG 22:37:43.031] [Parsek][INFO][TestRunner] Batch isolation captured: mode=InMemoryAndDisk slot='ptb-54b1f12a' persistentBackup='<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gloops-airshow\ptb-54b1f12a-persistent.bak' batchInstanceId=1f8b834150374ae896fe5d90ab200cb3
+[LOG 22:37:43.474] [Parsek][INFO][TestRunner] Test batch crash marker written (mode=InMemoryAndDisk, backup='<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gloops-airshow\ptb-54b1f12a-persistent.bak')
+[LOG 22:37:43.475] [Parsek][INFO][TestRunner] Starting test run: 2 tests
+[LOG 22:37:43.475] [Parsek][VERBOSE][TestRunner] Running: ChainTipBlockedGhostInGameTest.HoldSource_GhostHoldsItsBodyFixedEndPose
+[LOG 22:37:43.476] [Parsek][INFO][TestRunner] ChainTipBlockedGhost: hold-source ghost held its body-fixed end pose on Kerbin
+[LOG 22:37:43.476] [Parsek][VERBOSE][TestRunner] PASSED: ChainTipBlockedGhostInGameTest.HoldSource_GhostHoldsItsBodyFixedEndPose (1.3ms)
+[LOG 22:37:43.489] [Parsek][VERBOSE][TestRunner] Running: ChainTipBlockedGhostInGameTest.OrbitSource_GhostFollowsTheTerminalOrbit
+[LOG 22:37:43.489] [Parsek][INFO][TestRunner] ChainTipBlockedGhost: orbit-source ghost followed the terminal orbit across 60 s on Kerbin
+[LOG 22:37:43.489] [Parsek][VERBOSE][TestRunner] PASSED: ChainTipBlockedGhostInGameTest.OrbitSource_GhostFollowsTheTerminalOrbit (0.5ms)
+[LOG 22:37:43.504] [Parsek][INFO][TestRunner] Final batch baseline restore (batch-complete-final-restore) from slot 'ptb-54b1f12a' scene=FLIGHT
+[LOG 22:37:43.507] [Parsek][INFO][TestRunner] Pre-reload camera guard (batch-complete-final-restore:attempt1): forced Flight mode + re-homed the FlightCamera pivot onto 'mk1-capsule' so it survives the reload (stock Bug #4803 prevention).
+[LOG 22:37:44.531] [Parsek][VERBOSE][TestRunner] Camera re-pin window armed (CommitValidatedGameLoad:gloops-airshow/ptb-54b1f12a): any vessel switch before the next scene load lands re-pins the FlightCamera pivot onto the DDOL PSystemSetup root (stock Bug #4803 late-switch guard)
+[LOG 22:37:44.570] [Parsek][INFO][TestRunner] End-of-frame camera pin (batch-complete-final-restore:attempt1:post-commit): FlightCamera pivot pinned onto the DDOL PSystemSetup root before the old scene unloads (stock Bug #4803 same-frame guard)
+[LOG 22:37:44.971] [Parsek][INFO][TestRunner] Batch baseline: latch cleared, FlushAndQuit saves are live again (reason=game load (cold OnLoad) restoredSaveFolder='gloops-airshow') - the batch-start restore is no longer the intended final state of the save
+[LOG 22:37:46.072] [Parsek][WARN][TestRunner] Late vessel switch to 'mk1-capsule' inside the reload commit window (armedBy='CommitValidatedGameLoad:gloops-airshow/ptb-54b1f12a'); re-pinned the FlightCamera pivot onto the DDOL PSystemSetup root so the camera survives the old scene's unload (stock Bug #4803 late-switch guard).
+[LOG 22:37:47.428] [Parsek][VERBOSE][TestRunner] Camera re-pin window disarmed (level-loaded:FLIGHT): armedBy='CommitValidatedGameLoad:gloops-airshow/ptb-54b1f12a' rePins=2
+[LOG 22:37:48.213] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: begin reason=batch-complete-final-restore:attempt1 scene=FLIGHT
+[LOG 22:37:48.213] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: end reason=batch-complete-final-restore:attempt1 ghostsBefore=42 mapPidsBefore=0 mapPidsAfter=0 ghostVesselsRemoved=0
+[LOG 22:37:48.213] [Parsek][VERBOSE][TestRunner] WaitForStockStageManagerReady: vesselExpectsStages=False vessel=mk1-capsule timeout=10s
+[LOG 22:37:48.780] [Parsek][INFO][TestRunner] Batch baseline restore succeeded (batch-complete-final-restore)
+[LOG 22:37:48.911] [Parsek][VERBOSE][TestRunner] Batch-end corruption check: +0 exc/8f -> healthy (no bounce)
+[LOG 22:37:48.920] [Parsek][INFO][TestRunner] Batch baseline: restored campaign persistent.sfs (407212 bytes) from batch-start backup; later FlushAndQuit saves are suppressed so this restore stays the last write
+[LOG 22:37:48.945] [Parsek][INFO][TestRunner] Batch baseline: removed batch-created recording sidecars deleted=0 failed=0 keptReferenced=0 keptUnrecognized=0 baselineFiles=1215 currentFiles=1215
+[LOG 22:37:49.183] [Parsek][VERBOSE][TestRunner] Batch baseline: deleted persistent.sfs backup 'ptb-54b1f12a-persistent.bak'
+[LOG 22:37:49.187] [Parsek][INFO][TestRunner] Test batch crash marker cleared (batch-complete)
+[LOG 22:37:49.187] [Parsek][INFO][TestRunner] Test run complete: 2 passed, 0 failed, 0 skipped (of 2)
+[LOG 22:37:49.188] [Parsek][INFO][TestRunner] Test results written to <HOME>/Documents/Code/Parsek/automation/stock-minimal/KSP_x64_Data/../parsek-test-results.txt (auto after run)
+[LOG 22:37:49.188] [Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=ChainTipBlockedGhost scene=FLIGHT
+[LOG 22:37:49.193] [Parsek][INFO][TestRunner] batch dispatch: entry=RunCategory category=DeployedScienceGhost isolated=false
+[LOG 22:37:49.193] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: begin reason=run-category:DeployedScienceGhost scene=FLIGHT
+[LOG 22:37:49.194] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: end reason=run-category:DeployedScienceGhost ghostsBefore=72 mapPidsBefore=0 mapPidsAfter=0 ghostVesselsRemoved=0
+[LOG 22:37:50.378] [Parsek][INFO][TestRunner] Batch baseline: backed up campaign persistent.sfs (407212 bytes) to 'ptb-67b05b84-persistent.bak'
+[LOG 22:37:50.378] [Parsek][INFO][TestRunner] Batch isolation captured: mode=InMemoryAndDisk slot='ptb-67b05b84' persistentBackup='<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gloops-airshow\ptb-67b05b84-persistent.bak' batchInstanceId=51fc2243d16d46a8927ea998f88a9814
+[LOG 22:37:50.839] [Parsek][INFO][TestRunner] Test batch crash marker written (mode=InMemoryAndDisk, backup='<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gloops-airshow\ptb-67b05b84-persistent.bak')
+[LOG 22:37:50.839] [Parsek][INFO][TestRunner] Starting test run: 1 tests
+[LOG 22:37:50.839] [Parsek][VERBOSE][TestRunner] Running: DeployedScienceGhostInGameTests.EveryDeployedSciencePartBuildsAGhostWithItsDeployAnimationSampled
+[LOG 22:37:50.850] [Parsek][INFO][InGameTest] DeployedScienceGhost: sampled/moving per part DeployedCentralStation=13/13 DeployedRTG=3/3 DeployedSolarPanel=15/15 DeployedSeismicSensor=36/36 DeployedGoExOb=11/11 DeployedIONExp=3/3 DeployedWeatherStn=19/19 DeployedSatDish=11/11
+[LOG 22:37:50.850] [Parsek][VERBOSE][TestRunner] PASSED: DeployedScienceGhostInGameTests.EveryDeployedSciencePartBuildsAGhostWithItsDeployAnimationSampled (11.6ms)
+[LOG 22:37:50.864] [Parsek][INFO][TestRunner] Final batch baseline restore (batch-complete-final-restore) from slot 'ptb-67b05b84' scene=FLIGHT
+[LOG 22:37:50.867] [Parsek][INFO][TestRunner] Pre-reload camera guard (batch-complete-final-restore:attempt1): forced Flight mode + re-homed the FlightCamera pivot onto 'mk1-capsule' so it survives the reload (stock Bug #4803 prevention).
+[LOG 22:37:51.928] [Parsek][VERBOSE][TestRunner] Camera re-pin window armed (CommitValidatedGameLoad:gloops-airshow/ptb-67b05b84): any vessel switch before the next scene load lands re-pins the FlightCamera pivot onto the DDOL PSystemSetup root (stock Bug #4803 late-switch guard)
+[LOG 22:37:51.980] [Parsek][INFO][TestRunner] End-of-frame camera pin (batch-complete-final-restore:attempt1:post-commit): FlightCamera pivot pinned onto the DDOL PSystemSetup root before the old scene unloads (stock Bug #4803 same-frame guard)
+[LOG 22:37:52.431] [Parsek][INFO][TestRunner] Batch baseline: latch cleared, FlushAndQuit saves are live again (reason=game load (cold OnLoad) restoredSaveFolder='gloops-airshow') - the batch-start restore is no longer the intended final state of the save
+[LOG 22:37:53.486] [Parsek][WARN][TestRunner] Late vessel switch to 'mk1-capsule' inside the reload commit window (armedBy='CommitValidatedGameLoad:gloops-airshow/ptb-67b05b84'); re-pinned the FlightCamera pivot onto the DDOL PSystemSetup root so the camera survives the old scene's unload (stock Bug #4803 late-switch guard).
+[LOG 22:37:54.838] [Parsek][VERBOSE][TestRunner] Camera re-pin window disarmed (level-loaded:FLIGHT): armedBy='CommitValidatedGameLoad:gloops-airshow/ptb-67b05b84' rePins=2
+[LOG 22:37:55.626] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: begin reason=batch-complete-final-restore:attempt1 scene=FLIGHT
+[LOG 22:37:55.626] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: end reason=batch-complete-final-restore:attempt1 ghostsBefore=42 mapPidsBefore=0 mapPidsAfter=0 ghostVesselsRemoved=0
+[LOG 22:37:55.626] [Parsek][VERBOSE][TestRunner] WaitForStockStageManagerReady: vesselExpectsStages=False vessel=mk1-capsule timeout=10s
+[LOG 22:37:56.194] [Parsek][INFO][TestRunner] Batch baseline restore succeeded (batch-complete-final-restore)
+[LOG 22:37:56.329] [Parsek][VERBOSE][TestRunner] Batch-end corruption check: +0 exc/8f -> healthy (no bounce)
+[LOG 22:37:56.337] [Parsek][INFO][TestRunner] Batch baseline: restored campaign persistent.sfs (407212 bytes) from batch-start backup; later FlushAndQuit saves are suppressed so this restore stays the last write
+[LOG 22:37:56.362] [Parsek][INFO][TestRunner] Batch baseline: removed batch-created recording sidecars deleted=0 failed=0 keptReferenced=0 keptUnrecognized=0 baselineFiles=1215 currentFiles=1215
+[LOG 22:37:56.595] [Parsek][VERBOSE][TestRunner] Batch baseline: deleted persistent.sfs backup 'ptb-67b05b84-persistent.bak'
+[LOG 22:37:56.598] [Parsek][INFO][TestRunner] Test batch crash marker cleared (batch-complete)
+[LOG 22:37:56.598] [Parsek][INFO][TestRunner] Test run complete: 1 passed, 0 failed, 0 skipped (of 1)
+[LOG 22:37:56.599] [Parsek][INFO][TestRunner] Test results written to <HOME>/Documents/Code/Parsek/automation/stock-minimal/KSP_x64_Data/../parsek-test-results.txt (auto after run)
+[LOG 22:37:56.599] [Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=DeployedScienceGhost scene=FLIGHT
+[LOG 22:37:56.604] [Parsek][INFO][TestRunner] batch dispatch: entry=RunCategory category=GhostReapplyFrame isolated=false
+[LOG 22:37:56.604] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: begin reason=run-category:GhostReapplyFrame scene=FLIGHT
+[LOG 22:37:56.604] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: end reason=run-category:GhostReapplyFrame ghostsBefore=72 mapPidsBefore=0 mapPidsAfter=0 ghostVesselsRemoved=0
+[LOG 22:37:57.752] [Parsek][INFO][TestRunner] Batch baseline: backed up campaign persistent.sfs (407212 bytes) to 'ptb-1a0fa8d0-persistent.bak'
+[LOG 22:37:57.752] [Parsek][INFO][TestRunner] Batch isolation captured: mode=InMemoryAndDisk slot='ptb-1a0fa8d0' persistentBackup='<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gloops-airshow\ptb-1a0fa8d0-persistent.bak' batchInstanceId=cb57285d74cb4c5c86fffab290191213
+[LOG 22:37:58.199] [Parsek][INFO][TestRunner] Test batch crash marker written (mode=InMemoryAndDisk, backup='<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gloops-airshow\ptb-1a0fa8d0-persistent.bak')
+[LOG 22:37:58.199] [Parsek][INFO][TestRunner] Starting test run: 1 tests
+[LOG 22:37:58.199] [Parsek][VERBOSE][TestRunner] Running: GhostReapplyFrameInGameTest.MidFrameCameraRender_SurfaceGhostHeightStableAcrossFrames
+[LOG 22:37:58.340] [Parsek][INFO][TestRunner] GhostReapplyFrame: 8 frames, 4 mid-frame camera renders, surface ghost held at clamped altitude 65.285 m on every frame
+[LOG 22:37:58.355] [Parsek][VERBOSE][TestRunner] PASSED: GhostReapplyFrameInGameTest.MidFrameCameraRender_SurfaceGhostHeightStableAcrossFrames (155.1ms)
+[LOG 22:37:58.355] [Parsek][INFO][TestRunner] Final batch baseline restore (batch-complete-final-restore) from slot 'ptb-1a0fa8d0' scene=FLIGHT
+[LOG 22:37:58.358] [Parsek][INFO][TestRunner] Pre-reload camera guard (batch-complete-final-restore:attempt1): forced Flight mode + re-homed the FlightCamera pivot onto 'mk1-capsule' so it survives the reload (stock Bug #4803 prevention).
+[LOG 22:37:59.375] [Parsek][VERBOSE][TestRunner] Camera re-pin window armed (CommitValidatedGameLoad:gloops-airshow/ptb-1a0fa8d0): any vessel switch before the next scene load lands re-pins the FlightCamera pivot onto the DDOL PSystemSetup root (stock Bug #4803 late-switch guard)
+[LOG 22:37:59.415] [Parsek][INFO][TestRunner] End-of-frame camera pin (batch-complete-final-restore:attempt1:post-commit): FlightCamera pivot pinned onto the DDOL PSystemSetup root before the old scene unloads (stock Bug #4803 same-frame guard)
+[LOG 22:37:59.818] [Parsek][INFO][TestRunner] Batch baseline: latch cleared, FlushAndQuit saves are live again (reason=game load (cold OnLoad) restoredSaveFolder='gloops-airshow') - the batch-start restore is no longer the intended final state of the save
+[LOG 22:38:00.939] [Parsek][WARN][TestRunner] Late vessel switch to 'mk1-capsule' inside the reload commit window (armedBy='CommitValidatedGameLoad:gloops-airshow/ptb-1a0fa8d0'); re-pinned the FlightCamera pivot onto the DDOL PSystemSetup root so the camera survives the old scene's unload (stock Bug #4803 late-switch guard).
+[LOG 22:38:02.307] [Parsek][VERBOSE][TestRunner] Camera re-pin window disarmed (level-loaded:FLIGHT): armedBy='CommitValidatedGameLoad:gloops-airshow/ptb-1a0fa8d0' rePins=2
+[LOG 22:38:03.084] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: begin reason=batch-complete-final-restore:attempt1 scene=FLIGHT
+[LOG 22:38:03.085] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: end reason=batch-complete-final-restore:attempt1 ghostsBefore=42 mapPidsBefore=0 mapPidsAfter=0 ghostVesselsRemoved=0
+[LOG 22:38:03.085] [Parsek][VERBOSE][TestRunner] WaitForStockStageManagerReady: vesselExpectsStages=False vessel=mk1-capsule timeout=10s
+[LOG 22:38:03.654] [Parsek][INFO][TestRunner] Batch baseline restore succeeded (batch-complete-final-restore)
+[LOG 22:38:03.787] [Parsek][VERBOSE][TestRunner] Batch-end corruption check: +0 exc/8f -> healthy (no bounce)
+[LOG 22:38:03.795] [Parsek][INFO][TestRunner] Batch baseline: restored campaign persistent.sfs (407212 bytes) from batch-start backup; later FlushAndQuit saves are suppressed so this restore stays the last write
+[LOG 22:38:03.821] [Parsek][INFO][TestRunner] Batch baseline: removed batch-created recording sidecars deleted=0 failed=0 keptReferenced=0 keptUnrecognized=0 baselineFiles=1215 currentFiles=1215
+[LOG 22:38:04.056] [Parsek][VERBOSE][TestRunner] Batch baseline: deleted persistent.sfs backup 'ptb-1a0fa8d0-persistent.bak'
+[LOG 22:38:04.059] [Parsek][INFO][TestRunner] Test batch crash marker cleared (batch-complete)
+[LOG 22:38:04.059] [Parsek][INFO][TestRunner] Test run complete: 1 passed, 0 failed, 0 skipped (of 1)
+[LOG 22:38:04.060] [Parsek][INFO][TestRunner] Test results written to <HOME>/Documents/Code/Parsek/automation/stock-minimal/KSP_x64_Data/../parsek-test-results.txt (auto after run)
+[LOG 22:38:04.060] [Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=GhostReapplyFrame scene=FLIGHT
+[LOG 22:38:04.065] [Parsek][INFO][TestRunner] batch dispatch: entry=RunCategory category=JointBreakCheckCoroutine isolated=false
+[LOG 22:38:04.065] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: begin reason=run-category:JointBreakCheckCoroutine scene=FLIGHT
+[LOG 22:38:04.066] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: end reason=run-category:JointBreakCheckCoroutine ghostsBefore=72 mapPidsBefore=0 mapPidsAfter=0 ghostVesselsRemoved=0
+[LOG 22:38:05.230] [Parsek][INFO][TestRunner] Batch baseline: backed up campaign persistent.sfs (407212 bytes) to 'ptb-fe56a6c2-persistent.bak'
+[LOG 22:38:05.230] [Parsek][INFO][TestRunner] Batch isolation captured: mode=InMemoryAndDisk slot='ptb-fe56a6c2' persistentBackup='<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gloops-airshow\ptb-fe56a6c2-persistent.bak' batchInstanceId=c2ac799aa0cd4546845e66aaf4a60108
+[LOG 22:38:05.675] [Parsek][INFO][TestRunner] Test batch crash marker written (mode=InMemoryAndDisk, backup='<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gloops-airshow\ptb-fe56a6c2-persistent.bak')
+[LOG 22:38:05.675] [Parsek][INFO][TestRunner] Starting test run: 3 tests
+[LOG 22:38:05.675] [Parsek][VERBOSE][TestRunner] Running: JointBreakCheckCoroutineInGameTests.JointBreakCheck_DecoupleOnlyDestroyedChild_FeedsCoalescerAsDecouple
+[LOG 22:38:05.696] [Parsek][VERBOSE][TestRunner] PASSED: JointBreakCheckCoroutineInGameTests.JointBreakCheck_DecoupleOnlyDestroyedChild_FeedsCoalescerAsDecouple (20.8ms)
+[LOG 22:38:05.696] [Parsek][VERBOSE][TestRunner] Running: JointBreakCheckCoroutineInGameTests.JointBreakCheck_DecoupleOnlyNoNewVessel_EmitsWithinSegmentBreakage
+[LOG 22:38:05.707] [Parsek][VERBOSE][TestRunner] PASSED: JointBreakCheckCoroutineInGameTests.JointBreakCheck_DecoupleOnlyNoNewVessel_EmitsWithinSegmentBreakage (11.1ms)
+[LOG 22:38:05.707] [Parsek][VERBOSE][TestRunner] Running: JointBreakCheckCoroutineInGameTests.JointBreakCheck_NoPendingSplitRecorder_ClearsSplitState
+[LOG 22:38:05.724] [Parsek][VERBOSE][TestRunner] PASSED: JointBreakCheckCoroutineInGameTests.JointBreakCheck_NoPendingSplitRecorder_ClearsSplitState (17.2ms)
+[LOG 22:38:05.724] [Parsek][INFO][TestRunner] Final batch baseline restore (batch-complete-final-restore) from slot 'ptb-fe56a6c2' scene=FLIGHT
+[LOG 22:38:05.727] [Parsek][INFO][TestRunner] Pre-reload camera guard (batch-complete-final-restore:attempt1): forced Flight mode + re-homed the FlightCamera pivot onto 'mk1-capsule' so it survives the reload (stock Bug #4803 prevention).
+[LOG 22:38:06.689] [Parsek][VERBOSE][TestRunner] Camera re-pin window armed (CommitValidatedGameLoad:gloops-airshow/ptb-fe56a6c2): any vessel switch before the next scene load lands re-pins the FlightCamera pivot onto the DDOL PSystemSetup root (stock Bug #4803 late-switch guard)
+[LOG 22:38:06.742] [Parsek][INFO][TestRunner] End-of-frame camera pin (batch-complete-final-restore:attempt1:post-commit): FlightCamera pivot pinned onto the DDOL PSystemSetup root before the old scene unloads (stock Bug #4803 same-frame guard)
+[LOG 22:38:07.155] [Parsek][INFO][TestRunner] Batch baseline: latch cleared, FlushAndQuit saves are live again (reason=game load (cold OnLoad) restoredSaveFolder='gloops-airshow') - the batch-start restore is no longer the intended final state of the save
+[LOG 22:38:08.222] [Parsek][WARN][TestRunner] Late vessel switch to 'mk1-capsule' inside the reload commit window (armedBy='CommitValidatedGameLoad:gloops-airshow/ptb-fe56a6c2'); re-pinned the FlightCamera pivot onto the DDOL PSystemSetup root so the camera survives the old scene's unload (stock Bug #4803 late-switch guard).
+[LOG 22:38:09.580] [Parsek][VERBOSE][TestRunner] Camera re-pin window disarmed (level-loaded:FLIGHT): armedBy='CommitValidatedGameLoad:gloops-airshow/ptb-fe56a6c2' rePins=2
+[LOG 22:38:10.348] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: begin reason=batch-complete-final-restore:attempt1 scene=FLIGHT
+[LOG 22:38:10.348] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: end reason=batch-complete-final-restore:attempt1 ghostsBefore=42 mapPidsBefore=0 mapPidsAfter=0 ghostVesselsRemoved=0
+[LOG 22:38:10.348] [Parsek][VERBOSE][TestRunner] WaitForStockStageManagerReady: vesselExpectsStages=False vessel=mk1-capsule timeout=10s
+[LOG 22:38:10.932] [Parsek][INFO][TestRunner] Batch baseline restore succeeded (batch-complete-final-restore)
+[LOG 22:38:11.065] [Parsek][VERBOSE][TestRunner] Batch-end corruption check: +0 exc/8f -> healthy (no bounce)
+[LOG 22:38:11.073] [Parsek][INFO][TestRunner] Batch baseline: restored campaign persistent.sfs (407212 bytes) from batch-start backup; later FlushAndQuit saves are suppressed so this restore stays the last write
+[LOG 22:38:11.098] [Parsek][INFO][TestRunner] Batch baseline: removed batch-created recording sidecars deleted=0 failed=0 keptReferenced=0 keptUnrecognized=0 baselineFiles=1215 currentFiles=1215
+[LOG 22:38:11.332] [Parsek][VERBOSE][TestRunner] Batch baseline: deleted persistent.sfs backup 'ptb-fe56a6c2-persistent.bak'
+[LOG 22:38:11.336] [Parsek][INFO][TestRunner] Test batch crash marker cleared (batch-complete)
+[LOG 22:38:11.336] [Parsek][INFO][TestRunner] Test run complete: 3 passed, 0 failed, 0 skipped (of 3)
+[LOG 22:38:11.337] [Parsek][INFO][TestRunner] Test results written to <HOME>/Documents/Code/Parsek/automation/stock-minimal/KSP_x64_Data/../parsek-test-results.txt (auto after run)
+[LOG 22:38:11.337] [Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=JointBreakCheckCoroutine scene=FLIGHT
+[LOG 22:38:11.342] [Parsek][INFO][TestRunner] batch dispatch: entry=RunCategory category=TreeRestoreCoroutine isolated=false
+[LOG 22:38:11.342] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: begin reason=run-category:TreeRestoreCoroutine scene=FLIGHT
+[LOG 22:38:11.343] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: end reason=run-category:TreeRestoreCoroutine ghostsBefore=72 mapPidsBefore=0 mapPidsAfter=0 ghostVesselsRemoved=0
+[LOG 22:38:12.585] [Parsek][INFO][TestRunner] Batch baseline: backed up campaign persistent.sfs (407212 bytes) to 'ptb-14d189f3-persistent.bak'
+[LOG 22:38:12.585] [Parsek][INFO][TestRunner] Batch isolation captured: mode=InMemoryAndDisk slot='ptb-14d189f3' persistentBackup='<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gloops-airshow\ptb-14d189f3-persistent.bak' batchInstanceId=0ccbdb394dcb4e98be8f09bb9710c91a
+[LOG 22:38:13.335] [Parsek][INFO][TestRunner] Test batch crash marker written (mode=InMemoryAndDisk, backup='<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gloops-airshow\ptb-14d189f3-persistent.bak')
+[LOG 22:38:13.335] [Parsek][INFO][TestRunner] Starting test run: 3 tests
+[LOG 22:38:13.335] [Parsek][VERBOSE][TestRunner] Running: TreeRestoreCoroutineInGameTests.RestoreFromPending_GuidMismatchedSamePid_GivesUpAfterWait
+[LOG 22:38:16.345] [Parsek][VERBOSE][TestRunner] PASSED: TreeRestoreCoroutineInGameTests.RestoreFromPending_GuidMismatchedSamePid_GivesUpAfterWait (3009.3ms)
+[LOG 22:38:16.345] [Parsek][VERBOSE][TestRunner] Running: TreeRestoreCoroutineInGameTests.RestoreFromPending_NoPendingTree_Skips
+[LOG 22:38:16.358] [Parsek][VERBOSE][TestRunner] PASSED: TreeRestoreCoroutineInGameTests.RestoreFromPending_NoPendingTree_Skips (14.0ms)
+[LOG 22:38:16.358] [Parsek][VERBOSE][TestRunner] Running: TreeRestoreCoroutineInGameTests.RestoreFromPending_UnresolvableActiveRecording_LeavesTreeInLimbo
+[LOG 22:38:16.375] [Parsek][VERBOSE][TestRunner] PASSED: TreeRestoreCoroutineInGameTests.RestoreFromPending_UnresolvableActiveRecording_LeavesTreeInLimbo (16.2ms)
+[LOG 22:38:16.375] [Parsek][INFO][TestRunner] Final batch baseline restore (batch-complete-final-restore) from slot 'ptb-14d189f3' scene=FLIGHT
+[LOG 22:38:16.378] [Parsek][INFO][TestRunner] Pre-reload camera guard (batch-complete-final-restore:attempt1): forced Flight mode + re-homed the FlightCamera pivot onto 'mk1-capsule' so it survives the reload (stock Bug #4803 prevention).
+[LOG 22:38:17.382] [Parsek][VERBOSE][TestRunner] Camera re-pin window armed (CommitValidatedGameLoad:gloops-airshow/ptb-14d189f3): any vessel switch before the next scene load lands re-pins the FlightCamera pivot onto the DDOL PSystemSetup root (stock Bug #4803 late-switch guard)
+[LOG 22:38:17.437] [Parsek][INFO][TestRunner] End-of-frame camera pin (batch-complete-final-restore:attempt1:post-commit): FlightCamera pivot pinned onto the DDOL PSystemSetup root before the old scene unloads (stock Bug #4803 same-frame guard)
+[LOG 22:38:17.853] [Parsek][INFO][TestRunner] Batch baseline: latch cleared, FlushAndQuit saves are live again (reason=game load (cold OnLoad) restoredSaveFolder='gloops-airshow') - the batch-start restore is no longer the intended final state of the save
+[LOG 22:38:18.957] [Parsek][WARN][TestRunner] Late vessel switch to 'mk1-capsule' inside the reload commit window (armedBy='CommitValidatedGameLoad:gloops-airshow/ptb-14d189f3'); re-pinned the FlightCamera pivot onto the DDOL PSystemSetup root so the camera survives the old scene's unload (stock Bug #4803 late-switch guard).
+[LOG 22:38:20.321] [Parsek][VERBOSE][TestRunner] Camera re-pin window disarmed (level-loaded:FLIGHT): armedBy='CommitValidatedGameLoad:gloops-airshow/ptb-14d189f3' rePins=2
+[LOG 22:38:21.102] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: begin reason=batch-complete-final-restore:attempt1 scene=FLIGHT
+[LOG 22:38:21.102] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: end reason=batch-complete-final-restore:attempt1 ghostsBefore=42 mapPidsBefore=0 mapPidsAfter=0 ghostVesselsRemoved=0
+[LOG 22:38:21.102] [Parsek][VERBOSE][TestRunner] WaitForStockStageManagerReady: vesselExpectsStages=False vessel=mk1-capsule timeout=10s
+[LOG 22:38:21.671] [Parsek][INFO][TestRunner] Batch baseline restore succeeded (batch-complete-final-restore)
+[LOG 22:38:21.805] [Parsek][VERBOSE][TestRunner] Batch-end corruption check: +0 exc/8f -> healthy (no bounce)
+[LOG 22:38:21.813] [Parsek][INFO][TestRunner] Batch baseline: restored campaign persistent.sfs (407212 bytes) from batch-start backup; later FlushAndQuit saves are suppressed so this restore stays the last write
+[LOG 22:38:21.838] [Parsek][INFO][TestRunner] Batch baseline: removed batch-created recording sidecars deleted=0 failed=0 keptReferenced=0 keptUnrecognized=0 baselineFiles=1215 currentFiles=1215
+[LOG 22:38:22.072] [Parsek][VERBOSE][TestRunner] Batch baseline: deleted persistent.sfs backup 'ptb-14d189f3-persistent.bak'
+[LOG 22:38:22.074] [Parsek][INFO][TestRunner] Test batch crash marker cleared (batch-complete)
+[LOG 22:38:22.074] [Parsek][INFO][TestRunner] Test run complete: 3 passed, 0 failed, 0 skipped (of 3)
+[LOG 22:38:22.075] [Parsek][INFO][TestRunner] Test results written to <HOME>/Documents/Code/Parsek/automation/stock-minimal/KSP_x64_Data/../parsek-test-results.txt (auto after run)
+[LOG 22:38:22.075] [Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=TreeRestoreCoroutine scene=FLIGHT
+[LOG 22:38:22.081] [Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=33 passed=15 failed=0 skipped=18 category=multi:7 scene=FLIGHT

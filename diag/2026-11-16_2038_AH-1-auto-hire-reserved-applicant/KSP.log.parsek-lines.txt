@@ -1,0 +1,660 @@
+[LOG 22:38:53.540] [Parsek][INFO][SceneExit] Subscribed to GameEvents.onSceneConfirmExit and onGameStateSaved (quit-without-saving detection)
+[LOG 22:38:53.541] [Parsek][VERBOSE][Kerbals] terminal stamp observer installed
+[LOG 22:38:53.546] [Parsek][VERBOSE][Harmony] Harmony patch applied: RevertToLaunchInterceptor targets=1
+[LOG 22:38:53.547] [Parsek][VERBOSE][Harmony] Harmony patch applied: RevertToPrelaunchInterceptor targets=1
+[LOG 22:38:53.548] [Parsek][VERBOSE][Harmony] Harmony patch applied: HighLogic_LoadScene_Patch targets=1
+[LOG 22:38:53.551] [Parsek][INFO][TestCommands] focus lock suppression armed targets=5 (automation: PARSEK_TEST_COMMANDS=1)
+[LOG 22:38:53.553] [Parsek][VERBOSE][Harmony] Harmony patch applied: AutomationFocusLockSuppressionPatch targets=5
+[LOG 22:38:53.558] [Parsek][VERBOSE][Harmony] Harmony patch applied: ActiveCrewCountPatch targets=1
+[LOG 22:38:53.559] [Parsek][VERBOSE][Harmony] Harmony patch applied: AlarmJumpSwitchPatch targets=1
+[LOG 22:38:53.561] [Parsek][VERBOSE][Harmony] Harmony patch applied: AlarmJumpButtonMarkPatch targets=1
+[LOG 22:38:53.564] [Parsek][VERBOSE][Harmony] Harmony patch applied: AllowNegativeCurrencyLockDialogPatch targets=1
+[LOG 22:38:53.565] [Parsek][VERBOSE][Harmony] Harmony patch applied: AllowNegativeCurrencyLockInteractiblePatch targets=1
+[LOG 22:38:53.569] [Parsek][VERBOSE][Harmony] Harmony patch applied: AstronautComplexAddItemPatch targets=4
+[LOG 22:38:53.573] [Parsek][VERBOSE][Harmony] Harmony patch applied: AstronautComplexCrewCountsPatch targets=1
+[LOG 22:38:53.576] [Parsek][VERBOSE][Harmony] Harmony patch applied: CrewTooltipReservationPatch targets=1
+[LOG 22:38:53.578] [Parsek][VERBOSE][Harmony] Harmony patch applied: CheatTeleportPatch targets=1
+[LOG 22:38:53.579] [Parsek][VERBOSE][Harmony] Harmony patch applied: ClaimedVesselLaunchSiteTestPatch targets=1
+[LOG 22:38:53.579] [Parsek][VERBOSE][Harmony] Harmony patch applied: ClaimedVesselLaunchSiteProceedPatch targets=1
+[LOG 22:38:53.580] [Parsek][VERBOSE][Harmony] Harmony patch applied: ClaimedVesselLaunchSiteDescriptionPatch targets=1
+[LOG 22:38:53.583] [Parsek][VERBOSE][Harmony] Harmony patch applied: ClaimedVesselLaunchSiteFacilityDialogPatch targets=1
+[LOG 22:38:53.585] [Parsek][VERBOSE][Harmony] Harmony patch applied: ClaimedVesselLaunchSiteClearSitePatch targets=1
+[LOG 22:38:53.589] [Parsek][VERBOSE][Harmony] Harmony patch applied: ClaimedVesselLaunchSiteLaunchChecksPatch targets=1
+[LOG 22:38:53.590] [Parsek][VERBOSE][Harmony] Harmony patch applied: DeployedScienceSubmitScopePatch targets=1
+[LOG 22:38:53.596] [Parsek][VERBOSE][Harmony] Harmony patch applied: SentinelDetectionScopePatch targets=2
+[LOG 22:38:53.603] [Parsek][VERBOSE][Harmony] Harmony patch applied: ResourceScannerScopePatch targets=2
+[LOG 22:38:53.605] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractAcceptPatch targets=1
+[LOG 22:38:53.606] [Parsek][VERBOSE][Harmony] Harmony patch applied: MissionControlAcceptPatch targets=1
+[LOG 22:38:53.607] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractCancelPatch targets=1
+[LOG 22:38:53.610] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractSystemRebuildContractsScopePatch targets=1
+[LOG 22:38:53.679] [Parsek][VERBOSE][StockUiOverlay] Contract Configurator not loaded (ContractConfigurator.ContractConfigurator absent) - ContractConfiguratorCanAcceptPatch and the other CC hooks are skipped; the stock Mission Control hooks cover every row
+[LOG 22:38:53.679] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractConfiguratorCanAcceptPatch targets=0
+[LOG 22:38:53.722] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractConfiguratorContractTitlePatch targets=0
+[LOG 22:38:53.758] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractConfiguratorListRebuildPatch targets=0
+[LOG 22:38:53.760] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractDeclinePatch targets=1
+[LOG 22:38:53.765] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractEarlyFailPatch targets=1
+[LOG 22:38:53.777] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractOfferExpiredCapturePatch targets=1
+[LOG 22:38:53.779] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractParameterRewardCapturePatch targets=1
+[LOG 22:38:53.781] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractTwinGenerationPatch targets=1
+[LOG 22:38:53.783] [Parsek][VERBOSE][Harmony] Harmony patch applied: MilestoneConversionCauseScopePatch targets=1
+[LOG 22:38:53.784] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractCompleteConversionCauseScopePatch targets=1
+[LOG 22:38:53.785] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractFailConversionCauseScopePatch targets=1
+[LOG 22:38:53.787] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractCancelConversionCauseScopePatch targets=1
+[LOG 22:38:53.790] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractParameterConversionCauseScopePatch targets=1
+[LOG 22:38:53.791] [Parsek][VERBOSE][Harmony] Harmony patch applied: ScienceSubjectConversionCauseScopePatch targets=1
+[LOG 22:38:53.794] [Parsek][VERBOSE][Harmony] Harmony patch applied: SurveyConversionCauseScopePatch targets=1
+[LOG 22:38:53.795] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartPurchaseConversionCauseScopePatch targets=1
+[LOG 22:38:53.796] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartUpgradeConversionCauseScopePatch targets=1
+[LOG 22:38:53.797] [Parsek][VERBOSE][Harmony] Harmony patch applied: CrewAutoAssignPatch targets=1
+[LOG 22:38:53.802] [Parsek][VERBOSE][Harmony] Harmony patch applied: CrewDialogAvailItemPatch targets=1
+[LOG 22:38:53.804] [Parsek][VERBOSE][Harmony] Harmony patch applied: CrewDialogAvailListPatch targets=1
+[LOG 22:38:53.805] [Parsek][VERBOSE][Harmony] Harmony patch applied: CrewDialogMoveToSeatPatch targets=1
+[LOG 22:38:53.806] [Parsek][VERBOSE][Harmony] Harmony patch applied: CrewDialogDropOnCrewListPatch targets=1
+[LOG 22:38:53.807] [Parsek][VERBOSE][Harmony] Harmony patch applied: CrewDialogFillPatch targets=1
+[LOG 22:38:53.808] [Parsek][VERBOSE][Harmony] Harmony patch applied: CrewRespawnTimerPatch targets=1
+[LOG 22:38:53.812] [Parsek][VERBOSE][Harmony] Harmony patch applied: DockingNodeUndockIntentPatch targets=1
+[LOG 22:38:53.814] [Parsek][VERBOSE][Harmony] Harmony patch applied: FacilityDowngradeSpendPatch targets=1
+[LOG 22:38:53.822] [Parsek][VERBOSE][Harmony] Harmony patch applied: FacilityMenuUpgradeBlockPatch targets=1
+[LOG 22:38:53.824] [Parsek][VERBOSE][Harmony] Harmony patch applied: FacilityRepairScopePatch targets=1
+[LOG 22:38:53.825] [Parsek][VERBOSE][Harmony] Harmony patch applied: FacilityResetStructuresPatch targets=1
+[LOG 22:38:53.826] [Parsek][VERBOSE][Harmony] Harmony patch applied: FacilityUpgradePatch targets=1
+[LOG 22:38:53.827] [Parsek][VERBOSE][Harmony] Harmony patch applied: FacilityUpgradeSpendPatch targets=1
+[LOG 22:38:53.829] [Parsek][VERBOSE][Harmony] Harmony patch applied: FlagPickUpCapturePatch targets=1
+[LOG 22:38:53.831] [Parsek][VERBOSE][Harmony] Harmony patch applied: KerbalPortraitEvaPatch targets=1
+[LOG 22:38:53.834] [Parsek][VERBOSE][Harmony] Harmony patch applied: CrewHatchDialogCreateListPatch targets=1
+[LOG 22:38:53.837] [Parsek][VERBOSE][Harmony] Harmony patch applied: FlightEvaSpawnBackstopPatch targets=1
+[LOG 22:38:53.838] [Parsek][VERBOSE][Harmony] Harmony patch applied: CrewTransferCreateBackstopPatch targets=1
+[LOG 22:38:53.843] [Parsek][VERBOSE][Harmony] Harmony patch applied: FlightStateGhostBudgetPatch targets=1
+[LOG 22:38:53.852] [Parsek][VERBOSE][Harmony] Harmony patch applied: FloatingOriginSetOffsetPatch targets=1
+[LOG 22:38:53.854] [Parsek][VERBOSE][Harmony] Harmony patch applied: FreeTechUnlockCapturePatch targets=1
+[LOG 22:38:53.855] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostOrbitDominantBodyPatch targets=1
+[LOG 22:38:53.859] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostCheckKillPatch targets=1
+[LOG 22:38:53.862] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostOrbitIconDrivePatch targets=1
+[LOG 22:38:53.863] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostOrbitLinePatch targets=1
+[LOG 22:38:53.866] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostOrbitArcPatch targets=1
+[LOG 22:38:53.869] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostTrackingBuildVesselsListPatch targets=1
+[LOG 22:38:53.872] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostTrackingStationInitPatch targets=1
+[LOG 22:38:53.873] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostTrackingFlyPatch targets=1
+[LOG 22:38:53.873] [Parsek][VERBOSE][Harmony] Harmony patch applied: SwitchIntentTrackingStationFlyPatch targets=1
+[LOG 22:38:53.875] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostTrackingDeletePatch targets=1
+[LOG 22:38:53.880] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostTrackingSetVesselPatch targets=1
+[LOG 22:38:53.881] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostTrackingVesselIconClickPatch targets=1
+[LOG 22:38:53.882] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostTrackingRecoverPatch targets=1
+[LOG 22:38:53.883] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostOrbitCastPatch targets=1
+[LOG 22:38:53.885] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostIconClickPatch targets=1
+[LOG 22:38:53.890] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostVesselLoadPatch targets=1
+[LOG 22:38:53.897] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostVesselLoadedInertPatch targets=1
+[LOG 22:38:53.899] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostCommNetVesselPatch targets=1
+[LOG 22:38:53.899] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostVesselSwitchPatch targets=1
+[LOG 22:38:53.900] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostVesselForceSwitchPatch targets=1
+[LOG 22:38:53.900] [Parsek][INFO][GhostMap] GhostTargetCastNodesPatch: found TargetCastNodes with 1 params
+[LOG 22:38:53.902] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostTargetCastNodesPatch targets=1
+[LOG 22:38:53.903] [Parsek][VERBOSE][Harmony] Harmony patch applied: HackGravityPatch targets=1
+[LOG 22:38:53.904] [Parsek][VERBOSE][Harmony] Harmony patch applied: KerbalAutoHireApplicantPatch targets=1
+[LOG 22:38:53.904] [Parsek][VERBOSE][Harmony] Harmony patch applied: KerbalDismissalPatch targets=1
+[LOG 22:38:53.905] [Parsek][VERBOSE][Harmony] Harmony patch applied: KerbalSackPatch targets=1
+[LOG 22:38:53.906] [Parsek][VERBOSE][Harmony] Harmony patch applied: AstronautComplexDismissPatch targets=1
+[LOG 22:38:53.907] [Parsek][VERBOSE][Harmony] Harmony patch applied: KerbalHirePatch targets=1
+[LOG 22:38:53.909] [Parsek][VERBOSE][Harmony] Harmony patch applied: AstronautComplexHireRecruitPatch targets=1
+[LOG 22:38:53.909] [Parsek][VERBOSE][Harmony] Harmony patch applied: KscVesselMarkerFlyPatch targets=1
+[LOG 22:38:53.910] [Parsek][VERBOSE][Harmony] Harmony patch applied: CanAffordLaunchTestPatch targets=1
+[LOG 22:38:53.910] [Parsek][VERBOSE][Harmony] Harmony patch applied: CanAffordLaunchTestDescriptionPatch targets=1
+[LOG 22:38:53.913] [Parsek][VERBOSE][Harmony] Harmony patch applied: EditorLaunchButtonUpdateUiPatch targets=1
+[LOG 22:38:53.916] [Parsek][VERBOSE][Harmony] Harmony patch applied: VesselSpawnDialogLaunchButtonPatch targets=1
+[LOG 22:38:53.917] [Parsek][VERBOSE][Harmony] Harmony patch applied: LaunchSiteFlyoutPointerEnterPatch targets=1
+[LOG 22:38:53.918] [Parsek][VERBOSE][Harmony] Harmony patch applied: MapFocusObjectOnSelectPatch targets=1
+[LOG 22:38:53.922] [Parsek][VERBOSE][Harmony] Harmony patch applied: MissionControlRebuildPassPatch targets=1
+[LOG 22:38:53.924] [Parsek][VERBOSE][Harmony] Harmony patch applied: MissionControlAddItemLabelPatch targets=1
+[LOG 22:38:53.926] [Parsek][VERBOSE][Harmony] Harmony patch applied: MissionControlInfoPanelPatch targets=1
+[LOG 22:38:53.928] [Parsek][VERBOSE][Harmony] Harmony patch applied: MissionControlRefreshUIControlsPatch targets=1
+[LOG 22:38:53.930] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartMassivePartCheckSeederPatch targets=1
+[LOG 22:38:53.936] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartListTooltipSetupPartPatch targets=1
+[LOG 22:38:53.941] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartListTooltipSetupUpgradePatch targets=1
+[LOG 22:38:53.947] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartListTooltipReasonPatch targets=1
+[LOG 22:38:53.948] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartListTooltipPurchasePatch targets=1
+[LOG 22:38:53.949] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartListTooltipPurchaseUpgradePatch targets=1
+[LOG 22:38:53.951] [Parsek][VERBOSE][Harmony] Harmony patch applied: RnDPurchaseAllPatch targets=1
+[LOG 22:38:53.952] [Parsek][VERBOSE][Harmony] Harmony patch applied: RDTechPurchasePartPatch targets=1
+[LOG 22:38:53.959] [Parsek][VERBOSE][Harmony] Harmony patch applied: PhysicsFramePatch targets=1
+[LOG 22:38:53.961] [Parsek][VERBOSE][Harmony] Harmony patch applied: ProgressRewardPatch targets=1
+[LOG 22:38:53.961] [Parsek][VERBOSE][Harmony] Harmony patch applied: RecoveryScopeVesselRetrievalPatch targets=1
+[LOG 22:38:53.963] [Parsek][VERBOSE][Harmony] Harmony patch applied: RecoveryScopeTrackingStationPatch targets=1
+[LOG 22:38:53.964] [Parsek][VERBOSE][Harmony] Harmony patch applied: RecoveryScopeRecoverVesselFromFlightPatch targets=1
+[LOG 22:38:53.968] [Parsek][VERBOSE][Harmony] Harmony patch applied: RecoveryScopeProtoVesselCleanPatch targets=1
+[LOG 22:38:53.971] [Parsek][VERBOSE][Harmony] Harmony patch applied: RecoveryPayoutScopePatch targets=1
+[LOG 22:38:53.972] [Parsek][VERBOSE][Harmony] Harmony patch applied: RecoveryFundsEffectScopePatch targets=1
+[LOG 22:38:53.973] [Parsek][VERBOSE][Harmony] Harmony patch applied: ResourceScanUnlockPlanetPatch targets=1
+[LOG 22:38:53.973] [Parsek][VERBOSE][Harmony] Harmony patch applied: ResourceScanUnlockBiomePatch targets=1
+[LOG 22:38:53.977] [Parsek][VERBOSE][Harmony] Harmony patch applied: RnDNodeMarkPatch targets=1
+[LOG 22:38:53.978] [Parsek][VERBOSE][Harmony] Harmony patch applied: RnDNodeTooltipPatch targets=1
+[LOG 22:38:53.980] [Parsek][VERBOSE][Harmony] Harmony patch applied: RnDPanelBlockPatch targets=1
+[LOG 22:38:53.983] [Parsek][VERBOSE][Harmony] Harmony patch applied: RnDPanelDescriptionPatch targets=1
+[LOG 22:38:53.985] [Parsek][VERBOSE][Harmony] Harmony patch applied: RnDRefreshPassLogPatch targets=1
+[LOG 22:38:53.986] [Parsek][VERBOSE][Harmony] Harmony patch applied: ScienceLabTransmissionCreditPatch targets=1
+[LOG 22:38:53.988] [Parsek][VERBOSE][Harmony] Harmony patch applied: ScienceLabRecoveryCreditPatch targets=1
+[LOG 22:38:53.991] [Parsek][VERBOSE][Harmony] Harmony patch applied: OrbitalSurveyCreditPatch targets=1
+[LOG 22:38:53.992] [Parsek][VERBOSE][Harmony] Harmony patch applied: ScienceSubjectPatch targets=2
+[LOG 22:38:53.994] [Parsek][VERBOSE][Harmony] Harmony patch applied: StrategySystemUpdateActivationPatch targets=1
+[LOG 22:38:53.995] [Parsek][VERBOSE][Harmony] Harmony patch applied: StrategyActivatePatch targets=1
+[LOG 22:38:53.996] [Parsek][VERBOSE][Harmony] Harmony patch applied: StrategyDeactivatePatch targets=1
+[LOG 22:38:53.997] [Parsek][VERBOSE][Harmony] Harmony patch applied: StrategyUpdateExpiryPatch targets=1
+[LOG 22:38:54.000] [Parsek][VERBOSE][Harmony] Harmony patch applied: StrategySystemLoadStrategiesPatch targets=1
+[LOG 22:38:54.002] [Parsek][VERBOSE][Harmony] Harmony patch applied: StrategyCanBeActivatedPatch targets=1
+[LOG 22:38:54.004] [Parsek][VERBOSE][Harmony] Harmony patch applied: AdministrationSetSelectedStrategyPatch targets=1
+[LOG 22:38:54.005] [Parsek][VERBOSE][Harmony] Harmony patch applied: AdministrationUpdateStrategyStatsPatch targets=1
+[LOG 22:38:54.008] [Parsek][VERBOSE][Harmony] Harmony patch applied: AdministrationButtonBackstopPatch targets=1
+[LOG 22:38:54.015] [Parsek][VERBOSE][Harmony] Harmony patch applied: SunLateUpdateGuardPatch targets=1
+[LOG 22:38:54.016] [Parsek][VERBOSE][Harmony] Harmony patch applied: TechResearchPatch targets=1
+[LOG 22:38:54.018] [Parsek][VERBOSE][Harmony] Harmony patch applied: TechResearchSpendPatch targets=1
+[LOG 22:38:54.021] [Parsek][VERBOSE][Harmony] Harmony patch applied: VesselCycleReFlySwitchPatch targets=1
+[LOG 22:38:54.023] [Parsek][VERBOSE][Harmony] Harmony patch applied: VesselRenameAcceptCapturePatch targets=1
+[LOG 22:38:54.025] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartVesselNamingAcceptCapturePatch targets=1
+[LOG 22:38:54.033] [Parsek][VERBOSE][Harmony] Harmony patch applied: TrackingStationSetVesselPostfix targets=1
+[LOG 22:38:54.034] [Parsek][VERBOSE][Harmony] Harmony patch applied: TrackingStationUnlockUiPostfix targets=1
+[LOG 22:38:54.037] [Parsek][VERBOSE][Harmony] Harmony patch applied: KscMarkerCreatePostfix targets=1
+[LOG 22:38:54.038] [Parsek][VERBOSE][Harmony] Harmony patch applied: KscMarkersRecoverVesselPrefix targets=1
+[LOG 22:38:54.039] [Parsek][VERBOSE][Harmony] Harmony patch applied: DisplayPatch targets=1
+[LOG 22:38:54.040] [Parsek][VERBOSE][Harmony] Harmony patch applied: ClosePatch targets=1
+[LOG 22:38:54.040] [Parsek][VERBOSE][Harmony] Harmony patch applied: OnDestroyPatch targets=1
+[LOG 22:38:54.042] [Parsek][INFO][Init] SessionStart runUtc=1794861534
+[LOG 22:38:54.042] [Parsek][INFO][Harmony] Harmony patches applied: 153 succeeded, 0 failed
+[LOG 22:38:54.043] [Parsek][VERBOSE][Init] Install location OK: <HOME>\Documents\Code\Parsek\automation\stock-minimal\GameData\Parsek\Plugins\Parsek.dll
+[LOG 22:38:54.044] [Parsek][INFO][LoadPolicy] Subscribed to GameEvents.onGameStatePostLoad
+[LOG 22:38:54.044] [Parsek][VERBOSE][WarpTime] WarpToTimeConsumer initialized
+[LOG 22:38:54.046] [Parsek][VERBOSE][PostFlightDialog] PostFlightDialogLogHost initialized
+[LOG 22:38:54.047] [Parsek][INFO][TestCommands] armed (PARSEK_TEST_COMMANDS=1)
+[LOG 22:38:54.049] [Parsek][INFO][TestCommands] window placement desktop=skipped foreground=skipped hwnd=0x0 moveAttempts=0 elapsedSec=0.00
+[LOG 22:38:54.050] [Parsek][INFO][RenderManifest] inert: PARSEK_RENDER_MANIFEST=(unset)
+[LOG 22:38:54.051] [Parsek][INFO][TestRunner] autorun selector parsed: enabled=False selector='(unset)' categories=[] exit=False isolated=false
+[LOG 22:38:54.052] [Parsek][VERBOSE][GhostMap] GhostTrajectoryPolylineRenderer.Driver awake (DDOL singleton)
+[LOG 22:38:58.412] [Parsek][VERBOSE][CurrencyOverlay] CurrencyOverlay: scene=LOADING has no currency bar - controller idle
+[LOG 22:38:58.413] [Parsek][INFO][Toolbar] Toolbar registered: modId=Parsek_NS, modName=Parsek
+[LOG 22:38:58.413] [Parsek][VERBOSE][TestRunner] TestRunnerShortcut active in LOADING
+[LOG 22:38:58.420] [Parsek][INFO][TestCommands] lock acquired session=18f8ee1a86be4e738ff4d82ac19603a9 pid=13040
+[LOG 22:38:58.420] [Parsek][INFO][TestCommands] journal replay: 0 done, 0 executed-not-done (rewriting response), 0 claimed-not-executed (INTERRUPTED)
+[LOG 22:38:58.429] [Parsek][VERBOSE][Settings] verbose provider installed
+[LOG 22:39:12.674] [Parsek][VERBOSE][StockWarpLimits] registered OnPSystemReady stock-warp-limit capture
+[LOG 22:39:12.674] [Parsek][VERBOSE][CurrencyOverlay] CurrencyOverlay: scene=LOADING has no currency bar - controller idle
+[LOG 22:39:12.700] [Parsek][VERBOSE][ReFlySettle] FloatingOrigin.setOffset refPos=(5181655727.638,-198156829.822,3605546680.062) nonFrame=(0.000,0.000,0.000) offsetNonKrakensbane=(5181655727.638,-198156829.822,3605546680.062) magnitude=6315757204.89 wallclock=22.420 frame=5207
+[LOG 22:39:12.723] [Parsek][INFO][StockWarpLimits] captured stock timeWarpAltitudeLimits for 17 bodies (reason=OnPSystemReady)
+[LOG 22:39:16.790] [Parsek][VERBOSE][MapRenderTrace] probe per-pid state cleared on scene switch from=LOADING to=MAINMENU
+[LOG 22:39:17.383] [Parsek][VERBOSE][CurrencyOverlay] CurrencyOverlay: scene=MAINMENU has no currency bar - controller idle
+[LOG 22:39:17.449] [Parsek][INFO][TestCommands] recv id=0001 cmd=LoadGame args=2
+[LOG 22:39:17.450] [Parsek][VERBOSE][TestCommands] poll: read=1 lines, parsed=1, deferred-head=LoadGame
+[LOG 22:39:17.453] [Parsek][INFO][TestCommands] dispatch id=0001 -> EXECUTE
+[LOG 22:39:17.455] [Parsek][VERBOSE][TestCommands] journal id=0001 phase=CLAIMED
+[LOG 22:39:17.455] [Parsek][INFO][TestCommands] exec id=0001 cmd=LoadGame start
+[LOG 22:39:17.457] [Parsek][INFO][TestCommands] loadgame start save=fresh-career name=persistent scene=MAINMENU requestedScene=Unspecified allowLiveRecorder=(none) recorderLive=false playerLoad=false
+[LOG 22:39:17.458] [Parsek][VERBOSE][LoadPolicy] In-session save load announced: source=harness-loadgame
+[LOG 22:39:17.483] [Parsek][INFO][TestCommands] loadgame spacecenter route (no-vessel): resuming to SPACECENTER save=fresh-career protoVessels=0 activeVesselIdx=-1
+[LOG 22:39:17.506] [Parsek][INFO][TestCommands] loadgame spacecenter route: persisted augmented game (with ParsekScenario) to persistent.sfs save=fresh-career path=persistent
+[LOG 22:39:17.508] [Parsek][VERBOSE][MapRenderTrace] probe per-pid state cleared on scene switch from=MAINMENU to=SPACECENTER
+[LOG 22:39:17.553] [Parsek][INFO][TestCommands] exec id=0001 verdict=PENDING (two-phase awaiting completion)
+[LOG 22:39:21.529] [Parsek][INFO][StockUiOverlay] StockUiOverlay: initialised, listening for R&D / Astronaut / MissionControl / facility menu spawns + LedgerOrchestrator.OnTimelineDataChanged
+[LOG 22:39:23.451] [Parsek][VERBOSE][SettingsStore] Settings file '<HOME>/Documents/Code/Parsek/automation/stock-minimal/KSP_x64_Data/../GameData\Parsek\PluginData\settings.cfg' has no verboseLogging — using default
+[LOG 22:39:23.452] [Parsek][VERBOSE][SettingsStore] Settings file '<HOME>/Documents/Code/Parsek/automation/stock-minimal/KSP_x64_Data/../GameData\Parsek\PluginData\settings.cfg' has no samplingDensity - using default
+[LOG 22:39:23.452] [Parsek][VERBOSE][SettingsStore] Settings file '<HOME>/Documents/Code/Parsek/automation/stock-minimal/KSP_x64_Data/../GameData\Parsek\PluginData\settings.cfg' has no ghostAudioVolume - using default
+[LOG 22:39:23.452] [Parsek][INFO][SettingsStore] Loaded settings from '<HOME>/Documents/Code/Parsek/automation/stock-minimal/KSP_x64_Data/../GameData\Parsek\PluginData\settings.cfg': writeReadableSidecarMirrors=True ghostRenderTracing=False mapRenderTracing=False ledgerTracing=False verboseLogging=<default> samplingDensity=<default> ghostAudioVolume=<default> uiComplexityMode=<default>
+[LOG 22:39:23.452] [Parsek][INFO][SettingsStore] Restored writeReadableSidecarMirrors False -> True from persistent store
+[LOG 22:39:23.461] [Parsek][VERBOSE][SettingsStore] Saved settings to '<HOME>/Documents/Code/Parsek/automation/stock-minimal/KSP_x64_Data/../GameData\Parsek\PluginData\settings.cfg': writeReadableSidecarMirrors=True ghostRenderTracing=False mapRenderTracing=False ledgerTracing=False verboseLogging=<null> samplingDensity=<null> ghostAudioVolume=<null> uiComplexityMode=1
+[LOG 22:39:23.461] [Parsek][INFO][UI] First-run default resolved: uiComplexityMode=Advanced installHasParsekFootprint=True (savesParsekDir=True scenarioNodePopulated=False storedSettingsKeys=True) persisted=true
+[LOG 22:39:23.462] [Parsek][INFO][RecState] [#1][OnLoad:settings-applied] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=0.0 scene=SPACECENTER
+[LOG 22:39:23.462] [Parsek][VERBOSE][SaveFormat] no parsekSaveFormat on an empty Parsek node (new save)
+[LOG 22:39:23.463] [Parsek][INFO][Scenario] Save folder changed to 'fresh-career' — resetting session state
+[LOG 22:39:23.466] [Parsek][INFO][LoadPolicy] Load classified: early=Cold refined=Cold scene=SPACECENTER initialLoadDone=false rewinding=false reFlyInvoke=false discardReFly=none handoff=absent coldReason=boot saveFileLoad=false revertPending=false intentAgeFrames=-1 nodeUT=NaN
+[LOG 22:39:23.468] [Parsek][VERBOSE][RecalcEngine] ClearModules: removed=0
+[LOG 22:39:23.468] [Parsek][VERBOSE][CommittedFutureIndex] Invalidated committed-future index: reason=save-scoped-reset
+[LOG 22:39:23.470] [Parsek][VERBOSE][RecalcEngine] ClearModules: removed=0
+[LOG 22:39:23.471] [Parsek][VERBOSE][RecalcEngine] Registered first-tier module: MilestonesModule, total=1
+[LOG 22:39:23.471] [Parsek][VERBOSE][RecalcEngine] Registered first-tier module: ContractsModule, total=2
+[LOG 22:39:23.471] [Parsek][VERBOSE][RecalcEngine] Registered first-tier module: ScienceModule, total=3
+[LOG 22:39:23.471] [Parsek][VERBOSE][RecalcEngine] Registered first-tier module: KerbalsModule, total=4
+[LOG 22:39:23.471] [Parsek][VERBOSE][RecalcEngine] Registered strategy transform module: StrategiesModule
+[LOG 22:39:23.471] [Parsek][VERBOSE][RecalcEngine] Registered second-tier module: FundsModule, total=1
+[LOG 22:39:23.471] [Parsek][VERBOSE][RecalcEngine] Registered second-tier module: ReputationModule, total=2
+[LOG 22:39:23.471] [Parsek][VERBOSE][RecalcEngine] Registered facilities module: FacilitiesModule
+[LOG 22:39:23.471] [Parsek][INFO][LedgerOrchestrator] Initialized: 8 modules registered
+[LOG 22:39:23.471] [Parsek][VERBOSE][LoadPolicy] DiscardReFly load intent clear requested reason=save-scoped-reset: nothing armed
+[LOG 22:39:23.471] [Parsek][VERBOSE][RevertDetector] Cold load: no pending revert to drop (reason=boot)
+[LOG 22:39:23.472] [Parsek][INFO][Scenario] Save-scoped session state reset: reason=boot pendingTreeDropped=false storesReset=15 droppedEvents=0 droppedMilestones=0 droppedPendingScience=0
+[LOG 22:39:23.473] [Parsek][INFO][CrewReservation] Loaded 0 crew replacements (no CREW_REPLACEMENTS node)
+[LOG 22:39:23.473] [Parsek][VERBOSE][KerbalsModule] LoadSlots: no KERBAL_SLOTS or CREW_REPLACEMENTS found
+[LOG 22:39:23.474] [Parsek][INFO][GroupHierarchy] Loaded 0 group hierarchy entries (no GROUP_HIERARCHY node)
+[LOG 22:39:23.474] [Parsek][INFO][GroupHierarchy] Loaded 0 hidden groups (no HIDDEN_GROUPS node)
+[LOG 22:39:23.476] [Parsek][INFO][Pipeline-Session] Clear: reason=marker-cleared previousSessionId=<none> clearedCount=0
+[LOG 22:39:23.477] [Parsek][INFO][TestBatch] marker loaded: none
+[LOG 22:39:23.477] [Parsek][INFO][Rewind] RewindPoints loaded: 0
+[LOG 22:39:23.477] [Parsek][INFO][Supersede] RecordingSupersedes loaded: 0
+[LOG 22:39:23.477] [Parsek][INFO][Rewind] RecordingRewindRetirements loaded: 0
+[LOG 22:39:23.477] [Parsek][INFO][LedgerSwap] LedgerTombstones loaded: 0
+[LOG 22:39:23.477] [Parsek][INFO][ReFlySession] Marker loaded: none
+[LOG 22:39:23.477] [Parsek][INFO][MergeJournal] Journal loaded: none
+[LOG 22:39:23.477] [Parsek][INFO][SwitchIntent] intent loaded: none
+[LOG 22:39:23.477] [Parsek][INFO][SwitchSegment] session loaded summary: none
+[LOG 22:39:23.477] [Parsek][INFO][Scenario] OnLoad: Re-Fly subsystem state loaded (restored collections, not a rewind action; reFlyInProgress=False): rewindPoints=0 supersedes=0 rewindRetirements=0 tombstones=0 marker=False journal=False switchIntent=False switchSegment=False
+[LOG 22:39:23.480] [Parsek][VERBOSE][ERS] Rebuilt: 0 entries from 0 committed (skippedNotCommitted=0 skippedSuperseded=0 skippedRewindRetired=0 skippedSuppressed=0 marker=none)
+[LOG 22:39:23.480] [Parsek][INFO][Route] RevalidateSources reason=SupersedeStateVersion-bump routes=0 transitioned=0 caughtUp=0 ersIndexed=0 ersTotal=0
+[LOG 22:39:23.481] [Parsek][INFO][StockPoolReference] Loaded (Cold): pools=0 rows=0 badRows=0 takenBackRows=0 funds=unset science=unset reputation=unset (no saved reference: each pool starts from its live value at its first patch)
+[LOG 22:39:23.483] [Parsek][INFO][RewindHold] Rewind vessel holds replaced: before=0 after=0 reason=load Cold
+[LOG 22:39:23.483] [Parsek][INFO][PlaybackScope] Replay scope installed from the save (load Cold): inScope=0 seenBeforeActivation=0 replacedInScope=0 replacedSeen=0 node=absent
+[LOG 22:39:23.484] [Parsek][VERBOSE][FlagReplay] Removed-flag tombstones replaced (load Cold): before=0 after=0
+[LOG 22:39:23.486] [Parsek][VERBOSE][Rewind] No staged-list handoff to consume (kind=Cold, owner=cold-load)
+[LOG 22:39:23.489] [Parsek][VERBOSE][LedgerGroundTruth] Parse: descended into GAME wrapper node
+[LOG 22:39:23.490] [Parsek][VERBOSE][LedgerGroundTruth] ParseUniversalTime: ut=0
+[LOG 22:39:23.490] [Parsek][VERBOSE][LedgerGroundTruth] ParseFunds: funds=500000
+[LOG 22:39:23.490] [Parsek][VERBOSE][LedgerGroundTruth] ParseScience: hasScience=True sciencePool=100 subjects=0
+[LOG 22:39:23.490] [Parsek][VERBOSE][LedgerGroundTruth] ParseTechTree: techNodes=1 unlockedIds=1 partValues=11 distinctParts=11 skippedNoId=0
+[LOG 22:39:23.490] [Parsek][VERBOSE][LedgerGroundTruth] ParseReputation: rep=0
+[LOG 22:39:23.491] [Parsek][VERBOSE][LedgerGroundTruth] ParseFacilities: parsed 10 facility level(s)
+[LOG 22:39:23.491] [Parsek][VERBOSE][LedgerGroundTruth] ParseContracts: total=0 active=0
+[LOG 22:39:23.491] [Parsek][VERBOSE][LedgerGroundTruth] ParseMilestones: all=0 completed=0 (emitted ids: all=0 completed=0)
+[LOG 22:39:23.491] [Parsek][VERBOSE][LedgerGroundTruth] ParseVessels: parsed 0 vessel(s)
+[LOG 22:39:23.492] [Parsek][VERBOSE][LedgerGroundTruth] ParseRoster: kerbals=5 crew=4 applicants=1 dead=0 skippedNoName=0
+[LOG 22:39:23.493] [Parsek][VERBOSE][LedgerGroundTruth] ParseKerbalCareerLogs: kerbals=5 withLog=1 entries=4
+[LOG 22:39:23.493] [Parsek][VERBOSE][LedgerGroundTruth] ParseStrategies: STRATEGIES block is empty (normal for a deactivated strategy)
+[LOG 22:39:23.493] [Parsek][VERBOSE][LedgerGroundTruth] Parse: complete hasUT=True hasFunds=True hasScience=True hasRep=True subjects=0 facilities=10 activeContracts=0 allContracts=0 completedMilestones=0 allMilestones=0 vessels=0 roster=5 unlockedTech=1 purchasedParts=11 strategies=0 activeStrategies=0 kerbalCareerLogs=1
+[LOG 22:39:23.493] [Parsek][INFO][Backup] Skip: reason=brand-new-empty save='fresh-career'
+[LOG 22:39:23.493] [Parsek][VERBOSE][Scenario] OnLoad: initial load - loading game state
+[LOG 22:39:23.495] [Parsek][INFO][Scenario] OnLoad game state from files (no GAME_STATE node)
+[LOG 22:39:23.495] [Parsek][VERBOSE][GameStateStore] Save folder changed to 'fresh-career' — resetting event load state
+[LOG 22:39:23.495] [Parsek][VERBOSE][GameStateStore] LoadEventFile: cleared prior state (0 events, 0 snapshots) before loading
+[LOG 22:39:23.495] [Parsek][INFO][GameStateStore] No game state events file found — starting fresh
+[LOG 22:39:23.496] [Parsek][VERBOSE][GameStateStore] No game state directory found — no baselines to load
+[LOG 22:39:23.496] [Parsek][VERBOSE][MilestoneStore] Save folder changed to 'fresh-career' — resetting milestone load state
+[LOG 22:39:23.496] [Parsek][INFO][MilestoneStore] No milestones file found — starting fresh
+[LOG 22:39:23.497] [Parsek][INFO][Paths] Created game state directory '<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\fresh-career\Parsek\GameState'
+[LOG 22:39:23.497] [Parsek][VERBOSE][Ledger] Ledger file not found at '<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\fresh-career\Parsek\GameState\ledger.pgld', starting with empty ledger
+[LOG 22:39:23.498] [Parsek][VERBOSE][CareerSettings] Loaded career settings lock from 'failed-load': allowNegative=none
+[LOG 22:39:23.498] [Parsek][INFO][CareerSettings] Allow negative currency locked on for this career (ledger-load): every loss is judged under it
+[LOG 22:39:23.498] [Parsek][VERBOSE][LedgerOrchestrator] OnLoad: ledger loaded from '<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\fresh-career\Parsek\GameState\ledger.pgld'
+[LOG 22:39:23.501] [Parsek][INFO][GameStateRecorder] Game state: Facility cache seeded from current state (0 facilities, 12 buildings)
+[LOG 22:39:23.505] [Parsek][VERBOSE][GameStateRecorder] Facility poll pass: facilitiesChecked=0, buildingsChecked=12, eventsEmitted=0
+[LOG 22:39:23.505] [Parsek][INFO][GameStateRecorder] GameStateRecorder subscribed (0 events in history)
+[LOG 22:39:23.506] [Parsek][INFO][RevertDetector] Subscribed to GameEvents.OnRevertTo{Launch,Prelaunch}FlightState
+[LOG 22:39:23.506] [Parsek][VERBOSE][ReFlySession] ReFlyRevertButtonGate: subscribed to GameEvents.onFlightReady
+[LOG 22:39:23.507] [Parsek][VERBOSE][GameStateStore] CaptureBaselineIfNeeded: capturing baseline...
+[LOG 22:39:23.512] [Parsek][INFO][Baseline] Captured baseline at ut=0: tech=1, facilities=0, buildings=12, contracts=0, crew=4, science=100, reputation=0 (currency singletons expected=Funding+R&D+Reputation, loaded=Funding+R&D+Reputation)
+[LOG 22:39:23.512] [Parsek][INFO][GameStateStore] Game state baseline captured at UT 0 (total=1)
+[LOG 22:39:23.513] [Parsek][VERBOSE][RecordingStore] Durable committed-recording-id hint armed: ids=0
+[LOG 22:39:23.515] [Parsek][VERBOSE][RecordingStore] Validating chains: 0 branch group(s)
+[LOG 22:39:23.515] [Parsek][VERBOSE][RecordingStore] All chains validated OK
+[LOG 22:39:23.516] [Parsek][VERBOSE][VesselNames] Load: no VESSEL_NAMES node, empty store
+[LOG 22:39:23.516] [Parsek][INFO][Scenario] OnLoad initial: cleared CommittedTrees, loading 0 tree(s)
+[LOG 22:39:23.516] [Parsek][VERBOSE][Scenario] LoadRecordingTrees: named committed recordings=0 not loaded=0
+[LOG 22:39:23.517] [Parsek][INFO][Mission] Loaded 0 mission(s); unknownKeysKeptVerbatim=0
+[LOG 22:39:23.520] [Parsek][VERBOSE][MilestoneStore] BuildStateMap: parsed 0 entries from 0 MILESTONE_STATE nodes
+[LOG 22:39:23.520] [Parsek][VERBOSE][MilestoneStore] RestoreMutableState: 0 saved states, 0 milestones, resetUnmatched=False
+[LOG 22:39:23.520] [Parsek][INFO][MilestoneStore] RestoreMutableState complete: matched=0, reset=0, unchanged=0
+[LOG 22:39:23.521] [Parsek][INFO][Scenario] OnLoad: cold clock=0 (saveUT=0 planetariumUT=0 coldReason=boot)
+[LOG 22:39:23.523] [Parsek][INFO][Ledger] Reconcile complete: before=0, kept=0, prunedEarnings=0, prunedSpendings=0, prunedSpendingsByRecordingId=0, prunedContractLifecycle=0, prunedOther=0, maxUT=0, preserveFutureTimelineActions=True, validRecordingIds=0
+[LOG 22:39:23.525] [Parsek][INFO][LedgerOrchestrator] OnKspLoad recalc decision: useCurrentUtCutoff=False maxUT=0 featureSupportsCutoff=True currentUtReady=False hasFutureActions=False
+[LOG 22:39:23.526] [Parsek][INFO][Ledger] Seeded initial funds: amount=500000, total=1
+[LOG 22:39:23.527] [Parsek][INFO][Ledger] Seeded initial science: amount=100, total=2
+[LOG 22:39:23.527] [Parsek][INFO][Ledger] Seeded initial reputation: amount=0, total=3
+[LOG 22:39:23.530] [Parsek][INFO][LedgerOrchestrator] PreLedgerProgressSeed: captured from the live ProgressTracking tree: nodes=396 liveComplete=0 seededNodes=0 excludedByLedgerRow=0 excludedByEvent=0 seededRecords=0 seededRecordThresholds=0 recordsOwnedByLedger=0 recordsUnresolved=0 ledgerActions=3
+[LOG 22:39:23.531] [Parsek][VERBOSE][ELS] Rebuilt: 3 entries from 3 actions (skippedTombstoned=0 tombstonesTotal=0)
+[LOG 22:39:23.532] [Parsek][VERBOSE][LedgerOrchestrator] RecalculateAndPatch: actionsTotal=3, actionsAfterCutoff=3, cutoffUT=null
+[LOG 22:39:23.534] [Parsek][VERBOSE][Milestones] Reset: cleared 0 credited milestones; pre-ledger seed credits 0 node(s) and 0 record band(s)
+[LOG 22:39:23.535] [Parsek][VERBOSE][Contracts] Reset: cleared 0 active contracts, 0 credited contracts, 0 credited parameters, 0 terminal contracts, 0 terminal actions, 0 terminal outcomes, 0 deadline-expired contracts, 0 explicitly resolved contracts, 0 prepass explicit resolutions
+[LOG 22:39:23.535] [Parsek][VERBOSE][ScienceModule] Reset: cleared 0 subjects, runningScience=0, totalCommittedSpendings=0, totalEffectiveEarnings=0
+[LOG 22:39:23.535] [Parsek][VERBOSE][Strategies] Reset: cleared 0 active strategies
+[LOG 22:39:23.535] [Parsek][VERBOSE][Funds] Reset: prevSeed=0, prevBalance=0, prevSpendings=0, prevEarnings=0
+[LOG 22:39:23.535] [Parsek][VERBOSE][Reputation] Reset: runningRep 0.00 -> 0
+[LOG 22:39:23.536] [Parsek][VERBOSE][Facilities] Reset: cleared 0 tracked facilities
+[LOG 22:39:23.537] [Parsek][VERBOSE][Contracts] PrePass: no expired deadline contracts found (tracked=0, nowUT=0, source=lastActionUT)
+[LOG 22:39:23.537] [Parsek][VERBOSE][ScienceModule] ComputeTotalSpendings: spendingCount=0, strategySetupCount=0, strategyExchangeCount=0, totalCommittedSpendings=0
+[LOG 22:39:23.538] [Parsek][VERBOSE][KerbalsModule] PrePass summary: examined=0 cached=0 nullRecordings=0 missingIds=0 rawCrewRecordings=0 rawCrewMembers=0 loopingChains=0 walkClockUT=unknown
+[LOG 22:39:23.540] [Parsek][VERBOSE][Funds] ComputeTotalSpendings: spendings=0, penalties=0, facilityCosts=0, hireCosts=0, setupCosts=0, totalCommittedSpendings=0
+[LOG 22:39:23.540] [Parsek][VERBOSE][RecalcEngine] PrePass stable action list; skipped second sort
+[LOG 22:39:23.543] [Parsek][INFO][Funds] FundsInitial: seed=500000, runningBalance=500000
+[LOG 22:39:23.544] [Parsek][INFO][ScienceModule] ScienceInitial: seed=100, runningScience=100, totalEffectiveEarnings=100
+[LOG 22:39:23.544] [Parsek][INFO][Reputation] ReputationInitial: seed=0, runningRep=0
+[LOG 22:39:23.545] [Parsek][INFO][KerbalsModule] PostWalk summary: reservations=0 permanent=0 temporary=0 slots=0 retired=0 slotsCreated=0 released=0 respawnPending=0 walkClockUT=unknown nextReleaseUT=INDEFINITE
+[LOG 22:39:23.545] [Parsek][VERBOSE][RecalcEngine] Recalculate complete: actionsTotal=3, actionsAfterCutoff=3, cutoffUT=null, filteredOut=0, walkedSorted=3, firstTier=4 modules (12 dispatches), strategy=3 dispatches, secondTier=2 modules (6 dispatches), facilities=3 dispatches
+[LOG 22:39:23.545] [Parsek][VERBOSE][Contracts] SetMaxSlots: maxSlots=2
+[LOG 22:39:23.545] [Parsek][VERBOSE][Strategies] SetMaxSlots: maxSlots=1
+[LOG 22:39:23.546] [Parsek][VERBOSE][LedgerOrchestrator] UpdateSlotLimits: MissionControl level=1 -> 2 contract slots, Administration level=1 -> 1 strategy slots
+[LOG 22:39:23.546] [Parsek][INFO][LedgerOrchestrator] Post-walk reconcile: actions=0, compared=0, matches=0, mismatches(funds/rep/sci)=0/0/0, cutoffUT=null, labCovered=0
+[LOG 22:39:23.547] [Parsek][VERBOSE][LedgerOrchestrator] RecalculateAndPatch: drawdown-guard authoritativeReduction=False (rewinding=False, reFlyMarker=False, mergeJournal=False, tombstone=False, rewindResAdjust=False, reFlyDiscard=False)
+[LOG 22:39:23.549] [Parsek][INFO][KerbalsModule] ApplyToRoster complete: 0 slots, 0 retired, 0 reserved, 0 released, 0 created, 0 recreated, 0 deleted, 0 displaced, 0 retained-live
+[LOG 22:39:23.549] [Parsek][VERBOSE][LedgerOrchestrator] RecalculateAndPatch: no cutoff supplied — skipping tech-tree patch to preserve live unlocks; committed tech unlocks skipped (reason=clock-not-ready, liveUT=0)
+[LOG 22:39:23.554] [Parsek][INFO][StockPoolReference] PatchScience: no saved reference - baseline from the live pool with every row counted, the gap to the target filed as an adjustment row, pool left as it is (gap=0 target=100) (rows=0 now=0): pool=Science mode=fresh-baseline lastWritten=100 expected=100 live=100 stepped=0(0) removed=0 reversed=0(0) pendingStep=0 leak=0 adjustment=0 adoptedGap=0
+[LOG 22:39:23.555] [Parsek][VERBOSE][StockPoolReference] Science: reference now lastWritten=100/rows=0
+[LOG 22:39:23.556] [Parsek][VERBOSE][KspStatePatcher] PatchScience: balance unchanged (current=100.0, target=100.0)
+[LOG 22:39:23.557] [Parsek][INFO][KspStatePatcher] PatchPerSubjectScience: patched=0, cleared=0, created=0, skipped=0, notFound=0, totalSubjects=0
+[LOG 22:39:23.558] [Parsek][VERBOSE][KspStatePatcher] PatchTechTree: no target tech set supplied — skipping
+[LOG 22:39:23.559] [Parsek][VERBOSE][KspStatePatcher] PatchResourceScans: no finite cutoff and the clock is not ready - skipping
+[LOG 22:39:23.560] [Parsek][INFO][StockPoolReference] PatchFunds: no saved reference - baseline from the live pool with every row counted, the gap to the target filed as an adjustment row, pool left as it is (gap=0 target=500000) (rows=0 now=0): pool=Funds mode=fresh-baseline lastWritten=500000 expected=500000 live=500000 stepped=0(0) removed=0 reversed=0(0) pendingStep=0 leak=0 adjustment=0 adoptedGap=0
+[LOG 22:39:23.560] [Parsek][VERBOSE][StockPoolReference] Funds: reference now lastWritten=500000/rows=0
+[LOG 22:39:23.560] [Parsek][VERBOSE][KspStatePatcher] PatchFunds: no change needed (current=500000.0, target=500000.0)
+[LOG 22:39:23.560] [Parsek][VERBOSE][KspStatePatcher] PatchPurchasedParts: bypass-entry-purchase is on - stock rehydrates researched parts, skipping
+[LOG 22:39:23.560] [Parsek][VERBOSE][KspStatePatcher] PatchUnlockedUpgrades: no finite cutoff and the clock is not ready - skipping
+[LOG 22:39:23.561] [Parsek][INFO][StockPoolReference] PatchReputation: no saved reference - baseline from the live pool with every row counted, the gap to the target filed as an adjustment row, pool left as it is (gap=0 target=0) (rows=0 now=0): pool=Reputation mode=fresh-baseline lastWritten=0 expected=0 live=0 stepped=0(0) removed=0 reversed=0(0) pendingStep=0 leak=0 adjustment=0 adoptedGap=0
+[LOG 22:39:23.561] [Parsek][VERBOSE][StockPoolReference] Reputation: reference now lastWritten=0/rows=0
+[LOG 22:39:23.561] [Parsek][VERBOSE][KspStatePatcher] PatchReputation: no change needed (current=0.00, target=0.00)
+[LOG 22:39:23.562] [Parsek][VERBOSE][KspStatePatcher] PatchFacilities: nothing to patch (total=0)
+[LOG 22:39:23.562] [Parsek][VERBOSE][KspStatePatcher] PatchDestructionState: skipped (scene load in progress)
+[LOG 22:39:23.564] [Parsek][INFO][KspStatePatcher] PatchMilestones: credited=0, unreached=0, skipped=396, moduleCredited=0
+[LOG 22:39:23.564] [Parsek][INFO][KspStatePatcher] PatchContracts: deferred - stock ContractSystem has not loaded the save's contracts yet (loaded=False); the patch runs on its onContractsLoaded (alreadyDeferred=False)
+[LOG 22:39:23.565] [Parsek][VERBOSE][KspStatePatcher] PatchStrategies: stock strategy list NotLoaded, deferring until stock loads it (ledgerActive=0)
+[LOG 22:39:23.565] [Parsek][VERBOSE][KspStatePatcher] PatchAll complete
+[LOG 22:39:23.566] [Parsek][INFO][GameStateStore] RebuildCommittedScienceSubjects: before=0, rebuilt with 0 subjects
+[LOG 22:39:23.566] [Parsek][VERBOSE][LedgerOrchestrator] RebuildCommittedScienceFromSurvivingLedger: rebuilt committedScienceSubjects from surviving ledger (subjects=0, scienceActions=0, actions=3)
+[LOG 22:39:23.566] [Parsek][VERBOSE][LedgerOrchestrator] RecalculateAndPatch complete: 3 actions walked
+[LOG 22:39:23.566] [Parsek][VERBOSE][CommittedFutureIndex] Invalidated committed-future index: reason=timeline changed
+[LOG 22:39:23.566] [Parsek][VERBOSE][StockUiOverlay] StockUiOverlay: timeline changed but no tracked screen open - RebuildAllVisible no-op
+[LOG 22:39:23.567] [Parsek][INFO][RouteEventLog] Load: route event log loaded events=0 routes=0 dropped=0 node=absent
+[LOG 22:39:23.567] [Parsek][VERBOSE][Route] PostWalk: routes=0, paused=0, endpointLost=0, totalDispatched=0, totalDelivered=0, physicalDebits=0, physicalPickups=0
+[LOG 22:39:23.569] [Parsek][VERBOSE][Route] LoadRoutesFrom: no ROUTES node, 0 loaded
+[LOG 22:39:23.569] [Parsek][VERBOSE][ERS] Rebuilt: 0 entries from 0 committed (skippedNotCommitted=0 skippedSuperseded=0 skippedRewindRetired=0 skippedSuppressed=0 marker=none)
+[LOG 22:39:23.569] [Parsek][INFO][Route] RevalidateSources reason=OnLoad routes=0 transitioned=0 caughtUp=0 ersIndexed=0 ersTotal=0
+[LOG 22:39:23.569] [Parsek][INFO][RouteGuard] OnLoad route-loop reconcile: cleared manual loops on 0 route-bound tree(s)
+[LOG 22:39:23.570] [Parsek][INFO][Scenario] Scenario load summary — UT: 0, 0 recording(s)
+[LOG 22:39:23.570] [Parsek][VERBOSE][Scenario] Load summary buckets: future=0 in-progress=0 past=0
+[LOG 22:39:23.570] [Parsek][VERBOSE][RecordingStore] Optimization pass: skipped (no recordings)
+[LOG 22:39:23.571] [Parsek][VERBOSE][Diagnostics] Scene load complete (SPACECENTER): 0 recordings, ~0 B memory est (0 pts, 0 evts, 0 segs), 0 ghosts
+[LOG 22:39:23.575] [Parsek][INFO][LoadSweep] [LoadSweep] Value-sealed slots (section 2.12): found=0 sealed=0 keptLiveSession=0 rpsReaped=0
+[LOG 22:39:23.575] [Parsek][INFO][LoadSweep] [LoadSweep] Marker valid=False; spare=0 discarded=0 selfSupersedes=0 orphanSupersedes=0 removedFullyOrphanSupersedes=0 removedOrphanRewindRetirements=0 orphanTombstones=0 strayFields=0 discardedRps=0 missingQuicksaveRps=0 orphanReFlyAnchors=0
+[LOG 22:39:23.575] [Parsek][VERBOSE][ERS] Rebuilt: 0 entries from 0 committed (skippedNotCommitted=0 skippedSuperseded=0 skippedRewindRetired=0 skippedSuppressed=0 marker=none)
+[LOG 22:39:23.575] [Parsek][INFO][Route] RevalidateSources reason=SupersedeStateVersion-bump routes=0 transitioned=0 caughtUp=0 ersIndexed=0 ersTotal=0
+[LOG 22:39:23.576] [Parsek][VERBOSE][Rewind] ReapOrphanedRPs: reaped=0 remaining=0
+[LOG 22:39:23.582] [Parsek][INFO][FileCollector] Collection: referrers=1 scanned=1 cached=0 incomingFiled=0 versionsDeleted=0 versionsQuarantined=0 versionsRestored=0 versionsPurged=0 headsQuarantined=0 quarantineRestored=0 quarantinePurged=0 quarantineDated=0 transientDeleted=0 rewindPointFilesDeleted=0 rewindSavesDeleted=0 failures=0 bytesFreed=0 ms=4 reason=cold-load
+[LOG 22:39:23.583] [Parsek][VERBOSE][VesselNames] Spawn link backfill (onload-tail:cold): vessels=0 genuineSpawnMatches=0 adoptionStampSkipped=0 added=0 alreadyLinked=0 resumeAdded=0 links=0
+[LOG 22:39:23.585] [Parsek][VERBOSE][Diagnostics] OnLoad: 140ms (0 recordings) phase=vessel-names-apply status=completed
+[LOG 22:39:23.585] [Parsek][VERBOSE][LoadPolicy] Load phases: kind=Cold status=completed count=49 [entry@0ms > reset-dialog@0ms > settings@0ms > save-format@18ms > hooks@20ms > load-classify@20ms > save-scoped-reset@22ms > crew-groups@29ms > refly-state-load@30ms > stock-pool-reference-load@35ms > ledger-held-window-load@37ms > rewind-vessel-holds-load@38ms > playback-replay-scope-load@38ms > removed-replay-flags-load@39ms > rewind-point-carry-over@40ms > rewind-staged-lists-carry-over@40ms > in-session-staged-handoff@41ms > pre-parsek-backup@42ms > game-state-recorder@50ms > initial-baseline@61ms > cold-start@69ms > quarantine-restore@69ms > durable-committed-id-hint@70ms > stale-pending-discard@70ms > clear-committed@70ms > chain-validation@70ms > vessel-names@71ms > recording-trees@71ms > sanitize-nonloopable-loop@73ms > missions@73ms > cold-active-tree-restore@75ms > cold-attempt-events@75ms > milestones@76ms > ledger-load@76ms > routes@123ms > route-loop-reconcile@125ms > deferred-seed@125ms > load-summary@125ms > optimization@126ms > crew-auto-unreserve@126ms > pending-outside-flight@126ms > sidecar-reconcile@126ms > rewind-post-load@126ms > load-time-sweep@126ms > test-batch-reconcile@132ms > rewind-point-reap@132ms > quit-without-saving-reap@132ms > file-collection@133ms > vessel-names-apply@138ms]
+[LOG 22:39:23.594] [Parsek][VERBOSE][GhostMap] Polyline driver: onGameStateLoad -> Clear() (cross-save flush)
+[LOG 22:39:23.595] [Parsek][INFO][KSC] ParsekKSC starting in Space Center scene
+[LOG 22:39:23.599] [Parsek][VERBOSE][UI] Applied UI mode seeded from settings: uiComplexityMode=Advanced
+[LOG 22:39:23.599] [Parsek][VERBOSE][UI] KerbalsWindow: subscribed to 8 live-crew GameEvents
+[LOG 22:39:23.599] [Parsek][VERBOSE][KSC] Body cache built: 17 bodies
+[LOG 22:39:23.599] [Parsek][INFO][KSC] ParsekKSC initialized, 0 committed recordings, 0 eligible for KSC ghost playback
+[LOG 22:39:23.599] [Parsek][INFO][CurrencyOverlay] CurrencyOverlay: initialised for scene=SPACECENTER - starting widget refresh loop
+[LOG 22:39:23.626] [Parsek][VERBOSE][ELS] Rebuilt: 3 entries from 3 actions (skippedTombstoned=0 tombstonesTotal=0)
+[LOG 22:39:23.626] [Parsek][VERBOSE][ERS] Rebuilt: 0 entries from 0 committed (skippedNotCommitted=0 skippedSuperseded=0 skippedRewindRetired=0 skippedSuppressed=0 marker=none)
+[LOG 22:39:23.628] [Parsek][VERBOSE][CommittedFutureIndex] Rebuilt committed-future index: entries=0 from els=3 ers=0 tech=0 facility=0 accept=0 complete=0 fail=0 cancel=0 hire=0 dismiss=0 strategyOn=0 strategyOff=0 part=0 destroy=0 repair=0 rebuild=0 assignments=0 skippedUncommitted=0 upgrade=0
+[LOG 22:39:23.669] [Parsek][INFO][KspStatePatcher] PatchStrategies: stock strategy list loaded (11 strategies), running the deferred patch
+[LOG 22:39:23.672] [Parsek][VERBOSE][KspStatePatcher] PatchStrategies: no change activated=0 deactivated=0 matching=0 missingInStock=0 futureDated=0 futureDeactivation=0 unmanaged=0 conflicting=0 activatedIds=[] deactivatedIds=[] failed=0 nowUT=0
+[LOG 22:39:23.673] [Parsek][INFO][KspStatePatcher] PatchContracts: running the deferred scene-load patch on stock's onContractsLoaded (kspCurrent=0, clockUT=0.04)
+[LOG 22:39:23.676] [Parsek][VERBOSE][KspStatePatcher] PatchContracts: ledger has 0 active contracts, 0 terminal contracts, KSP has 0 current contracts, 0 finished contracts
+[LOG 22:39:23.679] [Parsek][VERBOSE][KspStatePatcher] PatchContracts: removed 0 stale Active/terminal contract(s), 0 tombstoned finished terminal contract(s), 0 Active contract(s) preserved in place, 0 terminal contract(s) preserved in place (unregisterFailures=0)
+[LOG 22:39:23.680] [Parsek][INFO][KspStatePatcher] PatchContracts: removedStale=0, removedFinishedTombstoned=0, restored=0, registered=0, skippedExisting=0, noSnapshot=0, noType=0, typeNotFound=0, loadFailed=0, archivedToFinished=0, archiveAlreadyFinished=0, archiveNoFinishedState=0, archiveOutcomeLater=0, archiveNoClock=0, archiveFailed=0, ledgerActive=0, ledgerTerminal=0, kspTotal=0, kspFinished=0 (Offered and unrelated finished history preserved; tombstoned terminal filtered)
+[LOG 22:39:23.681] [Parsek][VERBOSE][Scenario] DeferredSeed: expected singletons=Funding+R&D+Reputation present=True after 0 frames, loaded after 0 frames, clock ready=True after 0 frames (currentUT=0.04) — Funding=500000, Science=100, Rep=0.0
+[LOG 22:39:23.681] [Parsek][VERBOSE][LedgerOrchestrator] Current-timeline recalc: full replay (cutoffUT=null) — reason=deferred-seed currentUT=0.04 currentUtReady=True
+[LOG 22:39:23.681] [Parsek][VERBOSE][Milestones] Reset: cleared 0 credited milestones; pre-ledger seed credits 0 node(s) and 0 record band(s)
+[LOG 22:39:23.681] [Parsek][VERBOSE][Contracts] Reset: cleared 0 active contracts, 0 credited contracts, 0 credited parameters, 0 terminal contracts, 0 terminal actions, 0 terminal outcomes, 0 deadline-expired contracts, 0 explicitly resolved contracts, 0 prepass explicit resolutions
+[LOG 22:39:23.681] [Parsek][VERBOSE][ScienceModule] Reset: cleared 0 subjects, runningScience=0, totalCommittedSpendings=0, totalEffectiveEarnings=0
+[LOG 22:39:23.681] [Parsek][VERBOSE][Strategies] Reset: cleared 0 active strategies
+[LOG 22:39:23.681] [Parsek][VERBOSE][Funds] Reset: prevSeed=500000, prevBalance=500000, prevSpendings=0, prevEarnings=0
+[LOG 22:39:23.681] [Parsek][VERBOSE][Reputation] Reset: runningRep 0.00 -> 0
+[LOG 22:39:23.681] [Parsek][VERBOSE][Facilities] Reset: cleared 0 tracked facilities
+[LOG 22:39:23.681] [Parsek][VERBOSE][Contracts] PrePass: no expired deadline contracts found (tracked=0, nowUT=0, source=lastActionUT)
+[LOG 22:39:23.681] [Parsek][VERBOSE][ScienceModule] ComputeTotalSpendings: spendingCount=0, strategySetupCount=0, strategyExchangeCount=0, totalCommittedSpendings=0
+[LOG 22:39:23.681] [Parsek][VERBOSE][KerbalsModule] PrePass summary: examined=0 cached=0 nullRecordings=0 missingIds=0 rawCrewRecordings=0 rawCrewMembers=0 loopingChains=0 walkClockUT=0.0
+[LOG 22:39:23.681] [Parsek][VERBOSE][Funds] ComputeTotalSpendings: spendings=0, penalties=0, facilityCosts=0, hireCosts=0, setupCosts=0, totalCommittedSpendings=0
+[LOG 22:39:23.681] [Parsek][VERBOSE][RecalcEngine] PrePass stable action list; skipped second sort
+[LOG 22:39:23.681] [Parsek][INFO][Funds] FundsInitial: seed=500000, runningBalance=500000
+[LOG 22:39:23.681] [Parsek][INFO][ScienceModule] ScienceInitial: seed=100, runningScience=100, totalEffectiveEarnings=100
+[LOG 22:39:23.681] [Parsek][INFO][Reputation] ReputationInitial: seed=0, runningRep=0
+[LOG 22:39:23.681] [Parsek][INFO][KerbalsModule] PostWalk summary: reservations=0 permanent=0 temporary=0 slots=0 retired=0 slotsCreated=0 released=0 respawnPending=0 walkClockUT=0.0 nextReleaseUT=INDEFINITE
+[LOG 22:39:23.681] [Parsek][VERBOSE][Contracts] SetMaxSlots: maxSlots=2
+[LOG 22:39:23.681] [Parsek][VERBOSE][Strategies] SetMaxSlots: maxSlots=1
+[LOG 22:39:23.681] [Parsek][VERBOSE][LedgerOrchestrator] UpdateSlotLimits: MissionControl level=1 -> 2 contract slots, Administration level=1 -> 1 strategy slots
+[LOG 22:39:23.681] [Parsek][INFO][LedgerOrchestrator] Post-walk reconcile: actions=0, compared=0, matches=0, mismatches(funds/rep/sci)=0/0/0, cutoffUT=null, labCovered=0
+[LOG 22:39:23.681] [Parsek][VERBOSE][LedgerOrchestrator] RecalculateAndPatch: drawdown-guard authoritativeReduction=False (rewinding=False, reFlyMarker=False, mergeJournal=False, tombstone=False, rewindResAdjust=False, reFlyDiscard=False)
+[LOG 22:39:23.681] [Parsek][INFO][KerbalsModule] ApplyToRoster complete: 0 slots, 0 retired, 0 reserved, 0 released, 0 created, 0 recreated, 0 deleted, 0 displaced, 0 retained-live
+[LOG 22:39:23.682] [Parsek][VERBOSE][LedgerOrchestrator] RecalculateAndPatch: no cutoff supplied — skipping tech-tree patch to preserve live unlocks; committed tech unlocks add-only at liveUT=0.04 (count=0, ids=[])
+[LOG 22:39:23.682] [Parsek][VERBOSE][StockPoolReference] PatchScience: pool=Science mode=measured lastWritten=100 expected=100 live=100 stepped=0(0) removed=0 reversed=0(0) pendingStep=0 leak=0 adjustment=0 now=0.04 authoritative=False clockCrossing=False
+[LOG 22:39:23.682] [Parsek][INFO][KspStatePatcher] PatchPerSubjectScience: patched=0, cleared=0, created=0, skipped=0, notFound=0, totalSubjects=0
+[LOG 22:39:23.682] [Parsek][VERBOSE][KspStatePatcher] PatchCommittedTechUnlocks: no committed tech unlock at or before the live clock
+[LOG 22:39:23.683] [Parsek][VERBOSE][KspStatePatcher] PatchResourceScans: no committed resource scan at or before the cutoff
+[LOG 22:39:23.683] [Parsek][VERBOSE][StockPoolReference] PatchFunds: pool=Funds mode=measured lastWritten=500000 expected=500000 live=500000 stepped=0(0) removed=0 reversed=0(0) pendingStep=0 leak=0 adjustment=0 now=0.04 authoritative=False clockCrossing=False
+[LOG 22:39:23.683] [Parsek][VERBOSE][KspStatePatcher] PatchUnlockedUpgrades: no committed part upgrade purchase at or before the cutoff
+[LOG 22:39:23.683] [Parsek][VERBOSE][StockPoolReference] PatchReputation: pool=Reputation mode=measured lastWritten=0 expected=0 live=0 stepped=0(0) removed=0 reversed=0(0) pendingStep=0 leak=0 adjustment=0 now=0.04 authoritative=False clockCrossing=False
+[LOG 22:39:23.683] [Parsek][VERBOSE][KspStatePatcher] PatchDestructionState: gate open
+[LOG 22:39:23.686] [Parsek][VERBOSE][KspStatePatcher] PatchDestructionState: demolished=0, repaired=0, settling=0, unloaded=0, matched=0, noMatch=0, buildings=39, ledgerBuildings=0, liveUT=0.0
+[LOG 22:39:23.686] [Parsek][INFO][KspStatePatcher] PatchMilestones: credited=0, unreached=0, skipped=396, moduleCredited=0
+[LOG 22:39:23.686] [Parsek][VERBOSE][KspStatePatcher] PatchContracts: ledger has 0 active contracts, 0 terminal contracts, KSP has 0 current contracts, 0 finished contracts
+[LOG 22:39:23.686] [Parsek][VERBOSE][KspStatePatcher] PatchContracts: removed 0 stale Active/terminal contract(s), 0 tombstoned finished terminal contract(s), 0 Active contract(s) preserved in place, 0 terminal contract(s) preserved in place (unregisterFailures=0)
+[LOG 22:39:23.686] [Parsek][INFO][KspStatePatcher] PatchContracts: removedStale=0, removedFinishedTombstoned=0, restored=0, registered=0, skippedExisting=0, noSnapshot=0, noType=0, typeNotFound=0, loadFailed=0, archivedToFinished=0, archiveAlreadyFinished=0, archiveNoFinishedState=0, archiveOutcomeLater=0, archiveNoClock=0, archiveFailed=0, ledgerActive=0, ledgerTerminal=0, kspTotal=0, kspFinished=0 (Offered and unrelated finished history preserved; tombstoned terminal filtered)
+[LOG 22:39:23.687] [Parsek][INFO][GameStateStore] RebuildCommittedScienceSubjects: before=0, rebuilt with 0 subjects
+[LOG 22:39:23.687] [Parsek][VERBOSE][LedgerOrchestrator] RebuildCommittedScienceFromSurvivingLedger: rebuilt committedScienceSubjects from surviving ledger (subjects=0, scienceActions=0, actions=3)
+[LOG 22:39:23.687] [Parsek][VERBOSE][CommittedFutureIndex] Invalidated committed-future index: reason=timeline changed
+[LOG 22:39:23.687] [Parsek][VERBOSE][StockUiOverlay] StockUiOverlay: timeline changed but no tracked screen open - RebuildAllVisible no-op
+[LOG 22:39:23.687] [Parsek][VERBOSE][Timeline] Cache invalidated
+[LOG 22:39:23.687] [Parsek][VERBOSE][UI] KerbalsWindow: cache invalidated
+[LOG 22:39:23.705] [Parsek][INFO][WarpTime] Capturing career-start snapshot for new career (recordings=0 now=0.1)
+[LOG 22:39:23.711] [Parsek][INFO][RecState] [#2][OnSave:pre] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=0.1 scene=SPACECENTER
+[LOG 22:39:23.712] [Parsek][INFO][Scenario] OnSave: saving 0 committed recordings
+[LOG 22:39:23.713] [Parsek][INFO][Scenario] OnSave: saving 0 committed tree(s)
+[LOG 22:39:23.713] [Parsek][VERBOSE][Mission] Saved 0 mission(s)
+[LOG 22:39:23.714] [Parsek][VERBOSE][KerbalsModule] SaveSlots: no slots to save
+[LOG 22:39:23.716] [Parsek][INFO][GameStateStore] Saved 0/0 game state events, 0/0 contract snapshots, 0 science subjects to <HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\fresh-career\Parsek\GameState\events.pgse
+[LOG 22:39:23.718] [Parsek][VERBOSE][GameStateStore] Saved baseline at UT 0 to <HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\fresh-career\Parsek\GameState\baseline_0.pgsb
+[LOG 22:39:23.718] [Parsek][VERBOSE][Scenario] OnSave: flushing pending events at UT 0
+[LOG 22:39:23.718] [Parsek][VERBOSE][MilestoneStore] FlushPendingEvents: currentUT=0
+[LOG 22:39:23.719] [Parsek][VERBOSE][MilestoneStore] CreateMilestone: scanning visible events in window UT 0-0, recordingId=(flush)
+[LOG 22:39:23.719] [Parsek][VERBOSE][MilestoneStore] CreateMilestone: 0 total events, 0 matched, skipped: hidden=0, window=0, resource=0
+[LOG 22:39:23.719] [Parsek][VERBOSE][MilestoneStore] No visible game state events for milestone (UT 0-0) — skipped
+[LOG 22:39:23.720] [Parsek][INFO][MilestoneStore] Saved 0 milestones to <HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\fresh-career\Parsek\GameState\milestones.pgsm
+[LOG 22:39:23.721] [Parsek][VERBOSE][MilestoneStore] SaveMutableState: wrote 0 MILESTONE_STATE nodes
+[LOG 22:39:23.723] [Parsek][VERBOSE][Ledger] Saved ledger to '<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\fresh-career\Parsek\GameState\ledger.pgld': version=0, actions=3
+[LOG 22:39:23.723] [Parsek][VERBOSE][LedgerOrchestrator] OnSave: ledger saved to '<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\fresh-career\Parsek\GameState\ledger.pgld'
+[LOG 22:39:23.723] [Parsek][VERBOSE][Scenario] OnSave: wrote external game-state files and the GAME_STATE node (events=0, milestones=0, baselines=1, ledgerRows=3, pendingScience=0, attemptEvents=0, attemptTree=<none>)
+[LOG 22:39:23.723] [Parsek][INFO][TestBatch] marker saved: none
+[LOG 22:39:23.723] [Parsek][INFO][Rewind] RewindPoints saved: 0
+[LOG 22:39:23.723] [Parsek][INFO][Supersede] RecordingSupersedes saved: 0
+[LOG 22:39:23.723] [Parsek][INFO][Rewind] RecordingRewindRetirements saved: 0
+[LOG 22:39:23.723] [Parsek][INFO][LedgerSwap] LedgerTombstones saved: 0
+[LOG 22:39:23.723] [Parsek][INFO][ReFlySession] Marker saved: none
+[LOG 22:39:23.723] [Parsek][INFO][MergeJournal] Journal saved: none
+[LOG 22:39:23.723] [Parsek][INFO][SwitchIntent] intent saved: none
+[LOG 22:39:23.723] [Parsek][INFO][SwitchSegment] session saved: none
+[LOG 22:39:23.723] [Parsek][INFO][Scenario] OnSave: Re-Fly subsystem state persisted (saved collections, not a rewind action; reFlyInProgress=False): rewindPoints=0 supersedes=0 rewindRetirements=0 tombstones=0 marker=False journal=False switchIntent=False switchSegment=False
+[LOG 22:39:23.725] [Parsek][VERBOSE][RouteEventLog] Save: no route events to write
+[LOG 22:39:23.726] [Parsek][VERBOSE][Route] SaveRoutesTo: no routes to save
+[LOG 22:39:23.726] [Parsek][VERBOSE][StockPoolReference] Saved: pools=3 rows=0 takenBackRows=0 funds=lastWritten=500000/rows=0 science=lastWritten=100/rows=0 reputation=lastWritten=0/rows=0
+[LOG 22:39:23.727] [Parsek][INFO][RecState] [#3][OnSave:post] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=0.1 scene=SPACECENTER
+[LOG 22:39:23.727] [Parsek][VERBOSE][Diagnostics] OnSave: 15ms (0 dirty of 0)
+[LOG 22:39:23.730] [Parsek][INFO][Paths] Created rewind saves directory '<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\fresh-career\Parsek\Saves'
+[LOG 22:39:23.731] [Parsek][VERBOSE][CareerStart] Deleted orphaned save sidecar 'parsek_career_start.loadmeta'
+[LOG 22:39:23.731] [Parsek][INFO][CareerStart] Captured career-start snapshot: <HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\fresh-career\Parsek\Saves\parsek_career_start.sfs
+[LOG 22:39:23.771] [Parsek][INFO][TestCommands] loadgame complete scene=SPACECENTER save=fresh-career game-loaded=true expected=SpaceCenter
+[LOG 22:39:23.772] [Parsek][VERBOSE][TestCommands] journal id=0001 phase=EXECUTED
+[LOG 22:39:23.772] [Parsek][INFO][TestCommands] exec id=0001 verdict=OK
+[LOG 22:39:23.774] [Parsek][VERBOSE][TestCommands] response appended id=0001 verdict=OK
+[LOG 22:39:23.774] [Parsek][VERBOSE][TestCommands] journal id=0001 phase=DONE
+[LOG 22:39:23.782] [Parsek][INFO][TestCommands] recv id=0002 cmd=SetSetting args=2
+[LOG 22:39:23.782] [Parsek][VERBOSE][TestCommands] poll: read=1 lines, parsed=1, deferred-head=SetSetting
+[LOG 22:39:23.782] [Parsek][INFO][TestCommands] dispatch id=0002 -> EXECUTE
+[LOG 22:39:23.782] [Parsek][VERBOSE][TestCommands] journal id=0002 phase=CLAIMED
+[LOG 22:39:23.782] [Parsek][INFO][TestCommands] exec id=0002 cmd=SetSetting start
+[LOG 22:39:23.783] [Parsek][INFO][TestCommands] setting name=autoRecordOnLaunch old=true new=false
+[LOG 22:39:23.785] [Parsek][VERBOSE][TestCommands] journal id=0002 phase=EXECUTED
+[LOG 22:39:23.785] [Parsek][INFO][TestCommands] exec id=0002 verdict=OK
+[LOG 22:39:23.785] [Parsek][VERBOSE][TestCommands] response appended id=0002 verdict=OK
+[LOG 22:39:23.785] [Parsek][VERBOSE][TestCommands] journal id=0002 phase=DONE
+[LOG 22:39:23.816] [Parsek][INFO][TestCommands] recv id=0003 cmd=RunTests args=1
+[LOG 22:39:23.816] [Parsek][INFO][TestCommands] dispatch id=0003 -> EXECUTE
+[LOG 22:39:23.816] [Parsek][VERBOSE][TestCommands] journal id=0003 phase=CLAIMED
+[LOG 22:39:23.816] [Parsek][INFO][TestCommands] exec id=0003 cmd=RunTests start
+[LOG 22:39:23.936] [Parsek][INFO][TestRunner] Discovered 698 in-game tests
+[LOG 22:39:23.937] [Parsek][INFO][TestRunner] batch dispatch: entry=RunCategory category=AutoHireReservation isolated=false
+[LOG 22:39:23.937] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: begin reason=run-category:AutoHireReservation scene=SPACECENTER
+[LOG 22:39:23.937] [Parsek][VERBOSE][TestRunner] PerformBetweenRunCleanup: no ParsekFlight.Instance — skipping flight-scene ghost teardown
+[LOG 22:39:23.939] [Parsek][VERBOSE][GhostMap] Between-run ghost vessel removal: reason=run-category:AutoHireReservation scene=SPACECENTER tracked=0 untrackedLive=0 untrackedRemoved=0 staleRegisteredPids=0 liveVesselsBefore=0 liveVesselsAfter=0 (no registered ghost vessel is live)
+[LOG 22:39:23.939] [Parsek][VERBOSE][GhostMap] ResetBetweenTestRuns: all dictionaries already empty (reason=run-category:AutoHireReservation) — noop
+[LOG 22:39:23.939] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: end reason=run-category:AutoHireReservation ghostsBefore=0 mapPidsBefore=0 mapPidsAfter=0 ghostVesselsRemoved=0
+[LOG 22:39:23.945] [Parsek][VERBOSE][TestRunner] ForceCloseOpenSpaceCenterFacilities: no open facilities reason=run-category:AutoHireReservation
+[LOG 22:39:23.948] [Parsek][INFO][TestRunner] Batch baseline: backed up campaign persistent.sfs (49262 bytes) to 'ptb-2f875fda-persistent.bak'
+[LOG 22:39:23.948] [Parsek][INFO][TestRunner] Batch isolation captured: mode=DiskOnly slot='(disk-only)' persistentBackup='<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\fresh-career\ptb-2f875fda-persistent.bak' batchInstanceId=63626b995ba1417cb1b977aa15eca11b
+[LOG 22:39:23.950] [Parsek][INFO][RecState] [#4][OnSave:pre] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=0.1 scene=SPACECENTER
+[LOG 22:39:23.950] [Parsek][INFO][Scenario] OnSave: saving 0 committed recordings
+[LOG 22:39:23.950] [Parsek][INFO][Scenario] OnSave: saving 0 committed tree(s)
+[LOG 22:39:23.950] [Parsek][VERBOSE][Mission] Saved 0 mission(s)
+[LOG 22:39:23.950] [Parsek][VERBOSE][KerbalsModule] SaveSlots: no slots to save
+[LOG 22:39:23.952] [Parsek][INFO][GameStateStore] Saved 0/0 game state events, 0/0 contract snapshots, 0 science subjects to <HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\fresh-career\Parsek\GameState\events.pgse
+[LOG 22:39:23.954] [Parsek][VERBOSE][GameStateStore] Saved baseline at UT 0 to <HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\fresh-career\Parsek\GameState\baseline_0.pgsb
+[LOG 22:39:23.954] [Parsek][VERBOSE][Scenario] OnSave: flushing pending events at UT 0
+[LOG 22:39:23.954] [Parsek][VERBOSE][MilestoneStore] FlushPendingEvents: currentUT=0
+[LOG 22:39:23.954] [Parsek][VERBOSE][MilestoneStore] CreateMilestone: scanning visible events in window UT 0-0, recordingId=(flush)
+[LOG 22:39:23.954] [Parsek][VERBOSE][MilestoneStore] CreateMilestone: 0 total events, 0 matched, skipped: hidden=0, window=0, resource=0
+[LOG 22:39:23.955] [Parsek][VERBOSE][MilestoneStore] No visible game state events for milestone (UT 0-0) — skipped
+[LOG 22:39:23.956] [Parsek][INFO][MilestoneStore] Saved 0 milestones to <HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\fresh-career\Parsek\GameState\milestones.pgsm
+[LOG 22:39:23.956] [Parsek][VERBOSE][MilestoneStore] SaveMutableState: wrote 0 MILESTONE_STATE nodes
+[LOG 22:39:23.957] [Parsek][VERBOSE][Ledger] Saved ledger to '<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\fresh-career\Parsek\GameState\ledger.pgld': version=0, actions=3
+[LOG 22:39:23.957] [Parsek][VERBOSE][LedgerOrchestrator] OnSave: ledger saved to '<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\fresh-career\Parsek\GameState\ledger.pgld'
+[LOG 22:39:23.957] [Parsek][VERBOSE][Scenario] OnSave: wrote external game-state files and the GAME_STATE node (events=0, milestones=0, baselines=1, ledgerRows=3, pendingScience=0, attemptEvents=0, attemptTree=<none>)
+[LOG 22:39:23.957] [Parsek][INFO][TestBatch] marker saved: 18f8ee1a86be4e738ff4d82ac19603a9
+[LOG 22:39:23.957] [Parsek][INFO][Rewind] RewindPoints saved: 0
+[LOG 22:39:23.957] [Parsek][INFO][Supersede] RecordingSupersedes saved: 0
+[LOG 22:39:23.957] [Parsek][INFO][Rewind] RecordingRewindRetirements saved: 0
+[LOG 22:39:23.957] [Parsek][INFO][LedgerSwap] LedgerTombstones saved: 0
+[LOG 22:39:23.957] [Parsek][INFO][ReFlySession] Marker saved: none
+[LOG 22:39:23.957] [Parsek][INFO][MergeJournal] Journal saved: none
+[LOG 22:39:23.957] [Parsek][INFO][SwitchIntent] intent saved: none
+[LOG 22:39:23.957] [Parsek][INFO][SwitchSegment] session saved: none
+[LOG 22:39:23.957] [Parsek][INFO][Scenario] OnSave: Re-Fly subsystem state persisted (saved collections, not a rewind action; reFlyInProgress=False): rewindPoints=0 supersedes=0 rewindRetirements=0 tombstones=0 marker=False journal=False switchIntent=False switchSegment=False
+[LOG 22:39:23.957] [Parsek][VERBOSE][RouteEventLog] Save: no route events to write
+[LOG 22:39:23.957] [Parsek][VERBOSE][Route] SaveRoutesTo: no routes to save
+[LOG 22:39:23.957] [Parsek][VERBOSE][StockPoolReference] Saved: pools=3 rows=0 takenBackRows=0 funds=lastWritten=500000/rows=0 science=lastWritten=100/rows=0 reputation=lastWritten=0/rows=0
+[LOG 22:39:23.957] [Parsek][INFO][RecState] [#5][OnSave:post] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=0.1 scene=SPACECENTER
+[LOG 22:39:23.957] [Parsek][VERBOSE][Diagnostics] OnSave: 8ms (0 dirty of 0)
+[LOG 22:39:23.970] [Parsek][INFO][TestHelper] TriggerCampaignPersistentSave: saved 'fresh-career/persistent' (persistent)
+[LOG 22:39:23.970] [Parsek][INFO][TestRunner] Test batch crash marker written (mode=DiskOnly, backup='<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\fresh-career\ptb-2f875fda-persistent.bak')
+[LOG 22:39:23.971] [Parsek][INFO][TestRunner] Starting test run: 1 tests
+[LOG 22:39:23.971] [Parsek][VERBOSE][TestRunner] Running: FlightIntegrationTests.AutoHireSkipsCommittedFutureHireApplicant
+[LOG 22:39:23.976] [Parsek][VERBOSE][Ledger] Added action: type=KerbalHire, ut=60.14, recordingId=autohire-reservation-9736a95033db4f439756fc64e50e27d6, writer=StockApplied, cseq=-1, total=4
+[LOG 22:39:23.976] [Parsek][VERBOSE][ELS] Rebuilt: 4 entries from 4 actions (skippedTombstoned=0 tombstonesTotal=0)
+[LOG 22:39:23.976] [Parsek][VERBOSE][ERS] Rebuilt: 1 entries from 1 committed (skippedNotCommitted=0 skippedSuperseded=0 skippedRewindRetired=0 skippedSuppressed=0 marker=none)
+[LOG 22:39:23.977] [Parsek][VERBOSE][CommittedFutureIndex] Rebuilt committed-future index: entries=1 from els=4 ers=1 tech=0 facility=0 accept=0 complete=0 fail=0 cancel=0 hire=1 dismiss=0 strategyOn=0 strategyOff=0 part=0 destroy=0 repair=0 rebuild=0 assignments=0 skippedUncommitted=0 upgrade=0
+[LOG 22:39:23.978] [Parsek][VERBOSE][UI] KerbalsWindow: live crew state changed (onKerbalStatusChange) - cache already empty
+[LOG 22:39:23.979] [Parsek][VERBOSE][GameStateRecorder] Suppressed CrewStatusChanged event while Parsek mutates crew state
+[LOG 22:39:23.979] [Parsek][VERBOSE][UI] KerbalsWindow: live crew state changed (onKerbalStatusChange) - cache already empty
+[LOG 22:39:23.979] [Parsek][VERBOSE][UI] KerbalsWindow: live crew state changed (onKerbalStatusChange) - cache already empty
+[LOG 22:39:23.981] [Parsek][VERBOSE][KerbalHirePatch] auto-hire skips applicant name=Verhat Kerman - a committed future hires him
+[LOG 22:39:23.981] [Parsek][INFO][KerbalHirePatch] auto-hire applicant pick: skipped=1 applicant(s) a committed future hires; picked=(none - stock generates a new applicant)
+[LOG 22:39:23.983] [Parsek][VERBOSE][UI] KerbalsWindow: live crew state changed (onKerbalStatusChange) - cache already empty
+[LOG 22:39:23.983] [Parsek][VERBOSE][UI] KerbalsWindow: live crew state changed (onKerbalAdded/Removed) - cache already empty
+[LOG 22:39:23.984] [Parsek][VERBOSE][GameStateRecorder] Suppressed CrewHired event while Parsek mutates crew state
+[LOG 22:39:23.985] [Parsek][VERBOSE][GameStateRecorder] Suppressed OnCurrencyModified capture (resource events suppressed)
+[LOG 22:39:23.986] [Parsek][VERBOSE][GameStateRecorder] Suppressed FundsChanged event (CrewRecruited) during timeline replay
+[LOG 22:39:23.988] [Parsek][VERBOSE][KerbalHirePatch] auto-hire skips applicant name=Verhat Kerman - a committed future hires him
+[LOG 22:39:23.988] [Parsek][INFO][KerbalHirePatch] auto-hire applicant pick: skipped=1 applicant(s) a committed future hires; picked=(none - stock generates a new applicant)
+[LOG 22:39:23.988] [Parsek][VERBOSE][UI] KerbalsWindow: live crew state changed (onKerbalStatusChange) - cache already empty
+[LOG 22:39:23.988] [Parsek][VERBOSE][UI] KerbalsWindow: live crew state changed (onKerbalAdded/Removed) - cache already empty
+[LOG 22:39:23.989] [Parsek][INFO][AutoHireReservation] auto-hire live check passed: reserved='Verhat Kerman' pod=mk1-3pod capacity=3 kept=Jebediah Kerman shortfall=2 pickLines=2 hired=2 seated=3 refusals=0
+[LOG 22:39:23.990] [Parsek][VERBOSE][UI] KerbalsWindow: live crew state changed (onKerbalStatusChange) - cache already empty
+[LOG 22:39:23.990] [Parsek][VERBOSE][UI] KerbalsWindow: live crew state changed (onKerbalStatusChange) - cache already empty
+[LOG 22:39:23.990] [Parsek][VERBOSE][UI] KerbalsWindow: live crew state changed (onKerbalStatusChange) - cache already empty
+[LOG 22:39:23.990] [Parsek][VERBOSE][KerbalDismissal] bypass for 'Arbro Kerman' via KerbalRoster.Remove - Parsek crew-event suppression active
+[LOG 22:39:23.990] [Parsek][VERBOSE][UI] KerbalsWindow: live crew state changed (onKerbalAdded/Removed) - cache already empty
+[LOG 22:39:23.990] [Parsek][VERBOSE][GameStateRecorder] Suppressed CrewRemoved event while Parsek mutates crew state
+[LOG 22:39:23.990] [Parsek][VERBOSE][KerbalDismissal] bypass for 'Sielong Kerman' via KerbalRoster.Remove - Parsek crew-event suppression active
+[LOG 22:39:23.990] [Parsek][VERBOSE][UI] KerbalsWindow: live crew state changed (onKerbalAdded/Removed) - cache already empty
+[LOG 22:39:23.990] [Parsek][INFO][AutoHireReservation] auto-hire live check teardown: reverted=3 removed=2
+[LOG 22:39:23.990] [Parsek][INFO][Ledger] RemoveActionsForRecordings: removed=1 recordingIds=1 callSite=overlay-fixture-cleanup total=3
+[LOG 22:39:23.992] [Parsek][VERBOSE][CommittedFutureIndex] Invalidated committed-future index: reason=auto-hire live check teardown
+[LOG 22:39:23.992] [Parsek][VERBOSE][TestRunner] PASSED: FlightIntegrationTests.AutoHireSkipsCommittedFutureHireApplicant (19.8ms)
+[LOG 22:39:23.997] [Parsek][VERBOSE][TestRunner] ForceCloseOpenSpaceCenterFacilities: no open facilities reason=post-test:FlightIntegrationTests.AutoHireSkipsCommittedFutureHireApplicant
+[LOG 22:39:23.998] [Parsek][INFO][TestCommands] runtests start category=AutoHireReservation,FreeTechUnlock isolated=false strict=false multi=2
+[LOG 22:39:23.998] [Parsek][INFO][TestCommands] exec id=0003 verdict=PENDING (two-phase awaiting completion)
+[LOG 22:39:24.003] [Parsek][VERBOSE][TestRunner] Batch-end corruption check skipped: no FLIGHT/TS baseline and no exception storm (this batch performed no scene reloads)
+[LOG 22:39:24.010] [Parsek][INFO][TestRunner] Batch baseline: restored campaign persistent.sfs (49262 bytes) from batch-start backup; later FlushAndQuit saves are suppressed so this restore stays the last write
+[LOG 22:39:24.010] [Parsek][VERBOSE][TestRunner] Batch baseline: deleted persistent.sfs backup 'ptb-2f875fda-persistent.bak'
+[LOG 22:39:24.010] [Parsek][INFO][TestRunner] Disk-only batch isolation torn down (batch-complete)
+[LOG 22:39:24.012] [Parsek][INFO][TestRunner] Test batch crash marker cleared (batch-complete)
+[LOG 22:39:24.012] [Parsek][INFO][TestRunner] Test run complete: 1 passed, 0 failed, 0 skipped (of 1)
+[LOG 22:39:24.016] [Parsek][INFO][TestRunner] Test results written to <HOME>/Documents/Code/Parsek/automation/stock-minimal/KSP_x64_Data/../parsek-test-results.txt (auto after run)
+[LOG 22:39:24.016] [Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=AutoHireReservation scene=SPACECENTER
+[LOG 22:39:24.021] [Parsek][INFO][TestCommands] runtests multi-category token settled category=AutoHireReservation considered=1 passed=1 failed=0 skipped=0 batches=1/2
+[LOG 22:39:24.022] [Parsek][INFO][TestCommands] runtests multi-category next category=FreeTechUnlock remaining=0 isolated=false
+[LOG 22:39:24.022] [Parsek][INFO][TestRunner] batch dispatch: entry=RunCategory category=FreeTechUnlock isolated=false
+[LOG 22:39:24.022] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: begin reason=run-category:FreeTechUnlock scene=SPACECENTER
+[LOG 22:39:24.022] [Parsek][VERBOSE][TestRunner] PerformBetweenRunCleanup: no ParsekFlight.Instance — skipping flight-scene ghost teardown
+[LOG 22:39:24.022] [Parsek][VERBOSE][GhostMap] Between-run ghost vessel removal: reason=run-category:FreeTechUnlock scene=SPACECENTER tracked=0 untrackedLive=0 untrackedRemoved=0 staleRegisteredPids=0 liveVesselsBefore=0 liveVesselsAfter=0 (no registered ghost vessel is live)
+[LOG 22:39:24.022] [Parsek][VERBOSE][GhostMap] ResetBetweenTestRuns: all dictionaries already empty (reason=run-category:FreeTechUnlock) — noop
+[LOG 22:39:24.022] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: end reason=run-category:FreeTechUnlock ghostsBefore=0 mapPidsBefore=0 mapPidsAfter=0 ghostVesselsRemoved=0
+[LOG 22:39:24.027] [Parsek][VERBOSE][TestRunner] ForceCloseOpenSpaceCenterFacilities: no open facilities reason=run-category:FreeTechUnlock
+[LOG 22:39:24.028] [Parsek][INFO][TestRunner] Batch baseline: backed up campaign persistent.sfs (49262 bytes) to 'ptb-10768725-persistent.bak'
+[LOG 22:39:24.028] [Parsek][INFO][TestRunner] Batch isolation captured: mode=DiskOnly slot='(disk-only)' persistentBackup='<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\fresh-career\ptb-10768725-persistent.bak' batchInstanceId=126a2e45013c4e6785772ef4dc0b705c
+[LOG 22:39:24.030] [Parsek][INFO][RecState] [#6][OnSave:pre] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=0.2 scene=SPACECENTER
+[LOG 22:39:24.030] [Parsek][INFO][Scenario] OnSave: saving 0 committed recordings
+[LOG 22:39:24.030] [Parsek][INFO][Scenario] OnSave: saving 0 committed tree(s)
+[LOG 22:39:24.030] [Parsek][VERBOSE][Mission] Saved 0 mission(s)
+[LOG 22:39:24.030] [Parsek][VERBOSE][KerbalsModule] SaveSlots: no slots to save
+[LOG 22:39:24.031] [Parsek][INFO][GameStateStore] Saved 0/0 game state events, 0/0 contract snapshots, 0 science subjects to <HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\fresh-career\Parsek\GameState\events.pgse
+[LOG 22:39:24.033] [Parsek][VERBOSE][GameStateStore] Saved baseline at UT 0 to <HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\fresh-career\Parsek\GameState\baseline_0.pgsb
+[LOG 22:39:24.033] [Parsek][VERBOSE][Scenario] OnSave: flushing pending events at UT 0
+[LOG 22:39:24.033] [Parsek][VERBOSE][MilestoneStore] FlushPendingEvents: currentUT=0
+[LOG 22:39:24.033] [Parsek][VERBOSE][MilestoneStore] CreateMilestone: scanning visible events in window UT 0-0, recordingId=(flush)
+[LOG 22:39:24.033] [Parsek][VERBOSE][MilestoneStore] CreateMilestone: 0 total events, 0 matched, skipped: hidden=0, window=0, resource=0
+[LOG 22:39:24.033] [Parsek][VERBOSE][MilestoneStore] No visible game state events for milestone (UT 0-0) — skipped
+[LOG 22:39:24.035] [Parsek][INFO][MilestoneStore] Saved 0 milestones to <HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\fresh-career\Parsek\GameState\milestones.pgsm
+[LOG 22:39:24.035] [Parsek][VERBOSE][MilestoneStore] SaveMutableState: wrote 0 MILESTONE_STATE nodes
+[LOG 22:39:24.036] [Parsek][VERBOSE][Ledger] Saved ledger to '<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\fresh-career\Parsek\GameState\ledger.pgld': version=0, actions=3
+[LOG 22:39:24.036] [Parsek][VERBOSE][LedgerOrchestrator] OnSave: ledger saved to '<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\fresh-career\Parsek\GameState\ledger.pgld'
+[LOG 22:39:24.036] [Parsek][VERBOSE][Scenario] OnSave: wrote external game-state files and the GAME_STATE node (events=0, milestones=0, baselines=1, ledgerRows=3, pendingScience=0, attemptEvents=0, attemptTree=<none>)
+[LOG 22:39:24.036] [Parsek][INFO][TestBatch] marker saved: 18f8ee1a86be4e738ff4d82ac19603a9
+[LOG 22:39:24.036] [Parsek][INFO][Rewind] RewindPoints saved: 0
+[LOG 22:39:24.036] [Parsek][INFO][Supersede] RecordingSupersedes saved: 0
+[LOG 22:39:24.036] [Parsek][INFO][Rewind] RecordingRewindRetirements saved: 0
+[LOG 22:39:24.036] [Parsek][INFO][LedgerSwap] LedgerTombstones saved: 0
+[LOG 22:39:24.036] [Parsek][INFO][ReFlySession] Marker saved: none
+[LOG 22:39:24.036] [Parsek][INFO][MergeJournal] Journal saved: none
+[LOG 22:39:24.036] [Parsek][INFO][SwitchIntent] intent saved: none
+[LOG 22:39:24.036] [Parsek][INFO][SwitchSegment] session saved: none
+[LOG 22:39:24.036] [Parsek][INFO][Scenario] OnSave: Re-Fly subsystem state persisted (saved collections, not a rewind action; reFlyInProgress=False): rewindPoints=0 supersedes=0 rewindRetirements=0 tombstones=0 marker=False journal=False switchIntent=False switchSegment=False
+[LOG 22:39:24.036] [Parsek][VERBOSE][RouteEventLog] Save: no route events to write
+[LOG 22:39:24.036] [Parsek][VERBOSE][Route] SaveRoutesTo: no routes to save
+[LOG 22:39:24.036] [Parsek][VERBOSE][StockPoolReference] Saved: pools=3 rows=0 takenBackRows=0 funds=lastWritten=500000/rows=0 science=lastWritten=100/rows=0 reputation=lastWritten=0/rows=0
+[LOG 22:39:24.036] [Parsek][INFO][RecState] [#7][OnSave:post] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=0.2 scene=SPACECENTER
+[LOG 22:39:24.036] [Parsek][VERBOSE][Diagnostics] OnSave: 6ms (0 dirty of 0)
+[LOG 22:39:24.050] [Parsek][INFO][TestHelper] TriggerCampaignPersistentSave: saved 'fresh-career/persistent' (persistent)
+[LOG 22:39:24.050] [Parsek][INFO][TestRunner] Test batch crash marker written (mode=DiskOnly, backup='<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\fresh-career\ptb-10768725-persistent.bak')
+[LOG 22:39:24.050] [Parsek][INFO][TestRunner] Starting test run: 1 tests
+[LOG 22:39:24.050] [Parsek][VERBOSE][TestRunner] Running: FreeTechUnlockCaptureInGameTest.UnlockProtoTechNode_LockedNode_IsCapturedOnce
+[LOG 22:39:24.053] [Parsek][VERBOSE][FreeTechUnlockCapture] Free tech unlock not captured: tech='basicRocketry' reason=already-available
+[LOG 22:39:24.053] [Parsek][INFO][FreeTechUnlockInGame] UnlockProtoTechNode_LockedNode_IsCapturedOnce: tech='basicRocketry' captured once, parts=5, repeat skipped
+[LOG 22:39:24.053] [Parsek][VERBOSE][FreeTechUnlockInGame] restored proto entry for 'basicRocketry' (hadEntry=False)
+[LOG 22:39:24.053] [Parsek][VERBOSE][TestRunner] PASSED: FreeTechUnlockCaptureInGameTest.UnlockProtoTechNode_LockedNode_IsCapturedOnce (2.0ms)
+[LOG 22:39:24.058] [Parsek][VERBOSE][TestRunner] ForceCloseOpenSpaceCenterFacilities: no open facilities reason=post-test:FreeTechUnlockCaptureInGameTest.UnlockProtoTechNode_LockedNode_IsCapturedOnce
+[LOG 22:39:24.088] [Parsek][VERBOSE][TestRunner] Batch-end corruption check skipped: no FLIGHT/TS baseline and no exception storm (this batch performed no scene reloads)
+[LOG 22:39:24.095] [Parsek][INFO][TestRunner] Batch baseline: restored campaign persistent.sfs (49262 bytes) from batch-start backup; later FlushAndQuit saves are suppressed so this restore stays the last write
+[LOG 22:39:24.095] [Parsek][VERBOSE][TestRunner] Batch baseline: deleted persistent.sfs backup 'ptb-10768725-persistent.bak'
+[LOG 22:39:24.095] [Parsek][INFO][TestRunner] Disk-only batch isolation torn down (batch-complete)
+[LOG 22:39:24.097] [Parsek][INFO][TestRunner] Test batch crash marker cleared (batch-complete)
+[LOG 22:39:24.097] [Parsek][INFO][TestRunner] Test run complete: 1 passed, 0 failed, 0 skipped (of 1)
+[LOG 22:39:24.100] [Parsek][INFO][TestRunner] Test results written to <HOME>/Documents/Code/Parsek/automation/stock-minimal/KSP_x64_Data/../parsek-test-results.txt (auto after run)
+[LOG 22:39:24.100] [Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=FreeTechUnlock scene=SPACECENTER
+[LOG 22:39:24.105] [Parsek][INFO][TestCommands] runtests multi-category token settled category=FreeTechUnlock considered=1 passed=1 failed=0 skipped=0 batches=2/2
+[LOG 22:39:24.105] [Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=multi:2 scene=SPACECENTER
+[LOG 22:39:24.105] [Parsek][INFO][TestCommands] runtests complete passed=2 failed=0 skipped=0 multi=2 results=parsek-test-results.txt
+[LOG 22:39:24.106] [Parsek][VERBOSE][TestCommands] journal id=0003 phase=EXECUTED
+[LOG 22:39:24.106] [Parsek][INFO][TestCommands] exec id=0003 verdict=OK
+[LOG 22:39:24.106] [Parsek][VERBOSE][TestCommands] response appended id=0003 verdict=OK
+[LOG 22:39:24.106] [Parsek][VERBOSE][TestCommands] journal id=0003 phase=DONE
+[LOG 22:39:24.106] [Parsek][VERBOSE][ELS] Rebuilt: 3 entries from 3 actions (skippedTombstoned=0 tombstonesTotal=0)
+[LOG 22:39:24.106] [Parsek][VERBOSE][ERS] Rebuilt: 0 entries from 0 committed (skippedNotCommitted=0 skippedSuperseded=0 skippedRewindRetired=0 skippedSuppressed=0 marker=none)
+[LOG 22:39:24.106] [Parsek][VERBOSE][CommittedFutureIndex] Rebuilt committed-future index: entries=0 from els=3 ers=0 tech=0 facility=0 accept=0 complete=0 fail=0 cancel=0 hire=0 dismiss=0 strategyOn=0 strategyOff=0 part=0 destroy=0 repair=0 rebuild=0 assignments=0 skippedUncommitted=0 upgrade=0
+[LOG 22:39:24.127] [Parsek][INFO][TestCommands] recv id=0004 cmd=FlushAndQuit args=0
+[LOG 22:39:24.127] [Parsek][INFO][TestCommands] dispatch id=0004 -> EXECUTE
+[LOG 22:39:24.127] [Parsek][VERBOSE][TestCommands] journal id=0004 phase=CLAIMED
+[LOG 22:39:24.127] [Parsek][INFO][TestCommands] exec id=0004 cmd=FlushAndQuit start
+[LOG 22:39:24.127] [Parsek][INFO][TestCommands] flushandquit: save suppressed (batch baseline already restored) - the in-game test batch teardown reverted persistent.sfs to its batch-start bytes and that revert is the intended final state; quitting without re-saving
+[LOG 22:39:24.127] [Parsek][INFO][TestCommands] flushandquit: saved=false game-loaded=true; quitting
+[LOG 22:39:24.128] [Parsek][VERBOSE][TestCommands] journal id=0004 phase=EXECUTED
+[LOG 22:39:24.128] [Parsek][INFO][TestCommands] exec id=0004 verdict=OK
+[LOG 22:39:24.128] [Parsek][VERBOSE][TestCommands] response appended id=0004 verdict=OK
+[LOG 22:39:24.128] [Parsek][VERBOSE][TestCommands] journal id=0004 phase=DONE
+[LOG 22:39:24.128] [Parsek][INFO][TestCommands] flushandquit: scheduling Application.Quit (deferred one frame) id=0004
+[LOG 22:39:24.140] [Parsek][INFO][TestCommands] flushandquit: Application.Quit
+[LOG 22:39:24.149] [Parsek][INFO][Init] Application quitting latched source=OnApplicationQuit - teardown-time repair paths stand down from here
+[LOG 22:39:24.149] [Parsek][VERBOSE][GhostMap] Planetarium camera retarget skipped before application-quit: no ghost map vessels
+[LOG 22:39:24.745] [Parsek][VERBOSE][GhostMap] GhostTrajectoryPolylineRenderer.Driver destroyed
+[LOG 22:39:24.758] [Parsek][INFO][KSC] ParsekKSC destroyed
+[LOG 22:39:24.758] [Parsek][VERBOSE][UI] KerbalsWindow: unsubscribed from 8 live-crew GameEvents
+[LOG 22:39:24.766] [Parsek][INFO][GameStateRecorder] GameStateRecorder unsubscribed
+[LOG 22:39:24.766] [Parsek][INFO][RevertDetector] Unsubscribed from GameEvents.OnRevertTo*FlightState
+[LOG 22:39:24.766] [Parsek][VERBOSE][ReFlySession] ReFlyRevertButtonGate: unsubscribed from GameEvents.onFlightReady
+[LOG 22:39:24.767] [Parsek][INFO][Pipeline-Session] Clear: reason=scenario-destroyed previousSessionId=<none> clearedCount=0
+[LOG 22:39:24.767] [Parsek][INFO][Rewind] Staged-list handoff captured reason=OnDestroy rps=0 supersedes=0 retirements=0 tombstones=0 journal=none marker=none saveFolder=fresh-career

@@ -1,0 +1,122 @@
+{
+  "assertions": [
+    {
+      "expectedVesselName": "Mallard",
+      "launchSite": "Runway",
+      "met": true,
+      "name": "rolloutObserved",
+      "value": "Mallard"
+    },
+    {
+      "met": true,
+      "name": "stagedAtPrelaunch",
+      "note": "Parsek's first-staging auto-record trigger requires PRELAUNCH",
+      "stageUT": 30.719999999999434,
+      "value": "PRE_LAUNCH"
+    },
+    {
+      "groundSteerConfirmed": false,
+      "groundSteerFlipped": false,
+      "groundSteerSign": 1.0,
+      "limitMeters": 1500.0,
+      "maxGroundHeadingErr": 8.729743957519531,
+      "met": false,
+      "name": "airborne",
+      "takeoffSpeed": null,
+      "takeoffUT": null,
+      "value": null
+    },
+    {
+      "band": 60.0,
+      "cruiseAltitude": 1000.0,
+      "met": false,
+      "name": "cruiseAltitudeReached",
+      "value": 3.2297738105989993
+    },
+    {
+      "bankSignConfirmed": false,
+      "bankSignFlipped": false,
+      "captureUTs": [],
+      "met": false,
+      "name": "circuitFlown",
+      "value": 0,
+      "waypoints": 3
+    },
+    {
+      "lat": null,
+      "lon": null,
+      "met": false,
+      "missMeters": null,
+      "name": "touchedDown",
+      "speed": null,
+      "touchdownUT": null,
+      "value": null,
+      "verticalSpeed": null
+    },
+    {
+      "met": false,
+      "name": "cameToRest",
+      "phasesReached": [
+        "ROLLOUT",
+        "ARM",
+        "RECORD-SETTLE",
+        "TAKEOFF-ROLL"
+      ],
+      "stopSpeed": 1.0,
+      "value": null
+    }
+  ],
+  "connect": {
+    "attempts": 1,
+    "connectedSeconds": 0.18649559997720644,
+    "rpcPort": 50000
+  },
+  "error": null,
+  "krpcClientVersion": "0.5.4",
+  "krpcServerVersion": "0.5.4",
+  "mission": "air1_runway_circuit",
+  "phasesReached": [
+    "ROLLOUT",
+    "ARM",
+    "RECORD-SETTLE",
+    "TAKEOFF-ROLL"
+  ],
+  "reason": "phase TAKEOFF-ROLL: heading drift on the ground roll: heading 81.7 vs runway 90.4 (error +8.7 deg past the 8.0 deg limit) at 52.3 m/s, 355 m from brake release, wheel steering +0.00 (sign +1, AutoPilot engaged); throttle cut and brakes on",
+  "schema": 1,
+  "verdict": "MISSION-FLAKE",
+  "wallSeconds": 28.53,
+  "warpUtilisation": [
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 2.84,
+      "gameSecondsPerWallSecond": 0.46,
+      "phase": "ROLLOUT",
+      "wallSeconds": 6.168,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 0.52,
+      "gameSecondsPerWallSecond": 1.003,
+      "phase": "ARM",
+      "wallSeconds": 0.519,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 4.74,
+      "gameSecondsPerWallSecond": 0.977,
+      "phase": "RECORD-SETTLE",
+      "wallSeconds": 4.85,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 16.8,
+      "gameSecondsPerWallSecond": 1.0,
+      "phase": "TAKEOFF-ROLL",
+      "wallSeconds": 16.796,
+      "warpCommands": 0
+    }
+  ]
+}

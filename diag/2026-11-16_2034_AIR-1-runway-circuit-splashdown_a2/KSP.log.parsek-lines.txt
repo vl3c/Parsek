@@ -1,0 +1,1463 @@
+[LOG 22:34:50.241] [Parsek][INFO][SceneExit] Subscribed to GameEvents.onSceneConfirmExit and onGameStateSaved (quit-without-saving detection)
+[LOG 22:34:50.242] [Parsek][VERBOSE][Kerbals] terminal stamp observer installed
+[LOG 22:34:50.245] [Parsek][VERBOSE][Harmony] Harmony patch applied: RevertToLaunchInterceptor targets=1
+[LOG 22:34:50.246] [Parsek][VERBOSE][Harmony] Harmony patch applied: RevertToPrelaunchInterceptor targets=1
+[LOG 22:34:50.248] [Parsek][VERBOSE][Harmony] Harmony patch applied: HighLogic_LoadScene_Patch targets=1
+[LOG 22:34:50.251] [Parsek][INFO][TestCommands] focus lock suppression armed targets=5 (automation: PARSEK_TEST_COMMANDS=1)
+[LOG 22:34:50.254] [Parsek][VERBOSE][Harmony] Harmony patch applied: AutomationFocusLockSuppressionPatch targets=5
+[LOG 22:34:50.255] [Parsek][VERBOSE][Harmony] Harmony patch applied: ActiveCrewCountPatch targets=1
+[LOG 22:34:50.256] [Parsek][VERBOSE][Harmony] Harmony patch applied: AlarmJumpSwitchPatch targets=1
+[LOG 22:34:50.258] [Parsek][VERBOSE][Harmony] Harmony patch applied: AlarmJumpButtonMarkPatch targets=1
+[LOG 22:34:50.261] [Parsek][VERBOSE][Harmony] Harmony patch applied: AllowNegativeCurrencyLockDialogPatch targets=1
+[LOG 22:34:50.262] [Parsek][VERBOSE][Harmony] Harmony patch applied: AllowNegativeCurrencyLockInteractiblePatch targets=1
+[LOG 22:34:50.266] [Parsek][VERBOSE][Harmony] Harmony patch applied: AstronautComplexAddItemPatch targets=4
+[LOG 22:34:50.272] [Parsek][VERBOSE][Harmony] Harmony patch applied: AstronautComplexCrewCountsPatch targets=1
+[LOG 22:34:50.275] [Parsek][VERBOSE][Harmony] Harmony patch applied: CrewTooltipReservationPatch targets=1
+[LOG 22:34:50.277] [Parsek][VERBOSE][Harmony] Harmony patch applied: CheatTeleportPatch targets=1
+[LOG 22:34:50.278] [Parsek][VERBOSE][Harmony] Harmony patch applied: ClaimedVesselLaunchSiteTestPatch targets=1
+[LOG 22:34:50.278] [Parsek][VERBOSE][Harmony] Harmony patch applied: ClaimedVesselLaunchSiteProceedPatch targets=1
+[LOG 22:34:50.279] [Parsek][VERBOSE][Harmony] Harmony patch applied: ClaimedVesselLaunchSiteDescriptionPatch targets=1
+[LOG 22:34:50.282] [Parsek][VERBOSE][Harmony] Harmony patch applied: ClaimedVesselLaunchSiteFacilityDialogPatch targets=1
+[LOG 22:34:50.283] [Parsek][VERBOSE][Harmony] Harmony patch applied: ClaimedVesselLaunchSiteClearSitePatch targets=1
+[LOG 22:34:50.286] [Parsek][VERBOSE][Harmony] Harmony patch applied: ClaimedVesselLaunchSiteLaunchChecksPatch targets=1
+[LOG 22:34:50.289] [Parsek][VERBOSE][Harmony] Harmony patch applied: DeployedScienceSubmitScopePatch targets=1
+[LOG 22:34:50.294] [Parsek][VERBOSE][Harmony] Harmony patch applied: SentinelDetectionScopePatch targets=2
+[LOG 22:34:50.298] [Parsek][VERBOSE][Harmony] Harmony patch applied: ResourceScannerScopePatch targets=2
+[LOG 22:34:50.299] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractAcceptPatch targets=1
+[LOG 22:34:50.300] [Parsek][VERBOSE][Harmony] Harmony patch applied: MissionControlAcceptPatch targets=1
+[LOG 22:34:50.300] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractCancelPatch targets=1
+[LOG 22:34:50.304] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractSystemRebuildContractsScopePatch targets=1
+[LOG 22:34:50.364] [Parsek][VERBOSE][StockUiOverlay] Contract Configurator not loaded (ContractConfigurator.ContractConfigurator absent) - ContractConfiguratorCanAcceptPatch and the other CC hooks are skipped; the stock Mission Control hooks cover every row
+[LOG 22:34:50.364] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractConfiguratorCanAcceptPatch targets=0
+[LOG 22:34:50.389] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractConfiguratorContractTitlePatch targets=0
+[LOG 22:34:50.416] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractConfiguratorListRebuildPatch targets=0
+[LOG 22:34:50.418] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractDeclinePatch targets=1
+[LOG 22:34:50.422] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractEarlyFailPatch targets=1
+[LOG 22:34:50.434] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractOfferExpiredCapturePatch targets=1
+[LOG 22:34:50.436] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractParameterRewardCapturePatch targets=1
+[LOG 22:34:50.437] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractTwinGenerationPatch targets=1
+[LOG 22:34:50.439] [Parsek][VERBOSE][Harmony] Harmony patch applied: MilestoneConversionCauseScopePatch targets=1
+[LOG 22:34:50.440] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractCompleteConversionCauseScopePatch targets=1
+[LOG 22:34:50.441] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractFailConversionCauseScopePatch targets=1
+[LOG 22:34:50.443] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractCancelConversionCauseScopePatch targets=1
+[LOG 22:34:50.445] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractParameterConversionCauseScopePatch targets=1
+[LOG 22:34:50.447] [Parsek][VERBOSE][Harmony] Harmony patch applied: ScienceSubjectConversionCauseScopePatch targets=1
+[LOG 22:34:50.448] [Parsek][VERBOSE][Harmony] Harmony patch applied: SurveyConversionCauseScopePatch targets=1
+[LOG 22:34:50.450] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartPurchaseConversionCauseScopePatch targets=1
+[LOG 22:34:50.451] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartUpgradeConversionCauseScopePatch targets=1
+[LOG 22:34:50.452] [Parsek][VERBOSE][Harmony] Harmony patch applied: CrewAutoAssignPatch targets=1
+[LOG 22:34:50.454] [Parsek][VERBOSE][Harmony] Harmony patch applied: CrewDialogAvailItemPatch targets=1
+[LOG 22:34:50.456] [Parsek][VERBOSE][Harmony] Harmony patch applied: CrewDialogAvailListPatch targets=1
+[LOG 22:34:50.457] [Parsek][VERBOSE][Harmony] Harmony patch applied: CrewDialogMoveToSeatPatch targets=1
+[LOG 22:34:50.460] [Parsek][VERBOSE][Harmony] Harmony patch applied: CrewDialogDropOnCrewListPatch targets=1
+[LOG 22:34:50.461] [Parsek][VERBOSE][Harmony] Harmony patch applied: CrewDialogFillPatch targets=1
+[LOG 22:34:50.462] [Parsek][VERBOSE][Harmony] Harmony patch applied: CrewRespawnTimerPatch targets=1
+[LOG 22:34:50.464] [Parsek][VERBOSE][Harmony] Harmony patch applied: DockingNodeUndockIntentPatch targets=1
+[LOG 22:34:50.466] [Parsek][VERBOSE][Harmony] Harmony patch applied: FacilityDowngradeSpendPatch targets=1
+[LOG 22:34:50.475] [Parsek][VERBOSE][Harmony] Harmony patch applied: FacilityMenuUpgradeBlockPatch targets=1
+[LOG 22:34:50.476] [Parsek][VERBOSE][Harmony] Harmony patch applied: FacilityRepairScopePatch targets=1
+[LOG 22:34:50.477] [Parsek][VERBOSE][Harmony] Harmony patch applied: FacilityResetStructuresPatch targets=1
+[LOG 22:34:50.478] [Parsek][VERBOSE][Harmony] Harmony patch applied: FacilityUpgradePatch targets=1
+[LOG 22:34:50.480] [Parsek][VERBOSE][Harmony] Harmony patch applied: FacilityUpgradeSpendPatch targets=1
+[LOG 22:34:50.481] [Parsek][VERBOSE][Harmony] Harmony patch applied: FlagPickUpCapturePatch targets=1
+[LOG 22:34:50.484] [Parsek][VERBOSE][Harmony] Harmony patch applied: KerbalPortraitEvaPatch targets=1
+[LOG 22:34:50.486] [Parsek][VERBOSE][Harmony] Harmony patch applied: CrewHatchDialogCreateListPatch targets=1
+[LOG 22:34:50.489] [Parsek][VERBOSE][Harmony] Harmony patch applied: FlightEvaSpawnBackstopPatch targets=1
+[LOG 22:34:50.490] [Parsek][VERBOSE][Harmony] Harmony patch applied: CrewTransferCreateBackstopPatch targets=1
+[LOG 22:34:50.494] [Parsek][VERBOSE][Harmony] Harmony patch applied: FlightStateGhostBudgetPatch targets=1
+[LOG 22:34:50.503] [Parsek][VERBOSE][Harmony] Harmony patch applied: FloatingOriginSetOffsetPatch targets=1
+[LOG 22:34:50.505] [Parsek][VERBOSE][Harmony] Harmony patch applied: FreeTechUnlockCapturePatch targets=1
+[LOG 22:34:50.506] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostOrbitDominantBodyPatch targets=1
+[LOG 22:34:50.508] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostCheckKillPatch targets=1
+[LOG 22:34:50.512] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostOrbitIconDrivePatch targets=1
+[LOG 22:34:50.513] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostOrbitLinePatch targets=1
+[LOG 22:34:50.515] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostOrbitArcPatch targets=1
+[LOG 22:34:50.519] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostTrackingBuildVesselsListPatch targets=1
+[LOG 22:34:50.522] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostTrackingStationInitPatch targets=1
+[LOG 22:34:50.523] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostTrackingFlyPatch targets=1
+[LOG 22:34:50.524] [Parsek][VERBOSE][Harmony] Harmony patch applied: SwitchIntentTrackingStationFlyPatch targets=1
+[LOG 22:34:50.525] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostTrackingDeletePatch targets=1
+[LOG 22:34:50.529] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostTrackingSetVesselPatch targets=1
+[LOG 22:34:50.529] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostTrackingVesselIconClickPatch targets=1
+[LOG 22:34:50.530] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostTrackingRecoverPatch targets=1
+[LOG 22:34:50.531] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostOrbitCastPatch targets=1
+[LOG 22:34:50.532] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostIconClickPatch targets=1
+[LOG 22:34:50.538] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostVesselLoadPatch targets=1
+[LOG 22:34:50.544] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostVesselLoadedInertPatch targets=1
+[LOG 22:34:50.546] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostCommNetVesselPatch targets=1
+[LOG 22:34:50.546] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostVesselSwitchPatch targets=1
+[LOG 22:34:50.547] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostVesselForceSwitchPatch targets=1
+[LOG 22:34:50.547] [Parsek][INFO][GhostMap] GhostTargetCastNodesPatch: found TargetCastNodes with 1 params
+[LOG 22:34:50.549] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostTargetCastNodesPatch targets=1
+[LOG 22:34:50.549] [Parsek][VERBOSE][Harmony] Harmony patch applied: HackGravityPatch targets=1
+[LOG 22:34:50.550] [Parsek][VERBOSE][Harmony] Harmony patch applied: KerbalAutoHireApplicantPatch targets=1
+[LOG 22:34:50.550] [Parsek][VERBOSE][Harmony] Harmony patch applied: KerbalDismissalPatch targets=1
+[LOG 22:34:50.552] [Parsek][VERBOSE][Harmony] Harmony patch applied: KerbalSackPatch targets=1
+[LOG 22:34:50.552] [Parsek][VERBOSE][Harmony] Harmony patch applied: AstronautComplexDismissPatch targets=1
+[LOG 22:34:50.554] [Parsek][VERBOSE][Harmony] Harmony patch applied: KerbalHirePatch targets=1
+[LOG 22:34:50.555] [Parsek][VERBOSE][Harmony] Harmony patch applied: AstronautComplexHireRecruitPatch targets=1
+[LOG 22:34:50.556] [Parsek][VERBOSE][Harmony] Harmony patch applied: KscVesselMarkerFlyPatch targets=1
+[LOG 22:34:50.556] [Parsek][VERBOSE][Harmony] Harmony patch applied: CanAffordLaunchTestPatch targets=1
+[LOG 22:34:50.556] [Parsek][VERBOSE][Harmony] Harmony patch applied: CanAffordLaunchTestDescriptionPatch targets=1
+[LOG 22:34:50.559] [Parsek][VERBOSE][Harmony] Harmony patch applied: EditorLaunchButtonUpdateUiPatch targets=1
+[LOG 22:34:50.561] [Parsek][VERBOSE][Harmony] Harmony patch applied: VesselSpawnDialogLaunchButtonPatch targets=1
+[LOG 22:34:50.562] [Parsek][VERBOSE][Harmony] Harmony patch applied: LaunchSiteFlyoutPointerEnterPatch targets=1
+[LOG 22:34:50.564] [Parsek][VERBOSE][Harmony] Harmony patch applied: MapFocusObjectOnSelectPatch targets=1
+[LOG 22:34:50.567] [Parsek][VERBOSE][Harmony] Harmony patch applied: MissionControlRebuildPassPatch targets=1
+[LOG 22:34:50.569] [Parsek][VERBOSE][Harmony] Harmony patch applied: MissionControlAddItemLabelPatch targets=1
+[LOG 22:34:50.573] [Parsek][VERBOSE][Harmony] Harmony patch applied: MissionControlInfoPanelPatch targets=1
+[LOG 22:34:50.574] [Parsek][VERBOSE][Harmony] Harmony patch applied: MissionControlRefreshUIControlsPatch targets=1
+[LOG 22:34:50.577] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartMassivePartCheckSeederPatch targets=1
+[LOG 22:34:50.581] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartListTooltipSetupPartPatch targets=1
+[LOG 22:34:50.588] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartListTooltipSetupUpgradePatch targets=1
+[LOG 22:34:50.594] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartListTooltipReasonPatch targets=1
+[LOG 22:34:50.595] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartListTooltipPurchasePatch targets=1
+[LOG 22:34:50.596] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartListTooltipPurchaseUpgradePatch targets=1
+[LOG 22:34:50.597] [Parsek][VERBOSE][Harmony] Harmony patch applied: RnDPurchaseAllPatch targets=1
+[LOG 22:34:50.598] [Parsek][VERBOSE][Harmony] Harmony patch applied: RDTechPurchasePartPatch targets=1
+[LOG 22:34:50.605] [Parsek][VERBOSE][Harmony] Harmony patch applied: PhysicsFramePatch targets=1
+[LOG 22:34:50.607] [Parsek][VERBOSE][Harmony] Harmony patch applied: ProgressRewardPatch targets=1
+[LOG 22:34:50.608] [Parsek][VERBOSE][Harmony] Harmony patch applied: RecoveryScopeVesselRetrievalPatch targets=1
+[LOG 22:34:50.609] [Parsek][VERBOSE][Harmony] Harmony patch applied: RecoveryScopeTrackingStationPatch targets=1
+[LOG 22:34:50.610] [Parsek][VERBOSE][Harmony] Harmony patch applied: RecoveryScopeRecoverVesselFromFlightPatch targets=1
+[LOG 22:34:50.612] [Parsek][VERBOSE][Harmony] Harmony patch applied: RecoveryScopeProtoVesselCleanPatch targets=1
+[LOG 22:34:50.615] [Parsek][VERBOSE][Harmony] Harmony patch applied: RecoveryPayoutScopePatch targets=1
+[LOG 22:34:50.617] [Parsek][VERBOSE][Harmony] Harmony patch applied: RecoveryFundsEffectScopePatch targets=1
+[LOG 22:34:50.617] [Parsek][VERBOSE][Harmony] Harmony patch applied: ResourceScanUnlockPlanetPatch targets=1
+[LOG 22:34:50.619] [Parsek][VERBOSE][Harmony] Harmony patch applied: ResourceScanUnlockBiomePatch targets=1
+[LOG 22:34:50.622] [Parsek][VERBOSE][Harmony] Harmony patch applied: RnDNodeMarkPatch targets=1
+[LOG 22:34:50.624] [Parsek][VERBOSE][Harmony] Harmony patch applied: RnDNodeTooltipPatch targets=1
+[LOG 22:34:50.625] [Parsek][VERBOSE][Harmony] Harmony patch applied: RnDPanelBlockPatch targets=1
+[LOG 22:34:50.626] [Parsek][VERBOSE][Harmony] Harmony patch applied: RnDPanelDescriptionPatch targets=1
+[LOG 22:34:50.630] [Parsek][VERBOSE][Harmony] Harmony patch applied: RnDRefreshPassLogPatch targets=1
+[LOG 22:34:50.630] [Parsek][VERBOSE][Harmony] Harmony patch applied: ScienceLabTransmissionCreditPatch targets=1
+[LOG 22:34:50.632] [Parsek][VERBOSE][Harmony] Harmony patch applied: ScienceLabRecoveryCreditPatch targets=1
+[LOG 22:34:50.635] [Parsek][VERBOSE][Harmony] Harmony patch applied: OrbitalSurveyCreditPatch targets=1
+[LOG 22:34:50.636] [Parsek][VERBOSE][Harmony] Harmony patch applied: ScienceSubjectPatch targets=2
+[LOG 22:34:50.638] [Parsek][VERBOSE][Harmony] Harmony patch applied: StrategySystemUpdateActivationPatch targets=1
+[LOG 22:34:50.640] [Parsek][VERBOSE][Harmony] Harmony patch applied: StrategyActivatePatch targets=1
+[LOG 22:34:50.641] [Parsek][VERBOSE][Harmony] Harmony patch applied: StrategyDeactivatePatch targets=1
+[LOG 22:34:50.642] [Parsek][VERBOSE][Harmony] Harmony patch applied: StrategyUpdateExpiryPatch targets=1
+[LOG 22:34:50.644] [Parsek][VERBOSE][Harmony] Harmony patch applied: StrategySystemLoadStrategiesPatch targets=1
+[LOG 22:34:50.647] [Parsek][VERBOSE][Harmony] Harmony patch applied: StrategyCanBeActivatedPatch targets=1
+[LOG 22:34:50.649] [Parsek][VERBOSE][Harmony] Harmony patch applied: AdministrationSetSelectedStrategyPatch targets=1
+[LOG 22:34:50.650] [Parsek][VERBOSE][Harmony] Harmony patch applied: AdministrationUpdateStrategyStatsPatch targets=1
+[LOG 22:34:50.653] [Parsek][VERBOSE][Harmony] Harmony patch applied: AdministrationButtonBackstopPatch targets=1
+[LOG 22:34:50.659] [Parsek][VERBOSE][Harmony] Harmony patch applied: SunLateUpdateGuardPatch targets=1
+[LOG 22:34:50.660] [Parsek][VERBOSE][Harmony] Harmony patch applied: TechResearchPatch targets=1
+[LOG 22:34:50.662] [Parsek][VERBOSE][Harmony] Harmony patch applied: TechResearchSpendPatch targets=1
+[LOG 22:34:50.665] [Parsek][VERBOSE][Harmony] Harmony patch applied: VesselCycleReFlySwitchPatch targets=1
+[LOG 22:34:50.667] [Parsek][VERBOSE][Harmony] Harmony patch applied: VesselRenameAcceptCapturePatch targets=1
+[LOG 22:34:50.668] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartVesselNamingAcceptCapturePatch targets=1
+[LOG 22:34:50.676] [Parsek][VERBOSE][Harmony] Harmony patch applied: TrackingStationSetVesselPostfix targets=1
+[LOG 22:34:50.677] [Parsek][VERBOSE][Harmony] Harmony patch applied: TrackingStationUnlockUiPostfix targets=1
+[LOG 22:34:50.678] [Parsek][VERBOSE][Harmony] Harmony patch applied: KscMarkerCreatePostfix targets=1
+[LOG 22:34:50.680] [Parsek][VERBOSE][Harmony] Harmony patch applied: KscMarkersRecoverVesselPrefix targets=1
+[LOG 22:34:50.681] [Parsek][VERBOSE][Harmony] Harmony patch applied: DisplayPatch targets=1
+[LOG 22:34:50.682] [Parsek][VERBOSE][Harmony] Harmony patch applied: ClosePatch targets=1
+[LOG 22:34:50.683] [Parsek][VERBOSE][Harmony] Harmony patch applied: OnDestroyPatch targets=1
+[LOG 22:34:50.683] [Parsek][INFO][Init] SessionStart runUtc=1794861290
+[LOG 22:34:50.683] [Parsek][INFO][Harmony] Harmony patches applied: 153 succeeded, 0 failed
+[LOG 22:34:50.685] [Parsek][VERBOSE][Init] Install location OK: <HOME>\Documents\Code\Parsek\automation\stock-minimal\GameData\Parsek\Plugins\Parsek.dll
+[LOG 22:34:50.685] [Parsek][INFO][LoadPolicy] Subscribed to GameEvents.onGameStatePostLoad
+[LOG 22:34:50.686] [Parsek][VERBOSE][WarpTime] WarpToTimeConsumer initialized
+[LOG 22:34:50.687] [Parsek][VERBOSE][PostFlightDialog] PostFlightDialogLogHost initialized
+[LOG 22:34:50.689] [Parsek][INFO][TestCommands] armed (PARSEK_TEST_COMMANDS=1)
+[LOG 22:34:50.690] [Parsek][INFO][TestCommands] window placement desktop=skipped foreground=skipped hwnd=0x0 moveAttempts=0 elapsedSec=0.00
+[LOG 22:34:50.693] [Parsek][INFO][RenderManifest] inert: PARSEK_RENDER_MANIFEST=(unset)
+[LOG 22:34:50.694] [Parsek][INFO][TestRunner] autorun selector parsed: enabled=False selector='(unset)' categories=[] exit=False isolated=false
+[LOG 22:34:50.695] [Parsek][VERBOSE][GhostMap] GhostTrajectoryPolylineRenderer.Driver awake (DDOL singleton)
+[LOG 22:34:54.964] [Parsek][VERBOSE][CurrencyOverlay] CurrencyOverlay: scene=LOADING has no currency bar - controller idle
+[LOG 22:34:54.965] [Parsek][INFO][Toolbar] Toolbar registered: modId=Parsek_NS, modName=Parsek
+[LOG 22:34:54.965] [Parsek][VERBOSE][TestRunner] TestRunnerShortcut active in LOADING
+[LOG 22:34:54.972] [Parsek][INFO][TestCommands] lock acquired session=022892efaefa4144a4f562e64419dfd5 pid=37392
+[LOG 22:34:54.972] [Parsek][INFO][TestCommands] journal replay: 0 done, 0 executed-not-done (rewriting response), 0 claimed-not-executed (INTERRUPTED)
+[LOG 22:34:54.981] [Parsek][VERBOSE][Settings] verbose provider installed
+[LOG 22:35:09.306] [Parsek][VERBOSE][StockWarpLimits] registered OnPSystemReady stock-warp-limit capture
+[LOG 22:35:09.306] [Parsek][VERBOSE][CurrencyOverlay] CurrencyOverlay: scene=LOADING has no currency bar - controller idle
+[LOG 22:35:09.334] [Parsek][VERBOSE][ReFlySettle] FloatingOrigin.setOffset refPos=(5181655727.638,-198156829.822,3605546680.062) nonFrame=(0.000,0.000,0.000) offsetNonKrakensbane=(5181655727.638,-198156829.822,3605546680.062) magnitude=6315757204.89 wallclock=22.309 frame=5117
+[LOG 22:35:09.358] [Parsek][INFO][StockWarpLimits] captured stock timeWarpAltitudeLimits for 17 bodies (reason=OnPSystemReady)
+[LOG 22:35:13.375] [Parsek][VERBOSE][MapRenderTrace] probe per-pid state cleared on scene switch from=LOADING to=MAINMENU
+[LOG 22:35:13.969] [Parsek][VERBOSE][CurrencyOverlay] CurrencyOverlay: scene=MAINMENU has no currency bar - controller idle
+[LOG 22:35:14.035] [Parsek][INFO][TestCommands] recv id=0001 cmd=LoadGame args=2
+[LOG 22:35:14.035] [Parsek][VERBOSE][TestCommands] poll: read=1 lines, parsed=1, deferred-head=LoadGame
+[LOG 22:35:14.039] [Parsek][INFO][TestCommands] dispatch id=0001 -> EXECUTE
+[LOG 22:35:14.040] [Parsek][VERBOSE][TestCommands] journal id=0001 phase=CLAIMED
+[LOG 22:35:14.040] [Parsek][INFO][TestCommands] exec id=0001 cmd=LoadGame start
+[LOG 22:35:14.042] [Parsek][INFO][TestCommands] loadgame start save=gs1-two-stage-pad name=persistent scene=MAINMENU requestedScene=Unspecified allowLiveRecorder=(none) recorderLive=false playerLoad=false
+[LOG 22:35:14.042] [Parsek][VERBOSE][LoadPolicy] In-session save load announced: source=harness-loadgame
+[LOG 22:35:14.077] [Parsek][INFO][TestCommands] loadgame cold-boot: adopting loaded game as HighLogic.CurrentGame save=gs1-two-stage-pad
+[LOG 22:35:14.077] [Parsek][VERBOSE][TestRunner] Camera re-pin window armed (TestCommandLoadGame:gs1-two-stage-pad/persistent): any vessel switch before the next scene load lands re-pins the FlightCamera pivot onto the DDOL PSystemSetup root (stock Bug #4803 late-switch guard)
+[LOG 22:35:14.078] [Parsek][VERBOSE][MapRenderTrace] probe per-pid state cleared on scene switch from=MAINMENU to=FLIGHT
+[LOG 22:35:14.122] [Parsek][INFO][TestCommands] exec id=0001 verdict=PENDING (two-phase awaiting completion)
+[LOG 22:35:18.267] [Parsek][VERBOSE][SettingsStore] Settings file '<HOME>/Documents/Code/Parsek/automation/stock-minimal/KSP_x64_Data/../GameData\Parsek\PluginData\settings.cfg' has no verboseLogging — using default
+[LOG 22:35:18.267] [Parsek][VERBOSE][SettingsStore] Settings file '<HOME>/Documents/Code/Parsek/automation/stock-minimal/KSP_x64_Data/../GameData\Parsek\PluginData\settings.cfg' has no samplingDensity - using default
+[LOG 22:35:18.267] [Parsek][VERBOSE][SettingsStore] Settings file '<HOME>/Documents/Code/Parsek/automation/stock-minimal/KSP_x64_Data/../GameData\Parsek\PluginData\settings.cfg' has no ghostAudioVolume - using default
+[LOG 22:35:18.267] [Parsek][INFO][SettingsStore] Loaded settings from '<HOME>/Documents/Code/Parsek/automation/stock-minimal/KSP_x64_Data/../GameData\Parsek\PluginData\settings.cfg': writeReadableSidecarMirrors=True ghostRenderTracing=False mapRenderTracing=False ledgerTracing=False verboseLogging=<default> samplingDensity=<default> ghostAudioVolume=<default> uiComplexityMode=<default>
+[LOG 22:35:18.272] [Parsek][VERBOSE][SettingsStore] Saved settings to '<HOME>/Documents/Code/Parsek/automation/stock-minimal/KSP_x64_Data/../GameData\Parsek\PluginData\settings.cfg': writeReadableSidecarMirrors=True ghostRenderTracing=False mapRenderTracing=False ledgerTracing=False verboseLogging=<null> samplingDensity=<null> ghostAudioVolume=<null> uiComplexityMode=1
+[LOG 22:35:18.272] [Parsek][INFO][UI] First-run default resolved: uiComplexityMode=Advanced installHasParsekFootprint=True (savesParsekDir=True scenarioNodePopulated=True storedSettingsKeys=True) persisted=true
+[LOG 22:35:18.274] [Parsek][INFO][RecState] [#1][OnLoad:settings-applied] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=25.3 scene=FLIGHT
+[LOG 22:35:18.275] [Parsek][INFO][SaveFormat] pre-1.0 save (no parsekSaveFormat); loading best effort
+[LOG 22:35:18.276] [Parsek][INFO][Scenario] Save folder changed to 'gs1-two-stage-pad' — resetting session state
+[LOG 22:35:18.278] [Parsek][INFO][LoadPolicy] Load classified: early=Cold refined=Cold scene=FLIGHT initialLoadDone=false rewinding=false reFlyInvoke=false discardReFly=none handoff=absent coldReason=boot saveFileLoad=false revertPending=false intentAgeFrames=-1 nodeUT=NaN
+[LOG 22:35:18.281] [Parsek][VERBOSE][RecalcEngine] ClearModules: removed=0
+[LOG 22:35:18.281] [Parsek][VERBOSE][CommittedFutureIndex] Invalidated committed-future index: reason=save-scoped-reset
+[LOG 22:35:18.283] [Parsek][VERBOSE][RecalcEngine] ClearModules: removed=0
+[LOG 22:35:18.283] [Parsek][VERBOSE][RecalcEngine] Registered first-tier module: MilestonesModule, total=1
+[LOG 22:35:18.283] [Parsek][VERBOSE][RecalcEngine] Registered first-tier module: ContractsModule, total=2
+[LOG 22:35:18.283] [Parsek][VERBOSE][RecalcEngine] Registered first-tier module: ScienceModule, total=3
+[LOG 22:35:18.283] [Parsek][VERBOSE][RecalcEngine] Registered first-tier module: KerbalsModule, total=4
+[LOG 22:35:18.283] [Parsek][VERBOSE][RecalcEngine] Registered strategy transform module: StrategiesModule
+[LOG 22:35:18.283] [Parsek][VERBOSE][RecalcEngine] Registered second-tier module: FundsModule, total=1
+[LOG 22:35:18.283] [Parsek][VERBOSE][RecalcEngine] Registered second-tier module: ReputationModule, total=2
+[LOG 22:35:18.283] [Parsek][VERBOSE][RecalcEngine] Registered facilities module: FacilitiesModule
+[LOG 22:35:18.283] [Parsek][INFO][LedgerOrchestrator] Initialized: 8 modules registered
+[LOG 22:35:18.284] [Parsek][VERBOSE][LoadPolicy] DiscardReFly load intent clear requested reason=save-scoped-reset: nothing armed
+[LOG 22:35:18.284] [Parsek][VERBOSE][RevertDetector] Cold load: no pending revert to drop (reason=boot)
+[LOG 22:35:18.285] [Parsek][INFO][Scenario] Save-scoped session state reset: reason=boot pendingTreeDropped=false storesReset=15 droppedEvents=0 droppedMilestones=0 droppedPendingScience=0
+[LOG 22:35:18.285] [Parsek][INFO][CrewReservation] Loaded 0 crew replacements (no CREW_REPLACEMENTS node)
+[LOG 22:35:18.286] [Parsek][VERBOSE][KerbalsModule] LoadSlots: no KERBAL_SLOTS or CREW_REPLACEMENTS found
+[LOG 22:35:18.286] [Parsek][INFO][GroupHierarchy] Loaded 0 group hierarchy entries (no GROUP_HIERARCHY node)
+[LOG 22:35:18.286] [Parsek][INFO][GroupHierarchy] Loaded 0 hidden groups (no HIDDEN_GROUPS node)
+[LOG 22:35:18.288] [Parsek][INFO][Pipeline-Session] Clear: reason=marker-cleared previousSessionId=<none> clearedCount=0
+[LOG 22:35:18.289] [Parsek][INFO][TestBatch] marker loaded: none
+[LOG 22:35:18.289] [Parsek][INFO][Rewind] RewindPoints loaded: 0
+[LOG 22:35:18.289] [Parsek][INFO][Supersede] RecordingSupersedes loaded: 0
+[LOG 22:35:18.289] [Parsek][INFO][Rewind] RecordingRewindRetirements loaded: 0
+[LOG 22:35:18.289] [Parsek][INFO][LedgerSwap] LedgerTombstones loaded: 0
+[LOG 22:35:18.289] [Parsek][INFO][ReFlySession] Marker loaded: none
+[LOG 22:35:18.289] [Parsek][INFO][MergeJournal] Journal loaded: none
+[LOG 22:35:18.289] [Parsek][INFO][SwitchIntent] intent loaded: none
+[LOG 22:35:18.289] [Parsek][INFO][SwitchSegment] session loaded summary: none
+[LOG 22:35:18.289] [Parsek][INFO][Scenario] OnLoad: Re-Fly subsystem state loaded (restored collections, not a rewind action; reFlyInProgress=False): rewindPoints=0 supersedes=0 rewindRetirements=0 tombstones=0 marker=False journal=False switchIntent=False switchSegment=False
+[LOG 22:35:18.291] [Parsek][VERBOSE][ERS] Rebuilt: 0 entries from 0 committed (skippedNotCommitted=0 skippedSuperseded=0 skippedRewindRetired=0 skippedSuppressed=0 marker=none)
+[LOG 22:35:18.291] [Parsek][INFO][Route] RevalidateSources reason=SupersedeStateVersion-bump routes=0 transitioned=0 caughtUp=0 ersIndexed=0 ersTotal=0
+[LOG 22:35:18.292] [Parsek][INFO][StockPoolReference] Loaded (Cold): pools=0 rows=0 badRows=0 takenBackRows=0 funds=unset science=unset reputation=unset (no saved reference: each pool starts from its live value at its first patch)
+[LOG 22:35:18.293] [Parsek][INFO][RewindHold] Rewind vessel holds replaced: before=0 after=0 reason=load Cold
+[LOG 22:35:18.294] [Parsek][INFO][PlaybackScope] Replay scope installed from the save (load Cold): inScope=0 seenBeforeActivation=0 replacedInScope=0 replacedSeen=0 node=absent
+[LOG 22:35:18.294] [Parsek][VERBOSE][FlagReplay] Removed-flag tombstones replaced (load Cold): before=0 after=0
+[LOG 22:35:18.296] [Parsek][VERBOSE][Rewind] No staged-list handoff to consume (kind=Cold, owner=cold-load)
+[LOG 22:35:18.299] [Parsek][VERBOSE][LedgerGroundTruth] Parse: descended into GAME wrapper node
+[LOG 22:35:18.299] [Parsek][VERBOSE][LedgerGroundTruth] ParseUniversalTime: ut=25.339999999999549
+[LOG 22:35:18.299] [Parsek][VERBOSE][LedgerGroundTruth] ParseFunds: no Funding SCENARIO -> HasFunds=false
+[LOG 22:35:18.299] [Parsek][VERBOSE][LedgerGroundTruth] ParseScience: no ResearchAndDevelopment SCENARIO -> HasScience=false
+[LOG 22:35:18.299] [Parsek][VERBOSE][LedgerGroundTruth] ParseReputation: no Reputation SCENARIO -> HasRep=false
+[LOG 22:35:18.299] [Parsek][VERBOSE][LedgerGroundTruth] ParseFacilities: no ScenarioUpgradeableFacilities SCENARIO -> empty
+[LOG 22:35:18.301] [Parsek][VERBOSE][LedgerGroundTruth] ParseContracts: no ContractSystem SCENARIO -> empty
+[LOG 22:35:18.301] [Parsek][VERBOSE][LedgerGroundTruth] ParseMilestones: all=0 completed=0 (emitted ids: all=0 completed=0)
+[LOG 22:35:18.302] [Parsek][VERBOSE][LedgerGroundTruth] ParseVessels: parsed 2 vessel(s)
+[LOG 22:35:18.302] [Parsek][VERBOSE][LedgerGroundTruth] ParseRoster: kerbals=4 crew=4 applicants=0 dead=0 skippedNoName=0
+[LOG 22:35:18.303] [Parsek][VERBOSE][LedgerGroundTruth] ParseKerbalCareerLogs: kerbals=4 withLog=1 entries=1
+[LOG 22:35:18.303] [Parsek][VERBOSE][LedgerGroundTruth] ParseStrategies: no StrategySystem SCENARIO -> HasStrategySystem=false
+[LOG 22:35:18.303] [Parsek][VERBOSE][LedgerGroundTruth] Parse: complete hasUT=True hasFunds=False hasScience=False hasRep=False subjects=0 facilities=0 activeContracts=0 allContracts=0 completedMilestones=0 allMilestones=0 vessels=2 roster=4 unlockedTech=0 purchasedParts=0 strategies=0 activeStrategies=0 kerbalCareerLogs=1
+[LOG 22:35:18.303] [Parsek][INFO][Backup] Skip: reason=already-parsek-footprint save='gs1-two-stage-pad'
+[LOG 22:35:18.304] [Parsek][VERBOSE][Scenario] OnLoad: initial load - loading game state
+[LOG 22:35:18.304] [Parsek][INFO][Scenario] OnLoad game state from files (no GAME_STATE node)
+[LOG 22:35:18.304] [Parsek][VERBOSE][GameStateStore] Save folder changed to 'gs1-two-stage-pad' — resetting event load state
+[LOG 22:35:18.304] [Parsek][VERBOSE][GameStateStore] LoadEventFile: cleared prior state (0 events, 0 snapshots) before loading
+[LOG 22:35:18.304] [Parsek][INFO][GameStateStore] No game state events file found — starting fresh
+[LOG 22:35:18.305] [Parsek][VERBOSE][GameStateStore] No game state directory found — no baselines to load
+[LOG 22:35:18.305] [Parsek][VERBOSE][MilestoneStore] Save folder changed to 'gs1-two-stage-pad' — resetting milestone load state
+[LOG 22:35:18.305] [Parsek][INFO][MilestoneStore] No milestones file found — starting fresh
+[LOG 22:35:18.306] [Parsek][INFO][Paths] Created game state directory '<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gs1-two-stage-pad\Parsek\GameState'
+[LOG 22:35:18.306] [Parsek][VERBOSE][Ledger] Ledger file not found at '<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gs1-two-stage-pad\Parsek\GameState\ledger.pgld', starting with empty ledger
+[LOG 22:35:18.307] [Parsek][VERBOSE][CareerSettings] Loaded career settings lock from 'failed-load': allowNegative=none
+[LOG 22:35:18.307] [Parsek][INFO][CareerSettings] Allow negative currency locked off for this career (ledger-load): every loss is judged under it
+[LOG 22:35:18.307] [Parsek][VERBOSE][LedgerOrchestrator] OnLoad: ledger loaded from '<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gs1-two-stage-pad\Parsek\GameState\ledger.pgld'
+[LOG 22:35:18.310] [Parsek][INFO][GameStateRecorder] Game state: Facility cache seeded from current state (0 facilities, 0 buildings)
+[LOG 22:35:18.315] [Parsek][VERBOSE][GameStateRecorder] Facility poll pass: facilitiesChecked=0, buildingsChecked=0, eventsEmitted=0
+[LOG 22:35:18.315] [Parsek][INFO][GameStateRecorder] GameStateRecorder subscribed (0 events in history)
+[LOG 22:35:18.316] [Parsek][INFO][RevertDetector] Subscribed to GameEvents.OnRevertTo{Launch,Prelaunch}FlightState
+[LOG 22:35:18.316] [Parsek][VERBOSE][ReFlySession] ReFlyRevertButtonGate: subscribed to GameEvents.onFlightReady
+[LOG 22:35:18.316] [Parsek][VERBOSE][GameStateStore] CaptureBaselineIfNeeded: capturing baseline...
+[LOG 22:35:18.319] [Parsek][VERBOSE][Baseline] Captured baseline at ut=25 with no building state entries (scene=FLIGHT)
+[LOG 22:35:18.320] [Parsek][INFO][Baseline] Captured baseline at ut=25: tech=0, facilities=0, buildings=0, contracts=0, crew=4, science=0, reputation=0 (currency singletons expected=none, loaded=none)
+[LOG 22:35:18.320] [Parsek][INFO][GameStateStore] Game state baseline captured at UT 25 (total=1)
+[LOG 22:35:18.321] [Parsek][VERBOSE][RecordingStore] Durable committed-recording-id hint armed: ids=0
+[LOG 22:35:18.322] [Parsek][VERBOSE][RecordingStore] Validating chains: 0 branch group(s)
+[LOG 22:35:18.322] [Parsek][VERBOSE][RecordingStore] All chains validated OK
+[LOG 22:35:18.322] [Parsek][VERBOSE][VesselNames] Load: no VESSEL_NAMES node, empty store
+[LOG 22:35:18.323] [Parsek][INFO][Scenario] OnLoad initial: cleared CommittedTrees, loading 0 tree(s)
+[LOG 22:35:18.323] [Parsek][VERBOSE][Scenario] LoadRecordingTrees: named committed recordings=0 not loaded=0
+[LOG 22:35:18.324] [Parsek][INFO][Mission] Loaded 0 mission(s); unknownKeysKeptVerbatim=0
+[LOG 22:35:18.326] [Parsek][VERBOSE][MilestoneStore] BuildStateMap: parsed 0 entries from 0 MILESTONE_STATE nodes
+[LOG 22:35:18.328] [Parsek][VERBOSE][MilestoneStore] RestoreMutableState: 0 saved states, 0 milestones, resetUnmatched=False
+[LOG 22:35:18.328] [Parsek][INFO][MilestoneStore] RestoreMutableState complete: matched=0, reset=0, unchanged=0
+[LOG 22:35:18.328] [Parsek][INFO][Scenario] OnLoad: cold clock=25.339999999999549 (saveUT=25.339999999999549 planetariumUT=25.339999999999549 coldReason=boot)
+[LOG 22:35:18.330] [Parsek][INFO][Ledger] Reconcile complete: before=0, kept=0, prunedEarnings=0, prunedSpendings=0, prunedSpendingsByRecordingId=0, prunedContractLifecycle=0, prunedOther=0, maxUT=25.339999999999549, preserveFutureTimelineActions=True, validRecordingIds=0
+[LOG 22:35:18.331] [Parsek][INFO][LedgerOrchestrator] OnKspLoad recalc decision: useCurrentUtCutoff=False maxUT=25.339999999999549 featureSupportsCutoff=True currentUtReady=True hasFutureActions=False
+[LOG 22:35:18.332] [Parsek][VERBOSE][LedgerOrchestrator] SeedInitialFunds: deferring - Funding.Instance null
+[LOG 22:35:18.332] [Parsek][VERBOSE][LedgerOrchestrator] EnsureInitialReputationSeed: deferring the reputation seed - Reputation.Instance null
+[LOG 22:35:18.336] [Parsek][INFO][LedgerOrchestrator] PreLedgerProgressSeed: captured from the live ProgressTracking tree: nodes=396 liveComplete=0 seededNodes=0 excludedByLedgerRow=0 excludedByEvent=0 seededRecords=0 seededRecordThresholds=0 recordsOwnedByLedger=0 recordsUnresolved=0 ledgerActions=0
+[LOG 22:35:18.336] [Parsek][VERBOSE][ELS] Rebuilt: 0 entries from 0 actions (skippedTombstoned=0 tombstonesTotal=0)
+[LOG 22:35:18.337] [Parsek][VERBOSE][LedgerOrchestrator] RecalculateAndPatch: actionsTotal=0, actionsAfterCutoff=0, cutoffUT=null
+[LOG 22:35:18.339] [Parsek][VERBOSE][Milestones] Reset: cleared 0 credited milestones; pre-ledger seed credits 0 node(s) and 0 record band(s)
+[LOG 22:35:18.339] [Parsek][VERBOSE][Contracts] Reset: cleared 0 active contracts, 0 credited contracts, 0 credited parameters, 0 terminal contracts, 0 terminal actions, 0 terminal outcomes, 0 deadline-expired contracts, 0 explicitly resolved contracts, 0 prepass explicit resolutions
+[LOG 22:35:18.339] [Parsek][VERBOSE][ScienceModule] Reset: cleared 0 subjects, runningScience=0, totalCommittedSpendings=0, totalEffectiveEarnings=0
+[LOG 22:35:18.339] [Parsek][VERBOSE][Strategies] Reset: cleared 0 active strategies
+[LOG 22:35:18.339] [Parsek][VERBOSE][Funds] Reset: prevSeed=0, prevBalance=0, prevSpendings=0, prevEarnings=0
+[LOG 22:35:18.339] [Parsek][VERBOSE][Reputation] Reset: runningRep 0.00 -> 0
+[LOG 22:35:18.339] [Parsek][VERBOSE][Facilities] Reset: cleared 0 tracked facilities
+[LOG 22:35:18.341] [Parsek][VERBOSE][ScienceModule] ComputeTotalSpendings: spendingCount=0, strategySetupCount=0, strategyExchangeCount=0, totalCommittedSpendings=0
+[LOG 22:35:18.342] [Parsek][VERBOSE][KerbalsModule] PrePass summary: examined=0 cached=0 nullRecordings=0 missingIds=0 rawCrewRecordings=0 rawCrewMembers=0 loopingChains=0 walkClockUT=25.3
+[LOG 22:35:18.343] [Parsek][VERBOSE][Funds] ComputeTotalSpendings: spendings=0, penalties=0, facilityCosts=0, hireCosts=0, setupCosts=0, totalCommittedSpendings=0
+[LOG 22:35:18.343] [Parsek][VERBOSE][RecalcEngine] PrePass stable action list; skipped second sort
+[LOG 22:35:18.345] [Parsek][INFO][KerbalsModule] PostWalk summary: reservations=0 permanent=0 temporary=0 slots=0 retired=0 slotsCreated=0 released=0 respawnPending=0 walkClockUT=25.3 nextReleaseUT=INDEFINITE
+[LOG 22:35:18.345] [Parsek][VERBOSE][RecalcEngine] Recalculate complete: actionsTotal=0, actionsAfterCutoff=0, cutoffUT=null, filteredOut=0, walkedSorted=0, firstTier=4 modules (0 dispatches), strategy=0 dispatches, secondTier=2 modules (0 dispatches), facilities=0 dispatches
+[LOG 22:35:18.346] [Parsek][VERBOSE][Contracts] SetMaxSlots: maxSlots=2
+[LOG 22:35:18.346] [Parsek][VERBOSE][Strategies] SetMaxSlots: maxSlots=1
+[LOG 22:35:18.346] [Parsek][VERBOSE][LedgerOrchestrator] UpdateSlotLimits: MissionControl level=1 -> 2 contract slots, Administration level=1 -> 1 strategy slots
+[LOG 22:35:18.347] [Parsek][VERBOSE][LedgerOrchestrator] RecalculateAndPatch: drawdown-guard authoritativeReduction=False (rewinding=False, reFlyMarker=False, mergeJournal=False, tombstone=False, rewindResAdjust=False, reFlyDiscard=False)
+[LOG 22:35:18.349] [Parsek][INFO][KerbalsModule] ApplyToRoster complete: 0 slots, 0 retired, 0 reserved, 0 released, 0 created, 0 recreated, 0 deleted, 0 displaced, 0 retained-live
+[LOG 22:35:18.350] [Parsek][VERBOSE][LedgerOrchestrator] RecalculateAndPatch: no cutoff supplied — skipping tech-tree patch to preserve live unlocks; committed tech unlocks add-only at liveUT=25.339999999999549 (count=0, ids=[])
+[LOG 22:35:18.352] [Parsek][VERBOSE][KspStatePatcher] PatchScience: ResearchAndDevelopment.Instance is null (sandbox mode) — skipping
+[LOG 22:35:18.353] [Parsek][VERBOSE][KspStatePatcher] PatchTechTree: no target tech set supplied — skipping
+[LOG 22:35:18.353] [Parsek][VERBOSE][KspStatePatcher] PatchCommittedTechUnlocks: no committed tech unlock at or before the live clock
+[LOG 22:35:18.355] [Parsek][VERBOSE][KspStatePatcher] PatchResourceScans: no committed resource scan at or before the cutoff
+[LOG 22:35:18.355] [Parsek][VERBOSE][KspStatePatcher] PatchFunds: Funding.Instance is null (sandbox mode) — skipping
+[LOG 22:35:18.355] [Parsek][VERBOSE][KspStatePatcher] PatchPurchasedParts: ResearchAndDevelopment.Instance is null - skipping (the next recalc with R&D loaded applies it)
+[LOG 22:35:18.356] [Parsek][VERBOSE][KspStatePatcher] PatchUnlockedUpgrades: no committed part upgrade purchase at or before the cutoff
+[LOG 22:35:18.356] [Parsek][VERBOSE][KspStatePatcher] PatchReputation: Reputation.Instance is null (sandbox mode) — skipping
+[LOG 22:35:18.357] [Parsek][VERBOSE][KspStatePatcher] PatchFacilities: nothing to patch (total=0)
+[LOG 22:35:18.358] [Parsek][VERBOSE][KspStatePatcher] PatchDestructionState: skipped (scene load in progress)
+[LOG 22:35:18.359] [Parsek][INFO][KspStatePatcher] PatchMilestones: credited=0, unreached=0, skipped=396, moduleCredited=0
+[LOG 22:35:18.359] [Parsek][VERBOSE][KspStatePatcher] PatchContracts: ContractSystem.Instance is null — skipping
+[LOG 22:35:18.360] [Parsek][VERBOSE][KspStatePatcher] PatchStrategies: stock strategy list NoSystem, not a Career game - skipping
+[LOG 22:35:18.360] [Parsek][VERBOSE][KspStatePatcher] PatchAll complete
+[LOG 22:35:18.361] [Parsek][INFO][GameStateStore] RebuildCommittedScienceSubjects: before=0, rebuilt with 0 subjects
+[LOG 22:35:18.361] [Parsek][VERBOSE][LedgerOrchestrator] RebuildCommittedScienceFromSurvivingLedger: rebuilt committedScienceSubjects from surviving ledger (subjects=0, scienceActions=0, actions=0)
+[LOG 22:35:18.361] [Parsek][VERBOSE][LedgerOrchestrator] RecalculateAndPatch complete: 0 actions walked
+[LOG 22:35:18.362] [Parsek][INFO][RouteEventLog] Load: route event log loaded events=0 routes=0 dropped=0 node=absent
+[LOG 22:35:18.363] [Parsek][VERBOSE][Route] PostWalk: routes=0, paused=0, endpointLost=0, totalDispatched=0, totalDelivered=0, physicalDebits=0, physicalPickups=0
+[LOG 22:35:18.363] [Parsek][VERBOSE][Route] LoadRoutesFrom: no ROUTES node, 0 loaded
+[LOG 22:35:18.363] [Parsek][VERBOSE][ERS] Rebuilt: 0 entries from 0 committed (skippedNotCommitted=0 skippedSuperseded=0 skippedRewindRetired=0 skippedSuppressed=0 marker=none)
+[LOG 22:35:18.363] [Parsek][INFO][Route] RevalidateSources reason=OnLoad routes=0 transitioned=0 caughtUp=0 ersIndexed=0 ersTotal=0
+[LOG 22:35:18.363] [Parsek][INFO][RouteGuard] OnLoad route-loop reconcile: cleared manual loops on 0 route-bound tree(s)
+[LOG 22:35:18.365] [Parsek][INFO][Scenario] Scenario load summary — UT: 25, 0 recording(s)
+[LOG 22:35:18.365] [Parsek][VERBOSE][Scenario] Load summary buckets: future=0 in-progress=0 past=0
+[LOG 22:35:18.365] [Parsek][VERBOSE][RecordingStore] Optimization pass: skipped (no recordings)
+[LOG 22:35:18.365] [Parsek][VERBOSE][Diagnostics] Scene load complete (FLIGHT): 0 recordings, ~0 B memory est (0 pts, 0 evts, 0 segs), 0 ghosts
+[LOG 22:35:18.369] [Parsek][INFO][LoadSweep] [LoadSweep] Value-sealed slots (section 2.12): found=0 sealed=0 keptLiveSession=0 rpsReaped=0
+[LOG 22:35:18.369] [Parsek][INFO][LoadSweep] [LoadSweep] Marker valid=False; spare=0 discarded=0 selfSupersedes=0 orphanSupersedes=0 removedFullyOrphanSupersedes=0 removedOrphanRewindRetirements=0 orphanTombstones=0 strayFields=0 discardedRps=0 missingQuicksaveRps=0 orphanReFlyAnchors=0
+[LOG 22:35:18.369] [Parsek][VERBOSE][ERS] Rebuilt: 0 entries from 0 committed (skippedNotCommitted=0 skippedSuperseded=0 skippedRewindRetired=0 skippedSuppressed=0 marker=none)
+[LOG 22:35:18.369] [Parsek][INFO][Route] RevalidateSources reason=SupersedeStateVersion-bump routes=0 transitioned=0 caughtUp=0 ersIndexed=0 ersTotal=0
+[LOG 22:35:18.370] [Parsek][VERBOSE][Rewind] ReapOrphanedRPs: reaped=0 remaining=0
+[LOG 22:35:18.377] [Parsek][INFO][FileCollector] Collection: referrers=1 scanned=1 cached=0 incomingFiled=0 versionsDeleted=0 versionsQuarantined=0 versionsRestored=0 versionsPurged=0 headsQuarantined=0 quarantineRestored=0 quarantinePurged=0 quarantineDated=0 transientDeleted=0 rewindPointFilesDeleted=0 rewindSavesDeleted=0 failures=0 bytesFreed=0 ms=5 reason=cold-load
+[LOG 22:35:18.379] [Parsek][VERBOSE][VesselNames] Spawn link backfill (onload-tail:cold): vessels=2 genuineSpawnMatches=0 adoptionStampSkipped=0 added=0 alreadyLinked=0 resumeAdded=0 links=0
+[LOG 22:35:18.379] [Parsek][VERBOSE][Scenario] Flight entry: remembered 0 ledger row(s) as the revert target's rows (reason=cold, freshLaunch=False)
+[LOG 22:35:18.380] [Parsek][VERBOSE][Diagnostics] OnLoad: 117ms (0 recordings) phase=vessel-names-apply status=completed
+[LOG 22:35:18.380] [Parsek][VERBOSE][LoadPolicy] Load phases: kind=Cold status=completed count=49 [entry@0ms > reset-dialog@1ms > settings@1ms > save-format@11ms > hooks@12ms > load-classify@13ms > save-scoped-reset@15ms > crew-groups@21ms > refly-state-load@23ms > stock-pool-reference-load@27ms > ledger-held-window-load@29ms > rewind-vessel-holds-load@29ms > playback-replay-scope-load@30ms > removed-replay-flags-load@30ms > rewind-point-carry-over@31ms > rewind-staged-lists-carry-over@31ms > in-session-staged-handoff@31ms > pre-parsek-backup@32ms > game-state-recorder@40ms > initial-baseline@51ms > cold-start@57ms > quarantine-restore@57ms > durable-committed-id-hint@58ms > stale-pending-discard@58ms > clear-committed@58ms > chain-validation@58ms > vessel-names@59ms > recording-trees@59ms > sanitize-nonloopable-loop@60ms > missions@60ms > cold-active-tree-restore@63ms > cold-attempt-events@63ms > milestones@64ms > ledger-load@64ms > routes@98ms > route-loop-reconcile@100ms > deferred-seed@100ms > load-summary@101ms > optimization@101ms > crew-auto-unreserve@101ms > pending-outside-flight@101ms > sidecar-reconcile@101ms > rewind-post-load@102ms > load-time-sweep@102ms > test-batch-reconcile@107ms > rewind-point-reap@107ms > quit-without-saving-reap@107ms > file-collection@107ms > vessel-names-apply@114ms]
+[LOG 22:35:18.391] [Parsek][VERBOSE][GhostMap] Polyline driver: onGameStateLoad -> Clear() (cross-save flush)
+[LOG 22:35:18.392] [Parsek][INFO][Scenario] Vessel switch ignored: '' -> 'GS1 Auto-Chute Booster' fired before onFlightReady (scene-entry initial focus, not a player switch) - vessel-switch flag not armed (frame=9881)
+[LOG 22:35:18.477] [Parsek][WARN][TestRunner] Late vessel switch to 'GS1 Auto-Chute Booster' inside the reload commit window (armedBy='TestCommandLoadGame:gs1-two-stage-pad/persistent'); re-pinned the FlightCamera pivot onto the DDOL PSystemSetup root so the camera survives the old scene's unload (stock Bug #4803 late-switch guard).
+[LOG 22:35:19.904] [Parsek][VERBOSE][Flight] Parsek Flight loaded.
+[LOG 22:35:19.904] [Parsek][VERBOSE][Recorder] Post-physics pose capture loop started
+[LOG 22:35:19.907] [Parsek][VERBOSE][UI] Applied UI mode seeded from settings: uiComplexityMode=Advanced
+[LOG 22:35:19.908] [Parsek][VERBOSE][UI] KerbalsWindow: subscribed to 8 live-crew GameEvents
+[LOG 22:35:19.909] [Parsek][INFO][Engine] GhostPlaybackEngine created
+[LOG 22:35:19.909] [Parsek][INFO][Policy] ParsekPlaybackPolicy created and subscribed to engine events
+[LOG 22:35:19.911] [Parsek][INFO][CurrencyOverlay] CurrencyOverlay: initialised for scene=FLIGHT - starting widget refresh loop
+[LOG 22:35:19.999] [Parsek][VERBOSE][ELS] Rebuilt: 0 entries from 0 actions (skippedTombstoned=0 tombstonesTotal=0)
+[LOG 22:35:19.999] [Parsek][VERBOSE][ERS] Rebuilt: 0 entries from 0 committed (skippedNotCommitted=0 skippedSuperseded=0 skippedRewindRetired=0 skippedSuppressed=0 marker=none)
+[LOG 22:35:20.002] [Parsek][VERBOSE][CommittedFutureIndex] Rebuilt committed-future index: entries=0 from els=0 ers=0 tech=0 facility=0 accept=0 complete=0 fail=0 cancel=0 hire=0 dismiss=0 strategyOn=0 strategyOff=0 part=0 destroy=0 repair=0 rebuild=0 assignments=0 skippedUncommitted=0 upgrade=0
+[LOG 22:35:20.042] [Parsek][INFO][GhostCommNet] Ghost CommNet manager created for scene FLIGHT
+[LOG 22:35:20.043] [Parsek][INFO][GhostCommNet] Stock CommNet available in scene FLIGHT: ghost CommNet nodes enabled
+[LOG 22:35:20.045] [Parsek][VERBOSE][GhostCommNet] Ghost CommNet tick (FLIGHT): candidates=0 eligible=0 typeIgnored=0 incapable=0 covered=0 registered=0 added=0 removed=0 rangeModifier=1
+[LOG 22:35:20.139] [Parsek][VERBOSE][TestRunner] Camera re-pin window disarmed (level-loaded:FLIGHT): armedBy='TestCommandLoadGame:gs1-two-stage-pad/persistent' rePins=1
+[LOG 22:35:20.150] [Parsek][VERBOSE][Scenario] DeferredSeed: no resource singletons available (sandbox mode) — skipping
+[LOG 22:35:20.177] [Parsek][VERBOSE][TestCommands] loadgame flight scene settled save=gs1-two-stage-pad inertGame=false flightReady=false unpacked=false elapsed=6.05s
+[LOG 22:35:20.424] [Parsek][INFO][RecState] [#2][OnSave:pre] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=25.6 scene=FLIGHT
+[LOG 22:35:20.424] [Parsek][INFO][Scenario] OnSave: saving 0 committed recordings
+[LOG 22:35:20.425] [Parsek][INFO][Scenario] OnSave: saving 0 committed tree(s)
+[LOG 22:35:20.425] [Parsek][VERBOSE][Mission] Saved 0 mission(s)
+[LOG 22:35:20.426] [Parsek][VERBOSE][KerbalsModule] SaveSlots: no slots to save
+[LOG 22:35:20.429] [Parsek][INFO][GameStateStore] Saved 0/0 game state events, 0/0 contract snapshots, 0 science subjects to <HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gs1-two-stage-pad\Parsek\GameState\events.pgse
+[LOG 22:35:20.431] [Parsek][VERBOSE][GameStateStore] Saved baseline at UT 25 to <HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gs1-two-stage-pad\Parsek\GameState\baseline_25.339999999999549.pgsb
+[LOG 22:35:20.431] [Parsek][VERBOSE][Scenario] OnSave: flushing pending events at UT 26
+[LOG 22:35:20.431] [Parsek][VERBOSE][MilestoneStore] FlushPendingEvents: currentUT=26
+[LOG 22:35:20.432] [Parsek][VERBOSE][MilestoneStore] CreateMilestone: scanning visible events in window UT 0-26, recordingId=(flush)
+[LOG 22:35:20.432] [Parsek][VERBOSE][MilestoneStore] CreateMilestone: 0 total events, 0 matched, skipped: hidden=0, window=0, resource=0
+[LOG 22:35:20.432] [Parsek][VERBOSE][MilestoneStore] No visible game state events for milestone (UT 0-26) — skipped
+[LOG 22:35:20.433] [Parsek][INFO][MilestoneStore] Saved 0 milestones to <HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gs1-two-stage-pad\Parsek\GameState\milestones.pgsm
+[LOG 22:35:20.433] [Parsek][VERBOSE][MilestoneStore] SaveMutableState: wrote 0 MILESTONE_STATE nodes
+[LOG 22:35:20.434] [Parsek][VERBOSE][Ledger] Saved ledger to '<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gs1-two-stage-pad\Parsek\GameState\ledger.pgld': version=0, actions=0
+[LOG 22:35:20.434] [Parsek][VERBOSE][LedgerOrchestrator] OnSave: ledger saved to '<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gs1-two-stage-pad\Parsek\GameState\ledger.pgld'
+[LOG 22:35:20.435] [Parsek][VERBOSE][Scenario] OnSave: wrote external game-state files and the GAME_STATE node (events=0, milestones=0, baselines=1, ledgerRows=0, pendingScience=0, attemptEvents=0, attemptTree=<none>)
+[LOG 22:35:20.435] [Parsek][INFO][TestBatch] marker saved: none
+[LOG 22:35:20.435] [Parsek][INFO][Rewind] RewindPoints saved: 0
+[LOG 22:35:20.435] [Parsek][INFO][Supersede] RecordingSupersedes saved: 0
+[LOG 22:35:20.435] [Parsek][INFO][Rewind] RecordingRewindRetirements saved: 0
+[LOG 22:35:20.435] [Parsek][INFO][LedgerSwap] LedgerTombstones saved: 0
+[LOG 22:35:20.435] [Parsek][INFO][ReFlySession] Marker saved: none
+[LOG 22:35:20.435] [Parsek][INFO][MergeJournal] Journal saved: none
+[LOG 22:35:20.435] [Parsek][INFO][SwitchIntent] intent saved: none
+[LOG 22:35:20.435] [Parsek][INFO][SwitchSegment] session saved: none
+[LOG 22:35:20.435] [Parsek][INFO][Scenario] OnSave: Re-Fly subsystem state persisted (saved collections, not a rewind action; reFlyInProgress=False): rewindPoints=0 supersedes=0 rewindRetirements=0 tombstones=0 marker=False journal=False switchIntent=False switchSegment=False
+[LOG 22:35:20.436] [Parsek][VERBOSE][RouteEventLog] Save: no route events to write
+[LOG 22:35:20.436] [Parsek][VERBOSE][Route] SaveRoutesTo: no routes to save
+[LOG 22:35:20.437] [Parsek][VERBOSE][StockPoolReference] Saved: pools=0 rows=0 takenBackRows=0 funds=unset science=unset reputation=unset
+[LOG 22:35:20.437] [Parsek][INFO][RecState] [#3][OnSave:post] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=25.6 scene=FLIGHT
+[LOG 22:35:20.438] [Parsek][VERBOSE][Diagnostics] OnSave: 13ms (0 dirty of 0)
+[LOG 22:35:20.451] [Parsek][VERBOSE][Loop] Loaded-anchor set seeded: reason=flight-ready loaded=1 added=1 ghostSkipped=0 total=1
+[LOG 22:35:20.451] [Parsek][INFO][VesselNames] Flight epoch -> 1 reason=flight-ready:new-revert-target droppedUndoEntries=0
+[LOG 22:35:20.451] [Parsek][VERBOSE][VesselNames] Post-load live write pass armed for the first flight host tick
+[LOG 22:35:20.451] [Parsek][VERBOSE][Scenario] Vessel-switch flag armed for this flight scene (onFlightReady observed)
+[LOG 22:35:20.451] [Parsek][VERBOSE][Flight] Flight ready. Checking for pending recordings...
+[LOG 22:35:20.451] [Parsek][INFO][RecState] [#4][OnFlightReady] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=25.6 scene=FLIGHT
+[LOG 22:35:20.452] [Parsek][INFO][Flight] Resetting flight-ready state
+[LOG 22:35:20.452] [Parsek][INFO][RecState] [#5][ResetFlightReady:entry] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=25.6 scene=FLIGHT
+[LOG 22:35:20.452] [Parsek][VERBOSE][Flight] OnFlightReady: no pending cleanup data — skipping CleanupOrphanedSpawnedVessels
+[LOG 22:35:20.452] [Parsek][VERBOSE][Ghoster] EvaluateAndApplyGhostChains: no committed trees
+[LOG 22:35:20.453] [Parsek][VERBOSE][Flight] Scene entry active vessel pid=2200110033 guid=ec23bab238d64b1f895871ce96ffe2bb
+[LOG 22:35:20.454] [Parsek][VERBOSE][CrewReservation] SwapReservedCrewInFlight: no crew replacements — skipping
+[LOG 22:35:20.454] [Parsek][VERBOSE][Flight] Timeline has 0 committed recording(s)
+[LOG 22:35:20.457] [Parsek][VERBOSE][VesselNames] Post-load live write pass (post-load:flight-ready): no decisions
+[LOG 22:35:20.679] [Parsek][VERBOSE][Flight] OnVesselSituationChange: ignoring non-active vessel 'Ast. VPA-167' pid=1490391000 (0 → ORBITING)
+[LOG 22:35:21.479] [Parsek][INFO][TestCommands] loadgame flight-ready wait: waited frames=73 seconds=1.29 after the FLIGHT scene settled (onFlightReady observed, active vessel unpacked) save=gs1-two-stage-pad vessel='GS1 Auto-Chute Booster'
+[LOG 22:35:21.479] [Parsek][INFO][TestCommands] loadgame complete scene=FLIGHT save=gs1-two-stage-pad game-loaded=true expected=Flight
+[LOG 22:35:21.479] [Parsek][VERBOSE][TestCommands] journal id=0001 phase=EXECUTED
+[LOG 22:35:21.480] [Parsek][INFO][TestCommands] exec id=0001 verdict=OK
+[LOG 22:35:21.480] [Parsek][VERBOSE][TestCommands] response appended id=0001 verdict=OK
+[LOG 22:35:21.481] [Parsek][VERBOSE][TestCommands] journal id=0001 phase=DONE
+[LOG 22:35:21.539] [Parsek][INFO][TestCommands] recv id=0002 cmd=SetSetting args=2
+[LOG 22:35:21.539] [Parsek][VERBOSE][TestCommands] poll: read=1 lines, parsed=1, deferred-head=SetSetting
+[LOG 22:35:21.539] [Parsek][INFO][TestCommands] dispatch id=0002 -> EXECUTE
+[LOG 22:35:21.541] [Parsek][VERBOSE][TestCommands] journal id=0002 phase=CLAIMED
+[LOG 22:35:21.541] [Parsek][INFO][TestCommands] exec id=0002 cmd=SetSetting start
+[LOG 22:35:21.542] [Parsek][INFO][TestCommands] setting name=autoRecordOnLaunch old=true new=true
+[LOG 22:35:21.543] [Parsek][VERBOSE][TestCommands] journal id=0002 phase=EXECUTED
+[LOG 22:35:21.543] [Parsek][INFO][TestCommands] exec id=0002 verdict=OK
+[LOG 22:35:21.543] [Parsek][VERBOSE][TestCommands] response appended id=0002 verdict=OK
+[LOG 22:35:21.544] [Parsek][VERBOSE][TestCommands] journal id=0002 phase=DONE
+[LOG 22:35:21.557] [Parsek][INFO][TestCommands] recv id=0003 cmd=SetSetting args=2
+[LOG 22:35:21.557] [Parsek][INFO][TestCommands] dispatch id=0003 -> EXECUTE
+[LOG 22:35:21.557] [Parsek][VERBOSE][TestCommands] journal id=0003 phase=CLAIMED
+[LOG 22:35:21.557] [Parsek][INFO][TestCommands] exec id=0003 cmd=SetSetting start
+[LOG 22:35:21.559] [Parsek][VERBOSE][SettingsStore] Saved settings to '<HOME>/Documents/Code/Parsek/automation/stock-minimal/KSP_x64_Data/../GameData\Parsek\PluginData\settings.cfg': writeReadableSidecarMirrors=True ghostRenderTracing=False mapRenderTracing=False ledgerTracing=False verboseLogging=True samplingDensity=<null> ghostAudioVolume=<null> uiComplexityMode=1
+[LOG 22:35:21.561] [Parsek][INFO][TestCommands] setting name=verboseLogging old=true new=true
+[LOG 22:35:21.561] [Parsek][VERBOSE][TestCommands] journal id=0003 phase=EXECUTED
+[LOG 22:35:21.561] [Parsek][INFO][TestCommands] exec id=0003 verdict=OK
+[LOG 22:35:21.561] [Parsek][VERBOSE][TestCommands] response appended id=0003 verdict=OK
+[LOG 22:35:21.561] [Parsek][VERBOSE][TestCommands] journal id=0003 phase=DONE
+[LOG 22:35:22.068] [Parsek][VERBOSE][Flight] Foreign inventory transfer not recorded: reason=NoActiveTree changedVesselPid=0 activePid=2200110033 part='evaChute' slot=0
+[LOG 22:35:22.068] [Parsek][VERBOSE][Flight] Foreign inventory transfer not recorded: reason=NoActiveTree changedVesselPid=0 activePid=2200110033 part='evaJetpack' slot=1
+[LOG 22:35:22.068] [Parsek][VERBOSE][Flight] Foreign inventory transfer not recorded: reason=NoActiveTree changedVesselPid=0 activePid=2200110033 part='evaChute' slot=0
+[LOG 22:35:22.068] [Parsek][VERBOSE][Flight] Foreign inventory transfer not recorded: reason=NoActiveTree changedVesselPid=0 activePid=2200110033 part='evaJetpack' slot=1
+[LOG 22:35:22.076] [Parsek][INFO][RecState] [#6][OnSave:pre] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=27.3 scene=FLIGHT
+[LOG 22:35:22.076] [Parsek][INFO][Scenario] OnSave: saving 0 committed recordings
+[LOG 22:35:22.076] [Parsek][INFO][Scenario] OnSave: saving 0 committed tree(s)
+[LOG 22:35:22.076] [Parsek][VERBOSE][Mission] Saved 0 mission(s)
+[LOG 22:35:22.076] [Parsek][VERBOSE][KerbalsModule] SaveSlots: no slots to save
+[LOG 22:35:22.081] [Parsek][INFO][GameStateStore] Saved 0/0 game state events, 0/0 contract snapshots, 0 science subjects to <HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gs1-two-stage-pad\Parsek\GameState\events.pgse
+[LOG 22:35:22.083] [Parsek][VERBOSE][GameStateStore] Saved baseline at UT 25 to <HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gs1-two-stage-pad\Parsek\GameState\baseline_25.339999999999549.pgsb
+[LOG 22:35:22.083] [Parsek][VERBOSE][Scenario] OnSave: flushing pending events at UT 27
+[LOG 22:35:22.083] [Parsek][VERBOSE][MilestoneStore] FlushPendingEvents: currentUT=27
+[LOG 22:35:22.083] [Parsek][VERBOSE][MilestoneStore] CreateMilestone: scanning visible events in window UT 0-27, recordingId=(flush)
+[LOG 22:35:22.083] [Parsek][VERBOSE][MilestoneStore] CreateMilestone: 0 total events, 0 matched, skipped: hidden=0, window=0, resource=0
+[LOG 22:35:22.083] [Parsek][VERBOSE][MilestoneStore] No visible game state events for milestone (UT 0-27) — skipped
+[LOG 22:35:22.084] [Parsek][INFO][MilestoneStore] Saved 0 milestones to <HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gs1-two-stage-pad\Parsek\GameState\milestones.pgsm
+[LOG 22:35:22.084] [Parsek][VERBOSE][MilestoneStore] SaveMutableState: wrote 0 MILESTONE_STATE nodes
+[LOG 22:35:22.086] [Parsek][VERBOSE][Ledger] Saved ledger to '<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gs1-two-stage-pad\Parsek\GameState\ledger.pgld': version=0, actions=0
+[LOG 22:35:22.086] [Parsek][VERBOSE][LedgerOrchestrator] OnSave: ledger saved to '<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gs1-two-stage-pad\Parsek\GameState\ledger.pgld'
+[LOG 22:35:22.086] [Parsek][VERBOSE][Scenario] OnSave: wrote external game-state files and the GAME_STATE node (events=0, milestones=0, baselines=1, ledgerRows=0, pendingScience=0, attemptEvents=0, attemptTree=<none>)
+[LOG 22:35:22.086] [Parsek][INFO][TestBatch] marker saved: none
+[LOG 22:35:22.086] [Parsek][INFO][Rewind] RewindPoints saved: 0
+[LOG 22:35:22.086] [Parsek][INFO][Supersede] RecordingSupersedes saved: 0
+[LOG 22:35:22.086] [Parsek][INFO][Rewind] RecordingRewindRetirements saved: 0
+[LOG 22:35:22.086] [Parsek][INFO][LedgerSwap] LedgerTombstones saved: 0
+[LOG 22:35:22.086] [Parsek][INFO][ReFlySession] Marker saved: none
+[LOG 22:35:22.086] [Parsek][INFO][MergeJournal] Journal saved: none
+[LOG 22:35:22.086] [Parsek][INFO][SwitchIntent] intent saved: none
+[LOG 22:35:22.086] [Parsek][INFO][SwitchSegment] session saved: none
+[LOG 22:35:22.086] [Parsek][INFO][Scenario] OnSave: Re-Fly subsystem state persisted (saved collections, not a rewind action; reFlyInProgress=False): rewindPoints=0 supersedes=0 rewindRetirements=0 tombstones=0 marker=False journal=False switchIntent=False switchSegment=False
+[LOG 22:35:22.086] [Parsek][VERBOSE][RouteEventLog] Save: no route events to write
+[LOG 22:35:22.086] [Parsek][VERBOSE][Route] SaveRoutesTo: no routes to save
+[LOG 22:35:22.086] [Parsek][VERBOSE][StockPoolReference] Saved: pools=0 rows=0 takenBackRows=0 funds=unset science=unset reputation=unset
+[LOG 22:35:22.086] [Parsek][INFO][RecState] [#7][OnSave:post] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=27.3 scene=FLIGHT
+[LOG 22:35:22.086] [Parsek][VERBOSE][Diagnostics] OnSave: 9ms (0 dirty of 0)
+[LOG 22:35:22.101] [Parsek][VERBOSE][Pipeline-Terrain] TerrainCacheBuckets cleared: bucketsBefore=0
+[LOG 22:35:22.101] [Parsek][INFO][Flight] Scene change requested: FLIGHT at UT=27.26
+[LOG 22:35:22.101] [Parsek][INFO][RecState] [#8][OnSceneChangeRequested] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=27.3 scene=FLIGHT
+[LOG 22:35:22.103] [Parsek][INFO][MapMarker] ResetForSceneChange: cleared 0 sticky marker(s), forced icon re-init
+[LOG 22:35:22.104] [Parsek][VERBOSE][CameraFollow] Watch cleanup guard: no active watch mode before DestroyAllTimelineGhosts (watch=inactive)
+[LOG 22:35:22.104] [Parsek][VERBOSE][GhostMap] RemoveAllGhostVessels: no ghost vessels to remove (reason=rewind)
+[LOG 22:35:22.104] [Parsek][INFO][Engine] DestroyAllGhosts: clearing 0 primary + 0 overlap entries
+[LOG 22:35:22.104] [Parsek][INFO][Policy] AllGhostsDestroying — clearing policy state
+[LOG 22:35:22.115] [Parsek][INFO][GameStateRecorder] GameStateRecorder unsubscribed
+[LOG 22:35:22.115] [Parsek][INFO][RevertDetector] Unsubscribed from GameEvents.OnRevertTo*FlightState
+[LOG 22:35:22.115] [Parsek][VERBOSE][ReFlySession] ReFlyRevertButtonGate: unsubscribed from GameEvents.onFlightReady
+[LOG 22:35:22.115] [Parsek][INFO][Pipeline-Session] Clear: reason=scenario-destroyed previousSessionId=<none> clearedCount=0
+[LOG 22:35:22.116] [Parsek][INFO][Rewind] Staged-list handoff captured reason=OnDestroy rps=0 supersedes=0 retirements=0 tombstones=0 journal=none marker=none saveFolder=gs1-two-stage-pad
+[LOG 22:35:22.141] [Parsek][VERBOSE][MapRenderTrace] probe per-pid state cleared on scene switch from=FLIGHT to=FLIGHT
+[LOG 22:35:22.172] [Parsek][VERBOSE][Spawner] ApplySurfaceOrbitToSnapshot: rewrote ORBIT to canonical surface tuple for TryBackupSnapshot pid=2200110033 vessel='GS1 Auto-Chute Booster' on body 'Kerbin' (REF=1)
+[LOG 22:35:22.174] [Parsek][VERBOSE][CrewInventory] CaptureFromLiveVessel: captured 1 crew inventory(ies) (0 from live module) for pid=2200110033 vessel='GS1 Auto-Chute Booster'
+[LOG 22:35:22.176] [Parsek][VERBOSE][BgRecorder] Subscribed to onPartDie, onPartJointBreak, onPartUndock and onPartDeCouple for background vessels
+[LOG 22:35:22.176] [Parsek][INFO][Flight] Always-tree: created single-node tree id=1ab3c2e276b74ddb9a9d4b277794413a, root=c94006c4143a4b92934df39b8098254d, vessel=GS1 Auto-Chute Booster (pid=2200110033), ghostSnap=True
+[LOG 22:35:22.179] [Parsek][VERBOSE][Recorder] Harvest converter cache: vessel='GS1 Auto-Chute Booster' converters=0 (rebuild reason=start)
+[LOG 22:35:22.179] [Parsek][INFO][Recorder] Module caches seeded for vessel pid=2200110033: engines=1, rcs=0, robotics=0, converters=0
+[LOG 22:35:22.182] [Parsek][VERBOSE][Recorder] Initial state seeding complete: fairings=0 shrouds=0 parachutes=0 deployables=0 brokenDeployables=0 lights=0 blinks=0 gear=0 cargo=0 ladders=0 animGroups=0 animGeneric=0 heat=0 engines=0 rcs=0 converters=0 damagedWheels=0 evaJetpack=0 evaRagdoll=0
+[LOG 22:35:22.184] [Parsek][VERBOSE][Recorder] Seed event: EngineShutdown sentinel pid=1500061736 midx=0 (engine present but not operational — prevents orphan auto-start)
+[LOG 22:35:22.184] [Parsek][INFO][Recorder] Emitted 1 EngineShutdown sentinel(s) for dead engines (#298)
+[LOG 22:35:22.184] [Parsek][INFO][Recorder] Seed events emitted: 1 events at UT=27.26
+[LOG 22:35:22.185] [Parsek][VERBOSE][Recorder] Visual recording coverage for 'GS1 Auto-Chute Booster' pid=2200110033: parts=15 modules=93 parachute=7 jettison=1 deployable=0 ladder=0 animationGroup=0 animateGeneric=0 lights=0 gear=0 cargoBay=0 fairing=0 aeroSurface=0 controlSurface=0 robotArmScanner=0 animateHeat=0 engine=1 rcs=0 robotics=0
+[LOG 22:35:22.186] [Parsek][VERBOSE][Recorder]   Visual coverage [Parachute] 7: parachuteSingle[pid=1500046302], parachuteRadial[pid=1500000000], parachuteRadial[pid=1500007717], parachuteRadial[pid=1500015434], parachuteRadial[pid=1500023151], parachuteRadial[pid=1500030868], parachuteRadial[pid=1500038585]
+[LOG 22:35:22.186] [Parsek][VERBOSE][Recorder]   Visual coverage [Jettison] 1: liquidEngine2[pid=1500061736](midx=1,names=fairing)
+[LOG 22:35:22.186] [Parsek][VERBOSE][Recorder]   Visual coverage [Deployable] 0: <none>
+[LOG 22:35:22.186] [Parsek][VERBOSE][Recorder]   Visual coverage [Ladder] 0: <none>
+[LOG 22:35:22.186] [Parsek][VERBOSE][Recorder]   Visual coverage [AnimationGroup] 0: <none>
+[LOG 22:35:22.186] [Parsek][VERBOSE][Recorder]   Visual coverage [AnimateGeneric] 0: <none>
+[LOG 22:35:22.186] [Parsek][VERBOSE][Recorder]   Visual coverage [Light] 0: <none>
+[LOG 22:35:22.186] [Parsek][VERBOSE][Recorder]   Visual coverage [Gear] 0: <none>
+[LOG 22:35:22.186] [Parsek][VERBOSE][Recorder]   Visual coverage [CargoBay] 0: <none>
+[LOG 22:35:22.186] [Parsek][VERBOSE][Recorder]   Visual coverage [Fairing] 0: <none>
+[LOG 22:35:22.186] [Parsek][VERBOSE][Recorder]   Visual coverage [AeroSurface] 0: <none>
+[LOG 22:35:22.186] [Parsek][VERBOSE][Recorder]   Visual coverage [ControlSurface] 0: <none>
+[LOG 22:35:22.186] [Parsek][VERBOSE][Recorder]   Visual coverage [RobotArmScanner] 0: <none>
+[LOG 22:35:22.186] [Parsek][VERBOSE][Recorder]   Visual coverage [AnimateHeat] 0: <none>
+[LOG 22:35:22.186] [Parsek][VERBOSE][Recorder]   Visual coverage [Engine] 1: liquidEngine2[pid=1500061736](midx=0,id=Engine,thrust=1)
+[LOG 22:35:22.186] [Parsek][VERBOSE][Recorder]   Visual coverage [RCS] 0: <none>
+[LOG 22:35:22.186] [Parsek][VERBOSE][Recorder]   Visual coverage [Robotics] 0: <none>
+[LOG 22:35:22.186] [Parsek][VERBOSE][Recorder] Pre-launch resources captured: funds=0, science=0.0, rep=0.0
+[LOG 22:35:22.199] [Parsek][INFO][Paths] Created rewind saves directory '<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gs1-two-stage-pad\Parsek\Saves'
+[LOG 22:35:22.200] [Parsek][VERBOSE][Recorder] Deleted orphaned save sidecar 'parsek_rw_1f3d3c.loadmeta'
+[LOG 22:35:22.200] [Parsek][INFO][Recorder] Captured rewind save at UT 27.2599999999995: vessel "GS1 Auto-Chute Booster" in LANDED (save: parsek_rw_1f3d3c)
+[LOG 22:35:22.201] [Parsek][INFO][Recorder] PersistentRotation mod detected: False
+[LOG 22:35:22.201] [Parsek][VERBOSE][Recorder] Altitude state reseeded: body=Kerbin, aboveThreshold=True (was False), threshold=0m, alt=76m
+[LOG 22:35:22.201] [Parsek][VERBOSE][Recorder] Boundary detection initialized: body=Kerbin, inAtmo=True, hasAtmo=True, alt=76m, altThreshold=0m, aboveThreshold=True
+[LOG 22:35:22.203] [Parsek][VERBOSE][Recorder] Start location captured: body=Kerbin, biome=Shores, situation=Landed, launchSite=Launch Pad, launchSiteGate=launch-transition
+[LOG 22:35:22.203] [Parsek][VERBOSE][Environment] Hysteresis initialized: initial=SurfaceMobile
+[LOG 22:35:22.204] [Parsek][INFO][Recorder] TrackSection started: env=SurfaceMobile ref=Absolute source=Active at UT=27.26
+[LOG 22:35:22.204] [Parsek][INFO][Anchor] Anchor detection initialized: treeVesselPids=1 hasTree=True
+[LOG 22:35:22.204] [Parsek][INFO][Recorder] srfRelRotation=(-0.700970352,-0.09220977,-0.09726322,0.7004841) UT=27.259999999999508
+[LOG 22:35:22.208] [Parsek][VERBOSE][FinalizerCache] Refresh accepted: owner=ActiveRecorder rec=c94006c4143a4b92934df39b8098254d pid=2200110033 reason=record_start terminal=Landed terminalUT=27.260 segments=0
+[LOG 22:35:22.209] [Parsek][VERBOSE][Extrapolator] FinalizerCache refresh summary: owner=ActiveRecorder reason=record_start recordingsExamined=1 alreadyClassified=0 newlyClassified=0 rec=c94006c4143a4b92934df39b8098254d pid=2200110033 status=Fresh terminal=Landed decline=(none) segments=0
+[LOG 22:35:22.209] [Parsek][VERBOSE][Spawner] ExtractResourceManifest: 3 resource type(s) from 15 part(s)
+[LOG 22:35:22.209] [Parsek][VERBOSE][Recorder] StartRecording: captured 3 start resource type(s)
+[LOG 22:35:22.210] [Parsek][VERBOSE][Recorder] StartRecording: captured 0 start inventory item type(s), 0 slot(s)
+[LOG 22:35:22.211] [Parsek][VERBOSE][Spawner] ExtractCrewManifest: 1 crew across 1 trait(s) from 15 part(s)
+[LOG 22:35:22.211] [Parsek][VERBOSE][Recorder] StartRecording: captured 1 start crew trait(s)
+[LOG 22:35:22.211] [Parsek][VERBOSE][Recorder] StartRecording: captured 2 start controller part(s)
+[LOG 22:35:22.212] [Parsek][VERBOSE][Recorder] RouteOriginProof seam scan: settledDockSeamCandidates=0 externalParentCandidates=0 recId=2200110033 vessel='GS1 Auto-Chute Booster' mergedPid=2200110033
+[LOG 22:35:22.213] [Parsek][VERBOSE][Recorder] RouteOriginProof skipped: no external coupling recId=2200110033 vessel='GS1 Auto-Chute Booster' candidates=0 isEva=False
+[LOG 22:35:22.214] [Parsek][VERBOSE][Spawner] ExtractResourceManifest: 3 resource type(s) from 15 part(s)
+[LOG 22:35:22.214] [Parsek][VERBOSE][Recorder] RouteRunManifest start: recId=2200110033 vessel='GS1 Auto-Chute Booster' parts=15 res=3
+[LOG 22:35:22.215] [Parsek][VERBOSE][Recorder] RouteRunManifest start written to tree recording: recording=c94006c4143a4b92934df39b8098254d parts=15 res=3
+[LOG 22:35:22.215] [Parsek][VERBOSE][Recorder] StartRecording: captured launch guid=ec23bab238d64b1f895871ce96ffe2bb
+[LOG 22:35:22.216] [Parsek][VERBOSE][Recorder] StartRecording: forwarded 1 start crew trait(s) to active tree recording 'c94006c4143a4b92934df39b8098254d'
+[LOG 22:35:22.216] [Parsek][VERBOSE][Recorder] StartRecording: forwarded launch guid ec23bab238d64b1f895871ce96ffe2bb to active tree recording 'c94006c4143a4b92934df39b8098254d'
+[LOG 22:35:22.216] [Parsek][VERBOSE][Recorder] StartRecording: forwarded start location (body=Kerbin, launchSite=Launch Pad) to active tree recording 'c94006c4143a4b92934df39b8098254d'
+[LOG 22:35:22.216] [Parsek][VERBOSE][Recorder] Re-Fly post-load settle not armed: reason=not-promotion isPromotion=False inAtmosphere=True
+[LOG 22:35:22.216] [Parsek][VERBOSE][Recorder] Subscribed part event hooks
+[LOG 22:35:22.217] [Parsek][VERBOSE][Diagnostics] avgBytesPerPoint bootstrap: no committed recordings, using default 85
+[LOG 22:35:22.217] [Parsek][INFO][Recorder] Recording started: vessel="GS1 Auto-Chute Booster", parts=15, points=0, treeRec=rec[c94006c4|GS1 Auto-Chute Booster|tree|-]
+[LOG 22:35:22.221] [Parsek][VERBOSE][Coalescer] Reset -- window cleared
+[LOG 22:35:22.221] [Parsek][VERBOSE][Coalescer] Coalescer reset on recording start
+[LOG 22:35:22.221] [Parsek][VERBOSE][Flight] PrepareSessionStateForRecorderStart: reason=StartRecording, decoupleListener=subscribed
+[LOG 22:35:22.221] [Parsek][INFO][Flight] StartRecording succeeded: pid=2200110033, tree=True
+[LOG 22:35:22.221] [Parsek][INFO][RecState] [#9][StartRecording:post] mode=tree tree=1ab3c2e2|GS1 Auto-Chute Booster rec=c94006c4|GS1 Auto-Chute Booster|pid=2200110033 rec.prev=- rec.live=T/F rec.buf=0/1/0 lastUT=- tree.recs=1/0 pend.tree=- pend.sa=- pend.split=F/F ut=27.3 scene=FLIGHT
+[LOG 22:35:22.221] [Parsek][VERBOSE][Flight] Auto-record started (PRELAUNCH → LANDED)
+[LOG 22:35:22.312] [Parsek][INFO][Flight] OnDestroy: cleaning up ParsekFlight
+[LOG 22:35:22.312] [Parsek][INFO][Flight] OnDestroy: destroying toolbar control
+[LOG 22:35:22.313] [Parsek][INFO][GhostCommNet] Ghost CommNet manager shut down for scene FLIGHT: ParsekFlight destroyed
+[LOG 22:35:22.313] [Parsek][INFO][Flight] OnDestroy: cleaning up background recorder
+[LOG 22:35:22.313] [Parsek][INFO][Flight] OnDestroy: force-stopping active recording
+[LOG 22:35:22.315] [Parsek][VERBOSE][Recorder] TrackSection discarded (payload-free: no frames, bodyFixedFrames or checkpoints): env=SurfaceMobile ref=Absolute startUT=27.260 endUT=27.260 duration=0.000s
+[LOG 22:35:22.315] [Parsek][VERBOSE][Recorder] Unsubscribed part event hooks
+[LOG 22:35:22.315] [Parsek][VERBOSE][Diagnostics] Recording growth rate at stop: 0 points, 0 events, 0.0s elapsed, 0.00 pts/s, 0.00 evts/s, est 0 bytes
+[LOG 22:35:22.316] [Parsek][INFO][Recorder] Recording stopped. 0 points, 0 orbit segments over 0.0s
+[LOG 22:35:22.316] [Parsek][INFO][Recorder] Auto-stopped recording due to scene change
+[LOG 22:35:22.316] [Parsek][VERBOSE][GhostMap] RemoveAllGhostVessels: no ghost vessels to remove (reason=scene-cleanup)
+[LOG 22:35:22.316] [Parsek][INFO][Policy] ParsekPlaybackPolicy disposed and unsubscribed from 8 engine events
+[LOG 22:35:22.316] [Parsek][INFO][Engine] DestroyAllGhosts: clearing 0 primary + 0 overlap entries
+[LOG 22:35:22.316] [Parsek][INFO][Engine] GhostPlaybackEngine disposed
+[LOG 22:35:22.317] [Parsek][VERBOSE][UI] KerbalsWindow: unsubscribed from 8 live-crew GameEvents
+[LOG 22:35:22.616] [Parsek][INFO][RecState] [#10][OnLoad:settings-applied] mode=none tree=- rec=- rec.prev=c94006c4 rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=27.3 scene=FLIGHT
+[LOG 22:35:22.616] [Parsek][VERBOSE][SaveFormat] parsekSaveFormat=1 (current) writtenBy=1.0.3.0
+[LOG 22:35:22.616] [Parsek][INFO][CrewReservation] Loaded 0 crew replacements (no CREW_REPLACEMENTS node)
+[LOG 22:35:22.616] [Parsek][VERBOSE][KerbalsModule] LoadSlots: no KERBAL_SLOTS or CREW_REPLACEMENTS found
+[LOG 22:35:22.616] [Parsek][VERBOSE][Scenario] OnLoad: preserving in-memory group hierarchy for in-session load
+[LOG 22:35:22.616] [Parsek][INFO][Pipeline-Session] Clear: reason=marker-cleared previousSessionId=<none> clearedCount=0
+[LOG 22:35:22.616] [Parsek][INFO][TestBatch] marker loaded: none
+[LOG 22:35:22.616] [Parsek][INFO][Rewind] RewindPoints loaded: 0
+[LOG 22:35:22.616] [Parsek][INFO][Supersede] RecordingSupersedes loaded: 0
+[LOG 22:35:22.616] [Parsek][INFO][Rewind] RecordingRewindRetirements loaded: 0
+[LOG 22:35:22.616] [Parsek][INFO][LedgerSwap] LedgerTombstones loaded: 0
+[LOG 22:35:22.616] [Parsek][INFO][ReFlySession] Marker loaded: none
+[LOG 22:35:22.616] [Parsek][INFO][MergeJournal] Journal loaded: none
+[LOG 22:35:22.616] [Parsek][INFO][SwitchIntent] intent loaded: none
+[LOG 22:35:22.616] [Parsek][INFO][SwitchSegment] session loaded summary: none
+[LOG 22:35:22.616] [Parsek][INFO][Scenario] OnLoad: Re-Fly subsystem state loaded (restored collections, not a rewind action; reFlyInProgress=False): rewindPoints=0 supersedes=0 rewindRetirements=0 tombstones=0 marker=False journal=False switchIntent=False switchSegment=False
+[LOG 22:35:22.616] [Parsek][VERBOSE][ERS] Rebuilt: 0 entries from 0 committed (skippedNotCommitted=0 skippedSuperseded=0 skippedRewindRetired=0 skippedSuppressed=0 marker=none)
+[LOG 22:35:22.616] [Parsek][INFO][Route] RevalidateSources reason=SupersedeStateVersion-bump routes=0 transitioned=0 caughtUp=0 ersIndexed=0 ersTotal=0
+[LOG 22:35:22.616] [Parsek][INFO][StockPoolReference] Loaded (InSession): pools=0 rows=0 badRows=0 takenBackRows=0 funds=unset science=unset reputation=unset
+[LOG 22:35:22.616] [Parsek][VERBOSE][RewindHold] Load (InSession): rewind vessel holds kept from memory (Memory): holds=0
+[LOG 22:35:22.616] [Parsek][VERBOSE][PlaybackScope] Load (InSession): replay scope kept from memory (Memory): inScope=0 seenBeforeActivation=0
+[LOG 22:35:22.616] [Parsek][VERBOSE][FlagReplay] Load (InSession): removed-flag tombstones kept from memory (ReconcileAtCutoff): tombstones=0
+[LOG 22:35:22.617] [Parsek][VERBOSE][ERS] Rebuilt: 0 entries from 0 committed (skippedNotCommitted=0 skippedSuperseded=0 skippedRewindRetired=0 skippedSuppressed=0 marker=none)
+[LOG 22:35:22.617] [Parsek][INFO][Route] RevalidateSources reason=SupersedeStateVersion-bump routes=0 transitioned=0 caughtUp=0 ersIndexed=0 ersTotal=0
+[LOG 22:35:22.617] [Parsek][INFO][Rewind] In-session staged lists from memory: kind=InSession captured=OnDestroy; supersedes installed=0 loadedFromSave=0 restored=0 staleDropped=0; retirements installed=0 loadedFromSave=0 restored=0 staleDropped=0; tombstones installed=0 loadedFromSave=0 restored=0 staleDropped=0; journal installed=none loadedFromSave=none source=memory; marker source=save; rewindPoints memory=0 partition=pending
+[LOG 22:35:22.620] [Parsek][INFO][GameStateRecorder] Game state: Facility cache seeded from current state (9 facilities, 39 buildings)
+[LOG 22:35:22.621] [Parsek][VERBOSE][GameStateRecorder] Facility poll pass: facilitiesChecked=9, buildingsChecked=39, eventsEmitted=0
+[LOG 22:35:22.621] [Parsek][INFO][GameStateRecorder] GameStateRecorder subscribed (0 events in history)
+[LOG 22:35:22.621] [Parsek][INFO][RevertDetector] Subscribed to GameEvents.OnRevertTo{Launch,Prelaunch}FlightState
+[LOG 22:35:22.621] [Parsek][VERBOSE][ReFlySession] ReFlyRevertButtonGate: subscribed to GameEvents.onFlightReady
+[LOG 22:35:22.623] [Parsek][INFO][RecState] [#11][OnLoad:active-tree-restored] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=27.3 scene=FLIGHT
+[LOG 22:35:22.624] [Parsek][INFO][Rewind] In-session RP owner partition: installed=0 memory=0 loadedFromSave=0 sessionScoped=0 committedOwner kept=0 memoryOnlyKept=0 saveOnlyDropped=0; followSave kept=0 memoryOnlyDropped=0 committedTrees=0
+[LOG 22:35:22.624] [Parsek][VERBOSE][Scenario] OnLoad: revert detection — revertKind=None, savedTreeRecs=0, memoryRecordings=0, lastOnSaveScene=FLIGHT, isFlightToFlight=True, isVesselSwitch=False, isRevert=False, pendingTreeState=Finalized, activeTreeRestoredFromSave=False, pendingTreeRestoredFromSave=False, hasOrphanedLimboTree=False
+[LOG 22:35:22.624] [Parsek][INFO][LoadPolicy] Load classified: early=InSession refined=InSessionOther scene=FLIGHT initialLoadDone=true rewinding=false reFlyInvoke=false discardReFly=none handoff=present reason=OnDestroy coldReason=none saveFileLoad=false revertPending=false intentAgeFrames=-1 nodeUT=NaN
+[LOG 22:35:22.625] [Parsek][VERBOSE][LoadPolicy] saveStamp check: refined=InSessionOther matches the last save written
+[LOG 22:35:22.626] [Parsek][VERBOSE][FlagReplay] Removed-flag tombstones reconciled (load InSessionOther): loadedUT=27.259999999999508 none after it, kept 0
+[LOG 22:35:22.626] [Parsek][INFO][Scenario] Captured fresh-launch UT 27.259999999999508 for the Revert-to-editor orphan-prune boundary
+[LOG 22:35:22.626] [Parsek][INFO][RecState] [#12][OnLoad:revert-decided=N] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=27.3 scene=FLIGHT
+[LOG 22:35:22.626] [Parsek][INFO][Scenario] OnLoad: FLIGHT→FLIGHT without revert indicators — treating as quickload / scene reload, not revert
+[LOG 22:35:22.626] [Parsek][VERBOSE][Scenario] OnLoad tree-mutable-state: reset spawn tracking on 0 tree recording(s); 0 recorded terminal verdict(s) kept
+[LOG 22:35:22.626] [Parsek][VERBOSE][MilestoneStore] BuildStateMap: parsed 0 entries from 0 MILESTONE_STATE nodes
+[LOG 22:35:22.626] [Parsek][VERBOSE][MilestoneStore] RestoreMutableState: 0 saved states, 0 milestones, resetUnmatched=False
+[LOG 22:35:22.626] [Parsek][INFO][MilestoneStore] RestoreMutableState complete: matched=0, reset=0, unchanged=0
+[LOG 22:35:22.626] [Parsek][VERBOSE][Scenario] Scene change — milestone state restored (resetUnmatched=false)
+[LOG 22:35:22.628] [Parsek][VERBOSE][LoadPolicy] Route reconcile skipped at in-session load: kind=InSessionOther outcome=SkippedNothingAfterCutoff cutoff=27.259999999999508 loadedSaveUT=27.259999999999508 evidence=none committedRoutes=0
+[LOG 22:35:22.628] [Parsek][VERBOSE][Route] PostWalk: routes=0, paused=0, endpointLost=0, totalDispatched=0, totalDelivered=0, physicalDebits=0, physicalPickups=0
+[LOG 22:35:22.629] [Parsek][VERBOSE][LedgerOrchestrator] Committed-future snapshot cleared: reason=in-session-load rows=0
+[LOG 22:35:22.629] [Parsek][INFO][Scenario] OnLoad: post-rewind current-UT cutoff decision useCurrentUtCutoff=False loadedUT=27.259999999999508 planetariumUT=27.259999999999508 isRevert=False loadedScene=FLIGHT loadedSceneSupportsCurrentUtCutoff=True planetariumReady=True hasPendingTree=False restoreMode=None hasLiveRecorder=False hasActiveUncommittedTree=False hasFutureLedgerActions=False
+[LOG 22:35:22.629] [Parsek][VERBOSE][LedgerOrchestrator] SeedInitialFunds: deferring - Funding.Instance null
+[LOG 22:35:22.629] [Parsek][VERBOSE][LedgerOrchestrator] EnsureInitialReputationSeed: deferring the reputation seed - Reputation.Instance null
+[LOG 22:35:22.629] [Parsek][VERBOSE][Milestones] Reset: cleared 0 credited milestones; pre-ledger seed credits 0 node(s) and 0 record band(s)
+[LOG 22:35:22.629] [Parsek][VERBOSE][Contracts] Reset: cleared 0 active contracts, 0 credited contracts, 0 credited parameters, 0 terminal contracts, 0 terminal actions, 0 terminal outcomes, 0 deadline-expired contracts, 0 explicitly resolved contracts, 0 prepass explicit resolutions
+[LOG 22:35:22.629] [Parsek][VERBOSE][ScienceModule] Reset: cleared 0 subjects, runningScience=0, totalCommittedSpendings=0, totalEffectiveEarnings=0
+[LOG 22:35:22.629] [Parsek][VERBOSE][Strategies] Reset: cleared 0 active strategies
+[LOG 22:35:22.629] [Parsek][VERBOSE][Funds] Reset: prevSeed=0, prevBalance=0, prevSpendings=0, prevEarnings=0
+[LOG 22:35:22.629] [Parsek][VERBOSE][Reputation] Reset: runningRep 0.00 -> 0
+[LOG 22:35:22.629] [Parsek][VERBOSE][Facilities] Reset: cleared 0 tracked facilities
+[LOG 22:35:22.629] [Parsek][VERBOSE][ScienceModule] ComputeTotalSpendings: spendingCount=0, strategySetupCount=0, strategyExchangeCount=0, totalCommittedSpendings=0
+[LOG 22:35:22.629] [Parsek][VERBOSE][KerbalsModule] PrePass summary: examined=0 cached=0 nullRecordings=0 missingIds=0 rawCrewRecordings=0 rawCrewMembers=0 loopingChains=0 walkClockUT=27.3
+[LOG 22:35:22.629] [Parsek][VERBOSE][Funds] ComputeTotalSpendings: spendings=0, penalties=0, facilityCosts=0, hireCosts=0, setupCosts=0, totalCommittedSpendings=0
+[LOG 22:35:22.629] [Parsek][VERBOSE][RecalcEngine] PrePass stable action list; skipped second sort
+[LOG 22:35:22.629] [Parsek][INFO][KerbalsModule] PostWalk summary: reservations=0 permanent=0 temporary=0 slots=0 retired=0 slotsCreated=0 released=0 respawnPending=0 walkClockUT=27.3 nextReleaseUT=INDEFINITE
+[LOG 22:35:22.629] [Parsek][VERBOSE][Contracts] SetMaxSlots: maxSlots=2
+[LOG 22:35:22.629] [Parsek][VERBOSE][Strategies] SetMaxSlots: maxSlots=1
+[LOG 22:35:22.629] [Parsek][VERBOSE][LedgerOrchestrator] UpdateSlotLimits: MissionControl level=1 -> 2 contract slots, Administration level=1 -> 1 strategy slots
+[LOG 22:35:22.629] [Parsek][VERBOSE][LedgerOrchestrator] RecalculateAndPatch: drawdown-guard authoritativeReduction=False (rewinding=False, reFlyMarker=False, mergeJournal=False, tombstone=False, rewindResAdjust=False, reFlyDiscard=False)
+[LOG 22:35:22.629] [Parsek][INFO][KerbalsModule] ApplyToRoster complete: 0 slots, 0 retired, 0 reserved, 0 released, 0 created, 0 recreated, 0 deleted, 0 displaced, 0 retained-live
+[LOG 22:35:22.629] [Parsek][VERBOSE][LedgerOrchestrator] RecalculateAndPatch: no cutoff supplied — skipping tech-tree patch to preserve live unlocks; committed tech unlocks add-only at liveUT=27.259999999999508 (count=0, ids=[])
+[LOG 22:35:22.629] [Parsek][INFO][KspStatePatcher] PatchMilestones: credited=0, unreached=0, skipped=396, moduleCredited=0
+[LOG 22:35:22.629] [Parsek][VERBOSE][KspStatePatcher] PatchContracts: ContractSystem.Instance is null — skipping
+[LOG 22:35:22.629] [Parsek][INFO][GameStateStore] RebuildCommittedScienceSubjects: before=0, rebuilt with 0 subjects
+[LOG 22:35:22.629] [Parsek][VERBOSE][LedgerOrchestrator] RebuildCommittedScienceFromSurvivingLedger: rebuilt committedScienceSubjects from surviving ledger (subjects=0, scienceActions=0, actions=0)
+[LOG 22:35:22.629] [Parsek][INFO][Scenario] Scene change — preserving 0 session recordings
+[LOG 22:35:22.629] [Parsek][VERBOSE][Diagnostics] Scene load complete (FLIGHT): 0 recordings, ~0 B memory est (0 pts, 0 evts, 0 segs), 0 ghosts
+[LOG 22:35:22.629] [Parsek][INFO][LoadSweep] [LoadSweep] Value-sealed slots (section 2.12): found=0 sealed=0 keptLiveSession=0 rpsReaped=0
+[LOG 22:35:22.629] [Parsek][INFO][LoadSweep] [LoadSweep] Marker valid=False; spare=0 discarded=0 selfSupersedes=0 orphanSupersedes=0 removedFullyOrphanSupersedes=0 removedOrphanRewindRetirements=0 orphanTombstones=0 strayFields=0 discardedRps=0 missingQuicksaveRps=0 orphanReFlyAnchors=0
+[LOG 22:35:22.629] [Parsek][VERBOSE][ERS] Rebuilt: 0 entries from 0 committed (skippedNotCommitted=0 skippedSuperseded=0 skippedRewindRetired=0 skippedSuppressed=0 marker=none)
+[LOG 22:35:22.629] [Parsek][INFO][Route] RevalidateSources reason=SupersedeStateVersion-bump routes=0 transitioned=0 caughtUp=0 ersIndexed=0 ersTotal=0
+[LOG 22:35:22.629] [Parsek][VERBOSE][Rewind] ReapOrphanedRPs: reaped=0 remaining=0
+[LOG 22:35:22.629] [Parsek][VERBOSE][FileCollector] Collection skipped reason=rate-limited load=InSession cold=False
+[LOG 22:35:22.629] [Parsek][VERBOSE][VesselNames] Spawn link backfill (onload-tail:scene-change): vessels=2 genuineSpawnMatches=0 adoptionStampSkipped=0 added=0 alreadyLinked=0 resumeAdded=0 links=0
+[LOG 22:35:22.629] [Parsek][VERBOSE][Scenario] Flight entry: remembered 0 ledger row(s) as the revert target's rows (reason=in-session:InSessionOther, freshLaunch=True)
+[LOG 22:35:22.629] [Parsek][VERBOSE][Diagnostics] OnLoad: 13ms (0 recordings) phase=vessel-names-apply status=returned-scene-change
+[LOG 22:35:22.629] [Parsek][VERBOSE][LoadPolicy] Load phases: kind=InSessionOther status=returned-scene-change count=36 [entry@0ms > reset-dialog@0ms > settings@0ms > save-format@0ms > hooks@0ms > load-classify@0ms > crew-groups@0ms > refly-state-load@0ms > stock-pool-reference-load@0ms > ledger-held-window-load@0ms > rewind-vessel-holds-load@0ms > playback-replay-scope-load@0ms > removed-replay-flags-load@0ms > rewind-point-carry-over@0ms > rewind-staged-lists-carry-over@0ms > in-session-staged-handoff@0ms > pre-parsek-backup@1ms > game-state-recorder@1ms > initial-baseline@5ms > active-tree-restore@7ms > in-session-handoff-step-b@7ms > revert-classification@8ms > tree-mutable-state@10ms > tree-state-restore@10ms > scene-milestones@10ms > limbo-dispatch@10ms > pending-outside-flight@10ms > route-load-reconcile@10ms > ledger-recalculate@12ms > sidecar-reconcile@13ms > rewind-post-load@13ms > load-time-sweep@13ms > test-batch-reconcile@13ms > rewind-point-reap@13ms > file-collection@13ms > vessel-names-apply@13ms]
+[LOG 22:35:22.640] [Parsek][VERBOSE][GhostMap] Polyline driver: onGameStateLoad -> Clear() (cross-save flush)
+[LOG 22:35:23.840] [Parsek][VERBOSE][GameStateRecorder] Emit: CrewStatusChanged key='Bill Kerman' tag='' source='KerbalStatusChange'
+[LOG 22:35:23.840] [Parsek][INFO][TakeBack] Take-back era starts at capture 1: rows captured from here on can have a duplicate stock payment taken back; older rows never are (design 3.15 step 5)
+[LOG 22:35:23.840] [Parsek][VERBOSE][GameStateStore] AddEvent: CrewStatusChanged key='Bill Kerman' tag='' ut=27.3 cseq=1 (total=1)
+[LOG 22:35:23.840] [Parsek][INFO][GameStateRecorder] Game state: CrewStatusChanged 'Bill Kerman' Available → Assigned
+[LOG 22:35:23.840] [Parsek][VERBOSE][GameStateRecorder] Emit: CrewStatusChanged key='Bob Kerman' tag='' source='KerbalStatusChange'
+[LOG 22:35:23.840] [Parsek][VERBOSE][GameStateStore] AddEvent: CrewStatusChanged key='Bob Kerman' tag='' ut=27.3 cseq=2 (total=2)
+[LOG 22:35:23.840] [Parsek][INFO][GameStateRecorder] Game state: CrewStatusChanged 'Bob Kerman' Available → Assigned
+[LOG 22:35:23.842] [Parsek][INFO][Scenario] Vessel switch ignored: 'GS1 Auto-Chute Booster' -> 'Mallard' fired before onFlightReady (scene-entry initial focus, not a player switch) - vessel-switch flag not armed (frame=9992)
+[LOG 22:35:25.223] [Parsek][VERBOSE][Flight] Parsek Flight loaded.
+[LOG 22:35:25.223] [Parsek][VERBOSE][Recorder] Post-physics pose capture loop started
+[LOG 22:35:25.223] [Parsek][INFO][Flight] FreshRollout: captured scene-entry vessel pid=3520254568 ('Mallard', StartupBehaviour=NEW_FROM_FILE) — committed-tree restore will skip only this pid for the lifetime of this scene
+[LOG 22:35:25.223] [Parsek][VERBOSE][UI] Applied UI mode seeded from settings: uiComplexityMode=Advanced
+[LOG 22:35:25.223] [Parsek][VERBOSE][UI] KerbalsWindow: subscribed to 8 live-crew GameEvents
+[LOG 22:35:25.223] [Parsek][INFO][Engine] GhostPlaybackEngine created
+[LOG 22:35:25.223] [Parsek][INFO][Policy] ParsekPlaybackPolicy created and subscribed to engine events
+[LOG 22:35:25.223] [Parsek][INFO][CurrencyOverlay] CurrencyOverlay: initialised for scene=FLIGHT - starting widget refresh loop
+[LOG 22:35:25.278] [Parsek][VERBOSE][ELS] Rebuilt: 0 entries from 0 actions (skippedTombstoned=0 tombstonesTotal=0)
+[LOG 22:35:25.278] [Parsek][VERBOSE][ERS] Rebuilt: 0 entries from 0 committed (skippedNotCommitted=0 skippedSuperseded=0 skippedRewindRetired=0 skippedSuppressed=0 marker=none)
+[LOG 22:35:25.278] [Parsek][VERBOSE][CommittedFutureIndex] Rebuilt committed-future index: entries=0 from els=0 ers=0 tech=0 facility=0 accept=0 complete=0 fail=0 cancel=0 hire=0 dismiss=0 strategyOn=0 strategyOff=0 part=0 destroy=0 repair=0 rebuild=0 assignments=0 skippedUncommitted=0 upgrade=0
+[LOG 22:35:25.285] [Parsek][VERBOSE][Flight] TryRestoreCommittedTreeForSpawnedActiveVessel: skipping fresh-rollout vessel 'Mallard' pid=3520254568 (matches captured scene-entry pid) - new mission gets its own tree
+[LOG 22:35:25.285] [Parsek][INFO][GhostCommNet] Ghost CommNet manager created for scene FLIGHT
+[LOG 22:35:25.285] [Parsek][INFO][GhostCommNet] Stock CommNet available in scene FLIGHT: ghost CommNet nodes enabled
+[LOG 22:35:25.285] [Parsek][VERBOSE][GhostCommNet] Ghost CommNet tick (FLIGHT): candidates=0 eligible=0 typeIgnored=0 incapable=0 covered=0 registered=0 added=0 removed=0 rangeModifier=1
+[LOG 22:35:25.613] [Parsek][INFO][RecState] [#13][OnSave:pre] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=27.5 scene=FLIGHT
+[LOG 22:35:25.613] [Parsek][INFO][Scenario] OnSave: saving 0 committed recordings
+[LOG 22:35:25.613] [Parsek][INFO][Scenario] OnSave: saving 0 committed tree(s)
+[LOG 22:35:25.613] [Parsek][VERBOSE][Mission] Saved 0 mission(s)
+[LOG 22:35:25.613] [Parsek][VERBOSE][KerbalsModule] SaveSlots: no slots to save
+[LOG 22:35:25.621] [Parsek][INFO][GameStateStore] Saved 2/2 game state events, 0/0 contract snapshots, 0 science subjects to <HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gs1-two-stage-pad\Parsek\GameState\events.pgse
+[LOG 22:35:25.622] [Parsek][VERBOSE][GameStateStore] Saved baseline at UT 25 to <HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gs1-two-stage-pad\Parsek\GameState\baseline_25.339999999999549.pgsb
+[LOG 22:35:25.622] [Parsek][VERBOSE][Scenario] OnSave: flushing pending events at UT 28
+[LOG 22:35:25.622] [Parsek][VERBOSE][MilestoneStore] FlushPendingEvents: currentUT=28
+[LOG 22:35:25.622] [Parsek][VERBOSE][MilestoneStore] CreateMilestone: scanning visible events in window UT 0-28, recordingId=(flush)
+[LOG 22:35:25.622] [Parsek][VERBOSE][MilestoneStore] CreateMilestone: 2 total events, 0 matched, skipped: hidden=0, window=0, resource=2
+[LOG 22:35:25.622] [Parsek][VERBOSE][MilestoneStore] No visible game state events for milestone (UT 0-28) — skipped
+[LOG 22:35:25.624] [Parsek][INFO][MilestoneStore] Saved 0 milestones to <HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gs1-two-stage-pad\Parsek\GameState\milestones.pgsm
+[LOG 22:35:25.624] [Parsek][VERBOSE][MilestoneStore] SaveMutableState: wrote 0 MILESTONE_STATE nodes
+[LOG 22:35:25.625] [Parsek][VERBOSE][Ledger] Saved ledger to '<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gs1-two-stage-pad\Parsek\GameState\ledger.pgld': version=0, actions=0
+[LOG 22:35:25.626] [Parsek][VERBOSE][LedgerOrchestrator] OnSave: ledger saved to '<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gs1-two-stage-pad\Parsek\GameState\ledger.pgld'
+[LOG 22:35:25.626] [Parsek][VERBOSE][Scenario] OnSave: wrote external game-state files and the GAME_STATE node (events=2, milestones=0, baselines=1, ledgerRows=0, pendingScience=0, attemptEvents=0, attemptTree=<none>)
+[LOG 22:35:25.626] [Parsek][INFO][TestBatch] marker saved: none
+[LOG 22:35:25.626] [Parsek][INFO][Rewind] RewindPoints saved: 0
+[LOG 22:35:25.626] [Parsek][INFO][Supersede] RecordingSupersedes saved: 0
+[LOG 22:35:25.626] [Parsek][INFO][Rewind] RecordingRewindRetirements saved: 0
+[LOG 22:35:25.626] [Parsek][INFO][LedgerSwap] LedgerTombstones saved: 0
+[LOG 22:35:25.626] [Parsek][INFO][ReFlySession] Marker saved: none
+[LOG 22:35:25.626] [Parsek][INFO][MergeJournal] Journal saved: none
+[LOG 22:35:25.626] [Parsek][INFO][SwitchIntent] intent saved: none
+[LOG 22:35:25.626] [Parsek][INFO][SwitchSegment] session saved: none
+[LOG 22:35:25.626] [Parsek][INFO][Scenario] OnSave: Re-Fly subsystem state persisted (saved collections, not a rewind action; reFlyInProgress=False): rewindPoints=0 supersedes=0 rewindRetirements=0 tombstones=0 marker=False journal=False switchIntent=False switchSegment=False
+[LOG 22:35:25.626] [Parsek][VERBOSE][RouteEventLog] Save: no route events to write
+[LOG 22:35:25.626] [Parsek][VERBOSE][Route] SaveRoutesTo: no routes to save
+[LOG 22:35:25.626] [Parsek][VERBOSE][StockPoolReference] Saved: pools=0 rows=0 takenBackRows=0 funds=unset science=unset reputation=unset
+[LOG 22:35:25.626] [Parsek][INFO][RecState] [#14][OnSave:post] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=27.5 scene=FLIGHT
+[LOG 22:35:25.626] [Parsek][VERBOSE][Diagnostics] OnSave: 12ms (0 dirty of 0)
+[LOG 22:35:25.635] [Parsek][VERBOSE][Loop] Loaded-anchor set seeded: reason=flight-ready loaded=2 added=1 ghostSkipped=0 total=2
+[LOG 22:35:25.635] [Parsek][INFO][VesselNames] Flight epoch -> 2 reason=flight-ready:new-revert-target droppedUndoEntries=0
+[LOG 22:35:25.635] [Parsek][VERBOSE][VesselNames] Post-load live write pass armed for the first flight host tick
+[LOG 22:35:25.635] [Parsek][VERBOSE][Scenario] Vessel-switch flag armed for this flight scene (onFlightReady observed)
+[LOG 22:35:25.635] [Parsek][VERBOSE][Flight] Flight ready. Checking for pending recordings...
+[LOG 22:35:25.635] [Parsek][INFO][RecState] [#15][OnFlightReady] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=27.5 scene=FLIGHT
+[LOG 22:35:25.635] [Parsek][INFO][Flight] Resetting flight-ready state
+[LOG 22:35:25.635] [Parsek][INFO][RecState] [#16][ResetFlightReady:entry] mode=none tree=- rec=- rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=0/0 pend.tree=- pend.sa=- pend.split=F/F ut=27.5 scene=FLIGHT
+[LOG 22:35:25.635] [Parsek][VERBOSE][Flight] OnFlightReady: no pending cleanup data — skipping CleanupOrphanedSpawnedVessels
+[LOG 22:35:25.635] [Parsek][VERBOSE][Ghoster] EvaluateAndApplyGhostChains: no committed trees
+[LOG 22:35:25.635] [Parsek][VERBOSE][Flight] Scene entry active vessel pid=3520254568 guid=7a4c5a1588244382be5c00f1da044c7a
+[LOG 22:35:25.635] [Parsek][VERBOSE][CrewReservation] SwapReservedCrewInFlight: no crew replacements — skipping
+[LOG 22:35:25.635] [Parsek][VERBOSE][Flight] Timeline has 0 committed recording(s)
+[LOG 22:35:25.638] [Parsek][VERBOSE][VesselNames] Post-load live write pass (post-load:flight-ready): no decisions
+[LOG 22:35:25.859] [Parsek][VERBOSE][Flight] OnVesselSituationChange: ignoring non-active vessel 'Ast. VPA-167' pid=1490391000 (0 → ORBITING) | suppressed=1
+[LOG 22:35:27.397] [Parsek][VERBOSE][Scenario] SeedRecorderResourceBaselines: gave up after 120 frames with baselines still unseeded (expected in sandbox, where the currency singletons never load)
+[LOG 22:35:28.728] [Parsek][VERBOSE][CrewInventory] CaptureFromLiveVessel: captured 2 crew inventory(ies) (2 from live module) for pid=3520254568 vessel='Mallard'
+[LOG 22:35:28.728] [Parsek][VERBOSE][BgRecorder] Subscribed to onPartDie, onPartJointBreak, onPartUndock and onPartDeCouple for background vessels
+[LOG 22:35:28.728] [Parsek][INFO][Flight] Always-tree: created single-node tree id=1175f5b3ccbd48dbaca7e8c18ee9d9ce, root=3b18fcbbd33547a4b87c6b054ffa512f, vessel=Mallard (pid=3520254568), ghostSnap=True
+[LOG 22:35:28.728] [Parsek][VERBOSE][Recorder] Harvest converter cache: vessel='Mallard' converters=0 (rebuild reason=start)
+[LOG 22:35:28.728] [Parsek][INFO][Recorder] Module caches seeded for vessel pid=3520254568: engines=2, rcs=0, robotics=4, converters=0
+[LOG 22:35:28.729] [Parsek][VERBOSE][Recorder] Seeded already-deployed gear: 'SmallGearBay' pid=1640881773
+[LOG 22:35:28.729] [Parsek][VERBOSE][Recorder] Seeded already-deployed aero surface: 'airbrake1' pid=2701571972 midx=0
+[LOG 22:35:28.729] [Parsek][VERBOSE][Recorder] Seeded already-deployed aero surface: 'airbrake1' pid=1380477848 midx=0
+[LOG 22:35:28.729] [Parsek][VERBOSE][Recorder] Seeded already-deployed gear: 'GearMedium' pid=794912095
+[LOG 22:35:28.729] [Parsek][VERBOSE][Recorder] Seeded already-deployed gear: 'GearMedium' pid=3293212706
+[LOG 22:35:28.729] [Parsek][VERBOSE][Recorder] Initial state seeding complete: fairings=0 shrouds=0 parachutes=0 deployables=0 brokenDeployables=0 lights=0 blinks=0 gear=3 cargo=0 ladders=0 animGroups=0 animGeneric=0 heat=0 engines=0 rcs=0 converters=0 damagedWheels=0 evaJetpack=0 evaRagdoll=0
+[LOG 22:35:28.731] [Parsek][VERBOSE][Recorder] Seed event: GearDeployed pid=1640881773 part='SmallGearBay'
+[LOG 22:35:28.731] [Parsek][VERBOSE][Recorder] Seed event: GearDeployed pid=794912095 part='GearMedium'
+[LOG 22:35:28.731] [Parsek][VERBOSE][Recorder] Seed event: GearDeployed pid=3293212706 part='GearMedium'
+[LOG 22:35:28.731] [Parsek][VERBOSE][Recorder] Seed event: DeployableExtended (aeroSurface) pid=2701571972 midx=0 part='airbrake1'
+[LOG 22:35:28.731] [Parsek][VERBOSE][Recorder] Seed event: DeployableExtended (aeroSurface) pid=1380477848 midx=0 part='airbrake1'
+[LOG 22:35:28.731] [Parsek][VERBOSE][Recorder] Seed event: EngineShutdown sentinel pid=1754919664 midx=0 (engine present but not operational — prevents orphan auto-start)
+[LOG 22:35:28.731] [Parsek][VERBOSE][Recorder] Seed event: EngineShutdown sentinel pid=2379588717 midx=0 (engine present but not operational — prevents orphan auto-start)
+[LOG 22:35:28.731] [Parsek][INFO][Recorder] Emitted 2 EngineShutdown sentinel(s) for dead engines (#298)
+[LOG 22:35:28.731] [Parsek][INFO][Recorder] Seed events emitted: 7 events at UT=30.64
+[LOG 22:35:28.731] [Parsek][VERBOSE][Recorder] Visual recording coverage for 'Mallard' pid=3520254568: parts=38 modules=170 parachute=0 jettison=0 deployable=0 ladder=2 animationGroup=0 animateGeneric=0 lights=3 gear=3 cargoBay=3 fairing=0 aeroSurface=2 controlSurface=14 robotArmScanner=0 animateHeat=6 engine=2 rcs=0 robotics=4
+[LOG 22:35:28.731] [Parsek][VERBOSE][Recorder]   Visual coverage [Parachute] 0: <none>
+[LOG 22:35:28.731] [Parsek][VERBOSE][Recorder]   Visual coverage [Jettison] 0: <none>
+[LOG 22:35:28.731] [Parsek][VERBOSE][Recorder]   Visual coverage [Deployable] 0: <none>
+[LOG 22:35:28.731] [Parsek][VERBOSE][Recorder]   Visual coverage [Ladder] 2: telescopicLadder[pid=3702773500](midx=0), telescopicLadder[pid=3236228304](midx=0)
+[LOG 22:35:28.731] [Parsek][VERBOSE][Recorder]   Visual coverage [AnimationGroup] 0: <none>
+[LOG 22:35:28.731] [Parsek][VERBOSE][Recorder]   Visual coverage [AnimateGeneric] 0: <none>
+[LOG 22:35:28.731] [Parsek][VERBOSE][Recorder]   Visual coverage [Light] 3: SmallGearBay[pid=1640881773], GearMedium[pid=794912095], GearMedium[pid=3293212706]
+[LOG 22:35:28.731] [Parsek][VERBOSE][Recorder]   Visual coverage [Gear] 3: SmallGearBay[pid=1640881773](midx=5,state='Deployed'), GearMedium[pid=794912095](midx=3,state='Deployed'), GearMedium[pid=3293212706](midx=3,state='Deployed')
+[LOG 22:35:28.731] [Parsek][VERBOSE][Recorder]   Visual coverage [CargoBay] 3: mk3CargoBayM[pid=3858349378](deployIdx=0,closed=1.00,limitStop=0.56), mk3CargoBayL[pid=4083173790](deployIdx=0,closed=1.00,limitStop=0.55), mk3CargoRamp[pid=673210541](deployIdx=0,closed=1.00,limitStop=0.49)
+[LOG 22:35:28.731] [Parsek][VERBOSE][Recorder]   Visual coverage [Fairing] 0: <none>
+[LOG 22:35:28.731] [Parsek][VERBOSE][Recorder]   Visual coverage [AeroSurface] 2: airbrake1[pid=2701571972](midx=0), airbrake1[pid=1380477848](midx=0)
+[LOG 22:35:28.732] [Parsek][VERBOSE][Recorder]   Visual coverage [ControlSurface] 14: airlinerCtrlSrf[pid=2004661081](midx=0), airlinerCtrlSrf[pid=3221858360](midx=0), airlinerCtrlSrf[pid=1212411014](midx=0), smallCtrlSrf[pid=1349866141](midx=0), airlinerCtrlSrf[pid=428014558](midx=0), airlinerCtrlSrf[pid=1214784717](midx=0), airlinerCtrlSrf[pid=3657314393](midx=0), smallCtrlSrf[pid=735791536](midx=0), +6 more
+[LOG 22:35:28.732] [Parsek][VERBOSE][Recorder]   Visual coverage [RobotArmScanner] 0: <none>
+[LOG 22:35:28.732] [Parsek][VERBOSE][Recorder]   Visual coverage [AnimateHeat] 6: nacelleBody[pid=3541789853](midx=1), JetEngine[pid=1754919664](midx=1), CircularIntake[pid=80218464](midx=1), nacelleBody[pid=2808595204](midx=1), JetEngine[pid=2379588717](midx=1), CircularIntake[pid=630739552](midx=1)
+[LOG 22:35:28.732] [Parsek][VERBOSE][Recorder]   Visual coverage [Engine] 2: JetEngine[pid=1754919664](midx=0,id=Cruise,thrust=2), JetEngine[pid=2379588717](midx=0,id=Cruise,thrust=2)
+[LOG 22:35:28.732] [Parsek][VERBOSE][Recorder]   Visual coverage [RCS] 0: <none>
+[LOG 22:35:28.732] [Parsek][VERBOSE][Recorder]   Visual coverage [Robotics] 4: SmallGearBay[pid=1640881773](midx=0,module=ModuleWheelSuspension), SmallGearBay[pid=1640881773](midx=1,module=ModuleWheelSteering), GearMedium[pid=794912095](midx=0,module=ModuleWheelSuspension), GearMedium[pid=3293212706](midx=0,module=ModuleWheelSuspension)
+[LOG 22:35:28.732] [Parsek][VERBOSE][Recorder] Pre-launch resources captured: funds=0, science=0.0, rep=0.0
+[LOG 22:35:28.735] [Parsek][INFO][RecState] [#17][OnSave:pre] mode=tree tree=1175f5b3|Mallard rec=3b18fcbb|Mallard|pid=3520254568 rec.prev=- rec.live=F/F rec.buf=0/7/0 lastUT=- tree.recs=1/0 pend.tree=- pend.sa=- pend.split=F/F ut=30.6 scene=FLIGHT
+[LOG 22:35:28.735] [Parsek][INFO][Scenario] OnSave: saving 0 committed recordings
+[LOG 22:35:28.735] [Parsek][INFO][Scenario] OnSave: saving 0 committed tree(s)
+[LOG 22:35:28.735] [Parsek][INFO][RecState] [#18][FlushRecorderIntoActiveTree:entry] mode=tree tree=1175f5b3|Mallard rec=3b18fcbb|Mallard|pid=3520254568 rec.prev=- rec.live=F/F rec.buf=0/7/0 lastUT=- tree.recs=1/0 pend.tree=- pend.sa=- pend.split=F/F ut=30.6 scene=FLIGHT
+[LOG 22:35:28.737] [Parsek][VERBOSE][Flight] Flushed recorder→active-tree '3b18fcbbd33547a4b87c6b054ffa512f' for serialization: 0 points, 7 part events (tree recording now has 0 points (+0), 7 part events (+7))
+[LOG 22:35:28.737] [Parsek][INFO][RecState] [#19][FlushRecorderIntoActiveTree:post] mode=tree tree=1175f5b3|Mallard rec=3b18fcbb|Mallard|pid=3520254568 rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=1/0 pend.tree=- pend.sa=- pend.split=F/F ut=30.6 scene=FLIGHT
+[LOG 22:35:28.739] [Parsek][INFO][Scenario] OnSave: rewriting sidecars for recording='Mallard' id=3b18fcbbd33547a4b87c6b054ffa512f treeKind=active tree reason=trajectory-missing
+[LOG 22:35:28.739] [Parsek][INFO][Paths] Created recordings directory '<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gs1-two-stage-pad\Parsek\Recordings'
+[LOG 22:35:28.746] [Parsek][VERBOSE][RecordingStore] WriteBinaryTrajectoryFile: recording=3b18fcbbd33547a4b87c6b054ffa512f version=1 sectionAuthoritative=False strings=4 points=0 originalPoints=0 safeRelativeFlatFallback=False orbitSegments=0 predictedOrbitSegments=0 predictedCheckpoints=0 trackSections=0 nonDefaultSectionSources=0 sparsePointLists=0 sparsePoints=0 omittedBody=0 omittedFunds=0 omittedScience=0 omittedRep=0
+[LOG 22:35:28.766] [Parsek][VERBOSE][Pipeline-Sidecar] Pannotations write OK: recordingId=3b18fcbbd33547a4b87c6b054ffa512f bytes=101 path=<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gs1-two-stage-pad\Parsek\Recordings\3b18fcbbd33547a4b87c6b054ffa512f.pann splineCount=0 candidateSectionCount=0 outlierFlagsCount=0
+[LOG 22:35:28.767] [Parsek][VERBOSE][RecordingStore] SerializeTrajectoryInto: recording=3b18fcbbd33547a4b87c6b054ffa512f version=1 used flat fallback path points=0 originalPoints=0 safeRelativeFlatFallback=False orbitSegments=0 trackSections=0
+[LOG 22:35:28.770] [Parsek][VERBOSE][RecordingStore] SaveRecordingFiles: id=3b18fcbbd33547a4b87c6b054ffa512f trajectoryEncoding=BinaryV0 snapshotEncoding=DeflateV1 snapshotCompression=Optimal ghostSnapshotMode=Separate wroteVessel=False wroteGhost=True deletedStaleGhost=False readableMirrorsEnabled=True wroteReadableTrajectory=True wroteReadableVessel=False readableVesselSource=None wroteReadableGhost=True readableGhostSource=InMemory deletedReadableTrajectory=False deletedReadableVessel=False deletedReadableGhost=False
+[LOG 22:35:28.771] [Parsek][VERBOSE][RecordingStore] TryProbeTrajectorySidecar: encoding=BinaryV0 magic=PSK0 version=1 generation=4 recording=3b18fcbbd33547a4b87c6b054ffa512f sidecarEpoch=1
+[LOG 22:35:28.774] [Parsek][VERBOSE][RecordingStore] ReadBinaryTrajectoryFile: recording=eb2c3caad6ae4d67ad03617c566e6fcc version=1 used flat fallback path healed=false prePoints=0 postPoints=0 preOrbitSegments=0 postOrbitSegments=0 trackSections=0 sparsePointLists=0 defaultedBody=0 defaultedFunds=0 defaultedScience=0 defaultedRep=0
+[LOG 22:35:28.780] [Parsek][INFO][Scenario] SaveActiveTreeIfAny: iterated 1 recording(s), 1 dirty, 1 saved, 0 failed, 0 skippedDegraded, 0 committedRestoreOverlap
+[LOG 22:35:28.782] [Parsek][VERBOSE][RecordingTree] SaveRecordingResourceAndState: saved 1 controller(s) for recording=3b18fcbbd33547a4b87c6b054ffa512f
+[LOG 22:35:28.783] [Parsek][INFO][Scenario] OnSave: wrote ACTIVE tree 'Mallard' (1 recording(s), activeRecId=3b18fcbbd33547a4b87c6b054ffa512f) for quickload resume
+[LOG 22:35:28.783] [Parsek][VERBOSE][Mission] Saved 0 mission(s)
+[LOG 22:35:28.783] [Parsek][VERBOSE][KerbalsModule] SaveSlots: no slots to save
+[LOG 22:35:28.786] [Parsek][INFO][GameStateStore] Saved 2/2 game state events, 0/0 contract snapshots, 0 science subjects to <HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gs1-two-stage-pad\Parsek\GameState\events.pgse
+[LOG 22:35:28.787] [Parsek][VERBOSE][GameStateStore] Saved baseline at UT 25 to <HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gs1-two-stage-pad\Parsek\GameState\baseline_25.339999999999549.pgsb
+[LOG 22:35:28.787] [Parsek][VERBOSE][Scenario] OnSave: flushing pending events at UT 31
+[LOG 22:35:28.787] [Parsek][VERBOSE][MilestoneStore] FlushPendingEvents: currentUT=31
+[LOG 22:35:28.787] [Parsek][VERBOSE][MilestoneStore] CreateMilestone: scanning visible events in window UT 0-31, recordingId=(flush)
+[LOG 22:35:28.787] [Parsek][VERBOSE][MilestoneStore] CreateMilestone: 2 total events, 0 matched, skipped: hidden=0, window=0, resource=2
+[LOG 22:35:28.787] [Parsek][VERBOSE][MilestoneStore] No visible game state events for milestone (UT 0-31) — skipped
+[LOG 22:35:28.789] [Parsek][INFO][MilestoneStore] Saved 0 milestones to <HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gs1-two-stage-pad\Parsek\GameState\milestones.pgsm
+[LOG 22:35:28.789] [Parsek][VERBOSE][MilestoneStore] SaveMutableState: wrote 0 MILESTONE_STATE nodes
+[LOG 22:35:28.791] [Parsek][VERBOSE][Ledger] Saved ledger to '<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gs1-two-stage-pad\Parsek\GameState\ledger.pgld': version=0, actions=0
+[LOG 22:35:28.791] [Parsek][VERBOSE][LedgerOrchestrator] OnSave: ledger saved to '<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gs1-two-stage-pad\Parsek\GameState\ledger.pgld'
+[LOG 22:35:28.791] [Parsek][VERBOSE][Scenario] OnSave: wrote external game-state files and the GAME_STATE node (events=2, milestones=0, baselines=1, ledgerRows=0, pendingScience=0, attemptEvents=0, attemptTree=<none>)
+[LOG 22:35:28.791] [Parsek][INFO][TestBatch] marker saved: none
+[LOG 22:35:28.791] [Parsek][INFO][Rewind] RewindPoints saved: 0
+[LOG 22:35:28.791] [Parsek][INFO][Supersede] RecordingSupersedes saved: 0
+[LOG 22:35:28.791] [Parsek][INFO][Rewind] RecordingRewindRetirements saved: 0
+[LOG 22:35:28.791] [Parsek][INFO][LedgerSwap] LedgerTombstones saved: 0
+[LOG 22:35:28.791] [Parsek][INFO][ReFlySession] Marker saved: none
+[LOG 22:35:28.791] [Parsek][INFO][MergeJournal] Journal saved: none
+[LOG 22:35:28.791] [Parsek][INFO][SwitchIntent] intent saved: none
+[LOG 22:35:28.791] [Parsek][INFO][SwitchSegment] session saved: none
+[LOG 22:35:28.791] [Parsek][INFO][Scenario] OnSave: Re-Fly subsystem state persisted (saved collections, not a rewind action; reFlyInProgress=False): rewindPoints=0 supersedes=0 rewindRetirements=0 tombstones=0 marker=False journal=False switchIntent=False switchSegment=False
+[LOG 22:35:28.791] [Parsek][VERBOSE][RouteEventLog] Save: no route events to write
+[LOG 22:35:28.791] [Parsek][VERBOSE][Route] SaveRoutesTo: no routes to save
+[LOG 22:35:28.791] [Parsek][VERBOSE][StockPoolReference] Saved: pools=0 rows=0 takenBackRows=0 funds=unset science=unset reputation=unset
+[LOG 22:35:28.791] [Parsek][INFO][RecState] [#20][OnSave:post] mode=tree tree=1175f5b3|Mallard rec=3b18fcbb|Mallard|pid=3520254568 rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=- tree.recs=1/0 pend.tree=- pend.sa=- pend.split=F/F ut=30.6 scene=FLIGHT
+[LOG 22:35:28.791] [Parsek][VERBOSE][Diagnostics] OnSave: 56ms (0 dirty of 0)
+[LOG 22:35:28.796] [Parsek][VERBOSE][Recorder] Deleted orphaned save sidecar 'parsek_rw_9777f1.loadmeta'
+[LOG 22:35:28.796] [Parsek][INFO][Recorder] Captured rewind save at UT 30.6399999999994: vessel "Mallard" in PRELAUNCH (save: parsek_rw_9777f1)
+[LOG 22:35:28.797] [Parsek][INFO][Recorder] PersistentRotation mod detected: False
+[LOG 22:35:28.797] [Parsek][VERBOSE][Recorder] Altitude state reseeded: body=Kerbin, aboveThreshold=True (was False), threshold=0m, alt=72m
+[LOG 22:35:28.797] [Parsek][VERBOSE][Recorder] Boundary detection initialized: body=Kerbin, inAtmo=True, hasAtmo=True, alt=72m, altThreshold=0m, aboveThreshold=True
+[LOG 22:35:28.797] [Parsek][VERBOSE][Recorder] Start location captured: body=Kerbin, biome=Shores, situation=Prelaunch, launchSite=Runway, launchSiteGate=prelaunch
+[LOG 22:35:28.797] [Parsek][VERBOSE][Environment] Hysteresis initialized: initial=SurfaceMobile
+[LOG 22:35:28.797] [Parsek][INFO][Recorder] TrackSection started: env=SurfaceMobile ref=Absolute source=Active at UT=30.64
+[LOG 22:35:28.797] [Parsek][INFO][Anchor] Anchor detection initialized: treeVesselPids=1 hasTree=True
+[LOG 22:35:28.797] [Parsek][INFO][Recorder] srfRelRotation=(0.08930769,-0.08967289,-0.7042483,0.6985825) UT=30.639999999999436
+[LOG 22:35:28.800] [Parsek][VERBOSE][FinalizerCache] Refresh accepted: owner=ActiveRecorder rec=3b18fcbbd33547a4b87c6b054ffa512f pid=3520254568 reason=record_start terminal=Landed terminalUT=30.640 segments=0
+[LOG 22:35:28.800] [Parsek][VERBOSE][Extrapolator] FinalizerCache refresh summary: owner=ActiveRecorder reason=record_start recordingsExamined=1 alreadyClassified=0 newlyClassified=0 rec=3b18fcbbd33547a4b87c6b054ffa512f pid=3520254568 status=Fresh terminal=Landed decline=(none) segments=0
+[LOG 22:35:28.800] [Parsek][VERBOSE][Spawner] ExtractResourceManifest: 2 resource type(s) from 38 part(s)
+[LOG 22:35:28.800] [Parsek][VERBOSE][Recorder] StartRecording: captured 2 start resource type(s)
+[LOG 22:35:28.800] [Parsek][VERBOSE][Recorder] StartRecording: captured 0 start inventory item type(s), 0 slot(s)
+[LOG 22:35:28.800] [Parsek][VERBOSE][Spawner] ExtractCrewManifest: 2 crew across 2 trait(s) from 38 part(s)
+[LOG 22:35:28.800] [Parsek][VERBOSE][Recorder] StartRecording: captured 2 start crew trait(s)
+[LOG 22:35:28.800] [Parsek][VERBOSE][Recorder] StartRecording: captured 1 start controller part(s)
+[LOG 22:35:28.800] [Parsek][VERBOSE][Recorder] RouteOriginProof seam scan: settledDockSeamCandidates=0 externalParentCandidates=0 recId=3520254568 vessel='Mallard' mergedPid=3520254568
+[LOG 22:35:28.800] [Parsek][VERBOSE][Recorder] RouteOriginProof skipped: active vessel PRELAUNCH recId=3520254568 vessel='Mallard' candidates=0
+[LOG 22:35:28.800] [Parsek][VERBOSE][Spawner] ExtractResourceManifest: 2 resource type(s) from 38 part(s)
+[LOG 22:35:28.800] [Parsek][VERBOSE][Recorder] RouteRunManifest start: recId=3520254568 vessel='Mallard' parts=38 res=2
+[LOG 22:35:28.800] [Parsek][VERBOSE][Recorder] RouteRunManifest start written to tree recording: recording=3b18fcbbd33547a4b87c6b054ffa512f parts=38 res=2
+[LOG 22:35:28.800] [Parsek][VERBOSE][Recorder] StartRecording: captured launch guid=7a4c5a1588244382be5c00f1da044c7a
+[LOG 22:35:28.801] [Parsek][VERBOSE][Recorder] StartRecording: forwarded 2 start crew trait(s) to active tree recording '3b18fcbbd33547a4b87c6b054ffa512f'
+[LOG 22:35:28.801] [Parsek][VERBOSE][Recorder] StartRecording: forwarded launch guid 7a4c5a1588244382be5c00f1da044c7a to active tree recording '3b18fcbbd33547a4b87c6b054ffa512f'
+[LOG 22:35:28.801] [Parsek][VERBOSE][Recorder] StartRecording: forwarded start location (body=Kerbin, launchSite=Runway) to active tree recording '3b18fcbbd33547a4b87c6b054ffa512f'
+[LOG 22:35:28.801] [Parsek][VERBOSE][Recorder] Re-Fly post-load settle not armed: reason=not-promotion isPromotion=False inAtmosphere=True
+[LOG 22:35:28.801] [Parsek][VERBOSE][Recorder] Subscribed part event hooks
+[LOG 22:35:28.801] [Parsek][VERBOSE][Diagnostics] avgBytesPerPoint bootstrap: no committed recordings, using default 85
+[LOG 22:35:28.801] [Parsek][INFO][Recorder] Recording started: vessel="Mallard", parts=38, points=0, treeRec=rec[3b18fcbb|Mallard|tree|-]
+[LOG 22:35:28.805] [Parsek][VERBOSE][Coalescer] Reset -- window cleared
+[LOG 22:35:28.805] [Parsek][VERBOSE][Coalescer] Coalescer reset on recording start
+[LOG 22:35:28.805] [Parsek][VERBOSE][Flight] PrepareSessionStateForRecorderStart: reason=StartRecording, decoupleListener=subscribed
+[LOG 22:35:28.805] [Parsek][INFO][Flight] StartRecording succeeded: pid=3520254568, tree=True
+[LOG 22:35:28.805] [Parsek][INFO][RecState] [#21][StartRecording:post] mode=tree tree=1175f5b3|Mallard rec=3b18fcbb|Mallard|pid=3520254568 rec.prev=- rec.live=T/F rec.buf=0/0/0 lastUT=- tree.recs=1/0 pend.tree=- pend.sa=- pend.split=F/F ut=30.6 scene=FLIGHT
+[LOG 22:35:28.805] [Parsek][VERBOSE][Flight] Auto-record started (first staging on pad, stage=0)
+[LOG 22:35:28.813] [Parsek][INFO][PhysicsPatch] Active recorder attached
+[LOG 22:35:28.813] [Parsek][INFO][PhysicsPatch] Background recorder attached
+[LOG 22:35:28.815] [Parsek][VERBOSE][Recorder] Engine tracking: 'JetEngine' pid=1754919664 midx=0 id=Cruise thrustTransforms=2
+[LOG 22:35:28.815] [Parsek][VERBOSE][Recorder] Engine tracking: 'JetEngine' pid=2379588717 midx=0 id=Cruise thrustTransforms=2
+[LOG 22:35:28.821] [Parsek][VERBOSE][Recorder] Robotics: tracking 'SmallGearBay' pid=1640881773 midx=0 module=ModuleWheelSuspension source=suspensionPos deadband=0.003 sampleHz=4.0 moving=inferred
+[LOG 22:35:28.821] [Parsek][VERBOSE][Recorder] Robotics: derived wheel visual not recorded for 'SmallGearBay' pid=1640881773 midx=1 module=ModuleWheelSteering; derived from ghost ground motion at playback
+[LOG 22:35:28.821] [Parsek][VERBOSE][Recorder] Robotics: tracking 'GearMedium' pid=794912095 midx=0 module=ModuleWheelSuspension source=suspensionPos deadband=0.003 sampleHz=4.0 moving=inferred
+[LOG 22:35:28.821] [Parsek][VERBOSE][Recorder] Robotics: tracking 'GearMedium' pid=3293212706 midx=0 module=ModuleWheelSuspension source=suspensionPos deadband=0.003 sampleHz=4.0 moving=inferred
+[LOG 22:35:28.827] [Parsek][WARN][Diagnostics] Recording frame exceeded budget: 14.97ms for vessel "Mallard"
+[LOG 22:35:28.839] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.399
+[LOG 22:35:28.839] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.400
+[LOG 22:35:28.839] [Parsek][VERBOSE][Recorder] Fixed-step physics callback: source=PostPhysicsPose reason=fixed-step-pose liveUT=30.6800 poseUT=30.6600 fixedStepPoseSamples=1 skippedCallbacks=0
+[LOG 22:35:28.839] [Parsek][VERBOSE][Recorder] Sample skipped at ut=30.66; waiting for motion/attitude trigger highFidelity=False reason=(none) proximity=(none) proximitySource=(none) minInterval=0.200s maxInterval=3.000s
+[LOG 22:35:28.841] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.399
+[LOG 22:35:28.841] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.400
+[LOG 22:35:28.851] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.386
+[LOG 22:35:28.851] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.386
+[LOG 22:35:29.121] [Parsek][VERBOSE][Recorder] Part event: RoboticPositionSample 'GearMedium' pid=794912095 midx=0 val=1.361
+[LOG 22:35:29.121] [Parsek][VERBOSE][Recorder] Part event: RoboticPositionSample 'GearMedium' pid=3293212706 midx=0 val=1.360
+[LOG 22:35:29.271] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'SmallGearBay' pid=1640881773 midx=0 val=0.931
+[LOG 22:35:29.372] [Parsek][VERBOSE][Recorder] Part event: RoboticPositionSample 'GearMedium' pid=794912095 midx=0 val=1.398
+[LOG 22:35:29.372] [Parsek][VERBOSE][Recorder] Part event: RoboticPositionSample 'GearMedium' pid=3293212706 midx=0 val=1.397
+[LOG 22:35:29.406] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.398
+[LOG 22:35:29.406] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.397
+[LOG 22:35:29.421] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.397
+[LOG 22:35:29.421] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.396
+[LOG 22:35:29.523] [Parsek][VERBOSE][Checkpoint] Time warp rate changed to 1.0x at UT=31.36 — checkpointing all background vessels
+[LOG 22:35:29.523] [Parsek][VERBOSE][BgRecorder] CheckpointAllVessels at UT=31.36: checkpointed=0, skippedNotOrbital=0, skippedNoVessel=0, skippedDuplicateBoundary=0
+[LOG 22:35:29.523] [Parsek][VERBOSE][Checkpoint] Active vessel orbit segments handled by on-rails events
+[LOG 22:35:29.539] [Parsek][VERBOSE][Recorder] Part event: RoboticPositionSample 'SmallGearBay' pid=1640881773 midx=0 val=0.940
+[LOG 22:35:29.675] [Parsek][VERBOSE][Recorder] Part event: RoboticPositionSample 'GearMedium' pid=794912095 midx=0 val=1.326
+[LOG 22:35:29.675] [Parsek][VERBOSE][Recorder] Part event: RoboticPositionSample 'GearMedium' pid=3293212706 midx=0 val=1.326
+[LOG 22:35:29.793] [Parsek][VERBOSE][Recorder] Part event: RoboticPositionSample 'SmallGearBay' pid=1640881773 midx=0 val=0.931
+[LOG 22:35:29.876] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'SmallGearBay' pid=1640881773 midx=0 val=0.932
+[LOG 22:35:29.894] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'SmallGearBay' pid=1640881773 midx=0 val=0.930
+[LOG 22:35:29.945] [Parsek][VERBOSE][Recorder] Part event: RoboticPositionSample 'GearMedium' pid=794912095 midx=0 val=1.332
+[LOG 22:35:29.945] [Parsek][VERBOSE][Recorder] Part event: RoboticPositionSample 'GearMedium' pid=3293212706 midx=0 val=1.332
+[LOG 22:35:30.164] [Parsek][VERBOSE][Recorder] Part event: RoboticPositionSample 'SmallGearBay' pid=1640881773 midx=0 val=0.917
+[LOG 22:35:30.180] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'SmallGearBay' pid=1640881773 midx=0 val=0.917
+[LOG 22:35:30.197] [Parsek][VERBOSE][Recorder] Part event: RoboticPositionSample 'GearMedium' pid=794912095 midx=0 val=1.354
+[LOG 22:35:30.197] [Parsek][VERBOSE][Recorder] Part event: RoboticPositionSample 'GearMedium' pid=3293212706 midx=0 val=1.354
+[LOG 22:35:30.214] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'SmallGearBay' pid=1640881773 midx=0 val=0.918
+[LOG 22:35:30.214] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.354
+[LOG 22:35:30.214] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.354
+[LOG 22:35:30.248] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'SmallGearBay' pid=1640881773 midx=0 val=0.918
+[LOG 22:35:30.265] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'SmallGearBay' pid=1640881773 midx=0 val=0.919
+[LOG 22:35:30.265] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.353
+[LOG 22:35:30.265] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.353
+[LOG 22:35:30.281] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.353
+[LOG 22:35:30.281] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.353
+[LOG 22:35:30.298] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.352
+[LOG 22:35:30.298] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.352
+[LOG 22:35:30.298] [Parsek][VERBOSE][GhostCommNet] Ghost CommNet tick (FLIGHT): candidates=0 eligible=0 typeIgnored=0 incapable=0 covered=0 registered=0 added=0 removed=0 rangeModifier=1
+[LOG 22:35:30.518] [Parsek][VERBOSE][Recorder] Part event: RoboticPositionSample 'SmallGearBay' pid=1640881773 midx=0 val=0.922
+[LOG 22:35:30.535] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'SmallGearBay' pid=1640881773 midx=0 val=0.922
+[LOG 22:35:30.552] [Parsek][VERBOSE][Recorder] Part event: RoboticPositionSample 'GearMedium' pid=794912095 midx=0 val=1.338
+[LOG 22:35:30.552] [Parsek][VERBOSE][Recorder] Part event: RoboticPositionSample 'GearMedium' pid=3293212706 midx=0 val=1.338
+[LOG 22:35:30.586] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.338
+[LOG 22:35:30.586] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.338
+[LOG 22:35:30.619] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'SmallGearBay' pid=1640881773 midx=0 val=0.922
+[LOG 22:35:30.637] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'SmallGearBay' pid=1640881773 midx=0 val=0.923
+[LOG 22:35:30.705] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.338
+[LOG 22:35:30.720] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.339
+[LOG 22:35:30.720] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.339
+[LOG 22:35:30.738] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.339
+[LOG 22:35:30.755] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'SmallGearBay' pid=1640881773 midx=0 val=0.922
+[LOG 22:35:30.755] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.340
+[LOG 22:35:30.773] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'SmallGearBay' pid=1640881773 midx=0 val=0.921
+[LOG 22:35:30.773] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.341
+[LOG 22:35:30.773] [Parsek][VERBOSE][Recorder] Recorded point #10: UT=32.6 lat=-0.0486 lon=-74.7237 alt=72.2
+[LOG 22:35:30.822] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'SmallGearBay' pid=1640881773 midx=0 val=0.921
+[LOG 22:35:30.839] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'SmallGearBay' pid=1640881773 midx=0 val=0.921
+[LOG 22:35:30.956] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'SmallGearBay' pid=1640881773 midx=0 val=0.920
+[LOG 22:35:30.981] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'SmallGearBay' pid=1640881773 midx=0 val=0.920
+[LOG 22:35:31.023] [Parsek][VERBOSE][Recorder] Part event: RoboticPositionSample 'GearMedium' pid=794912095 midx=0 val=1.346
+[LOG 22:35:31.041] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.346
+[LOG 22:35:31.041] [Parsek][VERBOSE][Recorder] Part event: RoboticPositionSample 'GearMedium' pid=3293212706 midx=0 val=1.346
+[LOG 22:35:31.057] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.346
+[LOG 22:35:31.141] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.346
+[LOG 22:35:31.142] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.345
+[LOG 22:35:31.159] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.345
+[LOG 22:35:31.159] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.345
+[LOG 22:35:31.194] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.344
+[LOG 22:35:31.227] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.345
+[LOG 22:35:31.227] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.344
+[LOG 22:35:31.243] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'SmallGearBay' pid=1640881773 midx=0 val=0.921
+[LOG 22:35:31.243] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.344
+[LOG 22:35:31.259] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'SmallGearBay' pid=1640881773 midx=0 val=0.921
+[LOG 22:35:31.259] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.343
+[LOG 22:35:31.276] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.344
+[LOG 22:35:31.277] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.343
+[LOG 22:35:31.293] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.343
+[LOG 22:35:31.327] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.342
+[LOG 22:35:31.344] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'SmallGearBay' pid=1640881773 midx=0 val=0.920
+[LOG 22:35:31.344] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.342
+[LOG 22:35:31.361] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'SmallGearBay' pid=1640881773 midx=0 val=0.920
+[LOG 22:35:31.361] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.342
+[LOG 22:35:31.378] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.342
+[LOG 22:35:31.596] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.343
+[LOG 22:35:31.612] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.343
+[LOG 22:35:31.647] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.343
+[LOG 22:35:31.664] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.343
+[LOG 22:35:31.714] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.344
+[LOG 22:35:31.730] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.344
+[LOG 22:35:31.765] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'SmallGearBay' pid=1640881773 midx=0 val=0.919
+[LOG 22:35:31.765] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.344
+[LOG 22:35:31.781] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'SmallGearBay' pid=1640881773 midx=0 val=0.919
+[LOG 22:35:31.781] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.344
+[LOG 22:35:32.135] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.343
+[LOG 22:35:32.135] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.343
+[LOG 22:35:32.152] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.343
+[LOG 22:35:32.152] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.343
+[LOG 22:35:32.287] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'SmallGearBay' pid=1640881773 midx=0 val=0.918
+[LOG 22:35:32.304] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'SmallGearBay' pid=1640881773 midx=0 val=0.918
+[LOG 22:35:32.387] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'SmallGearBay' pid=1640881773 midx=0 val=0.917
+[LOG 22:35:32.404] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'SmallGearBay' pid=1640881773 midx=0 val=0.917
+[LOG 22:35:33.092] [Parsek][INFO][Environment] Environment transition: SurfaceMobile -> SurfaceStationary at UT=34.94 (debounce=3.0s)
+[LOG 22:35:33.092] [Parsek][VERBOSE][Recorder] Boundary point sampled at UT=34.9
+[LOG 22:35:33.093] [Parsek][INFO][Recorder] TrackSection closed: env=SurfaceMobile ref=Absolute frames=16 checkpoints=0 duration=4.30s avgGap=0.287s maxGap=1.220s largeGaps=0 warpRuns=1x:16:30.640-34.940
+[LOG 22:35:33.093] [Parsek][VERBOSE][Pipeline-Terrain] section close env=SurfaceMobile clearanceMin=7.361m clearanceMax=7.523m clearanceAvg=7.384m N=16
+[LOG 22:35:33.093] [Parsek][INFO][Recorder] TrackSection started: env=SurfaceStationary ref=Absolute source=Active at UT=34.94
+[LOG 22:35:33.093] [Parsek][VERBOSE][Recorder] Boundary point seeded: ut=34.94
+[LOG 22:35:33.292] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'SmallGearBay' pid=1640881773 midx=0 val=0.916
+[LOG 22:35:33.326] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'SmallGearBay' pid=1640881773 midx=0 val=0.916
+[LOG 22:35:33.360] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'SmallGearBay' pid=1640881773 midx=0 val=0.915
+[LOG 22:35:33.377] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'SmallGearBay' pid=1640881773 midx=0 val=0.915
+[LOG 22:35:33.549] [Parsek][VERBOSE][Recorder] Part event: DeployableRetracted 'airbrake1' pid=2701571972 midx=0 (aero-surface)
+[LOG 22:35:33.549] [Parsek][VERBOSE][Recorder] Part event: DeployableRetracted 'airbrake1' pid=1380477848 midx=0 (aero-surface)
+[LOG 22:35:33.579] [Parsek][VERBOSE][Recorder] Part event: EngineIgnited 'JetEngine' pid=1754919664 midx=0 val=0.00
+[LOG 22:35:33.579] [Parsek][VERBOSE][Recorder] Part event: EngineIgnited 'JetEngine' pid=2379588717 midx=0 val=0.00
+[LOG 22:35:33.663] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'SmallGearBay' pid=1640881773 midx=0 val=0.916
+[LOG 22:35:33.679] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'SmallGearBay' pid=1640881773 midx=0 val=0.916
+[LOG 22:35:33.797] [Parsek][VERBOSE][Extrapolator] FinalizerCache refresh summary: owner=ActiveRecorder reason=periodic recordingsExamined=1 alreadyClassified=0 newlyClassified=0 rec=3b18fcbbd33547a4b87c6b054ffa512f pid=3520254568 status=Fresh terminal=Landed decline=(none) segments=0
+[LOG 22:35:33.867] [Parsek][VERBOSE][Recorder] Sample skipped at ut=35.70; waiting for motion/attitude trigger highFidelity=False reason=(none) proximity=(none) proximitySource=(none) minInterval=0.200s maxInterval=3.000s | suppressed=236
+[LOG 22:35:34.019] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=1754919664 midx=0 val=0.05
+[LOG 22:35:34.019] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=2379588717 midx=0 val=0.05
+[LOG 22:35:34.019] [Parsek][VERBOSE][FinalizerCache] Refresh accepted: owner=ActiveRecorder rec=3b18fcbbd33547a4b87c6b054ffa512f pid=3520254568 reason=periodic terminal=Landed terminalUT=35.860 segments=0 | suppressed=1
+[LOG 22:35:34.472] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=1754919664 midx=0 val=0.10
+[LOG 22:35:34.472] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=2379588717 midx=0 val=0.10
+[LOG 22:35:34.960] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=1754919664 midx=0 val=0.15
+[LOG 22:35:34.960] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=2379588717 midx=0 val=0.15
+[LOG 22:35:35.161] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.344
+[LOG 22:35:35.178] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.344
+[LOG 22:35:35.315] [Parsek][VERBOSE][GhostCommNet] Ghost CommNet tick (FLIGHT): candidates=0 eligible=0 typeIgnored=0 incapable=0 covered=0 registered=0 added=0 removed=0 rangeModifier=1
+[LOG 22:35:35.481] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=1754919664 midx=0 val=0.21
+[LOG 22:35:35.481] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=2379588717 midx=0 val=0.21
+[LOG 22:35:35.498] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.344
+[LOG 22:35:35.515] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.344
+[LOG 22:35:36.038] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=1754919664 midx=0 val=0.26
+[LOG 22:35:36.038] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=2379588717 midx=0 val=0.26
+[LOG 22:35:36.344] [Parsek][VERBOSE][ConversionCause] Scope opened: MilestoneAchievement key='RecordsDistance' reasons=[Progression] depth=1
+[LOG 22:35:36.344] [Parsek][VERBOSE][ProgressRewardPatch] AwardProgress outside CAREER pays no reward in stock: recording 'RecordsDistance' with zero rewards (nominal funds=4800 sci=0.0 rep=0.0)
+[LOG 22:35:36.346] [Parsek][VERBOSE][GameStateRecorder] Emit: MilestoneAchieved key='RecordsDistance' tag='3b18fcbbd33547a4b87c6b054ffa512f' source='MilestoneAchievedStandalone'
+[LOG 22:35:36.346] [Parsek][VERBOSE][GameStateStore] AddEvent: MilestoneAchieved key='RecordsDistance' tag='3b18fcbbd33547a4b87c6b054ffa512f' ut=38.2 cseq=3 (total=3)
+[LOG 22:35:36.346] [Parsek][INFO][GameStateRecorder] Game state: MilestoneAchieved (standalone) 'RecordsDistance' funds=0 rep=0.0 sci=0.0 threshold=1
+[LOG 22:35:36.541] [Parsek][VERBOSE][Recorder] Recorded point #30: UT=38.4 lat=-0.0486 lon=-74.7234 alt=72.1 | suppressed=1
+[LOG 22:35:36.643] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=1754919664 midx=0 val=0.31
+[LOG 22:35:36.643] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=2379588717 midx=0 val=0.31
+[LOG 22:35:36.795] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'SmallGearBay' pid=1640881773 midx=0 val=0.915
+[LOG 22:35:36.812] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'SmallGearBay' pid=1640881773 midx=0 val=0.915
+[LOG 22:35:36.913] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.345
+[LOG 22:35:36.947] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.345
+[LOG 22:35:36.964] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.344
+[LOG 22:35:36.981] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.344
+[LOG 22:35:37.098] [Parsek][INFO][Environment] Environment transition: SurfaceStationary -> SurfaceMobile at UT=38.94 (debounce=3.0s)
+[LOG 22:35:37.098] [Parsek][VERBOSE][Recorder] Boundary point sampled at UT=38.9
+[LOG 22:35:37.098] [Parsek][INFO][Recorder] TrackSection closed: env=SurfaceStationary ref=Absolute frames=18 checkpoints=0 duration=4.00s avgGap=0.235s maxGap=0.580s largeGaps=0 warpRuns=1x:18:34.940-38.940
+[LOG 22:35:37.098] [Parsek][VERBOSE][Pipeline-Terrain] section close env=SurfaceStationary clearanceMin=7.350m clearanceMax=7.361m clearanceAvg=7.357m N=17
+[LOG 22:35:37.098] [Parsek][INFO][Recorder] TrackSection started: env=SurfaceMobile ref=Absolute source=Active at UT=38.94
+[LOG 22:35:37.098] [Parsek][VERBOSE][Recorder] Boundary point seeded: ut=38.94
+[LOG 22:35:37.283] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=1754919664 midx=0 val=0.36
+[LOG 22:35:37.283] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=2379588717 midx=0 val=0.36
+[LOG 22:35:37.855] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.345
+[LOG 22:35:37.872] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.345
+[LOG 22:35:37.906] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.345
+[LOG 22:35:37.922] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.345
+[LOG 22:35:37.955] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=1754919664 midx=0 val=0.41
+[LOG 22:35:37.956] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=2379588717 midx=0 val=0.41
+[LOG 22:35:38.561] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.346
+[LOG 22:35:38.578] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.346
+[LOG 22:35:38.578] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.345
+[LOG 22:35:38.595] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.345
+[LOG 22:35:38.695] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=1754919664 midx=0 val=0.46
+[LOG 22:35:38.695] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=2379588717 midx=0 val=0.46
+[LOG 22:35:38.867] [Parsek][VERBOSE][Spawner] ApplySurfaceOrbitToSnapshot: rewrote ORBIT to canonical surface tuple for TryBackupSnapshot pid=3520254568 vessel='Mallard' on body 'Kerbin' (REF=1) | suppressed=1
+[LOG 22:35:38.867] [Parsek][VERBOSE][CrewInventory] CaptureFromLiveVessel: captured 2 crew inventory(ies) (2 from live module) for pid=3520254568 vessel='Mallard' | suppressed=1
+[LOG 22:35:38.882] [Parsek][VERBOSE][Recorder] Sample skipped at ut=40.72; waiting for motion/attitude trigger highFidelity=False reason=(none) proximity=(none) proximitySource=(none) minInterval=0.200s maxInterval=3.000s | suppressed=227
+[LOG 22:35:39.083] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.347
+[LOG 22:35:39.101] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.347
+[LOG 22:35:39.101] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.346
+[LOG 22:35:39.119] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.346
+[LOG 22:35:39.521] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=1754919664 midx=0 val=0.51
+[LOG 22:35:39.521] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=2379588717 midx=0 val=0.51
+[LOG 22:35:39.555] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.347
+[LOG 22:35:39.571] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.347
+[LOG 22:35:39.571] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.347
+[LOG 22:35:39.605] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.347
+[LOG 22:35:39.942] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.347
+[LOG 22:35:39.959] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.348
+[LOG 22:35:39.976] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.348
+[LOG 22:35:39.992] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.348
+[LOG 22:35:40.279] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.348
+[LOG 22:35:40.296] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.348
+[LOG 22:35:40.313] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.349
+[LOG 22:35:40.328] [Parsek][VERBOSE][GhostCommNet] Ghost CommNet tick (FLIGHT): candidates=0 eligible=0 typeIgnored=0 incapable=0 covered=0 registered=0 added=0 removed=0 rangeModifier=1
+[LOG 22:35:40.347] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.349
+[LOG 22:35:40.414] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=1754919664 midx=0 val=0.56
+[LOG 22:35:40.414] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=2379588717 midx=0 val=0.56
+[LOG 22:35:40.616] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.349
+[LOG 22:35:40.633] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.349
+[LOG 22:35:40.669] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.349
+[LOG 22:35:40.684] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.349
+[LOG 22:35:40.902] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.349
+[LOG 22:35:40.919] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.350
+[LOG 22:35:40.935] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.350
+[LOG 22:35:40.951] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.350
+[LOG 22:35:41.191] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.350
+[LOG 22:35:41.205] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'SmallGearBay' pid=1640881773 midx=0 val=0.916
+[LOG 22:35:41.205] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.350
+[LOG 22:35:41.221] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'SmallGearBay' pid=1640881773 midx=0 val=0.916
+[LOG 22:35:41.221] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.351
+[LOG 22:35:41.238] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.351
+[LOG 22:35:41.340] [Parsek][VERBOSE][FinalizerCache] Refresh accepted: owner=ActiveRecorder rec=3b18fcbbd33547a4b87c6b054ffa512f pid=3520254568 reason=periodic terminal=Landed terminalUT=43.180 segments=0 | suppressed=1
+[LOG 22:35:41.441] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=1754919664 midx=0 val=0.61
+[LOG 22:35:41.441] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=2379588717 midx=0 val=0.61
+[LOG 22:35:41.441] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.351
+[LOG 22:35:41.458] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.351
+[LOG 22:35:41.475] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.351
+[LOG 22:35:41.508] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.351
+[LOG 22:35:41.676] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.352
+[LOG 22:35:41.696] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.352
+[LOG 22:35:41.727] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.352
+[LOG 22:35:41.743] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.352
+[LOG 22:35:41.911] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.352
+[LOG 22:35:41.945] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.352
+[LOG 22:35:41.961] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.353
+[LOG 22:35:41.978] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.353
+[LOG 22:35:42.165] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.353
+[LOG 22:35:42.181] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.353
+[LOG 22:35:42.201] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.354
+[LOG 22:35:42.215] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.354
+[LOG 22:35:42.384] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.354
+[LOG 22:35:42.401] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.354
+[LOG 22:35:42.417] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'SmallGearBay' pid=1640881773 midx=0 val=0.916
+[LOG 22:35:42.417] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.354
+[LOG 22:35:42.434] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'SmallGearBay' pid=1640881773 midx=0 val=0.916
+[LOG 22:35:42.434] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.354
+[LOG 22:35:42.585] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.354
+[LOG 22:35:42.601] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=1754919664 midx=0 val=0.66
+[LOG 22:35:42.601] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=2379588717 midx=0 val=0.66
+[LOG 22:35:42.601] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.355
+[LOG 22:35:42.618] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.355
+[LOG 22:35:42.635] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.355
+[LOG 22:35:42.787] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.355
+[LOG 22:35:42.804] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.355
+[LOG 22:35:42.821] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.356
+[LOG 22:35:42.837] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.356
+[LOG 22:35:42.972] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.356
+[LOG 22:35:43.006] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.356
+[LOG 22:35:43.023] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.356
+[LOG 22:35:43.040] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.357
+[LOG 22:35:43.157] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.357
+[LOG 22:35:43.174] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.357
+[LOG 22:35:43.210] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.357
+[LOG 22:35:43.224] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.357
+[LOG 22:35:43.325] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'SmallGearBay' pid=1640881773 midx=0 val=0.917
+[LOG 22:35:43.343] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'SmallGearBay' pid=1640881773 midx=0 val=0.917
+[LOG 22:35:43.343] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.357
+[LOG 22:35:43.360] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.357
+[LOG 22:35:43.377] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.358
+[LOG 22:35:43.393] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.358
+[LOG 22:35:43.443] [Parsek][VERBOSE][Recorder] Recorded point #60: UT=45.3 lat=-0.0487 lon=-74.7152 alt=72.0 | suppressed=2
+[LOG 22:35:43.528] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.358
+[LOG 22:35:43.545] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.358
+[LOG 22:35:43.561] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.359
+[LOG 22:35:43.579] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.359
+[LOG 22:35:43.646] [Parsek][VERBOSE][ConversionCause] Scope opened: MilestoneAchievement key='RecordsSpeed' reasons=[Progression] depth=1
+[LOG 22:35:43.646] [Parsek][VERBOSE][ProgressRewardPatch] AwardProgress outside CAREER pays no reward in stock: recording 'RecordsSpeed' with zero rewards (nominal funds=4800 sci=0.0 rep=0.0)
+[LOG 22:35:43.646] [Parsek][VERBOSE][GameStateRecorder] Emit: MilestoneAchieved key='RecordsSpeed' tag='3b18fcbbd33547a4b87c6b054ffa512f' source='MilestoneAchievedStandalone'
+[LOG 22:35:43.646] [Parsek][VERBOSE][GameStateStore] AddEvent: MilestoneAchieved key='RecordsSpeed' tag='3b18fcbbd33547a4b87c6b054ffa512f' ut=45.5 cseq=4 (total=4)
+[LOG 22:35:43.646] [Parsek][INFO][GameStateRecorder] Game state: MilestoneAchieved (standalone) 'RecordsSpeed' funds=0 rep=0.0 sci=0.0 threshold=1
+[LOG 22:35:43.697] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.359
+[LOG 22:35:43.716] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.359
+[LOG 22:35:43.748] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.359
+[LOG 22:35:43.765] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.360
+[LOG 22:35:43.883] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.360
+[LOG 22:35:43.883] [Parsek][VERBOSE][Recorder] Sample skipped at ut=45.72; waiting for motion/attitude trigger highFidelity=False reason=(none) proximity=(none) proximitySource=(none) minInterval=0.200s maxInterval=3.000s | suppressed=229
+[LOG 22:35:43.900] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.360
+[LOG 22:35:43.916] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.360
+[LOG 22:35:43.932] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=1754919664 midx=0 val=0.71
+[LOG 22:35:43.932] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=2379588717 midx=0 val=0.71
+[LOG 22:35:43.932] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.360
+[LOG 22:35:44.051] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.361
+[LOG 22:35:44.085] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.361
+[LOG 22:35:44.101] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.361
+[LOG 22:35:44.118] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.361
+[LOG 22:35:44.135] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'SmallGearBay' pid=1640881773 midx=0 val=0.918
+[LOG 22:35:44.151] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'SmallGearBay' pid=1640881773 midx=0 val=0.918
+[LOG 22:35:44.221] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.361
+[LOG 22:35:44.236] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.361
+[LOG 22:35:44.252] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.362
+[LOG 22:35:44.286] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.362
+[LOG 22:35:44.387] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.362
+[LOG 22:35:44.404] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.362
+[LOG 22:35:44.421] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.363
+[LOG 22:35:44.438] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.363
+[LOG 22:35:44.539] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.363
+[LOG 22:35:44.554] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.363
+[LOG 22:35:44.572] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.363
+[LOG 22:35:44.605] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.363
+[LOG 22:35:44.705] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.364
+[LOG 22:35:44.725] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.364
+[LOG 22:35:44.741] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.364
+[LOG 22:35:44.756] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.364
+[LOG 22:35:44.824] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'SmallGearBay' pid=1640881773 midx=0 val=0.918
+[LOG 22:35:44.841] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'SmallGearBay' pid=1640881773 midx=0 val=0.918
+[LOG 22:35:44.857] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.364
+[LOG 22:35:44.874] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.364
+[LOG 22:35:44.908] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.365
+[LOG 22:35:44.925] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.365
+[LOG 22:35:45.026] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.365
+[LOG 22:35:45.043] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.365
+[LOG 22:35:45.059] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.366
+[LOG 22:35:45.077] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.366
+[LOG 22:35:45.160] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.366
+[LOG 22:35:45.177] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.366
+[LOG 22:35:45.229] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.367
+[LOG 22:35:45.243] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.367
+[LOG 22:35:45.294] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.367
+[LOG 22:35:45.328] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.367
+[LOG 22:35:45.345] [Parsek][VERBOSE][GhostCommNet] Ghost CommNet tick (FLIGHT): candidates=0 eligible=0 typeIgnored=0 incapable=0 covered=0 registered=0 added=0 removed=0 rangeModifier=1
+[LOG 22:35:45.362] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.367
+[LOG 22:35:45.378] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.367
+[LOG 22:35:45.411] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'SmallGearBay' pid=1640881773 midx=0 val=0.919
+[LOG 22:35:45.445] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'SmallGearBay' pid=1640881773 midx=0 val=0.919
+[LOG 22:35:45.446] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.367
+[LOG 22:35:45.463] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.367
+[LOG 22:35:45.496] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.368
+[LOG 22:35:45.513] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.368
+[LOG 22:35:45.547] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=1754919664 midx=0 val=0.76
+[LOG 22:35:45.547] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=2379588717 midx=0 val=0.76
+[LOG 22:35:45.581] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.368
+[LOG 22:35:45.598] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.368
+[LOG 22:35:45.665] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.369
+[LOG 22:35:45.681] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.369
+[LOG 22:35:45.715] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.369
+[LOG 22:35:45.734] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.369
+[LOG 22:35:45.800] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.370
+[LOG 22:35:45.817] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.370
+[LOG 22:35:45.851] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.370
+[LOG 22:35:45.885] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.370
+[LOG 22:35:45.935] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.370
+[LOG 22:35:45.953] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.371
+[LOG 22:35:46.004] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'SmallGearBay' pid=1640881773 midx=0 val=0.920
+[LOG 22:35:46.004] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.370
+[LOG 22:35:46.021] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'SmallGearBay' pid=1640881773 midx=0 val=0.920
+[LOG 22:35:46.021] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.371
+[LOG 22:35:46.071] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.371
+[LOG 22:35:46.105] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.371
+[LOG 22:35:46.138] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.371
+[LOG 22:35:46.155] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.371
+[LOG 22:35:46.224] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.372
+[LOG 22:35:46.244] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.372
+[LOG 22:35:46.275] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.372
+[LOG 22:35:46.291] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.372
+[LOG 22:35:46.342] [Parsek][VERBOSE][FinalizerCache] Refresh accepted: owner=ActiveRecorder rec=3b18fcbbd33547a4b87c6b054ffa512f pid=3520254568 reason=periodic terminal=Landed terminalUT=48.180 segments=0
+[LOG 22:35:46.359] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.373
+[LOG 22:35:46.376] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.373
+[LOG 22:35:46.426] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.373
+[LOG 22:35:46.442] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.373
+[LOG 22:35:46.494] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.374
+[LOG 22:35:46.527] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.374
+[LOG 22:35:46.545] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'SmallGearBay' pid=1640881773 midx=0 val=0.920
+[LOG 22:35:46.561] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'SmallGearBay' pid=1640881773 midx=0 val=0.920
+[LOG 22:35:46.561] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.374
+[LOG 22:35:46.578] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.374
+[LOG 22:35:46.646] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.374
+[LOG 22:35:46.662] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.375
+[LOG 22:35:46.696] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.374
+[LOG 22:35:46.714] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.375
+[LOG 22:35:46.781] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.375
+[LOG 22:35:46.797] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.375
+[LOG 22:35:46.831] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.375
+[LOG 22:35:46.865] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.375
+[LOG 22:35:46.916] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.376
+[LOG 22:35:46.932] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.376
+[LOG 22:35:46.982] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.376
+[LOG 22:35:46.999] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.376
+[LOG 22:35:47.033] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.377
+[LOG 22:35:47.066] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.377
+[LOG 22:35:47.100] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'SmallGearBay' pid=1640881773 midx=0 val=0.921
+[LOG 22:35:47.117] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'SmallGearBay' pid=1640881773 midx=0 val=0.921
+[LOG 22:35:47.117] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.377
+[LOG 22:35:47.134] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.377
+[LOG 22:35:47.185] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.378
+[LOG 22:35:47.201] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.378
+[LOG 22:35:47.255] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.378
+[LOG 22:35:47.286] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.378
+[LOG 22:35:47.320] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.379
+[LOG 22:35:47.336] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.379
+[LOG 22:35:47.403] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.379
+[LOG 22:35:47.419] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.379
+[LOG 22:35:47.437] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.379
+[LOG 22:35:47.453] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.379
+[LOG 22:35:47.519] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=1754919664 midx=0 val=0.81
+[LOG 22:35:47.519] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=2379588717 midx=0 val=0.81
+[LOG 22:35:47.537] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.380
+[LOG 22:35:47.554] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.380
+[LOG 22:35:47.571] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.380
+[LOG 22:35:47.604] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.380
+[LOG 22:35:47.638] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'SmallGearBay' pid=1640881773 midx=0 val=0.922
+[LOG 22:35:47.656] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'SmallGearBay' pid=1640881773 midx=0 val=0.922
+[LOG 22:35:47.656] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.380
+[LOG 22:35:47.673] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.380
+[LOG 22:35:47.706] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.381
+[LOG 22:35:47.723] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.381
+[LOG 22:35:47.774] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.381
+[LOG 22:35:47.808] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.381
+[LOG 22:35:47.825] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.382
+[LOG 22:35:47.841] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.382
+[LOG 22:35:47.891] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.382
+[LOG 22:35:47.926] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.382
+[LOG 22:35:47.960] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.383
+[LOG 22:35:47.976] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.383
+[LOG 22:35:48.044] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.383
+[LOG 22:35:48.059] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.383
+[LOG 22:35:48.093] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'SmallGearBay' pid=1640881773 midx=0 val=0.922
+[LOG 22:35:48.093] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.383
+[LOG 22:35:48.128] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'SmallGearBay' pid=1640881773 midx=0 val=0.922
+[LOG 22:35:48.128] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.384
+[LOG 22:35:48.178] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.384
+[LOG 22:35:48.195] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.384
+[LOG 22:35:48.247] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.384
+[LOG 22:35:48.267] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.384
+[LOG 22:35:48.297] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.384
+[LOG 22:35:48.314] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.385
+[LOG 22:35:48.364] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.385
+[LOG 22:35:48.381] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.385
+[LOG 22:35:48.415] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.385
+[LOG 22:35:48.431] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.385
+[LOG 22:35:48.483] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.386
+[LOG 22:35:48.500] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.386
+[LOG 22:35:48.533] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.386
+[LOG 22:35:48.567] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'SmallGearBay' pid=1640881773 midx=0 val=0.923
+[LOG 22:35:48.567] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.386
+[LOG 22:35:48.585] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'SmallGearBay' pid=1640881773 midx=0 val=0.923
+[LOG 22:35:48.602] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.387
+[LOG 22:35:48.619] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.387
+[LOG 22:35:48.652] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.387
+[LOG 22:35:48.685] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.387
+[LOG 22:35:48.719] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.387
+[LOG 22:35:48.736] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.388
+[LOG 22:35:48.790] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.388
+[LOG 22:35:48.802] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.388
+[LOG 22:35:48.836] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.388
+[LOG 22:35:48.852] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.388
+[LOG 22:35:48.886] [Parsek][VERBOSE][Recorder] Sample skipped at ut=50.72; waiting for motion/attitude trigger highFidelity=False reason=(none) proximity=(none) proximitySource=(none) minInterval=0.200s maxInterval=3.000s | suppressed=237
+[LOG 22:35:48.906] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.388
+[LOG 22:35:48.919] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.388
+[LOG 22:35:48.937] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'SmallGearBay' pid=1640881773 midx=0 val=0.924
+[LOG 22:35:48.953] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'SmallGearBay' pid=1640881773 midx=0 val=0.924
+[LOG 22:35:49.003] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'SmallGearBay' pid=1640881773 midx=0 val=0.925
+[LOG 22:35:49.020] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'SmallGearBay' pid=1640881773 midx=0 val=0.926
+[LOG 22:35:49.020] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.387
+[LOG 22:35:49.037] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'SmallGearBay' pid=1640881773 midx=0 val=0.926
+[LOG 22:35:49.204] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.388
+[LOG 22:35:49.221] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.387
+[LOG 22:35:49.255] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.386
+[LOG 22:35:49.288] [Parsek][VERBOSE][Recorder] Part event: RoboticPositionSample 'GearMedium' pid=794912095 midx=0 val=1.369
+[LOG 22:35:49.288] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.386
+[LOG 22:35:49.307] [Parsek][VERBOSE][Recorder] Part event: RoboticPositionSample 'SmallGearBay' pid=1640881773 midx=0 val=0.936
+[LOG 22:35:49.310] [Parsek][VERBOSE][Spawner] ApplySurfaceOrbitToSnapshot: rewrote ORBIT to canonical surface tuple for TryBackupSnapshot pid=3520254568 vessel='Mallard' on body 'Kerbin' (REF=1)
+[LOG 22:35:49.310] [Parsek][VERBOSE][CrewInventory] CaptureFromLiveVessel: captured 2 crew inventory(ies) (2 from live module) for pid=3520254568 vessel='Mallard'
+[LOG 22:35:49.321] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.385
+[LOG 22:35:49.338] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.384
+[LOG 22:35:49.355] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.383
+[LOG 22:35:49.541] [Parsek][VERBOSE][Recorder] Part event: RoboticPositionSample 'GearMedium' pid=794912095 midx=0 val=1.358
+[LOG 22:35:49.558] [Parsek][VERBOSE][Recorder] Part event: RoboticPositionSample 'SmallGearBay' pid=1640881773 midx=0 val=0.949
+[LOG 22:35:49.558] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.358
+[LOG 22:35:49.576] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'SmallGearBay' pid=1640881773 midx=0 val=0.949
+[LOG 22:35:49.593] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.359
+[LOG 22:35:49.627] [Parsek][VERBOSE][Recorder] Part event: RoboticPositionSample 'GearMedium' pid=3293212706 midx=0 val=1.374
+[LOG 22:35:49.644] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.374
+[LOG 22:35:49.677] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.375
+[LOG 22:35:49.862] [Parsek][VERBOSE][Recorder] Part event: RoboticPositionSample 'GearMedium' pid=794912095 midx=0 val=1.418
+[LOG 22:35:49.946] [Parsek][VERBOSE][Recorder] Part event: RoboticPositionSample 'GearMedium' pid=3293212706 midx=0 val=1.404
+[LOG 22:35:50.115] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=1754919664 midx=0 val=0.86
+[LOG 22:35:50.115] [Parsek][VERBOSE][Recorder] Part event: EngineThrottle 'JetEngine' pid=2379588717 midx=0 val=0.86
+[LOG 22:35:50.115] [Parsek][VERBOSE][Recorder] Part event: RoboticPositionSample 'GearMedium' pid=794912095 midx=0 val=1.433
+[LOG 22:35:50.131] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=794912095 midx=0 val=1.434
+[LOG 22:35:50.182] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=794912095 midx=0 val=1.435
+[LOG 22:35:50.199] [Parsek][VERBOSE][Recorder] Part event: RoboticPositionSample 'GearMedium' pid=3293212706 midx=0 val=1.382
+[LOG 22:35:50.319] [Parsek][VERBOSE][Recorder] Part event: DeployableExtended 'airbrake1' pid=2701571972 midx=0 (aero-surface)
+[LOG 22:35:50.319] [Parsek][VERBOSE][Recorder] Part event: DeployableExtended 'airbrake1' pid=1380477848 midx=0 (aero-surface)
+[LOG 22:35:50.319] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStopped 'GearMedium' pid=3293212706 midx=0 val=1.381
+[LOG 22:35:50.336] [Parsek][VERBOSE][Recorder] Part event: RoboticMotionStarted 'GearMedium' pid=3293212706 midx=0 val=1.382
+[LOG 22:35:50.349] [Parsek][VERBOSE][GhostCommNet] Ghost CommNet tick (FLIGHT): candidates=0 eligible=0 typeIgnored=0 incapable=0 covered=0 registered=0 added=0 removed=0 rangeModifier=1
+[LOG 22:35:50.385] [Parsek][INFO][TestCommands] recv id=0005 cmd=StopRecording args=0
+[LOG 22:35:50.385] [Parsek][VERBOSE][TestCommands] poll: read=1 lines, parsed=1, deferred-head=StopRecording | suppressed=1
+[LOG 22:35:50.385] [Parsek][INFO][TestCommands] dispatch id=0005 -> EXECUTE
+[LOG 22:35:50.386] [Parsek][VERBOSE][TestCommands] journal id=0005 phase=CLAIMED
+[LOG 22:35:50.386] [Parsek][INFO][TestCommands] exec id=0005 cmd=StopRecording start
+[LOG 22:35:50.386] [Parsek][INFO][Flight] StopRecording called
+[LOG 22:35:50.387] [Parsek][INFO][Recorder] TrackSection closed: env=SurfaceMobile ref=Absolute frames=46 checkpoints=0 duration=13.28s avgGap=0.292s maxGap=0.560s largeGaps=0 warpRuns=1x:46:38.940-52.080
+[LOG 22:35:50.387] [Parsek][VERBOSE][Pipeline-Terrain] section close env=SurfaceMobile clearanceMin=6.797m clearanceMax=7.348m clearanceAvg=7.168m N=45
+[LOG 22:35:50.387] [Parsek][VERBOSE][Recorder] Unsubscribed part event hooks
+[LOG 22:35:50.387] [Parsek][VERBOSE][Diagnostics] Recording growth rate at stop: 78 points, 437 events, 21.4s elapsed, 3.64 pts/s, 20.38 evts/s, est 24110 bytes
+[LOG 22:35:50.387] [Parsek][VERBOSE][Recorder] Terminal event: EngineShutdown pid=1754919664 midx=0 at UT=52.22
+[LOG 22:35:50.387] [Parsek][VERBOSE][Recorder] Terminal event: EngineShutdown pid=2379588717 midx=0 at UT=52.22
+[LOG 22:35:50.388] [Parsek][VERBOSE][Recorder] Terminal event: RoboticMotionStopped pid=794912095 midx=0 pos=1.435 at UT=52.22
+[LOG 22:35:50.388] [Parsek][VERBOSE][Recorder] Terminal event: RoboticMotionStopped pid=3293212706 midx=0 pos=1.382 at UT=52.22
+[LOG 22:35:50.388] [Parsek][INFO][Recorder] Emitted 4 terminal events at UT=52.22 (engines=2, rcs=0, robotics=2, jetpack=0)
+[LOG 22:35:50.389] [Parsek][VERBOSE][Spawner] SnapshotVessel: using active vessel, vesselDestroyed=False, points=78
+[LOG 22:35:50.392] [Parsek][INFO][Spawner] Vessel snapshot taken. Distance from launch: 345m, Max distance: 350m, Situation: Landed Kerbin, EndBiome: Shores
+[LOG 22:35:50.392] [Parsek][VERBOSE][Spawner] ExtractResourceManifest: 2 resource type(s) from 38 part(s)
+[LOG 22:35:50.392] [Parsek][VERBOSE][Recorder] BuildCaptureRecording: captured 2 end resource type(s)
+[LOG 22:35:50.392] [Parsek][VERBOSE][Recorder] BuildCaptureRecording: captured 0 end inventory item type(s), 0 slot(s)
+[LOG 22:35:50.392] [Parsek][VERBOSE][Spawner] ExtractCrewManifest: 2 crew across 2 trait(s) from 38 part(s)
+[LOG 22:35:50.392] [Parsek][VERBOSE][Recorder] BuildCaptureRecording: captured 2 end crew trait(s)
+[LOG 22:35:50.393] [Parsek][VERBOSE][Recorder] BuildCaptureRecording: forwarded 1 start controller part(s)
+[LOG 22:35:50.393] [Parsek][VERBOSE][Spawner] ExtractResourceManifest: 2 resource type(s) from 38 part(s)
+[LOG 22:35:50.393] [Parsek][VERBOSE][Recorder] RouteRunManifest end: recording=1c9a9f4135df4828b2a5494d4228229b startRes=2 endRes=2 overwrite=0
+[LOG 22:35:50.394] [Parsek][VERBOSE][Recorder] Built capture recording: vessel="Mallard", points=78, orbits=0, partEvents=445, checkpointDensifiedPoints=0, hasSnapshot=True
+[LOG 22:35:50.394] [Parsek][INFO][Recorder] Recording stopped. 78 points, 0 orbit segments over 21.4s
+[LOG 22:35:50.395] [Parsek][VERBOSE][Flight] Final segment tagged (StopRecording): Kerbin surface
+[LOG 22:35:50.395] [Parsek][INFO][TestCommands] stoprecording stopped=true idle=false
+[LOG 22:35:50.395] [Parsek][VERBOSE][TestCommands] journal id=0005 phase=EXECUTED
+[LOG 22:35:50.395] [Parsek][INFO][TestCommands] exec id=0005 verdict=OK
+[LOG 22:35:50.396] [Parsek][VERBOSE][TestCommands] response appended id=0005 verdict=OK
+[LOG 22:35:50.396] [Parsek][VERBOSE][TestCommands] journal id=0005 phase=DONE
+[LOG 22:35:50.399] [Parsek][INFO][PhysicsPatch] Active recorder cleared
+[LOG 22:35:50.419] [Parsek][INFO][TestCommands] recv id=0007 cmd=StopRecording args=0
+[LOG 22:35:50.419] [Parsek][INFO][TestCommands] dispatch id=0007 -> EXECUTE
+[LOG 22:35:50.419] [Parsek][VERBOSE][TestCommands] journal id=0007 phase=CLAIMED
+[LOG 22:35:50.419] [Parsek][INFO][TestCommands] exec id=0007 cmd=StopRecording start
+[LOG 22:35:50.419] [Parsek][INFO][TestCommands] stoprecording stopped=false idle=true
+[LOG 22:35:50.419] [Parsek][VERBOSE][TestCommands] journal id=0007 phase=EXECUTED
+[LOG 22:35:50.419] [Parsek][INFO][TestCommands] exec id=0007 verdict=OK
+[LOG 22:35:50.419] [Parsek][VERBOSE][TestCommands] response appended id=0007 verdict=OK
+[LOG 22:35:50.419] [Parsek][VERBOSE][TestCommands] journal id=0007 phase=DONE
+[LOG 22:35:50.435] [Parsek][INFO][TestCommands] recv id=0009 cmd=FlushAndQuit args=0
+[LOG 22:35:50.435] [Parsek][INFO][TestCommands] dispatch id=0009 -> EXECUTE
+[LOG 22:35:50.436] [Parsek][VERBOSE][TestCommands] journal id=0009 phase=CLAIMED
+[LOG 22:35:50.436] [Parsek][INFO][TestCommands] exec id=0009 cmd=FlushAndQuit start
+[LOG 22:35:50.440] [Parsek][INFO][RecState] [#22][OnSave:pre] mode=tree tree=1175f5b3|Mallard rec=3b18fcbb|Mallard|pid=3520254568 rec.prev=- rec.live=F/F rec.buf=78/445/0 lastUT=52.1 tree.recs=1/0 pend.tree=- pend.sa=- pend.split=F/F ut=52.3 scene=FLIGHT
+[LOG 22:35:50.440] [Parsek][INFO][Scenario] OnSave: saving 0 committed recordings
+[LOG 22:35:50.440] [Parsek][INFO][Scenario] OnSave: saving 0 committed tree(s)
+[LOG 22:35:50.440] [Parsek][INFO][RecState] [#23][FlushRecorderIntoActiveTree:entry] mode=tree tree=1175f5b3|Mallard rec=3b18fcbb|Mallard|pid=3520254568 rec.prev=- rec.live=F/F rec.buf=78/445/0 lastUT=52.1 tree.recs=1/0 pend.tree=- pend.sa=- pend.split=F/F ut=52.3 scene=FLIGHT
+[LOG 22:35:50.440] [Parsek][VERBOSE][Flight] Flushed recorder→active-tree '3b18fcbbd33547a4b87c6b054ffa512f' for serialization: 78 points, 445 part events (tree recording now has 78 points (+78), 452 part events (+445))
+[LOG 22:35:50.440] [Parsek][INFO][RecState] [#24][FlushRecorderIntoActiveTree:post] mode=tree tree=1175f5b3|Mallard rec=3b18fcbb|Mallard|pid=3520254568 rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=52.1 tree.recs=1/0 pend.tree=- pend.sa=- pend.split=F/F ut=52.3 scene=FLIGHT
+[LOG 22:35:50.440] [Parsek][VERBOSE][RecordingStore] TryProbeTrajectorySidecar: encoding=BinaryV0 magic=PSK0 version=1 generation=4 recording=3b18fcbbd33547a4b87c6b054ffa512f sidecarEpoch=1
+[LOG 22:35:50.440] [Parsek][VERBOSE][RecordingStore] ReadBinaryTrajectoryFile: recording=f921c44f540a4858a20ee7e81a62e8df version=1 used flat fallback path healed=false prePoints=0 postPoints=0 preOrbitSegments=0 postOrbitSegments=0 trackSections=0 sparsePointLists=0 defaultedBody=0 defaultedFunds=0 defaultedScience=0 defaultedRep=0
+[LOG 22:35:50.449] [Parsek][VERBOSE][RecordingStore] WriteBinaryTrajectoryFile: recording=3b18fcbbd33547a4b87c6b054ffa512f version=1 sectionAuthoritative=True strings=6 points=0 originalPoints=78 safeRelativeFlatFallback=False orbitSegments=0 predictedOrbitSegments=0 predictedCheckpoints=0 trackSections=3 nonDefaultSectionSources=0 sparsePointLists=3 sparsePoints=80 omittedBody=80 omittedFunds=80 omittedScience=80 omittedRep=80
+[LOG 22:35:50.464] [Parsek][VERBOSE][RecordingStore] Sidecar retained: rec=3b18fcbbd33547a4b87c6b054ffa512f kind=prec hash=691e4b8eda5a452a reason=rewrite outcome=filed
+[LOG 22:35:50.464] [Parsek][VERBOSE][RecordingStore] Sidecar retention summary (process): filed=1 identicalExists=0 sameAsHead=0 leftIncoming=0
+[LOG 22:35:50.464] [Parsek][VERBOSE][RecordingStore] Sidecar retained: rec=3b18fcbbd33547a4b87c6b054ffa512f kind=ghost hash=d2304e600a9bf4ab reason=rewrite outcome=same-as-head
+[LOG 22:35:50.465] [Parsek][VERBOSE][Pipeline-Smoothing] FitAndStorePerSection summary: recordingId=3b18fcbbd33547a4b87c6b054ffa512f sections=3 fitOk=0 fitFailed=0 skipped=3
+[LOG 22:35:50.469] [Parsek][VERBOSE][Pipeline-Anchor] Anchor candidate computed: recordingId=3b18fcbbd33547a4b87c6b054ffa512f sectionIndex=0 candidateUT=30.639999999999436 candidateType=SurfaceContinuous side=Start bpType=<n/a>
+[LOG 22:35:50.469] [Parsek][VERBOSE][Pipeline-Anchor] Anchor candidate computed: recordingId=3b18fcbbd33547a4b87c6b054ffa512f sectionIndex=2 candidateUT=38.940000000000488 candidateType=SurfaceContinuous side=Start bpType=<n/a>
+[LOG 22:35:50.469] [Parsek][VERBOSE][Pipeline-Anchor] AnchorCandidateBuilder summary: recordingId=3b18fcbbd33547a4b87c6b054ffa512f sections=3 candidatesEmittedTotal=2 perSourceCounts=[Dock/Merge=0 Split(EVA/Undock/JointBreak)=0 RelativeBoundary=0 OrbitalCheckpoint=0 SoiTransition=0 BubbleEntry=0 BubbleExit=0 SurfaceContinuous=2 Loop=0 other=0]
+[LOG 22:35:50.475] [Parsek][VERBOSE][Pipeline-Sidecar] Pannotations write OK: recordingId=3b18fcbbd33547a4b87c6b054ffa512f bytes=135 path=<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gs1-two-stage-pad\Parsek\Recordings\3b18fcbbd33547a4b87c6b054ffa512f.pann splineCount=0 candidateSectionCount=2 outlierFlagsCount=0
+[LOG 22:35:50.475] [Parsek][VERBOSE][RecordingStore] SerializeTrajectoryInto: recording=3b18fcbbd33547a4b87c6b054ffa512f version=1 using section-authoritative path sections=3 skippedTopLevelPoints=78 skippedTopLevelOrbitSegments=0
+[LOG 22:35:50.485] [Parsek][VERBOSE][RecordingStore] SaveRecordingFiles: id=3b18fcbbd33547a4b87c6b054ffa512f trajectoryEncoding=BinaryV0 snapshotEncoding=DeflateV1 snapshotCompression=Optimal ghostSnapshotMode=Separate wroteVessel=False wroteGhost=True deletedStaleGhost=False readableMirrorsEnabled=True wroteReadableTrajectory=True wroteReadableVessel=False readableVesselSource=None wroteReadableGhost=True readableGhostSource=InMemory deletedReadableTrajectory=False deletedReadableVessel=False deletedReadableGhost=False
+[LOG 22:35:50.485] [Parsek][VERBOSE][RecordingStore] TryProbeTrajectorySidecar: encoding=BinaryV0 magic=PSK0 version=1 generation=4 recording=3b18fcbbd33547a4b87c6b054ffa512f sidecarEpoch=2
+[LOG 22:35:50.485] [Parsek][VERBOSE][RecordingStore] ReadBinaryTrajectoryFile: recording=76b15cc9a5964b32b1501305791e4a8f version=1 using section-authoritative path sections=3 rebuiltPoints=78 dedupedPointCopies=2 rebuiltOrbitSegments=0 dedupedOrbitCopies=0 sparsePointLists=3 defaultedBody=80 defaultedFunds=80 defaultedScience=80 defaultedRep=80
+[LOG 22:35:50.489] [Parsek][INFO][Scenario] SaveActiveTreeIfAny: iterated 1 recording(s), 1 dirty, 1 saved, 0 failed, 0 skippedDegraded, 0 committedRestoreOverlap
+[LOG 22:35:50.489] [Parsek][INFO][Flight] SaveActiveTreeIfAny: copied rewind save 'parsek_rw_9777f1' to root recording '3b18fcbbd33547a4b87c6b054ffa512f'
+[LOG 22:35:50.489] [Parsek][VERBOSE][RecordingTree] SaveRecordingResourceAndState: saved 1 controller(s) for recording=3b18fcbbd33547a4b87c6b054ffa512f
+[LOG 22:35:50.489] [Parsek][VERBOSE][RecordingStore] SerializeCrewManifest: wrote 2 trait(s) for recording=3b18fcbbd33547a4b87c6b054ffa512f
+[LOG 22:35:50.491] [Parsek][VERBOSE][RecordingStore] SerializeRouteProofMetadata: recording=3b18fcbbd33547a4b87c6b054ffa512f targetPid=none kind=none originProof=False runManifest=True windows=0 harvestWindows=0
+[LOG 22:35:50.491] [Parsek][INFO][Scenario] OnSave: wrote ACTIVE tree 'Mallard' (1 recording(s), activeRecId=3b18fcbbd33547a4b87c6b054ffa512f) for quickload resume
+[LOG 22:35:50.491] [Parsek][VERBOSE][Mission] Saved 0 mission(s)
+[LOG 22:35:50.491] [Parsek][VERBOSE][KerbalsModule] SaveSlots: no slots to save
+[LOG 22:35:50.495] [Parsek][INFO][GameStateStore] Saved 4/4 game state events, 0/0 contract snapshots, 0 science subjects to <HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gs1-two-stage-pad\Parsek\GameState\events.pgse
+[LOG 22:35:50.497] [Parsek][VERBOSE][GameStateStore] Saved baseline at UT 25 to <HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gs1-two-stage-pad\Parsek\GameState\baseline_25.339999999999549.pgsb
+[LOG 22:35:50.497] [Parsek][VERBOSE][Scenario] OnSave: flushing pending events at UT 52
+[LOG 22:35:50.497] [Parsek][VERBOSE][MilestoneStore] FlushPendingEvents: currentUT=52
+[LOG 22:35:50.497] [Parsek][VERBOSE][MilestoneStore] CreateMilestone: scanning visible events in window UT 0-52, recordingId=(flush)
+[LOG 22:35:50.497] [Parsek][VERBOSE][MilestoneStore] CreateMilestone: 4 total events, 2 matched, skipped: hidden=0, window=0, resource=2
+[LOG 22:35:50.498] [Parsek][INFO][MilestoneStore] Milestone created: id=ba3473af, 2 events, UT 0-52
+[LOG 22:35:50.498] [Parsek][VERBOSE][MilestoneStore]   event[0]: MilestoneAchieved key='RecordsDistance' ut=38.2
+[LOG 22:35:50.498] [Parsek][VERBOSE][MilestoneStore]   event[1]: MilestoneAchieved key='RecordsSpeed' ut=45.5
+[LOG 22:35:50.502] [Parsek][INFO][MilestoneStore] Saved 1 milestones to <HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gs1-two-stage-pad\Parsek\GameState\milestones.pgsm
+[LOG 22:35:50.502] [Parsek][VERBOSE][MilestoneStore] SaveMutableState: wrote 1 MILESTONE_STATE nodes
+[LOG 22:35:50.504] [Parsek][VERBOSE][Ledger] Saved ledger to '<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gs1-two-stage-pad\Parsek\GameState\ledger.pgld': version=0, actions=0
+[LOG 22:35:50.504] [Parsek][VERBOSE][LedgerOrchestrator] OnSave: ledger saved to '<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\gs1-two-stage-pad\Parsek\GameState\ledger.pgld'
+[LOG 22:35:50.504] [Parsek][VERBOSE][Scenario] OnSave: wrote external game-state files and the GAME_STATE node (events=4, milestones=1, baselines=1, ledgerRows=0, pendingScience=0, attemptEvents=0, attemptTree=<none>)
+[LOG 22:35:50.504] [Parsek][INFO][TestBatch] marker saved: none
+[LOG 22:35:50.504] [Parsek][INFO][Rewind] RewindPoints saved: 0
+[LOG 22:35:50.504] [Parsek][INFO][Supersede] RecordingSupersedes saved: 0
+[LOG 22:35:50.504] [Parsek][INFO][Rewind] RecordingRewindRetirements saved: 0
+[LOG 22:35:50.504] [Parsek][INFO][LedgerSwap] LedgerTombstones saved: 0
+[LOG 22:35:50.504] [Parsek][INFO][ReFlySession] Marker saved: none
+[LOG 22:35:50.504] [Parsek][INFO][MergeJournal] Journal saved: none
+[LOG 22:35:50.504] [Parsek][INFO][SwitchIntent] intent saved: none
+[LOG 22:35:50.504] [Parsek][INFO][SwitchSegment] session saved: none
+[LOG 22:35:50.504] [Parsek][INFO][Scenario] OnSave: Re-Fly subsystem state persisted (saved collections, not a rewind action; reFlyInProgress=False): rewindPoints=0 supersedes=0 rewindRetirements=0 tombstones=0 marker=False journal=False switchIntent=False switchSegment=False
+[LOG 22:35:50.504] [Parsek][VERBOSE][RouteEventLog] Save: no route events to write
+[LOG 22:35:50.504] [Parsek][VERBOSE][Route] SaveRoutesTo: no routes to save
+[LOG 22:35:50.504] [Parsek][VERBOSE][StockPoolReference] Saved: pools=0 rows=0 takenBackRows=0 funds=unset science=unset reputation=unset
+[LOG 22:35:50.504] [Parsek][INFO][RecState] [#25][OnSave:post] mode=tree tree=1175f5b3|Mallard rec=3b18fcbb|Mallard|pid=3520254568 rec.prev=- rec.live=F/F rec.buf=0/0/0 lastUT=52.1 tree.recs=1/0 pend.tree=- pend.sa=- pend.split=F/F ut=52.3 scene=FLIGHT
+[LOG 22:35:50.504] [Parsek][VERBOSE][Diagnostics] OnSave: 64ms (0 dirty of 0)
+[LOG 22:35:50.517] [Parsek][INFO][TestCommands] flushandquit: saved=true game-loaded=true; quitting
+[LOG 22:35:50.518] [Parsek][VERBOSE][TestCommands] journal id=0009 phase=EXECUTED
+[LOG 22:35:50.518] [Parsek][INFO][TestCommands] exec id=0009 verdict=OK
+[LOG 22:35:50.518] [Parsek][VERBOSE][TestCommands] response appended id=0009 verdict=OK
+[LOG 22:35:50.518] [Parsek][VERBOSE][TestCommands] journal id=0009 phase=DONE
+[LOG 22:35:50.518] [Parsek][INFO][TestCommands] flushandquit: scheduling Application.Quit (deferred one frame) id=0009
+[LOG 22:35:50.524] [Parsek][INFO][TestCommands] flushandquit: Application.Quit
+[LOG 22:35:50.532] [Parsek][INFO][Init] Application quitting latched source=OnApplicationQuit - teardown-time repair paths stand down from here
+[LOG 22:35:50.532] [Parsek][VERBOSE][GhostMap] Planetarium camera retarget skipped before application-quit: no ghost map vessels
+[LOG 22:35:51.159] [Parsek][VERBOSE][GhostMap] GhostTrajectoryPolylineRenderer.Driver destroyed

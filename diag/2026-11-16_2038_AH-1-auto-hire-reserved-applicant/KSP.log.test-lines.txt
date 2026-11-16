@@ -1,0 +1,44 @@
+[LOG 22:38:54.051] [Parsek][INFO][TestRunner] autorun selector parsed: enabled=False selector='(unset)' categories=[] exit=False isolated=false
+[LOG 22:38:58.413] [Parsek][VERBOSE][TestRunner] TestRunnerShortcut active in LOADING
+[LOG 22:39:23.936] [Parsek][INFO][TestRunner] Discovered 698 in-game tests
+[LOG 22:39:23.937] [Parsek][INFO][TestRunner] batch dispatch: entry=RunCategory category=AutoHireReservation isolated=false
+[LOG 22:39:23.937] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: begin reason=run-category:AutoHireReservation scene=SPACECENTER
+[LOG 22:39:23.937] [Parsek][VERBOSE][TestRunner] PerformBetweenRunCleanup: no ParsekFlight.Instance — skipping flight-scene ghost teardown
+[LOG 22:39:23.939] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: end reason=run-category:AutoHireReservation ghostsBefore=0 mapPidsBefore=0 mapPidsAfter=0 ghostVesselsRemoved=0
+[LOG 22:39:23.945] [Parsek][VERBOSE][TestRunner] ForceCloseOpenSpaceCenterFacilities: no open facilities reason=run-category:AutoHireReservation
+[LOG 22:39:23.948] [Parsek][INFO][TestRunner] Batch baseline: backed up campaign persistent.sfs (49262 bytes) to 'ptb-2f875fda-persistent.bak'
+[LOG 22:39:23.948] [Parsek][INFO][TestRunner] Batch isolation captured: mode=DiskOnly slot='(disk-only)' persistentBackup='<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\fresh-career\ptb-2f875fda-persistent.bak' batchInstanceId=63626b995ba1417cb1b977aa15eca11b
+[LOG 22:39:23.970] [Parsek][INFO][TestRunner] Test batch crash marker written (mode=DiskOnly, backup='<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\fresh-career\ptb-2f875fda-persistent.bak')
+[LOG 22:39:23.971] [Parsek][INFO][TestRunner] Starting test run: 1 tests
+[LOG 22:39:23.971] [Parsek][VERBOSE][TestRunner] Running: FlightIntegrationTests.AutoHireSkipsCommittedFutureHireApplicant
+[LOG 22:39:23.992] [Parsek][VERBOSE][TestRunner] PASSED: FlightIntegrationTests.AutoHireSkipsCommittedFutureHireApplicant (19.8ms)
+[LOG 22:39:23.997] [Parsek][VERBOSE][TestRunner] ForceCloseOpenSpaceCenterFacilities: no open facilities reason=post-test:FlightIntegrationTests.AutoHireSkipsCommittedFutureHireApplicant
+[LOG 22:39:24.003] [Parsek][VERBOSE][TestRunner] Batch-end corruption check skipped: no FLIGHT/TS baseline and no exception storm (this batch performed no scene reloads)
+[LOG 22:39:24.010] [Parsek][INFO][TestRunner] Batch baseline: restored campaign persistent.sfs (49262 bytes) from batch-start backup; later FlushAndQuit saves are suppressed so this restore stays the last write
+[LOG 22:39:24.010] [Parsek][VERBOSE][TestRunner] Batch baseline: deleted persistent.sfs backup 'ptb-2f875fda-persistent.bak'
+[LOG 22:39:24.010] [Parsek][INFO][TestRunner] Disk-only batch isolation torn down (batch-complete)
+[LOG 22:39:24.012] [Parsek][INFO][TestRunner] Test batch crash marker cleared (batch-complete)
+[LOG 22:39:24.012] [Parsek][INFO][TestRunner] Test run complete: 1 passed, 0 failed, 0 skipped (of 1)
+[LOG 22:39:24.016] [Parsek][INFO][TestRunner] Test results written to <HOME>/Documents/Code/Parsek/automation/stock-minimal/KSP_x64_Data/../parsek-test-results.txt (auto after run)
+[LOG 22:39:24.016] [Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=AutoHireReservation scene=SPACECENTER
+[LOG 22:39:24.022] [Parsek][INFO][TestRunner] batch dispatch: entry=RunCategory category=FreeTechUnlock isolated=false
+[LOG 22:39:24.022] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: begin reason=run-category:FreeTechUnlock scene=SPACECENTER
+[LOG 22:39:24.022] [Parsek][VERBOSE][TestRunner] PerformBetweenRunCleanup: no ParsekFlight.Instance — skipping flight-scene ghost teardown
+[LOG 22:39:24.022] [Parsek][INFO][TestRunner] PerformBetweenRunCleanup: end reason=run-category:FreeTechUnlock ghostsBefore=0 mapPidsBefore=0 mapPidsAfter=0 ghostVesselsRemoved=0
+[LOG 22:39:24.027] [Parsek][VERBOSE][TestRunner] ForceCloseOpenSpaceCenterFacilities: no open facilities reason=run-category:FreeTechUnlock
+[LOG 22:39:24.028] [Parsek][INFO][TestRunner] Batch baseline: backed up campaign persistent.sfs (49262 bytes) to 'ptb-10768725-persistent.bak'
+[LOG 22:39:24.028] [Parsek][INFO][TestRunner] Batch isolation captured: mode=DiskOnly slot='(disk-only)' persistentBackup='<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\fresh-career\ptb-10768725-persistent.bak' batchInstanceId=126a2e45013c4e6785772ef4dc0b705c
+[LOG 22:39:24.050] [Parsek][INFO][TestRunner] Test batch crash marker written (mode=DiskOnly, backup='<HOME>\Documents\Code\Parsek\automation\stock-minimal\saves\fresh-career\ptb-10768725-persistent.bak')
+[LOG 22:39:24.050] [Parsek][INFO][TestRunner] Starting test run: 1 tests
+[LOG 22:39:24.050] [Parsek][VERBOSE][TestRunner] Running: FreeTechUnlockCaptureInGameTest.UnlockProtoTechNode_LockedNode_IsCapturedOnce
+[LOG 22:39:24.053] [Parsek][VERBOSE][TestRunner] PASSED: FreeTechUnlockCaptureInGameTest.UnlockProtoTechNode_LockedNode_IsCapturedOnce (2.0ms)
+[LOG 22:39:24.058] [Parsek][VERBOSE][TestRunner] ForceCloseOpenSpaceCenterFacilities: no open facilities reason=post-test:FreeTechUnlockCaptureInGameTest.UnlockProtoTechNode_LockedNode_IsCapturedOnce
+[LOG 22:39:24.088] [Parsek][VERBOSE][TestRunner] Batch-end corruption check skipped: no FLIGHT/TS baseline and no exception storm (this batch performed no scene reloads)
+[LOG 22:39:24.095] [Parsek][INFO][TestRunner] Batch baseline: restored campaign persistent.sfs (49262 bytes) from batch-start backup; later FlushAndQuit saves are suppressed so this restore stays the last write
+[LOG 22:39:24.095] [Parsek][VERBOSE][TestRunner] Batch baseline: deleted persistent.sfs backup 'ptb-10768725-persistent.bak'
+[LOG 22:39:24.095] [Parsek][INFO][TestRunner] Disk-only batch isolation torn down (batch-complete)
+[LOG 22:39:24.097] [Parsek][INFO][TestRunner] Test batch crash marker cleared (batch-complete)
+[LOG 22:39:24.097] [Parsek][INFO][TestRunner] Test run complete: 1 passed, 0 failed, 0 skipped (of 1)
+[LOG 22:39:24.100] [Parsek][INFO][TestRunner] Test results written to <HOME>/Documents/Code/Parsek/automation/stock-minimal/KSP_x64_Data/../parsek-test-results.txt (auto after run)
+[LOG 22:39:24.100] [Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=FreeTechUnlock scene=SPACECENTER
+[LOG 22:39:24.105] [Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=multi:2 scene=SPACECENTER
