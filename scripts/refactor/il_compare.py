@@ -69,9 +69,15 @@ Before folding, each build is checked (kind ``fold-collision``, a difference) fo
 - a field name (instance or static, an auto-property or field-like event backing field
   included) declared on both OLD and NEW: two storages that would read as one; a ``literal``
   constant has no storage (its reads are inlined) and is skipped;
-- a method signature on both OLD and NEW whose folded bodies differ and neither of which calls
-  the other (a forwarder pair is allowed): a call moved from one to the other would read the
-  same. Constructors are skipped (never called by name across the two);
+- a method signature on both OLD and NEW whose folded bodies differ, unless exactly one of the
+  two is a pass-through forwarder to the other: a call moved from one to the other would read
+  the same. The forwarder shape is the one every seam lift left behind (``host.Seam.M(args)``,
+  ``Seam.M(args)`` for a static): folded, one basic block of ``ldarg.0`` (instance), every
+  parameter loaded once in order, one ``call`` of the same folded signature (name, parameter
+  types, return type) and ``ret`` (``nop`` allowed; any branch, local, other call or extra
+  instruction fails it), and unfolded that call names the OTHER type, not its own. Anything
+  else is reported; a person then looks at it. Constructors are skipped (never called by name
+  across the two);
 - a nested type of the same, not compiler-generated, name on both OLD and NEW.
 
 Exit code 0 when nothing differs, 1 otherwise, 2 on a usage or tool error.
@@ -302,10 +308,111 @@ def _field_name(decl):
 _GENERATED_NESTED = re.compile(r"^'?<")
 
 
-def fold_collisions(types, folds, label):
-    """(kind, path, detail) for every member a fold would merge although it is two things.
-    `types` is a build parsed after apply_folds but before fold_types."""
+_METHOD_KEYWORDS = frozenset((
+    "public", "private", "assembly", "family", "famorassem", "famandassem", "privatescope",
+    "hidebysig", "specialname", "rtspecialname", "virtual", "final", "newslot", "abstract",
+    "strict", "instance", "static"))
+
+
+def _split_params(text):
+    """Split a parameter list on the commas outside brackets."""
+    parts, depth, cur = [], 0, ""
+    for ch in text:
+        if ch in "<([":
+            depth += 1
+        elif ch in ">)]":
+            depth -= 1
+        if ch == "," and depth == 0:
+            parts.append(cur.strip())
+            cur = ""
+        else:
+            cur += ch
+    if cur.strip():
+        parts.append(cur.strip())
+    return parts
+
+
+def _signature(sig):
+    """(static, return type, name, [(param type, param name)]) of a method key, or None."""
+    m = re.match(r"^\.method\s+(.*?)\s([^\s(]+)\((.*)\)\s+cil managed$", sig)
+    if not m:
+        return None
+    head = m.group(1).split()
+    static = "static" in head
+    while head and head[0] in _METHOD_KEYWORDS:
+        head = head[1:]
+    params = []
+    for p in _split_params(m.group(3)):
+        p = re.sub(r"^(?:\[(?:opt|out|in)\]\s*)+", "", p)
+        typ, _, pname = p.rpartition(" ")
+        if not typ:
+            return None
+        params.append((typ, pname))
+    return static, " ".join(head), m.group(2), params
+
+
+def _instructions(body):
+    """The normalized body's instruction lines, a call's wrapped parameter list joined back."""
     out = []
+    for line in body.split("\n"):
+        if out and out[-1].count("(") > out[-1].count(")"):
+            out[-1] += line
+        else:
+            out.append(line)
+    return out
+
+
+def _forwarder_call(sig, body, owner):
+    """True when the folded `body` of method `sig` is exactly a pass-through to `owner`'s method
+    of the same folded signature: one basic block, every argument loaded once in order, one call,
+    its result returned unchanged. Directives other than .maxstack / .param / .custom (a .locals
+    included) and any other instruction but nop fail it."""
+    parsed = _signature(sig)
+    if parsed is None:
+        return False
+    static, ret, name, params = parsed
+    code = []
+    for ins in _instructions(body):
+        if ins in ("{", "}", "nop") or ins.startswith((".maxstack", ".param", ".custom")):
+            continue
+        if ins.startswith("."):
+            return False
+        code.append(ins)
+    expected = [] if static else [{"ldarg.0"}]
+    first = 0 if static else 1
+    for i, (_, pname) in enumerate(params):
+        idx = first + i
+        ok = {"ldarg.%d" % idx} if idx <= 3 else set()
+        ok |= {"ldarg.s %s" % pname, "ldarg %s" % pname, "ldarg.s %d" % idx, "ldarg %d" % idx}
+        expected.append(ok)
+    call = "call %s%s %s::%s(%s)" % ("" if static else "instance ", ret, owner, name,
+                                     ",".join(t for t, _ in params))
+    if code[-2:] != [call, "ret"] or len(code) != len(expected) + 2:
+        return False
+    return all(ins in ok for ins, ok in zip(code[:-2], expected))
+
+
+def _fold_tokens(text, folds):
+    for old, new in folds:
+        text = re.sub(r"(?<![\w.])%s(?![\w])" % re.escape(new), old, text)
+    return text
+
+
+def _raw_body(raw, path, folded_sig, folds):
+    """The unfolded body of the method of type `path` whose folded key is `folded_sig`."""
+    info = raw.get(path)
+    for sig, bodies in (info.methods.items() if info else ()):
+        if _fold_tokens(sig, folds) == folded_sig and len(bodies) == 1:
+            return BODIES[bodies[0]]
+    return None
+
+
+def fold_collisions(types, folds, label, raw_text=None):
+    """(kind, path, detail) for every member a fold would merge although it is two things.
+    `types` is a build parsed after apply_folds but before fold_types; `raw_text` is the same
+    build unfolded (parsed on demand, to see which type a forwarder really calls)."""
+    out = []
+    raw = []
     for old, new in folds:
         to, tn = types.get(old), types.get(new)
         if to is None or tn is None:
@@ -321,12 +428,23 @@ def fold_collisions(types, folds, label):
             bo, bn = to.methods[sig], tn.methods[sig]
             if sorted(set(bo)) == sorted(set(bn)):
                 continue
-            m = re.search(r"([^\s(]+)\(", sig)
-            call = re.compile(r"\bcall(?:virt)?\s[^\n]*\s%s::%s\(" % (re.escape(old), re.escape(m.group(1))))
-            if any(call.search(BODIES[h]) for h in list(bo) + list(bn)):
+            # Allowed only when exactly one side is a pass-through to the other: its folded body
+            # has the forwarder shape, and unfolded its one call names the OTHER type.
+            forwarders = []
+            for path, other, bodies in ((old, new, bo), (new, old, bn)):
+                if len(bodies) != 1 or not _forwarder_call(sig, BODIES[bodies[0]], old):
+                    continue
+                if not raw and raw_text is not None:
+                    raw.append(parse_il(raw_text))
+                body = _raw_body(raw[0], path, sig, folds) if raw else None
+                name = _signature(sig)[2]
+                if body is not None and re.search(r"\bcall(?:virt)?\s[^\n]*\s%s::%s\("
+                                                  % (re.escape(other), re.escape(name)), body):
+                    forwarders.append(path)
+            if len(forwarders) == 1:
                 continue
-            out.append(("fold-collision", old, "%s build: method on both %s and %s, neither forwards: %s"
-                        % (label, old, new, sig)))
+            out.append(("fold-collision", old, "%s build: method on both %s and %s, not one pass-through "
+                        "forwarder: %s" % (label, old, new, sig)))
         for path in types:
             if path.startswith(new + "/") and "/" not in path[len(new) + 1:]:
                 nested = path[len(new) + 1:]
@@ -641,7 +759,8 @@ def main(argv=None):
     b_raw = parse_il(after_text)
     b = fold_types(b_raw, folds)
     widened = widenings(a, b, [old for old, _ in folds]) if folds else []
-    diffs = (fold_collisions(a_raw, folds, "before") + fold_collisions(b_raw, folds, "after")
+    diffs = (fold_collisions(a_raw, folds, "before", texts[0])
+             + fold_collisions(b_raw, folds, "after", texts[1])
              + alias_checks(a, b, aliases, folds) + compare(a, b, widened))
     for label, types in (("before", a), ("after", b)):
         print("%-6s types %d  fields %d  methods %d" % ((label,) + summarize(types)))

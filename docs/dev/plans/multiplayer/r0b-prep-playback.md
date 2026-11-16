@@ -575,9 +575,11 @@ after P2b-10.
   P2b-06, whose before build already holds the lane, fold; because a fold then merges what
   both builds hold, each build is first checked (kind `fold-collision`) for a field name
   (instance, static, auto-property or event backing field; literals skipped) declared on both
-  OLD and NEW, a method signature on both whose bodies differ and neither forwards to the
-  other, and a same-named user nested type on both. None of the nine ParsekFlight seams on
-  main trips it. CI now runs the suite (step "Refactor tool tests"). Docstring updated.
+  OLD and NEW, a method signature on both whose bodies differ unless exactly one is a
+  pass-through forwarder to the other (one basic block: arguments loaded once in order, one
+  call of the same folded signature on the other type, its result returned), and a
+  same-named user nested type on both. The 25 same-signature pairs the nine ParsekFlight
+  seams on main hold are all such forwarders; none is flagged. CI now runs the suite (step "Refactor tool tests"). Docstring updated.
 - **Proof:** new cells in `scripts/refactor/test_parsekflight_tools.py`: an alias folds a
   `lane.x` body onto a `host.Lane.x` body; without the alias the difference is reported; an alias
   on another type does not apply; and still reported: a renamed field whose type differs, a read

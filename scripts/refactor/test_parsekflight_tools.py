@@ -768,7 +768,7 @@ class IlCompareTests(unittest.TestCase):
                                        hop + "    IL_0006:  callvirt   instance int32 Parsek.%s::get_Count()\n" % owner)
         rc, out = self.run_main(build("Host"), build("Lane"), ["--fold", "Parsek.Host=Parsek.Lane"])
         self.assertEqual(1, rc, out)
-        self.assertIn("neither forwards", out)
+        self.assertIn("not one pass-through forwarder", out)
         # A forwarder pair (Host.Count => Lane.Count) is the normal shape: no collision.
         fwd = self.GETTER.format(self.TO_LANE.replace("IL_0001", "IL_0001") +
                                  "    IL_0002:  callvirt   instance int32 Parsek.Lane::get_Count()\n")
@@ -778,6 +778,85 @@ class IlCompareTests(unittest.TestCase):
                                        hop + "    IL_0006:  callvirt   instance int32 Parsek.%s::get_Count()\n" % owner)
         rc, out = self.run_main(build_fwd("Host"), build_fwd("Lane"), ["--fold", "Parsek.Host=Parsek.Lane"])
         self.assertNotIn("fold-collision", out)
+
+    # A caller switches from Host::Foo(int32) to Lane::Foo(int32); both builds hold both. The
+    # switch is only safe when one Foo is a pure pass-through to the other.
+    @staticmethod
+    def _foo(owner, body, params="int32 x"):
+        return ("  .method assembly hidebysig instance int32 Foo(%s) cil managed\n  {\n%s  }"
+                " // end of method %s::Foo\n\n" % (params, body, owner))
+
+    def _foo_pair(self, host_foo, lane_foo, lane_extra=""):
+        def build(target):
+            hop = self.TO_LANE if target == "Lane" else ""
+            caller = ("    IL_0000:  ldarg.0\n" + hop + "    IL_0006:  ldc.i4.1\n"
+                      "    IL_0007:  callvirt   instance int32 Parsek.%s::Foo(int32)\n    IL_000c:  ret\n" % target)
+            return (".class public auto ansi beforefieldinit Parsek.Host\n  extends [mscorlib]System.Object\n{\n"
+                    "  .field private class Parsek.Lane lane\n"
+                    "  .method assembly hidebysig instance int32 Caller() cil managed\n  {\n" + caller
+                    + "  } // end of method Host::Caller\n\n" + self._foo("Host", host_foo)
+                    + "} // end of class Parsek.Host\n"
+                    ".class assembly auto ansi sealed beforefieldinit Parsek.Lane\n  extends [mscorlib]System.Object\n{\n"
+                    + self._foo("Lane", lane_foo) + lane_extra + "} // end of class Parsek.Lane\n")
+        return self.run_main(build("Host"), build("Lane"), ["--fold", "Parsek.Host=Parsek.Lane"])
+
+    RET1 = "    IL_0000:  ldc.i4.1\n    IL_0001:  ret\n"
+    RET2 = "    IL_0000:  ldc.i4.2\n    IL_0001:  ret\n"
+
+    def test_a_call_to_an_overload_is_not_a_forwarder(self):
+        # Lane::Foo(int32) returns Lane::Foo(int32, bool) = 2; Host::Foo returns 1.
+        lane_foo = ("    IL_0000:  ldarg.0\n    IL_0001:  ldarg.1\n    IL_0002:  ldc.i4.1\n"
+                    "    IL_0003:  call       instance int32 Parsek.Lane::Foo(int32, bool)\n    IL_0008:  ret\n")
+        rc, out = self._foo_pair(self.RET1, lane_foo, self._foo("Lane", self.RET2, "int32 x, bool y"))
+        self.assertEqual(1, rc, out)
+        self.assertIn("not one pass-through forwarder", out)
+
+    def test_a_self_call_is_not_a_forwarder(self):
+        # Host::Foo calls itself on one branch (P4), or forwards to itself outright.
+        rec = ("    IL_0000:  ldarg.1\n    IL_0001:  brfalse.s  IL_000a\n    IL_0003:  ldarg.0\n"
+               "    IL_0004:  ldc.i4.0\n    IL_0005:  call       instance int32 Parsek.Host::Foo(int32)\n"
+               "    IL_0009:  ret\n    IL_000a:  ldc.i4.1\n    IL_000b:  ret\n")
+        self_fwd = ("    IL_0000:  ldarg.0\n    IL_0001:  ldarg.1\n"
+                    "    IL_0002:  call       instance int32 Parsek.Host::Foo(int32)\n    IL_0007:  ret\n")
+        for host_foo in (rec, self_fwd):
+            rc, out = self._foo_pair(host_foo, self.RET2)
+            self.assertEqual(1, rc, out)
+            self.assertIn("not one pass-through forwarder", out)
+
+    def test_a_call_to_the_other_on_one_branch_only_is_not_a_forwarder(self):
+        branch = ("    IL_0000:  ldarg.1\n    IL_0001:  brfalse.s  IL_000d\n    IL_0003:  ldarg.0\n"
+                  "    IL_0004:  call       instance class Parsek.Lane Parsek.Host::get_Lane()\n    IL_0005:  ldarg.1\n"
+                  "    IL_0006:  callvirt   instance int32 Parsek.Lane::Foo(int32)\n"
+                  "    IL_000c:  ret\n    IL_000d:  ldc.i4.1\n    IL_000e:  ret\n")
+        rc, out = self._foo_pair(branch, self.RET2)
+        self.assertEqual(1, rc, out)
+        self.assertIn("not one pass-through forwarder", out)
+
+    def test_a_pass_through_forwarder_is_allowed_and_a_changed_argument_is_not(self):
+        fwd = ("    IL_0000:  ldarg.0\n    IL_0001:  call       instance class Parsek.Lane Parsek.Host::get_Lane()\n"
+               "    IL_0006:  ldarg.1\n    IL_0007:  callvirt   instance int32 Parsek.Lane::Foo(int32)\n"
+               "    IL_000c:  ret\n")
+        rc, out = self._foo_pair(fwd, self.RET2)
+        self.assertNotIn("fold-collision", out)
+        for bad in (fwd.replace("    IL_0006:  ldarg.1\n", "    IL_0006:  ldc.i4.7\n"),          # argument replaced
+                    fwd.replace("    IL_000c:  ret\n", "    IL_000c:  ldc.i4.1\n    IL_000d:  add\n    IL_000e:  ret\n")):
+            rc, out = self._foo_pair(bad, self.RET2)
+            self.assertIn("not one pass-through forwarder", out)
+
+    def test_a_static_pass_through_forwarder_is_allowed(self):
+        sig = ".method assembly hidebysig static int32 Foo(int32 x) cil managed"
+        fwd = "{\n.maxstack 8\nldarg.0\ncall int32 Parsek.Host::Foo(int32)\nret\n}"
+        self.assertTrue(il_compare._forwarder_call(sig, fwd, "Parsek.Host"))
+        self.assertFalse(il_compare._forwarder_call(sig, fwd.replace("ldarg.0", "ldc.i4.0"), "Parsek.Host"))
+        self.assertFalse(il_compare._forwarder_call(sig, fwd.replace("call int32", "call instance int32"),
+                                                    "Parsek.Host"))
+        five = (".method assembly hidebysig instance void Go(int32 a, int32 b, int32 c, int32 d, "
+                "[opt] bool e) cil managed")
+        body = ("{\n.param [5] = bool(true)\n.maxstack 8\nldarg.0\nldarg.1\nldarg.2\nldarg.3\n"
+                "ldarg.s d\nldarg.s e\ncall instance void Parsek.Host::Go(int32,\nint32,\nint32,\nint32,\nbool)\nnop\nret\n}")
+        self.assertTrue(il_compare._forwarder_call(five, body, "Parsek.Host"))
+        self.assertFalse(il_compare._forwarder_call(five, body.replace("ldarg.s d\nldarg.s e", "ldarg.s e\nldarg.s d"),
+                                                    "Parsek.Host"))
 
     def test_a_same_named_nested_type_on_old_and_new_is_reported(self):
         nested = ("  .class nested assembly sequential ansi sealed beforefieldinit Entry\n"
