@@ -242,7 +242,7 @@ section 9), and any change to what is written to disk.
   file in `Recording/` is in Recording.
 - Proof material: `Source/Parsek.Tests/Fixtures/FormatGolden/v1/` holds 7 `.prec` files
   (frozen, gated by `SaveFormatGoldenGateTests`); 9 `.prec` under
-  `Source/Parsek.Tests/Fixtures/` in all and 501 under `harness/fixtures/`. The analyzer rule
+  `Source/Parsek.Tests/Fixtures/` in all and 557 under `harness/fixtures/` (2026-11-16). The analyzer rule
   `Analyzer/Rules/Inv10CodecRoundtrip.cs:110-125` writes, probes and reads each recording of
   a save and compares lists (not bytes).
 
@@ -506,21 +506,36 @@ R3W-26 and the camera half of R4-11 (on P3b-04), and R5-06 (on P3b-03 and R3W-26
   (`[Collection("Sequential")]`) and manifest
   `Source/Parsek.Tests/Fixtures/TrajectoryCodecIdentity/manifest.tsv`. For each committed
   `.prec` under `Source/Parsek.Tests/Fixtures/` and `harness/fixtures/` (found by walking,
-  5 `..` to the repo root) one row: relative path, SHA-256 of the file, SHA-256 of a
-  canonical dump of what `Read` produced (the six lists through
-  `TrajectoryTextSidecarCodec.SerializeTrajectoryInto` into a `ConfigNode`, plus format
-  version, schema generation and id), SHA-256 of the bytes `Write` produces from that
-  `Recording` (temp file outside the repo), and SHA-256 of the `RecordingStore`-tag lines
-  `Read` logged (captured through `ParsekLog.TestSinkForTesting`). The test compares a row
-  only when the file SHA matches; rows under `FormatGolden/` must always match (frozen);
-  a listed file that is missing fails naming the row. It prints compared and stale counts.
-  The manifest is regenerated only when `PARSEK_WRITE_CODEC_MANIFEST=1` is set.
-- **Proof:** the test passes on today's code; it is the byte and decode witness for P6-02 to
-  P6-05. Check that no fixture-set gate lists the `Fixtures/` directories (if one does,
-  register the new folder there).
+  5 `..` to the repo root; the gitignored `harness/fixtures/local-saves/` is skipped) one row,
+  read the way the cold load reads it (`TryProbeTrajectorySidecar`, then
+  `DeserializeTrajectorySidecar`, into a `Recording` whose id is the file name and whose
+  epoch is the probed one): relative path, SHA-256 of the file, status, probed header, list
+  and log-line counts, SHA-256 of a canonical dump of what `Read` produced, SHA-256 of the
+  bytes `Write` produces from that `Recording` (temp file outside the repo), and SHA-256 of
+  every Parsek line the probe and `Read` logged (captured through
+  `ParsekLog.TestSinkForTesting`, the fixture path made repo-relative). The dump walks every
+  field of every element of the six lists by reflection (doubles and floats as IEEE bit
+  patterns, a field at its default omitted, null and empty kept apart) plus the facts `Read`
+  stamps or side-effects (format version, schema generation, id, epoch, `FilesDirty`, the
+  stats cache, whether each list instance survived). It does not go through
+  `TrajectoryTextSidecarCodec.SerializeTrajectoryInto`: that writer skips the rebuilt flat
+  lists of a section-authoritative file, mutates the recording, and formats doubles with
+  `"R"`, whose text differs between mono and .NET Framework. The comparison is strict: a
+  `.prec` with no row, a row with no file, and a fixture whose bytes changed each red by
+  name (a re-harvest regenerates the manifest in its own commit; `harness/README.md`
+  "Fixture saves and the shared craft library" says so). The manifest is regenerated only
+  by a separate fact that is skipped unless `PARSEK_WRITE_CODEC_MANIFEST=1` and refuses
+  under CI.
+- **Proof:** the test passes on today's code (566 rows, all `ok`); regeneration is
+  byte-identical; the class's own cells show a flipped fixture byte and a decoded value moved
+  by one ulp each red naming the fixture, and a temporary production mutation (a dropped flag
+  bit in `ReadPoint`, a reworded `Read` log line, a flipped byte in one harness fixture) reds
+  the gate with per-column counts. It is the byte and decode witness for P6-02 to P6-05. No
+  fixture-set gate lists the `Fixtures/` directories (checked), so the new folder is
+  registered nowhere else.
 - **Registers:** none in production. `docs/dev/todo-and-known-bugs.md`: none.
 - **Size:** S. **Depends on:** none. **PC:** no.
-- **Risk:** low; test-only. 510 files and about 11 MB read in one test.
+- **Risk:** low; test-only. 566 files and about 11 MB read in one test (about 9 s under mono).
 
 **P6-02 List-level cores for the flat-fallback heal**
 - **Change:** in `TrajectoryTextSidecarCodec.cs`, add list-level forms of
@@ -668,7 +683,7 @@ Three tracks that share no file:
   `SaveFormatGoldenGateTests`, `ReflyARecordedFixtureCodecTests`, `SyntheticRecordingTests`.
   Each P6 step must leave the P6-01 manifest unchanged: that is the byte-identity proof
   (write digest), the decode-identity proof (dump digest) and the log-identity proof (log
-  digest) over 510 committed sidecars.
+  digest) over 566 committed sidecars (2026-11-16).
 - **Architecture suites:** DLL-free `scripts/arch` suite on every task; after a Debug build
   the semantic, ilanalysis, layers, lifetimes and ilheadless suites with re-pins where the
   task says.
@@ -739,9 +754,9 @@ Three tracks that share no file:
 - **List identity in `Read`.** Code may hold a reference to a recording's list across a
   reload. P6-03 decodes into the recording's own lists; `RecordingTrajectoryPayloadTests`
   checks the instances.
-- **Manifest staleness.** A re-harvested harness fixture makes its row stale. The test then
-  compares fewer rows and says so; FormatGolden rows never go stale. A P6 PR states the
-  compared count.
+- **Manifest staleness.** A re-harvested or added harness fixture reds the P6-01 test until
+  the manifest is regenerated in the same commit; the row diff names the harvested files.
+  A P6 PR that regenerates the manifest is not a P6 proof: P6-02 to P6-05 leave it unchanged.
 - **Watch per-frame cost.** The adapter adds an interface call per engine access on the
   watch path. It runs for one watched ghost, not per ghost; the watch lanes' timings in the
   run index would show a regression.
