@@ -1788,8 +1788,9 @@ AGENTS.md`); `design-gui-inventory.md` is untouched.
 4. **"Identical saved games" (6.4) is not reachable byte for byte across two flown
    sessions**: explicit-UT warps land near the UT and flight physics is not repeatable. The
    plan uses a canonical diff with a pinned, reasoned mask (T-05, T-27); byte identity is
-   headless only (T-23). Settled: the masked comparison is assumed (question 2), RACE-4 is
-   the one whole-save lane (OV-05), and the headless byte-identity test is R3W-29's (OV-20).
+   headless only (T-23). Settled: the masked comparison (question 2, answered 2026-11-16:
+   (a)), RACE-4 is the one whole-save lane (OV-05), and the headless byte-identity test is
+   R3W-29's (OV-20).
 5. **The seam's `LoadGame` bypasses the main menu** (`run.py:1978-1979`), as other mods
    can. A site restore tied to the main menu would miss it. RACE-5 drives both routes; the
    plan assumes R2 restores on the loaded save's gate, not on MAINMENU. Settled: SITES-2
@@ -1850,7 +1851,8 @@ AGENTS.md`); `design-gui-inventory.md` is untouched.
    each with a written reason (recommended); (b) insist on byte-identical saves, which
    forces a session where no time passes and so cannot see a rival flag or a rival landing.
 
-   Assumed until the owner says otherwise: (a), applied in T-05 and T-27.
+   Answered 2026-11-16 by the owner: (a). The two saves are compared as identical except for
+   a fixed, listed set of clock values, applied in T-05 and T-27.
 3. **Two game copies racing on one PC.** With the parallel runner's copies, a lane can run two
    copies writing one folder at the same moment. Options: (a) build it as an operator lane
    (recommended: the only proof of two live writers short of your two-PC test); (b) leave

@@ -195,7 +195,7 @@ sync clients upload; the standing grammar must ignore them. Edit: say so.
 **DC-025 OWNER.** Design 6.4 (lines 669-672) and 11 (lines 1781-1782): the two flown sessions
 "must be identical". Found: test-and-harness.md:868-871. Explicit-UT warps land near the UT and
 flight physics does not repeat, so byte identity is reachable headless only; the plan uses a
-canonical diff with a short, reasoned mask. See Q-13.
+canonical diff with a short, reasoned mask. See Q-13, answered 2026-11-16: (a).
 
 ### 6.6 Game dates
 
@@ -887,7 +887,8 @@ module needs its rule, layer and atlas line in the same commit as its first file
 Ordered by class: NOW, BEFORE-PHASE, AFTER-SPIKE, DESIGNER, ANSWERED. "Waits" names the tasks
 that need the answer. A question answered or re-timed after this list was written keeps its
 place and its number; its Class line says what changed (Q-03, Q-04, Q-05, Q-07, and the
-answers of 2026-11-15: Q-08 to Q-12, Q-14 to Q-17, Q-21, Q-22, Q-24).
+answers of 2026-11-15: Q-08 to Q-12, Q-14 to Q-17, Q-21, Q-22, Q-24; the answers of
+2026-11-16: Q-01, Q-02, Q-13).
 
 ### NOW
 
@@ -895,13 +896,17 @@ answers of 2026-11-15: Q-08 to Q-12, Q-14 to Q-17, Q-21, Q-22, Q-24).
 KSP and a copy without the expansions, so your own game and the test copies stay as they are.
 - Options: (a) yes, a separate copy (about one hour once); (b) run them in your own dev game.
 - Recommended: (a).
-- Source: r0-spikes.md:974-977. Waits: S0, and so every spike. Spike first: none. Class: NOW.
+- Source: r0-spikes.md:974-977. Waits: S0, and so every spike. Spike first: none.
+- Class: ANSWERED 2026-11-16 by the owner: (a). The spikes run on their own separate game
+  copies, not on the dev game and not on the harness copies.
 
 **Q-02 Keep the spike work on GitHub as a record?**
 - Options: (a) push the spike branch, never merged and never opened as a pull request; (b)
   keep it on your PC only.
 - Recommended: (a); the spike reports cite its commits.
-- Source: r0-spikes.md:982-984. Waits: S0, S13. Spike first: none. Class: NOW.
+- Source: r0-spikes.md:982-984. Waits: S0, S13. Spike first: none.
+- Class: ANSWERED 2026-11-16 by the owner: (a). The spike branch is pushed to GitHub and kept
+  there, never merged. It exists as `spike/mp-r0`, cut from `multiplayer`.
 
 **Q-03 Which cloud sync programs should the file-speed test cover?** The answer decides
 whether copying race files needs its own background worker.
@@ -1020,7 +1025,9 @@ sessions never land on exactly the same time values.
   see a rival flag or landing.
 - Recommended: (a).
 - Source: test-and-harness.md:908-911; correction DC-025. Waits: T-05, T-27. Spike
-  first: none. Class: BEFORE-PHASE R3.
+  first: none.
+- Class: ANSWERED 2026-11-16 by the owner: (a). The two saves are compared as identical except
+  for a fixed, listed set of clock values.
 
 **Q-14 Should the game announce a first you take that no rival had reached?** ("Mun Landing is
 yours: day 31".)
