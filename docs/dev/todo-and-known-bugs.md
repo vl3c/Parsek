@@ -1763,18 +1763,27 @@ restores); the hydration refresh of a quickloaded resumed-tree member is a possi
 
 Fix: (1) `CommitTreeCore` collects, before the session merge, the route sources the incoming
 tree carries unchanged (`TreeCommitService.CollectUnchangedRouteSourceIds` over
-`RouteStore.CollectSourceRecordingIds`, pure `IsUnchangedCommittedRecording`: neither copy dirty
+`RouteStore.CollectSourceRecordingIds`, read through `CommittedListOptimizer.CollectUnchangedRouteSourceIds`,
+the type that already reads the route source set for its own pass, so no new Recording ->
+Logistics layer pair; pure `IsUnchangedCommittedRecording`: neither copy dirty
 nor owing an advance, and the same instance or the same epoch, `PrecHash`, vessel / ghost
 snapshot hashes, start and end UT); those skip the session merge overwrite and the forced dirty in
 `MergeTreeRecordingsIntoCommitted`, so memory keeps exactly the bytes on disk; one Verbose
 `route sources in tree ... keptUnchanged=` summary per commit. A changed source (dirty, re-saved,
 extended) and every non-source member are merged and rewritten as before. (2)-(4) no longer set
 `FilesDirty` (comment at each site: .sfs metadata only). The epoch comparison stays, so a real
-sidecar change still reads as SourceChanged. Layer pin: `TreeCommitService -> RouteStore` added
-to `Recording -> Logistics` (47). Tests: `RouteSourceEpochMetadataRewriteTests` (9: the re-commit
+sidecar change still reads as SourceChanged. Tests: `RouteSourceEpochMetadataRewriteTests` (10: the re-commit
 keeps sources clean and the route Active, the kept source keeps its committed lists, a changed
 source still flips SourceChanged through `sidecar-epoch`, a non-source member is still rewritten,
 the two predicates, the two supersede marks and the group repair); with the fix reverted 6 red.
+The tenth pins that the source set never grows: after two continuations of the route's
+transport are merged back into its tree, `SourceRefs`, `RecordingIds` and
+`CollectSourceRecordingIds` are exactly the creation set, and the continuations stay ordinary
+optimizer input (merge / split candidates; a pair with the dock leaf is held for the leaf only).
+Audit: a route's source set is written only by `RouteBuilder` (creation) and `RouteCodec` (load),
+and every runtime reader (ERS presence, revalidation, transport identities, the backing mission
+frozen to creation members by `ComputeAutoExcludedNewIntervalKeys`) reads that fixed set, never
+a later recording of the vessel; `RouteCandidateFinder` leaves a continuation analysable.
 Live proof not run: the right lane is a route lane that flies the transport again after creating
 the route and merges that flight (e.g. extend RCN-1's host: create the route, switch to the real
 transport, fly a short segment, merge, F5/F9, assert the route still reads Active and

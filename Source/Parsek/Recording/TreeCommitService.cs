@@ -203,8 +203,8 @@ namespace Parsek
 
             // Read before the session merge touches the tree: a route source this commit
             // carries unchanged keeps its sidecars and epoch (design 4.7 / 10.16).
-            HashSet<string> unchangedRouteSourceIds = CollectUnchangedRouteSourceIds(
-                tree, Logistics.RouteStore.CollectSourceRecordingIds());
+            HashSet<string> unchangedRouteSourceIds =
+                CommittedListOptimizer.CollectUnchangedRouteSourceIds(tree);
             ApplySessionMergeToRecordings(tree, unchangedRouteSourceIds);
             ApplyRewindProvisionalMergeStates(tree, alreadyCommittedRecordingIds);
             PromoteNormalStagingRewindPoints(tree);

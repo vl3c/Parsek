@@ -478,5 +478,70 @@ namespace Parsek.Tests.Logistics
             Assert.Contains("Tanker", rec.RecordingGroups);
             Assert.False(rec.FilesDirty);
         }
+
+        // -----------------------------------------------------------------
+        // The source set is fixed at creation
+        // -----------------------------------------------------------------
+
+        // catches: a route that grew its source set to follow the real vessel. The route is
+        // limited to the recordings of its own run; a later flight of the same transport,
+        // merged back into the route's tree (twice here), is an ordinary recording the route
+        // never names, so the optimizer can still merge, split and trim it.
+        [Fact]
+        public void ContinuationsOfTheRouteTree_NeverJoinTheRouteSourceSet_AndStayOptimizable()
+        {
+            InstallScenario();
+            Recording launch = Leg("src-launch", 17000, 17100);
+            Recording dock = Leg("src-dock", 17100, 17400);
+            RecordingTree committed = CommitRunTree("tree-run", launch, dock);
+            AddRoute("route-run", launch, dock);
+            Assert.True(RouteStore.TryGetRoute("route-run", out Route created));
+            string[] creationIds = { "src-dock", "src-launch" };
+            var creationRefs = created.SourceRefs
+                .Select(r => r.RecordingId + "|" + r.SidecarEpoch + "|" + r.StartUT + "|" + r.EndUT
+                    + "|" + r.RouteProofHash)
+                .ToArray();
+
+            TreeCommitService.CommitTree(CloneWithContinuation(committed, "after-run", 17400, 17900));
+            RecordingTree second = RecordingStore.CommittedTrees.Single(t => t.Id == "tree-run");
+            TreeCommitService.CommitTree(CloneWithContinuation(second, "after-run-2", 17900, 18300));
+            Revalidate();
+            CommittedListOptimizer.RunOptimizationPass();
+            Revalidate();
+
+            Assert.NotNull(Committed("after-run"));
+            Assert.NotNull(Committed("after-run-2"));
+            Assert.True(RouteStore.TryGetRoute("route-run", out Route route));
+            Assert.Equal(RouteStatus.Active, route.Status);
+            Assert.Equal(creationIds, route.RecordingIds.OrderBy(x => x, StringComparer.Ordinal).ToArray());
+            Assert.Equal(creationRefs, route.SourceRefs
+                .Select(r => r.RecordingId + "|" + r.SidecarEpoch + "|" + r.StartUT + "|" + r.EndUT
+                    + "|" + r.RouteProofHash)
+                .ToArray());
+            HashSet<string> sourceIds = RouteStore.CollectSourceRecordingIds();
+            Assert.Equal(creationIds, sourceIds.OrderBy(x => x, StringComparer.Ordinal).ToArray());
+            Assert.DoesNotContain("after-run", sourceIds);
+            Assert.DoesNotContain("after-run-2", sourceIds);
+
+            // The continuations are ordinary optimizer input: a pair of them merges, either
+            // one splits, and a pair with the route's dock leaf is held for the dock leaf only.
+            var recs = new List<Recording>
+            {
+                Committed("src-dock"), Committed("after-run"), Committed("after-run-2")
+            };
+            HashSet<string> held = null;
+            Assert.Equal(0, CommittedListOptimizer.ChooseMergeCandidateIndex(
+                new List<(int, int)> { (1, 2) }, recs, sourceIds, ref held));
+            Assert.Null(held);
+            Assert.Equal(1, CommittedListOptimizer.ChooseMergeCandidateIndex(
+                new List<(int, int)> { (0, 1), (1, 2) }, recs, sourceIds, ref held));
+            Assert.Equal(new[] { "src-dock" }, held.ToArray());
+            held = null;
+            Assert.Equal(1, CommittedListOptimizer.ChooseSplitCandidateIndex(
+                new List<(int, int)> { (0, 0), (1, 0), (2, 0) }, recs, null, sourceIds,
+                ref held, out int deferred));
+            Assert.Equal(0, deferred);
+            Assert.Equal(new[] { "src-dock" }, held.ToArray());
+        }
     }
 }
