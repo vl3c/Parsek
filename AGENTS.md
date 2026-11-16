@@ -39,6 +39,8 @@ python scripts/release.py                 # Release build + Debug and Release te
 
 On the long-lived `multiplayer` branch (`docs/dev/plans/multiplayer/README.md`, rule 10), `tests` also runs for every push to `multiplayer`; the metrics row and the `metrics` job stay main only. Every race lane carries the spec tag `race` (`test_hlib.RaceTagConventionTests`) and flies with `python harness/tools/parallel_runner.py run --name <run> --tag race --slots 2`.
 
+The same workflow runs the refactor tools' suite (`python3 -m unittest discover -s scripts/refactor -q`, step "Refactor tool tests", right after the architecture map step): `scripts/refactor/il_compare.py`'s `--fold` / `--alias-field` cells are the proof every fold-proven move rests on, so a change to the tool reds CI, not a later PR's proof.
+
 ### The autotest harness runs a DIFFERENT KSP instance
 
 Harness flights do NOT use the dev instance at `Kerbal Space Program/`; they run the provisioned instance at `automation/stock-minimal/` (umbrella root), which has its own `GameData/Parsek/Plugins/Parsek.dll`. `cd Source/Parsek && dotnet build` deploys ONLY to the dev instance, so verifying that DLL proves nothing about a harness run. To get a C# change into a harness flight:
