@@ -4324,6 +4324,11 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cells over b1-pad-craft's seated Jeb. LIVE-PROVEN on its reading run
         # 2026-09-27_1339 (`passed=2 skipped=0`); the pin is whole.
         "H72-kerbal-inventory-spawn": ("KerbalInventorySpawn", 2, "FLIGHT"),
+        # 2026-11-16 (todo NEXT-TESTS-TO-BUILD-2026-11-11 item 5): H59 was a render-census
+        # lane with no batch; it now runs RouteGhostPlacement's one FLIGHT cell after its
+        # map session, while the rover route's ghost is mid-cycle. Recorded fixture
+        # (`rover-route-recorded`), so it joins no corpus set. INTERIM until it flies.
+        "H59-surface-route-map-lines": ("RouteGhostPlacement", 1, "FLIGHT"),
     }
 
     # Declared MEASURED run-time skips per member: InGameAssert.Skip firings the
@@ -4956,8 +4961,21 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # FAR-3-ike-revert-to-launch LEFT on run 2026-11-14_1529 (passed=1 failed=0 skipped=0, pinned whole).
     # FAR-5-laythe-physics-warp-record LEFT on run 2026-11-14_1639 (passed=1 failed=0 skipped=0, pinned whole).
     # FAR-1-ike-rewind-to-launch-career LEFT on run 2026-11-14_2321 (passed=1 failed=0 skipped=0, pinned whole).
+    # AIR-2-runway-circuit-ksc-ghost ENTERED on 2026-11-16 (todo NEXT-TESTS-TO-BUILD-2026-11-11
+    # item 3: AIR-1's plane flight rewound to launch and replayed at the Space Center, then
+    # the LeafVesselPlacement category's one cell, `total=1` literal with the split
+    # regexed). Not an H-series id; CommittedBatchTallySourceSyncTests gates its `total=`.
+    # It is pending-fixture until AIR-1 is harvested and leaves on its first flight.
+    # H59-surface-route-map-lines and V27M-rover-route-endpoint-substituted-map-lines ENTERED
+    # on 2026-11-16 (todo NEXT-TESTS-TO-BUILD-2026-11-11 item 5, audit B3: the route ghost
+    # read by position through the new RouteGhostPlacement category's one FLIGHT cell,
+    # `total=1` literal with the split regexed). V27M is not an H-series id;
+    # CommittedBatchTallySourceSyncTests gates its `total=`. Each leaves on its first flight.
     INTERIM_PIN_IDS: set = {
+        "AIR-2-runway-circuit-ksc-ghost",
         "FGV-1-fairing-ghost-visual",
+        "H59-surface-route-map-lines",
+        "V27M-rover-route-endpoint-substituted-map-lines",
     }
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
@@ -5040,8 +5058,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cell below cannot catch either, because it compares two sets that shrink
         # together. Same shape as CommittedBatchTallySourceSyncTests's
         # test_the_source_tree_is_actually_readable.
-        self.assertEqual(46, len(self.GROUP),
-                         "the H7-H20 + H22-H37 + Phase-4 Wave 1 (H42-H54) + H71 + H72 + H77 group is 46 "
+        self.assertEqual(47, len(self.GROUP),
+                         "the H7-H20 + H22-H37 + Phase-4 Wave 1 (H42-H54) + H59 + H71 + H72 + H77 group is 47 "
                          "specs; if it genuinely changed size, update this floor AND the "
                          "counts in docs/dev/autotest-ingame-category-inventory.md and "
                          "docs/dev/autotest-status.md in the same commit")
@@ -5271,7 +5289,10 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # ("load s15 (the Kerbin->Duna 'Duna ...')").
         recorded_fixture = {"H35-logistics-route-proof", "H51-save-load",
                             "H45-stock-ui-overlay", "H71-resource-topbar-ksc",
-                            "H54-missions"}
+                            "H54-missions",
+                            # 2026-11-16: H59's batch reads the route ghost the
+                            # `rover-route-recorded` template's committed tree drives.
+                            "H59-surface-route-map-lines"}
         self.assertEqual(set(), corpus_backed & recorded_fixture,
                          "a member cannot be both corpus-backed and "
                          "recorded-fixture; the two rules contradict")
@@ -7876,6 +7897,23 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
         "LT-5-long-tail-playback-flight": ("FLIGHT", {
             "PartEventFX": 6,
             "GhostLifecycle": 17,
+            # Appended 2026-11-16 (test gap audit B11): five FLIGHT categories no spec
+            # ran, pinned whole off reading run 2026-11-16_2036.
+            "ChainTipBlockedGhost": 2,
+            "DeployedScienceGhost": 1,
+            "GhostReapplyFrame": 1,
+            "JointBreakCheckCoroutine": 3,
+            "TreeRestoreCoroutine": 3,
+        }),
+        # Single-category until 2026-11-16, when audit B11 appended a SPACECENTER
+        # category no spec ran (FreeTechUnlock needs a career R&D singleton);
+        # AutoHireReservation stays pinned whole off reading run 2026-09-27_1341 and
+        # FreeTechUnlock is pinned whole off reading run 2026-11-16_2038.
+        # GuiMock was appended and removed the same day: the KSC draws no Parsek
+        # window unless ParsekKSC.showUI is raised, so its cells would fail here.
+        "AH-1-auto-hire-reserved-applicant": ("SPACECENTER", {
+            "AutoHireReservation": 1,
+            "FreeTechUnlock": 1,
         }),
         # 2026-09-25 coverage wave 4: the D15 / D16 storage-and-timeline lane,
         # pinned whole off reading run 2026-09-25_2043.
@@ -7891,6 +7929,10 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
     # for every constituent. It must stay a set LITERAL of ids (or `set()` when
     # empty, NEVER a `{}` literal, which would be an empty DICT and make every
     # membership read False).
+    # LT-5 and AH-1 ENTERED 2026-11-16 (test gap audit B11), narrowed below to the
+    # constituents appended that day, and LEFT the same day: reading runs
+    # 2026-11-16_2036 (LT-5) and 2026-11-16_2038 (AH-1), both PASS attempt 1, ran
+    # every appended cell with zero skips and both specs pinned every line whole.
     INTERIM_PIN_IDS: set = set()
 
     # PER-CONSTITUENT NARROWING of INTERIM_PIN_IDS. A member listed here has only
@@ -7902,7 +7944,8 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
     # measured lines to fit the switch would un-gate them for no reason.
     # EMPTY IS ITS HEALTHY STATE (a dict literal, unlike INTERIM_PIN_IDS). First
     # used by LT-2's `SceneAndPatch`, appended 2026-09-10 (claim-gap wave A1-4) and
-    # converted to measured by reading run 2026-09-10_1734.
+    # converted to measured by reading run 2026-09-10_1734; used again by the
+    # 2026-11-16 audit B11 appends to LT-5 and AH-1, measured the same day.
     INTERIM_CONSTITUENTS: dict = {}
 
     def _constituent_is_interim(self, sid, category):
@@ -11005,6 +11048,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "V31M-duna-ike-continuation-player-loop.toml": "tier=operator by the calibration discipline (its jump table comes from its own reading run, first run is a calibration reading), NOT debt; moon flight-test program Group A (2026-11-07, PR #2468): the player loop on B36's harvested `duna-ike-recorded` (one tree crossing Duna's SOI and Ike's), reading the lone-moon arrival hold and driving the MoonArrivalHold cell at the Space Center; what is open is the flight, not a human review call",
         "V32M-eve-gilly-continuation-player-loop.toml": "tier=operator by the calibration discipline (its jump table comes from its own reading run, first run is a calibration reading), NOT debt; moon flight-test program Group A (2026-11-07, PR #2468): the player loop on B37's harvested `eve-gilly-recorded` (one tree crossing Eve's SOI and Gilly's), reading the lone-moon arrival hold on the eccentric Gilly and driving the MoonArrivalHold cell at the Space Center; what is open is the flight, not a human review call",
         "V33M-jool-laythe-continuation-player-loop.toml": "tier=operator by the calibration discipline (its jump table comes from its own reading run, first run is a calibration reading), NOT debt; moon flight-test program Group A (2026-11-07, PR #2468): the player loop on B38's harvested `jool-laythe-recorded` (one tree crossing Jool's SOI and Laythe's, one Jool moon only), reading the lone-moon arrival hold and driving the MoonArrivalHold cell at the Space Center; what is open is the flight, not a human review call",
+        "AIR-1-runway-circuit-splashdown.toml": "tier=operator by the calibration discipline (its bank sign, rotate speed and coastline are unverified offline, first run is a calibration reading), NOT debt; todo NEXT-TESTS-TO-BUILD-2026-11-11 item 3 (2026-11-16): the first lane that flies a plane, the stock Mallard from the Runway around a circuit to a splashdown east of KSC, committed, to harvest `air-circuit-recorded` for its pending-fixture replay lane AIR-2; AUTHORED 2026-11-16, NEVER FLOWN (tag `pending-flight`); what is open is the flight, not a human review call",
         "B43-vall-tylo-transfer.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; moon flight-test program Group B (2026-11-14, todo NEXT-TESTS-TO-BUILD-2026-11-11 item 2): B26's parent relay from the stripped `vall-park-nerv` with B29's elliptical capture at Tylo, a fresh Vall-rooted tree, to harvest `vall-tylo-recorded` for V43M; LIVE-PROVEN 2026-11-16 (run 2026-11-16_1638, PASS attempt 1, 1,097 s) and harvested; owed: the ordinary promotion call",
         "V43M-vall-tylo-player-loop.toml": "tier=operator by the calibration discipline (its count window re-pinned off the harvested fixture, first run is a calibration reading), NOT debt; moon flight-test program Group B (2026-11-14): loops B43's harvested `vall-tylo-recorded` (a fresh Vall-rooted tree, three chain recordings ending at Tylo) and reads the moon-rooted phase lock (rule 4a); first flight 2026-11-16 (`2026-11-16_1726`) PARSEK-FAIL(expectation), todo MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH; LIVE-PROVEN 2026-11-16 (run 2026-11-16_1803, PASS attempt 1, 46 s) after the fix; owed: the ordinary promotion call",
         "B44-laythe-tylo-transfer.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; moon flight-test program Group B (2026-11-14, todo NEXT-TESTS-TO-BUILD-2026-11-11 item 2): B26's parent relay from `laythe-park-nerv` with B29's elliptical capture at Tylo, a fresh Laythe-rooted tree, to harvest `laythe-tylo-recorded` for V44M; LIVE-PROVEN 2026-11-15 (run 2026-11-15_2243, PASS attempt 1, 888 s) and harvested; owed: the ordinary promotion call",
@@ -25513,7 +25557,14 @@ class SharedShipsManifestTests(unittest.TestCase):
     # RETIRED 2026-11-16: the map is EMPTY again, so the exemption is inert and the
     # saveTemplate gate below is at full strength until a future two-stage program
     # lists a lane here.
-    PENDING_FIXTURE_LANES = {}
+    #
+    # RE-ARMED 2026-11-16 by the aircraft pair (todo NEXT-TESTS-TO-BUILD-2026-11-11
+    # item 3): the forge AIR-1 is authored, not flown, and its Space Center replay
+    # lane names the fixture its harvest will become. Tier "pending-fixture" with an
+    # estimated WarpToUT target; its header lists the one-commit hand-over.
+    PENDING_FIXTURE_LANES = {
+        "AIR-2-runway-circuit-ksc-ghost.toml": "air-circuit-recorded",
+    }
 
     def test_the_pending_fixture_exemption_retires_itself(self):
         """The exemption's own guard, in BOTH directions. If the awaited fixture

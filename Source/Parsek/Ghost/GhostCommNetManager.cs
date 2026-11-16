@@ -377,7 +377,7 @@ namespace Parsek
             if (key == null || !entries.TryGetValue(key, out Entry e))
                 return false;
             double now = Planetarium.GetUniversalTime();
-            double sampleUT = e.HoldAtEnd || now > e.EndUT ? e.EndUT : now;
+            double sampleUT = TimelineSampleUT(now, e.EndUT, e.HoldAtEnd);
             state = e.Timeline.Sample(sampleUT);
             holdAtEnd = e.HoldAtEnd;
             endUT = e.EndUT;
@@ -500,22 +500,12 @@ namespace Parsek
             for (int i = 0; i < count; i++)
             {
                 GhostCommNetCandidate c = candidates[i];
-                bool isChain = c.ChainSnapshot != null;
                 if (!string.IsNullOrEmpty(c.Key))
                 {
                     seenScratch.Add(c.Key);
                     candidateByKey[c.Key] = c;
                 }
-                rowScratch.Add(new GhostCommNetRegistrationRow
-                {
-                    Key = c.Key,
-                    IsChain = isChain,
-                    Eligible = c.Eligibility.Eligible,
-                    Reason = c.Eligibility.Reason,
-                    // A recording's launch identity is its own; a chain vessel's is the live one.
-                    Pid = !isChain && c.Recording != null ? c.Recording.VesselPersistentId : c.VesselPid,
-                    Guid = !isChain && c.Recording != null ? c.Recording.RecordedVesselGuid : c.LaunchGuid,
-                });
+                rowScratch.Add(BuildRegistrationRow(c));
             }
             if (probeCapabilityDelegate == null)
             {
@@ -533,12 +523,10 @@ namespace Parsek
             for (int i = 0; i < toRemove.Count; i++)
             {
                 string key = toRemove[i];
-                string reason;
-                if (candidateByKey.TryGetValue(key, out GhostCommNetCandidate gone))
-                    reason = lastExclusion.TryGetValue(key, out string ex) ? ex : gone.Eligibility.Reason;
-                else
-                    reason = "left-timeline";
-                RemoveEntry(key, reason);
+                bool stillCandidate = candidateByKey.TryGetValue(key, out GhostCommNetCandidate gone);
+                bool hasExclusion = lastExclusion.TryGetValue(key, out string ex);
+                RemoveEntry(key, ResolveRemovalReason(
+                    stillCandidate, hasExclusion, ex, stillCandidate ? gone.Eligibility.Reason : null));
             }
             for (int i = 0; i < toAdd.Count; i++)
             {
@@ -578,7 +566,7 @@ namespace Parsek
                         e.Reason = c.Eligibility.Reason;
                     }
                 }
-                double sampleUT = e.HoldAtEnd || currentUT > e.EndUT ? e.EndUT : currentUT;
+                double sampleUT = TimelineSampleUT(currentUT, e.EndUT, e.HoldAtEnd);
                 int stateIndex = e.Timeline.IndexAt(sampleUT);
                 if (stateIndex != e.LastLoggedStateIndex)
                 {
@@ -638,28 +626,19 @@ namespace Parsek
 
         private void PruneUnseen()
         {
-            pruneScratch.Clear();
-            foreach (var k in derived.Keys) if (!seenScratch.Contains(k)) pruneScratch.Add(k);
-            for (int i = 0; i < pruneScratch.Count; i++) derived.Remove(pruneScratch[i]);
-            pruneScratch.Clear();
-            foreach (var k in lastExclusion.Keys) if (!seenScratch.Contains(k)) pruneScratch.Add(k);
-            for (int i = 0; i < pruneScratch.Count; i++) lastExclusion.Remove(pruneScratch[i]);
-            // An eligible key clears its exclusion note so a later exclusion logs again.
-            foreach (var k in desiredScratch) lastExclusion.Remove(k);
+            PruneUnseenKeys(derived, lastExclusion, seenScratch, desiredScratch, pruneScratch);
         }
 
         private Derived GetDerived(string key, Recording rec)
         {
             if (rec == null) return null;
-            ConfigNode snapshot = rec.VesselSnapshot ?? rec.GhostVisualSnapshot;
-            string source = rec.VesselSnapshot != null ? "vessel-snapshot" : "ghost-visual-snapshot";
+            ConfigNode snapshot = SelectDerivationSnapshot(rec, out string source);
             if (derived.TryGetValue(key, out Derived d)
-                && ReferenceEquals(d.SnapshotRef, snapshot)
-                && ReferenceEquals(d.EventsRef, rec.PartEvents)
-                && d.EventsCount == (rec.PartEvents != null ? rec.PartEvents.Count : 0))
+                && IsDerivationCurrent(d.SnapshotRef, d.EventsRef, d.EventsCount,
+                    snapshot, rec.PartEvents, rec.PartEvents != null ? rec.PartEvents.Count : 0))
                 return d;
 
-            GhostCommNetVesselSpec spec = GhostCommNetDerivation.DeriveSpec(snapshot, snapshot != null ? source : "none");
+            GhostCommNetVesselSpec spec = GhostCommNetDerivation.DeriveSpec(snapshot, source);
             if (string.IsNullOrEmpty(spec.VesselName)) spec.VesselName = rec.VesselName ?? "";
             GhostCommNetTimeline timeline = GhostCommNetMath.BuildTimeline(spec, rec.PartEvents);
             d = new Derived
@@ -739,7 +718,7 @@ namespace Parsek
             entries[c.Key] = e;
 
             double now = Planetarium.GetUniversalTime();
-            double sampleUT = e.HoldAtEnd || now > e.EndUT ? e.EndUT : now;
+            double sampleUT = TimelineSampleUT(now, e.EndUT, e.HoldAtEnd);
             e.LastLoggedStateIndex = e.Timeline.IndexAt(sampleUT);
             GhostCommNetMath.LogRegistered(
                 c.Key, node.name, vesselName, scene, c.Eligibility.Reason, now,
@@ -907,7 +886,7 @@ namespace Parsek
         /// The winning antenna's range curve (<paramref name="rangeCurve"/> true, never null:
         /// stock evaluates both curves on every link) or science curve (null when none).
         /// </summary>
-        private static DoubleCurve CurveOf(GhostCommNetVesselSpec spec, int antennaIndex, bool rangeCurve)
+        internal static DoubleCurve CurveOf(GhostCommNetVesselSpec spec, int antennaIndex, bool rangeCurve)
         {
             if (spec != null && antennaIndex >= 0 && antennaIndex < spec.Antennas.Count)
             {
@@ -957,8 +936,7 @@ namespace Parsek
             bool hasSurface = false, terminalIsSurface = false, hasOrbit = false, endBodyFixed = false;
             if (rec != null)
             {
-                terminalIsSurface = rec.TerminalStateValue == TerminalState.Landed
-                    || rec.TerminalStateValue == TerminalState.Splashed;
+                terminalIsSurface = IsSurfaceTerminal(rec.TerminalStateValue);
                 if (rec.TerminalPosition.HasValue)
                 {
                     CelestialBody sb = FindBody(rec.TerminalPosition.Value.body);
@@ -993,12 +971,7 @@ namespace Parsek
                             "Held-node terminal orbit build threw for key={0}: {1}", e.Key, ex.Message));
                     }
                 }
-                int sectionIdx = TrajectoryMath.FindTrackSectionForUT(rec.TrackSections, e.EndUT);
-                bool anchorOrCheckpointEnd = sectionIdx >= 0
-                    && (rec.TrackSections[sectionIdx].referenceFrame == ReferenceFrame.Relative
-                        || rec.TrackSections[sectionIdx].referenceFrame == ReferenceFrame.OrbitalCheckpoint);
-                endBodyFixed = !anchorOrCheckpointEnd
-                    && !TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, e.EndUT).HasValue;
+                endBodyFixed = IsRecordedEndBodyFixed(rec, e.EndUT);
                 detail = string.Format(IC, "terminal={0} surfacePos={1} orbit={2} endBodyFixed={3} body={4}",
                     rec.TerminalStateValue.HasValue ? rec.TerminalStateValue.Value.ToString() : "(none)",
                     hasSurface, hasOrbit, endBodyFixed, e.HeldBody != null ? e.HeldBody.name : "(none)");
@@ -1037,22 +1010,12 @@ namespace Parsek
         {
             pos = Vector3d.zero;
             ConfigNode v = e.ChainSnapshot;
-            string sit = v.GetValue("sit") ?? "";
-            bool landed = sit == "LANDED" || sit == "SPLASHED" || sit == "PRELAUNCH"
-                || v.GetValue("landed") == "True" || v.GetValue("splashed") == "True";
             ConfigNode orbitNode = v.GetNode("ORBIT");
-            if (landed)
+            if (IsChainSnapshotLanded(v))
             {
-                if (orbitNode == null) return false;
-                int refIndex;
-                if (!int.TryParse(orbitNode.GetValue("REF"), NumberStyles.Integer, IC, out refIndex))
-                    return false;
-                if (FlightGlobals.Bodies == null || refIndex < 0 || refIndex >= FlightGlobals.Bodies.Count)
-                    return false;
-                double lat, lon, alt;
-                if (!double.TryParse(v.GetValue("lat"), NumberStyles.Float, IC, out lat)
-                    || !double.TryParse(v.GetValue("lon"), NumberStyles.Float, IC, out lon)
-                    || !double.TryParse(v.GetValue("alt"), NumberStyles.Float, IC, out alt))
+                int bodyCount = FlightGlobals.Bodies != null ? FlightGlobals.Bodies.Count : -1;
+                if (!TryReadChainSnapshotSurface(v, orbitNode, bodyCount,
+                        out int refIndex, out double lat, out double lon, out double alt))
                     return false;
                 pos = FlightGlobals.Bodies[refIndex].GetWorldSurfacePosition(lat, lon, alt);
                 return true;
@@ -1080,11 +1043,156 @@ namespace Parsek
             return true;
         }
 
-        private static bool IsFinite(Vector3d v)
+        internal static bool IsFinite(Vector3d v)
         {
             return !double.IsNaN(v.x) && !double.IsInfinity(v.x)
                 && !double.IsNaN(v.y) && !double.IsInfinity(v.y)
                 && !double.IsNaN(v.z) && !double.IsInfinity(v.z);
+        }
+
+        // ---- pure decisions of the live shell (headless; GhostCommNetManagerDecisionTests) ----
+
+        /// <summary>
+        /// The registration row for one candidate. A recording's launch identity is its own
+        /// (the recorded pid and guid); a chain-ghosted vessel's is the live one the candidate
+        /// carries.
+        /// </summary>
+        internal static GhostCommNetRegistrationRow BuildRegistrationRow(GhostCommNetCandidate c)
+        {
+            bool isChain = c.ChainSnapshot != null;
+            bool ownIdentity = !isChain && c.Recording != null;
+            return new GhostCommNetRegistrationRow
+            {
+                Key = c.Key,
+                IsChain = isChain,
+                Eligible = c.Eligibility.Eligible,
+                Reason = c.Eligibility.Reason,
+                Pid = ownIdentity ? c.Recording.VesselPersistentId : c.VesselPid,
+                Guid = ownIdentity ? c.Recording.RecordedVesselGuid : c.LaunchGuid,
+            };
+        }
+
+        /// <summary>
+        /// Why a registered node is removed: a key that left the candidate set left the
+        /// timeline; one still offered but no longer desired carries its last exclusion note
+        /// when it has one, else its eligibility reason.
+        /// </summary>
+        internal static string ResolveRemovalReason(
+            bool stillCandidate, bool hasExclusion, string exclusion, string eligibilityReason)
+        {
+            if (!stillCandidate)
+                return "left-timeline";
+            return hasExclusion ? exclusion : eligibilityReason;
+        }
+
+        /// <summary>
+        /// The UT a node's timeline is read at: the end state once held or past EndUT, else
+        /// now.
+        /// </summary>
+        internal static double TimelineSampleUT(double now, double endUT, bool holdAtEnd)
+        {
+            return holdAtEnd || now > endUT ? endUT : now;
+        }
+
+        /// <summary>
+        /// The snapshot a recording's spec is derived from (the vessel snapshot, else the
+        /// ghost visual one) and the source label the derivation logs ("none" without one).
+        /// </summary>
+        internal static ConfigNode SelectDerivationSnapshot(Recording rec, out string source)
+        {
+            ConfigNode snapshot = rec.VesselSnapshot ?? rec.GhostVisualSnapshot;
+            source = snapshot == null
+                ? "none"
+                : rec.VesselSnapshot != null ? "vessel-snapshot" : "ghost-visual-snapshot";
+            return snapshot;
+        }
+
+        /// <summary>
+        /// A cached derivation is reused only while the recording still holds the same
+        /// snapshot object and the same part-event list object at the same length (an
+        /// appended event re-derives the timeline).
+        /// </summary>
+        internal static bool IsDerivationCurrent(
+            object cachedSnapshot, object cachedEvents, int cachedEventsCount,
+            object snapshot, object events, int eventsCount)
+        {
+            return ReferenceEquals(cachedSnapshot, snapshot)
+                && ReferenceEquals(cachedEvents, events)
+                && cachedEventsCount == eventsCount;
+        }
+
+        /// <summary>
+        /// Forgets derivations and exclusion notes for keys not offered this tick, and clears
+        /// the exclusion note of every eligible key so a later exclusion logs again.
+        /// </summary>
+        internal static void PruneUnseenKeys<TDerived>(
+            Dictionary<string, TDerived> derivedByKey,
+            Dictionary<string, string> exclusionByKey,
+            HashSet<string> seen,
+            HashSet<string> desired,
+            List<string> scratch)
+        {
+            scratch.Clear();
+            foreach (var k in derivedByKey.Keys) if (!seen.Contains(k)) scratch.Add(k);
+            for (int i = 0; i < scratch.Count; i++) derivedByKey.Remove(scratch[i]);
+            scratch.Clear();
+            foreach (var k in exclusionByKey.Keys) if (!seen.Contains(k)) scratch.Add(k);
+            for (int i = 0; i < scratch.Count; i++) exclusionByKey.Remove(scratch[i]);
+            foreach (var k in desired) exclusionByKey.Remove(k);
+        }
+
+        /// <summary>True for a Landed or Splashed terminal state (a surface hold).</summary>
+        internal static bool IsSurfaceTerminal(TerminalState? terminal)
+        {
+            return terminal == TerminalState.Landed || terminal == TerminalState.Splashed;
+        }
+
+        /// <summary>
+        /// Whether a recording's end point is a plain body-fixed sample the host resolver can
+        /// place: false when the section at EndUT is anchor-relative or an orbital checkpoint,
+        /// or an orbit segment covers EndUT.
+        /// </summary>
+        internal static bool IsRecordedEndBodyFixed(Recording rec, double endUT)
+        {
+            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(rec.TrackSections, endUT);
+            bool anchorOrCheckpointEnd = sectionIdx >= 0
+                && (rec.TrackSections[sectionIdx].referenceFrame == ReferenceFrame.Relative
+                    || rec.TrackSections[sectionIdx].referenceFrame == ReferenceFrame.OrbitalCheckpoint);
+            return !anchorOrCheckpointEnd
+                && !TrajectoryMath.FindOrbitSegment(rec.OrbitSegments, endUT).HasValue;
+        }
+
+        /// <summary>
+        /// A chain-ghosted vessel's despawn snapshot sits on the surface when its situation
+        /// is LANDED / SPLASHED / PRELAUNCH or its landed / splashed flag is set.
+        /// </summary>
+        internal static bool IsChainSnapshotLanded(ConfigNode vesselNode)
+        {
+            string sit = vesselNode.GetValue("sit") ?? "";
+            return sit == "LANDED" || sit == "SPLASHED" || sit == "PRELAUNCH"
+                || vesselNode.GetValue("landed") == "True" || vesselNode.GetValue("splashed") == "True";
+        }
+
+        /// <summary>
+        /// Reads a landed chain snapshot's body index (ORBIT REF) and lat / lon / alt.
+        /// <paramref name="bodyCount"/> is the live body list's size, or -1 with no list;
+        /// false when the ORBIT node is missing, REF does not parse or names no body, or a
+        /// coordinate does not parse.
+        /// </summary>
+        internal static bool TryReadChainSnapshotSurface(
+            ConfigNode vesselNode, ConfigNode orbitNode, int bodyCount,
+            out int refIndex, out double lat, out double lon, out double alt)
+        {
+            refIndex = -1;
+            lat = lon = alt = 0.0;
+            if (orbitNode == null) return false;
+            if (!int.TryParse(orbitNode.GetValue("REF"), NumberStyles.Integer, IC, out refIndex))
+                return false;
+            if (bodyCount < 0 || refIndex < 0 || refIndex >= bodyCount)
+                return false;
+            return double.TryParse(vesselNode.GetValue("lat"), NumberStyles.Float, IC, out lat)
+                && double.TryParse(vesselNode.GetValue("lon"), NumberStyles.Float, IC, out lon)
+                && double.TryParse(vesselNode.GetValue("alt"), NumberStyles.Float, IC, out alt);
         }
 
         /// <summary>Removes every node and unsubscribes; the host calls this from OnDestroy.</summary>

@@ -1,5 +1,21 @@
 schema = 1
 id = "H59-surface-route-map-lines"
+# 2026-11-16 (todo NEXT-TESTS-TO-BUILD-2026-11-11 item 5, audit B3; branch
+# `item5-route-ghost-position`): ROUTE GHOST CHECKED BY POSITION. One `RunTests` step for
+# the new in-game category `RouteGhostPlacement` runs in FLIGHT right after `ExitMapView`,
+# while the route's rover ghost is mid-cycle (anchor ~= activation UT ~980, cadence 50 s,
+# window 45.04 s, so the loop UT at ~1612 s is ~25-32 s into the window and the next dock
+# crossing is ~1625). The cell resolves the route's unit through the route's own delivery
+# clock, asserts the engine's render clock reads the same loop UT, re-derives the recorded
+# place from the member's body-fixed samples and requires the ghost root within 3 m (+ float
+# grid + one frame of motion) horizontally and inside the recorded / terrain-plus-clearance
+# altitude window. It samples up to 30 frames (12 s real-time cap) and the batch's final
+# in-memory restore reloads the batch-start quicksave, so the steps after it keep their UTs.
+# Pins: the summary (`compared>=1 bad=0`, `bodies=[Kerbin]`) and the interim tally
+# (`total=1` literal, split regexed) until the first flight; a non-ok sample line is
+# forbidden. AUTHORED, NEVER FLOWN with this step (the rest of the lane is unchanged).
+# Fast-lane checklist: reuses this lane's flight (item 1); no added wait (item 2: the cell
+# stops at 30 compared samples); items 3-9 do not apply to an added read-only batch step.
 # 2026-10-07 (todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS, branch `scene-wait`): the
 # 1x waits this lane sized in inert seam steps (0.25 s each at the old poll; one frame
 # since PR #2017) are `WarpToUT maxRate=1` waits to explicit UTs, deterministic in
@@ -583,6 +599,7 @@ steps = [
   # frame, not the 0.25 s poll; todo HARNESS-FAST-POLLS-SHRINK-INERT-STEP-WAITS).
   { cmd = "WarpToUT", args = { ut = "1612", maxRate = "1" }, expect = "OK", budget = 120 },
   { cmd = "ExitMapView",                                                      expect = "OK", budget = 120 },
+  { cmd = "RunTests",     args = { category = "RouteGhostPlacement" },     expect = "OK", budget = 300 },
   { cmd = "SaveGame",     args = { name = "persistent" },                     expect = "OK", budget = 120 },
   { cmd = "StopRecording",                                                    expect = "OK" },
   { cmd = "DiscardTree",                                                      expect = "OK" },
@@ -863,6 +880,8 @@ required  = [
   "ParsekKSC initialized, 5 committed recordings, 5 eligible for KSC ghost playback",
   "\\[KSCGhost\\] Eligible breakdown: looping=0 terminal\\(Landed=3, <null>=1, Docked=1\\) ineligible\\(\\(none\\)\\)",
   "KSC SURFACE playback resolved: recording=.* body=Kerbin branch=absolute",
+  "RouteGhostPlacement summary: scene=FLIGHT routes=1 frames=[0-9]+ compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 outsideWindow=[0-9]+ hidden=[0-9]+ unsupported=[0-9]+ notLive=[0-9]+ worstHorizM=[0-9]+\\.[0-9]{2} bodies=\\[Kerbin\\]",
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=RouteGhostPlacement scene=FLIGHT",
   "RevalidateSources reason=.* routes=1 transitioned=0",
 ]
 # THE BACKWARD-JUMP FORBID is the V3C run-3 self-detection guard: a refused jump is only a
@@ -917,6 +936,7 @@ forbidden = [
   "timejump refused reason=backward-jump",
   "KSC point skipped: recording=.* body=",
   "KSC segment skipped: beforeBody=",
+  "RouteGhostPlacement: [^\\r\\n]*verdict=(?!ok)",
 ]
 
 [expectations.renderComposition]
@@ -1092,17 +1112,20 @@ destinationBodies = { Kerbin = { min = 1, max = 1 } }
 [runtime]
 # Budget arithmetic (M-A5 S8): run.py gives EVERY deferred seam verb
 # `required_step_wait(max(step budget, SEAM_FALLBACK_DEFERRAL_SECONDS=600))` = 660 s
-# regardless of the declared step budget. THREE steps are deferred here - both `LoadGame`s
-# and the `TimeJump` - so the deferred worst case alone is 3 x 660 = 1980. On top of it sit
-# the synchronous verbs (SealSlot 120, two RouteCommands 240, the map-view pair 240,
-# SaveGame 120, ExportRenderManifest 120) and 120 `RecordingState` ticks. 3000 clears the
-# worst case with headroom.
+# regardless of the declared step budget. SEVEN steps are deferred here - both `LoadGame`s,
+# the `TimeJump`, the three `WarpToUT`s and (2026-11-16) the `RunTests` - so the deferred
+# worst case alone is 7 x 660 = 4620 (computed from hlib.DEFERRED_SEAM_VERBS; the earlier
+# "THREE steps" count predates WarpToUT joining that set). On top of it sit the synchronous
+# verbs (SealSlot 120, two RouteCommands 240, the map-view pair 240, SaveGame 120,
+# ExportRenderManifest 120) and 120 `RecordingState` ticks. 5000 clears the deferred worst
+# case; the synchronous tail is not stacked on it because no real run reaches every
+# deferred ceiling at once.
 #
-# THE WALL FIGURE COVERS THE DEFERRED WORST CASE, not an observed wall, and it stays at
-# 3000 regardless of how fast the first run turns out to be: trimming it to hug the
+# THE WALL FIGURE COVERS THE DEFERRED WORST CASE, not an observed wall, and it stays put
+# regardless of how fast the first run turns out to be: trimming it to hug the
 # expectation would convert a slow load into a KILLED run with NO CENSUS, which on a first
 # reading destroys the entire product of the flight.
-budgetSeconds = 3000
+budgetSeconds = 5000
 
 [retry]
 policy = "once"

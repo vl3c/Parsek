@@ -1030,8 +1030,8 @@ namespace Parsek
         /// speed instead of being recorded. This is the VISUAL-MODE test (it maps to
         /// <c>RoboticVisualMode.WheelGroundSpeed</c>); the recorder's emission gate is the wider
         /// <see cref="IsDerivedWheelVisualModuleName"/>, which also covers ModuleWheelSteering.
-        /// Returns false for ModuleWheelSuspension, whose scalars are still recorded normally, and
-        /// for ModuleWheelSteering, whose caliper angle is a DIFFERENT derived visual
+        /// Returns false for ModuleWheelSuspension, which has its own emission gate
+        /// (<see cref="IsWheelSuspensionModuleName"/>), and for ModuleWheelSteering, whose caliper angle is a DIFFERENT derived visual
         /// (<c>WheelSteeringHeading</c>) and must not be spun like a motor.
         ///
         /// Why these two stopped being recorded: the only field on <c>ModuleWheelMotor</c> that the
@@ -1069,8 +1069,8 @@ namespace Parsek
 
         /// <summary>
         /// The wheel modules whose visual is DERIVED from the ghost's own ground motion at playback,
-        /// so recording a scalar for them is pure storage cost. This is the RECORDER EMISSION GATE
-        /// (foreground <see cref="CheckRoboticState"/> and its background mirror); it is deliberately
+        /// so recording a scalar for them is pure storage cost. It is half of the recorder emission gate
+        /// <see cref="IsRoboticEmissionSkippedModuleName"/> (wheel suspension is the other); it is deliberately
         /// wider than <see cref="IsWheelMotorSpinModuleName"/>, which stays the visual-mode test.
         ///
         /// ModuleWheelSteering joins the motors for the same reason they left: what the field plan
@@ -1083,8 +1083,9 @@ namespace Parsek
         /// ever read. Deleting the emission is storage-NEGATIVE and behaviour-neutral.
         ///
         /// Nothing is retired in <c>PartEventType</c>: RoboticMotionStarted / RoboticPositionSample /
-        /// RoboticMotionStopped are still the live signal for hinges, pistons, rotation servos, rotors
-        /// and wheel SUSPENSION. Legacy recordings keep their steering events on disk and playback
+        /// RoboticMotionStopped are still the live signal for hinges, pistons, rotation servos and
+        /// rotors (wheel suspension stopped emitting too, see <see cref="IsWheelSuspensionModuleName"/>).
+        /// Legacy recordings keep their steering events on disk and playback
         /// stays tolerant of them (it logs and ignores), so there is nothing to migrate.
         ///
         /// Like the motor gate, this one gates EMISSION ONLY. It must not be folded into
@@ -1097,6 +1098,75 @@ namespace Parsek
         {
             return IsWheelMotorSpinModuleName(moduleName) ||
                    string.Equals(moduleName, "ModuleWheelSteering", StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// ModuleWheelSuspension: landing-gear legs, aircraft gear bays and rover wheels.
+        ///
+        /// Its only live signal is <c>suspensionPos</c>, which stock assigns from
+        /// <c>suspensionTransform.localPosition</c> (decompiled) - an ABSOLUTE local position, not a
+        /// travel - so the recorder stored its magnitude (about 1.3 .. 1.5 on a GearMedium). Two
+        /// things were wrong with emitting it. A gear rolling on a runway jitters by about a
+        /// millimetre a frame, which crosses <see cref="CheckRoboticTransition"/>'s inferred-motion
+        /// threshold (a quarter of the 2.5 mm deadband) on one frame and not the next, so a takeoff
+        /// roll wrote about 22 Started / Stopped events a second per gear (todo
+        /// RECORDER-GEAR-SUSPENSION-AS-ROBOTICS). And playback posed the ghost's suspension
+        /// transform at its rest position PLUS that magnitude along the axis, lifting the wheel by
+        /// its own position length instead of by its travel. Millimetre suspension travel is not
+        /// visible at playback speed, so the signal is not recorded and the ghost holds the rest pose
+        /// (<see cref="GhostPlaybackLogic"/>'s robotic applier ignores the events legacy recordings
+        /// still carry).
+        /// </summary>
+        internal static bool IsWheelSuspensionModuleName(string moduleName)
+        {
+            return string.Equals(moduleName, "ModuleWheelSuspension", StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// THE recorder emission gate for robotic modules, foreground and background: the derived
+        /// wheel visuals (<see cref="IsDerivedWheelVisualModuleName"/>) plus wheel suspension
+        /// (<see cref="IsWheelSuspensionModuleName"/>). Like those two it gates EMISSION only and
+        /// must not be folded into <see cref="IsRoboticModuleName"/>: the skipped modules stay in
+        /// <see cref="CacheRoboticModules"/> so the sequential <c>moduleIndex</c> stays in lockstep
+        /// with the ghost builder's numbering.
+        /// </summary>
+        internal static bool IsRoboticEmissionSkippedModuleName(string moduleName)
+        {
+            return IsDerivedWheelVisualModuleName(moduleName) || IsWheelSuspensionModuleName(moduleName);
+        }
+
+        /// <summary>
+        /// Shared head of both recorders' robotic poll loop: returns false when
+        /// <paramref name="moduleName"/> is not recorded (<see cref="IsRoboticEmissionSkippedModuleName"/>),
+        /// logging that once per <paramref name="key"/> through <paramref name="loggedKeys"/> so the
+        /// skip is visible in KSP.log without a per-frame line. <paramref name="backgroundVesselPid"/>
+        /// is null for the active vessel and names the background vessel otherwise; the owner
+        /// suffix is formatted only inside the once-per-key branch, so the per-frame poll of a
+        /// skipped module allocates nothing.
+        /// </summary>
+        internal static bool ShouldEmitRoboticEvents(
+            string subsystem, string moduleName, ulong key, HashSet<ulong> loggedKeys,
+            string partName, uint pid, int moduleIndex, uint? backgroundVesselPid)
+        {
+            if (!IsRoboticEmissionSkippedModuleName(moduleName))
+                return true;
+
+            if (loggedKeys != null && loggedKeys.Add(key))
+            {
+                string what = IsWheelSuspensionModuleName(moduleName)
+                    ? "wheel suspension"
+                    : "derived wheel visual";
+                string why = IsWheelSuspensionModuleName(moduleName)
+                    ? "suspension travel is below playback visibility; the ghost holds the rest pose"
+                    : "derived from ghost ground motion at playback";
+                string ownerSuffix = backgroundVesselPid.HasValue
+                    ? $" (bg vessel {backgroundVesselPid.Value})"
+                    : "";
+                ParsekLog.Verbose(subsystem, $"Robotics: {what} not recorded for " +
+                    $"'{partName}' pid={pid} midx={moduleIndex} " +
+                    $"module={moduleName}{ownerSuffix}; {why}");
+            }
+            return false;
         }
 
         internal static List<(Part part, PartModule module, int moduleIndex, string moduleName)> CacheRoboticModules(Vessel v)
@@ -1463,20 +1533,13 @@ namespace Parsek
                 ulong key = EncodeEngineKey(part.persistentId, moduleIndex);
                 if (!ShouldPollCachedModule(part, module, v, key, "robotic")) continue;
 
-                // Wheel motor spin AND wheel steering deflection are derived from the ghost's own
-                // ground motion at playback, not recorded. The module stays in cachedRoboticModules
-                // so moduleIndex numbering matches the ghost builder's; only the emission is
-                // skipped. See IsDerivedWheelVisualModuleName.
-                if (IsDerivedWheelVisualModuleName(moduleName))
-                {
-                    if (loggedRoboticModuleKeys.Add(key))
-                    {
-                        ParsekLog.Verbose("Recorder", $"Robotics: derived wheel visual not recorded for " +
-                            $"'{part.partInfo?.name}' pid={part.persistentId} midx={moduleIndex} " +
-                            $"module={moduleName}; derived from ghost ground motion at playback");
-                    }
+                // Wheel motor spin and wheel steering deflection are derived from the ghost's own
+                // ground motion at playback, and wheel suspension travel is not recorded at all. The
+                // module stays in cachedRoboticModules so moduleIndex numbering matches the ghost
+                // builder's; only the emission is skipped. See IsRoboticEmissionSkippedModuleName.
+                if (!ShouldEmitRoboticEvents("Recorder", moduleName, key, loggedRoboticModuleKeys,
+                        part.partInfo?.name, part.persistentId, moduleIndex, null))
                     continue;
-                }
 
                 bool hasMovingSignal = TryGetRoboticMovingState(module, out bool movingSignal);
                 bool hasPosition = TryGetRoboticPositionValue(

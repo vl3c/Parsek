@@ -42,9 +42,26 @@ tier = "nightly"
 # were predicted from the host and measured exactly as predicted (`pickLines=2 hired=2
 # seated=3 refusals=0`, `kept=Jebediah Kerman`, teardown `reverted=3 removed=2`), and the
 # pick line printed twice.
-description = "Stock auto-hire on a career host with a committed future hire for the first applicant (the rewound state, seeded in-process): DefaultCrewForVessel on a Mk1-3 pod two seats short skips that applicant, hires and seats two others, seats nobody twice and never reaches the KerbalHirePatch refusal."
+#
+# ONE CONSTITUENT APPENDED 2026-11-16 (test gap audit B11, todo NEXT-TESTS-TO-BUILD-2026-11-11
+# item 10), which made this a multi-category lane: a SPACECENTER category no committed spec
+# ran, after AutoHireReservation so its measured lines cannot move.
+#  - `FreeTechUnlock` (1): stock `UnlockProtoTechNode` on a locked node reaches the Parsek
+#    capture patch exactly once (probe subscriber, career recorder and ledger untouched, the
+#    node's proto entry restored). It needs the R&D singleton, so no sandbox lane can run it
+#    (LT-2's `fresh-sandbox` would skip it whole); this is the cheapest career SPACECENTER boot.
+# MEASURED by reading run `2026-11-16_2038` (PASS attempt 1, wall 45 s, automation DLL sha256
+# 54f8f221 built from 3e0a0e5e): its one cell ran and passed (1/1), AutoHireReservation read
+# unchanged and the aggregate is the sum (2/2). Every line is pinned whole; the lane left the
+# interim sets.
+# `GuiMock` was appended here too and taken out again the same day (review of b6c86aaf): every
+# Parsek window at the Space Center draws only behind `ParsekKSC.OnGUI`'s `if (!showUI) return;`
+# and nothing in this lane raises it, so its cells would FAIL, not skip (the no-scope cell
+# asserts a cache built only in the draw; the Structure List apply cell finds no GUI tree). It
+# still has no lane; todo TEST-GAP-AUDIT-2026-10-31-RESIDUE B11 names what it needs.
+description = "Stock auto-hire on a career host with a committed future hire for the first applicant (the rewound state, seeded in-process): DefaultCrewForVessel on a Mk1-3 pod two seats short skips that applicant, hires and seats two others, seats nobody twice and never reaches the KerbalHirePatch refusal. Plus the SPACECENTER category FreeTechUnlock (audit B11), appended 2026-11-16 and pinned whole off reading run 2026-11-16_2038."
 instanceProfile = "stock-minimal"
-tags = ["ingame-batch", "kerbals", "action-blocking", "career", "AH-1"]
+tags = ["ingame-batch", "multi-category", "kerbals", "action-blocking", "career", "AH-1"]
 
 [fixture]
 # No active vessel, so LoadGame takes the Space Center route (H48's host).
@@ -57,7 +74,7 @@ kind = "seam"
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
-  { cmd = "RunTests",   args = { category = "AutoHireReservation" }, expect = "OK", budget = 540 },
+  { cmd = "RunTests",   args = { category = "AutoHireReservation,FreeTechUnlock" }, expect = "OK", budget = 540 },
   { cmd = "FlushAndQuit", expect = "OK" },
 ]
 
@@ -74,8 +91,12 @@ count = { min = 0, max = 0 }
 
 [expectations.logContracts]
 required = [
+  "runtests start category=AutoHireReservation,FreeTechUnlock isolated=false strict=false multi=2",
   # total=1 is attribute-exact (one SPACECENTER declaration); the split is the measured one.
   "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=AutoHireReservation scene=SPACECENTER",
+  # Measured whole by reading run 2026-11-16_2038 (see the header).
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=FreeTechUnlock scene=SPACECENTER",
+  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=multi:2 scene=SPACECENTER",
   # The prefix skipped the reserved applicant, twice (one per short seat).
   "\\A(?:[\\s\\S]*?\\[Parsek\\]\\[INFO\\]\\[KerbalHirePatch\\] auto-hire applicant pick: skipped=1 applicant\\(s\\) a committed future hires; picked=\\(none - stock generates a new applicant\\)){2}",
   "\\[Parsek\\]\\[INFO\\]\\[AutoHireReservation\\] auto-hire live check passed: reserved='Verhat Kerman' pod=mk1-3pod capacity=3 kept=[^ ]+ Kerman shortfall=2 pickLines=2 hired=2 seated=3 refusals=0",

@@ -21,7 +21,22 @@ tier = "nightly"
 # host as on LT-1 and stay there (the family's no-overlap rule).
 # FLOWN (first flight): run `2026-09-07_2037`, PASS attempt 1, wall 72 s, every per-constituent
 # line above matched verbatim and every verifier PASS or REPORT.
-description = "Run the two active-ghost long-tail in-game categories (PartEventFX, GhostLifecycle) as one multi-category batch at FLIGHT over the playing part-showcase corpus, every constituent pinned whole."
+#
+# APPENDED 2026-11-16 (test gap audit B11, todo NEXT-TESTS-TO-BUILD-2026-11-11 item 10): five
+# FLIGHT categories no committed spec ran, each needing only what this host already has at the
+# batch UT - an active vessel on the KSC pad over PQS terrain, a ParsekFlight instance, no
+# pending tree, split check or Re-Fly - plus Breaking Ground, which the stock-minimal CLONE
+# junctions (SquadExpansion): `ChainTipBlockedGhost` (2: a spawn-blocked chain tip's ghost
+# placed on its terminal orbit / body-fixed end pose), `DeployedScienceGhost` (1: the eight
+# deployed-science parts build ghosts with their deploy animation sampled),
+# `GhostReapplyFrame` (1: a mid-frame camera render keeps the LateUpdate terrain clamp),
+# `JointBreakCheckCoroutine` (3) and `TreeRestoreCoroutine` (3: the two ParsekFlight
+# coroutines driven over synthetic state, live session untouched). MEASURED by reading run
+# `2026-11-16_2036` (PASS attempt 1, wall 122 s, automation DLL sha256 54f8f221 built from
+# 3e0a0e5e): every cell of the five ran and passed (2/2, 1/1, 1/1, 3/3, 3/3, zero skips), the
+# two lines above read unchanged, and the aggregate is the sum (33 = 15 passed + 18 skipped).
+# Every constituent and the aggregate are pinned whole; the lane left the interim sets.
+description = "Run seven long-tail in-game categories as one multi-category batch at FLIGHT over the playing part-showcase corpus, every constituent pinned whole: the two active-ghost ones (PartEventFX, GhostLifecycle) and five appended by audit B11 (ChainTipBlockedGhost, DeployedScienceGhost, GhostReapplyFrame, JointBreakCheckCoroutine, TreeRestoreCoroutine), measured by reading run 2026-11-16_2036."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "multi-category", "long-tail", "playback", "LT-5"]
 
@@ -39,7 +54,7 @@ steps = [
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
   { cmd = "TimeJump",   args = { ut = "55" },                                 expect = "OK", budget = 120 },
-  { cmd = "RunTests",   args = { category = "PartEventFX,GhostLifecycle" }, expect = "OK", budget = 540 },
+  { cmd = "RunTests",   args = { category = "PartEventFX,GhostLifecycle,ChainTipBlockedGhost,DeployedScienceGhost,GhostReapplyFrame,JointBreakCheckCoroutine,TreeRestoreCoroutine" }, expect = "OK", budget = 540 },
   { cmd = "FlushAndQuit",                                                     expect = "OK" },
 ]
 
@@ -58,10 +73,15 @@ count = { min = 243, max = 243 }
 # census line, plus the aggregate whose counts are the sums. `failed=0` on every
 # line is the assertion.
 required  = [
-  "runtests start category=PartEventFX,GhostLifecycle isolated=false strict=false multi=2",
+  "runtests start category=PartEventFX,GhostLifecycle,ChainTipBlockedGhost,DeployedScienceGhost,GhostReapplyFrame,JointBreakCheckCoroutine,TreeRestoreCoroutine isolated=false strict=false multi=7",
   "BATCH_COMPLETE v1 total=6 passed=1 failed=0 skipped=5 category=PartEventFX scene=FLIGHT",
   "BATCH_COMPLETE v1 total=17 passed=4 failed=0 skipped=13 category=GhostLifecycle scene=FLIGHT",
-  "BATCH_COMPLETE v1 total=23 passed=5 failed=0 skipped=18 category=multi:2 scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=ChainTipBlockedGhost scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=DeployedScienceGhost scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=GhostReapplyFrame scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=JointBreakCheckCoroutine scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=TreeRestoreCoroutine scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=33 passed=15 failed=0 skipped=18 category=multi:7 scene=FLIGHT",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 

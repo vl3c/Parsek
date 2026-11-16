@@ -37,6 +37,10 @@ Not released yet.
   delivered the full amount. It now waits until the depot has enough beyond what other routes
   reserved, and delivers only what it picked up, to the first stops first.
   (ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW)
+- **Recordings of planes and rovers no longer fill up with landing-gear wobble.** Rolling on gear
+  wrote about 22 suspension events a second; suspension is no longer recorded, and replays of
+  older recordings keep the gear at rest instead of shifting the wheels out of place.
+  (RECORDER-GEAR-SUSPENSION-AS-ROBOTICS)
 - **Rock-mining trips carry no more ore than the drills produce.** A route whose ship drilled a
   grabbed asteroid or comet had no ore limit; it now credits at most what the drill could mine
   from that rock in the recorded time. (ROCK-DRILL-HARVEST-UNCAPPED)

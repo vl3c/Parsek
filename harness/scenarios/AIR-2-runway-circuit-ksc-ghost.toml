@@ -1,0 +1,115 @@
+schema = 1
+id = "AIR-2-runway-circuit-ksc-ghost"
+# =====================================================================================
+# AIR-2: THE PLANE'S GHOST REPLAYS AT THE SPACE CENTER. AUTHORED 2026-11-16, NEVER FLOWN.
+# Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 3, the replay half of AIR-1.
+#
+# THE ROAD. Load AIR-1's harvest (`air-circuit-recorded`: one committed tree, the
+# Mallard's runway takeoff, circuit and splashdown, with the Mallard itself at rest in
+# the sea), drop the recorder's promotion of the committed tip (StopRecording +
+# DiscardTree, the EVA-6 / FAR-1 boot recipe), Rewind-to-Launch the tree (the scene
+# lands in the SPACE CENTER 15 s before the recording's StartUT with the tree kept as
+# a future ghost), then let Space Center time run at up to 10x through EndUT (ghosts
+# are hidden above 50x) so `ParsekKSC` flies the plane's ghost from the Runway around
+# the circuit to the sea and spawns the real Mallard at the recording's end. Then the
+# LeafVesselPlacement in-game category reads the spawned Mallard's position.
+#
+# WHAT IT GATES.
+#   - the KSC ghost entered range for the Mallard, its terminal Splashed (or Landed);
+#   - the KSC absolute playback resolved the Mallard's pose on Kerbin;
+#   - the ghost left range at the end of its timeline and the real vessel spawned
+#     SPLASHED (or LANDED) at the end;
+#   - BY POSITION, the end only: LeafVesselPlacement compares the spawned Mallard's
+#     latitude / longitude with the recording's terminal surface position (100 m).
+# WHAT IT DOES NOT GATE: the ghost's position DURING the replay. No in-game check reads
+# a KSC ghost's transform against the recording's interpolated position today; the
+# KSC SURFACE line says a pose was resolved, not that it was the right one. A new
+# in-game category is needed (a Space Center cell sampling each live KSC ghost's world
+# position against `rec`'s interpolated lat / lon / alt at the same UT); filed in todo
+# NEXT-TESTS-TO-BUILD-2026-11-11 item 3.
+#
+# NOT FLYABLE YET: tier "pending-fixture", tag "awaiting-fixture". The fixture
+# `air-circuit-recorded` is the harvest of the forge `AIR-1-runway-circuit-splashdown`,
+# which has not flown. Until it exists this spec stays out of every cadence and the
+# full run (tier_runner FULL_RUN_EXCLUDED_TIERS),
+# `test_hlib.SharedShipsManifestTests.PENDING_FIXTURE_LANES` exempts it from the
+# saveTemplate sweep, and that map's self-retiring cell reds the day the fixture lands.
+# The WarpToUT target is an ESTIMATE: the harvested StartUT is ~30 (the gs1 pad world
+# boots near UT 15, as BAY-1's replay span [29.9, 55.3] shows) and a typical circuit is
+# ~600-900 s, so 1500 covers it; the hand-over pins it off the real EndUT.
+#
+# TO MAKE IT FLYABLE, in ONE commit after AIR-1's harvest: set the WarpToUT target to
+# the harvested tree's last EndUT + 60, set tier = "operator" and swap the tag
+# "awaiting-fixture" for "pending-flight", add "sandbox" back to D14 (the game-mode
+# claim needs a fixture to witness it), delete the PENDING_FIXTURE_LANES entry, register
+# `air-circuit-recorded` in test_saveparse.RECORDED_FIXTURES, and pin the recording
+# count off the harvested bytes (min == max).
+# =====================================================================================
+tier = "pending-fixture"
+description = "AUTHORED 2026-11-16, NEVER FLOWN, NOT FLYABLE UNTIL `AIR-1-runway-circuit-splashdown` IS HARVESTED (fixture `air-circuit-recorded` absent; the WarpToUT target is an estimate). Rewinds AIR-1's committed plane flight to launch and lets the Space Center replay it: the Mallard's KSC ghost enters range, plays its absolute pose on Kerbin and leaves range at its Splashed end, the real Mallard spawns there, and LeafVesselPlacement reads the spawn's position against the recorded terminal place."
+instanceProfile = "stock-minimal"
+tags = ["AIR2", "aircraft", "ksc-ghost", "rewind-to-launch", "leaf-placement", "ingame-batch", "awaiting-fixture"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/air-circuit-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },          expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "DiscardTree",                                                              expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },           expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" },       expect = "OK" },
+  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                         expect = "OK", budget = 300 },
+  { cmd = "MissionMark", args = { label = "air2-rewound" },                           expect = "OK" },
+  # ESTIMATE (see the header): past the recording's EndUT, at most 10x so the ghost
+  # stays drawn (hidden above 50x).
+  { cmd = "WarpToUT",   args = { ut = "1500", maxRate = "10" },                        expect = "OK", budget = 300 },
+  { cmd = "MissionMark", args = { label = "air2-past-end" },                          expect = "OK" },
+  { cmd = "RunTests",   args = { category = "LeafVesselPlacement" },                  expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit",                                                             expect = "OK" },
+]
+
+[dimensionsCovered]
+D6  = ["basic-playback"]
+D9  = ["rewind-to-launch"]
+D14 = ["kerbin", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1, max = 3 }
+
+[expectations.logContracts]
+required  = [
+  "invokerewindtolaunch complete rec=",
+  "MISSIONMARK label=air2-rewound ut=[\\s\\S]*?\\[KSCGhost\\] Ghost #[0-9]+ \"Mallard\" entered range: targetUT=[0-9.]+ recUT=\\[[0-9.]+,[0-9.]+\\] cycle=[0-9]+ loop=False terminal=(?:Splashed|Landed)",
+  "KSC SURFACE playback resolved: recording=rec\\[[0-9a-f]{8}\\|Mallard\\|[^\\r\\n]*body=Kerbin ",
+  "\\[KSCGhost\\] Ghost #[0-9]+ \"Mallard\" exited range at UT ",
+  "\\[KSCSpawn\\] Vessel spawned for #[0-9]+ \"Mallard\" pid=[0-9]+ sit=(?:SPLASHED|LANDED) ",
+  "MISSIONMARK label=air2-past-end ut=[\\s\\S]*?LeafPlacement summary: scene=SPACECENTER compared=[1-9][0-9]* ok=[1-9][0-9]* bad=0 absent=[0-9]+ duplicate=0 unsupported=[0-9]+ bodies=\\[Kerbin\\]",
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=LeafVesselPlacement scene=SPACECENTER",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "invokerewindtolaunch refused",
+  "invokerewindtolaunch failed",
+  "warptout refused",
+  "Spawn FAILED for #[0-9]+ \"Mallard\"",
+  "LeafPlacement: [^\\r\\n]*verdict=(?!ok)",
+]
+
+[runtime]
+# Boot + LoadGame 300 + rewind 300 + the KSC replay 300 (~150 s at 10x) + RunTests 300 + quit.
+budgetSeconds = 1800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

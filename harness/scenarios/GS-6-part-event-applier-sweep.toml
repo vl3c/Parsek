@@ -70,7 +70,8 @@ id = "GS-6-part-event-applier-sweep"
 # FAMILIES WITH NO kRPC PATH AT ALL, which a craft cannot fix: DeployableBroken and the
 # ThermalAnimation trio are PHYSICS OUTCOMES (overspeed break, reentry heating) with no
 # verb; InventoryPartPlaced / InventoryPartRemoved need EVA construction mode; the
-# Robotic trio is Breaking Ground DLC and `stock-minimal` carries no robotic part.
+# Robotic trio needs a Breaking Ground servo, and this craft carries none (stock-minimal
+# links SquadExpansion, see H32, so the gap is the craft's, not the install's).
 # Filed as `GS6-FAMILIES-WITHOUT-A-KRPC-DRIVER`.
 #
 # =====================================================================================
@@ -314,11 +315,19 @@ D6 = ["basic-playback", "mesh-lifecycle-derender"]
 # say "the EFFECTS engine specifically rendered". CLAIM-IS-NOT-GATE, so it is not
 # claimed. Closing it needs either a per-pid applier line or a craft whose ONLY
 # engine is an EFFECTS one.
-# NOT claimed, no registry value exists: the landing legs' ModuleWheelSuspension
-# drives the ROBOTIC family (RoboticMotionStarted/Stopped/PositionSample, applied=3),
-# a family this sweep never planned to fire. It is REQUIRED below as evidence and
-# noted here, but D7 has no robotics value and inventing one under a re-pin is the
-# growth rule's job, not a token pass.
+# NOT claimed, and no longer fired: until 2026-11-16 the landing legs'
+# ModuleWheelSuspension fed the ROBOTIC family (RoboticMotionStarted/Stopped/
+# PositionSample, applied=3), which two required tokens pinned as evidence. Suspension
+# is no longer recorded (todo RECORDER-GEAR-SUSPENSION-AS-ROBOTICS: the signal was an
+# absolute position magnitude, jittered into start / stop pairs and lifted the ghost
+# wheel), so this craft, which carries no Breaking Ground servo, fires no robotic event
+# at all. Those two tokens are gone; the recorder's once-per-module skip line for the
+# legs is required instead, as the fix's regression guard. D7 has no robotics value.
+# RE-FLOWN 2026-11-16 on the fixed DLL: run `2026-11-16_2130_GS-6-part-event-applier-sweep`
+# PASS attempt 1 (543 s, automation DLL sha256 81a33bc9..., main after #2653): 38 required
+# tokens met (0 mismatches), armed rewind save-structure, ghostLifecycle 8/8 balanced,
+# logValidate, analyzer and anomaly sweep green, the skip-line guard matched. One
+# report-only stock NullReferenceException in FlightCamera.Startup (no Parsek frame).
 # CLAIMED 2026-09-26 (coverage wave 7): `engine-fx-effects`, off the per-engine ignition
 # witness `[GhostPartEvents] engine-fx start` that closes the representative-pid gap above.
 # It is written once per ignition EDGE per engine and names the part and the build-time FX
@@ -405,8 +414,6 @@ required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "\\[GhostPartEvents\\] apply family=FairingJettisoned surface=fairing rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
              "\\[GhostPartEvents\\] apply family=LightOn surface=light rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
              "\\[GhostPartEvents\\] apply family=LightOff surface=light rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
-             "\\[GhostPartEvents\\] apply family=RoboticMotionStarted surface=robotic rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
-             "\\[GhostPartEvents\\] apply family=RoboticMotionStopped surface=robotic rec=[0-9]+ pid=[0-9]+ applied=[1-9]",
              "Part event: EngineIgnited 'microEngine.v2' pid=[0-9]+",
              # PINNED 2026-09-26 off reading run `2026-09-25_2205` (coverage wave 7): the per-engine
              # ignition witness. D7 `engine-fx-effects` rides the first; the second backs
@@ -433,7 +440,15 @@ required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              # OX-STAT line would simply reappear beside the ones that already pass. Measured 4
              # and 4 on `_1604`; the count is left open because it is the craft's panel census.
              "\\[Recorder\\] Deployable seeding skipped [1-9][0-9]* pose-animation-less module\\(s\\) \\(deployable-no-pose-animation gate\\)",
-             "\\[Recorder\\] Deployable poll skipped [1-9][0-9]* pose-animation-less module\\(s\\) \\(deployable-no-pose-animation gate\\)"]
+             "\\[Recorder\\] Deployable poll skipped [1-9][0-9]* pose-animation-less module\\(s\\) \\(deployable-no-pose-animation gate\\)",
+             # Added 2026-11-16 with the RECORDER-GEAR-SUSPENSION-AS-ROBOTICS fix and MATCHED on
+             # the re-flight `2026-11-16_2130` (PASS attempt 1): the recorder's once-per-module
+             # skip line for the legs' ModuleWheelSuspension, built from the literal runs of
+             # `FlightRecorder.ShouldEmitRoboticEvents` (the `{what}` hole is the literal
+             # "wheel suspension"; `{partName}` is the runtime part name). It replaces the two
+             # `RoboticMotionStarted` / `RoboticMotionStopped surface=robotic` applier tokens the
+             # suspension used to feed, so a regression back to recording suspension reds here.
+             "\\[Recorder\\] Robotics: wheel suspension not recorded for 'landingLeg1'"]
 # The suite-wide ERROR pattern; it also covers the seam verbs' own failure terminals.
 # The second token is the GS6-GHOST-HAS-NO-COLORCHANGER-STATE regression guard, pinned
 # 2026-09-15 off run `2026-09-15_1604`: `no-family-state` is the STRONGEST reason class on

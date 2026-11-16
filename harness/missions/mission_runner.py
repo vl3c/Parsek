@@ -459,7 +459,8 @@ class KrpcMissionControl(MissionControl):
                  read_camera: bool = False,
                  read_science: bool = False,
                  read_vessel_name: bool = False,
-                 read_klaw: bool = False) -> None:
+                 read_klaw: bool = False,
+                 read_aircraft: bool = False) -> None:
         self._use_mechjeb = use_mechjeb
         self._client_name = client_name
         # OPT-IN B-DOCK docking/rendezvous/transfer telemetry (design section 5.2).
@@ -513,6 +514,15 @@ class KrpcMissionControl(MissionControl):
         # the B11 flight-1 NodeExecutor defect, the B1 chute latch and the
         # EVA-4 ladder release.
         self._read_landing = bool(read_landing)
+        # OPT-IN aircraft telemetry (AIR-1): heading / roll / pitch off the local
+        # horizon (the vessel's surface frame) and latitude / longitude / surface
+        # speed off the body frame. OFF everywhere else so every other mission's
+        # read_snapshot stays byte-identical (the five fields keep their NaN UNREAD
+        # sentinels; the AIR machine refuses to stage on a dark channel). SEVEN extra
+        # RPCs per poll: a surface-frame Flight handle plus heading / roll / pitch on
+        # it, and latitude / longitude / speed on the body-frame handle already read.
+        self._read_aircraft = bool(read_aircraft)
+        self._warned_aircraft_read = False
         # OPT-IN camera-mode telemetry (V1 map-dwell lane). OFF everywhere else
         # so every other mission's read_snapshot stays byte-identical
         # (camera_mode keeps its "" UNREAD sentinel, which fails the V1
@@ -984,6 +994,30 @@ class KrpcMissionControl(MissionControl):
                             "dwell and the phase flakes landed-never-stable. "
                             "Logged once per run."
                             % (type(exc).__name__, str(exc)[:160])))
+            # AIRCRAFT channel (opt-in, AIR-1). One try/except per surface; NaN on a
+            # fault, one Warn per run naming the surface that went dark.
+            heading = float("nan")
+            roll = float("nan")
+            latitude = float("nan")
+            longitude = float("nan")
+            surface_speed = float("nan")
+            if self._read_aircraft:
+                try:
+                    horizon = v.flight(v.surface_reference_frame)
+                    heading = float(horizon.heading)
+                    roll = float(horizon.roll)
+                    if not math.isfinite(surface_pitch):
+                        surface_pitch = float(horizon.pitch)
+                except Exception as exc:
+                    self._warn_aircraft_read("Flight(surface frame) heading/roll/pitch",
+                                             exc)
+                try:
+                    latitude = float(flight_srf.latitude)
+                    longitude = float(flight_srf.longitude)
+                    surface_speed = float(flight_srf.speed)
+                except Exception as exc:
+                    self._warn_aircraft_read("Flight(body frame) latitude/longitude/speed",
+                                             exc)
             # CAREER SCIENCE / RECOVERY channels (opt-in, science_bench_recover).
             # Two helpers, each with its own try/except and its own fail-closed
             # sentinels, because the two families answer different questions and
@@ -1121,6 +1155,13 @@ class KrpcMissionControl(MissionControl):
                 # OBSERVED camera mode ("" = not read / read failed; fails the
                 # V1 staged-map-camera gate closed).
                 camera_mode=camera_mode,
+                # Aircraft channel (NaN unless read_aircraft; the AIR machine
+                # refuses to stage on a dark channel).
+                heading=heading,
+                roll=roll,
+                latitude=latitude,
+                longitude=longitude,
+                surface_speed=surface_speed,
                 # OBSERVED active-vessel name ("" = not read / read failed; fails
                 # every launch-identity gate closed).
                 vessel_name=vessel_name,
@@ -1343,6 +1384,59 @@ class KrpcMissionControl(MissionControl):
             "mlib.VESSEL_FREE_ACTION_KINDS declares %r but _perform_vessel_free "
             "has no branch for it" % (kind,))
 
+    # How long the throttle readback waits for the game's UT to advance (one
+    # physics tick applies a kRPC control set) before it reads the value back.
+    THROTTLE_TICK_WAIT_SECONDS = 0.25
+
+    def _wait_one_physics_tick(self, sc) -> None:
+        """Return once ``sc.ut`` advanced, or after THROTTLE_TICK_WAIT_SECONDS (a
+        paused game, or a client with no readable UT, waits the full bound)."""
+        deadline = time.monotonic() + self.THROTTLE_TICK_WAIT_SECONDS
+        try:
+            ut0 = float(sc.ut)
+        except Exception:
+            ut0 = None
+        while time.monotonic() < deadline:
+            time.sleep(0.02)
+            if ut0 is None:
+                continue
+            try:
+                if float(sc.ut) != ut0:
+                    return
+            except Exception:
+                ut0 = None
+
+    def _confirm_throttle(self, sc, control, want: float) -> None:
+        """Read the throttle back after a set: straight away, after one physics tick,
+        and after one re-assert and another tick. Silent when the immediate read
+        matches, Verbose when only the tick-delayed read does, Info when the re-assert
+        took, Warn naming all three readbacks when none did."""
+        first = float(control.throttle)
+        if abs(first - want) <= 0.01:
+            return
+        self._wait_one_physics_tick(sc)
+        second = float(control.throttle)
+        if abs(second - want) <= 0.01:
+            _stdout_sink(mlib.format_mission_log_line(
+                "Verbose", "Throttle",
+                "set_throttle %.2f read back %.2f at once and %.2f after a physics tick "
+                "(the readback lags the set by a tick)" % (want, first, second)))
+            return
+        control.throttle = want
+        self._wait_one_physics_tick(sc)
+        third = float(control.throttle)
+        if abs(third - want) <= 0.01:
+            _stdout_sink(mlib.format_mission_log_line(
+                "Info", "Throttle",
+                "set_throttle %.2f took on the re-assert (readbacks %.2f at once, %.2f "
+                "after a tick, %.2f after the re-assert)" % (want, first, second, third)))
+            return
+        _stdout_sink(mlib.format_mission_log_line(
+            "Warn", "Throttle",
+            "set_throttle %.2f did not stick (readbacks %.2f at once, %.2f after a "
+            "physics tick, %.2f after a re-assert): another controller holds the "
+            "throttle" % (want, first, second, third)))
+
     def perform(self, action: "mlib.Action") -> None:
         # THE VESSEL-FREE SET IS DISPATCHED FIRST, and the set - not this line - is
         # where membership is decided (mlib.VESSEL_FREE_ACTION_KINDS). Everything
@@ -1358,17 +1452,18 @@ class KrpcMissionControl(MissionControl):
         control = v.control
         kind = action.kind
         if kind == mlib.ACTION_SET_THROTTLE:
-            control.throttle = float(action.value if action.value is not None else 0.0)
-            # Immediate readback (thirteenth flight diagnosability): a set that
-            # does not stick means another controller (MechJeb thrust module)
-            # is zeroing the throttle every frame -- name it loudly.
+            want = float(action.value if action.value is not None else 0.0)
+            control.throttle = want
+            # Readback (thirteenth flight diagnosability): a set that does not stick
+            # means another controller (MechJeb thrust module) is zeroing the
+            # throttle every frame -- name it loudly. But kRPC applies a control set
+            # at the next physics tick, so the read straight after the set returns
+            # the PREVIOUS tick's value (every AIR-1 flight read 0.00 after its 1.00
+            # brake-release set and 1.00 on the next frame, and the abort's 0.00 cut
+            # read 1.00): the check waits for a tick, re-asserts once, and warns
+            # only when the value still does not stick.
             try:
-                back = float(control.throttle)
-                if abs(back - float(action.value or 0.0)) > 0.01:
-                    _stdout_sink(mlib.format_mission_log_line(
-                        "Warn", "Throttle",
-                        "set_throttle %.2f did not stick (readback %.2f): another "
-                        "controller holds the throttle" % (float(action.value or 0.0), back)))
+                self._confirm_throttle(sc, control, want)
             except Exception:
                 pass
         elif kind == mlib.ACTION_CUT_THROTTLE:
@@ -1401,6 +1496,20 @@ class KrpcMissionControl(MissionControl):
             control.gear = bool(action.value)
         elif kind == mlib.ACTION_SET_BRAKES:
             control.brakes = bool(action.value)
+        elif kind == mlib.ACTION_SET_WHEEL_STEERING:
+            # AIR-1 ground roll: steer the nose wheel from the machine's heading
+            # error (sign per the pinned kRPC client: +1 steers left). Only the AIR
+            # machine emits it, so no other mission sees a change.
+            control.wheel_steering = max(-1.0, min(1.0, float(action.value or 0.0)))
+        elif kind == mlib.ACTION_SET_PITCH_INPUT:
+            # AIR-1 elevator: the rotation and the in-flight pitch loop, no AutoPilot
+            # (the machine's rotatePitchSign carries the sign). Only the AIR machine
+            # emits it.
+            control.pitch = max(-1.0, min(1.0, float(action.value or 0.0)))
+        elif kind == mlib.ACTION_SET_ROLL_INPUT:
+            # AIR-1 ailerons: the in-flight bank loop, no AutoPilot (the machine's
+            # rollInputSign carries the sign). Only the AIR machine emits it.
+            control.roll = max(-1.0, min(1.0, float(action.value or 0.0)))
         elif kind == mlib.ACTION_TOGGLE_ACTION_GROUP:
             control.toggle_action_group(int(action.value))
         elif kind == mlib.ACTION_SET_DEPLOYABLES:
@@ -1667,6 +1776,28 @@ class KrpcMissionControl(MissionControl):
             ap = v.auto_pilot
             ap.reference_frame = v.surface_reference_frame
             ap.target_pitch_and_heading(float(pitch), float(heading))
+            ap.engage()
+        elif kind == mlib.ACTION_AP_SET_PITCH_HEADING_ROLL:
+            # The branch above plus a ROLL target. Written for AIR-1, which no longer
+            # emits it: engaged at 16.9 m on the third flight (2026-11-16_2126) it
+            # rolled the Mallard inverted within 3.5 s, so AIR-1 flies raw inputs. Kept
+            # for any later mission that holds a roll target. kRPC
+            # (0.5.x AutoPilot.target_roll / roll_threshold; NOT verified against
+            # the pinned client in the authoring environment, which had no venv)
+            # applies the roll target only while the pointing error is under
+            # roll_threshold (default 5 deg); a banked turn is exactly when it is
+            # not, so the threshold is widened to 180. Best-effort: a missing
+            # roll_threshold leaves the default and the machine's turn-sign check
+            # and leg timeouts name the outcome. COMMANDED ONLY.
+            pitch, heading = action.pitch_heading
+            ap = v.auto_pilot
+            ap.reference_frame = v.surface_reference_frame
+            ap.target_pitch_and_heading(float(pitch), float(heading))
+            ap.target_roll = float(action.value if action.value is not None else 0.0)
+            try:
+                ap.roll_threshold = 180.0
+            except Exception:
+                pass
             ap.engage()
         elif kind == mlib.ACTION_WARP_TO:
             # Blocking RAILS warp to the machine-chosen target UT (bounded hops;
@@ -4484,6 +4615,19 @@ class KrpcMissionControl(MissionControl):
             % (" ".join(applied) or "(none applied)", observed,
                status or "?")))
 
+    def _warn_aircraft_read(self, surface: str, exc: BaseException) -> None:
+        """One Warn per run for a dark aircraft channel (AIR-1): its NaN sentinels
+        keep the machine on the ground (a dark channel before the stage click) or
+        wings level (after it), so the fault must name itself."""
+        if self._warned_aircraft_read:
+            return
+        self._warned_aircraft_read = True
+        _stdout_sink(mlib.format_mission_log_line(
+            "Warn", "Telemetry",
+            "%s UNREADABLE (%s: %s); the aircraft channel degrades to its NaN "
+            "UNREAD sentinels. Logged once per run."
+            % (surface, type(exc).__name__, str(exc)[:160])))
+
     def _read_landing_autopilot(self) -> Tuple[int, str]:
         """OBSERVED MechJeb LandingAutopilot state as
         ``(enabled_tristate, status)``: enabled is 1 = armed, 0 = down,
@@ -5977,6 +6121,12 @@ def _fly_loop_body(control, state, decide, log, deadline, clock, sleep,
             opt_token += " landAP=%d" % snapshot.landing_ap_enabled
         if math.isfinite(snapshot.horizontal_speed):
             opt_token += " hspd=%s" % _fmt(snapshot.horizontal_speed)
+        # AIRCRAFT channel (AIR-1): the guidance inputs, each only when read.
+        for _key, _val in (("hdg", snapshot.heading), ("roll", snapshot.roll),
+                           ("lat", snapshot.latitude), ("lon", snapshot.longitude),
+                           ("srfSpd", snapshot.surface_speed)):
+            if math.isfinite(_val):
+                opt_token += " %s=%s" % (_key, _fmt(_val))
         opt_token += split_token
         log.verbose_rate_limited(
             "telemetry", state.phase,
