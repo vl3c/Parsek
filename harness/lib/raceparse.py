@@ -34,8 +34,9 @@ Two questions about a produced race save, both answered from what is on disk:
 
 Results carry a status: ``PASS``, ``FAIL`` (findings), ``VACUOUS`` (no rival id to look for,
 so the scan proved nothing) and ``ERROR`` (the save cannot be read whole: no
-``persistent.sfs``, an undecodable snapshot, a ConfigNode parse fault). A save that cannot
-be read never reads as clean.
+``persistent.sfs``, a folder that cannot be listed, a file that cannot be read, one folder
+reached twice through a link, an undecodable snapshot, a bad mask). A save that cannot be
+read never reads as clean; ``walk_folder`` states the link and junction rule.
 
 Layout facts consumed here (design 4.1 and 6.1):
 
@@ -46,7 +47,7 @@ Layout facts consumed here (design 4.1 and 6.1):
     and are ignored;
   - produced save: rival and own-mirror files only under ``Parsek/Race/``.
 
-The I/O shell is two small readers (``list_folder``, ``read_save_files``); every decision is
+The I/O shell is two small readers (``list_folder``, ``read_save_tree``); every decision is
 a pure function over the in-memory listing or file map. ASCII only; stdlib only.
 """
 
@@ -339,14 +340,16 @@ def _text_hits(path: str, text: str, pattern, kinds: Mapping[str, str],
 
 
 def leak_scan_files(files: Mapping[str, bytes],
-                    rival_ids: Union[RivalIds, Iterable[str]]) -> LeakScanResult:
+                    rival_ids: Union[RivalIds, Iterable[str]],
+                    read_errors: Sequence[str] = ()) -> LeakScanResult:
     """The pure scan over a produced save held in memory: ``files`` maps each
     save-relative path to its bytes. Every path outside ``Parsek/Race/`` is searched
-    (its name, its bytes, and the inflated text of a ``PSN0`` snapshot)."""
+    (its name, its bytes, and the inflated text of a ``PSN0`` snapshot).
+    ``read_errors`` (from ``read_save_tree``) make the result ERROR."""
     tagged = _tag_ids(rival_ids)
     kinds = {rid: kind for kind, rid in tagged}
     norm = {_norm_path(p): data for p, data in files.items()}
-    errors: List[str] = []
+    errors: List[str] = list(read_errors)
     if SAVE_FILE not in norm:
         errors.append("no %s in the produced save" % SAVE_FILE)
 
@@ -405,33 +408,87 @@ def leak_scan_files(files: Mapping[str, bytes],
 # ---------------------------------------------------------------------------
 
 
-def list_folder(root: str) -> List[str]:
-    """Every file under ``root`` as a ``/``-separated path relative to it, sorted."""
+class FolderReadError(Exception):
+    """A folder could not be listed whole; ``problems`` names every part that failed."""
+
+    def __init__(self, problems: Sequence[str]):
+        super().__init__("; ".join(problems))
+        self.problems = tuple(problems)
+
+
+def walk_folder(root: str) -> Tuple[List[str], List[str]]:
+    """``(files, problems)``: every file under ``root`` as a sorted ``/``-separated
+    relative path, and every reason the listing is not whole.
+
+    The rule, so no part of a save is skipped in silence: a directory that cannot be
+    listed is a problem (``os.walk``'s default drops it); a symlinked directory, and on
+    Windows a junction, is FOLLOWED (``followlinks=True``; ``os.walk`` follows junctions
+    on Python 3.8 to 3.11 and, since 3.12, only with ``followlinks``), and a directory
+    whose real path (``os.path.realpath``, which resolves both) was already walked is a
+    problem, never a skip: a link loop, or one folder reached by two names (a recordings
+    folder linked into ``Parsek/Race/`` would otherwise be read under the excluded name
+    only). A missing or non-directory ``root`` is a problem too."""
+    problems: List[str] = []
     out: List[str] = []
-    for dirpath, _dirnames, filenames in os.walk(root):
+    if not os.path.isdir(root):
+        return out, ["%s is not a readable directory" % root]
+
+    def on_error(exc: OSError) -> None:
+        where = getattr(exc, "filename", None) or root
+        problems.append("cannot list %s (%s)" % (where, exc.__class__.__name__))
+
+    seen = set()
+    for dirpath, dirnames, filenames in os.walk(root, onerror=on_error, followlinks=True):
+        rel_dir = os.path.relpath(dirpath, root).replace(os.sep, "/")
+        real = os.path.normcase(os.path.realpath(dirpath))
+        if real in seen:
+            problems.append("directory %s was already walked under another name or is a "
+                            "link loop" % rel_dir)
+            dirnames[:] = []
+            continue
+        seen.add(real)
+        dirnames.sort()
         for name in filenames:
             rel = os.path.relpath(os.path.join(dirpath, name), root)
             out.append(rel.replace(os.sep, "/"))
-    return sorted(out)
+    return sorted(out), problems
 
 
-def read_save_files(save_dir: str, skip_race: bool = True) -> Dict[str, bytes]:
-    """The produced save as ``{relative path: bytes}``. ``Parsek/Race/`` is listed with
-    empty bytes when ``skip_race`` (the scan and the diff never read it, and a rival cache
-    can be large), so its file count still shows."""
-    files: Dict[str, bytes] = {}
-    for rel in list_folder(save_dir):
-        if skip_race and is_race_path(rel):
-            files[rel] = b""
-            continue
-        with open(os.path.join(save_dir, *rel.split("/")), "rb") as fh:
-            files[rel] = fh.read()
+def list_folder(root: str) -> List[str]:
+    """Every file under ``root`` (see ``walk_folder`` for the link rule). Raises
+    ``FolderReadError`` when the listing is not whole, so a caller never collects ids
+    off part of a folder."""
+    files, problems = walk_folder(root)
+    if problems:
+        raise FolderReadError(problems)
     return files
 
 
+def read_save_tree(save_dir: str,
+                   skip_race: bool = True) -> Tuple[Dict[str, bytes], Tuple[str, ...]]:
+    """``(files, problems)``: the produced save as ``{relative path: bytes}`` and every
+    directory or file that could not be listed or read. ``Parsek/Race/`` files are listed
+    with empty bytes when ``skip_race`` (the scan and the diff never read them, and a
+    rival cache can be large), so their count still shows."""
+    rels, problems = walk_folder(save_dir)
+    files: Dict[str, bytes] = {}
+    for rel in rels:
+        if skip_race and is_race_path(rel):
+            files[rel] = b""
+            continue
+        try:
+            with open(os.path.join(save_dir, *rel.split("/")), "rb") as fh:
+                files[rel] = fh.read()
+        except OSError as exc:
+            problems.append("cannot read %s (%s)" % (rel, exc.__class__.__name__))
+    return files, tuple(problems)
+
+
 def leak_scan(save_dir: str, rival_ids: Union[RivalIds, Iterable[str]]) -> LeakScanResult:
-    """Leak scan of a produced save directory (see ``leak_scan_files``)."""
-    return leak_scan_files(read_save_files(save_dir), rival_ids)
+    """Leak scan of a produced save directory (see ``leak_scan_files``); a save that
+    could not be read whole reads ERROR."""
+    files, problems = read_save_tree(save_dir)
+    return leak_scan_files(files, rival_ids, read_errors=problems)
 
 
 # ---------------------------------------------------------------------------
@@ -666,11 +723,13 @@ def _as_configNode_text(data: bytes) -> Tuple[Optional[str], str]:
 
 
 def save_equivalence_files(files_a: Mapping[str, bytes], files_b: Mapping[str, bytes],
-                           mask: Sequence[MaskEntry] = EQUIVALENCE_MASK) -> EquivalenceResult:
-    """The pure canonical diff of two produced saves held in memory."""
+                           mask: Sequence[MaskEntry] = EQUIVALENCE_MASK,
+                           read_errors: Sequence[str] = ()) -> EquivalenceResult:
+    """The pure canonical diff of two produced saves held in memory. ``read_errors``
+    (from ``read_save_tree`` of either save) make the result ERROR."""
     na = {_norm_path(p): d for p, d in files_a.items()}
     nb = {_norm_path(p): d for p, d in files_b.items()}
-    errors: List[str] = ["mask: " + p for p in validate_mask(mask)]
+    errors: List[str] = list(read_errors) + ["mask: " + p for p in validate_mask(mask)]
     for side, files in (("a", na), ("b", nb)):
         if SAVE_FILE not in files:
             errors.append("save %s has no %s" % (side, SAVE_FILE))
@@ -720,4 +779,7 @@ def save_equivalence_files(files_a: Mapping[str, bytes], files_b: Mapping[str, b
 def save_equivalence(save_a: str, save_b: str,
                      mask: Sequence[MaskEntry] = EQUIVALENCE_MASK) -> EquivalenceResult:
     """Canonical diff of two produced save directories (see ``save_equivalence_files``)."""
-    return save_equivalence_files(read_save_files(save_a), read_save_files(save_b), mask)
+    files_a, problems_a = read_save_tree(save_a)
+    files_b, problems_b = read_save_tree(save_b)
+    problems = (["save a: " + p for p in problems_a] + ["save b: " + p for p in problems_b])
+    return save_equivalence_files(files_a, files_b, mask, read_errors=problems)

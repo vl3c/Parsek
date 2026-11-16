@@ -15,6 +15,7 @@ import tempfile
 import unittest
 import uuid
 import zlib
+from unittest import mock
 
 import raceparse as rp
 import saveparse
@@ -333,6 +334,121 @@ class LeakScanTests(unittest.TestCase):
             res = rp.leak_scan(save, rp.RivalIds(recording_ids=(RIVAL_REC,)))
             self.assertEqual(res.status, rp.STATUS_PASS, res.findings)
             self.assertEqual(res.files_skipped_race, 1)
+
+
+def _write_tree(root: str, files: dict) -> None:
+    for rel, data in files.items():
+        path = os.path.join(root, *rel.split("/"))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as fh:
+            fh.write(data)
+
+
+def _symlink(test, target: str, link: str, directory: bool) -> None:
+    try:
+        os.symlink(target, link, target_is_directory=directory)
+    except (OSError, NotImplementedError) as exc:  # Windows without the privilege
+        test.skipTest("cannot create a symlink here: %s" % exc)
+
+
+class ReaderCompletenessTests(unittest.TestCase):
+    """A save the readers could not list or read whole never reads as clean."""
+
+    LEAK = "Parsek/Recordings/x.cfg"
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = self._tmp.name
+        self.save = os.path.join(self.tmp, "save")
+        files = _base_save()
+        files[self.LEAK] = ("parent = %s\n" % RIVAL_REC).encode("utf-8")
+        _write_tree(self.save, files)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def unlistable(self, leaf):
+        real = os.scandir
+
+        def scandir(path="."):
+            if os.path.basename(os.fspath(path)) == leaf:
+                raise PermissionError(13, "Permission denied", os.fspath(path))
+            return real(path)
+        return mock.patch("os.scandir", scandir)
+
+    def test_the_planted_file_reds_when_everything_is_readable(self):
+        self.assertEqual(rp.leak_scan(self.save, _ids()).status, rp.STATUS_FAIL)
+
+    def test_an_unlistable_folder_is_an_error_not_a_pass(self):
+        with self.unlistable("Recordings"):
+            res = rp.leak_scan(self.save, _ids())
+        self.assertEqual(res.status, rp.STATUS_ERROR, res)
+        self.assertTrue(any("cannot list" in e and "Recordings" in e for e in res.errors))
+
+    def test_an_unlistable_folder_in_both_saves_is_an_equivalence_error(self):
+        other = os.path.join(self.tmp, "other")
+        shutil.copytree(self.save, other)
+        self.assertEqual(rp.save_equivalence(self.save, other).status, rp.STATUS_PASS)
+        with self.unlistable("Recordings"):
+            res = rp.save_equivalence(self.save, other)
+        self.assertEqual(res.status, rp.STATUS_ERROR, res)
+        self.assertEqual(sum("cannot list" in e for e in res.errors), 2)
+
+    def test_list_folder_raises_rather_than_return_a_partial_listing(self):
+        with self.unlistable("Recordings"):
+            with self.assertRaises(rp.FolderReadError) as ctx:
+                rp.list_folder(self.save)
+        self.assertTrue(ctx.exception.problems)
+
+    def test_a_missing_save_folder_is_an_error(self):
+        res = rp.leak_scan(os.path.join(self.tmp, "nowhere"), _ids())
+        self.assertEqual(res.status, rp.STATUS_ERROR)
+        with self.assertRaises(rp.FolderReadError):
+            rp.list_folder(os.path.join(self.tmp, "nowhere"))
+
+    def test_a_file_that_cannot_be_read_is_an_error(self):
+        real_open = open
+
+        def failing_open(path, *args, **kwargs):
+            if os.fspath(path).endswith("x.cfg"):
+                raise PermissionError(13, "Permission denied", os.fspath(path))
+            return real_open(path, *args, **kwargs)
+        with mock.patch.object(rp, "open", failing_open, create=True):
+            res = rp.leak_scan(self.save, _ids())
+        self.assertEqual(res.status, rp.STATUS_ERROR, res)
+        self.assertTrue(any("cannot read Parsek/Recordings/x.cfg" in e for e in res.errors))
+
+    def test_a_dangling_file_link_is_an_error(self):
+        _symlink(self, os.path.join(self.tmp, "gone.cfg"),
+                 os.path.join(self.save, "Parsek", "dangling.cfg"), directory=False)
+        res = rp.leak_scan(self.save, _ids())
+        self.assertEqual(res.status, rp.STATUS_ERROR, res)
+
+    def test_a_symlinked_folder_is_followed_and_its_leak_reds(self):
+        outside = os.path.join(self.tmp, "elsewhere")
+        recs = os.path.join(self.save, "Parsek", "Recordings")
+        shutil.move(recs, outside)
+        _symlink(self, outside, recs, directory=True)
+        res = rp.leak_scan(self.save, _ids())
+        self.assertEqual(res.status, rp.STATUS_FAIL, res)
+        self.assertIn(self.LEAK, {f.path for f in res.findings})
+
+    def test_one_folder_reached_twice_through_a_link_is_an_error(self):
+        # Recordings linked into Parsek/Race/: read once under the excluded name only,
+        # it would hide the leak, so it is an error, never a skip.
+        recs = os.path.join(self.save, "Parsek", "Recordings")
+        cache = os.path.join(self.save, "Parsek", "Race", "rivals", "zz")
+        shutil.move(recs, cache)
+        _symlink(self, cache, recs, directory=True)
+        res = rp.leak_scan(self.save, _ids())
+        self.assertEqual(res.status, rp.STATUS_ERROR, res)
+        self.assertTrue(any("already walked" in e for e in res.errors))
+
+    def test_a_link_loop_is_an_error(self):
+        _symlink(self, os.path.join(self.save, "Parsek"),
+                 os.path.join(self.save, "Parsek", "loop"), directory=True)
+        res = rp.leak_scan(self.save, _ids())
+        self.assertEqual(res.status, rp.STATUS_ERROR, res)
 
 
 class LineContextTests(unittest.TestCase):
