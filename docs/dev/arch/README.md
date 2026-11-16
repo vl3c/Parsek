@@ -1492,10 +1492,11 @@ and revert machinery to Rewind, sidecar I/O and recorder policy to Recording,
 playback and spawn support to Ghost, scene-level control including the
 `WarpToTime` family to Controllers, dialogs and Unity-instantiated overlays to
 UI, and in-game test support to a new `Harness` module in `[tooling]`. R0
-rules sit above R1 and win on first match. The 8 files that stay in `Core`
+rules sit above R1 and win on first match. The 9 files that stay in `Core`
 are the kernel vocabulary (`BranchPoint`, `IPlaybackTrajectory`,
 `VesselLaunchIdentity`, `VesselSnapshotOps`, `MilestoneStore`,
-`GroupHierarchyStore`, `InventoryManifest`, `PlaybackTrajectoryBoundsResolver`):
+`GroupHierarchyStore`, `InventoryManifest`, `PlaybackTrajectoryBoundsResolver`,
+`SafeFileId`):
 used across many modules, so no owner has a majority, and that is the intended
 meaning of Core from here on.
 
