@@ -281,6 +281,40 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// The current save's folder, <c>&lt;KSP root&gt;/saves/&lt;save&gt;</c>, as a full path;
+        /// <see cref="SaveRootOverrideForTesting"/> wins when set. Null without a save
+        /// context (logged Verbose, rate limited) or when the path cannot be built (logged
+        /// Error).
+        /// </summary>
+        internal static string ResolveSaveRoot()
+        {
+            string overrideRoot = SaveRootOverrideForTesting;
+            if (!string.IsNullOrEmpty(overrideRoot))
+                return Path.GetFullPath(overrideRoot);
+
+            if (!TryGetSaveContext(
+                    "ResolveSaveRoot",
+                    "resolve-save-root-missing-context",
+                    null,
+                    out string root,
+                    out string saveFolder,
+                    allowNullRelativePath: true))
+                return null;
+
+            try
+            {
+                return Path.GetFullPath(Path.Combine(root, "saves", saveFolder));
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error("Paths",
+                    $"ResolveSaveRoot failed: saveFolder='{saveFolder}' " +
+                    $"ex={ex.GetType().Name}:{ex.Message}");
+                return null;
+            }
+        }
+
         internal static bool ValidateRecordingId(
             string id,
             RecordingIdValidationLogContext logContext = RecordingIdValidationLogContext.Production)
