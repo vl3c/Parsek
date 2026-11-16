@@ -20,6 +20,46 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## V22T-TS-ADOPTION-BRANCH-UNFLOWN: no committed lane flies the Tracking Station's adoption of an already-live vessel [FILED 2026-11-16 from V22T's red on the 1.0.2 release flight; V22T RE-PINNED, NOT RE-FLOWN, branch `item29-v22t-repin`. OPEN: the coverage gap]
+
+What happened. `V22T-kerbin-splashdown-ts-arrival` red PARSEK-FAIL(expectation) on the v1.0.2
+release build (2026-11-16 23:12Z) on one required token, `Tracking-station handoff skipped
+duplicate spawn for #N "Kerbal X" ... real vessel pid=P already exists`. The product is right:
+since LOAD-SPLIT-SPAWN-STAMP-ON-HEAD (2026-11-14) `RecordingOptimizer.MoveChainSpawnStampsToTip`
+moves the spawn stamp of `kerbin-splashdown-recorded`'s split head (`28b6e543...`, pid
+2708531065) onto the terminal tip at load (`Chain spawn stamp moved to the tip: ... spawnedPid=
+2708531065 vessel='Kerbal X'`), so the Tracking Station's eligibility screen
+(`ShouldSpawnAtTrackingStationEnd` -> `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd`, "already
+spawned") skips the tip silently and `RunTrackingStationSpawnHandoffForEligibleIndex` never runs
+for it. The run printed no `Tracking-station handoff spawned` / `resolved` line and its save holds
+one real Kerbal X (pid 2708531065, LANDED). The old line was a side effect of the stamp sitting on
+the head.
+
+Done. V22T now requires the stamp-move line (head id and pid literal, the chain and tip ids as
+regex) and forbids `Tracking-station handoff spawned #N "Kerbal X" pid=`, so it still gates the
+player promise (no second Kerbal X in the Tracking Station). Its D13 `pid-dedup` claim is dropped,
+because the cell is the handoff's ADOPTION branch (`alreadyMaterialized` in
+`RunTrackingStationSpawnHandoffForEligibleIndex`: `RealVesselExistsForRecording` finds the
+recording's launch live, stamps `VesselSpawned` / `SpawnedVesselPersistentId`, removes the ghost
+presence) and V22T no longer reaches it. Coverage 250 of 251 -> 249 of 251. Not re-flown.
+
+Still open. No committed lane flies the adoption branch. Its predicate is unit-tested
+(`TrackingStationSpawnTests.ShouldSkipTrackingStationDuplicateSpawn_*`); the branch body (the
+stamp, the ghost-presence removal, the map-focus restore, the Info line) is not. A lane for it
+needs, in the Tracking Station: a committed recording that is the terminal tip of its chain (or
+not a chain piece), past its end UT, NOT stamped (`VesselSpawned` false, `SpawnedVesselPersistentId`
+0, and no earlier piece of the same launch carrying a stamp the load-time move would hand it),
+whose `VesselPersistentId` names a real vessel live in the save with the same launch guid
+(`VesselLaunchIdentity.LiveVesselIsRecordedLaunch`), and not superseded or retired. Then require
+the `skipped duplicate spawn` line and forbid `Tracking-station handoff spawned` for that vessel,
+and re-claim D13 `pid-dedup` off it. A save-edited twin of an existing fixture (clear the stamp on
+a single-piece landed recording whose vessel is in FLIGHTSTATE) is the likely cheapest host. Read
+first whether a save load can deliver such a recording at all: LOAD-SPLIT-SPAWN-STAMP-ON-HEAD
+records that `ParsekScenario.OnLoadPhaseAutoUnreserveCrewPastEndUT` set `VesselSpawned` (with no
+pid) on an unstamped recording past its end, which would make the Tracking Station skip it as
+already spawned before the adoption branch. If no load path reaches the branch, say so here and
+rule on the cell (retire it, or move the claim to an in-game test that drives the branch).
+
 ## ~~EVA-SWITCH-STOP-DROPS-OPEN-SECTION~~: an EVA leg that ends by boarding loses its last track section [FILED 2026-11-16 from the D5 residual review (vessel-switch stop distance, branch `fix-residuals-contract-d5`), by code reading. FIXED 2026-11-16, branch fix-board-merge-open-section; xUnit; no lane gates it yet; medium (the ghost of a kerbal's walk or jetpack flight to the hatch is wrong after a save)]
 
 What was wrong. `FlightRecorder.HandleVesselSwitchDuringRecording` (the ChainToVessel decision:

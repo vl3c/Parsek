@@ -558,7 +558,12 @@ values = ["stand-ins", "seat-matching", "rescue-marker",
 # `pid-dedup` - the TRACKING-STATION spawn handoff refusing a second copy of a vessel
 # whose real pid already exists (`Tracking-station handoff skipped duplicate spawn
 # for #N ... real vessel pid=P already exists`, GhostMapPresence.cs:7530). A SEPARATE
-# cell from D6 `spawn-at-end-pid-dedup` (operator-confirmed 2026-09-26). DECLARER: V22T-kerbin-splashdown-ts-arrival.
+# cell from D6 `spawn-at-end-pid-dedup` (operator-confirmed 2026-09-26). UNCOVERED since
+# 2026-11-16: its only declarer, V22T-kerbin-splashdown-ts-arrival, no longer reaches the
+# branch, because the load-time chain stamp move (todo LOAD-SPLIT-SPAWN-STAMP-ON-HEAD)
+# stamps the terminal tip with the live pid and the handoff skips it as already spawned.
+# V22T still forbids a second Kerbal X, off the stamp. What a lane for the cell needs:
+# todo V22T-TS-ADOPTION-BRANCH-UNFLOWN.
 values = ["bbox-block", "trajectory-walkback", "terrain-correction",
           "ksc-exclusion", "situation-correction", "surface-orbit-reseed", "pid-dedup",
           "three-cycle-abandon", "terminal-orbit-safety", "real-spawn-control"]
