@@ -59,6 +59,10 @@ Not released yet.
 - **Docking to a ship Parsek placed and you flew again no longer doubles it after a rewind.** That
   ship's replay now waits for the docked stack instead of also becoming real on its own, and the
   Missions window names it as the dock partner. (DOCK-CHAIN-ABSORBED-PARTNER-PID-ONLY)
+- **A Fly from the Tracking Station records after an unfinished flight is committed.** When the
+  Space Center committed an unfinished flight on load (leaving right after a quickload, or loading
+  a save that held one), the next Fly from the Tracking Station or a KSC marker started no
+  recording of that vessel. (AUTOMERGE-ON-BY-DEFAULT)
 
 ## 1.0.2
 
