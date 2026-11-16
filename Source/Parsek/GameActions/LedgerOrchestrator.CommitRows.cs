@@ -462,6 +462,10 @@ namespace Parsek
                 // delivered twice collapses to one, two owning trees keep both.
                 case GameActionType.VesselRecovered:
                     return a.RecordingId ?? "";
+                // VesselEnded: one row per owner recording, like VesselRecovered; the same
+                // end delivered twice collapses to one, two owning trees keep both.
+                case GameActionType.VesselEnded:
+                    return a.RecordingId ?? "";
                 // ResourceScanUnlocked: per (body, biome). The default "" would collapse
                 // two bodies or two biomes unlocked at the same UT into one row.
                 case GameActionType.ResourceScanUnlocked:

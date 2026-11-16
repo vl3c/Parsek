@@ -565,11 +565,18 @@ R3W-26 and the camera half of R4-11 (on P3b-04), and R5-06 (on P3b-03 and R3W-26
   The `Recording` overloads become one-line callers plus the `Recording` side effects, which
   move into one helper `ApplyFlatFallbackHealSideEffects(Recording, bool markDirty)` (cache
   reset, `MarkFilesDirty` or label-cache invalidation plus the existing Verbose line).
+  As built: the three private helpers (`AppendSafe...`, the points and orbit-segment heals)
+  and the private `FlatTrajectoryExactlyMatchesTrackSectionPayload` (which takes the
+  recording id for its slow-check Warn) take lists INSTEAD of a `Recording`, since a kept
+  `Recording` form of a private helper would have no caller; the three internal entries
+  (`TryBuildBodyFixed...`, `HasTrackSectionPayload...`, the heal) keep their `Recording`
+  form as a one-line caller of the list form.
 - **Proof:** P6-01 manifest unchanged (read and write digests, log digest);
   `Bug458BinaryFlatFallbackHealTests`, `RecordingStorageRoundTripTests`, `SaveFormatTests`,
-  `SaveFormatGoldenGateTests`; whole suite.
-- **Registers:** facts re-pin (the new list forms are called by the `Recording` forms, so
-  `uncalledInAssembly` does not rise); no complexity-watch key moves (none in this file).
+  `SaveFormatGoldenGateTests`; whole suite. Rewording the heal's Verbose line reds the
+  manifest gate on `logSha256` for 21 harness fixtures (they run the read-path heal).
+- **Registers:** none moved. `ilanalysis.py --write-pins` after a Debug build changes only
+  the date line (374 unreached, same keys), so no re-pin; no complexity-watch key moves.
 - **Size:** S. **Depends on:** P6-01. **PC:** no.
 - **Risk:** low; the write path goes through the same list code, which the write digest
   covers.
