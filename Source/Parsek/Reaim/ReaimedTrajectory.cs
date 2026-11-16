@@ -114,7 +114,7 @@ namespace Parsek.Reaim
         public bool PlaybackEnabled => inner.PlaybackEnabled;
         public bool IsDebris => inner.IsDebris;
         public string ParentAnchorRecordingId => inner.ParentAnchorRecordingId;
-        public int LoopSyncParentIdx { get => inner.LoopSyncParentIdx; set => inner.LoopSyncParentIdx = value; }
+        public int LoopSyncParentIdx => inner.LoopSyncParentIdx;
         public string TerminalOrbitBody => inner.TerminalOrbitBody;
         public double TerminalOrbitSemiMajorAxis => inner.TerminalOrbitSemiMajorAxis;
         public double TerminalOrbitEccentricity => inner.TerminalOrbitEccentricity;

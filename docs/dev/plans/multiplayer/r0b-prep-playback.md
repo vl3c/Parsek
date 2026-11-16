@@ -73,7 +73,8 @@ ghost-map-vessel primitive (P3), the trajectory codec change (P6), the ghost-cou
   - Implementers: `Recording.cs:49` (auto-property, default -1; cloned at :1139),
     `Reaim/ReaimedTrajectory.cs:117` (get and set forward to the inner trajectory),
     `Source/Parsek.Tests/MockTrajectory.cs:43`, six test trajectories in
-    `InGameTests/RuntimeTests.cs` (27179, 27276, 27377, 27427, 27510, 27578).
+    `InGameTests/RuntimeTests.cs` (27179, 27276, 27377, 27427, 27510, 27578) and a seventh,
+    `PrimitiveWitnessTrajectory` in `InGameTests/GhostMapPrimitiveRuntimeTest.cs:360`.
   - Test setters: `ZoneRenderingTests.cs` 629-851, `Issue316WatchProtectionTests.cs` 155, 165.
   - Runtime-only: `SaveRoundTrip/RecordingSaveRoundTripTests.cs:41` excludes it from round trip.
 - Engine diagnostics writes into the static `Diagnostics/DiagnosticsState.cs`:
@@ -288,12 +289,14 @@ differences, with the leftovers (accessor, host field, constructor) named in the
 
 - **Change:** `IPlaybackTrajectory.cs:82` becomes `int LoopSyncParentIdx { get; }`. `Recording`
   keeps `{ get; set; }` (`Recording.cs:49`), so `CommittedListOptimizer` is untouched.
-  `Reaim/ReaimedTrajectory.cs:117` drops its setter. `MockTrajectory` and the six in-game test
+  `Reaim/ReaimedTrajectory.cs:117` drops its setter. `MockTrajectory` and the seven in-game test
   trajectories keep their auto-properties (a class may keep a setter). Any test that sets the value
   through an `IPlaybackTrajectory`-typed variable sets it through the concrete type instead.
 - **Proof:** full xUnit suite; `il_compare` without a fold lists exactly two removed members
   (`IPlaybackTrajectory::set_LoopSyncParentIdx`, `ReaimedTrajectory::set_LoopSyncParentIdx`) and
-  no body differences.
+  no body differences. The eight setters that stay (`Recording` and the seven in-game test
+  trajectories) no longer implement an interface member, so their method flags drop
+  `final newslot virtual`; that is a flags-only difference, not a body difference.
 - **Registers:** `scripts/arch/facts_pins.toml` re-pin if `uncalledInAssembly` falls (slack is not
   enforced, so optional). CLAUDE.md: none.
 - **Size:** S. **Depends on:** none. **PC:** no.
