@@ -1526,12 +1526,17 @@ namespace Parsek
 
             // A vessel-switch / pid-change stop is a CHAIN BOUNDARY too: the pair may be
             // separating right now (the dock/undock pid change), so it must not conclude
-            // "stopped while docked".
+            // "stopped while docked". This stop does not close the current TrackSection, so
+            // the capture's copied sections lack it; the distance capture counts it, or a
+            // kerbal boarding in RELATIVE mode measures anchor-local metres as lat/lon.
             CaptureAtStop = BuildCaptureRecording(
                 recordedVessel != null ? recordedVessel.vesselName : v.vesselName,
                 VesselDestroyedDuringRecording || recordedVessel == null,
                 recordedVessel,
-                stopIsChainBoundary: true);
+                stopIsChainBoundary: true,
+                openSectionForDistance: trackSectionActive && TrackSectionHasResumePayload(currentTrackSection)
+                    ? currentTrackSection
+                    : (TrackSection?)null);
 
             Patches.PhysicsFramePatch.ActiveRecorder = null;
             UnsubscribePartEvents();

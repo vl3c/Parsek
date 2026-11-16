@@ -155,16 +155,50 @@ namespace Parsek
         /// already non-zero. Every other recording keeps the flat list, which is what it
         /// measured before. Pure: no KSP calls.
         /// </summary>
-        internal static SnapshotDistanceRoute ClassifySnapshotDistanceRoute(Recording rec)
+        internal static SnapshotDistanceRoute ClassifySnapshotDistanceRoute(
+            Recording rec, TrackSection? openSection = null)
         {
-            if (rec == null || rec.TrackSections == null)
+            if (rec == null)
                 return SnapshotDistanceRoute.FlatPoints;
-            for (int i = 0; i < rec.TrackSections.Count; i++)
+            return ClassifySnapshotDistanceRouteForSections(
+                BuildDistanceRouteSections(rec.TrackSections, openSection));
+        }
+
+        /// <summary>Section-list core of <see cref="ClassifySnapshotDistanceRoute"/>. Pure.</summary>
+        internal static SnapshotDistanceRoute ClassifySnapshotDistanceRouteForSections(
+            IList<TrackSection> sections)
+        {
+            if (sections == null)
+                return SnapshotDistanceRoute.FlatPoints;
+            for (int i = 0; i < sections.Count; i++)
             {
-                if (rec.TrackSections[i].referenceFrame == ReferenceFrame.Relative)
+                if (sections[i].referenceFrame == ReferenceFrame.Relative)
                     return SnapshotDistanceRoute.BodyFixedSections;
             }
             return SnapshotDistanceRoute.FlatPoints;
+        }
+
+        /// <summary>
+        /// The sections a stop-time distance capture measures over: the capture's closed
+        /// sections plus the recorder's still-OPEN section when one is supplied. The
+        /// vessel-switch stop (EVA board, <c>ChainToVessel</c>) builds the capture without
+        /// closing the section, so its deep-copied <c>TrackSections</c> lack the open one; an
+        /// EVA kerbal boarding in RELATIVE mode would otherwise route through the flat list,
+        /// whose tail holds anchor-local metres. The recorder supplies the open section only
+        /// when it carries payload (its resume-payload predicate), so an empty section never
+        /// flips the route. Returns <paramref name="closed"/> itself when nothing is added
+        /// (never mutated). Pure.
+        /// </summary>
+        internal static IList<TrackSection> BuildDistanceRouteSections(
+            List<TrackSection> closed, TrackSection? open)
+        {
+            if (!open.HasValue)
+                return closed;
+            var sections = new List<TrackSection>((closed != null ? closed.Count : 0) + 1);
+            if (closed != null)
+                sections.AddRange(closed);
+            sections.Add(open.Value);
+            return sections;
         }
 
         /// <summary>
@@ -202,7 +236,8 @@ namespace Parsek
             out double maxDist,
             out MaxDistanceReferenceSurface referenceSurface,
             out int sampleCount,
-            out bool endResolved)
+            out bool endResolved,
+            TrackSection? openSection = null)
         {
             distanceFromLaunch = 0.0;
             endResolved = false;
@@ -210,14 +245,15 @@ namespace Parsek
             int sectionsWithoutBodyFixedSurface;
             if (!TryComputeMaxDistanceFromBodyFixedSurfaces(
                     rec, resolveSurfacePosition, out maxDist, out referenceSurface,
-                    out sampleCount, out unresolvedSampleCount, out sectionsWithoutBodyFixedSurface))
+                    out sampleCount, out unresolvedSampleCount, out sectionsWithoutBodyFixedSurface,
+                    openSection))
             {
                 maxDist = 0.0;
                 return false;
             }
 
             List<BodyFixedSectionSample> samples =
-                CollectBodyFixedSectionSamples(rec, out sectionsWithoutBodyFixedSurface);
+                CollectBodyFixedSectionSamples(rec, out sectionsWithoutBodyFixedSurface, openSection);
             Vector3d? launchPos = resolveSurfacePosition(samples[ResolveLaunchReferenceIndex(samples)].point);
             Vector3d? endPos = endWorldPosition.HasValue
                 ? endWorldPosition
@@ -236,13 +272,13 @@ namespace Parsek
         /// frame), else the last flat point. Pure.
         /// </summary>
         internal static bool TryGetEndBiomeSamplePoint(
-            Recording rec, bool bodyFixedRoute, out TrajectoryPoint point)
+            Recording rec, bool bodyFixedRoute, out TrajectoryPoint point, TrackSection? openSection = null)
         {
             point = default(TrajectoryPoint);
             if (rec == null) return false;
             if (bodyFixedRoute)
             {
-                List<BodyFixedSectionSample> samples = CollectBodyFixedSectionSamples(rec, out int _);
+                List<BodyFixedSectionSample> samples = CollectBodyFixedSectionSamples(rec, out int _, openSection);
                 int idx = ResolveLatestSampleIndex(samples);
                 if (idx < 0) return false;
                 point = samples[idx].point;
@@ -261,8 +297,9 @@ namespace Parsek
         /// closed rather than resolve anchor-local metres as lat/lon.
         /// </summary>
         internal static void ApplySnapshotDistancesFromBodyFixedSurfaces(
-            Recording pending, Vector3d? endWorldPosition, string context)
+            Recording pending, Vector3d? endWorldPosition, string context, TrackSection? openSection = null)
         {
+            bool openCounted = openSection.HasValue;
             Func<TrajectoryPoint, Vector3d?> resolver = pt =>
             {
                 CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == pt.bodyName);
@@ -278,16 +315,16 @@ namespace Parsek
             if (!TryComputeSnapshotDistancesFromBodyFixedSurfaces(
                     pending, resolver, endWorldPosition,
                     out distanceFromLaunch, out maxDist, out referenceSurface,
-                    out sampleCount, out endResolved))
+                    out sampleCount, out endResolved, openSection))
             {
                 // Same split as the finalize backfill: no body-fixed sample at all is the
                 // designed fail-closed refusal; samples whose launch body did not resolve
                 // are a real problem.
-                int collectedSamples = CollectBodyFixedSectionSamples(pending, out int _).Count;
+                int collectedSamples = CollectBodyFixedSectionSamples(pending, out int _, openSection).Count;
                 string refusal =
                     $"SnapshotVessel: route=body-fixed-sections context={context} rec={pending.RecordingId} " +
                     $"{(collectedSamples > 0 ? "cannot resolve the launch-reference body" : "no body-fixed surface")} " +
-                    $"(samples={collectedSamples} sections={pending.TrackSections.Count}) - " +
+                    $"(samples={collectedSamples} sections={pending.TrackSections.Count} openSection={(openCounted ? "counted" : "none")}) - " +
                     $"distances left at {pending.DistanceFromLaunch:F0}m / {pending.MaxDistanceFromLaunch:F0}m";
                 if (collectedSamples > 0)
                     ParsekLog.Warn("Spawner", refusal);
@@ -303,7 +340,7 @@ namespace Parsek
                 $"SnapshotVessel: route=body-fixed-sections context={context} rec={pending.RecordingId} " +
                 $"distance={pending.DistanceFromLaunch:F0}m maxDist={maxDist:F0}m " +
                 $"from {sampleCount} body-fixed samples reference={DescribeReferenceSurface(referenceSurface)} " +
-                $"endResolved={endResolved}");
+                $"endResolved={endResolved} openSection={(openCounted ? "counted" : "none")}");
         }
 
         /// <summary>
@@ -496,15 +533,32 @@ namespace Parsek
         /// nothing - a Relative section with no <c>bodyFixedFrames</c>, an OrbitalCheckpoint
         /// section, an empty Absolute section.</param>
         internal static List<BodyFixedSectionSample> CollectBodyFixedSectionSamples(
-            Recording rec, out int sectionsWithoutBodyFixedSurface)
+            Recording rec, out int sectionsWithoutBodyFixedSurface, TrackSection? openSection = null)
+        {
+            if (rec == null)
+            {
+                sectionsWithoutBodyFixedSurface = 0;
+                return new List<BodyFixedSectionSample>();
+            }
+            return CollectBodyFixedSectionSamplesFromSections(
+                BuildDistanceRouteSections(rec.TrackSections, openSection),
+                out sectionsWithoutBodyFixedSurface);
+        }
+
+        /// <summary>
+        /// Section-list core of <see cref="CollectBodyFixedSectionSamples"/>; a stop-time
+        /// capture passes <see cref="BuildDistanceRouteSections"/>'s list here. Pure.
+        /// </summary>
+        internal static List<BodyFixedSectionSample> CollectBodyFixedSectionSamplesFromSections(
+            IList<TrackSection> sections, out int sectionsWithoutBodyFixedSurface)
         {
             sectionsWithoutBodyFixedSurface = 0;
             var samples = new List<BodyFixedSectionSample>();
-            if (rec == null || rec.TrackSections == null) return samples;
+            if (sections == null) return samples;
 
-            for (int s = 0; s < rec.TrackSections.Count; s++)
+            for (int s = 0; s < sections.Count; s++)
             {
-                TrackSection section = rec.TrackSections[s];
+                TrackSection section = sections[s];
                 List<TrajectoryPoint> surface = null;
                 MaxDistanceReferenceSurface kind = MaxDistanceReferenceSurface.None;
 
@@ -571,7 +625,8 @@ namespace Parsek
             out MaxDistanceReferenceSurface referenceSurface,
             out int sampleCount,
             out int unresolvedSampleCount,
-            out int sectionsWithoutBodyFixedSurface)
+            out int sectionsWithoutBodyFixedSurface,
+            TrackSection? openSection = null)
         {
             maxDist = 0.0;
             referenceSurface = MaxDistanceReferenceSurface.None;
@@ -579,7 +634,7 @@ namespace Parsek
             unresolvedSampleCount = 0;
 
             List<BodyFixedSectionSample> samples =
-                CollectBodyFixedSectionSamples(rec, out sectionsWithoutBodyFixedSurface);
+                CollectBodyFixedSectionSamples(rec, out sectionsWithoutBodyFixedSurface, openSection);
             int refIdx = ResolveLaunchReferenceIndex(samples);
             if (refIdx < 0 || resolveSurfacePosition == null) return false;
 

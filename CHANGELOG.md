@@ -40,6 +40,10 @@ Not released yet.
   around one moon and later passed low over another was timed as if it had launched from the
   second one. Its loops are now spaced around the moon it really started from.
   (MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH)
+- **Ended contracts no longer go missing from the Mission Control Archive.** A contract whose
+  committed outcome had passed could leave the active list after a load without ever showing up
+  as finished. It is now listed once the clock reaches its outcome; nothing is paid or charged
+  again. (CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE)
 
 ## 1.0.2
 

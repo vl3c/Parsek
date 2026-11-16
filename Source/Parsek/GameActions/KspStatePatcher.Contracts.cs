@@ -454,6 +454,32 @@ namespace Parsek
                     ComposeBoundedIdentitySample(staleOfferedIds, IdentitySampleCap));
             }
 
+            // An ended contract stock holds in neither list (an earlier no-clock patch took it
+            // off the active list unfiled, or the clock jumped past its accept and outcome
+            // together) goes into the finished list now, built from its snapshot.
+            var inStockListIds = CollectContractGuids(currentContracts, finishedContracts);
+            var lateFilings = PlanMissingTerminalContractFilings(
+                contracts.GetTerminalContractOutcomes(),
+                contracts.GetTerminalContractUTs(),
+                activeIdSet,
+                inStockListIds,
+                tombstonedContractGuids,
+                id => GameStateStore.GetContractSnapshotForPatch(id, ResolveReinstateCutoff(reinstateCutoffs, id)) != null,
+                parameterClockUT,
+                out int lateNoClock, out int lateOutcomeLater, out int lateNoSnapshot);
+            int archiveLateFiled = 0;
+            int archiveLateFailed = 0;
+            FileMissingTerminalContracts(lateFilings,
+                f => LoadContractForLateFiling(f, reinstateCutoffs),
+                finishedContracts, ref archiveLateFiled, ref archiveLateFailed);
+            if (lateNoClock > 0 || lateOutcomeLater > 0 || lateNoSnapshot > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"PatchContracts: ended contract(s) in neither stock list left unfiled: " +
+                    $"noClock={lateNoClock.ToString(IC)} outcomeLaterOrUnknown={lateOutcomeLater.ToString(IC)} " +
+                    $"noSnapshot={lateNoSnapshot.ToString(IC)} (clockUT={parameterClockUT.ToString("R", IC)})");
+            }
+
             ParsekLog.Verbose(Tag,
                 $"PatchContracts: removed {removedStale.ToString(IC)} stale Active/terminal contract(s), " +
                 $"{removedFinishedTombstoned.ToString(IC)} tombstoned finished terminal contract(s), " +
@@ -640,6 +666,8 @@ namespace Parsek
                 $"archiveOutcomeLater={archiveOutcomeLater.ToString(IC)}, " +
                 $"archiveNoClock={archiveNoClock.ToString(IC)}, " +
                 $"archiveFailed={archiveFailed.ToString(IC)}, " +
+                $"archiveLateFiled={archiveLateFiled.ToString(IC)}, " +
+                $"archiveLateFailed={archiveLateFailed.ToString(IC)}, " +
                 $"ledgerActive={activeIds.Count.ToString(IC)}, " +
                 $"ledgerTerminal={terminalIds.Count.ToString(IC)}, " +
                 $"kspTotal={kspTotalAfter.ToString(IC)}, " +
@@ -705,6 +733,58 @@ namespace Parsek
                             "intendedPresent=false actualPresent=" + LedgerTrace.Bool(present));
                 }
             }
+        }
+
+        private static HashSet<Guid> CollectContractGuids(List<Contract> current, List<Contract> finished)
+        {
+            var ids = new HashSet<Guid>();
+            if (current != null)
+                for (int i = 0; i < current.Count; i++)
+                    if (current[i] != null) ids.Add(current[i].ContractGuid);
+            if (finished != null)
+                for (int i = 0; i < finished.Count; i++)
+                    if (finished[i] != null) ids.Add(finished[i].ContractGuid);
+            return ids;
+        }
+
+        private static double? ResolveReinstateCutoff(Dictionary<Guid, double> reinstateCutoffs, string contractId)
+        {
+            Guid g;
+            double v;
+            if (reinstateCutoffs != null && Guid.TryParse(contractId, out g) && reinstateCutoffs.TryGetValue(g, out v))
+                return v;
+            return null;
+        }
+
+        /// <summary>
+        /// Builds a stock contract from its snapshot for a late filing, the way the restore
+        /// below builds an Active one (clone, strip <c>type</c>, <c>Contract.Load</c>), but
+        /// never registers it: a finished contract listens to nothing. Null when it cannot be
+        /// built; the caller counts and logs it.
+        /// </summary>
+        private static Contract LoadContractForLateFiling(LateContractFiling f,
+            Dictionary<Guid, double> reinstateCutoffs)
+        {
+            ConfigNode snapshot = GameStateStore.GetContractSnapshotForPatch(
+                f.ContractId, ResolveReinstateCutoff(reinstateCutoffs, f.ContractId));
+            if (snapshot == null)
+                return null;
+            ConfigNode cloned = snapshot.CreateCopy();
+            string typeName = cloned.GetValue("type");
+            if (string.IsNullOrEmpty(typeName))
+            {
+                ParsekLog.Warn(Tag, $"PatchContracts: late filing of {f.ContractId}: snapshot has no 'type' value");
+                return null;
+            }
+            cloned.RemoveValues("type");
+            Type contractType = ContractSystem.GetContractType(typeName);
+            if (contractType == null)
+            {
+                ParsekLog.Warn(Tag, $"PatchContracts: late filing of {f.ContractId}: type '{typeName}' not found (mod removed?)");
+                return null;
+            }
+            Contract contract = (Contract)Activator.CreateInstance(contractType);
+            return Contract.Load(contract, cloned);
         }
 
         /// <summary>Slack between an accept row's UT and the clock read that follows it.</summary>
