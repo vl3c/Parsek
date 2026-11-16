@@ -246,6 +246,12 @@ craft = []
 # "${raceShared}" (whole value only) becomes its absolute path, and run.py copies
 # it to results/<runId>_race/ at KSP exit. Contract: harness/README.md
 # "The race shared folder".
+# A race lane may also carry a HARNESS step (multiplayer T-06): a driver step with
+# `harness = "raceFolder"` and `args = { op = "replace"|"edit"|"delete", from, path }`
+# instead of `cmd`. run.py runs it itself between two seam steps (no channel line):
+# it changes the staged folder, every path refused unless it stays inside it; a
+# refusal is the terminal INVALID(harness-step). Contract: harness/README.md
+# "The harness-side folder step".
 # Optional snapshotSaves = ["${runSave}-b", ...] (multiplayer T-04): the other
 # saves the lane creates, removed at staging and copied after the run like the run
 # save to results/<runId>_save-<suffix>/; one absent after a valid driver stage reds

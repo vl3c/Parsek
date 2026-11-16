@@ -2001,6 +2001,146 @@ def stage_race_shared(spec: Dict, instance_dir: str, logger: HarnessLogger) -> b
     return True
 
 
+def _race_folder_entry(root: str, parts: Sequence[str]) -> Optional[str]:
+    """``root``/<parts> when every part of it that exists on disk is a plain child
+    of the one before (no link, no junction, no other resolution) and the whole path
+    resolves strictly inside ``root``; None otherwise. The entry itself may be
+    absent (a replace creates it)."""
+    expected = os.path.normcase(os.path.realpath(root))
+    path = root
+    for part in parts:
+        path = os.path.join(path, part)
+        expected = os.path.join(expected, os.path.normcase(part))
+        if not os.path.lexists(path):
+            break
+        if os.path.islink(path) or os.path.normcase(os.path.realpath(path)) != expected:
+            return None
+    if not _is_strictly_inside(path, root):
+        return None
+    return path
+
+
+def _tree_has_link(path: str) -> bool:
+    """True when ``path`` or anything below it is a link or a junction (a folder
+    whose real path is not its parent's real path plus its name)."""
+    if os.path.islink(path):
+        return True
+    if not os.path.isdir(path):
+        return False
+    for dirpath, dirs, files in os.walk(path, followlinks=False):
+        for name in dirs + files:
+            child = os.path.join(dirpath, name)
+            if os.path.islink(child):
+                return True
+            if os.path.isdir(child) and not _is_plain_child(child, dirpath):
+                return True
+    return False
+
+
+def _remove_entry(path: str) -> bool:
+    """Remove the file or folder ``path`` (already contained and link-free)."""
+    if os.path.isdir(path) and not os.path.islink(path):
+        return _rmtree_contained(path, os.path.dirname(path))
+    os.remove(_io_path(path))
+    return not os.path.lexists(path)
+
+
+def apply_race_folder_step(args: Dict, instance_dir: str) -> Tuple[bool, str]:
+    """Carry out one ``raceFolder`` harness step on the lane's race shared folder.
+    ``(True, "done")`` or ``(False, <why>)``; nothing is touched on a refusal. The
+    args are re-checked with the validator spec validation used, then every path
+    on disk is checked: the shared folder must be the plain ``<instance>/rs/0``,
+    and the target and the fixture entry must resolve through no link or junction
+    inside their folders (hlib "Harness-side steps")."""
+    problems = hlib.race_folder_args_problems("raceFolder", args, True,
+                                              list_race_fixtures())
+    if problems:
+        return False, "args refused: %s" % "; ".join(problems)
+    op = args.get(hlib.RACE_FOLDER_OP_KEY)
+    rel = args.get(hlib.RACE_FOLDER_PATH_KEY)
+    parts = hlib.race_folder_path_parts(rel) if rel is not None else ()
+    rs_dir = os.path.join(instance_dir, RACE_SHARED_ROOT_DIRNAME)
+    root = os.path.join(rs_dir, RACE_SHARED_LEAF)
+    if not (os.path.isdir(root) and _is_strictly_inside(root, instance_dir)
+            and _is_plain_child(rs_dir, instance_dir) and _is_plain_child(root, rs_dir)
+            and not _is_strictly_inside(root, FIXTURES_DIR)):
+        return False, ("the race shared folder %s is missing, or is not the plain "
+                       "<instance>/%s/%s" % (root, RACE_SHARED_ROOT_DIRNAME, RACE_SHARED_LEAF))
+    target = _race_folder_entry(root, parts) if parts else root
+    if target is None:
+        return False, "path %r resolves through a link or outside the shared folder" % rel
+    src = None
+    if op == hlib.RACE_FOLDER_OP_REPLACE:
+        src_root = os.path.join(RACE_FIXTURES_DIR,
+                                hlib.race_fixture_name(args[hlib.RACE_FOLDER_FROM_KEY]))
+        if not (os.path.isdir(src_root) and _is_strictly_inside(src_root, RACE_FIXTURES_DIR)
+                and _is_plain_child(src_root, RACE_FIXTURES_DIR)):
+            return False, "fixture %s missing or outside %s" % (src_root, RACE_FIXTURES_DIR)
+        src = _race_folder_entry(src_root, parts) if parts else src_root
+        if src is None or not os.path.lexists(src):
+            return False, "the fixture has no entry %r" % rel
+        if _tree_has_link(src):
+            return False, "the fixture entry %s holds a link or junction" % src
+        if not (os.path.isdir(src) or os.path.isfile(src)):
+            return False, "the fixture entry %s is neither a file nor a folder" % src
+    elif not os.path.lexists(target):
+        return False, "op=%s: %r does not exist in the shared folder" % (op, rel)
+    if os.path.lexists(target) and _tree_has_link(target):
+        return False, "%r holds a link or junction" % (rel or ".")
+    if op == hlib.RACE_FOLDER_OP_EDIT:
+        if not os.path.isfile(target):
+            return False, "op=edit: %r is not a regular file" % rel
+        with open(_io_path(target), "ab") as fh:
+            fh.write(hlib.RACE_FOLDER_EDIT_BYTES)
+        return True, "done"
+    if os.path.lexists(target) and not _remove_entry(target):
+        return False, "could not remove %r" % (rel or ".")
+    if op == hlib.RACE_FOLDER_OP_REPLACE:
+        if parts:
+            os.makedirs(_io_path(os.path.dirname(target)), exist_ok=True)
+        if os.path.isdir(src):
+            shutil.copytree(_io_path(src), _io_path(target))
+        else:
+            shutil.copyfile(_io_path(src), _io_path(target))
+    return True, "done"
+
+
+def run_harness_step(step: Dict, index: int, step_id: str, instance_dir: str,
+                     logger: HarnessLogger) -> Dict:
+    """Run one harness step (multiplayer T-06) and return its result row. Failure
+    isolation: any exception is a refused step (the caller stops the drive), never
+    a crash of the attempt."""
+    kind = hlib.harness_step_kind(step)
+    args = step.get("args")
+    args = dict(args) if isinstance(args, dict) else {}
+    row: Dict = {"id": step_id, "harness": kind,
+                 "op": args.get(hlib.RACE_FOLDER_OP_KEY),
+                 "path": args.get(hlib.RACE_FOLDER_PATH_KEY),
+                 "from": args.get(hlib.RACE_FOLDER_FROM_KEY),
+                 "met": False, "reason": "", "files": 0, "bytes": 0}
+    try:
+        if kind != hlib.RACE_FOLDER_STEP:
+            ok, reason = False, "unknown harness step kind %r" % kind
+        else:
+            ok, reason = apply_race_folder_step(args, instance_dir)
+        if ok:
+            rows = _tree_rows(hlib.race_shared_dir(instance_dir))
+            row["files"], row["bytes"] = len(rows), sum(r[1] for r in rows)
+    except Exception as exc:  # noqa: BLE001 - a harness fault is an INVALID, not a crash
+        ok, reason = False, "%s: %s" % (type(exc).__name__, exc)
+    row["met"], row["reason"] = ok, reason
+    if ok:
+        logger.info("Drive", "harness step=%d id=%s %s %s result=done files=%d bytes=%d "
+                             "(no channel line written)"
+                    % (index, step_id, kind, hlib.format_race_folder_step_args(args),
+                       row["files"], row["bytes"]))
+    else:
+        logger.warn("Drive", "harness step=%d id=%s %s %s REFUSED: %s -> INVALID(%s)"
+                    % (index, step_id, kind, hlib.format_race_folder_step_args(args),
+                       reason, hlib.HARNESS_STEP_INVALID_SUBKIND))
+    return row
+
+
 def _snapshot_race_shared(run_id: str, spec: Dict, instance_dir: str,
                           logger: HarnessLogger) -> Optional[Dict]:
     """Copy the lane's race shared folder to ``results/<runId>_race/`` and write its
@@ -2665,6 +2805,11 @@ class DriveResult:
         # Multiplayer T-03: the race shared-folder snapshot record, taken right after
         # the KSP exits (run_attempt); None for a spec without [fixture.race].
         self.race_snapshot: Optional[Dict] = None
+        # Multiplayer T-06: one row per harness step run (run_harness_step), and the
+        # first refused one. Empty / None for every spec without a harness step, so
+        # their result record is unchanged.
+        self.harness_steps: List[Dict] = []
+        self.harness_step_failure: Optional[Dict] = None
 
 
 def _read_mission_result(result_path: str) -> Optional[Dict]:
@@ -3064,7 +3209,10 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
             role = hlib.seam_verb_tail_role(step.get("cmd", ""))
             row = {"id": step_id, "cmd": step.get("cmd", ""), "role": role,
                    "reason": tail_reason}
-            if step.get("phase") == "mission":
+            if hlib.is_harness_step(step):
+                row["role"] = hlib.TAIL_ROLE_WORLD_MUTATING
+                row["harness"] = hlib.harness_step_kind(step)
+            elif step.get("phase") == "mission":
                 row["role"] = hlib.TAIL_ROLE_WORLD_MUTATING
                 row["phase"] = "mission"
             result.skipped_tail_steps.append(row)
@@ -3072,7 +3220,29 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
             # KSP.log / harness log is the only place the omission is auditable.
             logger.info("Drive", "drive step=%d id=%s cmd=%s SKIPPED role=%s reason=%s "
                                  "(no channel line written)"
-                        % (i, step_id, row["cmd"] or "mission", row["role"], tail_reason))
+                        % (i, step_id, row["cmd"] or (hlib.harness_step_display(step)
+                                                      if "harness" in row else "mission"),
+                           row["role"], tail_reason))
+            continue
+        # Multiplayer T-06: a harness step runs here, after the previous seam step's
+        # terminal reply and before the next line is written; nothing reaches the
+        # channel. A refused step is the harness's fault: drive the cleanup tail only
+        # and classify INVALID(harness-step) in run_verifiers.
+        if hlib.is_harness_step(step):
+            row = run_harness_step(step, i, step_id, instance_dir, logger)
+            result.harness_steps.append(row)
+            if not row["met"] and result.harness_step_failure is None:
+                result.harness_step_failure = dict(row)
+                result.stopped_at_step = {"id": step_id, "cmd": "",
+                                          "harness": row["harness"],
+                                          "verdict": hlib.VERDICT_INVALID,
+                                          "msg": row["reason"],
+                                          "subkind": hlib.HARNESS_STEP_INVALID_SUBKIND}
+                tail_plan = hlib.plan_unmet_step_tail(steps, i)
+                tail_reason = hlib.TAIL_SKIP_REASON_STEP_UNMET
+                logger.warn("Drive", "harness step REFUSED id=%s -> driver-INVALID(%s); "
+                                     "stopping the drive: %s"
+                            % (step_id, hlib.HARNESS_STEP_INVALID_SUBKIND, tail_plan.summary))
             continue
         # M-B1 handoff (design "The handoff"): a phase=mission step is NOT written to
         # the channel; run.py spawns the mission subprocess and bounded-waits it, then
@@ -3629,6 +3799,14 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
             stage_subkind = (_stage_subkind_for(ev.first_unmet)
                              or hlib.DRIVER_UNRESOLVED_HANDLE_SUBKIND)
         detail["unresolvedHandle"] = dict(drive.unresolved_handle)
+    # Multiplayer T-06: a refused harness step is the harness's fault, so the driver
+    # stage is INVALID (terminal, never PARSEK-FAIL). It owns the subkind unless an
+    # earlier step already made the stage invalid.
+    if drive.harness_step_failure is not None:
+        if driver_valid or not stage_subkind:
+            stage_subkind = hlib.HARNESS_STEP_INVALID_SUBKIND
+        driver_valid = False
+        detail["harnessStep"] = dict(drive.harness_step_failure)
     detail["driverValidity"] = {
         "status": "PASS" if driver_valid else ("SKIPPED" if killed else "FAIL"),
         "allExpectedMet": ev.all_expected_met, "subkind": stage_subkind,
@@ -3668,11 +3846,15 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                                "deliberately incomplete and every save-reading verifier is "
                                "triage-only/SKIPPED on driver-invalid"
                     % (row_key, len(drive.skipped_tail_steps),
-                       ", ".join("%s:%s" % (r["id"], r["cmd"] or "mission")
+                       ", ".join("%s:%s" % (r["id"], r["cmd"] or (
+                                     "harness:%s" % r["harness"] if "harness" in r
+                                     else "mission"))
                                  for r in drive.skipped_tail_steps),
                        "" if stopped is None
-                       else " stoppedAt=%s:%s verdict=%s" % (stopped["id"], stopped["cmd"],
-                                                             stopped["verdict"])))
+                       else " stoppedAt=%s:%s verdict=%s" % (
+                           stopped["id"],
+                           stopped["cmd"] or "harness:%s" % stopped.get("harness", "?"),
+                           stopped["verdict"])))
 
     # 2. BATCH_COMPLETE presence (parsed even on short-circuit; cheap triage).
     # M-A5.1 (N3): a multi-category selector ("all" / "A,B") emits per-category lines
@@ -6241,6 +6423,13 @@ def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict
     # Emitted only when non-empty, so every other run's record is unchanged.
     if drive is not None and drive.skipped_tail_steps:
         driver_rec["skippedTailSteps"] = list(drive.skipped_tail_steps)
+    # Multiplayer T-06: the harness steps run, outside driver.steps (they are not seam
+    # exchanges). Emitted only when the spec has one, so every other record is
+    # unchanged; a refused one makes allExpectedMet false.
+    if drive is not None and drive.harness_steps:
+        driver_rec["harnessSteps"] = [dict(r) for r in drive.harness_steps]
+        if not all(r.get("met") for r in drive.harness_steps):
+            driver_rec["allExpectedMet"] = False
     # The mirror case: an UNMET mission whose spec opted OUT, so the full tail was driven
     # by policy. Named after the spec key a reader would go looking for. Emitted only in
     # that case, so a default-policy run's record is unchanged.
@@ -6671,7 +6860,13 @@ def print_dry_run_plan(selected: Sequence[Dict], instance_root_fn, logger: Harne
               % (inst, (spec.get("runtime", {}) or {}).get("budgetSeconds"),
                  " PARSEK_RENDER_MANIFEST=1" if rc_declared else ""))
         for i, step in enumerate(steps):
-            if step.get("phase") == "mission":
+            if hlib.is_harness_step(step):
+                # Multiplayer T-06: run by run.py on the race shared folder; no channel line.
+                print("  [HARNESS] step=%d %s %s (run.py edits ${raceShared}; refusal -> INVALID(%s))"
+                      % (i, hlib.harness_step_kind(step),
+                         hlib.format_race_folder_step_args(step.get("args")),
+                         hlib.HARNESS_STEP_INVALID_SUBKIND))
+            elif step.get("phase") == "mission":
                 # M-B1 handoff: spawn the mission SUBPROCESS with the venv python
                 # (no channel traffic); bounded by the mission-step budget.
                 print("  [MISSION] step=%d handoff mission=%s expect=%s budget=%s (venv-python subprocess; kRPC autopilot)"

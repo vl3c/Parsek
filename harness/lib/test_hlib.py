@@ -28498,3 +28498,175 @@ class SnapshotSavesSpecTests(unittest.TestCase):
                 spec = tomllib.loads(fh.read().decode("utf-8"))
             with self.subTest(spec=name):
                 self.assertNotIn(hlib.SNAPSHOT_SAVES_KEY, spec.get("fixture") or {})
+
+
+class RaceFolderHarnessStepSpecTests(unittest.TestCase):
+    """Multiplayer T-06: the `{ harness = "raceFolder", args = {...} }` step grammar.
+    Every refusal here is a spec-validation error (INVALID(spec-invalid), no boot);
+    run.apply_race_folder_step re-checks the same args at run time (cells in
+    test_run_smoke.RaceFolderHarnessStepSmokeTests)."""
+
+    FIXTURES = ["holder-gen1", "holder-gen2"]
+
+    def _step(self, **args):
+        return {"harness": "raceFolder", "args": args}
+
+    def _spec(self, steps, race=True):
+        spec = {
+            "schema": hlib.SCHEMA_VERSION, "id": "RACE-x", "tier": "operator",
+            "tags": ["race"], "instanceProfile": "stock-minimal",
+            "fixture": {"saveTemplate": "fixtures/saves/fresh-career",
+                        "injectedRecordings": "none", "craft": []},
+            "driver": {"kind": "seam", "steps": [
+                {"cmd": "LoadGame", "args": {"save": "${runSave}", "name": "persistent"},
+                 "expect": "OK", "budget": 30}] + list(steps) + [
+                {"cmd": "FlushAndQuit", "expect": "OK"}]},
+            "expectations": {"recordings": {"count": {"min": 0, "max": 0}},
+                             "logContracts": {"required": [], "forbidden": []},
+                             "allowedAnomalies": []},
+            "runtime": {"budgetSeconds": 600},
+            "retry": {"policy": "once"},
+            "expectedFail": {"bugId": ""},
+        }
+        if race:
+            spec["fixture"]["race"] = {"sharedFolder": "fixtures/race/holder-gen1"}
+        return spec
+
+    def _errors(self, spec, race_fixtures=FIXTURES):
+        return hlib.validate_spec(spec, {"schema": 1}, bug_ids=[],
+                                  race_fixtures=race_fixtures).errors
+
+    def _base(self):
+        return self._errors(self._spec([]))
+
+    def _new_errors(self, spec, race_fixtures=FIXTURES):
+        base = set(self._base())
+        return [e for e in self._errors(spec, race_fixtures) if e not in base]
+
+    def test_the_accepted_forms_validate(self):
+        for step in (self._step(op="replace", **{"from": "fixtures/race/holder-gen2"}),
+                     self._step(op="replace", path="players/p2",
+                                **{"from": "fixtures/race/holder-gen2"}),
+                     self._step(op="edit", path="players/p1/standing 1.cfg"),
+                     self._step(op="delete", path="players/p1/x.prec"),
+                     self._step(op="delete", path="p")):
+            with self.subTest(step=step):
+                self.assertEqual([], self._new_errors(self._spec([step])))
+        # No fixture listing injected: the existence check is the run-time one.
+        self.assertEqual([], self._new_errors(self._spec(
+            [self._step(op="replace", **{"from": "fixtures/race/later"})]), None))
+
+    def test_a_path_that_could_leave_the_shared_folder_is_refused(self):
+        bad = ["", "/abs", "/", "../x", "a/../../x", "..", ".", "./a", "a/./b",
+               "a//b", "a/", "C:/x", "C:x", "a:b", "a\\b", "\\\\server\\share",
+               ".hidden", "a/.git", "a.", "a ", " a", "NUL", "con.txt", "a/COM1",
+               "lpt9.cfg", "a\x00b", "a\nb", "x" * 201, "/".join(["a"] * 17), 3,
+               None, ["a"]]
+        for path in bad:
+            with self.subTest(path=path):
+                problem = hlib.race_folder_path_problem(path)
+                self.assertIsNotNone(problem)
+                errs = self._new_errors(self._spec([self._step(op="delete", path=path)]))
+                self.assertTrue(any(".args.path:" in e for e in errs), errs)
+        for path in ("a", "a.b", "a..b", "_x", "players/p1/rec.0a1b.prec",
+                     "with space/x-y_z.cfg", "/".join(["a"] * 16)):
+            with self.subTest(path=path):
+                self.assertIsNone(hlib.race_folder_path_problem(path))
+
+    def test_each_arg_rule_is_enforced(self):
+        cases = [
+            (self._step(op="move", path="a"), "must be one of"),
+            (self._step(path="a"), "must be one of"),
+            (self._step(op="replace"), "required for op=replace"),
+            (self._step(op="replace", **{"from": "fixtures/race/../saves/x"}), "args.from"),
+            (self._step(op="replace", **{"from": "fixtures/race/nope"}),
+             "names no committed race fixture"),
+            (self._step(op="replace", **{"from": "/etc"}), "args.from"),
+            (self._step(op="edit"), "required for op=edit"),
+            (self._step(op="delete"), "required for op=delete"),
+            (self._step(op="edit", path="a", **{"from": "fixtures/race/holder-gen2"}),
+             "reads no fixture"),
+            (self._step(op="delete", path="${raceShared}/a"), "${...} token"),
+            (self._step(op="delete", path="${s0.dir}"), "${...} token"),
+            (self._step(op="delete", path="a", Path="b"), "unknown key"),
+            (self._step(op="delete", path="a", isolated="true"), "unknown key"),
+            (self._step(op=1, path="a"), "must be a string"),
+            ({"harness": "raceFolder", "args": "op=delete"}, "must be a table"),
+            ({"harness": "raceFolder"}, "must be a table"),
+        ]
+        for step, needle in cases:
+            with self.subTest(step=step):
+                errs = self._new_errors(self._spec([step]))
+                self.assertTrue(any(needle in e for e in errs), errs)
+
+    def test_the_step_needs_the_race_block(self):
+        errs = self._errors(self._spec([self._step(op="delete", path="a")], race=False))
+        self.assertTrue(any("needs a [fixture.race] block" in e for e in errs), errs)
+
+    def test_step_level_keys_and_kinds(self):
+        for extra, needle in (({"cmd": "SetSetting"}, ".cmd: not allowed"),
+                              ({"phase": "mission"}, ".phase: not allowed"),
+                              ({"expect": "OK"}, ".expect: not allowed"),
+                              ({"budget": 5}, ".budget: not allowed"),
+                              ({"label": "f1"}, ".label: not allowed")):
+            with self.subTest(extra=extra):
+                step = dict(self._step(op="delete", path="a"), **extra)
+                errs = self._new_errors(self._spec([step]))
+                self.assertTrue(any(needle in e for e in errs), errs)
+        errs = self._new_errors(self._spec([{"harness": "barrier", "args": {}}]))
+        self.assertTrue(any("not a harness step kind" in e for e in errs), errs)
+
+    def test_a_later_step_cannot_reference_a_harness_step(self):
+        steps = [self._step(op="delete", path="a"),
+                 {"cmd": "SetSetting", "args": {"name": "x", "value": "${0002.dir}"},
+                  "expect": "OK"}]
+        errs = self._new_errors(self._spec(steps))
+        self.assertTrue(any("a harness step" in e for e in errs), errs)
+
+    def test_the_step_sits_between_two_seam_steps(self):
+        spec = self._spec([])
+        spec["driver"]["steps"].append(self._step(op="delete", path="a"))
+        errs = self._new_errors(spec)
+        self.assertTrue(any("after FlushAndQuit" in e for e in errs), errs)
+        spec = self._spec([])
+        spec["driver"]["steps"].insert(0, self._step(op="delete", path="a"))
+        errs = self._errors(spec)
+        self.assertTrue(any("driver.steps[0]: must be LoadGame" in e for e in errs), errs)
+
+    def test_a_refused_step_is_a_terminal_invalid_never_parsek_fail(self):
+        v = hlib.classify_verdict({"valid": False,
+                                   "stage_subkind": hlib.HARNESS_STEP_INVALID_SUBKIND},
+                                  {}, {}, 1, "once")
+        self.assertEqual((hlib.VERDICT_INVALID, hlib.HARNESS_STEP_INVALID_SUBKIND),
+                         (v.verdict, v.subkind))
+        self.assertFalse(v.retryable)
+        self.assertFalse(hlib.should_retry(v, 1, "once"))
+        self.assertNotIn(hlib.HARNESS_STEP_INVALID_SUBKIND, hlib.PARSEK_FAIL_SUBKINDS)
+
+    def test_the_tail_planner_skips_a_harness_step(self):
+        steps = [{"cmd": "LoadGame"}, {"cmd": "SetSetting"},
+                 self._step(op="delete", path="a"), {"cmd": "FlushAndQuit"}]
+        plan = hlib.plan_unmet_step_tail(steps, 1)
+        self.assertEqual((2,), plan.skipped_indices)
+        self.assertEqual((3,), plan.run_indices)
+        self.assertEqual("harness:raceFolder", plan.dispositions[0].cmd)
+        self.assertIn("harness:raceFolder", plan.summary)
+
+    def test_lane_catalog_and_timeline_tooling_accept_the_step(self):
+        import lanecatalog
+        import parallel
+        spec = self._spec([self._step(op="replace", **{"from": "fixtures/race/holder-gen2"}),
+                           {"cmd": "WarpToUT", "args": {"ut": "100"}, "expect": "OK"}])
+        self.assertEqual(("LoadGame", "WarpToUT", "FlushAndQuit"), lanecatalog.seam_verbs(spec))
+        self.assertEqual((), lanecatalog.step_timeline_ops(spec["driver"]["steps"][1], False))
+        self.assertEqual(("warp",), lanecatalog.timeline_ops(spec))
+        self.assertEqual((), lanecatalog.ingame_categories(spec))
+        self.assertIsNone(parallel.exclusive_reason(spec))
+
+    def test_no_committed_spec_uses_a_harness_step(self):
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                spec = tomllib.loads(fh.read().decode("utf-8"))
+            steps = (spec.get("driver") or {}).get("steps") or []
+            with self.subTest(spec=name):
+                self.assertFalse(any(hlib.is_harness_step(s) for s in steps))

@@ -8907,3 +8907,253 @@ class SnapshotSavesSmokeTests(unittest.TestCase):
                                            self.logger)
         self.assertEqual((False, "staging"), (ok, subkind))
         self.assertTrue(os.path.isfile(sentinel))
+
+
+class RaceFolderHarnessStepSmokeTests(unittest.TestCase):
+    """Multiplayer T-06: a `{ harness = "raceFolder" }` step runs in run.py between
+    two seam steps, writes no channel line, changes only `<instance>/rs/0`, and a
+    refused one (bad args that slipped past validation, a missing target, a link)
+    stops the drive as INVALID(harness-step) with the cleanup tail only."""
+
+    FIXTURES = {"holder-gen1": {"players/p1/standing.cfg": "holder = p1\n"},
+                "holder-gen2": {"players/p1/standing.cfg": "holder = p2\n",
+                                "players/p2/standing.cfg": "seq = 2\n"}}
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek harness racefolder ")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, "fresh-career")
+        os.makedirs(self.template)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self.fixtures = os.path.join(self.tmp, "fixtures", "race")
+        for name, files in self.FIXTURES.items():
+            for rel, text in files.items():
+                path = os.path.join(self.fixtures, name, *rel.split("/"))
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(text)
+        # Files a step must never touch: beside the shared folder, in the instance,
+        # and outside the instance.
+        self.outside = {os.path.join(self.instance, "rs", "keep.cfg"): "keep\n",
+                        os.path.join(self.instance, "outside.txt"): "outside\n",
+                        os.path.join(self.tmp, "beyond", "beyond.txt"): "beyond\n"}
+        self._orig = (run.RESULTS_DIR, run.RACE_FIXTURES_DIR)
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        run.RACE_FIXTURES_DIR = self.fixtures
+        self.log_path = os.path.join(run.RESULTS_DIR, "racefolder_harness.log")
+        self.logger = run.HarnessLogger(self.log_path)
+
+    def tearDown(self):
+        run.RESULTS_DIR, run.RACE_FIXTURES_DIR = self._orig
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _plant_outside(self):
+        for path, text in self.outside.items():
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(text)
+
+    def _assert_outside_untouched(self):
+        for path, text in self.outside.items():
+            with open(path, encoding="utf-8") as fh:
+                self.assertEqual(text, fh.read(), path)
+
+    def _tree(self, root):
+        out = {}
+        for dirpath, _dirs, files in os.walk(root):
+            for f in files:
+                rel = os.path.relpath(os.path.join(dirpath, f), root).replace(os.sep, "/")
+                with open(os.path.join(dirpath, f), "rb") as fh:
+                    out[rel] = fh.read()
+        return out
+
+    def _spec(self, harness_steps):
+        spec = _make_spec(self.template, 30, 600)
+        spec["id"] = "SMOKE-racefolder"
+        spec["fixture"]["race"] = {"sharedFolder": "fixtures/race/holder-gen1"}
+        steps = spec["driver"]["steps"]
+        # LoadGame, SetSetting, <harness steps, each followed by a SetSetting>,
+        # RunTests, FlushAndQuit.
+        tail = steps[2:]
+        del steps[2:]
+        for n, args in enumerate(harness_steps):
+            steps.append({"harness": "raceFolder", "args": args})
+            steps.append({"cmd": "SetSetting", "args": {"name": "after%d" % n, "value": "1"},
+                          "expect": "OK"})
+        steps.extend(tail)
+        return spec
+
+    def _run(self, spec, launch_files=None):
+        self._plant_outside()
+        # Staging wipes the whole rs/, so the sentinel beside rs/0 is written by the
+        # "game" at launch, like its own files.
+        files = {"rs/keep.cfg": "keep\n"}
+        files.update(launch_files or {})
+        rt = FakeRuntime("pass", launch_files=files)
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        self.logger.close()
+        with open(self.log_path, encoding="utf-8") as fh:
+            self.log = fh.read()
+        self.logger = run.HarnessLogger(self.log_path)
+        with open(os.path.join(self.instance, "parsek-test-commands.txt"), encoding="utf-8") as fh:
+            self.commands = fh.read()
+        return result
+
+    def test_every_op_runs_in_order_and_touches_only_the_shared_folder(self):
+        before_fixtures = self._tree(self.fixtures)
+        spec = self._spec([
+            {"op": "edit", "path": "players/me/standing.cfg"},
+            {"op": "delete", "path": "players/me/payload"},
+            {"op": "replace", "from": "fixtures/race/holder-gen2", "path": "players/p2"},
+            {"op": "replace", "from": "fixtures/race/holder-gen2",
+             "path": "players/p1/standing.cfg"},
+        ])
+        result = self._run(spec, launch_files={
+            "rs/0/players/me/standing.cfg": "seq = 1\n",
+            "rs/0/players/me/payload/rec.prec": "x\n"})
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("note"))
+        rows = result["driver"]["harnessSteps"]
+        self.assertEqual(["0003", "0005", "0007", "0009"], [r["id"] for r in rows])
+        self.assertTrue(all(r["met"] and r["harness"] == "raceFolder" for r in rows), rows)
+        self.assertTrue(result["driver"]["allExpectedMet"])
+        # No channel line for a harness step; every seam step still has its own.
+        for sid in ("0003", "0005", "0007", "0009"):
+            self.assertNotIn("id=%s " % sid, self.commands)
+        for sid in ("0002", "0004", "0006", "0008", "0010", "0011", "0012"):
+            self.assertIn("id=%s " % sid, self.commands)
+        self.assertNotIn("raceFolder", self.commands)
+        # In order: the previous seam step answered, the harness step ran, then the
+        # next seam line was written.
+        for prev, sid, nxt in (("0002", "0003", "0004"), ("0004", "0005", "0006"),
+                               ("0006", "0007", "0008"), ("0008", "0009", "0010")):
+            a = self.log.index("drive resp id=%s " % prev)
+            b = self.log.index("harness step=%d id=%s raceFolder" % (int(sid) - 1, sid))
+            c = self.log.index("drive step=%d id=%s " % (int(nxt) - 1, nxt))
+            self.assertLess(a, b)
+            self.assertLess(b, c)
+        snap = self._tree(os.path.join(run.RESULTS_DIR, result["raceSnapshot"]["path"]))
+        self.assertEqual(b"seq = 1\n" + hlib.RACE_FOLDER_EDIT_BYTES,
+                         snap["players/me/standing.cfg"])
+        self.assertNotIn("players/me/payload/rec.prec", snap)
+        self.assertEqual(b"seq = 2\n", snap["players/p2/standing.cfg"])
+        self.assertEqual(b"holder = p2\n", snap["players/p1/standing.cfg"])
+        self.assertEqual(before_fixtures, self._tree(self.fixtures))
+        self._assert_outside_untouched()
+
+    def test_a_whole_folder_replace_swaps_the_folder(self):
+        result = self._run(self._spec([{"op": "replace", "from": "fixtures/race/holder-gen2"}]),
+                           launch_files={"rs/0/players/me/own.cfg": "own\n"})
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("note"))
+        self.assertEqual({"players/p1/standing.cfg": b"holder = p2\n",
+                          "players/p2/standing.cfg": b"seq = 2\n"},
+                         self._tree(os.path.join(self.instance, "rs", "0")))
+        self.assertEqual({"files": 2, "met": True},
+                         {k: result["driver"]["harnessSteps"][0][k] for k in ("files", "met")})
+        self._assert_outside_untouched()
+
+    def _assert_refused(self, result, needle):
+        self.assertEqual(hlib.VERDICT_INVALID, result["verdict"], result.get("note"))
+        self.assertEqual(hlib.HARNESS_STEP_INVALID_SUBKIND, result["subkind"])
+        self.assertEqual(1, result["attempt"])
+        row = result["driver"]["harnessSteps"][0]
+        self.assertFalse(row["met"])
+        self.assertIn(needle, row["reason"])
+        self.assertFalse(result["driver"]["allExpectedMet"])
+        # The drive stopped: the steps after the refusal were skipped, the cleanup
+        # FlushAndQuit was still driven.
+        self.assertNotIn("id=0004 ", self.commands)
+        self.assertNotIn("id=0005 ", self.commands)
+        self.assertIn("id=0006 cmd=FlushAndQuit", self.commands)
+        self.assertIn("REFUSED", self.log)
+        self._assert_outside_untouched()
+
+    def test_args_that_escape_are_refused_at_run_time_too(self):
+        # Spec validation would refuse these; run_attempt does not validate, so this
+        # is the run-time check alone.
+        for args in ({"op": "delete", "path": "../outside.txt"},
+                     {"op": "delete", "path": "../../beyond"},
+                     {"op": "edit", "path": "/" + self.outside_path()},
+                     {"op": "delete", "path": ""},
+                     {"op": "delete", "path": ".."},
+                     {"op": "replace", "from": "fixtures/race/../../beyond"},
+                     {"op": "replace", "from": "fixtures/race/nope"}):
+            with self.subTest(args=args):
+                result = self._run(self._spec([args]))
+                self._assert_refused(result, "args refused")
+
+    def outside_path(self):
+        return os.path.join(self.instance, "outside.txt").lstrip("/")
+
+    def test_a_missing_target_is_refused(self):
+        result = self._run(self._spec([{"op": "delete", "path": "players/nobody"}]))
+        self._assert_refused(result, "does not exist")
+        self.assertEqual(hlib.HARNESS_STEP_INVALID_SUBKIND,
+                         result["verifiers"]["driverValidity"]["subkind"])
+
+    @unittest.skipIf(os.name == "nt", "symlink creation needs privileges on Windows")
+    def test_a_link_inside_the_folder_is_never_followed(self):
+        beyond = os.path.join(self.tmp, "beyond")
+        cases = [({"op": "delete", "path": "out/beyond.txt"}, ("rs/0/out", beyond)),
+                 ({"op": "delete", "path": "out"}, ("rs/0/out", beyond)),
+                 ({"op": "edit", "path": "f.cfg"},
+                  ("rs/0/f.cfg", os.path.join(beyond, "beyond.txt"))),
+                 ({"op": "replace", "from": "fixtures/race/holder-gen2",
+                   "path": "out/players"}, ("rs/0/out", beyond)),
+                 ({"op": "replace", "from": "fixtures/race/holder-gen2"},
+                  ("rs/0/players/out", beyond)),
+                 # A link that stays inside the folder is not followed either.
+                 ({"op": "delete", "path": "alias/p1/standing.cfg"},
+                  ("rs/0/alias", "players")),
+                 ({"op": "edit", "path": "alias/p1/standing.cfg"},
+                  ("rs/0/alias", "players"))]
+        real_stage = run.stage_race_shared
+        for args, (rel, dest) in cases:
+            with self.subTest(args=args):
+                def stage_then_link(s, inst, lg):
+                    ok = real_stage(s, inst, lg)
+                    link = os.path.join(inst, *rel.split("/"))
+                    os.makedirs(os.path.dirname(link), exist_ok=True)
+                    os.symlink(dest, link)
+                    return ok
+                with mock.patch.object(run, "stage_race_shared", stage_then_link):
+                    result = self._run(self._spec([args]))
+                self._assert_refused(result, "link")
+                self.assertTrue(os.path.isfile(os.path.join(beyond, "beyond.txt")))
+                with open(os.path.join(self.instance, "rs", "0", "players", "p1",
+                                       "standing.cfg"), encoding="utf-8") as fh:
+                    self.assertEqual("holder = p1\n", fh.read())
+
+    @unittest.skipIf(os.name == "nt", "symlink creation needs privileges on Windows")
+    def test_a_linked_shared_folder_is_refused(self):
+        self._plant_outside()
+        os.makedirs(os.path.join(self.instance, "rs"), exist_ok=True)
+        os.symlink(os.path.join(self.tmp, "beyond"), os.path.join(self.instance, "rs", "0"))
+        ok, reason = run.apply_race_folder_step({"op": "delete", "path": "beyond.txt"},
+                                                self.instance)
+        self.assertFalse(ok)
+        self.assertIn("not the plain", reason)
+        self._assert_outside_untouched()
+
+    @unittest.skipIf(os.name == "nt", "symlink creation needs privileges on Windows")
+    def test_a_link_in_the_fixture_is_not_copied(self):
+        os.symlink(os.path.join(self.tmp, "beyond"),
+                   os.path.join(self.fixtures, "holder-gen2", "players", "leak"))
+        os.makedirs(os.path.join(self.instance, "rs", "0"))
+        self._plant_outside()
+        ok, reason = run.apply_race_folder_step(
+            {"op": "replace", "from": "fixtures/race/holder-gen2"}, self.instance)
+        self.assertFalse(ok)
+        self.assertIn("link", reason)
+        self.assertEqual({}, self._tree(os.path.join(self.instance, "rs", "0")))
+
+    def test_dry_run_plan_names_the_step(self):
+        spec = self._spec([{"op": "delete", "path": "a"}])
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            run.print_dry_run_plan([spec], lambda p: self.instance, self.logger)
+        self.assertIn("[HARNESS] step=2 raceFolder op=delete from=- path=a", out.getvalue())
