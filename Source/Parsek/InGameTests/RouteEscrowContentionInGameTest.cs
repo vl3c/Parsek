@@ -57,7 +57,14 @@ namespace Parsek.InGameTests
     /// </list>
     /// Cell 3 is the live proof of ROUTE-ESCROW-LOST-ON-SCENE-SWITCH: escrow is RAM-only
     /// and a scene switch clears it, so the hold must be rebuilt on the next tick even
-    /// when no window of A is due there, before competitor B gates.</para>
+    /// when no window of A is due there, before competitor B gates.
+    /// Cells 4 and 5 are the live proof of ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW. In
+    /// cell 4 the competitor is a DOCKED-ORIGIN route on the shared source (its
+    /// cost manifest is gated by the origin gate, not the pickup-source gate): it
+    /// must net A's reservation, hold with the escrow token and leave the source
+    /// alone, so A's second window and delivery stay full. Cell 5 has no competitor:
+    /// the source is drained between A's windows, and A's delivery must be capped at
+    /// what A actually picked up.</para>
     ///
     /// <para><b>Determinism, and what is emulated.</b> The route TOPOLOGY and the loop
     /// CLOCK are synthetic (the builder shapes are ported from
@@ -120,8 +127,8 @@ namespace Parsek.InGameTests
         private const double ResourceTolerance = 0.01;
 
         // Route A's deterministic span clock: docks at 1500 (pickup w0), 2000
-        // (pickup w1) and 2500 (delivery, the LAST dock - never reached by either
-        // cell, so A's cycle never completes and its escrow is never swept by the
+        // (pickup w1) and 2500 (delivery, the LAST dock - never reached by cells
+        // 1-3, so A's cycle never completes and its escrow is never swept by the
         // cycle-complete DropRouteEscrow).
         private const double SpanStartA = 1000.0;
         private const double SpanEndA = 3000.0;
@@ -144,6 +151,25 @@ namespace Parsek.InGameTests
         // TICK 2 lands after A's dock 1 (2000) and before A's delivery dock (2500),
         // and after B's dock phase within B's cycle 10 (loopUT 1060 >= 1050).
         private const double Tick2UT = 2060.0;
+        // TICK 3 (cells 4-5) lands after A's delivery dock (2500) and before A's span
+        // end (3000), so A's delivery window fires and cycle-0 completes; it is also
+        // after the competitor's dock phase within its cycle 15 (loopUT 1060).
+        private const double Tick3UT = 2560.0;
+        // Cell 5 drains the shared source to this between A's two pickup windows, so
+        // A's second window (6) can take only this much.
+        private const double DrainedStored = 2.0;
+
+        /// <summary>Which competitor route an arrangement stores beside holder A.</summary>
+        private enum CompetitorShape
+        {
+            /// <summary>Cells 1-3: a single-stop PICKUP route on the shared source.</summary>
+            PickupSource,
+            /// <summary>Cell 4: a single-stop DELIVERY route whose docked ORIGIN is the
+            /// shared source and whose cost manifest needs <see cref="NeedB"/>.</summary>
+            DockedOrigin,
+            /// <summary>Cell 5: no competitor; holder A alone.</summary>
+            None,
+        }
 
         private const string IsolatedOnlyBatchSkipReason =
             "Isolated-run only - spawns a source vessel, wipes and rebuilds RouteStore, commits " +
@@ -576,6 +602,287 @@ namespace Parsek.InGameTests
             yield break;
         }
 
+        // ==================================================================
+        // Cell 4: a docked-origin route nets the other route's escrow at its origin
+        // ==================================================================
+
+        [InGameTest(Category = "RouteEscrowContention", Scene = GameScenes.FLIGHT,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = IsolatedOnlyBatchSkipReason,
+            Description = "ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW live proof: multi-stop route A reserves its two " +
+                "pickup windows (4 + 6 LF) at depot D and fires only the first; competitor route O, whose " +
+                "DOCKED ORIGIN is D and whose cost manifest needs 8 LF, must HOLD on its own crossing with the " +
+                "M6 escrow token source-reserved:<pid>:<name>:LiquidFuel:<routeA> (D physically holds 11, but " +
+                "only 5 are not reserved) and must NOT debit D. A's second window then takes its full 6, the " +
+                "competitor's cause flips to physical, and A's delivery window writes exactly what A picked up " +
+                "(10), with no supply-cap line. Before the fix O debited 8 at dispatch, A's second window came " +
+                "up short and the delivery still wrote the full 10. Auto-spawns the shared source; skips with a " +
+                "named reason when it cannot be provided or falls outside the [12,18) LiquidFuel band")]
+        public IEnumerator Escrow_DockedOriginCompetitorHoldsOnReservedDepot_HolderDeliversWhatItPickedUp()
+        {
+            IEnumerator unpackWait = LogisticsOriginDebitRuntimeTests.WaitForActiveVesselUnpack();
+            while (unpackWait.MoveNext())
+                yield return unpackWait.Current;
+
+            var fixture = new UnloadedFuelVesselFixture.EnsureResult();
+            try
+            {
+                IEnumerator ensure = EnsureSharedSource(fixture);
+                while (ensure.MoveNext())
+                    yield return ensure.Current;
+
+                Vessel source = fixture.Vessel;
+                double storedBefore = ProbeSourceStored(source);
+                var arrange = new ContentionArrangement(
+                    "docked-origin-holds", source, CompetitorShape.DockedOrigin);
+
+                try
+                {
+                    arrange.Arm();
+                    Vessel target = arrange.DeliveryTarget;
+                    if (target == null || target == source)
+                        InGameAssert.Skip("PRECONDITION: no live active vessel to take route A's delivery");
+                    double targetBefore = ProbeDeliveryTargetStored(target);
+                    int ledgerStart = RouteEventLog.Events != null ? RouteEventLog.Events.Count : 0;
+                    string pid = source.persistentId.ToString(IC);
+
+                    // ---- TICK 1: A dispatches, reserves 10 and fires window 0 (4).
+                    //      O's origin gate sees raw 11, netted 5 against its need of 8. ----
+                    arrange.RunTick(Tick1UT);
+
+                    InGameAssert.ApproxEqual(WindowAmountA1, ReservedAgainstB(arrange), ResourceTolerance,
+                        "After tick 1 route A must still hold its un-fired window's portion against the " +
+                        "docked-origin competitor");
+                    arrange.AssertLogged(
+                        "ReserveCycleEscrow: route " + arrange.ShortA + " cycle=cycle-0 context=dispatch "
+                        + "reservedSources=1",
+                        "the dispatch-time reserve line naming ONE summed source");
+                    double storedAfterTick1 = ProbeSourceStored(source);
+                    InGameAssert.ApproxEqual(storedBefore - WindowAmountA0, storedAfterTick1, ResourceTolerance,
+                        "Only route A's FIRST window may have left depot D on tick 1 - the docked-origin " +
+                        $"competitor must NOT have debited its {NeedB.ToString("R", IC)} LF cost " +
+                        $"(before={storedBefore.ToString("R", IC)} after={storedAfterTick1.ToString("R", IC)})");
+                    InGameAssert.IsTrue(RouteStore.TryGetRoute(arrange.RouteBId, out Route oAfterTick1),
+                        "The docked-origin competitor disappeared from the store during tick 1");
+                    InGameAssert.AreEqual(0, oAfterTick1.CompletedCycles,
+                        "The docked-origin competitor must NOT run a cycle on cargo route A reserved");
+                    InGameAssert.AreEqual(1, oAfterTick1.SkippedCycles,
+                        "The docked-origin competitor's blocked crossing must bump SkippedCycles exactly once");
+                    arrange.AssertLogged(
+                        "LoopRoute: route " + arrange.ShortB + " cycle=cycle-0 BLOCKED "
+                        + "kind=OriginLacksCargo reason=source-reserved:" + pid,
+                        "the docked-origin competitor's BLOCKED line carrying the M6 escrow token for depot D");
+                    arrange.AssertLogged(
+                        "OriginHasCargo: route " + arrange.ShortB + " short-cause=escrow pid=" + pid,
+                        "the ORIGIN gate's escrow-cause classification line");
+                    arrange.AssertLogged("reservingRouteId=" + arrange.ShortA,
+                        "the origin classification line must name route A as the reserving route");
+                    double nettedAtOrigin = RoutePickupSourceGate.NettedAvailable(
+                        storedAfterTick1, WindowAmountA1);
+
+                    // ---- TICK 2: A's window 1 takes its FULL 6; the competitor's
+                    //      short is now physical (5 left, nothing reserved). ----
+                    arrange.ClearLog();
+                    arrange.RunTick(Tick2UT);
+
+                    double storedAfterTick2 = ProbeSourceStored(source);
+                    InGameAssert.ApproxEqual(storedBefore - ReservedTotalA, storedAfterTick2, ResourceTolerance,
+                        "After tick 2 route A must have taken BOTH windows in full " +
+                        $"({ReservedTotalA.ToString("R", IC)} LF; after={storedAfterTick2.ToString("R", IC)})");
+                    arrange.AssertNotLogged("PickupDebit: route " + arrange.ShortA,
+                        "route A pickup SHORT line - the reserved cargo must still be there for its window");
+                    arrange.AssertLogged(
+                        "OriginHasCargo: route " + arrange.ShortB + " short-cause=physical pid=" + pid,
+                        "the competitor's origin short must read PHYSICAL once A took the reserved cargo");
+
+                    // ---- TICK 3: A's delivery window; it must write exactly what A
+                    //      picked up, with no supply cap needed. ----
+                    arrange.ClearLog();
+                    arrange.RunTick(Tick3UT);
+
+                    arrange.AssertNotLogged("supply short this cycle",
+                        "delivery supply-cap line - route A's supply was full");
+                    InGameAssert.IsTrue(RouteStore.TryGetRoute(arrange.RouteAId, out Route aAfterTick3),
+                        "Route A disappeared from the store during tick 3");
+                    InGameAssert.AreEqual(1, aAfterTick3.CompletedCycles,
+                        "Route A must complete cycle-0 at its delivery dock");
+                    double pickedUpA = SumRouteRowAmount(ledgerStart, arrange.RouteAId,
+                        RouteEventType.RouteCargoPickedUp, -1);
+                    double deliveredA = SumRouteRowAmount(ledgerStart, arrange.RouteAId,
+                        RouteEventType.RouteCargoDelivered, -1);
+                    double targetDelta = ProbeDeliveryTargetStored(target) - targetBefore;
+                    InGameAssert.ApproxEqual(ReservedTotalA, pickedUpA, ResourceTolerance,
+                        $"Route A's pickup rows must total its full {ReservedTotalA.ToString("R", IC)} LF");
+                    InGameAssert.ApproxEqual(pickedUpA, deliveredA, ResourceTolerance,
+                        $"Route A must deliver exactly what it picked up (pickedUp={pickedUpA.ToString("R", IC)} " +
+                        $"delivered={deliveredA.ToString("R", IC)})");
+                    InGameAssert.ApproxEqual(deliveredA, targetDelta, ResourceTolerance,
+                        $"The delivery target's LiquidFuel must rise by the delivered amount " +
+                        $"(delivered={deliveredA.ToString("R", IC)} rise={targetDelta.ToString("R", IC)})");
+                    InGameAssert.ApproxEqual(storedAfterTick2, ProbeSourceStored(source), ResourceTolerance,
+                        "Nothing may leave depot D on tick 3");
+
+                    InGameAssert.IsTrue(RouteStore.TryGetRoute(arrange.RouteBId, out Route oAfterTick3),
+                        "The docked-origin competitor disappeared from the store during tick 3");
+                    InGameAssert.AreEqual(0, oAfterTick3.CompletedCycles,
+                        "The docked-origin competitor must never run a cycle in this cell");
+                    int oDispatched = CountRouteRows(ledgerStart, arrange.RouteBId, RouteEventType.RouteDispatched);
+                    int oDebited = CountRouteRows(ledgerStart, arrange.RouteBId, RouteEventType.RouteCargoDebited);
+                    InGameAssert.AreEqual(0, oDispatched + oDebited,
+                        "The docked-origin competitor must write no dispatch or origin-debit row " +
+                        $"(dispatched={oDispatched.ToString(IC)} debited={oDebited.ToString(IC)})");
+
+                    ParsekLog.Info("TestRunner",
+                        "EscrowContention: cell=docked-origin-holds reserved=1 originBlocked=1 "
+                        + "originCauseAfterWindow=physical originDebited=0 supplyCapped=0"
+                        + " routeA=" + arrange.ShortA + " routeO=" + arrange.ShortB
+                        + " sourcePid=" + pid
+                        + " stored=" + Amt(storedBefore)
+                        + " heldAcrossGap=" + Amt(WindowAmountA1)
+                        + " originNeed=" + Amt(NeedB)
+                        + " originRaw=" + Amt(storedAfterTick1)
+                        + " originNetted=" + Amt(nettedAtOrigin)
+                        + " rawAfterDebit=" + Amt(storedAfterTick2)
+                        + " pickedUpByA=" + Amt(pickedUpA)
+                        + " deliveredByA=" + Amt(deliveredA));
+                }
+                finally
+                {
+                    arrange.Teardown();
+                }
+            }
+            finally
+            {
+                UnloadedFuelVesselFixture.Cleanup(fixture);
+            }
+            yield break;
+        }
+
+        // ==================================================================
+        // Cell 5: a short pickup caps the delivery at what was picked up
+        // ==================================================================
+
+        [InGameTest(Category = "RouteEscrowContention", Scene = GameScenes.FLIGHT,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = IsolatedOnlyBatchSkipReason,
+            Description = "ROUTE-DOCKED-ORIGIN-IGNORES-ESCROW delivery cap, live: multi-stop route A dispatches, " +
+                "reserves 4 + 6 LF at depot D and fires its first window; the depot is then drained to 2 LF " +
+                "(the player emptying it between dispatch and the pickup window), so A's second window picks up " +
+                "only 2 of its 6. A's delivery window must then write exactly what A picked up (6, not the " +
+                "recorded 10) and log the supply-cap warning naming the 4 LF deficit. Before the fix the " +
+                "delivery wrote the full recorded 10 and created 4 LF. Auto-spawns the shared source; skips with " +
+                "a named reason when it cannot be provided or falls outside the [12,18) LiquidFuel band")]
+        public IEnumerator Escrow_DepotDrainedBeforePickupWindow_DeliveryCappedAtWhatWasPickedUp()
+        {
+            IEnumerator unpackWait = LogisticsOriginDebitRuntimeTests.WaitForActiveVesselUnpack();
+            while (unpackWait.MoveNext())
+                yield return unpackWait.Current;
+
+            var fixture = new UnloadedFuelVesselFixture.EnsureResult();
+            try
+            {
+                IEnumerator ensure = EnsureSharedSource(fixture);
+                while (ensure.MoveNext())
+                    yield return ensure.Current;
+
+                Vessel source = fixture.Vessel;
+                double storedBefore = ProbeSourceStored(source);
+                var arrange = new ContentionArrangement(
+                    "short-pickup-caps-delivery", source, CompetitorShape.None);
+
+                try
+                {
+                    arrange.Arm();
+                    Vessel target = arrange.DeliveryTarget;
+                    if (target == null || target == source)
+                        InGameAssert.Skip("PRECONDITION: no live active vessel to take route A's delivery");
+                    double targetBefore = ProbeDeliveryTargetStored(target);
+                    int ledgerStart = RouteEventLog.Events != null ? RouteEventLog.Events.Count : 0;
+
+                    // ---- TICK 1: A dispatches, reserves and fires window 0 (4). ----
+                    arrange.RunTick(Tick1UT);
+                    arrange.AssertLogged(
+                        "ReserveCycleEscrow: route " + arrange.ShortA + " cycle=cycle-0 context=dispatch "
+                        + "reservedSources=1",
+                        "the dispatch-time reserve line naming ONE summed source");
+                    InGameAssert.ApproxEqual(storedBefore - WindowAmountA0, ProbeSourceStored(source),
+                        ResourceTolerance, "Only route A's FIRST window may have been debited on tick 1");
+
+                    // ---- DRAIN depot D between the dispatch and A's second window. ----
+                    DrainSourceLiquidFuelTo(source, DrainedStored);
+                    InGameAssert.ApproxEqual(DrainedStored, ProbeSourceStored(source), ResourceTolerance,
+                        $"The drain must leave depot D holding exactly {DrainedStored.ToString("R", IC)} LF");
+                    ParsekLog.Verbose("TestRunner",
+                        $"EscrowContention: cell={arrange.Label} drained source pid={arrange.SourcePid.ToString(IC)} "
+                        + $"to {DrainedStored.ToString("R", IC)} LF between route A's windows");
+
+                    // ---- TICK 2: A's window 1 wants 6 and gets the 2 left. ----
+                    arrange.ClearLog();
+                    arrange.RunTick(Tick2UT);
+                    arrange.AssertLogged(
+                        "PickupDebit: route " + arrange.ShortA + " cycle=cycle-0 SHORT at apply",
+                        "route A's short pickup line on its second window");
+                    double pickedUpWindow0 = SumRouteRowAmount(ledgerStart, arrange.RouteAId,
+                        RouteEventType.RouteCargoPickedUp, 0);
+                    double pickedUpWindow1 = SumRouteRowAmount(ledgerStart, arrange.RouteAId,
+                        RouteEventType.RouteCargoPickedUp, 1);
+                    InGameAssert.ApproxEqual(WindowAmountA0, pickedUpWindow0, ResourceTolerance,
+                        "Route A's first window must have picked up its full amount");
+                    InGameAssert.ApproxEqual(DrainedStored, pickedUpWindow1, ResourceTolerance,
+                        "Route A's second window must have picked up only what the drained depot held");
+
+                    // ---- TICK 3: the delivery is capped at what A picked up. ----
+                    arrange.ClearLog();
+                    arrange.RunTick(Tick3UT);
+
+                    arrange.AssertLogged(
+                        "Delivery: route " + arrange.ShortA + " cycle=cycle-0 stop=2 supply short this cycle - "
+                        + "capping delivery to what was picked up: LiquidFuel=",
+                        "the delivery supply-cap warning");
+                    InGameAssert.IsTrue(RouteStore.TryGetRoute(arrange.RouteAId, out Route aAfterTick3),
+                        "Route A disappeared from the store during tick 3");
+                    InGameAssert.AreEqual(1, aAfterTick3.CompletedCycles,
+                        "Route A must complete cycle-0 at its delivery dock");
+                    double pickedUpA = pickedUpWindow0 + pickedUpWindow1;
+                    double deliveredA = SumRouteRowAmount(ledgerStart, arrange.RouteAId,
+                        RouteEventType.RouteCargoDelivered, -1);
+                    double targetDelta = ProbeDeliveryTargetStored(target) - targetBefore;
+                    InGameAssert.ApproxEqual(pickedUpA, deliveredA, ResourceTolerance,
+                        $"Route A must deliver exactly what it picked up, not the recorded " +
+                        $"{ReservedTotalA.ToString("R", IC)} (pickedUp={pickedUpA.ToString("R", IC)} " +
+                        $"delivered={deliveredA.ToString("R", IC)})");
+                    InGameAssert.ApproxEqual(deliveredA, targetDelta, ResourceTolerance,
+                        $"The delivery target's LiquidFuel must rise by the delivered amount " +
+                        $"(delivered={deliveredA.ToString("R", IC)} rise={targetDelta.ToString("R", IC)})");
+
+                    ParsekLog.Info("TestRunner",
+                        "EscrowContention: cell=short-pickup-caps-delivery reserved=1 shortPickup=1 "
+                        + "deliveryCapped=1"
+                        + " routeA=" + arrange.ShortA
+                        + " sourcePid=" + arrange.SourcePid.ToString(IC)
+                        + " stored=" + Amt(storedBefore)
+                        + " drainedTo=" + Amt(DrainedStored)
+                        + " pickedUpWindow0=" + Amt(pickedUpWindow0)
+                        + " pickedUpWindow1=" + Amt(pickedUpWindow1)
+                        + " recordedDelivery=" + Amt(ReservedTotalA)
+                        + " supplyDeficit=" + Amt(ReservedTotalA - pickedUpA)
+                        + " pickedUp=" + Amt(pickedUpA)
+                        + " delivered=" + Amt(deliveredA));
+                }
+                finally
+                {
+                    arrange.Teardown();
+                }
+            }
+            finally
+            {
+                UnloadedFuelVesselFixture.Cleanup(fixture);
+            }
+            yield break;
+        }
+
         /// <summary>
         /// Runs the production <c>onGameSceneSwitchRequested</c> escrow handler on the
         /// live scenario with a FLIGHT -&gt; FLIGHT action, without raising the stock
@@ -622,6 +929,7 @@ namespace Parsek.InGameTests
             /// <summary>The shared source's live pid - the key the reserve, the
             /// release and the gate's net all agree on.</summary>
             internal readonly uint SourcePid;
+            internal readonly CompetitorShape Shape;
             internal bool RouteARemoved;
 
             private readonly Vessel source;
@@ -637,10 +945,12 @@ namespace Parsek.InGameTests
             private bool? previousVerboseOverride;
             private bool treesAdded, storeWiped, resolverArmed, logArmed;
 
-            internal ContentionArrangement(string label, Vessel source)
+            internal ContentionArrangement(string label, Vessel source,
+                CompetitorShape shape = CompetitorShape.PickupSource)
             {
                 Label = label;
                 this.source = source;
+                Shape = shape;
                 SourcePid = source != null ? source.persistentId : 0u;
                 // The prefixes are EXACTLY 8 characters, which is RouteIds.Short's
                 // truncation width - so ShortA / ShortB are the stable literals
@@ -650,22 +960,30 @@ namespace Parsek.InGameTests
                 // 8 chars and the reserving-route segment of the M6 hold token could
                 // not be pinned to A.
                 RouteAId = "escrowA-" + Guid.NewGuid().ToString("N").Substring(0, 8);
-                RouteBId = "escrowB-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                // The docked-origin competitor gets its own 8-character prefix so a
+                // pinned token can never confuse it with the pickup-source one.
+                RouteBId = (shape == CompetitorShape.DockedOrigin ? "escrowO-" : "escrowB-")
+                    + Guid.NewGuid().ToString("N").Substring(0, 8);
                 ShortA = RouteIds.Short(RouteAId);
                 ShortB = RouteIds.Short(RouteBId);
                 treeAId = "esc-treeA-" + Guid.NewGuid().ToString("N").Substring(0, 8);
                 treeBId = "esc-treeB-" + Guid.NewGuid().ToString("N").Substring(0, 8);
             }
 
+            /// <summary>The vessel route A's delivery stop (and a docked-origin
+            /// competitor's delivery stop) targets.</summary>
+            internal Vessel DeliveryTarget { get; private set; }
+
             internal void Arm()
             {
                 Vessel deliveryTarget = FlightGlobals.ActiveVessel ?? source;
+                DeliveryTarget = deliveryTarget;
 
                 sourceSnapshot = SnapshotProtoLiquidFuel(source);
-                // Route A's delivery dock is never reached by either cell, but the
-                // eligibility gate still runs DestinationHasCapacity at A's dispatch,
-                // so the target must be able to hold the manifest. Snapshot first so
-                // the teardown restores whatever the headroom drain moved.
+                // The eligibility gate runs DestinationHasCapacity at A's dispatch,
+                // and cells 4-5 reach A's delivery dock, so the target must be able
+                // to hold the manifest. Snapshot first so the teardown restores
+                // whatever the headroom drain and the delivery moved.
                 deliverySnapshot = SnapshotLoadedLiquidFuel(deliveryTarget);
                 if (!DestinationHeadroomFixture.TryEnsureDestinationHeadroom(
                         deliveryTarget, LiquidFuelName, ReservedTotalA, out _, out string headroomSkip))
@@ -690,11 +1008,16 @@ namespace Parsek.InGameTests
                 RouteStore.ResetForTesting();
                 storeWiped = true;
                 RouteStore.AddRoute(BuildMultiStopHolderRoute(RouteAId, treeAId, source, deliveryTarget));
-                RouteStore.AddRoute(BuildSingleStopCompetitorRoute(RouteBId, treeBId, source));
+                if (Shape == CompetitorShape.PickupSource)
+                    RouteStore.AddRoute(BuildSingleStopCompetitorRoute(RouteBId, treeBId, source));
+                else if (Shape == CompetitorShape.DockedOrigin)
+                    RouteStore.AddRoute(BuildDockedOriginCompetitorRoute(
+                        RouteBId, treeBId, source, deliveryTarget));
                 InGameAssert.IsTrue(RouteStore.TryGetRoute(RouteAId, out _),
                     "The multi-stop holder route A was not stored");
-                InGameAssert.IsTrue(RouteStore.TryGetRoute(RouteBId, out _),
-                    "The competitor route B was not stored");
+                if (Shape != CompetitorShape.None)
+                    InGameAssert.IsTrue(RouteStore.TryGetRoute(RouteBId, out _),
+                        "The competitor route B was not stored");
 
                 GhostPlaybackLogic.LoopUnit unitA = new GhostPlaybackLogic.LoopUnit(
                     ownerIndex: 0, memberIndices: new[] { 0 },
@@ -751,6 +1074,18 @@ namespace Parsek.InGameTests
             internal void ClearLog()
             {
                 captured.Clear();
+            }
+
+            internal void AssertNotLogged(string needle, string what)
+            {
+                for (int i = 0; i < captured.Count; i++)
+                {
+                    if (captured[i] != null
+                        && captured[i].IndexOf(needle, StringComparison.Ordinal) >= 0)
+                        InGameAssert.Fail(
+                            $"Expected no {what}, but a captured log line contained '{needle}': "
+                            + captured[i]);
+                }
             }
 
             internal void AssertLogged(string needle, string what)
@@ -849,6 +1184,104 @@ namespace Parsek.InGameTests
         {
             return RouteStore.OtherRoutesReservedFor(
                 arrange.RouteBId, arrange.SourcePid, LiquidFuelName);
+        }
+
+        /// <summary>
+        /// A measured amount for a summary line: at most three decimals, so a
+        /// multi-tank read like 5.9999999999999991 prints as the 6 it is.
+        /// </summary>
+        private static string Amt(double v)
+        {
+            return v.ToString("0.###", IC);
+        }
+
+        /// <summary>LiquidFuel on the delivery target, read on the branch the
+        /// production delivery writes (live parts when loaded and unpacked).</summary>
+        private static double ProbeDeliveryTargetStored(Vessel v)
+        {
+            return new LiveOriginCargoProbe(v, RouteOrchestrator.EndpointStoreIsLiveParts(v))
+                .ProbeResourceStored(LiquidFuelName);
+        }
+
+        /// <summary>
+        /// Sums the LiquidFuel actual of every <paramref name="type"/> row of
+        /// <paramref name="routeId"/> appended since <paramref name="fromIndex"/>;
+        /// <paramref name="stopIndex"/> &gt;= 0 limits it to that stop's rows.
+        /// </summary>
+        private static double SumRouteRowAmount(int fromIndex, string routeId, RouteEventType type, int stopIndex)
+        {
+            double sum = 0.0;
+            var events = RouteEventLog.Events;
+            if (events == null) return sum;
+            for (int i = fromIndex; i < events.Count; i++)
+            {
+                RouteEvent e = events[i];
+                if (e == null || e.Type != type) continue;
+                if (!string.Equals(e.RouteId, routeId, StringComparison.Ordinal)) continue;
+                if (stopIndex >= 0 && e.RouteStopIndex != stopIndex) continue;
+                if (e.RouteResourceManifest != null
+                    && e.RouteResourceManifest.TryGetValue(LiquidFuelName, out double v) && v > 0.0)
+                    sum += v;
+            }
+            return sum;
+        }
+
+        private static int CountRouteRows(int fromIndex, string routeId, RouteEventType type)
+        {
+            int count = 0;
+            var events = RouteEventLog.Events;
+            if (events == null) return count;
+            for (int i = fromIndex; i < events.Count; i++)
+            {
+                RouteEvent e = events[i];
+                if (e == null || e.Type != type) continue;
+                if (string.Equals(e.RouteId, routeId, StringComparison.Ordinal)) count++;
+            }
+            return count;
+        }
+
+        /// <summary>
+        /// Leaves the unloaded source holding exactly <paramref name="total"/>
+        /// deliverable LiquidFuel: the first deliverable tank that already holds at
+        /// least that much keeps exactly it, every other LiquidFuel tank is emptied.
+        /// One tank keeps the later pickup's actual an exact difference. The
+        /// arrangement's proto snapshot (taken before any tick) restores it.
+        /// </summary>
+        private static void DrainSourceLiquidFuelTo(Vessel vessel, double total)
+        {
+            ProtoVessel pv = vessel != null ? vessel.protoVessel : null;
+            if (pv == null || pv.protoPartSnapshots == null)
+                InGameAssert.Skip("PRECONDITION: the shared source has no proto snapshot to drain");
+            ResourceFlowMode mode = RouteOrchestrator.LookupResourceFlowMode(LiquidFuelName);
+            ProtoPartResourceSnapshot keeper = null;
+            int emptied = 0;
+            for (int i = 0; i < pv.protoPartSnapshots.Count; i++)
+            {
+                ProtoPartSnapshot pps = pv.protoPartSnapshots[i];
+                if (pps == null || pps.resources == null) continue;
+                for (int j = 0; j < pps.resources.Count; j++)
+                {
+                    ProtoPartResourceSnapshot prs = pps.resources[j];
+                    if (prs == null) continue;
+                    if (!string.Equals(prs.resourceName, LiquidFuelName, StringComparison.Ordinal)) continue;
+                    if (keeper == null && prs.amount >= total
+                        && RouteOrchestrator.ShouldDeliverToResource(prs.flowState, mode))
+                    {
+                        keeper = prs;
+                        prs.amount = total;
+                        continue;
+                    }
+                    prs.amount = 0.0;
+                    emptied++;
+                }
+            }
+            if (keeper == null)
+                InGameAssert.Skip(
+                    $"PRECONDITION: no deliverable LiquidFuel tank on the shared source held {total.ToString("R", IC)} " +
+                    "LF to drain down to");
+            ParsekLog.Verbose("TestRunner",
+                $"EscrowContention: drained '{vessel.vesselName}' LiquidFuel to {total.ToString("R", IC)} " +
+                $"(one tank kept, {emptied.ToString(IC)} emptied)");
         }
 
         private static void CountNewPickupRows(int fromIndex, string routeId,
@@ -983,6 +1416,43 @@ namespace Parsek.InGameTests
                 },
                 Stops = new List<RouteStop> { PickupStop(source, NeedB, 0, DockUtB) },
             };
+        }
+
+        /// <summary>
+        /// Cell 4's competitor: a single-stop DELIVERY route whose DOCKED ORIGIN is the
+        /// shared source and whose <see cref="Route.CostManifest"/> needs
+        /// <see cref="NeedB"/> LiquidFuel - the shape the origin gate
+        /// (<c>OriginProvenanceHasCargo</c>) serves rather than the pickup-source gate.
+        /// Same loop clock and priority (1) as the pickup-source competitor.
+        /// </summary>
+        private static Route BuildDockedOriginCompetitorRoute(
+            string routeId, string treeId, Vessel source, Vessel deliveryTarget)
+        {
+            Route r = BuildSingleStopCompetitorRoute(routeId, treeId, source);
+            r.Name = "Parsek Escrow Docked Origin In-Game";
+            r.CostManifest = new Dictionary<string, double>(StringComparer.Ordinal)
+            {
+                { LiquidFuelName, NeedB },
+            };
+            r.Stops = new List<RouteStop>
+            {
+                new RouteStop
+                {
+                    Endpoint = EndpointForVessel(deliveryTarget),
+                    ConnectionKind = RouteConnectionKind.DockingPort,
+                    PickupManifest = new Dictionary<string, double>(StringComparer.Ordinal),
+                    InventoryPickupManifest = new List<InventoryPayloadItem>(),
+                    DeliveryManifest = new Dictionary<string, double>(StringComparer.Ordinal)
+                    {
+                        { LiquidFuelName, NeedB },
+                    },
+                    InventoryDeliveryManifest = new List<InventoryPayloadItem>(),
+                    SegmentIndexBefore = 0,
+                    RecordedDockUT = DockUtB,
+                    LastFiredCycleIndex = -1,
+                },
+            };
+            return r;
         }
 
         private static RouteStop PickupStop(Vessel source, double amount, int segmentIndex, double dockUT)
