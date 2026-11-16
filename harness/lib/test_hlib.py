@@ -4324,6 +4324,11 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cells over b1-pad-craft's seated Jeb. LIVE-PROVEN on its reading run
         # 2026-09-27_1339 (`passed=2 skipped=0`); the pin is whole.
         "H72-kerbal-inventory-spawn": ("KerbalInventorySpawn", 2, "FLIGHT"),
+        # 2026-11-16 (todo NEXT-TESTS-TO-BUILD-2026-11-11 item 5): H59 was a render-census
+        # lane with no batch; it now runs RouteGhostPlacement's one FLIGHT cell after its
+        # map session, while the rover route's ghost is mid-cycle. Recorded fixture
+        # (`rover-route-recorded`), so it joins no corpus set. INTERIM until it flies.
+        "H59-surface-route-map-lines": ("RouteGhostPlacement", 1, "FLIGHT"),
     }
 
     # Declared MEASURED run-time skips per member: InGameAssert.Skip firings the
@@ -4961,9 +4966,16 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # the LeafVesselPlacement category's one cell, `total=1` literal with the split
     # regexed). Not an H-series id; CommittedBatchTallySourceSyncTests gates its `total=`.
     # It is pending-fixture until AIR-1 is harvested and leaves on its first flight.
+    # H59-surface-route-map-lines and V27M-rover-route-endpoint-substituted-map-lines ENTERED
+    # on 2026-11-16 (todo NEXT-TESTS-TO-BUILD-2026-11-11 item 5, audit B3: the route ghost
+    # read by position through the new RouteGhostPlacement category's one FLIGHT cell,
+    # `total=1` literal with the split regexed). V27M is not an H-series id;
+    # CommittedBatchTallySourceSyncTests gates its `total=`. Each leaves on its first flight.
     INTERIM_PIN_IDS: set = {
         "AIR-2-runway-circuit-ksc-ghost",
         "FGV-1-fairing-ghost-visual",
+        "H59-surface-route-map-lines",
+        "V27M-rover-route-endpoint-substituted-map-lines",
     }
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
@@ -5046,8 +5058,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cell below cannot catch either, because it compares two sets that shrink
         # together. Same shape as CommittedBatchTallySourceSyncTests's
         # test_the_source_tree_is_actually_readable.
-        self.assertEqual(46, len(self.GROUP),
-                         "the H7-H20 + H22-H37 + Phase-4 Wave 1 (H42-H54) + H71 + H72 + H77 group is 46 "
+        self.assertEqual(47, len(self.GROUP),
+                         "the H7-H20 + H22-H37 + Phase-4 Wave 1 (H42-H54) + H59 + H71 + H72 + H77 group is 47 "
                          "specs; if it genuinely changed size, update this floor AND the "
                          "counts in docs/dev/autotest-ingame-category-inventory.md and "
                          "docs/dev/autotest-status.md in the same commit")
@@ -5277,7 +5289,10 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # ("load s15 (the Kerbin->Duna 'Duna ...')").
         recorded_fixture = {"H35-logistics-route-proof", "H51-save-load",
                             "H45-stock-ui-overlay", "H71-resource-topbar-ksc",
-                            "H54-missions"}
+                            "H54-missions",
+                            # 2026-11-16: H59's batch reads the route ghost the
+                            # `rover-route-recorded` template's committed tree drives.
+                            "H59-surface-route-map-lines"}
         self.assertEqual(set(), corpus_backed & recorded_fixture,
                          "a member cannot be both corpus-backed and "
                          "recorded-fixture; the two rules contradict")

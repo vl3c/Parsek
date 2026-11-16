@@ -323,6 +323,11 @@ D6 = ["basic-playback", "mesh-lifecycle-derender"]
 # wheel), so this craft, which carries no Breaking Ground servo, fires no robotic event
 # at all. Those two tokens are gone; the recorder's once-per-module skip line for the
 # legs is required instead, as the fix's regression guard. D7 has no robotics value.
+# RE-FLOWN 2026-11-16 on the fixed DLL: run `2026-11-16_2130_GS-6-part-event-applier-sweep`
+# PASS attempt 1 (543 s, automation DLL sha256 81a33bc9..., main after #2653): 38 required
+# tokens met (0 mismatches), armed rewind save-structure, ghostLifecycle 8/8 balanced,
+# logValidate, analyzer and anomaly sweep green, the skip-line guard matched. One
+# report-only stock NullReferenceException in FlightCamera.Startup (no Parsek frame).
 # CLAIMED 2026-09-26 (coverage wave 7): `engine-fx-effects`, off the per-engine ignition
 # witness `[GhostPartEvents] engine-fx start` that closes the representative-pid gap above.
 # It is written once per ignition EDGE per engine and names the part and the build-time FX
@@ -436,8 +441,8 @@ required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              # and 4 on `_1604`; the count is left open because it is the craft's panel census.
              "\\[Recorder\\] Deployable seeding skipped [1-9][0-9]* pose-animation-less module\\(s\\) \\(deployable-no-pose-animation gate\\)",
              "\\[Recorder\\] Deployable poll skipped [1-9][0-9]* pose-animation-less module\\(s\\) \\(deployable-no-pose-animation gate\\)",
-             # UNFLOWN, added 2026-11-16 with the RECORDER-GEAR-SUSPENSION-AS-ROBOTICS fix, re-flight
-             # owed (the lane's last green flights predate the fix): the recorder's once-per-module
+             # Added 2026-11-16 with the RECORDER-GEAR-SUSPENSION-AS-ROBOTICS fix and MATCHED on
+             # the re-flight `2026-11-16_2130` (PASS attempt 1): the recorder's once-per-module
              # skip line for the legs' ModuleWheelSuspension, built from the literal runs of
              # `FlightRecorder.ShouldEmitRoboticEvents` (the `{what}` hole is the literal
              # "wheel suspension"; `{partName}` is the runtime part name). It replaces the two

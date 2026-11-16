@@ -158,9 +158,20 @@ type = "float"
 min = 5.0
 max = 60.0
 
-# +1 = a positive kRPC roll target banks right; -1 = the opposite. Unverified offline;
-# the machine flips it once in flight if a turn's heading error grows under a bank.
+# +1 = a positive bank target (in the surface-frame roll READING) banks right; -1 = the
+# opposite. The third flight (2026-11-16_2126) read roll -38 while the heading fell
+# 090 -> 072, so +1 is right; the machine still flips it once in flight if a turn's
+# heading error grows under a bank.
 [params.bankSign]
+required = false
+type = "float"
+min = -1.0
+max = 1.0
+
+# +1 = a positive kRPC control.roll raises the roll reading (rolls right); -1 = the
+# opposite. Unverified offline; the machine confirms it on a 1.5 deg response the
+# commanded way, or flips it once on two frames of opposite response.
+[params.rollInputSign]
 required = false
 type = "float"
 min = -1.0

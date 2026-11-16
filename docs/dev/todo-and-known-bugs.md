@@ -57,7 +57,7 @@ that the close precedes `BuildCaptureRecording` in the switch stop). Lane that w
 EVA-2-orbital-board or EVA-1-pad-flag with a report-only check that the EVA leg's last section
 ends at its board UT and no flat point lies outside a section.
 
-## ~~RECORDER-GEAR-SUSPENSION-AS-ROBOTICS~~: a plane rolling on its landing gear records the suspension as robotics motion, about 22 start / stop events a second [FILED 2026-11-16 from AIR-1's first flight, runs `2026-11-16_1955` and `_1956_a2` (diagnostics on branch `forge-logs-2026-11-16-air1`, `diag/<runId>/KSP.log.parsek-lines.txt`), by log and code reading. FIXED 2026-11-16, branch `gear-suspension-fix`, landed on `claude/project-thread-vpr29t`; xUnit; GS-6 re-pinned (two suspension-fed applier tokens out, the skip line in), re-flight owed; low (recording size and log volume, plus a wrong ghost gear pose on replay)]
+## ~~RECORDER-GEAR-SUSPENSION-AS-ROBOTICS~~: a plane rolling on its landing gear records the suspension as robotics motion, about 22 start / stop events a second [FILED 2026-11-16 from AIR-1's first flight, runs `2026-11-16_1955` and `_1956_a2` (diagnostics on branch `forge-logs-2026-11-16-air1`, `diag/<runId>/KSP.log.parsek-lines.txt`), by log and code reading. FIXED 2026-11-16, branch `gear-suspension-fix`, landed on `claude/project-thread-vpr29t`; xUnit; GS-6 re-pinned (two suspension-fed applier tokens out, the skip line in) and re-flown green 2026-11-16 `2026-11-16_2130`; low (recording size and log volume, plus a wrong ghost gear pose on replay)]
 
 What the log shows: while the stock Mallard rolled on the Runway, the active recorder wrote
 `Part event: RoboticMotionStarted` / `RoboticMotionStopped` for its three gear parts
@@ -123,7 +123,14 @@ Gear Fixed` row drives moduleIndex 0 (the suspension) and now holds still at pla
 craft carries no Breaking Ground servo (stock-minimal does link SquadExpansion; H32 flies
 `hinge.01`), so those two tokens could no longer match. GS-6 was re-pinned in the same change:
 both tokens deleted and the regression guard `\[Recorder\] Robotics: wheel suspension not recorded
-for 'landingLeg1'` added as an UNFLOWN required token (38 required); a GS-6 re-flight is owed.
+for 'landingLeg1'` added as a required token (38 required). GS-6 RE-FLOWN 2026-11-16:
+`2026-11-16_2130_GS-6-part-event-applier-sweep` PASS attempt 1 (543 s, automation DLL sha256
+81a33bc9, main after #2653), expectations 0 mismatches, armed rewind save-structure, ghostLifecycle
+8/8 balanced, logValidate / analyzer / anomaly sweep green; the guard matched (three skip lines, one
+per `landingLeg1`, zero `RoboticMotion` lines). One report-only stock NullReferenceException in
+`FlightCamera.Startup`. AIR-1's third flight (runs `2026-11-16_2126` and `_2128_a2`, diagnostics on
+branch `forge-logs-2026-11-16-air1c`) read the same on the Mallard: zero `RoboticMotion` lines for
+its gear and the three expected skip lines (`SmallGearBay`, `GearMedium` x2) on each attempt.
 The background recorder formats its `(bg vessel N)` suffix only inside the once-per-key log
 branch (`ShouldEmitRoboticEvents` takes the vessel pid), so the per-frame poll allocates nothing.
 
@@ -1952,7 +1959,18 @@ in parallel in the cloud):
    self-checked), the nose wheel steers and the ground guard measures until airborne is
    sustained, the AutoPilot engages only then; a take-off give-up re-sends the throttle cut
    until the telemetry reads it; the runner's readback waits a tick and re-asserts once before
-   warning. Next: the reading flight.)
+   warning. THIRD FLIGHT 2026-11-16 DRIVER-INVALID: runs `2026-11-16_2126` and `_2128_a2`
+   (diagnostics on branch `forge-logs-2026-11-16-air1c`), MISSION-ASSERT-FAIL vessel-lost in CLIMB
+   both times, no Parsek verdict. The takeoff worked (centreline held, elevator 0.6 tapering to
+   0.11, pitch 6-7 deg, lift-off at 64 m/s, airborne sustained at 16.9 m and 73 m/s, roll 0.03-0.08
+   deg hands off, SAS off). The AutoPilot engaged at the climb hand-over (pitch 10 / heading 090 /
+   roll 0) rolled the plane left at once: +0.5 s roll -2, +1.5 s roll -38 heading 072, +2.5 s roll
+   -100 pitch -18, +3.5 s inverted, lost at UT ~64 from a highest 38.7 m; the retry repeated it
+   within a degree. Re-written the same day (harness only, not re-flown): the AutoPilot is not
+   engaged anywhere in AIR-1; from lift-off the mission flies raw inputs, the elevator from a
+   pitch-error P-D loop (the rotation's gains), the ailerons from a bank-error P-D loop with a
+   self-checking sign (`rollInputSign`), heading changes by banking toward the bearing with the
+   nose a little higher in the bank, rudder neutral, SAS off. Next: the reading flight.)
    Aircraft: no lane flies a plane (BAY-1's never moves). A runway takeoff, a circuit and a
    landing, then its ghost replays at the Space Center. Open after AIR-2: no in-game check reads a
    KSC ghost's position DURING its replay (AIR-2 reads the KSC log lines and, by position, only the
@@ -1972,8 +1990,18 @@ in parallel in the cloud):
    (V33T). Later: Mun / Minmus continuations and the optional Ike / Gilly landing continuations.
    The three Group A fixtures carry the stray root tail of COMMITTED-RESTORE-APPENDS-TO-ROOT
    (fixed 2026-11-14) and are re-harvested with a build carrying the fix.
-5. [ ] Supply-route ghosts checked by position: route render lanes (H59, V26M, V26T, V27M, V18T)
+5. [ ] (AUTHORED 2026-11-16, never flown: FLIGHT in-game category `RouteGhostPlacement`, wired
+   as a `RunTests` step into H59 and V27M on interim pins; one reading run of each owed.)
+   Supply-route ghosts checked by position: route render lanes (H59, V26M, V26T, V27M, V18T)
    still pin counts and log lines, so a route ghost drawn in the wrong place passes (audit B3).
+   The category reads the route's delivery clock, interpolates the member recording's own
+   Absolute frames (or a Relative section's body-fixed shadow) at that loopUT, applies the
+   unit's body-fixed phase shift and compares the ghost transform's lat/lon/alt (horizontal
+   3 m + float grid + one frame of travel; altitude inside the recorded / terrain+clearance
+   window +-10 m) and the engine's render loopUT against the delivery loopUT. Not covered: the
+   Tracking Station lanes V18T / V26T (proto-vessel map ghosts placed by orbit propagation, a
+   different comparison); V26M was deleted 2026-11-12. Unsupported unit shapes (re-aim,
+   descent trigger, overlapping members, orbital checkpoint sections) are counted, not judged.
 6. [ ] Loops meeting a Re-Fly, a career save and a scene change in watch mode (audit B7; LF-1 and
    LF-2 cover only a plain Rewind-to-Launch with a loop armed).
 7. [ ] Ghost engine and FX effects across a Re-Fly or a revert (audit B8; the FX fingerprint A/B,
