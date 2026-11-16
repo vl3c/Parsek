@@ -8020,7 +8020,7 @@ class _InstanceReadWalker:
                           "runtime.run_seed_analyzer"}
     NON_READS = {"bool", "os.path.basename"}
     STRING_METHODS = {"rstrip", "lstrip", "strip", "endswith", "startswith"}
-    PLACEHOLDERS = {"run_save_name": "<runSave>"}
+    PLACEHOLDERS = {"run_save_name": "<runSave>", "snapshot_save_name": "<snapshotSave>"}
     RECORDED_PATH_KEYS = {"reportTxt", "reportJson"}
 
     def __init__(self, sources):
@@ -8369,8 +8369,19 @@ class PipelinedVerifyCopySetTests(unittest.TestCase):
         # Not vacuous: the walk reached the reads the copy set was built from.
         for rel in (("KSP.log",), (run.RESULTS_FILE,), (run.RENDER_MANIFEST_FILENAME,),
                     ("saves", "<runSave>"), ("saves", "<runSave>", "persistent.sfs"),
-                    ("saves", "<runSave>", "Parsek", "Recordings"), ("Screenshots",)):
+                    ("saves", "<runSave>", "Parsek", "Recordings"), ("Screenshots",),
+                    ("saves", "<snapshotSave>")):
             self.assertIn(rel, walker.reads)
+
+    def test_the_walk_reds_when_the_named_saves_leave_the_copy_set(self):
+        # Multiplayer T-04: the presence check and the named-save snapshot read
+        # saves/<snapshotSave>; a copy set without it would verify the live instance.
+        dirs = tuple(d for d in run.POST_QUIT_COPIED_DIRS if d != ("saves", "<snapshotSave>"))
+        self.assertEqual(len(run.POST_QUIT_COPIED_DIRS) - 1, len(dirs))
+        with mock.patch.object(run, "POST_QUIT_COPIED_DIRS", dirs):
+            walker = _run_walker()
+        self.assertTrue(any("saves/<snapshotSave>" in p for p in walker.problems),
+                        walker.problems)
 
     def test_the_walk_reds_a_deeper_uncopied_read(self):
         w = self._mutant('    os.path.isfile(os.path.join(instance_dir, "Logs", "kRPC", "x.log"))\n')
@@ -8735,3 +8746,164 @@ class RaceSharedFolderStagingSmokeTests(unittest.TestCase):
         self.assertTrue(done)
         self.assertIn(result["runId"] + hlib.RACE_LISTING_SUFFIX, os.listdir(done))
         self.assertNotIn(result["runId"] + hlib.RACE_SNAPSHOT_DIR_SUFFIX, os.listdir(done))
+
+
+class SnapshotSavesSmokeTests(unittest.TestCase):
+    """Multiplayer T-04: `[fixture] snapshotSaves` makes a full fake run copy each
+    named save to `results/<runId>_save-<suffix>/` beside the run save's `_save/`:
+    staged clean, carried by the pipelined post-quit copy, kept by retention per
+    scenario and save, and a declared save the run did not leave reds
+    PARSEK-FAIL(snapshot-save-missing)."""
+
+    RUN_SAVE = "fresh-career"
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek harness snap ")  # a space, as on Windows
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, self.RUN_SAVE)
+        os.makedirs(self.template)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self._orig = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "snap_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _spec(self, saves=("${runSave}-b", "${runSave}-c")):
+        spec = _make_spec(self.template, 30, 600)
+        spec["id"] = "SMOKE-snap"
+        if saves is not None:
+            spec["fixture"]["snapshotSaves"] = list(saves)
+        return spec
+
+    def _game_writes(self, *suffixes):
+        return {"saves/%s-%s/persistent.sfs" % (self.RUN_SAVE, s): "GAME { save = %s }\n" % s
+                for s in suffixes}
+
+    def _plant(self, rel, text="stale\n"):
+        path = os.path.join(self.instance, *rel.split("/"))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        return path
+
+    def _read(self, *parts):
+        with open(os.path.join(*parts), encoding="utf-8") as fh:
+            return fh.read()
+
+    def _attempt(self, rt, spec=None, **kw):
+        return run.run_attempt(spec or self._spec(), self.instance, self.tmp, rt, attempt=1,
+                               prior_boot_crashed=False, logger=self.logger, **kw)
+
+    def test_two_saves_are_snapshotted_beside_the_run_save(self):
+        self._plant("saves/fresh-career-b/stale.txt")
+        result = self._attempt(FakeRuntime("pass", launch_files=self._game_writes("b", "c")))
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("note"))
+        rid = result["runId"]
+        self.assertTrue(result["snapshot"]["ran"])
+        self.assertEqual(rid + "_save", result["snapshot"]["path"])
+        recs = result["snapshotSaves"]
+        self.assertEqual(["fresh-career-b", "fresh-career-c"], [r["save"] for r in recs])
+        for rec, suffix in zip(recs, ("b", "c")):
+            self.assertTrue(rec["ran"], rec)
+            self.assertEqual(rid + "_save-" + suffix, rec["path"])
+            self.assertEqual(1, rec["files"])
+            self.assertEqual("GAME { save = %s }\n" % suffix,
+                             self._read(run.RESULTS_DIR, rec["path"], "persistent.sfs"))
+        # Staging removed the prior run's folder, so nothing stale was copied.
+        self.assertFalse(os.path.exists(os.path.join(run.RESULTS_DIR, rid + "_save-b",
+                                                     "stale.txt")))
+        self.assertEqual({"status": "PASS", "missing": []},
+                         result["verifiers"]["snapshotSaves"])
+        with open(os.path.join(run.RESULTS_DIR, rid + ".json"), encoding="utf-8") as fh:
+            self.assertEqual(recs, json.load(fh)["snapshotSaves"])
+        self.assertFalse([n for n in os.listdir(run.RESULTS_DIR)
+                          if n.endswith(run.SAVE_SNAPSHOT_TMP_SUFFIX)])
+
+    def test_the_pipelined_path_snapshots_from_the_private_copy(self):
+        deferred = self._attempt(FakeRuntime("pass", launch_files=self._game_writes("b", "c")),
+                                 defer_post_quit=True)
+        self.assertIsNotNone(deferred.post_quit_copy)
+        # The next lane stages over the instance before lane 1's verification lands;
+        # staging removes the declared saves.
+        ok, _, _ = run.stage_fixture(self._spec(), self.instance, run.Runtime(), self.logger)
+        self.assertTrue(ok)
+        self.assertFalse(os.path.exists(os.path.join(self.instance, "saves", "fresh-career-b")))
+        result = deferred.finish(self.logger)
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("note"))
+        for rec in result["snapshotSaves"]:
+            self.assertTrue(rec["ran"], rec)
+            self.assertTrue(os.path.isfile(os.path.join(run.RESULTS_DIR, rec["path"],
+                                                        "persistent.sfs")))
+        self.assertFalse(os.path.exists(deferred.post_quit_copy.root))
+
+    def test_a_declared_save_the_run_did_not_leave_reds_the_run(self):
+        result = self._attempt(FakeRuntime("pass", launch_files=self._game_writes("b")))
+        self.assertEqual((hlib.VERDICT_PARSEK_FAIL, hlib.SNAPSHOT_SAVE_MISSING_SUBKIND),
+                         (result["verdict"], result["subkind"]))
+        self.assertEqual({"status": "FAIL", "missing": ["fresh-career-c"]},
+                         result["verifiers"]["snapshotSaves"])
+        b, c = result["snapshotSaves"]
+        self.assertTrue(b["ran"])
+        self.assertEqual((False, None, "no-produced-save"), (c["ran"], c["path"], c["reason"]))
+        self.assertTrue(result["snapshot"]["ran"])
+
+    def test_retention_keeps_the_window_per_save_and_leaves_other_names_alone(self):
+        os.makedirs(run.RESULTS_DIR, exist_ok=True)
+        keep = hlib.SAVE_SNAPSHOT_KEEP_PER_SCENARIO
+        old = []
+        for i in range(keep + 1):
+            rid = "2026-01-0%d_0000_SMOKE-snap" % (i + 1)
+            with open(os.path.join(run.RESULTS_DIR, rid + ".json"), "w") as fh:
+                json.dump({"runId": rid, "scenarioId": "SMOKE-snap"}, fh)
+            for name in (rid + "_save-b", rid + "_save-c", rid + "_save"):
+                os.makedirs(os.path.join(run.RESULTS_DIR, name))
+                os.utime(os.path.join(run.RESULTS_DIR, name), (1000.0 + i, 1000.0 + i))
+            old.append(rid)
+        os.makedirs(os.path.join(run.RESULTS_DIR, "dead_save-b.harness-tmp"))
+        os.makedirs(os.path.join(run.RESULTS_DIR, "dead_save.harness-tmp"))
+        result = self._attempt(FakeRuntime("pass", launch_files=self._game_writes("b", "c")))
+        names = set(os.listdir(run.RESULTS_DIR))
+        for suffix in ("_save-b", "_save-c", "_save"):
+            kept = sorted(n for n in names if n.endswith(suffix) and "SMOKE-snap" in n)
+            self.assertEqual(keep, len(kept), (suffix, kept))
+            self.assertIn(result["runId"] + suffix, kept)
+            self.assertNotIn(old[0] + suffix, kept)
+            self.assertNotIn(old[1] + suffix, kept)
+        self.assertNotIn("dead_save-b.harness-tmp", names)
+        self.assertNotIn("dead_save.harness-tmp", names)
+
+    def test_the_sweep_prunes_named_saves_too(self):
+        os.makedirs(run.RESULTS_DIR, exist_ok=True)
+        for name in ("a_save-b.harness-tmp", "keep_race", "keep_shots"):
+            os.makedirs(os.path.join(run.RESULTS_DIR, name))
+        run.sweep_results_dir(self.logger)
+        self.assertEqual({"keep_race", "keep_shots"},
+                         {n for n in os.listdir(run.RESULTS_DIR)
+                          if os.path.isdir(os.path.join(run.RESULTS_DIR, n))})
+
+    def test_a_spec_without_the_key_is_unchanged(self):
+        prior = self._plant("saves/fresh-career-b/keep.txt", "keep\n")
+        result = self._attempt(FakeRuntime("pass"), spec=self._spec(saves=None))
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        self.assertNotIn("snapshotSaves", result)
+        self.assertNotIn("snapshotSaves", result["verifiers"])
+        self.assertTrue(os.path.isfile(prior))
+        self.assertFalse([n for n in os.listdir(run.RESULTS_DIR) if "_save-" in n])
+
+    @unittest.skipIf(os.name == "nt", "symlink creation needs privileges on Windows")
+    def test_a_linked_prior_save_refuses_staging_and_deletes_nothing_behind_it(self):
+        sentinel = self._plant("GameData/keep.txt", "keep\n")
+        os.makedirs(os.path.join(self.instance, "saves"), exist_ok=True)
+        os.symlink(os.path.join(self.instance, "GameData"),
+                   os.path.join(self.instance, "saves", "fresh-career-b"))
+        ok, _, subkind = run.stage_fixture(self._spec(), self.instance, run.Runtime(),
+                                           self.logger)
+        self.assertEqual((False, "staging"), (ok, subkind))
+        self.assertTrue(os.path.isfile(sentinel))

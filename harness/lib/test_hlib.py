@@ -28305,3 +28305,185 @@ class RaceSharedFolderSpecTests(unittest.TestCase):
                              dir_suffix=hlib.RACE_SNAPSHOT_DIR_SUFFIX))
         self.assertEqual(["a_save.harness-tmp"],
                          hlib.select_stale_save_snapshot_tmp_dirs_to_sweep(names))
+
+
+class SnapshotSavesSpecTests(unittest.TestCase):
+    """Multiplayer T-04: the `[fixture] snapshotSaves` spec surface, the results/ dir
+    name it produces, its retention and the PARSEK-FAIL(snapshot-save-missing) red.
+    The staging, copy and retention are driven end to end in
+    test_run_smoke.SnapshotSavesSmokeTests."""
+
+    RUN_SAVE = "fresh-career"
+
+    def _spec(self, saves=None, as_targets=("fresh-career-b",)):
+        spec = {
+            "schema": hlib.SCHEMA_VERSION, "id": "SNAP-x", "tier": "operator",
+            "instanceProfile": "stock-minimal",
+            "fixture": {"saveTemplate": "fixtures/saves/" + self.RUN_SAVE,
+                        "injectedRecordings": "none", "craft": []},
+            "driver": {"kind": "seam", "steps": [
+                {"cmd": "LoadGame", "args": {"save": "${runSave}", "name": "persistent"},
+                 "expect": "OK", "budget": 30}] + [
+                {"cmd": "NewGame", "args": {"mode": "SANDBOX", "preset": "Normal",
+                                            "save": "${runSave}", "as": target},
+                 "expect": "OK", "budget": 300} for target in as_targets] + [
+                {"cmd": "FlushAndQuit", "expect": "OK"}]},
+            "expectations": {"recordings": {"count": {"min": 0, "max": 0}},
+                             "logContracts": {"required": [], "forbidden": []},
+                             "allowedAnomalies": []},
+            "runtime": {"budgetSeconds": 600},
+            "retry": {"policy": "once"},
+            "expectedFail": {"bugId": ""},
+        }
+        if saves is not None:
+            spec["fixture"]["snapshotSaves"] = saves
+        return spec
+
+    def _validate(self, spec):
+        return hlib.validate_spec(spec, {"schema": 1}, bug_ids=[])
+
+    def _snap_errors(self, spec):
+        return [e for e in self._validate(spec).errors if "snapshotSaves" in e]
+
+    def test_both_accepted_forms_validate_and_resolve_to_the_same_folders(self):
+        base = self._validate(self._spec())
+        for saves in (["${runSave}-b"], ["fresh-career-b"], []):
+            with self.subTest(saves=saves):
+                got = self._validate(self._spec(saves))
+                self.assertEqual(base.errors, got.errors)
+                self.assertEqual(base.warnings, got.warnings)
+        spec = self._spec(["${runSave}-b", "fresh-career-c_2"], ("fresh-career-b",
+                                                                  "fresh-career-c_2"))
+        self.assertEqual([], self._snap_errors(spec))
+        self.assertEqual([("fresh-career-b", "b"), ("fresh-career-c_2", "c_2")],
+                         hlib.spec_snapshot_saves(spec, self.RUN_SAVE))
+        self.assertEqual([], hlib.spec_snapshot_saves(self._spec(), self.RUN_SAVE))
+
+    def test_a_name_outside_the_lanes_own_saves_is_refused(self):
+        for value in ("other-b", "../fresh-career-b", "/abs/x", "C:/saves/x",
+                      "${runSave}-../x", "${runSave}-a/b", "${runSave}-a\\b",
+                      "${runSave}-..", "${runSave}-", "${runSave}b", "${runSave}--b",
+                      "${runSave}-a-b", "${runSave}-a b", "${runSave}-a.b",
+                      "fresh-career-../x", "${RUNSAVE}-b", "${runSave }-b", "", 3, None):
+            with self.subTest(value=value):
+                errs = self._snap_errors(self._spec([value]))
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("directly inside saves/", errs[0])
+                self.assertEqual([], hlib.spec_snapshot_saves(self._spec([value]),
+                                                              self.RUN_SAVE))
+
+    def test_the_run_save_itself_is_refused(self):
+        for value in ("${runSave}", self.RUN_SAVE):
+            with self.subTest(value=value):
+                errs = self._snap_errors(self._spec([value]))
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("is the run save", errs[0])
+
+    def test_a_duplicate_is_refused_in_either_form(self):
+        for saves in (["${runSave}-b", "${runSave}-b"], ["${runSave}-b", "fresh-career-b"]):
+            with self.subTest(saves=saves):
+                errs = self._snap_errors(self._spec(saves))
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("names the same save as fixture.snapshotSaves[0]", errs[0])
+
+    def test_a_suffix_colliding_with_another_results_name_is_refused(self):
+        for suffix, clash in (("a_save", "_save"), ("x_race", "_race"),
+                              ("b_shots", "_shots")):
+            with self.subTest(suffix=suffix):
+                errs = self._snap_errors(self._spec(["${runSave}-" + suffix],
+                                                    ("fresh-career-" + suffix,)))
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("end in %r" % clash, errs[0])
+                # The shell's reader drops it too, should validation be bypassed.
+                self.assertEqual([], hlib.spec_snapshot_saves(
+                    self._spec(["${runSave}-" + suffix]), self.RUN_SAVE))
+        # A suffix that merely CONTAINS a name is fine: only the ending is keyed on.
+        self.assertEqual([], self._snap_errors(self._spec(["${runSave}-save"],
+                                                          ("fresh-career-save",))))
+        self.assertEqual([], self._snap_errors(self._spec(["${runSave}-race_b"],
+                                                          ("fresh-career-race_b",))))
+
+    def test_every_results_name_suffix_is_in_the_collision_table(self):
+        for suffix in hlib.RUN_ID_ARTIFACT_SUFFIXES + (
+                hlib.SAVE_SNAPSHOT_DIR_SUFFIX, hlib.SAVE_SNAPSHOT_TMP_SUFFIX,
+                hlib.RACE_SNAPSHOT_DIR_SUFFIX, hlib.RACE_LISTING_SUFFIX):
+            self.assertIn(suffix, hlib.RESULTS_NAME_SUFFIXES)
+
+    def test_a_non_list_is_refused(self):
+        for value in ("${runSave}-b", {"b": 1}, 3):
+            with self.subTest(value=value):
+                errs = self._snap_errors(self._spec(value))
+                self.assertEqual(1, len(errs), errs)
+                self.assertIn("must be a list", errs[0])
+
+    def test_a_save_no_step_names_is_a_warning_not_an_error(self):
+        got = self._validate(self._spec(["${runSave}-b", "${runSave}-c"]))
+        self.assertEqual([], [e for e in got.errors if "snapshotSaves" in e])
+        warns = [w for w in got.warnings if "snapshotSaves" in w]
+        self.assertEqual(1, len(warns), warns)
+        self.assertIn("'fresh-career-c'", warns[0])
+        self.assertIn(hlib.SNAPSHOT_SAVE_MISSING_SUBKIND, warns[0])
+
+    def test_the_dir_name_round_trips_and_no_other_sweep_reads_it(self):
+        rid = "2026-11-16_2000_SNAP-x_run2_a2"
+        name = hlib.snapshot_save_dir_name(rid, "b_1")
+        self.assertEqual(rid + "_save-b_1", name)
+        self.assertEqual((rid, "b_1"), hlib.parse_snapshot_save_dir_name(name))
+        self.assertEqual((rid, "b_1"), hlib.parse_snapshot_save_dir_name(
+            name + hlib.SAVE_SNAPSHOT_TMP_SUFFIX, tmp=True))
+        self.assertIsNone(hlib.parse_snapshot_save_dir_name(name, tmp=True))
+        for other in (rid + "_save", rid + "_race", rid + "_shots", rid + ".json",
+                      rid + "_save.harness-tmp", "_save-b", rid + "_save-",
+                      rid + "_save-a-b", rid + "_save-b.harness-tmp"):
+            with self.subTest(other=other):
+                self.assertIsNone(hlib.parse_snapshot_save_dir_name(other))
+        # The run save's and the race folder's passes never select the named copy.
+        self.assertFalse(name.endswith(hlib.SAVE_SNAPSHOT_DIR_SUFFIX))
+        self.assertEqual([], hlib.select_stale_save_snapshot_tmp_dirs_to_sweep(
+            [name + hlib.SAVE_SNAPSHOT_TMP_SUFFIX]))
+        self.assertEqual([], hlib.select_stale_save_snapshot_tmp_dirs_to_sweep(
+            [name + hlib.SAVE_SNAPSHOT_TMP_SUFFIX], dir_suffix=hlib.RACE_SNAPSHOT_DIR_SUFFIX))
+        self.assertEqual(set(), hlib.claimed_run_ids([name]))
+
+    def test_retention_keeps_the_newest_per_scenario_and_save(self):
+        keep = hlib.SAVE_SNAPSHOT_KEEP_PER_SCENARIO
+        entries = []
+        for i in range(keep + 2):
+            for suffix in ("b", "c"):
+                entries.append(("r%d_save-%s" % (i, suffix), "SNAP-x", float(i)))
+        entries.append(("r0_save", "SNAP-x", 0.0))           # the run save: not ours
+        entries.append(("orphan_save-b", "", -1.0))           # unattributed: never pruned
+        entries.append(("r0_save-b.harness-tmp", "SNAP-x", 0.0))
+        pruned = hlib.select_snapshot_save_dirs_to_prune(entries)
+        self.assertEqual(["r0_save-b", "r0_save-c", "r1_save-b", "r1_save-c"], pruned)
+        # The current run's names are never pruned, however old.
+        pruned = hlib.select_snapshot_save_dirs_to_prune(entries,
+                                                         ["r0_save-b", "r0_save-c"])
+        self.assertEqual(["r1_save-b", "r1_save-c"], pruned)
+
+    def test_the_tmp_sweep_takes_only_named_save_tmp_dirs(self):
+        names = ["a_save-b.harness-tmp", "a_save.harness-tmp", "a_race.harness-tmp",
+                 "a_save-b", "c_save-b.harness-tmp", "_save-b.harness-tmp"]
+        self.assertEqual(["a_save-b.harness-tmp"], hlib.select_stale_snapshot_save_tmp_dirs(
+            names, ["c_save-b.harness-tmp"]))
+
+    def test_a_missing_save_reds_last_and_only_turns_a_pass(self):
+        self.assertIn(hlib.SNAPSHOT_SAVE_MISSING_SUBKIND, hlib.PARSEK_FAIL_SUBKINDS)
+        missing = hlib.classify_verdict({}, {"snapshot_save_missing": True}, {}, 1, "once")
+        self.assertEqual((hlib.VERDICT_PARSEK_FAIL, hlib.SNAPSHOT_SAVE_MISSING_SUBKIND),
+                         (missing.verdict, missing.subkind))
+        self.assertFalse(hlib.should_retry(missing, 1, "once"))
+        richer = hlib.classify_verdict({}, {"snapshot_save_missing": True,
+                                            "unmet_step": True}, {}, 1, "once")
+        self.assertEqual(hlib.UNMET_STEP_SUBKIND, richer.subkind)
+        invalid = hlib.classify_verdict({"valid": False, "stage_subkind": "driver-stage"},
+                                        {"snapshot_save_missing": True}, {}, 1, "once")
+        self.assertEqual(hlib.VERDICT_INVALID, invalid.verdict)
+        self.assertEqual(hlib.VERDICT_PASS, hlib.classify_verdict({}, {}, {}, 1, "once").verdict)
+
+    def test_no_committed_spec_declares_snapshot_saves(self):
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                spec = tomllib.loads(fh.read().decode("utf-8"))
+            with self.subTest(spec=name):
+                self.assertNotIn(hlib.SNAPSHOT_SAVES_KEY, spec.get("fixture") or {})

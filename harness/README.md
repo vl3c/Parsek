@@ -75,8 +75,8 @@ Everything the harness fetches or generates lives UNDER `harness/`:
   exclusive-create, never reaped) so two CONCURRENT invocations cannot both take
   a free id: a second run of one scenario inside the same minute
   takes `_run2` and run.py Warns naming both ids -- it never overwrites an
-  earlier run's result JSON, `_shots` dir, `_save` snapshot, `_race` snapshot
-  or contact sheet.
+  earlier run's result JSON, `_shots` dir, `_save` / `_save-<suffix>`
+  snapshot, `_race` snapshot or contact sheet.
   `_a<N>` is a
   different axis: the `[retry] policy` re-flying ONE run, which deliberately
   shares the stem and is distinguished by the attempt suffix.
@@ -1489,6 +1489,49 @@ forever. It is NAME-gated (`<runId>` + `_save` + `.harness-tmp` exactly) and
 spares the current run's own tmp name, since the pass can run while that copy is
 still being written. Between the two, the retention pass touches nothing under
 `results/` but `*_save/` and `*_save.harness-tmp/`.
+
+### Named-save snapshots (`results/<runId>_save-<suffix>/`)
+
+A lane that creates a second save (a `NewGame as=<runSave>-<suffix>` step, a race
+lane's second career) names it in advance under `[fixture]`:
+
+```toml
+snapshotSaves = ["${runSave}-b"]     # or the literal "<runSaveName>-b"
+```
+
+and run.py treats each one like the run save (multiplayer T-04): staging removes
+a prior `saves/<runSave>-<suffix>/` first (fail closed, `INVALID(staging)` when it
+cannot), so a folder present after the flight is this run's; the pipelined
+post-quit copy holds it (`run.POST_QUIT_COPIED_DIRS`, `<snapshotSave>`); the
+post-quit step copies it right after the run save, with the same size and
+free-disk refusals (the `[harvest]` opt-out names the run save only), the same
+tmp-and-rename, a Warn and `ran=false` on a failed copy, into
+
+```
+results/<runId>_save-<suffix>/
+```
+
+The result JSON carries `snapshotSaves: [{save, ran, path, bytes, files,
+reason}, ...]`, one record per declared save (no key for a spec without the
+list), and the verifier detail a `snapshotSaves: {status, missing}` row.
+Harvest from it the same way: `--save-dir results/<runId>_save-<suffix>`.
+Retention keeps the newest 3 PER SCENARIO AND SUFFIX
+(`hlib.select_snapshot_save_dirs_to_prune`) and sweeps orphaned
+`<runId>_save-<suffix>.harness-tmp` dirs (`hlib.select_stale_snapshot_save_tmp_dirs`),
+from the run and from `run.py --sweep-results` (the parallel runner's end-of-run
+sweep); a slot child skips it like the other passes. The run save's pass never touches these
+names (they do not end in `_save`), and the reverse holds too.
+
+The validator (`hlib.validate_snapshot_saves`) accepts only `${runSave}-<suffix>`
+or `<runSaveName>-<suffix>` with a `[A-Za-z0-9_]` suffix (the `NewGame as=` rule),
+so a name can never leave `saves/`; it refuses the run save itself, a duplicate in
+either form, and a suffix whose dir name would END in a name another results pass
+keys on (`hlib.RESULTS_NAME_SUFFIXES`: `_save`, `_race`, `_shots`, ...). It warns
+when no step arg names the save. A declared save ABSENT after the run reds
+`PARSEK-FAIL(snapshot-save-missing)`, but only on a valid driver stage and as the
+very last red (after `unmet-step`): every step met its expect, so the step that
+names the save answered OK without leaving it. A run that already failed keeps
+its own verdict, and the missing save's record reads `no-produced-save`.
 
 ### The race shared-folder snapshot (`results/<runId>_race/`)
 
