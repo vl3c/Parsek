@@ -1204,18 +1204,9 @@ namespace Parsek.Logistics
         /// </summary>
         internal static double ReadSavedRouteStateFloorUTFromScenarios(IList<ProtoScenarioModule> scenarios)
         {
-            if (scenarios == null)
-                return double.NaN;
-            for (int i = 0; i < scenarios.Count; i++)
-            {
-                ProtoScenarioModule proto = scenarios[i];
-                if (proto != null
-                    && string.Equals(proto.moduleName, nameof(ParsekScenario), StringComparison.Ordinal))
-                {
-                    return ReadSavedRouteStateFloorUT(proto.GetData());
-                }
-            }
-            return double.NaN;
+            ConfigNode parsekNode = ScenarioNodeLookup.FindInProtoList(
+                scenarios, ScenarioNodeLookup.ParsekScenarioName);
+            return parsekNode != null ? ReadSavedRouteStateFloorUT(parsekNode) : double.NaN;
         }
 
         /// <summary>
@@ -1252,18 +1243,9 @@ namespace Parsek.Logistics
         /// </summary>
         internal static List<Route> ReadSavedCommittedRoutesFromScenarios(IList<ProtoScenarioModule> scenarios)
         {
-            if (scenarios == null)
-                return null;
-            for (int i = 0; i < scenarios.Count; i++)
-            {
-                ProtoScenarioModule proto = scenarios[i];
-                if (proto != null
-                    && string.Equals(proto.moduleName, nameof(ParsekScenario), StringComparison.Ordinal))
-                {
-                    return ReadSavedCommittedRoutes(proto.GetData());
-                }
-            }
-            return null;
+            ConfigNode parsekNode = ScenarioNodeLookup.FindInProtoList(
+                scenarios, ScenarioNodeLookup.ParsekScenarioName);
+            return parsekNode != null ? ReadSavedCommittedRoutes(parsekNode) : null;
         }
 
         /// <summary>
