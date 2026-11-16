@@ -1118,6 +1118,16 @@ namespace Parsek
                 target.FlagEvents.AddRange(absorbed.FlagEvents);
             }
 
+            // 6b. Union tool uses, one per (kind, detail) at its least first-use UT (A3)
+            if (absorbed.ToolUses != null && absorbed.ToolUses.Count > 0)
+            {
+                target.ToolUses = ToolUseFacts.Union(target.ToolUses, absorbed.ToolUses);
+                ParsekLog.Verbose("Optimizer",
+                    $"MergeInto: tool uses unioned target={target.RecordingId ?? "<no-id>"} " +
+                    $"absorbed={absorbed.RecordingId ?? "<no-id>"} " +
+                    $"count={target.ToolUses.Count.ToString(CultureInfo.InvariantCulture)}");
+            }
+
             // 7. VesselSnapshot: if absorbed was chain tip (non-null), target inherits it
             if (absorbed.VesselSnapshot != null)
                 target.VesselSnapshot = absorbed.VesselSnapshot;
@@ -1481,6 +1491,10 @@ namespace Parsek
                 second.FlagEvents = new List<FlagEvent>();
                 PartitionFlagEvents(original.FlagEvents, second.FlagEvents, splitUT);
             }
+
+            // 5b. Partition tool uses by first-use UT (A3)
+            if (original.ToolUses != null && original.ToolUses.Count > 0)
+                ToolUseFacts.PartitionAtUT(original, second, splitUT);
 
             // 6. Partition TrackSections
             second.TrackSections = new List<TrackSection>(

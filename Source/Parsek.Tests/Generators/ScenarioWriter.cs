@@ -1459,6 +1459,9 @@ namespace Parsek.Tests.Generators
             var controllers = builder.GetControllers();
             if (controllers != null)
                 rec.Controllers = new List<ControllerInfo>(controllers);
+            var toolUses = builder.GetToolUses();
+            if (toolUses != null)
+                rec.ToolUses = new List<ToolUse>(toolUses);
             rec.IsDebris = builder.GetIsDebris();
             // v13 debris parent-anchor contract: stamp adjacent to IsDebris
             // so cloned/merged/serialized synthetic debris recordings carry the

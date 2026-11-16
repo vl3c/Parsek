@@ -538,8 +538,11 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
     `ToolKind { GravityHack = 1, CheatTeleport = 2, CheatCurrency = 3, CheatOption = 4,
     DebugAction = 5, TestTooling = 6 }` with explicit numbers.
   - `RecordingTreeRecordCodec.SaveRecordingInto` writes `TOOL_USE { kind detail ut }`
-    children only when the list is non-empty; `LoadRecordingFrom` reads them and skips an
-    unknown kind with a Verbose line.
+    children only when the list is non-empty; `LoadRecordingFrom` reads them. An unknown
+    kind number (written by a newer build) is KEPT and written back on the next save, with
+    a Verbose count, never skipped: skipping would drop a newer build's mark on the next
+    save, which the save-format policy forbids (section 4, "newer data is held"); a child
+    with no positive integer kind or no finite `ut` is malformed and skipped.
   - Clone copies; `RecordingOptimizer.MergeInto` unions keeping the minimum UT per
     (kind, detail); `SplitAtUT` gives each half the uses inside its range (the first half
     also keeps uses before its start); `SessionMerger` carries them if it builds recordings
@@ -551,6 +554,26 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
   codec, generators, a synthetic recording); no format bump (an optional child node, the
   additive rule); recording schema generation unchanged.
 - **Size:** S. **Depends on:** none. **PC:** no. **Risk:** low.
+- **As built (2026-11-16):** the types and the carry live in `Recording/ToolUse.cs`
+  (`ToolKind`, `ToolUse`, `ToolUseFacts.SaveInto / LoadFrom / Union / PartitionAtUT`);
+  `Recording.cs` holds only the field and its list copy in `ApplyPersistenceArtifactsFrom` (so
+  `DeepClone` and the hydration repair carry it), and `ToolUseFacts` names no store: a first
+  cut with a `Recording -> ToolUseFacts` edge and a `ToolUseFacts -> RecordingStore` one (the
+  log-suppression flag) pulled `Recording` into the text-scan knot (measured: 437 -> 498);
+  without them the knot is unchanged. The children are written last in the recording node. The
+  split runs in `SplitAtSection`, the core both `SplitAtUT` and the optimizer's environment
+  split call; a use at the cut goes to the second half, which also keeps uses after its end.
+  VERIFY result: `SessionMerger.MergeTree` does build a recording field by field, but its one
+  production consumer, `TreeCommitService.ApplySessionMergeToRecordings`, copies only the five
+  trajectory fields back onto the original recording, so the uses stay on it and
+  `SessionMerger` is unchanged (`CommitTree_KeepsTheUsesThroughTheSessionMerge`). No synthetic
+  recording was added: the injected set lands in a single-player dev save, where A3 facts
+  never occur; the generator round trip covers the builder. For R3E-08: if `NoteToolUse`
+  writes to the recorder's capture rather than the tree recording,
+  `ParsekFlight.AppendCapturedDataToRecording` and the capture builders must carry the list
+  too (today they do not). R3E-10: a kept unknown kind is a number with no `ToolKind` member;
+  the export writes it by number or filters it with `Enum.IsDefined`, its choice. Proof:
+  `ToolUseFactTests`.
 
 ### R3E-08 Capture the tools Parsek already detects (A3)
 
@@ -1095,7 +1118,8 @@ made while it differs; a node bought while it differs marks the save from its da
     IEnumerable<string> changedNames)`, which R1-08's race session build calls after R1-20's
     check, from `RaceSession.ContentDiff` (an edit to R1-08's file; empty in a race that
     refuses differences, since such a save never loads). R3E-07's `ToolKind` gains
-    `ContentDiffers = 7` (additive; an older build skips the unknown kind, R3E-07).
+    `ContentDiffers = 7` (additive; an older build keeps the unknown kind number and writes it
+    back, R3E-07).
     `FlightRecorder.ToolUse.cs`: at record start, when `ContentTreeDiffers`,
     `NoteToolUse(ContentDiffers, "tree", startUT)`; at record start and at each
     `GameEvents.onVesselWasModified` of the recorded vessel, one
