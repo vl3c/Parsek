@@ -9157,3 +9157,118 @@ class RaceFolderHarnessStepSmokeTests(unittest.TestCase):
         with contextlib.redirect_stdout(out):
             run.print_dry_run_plan([spec], lambda p: self.instance, self.logger)
         self.assertIn("[HARNESS] step=2 raceFolder op=delete from=- path=a", out.getvalue())
+
+
+class RaceFolderHarnessStepAfterAnUnmetStepSmokeTests(unittest.TestCase):
+    """Multiplayer T-06 review: a harness step runs only while every step driven
+    before it is met. On a MISSION-OK run a post-mission step that answers ERROR does
+    not stop the drive (the run reds PARSEK-FAIL(mission-outcome) or (unmet-step)),
+    and a later harness step premised on that step's work (a delete of a file it
+    should have written) would fail and turn the Parsek fault into the terminal
+    INVALID(harness-step), dropping its cause. The harness step is skipped instead,
+    so the earlier step owns the verdict; with nothing unmet before it, a failing
+    harness step still reads INVALID(harness-step), never retried. Built from
+    PostMissionOutcomeSmokeTests' kerbal-lost run."""
+
+    DELETE = {"harness": "raceFolder",
+              "args": {"op": "delete", "path": "players/p1/standing.cfg"}}
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-racefolder-unmet-")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, "b1-pad-craft")
+        os.makedirs(self.template)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.log_path = os.path.join(run.RESULTS_DIR, "racefolder_unmet_harness.log")
+        self.logger = run.HarnessLogger(self.log_path)
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _run(self, ksp_mode, with_harness_step=True, launch_files=None):
+        spec = _make_autopilot_spec(self.template)
+        spec["fixture"]["race"] = {"sharedFolder": hlib.RACE_SHARED_EMPTY}
+        tail = [dict(s) for s in PostMissionOutcomeSmokeTests.TAIL]
+        if with_harness_step:
+            # After EvaChuteDeploy, before StopRecording: index 5 of the driver.
+            tail.insert(2, dict(self.DELETE))
+        spec["driver"]["steps"] = spec["driver"]["steps"][:3] + tail
+        # Blind, so the only thing that can red the run is a step's own verdict.
+        spec["expectations"]["logContracts"] = {"required": [], "forbidden": []}
+        rt = FakeRuntime(ksp_mode, mission_mode="ok", venv_ok=True,
+                         launch_files=launch_files)
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        self.logger.close()
+        with open(self.log_path, encoding="utf-8") as fh:
+            self.log = fh.read()
+        self.logger = run.HarnessLogger(self.log_path)
+        with open(os.path.join(self.instance, "parsek-test-commands.txt"),
+                  encoding="utf-8") as fh:
+            self.commands = fh.read()
+        return result
+
+    def _retries(self, result):
+        v = hlib.Verdict(result["verdict"], result["subkind"], False, "")
+        return hlib.should_retry(v, attempt=1, retry_policy="once")
+
+    def test_an_earlier_outcome_error_keeps_its_verdict(self):
+        """THE review cell: without the fix this reads INVALID(harness-step)."""
+        baseline = self._run("autopilot-kerballost", with_harness_step=False)
+        self.assertEqual((hlib.VERDICT_PARSEK_FAIL, "mission-outcome"),
+                         (baseline["verdict"], baseline["subkind"]))
+        result = self._run("autopilot-kerballost")
+        self.assertEqual((hlib.VERDICT_PARSEK_FAIL, "mission-outcome"),
+                         (result["verdict"], result["subkind"]), result.get("note"))
+        self.assertFalse(self._retries(result))
+        self.assertEqual("EvaChuteDeploy",
+                         result["verifiers"]["missionOutcome"]["firstUnmet"]["cmd"])
+        self.assertNotIn("harnessStep", result["verifiers"])
+        row = result["driver"]["harnessSteps"][0]
+        self.assertEqual("0006", row["id"])
+        self.assertFalse(row["met"])
+        self.assertTrue(row["skipped"])
+        self.assertIn("0005", row["reason"])
+        self.assertNotIn("REFUSED", self.log)
+        self.assertIn("harness step=5 id=0006 raceFolder", self.log)
+        # The tail after the skipped step is still driven, as without the step.
+        for sid, cmd in (("0007", "StopRecording"), ("0008", "CommitTree"),
+                         ("0009", "FlushAndQuit")):
+            self.assertIn("id=%s cmd=%s" % (sid, cmd), self.commands)
+
+    def test_the_skipped_step_does_not_touch_the_folder(self):
+        result = self._run("autopilot-kerballost", launch_files={
+            "rs/0/players/p1/standing.cfg": "holder = p1\n"})
+        self.assertEqual("mission-outcome", result["subkind"])
+        self.assertTrue(result["driver"]["harnessSteps"][0]["skipped"])
+        with open(os.path.join(self.instance, "rs", "0", "players", "p1", "standing.cfg"),
+                  encoding="utf-8") as fh:
+            self.assertEqual("holder = p1\n", fh.read())
+
+    def test_with_nothing_unmet_before_it_a_failing_step_is_still_invalid(self):
+        """The mirror direction: the same tail, every seam step OK, and the delete
+        fails on its own -> terminal INVALID(harness-step), never retried."""
+        result = self._run("autopilot")
+        self.assertEqual((hlib.VERDICT_INVALID, hlib.HARNESS_STEP_INVALID_SUBKIND),
+                         (result["verdict"], result["subkind"]), result.get("note"))
+        self.assertFalse(self._retries(result))
+        row = result["driver"]["harnessSteps"][0]
+        self.assertFalse(row["met"])
+        self.assertNotIn("skipped", row)
+        self.assertIn("does not exist", row["reason"])
+        self.assertIn("REFUSED", self.log)
+
+    def test_with_nothing_unmet_before_it_a_met_step_still_passes(self):
+        result = self._run("autopilot", launch_files={
+            "rs/0/players/p1/standing.cfg": "holder = p1\n"})
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("note"))
+        self.assertTrue(result["driver"]["harnessSteps"][0]["met"])
+        self.assertFalse(os.path.exists(
+            os.path.join(self.instance, "rs", "0", "players", "p1", "standing.cfg")))

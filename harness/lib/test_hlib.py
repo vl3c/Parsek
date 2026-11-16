@@ -28715,7 +28715,8 @@ class RaceFolderHarnessStepSpecTests(unittest.TestCase):
         bad = ["", "/abs", "/", "../x", "a/../../x", "..", ".", "./a", "a/./b",
                "a//b", "a/", "C:/x", "C:x", "a:b", "a\\b", "\\\\server\\share",
                ".hidden", "a/.git", "a.", "a ", " a", "NUL", "con.txt", "a/COM1",
-               "lpt9.cfg", "a\x00b", "a\nb", "x" * 201, "/".join(["a"] * 17), 3,
+               "lpt9.cfg", "COM0", "a/lpt0.cfg", "x\n", "a/b\n", "a\x00b", "a\nb",
+               "x" * 201, "/".join(["a"] * 17), 3,
                None, ["a"]]
         for path in bad:
             with self.subTest(path=path):
@@ -28724,9 +28725,28 @@ class RaceFolderHarnessStepSpecTests(unittest.TestCase):
                 errs = self._new_errors(self._spec([self._step(op="delete", path=path)]))
                 self.assertTrue(any(".args.path:" in e for e in errs), errs)
         for path in ("a", "a.b", "a..b", "_x", "players/p1/rec.0a1b.prec",
-                     "with space/x-y_z.cfg", "/".join(["a"] * 16)):
+                     "with space/x-y_z.cfg", "COM10.cfg", "/".join(["a"] * 16)):
             with self.subTest(path=path):
                 self.assertIsNone(hlib.race_folder_path_problem(path))
+
+    def test_a_harness_step_is_skipped_once_a_driven_step_is_unmet(self):
+        """The drive-time rule (run.py drive_seam asks it before each harness step):
+        it runs only while the mission and every driven seam step are met."""
+        def ev(*outcomes):
+            first = next((o for o in outcomes if not o.met), None)
+            return hlib.ResponseEvaluation(tuple(outcomes), first is None, first, ())
+        ok = hlib.StepOutcome("0001", "LoadGame", "OK", "OK", True, True)
+        err = hlib.StepOutcome("0005", "StopRecording", "OK", "ERROR", True, False)
+        silent = hlib.StepOutcome("0006", "CommitTree", "OK", None, False, False)
+        self.assertIsNone(hlib.harness_step_skip_reason(ev(), None))
+        self.assertIsNone(hlib.harness_step_skip_reason(ev(ok), None))
+        self.assertIsNone(hlib.harness_step_skip_reason(ev(ok), {"id": "0003", "met": True}))
+        reason = hlib.harness_step_skip_reason(ev(ok, err), {"id": "0003", "met": True})
+        self.assertIn("0005 (StopRecording)", reason)
+        self.assertIn("verdict=ERROR", reason)
+        self.assertIn("<no-response>", hlib.harness_step_skip_reason(ev(ok, silent), None))
+        self.assertIn("mission step 0003",
+                      hlib.harness_step_skip_reason(ev(ok), {"id": "0003", "met": False}))
 
     def test_each_arg_rule_is_enforced(self):
         cases = [

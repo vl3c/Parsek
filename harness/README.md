@@ -2778,10 +2778,20 @@ itself and never writes to the command channel (multiplayer T-06):
   refused or failed step is the harness's fault: the drive stops with the
   cleanup tail only and the attempt reads `INVALID(harness-step)`, terminal,
   never PARSEK-FAIL.
+- A harness step runs only while every step driven before it is met (the
+  mission and every seam step; `hlib.harness_step_skip_reason`). After an unmet
+  step that did not stop the drive (a post-mission ERROR on a MISSION-OK run,
+  which reds `PARSEK-FAIL(mission-outcome)` or `PARSEK-FAIL(unmet-step)`) it is
+  skipped and the drive goes on, so that step keeps its own verdict: a harness
+  step premised on its work (a delete of a file it should have written) cannot
+  turn the Parsek fault into `INVALID(harness-step)`, and skipping it cannot
+  turn the red run green.
 - Each step logs one `[Drive] harness step=<i> id=<id> raceFolder op=... from=...
   path=... result=done files=N bytes=M` line (or `... REFUSED: <why> ->
-  INVALID(harness-step)`), and the result JSON carries `driver.harnessSteps`
-  (id, op, from, path, met, reason, files, bytes) outside `driver.steps`.
+  INVALID(harness-step)`, or `... SKIPPED (skipped: the earlier step <id> ...)`),
+  and the result JSON carries `driver.harnessSteps` (id, op, from, path, met,
+  reason, files, bytes, and `skipped: true` on a skipped step) outside
+  `driver.steps`.
 
 ### Operator-local fixture saves (`fixtures/local-saves/`)
 

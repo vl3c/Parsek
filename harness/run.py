@@ -3226,9 +3226,32 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
             continue
         # Multiplayer T-06: a harness step runs here, after the previous seam step's
         # terminal reply and before the next line is written; nothing reaches the
-        # channel. A refused step is the harness's fault: drive the cleanup tail only
-        # and classify INVALID(harness-step) in run_verifiers.
+        # channel. It runs only while every step driven before it is met
+        # (hlib.harness_step_skip_reason): after an unmet step that did not stop the
+        # drive (a post-mission ERROR on a MISSION-OK run) it is skipped and the drive
+        # goes on, so that step keeps its own verdict. A refused step is the
+        # harness's fault: drive the cleanup tail only and classify
+        # INVALID(harness-step) in run_verifiers.
         if hlib.is_harness_step(step):
+            skip_reason = hlib.harness_step_skip_reason(
+                hlib.evaluate_response_stream(result.response_lines,
+                                              result.steps_with_ids),
+                result.mission_step)
+            if skip_reason is not None:
+                args = step.get("args")
+                args = dict(args) if isinstance(args, dict) else {}
+                result.harness_steps.append({
+                    "id": step_id, "harness": hlib.harness_step_kind(step),
+                    "op": args.get(hlib.RACE_FOLDER_OP_KEY),
+                    "path": args.get(hlib.RACE_FOLDER_PATH_KEY),
+                    "from": args.get(hlib.RACE_FOLDER_FROM_KEY),
+                    "met": False, "skipped": True, "reason": skip_reason,
+                    "files": 0, "bytes": 0})
+                logger.info("Drive", "harness step=%d id=%s %s %s SKIPPED (%s); the "
+                                     "earlier step owns the verdict; driving on"
+                            % (i, step_id, hlib.harness_step_kind(step),
+                               hlib.format_race_folder_step_args(args), skip_reason))
+                continue
             row = run_harness_step(step, i, step_id, instance_dir, logger)
             result.harness_steps.append(row)
             if not row["met"] and result.harness_step_failure is None:
@@ -3800,11 +3823,12 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                              or hlib.DRIVER_UNRESOLVED_HANDLE_SUBKIND)
         detail["unresolvedHandle"] = dict(drive.unresolved_handle)
     # Multiplayer T-06: a refused harness step is the harness's fault, so the driver
-    # stage is INVALID (terminal, never PARSEK-FAIL). It owns the subkind unless an
-    # earlier step already made the stage invalid.
+    # stage is INVALID (terminal, never PARSEK-FAIL). A harness step runs only while
+    # every step driven before it is met (drive_seam skips it otherwise), so a
+    # refusal is always the first thing that went wrong and owns the subkind; a step
+    # unmet after it is a cleanup-tail step the stop drove.
     if drive.harness_step_failure is not None:
-        if driver_valid or not stage_subkind:
-            stage_subkind = hlib.HARNESS_STEP_INVALID_SUBKIND
+        stage_subkind = hlib.HARNESS_STEP_INVALID_SUBKIND
         driver_valid = False
         detail["harnessStep"] = dict(drive.harness_step_failure)
     detail["driverValidity"] = {

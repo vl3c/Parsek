@@ -9130,7 +9130,11 @@ def format_race_listing(run_id: str, rows: Sequence[Tuple[str, int, str]]) -> st
 # any target or fixture entry whose path on disk passes through a link or junction
 # or resolves outside its folder. A refused or failed step is the HARNESS's fault:
 # the attempt stops driving (cleanup tail only) and classifies the terminal
-# INVALID(HARNESS_STEP_INVALID_SUBKIND), never PARSEK-FAIL.
+# INVALID(HARNESS_STEP_INVALID_SUBKIND), never PARSEK-FAIL. A harness step runs
+# only while every step driven before it is met (harness_step_skip_reason): after an
+# unmet step that did not stop the drive it is skipped, the drive goes on, and the
+# earlier step keeps its own verdict, so a harness step can neither hide a Parsek
+# fault nor turn a red run green.
 # ---------------------------------------------------------------------------
 
 HARNESS_STEP_KEY = "harness"
@@ -9156,10 +9160,11 @@ RACE_FOLDER_PATH_MAX_SEGMENTS = 16
 # or a hidden name), ends with one of those or a dash (Windows strips a trailing
 # dot or space, so `a.` and `a` would be one file), with dots, spaces and dashes
 # allowed inside.
-_RACE_FOLDER_SEGMENT_RE = re.compile(r"^[A-Za-z0-9_](?:[A-Za-z0-9_. -]*[A-Za-z0-9_-])?$")
+# Matched with fullmatch: a `$` anchor would also accept one trailing newline.
+_RACE_FOLDER_SEGMENT_RE = re.compile(r"[A-Za-z0-9_](?:[A-Za-z0-9_. -]*[A-Za-z0-9_-])?")
 _WINDOWS_DEVICE_NAMES = frozenset(
-    ["CON", "PRN", "AUX", "NUL"] + ["COM%d" % n for n in range(1, 10)]
-    + ["LPT%d" % n for n in range(1, 10)])
+    ["CON", "PRN", "AUX", "NUL"] + ["COM%d" % n for n in range(0, 10)]
+    + ["LPT%d" % n for n in range(0, 10)])
 # The terminal (non-retryable) INVALID subkind of a refused or failed harness step.
 # Absent from RETRYABLE_INVALID_SUBKINDS: a refusal is a property of the spec or of
 # the staged folder, not of the boot.
@@ -9181,6 +9186,24 @@ def harness_step_kind(step: Any) -> str:
 def harness_step_display(step: Any) -> str:
     """How a harness step is named in a log line or a tail summary."""
     return "harness:%s" % harness_step_kind(step)
+
+
+def harness_step_skip_reason(ev: "ResponseEvaluation",
+                             mission: Optional[Dict]) -> Optional[str]:
+    """Why a harness step must NOT run, or None when it may. A harness step runs only
+    while every step driven before it is met: the mission (when one was driven) and
+    every seam step. A step that is already unmet has decided the verdict (a driver
+    INVALID, PARSEK-FAIL(mission-outcome) or PARSEK-FAIL(unmet-step)), and a harness
+    step premised on its work would otherwise fail in turn and replace that cause
+    with the terminal INVALID(HARNESS_STEP_INVALID_SUBKIND). Skipping it leaves the
+    run exactly as red as the same driver without the harness step."""
+    if mission is not None and not mission.get("met"):
+        return "skipped: the mission step %s is unmet" % (mission.get("id") or "?")
+    first = ev.first_unmet
+    if first is not None:
+        return ("skipped: the earlier step %s (%s) is unmet (verdict=%s)"
+                % (first.step_id, first.cmd, first.verdict or "<no-response>"))
+    return None
 
 
 def race_folder_path_problem(path: Any) -> Optional[str]:
@@ -9205,7 +9228,7 @@ def race_folder_path_problem(path: Any) -> Optional[str]:
             return "has an empty segment (a doubled or trailing slash)"
         if seg in (".", ".."):
             return "has a %r segment" % seg
-        if not _RACE_FOLDER_SEGMENT_RE.match(seg):
+        if not _RACE_FOLDER_SEGMENT_RE.fullmatch(seg):
             return ("segment %r is not a plain name (letters, digits, underscore first; "
                     "dot, space, dash inside; no trailing dot or space)" % seg)
         if seg.split(".", 1)[0].strip().upper() in _WINDOWS_DEVICE_NAMES:
