@@ -411,9 +411,10 @@ which places it in Controllers with no `modules.toml` edit. No task depends on P
   - New `Source/Parsek/Core/SafeFileId.cs` (module `Core`, floor, headless): `internal static
     class SafeFileId` with `internal enum SafeFileIdVerdict { Ok, NullOrEmpty, PathSequence,
     InvalidChar }`, `internal static SafeFileIdVerdict Check(string id)` (pure, no logging,
-    no `System.IO.Path` call) and `internal static bool IsInvalidChar(char c)` over a
-    `private static readonly bool[]` or `char[]` table built in the type initializer (never
-    mutated, so not in the static-lifetime population). `Check` calls `IsInvalidChar`, and
+    no `System.IO.Path` call) and `internal static bool IsInvalidChar(char c)`: `c < ' '` or
+    one of the nine printable chars in a `private const string` (no static field at all, so
+    nothing joins the static-lifetime population; done 2026-11-16 that way instead of a
+    `bool[]` / `char[]` table, same set). `Check` calls `IsInvalidChar`, and
     `ValidateRecordingId` calls `Check`, so both are reached from production in this pull
     request (uncalled-method ratchet, A1).
   - `RecordingPaths.ValidateRecordingId` (`RecordingPaths.cs:284-314`) calls
@@ -432,7 +433,11 @@ which places it in Controllers with no `modules.toml` edit. No task depends on P
     (each refused inside `rec<c>id`); `:` refused (this cell fails on Linux CI before the
     change, which is the proof that the OS no longer decides); GUID `N` and `D` forms and
     `rec_`, `rp_`, `mj_` ids accepted; space, `.` and non-ASCII letters accepted (unchanged
-    from Windows today).
+    from Windows today); the set exact over all 65,536 chars; the running platform's set a
+    subset; the verdicts equal under tr-TR, de-DE and ja-JP; every recording and
+    rewind-point id the committed fixtures carry (sidecar file names under
+    `Parsek/Recordings` and `Parsek/RewindPoints`, `*RecordingId` / `*RewindPointId` values
+    in every committed `.sfs`; 464 distinct on 2026-11-16) accepted.
   - `RecordingPathsLoggingTests`: replace `GetInvalidFileNameCharForTesting` (`:72-84`) by a
     fixed `:` so the cell is OS-independent; the three exact log lines stay pinned.
   - `SyntheticRecordingTests.RecordingPaths_ValidateRecordingId_RejectsInvalidIds`

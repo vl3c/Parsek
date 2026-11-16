@@ -4190,7 +4190,8 @@ class RealTreeSmokeTests(unittest.TestCase):
         # VesselSnapshotOps.cs joined them in the 2026-09-14 VesselSpawner
         # split, which named it in the Core rule; file-placement PR 9 moved
         # VesselSpawner.cs itself to Controllers, so the kernel is 8 files.
-        self.assertEqual(self.by_name["Core"]["files"], 8)
+        # SafeFileId.cs (the id check under every sidecar path) made it 9.
+        self.assertEqual(self.by_name["Core"]["files"], 9)
 
     def test_kernel_files_resolve_to_core(self):
         kernel = [
@@ -4202,6 +4203,7 @@ class RealTreeSmokeTests(unittest.TestCase):
             "Core/GroupHierarchyStore.cs",
             "Core/InventoryManifest.cs",
             "Core/PlaybackTrajectoryBoundsResolver.cs",
+            "Core/SafeFileId.cs",
         ]
         for name in kernel:
             self.assertEqual(self.model["fileModules"][name], "Core")
