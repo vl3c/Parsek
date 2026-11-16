@@ -260,7 +260,8 @@ namespace Parsek.Tests
                     return (RelativeAnchorResolverContext)args[1];
                 }
                 case FlightPlayback:
-                    return ParsekFlight.BuildFlightRelativeAnchorResolverContext(tree, rec.RecordingId, null);
+                    return ParsekFlight.BuildFlightRelativeAnchorResolverContext(
+                        tree, rec.RecordingId, null, RecordingPlaybackCatalog.Own);
                 case ActiveRecorder:
                 {
                     var recorder = new FlightRecorder();

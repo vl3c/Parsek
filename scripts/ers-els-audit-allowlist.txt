@@ -242,12 +242,6 @@ Source/Parsek/UI/MissionsWindowUI.Loop.cs
 Source/Parsek/UI/MissionsWindowUI.Periodicity.cs
 Source/Parsek/UI/MissionsWindowUI.ViewData.cs
 
-# RecordedRelativeAnchorPoseResolver is the shared KSC/map recorded-anchor
-# resolver introduced by Phase D. It resolves exact recording ids from the
-# raw list when the focus/anchor record is a NotCommitted active Re-Fly
-# attempt that ERS would intentionally filter out.
-Source/Parsek/Ghost/RecordedRelativeAnchorPoseResolver.cs
-
 # GroupHierarchyStore prunes persisted hierarchy state against the raw
 # committed list, then subtracts explicit supersede-relation ids so the saved
 # hierarchy matches the recordings table's display-effective group membership.
@@ -538,7 +532,8 @@ Source/Parsek/Missions/VesselNameStore.cs
 
 # RecordingPlaybackCatalog is the own-timeline IPlaybackCatalog: playback
 # looks a recording up by exact id for anchor and loop resolution, and its
-# flat-list fallback reads the raw committed list because ERS would hide a
-# NotCommitted active Re-Fly attempt, a valid focus or anchor record during
-# the session (the reason the sites it replaces carry). No ledger reads.
+# flat-list fallback and committed-list scope read the raw committed list
+# because ERS would hide a NotCommitted active Re-Fly attempt, a valid focus
+# or anchor record during the session (the reason the sites it replaces
+# carry). No ledger reads.
 Source/Parsek/Recording/RecordingPlaybackCatalog.cs

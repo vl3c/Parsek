@@ -13,6 +13,29 @@ namespace Parsek
         /// list by ordinal id. The recorded-anchor pose resolver's order.
         /// </summary>
         TreesThenPendingThenList,
+
+        /// <summary>
+        /// The flat committed recording list only, in list order, skipping
+        /// null entries, by ordinal id. The flight positioner's diagnostic and
+        /// tail-lift order (the order of
+        /// <see cref="RecordingStore.TryFindCommittedRecordingById"/>).
+        /// </summary>
+        CommittedListOnly,
+    }
+
+    /// <summary>
+    /// Search order of <see cref="IPlaybackCatalog.TryFindTreeHolding"/>. Each
+    /// member names the exact order and match rule of one lookup site.
+    /// </summary>
+    internal enum CatalogTreeOrder
+    {
+        /// <summary>
+        /// Committed trees in list order, then the pending tree; a tree
+        /// matches when its recordings dictionary contains the id (a null value
+        /// under the id still matches; a null dictionary never does). The
+        /// flight positioner's relative-anchor focus-tree order.
+        /// </summary>
+        CommittedFirstContainsKey,
     }
 
     /// <summary>
@@ -37,6 +60,13 @@ namespace Parsek
         /// dictionary never matches. False for a null or empty recording id.
         /// </summary>
         bool TryFindFocusTree(string recordingId, string treeId, out RecordingTree tree);
+
+        /// <summary>
+        /// The tree holding recording <paramref name="id"/>, searched in the
+        /// order <paramref name="order"/> names. False, with a null tree, for a
+        /// null or empty id.
+        /// </summary>
+        bool TryFindTreeHolding(string id, CatalogTreeOrder order, out RecordingTree tree);
 
         /// <summary>
         /// A recording by exact id in the order <paramref name="scope"/> names.

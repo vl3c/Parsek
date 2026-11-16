@@ -609,6 +609,12 @@ namespace Parsek.Tests
                 return tree != null;
             }
 
+            // The resolver has no containment-only tree lookup; it never asks this.
+            public bool TryFindTreeHolding(string id, CatalogTreeOrder order, out RecordingTree tree)
+            {
+                throw new InvalidOperationException("TryFindTreeHolding is not the resolver's lookup");
+            }
+
             public bool TryFindRecording(string id, CatalogRecordingScope scope, out Recording rec)
             {
                 RecordingQueries.Add(id + "|" + scope);

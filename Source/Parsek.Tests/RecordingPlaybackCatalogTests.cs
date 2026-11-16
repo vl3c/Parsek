@@ -10,14 +10,15 @@ namespace Parsek.Tests
     /// <see cref="IPlaybackCatalog"/>), one block per variant, each row landing
     /// with the task that routes its first caller through the variant
     /// (multiplayer plan r0b-prep-playback, P2a-01). Rows here: the pending
-    /// read (P1 to P3), the focus-tree lookup (L3 / L4) and the
-    /// trees-then-pending-then-list recording lookup (L5 / L6, L9's fallback).
+    /// read (P1 to P3), the focus-tree lookup (L3 / L4), the
+    /// trees-then-pending-then-list recording lookup (L5 / L6, L9's fallback),
+    /// the committed-first containment tree lookup (L2) and the committed-list
+    /// recording lookup (L7 / L8).
     ///
-    /// Besides the named rows, an equivalence sweep drives the deleted
-    /// <c>RecordedRelativeAnchorPoseResolver</c> lookups (kept below as
-    /// verbatim oracles, with the guard their only caller applied) and the
-    /// catalog over the same fixtures, and asserts the same answer and the
-    /// same instance for every probe.
+    /// Besides the named rows, an equivalence sweep drives the replaced
+    /// lookups (kept below as verbatim oracles, with the guard their only
+    /// caller applied) and the catalog over the same fixtures, and asserts the
+    /// same answer and the same instance for every probe.
     /// </summary>
     [Collection("Sequential")]
     public class RecordingPlaybackCatalogTests : IDisposable
@@ -399,7 +400,255 @@ namespace Parsek.Tests
         }
 
         // ==================================================================
-        // Equivalence sweep: the deleted resolver lookups vs the catalog
+        // TryFindTreeHolding, CommittedFirstContainsKey (L2)
+        // ==================================================================
+
+        [Fact]
+        public void TreeHolding_PendingOnly_FindsPending()
+        {
+            RecordingTree pending = Tree("P", Rec("r1", "P"));
+            PendingTreeSlot.StashPendingTree(pending);
+
+            Assert.True(FindTree("r1", out RecordingTree tree));
+            Assert.Same(pending, tree);
+        }
+
+        [Fact]
+        public void TreeHolding_CommittedOnly_FindsCommitted()
+        {
+            RecordingTree committed = Tree("A", Rec("r1", "A"));
+            RecordingStore.AddCommittedTreeForTesting(committed);
+
+            Assert.True(FindTree("r1", out RecordingTree tree));
+            Assert.Same(committed, tree);
+        }
+
+        [Fact]
+        public void TreeHolding_BothHoldTheId_CommittedWins()
+        {
+            RecordingTree committed = Tree("A", Rec("r1", "A"));
+            RecordingTree pending = Tree("P", Rec("r1", "P"));
+            RecordingStore.AddCommittedTreeForTesting(committed);
+            PendingTreeSlot.StashPendingTree(pending);
+
+            Assert.True(FindTree("r1", out RecordingTree tree));
+            Assert.Same(committed, tree);
+        }
+
+        [Fact]
+        public void TreeHolding_TwoCommittedTreesHoldTheId_FirstInListWins()
+        {
+            RecordingTree first = Tree("A", Rec("r1", "A"));
+            RecordingTree second = Tree("B", Rec("r1", "B"));
+            RecordingStore.AddCommittedTreeForTesting(first);
+            RecordingStore.AddCommittedTreeForTesting(second);
+
+            Assert.True(FindTree("r1", out RecordingTree tree));
+            Assert.Same(first, tree);
+        }
+
+        [Fact]
+        public void TreeHolding_NullValueUnderTheId_Accepts()
+        {
+            // L2 matches by key; L1's non-null rule is a different order.
+            RecordingTree committed = Tree("A");
+            committed.Recordings["r1"] = null;
+            RecordingStore.AddCommittedTreeForTesting(committed);
+
+            Assert.True(FindTree("r1", out RecordingTree tree));
+            Assert.Same(committed, tree);
+
+            RecordingStore.ResetForTesting();
+            RecordingTree pending = Tree("P");
+            pending.Recordings["r1"] = null;
+            PendingTreeSlot.StashPendingTree(pending);
+            Assert.True(FindTree("r1", out tree));
+            Assert.Same(pending, tree);
+        }
+
+        [Fact]
+        public void TreeHolding_TreeIdMatchWithoutContainment_Rejects()
+        {
+            // L3 accepts a tree-id match; L2 matches by containment only.
+            RecordingStore.AddCommittedTreeForTesting(Tree("r1", Rec("other", "r1")));
+            PendingTreeSlot.StashPendingTree(Tree("r1", Rec("other2", "r1")));
+
+            Assert.False(FindTree("r1", out RecordingTree tree));
+            Assert.Null(tree);
+        }
+
+        [Fact]
+        public void TreeHolding_NullRecordingsDictionaryAndNullTree_AreSkipped()
+        {
+            RecordingTree hollow = Tree("A");
+            hollow.Recordings = null;
+            RecordingStore.AddCommittedTreeForTesting(hollow);
+            RecordingStore.AddCommittedTreeForTesting(null);
+            RecordingTree pending = Tree("P", Rec("r1", "P"));
+            PendingTreeSlot.StashPendingTree(pending);
+
+            Assert.True(FindTree("r1", out RecordingTree tree));
+            Assert.Same(pending, tree);
+        }
+
+        [Fact]
+        public void TreeHolding_PendingWithNullRecordings_NeverMatches()
+        {
+            RecordingTree pending = Tree("P");
+            PendingTreeSlot.StashPendingTree(pending);
+            pending.Recordings = null;
+
+            Assert.False(FindTree("r1", out RecordingTree tree));
+            Assert.Null(tree);
+        }
+
+        [Fact]
+        public void TreeHolding_FlatListOnly_IsNotATree()
+        {
+            RecordingStore.AddCommittedInternal(Rec("r9", "X"));
+
+            Assert.False(FindTree("r9", out RecordingTree tree));
+            Assert.Null(tree);
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        public void TreeHolding_NullOrEmptyId_IsFalse(string id)
+        {
+            RecordingStore.AddCommittedTreeForTesting(Tree("A", Rec("", "A")));
+
+            Assert.False(FindTree(id, out RecordingTree tree));
+            Assert.Null(tree);
+        }
+
+        [Fact]
+        public void TreeHolding_UndefinedOrder_IsFalse()
+        {
+            RecordingStore.AddCommittedTreeForTesting(Tree("A", Rec("r1", "A")));
+
+            Assert.False(catalog.TryFindTreeHolding("r1", (CatalogTreeOrder)99, out RecordingTree tree));
+            Assert.Null(tree);
+        }
+
+        // ==================================================================
+        // TryFindRecording, CommittedListOnly (L7 / L8)
+        // ==================================================================
+
+        [Fact]
+        public void ListOnly_FlatListEntry_IsFound()
+        {
+            Recording rec = Rec("r9", "X");
+            RecordingStore.AddCommittedInternal(rec);
+
+            Assert.True(FindInList("r9", out Recording found));
+            Assert.Same(rec, found);
+        }
+
+        [Fact]
+        public void ListOnly_CommittedTreeOrPendingOnly_IsNotFound()
+        {
+            RecordingStore.AddCommittedTreeForTesting(Tree("A", Rec("r1", "A")));
+            PendingTreeSlot.StashPendingTree(Tree("P", Rec("r2", "P")));
+
+            Assert.False(FindInList("r1", out Recording found));
+            Assert.Null(found);
+            Assert.False(FindInList("r2", out found));
+            Assert.Null(found);
+        }
+
+        [Fact]
+        public void ListOnly_TreeAndListHoldTheId_ListEntryIsReturned()
+        {
+            Recording inTree = Rec("r1", "A");
+            Recording inList = Rec("r1", "L");
+            RecordingStore.AddCommittedTreeForTesting(Tree("A", inTree));
+            RecordingStore.AddCommittedInternal(inList);
+
+            Assert.True(FindInList("r1", out Recording found));
+            Assert.Same(inList, found);
+        }
+
+        [Fact]
+        public void ListOnly_TwoEntriesShareTheId_FirstInListWins()
+        {
+            Recording first = Rec("r1", "A");
+            Recording second = Rec("r1", "B");
+            RecordingStore.AddCommittedInternal(first);
+            RecordingStore.AddCommittedInternal(second);
+
+            Assert.True(FindInList("r1", out Recording found));
+            Assert.Same(first, found);
+        }
+
+        [Fact]
+        public void ListOnly_NullEntries_AreSkipped()
+        {
+            RecordingStore.AddCommittedInternal(null);
+            Recording rec = Rec("r1", "X");
+            RecordingStore.AddCommittedInternal(rec);
+
+            Assert.True(FindInList("r1", out Recording found));
+            Assert.Same(rec, found);
+        }
+
+        [Fact]
+        public void ListOnly_MatchIsOrdinal()
+        {
+            RecordingStore.AddCommittedInternal(Rec("R1", "X"));
+
+            Assert.False(FindInList("r1", out Recording found));
+            Assert.Null(found);
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        public void ListOnly_NullOrEmptyId_IsFalse(string id)
+        {
+            RecordingStore.AddCommittedInternal(Rec("", "X"));
+
+            Assert.False(FindInList(id, out Recording found));
+            Assert.Null(found);
+        }
+
+        [Theory]
+        [MemberData(nameof(Fixtures))]
+        public void Sweep_TreeHolding_MatchesThePositionerFocusTreeLookup(int fixture)
+        {
+            string name = BuildFixture(fixture);
+            foreach (string id in ProbeRecordingIds)
+            {
+                bool expected = LegacyTryFindRelativeAnchorFocusTree(id, out RecordingTree expectedTree);
+                bool actual = FindTree(id, out RecordingTree actualTree);
+                Assert.True(expected == actual,
+                    $"fixture={name} id='{id}' legacy={expected} catalog={actual}");
+                Assert.True(ReferenceEquals(expectedTree, actualTree),
+                    $"fixture={name} id='{id}' tree differs");
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(Fixtures))]
+        public void Sweep_ListOnly_MatchesTheCommittedListLookups(int fixture)
+        {
+            string name = BuildFixture(fixture);
+            foreach (string id in ProbeRecordingIds)
+            {
+                Recording viaStore = RecordingStore.TryFindCommittedRecordingById(id);
+                Recording viaTailLift = LegacyResolveRecordingById(id);
+                bool actual = FindInList(id, out Recording actualRec);
+                Assert.True((viaStore != null) == actual,
+                    $"fixture={name} id='{id}' store={viaStore != null} catalog={actual}");
+                Assert.True(ReferenceEquals(viaStore, actualRec),
+                    $"fixture={name} id='{id}' store recording differs");
+                Assert.True(ReferenceEquals(viaTailLift, actualRec),
+                    $"fixture={name} id='{id}' tail-lift recording differs");
+            }
+        }
+
+        // ==================================================================
+        // Equivalence sweep: the replaced resolver lookups vs the catalog
         // ==================================================================
 
         private static readonly string[] ProbeRecordingIds =
@@ -673,6 +922,70 @@ namespace Parsek.Tests
             return false;
         }
 
+        // Oracle: ParsekFlightGhostPositioner.TryFindRelativeAnchorFocusTree
+        // before it called the catalog (L2), copied verbatim.
+        private static bool LegacyTryFindRelativeAnchorFocusTree(
+            string recordingId,
+            out RecordingTree focusTree)
+        {
+            focusTree = null;
+            if (string.IsNullOrEmpty(recordingId))
+                return false;
+
+            List<RecordingTree> committedTrees = RecordingStore.CommittedTrees;
+            if (committedTrees != null)
+            {
+                for (int i = 0; i < committedTrees.Count; i++)
+                {
+                    RecordingTree tree = committedTrees[i];
+                    if (tree?.Recordings != null
+                        && tree.Recordings.ContainsKey(recordingId))
+                    {
+                        focusTree = tree;
+                        return true;
+                    }
+                }
+            }
+
+            RecordingTree pending = PendingTreeSlot.HasPendingTree
+                ? PendingTreeSlot.PendingTree
+                : null;
+            if (pending?.Recordings != null && pending.Recordings.ContainsKey(recordingId))
+            {
+                focusTree = pending;
+                return true;
+            }
+
+            return false;
+        }
+
+        // Oracle: ParsekFlightGhostPositioner.ResolveRecordingById (L7), copied
+        // verbatim. L8 is RecordingStore.TryFindCommittedRecordingById itself,
+        // which the sweep calls directly.
+        private static Recording LegacyResolveRecordingById(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return null;
+            try
+            {
+                IReadOnlyList<Recording> committed = RecordingStore.CommittedRecordings;
+                if (committed != null)
+                {
+                    for (int i = 0; i < committed.Count; i++)
+                    {
+                        Recording r = committed[i];
+                        if (r == null) continue;
+                        if (string.Equals(r.RecordingId, recordingId, StringComparison.Ordinal))
+                            return r;
+                    }
+                }
+            }
+            catch
+            {
+                // Mid-load mutation; treat as missing.
+            }
+            return null;
+        }
+
         // ------------------------------------------------------------------
         // Helpers
         // ------------------------------------------------------------------
@@ -680,6 +993,16 @@ namespace Parsek.Tests
         private bool Find(string id, out Recording rec)
         {
             return catalog.TryFindRecording(id, CatalogRecordingScope.TreesThenPendingThenList, out rec);
+        }
+
+        private bool FindInList(string id, out Recording rec)
+        {
+            return catalog.TryFindRecording(id, CatalogRecordingScope.CommittedListOnly, out rec);
+        }
+
+        private bool FindTree(string id, out RecordingTree tree)
+        {
+            return catalog.TryFindTreeHolding(id, CatalogTreeOrder.CommittedFirstContainsKey, out tree);
         }
 
         private static Recording Rec(string recordingId, string treeId)
