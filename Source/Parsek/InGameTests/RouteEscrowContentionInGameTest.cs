@@ -690,7 +690,8 @@ namespace Parsek.InGameTests
                     InGameAssert.ApproxEqual(storedBefore - ReservedTotalA, storedAfterTick2, ResourceTolerance,
                         "After tick 2 route A must have taken BOTH windows in full " +
                         $"({ReservedTotalA.ToString("R", IC)} LF; after={storedAfterTick2.ToString("R", IC)})");
-                    arrange.AssertNotLogged("PickupDebit: route " + arrange.ShortA,
+                    arrange.AssertNotLogged(
+                        "PickupDebit: route " + arrange.ShortA + " cycle=cycle-0 SHORT at apply",
                         "route A pickup SHORT line - the reserved cargo must still be there for its window");
                     arrange.AssertLogged(
                         "OriginHasCargo: route " + arrange.ShortB + " short-cause=physical pid=" + pid,
