@@ -32,7 +32,15 @@ can share. Close this entry when P2c-04 lands.
   verbatim into `GlobalGhostPlaybackDiagnosticsSink`, which the one-argument engine constructor
   builds per engine; `GhostPlaybackEngineDiagnosticsSourceGateTests` keeps the counters out of
   `GhostPlaybackEngine*.cs`. Owed: in-game `Diagnostics` category on lane H27 (nightly).
-- P2c-03 (frame budget, history and threshold through the sink): open.
+- ~~P2c-03~~ (frame budget, history and threshold through the sink): done 2026-11-16, branch
+  `mp/p2c-03-engine-diagnostics-budget`. The sink gained `ClearPlaybackBudget`,
+  `PublishPlaybackBudget`, `AppendPlaybackFrame` and `CheckPlaybackBudgetThreshold`; the global
+  bodies are the three early-return resets, the six `DiagnosticsState.playbackBudget` writes, the
+  `playbackFrameHistory` append and the `DiagnosticsComputation` threshold call, verbatim and in
+  the same order. The source gate now forbids every `DiagnosticsState.` and
+  `DiagnosticsComputation.` token in `GhostPlaybackEngine*.cs` and pins the publish, append,
+  check order. The two P2c-02 destroy tests now stub the Unity resource teardown (they threw
+  `SecurityException` on the Windows test host). Owed: in-game `Diagnostics` on lane H27.
 - P2c-04 (`GhostSpawnFrameBudget`): open.
 
 ## ~~MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH~~: a looped mission that starts in orbit is timed around a later moon it passes low over [CLOSED 2026-11-16: V43M flew green on its first flight with the fix, `2026-11-16_1803_V43M-vall-tylo-player-loop` PASS attempt 1 (46 s, automation DLL built from 866ac123, sha256 prefix 8dfcbc5e; every verifier green), KSP.log reading launch moon Vall, constraints=3, `Solve: dominant=Tylo method=dominant-intercept residual=2.18 withinTol=yes` and `PhaseLock APPLIED ... P=211926.36 ... zeroDrift=yes scheduleWithinTol=yes`. FILED 2026-11-16 from V43M's first flight `2026-11-16_1726_V43M-vall-tylo-player-loop` (PC, parallel run `moon-loops-2026-11-16d`, DLL unchanged since PR #2638, PARSEK-FAIL(expectation) attempt 1, 58 s; diagnostics on branch `forge-logs-2026-11-16d`, folder `diag/2026-11-16_1726_V43M-vall-tylo-player-loop/`). FIXED 2026-11-16, branch `claude/project-thread-vpr29t`; xUnit; V43M re-pinned, awaiting PC flight; low (the loop still phase-locks, on the wrong launch moon)]

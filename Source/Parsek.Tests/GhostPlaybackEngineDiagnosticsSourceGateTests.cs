@@ -7,9 +7,10 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Source gate: the playback engine counts ghost lifecycle health events only through its
-    /// <see cref="IGhostPlaybackDiagnosticsSink"/>, never by writing
-    /// <c>DiagnosticsState.health</c> itself, so a second engine given another sink cannot feed
+    /// Source gate: the playback engine counts ghost lifecycle health events and publishes its
+    /// frame budget, history sample and threshold check only through its
+    /// <see cref="IGhostPlaybackDiagnosticsSink"/>, never by naming <c>DiagnosticsState</c> or
+    /// <c>DiagnosticsComputation</c> itself, so a second engine given another sink cannot feed
     /// the player's own diagnostics. Reads every <c>GhostPlaybackEngine*.cs</c> file with
     /// comments stripped (a comment naming the counter is not a write).
     /// </summary>
@@ -17,7 +18,8 @@ namespace Parsek.Tests
     {
         private static readonly string[] ForbiddenTokens =
         {
-            "DiagnosticsState.health",
+            "DiagnosticsState.",
+            "DiagnosticsComputation.",
             "ghostBuildsThisSession",
             "reentryFxDeferredThisSession",
             "reentryFxSkippedThisSession",
@@ -36,6 +38,19 @@ namespace Parsek.Tests
             ("diagnostics.CountReentryFxBuild()", 1),
             ("diagnostics.CountGhostReusedAcrossCycle()", 1),
             ("diagnostics.CountGhostDestroy()", 1),
+            ("diagnostics.ClearPlaybackBudget()", 3),
+            ("diagnostics.PublishPlaybackBudget(", 1),
+            ("diagnostics.AppendPlaybackFrame(", 1),
+            ("diagnostics.CheckPlaybackBudgetThreshold(", 1),
+        };
+
+        // The end of UpdatePlayback publishes in this order: the budget, then the history
+        // sample, then the threshold check (which reads neither, but logs last).
+        private static readonly string[] FrameEndCallOrder =
+        {
+            "diagnostics.PublishPlaybackBudget(",
+            "diagnostics.AppendPlaybackFrame(",
+            "diagnostics.CheckPlaybackBudgetThreshold(",
         };
 
         private static string[] EngineFiles()
@@ -76,6 +91,19 @@ namespace Parsek.Tests
             {
                 int found = CountOccurrences(all, call);
                 Assert.True(found == count, $"'{call}' found {found} times in the engine files, expected {count}");
+            }
+        }
+
+        [Fact]
+        public void EngineFiles_PublishTheFrameBudgetInOrder()
+        {
+            string all = string.Join("\n", EngineFiles().Select(f => StripComments(File.ReadAllText(f))));
+            int previous = -1;
+            foreach (string call in FrameEndCallOrder)
+            {
+                int at = all.IndexOf(call, StringComparison.Ordinal);
+                Assert.True(at > previous, $"'{call}' at {at} does not follow the previous frame-end call at {previous}");
+                previous = at;
             }
         }
 

@@ -33,7 +33,7 @@ namespace Parsek
     internal partial class GhostPlaybackEngine
     {
         private readonly IGhostPositioner positioner;
-        // Where the ghost lifecycle health counts go; never DiagnosticsState directly.
+        // Where the ghost health counts and the frame budget go; never DiagnosticsState directly.
         private readonly IGhostPlaybackDiagnosticsSink diagnostics;
         private bool ghostAudioPaused;
 
@@ -395,17 +395,17 @@ namespace Parsek
 
             if (trajectories == null || trajectories.Count == 0)
             {
-                DiagnosticsState.playbackBudget = default;
+                diagnostics.ClearPlaybackBudget();
                 return;
             }
             if (positioner == null)
             {
-                DiagnosticsState.playbackBudget = default;
+                diagnostics.ClearPlaybackBudget();
                 return; // Not yet wired (Phase 7)
             }
             if (flags == null || flags.Length < trajectories.Count)
             {
-                DiagnosticsState.playbackBudget = default;
+                diagnostics.ClearPlaybackBudget();
                 ParsekLog.Warn("Engine", $"UpdatePlayback: flags array mismatch (flags={flags?.Length ?? 0} trajectories={trajectories.Count})");
                 return;
             }
@@ -889,14 +889,15 @@ namespace Parsek
             spawnMicroseconds = spawnStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency;
             long destroyMicroseconds = destroyStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency;
 
-            DiagnosticsState.playbackBudget.totalMicroseconds = totalMicroseconds;
-            DiagnosticsState.playbackBudget.spawnMicroseconds = spawnMicroseconds;
-            DiagnosticsState.playbackBudget.destroyMicroseconds = destroyMicroseconds;
-            DiagnosticsState.playbackBudget.ghostsProcessed = ghostsProcessed;
-            DiagnosticsState.playbackBudget.warpRate = ctx.warpRate;
-            DiagnosticsState.playbackBudget.ghostObservability = ghostObservability;
+            diagnostics.PublishPlaybackBudget(
+                totalMicroseconds,
+                spawnMicroseconds,
+                destroyMicroseconds,
+                ghostsProcessed,
+                ctx.warpRate,
+                ghostObservability);
 
-            DiagnosticsState.playbackFrameHistory.Append(
+            diagnostics.AppendPlaybackFrame(
                 Time.realtimeSinceStartup, totalMicroseconds);
 
             // Bug #414: build the one-shot per-phase breakdown struct. Cheap — a handful of
@@ -906,7 +907,7 @@ namespace Parsek
             // below; nothing is written unless the warn fires. The already-divided
             // spawnMicroseconds / destroyMicroseconds are reused (not recomputed from ticks)
             // so the breakdown's buildOtherMicroseconds subtraction matches
-            // DiagnosticsState.playbackBudget.spawnMicroseconds to the microsecond (#414).
+            // the published budget's spawnMicroseconds to the microsecond (#414).
             PlaybackBudgetPhases phases = BuildPlaybackBudgetPhases(
                 elapsedTicksAtLoopEnd: elapsedTicksAtLoopEnd,
                 spawnMicroseconds: spawnMicroseconds,
@@ -935,7 +936,7 @@ namespace Parsek
             // Budget threshold warning (8ms = half of 16.6ms frame budget at 60fps).
             // WithBreakdown variant: also emits a one-shot WARN with phase breakdown the
             // first time a spike is seen, to localize the responsible sub-phase (bug #414).
-            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
+            diagnostics.CheckPlaybackBudgetThreshold(
                 totalMicroseconds, ghostsProcessed, ctx.warpRate, phases);
         }
 
@@ -973,7 +974,7 @@ namespace Parsek
         /// conversions plus the two negative-clamp floors — extracted verbatim from the inline
         /// block so it can be unit-tested independently. <paramref name="spawnMicroseconds"/>
         /// and <paramref name="destroyMicroseconds"/> arrive ALREADY divided (the caller wrote
-        /// them into DiagnosticsState.playbackBudget); they are reused here, never recomputed
+        /// them into the published playback budget); they are reused here, never recomputed
         /// from ticks, so the buildOtherMicroseconds subtraction matches the budget total to
         /// the microsecond (#414). Everything else arrives as raw stopwatch ticks so the
         /// `* 1000000L / Stopwatch.Frequency` division lives in exactly one place.
