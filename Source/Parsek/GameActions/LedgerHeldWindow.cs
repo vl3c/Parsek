@@ -290,18 +290,9 @@ namespace Parsek
         /// <summary><see cref="ReadSaved"/> over a parsed game's own <c>ParsekScenario</c> proto; NaN without one.</summary>
         internal static double ReadSavedFromScenarios(IList<ProtoScenarioModule> scenarios)
         {
-            if (scenarios == null)
-                return double.NaN;
-            for (int i = 0; i < scenarios.Count; i++)
-            {
-                ProtoScenarioModule proto = scenarios[i];
-                if (proto != null
-                    && string.Equals(proto.moduleName, nameof(ParsekScenario), StringComparison.Ordinal))
-                {
-                    return ReadSaved(proto.GetData());
-                }
-            }
-            return double.NaN;
+            ConfigNode parsekNode = ScenarioNodeLookup.FindInProtoList(
+                scenarios, ScenarioNodeLookup.ParsekScenarioName);
+            return parsekNode != null ? ReadSaved(parsekNode) : double.NaN;
         }
 
         /// <summary>Test seam: sets the floor directly.</summary>
