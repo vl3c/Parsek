@@ -2,6 +2,10 @@ schema = 1
 id = "V46M-minmus-mun-player-loop"
 # =====================================================================================
 # V46M: the Minmus -> Mun moon-to-moon loop. AUTHORED 2026-11-14, NEVER FLOWN.
+# Fixture `minmus-mun-recorded` harvested --keep-parsek from B46-minmus-mun-transfer
+# run `2026-11-16_0001` (PASS attempt 1, wall 1,569 s): the fresh Minmus-rooted tree
+# fa7c9d0c50f74187b31d99b9080eb99e with ONE recording (startBodyName Minmus, terminal
+# Orbiting at the Mun, UT 277,206.5 -> 745,635.4, a 468,429 s span).
 # Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 2 / MOON-FLIGHT-TEST-PROGRAM Group B.
 #
 # WHAT IT READS. The subject is a Minmus-rooted tree that never leaves
@@ -23,34 +27,25 @@ id = "V46M-minmus-mun-player-loop"
 # The zero-drift schedule's windows depend on the recorded offsets, which differ
 # from V21M's, so nothing about the schedule is pinned.
 #
-# NOT FLYABLE YET: tier "pending-fixture", tag "awaiting-fixture". The fixture `minmus-mun-recorded`
-# is the harvest of the forge `B46-minmus-mun-transfer`, which has not flown. Until it exists this
-# spec stays out of every cadence and the full run (tier_runner FULL_RUN_EXCLUDED_TIERS),
-# `test_hlib.SharedShipsManifestTests.PENDING_FIXTURE_LANES` exempts it from the
-# saveTemplate sweep, and that map's self-retiring cell reds the day the fixture lands.
-# The MissionConfig / StartLoopPlayback tree id is a ZERO PLACEHOLDER.
-#
-# TO MAKE IT FLYABLE, in ONE commit after the forge's harvest: replace the two
-# placeholder tree ids with the harvested tree id (the RECORDING_TREE `id` in
-# `minmus-mun-recorded/persistent.sfs`), set tier = "operator" and swap the tag
-# "awaiting-fixture" for "pending-flight", add "sandbox" back to D14 (the game-mode
-# claim needs a fixture to witness it), delete the PENDING_FIXTURE_LANES entry,
-# register `minmus-mun-recorded` in test_saveparse.RECORDED_FIXTURES, and re-derive the count and
-# structure windows from the harvested bytes (the forge's own count window is
-# {1,4}; B26 and B30 each harvested ONE recording).
+# HANDED OVER in the harvest commit: the MissionConfig / StartLoopPlayback tree id is
+# the harvested RECORDING_TREE `id`, tier "operator" with tag "pending-flight" (was
+# "pending-fixture" / "awaiting-fixture"), "sandbox" back in D14 (the fixture is a
+# SANDBOX save), the PENDING_FIXTURE_LANES entry deleted, the fixture registered in
+# test_saveparse.RECORDED_FIXTURES, and the count window re-pinned to {1, 2} off the
+# fixture's ONE recording (the structure windows already hold its 1 committed tree).
 #
 # THE LANE IS DELIBERATELY SHORT. It loads the subject, turns its loop on and starts
 # loop playback, which is where `MissionLoopUnitBuilder` extracts the phase
 # constraints and solves the period; it then quits. No jump table: the cycle seam
-# UTs depend on the harvested span and the solver's first window, both unknown until
-# the forge flies. A later lane (V17M / V21M shape) can add the jumps off the real
+# UTs depend on the solver's first window, unknown until this lane's reading. A
+# later lane (V17M / V21M shape) can add the jumps off the real
 # bytes. Verbose logging is on because both ExtractConstraints lines are Verbose.
 # =====================================================================================
-tier = "pending-fixture"
-description = "AUTHORED 2026-11-14, NEVER FLOWN, NOT FLYABLE UNTIL `B46-minmus-mun-transfer` IS HARVESTED (fixture `minmus-mun-recorded` absent; zero placeholder tree id). Loops the Minmus-rooted Minmus -> Mun tree and reads the moon-rooted phase lock: rule 4a's Orbital(Mun) + Orbital(Minmus) constraint set, Supported, and the solver's decision."
+tier = "operator"
+description = "AUTHORED 2026-11-14, NEVER FLOWN. On `minmus-mun-recorded` (harvested from B46-minmus-mun-transfer). Loops the Minmus-rooted Minmus -> Mun tree and reads the moon-rooted phase lock: rule 4a's Orbital(Mun) + Orbital(Minmus) constraint set, Supported, and the solver's decision."
 instanceProfile = "stock-minimal"
 tags = ["V46M", "player-loop", "loop-playback", "moon-to-moon", "moon-rooted-phase-lock",
-        "minmus", "mun", "kerbin", "awaiting-fixture"]
+        "minmus", "mun", "kerbin", "pending-flight"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/minmus-mun-recorded"
@@ -65,19 +60,20 @@ steps = [
   { cmd = "DiscardTree",                                                     expect = "OK" },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
-  { cmd = "MissionConfig",     args = { tree = "00000000000000000000000000000000", loop = "true" }, expect = "OK" },
-  { cmd = "StartLoopPlayback", args = { tree = "00000000000000000000000000000000" }, expect = "OK", budget = 300 },
+  { cmd = "MissionConfig",     args = { tree = "fa7c9d0c50f74187b31d99b9080eb99e", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "fa7c9d0c50f74187b31d99b9080eb99e" }, expect = "OK", budget = 300 },
   { cmd = "FlushAndQuit",                                                    expect = "OK" },
 ]
 
 [dimensionsCovered]
-D14 = ["minmus", "scene-flight"]
+D14 = ["minmus", "scene-flight", "sandbox"]
 
 [expectations]
 allowedAnomalies = []
 
 [expectations.recordings]
-count = { min = 1, max = 4 }
+# {N, N + 1} off the harvested fixture's 1 recording.
+count = { min = 1, max = 2 }
 
 [expectations.logContracts]
 required  = [

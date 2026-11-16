@@ -1,7 +1,8 @@
 schema = 1
 id = "V44M-laythe-tylo-player-loop"
 # =====================================================================================
-# V44M: the Laythe -> Tylo moon-to-moon loop. AUTHORED 2026-11-14, NEVER FLOWN.
+# V44M: the Laythe -> Tylo moon-to-moon loop. AUTHORED 2026-11-14.
+# LIVE-PROVEN 2026-11-16 on its first flight (run 2026-11-16_0000, PASS attempt 1, 70 s).
 # Fixture `laythe-tylo-recorded` harvested --keep-parsek from B44-laythe-tylo-transfer
 # run `2026-11-15_2243` (PASS attempt 1, wall 888 s): the fresh Laythe-rooted tree
 # 31e761fd179a43d3a27d5d7282af5324 with ONE recording (startBodyName Laythe, terminal
@@ -41,10 +42,10 @@ id = "V44M-laythe-tylo-player-loop"
 # logging is on because both ExtractConstraints lines are Verbose.
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-11-14, NEVER FLOWN. On `laythe-tylo-recorded` (harvested from B44-laythe-tylo-transfer). Loops the Laythe-rooted Laythe -> Tylo tree and reads the moon-rooted phase lock: rule 4a's Orbital(Tylo) + Orbital(Laythe) constraint set, Supported, and the solver's decision."
+description = "AUTHORED 2026-11-14, LIVE-PROVEN 2026-11-16 (run 2026-11-16_0000). On `laythe-tylo-recorded` (harvested from B44-laythe-tylo-transfer). Loops the Laythe-rooted Laythe -> Tylo tree and reads the moon-rooted phase lock: rule 4a's Orbital(Tylo) + Orbital(Laythe) constraint set, Supported, and the solver's decision."
 instanceProfile = "stock-minimal"
 tags = ["V44M", "player-loop", "loop-playback", "moon-to-moon", "moon-rooted-phase-lock",
-        "laythe", "tylo", "jool", "pending-flight"]
+        "laythe", "tylo", "jool", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/laythe-tylo-recorded"
