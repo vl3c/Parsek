@@ -123,32 +123,22 @@ namespace Parsek
         internal Action CloseMainWindow { get; set; }
 
         // Built through ParsekWindowSet.BuildUI, whose callback builds the windows at the
-        // point where this constructor used to build them itself.
+        // point where this constructor used to build them itself. Both scene constructors
+        // chain to the one body below: mode and flight are readonly, so only a constructor
+        // initializer can set them.
         internal ParsekUI(ParsekFlight flight, Func<ParsekUI, IParsekUIWindows> buildWindows)
+            : this(UIMode.Flight, flight, buildWindows)
         {
-            this.flight = flight;
-            this.mode = UIMode.Flight;
-            this.windows = buildWindows(this);
-            this.recordingsTableUI = windows.RecordingsTable;
-            this.spawnControlUI = windows.SpawnControl;
-            this.timelineUI = windows.Timeline;
-            this.kerbalsUI = windows.Kerbals;
-            this.testRunnerUI = windows.TestRunner;
-            this.settingsUI = windows.Settings;
-            this.logisticsUI = windows.Logistics;
-            this.structureListUI = windows.StructureList;
-            this.routeHistoryUI = windows.RouteHistory;
-            activeInstance = this;
-            InitializeAppliedUiComplexityModeFromSettings();
-            timelineUI.SubscribeTimelineDataChanged();
-            kerbalsUI.SubscribeTimelineDataChanged();
-            DisplayNames.DisplayNamesChanged += OnDisplayNamesChanged;
-            kerbalsUI.SubscribeLiveCrewEvents();
         }
 
         internal ParsekUI(UIMode mode, Func<ParsekUI, IParsekUIWindows> buildWindows)
+            : this(mode, null, buildWindows)
         {
-            this.flight = null;
+        }
+
+        private ParsekUI(UIMode mode, ParsekFlight flight, Func<ParsekUI, IParsekUIWindows> buildWindows)
+        {
+            this.flight = flight;
             this.mode = mode;
             this.windows = buildWindows(this);
             this.recordingsTableUI = windows.RecordingsTable;
