@@ -124,7 +124,8 @@ expansions, for R5-09), the older-build check of edge 22 (an older DLL through `
   `ParsekScenario` headlessly; `:189` `RunSaveWriters(scenario)` runs the production save
   writers in OnSave's phase order and returns the PARSEK node; `:87` `ResetAllStores()`.
   The writer is skipped unless `PARSEK_WRITE_FORMAT_GOLDEN=v1` (`:20`, `:117`). This is the
-  base of the byte-identity tests; today it is private to one test class.
+  base of the byte-identity tests; today it is private to one test class. (T-01 moved the three
+  into `Source/Parsek.Tests/Generators/SaveWriterDriver.cs`.)
 - `Source/Parsek/Controllers/ParsekScenario.cs:484` is `OnSave`. Its token stream is pinned by
   `ParsekScenarioOnSaveCharacterizationTests` against
   `Source/Parsek.Tests/Fixtures/SourceCharacterization/ParsekScenario.OnSave.tokens.txt`; the
@@ -298,6 +299,28 @@ writes `testGame = False`.
 - **Proof:** `SaveWriterDriverDeterminismTests`: two runs with an empty hook are
   byte-identical; the same under `de-DE` and `ro-RO` thread cultures; the v1 golden writer
   still produces its checksums when armed (env-gated, run by hand once).
+- **As built (2026-11-16):** `Run(between, saveRoot = null)` builds the state into an empty
+  save folder, writes twice into that folder and returns `(First, Second)`: each the
+  `WriteToText` form of the node (`\n` line ends; the `saveStamp` value, a fresh GUID on every
+  save by design, masked) followed by `SaveFolderText`, one `sha256  relative/path` line per
+  written file. The pin compares a rebuilt state's write, the `de-DE` and `ro-RO` writes against
+  the invariant write (not only each culture with itself), and writes in two save folders of
+  different depth; three anti-vacuity cells change one saved value through the hook, flip one
+  byte of a written file, and change one node value. Two corrections to the text above: the
+  armed v1 writer cannot reproduce every v1 checksum, because `persistent.sfs` (and its rewind
+  point copy) carries the per-save stamp and the build's `parsekWrittenBy`, and the v1 state
+  had random mission ids, a random milestone id (also in `milestones.pgsm`) and random
+  held-vessel pids; run after the verbatim move it reproduced the other 46 of 49 files byte for
+  byte and differed only in those values. And "bodies verbatim" held for the move commit only:
+  to make two builds byte-equal, `BuildState` then fixes the mission and milestone ids and
+  resets the two process-wide counters of the save round-trip specs
+  (`RouteSaveRoundTripTests.guidCounter`, `StoreSaveRoundTripTests.heldVesselCounter`, which
+  replaced a `Guid.NewGuid` pid). A later golden generator built on the driver therefore
+  writes reproducible files apart from `saveStamp` and `parsekWrittenBy`.
+  `ResetAllStores` also restores the three stock pool identities, which the small-store fill
+  overwrites (`StaticRoundTrip.Fill` copies the readonly `Pool` field); a caller that builds
+  the state must reset through it, or later funds and reputation pool tests read the wrong
+  node.
 - **Registers:** none (test-only).
 - **Size:** S. **Depends on:** nothing. **PC:** no.
 - **Risk:** low; a non-deterministic writer (dictionary order) would show here first, which
@@ -1168,9 +1191,23 @@ Made smaller on 2026-11-15: the pairing machinery is T-54's; this task is its fi
   single-player roadmap's CS-ALL runner and its stage-to-fixture promotion tool
   (`autotest-roadmap.md:6555`, `:6560-6562`): one task serves both programs. It needs no
   race code.
+- **As built (2026-11-16):** the ladder is `harness/campaigns/cs-career.toml`, and not every
+  edge chains yet. CS-0 -> CS-3 and CS-3 -> CS-3b are `fixture` edges (each stages its
+  committed fixture, with the reason): CS-3 accepts contracts by the GUIDs of the committed
+  New Game and CS-3b by a GUID offered during CS-3's committed flight, plus a hand-seeded
+  applicant, so neither replays until T-58's accept-by-type selector and an applicant seed.
+  The CS-3 to CS-4b replay therefore flies CS-3 as a gate and chains CS-3b -> CS-4 -> CS-4b.
+  CS-4b's and CS-6b's pins on the predecessor's own Flea guid and UT were regexed so a chained
+  stage can pass; CS-6b's exact count and science pins remain (todo CS-LADDER-CHAIN-PINS).
+  The handover reads the run's produced-save snapshot, never the instance save, and
+  `run.py --stage-from` is accepted only in a runner's `--slot` child whose token the stage's
+  handover marker carries. Contract: `harness/README.md` "Campaign chains".
 - **Proof:** `test_campaign.py` (ladder parse, resume point, the two-chain pipeline schedule,
-  refusal of `--stage-from` outside the runner); one replay of the CS chain CS-3 to CS-4b
-  (about 1413 s of p50) on the owner's PC.
+  refusal of `--stage-from` outside the runner, and a shell smoke of the real runner: the
+  handover, a middle stage that fails, a resume, every snapshot overwritten mid-chain); one
+  replay of the CS chain CS-3 to CS-4b (about 1413 s of p50) on the owner's PC:
+  `cd harness && python tools/campaign_runner.py run --ladder cs-career --name cs-replay-1
+  --from CS-3 --to CS-4b --slots 1`.
 - **Registers:** `harness/README.md` (a "Campaign chains" section), status.
 - **Size:** M. **Depends on:** the owner's go. **PC:** lanes (one CS chain replay).
 - **Risk:** medium; it chains stages through snapshots, so a stage that leaves a bad save
@@ -1805,8 +1842,9 @@ AGENTS.md`); `design-gui-inventory.md` is untouched.
 4. **"Identical saved games" (6.4) is not reachable byte for byte across two flown
    sessions**: explicit-UT warps land near the UT and flight physics is not repeatable. The
    plan uses a canonical diff with a pinned, reasoned mask (T-05, T-27); byte identity is
-   headless only (T-23). Settled: the masked comparison is assumed (question 2), RACE-4 is
-   the one whole-save lane (OV-05), and the headless byte-identity test is R3W-29's (OV-20).
+   headless only (T-23). Settled: the masked comparison (question 2, answered 2026-11-16:
+   (a)), RACE-4 is the one whole-save lane (OV-05), and the headless byte-identity test is
+   R3W-29's (OV-20).
 5. **The seam's `LoadGame` bypasses the main menu** (`run.py:1978-1979`), as other mods
    can. A site restore tied to the main menu would miss it. RACE-5 drives both routes; the
    plan assumes R2 restores on the loaded save's gate, not on MAINMENU. Settled: SITES-2
@@ -1867,7 +1905,8 @@ AGENTS.md`); `design-gui-inventory.md` is untouched.
    each with a written reason (recommended); (b) insist on byte-identical saves, which
    forces a session where no time passes and so cannot see a rival flag or a rival landing.
 
-   Assumed until the owner says otherwise: (a), applied in T-05 and T-27.
+   Answered 2026-11-16 by the owner: (a). The two saves are compared as identical except for
+   a fixed, listed set of clock values, applied in T-05 and T-27.
 3. **Two game copies racing on one PC.** With the parallel runner's copies, a lane can run two
    copies writing one folder at the same moment. Options: (a) build it as an operator lane
    (recommended: the only proof of two live writers short of your two-PC test); (b) leave

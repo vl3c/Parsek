@@ -285,32 +285,29 @@ namespace Parsek
             string id,
             RecordingIdValidationLogContext logContext = RecordingIdValidationLogContext.Production)
         {
-            if (string.IsNullOrEmpty(id))
+            // The character set is SafeFileId's fixed one, never the running platform's, so an
+            // id is accepted or refused the same way on every operating system.
+            switch (SafeFileId.Check(id))
             {
-                LogRecordingIdValidationFailure(
-                    "Recording id validation failed: id is null or empty",
-                    logContext);
-                return false;
-            }
-            if (id.Contains("/") || id.Contains("\\") || id.Contains(".."))
-            {
-                LogRecordingIdValidationFailure(
-                    $"Recording id validation failed for '{id}': contains invalid path sequence",
-                    logContext);
-                return false;
-            }
-            char[] invalidChars = Path.GetInvalidFileNameChars();
-            for (int i = 0; i < id.Length; i++)
-            {
-                if (Array.IndexOf(invalidChars, id[i]) >= 0)
-                {
+                case SafeFileIdVerdict.Ok:
+                    return true;
+                case SafeFileIdVerdict.NullOrEmpty:
+                    LogRecordingIdValidationFailure(
+                        "Recording id validation failed: id is null or empty",
+                        logContext);
+                    return false;
+                case SafeFileIdVerdict.PathSequence:
+                    LogRecordingIdValidationFailure(
+                        $"Recording id validation failed for '{id}': contains invalid path sequence",
+                        logContext);
+                    return false;
+                case SafeFileIdVerdict.InvalidChar:
+                default:
                     LogRecordingIdValidationFailure(
                         $"Recording id validation failed for '{id}': contains invalid file-name char",
                         logContext);
                     return false;
-                }
             }
-            return true;
         }
 
         private static void LogRecordingIdValidationFailure(

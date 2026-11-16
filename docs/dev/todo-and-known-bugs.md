@@ -20,6 +20,48 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## CS-LADDER-CHAIN-PINS: a campaign-chained replay of the scripted career cannot yet fly CS-0 to CS-7 unbroken [FILED 2026-11-16 by multiplayer T-49 (the campaign chain runner, branch `mp/t-49-campaign-chain-runner`), by reading the CS specs against the ladder `harness/campaigns/cs-career.toml`. OPEN; harness, no product change; low (the committed fixtures still fly every lane alone)]
+
+`tools/campaign_runner.py` stages each CS lane from the previous lane's fresh save instead of its
+committed fixture. Three gaps keep a full replay from chaining every edge:
+
+- CS-0 -> CS-3 and CS-3 -> CS-3b are declared `handover = "fixture"`. A genuine New Game offers
+  random contract GUIDs, and CS-3 accepts FIRSTLAUNCH and SCIENCE by the GUIDs of the committed
+  `cs-career-new`; CS-3b accepts the RT-10 PartTest by a GUID stock offered during CS-3's own
+  committed flight and hires Verhat Kerman, an applicant added to `cs-career-contracts` by hand.
+  Fix: T-58's accept-by-type selector, plus an applicant seed step; then drop the two fixture
+  edges from the ladder.
+- Past CS-6 the pins were read off the committed host: CS-6b pins `recordings.count` to exactly
+  21 (CS-6 allows 20-22) and its advRocketry `observedAfter=science=5.5`, while CS-6 pins no
+  science, so a chained CS-6 that recorded 20 or 22, or earned other science, reds CS-6b. CS-6c
+  (33-35) and CS-7 (49-55) are windows that a chained run is likely to meet. Fix: widen CS-6b's
+  count to CS-6's window and regex its science value, or pin CS-6's science.
+- Verified by the PC replay of 2026-11-16 (`cs-replay-1`, CS-3 to CS-4b on stock-tree, 4 of 4
+  stages green on attempt 1): CS-4b's `observedAfter` science values (27.5, 9.5) held when CS-4b
+  was staged from a re-flown CS-4, which was itself staged from CS-3b's save. That replay's
+  harvest asked for a `"cs-career-ts1" = ["Jumping Flea"]` row in
+  `harness/fixtures/shared-ships.toml`; it was not added, and whether a chained stage needs it
+  is open.
+
+Done 2026-11-16 on the same branch: CS-4b's and CS-6b's `GuidDiffers` lines no longer pin the
+committed predecessor's own Flea guid and UT (they are regexed), so a chained CS-4b / CS-6b can
+pass.
+
+## ~~RECORDING-ID-CHECK-OS-DEPENDENT~~: the recording id check depended on the operating system [FILED 2026-11-16 from the multiplayer analysis (section 10) and plan `docs/dev/plans/multiplayer/r0b-prep-small.md` P7-01, by code reading. FIXED 2026-11-16, branch `mp/p7-01-id-check-floor`; xUnit; no lane needed; low (no producer or committed save carries such an id)]
+
+`RecordingPaths.ValidateRecordingId`, which guards every sidecar and rewind-point path built
+from an id, refused the chars `Path.GetInvalidFileNameChars()` reports: 41 on Windows, only NUL
+and `/` on Mono for Linux and macOS. So `rec:id` passed on Linux and failed on Windows, and an id
+read from a file written elsewhere was judged by the reader's platform.
+
+Fix: the pure check moved to `Core/SafeFileId.cs` (`Check`, `IsInvalidChar`) with a fixed set,
+the 41 Windows chars (NUL, 1 to 31, `" < > | : * ? \ /`), plus the `..` rule; it calls no
+`System.IO` and compares ordinally. `ValidateRecordingId` keeps its name, callers, log texts and
+levels and maps the verdict. Nothing changes on Windows; a space, a dot and non-ASCII letters
+still pass. Tests: `SafeFileIdTests` (each verdict, all 41 chars, the set exact over every char,
+`:` refused on any host, the produced shapes, culture independence, and every recording and
+rewind-point id in the committed fixtures accepted); `RecordingPathsLoggingTests` pins `:`.
+
 ## ~~MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH~~: a looped mission that starts in orbit is timed around a later moon it passes low over [CLOSED 2026-11-16: V43M flew green on its first flight with the fix, `2026-11-16_1803_V43M-vall-tylo-player-loop` PASS attempt 1 (46 s, automation DLL built from 866ac123, sha256 prefix 8dfcbc5e; every verifier green), KSP.log reading launch moon Vall, constraints=3, `Solve: dominant=Tylo method=dominant-intercept residual=2.18 withinTol=yes` and `PhaseLock APPLIED ... P=211926.36 ... zeroDrift=yes scheduleWithinTol=yes`. FILED 2026-11-16 from V43M's first flight `2026-11-16_1726_V43M-vall-tylo-player-loop` (PC, parallel run `moon-loops-2026-11-16d`, DLL unchanged since PR #2638, PARSEK-FAIL(expectation) attempt 1, 58 s; diagnostics on branch `forge-logs-2026-11-16d`, folder `diag/2026-11-16_1726_V43M-vall-tylo-player-loop/`). FIXED 2026-11-16, branch `claude/project-thread-vpr29t`; xUnit; V43M re-pinned, awaiting PC flight; low (the loop still phase-locks, on the wrong launch moon)]
 
 The `vall-tylo-recorded` tree 91205f57 is one vessel's chain: the root ef182ffd starts IN ORBIT
