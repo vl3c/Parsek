@@ -573,7 +573,10 @@ Dropped: replaced by T-16, R1-08, T-02 and R3E-16's tests (OV-17).
   `ParsekFlight.AppendCapturedDataToRecording` and the capture builders must carry the list
   too (today they do not). R3E-10: a kept unknown kind is a number with no `ToolKind` member;
   the export writes it by number or filters it with `Enum.IsDefined`, its choice. Proof:
-  `ToolUseFactTests`.
+  `ToolUseFactTests`, and `SaveRoundTrip.ToolUseFactsSaveRoundTripTests`, the field-level
+  round trip `SaveRoundTripCoverageGateTests` requires of every type with a save or load
+  method (every `ToolKind` plus a newer-build kind number, through `ToolUseFacts` alone and
+  through the whole RECORDING codec).
 
 ### R3E-08 Capture the tools Parsek already detects (A3)
 
