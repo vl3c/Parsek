@@ -358,6 +358,181 @@ namespace Parsek.Tests.Rendering
             Assert.Equal(0.0, worldPos.z, 6);
         }
 
+        // --- Catalog seam (IPlaybackCatalog) -------------------------------
+
+        [Fact]
+        public void RelativeBoundary_FocusAndPendingTreeComeFromTheGivenCatalog()
+        {
+            // Nothing is committed or pending in RecordingStore; the focus tree is
+            // held only by the fake catalog. The boundary resolves, so the focus-tree
+            // lookup and the pending read went to the catalog, not to the store.
+            RecordingStore.ResetForTesting();
+            try
+            {
+                RecordingTree tree = MakeBoundaryTree("cat-focus", out Recording focus);
+                var fake = new FakeCatalog { FocusTree = tree };
+
+                bool resolved = ModelledResolver(fake).TryResolveRelativeBoundaryWorldPos(
+                    focus, sectionIndex: 1, side: AnchorSide.Start, boundaryUT: 10, out Vector3d worldPos);
+
+                Assert.True(resolved);
+                Assert.Equal(101.0, worldPos.x, 6);
+                Assert.Equal(2.0, worldPos.y, 6);
+                Assert.Equal(3.0, worldPos.z, 6);
+                Assert.Equal(new[] { "cat-focus|tree" }, fake.FocusTreeQueries.ToArray());
+                Assert.Equal(1, fake.PendingReads);
+
+                // The own catalog (no argument) reads the empty store and finds no tree.
+                Assert.False(ModelledResolver(null).TryResolveRelativeBoundaryWorldPos(
+                    focus, sectionIndex: 1, side: AnchorSide.Start, boundaryUT: 10, out _));
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+            }
+        }
+
+        [Fact]
+        public void RelativeBoundary_FocusTreeMissingInCatalog_FailsEvenWhenTheStoreHasIt()
+        {
+            var capturedLines = new List<string>();
+            RecordingStore.ResetForTesting();
+            ParsekLog.ResetRateLimitsForTesting();
+            ParsekLog.TestSinkForTesting = line => capturedLines.Add(line);
+            try
+            {
+                RecordingTree tree = MakeBoundaryTree("store-focus", out Recording focus);
+                RecordingStore.AddCommittedTreeForTesting(tree);
+                var empty = new FakeCatalog();
+
+                Assert.False(ModelledResolver(empty).TryResolveRelativeBoundaryWorldPos(
+                    focus, sectionIndex: 1, side: AnchorSide.Start, boundaryUT: 10, out _));
+                Assert.Equal(new[] { "store-focus|tree" }, empty.FocusTreeQueries.ToArray());
+                Assert.Contains(capturedLines, l => l.Contains("[Pipeline-Anchor]")
+                    && l.Contains("relative-boundary-chain-unresolved recordingId=store-focus")
+                    && l.Contains("reason=focus-tree-missing"));
+
+                // The own catalog finds the committed tree and resolves.
+                Assert.True(ModelledResolver(null).TryResolveRelativeBoundaryWorldPos(
+                    focus, sectionIndex: 1, side: AnchorSide.Start, boundaryUT: 10, out Vector3d own));
+                Assert.Equal(101.0, own.x, 6);
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+                ParsekLog.ResetRateLimitsForTesting();
+                RecordingStore.ResetForTesting();
+            }
+        }
+
+        /// <summary>
+        /// The modelled-world resolver: a body-fixed sample's lat / lon / alt are its
+        /// world x / y / z, and every body rotation is identity.
+        /// </summary>
+        private static ProductionAnchorWorldFrameResolver ModelledResolver(IPlaybackCatalog catalog)
+        {
+            return new ProductionAnchorWorldFrameResolver(
+                name => null,
+                p => new Vector3d(p.latitude, p.longitude, p.altitude),
+                p => Quaternion.identity,
+                catalog);
+        }
+
+        /// <summary>
+        /// Tree "tree": an Absolute root sampled at UT 10 (lat 100), and a focus whose
+        /// Relative section [0, 10] (anchored on the root, offset (1, 2, 3) at UT 10)
+        /// is followed by an Absolute section, so section 1 Start is a relative boundary.
+        /// </summary>
+        private static RecordingTree MakeBoundaryTree(string focusId, out Recording focus)
+        {
+            var tree = new RecordingTree { Id = "tree" };
+            var root = new Recording
+            {
+                RecordingId = focusId + "-root",
+                TreeId = tree.Id,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+            };
+            root.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 0,
+                endUT = 20,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 10, latitude = 100, rotation = Quaternion.identity },
+                },
+            });
+
+            focus = new Recording
+            {
+                RecordingId = focusId,
+                TreeId = tree.Id,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+            };
+            focus.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 0,
+                endUT = 10,
+                anchorRecordingId = root.RecordingId,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 10, latitude = 1, longitude = 2, altitude = 3,
+                        rotation = Quaternion.identity,
+                    },
+                },
+            });
+            focus.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 10,
+                endUT = 20,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 10, latitude = 999, longitude = 999, altitude = 999,
+                        rotation = Quaternion.identity,
+                    },
+                },
+            });
+
+            tree.AddOrReplaceRecording(root);
+            tree.AddOrReplaceRecording(focus);
+            return tree;
+        }
+
+        private sealed class FakeCatalog : IPlaybackCatalog
+        {
+            internal RecordingTree FocusTree;
+            internal int PendingReads;
+            internal readonly List<string> FocusTreeQueries = new List<string>();
+
+            public RecordingTree PendingTree
+            {
+                get
+                {
+                    PendingReads++;
+                    return null;
+                }
+            }
+
+            public bool TryFindFocusTree(string recordingId, string treeId, out RecordingTree tree)
+            {
+                FocusTreeQueries.Add(recordingId + "|" + treeId);
+                tree = FocusTree;
+                return tree != null;
+            }
+
+            public bool TryFindRecording(string id, CatalogRecordingScope scope, out Recording rec)
+            {
+                rec = null;
+                return false;
+            }
+        }
+
         // --- §7.10 Loop guard paths ---------------------------------------
 
         [Fact]
