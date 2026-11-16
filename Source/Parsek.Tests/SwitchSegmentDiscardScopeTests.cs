@@ -497,6 +497,52 @@ namespace Parsek.Tests
                 && l.Contains("removedBranchPoints=1"));
         }
 
+        // catches: the segment discard dropping a pre-session branch point that already had
+        // an empty side (a focused breakup whose debris all failed the debris filter, no
+        // controlled children) and leaving the parent with no child link, instead of keeping
+        // it and restoring the link the session's continuation branch had overwritten.
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void Discard_PreSessionEmptyBreakupBranch_SurvivesAndParentLinkRestored(
+            bool baselineKnown)
+        {
+            var (scenario, session, tree, parent, segment, bp) =
+                BuildPendingTreeWithSegment();
+            var breakup = new BranchPoint
+            {
+                Id = "bp_breakup_empty",
+                UT = 120.0,
+                Type = BranchPointType.Breakup,
+                ParentRecordingIds = new List<string> { parent.RecordingId },
+                ChildRecordingIds = new List<string>(),
+            };
+            tree.BranchPoints.Insert(0, breakup);
+            // The session's continuation branch overwrote the parent's link to the breakup.
+            Assert.Equal(bp.Id, parent.ChildBranchPointId);
+            session.PreSessionBranchPointIds = baselineKnown
+                ? new List<string> { breakup.Id }
+                : null;
+
+            PendingTreeSlot.StashPendingTree(tree);
+            var disposition = SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(
+                LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard,
+                LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard,
+                out _);
+
+            Assert.Equal(RecordingStore.SwitchSegmentDiscardDisposition.PendingTreePrune,
+                disposition);
+            Assert.False(tree.Recordings.ContainsKey(segment.RecordingId));
+            Assert.DoesNotContain(tree.BranchPoints, b => b.Id == bp.Id);
+            var kept = Assert.Single(tree.BranchPoints, b => b.Id == breakup.Id);
+            Assert.Same(breakup, kept);
+            Assert.Equal(new List<string> { parent.RecordingId }, kept.ParentRecordingIds);
+            Assert.Empty(kept.ChildRecordingIds);
+            Assert.Equal(breakup.Id, parent.ChildBranchPointId);
+            Assert.Contains(logLines, l => l.Contains("[SwitchSegment]")
+                && l.Contains("removedBranchPoints=1"));
+        }
+
         // Bug 2 (post-#876 playtest 2026-05-17): the scoped sweep walks only
         // the segment's tree. A recording in a different tree never touched
         // by the segment must not be removed.

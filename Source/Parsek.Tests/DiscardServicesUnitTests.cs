@@ -398,10 +398,12 @@ namespace Parsek.Tests
             // session's continuation bp1 is only found by its empty child side.
             var tree = SegmentTree();
             var owned = Ids("seg", "debrisA", "debrisB", "part");
+            var naming = SwitchSegmentAttempts.CollectBranchPointIdsNamingRecordings(tree, owned);
+            Assert.Equal(new[] { "bp1", "bp2", "gp" }, Sorted(naming));
             SwitchSegmentAttempts.RemoveRecordingIdsFromTree(tree, owned);
 
             var removed = SwitchSegmentAttempts.DropBranchPointsLeftEmptyAfterSegmentDiscard(
-                tree, owned, Ids(), "sess-1", out int dropped);
+                tree, naming, Ids(), "sess-1", out int dropped);
 
             Assert.Equal(3, dropped);
             Assert.Equal(new[] { "bp1", "bp2", "gp" }, Sorted(removed));
@@ -421,7 +423,7 @@ namespace Parsek.Tests
             var tree = Tree("t", new[] { Rec("p", childBp: "keep") },
                 new[] { Bp("keep", new[] { "p" }, new[] { "q" }) });
             var removed = SwitchSegmentAttempts.DropBranchPointsLeftEmptyAfterSegmentDiscard(
-                tree, Ids("seg"), Ids("sessBp"), "s", out int dropped);
+                tree, Ids("keep"), Ids("sessBp"), "s", out int dropped);
             Assert.Equal(0, dropped);
             Assert.Equal(new[] { "sessBp" }, Sorted(removed));
             Assert.Single(tree.BranchPoints);
@@ -430,6 +432,44 @@ namespace Parsek.Tests
                 tree, Ids(), null, "s", out dropped);
             Assert.Equal(0, dropped);
             Assert.Empty(none);
+        }
+
+        // catches: the segment discard dropping a branch point that already had an empty side
+        // before the discard (a breakup whose debris was all filtered out) and that named no
+        // discarded recording.
+        [Fact]
+        public void DropBranchPointsLeftEmpty_KeepsAlreadyEmptyBranchNamingNoRemovedRecording()
+        {
+            var tree = Tree("t", new[] { Rec("p", childBp: "bpEmpty") },
+                new[]
+                {
+                    Bp("bpEmpty", new[] { "p" }, new string[0], BranchPointType.Breakup),
+                    Bp("bpCont", new[] { "p" }, new[] { "seg" }, BranchPointType.VesselSwitchContinuation),
+                });
+            var owned = Ids("seg");
+            var naming = SwitchSegmentAttempts.CollectBranchPointIdsNamingRecordings(tree, owned);
+            Assert.Equal(new[] { "bpCont" }, Sorted(naming));
+            SwitchSegmentAttempts.RemoveRecordingIdsFromTree(tree, owned);
+
+            var removed = SwitchSegmentAttempts.DropBranchPointsLeftEmptyAfterSegmentDiscard(
+                tree, naming, Ids(), "s", out int dropped);
+
+            Assert.Equal(1, dropped);
+            Assert.Equal(new[] { "bpCont" }, Sorted(removed));
+            Assert.Single(tree.BranchPoints);
+            Assert.Equal("bpEmpty", tree.BranchPoints[0].Id);
+            Assert.Contains(logLines, l => l.Contains("[SwitchSegment]")
+                && l.Contains("kept 1 branch point(s) with an empty side"));
+        }
+
+        [Fact]
+        public void CollectBranchPointIdsNamingRecordings_EmptyOrNullInputs_Empty()
+        {
+            var tree = SegmentTree();
+            Assert.Empty(SwitchSegmentAttempts.CollectBranchPointIdsNamingRecordings(tree, Ids()));
+            Assert.Empty(SwitchSegmentAttempts.CollectBranchPointIdsNamingRecordings(tree, null));
+            Assert.Empty(SwitchSegmentAttempts.CollectBranchPointIdsNamingRecordings(null, Ids("seg")));
+            Assert.Empty(SwitchSegmentAttempts.CollectBranchPointIdsNamingRecordings(tree, Ids("other")));
         }
 
         [Fact]

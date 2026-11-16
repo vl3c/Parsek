@@ -2163,18 +2163,27 @@ keeping the switch-segment restore of an overwritten continuing link). Each need
 
 Fix: after the removal, `TryDiscardActiveSwitchSegmentAttempt` runs
 `SwitchSegmentAttempts.DropBranchPointsLeftEmptyAfterSegmentDiscard` (the committed prune's
-scrub-and-drop rule, logged; its body moved to `RecordingTree.ScrubBranchPointEndpointsAndDropEmpty`
-with `TreeDiscardService` forwarding, because a direct SwitchIntent -> TreeDiscardService call
-raised the semantic cut residue from 124 to 140), feeds the session-authored
+empty-side drop rule, logged, SCOPED: only a branch point that named a removed recording before
+the removal scrubbed the endpoint lists, read by `CollectBranchPointIdsNamingRecordings`, may be
+dropped; a pre-existing branch point that already had an empty side, such as a focused breakup
+whose debris all failed `ShouldRecordDebris`, stays untouched and the parent's overwritten link
+to it is restored; the committed prune `TreeDiscardService.ScrubBranchPointEndpointsAndDropEmpty`
+keeps dropping every empty-sided branch point and is not called from SwitchIntent, because a
+direct SwitchIntent -> TreeDiscardService call raised the semantic cut residue from 124 to 140),
+feeds the session-authored
 plus dropped ids to `RepairBranchPointLinksAfterSegmentDiscard` (which plays
 `ClearRecordingBranchPointRefs`'s role and keeps the overwritten-continuing-link restore),
 resets a removed active AND root id through `RepairActiveAndRootAfterSegmentDiscard` (parent if
 it survives, else null), and ends with `RebuildBackgroundMap` (pure over the tree, safe headless).
-Tests: `DiscardServicesUnitTests.DropBranchPointsLeftEmpty_*`,
+Tests: `DiscardServicesUnitTests.DropBranchPointsLeftEmpty_*` (including
+`KeepsAlreadyEmptyBranchNamingNoRemovedRecording`),
+`CollectBranchPointIdsNamingRecordings_EmptyOrNullInputs_Empty`,
 `RepairActiveAndRootAfterSegmentDiscard_ResetsRemovedRootToParent`, and end to end
 `SwitchSegmentDiscardScopeTests.Discard_RemovedBackgroundChild_LeavesBackgroundMap`,
 `Discard_RemovedRootRecording_ResetsRootToSessionParent`,
-`Discard_UnknownBaseline_DropsEmptiedContinuationBranch`.
+`Discard_UnknownBaseline_DropsEmptiedContinuationBranch`,
+`Discard_PreSessionEmptyBreakupBranch_SurvivesAndParentLinkRestored` (known and unknown
+baseline; mutation-checked: dropping every empty-sided branch point reds both rows).
 
 ## ~~LOOP-SEAM-TRACE-INDEX-NOT-SHIFTED: two loop-seam trace dictionaries in ParsekFlight are keyed by committed index and never shift~~ [FILED 2026-11-07 from the ParsekFlight seam inventory (`plan-parsekflight-seams-2026-11-07.md`, refactor branch `claude/project-thread-bkwmrr` at f3400b90a), by code reading. FIXED 2026-11-07, branch `refactor-loopseam-index-shift` (base `claude/project-thread-bkwmrr`); xUnit; diagnostics only, low]
 

@@ -231,11 +231,15 @@ namespace Parsek
                 }
             }
 
+            // Read before the removal scrubs the endpoint lists: only a branch point that
+            // named a removed recording may be dropped for an empty side afterwards.
+            HashSet<string> bpIdsNamingRemoved = CollectBranchPointIdsNamingRecordings(
+                segmentTree, ownedIds);
             int removedRecordings = RemoveRecordingIdsFromTree(segmentTree, ownedIds);
             int removedBranchPoints = RemoveSessionAuthoredBranchPointsFromTree(
                 segmentTree, sessionAuthoredBpIds);
             HashSet<string> removedBpIds = DropBranchPointsLeftEmptyAfterSegmentDiscard(
-                segmentTree, ownedIds, sessionAuthoredBpIds, sessionIdStr,
+                segmentTree, bpIdsNamingRemoved, sessionAuthoredBpIds, sessionIdStr,
                 out int droppedEmptyBranchPoints);
             removedBranchPoints += droppedEmptyBranchPoints;
 
@@ -379,31 +383,89 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Drops the branch points the discard left with an empty parent or child side
-        /// (through <see cref="RecordingTree.ScrubBranchPointEndpointsAndDropEmpty"/>, the
-        /// committed prune's rule): with an unknown <c>PreSessionBranchPointIds</c> baseline the
-        /// session's continuation branch is not in <paramref name="sessionAuthoredBpIds"/>, so
-        /// it would otherwise survive with no child while the parent still names it. Returns
-        /// every branch point id this discard removed (the session-authored ones plus the
-        /// dropped ones) for the link repair; <paramref name="droppedCount"/> is the dropped
-        /// ones alone.
+        /// The ids of the branch points of <paramref name="tree"/> whose parent or child list
+        /// names a recording in <paramref name="recordingIds"/>. Read before the discard scrubs
+        /// those lists, so the drop below can tell a branch point the discard emptied from one
+        /// that was already empty. Pure.
+        /// </summary>
+        internal static HashSet<string> CollectBranchPointIdsNamingRecordings(
+            RecordingTree tree, HashSet<string> recordingIds)
+        {
+            var bpIds = new HashSet<string>(StringComparer.Ordinal);
+            if (tree?.BranchPoints == null || recordingIds == null || recordingIds.Count == 0)
+                return bpIds;
+            for (int i = 0; i < tree.BranchPoints.Count; i++)
+            {
+                var bp = tree.BranchPoints[i];
+                if (bp == null || string.IsNullOrEmpty(bp.Id)) continue;
+                if (ListNamesAny(bp.ParentRecordingIds, recordingIds)
+                    || ListNamesAny(bp.ChildRecordingIds, recordingIds))
+                    bpIds.Add(bp.Id);
+            }
+            return bpIds;
+        }
+
+        private static bool ListNamesAny(List<string> list, HashSet<string> ids)
+        {
+            if (list == null) return false;
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (list[i] != null && ids.Contains(list[i]))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Drops the branch points in <paramref name="bpIdsNamingRemoved"/> that the discard
+        /// left with an empty parent or child side (the committed prune's rule, scoped): with
+        /// an unknown <c>PreSessionBranchPointIds</c> baseline the session's continuation
+        /// branch is not in <paramref name="sessionAuthoredBpIds"/>, so it would otherwise
+        /// survive with no child while the parent still names it. A branch point that named no
+        /// removed recording is never dropped here, even with an empty side: one that was
+        /// already empty before the discard (a pre-session breakup whose debris was all
+        /// filtered out) is not this discard's to remove, and the parent's link to it stays or
+        /// is restored. Returns every branch point id this discard removed (the
+        /// session-authored ones plus the dropped ones) for the link repair;
+        /// <paramref name="droppedCount"/> is the dropped ones alone.
         /// </summary>
         internal static HashSet<string> DropBranchPointsLeftEmptyAfterSegmentDiscard(
-            RecordingTree segmentTree, HashSet<string> ownedIds,
+            RecordingTree segmentTree, HashSet<string> bpIdsNamingRemoved,
             HashSet<string> sessionAuthoredBpIds, string sessionIdStr, out int droppedCount)
         {
             var removedBpIds = new HashSet<string>(
                 sessionAuthoredBpIds ?? new HashSet<string>(StringComparer.Ordinal),
                 StringComparer.Ordinal);
             droppedCount = 0;
-            if (segmentTree == null || ownedIds == null || ownedIds.Count == 0)
+            if (segmentTree?.BranchPoints == null
+                || bpIdsNamingRemoved == null || bpIdsNamingRemoved.Count == 0)
                 return removedBpIds;
-            RecordingTree.ScrubBranchPointEndpointsAndDropEmpty(
-                segmentTree, ownedIds, out HashSet<string> dropped);
-            if (dropped == null || dropped.Count == 0)
+            var dropped = new List<string>();
+            int keptAlreadyEmpty = 0;
+            for (int i = segmentTree.BranchPoints.Count - 1; i >= 0; i--)
+            {
+                var bp = segmentTree.BranchPoints[i];
+                if (bp == null || string.IsNullOrEmpty(bp.Id)) continue;
+                bool emptySide = bp.ParentRecordingIds == null || bp.ParentRecordingIds.Count == 0
+                    || bp.ChildRecordingIds == null || bp.ChildRecordingIds.Count == 0;
+                if (!emptySide) continue;
+                if (!bpIdsNamingRemoved.Contains(bp.Id))
+                {
+                    keptAlreadyEmpty++;
+                    continue;
+                }
+                dropped.Add(bp.Id);
+                removedBpIds.Add(bp.Id);
+                segmentTree.BranchPoints.RemoveAt(i);
+            }
+            if (keptAlreadyEmpty > 0)
+                ParsekLog.Verbose("SwitchSegment",
+                    $"TryDiscardActiveSwitchSegmentAttempt: kept {keptAlreadyEmpty} branch point(s) " +
+                    $"with an empty side that named no discarded recording " +
+                    $"treeId={segmentTree.Id ?? "<null>"} sessionId={sessionIdStr ?? "<null>"}");
+            if (dropped.Count == 0)
                 return removedBpIds;
             droppedCount = dropped.Count;
-            removedBpIds.UnionWith(dropped);
             ParsekLog.Info("SwitchSegment",
                 $"TryDiscardActiveSwitchSegmentAttempt: dropped {droppedCount} branch point(s) " +
                 $"left with an empty side ids=[{string.Join(",", dropped)}] " +

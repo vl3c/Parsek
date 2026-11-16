@@ -59,7 +59,8 @@ Not released yet.
   from appearing. Not seen in play. (TREE-START-UT-EMPTY-RECORDING-READS-ZERO)
 - **Discarding a switched-to vessel's flight segment leaves the rest of the flight tidy.** The
   discarded segment's vessels, a dangling split and a stale starting point no longer linger in
-  the kept part of the flight. Not seen in play. (SWITCH-SEGMENT-DISCARD-TOPOLOGY-RESIDUE)
+  the kept part of the flight, and splits from before the segment stay as they were. Not seen in
+  play. (SWITCH-SEGMENT-DISCARD-TOPOLOGY-RESIDUE)
 - **Docking to a ship Parsek placed and you flew again no longer doubles it after a rewind.** That
   ship's replay now waits for the docked stack instead of also becoming real on its own, and the
   Missions window names it as the dock partner. (DOCK-CHAIN-ABSORBED-PARTNER-PID-ONLY)
