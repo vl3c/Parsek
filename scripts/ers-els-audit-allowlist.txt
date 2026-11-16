@@ -535,3 +535,10 @@ Source/Parsek/TestCommands/ParsekTestCommandAddon.EnterWatchMode.cs
 # ERS. Both files carry a file-level [ERS-exempt] header comment.
 Source/Parsek/Missions/VesselIdentity.cs
 Source/Parsek/Missions/VesselNameStore.cs
+
+# RecordingPlaybackCatalog is the own-timeline IPlaybackCatalog: playback
+# looks a recording up by exact id for anchor and loop resolution, and its
+# flat-list fallback reads the raw committed list because ERS would hide a
+# NotCommitted active Re-Fly attempt, a valid focus or anchor record during
+# the session (the reason the sites it replaces carry). No ledger reads.
+Source/Parsek/Recording/RecordingPlaybackCatalog.cs

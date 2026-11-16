@@ -20,6 +20,19 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## MP-P2A-PLAYBACK-CATALOG: playback looks recordings up by id through one port, so a second playback lane can answer from its own data [FILED 2026-11-16 for the multiplayer prerefactor P2a (`docs/dev/plans/multiplayer/r0b-prep-playback.md`, P2a-01 to P2a-07). IN PROGRESS: P2a-05 done (branch `mp/p2a-05-anchor-resolver-catalog`); P2a-02, P2a-03, P2a-04, P2a-06, P2a-07 open; refactor, no product change]
+
+`IPlaybackCatalog` and its own-timeline `RecordingPlaybackCatalog.Own` (both in
+`Source/Parsek/Recording/`) carry each lookup family as a named variant that keeps its search
+order. P2a-05 added the pending read, the focus-tree lookup and the
+trees-then-pending-then-list recording lookup, and routed `RecordedRelativeAnchorPoseResolver`
+through them (trailing optional catalog; null reads `Own`). Proof: `RecordingPlaybackCatalogTests`
+(truth table, plus a sweep that drives verbatim copies of the deleted resolver lookups and the
+catalog over the same 14 fixtures), fake-catalog cells in
+`RecordedRelativeAnchorPoseResolverTests`. Owed on the PC: in-game `Pipeline-Anchor` and
+`GhostMap`, lanes H11 and H44. Each later P2a task adds its variant's rows; the entry closes when
+P2a-07 and the last of P2a-02 to P2a-04 land.
+
 ## CS-LADDER-CHAIN-PINS: a campaign-chained replay of the scripted career cannot yet fly CS-0 to CS-7 unbroken [FILED 2026-11-16 by multiplayer T-49 (the campaign chain runner, branch `mp/t-49-campaign-chain-runner`), by reading the CS specs against the ladder `harness/campaigns/cs-career.toml`. OPEN; harness, no product change; low (the committed fixtures still fly every lane alone)]
 
 `tools/campaign_runner.py` stages each CS lane from the previous lane's fresh save instead of its
