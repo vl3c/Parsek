@@ -426,6 +426,77 @@ namespace Parsek.Tests
             Assert.True(tree.Recordings.ContainsKey(parent.RecordingId));
         }
 
+        // catches: the scoped discard leaving a removed background-recorded child's pid in
+        // the tree's background map (todo SWITCH-SEGMENT-DISCARD-TOPOLOGY-RESIDUE).
+        [Fact]
+        public void Discard_RemovedBackgroundChild_LeavesBackgroundMap()
+        {
+            var (scenario, session, tree, parent, segment, bp) =
+                BuildPendingTreeWithSegment();
+            string debrisBpId = "bp_breakup_bg";
+            segment.ChildBranchPointId = debrisBpId;
+            var debris = MakeRecording("rec_bg_debris", tree.Id,
+                parentBranchPointId: debrisBpId, vesselName: "Debris");
+            debris.VesselPersistentId = 4242u;
+            tree.AddOrReplaceRecording(debris);
+            tree.BranchPoints.Add(MakeBranchPoint(
+                debrisBpId, segment.RecordingId, debris.RecordingId,
+                type: BranchPointType.Breakup));
+            tree.RebuildBackgroundMap();
+            Assert.True(tree.BackgroundMap.ContainsKey(4242u));
+
+            PendingTreeSlot.StashPendingTree(tree);
+            SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(
+                LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard,
+                LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard,
+                out _);
+
+            Assert.False(tree.Recordings.ContainsKey(debris.RecordingId));
+            Assert.False(tree.BackgroundMap.ContainsKey(4242u));
+            Assert.DoesNotContain(4242u, tree.RecordedVesselPids);
+        }
+
+        // catches: a discard that removed the tree's root recording keeping the stale
+        // RootRecordingId while it already reset the active id.
+        [Fact]
+        public void Discard_RemovedRootRecording_ResetsRootToSessionParent()
+        {
+            var (scenario, session, tree, parent, segment, bp) =
+                BuildPendingTreeWithSegment();
+            tree.RootRecordingId = segment.RecordingId;
+
+            PendingTreeSlot.StashPendingTree(tree);
+            SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(
+                LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard,
+                LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard,
+                out _);
+
+            Assert.Equal(parent.RecordingId, tree.RootRecordingId);
+            Assert.Equal(parent.RecordingId, tree.ActiveRecordingId);
+        }
+
+        // catches: with an unknown (null) pre-session branch point baseline, the session's
+        // continuation branch surviving with an empty child side while the parent still
+        // names it.
+        [Fact]
+        public void Discard_UnknownBaseline_DropsEmptiedContinuationBranch()
+        {
+            var (scenario, session, tree, parent, segment, bp) =
+                BuildPendingTreeWithSegment();
+            session.PreSessionBranchPointIds = null;
+
+            PendingTreeSlot.StashPendingTree(tree);
+            SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt(
+                LedgerOrchestrator.PreserveIrreversibleLiveGameplayOnDiscard,
+                LedgerOrchestrator.PreserveIrreversibleRestoreAttemptTailsOnDiscard,
+                out _);
+
+            Assert.DoesNotContain(tree.BranchPoints, b => b.Id == bp.Id);
+            Assert.Null(parent.ChildBranchPointId);
+            Assert.Contains(logLines, l => l.Contains("[SwitchSegment]")
+                && l.Contains("removedBranchPoints=1"));
+        }
+
         // Bug 2 (post-#876 playtest 2026-05-17): the scoped sweep walks only
         // the segment's tree. A recording in a different tree never touched
         // by the segment must not be removed.

@@ -47,6 +47,15 @@ Not released yet.
   picked up again after a quickload, kept the moment it resumed as its saved end even after it
   flew on. Replays already used the real end; now the save says so too, and a ship that sheds a
   part later in that flight is still treated as the ship that flew on. (REFLY-ATTEMPT-STALE-END-UT)
+- **A replaced flight that survived is no longer at risk of being marked destroyed.** Saving
+  a new version of a recorded flight could carry the old version's "destroyed" mark onto a
+  vessel that flew on. Not seen in play. (REPLACE-COPIES-DESTROYED-FLAG-ONTO-LIVE-REPLACEMENT)
+- **An empty recording no longer makes a later flight look like it started at time zero.** That
+  could let an unrelated later flight of the same vessel name stop an earlier flight's vessel
+  from appearing. Not seen in play. (TREE-START-UT-EMPTY-RECORDING-READS-ZERO)
+- **Discarding a switched-to vessel's flight segment leaves the rest of the flight tidy.** The
+  discarded segment's vessels, a dangling split and a stale starting point no longer linger in
+  the kept part of the flight. Not seen in play. (SWITCH-SEGMENT-DISCARD-TOPOLOGY-RESIDUE)
 
 ## 1.0.2
 

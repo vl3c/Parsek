@@ -22,6 +22,11 @@ namespace Parsek
                 return 0;
 
             double treeStartUT = GetTreeStartUT(tree);
+            if (double.IsNaN(treeStartUT))
+                ParsekLog.Verbose("RecordingStore",
+                    $"{logContext ?? "MarkSupersededTerminalSpawns"}: tree '{tree.Id ?? "<no-id>"}' " +
+                    "has no recording with a start; only the spawned-pid match can mark a " +
+                    "terminal spawn superseded");
             int marked = 0;
             foreach (Recording continued in tree.Recordings.Values)
             {
@@ -335,6 +340,13 @@ namespace Parsek
 
         internal const double LaterSpawnOwnerEndToleranceSeconds = 1e-3;
 
+        /// <summary>
+        /// The earliest start of any recording in the tree that has a start at all: trajectory
+        /// bounds or an explicit start. A recording with neither reads <c>StartUT</c> 0.0, which
+        /// is not a start and would pull the tree to UT 0, so it is skipped. NaN when no
+        /// recording has a start; the contiguity branch of
+        /// <see cref="ShouldMarkSupersededTerminalSpawn"/> then refuses.
+        /// </summary>
         internal static double GetTreeStartUT(RecordingTree tree)
         {
             if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
@@ -344,6 +356,9 @@ namespace Parsek
             foreach (Recording rec in tree.Recordings.Values)
             {
                 if (rec == null)
+                    continue;
+                if (!rec.TryGetActualTrajectoryBounds(out _, out _)
+                    && double.IsNaN(rec.ExplicitStartUT))
                     continue;
                 double startUT = rec.StartUT;
                 if (startUT < min)

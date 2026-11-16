@@ -481,6 +481,70 @@ namespace Parsek
                 $"RebuildBackgroundMap: entries={BackgroundMap.Count} recordedPids={RecordedVesselPids.Count} totalRecordings={Recordings.Count} activePidSkips={activePidSkips}");
         }
 
+        /// <summary>
+        /// Walks <paramref name="tree"/>'s <c>BranchPoints</c> and removes any
+        /// occurrences of <paramref name="ids"/> from each branch point's
+        /// <c>ParentRecordingIds</c> / <c>ChildRecordingIds</c> lists. A BP is
+        /// dropped from the tree when EITHER its parent or its child endpoint
+        /// set went empty, since a BP with zero endpoints on either side can
+        /// no longer connect anything; the dropped ids are surfaced via
+        /// <paramref name="droppedBranchPointIds"/> so the caller can clear
+        /// surviving recordings' BP back-references. Returns the number of
+        /// id occurrences scrubbed out of endpoint lists.
+        /// </summary>
+        internal static int ScrubBranchPointEndpointsAndDropEmpty(
+            RecordingTree tree,
+            HashSet<string> ids,
+            out HashSet<string> droppedBranchPointIds)
+        {
+            droppedBranchPointIds = null;
+            if (tree?.BranchPoints == null || ids == null || ids.Count == 0)
+                return 0;
+
+            int scrubbed = 0;
+            for (int i = tree.BranchPoints.Count - 1; i >= 0; i--)
+            {
+                var bp = tree.BranchPoints[i];
+                if (bp == null) continue;
+                if (bp.ParentRecordingIds != null)
+                {
+                    for (int p = bp.ParentRecordingIds.Count - 1; p >= 0; p--)
+                    {
+                        if (ids.Contains(bp.ParentRecordingIds[p]))
+                        {
+                            bp.ParentRecordingIds.RemoveAt(p);
+                            scrubbed++;
+                        }
+                    }
+                }
+                if (bp.ChildRecordingIds != null)
+                {
+                    for (int c = bp.ChildRecordingIds.Count - 1; c >= 0; c--)
+                    {
+                        if (ids.Contains(bp.ChildRecordingIds[c]))
+                        {
+                            bp.ChildRecordingIds.RemoveAt(c);
+                            scrubbed++;
+                        }
+                    }
+                }
+
+                bool emptyParents = bp.ParentRecordingIds == null
+                    || bp.ParentRecordingIds.Count == 0;
+                bool emptyChildren = bp.ChildRecordingIds == null
+                    || bp.ChildRecordingIds.Count == 0;
+                if (emptyParents || emptyChildren)
+                {
+                    if (droppedBranchPointIds == null)
+                        droppedBranchPointIds = new HashSet<string>(StringComparer.Ordinal);
+                    if (!string.IsNullOrEmpty(bp.Id))
+                        droppedBranchPointIds.Add(bp.Id);
+                    tree.BranchPoints.RemoveAt(i);
+                }
+            }
+            return scrubbed;
+        }
+
         internal bool IsBackgroundMapEligible(Recording rec)
         {
             return rec != null
