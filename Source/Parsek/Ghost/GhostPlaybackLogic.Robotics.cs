@@ -226,7 +226,7 @@ namespace Parsek
             }
         }
 
-        private static GhostPartEventOutcome ApplyRoboticEvent(
+        internal static GhostPartEventOutcome ApplyRoboticEvent(
             GhostPlaybackState state, PartEvent evt, double currentUT)
         {
             if (state == null || state.roboticInfos == null)
@@ -235,6 +235,13 @@ namespace Parsek
             ulong key = FlightRecorder.EncodeEngineKey(evt.partPersistentId, evt.moduleIndex);
             if (!state.roboticInfos.TryGetValue(key, out RoboticGhostInfo info) || info == null)
                 return GhostPartEventOutcome.NoInfoForPart;
+
+            // Wheel suspension is no longer recorded, and the events legacy recordings carry hold
+            // the MAGNITUDE of the suspension transform's absolute local position, not a travel:
+            // posing the Linear servo from it lifted the ghost's wheel by its own position length.
+            // The ghost keeps the rest pose. See FlightRecorder.IsWheelSuspensionModuleName.
+            if (FlightRecorder.IsWheelSuspensionModuleName(info.moduleName))
+                return GhostPartEventOutcome.IgnoredRecordedSignal;
 
             info.currentValue = evt.value;
 

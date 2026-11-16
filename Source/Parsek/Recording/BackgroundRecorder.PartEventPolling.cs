@@ -447,23 +447,16 @@ namespace Parsek
                 ulong key = FlightRecorder.EncodeEngineKey(part.persistentId, moduleIndex);
                 if (!ShouldPollCachedBackgroundModule(part, module, v, state, key, "robotic")) continue;
 
-                // Mirrors the foreground gate: wheel motor spin and wheel steering deflection are
-                // both derived from the ghost's own ground motion at playback, not recorded. See
-                // FlightRecorder.IsDerivedWheelVisualModuleName.
-                // Logged once per key, exactly as FlightRecorder.CheckRoboticState does — a silent
+                // The foreground gate, shared: wheel motor spin and wheel steering deflection are
+                // derived from the ghost's own ground motion at playback, and wheel suspension
+                // travel is not recorded. See FlightRecorder.IsRoboticEmissionSkippedModuleName.
+                // Logged once per key, exactly as FlightRecorder.CheckRoboticState does: a silent
                 // skip here would leave the BG half of the gate invisible in KSP.log, and the BG
                 // half is the one a rover-on-a-background-vessel report lands on.
-                if (FlightRecorder.IsDerivedWheelVisualModuleName(moduleName))
-                {
-                    if (state.loggedRoboticModuleKeys.Add(key))
-                    {
-                        ParsekLog.Verbose("BgRecorder", $"Robotics: derived wheel visual not recorded for " +
-                            $"'{part.partInfo?.name}' pid={part.persistentId} midx={moduleIndex} " +
-                            $"module={moduleName} (bg vessel {state.vesselPid}); " +
-                            $"derived from ghost ground motion at playback");
-                    }
+                if (!FlightRecorder.ShouldEmitRoboticEvents("BgRecorder", moduleName, key,
+                        state.loggedRoboticModuleKeys, part.partInfo?.name, part.persistentId,
+                        moduleIndex, $" (bg vessel {state.vesselPid})"))
                     continue;
-                }
 
                 bool hasPosition = FlightRecorder.TryGetRoboticPositionValue(
                     module, moduleName, out float positionValue, out float deadband, out string sourceField);

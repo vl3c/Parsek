@@ -20,7 +20,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## RECORDER-GEAR-SUSPENSION-AS-ROBOTICS: a plane rolling on its landing gear records the suspension as robotics motion, about 22 start / stop events a second [FILED 2026-11-16 from AIR-1's first flight, runs `2026-11-16_1955` and `_1956_a2` (diagnostics on branch `forge-logs-2026-11-16-air1`, `diag/<runId>/KSP.log.parsek-lines.txt`), by log and code reading. OPEN; no C# change yet; low (recording size and log volume; nothing renders wrong)]
+## ~~RECORDER-GEAR-SUSPENSION-AS-ROBOTICS~~: a plane rolling on its landing gear records the suspension as robotics motion, about 22 start / stop events a second [FILED 2026-11-16 from AIR-1's first flight, runs `2026-11-16_1955` and `_1956_a2` (diagnostics on branch `forge-logs-2026-11-16-air1`, `diag/<runId>/KSP.log.parsek-lines.txt`), by log and code reading. FIXED 2026-11-16, branch `gear-suspension-fix`; xUnit; GS-6 carries two suspension-fed applier tokens that this removes (see Fix), awaiting a PC flight; low (recording size and log volume, plus a wrong ghost gear pose on replay)]
 
 What the log shows: while the stock Mallard rolled on the Runway, the active recorder wrote
 `Part event: RoboticMotionStarted` / `RoboticMotionStopped` for its three gear parts
@@ -58,6 +58,33 @@ from a HELD reference, a Stopped only after it stayed within the deadband for a 
 0.5 s), and a coarser suspension deadband (centimetres, not 2.5 mm). Either way: an xUnit cell
 over `CheckRoboticTransition` fed a 1 mm frame-to-frame jitter must emit no events, and the next
 AIR-1 flight's KSP.log should show zero `RoboticMotion*` lines for the gear parts.
+
+Playback, read while fixing: the events were NOT harmless. The ghost builder gives
+`ModuleWheelSuspension` a `Linear` robotic info on the `suspensionTransformName` transform, and
+`GhostPlaybackLogic.ApplyRobotic*` posed it at `stowedPos + up * value`. Decompiled,
+`suspensionPos` is `suspensionTransform.localPosition` (sentinel `-Vector3.one` before the first
+update), so `value` is the length of an absolute position (1.34 .. 1.51 on the GearMedium, 1.73
+for the sentinel), not a travel: every replayed Started lifted the ghost's wheel by about its own
+position length. So a debounce (option 2) would have kept a wrong pose, and option (1) is the fix.
+
+Fix: option (1), recorder and playback. `FlightRecorder.IsWheelSuspensionModuleName` joins the
+derived wheel visuals in the shared emission gate `IsRoboticEmissionSkippedModuleName`, applied by
+both recorders through one `ShouldEmitRoboticEvents` head (one `Robotics: wheel suspension not
+recorded for ...` Verbose line per module key, `[Recorder]` or `[BgRecorder] ... (bg vessel N)`;
+the derived-visual line keeps its wording). The module stays in `CacheRoboticModules` /
+`TryBuildRoboticInfos`, so the robotic module index keeps its lockstep. Playback:
+`ApplyRoboticEvent` returns the new outcome `IgnoredRecordedSignal` (`reason=ignored-recorded-signal`
+on the applier line) for a suspension info, so legacy recordings keep their events on disk but the
+ghost gear stays at its rest pose. Breaking Ground hinges, pistons, rotation servos and rotors go
+through the unchanged path. Tests: `GearSuspensionRoboticGateTests` (an AIR-1-shaped 1 mm jitter
+over 22 s emits zero events in both recorders' loop and logs the skip once; the ungated core emits
+over 200; a hinge sweep still records Started / samples / Stopped; playback ignores a legacy
+suspension event and still applies a hinge event). The synthetic `Part Showcase - Wheel Dynamics
+Gear Fixed` row drives moduleIndex 0 (the suspension) and now holds still at playback. HARNESS:
+`GS-6-part-event-applier-sweep` REQUIRES `apply family=RoboticMotionStarted|Stopped surface=robotic
+... applied=[1-9]`, which only its landing legs' `ModuleWheelSuspension` fed (stock-minimal has no
+Breaking Ground part), so those two tokens can no longer match; they are left in place for the
+operator to retire on the next GS-6 flight, not re-pinned here.
 
 ## ~~MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH~~: a looped mission that starts in orbit is timed around a later moon it passes low over [CLOSED 2026-11-16: V43M flew green on its first flight with the fix, `2026-11-16_1803_V43M-vall-tylo-player-loop` PASS attempt 1 (46 s, automation DLL built from 866ac123, sha256 prefix 8dfcbc5e; every verifier green), KSP.log reading launch moon Vall, constraints=3, `Solve: dominant=Tylo method=dominant-intercept residual=2.18 withinTol=yes` and `PhaseLock APPLIED ... P=211926.36 ... zeroDrift=yes scheduleWithinTol=yes`. FILED 2026-11-16 from V43M's first flight `2026-11-16_1726_V43M-vall-tylo-player-loop` (PC, parallel run `moon-loops-2026-11-16d`, DLL unchanged since PR #2638, PARSEK-FAIL(expectation) attempt 1, 58 s; diagnostics on branch `forge-logs-2026-11-16d`, folder `diag/2026-11-16_1726_V43M-vall-tylo-player-loop/`). FIXED 2026-11-16, branch `claude/project-thread-vpr29t`; xUnit; V43M re-pinned, awaiting PC flight; low (the loop still phase-locks, on the wrong launch moon)]
 
