@@ -2086,6 +2086,107 @@ cd harness && python tools/parallel_runner.py resume --name nightly-1
   when the runner itself broke. Decisions: `lib/parallel.py`; tests:
   `lib/test_parallel.py`.
 
+### Campaign chains (`tools/campaign_runner.py`)
+
+Flies a declared LADDER of committed lanes in order, each lane staging the
+previous lane's produced save instead of its own committed fixture: the
+scripted career (CS-0 to CS-7) replayed end to end, or any range of it. It is
+the parallel runner with a different queue: the machine lock, slot and DLL
+checks, the one Parsek.Tests build, the Unity prefs, the `run.py --slot`
+children, the dispatcher (`parallel.decide_next`), stop / resume and the
+end-of-run bookkeeping are the parallel runner's own (above), so all of that
+reads the same here; the lock payload's selection names `campaign-runner run=<name>`.
+
+```
+cd harness && python tools/campaign_runner.py run --ladder cs-career --name cs-1 --from CS-3 --to CS-4b --slots 1
+cd harness && python tools/campaign_runner.py run --ladder cs-career --name cs-all --dry-run
+cd harness && python tools/campaign_runner.py status --name cs-1
+cd harness && python tools/campaign_runner.py stop --name cs-1
+cd harness && python tools/campaign_runner.py resume --name cs-1
+cd harness && python tools/campaign_runner.py promote --name cs-1 --stage CS-4
+```
+
+- **The ladder** `harness/campaigns/<name>.toml` (`schema = 1`, `name`, an
+  optional `[harvest]` default, one or more `[[chain]]` of `[[chain.stage]]`).
+  A stage is a spec `id` (each spec flies once per ladder), an optional
+  `label` (`--from` / `--to` take either), and the `handover` of the edge into
+  it: `chain` (the default) stages the previous stage's save; `fixture` stages
+  the stage's committed fixture and needs a `reason` naming why the edge cannot
+  be replayed yet. A chain's first stage always stages its committed fixture.
+  `carryCraft = [...]` names builder-made craft a chained stage launches that
+  its committed fixture holds and the previous save does not; they are copied
+  from `fixtures/saves/<leaf>/Ships/VAB` into the chained save. A library craft
+  (`fixtures/shared-ships.toml`) needs nothing: the save is staged under the
+  spec's own template leaf, so the overlay keyed by that leaf applies as for any
+  run. `after = [...]` names stages of OTHER chains that must be green first.
+  `harvest = { keepParsek, allowNoVessel, expectMode, expectSituation }` are
+  `tools/harvest_bdock_station.py`'s gates. The runner refuses (exit 2), naming
+  every problem: an unknown key or spec, a template outside `fixtures/saves/`,
+  a fixture edge with no reason, an `after` cycle, and any craft a stage
+  launches that its staged save would not carry (`campaign.craft_reach_problems`,
+  which `test_campaign.CommittedLadderTests` also holds for every committed
+  ladder). `--from` / `--to` pick a range of ONE chain; its first stage stages
+  its committed fixture.
+- **The handover.** When a stage ends PASS or EXPECTED-FAIL its produced save
+  is taken from the run's own snapshot (`results/<runId>_save`, copied out of
+  the instance under the lock, run.py's default for every lane) and harvested
+  at once with `harvest_bdock_station.harvest` into
+  `results/campaign/<name>/<chain>/<NN>-<id>/out/<next stage's leaf>/`. The
+  instance save is never read: a sibling run sharing the template re-stages it
+  within seconds. The next chained stage gets a fresh copy in its own `in/`
+  folder plus a `handover.json` carrying the runner's token, and its child runs
+  `run.py --slot <s> --stage-from <stage>/in`. run.py accepts `--stage-from`
+  only from such a child: slot mode, one lane, a folder named `in` under
+  `results/campaign/`, a handover marker naming that lane and the runner token
+  of `PARSEK_HARNESS_RUNNER_TOKEN`, and a `persistent.sfs` in it
+  (`campaign.stage_from_refusal`); anything else exits 2 before any lane flies,
+  and the flag without `--slot` is a usage error. `stage_fixture` then copies
+  that folder in place of the template, under the spec's own leaf.
+- **A broken chain.** A stage that is not green, a green stage whose run left
+  no snapshot, or a harvest gate that refuses breaks its chain there: later
+  stages never fly, so none stages a stale save. `campaign.txt` (rewritten after
+  every stage) names the stage, its verdict, run ids and any handover reason,
+  and lists the stages not flown, e.g. `chain career BROKEN at
+  CS-4-career-orbit-return: PARSEK-FAIL attempts=2 runIds=a,b; not flown: ...`.
+  A second chain keeps flying.
+- **Resume.** `resume --name N` flies from the first stage of each chain that
+  is not green (the stage that broke, then the rest), staging the last green
+  stage's harvested save again; green stages are never re-flown. It uses the
+  ladder table frozen in `campaign.json` at `run`, so a later ladder edit does
+  not change a run halfway.
+- **Two chains** run side by side on two slots of their profile (`--slots 2`):
+  among ready stages the earlier chain in ladder order goes first, and `after`
+  holds a cross-chain dependency. `--dry-run` prints each stage's source and
+  the p50 schedule and writes nothing.
+- **Promotion.** `promote --name N --stage S` re-harvests a green stage's save
+  over its successor's committed fixture (`fixtures/saves/<leaf>`), keeping any
+  committed craft the save lacks; only into a successor whose edge is a
+  `chain` handover. Commit it and re-run the harness suites.
+- **Run folder** `results/campaign/<name>/`: `campaign.json` (the plan and the
+  ladder table), `campaign.txt` (the verdict), `control.json`, `events.jsonl`
+  (adds `settle` per stage), `runner.log`, `lanes/`, `summary.txt`, and per
+  stage `<chain>/<NN>-<id>/` with `stage.json` (verdict, attempts, run ids,
+  handover result, source, harvested leaf), `handover.json`, `in/` and `out/`.
+  Uncommitted, under `results/`.
+- **Exit code** 0 every selected stage green; 1 a chain broke, or stages were
+  left unflown without a stop; 2 a refused ladder, range or name, a profile
+  with no slot, slots on different DLLs; 3 a held lock, or a stop that left
+  stages unflown; 4 the runner broke.
+- **The committed ladder** `campaigns/cs-career.toml`. CS-3 and CS-3b are
+  `fixture` edges: a genuine New Game offers random contract GUIDs, which CS-3
+  accepts by the committed `cs-career-new` GUIDs, and CS-3b accepts a PartTest
+  offered during CS-3's committed flight and hires an applicant seeded by hand
+  (T-58's accept-by-type selector removes both). From CS-3b on every edge
+  chains. Past CS-6 a chained replay can red on count windows read off the
+  committed hosts (todo CS-LADDER-CHAIN-PINS).
+
+Decisions: `lib/campaign.py`; tests: `lib/test_campaign.py`, whose shell smoke
+drives the real runner, the real harvest and run.py's own `--stage-from` check
+and `stage_fixture` over a fake child (`lib/_fake_campaign_child.py`): the
+handover, a middle stage that fails, a resume, a green stage without a
+snapshot, every snapshot and instance save overwritten mid-chain, and two
+chains on two slots.
+
 ### Reviewing a run
 
 When a requested tier finishes - hours later for a nightly - four surfaces, each
@@ -2702,7 +2803,7 @@ it just no longer has to be there in git. Committing a physical copy per save co
 and made every copy an independent drift risk: `build_dd1_craft.py` had grown a
 three-path gate purely to chase its own copies.
 
-Two rules when adding or harvesting a fixture:
+Three rules when adding or harvesting a fixture:
 
 - **Needs a shared craft?** Add the save's row to `shared-ships.toml`. Do NOT copy
   the `.craft` into the fixture - `SharedShipsManifestTests` (in `lib/test_hlib.py`)
@@ -2711,6 +2812,13 @@ Two rules when adding or harvesting a fixture:
 - **Craft used by exactly one fixture?** It stays physically in that fixture and is
   NOT listed (`gloops-airshow/Ships/VAB/Auto-Saved Ship.craft` is the only one
   today). The same test reds a library craft that drops to one consumer.
+- **Adds or changes a `.prec`?** The xUnit `TrajectoryCodecFixtureIdentityTests` pins every
+  committed trajectory sidecar under `fixtures/` (and `Source/Parsek.Tests/Fixtures/`) in
+  `Source/Parsek.Tests/Fixtures/TrajectoryCodecIdentity/manifest.tsv` and reds on a new,
+  removed or changed one. Regenerate the manifest in the same commit:
+  `PARSEK_WRITE_CODEC_MANIFEST=1 scripts/cloud-test.sh -method
+  "Parsek.Tests.TrajectoryCodecFixtureIdentityTests.RegenerateManifest"` (Windows: the same
+  variable with `dotnet test --filter`); the row diff names exactly the harvested files.
 
 ### The race shared folder (`[fixture.race]`)
 

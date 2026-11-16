@@ -85,7 +85,9 @@ class RunnerLog:
     """Runner lines to the console and, once a run folder exists, to its
     ``runner.log``. The file is the record; a dead console latches off."""
 
-    def __init__(self, console: Optional[Callable[[str], None]] = None):
+    def __init__(self, console: Optional[Callable[[str], None]] = None,
+                 prefix: str = "Parallel"):
+        self._prefix = prefix
         self._console = console or (lambda t: (print(t), sys.stdout.flush()))
         self._console_dead = False
         self._fh = None
@@ -110,7 +112,7 @@ class RunnerLog:
                     self._fh = None
 
     def log(self, level: str, step: str, message: str) -> None:
-        self.raw("[Parallel][%s][%s] %s" % (level, step, message))
+        self.raw("[%s][%s][%s] %s" % (self._prefix, level, step, message))
 
     def info(self, step, msg):
         self.log("Info", step, msg)
@@ -674,10 +676,12 @@ class LockKeeper:
     """Holds the machine lock for the whole run and heartbeats it from a daemon
     thread. ``lost`` is set when the lock stops being ours."""
 
-    def __init__(self, ctx: Context, name: str, log: RunnerLog):
+    def __init__(self, ctx: Context, name: str, log: RunnerLog,
+                 selection_label: str = "parallel-runner"):
         self.ctx = ctx
         self.name = name
         self.log = log
+        self.selection_label = selection_label
         self.token = secrets.token_hex(16)
         self.path: Optional[str] = None
         self.lost = threading.Event()
@@ -687,7 +691,7 @@ class LockKeeper:
 
     def payload(self) -> Dict[str, Any]:
         return {"pid": os.getpid(), "timestamp": time.time(), "worktree": WORKTREE_ROOT,
-                "selection": "parallel-runner run=%s" % self.name,
+                "selection": "%s run=%s" % (self.selection_label, self.name),
                 "startedIso": self._started_iso, "token": self.token,
                 "kind": parallel.RUNNER_LOCK_KIND, "runName": self.name}
 
@@ -741,14 +745,15 @@ class Child:
 
 def _spawn_child(ctx: Context, folder: RunFolder, job: WindowsJob, seq: int,
                  lane: parallel.Lane, slot: str, window: str, desktop_id: Optional[str],
-                 token: str, log: RunnerLog) -> Child:
+                 token: str, log: RunnerLog, extra_argv: Sequence[str] = ()) -> Child:
     lanes_dir = folder.lanes_dir()
     os.makedirs(lanes_dir, exist_ok=True)
     ids_file = os.path.join(lanes_dir, "%s.ids" % lane.lane_id)
     write_text_atomic(ids_file, "# parallel run lane\n%s\n" % lane.lane_id)
     report = os.path.join(lanes_dir, "%s.%d.report.json" % (lane.lane_id, seq))
     log_path = os.path.join(lanes_dir, "%s.%d.log" % (lane.lane_id, seq))
-    argv = parallel.child_argv(ctx.python, ctx.run_py, slot, ids_file, report, window, desktop_id)
+    argv = parallel.child_argv(ctx.python, ctx.run_py, slot, ids_file, report, window, desktop_id,
+                               extra_argv)
     env = parallel.child_env(os.environ, token, os.getpid())
     fh = open(log_path, "a", encoding="utf-8")
     flags = 0
@@ -1079,47 +1084,16 @@ def execute(ctx: Context, folder: RunFolder, plan: Dict, include_exclusive: bool
     used = [s for p in sorted({l.profile for l in todo}) for s in by_profile.get(p, [])]
     log.info("Slots", "slots in use: %s" % ", ".join(used))
 
-    keeper = LockKeeper(ctx, str(plan.get("name")), log)
-    ok, reason = keeper.acquire()
-    if not ok:
-        return _refuse(log, parallel.EXIT_SKIPPED, "Lock",
-                       "machine lock held, nothing started (%s)" % reason)
-    log.info("Lock", "machine lock acquired (%s) kind=%s pid=%d"
-             % (reason, parallel.RUNNER_LOCK_KIND, os.getpid()))
-    _clear_stale_stop_request(ctx, log)
-    folder.event("start", pid=os.getpid(), lanes=len(remaining))
-    job = WindowsJob(log)
-    prefs_taken = False
-    result = LoopResult()
-    try:
-        odd = parallel.check_uniform_dll(slot_dll_shas(ctx, used))
-        if odd:
-            folder.event("end", outcome="NEEDS-PROVISION", exit=parallel.EXIT_NEEDS_PROVISION)
-            return _refuse(log, parallel.EXIT_NEEDS_PROVISION, "Slots", odd)
-        desktops, current = ctx.desktops_fn()
-        resolution = parallel.resolve_window_mode(str(plan.get("windowMode")), desktops, current)
-        log.info("Window", "window=%s %s%s" % (resolution.mode, resolution.detail,
-                                                (" desktop=%s" % resolution.desktop_id)
-                                                if resolution.desktop_id else ""))
-        if resolution.hint:
-            log.info("Window", resolution.hint)
-        ctx.unity_prefs.snapshot(ctx.umbrella_root, log)
-        prefs_taken = True
-        if not ctx.bridge.build_tests(log):
-            folder.event("end", outcome="RED", exit=parallel.EXIT_RED, reason="tests-build")
-            return _refuse(log, parallel.EXIT_RED, "Build",
-                           "Parsek.Tests build failed; no lane started")
-        result = dispatch_loop(ctx, folder, plan, lanes, not_flown, by_profile, resolution,
-                               keeper, job, log)
-        if result.ran:
-            _bookkeeping(ctx, keeper, result, log)
-    finally:
-        if prefs_taken:
-            try:
-                ctx.unity_prefs.restore(ctx.umbrella_root, log)
-            except Exception as exc:  # noqa: BLE001
-                log.warn("UnityPrefs", "restore failed: %s" % exc)
-        keeper.release()
+    def loop(keeper: LockKeeper, job: WindowsJob,
+             resolution: parallel.WindowResolution) -> LoopResult:
+        return dispatch_loop(ctx, folder, plan, lanes, not_flown, by_profile, resolution,
+                             keeper, job, log)
+
+    refused, result = fly_under_machine_lock(ctx, folder, str(plan.get("name")),
+                                             str(plan.get("windowMode")), used,
+                                             len(remaining), log, loop)
+    if refused is not None:
+        return refused
 
     outcome, code, detail = parallel.selection_outcome(plan_ids, folder.summary_lines(),
                                                        result.stopped)
@@ -1130,6 +1104,62 @@ def execute(ctx: Context, folder: RunFolder, plan: Dict, include_exclusive: bool
         "Done", "run %s outcome=%s exit=%d %s; summary %s"
         % (plan.get("name"), outcome, code, detail, folder.file(parallel.SUMMARY_FILE)))
     return code
+
+
+def fly_under_machine_lock(ctx: Context, folder: RunFolder, name: str, window_mode: str,
+                           used: Sequence[str], lane_count: int, log: RunnerLog,
+                           loop: Callable[[LockKeeper, WindowsJob, parallel.WindowResolution],
+                                          LoopResult],
+                           selection_label: str = "parallel-runner"
+                           ) -> Tuple[Optional[int], LoopResult]:
+    """Everything a runner does around its dispatch loop, shared by this runner
+    and ``tools/campaign_runner.py``: take the machine lock (exit 3 when held),
+    clear a stale stop request, check one DLL across ``used`` slots (exit 2),
+    resolve the window mode, snapshot the Unity prefs, build Parsek.Tests once
+    (exit 1 on failure), run ``loop``, the bookkeeping after it, and always
+    restore the prefs and release the lock. Returns (refusal exit code or None,
+    the loop's result)."""
+    keeper = LockKeeper(ctx, name, log, selection_label)
+    ok, reason = keeper.acquire()
+    if not ok:
+        return _refuse(log, parallel.EXIT_SKIPPED, "Lock",
+                       "machine lock held, nothing started (%s)" % reason), LoopResult()
+    log.info("Lock", "machine lock acquired (%s) kind=%s pid=%d"
+             % (reason, parallel.RUNNER_LOCK_KIND, os.getpid()))
+    _clear_stale_stop_request(ctx, log)
+    folder.event("start", pid=os.getpid(), lanes=lane_count)
+    job = WindowsJob(log)
+    prefs_taken = False
+    result = LoopResult()
+    try:
+        odd = parallel.check_uniform_dll(slot_dll_shas(ctx, used))
+        if odd:
+            folder.event("end", outcome="NEEDS-PROVISION", exit=parallel.EXIT_NEEDS_PROVISION)
+            return _refuse(log, parallel.EXIT_NEEDS_PROVISION, "Slots", odd), result
+        desktops, current = ctx.desktops_fn()
+        resolution = parallel.resolve_window_mode(window_mode, desktops, current)
+        log.info("Window", "window=%s %s%s" % (resolution.mode, resolution.detail,
+                                                (" desktop=%s" % resolution.desktop_id)
+                                                if resolution.desktop_id else ""))
+        if resolution.hint:
+            log.info("Window", resolution.hint)
+        ctx.unity_prefs.snapshot(ctx.umbrella_root, log)
+        prefs_taken = True
+        if not ctx.bridge.build_tests(log):
+            folder.event("end", outcome="RED", exit=parallel.EXIT_RED, reason="tests-build")
+            return _refuse(log, parallel.EXIT_RED, "Build",
+                           "Parsek.Tests build failed; no lane started"), result
+        result = loop(keeper, job, resolution)
+        if result.ran:
+            _bookkeeping(ctx, keeper, result, log)
+    finally:
+        if prefs_taken:
+            try:
+                ctx.unity_prefs.restore(ctx.umbrella_root, log)
+            except Exception as exc:  # noqa: BLE001
+                log.warn("UnityPrefs", "restore failed: %s" % exc)
+        keeper.release()
+    return None, result
 
 
 def _bookkeeping(ctx: Context, keeper: LockKeeper, result: LoopResult, log: RunnerLog) -> None:

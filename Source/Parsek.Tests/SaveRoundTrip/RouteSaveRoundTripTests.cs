@@ -84,7 +84,8 @@ namespace Parsek.Tests.SaveRoundTrip
             };
         }
 
-        private static int guidCounter;
+        // Process-wide; SaveWriterDriver resets it so two builds of its state are byte-equal.
+        internal static int guidCounter;
 
         private static string NewNormalizedGuid() =>
             new Guid(++guidCounter, 0x4321, 0x0765, 9, 8, 7, 6, 5, 4, 3, 2).ToString("N", CultureInfo.InvariantCulture);
