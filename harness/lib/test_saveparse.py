@@ -1451,8 +1451,10 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # the optimizer's split at the splash, aacb1976 (chainIndex 1, UT 393.14 ->
         # 427.18, terminal Splashed, spawnedPid 601857151 = the Mallard at rest in
         # the sea, sit SPLASHED). Save clock (FLIGHTSTATE UT) 427.46. The GS1
-        # booster from the host stays on the pad as an unrecorded vessel. AIR-2
-        # rewinds this tree and replays it at the Space Center. The facets below
+        # booster from the host stays on the pad as an unrecorded vessel. No lane
+        # consumes it yet: AIR-2 was handed it, but a harvest carries no rewind
+        # save (Parsek/Saves pruned), so AIR-2 flies the circuit itself and this
+        # fixture waits for a replay lane that needs no rewind. The facets below
         # are read off the harvested bytes.
         "air-circuit-recorded": {
             "trees": 1, "committedTrees": 1, "recordings": 2,

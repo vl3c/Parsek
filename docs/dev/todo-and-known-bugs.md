@@ -1945,7 +1945,14 @@ in parallel in the cloud):
    bank), glided east and splashed down near lat 0.055 lon -73.70; terminal Splashed, the tree
    committed, 2 recordings (the optimizer's split at the splash; the runway run stayed whole), zero
    gear RoboticMotion lines. Harvested as `air-circuit-recorded` (tree d07b9a6f) and registered;
-   AIR-2 re-pinned off it (WarpToUT 487.18 = EndUT 427.18 + 60, count {2,2}). Next: fly AIR-2.
+   AIR-2 re-pinned off it (WarpToUT 487.18 = EndUT 427.18 + 60, count {2,2}). AIR-2 RE-SHAPED
+   the same day before its first flight: the harvest prunes `Parsek/Saves` and clears every
+   `rewindSave` value, so `InvokeRewindToLaunch` on it answers REJECTED "No rewind save
+   available" (`RewindLauncher.CanRewindPreFileCheck`), and Warp-to-time's backward plan needs the
+   same pruned files. AIR-2 now flies `air1_runway_circuit` itself on `gs1-two-stage-pad` (AIR-1's
+   parameters, BAY-1's commit-then-rewind recipe), rewinds, warps to UT 900 at 10x and reads the
+   KSC ghost, the end spawn and `LeafVesselPlacement`; count {1,40}. `air-circuit-recorded` stays
+   for a replay lane that needs no rewind. Next: fly AIR-2.
    Follow-up: AIR1-GLIDE-SLOPE-STEEPER-THAN-PLANNED.)
    Aircraft: no lane flies a plane (BAY-1's never moves). A runway takeoff, a circuit and a
    landing, then its ghost replays at the Space Center. Open after AIR-2: no in-game check reads a

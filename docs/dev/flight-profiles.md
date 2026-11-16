@@ -16,8 +16,8 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | profile stock-minimal | 558 |
 | profile stock-tree | 40 |
 | profile modded-compat | 4 |
-| autopilot (mission) lanes | 146 |
-| seam-only lanes | 456 |
+| autopilot (mission) lanes | 147 |
+| seam-only lanes | 455 |
 | LIVE-PROVEN date in status row | 484 |
 | no LIVE-PROVEN date | 118 |
 | no status row | 0 |
@@ -34,7 +34,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | family | lanes | daily | nightly | operator | longhaul | autopilot | live-proven |
 |---|---|---|---|---|---|---|---|
 | AH | 1 | - | 1 | - | - | - | 1 |
-| AIR | 2 | - | - | 2 | - | 1 | 1 |
+| AIR | 2 | - | - | 2 | - | 2 | 1 |
 | AJ | 1 | - | - | 1 | - | - | 1 |
 | AP | 1 | - | 1 | - | - | - | 1 |
 | AST | 4 | - | 4 | - | - | 4 | 4 |
@@ -126,12 +126,12 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 
 ## Lanes per host save
 
-The host is the leaf of `fixture.saveTemplate`. 139 hosts serve 602 lanes.
+The host is the leaf of `fixture.saveTemplate`. 138 hosts serve 602 lanes.
 
 | host save | lanes | families |
 |---|---|---|
 | gloops-airshow | 84 | H 40, S 12, QL 6, CI 5, CN 5, VN 3, EVA 2, GUI 2, LT 2, MC 2, AJ 1 +4 |
-| gs1-two-stage-pad | 33 | GS 8, RF 6, VN 6, QL 4, H 3, RB 2, AIR 1, BAY 1, CA 1, MC 1 |
+| gs1-two-stage-pad | 34 | GS 8, RF 6, VN 6, QL 4, H 3, AIR 2, RB 2, BAY 1, CA 1, MC 1 |
 | cs-career-mun4 | 23 | RW 20, CS 1, REV 1, SWS 1 |
 | rover-route-recorded | 20 | RVR 7, H 5, IR 5, GUI 2, V 1 |
 | eva2-lko-crewed | 19 | S 5, CI 3, EVA 2, RSC 2, VN 2, EX 1, FGV 1, GC 1, QWS 1, SS 1 |
@@ -210,7 +210,6 @@ The host is the leaf of `fixture.saveTemplate`. 139 hosts serve 602 lanes.
 | refly-split-crewed-recorded | 2 | RF 2 |
 | rover-relay-c-recorded-career | 2 | H 2 |
 | rover-relay-recorded | 2 | RVR 2 |
-| air-circuit-recorded | 1 | AIR 1 |
 | ast-miner-lko | 1 | AST 1 |
 | ast-mothership-lko | 1 | AST 1 |
 | bdock-recorded-career | 1 | H 1 |
@@ -306,7 +305,7 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 
 | body | lanes | autopilot | live-proven | families |
 |---|---|---|---|---|
-| Kerbin | 363 | 115 | 294 | RF 29, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +66 |
+| Kerbin | 363 | 116 | 294 | RF 29, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +66 |
 | Mun | 55 | 13 | 45 | RW 22, V 8, B 5, CS 5, TP 4, MC 2, EVA 1, GUI 1, H 1 +6 |
 | Minmus | 13 | 5 | 9 | V 6, B 5, AP 1, TP 1 |
 | Moho | 3 | 1 | 2 | V 2, B 1 |
@@ -468,7 +467,7 @@ Lanes per family (rows) per timeline operation (columns).
 
 ## Lanes per mission machine
 
-146 autopilot lanes fly 55 mission machines.
+147 autopilot lanes fly 55 mission machines.
 
 | mission | lanes | lane ids |
 |---|---|---|
@@ -488,6 +487,7 @@ Lanes per family (rows) per timeline operation (columns).
 | ci9_tip_dock | 3 | CI-9-chain-tip-dock, VN-10-dock-undock-dominant-rename, VN-4-dock-undock-rename |
 | forge_lko | 3 | FORGE-eva2-lko, FORGE-gs2-orbital-stack, LABX-1-lab-orbit-ascent |
 | rf12s_refly_orbit_insert | 3 | RF-12S-refly-saves-pre-rewind-boarded-crew +2 |
+| air1_runway_circuit | 2 | AIR-1-runway-circuit-splashdown, AIR-2-runway-circuit-ksc-ghost |
 | b17_duna_direct | 2 | B17-duna-direct-orbit, V3C-flight-arrival-companion |
 | b24_gilly_orbit | 2 | B24-gilly-orbit, B37-eve-gilly-continuation |
 | b26_laythe_vall | 2 | B26-laythe-vall-transfer, B48-jool-laythe-bop-continuation |
@@ -497,7 +497,6 @@ Lanes per family (rows) per timeline operation (columns).
 | d5_redock | 2 | LAB-13b-lab-dock-undock, SD-1-same-tree-redock |
 | eva4_atmo_chute | 2 | EVA-4-atmo-chute, M3-mission-phasing-airborne-anchor |
 | r1_rewind_loop | 2 | R1-rewind-loop-flown, RF-12L-rewind-batch-after-landing |
-| air1_runway_circuit | 1 | AIR-1-runway-circuit-splashdown |
 | b11_mun_orbit | 1 | B11-mun-orbit |
 | b11_mun_orbit_return | 1 | CS-6-career-mun-orbit |
 | b11_mun_science_return | 1 | CS-6c-career-mun-science |
@@ -537,13 +536,13 @@ Lanes per family (rows) per timeline operation (columns).
 | SetSetting | 594 | H 75, V 67, B 41, RF 31, GUI 28, RW 25, L 22, QL 21, RVR 19, S 19 +80 |
 | StopRecording | 330 | V 65, RF 25, RW 24, RVR 19, LAB 17, EVA 16, H 15, B 14, MINE 14 +46 |
 | SaveGame | 243 | RW 25, V 21, QL 20, RVR 15, LAB 14, RF 14, CS 13, MINE 12, EVA 11 +43 |
-| DiscardTree | 231 | V 65, RVR 19, LAB 17, H 15, B 14, MINE 14, EVA 11, TP 9, GUI 7 +32 |
+| DiscardTree | 230 | V 65, RVR 19, LAB 17, H 15, B 14, MINE 14, EVA 11, TP 9, GUI 7 +31 |
 | RecordingState | 226 | RF 27, V 21, LAB 14, QL 14, MINE 12, CS 11, EVA 11, L 11, VN 11 +39 |
 | WarpToUT | 212 | RW 25, V 21, LAB 18, MINE 14, EVA 11, QL 11, CI 8, VN 8, RF 7 +44 |
 | RunTests | 200 | H 71, RW 25, V 13, CS 10, L 8, CN 6, LT 5, S 5, FAR 4, RF 4, STR 4 +30 |
 | StartRecording | 169 | B 23, RW 23, EVA 14, LAB 14, MINE 12, VN 8, FAR 6, S 6, QL 5, RF 5 +33 |
 | MissionMark | 157 | RW 25, LAB 17, EVA 13, MINE 12, CS 10, IR 6, L 6, QL 6, RF 6 +32 |
-| CommitTree | 153 | RW 24, EVA 14, MINE 11, QL 9, VN 9, CS 8, L 8, LAB 8, B 7, AST 4 +34 |
+| CommitTree | 154 | RW 24, EVA 14, MINE 11, QL 9, VN 9, CS 8, L 8, LAB 8, B 7, AST 4 +34 |
 | ListHandles | 146 | RF 23, QL 14, EVA 12, MINE 12, CI 11, LAB 9, VN 9, IR 6, RW 5 +29 |
 | TimeJump | 122 | V 44, RVR 14, RF 9, TP 8, S 6, GUI 5, H 5, QL 5, IR 4, MINE 4 +16 |
 | InvokeRewindToLaunch | 91 | RW 24, EVA 10, MINE 10, L 4, AST 2, FAR 2, H 2, HC 2, IR 2, LF 2 +25 |
@@ -811,7 +810,7 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
 | AIR-1-runway-circuit-splashdown | operator | gs1-two-stage-pad | air1_runway_circuit | Kerbin | - | - | LIVE-PROVEN 2026-11-16 |
-| AIR-2-runway-circuit-ksc-ghost | operator | air-circuit-recorded | seam | Kerbin | rewind-to-launch, warp | LeafVesselPlacement | NEVER FLOWN; fixture air-circuit-recorded... |
+| AIR-2-runway-circuit-ksc-ghost | operator | gs1-two-stage-pad | air1_runway_circuit | Kerbin | rewind-to-launch, warp | LeafVesselPlacement | NEVER FLOWN; re-shaped 2026-11-16 to fly... |
 
 ### AJ (1)
 

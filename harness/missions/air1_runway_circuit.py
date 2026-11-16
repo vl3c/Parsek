@@ -5,7 +5,9 @@ throttle zero) so Parsek's own first-staging-on-the-pad trigger starts the
 recording, releases the brakes at full throttle, rotates, climbs out east, flies a
 circuit of waypoints at a cruise altitude, glides east to a touchdown point in the
 sea, flares, splashes down and comes to rest. The scenario's seam steps then
-commit the tree; its harvest is the fixture the AIR-2 Space Center replay lane reads.
+commit the tree; its harvest is the fixture `air-circuit-recorded`. AIR-2 flies this
+same mission with the same parameters, then rewinds it to launch and replays it at the
+Space Center (a harvest carries no rewind save, so AIR-2 cannot rewind the harvest).
 
 A THIN shell: every decision is the pure ``mlib.air_decide`` machine and
 ``mlib.evaluate_air_assertions``; the connect, fly loop, logging and result write

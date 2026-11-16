@@ -8,8 +8,10 @@ id = "AIR-1-runway-circuit-splashdown"
 # harvested as `air-circuit-recorded`.
 # Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 3 ("no lane flies a plane; BAY-1's never
 # moves"). This lane is the forge half: it records and commits a real atmospheric
-# flight from the Runway, and its harvest is the fixture `air-circuit-recorded` that
-# AIR-2-runway-circuit-ksc-ghost replays at the Space Center.
+# flight from the Runway, and its harvest is the fixture `air-circuit-recorded`.
+# AIR-2-runway-circuit-ksc-ghost flies this same mission with these parameters and
+# replays it at the Space Center after a Rewind-to-Launch (a harvest carries no
+# rewind save, so AIR-2 cannot rewind the harvest; re-shaped 2026-11-16).
 #
 # THE ROAD.
 #   1. MISSION `air1_runway_circuit` (kRPC, raw inputs, NO AutoPilot): roll the stock KSP
@@ -208,10 +210,10 @@ id = "AIR-1-runway-circuit-splashdown"
 #   python tools/harvest_bdock_station.py --save-dir results/<runId>_save
 #       --target-name air-circuit-recorded --expect-situation SPLASHED,LANDED --keep-parsek
 # `air-circuit-recorded` is registered in test_saveparse.RECORDED_FIXTURES and AIR-2 was
-# handed over in the same commit.
+# handed over in the same commit; AIR-2 was later re-shaped to fly the circuit itself.
 # =====================================================================================
 tier = "operator"  # calibration discipline: first three flights 2026-11-16 driver-INVALID (takeoff twice, then the AutoPilot hand-over); LIVE-PROVEN on the fourth (2026-11-16_2218)
-description = "AUTHORED 2026-11-16; first flight driver-INVALID on the takeoff roll (heading drift under the AutoPilot), second flight held the runway on the nose wheel but lost it at the rotate (the AutoPilot's yaw), third flight took off on the elevator and was rolled inverted by the AutoPilot at the climb hand-over; the AutoPilot is retired and the whole flight is flown on the elevator and ailerons; LIVE-PROVEN 2026-11-16 on the fourth flight (run 2026-11-16_2218). The first lane that flies a plane: the stock Mallard rolls out on the Runway, stages in place (Parsek's first-staging auto-record trigger), takes off east, flies a three-waypoint circuit at 1000 m within 10 km of KSC, glides east to a splashdown in the sea, comes to rest, and the tree is committed. Gates a fresh recording with launchSite=Runway, Atmospheric sections and a Splashed (or Landed) terminal. Its harvest `air-circuit-recorded` feeds AIR-2's Space Center replay."
+description = "AUTHORED 2026-11-16; first flight driver-INVALID on the takeoff roll (heading drift under the AutoPilot), second flight held the runway on the nose wheel but lost it at the rotate (the AutoPilot's yaw), third flight took off on the elevator and was rolled inverted by the AutoPilot at the climb hand-over; the AutoPilot is retired and the whole flight is flown on the elevator and ailerons; LIVE-PROVEN 2026-11-16 on the fourth flight (run 2026-11-16_2218). The first lane that flies a plane: the stock Mallard rolls out on the Runway, stages in place (Parsek's first-staging auto-record trigger), takes off east, flies a three-waypoint circuit at 1000 m within 10 km of KSC, glides east to a splashdown in the sea, comes to rest, and the tree is committed. Gates a fresh recording with launchSite=Runway, Atmospheric sections and a Splashed (or Landed) terminal. Its harvest is `air-circuit-recorded`; AIR-2 flies this same circuit for its Space Center replay."
 instanceProfile = "stock-minimal"
 tags = ["AIR1", "aircraft", "runway", "atmospheric", "splashdown", "fixture-forge", "flown"]
 

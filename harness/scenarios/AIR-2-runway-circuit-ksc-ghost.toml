@@ -2,30 +2,59 @@ schema = 1
 id = "AIR-2-runway-circuit-ksc-ghost"
 # =====================================================================================
 # AIR-2: THE PLANE'S GHOST REPLAYS AT THE SPACE CENTER. AUTHORED 2026-11-16, NEVER FLOWN.
-# Fixture `air-circuit-recorded` harvested --keep-parsek from AIR-1-runway-circuit-splashdown
-# run `2026-11-16_2218` (PASS attempt 1, wall 465 s): tree d07b9a6f945d418fa80b4268dc1aa3fc
-# ('Mallard') with TWO chain recordings of the one vessel, d563455e (launchSiteName Runway,
-# UT 30.74 -> 393.14) and the optimizer's split at the splash, aacb1976 (UT 393.14 ->
-# 427.18, terminal Splashed at lat 0.0545 lon -73.697, the Mallard at rest in the sea).
 # Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 3, the replay half of AIR-1.
 #
-# THE ROAD. Load AIR-1's harvest (`air-circuit-recorded`: one committed tree, the
-# Mallard's runway takeoff, circuit and splashdown, with the Mallard itself at rest in
-# the sea), drop the recorder's promotion of the committed tip (StopRecording +
-# DiscardTree, the EVA-6 / FAR-1 boot recipe), Rewind-to-Launch the tree (the scene
-# lands in the SPACE CENTER 15 s before the recording's StartUT with the tree kept as
-# a future ghost), then let Space Center time run at up to 10x through EndUT (ghosts
-# are hidden above 50x) so `ParsekKSC` flies the plane's ghost from the Runway around
-# the circuit to the sea and spawns the real Mallard at the recording's end. Then the
-# LeafVesselPlacement in-game category reads the spawned Mallard's position.
+# RE-SHAPED 2026-11-16, BEFORE ITS FIRST FLIGHT: IT FLIES THE CIRCUIT ITSELF. As handed
+# over, AIR-2 loaded AIR-1's harvest `air-circuit-recorded` and called
+# `InvokeRewindToLaunch tree=latest`. That can never pass: the harvest prunes
+# `Parsek/Saves` (the `parsek_rw_*` launch quicksaves and the career-start snapshot) and
+# clears every `rewindSave = parsek_rw_*` value by contract (`_PRUNE_PARSEK_SUBDIRS` /
+# `_REWIND_SAVE_VALUE_RE` in tools/harvest_bdock_station.py), so the root recording
+# d563455e reads `rewindSave =` empty, `RewindLauncher.CanRewindPreFileCheck` answers
+# "No rewind save available" and the seam REJECTS the step. Every other road back to a
+# UT before the flight needs a file the harvest drops too: Warp-to-time's backward plan
+# (`WarpToTimeController.ResolveRewindTarget`) offers only launch owners with a
+# `RewindSaveFileName` or the `parsek_career_start` snapshot under the same pruned
+# `Parsek/Saves`, and `TimeJump` refuses a backward jump. A loop replay
+# (`MissionConfig loop=true` + `StartLoopPlayback`, the V*K recipe) would reach the KSC
+# ghost lines but a looped recording never spawns its vessel, so the end spawn and the
+# LeafVesselPlacement read this lane exists for would be lost. So AIR-2 records its
+# own subject in the same run, BAY-1's recipe on the same host and craft (BAY-1 flew
+# the Mallard's runway rewind to a KSC ghost green, `2026-09-25_2218`), with AIR-1's
+# live-proven mission and parameters verbatim. `air-circuit-recorded` stays committed
+# and registered for a later replay lane that does not need a rewind (a loop replay).
+#
+# THE ROAD.
+#   1. MISSION `air1_runway_circuit` (AIR-1's, parameters copied verbatim from
+#      AIR-1-runway-circuit-splashdown, live-proven there `2026-11-16_2218`): roll the
+#      stock Mallard out onto the Runway of gs1-two-stage-pad, stage in place (Parsek's
+#      first-staging-on-the-pad auto-record trigger; the launch quicksave
+#      `parsek_rw_*` is captured here), take off east, fly the three-waypoint circuit
+#      at 1,000 m, glide east to a splashdown and come to rest.
+#   2. SEAM: StopRecording, CommitTree, StopRecording (CommitTree re-adopts a recorder on
+#      the still-active vessel, H58 flight 1), then InvokeRewindToLaunch tree=latest:
+#      the Mallard is stripped and the scene lands in the SPACE CENTER 15 s before the
+#      recording's StartUT with the tree kept as a future ghost.
+#   3. WarpToUT 900 at up to 10x (ghosts are hidden above 50x): `ParsekKSC` flies the
+#      plane's ghost from the Runway around the circuit to the sea and spawns the real
+#      Mallard at the recording's end. AIR-1 read StartUT 30.74 and EndUT 427.18, so the
+#      rewind lands near UT 16 and 900 clears the end by more than the whole flight's
+#      length again (about 90 s of wall clock at 10x).
+#   4. The LeafVesselPlacement in-game category reads the spawned Mallard's position.
+# verboseLogging / ghostRenderTracing are set BEFORE the mission so the launch quicksave
+# the rewind reloads carries them (the KSC ghost lines are Verbose).
 #
 # WHAT IT GATES.
-#   - the KSC ghost entered range for the Mallard, its terminal Splashed (or Landed);
+#   - the tree committed and the Rewind-to-Launch completed;
+#   - after the rewind, the KSC ghost entered range for the Mallard recording whose
+#     terminal is Splashed (or Landed), not looped;
 #   - the KSC absolute playback resolved the Mallard's pose on Kerbin;
 #   - the ghost left range at the end of its timeline and the real vessel spawned
 #     SPLASHED (or LANDED) at the end;
 #   - BY POSITION, the end only: LeafVesselPlacement compares the spawned Mallard's
 #     latitude / longitude with the recording's terminal surface position (100 m).
+# The flight's own facts (Runway launch site, Atmospheric sections, the Splashed
+# finalize) are AIR-1's gates and are not repeated here.
 # WHAT IT DOES NOT GATE: the ghost's position DURING the replay. No in-game check reads
 # a KSC ghost's transform against the recording's interpolated position today; the
 # KSC SURFACE line says a pose was resolved, not that it was the right one. A new
@@ -33,57 +62,89 @@ id = "AIR-2-runway-circuit-ksc-ghost"
 # position against `rec`'s interpolated lat / lon / alt at the same UT); filed in todo
 # NEXT-TESTS-TO-BUILD-2026-11-11 item 3.
 #
-# HANDED OVER 2026-11-16 at AIR-1's harvest, in the commit that registered
-# `air-circuit-recorded` in test_saveparse.RECORDED_FIXTURES: the WarpToUT target is the
-# harvested tree's last EndUT (aacb1976 explicitEndUT 427.18) + 60 = 487.18, tier
-# "operator" with tag "pending-flight", "sandbox" back in D14 (the fixture's Mode is
-# SANDBOX), the PENDING_FIXTURE_LANES entry deleted, and the recording count pinned off
-# the harvested bytes: 2 recordings, min == max (the replay and the end spawn record
-# nothing new; autoRecordOnLaunch is off).
+# THE COUNT. AIR-1's window {1, 40}, for AIR-1's reason: AIR-1's flight split into 2
+# recordings at the splash, but a splashdown that snaps a part off adds a debris
+# recording, which must not read as a Parsek failure. The replay and the end spawn
+# record nothing new (nothing launches in the Space Center).
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-11-16, NEVER FLOWN. On `air-circuit-recorded` (harvested from AIR-1-runway-circuit-splashdown run 2026-11-16_2218: tree d07b9a6f, two Mallard recordings ending Splashed). Rewinds AIR-1's committed plane flight to launch and lets the Space Center replay it: the Mallard's KSC ghost enters range, plays its absolute pose on Kerbin and leaves range at its Splashed end, the real Mallard spawns there, and LeafVesselPlacement reads the spawn's position against the recorded terminal place."
+description = "AUTHORED 2026-11-16, NEVER FLOWN; re-shaped before its first flight to fly AIR-1's circuit itself, because AIR-1's harvest carries no rewind save. Flies the stock Mallard from the Runway around AIR-1's circuit to a splashdown (mission air1_runway_circuit, AIR-1's parameters), commits, Rewinds-to-Launch and lets the Space Center replay it: the Mallard's KSC ghost enters range, plays its absolute pose on Kerbin and leaves range at its Splashed end, the real Mallard spawns there, and LeafVesselPlacement reads the spawn's position against the recorded terminal place."
 instanceProfile = "stock-minimal"
 tags = ["AIR2", "aircraft", "ksc-ghost", "rewind-to-launch", "leaf-placement", "ingame-batch", "pending-flight"]
 
 [fixture]
-saveTemplate       = "fixtures/saves/air-circuit-recorded"
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
 injectedRecordings = "none"
 craft              = []
 
 [driver]
-kind = "seam"
+kind    = "autopilot"
+mission = "air1_runway_circuit"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },          expect = "OK", budget = 300 },
-  { cmd = "StopRecording",                                                            expect = "OK" },
-  { cmd = "DiscardTree",                                                              expect = "OK" },
-  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" },      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" },       expect = "OK" },
   { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },           expect = "OK" },
   { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" },       expect = "OK" },
+  { phase = "mission",                                                                expect = "MISSION-OK", budget = 1800 },
+  { cmd = "StopRecording",                                                            expect = "OK" },
+  { cmd = "CommitTree",                                                               expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                            expect = "OK" },
   { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                         expect = "OK", budget = 300 },
   { cmd = "MissionMark", args = { label = "air2-rewound" },                           expect = "OK" },
-  # The harvested tree's last EndUT (427.18) + 60, at most 10x so the ghost stays
-  # drawn (hidden above 50x).
-  { cmd = "WarpToUT",   args = { ut = "487.18", maxRate = "10" },                      expect = "OK", budget = 300 },
+  # Past the recording's end (AIR-1: EndUT 427.18) with a whole flight's margin, at
+  # most 10x so the ghost stays drawn (hidden above 50x).
+  { cmd = "WarpToUT",   args = { ut = "900", maxRate = "10" },                         expect = "OK", budget = 300 },
   { cmd = "MissionMark", args = { label = "air2-past-end" },                          expect = "OK" },
   { cmd = "RunTests",   args = { category = "LeafVesselPlacement" },                  expect = "OK", budget = 300 },
   { cmd = "FlushAndQuit",                                                             expect = "OK" },
 ]
 
+[driver.missionParams]
+craftName          = "Mallard"
+expectedVesselName = "Mallard"
+launchSite         = "Runway"
+recordSettleFrames = 8
+rotateSpeed        = 45.0
+rotatePitch        = 8.0
+rotatePitchSign    = 1.0
+takeoffMaxDistance = 1500.0
+climbPitch         = 10.0
+turnAltitude       = 300.0
+cruiseAltitude     = 1000.0
+cruiseSpeed        = 90.0
+waypoints          = "-0.05,-74.05;0.30,-74.05;0.30,-74.55"
+captureRadius      = 800.0
+legTimeoutSeconds  = 240.0
+touchdownPoint     = "0.05,-73.85"
+glideSlopeDeg      = 6.0
+approachSpeed      = 60.0
+flareAltitude      = 25.0
+maxBank            = 25.0
+bankSign           = 1.0
+rollInputSign      = 1.0
+groundSteerGain    = 0.1
+groundSteerSign    = 1.0
+groundHeadingAbortDeg = 8.0
+stopSpeed          = 1.0
+stopTimeoutSeconds = 240.0
+
 [dimensionsCovered]
 D6  = ["basic-playback"]
 D9  = ["rewind-to-launch"]
-D14 = ["kerbin", "scene-ksc", "sandbox"]
+D14 = ["kerbin", "scene-flight", "scene-ksc", "sandbox"]
 
 [expectations]
 allowedAnomalies = []
 
 [expectations.recordings]
-# Pinned off the harvested bytes: the fixture holds 2 recordings (d563455e, aacb1976).
-count = { min = 2, max = 2 }
+# AIR-1's window (see THE COUNT in the header): 2 measured there, debris allowed for.
+count = { min = 1, max = 40 }
 
 [expectations.logContracts]
 required  = [
+  "committree committed=true",
   "invokerewindtolaunch complete rec=",
   "MISSIONMARK label=air2-rewound ut=[\\s\\S]*?\\[KSCGhost\\] Ghost #[0-9]+ \"Mallard\" entered range: targetUT=[0-9.]+ recUT=\\[[0-9.]+,[0-9.]+\\] cycle=[0-9]+ loop=False terminal=(?:Splashed|Landed)",
   "KSC SURFACE playback resolved: recording=rec\\[[0-9a-f]{8}\\|Mallard\\|[^\\r\\n]*body=Kerbin ",
@@ -102,8 +163,9 @@ forbidden = [
 ]
 
 [runtime]
-# Boot + LoadGame 300 + rewind 300 + the KSC replay 300 (~150 s at 10x) + RunTests 300 + quit.
-budgetSeconds = 1800
+# Boot + LoadGame 300 + the flight 1800 (AIR-1: 465 s wall) + commit 120 + rewind 300
+# + the KSC replay 300 (~90 s at 10x) + RunTests 300 + quit.
+budgetSeconds = 3300
 
 [retry]
 policy = "once"
