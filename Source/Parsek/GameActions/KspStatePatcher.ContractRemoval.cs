@@ -605,11 +605,15 @@ namespace Parsek
             if (terminalOutcomes == null || terminalOutcomes.Count == 0)
                 return plan;
             bool clockReady = IsRealClock(clockUT);
+            var plannedIds = new HashSet<Guid>();
 
             foreach (var kvp in terminalOutcomes)
             {
                 Guid id;
                 if (string.IsNullOrEmpty(kvp.Key) || !Guid.TryParse(kvp.Key, out id))
+                    continue;
+                // Two walk keys may spell one guid differently; plan each contract once.
+                if (plannedIds.Contains(id))
                     continue;
                 if (activeIdSet != null && activeIdSet.Contains(id))
                     continue;
@@ -638,6 +642,7 @@ namespace Parsek
                     noSnapshot++;
                     continue;
                 }
+                plannedIds.Add(id);
                 plan.Add(new LateContractFiling
                 {
                     Id = id,

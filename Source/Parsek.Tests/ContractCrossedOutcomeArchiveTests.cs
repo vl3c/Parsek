@@ -376,6 +376,50 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void LateFiling_TwoSpellingsOfOneGuid_PlanOneFiling()
+        {
+            var g = Guid.NewGuid();
+            string lower = g.ToString();
+            string upper = g.ToString().ToUpperInvariant();
+            string braced = g.ToString("B");
+            var outcomes = new Dictionary<string, ContractTerminalOutcome>
+            {
+                [lower] = ContractTerminalOutcome.Failed,
+                [upper] = ContractTerminalOutcome.Failed,
+                [braced] = ContractTerminalOutcome.Failed,
+            };
+            var uts = new Dictionary<string, double> { [lower] = 800.0, [upper] = 800.0, [braced] = 800.0 };
+
+            var plan = KspStatePatcher.PlanMissingTerminalContractFilings(outcomes, uts, new HashSet<Guid>(),
+                new HashSet<Guid>(), null, null, 1000.0, out _, out _, out _);
+
+            Assert.Single(plan);
+            Assert.Equal(g, plan[0].Id);
+        }
+
+        [Fact]
+        public void LateFiling_SkippedSpellingDoesNotHideALaterQualifyingOne()
+        {
+            var g = Guid.NewGuid();
+            string lower = g.ToString();
+            string upper = g.ToString().ToUpperInvariant();
+            var outcomes = new Dictionary<string, ContractTerminalOutcome>
+            {
+                [lower] = ContractTerminalOutcome.Failed,
+                [upper] = ContractTerminalOutcome.Failed,
+            };
+            // One spelling carries an outcome after the clock, the other one before it.
+            var uts = new Dictionary<string, double> { [lower] = 5000.0, [upper] = 800.0 };
+
+            var plan = KspStatePatcher.PlanMissingTerminalContractFilings(outcomes, uts, new HashSet<Guid>(),
+                new HashSet<Guid>(), null, null, 1000.0, out _, out int later, out _);
+
+            Assert.Single(plan);
+            Assert.Equal(800.0, plan[0].FinishedUT);
+            Assert.Equal(1, later);
+        }
+
+        [Fact]
         public void LateFiling_OutcomeAfterTheClockOrUnknown_StaysUnfiled()
         {
             var later = Guid.NewGuid();
