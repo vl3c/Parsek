@@ -1,0 +1,224 @@
+schema = 1
+id = "FXR-1-ghost-engine-fx-across-refly-and-retry"
+# =====================================================================================
+# GHOST ENGINE FX ACROSS A RE-FLY, A REVERT INSIDE IT, AND THE MERGE (todo
+# NEXT-TESTS-TO-BUILD-2026-11-11 item 7, audit B8). AUTHORED 2026-11-16, NEVER FLOWN.
+#
+# THE QUESTION. A Re-Fly, a stock revert and a rewind each throw the flight scene away
+# and rebuild every ghost. Nothing checked that the rebuilt ghost lights its engines when
+# its recording says, builds the same plume objects as before, owns each plume once, and
+# that the branch the Re-Fly replaced stops replaying. GS-6 pins the applier lines once,
+# on a fresh Rewind-to-Launch; the FX fingerprint A/B (T48) has never been run.
+#
+# THE HOST is `refly-split-crewed-merged` (RF-13R's), seam-only, no autopilot. Its one
+# RewindPoint `rp_4788f26a...` (UT 118.48) has slot 0 CLOSED (merged by RF-13: the
+# re-fly `rec_92498045...` "Kerbal X", Orbiting, supersedes TIP `2e31fb1e...`) and slot
+# 1 OPEN (the Probe `6abe5ea7...`, Destroyed, CommittedProvisional). Re-flying slot 1
+# puts the player on the Probe with the committed re-fly `rec_92498045` alongside as the
+# one live ghost: its Poodle `liquidEngine2-2.v2` pid 1592830016 has EngineShutdown at
+# 118.80, EngineIgnited value 1 at 119.58 and EngineShutdown at 136.02 (read off the
+# fixture's `rec_92498045...prec.txt`). Every other recording is out of window at UT
+# 128 (HEAD ends 118.40, the debris 111-113), TIP is superseded, and the Probe is the
+# vessel being re-flown, so no other ghost may appear at all.
+#
+# THE ROUTE, three sessions bracketed by MissionMark labels so each token reads ONE
+# session (a tempered `(?:(?!MISSIONMARK label=)[\s\S])*?` window):
+#   s1  InvokeRewind slot 1, the flight-ready wait, a 1x WarpToUT to UT 128 (the Poodle
+#       burns 119.58-136.02), RunTests GhostFxIntegrity.
+#   s2  ReFlyRevert choice=retry target=launch - Esc > Revert Flight > Retry from Rewind
+#       Point, the STOCK REVERT a player makes inside a Re-Fly (QL-5d's verb without the
+#       F9) - which reloads the rewind point and rebuilds the ghost; the same wait, warp
+#       and batch.
+#   s3  AnswerMergeDialog merge (the retried attempt supersedes the Probe), then the
+#       batch once more in the same scene: the merge inserts recordings into the
+#       committed list, so every ghost slot is re-indexed under a live ghost.
+# A second InvokeRewind is NOT possible: the merge closes slot 1, the point's last open
+# slot, and the reaper takes the point (RF-2's "reaps the point whose slots all closed").
+# The Rewind-to-Launch half of item 7 rides GS-9's existing two-cycle flight instead
+# (fast-lane rule 1; see GS-9's FX block).
+#
+# EVERY BATCH STARTS BY DESTROYING EVERY TIMELINE GHOST (`InGameTestRunner.RunCategory`
+# -> `PerformBetweenRunCleanup` -> `DestroyAllTimelineGhosts`), so each batch also
+# re-primes the ghost at the current UT from an empty cursor - a fourth rebuild path per
+# session. Each GhostFxIntegrity cell first waits up to 8 s real for a rebuilt ghost.
+#
+# =====================================================================================
+# THE TOKENS AND THE PRODUCTION LINES THAT PRINT THEM (every literal grepped from C#).
+#
+#  apply family=EngineIgnited surface=engine-fx rec=N pid=P applied=A skipped=S reason=R
+#    Ghost/GhostPartEventApplyLog.cs:216 (format), :356 (plain Verbose for a non-per-frame
+#    family, tag "GhostPartEvents" at :94); tokens "engine-fx" :166, "applied" :146.
+#    `rec=` is the committed INDEX, so it is regexed; the pid is the fork's Poodle.
+#  engine-fx start part='P' pid=.. midx=.. source=.. ... playing=N ... power=..
+#    GhostPartEventApplyLog.cs:407 (format), :428 (VerboseRateLimited, 15 s per pid+midx,
+#    so it is pinned in s1 only: s2's ignition can land inside the window).
+#  part='P' kind=engine midx=M systems=N nullSystems=K curves=.. fp=[...]
+#    Ghost/GhostFxFingerprint.cs:150-155, an interpolated string whose holes are the
+#    regexed fields (VerboseRateLimited 5 s per part name and module), logged by
+#    Ghost/GhostVisualBuilder.cs:1257 on every ghost part build. The A/B pins the s1 and
+#    s2 Poodle fingerprints EQUAL by a backreference, and forbids any s2+ Poodle
+#    fingerprint that differs from an s1 one.
+#  phase=MeshSpawned rec=.. recId=<id> ... vessel=<name> reason=ghost-created
+#    Ghost/GhostPlaybackEngine.SpawnDestroy.cs:332 -> GhostPlaybackEngine.Diagnostics.cs
+#    EmitMeshLifecycleTrace (`vessel=... reason=...`) -> Ghost/GhostRenderTrace.cs
+#    BuildPrefix (`phase= rec= recId=`); needs ghostRenderTracing (set below).
+#  [GhostFxIntegrity] engine-fx vs recording: / fx ownership: / inactive recordings:
+#    InGameTests/GhostFxIntegrity.cs:234 / :262 / :273 (formats), logged Info by
+#    InGameTests/GhostFxIntegrityInGameTests.cs:78 / :286 / :438.
+#  BATCH_COMPLETE v1 total= ...   InGameTests/InGameTestRunner.cs:1219.
+#  MISSIONMARK label=X ut=        TestCommands/TestCommandMissionMark.cs:22.
+#  Invocation complete            Rewind/RewindInvoker.StripActivate.cs:253.
+#  warptout complete reachedUT=   TestCommands/ParsekTestCommandAddon.WarpToUT.cs:317/:467.
+#  reflyrevert complete choice=   TestCommands/TestCommandReFlyRevert.cs:530.
+#  answermergedialog choice=merge result=committed  TestCommands/ParsekTestCommandAddon.cs:3044.
+#
+# FAST-LANE CHECKLIST: (1) reuses RF-13R's host and QL-5d's / RF-8's verbs, and the RTL
+# half reuses GS-9's flight instead of a new one; (2) no idle waits - the flight-ready
+# wait is the awaited RecordingState; (3) the only dwell is the 1x WarpToUT to 128,
+# about 9.5 s of game time from the rewind point, the least that reaches the Poodle burn
+# with margin for the flight-ready wait; (4) no burn is flown; (5) no coast; (6) every
+# verb fails fast on refusal; (7) count is a window only while the id is interim, then
+# pinned off the first run; (8) tier operator until measured; (9) flight_efficiency.py
+# after the first green flight.
+#
+# NEVER FLOWN: `tier = "operator"`, tag `pending-flight`, the batch pins carry `total=3`
+# literally with the split regexed (INTERIM_PIN_IDS), and the recording count is a
+# window. The first reading run replaces each with its measured value.
+# =====================================================================================
+tier = "operator"
+description = "Ghost engine FX across a Re-Fly, a stock revert inside it and the merge (todo item 7, audit B8): re-fly the open Probe slot of refly-split-crewed-merged with the committed Kerbal X re-fly as the live ghost, warp at 1x into its Poodle burn and run GhostFxIntegrity; Retry from Rewind Point and run it again; merge and run it a third time. Pins the ignition apply line per session, the Poodle FX fingerprint equal across the revert, the plume lit while the recording burns, every FX system owned once, and no ghost of the superseded TIP or the re-flown Probe."
+instanceProfile = "stock-minimal"
+tags = ["FXR-1", "rewind", "refly", "revert", "merge", "ghost", "engine-fx",
+        "fx-fingerprint", "render-tracing", "runtime-handles", "kerbin", "sandbox",
+        "pending-flight"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/refly-split-crewed-merged"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },      expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" },  expect = "OK" },
+  # LOAD-BEARING: every [GhostPartEvents] and [FxFingerprint] line is Verbose.
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },       expect = "OK" },
+  # LOAD-BEARING: the MeshSpawned lifecycle lines.
+  { cmd = "SetSetting",        args = { name = "ghostRenderTracing", value = "true" },   expect = "OK" },
+  { cmd = "StopRecording",                                                               expect = "OK" },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles",      expect = "OK" },
+  # ---- s1: the Re-Fly ------------------------------------------------------------
+  { cmd = "MissionMark",       args = { label = "fxr1-s1" },                             expect = "OK" },
+  { cmd = "InvokeRewind",      args = { rp = "${handles.rp0}", slot = "1" },             expect = "OK", budget = 300 },
+  # THE FLIGHT-READY WAIT (REFLY-LANES-JUMP-BEFORE-FLIGHT-READY), RF-8's pair.
+  { cmd = "ListHandles",       args = { kind = "chains" },                               expect = "OK" },
+  { cmd = "RecordingState",    args = { awaitRecorderLive = "refly" },                   expect = "OK" },
+  # 1x into the Poodle burn (119.58-136.02). A target already in the past is refused,
+  # so 128 leaves ~9.5 s of game time for the wait above.
+  { cmd = "WarpToUT",          args = { ut = "128", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "RunTests",          args = { category = "GhostFxIntegrity" },                 expect = "OK", budget = 540 },
+  # ---- s2: the stock revert inside the Re-Fly ------------------------------------
+  { cmd = "MissionMark",       args = { label = "fxr1-s2" },                             expect = "OK" },
+  { cmd = "ReFlyRevert",       args = { choice = "retry", target = "launch" },           expect = "OK", budget = 300 },
+  { cmd = "RecordingState",    args = { awaitRecorderLive = "refly" },                   expect = "OK", budget = 120 },
+  { cmd = "WarpToUT",          args = { ut = "128", maxRate = "1" },                     expect = "OK", budget = 120 },
+  { cmd = "RunTests",          args = { category = "GhostFxIntegrity" },                 expect = "OK", budget = 540 },
+  # ---- s3: the merge, judged in the same scene -----------------------------------
+  { cmd = "MissionMark",       args = { label = "fxr1-s3" },                             expect = "OK" },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                              expect = "OK", budget = 120 },
+  { cmd = "RunTests",          args = { category = "GhostFxIntegrity" },                 expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                                expect = "OK" },
+]
+
+[dimensionsCovered]
+# BASICS ONLY. D7 engine-fx-effects is GS-6's claim; re-claiming it, or D9's
+# rewind-to-separation / revert-during-refly-dialog, belongs to a deliberate pass after
+# the first green flight.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# A WINDOW WHILE INTERIM (INTERIM_PIN_IDS). The host loads 11 (RF-13R: 10 plus the
+# load-time split of rec_92498045 at 186.12); the merge adds the retried attempt.
+count = { min = 11, max = 16 }
+
+[expectations.logContracts]
+# Three GhostFxIntegrity batches in one flight is the point of the lane (L13 precedent),
+# so the one-RunTests vacuity probe is opted out; every batch is pinned whole by its own
+# tempered per-session pattern below.
+batchVacuityOptOut = true
+batchVacuityOptOutReason = "three GhostFxIntegrity batches, after the InvokeRewind, after the Retry-from-launch revert and after the merge, in one flight; each is pinned whole (total=3 passed=[1-9] failed=0) by its own required pattern anchored after its fxr1-sN mark, plus a {3} count pattern"
+required = [
+  "listhandles kind=rewindpoints count=1 truncated=false",
+  "MISSIONMARK label=fxr1-s1 ut=",
+  "MISSIONMARK label=fxr1-s2 ut=",
+  "MISSIONMARK label=fxr1-s3 ut=",
+  "Invocation complete",
+  "recordingstate recording=true tree=\\S+ points=[0-9]+ scene=FLIGHT awaitRecorderLive=refly reFlyMarker=true",
+  "warptout complete reachedUT=12[89]",
+  "reflyrevert complete choice=retry target=launch scene=FLIGHT ",
+  "answermergedialog choice=merge result=committed",
+  # ---- THE BATCHES: three, each in its own session -------------------------------
+  "\\A(?:[\\s\\S]*?BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=GhostFxIntegrity scene=FLIGHT){3}",
+  "MISSIONMARK label=fxr1-s1 (?:(?!MISSIONMARK label=)[\\s\\S])*?BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=GhostFxIntegrity scene=FLIGHT",
+  "MISSIONMARK label=fxr1-s2 (?:(?!MISSIONMARK label=)[\\s\\S])*?BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=GhostFxIntegrity scene=FLIGHT",
+  "MISSIONMARK label=fxr1-s3 (?:(?!MISSIONMARK label=)[\\s\\S])*?BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=GhostFxIntegrity scene=FLIGHT",
+  # ---- THE GHOST IS THE COMMITTED RE-FLY, rebuilt in every session ---------------
+  "MISSIONMARK label=fxr1-s1 (?:(?!MISSIONMARK label=)[\\s\\S])*?phase=MeshSpawned rec=\\S+ recId=rec_92498045bde0451ebb7a7a1038a0d06c [^\\r\\n]*vessel=Kerbal X reason=ghost-created",
+  "MISSIONMARK label=fxr1-s2 (?:(?!MISSIONMARK label=)[\\s\\S])*?phase=MeshSpawned rec=\\S+ recId=rec_92498045bde0451ebb7a7a1038a0d06c [^\\r\\n]*vessel=Kerbal X reason=ghost-created",
+  "MISSIONMARK label=fxr1-s3 (?:(?!MISSIONMARK label=)[\\s\\S])*?phase=MeshSpawned rec=\\S+ recId=rec_92498045bde0451ebb7a7a1038a0d06c [^\\r\\n]*vessel=Kerbal X reason=ghost-created",
+  # ---- IT LIGHTS WHEN THE RECORDING SAYS: the ignition applies, in s1 and s2 -------
+  "MISSIONMARK label=fxr1-s1 (?:(?!MISSIONMARK label=)[\\s\\S])*?\\[GhostPartEvents\\] apply family=EngineIgnited surface=engine-fx rec=[0-9]+ pid=1592830016 applied=1 skipped=0 reason=applied",
+  "MISSIONMARK label=fxr1-s2 (?:(?!MISSIONMARK label=)[\\s\\S])*?\\[GhostPartEvents\\] apply family=EngineIgnited surface=engine-fx rec=[0-9]+ pid=1592830016 applied=1 skipped=0 reason=applied",
+  # The ignition witness: the plume really started (s1 only; 15 s rate limit).
+  "MISSIONMARK label=fxr1-s1 (?:(?!MISSIONMARK label=)[\\s\\S])*?\\[GhostPartEvents\\] engine-fx start part='liquidEngine2-2\\.v2' pid=1592830016 midx=0 [^\\r\\n]* playing=[1-9][0-9]* ",
+  # ---- THE SAME PLUME OBJECTS: the Poodle's fingerprint, s1 == s2 -----------------
+  "MISSIONMARK label=fxr1-s1 (?:(?!MISSIONMARK label=)[\\s\\S])*?part='liquidEngine2-2\\.v2' kind=engine midx=0 (systems=[1-9][0-9]* nullSystems=0 curves=\\S+ fp=\\[[^\\r\\n]*\\])[\\s\\S]*?MISSIONMARK label=fxr1-s2 (?:(?!MISSIONMARK label=)[\\s\\S])*?part='liquidEngine2-2\\.v2' kind=engine midx=0 \\1",
+  # ---- THE LIVE CHECKS (GhostFxIntegrity), per session ---------------------------
+  # Power matches the recording on every judged frame, and the plume was seen lit.
+  "MISSIONMARK label=fxr1-s1 (?:(?!MISSIONMARK label=)[\\s\\S])*?\\[GhostFxIntegrity\\] engine-fx vs recording: scene=FLIGHT frames=[1-9][0-9]* ghosts=[1-9][0-9]* engines=[1-9][0-9]* judged=[1-9][0-9]* ok=[1-9][0-9]* bad=0 lit=[1-9][0-9]* ",
+  "MISSIONMARK label=fxr1-s2 (?:(?!MISSIONMARK label=)[\\s\\S])*?\\[GhostFxIntegrity\\] engine-fx vs recording: scene=FLIGHT frames=[1-9][0-9]* ghosts=[1-9][0-9]* engines=[1-9][0-9]* judged=[1-9][0-9]* ok=[1-9][0-9]* bad=0 lit=[1-9][0-9]* ",
+  "MISSIONMARK label=fxr1-s3 (?:(?!MISSIONMARK label=)[\\s\\S])*?\\[GhostFxIntegrity\\] engine-fx vs recording: scene=FLIGHT frames=[1-9][0-9]* ghosts=[1-9][0-9]* engines=[1-9][0-9]* judged=[1-9][0-9]* ok=[1-9][0-9]* bad=0 ",
+  # Every FX system alive, under its own ghost, owned once; no unowned ghost root.
+  "MISSIONMARK label=fxr1-s1 (?:(?!MISSIONMARK label=)[\\s\\S])*?\\[GhostFxIntegrity\\] fx ownership: scene=FLIGHT ghosts=[1-9][0-9]* systems=[1-9][0-9]* destroyed=0 foreignRoot=0 duplicates=0 sharedWithinPart=[0-9]+ sharedRecordings=0 unownedGhostRoots=0",
+  "MISSIONMARK label=fxr1-s2 (?:(?!MISSIONMARK label=)[\\s\\S])*?\\[GhostFxIntegrity\\] fx ownership: scene=FLIGHT ghosts=[1-9][0-9]* systems=[1-9][0-9]* destroyed=0 foreignRoot=0 duplicates=0 sharedWithinPart=[0-9]+ sharedRecordings=0 unownedGhostRoots=0",
+  "MISSIONMARK label=fxr1-s3 (?:(?!MISSIONMARK label=)[\\s\\S])*?\\[GhostFxIntegrity\\] fx ownership: scene=FLIGHT ghosts=[1-9][0-9]* systems=[1-9][0-9]* destroyed=0 foreignRoot=0 duplicates=0 sharedWithinPart=[0-9]+ sharedRecordings=0 unownedGhostRoots=0",
+  # No live ghost replays a superseded / retired recording; slots match the list.
+  # s1 / s2 hold the host's one row; s3 adds the merge's row (inactive TIP + Probe).
+  "MISSIONMARK label=fxr1-s1 (?:(?!MISSIONMARK label=)[\\s\\S])*?\\[GhostFxIntegrity\\] inactive recordings: scene=FLIGHT ghosts=[1-9][0-9]* supersedeRows=[1-9][0-9]* inactiveIds=[1-9][0-9]* replayingInactive=0 indexMismatch=0",
+  "MISSIONMARK label=fxr1-s2 (?:(?!MISSIONMARK label=)[\\s\\S])*?\\[GhostFxIntegrity\\] inactive recordings: scene=FLIGHT ghosts=[1-9][0-9]* supersedeRows=[1-9][0-9]* inactiveIds=[1-9][0-9]* replayingInactive=0 indexMismatch=0",
+  "MISSIONMARK label=fxr1-s3 (?:(?!MISSIONMARK label=)[\\s\\S])*?\\[GhostFxIntegrity\\] inactive recordings: scene=FLIGHT ghosts=[1-9][0-9]* supersedeRows=(?:[2-9]|[1-9][0-9]+) inactiveIds=(?:[2-9]|[1-9][0-9]+) replayingInactive=0 indexMismatch=0",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # THE SUPERSEDED BRANCH IS GONE: TIP never gets a ghost, and neither does the Probe
+  # (the vessel being re-flown in s1 / s2, superseded by the merge in s3).
+  "phase=MeshSpawned rec=\\S+ recId=2e31fb1e46d34f8b92aacb9cff38507d ",
+  "phase=MeshSpawned rec=\\S+ recId=6abe5ea7a1f14ec5a2666bd15d3f7352 ",
+  # A Poodle fingerprint after the revert that differs from one before it.
+  "MISSIONMARK label=fxr1-s1 (?:(?!MISSIONMARK label=)[\\s\\S])*?part='liquidEngine2-2\\.v2' kind=engine midx=0 (systems=[0-9]+ nullSystems=[0-9]+ curves=\\S+ fp=\\[[^\\r\\n]*\\])[\\s\\S]*?MISSIONMARK label=fxr1-s2 [\\s\\S]*?part='liquidEngine2-2\\.v2' kind=engine midx=0 (?!\\1)",
+  # The fork's ignition reached no engine info on a rebuilt ghost.
+  "apply family=EngineIgnited surface=engine-fx rec=[0-9]+ pid=1592830016 applied=[0-9]+ skipped=[1-9]",
+  # A cell's own failure lines.
+  "\\[GhostFxIntegrity\\] (?:engine (?:PowerMismatch|DarkWhileOn|LitWhileOff)|fx ownership problem|inactive recording problem)",
+  "reflyrevert rejected",
+  "reflyrevert error",
+  "reason=sealedTipClosed",
+  "listhandles kind=chains .* evaluated=false",
+]
+
+[runtime]
+# LoadGame 660 + SetSetting x3 360 + StopRecording 120 + ListHandles 120 +
+# MissionMark x3 360 + InvokeRewind 660 + ListHandles chains 120 + RecordingState x2
+# 240 + WarpToUT x2 360 + RunTests x3 1980 + ReFlyRevert 660 + AnswerMergeDialog 180 +
+# FlushAndQuit 120 = 5940. 6200 clears it by 260.
+budgetSeconds = 6200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
