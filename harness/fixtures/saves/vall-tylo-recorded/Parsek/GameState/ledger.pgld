@@ -1,0 +1,104 @@
+version = 0
+recordingSchemaGeneration = 4
+takeBackFromCseq = 1
+allowNegativeLocked = 0
+GAME_ACTION
+{
+	ut = 28907041.339236677
+	type = 4
+	actionId = act_f39f471fa6754e3dab2840aca1d64a43
+	recordingId = ef182ffd723f42b591ed029794f551dd
+	seq = 1
+	cseq = 1
+	insideRepSeed = True
+	milestoneId = Vall/Escape
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 29158571.426788919
+	type = 4
+	actionId = act_24c405172abe43afa8d1cba70ced8eb3
+	recordingId = ef182ffd723f42b591ed029794f551dd
+	seq = 2
+	cseq = 2
+	insideRepSeed = True
+	milestoneId = Tylo/Flyby
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 28896849.902240183
+	type = 11
+	actionId = act_3b58b2da82684eb68ff675135ac3d814
+	recordingId = ef182ffd723f42b591ed029794f551dd
+	seq = 1
+	cseq = 4
+	kerbalName = Valentina Kerman
+	kerbalRole = Pilot
+	startUT = 2.889685E+07
+	endUT = 29178746
+	endState = 2
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 29178751.025943659
+	type = 11
+	actionId = act_40497c3ad9e345828b881d20a3e9c09a
+	recordingId = a0ba73e497014c88a5af8630ea130388
+	seq = 1
+	cseq = 5
+	kerbalName = Valentina Kerman
+	kerbalRole = Pilot
+	startUT = 29178752
+	endUT = 29178824
+	endState = 0
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 29178747.985943727
+	type = 4
+	actionId = act_1d900b978e5b4702b606827cabec4188
+	recordingId = 6a000db202ee4a1d9b52a378fcf611c0
+	seq = 1
+	cseq = 3
+	insideRepSeed = True
+	milestoneId = Tylo/Orbit
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 29178745.62594378
+	type = 11
+	actionId = act_06149efced164655a3b818a7abb1f6fd
+	recordingId = 6a000db202ee4a1d9b52a378fcf611c0
+	seq = 1
+	cseq = 6
+	kerbalName = Valentina Kerman
+	kerbalRole = Pilot
+	startUT = 29178746
+	endUT = 29178752
+	endState = 2
+	xpGained = 0
+}
+PROGRESS_SEED
+{
+	captured = True
+	node = Jool/Escape
+	node = Jool/Flyby
+	node = Jool/Orbit
+	node = Kerbin/Orbit
+	node = Laythe/Escape
+	node = Laythe/Orbit
+	node = Sun/Orbit
+	node = Vall/Flyby
+	node = Vall/Orbit
+}

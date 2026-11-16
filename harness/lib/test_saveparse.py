@@ -1328,6 +1328,35 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "e8a83295907444c4871b584e0f458f8d"],
             "schemaGeneration": 4,
         },
+        # --- THE MULTI-MOON HOLD'S DECLINE SUBJECT: LAYTHE + BOP IN ONE TREE --
+        # PROVENANCE: jool-laythe-bop-recorded <- B48-jool-laythe-bop-continuation,
+        # run 2026-11-16_1650, PASS attempt 1 (wall 1,340 s, first flight), automation
+        # DLL sha256 prefix 5bc76f4a, worktree at origin/main e66bd5e0d, --keep-parsek,
+        # from the run's own `_save` snapshot (situation gate ORBITING). B26's parent
+        # relay re-pointed at Bop, flown from the UNSTRIPPED `jool-laythe-recorded` with
+        # no kill pair, so the Laythe -> Bop hop joined B22's committed tree 6ec68e87
+        # as the main chain's tip recording (bf6f3a49, chainIndex 3, startBodyName
+        # Laythe, endpointBodyName Bop, Orbiting); the other seven ids are
+        # jool-laythe-recorded's. Laythe + Bop is incommensurate, the subject V39M
+        # reads for the configuration hold's amber decline. The facets below are read
+        # off the harvested bytes.
+        "jool-laythe-bop-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 8,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 5, "Destroyed": 2},
+            "branchPoints": {"JointBreak": 3},
+            "minAuthoritativeSidecars": 33,
+            "recordingIds": ["1d6fa27e66bd47fc85baffe90522bef3",
+                             "6ec754809cdd40bd99a98ede1ecb8f9b",
+                             "96d1d5b93f6e49dabd42473955c90e8e",
+                             "98c11e0d19804aecb1b7e66a94f8ede7",
+                             "ad34ea8948ba4c1fb839bbc691f21deb",
+                             "b13418e758764bb8adf061cff8236f1b",
+                             "bf6f3a49d3754e17b4169d6e15dc2d24",
+                             "ddcc6d007ff54a9c8246c7958011883a"],
+            "schemaGeneration": 4,
+        },
         # --- A MOON-ROOTED MOON-TO-MOON SUBJECT (rule 4a) -----------------
         # PROVENANCE: laythe-tylo-recorded <- B44-laythe-tylo-transfer, run
         # 2026-11-15_2243, PASS attempt 1 (wall 888 s), automation DLL sha256 prefix
@@ -1364,6 +1393,47 @@ class CommittedFixtureSweepTests(unittest.TestCase):
             "branchPoints": {},
             "minAuthoritativeSidecars": 4,
             "recordingIds": ["cbb8e08733f746afa9e367af18a5c2cf"],
+            "schemaGeneration": 4,
+        },
+        # --- TWO MORE MOON-ROOTED MOON-TO-MOON SUBJECTS IN JOOL'S SOI (rule 4a) --
+        # PROVENANCE (both): flown 2026-11-16 on the parallel runner run
+        # `moon-forges-2026-11-16c`, automation DLL sha256 prefix 5bc76f4a, worktree
+        # at origin/main e66bd5e0d, --keep-parsek, each from its run's own `_save`
+        # snapshot (situation gate ORBITING). The facets below are read off the
+        # harvested bytes.
+        # tylo-bop-recorded <- B45-tylo-bop-transfer, run 2026-11-16_1638, PASS
+        # attempt 1 (wall 687 s, first flight). B26's parent relay from the stripped
+        # `tylo-park-nerv` out to Bop: a FRESH Tylo-rooted tree e949decf with ONE
+        # recording (357fb51a, startBodyName Tylo, terminal Orbiting at Bop), the
+        # moon-rooted subject V45M reads.
+        "tylo-bop-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 1,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 1},
+            "branchPoints": {},
+            "minAuthoritativeSidecars": 5,
+            "recordingIds": ["357fb51afec64cda803550341fe9375f"],
+            "schemaGeneration": 4,
+        },
+        # vall-tylo-recorded <- B43-vall-tylo-transfer, run 2026-11-16_1638, PASS
+        # attempt 1 (wall 1,097 s, the first green flight after fix 3, the
+        # course-correction node search, PR #2638). B26's parent relay from the
+        # stripped `vall-park-nerv` with an elliptical Tylo capture: a FRESH
+        # Vall-rooted tree 91205f57 with THREE recordings, one chain of the one
+        # vessel (ef182ffd startBodyName Vall -> Tylo, then 6a000db2 and the tip
+        # a0ba73e4 at Tylo, terminal Orbiting; only the tip carries a terminal
+        # state), the moon-rooted subject V43M reads.
+        "vall-tylo-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 3,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Orbiting": 1},
+            "branchPoints": {},
+            "minAuthoritativeSidecars": 12,
+            "recordingIds": ["6a000db202ee4a1d9b52a378fcf611c0",
+                             "a0ba73e497014c88a5af8630ea130388",
+                             "ef182ffd723f42b591ed029794f551dd"],
             "schemaGeneration": 4,
         },
         # --- THE ECCENTRIC-MOON LOOP SUBJECT -----------------------------

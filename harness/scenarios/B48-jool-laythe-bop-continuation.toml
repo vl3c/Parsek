@@ -2,7 +2,8 @@ schema = 1
 id = "B48-jool-laythe-bop-continuation"
 # =====================================================================================
 # B48: the Kerbin -> Jool -> Laythe -> Bop forge, the multi-moon hold's DECLINE
-# subject. AUTHORED 2026-11-14, NEVER FLOWN.
+# subject. AUTHORED 2026-11-14. LIVE-PROVEN 2026-11-16 on its first flight (run
+# 2026-11-16_1650, PASS attempt 1, 1,340 s), harvested as `jool-laythe-bop-recorded`.
 #
 # WHAT IT IS FOR. Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 1's Bop variant. The
 # multi-moon configuration hold must DECLINE, with an amber naming the shape, when a
@@ -50,9 +51,9 @@ id = "B48-jool-laythe-bop-continuation"
 # (harness/lib/test_hlib.py), re-pinning its count window from the harvest.
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-11-14, NEVER FLOWN. The Kerbin->Jool->Laythe->Bop forge, the multi-moon hold's decline subject: B26's live-proven parent relay re-pointed at Bop, flown from `jool-laythe-recorded` (B38's harvest) with no StopRecording/DiscardTree, so the Bop hop is appended to the Kerbin->Jool->Laythe tree 6ec68e87. Produces `jool-laythe-bop-recorded` for V39M, where Laythe + Bop (incommensurate) must decline with an amber."
+description = "AUTHORED 2026-11-14, LIVE-PROVEN 2026-11-16 (run 2026-11-16_1650). The Kerbin->Jool->Laythe->Bop forge, the multi-moon hold's decline subject: B26's live-proven parent relay re-pointed at Bop, flown from `jool-laythe-recorded` (B38's harvest) with no StopRecording/DiscardTree, so the Bop hop is appended to the Kerbin->Jool->Laythe tree 6ec68e87. Produces `jool-laythe-bop-recorded` for V39M, where Laythe + Bop (incommensurate) must decline with an amber."
 instanceProfile = "stock-minimal"
-tags = ["B48", "bop", "laythe", "jool", "moon", "jool-moon", "moon-to-moon", "cross-parent", "orbit", "mechjeb", "cross-soi", "capture", "commit-in-foreign-soi", "orbit-start", "interplanetary-path", "tree-continuation", "multi-moon-hold", "pending-flight"]
+tags = ["B48", "bop", "laythe", "jool", "moon", "jool-moon", "moon-to-moon", "cross-parent", "orbit", "mechjeb", "cross-soi", "capture", "commit-in-foreign-soi", "orbit-start", "interplanetary-path", "tree-continuation", "multi-moon-hold", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/jool-laythe-recorded"

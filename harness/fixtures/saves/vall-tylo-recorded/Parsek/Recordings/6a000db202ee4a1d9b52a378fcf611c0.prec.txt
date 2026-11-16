@@ -1,0 +1,132 @@
+version = 1
+recordingSchemaGeneration = 4
+recordingId = 6a000db202ee4a1d9b52a378fcf611c0
+sidecarEpoch = 1
+sectionAuthoritative = True
+PART_EVENT
+{
+	ut = 29178745.62594378
+	pid = 2759405748
+	type = 4
+	part = HeatShield1
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 29178745.62594378
+	pid = 2797770230
+	type = 4
+	part = nuclearEngine
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 29178745.62594378
+	pid = 2797770230
+	type = 6
+	part = nuclearEngine
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 29178745.62594378
+	pid = 1399977
+	type = 9
+	part = solarPanels2
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 29178745.62594378
+	pid = 525212630
+	type = 9
+	part = solarPanels2
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 29178745.62594378
+	pid = 2314221086
+	type = 9
+	part = commDish
+	value = 0
+	midx = 0
+}
+PART_EVENT
+{
+	ut = 29178747.465943739
+	pid = 2797770230
+	type = 5
+	part = nuclearEngine
+	value = 1
+	midx = 0
+}
+TRACK_SECTION
+{
+	env = 5
+	ref = 0
+	startUT = 29178745.62594378
+	endUT = 29178751.025943659
+	sampleRate = 0.5555556
+	minAlt = 87204.83
+	maxAlt = 87255.83
+	POINT
+	{
+		ut = 29178745.62594378
+		lat = 9.7721379925243088
+		lon = 105.07044829594298
+		alt = 87255.824314753641
+		rotX = -0.0759271
+		rotY = 0.190286532
+		rotZ = -0.7720689
+		rotW = -0.601611
+		body = Tylo
+		velX = 2414.42358
+		velY = 572.1081
+		velZ = 1307.21118
+		funds = 0
+		science = 0
+		rep = 0
+	}
+	POINT
+	{
+		ut = 29178748.645943712
+		lat = 9.9185318648199647
+		lon = 104.36981349663485
+		alt = 87208.379397418583
+		rotX = -0.07595507
+		rotY = 0.190253854
+		rotZ = -0.772084832
+		rotW = -0.60159725
+		body = Tylo
+		velX = 2415.57886
+		velY = 567.1008
+		velZ = 1287.15979
+		funds = 0
+		science = 0
+		rep = 0
+	}
+	POINT
+	{
+		ut = 29178751.025943659
+		lat = 10.032207398274778
+		lon = 103.82052359882158
+		alt = 87204.825371557032
+		rotX = -0.0759592652
+		rotY = 0.19025299
+		rotZ = -0.772086143
+		rotW = -0.6015955
+		body = Tylo
+		velX = 2406.58423
+		velY = 560.8231
+		velZ = 1266.12366
+		funds = 0
+		science = 0
+		rep = 0
+	}
+}

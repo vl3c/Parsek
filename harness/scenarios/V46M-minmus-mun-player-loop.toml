@@ -1,7 +1,8 @@
 schema = 1
 id = "V46M-minmus-mun-player-loop"
 # =====================================================================================
-# V46M: the Minmus -> Mun moon-to-moon loop. AUTHORED 2026-11-14, NEVER FLOWN.
+# V46M: the Minmus -> Mun moon-to-moon loop. AUTHORED 2026-11-14.
+# LIVE-PROVEN 2026-11-16 on its first flight (run 2026-11-16_1657, PASS attempt 1, 58 s).
 # Fixture `minmus-mun-recorded` harvested --keep-parsek from B46-minmus-mun-transfer
 # run `2026-11-16_0001` (PASS attempt 1, wall 1,569 s): the fresh Minmus-rooted tree
 # fa7c9d0c50f74187b31d99b9080eb99e with ONE recording (startBodyName Minmus, terminal
@@ -42,10 +43,10 @@ id = "V46M-minmus-mun-player-loop"
 # bytes. Verbose logging is on because both ExtractConstraints lines are Verbose.
 # =====================================================================================
 tier = "operator"
-description = "AUTHORED 2026-11-14, NEVER FLOWN. On `minmus-mun-recorded` (harvested from B46-minmus-mun-transfer). Loops the Minmus-rooted Minmus -> Mun tree and reads the moon-rooted phase lock: rule 4a's Orbital(Mun) + Orbital(Minmus) constraint set, Supported, and the solver's decision."
+description = "AUTHORED 2026-11-14, LIVE-PROVEN 2026-11-16 (run 2026-11-16_1657). On `minmus-mun-recorded` (harvested from B46-minmus-mun-transfer). Loops the Minmus-rooted Minmus -> Mun tree and reads the moon-rooted phase lock: rule 4a's Orbital(Mun) + Orbital(Minmus) constraint set, Supported, and the solver's decision."
 instanceProfile = "stock-minimal"
 tags = ["V46M", "player-loop", "loop-playback", "moon-to-moon", "moon-rooted-phase-lock",
-        "minmus", "mun", "kerbin", "pending-flight"]
+        "minmus", "mun", "kerbin", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/minmus-mun-recorded"

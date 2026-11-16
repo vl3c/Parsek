@@ -453,7 +453,7 @@ Where a fix would go (a choice for whoever takes it; no code changed):
      asserts, so it is an owner call.
 Option 1 is the smallest. Done when B7 flies attempt 1 green across several nightlies.
 
-## B43-VALL-TYLO-FLYBY-SUBSURFACE: B43's first flight reaches Tylo on an impact course and never arms the capture [FILED 2026-11-15 from B43's first flights; FIX 1 (cap 120) FLOWN 2026-11-16, still INVALID; FIX 2 (cap 250) FLOWN 2026-11-16, still INVALID; FIX 3 AUTHORED 2026-11-16 (node search, mission library, not flown); low (the forge cannot harvest `vall-tylo-recorded`, so V43M stays unflyable; not a Parsek defect)]
+## ~~B43-VALL-TYLO-FLYBY-SUBSURFACE~~: B43's first flight reaches Tylo on an impact course and never arms the capture [CLOSED 2026-11-16: B43 flew green with fix 3, `2026-11-16_1638` PASS attempt 1 (1,097 s, automation DLL 5bc76f4a; the last correction refined MechJeb's node, predicted Tylo pe -578,497 m, to an 8.12 m/s radial-out burn whose read-back predicted pe was 101,389 m, inside the window), and `vall-tylo-recorded` is harvested and committed, V43M handed over. FILED 2026-11-15 from B43's first flights; FIX 1 (cap 120) FLOWN 2026-11-16, still INVALID; FIX 2 (cap 250) FLOWN 2026-11-16, still INVALID; FIX 3 AUTHORED 2026-11-16 (node search, mission library, not flown); low (the forge cannot harvest `vall-tylo-recorded`, so V43M stays unflyable; not a Parsek defect)]
 
 `B43-vall-tylo-transfer` flew twice on 2026-11-15 (runs `2026-11-15_1617` and `2026-11-15_1632_a2`)
 and read INVALID(mission) both times: TARGET-FLYBY logged `flyby impact certain,
@@ -482,8 +482,8 @@ window it moves the node to now + 900 s and `mlib.search_correction_node` steps 
 node-frame directions (crossing the V when the aim sweeps through Tylo's centre), bisects to the
 smallest in-window dv and keeps the cheapest under the cap; a node whose read-back prediction is
 outside the window or over the cap is removed, not flown. B43 now aims at 150 km with window
-[100, 1,000] km. Pinned by `test_correction_node_search`. Closes when B43 flies green and
-`vall-tylo-recorded` is harvested.
+[100, 1,000] km. Pinned by `test_correction_node_search`.
+Closed 2026-11-16: fix 3 flew green (`2026-11-16_1638`), the fixture is harvested.
 
 ## ~~B44-LAYTHE-TYLO-NODE-EDIT-UNAVAILABLE~~: B44's second transfer burn cannot edit its maneuver node and the craft is lost [CLOSED 2026-11-15: B44 flew green on its first flight with the fix, `2026-11-15_2243` PASS attempt 1 (888 s, origin/main c522ea549), and `laythe-tylo-recorded` is harvested and committed, V44M handed over. FILED 2026-11-15 from B44's first flights; FIX AUTHORED 2026-11-15 (mission library + spec); low (not a Parsek defect)]
 
@@ -1694,14 +1694,14 @@ the Mun, vessel switching and physics warp are thin and Kerbin-only, and seven i
 Still to build, most valuable to a player first (items 8 and 10 need no PC flight time and can run
 in parallel in the cloud):
 
-1. [ ] (AUTHORED 2026-11-14, awaiting the PC batch: forge `B47-jool-moon-tour`, loop lane `V38M`,
-   Bop decline `B48` / `V39M`.) The Jool multi-moon tour (Group C, M-MIS-6): built, never seen in game. One forge
+1. [ ] (AUTHORED 2026-11-14. Flown 2026-11-15/16: B47, V38M and B48 green, `jool-tour-recorded` and
+   `jool-laythe-bop-recorded` harvested; open: the Bop decline loop lane `V39M`.) The Jool multi-moon tour (Group C, M-MIS-6): built, never seen in game. One forge
    (Laythe, Vall, Tylo in one tree from `jool-orbit-recorded`) and a loop lane reading
    `ARRIVAL HOLD dest=Jool kind=config moons=3`; a Bop variant must decline with the amber.
    The most expensive flight.
-2. [ ] (AUTHORED 2026-11-14. Flown 2026-11-15/16: B44, B46 and V44M green, `laythe-tylo-recorded` and
-   `minmus-mun-recorded` harvested; open: B43 (INVALID, todo B43-VALL-TYLO-FLYBY-SUBSURFACE), B45, V43M,
-   V45M, V46M;
+2. [ ] (AUTHORED 2026-11-14. Flown 2026-11-15/16: all four forges B43-B46 green and harvested
+   (`vall-tylo-recorded`, `laythe-tylo-recorded`, `tylo-bop-recorded`, `minmus-mun-recorded`), V44M and
+   V46M green; open: the loop lanes V43M, V45M (and V39M, item 1's Bop decline), handed over, never flown;
    the offline solver reads Tylo -> Bop as `joint-best-fit` at 7 x P_Bop, so B45 is no longer
    expected to decline.) Moon-to-moon pairs on the new 1.0.2 loop spacing: B43 Vall -> Tylo, B44 Laythe -> Tylo,
    B46 Minmus -> Mun (about 200 Kerbin days between loops), B45 Tylo -> Bop (expected honest

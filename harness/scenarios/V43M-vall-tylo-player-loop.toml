@@ -2,6 +2,12 @@ schema = 1
 id = "V43M-vall-tylo-player-loop"
 # =====================================================================================
 # V43M: the Vall -> Tylo moon-to-moon loop. AUTHORED 2026-11-14, NEVER FLOWN.
+# Fixture `vall-tylo-recorded` harvested --keep-parsek from B43-vall-tylo-transfer
+# run `2026-11-16_1638` (PASS attempt 1, wall 1,097 s): the fresh Vall-rooted tree
+# 91205f57dc164ab1b74caf5b574a5a43 with THREE recordings, one chain of the one vessel:
+# ef182ffd (startBodyName Vall, endpoint Tylo, UT 28,896,849.9 -> 29,178,745.6) and two
+# short Tylo segments, 6a000db2 (5.4 s) and the tip a0ba73e4 (71 s, terminal Orbiting at
+# Tylo, ending UT 29,178,822.2), a 281,972 s span.
 # Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 2 / MOON-FLIGHT-TEST-PROGRAM Group B.
 #
 # WHAT IT READS. The subject is a Vall-rooted tree that never leaves
@@ -23,34 +29,25 @@ id = "V43M-vall-tylo-player-loop"
 # pinned to the Tylo period's leading digits; the method is pinned exactly.
 # FORBIDDEN `UnsupportedCrossParent` is the pre-#2554 answer for this shape.
 #
-# NOT FLYABLE YET: tier "pending-fixture", tag "awaiting-fixture". The fixture `vall-tylo-recorded`
-# is the harvest of the forge `B43-vall-tylo-transfer`, which has not flown. Until it exists this
-# spec stays out of every cadence and the full run (tier_runner FULL_RUN_EXCLUDED_TIERS),
-# `test_hlib.SharedShipsManifestTests.PENDING_FIXTURE_LANES` exempts it from the
-# saveTemplate sweep, and that map's self-retiring cell reds the day the fixture lands.
-# The MissionConfig / StartLoopPlayback tree id is a ZERO PLACEHOLDER.
-#
-# TO MAKE IT FLYABLE, in ONE commit after the forge's harvest: replace the two
-# placeholder tree ids with the harvested tree id (the RECORDING_TREE `id` in
-# `vall-tylo-recorded/persistent.sfs`), set tier = "operator" and swap the tag
-# "awaiting-fixture" for "pending-flight", add "sandbox" back to D14 (the game-mode
-# claim needs a fixture to witness it), delete the PENDING_FIXTURE_LANES entry,
-# register `vall-tylo-recorded` in test_saveparse.RECORDED_FIXTURES, and re-derive the count and
-# structure windows from the harvested bytes (the forge's own count window is
-# {1,4}; B26 and B30 each harvested ONE recording).
+# HANDED OVER in the harvest commit: the MissionConfig / StartLoopPlayback tree id is
+# the harvested RECORDING_TREE `id`, tier "operator" with tag "pending-flight" (was
+# "pending-fixture" / "awaiting-fixture"), "sandbox" back in D14 (the fixture is a
+# SANDBOX save), the PENDING_FIXTURE_LANES entry deleted, the fixture registered in
+# test_saveparse.RECORDED_FIXTURES, and the count window re-pinned to {3, 4} off the
+# fixture's THREE recordings (the structure windows already hold its 1 committed tree).
 #
 # THE LANE IS DELIBERATELY SHORT. It loads the subject, turns its loop on and starts
 # loop playback, which is where `MissionLoopUnitBuilder` extracts the phase
 # constraints and solves the period; it then quits. No jump table: the cycle seam
-# UTs depend on the harvested span and the solver's first window, both unknown until
-# the forge flies. A later lane (V17M / V21M shape) can add the jumps off the real
-# bytes. Verbose logging is on because both ExtractConstraints lines are Verbose.
+# UTs depend on the solver's first window, unknown until this lane's reading. A
+# later lane (V17M / V21M shape) can add the jumps off the real bytes. Verbose
+# logging is on because both ExtractConstraints lines are Verbose.
 # =====================================================================================
-tier = "pending-fixture"
-description = "AUTHORED 2026-11-14, NEVER FLOWN, NOT FLYABLE UNTIL `B43-vall-tylo-transfer` IS HARVESTED (fixture `vall-tylo-recorded` absent; zero placeholder tree id). Loops the Vall-rooted Vall -> Tylo tree and reads the moon-rooted phase lock: rule 4a's Orbital(Tylo) + Orbital(Vall) constraint set, Supported, and the solver's decision."
+tier = "operator"
+description = "AUTHORED 2026-11-14, NEVER FLOWN. On `vall-tylo-recorded` (harvested from B43-vall-tylo-transfer). Loops the Vall-rooted Vall -> Tylo tree and reads the moon-rooted phase lock: rule 4a's Orbital(Tylo) + Orbital(Vall) constraint set, Supported, and the solver's decision."
 instanceProfile = "stock-minimal"
 tags = ["V43M", "player-loop", "loop-playback", "moon-to-moon", "moon-rooted-phase-lock",
-        "vall", "tylo", "jool", "awaiting-fixture"]
+        "vall", "tylo", "jool", "pending-flight"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/vall-tylo-recorded"
@@ -65,19 +62,20 @@ steps = [
   { cmd = "DiscardTree",                                                     expect = "OK" },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
-  { cmd = "MissionConfig",     args = { tree = "00000000000000000000000000000000", loop = "true" }, expect = "OK" },
-  { cmd = "StartLoopPlayback", args = { tree = "00000000000000000000000000000000" }, expect = "OK", budget = 300 },
+  { cmd = "MissionConfig",     args = { tree = "91205f57dc164ab1b74caf5b574a5a43", loop = "true" }, expect = "OK" },
+  { cmd = "StartLoopPlayback", args = { tree = "91205f57dc164ab1b74caf5b574a5a43" }, expect = "OK", budget = 300 },
   { cmd = "FlushAndQuit",                                                    expect = "OK" },
 ]
 
 [dimensionsCovered]
-D14 = ["vall", "scene-flight"]
+D14 = ["vall", "scene-flight", "sandbox"]
 
 [expectations]
 allowedAnomalies = []
 
 [expectations.recordings]
-count = { min = 1, max = 4 }
+# {N, N + 1} off the harvested fixture's 3 recordings.
+count = { min = 3, max = 4 }
 
 [expectations.logContracts]
 required  = [

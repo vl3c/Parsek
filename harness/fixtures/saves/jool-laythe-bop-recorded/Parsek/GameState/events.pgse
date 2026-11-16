@@ -1,0 +1,10 @@
+version = 1
+GAME_STATE_EVENT
+{
+	ut = 28979322.351582415
+	type = 18
+	key = FirstCrewToSurvive
+	detail = funds=0;rep=0;sci=0
+	recordingId = bf6f3a49d3754e17b4169d6e15dc2d24
+	cseq = 10
+}

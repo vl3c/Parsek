@@ -1,0 +1,46 @@
+version = 1
+MILESTONE
+{
+	id = 19e47099e7444bc39cb1d93c57bde2c2
+	startUT = 0
+	endUT = 29116338.233178038
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 28907041.339236677
+		type = 18
+		key = Vall/Escape
+		detail = funds=0;rep=0;sci=0
+		recordingId = ef182ffd723f42b591ed029794f551dd
+		cseq = 1
+	}
+}
+MILESTONE
+{
+	id = 984feb1e04f549acafd94463d191111a
+	startUT = 29116338.233178038
+	endUT = 29178823.7341452
+	recordingId = 91205f57dc164ab1b74caf5b574a5a43
+	committed = True
+	lastReplayedIdx = 1
+	GAME_STATE_EVENT
+	{
+		ut = 29158571.426788919
+		type = 18
+		key = Tylo/Flyby
+		detail = funds=0;rep=0;sci=0
+		recordingId = ef182ffd723f42b591ed029794f551dd
+		cseq = 2
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 29178747.985943727
+		type = 18
+		key = Tylo/Orbit
+		detail = funds=0;rep=0;sci=0
+		recordingId = ef182ffd723f42b591ed029794f551dd
+		cseq = 3
+	}
+}
