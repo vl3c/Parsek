@@ -7,8 +7,9 @@ tier = "nightly"
 # on a known-good faithful ghost, the polyline leg builders and the TracedPath owned-leg
 # draw, the marker hold across a dropout, the ownership and marker-draw decision gates
 # on their LIVE dispatch, and the two icon-glide cells that only exist for the TS host.
-# 16 of the 25 declarations are FLIGHT-scoped and scene-skip here; that is the ATTRIBUTE
-# floor and it is why this lane is honestly the TS SLICE rather than the category.
+# 17 of the 27 declarations are FLIGHT-scoped and scene-skip here; that is the ATTRIBUTE
+# floor and it is why this lane is honestly the TS SLICE rather than the category. (The
+# reading history below was written at 25 declarations, 16 of them FLIGHT-scoped.)
 #
 # WHY A READING RUN - THE AUDIT'S "zero source self-skips" IS WRONG, and the reason is
 # sharp enough to be worth naming. Six of the nine admitted cells carry no guard at all.
@@ -116,22 +117,23 @@ allowedAnomalies = []
 count = { min = 274, max = 274 }
 
 [expectations.logContracts]
-# ANTI-VACUITY plus a DELIBERATELY OPEN SPLIT.
-#  - total=25 is ATTRIBUTE-EXACT: 25 `[InGameTest(Category = "GhostMap")]` declarations
-#    across six files. BATCH_COMPLETE's `total` counts FILTERED tests too, which is why
-#    it reads 25 while only 9 are admitted here.
-#  - The ATTRIBUTE FLOOR for `skipped` is 16 - the FLIGHT-scoped declarations that
-#    scene-skip at TRACKSTATION. Nothing is batch-disabled.
-#  - passed / skipped are OPEN, and the header explains why the floor is NOT the answer:
-#    `MarkerDrawDecision_DispatchesOnLiveGate_NoGap` needs an active pad vessel that
-#    stages, which cannot exist at TRACKSTATION, so the predicted line is
-#    `passed=8 skipped=17`. Pinning either that prediction or the floor would be
-#    asserting an unmeasured split.
+# ANTI-VACUITY plus the WHOLE TALLY.
+#  - total=27 is ATTRIBUTE-EXACT: 27 `[InGameTest(Category = "GhostMap")]` declarations
+#    across seven files. BATCH_COMPLETE's `total` counts FILTERED tests too, which is why
+#    it reads 27 while only 10 are admitted here.
+#  - skipped=17 is the ATTRIBUTE FLOOR - the FLIGHT-scoped declarations that scene-skip
+#    at TRACKSTATION. Nothing is batch-disabled, and the 2026-08-28 reading run showed no
+#    run-time guard firing (the history above), so passed = total - floor.
+#  - RE-PINNED 2026-11-16 from total=25 passed=9 skipped=16 when P3-01 added the two
+#    `GhostMapPrimitiveRuntimeTest` cells (one FLIGHT, one TRACKSTATION). The new
+#    TRACKSTATION cell skips only without a game flight state or without Kerbin, neither
+#    possible on this fixture, so the line below is derived, not yet flown: the next
+#    green flight of this spec confirms it.
 #  - failed=0 is the ASSERTION.
 #  - scene=TRACKSTATION is LOAD-BEARING and is the B10 fail-open guard: a boot that lost
-#    the `scene=` argument lands in FLIGHT and runs a different 9-cell slice, which this
+#    the `scene=` argument lands in FLIGHT and runs the FLIGHT slice instead, which this
 #    token rejects.
-required  = ["BATCH_COMPLETE v1 total=25 passed=9 failed=0 skipped=16 category=GhostMap scene=TRACKSTATION"]
+required  = ["BATCH_COMPLETE v1 total=27 passed=10 failed=0 skipped=17 category=GhostMap scene=TRACKSTATION"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]
