@@ -27550,6 +27550,35 @@ class ListHandlesSourceSyncTests(unittest.TestCase):
             self.assertEqual(want, tuple(re.findall(r'"([^"\\]*)"', body)), name)
         self.assertEqual("timeline", self.consts["TimelineKindToken"])
 
+    def test_the_sites_log_line_prefix_facts_keys_and_samples_are_byte_equal(self):
+        """kind=sites's lines are written by `TestCommandSitesReadback`, a sibling file
+        (multiplayer T-07); read it as code the same way. The sample names are taken from
+        the `SamplePoints` table's constructor calls, in table order, because a spec pins
+        a terrain line by index and name."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands",
+                            "TestCommandListHandlesSites.cs")
+        self.assertTrue(os.path.isfile(path), "the sites read-back moved: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            raw = fh.read().replace("\r\n", "\n")
+        code = "\n".join(strip_cs_line_comment(l) for l in raw.split("\n"))
+        consts = dict(re.findall(r'\bconst\s+string\s+(\w+)\s*=\s*"([^"\\]*)"\s*;', code))
+        self.assertEqual(hlib.LISTHANDLES_SITES_LOG_PREFIX, consts["SitesLogLinePrefix"])
+        self.assertEqual(hlib.LISTHANDLES_SITES_FACTS,
+                         (consts["SpaceCenterFact"], consts["RecoveryFact"],
+                          consts["LaunchSiteFact"], consts["TerrainFact"]))
+        for name, want in (("LaunchSiteLogLineKeys", hlib.LISTHANDLES_SITES_LAUNCH_SITE_LOG_KEYS),
+                           ("TerrainLogLineKeys", hlib.LISTHANDLES_SITES_TERRAIN_LOG_KEYS)):
+            head = re.search(r"\b%s\s*=\s*\{" % name, code)
+            self.assertIsNotNone(head, "%s declaration not found" % name)
+            body = code[head.end():code.index("};", head.end())]
+            self.assertEqual(want, tuple(re.findall(r'"([^"\\]*)"', body)), name)
+        head = re.search(r"\bSamplePoints\s*=\s*\{", code)
+        self.assertIsNotNone(head, "SamplePoints declaration not found")
+        body = code[head.end():code.index("};", head.end())]
+        self.assertEqual(hlib.LISTHANDLES_SITES_SAMPLE_NAMES,
+                         tuple(re.findall(r'new\s+SiteSamplePoint\(\s*"([^"\\]*)"', body)))
+        self.assertEqual("sites", self.consts["SitesKindToken"])
+
     def test_the_route_log_line_prefix_and_keys_are_byte_equal(self):
         self.assertEqual(hlib.LISTHANDLES_ROUTE_LOG_PREFIX,
                          self.consts["RouteLogLinePrefix"])
@@ -28249,8 +28278,8 @@ class IdsFileSelectionTests(unittest.TestCase):
 class RaceTagConventionTests(unittest.TestCase):
     """Multiplayer plan T-45 / README rule 7: a race lane (id prefix RACE, SITES,
     RCA, RCB or RCI) carries the `race` tag and no other spec does, so
-    `--tag race` flies exactly the race lanes. No race spec is committed yet, so
-    the synthetic cells prove the committed cell can red."""
+    `--tag race` flies exactly the race lanes. Few race specs are committed yet
+    (RACE-0 is the first), so the synthetic cells prove the committed cell can red."""
 
     @staticmethod
     def _spec(sid, tags=None):

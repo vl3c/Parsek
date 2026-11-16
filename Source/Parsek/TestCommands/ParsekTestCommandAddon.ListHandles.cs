@@ -83,6 +83,9 @@ namespace Parsek.TestCommands
                 case ListHandlesKind.Timeline:
                     payload = TestCommandTimelineReadback.BuildPayload(GatherTimelineReadback());
                     break;
+                case ListHandlesKind.Sites:
+                    payload = TestCommandSitesReadback.BuildPayload(GatherSitesReading());
+                    break;
                 default:
                     payload = TestCommandListHandles.BuildActivePayload(GatherActiveRow());
                     break;
@@ -103,6 +106,9 @@ namespace Parsek.TestCommands
             List<string> timelineLines = TestCommandTimelineReadback.LogLines(payload, kind);
             for (int i = 0; i < timelineLines.Count; i++)
                 ParsekLog.Info(Tag, timelineLines[i]);
+            List<string> sitesLines = TestCommandSitesReadback.LogLines(payload, kind);
+            for (int i = 0; i < sitesLines.Count; i++)
+                ParsekLog.Info(Tag, sitesLines[i]);
             SetExecResult("OK", payload, null);
         }
 
