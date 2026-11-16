@@ -2,6 +2,11 @@ schema = 1
 id = "AIR-2-runway-circuit-ksc-ghost"
 # =====================================================================================
 # AIR-2: THE PLANE'S GHOST REPLAYS AT THE SPACE CENTER. AUTHORED 2026-11-16, NEVER FLOWN.
+# Fixture `air-circuit-recorded` harvested --keep-parsek from AIR-1-runway-circuit-splashdown
+# run `2026-11-16_2218` (PASS attempt 1, wall 465 s): tree d07b9a6f945d418fa80b4268dc1aa3fc
+# ('Mallard') with TWO chain recordings of the one vessel, d563455e (launchSiteName Runway,
+# UT 30.74 -> 393.14) and the optimizer's split at the splash, aacb1976 (UT 393.14 ->
+# 427.18, terminal Splashed at lat 0.0545 lon -73.697, the Mallard at rest in the sea).
 # Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 3, the replay half of AIR-1.
 #
 # THE ROAD. Load AIR-1's harvest (`air-circuit-recorded`: one committed tree, the
@@ -28,27 +33,18 @@ id = "AIR-2-runway-circuit-ksc-ghost"
 # position against `rec`'s interpolated lat / lon / alt at the same UT); filed in todo
 # NEXT-TESTS-TO-BUILD-2026-11-11 item 3.
 #
-# NOT FLYABLE YET: tier "pending-fixture", tag "awaiting-fixture". The fixture
-# `air-circuit-recorded` is the harvest of the forge `AIR-1-runway-circuit-splashdown`,
-# which has not flown. Until it exists this spec stays out of every cadence and the
-# full run (tier_runner FULL_RUN_EXCLUDED_TIERS),
-# `test_hlib.SharedShipsManifestTests.PENDING_FIXTURE_LANES` exempts it from the
-# saveTemplate sweep, and that map's self-retiring cell reds the day the fixture lands.
-# The WarpToUT target is an ESTIMATE: the harvested StartUT is ~30 (the gs1 pad world
-# boots near UT 15, as BAY-1's replay span [29.9, 55.3] shows) and a typical circuit is
-# ~600-900 s, so 1500 covers it; the hand-over pins it off the real EndUT.
-#
-# TO MAKE IT FLYABLE, in ONE commit after AIR-1's harvest: set the WarpToUT target to
-# the harvested tree's last EndUT + 60, set tier = "operator" and swap the tag
-# "awaiting-fixture" for "pending-flight", add "sandbox" back to D14 (the game-mode
-# claim needs a fixture to witness it), delete the PENDING_FIXTURE_LANES entry, register
-# `air-circuit-recorded` in test_saveparse.RECORDED_FIXTURES, and pin the recording
-# count off the harvested bytes (min == max).
+# HANDED OVER 2026-11-16 at AIR-1's harvest, in the commit that registered
+# `air-circuit-recorded` in test_saveparse.RECORDED_FIXTURES: the WarpToUT target is the
+# harvested tree's last EndUT (aacb1976 explicitEndUT 427.18) + 60 = 487.18, tier
+# "operator" with tag "pending-flight", "sandbox" back in D14 (the fixture's Mode is
+# SANDBOX), the PENDING_FIXTURE_LANES entry deleted, and the recording count pinned off
+# the harvested bytes: 2 recordings, min == max (the replay and the end spawn record
+# nothing new; autoRecordOnLaunch is off).
 # =====================================================================================
-tier = "pending-fixture"
-description = "AUTHORED 2026-11-16, NEVER FLOWN, NOT FLYABLE UNTIL `AIR-1-runway-circuit-splashdown` IS HARVESTED (fixture `air-circuit-recorded` absent; the WarpToUT target is an estimate). Rewinds AIR-1's committed plane flight to launch and lets the Space Center replay it: the Mallard's KSC ghost enters range, plays its absolute pose on Kerbin and leaves range at its Splashed end, the real Mallard spawns there, and LeafVesselPlacement reads the spawn's position against the recorded terminal place."
+tier = "operator"
+description = "AUTHORED 2026-11-16, NEVER FLOWN. On `air-circuit-recorded` (harvested from AIR-1-runway-circuit-splashdown run 2026-11-16_2218: tree d07b9a6f, two Mallard recordings ending Splashed). Rewinds AIR-1's committed plane flight to launch and lets the Space Center replay it: the Mallard's KSC ghost enters range, plays its absolute pose on Kerbin and leaves range at its Splashed end, the real Mallard spawns there, and LeafVesselPlacement reads the spawn's position against the recorded terminal place."
 instanceProfile = "stock-minimal"
-tags = ["AIR2", "aircraft", "ksc-ghost", "rewind-to-launch", "leaf-placement", "ingame-batch", "awaiting-fixture"]
+tags = ["AIR2", "aircraft", "ksc-ghost", "rewind-to-launch", "leaf-placement", "ingame-batch", "pending-flight"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/air-circuit-recorded"
@@ -66,9 +62,9 @@ steps = [
   { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" },       expect = "OK" },
   { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                         expect = "OK", budget = 300 },
   { cmd = "MissionMark", args = { label = "air2-rewound" },                           expect = "OK" },
-  # ESTIMATE (see the header): past the recording's EndUT, at most 10x so the ghost
-  # stays drawn (hidden above 50x).
-  { cmd = "WarpToUT",   args = { ut = "1500", maxRate = "10" },                        expect = "OK", budget = 300 },
+  # The harvested tree's last EndUT (427.18) + 60, at most 10x so the ghost stays
+  # drawn (hidden above 50x).
+  { cmd = "WarpToUT",   args = { ut = "487.18", maxRate = "10" },                      expect = "OK", budget = 300 },
   { cmd = "MissionMark", args = { label = "air2-past-end" },                          expect = "OK" },
   { cmd = "RunTests",   args = { category = "LeafVesselPlacement" },                  expect = "OK", budget = 300 },
   { cmd = "FlushAndQuit",                                                             expect = "OK" },
@@ -77,13 +73,14 @@ steps = [
 [dimensionsCovered]
 D6  = ["basic-playback"]
 D9  = ["rewind-to-launch"]
-D14 = ["kerbin", "scene-ksc"]
+D14 = ["kerbin", "scene-ksc", "sandbox"]
 
 [expectations]
 allowedAnomalies = []
 
 [expectations.recordings]
-count = { min = 1, max = 3 }
+# Pinned off the harvested bytes: the fixture holds 2 recordings (d563455e, aacb1976).
+count = { min = 2, max = 2 }
 
 [expectations.logContracts]
 required  = [

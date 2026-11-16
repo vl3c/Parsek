@@ -20,6 +20,21 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## AIR1-GLIDE-SLOPE-STEEPER-THAN-PLANNED: AIR-1's approach glides at about 8.6 deg, not the planned 6 [FILED 2026-11-16 from AIR-1's first green flight, run `2026-11-16_2218` (diagnostics on branch `forge-logs-2026-11-16-air1d`). OPEN; low, harness only, cosmetic for the lane]
+
+The Mallard's final glide toward the touchdown point came out at about 8.6 deg instead of the
+`glideSlopeDeg = 6` the mission flies, crossing the aim point at 120 m and splashing down
+about 1.4 km past it (touchedDown `missMeters` 1376). The lane passed: the splashdown is in open
+water either way and nothing gates the slope. Worth a look only if a later lane needs a precise
+touchdown point (a runway landing): the pitch loop's glide target or the throttle on the final.
+
+A log reader's note from the same flight, not a defect: while the Mallard was airborne the
+active recorder's finalizer cache logged `[FinalizerCache] Refresh accepted: ... terminal=Destroyed
+terminalUT=...` (and `status=Fresh terminal=Destroyed` in the refresh summary) on its periodic
+refreshes. That is the ballistic extrapolator's FORECAST of where an unpowered plane would end
+if the recording stopped at that moment, not the recording's terminal: the committed recording
+finalized `terminal=Splashed`, and the produced save holds `Splashed 1`, `Destroyed 0`.
+
 ## ~~RECORDER-GEAR-SUSPENSION-AS-ROBOTICS~~: a plane rolling on its landing gear records the suspension as robotics motion, about 22 start / stop events a second [FILED 2026-11-16 from AIR-1's first flight, runs `2026-11-16_1955` and `_1956_a2` (diagnostics on branch `forge-logs-2026-11-16-air1`, `diag/<runId>/KSP.log.parsek-lines.txt`), by log and code reading. FIXED 2026-11-16, branch `gear-suspension-fix`, landed on `claude/project-thread-vpr29t`; xUnit; GS-6 re-pinned (two suspension-fed applier tokens out, the skip line in) and re-flown green 2026-11-16 `2026-11-16_2130`; low (recording size and log volume, plus a wrong ghost gear pose on replay)]
 
 What the log shows: while the stock Mallard rolled on the Runway, the active recorder wrote
@@ -1883,9 +1898,10 @@ in parallel in the cloud):
    B46 Minmus -> Mun (about 200 Kerbin days between loops), B45 Tylo -> Bop (expected honest
    decline), each a forge plus a loop lane. Before this group only Laythe -> Vall, Mun -> Minmus and
    Laythe -> Jool had flown on the new rule.
-3. [ ] (AUTHORED 2026-11-16 as `AIR-1-runway-circuit-splashdown` / `AIR-2-runway-circuit-ksc-ghost`,
-   never flown: mission `air1_runway_circuit`, the stock Mallard from the Runway around a circuit to
-   a splashdown east of KSC; AIR-2 is pending-fixture until AIR-1's `air-circuit-recorded` harvest.
+3. [ ] (AUTHORED 2026-11-16 as `AIR-1-runway-circuit-splashdown` / `AIR-2-runway-circuit-ksc-ghost`:
+   mission `air1_runway_circuit`, the stock Mallard from the Runway around a circuit to a
+   splashdown east of KSC. AIR-1 LIVE-PROVEN 2026-11-16 on its fourth flight and harvested as
+   `air-circuit-recorded`; AIR-2 handed over the same day (operator, never flown).
    FIRST FLIGHT 2026-11-16 DRIVER-INVALID: runs `2026-11-16_1955` and `_1956_a2` (PC,
    `gs1-two-stage-pad`, diagnostics on branch `forge-logs-2026-11-16-air1`), MISSION-FLAKE both
    times, no Parsek verdict. Rollout, staging and the auto-record start were fine. Under the
@@ -1923,7 +1939,14 @@ in parallel in the cloud):
    engaged anywhere in AIR-1; from lift-off the mission flies raw inputs, the elevator from a
    pitch-error P-D loop (the rotation's gains), the ailerons from a bank-error P-D loop with a
    self-checking sign (`rollInputSign`), heading changes by banking toward the bearing with the
-   nose a little higher in the bank, rudder neutral, SAS off. Next: the reading flight.)
+   nose a little higher in the bank, rudder neutral, SAS off. FOURTH FLIGHT 2026-11-16 PASS:
+   run `2026-11-16_2218`, attempt 1, 465 s (automation DLL from d15595d4, diagnostics on branch
+   `forge-logs-2026-11-16-air1d`). The Mallard took off, flew the circuit at about 1,030 m (25 deg
+   bank), glided east and splashed down near lat 0.055 lon -73.70; terminal Splashed, the tree
+   committed, 2 recordings (the optimizer's split at the splash; the runway run stayed whole), zero
+   gear RoboticMotion lines. Harvested as `air-circuit-recorded` (tree d07b9a6f) and registered;
+   AIR-2 re-pinned off it (WarpToUT 487.18 = EndUT 427.18 + 60, count {2,2}). Next: fly AIR-2.
+   Follow-up: AIR1-GLIDE-SLOPE-STEEPER-THAN-PLANNED.)
    Aircraft: no lane flies a plane (BAY-1's never moves). A runway takeoff, a circuit and a
    landing, then its ghost replays at the Space Center. Open after AIR-2: no in-game check reads a
    KSC ghost's position DURING its replay (AIR-2 reads the KSC log lines and, by position, only the

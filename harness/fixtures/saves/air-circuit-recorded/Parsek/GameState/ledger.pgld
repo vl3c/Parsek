@@ -1,0 +1,143 @@
+version = 0
+recordingSchemaGeneration = 4
+takeBackFromCseq = 1
+allowNegativeLocked = 0
+GAME_ACTION
+{
+	ut = 38.240000000000379
+	type = 4
+	actionId = act_cc9072848d7c4803a5a2348a8d060b39
+	recordingId = d563455e5c8942079f50b6caecffee70
+	seq = 1
+	cseq = 3
+	insideRepSeed = True
+	milestoneId = RecordsDistance
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+	milestoneRecordThresholds = 2
+	milestoneRecordBand = 1:0:0:0,2:0:0:0
+}
+GAME_ACTION
+{
+	ut = 45.54000000000152
+	type = 4
+	actionId = act_f792c26f2b434ffa9b4370411d13e2fc
+	recordingId = d563455e5c8942079f50b6caecffee70
+	seq = 2
+	cseq = 4
+	insideRepSeed = True
+	milestoneId = RecordsSpeed
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+	milestoneRecordThresholds = 2
+	milestoneRecordBand = 1:0:0:0,2:0:0:0
+}
+GAME_ACTION
+{
+	ut = 55.900000000003139
+	type = 4
+	actionId = act_37331f56a44d447b96473cc604f00266
+	recordingId = d563455e5c8942079f50b6caecffee70
+	seq = 3
+	cseq = 5
+	insideRepSeed = True
+	milestoneId = FirstLaunch
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 85.500000000000128
+	type = 4
+	actionId = act_91e71907ace04f69974d9beed693c39f
+	recordingId = d563455e5c8942079f50b6caecffee70
+	seq = 4
+	cseq = 6
+	insideRepSeed = True
+	milestoneId = RecordsAltitude
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+	milestoneRecordBand = 1:0:0:0
+}
+GAME_ACTION
+{
+	ut = 392.59999999993289
+	type = 4
+	actionId = act_ec567b3522ca4e5e81f8509d9edd1a9d
+	recordingId = d563455e5c8942079f50b6caecffee70
+	seq = 5
+	cseq = 7
+	insideRepSeed = True
+	milestoneId = Kerbin/Splashdown
+	milestoneFundsAwarded = 0
+	milestoneRepAwarded = 0
+	milestoneSciAwarded = 0
+}
+GAME_ACTION
+{
+	ut = 30.739999999999434
+	type = 11
+	actionId = act_245cc3b0c1024f36bd5c6218f3108f9b
+	recordingId = d563455e5c8942079f50b6caecffee70
+	seq = 1
+	cseq = 8
+	kerbalName = Bill Kerman
+	kerbalRole = Engineer
+	startUT = 30.74
+	endUT = 393.14
+	endState = 2
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 30.739999999999434
+	type = 11
+	actionId = act_6c561fcefe2b46f0b77a5ea5b9dbff69
+	recordingId = d563455e5c8942079f50b6caecffee70
+	seq = 2
+	cseq = 9
+	kerbalName = Bob Kerman
+	kerbalRole = Scientist
+	startUT = 30.74
+	endUT = 393.14
+	endState = 2
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 393.1399999999324
+	type = 11
+	actionId = act_e02a0c9adb0e44058833d1c744bf37a2
+	recordingId = aacb197643994c00882ccebce95eea07
+	seq = 1
+	cseq = 10
+	kerbalName = Bill Kerman
+	kerbalRole = Engineer
+	startUT = 393.14
+	endUT = 427.36
+	endState = 0
+	xpGained = 0
+}
+GAME_ACTION
+{
+	ut = 393.1399999999324
+	type = 11
+	actionId = act_248b02278155496aa61260d047fecbe2
+	recordingId = aacb197643994c00882ccebce95eea07
+	seq = 2
+	cseq = 11
+	kerbalName = Bob Kerman
+	kerbalRole = Scientist
+	startUT = 393.14
+	endUT = 427.36
+	endState = 0
+	xpGained = 0
+}
+PROGRESS_SEED
+{
+	captured = True
+}

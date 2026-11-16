@@ -1,0 +1,55 @@
+version = 1
+MILESTONE
+{
+	id = a40abbc92caf4ec9b7635ae05bd6b7a9
+	startUT = 0
+	endUT = 427.35999999990128
+	recordingId = d07b9a6f945d418fa80b4268dc1aa3fc
+	committed = True
+	lastReplayedIdx = 4
+	GAME_STATE_EVENT
+	{
+		ut = 38.240000000000379
+		type = 18
+		key = RecordsDistance
+		detail = funds=0;rep=0;sci=0;thresholds=2;band=1:0:0:0,2:0:0:0
+		recordingId = d563455e5c8942079f50b6caecffee70
+		cseq = 3
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 45.54000000000152
+		type = 18
+		key = RecordsSpeed
+		detail = funds=0;rep=0;sci=0;thresholds=2;band=1:0:0:0,2:0:0:0
+		recordingId = d563455e5c8942079f50b6caecffee70
+		cseq = 4
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 55.900000000003139
+		type = 18
+		key = FirstLaunch
+		detail = funds=0;rep=0;sci=0
+		recordingId = d563455e5c8942079f50b6caecffee70
+		cseq = 5
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 85.500000000000128
+		type = 18
+		key = RecordsAltitude
+		detail = funds=0;rep=0;sci=0;band=1:0:0:0
+		recordingId = d563455e5c8942079f50b6caecffee70
+		cseq = 6
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 392.59999999993289
+		type = 18
+		key = Kerbin/Splashdown
+		detail = funds=0;rep=0;sci=0
+		recordingId = d563455e5c8942079f50b6caecffee70
+		cseq = 7
+	}
+}

@@ -11,16 +11,15 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | lanes | 602 |
 | tier daily | 29 |
 | tier nightly | 289 |
-| tier operator | 278 |
+| tier operator | 279 |
 | tier longhaul | 5 |
-| tier (other) | 1 |
 | profile stock-minimal | 558 |
 | profile stock-tree | 40 |
 | profile modded-compat | 4 |
 | autopilot (mission) lanes | 146 |
 | seam-only lanes | 456 |
-| LIVE-PROVEN date in status row | 483 |
-| no LIVE-PROVEN date | 119 |
+| LIVE-PROVEN date in status row | 484 |
+| no LIVE-PROVEN date | 118 |
 | no status row | 0 |
 | expectedFail armed | 0 |
 
@@ -35,7 +34,7 @@ One row per harness lane, derived from its spec, for finding gaps in what the la
 | family | lanes | daily | nightly | operator | longhaul | autopilot | live-proven |
 |---|---|---|---|---|---|---|---|
 | AH | 1 | - | 1 | - | - | - | 1 |
-| AIR | 2 | - | - | 1 | - | 1 | - |
+| AIR | 2 | - | - | 2 | - | 1 | 1 |
 | AJ | 1 | - | - | 1 | - | - | 1 |
 | AP | 1 | - | 1 | - | - | - | 1 |
 | AST | 4 | - | 4 | - | - | 4 | 4 |
@@ -307,7 +306,7 @@ Injected recordings (`fixture.injectedRecordings`, lanes not on `none`):
 
 | body | lanes | autopilot | live-proven | families |
 |---|---|---|---|---|
-| Kerbin | 363 | 115 | 293 | RF 29, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +66 |
+| Kerbin | 363 | 115 | 294 | RF 29, V 26, RW 25, B 24, QL 20, GUI 19, LAB 18, L 17 +66 |
 | Mun | 55 | 13 | 45 | RW 22, V 8, B 5, CS 5, TP 4, MC 2, EVA 1, GUI 1, H 1 +6 |
 | Minmus | 13 | 5 | 9 | V 6, B 5, AP 1, TP 1 |
 | Moho | 3 | 1 | 2 | V 2, B 1 |
@@ -811,8 +810,8 @@ Columns: tier (`xfail` when `expectedFail` is armed), host save (`+inj` with inj
 
 | lane | tier | host save | driver | bodies | timeline ops | in-game categories | status |
 |---|---|---|---|---|---|---|---|
-| AIR-1-runway-circuit-splashdown | operator | gs1-two-stage-pad | air1_runway_circuit | Kerbin | - | - | first three flights driver-INVALID; AutoP... |
-| AIR-2-runway-circuit-ksc-ghost | pending-fixture | air-circuit-recorded | seam | Kerbin | rewind-to-launch, warp | LeafVesselPlacement | NEVER FLOWN, waits on AIR-1's harvest |
+| AIR-1-runway-circuit-splashdown | operator | gs1-two-stage-pad | air1_runway_circuit | Kerbin | - | - | LIVE-PROVEN 2026-11-16 |
+| AIR-2-runway-circuit-ksc-ghost | operator | air-circuit-recorded | seam | Kerbin | rewind-to-launch, warp | LeafVesselPlacement | NEVER FLOWN; fixture air-circuit-recorded... |
 
 ### AJ (1)
 

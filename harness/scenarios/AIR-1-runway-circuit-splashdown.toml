@@ -3,8 +3,9 @@ id = "AIR-1-runway-circuit-splashdown"
 # =====================================================================================
 # AIR-1: THE FIRST LANE THAT FLIES A PLANE. AUTHORED 2026-11-16; FIRST AND SECOND FLIGHTS
 # 2026-11-16 DRIVER-INVALID ON THE TAKEOFF, THIRD FLIGHT TOOK OFF AND WAS LOST AT THE
-# AUTOPILOT HAND-OVER (below); THE AUTOPILOT RETIRED, FLIGHT CONTROL ON RAW INPUTS, NOT
-# RE-FLOWN.
+# AUTOPILOT HAND-OVER (below); THE AUTOPILOT RETIRED, FLIGHT CONTROL ON RAW INPUTS.
+# LIVE-PROVEN 2026-11-16 on the fourth flight (run 2026-11-16_2218, PASS attempt 1, 465 s),
+# harvested as `air-circuit-recorded`.
 # Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 3 ("no lane flies a plane; BAY-1's never
 # moves"). This lane is the forge half: it records and commits a real atmospheric
 # flight from the Runway, and its harvest is the fixture `air-circuit-recorded` that
@@ -179,7 +180,19 @@ id = "AIR-1-runway-circuit-splashdown"
 #     negative roll is a left bank and bankSign +1 is right.
 #   - Touchdown and every take-off give-up neutralise the elevator and ailerons.
 #
-# NOT VERIFIED OFFLINE (the next flight is the calibration reading):
+# THE FOURTH FLIGHT (2026-11-16_2218, PC, automation DLL sha256 prefix 118b45ac from
+# d15595d4; diagnostics on branch forge-logs-2026-11-16-air1d): PASS on the first attempt,
+# 465 s. The Mallard took off from the Runway on the raw elevator / aileron loops, flew the
+# three-waypoint left circuit at about 1,030 m (25 deg bank), glided east and splashed down
+# near lat 0.055 lon -73.70: terminal=Splashed, `committree committed=true`, zero gear
+# RoboticMotion lines. The glide came out at about 8.6 deg rather than the planned 6
+# (crossing the aim point at 120 m; cosmetic for this lane, todo
+# AIR1-GLIDE-SLOPE-STEEPER-THAN-PLANNED). The optimizer split the flight into 2
+# recordings at the splash (tree 'Mallard'); the runway run stayed whole (rule 5b). The
+# report-only structure block read trees 1, committedTrees 1, recordings 2, terminal
+# Splashed 1, Destroyed 0.
+#
+# NOT VERIFIED OFFLINE BEFORE THE FOURTH FLIGHT (that flight was the calibration reading):
 #   - The aileron sign (rollInputSign, self-checked) and authority (the bank gains), and
 #     the elevator loop at cruise speed (proven only to 73 m/s in the rotation).
 #   - The Mallard's climb at 10 deg on two Wheesleys past 17 m.
@@ -189,17 +202,18 @@ id = "AIR-1-runway-circuit-splashdown"
 # LAUNCH PAD, so a Runway rollout recovers nothing, and Bill / Bob are Available for
 # the Mallard's default crew.
 #
-# HARVEST (after the first PASS; the run's own snapshot, never the live save):
+# HARVEST (done 2026-11-16 from run 2026-11-16_2218; the run's own snapshot, never the
+# live save):
 #   cd harness
 #   python tools/harvest_bdock_station.py --save-dir results/<runId>_save
 #       --target-name air-circuit-recorded --expect-situation SPLASHED,LANDED --keep-parsek
-# then register `air-circuit-recorded` in test_saveparse.RECORDED_FIXTURES and make
-# AIR-2 flyable in the same commit (its header lists the hand-over).
+# `air-circuit-recorded` is registered in test_saveparse.RECORDED_FIXTURES and AIR-2 was
+# handed over in the same commit.
 # =====================================================================================
-tier = "operator"  # calibration discipline: first three flights 2026-11-16 driver-INVALID (takeoff twice, then the AutoPilot hand-over); the next flight is the reading run
-description = "AUTHORED 2026-11-16; first flight driver-INVALID on the takeoff roll (heading drift under the AutoPilot), second flight held the runway on the nose wheel but lost it at the rotate (the AutoPilot's yaw), third flight took off on the elevator and was rolled inverted by the AutoPilot at the climb hand-over; the AutoPilot is retired and the whole flight is flown on the elevator and ailerons, not re-flown. The first lane that flies a plane: the stock Mallard rolls out on the Runway, stages in place (Parsek's first-staging auto-record trigger), takes off east, flies a three-waypoint circuit at 1000 m within 10 km of KSC, glides east to a splashdown in the sea, comes to rest, and the tree is committed. Gates a fresh recording with launchSite=Runway, Atmospheric sections and a Splashed (or Landed) terminal. Its harvest `air-circuit-recorded` feeds AIR-2's Space Center replay."
+tier = "operator"  # calibration discipline: first three flights 2026-11-16 driver-INVALID (takeoff twice, then the AutoPilot hand-over); LIVE-PROVEN on the fourth (2026-11-16_2218)
+description = "AUTHORED 2026-11-16; first flight driver-INVALID on the takeoff roll (heading drift under the AutoPilot), second flight held the runway on the nose wheel but lost it at the rotate (the AutoPilot's yaw), third flight took off on the elevator and was rolled inverted by the AutoPilot at the climb hand-over; the AutoPilot is retired and the whole flight is flown on the elevator and ailerons; LIVE-PROVEN 2026-11-16 on the fourth flight (run 2026-11-16_2218). The first lane that flies a plane: the stock Mallard rolls out on the Runway, stages in place (Parsek's first-staging auto-record trigger), takes off east, flies a three-waypoint circuit at 1000 m within 10 km of KSC, glides east to a splashdown in the sea, comes to rest, and the tree is committed. Gates a fresh recording with launchSite=Runway, Atmospheric sections and a Splashed (or Landed) terminal. Its harvest `air-circuit-recorded` feeds AIR-2's Space Center replay."
 instanceProfile = "stock-minimal"
-tags = ["AIR1", "aircraft", "runway", "atmospheric", "splashdown", "fixture-forge", "pending-flight"]
+tags = ["AIR1", "aircraft", "runway", "atmospheric", "splashdown", "fixture-forge", "flown"]
 
 [fixture]
 saveTemplate       = "fixtures/saves/gs1-two-stage-pad"

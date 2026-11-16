@@ -1436,6 +1436,35 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "ef182ffd723f42b591ed029794f551dd"],
             "schemaGeneration": 4,
         },
+        # --- THE FIRST AIRCRAFT SUBJECT: A RUNWAY TAKEOFF TO A SPLASHDOWN ----
+        # PROVENANCE: air-circuit-recorded <- AIR-1-runway-circuit-splashdown, run
+        # 2026-11-16_2218, PASS attempt 1 (wall 465 s, the fourth flight and the
+        # first on raw elevator / aileron loops), automation DLL sha256 prefix
+        # 118b45ac built from d15595d4, --keep-parsek, from the run's own `_save`
+        # snapshot (situation gate SPLASHED,LANDED; diagnostics on the never-merged
+        # branch forge-logs-2026-11-16-air1d). The stock Mallard took off from the
+        # Runway on gs1-two-stage-pad, flew the three-waypoint circuit at ~1,030 m,
+        # glided east and splashed down at lat 0.0545 lon -73.697. ONE committed
+        # tree d07b9a6f ('Mallard') with TWO chain recordings of the one vessel:
+        # d563455e (chainIndex 0, launchSiteName Runway, startSituation Prelaunch,
+        # explicit UT 30.74 -> 393.14, the takeoff roll kept whole by rule 5b) and
+        # the optimizer's split at the splash, aacb1976 (chainIndex 1, UT 393.14 ->
+        # 427.18, terminal Splashed, spawnedPid 601857151 = the Mallard at rest in
+        # the sea, sit SPLASHED). Save clock (FLIGHTSTATE UT) 427.46. The GS1
+        # booster from the host stays on the pad as an unrecorded vessel. AIR-2
+        # rewinds this tree and replays it at the Space Center. The facets below
+        # are read off the harvested bytes.
+        "air-circuit-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 2,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Splashed": 1},
+            "branchPoints": {},
+            "minAuthoritativeSidecars": 8,
+            "recordingIds": ["aacb197643994c00882ccebce95eea07",
+                             "d563455e5c8942079f50b6caecffee70"],
+            "schemaGeneration": 4,
+        },
         # --- THE ECCENTRIC-MOON LOOP SUBJECT -----------------------------
         # PROVENANCE: gilly-orbit-recorded <- B24-gilly-orbit, run
         # 2026-08-19_1655, PASS attempt 1 (mission wall 1,075 s, every assertion
