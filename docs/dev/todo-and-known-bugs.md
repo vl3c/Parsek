@@ -1763,7 +1763,22 @@ in parallel in the cloud):
    Laythe -> Jool had flown on the new rule.
 3. [ ] (AUTHORED 2026-11-16 as `AIR-1-runway-circuit-splashdown` / `AIR-2-runway-circuit-ksc-ghost`,
    never flown: mission `air1_runway_circuit`, the stock Mallard from the Runway around a circuit to
-   a splashdown east of KSC; AIR-2 is pending-fixture until AIR-1's `air-circuit-recorded` harvest.)
+   a splashdown east of KSC; AIR-2 is pending-fixture until AIR-1's `air-circuit-recorded` harvest.
+   FIRST FLIGHT 2026-11-16 DRIVER-INVALID: runs `2026-11-16_1955` and `_1956_a2` (PC,
+   `gs1-two-stage-pad`, diagnostics on branch `forge-logs-2026-11-16-air1`), MISSION-FLAKE both
+   times, no Parsek verdict. Rollout, staging and the auto-record start were fine. Under the
+   AutoPilot (pitch 0.5 / heading 090 / roll 0) the heading wandered LEFT from ~17 m/s with the
+   wings level (89.7 at 17 m/s, 86.4 at 29, 79.4 at 36, 62.2 at 43); the plane left the runway's
+   north edge at ~43 m/s, below the 60 m/s rotate, already lifting at 0.3-0.5 deg of pitch, hit
+   the ground and bounced, one FLYING frame at 10.6 m between two LANDED frames passed the
+   one-frame airborne check, and the climb's surface check gave up. The retry cartwheeled.
+   Re-written the same day (harness only, not re-flown): the AutoPilot is off on the ground roll
+   and the nose wheel steers from the heading error (`control.wheel_steering`, the kRPC client's
+   documented sign, self-flipped once if the error keeps growing), a named give-up past 8 deg of
+   ground heading drift with throttle cut and brakes on, rotateSpeed 60 -> 45, airborne = 3
+   consecutive climbing FLYING frames, a level-roll guard before staging, the bank-sign check
+   on the ground track, and a recording count window of {1, 40} for splashdown debris. Next: the
+   reading flight.)
    Aircraft: no lane flies a plane (BAY-1's never moves). A runway takeoff, a circuit and a
    landing, then its ghost replays at the Space Center. Open after AIR-2: no in-game check reads a
    KSC ghost's position DURING its replay (AIR-2 reads the KSC log lines and, by position, only the

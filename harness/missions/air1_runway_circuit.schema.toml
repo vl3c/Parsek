@@ -40,7 +40,10 @@ type = "int"
 min = 1
 max = 600
 
-# Surface speed (m/s) at which the nose is raised to rotatePitch.
+# Surface speed (m/s) at which the nose is raised to rotatePitch and the AutoPilot
+# engages (the ground roll before it steers the nose wheel with the AutoPilot off).
+# Default 45: the first flight's Mallard was already lifting at 0.5 deg of pitch by
+# 43-47 m/s (2026-11-16_1955).
 [params.rotateSpeed]
 required = false
 type = "float"
@@ -152,6 +155,31 @@ required = false
 type = "float"
 min = -1.0
 max = 1.0
+
+# Ground roll nose-wheel steering: kRPC wheel_steering per deg of heading error to the
+# runway heading (plus a fixed damping term), clamped to 0.5 either way.
+[params.groundSteerGain]
+required = false
+type = "float"
+min = 0.0
+max = 1.0
+
+# +1 = kRPC's documented wheel_steering sign (+1 steers left, so a right turn is a
+# negative value); -1 = the opposite. The machine flips it once on the roll if the
+# heading error keeps growing under a corrective command.
+[params.groundSteerSign]
+required = false
+type = "float"
+min = -1.0
+max = 1.0
+
+# Heading error (deg) to the runway heading at which a plane still on the ground gives
+# up by name: throttle cut, brakes on, MISSION-FLAKE naming the drift.
+[params.groundHeadingAbortDeg]
+required = false
+type = "float"
+min = 0.5
+max = 45.0
 
 # Surface speed (m/s) under which the plane counts as at rest after the touchdown.
 [params.stopSpeed]

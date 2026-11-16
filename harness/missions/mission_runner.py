@@ -1442,6 +1442,11 @@ class KrpcMissionControl(MissionControl):
             control.gear = bool(action.value)
         elif kind == mlib.ACTION_SET_BRAKES:
             control.brakes = bool(action.value)
+        elif kind == mlib.ACTION_SET_WHEEL_STEERING:
+            # AIR-1 ground roll: steer the nose wheel from the machine's heading
+            # error (sign per the pinned kRPC client: +1 steers left). Only the AIR
+            # machine emits it, so no other mission sees a change.
+            control.wheel_steering = max(-1.0, min(1.0, float(action.value or 0.0)))
         elif kind == mlib.ACTION_TOGGLE_ACTION_GROUP:
             control.toggle_action_group(int(action.value))
         elif kind == mlib.ACTION_SET_DEPLOYABLES:

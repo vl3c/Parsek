@@ -1276,6 +1276,11 @@ ACTION_SET_GEAR = "set_gear"                               # value = 1.0 down / 
 # brakes drive no Parsek part-event family of their own, so a sweep that only
 # wants event families does not need it.
 ACTION_SET_BRAKES = "set_brakes"                           # value = 1.0 on / 0.0 off
+# control.wheel_steering = value, clamped to [-1, 1] (AIR-1's ground roll). The
+# pinned kRPC 0.5.4 client documents the sign: "A value of 1 steers to the left,
+# and a value of -1 steers to the right". kRPC holds the value until it is set
+# again, so the machine sends 0.0 when it stops steering.
+ACTION_SET_WHEEL_STEERING = "set_wheel_steering"           # value = -1.0 .. 1.0
 # control.toggle_action_group(int(value)). THE GENERAL ESCAPE HATCH: any part
 # action a craft's designer bound to custom group 1-10. Used when a family has no
 # dedicated kRPC class (or when one craft wires several families to one key).
@@ -36673,6 +36678,21 @@ def evaluate_mtour_assertions(frames, params: MtourParams,
 # glide toward a touchdown point, a flare, a touchdown and a stop. The scenario's
 # seam steps then commit the tree.
 #
+# THE GROUND ROLL IS NOT THE AUTOPILOT'S. The first flight (2026-11-16_1955 and its
+# retry _1956_a2, identical) held pitch / heading 090 / roll 0 through the AutoPilot
+# from brake release: the heading wandered LEFT from ~17 m/s (89.7 -> 86.4 at 28.6 m/s
+# -> 79.4 at 36.2 -> 62.2 at 43.4) with the wings level, the plane left the runway's
+# north edge below the rotate speed, hopped, and a one-frame bounce to 10.6 m read as
+# airborne. The AutoPilot drives yaw / pitch / roll; the nose wheel steers from
+# ``wheel_steering``, which it never sets. So the roll now runs with the AutoPilot
+# DISENGAGED (elevator neutral, SAS was already off: sas=0 on every frame), steering
+# the nose wheel from the heading error to the runway heading captured at ARM, with a
+# fail-fast give-up past ``groundHeadingAbortDeg``; the AutoPilot engages at the rotate
+# speed, and "airborne" needs AIR_AIRBORNE_FRAMES consecutive climbing FLYING frames.
+# The wheel-steering sign is the pinned kRPC client's documented one (+1 steers left);
+# ``groundSteerSign`` can invert it, and the machine flips it once on the roll if the
+# error keeps growing under a corrective command (``air_ground_steer_check``).
+#
 # THE STEERING. kRPC's native AutoPilot in the vessel's SURFACE frame holds a
 # pitch, a heading and a roll target at physics rate inside KSP; this machine runs
 # the slow outer loop at the runner's poll rate (0.5 s wall): a bank angle and a
@@ -36714,6 +36734,34 @@ KERBIN_RADIUS_M = 600000.0
 # Fixed tuning that no lane has needed to change. Kept as constants so the schema
 # stays the list of knobs an operator actually turns.
 AIR_AIRBORNE_ALTITUDE = 10.0      # m above the surface, with situation FLYING
+# "Airborne" is SUSTAINED: this many consecutive frames each FLYING, at or above
+# AIR_AIRBORNE_ALTITUDE and climbing at AIR_AIRBORNE_MIN_VS or more. The first flight's
+# bounce read FLYING at 10.6 m (vs +1.1) for one frame between two LANDED frames.
+AIR_AIRBORNE_FRAMES = 3
+AIR_AIRBORNE_MIN_VS = 0.5         # m/s
+AIR_GROUND_SITUATIONS: Tuple[str, ...] = ("PRE_LAUNCH", "LANDED", "SPLASHED")
+# The roll the machine's zero-roll targets assume: a level craft on the runway must READ
+# level before anything is staged. The first flight read 0.04 .. 0.06 deg at ARM and
+# RECORD-SETTLE (the -90 of the very first rollout frame is the craft still being
+# placed, before the two-frame settle gate).
+AIR_GROUND_MAX_ROLL = 10.0
+# Below this ground distance between two frames the track bearing is noise and the
+# bank-sign check falls back to the nose heading.
+AIR_TRACK_MIN_DISTANCE = 5.0      # m
+# Nose-wheel steering on the ground roll: fraction of full lock per deg of heading
+# error (the ``groundSteerGain`` param) plus this much per deg/s of error growth (the
+# damping a 0.5 s outer loop needs), clamped to AIR_GROUND_STEER_MAX either way.
+AIR_GROUND_STEER_DAMPING = 0.05
+AIR_GROUND_STEER_MAX = 0.5
+AIR_WHEEL_STEER_DEADBAND = 0.02
+# The ground steering-sign check: under a corrective command of at least
+# AIR_GROUND_FLIP_MIN_STEER with the error at least AIR_GROUND_FLIP_MIN_ERR, an error
+# that GREW on each of AIR_GROUND_FLIP_FRAMES frames and by AIR_GROUND_FLIP_GROWTH in
+# all flips the sign once; any frame on which it shrank confirms it.
+AIR_GROUND_FLIP_MIN_ERR = 1.5
+AIR_GROUND_FLIP_MIN_STEER = 0.15
+AIR_GROUND_FLIP_FRAMES = 3
+AIR_GROUND_FLIP_GROWTH = 1.5
 AIR_TAKEOFF_TIMEOUT_SECONDS = 60.0
 AIR_CLIMB_TIMEOUT_SECONDS = 240.0
 AIR_GEAR_UP_ALTITUDE = 60.0
@@ -36913,6 +36961,22 @@ def air_glide_altitude(distance: float, glide_deg: float, cap: float) -> float:
     return min(cap, max(0.0, distance) * math.tan(math.radians(glide_deg)))
 
 
+def air_ground_steer_command(heading_err: float, err_rate: float, gain: float,
+                             sign: float, damping: float = AIR_GROUND_STEER_DAMPING,
+                             max_steer: float = AIR_GROUND_STEER_MAX) -> float:
+    """The kRPC ``wheel_steering`` value for a ground-roll heading error (deg, positive
+    = the runway heading lies clockwise, a right turn is wanted) and its growth rate
+    (deg/s). kRPC's +1 steers LEFT, so a right turn is a NEGATIVE value at sign +1.
+    Proportional plus damping, clamped; a NaN error steers straight, a NaN rate adds
+    no damping."""
+    if not _is_finite(heading_err):
+        return 0.0
+    rate = err_rate if _is_finite(err_rate) else 0.0
+    turn = _air_clamp(gain * heading_err + damping * rate, -abs(max_steer), abs(max_steer))
+    out = -(1.0 if sign >= 0.0 else -1.0) * turn
+    return 0.0 if out == 0.0 else out
+
+
 @dataclass(frozen=True)
 class AirSteer:
     """One frame of guidance toward a point: the three autopilot targets, the
@@ -36924,6 +36988,7 @@ class AirSteer:
     distance: float
     heading_err: float
     vs_target: float
+    bearing: float = float("nan")
 
 
 def air_steer_toward(snapshot: TelemetrySnapshot, lat: float, lon: float,
@@ -36949,7 +37014,7 @@ def air_steer_toward(snapshot: TelemetrySnapshot, lat: float, lon: float,
         pitch = min(pitch, AIR_AOA_TRIM_DEG)
     throttle = air_throttle_command(speed_target, snapshot.surface_speed, min_throttle)
     return AirSteer(pitch=pitch, heading=heading, roll=roll, throttle=throttle,
-                    distance=dist, heading_err=err, vs_target=vs_t)
+                    distance=dist, heading_err=err, vs_target=vs_t, bearing=brg)
 
 
 def air_waypoint_captured(distance: float, heading_err: float,
@@ -36972,7 +37037,7 @@ class AirParams:
     launch_site: str = "Runway"
     rollout_frames: int = 240
     record_settle_frames: int = 6
-    rotate_speed: float = 60.0
+    rotate_speed: float = 45.0
     rotate_pitch: float = 8.0
     takeoff_max_distance: float = 1500.0
     climb_pitch: float = 10.0
@@ -36988,6 +37053,9 @@ class AirParams:
     flare_altitude: float = 25.0
     max_bank: float = 25.0
     bank_sign: float = 1.0
+    ground_steer_gain: float = 0.1
+    ground_steer_sign: float = 1.0
+    ground_heading_abort_deg: float = 8.0
     stop_speed: float = 1.0
     stop_timeout_seconds: float = 240.0
 
@@ -37000,7 +37068,7 @@ def air_params_from_dict(params: Dict) -> AirParams:
         launch_site=str(params.get("launchSite", "Runway") or "Runway"),
         rollout_frames=int(params.get("rolloutFrames", 240)),
         record_settle_frames=int(params.get("recordSettleFrames", 6)),
-        rotate_speed=float(params.get("rotateSpeed", 60.0)),
+        rotate_speed=float(params.get("rotateSpeed", 45.0)),
         rotate_pitch=float(params.get("rotatePitch", 8.0)),
         takeoff_max_distance=float(params.get("takeoffMaxDistance", 1500.0)),
         climb_pitch=float(params.get("climbPitch", 10.0)),
@@ -37016,6 +37084,9 @@ def air_params_from_dict(params: Dict) -> AirParams:
         flare_altitude=float(params.get("flareAltitude", 25.0)),
         max_bank=float(params.get("maxBank", 25.0)),
         bank_sign=float(params.get("bankSign", 1.0)),
+        ground_steer_gain=float(params.get("groundSteerGain", 0.1)),
+        ground_steer_sign=float(params.get("groundSteerSign", 1.0)),
+        ground_heading_abort_deg=float(params.get("groundHeadingAbortDeg", 8.0)),
         stop_speed=float(params.get("stopSpeed", 1.0)),
         stop_timeout_seconds=float(params.get("stopTimeoutSeconds", 240.0)),
     )
@@ -37033,6 +37104,9 @@ def air_params_problem(p: AirParams) -> Optional[str]:
         return "missionParams.glideSlopeDeg %r is outside [0.5, 20]" % (p.glide_slope_deg,)
     if p.flare_altitude >= p.cruise_altitude:
         return "missionParams.flareAltitude must be below cruiseAltitude"
+    if not (0.5 <= p.ground_heading_abort_deg <= 45.0):
+        return ("missionParams.groundHeadingAbortDeg %r is outside [0.5, 45]"
+                % (p.ground_heading_abort_deg,))
     if not (AIR_GEAR_UP_ALTITUDE <= p.turn_altitude <= p.cruise_altitude):
         return ("missionParams.turnAltitude %r is outside [%.0f, cruiseAltitude]"
                 % (p.turn_altitude, AIR_GEAR_UP_ALTITUDE))
@@ -37061,6 +37135,22 @@ class AirState:
     takeoff_ut: Optional[float] = None
     takeoff_distance: Optional[float] = None
     takeoff_speed: Optional[float] = None
+    liftoff_streak: int = 0
+    # The ground roll's nose-wheel steering (AutoPilot off until rotate).
+    cmd_wheel_steer: Optional[float] = None
+    ground_steer_sign: float = 1.0
+    ground_steer_flipped: bool = False
+    ground_steer_confirmed: bool = False
+    ground_check_frames: int = 0
+    ground_check_start_err: Optional[float] = None
+    ground_check_last_err: Optional[float] = None
+    last_ground_err: Optional[float] = None
+    last_ground_ut: Optional[float] = None
+    max_ground_heading_err: float = 0.0
+    # The previous frame's position, for the ground-track bearing the bank-sign check
+    # reads (``air_track_error``).
+    track_lat: Optional[float] = None
+    track_lon: Optional[float] = None
     gear_up: bool = False
     max_altitude: float = 0.0
     leg_index: int = 0
@@ -37097,7 +37187,8 @@ class AirState:
 
 
 def air_initial_state(params: AirParams) -> AirState:
-    return AirState(params=params, bank_sign=1.0 if params.bank_sign >= 0.0 else -1.0)
+    return AirState(params=params, bank_sign=1.0 if params.bank_sign >= 0.0 else -1.0,
+                    ground_steer_sign=1.0 if params.ground_steer_sign >= 0.0 else -1.0)
 
 
 def _air_enter(state: AirState, phase: str, ut: Optional[float] = None,
@@ -37145,6 +37236,81 @@ def _air_command(state: AirState, pitch: float, heading: float, roll: float,
         actions.append(Action(ACTION_SET_THROTTLE, float(throttle)))
         state = replace(state, cmd_throttle=throttle)
     return state, actions
+
+
+def _air_wheel_steer(state: AirState, value: float,
+                     force: bool = False) -> Tuple[AirState, List[Action]]:
+    """The wheel-steering action, sent only when it moved past its dead band (or a
+    neutral that differs from the last value sent, or ``force``)."""
+    value = float(value)
+    last = state.cmd_wheel_steer
+    if (force or last is None or abs(value - last) > AIR_WHEEL_STEER_DEADBAND
+            or (value == 0.0 and last != 0.0)):
+        return (replace(state, cmd_wheel_steer=value),
+                [Action(ACTION_SET_WHEEL_STEERING, value)])
+    return state, []
+
+
+def _air_wheel_neutral(state: AirState) -> Tuple[AirState, List[Action]]:
+    """Straighten the nose wheel if anything but straight was last sent (kRPC holds
+    the value until it is set again)."""
+    if state.cmd_wheel_steer is None or state.cmd_wheel_steer == 0.0:
+        return state, []
+    return _air_wheel_steer(state, 0.0)
+
+
+def air_ground_steer_check(state: AirState, heading_err: float,
+                           steer: float) -> AirState:
+    """The ground-roll steering-sign check, the ``air_turn_check`` of the nose wheel.
+    A window opens when the error is at least AIR_GROUND_FLIP_MIN_ERR under a
+    command of at least AIR_GROUND_FLIP_MIN_STEER; an error that grows on each of
+    AIR_GROUND_FLIP_FRAMES frames and by AIR_GROUND_FLIP_GROWTH in all flips the sign
+    (once), and a frame on which it shrank confirms it. Confirmed or flipped, the
+    check stops."""
+    if state.ground_steer_flipped or state.ground_steer_confirmed:
+        return state
+    closed = replace(state, ground_check_frames=0, ground_check_start_err=None,
+                     ground_check_last_err=None)
+    if (not _is_finite(heading_err) or abs(heading_err) < AIR_GROUND_FLIP_MIN_ERR
+            or abs(steer) < AIR_GROUND_FLIP_MIN_STEER):
+        return closed
+    err = abs(heading_err)
+    if state.ground_check_last_err is None:
+        return replace(state, ground_check_frames=0, ground_check_start_err=err,
+                       ground_check_last_err=err)
+    if err < state.ground_check_last_err:
+        return replace(closed, ground_steer_confirmed=True)
+    if err == state.ground_check_last_err:
+        return replace(state, ground_check_frames=0, ground_check_start_err=err,
+                       ground_check_last_err=err)
+    frames = state.ground_check_frames + 1
+    if (frames >= AIR_GROUND_FLIP_FRAMES
+            and err - state.ground_check_start_err >= AIR_GROUND_FLIP_GROWTH):
+        return replace(closed, ground_steer_sign=-state.ground_steer_sign,
+                       ground_steer_flipped=True)
+    return replace(state, ground_check_frames=frames, ground_check_last_err=err)
+
+
+def air_track_error(state: AirState, snapshot: TelemetrySnapshot,
+                    bearing: float, nose_err: float) -> Tuple[AirState, float]:
+    """The heading error the bank-sign check judges: from the GROUND TRACK (the bearing
+    of the last frame's position to this one) toward ``bearing`` when the plane moved
+    at least AIR_TRACK_MIN_DISTANCE, else the nose error. The AutoPilot is handed a
+    heading up to AIR_HEADING_LEAD off the nose, so the nose can yaw toward the target
+    while the plane still slips the wrong way; the track cannot. Returns the state with
+    this frame's position stored."""
+    err = nose_err
+    lat, lon = snapshot.latitude, snapshot.longitude
+    if (state.track_lat is not None and state.track_lon is not None
+            and _is_finite(lat) and _is_finite(lon) and _is_finite(bearing)):
+        moved = air_ground_distance(state.track_lat, state.track_lon, lat, lon)
+        if _is_finite(moved) and moved >= AIR_TRACK_MIN_DISTANCE:
+            track = air_bearing(state.track_lat, state.track_lon, lat, lon)
+            if _is_finite(track):
+                err = air_heading_error(track, bearing)
+    if _is_finite(lat) and _is_finite(lon):
+        state = replace(state, track_lat=float(lat), track_lon=float(lon))
+    return state, err
 
 
 def air_turn_check(state: AirState, heading_err: float,
@@ -37233,6 +37399,11 @@ def air_decide(state: AirState, snapshot: TelemetrySnapshot) -> Tuple[AirState, 
                     "is the shell built with read_aircraft=True?"
                     % AIR_CHANNEL_FRAMES), []
             return state, []
+        if _is_finite(snapshot.roll) and abs(snapshot.roll) > AIR_GROUND_MAX_ROLL:
+            return _air_flake(
+                state, "the craft reads roll %.1f deg standing on the %s (limit %.0f): "
+                "every roll target assumes a level craft reads 0, so nothing is staged"
+                % (snapshot.roll, p.launch_site, AIR_GROUND_MAX_ROLL)), []
         ground_pitch = (snapshot.surface_pitch if _is_finite(snapshot.surface_pitch)
                         else 0.0)
         # Brakes first, throttle zero, then the click: the click lights the engines
@@ -37247,11 +37418,15 @@ def air_decide(state: AirState, snapshot: TelemetrySnapshot) -> Tuple[AirState, 
     if state.phase == AIR_RECORD_SETTLE:
         if state.phase_frames < max(1, p.record_settle_frames):
             return state, []
+        # Brake release at full throttle with the AutoPilot OFF (elevator neutral):
+        # the nose wheel steers the roll until the rotate speed engages it.
         state = _air_enter(state, AIR_TAKEOFF, ut, release_ut=ut,
-                           release_lat=snapshot.latitude, release_lon=snapshot.longitude)
-        state, actions = _air_command(state, state.ground_pitch, state.runway_heading,
-                                      0.0, 1.0)
-        return state, [Action(ACTION_SET_BRAKES, 0.0)] + actions
+                           release_lat=snapshot.latitude, release_lon=snapshot.longitude,
+                           last_ground_ut=None, last_ground_err=None)
+        state, wheel = _air_wheel_steer(state, 0.0, force=True)
+        state = replace(state, cmd_throttle=1.0)
+        return state, ([Action(ACTION_SET_BRAKES, 0.0), Action(ACTION_AP_DISENGAGE)]
+                       + wheel + [Action(ACTION_SET_THROTTLE, 1.0)])
 
     alt = snapshot.altitude
     if _is_finite(alt) and alt > state.max_altitude:
@@ -37262,13 +37437,19 @@ def air_decide(state: AirState, snapshot: TelemetrySnapshot) -> Tuple[AirState, 
     if state.phase == AIR_TAKEOFF:
         rolled = air_ground_distance(state.release_lat, state.release_lon,
                                      snapshot.latitude, snapshot.longitude)
-        if airborne:
+        on_ground = snapshot.situation in AIR_GROUND_SITUATIONS
+        climbing = (airborne and _is_finite(snapshot.vertical_speed)
+                    and snapshot.vertical_speed >= AIR_AIRBORNE_MIN_VS)
+        streak = state.liftoff_streak + 1 if climbing else 0
+        state = replace(state, liftoff_streak=streak)
+        if streak >= AIR_AIRBORNE_FRAMES:
             state = _air_enter(state, AIR_CLIMB, ut, takeoff_ut=ut,
                                takeoff_distance=rolled,
                                takeoff_speed=snapshot.surface_speed)
+            state, wheel = _air_wheel_neutral(state)
             state, actions = _air_command(state, p.climb_pitch, state.runway_heading,
                                           0.0, 1.0)
-            return state, actions
+            return state, wheel + actions
         elapsed = _air_elapsed(state, ut, state.release_ut)
         if ((_is_finite(rolled) and rolled > p.takeoff_max_distance)
                 or elapsed > AIR_TAKEOFF_TIMEOUT_SECONDS):
@@ -37278,12 +37459,58 @@ def air_decide(state: AirState, snapshot: TelemetrySnapshot) -> Tuple[AirState, 
                 % (rolled if _is_finite(rolled) else float("nan"), elapsed,
                    p.takeoff_max_distance, AIR_TAKEOFF_TIMEOUT_SECONDS,
                    snapshot.surface_speed, p.rotate_speed))
-            return state, [Action(ACTION_SET_THROTTLE, 0.0), Action(ACTION_SET_BRAKES, 1.0)]
+            state, wheel = _air_wheel_neutral(state)
+            return state, ([Action(ACTION_SET_THROTTLE, 0.0), Action(ACTION_SET_BRAKES, 1.0)]
+                           + wheel)
+        err = (air_heading_error(snapshot.heading, state.runway_heading)
+               if _is_finite(snapshot.heading) and state.runway_heading is not None
+               else float("nan"))
+        if on_ground and _is_finite(err):
+            state = replace(state, max_ground_heading_err=max(state.max_ground_heading_err,
+                                                              abs(err)))
+            if abs(err) > p.ground_heading_abort_deg:
+                last = state.cmd_wheel_steer
+                state = _air_flake(
+                    state, "heading drift on the ground roll: heading %.1f vs runway %.1f "
+                    "(error %+.1f deg past the %.1f deg limit) at %.1f m/s, %.0f m from "
+                    "brake release, wheel steering %s (sign %+.0f%s, AutoPilot %s); "
+                    "throttle cut and brakes on"
+                    % (snapshot.heading, state.runway_heading, err,
+                       p.ground_heading_abort_deg, snapshot.surface_speed,
+                       rolled if _is_finite(rolled) else float("nan"),
+                       "%+.2f" % last if last is not None else "unsent",
+                       state.ground_steer_sign,
+                       ", flipped" if state.ground_steer_flipped else "",
+                       "engaged" if state.rotated else "off"))
+                state, wheel = _air_wheel_steer(state, 0.0, force=True)
+                return state, ([Action(ACTION_SET_THROTTLE, 0.0),
+                                Action(ACTION_SET_BRAKES, 1.0)] + wheel)
         if (not state.rotated and _is_finite(snapshot.surface_speed)
                 and snapshot.surface_speed >= p.rotate_speed):
+            # Rotate: the nose wheel straightens and the AutoPilot takes pitch,
+            # heading and roll from here on.
             state = replace(state, rotated=True)
-            return _air_command(state, p.rotate_pitch, state.runway_heading, 0.0, 1.0)
-        return state, []
+            state, wheel = _air_wheel_neutral(state)
+            state, actions = _air_command(state, p.rotate_pitch, state.runway_heading,
+                                          0.0, 1.0)
+            return state, wheel + actions
+        if state.rotated or not on_ground:
+            return state, []
+        rate = float("nan")
+        if (state.last_ground_err is not None and state.last_ground_ut is not None
+                and _is_finite(err) and _is_finite(ut) and ut > state.last_ground_ut):
+            rate = (err - state.last_ground_err) / (float(ut) - state.last_ground_ut)
+        steer = air_ground_steer_command(err, rate, p.ground_steer_gain,
+                                         state.ground_steer_sign)
+        sign = state.ground_steer_sign
+        state = air_ground_steer_check(state, err, steer)
+        if state.ground_steer_sign != sign:
+            steer = air_ground_steer_command(err, rate, p.ground_steer_gain,
+                                             state.ground_steer_sign)
+        state = replace(state,
+                        last_ground_err=float(err) if _is_finite(err) else None,
+                        last_ground_ut=float(ut) if _is_finite(ut) else None)
+        return _air_wheel_steer(state, steer)
 
     if state.phase in (AIR_CLIMB, AIR_CIRCUIT) and snapshot.situation in AIR_SURFACE_SITUATIONS:
         return _air_flake(state, "touched the surface (%s) before the final, at alt %s"
@@ -37329,7 +37556,8 @@ def air_decide(state: AirState, snapshot: TelemetrySnapshot) -> Tuple[AirState, 
                 "heading error %s deg)" % (state.leg_index, lat, lon, p.leg_timeout_seconds,
                                            steer.distance, steer.heading_err)), []
         sign = state.bank_sign
-        state = air_turn_check(state, steer.heading_err, steer.roll)
+        state, check_err = air_track_error(state, snapshot, steer.bearing, steer.heading_err)
+        state = air_turn_check(state, check_err, steer.roll)
         if state.bank_sign != sign:
             # Flipped on this frame: steer with the new sign at once.
             steer = air_steer_toward(snapshot, lat, lon, p.cruise_altitude, p.cruise_speed,
@@ -37387,7 +37615,8 @@ def air_decide(state: AirState, snapshot: TelemetrySnapshot) -> Tuple[AirState, 
                                  vs_feed_forward=ff)
         state = replace(state, final_aligned=aligned)
         sign = state.bank_sign
-        state = air_turn_check(state, steer.heading_err, steer.roll)
+        state, check_err = air_track_error(state, snapshot, steer.bearing, steer.heading_err)
+        state = air_turn_check(state, check_err, steer.roll)
         if state.bank_sign != sign:
             steer = air_steer_toward(snapshot, tlat, tlon, alt_target, speed_target,
                                      p.max_bank, state.bank_sign,
@@ -37449,7 +37678,12 @@ def evaluate_air_assertions(frames, params: AirParams,
             st.takeoff_distance if st is not None else None,
             {"takeoffUT": st.takeoff_ut if st is not None else None,
              "takeoffSpeed": st.takeoff_speed if st is not None else None,
-             "limitMeters": params.takeoff_max_distance}),
+             "limitMeters": params.takeoff_max_distance,
+             "maxGroundHeadingErr": st.max_ground_heading_err if st is not None else None,
+             "groundSteerSign": st.ground_steer_sign if st is not None else None,
+             "groundSteerFlipped": st.ground_steer_flipped if st is not None else None,
+             "groundSteerConfirmed": (st.ground_steer_confirmed
+                                      if st is not None else None)}),
         AssertionOutcome(
             "cruiseAltitudeReached",
             bool(st is not None
