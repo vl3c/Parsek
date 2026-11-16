@@ -1,0 +1,6 @@
+RoboticMotion lines: 0
+'wheel suspension not recorded' lines: 3
+[LOG 23:27:34.297] [Parsek][VERBOSE][Recorder] Robotics: wheel suspension not recorded for 'SmallGearBay' pid=2837578404 midx=0 module=ModuleWheelSuspension; suspension travel is below playback visibility; the ghost holds the rest pose
+[LOG 23:27:34.297] [Parsek][VERBOSE][Recorder] Robotics: derived wheel visual not recorded for 'SmallGearBay' pid=2837578404 midx=1 module=ModuleWheelSteering; derived from ghost ground motion at playback
+[LOG 23:27:34.297] [Parsek][VERBOSE][Recorder] Robotics: wheel suspension not recorded for 'GearMedium' pid=2074257330 midx=0 module=ModuleWheelSuspension; suspension travel is below playback visibility; the ghost holds the rest pose
+[LOG 23:27:34.298] [Parsek][VERBOSE][Recorder] Robotics: wheel suspension not recorded for 'GearMedium' pid=2961412818 midx=0 module=ModuleWheelSuspension; suspension travel is below playback visibility; the ghost holds the rest pose

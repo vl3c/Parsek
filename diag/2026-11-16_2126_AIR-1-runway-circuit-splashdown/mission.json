@@ -1,0 +1,139 @@
+{
+  "assertions": [
+    {
+      "expectedVesselName": "Mallard",
+      "launchSite": "Runway",
+      "met": true,
+      "name": "rolloutObserved",
+      "value": "Mallard"
+    },
+    {
+      "met": true,
+      "name": "stagedAtPrelaunch",
+      "note": "Parsek's first-staging auto-record trigger requires PRELAUNCH",
+      "stageUT": 30.87999999999943,
+      "value": "PRE_LAUNCH"
+    },
+    {
+      "abortThrottleReadback": null,
+      "groundSteerConfirmed": false,
+      "groundSteerFlipped": false,
+      "groundSteerSign": 1.0,
+      "limitMeters": 1500.0,
+      "maxGroundHeadingErr": 0.06540679931640625,
+      "maxRollPitch": 3.07904052734375,
+      "met": true,
+      "name": "airborne",
+      "rotatePitchConfirmed": true,
+      "rotatePitchFlipped": false,
+      "rotatePitchSign": 1.0,
+      "rotateStartPitch": 0.44512939453125,
+      "rotateUT": 50.60000000000231,
+      "takeoffSpeed": 74.3222713629004,
+      "takeoffUT": 58.78000000000359,
+      "value": 766.6656515893785
+    },
+    {
+      "band": 60.0,
+      "cruiseAltitude": 1000.0,
+      "met": false,
+      "name": "cruiseAltitudeReached",
+      "value": 38.67908791627269
+    },
+    {
+      "bankSignConfirmed": false,
+      "bankSignFlipped": false,
+      "captureUTs": [],
+      "met": false,
+      "name": "circuitFlown",
+      "value": 0,
+      "waypoints": 3
+    },
+    {
+      "lat": null,
+      "lon": null,
+      "met": false,
+      "missMeters": null,
+      "name": "touchedDown",
+      "speed": null,
+      "touchdownUT": null,
+      "value": null,
+      "verticalSpeed": null
+    },
+    {
+      "met": false,
+      "name": "cameToRest",
+      "phasesReached": [
+        "ROLLOUT",
+        "ARM",
+        "RECORD-SETTLE",
+        "TAKEOFF-ROLL",
+        "CLIMB"
+      ],
+      "stopSpeed": 1.0,
+      "value": null
+    }
+  ],
+  "connect": {
+    "attempts": 1,
+    "connectedSeconds": 0.24425310001242906,
+    "rpcPort": 50000
+  },
+  "error": null,
+  "krpcClientVersion": "0.5.4",
+  "krpcServerVersion": "0.5.4",
+  "mission": "air1_runway_circuit",
+  "phasesReached": [
+    "ROLLOUT",
+    "ARM",
+    "RECORD-SETTLE",
+    "TAKEOFF-ROLL",
+    "CLIMB"
+  ],
+  "reason": "vessel-lost in phase CLIMB",
+  "schema": 1,
+  "verdict": "MISSION-ASSERT-FAIL",
+  "wallSeconds": 40.966,
+  "warpUtilisation": [
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 2.88,
+      "gameSecondsPerWallSecond": 0.452,
+      "phase": "ROLLOUT",
+      "wallSeconds": 6.369,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 0.54,
+      "gameSecondsPerWallSecond": 1.005,
+      "phase": "ARM",
+      "wallSeconds": 0.537,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 4.76,
+      "gameSecondsPerWallSecond": 0.969,
+      "phase": "RECORD-SETTLE",
+      "wallSeconds": 4.911,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 23.14,
+      "gameSecondsPerWallSecond": 0.997,
+      "phase": "TAKEOFF-ROLL",
+      "wallSeconds": 23.198,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 5.52,
+      "gameSecondsPerWallSecond": 0.969,
+      "phase": "CLIMB",
+      "wallSeconds": 5.698,
+      "warpCommands": 0
+    }
+  ]
+}
