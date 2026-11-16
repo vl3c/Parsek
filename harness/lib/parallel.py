@@ -656,13 +656,16 @@ def resolve_window_mode(requested: str, desktop_ids: Sequence[str],
 
 
 def child_argv(python: str, run_py: str, slot: str, ids_file: str, report_json: str,
-               window: str, desktop_id: Optional[str]) -> List[str]:
-    """One lane's ``run.py`` command line (run from the harness dir)."""
+               window: str, desktop_id: Optional[str],
+               extra: Sequence[str] = ()) -> List[str]:
+    """One lane's ``run.py`` command line (run from the harness dir). ``extra``
+    is appended as given (the campaign runner's ``--stage-from <dir>``)."""
     argv = [python, run_py, "--slot", slot, "--ids-file", ids_file, "--tests-prebuilt",
             "--no-coverage", "--keep-stop-request", "--report-json", report_json,
             "--window", window]
     if window == WINDOW_DESKTOP and desktop_id:
         argv += ["--desktop-id", desktop_id]
+    argv += list(extra)
     return argv
 
 

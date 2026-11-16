@@ -1,0 +1,81 @@
+# The scripted career campaign, CS-0 to CS-7 on `stock-tree`, as one chain
+# (docs/dev/autotest-roadmap.md, "The scripted campaign program"; contract:
+# harness/README.md, "Campaign chains"). Flown by tools/campaign_runner.py:
+#
+#   cd harness && python tools/campaign_runner.py run --ladder cs-career --name cs-1 --from CS-3 --to CS-4b
+#
+# Each stage is a committed lane. A `chain` edge stages the previous stage's
+# harvested save (lib/campaign.py); a `fixture` edge stages the stage's committed
+# fixture and says why the edge cannot be replayed. `carryCraft` names the
+# builder-made craft the stage's committed fixture holds and the previous
+# stage's save does not (a library craft comes from the shared-ships overlay,
+# keyed by the stage's template leaf, as for any run). `campaign.craft_reach_problems`
+# (test_campaign.CommittedLadderTests) holds every craft a stage launches to its
+# staged save.
+#
+# KNOWN LIMIT for a chained replay past CS-6 (todo CS-LADDER-CHAIN-PINS): CS-6b
+# pins an exact recording count (21; CS-6 allows 20-22) and a science value CS-6
+# does not pin, both read off CS-6's committed host, so a chained run whose CS-6
+# recorded 20 or 22, or earned other science, reds CS-6b.
+
+schema = 1
+name = "cs-career"
+description = "The scripted Career campaign, from a genuine New Game to a Mun landing and return."
+
+[harvest]
+keepParsek = true
+allowNoVessel = true
+expectMode = "CAREER"
+
+[[chain]]
+name = "career"
+
+[[chain.stage]]
+id = "CS-0-new-career-game"
+label = "CS-0"
+# A new game holds no recording.
+harvest = { keepParsek = false }
+
+[[chain.stage]]
+id = "CS-3-career-first-contracts"
+label = "CS-3"
+handover = "fixture"
+reason = "CS-0 makes a genuinely new game whose contract offers are random, and CS-3 accepts FIRSTLAUNCH and SCIENCE by the GUIDs of the committed cs-career-new (T-58's accept-by-type selector removes this)"
+
+[[chain.stage]]
+id = "CS-3b-career-hire-upgrade"
+label = "CS-3b"
+handover = "fixture"
+reason = "CS-3b accepts the RT-10 PartTest by a GUID stock offered during CS-3's own committed flight, and hires Verhat Kerman, an applicant added to cs-career-contracts by hand; a replayed CS-3 offers neither (T-58's selector, plus an applicant seed)"
+
+[[chain.stage]]
+id = "CS-4-career-orbit-return"
+label = "CS-4"
+carryCraft = ["CS Orbiter"]
+
+[[chain.stage]]
+id = "CS-4b-career-tracking-station"
+label = "CS-4b"
+
+[[chain.stage]]
+id = "CS-5-career-mun-flyby"
+label = "CS-5"
+carryCraft = ["CS Mun Flyby"]
+
+[[chain.stage]]
+id = "CS-6-career-mun-orbit"
+label = "CS-6"
+
+[[chain.stage]]
+id = "CS-6b-career-astronaut-complex"
+label = "CS-6b"
+
+[[chain.stage]]
+id = "CS-6c-career-mun-science"
+label = "CS-6c"
+carryCraft = ["CS Mun Science"]
+
+[[chain.stage]]
+id = "CS-7-career-mun-landing"
+label = "CS-7"
+carryCraft = ["CS Mun Solar Lander"]
