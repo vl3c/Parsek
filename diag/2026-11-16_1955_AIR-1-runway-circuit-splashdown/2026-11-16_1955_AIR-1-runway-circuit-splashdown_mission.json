@@ -1,0 +1,128 @@
+{
+  "assertions": [
+    {
+      "expectedVesselName": "Mallard",
+      "launchSite": "Runway",
+      "met": true,
+      "name": "rolloutObserved",
+      "value": "Mallard"
+    },
+    {
+      "met": true,
+      "name": "stagedAtPrelaunch",
+      "note": "Parsek's first-staging auto-record trigger requires PRELAUNCH",
+      "stageUT": 30.719999999999434,
+      "value": "PRE_LAUNCH"
+    },
+    {
+      "limitMeters": 1500.0,
+      "met": true,
+      "name": "airborne",
+      "takeoffSpeed": 38.56648832663893,
+      "takeoffUT": 54.86000000000298,
+      "value": 417.08075081481
+    },
+    {
+      "band": 60.0,
+      "cruiseAltitude": 1000.0,
+      "met": false,
+      "name": "cruiseAltitudeReached",
+      "value": 10.604923419072293
+    },
+    {
+      "bankSignConfirmed": false,
+      "bankSignFlipped": false,
+      "captureUTs": [],
+      "met": false,
+      "name": "circuitFlown",
+      "value": 0,
+      "waypoints": 3
+    },
+    {
+      "lat": null,
+      "lon": null,
+      "met": false,
+      "missMeters": null,
+      "name": "touchedDown",
+      "speed": null,
+      "touchdownUT": null,
+      "value": null,
+      "verticalSpeed": null
+    },
+    {
+      "met": false,
+      "name": "cameToRest",
+      "phasesReached": [
+        "ROLLOUT",
+        "ARM",
+        "RECORD-SETTLE",
+        "TAKEOFF-ROLL",
+        "CLIMB"
+      ],
+      "stopSpeed": 1.0,
+      "value": null
+    }
+  ],
+  "connect": {
+    "attempts": 1,
+    "connectedSeconds": 0.21094050002284348,
+    "rpcPort": 50000
+  },
+  "error": null,
+  "krpcClientVersion": "0.5.4",
+  "krpcServerVersion": "0.5.4",
+  "mission": "air1_runway_circuit",
+  "phasesReached": [
+    "ROLLOUT",
+    "ARM",
+    "RECORD-SETTLE",
+    "TAKEOFF-ROLL",
+    "CLIMB"
+  ],
+  "reason": "phase CLIMB: touched the surface (LANDED) before the final, at alt 9.969116810010746",
+  "schema": 1,
+  "verdict": "MISSION-FLAKE",
+  "wallSeconds": 31.703,
+  "warpUtilisation": [
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 2.88,
+      "gameSecondsPerWallSecond": 0.466,
+      "phase": "ROLLOUT",
+      "wallSeconds": 6.174,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 0.5,
+      "gameSecondsPerWallSecond": 0.989,
+      "phase": "ARM",
+      "wallSeconds": 0.505,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 4.72,
+      "gameSecondsPerWallSecond": 0.971,
+      "phase": "RECORD-SETTLE",
+      "wallSeconds": 4.862,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 19.42,
+      "gameSecondsPerWallSecond": 1.0,
+      "phase": "TAKEOFF-ROLL",
+      "wallSeconds": 19.426,
+      "warpCommands": 0
+    },
+    {
+      "armedWarpCommands": 0,
+      "gameSeconds": 0.52,
+      "gameSecondsPerWallSecond": 0.999,
+      "phase": "CLIMB",
+      "wallSeconds": 0.52,
+      "warpCommands": 0
+    }
+  ]
+}

@@ -1,0 +1,1212 @@
+==== exception at line 167 ====
+[LOG 21:56:41.806] AssemblyLoader: KSPAssembly 'KSPCommunityFixes' V1.41.1
+[LOG 21:56:41.806] AssemblyLoader: KSPAssemblyDependency 'HarmonyKSP' V1.0.0
+[LOG 21:56:41.806] AssemblyLoader: KSPAssemblyDependency 'ModuleManager' V1.0.0
+[LOG 21:56:41.806] AssemblyLoader: KSPAssemblyDependency 'MultipleModulePartAPI' V1.0.0
+[LOG 21:56:41.806] Load(Assembly): MechJeb2/Plugins/alglib
+[LOG 21:56:41.806] AssemblyLoader: Loading assembly at <HOME>\Documents\Code\Parsek\automation\stock-minimal\GameData\MechJeb2\Plugins\alglib.dll
+[LOG 21:56:41.808] Load(Assembly): MechJeb2/Plugins/MechJeb2
+[LOG 21:56:41.808] AssemblyLoader: Loading assembly at <HOME>\Documents\Code\Parsek\automation\stock-minimal\GameData\MechJeb2\Plugins\MechJeb2.dll
+[LOG 21:56:41.811] AssemblyLoader: KSPAssembly 'MechJeb2' V2.5.0
+[LOG 21:56:41.811] Load(Assembly): MechJeb2/Plugins/MechJebLib
+[LOG 21:56:41.811] AssemblyLoader: Loading assembly at <HOME>\Documents\Code\Parsek\automation\stock-minimal\GameData\MechJeb2\Plugins\MechJebLib.dll
+[LOG 21:56:41.811] Load(Assembly): MechJeb2/Plugins/MechJebLibBindings
+[LOG 21:56:41.812] AssemblyLoader: Loading assembly at <HOME>\Documents\Code\Parsek\automation\stock-minimal\GameData\MechJeb2\Plugins\MechJebLibBindings.dll
+[LOG 21:56:41.813] Load(Assembly): Parsek/Plugins/Parsek
+[LOG 21:56:41.813] AssemblyLoader: Loading assembly at <HOME>\Documents\Code\Parsek\automation\stock-minimal\GameData\Parsek\Plugins\Parsek.dll
+[LOG 21:56:41.828] AssemblyLoader: KSPAssembly 'Parsek' V1.0.0
+[LOG 21:56:41.828] Load(Assembly): Squad/Plugins/KSPSteamCtrlr
+[LOG 21:56:41.828] AssemblyLoader: Loading assembly at <HOME>\Documents\Code\Parsek\automation\stock-minimal\GameData\Squad\Plugins\KSPSteamCtrlr.dll
+[LOG 21:56:41.830] AssemblyLoader: Loading assemblies
+[LOG 21:56:41.913] VesselModules: Found VesselModule of type AxisGroupsModule with order 999
+[LOG 21:56:41.934] VesselModules: Found VesselModule of type CometVessel with order 999
+[LOG 21:56:41.935] VesselModules: Found VesselModule of type SuspensionLoadBalancer with order 999
+[LOG 21:56:41.936] VesselModules: Found VesselModule of type FlightIntegrator with order 0
+[LOG 21:56:41.937] VesselModules: Found VesselModule of type CommNetVessel with order 999
+[LOG 21:56:41.942] VesselModules: Found 5 VesselModule types
+[LOG 21:56:41.949] 
+************************************************************************
+
+Environment Info
+Win32NT 7FFFFFFFFFFFFFFF  Args: KSP_x64.exe -logFile <HOME>\Documents\Code\Parsek\automation\stock-minimal\Player.log -screen-fullscreen 0 -screen-width 1280 -screen-height 720
+
+Mod DLLs found:
+Stock assembly: Assembly-CSharp v0.0.0.0
+ModuleManager v4.2.3.0
+ClickThroughBlocker v2.1.10.23
+0Harmony v2.2.1.0
+HarmonyInstallChecker v2.2.1.0
+ToolbarControl v0.1.9.14
+Google.Protobuf v3.10.1.0 / v3.10.1+d09d649aea36f02c03f8396ba39a8d4db8a607e4
+KRPC.Core v0.5.4.0
+KRPC v0.5.4.0
+KRPC.DockingCamera v0.5.4.0
+KRPC.Drawing v0.5.4.0
+KRPC.InfernalRobotics v0.5.4.0
+KRPC.IO.Ports v0.0.0.0
+KRPC.KerbalAlarmClock v0.5.4.0
+KRPC.LiDAR v0.5.4.0
+KRPC.MechJeb v0.8.1.0 / v0.8.1
+KRPC.RemoteTech v0.5.4.0
+KRPC.SpaceCenter v0.5.4.0
+KRPC.UI v0.5.4.0
+TestingTools v0.5.4.0
+0_MultipleModuleInPartAPI v1.0.0.0 / v1.0.0+7969fdc50bf4e350193abe5ba2e89533b12ca02f
+KSPCommunityFixes v1.41.0.0 / v1.41.1+7969fdc50bf4e350193abe5ba2e89533b12ca02f / v1.41.1.0
+alglib v1.0.0.0
+MechJeb2 v2.5.1.0 / v / v2.15.1.0
+MechJebLib v1.0.0.0
+MechJebLibBindings v1.0.0.0
+Parsek v1.0.3.0
+Stock assembly: KSPSteamCtrlr v0.0.1.35
+
+Folders and files in GameData:
+000_ClickThroughBlocker
+000_Harmony
+001_ToolbarControl
+CommunityDeltaVMaps
+CommunityTechTree
+kRPC
+KSPCommunityFixes
+MechJeb2
+Parsek
+ProbesBeforeCrew
+Stock folder: Squad
+
+Stock folder: SquadExpansion
+
+ModuleManager.4.2.3.dll
+ModuleManager.ConfigCache
+ModuleManager.ConfigSHA
+ModuleManager.Physics
+ModuleManager.TechTree
+
+************************************************************************
+
+[LOG 21:56:41.957] [AddonLoader]: Instantiating addon 'ModuleManager' from assembly 'ModuleManager'
+[LOG 21:56:41.963] [ModuleManager] Adding post patch to the loading screen 4
+[LOG 21:56:41.964] [ModuleManager] Patching started on a new thread, all output will be directed to <HOME>\Documents\Code\Parsek\automation\stock-minimal\Logs\ModuleManager\ModuleManager.log
+[LOG 21:56:41.965] [AddonLoader]: Instantiating addon 'CTBHarmonyLoader' from assembly 'ClickThroughBlocker'
+[LOG 21:56:42.077] [AddonLoader]: Instantiating addon 'Startup' from assembly 'ClickThroughBlocker'
+[LOG 21:56:42.078] [AddonLoader]: Instantiating addon 'HarmonyInstallChecker' from assembly 'HarmonyKSP'
+[LOG 21:56:42.078] [AddonLoader]: Instantiating addon 'ConfigInfo' from assembly 'ToolbarController'
+[LOG 21:56:42.078] [AddonLoader]: Instantiating addon 'Startup' from assembly 'ToolbarController'
+[LOG 21:56:42.078] [AddonLoader]: Instantiating addon 'RegisterToolbarBlizzyOptions' from assembly 'ToolbarController'
+[LOG 21:56:42.078] [AddonLoader]: Instantiating addon 'ServicesChecker' from assembly 'KRPC'
+[LOG 21:56:42.079] [AddonLoader]: Instantiating addon 'KSPCommunityFixes' from assembly 'KSPCommunityFixes'
+[LOG 21:56:42.080] [AddonLoader]: Instantiating addon 'NoIVA' from assembly 'KSPCommunityFixes'
+[LOG 21:56:42.080] [AddonLoader]: Instantiating addon 'ConfigNodePerf' from assembly 'KSPCommunityFixes'
+[LOG 21:56:42.110] [AddonLoader]: Instantiating addon 'KSPCFFastLoader' from assembly 'KSPCommunityFixes'
+[LOG 21:56:42.110] [KSPCF] Injecting FastLoader...
+[LOG 21:56:42.123] [KSPCommunityFixes] Patch GameDatabasePerf applied.
+[LOG 21:56:42.170] [AddonLoader]: Instantiating addon 'ReflectionTypeLoadExceptionHandler' from assembly 'KSPCommunityFixes'
+[LOG 21:56:42.172] [AddonLoader]: Instantiating addon 'CompatibilityChecker' from assembly 'MechJeb2'
+[LOG 21:56:42.174] [AddonLoader]: Instantiating addon 'NoSaveSceneExitAddon' from assembly 'Parsek'
+[LOG 21:56:42.174] [Parsek][INFO][SceneExit] Subscribed to GameEvents.onSceneConfirmExit and onGameStateSaved (quit-without-saving detection)
+[LOG 21:56:42.174] [AddonLoader]: Instantiating addon 'ParsekHarmony' from assembly 'Parsek'
+[LOG 21:56:42.175] [Parsek][VERBOSE][Kerbals] terminal stamp observer installed
+[LOG 21:56:42.178] [Parsek][VERBOSE][Harmony] Harmony patch applied: RevertToLaunchInterceptor targets=1
+[LOG 21:56:42.180] [Parsek][VERBOSE][Harmony] Harmony patch applied: RevertToPrelaunchInterceptor targets=1
+[LOG 21:56:42.181] [Parsek][VERBOSE][Harmony] Harmony patch applied: HighLogic_LoadScene_Patch targets=1
+[LOG 21:56:42.184] [Parsek][INFO][TestCommands] focus lock suppression armed targets=5 (automation: PARSEK_TEST_COMMANDS=1)
+[LOG 21:56:42.187] [Parsek][VERBOSE][Harmony] Harmony patch applied: AutomationFocusLockSuppressionPatch targets=5
+[LOG 21:56:42.188] [Parsek][VERBOSE][Harmony] Harmony patch applied: ActiveCrewCountPatch targets=1
+[LOG 21:56:42.190] [Parsek][VERBOSE][Harmony] Harmony patch applied: AlarmJumpSwitchPatch targets=1
+[LOG 21:56:42.192] [Parsek][VERBOSE][Harmony] Harmony patch applied: AlarmJumpButtonMarkPatch targets=1
+[LOG 21:56:42.194] [Parsek][VERBOSE][Harmony] Harmony patch applied: AllowNegativeCurrencyLockDialogPatch targets=1
+[LOG 21:56:42.195] [Parsek][VERBOSE][Harmony] Harmony patch applied: AllowNegativeCurrencyLockInteractiblePatch targets=1
+[LOG 21:56:42.198] [Parsek][VERBOSE][Harmony] Harmony patch applied: AstronautComplexAddItemPatch targets=4
+[LOG 21:56:42.204] [Parsek][VERBOSE][Harmony] Harmony patch applied: AstronautComplexCrewCountsPatch targets=1
+[LOG 21:56:42.207] [Parsek][VERBOSE][Harmony] Harmony patch applied: CrewTooltipReservationPatch targets=1
+[LOG 21:56:42.208] [Parsek][VERBOSE][Harmony] Harmony patch applied: CheatTeleportPatch targets=1
+[LOG 21:56:42.210] [Parsek][VERBOSE][Harmony] Harmony patch applied: ClaimedVesselLaunchSiteTestPatch targets=1
+[LOG 21:56:42.210] [Parsek][VERBOSE][Harmony] Harmony patch applied: ClaimedVesselLaunchSiteProceedPatch targets=1
+[LOG 21:56:42.211] [Parsek][VERBOSE][Harmony] Harmony patch applied: ClaimedVesselLaunchSiteDescriptionPatch targets=1
+[LOG 21:56:42.213] [Parsek][VERBOSE][Harmony] Harmony patch applied: ClaimedVesselLaunchSiteFacilityDialogPatch targets=1
+[LOG 21:56:42.216] [Parsek][VERBOSE][Harmony] Harmony patch applied: ClaimedVesselLaunchSiteClearSitePatch targets=1
+[LOG 21:56:42.219] [Parsek][VERBOSE][Harmony] Harmony patch applied: ClaimedVesselLaunchSiteLaunchChecksPatch targets=1
+[LOG 21:56:42.221] [Parsek][VERBOSE][Harmony] Harmony patch applied: DeployedScienceSubmitScopePatch targets=1
+[LOG 21:56:42.226] [Parsek][VERBOSE][Harmony] Harmony patch applied: SentinelDetectionScopePatch targets=2
+[LOG 21:56:42.230] [Parsek][VERBOSE][Harmony] Harmony patch applied: ResourceScannerScopePatch targets=2
+[LOG 21:56:42.231] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractAcceptPatch targets=1
+[LOG 21:56:42.232] [Parsek][VERBOSE][Harmony] Harmony patch applied: MissionControlAcceptPatch targets=1
+[LOG 21:56:42.233] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractCancelPatch targets=1
+[LOG 21:56:42.236] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractSystemRebuildContractsScopePatch targets=1
+[LOG 21:56:42.297] [Parsek][VERBOSE][StockUiOverlay] Contract Configurator not loaded (ContractConfigurator.ContractConfigurator absent) - ContractConfiguratorCanAcceptPatch and the other CC hooks are skipped; the stock Mission Control hooks cover every row
+[LOG 21:56:42.297] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractConfiguratorCanAcceptPatch targets=0
+[LOG 21:56:42.323] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractConfiguratorContractTitlePatch targets=0
+[LOG 21:56:42.350] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractConfiguratorListRebuildPatch targets=0
+[LOG 21:56:42.351] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractDeclinePatch targets=1
+[LOG 21:56:42.356] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractEarlyFailPatch targets=1
+[LOG 21:56:42.367] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractOfferExpiredCapturePatch targets=1
+[LOG 21:56:42.370] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractParameterRewardCapturePatch targets=1
+[LOG 21:56:42.371] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractTwinGenerationPatch targets=1
+[LOG 21:56:42.373] [Parsek][VERBOSE][Harmony] Harmony patch applied: MilestoneConversionCauseScopePatch targets=1
+[LOG 21:56:42.374] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractCompleteConversionCauseScopePatch targets=1
+[LOG 21:56:42.375] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractFailConversionCauseScopePatch targets=1
+[LOG 21:56:42.376] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractCancelConversionCauseScopePatch targets=1
+[LOG 21:56:42.379] [Parsek][VERBOSE][Harmony] Harmony patch applied: ContractParameterConversionCauseScopePatch targets=1
+[LOG 21:56:42.381] [Parsek][VERBOSE][Harmony] Harmony patch applied: ScienceSubjectConversionCauseScopePatch targets=1
+[LOG 21:56:42.383] [Parsek][VERBOSE][Harmony] Harmony patch applied: SurveyConversionCauseScopePatch targets=1
+[LOG 21:56:42.384] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartPurchaseConversionCauseScopePatch targets=1
+[LOG 21:56:42.385] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartUpgradeConversionCauseScopePatch targets=1
+[LOG 21:56:42.386] [Parsek][VERBOSE][Harmony] Harmony patch applied: CrewAutoAssignPatch targets=1
+[LOG 21:56:42.388] [Parsek][VERBOSE][Harmony] Harmony patch applied: CrewDialogAvailItemPatch targets=1
+[LOG 21:56:42.389] [Parsek][VERBOSE][Harmony] Harmony patch applied: CrewDialogAvailListPatch targets=1
+[LOG 21:56:42.391] [Parsek][VERBOSE][Harmony] Harmony patch applied: CrewDialogMoveToSeatPatch targets=1
+[LOG 21:56:42.394] [Parsek][VERBOSE][Harmony] Harmony patch applied: CrewDialogDropOnCrewListPatch targets=1
+[LOG 21:56:42.395] [Parsek][VERBOSE][Harmony] Harmony patch applied: CrewDialogFillPatch targets=1
+[LOG 21:56:42.396] [Parsek][VERBOSE][Harmony] Harmony patch applied: CrewRespawnTimerPatch targets=1
+[LOG 21:56:42.399] [Parsek][VERBOSE][Harmony] Harmony patch applied: DockingNodeUndockIntentPatch targets=1
+[LOG 21:56:42.401] [Parsek][VERBOSE][Harmony] Harmony patch applied: FacilityDowngradeSpendPatch targets=1
+[LOG 21:56:42.409] [Parsek][VERBOSE][Harmony] Harmony patch applied: FacilityMenuUpgradeBlockPatch targets=1
+[LOG 21:56:42.410] [Parsek][VERBOSE][Harmony] Harmony patch applied: FacilityRepairScopePatch targets=1
+[LOG 21:56:42.411] [Parsek][VERBOSE][Harmony] Harmony patch applied: FacilityResetStructuresPatch targets=1
+[LOG 21:56:42.412] [Parsek][VERBOSE][Harmony] Harmony patch applied: FacilityUpgradePatch targets=1
+[LOG 21:56:42.412] [Parsek][VERBOSE][Harmony] Harmony patch applied: FacilityUpgradeSpendPatch targets=1
+[LOG 21:56:42.415] [Parsek][VERBOSE][Harmony] Harmony patch applied: FlagPickUpCapturePatch targets=1
+[LOG 21:56:42.416] [Parsek][VERBOSE][Harmony] Harmony patch applied: KerbalPortraitEvaPatch targets=1
+[LOG 21:56:42.420] [Parsek][VERBOSE][Harmony] Harmony patch applied: CrewHatchDialogCreateListPatch targets=1
+[LOG 21:56:42.422] [Parsek][VERBOSE][Harmony] Harmony patch applied: FlightEvaSpawnBackstopPatch targets=1
+[LOG 21:56:42.423] [Parsek][VERBOSE][Harmony] Harmony patch applied: CrewTransferCreateBackstopPatch targets=1
+[LOG 21:56:42.427] [Parsek][VERBOSE][Harmony] Harmony patch applied: FlightStateGhostBudgetPatch targets=1
+[LOG 21:56:42.435] [Parsek][VERBOSE][Harmony] Harmony patch applied: FloatingOriginSetOffsetPatch targets=1
+[LOG 21:56:42.439] [Parsek][VERBOSE][Harmony] Harmony patch applied: FreeTechUnlockCapturePatch targets=1
+[LOG 21:56:42.440] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostOrbitDominantBodyPatch targets=1
+[LOG 21:56:42.443] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostCheckKillPatch targets=1
+[LOG 21:56:42.446] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostOrbitIconDrivePatch targets=1
+[LOG 21:56:42.446] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostOrbitLinePatch targets=1
+[LOG 21:56:42.449] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostOrbitArcPatch targets=1
+[LOG 21:56:42.452] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostTrackingBuildVesselsListPatch targets=1
+[LOG 21:56:42.454] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostTrackingStationInitPatch targets=1
+[LOG 21:56:42.455] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostTrackingFlyPatch targets=1
+[LOG 21:56:42.456] [Parsek][VERBOSE][Harmony] Harmony patch applied: SwitchIntentTrackingStationFlyPatch targets=1
+[LOG 21:56:42.458] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostTrackingDeletePatch targets=1
+[LOG 21:56:42.462] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostTrackingSetVesselPatch targets=1
+[LOG 21:56:42.462] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostTrackingVesselIconClickPatch targets=1
+[LOG 21:56:42.463] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostTrackingRecoverPatch targets=1
+[LOG 21:56:42.464] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostOrbitCastPatch targets=1
+[LOG 21:56:42.466] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostIconClickPatch targets=1
+[LOG 21:56:42.471] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostVesselLoadPatch targets=1
+[LOG 21:56:42.474] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostVesselLoadedInertPatch targets=1
+[LOG 21:56:42.478] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostCommNetVesselPatch targets=1
+[LOG 21:56:42.480] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostVesselSwitchPatch targets=1
+[LOG 21:56:42.480] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostVesselForceSwitchPatch targets=1
+[LOG 21:56:42.481] [Parsek][INFO][GhostMap] GhostTargetCastNodesPatch: found TargetCastNodes with 1 params
+[LOG 21:56:42.482] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostTargetCastNodesPatch targets=1
+[LOG 21:56:42.483] [Parsek][VERBOSE][Harmony] Harmony patch applied: HackGravityPatch targets=1
+[LOG 21:56:42.484] [Parsek][VERBOSE][Harmony] Harmony patch applied: KerbalAutoHireApplicantPatch targets=1
+[LOG 21:56:42.484] [Parsek][VERBOSE][Harmony] Harmony patch applied: KerbalDismissalPatch targets=1
+[LOG 21:56:42.485] [Parsek][VERBOSE][Harmony] Harmony patch applied: KerbalSackPatch targets=1
+[LOG 21:56:42.486] [Parsek][VERBOSE][Harmony] Harmony patch applied: AstronautComplexDismissPatch targets=1
+[LOG 21:56:42.488] [Parsek][VERBOSE][Harmony] Harmony patch applied: KerbalHirePatch targets=1
+==== exception at line 360 ====
+[LOG 21:56:42.481] [Parsek][INFO][GhostMap] GhostTargetCastNodesPatch: found TargetCastNodes with 1 params
+[LOG 21:56:42.482] [Parsek][VERBOSE][Harmony] Harmony patch applied: GhostTargetCastNodesPatch targets=1
+[LOG 21:56:42.483] [Parsek][VERBOSE][Harmony] Harmony patch applied: HackGravityPatch targets=1
+[LOG 21:56:42.484] [Parsek][VERBOSE][Harmony] Harmony patch applied: KerbalAutoHireApplicantPatch targets=1
+[LOG 21:56:42.484] [Parsek][VERBOSE][Harmony] Harmony patch applied: KerbalDismissalPatch targets=1
+[LOG 21:56:42.485] [Parsek][VERBOSE][Harmony] Harmony patch applied: KerbalSackPatch targets=1
+[LOG 21:56:42.486] [Parsek][VERBOSE][Harmony] Harmony patch applied: AstronautComplexDismissPatch targets=1
+[LOG 21:56:42.488] [Parsek][VERBOSE][Harmony] Harmony patch applied: KerbalHirePatch targets=1
+[LOG 21:56:42.489] [Parsek][VERBOSE][Harmony] Harmony patch applied: AstronautComplexHireRecruitPatch targets=1
+[LOG 21:56:42.489] [Parsek][VERBOSE][Harmony] Harmony patch applied: KscVesselMarkerFlyPatch targets=1
+[LOG 21:56:42.489] [Parsek][VERBOSE][Harmony] Harmony patch applied: CanAffordLaunchTestPatch targets=1
+[LOG 21:56:42.490] [Parsek][VERBOSE][Harmony] Harmony patch applied: CanAffordLaunchTestDescriptionPatch targets=1
+[LOG 21:56:42.492] [Parsek][VERBOSE][Harmony] Harmony patch applied: EditorLaunchButtonUpdateUiPatch targets=1
+[LOG 21:56:42.495] [Parsek][VERBOSE][Harmony] Harmony patch applied: VesselSpawnDialogLaunchButtonPatch targets=1
+[LOG 21:56:42.496] [Parsek][VERBOSE][Harmony] Harmony patch applied: LaunchSiteFlyoutPointerEnterPatch targets=1
+[LOG 21:56:42.497] [Parsek][VERBOSE][Harmony] Harmony patch applied: MapFocusObjectOnSelectPatch targets=1
+[LOG 21:56:42.501] [Parsek][VERBOSE][Harmony] Harmony patch applied: MissionControlRebuildPassPatch targets=1
+[LOG 21:56:42.503] [Parsek][VERBOSE][Harmony] Harmony patch applied: MissionControlAddItemLabelPatch targets=1
+[LOG 21:56:42.506] [Parsek][VERBOSE][Harmony] Harmony patch applied: MissionControlInfoPanelPatch targets=1
+[LOG 21:56:42.507] [Parsek][VERBOSE][Harmony] Harmony patch applied: MissionControlRefreshUIControlsPatch targets=1
+[LOG 21:56:42.510] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartMassivePartCheckSeederPatch targets=1
+[LOG 21:56:42.514] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartListTooltipSetupPartPatch targets=1
+[LOG 21:56:42.521] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartListTooltipSetupUpgradePatch targets=1
+[LOG 21:56:42.527] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartListTooltipReasonPatch targets=1
+[LOG 21:56:42.528] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartListTooltipPurchasePatch targets=1
+[LOG 21:56:42.529] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartListTooltipPurchaseUpgradePatch targets=1
+[LOG 21:56:42.531] [Parsek][VERBOSE][Harmony] Harmony patch applied: RnDPurchaseAllPatch targets=1
+[LOG 21:56:42.532] [Parsek][VERBOSE][Harmony] Harmony patch applied: RDTechPurchasePartPatch targets=1
+[LOG 21:56:42.539] [Parsek][VERBOSE][Harmony] Harmony patch applied: PhysicsFramePatch targets=1
+[LOG 21:56:42.540] [Parsek][VERBOSE][Harmony] Harmony patch applied: ProgressRewardPatch targets=1
+[LOG 21:56:42.541] [Parsek][VERBOSE][Harmony] Harmony patch applied: RecoveryScopeVesselRetrievalPatch targets=1
+[LOG 21:56:42.542] [Parsek][VERBOSE][Harmony] Harmony patch applied: RecoveryScopeTrackingStationPatch targets=1
+[LOG 21:56:42.544] [Parsek][VERBOSE][Harmony] Harmony patch applied: RecoveryScopeRecoverVesselFromFlightPatch targets=1
+[LOG 21:56:42.546] [Parsek][VERBOSE][Harmony] Harmony patch applied: RecoveryScopeProtoVesselCleanPatch targets=1
+[LOG 21:56:42.549] [Parsek][VERBOSE][Harmony] Harmony patch applied: RecoveryPayoutScopePatch targets=1
+[LOG 21:56:42.551] [Parsek][VERBOSE][Harmony] Harmony patch applied: RecoveryFundsEffectScopePatch targets=1
+[LOG 21:56:42.552] [Parsek][VERBOSE][Harmony] Harmony patch applied: ResourceScanUnlockPlanetPatch targets=1
+[LOG 21:56:42.553] [Parsek][VERBOSE][Harmony] Harmony patch applied: ResourceScanUnlockBiomePatch targets=1
+[LOG 21:56:42.555] [Parsek][VERBOSE][Harmony] Harmony patch applied: RnDNodeMarkPatch targets=1
+[LOG 21:56:42.557] [Parsek][VERBOSE][Harmony] Harmony patch applied: RnDNodeTooltipPatch targets=1
+[LOG 21:56:42.558] [Parsek][VERBOSE][Harmony] Harmony patch applied: RnDPanelBlockPatch targets=1
+[LOG 21:56:42.560] [Parsek][VERBOSE][Harmony] Harmony patch applied: RnDPanelDescriptionPatch targets=1
+[LOG 21:56:42.561] [Parsek][VERBOSE][Harmony] Harmony patch applied: RnDRefreshPassLogPatch targets=1
+[LOG 21:56:42.564] [Parsek][VERBOSE][Harmony] Harmony patch applied: ScienceLabTransmissionCreditPatch targets=1
+[LOG 21:56:42.566] [Parsek][VERBOSE][Harmony] Harmony patch applied: ScienceLabRecoveryCreditPatch targets=1
+[LOG 21:56:42.568] [Parsek][VERBOSE][Harmony] Harmony patch applied: OrbitalSurveyCreditPatch targets=1
+[LOG 21:56:42.571] [Parsek][VERBOSE][Harmony] Harmony patch applied: ScienceSubjectPatch targets=2
+[LOG 21:56:42.573] [Parsek][VERBOSE][Harmony] Harmony patch applied: StrategySystemUpdateActivationPatch targets=1
+[LOG 21:56:42.574] [Parsek][VERBOSE][Harmony] Harmony patch applied: StrategyActivatePatch targets=1
+[LOG 21:56:42.574] [Parsek][VERBOSE][Harmony] Harmony patch applied: StrategyDeactivatePatch targets=1
+[LOG 21:56:42.575] [Parsek][VERBOSE][Harmony] Harmony patch applied: StrategyUpdateExpiryPatch targets=1
+[LOG 21:56:42.577] [Parsek][VERBOSE][Harmony] Harmony patch applied: StrategySystemLoadStrategiesPatch targets=1
+[LOG 21:56:42.580] [Parsek][VERBOSE][Harmony] Harmony patch applied: StrategyCanBeActivatedPatch targets=1
+[LOG 21:56:42.583] [Parsek][VERBOSE][Harmony] Harmony patch applied: AdministrationSetSelectedStrategyPatch targets=1
+[LOG 21:56:42.584] [Parsek][VERBOSE][Harmony] Harmony patch applied: AdministrationUpdateStrategyStatsPatch targets=1
+[LOG 21:56:42.587] [Parsek][VERBOSE][Harmony] Harmony patch applied: AdministrationButtonBackstopPatch targets=1
+[LOG 21:56:42.592] [Parsek][VERBOSE][Harmony] Harmony patch applied: SunLateUpdateGuardPatch targets=1
+[LOG 21:56:42.593] [Parsek][VERBOSE][Harmony] Harmony patch applied: TechResearchPatch targets=1
+[LOG 21:56:42.595] [Parsek][VERBOSE][Harmony] Harmony patch applied: TechResearchSpendPatch targets=1
+[LOG 21:56:42.599] [Parsek][VERBOSE][Harmony] Harmony patch applied: VesselCycleReFlySwitchPatch targets=1
+[LOG 21:56:42.600] [Parsek][VERBOSE][Harmony] Harmony patch applied: VesselRenameAcceptCapturePatch targets=1
+[LOG 21:56:42.602] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartVesselNamingAcceptCapturePatch targets=1
+[LOG 21:56:42.609] [Parsek][VERBOSE][Harmony] Harmony patch applied: TrackingStationSetVesselPostfix targets=1
+[LOG 21:56:42.610] [Parsek][VERBOSE][Harmony] Harmony patch applied: TrackingStationUnlockUiPostfix targets=1
+[LOG 21:56:42.612] [Parsek][VERBOSE][Harmony] Harmony patch applied: KscMarkerCreatePostfix targets=1
+[LOG 21:56:42.613] [Parsek][VERBOSE][Harmony] Harmony patch applied: KscMarkersRecoverVesselPrefix targets=1
+[LOG 21:56:42.615] [Parsek][VERBOSE][Harmony] Harmony patch applied: DisplayPatch targets=1
+[LOG 21:56:42.615] [Parsek][VERBOSE][Harmony] Harmony patch applied: ClosePatch targets=1
+[LOG 21:56:42.616] [Parsek][VERBOSE][Harmony] Harmony patch applied: OnDestroyPatch targets=1
+[LOG 21:56:42.617] [Parsek][INFO][Init] SessionStart runUtc=1794859002
+[LOG 21:56:42.617] [Parsek][INFO][Harmony] Harmony patches applied: 153 succeeded, 0 failed
+[LOG 21:56:42.619] [Parsek][VERBOSE][Init] Install location OK: <HOME>\Documents\Code\Parsek\automation\stock-minimal\GameData\Parsek\Plugins\Parsek.dll
+[LOG 21:56:42.619] [AddonLoader]: Instantiating addon 'SaveFileLoadIntentAddon' from assembly 'Parsek'
+[LOG 21:56:42.619] [Parsek][INFO][LoadPolicy] Subscribed to GameEvents.onGameStatePostLoad
+[LOG 21:56:42.619] [AddonLoader]: Instantiating addon 'WarpToTimeConsumer' from assembly 'Parsek'
+[LOG 21:56:42.620] [Parsek][VERBOSE][WarpTime] WarpToTimeConsumer initialized
+[LOG 21:56:42.620] [AddonLoader]: Instantiating addon 'GuiTreeRecorderPump' from assembly 'Parsek'
+[LOG 21:56:42.620] [AddonLoader]: Instantiating addon 'MapRenderProbe' from assembly 'Parsek'
+[LOG 21:56:42.621] [AddonLoader]: Instantiating addon 'PostFlightDialogLogHost' from assembly 'Parsek'
+[LOG 21:56:42.621] [Parsek][VERBOSE][PostFlightDialog] PostFlightDialogLogHost initialized
+[LOG 21:56:42.621] [AddonLoader]: Instantiating addon 'CurrencyReservationOverlay' from assembly 'Parsek'
+[LOG 21:56:42.622] [AddonLoader]: Instantiating addon 'ParsekToolbarRegistration' from assembly 'Parsek'
+[LOG 21:56:42.622] [AddonLoader]: Instantiating addon 'ParsekTestCommandAddon' from assembly 'Parsek'
+[WRN 21:56:42.622] OnLevelWasLoaded was found on ParsekTestCommandAddon
+This message has been deprecated and will be removed in a later version of Unity.
+Add a delegate to SceneManager.sceneLoaded instead to get notifications after scene loading has completed
+[ERR 21:56:42.622] Script error: OnLevelWasLoaded
+This message parameter has to be of type: int
+The message will be ignored.
+
+[LOG 21:56:42.622] [Parsek][INFO][TestCommands] armed (PARSEK_TEST_COMMANDS=1)
+[LOG 21:56:42.623] [Parsek][INFO][TestCommands] window placement desktop=skipped foreground=skipped hwnd=0x0 moveAttempts=0 elapsedSec=0.00
+[LOG 21:56:42.623] [AddonLoader]: Instantiating addon 'RenderCompositionRecorder' from assembly 'Parsek'
+[LOG 21:56:42.626] [Parsek][INFO][RenderManifest] inert: PARSEK_RENDER_MANIFEST=(unset)
+[LOG 21:56:42.626] [AddonLoader]: Instantiating addon 'TestRunnerShortcut' from assembly 'Parsek'
+[LOG 21:56:42.626] [Parsek][INFO][TestRunner] autorun selector parsed: enabled=False selector='(unset)' categories=[] exit=False isolated=false
+[LOG 21:56:42.627] [AddonLoader]: Instantiating addon 'Driver' from assembly 'Parsek'
+[LOG 21:56:42.628] [Parsek][VERBOSE][GhostMap] GhostTrajectoryPolylineRenderer.Driver awake (DDOL singleton)
+[LOG 21:56:42.628] [AddonLoader]: Instantiating addon 'KSPSteamController' from assembly 'KSPSteamCtrlr'
+[LOG 21:56:43.495] [KSPCF] Taking over stock loader. An exception will follow, this is intended.
+[EXC 21:56:43.498] Exception: Terminating stock loader coroutine, this is intended and not an error
+	KSPCommunityFixes.Performance.KSPCFFastLoader.GameDatabase_SetupMainLoaders_Prefix () (at <62bb7f5420994f409a34377c091e8538>:0)
+	(wrapper dynamic-method) GameDatabase.GameDatabase.SetupMainLoaders_Patch1(GameDatabase)
+	GameDatabase+<LoadObjects>d__90.MoveNext () (at <4b449f2841f84227adfaad3149c8fdba>:0)
+	UnityEngine.SetupCoroutine.InvokeMoveNext (System.Collections.IEnumerator enumerator, System.IntPtr returnValueAddress) (at <12e76cd50cc64cf19e759e981cb725af>:0)
+	UnityEngine.DebugLogHandler:LogException(Exception, Object)
+	ModuleManager.UnityLogHandle.InterceptLogHandler:LogException(Exception, Object)
+	UnityEngine.MonoBehaviour:StartCoroutine(IEnumerator)
+	<CreateDatabase>d__71:MoveNext()
+	UnityEngine.MonoBehaviour:StartCoroutine(IEnumerator)
+	GameDatabase:StartLoad()
+	<LoadSystems>d__11:MoveNext()
+	UnityEngine.MonoBehaviour:StartCoroutine(IEnumerator)
+	LoadingScreen:Start()
+[LOG 21:56:43.515] [ClickThroughBlocker] Version ClickThroughBlocker, Version=2.1.10.23, Culture=neutral, PublicKeyToken=null
+[WRN 21:56:43.515] File '<HOME>/Documents/Code/Parsek/automation/stock-minimal/KSP_x64_Data/../GameData/001_ToolbarControl/PluginData/Debug.cfg' does not exist
+[LOG 21:56:43.515] [ToolbarControl] Version ToolbarControl, Version=0.1.9.14, Culture=neutral, PublicKeyToken=null
+[LOG 21:56:46.807] [CompatibilityChecker] Running checker version 5 from 'MechJeb2'
+[LOG 21:56:46.808] [Parsek][VERBOSE][CurrencyOverlay] CurrencyOverlay: scene=LOADING has no currency bar - controller idle
+[LOG 21:56:46.808] [Parsek][INFO][Toolbar] Toolbar registered: modId=Parsek_NS, modName=Parsek
+[LOG 21:56:46.808] [Parsek][VERBOSE][TestRunner] TestRunnerShortcut active in LOADING
+[LOG 21:56:46.815] [Parsek][INFO][TestCommands] lock acquired session=3cd3e93634664ad18cd7ba3e64a3a71e pid=7172
+[LOG 21:56:46.816] [Parsek][INFO][TestCommands] journal replay: 0 done, 0 executed-not-done (rewriting response), 0 claimed-not-executed (INTERRUPTED)
+[LOG 21:56:46.823] [Parsek][VERBOSE][Settings] verbose provider installed
+[LOG 21:56:46.863] Preloading Asset Bundle Definitions
+[LOG 21:56:47.082] Load Audio: Squad/Alarms/Sounds/Chirps
+[LOG 21:56:47.086] Load Audio: Squad/Alarms/Sounds/Classic
+[LOG 21:56:47.086] Load Audio: Squad/Alarms/Sounds/ClockTower
+[LOG 21:56:47.086] Load Audio: Squad/Alarms/Sounds/ComputerGlass1
+[LOG 21:56:47.086] Load Audio: Squad/Alarms/Sounds/ComputerGlass2
+[LOG 21:56:47.086] Load Audio: Squad/Alarms/Sounds/ComputerShort
+[LOG 21:56:47.086] Load Audio: Squad/Alarms/Sounds/ComputerTriad
+[LOG 21:56:47.087] Load Audio: Squad/Alarms/Sounds/DoorBell
+[LOG 21:56:47.087] Load Audio: Squad/Alarms/Sounds/Glass
+[LOG 21:56:47.087] Load Audio: Squad/Alarms/Sounds/Klaxon
+[LOG 21:56:47.088] Load Audio: Squad/Alarms/Sounds/Mobile
+[LOG 21:56:47.088] Load Audio: Squad/Alarms/Sounds/Morning
+[LOG 21:56:47.088] Load Audio: Squad/Alarms/Sounds/OldClock
+[LOG 21:56:47.088] Load Audio: Squad/Alarms/Sounds/OldHorn
+[LOG 21:56:47.088] Load Audio: Squad/Alarms/Sounds/Ripple
+[LOG 21:56:47.088] Load Audio: Squad/Sounds/editorLoop01
+[LOG 21:56:47.088] Load Audio: Squad/Sounds/elev_loop
+[LOG 21:56:47.088] Load Audio: Squad/Sounds/elev_start
+[LOG 21:56:47.088] Load Audio: Squad/Sounds/elev_stop
+[LOG 21:56:47.089] Load Audio: Squad/Sounds/fireworks_explosion_2
+[LOG 21:56:47.089] Load Audio: Squad/Sounds/fireworks_explosion_3
+[LOG 21:56:47.089] Load Audio: Squad/Sounds/fireworks_explosion_4
+[LOG 21:56:47.089] Load Audio: Squad/Sounds/fireworks_launch_boom
+[LOG 21:56:47.089] Load Audio: Squad/Sounds/fireworks_only_crackle_crackle_1
+[LOG 21:56:47.089] Load Audio: Squad/Sounds/fireworks_only_crackle_dragon_1
+[LOG 21:56:47.201] Load Audio: Squad/Sounds/fireworks_only_crackle_palm_1
+[LOG 21:56:47.202] Load Audio: Squad/Sounds/fireworks_whistle
+[LOG 21:56:47.202] Load Audio: Squad/Sounds/ksp1_banana_V2_01
+[LOG 21:56:47.202] Load Audio: Squad/Sounds/ksp1_banana_V2_04
+[LOG 21:56:47.202] Load Audio: Squad/Sounds/ksp1_banana_V2_05
+[LOG 21:56:47.202] Load Audio: Squad/Sounds/ksp1_golf_swing_normal
+[LOG 21:56:47.202] Load Audio: Squad/Sounds/ksp1_ground_anchor_v2_1
+[LOG 21:56:47.202] Load Audio: Squad/Sounds/ksp1_strunts_disconnect_v3_pitched2
+[LOG 21:56:47.202] Load Audio: Squad/Sounds/repairKit_repair1
+[LOG 21:56:47.202] Load Audio: Squad/Sounds/repairKit_repair2
+[LOG 21:56:47.202] Load Audio: Squad/Sounds/sound_ambience_nature
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_click_flick
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_click_latch
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_click_sharp
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_click_tick
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_click_tock
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_decoupler_fire
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_delete_bin
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_explosion_debris1
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_explosion_debris2
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_explosion_large
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_rocket_mini
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_rocket_spurts
+[LOG 21:56:47.204] Load Audio: Squad/Sounds/sound_servomotor
+[LOG 21:56:47.204] Load Audio: Squad/Sounds/sound_tab_extend
+[LOG 21:56:47.207] Load Audio: Squad/Sounds/sound_tab_retreat
+[LOG 21:56:47.207] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_large_end
+[LOG 21:56:47.207] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_large_motor_00
+[LOG 21:56:47.208] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_large_scan
+[LOG 21:56:47.208] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_large_start
+[LOG 21:56:47.208] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_medium_end
+[LOG 21:56:47.208] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_medium_motor_00
+[LOG 21:56:47.208] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_medium_scan
+[LOG 21:56:47.208] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_medium_start
+[LOG 21:56:47.208] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_small_end
+[LOG 21:56:47.208] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_small_motor_00
+[LOG 21:56:47.208] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_small_scan
+[LOG 21:56:47.208] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_small_start
+[LOG 21:56:47.209] Load Audio: SquadExpansion/Serenity/Sounds/sfx_cryoVolcano_burst
+[LOG 21:56:47.209] Load Audio: SquadExpansion/Serenity/Sounds/sfx_cryoVolcano_idle
+[LOG 21:56:47.209] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_booster_antena_end
+[LOG 21:56:47.209] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_booster_antena_start
+[LOG 21:56:47.209] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_central_station_end
+[LOG 21:56:47.209] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_central_station_loop
+[LOG 21:56:47.209] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_central_station_start
+[LOG 21:56:47.209] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_detector_end
+[LOG 21:56:47.209] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_detector_start
+[LOG 21:56:47.210] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_GoObEd_end
+[LOG 21:56:47.210] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_GoObEd_loop
+[LOG 21:56:47.210] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_GoObEd_start
+[LOG 21:56:47.243] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_rtg_end
+==== exception at line 365 ====
+[LOG 21:56:42.485] [Parsek][VERBOSE][Harmony] Harmony patch applied: KerbalSackPatch targets=1
+[LOG 21:56:42.486] [Parsek][VERBOSE][Harmony] Harmony patch applied: AstronautComplexDismissPatch targets=1
+[LOG 21:56:42.488] [Parsek][VERBOSE][Harmony] Harmony patch applied: KerbalHirePatch targets=1
+[LOG 21:56:42.489] [Parsek][VERBOSE][Harmony] Harmony patch applied: AstronautComplexHireRecruitPatch targets=1
+[LOG 21:56:42.489] [Parsek][VERBOSE][Harmony] Harmony patch applied: KscVesselMarkerFlyPatch targets=1
+[LOG 21:56:42.489] [Parsek][VERBOSE][Harmony] Harmony patch applied: CanAffordLaunchTestPatch targets=1
+[LOG 21:56:42.490] [Parsek][VERBOSE][Harmony] Harmony patch applied: CanAffordLaunchTestDescriptionPatch targets=1
+[LOG 21:56:42.492] [Parsek][VERBOSE][Harmony] Harmony patch applied: EditorLaunchButtonUpdateUiPatch targets=1
+[LOG 21:56:42.495] [Parsek][VERBOSE][Harmony] Harmony patch applied: VesselSpawnDialogLaunchButtonPatch targets=1
+[LOG 21:56:42.496] [Parsek][VERBOSE][Harmony] Harmony patch applied: LaunchSiteFlyoutPointerEnterPatch targets=1
+[LOG 21:56:42.497] [Parsek][VERBOSE][Harmony] Harmony patch applied: MapFocusObjectOnSelectPatch targets=1
+[LOG 21:56:42.501] [Parsek][VERBOSE][Harmony] Harmony patch applied: MissionControlRebuildPassPatch targets=1
+[LOG 21:56:42.503] [Parsek][VERBOSE][Harmony] Harmony patch applied: MissionControlAddItemLabelPatch targets=1
+[LOG 21:56:42.506] [Parsek][VERBOSE][Harmony] Harmony patch applied: MissionControlInfoPanelPatch targets=1
+[LOG 21:56:42.507] [Parsek][VERBOSE][Harmony] Harmony patch applied: MissionControlRefreshUIControlsPatch targets=1
+[LOG 21:56:42.510] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartMassivePartCheckSeederPatch targets=1
+[LOG 21:56:42.514] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartListTooltipSetupPartPatch targets=1
+[LOG 21:56:42.521] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartListTooltipSetupUpgradePatch targets=1
+[LOG 21:56:42.527] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartListTooltipReasonPatch targets=1
+[LOG 21:56:42.528] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartListTooltipPurchasePatch targets=1
+[LOG 21:56:42.529] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartListTooltipPurchaseUpgradePatch targets=1
+[LOG 21:56:42.531] [Parsek][VERBOSE][Harmony] Harmony patch applied: RnDPurchaseAllPatch targets=1
+[LOG 21:56:42.532] [Parsek][VERBOSE][Harmony] Harmony patch applied: RDTechPurchasePartPatch targets=1
+[LOG 21:56:42.539] [Parsek][VERBOSE][Harmony] Harmony patch applied: PhysicsFramePatch targets=1
+[LOG 21:56:42.540] [Parsek][VERBOSE][Harmony] Harmony patch applied: ProgressRewardPatch targets=1
+[LOG 21:56:42.541] [Parsek][VERBOSE][Harmony] Harmony patch applied: RecoveryScopeVesselRetrievalPatch targets=1
+[LOG 21:56:42.542] [Parsek][VERBOSE][Harmony] Harmony patch applied: RecoveryScopeTrackingStationPatch targets=1
+[LOG 21:56:42.544] [Parsek][VERBOSE][Harmony] Harmony patch applied: RecoveryScopeRecoverVesselFromFlightPatch targets=1
+[LOG 21:56:42.546] [Parsek][VERBOSE][Harmony] Harmony patch applied: RecoveryScopeProtoVesselCleanPatch targets=1
+[LOG 21:56:42.549] [Parsek][VERBOSE][Harmony] Harmony patch applied: RecoveryPayoutScopePatch targets=1
+[LOG 21:56:42.551] [Parsek][VERBOSE][Harmony] Harmony patch applied: RecoveryFundsEffectScopePatch targets=1
+[LOG 21:56:42.552] [Parsek][VERBOSE][Harmony] Harmony patch applied: ResourceScanUnlockPlanetPatch targets=1
+[LOG 21:56:42.553] [Parsek][VERBOSE][Harmony] Harmony patch applied: ResourceScanUnlockBiomePatch targets=1
+[LOG 21:56:42.555] [Parsek][VERBOSE][Harmony] Harmony patch applied: RnDNodeMarkPatch targets=1
+[LOG 21:56:42.557] [Parsek][VERBOSE][Harmony] Harmony patch applied: RnDNodeTooltipPatch targets=1
+[LOG 21:56:42.558] [Parsek][VERBOSE][Harmony] Harmony patch applied: RnDPanelBlockPatch targets=1
+[LOG 21:56:42.560] [Parsek][VERBOSE][Harmony] Harmony patch applied: RnDPanelDescriptionPatch targets=1
+[LOG 21:56:42.561] [Parsek][VERBOSE][Harmony] Harmony patch applied: RnDRefreshPassLogPatch targets=1
+[LOG 21:56:42.564] [Parsek][VERBOSE][Harmony] Harmony patch applied: ScienceLabTransmissionCreditPatch targets=1
+[LOG 21:56:42.566] [Parsek][VERBOSE][Harmony] Harmony patch applied: ScienceLabRecoveryCreditPatch targets=1
+[LOG 21:56:42.568] [Parsek][VERBOSE][Harmony] Harmony patch applied: OrbitalSurveyCreditPatch targets=1
+[LOG 21:56:42.571] [Parsek][VERBOSE][Harmony] Harmony patch applied: ScienceSubjectPatch targets=2
+[LOG 21:56:42.573] [Parsek][VERBOSE][Harmony] Harmony patch applied: StrategySystemUpdateActivationPatch targets=1
+[LOG 21:56:42.574] [Parsek][VERBOSE][Harmony] Harmony patch applied: StrategyActivatePatch targets=1
+[LOG 21:56:42.574] [Parsek][VERBOSE][Harmony] Harmony patch applied: StrategyDeactivatePatch targets=1
+[LOG 21:56:42.575] [Parsek][VERBOSE][Harmony] Harmony patch applied: StrategyUpdateExpiryPatch targets=1
+[LOG 21:56:42.577] [Parsek][VERBOSE][Harmony] Harmony patch applied: StrategySystemLoadStrategiesPatch targets=1
+[LOG 21:56:42.580] [Parsek][VERBOSE][Harmony] Harmony patch applied: StrategyCanBeActivatedPatch targets=1
+[LOG 21:56:42.583] [Parsek][VERBOSE][Harmony] Harmony patch applied: AdministrationSetSelectedStrategyPatch targets=1
+[LOG 21:56:42.584] [Parsek][VERBOSE][Harmony] Harmony patch applied: AdministrationUpdateStrategyStatsPatch targets=1
+[LOG 21:56:42.587] [Parsek][VERBOSE][Harmony] Harmony patch applied: AdministrationButtonBackstopPatch targets=1
+[LOG 21:56:42.592] [Parsek][VERBOSE][Harmony] Harmony patch applied: SunLateUpdateGuardPatch targets=1
+[LOG 21:56:42.593] [Parsek][VERBOSE][Harmony] Harmony patch applied: TechResearchPatch targets=1
+[LOG 21:56:42.595] [Parsek][VERBOSE][Harmony] Harmony patch applied: TechResearchSpendPatch targets=1
+[LOG 21:56:42.599] [Parsek][VERBOSE][Harmony] Harmony patch applied: VesselCycleReFlySwitchPatch targets=1
+[LOG 21:56:42.600] [Parsek][VERBOSE][Harmony] Harmony patch applied: VesselRenameAcceptCapturePatch targets=1
+[LOG 21:56:42.602] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartVesselNamingAcceptCapturePatch targets=1
+[LOG 21:56:42.609] [Parsek][VERBOSE][Harmony] Harmony patch applied: TrackingStationSetVesselPostfix targets=1
+[LOG 21:56:42.610] [Parsek][VERBOSE][Harmony] Harmony patch applied: TrackingStationUnlockUiPostfix targets=1
+[LOG 21:56:42.612] [Parsek][VERBOSE][Harmony] Harmony patch applied: KscMarkerCreatePostfix targets=1
+[LOG 21:56:42.613] [Parsek][VERBOSE][Harmony] Harmony patch applied: KscMarkersRecoverVesselPrefix targets=1
+[LOG 21:56:42.615] [Parsek][VERBOSE][Harmony] Harmony patch applied: DisplayPatch targets=1
+[LOG 21:56:42.615] [Parsek][VERBOSE][Harmony] Harmony patch applied: ClosePatch targets=1
+[LOG 21:56:42.616] [Parsek][VERBOSE][Harmony] Harmony patch applied: OnDestroyPatch targets=1
+[LOG 21:56:42.617] [Parsek][INFO][Init] SessionStart runUtc=1794859002
+[LOG 21:56:42.617] [Parsek][INFO][Harmony] Harmony patches applied: 153 succeeded, 0 failed
+[LOG 21:56:42.619] [Parsek][VERBOSE][Init] Install location OK: <HOME>\Documents\Code\Parsek\automation\stock-minimal\GameData\Parsek\Plugins\Parsek.dll
+[LOG 21:56:42.619] [AddonLoader]: Instantiating addon 'SaveFileLoadIntentAddon' from assembly 'Parsek'
+[LOG 21:56:42.619] [Parsek][INFO][LoadPolicy] Subscribed to GameEvents.onGameStatePostLoad
+[LOG 21:56:42.619] [AddonLoader]: Instantiating addon 'WarpToTimeConsumer' from assembly 'Parsek'
+[LOG 21:56:42.620] [Parsek][VERBOSE][WarpTime] WarpToTimeConsumer initialized
+[LOG 21:56:42.620] [AddonLoader]: Instantiating addon 'GuiTreeRecorderPump' from assembly 'Parsek'
+[LOG 21:56:42.620] [AddonLoader]: Instantiating addon 'MapRenderProbe' from assembly 'Parsek'
+[LOG 21:56:42.621] [AddonLoader]: Instantiating addon 'PostFlightDialogLogHost' from assembly 'Parsek'
+[LOG 21:56:42.621] [Parsek][VERBOSE][PostFlightDialog] PostFlightDialogLogHost initialized
+[LOG 21:56:42.621] [AddonLoader]: Instantiating addon 'CurrencyReservationOverlay' from assembly 'Parsek'
+[LOG 21:56:42.622] [AddonLoader]: Instantiating addon 'ParsekToolbarRegistration' from assembly 'Parsek'
+[LOG 21:56:42.622] [AddonLoader]: Instantiating addon 'ParsekTestCommandAddon' from assembly 'Parsek'
+[WRN 21:56:42.622] OnLevelWasLoaded was found on ParsekTestCommandAddon
+This message has been deprecated and will be removed in a later version of Unity.
+Add a delegate to SceneManager.sceneLoaded instead to get notifications after scene loading has completed
+[ERR 21:56:42.622] Script error: OnLevelWasLoaded
+This message parameter has to be of type: int
+The message will be ignored.
+
+[LOG 21:56:42.622] [Parsek][INFO][TestCommands] armed (PARSEK_TEST_COMMANDS=1)
+[LOG 21:56:42.623] [Parsek][INFO][TestCommands] window placement desktop=skipped foreground=skipped hwnd=0x0 moveAttempts=0 elapsedSec=0.00
+[LOG 21:56:42.623] [AddonLoader]: Instantiating addon 'RenderCompositionRecorder' from assembly 'Parsek'
+[LOG 21:56:42.626] [Parsek][INFO][RenderManifest] inert: PARSEK_RENDER_MANIFEST=(unset)
+[LOG 21:56:42.626] [AddonLoader]: Instantiating addon 'TestRunnerShortcut' from assembly 'Parsek'
+[LOG 21:56:42.626] [Parsek][INFO][TestRunner] autorun selector parsed: enabled=False selector='(unset)' categories=[] exit=False isolated=false
+[LOG 21:56:42.627] [AddonLoader]: Instantiating addon 'Driver' from assembly 'Parsek'
+[LOG 21:56:42.628] [Parsek][VERBOSE][GhostMap] GhostTrajectoryPolylineRenderer.Driver awake (DDOL singleton)
+[LOG 21:56:42.628] [AddonLoader]: Instantiating addon 'KSPSteamController' from assembly 'KSPSteamCtrlr'
+[LOG 21:56:43.495] [KSPCF] Taking over stock loader. An exception will follow, this is intended.
+[EXC 21:56:43.498] Exception: Terminating stock loader coroutine, this is intended and not an error
+	KSPCommunityFixes.Performance.KSPCFFastLoader.GameDatabase_SetupMainLoaders_Prefix () (at <62bb7f5420994f409a34377c091e8538>:0)
+	(wrapper dynamic-method) GameDatabase.GameDatabase.SetupMainLoaders_Patch1(GameDatabase)
+	GameDatabase+<LoadObjects>d__90.MoveNext () (at <4b449f2841f84227adfaad3149c8fdba>:0)
+	UnityEngine.SetupCoroutine.InvokeMoveNext (System.Collections.IEnumerator enumerator, System.IntPtr returnValueAddress) (at <12e76cd50cc64cf19e759e981cb725af>:0)
+	UnityEngine.DebugLogHandler:LogException(Exception, Object)
+	ModuleManager.UnityLogHandle.InterceptLogHandler:LogException(Exception, Object)
+	UnityEngine.MonoBehaviour:StartCoroutine(IEnumerator)
+	<CreateDatabase>d__71:MoveNext()
+	UnityEngine.MonoBehaviour:StartCoroutine(IEnumerator)
+	GameDatabase:StartLoad()
+	<LoadSystems>d__11:MoveNext()
+	UnityEngine.MonoBehaviour:StartCoroutine(IEnumerator)
+	LoadingScreen:Start()
+[LOG 21:56:43.515] [ClickThroughBlocker] Version ClickThroughBlocker, Version=2.1.10.23, Culture=neutral, PublicKeyToken=null
+[WRN 21:56:43.515] File '<HOME>/Documents/Code/Parsek/automation/stock-minimal/KSP_x64_Data/../GameData/001_ToolbarControl/PluginData/Debug.cfg' does not exist
+[LOG 21:56:43.515] [ToolbarControl] Version ToolbarControl, Version=0.1.9.14, Culture=neutral, PublicKeyToken=null
+[LOG 21:56:46.807] [CompatibilityChecker] Running checker version 5 from 'MechJeb2'
+[LOG 21:56:46.808] [Parsek][VERBOSE][CurrencyOverlay] CurrencyOverlay: scene=LOADING has no currency bar - controller idle
+[LOG 21:56:46.808] [Parsek][INFO][Toolbar] Toolbar registered: modId=Parsek_NS, modName=Parsek
+[LOG 21:56:46.808] [Parsek][VERBOSE][TestRunner] TestRunnerShortcut active in LOADING
+[LOG 21:56:46.815] [Parsek][INFO][TestCommands] lock acquired session=3cd3e93634664ad18cd7ba3e64a3a71e pid=7172
+[LOG 21:56:46.816] [Parsek][INFO][TestCommands] journal replay: 0 done, 0 executed-not-done (rewriting response), 0 claimed-not-executed (INTERRUPTED)
+[LOG 21:56:46.823] [Parsek][VERBOSE][Settings] verbose provider installed
+[LOG 21:56:46.863] Preloading Asset Bundle Definitions
+[LOG 21:56:47.082] Load Audio: Squad/Alarms/Sounds/Chirps
+[LOG 21:56:47.086] Load Audio: Squad/Alarms/Sounds/Classic
+[LOG 21:56:47.086] Load Audio: Squad/Alarms/Sounds/ClockTower
+[LOG 21:56:47.086] Load Audio: Squad/Alarms/Sounds/ComputerGlass1
+[LOG 21:56:47.086] Load Audio: Squad/Alarms/Sounds/ComputerGlass2
+[LOG 21:56:47.086] Load Audio: Squad/Alarms/Sounds/ComputerShort
+[LOG 21:56:47.086] Load Audio: Squad/Alarms/Sounds/ComputerTriad
+[LOG 21:56:47.087] Load Audio: Squad/Alarms/Sounds/DoorBell
+[LOG 21:56:47.087] Load Audio: Squad/Alarms/Sounds/Glass
+[LOG 21:56:47.087] Load Audio: Squad/Alarms/Sounds/Klaxon
+[LOG 21:56:47.088] Load Audio: Squad/Alarms/Sounds/Mobile
+[LOG 21:56:47.088] Load Audio: Squad/Alarms/Sounds/Morning
+[LOG 21:56:47.088] Load Audio: Squad/Alarms/Sounds/OldClock
+[LOG 21:56:47.088] Load Audio: Squad/Alarms/Sounds/OldHorn
+[LOG 21:56:47.088] Load Audio: Squad/Alarms/Sounds/Ripple
+[LOG 21:56:47.088] Load Audio: Squad/Sounds/editorLoop01
+[LOG 21:56:47.088] Load Audio: Squad/Sounds/elev_loop
+[LOG 21:56:47.088] Load Audio: Squad/Sounds/elev_start
+[LOG 21:56:47.088] Load Audio: Squad/Sounds/elev_stop
+[LOG 21:56:47.089] Load Audio: Squad/Sounds/fireworks_explosion_2
+[LOG 21:56:47.089] Load Audio: Squad/Sounds/fireworks_explosion_3
+[LOG 21:56:47.089] Load Audio: Squad/Sounds/fireworks_explosion_4
+[LOG 21:56:47.089] Load Audio: Squad/Sounds/fireworks_launch_boom
+[LOG 21:56:47.089] Load Audio: Squad/Sounds/fireworks_only_crackle_crackle_1
+[LOG 21:56:47.089] Load Audio: Squad/Sounds/fireworks_only_crackle_dragon_1
+[LOG 21:56:47.201] Load Audio: Squad/Sounds/fireworks_only_crackle_palm_1
+[LOG 21:56:47.202] Load Audio: Squad/Sounds/fireworks_whistle
+[LOG 21:56:47.202] Load Audio: Squad/Sounds/ksp1_banana_V2_01
+[LOG 21:56:47.202] Load Audio: Squad/Sounds/ksp1_banana_V2_04
+[LOG 21:56:47.202] Load Audio: Squad/Sounds/ksp1_banana_V2_05
+[LOG 21:56:47.202] Load Audio: Squad/Sounds/ksp1_golf_swing_normal
+[LOG 21:56:47.202] Load Audio: Squad/Sounds/ksp1_ground_anchor_v2_1
+[LOG 21:56:47.202] Load Audio: Squad/Sounds/ksp1_strunts_disconnect_v3_pitched2
+[LOG 21:56:47.202] Load Audio: Squad/Sounds/repairKit_repair1
+[LOG 21:56:47.202] Load Audio: Squad/Sounds/repairKit_repair2
+[LOG 21:56:47.202] Load Audio: Squad/Sounds/sound_ambience_nature
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_click_flick
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_click_latch
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_click_sharp
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_click_tick
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_click_tock
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_decoupler_fire
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_delete_bin
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_explosion_debris1
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_explosion_debris2
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_explosion_large
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_rocket_mini
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_rocket_spurts
+[LOG 21:56:47.204] Load Audio: Squad/Sounds/sound_servomotor
+[LOG 21:56:47.204] Load Audio: Squad/Sounds/sound_tab_extend
+[LOG 21:56:47.207] Load Audio: Squad/Sounds/sound_tab_retreat
+[LOG 21:56:47.207] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_large_end
+[LOG 21:56:47.207] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_large_motor_00
+[LOG 21:56:47.208] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_large_scan
+[LOG 21:56:47.208] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_large_start
+[LOG 21:56:47.208] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_medium_end
+[LOG 21:56:47.208] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_medium_motor_00
+[LOG 21:56:47.208] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_medium_scan
+[LOG 21:56:47.208] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_medium_start
+[LOG 21:56:47.208] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_small_end
+[LOG 21:56:47.208] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_small_motor_00
+[LOG 21:56:47.208] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_small_scan
+[LOG 21:56:47.208] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_small_start
+[LOG 21:56:47.209] Load Audio: SquadExpansion/Serenity/Sounds/sfx_cryoVolcano_burst
+[LOG 21:56:47.209] Load Audio: SquadExpansion/Serenity/Sounds/sfx_cryoVolcano_idle
+[LOG 21:56:47.209] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_booster_antena_end
+[LOG 21:56:47.209] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_booster_antena_start
+[LOG 21:56:47.209] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_central_station_end
+[LOG 21:56:47.209] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_central_station_loop
+[LOG 21:56:47.209] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_central_station_start
+[LOG 21:56:47.209] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_detector_end
+[LOG 21:56:47.209] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_detector_start
+[LOG 21:56:47.210] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_GoObEd_end
+[LOG 21:56:47.210] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_GoObEd_loop
+[LOG 21:56:47.210] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_GoObEd_start
+[LOG 21:56:47.243] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_rtg_end
+[LOG 21:56:47.243] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_rtg_start
+[LOG 21:56:47.243] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_seismometer_end
+[LOG 21:56:47.243] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_seismometer_start
+[LOG 21:56:47.243] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_solar_panel_end
+[LOG 21:56:47.243] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_solar_panel_start
+==== exception at line 366 ====
+[LOG 21:56:42.486] [Parsek][VERBOSE][Harmony] Harmony patch applied: AstronautComplexDismissPatch targets=1
+[LOG 21:56:42.488] [Parsek][VERBOSE][Harmony] Harmony patch applied: KerbalHirePatch targets=1
+[LOG 21:56:42.489] [Parsek][VERBOSE][Harmony] Harmony patch applied: AstronautComplexHireRecruitPatch targets=1
+[LOG 21:56:42.489] [Parsek][VERBOSE][Harmony] Harmony patch applied: KscVesselMarkerFlyPatch targets=1
+[LOG 21:56:42.489] [Parsek][VERBOSE][Harmony] Harmony patch applied: CanAffordLaunchTestPatch targets=1
+[LOG 21:56:42.490] [Parsek][VERBOSE][Harmony] Harmony patch applied: CanAffordLaunchTestDescriptionPatch targets=1
+[LOG 21:56:42.492] [Parsek][VERBOSE][Harmony] Harmony patch applied: EditorLaunchButtonUpdateUiPatch targets=1
+[LOG 21:56:42.495] [Parsek][VERBOSE][Harmony] Harmony patch applied: VesselSpawnDialogLaunchButtonPatch targets=1
+[LOG 21:56:42.496] [Parsek][VERBOSE][Harmony] Harmony patch applied: LaunchSiteFlyoutPointerEnterPatch targets=1
+[LOG 21:56:42.497] [Parsek][VERBOSE][Harmony] Harmony patch applied: MapFocusObjectOnSelectPatch targets=1
+[LOG 21:56:42.501] [Parsek][VERBOSE][Harmony] Harmony patch applied: MissionControlRebuildPassPatch targets=1
+[LOG 21:56:42.503] [Parsek][VERBOSE][Harmony] Harmony patch applied: MissionControlAddItemLabelPatch targets=1
+[LOG 21:56:42.506] [Parsek][VERBOSE][Harmony] Harmony patch applied: MissionControlInfoPanelPatch targets=1
+[LOG 21:56:42.507] [Parsek][VERBOSE][Harmony] Harmony patch applied: MissionControlRefreshUIControlsPatch targets=1
+[LOG 21:56:42.510] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartMassivePartCheckSeederPatch targets=1
+[LOG 21:56:42.514] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartListTooltipSetupPartPatch targets=1
+[LOG 21:56:42.521] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartListTooltipSetupUpgradePatch targets=1
+[LOG 21:56:42.527] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartListTooltipReasonPatch targets=1
+[LOG 21:56:42.528] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartListTooltipPurchasePatch targets=1
+[LOG 21:56:42.529] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartListTooltipPurchaseUpgradePatch targets=1
+[LOG 21:56:42.531] [Parsek][VERBOSE][Harmony] Harmony patch applied: RnDPurchaseAllPatch targets=1
+[LOG 21:56:42.532] [Parsek][VERBOSE][Harmony] Harmony patch applied: RDTechPurchasePartPatch targets=1
+[LOG 21:56:42.539] [Parsek][VERBOSE][Harmony] Harmony patch applied: PhysicsFramePatch targets=1
+[LOG 21:56:42.540] [Parsek][VERBOSE][Harmony] Harmony patch applied: ProgressRewardPatch targets=1
+[LOG 21:56:42.541] [Parsek][VERBOSE][Harmony] Harmony patch applied: RecoveryScopeVesselRetrievalPatch targets=1
+[LOG 21:56:42.542] [Parsek][VERBOSE][Harmony] Harmony patch applied: RecoveryScopeTrackingStationPatch targets=1
+[LOG 21:56:42.544] [Parsek][VERBOSE][Harmony] Harmony patch applied: RecoveryScopeRecoverVesselFromFlightPatch targets=1
+[LOG 21:56:42.546] [Parsek][VERBOSE][Harmony] Harmony patch applied: RecoveryScopeProtoVesselCleanPatch targets=1
+[LOG 21:56:42.549] [Parsek][VERBOSE][Harmony] Harmony patch applied: RecoveryPayoutScopePatch targets=1
+[LOG 21:56:42.551] [Parsek][VERBOSE][Harmony] Harmony patch applied: RecoveryFundsEffectScopePatch targets=1
+[LOG 21:56:42.552] [Parsek][VERBOSE][Harmony] Harmony patch applied: ResourceScanUnlockPlanetPatch targets=1
+[LOG 21:56:42.553] [Parsek][VERBOSE][Harmony] Harmony patch applied: ResourceScanUnlockBiomePatch targets=1
+[LOG 21:56:42.555] [Parsek][VERBOSE][Harmony] Harmony patch applied: RnDNodeMarkPatch targets=1
+[LOG 21:56:42.557] [Parsek][VERBOSE][Harmony] Harmony patch applied: RnDNodeTooltipPatch targets=1
+[LOG 21:56:42.558] [Parsek][VERBOSE][Harmony] Harmony patch applied: RnDPanelBlockPatch targets=1
+[LOG 21:56:42.560] [Parsek][VERBOSE][Harmony] Harmony patch applied: RnDPanelDescriptionPatch targets=1
+[LOG 21:56:42.561] [Parsek][VERBOSE][Harmony] Harmony patch applied: RnDRefreshPassLogPatch targets=1
+[LOG 21:56:42.564] [Parsek][VERBOSE][Harmony] Harmony patch applied: ScienceLabTransmissionCreditPatch targets=1
+[LOG 21:56:42.566] [Parsek][VERBOSE][Harmony] Harmony patch applied: ScienceLabRecoveryCreditPatch targets=1
+[LOG 21:56:42.568] [Parsek][VERBOSE][Harmony] Harmony patch applied: OrbitalSurveyCreditPatch targets=1
+[LOG 21:56:42.571] [Parsek][VERBOSE][Harmony] Harmony patch applied: ScienceSubjectPatch targets=2
+[LOG 21:56:42.573] [Parsek][VERBOSE][Harmony] Harmony patch applied: StrategySystemUpdateActivationPatch targets=1
+[LOG 21:56:42.574] [Parsek][VERBOSE][Harmony] Harmony patch applied: StrategyActivatePatch targets=1
+[LOG 21:56:42.574] [Parsek][VERBOSE][Harmony] Harmony patch applied: StrategyDeactivatePatch targets=1
+[LOG 21:56:42.575] [Parsek][VERBOSE][Harmony] Harmony patch applied: StrategyUpdateExpiryPatch targets=1
+[LOG 21:56:42.577] [Parsek][VERBOSE][Harmony] Harmony patch applied: StrategySystemLoadStrategiesPatch targets=1
+[LOG 21:56:42.580] [Parsek][VERBOSE][Harmony] Harmony patch applied: StrategyCanBeActivatedPatch targets=1
+[LOG 21:56:42.583] [Parsek][VERBOSE][Harmony] Harmony patch applied: AdministrationSetSelectedStrategyPatch targets=1
+[LOG 21:56:42.584] [Parsek][VERBOSE][Harmony] Harmony patch applied: AdministrationUpdateStrategyStatsPatch targets=1
+[LOG 21:56:42.587] [Parsek][VERBOSE][Harmony] Harmony patch applied: AdministrationButtonBackstopPatch targets=1
+[LOG 21:56:42.592] [Parsek][VERBOSE][Harmony] Harmony patch applied: SunLateUpdateGuardPatch targets=1
+[LOG 21:56:42.593] [Parsek][VERBOSE][Harmony] Harmony patch applied: TechResearchPatch targets=1
+[LOG 21:56:42.595] [Parsek][VERBOSE][Harmony] Harmony patch applied: TechResearchSpendPatch targets=1
+[LOG 21:56:42.599] [Parsek][VERBOSE][Harmony] Harmony patch applied: VesselCycleReFlySwitchPatch targets=1
+[LOG 21:56:42.600] [Parsek][VERBOSE][Harmony] Harmony patch applied: VesselRenameAcceptCapturePatch targets=1
+[LOG 21:56:42.602] [Parsek][VERBOSE][Harmony] Harmony patch applied: PartVesselNamingAcceptCapturePatch targets=1
+[LOG 21:56:42.609] [Parsek][VERBOSE][Harmony] Harmony patch applied: TrackingStationSetVesselPostfix targets=1
+[LOG 21:56:42.610] [Parsek][VERBOSE][Harmony] Harmony patch applied: TrackingStationUnlockUiPostfix targets=1
+[LOG 21:56:42.612] [Parsek][VERBOSE][Harmony] Harmony patch applied: KscMarkerCreatePostfix targets=1
+[LOG 21:56:42.613] [Parsek][VERBOSE][Harmony] Harmony patch applied: KscMarkersRecoverVesselPrefix targets=1
+[LOG 21:56:42.615] [Parsek][VERBOSE][Harmony] Harmony patch applied: DisplayPatch targets=1
+[LOG 21:56:42.615] [Parsek][VERBOSE][Harmony] Harmony patch applied: ClosePatch targets=1
+[LOG 21:56:42.616] [Parsek][VERBOSE][Harmony] Harmony patch applied: OnDestroyPatch targets=1
+[LOG 21:56:42.617] [Parsek][INFO][Init] SessionStart runUtc=1794859002
+[LOG 21:56:42.617] [Parsek][INFO][Harmony] Harmony patches applied: 153 succeeded, 0 failed
+[LOG 21:56:42.619] [Parsek][VERBOSE][Init] Install location OK: <HOME>\Documents\Code\Parsek\automation\stock-minimal\GameData\Parsek\Plugins\Parsek.dll
+[LOG 21:56:42.619] [AddonLoader]: Instantiating addon 'SaveFileLoadIntentAddon' from assembly 'Parsek'
+[LOG 21:56:42.619] [Parsek][INFO][LoadPolicy] Subscribed to GameEvents.onGameStatePostLoad
+[LOG 21:56:42.619] [AddonLoader]: Instantiating addon 'WarpToTimeConsumer' from assembly 'Parsek'
+[LOG 21:56:42.620] [Parsek][VERBOSE][WarpTime] WarpToTimeConsumer initialized
+[LOG 21:56:42.620] [AddonLoader]: Instantiating addon 'GuiTreeRecorderPump' from assembly 'Parsek'
+[LOG 21:56:42.620] [AddonLoader]: Instantiating addon 'MapRenderProbe' from assembly 'Parsek'
+[LOG 21:56:42.621] [AddonLoader]: Instantiating addon 'PostFlightDialogLogHost' from assembly 'Parsek'
+[LOG 21:56:42.621] [Parsek][VERBOSE][PostFlightDialog] PostFlightDialogLogHost initialized
+[LOG 21:56:42.621] [AddonLoader]: Instantiating addon 'CurrencyReservationOverlay' from assembly 'Parsek'
+[LOG 21:56:42.622] [AddonLoader]: Instantiating addon 'ParsekToolbarRegistration' from assembly 'Parsek'
+[LOG 21:56:42.622] [AddonLoader]: Instantiating addon 'ParsekTestCommandAddon' from assembly 'Parsek'
+[WRN 21:56:42.622] OnLevelWasLoaded was found on ParsekTestCommandAddon
+This message has been deprecated and will be removed in a later version of Unity.
+Add a delegate to SceneManager.sceneLoaded instead to get notifications after scene loading has completed
+[ERR 21:56:42.622] Script error: OnLevelWasLoaded
+This message parameter has to be of type: int
+The message will be ignored.
+
+[LOG 21:56:42.622] [Parsek][INFO][TestCommands] armed (PARSEK_TEST_COMMANDS=1)
+[LOG 21:56:42.623] [Parsek][INFO][TestCommands] window placement desktop=skipped foreground=skipped hwnd=0x0 moveAttempts=0 elapsedSec=0.00
+[LOG 21:56:42.623] [AddonLoader]: Instantiating addon 'RenderCompositionRecorder' from assembly 'Parsek'
+[LOG 21:56:42.626] [Parsek][INFO][RenderManifest] inert: PARSEK_RENDER_MANIFEST=(unset)
+[LOG 21:56:42.626] [AddonLoader]: Instantiating addon 'TestRunnerShortcut' from assembly 'Parsek'
+[LOG 21:56:42.626] [Parsek][INFO][TestRunner] autorun selector parsed: enabled=False selector='(unset)' categories=[] exit=False isolated=false
+[LOG 21:56:42.627] [AddonLoader]: Instantiating addon 'Driver' from assembly 'Parsek'
+[LOG 21:56:42.628] [Parsek][VERBOSE][GhostMap] GhostTrajectoryPolylineRenderer.Driver awake (DDOL singleton)
+[LOG 21:56:42.628] [AddonLoader]: Instantiating addon 'KSPSteamController' from assembly 'KSPSteamCtrlr'
+[LOG 21:56:43.495] [KSPCF] Taking over stock loader. An exception will follow, this is intended.
+[EXC 21:56:43.498] Exception: Terminating stock loader coroutine, this is intended and not an error
+	KSPCommunityFixes.Performance.KSPCFFastLoader.GameDatabase_SetupMainLoaders_Prefix () (at <62bb7f5420994f409a34377c091e8538>:0)
+	(wrapper dynamic-method) GameDatabase.GameDatabase.SetupMainLoaders_Patch1(GameDatabase)
+	GameDatabase+<LoadObjects>d__90.MoveNext () (at <4b449f2841f84227adfaad3149c8fdba>:0)
+	UnityEngine.SetupCoroutine.InvokeMoveNext (System.Collections.IEnumerator enumerator, System.IntPtr returnValueAddress) (at <12e76cd50cc64cf19e759e981cb725af>:0)
+	UnityEngine.DebugLogHandler:LogException(Exception, Object)
+	ModuleManager.UnityLogHandle.InterceptLogHandler:LogException(Exception, Object)
+	UnityEngine.MonoBehaviour:StartCoroutine(IEnumerator)
+	<CreateDatabase>d__71:MoveNext()
+	UnityEngine.MonoBehaviour:StartCoroutine(IEnumerator)
+	GameDatabase:StartLoad()
+	<LoadSystems>d__11:MoveNext()
+	UnityEngine.MonoBehaviour:StartCoroutine(IEnumerator)
+	LoadingScreen:Start()
+[LOG 21:56:43.515] [ClickThroughBlocker] Version ClickThroughBlocker, Version=2.1.10.23, Culture=neutral, PublicKeyToken=null
+[WRN 21:56:43.515] File '<HOME>/Documents/Code/Parsek/automation/stock-minimal/KSP_x64_Data/../GameData/001_ToolbarControl/PluginData/Debug.cfg' does not exist
+[LOG 21:56:43.515] [ToolbarControl] Version ToolbarControl, Version=0.1.9.14, Culture=neutral, PublicKeyToken=null
+[LOG 21:56:46.807] [CompatibilityChecker] Running checker version 5 from 'MechJeb2'
+[LOG 21:56:46.808] [Parsek][VERBOSE][CurrencyOverlay] CurrencyOverlay: scene=LOADING has no currency bar - controller idle
+[LOG 21:56:46.808] [Parsek][INFO][Toolbar] Toolbar registered: modId=Parsek_NS, modName=Parsek
+[LOG 21:56:46.808] [Parsek][VERBOSE][TestRunner] TestRunnerShortcut active in LOADING
+[LOG 21:56:46.815] [Parsek][INFO][TestCommands] lock acquired session=3cd3e93634664ad18cd7ba3e64a3a71e pid=7172
+[LOG 21:56:46.816] [Parsek][INFO][TestCommands] journal replay: 0 done, 0 executed-not-done (rewriting response), 0 claimed-not-executed (INTERRUPTED)
+[LOG 21:56:46.823] [Parsek][VERBOSE][Settings] verbose provider installed
+[LOG 21:56:46.863] Preloading Asset Bundle Definitions
+[LOG 21:56:47.082] Load Audio: Squad/Alarms/Sounds/Chirps
+[LOG 21:56:47.086] Load Audio: Squad/Alarms/Sounds/Classic
+[LOG 21:56:47.086] Load Audio: Squad/Alarms/Sounds/ClockTower
+[LOG 21:56:47.086] Load Audio: Squad/Alarms/Sounds/ComputerGlass1
+[LOG 21:56:47.086] Load Audio: Squad/Alarms/Sounds/ComputerGlass2
+[LOG 21:56:47.086] Load Audio: Squad/Alarms/Sounds/ComputerShort
+[LOG 21:56:47.086] Load Audio: Squad/Alarms/Sounds/ComputerTriad
+[LOG 21:56:47.087] Load Audio: Squad/Alarms/Sounds/DoorBell
+[LOG 21:56:47.087] Load Audio: Squad/Alarms/Sounds/Glass
+[LOG 21:56:47.087] Load Audio: Squad/Alarms/Sounds/Klaxon
+[LOG 21:56:47.088] Load Audio: Squad/Alarms/Sounds/Mobile
+[LOG 21:56:47.088] Load Audio: Squad/Alarms/Sounds/Morning
+[LOG 21:56:47.088] Load Audio: Squad/Alarms/Sounds/OldClock
+[LOG 21:56:47.088] Load Audio: Squad/Alarms/Sounds/OldHorn
+[LOG 21:56:47.088] Load Audio: Squad/Alarms/Sounds/Ripple
+[LOG 21:56:47.088] Load Audio: Squad/Sounds/editorLoop01
+[LOG 21:56:47.088] Load Audio: Squad/Sounds/elev_loop
+[LOG 21:56:47.088] Load Audio: Squad/Sounds/elev_start
+[LOG 21:56:47.088] Load Audio: Squad/Sounds/elev_stop
+[LOG 21:56:47.089] Load Audio: Squad/Sounds/fireworks_explosion_2
+[LOG 21:56:47.089] Load Audio: Squad/Sounds/fireworks_explosion_3
+[LOG 21:56:47.089] Load Audio: Squad/Sounds/fireworks_explosion_4
+[LOG 21:56:47.089] Load Audio: Squad/Sounds/fireworks_launch_boom
+[LOG 21:56:47.089] Load Audio: Squad/Sounds/fireworks_only_crackle_crackle_1
+[LOG 21:56:47.089] Load Audio: Squad/Sounds/fireworks_only_crackle_dragon_1
+[LOG 21:56:47.201] Load Audio: Squad/Sounds/fireworks_only_crackle_palm_1
+[LOG 21:56:47.202] Load Audio: Squad/Sounds/fireworks_whistle
+[LOG 21:56:47.202] Load Audio: Squad/Sounds/ksp1_banana_V2_01
+[LOG 21:56:47.202] Load Audio: Squad/Sounds/ksp1_banana_V2_04
+[LOG 21:56:47.202] Load Audio: Squad/Sounds/ksp1_banana_V2_05
+[LOG 21:56:47.202] Load Audio: Squad/Sounds/ksp1_golf_swing_normal
+[LOG 21:56:47.202] Load Audio: Squad/Sounds/ksp1_ground_anchor_v2_1
+[LOG 21:56:47.202] Load Audio: Squad/Sounds/ksp1_strunts_disconnect_v3_pitched2
+[LOG 21:56:47.202] Load Audio: Squad/Sounds/repairKit_repair1
+[LOG 21:56:47.202] Load Audio: Squad/Sounds/repairKit_repair2
+[LOG 21:56:47.202] Load Audio: Squad/Sounds/sound_ambience_nature
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_click_flick
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_click_latch
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_click_sharp
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_click_tick
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_click_tock
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_decoupler_fire
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_delete_bin
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_explosion_debris1
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_explosion_debris2
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_explosion_large
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_rocket_mini
+[LOG 21:56:47.203] Load Audio: Squad/Sounds/sound_rocket_spurts
+[LOG 21:56:47.204] Load Audio: Squad/Sounds/sound_servomotor
+[LOG 21:56:47.204] Load Audio: Squad/Sounds/sound_tab_extend
+[LOG 21:56:47.207] Load Audio: Squad/Sounds/sound_tab_retreat
+[LOG 21:56:47.207] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_large_end
+[LOG 21:56:47.207] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_large_motor_00
+[LOG 21:56:47.208] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_large_scan
+[LOG 21:56:47.208] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_large_start
+[LOG 21:56:47.208] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_medium_end
+[LOG 21:56:47.208] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_medium_motor_00
+[LOG 21:56:47.208] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_medium_scan
+[LOG 21:56:47.208] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_medium_start
+[LOG 21:56:47.208] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_small_end
+[LOG 21:56:47.208] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_small_motor_00
+[LOG 21:56:47.208] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_small_scan
+[LOG 21:56:47.208] Load Audio: SquadExpansion/Serenity/Sounds/robo_arm_small_start
+[LOG 21:56:47.209] Load Audio: SquadExpansion/Serenity/Sounds/sfx_cryoVolcano_burst
+[LOG 21:56:47.209] Load Audio: SquadExpansion/Serenity/Sounds/sfx_cryoVolcano_idle
+[LOG 21:56:47.209] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_booster_antena_end
+[LOG 21:56:47.209] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_booster_antena_start
+[LOG 21:56:47.209] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_central_station_end
+[LOG 21:56:47.209] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_central_station_loop
+[LOG 21:56:47.209] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_central_station_start
+[LOG 21:56:47.209] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_detector_end
+[LOG 21:56:47.209] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_detector_start
+[LOG 21:56:47.210] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_GoObEd_end
+[LOG 21:56:47.210] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_GoObEd_loop
+[LOG 21:56:47.210] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_GoObEd_start
+[LOG 21:56:47.243] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_rtg_end
+[LOG 21:56:47.243] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_rtg_start
+[LOG 21:56:47.243] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_seismometer_end
+[LOG 21:56:47.243] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_seismometer_start
+[LOG 21:56:47.243] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_solar_panel_end
+[LOG 21:56:47.243] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_solar_panel_start
+[LOG 21:56:47.243] Load Audio: SquadExpansion/Serenity/Sounds/sfx_deployable_weather_station_end
+==== exception at line 8582 ====
+[LOG 20:04:01.527] Applying update ProbesBeforeCrew/_Core/Zs_ProbesBeforeCrew/@PART[mk3FuselageLFO_100]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/FuelTank/mk3Fuselage/LFO_100.cfg/PART[mk3FuselageLFO_100]
+[LOG 20:04:01.527] Applying update ProbesBeforeCrew/_Core/Zs_ProbesBeforeCrew/@PART[mk3FuselageMONO]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/FuelTank/mk3Fuselage/MONO.cfg/PART[mk3FuselageMONO]
+[LOG 20:04:01.527] Applying update ProbesBeforeCrew/_Core/Zs_ProbesBeforeCrew/@PART[mk3CrewCabin]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/FuelTank/mk3Fuselage/CREW.cfg/PART[mk3CrewCabin]
+[LOG 20:04:01.528] Applying update ProbesBeforeCrew/_Core/Zs_ProbesBeforeCrew/@PART[adapterMk3-Size2]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/FuelTank/adapterTanks/Mk3-Size2.cfg/PART[adapterMk3-Size2]
+[LOG 20:04:01.528] Applying update ProbesBeforeCrew/_Core/Zs_ProbesBeforeCrew/@PART[adapterMk3-Size2Slant]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/FuelTank/adapterTanks/Mk3-Size2Slant.cfg/PART[adapterMk3-Size2Slant]
+[LOG 20:04:01.528] Applying update ProbesBeforeCrew/_Core/Zs_ProbesBeforeCrew/@PART[adapterMk3-Mk2]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/FuelTank/adapterTanks/Mk3-Mk2.cfg/PART[adapterMk3-Mk2]
+[LOG 20:04:01.528] Applying update ProbesBeforeCrew/_Core/Zs_ProbesBeforeCrew/@PART[adapterEngines]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/FuelTank/adapterTanks/Mk3-ShuttleAdapter.cfg/PART[adapterEngines]
+[LOG 20:04:01.528] Applying update ProbesBeforeCrew/_Core/Zs_ProbesBeforeCrew/@PART[adapterSize3-Mk3]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/FuelTank/adapterTanks/Size3-Mk3.cfg/PART[adapterSize3-Mk3]
+[LOG 20:04:01.529] Applying update ProbesBeforeCrew/_Core/Zs_ProbesBeforeCrew/@PART[ServiceBay_125_v2]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/Utility/ServiceBay_v2/ServiceBay_125_v2.cfg/PART[ServiceBay_125_v2]
+[LOG 20:04:01.529] Applying update ProbesBeforeCrew/_Core/Zs_ProbesBeforeCrew/@PART[ServiceBay_250_v2]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/Utility/ServiceBay_v2/ServiceBay_250_v2.cfg/PART[ServiceBay_250_v2]
+[LOG 20:04:01.529] Applying update ProbesBeforeCrew/_Core/Zs_ProbesBeforeCrew/@PART[trussPiece1x]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/Structural/trussGirderL/trussGirderL.cfg/PART[trussPiece1x]
+[LOG 20:04:01.529] Applying update ProbesBeforeCrew/_Core/Zs_ProbesBeforeCrew/@PART[stationHub]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/Structural/stationHub/stationHub.cfg/PART[stationHub]
+[LOG 20:04:01.529] Applying update ProbesBeforeCrew/_Core/Zs_ProbesBeforeCrew/@PART[trussPiece3x]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/Structural/trussGirderXL/trussGirderXL.cfg/PART[trussPiece3x]
+[LOG 20:04:01.530] Applying update ProbesBeforeCrew/_Core/Zs_ProbesBeforeCrew/@PART[adapterSmallMiniShort]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/Structural/FLAdapters/adapterSmallMiniShort.cfg/PART[adapterSmallMiniShort]
+[LOG 20:04:01.530] Applying update ProbesBeforeCrew/_Core/Zs_ProbesBeforeCrew/@PART[adapterSmallMiniTall]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/Structural/FLAdapters/adapterSmallMiniTall.cfg/PART[adapterSmallMiniTall]
+[LOG 20:04:01.531] Applying update ProbesBeforeCrew/_Core/Zs_ProbesBeforeCrew/@PART[adapterLargeSmallBi]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/Structural/stackAdapters/adapterLargeSmallBi.cfg/PART[adapterLargeSmallBi]
+[LOG 20:04:01.531] Applying update ProbesBeforeCrew/_Core/Zs_ProbesBeforeCrew/@PART[adapterLargeSmallTri]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/Structural/stackAdapters/adapterLargeSmallTri.cfg/PART[adapterLargeSmallTri]
+[LOG 20:04:01.531] Applying update ProbesBeforeCrew/_Core/Zs_ProbesBeforeCrew/@PART[adapterLargeSmallQuad]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/Structural/stackAdapters/adapterLargeSmallQuad.cfg/PART[adapterLargeSmallQuad]
+[LOG 20:04:01.531] Applying update ProbesBeforeCrew/_Core/Zs_ProbesBeforeCrew/@PART[largeAdapter]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/Utility/rockomaxAdapters/largeAdapter.cfg/PART[largeAdapter]
+[LOG 20:04:01.531] Applying update ProbesBeforeCrew/_Core/Zs_ProbesBeforeCrew/@PART[structuralPanel1]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/Structural/structuralPanel1x1/structuralPanel1x1.cfg/PART[structuralPanel1]
+[LOG 20:04:01.532] Applying update ProbesBeforeCrew/_Core/Zs_ProbesBeforeCrew/@PART[structuralIBeam3]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/Structural/structuralIBeam200Pocket/structuralIBeam200Pocket.cfg/PART[structuralIBeam3]
+[LOG 20:04:01.532] Applying update ProbesBeforeCrew/_Core/Zs_ProbesBeforeCrew/@PART[structuralIBeam1]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/Structural/structuralIBeam650/structuralIBeam650.cfg/PART[structuralIBeam1]
+[LOG 20:04:01.532] Applying update ProbesBeforeCrew/_Core/Zs_ProbesBeforeCrew/@PART[stackBiCoupler_v2]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/Utility/stackCouplers/stackBiCoupler_v2.cfg/PART[stackBiCoupler_v2]
+[LOG 20:04:01.532] Applying update ProbesBeforeCrew/_Core/Zs_ProbesBeforeCrew/@PART[stackTriCoupler_v2]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/Utility/stackCouplers/stackTriCoupler_v2.cfg/PART[stackTriCoupler_v2]
+[LOG 20:04:01.532] Applying update ProbesBeforeCrew/_Core/Zs_ProbesBeforeCrew/@PART[stackQuadCoupler]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/Utility/stackCouplers/stackQuadCoupler.cfg/PART[stackQuadCoupler]
+[LOG 20:04:01.533] Applying update ProbesBeforeCrew/_Core/Zs_Science/@EXPERIMENT_DEFINITION:HAS[#id[crewReport]]:NEEDS[!FeatureScience]:FOR[ProbesBeforeCrew] to Squad/Resources/ScienceDefs.cfg/EXPERIMENT_DEFINITION
+[LOG 20:04:01.533] Applying update ProbesBeforeCrew/_Core/Zs_Science/@EXPERIMENT_DEFINITION:HAS[#id[evaReport]]:NEEDS[!FeatureScience]:FOR[ProbesBeforeCrew] to Squad/Resources/ScienceDefs.cfg/EXPERIMENT_DEFINITION
+[LOG 20:04:01.533] Applying update ProbesBeforeCrew/_Core/Zs_Science/@EXPERIMENT_DEFINITION:HAS[#id[surfaceSample]]:NEEDS[!FeatureScience]:FOR[ProbesBeforeCrew] to Squad/Resources/ScienceDefs.cfg/EXPERIMENT_DEFINITION
+[LOG 20:04:01.533] Applying update ProbesBeforeCrew/_Core/Zs_Science/@EXPERIMENT_DEFINITION:HAS[#id[asteroidSample]]:NEEDS[!FeatureScience]:FOR[ProbesBeforeCrew] to Squad/Resources/ScienceDefs.cfg/EXPERIMENT_DEFINITION
+[LOG 20:04:01.533] Applying update ProbesBeforeCrew/_Core/Zs_Science/@PART[science_module]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/Science/MaterialBay/materialBay.cfg/PART[science_module]
+[LOG 20:04:01.533] Applying update ProbesBeforeCrew/_Core/Zs_Science/@EXPERIMENT_DEFINITION:HAS[#id[mobileMaterialsLab]]:NEEDS[!FeatureScience]:FOR[ProbesBeforeCrew] to Squad/Resources/ScienceDefs.cfg/EXPERIMENT_DEFINITION
+[LOG 20:04:01.534] Applying update ProbesBeforeCrew/_Core/Zs_Science/@PART[GooExperiment]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/Science/GooExperiment/gooExperiment.cfg/PART[GooExperiment]
+[LOG 20:04:01.534] Applying update ProbesBeforeCrew/_Core/Zs_Science/@EXPERIMENT_DEFINITION:HAS[#id[mysteryGoo]]:NEEDS[!FeatureScience]:FOR[ProbesBeforeCrew] to Squad/Resources/ScienceDefs.cfg/EXPERIMENT_DEFINITION
+[LOG 20:04:01.534] Applying update ProbesBeforeCrew/_Core/Zs_Science/@PART[sensorThermometer]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/Science/sensorThermometer/sensorThermometer.cfg/PART[sensorThermometer]
+[LOG 20:04:01.534] Applying update ProbesBeforeCrew/_Core/Zs_Science/@EXPERIMENT_DEFINITION:HAS[#id[temperatureScan]]:NEEDS[!FeatureScience]:FOR[ProbesBeforeCrew] to Squad/Resources/ScienceDefs.cfg/EXPERIMENT_DEFINITION
+[LOG 20:04:01.534] Applying update ProbesBeforeCrew/_Core/Zs_Science/@PART[sensorAccelerometer]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/Science/sensorAccelerometer/sensorAccelerometer.cfg/PART[sensorAccelerometer]
+[LOG 20:04:01.535] Applying update ProbesBeforeCrew/_Core/Zs_Science/@EXPERIMENT_DEFINITION:HAS[#id[seismicScan]]:NEEDS[!FeatureScience]:FOR[ProbesBeforeCrew] to Squad/Resources/ScienceDefs.cfg/EXPERIMENT_DEFINITION
+[LOG 20:04:01.535] Applying update ProbesBeforeCrew/_Core/Zs_Science/@PART[sensorGravimeter]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/Science/sensorGravimeter/sensorGravimeter.cfg/PART[sensorGravimeter]
+[LOG 20:04:01.535] Applying update ProbesBeforeCrew/_Core/Zs_Science/@EXPERIMENT_DEFINITION:HAS[#id[gravityScan]]:NEEDS[!FeatureScience]:FOR[ProbesBeforeCrew] to Squad/Resources/ScienceDefs.cfg/EXPERIMENT_DEFINITION
+[LOG 20:04:01.535] Applying update ProbesBeforeCrew/_Core/Zs_Science/@PART[sensorBarometer]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/Science/sensorBarometer/sensorBarometer.cfg/PART[sensorBarometer]
+[LOG 20:04:01.535] Applying update ProbesBeforeCrew/_Core/Zs_Science/@EXPERIMENT_DEFINITION:HAS[#id[barometerScan]]:NEEDS[!FeatureScience]:FOR[ProbesBeforeCrew] to Squad/Resources/ScienceDefs.cfg/EXPERIMENT_DEFINITION
+[LOG 20:04:01.535] Applying update ProbesBeforeCrew/_Core/Zs_Science/@PART[sensorAtmosphere]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/Science/AtmosphereSensor/sensorAtmosphere.cfg/PART[sensorAtmosphere]
+[LOG 20:04:01.536] Applying update ProbesBeforeCrew/_Core/Zs_Science/@EXPERIMENT_DEFINITION:HAS[#id[atmosphereAnalysis]]:NEEDS[!FeatureScience]:FOR[ProbesBeforeCrew] to Squad/Resources/ScienceDefs.cfg/EXPERIMENT_DEFINITION
+[LOG 20:04:01.536] Applying update ProbesBeforeCrew/_Core/Zs_Science/@PART[InfraredTelescope]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/Misc/AsteroidDay/CamSat.cfg/PART[InfraredTelescope]
+[LOG 20:04:01.536] Applying update ProbesBeforeCrew/_Core/Zs_Science/@EXPERIMENT_DEFINITION:HAS[#id[infraredTelescope]]:NEEDS[!FeatureScience]:FOR[ProbesBeforeCrew] to Squad/Resources/ScienceDefs.cfg/EXPERIMENT_DEFINITION
+[LOG 20:04:01.536] Applying update ProbesBeforeCrew/_Core/Zs_Science/@PART[Magnetometer]:NEEDS[CommunityTechTree]:FOR[ProbesBeforeCrew] to Squad/Parts/Science/Magnetometer/Magnetometer.cfg/PART[Magnetometer]
+[LOG 20:04:01.536] Applying update ProbesBeforeCrew/_Core/Zs_Science/@EXPERIMENT_DEFINITION:HAS[#id[magnetometer]]:NEEDS[!FeatureScience]:FOR[ProbesBeforeCrew] to Squad/Resources/ScienceDefs.cfg/EXPERIMENT_DEFINITION
+[LOG 20:04:01.536] :AFTER[PROBESBEFORECREW] pass
+[LOG 20:04:01.536] :BEFORE[SQUAD] pass
+[LOG 20:04:01.536] :FOR[SQUAD] pass
+[LOG 20:04:01.536] :AFTER[SQUAD] pass
+[LOG 20:04:01.536] :BEFORE[SQUADEXPANSION] pass
+[LOG 20:04:01.536] :FOR[SQUADEXPANSION] pass
+[LOG 20:04:01.536] :AFTER[SQUADEXPANSION] pass
+[LOG 20:04:01.536] :BEFORE[TESTINGTOOLS] pass
+[LOG 20:04:01.536] :FOR[TESTINGTOOLS] pass
+[LOG 20:04:01.536] :AFTER[TESTINGTOOLS] pass
+[LOG 20:04:01.536] :BEFORE[TOOLBARCONTROL] pass
+[LOG 20:04:01.536] :FOR[TOOLBARCONTROL] pass
+[LOG 20:04:01.536] :AFTER[TOOLBARCONTROL] pass
+[LOG 20:04:01.537] :LAST[999_KSP-RECALL] pass
+[LOG 20:04:01.544] :LAST[HEATCONTROL] pass
+[LOG 20:04:01.548] :FINAL pass
+[LOG 20:04:01.548] Done patching
+[LOG 20:04:01.548] Saving Cache
+[LOG 20:04:01.657] Done!
+
+
+
+#### END PATCH LOG ####
+[LOG 21:56:47.768] ModuleManager: 848 patches loaded from cache
+
+[LOG 21:56:47.768] Ran in 0.688s
+[LOG 21:56:47.781] Done!
+
+
+
+#### END MODULEMANAGER LOG ####
+[LOG 21:56:48.625] [ModuleManager] Running tests...
+[LOG 21:56:48.626] [ModuleManager] tests complete.
+[LOG 21:56:48.631] [ModuleManager] Reloading resources definitions
+[LOG 21:56:48.631] Resource LiquidFuel added to database
+[LOG 21:56:48.631] Resource Oxidizer added to database
+[LOG 21:56:48.631] Resource SolidFuel added to database
+[LOG 21:56:48.631] Resource MonoPropellant added to database
+[LOG 21:56:48.631] Resource XenonGas added to database
+[LOG 21:56:48.631] Resource ElectricCharge added to database
+[LOG 21:56:48.631] Resource IntakeAir added to database
+[LOG 21:56:48.631] Resource EVA Propellant added to database
+[LOG 21:56:48.631] Resource Ore added to database
+[LOG 21:56:48.631] Resource Ablator added to database
+[LOG 21:56:48.631] [ModuleManager] Reloading Trait configs
+[LOG 21:56:48.631] ExperienceSystemConfig: Added Effect 'DeployedSciencePowerSkill' to Trait 'Engineer'
+[LOG 21:56:48.631] ExperienceSystemConfig: Added Effect 'DeployedScienceExpSkill' to Trait 'Scientist'
+[LOG 21:56:48.631] [ModuleManager] Reloading Part Upgrades
+[LOG 21:56:48.633] [ModuleManager] Setting modded physics as the active one
+[LOG 21:56:48.633] PhysicsGlobals: Loading database
+[LOG 21:56:48.635] [ModuleManager] Running post patch callbacks
+[LOG 21:56:48.641] [KSPCommunityFixes] Patch AutoStrutDrift applied.
+[LOG 21:56:48.643] [KSPCommunityFixes] Patch EditorAnimatedPartsShipModified applied.
+[LOG 21:56:48.646] [KSPCommunityFixes] Patch DragCubeLoadException applied.
+[LOG 21:56:48.648] [KSPCommunityFixes] Patch DoubleCurvePreserveTangents applied.
+[LOG 21:56:48.678] [KSPCommunityFixes] Patch DockingPortRotationDriftAndFixes applied.
+[LOG 21:56:48.703] [KSPCommunityFixes] Patch DockingPortConserveMomentum applied.
+[LOG 21:56:48.708] [KSPCommunityFixes] Patch DebugConsoleDontStealInput applied.
+[LOG 21:56:48.710] [KSPCommunityFixes] Patch CorrectDragForFlags applied.
+[LOG 21:56:48.711] [KSPCommunityFixes] Patch CometMiningNotRemovingMass applied.
+[LOG 21:56:48.714] [KSPCommunityFixes] Patch ChutePhantomSymmetry applied.
+[LOG 21:56:48.715] [KSPCommunityFixes] Patch CometSpawnerUniqueFlightId applied.
+[LOG 21:56:48.715] [KSPCommunityFixes] Patch AsteroidSpawnerUniqueFlightId applied.
+[LOG 21:56:48.717] [KSPCommunityFixes] Patch AsteroidInfiniteMining applied.
+[LOG 21:56:48.724] [KSPCommunityFixes] Patch PersistentIConfigNode applied.
+[LOG 21:56:48.724] [KSPCommunityFixes] Patch OnSymmetryFieldChanged not applied (not enabled in Settings.cfg)
+[LOG 21:56:48.724] [KSPCommunityFixes] Patch ModUpgradePipeline not applied (not enabled in Settings.cfg)
+[LOG 21:56:48.724] [KSPCommunityFixes] Patch KSPFieldEnumDesc not applied (not enabled in Settings.cfg)
+[LOG 21:56:48.725] [KSPCommunityFixes] Patch EventProfilerMarkers not applied (not enabled in Settings.cfg)
+[LOG 21:56:48.725] [KSPCommunityFixes] Patch DockingPortLockedEvents not applied (not enabled in Settings.cfg)
+[LOG 21:56:48.726] [KSPCommunityFixes] Patch DepartmentHeadImage applied.
+[LOG 21:56:48.735] [KSPCommunityFixes] Patch BaseFieldListUseFieldHost applied.
+[LOG 21:56:48.747] [KSPCommunityFixes] Patch ResourceConverterPerf applied.
+[LOG 21:56:48.752] [KSPCommunityFixes] Patch ProgressTrackingSpeedBoost applied.
+[LOG 21:56:48.754] [KSPCommunityFixes] Patch PQSUpdateNoMemoryAlloc applied.
+[LOG 21:56:48.754] [KSPCommunityFixes] Patch PQSOnlyStartOnce not applied (not enabled in Settings.cfg)
+[LOG 21:56:48.760] [KSPCommunityFixes] Patch PQSCoroutineLeak applied.
+[LOG 21:56:48.781] [KSPCommunityFixes] Patch PartSystemsFastUpdate applied.
+[LOG 21:56:48.796] [KSPCommunityFixes] Patch PartParsingPerf applied.
+[LOG 21:56:48.800] [KSPCommunityFixes] Patch EnginePlateAirstreamShieldedTopPart applied.
+[LOG 21:56:48.806] [KSPCommunityFixes] Patch EVAConstructionMass applied.
+[LOG 21:56:48.812] [KSPCommunityFixes] Patch EVAConstructionUninitializedInventory applied.
+[LOG 21:56:48.816] [KSPCommunityFixes] Patch EVAKerbalRecovery applied.
+[LOG 21:56:48.821] [KSPCommunityFixes] Patch TimeWarpOrbitShift applied.
+[LOG 21:56:48.822] [KSPCommunityFixes] Patch TimeWarpBodyCollision applied.
+[LOG 21:56:48.835] [KSPCommunityFixes] Patch ThumbnailSpotlight applied.
+[LOG 21:56:48.839] [KSPCommunityFixes] Patch SymmetryReferenceOnDelete applied.
+[LOG 21:56:48.840] [KSPCommunityFixes] Patch StrategyDuration not applied (not enabled in Settings.cfg)
+[LOG 21:56:48.841] [KSPCommunityFixes] Patch StockAlarmDescPreserveLineBreak applied.
+[LOG 21:56:48.855] [KSPCommunityFixes] Patch StickySplashedFixer applied.
+[LOG 21:56:48.860] [KSPCommunityFixes] Patch ScatterDistribution applied.
+[LOG 21:56:48.878] [KSPCommunityFixes] Patch RoboticsDrift applied.
+[LOG 21:56:48.879] [KSPCommunityFixes] Patch RestoreMaxPhysicsDT applied.
+[LOG 21:56:48.888] [KSPCommunityFixes] Patch RespawnDeadKerbals applied.
+[LOG 21:56:48.890] [KSPCommunityFixes] Patch RescaledRoboticParts applied.
+[LOG 21:56:48.893] [KSPCommunityFixes] Patch ReRootPreserveSurfaceAttach applied.
+[LOG 21:56:48.903] [KSPCommunityFixes] Patch OptimizedModuleRaycasts applied.
+[LOG 21:56:48.911] GetSubclassesOfParentClass: Found 1 types with ModuleInventoryPart parent in 28 assemblies.
+[LOG 21:56:48.913] [KSPCommunityFixes] Patch RefundingOnRecovery applied.
+[LOG 21:56:48.914] [KSPCommunityFixes] Patch PatchedConicEncounterFlickering applied.
+[LOG 21:56:48.918] [KSPCommunityFixes] Patch PartListTooltipIconSpin applied.
+[LOG 21:56:48.920] [KSPCommunityFixes] Patch PackedPartsRotation applied.
+[LOG 21:56:48.927] [KSPCommunityFixes] Patch ModulePartVariantsNodePersistence applied.
+[LOG 21:56:48.929] [KSPCommunityFixes] Patch ModuleAnimateGenericCrewModSpawnIVA applied.
+[LOG 21:56:48.930] [KSPCommunityFixes] Patch ModuleActiveRadiatorNoParentException applied.
+[LOG 21:56:48.931] [KSPCommunityFixes] Patch MapTargetBodyWithEncounter applied.
+[LOG 21:56:48.933] [KSPCommunityFixes] Patch LostSoundAfterSceneSwitch applied.
+[LOG 21:56:48.937] [KSPCommunityFixes] Patch LadderToggleableLight applied.
+[LOG 21:56:48.946] [KSPCommunityFixes] Patch InventoryPartMass applied.
+[LOG 21:56:48.950] [KSPCommunityFixes] Patch HarvesterECConsumption applied.
+[LOG 21:56:48.950] [KSPCommunityFixes] Patch FixGetUnivseralTime applied.
+[LOG 21:56:48.957] [KSPCommunityFixes] Patch ExtendedDeployableParts applied.
+[LOG 21:56:48.958] [KSPCommunityFixes] Patch PropellantFlowDescription applied.
+[LOG 21:56:48.975] [KSPCommunityFixes] Patch OptimisedVectorLines applied.
+[LOG 21:56:48.980] [KSPCommunityFixes] Patch ModuleDockingNodeFindOtherNodesFaster applied.
+[LOG 21:56:48.982] [KSPCommunityFixes] Patch ModuleColorChangerOptimization applied.
+[LOG 21:56:48.986] [KSPCommunityFixes] Patch AutoSavedCraftNameAtLaunch applied.
+[LOG 21:56:49.005] [KSPCommunityFixes] Patch PAWCollapsedInventories applied.
+[LOG 21:56:49.007] [KSPCommunityFixes] Patch UIFloatEditNumericInput applied.
+[LOG 21:56:49.022] [KSPCommunityFixes] Patch PAWStockGroups applied.
+[LOG 21:56:49.028] [KSPCommunityFixes] Patch AltimeterHorizontalPosition applied.
+[LOG 21:56:49.032] [KSPCommunityFixes] Patch SceneLoadSpeedBoost applied.
+[LOG 21:56:49.055] [KSPCommunityFixes] Patch OnDemandPartBuoyancy applied.
+[LOG 21:56:49.056] [KSPCommunityFixes] Patch ForceSyncSceneSwitch applied.
+[LOG 21:56:49.056] [KSPCommunityFixes] Patch FewerSaves not applied (not enabled in Settings.cfg)
+[LOG 21:56:49.056] [KSPCommunityFixes] Patch WheelInertiaLimit applied.
+[LOG 21:56:49.057] [KSPCommunityFixes] Patch StockAlarmCustomFormatterDate isn't applicable to this KSP version.
+[LOG 21:56:49.061] [KSPCommunityFixes] Patch ROCValidationOOR applied.
+[LOG 21:56:49.063] [KSPCommunityFixes] Patch ZeroCostTechNodes applied.
+[LOG 21:56:49.064] [KSPCommunityFixes] Patch ReactionWheelsPotentialTorque applied.
+[LOG 21:56:49.067] [KSPCommunityFixes] Patch PAWGroupMemory applied.
+[LOG 21:56:49.090] [KSPCommunityFixes] Patch PartStartStability applied.
+[LOG 21:56:49.094] [KSPCommunityFixes] Patch PartBoundsIgnoreDisabledTransforms applied.
+[LOG 21:56:49.123] [KSPCommunityFixes] Patch ModuleIndexingMismatch applied.
+[LOG 21:56:49.129] [KSPCommunityFixes] Patch MapSOCorrectWrapping applied.
+[LOG 21:56:49.129] [KSPCommunityFixes] Patch KerbalTooltipMaxSustainedG applied.
+[LOG 21:56:49.130] [KSPCommunityFixes] Patch KerbalInventoryPersistence applied.
+[LOG 21:56:49.132] [KSPCommunityFixes] Patch FlightSceneLoadKraken not applied (not enabled in Settings.cfg)
+[LOG 21:56:49.136] [KSPCommunityFixes] Patch FIUpdateRadiation applied.
+[LOG 21:56:49.138] [KSPCommunityFixes] Patch FastAndFixedEnumExtensions applied.
+[LOG 21:56:49.163] [KSPCommunityFixes] Patch DeltaVHideWhenDisabled applied.
+[LOG 21:56:49.165] [KSPCommunityFixes] Patch BlockMapViewPartClick applied.
+[LOG 21:56:49.167] [KSPCommunityFixes] Patch PAWItemsOrder applied.
+[LOG 21:56:49.198] [KSPCommunityFixes] Patch BetterEditorUndoRedo applied.
+[LOG 21:56:49.206] [KSPCommunityFixes] Patch AutostrutActions applied.
+[LOG 21:56:49.206] [KSPCommunityFixes] Patch DisableNewGameIntro not applied (not enabled in Settings.cfg)
+[LOG 21:56:49.227] [KSPCommunityFixes] Patch MinorPerfTweaks applied.
+[LOG 21:56:49.278] [KSPCommunityFixes] Patch MemoryLeaks applied.
+[LOG 21:56:49.286] [KSPCommunityFixes] Patch LowerMinPhysicsDTPerFrame applied.
+[LOG 21:56:49.293] [KSPCommunityFixes] Patch LocalizerPerf applied.
+[LOG 21:56:49.294] [KSPCommunityFixes] Patch IMGUIOptimization applied.
+[LOG 21:56:49.303] [KSPCommunityFixes] Patch FloatingOriginPerf applied.
+[LOG 21:56:49.335] [KSPCommunityFixes] Patch FlightIntegratorPerf applied.
+[LOG 21:56:49.338] [KSPCommunityFixes] Patch FasterPartFindTransform applied.
+==== exception at line 8633 ====
+[LOG 20:04:01.536] :BEFORE[SQUADEXPANSION] pass
+[LOG 20:04:01.536] :FOR[SQUADEXPANSION] pass
+[LOG 20:04:01.536] :AFTER[SQUADEXPANSION] pass
+[LOG 20:04:01.536] :BEFORE[TESTINGTOOLS] pass
+[LOG 20:04:01.536] :FOR[TESTINGTOOLS] pass
+[LOG 20:04:01.536] :AFTER[TESTINGTOOLS] pass
+[LOG 20:04:01.536] :BEFORE[TOOLBARCONTROL] pass
+[LOG 20:04:01.536] :FOR[TOOLBARCONTROL] pass
+[LOG 20:04:01.536] :AFTER[TOOLBARCONTROL] pass
+[LOG 20:04:01.537] :LAST[999_KSP-RECALL] pass
+[LOG 20:04:01.544] :LAST[HEATCONTROL] pass
+[LOG 20:04:01.548] :FINAL pass
+[LOG 20:04:01.548] Done patching
+[LOG 20:04:01.548] Saving Cache
+[LOG 20:04:01.657] Done!
+
+
+
+#### END PATCH LOG ####
+[LOG 21:56:47.768] ModuleManager: 848 patches loaded from cache
+
+[LOG 21:56:47.768] Ran in 0.688s
+[LOG 21:56:47.781] Done!
+
+
+
+#### END MODULEMANAGER LOG ####
+[LOG 21:56:48.625] [ModuleManager] Running tests...
+[LOG 21:56:48.626] [ModuleManager] tests complete.
+[LOG 21:56:48.631] [ModuleManager] Reloading resources definitions
+[LOG 21:56:48.631] Resource LiquidFuel added to database
+[LOG 21:56:48.631] Resource Oxidizer added to database
+[LOG 21:56:48.631] Resource SolidFuel added to database
+[LOG 21:56:48.631] Resource MonoPropellant added to database
+[LOG 21:56:48.631] Resource XenonGas added to database
+[LOG 21:56:48.631] Resource ElectricCharge added to database
+[LOG 21:56:48.631] Resource IntakeAir added to database
+[LOG 21:56:48.631] Resource EVA Propellant added to database
+[LOG 21:56:48.631] Resource Ore added to database
+[LOG 21:56:48.631] Resource Ablator added to database
+[LOG 21:56:48.631] [ModuleManager] Reloading Trait configs
+[LOG 21:56:48.631] ExperienceSystemConfig: Added Effect 'DeployedSciencePowerSkill' to Trait 'Engineer'
+[LOG 21:56:48.631] ExperienceSystemConfig: Added Effect 'DeployedScienceExpSkill' to Trait 'Scientist'
+[LOG 21:56:48.631] [ModuleManager] Reloading Part Upgrades
+[LOG 21:56:48.633] [ModuleManager] Setting modded physics as the active one
+[LOG 21:56:48.633] PhysicsGlobals: Loading database
+[LOG 21:56:48.635] [ModuleManager] Running post patch callbacks
+[LOG 21:56:48.641] [KSPCommunityFixes] Patch AutoStrutDrift applied.
+[LOG 21:56:48.643] [KSPCommunityFixes] Patch EditorAnimatedPartsShipModified applied.
+[LOG 21:56:48.646] [KSPCommunityFixes] Patch DragCubeLoadException applied.
+[LOG 21:56:48.648] [KSPCommunityFixes] Patch DoubleCurvePreserveTangents applied.
+[LOG 21:56:48.678] [KSPCommunityFixes] Patch DockingPortRotationDriftAndFixes applied.
+[LOG 21:56:48.703] [KSPCommunityFixes] Patch DockingPortConserveMomentum applied.
+[LOG 21:56:48.708] [KSPCommunityFixes] Patch DebugConsoleDontStealInput applied.
+[LOG 21:56:48.710] [KSPCommunityFixes] Patch CorrectDragForFlags applied.
+[LOG 21:56:48.711] [KSPCommunityFixes] Patch CometMiningNotRemovingMass applied.
+[LOG 21:56:48.714] [KSPCommunityFixes] Patch ChutePhantomSymmetry applied.
+[LOG 21:56:48.715] [KSPCommunityFixes] Patch CometSpawnerUniqueFlightId applied.
+[LOG 21:56:48.715] [KSPCommunityFixes] Patch AsteroidSpawnerUniqueFlightId applied.
+[LOG 21:56:48.717] [KSPCommunityFixes] Patch AsteroidInfiniteMining applied.
+[LOG 21:56:48.724] [KSPCommunityFixes] Patch PersistentIConfigNode applied.
+[LOG 21:56:48.724] [KSPCommunityFixes] Patch OnSymmetryFieldChanged not applied (not enabled in Settings.cfg)
+[LOG 21:56:48.724] [KSPCommunityFixes] Patch ModUpgradePipeline not applied (not enabled in Settings.cfg)
+[LOG 21:56:48.724] [KSPCommunityFixes] Patch KSPFieldEnumDesc not applied (not enabled in Settings.cfg)
+[LOG 21:56:48.725] [KSPCommunityFixes] Patch EventProfilerMarkers not applied (not enabled in Settings.cfg)
+[LOG 21:56:48.725] [KSPCommunityFixes] Patch DockingPortLockedEvents not applied (not enabled in Settings.cfg)
+[LOG 21:56:48.726] [KSPCommunityFixes] Patch DepartmentHeadImage applied.
+[LOG 21:56:48.735] [KSPCommunityFixes] Patch BaseFieldListUseFieldHost applied.
+[LOG 21:56:48.747] [KSPCommunityFixes] Patch ResourceConverterPerf applied.
+[LOG 21:56:48.752] [KSPCommunityFixes] Patch ProgressTrackingSpeedBoost applied.
+[LOG 21:56:48.754] [KSPCommunityFixes] Patch PQSUpdateNoMemoryAlloc applied.
+[LOG 21:56:48.754] [KSPCommunityFixes] Patch PQSOnlyStartOnce not applied (not enabled in Settings.cfg)
+[LOG 21:56:48.760] [KSPCommunityFixes] Patch PQSCoroutineLeak applied.
+[LOG 21:56:48.781] [KSPCommunityFixes] Patch PartSystemsFastUpdate applied.
+[LOG 21:56:48.796] [KSPCommunityFixes] Patch PartParsingPerf applied.
+[LOG 21:56:48.800] [KSPCommunityFixes] Patch EnginePlateAirstreamShieldedTopPart applied.
+[LOG 21:56:48.806] [KSPCommunityFixes] Patch EVAConstructionMass applied.
+[LOG 21:56:48.812] [KSPCommunityFixes] Patch EVAConstructionUninitializedInventory applied.
+[LOG 21:56:48.816] [KSPCommunityFixes] Patch EVAKerbalRecovery applied.
+[LOG 21:56:48.821] [KSPCommunityFixes] Patch TimeWarpOrbitShift applied.
+[LOG 21:56:48.822] [KSPCommunityFixes] Patch TimeWarpBodyCollision applied.
+[LOG 21:56:48.835] [KSPCommunityFixes] Patch ThumbnailSpotlight applied.
+[LOG 21:56:48.839] [KSPCommunityFixes] Patch SymmetryReferenceOnDelete applied.
+[LOG 21:56:48.840] [KSPCommunityFixes] Patch StrategyDuration not applied (not enabled in Settings.cfg)
+[LOG 21:56:48.841] [KSPCommunityFixes] Patch StockAlarmDescPreserveLineBreak applied.
+[LOG 21:56:48.855] [KSPCommunityFixes] Patch StickySplashedFixer applied.
+[LOG 21:56:48.860] [KSPCommunityFixes] Patch ScatterDistribution applied.
+[LOG 21:56:48.878] [KSPCommunityFixes] Patch RoboticsDrift applied.
+[LOG 21:56:48.879] [KSPCommunityFixes] Patch RestoreMaxPhysicsDT applied.
+[LOG 21:56:48.888] [KSPCommunityFixes] Patch RespawnDeadKerbals applied.
+[LOG 21:56:48.890] [KSPCommunityFixes] Patch RescaledRoboticParts applied.
+[LOG 21:56:48.893] [KSPCommunityFixes] Patch ReRootPreserveSurfaceAttach applied.
+[LOG 21:56:48.903] [KSPCommunityFixes] Patch OptimizedModuleRaycasts applied.
+[LOG 21:56:48.911] GetSubclassesOfParentClass: Found 1 types with ModuleInventoryPart parent in 28 assemblies.
+[LOG 21:56:48.913] [KSPCommunityFixes] Patch RefundingOnRecovery applied.
+[LOG 21:56:48.914] [KSPCommunityFixes] Patch PatchedConicEncounterFlickering applied.
+[LOG 21:56:48.918] [KSPCommunityFixes] Patch PartListTooltipIconSpin applied.
+[LOG 21:56:48.920] [KSPCommunityFixes] Patch PackedPartsRotation applied.
+[LOG 21:56:48.927] [KSPCommunityFixes] Patch ModulePartVariantsNodePersistence applied.
+[LOG 21:56:48.929] [KSPCommunityFixes] Patch ModuleAnimateGenericCrewModSpawnIVA applied.
+[LOG 21:56:48.930] [KSPCommunityFixes] Patch ModuleActiveRadiatorNoParentException applied.
+[LOG 21:56:48.931] [KSPCommunityFixes] Patch MapTargetBodyWithEncounter applied.
+[LOG 21:56:48.933] [KSPCommunityFixes] Patch LostSoundAfterSceneSwitch applied.
+[LOG 21:56:48.937] [KSPCommunityFixes] Patch LadderToggleableLight applied.
+[LOG 21:56:48.946] [KSPCommunityFixes] Patch InventoryPartMass applied.
+[LOG 21:56:48.950] [KSPCommunityFixes] Patch HarvesterECConsumption applied.
+[LOG 21:56:48.950] [KSPCommunityFixes] Patch FixGetUnivseralTime applied.
+[LOG 21:56:48.957] [KSPCommunityFixes] Patch ExtendedDeployableParts applied.
+[LOG 21:56:48.958] [KSPCommunityFixes] Patch PropellantFlowDescription applied.
+[LOG 21:56:48.975] [KSPCommunityFixes] Patch OptimisedVectorLines applied.
+[LOG 21:56:48.980] [KSPCommunityFixes] Patch ModuleDockingNodeFindOtherNodesFaster applied.
+[LOG 21:56:48.982] [KSPCommunityFixes] Patch ModuleColorChangerOptimization applied.
+[LOG 21:56:48.986] [KSPCommunityFixes] Patch AutoSavedCraftNameAtLaunch applied.
+[LOG 21:56:49.005] [KSPCommunityFixes] Patch PAWCollapsedInventories applied.
+[LOG 21:56:49.007] [KSPCommunityFixes] Patch UIFloatEditNumericInput applied.
+[LOG 21:56:49.022] [KSPCommunityFixes] Patch PAWStockGroups applied.
+[LOG 21:56:49.028] [KSPCommunityFixes] Patch AltimeterHorizontalPosition applied.
+[LOG 21:56:49.032] [KSPCommunityFixes] Patch SceneLoadSpeedBoost applied.
+[LOG 21:56:49.055] [KSPCommunityFixes] Patch OnDemandPartBuoyancy applied.
+[LOG 21:56:49.056] [KSPCommunityFixes] Patch ForceSyncSceneSwitch applied.
+[LOG 21:56:49.056] [KSPCommunityFixes] Patch FewerSaves not applied (not enabled in Settings.cfg)
+[LOG 21:56:49.056] [KSPCommunityFixes] Patch WheelInertiaLimit applied.
+[LOG 21:56:49.057] [KSPCommunityFixes] Patch StockAlarmCustomFormatterDate isn't applicable to this KSP version.
+[LOG 21:56:49.061] [KSPCommunityFixes] Patch ROCValidationOOR applied.
+[LOG 21:56:49.063] [KSPCommunityFixes] Patch ZeroCostTechNodes applied.
+[LOG 21:56:49.064] [KSPCommunityFixes] Patch ReactionWheelsPotentialTorque applied.
+[LOG 21:56:49.067] [KSPCommunityFixes] Patch PAWGroupMemory applied.
+[LOG 21:56:49.090] [KSPCommunityFixes] Patch PartStartStability applied.
+[LOG 21:56:49.094] [KSPCommunityFixes] Patch PartBoundsIgnoreDisabledTransforms applied.
+[LOG 21:56:49.123] [KSPCommunityFixes] Patch ModuleIndexingMismatch applied.
+[LOG 21:56:49.129] [KSPCommunityFixes] Patch MapSOCorrectWrapping applied.
+[LOG 21:56:49.129] [KSPCommunityFixes] Patch KerbalTooltipMaxSustainedG applied.
+[LOG 21:56:49.130] [KSPCommunityFixes] Patch KerbalInventoryPersistence applied.
+[LOG 21:56:49.132] [KSPCommunityFixes] Patch FlightSceneLoadKraken not applied (not enabled in Settings.cfg)
+[LOG 21:56:49.136] [KSPCommunityFixes] Patch FIUpdateRadiation applied.
+[LOG 21:56:49.138] [KSPCommunityFixes] Patch FastAndFixedEnumExtensions applied.
+[LOG 21:56:49.163] [KSPCommunityFixes] Patch DeltaVHideWhenDisabled applied.
+[LOG 21:56:49.165] [KSPCommunityFixes] Patch BlockMapViewPartClick applied.
+[LOG 21:56:49.167] [KSPCommunityFixes] Patch PAWItemsOrder applied.
+[LOG 21:56:49.198] [KSPCommunityFixes] Patch BetterEditorUndoRedo applied.
+[LOG 21:56:49.206] [KSPCommunityFixes] Patch AutostrutActions applied.
+[LOG 21:56:49.206] [KSPCommunityFixes] Patch DisableNewGameIntro not applied (not enabled in Settings.cfg)
+[LOG 21:56:49.227] [KSPCommunityFixes] Patch MinorPerfTweaks applied.
+[LOG 21:56:49.278] [KSPCommunityFixes] Patch MemoryLeaks applied.
+[LOG 21:56:49.286] [KSPCommunityFixes] Patch LowerMinPhysicsDTPerFrame applied.
+[LOG 21:56:49.293] [KSPCommunityFixes] Patch LocalizerPerf applied.
+[LOG 21:56:49.294] [KSPCommunityFixes] Patch IMGUIOptimization applied.
+[LOG 21:56:49.303] [KSPCommunityFixes] Patch FloatingOriginPerf applied.
+[LOG 21:56:49.335] [KSPCommunityFixes] Patch FlightIntegratorPerf applied.
+[LOG 21:56:49.338] [KSPCommunityFixes] Patch FasterPartFindTransform applied.
+[LOG 21:56:49.347] [KSPCommunityFixes] Patch FasterEditorPartList applied.
+[LOG 21:56:49.348] [KSPCommunityFixes] Patch ExpansionBundlePreload applied.
+[LOG 21:56:49.356] [KSPCommunityFixes] Patch DragCubeGeneration applied.
+[LOG 21:56:49.358] [KSPCommunityFixes] Patch DisableMapUpdateInFlight applied.
+[LOG 21:56:49.358] [KSPCommunityFixes] Patch DisableHiddenPortraits applied.
+[LOG 21:56:49.360] [KSPCommunityFixes] Patch DisableManeuverTool applied.
+[LOG 21:56:49.373] [KSPCommunityFixes] Patch CraftBrowserOptimisations applied.
+[LOG 21:56:49.376] [KSPCommunityFixes] Patch CommNetThrottling applied.
+[LOG 21:56:49.378] [KSPCommunityFixes] Patch FairingMouseOverPersistence applied.
+[LOG 21:56:49.391] [KSPCommunityFixes] Patch OptionalMakingHistoryDLCFeatures applied.
+[LOG 21:56:49.394] [KSPCommunityFixes] Patch ResourceLockActions applied.
+[LOG 21:56:49.397] [KSPCommunityFixes] Patch ShowContractFinishDates applied.
+[LOG 21:56:49.402] [KSPCommunityFixes] Patch TargetParentBody applied.
+[LOG 21:56:49.416] [KSPCommunityFixes] Patch ToolbarShowHide applied.
+[LOG 21:56:49.418] [KSPCommunityFixes] Patch ContractProgressEnumCache applied.
+[LOG 21:56:49.427] [KSPCommunityFixes] Patch ActiveRadiatorPerf applied.
+[LOG 21:56:49.431] [KSPCommunityFixes] Patch CargoBayPerf applied.
+[LOG 21:56:49.440] [KSPCommunityFixes] Patch CollisionEnhancerFastUpdate applied.
+[LOG 21:56:49.443] [KSPCommunityFixes] Patch CollisionManagerFastUpdate applied.
+[LOG 21:56:49.446] [KSPCommunityFixes] Patch AsteroidAndCometDrillCache applied.
+[LOG 21:56:49.454] [KSPCommunityFixes] Patch TweakableWheelsAutostrut applied.
+[LOG 21:56:49.469] [KSPCommunityFixes] Patch PatchSettings applied.
+[LOG 21:56:49.494] [KSPCommunityFixes] Patch UpgradeBugs applied.
+[LOG 21:56:49.495] [KSPCommunityFixes] Patch PartTooltipUpgradesApplyToSubstituteParts not applied (not enabled in Settings.cfg)
+[LOG 21:56:49.552] [ModuleManager] Calling ConfigNodePerf.ModuleManagerPostLoad()
+[LOG 21:56:49.571] [ModuleManager] Post patch ran in 0.959s
+[LOG 21:56:49.627] PartLoader: Loading part database
+[LOG 21:56:49.627] PartLoader: Compiling Part 'MechJeb2/Parts/MechJeb2_AR202/part/mumech_MJ2_AR202'
+[LOG 21:56:49.647] EffectList: Created 15 effect types
+[LOG 21:56:49.674] [MechJeb2] Starting the Dispatcher
+[LOG 21:56:49.741] ManeuverPlanner initialization: found 18 maneuvers
+[LOG 21:56:49.772] [MechJeb2] Registered 266 info items:  value:6 ms action:0 ms  toggle:0 ms  general:0 ms  editable:0 ms  total:14 ms
+[LOG 21:56:49.813] PartLoader: Compiling Part 'MechJeb2/Parts/MechJeb2_AR202/part/mumech_MJ2_AR202_features1'
+[LOG 21:56:49.814] PartLoader: Compiling Part 'MechJeb2/Parts/MechJeb2_AR202/part/mumech_MJ2_AR202_features2'
+[LOG 21:56:49.814] PartLoader: Compiling Part 'MechJeb2/Parts/MechJeb2_AR202/part/mumech_MJ2_AR202_features3'
+[LOG 21:56:49.815] PartLoader: Compiling Part 'MechJeb2/Parts/MechJeb2_AR202/part/mumech_MJ2_AR202_features4'
+[LOG 21:56:49.816] PartLoader: Compiling Part 'Squad/Parts/Aero/aerodynamicNoseCone/aerodynamicNoseCone/noseCone'
+[LOG 21:56:49.825] PartLoader: Compiling Part 'Squad/Parts/Aero/airbrake/Airbrake/airbrake1'
+[LOG 21:56:49.832] PartLoader: Compiling Part 'Squad/Parts/Aero/airIntakeRadialXM-G50/airIntakeRadialXM-G50/airScoop'
+[LOG 21:56:49.835] PartLoader: Compiling Part 'Squad/Parts/Aero/airlinerWings/ControlSurface/airlinerCtrlSrf'
+[LOG 21:56:49.840] PartLoader: Compiling Part 'Squad/Parts/Aero/airlinerWings/MainWing/airlinerMainWing'
+[LOG 21:56:49.843] PartLoader: Compiling Part 'Squad/Parts/Aero/airlinerWings/TailFin/airlinerTailFin'
+[LOG 21:56:49.847] PartLoader: Compiling Part 'Squad/Parts/Aero/airplaneFins/advancedCanard/AdvancedCanard'
+[LOG 21:56:49.848] PartLoader: Compiling Part 'Squad/Parts/Aero/airplaneFins/standardCanard/CanardController'
+[LOG 21:56:49.850] PartLoader: Compiling Part 'Squad/Parts/Aero/airplaneFins/sweptWing/sweptWing'
+[LOG 21:56:49.851] PartLoader: Compiling Part 'Squad/Parts/Aero/airplaneFins/tailfin/tailfin'
+[LOG 21:56:49.853] PartLoader: Compiling Part 'Squad/Parts/Aero/basicFin/basicFin/basicFin'
+[LOG 21:56:49.853] PartLoader: Compiling Part 'Squad/Parts/Aero/basicFin/basicFin/size0_basicFin'
+[LOG 21:56:49.855] PartLoader: Compiling Part 'Squad/Parts/Aero/circularIntake/circularIntake/CircularIntake'
+[LOG 21:56:49.859] PartLoader: Compiling Part 'Squad/Parts/Aero/circularIntake/intakeShockCone/shockConeIntake'
+[LOG 21:56:49.860] PartLoader: Compiling Part 'Squad/Parts/Aero/cones/avionicsNoseCone/avionicsNoseCone'
