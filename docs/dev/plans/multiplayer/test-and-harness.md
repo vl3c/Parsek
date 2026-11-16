@@ -1137,9 +1137,23 @@ Made smaller on 2026-11-15: the pairing machinery is T-54's; this task is its fi
   single-player roadmap's CS-ALL runner and its stage-to-fixture promotion tool
   (`autotest-roadmap.md:6555`, `:6560-6562`): one task serves both programs. It needs no
   race code.
+- **As built (2026-11-16):** the ladder is `harness/campaigns/cs-career.toml`, and not every
+  edge chains yet. CS-0 -> CS-3 and CS-3 -> CS-3b are `fixture` edges (each stages its
+  committed fixture, with the reason): CS-3 accepts contracts by the GUIDs of the committed
+  New Game and CS-3b by a GUID offered during CS-3's committed flight, plus a hand-seeded
+  applicant, so neither replays until T-58's accept-by-type selector and an applicant seed.
+  The CS-3 to CS-4b replay therefore flies CS-3 as a gate and chains CS-3b -> CS-4 -> CS-4b.
+  CS-4b's and CS-6b's pins on the predecessor's own Flea guid and UT were regexed so a chained
+  stage can pass; CS-6b's exact count and science pins remain (todo CS-LADDER-CHAIN-PINS).
+  The handover reads the run's produced-save snapshot, never the instance save, and
+  `run.py --stage-from` is accepted only in a runner's `--slot` child whose token the stage's
+  handover marker carries. Contract: `harness/README.md` "Campaign chains".
 - **Proof:** `test_campaign.py` (ladder parse, resume point, the two-chain pipeline schedule,
-  refusal of `--stage-from` outside the runner); one replay of the CS chain CS-3 to CS-4b
-  (about 1413 s of p50) on the owner's PC.
+  refusal of `--stage-from` outside the runner, and a shell smoke of the real runner: the
+  handover, a middle stage that fails, a resume, every snapshot overwritten mid-chain); one
+  replay of the CS chain CS-3 to CS-4b (about 1413 s of p50) on the owner's PC:
+  `cd harness && python tools/campaign_runner.py run --ladder cs-career --name cs-replay-1
+  --from CS-3 --to CS-4b --slots 1`.
 - **Registers:** `harness/README.md` (a "Campaign chains" section), status.
 - **Size:** M. **Depends on:** the owner's go. **PC:** lanes (one CS chain replay).
 - **Risk:** medium; it chains stages through snapshots, so a stage that leaves a bad save
