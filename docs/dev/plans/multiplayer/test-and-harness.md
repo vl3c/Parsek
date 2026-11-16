@@ -1040,10 +1040,14 @@ Made smaller on 2026-11-15: the pairing machinery is T-54's; this task is its fi
 ### T-45 Race lane plumbing: `race` tag, `parallel_runner --tag`, CI push on `multiplayer`
 
 - **Change:** the tag convention (every race spec carries `race`; an hlib cell reds a spec
-  whose id starts with `RACE`, `SITES`, `RCA`, `RCB` or `RCI` without it, and a non-race spec
-  with it); `parallel_runner.py run --tag <t>` (it has no tag filter today,
-  `parallel_runner.py:1230-1243`; `run.py` has `--tag`, `run.py:6374-6380`); the `push:`
-  trigger for the `multiplayer` branch in `.github/workflows/tests.yml` (README rule 10).
+  whose id prefix, the part before the first `-`, is `RACE`, `SITES`, `RCA`, `RCB` or `RCI`
+  without it, and a non-race spec with it; the whole prefix, so a `SITESCAN-1` is not a race
+  lane: `hlib.race_tag_problem`, `test_hlib.RaceTagConventionTests`); `parallel_runner.py
+  run --tag <t>` (the `run` subparser, `parallel_runner.py:1231-1247`, had no tag filter;
+  `run.py --tag`, `run.py:6377`, matches through `hlib.select_scenarios`, which
+  `parallel.resolve_selection` reuses; a tag no spec carries refuses like an unknown tier);
+  the `push:` trigger for the `multiplayer` branch in `.github/workflows/tests.yml` (README
+  rule 10; the metrics step and job keep their own `refs/heads/main` conditions).
 - **Proof:** hlib and `parallel` cells; the CI run on the first push to the branch.
 - **Registers:** `harness/README.md` parallel runs.
 - **Size:** S. **Depends on:** the owner's go. **PC:** no.

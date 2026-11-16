@@ -8899,6 +8899,36 @@ def select_scenarios(specs: Sequence[Dict], expr: str) -> List[Dict]:
     return [s for s in specs if _matches(s)]
 
 
+# The race lanes (multiplayer plan, test-and-harness T-45; README rule 7): every
+# spec whose id prefix (the part before the first "-") names a race lane family
+# carries the tag RACE_TAG, and no other spec does, so `--tag race` (run.py and
+# tools/parallel_runner.py) flies exactly the race lanes. Matching the whole
+# prefix rather than the leading characters keeps a future "SITESCAN-1" or
+# "RCAT-1" out of the family.
+RACE_TAG = "race"
+RACE_ID_PREFIXES: Tuple[str, ...] = ("RACE", "SITES", "RCA", "RCB", "RCI")
+
+
+def is_race_lane_id(spec_id: Any) -> bool:
+    """True when ``spec_id``'s prefix before the first ``-`` is a race family."""
+    if not isinstance(spec_id, str) or not spec_id:
+        return False
+    return spec_id.split("-", 1)[0] in RACE_ID_PREFIXES
+
+
+def race_tag_problem(spec: Dict) -> Optional[str]:
+    """Why ``spec`` breaks the race tag convention, or None when it keeps it."""
+    sid = spec.get("id")
+    tagged = RACE_TAG in (spec.get("tags", []) or [])
+    if is_race_lane_id(sid) and not tagged:
+        return ("%s is a race lane (id prefix in %s) without the %r tag"
+                % (sid, "/".join(RACE_ID_PREFIXES), RACE_TAG))
+    if tagged and not is_race_lane_id(sid):
+        return ("%s carries the %r tag but its id prefix is not a race family (%s)"
+                % (sid, RACE_TAG, "/".join(RACE_ID_PREFIXES)))
+    return None
+
+
 # An explicit ordered id list (`run.py --ids-file`): the selection a planned run
 # hands run.py, e.g. `tools/tier_runner.py --tier full`. Unlike select_scenarios it
 # keeps the LIST's order, since the planner decided it, and reports the ids no
