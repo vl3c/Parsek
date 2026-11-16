@@ -2702,7 +2702,7 @@ it just no longer has to be there in git. Committing a physical copy per save co
 and made every copy an independent drift risk: `build_dd1_craft.py` had grown a
 three-path gate purely to chase its own copies.
 
-Two rules when adding or harvesting a fixture:
+Three rules when adding or harvesting a fixture:
 
 - **Needs a shared craft?** Add the save's row to `shared-ships.toml`. Do NOT copy
   the `.craft` into the fixture - `SharedShipsManifestTests` (in `lib/test_hlib.py`)
@@ -2711,6 +2711,13 @@ Two rules when adding or harvesting a fixture:
 - **Craft used by exactly one fixture?** It stays physically in that fixture and is
   NOT listed (`gloops-airshow/Ships/VAB/Auto-Saved Ship.craft` is the only one
   today). The same test reds a library craft that drops to one consumer.
+- **Adds or changes a `.prec`?** The xUnit `TrajectoryCodecFixtureIdentityTests` pins every
+  committed trajectory sidecar under `fixtures/` (and `Source/Parsek.Tests/Fixtures/`) in
+  `Source/Parsek.Tests/Fixtures/TrajectoryCodecIdentity/manifest.tsv` and reds on a new,
+  removed or changed one. Regenerate the manifest in the same commit:
+  `PARSEK_WRITE_CODEC_MANIFEST=1 scripts/cloud-test.sh -method
+  "Parsek.Tests.TrajectoryCodecFixtureIdentityTests.RegenerateManifest"` (Windows: the same
+  variable with `dotnet test --filter`); the row diff names exactly the harvested files.
 
 ### The race shared folder (`[fixture.race]`)
 
