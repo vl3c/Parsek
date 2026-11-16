@@ -33,6 +33,19 @@ catalog over the same 14 fixtures), fake-catalog cells in
 `GhostMap`, lanes H11 and H44. Each later P2a task adds its variant's rows; the entry closes when
 P2a-07 and the last of P2a-02 to P2a-04 land.
 
+## MP-P2A-PLAYBACK-CATALOG, P2a-07 as built: the map's body-fixed anchor pid lookup reads the catalog [DONE 2026-11-16, branch `mp/p2a-07-map-state-vectors-catalog`; refactor, no product change; part of MP-P2A-PLAYBACK-CATALOG above]
+
+`GhostMapPresence.TryFindRecordingByIdForBodyFixedAnchorPid` (`GhostMapPresence.StateVectors.cs`,
+L6) keeps its own `IsNullOrWhiteSpace` guard and then calls
+`RecordingPlaybackCatalog.Own.TryFindRecording(id, TreesThenPendingThenList, ...)` (committed
+trees with a non-null value, then the pending tree, then the flat committed list); its copy of
+that walk is deleted. The file stays in `scripts/ers-els-audit-allowlist.txt`: the two
+active Re-Fly suppression reads (create time and `TrySuppressStateVectorUpdateForActiveReFly`)
+of `CommittedTrees`, the pending tree and `CommittedRecordings`, which the plan leaves for P3,
+remain. Proof: three cells in
+`GhostMapPresenceTests` pinning the order through `ResolveBodyFixedPrimaryAnchorPid`. Owed on
+the PC: in-game `GhostMap`, lanes H44 and S1.6.
+
 ## CS-LADDER-CHAIN-PINS: a campaign-chained replay of the scripted career cannot yet fly CS-0 to CS-7 unbroken [FILED 2026-11-16 by multiplayer T-49 (the campaign chain runner, branch `mp/t-49-campaign-chain-runner`), by reading the CS specs against the ladder `harness/campaigns/cs-career.toml`. OPEN; harness, no product change; low (the committed fixtures still fly every lane alone)]
 
 `tools/campaign_runner.py` stages each CS lane from the previous lane's fresh save instead of its
