@@ -39,6 +39,18 @@ namespace Parsek.TestCommands
         private string drivePartnerPart;
         private uint drivePartnerPid;
         private string drivePartnerName;
+        // Crash mode: the throttle is held until the first stock part death (onPartDie), then cut.
+        private bool driveUntilCrash;
+        private bool driveCrashed;
+        private bool driveDieHooked;
+        private double driveCrashUT;
+        private double driveLastSrfSpeed;
+        private double driveImpactSrfSpeed;
+        private int driveOwnPartsLost;
+        private int driveOtherPartsLost;
+        private readonly HashSet<uint> driveOwnPartIds = new HashSet<uint>();
+        private string driveFirstDeadPart;
+        private uint driveFirstDeadVesselPid;
 
         private void DriveVesselImpl(ParsedCommand cmd)
         {
@@ -76,6 +88,14 @@ namespace Parsek.TestCommands
             {
                 RejectDriveVessel(reason, $"{TestCommandDriveVessel.UntilDockedKey}={untilDockedArg ?? string.Empty} " +
                     $"{TestCommandDriveVessel.MaxSpeedKey}={maxSpeedArg ?? string.Empty}");
+                return;
+            }
+            string untilCrashArg = ArgOrNull(cmd, TestCommandDriveVessel.UntilCrashKey);
+            reason = TestCommandDriveVessel.ValidateCrash(untilCrashArg, settle, untilDocked,
+                out bool untilCrash);
+            if (reason != null)
+            {
+                RejectDriveVessel(reason, $"{TestCommandDriveVessel.UntilCrashKey}={untilCrashArg ?? string.Empty}");
                 return;
             }
 
@@ -161,7 +181,30 @@ namespace Parsek.TestCommands
             drivePartnerPart = null;
             drivePartnerPid = 0u;
             drivePartnerName = null;
+            driveUntilCrash = untilCrash;
+            driveCrashed = false;
+            driveCrashUT = 0.0;
+            driveLastSrfSpeed = v.srfSpeed;
+            driveImpactSrfSpeed = 0.0;
+            driveOwnPartsLost = 0;
+            driveOtherPartsLost = 0;
+            driveOwnPartIds.Clear();
+            driveFirstDeadPart = null;
+            driveFirstDeadVesselPid = 0u;
             v.OnFlyByWire += DriveVesselFlyByWire;
+
+            if (untilCrash)
+            {
+                for (int i = 0; i < v.parts.Count; i++)
+                    if (v.parts[i] != null) driveOwnPartIds.Add(v.parts[i].flightID);
+                GameEvents.onPartDie.Add(OnDriveVesselPartDie);
+                driveDieHooked = true;
+                ParsekLog.Info(Tag, TestCommandDriveVessel.FormatCrashStartLine(
+                    v.vesselName, v.persistentId, throttle, seconds, motors, v.parts.Count,
+                    driveBrakesWereOn, driveStartUT, driveStartSrfSpeed));
+                SetExecResult(PendingVerdict, null, null);
+                return;
+            }
 
             if (untilDocked)
             {
@@ -190,11 +233,14 @@ namespace Parsek.TestCommands
             if (driveUntilDocked)
                 s.wheelThrottle = TestCommandDriveVessel.ResolveDockThrottle(driveThrottle,
                     v != null ? v.srfSpeed : 0.0, driveMaxSpeed, driveDocked);
+            else if (driveUntilCrash)
+                s.wheelThrottle = TestCommandDriveVessel.ResolveCrashThrottle(driveThrottle, driveCrashed);
             else
                 s.wheelThrottle = driveThrottle;
             if (v == null)
                 return;
             double speed = v.srfSpeed;
+            driveLastSrfSpeed = speed;
             if (speed > driveMaxSrfSpeed)
                 driveMaxSrfSpeed = speed;
             drivePathMeters += speed * TimeWarp.fixedDeltaTime;
@@ -226,6 +272,101 @@ namespace Parsek.TestCommands
                 + "' partnerPid=" + drivePartnerPid.ToString(CultureInfo.InvariantCulture)
                 + " partnerName='" + (drivePartnerName ?? string.Empty)
                 + "' ut=" + driveDockUT.ToString("F2", CultureInfo.InvariantCulture));
+        }
+
+        // Stock fires onPartDie inside Part.Die, while the part still names its vessel. Every
+        // death during a crash drive is counted; the first one is the crash. The surface speed
+        // is the one the fly-by-wire hook sampled before the impact's physics step.
+        private void OnDriveVesselPartDie(Part p)
+        {
+            if (!driveUntilCrash || p == null) return;
+            bool own = driveOwnPartIds.Contains(p.flightID);
+            if (own) driveOwnPartsLost++;
+            else driveOtherPartsLost++;
+            if (driveCrashed) return;
+            driveCrashed = true;
+            driveCrashUT = Planetarium.GetUniversalTime();
+            driveImpactSrfSpeed = driveLastSrfSpeed;
+            driveFirstDeadPart = p.partInfo != null ? p.partInfo.name : p.name;
+            Vessel pv = p.vessel;
+            driveFirstDeadVesselPid = pv != null ? pv.persistentId : 0u;
+            ParsekLog.Info(Tag, TestCommandDriveVessel.FormatCrashHitLine(driveFirstDeadPart,
+                p.persistentId, driveFirstDeadVesselPid, pv != null ? pv.vesselName : null, own,
+                driveImpactSrfSpeed, driveCrashUT));
+        }
+
+        private void TryCompleteCrashDrive(double now)
+        {
+            Vessel v = driveVessel;
+            bool usable = v != null && v.state != Vessel.State.DEAD && v.loaded && !v.packed;
+            double gameElapsed = Planetarium.GetUniversalTime() - driveStartUT;
+            double wallElapsed = now - completionStartedAt;
+            double budget = DeferralBudget.BudgetSeconds(TestCommandDriveVessel.Verb);
+            TestCommandDriveVessel.DriveCompletion decision = TestCommandDriveVessel.DecideCrashCompletion(
+                driveCrashed, usable, gameElapsed, driveSeconds, wallElapsed, budget);
+            if (decision == TestCommandDriveVessel.DriveCompletion.StillDriving)
+                return;
+
+            double displacement = usable && v.mainBody != null
+                ? TestCommandDriveVessel.ComputeSurfaceDistanceMeters(
+                    driveStartLat, driveStartLon, v.latitude, v.longitude, v.mainBody.Radius)
+                : 0.0;
+            string vesselName = v != null ? v.vesselName : string.Empty;
+            uint pid = v != null ? v.persistentId : 0u;
+            double maxSpeed = driveMaxSrfSpeed;
+            double impactSpeed = driveImpactSrfSpeed;
+            double path = drivePathMeters;
+            double crashUT = driveCrashUT;
+            string firstPart = driveFirstDeadPart;
+            uint firstPartVesselPid = driveFirstDeadVesselPid;
+            int ownLost = driveOwnPartsLost;
+            int otherLost = driveOtherPartsLost;
+
+            string id = completionId; long seq = completionSeq; string verb = completionVerb;
+            // ClearTwoPhase removes the callback and the part-death hook and restores the brakes.
+            ClearTwoPhase();
+
+            Vessel active = FlightGlobals.ActiveVessel;
+            uint activePid = active != null ? active.persistentId : 0u;
+            string activeName = active != null ? active.vesselName : null;
+
+            string outcome;
+            string error = null;
+            switch (decision)
+            {
+                case TestCommandDriveVessel.DriveCompletion.Crashed:
+                    outcome = "crashed";
+                    break;
+                case TestCommandDriveVessel.DriveCompletion.DidNotCrash:
+                    outcome = "did-not-crash";
+                    error = TestCommandDriveVessel.DidNotCrashReason;
+                    break;
+                case TestCommandDriveVessel.DriveCompletion.VesselLost:
+                    outcome = "vessel-lost";
+                    error = TestCommandDriveVessel.VesselLostReason;
+                    break;
+                default:
+                    outcome = "timeout";
+                    error = TestCommandDriveVessel.TimeoutReason;
+                    TestCommandDiagnostics.Timeout(id, verb, wallElapsed, TestCommandDriveVessel.TimeoutReason);
+                    break;
+            }
+            string endLine = TestCommandDriveVessel.FormatCrashEndLine(outcome, vesselName, pid,
+                gameElapsed, maxSpeed, impactSpeed, path, displacement, crashUT, firstPart,
+                firstPartVesselPid, ownLost, otherLost, activePid, activeName);
+            if (error == null)
+            {
+                ParsekLog.Info(Tag, endLine);
+                EmitExecutedTerminal(id, seq, verb, "OK",
+                    TestCommandDriveVessel.BuildCrashedPayload(gameElapsed, maxSpeed, impactSpeed,
+                        path, crashUT, firstPart, firstPartVesselPid, ownLost, otherLost,
+                        activePid, activeName),
+                    null, dequeueHead: true);
+                return;
+            }
+            ParsekLog.Error(Tag, endLine + " reason=" + error
+                + " wallElapsed=" + wallElapsed.ToString("F1", CultureInfo.InvariantCulture) + "s");
+            EmitExecutedTerminal(id, seq, verb, "ERROR", null, error, dequeueHead: true);
         }
 
         private void TryCompleteDockDrive(double now)
@@ -307,6 +448,11 @@ namespace Parsek.TestCommands
             if (driveUntilDocked)
             {
                 TryCompleteDockDrive(now);
+                return;
+            }
+            if (driveUntilCrash)
+            {
+                TryCompleteCrashDrive(now);
                 return;
             }
             Vessel v = driveVessel;
@@ -455,6 +601,15 @@ namespace Parsek.TestCommands
                 GameEvents.onPartCouple.Remove(OnDriveVesselPartCouple);
                 driveCoupleHooked = false;
             }
+            bool crashMode = driveUntilCrash;
+            driveUntilCrash = false;
+            driveCrashed = false;
+            driveOwnPartIds.Clear();
+            if (driveDieHooked)
+            {
+                GameEvents.onPartDie.Remove(OnDriveVesselPartDie);
+                driveDieHooked = false;
+            }
             if (v == null || settle)
                 return;
             v.OnFlyByWire -= DriveVesselFlyByWire;
@@ -463,8 +618,12 @@ namespace Parsek.TestCommands
                 // A dock may have absorbed the driven vessel into its partner; the brakes then
                 // go back on the vessel the player now flies.
                 Vessel target = v;
-                if (docked && (v.state == Vessel.State.DEAD || !v.loaded))
+                bool unusable = v.state == Vessel.State.DEAD || !v.loaded;
+                if (docked && unusable)
                     target = FlightGlobals.ActiveVessel;
+                // A crash may have destroyed the driven vessel; nothing is left to brake.
+                else if (crashMode && unusable)
+                    target = null;
                 if (target != null)
                     target.ActionGroups.SetGroup(KSPActionGroup.Brakes, true);
             }

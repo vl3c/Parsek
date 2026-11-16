@@ -888,6 +888,10 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # ballast in the miner's fuel tank and an empty Ore Silo 4 m behind it, ports
         # facing (harness/tools/build_miner_rover_relay.py, the MINE-4 host). Inherits the node.
         "miner-rover-relay": True,
+        # `miner-rover-depot` with its probe swapped for `miner-rover-watched`'s crewless
+        # watcher rover 120 m north (harness/tools/build_rover_crash_watched.py, the RVC-1
+        # host). Inherits the node.
+        "rover-crash-watched": True,
         "fresh-career": False,
         "fresh-sandbox": False,
         # `fresh-sandbox` plus the HH1 Hitchhiker Drop craft in the VAB (CX-2).

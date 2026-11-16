@@ -1959,12 +1959,40 @@ in parallel in the cloud):
    KSC ghost's position DURING its replay (AIR-2 reads the KSC log lines and, by position, only the
    end spawn through `LeafVesselPlacement`); it needs a new Space Center category that samples each
    live KSC ghost's world position against the recording's interpolated lat / lon / alt.
-3a. [ ] Two rovers driving into each other (owner request 2026-11-16): two recorded rovers collide
+3a. [ ] (AUTHORED 2026-11-16 as `RVC-1-two-rover-head-on-crash`, NEVER FLOWN; branch `crash-lanes`.)
+   Two rovers driving into each other (owner request 2026-11-16): two recorded rovers collide
    on the ground; checks both recordings end at the impact (Destroyed or a stopped Landed terminal)
    and both ghosts replay the collision at the same place and time.
+   Shape: the seam drives only the active vessel and a switch to a vessel outside the tree does not
+   add it, so the second rover joins by a dock and an undock (MINE-5b's live-proven pair on the new
+   fixture `rover-crash-watched`: V's miner, the ore depot rover 1.5 m ahead, a watcher rover 120 m
+   north). The depot is then a loaded background member; the miner backs away 10 s at full reverse
+   and drives head-on into it in the new `DriveVessel untilCrash=true` mode (automation-only C#:
+   drive until the first stock part death on any vessel, then cut the wheels). Gated: both
+   recorders' part-death lines, the split check, both leaves' Landed / Destroyed terminals, the
+   Space Center commit, and after Rewind-to-Launch, from the watcher, both ghost meshes and the
+   destroyed-part visibility applied on two ghosts. Report-only: ghost lifecycle balance, structure.
+   Not checked: that the two ghosts meet at the same place (no in-game check samples two live
+   ghosts' positions). Flight risks: a lateral miss or too soft an impact (driver INVALID
+   `drivevessel-did-not-crash`), part loss on one side only. Next: provision a DLL built from the
+   branch and fly the reading run.
 3b. [ ] Two airplanes flying into each other (owner request 2026-11-16): one plane chases the
    other's live position (`mlib.air_steer_toward`) until they collide; checks both recordings end
    Destroyed at the same UT and both ghosts meet at the recorded impact point.
+   What it needs beyond RVC-1 (noted 2026-11-16): (1) AIR-1 flying green first, since its
+   take-off and AutoPilot steering are the base; (2) both planes in ONE tree and both loaded: a
+   switch to an outside vessel is not added to the tree, so the target must come out of the
+   chaser's own tree, e.g. two light planes joined by a decoupler or docking port and separated
+   in the air (a split branch makes the other a loaded background member), staying within the
+   2.25 km physics range; that needs a new craft and a forge or file-built fixture; (3) the
+   target cannot be flown once it is not active (kRPC and the seam drive the active vessel), so
+   it must hold a straight line on its own: SAS / AutoPilot heading and throttle set before the
+   separation, or a glide; (4) a mission that reads the target's live position each frame
+   through kRPC and steers the chaser with `mlib.air_steer_toward` onto it, with a lead and a
+   closing-speed check, and a terminal on the first part death read through kRPC (a part
+   count drop; the seam's DriveVessel crash witness needs a landed vessel with wheel motors); (5)
+   both recordings ending Destroyed or Splashed, a replay from a watcher at the Space Center or
+   in FLIGHT, as AIR-2 does.
 4. [ ] (AUTHORED 2026-11-14 as `B39`-`B42` / `V34M`-`V37M` and `V33T`. FLOWN 2026-11-14: V33T green;
    B39-B42 green on 8d4e8b01c and their four fixtures harvested; V34M-V36M green; V37M green
    `2026-11-14_2320` on 2d8c25442.)
