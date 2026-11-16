@@ -51,8 +51,10 @@ namespace Parsek
                             out string matchReason))
                         continue;
 
+                    // .sfs metadata only (written by every OnSave): not FilesDirty, which
+                    // would rewrite the sidecars and advance the epoch a supply route built
+                    // from this recording compares (todo ROUTE-SOURCE-EPOCH-ON-METADATA-REWRITE).
                     prior.TerminalSpawnSupersededByRecordingId = continued.RecordingId;
-                    prior.FilesDirty = true;
                     marked++;
                     ParsekLog.Info("RecordingStore",
                         string.Format(CultureInfo.InvariantCulture,
@@ -150,7 +152,7 @@ namespace Parsek
                 prior.TerminalSpawnSupersededByRecordingId = mergedContinuationRecordingId;
                 prior.VesselSpawned = false;
                 prior.SpawnedVesselPersistentId = 0;
-                prior.FilesDirty = true;
+                // .sfs metadata only, so not FilesDirty (see the continuation mark above).
                 marked++;
                 ParsekLog.Info("RecordingStore",
                     string.Format(CultureInfo.InvariantCulture,
