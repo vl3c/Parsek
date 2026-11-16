@@ -22,7 +22,8 @@ namespace Parsek
             bool isDestroyed,
             Vessel snapshotVessel = null,
             ConfigNode destroyedFallbackSnapshot = null,
-            bool stopIsChainBoundary = false)
+            bool stopIsChainBoundary = false,
+            TrackSection? openSectionForDistance = null)
         {
             var capture = new Recording
             {
@@ -55,7 +56,8 @@ namespace Parsek
                 capture,
                 isDestroyed,
                 snapshotVessel,
-                destroyedFallbackSnapshot ?? lastGoodVesselSnapshot);
+                destroyedFallbackSnapshot ?? lastGoodVesselSnapshot,
+                openSectionForDistance);
             GetFinalizationCacheForRecording(capture);
             capture.StartResources = pendingStartResources;
             capture.EndResources = VesselSnapshotOps.ExtractResourceManifest(capture.VesselSnapshot);

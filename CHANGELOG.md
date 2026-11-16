@@ -63,6 +63,10 @@ Not released yet.
   Space Center committed an unfinished flight on load (leaving right after a quickload, or loading
   a save that held one), the next Fly from the Tracking Station or a KSC marker started no
   recording of that vessel. (AUTOMERGE-ON-BY-DEFAULT)
+- **Ended contracts no longer go missing from the Mission Control Archive.** A contract whose
+  committed outcome had passed could leave the active list after a load without ever showing up
+  as finished. It is now listed once the clock reaches its outcome; nothing is paid or charged
+  again. (CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE)
 
 ## 1.0.2
 
