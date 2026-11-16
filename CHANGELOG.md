@@ -40,6 +40,9 @@ Not released yet.
   around one moon and later passed low over another was timed as if it had launched from the
   second one. Its loops are now spaced around the moon it really started from.
   (MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH)
+- **Docking to a ship Parsek placed and you flew again no longer doubles it after a rewind.** That
+  ship's replay now waits for the docked stack instead of also becoming real on its own, and the
+  Missions window names it as the dock partner. (DOCK-CHAIN-ABSORBED-PARTNER-PID-ONLY)
 
 ## 1.0.2
 
