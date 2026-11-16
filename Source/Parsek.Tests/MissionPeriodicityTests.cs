@@ -789,6 +789,112 @@ namespace Parsek.Tests
                 && l.Contains("scheduleWithinTol=yes"));
         }
 
+        // === The off-rails orbit side of the launch-body comparison (todo
+        //     MISSION-LOOP-LAUNCH-BODY-PHYSICS-COAST-UNCOUNTED) ===
+
+        [Theory]
+        [InlineData("Tylo", 900.0, null, double.PositiveInfinity, "Vall", 100.0, "Vall")]  // off-rails start, later low pass
+        [InlineData("Tylo", 100.0, null, double.PositiveInfinity, "Vall", 900.0, "Tylo")]  // the coast starts later
+        [InlineData("Tylo", 100.0, null, double.PositiveInfinity, "Vall", 100.0, "Tylo")]  // a tie goes to the surface
+        [InlineData("Tylo", 900.0, "Tylo", 800.0, "Vall", 100.0, "Vall")]                // coast before the first on-rails segment
+        [InlineData("Tylo", 900.0, "Jool", 100.0, "Vall", 100.0, "Jool")]                // a tie on the orbit side keeps the OrbitSegment
+        [InlineData("Mun", 100.0, "Kerbin", 200.0, "Kerbin", 150.0, "Mun")]              // a pad launch is unchanged
+        [InlineData(null, double.PositiveInfinity, "Jool", 500.0, "Laythe", 100.0, "Laythe")]
+        [InlineData("Mun", 100.0, "Kerbin", 50.0, null, double.PositiveInfinity, "Kerbin")] // no coast: the four-argument rule
+        [InlineData(null, double.PositiveInfinity, null, double.PositiveInfinity, null, double.PositiveInfinity, null)]
+        public void ResolveLaunchBody_WithOffRailsCoast_TruthTable(
+            string surfaceBody, double surfaceStart, string orbitBody, double orbitStart,
+            string exoBody, double exoStart, string expected)
+        {
+            Assert.Equal(expected, MissionPeriodicity.ResolveLaunchBody(
+                surfaceBody, surfaceStart, orbitBody, orbitStart, exoBody, exoStart));
+        }
+
+        private static Recording ChainLeg(string id, int chainIndex, double start, double end, string body)
+        {
+            return new Recording
+            {
+                RecordingId = id, VesselName = "V", IsDebris = false,
+                ExplicitStartUT = start, ExplicitEndUT = end,
+                StartBodyName = body, SegmentBodyName = body,
+                ChainId = "C", ChainIndex = chainIndex
+            };
+        }
+
+        [Fact]
+        public void Extract_OffRailsVallStartThenTyloApproach_LaunchBodyIsVall()
+        {
+            // Guards MISSION-LOOP-LAUNCH-BODY-PHYSICS-COAST-UNCOUNTED: a mission that starts in Vall
+            // orbit and never goes on rails before its Tylo Approach pass writes no OrbitSegment,
+            // so the orbit side of the launch-body comparison used to be empty and Tylo won. The
+            // earliest off-rails Exo section now names the launch body. The Exo sections do NOT
+            // feed the SOI rules: the Jool and Tylo coasts emit no Orbital constraint, and with no
+            // inertial orbit of Tylo the Approach arc emits no Rotation(Tylo).
+            var root = ChainLeg("r", 0, 1000, 8000, "Vall");
+            root.TrackSections.Add(AbsoluteSection(SegmentEnvironment.ExoBallistic, 1000, 3000, "Vall"));
+            root.TrackSections.Add(AbsoluteSection(SegmentEnvironment.ExoPropulsive, 3000, 6000, "Jool"));
+            root.TrackSections.Add(AbsoluteSection(SegmentEnvironment.ExoBallistic, 6000, 8000, "Tylo"));
+            var approach = ChainLeg("a", 1, 8000, 8010, "Tylo");
+            approach.TrackSections.Add(AbsoluteSection(SegmentEnvironment.Approach, 8000, 8010, "Tylo"));
+
+            var ex = Extract(TreeOf("t", root, approach), VallTyloFake());
+
+            Assert.Equal("Vall", ex.LaunchBodyName);
+            Assert.Equal(Support.Supported, ex.Support);
+            Assert.Empty(ex.Constraints);
+            Assert.Contains(logLines, l => l.Contains("[MissionPeriodicity]")
+                && l.Contains("ExtractConstraints: launch body Vall from the earliest segment " +
+                    "(first orbit <none>, first surface Tylo off=7000, first off-rails coast Vall off=0)"));
+            Assert.Contains(logLines, l => l.Contains("[MissionPeriodicity]")
+                && l.Contains("ExtractConstraints: tree=t members=2 launchBody=Vall"));
+            Assert.DoesNotContain(logLines, l => l.Contains("launchBody=Tylo"));
+        }
+
+        [Fact]
+        public void Extract_TyloApproachBeforeOffRailsVallCoast_LaunchBodyStaysTylo()
+        {
+            // The mirror: an off-rails Exo section that starts AFTER the first surface-class
+            // section must not win the launch body.
+            var approach = ChainLeg("a", 0, 1000, 1010, "Tylo");
+            approach.TrackSections.Add(AbsoluteSection(SegmentEnvironment.Approach, 1000, 1010, "Tylo"));
+            var coast = ChainLeg("c", 1, 1010, 3000, "Vall");
+            coast.TrackSections.Add(AbsoluteSection(SegmentEnvironment.ExoBallistic, 1010, 3000, "Vall"));
+
+            var ex = Extract(TreeOf("t", approach, coast), VallTyloFake());
+
+            Assert.Equal("Tylo", ex.LaunchBodyName);
+            Assert.Contains(logLines, l => l.Contains("[MissionPeriodicity]")
+                && l.Contains("ExtractConstraints: launch body Tylo from the earliest segment " +
+                    "(first orbit <none>, first surface Tylo off=0, first off-rails coast Vall off=10)"));
+            Assert.DoesNotContain(logLines, l => l.Contains("launchBody=Vall"));
+        }
+
+        [Fact]
+        public void Extract_OffRailsVallStartBeforeOnRailsJoolAndTylo_IsMoonRootedAtVall()
+        {
+            // The orbit-side mirror: the off-rails Vall coast starts before the first on-rails
+            // segment (Jool), so Vall is the launch moon, not Jool. The SOI rules still read only
+            // the OrbitSegments: Jool is the shared planet's frame, Tylo a sibling entry, and the
+            // launch moon is pinned at its SOI exit (the Jool checkpoint start).
+            var root = ChainLeg("r", 0, 1000, 9000, "Vall");
+            root.TrackSections.Add(AbsoluteSection(SegmentEnvironment.ExoBallistic, 1000, 3000, "Vall"));
+            AddCheckpoint(root, 3000, 6000, "Jool");
+            AddCheckpoint(root, 6000, 9000, "Tylo");
+
+            var ex = Extract(TreeOf("t", root), VallTyloFake());
+
+            Assert.Equal("Vall", ex.LaunchBodyName);
+            Assert.Equal(Support.Supported, ex.Support);
+            Assert.Equal(
+                "Orbital(Tylo) same-parent P=211926.35802123015 off=5000; " +
+                "Orbital(Vall) same-parent P=105962.08889392365 off=2000",
+                string.Join("; ", ex.Constraints.Select(c => c.ToString())));
+            Assert.Contains(logLines, l => l.Contains("[MissionPeriodicity]")
+                && l.Contains("ExtractConstraints: launch body Vall from the earliest segment " +
+                    "(first orbit Jool off=2000, first surface <none>, first off-rails coast Vall off=0)"));
+            Assert.Contains(logLines, l => l.Contains("moon-rooted frame launchMoon=Vall planet=Jool"));
+        }
+
         [Theory]
         [InlineData("Mun", new[] { "Kerbin", "Minmus" }, "Kerbin")]
         [InlineData("Mun", new[] { "Kerbin" }, "Kerbin")]
