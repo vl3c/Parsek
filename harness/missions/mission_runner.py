@@ -1502,9 +1502,14 @@ class KrpcMissionControl(MissionControl):
             # machine emits it, so no other mission sees a change.
             control.wheel_steering = max(-1.0, min(1.0, float(action.value or 0.0)))
         elif kind == mlib.ACTION_SET_PITCH_INPUT:
-            # AIR-1 rotation: the elevator alone, AutoPilot off (the machine's
-            # rotatePitchSign carries the sign). Only the AIR machine emits it.
+            # AIR-1 elevator: the rotation and the in-flight pitch loop, no AutoPilot
+            # (the machine's rotatePitchSign carries the sign). Only the AIR machine
+            # emits it.
             control.pitch = max(-1.0, min(1.0, float(action.value or 0.0)))
+        elif kind == mlib.ACTION_SET_ROLL_INPUT:
+            # AIR-1 ailerons: the in-flight bank loop, no AutoPilot (the machine's
+            # rollInputSign carries the sign). Only the AIR machine emits it.
+            control.roll = max(-1.0, min(1.0, float(action.value or 0.0)))
         elif kind == mlib.ACTION_TOGGLE_ACTION_GROUP:
             control.toggle_action_group(int(action.value))
         elif kind == mlib.ACTION_SET_DEPLOYABLES:
@@ -1773,7 +1778,10 @@ class KrpcMissionControl(MissionControl):
             ap.target_pitch_and_heading(float(pitch), float(heading))
             ap.engage()
         elif kind == mlib.ACTION_AP_SET_PITCH_HEADING_ROLL:
-            # AIR-1 aircraft steering: the branch above plus a ROLL target. kRPC
+            # The branch above plus a ROLL target. Written for AIR-1, which no longer
+            # emits it: engaged at 16.9 m on the third flight (2026-11-16_2126) it
+            # rolled the Mallard inverted within 3.5 s, so AIR-1 flies raw inputs. Kept
+            # for any later mission that holds a roll target. kRPC
             # (0.5.x AutoPilot.target_roll / roll_threshold; NOT verified against
             # the pinned client in the authoring environment, which had no venv)
             # applies the roll target only while the pointing error is under

@@ -2,14 +2,16 @@ schema = 1
 id = "AIR-1-runway-circuit-splashdown"
 # =====================================================================================
 # AIR-1: THE FIRST LANE THAT FLIES A PLANE. AUTHORED 2026-11-16; FIRST AND SECOND FLIGHTS
-# 2026-11-16 DRIVER-INVALID ON THE TAKEOFF (below); ROTATION RE-WRITTEN, NOT RE-FLOWN.
+# 2026-11-16 DRIVER-INVALID ON THE TAKEOFF, THIRD FLIGHT TOOK OFF AND WAS LOST AT THE
+# AUTOPILOT HAND-OVER (below); THE AUTOPILOT RETIRED, FLIGHT CONTROL ON RAW INPUTS, NOT
+# RE-FLOWN.
 # Todo NEXT-TESTS-TO-BUILD-2026-11-11 item 3 ("no lane flies a plane; BAY-1's never
 # moves"). This lane is the forge half: it records and commits a real atmospheric
 # flight from the Runway, and its harvest is the fixture `air-circuit-recorded` that
 # AIR-2-runway-circuit-ksc-ghost replays at the Space Center.
 #
 # THE ROAD.
-#   1. MISSION `air1_runway_circuit` (kRPC, raw, native AutoPilot): roll the stock KSP
+#   1. MISSION `air1_runway_circuit` (kRPC, raw inputs, NO AutoPilot): roll the stock KSP
 #      1.12 `Mallard` out onto the Runway (the craft BAY-1 already proved there, in this
 #      fixture's Ships/VAB), stage it where it stands with brakes on and throttle zero
 #      (Parsek's first-staging-on-the-pad trigger: a runway rollout IS PRELAUNCH, so
@@ -18,9 +20,10 @@ id = "AIR-1-runway-circuit-splashdown"
 #      AutoPilot OFF, steer the nose wheel along the runway heading (090) captured at
 #      ARM, rotate at rotateSpeed on the ELEVATOR alone (control.pitch toward
 #      rotatePitch, the nose wheel still steering), call it airborne after three
-#      consecutive climbing FLYING frames above 10 m, engage the AutoPilot only then,
-#      climb straight out at climbPitch, raise the
-#      gear at 60 m, and at turnAltitude start a circuit: waypoint A ~6 km out east over
+#      consecutive climbing FLYING frames above 10 m, fly on from there with the
+#      mission's own attitude loops on the elevator and ailerons (no AutoPilot, no
+#      SAS), climb straight out at climbPitch, raise the
+#      gear at 60 m, and at turnAltitude start a circuit, turning by banking: waypoint A ~6 km out east over
 #      the sea, B north of it, C back west north of the Space Center, climbing to and
 #      holding cruiseAltitude. After C it turns back east and glides down a 6 deg slope
 #      toward the touchdown point in the sea east of KSC, flares at flareAltitude (wings
@@ -135,17 +138,51 @@ id = "AIR-1-runway-circuit-splashdown"
 #   - The runner's throttle readback waits one physics tick before judging, re-asserts
 #     once, and warns only when the value still does not stick (naming all three reads).
 #
+# THE THIRD FLIGHT (2026-11-16_2126 and its retry _2128_a2, PC, the two within a degree
+# of each other; diagnostics on branch forge-logs-2026-11-16-air1c, the mission stdout
+# telemetry read for this entry). THE TAKEOFF WORKED: the nose wheel held the centreline
+# (heading 090.33-090.38), the elevator rotated at 45 m/s (0.6, tapering 0.559 / 0.444 /
+# 0.282 / 0.111 / 0.180 / 0.156 / 0.110 as the pitch rose 0.5 -> 4.9 -> 6.7 deg with no
+# overshoot; rotatePitchSign +1 confirmed), lift-off at 64 m/s, and three climbing FLYING
+# frames to 16.9 m at 73 m/s (vs +5.8). From lift-off to the hand-over, with no aileron,
+# no rudder and SAS off, the roll stayed 0.03 .. 0.08 deg and the heading moved under
+# 0.05 deg (090.35 .. 090.38; the retry 090.55 .. 090.57).
+# At 58.78 the AutoPilot engaged (pitch 10 / heading 090 / roll 0, roll threshold widened
+# to 180) and rolled the Mallard LEFT at once: 59.30 roll -2.0 heading 089.6, 60.28 roll
+# -37.9 heading 072.6 (alt 27.9, the highest 38.7 m a second later), 61.28 roll -100 pitch
+# -18, 62.32 inverted (roll 177), the vessel lost at UT ~64 (MISSION-ASSERT-FAIL
+# vessel-lost in CLIMB, driver-INVALID, no Parsek verdict). The retry read the same
+# within a degree (roll -2.0, -40.1, -106.0, 170.9). kRPC's AutoPilot, at its default
+# tuning, cannot hold this airframe.
+# WHAT CHANGED (harness only, mlib.air_decide + mission_runner):
+#   - The AutoPilot is not engaged anywhere in AIR-1 (no ACTION_AP_* left in the machine;
+#     an AST cell pins it). From lift-off every phase flies RAW inputs (``_air_attitude``):
+#     control.pitch from a pitch-error P-D loop, the rotation's own law and gains (0.08 per
+#     deg, minus 0.04 per deg/s of pitch rate) capped at 0.4, so the elevator simply carries
+#     on from the rotation with no hand-over transient; control.roll from a bank-error P-D
+#     loop (0.012 per deg, minus 0.004 per deg/s of roll rate, capped at 0.25), modest for a
+#     0.5 s loop: stable for an aileron authority up to ~140 deg/s at full input, and the
+#     AutoPilot's own roll above (36, then 62 deg/s) puts the Mallard's near 60.
+#   - Heading changes by banking: the bank target is 1 deg per deg of heading error to the
+#     bearing, at most maxBank (25; 10 below 150 m; 5 on the straight climb-out, which
+#     holds the ARM heading), wings level in the flare; the pitch target rises 0.1 deg per
+#     deg of bank (25 deg -> +2.5) for the extra lift a turn needs. The rudder stays
+#     neutral: the hands-off frames show no yaw motion to damp.
+#   - SAS stays OFF. The airframe held roll and heading hands-off with SAS off, and stock
+#     SAS releases an axis while it carries pilot input and re-latches when the input
+#     returns to zero, which would fight a continuous loop; the loop's rate terms damp.
+#   - The aileron sign (new param rollInputSign, +1 = a positive control.roll raises the
+#     roll reading) is self-checked: confirmed on a 1.5 deg response the commanded way,
+#     flipped once on two frames of opposite response that are not the arrest of a roll
+#     already under way (evidence: circuitFlown.rollSignFlipped / rollSignConfirmed). The
+#     READING's sign is known: roll -38 came with the heading falling 090 -> 072, so a
+#     negative roll is a left bank and bankSign +1 is right.
+#   - Touchdown and every take-off give-up neutralise the elevator and ailerons.
+#
 # NOT VERIFIED OFFLINE (the next flight is the calibration reading):
-#   - kRPC's roll sign. `bankSign` defaults to +1 (a positive roll target banks right);
-#     the machine flips it once in flight if a turn's heading error grows for six
-#     seconds under a commanded bank (evidence: circuitFlown.bankSignFlipped). If the
-#     reading run flips, set bankSign = -1 here.
-#   - AutoPilot.roll_threshold: the runner widens it to 180 so the roll target applies
-#     while banked; a kRPC without the property leaves the default 5 deg (turns then
-#     come from yaw alone, slowly; the leg timeouts name it).
-#   - The elevator sign and gain (rotatePitchSign, the 0.08 / 0.04 / 0.6 constants), and
-#     the Mallard's climb at 10 deg on two Wheesleys (rotateSpeed 45 is read off the first
-#     flight, above; the nose-wheel gain is proven by the second).
+#   - The aileron sign (rollInputSign, self-checked) and authority (the bank gains), and
+#     the elevator loop at cruise speed (proven only to 73 m/s in the rotation).
+#   - The Mallard's climb at 10 deg on two Wheesleys past 17 m.
 #   - The coastline: whether (0.05, -73.85) is open water.
 #
 # THE HOST FIXTURE. gs1-two-stage-pad (BAY-1's host): its GS1 booster sits on the
@@ -159,8 +196,8 @@ id = "AIR-1-runway-circuit-splashdown"
 # then register `air-circuit-recorded` in test_saveparse.RECORDED_FIXTURES and make
 # AIR-2 flyable in the same commit (its header lists the hand-over).
 # =====================================================================================
-tier = "operator"  # calibration discipline: first and second flights 2026-11-16 driver-INVALID (takeoff); the next flight is the reading run
-description = "AUTHORED 2026-11-16; first flight driver-INVALID on the takeoff roll (heading drift under the AutoPilot), second flight held the runway on the nose wheel but lost it at the rotate (the AutoPilot's yaw), rotation re-written onto the elevator with the wheels steering until airborne, not re-flown. The first lane that flies a plane: the stock Mallard rolls out on the Runway, stages in place (Parsek's first-staging auto-record trigger), takes off east, flies a three-waypoint circuit at 1000 m within 10 km of KSC, glides east to a splashdown in the sea, comes to rest, and the tree is committed. Gates a fresh recording with launchSite=Runway, Atmospheric sections and a Splashed (or Landed) terminal. Its harvest `air-circuit-recorded` feeds AIR-2's Space Center replay."
+tier = "operator"  # calibration discipline: first three flights 2026-11-16 driver-INVALID (takeoff twice, then the AutoPilot hand-over); the next flight is the reading run
+description = "AUTHORED 2026-11-16; first flight driver-INVALID on the takeoff roll (heading drift under the AutoPilot), second flight held the runway on the nose wheel but lost it at the rotate (the AutoPilot's yaw), third flight took off on the elevator and was rolled inverted by the AutoPilot at the climb hand-over; the AutoPilot is retired and the whole flight is flown on the elevator and ailerons, not re-flown. The first lane that flies a plane: the stock Mallard rolls out on the Runway, stages in place (Parsek's first-staging auto-record trigger), takes off east, flies a three-waypoint circuit at 1000 m within 10 km of KSC, glides east to a splashdown in the sea, comes to rest, and the tree is committed. Gates a fresh recording with launchSite=Runway, Atmospheric sections and a Splashed (or Landed) terminal. Its harvest `air-circuit-recorded` feeds AIR-2's Space Center replay."
 instanceProfile = "stock-minimal"
 tags = ["AIR1", "aircraft", "runway", "atmospheric", "splashdown", "fixture-forge", "pending-flight"]
 
@@ -212,6 +249,7 @@ approachSpeed      = 60.0
 flareAltitude      = 25.0
 maxBank            = 25.0
 bankSign           = 1.0
+rollInputSign      = 1.0
 groundSteerGain    = 0.1
 groundSteerSign    = 1.0
 groundHeadingAbortDeg = 8.0

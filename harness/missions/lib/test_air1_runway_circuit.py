@@ -15,8 +15,13 @@ Guards the machine's ways of being silently wrong:
      reads as airborne;
   5b. the rotation (second flight 2026-11-16_2033 / _2034_a2): the elevator alone raises
      the nose from the rotate speed, the nose wheel keeps steering and the ground guard
-     keeps measuring until airborne is sustained, and only then does the AutoPilot
-     engage; a give-up confirms its throttle cut off the telemetry before it is named;
+     keeps measuring until airborne is sustained; a give-up confirms its throttle cut
+     off the telemetry before it is named;
+  5c. the flight (third flight 2026-11-16_2126 / _2128_a2: the AutoPilot engaged at
+     16.9 m rolled the plane inverted): no AutoPilot action anywhere, the attitude flown
+     on the elevator and ailerons from P-D loops, the aileron sign self-checked, the bank
+     loop settling over a bracket of plausible aileron authorities, and the flight's own
+     hand-over frames replayed;
   6. a schema / params / shell drift (every param the machine reads must be a key the
      schema declares, derived by an AST walk, not a hand-copied list).
 Plus the pure guidance helpers the later collision lanes reuse (owner request
@@ -75,19 +80,30 @@ def runway(ut=100.0, lat=RWY_LAT, lon=RWY_LON, spd=0.0, sit="PRE_LAUNCH", hdg=90
                 vertical_speed=vs, throttle=thr)
 
 
-def lift_off(st, ut, lon, frames=mlib.AIR_AIRBORNE_FRAMES, alt=12.0, vs=3.0, spd=62.0):
+def lift_off(st, ut, lon, frames=mlib.AIR_AIRBORNE_FRAMES, alt=12.0, vs=3.0, spd=62.0,
+             pitch=6.0, roll=0.0):
     """Feed ``frames`` consecutive climbing FLYING frames; returns (state, last actions)."""
     acts = []
     for i in range(frames):
         st, acts = mlib.air_decide(st, snap(ut=ut + 0.5 * i, situation="FLYING",
                                             latitude=RWY_LAT, longitude=lon, heading=90.0,
                                             altitude=alt + i, surface_speed=spd,
-                                            vertical_speed=vs))
+                                            vertical_speed=vs, surface_pitch=pitch,
+                                            roll=roll))
     return st, acts
 
 
 def kinds(actions):
     return [a.kind for a in actions]
+
+
+# Every AutoPilot action the runner knows. AIR-1 must never send one (third flight
+# 2026-11-16_2126: the AutoPilot engaged at 16.9 m rolled the Mallard inverted).
+AP_KINDS = frozenset(getattr(mlib, n) for n in dir(mlib) if n.startswith("ACTION_AP_"))
+
+
+def no_autopilot(test, actions):
+    test.assertEqual([], [a.kind for a in actions if a.kind in AP_KINDS])
 
 
 def of_kind(actions, kind):
@@ -440,12 +456,11 @@ class TakeoffTests(unittest.TestCase):
             self.assertEqual(mlib.AIR_RECORD_SETTLE, st.phase)
             st, acts = mlib.air_decide(st, runway(ut=102.0 + i))
         self.assertEqual(mlib.AIR_TAKEOFF, st.phase)
-        # The AutoPilot is released, not engaged: it never steered the nose wheel and
-        # the first flight wandered off the runway under it.
-        self.assertEqual([mlib.ACTION_SET_BRAKES, mlib.ACTION_AP_DISENGAGE,
-                          mlib.ACTION_SET_WHEEL_STEERING, mlib.ACTION_SET_THROTTLE],
-                         kinds(acts))
-        self.assertEqual([0.0, None, 0.0, 1.0], [a.value for a in acts])
+        # No AutoPilot: it never steered the nose wheel (first flight) and it rolled
+        # the plane inverted at the hand-over (third flight).
+        self.assertEqual([mlib.ACTION_SET_BRAKES, mlib.ACTION_SET_WHEEL_STEERING,
+                          mlib.ACTION_SET_THROTTLE], kinds(acts))
+        self.assertEqual([0.0, 0.0, 1.0], [a.value for a in acts])
         self.assertEqual(RWY_LON, st.release_lon)
         self.assertIsNone(st.cmd_pitch)
 
@@ -471,8 +486,13 @@ class TakeoffTests(unittest.TestCase):
         self.assertEqual(mlib.AIR_CLIMB, st.phase)
         self.assertEqual(130.0, st.takeoff_ut)
         self.assertAlmostEqual(0.08 * METERS_PER_DEG, st.takeoff_distance, delta=5.0)
-        self.assertEqual((10.0, 90.0),
-                         of_kind(acts, mlib.ACTION_AP_SET_PITCH_HEADING_ROLL)[0].pitch_heading)
+        # The attitude loop takes over on raw inputs: climbPitch 10 against a steady 6
+        # deg pitch is 0.08 * 4 = 0.32 nose up; wings level on the runway heading.
+        no_autopilot(self, acts)
+        self.assertAlmostEqual(0.32, of_kind(acts, mlib.ACTION_SET_PITCH_INPUT)[0].value)
+        self.assertEqual(0.0, of_kind(acts, mlib.ACTION_SET_ROLL_INPUT)[0].value)
+        self.assertEqual(10.0, st.cmd_pitch)
+        self.assertEqual(0.0, st.cmd_roll)
 
     def test_a_hop_below_the_airborne_altitude_is_not_a_takeoff(self):
         st = run_to_takeoff(mlib.air_initial_state(params()))
@@ -515,9 +535,8 @@ class TakeoffTests(unittest.TestCase):
         self.assertIn("not airborne", st.abort_reason)
         self.assertIn("pitch 1.5, highest on the ground 1.5", st.abort_reason)
         self.assertEqual([mlib.ACTION_SET_THROTTLE, mlib.ACTION_SET_BRAKES,
-                          mlib.ACTION_AP_DISENGAGE, mlib.ACTION_SET_WHEEL_STEERING],
-                         kinds(acts))
-        self.assertEqual([0.0, 1.0, None, 0.0], [a.value for a in acts])
+                          mlib.ACTION_SET_WHEEL_STEERING], kinds(acts))
+        self.assertEqual([0.0, 1.0, 0.0], [a.value for a in acts])
         st, acts = mlib.air_decide(st, runway(ut=130.5, lon=far, spd=44.0, sit="LANDED",
                                               thr=0.0))
         self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
@@ -563,7 +582,7 @@ class GroundRollTests(unittest.TestCase):
         self.assertAlmostEqual(-0.2, acts[0].value)
         st, acts = mlib.air_decide(st, runway(ut=110.5, spd=19.0, sit="LANDED", hdg=91.0))
         self.assertGreater(acts[0].value, 0.0)
-        self.assertEqual([], of_kind(acts, mlib.ACTION_AP_SET_PITCH_HEADING_ROLL))
+        no_autopilot(self, acts)
         self.assertFalse(st.rotated)
 
     def test_a_steady_heading_sends_nothing(self):
@@ -577,15 +596,14 @@ class GroundRollTests(unittest.TestCase):
         st = run_to_takeoff(mlib.air_initial_state(params()))
         st, _ = mlib.air_decide(st, runway(ut=110.0, spd=30.0, sit="LANDED", hdg=85.0))
         st, acts = mlib.air_decide(st, runway(ut=110.5, spd=32.0, sit="LANDED", hdg=81.5))
-        # The give-up is decided: cut, brakes, AutoPilot off, wheel neutral...
+        # The give-up is decided: cut, brakes, wheel neutral...
         self.assertFalse(st.done)
         self.assertIn("heading drift on the ground roll", st.abort_reason)
         self.assertIn("+8.5 deg", st.abort_reason)
         self.assertIn("not rotated", st.abort_reason)
         self.assertEqual([mlib.ACTION_SET_THROTTLE, mlib.ACTION_SET_BRAKES,
-                          mlib.ACTION_AP_DISENGAGE, mlib.ACTION_SET_WHEEL_STEERING],
-                         kinds(acts))
-        self.assertEqual([0.0, 1.0, None, 0.0], [a.value for a in acts])
+                          mlib.ACTION_SET_WHEEL_STEERING], kinds(acts))
+        self.assertEqual([0.0, 1.0, 0.0], [a.value for a in acts])
         self.assertAlmostEqual(8.5, st.max_ground_heading_err)
         # ...and named once the cut reads back.
         st, acts = mlib.air_decide(st, runway(ut=111.0, spd=31.0, sit="LANDED", hdg=80.0,
@@ -631,7 +649,7 @@ class GroundRollTests(unittest.TestCase):
         # Rotated and still on the ground: the wheel still steers.
         st, acts = mlib.air_decide(st, runway(ut=111.5, spd=47.0, sit="LANDED", hdg=88.0))
         self.assertLess(of_kind(acts, mlib.ACTION_SET_WHEEL_STEERING)[0].value, 0.0)
-        self.assertEqual([], of_kind(acts, mlib.ACTION_AP_SET_PITCH_HEADING_ROLL))
+        no_autopilot(self, acts)
         self.assertIsNone(st.cmd_pitch)
 
     def test_the_steering_sign_flips_once_on_a_growing_error(self):
@@ -743,9 +761,9 @@ class RotationTests(unittest.TestCase):
         self.assertEqual(mlib.AIR_TAKEOFF, st.phase)
         self.assertLess(of_kind(acts, mlib.ACTION_SET_WHEEL_STEERING)[0].value, 0.0)
         self.assertEqual(before, (st.ground_check_frames, st.ground_check_last_err))
-        self.assertEqual([], of_kind(acts, mlib.ACTION_AP_SET_PITCH_HEADING_ROLL))
+        no_autopilot(self, acts)
 
-    def test_sustained_airborne_releases_the_elevator_before_the_autopilot(self):
+    def test_sustained_airborne_hands_the_elevator_to_the_flight_loop(self):
         st = run_to_takeoff(mlib.air_initial_state(params(rotateSpeed=45.0, climbPitch=10.0)))
         st, _ = mlib.air_decide(st, runway(ut=120.0, spd=46.0, sit="LANDED"))
         self.assertGreater(st.cmd_pitch_input, 0.0)
@@ -758,13 +776,12 @@ class RotationTests(unittest.TestCase):
                 self.assertEqual(mlib.AIR_TAKEOFF, st.phase)
                 self.assertGreater(st.cmd_pitch_input, 0.0)
         self.assertEqual(mlib.AIR_CLIMB, st.phase)
-        ks = kinds(acts)
-        self.assertIn(mlib.ACTION_SET_PITCH_INPUT, ks)
-        self.assertLess(ks.index(mlib.ACTION_SET_PITCH_INPUT),
-                        ks.index(mlib.ACTION_AP_SET_PITCH_HEADING_ROLL))
-        self.assertEqual(0.0, of_kind(acts, mlib.ACTION_SET_PITCH_INPUT)[0].value)
-        self.assertEqual((10.0, 90.0),
-                         of_kind(acts, mlib.ACTION_AP_SET_PITCH_HEADING_ROLL)[0].pitch_heading)
+        # No neutral elevator and no AutoPilot at the hand-over: the flight loop keeps
+        # the nose-up command toward climbPitch (0.08 * (10 - 5) = 0.4, the flight cap).
+        no_autopilot(self, acts)
+        self.assertEqual(mlib.AIR_FLIGHT_PITCH_MAX_INPUT, st.cmd_pitch_input)
+        self.assertEqual([], [a for a in of_kind(acts, mlib.ACTION_SET_PITCH_INPUT)
+                              if a.value == 0.0])
 
     def test_the_rotation_evidence_is_carried(self):
         st = run_to_takeoff(mlib.air_initial_state(params(rotateSpeed=45.0)))
@@ -816,7 +833,7 @@ class SecondFlightReplayTests(unittest.TestCase):
             st, acts = self._feed(st, row)
             sent.extend(acts)
         self.assertIsNone(st.abort_reason)
-        self.assertEqual([], of_kind(sent, mlib.ACTION_AP_SET_PITCH_HEADING_ROLL))
+        no_autopilot(self, sent)
         self.assertTrue(st.rotated)
         self.assertEqual(50.62, st.rotate_ut)
         self.assertEqual(0.439, st.rotate_start_pitch)
@@ -835,13 +852,13 @@ class SecondFlightReplayTests(unittest.TestCase):
         self.assertLess(of_kind(acts, mlib.ACTION_SET_WHEEL_STEERING)[0].value, -0.3)
         self.assertLess(of_kind(acts, mlib.ACTION_SET_PITCH_INPUT)[0].value,
                         mlib.AIR_ROTATE_MAX_INPUT)
-        self.assertEqual([], of_kind(acts, mlib.ACTION_AP_SET_PITCH_HEADING_ROLL))
+        no_autopilot(self, acts)
         st, acts = self._feed(st, self.SWING[1])
         self.assertIn("heading drift on the ground roll", st.abort_reason)
         self.assertIn("rotating on the elevator", st.abort_reason)
         self.assertIn("at pitch 2.5", st.abort_reason)
         self.assertEqual(0.0, of_kind(acts, mlib.ACTION_SET_PITCH_INPUT)[0].value)
-        self.assertIn(mlib.ACTION_AP_DISENGAGE, kinds(acts))
+        no_autopilot(self, acts)
         # The cut reads back on the next frame and the flake is named.
         st, acts = self._feed(st, self.SWING[1], thr=0.0)
         self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
@@ -906,18 +923,28 @@ class ClimbTests(unittest.TestCase):
         st, acts = mlib.air_decide(st, air(ut=212.0, alt=80.0, lon=-74.6))
         self.assertEqual([], of_kind(acts, mlib.ACTION_SET_GEAR))
 
-    def test_holds_the_climb_pitch_on_the_runway_heading(self):
+    def test_holds_the_climb_pitch_on_the_runway_heading_by_banking(self):
         st = climb_state(climbPitch=10.0)
-        st, acts = mlib.air_decide(st, air(ut=210.0, alt=100.0, hdg=93.0, spd=80.0))
-        ap = of_kind(acts, mlib.ACTION_AP_SET_PITCH_HEADING_ROLL)[0]
-        self.assertEqual((10.0, 90.0), ap.pitch_heading)
-        self.assertEqual(0.0, ap.value)
+        st, acts = mlib.air_decide(st, air(ut=210.0, alt=100.0, hdg=93.0, spd=80.0,
+                                           surface_pitch=8.0))
+        no_autopilot(self, acts)
+        # 3 deg right of the runway heading: bank 3 deg left; the pitch target rises
+        # 0.1 deg per deg of bank, so the elevator is 0.08 * (10.3 - 8).
+        self.assertAlmostEqual(-3.0, st.cmd_roll)
+        self.assertAlmostEqual(10.3, st.cmd_pitch)
+        self.assertAlmostEqual(0.08 * 2.3,
+                               of_kind(acts, mlib.ACTION_SET_PITCH_INPUT)[0].value)
+        self.assertAlmostEqual(-0.036, of_kind(acts, mlib.ACTION_SET_ROLL_INPUT)[0].value)
+
+    def test_the_climb_bank_is_limited(self):
+        st = climb_state()
+        st, _ = mlib.air_decide(st, air(ut=210.0, alt=100.0, hdg=60.0, spd=80.0))
+        self.assertEqual(mlib.AIR_CLIMB_MAX_BANK, st.cmd_roll)
 
     def test_stall_guard_lowers_the_climb_pitch(self):
         st = climb_state(climbPitch=12.0)
         st, acts = mlib.air_decide(st, air(ut=210.0, alt=100.0, spd=40.0))
-        ap = of_kind(acts, mlib.ACTION_AP_SET_PITCH_HEADING_ROLL)[0]
-        self.assertEqual(mlib.AIR_AOA_TRIM_DEG, ap.pitch_heading[0])
+        self.assertEqual(mlib.AIR_AOA_TRIM_DEG, st.cmd_pitch)
 
     def test_turn_altitude_starts_the_circuit(self):
         st = climb_state(turnAltitude=300.0)
@@ -958,20 +985,25 @@ class CircuitTests(unittest.TestCase):
     def test_steers_toward_the_current_waypoint_and_climbs_to_cruise(self):
         st = circuit_state()
         wp = st.params.waypoints[0]
-        s = air(ut=310.0, lat=-0.05, lon=-74.4, hdg=90.0, alt=400.0)
+        s = air(ut=310.0, lat=-0.05, lon=-74.4, hdg=60.0, alt=400.0, surface_pitch=4.0)
         st, acts = mlib.air_decide(st, s)
-        ap = of_kind(acts, mlib.ACTION_AP_SET_PITCH_HEADING_ROLL)[0]
+        no_autopilot(self, acts)
         expect = mlib.air_steer_toward(s, wp[0], wp[1], 1000.0, 90.0, 25.0, 1.0)
-        self.assertAlmostEqual(expect.pitch, ap.pitch_heading[0])
-        self.assertAlmostEqual(expect.heading, ap.pitch_heading[1])
-        self.assertAlmostEqual(expect.roll, ap.value)
-        self.assertGreater(ap.pitch_heading[0], mlib.AIR_AOA_TRIM_DEG)
+        self.assertGreater(expect.roll, 0.0)
+        self.assertAlmostEqual(expect.roll, st.cmd_roll)
+        self.assertAlmostEqual(expect.pitch + mlib.AIR_TURN_PITCH_PER_BANK * expect.roll,
+                               st.cmd_pitch)
+        self.assertGreater(st.cmd_pitch, mlib.AIR_AOA_TRIM_DEG)
+        # A right turn from wings level: right aileron (sign +1), nose up.
+        self.assertGreater(of_kind(acts, mlib.ACTION_SET_ROLL_INPUT)[0].value, 0.0)
+        self.assertGreater(of_kind(acts, mlib.ACTION_SET_PITCH_INPUT)[0].value, 0.0)
 
     def test_dead_band_suppresses_a_repeat_command(self):
         st = circuit_state()
-        s = air(ut=310.0, lat=-0.05, lon=-74.4, hdg=90.0, alt=1000.0)
+        s = air(ut=310.0, lat=-0.05, lon=-74.4, hdg=90.0, alt=1000.0, surface_pitch=3.0)
         st, acts = mlib.air_decide(st, s)
-        self.assertTrue(of_kind(acts, mlib.ACTION_AP_SET_PITCH_HEADING_ROLL))
+        self.assertEqual([mlib.ACTION_SET_PITCH_INPUT, mlib.ACTION_SET_ROLL_INPUT,
+                          mlib.ACTION_SET_THROTTLE], kinds(acts))
         st, acts = mlib.air_decide(st, replace(s, ut=310.5))
         self.assertEqual([], acts)
 
@@ -1123,8 +1155,9 @@ class FinalTests(unittest.TestCase):
         s = self._at(6000.0, hdg=270.0, alt=1000.0, spd=90.0, vs=0.0)
         st, acts = mlib.air_decide(st, s)
         self.assertFalse(st.final_aligned)
-        ap = of_kind(acts, mlib.ACTION_AP_SET_PITCH_HEADING_ROLL)[0]
-        self.assertNotEqual(0.0, ap.value)
+        no_autopilot(self, acts)
+        self.assertNotEqual(0.0, st.cmd_roll)
+        self.assertNotEqual(0.0, of_kind(acts, mlib.ACTION_SET_ROLL_INPUT)[0].value)
         self.assertEqual([], of_kind(acts, mlib.ACTION_SET_BRAKES))
 
     def test_aligned_glides_down_the_slope(self):
@@ -1132,9 +1165,8 @@ class FinalTests(unittest.TestCase):
         s = self._at(3000.0, alt=600.0, spd=60.0, vs=0.0)
         st, acts = mlib.air_decide(st, s)
         self.assertTrue(st.final_aligned)
-        ap = of_kind(acts, mlib.ACTION_AP_SET_PITCH_HEADING_ROLL)[0]
         # Glide altitude at 3 km on 6 deg is ~315 m: well below 600, so nose down.
-        self.assertLess(ap.pitch_heading[0], mlib.AIR_AOA_TRIM_DEG)
+        self.assertLess(st.cmd_pitch, mlib.AIR_AOA_TRIM_DEG)
         # Once aligned it stays aligned even if the nose wanders.
         st, _ = mlib.air_decide(st, self._at(2900.0, hdg=140.0, ut=621.0))
         self.assertTrue(st.final_aligned)
@@ -1148,13 +1180,16 @@ class FinalTests(unittest.TestCase):
         st, acts = mlib.air_decide(st, self._at(2000.0, spd=62.0, ut=630.0))
         self.assertEqual([0.0], [a.value for a in of_kind(acts, mlib.ACTION_SET_BRAKES)])
 
-    def test_flare_is_wings_level_throttle_zero_on_the_current_heading(self):
+    def test_flare_is_wings_level_throttle_zero(self):
         st = replace(final_state(flareAltitude=25.0), final_aligned=True)
-        st, acts = mlib.air_decide(st, self._at(200.0, hdg=95.0, alt=20.0, spd=58.0, vs=-4.0))
+        s = replace(self._at(200.0, hdg=95.0, alt=20.0, spd=58.0, vs=-4.0), roll=4.0)
+        st, acts = mlib.air_decide(st, s)
         self.assertEqual(620.0, st.flare_ut)
-        ap = of_kind(acts, mlib.ACTION_AP_SET_PITCH_HEADING_ROLL)[0]
-        self.assertEqual(0.0, ap.value)
-        self.assertAlmostEqual(95.0, ap.pitch_heading[1])
+        no_autopilot(self, acts)
+        # Wings level whatever the touchdown point's bearing: 4 deg right bank is
+        # rolled out with left aileron.
+        self.assertEqual(0.0, st.cmd_roll)
+        self.assertAlmostEqual(-0.048, of_kind(acts, mlib.ACTION_SET_ROLL_INPUT)[0].value)
         self.assertEqual([0.0], [a.value for a in of_kind(acts, mlib.ACTION_SET_THROTTLE)])
         # Still flaring above the flare altitude once started (a float, not a go-around).
         st, acts = mlib.air_decide(st, self._at(150.0, hdg=95.0, alt=30.0, ut=621.0))
@@ -1165,14 +1200,17 @@ class FinalTests(unittest.TestCase):
         st, _ = mlib.air_decide(st, self._at(4000.0, hdg=270.0, alt=20.0))
         self.assertIsNone(st.flare_ut)
 
-    def test_touchdown_cuts_power_brakes_and_releases_the_autopilot(self):
-        st = replace(final_state(), final_aligned=True, flare_ut=650.0)
+    def test_touchdown_cuts_power_brakes_and_neutralises_the_controls(self):
+        st = replace(final_state(), final_aligned=True, flare_ut=650.0,
+                     cmd_pitch_input=0.2, cmd_roll_input=-0.05)
         s = self._at(300.0, alt=0.5, spd=45.0, vs=-1.2, ut=655.0)
         s = replace(s, situation="SPLASHED")
         st, acts = mlib.air_decide(st, s)
         self.assertEqual(mlib.AIR_STOP, st.phase)
         self.assertEqual([mlib.ACTION_SET_THROTTLE, mlib.ACTION_SET_BRAKES,
-                          mlib.ACTION_AP_DISENGAGE], kinds(acts))
+                          mlib.ACTION_SET_PITCH_INPUT, mlib.ACTION_SET_ROLL_INPUT],
+                         kinds(acts))
+        self.assertEqual([0.0, 1.0, 0.0, 0.0], [a.value for a in acts])
         self.assertEqual("SPLASHED", st.touchdown_situation)
         self.assertAlmostEqual(300.0, st.touchdown_miss, delta=1.0)
         self.assertEqual(-1.2, st.touchdown_vs)
@@ -1305,6 +1343,279 @@ class WholeFlightTests(unittest.TestCase):
         self.assertFalse(outcomes["cameToRest"])
 
 
+# --------------------------------------------------------------------------- attitude
+
+
+def flight_state(**kw):
+    """A CIRCUIT-phase state, for driving ``_air_attitude`` directly."""
+    return replace(circuit_state(**kw), leg_start_ut=0.0, phase_entry_ut=0.0)
+
+
+def fly(st, ut, roll, pitch=3.0, bank=25.0, pitch_target=3.0):
+    return mlib._air_attitude(st, snap(ut=ut, roll=roll, surface_pitch=pitch),
+                              pitch_target, bank, None)
+
+
+def simulate_bank(kr, true_sign, bank=25.0, frames=40, **kw):
+    """A roll plant with full-aileron authority ``kr`` deg/s and the given true input
+    sign, sampled at the runner's 0.5 s: each frame the bank moves 0.5 * kr * input."""
+    st = flight_state(**kw)
+    roll, value, hist = 0.0, 0.0, []
+    for k in range(frames):
+        st, acts = fly(st, 100.0 + 0.5 * k, roll, bank=bank)
+        for a in of_kind(acts, mlib.ACTION_SET_ROLL_INPUT):
+            value = a.value
+        hist.append(roll)
+        roll += 0.5 * kr * true_sign * value
+    return st, hist
+
+
+class AttitudeLawTests(unittest.TestCase):
+    def test_roll_effort_is_proportional_damped_and_clamped(self):
+        # 10 deg short of a right bank: 0.012 * 10 = 0.12 right.
+        self.assertAlmostEqual(0.12, mlib.air_roll_effort(10.0, 0.0, 0.0))
+        # Rolling right at 10 deg/s eases it by 0.04.
+        self.assertAlmostEqual(0.08, mlib.air_roll_effort(10.0, 0.0, 10.0))
+        self.assertEqual(mlib.AIR_ROLL_MAX_INPUT, mlib.air_roll_effort(60.0, 0.0, 0.0))
+        self.assertEqual(-mlib.AIR_ROLL_MAX_INPUT, mlib.air_roll_effort(-60.0, 0.0, 0.0))
+        self.assertEqual(0.0, mlib.air_roll_effort(0.0, float("nan"), 0.0))
+        self.assertEqual(0.0, mlib.air_roll_effort(float("nan"), 3.0, 0.0))
+        self.assertAlmostEqual(0.12, mlib.air_roll_effort(10.0, 0.0, float("nan")))
+
+    def test_roll_input_follows_the_sign(self):
+        self.assertEqual(0.2, mlib.air_roll_input(0.2, 1.0))
+        self.assertEqual(-0.2, mlib.air_roll_input(0.2, -1.0))
+        self.assertEqual(0.0, mlib.air_roll_input(0.0, -1.0))
+
+    def test_rate_needs_two_samples_a_sane_gap_apart(self):
+        self.assertAlmostEqual(-4.0, mlib.air_rate(0.0, 10.0, -2.0, 10.5))
+        self.assertTrue(math.isnan(mlib.air_rate(None, 10.0, 1.0, 10.5)))
+        self.assertTrue(math.isnan(mlib.air_rate(0.0, None, 1.0, 10.5)))
+        self.assertTrue(math.isnan(mlib.air_rate(0.0, 10.0, float("nan"), 10.5)))
+        self.assertTrue(math.isnan(mlib.air_rate(0.0, 10.0, 1.0, 10.01)))
+        self.assertTrue(math.isnan(mlib.air_rate(0.0, 10.0, 1.0, 13.0)))
+
+    def test_the_bank_raises_the_pitch_target(self):
+        st, acts = fly(flight_state(), 100.0, 0.0, pitch=3.0, bank=-20.0, pitch_target=3.0)
+        self.assertAlmostEqual(5.0, st.cmd_pitch)
+        self.assertAlmostEqual(-20.0, st.cmd_roll)
+        self.assertAlmostEqual(0.16, of_kind(acts, mlib.ACTION_SET_PITCH_INPUT)[0].value)
+        self.assertAlmostEqual(-0.24, of_kind(acts, mlib.ACTION_SET_ROLL_INPUT)[0].value)
+
+    def test_the_flight_elevator_is_capped_below_the_rotation(self):
+        st, acts = fly(flight_state(), 100.0, 0.0, pitch=-10.0, pitch_target=10.0)
+        self.assertEqual(mlib.AIR_FLIGHT_PITCH_MAX_INPUT,
+                         of_kind(acts, mlib.ACTION_SET_PITCH_INPUT)[0].value)
+        self.assertLess(mlib.AIR_FLIGHT_PITCH_MAX_INPUT, mlib.AIR_ROTATE_MAX_INPUT)
+
+    def test_the_elevator_and_ailerons_follow_their_signs(self):
+        st = replace(flight_state(), rotate_pitch_sign=-1.0, roll_input_sign=-1.0)
+        st, acts = fly(st, 100.0, 0.0, pitch=0.0, bank=10.0, pitch_target=5.0)
+        self.assertLess(of_kind(acts, mlib.ACTION_SET_PITCH_INPUT)[0].value, 0.0)
+        self.assertLess(of_kind(acts, mlib.ACTION_SET_ROLL_INPUT)[0].value, 0.0)
+
+    def test_a_dark_attitude_holds_the_controls_neutral(self):
+        st = replace(flight_state(), cmd_pitch_input=0.3, cmd_roll_input=0.2,
+                     cmd_roll_effort=0.2)
+        st, acts = mlib._air_attitude(st, snap(ut=100.0), 5.0, 10.0, None)
+        self.assertEqual([0.0, 0.0], [a.value for a in acts])
+
+    def test_only_the_elevator_and_ailerons_fly_the_attitude(self):
+        # The rudder stays neutral (the hands-off frames show no yaw motion to damp) and
+        # nothing engages the AutoPilot or SAS.
+        st, seen = flight_state(), set()
+        for k, roll in enumerate((0.0, 3.0, 9.0, 16.0, 22.0, 24.0, 25.0)):
+            st, acts = fly(st, 100.0 + 0.5 * k, roll, pitch=2.0 + k)
+            seen.update(kinds(acts))
+        self.assertEqual({mlib.ACTION_SET_PITCH_INPUT, mlib.ACTION_SET_ROLL_INPUT}, seen)
+
+    def test_the_bank_loop_settles_over_the_plausible_authority_range(self):
+        # Kr 60 is the third flight's AutoPilot roll rate; 30 and 120 bracket it.
+        for kr in (30.0, 60.0, 120.0):
+            with self.subTest(kr=kr):
+                st, hist = simulate_bank(kr, 1.0)
+                self.assertTrue(st.roll_sign_confirmed)
+                self.assertFalse(st.roll_sign_flipped)
+                self.assertLess(abs(hist[-1] - 25.0), 2.5)
+                self.assertLess(max(hist), 25.0 + 5.0)
+                self.assertGreater(min(hist), -0.1)
+
+    def test_a_wrong_aileron_sign_flips_once_and_then_settles(self):
+        for kr in (30.0, 60.0, 120.0):
+            with self.subTest(kr=kr):
+                st, hist = simulate_bank(kr, -1.0)
+                self.assertTrue(st.roll_sign_flipped)
+                self.assertEqual(-1.0, st.roll_input_sign)
+                # Two frames the wrong way at the 0.25 cap, then back.
+                self.assertGreaterEqual(min(hist), -0.5 * kr * mlib.AIR_ROLL_MAX_INPUT * 2
+                                        - 1e-6)
+                self.assertLess(abs(hist[-1] - 25.0), 2.5)
+
+
+class RollSignCheckTests(unittest.TestCase):
+    def _sent(self, effort, roll=0.0, rate=None):
+        st = flight_state()
+        return replace(st, cmd_roll_effort=effort, last_roll=roll, last_roll_ut=99.5,
+                       last_roll_rate=rate)
+
+    def test_a_response_the_commanded_way_confirms(self):
+        st = self._sent(0.2)
+        st = mlib.air_roll_sign_check(st, 0.8, 1.6)
+        self.assertFalse(st.roll_sign_confirmed)
+        st = replace(st, last_roll=0.8, last_roll_rate=1.6)
+        st = mlib.air_roll_sign_check(st, 1.6, 1.6)
+        self.assertTrue(st.roll_sign_confirmed)
+        self.assertEqual(1.0, st.roll_input_sign)
+        # Confirmed, the check stops.
+        self.assertIs(st, mlib.air_roll_sign_check(st, -50.0, -40.0))
+
+    def test_two_frames_the_other_way_flip_once(self):
+        st = self._sent(0.2, rate=0.0)
+        st = mlib.air_roll_sign_check(st, -0.6, -1.2)
+        self.assertEqual(1, st.roll_check_frames)
+        self.assertFalse(st.roll_sign_flipped)
+        st = replace(st, last_roll=-0.6, last_roll_rate=-1.2)
+        st = mlib.air_roll_sign_check(st, -1.3, -1.4)
+        self.assertTrue(st.roll_sign_flipped)
+        self.assertEqual(-1.0, st.roll_input_sign)
+        self.assertIs(st, mlib.air_roll_sign_check(st, -9.0, -9.0))
+
+    def test_a_flip_needs_the_degree_lost(self):
+        st = self._sent(0.2, rate=0.0)
+        st = mlib.air_roll_sign_check(st, -0.2, -0.4)
+        st = replace(st, last_roll=-0.2, last_roll_rate=-0.4)
+        st = mlib.air_roll_sign_check(st, -0.5, -0.6)
+        self.assertFalse(st.roll_sign_flipped)
+        self.assertEqual(2, st.roll_check_frames)
+
+    def test_arresting_a_roll_already_under_way_is_not_a_wrong_sign(self):
+        # Rolling left at 10 deg/s when right aileron goes in: the bank still falls on
+        # the next frames, but more slowly each time. That is the right sign working.
+        st = self._sent(0.25, roll=-5.0, rate=-10.0)
+        st = mlib.air_roll_sign_check(st, -8.0, -6.0)
+        self.assertEqual(0, st.roll_check_frames)
+        st = replace(st, last_roll=-8.0, last_roll_rate=-6.0)
+        st = mlib.air_roll_sign_check(st, -9.5, -3.0)
+        self.assertFalse(st.roll_sign_flipped)
+        self.assertEqual(0, st.roll_check_frames)
+
+    def test_the_check_needs_a_real_effort(self):
+        st = self._sent(mlib.AIR_ROLL_CHECK_MIN_EFFORT / 2.0, rate=0.0)
+        st = mlib.air_roll_sign_check(st, -3.0, -6.0)
+        self.assertIsNone(st.roll_check_start)
+        self.assertEqual(0, st.roll_check_frames)
+        st = self._sent(None)
+        self.assertIsNone(mlib.air_roll_sign_check(st, -3.0, -6.0).roll_check_start)
+
+    def test_a_reversed_command_reopens_the_window(self):
+        st = self._sent(0.2, rate=0.0)
+        st = mlib.air_roll_sign_check(st, -0.6, -1.2)
+        self.assertEqual(1, st.roll_check_frames)
+        st = replace(st, cmd_roll_effort=-0.2, last_roll=-0.6, last_roll_rate=-1.2)
+        st = mlib.air_roll_sign_check(st, -1.0, -0.8)
+        self.assertEqual(-1.0, st.roll_check_dir)
+        self.assertEqual(-0.6, st.roll_check_start)
+        self.assertEqual(0, st.roll_check_frames)
+
+    def test_a_flip_re_sends_the_ailerons_the_new_way_on_the_same_frame(self):
+        st = flight_state()
+        st, acts = fly(st, 100.0, 0.0)
+        self.assertGreater(of_kind(acts, mlib.ACTION_SET_ROLL_INPUT)[0].value, 0.0)
+        st, _ = fly(st, 100.5, -7.5)
+        st, acts = fly(st, 101.0, -15.0)
+        self.assertTrue(st.roll_sign_flipped)
+        self.assertLess(of_kind(acts, mlib.ACTION_SET_ROLL_INPUT)[0].value, 0.0)
+
+    def test_the_evidence_is_carried(self):
+        st = replace(flight_state(), roll_sign_flipped=True, roll_input_sign=-1.0)
+        out = {a.name: a for a in mlib.evaluate_air_assertions([], st.params, st)}
+        detail = out["circuitFlown"].detail
+        self.assertEqual(-1.0, detail["rollInputSign"])
+        self.assertTrue(detail["rollSignFlipped"])
+        self.assertFalse(detail["rollSignConfirmed"])
+
+    def test_roll_input_sign_is_normalized_to_one(self):
+        self.assertEqual(-1.0,
+                         mlib.air_initial_state(params(rollInputSign=-0.5)).roll_input_sign)
+        self.assertEqual(1.0, mlib.air_initial_state(params()).roll_input_sign)
+
+
+class ThirdFlightReplayTests(unittest.TestCase):
+    """2026-11-16_2126 (the retry _2128_a2 read the same within a degree): its window
+    dump rows (ut, altitude, situation, pitch) joined with the 1 Hz telemetry's heading,
+    roll, surface and vertical speed (interpolated between its rows), ARM heading 090.397. The machine then handed over
+    to the AutoPilot at 58.78 and the plane rolled left: 59.30 roll -1.97 heading 089.6,
+    60.28 roll -37.9 heading 072.6. The new machine never engages it."""
+
+    ARM_HEADING = 90.397
+    # (ut, alt, situation, pitch, surface speed, vertical speed, heading, roll)
+    TAKEOFF = [(53.66, 3.196, "LANDED", 0.799, 58.7, 0.05, 90.338, 0.050),
+               (54.16, 3.226, "LANDED", 1.623, 60.8, 0.012, 90.342, 0.049),
+               (54.68, 3.288, "LANDED", 3.079, 62.6, 0.3, 90.346, 0.050),
+               (55.20, 3.443, "FLYING", 4.882, 64.4, 0.576, 90.350, 0.051),
+               (55.72, 4.196, "FLYING", 5.850, 65.8, 1.9, 90.354, 0.055),
+               (56.24, 5.635, "FLYING", 5.798, 67.1, 3.132, 90.358, 0.060),
+               (56.76, 7.439, "FLYING", 5.649, 68.7, 3.6, 90.363, 0.065),
+               (57.28, 9.443, "FLYING", 5.856, 70.2, 3.978, 90.368, 0.071),
+               (57.80, 11.700, "FLYING", 6.248, 71.6, 4.6, 90.374, 0.077),
+               (58.28, 14.064, "FLYING", 6.535, 73.0, 5.210, 90.381, 0.083),
+               (58.78, 16.863, "FLYING", 6.715, 74.3, 5.816, 90.385, 0.088)]
+    HANDOVER = (59.30, 20.061, "FLYING", 7.083, 75.645, 6.295, 89.613, -1.968)
+    ROLLED = (60.28, 27.933, "FLYING", 5.296, 75.604, 10.649, 72.554, -37.918)
+
+    def _snap(self, row):
+        ut, alt, sit, pitch, spd, vs, hdg, roll = row
+        return snap(ut=ut, situation=sit, vessel_name="Mallard", latitude=-0.049,
+                    longitude=-74.68, heading=hdg, altitude=alt, surface_speed=spd,
+                    vertical_speed=vs, surface_pitch=pitch, roll=roll, throttle=1.0)
+
+    def _airborne(self):
+        st = run_to_takeoff(mlib.air_initial_state(params(rotateSpeed=45.0)))
+        st = replace(st, runway_heading=self.ARM_HEADING, rotated=True, rotate_ut=52.1,
+                     rotate_start_pitch=0.567, cmd_pitch_input=0.6, release_lat=-0.049,
+                     release_lon=-74.725, release_ut=35.64)
+        sent = []
+        for row in self.TAKEOFF:
+            st, acts = mlib.air_decide(st, self._snap(row))
+            sent.extend(acts)
+        return st, sent
+
+    def test_the_climb_starts_where_the_flight_did_with_no_autopilot(self):
+        st, sent = self._airborne()
+        self.assertEqual(mlib.AIR_CLIMB, st.phase)
+        self.assertEqual(58.78, st.takeoff_ut)
+        self.assertTrue(st.rotate_pitch_confirmed)
+        no_autopilot(self, sent)
+        # The elevator is never dropped to neutral at the hand-over: it carries on
+        # nose up toward climbPitch 10 from 6.7 deg.
+        self.assertGreater(st.cmd_pitch_input, 0.1)
+
+    def test_the_hand_over_frame_rolls_right_against_the_left_roll(self):
+        st, _ = self._airborne()
+        st, acts = mlib.air_decide(st, self._snap(self.HANDOVER))
+        no_autopilot(self, acts)
+        # The heading fell 0.8 deg left of the runway: a small right bank target, and
+        # the roll reads 2 deg left and falling at ~4 deg/s, so right aileron.
+        self.assertGreater(st.cmd_roll, 0.0)
+        self.assertLess(st.cmd_roll, 1.0)
+        aileron = of_kind(acts, mlib.ACTION_SET_ROLL_INPUT)
+        self.assertEqual(1, len(aileron))
+        self.assertGreater(aileron[0].value, 0.04)
+        # Nose still up toward 10 deg from 7.1.
+        self.assertGreater(st.cmd_pitch_input, 0.1)
+
+    def test_the_left_roll_the_autopilot_reached_gets_full_right_aileron(self):
+        st, _ = self._airborne()
+        st, _ = mlib.air_decide(st, self._snap(self.HANDOVER))
+        st, acts = mlib.air_decide(st, self._snap(self.ROLLED))
+        self.assertEqual(mlib.AIR_CLIMB_MAX_BANK, st.cmd_roll)
+        self.assertEqual(mlib.AIR_ROLL_MAX_INPUT,
+                         of_kind(acts, mlib.ACTION_SET_ROLL_INPUT)[0].value)
+        # Right aileron in force and the bank fell 36 deg: one frame the wrong way,
+        # not yet a flip (the check needs two).
+        self.assertFalse(st.roll_sign_flipped)
+
+
 # --------------------------------------------------------------------------- runner seam
 
 
@@ -1336,6 +1647,7 @@ class _FakeAutoPilot(object):
 class _FakeControl(object):
     wheel_steering = 0.0
     pitch = 0.0
+    roll = 0.0
 
 
 class _FakeVessel(object):
@@ -1395,6 +1707,17 @@ class RunnerRollActionTests(unittest.TestCase):
                 c._conn = _FakeConn(_FakeSpaceCenter(vessel))
                 c.perform(mlib.Action(mlib.ACTION_SET_PITCH_INPUT, value))
                 self.assertEqual(want, vessel.control.pitch)
+
+    def test_roll_input_is_set_and_clamped(self):
+        for value, want in ((0.25, 0.25), (-0.1, -0.1), (3.0, 1.0), (-3.0, -1.0)):
+            with self.subTest(value=value):
+                c = mission_runner.KrpcMissionControl()
+                ap = _FakeAutoPilot()
+                vessel = _FakeVessel(ap)
+                c._conn = _FakeConn(_FakeSpaceCenter(vessel))
+                c.perform(mlib.Action(mlib.ACTION_SET_ROLL_INPUT, value))
+                self.assertEqual(want, vessel.control.roll)
+                self.assertEqual([], ap.calls)
 
     def test_the_aircraft_channel_is_off_by_default(self):
         self.assertFalse(mission_runner.KrpcMissionControl()._read_aircraft)
@@ -1507,6 +1830,18 @@ class SchemaSyncTests(unittest.TestCase):
         self.assertTrue(read)
         self.assertEqual(set(), read - declared)
         self.assertEqual(set(), declared - read)
+
+    def test_no_air_function_names_an_autopilot_action(self):
+        # The static half of ``no_autopilot``: every function of the AIR machine, read
+        # off the AST, so a path no unit cell drives cannot engage it either.
+        with open(os.path.join(_HERE, "mlib.py"), encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+        fns = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+               and (n.name.startswith(("air_", "_air_")) or n.name == "evaluate_air_assertions")]
+        self.assertIn("air_decide", [f.name for f in fns])
+        named = {(f.name, node.id) for f in fns for node in ast.walk(f)
+                 if isinstance(node, ast.Name) and node.id.startswith("ACTION_AP_")}
+        self.assertEqual(set(), named)
 
     def test_shell_opts_into_the_vessel_name_and_aircraft_reads(self):
         with open(SHELL, encoding="utf-8") as fh:

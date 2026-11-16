@@ -1,4 +1,4 @@
-# In-game test category inventory (all 142 categories)
+# In-game test category inventory (all 143 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -188,6 +188,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `RewindSaves` | 1 | 1 | 1 | 1 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 1 - the whole category at FLIGHT with zero skips over the injected corpus) | A |
 | `RouteDockCapture` | 6 | 0 | 0 | 0 | 6 | 6 | H55 (ISOLATED, GREEN run 2 2026-09-01 `total=6 passed=6 failed=0 skipped=0`, nightly; run 1 `passed=1 failed=5` - RED on an authoring defect in the cells' own partner rig, which carried no `ModuleCommand` part so the undocked half was debris and no split branch, hence no route-window completion, was created; rigs re-rooted on a probe core, and run 2 pins the whole tally. The ordinary path executes 0 of 6, so the isolated arg is the only way to run any of it. Pins `total=6` exactly, `failed=0` asserted, plus one REQUIRED token per cell) + H56 (ISOLATED, AUTHORED 2026-09-02, NEVER FLOWN - the SAME six cells on a SECOND host, `rover-route-recorded`, whose active vessel is a 17-part LANDED rover instead of H55's PRELAUNCH pad rig. Two products H55 structurally cannot buy: the origin-proof probe's non-PRELAUNCH branch, which decides roadmap Tier B item 4, and the SURFACE flavor of the five capture cells. Driver, batch and token shapes are H55's step for step so a census delta is attributable to the host alone; `total=6` is shared and attribute-exact, so a seventh cell reds BOTH members, and the `passed=`/`skipped=` split is interim until its first census) | B |
 | `RouteEscrowContention` | 3 | 0 | 0 | 0 | 3 | 3 | H60 (ISOLATED, LIVE-PROVEN 2026-09-02 `2026-09-02_1314` PASS attempt 1, `total=2 passed=2 failed=0 skipped=0` pinned whole, nightly - roadmap Tier C item 10, two STORED routes contending for ONE physical source through the production `RouteOrchestrator.Tick`. A MULTI-STOP holder route reserves its SUMMED pickup manifest at dispatch, fires only its first window, and the still-held second window blocks a competitor on the competitor's OWN crossing with the M6 `source-reserved:` token; the holder's second window then releases AND debits in the same instant, so the competitor stays blocked on unchanged numbers with the cause flipped `escrow` -> `physical` - the reserve/release PRE-IMAGE invariant driven live. A second cell drives the only release that DOES free a competitor: `RouteStore.RemoveRoute` on the holder mid-cycle. Its own category, not two more `RouteDockCapture` or `Logistics` cells, precisely so those categories' pinned `total=6` / `total=47` do not move. Pins `total=2 passed=2 failed=0 skipped=0` WHOLE, plus eight phase tokens - six production `[Route]` lines and one `EscrowContention:` summary per cell, with the measured `raw=11 netted=5` / `raw=5 netted=5` pair carrying the pre-image invariant. A THIRD cell (2026-10-16, roadmap IR-10, todo ROUTE-ESCROW-LOST-ON-SCENE-SWITCH) runs the production scene-switch escrow clear between the holder's windows and asserts the next tick's pre-pass rebuilds the hold before the competitor gates; the pin moved to `total=3 passed=3` with its own token block. ARMED DISCIPLINE COMPLETE the same day: armed re-flight `2026-09-02_1339` PASS attempt 1 on the whole pin with `mismatches=[]`, and a negative control - cell 1's `causeAfterWindow` flipped `physical` -> `escrow` - red on exactly that one token with zero forbids, so the pin discriminates rather than merely passes. The two runs drew different source pids and read identical amounts. D10 `multi-origin-escrow` is CLAIMED off the completed discipline, as a third owner contributing the ORCHESTRATOR-driven form H38's and H40's hand-reserved cell cannot reach) | A |
+| `RouteGhostPlacement` | 1 | 1 | 0 | 0 | 0 | 1 | H59-surface-route-map-lines (FLIGHT) and V27M-rover-route-endpoint-substituted-map-lines (FLIGHT), both wired 2026-11-16 (todo NEXT-TESTS-TO-BUILD-2026-11-11 item 5, audit B3, branch `item5-route-ghost-position`) after the lanes' map session, NEVER FLOWN with the step: `total=1` literal with the split regexed. One FLIGHT cell that resolves every ghost-driving route's loop unit through the route's own delivery clock, asserts the engine's render clock reads the same loop UT, re-derives the member's recorded place from its body-fixed samples and compares it with the rendered ghost root: 3 m + float grid + one frame of motion horizontally, the recorded / terrain-plus-clearance window vertically (pure core `RouteGhostPlacement`, xUnit `RouteGhostPlacementTests`). Its own category so no other pinned `BATCH_COMPLETE` tally moves. Self-skips when no route ghost sample was compared, which each driving lane reds by requiring `passed=` of at least 1. Bucket **A** on the interim standing (wired, `total=` literal, split regexed until the reading run) | A |
 | `RouteLifecycle` | 8 | 8 | 8 | 8 | 0 | 8 | RVR-3 (flown once 2026-09-01, `total=6 passed=4 failed=2`; the two failures were CONTRACT DRIFT - see the triage note - and the category is now 8 cells pinning BOTH halves of the armed-pause state machine. Pins `total=8` exactly with `passed=`/`skipped=` interim, `failed=0` asserted, plus a REQUIRED PASS token per resolution cell, and declares no render-composition expectations block, which is what keeps the five crossing cells from self-skipping) | B |
 | `RouteLiveAnchor` | 1 | 1 | 0 | 0 | 0 | 1 | LT-4-long-tail-route-flight (MULTI, authored 2026-09-07 and LIVE-PROVEN the same day: first flight `2026-09-07_2036`, PASS attempt 1, 56 s wall, every verifier PASS or REPORT, all three per-category lines matched verbatim. Predicted on the 2026-09-07 second census (scratch CEN-4, run `2026-09-07_2010`) at 1 of 1 - the whole category with zero skips - over `depot-route-recorded`, the suite's only committed Active route, after H40's StopRecording + DiscardTree kill pair, and the flight measured that line exactly. The FIRST execution of this cell anywhere; a committed supply route is what it wants and no injected corpus carries one. PROMOTED to bucket **A** (A3) by that flight, on the promotion rule below) | A |
 | `RouteRewindTimeline` | 7 | 7 | 7 | 7 | 0 | 1 | H6 | B |
@@ -236,8 +237,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived from the table on 2026-11-16: **142 categories / 698 declarations**.
-Buckets **A 110 categories (405 declarations)**, **B 31 categories (289 declarations)**,
+Totals, re-derived from the table on 2026-11-16: **143 categories / 699 declarations**.
+Buckets **A 111 categories (406 declarations)**, **B 31 categories (289 declarations)**,
 **C 1 category (4 declarations)**. The 2026-11-16 test gap audit B11 wiring moved six of the
 seven categories no committed spec ran into **A**, first on the interim standing (`total=`
 literal, split regexed) and the same evening as measured **A3** members: reading runs
@@ -255,6 +256,10 @@ the Space Center draws no Parsek window while `ParsekKSC.showUI` is down, and it
 fail there rather than skip. The prose before this
 re-derivation read A 103 / C 2 with `MoonArrivalHold` in **C**; its table row was already **A**
 (the moon arrival lanes drive it).
+The same day the new FLIGHT category `RouteGhostPlacement` 1 (todo NEXT-TESTS-TO-BUILD-2026-11-11
+item 5) was wired into `H59-surface-route-map-lines` and
+`V27M-rover-route-endpoint-substituted-map-lines` on the same interim standing: A 110 -> 111
+categories, 405 -> 406 declarations.
 `GhostCommNet`, opened 2026-09-26 by the ghost CommNet relay in C, gained four cells
 the same day (5 -> 9) and moved to **B** (B7) when CN-1 / CN-1T drove it; both flew green the
 same day and it stays **B** (each lane is a scene slice, 4 of 9).
@@ -809,7 +814,7 @@ categories in 297 s and `LT-2` took 6 more in 46 s. The one-step rule stands, an
 question is still "is what it executes worth a boot", but a boot now buys a whole
 bucket rather than one row.
 
-### Bucket A - wired now (110 categories, 405 declarations)
+### Bucket A - wired now (111 categories, 406 declarations)
 
 Three sub-classes, admitted on DIFFERENT grounds. Conflating them is how a spec would
 end up pinned against the wrong derivation.
