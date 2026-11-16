@@ -5,6 +5,7 @@ using Parsek;
 using Parsek.Rendering;
 using UnityEngine;
 using Xunit;
+using FakeCatalog = Parsek.Tests.RecordedRelativeAnchorPoseResolverTests.FakeCatalog;
 
 namespace Parsek.Tests.Rendering
 {
@@ -502,35 +503,6 @@ namespace Parsek.Tests.Rendering
             tree.AddOrReplaceRecording(root);
             tree.AddOrReplaceRecording(focus);
             return tree;
-        }
-
-        private sealed class FakeCatalog : IPlaybackCatalog
-        {
-            internal RecordingTree FocusTree;
-            internal int PendingReads;
-            internal readonly List<string> FocusTreeQueries = new List<string>();
-
-            public RecordingTree PendingTree
-            {
-                get
-                {
-                    PendingReads++;
-                    return null;
-                }
-            }
-
-            public bool TryFindFocusTree(string recordingId, string treeId, out RecordingTree tree)
-            {
-                FocusTreeQueries.Add(recordingId + "|" + treeId);
-                tree = FocusTree;
-                return tree != null;
-            }
-
-            public bool TryFindRecording(string id, CatalogRecordingScope scope, out Recording rec)
-            {
-                rec = null;
-                return false;
-            }
         }
 
         // --- §7.10 Loop guard paths ---------------------------------------

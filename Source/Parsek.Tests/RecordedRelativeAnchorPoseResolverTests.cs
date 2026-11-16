@@ -584,7 +584,9 @@ namespace Parsek.Tests
             Assert.Single(fake.RecordingQueries);
         }
 
-        private sealed class FakeCatalog : IPlaybackCatalog
+        // Shared with ProductionAnchorWorldFrameResolverTests: one fake per port, so a
+        // member added to IPlaybackCatalog is implemented once.
+        internal sealed class FakeCatalog : IPlaybackCatalog
         {
             internal RecordingTree FocusTree;
             internal RecordingTree Pending;
