@@ -20,6 +20,43 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~EVA-SWITCH-STOP-DROPS-OPEN-SECTION~~: an EVA leg that ends by boarding loses its last track section [FILED 2026-11-16 from the D5 residual review (vessel-switch stop distance, branch `fix-residuals-contract-d5`), by code reading. FIXED 2026-11-16, branch fix-board-merge-open-section; xUnit; no lane gates it yet; medium (the ghost of a kerbal's walk or jetpack flight to the hatch is wrong after a save)]
+
+What was wrong. `FlightRecorder.HandleVesselSwitchDuringRecording` (the ChainToVessel decision:
+an EVA recording whose active vessel is now a non-EVA vessel) was the one stop that never closed
+the open TrackSection. StopRecording, StopRecordingForChainBoundary and ForceStop close it in
+`FinalizeRecordingState`, TransitionToBackground closes it itself. `BuildCaptureRecording` deep
+copies only the CLOSED sections, while the flat Points carry every sample of the open one, so
+`FlushStoppedRecorderIntoMergeParent` -> `AppendCapturedDataToRecording` (confirmed board) and
+`FinalizeTreeRecordings` -> `FlushRecorderToTreeRecording` (unconfirmed board, or a plain switch
+from an EVA kerbal to a vessel, which is the same ChainToVessel decision) both handed the EVA leg
+a flat tail no section covers. Nothing later adds it back: the stopped recorder is dropped on the
+board merge, and `FlushRecorderIntoActiveTreeForSerialization`'s section checkpoint only runs for
+the recorder the tree still holds. The codec then writes the uncovered tail as flat points
+(`AppendSafeFlatFallbackTailOutsideFrameSections` / the plain flat path) and, after a load,
+`FlatPointFrameDispatch.Classify` reads a point no section holds as body-fixed: a Relative open
+section (a kerbal walking to a hatch near the vessel, the common case) replays its anchor-local
+metres as degrees of latitude and longitude, and an EVA that never closed a section saves with
+no section at all. An Absolute open section keeps real lat/lon but no section, environment or
+frame metadata for the end of the leg. No analyzer invariant checks flat points outside every
+section, so nothing reported it. The committed fixture `cs-career-mun4` (from CS-6c) shows both
+Mun-orbit EVA legs ending about 1.8 s before their stamped board UT (`debce1a4...` last frame
+157914.246, `explicitEndUT` 157916.006), consistent with this but not proven by it.
+
+Fix: the switch stop calls `FlightRecorder.CloseOpenTrackSectionForVesselSwitchStop(UT)` before
+`BuildCaptureRecording`, so the capture (and the recorder lists the unconfirmed path flushes) holds
+the leg's last section. Only the section is closed: no terminal events, RELATIVE state untouched,
+the confirmed and unconfirmed paths otherwise as before. One Info line `Vessel-switch stop: closed
+the open TrackSection before the capture (...)`, or a Verbose `no open TrackSection to close`.
+With the D5 residual's `openSectionForDistance` (branch `fix-residuals-contract-d5`) the open
+section is now already closed when the capture is built, so that argument reads null and the
+distance walks the closed list, which holds the section. Tests: `VesselSwitchStopOpenSectionTests`
+(three witnesses of the unfixed shape through a codec round trip, open Relative / open Absolute /
+whole EVA in one section; the fix for each; the no-open-section no-op; and a source-order gate
+that the close precedes `BuildCaptureRecording` in the switch stop). Lane that would prove it:
+EVA-2-orbital-board or EVA-1-pad-flag with a report-only check that the EVA leg's last section
+ends at its board UT and no flat point lies outside a section.
+
 ## ~~MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH~~: a looped mission that starts in orbit is timed around a later moon it passes low over [CLOSED 2026-11-16: V43M flew green on its first flight with the fix, `2026-11-16_1803_V43M-vall-tylo-player-loop` PASS attempt 1 (46 s, automation DLL built from 866ac123, sha256 prefix 8dfcbc5e; every verifier green), KSP.log reading launch moon Vall, constraints=3, `Solve: dominant=Tylo method=dominant-intercept residual=2.18 withinTol=yes` and `PhaseLock APPLIED ... P=211926.36 ... zeroDrift=yes scheduleWithinTol=yes`. FILED 2026-11-16 from V43M's first flight `2026-11-16_1726_V43M-vall-tylo-player-loop` (PC, parallel run `moon-loops-2026-11-16d`, DLL unchanged since PR #2638, PARSEK-FAIL(expectation) attempt 1, 58 s; diagnostics on branch `forge-logs-2026-11-16d`, folder `diag/2026-11-16_1726_V43M-vall-tylo-player-loop/`). FIXED 2026-11-16, branch `claude/project-thread-vpr29t`; xUnit; V43M re-pinned, awaiting PC flight; low (the loop still phase-locks, on the wrong launch moon)]
 
 The `vall-tylo-recorded` tree 91205f57 is one vessel's chain: the root ef182ffd starts IN ORBIT
@@ -2017,7 +2054,7 @@ lines and the key.
 - ATTEMPT-EVENTS-DROPPED-WHEN-RESUMED-IN-PLACE: `SavePendingTreeIfAny` still skips a dirty pending-tree member that shares a committed id (lane QL-13).
 - DOCK-CHAIN-ABSORBED-PARTNER-PID-ONLY: a dock into a resumed Parsek-spawned vessel reads as a different launch (identity links are not consulted by `VesselLaunchIdentity`).
 - CONTRACT-CROSSED-OUTCOME-MISSING-FROM-STOCK-ARCHIVE: a contract either gate leaves unfiled is not filed later when the clock reaches its outcome.
-- D5-PROMOTED-DEBRIS-MAXDIST-RELATIVE-FRAME: the capture's distance is measured from the promotion point, and a capture on the vessel-switch stop path with a Relative section still open takes the flat route.
+- D5-PROMOTED-DEBRIS-MAXDIST-RELATIVE-FRAME: the capture's distance is measured from the promotion point, and a capture on the vessel-switch stop path with a Relative section still open takes the flat route. The vessel-switch stop now closes its open section before the capture (EVA-SWITCH-STOP-DROPS-OPEN-SECTION), so that half reads the closed list.
 - RECORDER-PHYSICS-SOI-NO-SECTION-SPLIT: lane owed, a formation flight through an SOI edge with a background wingman.
 - VB-1-KSP-HANG-AT-MAIN-MENU: a hang after the MAINMENU line is still caught only by the long timeout.
 - FAST-POLL-SETTLES-STILL-RACE: CI-6 still waits on a timer; a named-condition wait would replace it.

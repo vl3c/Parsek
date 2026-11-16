@@ -24,6 +24,10 @@ Not released yet.
 
 ### Fixed
 
+- **A kerbal's walk back to a hatch replays correctly after a save.** When an EVA ended by
+  boarding a vessel, the last stretch of the walk or jetpack flight could replay far from where
+  the kerbal went once the game was saved and loaded. It now replays on the kerbal's real path.
+  (EVA-SWITCH-STOP-DROPS-OPEN-SECTION)
 - **Rock-mining trips carry no more ore than the drills produce.** A route whose ship drilled a
   grabbed asteroid or comet had no ore limit; it now credits at most what the drill could mine
   from that rock in the recorded time. (ROCK-DRILL-HARVEST-UNCAPPED)
