@@ -74,6 +74,37 @@ class SelectionTests(unittest.TestCase):
         self.assertIn("nope, zz", msg)
         self.assertIn("dialy", msg)
 
+    def test_tags_follow_tiers_in_spec_order_once(self):
+        specs = [spec("R2", "operator"), spec("A"), spec("R1", "operator"), spec("B")]
+        specs[0]["tags"] = ["race"]
+        specs[2]["tags"] = ["race", "x"]
+        specs[3]["tags"] = ["x"]
+        got = [s["id"] for s in P.resolve_selection(specs, ["R1"], ["daily"], ["race", "x"])]
+        self.assertEqual(got, ["R1", "A", "B", "R2"])
+        self.assertEqual([s["id"] for s in P.resolve_selection(specs, [], [], ["race"])],
+                         ["R2", "R1"])
+
+    def test_a_tag_matches_exactly_as_run_py_does(self):
+        specs = [spec("A"), spec("B"), spec("C")]
+        specs[0]["tags"] = ["race"]
+        specs[1]["tags"] = ["racer", "Race"]
+        specs[2]["tags"] = None
+        for tag in ("race", "racer"):
+            self.assertEqual(
+                [s["id"] for s in P.resolve_selection(specs, [], [], [tag])],
+                [s["id"] for s in hlib.select_scenarios(specs, "--tag %s" % tag)])
+        self.assertEqual([s["id"] for s in P.resolve_selection(specs, [], [], ["race"])], ["A"])
+
+    def test_a_tag_no_spec_carries_is_refused_with_the_others(self):
+        specs = [spec("A")]
+        specs[0]["tags"] = ["race"]
+        with self.assertRaises(P.SelectionError) as cm:
+            P.resolve_selection(specs, ["nope"], ["dialy"], ["race", "raec"])
+        msg = str(cm.exception)
+        self.assertIn("nope", msg)
+        self.assertIn("dialy", msg)
+        self.assertIn("no spec carries tag(s): raec", msg)
+
     def test_run_name(self):
         self.assertTrue(P.valid_run_name("nightly-1.b_2"))
         for bad in ["", "../x", "a/b", "-x", "a" * 65]:
@@ -826,6 +857,20 @@ class ShellSmokeTests(unittest.TestCase):
         self.assertEqual(self.main("run", "--name", "b", "--ids", "A"), 1)
         self.assertEqual(self.child_records(), [])
         self.assertEqual(self.prefs.calls, ["snapshot", "restore"])
+
+    def test_tag_selects_the_tagged_lanes_and_a_tag_no_spec_carries_refuses(self):
+        for sid in ("RACE-1", "RACE-2"):
+            with open(os.path.join(self.harness, "scenarios", sid + ".toml"), "w") as fh:
+                fh.write('tags = ["race"]\n' + SPEC_TEMPLATE % (sid, "operator", "stock-minimal", ""))
+        self.assertEqual(self.main("run", "--name", "t0", "--tag", "raec"), 2)
+        self.assertTrue(any("no spec carries tag(s): raec" in l for l in self.console),
+                        self.console)
+        code = self.main("run", "--name", "t1", "--tag", "race")
+        self.assertEqual(code, 0, "\n".join(self.console))
+        self.assertEqual(sorted(r["lane"] for r in self.child_records()), ["RACE-1", "RACE-2"])
+        with open(os.path.join(self.run_dir("t1"), "plan.json")) as fh:
+            self.assertEqual(sorted(l["id"] for l in json.load(fh)["lanes"]),
+                             ["RACE-1", "RACE-2"])
 
     def test_dry_run_writes_nothing(self):
         self.assertEqual(self.main("run", "--name", "dr", "--ids", "A", "--dry-run"), 0)

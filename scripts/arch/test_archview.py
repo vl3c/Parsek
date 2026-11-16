@@ -1541,6 +1541,61 @@ class CheckerHelperTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             archview.parse_edge_spec(5)
 
+    def test_parse_edge_spec_rejects_an_unexpanded_list(self):
+        # Never a module named "B | C".
+        for spec in ("A -> B | C", "A | B -> C", "A -> B |"):
+            with self.subTest(spec=spec), self.assertRaises(ValueError):
+                archview.parse_edge_spec(spec)
+
+    def test_expand_keeps_a_plain_spec_unchanged(self):
+        self.assertEqual(archview.expand_edge_specs(["Missions -> Logistics"]), ["Missions -> Logistics"])
+        self.assertEqual(archview.expand_edge_specs(["A->B"]), ["A->B"])
+        self.assertEqual(archview.expand_edge_specs([]), [])
+        self.assertEqual(archview.expand_edge_specs(None), [])
+
+    def test_expand_splits_a_list_in_order(self):
+        self.assertEqual(
+            archview.expand_edge_specs(["Ghost -> GameActions | Missions | Core", "Missions -> Logistics"]),
+            ["Ghost -> GameActions", "Ghost -> Missions", "Ghost -> Core", "Missions -> Logistics"],
+        )
+        # Each element parses to its own edge.
+        self.assertEqual(
+            [archview.parse_edge_spec(spec) for spec in archview.expand_edge_specs(["A -> C | B"])],
+            [("A", "C"), ("A", "B")],
+        )
+
+    def test_expand_ignores_whitespace(self):
+        self.assertEqual(archview.expand_edge_specs(["  A->B|C  |\tD "]), ["A -> B", "A -> C", "A -> D"])
+
+    def test_expand_drops_exact_duplicates(self):
+        self.assertEqual(
+            archview.expand_edge_specs(["A -> B | C | B", "A -> C", "A -> D", "A -> D"]),
+            ["A -> B", "A -> C", "A -> D"],
+        )
+
+    def test_expand_passes_malformed_specs_through(self):
+        malformed = ["A -> B |", "A | B -> C", "A -> B -> C", "A -> | B", " -> B | C", "A -> B || C", None, 5]
+        self.assertEqual(archview.expand_edge_specs(malformed), malformed)
+        for spec in malformed:
+            with self.subTest(spec=spec), self.assertRaises(ValueError):
+                archview.parse_edge_spec(spec)
+
+    def test_expand_is_idempotent(self):
+        once = archview.expand_edge_specs(["A -> B | C", "A -> B |", "D -> E"])
+        self.assertEqual(archview.expand_edge_specs(once), once)
+
+    def test_load_rules_expands_a_forbidden_list(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "modules.toml"
+            path.write_text(
+                '[forbidden]\nedges = ["Ghost -> GameActions | Missions", "Missions -> Logistics"]\n'
+                '[allowed]\nedges = ["A -> B"]\n',
+                encoding="utf-8",
+            )
+            _rules, _tooling, forbidden, allowed = archview.load_rules(path)
+        self.assertEqual(forbidden, ["Ghost -> GameActions", "Ghost -> Missions", "Missions -> Logistics"])
+        self.assertEqual(allowed, ["A -> B"])
+
 
 class InterpolatedStringTests(unittest.TestCase):
     def test_nested_string_literal_in_hole_does_not_leak(self):

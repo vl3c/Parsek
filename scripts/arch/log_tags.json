@@ -50,10 +50,26 @@
  "generator": "scripts/arch/logtags.py",
  "nonLiteral": {
   "byKind": {
+   "call": 29,
    "other": 13
   },
   "byMethod": {
    "Parsek.FlightRecorder::LogReFlyOrbitSegmentVelocityNonFinite": 1,
+   "Parsek.PartStatePoller::PollAeroSurfaces": 2,
+   "Parsek.PartStatePoller::PollAnimateGeneric": 2,
+   "Parsek.PartStatePoller::PollAnimateHeat": 2,
+   "Parsek.PartStatePoller::PollAnimationGroups": 2,
+   "Parsek.PartStatePoller::PollCargoBays": 4,
+   "Parsek.PartStatePoller::PollControlSurfaces": 2,
+   "Parsek.PartStatePoller::PollConverters": 2,
+   "Parsek.PartStatePoller::PollDeployables": 3,
+   "Parsek.PartStatePoller::PollFairings": 2,
+   "Parsek.PartStatePoller::PollGear": 1,
+   "Parsek.PartStatePoller::PollJettisons": 1,
+   "Parsek.PartStatePoller::PollLadders": 2,
+   "Parsek.PartStatePoller::PollParachutes": 1,
+   "Parsek.PartStatePoller::PollRobotArmScanners": 2,
+   "Parsek.PartStatePoller::PollWheelDamage": 1,
    "Parsek.PartStateSeeder::<EmitSeedEvents>g__EmitDeployableFromUlongSet|2": 1,
    "Parsek.PartStateSeeder::<EmitSeedEvents>g__EmitFromUintSet|1": 1,
    "Parsek.PartStateSeeder::EmitSeedEvents": 6,
@@ -88,17 +104,17 @@
   "Anchor": {
    "levels": {
     "INFO": 11,
-    "VERBOSE": 21,
+    "VERBOSE": 19,
     "WARN": 14
    },
    "modules": {
     "Controllers": 10,
     "Ghost": 2,
-    "Recording": 32,
+    "Recording": 30,
     "Rendering": 1,
     "Rewind": 1
    },
-   "sites": 46
+   "sites": 44
   },
   "AutoHireReservation": {
    "levels": {
@@ -136,28 +152,28 @@
    "sites": 10
   },
   "BgRecorder": {
-   "helperSites": 5,
+   "helperSites": 4,
    "levels": {
-    "INFO": 60,
-    "VERBOSE": 112,
+    "INFO": 59,
+    "VERBOSE": 84,
     "WARN": 19,
     "mixed": 3
    },
    "modules": {
-    "Recording": 194
+    "Recording": 165
    },
-   "sites": 194
+   "sites": 165
   },
   "Boundary": {
    "levels": {
     "INFO": 7,
-    "VERBOSE": 3,
+    "VERBOSE": 1,
     "WARN": 1
    },
    "modules": {
-    "Recording": 11
+    "Recording": 9
    },
-   "sites": 11
+   "sites": 9
   },
   "CameraFollow": {
    "levels": {
@@ -865,16 +881,16 @@
    "helperSites": 1,
    "levels": {
     "ERROR": 3,
-    "INFO": 208,
+    "INFO": 209,
     "VERBOSE": 190,
     "WARN": 119
    },
    "modules": {
-    "Controllers": 495,
+    "Controllers": 496,
     "Ghost": 9,
     "Logistics": 16
    },
-   "sites": 520
+   "sites": 521
   },
   "ForwardRenderWindow": {
    "levels": {
@@ -975,28 +991,28 @@
   "GameStateRecorder": {
    "levels": {
     "INFO": 44,
-    "VERBOSE": 85,
+    "VERBOSE": 86,
     "WARN": 27
    },
    "modules": {
-    "GameActions": 149,
+    "GameActions": 150,
     "Patches": 5,
     "Rewind": 2
    },
-   "sites": 156
+   "sites": 157
   },
   "GameStateStore": {
    "helperSites": 3,
    "levels": {
-    "INFO": 18,
-    "VERBOSE": 28,
+    "INFO": 15,
+    "VERBOSE": 25,
     "WARN": 15,
     "mixed": 3
    },
    "modules": {
-    "GameActions": 64
+    "GameActions": 58
    },
-   "sites": 64
+   "sites": 58
   },
   "Ghost": {
    "levels": {
@@ -1063,16 +1079,16 @@
    "levels": {
     "ERROR": 9,
     "INFO": 59,
-    "VERBOSE": 153,
+    "VERBOSE": 150,
     "WARN": 39
    },
    "modules": {
     "Controllers": 11,
-    "Display": 40,
-    "Ghost": 157,
+    "Display": 41,
+    "Ghost": 153,
     "Patches": 52
    },
-   "sites": 260
+   "sites": 257
   },
   "GhostOrbitArc": {
    "levels": {
@@ -1124,14 +1140,14 @@
   "GhostVisual": {
    "levels": {
     "ERROR": 1,
-    "INFO": 4,
-    "VERBOSE": 106,
-    "WARN": 14
+    "INFO": 5,
+    "VERBOSE": 107,
+    "WARN": 15
    },
    "modules": {
-    "Ghost": 125
+    "Ghost": 128
    },
-   "sites": 125
+   "sites": 128
   },
   "Ghoster": {
    "levels": {
@@ -1150,13 +1166,13 @@
    "levels": {
     "INFO": 11,
     "VERBOSE": 2,
-    "WARN": 4
+    "WARN": 3
    },
    "modules": {
-    "Core": 16,
+    "Core": 15,
     "Rewind": 1
    },
-   "sites": 17
+   "sites": 16
   },
   "GuiMock": {
    "levels": {
@@ -1354,13 +1370,13 @@
   "KspStatePatcher": {
    "levels": {
     "INFO": 34,
-    "VERBOSE": 52,
+    "VERBOSE": 51,
     "WARN": 48
    },
    "modules": {
-    "GameActions": 134
+    "GameActions": 133
    },
-   "sites": 134
+   "sites": 133
   },
   "LaunchIdentity": {
    "levels": {
@@ -1392,11 +1408,20 @@
   },
   "LaunchSiteZones": {
    "levels": {
-    "INFO": 1,
+    "INFO": 2,
     "VERBOSE": 1
    },
    "modules": {
-    "Controllers": 2
+    "Controllers": 3
+   },
+   "sites": 3
+  },
+  "LeafPlacement": {
+   "levels": {
+    "INFO": 2
+   },
+   "modules": {
+    "InGameTests": 2
    },
    "sites": 2
   },
@@ -1498,15 +1523,15 @@
    "levels": {
     "ERROR": 1,
     "INFO": 11,
-    "VERBOSE": 9,
+    "VERBOSE": 10,
     "WARN": 5
    },
    "modules": {
-    "Controllers": 13,
+    "Controllers": 14,
     "Logistics": 7,
     "Rewind": 6
    },
-   "sites": 26
+   "sites": 27
   },
   "LoadSweep": {
    "levels": {
@@ -1532,15 +1557,15 @@
   "Loop": {
    "levels": {
     "INFO": 4,
-    "VERBOSE": 16,
-    "WARN": 4
+    "VERBOSE": 12,
+    "WARN": 3
    },
    "modules": {
     "Controllers": 6,
-    "Ghost": 17,
+    "Ghost": 12,
     "Recording": 1
    },
-   "sites": 24
+   "sites": 19
   },
   "LoopAnchor": {
    "levels": {
@@ -1710,26 +1735,36 @@
   "MissionPeriodicity": {
    "levels": {
     "INFO": 3,
-    "VERBOSE": 11,
+    "VERBOSE": 12,
     "WARN": 3
    },
    "modules": {
     "Ghost": 1,
-    "Missions": 15,
+    "Missions": 16,
     "UI": 1
    },
-   "sites": 17
+   "sites": 18
+  },
+  "NewSave": {
+   "levels": {
+    "INFO": 4,
+    "WARN": 1
+   },
+   "modules": {
+    "LogIO": 5
+   },
+   "sites": 5
   },
   "Optimizer": {
    "levels": {
-    "INFO": 8,
-    "VERBOSE": 43,
+    "INFO": 9,
+    "VERBOSE": 44,
     "WARN": 10
    },
    "modules": {
-    "Recording": 61
+    "Recording": 63
    },
-   "sites": 61
+   "sites": 63
   },
   "OrbitReseed": {
    "levels": {
@@ -1805,27 +1840,27 @@
   },
   "Pipeline-Anchor": {
    "levels": {
-    "INFO": 6,
+    "INFO": 8,
     "VERBOSE": 21,
     "WARN": 8
    },
    "modules": {
-    "InGameTests": 5,
+    "InGameTests": 7,
     "Rendering": 30
    },
-   "sites": 35
+   "sites": 37
   },
   "Pipeline-AnchorPropagate": {
    "levels": {
-    "INFO": 3,
+    "INFO": 4,
     "VERBOSE": 5,
     "WARN": 4
    },
    "modules": {
     "InGameTests": 1,
-    "Rendering": 11
+    "Rendering": 12
    },
-   "sites": 12
+   "sites": 13
   },
   "Pipeline-Format": {
    "levels": {
@@ -1932,12 +1967,12 @@
    "levels": {
     "INFO": 2,
     "VERBOSE": 15,
-    "WARN": 4
+    "WARN": 3
    },
    "modules": {
-    "Controllers": 21
+    "Controllers": 20
    },
-   "sites": 21
+   "sites": 20
   },
   "PlaybackScope": {
    "levels": {
@@ -1994,14 +2029,14 @@
   },
   "Quicksave": {
    "levels": {
-    "INFO": 2,
-    "VERBOSE": 6,
-    "WARN": 4
+    "INFO": 1,
+    "VERBOSE": 4,
+    "WARN": 2
    },
    "modules": {
-    "Recording": 12
+    "Recording": 7
    },
-   "sites": 12
+   "sites": 7
   },
   "ReFlySession": {
    "levels": {
@@ -2190,21 +2225,21 @@
    "sites": 7
   },
   "Recorder": {
-   "helperSites": 7,
+   "helperSites": 6,
    "levels": {
     "ERROR": 3,
-    "INFO": 59,
-    "VERBOSE": 166,
-    "WARN": 27,
+    "INFO": 58,
+    "VERBOSE": 139,
+    "WARN": 28,
     "mixed": 4
    },
    "modules": {
     "Controllers": 2,
     "Logistics": 17,
     "Patches": 3,
-    "Recording": 237
+    "Recording": 210
    },
-   "sites": 259
+   "sites": 232
   },
   "Recording": {
    "levels": {
@@ -2232,9 +2267,9 @@
    "helperSites": 3,
    "levels": {
     "ERROR": 7,
-    "INFO": 50,
-    "VERBOSE": 76,
-    "WARN": 79,
+    "INFO": 51,
+    "VERBOSE": 77,
+    "WARN": 77,
     "mixed": 3
    },
    "modules": {
@@ -2353,12 +2388,13 @@
   "RevertDetector": {
    "levels": {
     "INFO": 6,
-    "WARN": 2
+    "VERBOSE": 1,
+    "WARN": 3
    },
    "modules": {
-    "Rewind": 8
+    "Rewind": 10
    },
-   "sites": 8
+   "sites": 10
   },
   "RevertInterceptor": {
    "levels": {
@@ -2376,13 +2412,13 @@
    "helperSites": 3,
    "levels": {
     "ERROR": 26,
-    "INFO": 101,
-    "VERBOSE": 64,
+    "INFO": 102,
+    "VERBOSE": 65,
     "WARN": 71,
     "mixed": 1
    },
    "modules": {
-    "Controllers": 41,
+    "Controllers": 43,
     "Ghost": 2,
     "InGameTests": 3,
     "Logistics": 7,
@@ -2390,7 +2426,7 @@
     "Rewind": 185,
     "UI": 2
    },
-   "sites": 263
+   "sites": 265
   },
   "RewindContext": {
    "levels": {
@@ -2655,15 +2691,15 @@
   },
   "SpawnCollision": {
    "levels": {
-    "INFO": 8,
-    "VERBOSE": 23,
+    "INFO": 9,
+    "VERBOSE": 24,
     "WARN": 7
    },
    "modules": {
     "Controllers": 1,
-    "Ghost": 37
+    "Ghost": 39
    },
-   "sites": 38
+   "sites": 40
   },
   "SpawnWarning": {
    "levels": {
@@ -2678,16 +2714,16 @@
    "levels": {
     "ERROR": 14,
     "INFO": 47,
-    "VERBOSE": 73,
+    "VERBOSE": 71,
     "WARN": 40
    },
    "modules": {
-    "Controllers": 130,
+    "Controllers": 128,
     "Core": 18,
     "Ghost": 2,
     "Recording": 24
    },
-   "sites": 174
+   "sites": 172
   },
   "SplitParentLinks": {
    "levels": {
@@ -2803,14 +2839,14 @@
     "ERROR": 2,
     "INFO": 18,
     "VERBOSE": 18,
-    "WARN": 22
+    "WARN": 23
    },
    "modules": {
     "Controllers": 2,
     "Recording": 2,
-    "Rewind": 56
+    "Rewind": 57
    },
-   "sites": 60
+   "sites": 61
   },
   "SwitchIntent": {
    "levels": {
@@ -2825,16 +2861,16 @@
   "SwitchIntentPatch": {
    "levels": {
     "ERROR": 7,
-    "INFO": 22,
-    "VERBOSE": 9,
+    "INFO": 23,
+    "VERBOSE": 10,
     "WARN": 25
    },
    "modules": {
     "Ghost": 3,
-    "Patches": 51,
+    "Patches": 53,
     "Rewind": 9
    },
-   "sites": 63
+   "sites": 65
   },
   "SwitchSegment": {
    "levels": {
@@ -2932,14 +2968,14 @@
   "TestCommands": {
    "levels": {
     "ERROR": 145,
-    "INFO": 350,
+    "INFO": 353,
     "VERBOSE": 35,
-    "WARN": 353
+    "WARN": 354
    },
    "modules": {
-    "TestCommands": 883
+    "TestCommands": 887
    },
-   "sites": 883
+   "sites": 887
   },
   "TestHelper": {
    "helperSites": 1,
@@ -2958,16 +2994,16 @@
    "helperSites": 2,
    "levels": {
     "ERROR": 12,
-    "INFO": 408,
+    "INFO": 410,
     "VERBOSE": 233,
     "WARN": 185,
     "mixed": 2
    },
    "modules": {
-    "InGameTests": 839,
+    "InGameTests": 841,
     "TestCommands": 1
    },
-   "sites": 840
+   "sites": 842
   },
   "TestSub": {
    "levels": {
@@ -2985,24 +3021,24 @@
    "levels": {
     "ERROR": 3,
     "INFO": 26,
-    "VERBOSE": 25,
-    "WARN": 16
+    "VERBOSE": 23,
+    "WARN": 15
    },
    "modules": {
-    "Controllers": 70
+    "Controllers": 67
    },
-   "sites": 70
+   "sites": 67
   },
   "Timeline": {
    "levels": {
-    "VERBOSE": 29,
+    "VERBOSE": 28,
     "WARN": 2
    },
    "modules": {
     "Timeline": 19,
-    "UI": 12
+    "UI": 11
    },
-   "sites": 31
+   "sites": 30
   },
   "TimelineProjection": {
    "levels": {
@@ -3190,19 +3226,19 @@
   "Zone": {
    "levels": {
     "INFO": 1,
-    "VERBOSE": 12
+    "VERBOSE": 9
    },
    "modules": {
     "Controllers": 7,
-    "Ghost": 6
+    "Ghost": 3
    },
-   "sites": 13
+   "sites": 10
   }
  },
  "totals": {
   "forwarders": 46,
-  "nonLiteralSites": 13,
-  "sites": 9263,
-  "tags": 283
+  "nonLiteralSites": 42,
+  "sites": 9207,
+  "tags": 285
  }
 }
