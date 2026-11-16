@@ -2124,12 +2124,13 @@ namespace Parsek.Tests
             // Line endings normalized: the adjacency needle below spans a line break, and a
             // core.autocrlf=true checkout stores the file with CRLF.
             string src = TooltipEchoBudgetTests.ReadParsekSource("UI/ParsekUI.cs").Replace("\r\n", "\n");
-            // Both constructors subscribe (one per scene host), and Cleanup drops them.
-            Assert.Equal(2, CountOccurrences(src, "kerbalsUI.SubscribeLiveCrewEvents();"));
+            // The one constructor body both scene constructors chain to subscribes, and
+            // Cleanup drops them.
+            Assert.Equal(1, CountOccurrences(src, "kerbalsUI.SubscribeLiveCrewEvents();"));
             Assert.Equal(1, CountOccurrences(src, "kerbalsUI.UnsubscribeLiveCrewEvents();"));
             // The ledger hook: each window hooks its own cache, Timeline first, from the
-            // same two constructors.
-            Assert.Equal(2, CountOccurrences(
+            // same constructor body.
+            Assert.Equal(1, CountOccurrences(
                 src, "timelineUI.SubscribeTimelineDataChanged();\n            kerbalsUI.SubscribeTimelineDataChanged();"));
         }
 
