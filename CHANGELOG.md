@@ -40,6 +40,10 @@ Not released yet.
   around one moon and later passed low over another was timed as if it had launched from the
   second one. Its loops are now spaced around the moon it really started from.
   (MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH)
+- **A flight resumed after a load saves its real end time.** A Re-Fly attempt, or any flight
+  picked up again after a quickload, kept the moment it resumed as its saved end even after it
+  flew on. Replays already used the real end; now the save says so too, and a ship that sheds a
+  part later in that flight is still treated as the ship that flew on. (REFLY-ATTEMPT-STALE-END-UT)
 
 ## 1.0.2
 
