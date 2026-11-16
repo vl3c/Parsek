@@ -234,23 +234,21 @@ namespace Parsek
             int removedRecordings = RemoveRecordingIdsFromTree(segmentTree, ownedIds);
             int removedBranchPoints = RemoveSessionAuthoredBranchPointsFromTree(
                 segmentTree, sessionAuthoredBpIds);
+            HashSet<string> removedBpIds = DropBranchPointsLeftEmptyAfterSegmentDiscard(
+                segmentTree, ownedIds, sessionAuthoredBpIds, sessionIdStr,
+                out int droppedEmptyBranchPoints);
+            removedBranchPoints += droppedEmptyBranchPoints;
 
             // Repair parent recording's ChildBranchPointId if it now points at
             // a removed BP. Mirrors PruneSessionCreatedBranchPoints.
-            RepairBranchPointLinksAfterSegmentDiscard(segmentTree, sessionAuthoredBpIds);
+            RepairBranchPointLinksAfterSegmentDiscard(segmentTree, removedBpIds);
 
-            // Repair ActiveRecordingId if it pointed at a removed segment.
-            if (!string.IsNullOrEmpty(segmentTree.ActiveRecordingId)
-                && ownedIds.Contains(segmentTree.ActiveRecordingId))
-            {
-                string priorActive = segmentTree.ActiveRecordingId;
-                segmentTree.ActiveRecordingId = ResolveActiveRecordingIdAfterSegmentDiscard(
-                    segmentTree, session.ParentRecordingId);
-                ParsekLog.Info("SwitchSegment",
-                    $"TryDiscardActiveSwitchSegmentAttempt: tree.ActiveRecordingId " +
-                    $"reset from '{priorActive}' to '{segmentTree.ActiveRecordingId ?? "<null>"}' " +
-                    $"sessionId={sessionIdStr}");
-            }
+            RepairActiveAndRootAfterSegmentDiscard(
+                segmentTree, ownedIds, session.ParentRecordingId, sessionIdStr);
+
+            // A removed background-recorded child must not keep its pid in the background
+            // map, and a parent whose continuation went away is a line end again.
+            segmentTree.RebuildBackgroundMap();
 
             ParsekLog.Info("SwitchSegment",
                 $"TryDiscardActiveSwitchSegmentAttempt pruned: " +
@@ -377,6 +375,74 @@ namespace Parsek
                                 $"(the removed session branch {removedBpId} had overwritten it)");
                     }
                 }
+            }
+        }
+
+        /// <summary>
+        /// Drops the branch points the discard left with an empty parent or child side
+        /// (through <see cref="RecordingTree.ScrubBranchPointEndpointsAndDropEmpty"/>, the
+        /// committed prune's rule): with an unknown <c>PreSessionBranchPointIds</c> baseline the
+        /// session's continuation branch is not in <paramref name="sessionAuthoredBpIds"/>, so
+        /// it would otherwise survive with no child while the parent still names it. Returns
+        /// every branch point id this discard removed (the session-authored ones plus the
+        /// dropped ones) for the link repair; <paramref name="droppedCount"/> is the dropped
+        /// ones alone.
+        /// </summary>
+        internal static HashSet<string> DropBranchPointsLeftEmptyAfterSegmentDiscard(
+            RecordingTree segmentTree, HashSet<string> ownedIds,
+            HashSet<string> sessionAuthoredBpIds, string sessionIdStr, out int droppedCount)
+        {
+            var removedBpIds = new HashSet<string>(
+                sessionAuthoredBpIds ?? new HashSet<string>(StringComparer.Ordinal),
+                StringComparer.Ordinal);
+            droppedCount = 0;
+            if (segmentTree == null || ownedIds == null || ownedIds.Count == 0)
+                return removedBpIds;
+            RecordingTree.ScrubBranchPointEndpointsAndDropEmpty(
+                segmentTree, ownedIds, out HashSet<string> dropped);
+            if (dropped == null || dropped.Count == 0)
+                return removedBpIds;
+            droppedCount = dropped.Count;
+            removedBpIds.UnionWith(dropped);
+            ParsekLog.Info("SwitchSegment",
+                $"TryDiscardActiveSwitchSegmentAttempt: dropped {droppedCount} branch point(s) " +
+                $"left with an empty side ids=[{string.Join(",", dropped)}] " +
+                $"treeId={segmentTree.Id ?? "<null>"} sessionId={sessionIdStr ?? "<null>"}");
+            return removedBpIds;
+        }
+
+        /// <summary>
+        /// Resets the tree's active and root recording ids when the discard removed the
+        /// recording they named: to the session's parent recording when it survives in the
+        /// tree, null otherwise (<see cref="ResolveActiveRecordingIdAfterSegmentDiscard"/>).
+        /// An id the discard did not remove is left alone.
+        /// </summary>
+        internal static void RepairActiveAndRootAfterSegmentDiscard(
+            RecordingTree segmentTree, HashSet<string> ownedIds,
+            string parentRecordingId, string sessionIdStr)
+        {
+            if (segmentTree == null || ownedIds == null) return;
+            if (!string.IsNullOrEmpty(segmentTree.ActiveRecordingId)
+                && ownedIds.Contains(segmentTree.ActiveRecordingId))
+            {
+                string priorActive = segmentTree.ActiveRecordingId;
+                segmentTree.ActiveRecordingId = ResolveActiveRecordingIdAfterSegmentDiscard(
+                    segmentTree, parentRecordingId);
+                ParsekLog.Info("SwitchSegment",
+                    $"TryDiscardActiveSwitchSegmentAttempt: tree.ActiveRecordingId " +
+                    $"reset from '{priorActive}' to '{segmentTree.ActiveRecordingId ?? "<null>"}' " +
+                    $"sessionId={sessionIdStr ?? "<null>"}");
+            }
+            if (!string.IsNullOrEmpty(segmentTree.RootRecordingId)
+                && ownedIds.Contains(segmentTree.RootRecordingId))
+            {
+                string priorRoot = segmentTree.RootRecordingId;
+                segmentTree.RootRecordingId = ResolveActiveRecordingIdAfterSegmentDiscard(
+                    segmentTree, parentRecordingId);
+                ParsekLog.Info("SwitchSegment",
+                    $"TryDiscardActiveSwitchSegmentAttempt: tree.RootRecordingId " +
+                    $"reset from '{priorRoot}' to '{segmentTree.RootRecordingId ?? "<null>"}' " +
+                    $"sessionId={sessionIdStr ?? "<null>"}");
             }
         }
 

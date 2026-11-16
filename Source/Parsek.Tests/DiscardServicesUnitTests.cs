@@ -392,6 +392,70 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DropBranchPointsLeftEmpty_UnknownBaseline_DropsContinuationAndKeepsOthers()
+        {
+            // Null PreSessionBranchPointIds baseline: the authored set is empty, so the
+            // session's continuation bp1 is only found by its empty child side.
+            var tree = SegmentTree();
+            var owned = Ids("seg", "debrisA", "debrisB", "part");
+            SwitchSegmentAttempts.RemoveRecordingIdsFromTree(tree, owned);
+
+            var removed = SwitchSegmentAttempts.DropBranchPointsLeftEmptyAfterSegmentDiscard(
+                tree, owned, Ids(), "sess-1", out int dropped);
+
+            Assert.Equal(3, dropped);
+            Assert.Equal(new[] { "bp1", "bp2", "gp" }, Sorted(removed));
+            Assert.Empty(tree.BranchPoints);
+            Assert.Contains(logLines, l => l.Contains("[SwitchSegment]")
+                && l.Contains("dropped 3 branch point(s) left with an empty side")
+                && l.Contains("sessionId=sess-1"));
+
+            // The parent's link to the dropped continuation goes through the restore repair.
+            SwitchSegmentAttempts.RepairBranchPointLinksAfterSegmentDiscard(tree, removed);
+            Assert.Null(tree.Recordings["root"].ChildBranchPointId);
+        }
+
+        [Fact]
+        public void DropBranchPointsLeftEmpty_KeepsAuthoredIdsAndTwoSidedBranches()
+        {
+            var tree = Tree("t", new[] { Rec("p", childBp: "keep") },
+                new[] { Bp("keep", new[] { "p" }, new[] { "q" }) });
+            var removed = SwitchSegmentAttempts.DropBranchPointsLeftEmptyAfterSegmentDiscard(
+                tree, Ids("seg"), Ids("sessBp"), "s", out int dropped);
+            Assert.Equal(0, dropped);
+            Assert.Equal(new[] { "sessBp" }, Sorted(removed));
+            Assert.Single(tree.BranchPoints);
+
+            var none = SwitchSegmentAttempts.DropBranchPointsLeftEmptyAfterSegmentDiscard(
+                tree, Ids(), null, "s", out dropped);
+            Assert.Equal(0, dropped);
+            Assert.Empty(none);
+        }
+
+        [Fact]
+        public void RepairActiveAndRootAfterSegmentDiscard_ResetsRemovedRootToParent()
+        {
+            var tree = Tree("t", new[] { Rec("parent"), Rec("keep") });
+            tree.RootRecordingId = "seg";
+            tree.ActiveRecordingId = "seg";
+            SwitchSegmentAttempts.RepairActiveAndRootAfterSegmentDiscard(
+                tree, Ids("seg"), "parent", "sess-2");
+            Assert.Equal("parent", tree.RootRecordingId);
+            Assert.Equal("parent", tree.ActiveRecordingId);
+            Assert.Contains(logLines, l => l.Contains("[SwitchSegment]")
+                && l.Contains("tree.RootRecordingId reset from 'seg' to 'parent'"));
+
+            // Parent gone too: null. An id the discard did not remove stays.
+            var lone = Tree("t2", new[] { Rec("keep") });
+            lone.RootRecordingId = "seg";
+            lone.ActiveRecordingId = "keep";
+            SwitchSegmentAttempts.RepairActiveAndRootAfterSegmentDiscard(
+                lone, Ids("seg"), "gone", "sess-2");
+            Assert.Null(lone.RootRecordingId);
+            Assert.Equal("keep", lone.ActiveRecordingId);
+        }
+
+        [Fact]
         public void ResolveActiveRecordingIdAfterSegmentDiscard_NullRecordings_Null()
         {
             Assert.Null(SwitchSegmentAttempts.ResolveActiveRecordingIdAfterSegmentDiscard(

@@ -1977,7 +1977,7 @@ lines and the key.
 - VB-1-KSP-HANG-AT-MAIN-MENU: a hang after the MAINMENU line is still caught only by the long timeout.
 - FAST-POLL-SETTLES-STILL-RACE: CI-6 still waits on a timer; a named-condition wait would replace it.
 
-## REPLACE-COPIES-DESTROYED-FLAG-ONTO-LIVE-REPLACEMENT: a replace commit can mark a surviving replacement destroyed and keep a stale situation [FILED 2026-11-07 from the review of the TreeCommitService unit tests (refactor branch `claude/project-thread-bkwmrr`, PR #2452), by code reading. OPEN; not reproduced in play, low]
+## ~~REPLACE-COPIES-DESTROYED-FLAG-ONTO-LIVE-REPLACEMENT~~: a replace commit can mark a surviving replacement destroyed and keep a stale situation [FILED 2026-11-07 from the review of the TreeCommitService unit tests (refactor branch `claude/project-thread-bkwmrr`, PR #2452), by code reading. FIXED 2026-11-16, branch fix-treecommit-trio; xUnit; low]
 
 **What is true.**
 - `TreeCommitService.PreserveFinalStateDiagnosticsOnReplace` (the last cluster of
@@ -1998,7 +1998,16 @@ terminal is not Destroyed (the spawn claim already refuses a vesselless terminal
 and read the destroyed state once before the cluster so both situation guards agree. The unit
 tests in `TreeCommitServiceUnitTests` cover each field alone and do not pin the mixed case.
 
-## TREE-START-UT-EMPTY-RECORDING-READS-ZERO: one empty recording pulls a continuation tree's start to UT 0 [FILED 2026-11-07 from the same review, by code reading. OPEN; not reproduced in play, low]
+Fix: `TreeCommitService.ShouldCopyDestroyedFlagOnReplace` copies `VesselDestroyed` only when the
+replacement's own `TerminalStateValue` is unset or Destroyed (a set terminal that is not
+Destroyed is the replacement's verdict that the vessel did not die; an Info line names the
+refusal). `PreserveFinalStateDiagnosticsOnReplace` decides the destroyed state the replacement
+ends with once, before any copy, and both situation guards read it, so a copied flag never sits
+beside a copied situation. Tests: `PreserveFinalStateDiagnostics_DestroyedCopyOntoUnterminatedReplacement_SituationsAgree`,
+`PreserveFinalStateDiagnostics_SurvivingReplacementNotMarkedDestroyed`,
+`ShouldCopyDestroyedFlagOnReplace_ByReplacementTerminal`.
+
+## ~~TREE-START-UT-EMPTY-RECORDING-READS-ZERO~~: one empty recording pulls a continuation tree's start to UT 0 [FILED 2026-11-07 from the same review, by code reading. FIXED 2026-11-16, branch fix-treecommit-trio; xUnit; low]
 
 **What is true.** `TreeCommitService.GetTreeStartUT` takes the minimum `Recording.StartUT` over
 the tree, and `StartUT` reads 0.0 for a recording with no trajectory and no explicit start. One
@@ -2009,6 +2018,16 @@ test stand between an unrelated later tree and a terminal spawn supersede mark.
 
 **Fix.** Skip recordings without trajectory bounds or an explicit start in `GetTreeStartUT`
 (NaN when none is left), with a unit test beside the existing `GetTreeStartUT_*` cells.
+
+Fix: `GetTreeStartUT` skips a recording with neither `TryGetActualTrajectoryBounds` nor an
+`ExplicitStartUT` and returns NaN when none is left. Its one caller,
+`MarkSupersededTerminalSpawnsForContinuedSources`, logs a Verbose line for a NaN tree start;
+`ShouldMarkSupersededTerminalSpawn` already refuses the contiguity branch on NaN (fails closed),
+so only the spawned-pid match can mark such a tree. Tests:
+`GetTreeStartUT_SkipsRecordingWithNoTrajectoryAndNoExplicitStart`,
+`GetTreeStartUT_TrajectoryOnlyRecordingCounts`, `GetTreeStartUT_OnlyEmptyRecordings_NaN`,
+`MarkSupersededForContinuedSources_EmptyRecordingDoesNotPullTreeStartToZero` (marked before the
+fix), `MarkSupersededForContinuedSources_NoStartedRecording_LogsAndKeepsPidMatch`.
 
 ## TRACE-SEP-DEBRIS-ROW-MISREPORTS: the PositionDebris trace row can blame playback math or the recorder for a diagnostic artifact [FILED 2026-11-07 from the review of the ghost positioner unit tests (refactor branch `claude/project-thread-bkwmrr`, PR #2457), by code reading. OPEN; trace-only (`ghostRenderTracing`), low]
 
@@ -2027,7 +2046,7 @@ test stand between an unrelated later tree and a terminal spawn supersede mark.
 compute the parent sample at the debris before-frame's UT on the parent's own body (or log the
 two UTs side by side). Flight behaviour is unaffected; only the trace row is misleading.
 
-## SWITCH-SEGMENT-DISCARD-TOPOLOGY-RESIDUE: the scoped switch-segment Discard leaves three things the committed-tree prune repairs [FILED 2026-11-07 from the review of the discard-service unit tests (refactor branch `claude/project-thread-bkwmrr`, PR #2454), by code reading. OPEN; not reproduced in play, low]
+## ~~SWITCH-SEGMENT-DISCARD-TOPOLOGY-RESIDUE~~: the scoped switch-segment Discard leaves three things the committed-tree prune repairs [FILED 2026-11-07 from the review of the discard-service unit tests (refactor branch `claude/project-thread-bkwmrr`, PR #2454), by code reading. FIXED 2026-11-16, branch fix-treecommit-trio; xUnit; low]
 
 **What is true.** `SwitchSegmentAttempts.TryDiscardActiveSwitchSegmentAttempt` (pending-tree-prune
 disposition) removes the segment subtree from the tree it lives in, but unlike
@@ -2049,6 +2068,21 @@ helpers as they are and pin none of the three.
 is reset, and drop branch points left with an empty side (reuse
 `TreeDiscardService.ScrubBranchPointEndpointsAndDropEmpty` + `ClearRecordingBranchPointRefs`,
 keeping the switch-segment restore of an overwritten continuing link). Each needs a unit cell.
+
+Fix: after the removal, `TryDiscardActiveSwitchSegmentAttempt` runs
+`SwitchSegmentAttempts.DropBranchPointsLeftEmptyAfterSegmentDiscard` (the committed prune's
+scrub-and-drop rule, logged; its body moved to `RecordingTree.ScrubBranchPointEndpointsAndDropEmpty`
+with `TreeDiscardService` forwarding, because a direct SwitchIntent -> TreeDiscardService call
+raised the semantic cut residue from 124 to 140), feeds the session-authored
+plus dropped ids to `RepairBranchPointLinksAfterSegmentDiscard` (which plays
+`ClearRecordingBranchPointRefs`'s role and keeps the overwritten-continuing-link restore),
+resets a removed active AND root id through `RepairActiveAndRootAfterSegmentDiscard` (parent if
+it survives, else null), and ends with `RebuildBackgroundMap` (pure over the tree, safe headless).
+Tests: `DiscardServicesUnitTests.DropBranchPointsLeftEmpty_*`,
+`RepairActiveAndRootAfterSegmentDiscard_ResetsRemovedRootToParent`, and end to end
+`SwitchSegmentDiscardScopeTests.Discard_RemovedBackgroundChild_LeavesBackgroundMap`,
+`Discard_RemovedRootRecording_ResetsRootToSessionParent`,
+`Discard_UnknownBaseline_DropsEmptiedContinuationBranch`.
 
 ## ~~LOOP-SEAM-TRACE-INDEX-NOT-SHIFTED: two loop-seam trace dictionaries in ParsekFlight are keyed by committed index and never shift~~ [FILED 2026-11-07 from the ParsekFlight seam inventory (`plan-parsekflight-seams-2026-11-07.md`, refactor branch `claude/project-thread-bkwmrr` at f3400b90a), by code reading. FIXED 2026-11-07, branch `refactor-loopseam-index-shift` (base `claude/project-thread-bkwmrr`); xUnit; diagnostics only, low]
 

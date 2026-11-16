@@ -40,6 +40,15 @@ Not released yet.
   around one moon and later passed low over another was timed as if it had launched from the
   second one. Its loops are now spaced around the moon it really started from.
   (MISSION-LOOP-LAUNCH-BODY-PREFERS-LATER-APPROACH)
+- **A replaced flight that survived is no longer at risk of being marked destroyed.** Saving
+  a new version of a recorded flight could carry the old version's "destroyed" mark onto a
+  vessel that flew on. Not seen in play. (REPLACE-COPIES-DESTROYED-FLAG-ONTO-LIVE-REPLACEMENT)
+- **An empty recording no longer makes a later flight look like it started at time zero.** That
+  could let an unrelated later flight of the same vessel name stop an earlier flight's vessel
+  from appearing. Not seen in play. (TREE-START-UT-EMPTY-RECORDING-READS-ZERO)
+- **Discarding a switched-to vessel's flight segment leaves the rest of the flight tidy.** The
+  discarded segment's vessels, a dangling split and a stale starting point no longer linger in
+  the kept part of the flight. Not seen in play. (SWITCH-SEGMENT-DISCARD-TOPOLOGY-RESIDUE)
 
 ## 1.0.2
 
